@@ -5,7 +5,7 @@ import type { EntityManager } from '@mikro-orm/postgresql'
 import { User, Role, UserRole } from '@open-mercato/core/modules/auth/data/entities'
 import { Tenant, Organization } from '@open-mercato/core/modules/directory/data/entities'
 import { rebuildHierarchyForTenant } from '@open-mercato/core/modules/directory/lib/hierarchy'
-import { ensureRoles, setupInitialTenant, ensureDefaultRoleAcls, ensureCustomRoleAcls } from './lib/setup-app'
+import { ensureRoles, setupInitialTenant, ensureDefaultRoleAcls, ensureCustomRoleAcls, OrgSlugExistsError } from './lib/setup-app'
 import { normalizeTenantId } from './lib/tenantAccess'
 import { computeEmailHash } from './lib/emailHash'
 import { findWithDecryption, findOneWithDecryption } from '@open-mercato/shared/lib/encryption/find'
@@ -403,6 +403,8 @@ const addOrganization: ModuleCli = {
   },
 }
 
+const SETUP_USAGE = 'Usage: mercato auth setup --orgName <name> --email <email> --password <password> [--orgSlug <slug>] [--roles superadmin,admin,employee] [--skip-password-policy] [--with-examples] [--json]'
+
 const setupApp: ModuleCli = {
   command: 'setup',
   async run(rest) {
@@ -414,6 +416,17 @@ const setupApp: ModuleCli = {
         : undefined
     const email = typeof args.email === 'string' ? args.email : undefined
     const password = typeof args.password === 'string' ? args.password : undefined
+    const orgSlugRaw = typeof args.orgSlug === 'string'
+      ? args.orgSlug
+      : typeof args.slug === 'string'
+        ? args.slug
+        : undefined
+    const orgSlug = orgSlugRaw && orgSlugRaw.trim().length ? orgSlugRaw.trim() : undefined
+    if (orgSlug !== undefined && !ORG_SLUG_PATTERN.test(orgSlug)) {
+      process.stderr.write(`Invalid --orgSlug: must match ${ORG_SLUG_PATTERN.source} (lowercase, digits, dashes; 1-63 chars; cannot start or end with a dash)\n`)
+      process.exitCode = 2
+      return
+    }
     const rolesCsv = typeof args.roles === 'string'
       ? args.roles.trim()
       : 'superadmin,admin,employee'
@@ -425,28 +438,97 @@ const setupApp: ModuleCli = {
     const skipPasswordPolicy = typeof skipPasswordPolicyRaw === 'boolean'
       ? skipPasswordPolicyRaw
       : parseBooleanToken(typeof skipPasswordPolicyRaw === 'string' ? skipPasswordPolicyRaw : null) ?? false
+    const withExamplesRaw = args['with-examples'] ?? args.withExamples
+    const withExamples = typeof withExamplesRaw === 'boolean'
+      ? withExamplesRaw
+      : parseBooleanToken(typeof withExamplesRaw === 'string' ? withExamplesRaw : null) ?? false
+    const jsonModeRaw = args.json
+    const jsonMode = typeof jsonModeRaw === 'boolean'
+      ? jsonModeRaw
+      : parseBooleanToken(typeof jsonModeRaw === 'string' ? jsonModeRaw : null) ?? false
     if (!orgName || !email || !password) {
-      console.error('Usage: mercato auth setup --orgName <name> --email <email> --password <password> [--roles superadmin,admin,employee] [--skip-password-policy]')
+      process.stderr.write(`${SETUP_USAGE}\n`)
+      process.exitCode = 2
       return
     }
-    if (!skipPasswordPolicy && !ensurePasswordPolicy(password)) return
-    if (skipPasswordPolicy) {
+    if (!skipPasswordPolicy && !ensurePasswordPolicy(password)) {
+      process.exitCode = 2
+      return
+    }
+    if (skipPasswordPolicy && !jsonMode) {
       console.warn('⚠️  Password policy validation skipped for setup.')
     }
-    const { resolve } = await createRequestContainer()
-    const em = resolve<EntityManager>('em')
+    let restoreConsole: (() => void) | null = null
+    if (jsonMode) {
+      // Force quiet mode so module bootstrap / lifecycle hooks cannot pollute
+      // stdout. The JSON contract relies on a single line, so any console.log
+      // from setupInitialTenant or seedExamples would otherwise break the
+      // consumer's `jq` pipe. We additionally rebind console.log/info to a
+      // no-op for the duration of the call because OM_CLI_QUIET is honored
+      // unevenly across module setup hooks. Rebind AFTER early-return
+      // validation so the missing-args and password-policy paths can't
+      // leak the rebinding into a long-lived process (e.g. test runner).
+      process.env.OM_CLI_QUIET = process.env.OM_CLI_QUIET ?? '1'
+      const originalLog = console.log
+      const originalInfo = console.info
+      console.log = () => undefined
+      console.info = () => undefined
+      restoreConsole = () => {
+        console.log = originalLog
+        console.info = originalInfo
+      }
+    }
+    const container = await createRequestContainer()
+    const em = container.resolve<EntityManager>('em')
     const roleNames = rolesCsv
       ? rolesCsv.split(',').map((s) => s.trim()).filter(Boolean)
       : undefined
 
     try {
+      const modules = getCliModules()
       const result = await setupInitialTenant(em, {
         orgName,
+        orgSlug,
         roleNames,
         primaryUser: { email, password, confirm: true },
         includeDerivedUsers: true,
-        modules: getCliModules(),
+        // When the caller passes an explicit slug, treat it as a "fresh tenant"
+        // signal — silent reuse of an existing user's tenant defeats the point
+        // of slugging the new tenant for downstream tooling.
+        failIfUserExists: orgSlug !== undefined,
+        modules,
       })
+
+      if (withExamples) {
+        const seedCtx = {
+          em,
+          tenantId: result.tenantId,
+          organizationId: result.organizationId,
+          container,
+        }
+        for (const mod of modules) {
+          if (mod.setup?.seedExamples) {
+            await mod.setup.seedExamples(seedCtx as any)
+          }
+        }
+      }
+
+      if (jsonMode) {
+        const adminSnapshot = pickAdminSnapshot(result.users, email)
+        const adminUserId = adminSnapshot && adminSnapshot.user.id != null
+          ? String(adminSnapshot.user.id)
+          : null
+        const payload = {
+          tenantId: result.tenantId,
+          organizationId: result.organizationId,
+          adminUserId,
+          adminEmail: email,
+          reusedExistingUser: result.reusedExistingUser,
+        }
+        if (restoreConsole) restoreConsole()
+        process.stdout.write(`${JSON.stringify(payload)}\n`)
+        return
+      }
 
       if (result.reusedExistingUser) {
         console.log('⚠️  Existing initial user detected during setup.')
@@ -470,13 +552,40 @@ const setupApp: ModuleCli = {
 
       if (env.NODE_ENV !== 'test') console.log('✅ Setup complete:', { tenantId: result.tenantId, organizationId: result.organizationId })
     } catch (err) {
+      if (restoreConsole) restoreConsole()
+      if (err instanceof OrgSlugExistsError) {
+        process.stderr.write(`${err.message}\n`)
+        process.exitCode = 1
+        return
+      }
       if (err instanceof Error && err.message === 'USER_EXISTS') {
-        console.error('Setup aborted: user already exists with the provided email.')
+        process.stderr.write('Setup aborted: user already exists with the provided email.\n')
+        process.exitCode = 1
         return
       }
       throw err
+    } finally {
+      if (restoreConsole) restoreConsole()
     }
   },
+}
+
+const ORG_SLUG_PATTERN = /^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$/
+
+function pickAdminSnapshot(
+  users: Array<{ user: { id: string; email: string }; roles: string[]; created: boolean }>,
+  adminEmail: string,
+): { user: { id: string; email: string } } | undefined {
+  const normalizedEmail = adminEmail.toLowerCase()
+  const exact = users.find(
+    (snapshot) =>
+      snapshot.created &&
+      snapshot.roles.includes('superadmin') &&
+      typeof snapshot.user.email === 'string' &&
+      snapshot.user.email.toLowerCase() === normalizedEmail,
+  )
+  if (exact) return exact
+  return users.find((snapshot) => snapshot.roles.includes('superadmin'))
 }
 
 const listOrganizations: ModuleCli = {

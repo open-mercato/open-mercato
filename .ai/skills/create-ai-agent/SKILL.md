@@ -143,7 +143,7 @@ import type { AiAgentDefinition } from '@open-mercato/ai-assistant'
 
 const accountAssistant: AiAgentDefinition = {
   id: '<module>.<agent>',                    // MUST be `<moduleId>.<snake_case_name>`
-  moduleId: '<module>',                      // MUST match the module folder (also drives <MODULE>_AI_MODEL env)
+  moduleId: '<module>',                      // MUST match the module folder (also drives OM_AI_<MODULE>_MODEL env)
   label: 'Account Assistant',
   description: 'Read-only assistant exploring people, companies, deals.',
   systemPrompt: '...',                       // See Section 4.1 — prefer compiled PromptTemplate
@@ -483,14 +483,14 @@ To pin the agent to a specific provider/model without editing code, set an env v
 
 ```
 CUSTOMERS_AI_MODEL=claude-opus-4-20250514
-INBOX_OPS_AI_MODEL=gpt-4o
-CATALOG_AI_MODEL=claude-haiku-4-5
+OM_AI_INBOX_OPS_MODEL=gpt-4o
+OM_AI_CATALOG_MODEL=claude-haiku-4-5
 ```
 
 Resolution order (highest precedence first):
 
 1. `callerOverride` (`runAiAgentText({ modelOverride })`)
-2. `<MODULE>_AI_MODEL` env variable
+2. `OM_AI_<MODULE>_MODEL` env variable
 3. `agentDefaultModel` (`AiAgentDefinition.defaultModel`)
 4. The configured provider's default
 
