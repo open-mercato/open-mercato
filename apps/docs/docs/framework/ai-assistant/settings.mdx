@@ -22,9 +22,13 @@ The page has three sections:
 
 Shows which provider keys are configured via environment variables and whether each provider is connected. This is a read-only display — keys are set via `.env`, not via the UI.
 
+The list of providers shown here is the intersection of (a) the providers that have an API key in the current environment and (b) the operator-defined allowlist `OM_AI_AVAILABLE_PROVIDERS` from the env (when set). Per-provider model dropdowns are similarly clipped to `OM_AI_AVAILABLE_MODELS_<PROVIDER>` when that env var is set. The env allowlist is the ULTIMATE constraint — the settings UI never offers a value the runtime would refuse to honor. See the [Provider/model allowlist row](./overview#environment-variables) in the overview for the full env contract.
+
 ### Default provider and model override
 
-A form with two dropdowns — **Provider** and **Model** — populated from the server's `llmProviderRegistry`. Saving a selection creates or updates a row in `ai_settings` scoped to the tenant with `agentId = null`. This row sits at **Step 2** in the [model resolution order](./overview#model-resolution-order) (above per-agent env vars, below runtime `<ModelPicker>` selections).
+A form with two dropdowns — **Provider** and **Model** — populated from the server's `llmProviderRegistry` and clipped to the env-driven allowlist. Saving a selection creates or updates a row in `ai_settings` scoped to the tenant with `agentId = null`. This row sits at **Step 2** in the [model resolution order](./overview#model-resolution-order) (above per-agent env vars, below runtime `<ModelPicker>` selections).
+
+The settings `PUT /api/ai_assistant/settings` endpoint rejects out-of-allowlist values up-front with typed 400 codes — `provider_not_allowlisted` when the selected provider is missing from `OM_AI_AVAILABLE_PROVIDERS`, and `model_not_allowlisted` when the selected model is missing from `OM_AI_AVAILABLE_MODELS_<PROVIDER>` — so a stale or hand-crafted PUT can never persist a setting that the runtime would only ever swap out at request time.
 
 To clear the override and return to the env-based defaults, click **Clear override**. This deletes the `ai_settings` row for the tenant.
 

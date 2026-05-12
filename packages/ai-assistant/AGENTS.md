@@ -350,6 +350,20 @@ Per-module overrides (Phase 1 of the same spec — agent-default provider + per-
 
 All new callers MUST use `createModelFactory(container)` from `@open-mercato/ai-assistant/modules/ai_assistant/lib/model-factory` — never inline provider SDK calls (`createAnthropic`, `createOpenAI`, `createGoogleGenerativeAI`). The factory enforces the resolution order (caller override → `OM_AI_<MODULE>_MODEL` → `agentDefaultModel` → `OM_AI_MODEL` → provider default) and throws the documented `AiModelFactoryError` codes when misconfigured. See **Model Resolution** below.
 
+Operator-defined allowlist (Phase 1780-5) — the ULTIMATE constraint that clips every other source. When set, the settings UI is clipped to the allowed subset, the chat-UI `<ModelPicker>` only offers these values, the dispatcher rejects out-of-allowlist `?provider=` / `?model=` query params with typed 400 errors, and the model-factory swaps to a safe pair (emitting `console.warn` and an `allowlistFallback` field on the resolution) whenever an agent default, tenant override, or higher-priority source resolves to something blocked.
+
+| Variable | Purpose |
+|----------|---------|
+| `OM_AI_AVAILABLE_PROVIDERS` | Optional, comma-separated provider id list. Unset / empty → no provider restriction. Whitespace-tolerant; provider id comparison is case-insensitive. |
+| `OM_AI_AVAILABLE_MODELS_<PROVIDER>` | Optional, comma-separated model id list per provider. `<PROVIDER>` is uppercased from the registry id (`openai` → `OM_AI_AVAILABLE_MODELS_OPENAI`). Model id comparison is case-sensitive (model ids are vendor strings). Unset / empty → no model restriction for that provider. |
+
+When a higher-priority override (request, caller, tenant, module env, agent default) resolves to a blocked combination, the factory falls back in this order:
+
+1. The agent's `defaultProvider` + `defaultModel` (when both are allowed and configured).
+2. The first allowed provider that is also configured in the registry; then that provider's `defaultModel` if allowed, else the first model in `OM_AI_AVAILABLE_MODELS_<PROVIDER>`.
+
+The resolution returns `source: 'allowlist_fallback'` and an `allowlistFallback` field describing the rejected pair so logs and UI can surface why the requested combination wasn't honored. The settings PUT endpoint rejects out-of-allowlist values up-front with `provider_not_allowlisted` / `model_not_allowlisted` 400 codes — that way persistent overrides can never end up in a state the runtime would only ever swap out at request time.
+
 ## Architecture Constraints
 
 When modifying this stack, follow these constraints:

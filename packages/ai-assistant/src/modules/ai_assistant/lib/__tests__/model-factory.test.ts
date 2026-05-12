@@ -791,4 +791,99 @@ describe('Phase 4a — tenantOverride, requestOverride, allowRuntimeModelOverrid
     })
     expect(resolution.baseURL).toBeUndefined()
   })
+
+  describe('Phase 1780-5 — OM_AI_AVAILABLE_PROVIDERS / OM_AI_AVAILABLE_MODELS_<PROVIDER>', () => {
+    let warnSpy: jest.SpyInstance
+    beforeEach(() => {
+      warnSpy = jest.spyOn(console, 'warn').mockImplementation(() => undefined)
+    })
+    afterEach(() => {
+      warnSpy.mockRestore()
+    })
+
+    it('passes through unchanged when no allowlist is configured', () => {
+      const provider = makeProvider({ id: 'openai', defaultModel: 'gpt-5-mini' })
+      const factory = createModelFactory(fakeContainer, makeFactoryDeps(provider))
+      const resolution = factory.resolveModel({ callerOverride: 'gpt-4o' })
+      expect(resolution.providerId).toBe('openai')
+      expect(resolution.modelId).toBe('gpt-4o')
+      expect(resolution.allowlistFallback).toBeUndefined()
+      expect(warnSpy).not.toHaveBeenCalled()
+    })
+
+    it('falls back to the agent default model when the resolved model is not allowlisted for the provider', () => {
+      const provider = makeProvider({
+        id: 'openai',
+        defaultModel: 'gpt-5-mini',
+        createModel: ({ modelId }) => ({ modelId }),
+      })
+      const env = { OM_AI_AVAILABLE_MODELS_OPENAI: 'gpt-5-mini' }
+      const factory = createModelFactory(fakeContainer, makeFactoryDeps(provider, env))
+      const resolution = factory.resolveModel({
+        callerOverride: 'gpt-4o',
+        agentDefaultModel: 'gpt-5-mini',
+      })
+      expect(resolution.providerId).toBe('openai')
+      expect(resolution.modelId).toBe('gpt-5-mini')
+      expect(resolution.source).toBe('allowlist_fallback')
+      expect(resolution.allowlistFallback).toEqual({
+        originalProviderId: 'openai',
+        originalModelId: 'gpt-4o',
+        reason: expect.stringContaining('OM_AI_AVAILABLE_MODELS_OPENAI'),
+      })
+      expect(warnSpy).toHaveBeenCalledWith(
+        expect.stringContaining('[AI Model Factory]'),
+      )
+    })
+
+    it('falls back to the first allowlisted model when neither the resolved nor the provider default is allowed', () => {
+      const provider = makeProvider({
+        id: 'openai',
+        defaultModel: 'gpt-5-mini',
+      })
+      const env = { OM_AI_AVAILABLE_MODELS_OPENAI: 'gpt-4o,gpt-4-turbo' }
+      const factory = createModelFactory(fakeContainer, makeFactoryDeps(provider, env))
+      const resolution = factory.resolveModel({ callerOverride: 'gpt-5-pro' })
+      expect(resolution.modelId).toBe('gpt-4o')
+      expect(resolution.allowlistFallback).toBeDefined()
+    })
+
+    it('swaps to the agent default provider when the resolved provider is not allowlisted', () => {
+      const blocked = makeProvider({
+        id: 'anthropic',
+        defaultModel: 'claude-haiku-4-5',
+      })
+      const replacement = makeProvider({
+        id: 'openai',
+        defaultModel: 'gpt-5-mini',
+      })
+      const env = { OM_AI_AVAILABLE_PROVIDERS: 'openai' }
+      const { registry } = makeMultiProviderRegistry([blocked, replacement])
+      const factory = createModelFactory(fakeContainer, { registry, env })
+      const resolution = factory.resolveModel({
+        agentDefaultProvider: 'openai',
+        agentDefaultModel: 'gpt-5-mini',
+        providerOverride: 'anthropic',
+      })
+      expect(resolution.providerId).toBe('openai')
+      expect(resolution.modelId).toBe('gpt-5-mini')
+      expect(resolution.source).toBe('allowlist_fallback')
+      expect(resolution.allowlistFallback?.originalProviderId).toBe('anthropic')
+    })
+
+    it('accepts allowlisted (provider, model) pairs without intervention', () => {
+      const provider = makeProvider({ id: 'openai', defaultModel: 'gpt-5-mini' })
+      const env = {
+        OM_AI_AVAILABLE_PROVIDERS: 'openai',
+        OM_AI_AVAILABLE_MODELS_OPENAI: 'gpt-5-mini,gpt-4o',
+      }
+      const factory = createModelFactory(fakeContainer, makeFactoryDeps(provider, env))
+      const resolution = factory.resolveModel({ callerOverride: 'gpt-4o' })
+      expect(resolution.providerId).toBe('openai')
+      expect(resolution.modelId).toBe('gpt-4o')
+      expect(resolution.source).toBe('caller_override')
+      expect(resolution.allowlistFallback).toBeUndefined()
+      expect(warnSpy).not.toHaveBeenCalled()
+    })
+  })
 })

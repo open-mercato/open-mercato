@@ -18,6 +18,13 @@ import { AiAgentRuntimeOverrideRepository, AiAgentRuntimeOverrideValidationError
 import { isBaseurlAllowlisted, readBaseurlAllowlist } from '../../lib/baseurl-allowlist'
 import { loadAgentRegistry, listAgents } from '../../lib/agent-registry'
 import { createModelFactory } from '../../lib/model-factory'
+import {
+  isProviderAllowed,
+  isProviderModelAllowed,
+  readAllowedModels,
+  readAllowedProviders,
+  readAllowlistConfig,
+} from '../../lib/model-allowlist'
 
 const runtimeOverrideUpsertSchema = z.object({
   providerId: z.string().min(1).max(64).nullable().optional(),
@@ -218,8 +225,22 @@ export async function GET(req: NextRequest) {
       console.warn('[AI Settings] Failed to compute Phase 4a override fields:', overrideError)
     }
 
-    // Build availableProviders with Phase 4a defaultModels
-    const availableProviders = [
+    // Build availableProviders with Phase 4a defaultModels, then clip to the
+    // operator-approved set (OM_AI_AVAILABLE_PROVIDERS /
+    // OM_AI_AVAILABLE_MODELS_<PROVIDER>). The env allowlist is the ULTIMATE
+    // constraint — the settings UI must never offer a value the runtime would
+    // refuse to honor.
+    const env = process.env as Record<string, string | undefined>
+    const knownProviderIdsForAllowlist: string[] = [
+      ...OPEN_CODE_PROVIDER_IDS,
+      ...llmProviderRegistry
+        .list()
+        .map((p) => p.id)
+        .filter((id) => !(OPEN_CODE_PROVIDER_IDS as readonly string[]).includes(id)),
+    ]
+    const allowlistConfig = readAllowlistConfig(env, knownProviderIdsForAllowlist)
+
+    const allRawProviders = [
       ...OPEN_CODE_PROVIDER_IDS.map((id) => {
         const info = OPEN_CODE_PROVIDERS[id]
         const registryProvider = llmProviderRegistry.get(id)
@@ -245,6 +266,22 @@ export async function GET(req: NextRequest) {
         })),
     ]
 
+    const availableProviders = allRawProviders
+      .filter((p) => isProviderAllowed(env, p.id))
+      .map((p) => {
+        const allowedModels = readAllowedModels(env, p.id)
+        const clippedDefaults = allowedModels
+          ? p.defaultModels.filter((m) => allowedModels.includes(m.id))
+          : p.defaultModels
+        return {
+          ...p,
+          defaultModel: allowedModels && !allowedModels.includes(p.defaultModel)
+            ? (allowedModels[0] ?? p.defaultModel)
+            : p.defaultModel,
+          defaultModels: clippedDefaults,
+        }
+      })
+
     return NextResponse.json({
       provider: {
         id: providerId,
@@ -255,6 +292,9 @@ export async function GET(req: NextRequest) {
         configured: apiKeyConfigured,
       },
       availableProviders,
+      // Snapshot of the env-driven allowlist so the UI can render hints like
+      // "limited to: openai, anthropic" without re-implementing the parser.
+      allowlist: allowlistConfig,
       mcpKeyConfigured,
       resolvedDefault,
       tenantOverride,
@@ -303,6 +343,32 @@ export async function PUT(req: NextRequest) {
         {
           error: `baseURL "${baseURL}" is not in AI_RUNTIME_BASEURL_ALLOWLIST.`,
           code: 'baseurl_not_allowlisted',
+        },
+        { status: 400 },
+      )
+    }
+  }
+
+  // Env-driven provider/model allowlist (Phase 1780-5): operators can restrict
+  // the (provider, model) pairs accepted by the runtime via
+  // OM_AI_AVAILABLE_PROVIDERS and OM_AI_AVAILABLE_MODELS_<PROVIDER>. Reject
+  // settings PUT requests for pairs outside that allowlist so the settings UI
+  // never persists a value the runtime would later refuse.
+  if (providerId) {
+    if (!isProviderAllowed(process.env, providerId)) {
+      return NextResponse.json(
+        {
+          error: `Provider "${providerId}" is not in OM_AI_AVAILABLE_PROVIDERS.`,
+          code: 'provider_not_allowlisted',
+        },
+        { status: 400 },
+      )
+    }
+    if (modelId && !isProviderModelAllowed(process.env, providerId, modelId)) {
+      return NextResponse.json(
+        {
+          error: `Model "${modelId}" is not in OM_AI_AVAILABLE_MODELS_${providerId.toUpperCase()}.`,
+          code: 'model_not_allowlisted',
         },
         { status: 400 },
       )

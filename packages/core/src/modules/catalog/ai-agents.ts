@@ -269,6 +269,8 @@ const agent: AiAgentDefinition = {
   requiredFeatures: [...REQUIRED_FEATURES],
   readOnly: true,
   mutationPolicy: 'read-only',
+  defaultProvider: 'openai',
+  defaultModel: 'gpt-5-mini',
   keywords: ['catalog', 'products', 'categories', 'variants', 'prices', 'offers', 'media'],
   domain: 'catalog',
   dataCapabilities: {
@@ -461,6 +463,8 @@ const merchandisingAgent: AiAgentDefinition = {
   // the operator via the pending-action approval card. Per-tenant override
   // can downgrade to `read-only` to lock writes without a redeploy.
   mutationPolicy: 'confirm-required',
+  defaultProvider: 'openai',
+  defaultModel: 'gpt-5-mini',
   keywords: ['catalog', 'merchandising', 'products', 'attributes', 'pricing', 'copy'],
   domain: 'catalog',
   dataCapabilities: {

@@ -11,6 +11,7 @@ import { checkAgentPolicy, type AgentPolicyDenyCode } from '../../../lib/agent-p
 import { runAiAgentText } from '../../../lib/agent-runtime'
 import { AgentPolicyError } from '../../../lib/agent-tools'
 import { readBaseurlAllowlist, isBaseurlAllowlisted } from '../../../lib/baseurl-allowlist'
+import { isProviderAllowed, isProviderModelAllowed } from '../../../lib/model-allowlist'
 
 const MAX_MESSAGES = 100
 
@@ -253,6 +254,24 @@ export async function POST(req: NextRequest): Promise<Response> {
           400,
           `Provider "${rawProvider}" is registered but not configured in this environment (missing API key).`,
           'provider_not_configured',
+        )
+      }
+      if (!isProviderAllowed(process.env, rawProvider.trim())) {
+        return jsonError(
+          400,
+          `Provider "${rawProvider}" is not in OM_AI_AVAILABLE_PROVIDERS.`,
+          'provider_not_allowlisted',
+        )
+      }
+      if (
+        rawModel
+        && rawModel.trim().length > 0
+        && !isProviderModelAllowed(process.env, rawProvider.trim(), rawModel.trim())
+      ) {
+        return jsonError(
+          400,
+          `Model "${rawModel}" is not in OM_AI_AVAILABLE_MODELS_${rawProvider.trim().toUpperCase()}.`,
+          'model_not_allowlisted',
         )
       }
     }

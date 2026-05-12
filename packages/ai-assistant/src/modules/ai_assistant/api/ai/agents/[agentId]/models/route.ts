@@ -8,6 +8,7 @@ import { llmProviderRegistry } from '@open-mercato/shared/lib/ai/llm-provider-re
 import { getAgent, loadAgentRegistry } from '../../../../../lib/agent-registry'
 import { hasRequiredFeatures } from '../../../../../lib/auth'
 import { createModelFactory } from '../../../../../lib/model-factory'
+import { isProviderAllowed, readAllowedModels } from '../../../../../lib/model-allowlist'
 
 const agentIdPattern = /^[a-z0-9_]+\.[a-z0-9_]+$/
 
@@ -114,22 +115,33 @@ export async function GET(
     const defaultProviderId = defaultResolution.providerId
     const defaultModelId = defaultResolution.modelId
 
-    // Build provider list — only configured providers, with curated model catalogs
+    // Build provider list — only configured providers, with curated model
+    // catalogs, then clip to the env-driven allowlist
+    // (OM_AI_AVAILABLE_PROVIDERS / OM_AI_AVAILABLE_MODELS_<PROVIDER>) so the
+    // chat-UI picker can never offer a value the runtime would refuse.
+    const env = process.env as Record<string, string | undefined>
     const providers = allowRuntimeModelOverride
       ? llmProviderRegistry.list()
           .filter((provider) => provider.isConfigured())
-          .map((provider) => ({
-            id: provider.id,
-            name: provider.id,
-            isDefault: provider.id === defaultProviderId,
-            models: provider.defaultModels.map((model) => ({
-              id: model.id,
-              name: model.name,
-              contextWindow: model.contextWindow,
-              tags: model.tags,
-              isDefault: provider.id === defaultProviderId && model.id === defaultModelId,
-            })),
-          }))
+          .filter((provider) => isProviderAllowed(env, provider.id))
+          .map((provider) => {
+            const allowedModels = readAllowedModels(env, provider.id)
+            const filteredModels = allowedModels
+              ? provider.defaultModels.filter((model) => allowedModels.includes(model.id))
+              : provider.defaultModels
+            return {
+              id: provider.id,
+              name: provider.id,
+              isDefault: provider.id === defaultProviderId,
+              models: filteredModels.map((model) => ({
+                id: model.id,
+                name: model.name,
+                contextWindow: model.contextWindow,
+                tags: model.tags,
+                isDefault: provider.id === defaultProviderId && model.id === defaultModelId,
+              })),
+            }
+          })
       : []
 
     return NextResponse.json({

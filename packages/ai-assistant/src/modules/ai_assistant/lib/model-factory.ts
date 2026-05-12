@@ -61,6 +61,12 @@ import type { AwilixContainer } from 'awilix'
 import type { EnvLookup, LlmProvider } from '@open-mercato/shared/lib/ai/llm-provider'
 import { llmProviderRegistry } from '@open-mercato/shared/lib/ai/llm-provider-registry'
 import { resolveAiProviderIdFromEnv } from '@open-mercato/shared/lib/ai/opencode-provider'
+import {
+  isModelAllowedForProvider,
+  isProviderAllowed,
+  readAllowedModels,
+  readAllowedProviders,
+} from './model-allowlist'
 
 /**
  * Minimal AI SDK LanguageModel shape — the factory exposes the protocol-
@@ -208,12 +214,25 @@ export interface AiModelResolution {
     | 'agent_default'
     | 'env_default'
     | 'provider_default'
+    | 'allowlist_fallback'
   /**
    * Resolved base URL passed to the adapter (if any). Undefined when the
    * adapter will use its built-in default. Included for observability and
    * test assertions; never exposed over HTTP (Phase 4a adds the allowlist).
    */
   baseURL?: string
+  /**
+   * Populated when the env-driven OM_AI_AVAILABLE_PROVIDERS /
+   * OM_AI_AVAILABLE_MODELS_<PROVIDER> allowlist rejected the originally
+   * resolved (provider, model) and the factory fell back to a safe pair.
+   * Includes the rejected ids and a human-readable reason so the UI / logs
+   * can surface why the runtime did not honor the requested combination.
+   */
+  allowlistFallback?: {
+    originalProviderId: string
+    originalModelId: string
+    reason: string
+  }
 }
 
 /**
@@ -536,14 +555,165 @@ export function createModelFactory(
         ?? normalizeOverride(input.agentDefaultBaseUrl)
         ?? undefined
 
-      const model = provider.createModel({ modelId, apiKey, baseURL: resolvedBaseURL })
+      // --- Env-driven allowlist enforcement (Phase 1780-5) -----------------
+      // OM_AI_AVAILABLE_PROVIDERS / OM_AI_AVAILABLE_MODELS_<PROVIDER> clip
+      // the resolution to a operator-approved set. If the resolved pair
+      // isn't allowed, fall back to a safe (provider, model) — never throw,
+      // so a stale tenant override or chat picker can't take the runtime
+      // down. The fallback is logged so the operator can see what happened.
+      const allowlistResult = enforceAllowlist({
+        env,
+        registry,
+        resolved: { provider, modelId },
+        agentDefaultProvider: agentDefaultProviderRaw,
+        agentDefaultModel: agentModelParsed?.modelId ?? agentModelRaw,
+      })
+
+      const finalProvider = allowlistResult.provider
+      const finalModelId = allowlistResult.modelId
+      const finalSource = allowlistResult.fallback ? 'allowlist_fallback' : source
+      const finalApiKey = allowlistResult.fallback
+        ? finalProvider.resolveApiKey(env)
+        : apiKey
+      if (!finalApiKey) {
+        throw new AiModelFactoryError(
+          'api_key_missing',
+          `LLM provider "${finalProvider.id}" is advertised as configured but resolveApiKey() returned empty.`,
+        )
+      }
+
+      const model = finalProvider.createModel({
+        modelId: finalModelId,
+        apiKey: finalApiKey,
+        baseURL: resolvedBaseURL,
+      })
       return {
         model,
-        modelId,
-        providerId: provider.id,
-        source,
+        modelId: finalModelId,
+        providerId: finalProvider.id,
+        source: finalSource,
         ...(resolvedBaseURL !== undefined ? { baseURL: resolvedBaseURL } : {}),
+        ...(allowlistResult.fallback
+          ? {
+              allowlistFallback: {
+                originalProviderId: provider.id,
+                originalModelId: modelId,
+                reason: allowlistResult.fallback,
+              },
+            }
+          : {}),
       }
     },
   }
+}
+
+interface EnforceAllowlistInput {
+  env: EnvLookup
+  registry: AiModelFactoryRegistry
+  resolved: { provider: LlmProvider; modelId: string }
+  agentDefaultProvider: string | null
+  agentDefaultModel: string | null
+}
+
+interface EnforceAllowlistResult {
+  provider: LlmProvider
+  modelId: string
+  /** Populated only when the resolved pair was rejected. */
+  fallback: string | null
+}
+
+/**
+ * Clips a resolved `(provider, model)` to what the env allowlist permits.
+ *
+ * Order of fallback when the resolved provider is not allowed:
+ *  1. The agent's `defaultProvider` (if allowed and configured).
+ *  2. The first allowed provider that is also configured in the registry.
+ *
+ * Order of fallback when the model is not allowed for the resolved provider:
+ *  1. The agent's `defaultModel` (if allowed for that provider).
+ *  2. The provider's `defaultModel` (if allowed).
+ *  3. The first model from `OM_AI_AVAILABLE_MODELS_<PROVIDER>`.
+ *
+ * Both fall-back paths emit a `console.warn` so the operator can see why the
+ * runtime did not honor the requested combination. The function never throws.
+ */
+function enforceAllowlist(input: EnforceAllowlistInput): EnforceAllowlistResult {
+  const { env, registry, resolved, agentDefaultProvider, agentDefaultModel } = input
+  const allowedProviders = readAllowedProviders(env)
+  let provider = resolved.provider
+  let modelId = resolved.modelId
+  let fallback: string | null = null
+
+  if (allowedProviders !== null && !isProviderAllowed(env, provider.id)) {
+    const replacement = pickAllowedProvider({
+      env,
+      registry,
+      agentDefaultProvider,
+    })
+    if (replacement) {
+      fallback = `Provider "${provider.id}" is not in OM_AI_AVAILABLE_PROVIDERS; using "${replacement.id}" instead.`
+      console.warn(`[AI Model Factory] ${fallback}`)
+      provider = replacement
+      modelId = pickAllowedModel({
+        env,
+        provider,
+        preferred: agentDefaultModel,
+      })
+    }
+    // If no replacement is configured we keep the resolved provider — the
+    // throw at the api-key gate will surface the misconfiguration to the
+    // operator instead of silently masking it.
+  }
+
+  if (!isModelAllowedForProvider(env, provider.id, modelId)) {
+    const replacementModel = pickAllowedModel({
+      env,
+      provider,
+      preferred: agentDefaultModel,
+    })
+    if (replacementModel !== modelId) {
+      const reason = `Model "${modelId}" is not in ${`OM_AI_AVAILABLE_MODELS_${provider.id.toUpperCase()}`}; using "${replacementModel}" instead.`
+      console.warn(`[AI Model Factory] ${reason}`)
+      fallback = fallback ? `${fallback} ${reason}` : reason
+      modelId = replacementModel
+    }
+  }
+
+  return { provider, modelId, fallback }
+}
+
+function pickAllowedProvider(input: {
+  env: EnvLookup
+  registry: AiModelFactoryRegistry
+  agentDefaultProvider: string | null
+}): LlmProvider | null {
+  const { env, registry, agentDefaultProvider } = input
+  if (agentDefaultProvider) {
+    if (isProviderAllowed(env, agentDefaultProvider)) {
+      const provider = registry.get?.(agentDefaultProvider)
+      if (provider && provider.isConfigured(env)) return provider
+    }
+  }
+  const allowed = readAllowedProviders(env)
+  if (!allowed) return null
+  for (const id of allowed) {
+    const provider = registry.get?.(id)
+    if (provider && provider.isConfigured(env)) return provider
+  }
+  return null
+}
+
+function pickAllowedModel(input: {
+  env: EnvLookup
+  provider: LlmProvider
+  preferred: string | null
+}): string {
+  const { env, provider, preferred } = input
+  const allowed = readAllowedModels(env, provider.id)
+  if (allowed === null) {
+    return preferred && preferred.length > 0 ? preferred : provider.defaultModel
+  }
+  if (preferred && allowed.includes(preferred)) return preferred
+  if (allowed.includes(provider.defaultModel)) return provider.defaultModel
+  return allowed[0]!
 }
