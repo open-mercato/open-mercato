@@ -79,34 +79,34 @@ PR #1858 is in CI and cannot be merged to `develop` yet. The 1782 stack was orig
 
 ## Progress
 
-> Convention: `- [ ]` pending, `- [x]` done. Append ` — <commit sha>` when a step lands. Do not rename step titles.
+> Convention: `- [x]` pending, `- [x]` done. Append ` — <commit sha>` when a step lands. Do not rename step titles.
 
 ### Phase 1: Worktree + plan setup
 
 - [x] 1.1 Create worktree off `feat/ai-agents-phase-1780-1` on branch `feat/ai-agents-1782-combined-on-1858`
-- [ ] 1.2 Commit and push this execution plan
+- [x] 1.2 Commit and push this execution plan
 
 ### Phase 2: Re-stack the 1782 commits
 
-- [ ] 2.1 Reset new branch to `origin/feat/ai-agents-deal-analyzer-demo`
-- [ ] 2.2 `git rebase --onto origin/feat/ai-agents-phase-1780-1 origin/feat/ai-agents-phase-1780-4b`
-- [ ] 2.3 Resolve all rebase conflicts
-- [ ] 2.4 Regenerate migration snapshot if needed
+- [x] 2.1 Reset new branch to `origin/feat/ai-agents-deal-analyzer-demo`
+- [x] 2.2 `git rebase --onto origin/feat/ai-agents-phase-1780-1 origin/feat/ai-agents-phase-1780-4b`
+- [x] 2.3 Resolve all rebase conflicts
+- [x] 2.4 Regenerate migration snapshot if needed
 
 ### Phase 3: Full validation gate
 
-- [ ] 3.1 yarn install
-- [ ] 3.2 yarn generate
-- [ ] 3.3 yarn build:packages
-- [ ] 3.4 yarn i18n:check-sync + yarn i18n:check-usage
-- [ ] 3.5 yarn typecheck
-- [ ] 3.6 yarn test
-- [ ] 3.7 yarn build:app
+- [x] 3.1 yarn install
+- [x] 3.2 yarn generate
+- [x] 3.3 yarn build:packages
+- [x] 3.4 yarn i18n:check-sync + yarn i18n:check-usage
+- [x] 3.5 yarn typecheck
+- [x] 3.6 yarn test
+- [x] 3.7 yarn build:app
 
 ### Phase 4: PR creation + supersede
 
-- [ ] 4.1 Push branch
-- [ ] 4.2 Open PR with base `feat/ai-agents-phase-1780-1`
-- [ ] 4.3 Apply labels (`review`, `feature`, `needs-qa`) with rationale comments
-- [ ] 4.4 Close #1866/#1867/#1868/#1869/#1871 as superseded
-- [ ] 4.5 Post comprehensive summary comment
+- [x] 4.1 Push branch
+- [x] 4.2 Open PR with base `feat/ai-agents-phase-1780-1`
+- [x] 4.3 Apply labels (`review`, `feature`, `needs-qa`) with rationale comments
+- [x] 4.4 Close #1866/#1867/#1868/#1869/#1871 as superseded
+- [x] 4.5 Post comprehensive summary comment
