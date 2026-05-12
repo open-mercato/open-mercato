@@ -2,23 +2,30 @@
 
 import * as React from 'react'
 import {
+  AlignCenter,
+  AlignJustify,
+  AlignLeft,
+  AlignRight,
   AtSign,
   Bold,
   ChevronDown,
   Code,
+  FileCode,
+  HelpCircle,
+  Image as ImageIcon,
   Italic,
   Link,
   List,
+  ListChecks,
   ListOrdered,
+  Maximize2,
   MessageCircle,
+  Minus,
   MoreVertical,
-  Strikethrough,
-  Underline,
-  AlignLeft,
-  AlignCenter,
-  AlignRight,
-  AlignJustify,
   Quote,
+  Strikethrough,
+  Table as TableIcon,
+  Underline,
 } from 'lucide-react'
 import { cva, type VariantProps } from 'class-variance-authority'
 
@@ -137,8 +144,15 @@ export type RichEditorLabels = {
   strikethrough: string
   unorderedList: string
   orderedList: string
+  checklist: string
   blockquote: string
   code: string
+  inlineCode: string
+  codeBlock: string
+  horizontalRule: string
+  image: string
+  imageUrlPrompt: string
+  table: string
   heading: string
   heading1: string
   heading2: string
@@ -157,6 +171,8 @@ export type RichEditorLabels = {
   comment: string
   mention: string
   more: string
+  help: string
+  fullscreen: string
   placeholder: string
   colors: Record<RichEditorColorKey, string>
 }
@@ -168,8 +184,15 @@ const DEFAULT_LABELS: RichEditorLabels = {
   strikethrough: 'Strikethrough',
   unorderedList: 'Bullet list',
   orderedList: 'Numbered list',
+  checklist: 'Checklist',
   blockquote: 'Quote',
   code: 'Code',
+  inlineCode: 'Inline code',
+  codeBlock: 'Code block',
+  horizontalRule: 'Horizontal rule',
+  image: 'Image',
+  imageUrlPrompt: 'Enter image URL',
+  table: 'Table',
   heading: 'Header',
   heading1: 'Heading 1',
   heading2: 'Heading 2',
@@ -188,6 +211,8 @@ const DEFAULT_LABELS: RichEditorLabels = {
   comment: 'Add comment',
   mention: 'Mention',
   more: 'More',
+  help: 'Help',
+  fullscreen: 'Toggle fullscreen',
   placeholder: 'Placeholder text...',
   colors: COLOR_LABELS_EN,
 }
@@ -218,6 +243,19 @@ export type RichEditorProps = {
   onMention?: () => void
   /** Optional menu rendered inside the More `⋮` dropdown popover. */
   moreMenu?: React.ReactNode
+  /**
+   * Optional handler for the fullscreen toggle. When provided, the
+   * `full` variant renders the fullscreen icon button as the trailing
+   * action — the caller is responsible for switching the editor into a
+   * full-window layout (modal / portal / dialog).
+   */
+  onFullscreen?: () => void
+  /**
+   * Optional handler for the image insert button. When provided,
+   * overrides the default `window.prompt(labels.imageUrlPrompt)` URL
+   * picker so consumers can wire a file upload pipeline instead.
+   */
+  onImageInsert?: () => void
   /**
    * Optional max length for the rich text content. When provided, renders a
    * `<currentLength>/<maxLength>` counter in the bottom-right corner of the
@@ -277,6 +315,8 @@ export const RichEditor = React.memo(function RichEditor({
   onComment,
   onMention,
   moreMenu,
+  onFullscreen,
+  onImageInsert,
   maxLength,
   children,
   id,
@@ -397,7 +437,15 @@ export const RichEditor = React.memo(function RichEditor({
 
   const toolbarContent = variant === 'custom'
     ? null
-    : <RichEditorPresetItems variant={variant} labels={labels} onComment={onComment} onMention={onMention} moreMenu={moreMenu} />
+    : <RichEditorPresetItems
+        variant={variant}
+        labels={labels}
+        onComment={onComment}
+        onMention={onMention}
+        moreMenu={moreMenu}
+        onFullscreen={onFullscreen}
+        onImageInsert={onImageInsert}
+      />
 
   const plaintextLength = React.useMemo(() => {
     if (!maxLength) return 0
@@ -878,12 +926,16 @@ function RichEditorPresetItems({
   onComment,
   onMention,
   moreMenu,
+  onFullscreen,
+  onImageInsert,
 }: {
   variant: Exclude<RichEditorVariant, 'custom'>
   labels: RichEditorLabels
   onComment?: () => void
   onMention?: () => void
   moreMenu?: React.ReactNode
+  onFullscreen?: () => void
+  onImageInsert?: () => void
 }) {
   const { exec, selection } = useRichEditorContext('RichEditorPresetItems')
   const onLink = React.useCallback(() => {
@@ -891,18 +943,75 @@ function RichEditorPresetItems({
     if (url) exec('createLink', url)
   }, [exec, labels.linkUrlPrompt])
 
+  const onImage = React.useCallback(() => {
+    if (onImageInsert) {
+      onImageInsert()
+      return
+    }
+    const url = sanitizeRichTextHref(typeof window !== 'undefined' ? window.prompt(labels.imageUrlPrompt) : null)
+    if (url) exec('insertImage', url)
+  }, [exec, labels.imageUrlPrompt, onImageInsert])
+
+  const onInsertTable = React.useCallback(() => {
+    const html = '<table style="border-collapse:collapse;width:100%"><tbody>'
+      + '<tr><td style="border:1px solid #ebebeb;padding:8px">&nbsp;</td><td style="border:1px solid #ebebeb;padding:8px">&nbsp;</td><td style="border:1px solid #ebebeb;padding:8px">&nbsp;</td></tr>'
+      + '<tr><td style="border:1px solid #ebebeb;padding:8px">&nbsp;</td><td style="border:1px solid #ebebeb;padding:8px">&nbsp;</td><td style="border:1px solid #ebebeb;padding:8px">&nbsp;</td></tr>'
+      + '<tr><td style="border:1px solid #ebebeb;padding:8px">&nbsp;</td><td style="border:1px solid #ebebeb;padding:8px">&nbsp;</td><td style="border:1px solid #ebebeb;padding:8px">&nbsp;</td></tr>'
+      + '</tbody></table><p>&nbsp;</p>'
+    exec('insertHTML', html)
+  }, [exec])
+
+  const onInsertChecklist = React.useCallback(() => {
+    const html = '<ul data-task-list="true" style="list-style:none;padding-left:0">'
+      + '<li><label><input type="checkbox" /> </label></li>'
+      + '</ul>'
+    exec('insertHTML', html)
+  }, [exec])
+
+  const onInsertInlineCode = React.useCallback(() => {
+    const selectionText = typeof window !== 'undefined' ? window.getSelection()?.toString() ?? '' : ''
+    if (!selectionText) {
+      exec('insertHTML', '<code>&nbsp;</code>')
+      return
+    }
+    exec('insertHTML', `<code>${selectionText}</code>`)
+  }, [exec])
+
   const showHeading = variant === 'full' || variant === 'standard'
   const showFontSize = variant === 'full'
   const showColor = variant === 'full'
   const showStrike = variant === 'full'
+  const showHr = variant === 'full'
+  const showQuoteAndCode = variant === 'full'
+  const showImageTable = variant === 'full'
+  const showChecklist = variant === 'full'
   const showOrdered = variant === 'full' || variant === 'standard' || variant === 'basic'
   const showAlign = variant === 'full'
   const showComment = variant === 'full' && (onComment !== undefined)
   const showMention = variant === 'full' && (onMention !== undefined)
   const showMore = variant === 'full' && moreMenu !== undefined
-  const showQuoteCode = variant === 'full' && !showAlign
   const showLink = variant === 'full' || variant === 'standard' || variant === 'basic'
   const showLists = variant !== 'minimal'
+  const showHelp = variant === 'full'
+  const showFullscreen = variant === 'full' && (onFullscreen !== undefined)
+
+  const keyboardShortcutsHelp = (
+    <div className="flex w-64 flex-col gap-1 p-1 text-sm" role="menu">
+      <div className="px-2 py-1 text-xs font-semibold uppercase tracking-wide text-muted-foreground">Keyboard</div>
+      <div className="flex items-center justify-between rounded px-2 py-1 hover:bg-muted">
+        <span>{labels.bold}</span>
+        <kbd className="rounded border bg-card px-1.5 py-0.5 text-xs">⌘ B</kbd>
+      </div>
+      <div className="flex items-center justify-between rounded px-2 py-1 hover:bg-muted">
+        <span>{labels.italic}</span>
+        <kbd className="rounded border bg-card px-1.5 py-0.5 text-xs">⌘ I</kbd>
+      </div>
+      <div className="flex items-center justify-between rounded px-2 py-1 hover:bg-muted">
+        <span>{labels.underline}</span>
+        <kbd className="rounded border bg-card px-1.5 py-0.5 text-xs">⌘ U</kbd>
+      </div>
+    </div>
+  )
 
   const headingMenu = (
     <div className="flex flex-col gap-0.5" role="menu">
@@ -1049,29 +1158,72 @@ function RichEditorPresetItems({
           ) : null}
         </>
       ) : null}
+      {showHr || showQuoteAndCode ? (
+        <>
+          <RichEditorDivider />
+          {showHr ? (
+            <RichEditorIconButton
+              icon={<Minus />}
+              ariaLabel={labels.horizontalRule}
+              tooltipLabel={labels.horizontalRule}
+              onActivate={() => exec('insertHorizontalRule')}
+            />
+          ) : null}
+          {showQuoteAndCode ? (
+            <>
+              <RichEditorIconButton
+                icon={<Quote />}
+                ariaLabel={labels.blockquote}
+                tooltipLabel={labels.blockquote}
+                active={selection.blockquote}
+                onActivate={() => exec('formatBlock', selection.blockquote ? '<p>' : '<blockquote>')}
+              />
+              <RichEditorIconButton
+                icon={<Code />}
+                ariaLabel={labels.inlineCode}
+                tooltipLabel={labels.inlineCode}
+                onActivate={onInsertInlineCode}
+              />
+              <RichEditorIconButton
+                icon={<FileCode />}
+                ariaLabel={labels.codeBlock}
+                tooltipLabel={labels.codeBlock}
+                active={selection.code}
+                onActivate={() => exec('formatBlock', selection.code ? '<p>' : '<pre>')}
+              />
+            </>
+          ) : null}
+        </>
+      ) : null}
+      {showImageTable ? (
+        <>
+          <RichEditorDivider />
+          <RichEditorIconButton
+            icon={<ImageIcon />}
+            ariaLabel={labels.image}
+            tooltipLabel={labels.image}
+            onActivate={onImage}
+          />
+          <RichEditorIconButton
+            icon={<TableIcon />}
+            ariaLabel={labels.table}
+            tooltipLabel={labels.table}
+            onActivate={onInsertTable}
+          />
+        </>
+      ) : null}
+      {showChecklist ? (
+        <RichEditorIconButton
+          icon={<ListChecks />}
+          ariaLabel={labels.checklist}
+          tooltipLabel={labels.checklist}
+          onActivate={onInsertChecklist}
+        />
+      ) : null}
       {showAlign ? (
         <>
           <RichEditorDivider />
           <RichEditorDropdownButton icon={<AlignActiveIcon />} ariaLabel={labels.align} menu={alignMenu} />
-        </>
-      ) : null}
-      {showQuoteCode ? (
-        <>
-          <RichEditorDivider />
-          <RichEditorIconButton
-            icon={<Quote />}
-            ariaLabel={labels.blockquote}
-            tooltipLabel={labels.blockquote}
-            active={selection.blockquote}
-            onActivate={() => exec('formatBlock', selection.blockquote ? '<p>' : '<blockquote>')}
-          />
-          <RichEditorIconButton
-            icon={<Code />}
-            ariaLabel={labels.code}
-            tooltipLabel={labels.code}
-            active={selection.code}
-            onActivate={() => exec('formatBlock', selection.code ? '<p>' : '<pre>')}
-          />
         </>
       ) : null}
       {(showLink || showComment || showMention) ? <RichEditorDivider /> : null}
@@ -1084,10 +1236,23 @@ function RichEditorPresetItems({
       {showMention ? (
         <RichEditorIconButton icon={<AtSign />} ariaLabel={labels.mention} tooltipLabel={labels.mention} onActivate={onMention} />
       ) : null}
-      {showMore ? (
+      {showHelp || showMore || showFullscreen ? (
         <>
           <RichEditorDivider />
-          <RichEditorDropdownButton icon={<MoreVertical />} ariaLabel={labels.more} menu={moreMenu} />
+          {showHelp ? (
+            <RichEditorDropdownButton icon={<HelpCircle />} ariaLabel={labels.help} menu={keyboardShortcutsHelp} />
+          ) : null}
+          {showMore ? (
+            <RichEditorDropdownButton icon={<MoreVertical />} ariaLabel={labels.more} menu={moreMenu} />
+          ) : null}
+          {showFullscreen ? (
+            <RichEditorIconButton
+              icon={<Maximize2 />}
+              ariaLabel={labels.fullscreen}
+              tooltipLabel={labels.fullscreen}
+              onActivate={onFullscreen}
+            />
+          ) : null}
         </>
       ) : null}
     </>

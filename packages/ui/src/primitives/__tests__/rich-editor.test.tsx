@@ -62,22 +62,31 @@ describe('RichEditor — variant presets', () => {
     expect(screen.queryByRole('button', { name: 'Align' })).toBeNull()
   })
 
-  it('full renders the Figma 166331:4006 toolbar (header + font-size + color + B/I/U/S + lists + align + link)', () => {
+  it('full renders the extended toolbar (header / font-size / color / B/I/U/S / HR / quote / inline-code / code-block / lists / image / table / checklist / align / link / help)', () => {
     render(<RichEditor value="" onChange={jest.fn()} variant="full" />)
     expect(screen.getByRole('button', { name: 'Header' })).toBeInTheDocument()
     expect(screen.getByRole('button', { name: 'Font size' })).toBeInTheDocument()
     expect(screen.getByRole('button', { name: 'Text color' })).toBeInTheDocument()
     expect(screen.getByRole('button', { name: 'Strikethrough' })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Horizontal rule' })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Quote' })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Inline code' })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Code block' })).toBeInTheDocument()
     expect(screen.getByRole('button', { name: 'Numbered list' })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Image' })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Table' })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Checklist' })).toBeInTheDocument()
     expect(screen.getByRole('button', { name: 'Align' })).toBeInTheDocument()
     expect(screen.getByRole('button', { name: 'Link' })).toBeInTheDocument()
-    // Comment / Mention / More are opt-in via handler/menu props — not rendered by default.
+    expect(screen.getByRole('button', { name: 'Help' })).toBeInTheDocument()
+    // Comment / Mention / More / Fullscreen are opt-in via handler/menu props.
     expect(screen.queryByRole('button', { name: 'Add comment' })).toBeNull()
     expect(screen.queryByRole('button', { name: 'Mention' })).toBeNull()
     expect(screen.queryByRole('button', { name: 'More' })).toBeNull()
+    expect(screen.queryByRole('button', { name: 'Toggle fullscreen' })).toBeNull()
   })
 
-  it('full opts in Comment / Mention / More when handlers + menu are provided', () => {
+  it('full opts in Comment / Mention / More / Fullscreen when handlers + menu are provided', () => {
     render(
       <RichEditor
         value=""
@@ -85,12 +94,32 @@ describe('RichEditor — variant presets', () => {
         variant="full"
         onComment={() => {}}
         onMention={() => {}}
+        onFullscreen={() => {}}
         moreMenu={<div>menu</div>}
       />,
     )
     expect(screen.getByRole('button', { name: 'Add comment' })).toBeInTheDocument()
     expect(screen.getByRole('button', { name: 'Mention' })).toBeInTheDocument()
     expect(screen.getByRole('button', { name: 'More' })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Toggle fullscreen' })).toBeInTheDocument()
+  })
+
+  it('clicking Horizontal rule calls execCommand("insertHorizontalRule")', () => {
+    render(<RichEditor value="" onChange={jest.fn()} variant="full" />)
+    fireEvent.click(screen.getByRole('button', { name: 'Horizontal rule' }))
+    expect(execMock).toHaveBeenCalledWith('insertHorizontalRule', false, undefined)
+  })
+
+  it('clicking Table inserts a 3×3 <table> via insertHTML', () => {
+    render(<RichEditor value="" onChange={jest.fn()} variant="full" />)
+    fireEvent.click(screen.getByRole('button', { name: 'Table' }))
+    expect(execMock).toHaveBeenCalledWith('insertHTML', false, expect.stringContaining('<table'))
+  })
+
+  it('clicking Checklist inserts a <ul data-task-list> with a checkbox', () => {
+    render(<RichEditor value="" onChange={jest.fn()} variant="full" />)
+    fireEvent.click(screen.getByRole('button', { name: 'Checklist' }))
+    expect(execMock).toHaveBeenCalledWith('insertHTML', false, expect.stringContaining('data-task-list'))
   })
 })
 
