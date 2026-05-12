@@ -143,7 +143,7 @@ No contract surface changes. Public types/exports/event IDs/widget spot IDs/ACL 
 
 ### Phase 1: Apply package.json bumps and regenerate lockfile
 
-- [ ] 1.1 Apply minor-and-patch bumps from #1888 across affected package.json files
+- [x] 1.1 Apply minor-and-patch bumps from #1888 across affected package.json files — cb2cb22c7
 - [ ] 1.2 Run yarn install to regenerate yarn.lock
 - [ ] 1.3 Spot-check yarn.lock for key resolved versions
 
