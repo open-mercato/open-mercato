@@ -217,7 +217,7 @@ After an official-modules PR merges, the submodule's own CI takes over: the chan
 
 ## CI
 
-`ci.yml`'s build/generate jobs check out submodules (`submodules: recursive`) — a no-op until `.gitmodules` registers the submodule, and `open-mercato/official-modules` is public so the default token is enough. With an empty `activated` set CI builds nothing extra. If the team commits an activation, CI builds and (for integration tests) exercises those modules too.
+CI is **not** wired for the submodule by default — with an empty `activated` set in `official-modules.json` there is nothing extra to build, so CI behaves exactly as it did before. When the team commits an activation in `official-modules.json`, add `submodules: recursive` to the `actions/checkout` steps in `.github/workflows/ci.yml` (the repo is public, so the default token is enough) so CI builds — and, for integration tests, exercises — those modules too.
 
 ## Command reference
 
