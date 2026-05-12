@@ -144,7 +144,7 @@ export function ModelPicker({
       >
         <Cpu className="size-3.5 shrink-0" aria-hidden />
         {!compact ? (
-          <span className="max-w-[140px] truncate text-xs">{selectedLabel}</span>
+          <span className="max-w-36 truncate text-xs">{selectedLabel}</span>
         ) : null}
         <ChevronDown
           className={cn(
@@ -161,7 +161,7 @@ export function ModelPicker({
           role="listbox"
           aria-label={t('ai_assistant.modelPicker.listAriaLabel', 'Available models')}
           className={cn(
-            'absolute bottom-full left-0 z-50 mb-1 max-h-72 min-w-[220px] overflow-y-auto',
+            'absolute bottom-full left-0 z-50 mb-1 max-h-72 min-w-56 overflow-y-auto',
             'rounded-md border border-border bg-popover shadow-md',
           )}
           data-ai-model-picker-dropdown
@@ -190,14 +190,14 @@ export function ModelPicker({
                 : t('ai_assistant.modelPicker.useDefault', 'Use agent default')}
             </span>
             {value === null ? (
-              <span className="rounded bg-primary/10 px-1 py-0.5 text-[10px] font-medium text-primary">
+              <span className="rounded bg-primary/10 px-1 py-0.5 text-overline font-medium text-primary">
                 {t('ai_assistant.modelPicker.activeBadge', 'active')}
               </span>
             ) : null}
           </div>
           {availableProviders.map((provider) => (
             <div key={provider.id} data-ai-model-picker-provider={provider.id}>
-              <div className="px-3 py-1.5 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
+              <div className="px-3 py-1.5 text-overline font-semibold uppercase tracking-wider text-muted-foreground">
                 {provider.name}
               </div>
               {provider.models.map((model) => {
@@ -225,12 +225,12 @@ export function ModelPicker({
                   >
                     <span className="flex-1 truncate">{model.name}</span>
                     {model.isDefault ? (
-                      <span className="shrink-0 rounded bg-muted px-1 py-0.5 text-[10px] text-muted-foreground">
+                      <span className="shrink-0 rounded bg-muted px-1 py-0.5 text-overline text-muted-foreground">
                         {t('ai_assistant.modelPicker.defaultBadge', 'default')}
                       </span>
                     ) : null}
                     {isSelected ? (
-                      <span className="shrink-0 rounded bg-primary/10 px-1 py-0.5 text-[10px] font-medium text-primary">
+                      <span className="shrink-0 rounded bg-primary/10 px-1 py-0.5 text-overline font-medium text-primary">
                         {t('ai_assistant.modelPicker.activeBadge', 'active')}
                       </span>
                     ) : null}

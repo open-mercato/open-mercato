@@ -160,4 +160,81 @@ describe('GET /api/ai_assistant/ai/agents/[agentId]/models', () => {
       }),
     )
   })
+
+  it('returns 401 when unauthenticated', async () => {
+    authMock.mockResolvedValueOnce(null)
+    const response = await GET(
+      new Request('http://localhost/api/ai_assistant/ai/agents/catalog.assistant/models') as any,
+      buildParams('catalog.assistant'),
+    )
+    expect(response.status).toBe(401)
+    const json = await response.json()
+    expect(json.error).toBe('Unauthorized')
+  })
+
+  it('returns 404 when the agent id is unknown', async () => {
+    seedAgentRegistryForTests([])
+    const response = await GET(
+      new Request('http://localhost/api/ai_assistant/ai/agents/unknown.assistant/models') as any,
+      buildParams('unknown.assistant'),
+    )
+    expect(response.status).toBe(404)
+    const json = await response.json()
+    expect(json.code).toBe('agent_unknown')
+  })
+
+  it('returns 403 when the caller lacks the agent\'s required features', async () => {
+    seedAgentRegistryForTests([
+      makeAgent({
+        id: 'catalog.assistant',
+        moduleId: 'catalog',
+        requiredFeatures: ['catalog.assistant.use'],
+      }),
+    ])
+    loadAclMock.mockResolvedValueOnce({ features: ['ai_assistant.view'], isSuperAdmin: false })
+    const response = await GET(
+      new Request('http://localhost/api/ai_assistant/ai/agents/catalog.assistant/models') as any,
+      buildParams('catalog.assistant'),
+    )
+    expect(response.status).toBe(403)
+    const json = await response.json()
+    expect(json.code).toBe('agent_features_denied')
+  })
+
+  it('returns an empty providers array when allowRuntimeModelOverride is false', async () => {
+    seedAgentRegistryForTests([
+      makeAgent({
+        id: 'catalog.assistant',
+        moduleId: 'catalog',
+        allowRuntimeModelOverride: false,
+      }),
+    ])
+    const response = await GET(
+      new Request('http://localhost/api/ai_assistant/ai/agents/catalog.assistant/models') as any,
+      buildParams('catalog.assistant'),
+    )
+    expect(response.status).toBe(200)
+    const json = await response.json()
+    expect(json.allowRuntimeModelOverride).toBe(false)
+    expect(json.providers).toEqual([])
+  })
+
+  it('clips providers and models against the tenant allowlist intersection', async () => {
+    seedAgentRegistryForTests([
+      makeAgent({ id: 'catalog.assistant', moduleId: 'catalog' }),
+    ])
+    getSnapshotMock.mockResolvedValueOnce({
+      allowedProviders: ['openai'],
+      allowedModelsByProvider: { openai: [] },
+    })
+    const response = await GET(
+      new Request('http://localhost/api/ai_assistant/ai/agents/catalog.assistant/models') as any,
+      buildParams('catalog.assistant'),
+    )
+    expect(response.status).toBe(200)
+    const json = await response.json()
+    expect(json.providers.map((p: { id: string }) => p.id)).toEqual(['openai'])
+    const openaiEntry = json.providers.find((p: { id: string }) => p.id === 'openai')
+    expect(openaiEntry?.models ?? []).toEqual([])
+  })
 })

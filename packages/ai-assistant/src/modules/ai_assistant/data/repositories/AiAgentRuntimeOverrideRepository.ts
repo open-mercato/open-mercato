@@ -1,4 +1,4 @@
-import type { EntityManager } from '@mikro-orm/postgresql'
+import type { EntityManager, FilterQuery } from '@mikro-orm/postgresql'
 import { llmProviderRegistry } from '@open-mercato/shared/lib/ai/llm-provider-registry'
 import { canonicalProviderId } from '../../lib/model-allowlist'
 import { AiAgentRuntimeOverride } from '../entities'
@@ -61,7 +61,7 @@ export class AiAgentRuntimeOverrideRepository {
         organizationId: orgFilter,
         agentId: ctx.agentId,
         deletedAt: null,
-      } as any)
+      } satisfies FilterQuery<AiAgentRuntimeOverride>)
       if (agentRow) return agentRow
     }
 
@@ -71,7 +71,7 @@ export class AiAgentRuntimeOverrideRepository {
       organizationId: orgFilter,
       agentId: null,
       deletedAt: null,
-    } as any)
+    } satisfies FilterQuery<AiAgentRuntimeOverride>)
     return tenantRow ?? null
   }
 
@@ -86,7 +86,7 @@ export class AiAgentRuntimeOverrideRepository {
       organizationId: ctx.organizationId ?? null,
       agentId: ctx.agentId ?? null,
       deletedAt: null,
-    } as any)
+    } satisfies FilterQuery<AiAgentRuntimeOverride>)
     return row ?? null
   }
 
@@ -135,7 +135,7 @@ export class AiAgentRuntimeOverrideRepository {
         organizationId: orgFilter,
         agentId: agentIdFilter,
         deletedAt: null,
-      } as any)
+      } satisfies FilterQuery<AiAgentRuntimeOverride>)
 
       if (existing) {
         if (hasProviderId) existing.providerId = normalizedProviderId
@@ -194,7 +194,7 @@ export class AiAgentRuntimeOverrideRepository {
         organizationId: orgFilter,
         agentId: agentIdFilter,
         deletedAt: null,
-      } as any)
+      } satisfies FilterQuery<AiAgentRuntimeOverride>)
       if (!existing) return false
       if (
         existing.allowedOverrideProviders != null ||

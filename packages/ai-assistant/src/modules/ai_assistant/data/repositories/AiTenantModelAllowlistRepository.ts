@@ -1,4 +1,4 @@
-import type { EntityManager } from '@mikro-orm/postgresql'
+import type { EntityManager, FilterQuery } from '@mikro-orm/postgresql'
 import { AiTenantModelAllowlist } from '../entities'
 
 export interface AiTenantModelAllowlistContext {
@@ -51,7 +51,7 @@ export class AiTenantModelAllowlistRepository {
       tenantId: ctx.tenantId,
       organizationId: orgFilter,
       deletedAt: null,
-    } as any)
+    } satisfies FilterQuery<AiTenantModelAllowlist>)
     return row ?? null
   }
 
@@ -86,7 +86,7 @@ export class AiTenantModelAllowlistRepository {
         tenantId: ctx.tenantId,
         organizationId: orgFilter,
         deletedAt: null,
-      } as any)
+      } satisfies FilterQuery<AiTenantModelAllowlist>)
 
       if (existing) {
         existing.allowedProviders = providers
@@ -120,7 +120,7 @@ export class AiTenantModelAllowlistRepository {
         tenantId: ctx.tenantId,
         organizationId: orgFilter,
         deletedAt: null,
-      } as any)
+      } satisfies FilterQuery<AiTenantModelAllowlist>)
       if (!existing) return false
       existing.deletedAt = new Date()
       await tx.persist(existing).flush()

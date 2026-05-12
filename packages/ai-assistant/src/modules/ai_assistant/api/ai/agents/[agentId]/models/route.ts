@@ -167,7 +167,10 @@ export async function GET(
           ? tenantAgentAllowlist
           : null
       } catch (snapshotError) {
-        console.warn('[AI Agents Models] Failed to load tenant allowlist:', snapshotError)
+        // Picker still renders against env-only so the UI does not break, but log at
+        // error level so an outage is operationally visible. The chat dispatcher
+        // refuses to dispatch when this lookup fails, so writes stay safe.
+        console.error('[AI Agents Models] Failed to load tenant allowlist:', snapshotError)
       }
     }
 

@@ -10,6 +10,8 @@ import { Button } from '@open-mercato/ui/primitives/button'
 import { Checkbox } from '@open-mercato/ui/primitives/checkbox'
 import { Label } from '@open-mercato/ui/primitives/label'
 import { apiCall, apiCallOrThrow } from '@open-mercato/ui/backend/utils/apiCall'
+import { flash } from '@open-mercato/ui/backend/FlashMessages'
+import { useGuardedMutation } from '@open-mercato/ui/backend/injection/useGuardedMutation'
 
 type EnvAllowlistConfig = {
   providers: string[] | null
@@ -82,6 +84,12 @@ export function AiTenantAllowlistPageClient(): React.JSX.Element {
   const [saving, setSaving] = React.useState(false)
   const [clearing, setClearing] = React.useState(false)
   const [feedback, setFeedback] = React.useState<{ kind: 'ok' | 'error'; text: string } | null>(null)
+  const { runMutation: runSaveAllowlistMutation } = useGuardedMutation({
+    contextId: 'ai-tenant-allowlist-save',
+  })
+  const { runMutation: runClearAllowlistMutation } = useGuardedMutation({
+    contextId: 'ai-tenant-allowlist-clear',
+  })
 
   React.useEffect(() => {
     if (settingsQuery.data) {
@@ -203,31 +211,37 @@ export function AiTenantAllowlistPageClient(): React.JSX.Element {
     setSaving(true)
     setFeedback(null)
     try {
-      const { ok, status, result } = await apiCall<{ error?: string; code?: string }>(
-        '/api/ai_assistant/settings/allowlist',
-        {
-          method: 'PUT',
-          credentials: 'include',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            allowedProviders: editState.allowedProviders,
-            allowedModelsByProvider: editState.allowedModelsByProvider,
-          }),
+      await runSaveAllowlistMutation({
+        operation: async () => {
+          const { ok, status, result } = await apiCall<{ error?: string; code?: string }>(
+            '/api/ai_assistant/settings/allowlist',
+            {
+              method: 'PUT',
+              credentials: 'include',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({
+                allowedProviders: editState.allowedProviders,
+                allowedModelsByProvider: editState.allowedModelsByProvider,
+              }),
+            },
+          )
+          if (!ok) {
+            throw new Error(
+              result?.error ?? t('ai_assistant.allowlist.save.error', `Save failed (${status})`),
+            )
+          }
         },
-      )
-      if (!ok) {
-        setFeedback({
-          kind: 'error',
-          text: result?.error ?? t('ai_assistant.allowlist.save.error', `Save failed (${status})`),
-        })
-        return
-      }
-      setFeedback({
-        kind: 'ok',
-        text: t('ai_assistant.allowlist.save.success', 'Allowlist saved.'),
+        context: {},
       })
+      const successText = t('ai_assistant.allowlist.save.success', 'Allowlist saved.')
+      setFeedback({ kind: 'ok', text: successText })
+      flash(successText, 'success')
       setDirty(false)
       await queryClient.invalidateQueries({ queryKey: ['ai_assistant', 'settings'] })
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err)
+      setFeedback({ kind: 'error', text: message })
+      flash(message, 'error')
     } finally {
       setSaving(false)
     }
@@ -237,23 +251,32 @@ export function AiTenantAllowlistPageClient(): React.JSX.Element {
     setClearing(true)
     setFeedback(null)
     try {
-      const { ok, status, result } = await apiCall<{ error?: string; cleared?: boolean }>(
-        '/api/ai_assistant/settings/allowlist',
-        { method: 'DELETE', credentials: 'include' },
-      )
-      if (!ok) {
-        setFeedback({
-          kind: 'error',
-          text: result?.error ?? t('ai_assistant.allowlist.clear.error', `Clear failed (${status})`),
-        })
-        return
-      }
-      setFeedback({
-        kind: 'ok',
-        text: t('ai_assistant.allowlist.clear.success', 'Tenant allowlist cleared. Env-only enforcement applies.'),
+      await runClearAllowlistMutation({
+        operation: async () => {
+          const { ok, status, result } = await apiCall<{ error?: string; cleared?: boolean }>(
+            '/api/ai_assistant/settings/allowlist',
+            { method: 'DELETE', credentials: 'include' },
+          )
+          if (!ok) {
+            throw new Error(
+              result?.error ?? t('ai_assistant.allowlist.clear.error', `Clear failed (${status})`),
+            )
+          }
+        },
+        context: {},
       })
+      const successText = t(
+        'ai_assistant.allowlist.clear.success',
+        'Tenant allowlist cleared. Env-only enforcement applies.',
+      )
+      setFeedback({ kind: 'ok', text: successText })
+      flash(successText, 'success')
       setDirty(false)
       await queryClient.invalidateQueries({ queryKey: ['ai_assistant', 'settings'] })
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err)
+      setFeedback({ kind: 'error', text: message })
+      flash(message, 'error')
     } finally {
       setClearing(false)
     }

@@ -279,7 +279,18 @@ export async function POST(req: NextRequest): Promise<Response> {
           ? tenantAgentAllowlist
           : null
       } catch (snapshotError) {
-        console.warn('[AI Chat Agent] Tenant allowlist lookup failed; falling back to env-only:', snapshotError)
+        // Fail closed: refuse to dispatch if we cannot confirm the tenant allowlist.
+        // Silently falling back to env-only would widen the effective allowlist when
+        // the DB is unavailable, which is the opposite of what an admin intends.
+        console.error(
+          '[AI Chat Agent] Tenant allowlist lookup failed; refusing to dispatch:',
+          snapshotError,
+        )
+        return jsonError(
+          503,
+          'Tenant allowlist is temporarily unavailable. Try again shortly.',
+          'tenant_allowlist_unavailable',
+        )
       }
     }
     const knownProviderIds = llmProviderRegistry.list().map((p) => p.id)

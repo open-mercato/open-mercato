@@ -81,6 +81,13 @@ type ToolInfo = {
   inputSchema: Record<string, unknown>
 }
 
+type AiAssistantSettingsPageClientProps = {
+  launchMode?: 'selector' | 'legacy'
+  showVisibilityControl?: boolean
+}
+
+const LEGACY_AI_ASSISTANT_OPEN_EVENT = 'om:open-ai-chat'
+
 async function fetchHealth(): Promise<OpenCodeHealthResponse> {
   const result = await apiCall<OpenCodeHealthResponse>('/api/ai_assistant/health')
   if (!result.ok || !result.result) throw new Error('Failed to fetch health')
@@ -393,17 +400,81 @@ function PerAgentOverrideList({
   )
 }
 
-function AiAssistantSettingsContent() {
+function AiAssistantLauncherCard({
+  launchMode,
+  showVisibilityControl,
+}: {
+  launchMode: 'selector' | 'legacy'
+  showVisibilityControl: boolean
+}) {
+  const t = useT()
+  const { isEnabled, toggleEnabled, isLoaded } = useAiAssistantVisibility()
+
+  const openAiAssistant = () => {
+    const eventName = launchMode === 'legacy'
+      ? LEGACY_AI_ASSISTANT_OPEN_EVENT
+      : AI_ASSISTANT_LAUNCHER_OPEN_EVENT
+    window.dispatchEvent(new CustomEvent(eventName))
+  }
+
+  return (
+    <div className="rounded-lg border bg-card p-6">
+      <div className="flex items-start justify-between gap-4">
+        <div className="space-y-1">
+          <h2 className="flex items-center gap-2 text-lg font-semibold">
+            <Bot className="size-5" />
+            {t('ai_assistant.settings.visibilityTitle', 'AI Assistant')}
+          </h2>
+          <p className="text-sm text-muted-foreground">
+            {showVisibilityControl
+              ? isEnabled
+                ? t('ai_assistant.settings.visibilityEnabled', 'Visible in header with Cmd+J shortcut enabled.')
+                : t('ai_assistant.settings.visibilityDisabled', 'Hidden from header. Enable to show the button and Cmd+J shortcut.')
+              : t('ai_assistant.settings.launchDescription', 'Open the AI assistant from this page.')}
+          </p>
+        </div>
+        <div className="flex items-center gap-4">
+          {showVisibilityControl ? (
+            <div className="flex items-center gap-3 rounded-md border bg-muted/30 px-4 py-2">
+              <span className="text-sm font-medium">
+                {t('ai_assistant.settings.visibilityToggleLabel', 'Visibility')}
+              </span>
+              {isEnabled ? (
+                <Eye className="size-4 text-muted-foreground" />
+              ) : (
+                <EyeOff className="size-4 text-muted-foreground" />
+              )}
+              <Switch
+                checked={isEnabled}
+                onCheckedChange={toggleEnabled}
+                disabled={!isLoaded}
+              />
+            </div>
+          ) : null}
+          <Button type="button" onClick={openAiAssistant} size="default" className="gap-2">
+            <Bot className="size-4" />
+            {launchMode === 'legacy'
+              ? t('ai_assistant.settings.openButton', 'Open AI Assistant')
+              : t('ai_assistant.settings.openSelectorButton', 'Open AI assistants')}
+          </Button>
+        </div>
+      </div>
+    </div>
+  )
+}
+
+function AiAssistantSettingsContent({
+  launchMode,
+  showVisibilityControl,
+}: {
+  launchMode: 'selector' | 'legacy'
+  showVisibilityControl: boolean
+}) {
   const t = useT()
   const queryClient = useQueryClient()
   const [toolsExpanded, setToolsExpanded] = React.useState(false)
   const [mcpConfigOpen, setMcpConfigOpen] = React.useState(false)
   const [sessionKeyOpen, setSessionKeyOpen] = React.useState(false)
-  const { isEnabled, toggleEnabled, isLoaded } = useAiAssistantVisibility()
-
-  const openAiAssistant = () => {
-    window.dispatchEvent(new CustomEvent(AI_ASSISTANT_LAUNCHER_OPEN_EVENT))
-  }
 
   const healthQuery = useQuery({
     queryKey: ['ai-assistant', 'health'],
@@ -464,42 +535,10 @@ function AiAssistantSettingsContent() {
         </p>
       </div>
 
-      <div className="rounded-lg border bg-card p-6">
-        <div className="flex items-start justify-between">
-          <div className="space-y-1">
-            <h2 className="flex items-center gap-2 text-lg font-semibold">
-              <Bot className="size-5" />
-              {t('ai_assistant.settings.visibilityTitle', 'AI Assistant')}
-            </h2>
-            <p className="text-sm text-muted-foreground">
-              {isEnabled
-                ? t('ai_assistant.settings.visibilityEnabled', 'Visible in header with Cmd+J shortcut enabled.')
-                : t('ai_assistant.settings.visibilityDisabled', 'Hidden from header. Enable to show the button and Cmd+J shortcut.')}
-            </p>
-          </div>
-          <div className="flex items-center gap-4">
-            <div className="flex items-center gap-3 rounded-md border bg-muted/30 px-4 py-2">
-              <span className="text-sm font-medium">
-                {t('ai_assistant.settings.visibilityToggleLabel', 'Visibility')}
-              </span>
-              {isEnabled ? (
-                <Eye className="size-4 text-muted-foreground" />
-              ) : (
-                <EyeOff className="size-4 text-muted-foreground" />
-              )}
-              <Switch
-                checked={isEnabled}
-                onCheckedChange={toggleEnabled}
-                disabled={!isLoaded}
-              />
-            </div>
-            <Button onClick={openAiAssistant} size="default" className="gap-2">
-              <Bot className="size-4" />
-              {t('ai_assistant.settings.openButton', 'Open AI Assistant')}
-            </Button>
-          </div>
-        </div>
-      </div>
+      <AiAssistantLauncherCard
+        launchMode={launchMode}
+        showVisibilityControl={showVisibilityControl}
+      />
 
       {settings ? (
         <GlobalOverrideForm
@@ -839,8 +878,16 @@ function AiAssistantSettingsContent() {
   )
 }
 
-export function AiAssistantSettingsPageClient() {
-  return <AiAssistantSettingsContent />
+export function AiAssistantSettingsPageClient({
+  launchMode = 'selector',
+  showVisibilityControl = false,
+}: AiAssistantSettingsPageClientProps) {
+  return (
+    <AiAssistantSettingsContent
+      launchMode={launchMode}
+      showVisibilityControl={showVisibilityControl}
+    />
+  )
 }
 
 export default AiAssistantSettingsPageClient

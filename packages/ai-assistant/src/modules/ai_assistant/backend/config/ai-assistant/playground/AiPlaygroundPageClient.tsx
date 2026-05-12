@@ -320,7 +320,7 @@ function ChatLane({ agent, debug }: { agent: PlaygroundAgent; debug: boolean }) 
         pageContext={{ source: 'playground', pageId: 'ai_assistant.playground' }}
         debug={debug}
         registry={registry}
-        className="min-h-[360px]"
+        className="min-h-96"
         debugTools={debugTools}
         debugPromptSections={debugPromptSections}
         uiParts={uiParts}
