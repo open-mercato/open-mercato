@@ -25,7 +25,11 @@ Detailed variant tables, size matrices, props, examples, and MUST rules for ever
 - [CompactSelect](#compactselect)
 - [InlineInput](#inlineinput)
 - [InlineSelect](#inlineselect)
+- [DatePicker](#datepicker)
+- [DateRangePicker](#daterangepicker)
 - [TimePicker](#timepicker)
+- [EmptyState](#emptystate)
+- [Skeleton](#skeleton)
 - [Alert](#alert)
 - [Notification](#notification)
 - [Accordion](#accordion)
@@ -1287,6 +1291,158 @@ const [stage, setStage] = React.useState<string>(initialStage)
 
 ---
 
+## DatePicker
+
+```typescript
+import { DatePicker, type DatePickerProps, type DatePickerFooter } from '@open-mercato/ui/primitives/date-picker'
+```
+
+Single-date popover trigger per Figma `446:7413` (368×432 popover; trigger styled as Figma `Date Selector [1.1]`). Subsumes the legacy `backend/inputs/DatePicker` and `backend/inputs/DateTimePicker` via the `withTime` prop; both legacy paths are kept as `@deprecated` re-export shims so existing imports stay zero-diff. Built on the shared `Calendar` primitive, so month navigation comes from `Calendar`'s `MonthCaption` (paged prev/next month buttons with a centred caption pill, `goToMonth` from `useDayPicker()`).
+
+### Quick usage
+
+```tsx
+const [date, setDate] = React.useState<Date | null>(null)
+
+<DatePicker
+  value={date}
+  onChange={setDate}
+  withTime
+  minuteStep={5}
+  minDate={new Date()}
+  locale={pl}
+  aria-label={t('orders.scheduledFor', 'Scheduled for')}
+/>
+```
+
+### Footer modes
+
+| `footer` | Behaviour |
+|---|---|
+| `'apply-cancel'` (default, Figma-aligned) | Selecting a day stages a draft inside the popover. `Apply` commits and closes; `Cancel` reverts and closes. |
+| `'today-clear'` | Legacy footer with link-style `Today` / `Clear` buttons. Selecting a day commits immediately (set `closeOnSelect={false}` to keep the popover open). Toggle individual buttons with `showTodayButton` / `showClearButton`. |
+| `'none'` | No footer; selecting a day commits and closes. |
+
+### Props
+
+| Prop | Type | Default | Notes |
+|---|---|---|---|
+| `value` | `Date \| null` | — | Controlled value. `null` renders the placeholder. |
+| `onChange` | `(value: Date \| null) => void` | — | Called on Apply / immediate commit / Clear / Today. |
+| `footer` | `'apply-cancel' \| 'today-clear' \| 'none'` | `'apply-cancel'` | Footer mode (see table above). |
+| `closeOnSelect` | `boolean` | `footer === 'today-clear'` | Only meaningful in `'today-clear'` mode. |
+| `showTodayButton` / `showClearButton` | `boolean` | `true` | `'today-clear'` mode only. |
+| `withTime` | `boolean` | `false` | Renders an `HH:MM` `TimeInput` row under the calendar; combines into a single `Date`. |
+| `minuteStep` | `number` | `1` | Forwarded to `TimeInput` when `withTime`. |
+| `size` | `'sm' \| 'default'` | `'default'` | `sm` = `h-8`, `default` = `h-9`. |
+| `align` | `'start' \| 'center' \| 'end'` | `'start'` | Popover alignment relative to trigger. |
+| `minDate` / `maxDate` | `Date` | — | Disable out-of-range cells. |
+| `locale` | `date-fns Locale` | — | Forwarded to `format()` AND the underlying `Calendar` (drives month / weekday labels). |
+| `displayFormat` | `string` | derives from `locale` (`d MMM yyyy` for day-first locales, `MMM d, yyyy` otherwise; `+ HH:mm` when `withTime`) | Override the trigger label format. |
+| `disabled` / `readOnly` | `boolean` | `false` | `readOnly` allows opening the popover but blocks selection commit. |
+| `placeholder` | `string` | `t('ui.datePicker.placeholder', 'Pick a date')` or `t('ui.dateTimePicker.placeholder', 'Pick date and time')` when `withTime` | — |
+| `className` / `popoverClassName` | `string` | — | Trigger / popover content classes. |
+| `id` / `name` / `required` / `aria-label` / `aria-describedby` | — | — | Standard form/a11y forwarding. |
+
+### MUST rules
+
+- Locale-aware labels: pass `locale` from the user's resolved date-fns locale; do NOT hand-craft `displayFormat` strings unless the design genuinely diverges from the default day-first / month-first heuristic.
+- `value` must be `Date | null` (not `string`). Convert ISO strings on the API boundary, not inside the trigger.
+- Do NOT import from `@open-mercato/ui/backend/inputs/DatePicker` or `…/DateTimePicker` in new code — those are `@deprecated` shims that re-export this primitive (`<DateTimePicker>` is a thin wrapper that always sets `withTime`). New consumers import from `@open-mercato/ui/primitives/date-picker` directly.
+- When `withTime`, hand `minuteStep` (typical 5/10/15) — minute-by-minute scrolling is rarely the right UX.
+- Combine with `minDate` / `maxDate` for booking flows; don't post-validate after onChange.
+- Pass `aria-label` (or wrap in a `FormField` with a visible label) — the trigger has no built-in label.
+
+---
+
+## DateRangePicker
+
+```typescript
+import {
+  DateRangePicker,
+  type DateRangePickerProps,
+  type DateRangePresetItem,
+} from '@open-mercato/ui/primitives/date-range-picker'
+import { defaultDateRangePresets } from '@open-mercato/ui/primitives/date-picker-helpers'
+import type { DateRange } from '@open-mercato/ui/backend/date-range'
+```
+
+Two-month range popover per Figma `446:7412` (936×432 popover, optional preset sidebar on the left). Built on the shared `Calendar` primitive (`mode='range'`, `numberOfMonths={2}`) so month navigation uses the same `MonthCaption` (paged prev/next) as `DatePicker`. The legacy `FilterOverlay` date-range UI has been migrated onto this primitive (single source of truth for range selection across the app).
+
+### Quick usage
+
+```tsx
+const [range, setRange] = React.useState<DateRange | null>(null)
+
+<DateRangePicker
+  value={range}
+  onChange={setRange}
+  numberOfMonths={2}
+  locale={pl}
+  aria-label={t('reports.period', 'Period')}
+/>
+```
+
+### Range type and presets
+
+The range type comes from `@open-mercato/ui/backend/date-range` (single source of truth — same shape feeds dashboards, analytics, and CSV exports):
+
+```ts
+type DateRange = { start: Date; end: Date }
+
+type DateRangePresetItem = {
+  id: string
+  labelKey: string                                 // i18n key, resolved via useT()
+  range: (referenceDate?: Date) => DateRange       // pure getter, defaults to "now"
+}
+```
+
+`defaultDateRangePresets()` (from `primitives/date-picker-helpers`) returns the canonical sidebar list aligned with the Figma Period Range track:
+
+| `id` | `labelKey` |
+|---|---|
+| `today` | `ui.dateRangePicker.presets.today` |
+| `last_7_days` | `ui.dateRangePicker.presets.last7Days` |
+| `last_30_days` | `ui.dateRangePicker.presets.last30Days` |
+| `last_3_months` | `ui.dateRangePicker.presets.last3Months` |
+| `last_12_months` | `ui.dateRangePicker.presets.last12Months` |
+| `month_to_date` | `ui.dateRangePicker.presets.monthToDate` |
+| `year_to_date` | `ui.dateRangePicker.presets.yearToDate` |
+| `all_time` | `ui.dateRangePicker.presets.allTime` |
+
+Pass a custom array to override — each entry is `{ id, labelKey, range(refDate) }` and the getter must be pure (use `date-fns` `startOfDay` / `endOfDay` / `subMonths` etc.). `all_time` uses `new Date(0)` as `start`.
+
+### Props
+
+| Prop | Type | Default | Notes |
+|---|---|---|---|
+| `value` | `DateRange \| null` | — | Controlled range. `null` renders the placeholder. |
+| `onChange` | `(value: DateRange \| null) => void` | — | Called on Apply (when `withFooter`) or immediately on range completion / preset click (when `withFooter={false}`). |
+| `presets` | `DateRangePresetItem[]` | `defaultDateRangePresets()` | Sidebar list. Empty array + `showPresets={false}` to hide. |
+| `showPresets` | `boolean` | `true` | Hide the left-hand preset sidebar without dropping the data. |
+| `withFooter` | `boolean` | `true` | Renders the bottom `Cancel` / `Apply` bar with a summary of the staged range. Set to `false` to commit on range completion. |
+| `numberOfMonths` | `1 \| 2` | `2` | Two months side-by-side per Figma; drop to `1` for compact triggers. |
+| `size` | `'sm' \| 'default'` | `'default'` | `sm` = `h-8`. |
+| `align` | `'start' \| 'center' \| 'end'` | `'start'` | Popover alignment. |
+| `minDate` / `maxDate` | `Date` | — | Disable out-of-range cells. |
+| `locale` | `date-fns Locale` | — | Forwarded to `format()` AND the underlying `Calendar`. |
+| `formatRange` | `(value: DateRange, locale?: Locale) => string` | derives from `locale` (`d MMM yyyy` / `MMM d, yyyy`, separated by an en-dash) | Override the trigger label. |
+| `disabled` / `readOnly` | `boolean` | `false` | `readOnly` keeps the popover openable but blocks selection. |
+| `placeholder` | `string` | `t('ui.dateRangePicker.placeholder', 'Pick a date range')` | — |
+| `className` / `popoverClassName` | `string` | — | Trigger / popover content classes. |
+| `id` / `name` / `required` / `aria-label` / `aria-describedby` | — | — | Standard form/a11y forwarding. |
+
+### MUST rules
+
+- Range type is `{ start: Date; end: Date }` (from `@open-mercato/ui/backend/date-range`), NOT `{ from, to }` — convert at the react-day-picker boundary if you ever need to interop directly.
+- Pass `locale` (and forward to `Calendar` via the prop, never roll a custom caption) so month / weekday labels follow the user's locale.
+- `presets[].range` getters MUST be pure and accept an optional reference date; `defaultDateRangePresets()` already does this — when extending the list, mirror the same shape.
+- For dashboard-style "13 preset" UIs that share state with chart filters, pull the option list from `DATE_RANGE_OPTIONS` in `@open-mercato/ui/backend/date-range` and map it to `DateRangePresetItem[]`. Do not duplicate preset logic in the consumer.
+- When migrating an old `FilterOverlay` date-range field, use this primitive — there is no longer a separate range UI inside `FilterOverlay`.
+- The popover height is capped to `--radix-popover-content-available-height`; the calendar+sidebar area scrolls and the footer stays pinned, so do NOT wrap the trigger in additional `overflow-hidden` containers that fight the popover sizing.
+
+---
+
 ## TimePicker
 
 ```typescript
@@ -1367,6 +1523,135 @@ Common options:
 - When passing custom `cancelLabel` / `applyLabel` / `statusLabel` / `headerPlaceholder`, route them through `useT()` — primitive defaults are English.
 - `formatDuration` is English-only — for translatable labels, define a lookup map keyed on the integer minutes value, with `t(key, fallback)` resolution inside the consumer.
 - Active state for slot / duration / status uses `bg-brand-violet/10 text-brand-violet`, NOT `bg-primary/10` — `--primary` in this codebase is near-black; `--brand-violet` is the actual violet.
+
+---
+
+## EmptyState
+
+```typescript
+import { EmptyState, type EmptyStateProps, emptyStateVariants } from '@open-mercato/ui/primitives/empty-state'
+```
+
+Centered "nothing-to-show" panel for empty lists, empty tabs, empty DataTable cells, and zero-result search panes. Title is required; the rest (icon / illustration / description / actions) is optional. Default variant renders a dashed-border muted card; `'subtle'` drops the border for embedded contexts (inside cards / popovers / DataTable empty cells).
+
+### Quick usage
+
+```tsx
+<EmptyState
+  size="default"
+  icon={<UsersRound className="h-6 w-6" aria-hidden="true" />}
+  title={t('customers.empty.title', 'No customers yet')}
+  description={t('customers.empty.description', 'Create your first customer to start tracking opportunities.')}
+  actions={
+    <Button onClick={openCreateDialog}>
+      <Plus className="h-4 w-4" aria-hidden="true" />
+      {t('customers.empty.action', 'Add customer')}
+    </Button>
+  }
+/>
+```
+
+### Variants / Sizes
+
+| `variant` | Token | Use |
+|---|---|---|
+| `default` | `rounded-lg border border-dashed border-muted-foreground/40 bg-muted/30` | Standalone empty page / tab. |
+| `subtle` | `rounded-lg` (no border, no fill) | Inside cards, popovers, DataTable empty cells. |
+
+| `size` | Padding / gap | Icon box (subtle variant) |
+|---|---|---|
+| `sm` | `gap-2 px-4 py-6` | `size-10` |
+| `default` | `gap-3 px-6 py-10` | `size-12` |
+| `lg` | `gap-4 px-8 py-16` | `size-16` |
+
+Title type scale: `text-sm` for `sm` / `default`, `text-base` for `lg`. Description is always `text-sm text-muted-foreground` and capped to `max-w-sm` centred.
+
+### Props
+
+| Prop | Type | Default | Notes |
+|---|---|---|---|
+| `title` | `string` | — | Required. Rendered as `<p>` (not a heading) so it does not disrupt page heading hierarchy. |
+| `description` | `string` | — | Optional muted body line under the title. |
+| `icon` | `React.ReactNode` | — | Typically a `lucide-react` icon. With `variant='subtle'` it is wrapped in a round muted box (`size-10` / `size-12` / `size-16`); with `variant='default'` it sits inline tinted as `text-muted-foreground`. Ignored when `illustration` is provided. |
+| `illustration` | `React.ReactNode` | — | Figma-style illustration slot (typically a scaled SVG from the DS illustrations library). Takes precedence over `icon`; rendered without any icon-box wrapping so its own background shows through. |
+| `actions` | `React.ReactNode` | — | Primary action node, typically `<Button>` or a button group. |
+| `children` | `React.ReactNode` | — | Alternative to `actions` for custom content rendered below the title/description block. |
+| `size` | `'sm' \| 'default' \| 'lg'` | `'default'` | Controls padding, gap, and icon-box size. |
+| `variant` | `'default' \| 'subtle'` | `'default'` | See variants table. |
+| `className` | `string` | — | Applied to the outer wrapper. |
+| `action` / `actionLabel` / `onAction` / `actionLabelClassName` | — | — | `@deprecated` — kept only for the legacy backend `EmptyState` consumers. New code MUST use `actions={<Button>…</Button>}`. |
+
+### MUST rules
+
+- Title is plain text in a `<p>` — DO NOT pre-wrap it in `<h1>`/`<h2>`. If the surrounding page needs a heading, render it OUTSIDE the `EmptyState`. This keeps the heading hierarchy of the page intact wherever an empty state appears (DataTable cell, tab, dialog, etc.).
+- For empty DataTable cells, use `variant='subtle'` so the dashed border doesn't double up with the table chrome.
+- Prefer `illustration` over `icon` when the DS illustration library has a relevant asset — it ships with its own circular background and reads better at `size='lg'`.
+- Use `actions` (not the deprecated `action` / `actionLabel` / `onAction` triple) for any new code. The deprecated props are routed to a built-in `<Button variant="outline" size="sm">` with a leading `<Plus />` icon — keep that only for legacy parity.
+- Pass all strings through `useT()` — the primitive has no built-in default copy.
+
+---
+
+## Skeleton
+
+```typescript
+import { Skeleton, type SkeletonProps, type SkeletonShape } from '@open-mercato/ui/primitives/skeleton'
+```
+
+Inline loading placeholder for content that has a known shape but no data yet. Three shapes: `'rect'` (default block, `rounded-md`), `'circle'` (avatar / icon), and `'text'` (multi-line text with a naturally narrower last line). All sizing is done via `className` — the primitive ships only with the pulse animation and shape geometry.
+
+### Quick usage
+
+```tsx
+{isLoading ? (
+  <Skeleton shape="rect" className="h-9 w-32" />
+) : (
+  <Button onClick={save}>{t('actions.save', 'Save')}</Button>
+)}
+
+<div className="flex items-center gap-3">
+  <Skeleton shape="circle" className="size-10" />
+  <Skeleton shape="text" lines={2} className="flex-1" />
+</div>
+```
+
+Composing many `Skeleton`s into a table row / card skeleton:
+
+```tsx
+<div className="space-y-2" aria-label={t('common.loading', 'Loading')}>
+  {Array.from({ length: 6 }).map((_, index) => (
+    <div key={index} className="flex items-center gap-3 rounded-md border p-3">
+      <Skeleton shape="circle" className="size-8" />
+      <Skeleton shape="rect" className="h-4 w-1/3" />
+      <Skeleton shape="rect" className="ml-auto h-4 w-20" />
+    </div>
+  ))}
+</div>
+```
+
+### Shapes
+
+| `shape` | Renders | Default sizing | Use case |
+|---|---|---|---|
+| `'rect'` (default) | Single `animate-pulse bg-muted rounded-md` block | Sized via `className` (none by default) | Buttons, inputs, thumbnails, generic blocks. |
+| `'circle'` | Same block with `rounded-full` | Sized via `className` (typical: `size-8` / `size-10` / `size-12`) | Avatars, status dots, icon placeholders. |
+| `'text'` | `lines` (default `1`) horizontal `h-4` bars stacked with `space-y-2`. Last line is `w-3/4` when `lines > 1` to mimic natural text wrap. | `w-full` per line | Paragraph stubs, list-row labels. |
+
+### Props
+
+| Prop | Type | Default | Notes |
+|---|---|---|---|
+| `shape` | `'rect' \| 'circle' \| 'text'` | `'rect'` | See table above. |
+| `lines` | `number` | `1` | Only meaningful for `shape='text'`. Coerced to `>= 1`. |
+| `className` | `string` | — | All sizing happens here. |
+| `...rest` | `React.HTMLAttributes<HTMLDivElement>` minus `role` / `aria-busy` | — | The primitive owns the accessibility attributes — do not override `role` or `aria-busy`. |
+
+### MUST rules
+
+- The primitive sets `role="status"`, `aria-busy="true"`, and `aria-live="polite"` automatically — do NOT pass overrides for those. If you need screen readers to announce a label, wrap a group of `Skeleton`s in a container with `aria-label={t('common.loading', 'Loading')}` (see composition example).
+- Skeletons must match the final content's footprint — render the same wrapper, gap, and padding around the `Skeleton` that the loaded UI uses, so the layout doesn't jump on hydration.
+- Use `shape='text'` with `lines` (don't stack three `shape='rect'` blocks by hand) — the primitive already handles the narrower final line.
+- DO NOT animate skeletons differently than the built-in `animate-pulse` (e.g. shimmer libraries) — keep the loading state consistent across the app.
+- Avoid sub-200ms skeleton flashes: if the underlying data resolves synchronously or from cache, render the actual content directly instead of flashing a placeholder.
 
 ---
 
@@ -1844,8 +2129,6 @@ const [value, setValue] = React.useState('<p>Hello</p>')
 | `'standard'` (default) | Heading dropdown / Bold / Italic / Underline / Bullet list / Numbered list / Link |
 | `'full'` | Heading / Font size / Color / Bold / Italic / Underline / Strikethrough / Bullet list / Numbered list / HR / Quote / Inline code / Code block / Image / Table / Checklist / Align / Link / Comment / Mention / Help (Figma `166331:4006`) |
 | `'custom'` | Render `<RichEditorToolbar>...</RichEditorToolbar>` + `<RichEditorContent />` children manually |
-
-The `'standard'` variant is what `CrudForm` `editor: 'html'` consumers get — it matches the legacy six-button toolbar plus the new heading dropdown.
 
 The `'full'` variant is what `CrudForm` `editor: 'html'` ships today (the standalone preset is the same compound API, just opted into via the variant prop on a one-off `<RichEditor />`).
 
