@@ -362,11 +362,11 @@ export async function GET(req: Request) {
     const orgId = u.organizationId ? String(u.organizationId) : null
     return {
       id: uid,
-    email: String(u.email),
-    name: u.name ? String(u.name) : null,
-    organizationId: orgId,
-    organizationName: orgId ? orgMap[orgId] ?? orgId : null,
-    tenantId: u.tenantId ? String(u.tenantId) : null,
+      email: String(u.email),
+      name: u.name ? String(u.name) : null,
+      organizationId: orgId,
+      organizationName: orgId ? orgMap[orgId] ?? orgId : null,
+      tenantId: u.tenantId ? String(u.tenantId) : null,
       tenantName: u.tenantId ? tenantMap[String(u.tenantId)] ?? String(u.tenantId) : null,
       roles: roleMap[uid] || [],
       roleIds: roleIdMap[uid] || [],
