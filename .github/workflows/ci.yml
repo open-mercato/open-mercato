@@ -43,6 +43,10 @@ jobs:
     steps:
       - name: Checkout repository
         uses: actions/checkout@v6
+        with:
+          # Pulls external/official-modules when present (public repo, default token is enough).
+          # No-op until .gitmodules registers it. Activation is driven by official-modules.json.
+          submodules: recursive
 
       - name: Fetch base branch for change detection
         # Needed so the scope step can diff against the PR base.
@@ -305,6 +309,10 @@ jobs:
     steps:
       - name: Checkout repository
         uses: actions/checkout@v6
+        with:
+          # Pulls external/official-modules when present (public repo, default token is enough).
+          # No-op until .gitmodules registers it. Activation is driven by official-modules.json.
+          submodules: recursive
 
       - name: Fetch base branch for change detection
         if: github.event_name == 'pull_request'
