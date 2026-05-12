@@ -339,6 +339,30 @@ const sidebars: SidebarsConfig = {
           label: "Modules",
           items: [
             "framework/modules/overview",
+            {
+              type: "category",
+              label: "Core Modules",
+              items: [
+                "framework/modules/core-modules",
+                {
+                  type: "category",
+                  label: "Sales",
+                  items: [
+                    "framework/modules/sales/index",
+                    "framework/modules/sales/injection",
+                    "framework/modules/sales/events",
+                    "framework/modules/sales/subscribers",
+                    "framework/modules/sales/data-model",
+                    "framework/modules/sales/acl",
+                    "framework/modules/sales/services",
+                    "framework/modules/sales/calculations",
+                    "framework/modules/sales/commands",
+                    "framework/modules/sales/search",
+                    "framework/modules/sales/frontend-pages",
+                  ],
+                },
+              ],
+            },
             "framework/modules/official-modules",
             "framework/modules/routes-and-pages",
             "framework/modules/notifications",
@@ -346,7 +370,6 @@ const sidebars: SidebarsConfig = {
             "framework/modules/currencies",
             "framework/modules/integrations-data-sync",
             "framework/modules/sales-providers",
-            "framework/modules/sales-calculations",
             "framework/modules/payment-gateways",
             "framework/modules/shipping-carriers",
             "framework/modules/building-gateway-provider",
