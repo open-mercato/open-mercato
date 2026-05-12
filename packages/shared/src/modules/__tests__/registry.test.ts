@@ -479,8 +479,6 @@ describe('sortRoutesBySpecificity', () => {
 })
 
 describe('findRouteManifestMatch — specificity (issue #1870)', () => {
-  // Routes coming from registerFrontendRouteManifests are pre-sorted by specificity.
-  // These tests simulate that by calling sortRoutesBySpecificity first, then matching.
   function entry(pattern: string): FrontendRouteManifestEntry {
     return { pattern, moduleId: 'test', load: async () => () => null }
   }
@@ -509,6 +507,29 @@ describe('findRouteManifestMatch — specificity (issue #1870)', () => {
     const match = findRouteManifestMatch(routes, '/docs/getting-started')
     expect(match?.route.pattern).toBe('/docs/[id]')
   })
+
+  // Direct-consumer tests — the Next.js catch-all `[...slug]` pages import
+  // `frontendRoutes`/`backendRoutes` from the generated manifests and pass them
+  // straight to `findRouteManifestMatch` without going through
+  // `register*RouteManifests` first. These tests pin that path: the matcher
+  // must sort internally so the user-facing bug from issue #1870 stays fixed.
+  it('picks the literal route from an unsorted (literal-after-dynamic) array', () => {
+    const unsorted = [entry('/things/[id]'), entry('/things/new')]
+    const match = findRouteManifestMatch(unsorted, '/things/new')
+    expect(match?.route.pattern).toBe('/things/new')
+  })
+
+  it('picks the literal route from an unsorted (catch-all-after-literal) array', () => {
+    const unsorted = [entry('/docs/[...slug]'), entry('/docs/intro')]
+    const match = findRouteManifestMatch(unsorted, '/docs/intro')
+    expect(match?.route.pattern).toBe('/docs/intro')
+  })
+
+  it('still picks dynamic over catch-all when input is unsorted', () => {
+    const unsorted = [entry('/docs/[...slug]'), entry('/docs/[id]')]
+    const match = findRouteManifestMatch(unsorted, '/docs/getting-started')
+    expect(match?.route.pattern).toBe('/docs/[id]')
+  })
 })
 
 describe('findApiRouteManifestMatch — specificity (issue #1870)', () => {
@@ -526,6 +547,15 @@ describe('findApiRouteManifestMatch — specificity (issue #1870)', () => {
     const routes = sortRoutesBySpecificity([apiEntry('/api/things/[id]'), apiEntry('/api/things/new')])
     const match = findApiRouteManifestMatch(routes, 'GET', '/api/things/abc-123')
     expect(match?.route.path).toBe('/api/things/[id]')
+  })
+
+  // Direct-consumer test mirroring the API catch-all `/app/api/[...slug]/route.ts`:
+  // generated `apiRoutes` is passed to the matcher without first calling
+  // `registerApiRouteManifests`. Matcher must sort internally.
+  it('picks the literal API route from an unsorted array', () => {
+    const unsorted = [apiEntry('/api/things/[id]'), apiEntry('/api/things/new')]
+    const match = findApiRouteManifestMatch(unsorted, 'GET', '/api/things/new')
+    expect(match?.route.path).toBe('/api/things/new')
   })
 })
 

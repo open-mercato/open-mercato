@@ -274,6 +274,21 @@ export function sortRoutesBySpecificity<T extends { pattern?: string; path?: str
   )
 }
 
+// Memoized per-array sorted view, so direct callers (e.g., the Next.js catch-all
+// routes that import generated `frontendRoutes`/`backendRoutes`/`apiRoutes`
+// arrays) match against a specificity-sorted view even if they never call
+// `register*RouteManifests`. Keyed by array reference; generated arrays are
+// module-level constants so this caches once per process.
+const sortedRoutesCache = new WeakMap<object, readonly unknown[]>()
+
+function ensureSortedRoutes<T extends { pattern?: string; path?: string }>(routes: readonly T[]): readonly T[] {
+  const cached = sortedRoutesCache.get(routes) as readonly T[] | undefined
+  if (cached) return cached
+  const sorted = sortRoutesBySpecificity([...routes])
+  sortedRoutesCache.set(routes, sorted)
+  return sorted
+}
+
 export function matchRoutePattern(pattern: string, pathname: string): RouteMatchParams | undefined {
   const p = normPath(pattern)
   const u = normPath(pathname)
@@ -356,7 +371,7 @@ export function findRouteManifestMatch<T extends { pattern?: string; path?: stri
   routes: T[],
   pathname: string
 ): { route: T; params: RouteMatchParams } | undefined {
-  for (const route of routes) {
+  for (const route of ensureSortedRoutes(routes)) {
     const params = matchRoutePattern(route.pattern ?? route.path ?? '/', pathname)
     if (params) {
       return { route, params }
@@ -369,7 +384,7 @@ export function findApiRouteManifestMatch<T extends { path: string; methods: Htt
   method: HttpMethod,
   pathname: string
 ): { route: T; params: RouteMatchParams } | undefined {
-  for (const route of routes) {
+  for (const route of ensureSortedRoutes(routes)) {
     if (!route.methods.includes(method)) continue
     const params = matchRoutePattern(route.path, pathname)
     if (params) {
