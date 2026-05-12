@@ -245,7 +245,7 @@
   "ai_assistant.launcher.hint.launch": "Launch",
   "ai_assistant.launcher.hint.navigate": "Navigate",
   "ai_assistant.launcher.searchPlaceholder": "Search assistants...",
-  "ai_assistant.launcher.setup.body": "Asystenci AI są zainstalowani, ale nie skonfigurowano klucza dostawcy. Ustaw OPENCODE_PROVIDER oraz pasujący klucz API w pliku .env, a następnie uruchom aplikację ponownie.",
+  "ai_assistant.launcher.setup.body": "Asystenci AI są zainstalowani, ale nie skonfigurowano klucza dostawcy. Ustaw OM_AI_PROVIDER oraz pasujący klucz API w pliku .env, a następnie uruchom aplikację ponownie.",
   "ai_assistant.launcher.setup.docs": "Dokumentacja asystenta AI",
   "ai_assistant.launcher.setup.settingsDocs": "Ustawienia dostawców",
   "ai_assistant.launcher.setup.title": "Skonfiguruj dostawcę AI, aby używać asystentów",

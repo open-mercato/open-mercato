@@ -215,7 +215,7 @@ function AiAssistantSettingsContent() {
         )}
 
         <p className="text-xs text-muted-foreground mt-3">
-          Set <code className="font-mono text-overline bg-muted px-1 rounded">OPENCODE_PROVIDER</code> in .env to change provider (anthropic, openai, google).
+          Set <code className="font-mono text-overline bg-muted px-1 rounded">OM_AI_PROVIDER</code> in .env to change provider (anthropic, openai, google).
         </p>
       </div>
 

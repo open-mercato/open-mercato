@@ -245,7 +245,7 @@
   "ai_assistant.launcher.hint.launch": "Launch",
   "ai_assistant.launcher.hint.navigate": "Navigate",
   "ai_assistant.launcher.searchPlaceholder": "Search assistants...",
-  "ai_assistant.launcher.setup.body": "AI assistants are installed, but no provider key is configured. Set OPENCODE_PROVIDER and one matching API key in your .env file, then restart the app.",
+  "ai_assistant.launcher.setup.body": "AI assistants are installed, but no provider key is configured. Set OM_AI_PROVIDER and one matching API key in your .env file, then restart the app.",
   "ai_assistant.launcher.setup.docs": "AI assistant docs",
   "ai_assistant.launcher.setup.settingsDocs": "Provider settings",
   "ai_assistant.launcher.setup.title": "Configure an AI provider to use assistants",

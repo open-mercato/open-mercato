@@ -1321,7 +1321,7 @@ export function AiChat({
                 disabled={isBusy}
               />
             ) : null}
-            <p className="text-xs text-muted-foreground">
+            <p className="hidden text-xs text-muted-foreground sm:block">
               {hasUploadingFiles || isUploading
                 ? t(
                     'ai_assistant.chat.uploadingHint',
