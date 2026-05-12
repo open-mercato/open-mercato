@@ -73,11 +73,31 @@ Key events: `sales.order.created` / `updated` / `deleted`, `sales.quote.created`
 
 ## Extending Sales UI
 
-Common widget injection spots:
-- `crud-form:sales.sales_order:fields` — order detail form
+Widget injection spots:
+
+**Order & Quote detail page:**
+- `sales.document.detail.order:details` — order detail page sections
+- `sales.document.detail.quote:details` — quote detail page sections
+- `sales.document.detail.order:tabs` — order detail page tabs
+- `sales.document.detail.quote:tabs` — quote detail page tabs
+- `detail:sales.order:stage-bar` — order stage bar (empty, ready for extension)
+- `detail:sales.quote:stage-bar` — quote stage bar (empty, ready for extension)
+- `detail:sales.order:closure` — order closure section (empty, ready for extension)
+- `detail:sales.quote:closure` — quote closure section (empty, ready for extension)
+
+**Order list:**
 - `data-table:sales.orders:columns` — order list columns
 - `data-table:sales.orders:row-actions` — order row actions
-- `sales.document.detail.order:details` — order detail page sections
+
+**Order form:**
+- `crud-form:sales.sales_order:fields` — order detail form
+
+**Payments:**
+- `data-table:sales.payments:columns` — payment list columns
+
+**Payment methods:**
+- `crud-form:sales.payment_method:fields` — payment method form fields
+- `crud-form:sales.sales_payment_method:fields` — sales payment method form fields
 
 ## Frontend Pages
 
