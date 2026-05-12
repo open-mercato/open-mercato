@@ -46,6 +46,12 @@ describe('normalizeHostname', () => {
     expect(() => normalizeHostname(longHost)).toThrow(HostnameNormalizationError)
   })
 
+  it('rejects IPv4-address literals (TLD must not be all-numeric)', () => {
+    expect(() => normalizeHostname('127.0.0.1')).toThrow(/IP address/)
+    expect(() => normalizeHostname('127.0.0.1:5001')).toThrow(/IP address/)
+    expect(() => normalizeHostname('10.20.30.40')).toThrow(HostnameNormalizationError)
+  })
+
   it('rejects malformed labels', () => {
     expect(() => normalizeHostname('-shop.acme.com')).toThrow(HostnameNormalizationError)
     expect(() => normalizeHostname('shop.acme-.com')).toThrow(HostnameNormalizationError)
@@ -67,5 +73,7 @@ describe('tryNormalizeHostname', () => {
     expect(tryNormalizeHostname('')).toBeNull()
     expect(tryNormalizeHostname('localhost')).toBeNull()
     expect(tryNormalizeHostname('-bad')).toBeNull()
+    expect(tryNormalizeHostname('127.0.0.1')).toBeNull()
+    expect(tryNormalizeHostname('127.0.0.1:5001')).toBeNull()
   })
 })

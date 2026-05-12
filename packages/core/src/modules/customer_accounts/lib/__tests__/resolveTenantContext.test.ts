@@ -44,6 +44,18 @@ describe('resolveTenantContext', () => {
     })
   })
 
+  it('treats an IP-literal host (e.g. 127.0.0.1) as a platform host', async () => {
+    const ctx = await resolveTenantContext(makeReq('127.0.0.1:5001'), PLATFORM_TENANT, {
+      container: makeContainer(null),
+    })
+    expect(ctx).toEqual({
+      source: 'body',
+      tenantId: PLATFORM_TENANT,
+      organizationId: null,
+      hostname: null,
+    })
+  })
+
   it('throws 400 when platform host has no body tenantId', async () => {
     await expect(
       resolveTenantContext(makeReq('localhost'), null, { container: makeContainer(null) }),

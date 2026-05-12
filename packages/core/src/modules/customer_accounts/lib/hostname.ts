@@ -56,6 +56,13 @@ export function normalizeHostname(input: string): string {
       throw new HostnameNormalizationError(`Invalid DNS label: "${label}"`)
     }
   }
+  // Reject IP-address literals (e.g. "127.0.0.1"): a custom domain must be a
+  // registered DNS name, and a TLD is never all-numeric. This also keeps
+  // loopback/test hosts (127.0.0.1) from being mistaken for a tenant's
+  // branded domain by the routing layer.
+  if (/^\d+$/.test(labels[labels.length - 1])) {
+    throw new HostnameNormalizationError(`Hostname looks like an IP address, not a DNS name: ${input}`)
+  }
 
   return host
 }
