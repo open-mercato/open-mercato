@@ -656,17 +656,16 @@ export type RichEditorColorButtonProps = Omit<ToolbarButtonBaseProps, 'type' | '
   /** Optional translated labels per palette key (defaults to English names). */
   colorLabels?: Partial<Record<RichEditorColorKey, string>>
   /**
-   * Restrict the popover palette to a subset of colour keys. Defaults to the
-   * 5-colour Figma reference set (`gray` / `blue` / `orange` / `purple` /
-   * `sky`); pass all 10 keys for the extended palette.
+   * Restrict the popover palette to a subset of colour keys. Defaults to all
+   * 10 colours from the Figma `Rich Editor Colors [1.1]` master frame
+   * (166331:4100); pass a 5-key subset for the compact popover variant seen
+   * in some Figma mockups.
    */
   palette?: RichEditorColorKey[]
 }
 
-const DEFAULT_COLOR_POPOVER_PALETTE: RichEditorColorKey[] = ['gray', 'blue', 'orange', 'purple', 'sky']
-
 export const RichEditorColorButton = React.forwardRef<HTMLButtonElement, RichEditorColorButtonProps>(
-  ({ colorValue, ariaLabel, command = 'foreColor', onSelect, colorLabels, palette = DEFAULT_COLOR_POPOVER_PALETTE, ...props }, ref) => {
+  ({ colorValue, ariaLabel, command = 'foreColor', onSelect, colorLabels, palette = COLOR_KEYS, ...props }, ref) => {
     const { exec, disabled } = useRichEditorContext('RichEditorColorButton')
     const swatchColor = colorValue ? RICH_EDITOR_COLOR_PALETTE[colorValue] : RICH_EDITOR_COLOR_PALETTE.blue
     return (
