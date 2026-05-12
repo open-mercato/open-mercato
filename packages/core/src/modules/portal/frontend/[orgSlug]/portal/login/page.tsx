@@ -2,7 +2,8 @@
 import { useCallback, useMemo, useState } from 'react'
 import Link from 'next/link'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
-import { Input } from '@open-mercato/ui/primitives/input'
+import { EmailInput } from '@open-mercato/ui/primitives/email-input'
+import { PasswordInput } from '@open-mercato/ui/primitives/password-input'
 import { Label } from '@open-mercato/ui/primitives/label'
 import { Button } from '@open-mercato/ui/primitives/button'
 import { Alert, AlertDescription } from '@open-mercato/ui/primitives/alert'
@@ -107,12 +108,12 @@ export default function PortalLoginPage({ params }: Props) {
 
         <div className="flex flex-col gap-1.5">
           <Label htmlFor="login-email" className="text-overline font-semibold uppercase tracking-wider text-muted-foreground/70">{t('portal.login.email', 'Email')}</Label>
-          <Input id="login-email" type="email" autoComplete="email" required placeholder={t('portal.login.email.placeholder', 'you@example.com')} value={email} onChange={(e) => setEmail(e.target.value)} disabled={submitting} className="rounded-lg" />
+          <EmailInput id="login-email" required placeholder={t('portal.login.email.placeholder', 'you@example.com')} value={email} onChange={(e) => setEmail(e.target.value)} disabled={submitting} className="rounded-lg" />
         </div>
 
         <div className="flex flex-col gap-1.5">
           <Label htmlFor="login-password" className="text-overline font-semibold uppercase tracking-wider text-muted-foreground/70">{t('portal.login.password', 'Password')}</Label>
-          <Input id="login-password" type="password" autoComplete="current-password" required placeholder={t('portal.login.password.placeholder', '\u2022\u2022\u2022\u2022\u2022\u2022\u2022\u2022')} value={password} onChange={(e) => setPassword(e.target.value)} disabled={submitting} className="rounded-lg" />
+          <PasswordInput id="login-password" autoComplete="current-password" required placeholder={t('portal.login.password.placeholder', '\u2022\u2022\u2022\u2022\u2022\u2022\u2022\u2022')} value={password} onChange={(e) => setPassword(e.target.value)} disabled={submitting} className="rounded-lg" />
         </div>
 
         <Button type="submit" disabled={submitting} className="mt-1 w-full rounded-lg">

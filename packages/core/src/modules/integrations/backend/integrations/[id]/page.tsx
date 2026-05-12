@@ -20,6 +20,7 @@ import {
 } from '@open-mercato/ui/primitives/select'
 import { Switch } from '@open-mercato/ui/primitives/switch'
 import { Input } from '@open-mercato/ui/primitives/input'
+import { PasswordInput } from '@open-mercato/ui/primitives/password-input'
 import { Spinner } from '@open-mercato/ui/primitives/spinner'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@open-mercato/ui/primitives/tabs'
 import { JsonDisplay } from '@open-mercato/ui/backend/JsonDisplay'
@@ -212,9 +213,8 @@ function buildCredentialFields(credFields: CredentialField[]): CrudField[] {
         ...shared,
         type: 'custom' as const,
         component: ({ id, value, setValue, disabled }) => (
-          <Input
+          <PasswordInput
             id={id}
-            type="password"
             placeholder={field.placeholder}
             value={typeof value === 'string' ? value : ''}
             onChange={(event) => setValue(event.target.value)}

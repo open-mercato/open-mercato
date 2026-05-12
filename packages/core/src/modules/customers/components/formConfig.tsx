@@ -8,6 +8,7 @@ import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { useOrganizationScopeVersion } from '@open-mercato/shared/lib/frontend/useOrganizationScope'
 import { Button } from '@open-mercato/ui/primitives/button'
 import { Input } from '@open-mercato/ui/primitives/input'
+import { EmailInput } from '@open-mercato/ui/primitives/email-input'
 import {
   Select,
   SelectContent,
@@ -263,8 +264,7 @@ const createPrimaryEmailField = (t: Translator): CrudField => ({
 
     return (
       <div className="space-y-2">
-        <Input
-          type="email"
+        <EmailInput
           value={inputValue}
           onChange={(event) => {
             const nextValue = event.target.value

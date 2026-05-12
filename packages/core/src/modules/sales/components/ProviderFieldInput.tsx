@@ -1,4 +1,5 @@
 import { Input } from '@open-mercato/ui/primitives/input'
+import { PasswordInput } from '@open-mercato/ui/primitives/password-input'
 import {
   Select,
   SelectContent,
@@ -70,9 +71,8 @@ export function renderProviderFieldInput(opts: {
       )
     case 'secret':
       return (
-        <Input
+        <PasswordInput
           {...common}
-          type="password"
           value={typeof value === 'string' ? value : ''}
           onChange={(evt) => onChange(evt.target.value)}
           placeholder={field.placeholder}

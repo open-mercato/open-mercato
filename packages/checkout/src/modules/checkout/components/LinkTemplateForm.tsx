@@ -28,6 +28,7 @@ import { apiCall, apiCallOrThrow, readApiResultOrThrow } from '@open-mercato/ui/
 import { collectCustomFieldValues } from '@open-mercato/ui/backend/utils/customFieldValues'
 import { Button } from '@open-mercato/ui/primitives/button'
 import { Input } from '@open-mercato/ui/primitives/input'
+import { PasswordInput } from '@open-mercato/ui/primitives/password-input'
 import { Label } from '@open-mercato/ui/primitives/label'
 import { Alert, AlertDescription, AlertTitle } from '@open-mercato/ui/primitives/alert'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@open-mercato/ui/primitives/tabs'
@@ -1296,8 +1297,7 @@ function SettingsSection({ values, setValue, errors }: CrudFormGroupComponentPro
       </SectionLabel>
 
       <SectionLabel label={t('checkout.linkTemplateForm.settings.fields.password')} hint={t('checkout.linkTemplateForm.settings.hints.password')} error={passwordError}>
-        <Input
-          type="password"
+        <PasswordInput
           value={readString(values.password)}
           onChange={(event) => setValue('password', event.target.value)}
           placeholder={t('checkout.linkTemplateForm.settings.placeholders.password')}
