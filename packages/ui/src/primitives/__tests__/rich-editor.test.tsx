@@ -202,11 +202,13 @@ describe('RichEditor — content area + onChange', () => {
 })
 
 describe('RichEditorColorPalette + RichEditorColorButton', () => {
-  it('renders all 10 palette swatches by default', () => {
+  it('renders all 12 palette swatches by default (Figma 166331:4100)', () => {
     const onChange = jest.fn()
     const { container } = render(<RichEditorColorPalette onChange={onChange} />)
     const swatches = container.querySelectorAll('[data-color-key]')
-    expect(swatches).toHaveLength(10)
+    expect(swatches).toHaveLength(12)
+    expect(container.querySelector('[data-color-key="black"]')).not.toBeNull()
+    expect(container.querySelector('[data-color-key="white"]')).not.toBeNull()
   })
 
   it('honours the palette prop subset (Figma reference shows 5 colours)', () => {

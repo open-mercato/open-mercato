@@ -36,9 +36,13 @@ import {
   TooltipTrigger,
 } from './tooltip'
 
-// Figma `Rich Editor Colors` palette (164611:20259) — 10 tokens.
+// Figma `Rich Editor Colors [1.1]` palette (166331:4100) — 12 tokens.
+// Order matches the Figma frame: gray / black / white / blue / orange / red /
+// green / yellow / purple / sky / pink / teal.
 export const RICH_EDITOR_COLOR_PALETTE = {
   gray: '#7b7b7b',
+  black: '#171717',
+  white: '#ffffff',
   blue: '#6366f1',
   orange: '#f59e0b',
   red: '#ef4444',
@@ -52,11 +56,13 @@ export const RICH_EDITOR_COLOR_PALETTE = {
 
 export type RichEditorColorKey = keyof typeof RICH_EDITOR_COLOR_PALETTE
 const COLOR_KEYS: RichEditorColorKey[] = [
-  'gray', 'blue', 'orange', 'red', 'green', 'yellow', 'purple', 'sky', 'pink', 'teal',
+  'gray', 'black', 'white', 'blue', 'orange', 'red', 'green', 'yellow', 'purple', 'sky', 'pink', 'teal',
 ]
 
 const COLOR_LABELS_EN: Record<RichEditorColorKey, string> = {
   gray: 'Gray',
+  black: 'Black',
+  white: 'White',
   blue: 'Blue',
   orange: 'Orange',
   red: 'Red',
@@ -679,7 +685,7 @@ export const RichEditorColorButton = React.forwardRef<HTMLButtonElement, RichEdi
             {...props}
           >
             <span
-              className="inline-block size-4 shrink-0 rounded-full"
+              className="inline-block size-4 shrink-0 rounded-full border border-black/10"
               style={{ backgroundColor: swatchColor }}
               data-slot="rich-editor-color-swatch"
               aria-hidden="true"
@@ -746,7 +752,7 @@ export function RichEditorColorPalette({ value, onChange, labels, palette, class
             data-color-key={key}
           >
             <span
-              className="size-4 shrink-0 rounded-full"
+              className="size-4 shrink-0 rounded-full border border-black/10"
               style={{ backgroundColor: RICH_EDITOR_COLOR_PALETTE[key] }}
               aria-hidden="true"
             />
