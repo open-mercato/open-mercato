@@ -39,6 +39,8 @@ Detailed variant tables, size matrices, props, examples, and MUST rules for ever
 - [Skeleton](#skeleton)
 - [Alert](#alert)
 - [Notification](#notification)
+- [Breadcrumb](#breadcrumb)
+- [Sheet](#sheet)
 - [Accordion](#accordion)
 - [LogList](#loglist)
 - [RichEditor](#richeditor)
@@ -2434,6 +2436,182 @@ The wrapper has `pointer-events-none` so it does not block clicks on the page un
 - Pass `dismissAriaLabel` and translatable title / description through `useT()` — the primitive has English defaults.
 - For user-driven notifications, pass `avatar={<Avatar label="..." />}` so the leading visual matches the rest of the product's identity treatment.
 - Keep `autoDismissMs` short (3000–6000 ms) for transient confirmations. Omit it entirely for actionable notifications the user must address before dismissing.
+
+---
+
+## Breadcrumb
+
+```typescript
+import {
+  Breadcrumb,
+  BreadcrumbList,
+  BreadcrumbItem,
+  BreadcrumbLink,
+  BreadcrumbPage,
+  BreadcrumbStatic,
+  BreadcrumbSeparator,
+  BreadcrumbEllipsis,
+  type BreadcrumbDivider,
+} from '@open-mercato/ui/primitives/breadcrumb'
+```
+
+Composable navigation primitive. Matches Figma DS `Breadcrumbs` ([node 447-8760](https://www.figma.com/design/qCq9z6q1if0mpoRstV5OEA/DS---Open-Mercato?node-id=447-8760)) — three divider styles (`slash` default, `arrow`, `dot`), default/hover/active link states, optional leading icon on links, and an ellipsis affordance for collapsed mid-crumbs. Rendered as a semantic `<nav aria-label="Breadcrumb">` with an inner `<ol>` of `<li>` items so screen readers announce position and order. The active page is always marked with `aria-current="page"`.
+
+### Basic usage
+
+```tsx
+<Breadcrumb>
+  <BreadcrumbList>
+    <BreadcrumbItem>
+      <BreadcrumbLink href="/customers">Customers</BreadcrumbLink>
+    </BreadcrumbItem>
+    <BreadcrumbSeparator />
+    <BreadcrumbItem>
+      <BreadcrumbLink href="/customers/people">People</BreadcrumbLink>
+    </BreadcrumbItem>
+    <BreadcrumbSeparator />
+    <BreadcrumbItem>
+      <BreadcrumbPage>Jan Kowalski</BreadcrumbPage>
+    </BreadcrumbItem>
+  </BreadcrumbList>
+</Breadcrumb>
+```
+
+Default divider is `slash`. Set `divider="arrow"` for a `ChevronRight` glyph or `divider="dot"` for a typographic mid-dot. The divider value is provided to every `BreadcrumbSeparator` through context — individual separators can still override it via their own `divider` prop.
+
+### Linking through Next.js (`asChild`)
+
+`BreadcrumbLink` defaults to rendering an `<a>` styled as a breadcrumb link (`text-muted-foreground` resting → `text-foreground` + underline on hover/focus). To route through the framework router (Next.js `Link`, TanStack `Link`, etc.) use `asChild` and slot the framework component in:
+
+```tsx
+import Link from 'next/link'
+
+<BreadcrumbItem>
+  <BreadcrumbLink asChild>
+    <Link href="/customers">Customers</Link>
+  </BreadcrumbLink>
+</BreadcrumbItem>
+```
+
+The Radix `Slot` merges the breadcrumb classes and `data-slot` attributes onto the slotted element so Next's link inherits the breadcrumb styling without an extra wrapper.
+
+### Icon on a link
+
+Icons render as `children` (20×20, lucide), styled by the primitive's `[&_svg]:size-5` rule. When the icon is the only visible content (icon-only crumb, e.g. the auto-injected Dashboard home in `AppShell`) supply an `aria-label` so screen readers still announce the destination:
+
+```tsx
+import { Home } from 'lucide-react'
+
+<BreadcrumbItem>
+  <BreadcrumbLink asChild aria-label="Dashboard">
+    <Link href="/backend">
+      <Home aria-hidden="true" />
+    </Link>
+  </BreadcrumbLink>
+</BreadcrumbItem>
+```
+
+Pass both icon and label as siblings when both should be visible: `<BreadcrumbLink><Home /> Customers</BreadcrumbLink>`.
+
+### Dividers
+
+| `divider` | Element | When to use |
+|---|---|---|
+| `slash` (default) | `<span aria-hidden>/</span>` | Preserves the existing AppShell contract; default for new pages. |
+| `arrow` | `<ChevronRight aria-hidden>` (lucide) | Use when the breadcrumb sits next to other arrow affordances (wizard steps, paginators) so the visual rhythm stays consistent. |
+| `dot` | `<span aria-hidden>·</span>` | Minimal style for very long trails or low-emphasis chrome. |
+
+### Static (non-link) middle crumbs
+
+Some hierarchies have grouping levels that have no route of their own (e.g. `Customers / Settings / Pipeline Stages` — where `Settings` is a category, not a page). Render those with `BreadcrumbStatic` instead of `BreadcrumbPage`; the static variant uses the same muted color as inactive links, but does **not** set `aria-current="page"` (because the user is not on that "page"), does not respond to hover, and is not focusable.
+
+```tsx
+<BreadcrumbItem>
+  <BreadcrumbStatic>Settings</BreadcrumbStatic>
+</BreadcrumbItem>
+```
+
+Reserve `BreadcrumbPage` for the actual current page (one per breadcrumb), reserve `BreadcrumbLink` for navigable steps, and use `BreadcrumbStatic` for the rest.
+
+### Truncation
+
+`BreadcrumbLink` and `BreadcrumbStatic` default to `max-w-[40vw] md:max-w-[28vw] truncate` so long labels (long product names, multi-word category titles in DE/PL) collapse with an ellipsis instead of pushing the trail off-screen. `BreadcrumbPage` allows more room (`max-w-[45vw] md:max-w-[60vw]`) because the current page is the most important read.
+
+Always pass `title={label}` on truncatable items so hovering reveals the full label as a native tooltip — the primitive forwards `title` via `...props`.
+
+```tsx
+<BreadcrumbLink asChild title={person.fullName}>
+  <Link href={`/backend/customers/people/${person.id}`}>{person.fullName}</Link>
+</BreadcrumbLink>
+```
+
+### Ellipsis (collapsed mid-crumbs)
+
+`BreadcrumbEllipsis` is the "More" affordance used when a breadcrumb is visually collapsed — most commonly at narrow viewports (`< md`) where the trail switches to `Home + … + Current` to save horizontal space. Step 1 ships a non-interactive icon with an accessible label; the popover-driven variant (Figma `447-8760` Block 4) that lists hidden steps will be wired in a follow-up alongside the tenant-level Max-visible setting.
+
+```tsx
+<BreadcrumbItem>
+  <BreadcrumbEllipsis aria-label="Show 3 hidden navigation steps" />
+</BreadcrumbItem>
+```
+
+Always pass an `aria-label` carrying the hidden-step count (e.g. via i18n `t('appShell.breadcrumb.collapsed', { count })`) so assistive tech announces the truncation rather than reading "More" out of context.
+
+```tsx
+<BreadcrumbList>
+  <BreadcrumbItem>
+    <BreadcrumbLink asChild icon={<Home />} aria-label="Dashboard">
+      <Link href="/backend" />
+    </BreadcrumbLink>
+  </BreadcrumbItem>
+  <BreadcrumbSeparator />
+  <BreadcrumbItem>
+    <BreadcrumbEllipsis />
+  </BreadcrumbItem>
+  <BreadcrumbSeparator />
+  <BreadcrumbItem>
+    <BreadcrumbPage>Current</BreadcrumbPage>
+  </BreadcrumbItem>
+</BreadcrumbList>
+```
+
+### Props
+
+`Breadcrumb`:
+
+| Prop | Type | Default | Notes |
+|---|---|---|---|
+| `divider` | `'slash' \| 'arrow' \| 'dot'` | `'slash'` | Provided to every `BreadcrumbSeparator` via context. Per-separator override available. |
+| `className` | `string` | — | Merged onto the outer `<nav>`. |
+
+`BreadcrumbLink` (extends `<a>` props):
+
+| Prop | Type | Default | Notes |
+|---|---|---|---|
+| `asChild` | `boolean` | `false` | When true, slots the child element (typically Next.js `<Link>`) and merges classes + `data-slot` onto it. |
+
+Icons are passed as `children`. The primitive applies `[&_svg:not([class*='size-'])]:size-5` so lucide glyphs default to 20×20 (canonical DS), but callers can override by passing an explicit `size-*` class on the icon (e.g. `<Home className="size-4" />` for compact contexts like the `AppShell` topbar). Pass `aria-label` when an icon is the only visible child.
+
+`BreadcrumbPage` (extends `<span>` props): always rendered with `aria-current="page"` and the active typography (`text-foreground font-medium`); truncates to `max-w-[45vw] md:max-w-[60vw]` so long labels collapse gracefully.
+
+`BreadcrumbSeparator` (extends `<li>` props):
+
+| Prop | Type | Default | Notes |
+|---|---|---|---|
+| `divider` | `'slash' \| 'arrow' \| 'dot'` | inherited from `Breadcrumb` context | Per-separator override; useful when a single separator needs a different glyph (e.g. emphasising a section break inside a long trail). |
+
+`BreadcrumbEllipsis` (extends `<span>` props) renders a `MoreHorizontal` lucide icon plus an `sr-only` "More" label; children replace the default icon when supplied.
+
+### MUST rules
+
+- Always wrap the items in `<BreadcrumbList>`; the outer `<nav aria-label="Breadcrumb">` is rendered by `Breadcrumb` itself — never replicate it manually.
+- The final item in the trail MUST be a `BreadcrumbPage` (not a `BreadcrumbLink`) so it carries `aria-current="page"`.
+- When `BreadcrumbLink` is rendered as icon-only (its only visible child is an icon), MUST pass an explicit `aria-label` to keep the link reachable for assistive tech.
+- Pass `asChild` whenever the destination should be routed through Next.js (or any client router) — never render a raw `<a>` styled as a breadcrumb outside of this primitive.
+- The auto-prepended Dashboard root in `AppShell` is owned by the shell; page-level `breadcrumb` metadata MUST NOT duplicate it. Pages declare `breadcrumb: [{ label: 'Customers', href: '/backend/customers' }, ...]` starting from the next level down.
+- For grouping levels with no route (categories, section headers), use `BreadcrumbStatic` — never `BreadcrumbPage` (it carries `aria-current="page"` which lies about the active page).
+- When rendering a `BreadcrumbEllipsis`, always pass an `aria-label` describing how many steps are collapsed; never ship a bare "More" icon without a labelled accessible name.
+- Always pass `title={label}` on `BreadcrumbLink` / `BreadcrumbStatic` / `BreadcrumbPage` carrying user-visible labels that can be long — the primitive truncates with ellipsis and the native `title` exposes the full text on hover.
 
 ---
 
