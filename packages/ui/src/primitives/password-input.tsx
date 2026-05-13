@@ -73,7 +73,6 @@ export const PasswordInput = React.forwardRef<HTMLInputElement, PasswordInputPro
         <input
           ref={ref}
           type={revealed ? 'text' : 'password'}
-          autoComplete="current-password"
           disabled={disabled}
           className={cn(inputElementVariants({ size }), inputClassName)}
           {...props}
