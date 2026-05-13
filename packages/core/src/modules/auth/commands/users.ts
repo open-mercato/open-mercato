@@ -75,8 +75,18 @@ type UserSnapshots = {
 
 const passwordSchema = buildPasswordSchema()
 
+const displayNameSchema = z.preprocess(
+  (value) => {
+    if (typeof value !== 'string') return value
+    const trimmed = value.trim()
+    return trimmed.length ? trimmed : undefined
+  },
+  z.string().trim().min(1).max(120).optional(),
+)
+
 const createSchema = z.object({
   email: z.string().email(),
+  name: displayNameSchema,
   password: passwordSchema.optional(),
   sendInviteEmail: z.boolean().optional(),
   organizationId: z.string().uuid(),
@@ -89,6 +99,7 @@ const createSchema = z.object({
 const updateSchema = z.object({
   id: z.string().uuid(),
   email: z.string().email().optional(),
+  name: displayNameSchema,
   password: passwordSchema.optional(),
   organizationId: z.string().uuid().optional(),
   roles: z.array(z.string()).optional(),
@@ -196,6 +207,7 @@ const createUserCommand: CommandHandler<Record<string, unknown>, CreateUserResul
         entity: User,
         data: {
           email: parsed.email,
+          name: parsed.name,
           emailHash,
           passwordHash,
           isConfirmed: true,
@@ -450,6 +462,9 @@ const updateUserCommand: CommandHandler<Record<string, unknown>, User> = {
           if (parsed.email !== undefined) {
             entity.email = parsed.email
             entity.emailHash = emailHash
+          }
+          if (parsed.name !== undefined) {
+            entity.name = parsed.name
           }
           if (parsed.organizationId !== undefined) {
             entity.organizationId = parsed.organizationId

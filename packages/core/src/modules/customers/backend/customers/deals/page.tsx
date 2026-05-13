@@ -12,6 +12,9 @@ import type { AdvancedFilterState } from '@open-mercato/shared/lib/query/advance
 import { deserializeAdvancedFilter, serializeAdvancedFilter } from '@open-mercato/shared/lib/query/advanced-filter'
 import { apiCall } from '@open-mercato/ui/backend/utils/apiCall'
 import { buildCrudExportUrl, deleteCrud } from '@open-mercato/ui/backend/utils/crud'
+import { groupBulkDeleteFailures, runBulkDelete } from '@open-mercato/ui/backend/utils/bulkDelete'
+import { useGuardedMutation } from '@open-mercato/ui/backend/injection/useGuardedMutation'
+import { coalesceLastOperations } from '@open-mercato/ui/backend/operations/store'
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
 import { RowActions } from '@open-mercato/ui/backend/RowActions'
 import { Button } from '@open-mercato/ui/primitives/button'
@@ -719,6 +722,26 @@ export default function CustomersDealsPage() {
     setReloadToken((token) => token + 1)
   }, [queryClient])
 
+  const bulkMutationContextId = 'customers-deals-list:bulk-delete'
+  const { runMutation: runBulkMutation, retryLastMutation: retryBulkMutation } = useGuardedMutation<{
+    formId: string
+    resourceKind: string
+    retryLastMutation: () => Promise<boolean>
+  }>({
+    contextId: bulkMutationContextId,
+    blockedMessage: t('ui.forms.flash.saveBlocked', 'Save blocked by validation'),
+  })
+  const singleMutationContextId = 'customers-deals-list:single-delete'
+  const { runMutation: runSingleMutation, retryLastMutation: retrySingleMutation } = useGuardedMutation<{
+    formId: string
+    resourceKind: string
+    resourceId: string
+    retryLastMutation: () => Promise<boolean>
+  }>({
+    contextId: singleMutationContextId,
+    blockedMessage: t('ui.forms.flash.saveBlocked', 'Save blocked by validation'),
+  })
+
   const handleDeleteDeal = React.useCallback(
     async (dealId: string) => {
       if (pendingDeleteId) return
@@ -732,9 +755,19 @@ export default function CustomersDealsPage() {
       if (!confirmed) return
       setPendingDeleteId(dealId)
       try {
-        await deleteCrud('customers/deals', {
-          body: { id: dealId },
-          errorMessage: t('customers.deals.list.deleteError', 'Failed to delete deal.'),
+        await runSingleMutation({
+          operation: async () => {
+            await deleteCrud('customers/deals', {
+              body: { id: dealId },
+              errorMessage: t('customers.deals.list.deleteError', 'Failed to delete deal.'),
+            })
+          },
+          context: {
+            formId: singleMutationContextId,
+            resourceKind: 'customers.deal',
+            resourceId: dealId,
+            retryLastMutation: retrySingleMutation,
+          },
         })
         flash(t('customers.deals.list.deleteSuccess', 'Deal deleted.'), 'success')
         setRows((prev) => prev.filter((row) => row.id !== dealId))
@@ -750,7 +783,7 @@ export default function CustomersDealsPage() {
         setPendingDeleteId(null)
       }
     },
-    [confirm, handleRefresh, pendingDeleteId, t],
+    [confirm, handleRefresh, pendingDeleteId, retrySingleMutation, runSingleMutation, singleMutationContextId, t],
   )
 
   const handlePageSizeChange = React.useCallback((newSize: number) => {
@@ -765,43 +798,71 @@ export default function CustomersDealsPage() {
       variant: 'destructive',
     })
     if (!confirmed) return false
-    let deletedCount = 0
-    const failedIds: string[] = []
-    for (const row of selectedRows) {
-      try {
-        await deleteCrud('customers/deals', {
-          body: { id: row.id },
-          errorMessage: t('customers.deals.list.deleteError', 'Failed to delete deal.'),
+
+    const { succeeded, failures } = await runBulkMutation({
+      operation: async () =>
+        runBulkDelete(
+          selectedRows,
+          async (row) => {
+            await deleteCrud('customers/deals', {
+              body: { id: row.id },
+              errorMessage: t('customers.deals.list.deleteError', 'Failed to delete deal.'),
+            })
+          },
+          {
+            fallbackErrorMessage: t('customers.deals.list.deleteError', 'Failed to delete deal.'),
+            logTag: 'customers.deals.list',
+          },
+        ),
+      context: {
+        formId: bulkMutationContextId,
+        resourceKind: 'customers.deal',
+        retryLastMutation: retryBulkMutation,
+      },
+    })
+
+    if (succeeded.length > 0) {
+      const succeededIds = new Set(succeeded.map((r) => r.id))
+      setRows((prev) => prev.filter((r) => !succeededIds.has(r.id)))
+      setTotal((prev) => Math.max(0, prev - succeeded.length))
+      setReloadToken((prev) => prev + 1)
+      if (succeeded.length > 1) {
+        coalesceLastOperations(succeeded.length, {
+          commandId: 'customers.deals.delete',
+          actionLabel: t('customers.deals.list.bulkDelete.operationLabel', 'Delete {count} deals', { count: succeeded.length }),
+          resourceKind: 'customers.deal',
         })
-        deletedCount++
-      } catch (err) {
-        failedIds.push(row.id)
-        console.warn('[customers.deals.list] bulk delete failed', row.id, err)
       }
-    }
-    if (deletedCount > 0) {
-      setRows((prev) => {
-        const succeeded = new Set(selectedRows.map((r) => r.id).filter((id) => !failedIds.includes(id)))
-        return prev.filter((r) => !succeeded.has(r.id))
-      })
-      setTotal((prev) => Math.max(0, prev - deletedCount))
-      if (failedIds.length === 0) {
-        flash(t('customers.deals.list.bulkDelete.success', '{count} deals deleted', { count: deletedCount }), 'success')
+      if (failures.length === 0) {
+        flash(
+          t('customers.deals.list.bulkDelete.success', '{count} deals deleted', { count: succeeded.length }),
+          'success',
+        )
       } else {
         flash(
           t('customers.deals.list.bulkDelete.partial', '{deleted} of {total} deals deleted; {failed} failed', {
-            deleted: deletedCount,
+            deleted: succeeded.length,
             total: selectedRows.length,
-            failed: failedIds.length,
+            failed: failures.length,
           }),
           'warning',
         )
       }
-    } else if (failedIds.length > 0) {
-      flash(t('customers.deals.list.bulkDelete.failed', 'Failed to delete {count} deals', { count: failedIds.length }), 'error')
     }
-    return deletedCount > 0
-  }, [confirm, t])
+
+    for (const group of groupBulkDeleteFailures(failures)) {
+      const message = group.count === 1
+        ? group.sampleMessage
+        : t(
+            'customers.deals.list.bulkDelete.failedGroup',
+            '{count} deals could not be deleted: {message}',
+            { count: group.count, message: group.sampleMessage },
+          )
+      flash(message, 'error')
+    }
+
+    return succeeded.length > 0
+  }, [bulkMutationContextId, confirm, retryBulkMutation, runBulkMutation, t])
 
   const personOptions = peopleState.options
   const companyOptions = companiesState.options

@@ -1,6 +1,26 @@
-// Module-root AI agent contribution. See /framework/ai-assistant/agents
-// for the structured PromptTemplate convention and the per-tenant override
-// path that can downgrade mutationPolicy to read-only.
+/**
+ * Module-root AI agent contribution for the customers module.
+ *
+ * See /framework/ai-assistant/agents for the structured PromptTemplate
+ * convention and the per-tenant override path that can downgrade
+ * mutationPolicy to read-only.
+ *
+ * The generator walks every module root for a top-level `ai-agents.ts` and
+ * takes the default/`aiAgents` export as the agent contribution. The
+ * `customers.account_assistant` agent explores people / companies / deals /
+ * activities / tags / addresses / settings through the customers tool pack
+ * and the general-purpose `search.*`, `attachments.*`, `meta.*` tools, and
+ * is also write-capable: it whitelists `customers.update_deal_stage` so the
+ * operator can move deals between pipeline stages. Every mutation is
+ * intercepted by the runtime and surfaced through the pending-action
+ * approval card before any change is persisted (`mutationPolicy:
+ * 'confirm-required'` is the default on this agent — a per-tenant override
+ * can downgrade it to `read-only` to lock writes without a redeploy).
+ *
+ * Prompt is declared as a structured `PromptTemplate` (not a flat string)
+ * per spec §8 with the seven named sections: ROLE, SCOPE, DATA, TOOLS,
+ * ATTACHMENTS, MUTATION POLICY, RESPONSE STYLE.
+ */
 import type {
   AiAgentDefinition,
   AiAgentPageContextInput,
