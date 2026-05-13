@@ -32,11 +32,7 @@ export function extractCustomFieldEntries(item: Record<string, unknown>): Record
     if (!Array.isArray(source)) return
     for (const entry of source as Array<Record<string, unknown>>) {
       if (!entry || typeof entry !== 'object') continue
-      const key = typeof entry.key === 'string'
-        ? entry.key
-        : typeof entry.id === 'string'
-          ? entry.id
-          : null
+      const key = typeof entry.key === 'string' ? entry.key : null
       if (!key) continue
       assign(key, 'value' in entry ? (entry as any).value : undefined)
     }
@@ -57,8 +53,6 @@ export function extractCustomFieldEntries(item: Record<string, unknown>): Record
   assignObject((item as any).custom_fields)
   assignEntries((item as any).customFields)
   assignEntries((item as any).custom_fields)
-  assignEntries((item as any).customFieldEntries)
-  assignEntries((item as any).custom_field_entries)
 
   return out
 }

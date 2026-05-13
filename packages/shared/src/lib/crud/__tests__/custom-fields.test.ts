@@ -146,28 +146,18 @@ describe('extractAllCustomFieldEntries', () => {
     })
   })
 
-  it('reads snake-case and entry-list custom field containers', () => {
+  it('reads snake-case custom field containers', () => {
     const item = {
       custom_values: { api_url: 'https://snake.example', priority: 7 },
       custom_fields: [
-        { id: 'legacy_id_key', value: 'legacy' },
         { key: 'array_key', value: 'array-value' },
-      ],
-      customFieldEntries: [
-        { key: 'entry_key', value: true },
-      ],
-      custom_field_entries: [
-        { id: 'snake_entry_id', value: 'ok' },
       ],
     }
 
     expect(extractAllCustomFieldEntries(item)).toEqual({
       cf_api_url: 'https://snake.example',
       cf_priority: 7,
-      cf_legacy_id_key: 'legacy',
       cf_array_key: 'array-value',
-      cf_entry_key: true,
-      cf_snake_entry_id: 'ok',
     })
   })
 })
