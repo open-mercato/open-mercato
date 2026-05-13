@@ -3,8 +3,17 @@ import * as React from 'react'
 import { createContext, useContext } from 'react'
 import Link from 'next/link'
 import Image from 'next/image'
-import { ChevronDown, ChevronLeft, Search, X } from 'lucide-react'
+import { ChevronDown, ChevronLeft, Home, PanelLeftClose, PanelLeftOpen, Search, X } from 'lucide-react'
 import { Button } from '../primitives/button'
+import {
+  Breadcrumb as BreadcrumbNav,
+  BreadcrumbEllipsis,
+  BreadcrumbItem,
+  BreadcrumbLink,
+  BreadcrumbList,
+  BreadcrumbPage,
+  BreadcrumbSeparator,
+} from '../primitives/breadcrumb'
 import { IconButton } from '../primitives/icon-button'
 import { Input } from '../primitives/input'
 import { SearchInput } from '../primitives/search-input'
@@ -428,6 +437,13 @@ function AppShellBody({ productName, logo, email, groups, rightHeaderSlot, child
   useEventBridge() // SSE DOM Event Bridge — singleton SSE connection for real-time server events
   const resolvedProductName = productName ?? t('appShell.productName')
   const [mobileOpen, setMobileOpen] = React.useState(false)
+  // When the mobile drawer opens on a settings/profile route, it follows the
+  // section sidebar by default. Set to 'main' to force-show the main nav even
+  // when the route is in a section context. Reset on close.
+  const [mobileDrawerView, setMobileDrawerView] = React.useState<'auto' | 'main'>('auto')
+  React.useEffect(() => {
+    if (!mobileOpen) setMobileDrawerView('auto')
+  }, [mobileOpen])
   // Initialize from server-provided prop only to avoid hydration flicker
   const [collapsed, setCollapsed] = React.useState(sidebarCollapsedDefault)
   // Maintain internal nav state so we can augment it client-side
@@ -670,7 +686,7 @@ function AppShellBody({ productName, logo, email, groups, rightHeaderSlot, child
               aria-label={t('appShell.goToDashboard')}
             >
               <Image src={logo?.src ?? "/open-mercato.svg"} alt={logo?.alt ?? resolvedProductName} width={40} height={40} className="rounded-full shrink-0" />
-              {!compact && <span className="text-sm font-medium text-foreground">{resolvedProductName}</span>}
+              {!compact && <span className="truncate text-sm font-medium text-foreground">{resolvedProductName}</span>}
             </Link>
           </div>
         )}
@@ -803,7 +819,7 @@ function AppShellBody({ productName, logo, email, groups, rightHeaderSlot, child
                 aria-label={t('appShell.goToDashboard')}
               >
                 <Image src={logo?.src ?? "/open-mercato.svg"} alt={logo?.alt ?? resolvedProductName} width={40} height={40} className="rounded-full shrink-0" />
-                {!compact && <span className="text-sm font-medium text-foreground">{resolvedProductName}</span>}
+                {!compact && <span className="truncate text-sm font-medium text-foreground">{resolvedProductName}</span>}
               </Link>
             </div>
           ) : null}
@@ -869,7 +885,7 @@ function AppShellBody({ productName, logo, email, groups, rightHeaderSlot, child
               aria-label={t('appShell.goToDashboard')}
             >
               <Image src={logo?.src ?? "/open-mercato.svg"} alt={logo?.alt ?? resolvedProductName} width={40} height={40} className="rounded-full shrink-0" />
-              {!compact && <span className="text-sm font-medium text-foreground">{resolvedProductName}</span>}
+              {!compact && <span className="truncate text-sm font-medium text-foreground">{resolvedProductName}</span>}
             </Link>
           </div>
         )}
@@ -1143,7 +1159,22 @@ function AppShellBody({ productName, logo, email, groups, rightHeaderSlot, child
 
   return (
     <HeaderContext.Provider value={headerCtxValue}>
-    <div className={`min-h-svh lg:grid transition-[grid-template-columns] duration-200 ease-out ${gridColsClass}`}>
+    <div
+      className={`relative min-h-svh lg:grid transition-[grid-template-columns] duration-200 ease-out ${gridColsClass}`}
+      style={{ '--topbar-height': '61px' } as React.CSSProperties}
+    >
+      {/* Desktop sidebar collapse/expand toggle — sits on the divider line between
+          sidebar and content, like Notion/Vercel. Hidden on mobile (hamburger in
+          topbar handles the drawer). */}
+      <button
+        type="button"
+        onClick={() => setCollapsed((c) => !c)}
+        aria-label={t('appShell.toggleSidebar')}
+        className="hidden lg:flex fixed top-4 z-[var(--z-index-dropdown)] size-7 items-center justify-center rounded-md border bg-background text-muted-foreground shadow-sm transition-all hover:text-foreground hover:bg-muted focus:outline-none focus-visible:shadow-focus"
+        style={{ left: `calc(${asideWidth} - 14px)` }}
+      >
+        {effectiveCollapsed ? <PanelLeftOpen className="size-4" /> : <PanelLeftClose className="size-4" />}
+      </button>
       {/* Desktop main sidebar */}
       <aside ref={sidebarAsideRef} className={`${asideClassesBase} ${effectiveCollapsed ? 'px-2' : 'px-3'} hidden lg:block lg:sticky lg:top-0 lg:h-svh lg:self-start lg:overflow-hidden lg:relative transition-[width,padding] duration-200 ease-out`} style={{ width: asideWidth }}>
         {renderSidebar(effectiveCollapsed, false, isSectionView)}
@@ -1206,7 +1237,7 @@ function AppShellBody({ productName, logo, email, groups, rightHeaderSlot, child
       ) : null}
 
       <div className="flex min-h-svh flex-col min-w-0">
-        <header className="border-b bg-background/80 px-3 lg:px-4 py-2 lg:py-3 flex items-center justify-between gap-2">
+        <header className="sticky top-0 z-[var(--z-index-sticky)] border-b bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/80 px-3 sm:px-4 lg:px-6 py-3 flex items-center justify-between gap-2 sm:gap-3">
           <div
             data-testid="backend-chrome-ready"
             data-ready={isChromeReady ? 'true' : 'false'}
@@ -1214,21 +1245,8 @@ function AppShellBody({ productName, logo, email, groups, rightHeaderSlot, child
           />
           <div className="flex items-center gap-2 min-w-0">
             {/* Mobile menu button */}
-            <IconButton variant="outline" size="sm" className="lg:hidden" aria-label={t('appShell.openMenu')} onClick={() => setMobileOpen(true)}>
+            <IconButton variant="ghost" size="sm" className="lg:hidden" aria-label={t('appShell.openMenu')} onClick={() => setMobileOpen(true)}>
               <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M3 6h18M3 12h18M3 18h18"/></svg>
-            </IconButton>
-            {/* Desktop collapse toggle */}
-            <IconButton
-              variant="outline"
-              size="sm"
-              className="hidden lg:inline-flex"
-              aria-label={t('appShell.toggleSidebar')}
-              onClick={() => setCollapsed((c) => !c)}
-            >
-              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                <rect x="3" y="4" width="18" height="16" rx="2"/>
-                <path d="M9 4v16"/>
-              </svg>
             </IconButton>
             {/* Header breadcrumb: always starts with Dashboard */}
             {(() => {
@@ -1243,30 +1261,65 @@ function AppShellBody({ productName, logo, email, groups, rightHeaderSlot, child
                 rest = [{ label: headerTitle }]
               }
               const items = [...root, ...rest]
-              const lastIndex = items.length - 1
+              if (items.length === 0) return null
+              const home = items[0]
+              const current = items.length > 1 ? items[items.length - 1] : null
+              const mid = items.slice(1, -1)
+              const hasMid = mid.length > 0
               return (
-                <nav className="flex items-center gap-2 text-sm min-w-0">
-                  {items.map((b, i) => {
-                    const isLast = i === lastIndex
-                    const hiddenOnMobile = !isLast ? 'hidden md:inline' : ''
-                    return (
-                      <React.Fragment key={i}>
-                        {i > 0 && <span className={`text-muted-foreground hidden md:inline`}>/</span>}
-                        {b.href ? (
-                          <Link href={b.href} className={`text-muted-foreground hover:text-foreground ${hiddenOnMobile}`}>
-                            {b.label}
+                <BreadcrumbNav divider="arrow" className="ml-2 lg:ml-3 text-sm">
+                  <BreadcrumbList className="[&_[data-slot=breadcrumb-separator]_svg]:size-4">
+                    <BreadcrumbItem>
+                      {home.href && current ? (
+                        <BreadcrumbLink asChild aria-label={home.label}>
+                          <Link href={home.href}>
+                            <Home className="size-4" aria-hidden="true" />
                           </Link>
-                        ) : (
-                          <span className={`font-medium truncate max-w-[45vw] md:max-w-[60vw]`}>{b.label}</span>
-                        )}
-                      </React.Fragment>
-                    )
-                  })}
-                </nav>
+                        </BreadcrumbLink>
+                      ) : (
+                        <BreadcrumbPage aria-label={home.label}>
+                          <Home className="size-4" aria-hidden="true" />
+                        </BreadcrumbPage>
+                      )}
+                    </BreadcrumbItem>
+                    {current ? (
+                      <>
+                        {hasMid ? (
+                          <>
+                            <BreadcrumbSeparator className="md:hidden" />
+                            <BreadcrumbItem className="md:hidden">
+                              <BreadcrumbEllipsis aria-label={t('appShell.breadcrumb.collapsed', { count: mid.length })} />
+                            </BreadcrumbItem>
+                            {mid.map((b, i) => (
+                              <React.Fragment key={`mid-${i}`}>
+                                <BreadcrumbSeparator className="hidden md:inline-flex" />
+                                <BreadcrumbItem className="hidden md:inline-flex">
+                                  {b.href ? (
+                                    <BreadcrumbLink asChild title={b.label}>
+                                      <Link href={b.href}>{b.label}</Link>
+                                    </BreadcrumbLink>
+                                  ) : (
+                                    <BreadcrumbLink title={b.label} aria-disabled="true" tabIndex={-1}>
+                                      {b.label}
+                                    </BreadcrumbLink>
+                                  )}
+                                </BreadcrumbItem>
+                              </React.Fragment>
+                            ))}
+                          </>
+                        ) : null}
+                        <BreadcrumbSeparator />
+                        <BreadcrumbItem>
+                          <BreadcrumbPage title={current.label}>{current.label}</BreadcrumbPage>
+                        </BreadcrumbItem>
+                      </>
+                    ) : null}
+                  </BreadcrumbList>
+                </BreadcrumbNav>
               )
             })()}
           </div>
-          <div className="flex items-center gap-1 md:gap-2 text-sm shrink-0">
+          <div className="flex items-center gap-1.5 sm:gap-2 md:gap-3 text-sm shrink-0">
             <StatusBadgeInjectionSpot
               spotId={GLOBAL_HEADER_STATUS_INDICATORS_INJECTION_SPOT_ID}
               context={injectionContext}
@@ -1320,23 +1373,61 @@ function AppShellBody({ productName, logo, email, groups, rightHeaderSlot, child
       {/* Mobile drawer */}
       {mobileOpen && (
         <div className="lg:hidden fixed inset-0 z-modal">
-          <div className="absolute inset-0 bg-black/20" onClick={() => setMobileOpen(false)} aria-hidden="true" />
-          <aside className="absolute left-0 top-0 flex h-full w-[260px] flex-col bg-background border-r overflow-hidden">
-            <div className="shrink-0 p-3 pb-2 flex items-center justify-between border-b">
-              <Link href="/backend" className="flex items-center gap-2 text-sm font-semibold" onClick={() => setMobileOpen(false)} aria-label={t('appShell.goToDashboard')}>
-                <Image src={logo?.src ?? "/open-mercato.svg"} alt={logo?.alt ?? resolvedProductName} width={28} height={28} className="rounded" />
-                {resolvedProductName}
+          <div className="absolute inset-0 bg-black/50 backdrop-blur-sm" onClick={() => setMobileOpen(false)} aria-hidden="true" />
+          <aside className="absolute left-0 top-0 flex h-full w-[280px] max-w-[85vw] flex-col bg-background border-r shadow-lg overflow-hidden">
+            <div className="shrink-0 flex items-center justify-between gap-2 border-b px-4 py-3">
+              <Link href="/backend" className="flex items-center gap-2 min-w-0 text-sm font-semibold" onClick={() => setMobileOpen(false)} aria-label={t('appShell.goToDashboard')}>
+                <Image src={logo?.src ?? "/open-mercato.svg"} alt={logo?.alt ?? resolvedProductName} width={28} height={28} className="rounded shrink-0" />
+                <span className="truncate">{resolvedProductName}</span>
               </Link>
-              <IconButton variant="outline" size="sm" onClick={() => setMobileOpen(false)} aria-label={t('appShell.closeMenu')}>✕</IconButton>
+              <IconButton variant="ghost" size="sm" onClick={() => setMobileOpen(false)} aria-label={t('appShell.closeMenu')}>
+                <X className="size-4" />
+              </IconButton>
             </div>
             {mobileSidebarSlot && (
               <div className="shrink-0 border-b px-3 py-2">
                 {mobileSidebarSlot}
               </div>
             )}
+            {sidebarMode !== 'main' ? (
+              <div className="shrink-0 flex items-center gap-5 border-b px-4 pt-3 pb-0" role="tablist">
+                {([
+                  { id: 'main' as const, label: t('backend.nav.main', 'Main') },
+                  {
+                    id: 'section' as const,
+                    label:
+                      sidebarMode === 'settings'
+                        ? settingsSectionTitle ?? t('backend.nav.settings', 'Settings')
+                        : profileSectionTitle ?? t('backend.nav.profile', 'Profile'),
+                  },
+                ]).map((tab) => {
+                  const isActive =
+                    tab.id === 'main' ? mobileDrawerView === 'main' : mobileDrawerView === 'auto'
+                  return (
+                    <button
+                      key={tab.id}
+                      type="button"
+                      role="tab"
+                      aria-selected={isActive}
+                      onClick={() => setMobileDrawerView(tab.id === 'main' ? 'main' : 'auto')}
+                      className="relative inline-flex items-center pb-2 text-sm font-medium leading-5 tracking-tight transition-colors focus:outline-none data-[active=true]:text-foreground data-[active=false]:text-muted-foreground hover:text-foreground"
+                      data-active={isActive}
+                    >
+                      <span>{tab.label}</span>
+                      {isActive ? (
+                        <span
+                          className="absolute -bottom-px left-0 right-0 h-0.5 bg-foreground"
+                          aria-hidden="true"
+                        />
+                      ) : null}
+                    </button>
+                  )
+                })}
+              </div>
+            ) : null}
             <div className="min-h-0 flex-1 overflow-y-auto overflow-x-hidden p-3">
               {/* Force expanded sidebar in mobile drawer, hide its header and collapse toggle */}
-              {renderSidebar(false, true)}
+              {renderSidebar(false, true, mobileDrawerView === 'main')}
             </div>
           </aside>
         </div>

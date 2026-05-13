@@ -7,6 +7,19 @@ import { raiseCrudError } from '@open-mercato/ui/backend/utils/serverErrors'
 import { emitOrganizationScopeChanged } from '@open-mercato/shared/lib/frontend/organizationEvents'
 import { OrganizationSelect, type OrganizationTreeNode } from '@open-mercato/core/modules/directory/components/OrganizationSelect'
 import { TenantSelect, type TenantRecord } from '@open-mercato/core/modules/directory/components/TenantSelect'
+import { Building2, Check, ChevronDown, Settings2 } from 'lucide-react'
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@open-mercato/ui/primitives/select'
+import {
+  Popover,
+  PopoverContent,
+  PopoverTrigger,
+} from '@open-mercato/ui/primitives/popover'
 import { ALL_ORGANIZATIONS_COOKIE_VALUE } from '@open-mercato/core/modules/directory/constants'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 
@@ -372,40 +385,142 @@ export default function OrganizationSwitcher({ compact }: OrganizationSwitcherEx
     )
   }
 
+  const flatOrgOptions = React.useMemo(() => {
+    const out: Array<{ id: string; label: string; selectable: boolean; depth: number }> = []
+    const walk = (list: OrganizationTreeNode[]) => {
+      for (const node of list) {
+        const depth = typeof node.depth === 'number' ? node.depth : 0
+        const indent = depth > 0 ? `${'  '.repeat(depth)}` : ''
+        out.push({
+          id: node.id,
+          label: `${indent}${node.name}`,
+          selectable: node.selectable !== false,
+          depth,
+        })
+        if (Array.isArray(node.children) && node.children.length > 0) walk(node.children as OrganizationTreeNode[])
+      }
+    }
+    walk(nodes)
+    return out
+  }, [nodes])
+
+  const ALL_ORGS_SENTINEL = '__all__'
+  const orgSelectValue = !value ? (showAllOption ? ALL_ORGS_SENTINEL : '') : value
+  const [popoverOpen, setPopoverOpen] = React.useState(false)
+
+  const activeOrgLabel = React.useMemo(() => {
+    if (!value) {
+      return showAllOption
+        ? t('organizationSwitcher.allOrganizations', 'All organizations')
+        : t('organizationSwitcher.label', 'Organization')
+    }
+    return flatOrgOptions.find((opt) => opt.id === value)?.label.trim()
+      || t('organizationSwitcher.label', 'Organization')
+  }, [value, showAllOption, flatOrgOptions, t])
+
+  if (state.status === 'loading') {
+    return <span className="hidden md:inline text-xs text-muted-foreground">{t('organizationSwitcher.loading')}</span>
+  }
+  if (state.status === 'error') {
+    return <span className="hidden md:inline text-xs text-destructive">{t('organizationSwitcher.error')}</span>
+  }
+  if (!hasOptions) {
+    return <span className="hidden md:inline text-xs text-muted-foreground">{t('organizationSwitcher.empty')}</span>
+  }
+
   return (
-    <div className="flex flex-wrap items-center gap-2 text-sm">
-      {showTenantSelect ? (
-        <>
-          <TenantSelect
-            id="tenant-switcher"
-            value={tenantSelectValue}
-            onChange={handleTenantChange}
-            tenants={tenantSelectOptions}
-            fetchOnMount={false}
-            includeEmptyOption={false}
-            className="h-9 rounded border pl-2 pr-7 text-sm truncate"
-            aria-label={t('organizationSwitcher.tenantLabel', 'Tenant')}
-          />
-        </>
-      ) : null}
-      {state.status === 'loading' ? (
-        <span className="text-xs text-muted-foreground">{t('organizationSwitcher.loading')}</span>
-      ) : state.status === 'error' ? (
-        <span className="text-xs text-destructive">{t('organizationSwitcher.error')}</span>
-      ) : hasOptions ? (
-        <OrganizationSelect
-          id="org-switcher"
-          value={value || null}
-          onChange={handleChange}
-          nodes={nodes}
-          fetchOnMount={false}
-          includeAllOption={showAllOption}
-          aria-label={t('organizationSwitcher.label')}
-          className="h-9 rounded border pl-2 pr-7 text-sm truncate"
-        />
-      ) : (
-        <span className="text-xs text-muted-foreground">{t('organizationSwitcher.empty')}</span>
-      )}
-    </div>
+    <Popover open={popoverOpen} onOpenChange={setPopoverOpen}>
+      <PopoverTrigger asChild>
+        <button
+          type="button"
+          aria-label={`${t('organizationSwitcher.label')}: ${activeOrgLabel}`}
+          title={activeOrgLabel}
+          className="inline-flex h-8 w-8 items-center justify-center gap-2 rounded-md border border-input bg-background px-0 text-sm font-medium shadow-xs transition-colors hover:bg-muted/40 focus:outline-none focus-visible:shadow-focus focus-visible:border-foreground data-[state=open]:bg-muted/40 sm:w-auto sm:justify-start sm:px-3 sm:max-w-[200px] md:max-w-[260px]"
+        >
+          <Building2 className="size-4 shrink-0 text-muted-foreground" aria-hidden="true" />
+          <span className="hidden sm:block truncate flex-1 text-left">{activeOrgLabel}</span>
+          <ChevronDown className="hidden sm:block size-4 shrink-0 text-muted-foreground" aria-hidden="true" />
+        </button>
+      </PopoverTrigger>
+      <PopoverContent align="end" className="w-[320px] p-0">
+        {showTenantSelect ? (
+          <div className="border-b p-3 space-y-2">
+            <div className="text-[10px] font-medium uppercase tracking-wider text-muted-foreground/80 leading-none">
+              {t('organizationSwitcher.tenantLabel', 'Tenant')}
+            </div>
+            <Select
+              value={tenantSelectValue || undefined}
+              onValueChange={(next) => handleTenantChange(next || null)}
+            >
+              <SelectTrigger
+                aria-label={t('organizationSwitcher.tenantLabel', 'Tenant')}
+                className="w-full [&>span]:truncate"
+              >
+                <SelectValue placeholder={t('organizationSwitcher.tenantLabel', 'Tenant')} />
+              </SelectTrigger>
+              <SelectContent>
+                {tenantSelectOptions.map((tenant) => (
+                  <SelectItem key={tenant.id} value={tenant.id} disabled={!tenant.isActive}>
+                    {tenant.name}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+        ) : null}
+        <div className="p-2">
+          <div className="px-2 py-1.5 text-[10px] font-medium uppercase tracking-wider text-muted-foreground/80 leading-none">
+            {t('organizationSwitcher.label')}
+          </div>
+          <div className="max-h-[280px] overflow-y-auto">
+            {showAllOption ? (
+              <button
+                type="button"
+                onClick={() => {
+                  handleChange(null)
+                  setPopoverOpen(false)
+                }}
+                className="flex w-full items-center justify-between gap-2 rounded-sm px-2 py-1.5 text-left text-sm transition-colors hover:bg-muted/40 focus:outline-none focus-visible:bg-muted/40"
+              >
+                <span className="truncate min-w-0">{t('organizationSwitcher.allOrganizations', 'All organizations')}</span>
+                {!value ? <Check className="size-4 shrink-0 text-accent-indigo" aria-hidden="true" /> : null}
+              </button>
+            ) : null}
+            {flatOrgOptions.map((opt) => {
+              const isActive = value === opt.id
+              return (
+                <button
+                  key={opt.id}
+                  type="button"
+                  disabled={!opt.selectable}
+                  onClick={() => {
+                    if (!opt.selectable) return
+                    handleChange(opt.id)
+                    setPopoverOpen(false)
+                  }}
+                  style={{ paddingLeft: `${0.5 + opt.depth * 0.75}rem` }}
+                  className="flex w-full items-center justify-between gap-2 rounded-sm py-1.5 pr-2 text-left text-sm transition-colors hover:bg-muted/40 disabled:opacity-50 disabled:hover:bg-transparent focus:outline-none focus-visible:bg-muted/40"
+                >
+                  <span className="truncate min-w-0">{opt.label.trim()}</span>
+                  {isActive ? <Check className="size-4 shrink-0 text-accent-indigo" aria-hidden="true" /> : null}
+                </button>
+              )
+            })}
+          </div>
+        </div>
+        {canManage ? (
+          <div className="border-t p-2">
+            <Link
+              href="/backend/directory/organizations"
+              onClick={() => setPopoverOpen(false)}
+              className="flex w-full items-center gap-2 rounded-sm px-2 py-1.5 text-sm text-muted-foreground transition-colors hover:bg-muted/40 hover:text-foreground focus:outline-none focus-visible:bg-muted/40"
+            >
+              <Settings2 className="size-4 shrink-0" aria-hidden="true" />
+              <span>{t('organizationSwitcher.manage')}</span>
+            </Link>
+          </div>
+        ) : null}
+      </PopoverContent>
+    </Popover>
   )
 }

@@ -1,12 +1,13 @@
 'use client'
 import * as React from 'react'
 import Link from 'next/link'
-import { User, LogOut, Bell, Moon, Sun, Globe, Key, Check } from 'lucide-react'
+import { User, LogOut, Bell, Moon, Sun, Globe, Key, Check, ChevronRight } from 'lucide-react'
 import { useT, useLocale } from '@open-mercato/shared/lib/i18n/context'
 import { locales, type Locale } from '@open-mercato/shared/lib/i18n/config'
 import { useTheme } from '@open-mercato/ui/theme'
-import { Button } from '../primitives/button'
+import { cn } from '@open-mercato/shared/lib/utils'
 import { IconButton } from '../primitives/icon-button'
+import { Switch } from '../primitives/switch'
 import { useInjectedMenuItems } from './injection/useInjectedMenuItems'
 import { mergeMenuItems, type MergedMenuItem } from './injection/mergeMenuItems'
 import { resolveInjectedIcon } from './injection/resolveInjectedIcon'
@@ -99,8 +100,14 @@ export function ProfileDropdown({
     } catch {}
   }
 
-  const menuItemClass =
-    'w-full text-left text-sm cursor-pointer px-3 py-2 rounded hover:bg-accent inline-flex items-center gap-2.5 outline-none focus-visible:ring-1 focus-visible:ring-ring'
+  // Unified row class — every menu item uses this for perfectly aligned layout.
+  // h-9 keeps all rows the same height regardless of whether they have a trailing element.
+  const menuItemClass = cn(
+    'group flex h-9 w-full items-center gap-3 rounded-md px-2.5 text-sm text-foreground',
+    'transition-colors hover:bg-muted/60 focus:outline-none focus-visible:bg-muted/60',
+    'cursor-pointer',
+  )
+  const menuIconClass = 'size-4 shrink-0 text-muted-foreground group-hover:text-foreground'
 
   const resolveMenuLabel = React.useCallback(
     (item: Pick<MergedMenuItem, 'id' | 'label' | 'labelKey'>): string => {
@@ -139,6 +146,12 @@ export function ProfileDropdown({
     (item: MergedMenuItem) => {
       const label = resolveMenuLabel(item)
       const icon = resolveInjectedIcon(item.icon)
+      const inner = (
+        <>
+          <span className={menuIconClass}>{icon}</span>
+          <span className="flex-1 truncate">{label}</span>
+        </>
+      )
       if (item.href) {
         return (
           <Link
@@ -149,18 +162,15 @@ export function ProfileDropdown({
             data-menu-item-id={item.id}
             onClick={() => setOpen(false)}
           >
-            {icon}
-            <span>{label}</span>
+            {inner}
           </Link>
         )
       }
       return (
-        <Button
+        <button
           key={item.id}
           type="button"
-          variant="ghost"
-          size="sm"
-          className="w-full justify-start"
+          className={menuItemClass}
           role="menuitem"
           data-menu-item-id={item.id}
           onClick={() => {
@@ -168,12 +178,11 @@ export function ProfileDropdown({
             setOpen(false)
           }}
         >
-          {icon}
-          <span>{label}</span>
-        </Button>
+          {inner}
+        </button>
       )
     },
-    [menuItemClass, resolveMenuLabel],
+    [menuItemClass, menuIconClass, resolveMenuLabel],
   )
 
   const renderBuiltInItem = React.useCallback(
@@ -187,8 +196,8 @@ export function ProfileDropdown({
             role="menuitem"
             onClick={() => setOpen(false)}
           >
-            <Key className="size-4" />
-            <span>{t('ui.profileMenu.changePassword', 'Change Password')}</span>
+            <Key className={menuIconClass} />
+            <span className="flex-1 truncate">{t('ui.profileMenu.changePassword', 'Change Password')}</span>
           </Link>
         )
       }
@@ -202,68 +211,78 @@ export function ProfileDropdown({
             role="menuitem"
             onClick={() => setOpen(false)}
           >
-            <Bell className="size-4" />
-            <span>{t('ui.profileMenu.notifications', 'Notification Preferences')}</span>
+            <Bell className={menuIconClass} />
+            <span className="flex-1 truncate">{t('ui.profileMenu.notifications', 'Notification Preferences')}</span>
           </Link>
         )
       }
 
       if (id === 'theme-toggle') {
-        return mounted ? (
-          <Button
+        if (!mounted) return null
+        return (
+          <div
             key={id}
-            type="button"
-            variant="ghost"
-            size="sm"
-            className="w-full justify-between"
+            className={cn(menuItemClass, 'justify-between')}
             role="menuitem"
             onClick={handleThemeToggle}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter' || e.key === ' ') {
+                e.preventDefault()
+                handleThemeToggle()
+              }
+            }}
+            tabIndex={0}
           >
-            <span className="inline-flex items-center gap-2.5">
-              {isDark ? <Moon className="size-4" /> : <Sun className="size-4" />}
-              <span>{t('ui.profileMenu.theme', 'Dark Mode')}</span>
+            <span className="flex flex-1 items-center gap-3">
+              {isDark ? <Moon className={menuIconClass} /> : <Sun className={menuIconClass} />}
+              <span className="flex-1 truncate">{t('ui.profileMenu.theme', 'Theme')}</span>
             </span>
-            <div className={`w-8 h-4 rounded-full transition-colors ${isDark ? 'bg-primary' : 'bg-muted'} relative`}>
-              <div className={`absolute top-0.5 w-3 h-3 rounded-full bg-background shadow transition-transform ${isDark ? 'translate-x-4' : 'translate-x-0.5'}`} />
-            </div>
-          </Button>
-        ) : null
+            <Switch
+              checked={isDark}
+              onCheckedChange={handleThemeToggle}
+              aria-label={t('ui.profileMenu.theme', 'Theme')}
+              onClick={(e) => e.stopPropagation()}
+            />
+          </div>
+        )
       }
 
       if (id === 'language') {
         return (
-          <div key={id} className="relative">
-            <Button
+          <div key={id} className="contents">
+            <button
               type="button"
-              variant="ghost"
-              size="sm"
-              className="w-full justify-between"
+              className={menuItemClass}
               role="menuitem"
               onClick={() => setLanguageOpen(!languageOpen)}
               aria-expanded={languageOpen}
             >
-              <span className="inline-flex items-center gap-2.5">
-                <Globe className="size-4" />
-                <span>{t('ui.profileMenu.language', 'Language')}</span>
-              </span>
-              <span className="text-xs text-muted-foreground">
-                {localeLabels[currentLocale]}
-              </span>
-            </Button>
+              <Globe className={menuIconClass} />
+              <span className="truncate">{t('ui.profileMenu.language', 'Language')}</span>
+              <span className="text-xs text-muted-foreground">{localeLabels[currentLocale]}</span>
+              <ChevronRight
+                className={cn(
+                  'ml-auto size-3.5 shrink-0 text-muted-foreground transition-transform',
+                  languageOpen && 'rotate-90',
+                )}
+                aria-hidden="true"
+              />
+            </button>
             {languageOpen && (
-              <div className="mt-1 ml-6 space-y-0.5 border-l pl-2">
+              <div className="ml-7 mr-1 flex flex-col gap-0.5 border-l pl-2 py-1">
                 {locales.map((locale) => (
-                  <Button
+                  <button
                     key={locale}
                     type="button"
-                    variant="ghost"
-                    size="sm"
-                    className={`w-full justify-start gap-2 ${locale === currentLocale ? 'text-primary font-medium' : ''}`}
+                    className={cn(
+                      'flex h-8 w-full items-center justify-between gap-2 rounded-md px-2 text-sm transition-colors hover:bg-muted/60 focus:outline-none focus-visible:bg-muted/60',
+                      locale === currentLocale ? 'font-medium text-foreground' : 'text-muted-foreground',
+                    )}
                     onClick={() => handleLocaleChange(locale)}
                   >
-                    <span>{localeLabels[locale]}</span>
-                    {locale === currentLocale && <Check className="size-3.5" />}
-                  </Button>
+                    <span className="truncate">{localeLabels[locale]}</span>
+                    {locale === currentLocale && <Check className="size-3.5 shrink-0 text-accent-indigo" aria-hidden="true" />}
+                  </button>
                 ))}
               </div>
             )}
@@ -274,16 +293,14 @@ export function ProfileDropdown({
       if (id === 'sign-out') {
         return (
           <form key={id} action="/api/auth/logout" method="POST">
-            <Button
-              variant="ghost"
-              size="sm"
-              className="w-full justify-start"
+            <button
               type="submit"
+              className={menuItemClass}
               role="menuitem"
             >
-              <LogOut className="size-4" />
-              <span>{t('ui.userMenu.logout', 'Sign Out')}</span>
-            </Button>
+              <LogOut className={menuIconClass} />
+              <span className="flex-1 truncate text-left">{t('ui.userMenu.logout', 'Sign Out')}</span>
+            </button>
           </form>
         )
       }
@@ -297,6 +314,7 @@ export function ProfileDropdown({
       isDark,
       languageOpen,
       menuItemClass,
+      menuIconClass,
       mounted,
       notificationsHref,
       t,
@@ -321,42 +339,51 @@ export function ProfileDropdown({
       {open && (
         <div
           ref={menuRef}
-          className="absolute right-0 top-full mt-1 w-56 rounded-md border bg-background p-1 shadow-lg z-dropdown"
+          className="absolute right-0 top-full z-popover mt-2 w-64 overflow-hidden rounded-lg border bg-popover p-0 shadow-lg"
           role="menu"
           data-testid="profile-dropdown"
         >
           {/* User info header */}
           {(displayName || email) && (
-            <div className="px-3 py-2.5 border-b mb-1">
-              {displayName && (
-                <div className="font-medium text-sm flex items-center gap-2">
-                  <User className="size-4" />
-                  {displayName}
-                </div>
-              )}
-              {displayName && email && (
-                <div className="text-xs text-muted-foreground mt-0.5 ml-6">{email}</div>
-              )}
-              {!displayName && email && (
-                <div className="text-xs text-muted-foreground">
-                  {t('ui.userMenu.loggedInAs', 'Logged in as:')} {email}
-                </div>
-              )}
+            <div className="flex items-center gap-3 border-b bg-muted/30 px-3 py-3">
+              <div className="flex size-9 shrink-0 items-center justify-center rounded-full bg-accent-indigo/10 text-accent-indigo">
+                <User className="size-4" aria-hidden="true" />
+              </div>
+              <div className="flex min-w-0 flex-1 flex-col">
+                {displayName ? (
+                  <span className="truncate text-sm font-medium leading-5 text-foreground">{displayName}</span>
+                ) : null}
+                {email ? (
+                  <span className={cn(
+                    'truncate text-xs leading-4',
+                    displayName ? 'text-muted-foreground' : 'text-foreground font-medium',
+                  )}>
+                    {email}
+                  </span>
+                ) : null}
+                {!displayName && email ? (
+                  <span className="truncate text-[10px] uppercase tracking-wider text-muted-foreground/80">
+                    {t('ui.userMenu.loggedInAs', 'Logged in')}
+                  </span>
+                ) : null}
+              </div>
             </div>
           )}
 
-          {mergedMenuItems.map((item) => (
-            <React.Fragment key={item.id}>
-              {item.separator ? <div className="my-1 border-t" /> : null}
-              {item.source === 'injected'
-                ? (item.href || item.onClick || item.label || item.labelKey ? renderInjectedItem(item) : null)
-                : renderBuiltInItem(item.id)}
-            </React.Fragment>
-          ))}
-          <InjectionSpot
-            spotId={BACKEND_TOPBAR_PROFILE_MENU_INJECTION_SPOT_ID}
-            context={injectionContext}
-          />
+          <div className="flex flex-col p-1.5">
+            {mergedMenuItems.map((item) => (
+              <React.Fragment key={item.id}>
+                {item.separator ? <div className="my-1 h-px bg-border" aria-hidden="true" /> : null}
+                {item.source === 'injected'
+                  ? (item.href || item.onClick || item.label || item.labelKey ? renderInjectedItem(item) : null)
+                  : renderBuiltInItem(item.id)}
+              </React.Fragment>
+            ))}
+            <InjectionSpot
+              spotId={BACKEND_TOPBAR_PROFILE_MENU_INJECTION_SPOT_ID}
+              context={injectionContext}
+            />
+          </div>
         </div>
       )}
     </div>
