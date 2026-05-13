@@ -31,7 +31,11 @@ services:
     ports:
       - "${TRAEFIK_HTTP_PORT:-80}:80"
       - "${TRAEFIK_HTTPS_PORT:-443}:443"
-      - "${TRAEFIK_DASHBOARD_PORT:-8081}:8080"
+      # Dashboard is NOT published by default. The Traefik dashboard exposes
+      # routers/services/cert metadata to anyone who can reach the published
+      # port. Set TRAEFIK_DASHBOARD_PORT to publish it (operator opt-in) and
+      # restrict access via firewall/VPN; otherwise keep it private.
+      # - "${TRAEFIK_DASHBOARD_PORT}:8080"
     volumes:
       - ./docker/traefik/traefik.yml:/etc/traefik/traefik.yml:ro
       - traefik_acme:/letsencrypt

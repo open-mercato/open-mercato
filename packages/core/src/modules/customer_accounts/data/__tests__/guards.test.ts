@@ -188,7 +188,10 @@ describe('hostnameUnique guard', () => {
       }),
     )
     expect(result).toMatchObject({ ok: false, status: 409 })
-    expect(result.message).toMatch(/another organization/i)
+    // Intentionally tenant-agnostic: the guard MUST NOT reveal whether the
+    // collision is cross-tenant vs intra-tenant (avoid hostname-existence
+    // disclosure across the deployment).
+    expect(result.message).toMatch(/not available/i)
   })
 
   it('blocks within the same tenant when another organization holds the hostname', async () => {
@@ -208,7 +211,8 @@ describe('hostnameUnique guard', () => {
       }),
     )
     expect(result).toMatchObject({ ok: false, status: 409 })
-    expect(result.message).toMatch(/your tenant/i)
+    // Same tenant-agnostic message as the cross-tenant case above.
+    expect(result.message).toMatch(/not available/i)
   })
 
   it('passes silently when payload omits hostname (defers to hostnameFormat)', async () => {
@@ -334,7 +338,7 @@ describe('orgLimit guard', () => {
       }),
     )
     expect(result.ok).toBe(true)
-    expect(mockService.findByOrganization).toHaveBeenCalledWith(ORG_A)
+    expect(mockService.findByOrganization).toHaveBeenCalledWith(ORG_A, { tenantId: TENANT_A })
   })
 
   it('counts only the organization in the payload, not unrelated organizations', async () => {
@@ -360,7 +364,7 @@ describe('orgLimit guard', () => {
       }),
     )
     expect(result.ok).toBe(true)
-    expect(mockService.findByOrganization).toHaveBeenCalledWith(ORG_A)
+    expect(mockService.findByOrganization).toHaveBeenCalledWith(ORG_A, { tenantId: TENANT_A })
   })
 })
 

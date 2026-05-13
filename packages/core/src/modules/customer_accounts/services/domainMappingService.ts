@@ -150,8 +150,13 @@ export class DomainMappingService {
     return this.em.findOne(DomainMapping, where as never)
   }
 
-  async findByOrganization(organizationId: string): Promise<DomainMapping[]> {
-    return this.em.find(DomainMapping, { organizationId } as never, { orderBy: { createdAt: 'asc' } })
+  async findByOrganization(
+    organizationId: string,
+    scope?: { tenantId?: string },
+  ): Promise<DomainMapping[]> {
+    const where: Record<string, unknown> = { organizationId }
+    if (scope?.tenantId) where.tenantId = scope.tenantId
+    return this.em.find(DomainMapping, where as never, { orderBy: { createdAt: 'asc' } })
   }
 
   async resolveByHostname(input: string): Promise<ResolveResult | null> {

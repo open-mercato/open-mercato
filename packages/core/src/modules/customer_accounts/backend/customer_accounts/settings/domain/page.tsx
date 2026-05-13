@@ -221,7 +221,7 @@ export default function CustomerDomainSettingsPage() {
           )
           if (!call.ok || !call.result?.ok) {
             const message = call.result?.error
-              || t('customer_accounts.domainMapping.alreadyClaimed', 'This domain is already in use by another organization')
+              || t('customer_accounts.domainMapping.alreadyClaimed', 'This domain is not available. Please choose a different hostname.')
             throw new Error(message)
           }
           flash(t('customer_accounts.domainMapping.registered', 'Domain registered successfully'), 'success')

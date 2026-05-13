@@ -52,15 +52,23 @@ export type CustomDomainCacheOptions = {
 }
 
 const POSITIVE_TTL_DEFAULT_SECONDS = 60
-const NEGATIVE_TTL_DEFAULT_SECONDS = 300
+const NEGATIVE_TTL_DEFAULT_SECONDS = 60
+// Hard ceiling for the per-process negative TTL. There is no in-process
+// invalidation hook between Next.js workers — only the shared cache is
+// invalidated when a domain becomes active — so a longer negative TTL means
+// a newly registered domain can stay unresolved on a given process up to
+// this many seconds. Keep it under one minute to bound that propagation
+// delay for real customers while still absorbing unknown-hostname probing.
+const NEGATIVE_TTL_MAX_SECONDS = 60
 const MAX_ENTRIES_DEFAULT = 10_000
 
-function readNumberEnv(name: string, fallbackSeconds: number): number {
+function readNumberEnv(name: string, fallbackSeconds: number, maxSeconds?: number): number {
   const raw = process.env[name]
   if (!raw) return fallbackSeconds * 1000
   const parsed = Number(raw)
   if (!Number.isFinite(parsed) || parsed <= 0) return fallbackSeconds * 1000
-  return parsed * 1000
+  const seconds = maxSeconds !== undefined ? Math.min(parsed, maxSeconds) : parsed
+  return seconds * 1000
 }
 
 function readMaxEntriesEnv(): number {
@@ -219,7 +227,11 @@ export function readPositiveTtlMs(): number {
 }
 
 export function readNegativeTtlMs(): number {
-  return readNumberEnv('DOMAIN_NEGATIVE_CACHE_TTL_SECONDS', NEGATIVE_TTL_DEFAULT_SECONDS)
+  return readNumberEnv(
+    'DOMAIN_NEGATIVE_CACHE_TTL_SECONDS',
+    NEGATIVE_TTL_DEFAULT_SECONDS,
+    NEGATIVE_TTL_MAX_SECONDS,
+  )
 }
 
 export function readMaxEntries(): number {

@@ -138,7 +138,7 @@ export async function POST(req: Request) {
   } catch (err: unknown) {
     if (isUniqueViolation(err)) {
       return NextResponse.json(
-        { ok: false, error: 'This domain is already in use by another organization' },
+        { ok: false, error: 'This domain is not available. Please choose a different hostname.' },
         { status: 409 },
       )
     }

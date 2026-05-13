@@ -65,18 +65,17 @@ const hostnameUniqueGuard: MutationGuard = {
     }
 
     const existing = await service.resolveByHostname(hostname)
-    if (existing && existing.tenantId !== input.tenantId) {
+    if (!existing) return { ok: true }
+
+    // Intentionally tenant-agnostic message: do not disclose whether the
+    // collision is intra-tenant or cross-tenant. Distinguishing them would
+    // let any caller probe deployment-wide hostname registration.
+    const sameOrg = existing.organizationId === readOrgIdField(input.mutationPayload)
+    if (existing.tenantId !== input.tenantId || !sameOrg) {
       return {
         ok: false,
         status: 409,
-        message: 'This domain is already in use by another organization',
-      }
-    }
-    if (existing && existing.organizationId !== readOrgIdField(input.mutationPayload)) {
-      return {
-        ok: false,
-        status: 409,
-        message: 'This domain is already in use by another organization within your tenant',
+        message: 'This domain is not available. Please choose a different hostname.',
       }
     }
     return { ok: true }
@@ -103,7 +102,7 @@ const orgLimitGuard: MutationGuard = {
       return { ok: true }
     }
 
-    const existing = await service.findByOrganization(orgId)
+    const existing = await service.findByOrganization(orgId, { tenantId: input.tenantId })
     if (existing.length >= MAX_DOMAINS_PER_ORG) {
       return {
         ok: false,

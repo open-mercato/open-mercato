@@ -14,6 +14,7 @@
 
 import { tryNormalizeHostname } from '@open-mercato/core/modules/customer_accounts/lib/hostname'
 import { platformDomains } from '@open-mercato/core/modules/customer_accounts/lib/platformDomains'
+import { secretEqual } from '@open-mercato/core/modules/customer_accounts/lib/secretCompare'
 import type { AppContainer } from '@open-mercato/shared/lib/di/container'
 import type { DomainMappingService } from '@open-mercato/core/modules/customer_accounts/services/domainMappingService'
 
@@ -38,8 +39,7 @@ function readForcedHost(req: Request): string | null {
   if (process.env.NODE_ENV !== 'test') return null
   const expected = process.env.FORCE_HOST_SECRET
   if (!expected) return null
-  const secret = req.headers.get('x-force-host-secret')
-  if (secret !== expected) return null
+  if (!secretEqual(req.headers.get('x-force-host-secret'), expected)) return null
   const host = req.headers.get('x-force-host')
   return host && host.length > 0 ? host : null
 }

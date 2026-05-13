@@ -193,7 +193,7 @@
   "customer_accounts.admin.users": "Users",
   "customer_accounts.admin.verified": "Yes",
   "customer_accounts.domainMapping.aRecordInstruction": "For an apex domain, add an A record for {hostname} pointing to {target}",
-  "customer_accounts.domainMapping.alreadyClaimed": "This domain is already in use by another organization",
+  "customer_accounts.domainMapping.alreadyClaimed": "This domain is not available. Please choose a different hostname.",
   "customer_accounts.domainMapping.autoVerify.checking": "Automatically checking every 5 minutes",
   "customer_accounts.domainMapping.autoVerify.lastChecked": "Last checked: {time}",
   "customer_accounts.domainMapping.autoVerify.nextCheck": "Next check in ~{minutes} minutes",
