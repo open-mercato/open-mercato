@@ -837,7 +837,16 @@ export function CrudForm<TValues extends Record<string, unknown>>({
         if (!target || navigationPromptBypassRef.current || submitNavigationBypassRef.current) {
           return original(data, unused, url)
         }
+        if (!isDirtyRef.current) {
+          return original(data, unused, url)
+        }
         if (shouldBypassUnsavedChangesGuardRef.current?.(target)) {
+          return original(data, unused, url)
+        }
+        const baselineSnapshot = dirtyBaselineSnapshotRef.current
+        if (baselineSnapshot && JSON.stringify(valuesRef.current) === baselineSnapshot) {
+          isDirtyRef.current = false
+          setHasUnsavedChanges(false)
           return original(data, unused, url)
         }
         if (navigationConfirmPendingRef.current) {
@@ -4081,9 +4090,11 @@ const FieldControl = React.memo(function FieldControlImpl({
                 : String(value)
           }
           onValueChange={(next) => {
-            // Sentinel maps back to undefined so optional selects can be cleared.
+            // Custom field clears must be explicit nulls; normal optional
+            // fields keep the existing undefined clear semantics.
             if (!next || next === SELECT_CLEAR_SENTINEL) {
-              setValue(field.id, undefined)
+              const isCustomField = field.id.startsWith('cf_') || field.id.startsWith('cf:')
+              setValue(field.id, isCustomField ? null : undefined)
               return
             }
             setValue(field.id, next)

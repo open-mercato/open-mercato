@@ -75,6 +75,20 @@ function extractDictionaryValue(entry: unknown): string | null {
   return null
 }
 
+function readCustomDataFieldValue(values: Record<string, unknown> | undefined, fieldId: string): unknown {
+  if (!values || !fieldId) return undefined
+  const candidates = fieldId.startsWith('cf_')
+    ? [fieldId, `cf:${fieldId.slice(3)}`, fieldId.slice(3)]
+    : [fieldId, `cf_${fieldId}`, `cf:${fieldId}`]
+
+  for (const candidate of candidates) {
+    if (Object.prototype.hasOwnProperty.call(values, candidate)) {
+      return values[candidate]
+    }
+  }
+  return undefined
+}
+
 export type CustomDataLabels = {
   loading: string
   emptyValue: string
@@ -473,7 +487,7 @@ function CustomDataSectionImpl({
         const normalizedKey = field.id.startsWith('cf_') ? field.id.slice(3) : field.id
         const definition = definitionsByKey.get(normalizedKey.toLowerCase())
         if (!definition || definition.kind !== 'relation') return null
-        const relationIds = collectRelationValueIds(values?.[field.id])
+        const relationIds = collectRelationValueIds(readCustomDataFieldValue(values, field.id))
         if (!relationIds.length) return null
         return { field, definition, relationIds }
       })
@@ -659,7 +673,7 @@ function CustomDataSectionImpl({
                   <div className="text-sm break-words">
                     {formatFieldValue(
                       field,
-                      values?.[field.id],
+                      readCustomDataFieldValue(values, field.id),
                       labels.emptyValue,
                       dictionaryMapsByField[field.id],
                       markdownPlugins,

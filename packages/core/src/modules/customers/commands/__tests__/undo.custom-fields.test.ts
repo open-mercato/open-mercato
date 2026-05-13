@@ -29,6 +29,7 @@ import {
   CustomerTagAssignment,
   CustomerTodoLink,
 } from '../../data/entities'
+import { CustomFieldDef } from '@open-mercato/core/modules/entities/data/entities'
 // Todo type removed - example package no longer exists
 type Todo = {
   id: string
@@ -1340,6 +1341,183 @@ describe('customers commands undo custom fields', () => {
     )
 
     expect(createdEntity?.primaryPhone).toBeNull()
+  })
+
+  it('companies.create routes custom fields to base entity or company profile definitions', async () => {
+    const handler = commandRegistry.get('customers.companies.create') as CommandHandler
+    const createdEntityId = '123e4567-e89b-41d3-a456-426614174240'
+    const createdProfileId = '123e4567-e89b-41d3-a456-426614174241'
+
+    const em = {
+      fork: () => em,
+      create: jest.fn((ctor, data) => {
+        if (ctor === CustomerEntity) {
+          return {
+            id: createdEntityId,
+            createdAt: new Date(),
+            updatedAt: new Date(),
+            deletedAt: null,
+            ...data,
+          }
+        }
+        if (ctor === CustomerCompanyProfile) {
+          return {
+            id: createdProfileId,
+            createdAt: new Date(),
+            updatedAt: new Date(),
+            ...data,
+          }
+        }
+        return data
+      }),
+      find: jest.fn(async (ctor) => {
+        if (ctor !== CustomFieldDef) return []
+        return [
+          {
+            key: 'shared_tier',
+            kind: 'select',
+            entityId: 'customers:customer_entity',
+            configJson: { filterable: true, options: ['gold'] },
+            tenantId: TEST_TENANT_ID,
+            organizationId: TEST_ORG_ID,
+          },
+          {
+            key: 'relationship_health',
+            kind: 'select',
+            entityId: 'customers:customer_company_profile',
+            configJson: { filterable: true, options: ['monitor'] },
+            tenantId: TEST_TENANT_ID,
+            organizationId: TEST_ORG_ID,
+          },
+        ]
+      }),
+      persist: jest.fn(() => {}),
+      flush: jest.fn(async () => {}),
+      transactional: jest.fn(async (fn: any) => fn(em)),
+      begin: jest.fn().mockResolvedValue(undefined),
+      commit: jest.fn().mockResolvedValue(undefined),
+      rollback: jest.fn().mockResolvedValue(undefined),
+    }
+
+    const dataEngine = {
+      setCustomFields: jest.fn(async () => {}),
+      emitOrmEntityEvent: jest.fn(async () => {}),
+    }
+
+    const ctx = createMockContext({
+      em,
+      dataEngine,
+      tenantId: TEST_TENANT_ID,
+      organizationId: TEST_ORG_ID,
+    })
+
+    await handler.execute(
+      {
+        tenantId: TEST_TENANT_ID,
+        organizationId: TEST_ORG_ID,
+        displayName: 'Acme Corp',
+        customFields: {
+          shared_tier: 'gold',
+          relationship_health: 'monitor',
+        },
+      },
+      ctx,
+    )
+
+    expect(dataEngine.setCustomFields).toHaveBeenCalledWith(expect.objectContaining({
+      entityId: 'customers:customer_entity',
+      recordId: createdEntityId,
+      values: { shared_tier: 'gold' },
+    }))
+    expect(dataEngine.setCustomFields).toHaveBeenCalledWith(expect.objectContaining({
+      entityId: 'customers:customer_company_profile',
+      recordId: createdProfileId,
+      values: { relationship_health: 'monitor' },
+    }))
+  })
+
+  it('people.create saves profile-scoped select custom fields', async () => {
+    const handler = commandRegistry.get('customers.people.create') as CommandHandler
+    const createdEntityId = '123e4567-e89b-41d3-a456-426614174250'
+    const createdProfileId = '123e4567-e89b-41d3-a456-426614174251'
+
+    const em = {
+      fork: () => em,
+      create: jest.fn((ctor, data) => {
+        if (ctor === CustomerEntity) {
+          return {
+            id: createdEntityId,
+            createdAt: new Date(),
+            updatedAt: new Date(),
+            deletedAt: null,
+            ...data,
+          }
+        }
+        if (ctor === CustomerPersonProfile) {
+          return {
+            id: createdProfileId,
+            createdAt: new Date(),
+            updatedAt: new Date(),
+            ...data,
+          }
+        }
+        return data
+      }),
+      find: jest.fn(async (ctor) => {
+        if (ctor !== CustomFieldDef) return []
+        return [
+          {
+            key: 'buying_role',
+            kind: 'select',
+            entityId: 'customers:customer_person_profile',
+            configJson: {
+              filterable: true,
+              options: ['economic_buyer', 'champion', 'technical_evaluator', 'influencer'],
+            },
+            tenantId: TEST_TENANT_ID,
+            organizationId: TEST_ORG_ID,
+          },
+        ]
+      }),
+      persist: jest.fn(() => {}),
+      flush: jest.fn(async () => {}),
+      transactional: jest.fn(async (fn: any) => fn(em)),
+      begin: jest.fn().mockResolvedValue(undefined),
+      commit: jest.fn().mockResolvedValue(undefined),
+      rollback: jest.fn().mockResolvedValue(undefined),
+    }
+
+    const dataEngine = {
+      setCustomFields: jest.fn(async () => {}),
+      emitOrmEntityEvent: jest.fn(async () => {}),
+    }
+
+    const ctx = createMockContext({
+      em,
+      dataEngine,
+      tenantId: TEST_TENANT_ID,
+      organizationId: TEST_ORG_ID,
+    })
+
+    await handler.execute(
+      {
+        tenantId: TEST_TENANT_ID,
+        organizationId: TEST_ORG_ID,
+        displayName: 'Ada Lovelace',
+        firstName: 'Ada',
+        lastName: 'Lovelace',
+        customFields: {
+          buying_role: 'champion',
+        },
+      },
+      ctx,
+    )
+
+    expect(dataEngine.setCustomFields).toHaveBeenCalledWith(expect.objectContaining({
+      entityId: 'customers:customer_person_profile',
+      recordId: createdProfileId,
+      values: { buying_role: 'champion' },
+    }))
   })
 
   it('companies.update normalizes a blank primaryPhone to null', async () => {

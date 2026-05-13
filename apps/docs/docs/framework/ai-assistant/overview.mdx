@@ -23,7 +23,8 @@ This framework **does not replace** the OpenCode-backed Command Palette (`Cmd+K`
 - **Tool packs** — shared `search.*`, `attachments.*`, `meta.*` packs plus module-local packs (customers, catalog).
 - **Chat and object execution modes** — stream-first chat via `runAiAgentText`, structured outputs via `runAiAgentObject`.
 - **Mutation approval gate** — the `ai_pending_actions` table, three typed events (`ai.action.confirmed|cancelled|expired`), approval cards, and a TTL cleanup worker.
-- **Prompt and mutation-policy overrides** — tenant-scoped additive prompt sections and non-escalating policy downgrades at `/backend/config/ai-assistant/agents`.
+- **First-class agentic loop** — declarative `loop` block (`stopWhen`, `prepareStep`, `repairToolCall`, `budget`), per-call overrides resolved through the same precedence chain as provider/model, operator budgets + kill switch at `/backend/config/ai-assistant/agents`, an SSE-driven `LoopTrace` rendered by `<AiChat>` and the playground, and an opt-in `executionEngine: 'tool-loop-agent'` backed by Vercel's `Experimental_Agent`. See [agents → Agentic loop controls](./agents#agentic-loop-controls).
+- **Prompt, mutation-policy, and loop-budget overrides** — tenant-scoped additive prompt sections, non-escalating policy downgrades, and loop kill switch + budget caps at `/backend/config/ai-assistant/agents`.
 
 ## Architecture flow
 

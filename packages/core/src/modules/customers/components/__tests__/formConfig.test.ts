@@ -9,6 +9,8 @@ jest.mock('../detail/RolesSection', () => ({
 }))
 
 import {
+  buildCompanyPayload,
+  buildPersonPayload,
   createCompanyDaneFiremyGroups,
   createPersonPersonalDataGroups,
   type Translator,
@@ -42,5 +44,30 @@ describe('detail page zone1 group layouts', () => {
       'roles',
     ])
     expect(groups.every((group) => group.column === 1)).toBe(true)
+  })
+
+  it('keeps selected custom select values and omits untouched undefined custom fields', () => {
+    const company = buildCompanyPayload({
+      displayName: 'Acme',
+      cf_relationship_health: 'monitor',
+      cf_renewal_quarter: undefined,
+    })
+
+    expect(company.customFields).toEqual({
+      relationship_health: 'monitor',
+    })
+  })
+
+  it('submits explicit custom select clears as null', () => {
+    const person = buildPersonPayload({
+      displayName: 'Ada Lovelace',
+      firstName: 'Ada',
+      lastName: 'Lovelace',
+      cf_buying_role: null,
+    })
+
+    expect(person.customFields).toEqual({
+      buying_role: null,
+    })
   })
 })

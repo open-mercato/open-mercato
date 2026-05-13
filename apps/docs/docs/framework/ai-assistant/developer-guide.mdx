@@ -230,6 +230,36 @@ The full lifecycle (state machine, `failed_records`, stale-version recheck, TTL 
 
 Write-capable agents in this codebase ship with **`mutationPolicy: 'confirm-required'`** by default. `read-only` is for agents that whitelist no mutation tools at all. The intent is "mutations are allowed but every one needs explicit user approval, every time" — the per-tenant override can downgrade back to `read-only` for safety, never escalate.
 
+### Step 4b — declarative agentic loop (optional)
+
+Multi-step agents that need more than a step cap declare a `loop` block. Spec [`2026-04-28-ai-agents-agentic-loop-controls`](../../../../../.ai/specs/2026-04-28-ai-agents-agentic-loop-controls.md) is the full reference; the everyday primitives:
+
+```ts
+const accountAssistant: AiAgentDefinition = {
+  // ...
+  loop: {
+    maxSteps: 12,
+    // Stop the loop the moment the mutation tool fires — surfaces the approval card immediately.
+    stopWhen: [{ kind: 'hasToolCall', toolName: '<module>.update_thing_status' }],
+    // Per-step shaping: e.g. plan on Sonnet, execute tools on Haiku. Wrapper merges this with the
+    // wrapper-owned prepareStep so mutation-approval interception still holds across all steps.
+    prepareStep: buildAccountAssistantPrepareStep(),
+    // Hard budget: operators can tighten further from /backend/config/ai-assistant/agents.
+    budget: { maxToolCalls: 12, maxWallClockMs: 60_000 },
+  },
+  // Opt into Vercel `Experimental_Agent` semantics; defaults to 'stream-text'.
+  // executionEngine: 'tool-loop-agent',
+  // Permit per-call <ModelPicker> + ?loopBudget=... runtime overrides.
+  allowRuntimeOverride: true,
+}
+```
+
+Object-mode agents (`executionMode: 'object'`) can declare `maxSteps`, `onStepFinish`, `onStepStart`, and `abortSignal` only — `prepareStep` and `repairToolCall` are silently dropped because `generateObject` does not accept them.
+
+The canonical reference exercising every primitive is `customers.deal_analyzer` (+ sibling `customers.deal_analyzer_tool_loop` for the `'tool-loop-agent'` engine) in `packages/core/src/modules/customers/ai-agents.ts`. The Loop trace panel inside `<AiChat>` and the [Playground](./playground#debug-panel) Debug tab shows per-step model, tool calls, repair attempts, and stop reason.
+
+Operators can tighten `maxSteps`, `maxToolCalls`, `maxWallClockMs`, `maxTokens`, or flip a loop kill switch per tenant from [Settings → Loop policy overrides](./settings#loop-policy-overrides) without redeploy.
+
 ## Step 5 — ship UI parts (optional)
 
 If your tools want to render typed inline widgets (cards, diffs, custom interactions), see [UI Parts](./ui-parts).
@@ -300,6 +330,7 @@ Run through this list before opening the PR:
 - Mutation flow: the approval card renders and the post-approval result reflects the actual DB change.
 - `<AiChat>` is embedded once and uses a stable injection spot id.
 - The agent appears in the global launcher dialog (Cmd/Ctrl+L).
+- If the agent declares a `loop` block: the playground **Debug → Loop trace** panel shows the expected step count, any per-step model swaps, and the stop reason for a representative turn.
 
 ## Common pitfalls
 

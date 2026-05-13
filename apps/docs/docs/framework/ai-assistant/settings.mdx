@@ -160,6 +160,32 @@ Disabling a tool here removes it from the model's tool surface for the active te
 
 Unlike prompt overrides, the policy override is a single-value switch per `(tenantId, organizationId, agentId)`. Saving updates the row in place.
 
+## Loop policy overrides
+
+The **Loop policy** panel on the agent settings page is the operator surface for spec [`2026-04-28-ai-agents-agentic-loop-controls`](../../../../../.ai/specs/2026-04-28-ai-agents-agentic-loop-controls.md). It writes to `ai_agent_runtime_overrides.loop_*` columns and is read on every dispatch — no cache flush, no redeploy.
+
+| Field | What it caps | Notes |
+|-------|--------------|-------|
+| **Disable agentic loop** (`loopDisabled: true`) | Collapses the agent to a single model call (no tool loop at all). | Kill switch for runaway agents. The `<AiChat>` and playground render a `LoopDisabledBanner` while the override is active. |
+| **Max steps** (`loopMaxSteps`) | Hard cap on the SDK step counter — overrides `agent.loop.maxSteps`. | Set lower than the code default to tighten; the runtime always applies the minimum of code + override. |
+| **Max tool calls** (`loopMaxToolCalls`) | Total tool invocations summed across all steps of a turn. | Aborts the turn with a `loop_budget_exceeded` stop reason once the count is reached. |
+| **Max wall-clock (ms)** (`loopMaxWallClockMs`) | Per-turn wall-clock budget. | Backed by an `AbortController`; partial step output is preserved. |
+| **Max tokens** (`loopMaxTokens`) | Input + output tokens aggregated from each step's `usage` field. | Useful for cost ceilings on long-context agents. |
+
+Restrictiveness rule mirrors mutation policy: **the override can only tighten**, never widen. If the code-declared `agent.loop.maxSteps` is 6, an override of 12 is silently clamped to 6.
+
+The settings UI exposes per-agent **Clear override** to drop the row entirely; the runtime then falls back to the agent's declared `loop` block plus the `OM_AI_<MODULE>_LOOP_*` env shorthands (`MAX_STEPS`, `BUDGET_TOKENS`, `BUDGET_MS` — env values cannot escalate either).
+
+### Loop override route
+
+| Surface | Route | Required feature |
+|---------|-------|------------------|
+| Read effective loop policy for the agent | `GET /api/ai_assistant/ai/agents/:agentId/loop-override` | `ai_assistant.view` |
+| Save loop override | `PUT /api/ai_assistant/ai/agents/:agentId/loop-override` | `ai_assistant.settings.manage` |
+| Clear loop override | `DELETE /api/ai_assistant/ai/agents/:agentId/loop-override` | `ai_assistant.settings.manage` |
+
+The override is stored alongside the per-agent provider/model row (same `ai_agent_runtime_overrides` table) so a single delete clears all axes at once.
+
 ## Feature gate for the agents page
 
 The agents page and every route in `/api/ai/agents/:agentId/*` require the `ai_assistant.settings.manage` feature:
