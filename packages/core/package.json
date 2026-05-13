@@ -234,25 +234,34 @@
     "mammoth": "^1.9.0",
     "pdfjs-dist": "^5.7.284",
     "semver": "^7.8.0",
-    "ts-pattern": "^5.0.0"
+    "ts-pattern": "^5.0.0",
+    "zod": "^4.3.6"
   },
   "peerDependencies": {
     "@open-mercato/ai-assistant": "workspace:*",
-    "@open-mercato/shared": "workspace:*"
+    "@open-mercato/shared": "workspace:*",
+    "@open-mercato/ui": "workspace:*",
+    "react": "^19.0.0",
+    "react-dom": "^19.0.0"
   },
   "devDependencies": {
     "@open-mercato/ai-assistant": "workspace:*",
     "@open-mercato/shared": "workspace:*",
+    "@open-mercato/ui": "workspace:*",
     "@testing-library/dom": "^10.4.1",
     "@testing-library/jest-dom": "^6.9.1",
     "@testing-library/react": "^16.3.1",
     "@types/chance": "^1.1.8",
     "@types/html-to-text": "^9.0.4",
     "@types/jest": "^30.0.0",
+    "@types/react": "^19.2.14",
+    "@types/react-dom": "^19.2.3",
     "@types/semver": "^7.5.8",
     "chance": "^1.1.13",
     "jest": "^30.4.2",
     "jest-environment-jsdom": "^30.4.1",
+    "react": "19.2.6",
+    "react-dom": "19.2.6",
     "ts-jest": "^29.4.9"
   },
   "publishConfig": {

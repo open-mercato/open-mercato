@@ -31,7 +31,6 @@ import {
   Loader2,
   PanelRightOpen,
   Search,
-  Sparkles,
 } from 'lucide-react'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { cn } from '@open-mercato/shared/lib/utils'
@@ -49,6 +48,7 @@ import { Kbd, KbdShortcut } from '../primitives/kbd'
 import { useAiDock } from './AiDock'
 import { useAiChatSessions } from './AiChatSessions'
 import { ChatPaneTabs } from './ChatPaneTabs'
+import { AiIcon } from './AiIcon'
 import type { AiChatContextItem, AiChatSuggestion } from './AiChat'
 
 // Lazy-load the chat surface so AppShell tests (and any other importers that
@@ -407,7 +407,7 @@ export function AiAssistantLauncher({
         {
           label: t('ai_assistant.launcher.welcome.suggestion1', 'What can you help me with?'),
           prompt: 'What can you help me with on this tenant?',
-          icon: <Sparkles className="size-4" />,
+          icon: <AiIcon className="size-4" />,
         },
         {
           label: t('ai_assistant.launcher.welcome.suggestion2', 'Show what data you can access'),
@@ -467,7 +467,7 @@ export function AiAssistantLauncher({
         aria-label={triggerLabel}
         title={triggerLabel}
       >
-        <Sparkles className="size-4" aria-hidden />
+        <AiIcon className="size-4" />
         <span>{shortLabel}</span>
         <span className="ml-2 rounded border px-1 text-xs text-muted-foreground">
           ⌘L
@@ -483,7 +483,7 @@ export function AiAssistantLauncher({
         aria-label={triggerLabel}
         data-ai-launcher-trigger-mobile=""
       >
-        <Sparkles className="size-4" aria-hidden />
+        <AiIcon className="size-4" />
       </IconButton>
       <Dialog open={pickerOpen} onOpenChange={setPickerOpen}>
         <DialogContent
@@ -493,7 +493,7 @@ export function AiAssistantLauncher({
         >
           <DialogHeader className="px-4 pt-4 pb-2">
             <DialogTitle className="flex items-center gap-2 text-base">
-              <Sparkles className="size-4 text-primary" aria-hidden />
+              <AiIcon className="size-4" />
               {dialogTitle}
             </DialogTitle>
             <DialogDescription className="text-xs">
@@ -551,8 +551,8 @@ export function AiAssistantLauncher({
                       isActive ? 'bg-accent text-accent-foreground' : 'hover:bg-accent/60',
                     )}
                   >
-                    <span className="mt-0.5 inline-flex size-7 shrink-0 items-center justify-center rounded-full bg-primary/10 text-primary">
-                      <Sparkles className="size-3.5" aria-hidden />
+                    <span className="mt-0.5 inline-flex size-7 shrink-0 items-center justify-center rounded-full bg-brand-violet/10">
+                      <AiIcon className="size-3.5" />
                     </span>
                     <span className="flex-1 min-w-0 space-y-0.5">
                       <span className="flex items-center gap-2">
@@ -673,7 +673,7 @@ export function AiAssistantLauncher({
                 <PanelRightOpen className="size-4" aria-hidden />
               </IconButton>
               <DialogTitle className="flex-1 min-w-0 flex items-center gap-2">
-                <Sparkles className="size-4 text-primary shrink-0" aria-hidden />
+                <AiIcon className="size-4 shrink-0" />
                 <span className="min-w-0 truncate">{activeAgent?.label ?? dialogTitle}</span>
                 <span
                   className="inline-flex shrink-0 items-center rounded-full border border-border bg-secondary px-1.5 py-0 text-[10px] font-medium uppercase tracking-wide text-secondary-foreground"

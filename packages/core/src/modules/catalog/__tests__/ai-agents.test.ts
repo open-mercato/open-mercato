@@ -95,11 +95,42 @@ describe('catalog.catalog_assistant agent definition', () => {
 
   it('declares the expected execution metadata', () => {
     expect(agent.executionMode).toBe('chat')
-    expect(agent.defaultProvider).toBe('openai')
-    expect(agent.defaultModel).toBe('gpt-5-mini')
+    expect(agent.defaultProvider).toBeUndefined()
+    expect(agent.defaultModel).toBeUndefined()
     expect(agent.maxSteps).toBeUndefined()
+    expect(agent.loop?.maxSteps).toBe(4)
     expect(agent.output).toBeUndefined()
     expect(agent.acceptedMediaTypes).toEqual(['image', 'pdf', 'file'])
+  })
+
+  it('answers capability and example-question prompts without tools', async () => {
+    expect(typeof agent.loop?.prepareStep).toBe('function')
+    const result = await agent.loop!.prepareStep!({
+      stepNumber: 0,
+      messages: [
+        {
+          role: 'user',
+          content:
+            'Suggest five concrete questions I could ask you that would surface useful insights for this tenant.',
+        },
+      ],
+    } as any)
+
+    expect((result as { activeTools?: string[] })?.activeTools).toEqual([])
+  })
+
+  it('keeps catalog tools available for data questions', async () => {
+    const result = await agent.loop!.prepareStep!({
+      stepNumber: 0,
+      messages: [
+        {
+          role: 'user',
+          content: 'Show me products that are missing prices.',
+        },
+      ],
+    } as any)
+
+    expect(result).toBeUndefined()
   })
 
   it('whitelists only read-only tools that exist in the catalog base pack or general-purpose packs', () => {
@@ -239,8 +270,8 @@ describe('catalog.merchandising_assistant agent definition (Step 4.9 / Spec §10
 
   it('declares the expected execution metadata', () => {
     expect(merchandisingAgent.executionMode).toBe('chat')
-    expect(merchandisingAgent.defaultProvider).toBe('openai')
-    expect(merchandisingAgent.defaultModel).toBe('gpt-5-mini')
+    expect(merchandisingAgent.defaultProvider).toBeUndefined()
+    expect(merchandisingAgent.defaultModel).toBeUndefined()
     expect(merchandisingAgent.maxSteps).toBeUndefined()
     expect(merchandisingAgent.output).toBeUndefined()
     expect(merchandisingAgent.acceptedMediaTypes).toEqual(['image', 'pdf', 'file'])

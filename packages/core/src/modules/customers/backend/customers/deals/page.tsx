@@ -505,6 +505,16 @@ export default function CustomersDealsPage() {
           {
             fallbackErrorMessage: t('customers.deals.list.deleteError', 'Failed to delete deal.'),
             logTag: 'customers.deals.list',
+            progress: {
+              jobType: 'customers.deals.bulk_delete',
+              name: t('customers.deals.list.bulkDelete.progressName', 'Delete selected deals'),
+              description: t(
+                'customers.deals.list.bulkDelete.progressDescription',
+                '{count} deals selected for deletion',
+                { count: selectedRows.length },
+              ),
+              meta: { source: 'customers.deals.list' },
+            },
           },
         ),
       context: {

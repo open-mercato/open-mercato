@@ -13,10 +13,10 @@ import {
  * Plan: .ai/plans/2026-05-08-crm-filter-figma-redesign.md (Phase 3, Task 3.6)
  *
  * Covers the new filter UX (the only filter UI on People / Companies / Deals lists since SPEC-048 Phase 5):
- *   1. Empty popover state — funnel icon, "No filters applied" copy, "+ Add condition" CTA, Quick filters row.
+ *   1. Empty popover state — funnel icon, "No filters applied" copy, "Add condition" CTA, Quick filters row.
  *   2. Quick filter preset apply — preset triggers tree update and renders chip strip.
  *   3. Chip × removal — clearing the rule via the chip's remove button hides the chip strip.
- *   4. Status filter w/ tone dot — added via "+ Add condition" → field picker → operator/value.
+ *   4. Status filter w/ tone dot — added via "Add condition" → field picker → operator/value.
  *   5. Clear all — empties the tree and restores the empty popover.
  *
  * Each test seeds fresh data via API and tears down in `finally`. The test is skipped when the
@@ -41,7 +41,7 @@ test.describe('TC-CRM-059: People filter UX (V2 figma redesign)', () => {
     return visible;
   }
 
-  test('empty popover renders funnel + Add condition + Quick filters', async ({ page, request }) => {
+  test('empty popover renders funnel icon, Add condition control, and Quick filters', async ({ page, request }) => {
     let token: string | null = null;
     let personId: string | null = null;
     const ts = Date.now();
@@ -146,7 +146,7 @@ test.describe('TC-CRM-059: People filter UX (V2 figma redesign)', () => {
     }
   });
 
-  test('Status filter added via + Add condition shows green-dot tone in chip', async ({ page, request }) => {
+  test('Status filter added via Add condition shows green-dot tone in chip', async ({ page, request }) => {
     let token: string | null = null;
     let personId: string | null = null;
     const ts = Date.now();
@@ -165,7 +165,7 @@ test.describe('TC-CRM-059: People filter UX (V2 figma redesign)', () => {
       const opened = await openFiltersOrSkip(page);
       if (!opened) return;
 
-      // Click "+ Add condition" inside the empty state
+      // Click "Add condition" inside the empty state
       const addConditionBtn = page
         .locator('[data-testid="filter-empty-state"]')
         .getByRole('button', { name: /add condition/i })

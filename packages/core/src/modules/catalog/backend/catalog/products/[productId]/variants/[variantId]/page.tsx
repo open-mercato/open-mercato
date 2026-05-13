@@ -10,6 +10,7 @@ import { collectCustomFieldValues } from '@open-mercato/ui/backend/utils/customF
 import { apiCall, readApiResultOrThrow } from '@open-mercato/ui/backend/utils/apiCall'
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
+import { extractCustomFieldEntries } from '@open-mercato/shared/lib/crud/custom-fields-client'
 import { E } from '#generated/entities.ids.generated'
 import { SendObjectMessageDialog } from '@open-mercato/ui/backend/messages'
 import {
@@ -182,7 +183,7 @@ export default function EditVariantPage({ params }: { params?: { productId?: str
           if (draft.priceId) priceIdMap[kindId] = draft.priceId
         })
         setExistingPriceIds(priceIdMap)
-        const customDefaults = extractCustomFieldValues(record)
+        const customDefaults = extractCustomFieldEntries(record)
         let loadedOptionDefinitions: OptionDefinition[] = []
         if (resolvedProductId) {
           const productRes = await apiCall<ProductResponse>(
@@ -629,15 +630,6 @@ async function loadVariantPrices(variantId: string, priceKinds: PriceKindSummary
     console.error('catalog.variants.prices.load', err)
   }
   return drafts
-}
-
-function extractCustomFieldValues(record: Record<string, unknown>): Record<string, unknown> {
-  const customValues: Record<string, unknown> = {}
-  Object.entries(record).forEach(([key, value]) => {
-    if (key.startsWith('cf_')) customValues[key] = value
-    else if (key.startsWith('cf:')) customValues[`cf_${key.slice(3)}`] = value
-  })
-  return customValues
 }
 
 async function syncVariantPricesUpdate({

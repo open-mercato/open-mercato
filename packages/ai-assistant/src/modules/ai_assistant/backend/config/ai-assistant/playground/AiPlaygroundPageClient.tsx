@@ -2,7 +2,7 @@
 
 import * as React from 'react'
 import { useQuery } from '@tanstack/react-query'
-import { AlertCircle, Bot, BookOpen, Loader2, Play, RefreshCcw } from 'lucide-react'
+import { Bot, BookOpen, Loader2, Play, RefreshCcw } from 'lucide-react'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { Alert, AlertDescription, AlertTitle } from '@open-mercato/ui/primitives/alert'
 import { Button } from '@open-mercato/ui/primitives/button'
@@ -13,7 +13,7 @@ import { Tabs, TabsList, TabsTrigger, TabsContent } from '@open-mercato/ui/primi
 import { Textarea } from '@open-mercato/ui/primitives/textarea'
 import { EmptyState } from '@open-mercato/ui/backend/EmptyState'
 import { apiCall, apiCallOrThrow } from '@open-mercato/ui/backend/utils/apiCall'
-import { AiChat, createAiUiPartRegistry, useAiShortcuts } from '@open-mercato/ui/ai'
+import { AiChat, createAiUiPartRegistry, LoopDisabledBanner, useAiShortcuts } from '@open-mercato/ui/ai'
 import type { AiChatDebugPromptSection, AiChatDebugTool } from '@open-mercato/ui/ai'
 
 type PlaygroundAgentTool = {
@@ -110,10 +110,7 @@ function PlaygroundNoAgents() {
 function AgentDetails({ agent }: { agent: PlaygroundAgent }) {
   const t = useT()
   return (
-    <div
-      className="rounded-md border border-border bg-muted/30 p-3 text-sm"
-      data-ai-playground-agent={agent.id}
-    >
+    <div className="rounded-md border border-border bg-muted/30 p-3 text-sm">
       <div className="font-semibold">{agent.label}</div>
       <p className="mt-1 text-xs text-muted-foreground">{agent.description}</p>
       <dl className="mt-3 grid grid-cols-2 gap-2 text-xs">
@@ -196,6 +193,27 @@ async function fetchAgentResolutions(): Promise<SettingsAgentResolutionResponse>
   return { agents: result.result.agents ?? [] }
 }
 
+async function fetchLoopOverrideForAgent(
+  agentId: string,
+): Promise<{ agentId: string; override: { loopDisabled?: boolean | null } | null }> {
+  const result = await apiCall<{ agentId: string; override: { loopDisabled?: boolean | null } | null }>(
+    `/api/ai_assistant/ai/agents/${encodeURIComponent(agentId)}/loop-override`,
+    { method: 'GET', credentials: 'include' },
+  )
+  if (!result.ok || !result.result) return { agentId, override: null }
+  return result.result
+}
+
+function LoopDisabledPlaygroundBanner({ agentId }: { agentId: string }) {
+  const { data } = useQuery({
+    queryKey: ['ai_assistant', 'loop_override', agentId],
+    queryFn: () => fetchLoopOverrideForAgent(agentId),
+    staleTime: 30000,
+  })
+  if (!data?.override?.loopDisabled) return null
+  return <LoopDisabledBanner agentId={agentId} />
+}
+
 function ModelResolutionPanel({ agentId }: { agentId: string }) {
   const t = useT()
   const { data } = useQuery({
@@ -211,7 +229,6 @@ function ModelResolutionPanel({ agentId }: { agentId: string }) {
     <dl
       className="grid grid-cols-2 gap-x-4 gap-y-1 rounded-md border border-border bg-muted/30 p-3 text-xs sm:grid-cols-4"
       data-ai-playground-model-resolution={agentId}
-      data-ai-playground-resolution-panel={agentId}
     >
       <div>
         <dt className="font-medium text-muted-foreground">
@@ -317,7 +334,7 @@ function ChatLane({ agent, debug }: { agent: PlaygroundAgent; debug: boolean }) 
   }
 
   return (
-    <div data-ai-playground-chat={agent.id}>
+    <div className="flex flex-col gap-2" data-ai-playground-chat={agent.id}>
       <AiChat
         key={agent.id}
         agent={agent.id}
@@ -562,7 +579,6 @@ export function AiPlaygroundPageClient() {
   if (isError) {
     return (
       <Alert variant="destructive" data-ai-playground-error>
-        <AlertCircle className="size-4" aria-hidden />
         <AlertTitle>
           {t('ai_assistant.playground.loadErrorTitle', 'Failed to load AI agents')}
         </AlertTitle>
@@ -651,6 +667,7 @@ export function AiPlaygroundPageClient() {
         </div>
         {selectedAgent ? <AgentDetails agent={selectedAgent} /> : null}
         {selectedAgent ? <ModelResolutionPanel agentId={selectedAgent.id} /> : null}
+        {selectedAgent ? <LoopDisabledPlaygroundBanner agentId={selectedAgent.id} /> : null}
       </section>
 
       {selectedAgent ? (

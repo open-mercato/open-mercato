@@ -1,4 +1,5 @@
 export { AiChat, type AiChatProps, type AiChatDebugTool, type AiChatDebugPromptSection } from './AiChat'
+export { AiIcon } from './AiIcon'
 export {
   AiAssistantLauncher,
   AI_ASSISTANT_LAUNCHER_OPEN_EVENT,
@@ -124,3 +125,10 @@ export {
   type AiChatUploadFileState,
   type AiChatUploadFileStatus,
 } from './useAiChatUpload'
+export { LoopDisabledBanner } from './LoopDisabledBanner'
+export {
+  LoopTracePanel,
+  type LoopTracePanelProps,
+  type LoopTracePanelTrace,
+  type LoopTracePanelStepRecord,
+} from './LoopTracePanel'

@@ -65,9 +65,13 @@
   "devDependencies": {
     "@open-mercato/shared": "workspace:*",
     "@types/jest": "^30.0.0",
+    "@types/react": "^19.2.14",
+    "@types/react-dom": "^19.2.3",
     "esbuild": "^0.28.0",
     "glob": "^13.0.6",
     "jest": "^30.4.2",
+    "react": "19.2.6",
+    "react-dom": "19.2.6",
     "ts-jest": "^29.4.9"
   },
   "publishConfig": {

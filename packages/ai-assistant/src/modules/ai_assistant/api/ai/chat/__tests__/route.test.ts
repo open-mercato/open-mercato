@@ -20,9 +20,13 @@ jest.mock('@open-mercato/shared/lib/di/container', () => ({
   createRequestContainer: (...args: unknown[]) => createRequestContainerMock(...args),
 }))
 
-jest.mock('../../../../lib/agent-runtime', () => ({
-  runAiAgentText: (...args: unknown[]) => runAiAgentTextMock(...args),
-}))
+jest.mock('../../../../lib/agent-runtime', () => {
+  const actual = jest.requireActual<typeof import('../../../../lib/agent-runtime')>('../../../../lib/agent-runtime')
+  return {
+    ...actual,
+    runAiAgentText: (...args: unknown[]) => runAiAgentTextMock(...args),
+  }
+})
 
 const getMock = jest.fn()
 const listMock = jest.fn()
@@ -339,9 +343,9 @@ describe('POST /api/ai/chat', () => {
       })
     }
 
-    it('returns 400 with code runtime_override_disabled when agent has allowRuntimeModelOverride: false', async () => {
+    it('returns 400 with code runtime_override_disabled when agent has allowRuntimeOverride: false', async () => {
       seedAgentRegistryForTests([
-        makeAgent({ id: 'customers.assistant', moduleId: 'customers', allowRuntimeModelOverride: false }),
+        makeAgent({ id: 'customers.assistant', moduleId: 'customers', allowRuntimeOverride: false }),
       ])
 
       const response = await POST(buildRequestWithOverrides({ provider: 'openai' }) as any)
@@ -550,6 +554,99 @@ describe('POST /api/ai/chat', () => {
       const json = await response.json()
       expect(json.code).toBe('model_not_allowlisted')
       expect(json.error).toContain('env ∩ tenant')
+    })
+  })
+
+  describe('Phase 4 (1782) — loopBudget query-param (TC-AI-AGENT-LOOP-002)', () => {
+    function buildRequestWithLoopBudget(loopBudget: string): Request {
+      const url = new URL('http://localhost/api/ai/chat')
+      url.searchParams.set('agent', 'customers.assistant')
+      url.searchParams.set('loopBudget', loopBudget)
+      return new Request(url, {
+        method: 'POST',
+        body: JSON.stringify({ messages: [{ role: 'user', content: 'hi' }] }),
+        headers: { 'content-type': 'application/json' },
+      })
+    }
+
+    it('forwards tight preset budget to runAiAgentText', async () => {
+      seedAgentRegistryForTests([
+        makeAgent({ id: 'customers.assistant', moduleId: 'customers' }),
+      ])
+
+      await POST(buildRequestWithLoopBudget('tight') as any)
+
+      expect(runAiAgentTextMock).toHaveBeenCalledTimes(1)
+      const callArg = runAiAgentTextMock.mock.calls[0][0] as {
+        loop?: {
+          maxSteps?: number
+          budget?: { maxToolCalls?: number; maxWallClockMs?: number; maxTokens?: number }
+        }
+      }
+      expect(callArg.loop?.maxSteps).toBe(3)
+      expect(callArg.loop?.budget).toEqual({
+        maxToolCalls: 3,
+        maxWallClockMs: 10_000,
+        maxTokens: 50_000,
+      })
+    })
+
+    it('forwards loose preset budget to runAiAgentText', async () => {
+      seedAgentRegistryForTests([
+        makeAgent({ id: 'customers.assistant', moduleId: 'customers' }),
+      ])
+
+      await POST(buildRequestWithLoopBudget('loose') as any)
+
+      expect(runAiAgentTextMock).toHaveBeenCalledTimes(1)
+      const callArg = runAiAgentTextMock.mock.calls[0][0] as {
+        loop?: {
+          maxSteps?: number
+          budget?: { maxToolCalls?: number; maxWallClockMs?: number; maxTokens?: number }
+        }
+      }
+      expect(callArg.loop?.maxSteps).toBe(20)
+      expect(callArg.loop?.budget).toEqual({
+        maxToolCalls: 20,
+        maxWallClockMs: 120_000,
+        maxTokens: 500_000,
+      })
+    })
+
+    it('sends no loop override when loopBudget=default', async () => {
+      seedAgentRegistryForTests([
+        makeAgent({ id: 'customers.assistant', moduleId: 'customers' }),
+      ])
+
+      await POST(buildRequestWithLoopBudget('default') as any)
+
+      expect(runAiAgentTextMock).toHaveBeenCalledTimes(1)
+      const callArg = runAiAgentTextMock.mock.calls[0][0] as {
+        loop?: unknown
+      }
+      expect(callArg.loop).toBeUndefined()
+    })
+
+    it('returns 400 runtime_override_disabled when loopBudget=tight and allowRuntimeOverride: false', async () => {
+      seedAgentRegistryForTests([
+        makeAgent({ id: 'customers.assistant', moduleId: 'customers', allowRuntimeOverride: false }),
+      ])
+
+      const response = await POST(buildRequestWithLoopBudget('tight') as any)
+
+      expect(response.status).toBe(400)
+      const json = await response.json()
+      expect(json.code).toBe('runtime_override_disabled')
+    })
+
+    it('accepts loopBudget=tight when loop.allowRuntimeOverride is true (default)', async () => {
+      seedAgentRegistryForTests([
+        makeAgent({ id: 'customers.assistant', moduleId: 'customers' }),
+      ])
+
+      const response = await POST(buildRequestWithLoopBudget('tight') as any)
+
+      expect(response.status).toBe(200)
     })
   })
 })

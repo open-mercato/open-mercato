@@ -8,6 +8,10 @@ const appDir = path.resolve(here, '..')
 const targets = [
   path.join(appDir, '.next', 'cache', 'turbopack'),
   path.join(appDir, '.next', 'cache', 'webpack'),
+  path.join(appDir, '.mercato', 'next', 'cache', 'turbopack'),
+  path.join(appDir, '.mercato', 'next', 'cache', 'webpack'),
+  path.join(appDir, '.mercato', 'next', 'dev', 'cache', 'turbopack'),
+  path.join(appDir, '.mercato', 'next', 'dev', 'cache', 'webpack'),
 ]
 
 let removed = 0

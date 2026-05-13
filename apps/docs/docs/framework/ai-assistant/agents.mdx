@@ -31,7 +31,6 @@ export const accountAssistant: AiAgentDefinition = {
   mutationPolicy: 'read-only',
   requiredFeatures: ['customers.view'],
   acceptedMediaTypes: ['image', 'pdf'],
-  defaultModel: 'claude-haiku-4-5',
   domain: 'customers',
   keywords: ['crm', 'people', 'companies', 'deals'],
   suggestions: [
@@ -65,9 +64,12 @@ The generator aggregates every module's agents into `apps/mercato/.mercato/gener
 | `acceptedMediaTypes` | no | Subset of `image` \| `pdf` \| `file`. |
 | `executionMode` | no (default `chat`) | `chat` or `object`. See below. |
 | `output` | no | Structured-output schema when `executionMode === 'object'`. |
-| `defaultProvider` | no | Provider id this agent prefers (e.g. `'openai'`, `'anthropic'`). Must match a registered provider id. When the named provider is registered but unconfigured the factory falls through transparently. Set this when an agent's `defaultModel` only works with a specific provider. Phase 1 of spec `2026-04-27-ai-agents-provider-model-baseurl-overrides`. |
-| `defaultModel` | no | Model id fed through the factory (see [Overview](./overview#model-resolution-order)). Accepts a plain id (`claude-haiku-4-5`) or a slash-qualified `<provider>/<model>` shorthand (e.g. `openai/gpt-5-mini`). The slash prefix must match a registered provider id; DeepInfra-style ids that contain slashes are kept intact via the registry-membership guard. |
-| `maxSteps` | no | Upper bound on AI SDK tool-use loops. |
+| `defaultProvider` | no | Provider id this agent prefers (e.g. `'openai'`, `'anthropic'`). Must match a registered provider id. Omit for generic shipped agents so `OM_AI_PROVIDER` controls the runtime default. Set this only when an agent's `defaultModel` intentionally requires a specific provider; paired provider/model defaults fail closed if the provider is not configured. Phase 1 of spec `2026-04-27-ai-agents-provider-model-baseurl-overrides`. |
+| `defaultModel` | no | Optional agent-level model pin fed through the factory (see [Overview](./overview#model-resolution-order)). Omit for generic shipped agents so `OM_AI_MODEL` controls the runtime default. Accepts a plain id (`claude-haiku-4-5`) or a slash-qualified `<provider>/<model>` shorthand (e.g. `openai/gpt-5-mini`). The slash prefix must match a registered provider id; DeepInfra-style ids that contain slashes are kept intact via the registry-membership guard. |
+| `maxSteps` | no | **Deprecated.** Use `loop.maxSteps` instead. Honored as an alias when `loop` is omitted. |
+| `loop` | no | Agentic loop controls — `stopWhen`, `prepareStep`, `repairToolCall`, `onStepFinish`, `activeTools`, `toolChoice`, and `budget` (`maxToolCalls`, `maxWallClockMs`, `maxTokens`). See [Agentic loop controls](#agentic-loop-controls) below. |
+| `executionEngine` | no (default `stream-text`) | `'stream-text'` (default `streamText` dispatch) or `'tool-loop-agent'` (opt into Vercel `Experimental_Agent`). See [Choosing an execution engine](#choosing-an-execution-engine). |
+| `allowRuntimeOverride` | no (default `true`) | Permit per-call `<ModelPicker>` + `?provider=&model=&loopBudget=...` overrides. Renamed from `allowRuntimeModelOverride`. |
 | `resolvePageContext` | no | Async callback invoked when the request carries `{ entityType, recordId }`. Returns extra prompt text appended to `systemPrompt`. |
 | `suggestions` | no | Starter prompts shown by generic chat launchers before the first message. |
 | `keywords` / `domain` / `dataCapabilities` | no | Metadata for the agent picker and search. |
@@ -76,36 +78,38 @@ The generator aggregates every module's agents into `apps/mercato/.mercato/gener
 
 ### `defaultProvider` and `defaultModel`
 
-The two fields let a module author pin an agent to a preferred provider and model without overriding the global `OM_AI_PROVIDER` / `OM_AI_MODEL` envs:
+Most agents should omit both fields and inherit the runtime default from `OM_AI_PROVIDER` / `OM_AI_MODEL`. Set them only when an agent intentionally needs a preferred provider and model without overriding the global envs:
 
 ```ts
 export const merchandisingAssistant: AiAgentDefinition = {
   id: 'catalog.merchandising_assistant',
   moduleId: 'catalog',
   // ...
-  defaultProvider: 'anthropic',
-  defaultModel: 'claude-haiku-4-5',  // or slash-qualified: 'openai/gpt-5-mini'
+  defaultProvider: '<provider-id>',
+  defaultModel: '<model-id>',  // or slash-qualified: '<provider-id>/<model-id>'
 }
 ```
 
-`defaultProvider` must match a registered provider id (`anthropic`, `google`, `openai`, `deepinfra`, `groq`, `together`, `fireworks`, `azure`, `litellm`, `ollama`). When the named provider is registered but unconfigured the model factory falls through transparently to the next configured provider — this lets you ship agents that declare their preferred provider without breaking environments that use a different one.
+`defaultProvider` must match a registered provider id (`anthropic`, `google`, `openai`, `deepinfra`, `groq`, `together`, `fireworks`, `azure`, `litellm`, `ollama`). When `defaultProvider` is paired with `defaultModel`, the provider/model pair is atomic: if that provider is not configured, the factory fails before any upstream call. A provider-only preference can still fall through to the next configured provider because no provider-specific model id is at risk.
 
 Slash-qualified `defaultModel` values (e.g. `openai/gpt-5-mini`) consume the provider axis in one go: the slash prefix names the provider and the remainder names the model, so `defaultProvider` is effectively overridden by the slash prefix. DeepInfra-style ids that already contain slashes (e.g. `meta-llama/Llama-3.3-70B-Instruct-Turbo`) are kept intact via the registry-membership guard.
 
-### `allowRuntimeModelOverride`
+### `allowRuntimeOverride`
 
-By default every agent shows the `<ModelPicker>` in the chat composer, allowing operators to select a different provider + model at runtime. Set `allowRuntimeModelOverride: false` to disable the picker entirely and force a fixed model for this agent:
+By default every agent shows the `<ModelPicker>` in the chat composer, allowing operators to select a different provider + model at runtime, and accepts per-call loop overrides (`?loopBudget=...`). Set `allowRuntimeOverride: false` to disable both for this agent:
 
 ```ts
 export const auditAgent: AiAgentDefinition = {
   id: 'audit.audit_assistant',
   moduleId: 'audit',
   // ...
-  allowRuntimeModelOverride: false,  // always uses the server-side resolution chain
+  allowRuntimeOverride: false,  // always uses the server-side resolution chain; no per-call loop overrides
 }
 ```
 
-When `false`, the runtime also rejects `?provider=` and `?model=` query parameters sent to the chat dispatcher route — the server-side resolution chain (steps 2–7 in [Overview → Model resolution order](./overview#model-resolution-order)) still applies.
+When `false`, the runtime also rejects `?provider=` / `?model=` / `?loopBudget=` query parameters sent to the chat dispatcher route — the server-side resolution chain (steps 2–7 in [Overview → Model resolution order](./overview#model-resolution-order)) still applies.
+
+> The field was renamed from `allowRuntimeModelOverride` in Phase 4 of spec [`2026-04-28-ai-agents-agentic-loop-controls`](https://github.com/open-mercato/open-mercato/blob/main/.ai/specs/2026-04-28-ai-agents-agentic-loop-controls.md) because its scope now covers loop overrides as well. The runtime accepts both names — `allowRuntimeOverride` wins when both are set. Migrate at your convenience; the deprecated alias remains for one minor version.
 
 ### Runtime model picker (`<ModelPicker>`)
 
@@ -344,41 +348,203 @@ When you want most of the wrapper's guarantees but need to reach into the raw AI
 - builds the tool map from `allowedTools`,
 - composes the system prompt (including `resolvePageContext`),
 - routes any mutation tool calls through `prepareMutation` + the approval contract,
+- composes the effective loop config from the agent's declaration, per-call overrides, and wrapper defaults,
 
-and then hands the fully prepared options object to your callback so you can call `generateText` / `streamText` (text runtime) or `generateObject` / `streamObject` (object runtime) directly. The streaming variants (`streamText` / `streamObject`) are reached from inside the same callback — the name describes which runtime family you are overriding, not which exact AI SDK function you must call.
+and then hands the fully prepared options bag (`PreparedAiSdkOptions`) to your callback so you can call `generateText` / `streamText` (text runtime) or `generateObject` / `streamObject` (object runtime) directly. The streaming variants (`streamText` / `streamObject`) are reached from inside the same callback — the name describes which runtime family you are overriding, not which exact AI SDK function you must call.
 
 ```ts
 import { runAiAgentText } from '@open-mercato/ai-assistant'
-import { generateText } from 'ai'
+import { streamText } from 'ai'
 
-const result = await runAiAgentText({
+const response = await runAiAgentText({
   agentId: 'customers.account_assistant',
   container,
   authContext,
-  prompt: 'Summarize this account',
-  generateText: async ({ model, tools, system, messages, maxSteps }) => {
-    return generateText({
+  messages,
+  generateText: async ({
+    model, tools, system, messages,
+    // loop primitives — see MUST rules below before omitting any
+    stopWhen,
+    prepareStep,
+    onStepFinish,
+    onStepStart,
+    onToolCallStart,
+    onToolCallFinish,
+    experimental_repairToolCall,
+    activeTools,
+    toolChoice,
+    abortSignal,
+  }) => {
+    return streamText({
       model,
       tools,
       system,
       messages,
-      maxSteps,
+      stopWhen,
+      prepareStep,
+      onStepFinish,
+      onStepStart,
+      experimental_onToolCallStart: onToolCallStart,
+      experimental_onToolCallFinish: onToolCallFinish,
+      experimental_repairToolCall,
+      ...(activeTools !== undefined ? { activeTools } : {}),
+      ...(toolChoice !== undefined ? { toolChoice } : {}),
+      abortSignal,
       experimental_telemetry: { isEnabled: true, functionId: 'customers.account_assistant' },
       providerOptions: {
         anthropic: { cacheControl: { type: 'ephemeral' } },
       },
-      onStepFinish: (step) => { /* custom logging */ },
     })
   },
 })
 ```
 
-The matching hook on `runAiAgentObject` is named `generateObject` and additionally receives the resolved `output.schema` so the callback can call `generateObject` / `streamObject` directly.
+The matching hook on `runAiAgentObject` is named `generateObject` and additionally receives the resolved `output.schema` and the object-mode subset of loop primitives (`maxSteps`, `onStepFinish`, `onStepStart`, `abortSignal`).
+
+**MUST rules — security-critical fields you MUST NOT drop:**
+
+- `prepareStep` — **SECURITY-CRITICAL.** The wrapper-owned `PrepareStepFunction` re-asserts the tool allowlist and mutation-approval wrapping on every step. Dropping it means mutation tools are no longer routed through `prepareMutation` on steps 2+; the approval contract no longer applies. Never omit `prepareStep` unless you are deliberately removing mutation-approval guardrails for that call (and understand the consequences).
+- `stopWhen` — dropping this removes the agent's loop policy and the R3 step-count fallback, turning the call into a single model invocation that never executes tool calls.
+- `tools`, `system`, `messages` — dropping any of these bypasses the corresponding guardrail (tool allowlist, prompt composition, message history).
 
 **What you still lose with the `generateText` / `generateObject` callbacks:**
 
-- If your callback ignores the supplied `tools` / `system` / `messages` arguments, you also bypass tool whitelisting, prompt composition, and mutation approvals — only the model factory and feature gate remain. Treat the supplied arguments as required inputs unless you know exactly which guardrail you are dropping.
 - Custom transports (e.g. swapping the HTTP client) move you outside the model factory's provider routing; per-tenant API key overrides set in settings will not apply.
 - UI streaming parts (`AiUiPart` tags consumed by `<AiChat>`) are produced by the default runtime path; if your callback returns a stream that does not emit those parts, the embedded chat UI degrades to plain text.
 
 Pick Option B by default when you "just need one extra AI SDK option" — it keeps every other guardrail in place. Reach for Option A only when you are deliberately working outside the agent contract.
+
+## Agentic loop controls
+
+The runtime always runs a tool-using loop (`streamText` with `stopWhen`). Spec [`2026-04-28-ai-agents-agentic-loop-controls`](https://github.com/open-mercato/open-mercato/blob/main/.ai/specs/2026-04-28-ai-agents-agentic-loop-controls.md) promotes that loop from "one step-count cap" to a first-class part of the agent contract — declarative `loop` block, per-call overrides, per-tenant operator budgets, runtime LoopTrace, and an opt-in `ToolLoopAgent` engine.
+
+### Resolution chain — per loop axis
+
+Each axis (`stopWhen`, `prepareStep`, `onStepFinish`, `repairToolCall`, `activeTools`, `toolChoice`, `maxSteps`, `budget`) walks the same precedence the provider/model resolver uses:
+
+1. Per-request HTTP query (`?loopBudget=tight`) — gated by `allowRuntimeOverride`.
+2. Caller override — `runAiAgentText({ loop })` / `runAiAgentObject({ loop })`.
+3. Per-tenant settings override — `ai_agent_runtime_overrides.loop_*` (see [Settings → Loop policy overrides](./settings#loop-policy-overrides)).
+4. `OM_AI_<MODULE>_LOOP_*` env shorthands (`MAX_STEPS`, `BUDGET_TOKENS`, `BUDGET_MS`).
+5. Agent definition — `agent.loop` (plus the deprecated `agent.maxSteps` alias).
+6. Wrapper default (`stepCountIs(10)` for chat, unset for object).
+
+Operator-tightening only: an override can never widen what code declared, and an env value can never widen what the operator allowed.
+
+### The `loop` block
+
+```ts
+import type { AiAgentDefinition } from '@open-mercato/ai-assistant'
+
+export const accountAssistant: AiAgentDefinition = {
+  // ...
+  loop: {
+    maxSteps: 12,
+    // Halt the loop the moment the mutation tool fires so the approval card surfaces right away.
+    stopWhen: [{ kind: 'hasToolCall', toolName: 'customers.update_deal_stage' }],
+    // Per-step model and/or active-tool reshaping. Composed with the wrapper-owned prepareStep.
+    prepareStep: buildAccountAssistantPrepareStep(),
+    // Repair common malformed tool-call shapes instead of failing the turn.
+    repairToolCall: async ({ toolCall, error, repair }) => repair(toolCall),
+    // Hard ceilings — operators can tighten further per tenant.
+    budget: { maxToolCalls: 12, maxWallClockMs: 60_000, maxTokens: 80_000 },
+  },
+  allowRuntimeOverride: true,
+}
+```
+
+`stopWhen` accepts an array; the runtime translates `{ kind: 'stepCount', count }` to `stepCountIs(count)` and `{ kind: 'hasToolCall', toolName }` to `hasToolCall(toolName)`. `{ kind: 'custom', stop }` accepts a raw SDK predicate but is rejected when supplied via the JSON-only tenant override path.
+
+### Security guarantee — wrapper-owned `prepareStep`
+
+The mutation-approval contract requires that every `isMutation: true` tool call is intercepted before execution. The runtime composes its own `PrepareStepFunction` ahead of yours:
+
+1. Re-narrows the per-step tool surface to `agent.allowedTools` (∩ `loop.activeTools` when set).
+2. Re-checks the agent policy gate.
+3. Re-wraps every mutation tool's handler through `prepareMutation` so writes land in `ai_pending_actions`.
+4. Then invokes your `loop.prepareStep` on top of the guarded state.
+
+`mergeStepOverrides` rejects user `prepareStep` returns that strip the `prepareMutation` wrappers with `AgentPolicyError` code `loop_violates_mutation_policy`. **You cannot bypass mutation approvals from inside `prepareStep`** — this is the security guarantee `ToolLoopAgent` also honors (the wrapper wires `prepareStep` at agent construction; see [Choosing an execution engine](#choosing-an-execution-engine)).
+
+### Object-mode caveat
+
+`streamObject` / `generateObject` accept `maxSteps`, `onStepFinish`, `onStepStart`, and `abortSignal`. They silently ignore `prepareStep`, `repairToolCall`, `activeTools`, `toolChoice`, and `stopWhen` on most providers. The runtime applies what the SDK accepts and emits **one** dev-time warning per agent listing the dropped primitives — never a silent drop.
+
+### LoopTrace and debug surfaces
+
+Every completed turn emits an SSE `loop-finish` event carrying a `LoopTrace`:
+
+- Steps with the model id used per step (`prepareStep` swaps are visible here).
+- Tool calls per step with input/output shape and `repairToolCall` attempts.
+- Total tokens summed from `usage` fields.
+- The **stop reason** (`stepCountIs` / `hasToolCall` / `loop_budget_exceeded` / `finish-reason:stop|tool-calls|length` / `aborted`).
+
+`<AiChat debug>` and the [Playground Debug panel](./playground#debug-panel) render the trace. When the per-tenant kill switch is active, `<AiChat>` renders a `LoopDisabledBanner` and the dispatcher collapses the agent to a single model call.
+
+### Canonical reference
+
+`customers.deal_analyzer` (+ sibling `customers.deal_analyzer_tool_loop` for the `'tool-loop-agent'` engine) in `packages/core/src/modules/customers/ai-agents.ts` exercises every primitive — see [Demo: `customers.deal_analyzer` agentic loop](#demo-customersdeal_analyzer-agentic-loop) below.
+
+## Choosing an execution engine
+
+The `executionEngine` field on `AiAgentDefinition` selects the underlying Vercel AI SDK dispatch strategy. The default (`'stream-text'`) is unchanged from previous releases; `'tool-loop-agent'` is opt-in.
+
+| Feature | `'stream-text'` (default) | `'tool-loop-agent'` |
+|---------|--------------------------|---------------------|
+| SDK primitive | `streamText(...)` | `ToolLoopAgent` (`Experimental_Agent`) |
+| `prepareStep` | Supported — passed to `streamText` | Supported — wired at **construction** (`settings.prepareStep`), NOT via `prepareCall` |
+| `stopWhen` | Supported | Supported — wired at construction |
+| `repairToolCall` | Supported (`experimental_repairToolCall`) | Present in `ToolLoopAgentSettings` in current SDK, but behaviour parity across SDK versions is not guaranteed — prefer `'stream-text'` when repair logic correctness is critical |
+| Mutation-approval contract | Guaranteed — `buildWrapperPrepareStep` wraps all mutation tools | Guaranteed — same `buildWrapperPrepareStep` is wired at construction; `prepareMutation` runs identically |
+| Multi-agent handoff (future) | Not planned | SDK-native; agents on `'tool-loop-agent'` receive this feature first |
+| `prepareCall` hook | N/A | Per-turn narrowing of `model`, `tools`, `stopWhen`, `activeTools`, `providerOptions` only — `prepareStep` is **not** in the pick list |
+
+**Key rule for `'tool-loop-agent'`**: the wrapper-owned `prepareStep` (mutation-approval enforcement) MUST be wired at agent construction time via `settings.prepareStep`. It cannot be threaded through `prepareCall` because `prepareStep` is not in `prepareCall`'s `Pick` list. The runtime handles this automatically — agent authors who use the `generateText` escape-hatch MUST NOT reconstruct a `ToolLoopAgent` without forwarding `preparedOptions.prepareStep`.
+
+To opt in to the `ToolLoopAgent` backend for an agent:
+
+```ts
+export const catalogToolLoopAssistant: AiAgentDefinition = {
+  id: 'catalog.tool_loop_assistant',
+  moduleId: 'catalog',
+  executionEngine: 'tool-loop-agent',
+  // ...rest of the definition
+}
+```
+
+Omitting `executionEngine` (or setting it to `'stream-text'`) leaves the existing dispatch path completely unchanged.
+
+## Demo: `customers.deal_analyzer` agentic loop
+
+The `customers.deal_analyzer` agent in `packages/core/src/modules/customers/ai-agents.ts` is the canonical reference implementation that exercises every loop primitive in one place.
+
+### What it demonstrates
+
+| Primitive | How it is set | Effect |
+|-----------|--------------|--------|
+| Env/default model inheritance | `defaultProvider` and `defaultModel` omitted | Model factory resolves the provider/model pair from env, tenant overrides, or runtime picker choices |
+| Runtime model override | `allowRuntimeOverride: true` | `<ModelPicker>` visible in the chat composer toolbar |
+| Loop step cap | `loop.maxSteps: 12` | Prevents runaway multi-step loops |
+| Stop-when | `loop.stopWhen: [{ kind: 'hasToolCall', toolName: 'customers.update_deal_stage' }]` | Loop halts immediately after the mutation tool call; mutation card surfaces right away |
+| Per-step tool shaping | `loop.prepareStep: buildDealAnalyzerPrepareStep()` | Step 0 keeps mutation tools inactive; later steps can propose the approved mutation path without overriding the model |
+| Budget | `loop.budget: { maxToolCalls: 12, maxWallClockMs: 60_000 }` | Hard wall-clock and tool-call ceiling |
+| Both engines | `executionEngine: 'stream-text'` (default) + sibling `customers.deal_analyzer_tool_loop` with `'tool-loop-agent'` | Proves mutation gate holds for both dispatch paths (TC-AI-AGENT-LOOP-006) |
+| `uiParts` | `uiParts: ['open-mercato:deal']` | Deal record cards auto-rendered in the chat |
+
+### Key files
+
+- **Tool**: `packages/core/src/modules/customers/ai-tools/deal-analyzer-pack.ts` — `customers.analyze_deals` read-only tool (health score computation, bounded DB reads)
+- **Agents**: `packages/core/src/modules/customers/ai-agents.ts` — `dealAnalyzer` + `dealAnalyzerToolLoop` definitions, `buildDealAnalyzerPrepareStep()`
+- **UI widget**: `packages/core/src/modules/customers/widgets/injection/ai-deal-analyzer-trigger/` — `<AiChat>` embedded in Deals list `:search-trailing` slot
+- **Injection table**: `packages/core/src/modules/customers/widgets/injection-table.ts` — `data-table:customers.deals.list:search-trailing` spot
+- **Tests**: `packages/core/src/modules/customers/__integration__/TC-AI-AGENT-DEAL-ANALYZER-001-007.spec.ts`
+
+### Loop flow
+
+1. User opens the Deal Analyzer sheet on `/backend/customers/deals` (or the playground).
+2. Agent calls `customers.analyze_deals` (step 0, Sonnet) — returns deals ranked by health score.
+3. Agent identifies the highest-value stalled deal and calls `customers.update_deal_stage` (step 1, Haiku).
+4. `loop.stopWhen` fires — the loop halts and the mutation-preview card surfaces.
+5. Operator approves or rejects the stage move in the approval card.
+
+The `buildDealAnalyzerPrepareStep()` function returns a `PrepareStepFunction` that creates a lazy model-factory singleton bound to `null` container (the factory only reads `process.env` and `llmProviderRegistry`, not the DI container). Step 0 resolves Sonnet for broad analysis; subsequent steps resolve Haiku for the cheaper mutation call.

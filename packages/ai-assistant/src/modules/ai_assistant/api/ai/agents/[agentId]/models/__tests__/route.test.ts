@@ -62,6 +62,11 @@ jest.mock('../../../../../../lib/model-factory', () => ({
   createModelFactory: jest.fn(() => ({
     resolveModel: resolveModelMock,
   })),
+  resolveAllowRuntimeOverride: (input: { allowRuntimeOverride?: boolean; allowRuntimeModelOverride?: boolean }) => {
+    if (input.allowRuntimeOverride !== undefined) return input.allowRuntimeOverride !== false
+    if (input.allowRuntimeModelOverride !== undefined) return input.allowRuntimeModelOverride !== false
+    return true
+  },
 }))
 
 import { GET } from '../route'

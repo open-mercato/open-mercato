@@ -1,6 +1,10 @@
 /**
  * Module-root AI agent contribution for the customers module.
  *
+ * See /framework/ai-assistant/agents for the structured PromptTemplate
+ * convention and the per-tenant override path that can downgrade
+ * mutationPolicy to read-only.
+ *
  * The generator walks every module root for a top-level `ai-agents.ts` and
  * takes the default/`aiAgents` export as the agent contribution. The
  * `customers.account_assistant` agent explores people / companies / deals /
@@ -15,11 +19,7 @@
  *
  * Prompt is declared as a structured `PromptTemplate` (not a flat string)
  * per spec §8 with the seven named sections: ROLE, SCOPE, DATA, TOOLS,
- * ATTACHMENTS, MUTATION POLICY, RESPONSE STYLE. The composed string is
- * fed into `systemPrompt` so the existing runtime continues to work, and
- * the structured template is additionally exported so downstream Phases
- * (5.3 prompt-override merge, 5.2 resolvePageContext hydration) can
- * address sections by name.
+ * ATTACHMENTS, MUTATION POLICY, RESPONSE STYLE.
  */
 import type {
   AiAgentDefinition,
@@ -303,6 +303,213 @@ const agent: AiAgentDefinition = {
   resolvePageContext,
 }
 
-export const aiAgents: AiAgentDefinition[] = [agent]
+// customers.deal_analyzer — multi-step agentic loop demo.
+// See /framework/ai-assistant/agents → "Deal Analyzer demo" for the loop
+// primitives exercised here; the sibling tool-loop-agent below proves both
+// execution engines honor the mutation gate.
+
+type DealAnalyzerPromptSectionName =
+  | 'role'
+  | 'scope'
+  | 'data'
+  | 'tools'
+  | 'mutationPolicy'
+  | 'responseStyle'
+
+interface DealAnalyzerPromptSection {
+  name: DealAnalyzerPromptSectionName
+  content: string
+  order: number
+}
+
+const DEAL_ANALYZER_PROMPT_SECTIONS: DealAnalyzerPromptSection[] = [
+  {
+    name: 'role',
+    order: 1,
+    content: [
+      'ROLE',
+      'You are the Deal Analyzer inside Open Mercato. You are a multi-step agentic',
+      'assistant that analyzes the health of a tenant\'s open deals, surfaces stalled',
+      'opportunities, and proposes pipeline stage transitions for operator approval.',
+    ].join('\n'),
+  },
+  {
+    name: 'scope',
+    order: 2,
+    content: [
+      'SCOPE',
+      'Stay inside the customers module. Respect tenant and organization isolation.',
+      'ALWAYS call customers.analyze_deals as your FIRST tool call — do not skip this.',
+      'Reason about stalled deals: any deal with no activity for more than 14 days',
+      'is considered stalled. For each stalled deal with a value greater than $5,000',
+      'propose a stage move via customers.update_deal_stage.',
+      'After calling customers.update_deal_stage, finish with a concise conclusion',
+      'summarizing the analysis and the approval action the operator should review.',
+    ].join('\n'),
+  },
+  {
+    name: 'data',
+    order: 3,
+    content: [
+      'DATA',
+      'You can read: customers.deal via customers.analyze_deals (analytical summary)',
+      'and customers.list_deals / customers.get_deal (full detail).',
+      'Use customers.analyze_deals first — it returns a ranked list of deals by',
+      'health score (lowest = most at risk) with last-activity information.',
+      'Use customers.list_activities to get more detail on a specific deal\'s activity.',
+      'Use search.hybrid_search only for free-text queries spanning multiple entity types.',
+      'CRITICAL: Only use IDs returned by a prior tool call. Never invent or guess UUIDs.',
+    ].join('\n'),
+  },
+  {
+    name: 'tools',
+    order: 4,
+    content: [
+      'TOOLS',
+      'Primary tools for this agent (call in this order on each turn):',
+      '1. customers.analyze_deals — analytical overview of deals ranked by health score.',
+      '   Supply dealStageFilter="open" to restrict to open deals.',
+      '2. customers.update_deal_stage — propose a stage move for a stalled high-value deal.',
+      '   The runtime intercepts this via the pending-action gate; do NOT claim the change',
+      '   is saved until the mutation-result-card arrives.',
+      'Secondary read tools (use when you need more detail):',
+      '- customers.list_deals, customers.get_deal, customers.list_activities',
+      '- search.hybrid_search, meta.describe_agent',
+    ].join('\n'),
+  },
+  {
+    name: 'mutationPolicy',
+    order: 5,
+    content: [
+      'MUTATION POLICY',
+      'This agent ships with mutationPolicy: "confirm-required". Every write goes through',
+      'the pending-action approval card and only persists after the operator confirms it.',
+      'After calling customers.update_deal_stage, explain whether a pending approval',
+      'card was created or whether the proposed move could not be prepared.',
+      'Do NOT call update_deal_stage more than once per turn.',
+      'If a per-tenant override has downgraded this agent to read-only, tell the operator',
+      'the write is locked and point to /backend/customers/deals/<id>.',
+    ].join('\n'),
+  },
+  {
+    name: 'responseStyle',
+    order: 6,
+    content: [
+      'RESPONSE STYLE',
+      '',
+      '═══════════════════════════════════════════════════════════════════════',
+      'RULE #1 — DEAL RECORD CARDS ARE MANDATORY',
+      '═══════════════════════════════════════════════════════════════════════',
+      'For every deal you surface in your analysis you MUST emit an open-mercato:deal',
+      'fenced card. Use the deal id, title, value, and stage from the tool output.',
+      'Always populate href with /backend/customers/deals/<id>.',
+      '',
+      'Card schema: { "id", "title", "status"?, "stage"?, "amount"?, "currency"?,',
+      '  "closeDate"?, "ownerName"?, "personName"?, "companyName"?,',
+      '  "description"?, "tags"?, "href" }',
+      '',
+      '═══════════════════════════════════════════════════════════════════════',
+      'RULE #2 — Analysis format',
+      '═══════════════════════════════════════════════════════════════════════',
+      'Lead with a one-paragraph summary of the deal portfolio health, then emit one',
+      'deal card per at-risk deal (sorted by health score ascending). After the cards,',
+      'propose exactly one stage move for the highest-value stalled deal and call',
+      'customers.update_deal_stage. Then finish with a short conclusion naming the',
+      'highest-value stalled deal, the recommended move, and the approval status.',
+    ].join('\n'),
+  },
+]
+
+function compileDealAnalyzerPrompt(): string {
+  return DEAL_ANALYZER_PROMPT_SECTIONS.slice()
+    .sort((a, b) => a.order - b.order)
+    .map((section) => section.content.trim())
+    .join('\n\n')
+}
+
+const DEAL_ANALYZER_ALLOWED_TOOLS: readonly string[] = [
+  'customers.analyze_deals',
+  'customers.update_deal_stage',
+  'customers.list_deals',
+  'customers.get_deal',
+  'customers.list_activities',
+  'search.hybrid_search',
+  'meta.describe_agent',
+]
+
+function buildDealAnalyzerPrepareStep() {
+  return async function dealAnalyzerPrepareStep(state: { stepNumber: number }) {
+    if (state.stepNumber === 0) {
+      return {
+        activeTools: [
+          'customers.analyze_deals',
+          'customers.list_deals',
+          'customers.get_deal',
+          'customers.list_activities',
+          'search.hybrid_search',
+          'meta.describe_agent',
+        ],
+      }
+    }
+    return { activeTools: [...DEAL_ANALYZER_ALLOWED_TOOLS] }
+  }
+}
+
+const dealAnalyzer: AiAgentDefinition = {
+  id: 'customers.deal_analyzer',
+  moduleId: 'customers',
+  label: 'Deal Analyzer',
+  description:
+    'Multi-step CRM agent that analyzes deals, surfaces stalled opportunities, and proposes stage transitions for operator approval.',
+  systemPrompt: compileDealAnalyzerPrompt(),
+  allowedTools: [...DEAL_ANALYZER_ALLOWED_TOOLS],
+  executionMode: 'chat',
+  executionEngine: 'stream-text',
+  allowRuntimeOverride: true,
+  readOnly: false,
+  mutationPolicy: 'confirm-required',
+  requiredFeatures: ['customers.deals.view'],
+  uiParts: ['open-mercato:deal'],
+  keywords: ['deal', 'pipeline', 'stalled', 'crm', 'analysis', 'health'],
+  domain: 'customers',
+  loop: {
+    maxSteps: 12,
+    prepareStep: buildDealAnalyzerPrepareStep() as AiAgentDefinition['loop'] extends undefined
+      ? never
+      : NonNullable<AiAgentDefinition['loop']>['prepareStep'],
+    budget: {
+      maxToolCalls: 12,
+      maxWallClockMs: 60_000,
+    },
+    allowRuntimeOverride: true,
+  },
+  dataCapabilities: {
+    entities: ['customers.deal', 'customers.activity'],
+    operations: ['read', 'search', 'aggregate'],
+  },
+  suggestions: [
+    {
+      label: 'Analyze stalled deals',
+      prompt: 'Analyze stalled deals from the last 30 days and propose a stage move for the highest value one',
+    },
+    {
+      label: 'Show at-risk pipeline',
+      prompt: 'Show me deals with no activity in the last 14 days worth more than $5,000',
+    },
+  ],
+}
+
+// Sibling agent identical to customers.deal_analyzer except for
+// executionEngine: 'tool-loop-agent' (TC-AI-AGENT-LOOP-006).
+const dealAnalyzerToolLoop: AiAgentDefinition = {
+  ...dealAnalyzer,
+  id: 'customers.deal_analyzer_tool_loop',
+  label: 'Deal Analyzer (ToolLoopAgent)',
+  description:
+    'Same as customers.deal_analyzer but dispatched via the ToolLoopAgent engine. Used by TC-AI-AGENT-LOOP-006 mutation-gate proof scenario.',
+  executionEngine: 'tool-loop-agent',
+}
+
+export const aiAgents: AiAgentDefinition[] = [agent, dealAnalyzer, dealAnalyzerToolLoop]
 
 export default aiAgents

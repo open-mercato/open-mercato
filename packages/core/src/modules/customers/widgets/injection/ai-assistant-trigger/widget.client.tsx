@@ -17,8 +17,9 @@
  */
 
 import * as React from 'react'
-import { Building2, ChevronDown, Handshake, PanelRightOpen, Search, Sparkles, Users } from 'lucide-react'
+import { Building2, ChevronDown, Handshake, PanelRightOpen, Search, Users } from 'lucide-react'
 import { AiChat, type AiChatSuggestion, type AiChatContextItem } from '@open-mercato/ui/ai/AiChat'
+import { AiIcon } from '@open-mercato/ui/ai/AiIcon'
 import { useAiDock } from '@open-mercato/ui/ai/AiDock'
 import { useAiChatSessions } from '@open-mercato/ui/ai/AiChatSessions'
 import { ChatPaneTabs } from '@open-mercato/ui/ai/ChatPaneTabs'
@@ -431,7 +432,7 @@ function useCustomerAgents(): CustomerAgentDescriptor[] {
           'customers.ai_assistant.agents.account.description',
           'Explore people, companies, deals, and activities.',
         ),
-        icon: <Sparkles className="size-4" />,
+        icon: <AiIcon className="size-4" />,
       },
     ],
     [t],
@@ -538,10 +539,7 @@ export default function AiAssistantTriggerWidget({ context }: AiAssistantTrigger
             agents.length > 1 && 'rounded-r-none border-r-0',
           )}
         >
-          <Sparkles
-            className="size-4 text-brand-violet"
-            aria-hidden
-          />
+          <AiIcon className="size-4" />
           <span>{labelText}</span>
           {hasSelection ? (
             <span

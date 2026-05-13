@@ -3,10 +3,8 @@
 import * as React from 'react'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import {
-  AlertCircle,
   Bot,
   BookOpen,
-  CheckCircle2,
   History,
   Image as ImageIcon,
   FileText,
@@ -16,6 +14,7 @@ import {
   RefreshCcw,
   Save,
   ShieldAlert,
+  ShieldOff,
   Trash2,
   Wand2,
   Wrench,
@@ -26,6 +25,7 @@ import { Badge } from '@open-mercato/ui/primitives/badge'
 import { Button } from '@open-mercato/ui/primitives/button'
 import { Checkbox } from '@open-mercato/ui/primitives/checkbox'
 import { IconButton } from '@open-mercato/ui/primitives/icon-button'
+import { Input } from '@open-mercato/ui/primitives/input'
 import { Label } from '@open-mercato/ui/primitives/label'
 import { Radio, RadioGroup } from '@open-mercato/ui/primitives/radio'
 import {
@@ -704,8 +704,11 @@ function MutationPolicySection({ agent }: { agent: AgentSettings }) {
           </div>
         </div>
 
-        <Alert variant="info" data-ai-agent-mutation-policy-notice>
-          <ShieldAlert className="size-4" aria-hidden />
+        <Alert
+          variant="info"
+          icon={<ShieldAlert aria-hidden="true" />}
+          data-ai-agent-mutation-policy-notice
+        >
           <AlertTitle>
             {t(
               'ai_assistant.agents.mutation_policy.noticeTitle',
@@ -729,7 +732,6 @@ function MutationPolicySection({ agent }: { agent: AgentSettings }) {
           />
         ) : query.isError ? (
           <Alert variant="destructive" data-ai-agent-mutation-policy-load-error>
-            <AlertCircle className="size-4" aria-hidden />
             <AlertTitle>
               {t(
                 'ai_assistant.agents.mutation_policy.loadErrorTitle',
@@ -818,7 +820,6 @@ function MutationPolicySection({ agent }: { agent: AgentSettings }) {
 
         {state.kind === 'success' ? (
           <Alert variant="success" data-ai-agent-mutation-policy-state="success">
-            <CheckCircle2 className="size-4" aria-hidden />
             <AlertTitle>
               {t('ai_assistant.agents.mutation_policy.savedTitle', 'Mutation policy updated')}
             </AlertTitle>
@@ -827,7 +828,6 @@ function MutationPolicySection({ agent }: { agent: AgentSettings }) {
         ) : null}
         {state.kind === 'error' ? (
           <Alert variant="destructive" data-ai-agent-mutation-policy-state="error">
-            <AlertCircle className="size-4" aria-hidden />
             <AlertTitle>
               {t(
                 'ai_assistant.agents.mutation_policy.errorTitle',
@@ -1190,7 +1190,6 @@ function AgentModelOverrideSection({ agent }: { agent: AgentSettings }) {
           />
         ) : settingsQuery.isError ? (
           <Alert variant="destructive" data-ai-agent-model-override-load-error>
-            <AlertCircle className="size-4" aria-hidden />
             <AlertTitle>
               {t(
                 'ai_assistant.agents.model_override.loadErrorTitle',
@@ -1401,13 +1400,11 @@ function AgentModelOverrideSection({ agent }: { agent: AgentSettings }) {
 
         {state.kind === 'success' ? (
           <Alert variant="success" data-ai-agent-model-override-state="success">
-            <CheckCircle2 className="size-4" aria-hidden />
             <AlertDescription>{state.message}</AlertDescription>
           </Alert>
         ) : null}
         {state.kind === 'error' ? (
           <Alert variant="destructive" data-ai-agent-model-override-state="error">
-            <AlertCircle className="size-4" aria-hidden />
             <AlertDescription>{state.message}</AlertDescription>
           </Alert>
         ) : null}
@@ -1443,6 +1440,364 @@ function AgentModelOverrideSection({ agent }: { agent: AgentSettings }) {
             <span>{t('ai_assistant.agents.model_override.save', 'Save override')}</span>
           </Button>
         </div>
+      </div>
+    </section>
+  )
+}
+
+type LoopOverrideRow = {
+  id: string
+  agentId: string | null
+  loopDisabled: boolean | null
+  loopMaxSteps: number | null
+  loopMaxToolCalls: number | null
+  loopMaxWallClockMs: number | null
+  loopMaxTokens: number | null
+  loopStopWhenJson: unknown[] | null
+  loopActiveToolsJson: string[] | null
+  updatedAt: string
+}
+
+type LoopOverrideResponse = {
+  agentId: string
+  override: LoopOverrideRow | null
+}
+
+async function fetchLoopOverride(agentId: string): Promise<LoopOverrideResponse> {
+  const { result, status } = await apiCallOrThrow<LoopOverrideResponse>(
+    `/api/ai_assistant/ai/agents/${encodeURIComponent(agentId)}/loop-override`,
+    { method: 'GET', credentials: 'include' },
+    { errorMessage: 'Failed to load loop override' },
+  )
+  if (!result) throw new Error(`Failed to load loop override (${status})`)
+  return result
+}
+
+function LoopPolicySection({ agent }: { agent: AgentSettings }) {
+  const t = useT()
+  const queryClient = useQueryClient()
+
+  const query = useQuery<LoopOverrideResponse>({
+    queryKey: ['ai_assistant', 'agent_settings', 'loop_override', agent.id],
+    queryFn: () => fetchLoopOverride(agent.id),
+    retry: false,
+  })
+
+  const currentOverride = query.data?.override ?? null
+
+  const [loopDisabled, setLoopDisabled] = React.useState<boolean>(false)
+  const [maxSteps, setMaxSteps] = React.useState<string>('')
+  const [maxToolCalls, setMaxToolCalls] = React.useState<string>('')
+  const [maxWallClockMs, setMaxWallClockMs] = React.useState<string>('')
+  const [maxTokens, setMaxTokens] = React.useState<string>('')
+  const [isSaving, setIsSaving] = React.useState(false)
+  const [isClearing, setIsClearing] = React.useState(false)
+  const [state, setState] = React.useState<
+    | { kind: 'idle' }
+    | { kind: 'success'; message: string }
+    | { kind: 'error'; message: string }
+  >({ kind: 'idle' })
+
+  React.useEffect(() => {
+    setLoopDisabled(currentOverride?.loopDisabled ?? false)
+    setMaxSteps(currentOverride?.loopMaxSteps != null ? String(currentOverride.loopMaxSteps) : '')
+    setMaxToolCalls(
+      currentOverride?.loopMaxToolCalls != null ? String(currentOverride.loopMaxToolCalls) : '',
+    )
+    setMaxWallClockMs(
+      currentOverride?.loopMaxWallClockMs != null
+        ? String(currentOverride.loopMaxWallClockMs)
+        : '',
+    )
+    setMaxTokens(
+      currentOverride?.loopMaxTokens != null ? String(currentOverride.loopMaxTokens) : '',
+    )
+    setState({ kind: 'idle' })
+  }, [
+    agent.id,
+    currentOverride?.loopDisabled,
+    currentOverride?.loopMaxSteps,
+    currentOverride?.loopMaxToolCalls,
+    currentOverride?.loopMaxWallClockMs,
+    currentOverride?.loopMaxTokens,
+  ])
+
+  const toNullableInt = (value: string): number | null => {
+    const trimmed = value.trim()
+    if (trimmed === '') return null
+    const parsed = parseInt(trimmed, 10)
+    return isNaN(parsed) ? null : parsed
+  }
+
+  const save = React.useCallback(async () => {
+    if (isSaving) return
+    setIsSaving(true)
+    setState({ kind: 'idle' })
+    try {
+      const { ok, status, result } = await apiCall<{
+        ok?: boolean
+        error?: string
+        code?: string
+      }>(
+        `/api/ai_assistant/ai/agents/${encodeURIComponent(agent.id)}/loop-override`,
+        {
+          method: 'PUT',
+          headers: { 'content-type': 'application/json' },
+          credentials: 'include',
+          body: JSON.stringify({
+            loopDisabled: loopDisabled || null,
+            loopMaxSteps: toNullableInt(maxSteps),
+            loopMaxToolCalls: toNullableInt(maxToolCalls),
+            loopMaxWallClockMs: toNullableInt(maxWallClockMs),
+            loopMaxTokens: toNullableInt(maxTokens),
+          }),
+        },
+      )
+      const payload = result ?? {}
+      if (!ok) {
+        setState({
+          kind: 'error',
+          message: payload.error ?? `Failed to save loop policy (${status}).`,
+        })
+        return
+      }
+      setState({
+        kind: 'success',
+        message: t('ai_assistant.agents.loop_policy.savedMessage', 'Loop policy override saved.'),
+      })
+      await queryClient.invalidateQueries({
+        queryKey: ['ai_assistant', 'agent_settings', 'loop_override', agent.id],
+      })
+    } catch (err) {
+      setState({
+        kind: 'error',
+        message: err instanceof Error ? err.message : String(err),
+      })
+    } finally {
+      setIsSaving(false)
+    }
+  }, [agent.id, isSaving, loopDisabled, maxSteps, maxToolCalls, maxWallClockMs, maxTokens, queryClient, t])
+
+  const clear = React.useCallback(async () => {
+    if (isClearing) return
+    setIsClearing(true)
+    setState({ kind: 'idle' })
+    try {
+      const { ok, status, result } = await apiCall<{ ok?: boolean; error?: string }>(
+        `/api/ai_assistant/ai/agents/${encodeURIComponent(agent.id)}/loop-override`,
+        { method: 'DELETE', credentials: 'include' },
+      )
+      const payload = result ?? {}
+      if (!ok) {
+        setState({
+          kind: 'error',
+          message: payload.error ?? `Failed to clear loop override (${status}).`,
+        })
+        return
+      }
+      setState({
+        kind: 'success',
+        message: t(
+          'ai_assistant.agents.loop_policy.clearedMessage',
+          'Loop policy override cleared; agent is using its declared defaults.',
+        ),
+      })
+      await queryClient.invalidateQueries({
+        queryKey: ['ai_assistant', 'agent_settings', 'loop_override', agent.id],
+      })
+    } catch (err) {
+      setState({
+        kind: 'error',
+        message: err instanceof Error ? err.message : String(err),
+      })
+    } finally {
+      setIsClearing(false)
+    }
+  }, [agent.id, isClearing, queryClient, t])
+
+  return (
+    <section
+      className="rounded-lg border border-border bg-background p-4"
+      data-ai-agent-loop-policy={agent.id}
+    >
+      <header className="flex items-center justify-between gap-3 border-b border-border pb-3">
+        <div className="flex items-center gap-2">
+          <ShieldOff className="size-4 text-muted-foreground" aria-hidden />
+          <div>
+            <h3 className="text-sm font-semibold">
+              {t('ai_assistant.agents.loop_policy.title', 'Loop policy')}
+            </h3>
+            <p className="text-xs text-muted-foreground">
+              {t(
+                'ai_assistant.agents.loop_policy.subtitle',
+                'Set per-tenant budget limits or disable the agentic loop for this agent.',
+              )}
+            </p>
+          </div>
+        </div>
+        {currentOverride?.loopDisabled ? (
+          <Badge variant="destructive" data-ai-agent-loop-disabled-badge>
+            {t('ai_assistant.agents.loop_policy.disabledBadge', 'Loop disabled')}
+          </Badge>
+        ) : null}
+      </header>
+
+      <div className="mt-3 flex flex-col gap-4">
+        {query.isLoading ? (
+          <SettingsLoading
+            message={t('ai_assistant.agents.loop_policy.loading', 'Loading loop policy...')}
+          />
+        ) : query.isError ? (
+          <Alert variant="destructive" data-ai-agent-loop-policy-load-error>
+            <AlertTitle>
+              {t('ai_assistant.agents.loop_policy.loadErrorTitle', 'Failed to load loop policy')}
+            </AlertTitle>
+            <AlertDescription>
+              {query.error instanceof Error ? query.error.message : String(query.error)}
+            </AlertDescription>
+          </Alert>
+        ) : (
+          <>
+            <div className="flex items-center justify-between gap-3 rounded-md border border-border px-3 py-2">
+              <div>
+                <span className="text-sm font-medium">
+                  {t('ai_assistant.agents.loop_policy.killSwitchLabel', 'Kill switch')}
+                </span>
+                <p className="text-xs text-muted-foreground">
+                  {t(
+                    'ai_assistant.agents.loop_policy.killSwitchDescription',
+                    'When enabled, the agent runs as a single model call with no tool loop.',
+                  )}
+                </p>
+              </div>
+              <Switch
+                checked={loopDisabled}
+                onCheckedChange={(next: boolean) => setLoopDisabled(next)}
+                aria-label={t('ai_assistant.agents.loop_policy.killSwitchLabel', 'Kill switch')}
+                data-ai-agent-loop-kill-switch
+              />
+            </div>
+
+            <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+              <div className="flex flex-col gap-1">
+                <Label htmlFor={`loop-max-steps-${agent.id}`} className="text-xs">
+                  {t('ai_assistant.agents.loop_policy.maxStepsLabel', 'Max steps')}
+                </Label>
+                <Input
+                  id={`loop-max-steps-${agent.id}`}
+                  type="number"
+                  min={1}
+                  max={1000}
+                  value={maxSteps}
+                  onChange={(event) => setMaxSteps(event.target.value)}
+                  placeholder={t('ai_assistant.agents.loop_policy.noOverridePlaceholder', 'No override')}
+                  className="h-8 text-sm"
+                  data-ai-agent-loop-max-steps
+                />
+              </div>
+              <div className="flex flex-col gap-1">
+                <Label htmlFor={`loop-max-tool-calls-${agent.id}`} className="text-xs">
+                  {t('ai_assistant.agents.loop_policy.maxToolCallsLabel', 'Max tool calls')}
+                </Label>
+                <Input
+                  id={`loop-max-tool-calls-${agent.id}`}
+                  type="number"
+                  min={1}
+                  max={10000}
+                  value={maxToolCalls}
+                  onChange={(event) => setMaxToolCalls(event.target.value)}
+                  placeholder={t('ai_assistant.agents.loop_policy.noOverridePlaceholder', 'No override')}
+                  className="h-8 text-sm"
+                  data-ai-agent-loop-max-tool-calls
+                />
+              </div>
+              <div className="flex flex-col gap-1">
+                <Label htmlFor={`loop-max-wall-clock-${agent.id}`} className="text-xs">
+                  {t('ai_assistant.agents.loop_policy.maxWallClockMsLabel', 'Max wall-clock (ms)')}
+                </Label>
+                <Input
+                  id={`loop-max-wall-clock-${agent.id}`}
+                  type="number"
+                  min={100}
+                  max={3600000}
+                  value={maxWallClockMs}
+                  onChange={(event) => setMaxWallClockMs(event.target.value)}
+                  placeholder={t('ai_assistant.agents.loop_policy.noOverridePlaceholder', 'No override')}
+                  className="h-8 text-sm"
+                  data-ai-agent-loop-max-wall-clock-ms
+                />
+              </div>
+              <div className="flex flex-col gap-1">
+                <Label htmlFor={`loop-max-tokens-${agent.id}`} className="text-xs">
+                  {t('ai_assistant.agents.loop_policy.maxTokensLabel', 'Max tokens')}
+                </Label>
+                <Input
+                  id={`loop-max-tokens-${agent.id}`}
+                  type="number"
+                  min={1}
+                  max={10000000}
+                  value={maxTokens}
+                  onChange={(event) => setMaxTokens(event.target.value)}
+                  placeholder={t('ai_assistant.agents.loop_policy.noOverridePlaceholder', 'No override')}
+                  className="h-8 text-sm"
+                  data-ai-agent-loop-max-tokens
+                />
+              </div>
+            </div>
+
+            {state.kind === 'success' ? (
+              <Alert variant="success" data-ai-agent-loop-policy-state="success">
+                <AlertTitle>
+                  {t('ai_assistant.agents.loop_policy.savedTitle', 'Loop policy updated')}
+                </AlertTitle>
+                <AlertDescription>{state.message}</AlertDescription>
+              </Alert>
+            ) : null}
+            {state.kind === 'error' ? (
+              <Alert variant="destructive" data-ai-agent-loop-policy-state="error">
+                <AlertTitle>
+                  {t(
+                    'ai_assistant.agents.loop_policy.errorTitle',
+                    'Failed to update loop policy',
+                  )}
+                </AlertTitle>
+                <AlertDescription>{state.message}</AlertDescription>
+              </Alert>
+            ) : null}
+
+            <div className="flex items-center justify-end gap-2">
+              <Button
+                type="button"
+                size="sm"
+                variant="outline"
+                onClick={() => void clear()}
+                disabled={isClearing || isSaving || !currentOverride}
+                data-ai-agent-loop-policy-clear
+              >
+                {isClearing ? (
+                  <Loader2 className="size-4 animate-spin" aria-hidden />
+                ) : (
+                  <Trash2 className="size-4" aria-hidden />
+                )}
+                <span>{t('ai_assistant.agents.loop_policy.clear', 'Clear override')}</span>
+              </Button>
+              <Button
+                type="button"
+                size="sm"
+                onClick={() => void save()}
+                disabled={isSaving || isClearing}
+                data-ai-agent-loop-policy-save
+              >
+                {isSaving ? (
+                  <Loader2 className="size-4 animate-spin" aria-hidden />
+                ) : (
+                  <Save className="size-4" aria-hidden />
+                )}
+                <span>{t('ai_assistant.agents.loop_policy.save', 'Save override')}</span>
+              </Button>
+            </div>
+          </>
+        )}
       </div>
     </section>
   )
@@ -1709,6 +2064,8 @@ function AgentDetailPanel({ agent }: { agent: AgentSettings }) {
 
       <MutationPolicySection agent={agent} />
 
+      <LoopPolicySection agent={agent} />
+
       <section
         className="rounded-lg border border-border bg-background p-4"
         data-ai-agent-prompt-editor={agent.id}
@@ -1741,8 +2098,11 @@ function AgentDetailPanel({ agent }: { agent: AgentSettings }) {
           </Button>
         </header>
         <div className="mt-3">
-          <Alert variant="info" data-ai-agent-prompt-notice>
-            <Wand2 className="size-4" aria-hidden />
+          <Alert
+            variant="info"
+            icon={<Wand2 aria-hidden="true" />}
+            data-ai-agent-prompt-notice
+          >
             <AlertTitle>
               {t('ai_assistant.agents.override.noticeTitle', 'Prompt overrides are additive')}
             </AlertTitle>
@@ -1756,7 +2116,6 @@ function AgentDetailPanel({ agent }: { agent: AgentSettings }) {
         </div>
         {saveState.kind === 'success' ? (
           <Alert variant="success" className="mt-3" data-ai-agent-prompt-state="success">
-            <CheckCircle2 className="size-4" aria-hidden />
             <AlertTitle>
               {saveState.version > 0
                 ? t('ai_assistant.agents.override.savedTitle', 'Prompt override saved')
@@ -1771,7 +2130,6 @@ function AgentDetailPanel({ agent }: { agent: AgentSettings }) {
         ) : null}
         {saveState.kind === 'error' ? (
           <Alert variant="destructive" className="mt-3" data-ai-agent-prompt-state="error">
-            <AlertCircle className="size-4" aria-hidden />
             <AlertTitle>
               {t('ai_assistant.agents.override.errorTitle', 'Failed to save prompt override')}
             </AlertTitle>
@@ -1892,7 +2250,6 @@ function AgentDetailPanel({ agent }: { agent: AgentSettings }) {
             />
           ) : overrideQuery.isError ? (
             <Alert variant="destructive" data-ai-agent-override-history-error>
-              <AlertCircle className="size-4" aria-hidden />
               <AlertTitle>
                 {t(
                   'ai_assistant.agents.override.history.errorTitle',
@@ -2002,7 +2359,6 @@ export function AiAgentSettingsPageClient() {
   if (isError) {
     return (
       <Alert variant="destructive" data-ai-agent-settings-error>
-        <AlertCircle className="size-4" aria-hidden />
         <AlertTitle>
           {t('ai_assistant.agents.loadErrorTitle', 'Failed to load AI agents')}
         </AlertTitle>

@@ -413,6 +413,18 @@ describe('integration cache and options', () => {
         }),
       ).resolves.toBe(true)
 
+      await rm(sourceFile, { force: true })
+      await expect(
+        shouldReuseBuildArtifacts(120, 'integration', {
+          inputPaths: [sourceFile],
+          artifactPaths: [artifactPath],
+          cacheStatePath,
+          environmentFingerprint: 'enterprise=off',
+          projectRoot: tempRoot,
+        }),
+      ).resolves.toBe(false)
+
+      await writeFile(sourceFile, 'const value = 1')
       await writeFile(sourceFile, 'const value = 2')
       await expect(
         shouldReuseBuildArtifacts(120, 'integration', {

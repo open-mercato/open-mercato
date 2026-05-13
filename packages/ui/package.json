@@ -143,7 +143,8 @@
   "peerDependencies": {
     "@open-mercato/shared": "workspace:*",
     "react": ">=18.0.0",
-    "react-dom": ">=18.0.0"
+    "react-dom": ">=18.0.0",
+    "react-is": ">=18.0.0"
   },
   "devDependencies": {
     "@open-mercato/shared": "workspace:*",
@@ -151,8 +152,13 @@
     "@testing-library/jest-dom": "^6.9.1",
     "@testing-library/react": "^16.3.1",
     "@types/jest": "^30.0.0",
+    "@types/react": "^19.2.14",
+    "@types/react-dom": "^19.2.3",
     "jest": "^30.4.2",
     "jest-environment-jsdom": "^30.4.1",
+    "react": "19.2.6",
+    "react-dom": "19.2.6",
+    "react-is": "^19.2.6",
     "ts-jest": "^29.4.9"
   },
   "publishConfig": {

@@ -10,7 +10,7 @@
 type AgentResolution = {
   agentId: string
   moduleId: string
-  allowRuntimeModelOverride: boolean
+  allowRuntimeOverride: boolean
   providerId: string
   modelId: string
   baseURL: string | null
@@ -30,7 +30,7 @@ describe('AiAssistantSettingsPageClient — per-agent override detection', () =>
   const baseAgent: Omit<AgentResolution, 'source'> = {
     agentId: 'catalog.merchandising_assistant',
     moduleId: 'catalog',
-    allowRuntimeModelOverride: true,
+    allowRuntimeOverride: true,
     providerId: 'anthropic',
     modelId: 'claude-haiku-4-5',
     baseURL: null,
@@ -66,7 +66,7 @@ describe('AiAssistantSettingsPageClient — resolution table filtering', () => {
     {
       agentId: 'catalog.catalog_assistant',
       moduleId: 'catalog',
-      allowRuntimeModelOverride: true,
+      allowRuntimeOverride: true,
       providerId: 'anthropic',
       modelId: 'claude-haiku-4-5',
       baseURL: null,
@@ -75,7 +75,7 @@ describe('AiAssistantSettingsPageClient — resolution table filtering', () => {
     {
       agentId: 'catalog.merchandising_assistant',
       moduleId: 'catalog',
-      allowRuntimeModelOverride: true,
+      allowRuntimeOverride: true,
       providerId: 'openai',
       modelId: 'gpt-4o',
       baseURL: null,
@@ -84,7 +84,7 @@ describe('AiAssistantSettingsPageClient — resolution table filtering', () => {
     {
       agentId: 'customers.account_assistant',
       moduleId: 'customers',
-      allowRuntimeModelOverride: false,
+      allowRuntimeOverride: false,
       providerId: 'anthropic',
       modelId: 'claude-haiku-4-5',
       baseURL: null,

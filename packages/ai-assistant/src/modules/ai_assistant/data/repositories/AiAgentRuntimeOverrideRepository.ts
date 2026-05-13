@@ -2,6 +2,7 @@ import type { EntityManager, FilterQuery } from '@mikro-orm/postgresql'
 import { llmProviderRegistry } from '@open-mercato/shared/lib/ai/llm-provider-registry'
 import { canonicalProviderId } from '../../lib/model-allowlist'
 import { AiAgentRuntimeOverride } from '../entities'
+import type { AiAgentLoopStopCondition } from '../../lib/ai-agent-definition'
 
 export interface AiAgentRuntimeOverrideContext {
   tenantId: string
@@ -9,7 +10,24 @@ export interface AiAgentRuntimeOverrideContext {
   userId?: string | null
 }
 
-export interface AiAgentRuntimeOverrideInput {
+export interface AiAgentRuntimeOverrideLoopInput {
+  /** Kill switch — when true, runtime forces stepCountIs(1). */
+  loopDisabled?: boolean | null
+  /** Override loop.maxSteps. */
+  loopMaxSteps?: number | null
+  /** Override loop.budget.maxToolCalls. */
+  loopMaxToolCalls?: number | null
+  /** Override loop.budget.maxWallClockMs. */
+  loopMaxWallClockMs?: number | null
+  /** Override loop.budget.maxTokens. */
+  loopMaxTokens?: number | null
+  /** Override loop.stopWhen — JSON-safe variants only (stepCount, hasToolCall). */
+  loopStopWhenJson?: AiAgentLoopStopCondition[] | null
+  /** Override loop.activeTools — must be a subset of agent.allowedTools. */
+  loopActiveToolsJson?: string[] | null
+}
+
+export interface AiAgentRuntimeOverrideInput extends AiAgentRuntimeOverrideLoopInput {
   /** null means tenant-wide default (no agent pinning). */
   agentId?: string | null
   providerId?: string | null
@@ -17,6 +35,12 @@ export interface AiAgentRuntimeOverrideInput {
   baseURL?: string | null
   allowedOverrideProviders?: string[] | null
   allowedOverrideModelsByProvider?: Record<string, string[]>
+  /**
+   * Optional: the agent's declared allowedTools. When provided, loopActiveToolsJson
+   * is validated to be a subset. When omitted, allowlist validation is skipped
+   * (write-time defense only; the runtime re-validates at read time).
+   */
+  agentAllowedTools?: string[]
 }
 
 /**
@@ -91,11 +115,99 @@ export class AiAgentRuntimeOverrideRepository {
   }
 
   /**
+   * Validates and normalizes the loop override fields from an input object.
+   * Throws `AiAgentRuntimeOverrideValidationError` with code
+   * `invalid_loop_override` for any validation failure.
+   *
+   * Validation rules (Phase 3 — R5 mitigation):
+   * - `loopStopWhenJson`: all items must have kind `stepCount` or `hasToolCall`.
+   *   Items with kind `custom` are rejected — they cannot be stored as JSON.
+   * - `loopActiveToolsJson`: when `agentAllowedTools` is provided, every entry
+   *   must be in that allowlist.
+   */
+  private validateLoopInput(input: AiAgentRuntimeOverrideInput): void {
+    if (input.loopStopWhenJson != null) {
+      if (!Array.isArray(input.loopStopWhenJson)) {
+        throw new AiAgentRuntimeOverrideValidationError(
+          'loopStopWhenJson must be an array of stop condition objects.',
+          'invalid_loop_override',
+        )
+      }
+      for (const item of input.loopStopWhenJson) {
+        if (!item || typeof item !== 'object' || !('kind' in item)) {
+          throw new AiAgentRuntimeOverrideValidationError(
+            'loopStopWhenJson items must have a "kind" field.',
+            'invalid_loop_override',
+          )
+        }
+        const kind = (item as AiAgentLoopStopCondition).kind
+        if (kind === 'custom') {
+          throw new AiAgentRuntimeOverrideValidationError(
+            'loopStopWhenJson does not support kind "custom" — only "stepCount" and "hasToolCall" are JSON-safe and storable.',
+            'invalid_loop_override',
+          )
+        }
+        if (kind !== 'stepCount' && kind !== 'hasToolCall') {
+          throw new AiAgentRuntimeOverrideValidationError(
+            `loopStopWhenJson contains unknown kind "${String(kind)}". Allowed: "stepCount", "hasToolCall".`,
+            'invalid_loop_override',
+          )
+        }
+        if (kind === 'stepCount' && typeof (item as { count?: unknown }).count !== 'number') {
+          throw new AiAgentRuntimeOverrideValidationError(
+            'loopStopWhenJson stepCount item must have a numeric "count" field.',
+            'invalid_loop_override',
+          )
+        }
+        if (kind === 'hasToolCall' && typeof (item as { toolName?: unknown }).toolName !== 'string') {
+          throw new AiAgentRuntimeOverrideValidationError(
+            'loopStopWhenJson hasToolCall item must have a string "toolName" field.',
+            'invalid_loop_override',
+          )
+        }
+      }
+    }
+
+    if (input.loopActiveToolsJson != null) {
+      if (!Array.isArray(input.loopActiveToolsJson)) {
+        throw new AiAgentRuntimeOverrideValidationError(
+          'loopActiveToolsJson must be an array of tool name strings.',
+          'invalid_loop_override',
+        )
+      }
+      for (const name of input.loopActiveToolsJson) {
+        if (typeof name !== 'string' || name.length === 0) {
+          throw new AiAgentRuntimeOverrideValidationError(
+            'loopActiveToolsJson entries must be non-empty strings.',
+            'invalid_loop_override',
+          )
+        }
+      }
+      if (input.agentAllowedTools && input.agentAllowedTools.length > 0) {
+        const outsideAllowlist = input.loopActiveToolsJson.filter(
+          (name) => !input.agentAllowedTools!.includes(name),
+        )
+        if (outsideAllowlist.length > 0) {
+          throw new AiAgentRuntimeOverrideValidationError(
+            `loopActiveToolsJson contains tools outside the agent's allowedTools: ${outsideAllowlist.join(', ')}.`,
+            'invalid_loop_override',
+          )
+        }
+      }
+    }
+  }
+
+  /**
    * Inserts or updates the runtime override for the given context.
    *
    * Validates `providerId` against the registry at write time so an admin
    * cannot save a typo (Phase 1.4 contract re-applied per spec §Data Models).
    * An unknown provider id throws a typed error.
+   *
+   * Also validates loop override fields (R5 mitigation — Phase 3):
+   * - `loopStopWhenJson` items must use only JSON-safe kinds.
+   * - `loopActiveToolsJson` items must be a subset of `agentAllowedTools`
+   *   when that is provided.
    *
    * The R6 base-URL allowlist check is intentionally NOT performed here —
    * that enforcement lives at the HTTP layer (PUT settings route). The
@@ -120,6 +232,8 @@ export class AiAgentRuntimeOverrideRepository {
         )
       }
     }
+
+    this.validateLoopInput(input)
 
     const orgFilter = ctx.organizationId ?? null
     const agentIdFilter = input.agentId ?? null
@@ -149,6 +263,13 @@ export class AiAgentRuntimeOverrideRepository {
         }
         existing.updatedByUserId = ctx.userId ?? null
         existing.updatedAt = new Date()
+        if ('loopDisabled' in input) existing.loopDisabled = input.loopDisabled ?? null
+        if ('loopMaxSteps' in input) existing.loopMaxSteps = input.loopMaxSteps ?? null
+        if ('loopMaxToolCalls' in input) existing.loopMaxToolCalls = input.loopMaxToolCalls ?? null
+        if ('loopMaxWallClockMs' in input) existing.loopMaxWallClockMs = input.loopMaxWallClockMs ?? null
+        if ('loopMaxTokens' in input) existing.loopMaxTokens = input.loopMaxTokens ?? null
+        if ('loopStopWhenJson' in input) existing.loopStopWhenJson = input.loopStopWhenJson ?? null
+        if ('loopActiveToolsJson' in input) existing.loopActiveToolsJson = input.loopActiveToolsJson ?? null
         await tx.persist(existing).flush()
         return existing
       }
@@ -167,6 +288,13 @@ export class AiAgentRuntimeOverrideRepository {
           ? (input.allowedOverrideModelsByProvider ?? {})
           : {},
         updatedByUserId: ctx.userId ?? null,
+        loopDisabled: input.loopDisabled ?? null,
+        loopMaxSteps: input.loopMaxSteps ?? null,
+        loopMaxToolCalls: input.loopMaxToolCalls ?? null,
+        loopMaxWallClockMs: input.loopMaxWallClockMs ?? null,
+        loopMaxTokens: input.loopMaxTokens ?? null,
+        loopStopWhenJson: input.loopStopWhenJson ?? null,
+        loopActiveToolsJson: input.loopActiveToolsJson ?? null,
       } as unknown as AiAgentRuntimeOverride)
       await tx.persist(row).flush()
       return row
@@ -215,12 +343,16 @@ export class AiAgentRuntimeOverrideRepository {
 }
 
 /**
- * Thrown by `upsertDefault` when an unknown provider id is submitted.
+ * Thrown by `upsertDefault` when validation fails (unknown provider id,
+ * invalid loop override JSON).
  */
 export class AiAgentRuntimeOverrideValidationError extends Error {
-  constructor(message: string) {
+  readonly code: string
+
+  constructor(message: string, code = 'invalid_override') {
     super(message)
     this.name = 'AiAgentRuntimeOverrideValidationError'
+    this.code = code
   }
 }
 

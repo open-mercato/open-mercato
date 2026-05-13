@@ -496,6 +496,16 @@ export default function CustomersCompaniesPage() {
           {
             fallbackErrorMessage: t('customers.companies.list.deleteError', 'Failed to delete company.'),
             logTag: 'customers.companies.list',
+            progress: {
+              jobType: 'customers.companies.bulk_delete',
+              name: t('customers.companies.list.bulkDelete.progressName', 'Delete selected companies'),
+              description: t(
+                'customers.companies.list.bulkDelete.progressDescription',
+                '{count} companies selected for deletion',
+                { count: selectedRows.length },
+              ),
+              meta: { source: 'customers.companies.list' },
+            },
           },
         ),
       context: {

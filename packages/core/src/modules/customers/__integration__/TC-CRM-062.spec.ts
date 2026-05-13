@@ -52,7 +52,7 @@ test.describe('TC-CRM-062: keyboard reorder within group', () => {
       .locator('[data-testid="filter-empty-state"]')
       .getByRole('button', { name: /add condition/i })
       .first();
-    const builderAddBtn = panel.getByRole('button', { name: /\+\s*Add condition/i }).first();
+    const builderAddBtn = panel.getByRole('button', { name: /add condition/i }).first();
 
     if (await emptyAddBtn.isVisible({ timeout: 1_000 }).catch(() => false)) {
       await emptyAddBtn.click();

@@ -382,7 +382,7 @@ describe('createModelFactory', () => {
       expect(resolution.source).toBe('env_default')
     })
 
-    it('falls through when OM_AI_PROVIDER is registered but unconfigured', () => {
+    it('falls through when only OM_AI_PROVIDER is registered but unconfigured', () => {
       const anthropic = makeProvider({ id: 'anthropic', isConfigured: () => true })
       const openai = makeProvider({ id: 'openai', isConfigured: () => false })
       const { registry } = makeMultiProviderRegistry([anthropic, openai])
@@ -390,13 +390,26 @@ describe('createModelFactory', () => {
         registry,
         env: {
           OM_AI_PROVIDER: 'openai',
-          OM_AI_MODEL: 'gpt-5-mini',
         },
       })
       const resolution = factory.resolveModel({})
       expect(resolution.providerId).toBe('anthropic')
-      expect(resolution.modelId).toBe('gpt-5-mini')
-      expect(resolution.source).toBe('env_default')
+      expect(resolution.modelId).toBe('provider-default-model')
+      expect(resolution.source).toBe('provider_default')
+    })
+
+    it('does not mix an OM_AI_PROVIDER/OM_AI_MODEL pair into a different configured provider', () => {
+      const anthropic = makeProvider({ id: 'anthropic', isConfigured: () => false })
+      const openai = makeProvider({ id: 'openai', isConfigured: () => true })
+      const { registry } = makeMultiProviderRegistry([anthropic, openai])
+      const factory = createModelFactory(fakeContainer, {
+        registry,
+        env: {
+          OM_AI_PROVIDER: 'anthropic',
+          OM_AI_MODEL: 'claude-sonnet-4-20250514',
+        },
+      })
+      expect(() => factory.resolveModel({})).toThrow(AiModelFactoryError)
     })
 
     it('slash-qualified OM_AI_MODEL resets the provider for that resolution', () => {
@@ -592,6 +605,31 @@ describe('createModelFactory', () => {
       expect(resolution.providerId).toBe('openai')
       expect(resolution.modelId).toBe('gpt-5-mini')
       expect(resolution.source).toBe('agent_default')
+    })
+
+    it('does not send a slash-qualified agent default model to a fallback provider', () => {
+      const anthropic = makeProvider({ id: 'anthropic', isConfigured: () => false })
+      const openai = makeProvider({ id: 'openai', isConfigured: () => true })
+      const { registry } = makeMultiProviderRegistry([anthropic, openai])
+      const factory = createModelFactory(fakeContainer, { registry, env: {} })
+      expect(() =>
+        factory.resolveModel({
+          agentDefaultModel: 'anthropic/claude-sonnet-4-20250514',
+        }),
+      ).toThrow(AiModelFactoryError)
+    })
+
+    it('does not send an agent default provider/model pair to a fallback provider', () => {
+      const anthropic = makeProvider({ id: 'anthropic', isConfigured: () => false })
+      const openai = makeProvider({ id: 'openai', isConfigured: () => true })
+      const { registry } = makeMultiProviderRegistry([anthropic, openai])
+      const factory = createModelFactory(fakeContainer, { registry, env: {} })
+      expect(() =>
+        factory.resolveModel({
+          agentDefaultProvider: 'anthropic',
+          agentDefaultModel: 'claude-sonnet-4-20250514',
+        }),
+      ).toThrow(AiModelFactoryError)
     })
 
     it('slash-qualified OM_AI_<MODULE>_MODEL provides both provider hint and model id', () => {
@@ -833,7 +871,7 @@ describe('parseSlashShorthand', () => {
   })
 })
 
-describe('Phase 4a — tenantOverride, requestOverride, allowRuntimeModelOverride', () => {
+describe('Phase 4a — tenantOverride, requestOverride, allowRuntimeOverride (renamed from allowRuntimeModelOverride)', () => {
   function makeMultiRegistry(providers: FakeProvider[]): AiModelFactoryRegistry {
     return {
       resolveFirstConfigured: (options) => {
@@ -887,11 +925,11 @@ describe('Phase 4a — tenantOverride, requestOverride, allowRuntimeModelOverrid
     expect(resolution.providerId).toBe('openai')
   })
 
-  it('allowRuntimeModelOverride: false skips requestOverride (step 1)', () => {
+  it('allowRuntimeOverride: false skips requestOverride (step 1)', () => {
     const provider = makeProvider()
     const factory = createModelFactory({} as AwilixContainer, makeFactoryDeps(provider))
     const resolution = factory.resolveModel({
-      allowRuntimeModelOverride: false,
+      allowRuntimeOverride: false,
       requestOverride: { modelId: 'blocked-model' },
       agentDefaultModel: 'agent-wins',
     })
@@ -899,11 +937,11 @@ describe('Phase 4a — tenantOverride, requestOverride, allowRuntimeModelOverrid
     expect(resolution.modelId).toBe('agent-wins')
   })
 
-  it('allowRuntimeModelOverride: false skips tenantOverride (step 3)', () => {
+  it('allowRuntimeOverride: false skips tenantOverride (step 3)', () => {
     const provider = makeProvider()
     const factory = createModelFactory({} as AwilixContainer, makeFactoryDeps(provider))
     const resolution = factory.resolveModel({
-      allowRuntimeModelOverride: false,
+      allowRuntimeOverride: false,
       tenantOverride: { modelId: 'blocked-tenant-model' },
       agentDefaultModel: 'agent-wins',
     })
@@ -911,11 +949,11 @@ describe('Phase 4a — tenantOverride, requestOverride, allowRuntimeModelOverrid
     expect(resolution.modelId).toBe('agent-wins')
   })
 
-  it('allowRuntimeModelOverride: false still honors callerOverride (step 2)', () => {
+  it('allowRuntimeOverride: false still honors callerOverride (step 2)', () => {
     const provider = makeProvider()
     const factory = createModelFactory({} as AwilixContainer, makeFactoryDeps(provider))
     const resolution = factory.resolveModel({
-      allowRuntimeModelOverride: false,
+      allowRuntimeOverride: false,
       callerOverride: 'caller-still-wins',
       tenantOverride: { modelId: 'blocked' },
     })
@@ -923,7 +961,7 @@ describe('Phase 4a — tenantOverride, requestOverride, allowRuntimeModelOverrid
     expect(resolution.modelId).toBe('caller-still-wins')
   })
 
-  it('allowRuntimeModelOverride: true (default) honors tenantOverride', () => {
+  it('allowRuntimeOverride: true (default) honors tenantOverride', () => {
     const provider = makeProvider()
     const factory = createModelFactory({} as AwilixContainer, makeFactoryDeps(provider))
     const resolution = factory.resolveModel({
@@ -952,11 +990,11 @@ describe('Phase 4a — tenantOverride, requestOverride, allowRuntimeModelOverrid
     expect(resolution.baseURL).toBe('https://tenant.example.com/v1')
   })
 
-  it('allowRuntimeModelOverride: false suppresses requestOverride baseURL', () => {
+  it('allowRuntimeOverride: false suppresses requestOverride baseURL', () => {
     const provider = makeProvider()
     const factory = createModelFactory({} as AwilixContainer, makeFactoryDeps(provider))
     const resolution = factory.resolveModel({
-      allowRuntimeModelOverride: false,
+      allowRuntimeOverride: false,
       requestOverride: { baseURL: 'https://blocked.example.com/v1' },
     })
     expect(resolution.baseURL).toBeUndefined()
@@ -1125,5 +1163,30 @@ describe('Phase 4a — tenantOverride, requestOverride, allowRuntimeModelOverrid
       expect(resolution.modelId).toBe('gpt-5-mini')
       expect(resolution.allowlistFallback).toBeDefined()
     })
+  })
+
+  it('deprecated allowRuntimeModelOverride alias: false skips requestOverride (backward compat)', () => {
+    const provider = makeProvider()
+    const factory = createModelFactory({} as AwilixContainer, makeFactoryDeps(provider))
+    const resolution = factory.resolveModel({
+      allowRuntimeModelOverride: false,
+      requestOverride: { modelId: 'blocked-model' },
+      agentDefaultModel: 'agent-wins',
+    })
+    expect(resolution.source).toBe('agent_default')
+    expect(resolution.modelId).toBe('agent-wins')
+  })
+
+  it('allowRuntimeOverride wins over deprecated allowRuntimeModelOverride when both present', () => {
+    const provider = makeProvider()
+    const factory = createModelFactory({} as AwilixContainer, makeFactoryDeps(provider))
+    const resolution = factory.resolveModel({
+      allowRuntimeOverride: true,
+      allowRuntimeModelOverride: false,
+      requestOverride: { modelId: 'override-model' },
+      agentDefaultModel: 'agent-default',
+    })
+    expect(resolution.source).toBe('request_override')
+    expect(resolution.modelId).toBe('override-model')
   })
 })

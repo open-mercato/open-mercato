@@ -93,6 +93,7 @@ const dict = {
   'ai_assistant.chat.emptyTranscript':
     'No messages yet. Ask the agent anything to get started.',
   'ai_assistant.chat.errorTitle': 'Agent dispatch failed',
+  'ai_assistant.chat.agentTasksTitle': 'Agent tasks',
   'ai_assistant.chat.regionLabel': 'AI chat',
   'ai_assistant.chat.send': 'Send message',
   'ai_assistant.chat.shortcutHint':
@@ -109,6 +110,7 @@ type ResponseLike = {
   ok: boolean
   status: number
   body: ReadableStream<Uint8Array> | null
+  headers?: { get: (name: string) => string | null }
   clone: () => ResponseLike
   json: () => Promise<unknown>
   text: () => Promise<string>
@@ -129,6 +131,37 @@ function createStreamingResponse(chunks: string[]): ResponseLike {
     ok: true,
     status: 200,
     body: stream,
+    clone: () => ({ ...self, body: null }),
+    json: async () => ({}),
+    text: async () => raw,
+  }
+  return self
+}
+
+function createUiMessageSseResponse(chunks: Array<Record<string, unknown>>): ResponseLike {
+  const encoder = new TextEncoder()
+  const raw = chunks
+    .map((chunk) => `data: ${JSON.stringify(chunk)}\n\n`)
+    .join('')
+  const stream = new ReadableStream<Uint8Array>({
+    start(controller) {
+      controller.enqueue(encoder.encode(`${raw}data: [DONE]\n\n`))
+      controller.close()
+    },
+  })
+  const headers = {
+    get: (name: string) => {
+      const normalized = name.toLowerCase()
+      if (normalized === 'content-type') return 'text/event-stream'
+      if (normalized === 'x-vercel-ai-ui-message-stream') return 'v1'
+      return null
+    },
+  }
+  const self: ResponseLike = {
+    ok: true,
+    status: 200,
+    body: stream,
+    headers,
     clone: () => ({ ...self, body: null }),
     json: async () => ({}),
     text: async () => raw,
@@ -166,7 +199,7 @@ describe('<AiChat>', () => {
     expect(screen.getByRole('button', { name: 'Send message' })).toBeDisabled()
   })
 
-  it('replaces a stale stored model picker value with the first available model', async () => {
+  it('clears a stale stored model picker value back to the agent default', async () => {
     const apiCallMock = apiCall as unknown as jest.Mock
     apiCallMock.mockResolvedValueOnce({
       ok: true,
@@ -202,12 +235,64 @@ describe('<AiChat>', () => {
     await waitFor(() => {
       expect(screen.getByRole('button', { name: 'Select AI model' })).toHaveAttribute(
         'title',
-        'OpenAI / GPT-5 Mini',
+        'Default: openai / gpt-5-mini',
       )
     })
-    expect(window.localStorage.getItem('om-ai-model-picker:customers.account_assistant')).toBe(
-      JSON.stringify({ providerId: 'openai', modelId: 'gpt-5-mini' }),
-    )
+    expect(window.localStorage.getItem('om-ai-model-picker:customers.account_assistant')).toBeNull()
+  })
+
+  it('does not send provider or model overrides while the model picker is on Default', async () => {
+    const apiCallMock = apiCall as unknown as jest.Mock
+    apiCallMock.mockResolvedValueOnce({
+      ok: true,
+      status: 200,
+      result: {
+        agentId: 'customers.deal_analyzer',
+        allowRuntimeModelOverride: true,
+        defaultProviderId: 'openai',
+        defaultModelId: 'gpt-5-mini',
+        providers: [
+          {
+            id: 'openai',
+            name: 'OpenAI',
+            isDefault: true,
+            models: [
+              {
+                id: 'gpt-5-mini',
+                name: 'GPT-5 Mini',
+                isDefault: true,
+              },
+            ],
+          },
+        ],
+      },
+    })
+    const fetchMock = apiFetch as unknown as jest.Mock
+    fetchMock.mockResolvedValueOnce(createStreamingResponse(['Done']))
+
+    renderWithProviders(<AiChat agent="customers.deal_analyzer" />, { dict })
+
+    await waitFor(() => {
+      expect(screen.getByRole('button', { name: 'Select AI model' })).toHaveAttribute(
+        'title',
+        'Default: openai / gpt-5-mini',
+      )
+    })
+
+    const textarea = screen.getByLabelText('Message composer') as HTMLTextAreaElement
+    fireEvent.change(textarea, { target: { value: 'Analyze deals' } })
+    await act(async () => {
+      fireEvent.keyDown(textarea, { key: 'Enter', metaKey: true })
+    })
+
+    await waitFor(() => {
+      expect(fetchMock).toHaveBeenCalledTimes(1)
+    })
+    const [url] = fetchMock.mock.calls[0]
+    const parsedUrl = new URL(String(url), 'http://localhost')
+    expect(parsedUrl.searchParams.get('agent')).toBe('customers.deal_analyzer')
+    expect(parsedUrl.searchParams.has('provider')).toBe(false)
+    expect(parsedUrl.searchParams.has('model')).toBe(false)
   })
 
   it('renders a compact footer before a constrained host is measured', async () => {
@@ -332,6 +417,46 @@ describe('<AiChat>', () => {
       expect(screen.getByText('Hello, world!')).toBeInTheDocument()
     })
     expect(screen.getByText('Hi there')).toBeInTheDocument()
+  })
+
+  it('renders AI SDK tool-call chunks as tool call rows with display names', async () => {
+    const fetchMock = apiFetch as unknown as jest.Mock
+    fetchMock.mockResolvedValueOnce(
+      createUiMessageSseResponse([
+        {
+          type: 'tool-input-start',
+          toolCallId: 'call-1',
+          toolName: 'customers__analyze_deals',
+        },
+        {
+          type: 'tool-input-available',
+          toolCallId: 'call-1',
+          toolName: 'customers__analyze_deals',
+          input: { dealStageFilter: 'open', daysOfActivityWindow: 30 },
+        },
+        {
+          type: 'tool-output-available',
+          toolCallId: 'call-1',
+          output: { totalAnalyzed: 3, stalledCount: 1 },
+        },
+        { type: 'text-delta', id: 'text-1', delta: 'Analysis complete.' },
+      ]),
+    )
+
+    renderWithProviders(<AiChat agent="customers.account_assistant" />, { dict })
+
+    const textarea = screen.getByLabelText('Message composer') as HTMLTextAreaElement
+    fireEvent.change(textarea, { target: { value: 'Analyze deals' } })
+    await act(async () => {
+      fireEvent.keyDown(textarea, { key: 'Enter', metaKey: true })
+    })
+
+    await waitFor(() => {
+      expect(screen.getByText('customers.analyze_deals')).toBeInTheDocument()
+    })
+    expect(screen.getByText('Agent tasks')).toBeInTheDocument()
+    expect(screen.getByText('Analysis complete.')).toBeInTheDocument()
+    expect(screen.queryByText(/Tool call:/i)).not.toBeInTheDocument()
   })
 
   it('submits suggested prompts visibly after React StrictMode mount replay', async () => {
@@ -459,6 +584,50 @@ describe('<AiChat>', () => {
     // indicator should be gone (status === 'idle').
     await waitFor(() => {
       expect(screen.queryByText('Thinking...')).not.toBeInTheDocument()
+    })
+  })
+
+  it('hides Thinking once visible text has streamed even if the stream remains open', async () => {
+    const fetchMock = apiFetch as unknown as jest.Mock
+    let streamController: ReadableStreamDefaultController<Uint8Array> | null = null
+    const encoder = new TextEncoder()
+    const pendingStream = new ReadableStream<Uint8Array>({
+      start(controller) {
+        streamController = controller
+        controller.enqueue(encoder.encode('partial answer'))
+      },
+    })
+
+    fetchMock.mockResolvedValueOnce({
+      ok: true,
+      status: 200,
+      body: pendingStream,
+      clone: () => ({
+        ok: true,
+        status: 200,
+        body: null,
+        clone: () => ({}),
+        json: async () => ({}),
+        text: async () => '',
+      }),
+      json: async () => ({}),
+      text: async () => '',
+    } as ResponseLike)
+
+    renderWithProviders(<AiChat agent="catalog.catalog_assistant" />, { dict })
+    const textarea = screen.getByLabelText('Message composer') as HTMLTextAreaElement
+    fireEvent.change(textarea, { target: { value: 'Suggest five questions' } })
+    await act(async () => {
+      fireEvent.keyDown(textarea, { key: 'Enter', metaKey: true })
+    })
+
+    await waitFor(() => {
+      expect(screen.getByText('partial answer')).toBeInTheDocument()
+    })
+    expect(screen.queryByText('Thinking...')).not.toBeInTheDocument()
+
+    await act(async () => {
+      streamController?.close()
     })
   })
 })

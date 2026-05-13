@@ -187,7 +187,8 @@ describe('runAiAgentText', () => {
 
     expect(stepCountIsMock).toHaveBeenCalledWith(5)
     const callArg = streamTextMock.mock.calls[0][0] as { stopWhen: unknown }
-    expect(callArg.stopWhen).toEqual({ __stopWhen: 'stepCount', count: 5 })
+    // Phase 2: stopWhen is now always an array from translateStopConditions
+    expect(callArg.stopWhen).toEqual([{ __stopWhen: 'stepCount', count: 5 }])
   })
 
   it('lets modelOverride win over agent.defaultModel', async () => {

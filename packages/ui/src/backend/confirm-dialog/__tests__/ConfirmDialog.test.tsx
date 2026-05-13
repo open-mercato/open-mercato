@@ -41,4 +41,23 @@ describe('ConfirmDialog', () => {
 
     expect(screen.getByRole('alertdialog').className).toEqual(expect.stringContaining('pointer-events-auto'))
   })
+
+  it('portals the native dialog out of hidden ancestors', () => {
+    const { container } = renderWithProviders(
+      <div hidden>
+        <ConfirmDialog
+          open
+          onOpenChange={() => undefined}
+          onConfirm={() => undefined}
+          title="Discard unsaved changes?"
+          confirmText="Discard"
+          cancelText="Cancel"
+        />
+      </div>,
+    )
+
+    const dialog = screen.getByRole('alertdialog')
+    expect(container.contains(dialog)).toBe(false)
+    expect(dialog.parentElement).toBe(document.body)
+  })
 })

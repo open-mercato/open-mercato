@@ -509,6 +509,27 @@ function buildSplashChildEnv() {
   }
 }
 
+function applyLocalDevBackgroundServiceDefaults(childEnv) {
+  const env = childEnv ?? {}
+  if (
+    typeof process.env.OM_AUTO_SPAWN_WORKERS_LAZY !== 'string'
+    || process.env.OM_AUTO_SPAWN_WORKERS_LAZY.trim() === ''
+  ) {
+    env.OM_AUTO_SPAWN_WORKERS_LAZY = 'true'
+  }
+  if (
+    typeof process.env.OM_AUTO_SPAWN_SCHEDULER_LAZY !== 'string'
+    || process.env.OM_AUTO_SPAWN_SCHEDULER_LAZY.trim() === ''
+  ) {
+    env.OM_AUTO_SPAWN_SCHEDULER_LAZY = 'true'
+  }
+  return env
+}
+
+function buildAppDevEnv() {
+  return applyLocalDevBackgroundServiceDefaults(buildSplashChildEnv() ?? {})
+}
+
 function launchStandaloneDev(options = {}) {
   if (!fs.existsSync(standaloneRuntimeScript)) {
     console.error(`❌ Standalone dev runtime not found at ${standaloneRuntimeScript}`)
@@ -543,7 +564,7 @@ function launchStandaloneDev(options = {}) {
 
   const app = spawnCommand(process.execPath, runtimeArgs, {
     stdio: 'inherit',
-    env: buildSplashChildEnv(),
+    env: buildAppDevEnv(),
   })
 
   app.on('close', (code) => {
@@ -1590,7 +1611,7 @@ function launchMonorepoAppDev() {
   })
   const app = spawnCommand(yarnCommand, appArgs, {
     stdio: 'inherit',
-    env: buildSplashChildEnv(),
+    env: buildAppDevEnv(),
   })
 
   app.on('close', (code, signal) => {
