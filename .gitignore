@@ -132,3 +132,4 @@ apps/mercato/data/
 
 # Local security-tooling working dir
 .deepsec/
+apps/mercato/data/cache.db
