@@ -22,6 +22,14 @@ TODO: Fix that latter to have reference by the package names
   z-index: var(--z-index-popover);
 }
 
+/* Explicitly written outside @theme — Tailwind 4 only emits @theme inline
+   variables that some compiled utility references, so writing the value
+   inline here guarantees the rule lands in the bundle even if the source
+   scanner misses the className literal. */
+@utility z-modal-elevated {
+  z-index: var(--z-index-modal-elevated, 55);
+}
+
 @theme inline {
   --color-background: var(--background);
   --color-foreground: var(--foreground);
@@ -93,6 +101,11 @@ TODO: Fix that latter to have reference by the package names
   --color-status-neutral-border: var(--status-neutral-border);
   --color-status-neutral-icon: var(--status-neutral-icon);
 
+  --color-status-pink-bg: var(--status-pink-bg);
+  --color-status-pink-text: var(--status-pink-text);
+  --color-status-pink-border: var(--status-pink-border);
+  --color-status-pink-icon: var(--status-pink-icon);
+
   /* ═══ Design System: Accent Colors ═══ */
   --color-accent-indigo: var(--accent-indigo);
   --color-accent-indigo-foreground: var(--accent-indigo-foreground);
@@ -121,6 +134,7 @@ TODO: Fix that latter to have reference by the package names
   --z-index-overlay: 30;
   --z-index-modal: 40;
   --z-index-popover: 45;
+  --z-index-modal-elevated: 55;
   --z-index-toast: 50;
   --z-index-tooltip: 60;
   --z-index-banner: 70;
@@ -261,6 +275,12 @@ TODO: Fix that latter to have reference by the package names
   --status-neutral-text: oklch(0.371 0 0); /* neutral-700 #404040 */
   --status-neutral-border: oklch(0.922 0 0);/* neutral-200 #e5e5e5 (≈ Figma #ebebeb) */
   --status-neutral-icon: oklch(0.556 0 0);  /* neutral-500 #737373 (≈ Figma #7b7b7b) */
+
+  /* Pink (hue ~340° — Figma SPEC-048 ACCENT / PINK Stage badges; Tailwind pink-500/-200/-700/-50) */
+  --status-pink-bg: oklch(0.965 0.020 340);   /* pink-50 #FDF2F8 */
+  --status-pink-text: oklch(0.388 0.180 340); /* pink-700 #BE185D */
+  --status-pink-border: oklch(0.840 0.090 340);/* pink-200 #FBCFE8 */
+  --status-pink-icon: oklch(0.633 0.238 340); /* pink-500 #EC4899 */
 }
 
 /* Opt-in Figma-style focus ring: 2px inner ring + 4px outer ring */
@@ -374,6 +394,12 @@ TODO: Fix that latter to have reference by the package names
   --status-neutral-text: oklch(0.872 0 0);  /* neutral-300 #d4d4d4 */
   --status-neutral-border: oklch(0.371 0 0);/* neutral-700 #404040 */
   --status-neutral-icon: oklch(0.708 0 0);  /* neutral-400 #a3a3a3 = dark --muted-foreground */
+
+  /* Pink (dark mode) — Figma SPEC-048 ACCENT / PINK Stage badges */
+  --status-pink-bg: oklch(0.225 0.045 340);
+  --status-pink-text: oklch(0.815 0.135 340);
+  --status-pink-border: oklch(0.405 0.155 340);
+  --status-pink-icon: oklch(0.700 0.225 340);
 }
 
 @layer base {

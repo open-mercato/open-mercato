@@ -2,13 +2,13 @@
 
 import * as React from 'react'
 import Link from 'next/link'
-import { useRouter } from 'next/navigation'
+import { usePathname, useRouter, useSearchParams } from 'next/navigation'
 import { Page, PageBody } from '@open-mercato/ui/backend/Page'
 import { DataTable, type DataTableExportFormat, withDataTableNamespaces } from '@open-mercato/ui/backend/DataTable'
 import type { ColumnDef } from '@tanstack/react-table'
 import { Button } from '@open-mercato/ui/primitives/button'
 import { RowActions } from '@open-mercato/ui/backend/RowActions'
-import { apiCall, apiCallOrThrow, readApiResultOrThrow } from '@open-mercato/ui/backend/utils/apiCall'
+import { apiCall, apiCallOrThrow } from '@open-mercato/ui/backend/utils/apiCall'
 import { buildCrudExportUrl } from '@open-mercato/ui/backend/utils/crud'
 import { groupBulkDeleteFailures, runBulkDelete } from '@open-mercato/ui/backend/utils/bulkDelete'
 import { coalesceLastOperations } from '@open-mercato/ui/backend/operations/store'
@@ -18,10 +18,12 @@ import { E } from '#generated/entities.ids.generated'
 import { useOrganizationScopeVersion } from '@open-mercato/shared/lib/frontend/useOrganizationScope'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { useConfirmDialog } from '@open-mercato/ui/backend/confirm-dialog'
-import type { FilterDef, FilterValues } from '@open-mercato/ui/backend/FilterBar'
 import type { FilterOption } from '@open-mercato/ui/backend/FilterOverlay'
-import type { AdvancedFilterState } from '@open-mercato/shared/lib/query/advanced-filter'
-import { serializeAdvancedFilter } from '@open-mercato/shared/lib/query/advanced-filter'
+import type { FilterFieldDef, FilterOption as AdvancedFilterOption } from '@open-mercato/shared/lib/query/advanced-filter'
+import type { AdvancedFilterTree } from '@open-mercato/shared/lib/query/advanced-filter-tree'
+import { createEmptyTree, makeRuleTree } from '@open-mercato/shared/lib/query/advanced-filter-tree'
+import { deserializeAdvancedFilter, deserializeTree, flatToTree, mapDictionaryColorToTone, serializeTree } from '@open-mercato/shared/lib/query/advanced-filter'
+import { useCurrentUserId } from '@open-mercato/ui/backend/utils/useCurrentUserId'
 import {
   DictionaryValue,
   createEmptyCustomerDictionaryMaps,
@@ -38,9 +40,50 @@ import {
   normalizeCustomFieldFilterOptions,
   supportsCustomFieldColumn,
 } from '@open-mercato/ui/backend/utils/customFieldColumns'
+import { useAutoDiscoveredFields } from '@open-mercato/ui/backend/utils/useAutoDiscoveredFields'
+import { useAdvancedFilterTree } from '@open-mercato/ui/backend/hooks/useAdvancedFilter'
+import { AdvancedFilterPanel } from '@open-mercato/ui/backend/filters/AdvancedFilterPanel'
+import { ActiveFilterChips } from '@open-mercato/ui/backend/filters/ActiveFilterChips'
+import type { FilterPreset } from '@open-mercato/ui/backend/filters/QuickFilters'
 import { useQueryClient } from '@tanstack/react-query'
 import { ensureCustomerDictionary } from '../../../components/detail/hooks/useCustomerDictionary'
+import {
+  ensureCurrentUserFilterOption,
+  fetchAssignableStaffMembers,
+  mapAssignableStaffToFilterOptions,
+} from '../../../components/detail/assignableStaff'
 import { CollectionPreviewCell, normalizeCollectionLabels } from '../../../components/list/CollectionPreviewCell'
+
+type DictionaryOptionWithTone = AdvancedFilterOption & FilterOption
+
+function makeCompaniesPresets(): FilterPreset[] {
+  return [
+    {
+      id: 'my-accounts',
+      labelKey: 'customers.companies.presets.myAccounts',
+      requiresUser: true,
+      build: ({ userId }) => makeRuleTree({ field: 'owner_user_id', operator: 'is', value: userId }),
+    },
+    {
+      id: 'recently-created',
+      labelKey: 'customers.companies.presets.recentlyCreated',
+      iconName: 'clock',
+      build: ({ now }) => {
+        const cutoff = new Date(now.getTime() - 7 * 24 * 3600 * 1000).toISOString().slice(0, 10)
+        return makeRuleTree({ field: 'created_at', operator: 'is_after', value: cutoff })
+      },
+    },
+    {
+      id: 'inactive-60',
+      labelKey: 'customers.companies.presets.inactive60',
+      build: ({ now }) => {
+        const cutoff = new Date(now.getTime() - 60 * 24 * 3600 * 1000).toISOString().slice(0, 10)
+        return makeRuleTree({ field: 'next_interaction_at', operator: 'is_before', value: cutoff })
+      },
+    },
+  ]
+}
+
 
 type CompanyRow = {
   id: string
@@ -63,6 +106,7 @@ type CompanyRow = {
   nextInteractionColor?: string | null
   organizationId?: string | null
   source?: string | null
+  ownerUserId?: string | null
 } & Record<string, unknown>
 
 type CompaniesResponse = {
@@ -109,6 +153,7 @@ function mapApiItem(item: Record<string, unknown>): CompanyRow | null {
   const nextInteractionColor = typeof item.next_interaction_color === 'string' ? item.next_interaction_color : null
   const organizationId = typeof item.organization_id === 'string' ? item.organization_id : null
   const source = typeof item.source === 'string' ? item.source : null
+  const ownerUserId = typeof item.owner_user_id === 'string' ? item.owner_user_id : null
   const customFields: Record<string, unknown> = {}
   for (const [key, value] of Object.entries(item)) {
     if (key.startsWith('cf_')) {
@@ -136,6 +181,7 @@ function mapApiItem(item: Record<string, unknown>): CompanyRow | null {
     nextInteractionColor,
     organizationId,
     source,
+    ownerUserId,
     ...customFields,
   }, item)
 }
@@ -149,13 +195,49 @@ export default function CustomersCompaniesPage() {
   const [total, setTotal] = React.useState(0)
   const [totalPages, setTotalPages] = React.useState(1)
   const [search, setSearch] = React.useState('')
-  const [filterValues, setFilterValues] = React.useState<FilterValues>({})
-  const [advancedFilterState, setAdvancedFilterState] = React.useState<AdvancedFilterState>({ logic: 'and', conditions: [] })
+  const pathname = usePathname()
+  const searchParams = useSearchParams()
+  // One-shot URL hydration used as the hook's initial value. The hook is the
+  // single source of truth from this point on — the page MUST NOT keep a
+  // parallel `useState<AdvancedFilterTree>` (see spec "Migration & Backward
+  // Compatibility" → state ownership).
+  const initialFilterTree = React.useMemo<AdvancedFilterTree>(() => {
+    if (!searchParams) return createEmptyTree()
+    const record: Record<string, string> = {}
+    searchParams.forEach((value, key) => {
+      if (key.startsWith('filter[')) record[key] = value
+    })
+    const v2 = deserializeTree(record)
+    if (v2) return v2
+    const flat = deserializeAdvancedFilter(record)
+    if (flat) return flatToTree(flat)
+    return createEmptyTree()
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
+  // `filterPanel` lives at the top of the component so derived state below
+  // (URL params, data fetch, export config) can read `filterPanel.appliedTree`
+  // directly. Real `FilterFieldDef[]` arrives later from `useAutoDiscoveredFields`
+  // (it depends on columns) and is synced into the hook via a small effect at
+  // the bottom of the component. The hook reads fields through a ref at
+  // validation time only — first validation cannot fire before user input, by
+  // which point fields have settled, so the empty initial value is safe.
+  const [panelFields, setPanelFields] = React.useState<FilterFieldDef[]>([])
+  const [filtersOpen, setFiltersOpen] = React.useState(false)
+  const filtersTriggerRef = React.useRef<HTMLButtonElement | null>(null)
+  const filterPanel = useAdvancedFilterTree({
+    initial: initialFilterTree,
+    fields: panelFields,
+    onApply: () => setPage(1),
+  })
+  const advancedFilterState = filterPanel.appliedTree
+  const handleAdvancedFilterClear = React.useCallback(() => {
+    filterPanel.clear()
+    setPage(1)
+  }, [filterPanel])
   const [isLoading, setIsLoading] = React.useState(true)
   const [reloadToken, setReloadToken] = React.useState(0)
   const [cacheStatus, setCacheStatus] = React.useState<'hit' | 'miss' | null>(null)
   const [dictionaryMaps, setDictionaryMaps] = React.useState<Record<DictionaryKindKey, DictionaryMap>>(createEmptyCustomerDictionaryMaps())
-  const [tagIdToLabel, setTagIdToLabel] = React.useState<Record<string, string>>({})
   const scopeVersion = useOrganizationScopeVersion()
   const queryClient = useQueryClient()
   const t = useT()
@@ -196,15 +278,15 @@ export default function CustomersCompaniesPage() {
       return []
     }
   }, [queryClient, scopeVersion])
-  const loadDictionaryOptions = React.useCallback(async (kind: 'statuses' | 'sources' | 'lifecycle-stages') => {
-    const entries = await fetchDictionaryEntries(kind)
-    return entries.map((entry) => ({ value: entry.value, label: entry.label }))
-  }, [fetchDictionaryEntries])
-
   const dictionaryOptions = React.useMemo(() => {
-    const toOptions = (map?: DictionaryMap | null): FilterOption[] =>
+    const toOptions = (map?: DictionaryMap | null): DictionaryOptionWithTone[] =>
       Object.values(map ?? {})
-        .map((entry) => ({ value: entry.value, label: entry.label }))
+        .map((entry) => {
+          const tone = mapDictionaryColorToTone(entry.color)
+          const option: DictionaryOptionWithTone = { value: entry.value, label: entry.label }
+          if (tone) option.tone = tone
+          return option
+        })
         .sort((a, b) => a.label.localeCompare(b.label, undefined, { sensitivity: 'base' }))
     return {
       statuses: toOptions(dictionaryMaps.statuses),
@@ -212,63 +294,6 @@ export default function CustomersCompaniesPage() {
       lifecycleStages: toOptions(dictionaryMaps['lifecycle-stages']),
     }
   }, [dictionaryMaps])
-
-  const loadTagOptions = React.useCallback(async (query?: string): Promise<FilterOption[]> => {
-    try {
-      const params = new URLSearchParams({ pageSize: '100' })
-      const trimmedQuery = typeof query === 'string' ? query.trim() : ''
-      if (trimmedQuery) params.set('search', trimmedQuery)
-      const payload = await readApiResultOrThrow<{ items?: unknown[] }>(
-        `/api/customers/tags?${params.toString()}`,
-        undefined,
-        { errorMessage: t('customers.companies.list.tags.loadError', 'Failed to load tags.') },
-      )
-      const items = Array.isArray(payload?.items) ? payload.items : []
-      const options: FilterOption[] = []
-      for (const item of items) {
-        if (!item || typeof item !== 'object') continue
-        const raw = item as { id?: unknown; tagId?: unknown; label?: unknown; slug?: unknown }
-        const rawId = typeof raw.id === 'string'
-          ? raw.id
-          : typeof raw.tagId === 'string'
-            ? raw.tagId
-            : null
-        if (!rawId) continue
-        const label = typeof raw.label === 'string' && raw.label.trim().length
-          ? raw.label.trim()
-          : typeof raw.slug === 'string' && raw.slug.trim().length
-            ? raw.slug.trim()
-            : rawId
-        options.push({ value: rawId, label })
-      }
-      if (options.length) {
-        setTagIdToLabel((prev) => {
-          let changed = false
-          const next = { ...prev }
-          for (const option of options) {
-            if (next[option.value] !== option.label) {
-              next[option.value] = option.label
-              changed = true
-            }
-          }
-          return changed ? next : prev
-        })
-      }
-      return options
-    } catch (err) {
-      console.error('customers.companies.list.loadTagOptions', err)
-      return []
-    }
-  }, [setTagIdToLabel, t])
-
-  const tagLabelToId = React.useMemo(() => {
-    const map: Record<string, string> = {}
-    for (const [id, label] of Object.entries(tagIdToLabel)) {
-      if (!label) continue
-      map[label] = id
-    }
-    return map
-  }, [tagIdToLabel])
 
   React.useEffect(() => {
     let cancelled = false
@@ -291,63 +316,35 @@ export default function CustomersCompaniesPage() {
     [E.customers.customer_entity, E.customers.customer_company_profile],
     { keyExtras: [scopeVersion, reloadToken] },
   )
-
-  const filters = React.useMemo<FilterDef[]>(() => [
-    {
-      id: 'status',
-      label: t('customers.companies.list.filters.status'),
-      type: 'select',
-      options: dictionaryOptions.statuses,
-      loadOptions: () => loadDictionaryOptions('statuses'),
-    },
-    {
-      id: 'source',
-      label: t('customers.companies.list.filters.source'),
-      type: 'select',
-      options: dictionaryOptions.sources,
-      loadOptions: () => loadDictionaryOptions('sources'),
-    },
-    {
-      id: 'lifecycleStage',
-      label: t('customers.companies.list.filters.lifecycleStage'),
-      type: 'select',
-      options: dictionaryOptions.lifecycleStages,
-      loadOptions: () => loadDictionaryOptions('lifecycle-stages'),
-    },
-    {
-      id: 'tagIds',
-      label: t('customers.companies.list.filters.tags'),
-      type: 'tags',
-      loadOptions: loadTagOptions,
-      formatValue: (value: string) => tagIdToLabel[value] ?? value,
-    },
-    {
-      id: 'createdAt',
-      label: t('customers.companies.list.filters.createdAt'),
-      type: 'dateRange',
-    },
-    {
-      id: 'emailContains',
-      label: t('customers.companies.list.filters.emailContains'),
-      type: 'text',
-      placeholder: t('customers.companies.list.filters.emailContainsPlaceholder'),
-    },
-    {
-      id: 'hasEmail',
-      label: t('customers.companies.list.filters.hasEmail'),
-      type: 'checkbox',
-    },
-    {
-      id: 'hasPhone',
-      label: t('customers.companies.list.filters.hasPhone'),
-      type: 'checkbox',
-    },
-    {
-      id: 'hasNextInteraction',
-      label: t('customers.companies.list.filters.hasNextInteraction'),
-      type: 'checkbox',
-    },
-  ], [dictionaryOptions.lifecycleStages, dictionaryOptions.sources, dictionaryOptions.statuses, loadDictionaryOptions, loadTagOptions, tagIdToLabel, t])
+  const currentUserId = useCurrentUserId()
+  const [ownerFilterOptions, setOwnerFilterOptions] = React.useState<AdvancedFilterOption[]>([])
+  React.useEffect(() => {
+    const controller = new AbortController()
+    let cancelled = false
+    void fetchAssignableStaffMembers('', { pageSize: 100, signal: controller.signal })
+      .then((items) => {
+        if (!cancelled) setOwnerFilterOptions(mapAssignableStaffToFilterOptions(items))
+      })
+      .catch(() => {
+        if (!cancelled) setOwnerFilterOptions([])
+      })
+    return () => {
+      cancelled = true
+      controller.abort()
+    }
+  }, [scopeVersion])
+  const resolvedOwnerFilterOptions = React.useMemo(
+    () => ensureCurrentUserFilterOption(
+      ownerFilterOptions,
+      currentUserId,
+      t('customers.filters.currentUser', 'Current user'),
+    ),
+    [currentUserId, ownerFilterOptions, t],
+  )
+  const loadOwnerFilterOptions = React.useCallback(async (query?: string): Promise<AdvancedFilterOption[]> => {
+    const items = await fetchAssignableStaffMembers(query ?? '', { pageSize: 100 })
+    return mapAssignableStaffToFilterOptions(items)
+  }, [])
 
   const queryParams = React.useMemo(() => {
     const params = new URLSearchParams()
@@ -358,72 +355,39 @@ export default function CustomersCompaniesPage() {
       params.set('order', sorting[0].desc ? 'desc' : 'asc')
     }
     if (search.trim()) params.set('search', search.trim())
-    const status = filterValues.status
-    if (typeof status === 'string' && status.trim()) params.set('status', status)
-    const source = filterValues.source
-    if (typeof source === 'string' && source.trim()) params.set('source', source)
-    const lifecycleStage = filterValues.lifecycleStage
-    if (typeof lifecycleStage === 'string' && lifecycleStage.trim()) params.set('lifecycleStage', lifecycleStage)
-    const createdAt = filterValues.createdAt
-    if (createdAt && typeof createdAt === 'object') {
-      if (createdAt.from) params.set('createdFrom', createdAt.from)
-      if (createdAt.to) params.set('createdTo', createdAt.to)
-    }
-    const emailContains = filterValues.emailContains
-    if (typeof emailContains === 'string' && emailContains.trim()) {
-      params.set('emailContains', emailContains.trim())
-    }
-    const tagValues = Array.isArray(filterValues.tagIds)
-      ? filterValues.tagIds
-          .map((value) => (typeof value === 'string' ? value.trim() : String(value || '').trim()))
-          .filter((value) => value.length > 0)
-      : []
-    if (tagValues.length > 0) {
-      const normalizedTagIds = tagValues
-        .map((value) => (typeof tagIdToLabel[value] === 'string' ? value : tagLabelToId[value]))
-        .filter((id): id is string => typeof id === 'string' && id.length > 0)
-      if (normalizedTagIds.length === tagValues.length && normalizedTagIds.length > 0) {
-        params.set('tagIds', normalizedTagIds.join(','))
-      } else {
-        params.set('tagIdsEmpty', 'true')
-      }
-    }
-    const booleanFilters: Array<['hasEmail' | 'hasPhone' | 'hasNextInteraction', string]> = [
-      ['hasEmail', 'hasEmail'],
-      ['hasPhone', 'hasPhone'],
-      ['hasNextInteraction', 'hasNextInteraction'],
-    ]
-    for (const [key, queryKey] of booleanFilters) {
-      const value = filterValues[key]
-      if (value === true) params.set(queryKey, 'true')
-      if (value === false) params.set(queryKey, 'false')
-    }
-    Object.entries(filterValues).forEach(([key, value]) => {
-      if (!key.startsWith('cf_') || value == null) return
-      if (Array.isArray(value)) {
-        const normalized = value
-          .map((item) => {
-            if (item == null) return ''
-            if (typeof item === 'string') return item.trim()
-            return String(item).trim()
-          })
-          .filter((item) => item.length > 0)
-        if (normalized.length) params.set(key, normalized.join(','))
-      } else if (typeof value === 'object') {
-        return
-      } else if (value !== '') {
-        const stringValue = typeof value === 'string' ? value.trim() : String(value)
-        if (stringValue) params.set(key, stringValue)
-      }
-    })
-    const advancedParams = serializeAdvancedFilter(advancedFilterState)
+    const advancedParams = serializeTree(advancedFilterState)
     for (const [key, val] of Object.entries(advancedParams)) {
       params.set(key, val)
     }
     return params.toString()
-  }, [advancedFilterState, filterValues, page, pageSize, search, sorting, tagIdToLabel, tagLabelToId])
+  }, [advancedFilterState, page, pageSize, search, sorting])
 
   const currentParams = React.useMemo(() => Object.fromEntries(new URLSearchParams(queryParams)), [queryParams])
+
+  // Mirror page state into the URL so refresh restores the same filter tree,
+  // including nested subgroups. Same pattern as the Deals page; without it
+  // refreshes silently dropped everything past whatever a stale localStorage
+  // perspective snapshot happened to contain.
+  const queryRef = React.useRef(searchParams?.toString() ?? '')
+  React.useEffect(() => {
+    if (!pathname) return
+    const params = new URLSearchParams()
+    if (search.trim().length) params.set('search', search.trim())
+    if (page > 1) params.set('page', String(page))
+    if (sorting.length > 0) {
+      params.set('sort', sorting[0].id)
+      params.set('order', sorting[0].desc ? 'desc' : 'asc')
+    }
+    const advancedParams = serializeTree(advancedFilterState)
+    for (const [key, val] of Object.entries(advancedParams)) {
+      params.set(key, val)
+    }
+    const next = params.toString()
+    if (queryRef.current === next) return
+    queryRef.current = next
+    router.replace(next ? `${pathname}?${next}` : pathname, { scroll: false })
+  }, [pathname, router, page, search, sorting, advancedFilterState])
+
   const exportConfig = React.useMemo(() => ({
     view: {
       getUrl: (format: DataTableExportFormat) =>
@@ -584,30 +548,6 @@ export default function CustomersCompaniesPage() {
     return succeeded.length > 0
   }, [bulkMutationContextId, confirm, retryBulkMutation, runBulkMutation, t])
 
-  const handleFiltersApply = React.useCallback((values: FilterValues) => {
-    const next: FilterValues = {}
-    Object.entries(values).forEach(([key, value]) => {
-      if (value !== undefined) next[key] = value
-    })
-    const rawTags = Array.isArray(values.tagIds) ? (values.tagIds as string[]) : []
-    const sanitizedTags = rawTags
-      .map((tag) => {
-        const normalized = typeof tag === 'string' ? tag.trim() : ''
-        if (!normalized) return ''
-        return tagIdToLabel[normalized] ?? normalized
-      })
-      .filter((tag) => tag.length > 0)
-    if (sanitizedTags.length) next.tagIds = sanitizedTags
-    else delete next.tagIds
-    setFilterValues(next)
-    setPage(1)
-  }, [setFilterValues, setPage, tagIdToLabel])
-
-  const handleFiltersClear = React.useCallback(() => {
-    setFilterValues({})
-    setPage(1)
-  }, [setFilterValues, setPage])
-
   const columns = React.useMemo<ColumnDef<CompanyRow>[]>(() => {
     const noValue = <span className="text-muted-foreground text-sm">{t('customers.companies.list.noValue')}</span>
     const renderDictionaryCell = (kind: DictionaryKindKey, rawValue: string | null | undefined) => (
@@ -654,7 +594,13 @@ export default function CustomersCompaniesPage() {
       {
         accessorKey: 'name',
         header: t('customers.companies.list.columns.name'),
-        meta: { alwaysVisible: true, columnChooserGroup: 'Basic Info', filterKey: 'display_name', maxWidth: '260px' },
+        meta: {
+          alwaysVisible: true,
+          columnChooserGroup: 'Basic Info',
+          filterKey: 'display_name',
+          filterGroup: 'CRM',
+          maxWidth: '260px',
+        },
         cell: ({ row }) => (
           <Link href={`/backend/customers/companies-v2/${row.original.id}`} className="font-medium hover:underline">
             {row.original.name}
@@ -664,19 +610,37 @@ export default function CustomersCompaniesPage() {
       {
         accessorKey: 'email',
         header: t('customers.companies.list.columns.email'),
-        meta: { columnChooserGroup: 'Contact', filterKey: 'primary_email', maxWidth: '220px' },
+        meta: {
+          columnChooserGroup: 'Contact',
+          filterKey: 'primary_email',
+          filterGroup: 'Contact',
+          filterIconName: 'mail',
+          maxWidth: '220px',
+        },
         cell: ({ row }) => row.original.email || noValue,
       },
       {
         accessorKey: 'phone',
         header: t('customers.companies.detail.highlights.primaryPhone', 'Primary phone'),
-        meta: { columnChooserGroup: 'Contact', hidden: true, filterKey: 'primary_phone', maxWidth: '180px' },
+        meta: {
+          columnChooserGroup: 'Contact',
+          hidden: true,
+          filterKey: 'primary_phone',
+          filterGroup: 'Contact',
+          filterIconName: 'phone',
+          maxWidth: '180px',
+        },
         cell: ({ row }) => row.original.phone || noValue,
       },
       {
         accessorKey: 'status',
         header: t('customers.companies.list.columns.status'),
-        meta: { filterType: 'select' as const, filterOptions: dictionaryOptions.statuses, columnChooserGroup: 'Basic Info' },
+        meta: {
+          filterType: 'select' as const,
+          filterOptions: dictionaryOptions.statuses,
+          columnChooserGroup: 'Basic Info',
+          filterGroup: 'CRM',
+        },
         cell: ({ row }) => renderDictionaryCell('statuses', row.original.status),
       },
       {
@@ -687,13 +651,19 @@ export default function CustomersCompaniesPage() {
           filterOptions: dictionaryOptions.lifecycleStages,
           columnChooserGroup: 'Basic Info',
           filterKey: 'lifecycle_stage',
+          filterGroup: 'CRM',
         },
         cell: ({ row }) => renderDictionaryCell('lifecycle-stages', row.original.lifecycleStage),
       },
       {
         accessorKey: 'nextInteractionAt',
         header: t('customers.companies.list.columns.nextInteraction'),
-        meta: { columnChooserGroup: 'Dates', filterKey: 'next_interaction_at' },
+        meta: {
+          columnChooserGroup: 'Dates',
+          filterKey: 'next_interaction_at',
+          filterGroup: 'Activity',
+          filterIconName: 'calendar',
+        },
         cell: ({ row }) =>
           row.original.nextInteractionAt
             ? (
@@ -721,43 +691,93 @@ export default function CustomersCompaniesPage() {
       {
         accessorKey: 'source',
         header: t('customers.companies.list.columns.source'),
-        meta: { filterType: 'select' as const, filterOptions: dictionaryOptions.sources, columnChooserGroup: 'Basic Info' },
+        meta: {
+          filterType: 'select' as const,
+          filterOptions: dictionaryOptions.sources,
+          columnChooserGroup: 'Basic Info',
+          filterGroup: 'CRM',
+        },
         cell: ({ row }) => renderDictionaryCell('sources', row.original.source),
+      },
+      {
+        accessorKey: 'ownerUserId',
+        header: t('customers.companies.list.columns.owner', 'Owner'),
+        meta: {
+          columnChooserGroup: 'CRM',
+          filterType: 'select',
+          filterOptions: resolvedOwnerFilterOptions,
+          filterLoadOptions: loadOwnerFilterOptions,
+          filterGroup: 'CRM',
+          filterIconName: 'user-round',
+          filterKey: 'owner_user_id',
+          hidden: true,
+        },
+        cell: ({ row }) => row.original.ownerUserId ?? null,
       },
       {
         accessorKey: 'legalName',
         header: t('customers.companies.detail.fields.legalName', 'Legal name'),
-        meta: { columnChooserGroup: 'Profile', hidden: true, filterKey: 'company_profile.legal_name' },
+        meta: {
+          columnChooserGroup: 'Profile',
+          hidden: true,
+          filterKey: 'company_profile.legal_name',
+          filterGroup: 'Profile',
+        },
         cell: ({ row }) => row.original.legalName || noValue,
       },
       {
         accessorKey: 'brandName',
         header: t('customers.companies.detail.fields.brandName', 'Brand name'),
-        meta: { columnChooserGroup: 'Profile', hidden: true, filterKey: 'company_profile.brand_name' },
+        meta: {
+          columnChooserGroup: 'Profile',
+          hidden: true,
+          filterKey: 'company_profile.brand_name',
+          filterGroup: 'Profile',
+        },
         cell: ({ row }) => row.original.brandName || noValue,
       },
       {
         accessorKey: 'domain',
         header: t('customers.companies.detail.fields.domain', 'Domain'),
-        meta: { columnChooserGroup: 'Profile', hidden: true, filterKey: 'company_profile.domain' },
+        meta: {
+          columnChooserGroup: 'Profile',
+          hidden: true,
+          filterKey: 'company_profile.domain',
+          filterGroup: 'Profile',
+        },
         cell: ({ row }) => row.original.domain || noValue,
       },
       {
         accessorKey: 'websiteUrl',
         header: t('customers.companies.detail.fields.website', 'Website'),
-        meta: { columnChooserGroup: 'Profile', hidden: true, filterKey: 'company_profile.website_url' },
+        meta: {
+          columnChooserGroup: 'Profile',
+          hidden: true,
+          filterKey: 'company_profile.website_url',
+          filterGroup: 'Profile',
+        },
         cell: ({ row }) => row.original.websiteUrl || noValue,
       },
       {
         accessorKey: 'industry',
         header: t('customers.companies.detail.fields.industry', 'Industry'),
-        meta: { columnChooserGroup: 'Profile', hidden: true, filterKey: 'company_profile.industry' },
+        meta: {
+          columnChooserGroup: 'Profile',
+          hidden: true,
+          filterKey: 'company_profile.industry',
+          filterGroup: 'Profile',
+        },
         cell: ({ row }) => row.original.industry || noValue,
       },
       {
         accessorKey: 'sizeBucket',
         header: t('customers.companies.detail.fields.sizeBucket', 'Company size'),
-        meta: { columnChooserGroup: 'Profile', hidden: true, filterKey: 'company_profile.size_bucket' },
+        meta: {
+          columnChooserGroup: 'Profile',
+          hidden: true,
+          filterKey: 'company_profile.size_bucket',
+          filterGroup: 'Profile',
+        },
         cell: ({ row }) => row.original.sizeBucket || noValue,
       },
       {
@@ -768,13 +788,19 @@ export default function CustomersCompaniesPage() {
           hidden: true,
           filterKey: 'company_profile.annual_revenue',
           filterType: 'number' as const,
+          filterGroup: 'Profile',
         },
         cell: ({ row }) => row.original.annualRevenue || noValue,
       },
       {
         accessorKey: 'description',
         header: t('customers.companies.detail.fields.description', 'Description'),
-        meta: { columnChooserGroup: 'Notes', hidden: true, filterKey: 'description' },
+        meta: {
+          columnChooserGroup: 'Notes',
+          hidden: true,
+          filterKey: 'description',
+          filterGroup: 'Notes',
+        },
         cell: ({ row }) => row.original.description || noValue,
       },
     ]
@@ -796,7 +822,31 @@ export default function CustomersCompaniesPage() {
       }))
 
     return [...baseColumns, ...customColumns]
-  }, [customFieldDefs, dictionaryMaps, t])
+  }, [customFieldDefs, dictionaryMaps, dictionaryOptions, loadOwnerFilterOptions, resolvedOwnerFilterOptions, t])
+
+  const { advancedFilterFields } = useAutoDiscoveredFields({ columns, customFieldDefs })
+
+  // Sync auto-discovered fields into the `filterPanel` declared at the top of
+  // the component. See the comment on the `panelFields` state for why this
+  // late-binding is safe. Bail out by content (field-key list) — every render
+  // of `useAutoDiscoveredFields` produces fresh `FilterFieldDef` object refs
+  // even when the set of fields hasn't actually changed, so a naive reference
+  // setState would loop ("Maximum update depth exceeded").
+  React.useEffect(() => {
+    setPanelFields((prev) => {
+      if (prev === advancedFilterFields) return prev
+      if (prev.length === advancedFilterFields.length) {
+        let same = true
+        for (let i = 0; i < prev.length; i++) {
+          if (prev[i].key !== advancedFilterFields[i].key) { same = false; break }
+        }
+        if (same) return prev
+      }
+      return advancedFilterFields
+    })
+  }, [advancedFilterFields])
+
+  const companiesPresets = React.useMemo<FilterPreset[]>(() => makeCompaniesPresets(), [])
 
   return (
     <Page>
@@ -823,10 +873,6 @@ export default function CustomersCompaniesPage() {
           searchValue={search}
           onSearchChange={(value) => { setSearch(value); setPage(1) }}
           searchPlaceholder={t('customers.companies.list.searchPlaceholder')}
-          filters={filters}
-          filterValues={filterValues}
-          onFiltersApply={handleFiltersApply}
-          onFiltersClear={handleFiltersClear}
           entityIds={[E.customers.customer_entity, E.customers.customer_company_profile]}
           onRowClick={(row) => router.push(`/backend/customers/companies-v2/${row.id}`)}
           perspective={{ tableId: 'customers.companies.list' }}
@@ -864,15 +910,53 @@ export default function CustomersCompaniesPage() {
             />
           )}
           advancedFilter={{
-              auto: true,
-              value: advancedFilterState,
-              onChange: setAdvancedFilterState,
-              onApply: () => { setPage(1) },
-              onClear: () => { setAdvancedFilterState({ logic: 'and', conditions: [] }); setPage(1) },
-            }}
+            auto: true,
+            value: filterPanel.tree,
+            onChange: filterPanel.setTree,
+            onApply: () => filterPanel.flush(),
+            onClear: handleAdvancedFilterClear,
+            triggerRef: filtersTriggerRef,
+            externalPopover: true,
+            onTriggerClick: () => setFiltersOpen((prev) => !prev),
+            onApplyTree: (tree) => {
+              filterPanel.replaceTree(tree)
+              setPage(1)
+            },
+          }}
+          activeFilterChips={(
+            <ActiveFilterChips
+              tree={filterPanel.tree}
+              fields={advancedFilterFields}
+              popoverOpen={filtersOpen}
+              onRemoveNode={(id) => filterPanel.dispatch({ type: 'removeNode', nodeId: id })}
+              onOpen={() => setFiltersOpen(true)}
+            />
+          )}
+          filterAwareEmptyState={{
+            active: advancedFilterState.root.children.length > 0,
+            entityNamePlural: t('customers.companies.entityPlural', 'companies'),
+            canRemoveLast: filterPanel.tree.root.children.length > 0,
+            onClearAll: handleAdvancedFilterClear,
+            onRemoveLast: () => filterPanel.dispatch({ type: 'removeLast' }),
+          }}
           virtualized
           pagination={{ page, pageSize, total, totalPages, onPageChange: setPage, pageSizeOptions: [10, 25, 50, 100], onPageSizeChange: handlePageSizeChange, cacheStatus }}
           isLoading={isLoading}
+        />
+        <AdvancedFilterPanel
+          fields={advancedFilterFields}
+          value={filterPanel.tree}
+          onChange={filterPanel.setTree}
+          onApply={filterPanel.flush}
+          onClear={handleAdvancedFilterClear}
+          onFlush={filterPanel.flush}
+          pendingErrors={filterPanel.pendingErrors}
+          userId={currentUserId}
+          presets={companiesPresets}
+          open={filtersOpen}
+          onOpenChange={setFiltersOpen}
+          triggerRef={filtersTriggerRef}
+          savedFilterStorageKey="customers.companies.list"
         />
       </PageBody>
       {ConfirmDialogElement}

@@ -30,6 +30,12 @@ export const injectionTable: ModuleInjectionTable = {
       priority: 100,
     },
   ],
+  'data-table:customers.deals.list:search-trailing': [
+    {
+      widgetId: 'customers.injection.ai-assistant-trigger',
+      priority: 100,
+    },
+  ],
   'detail:customers.deal:header': [
     {
       widgetId: 'customers.injection.ai-deal-detail-trigger',
