@@ -1,3 +1,7 @@
+jest.mock('@open-mercato/shared/lib/i18n/context', () => ({
+  useT: () => (_key: string, fallback: string) => fallback,
+}))
+
 import * as React from 'react'
 import { act, render, fireEvent, waitFor } from '@testing-library/react'
 import { ComboboxInput } from '../ComboboxInput'

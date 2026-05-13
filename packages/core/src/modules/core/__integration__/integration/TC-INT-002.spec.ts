@@ -86,7 +86,7 @@ test.describe('TC-INT-002: Customer to Deal to Quote to Order Flow', () => {
       // a DatePicker button + Popover (no more native <input type="date">),
       // and expectedCloseAt is optional server-side, so the deal still saves
       // and the redirect / list assertions downstream still pass.
-      await page.getByRole('searchbox', { name: /Search companies/i }).fill(companyName);
+      await page.getByRole('textbox', { name: /Search companies/i }).fill(companyName);
       await page.getByRole('button', { name: companyName, exact: true }).click();
 
       // Final guard: re-assert title before submit. If a late dictionary load

@@ -850,7 +850,7 @@ export async function createSalesDocument(page: Page, options: CreateDocumentOpt
 
   await page.getByText('Document type').click();
   const customerSelected = await selectLookupValue(
-    page.getByRole('searchbox', { name: /Search customers/i }).first(),
+    page.getByRole('textbox', { name: /Search customers/i }).first(),
     customerQuery,
     new RegExp(escapeRegExp(customerQuery), 'i'),
   );
