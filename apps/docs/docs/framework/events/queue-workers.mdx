@@ -214,6 +214,8 @@ Lazy mode replaces `queue worker --all` with a lightweight watcher process. The 
 OM_AUTO_SPAWN_WORKERS_LAZY=true yarn dev
 ```
 
+The monorepo root `yarn dev` wrapper sets `OM_AUTO_SPAWN_WORKERS_LAZY=true` automatically for local memory reduction. Direct `mercato server dev`, standalone apps, and production `mercato server start` keep the eager default until this variable is set explicitly. Use `OM_AUTO_SPAWN_WORKERS_LAZY=false yarn dev` from the monorepo root to force the historical eager mode.
+
 Lazy mode env variables:
 
 | Variable | Default | Purpose |

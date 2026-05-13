@@ -509,6 +509,17 @@ function buildSplashChildEnv() {
   }
 }
 
+function buildMonorepoAppDevEnv() {
+  const childEnv = buildSplashChildEnv() ?? {}
+  if (
+    typeof process.env.OM_AUTO_SPAWN_WORKERS_LAZY !== 'string'
+    || process.env.OM_AUTO_SPAWN_WORKERS_LAZY.trim() === ''
+  ) {
+    childEnv.OM_AUTO_SPAWN_WORKERS_LAZY = 'true'
+  }
+  return childEnv
+}
+
 function launchStandaloneDev(options = {}) {
   if (!fs.existsSync(standaloneRuntimeScript)) {
     console.error(`❌ Standalone dev runtime not found at ${standaloneRuntimeScript}`)
@@ -1590,7 +1601,7 @@ function launchMonorepoAppDev() {
   })
   const app = spawnCommand(yarnCommand, appArgs, {
     stdio: 'inherit',
-    env: buildSplashChildEnv(),
+    env: buildMonorepoAppDevEnv(),
   })
 
   app.on('close', (code, signal) => {

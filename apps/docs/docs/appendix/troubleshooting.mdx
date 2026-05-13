@@ -47,15 +47,27 @@ If you continue to hit connection limits, verify that background workers and mig
 
 The dev runtime prints a `🧠 Memory ... RSS (peak ...)` line that measures the **process-tree RSS** rooted at the app runtime — so the Next.js dev server, the auto-spawned queue workers, and the scheduler are all included in the number. A high idle RSS often reflects per-queue runner overhead rather than Next.js itself.
 
-To shrink idle RSS in development, enable lazy worker auto-spawn:
+The monorepo `yarn dev` wrapper enables lazy worker auto-spawn by default to keep local idle RSS down. Direct `mercato server dev`, standalone apps, and production `mercato server start` keep the historical eager default unless you opt in:
 
 ```bash
 OM_AUTO_SPAWN_WORKERS_LAZY=true yarn dev
 ```
 
+To force the historical eager worker mode from the monorepo wrapper, run:
+
+```bash
+OM_AUTO_SPAWN_WORKERS_LAZY=false yarn dev
+```
+
 In lazy mode the runtime starts a lightweight supervisor that watches each discovered queue for the first ready job and only then spawns `mercato queue worker <queueName>`. Queues that stay idle do not contribute polling timers (local strategy) or BullMQ `Worker`/Redis resources (async strategy) to the process tree. See [Queue Workers — Lazy Worker Auto-Spawn](../framework/events/queue-workers.mdx#lazy-worker-auto-spawn-memory-sensitive-dev) for the env variable reference.
 
 For production deployments, prefer `AUTO_SPAWN_WORKERS=false` plus separately managed worker processes — lazy mode targets memory-sensitive dev and small unified deployments.
+
+The monorepo package watcher also defaults to low-memory one-shot rebuilds. It watches package source files without keeping a persistent esbuild graph for every package after the initial build. To restore the previous faster-but-heavier incremental watcher for a session, run:
+
+```bash
+OM_PACKAGE_WATCH_MODE=persistent yarn dev
+```
 
 ## PostgreSQL auth errors on local setup
 
