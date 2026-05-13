@@ -90,7 +90,7 @@
     "@types/react": "^19.2.14",
     "@types/react-dom": "^19.2.3",
     "cross-spawn": "^7.0.6",
-    "eslint": "^10.3.0",
+    "eslint": "^9.39.4",
     "eslint-config-next": "16.2.6",
     "jest": "^30.4.2",
     "tailwindcss": "^4.3.0",

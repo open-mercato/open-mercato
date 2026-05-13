@@ -241,7 +241,11 @@ function captureBackgroundServiceLine(line) {
     return true
   }
 
-  if (line === '[server] Starting scheduler polling engine...' || line.startsWith('✓ Local scheduler started')) {
+  if (
+    line === '[server] Starting scheduler polling engine...'
+    || line === '[lazy-scheduler] Enabled schedule detected - starting scheduler polling engine.'
+    || line.startsWith('✓ Local scheduler started')
+  ) {
     runtimeSummaryState.schedulerActive = true
     updateRuntimeSummaryState()
     return true
@@ -1378,6 +1382,7 @@ function classifyServerLine(line) {
   if (
     line === '[server] Starting workers for all queues...'
     || line === '[server] Starting scheduler polling engine...'
+    || line === '[lazy-scheduler] Enabled schedule detected - starting scheduler polling engine.'
     || line.startsWith('🚀 Running queue:worker')
     || line.startsWith('🚀 Running scheduler:start')
   ) {

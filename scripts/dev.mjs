@@ -517,6 +517,12 @@ function buildMonorepoAppDevEnv() {
   ) {
     childEnv.OM_AUTO_SPAWN_WORKERS_LAZY = 'true'
   }
+  if (
+    typeof process.env.OM_AUTO_SPAWN_SCHEDULER_LAZY !== 'string'
+    || process.env.OM_AUTO_SPAWN_SCHEDULER_LAZY.trim() === ''
+  ) {
+    childEnv.OM_AUTO_SPAWN_SCHEDULER_LAZY = 'true'
+  }
   return childEnv
 }
 
