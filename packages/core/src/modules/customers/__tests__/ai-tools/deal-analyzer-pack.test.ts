@@ -206,6 +206,7 @@ describe('customers.analyze_deals handler', () => {
 
     expect(findMock).toHaveBeenCalledTimes(1)
     expect(findMock.mock.calls[0][0]).toBe(CustomerDealPersonLink)
+    expect(findMock.mock.calls[0][1]).toEqual({ deal: { $in: ['deal-1'] } })
     const findOptions = findMock.mock.calls[0][2] ?? {}
     expect((findOptions as { populate?: unknown }).populate).toBeUndefined()
     // Third decryption call resolves person names.
@@ -300,7 +301,7 @@ describe('customers.analyze_deals handler', () => {
     expect(result.totalAnalyzed).toBe(5)
   })
 
-  it('applies tenantId + organizationId to every read', async () => {
+  it('applies tenantId + organizationId to scoped entity reads and link reads through scoped deal ids', async () => {
     findWithDecryptionMock
       .mockResolvedValueOnce([makeDeal({ id: 'deal-1' })])
       .mockResolvedValueOnce([])
@@ -323,7 +324,9 @@ describe('customers.analyze_deals handler', () => {
     // person link where (raw em.find)
     expect(findMock).toHaveBeenCalledTimes(1)
     const personLinkWhere = findMock.mock.calls[0][1]
-    expect(personLinkWhere).toMatchObject({ tenantId: 'tenant-1', organizationId: 'org-1' })
+    expect(personLinkWhere).toEqual({ deal: { $in: ['deal-1'] } })
+    expect(personLinkWhere).not.toHaveProperty('tenantId')
+    expect(personLinkWhere).not.toHaveProperty('organizationId')
   })
 
   it('rejects calls with no tenant scope', async () => {

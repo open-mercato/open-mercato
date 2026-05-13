@@ -343,8 +343,8 @@ const DEAL_ANALYZER_PROMPT_SECTIONS: DealAnalyzerPromptSection[] = [
       'Reason about stalled deals: any deal with no activity for more than 14 days',
       'is considered stalled. For each stalled deal with a value greater than $5,000',
       'propose a stage move via customers.update_deal_stage.',
-      'After calling customers.update_deal_stage once the runtime will stop the loop',
-      'and surface the mutation-preview-card for operator approval.',
+      'After calling customers.update_deal_stage, finish with a concise conclusion',
+      'summarizing the analysis and the approval action the operator should review.',
     ].join('\n'),
   },
   {
@@ -384,9 +384,9 @@ const DEAL_ANALYZER_PROMPT_SECTIONS: DealAnalyzerPromptSection[] = [
       'MUTATION POLICY',
       'This agent ships with mutationPolicy: "confirm-required". Every write goes through',
       'the pending-action approval card and only persists after the operator confirms it.',
-      'The loop.stopWhen rule is set to stop immediately after you call',
-      'customers.update_deal_stage — so the mutation card surfaces right away without',
-      'further reasoning. Do NOT call update_deal_stage more than once per turn.',
+      'After calling customers.update_deal_stage, explain whether a pending approval',
+      'card was created or whether the proposed move could not be prepared.',
+      'Do NOT call update_deal_stage more than once per turn.',
       'If a per-tenant override has downgraded this agent to read-only, tell the operator',
       'the write is locked and point to /backend/customers/deals/<id>.',
     ].join('\n'),
@@ -414,8 +414,8 @@ const DEAL_ANALYZER_PROMPT_SECTIONS: DealAnalyzerPromptSection[] = [
       'Lead with a one-paragraph summary of the deal portfolio health, then emit one',
       'deal card per at-risk deal (sorted by health score ascending). After the cards,',
       'propose exactly one stage move for the highest-value stalled deal and call',
-      'customers.update_deal_stage. Do not describe the proposed move in prose first —',
-      'call the tool directly so the mutation card appears in the chat.',
+      'customers.update_deal_stage. Then finish with a short conclusion naming the',
+      'highest-value stalled deal, the recommended move, and the approval status.',
     ].join('\n'),
   },
 ]
@@ -474,7 +474,6 @@ const dealAnalyzer: AiAgentDefinition = {
   domain: 'customers',
   loop: {
     maxSteps: 12,
-    stopWhen: [{ kind: 'hasToolCall', toolName: 'customers.update_deal_stage' }],
     prepareStep: buildDealAnalyzerPrepareStep() as AiAgentDefinition['loop'] extends undefined
       ? never
       : NonNullable<AiAgentDefinition['loop']>['prepareStep'],

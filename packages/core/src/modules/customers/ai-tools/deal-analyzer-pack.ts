@@ -194,9 +194,7 @@ const analyzeDealsToolDefinition: CustomersAiToolDefinition<AnalyzeDealsInput, A
     // populating the relation through raw em.find.
     const personLinkWhere: Record<string, unknown> = {
       deal: { $in: dealIds },
-      tenantId,
     }
-    if (ctx.organizationId) personLinkWhere.organizationId = ctx.organizationId
     const personLinks = await em.find(
       CustomerDealPersonLink,
       personLinkWhere as any,

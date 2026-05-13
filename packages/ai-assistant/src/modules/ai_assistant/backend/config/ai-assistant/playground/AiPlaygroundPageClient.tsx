@@ -2,7 +2,7 @@
 
 import * as React from 'react'
 import { useQuery } from '@tanstack/react-query'
-import { AlertCircle, Bot, BookOpen, Loader2, Play, RefreshCcw } from 'lucide-react'
+import { Bot, BookOpen, Loader2, Play, RefreshCcw } from 'lucide-react'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { Alert, AlertDescription, AlertTitle } from '@open-mercato/ui/primitives/alert'
 import { Button } from '@open-mercato/ui/primitives/button'
@@ -579,7 +579,6 @@ export function AiPlaygroundPageClient() {
   if (isError) {
     return (
       <Alert variant="destructive" data-ai-playground-error>
-        <AlertCircle className="size-4" aria-hidden />
         <AlertTitle>
           {t('ai_assistant.playground.loadErrorTitle', 'Failed to load AI agents')}
         </AlertTitle>

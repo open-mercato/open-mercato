@@ -193,7 +193,7 @@ export function AiUsageStatsPageClient() {
       <div className="flex items-center gap-2">
         <BarChart2 className="text-muted-foreground" size={20} />
         <h2 className="text-lg font-semibold">
-          {t('ai_assistant.usage.title', { defaultValue: 'Token Usage Statistics' })}
+          {t('ai_assistant.usage.title', 'Token Usage Statistics')}
         </h2>
       </div>
 
@@ -201,7 +201,7 @@ export function AiUsageStatsPageClient() {
       <div className="flex items-end gap-4 flex-wrap">
         <div className="flex flex-col gap-1.5">
           <Label htmlFor="usage-from">
-            {t('ai_assistant.usage.from', { defaultValue: 'From' })}
+            {t('ai_assistant.usage.from', 'From')}
           </Label>
           <Input
             id="usage-from"
@@ -213,7 +213,7 @@ export function AiUsageStatsPageClient() {
         </div>
         <div className="flex flex-col gap-1.5">
           <Label htmlFor="usage-to">
-            {t('ai_assistant.usage.to', { defaultValue: 'To' })}
+            {t('ai_assistant.usage.to', 'To')}
           </Label>
           <Input
             id="usage-to"
@@ -224,7 +224,7 @@ export function AiUsageStatsPageClient() {
           />
         </div>
         <Button variant="secondary" onClick={applyFilter}>
-          {t('ai_assistant.usage.apply', { defaultValue: 'Apply' })}
+          {t('ai_assistant.usage.apply', 'Apply')}
         </Button>
       </div>
 
@@ -232,21 +232,21 @@ export function AiUsageStatsPageClient() {
       {dailyQuery.isLoading && (
         <div className="flex items-center gap-2 text-muted-foreground text-sm">
           <Loader2 size={14} className="animate-spin" />
-          {t('ai_assistant.usage.loading', { defaultValue: 'Loading usage data…' })}
+          {t('ai_assistant.usage.loading', 'Loading usage data...')}
         </div>
       )}
       {dailyQuery.isError && (
         <p className="text-status-error-text text-sm">
-          {t('ai_assistant.usage.error', { defaultValue: 'Failed to load usage data.' })}
+          {t('ai_assistant.usage.error', 'Failed to load usage data.')}
         </p>
       )}
       {dailyQuery.isSuccess && (
         <div className="grid grid-cols-2 gap-4 sm:grid-cols-4">
           {[
-            { label: t('ai_assistant.usage.inputTokens', { defaultValue: 'Input tokens' }), value: formatNumber(totalInputTokens) },
-            { label: t('ai_assistant.usage.outputTokens', { defaultValue: 'Output tokens' }), value: formatNumber(totalOutputTokens) },
-            { label: t('ai_assistant.usage.steps', { defaultValue: 'Steps' }), value: formatNumber(totalSteps) },
-            { label: t('ai_assistant.usage.sessions', { defaultValue: 'Sessions' }), value: formatNumber(totalSessions) },
+            { label: t('ai_assistant.usage.inputTokens', 'Input tokens'), value: formatNumber(totalInputTokens) },
+            { label: t('ai_assistant.usage.outputTokens', 'Output tokens'), value: formatNumber(totalOutputTokens) },
+            { label: t('ai_assistant.usage.steps', 'Steps'), value: formatNumber(totalSteps) },
+            { label: t('ai_assistant.usage.sessions', 'Sessions'), value: formatNumber(totalSessions) },
           ].map((tile) => (
             <div key={tile.label} className="rounded-lg border border-border p-4 space-y-1">
               <p className="text-muted-foreground text-xs">{tile.label}</p>
@@ -260,26 +260,26 @@ export function AiUsageStatsPageClient() {
       {dailyQuery.isSuccess && dailyRows.length > 0 && (
         <div className="space-y-2">
           <h3 className="text-sm font-medium text-muted-foreground">
-            {t('ai_assistant.usage.dailyBreakdown', { defaultValue: 'Daily breakdown' })}
+            {t('ai_assistant.usage.dailyBreakdown', 'Daily breakdown')}
           </h3>
           <div className="overflow-x-auto rounded-lg border border-border">
             <table className="min-w-full text-sm">
               <thead>
                 <tr className="border-b border-border bg-muted/40">
                   <th className="px-3 py-2 text-left font-medium text-muted-foreground">
-                    {t('ai_assistant.usage.col.day', { defaultValue: 'Day' })}
+                    {t('ai_assistant.usage.col.day', 'Day')}
                   </th>
                   <th className="px-3 py-2 text-left font-medium text-muted-foreground">
-                    {t('ai_assistant.usage.col.agent', { defaultValue: 'Agent' })}
+                    {t('ai_assistant.usage.col.agent', 'Agent')}
                   </th>
                   <th className="px-3 py-2 text-right font-medium text-muted-foreground">
-                    {t('ai_assistant.usage.col.inputTokens', { defaultValue: 'Input' })}
+                    {t('ai_assistant.usage.col.inputTokens', 'Input')}
                   </th>
                   <th className="px-3 py-2 text-right font-medium text-muted-foreground">
-                    {t('ai_assistant.usage.col.outputTokens', { defaultValue: 'Output' })}
+                    {t('ai_assistant.usage.col.outputTokens', 'Output')}
                   </th>
                   <th className="px-3 py-2 text-right font-medium text-muted-foreground">
-                    {t('ai_assistant.usage.col.sessions', { defaultValue: 'Sessions' })}
+                    {t('ai_assistant.usage.col.sessions', 'Sessions')}
                   </th>
                 </tr>
               </thead>
@@ -302,22 +302,22 @@ export function AiUsageStatsPageClient() {
       {/* Sessions list */}
       <div className="space-y-2">
         <h3 className="text-sm font-medium text-muted-foreground">
-          {t('ai_assistant.usage.sessionsList', { defaultValue: 'Sessions' })}
+          {t('ai_assistant.usage.sessionsList', 'Sessions')}
         </h3>
         {sessionsQuery.isLoading && (
           <div className="flex items-center gap-2 text-muted-foreground text-sm">
             <Loader2 size={14} className="animate-spin" />
-            {t('ai_assistant.usage.loadingSessions', { defaultValue: 'Loading sessions…' })}
+            {t('ai_assistant.usage.loadingSessions', 'Loading sessions...')}
           </div>
         )}
         {sessionsQuery.isError && (
           <p className="text-status-error-text text-sm">
-            {t('ai_assistant.usage.errorSessions', { defaultValue: 'Failed to load sessions.' })}
+            {t('ai_assistant.usage.errorSessions', 'Failed to load sessions.')}
           </p>
         )}
         {sessionsQuery.isSuccess && (sessionsQuery.data?.sessions ?? []).length === 0 && (
           <p className="text-muted-foreground text-sm">
-            {t('ai_assistant.usage.noSessions', { defaultValue: 'No sessions found for the selected period.' })}
+            {t('ai_assistant.usage.noSessions', 'No sessions found for the selected period.')}
           </p>
         )}
         {sessionsQuery.isSuccess && (sessionsQuery.data?.sessions ?? []).length > 0 && (
@@ -327,22 +327,22 @@ export function AiUsageStatsPageClient() {
                 <thead>
                   <tr className="border-b border-border bg-muted/40">
                     <th className="px-3 py-2 text-left font-medium text-muted-foreground">
-                      {t('ai_assistant.usage.col.session', { defaultValue: 'Session' })}
+                      {t('ai_assistant.usage.col.session', 'Session')}
                     </th>
                     <th className="px-3 py-2 text-left font-medium text-muted-foreground">
-                      {t('ai_assistant.usage.col.agent', { defaultValue: 'Agent' })}
+                      {t('ai_assistant.usage.col.agent', 'Agent')}
                     </th>
                     <th className="px-3 py-2 text-left font-medium text-muted-foreground">
-                      {t('ai_assistant.usage.col.startedAt', { defaultValue: 'Started' })}
+                      {t('ai_assistant.usage.col.startedAt', 'Started')}
                     </th>
                     <th className="px-3 py-2 text-right font-medium text-muted-foreground">
-                      {t('ai_assistant.usage.col.inputTokens', { defaultValue: 'Input' })}
+                      {t('ai_assistant.usage.col.inputTokens', 'Input')}
                     </th>
                     <th className="px-3 py-2 text-right font-medium text-muted-foreground">
-                      {t('ai_assistant.usage.col.outputTokens', { defaultValue: 'Output' })}
+                      {t('ai_assistant.usage.col.outputTokens', 'Output')}
                     </th>
                     <th className="px-3 py-2 text-right font-medium text-muted-foreground">
-                      {t('ai_assistant.usage.col.steps', { defaultValue: 'Steps' })}
+                      {t('ai_assistant.usage.col.steps', 'Steps')}
                     </th>
                     <th className="w-8" />
                   </tr>
@@ -375,7 +375,7 @@ export function AiUsageStatsPageClient() {
                 disabled={sessionsOffset === 0}
                 onClick={() => setSessionsOffset(Math.max(0, sessionsOffset - 50))}
               >
-                {t('ai_assistant.usage.prev', { defaultValue: 'Previous' })}
+                {t('ai_assistant.usage.prev', 'Previous')}
               </Button>
               <span className="text-muted-foreground text-sm">
                 {sessionsOffset + 1}–{sessionsOffset + (sessionsQuery.data?.sessions.length ?? 0)}
@@ -390,7 +390,7 @@ export function AiUsageStatsPageClient() {
                 }
                 onClick={() => setSessionsOffset(sessionsOffset + 50)}
               >
-                {t('ai_assistant.usage.next', { defaultValue: 'Next' })}
+                {t('ai_assistant.usage.next', 'Next')}
               </Button>
             </div>
           </>
@@ -405,7 +405,7 @@ export function AiUsageStatsPageClient() {
         <DialogContent className="max-w-3xl max-h-[80vh] overflow-y-auto">
           <DialogHeader>
             <DialogTitle>
-              {t('ai_assistant.usage.sessionDetail', { defaultValue: 'Session detail' })}
+              {t('ai_assistant.usage.sessionDetail', 'Session detail')}
               {selectedSessionId && (
                 <span className="ml-2 font-mono text-sm text-muted-foreground">
                   {shortId(selectedSessionId)}…
@@ -417,12 +417,12 @@ export function AiUsageStatsPageClient() {
             {sessionDetailQuery.isLoading && (
               <div className="flex items-center gap-2 text-muted-foreground text-sm">
                 <Loader2 size={14} className="animate-spin" />
-                {t('ai_assistant.usage.loadingDetail', { defaultValue: 'Loading session events…' })}
+                {t('ai_assistant.usage.loadingDetail', 'Loading session events...')}
               </div>
             )}
             {sessionDetailQuery.isError && (
               <p className="text-status-error-text text-sm">
-                {t('ai_assistant.usage.errorDetail', { defaultValue: 'Failed to load session events.' })}
+                {t('ai_assistant.usage.errorDetail', 'Failed to load session events.')}
               </p>
             )}
             {sessionDetailQuery.isSuccess && (
@@ -431,19 +431,19 @@ export function AiUsageStatsPageClient() {
                   <thead>
                     <tr className="border-b border-border bg-muted/40">
                       <th className="px-3 py-2 text-left font-medium text-muted-foreground">
-                        {t('ai_assistant.usage.col.step', { defaultValue: 'Step' })}
+                        {t('ai_assistant.usage.col.step', 'Step')}
                       </th>
                       <th className="px-3 py-2 text-left font-medium text-muted-foreground">
-                        {t('ai_assistant.usage.col.model', { defaultValue: 'Model' })}
+                        {t('ai_assistant.usage.col.model', 'Model')}
                       </th>
                       <th className="px-3 py-2 text-right font-medium text-muted-foreground">
-                        {t('ai_assistant.usage.col.inputTokens', { defaultValue: 'Input' })}
+                        {t('ai_assistant.usage.col.inputTokens', 'Input')}
                       </th>
                       <th className="px-3 py-2 text-right font-medium text-muted-foreground">
-                        {t('ai_assistant.usage.col.outputTokens', { defaultValue: 'Output' })}
+                        {t('ai_assistant.usage.col.outputTokens', 'Output')}
                       </th>
                       <th className="px-3 py-2 text-left font-medium text-muted-foreground">
-                        {t('ai_assistant.usage.col.finishReason', { defaultValue: 'Finish' })}
+                        {t('ai_assistant.usage.col.finishReason', 'Finish')}
                       </th>
                     </tr>
                   </thead>

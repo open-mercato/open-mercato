@@ -5,7 +5,8 @@ import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
 import { getAuthFromRequest } from '@open-mercato/shared/lib/auth/server'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import type { RbacService } from '@open-mercato/core/modules/auth/services/rbacService'
-import { hasRequiredFeatures } from '../../../../lib/auth'
+import { hasRequiredFeatures } from '../../../lib/auth'
+import { toInteger, toIsoString } from '../../../lib/usage-serialization'
 
 const REQUIRED_FEATURE = 'ai_assistant.settings.manage'
 
@@ -59,6 +60,7 @@ export const openApi: OpenApiRouteDoc = {
 }
 
 export const metadata = {
+  path: '/ai_assistant/usage/sessions',
   GET: { requireAuth: true, requireFeatures: [REQUIRED_FEATURE] },
 }
 
@@ -129,7 +131,7 @@ export async function GET(req: NextRequest): Promise<Response> {
     const totalRaw = Array.isArray(countRows) && countRows.length > 0
       ? (countRows[0] as Record<string, unknown>).total
       : '0'
-    const total = typeof totalRaw === 'string' ? parseInt(totalRaw, 10) : (totalRaw as number) ?? 0
+    const total = toInteger(totalRaw)
 
     params.push(limit, offset)
     const dataSql = `
@@ -163,14 +165,14 @@ export async function GET(req: NextRequest): Promise<Response> {
           agentId: row.agent_id as string,
           moduleId: row.module_id as string,
           userId: row.user_id as string,
-          startedAt: (row.started_at as Date).toISOString(),
-          lastEventAt: (row.last_event_at as Date).toISOString(),
-          stepCount: typeof row.step_count === 'string' ? parseInt(row.step_count, 10) : (row.step_count as number),
-          turnCount: typeof row.turn_count === 'string' ? parseInt(row.turn_count, 10) : (row.turn_count as number),
-          inputTokens: typeof row.input_tokens === 'string' ? parseInt(row.input_tokens, 10) : (row.input_tokens as number),
-          outputTokens: typeof row.output_tokens === 'string' ? parseInt(row.output_tokens, 10) : (row.output_tokens as number),
-          cachedInputTokens: typeof row.cached_input_tokens === 'string' ? parseInt(row.cached_input_tokens, 10) : (row.cached_input_tokens as number),
-          reasoningTokens: typeof row.reasoning_tokens === 'string' ? parseInt(row.reasoning_tokens, 10) : (row.reasoning_tokens as number),
+          startedAt: toIsoString(row.started_at),
+          lastEventAt: toIsoString(row.last_event_at),
+          stepCount: toInteger(row.step_count),
+          turnCount: toInteger(row.turn_count),
+          inputTokens: toInteger(row.input_tokens),
+          outputTokens: toInteger(row.output_tokens),
+          cachedInputTokens: toInteger(row.cached_input_tokens),
+          reasoningTokens: toInteger(row.reasoning_tokens),
         }))
       : []
 

@@ -5,8 +5,9 @@ import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
 import { getAuthFromRequest } from '@open-mercato/shared/lib/auth/server'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import type { RbacService } from '@open-mercato/core/modules/auth/services/rbacService'
-import { AiTokenUsageRepository } from '../../../../../data/repositories/AiTokenUsageRepository'
-import { hasRequiredFeatures } from '../../../../../lib/auth'
+import { AiTokenUsageRepository } from '../../../../data/repositories/AiTokenUsageRepository'
+import { hasRequiredFeatures } from '../../../../lib/auth'
+import { toInteger, toIsoString } from '../../../../lib/usage-serialization'
 
 const REQUIRED_FEATURE = 'ai_assistant.settings.manage'
 
@@ -47,6 +48,7 @@ export const openApi: OpenApiRouteDoc = {
 }
 
 export const metadata = {
+  path: '/ai_assistant/usage/sessions/[sessionId]',
   GET: { requireAuth: true, requireFeatures: [REQUIRED_FEATURE] },
 }
 
@@ -107,17 +109,17 @@ export async function GET(req: NextRequest, context: RouteContext): Promise<Resp
       moduleId: event.moduleId,
       sessionId: event.sessionId,
       turnId: event.turnId,
-      stepIndex: event.stepIndex,
+      stepIndex: toInteger(event.stepIndex),
       providerId: event.providerId,
       modelId: event.modelId,
-      inputTokens: event.inputTokens,
-      outputTokens: event.outputTokens,
-      cachedInputTokens: event.cachedInputTokens ?? null,
-      reasoningTokens: event.reasoningTokens ?? null,
+      inputTokens: toInteger(event.inputTokens),
+      outputTokens: toInteger(event.outputTokens),
+      cachedInputTokens: event.cachedInputTokens == null ? null : toInteger(event.cachedInputTokens),
+      reasoningTokens: event.reasoningTokens == null ? null : toInteger(event.reasoningTokens),
       finishReason: event.finishReason ?? null,
       loopAbortReason: event.loopAbortReason ?? null,
-      createdAt: event.createdAt.toISOString(),
-      updatedAt: event.updatedAt.toISOString(),
+      createdAt: toIsoString(event.createdAt),
+      updatedAt: toIsoString(event.updatedAt),
     }))
 
     return NextResponse.json({ events: serialized, total: serialized.length, sessionId })

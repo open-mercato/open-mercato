@@ -11,7 +11,7 @@ jest.mock('@open-mercato/shared/lib/di/container', () => ({
   createRequestContainer: (...args: unknown[]) => createRequestContainerMock(...args),
 }))
 
-jest.mock('../../../../../data/repositories/AiTokenUsageRepository', () => ({
+jest.mock('../../../../data/repositories/AiTokenUsageRepository', () => ({
   AiTokenUsageRepository: jest.fn().mockImplementation(() => ({
     listDailyRollup: listDailyRollupMock,
   })),
@@ -111,6 +111,38 @@ describe('GET /api/ai_assistant/usage/daily', () => {
     expect(body.rows).toHaveLength(1)
     expect(body.rows[0].agentId).toBe('catalog.assistant')
     expect(body.total).toBe(1)
+  })
+
+  it('serializes bigint counters and string timestamps returned by the database driver', async () => {
+    listDailyRollupMock.mockResolvedValue([
+      makeRow({
+        inputTokens: 1000n,
+        outputTokens: 500n,
+        cachedInputTokens: 10n,
+        reasoningTokens: 20n,
+        stepCount: 5n,
+        turnCount: 3n,
+        sessionCount: 2n,
+        createdAt: '2026-05-01T12:00:00.000Z',
+        updatedAt: '2026-05-01T12:30:00.000Z',
+      }),
+    ])
+
+    const res = await GET(buildRequest({ from: '2026-05-01', to: '2026-05-31' }) as Parameters<typeof GET>[0])
+
+    expect(res.status).toBe(200)
+    const body = await res.json()
+    expect(body.rows[0]).toMatchObject({
+      inputTokens: '1000',
+      outputTokens: '500',
+      cachedInputTokens: '10',
+      reasoningTokens: '20',
+      stepCount: '5',
+      turnCount: '3',
+      sessionCount: '2',
+      createdAt: '2026-05-01T12:00:00.000Z',
+      updatedAt: '2026-05-01T12:30:00.000Z',
+    })
   })
 
   it('passes agentId filter to the repository', async () => {

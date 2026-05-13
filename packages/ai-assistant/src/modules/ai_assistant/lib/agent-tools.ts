@@ -127,8 +127,12 @@ function toPolicyAuthContext(ctx: AiChatRequestContext): {
  * `^[a-zA-Z0-9_-]+$`; dots are replaced with double underscores (`__`).
  * Anthropic and Google accept both formats, so this is safe across providers.
  */
-function sanitizeToolNameForModel(name: string): string {
+export function sanitizeToolNameForModel(name: string): string {
   return name.replace(/\./g, '__')
+}
+
+export function desanitizeToolNameForDisplay(name: string): string {
+  return name.replace(/__/g, '.')
 }
 
 function formatToolResult(result: unknown): string {

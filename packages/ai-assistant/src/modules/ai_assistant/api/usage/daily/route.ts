@@ -5,8 +5,9 @@ import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
 import { getAuthFromRequest } from '@open-mercato/shared/lib/auth/server'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import type { RbacService } from '@open-mercato/core/modules/auth/services/rbacService'
-import { AiTokenUsageRepository } from '../../../../data/repositories/AiTokenUsageRepository'
-import { hasRequiredFeatures } from '../../../../lib/auth'
+import { AiTokenUsageRepository } from '../../../data/repositories/AiTokenUsageRepository'
+import { hasRequiredFeatures } from '../../../lib/auth'
+import { toDateString, toIntegerString, toIsoString } from '../../../lib/usage-serialization'
 
 const REQUIRED_FEATURE = 'ai_assistant.settings.manage'
 
@@ -47,6 +48,7 @@ export const openApi: OpenApiRouteDoc = {
 }
 
 export const metadata = {
+  path: '/ai_assistant/usage/daily',
   GET: { requireAuth: true, requireFeatures: [REQUIRED_FEATURE] },
 }
 
@@ -101,19 +103,19 @@ export async function GET(req: NextRequest): Promise<Response> {
       id: row.id,
       tenantId: row.tenantId,
       organizationId: row.organizationId ?? null,
-      day: row.day,
+      day: toDateString(row.day),
       agentId: row.agentId,
       modelId: row.modelId,
       providerId: row.providerId,
-      inputTokens: row.inputTokens,
-      outputTokens: row.outputTokens,
-      cachedInputTokens: row.cachedInputTokens,
-      reasoningTokens: row.reasoningTokens,
-      stepCount: row.stepCount,
-      turnCount: row.turnCount,
-      sessionCount: row.sessionCount,
-      createdAt: row.createdAt.toISOString(),
-      updatedAt: row.updatedAt.toISOString(),
+      inputTokens: toIntegerString(row.inputTokens),
+      outputTokens: toIntegerString(row.outputTokens),
+      cachedInputTokens: toIntegerString(row.cachedInputTokens),
+      reasoningTokens: toIntegerString(row.reasoningTokens),
+      stepCount: toIntegerString(row.stepCount),
+      turnCount: toIntegerString(row.turnCount),
+      sessionCount: toIntegerString(row.sessionCount),
+      createdAt: toIsoString(row.createdAt),
+      updatedAt: toIsoString(row.updatedAt),
     }))
 
     return NextResponse.json({ rows: serialized, total: serialized.length })

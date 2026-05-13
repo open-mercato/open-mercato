@@ -158,6 +158,10 @@ const PROMPT_SECTIONS: PromptSection[] = [
       'proactively offer the stats card at the start of an exploration',
       '("Want me to show a quick catalog overview?") — most operators',
       'find it useful before drilling in.',
+      '',
+      'If the operator asks what they can ask you, requests example questions,',
+      'or asks how you can help, answer directly from these instructions.',
+      'Do not call tools for capability / example-question prompts.',
     ].join('\n'),
   },
   {
@@ -244,6 +248,60 @@ function compilePromptTemplate(template: PromptTemplate): string {
     .join('\n\n')
 }
 
+function textFromMessageContent(content: unknown): string {
+  if (typeof content === 'string') return content
+  if (!Array.isArray(content)) return ''
+  return content
+    .map((part) => {
+      if (typeof part === 'string') return part
+      if (!part || typeof part !== 'object') return ''
+      const record = part as Record<string, unknown>
+      return typeof record.text === 'string' ? record.text : ''
+    })
+    .join(' ')
+}
+
+function latestUserTextFromPrepareStepState(state: unknown): string {
+  const messages = (state as { messages?: unknown })?.messages
+  if (!Array.isArray(messages)) return ''
+  for (let index = messages.length - 1; index >= 0; index -= 1) {
+    const message = messages[index]
+    if (!message || typeof message !== 'object') continue
+    const record = message as Record<string, unknown>
+    if (record.role !== 'user') continue
+    return textFromMessageContent(record.content)
+  }
+  return ''
+}
+
+function isCatalogMetaHelpPrompt(text: string): boolean {
+  const normalized = text.toLowerCase()
+  if (!normalized.trim()) return false
+  const asksForQuestionIdeas =
+    (normalized.includes('question') || normalized.includes('questions')) &&
+    (normalized.includes('could ask') ||
+      normalized.includes('can ask') ||
+      normalized.includes('ask you') ||
+      normalized.includes('suggest') ||
+      normalized.includes('examples'))
+  const asksForCapabilities =
+    normalized.includes('what can you do') ||
+    normalized.includes('how can you help') ||
+    normalized.includes('what should i ask') ||
+    normalized.includes('what can i ask')
+  return asksForQuestionIdeas || asksForCapabilities
+}
+
+function buildCatalogAssistantPrepareStep() {
+  return async function catalogAssistantPrepareStep(state: unknown) {
+    const latestUserText = latestUserTextFromPrepareStepState(state)
+    if (isCatalogMetaHelpPrompt(latestUserText)) {
+      return { activeTools: [] }
+    }
+    return undefined
+  }
+}
+
 async function resolvePageContext(
   input: AiAgentPageContextInput,
 ): Promise<string | null> {
@@ -269,6 +327,10 @@ const agent: AiAgentDefinition = {
   requiredFeatures: [...REQUIRED_FEATURES],
   readOnly: true,
   mutationPolicy: 'read-only',
+  loop: {
+    maxSteps: 4,
+    prepareStep: buildCatalogAssistantPrepareStep() as NonNullable<AiAgentDefinition['loop']>['prepareStep'],
+  },
   keywords: ['catalog', 'products', 'categories', 'variants', 'prices', 'offers', 'media'],
   domain: 'catalog',
   dataCapabilities: {

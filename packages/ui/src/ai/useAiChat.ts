@@ -442,6 +442,11 @@ function updateToolCall(
   return { ...state, toolCalls: nextCalls }
 }
 
+function displayToolName(toolName: unknown): string | undefined {
+  if (typeof toolName !== 'string') return undefined
+  return toolName.replace(/__/g, '.')
+}
+
 function applyChunk(
   state: AssistantBuilderState,
   chunk: { type: string; [key: string]: unknown },
@@ -465,12 +470,12 @@ function applyChunk(
       return { ...state, reasoningStreaming: false }
     case 'tool-input-start':
       return updateToolCall(state, String(chunk.toolCallId ?? ''), {
-        toolName: typeof chunk.toolName === 'string' ? chunk.toolName : undefined,
+        toolName: displayToolName(chunk.toolName),
         state: 'pending',
       })
     case 'tool-input-available':
       return updateToolCall(state, String(chunk.toolCallId ?? ''), {
-        toolName: typeof chunk.toolName === 'string' ? chunk.toolName : undefined,
+        toolName: displayToolName(chunk.toolName),
         input: chunk.input,
         state: 'pending',
       })
@@ -506,7 +511,7 @@ function applyChunk(
       })
     case 'tool-input-error':
       return updateToolCall(state, String(chunk.toolCallId ?? ''), {
-        toolName: typeof chunk.toolName === 'string' ? chunk.toolName : undefined,
+        toolName: displayToolName(chunk.toolName),
         input: chunk.input,
         state: 'error',
         errorMessage:

@@ -1,7 +1,7 @@
 "use client"
 
 import * as React from 'react'
-import { AlertTriangle, Loader2 } from 'lucide-react'
+import { Loader2 } from 'lucide-react'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { Alert, AlertDescription, AlertTitle } from '../../primitives/alert'
 import { Button } from '../../primitives/button'
@@ -214,7 +214,6 @@ function ConfirmationErrorAlert({
         className="mt-3"
         data-ai-confirmation-error="stale_version"
       >
-        <AlertTriangle className="size-4" aria-hidden />
         <AlertTitle>
           {t(
             'ai_assistant.chat.mutation_cards.confirmation.staleVersionTitle',
@@ -252,7 +251,6 @@ function ConfirmationErrorAlert({
         className="mt-3"
         data-ai-confirmation-error="schema_drift"
       >
-        <AlertTriangle className="size-4" aria-hidden />
         <AlertTitle>
           {t(
             'ai_assistant.chat.mutation_cards.confirmation.schemaDriftTitle',
@@ -276,7 +274,6 @@ function ConfirmationErrorAlert({
         className="mt-3"
         data-ai-confirmation-error="invalid_status"
       >
-        <AlertTriangle className="size-4" aria-hidden />
         <AlertTitle>
           {t(
             'ai_assistant.chat.mutation_cards.confirmation.invalidStatusTitle',
@@ -295,7 +292,6 @@ function ConfirmationErrorAlert({
 
   return (
     <Alert variant="destructive" className="mt-3" data-ai-confirmation-error={code}>
-      <AlertTriangle className="size-4" aria-hidden />
       <AlertTitle>
         {t('ai_assistant.chat.mutation_cards.confirmation.errorTitle', 'Confirm failed')}
       </AlertTitle>

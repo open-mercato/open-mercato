@@ -20,10 +20,10 @@ export function LoopDisabledBanner({ agentId }: { agentId?: string }) {
   return (
     <Alert
       variant="warning"
+      icon={<ShieldOff aria-hidden="true" />}
       data-ai-loop-disabled-banner
       data-ai-loop-disabled-agent-id={agentId}
     >
-      <ShieldOff className="size-4" aria-hidden />
       <AlertTitle>
         {t('ai_assistant.loop.disabledBanner.title', 'Agent loop disabled by tenant policy')}
       </AlertTitle>

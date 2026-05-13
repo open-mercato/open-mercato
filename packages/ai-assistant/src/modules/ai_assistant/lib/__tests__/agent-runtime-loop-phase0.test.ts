@@ -28,6 +28,7 @@ import {
   resolveEffectiveLoopConfig,
   translateStopConditions,
   mergeStepOverrides,
+  buildWrapperPrepareStep,
   assertLoopObjectModeCompatible,
 } from '../agent-runtime'
 import { AgentPolicyError } from '../agent-tools'
@@ -159,13 +160,16 @@ describe('translateStopConditions', () => {
   })
 
   it('maps kind:hasToolCall to hasToolCall', () => {
-    const result = translateStopConditions({
-      maxSteps: 10,
-      stopWhen: { kind: 'hasToolCall', toolName: 'mod.update' },
-    })
-    expect(hasToolCallMock).toHaveBeenCalledWith('mod.update')
+    const result = translateStopConditions(
+      {
+        maxSteps: 10,
+        stopWhen: { kind: 'hasToolCall', toolName: 'mod.update' },
+      },
+      (name) => name.replace(/\./g, '__'),
+    )
+    expect(hasToolCallMock).toHaveBeenCalledWith('mod__update')
     expect(result).toHaveLength(2)
-    expect(result[0]).toEqual({ __kind: 'hasToolCall', name: 'mod.update' })
+    expect(result[0]).toEqual({ __kind: 'hasToolCall', name: 'mod__update' })
     expect(result[1]).toEqual({ __kind: 'stepCount', count: 10 })
   })
 
@@ -247,6 +251,16 @@ describe('mergeStepOverrides', () => {
     expect(result.activeTools).toEqual(['mod.read', 'mod.write'])
   })
 
+  it('accepts already-sanitized activeTools and normalizes them back to dotted contract names', () => {
+    const result = mergeStepOverrides(
+      {},
+      { activeTools: ['mod__read', 'outside__tool'] },
+      agent,
+      wrappedRegistry,
+    )
+    expect(result.activeTools).toEqual(['mod.read'])
+  })
+
   it('replaces user tools with wrapped counterparts from wrappedRegistry', () => {
     const rawHandler = { execute: jest.fn() }
     const result = mergeStepOverrides(
@@ -294,6 +308,37 @@ describe('mergeStepOverrides', () => {
     ).toThrow(AgentPolicyError)
 
     jest.restoreAllMocks()
+  })
+})
+
+describe('buildWrapperPrepareStep', () => {
+  const agent = makeAgent({
+    id: 'mod.agent',
+    moduleId: 'mod',
+    allowedTools: ['mod.read', 'mod.write'],
+  })
+  const wrappedRegistry = {
+    mod__read: { execute: jest.fn(), description: 'read tool' },
+    mod__write: { execute: jest.fn(), description: 'write tool' },
+  }
+
+  it('maps dotted activeTools from user prepareStep to SDK-safe tool keys', async () => {
+    const prepareStep = buildWrapperPrepareStep(
+      agent,
+      {
+        prepareStep: async () => ({ activeTools: ['mod.read', 'mod.write'] }),
+      },
+      wrappedRegistry,
+    )
+
+    const result = await prepareStep({
+      stepNumber: 0,
+      steps: [],
+      messages: [],
+      model: {} as never,
+    })
+
+    expect(result?.activeTools).toEqual(['mod__read', 'mod__write'])
   })
 })
 

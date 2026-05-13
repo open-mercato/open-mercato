@@ -250,7 +250,7 @@ describe('Phase 2: generateText callback on runAiAgentText', () => {
 
     const stopWhen = capturedOptions[0].stopWhen
     expect(stopWhen).toHaveLength(2)
-    expect(stopWhen[0]).toEqual({ __kind: 'hasToolCall', name: 'mod.update' })
+    expect(stopWhen[0]).toEqual({ __kind: 'hasToolCall', name: 'mod__update' })
     expect(stopWhen[1]).toEqual({ __kind: 'stepCount', count: 5 })
   })
 

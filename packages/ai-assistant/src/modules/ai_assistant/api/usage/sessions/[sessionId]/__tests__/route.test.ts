@@ -11,7 +11,7 @@ jest.mock('@open-mercato/shared/lib/di/container', () => ({
   createRequestContainer: (...args: unknown[]) => createRequestContainerMock(...args),
 }))
 
-jest.mock('../../../../../../data/repositories/AiTokenUsageRepository', () => ({
+jest.mock('../../../../../data/repositories/AiTokenUsageRepository', () => ({
   AiTokenUsageRepository: jest.fn().mockImplementation(() => ({
     listEventsForSession: listEventsForSessionMock,
   })),
@@ -104,13 +104,32 @@ describe('GET /api/ai_assistant/usage/sessions/[sessionId]', () => {
   })
 
   it('returns 200 with serialized events when events exist', async () => {
-    listEventsForSessionMock.mockResolvedValue([makeEvent()])
+    listEventsForSessionMock.mockResolvedValue([
+      makeEvent({
+        stepIndex: 0n,
+        inputTokens: 100n,
+        outputTokens: 50n,
+        cachedInputTokens: 5n,
+        reasoningTokens: 7n,
+        createdAt: '2026-05-01T12:00:00.000Z',
+        updatedAt: '2026-05-01T12:30:00.000Z',
+      }),
+    ])
     const res = await GET(buildRequest() as Parameters<typeof GET>[0], buildContext(SESSION_ID))
     expect(res.status).toBe(200)
     const body = await res.json()
     expect(body.events).toHaveLength(1)
     expect(body.events[0].agentId).toBe('catalog.assistant')
     expect(body.events[0].finishReason).toBe('stop')
+    expect(body.events[0]).toMatchObject({
+      stepIndex: 0,
+      inputTokens: 100,
+      outputTokens: 50,
+      cachedInputTokens: 5,
+      reasoningTokens: 7,
+      createdAt: '2026-05-01T12:00:00.000Z',
+      updatedAt: '2026-05-01T12:30:00.000Z',
+    })
     expect(body.total).toBe(1)
     expect(body.sessionId).toBe(SESSION_ID)
   })

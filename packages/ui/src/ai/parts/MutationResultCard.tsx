@@ -1,7 +1,7 @@
 "use client"
 
 import * as React from 'react'
-import { AlertTriangle, CheckCircle2, Wand2, XCircle } from 'lucide-react'
+import { Wand2 } from 'lucide-react'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { Alert, AlertDescription, AlertTitle } from '../../primitives/alert'
 import { Button } from '../../primitives/button'
@@ -80,7 +80,6 @@ export function MutationResultCard(props: MutationResultCardProps) {
   if (isSuccessStatus(status) && failedRecords && failedRecords.length > 0) {
     return (
       <Alert variant="warning" data-ai-mutation-result="partial">
-        <AlertTriangle className="size-4" aria-hidden />
         <AlertTitle>
           {t(
             'ai_assistant.chat.mutation_cards.result.partialTitle',
@@ -118,7 +117,6 @@ export function MutationResultCard(props: MutationResultCardProps) {
     const href = payload.recordHref ?? null
     return (
       <Alert variant="success" data-ai-mutation-result="success">
-        <CheckCircle2 className="size-4" aria-hidden />
         <AlertTitle>
           {t('ai_assistant.chat.mutation_cards.result.successTitle', 'Action applied')}
         </AlertTitle>
@@ -296,7 +294,6 @@ export function MutationResultCard(props: MutationResultCardProps) {
       : []
     return (
       <Alert variant="destructive" data-ai-mutation-result="failure">
-        <XCircle className="size-4" aria-hidden />
         <AlertTitle>
           {t(
             'ai_assistant.chat.mutation_cards.result.failureTitle',

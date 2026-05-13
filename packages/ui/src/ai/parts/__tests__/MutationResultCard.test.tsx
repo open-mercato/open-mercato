@@ -78,6 +78,11 @@ describe('MutationResultCard', () => {
     expect(
       document.querySelector('[data-ai-mutation-result="success"]'),
     ).not.toBeNull()
+    expect(
+      document.querySelectorAll(
+        '[data-ai-mutation-result="success"] [data-slot="alert-icon-badge"]',
+      ),
+    ).toHaveLength(1)
     expect(screen.getByText('Action applied')).toBeInTheDocument()
     const link = document.querySelector('[data-ai-mutation-result-link]') as HTMLAnchorElement
     expect(link).not.toBeNull()

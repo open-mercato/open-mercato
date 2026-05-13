@@ -2,7 +2,7 @@
 
 import * as React from 'react'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
-import { Loader2, Save, Shield, Trash2, Info, AlertCircle, ShieldCheck } from 'lucide-react'
+import { Loader2, Save, Shield, Trash2, ShieldCheck } from 'lucide-react'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { Alert, AlertDescription, AlertTitle } from '@open-mercato/ui/primitives/alert'
 import { Badge } from '@open-mercato/ui/primitives/badge'
@@ -130,7 +130,6 @@ export function AiTenantAllowlistPageClient(): React.JSX.Element {
       <div className="flex max-w-3xl flex-col gap-4">
         {pageHeader}
         <Alert variant="destructive">
-          <AlertCircle className="size-4" />
           <AlertTitle>{t('ai_assistant.allowlist.loadError.title', 'Failed to load allowlist')}</AlertTitle>
           <AlertDescription>
             {settingsQuery.error instanceof Error
@@ -286,7 +285,6 @@ export function AiTenantAllowlistPageClient(): React.JSX.Element {
     ? null
     : (
       <Alert>
-        <Info className="h-4 w-4" />
         <AlertTitle>{t('ai_assistant.allowlist.envBanner.title', 'Env allowlist is in effect')}</AlertTitle>
         <AlertDescription className="space-y-1">
           {envAllowedProviders ? (
@@ -314,7 +312,6 @@ export function AiTenantAllowlistPageClient(): React.JSX.Element {
 
       {feedback ? (
         <Alert variant={feedback.kind === 'error' ? 'destructive' : undefined}>
-          {feedback.kind === 'error' ? <AlertCircle className="h-4 w-4" /> : <Info className="h-4 w-4" />}
           <AlertDescription>{feedback.text}</AlertDescription>
         </Alert>
       ) : null}

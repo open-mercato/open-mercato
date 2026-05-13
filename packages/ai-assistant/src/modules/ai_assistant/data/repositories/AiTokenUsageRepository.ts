@@ -132,7 +132,8 @@ export class AiTokenUsageRepository {
           ?, ?, ?, ?,
           1, 1, ?, ?, ?
         )
-        on conflict on constraint ai_token_usage_daily_tenant_day_agent_model_org_uq
+        on conflict (tenant_id, day, agent_id, model_id, organization_id)
+        where organization_id is not null
         do update set
           input_tokens         = ai_token_usage_daily.input_tokens + excluded.input_tokens,
           output_tokens        = ai_token_usage_daily.output_tokens + excluded.output_tokens,
@@ -162,7 +163,8 @@ export class AiTokenUsageRepository {
           ?, ?, ?, ?,
           1, 1, ?, ?, ?
         )
-        on conflict on constraint ai_token_usage_daily_tenant_day_agent_model_null_org_uq
+        on conflict (tenant_id, day, agent_id, model_id)
+        where organization_id is null
         do update set
           input_tokens         = ai_token_usage_daily.input_tokens + excluded.input_tokens,
           output_tokens        = ai_token_usage_daily.output_tokens + excluded.output_tokens,

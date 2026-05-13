@@ -3,10 +3,8 @@
 import * as React from 'react'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import {
-  AlertCircle,
   Bot,
   BookOpen,
-  CheckCircle2,
   History,
   Image as ImageIcon,
   FileText,
@@ -706,8 +704,11 @@ function MutationPolicySection({ agent }: { agent: AgentSettings }) {
           </div>
         </div>
 
-        <Alert variant="info" data-ai-agent-mutation-policy-notice>
-          <ShieldAlert className="size-4" aria-hidden />
+        <Alert
+          variant="info"
+          icon={<ShieldAlert aria-hidden="true" />}
+          data-ai-agent-mutation-policy-notice
+        >
           <AlertTitle>
             {t(
               'ai_assistant.agents.mutation_policy.noticeTitle',
@@ -731,7 +732,6 @@ function MutationPolicySection({ agent }: { agent: AgentSettings }) {
           />
         ) : query.isError ? (
           <Alert variant="destructive" data-ai-agent-mutation-policy-load-error>
-            <AlertCircle className="size-4" aria-hidden />
             <AlertTitle>
               {t(
                 'ai_assistant.agents.mutation_policy.loadErrorTitle',
@@ -820,7 +820,6 @@ function MutationPolicySection({ agent }: { agent: AgentSettings }) {
 
         {state.kind === 'success' ? (
           <Alert variant="success" data-ai-agent-mutation-policy-state="success">
-            <CheckCircle2 className="size-4" aria-hidden />
             <AlertTitle>
               {t('ai_assistant.agents.mutation_policy.savedTitle', 'Mutation policy updated')}
             </AlertTitle>
@@ -829,7 +828,6 @@ function MutationPolicySection({ agent }: { agent: AgentSettings }) {
         ) : null}
         {state.kind === 'error' ? (
           <Alert variant="destructive" data-ai-agent-mutation-policy-state="error">
-            <AlertCircle className="size-4" aria-hidden />
             <AlertTitle>
               {t(
                 'ai_assistant.agents.mutation_policy.errorTitle',
@@ -1192,7 +1190,6 @@ function AgentModelOverrideSection({ agent }: { agent: AgentSettings }) {
           />
         ) : settingsQuery.isError ? (
           <Alert variant="destructive" data-ai-agent-model-override-load-error>
-            <AlertCircle className="size-4" aria-hidden />
             <AlertTitle>
               {t(
                 'ai_assistant.agents.model_override.loadErrorTitle',
@@ -1403,13 +1400,11 @@ function AgentModelOverrideSection({ agent }: { agent: AgentSettings }) {
 
         {state.kind === 'success' ? (
           <Alert variant="success" data-ai-agent-model-override-state="success">
-            <CheckCircle2 className="size-4" aria-hidden />
             <AlertDescription>{state.message}</AlertDescription>
           </Alert>
         ) : null}
         {state.kind === 'error' ? (
           <Alert variant="destructive" data-ai-agent-model-override-state="error">
-            <AlertCircle className="size-4" aria-hidden />
             <AlertDescription>{state.message}</AlertDescription>
           </Alert>
         ) : null}
@@ -1654,7 +1649,6 @@ function LoopPolicySection({ agent }: { agent: AgentSettings }) {
           />
         ) : query.isError ? (
           <Alert variant="destructive" data-ai-agent-loop-policy-load-error>
-            <AlertCircle className="size-4" aria-hidden />
             <AlertTitle>
               {t('ai_assistant.agents.loop_policy.loadErrorTitle', 'Failed to load loop policy')}
             </AlertTitle>
@@ -1753,7 +1747,6 @@ function LoopPolicySection({ agent }: { agent: AgentSettings }) {
 
             {state.kind === 'success' ? (
               <Alert variant="success" data-ai-agent-loop-policy-state="success">
-                <CheckCircle2 className="size-4" aria-hidden />
                 <AlertTitle>
                   {t('ai_assistant.agents.loop_policy.savedTitle', 'Loop policy updated')}
                 </AlertTitle>
@@ -1762,7 +1755,6 @@ function LoopPolicySection({ agent }: { agent: AgentSettings }) {
             ) : null}
             {state.kind === 'error' ? (
               <Alert variant="destructive" data-ai-agent-loop-policy-state="error">
-                <AlertCircle className="size-4" aria-hidden />
                 <AlertTitle>
                   {t(
                     'ai_assistant.agents.loop_policy.errorTitle',
@@ -2106,8 +2098,11 @@ function AgentDetailPanel({ agent }: { agent: AgentSettings }) {
           </Button>
         </header>
         <div className="mt-3">
-          <Alert variant="info" data-ai-agent-prompt-notice>
-            <Wand2 className="size-4" aria-hidden />
+          <Alert
+            variant="info"
+            icon={<Wand2 aria-hidden="true" />}
+            data-ai-agent-prompt-notice
+          >
             <AlertTitle>
               {t('ai_assistant.agents.override.noticeTitle', 'Prompt overrides are additive')}
             </AlertTitle>
@@ -2121,7 +2116,6 @@ function AgentDetailPanel({ agent }: { agent: AgentSettings }) {
         </div>
         {saveState.kind === 'success' ? (
           <Alert variant="success" className="mt-3" data-ai-agent-prompt-state="success">
-            <CheckCircle2 className="size-4" aria-hidden />
             <AlertTitle>
               {saveState.version > 0
                 ? t('ai_assistant.agents.override.savedTitle', 'Prompt override saved')
@@ -2136,7 +2130,6 @@ function AgentDetailPanel({ agent }: { agent: AgentSettings }) {
         ) : null}
         {saveState.kind === 'error' ? (
           <Alert variant="destructive" className="mt-3" data-ai-agent-prompt-state="error">
-            <AlertCircle className="size-4" aria-hidden />
             <AlertTitle>
               {t('ai_assistant.agents.override.errorTitle', 'Failed to save prompt override')}
             </AlertTitle>
@@ -2257,7 +2250,6 @@ function AgentDetailPanel({ agent }: { agent: AgentSettings }) {
             />
           ) : overrideQuery.isError ? (
             <Alert variant="destructive" data-ai-agent-override-history-error>
-              <AlertCircle className="size-4" aria-hidden />
               <AlertTitle>
                 {t(
                   'ai_assistant.agents.override.history.errorTitle',
@@ -2367,7 +2359,6 @@ export function AiAgentSettingsPageClient() {
   if (isError) {
     return (
       <Alert variant="destructive" data-ai-agent-settings-error>
-        <AlertCircle className="size-4" aria-hidden />
         <AlertTitle>
           {t('ai_assistant.agents.loadErrorTitle', 'Failed to load AI agents')}
         </AlertTitle>

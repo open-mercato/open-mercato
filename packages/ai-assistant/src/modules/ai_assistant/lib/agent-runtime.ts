@@ -38,7 +38,12 @@ import type {
   AiChatRequestContext,
   AiResolvedAttachmentPart,
 } from './attachment-bridge-types'
-import { resolveAiAgentTools, AgentPolicyError } from './agent-tools'
+import {
+  resolveAiAgentTools,
+  AgentPolicyError,
+  desanitizeToolNameForDisplay,
+  sanitizeToolNameForModel,
+} from './agent-tools'
 import { resolveEffectiveMutationPolicy } from './agent-policy'
 import { toolRegistry } from './tool-registry'
 import {
@@ -621,7 +626,9 @@ export function buildLoopTraceCollector(
         endTime?: number
       }
       return {
-        toolName: raw.toolName ?? 'unknown',
+        toolName: raw.toolName
+          ? desanitizeToolNameForDisplay(raw.toolName)
+          : 'unknown',
         args: raw.args ?? {},
         result: raw.result,
         error: raw.experimental_toToolResultError
@@ -712,6 +719,7 @@ export function buildLoopTraceCollector(
  */
 export function translateStopConditions(
   loopConfig: AiAgentLoopConfig,
+  mapToolName: (toolName: string) => string = (toolName) => toolName,
 ): StopCondition<ToolSet>[] {
   const effectiveMaxSteps = loopConfig.maxSteps ?? 10
   const userConditions: StopCondition<ToolSet>[] = []
@@ -723,7 +731,7 @@ export function translateStopConditions(
       if (item.kind === 'stepCount') {
         userConditions.push(stepCountIs(item.count))
       } else if (item.kind === 'hasToolCall') {
-        userConditions.push(hasToolCall(item.toolName))
+        userConditions.push(hasToolCall(mapToolName(item.toolName)))
       } else if (item.kind === 'custom') {
         userConditions.push(item.stop as StopCondition<ToolSet>)
       }
@@ -763,6 +771,15 @@ type StepOverrideWithTools = NonNullable<PrepareStepResult<ToolSet>> & {
   tools?: Record<string, unknown>
 }
 
+function normalizeAllowedToolNameForAgent(
+  toolName: string,
+  agent: AiAgentDefinition,
+): string | null {
+  if (agent.allowedTools.includes(toolName)) return toolName
+  const dottedName = desanitizeToolNameForDisplay(toolName)
+  return agent.allowedTools.includes(dottedName) ? dottedName : null
+}
+
 export function mergeStepOverrides(
   wrapperOverride: PrepareStepResult<ToolSet>,
   userOverride: PrepareStepResult<ToolSet> | undefined | null,
@@ -782,14 +799,15 @@ export function mergeStepOverrides(
   }
 
   if (userOverride.activeTools !== undefined) {
-    const filtered = userOverride.activeTools.filter((name) => {
-      const allowed = agent.allowedTools.includes(name)
+    const filtered = userOverride.activeTools.flatMap((name) => {
+      const normalized = normalizeAllowedToolNameForAgent(name, agent)
+      const allowed = normalized !== null
       if (!allowed) {
         console.warn(
           `[AI Agents] loop:active_tools_filtered — tool "${name}" is not in agent "${agent.id}" allowedTools; dropping from activeTools.`,
         )
       }
-      return allowed
+      return normalized ? [normalized] : []
     })
     merged.activeTools = filtered
   }
@@ -825,6 +843,39 @@ export function mergeStepOverrides(
   return merged
 }
 
+function mapPrepareStepResultForModel(
+  result: PrepareStepResult<ToolSet>,
+  wrappedTools: Record<string, unknown>,
+): PrepareStepResult<ToolSet> {
+  if (!result?.activeTools) return result
+  const activeTools = result.activeTools
+    .map((toolName) => sanitizeToolNameForModel(toolName))
+    .filter((toolName) => wrappedTools[toolName] !== undefined)
+  return { ...result, activeTools }
+}
+
+function mapToolChoiceForModel(
+  toolChoice: AiAgentLoopConfig['toolChoice'],
+): AiAgentLoopConfig['toolChoice'] {
+  if (!toolChoice || typeof toolChoice !== 'object' || toolChoice.type !== 'tool') {
+    return toolChoice
+  }
+  return {
+    ...toolChoice,
+    toolName: sanitizeToolNameForModel(toolChoice.toolName),
+  } as AiAgentLoopConfig['toolChoice']
+}
+
+function mapActiveToolsForModel(
+  activeTools: string[] | undefined,
+  wrappedTools: Record<string, unknown>,
+): string[] | undefined {
+  if (!activeTools) return undefined
+  return activeTools
+    .map((toolName) => sanitizeToolNameForModel(toolName))
+    .filter((toolName) => wrappedTools[toolName] !== undefined)
+}
+
 /**
  * Builds the wrapper-owned `PrepareStepFunction` that enforces the tool
  * allowlist and mutation-approval contract on every step, then composes
@@ -847,14 +898,15 @@ export function buildWrapperPrepareStep(
     const wrapperOverride: PrepareStepResult<ToolSet> = {}
 
     if (effectiveLoop.activeTools && effectiveLoop.activeTools.length > 0) {
-      wrapperOverride.activeTools = effectiveLoop.activeTools.filter((name) => {
-        const allowed = agent.allowedTools.includes(name)
+      wrapperOverride.activeTools = effectiveLoop.activeTools.flatMap((name) => {
+        const normalized = normalizeAllowedToolNameForAgent(name, agent)
+        const allowed = normalized !== null
         if (!allowed) {
           console.warn(
             `[AI Agents] loop:active_tools_filtered — tool "${name}" is not in agent "${agent.id}" allowedTools; dropping from activeTools.`,
           )
         }
-        return allowed
+        return normalized ? [normalized] : []
       })
     }
 
@@ -867,12 +919,15 @@ export function buildWrapperPrepareStep(
           `[AI Agents] User prepareStep threw for agent "${agent.id}"; ignoring user override:`,
           error,
         )
-        return wrapperOverride
+        return mapPrepareStepResultForModel(wrapperOverride, wrappedTools)
       }
-      return mergeStepOverrides(wrapperOverride, userOverride, agent, wrappedTools)
+      return mapPrepareStepResultForModel(
+        mergeStepOverrides(wrapperOverride, userOverride, agent, wrappedTools),
+        wrappedTools,
+      )
     }
 
-    return wrapperOverride
+    return mapPrepareStepResultForModel(wrapperOverride, wrappedTools)
   }
 }
 
@@ -1448,8 +1503,10 @@ export async function runAiAgentText(input: RunAiAgentTextInput): Promise<Respon
   const modelMessages = await convertToModelMessages(hydratedMessages)
 
   const effectiveLoop = resolveEffectiveLoopConfig(agent, input.loop, WRAPPER_DEFAULT_LOOP_CHAT)
-  const stopConditions = translateStopConditions(effectiveLoop)
+  const stopConditions = translateStopConditions(effectiveLoop, sanitizeToolNameForModel)
   const wrapperPrepareStep = buildWrapperPrepareStep(agent, effectiveLoop, tools)
+  const sdkActiveTools = mapActiveToolsForModel(effectiveLoop.activeTools, tools)
+  const sdkToolChoice = mapToolChoiceForModel(effectiveLoop.toolChoice)
 
   // Phase 3 + Phase 4 — budget enforcement + LoopTrace collection.
   // Layer order (outer → inner):
@@ -1532,8 +1589,8 @@ export async function runAiAgentText(input: RunAiAgentTextInput): Promise<Respon
       ...(effectiveLoop.repairToolCall !== undefined
         ? { experimental_repairToolCall: effectiveLoop.repairToolCall }
         : {}),
-      ...(effectiveLoop.activeTools !== undefined ? { activeTools: effectiveLoop.activeTools } : {}),
-      ...(effectiveLoop.toolChoice !== undefined ? { toolChoice: effectiveLoop.toolChoice } : {}),
+      ...(sdkActiveTools !== undefined ? { activeTools: sdkActiveTools } : {}),
+      ...(sdkToolChoice !== undefined ? { toolChoice: sdkToolChoice } : {}),
     }
     builtToolLoopAgent = new ToolLoopAgent(agentSettings)
   }
@@ -1551,8 +1608,8 @@ export async function runAiAgentText(input: RunAiAgentTextInput): Promise<Respon
     onToolCallStart: effectiveLoop.onToolCallStart,
     onToolCallFinish: effectiveLoop.onToolCallFinish,
     experimental_repairToolCall: effectiveLoop.repairToolCall,
-    activeTools: effectiveLoop.activeTools,
-    toolChoice: effectiveLoop.toolChoice,
+    activeTools: sdkActiveTools,
+    toolChoice: sdkToolChoice,
     abortSignal: abortController.signal,
     finalizeLoopTrace: () => loopTraceCollector.finalize(budgetEnforcer.abortReason),
     ...(builtToolLoopAgent !== undefined ? { toolLoopAgent: builtToolLoopAgent } : {}),
@@ -1616,8 +1673,8 @@ export async function runAiAgentText(input: RunAiAgentTextInput): Promise<Respon
     experimental_onToolCallStart: effectiveLoop.onToolCallStart as never,
     experimental_onToolCallFinish: effectiveLoop.onToolCallFinish as never,
     experimental_repairToolCall: effectiveLoop.repairToolCall as never,
-    ...(effectiveLoop.activeTools !== undefined ? { activeTools: effectiveLoop.activeTools } : {}),
-    ...(effectiveLoop.toolChoice !== undefined ? { toolChoice: effectiveLoop.toolChoice } : {}),
+    ...(sdkActiveTools !== undefined ? { activeTools: sdkActiveTools } : {}),
+    ...(sdkToolChoice !== undefined ? { toolChoice: sdkToolChoice } : {}),
     abortSignal: abortController.signal,
   })
   if (wallClockTimer !== undefined) {

@@ -150,18 +150,6 @@ function useAgentModels(agent: string): {
   }
 }
 
-function firstAvailableModelPickerValue(
-  providers: ModelPickerProvider[],
-): ModelPickerValue | null {
-  for (const provider of providers) {
-    const model = provider.models[0]
-    if (model) {
-      return { providerId: provider.id, modelId: model.id }
-    }
-  }
-  return null
-}
-
 function isModelPickerValueAvailable(
   value: ModelPickerValue,
   providers: ModelPickerProvider[],
@@ -399,6 +387,10 @@ function ToolCallList({ toolCalls }: { toolCalls: AiChatToolCallSnapshot[] }) {
   if (!toolCalls || toolCalls.length === 0) return null
   return (
     <div className="space-y-1" data-ai-chat-tool-calls="">
+      <div className="flex items-center justify-between px-0.5 text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
+        <span>{t('ai_assistant.chat.agentTasksTitle', 'Agent tasks')}</span>
+        <span>{toolCalls.length}</span>
+      </div>
       {toolCalls.map((call) => {
         const isOpen = openId === call.id
         const isError = call.state === 'error'
@@ -928,7 +920,7 @@ export function AiChat({
     if (modelPickerValue && isModelPickerValueAvailable(modelPickerValue, modelProviders)) {
       return modelPickerValue
     }
-    return firstAvailableModelPickerValue(modelProviders)
+    return null
   }, [
     allowRuntimeOverride,
     modelPickerValue,
@@ -950,9 +942,8 @@ export function AiChat({
       return
     }
     if (modelPickerValue && !isModelPickerValueAvailable(modelPickerValue, modelProviders)) {
-      const fallback = firstAvailableModelPickerValue(modelProviders)
-      setModelPickerValue(fallback)
-      writeModelPickerValue(agent, fallback)
+      setModelPickerValue(null)
+      writeModelPickerValue(agent, null)
     }
   }, [
     agent,
@@ -999,7 +990,9 @@ export function AiChat({
   //   (d) streaming, and the last visible event was a finished tool call
   //       — the model is reasoning about the result before emitting more
   //       text or kicking off the next tool
-  //   (e) streaming, but no delta has landed in the last ~300 ms (idle gap)
+  // Once visible text/reasoning exists and no tool is pending, hide the
+  // placeholder even if the network stream stays open for a tail event. That
+  // avoids showing "Thinking..." under an already usable answer.
   const lastAssistant = React.useMemo(() => {
     for (let index = chat.messages.length - 1; index >= 0; index -= 1) {
       const candidate = chat.messages[index]
@@ -1034,28 +1027,15 @@ export function AiChat({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [lastAssistant])
 
-  const lastStreamUpdateRef = React.useRef<number>(Date.now())
   const lastSnapshotRef = React.useRef<string>('')
   const [, setStreamTick] = React.useState(0)
 
   React.useEffect(() => {
     if (assistantStreamSnapshot !== lastSnapshotRef.current) {
       lastSnapshotRef.current = assistantStreamSnapshot
-      lastStreamUpdateRef.current = Date.now()
       setStreamTick((value) => value + 1)
     }
   }, [assistantStreamSnapshot])
-
-  React.useEffect(() => {
-    if (!isStreaming && !isSubmitting) return
-    const interval = window.setInterval(() => {
-      setStreamTick((value) => value + 1)
-    }, 200)
-    return () => window.clearInterval(interval)
-  }, [isStreaming, isSubmitting])
-
-  const idleDuringStream =
-    isStreaming && Date.now() - lastStreamUpdateRef.current >= 300
 
   const showThinkingIndicator =
     isSubmitting ||
@@ -1064,8 +1044,7 @@ export function AiChat({
         !hasAnyVisibleSignal ||
         hasPendingToolCall ||
         // Tool just returned and the model hasn't started speaking yet.
-        (hasCompletedToolCall && !trimmedContent) ||
-        idleDuringStream
+        (hasCompletedToolCall && !trimmedContent)
       ))
 
   const activeRegistry = registry ?? defaultAiUiPartRegistry
