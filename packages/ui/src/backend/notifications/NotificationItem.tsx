@@ -1,8 +1,9 @@
 "use client"
 import * as React from 'react'
 import { useRouter } from 'next/navigation'
-import { X, Bell, AlertTriangle, CheckCircle2, XCircle, Info, Loader2 } from 'lucide-react'
+import { Bell, AlertTriangle, CheckCircle2, XCircle, Info, Loader2, X } from 'lucide-react'
 import { Button } from '../../primitives/button'
+import { IconButton } from '../../primitives/icon-button'
 import { cn } from '@open-mercato/shared/lib/utils'
 import { formatRelativeTime } from '@open-mercato/shared/lib/time'
 import type { NotificationDto, NotificationRendererProps, NotificationTypeAction } from '@open-mercato/shared/modules/notifications/types'
@@ -15,36 +16,8 @@ export type NotificationItemProps = {
   onExecuteAction: (actionId: string) => Promise<{ href?: string }>
   onDismiss: () => Promise<void>
   t: TranslateFn
-  /**
-   * Optional custom renderer component for this notification type.
-   * When provided, this component will be used instead of the default rendering.
-   *
-   * Custom renderers receive full control over the notification's appearance while
-   * still having access to action handlers and notification data.
-   *
-   * @example
-   * ```tsx
-   * // In your module's notifications.client.ts
-   * export const salesNotificationTypes = [
-   *   {
-   *     type: 'sales.order.created',
-   *     Renderer: SalesOrderCreatedRenderer,
-   *     // ...other fields
-   *   }
-   * ]
-   *
-   * // Usage in NotificationPanel
-   * const renderer = salesNotificationTypes.find(t => t.type === notification.type)?.Renderer
-   * <NotificationItem
-   *   notification={notification}
-   *   customRenderer={renderer}
-   *   ...
-   * />
-   * ```
-   */
   customRenderer?: ComponentType<NotificationRendererProps>
 }
-
 
 function resolveNotificationText(params: {
   key?: string | null
@@ -69,11 +42,28 @@ const severityIcons = {
   error: XCircle,
 }
 
-const severityColors = {
+// Avatar background — soft tints matching the Figma example item palette
+const severityAvatarBg = {
+  info: 'bg-status-info-bg',
+  warning: 'bg-status-warning-bg',
+  success: 'bg-status-success-bg',
+  error: 'bg-status-error-bg',
+}
+
+const severityAvatarText = {
   info: 'text-status-info-icon',
   warning: 'text-status-warning-icon',
   success: 'text-status-success-icon',
   error: 'text-status-error-icon',
+}
+
+function humanizeModuleId(moduleId?: string | null): string | null {
+  if (!moduleId) return null
+  return moduleId
+    .split(/[_:.-]+/)
+    .filter(Boolean)
+    .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
+    .join(' ')
 }
 
 export function NotificationItem({
@@ -89,8 +79,11 @@ export function NotificationItem({
 
   const isUnread = notification.status === 'unread'
   const hasActions = notification.actions && notification.actions.length > 0
-  const severity = notification.severity as keyof typeof severityIcons
+  const severity = (notification.severity as keyof typeof severityIcons) ?? 'info'
   const IconComponent = severityIcons[severity] ?? Bell
+  const avatarBg = severityAvatarBg[severity] ?? 'bg-muted'
+  const avatarText = severityAvatarText[severity] ?? 'text-muted-foreground'
+
   const titleText = resolveNotificationText({
     key: notification.titleKey,
     fallback: notification.title,
@@ -103,14 +96,12 @@ export function NotificationItem({
     variables: notification.bodyVariables ?? undefined,
     t,
   })
+  const timeAgo = formatRelativeTime(notification.createdAt, { translate: t }) ?? ''
+  const sourceLabel = humanizeModuleId(notification.sourceModule)
 
   const handleClick = async () => {
-    if (isUnread) {
-      await onMarkAsRead()
-    }
-    if (notification.linkHref) {
-      router.push(notification.linkHref)
-    }
+    if (isUnread) await onMarkAsRead()
+    if (notification.linkHref) router.push(notification.linkHref)
   }
 
   const handleAction = async (actionId: string, event?: React.MouseEvent) => {
@@ -118,9 +109,7 @@ export function NotificationItem({
     setExecuting(actionId)
     try {
       const result = await onExecuteAction(actionId)
-      if (result.href) {
-        router.push(result.href)
-      }
+      if (result.href) router.push(result.href)
     } finally {
       setExecuting(null)
     }
@@ -131,7 +120,6 @@ export function NotificationItem({
     await onDismiss()
   }
 
-  // Convert notification actions to the format expected by custom renderers
   const rendererActions: NotificationTypeAction[] = notification.actions.map((action) => ({
     id: action.id,
     labelKey: action.labelKey ?? action.label,
@@ -139,7 +127,6 @@ export function NotificationItem({
     icon: action.icon,
   }))
 
-  // Use custom renderer if provided
   if (CustomRenderer) {
     return (
       <CustomRenderer
@@ -168,11 +155,14 @@ export function NotificationItem({
     )
   }
 
+  const showActions = hasActions && notification.status !== 'actioned'
+  const showBodyBubble = !!bodyText && bodyText.length > 0
+
   return (
     <div
       className={cn(
-        'group relative px-4 py-3 hover:bg-muted/50 cursor-pointer transition-colors',
-        isUnread && 'bg-muted/30'
+        'group relative flex gap-[15px] items-start rounded-xl p-3 transition-colors hover:bg-muted/40 cursor-pointer',
+        isUnread && 'bg-muted/20'
       )}
       onClick={handleClick}
       onKeyDown={(e) => {
@@ -184,79 +174,82 @@ export function NotificationItem({
       role="button"
       tabIndex={0}
     >
-      {isUnread && (
-        <div className="absolute left-1.5 top-1/2 -translate-y-1/2 h-2 w-2 rounded-full bg-primary" />
-      )}
+      {/* Avatar: severity-tinted circle with severity icon */}
+      <div className={cn('relative shrink-0 flex size-10 items-center justify-center rounded-full', avatarBg)}>
+        <IconComponent className={cn('size-5', avatarText)} aria-hidden="true" />
+        {isUnread ? (
+          <span
+            className="absolute -right-1 -top-1 size-3 rounded-full bg-accent-indigo ring-2 ring-background"
+            aria-hidden="true"
+          />
+        ) : null}
+      </div>
 
-      <div className="flex gap-3">
-        <div
-          className={cn(
-            'flex-shrink-0 mt-0.5',
-            severityColors[severity] ?? 'text-muted-foreground'
-          )}
-        >
-          <IconComponent className="h-5 w-5" />
+      <div className="flex min-w-0 flex-1 flex-col gap-1">
+        {/* Title row */}
+        <p className="text-sm font-medium leading-5 tracking-tight text-foreground">
+          {titleText}
+        </p>
+
+        {/* Description row: time · source */}
+        <div className="flex flex-wrap items-center gap-1 text-xs leading-4 text-muted-foreground">
+          {timeAgo ? <span className="whitespace-nowrap">{timeAgo}</span> : null}
+          {timeAgo && sourceLabel ? (
+            <span aria-hidden="true" className="text-text-disabled">·</span>
+          ) : null}
+          {sourceLabel ? <span className="truncate">{sourceLabel}</span> : null}
         </div>
 
-        <div className="flex-1 min-w-0">
-          <div className="flex items-start justify-between gap-2">
-            <h4 className={cn('text-sm font-medium', isUnread && 'font-semibold')}>
-              {titleText}
-            </h4>
-            <span className="flex-shrink-0 text-xs text-muted-foreground">
-              {formatRelativeTime(notification.createdAt, { translate: t }) ?? ''}
-            </span>
+        {/* Optional body bubble */}
+        {showBodyBubble ? (
+          <div className="mt-2 inline-flex max-w-full self-start rounded-tr-lg rounded-br-lg rounded-bl-lg rounded-tl-sm border bg-background px-3 py-2 text-sm leading-5 tracking-tight text-muted-foreground shadow-xs">
+            <p className="whitespace-pre-line break-words">{bodyText}</p>
           </div>
+        ) : null}
 
-          {bodyText && (
-            <p className="mt-1 text-sm text-muted-foreground line-clamp-2">
-              {bodyText}
-            </p>
-          )}
-
-          {hasActions && notification.status !== 'actioned' && (
-            <div className="mt-2 flex flex-wrap items-start gap-2">
-              {notification.actions.map((action) => (
+        {/* Optional actions row */}
+        {showActions ? (
+          <div className="mt-2 flex flex-wrap items-center gap-2">
+            {notification.actions.map((action, idx) => {
+              const isPrimary = idx === notification.actions.length - 1 || action.variant === 'default'
+              return (
                 <Button
                   key={action.id}
-                  variant={
-                    (action.variant as 'default' | 'secondary' | 'destructive' | 'outline' | 'ghost') ??
-                    'outline'
-                  }
+                  type="button"
+                  variant={isPrimary ? 'default' : 'outline'}
                   size="sm"
-                  className="h-auto min-h-8 max-w-full min-w-0 whitespace-normal break-words text-left"
+                  className={cn(
+                    'h-8 rounded-md px-2.5 py-1.5 text-sm font-medium',
+                    isPrimary && 'bg-accent-indigo text-accent-indigo-foreground hover:bg-accent-indigo/90',
+                  )}
                   onClick={(event) => handleAction(action.id, event)}
                   disabled={executing !== null}
                 >
-                  {action.labelKey
-                    ? t(action.labelKey, action.label)
-                    : t(action.label, action.label)}
-                  {executing === action.id && (
-                    <Loader2 className="ml-1 h-3 w-3 animate-spin" />
-                  )}
+                  {action.labelKey ? t(action.labelKey, action.label) : t(action.label, action.label)}
+                  {executing === action.id ? <Loader2 className="ml-1 size-3 animate-spin" /> : null}
                 </Button>
-              ))}
-            </div>
-          )}
+              )
+            })}
+          </div>
+        ) : null}
 
-          {notification.status === 'actioned' && notification.actionTaken && (
-            <p className="mt-1 text-xs text-muted-foreground italic">
-              {t('notifications.actionTaken', 'Action taken: {action}', {
-                action: notification.actionTaken,
-              })}
-            </p>
-          )}
-        </div>
-
-        <Button
-          variant="ghost"
-          size="icon"
-          className="flex-shrink-0 h-6 w-6 opacity-0 group-hover:opacity-100 transition-opacity"
-          onClick={handleDismiss}
-        >
-          <X className="h-3 w-3" />
-        </Button>
+        {notification.status === 'actioned' && notification.actionTaken ? (
+          <p className="mt-1 text-xs italic text-muted-foreground">
+            {t('notifications.actionTaken', 'Action taken: {action}', { action: notification.actionTaken })}
+          </p>
+        ) : null}
       </div>
+
+      <IconButton
+        type="button"
+        variant="ghost"
+        size="xs"
+        className="absolute right-2 top-2 opacity-0 transition-opacity group-hover:opacity-100 focus-visible:opacity-100"
+        onClick={handleDismiss}
+        aria-label={t('notifications.actions.dismiss', 'Dismiss')}
+      >
+        <X className="size-3.5" />
+      </IconButton>
     </div>
   )
 }

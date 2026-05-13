@@ -1,9 +1,10 @@
 'use client'
 
 import * as React from 'react'
-import { ShoppingCart, ExternalLink, DollarSign, User, Calendar } from 'lucide-react'
+import { ShoppingCart, ExternalLink, Loader2, X } from 'lucide-react'
 import { useRouter } from 'next/navigation'
 import { Button } from '@open-mercato/ui/primitives/button'
+import { IconButton } from '@open-mercato/ui/primitives/icon-button'
 import { cn } from '@open-mercato/shared/lib/utils'
 import { formatRelativeTime } from '@open-mercato/shared/lib/time'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
@@ -56,11 +57,13 @@ export function SalesOrderCreatedRenderer({
     }
   }
 
+  const timeAgo = formatRelativeTime(notification.createdAt, { translate: t }) ?? ''
+
   return (
     <div
       className={cn(
-        'group relative px-4 py-3 hover:bg-muted/50 cursor-pointer transition-colors border-l-4 border-l-status-info-border',
-        isUnread && 'bg-status-info-bg/50'
+        'group relative flex gap-[15px] items-start rounded-xl p-3 transition-colors hover:bg-muted/40 cursor-pointer',
+        isUnread && 'bg-muted/20',
       )}
       onClick={handleView}
       onKeyDown={(e) => {
@@ -72,77 +75,92 @@ export function SalesOrderCreatedRenderer({
       role="button"
       tabIndex={0}
     >
-      {isUnread && (
-        <div className="absolute left-1.5 top-1/2 -translate-y-1/2 h-2 w-2 rounded-full bg-primary" />
-      )}
+      {/* Avatar: indigo-tinted circle with shopping-cart icon */}
+      <div className="relative shrink-0 flex size-10 items-center justify-center rounded-full bg-status-info-bg">
+        <ShoppingCart className="size-5 text-status-info-icon" aria-hidden="true" />
+        {isUnread ? (
+          <span
+            className="absolute -right-1 -top-1 size-3 rounded-full bg-accent-indigo ring-2 ring-background"
+            aria-hidden="true"
+          />
+        ) : null}
+      </div>
 
-      <div className="flex gap-3">
-        <div className="flex-shrink-0 mt-0.5">
-          <div className="h-10 w-10 rounded-lg bg-status-info-bg flex items-center justify-center">
-            <ShoppingCart className="h-5 w-5 text-status-info-icon" />
-          </div>
+      <div className="flex min-w-0 flex-1 flex-col gap-1">
+        {/* Title row */}
+        <p className="truncate text-sm font-medium leading-5 tracking-tight text-foreground">
+          {notification.title}
+        </p>
+
+        {/* Description row: time · order# · total · assigned — inline so it wraps naturally per line */}
+        <div className="text-xs leading-4 text-muted-foreground">
+          {timeAgo ? (
+            <>
+              <span className="whitespace-nowrap">{timeAgo}</span>
+              <span aria-hidden="true" className="mx-1 text-text-disabled">·</span>
+            </>
+          ) : null}
+          {orderNumber ? (
+            <>
+              <span className="inline-flex items-center rounded bg-muted px-1.5 py-0.5 font-mono text-[11px] text-foreground">
+                #{orderNumber}
+              </span>
+              <span aria-hidden="true" className="mx-1 text-text-disabled">·</span>
+            </>
+          ) : null}
+          {currentTotal ? (
+            <>
+              <span className="whitespace-nowrap font-medium text-foreground">{currentTotal}</span>
+              <span aria-hidden="true" className="mx-1 text-text-disabled">·</span>
+            </>
+          ) : null}
+          <span className="whitespace-nowrap">{t('sales.notifications.renderer.assignedToYou', 'Assigned to you')}</span>
         </div>
 
-        <div className="flex-1 min-w-0">
-          <div className="flex items-start justify-between gap-2">
-            <div>
-              <h4 className={cn('text-sm font-medium', isUnread && 'font-semibold')}>
-                {notification.title}
-              </h4>
-              {orderNumber && (
-                <div className="flex items-center gap-1 mt-0.5">
-                  <span className="text-xs font-mono text-muted-foreground bg-muted px-1.5 py-0.5 rounded">
-                    #{orderNumber}
-                  </span>
-                </div>
-              )}
-            </div>
-            <span className="flex-shrink-0 text-xs text-muted-foreground flex items-center gap-1">
-              <Calendar className="h-3 w-3" />
-              {formatRelativeTime(notification.createdAt, { translate: t }) ?? ''}
-            </span>
-          </div>
-
-          <div className="mt-2 flex items-center gap-4 text-xs text-muted-foreground">
-            {currentTotal && (
-              <div className="flex items-center gap-1">
-                <DollarSign className="h-3 w-3" />
-                <span className="font-medium text-foreground">{currentTotal}</span>
-              </div>
-            )}
-            <div className="flex items-center gap-1">
-              <User className="h-3 w-3" />
-              <span>{t('sales.notifications.renderer.assignedToYou', 'Assigned to you')}</span>
-            </div>
-          </div>
-
-          <div className="mt-3 flex gap-2">
-            <Button
-              variant="default"
-              size="sm"
-              onClick={(e) => {
-                e.stopPropagation()
-                handleView()
-              }}
-              disabled={executing || (!viewAction && !notification.linkHref)}
-              className="gap-1"
-            >
-              <ExternalLink className="h-3 w-3" />
-              {t('sales.notifications.renderer.viewOrder', 'View Order')}
-            </Button>
-            <Button
-              variant="ghost"
-              size="sm"
-              onClick={(e) => {
-                e.stopPropagation()
-                onDismiss()
-              }}
-            >
-              {t('notifications.actions.dismiss', 'Dismiss')}
-            </Button>
-          </div>
+        {/* Actions row */}
+        <div className="mt-2 flex items-center gap-2">
+          <Button
+            type="button"
+            size="sm"
+            className="h-8 rounded-md px-2.5 bg-accent-indigo text-accent-indigo-foreground hover:bg-accent-indigo/90"
+            onClick={(e) => {
+              e.stopPropagation()
+              handleView()
+            }}
+            disabled={executing || (!viewAction && !notification.linkHref)}
+          >
+            <ExternalLink className="size-3.5" aria-hidden="true" />
+            {t('sales.notifications.renderer.viewOrder', 'View Order')}
+            {executing ? <Loader2 className="ml-1 size-3 animate-spin" /> : null}
+          </Button>
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            className="h-8 rounded-md px-2.5"
+            onClick={(e) => {
+              e.stopPropagation()
+              onDismiss()
+            }}
+          >
+            {t('notifications.actions.dismiss', 'Dismiss')}
+          </Button>
         </div>
       </div>
+
+      <IconButton
+        type="button"
+        variant="ghost"
+        size="xs"
+        className="absolute right-2 top-2 opacity-0 transition-opacity group-hover:opacity-100 focus-visible:opacity-100"
+        onClick={(e) => {
+          e.stopPropagation()
+          onDismiss()
+        }}
+        aria-label={t('notifications.actions.dismiss', 'Dismiss')}
+      >
+        <X className="size-3.5" />
+      </IconButton>
     </div>
   )
 }
