@@ -15,6 +15,7 @@ export const metadata = {
   pageGroupKey: 'settings.sections.moduleConfigs',
   pageOrder: 8,
   icon: attachmentIcon,
+  pageContext: 'settings' as const,
   breadcrumb: [
     { label: 'Storage', labelKey: 'attachments.storage.nav.title' },
   ],
