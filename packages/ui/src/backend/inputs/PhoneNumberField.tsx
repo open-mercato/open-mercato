@@ -291,7 +291,7 @@ export function PhoneNumberField({
     <div className="space-y-2">
       <div
         className={cn(
-          'flex items-stretch w-full rounded-[10px] border bg-background shadow-xs transition-colors',
+          'flex items-stretch w-full rounded-md border bg-background shadow-xs transition-colors',
           disabled
             ? 'bg-bg-disabled border-border-disabled cursor-not-allowed'
             : focused
@@ -304,7 +304,7 @@ export function PhoneNumberField({
           <SelectTrigger
             aria-label={ariaLabel ? `${ariaLabel} country` : 'Country code'}
             className={cn(
-              'h-auto w-auto shrink-0 gap-1.5 rounded-none rounded-l-[9px] border-0 bg-transparent px-2.5 py-2 shadow-none',
+              'h-auto w-auto shrink-0 gap-1.5 rounded-none rounded-l-md border-0 bg-transparent px-2.5 py-2 shadow-none',
               'hover:bg-muted/40 focus:bg-muted/40 focus-visible:shadow-none focus-visible:border-0',
               'disabled:bg-transparent disabled:hover:bg-transparent',
             )}
