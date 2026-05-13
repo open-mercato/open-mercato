@@ -509,21 +509,25 @@ function buildSplashChildEnv() {
   }
 }
 
-function buildMonorepoAppDevEnv() {
-  const childEnv = buildSplashChildEnv() ?? {}
+function applyLocalDevBackgroundServiceDefaults(childEnv) {
+  const env = childEnv ?? {}
   if (
     typeof process.env.OM_AUTO_SPAWN_WORKERS_LAZY !== 'string'
     || process.env.OM_AUTO_SPAWN_WORKERS_LAZY.trim() === ''
   ) {
-    childEnv.OM_AUTO_SPAWN_WORKERS_LAZY = 'true'
+    env.OM_AUTO_SPAWN_WORKERS_LAZY = 'true'
   }
   if (
     typeof process.env.OM_AUTO_SPAWN_SCHEDULER_LAZY !== 'string'
     || process.env.OM_AUTO_SPAWN_SCHEDULER_LAZY.trim() === ''
   ) {
-    childEnv.OM_AUTO_SPAWN_SCHEDULER_LAZY = 'true'
+    env.OM_AUTO_SPAWN_SCHEDULER_LAZY = 'true'
   }
-  return childEnv
+  return env
+}
+
+function buildAppDevEnv() {
+  return applyLocalDevBackgroundServiceDefaults(buildSplashChildEnv() ?? {})
 }
 
 function launchStandaloneDev(options = {}) {
@@ -560,7 +564,7 @@ function launchStandaloneDev(options = {}) {
 
   const app = spawnCommand(process.execPath, runtimeArgs, {
     stdio: 'inherit',
-    env: buildSplashChildEnv(),
+    env: buildAppDevEnv(),
   })
 
   app.on('close', (code) => {
@@ -1607,7 +1611,7 @@ function launchMonorepoAppDev() {
   })
   const app = spawnCommand(yarnCommand, appArgs, {
     stdio: 'inherit',
-    env: buildMonorepoAppDevEnv(),
+    env: buildAppDevEnv(),
   })
 
   app.on('close', (code, signal) => {

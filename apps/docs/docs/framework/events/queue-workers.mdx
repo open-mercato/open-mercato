@@ -210,11 +210,11 @@ The default eager mode starts a single `mercato queue worker --all` process whos
 Lazy mode replaces `queue worker --all` with a lightweight watcher process. The watcher probes each discovered queue for ready jobs without importing handler code or creating BullMQ workers. The first ready job on a queue triggers `mercato queue worker <queueName>`; queues that never receive jobs stay completely idle.
 
 ```bash
-# Enable lazy auto-spawn — default behavior is unchanged for everyone else
-OM_AUTO_SPAWN_WORKERS_LAZY=true yarn dev
+# Enable lazy auto-spawn when bypassing the dev wrapper
+OM_AUTO_SPAWN_WORKERS_LAZY=true mercato server dev
 ```
 
-The monorepo root `yarn dev` wrapper sets `OM_AUTO_SPAWN_WORKERS_LAZY=true` automatically for local memory reduction. Direct `mercato server dev`, standalone apps, and production `mercato server start` keep the eager default until this variable is set explicitly. Use `OM_AUTO_SPAWN_WORKERS_LAZY=false yarn dev` from the monorepo root to force the historical eager mode.
+The monorepo and standalone `yarn dev` wrappers set `OM_AUTO_SPAWN_WORKERS_LAZY=true` and `OM_AUTO_SPAWN_SCHEDULER_LAZY=true` automatically for local memory reduction. Direct `mercato server dev` and production `mercato server start` keep the eager default until these variables are set explicitly. Use `OM_AUTO_SPAWN_WORKERS_LAZY=false OM_AUTO_SPAWN_SCHEDULER_LAZY=false yarn dev` to force the historical eager mode.
 
 Lazy mode env variables:
 
