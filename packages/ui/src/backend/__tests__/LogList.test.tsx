@@ -18,34 +18,41 @@ function makeEntry(over: Partial<LogListEntry> = {}): LogListEntry {
 }
 
 describe('LogLevelBadge', () => {
-  it('applies the info palette by default', () => {
+  it('applies the info palette by default (semantic status tokens)', () => {
     const { container } = render(<LogLevelBadge level="info" />)
     const badge = container.firstElementChild as HTMLElement
-    expect(badge.className).toContain('bg-blue-100')
-    expect(badge.className).toContain('text-blue-800')
+    expect(badge).toHaveAttribute('data-log-level', 'info')
+    expect(badge.className).toContain('bg-status-info-bg')
+    expect(badge.className).toContain('text-status-info-text')
   })
 
-  it('maps warn / warning / error / debug to the matching palette', () => {
+  it('maps warn / warning / error / debug to the matching semantic palette', () => {
     const { rerender, container } = render(<LogLevelBadge level="warn" />)
-    expect(container.firstElementChild!.className).toContain('bg-amber-100')
+    expect(container.firstElementChild!).toHaveAttribute('data-log-level', 'warn')
+    expect(container.firstElementChild!.className).toContain('bg-status-warning-bg')
 
     rerender(<LogLevelBadge level="warning" />)
-    expect(container.firstElementChild!.className).toContain('bg-amber-100')
+    expect(container.firstElementChild!).toHaveAttribute('data-log-level', 'warning')
+    expect(container.firstElementChild!.className).toContain('bg-status-warning-bg')
 
     rerender(<LogLevelBadge level="error" />)
-    expect(container.firstElementChild!.className).toContain('bg-red-100')
+    expect(container.firstElementChild!).toHaveAttribute('data-log-level', 'error')
+    expect(container.firstElementChild!.className).toContain('bg-status-error-bg')
 
     rerender(<LogLevelBadge level="debug" />)
-    expect(container.firstElementChild!.className).toContain('bg-zinc-100')
+    expect(container.firstElementChild!).toHaveAttribute('data-log-level', 'debug')
+    expect(container.firstElementChild!.className).toContain('bg-status-neutral-bg')
   })
 
-  it('renders an unrecognized level without color classes (falls back to Badge defaults)', () => {
+  it('renders an unrecognized level without status palette classes (falls back to Badge secondary)', () => {
     const { container } = render(<LogLevelBadge level="custom-level" />)
     const badge = container.firstElementChild as HTMLElement
-    expect(badge.className).not.toContain('bg-blue-100')
-    expect(badge.className).not.toContain('bg-amber-100')
-    expect(badge.className).not.toContain('bg-red-100')
-    expect(badge.className).not.toContain('bg-zinc-100')
+    expect(badge).toHaveAttribute('data-log-level', 'custom-level')
+    expect(badge.className).not.toContain('bg-status-info-bg')
+    expect(badge.className).not.toContain('bg-status-warning-bg')
+    expect(badge.className).not.toContain('bg-status-error-bg')
+    expect(badge.className).not.toContain('bg-status-neutral-bg')
+    expect(badge.className).toContain('bg-secondary')
   })
 
   it('honors a custom label and falls back to level when label is omitted', () => {

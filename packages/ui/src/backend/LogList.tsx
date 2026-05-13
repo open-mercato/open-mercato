@@ -8,7 +8,7 @@ import {
   AccordionItem,
   AccordionTrigger,
 } from '@open-mercato/ui/primitives/accordion'
-import { Badge } from '@open-mercato/ui/primitives/badge'
+import { Badge, type BadgeProps } from '@open-mercato/ui/primitives/badge'
 
 export type LogListLevel = 'info' | 'warn' | 'warning' | 'error' | 'debug' | string
 
@@ -26,12 +26,14 @@ export type LogListEntry = {
   body: React.ReactNode
 }
 
-const LOG_LEVEL_BADGE_CLASSES: Record<string, string> = {
-  info: 'bg-blue-100 text-blue-800',
-  warn: 'bg-amber-100 text-amber-800',
-  warning: 'bg-amber-100 text-amber-800',
-  error: 'bg-red-100 text-red-800',
-  debug: 'bg-zinc-100 text-zinc-800',
+type LogLevelBadgeVariant = NonNullable<BadgeProps['variant']>
+
+const LOG_LEVEL_BADGE_VARIANT: Record<string, LogLevelBadgeVariant> = {
+  info: 'info',
+  warn: 'warning',
+  warning: 'warning',
+  error: 'error',
+  debug: 'neutral',
 }
 
 export type LogLevelBadgeProps = {
@@ -42,8 +44,9 @@ export type LogLevelBadgeProps = {
 
 export function LogLevelBadge({ level, label, className }: LogLevelBadgeProps) {
   const key = typeof level === 'string' ? level.toLowerCase() : ''
+  const variant = LOG_LEVEL_BADGE_VARIANT[key] ?? 'secondary'
   return (
-    <Badge variant="secondary" className={cn(LOG_LEVEL_BADGE_CLASSES[key] ?? '', className)}>
+    <Badge variant={variant} className={className} data-log-level={key || undefined}>
       {label ?? level}
     </Badge>
   )
