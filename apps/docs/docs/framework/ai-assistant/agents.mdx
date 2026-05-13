@@ -109,7 +109,7 @@ export const auditAgent: AiAgentDefinition = {
 
 When `false`, the runtime also rejects `?provider=` / `?model=` / `?loopBudget=` query parameters sent to the chat dispatcher route — the server-side resolution chain (steps 2–7 in [Overview → Model resolution order](./overview#model-resolution-order)) still applies.
 
-> The field was renamed from `allowRuntimeModelOverride` in Phase 4 of spec [`2026-04-28-ai-agents-agentic-loop-controls`](../../../../../.ai/specs/2026-04-28-ai-agents-agentic-loop-controls.md) because its scope now covers loop overrides as well. The runtime accepts both names — `allowRuntimeOverride` wins when both are set. Migrate at your convenience; the deprecated alias remains for one minor version.
+> The field was renamed from `allowRuntimeModelOverride` in Phase 4 of spec [`2026-04-28-ai-agents-agentic-loop-controls`](https://github.com/open-mercato/open-mercato/blob/main/.ai/specs/2026-04-28-ai-agents-agentic-loop-controls.md) because its scope now covers loop overrides as well. The runtime accepts both names — `allowRuntimeOverride` wins when both are set. Migrate at your convenience; the deprecated alias remains for one minor version.
 
 ### Runtime model picker (`<ModelPicker>`)
 
@@ -416,7 +416,7 @@ Pick Option B by default when you "just need one extra AI SDK option" — it kee
 
 ## Agentic loop controls
 
-The runtime always runs a tool-using loop (`streamText` with `stopWhen`). Spec [`2026-04-28-ai-agents-agentic-loop-controls`](../../../../../.ai/specs/2026-04-28-ai-agents-agentic-loop-controls.md) promotes that loop from "one step-count cap" to a first-class part of the agent contract — declarative `loop` block, per-call overrides, per-tenant operator budgets, runtime LoopTrace, and an opt-in `ToolLoopAgent` engine.
+The runtime always runs a tool-using loop (`streamText` with `stopWhen`). Spec [`2026-04-28-ai-agents-agentic-loop-controls`](https://github.com/open-mercato/open-mercato/blob/main/.ai/specs/2026-04-28-ai-agents-agentic-loop-controls.md) promotes that loop from "one step-count cap" to a first-class part of the agent contract — declarative `loop` block, per-call overrides, per-tenant operator budgets, runtime LoopTrace, and an opt-in `ToolLoopAgent` engine.
 
 ### Resolution chain — per loop axis
 

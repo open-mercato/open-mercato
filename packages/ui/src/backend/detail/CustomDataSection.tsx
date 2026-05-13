@@ -326,6 +326,15 @@ function CustomDataSectionImpl({
     () => customFieldFormsQuery.data?.definitions ?? [],
     [customFieldFormsQuery.data],
   )
+  const formInitialValues = React.useMemo(() => {
+    const next: Record<string, unknown> = { ...(values ?? {}) }
+    fields.forEach((field) => {
+      if (!field.id || Object.prototype.hasOwnProperty.call(next, field.id)) return
+      const resolved = readCustomDataFieldValue(values, field.id)
+      if (resolved !== undefined) next[field.id] = resolved
+    })
+    return next
+  }, [fields, values])
   const [dictionaryLoading, setDictionaryLoading] = React.useState(false)
   const [relationLoading, setRelationLoading] = React.useState(false)
   const loading = customFieldFormsQuery.isLoading || dictionaryLoading || relationLoading
@@ -635,7 +644,7 @@ function CustomDataSectionImpl({
               entityId={primaryEntityId}
               entityIds={resolvedEntityIds}
               fields={fields}
-              initialValues={values}
+              initialValues={formInitialValues}
               onSubmit={handleSubmit}
               submitLabel={labels.saveShortcut}
               isLoading={loading}
