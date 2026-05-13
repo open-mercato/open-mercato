@@ -33,4 +33,14 @@ export const customerMagicLinkIpRateLimitConfig = readEndpointRateLimitConfig('C
   points: 10, duration: 60, blockDuration: 120, keyPrefix: 'customer-magic-link-ip',
 })
 
+// Bulk custom-domain warm-up endpoint (`/api/customer_accounts/domain-resolve/all`).
+// Single shared `DOMAIN_RESOLVE_SECRET` gates a payload that lists every active
+// custom-domain mapping in the deployment, so we cap requests per IP to make
+// brute-force or post-leak enumeration noisy. 30 req/min/IP comfortably covers
+// the Node middleware warm-up cadence (one call per process boot) while
+// staying well below useful enumeration throughput.
+export const domainResolveAllIpRateLimitConfig = readEndpointRateLimitConfig('DOMAIN_RESOLVE_ALL_IP', {
+  points: 30, duration: 60, blockDuration: 60, keyPrefix: 'domain-resolve-all',
+})
+
 export { checkAuthRateLimit, resetAuthRateLimit }

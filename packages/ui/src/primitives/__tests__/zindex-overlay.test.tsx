@@ -14,6 +14,7 @@ const Z_INDEX_BY_TOKEN: Record<string, number> = {
   'z-modal': 40,
   'z-popover': 45,
   'z-toast': 50,
+  'z-modal-elevated': 55,
   'z-tooltip': 60,
   'z-banner': 70,
   'z-top': 100,
@@ -127,6 +128,27 @@ describe('Issue #1836: portaled overlay primitives sit above modals (z-popover >
 
       expect(css).toContain('@utility z-popover')
       expect(css).toContain('z-index: var(--z-index-popover);')
+    }
+  })
+
+  it('globals.css defines z-modal-elevated (55) above z-popover so dialogs opened from inside popovers are visible', () => {
+    const repoRoot = path.resolve(__dirname, '../../../../..')
+    const cssPaths = [
+      path.join(repoRoot, 'apps/mercato/src/app/globals.css'),
+      path.join(repoRoot, 'packages/create-app/template/src/app/globals.css'),
+    ]
+
+    for (const cssPath of cssPaths) {
+      const css = fs.readFileSync(cssPath, 'utf8')
+
+      expect(css).toContain('@utility z-modal-elevated')
+      expect(css).toMatch(/z-index:\s*var\(--z-index-modal-elevated(?:,\s*\d+)?\);/)
+
+      const elevatedMatch = css.match(/--z-index-modal-elevated:\s*(\d+);/)
+      const popoverMatch = css.match(/--z-index-popover:\s*(\d+);/)
+      expect(elevatedMatch).not.toBeNull()
+      expect(popoverMatch).not.toBeNull()
+      expect(Number(elevatedMatch![1])).toBeGreaterThan(Number(popoverMatch![1]))
     }
   })
 })

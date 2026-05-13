@@ -129,3 +129,6 @@ docker/opencode/opencode.jsonc
 .agents/
 
 apps/mercato/data/
+
+# Local security-tooling working dir
+.deepsec/

@@ -22,7 +22,7 @@ export default async function RootLayout({
 }>) {
   const locale = await detectLocale()
   const dict = await loadDictionary(locale)
-  const demoModeEnabled = process.env.DEMO_MODE !== 'false'
+  const demoModeEnabled = process.env.DEMO_MODE === 'true'
   const noticeBarsEnabled = process.env.OM_INTEGRATION_TEST !== 'true'
   return (
     <html lang={locale} suppressHydrationWarning>
