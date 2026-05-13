@@ -21,6 +21,27 @@ export function extractCustomFieldEntries(item: Record<string, unknown>): Record
     out[`cf_${trimmed}`] = normalizeValue(rawValue)
   }
 
+  const assignObject = (source: unknown) => {
+    if (!source || typeof source !== 'object' || Array.isArray(source)) return
+    for (const [key, value] of Object.entries(source as Record<string, unknown>)) {
+      assign(key, value)
+    }
+  }
+
+  const assignEntries = (source: unknown) => {
+    if (!Array.isArray(source)) return
+    for (const entry of source as Array<Record<string, unknown>>) {
+      if (!entry || typeof entry !== 'object') continue
+      const key = typeof entry.key === 'string'
+        ? entry.key
+        : typeof entry.id === 'string'
+          ? entry.id
+          : null
+      if (!key) continue
+      assign(key, 'value' in entry ? (entry as any).value : undefined)
+    }
+  }
+
   for (const [rawKey, rawValue] of Object.entries(item)) {
     if (rawKey.startsWith('cf_')) {
       if (rawKey.endsWith('__is_multi')) continue
@@ -30,25 +51,14 @@ export function extractCustomFieldEntries(item: Record<string, unknown>): Record
     }
   }
 
-  const customValues = (item as any).customValues
-  if (customValues && typeof customValues === 'object' && !Array.isArray(customValues)) {
-    for (const [key, value] of Object.entries(customValues as Record<string, unknown>)) {
-      assign(key, value)
-    }
-  }
-
-  const customFields = (item as any).customFields
-  if (Array.isArray(customFields)) {
-    for (const entry of customFields as Array<Record<string, unknown>>) {
-      const key = entry && typeof entry.key === 'string' ? entry.key : null
-      if (!key) continue
-      assign(key, 'value' in entry ? (entry as any).value : undefined)
-    }
-  } else if (customFields && typeof customFields === 'object') {
-    for (const [key, value] of Object.entries(customFields as Record<string, unknown>)) {
-      assign(key, value)
-    }
-  }
+  assignObject((item as any).customValues)
+  assignObject((item as any).custom_values)
+  assignObject((item as any).customFields)
+  assignObject((item as any).custom_fields)
+  assignEntries((item as any).customFields)
+  assignEntries((item as any).custom_fields)
+  assignEntries((item as any).customFieldEntries)
+  assignEntries((item as any).custom_field_entries)
 
   return out
 }

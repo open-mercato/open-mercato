@@ -23,8 +23,9 @@ export function ComponentOverrideProvider({
 }) {
   const [userFeatures, setUserFeatures] = React.useState<readonly string[]>([])
 
+  registerComponentOverrides(overrides)
+
   React.useEffect(() => {
-    registerComponentOverrides(overrides)
     return () => {
       registerComponentOverrides([])
     }
