@@ -211,6 +211,338 @@ export class AiPendingAction {
 }
 
 /**
+ * Per-tenant runtime override row that controls which provider, model, and
+ * base URL the AI runtime uses for a given agent (or all agents when
+ * `agent_id` is null).
+ *
+ * Resolution at query time: a non-null `agent_id` row takes precedence over
+ * a null `agent_id` (tenant-wide) row for the same `(tenant_id,
+ * organization_id)` scope. All value columns are nullable — an admin can
+ * override just the provider, just the model, or any subset. A null value
+ * means "inherit from the next source in the factory resolution chain."
+ *
+ * Soft-delete via `deleted_at` so the unique partial index and audit trail
+ * remain intact across upsert operations.
+ *
+ * Phase 4a of spec `2026-04-27-ai-agents-provider-model-baseurl-overrides`.
+ */
+@Entity({ tableName: 'ai_agent_runtime_overrides' })
+@Index({
+  name: 'ai_agent_runtime_overrides_tenant_org_agent_uq',
+  expression:
+    'create unique index "ai_agent_runtime_overrides_tenant_org_agent_uq" on "ai_agent_runtime_overrides" ("tenant_id", "organization_id", "agent_id") where "deleted_at" is null and "organization_id" is not null and "agent_id" is not null',
+})
+@Index({
+  name: 'ai_agent_runtime_overrides_tenant_agent_null_org_uq',
+  expression:
+    'create unique index "ai_agent_runtime_overrides_tenant_agent_null_org_uq" on "ai_agent_runtime_overrides" ("tenant_id", "agent_id") where "deleted_at" is null and "organization_id" is null and "agent_id" is not null',
+})
+@Index({
+  name: 'ai_agent_runtime_overrides_tenant_null_agent_null_org_uq',
+  expression:
+    'create unique index "ai_agent_runtime_overrides_tenant_null_agent_null_org_uq" on "ai_agent_runtime_overrides" ("tenant_id") where "deleted_at" is null and "organization_id" is null and "agent_id" is null',
+})
+@Index({
+  name: 'ai_agent_runtime_overrides_tenant_org_null_agent_uq',
+  expression:
+    'create unique index "ai_agent_runtime_overrides_tenant_org_null_agent_uq" on "ai_agent_runtime_overrides" ("tenant_id", "organization_id") where "deleted_at" is null and "organization_id" is not null and "agent_id" is null',
+})
+@Index({
+  name: 'ai_agent_runtime_overrides_tenant_idx',
+  properties: ['tenantId'],
+})
+export class AiAgentRuntimeOverride {
+  [OptionalProps]?:
+    | 'createdAt'
+    | 'updatedAt'
+    | 'organizationId'
+    | 'agentId'
+    | 'providerId'
+    | 'modelId'
+    | 'baseUrl'
+    | 'allowedOverrideProviders'
+    | 'allowedOverrideModelsByProvider'
+    | 'updatedByUserId'
+    | 'deletedAt'
+    | 'loopDisabled'
+    | 'loopMaxSteps'
+    | 'loopMaxToolCalls'
+    | 'loopMaxWallClockMs'
+    | 'loopMaxTokens'
+    | 'loopStopWhenJson'
+    | 'loopActiveToolsJson'
+
+  @PrimaryKey({ type: 'uuid', defaultRaw: 'gen_random_uuid()' })
+  id!: string
+
+  @Property({ name: 'tenant_id', type: 'uuid' })
+  tenantId!: string
+
+  @Property({ name: 'organization_id', type: 'uuid', nullable: true })
+  organizationId?: string | null
+
+  @Property({ name: 'agent_id', type: 'string', columnType: 'varchar(128)', nullable: true })
+  agentId?: string | null
+
+  @Property({ name: 'provider_id', type: 'string', columnType: 'varchar(64)', nullable: true })
+  providerId?: string | null
+
+  @Property({ name: 'model_id', type: 'string', columnType: 'varchar(256)', nullable: true })
+  modelId?: string | null
+
+  @Property({ name: 'base_url', type: 'string', columnType: 'varchar(2048)', nullable: true })
+  baseUrl?: string | null
+
+  @Property({ name: 'allowed_override_providers', type: 'jsonb', nullable: true })
+  allowedOverrideProviders?: string[] | null
+
+  @Property({ name: 'allowed_override_models_by_provider', type: 'jsonb', default: '{}' })
+  allowedOverrideModelsByProvider: Record<string, string[]> = {}
+
+  @Property({ name: 'updated_by_user_id', type: 'uuid', nullable: true })
+  updatedByUserId?: string | null
+
+  @Property({ name: 'created_at', type: Date, onCreate: () => new Date() })
+  createdAt: Date = new Date()
+
+  @Property({ name: 'updated_at', type: Date, onUpdate: () => new Date() })
+  updatedAt: Date = new Date()
+
+  @Property({ name: 'deleted_at', type: Date, nullable: true })
+  deletedAt?: Date | null
+
+  /**
+   * Kill switch — when `true`, runtime forces `stopWhen: stepCountIs(1)` and
+   * ignores all other loop config. Phase 3 of spec
+   * `2026-04-28-ai-agents-agentic-loop-controls`.
+   */
+  @Property({ name: 'loop_disabled', type: 'boolean', nullable: true })
+  loopDisabled?: boolean | null
+
+  /**
+   * Override `loop.maxSteps`. Phase 3 of spec
+   * `2026-04-28-ai-agents-agentic-loop-controls`.
+   */
+  @Property({ name: 'loop_max_steps', type: 'int', nullable: true })
+  loopMaxSteps?: number | null
+
+  /**
+   * Override `loop.budget.maxToolCalls`. Phase 3 of spec
+   * `2026-04-28-ai-agents-agentic-loop-controls`.
+   */
+  @Property({ name: 'loop_max_tool_calls', type: 'int', nullable: true })
+  loopMaxToolCalls?: number | null
+
+  /**
+   * Override `loop.budget.maxWallClockMs`. Phase 3 of spec
+   * `2026-04-28-ai-agents-agentic-loop-controls`.
+   */
+  @Property({ name: 'loop_max_wall_clock_ms', type: 'int', nullable: true })
+  loopMaxWallClockMs?: number | null
+
+  /**
+   * Override `loop.budget.maxTokens`. Phase 3 of spec
+   * `2026-04-28-ai-agents-agentic-loop-controls`.
+   */
+  @Property({ name: 'loop_max_tokens', type: 'int', nullable: true })
+  loopMaxTokens?: number | null
+
+  /**
+   * Override `loop.stopWhen`. JSON-safe variants only (`stepCount`,
+   * `hasToolCall`); validator rejects `kind: 'custom'`. Phase 3 of spec
+   * `2026-04-28-ai-agents-agentic-loop-controls`.
+   */
+  @Property({ name: 'loop_stop_when_json', type: 'jsonb', nullable: true })
+  loopStopWhenJson?: unknown | null
+
+  /**
+   * Override `loop.activeTools` (must be subset of `agent.allowedTools`).
+   * Phase 3 of spec `2026-04-28-ai-agents-agentic-loop-controls`.
+   */
+  @Property({ name: 'loop_active_tools_json', type: 'jsonb', nullable: true })
+  loopActiveToolsJson?: unknown | null
+}
+
+/**
+ * Append-only event log for token usage per step (chat) or per turn (object).
+ *
+ * One row is created by `recordTokenUsage` (Phase 6.3) for every completed
+ * AI SDK step. Indexed for the three read patterns: daily rollup, per-agent
+ * report, and session drill-down.
+ *
+ * Retention: rows older than `AI_TOKEN_USAGE_EVENTS_RETENTION_DAYS` (default
+ * 90) are swept by the `ai-token-usage-prune` worker (Phase 6.4).
+ *
+ * Phase 6.0 of spec `2026-04-28-ai-agents-agentic-loop-controls`.
+ */
+@Entity({ tableName: 'ai_token_usage_events' })
+@Index({
+  name: 'ai_token_usage_events_tenant_created_idx',
+  properties: ['tenantId', 'createdAt'],
+})
+@Index({
+  name: 'ai_token_usage_events_tenant_agent_created_idx',
+  properties: ['tenantId', 'agentId', 'createdAt'],
+})
+@Index({
+  name: 'ai_token_usage_events_tenant_model_created_idx',
+  properties: ['tenantId', 'modelId', 'createdAt'],
+})
+@Index({
+  name: 'ai_token_usage_events_tenant_session_turn_step_idx',
+  properties: ['tenantId', 'sessionId', 'turnId', 'stepIndex'],
+})
+export class AiTokenUsageEvent {
+  [OptionalProps]?:
+    | 'createdAt'
+    | 'updatedAt'
+    | 'organizationId'
+    | 'cachedInputTokens'
+    | 'reasoningTokens'
+    | 'finishReason'
+    | 'loopAbortReason'
+
+  @PrimaryKey({ type: 'uuid', defaultRaw: 'gen_random_uuid()' })
+  id!: string
+
+  @Property({ name: 'tenant_id', type: 'uuid' })
+  tenantId!: string
+
+  @Property({ name: 'organization_id', type: 'uuid', nullable: true })
+  organizationId?: string | null
+
+  @Property({ name: 'user_id', type: 'uuid' })
+  userId!: string
+
+  @Property({ name: 'agent_id', type: 'text' })
+  agentId!: string
+
+  @Property({ name: 'module_id', type: 'text' })
+  moduleId!: string
+
+  @Property({ name: 'session_id', type: 'uuid' })
+  sessionId!: string
+
+  @Property({ name: 'turn_id', type: 'uuid' })
+  turnId!: string
+
+  @Property({ name: 'step_index', type: 'int' })
+  stepIndex!: number
+
+  @Property({ name: 'provider_id', type: 'text' })
+  providerId!: string
+
+  @Property({ name: 'model_id', type: 'text' })
+  modelId!: string
+
+  @Property({ name: 'input_tokens', type: 'int' })
+  inputTokens!: number
+
+  @Property({ name: 'output_tokens', type: 'int' })
+  outputTokens!: number
+
+  @Property({ name: 'cached_input_tokens', type: 'int', nullable: true })
+  cachedInputTokens?: number | null
+
+  @Property({ name: 'reasoning_tokens', type: 'int', nullable: true })
+  reasoningTokens?: number | null
+
+  @Property({ name: 'finish_reason', type: 'text', nullable: true })
+  finishReason?: string | null
+
+  @Property({ name: 'loop_abort_reason', type: 'text', nullable: true })
+  loopAbortReason?: string | null
+
+  @Property({ name: 'created_at', type: Date, onCreate: () => new Date() })
+  createdAt: Date = new Date()
+
+  @Property({ name: 'updated_at', type: Date, onUpdate: () => new Date() })
+  updatedAt: Date = new Date()
+}
+
+/**
+ * Materialized daily rollup of token usage per `(tenant, day, agent, model)`.
+ *
+ * Updated incrementally by UPSERT on every `recordTokenUsage` call so the
+ * rollup is always current even when the prune worker is behind. A daily
+ * reconciliation worker (Phase 6.4) recomputes `session_count` from the events
+ * table to correct any drift caused by event delivery delays or outages.
+ *
+ * `session_count` is maintained via a per-row LATERAL exists check at write
+ * time (first event in a `(tenant, day, agent, model, session)` window
+ * increments the counter). This counter may drift if events arrive out of
+ * order; the daily worker corrects it.
+ *
+ * Phase 6.1 of spec `2026-04-28-ai-agents-agentic-loop-controls`.
+ */
+@Entity({ tableName: 'ai_token_usage_daily' })
+@Index({
+  name: 'ai_token_usage_daily_tenant_day_agent_model_org_uq',
+  expression:
+    'create unique index "ai_token_usage_daily_tenant_day_agent_model_org_uq" on "ai_token_usage_daily" ("tenant_id", "day", "agent_id", "model_id", "organization_id") where "organization_id" is not null',
+})
+@Index({
+  name: 'ai_token_usage_daily_tenant_day_agent_model_null_org_uq',
+  expression:
+    'create unique index "ai_token_usage_daily_tenant_day_agent_model_null_org_uq" on "ai_token_usage_daily" ("tenant_id", "day", "agent_id", "model_id") where "organization_id" is null',
+})
+@Index({
+  name: 'ai_token_usage_daily_tenant_day_idx',
+  properties: ['tenantId', 'day'],
+})
+export class AiTokenUsageDaily {
+  [OptionalProps]?: 'createdAt' | 'updatedAt' | 'organizationId'
+
+  @PrimaryKey({ type: 'uuid', defaultRaw: 'gen_random_uuid()' })
+  id!: string
+
+  @Property({ name: 'tenant_id', type: 'uuid' })
+  tenantId!: string
+
+  @Property({ name: 'organization_id', type: 'uuid', nullable: true })
+  organizationId?: string | null
+
+  @Property({ name: 'day', type: 'string', columnType: 'date' })
+  day!: string
+
+  @Property({ name: 'agent_id', type: 'text' })
+  agentId!: string
+
+  @Property({ name: 'model_id', type: 'text' })
+  modelId!: string
+
+  @Property({ name: 'provider_id', type: 'text' })
+  providerId!: string
+
+  @Property({ name: 'input_tokens', type: 'string', columnType: 'bigint' })
+  inputTokens!: string
+
+  @Property({ name: 'output_tokens', type: 'string', columnType: 'bigint' })
+  outputTokens!: string
+
+  @Property({ name: 'cached_input_tokens', type: 'string', columnType: 'bigint' })
+  cachedInputTokens!: string
+
+  @Property({ name: 'reasoning_tokens', type: 'string', columnType: 'bigint' })
+  reasoningTokens!: string
+
+  @Property({ name: 'step_count', type: 'string', columnType: 'bigint' })
+  stepCount!: string
+
+  @Property({ name: 'turn_count', type: 'string', columnType: 'bigint' })
+  turnCount!: string
+
+  @Property({ name: 'session_count', type: 'string', columnType: 'bigint' })
+  sessionCount!: string
+
+  @Property({ name: 'created_at', type: Date, onCreate: () => new Date() })
+  createdAt: Date = new Date()
+
+  @Property({ name: 'updated_at', type: Date, onUpdate: () => new Date() })
+  updatedAt: Date = new Date()
+}
+
+/**
  * Tenant-scoped override of an agent's declared `mutationPolicy` (Step 5.4).
  *
  * Unlike {@link AiAgentPromptOverride}, this surface is NOT versioned — it is
@@ -223,6 +555,75 @@ export class AiPendingAction {
  * < `confirm-required`. The route never allows an override to widen the
  * code-declared policy.
  */
+/**
+ * Tenant-scoped allowlist clipping which providers and models the runtime is
+ * permitted to use within the env-driven allowlist (Phase 1780-6 of spec
+ * `2026-04-27-ai-agents-provider-model-baseurl-overrides`).
+ *
+ * Effective constraint chain (outer → inner): `OM_AI_AVAILABLE_*` env vars →
+ * this tenant allowlist → per-tenant runtime overrides → per-request overrides.
+ * The tenant allowlist may NEVER widen the env allowlist; the runtime
+ * intersects the two and surfaces the intersection through the settings GET
+ * response so the UI never offers a value the runtime would refuse.
+ *
+ * `allowedProviders === null` means "inherit env" (no tenant-level restriction
+ * beyond what the env imposes). `allowedModelsByProvider` keys are provider
+ * ids; a missing key means "inherit env" for that provider; an empty array
+ * means "no models permitted for this provider" (effectively disabling it).
+ */
+@Entity({ tableName: 'ai_tenant_model_allowlists' })
+@Index({
+  name: 'ai_tenant_model_allowlists_tenant_org_uq',
+  expression:
+    'create unique index "ai_tenant_model_allowlists_tenant_org_uq" on "ai_tenant_model_allowlists" ("tenant_id", "organization_id") where "deleted_at" is null and "organization_id" is not null',
+})
+@Index({
+  name: 'ai_tenant_model_allowlists_tenant_null_org_uq',
+  expression:
+    'create unique index "ai_tenant_model_allowlists_tenant_null_org_uq" on "ai_tenant_model_allowlists" ("tenant_id") where "deleted_at" is null and "organization_id" is null',
+})
+@Index({
+  name: 'ai_tenant_model_allowlists_tenant_idx',
+  properties: ['tenantId'],
+})
+export class AiTenantModelAllowlist {
+  [OptionalProps]?:
+    | 'createdAt'
+    | 'updatedAt'
+    | 'organizationId'
+    | 'allowedProviders'
+    | 'allowedModelsByProvider'
+    | 'updatedByUserId'
+    | 'deletedAt'
+
+  @PrimaryKey({ type: 'uuid', defaultRaw: 'gen_random_uuid()' })
+  id!: string
+
+  @Property({ name: 'tenant_id', type: 'uuid' })
+  tenantId!: string
+
+  @Property({ name: 'organization_id', type: 'uuid', nullable: true })
+  organizationId?: string | null
+
+  @Property({ name: 'allowed_providers', type: 'jsonb', nullable: true })
+  allowedProviders?: string[] | null
+
+  @Property({ name: 'allowed_models_by_provider', type: 'jsonb', default: '{}' })
+  allowedModelsByProvider: Record<string, string[]> = {}
+
+  @Property({ name: 'updated_by_user_id', type: 'uuid', nullable: true })
+  updatedByUserId?: string | null
+
+  @Property({ name: 'created_at', type: Date, onCreate: () => new Date() })
+  createdAt: Date = new Date()
+
+  @Property({ name: 'updated_at', type: Date, onUpdate: () => new Date() })
+  updatedAt: Date = new Date()
+
+  @Property({ name: 'deleted_at', type: Date, nullable: true })
+  deletedAt?: Date | null
+}
+
 @Entity({ tableName: 'ai_agent_mutation_policy_overrides' })
 @Index({
   name: 'ai_agent_mutation_policy_overrides_tenant_org_agent_uq',

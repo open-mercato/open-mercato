@@ -3,7 +3,7 @@ import { z } from 'zod'
 import { TableNotFoundException } from '@mikro-orm/core'
 import { CustomerDictionaryKindSetting } from '../../../data/entities'
 import { resolveDictionaryRouteContext } from '../context'
-import { CrudHttpError } from '@open-mercato/shared/lib/crud/errors'
+import { CrudHttpError, isCrudHttpError } from '@open-mercato/shared/lib/crud/errors'
 import { findWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
 import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
@@ -79,7 +79,7 @@ export async function GET(req: Request) {
     if (isMissingKindSettingsTable(err)) {
       return NextResponse.json({ items: [] })
     }
-    if (err instanceof CrudHttpError) {
+    if (isCrudHttpError(err)) {
       return NextResponse.json(err.body, { status: err.status })
     }
     console.error('[customers/dictionaries/kind-settings.GET]', err)
@@ -180,7 +180,7 @@ export async function PATCH(req: Request) {
     }
     return response
   } catch (err) {
-    if (err instanceof CrudHttpError) {
+    if (isCrudHttpError(err)) {
       return NextResponse.json(err.body, { status: err.status })
     }
     console.error('[customers/dictionaries/kind-settings.PATCH]', err)

@@ -2,8 +2,9 @@
 
 | Field | Value |
 |-------|-------|
-| **Status** | Draft |
+| **Status** | Draft (rev 5) |
 | **Created** | 2026-04-08 |
+| **Last revision** | 2026-04-30 |
 | **Builds on** | `packages/core/src/modules/customer_accounts` (portal auth & identity), `packages/core/src/modules/portal` (portal frontend), `packages/core/src/modules/directory` (Tenant/Organization entities) |
 | **Related** | `packages/enterprise/src/modules/sso/lib/domains.ts` (domain validation patterns) |
 
@@ -11,21 +12,25 @@
 
 **Key Points:**
 - Allow each organization to map a custom domain (e.g., `shop.acme.com`) to their customer-facing portal, replacing the default `/{orgSlug}/portal` URL path.
-- A new Next.js Edge Middleware (`middleware.ts`) resolves both tenant and organization by `Host` header via a `DomainMapping` lookup, rewrites requests to the internal portal route, and keeps the branded URL visible to end customers.
+- A new Next.js **Node** Middleware (`middleware.ts`, `runtime: 'nodejs'`, requires Next.js ≥ 15.2) resolves both tenant and organization by `Host` header via a `DomainMapping` lookup, rewrites requests to the internal portal route, and keeps the branded URL visible to end customers.
 - The `DomainMapping` entity lives in the `customer_accounts` module alongside existing portal auth and identity infrastructure.
 - Traefik is introduced as the reverse proxy with on-demand Let's Encrypt TLS certificate provisioning, gated by an application verification endpoint.
 
 **Scope:**
-- `DomainMapping` entity in `customer_accounts` module with hostname, tenant/org references, status lifecycle, provider, and DNS diagnostics
-- Next.js Edge Middleware (`apps/mercato/src/middleware.ts`) with stale-while-revalidate cache and batch warm-up for host resolution
-- Back office settings page with guided stepper wizard, auto-polling DNS verification, DNS diagnostics, and domain swap flow
-- DNS verification flow (CNAME check via Node.js `dns` module) with diagnostic error reporting and background auto-verification worker
+- `DomainMapping` entity in `customer_accounts` module with hostname (normalized + Punycode), tenant/org references, status lifecycle, provider, and DNS diagnostics
+- Next.js **Node** Middleware (`apps/mercato/src/middleware.ts`, `runtime: 'nodejs'`, Next.js ≥ 15.2) with stale-while-revalidate cache and batch warm-up for host resolution
+- Back office settings page with guided stepper wizard, auto-polling DNS verification, DNS diagnostics, multi-org switcher, and domain swap flow
+- DNS verification flow with **CNAME-first, then A-record fallback, then reverse-resolve over HTTPS** (handles apex domains and Cloudflare-proxied DNS), with diagnostic error reporting and background auto-verification worker
+- Hostname normalization (lowercase, trailing-dot trim, IDN → Punycode, 253-char limit) at validator and service layer
+- Per-domain host-only customer cookies — login on `shop.acme.com` is independent from login on the platform domain
 - Traefik docker-compose configuration with ACME/Let's Encrypt on-demand TLS
-- Verification endpoint (`GET /api/domain-check`) for Traefik certificate gating
+- Verification endpoint (`GET /api/customer-accounts/domain-check`) for Traefik certificate gating
 - Batch resolve endpoint (`GET /api/customer-accounts/domain-resolve/all`) for cache warm-up
-- Domain status lifecycle: `pending` → `verified` → `active` → `failed`
+- Domain status lifecycle: `pending` → `verified` → `active`, with two distinct failure states: `dns_failed` and `tls_failed`
 - Zero-downtime domain swap flow (register replacement while old domain remains active)
 - Automatic TLS provisioning trigger after DNS verification (no manual "first HTTPS visit" required)
+- Canonical URLs and customer-portal transactional emails honor the active custom domain when present
+- `DomainMapping` excluded from search indexing (no cross-tenant hostname leak)
 
 **Deferred:**
 - Cloudflare for SaaS integration (future `provider: 'cloudflare'`)
@@ -34,11 +39,14 @@
 - Shared external cache layer (Redis/SQLite for multi-instance edge cache coherence) — in-memory stale-while-revalidate is sufficient for initial deployment; shared cache becomes necessary only at 10,000+ domains across 10+ instances
 
 **Concerns:**
-- Introducing `middleware.ts` is a new architectural pattern — no prior art in the codebase. Must be minimal and non-blocking for platform-domain traffic.
+- Introducing `middleware.ts` is a new architectural pattern — no prior art in the codebase. Must be minimal and non-blocking for platform-domain traffic. Pinned to `runtime: 'nodejs'` (requires Next.js ≥ 15.2). Edge runtime is rejected — V8 isolates do not share module state reliably across cold starts, which would break the SWR cache + batch warm-up design.
 - The repo currently has no reverse proxy configuration. Traefik addition is new infrastructure.
-- Edge Middleware runs in a restricted runtime — no MikroORM, no DI container. Domain cache must be populated via internal fetch.
+- Node Middleware still has no MikroORM/DI container access at the request hot path; domain cache is populated via internal fetch to a secret-protected endpoint.
 - Multi-instance deployments: each Next.js process has its own in-memory cache. Batch warm-up on startup and stale-while-revalidate mitigate thundering herd, but cache coherence is eventual (within TTL window).
 - The `domain-resolve` and `domain-check` endpoints are unauthenticated hot paths — mandatory shared secrets and negative caching are required to prevent abuse.
+- Customer portal authentication is **per-domain (host-only cookies)** — a customer logged in on `openmercato.com` is not automatically logged in on `shop.acme.com`. Cross-domain SSO is intentionally out of scope.
+- Cloudflare orange-cloud and other DNS proxies hide the CNAME/A target from us; verification must fall back to reverse-resolve over HTTPS.
+- IDN/Punycode normalization is mandatory: `Shop.Café.com` and `xn--shop-caf-jeb.com` and `shop.café.com` must collide on a single canonical row.
 
 ## Overview
 
@@ -76,16 +84,16 @@ This creates friction for **tenants** (who want a white-labeled storefront), **e
 
 ## Proposed Solution
 
-Introduce a `DomainMapping` entity in the `customer_accounts` module and a Next.js Edge Middleware that performs host-header-based resolution to serve the portal under a tenant's custom domain.
+Introduce a `DomainMapping` entity in the `customer_accounts` module and a Next.js **Node** Middleware that performs host-header-based resolution to serve the portal under a tenant's custom domain.
 
 ### Design Decisions
 
 | # | Decision | Resolution | Rationale |
 |---|----------|------------|-----------|
-| 1 | Request interception layer | **Next.js Edge Middleware** (`middleware.ts`) | Runs before the catch-all router, can rewrite URLs transparently. Standard Next.js pattern for host-based multi-tenancy. The codebase has no `middleware.ts` yet — this is the first use. |
+| 1 | Request interception layer | **Next.js Node Middleware** (`middleware.ts`, `runtime: 'nodejs'`) | Runs before the catch-all router, can rewrite URLs transparently. Standard Next.js pattern for host-based multi-tenancy. The codebase has no `middleware.ts` yet — this is the first use. Edge runtime explicitly rejected (see row 21). |
 | 2 | Module placement | **`customer_accounts`** module | Portal auth, identity, and customer RBAC already live here. Domain routing is portal infrastructure. Keeps portal logic centralized. |
 | 3 | Custom domain path scope | **Domain IS the portal** — all non-internal paths rewrite to portal | `shop.acme.com/products` → `/{orgSlug}/portal/products`. No `/portal` prefix on the branded domain. `/api/*` and `/_next/*` paths pass through without rewrite. |
-| 4 | Domain cache in middleware | **Stale-while-revalidate in-memory Map** with batch warm-up | Edge Runtime restrictions prevent DI/ORM access. Module-scoped Map persists across requests in self-hosted Node.js. On process start, batch-fetches all active domains via `/domain-resolve/all`. Stale entries served immediately while background refresh occurs — no request blocks on a cache miss after warm-up. Negative lookups cached with longer TTL (5 min) to absorb unknown-hostname probing. |
+| 4 | Domain cache in middleware | **Stale-while-revalidate in-memory Map** with batch warm-up | Even on the Node runtime, middleware has no DI/ORM access at the request hot path — the cache is populated via internal fetch to a secret-protected endpoint. Module-scoped Map persists across requests inside a single Node.js process. On process start, batch-fetches all active domains via `/domain-resolve/all`. Stale entries served immediately while background refresh occurs — no request blocks on a cache miss after warm-up. Negative lookups cached with longer TTL (5 min) to absorb unknown-hostname probing. |
 | 5 | TLS provisioning | **Traefik on-demand TLS** with Let's Encrypt | Certificates provisioned automatically on first request. Application verification endpoint gates issuance. No Traefik restart per domain. |
 | 6 | DNS verification | **CNAME check** via Node.js `dns.resolveCname()` | Tenant points domain to `portal.openmercato.com` (configurable). Server-side verification triggered manually ("Verify Now") or periodically. |
 | 7 | Reverse proxy | **Concrete Traefik config** as a deliverable | Docker-compose additions, `traefik.yml`, ACME config. Not proxy-agnostic — Traefik is the specified target. |
@@ -97,10 +105,19 @@ Introduce a `DomainMapping` entity in the `customer_accounts` module and a Next.
 | 13 | CRUD API for DomainMapping | **`makeCrudRoute`** for list/create/delete + custom routes for specialty endpoints | Standard CRUD operations use the factory to get enricher pipeline, interceptor pipeline, query engine integration, and consistent API shape for free. Only `verify`, `health-check`, `domain-check`, and `domain-resolve` remain as custom routes (they use `runCustomRouteAfterInterceptors()` where applicable). |
 | 14 | Write operations | **Service methods with `emitCrudSideEffects`**, not formal Command pattern | Domain operations are not undoable — undo would leave dangling DNS records, orphaned TLS certificates, and stale CNAME pointers. Service methods call `emitCrudSideEffects` for consistent event emission, cache invalidation, and search indexing rather than manually emitting events. |
 | 15 | Domain registration validation | **Mutation Guards** (`data/guards.ts`) for extensible validation | Hostname uniqueness, org domain limit, and hostname format checks are declared as mutation guards in the guard registry. This allows enterprise modules to add their own validation (e.g., domain allowlists, approval workflows) without modifying the core service. Internal invariants (status transitions) remain in the service. |
-| 16 | Server-side caching | **Two-tier cache**: `@open-mercato/cache` (server-side, shared) + in-memory Map (middleware, per-process) | The `domain-resolve` and `domain-check` API endpoints use `@open-mercato/cache` with tag-based invalidation for server-side caching. Domain lifecycle events trigger cache invalidation via an ephemeral subscriber. The Edge Middleware uses its own in-memory stale-while-revalidate cache on top (since Edge Runtime cannot access DI). This prevents DB queries on the hot path. |
+| 16 | Server-side caching | **Two-tier cache**: `@open-mercato/cache` (server-side, shared) + in-memory Map (middleware, per-process) | The `domain-resolve` and `domain-check` API endpoints use `@open-mercato/cache` with tag-based invalidation for server-side caching. Domain lifecycle events trigger cache invalidation via an ephemeral subscriber. The Node Middleware uses its own in-memory stale-while-revalidate cache on top (since middleware has no DI access at request time). This prevents DB queries on the hot path. |
 | 17 | Organization domain visibility | **Response enricher** on Organization entity | A response enricher decorates Organization API responses with `_customDomain: { hostname, status }` so the org list/detail pages can show domain status without a separate API call. Other modules can consume this enriched data. |
 | 18 | Settings sidebar navigation | **Widget injection** via `menu:sidebar:settings` spot | Navigation link uses the standard injection-table + widget pattern with `features: ['customer_accounts.domain.manage']` gating. Not a manual link addition. |
 | 19 | Notification definitions | **`notifications.ts` + persistent subscribers** following platform pattern | Notification types declared as `NotificationTypeDefinition[]`. Persistent subscribers per lifecycle event use `buildFeatureNotificationFromType` + `notificationService.createForFeature()`. Client renderers in `notifications.client.ts`. |
+| 20 | Customer cookie scope | **Host-only per-domain cookies** | Login form on `shop.acme.com` posts to `shop.acme.com/api/customer-accounts/customer/login`; the session cookie is set without a `Domain=` attribute, so it is host-only. A customer logged in on `openmercato.com` does **not** carry that session to `shop.acme.com`, and vice versa. JWT validates against the host-resolved org context. Cross-domain SSO is intentionally out of scope. |
+| 21 | Middleware runtime | **Next.js Node Middleware (`runtime: 'nodejs'`)** on Next.js ≥ 15.2 | Edge runtime explicitly rejected: V8 isolates don't reliably share module state across cold starts, which breaks the SWR + batch warm-up cache. Node Middleware preserves module-scoped Map state across requests inside a single process while still running before the catch-all router. |
+| 22 | Apex domain support | **A record target alongside CNAME** | Apex domains (e.g., `acme.com`) cannot legally have a CNAME (RFC 1034). Tenants point an A record at `CUSTOM_DOMAIN_A_RECORD_TARGET`. Subdomains continue to use CNAME → `CUSTOM_DOMAIN_CNAME_TARGET`. Verification tries CNAME first, then falls back to A record, then to reverse-resolve over HTTPS. Both subdomain and apex configurations are first-class. |
+| 23 | Proxied DNS detection | **Reverse-resolve over HTTPS** when target is a known proxy IP range | When the resolved A record falls inside a well-known proxy IP range (Cloudflare, Fastly), DNS verification cannot directly confirm the target. Instead, the verifier issues an HTTPS request to the candidate hostname and asserts that the response originates from our infrastructure (custom response header `X-Open-Mercato-Origin: 1`). This is the same trust model as CNAME — the domain owner must explicitly proxy traffic to us. |
+| 24 | Hostname normalization | **Lowercase + trailing-dot strip + IDN → Punycode + 253-char cap** | Applied at the validator (`hostnameSchema`) so the entity stores a single canonical form. Prevents UNIQUE-constraint bypass via case (`Shop.Acme.com`) or IDN (`shop.café.com` ↔ `xn--shop-caf-jeb.com`). All lookups (resolve, check, verify) normalize input identically before comparison. |
+| 25 | Status enum split | **`failed` → `dns_failed` + new `tls_failed`** | A single `failed` state conflated two very different problems with different fixes. `dns_failed` means the customer needs to fix their DNS provider; `tls_failed` means Let's Encrypt or Traefik couldn't issue a cert (different remediation, different copy, different retry path). UI surfaces the difference. Both can recover back to `pending` (re-verify) or `verified` (re-attempt TLS). |
+| 26 | Multi-org tenants | **Org switcher inside the settings page** (option b) | Settings route stays at `/backend/customer_accounts/settings/domain` (single canonical entry point). When the staff user has access to multiple organizations within the tenant, the page header renders an org dropdown — selecting an org swaps the loaded `DomainMapping` and the page re-fetches. Single-org tenants render no switcher. Avoids URL fragmentation; mirrors how other org-scoped settings pages already behave. |
+| 27 | Search indexing | **`DomainMapping` excluded from search index** by **omitting the `indexer` field** on `makeCrudRoute` | Hostnames are tenant-private. Indexing them in the platform-wide search would risk cross-tenant disclosure. Verified against `packages/shared/src/lib/crud/factory.ts:424` — `indexer?: CrudIndexerConfig<any>` is optional, so the correct opt-out is to simply not pass the field. The route exists for CRUD only; query-engine integration is intentionally skipped. |
+| 28 | Canonical URL & email domains | **`Host`-aware** | Portal pages emit `<link rel="canonical">` from the request `Host` header, not the rewritten internal path. Customer-portal transactional emails (magic link, password reset, in-app notifications that link out) call `domainMappingService.resolveActiveByOrg(orgId)` and use the active custom domain when one exists, else the platform domain. |
 
 ### Alternatives Considered
 
@@ -108,7 +125,7 @@ Introduce a `DomainMapping` entity in the `customer_accounts` module and a Next.
 |-------------|-------------|
 | Resolve domain in catch-all layout instead of middleware | Mixes routing concerns with rendering. Cannot rewrite URL before route matching. Would require significant refactoring of the layout to handle both slug-based and domain-based resolution in a single code path. |
 | Standalone `domain_mappings` module | Over-separation for a feature tightly coupled to portal identity. Would require cross-module event wiring for something that's fundamentally a portal concern. |
-| `@open-mercato/cache` package for Edge Middleware cache | Not available in Edge Runtime (no DI container access). However, `@open-mercato/cache` IS used as the server-side cache layer (Tier 1) for `domain-resolve` and `domain-check` API endpoints. The Edge Middleware in-memory Map (Tier 2) sits on top and calls these cached endpoints. This two-tier approach keeps the middleware stateless while benefiting from shared server-side cache with tag-based invalidation. |
+| `@open-mercato/cache` package directly inside the middleware | DI is not exposed at the middleware request hot path even on the Node runtime — wiring DI into middleware would couple boot order and increase blast radius. Instead, `@open-mercato/cache` is used server-side (Tier 1) for the `domain-resolve` and `domain-check` API endpoints. The Node Middleware in-memory Map (Tier 2) sits on top and calls those cached endpoints. This two-tier approach keeps the middleware narrow while benefiting from shared server-side cache with tag-based invalidation. |
 | Caddy instead of Traefik | Traefik has stronger Docker-native integration and is more common in the Next.js ecosystem. Caddy's on-demand TLS is excellent but would be a less familiar choice for contributors. |
 | Formal Command pattern (`registerCommand`) for domain mutations | Domain operations are not undoable — undo would leave dangling DNS records, orphaned TLS certificates, and stale CNAME pointers that the platform cannot clean up. The `customers` module uses Commands because person/company CRUD is safely reversible. Domain lifecycle has external side effects that make undo semantically wrong. Service methods with `emitCrudSideEffects` provide consistent event emission and cache invalidation without the undo machinery. |
 | Custom routes for all DomainMapping API endpoints | Custom routes bypass the CRUD factory's enricher pipeline, interceptor pipeline, and query engine integration. Standard list/create/delete operations should use `makeCrudRoute` to get these integrations for free and maintain consistent API shape. Only specialty endpoints (verify, health-check, domain-check, domain-resolve) need custom routes. |
@@ -142,16 +159,17 @@ DNS: CNAME → portal.openmercato.com → Server IP
     ↓
 Traefik: TLS termination (Let's Encrypt cert)
     ↓
-Next.js Edge Middleware (middleware.ts)
+Next.js Node Middleware (middleware.ts, runtime: 'nodejs', Next.js ≥ 15.2)
   1. Read Host header: "shop.acme.com"
-  2. Check: not a platform domain → custom domain path
-  3. Lookup in-memory cache: hostname → { orgSlug, tenantId, organizationId, status, expiresAt }
-  4. Cache hit (fresh or stale)? → use cached data immediately
-     4a. If stale (past TTL but present): trigger background async refresh (non-blocking)
-     4b. If cold miss (not in cache at all, e.g. after warm-up): fetch synchronously (fallback)
-  5. Status is "active"? → rewrite URL to /acme/portal/products
-  6. Set x-custom-domain header for downstream context
-  7. NextResponse.rewrite() → internal route
+  2. Normalize via normalizeHostname (lowercase, trailing-dot trim, IDN → Punycode)
+  3. Check: not a platform domain → custom domain path
+  4. Lookup in-memory cache: hostname → { orgSlug, tenantId, organizationId, status, expiresAt }
+  5. Cache hit (fresh or stale)? → use cached data immediately
+     5a. If stale (past TTL but present): trigger background async refresh (non-blocking)
+     5b. If cold miss (not in cache at all, e.g. after warm-up): fetch synchronously (fallback)
+  6. Status is "active"? → rewrite URL to /acme/portal/products
+  7. Set x-custom-domain request header (forwarded to API/page handlers via NextResponse.rewrite + request init)
+  8. NextResponse.rewrite() → internal route
     ↓
 Catch-all layout: /app/(frontend)/[...slug]/layout.tsx
   1. Extract orgSlug from rewritten path: "acme"
@@ -166,7 +184,7 @@ Page renders with branded portal. Browser URL remains: shop.acme.com/products
 ```
 Browser → openmercato.com/my-org/portal/products
     ↓
-Next.js Edge Middleware
+Next.js Node Middleware (runtime: 'nodejs')
   1. Read Host header: "openmercato.com"
   2. Check: IS a platform domain → NextResponse.next() (pass through)
     ↓
@@ -176,15 +194,168 @@ Existing catch-all layout + page routing (no changes)
 ### Request Flow: API Calls on Custom Domain
 
 ```
-Browser (on shop.acme.com) → fetch("/api/portal/orders")
+Browser (on shop.acme.com, host-only session cookie) → fetch("/api/portal/orders")
     ↓
-Next.js Edge Middleware
+Next.js Node Middleware
   1. Read Host header: "shop.acme.com"
   2. Path starts with /api/ → pass through (no rewrite)
-  3. API routes use CustomerAuth JWT cookie for tenant/org context (already set during login)
     ↓
-API catch-all: /app/api/[...slug]/route.ts (no changes)
+API catch-all: /app/api/[...slug]/route.ts
+  1. Resolves tenant + org by Host header (via domainMappingService.resolveByHostname)
+  2. Calls getCustomerAuthForHost(req) which:
+     - Reads customer_auth_token cookie → decodes JWT
+     - Reads customer_session_token cookie → asserts session still active in DB
+     - Asserts JWT.tenantId === resolvedTenantId (defends against cookie replay across hosts)
+  3. Loads customer scoped to that tenant; serves response
 ```
+
+**Note**: Custom-domain API routes do NOT rely on the JWT alone for tenant context — the host-resolved org is the source of truth. The JWT serves only as the authenticated principal. This is what makes per-domain cookies safe.
+
+### Canonical URLs and Customer-Email Domains
+
+Two consequences of "domain IS the portal" must be wired explicitly, otherwise SEO and customer trust quietly degrade.
+
+**Canonical URLs:**
+
+The portal currently emits `<link rel="canonical">` based on a server-known base URL. Once the user is on `shop.acme.com/products`, the canonical must be `https://shop.acme.com/products`, **not** `https://openmercato.com/acme/portal/products`. The catch-all layout reads `request.headers.get('host')` and uses that as the canonical authority, ignoring the rewritten internal pathname.
+
+```typescript
+// packages/core/src/modules/portal/components/PortalCanonical.tsx
+const host = headers().get('host')!  // e.g. "shop.acme.com" or "openmercato.com"
+const customDomainPath = host === platformHost
+  ? request.nextUrl.pathname                            // include /{orgSlug}/portal prefix
+  : stripOrgPortalPrefix(request.nextUrl.pathname)      // strip the rewritten prefix
+return <link rel="canonical" href={`https://${host}${customDomainPath}`} />
+```
+
+**Customer-portal email links:**
+
+All customer-facing email links must be built via a single helper rather than hard-coding the platform host:
+
+```typescript
+// packages/core/src/modules/customer_accounts/lib/customerUrl.ts
+export async function urlForCustomerOrg(orgId: string, path: string): Promise<string> {
+  const active = await domainMappingService.resolveActiveByOrg(orgId)
+  if (active) {
+    return `https://${active.hostname}${path}`
+  }
+  const org = await orgService.findById(orgId)
+  return `${PLATFORM_PORTAL_BASE_URL}/${org.slug}/portal${path}`
+}
+```
+
+- `resolveActiveByOrg(orgId)` is a new service method: returns the single `DomainMapping` for the org with status `active` (or null). Cached identically to `resolveByHostname`.
+- During domain swap, the old domain remains `active` until the replacement reaches `active`. Emails generated mid-swap use the still-live old domain, which is correct — those links remain valid.
+
+**Migration scope (verified against current codebase):**
+
+The only customer-portal call site that currently sends email is `customer_accounts/api/signup.ts` (two `sendEmail` calls — signup confirmation and portal welcome). This spec migrates **just those two call sites** to `urlForCustomerOrg`. There is no existing magic-link email, password-reset email, or notification-digest email to migrate.
+
+**Forward-looking rule** (added to `customer_accounts/AGENTS.md`): any new customer-portal email-sending route (magic link, password reset, in-app notification digest, etc.) MUST construct customer-facing URLs via `urlForCustomerOrg` and MUST NOT hard-code `PLATFORM_PORTAL_BASE_URL`. A unit test under `customer_accounts/__tests__/customerUrl.test.ts` asserts that templates in `customer_accounts/emails/` (when added in future work) don't reference the platform host directly.
+
+### Hostname Normalization
+
+Every input hostname (registration, lookup, verification, middleware Host header) is normalized through a single function before any storage or comparison. This is non-negotiable — the UNIQUE constraint on `hostname` is meaningless without it.
+
+```typescript
+// packages/core/src/modules/customer_accounts/lib/hostname.ts
+import { toASCII } from 'punycode'  // Node built-in (or 'tr46' for stricter UTS#46)
+
+export function normalizeHostname(input: string): string {
+  if (!input) throw new Error('Empty hostname')
+  let host = input.trim().toLowerCase()
+  // Strip protocol and path defensively (validators reject these earlier, but be safe)
+  host = host.replace(/^https?:\/\//, '').replace(/\/.*$/, '').replace(/:\d+$/, '')
+  // Strip trailing dot (DNS root marker)
+  if (host.endsWith('.')) host = host.slice(0, -1)
+  // Convert IDN (Unicode) to Punycode (ASCII)
+  host = toASCII(host)
+  // DNS-spec total length cap
+  if (host.length === 0 || host.length > 253) {
+    throw new Error('Hostname must be between 1 and 253 characters after normalization')
+  }
+  return host
+}
+```
+
+**Effect on uniqueness:**
+
+| Input | Stored hostname |
+|-------|-----------------|
+| `Shop.Acme.com` | `shop.acme.com` |
+| `shop.acme.com.` | `shop.acme.com` |
+| `https://shop.acme.com/path` | `shop.acme.com` |
+| `shop.café.com` | `xn--shop-caf-jeb.com` |
+| `xn--shop-caf-jeb.com` | `xn--shop-caf-jeb.com` |
+
+The last two map to the same row — registering `shop.café.com` after a competitor already registered `xn--shop-caf-jeb.com` (or vice versa) returns `409 Hostname already claimed`.
+
+**Where it runs:**
+
+- `data/validators.ts` — `hostnameSchema` invokes `normalizeHostname` via `z.string().transform(normalizeHostname)`. Throws → 400.
+- `data/guards.ts` — `hostname-format` guard re-asserts post-normalization shape (regex on ASCII form).
+- `domainMappingService.register(hostname, ...)` — receives already-normalized input.
+- `domainMappingService.resolveByHostname(hostname)` — normalizes incoming Host header before cache lookup.
+- `middleware.ts` — normalizes `request.headers.get('host')` before consulting the SWR cache.
+- `domain-check` and `domain-resolve` API endpoints — normalize the `host` query param.
+
+### DNS Verification Algorithm
+
+Verification supports both subdomains (CNAME) and apex domains (A record), and tolerates proxied DNS (Cloudflare orange-cloud, Fastly, etc.). The verifier runs in three phases:
+
+```
+domainMappingService.verify(id):
+
+  hostname = normalize(record.hostname)   // already canonical, but defensive
+
+  ── Phase 1: CNAME ──
+  cnames = await dns.resolveCname(hostname)
+  if cnames.length > 0:
+    expected = process.env.CUSTOM_DOMAIN_CNAME_TARGET
+    if cnames.some(c => normalize(c) === normalize(expected)):
+      return success({ method: 'cname', detected: cnames })
+    else:
+      return failure('cname-wrong-target', detectedRecords: cnames)
+
+  ── Phase 2: A record ──
+  aRecords = await dns.resolve4(hostname)
+  if aRecords.length === 0:
+    return failure('no-record', detectedRecords: [])
+
+  expectedA = process.env.CUSTOM_DOMAIN_A_RECORD_TARGET
+  if aRecords.includes(expectedA):
+    return success({ method: 'a-record', detected: aRecords })
+
+  ── Phase 3: Reverse-resolve (proxied DNS fallback) ──
+  proxyMatches = aRecords.filter(ip => isInKnownProxyRange(ip))
+  if proxyMatches.length > 0:
+    // Domain is behind a proxy. Confirm traffic actually reaches us.
+    try:
+      response = await httpsGet(`https://${hostname}/api/customer-accounts/domain-check`,
+                                { headers: { 'X-Domain-Check-Secret': SECRET },
+                                  timeout: 5000 })
+      if response.headers['x-open-mercato-origin'] === '1':
+        return success({ method: 'reverse-resolve', detected: aRecords, proxy: detectProxy(aRecords[0]) })
+    catch (err):
+      pass  // fall through to failure
+
+    return failure('proxy-reverse-resolve-failed', detectedRecords: aRecords)
+
+  return failure('a-record-wrong-target', detectedRecords: aRecords)
+```
+
+**Known proxy ranges** (`KNOWN_PROXY_IP_RANGES` env var, comma-separated CIDR list, default includes Cloudflare's published list):
+
+```
+173.245.48.0/20, 103.21.244.0/22, 103.22.200.0/22, 103.31.4.0/22,
+141.101.64.0/18, 108.162.192.0/18, 190.93.240.0/20, 188.114.96.0/20,
+197.234.240.0/22, 198.41.128.0/17, 162.158.0.0/15, 104.16.0.0/13,
+104.24.0.0/14, 172.64.0.0/13, 131.0.72.0/22
+```
+
+Operators can extend with custom CIDR ranges (e.g., own internal proxies).
+
+**`X-Open-Mercato-Origin: 1`** is set by a Next.js custom header on `/api/customer-accounts/domain-check` and `/_next/health` endpoints to identify our origin through any proxy chain. It is **not** a security control — the secret header is. It's purely a "did the proxy actually forward to us?" signal.
 
 ### Traefik On-Demand TLS Flow
 
@@ -197,7 +368,7 @@ Traefik calls: GET http://app:3000/api/customer-accounts/domain-check?host=shop.
     ↓
 App: Query DomainMapping by hostname
   - Found with status "verified" or "active" → 200 OK
-  - Not found or status "pending"/"failed" → 404
+  - Not found or status "pending"/"dns_failed"/"tls_failed" → 404
     ↓
 200 OK → Traefik requests Let's Encrypt cert via TLS-ALPN-01 challenge
     ↓
@@ -220,7 +391,7 @@ Shared cache layer (Redis in production, memory in dev)
   Used by: domain-resolve, domain-check API endpoints (server-side, has DI access)
 ```
 
-**Tier 2 — Middleware In-Memory (Edge Runtime)**
+**Tier 2 — Middleware In-Memory (Node Runtime, per-process)**
 
 ```
 Per-process in-memory cache (Map<string, CacheEntry>)
@@ -253,6 +424,101 @@ Memory Budget:
   - ~300 bytes per entry × 10,000 entries = ~3MB — acceptable per process
   - LRU eviction when max entries exceeded (evicts least-recently-accessed entry)
 ```
+
+### Customer Authentication on Custom Domains
+
+Customer portal authentication is **host-scoped** — sessions on `shop.acme.com` and on `openmercato.com` are independent. This is a deliberate trade-off: it removes any cross-domain cookie complexity (no `Domain=.openmercato.com` parent cookie, no third-party cookie blocking, no cross-site OAuth handshake) at the cost of customers needing to log in once per branded URL they visit. The platform-domain portal (`openmercato.com/{orgSlug}/portal`) remains a working fallback.
+
+**Cookies set by `customer_accounts/api/login.ts`** (applies to both platform and custom domains — verified against current source):
+
+```
+Set-Cookie: customer_auth_token=<jwt>;
+            HttpOnly; Secure; SameSite=Lax; Path=/; Max-Age=28800   (8h)
+Set-Cookie: customer_session_token=<opaque-session-id>;
+            HttpOnly; Secure; SameSite=Lax; Path=/; Max-Age=2592000 (30d)
+            (no Domain attribute — host-only on whatever host login posted to)
+```
+
+`customer_auth_token` is the JWT. `customer_session_token` is an opaque server-side session ID validated via DB lookup (`assertSessionStillActive` in `customerAuthServer.ts`). Both are host-only — no `Domain=` attribute is set today, which is exactly the host-only model this spec assumes.
+
+**Host-tenant binding defense** applies to the JWT cookie (`customer_auth_token`). The session cookie (`customer_session_token`) is opaque and additionally validated server-side, so it cannot be replayed across hosts in a meaningful way — but the same host check is applied for defense in depth.
+
+**Login flow on a custom domain:**
+
+```
+Browser → GET shop.acme.com/login
+    ↓
+Middleware rewrites to /acme/portal/login
+    ↓
+Portal layout resolves orgSlug=acme via the rewritten path; PortalShell renders the
+login form server-side. The form posts to shop.acme.com/api/customer-accounts/login
+(relative). NOTE: tenantId is NO LONGER required in the request body when the
+request arrives on a non-platform host — see Phase 1.5 below.
+    ↓
+POST shop.acme.com/api/customer-accounts/login
+    ↓
+Middleware: /api/* path → pass through (no rewrite)
+    ↓
+API handler (apps/mercato/src/app/api/[...slug]/route.ts → customer_accounts/api/login.ts):
+  1. Parses body via loginSchema (tenantId now optional)
+  2. If tenantId missing OR present but Host is a non-platform domain:
+     a. Reads Host header: shop.acme.com
+     b. Normalizes via normalizeHostname
+     c. Calls domainMappingService.resolveByHostname → { tenantId, organizationId, status }
+     d. Asserts status === 'active' (else 404)
+     e. If body provided a different tenantId, returns 400 (mismatch — defense in depth)
+  3. Validates credentials against that tenant's customers
+  4. Issues JWT with { tenantId, customerId, organizationId, iss: hostname }
+  5. Set-Cookie customer_auth_token + customer_session_token, host-only on shop.acme.com
+    ↓
+Subsequent requests on shop.acme.com carry both cookies.
+getCustomerAuthFromCookies (extended in Phase 1) takes a Host argument, decodes the JWT,
+asserts JWT.tenantId === resolveByHostname(host).tenantId. Mismatch → 401.
+```
+
+**Login schema relaxation (Phase 1.5):**
+
+The current `loginSchema` in `customer_accounts/data/validators.ts` makes `tenantId` required, and `api/login.ts` returns 400 if it is missing. To support custom-domain login (where the client cannot know `tenantId`), this spec changes:
+
+1. `loginSchema.tenantId` → optional.
+2. `api/login.ts` resolution rules:
+   - If Host is a platform domain (in `PLATFORM_DOMAINS`): require `tenantId` in body (current behavior preserved — backward compatible for platform-domain logins).
+   - If Host is a custom domain: ignore any client-supplied `tenantId`; resolve via `domainMappingService.resolveByHostname(host)`. If the resolved status is not `active`, return 404. If body supplied a *different* `tenantId`, return 400 (mismatch).
+3. The exact same logic applies to all customer auth entry points that accept a `tenantId`: `signup.ts`, `magic-link/request.ts`, `password/reset-request.ts`, `password/reset-confirm.ts`. All of them must use a shared helper `resolveTenantContext(req)` that returns either `{ source: 'body', tenantId }` or `{ source: 'host', tenantId, organizationId }`.
+
+This is fully backward compatible for existing platform-domain clients — the body shape stays the same, `tenantId` is still accepted and used when present on a platform host.
+
+**`getCustomerAuthFromCookies` host binding (Phase 1):**
+
+The current helper in `customer_accounts/lib/customerAuthServer.ts` reads the JWT and validates the session in DB but does **not** verify the host. This spec extends it to:
+
+```typescript
+// signature change: optional expectedTenantId argument
+export async function getCustomerAuthFromCookies(
+  cookies: ReadonlyRequestCookies,
+  options?: { expectedTenantId?: string },
+): Promise<CustomerAuthContext | null>
+```
+
+Behavior: if `options.expectedTenantId` is set and decoded JWT's `tenantId !== expectedTenantId`, return `null` (effectively unauthenticated). All API handlers that run on custom-domain hosts MUST pass `expectedTenantId: hostResolved.tenantId`. A new convenience wrapper `getCustomerAuthForHost(req)` resolves the host first and calls the helper with the right `expectedTenantId`.
+
+The change is backward compatible: existing callers that don't pass `expectedTenantId` see no behavior change.
+
+**Domain swap behavior:**
+- Customers actively using the old domain stay logged in on it (their cookie is host-only on the old domain).
+- When the replacement reaches `active` and the old domain is auto-removed, the old cookie continues to be sent to `old.acme.com` for up to its `Max-Age`, but DNS no longer points there → request never reaches us. No security exposure.
+- Customers who first visit the new domain log in fresh on the new domain.
+- The settings page documents this in the swap copy: *"Customers using the previous domain will need to log in again when they switch."*
+
+**JWT cross-host invariance:**
+- The JWT contains the `tenantId` and `organizationId` it was issued against. The API handler reads the request `Host`, resolves it to a tenant/org pair, and asserts the JWT's `tenantId === resolved.tenantId`. If not, 401 — even if the cookie was somehow replayed. This makes JWT replay across hosts impossible.
+
+**Email links:**
+- All transactional customer emails (magic link, password reset, account-verified, in-app notifications that link out) are built via `urlForOrg(orgId, path)` which:
+  1. Calls `domainMappingService.resolveActiveByOrg(orgId)`.
+  2. If an `active` `DomainMapping` exists, uses `https://{hostname}{path}`.
+  3. Else uses the platform fallback `https://{platformHost}/{orgSlug}/portal{path}`.
+- During domain swap, `resolveActiveByOrg` returns the still-active old domain until the swap completes — emails generated mid-swap remain valid.
 
 ### Module Integration
 
@@ -289,7 +555,7 @@ New files added to `customer_accounts`:
 - `workers/domainVerificationWorker.ts` — background DNS verification worker with metadata `{ queue: 'domain-verification', id: 'customer_accounts:domain-verification', concurrency: 1 }`
 
 New file at app level:
-- `apps/mercato/src/middleware.ts` — Next.js Edge Middleware
+- `apps/mercato/src/middleware.ts` — Next.js Node Middleware (`runtime: 'nodejs'`)
 
 New infrastructure files:
 - `docker/traefik/traefik.yml` — Traefik static configuration
@@ -304,7 +570,8 @@ New infrastructure files:
 | `customer_accounts.domain_mapping.created` | crud | clientBroadcast | `{ id, hostname, organizationId, status }` |
 | `customer_accounts.domain_mapping.verified` | lifecycle | clientBroadcast | `{ id, hostname, organizationId }` |
 | `customer_accounts.domain_mapping.activated` | lifecycle | clientBroadcast | `{ id, hostname, organizationId }` |
-| `customer_accounts.domain_mapping.failed` | lifecycle | clientBroadcast | `{ id, hostname, organizationId, reason, detectedRecords }` |
+| `customer_accounts.domain_mapping.dns_failed` | lifecycle | clientBroadcast | `{ id, hostname, organizationId, reason, detectedRecords }` |
+| `customer_accounts.domain_mapping.tls_failed` | lifecycle | clientBroadcast | `{ id, hostname, organizationId, reason, retryCount }` |
 | `customer_accounts.domain_mapping.deleted` | crud | clientBroadcast | `{ id, hostname, organizationId }` |
 | `customer_accounts.domain_mapping.replaced` | lifecycle | clientBroadcast | `{ id, hostname, organizationId, replacedById }` |
 
@@ -315,13 +582,14 @@ All domain mapping events use `clientBroadcast: true` for real-time status updat
 | Method | Action | Side Effects |
 |--------|--------|-------------|
 | `domainMappingService.register(hostname, orgId, tenantId, replacesId?)` | Create `DomainMapping` with `status: 'pending'`. If `replacesId` is set, links as replacement for an existing active domain. Mutation guards validate hostname format, uniqueness, and org limit before creation. | `emitCrudSideEffects({ operation: 'create', entity: 'customer_accounts.domain_mapping' })` — emits `domain_mapping.created`, invalidates cache tags |
-| `domainMappingService.verify(id)` | DNS lookup with diagnostic info. On success: transition to `verified`, trigger async TLS health check. On failure: transition to `failed` with `dnsFailureReason` and `detectedRecords`. | `emitCrudSideEffects({ operation: 'update' })` — emits `domain_mapping.verified` or `domain_mapping.failed` (with diagnostic payload), invalidates cache tags |
+| `domainMappingService.verify(id)` | DNS lookup with CNAME → A → reverse-resolve fallback chain and diagnostic info. On success: transition to `verified`, trigger async TLS health check. On failure: transition to `dns_failed` with `dnsFailureReason` and `detectedRecords`. | `emitCrudSideEffects({ operation: 'update' })` — emits `domain_mapping.verified` or `domain_mapping.dns_failed` (with diagnostic payload), invalidates cache tags |
 | `domainMappingService.activate(id)` | Transition from `verified` to `active`. If domain has `replacesDomainId`, auto-remove the replaced domain. | `emitCrudSideEffects({ operation: 'update' })` — emits `domain_mapping.activated`. If replacing: `emitCrudSideEffects({ operation: 'delete' })` for old domain + emit `domain_mapping.replaced`. |
 | `domainMappingService.remove(id)` | Delete record | `emitCrudSideEffects({ operation: 'delete', entity: 'customer_accounts.domain_mapping' })` — emits `domain_mapping.deleted`, invalidates cache tags |
 | `domainMappingService.resolveByHostname(hostname)` | Read-only single-domain lookup for middleware/Traefik. Reads from `@open-mercato/cache` first (key: `domain_routing:resolve:{hostname}`, tags: `['domain_routing', 'domain_routing:{hostname}']`), falls back to DB on cache miss. | None |
 | `domainMappingService.resolveAll()` | Read-only batch lookup returning all active domain mappings. Used by middleware batch warm-up endpoint. | None |
 | `domainMappingService.healthCheck(id)` | Makes an HTTPS request to the domain to verify TLS is working (Traefik has provisioned cert). On success: calls `activate(id)`. On failure: retries up to 3 times with exponential backoff. | `emitCrudSideEffects` via `activate(id)` on success |
-| `domainMappingService.findPendingVerification()` | Returns all domains with status `pending` or `failed` (with `last_dns_check_at` older than 5 min). Used by background verification worker. | None |
+| `domainMappingService.findPendingVerification()` | Returns all domains with status `pending` or `dns_failed` (with `last_dns_check_at` older than 5 min). Used by background DNS verification worker. | None |
+| `domainMappingService.findPendingTls()` | Returns all domains with status `verified` (or `tls_failed` with `tls_retry_count < 3`) needing a TLS health check. Used by background TLS health-check worker. | None |
 
 **Mutation Guards** (declared in `data/guards.ts`):
 
@@ -347,7 +615,8 @@ Enriches Organization list/detail API responses. Uses `enrichMany()` with batch 
 |------|----------|-----------|--------|
 | `customer_accounts.domain_mapping.verified` | `success` | `domainMapping.notification.verified` | Link to `/backend/customer_accounts/settings/domain` |
 | `customer_accounts.domain_mapping.activated` | `success` | `domainMapping.notification.active` | Link to `/backend/customer_accounts/settings/domain` |
-| `customer_accounts.domain_mapping.failed` | `warning` | `domainMapping.notification.failed` | Link to `/backend/customer_accounts/settings/domain` |
+| `customer_accounts.domain_mapping.dns_failed` | `warning` | `domainMapping.notification.dnsFailed` | Link to `/backend/customer_accounts/settings/domain` |
+| `customer_accounts.domain_mapping.tls_failed` | `warning` | `domainMapping.notification.tlsFailed` | Link to `/backend/customer_accounts/settings/domain` |
 
 Each notification type has a corresponding persistent subscriber (`subscribers/domain-{event}-notification.ts`) that calls `buildFeatureNotificationFromType()` with `requiredFeature: 'customer_accounts.domain.manage'` and `expiresAfterHours: 168` (7 days).
 
@@ -369,7 +638,7 @@ export default async function handle(payload, ctx) {
 }
 ```
 
-Invalidates server-side `@open-mercato/cache` entries on any domain lifecycle event. The Edge Middleware's in-memory cache is TTL-based and not actively invalidated (eventual consistency within 60s).
+Invalidates server-side `@open-mercato/cache` entries on any domain lifecycle event. The Node Middleware's in-memory cache is TTL-based and not actively invalidated (eventual consistency within 60s).
 
 ## Data Models
 
@@ -383,10 +652,12 @@ Invalidates server-side `@open-mercato/cache` entries on any domain lifecycle ev
 | `organization_id` | uuid | FK → `organizations.id`, NOT NULL | No UNIQUE constraint — allows up to 2 domains per org during domain swap (1 active + 1 pending replacement). Enforced at service level. |
 | `replaces_domain_id` | uuid | FK → `domain_mappings.id`, NULLABLE, UNIQUE | Self-referential FK. Set when this domain is registered as a replacement for an existing active domain. UNIQUE ensures only one replacement can be pending per target domain. |
 | `provider` | varchar(20) | NOT NULL, DEFAULT `'traefik'` | Enum: `traefik`. Extensible for future `cloudflare`. |
-| `status` | varchar(20) | NOT NULL, DEFAULT `'pending'` | Enum: `pending` \| `verified` \| `active` \| `failed` |
+| `status` | varchar(20) | NOT NULL, DEFAULT `'pending'` | Enum: `pending` \| `verified` \| `active` \| `dns_failed` \| `tls_failed` |
 | `verified_at` | timestamptz | NULLABLE | Set when DNS verification succeeds |
 | `last_dns_check_at` | timestamptz | NULLABLE | Last time DNS verification was attempted (manual or background). Used by auto-verification worker to space out retries. |
-| `dns_failure_reason` | varchar(500) | NULLABLE | Diagnostic message from last failed DNS check. e.g., "CNAME points to `wrong.example.com` instead of `portal.openmercato.com`", "No CNAME record found", "DNS lookup timed out". |
+| `dns_failure_reason` | varchar(500) | NULLABLE | Diagnostic message from last failed DNS check. e.g., "CNAME points to `wrong.example.com` instead of `portal.openmercato.com`", "No CNAME or A record found", "A record points to a proxy IP but reverse-resolve did not reach our server", "DNS lookup timed out". |
+| `tls_failure_reason` | varchar(500) | NULLABLE | Diagnostic message from last failed TLS health check. e.g., "Certificate not yet provisioned after 3 retries", "Let's Encrypt rate limit hit", "TLS-ALPN-01 challenge failed". Distinct from `dns_failure_reason` so the UI can render both independently. |
+| `tls_retry_count` | int | NOT NULL, DEFAULT 0 | Number of TLS health-check attempts since the last `verified` transition. Reset on re-verify. |
 | `created_at` | timestamptz | NOT NULL, DEFAULT now() | Standard lifecycle |
 | `updated_at` | timestamptz | NOT NULL, DEFAULT now() | Standard lifecycle |
 
@@ -395,33 +666,46 @@ Invalidates server-side `@open-mercato/cache` entries on any domain lifecycle ev
 - `domain_mappings_organization_id_idx` — INDEX on `organization_id` (org-scoped queries; no UNIQUE to allow domain swap)
 - `domain_mappings_tenant_id_idx` — INDEX on `tenant_id` (tenant-scoped queries)
 - `domain_mappings_replaces_domain_id_unique` — UNIQUE on `replaces_domain_id` WHERE NOT NULL (one replacement per target)
-- `domain_mappings_pending_verification_idx` — INDEX on `(status, last_dns_check_at)` WHERE status IN ('pending', 'failed') (background worker query)
+- `domain_mappings_pending_verification_idx` — INDEX on `(status, last_dns_check_at)` WHERE status IN ('pending', 'dns_failed') (background DNS verification worker query)
+- `domain_mappings_pending_tls_idx` — INDEX on `(status, updated_at)` WHERE status IN ('verified', 'tls_failed') (background TLS health-check worker query)
 
 **Status Lifecycle:**
 
 ```
-┌─────────┐  DNS OK (manual   ┌──────────┐  Auto TLS health   ┌────────┐
-│ pending │  or background)   │ verified │  check succeeds     │ active │
-│         │──────────────────→│          │─────────────────────→│        │
-└─────────┘                   └──────────┘                     └────────┘
-     │  ▲                          │                                │
-     │  │ Retry (manual            │ TLS health check fails         │ Has replaces_domain_id?
-     │  │ or background)           │ (retries exhausted)            │ → auto-remove replaced domain
-     ▼  │                          ▼                                │
-┌────────┐                    ┌────────┐                            │
-│ failed │                    │ failed │                            │
-└────────┘                    └────────┘                            │
-                                                                    ▼
-                                                          Replaced domain: auto-deleted
-                                                          Emit domain_mapping.replaced
+                  DNS OK                       TLS health check
+            (manual or background)             (auto, with retries)
+   ┌─────────┐ ──────────────────► ┌──────────┐ ──────────────────► ┌────────┐
+   │ pending │                     │ verified │                     │ active │
+   └─────────┘ ◄────────────────── └──────────┘ ◄───────────────── └────────┘
+        ▲      Retry: clears                 ▲    Retry: bumps           │
+        │      dns_failure_reason            │    tls_retry_count = 0    │ Has replaces_domain_id?
+        │                                    │                           │ → auto-remove replaced
+        │ DNS check failed                   │ TLS health-check failed   │   (cache drains in 60s)
+        │                                    │ (3 retries exhausted)     │ Emit domain_mapping.replaced
+        ▼                                    ▼                           ▼
+   ┌──────────────┐                  ┌──────────────┐           ┌──────────────────┐
+   │ dns_failed   │                  │ tls_failed   │           │ replaced domain  │
+   │ (admin fixes │                  │ (operator    │           │ deleted          │
+   │  DNS)        │                  │  investigates│           └──────────────────┘
+   └──────────────┘                  │  rate limit, │
+                                     │  ACME challenge)
+                                     └──────────────┘
 ```
 
 **Transition notes:**
-- `pending → verified`: Triggered by manual "Verify Now" click OR background verification worker (every 5 min). Both paths call `domainMappingService.verify()`.
-- `verified → active`: Automatic. After DNS verification succeeds, `healthCheck(id)` is triggered asynchronously. It makes an HTTPS request to the domain to confirm Traefik has provisioned the TLS certificate. On success, transitions to `active`. On failure, retries with exponential backoff (3 attempts). If all retries fail, transitions to `failed` with reason "TLS certificate provisioning failed."
-- `failed → pending`: When the admin clicks "Retry" or the background worker re-checks (resets `dns_failure_reason`).
-- `active` + `replaces_domain_id`: On activation, the replaced domain is auto-removed. The old domain's cached entries in middleware drain naturally within TTL (60s).
-- The admin **never** needs to manually trigger the `verified → active` transition. It happens automatically via background TLS health check.
+
+| From | To | Trigger | Side effects |
+|------|-----|---------|--------------|
+| `pending` | `verified` | DNS check succeeds (manual "Check Now" or background worker every 5 min). Calls `domainMappingService.verify()`. | `verifiedAt` set; `tls_retry_count` reset to 0; emits `customer_accounts.domain_mapping.verified`; auto-triggers `healthCheck(id)`. |
+| `pending` | `dns_failed` | DNS check fails (no CNAME, no A record, wrong target, proxy reverse-resolve failed, or timeout). | `dns_failure_reason` set; `lastDnsCheckAt` set; emits `customer_accounts.domain_mapping.dns_failed`. |
+| `dns_failed` | `pending` | Admin clicks "Re-check DNS" or background worker re-runs (next interval). | Clears `dns_failure_reason`. |
+| `verified` | `active` | TLS health check succeeds (HTTPS GET to `https://{hostname}` returns valid cert). | Emits `customer_accounts.domain_mapping.activated`. If `replaces_domain_id` set: replaced domain auto-deleted, emits `replaced`. |
+| `verified` | `tls_failed` | TLS health check fails after 3 exponential-backoff retries. | `tls_failure_reason` set; `tls_retry_count` recorded; emits `customer_accounts.domain_mapping.tls_failed`. |
+| `tls_failed` | `verified` | Admin clicks "Retry SSL" — re-runs `healthCheck(id)`. | `tls_retry_count` reset to 0; clears `tls_failure_reason`. |
+| `tls_failed` | `pending` | Admin clicks "Re-check DNS" (chooses to re-run DNS verification rather than just retry TLS). | Treats it as a full reset. |
+| any | (deleted) | Admin clicks "Remove Domain" or replacement reaches `active`. | Emits `customer_accounts.domain_mapping.deleted`; cache invalidated. |
+
+The admin **never** needs to manually trigger the `verified → active` transition. It happens automatically via background TLS health check. Both `dns_failed` and `tls_failed` are surfaced distinctly in the UI so the admin sees actionable copy ("fix your DNS" vs "we're investigating SSL provisioning").
 
 **MikroORM Entity** (added to `customer_accounts/data/entities.ts`):
 
@@ -458,6 +742,12 @@ export class DomainMapping {
   @Property({ type: 'varchar', length: 500, nullable: true })
   dnsFailureReason?: string
 
+  @Property({ type: 'varchar', length: 500, nullable: true })
+  tlsFailureReason?: string
+
+  @Property({ type: 'int', default: 0 })
+  tlsRetryCount: number = 0
+
   @Property({ type: 'timestamptz', defaultRaw: 'now()' })
   createdAt!: Date
 
@@ -473,7 +763,8 @@ export enum DomainStatus {
   PENDING = 'pending',
   VERIFIED = 'verified',
   ACTIVE = 'active',
-  FAILED = 'failed',
+  DNS_FAILED = 'dns_failed',
+  TLS_FAILED = 'tls_failed',
 }
 ```
 
@@ -586,14 +877,15 @@ Trigger DNS verification for a domain mapping.
   "domainMapping": {
     "id": "dm_uuid",
     "hostname": "shop.acme.com",
-    "status": "failed",
+    "status": "dns_failed",
     "lastDnsCheckAt": "2026-04-08T10:03:00Z",
-    "dnsFailureReason": "No CNAME record found for shop.acme.com"
+    "dnsFailureReason": "No CNAME or A record found for shop.acme.com"
   },
   "diagnostics": {
     "expectedCnameTarget": "portal.openmercato.com",
+    "expectedARecordTarget": "203.0.113.10",
     "detectedRecords": [],
-    "suggestion": "Add a CNAME record for shop.acme.com pointing to portal.openmercato.com in your DNS provider. DNS propagation can take up to 48 hours."
+    "suggestion": "For a subdomain, add a CNAME record pointing to portal.openmercato.com. For an apex domain (acme.com), add an A record pointing to 203.0.113.10. DNS propagation can take up to 48 hours."
   }
 }
 ```
@@ -605,7 +897,7 @@ Trigger DNS verification for a domain mapping.
   "domainMapping": {
     "id": "dm_uuid",
     "hostname": "shop.acme.com",
-    "status": "failed",
+    "status": "dns_failed",
     "lastDnsCheckAt": "2026-04-08T10:03:00Z",
     "dnsFailureReason": "CNAME points to wrong-target.example.com instead of portal.openmercato.com"
   },
@@ -613,6 +905,27 @@ Trigger DNS verification for a domain mapping.
     "expectedCnameTarget": "portal.openmercato.com",
     "detectedRecords": [{ "type": "CNAME", "value": "wrong-target.example.com" }],
     "suggestion": "Your CNAME record points to wrong-target.example.com. Update it to point to portal.openmercato.com."
+  }
+}
+```
+
+**Response (200) — proxied DNS (Cloudflare orange-cloud) reverse-resolve failed:**
+```json
+{
+  "ok": true,
+  "domainMapping": {
+    "id": "dm_uuid",
+    "hostname": "shop.acme.com",
+    "status": "dns_failed",
+    "lastDnsCheckAt": "2026-04-08T10:03:00Z",
+    "dnsFailureReason": "A record points to a known proxy IP, but reverse-resolve over HTTPS did not reach our server"
+  },
+  "diagnostics": {
+    "expectedCnameTarget": "portal.openmercato.com",
+    "expectedARecordTarget": "203.0.113.10",
+    "detectedRecords": [{ "type": "A", "value": "104.18.0.1", "proxy": "cloudflare" }],
+    "reverseResolve": { "attempted": true, "originHeaderPresent": false },
+    "suggestion": "Your DNS uses a proxy (Cloudflare). Either disable the proxy (grey cloud) and add a CNAME → portal.openmercato.com, or configure your proxy to forward traffic to portal.openmercato.com."
   }
 }
 ```
@@ -628,11 +941,11 @@ Traefik verification endpoint. Called by Traefik before issuing a TLS certificat
 **Response:**
 - `200 OK` — hostname exists in `DomainMapping` with status `verified` or `active`
 - `403 Forbidden` — missing or incorrect `X-Domain-Check-Secret` header
-- `404 Not Found` — hostname not found, or status is `pending`/`failed`
+- `404 Not Found` — hostname not found, or status is `pending`/`dns_failed`/`tls_failed`
 
 ### GET /api/customer-accounts/domain-resolve
 
-Internal endpoint for Edge Middleware to populate its cache (single-domain lookup). Reads from `@open-mercato/cache` (key: `domain_routing:resolve:{hostname}`, tags: `['domain_routing', 'domain_routing:{hostname}']`, TTL: 300s) before hitting DB. Cache invalidated by `invalidate-domain-cache` subscriber on any domain lifecycle event.
+Internal endpoint for the Node Middleware to populate its cache (single-domain lookup). Reads from `@open-mercato/cache` (key: `domain_routing:resolve:{hostname}`, tags: `['domain_routing', 'domain_routing:{hostname}']`, TTL: 300s) before hitting DB. Cache invalidated by `invalidate-domain-cache` subscriber on any domain lifecycle event.
 
 **Auth:** Mandatory shared secret via `X-Domain-Resolve-Secret` header (must match `DOMAIN_RESOLVE_SECRET` env var). Returns `403` if secret is missing or incorrect.
 
@@ -654,7 +967,7 @@ Internal endpoint for Edge Middleware to populate its cache (single-domain looku
 
 ### GET /api/customer-accounts/domain-resolve/all
 
-Internal endpoint for Edge Middleware batch cache warm-up on process start.
+Internal endpoint for the Node Middleware batch cache warm-up on process start.
 
 **Auth:** Mandatory shared secret via `X-Domain-Resolve-Secret` header.
 
@@ -724,7 +1037,8 @@ New keys added to `customer_accounts` locale files (`i18n/en.json`, `pl.json`, `
 | `domainMapping.status.pending` | Checking DNS... |
 | `domainMapping.status.verified` | Setting up SSL certificate... |
 | `domainMapping.status.active` | Active |
-| `domainMapping.status.failed` | Setup issue — see details below |
+| `domainMapping.status.dns_failed` | DNS issue — see details below |
+| `domainMapping.status.tls_failed` | SSL certificate issue — we're retrying |
 | `domainMapping.stepper.step1` | Register Domain |
 | `domainMapping.stepper.step2` | Configure DNS |
 | `domainMapping.stepper.step3` | SSL Certificate |
@@ -760,7 +1074,10 @@ New keys added to `customer_accounts` locale files (`i18n/en.json`, `pl.json`, `
 | `domainMapping.preview.notReady` | Domain is not yet active. Complete the setup steps first. |
 | `domainMapping.notification.verified` | Your custom domain {hostname} has been verified! SSL certificate is being provisioned. |
 | `domainMapping.notification.active` | Your custom domain {hostname} is now live! |
-| `domainMapping.notification.failed` | DNS verification failed for {hostname}. {reason} |
+| `domainMapping.notification.dnsFailed` | DNS verification failed for {hostname}. {reason} |
+| `domainMapping.notification.tlsFailed` | SSL certificate provisioning is having trouble for {hostname}. We're retrying — no action needed yet. |
+| `domainMapping.tls.retryButton` | Retry SSL |
+| `domainMapping.dns.recheckButton` | Re-check DNS |
 
 ## UI/UX
 
@@ -769,6 +1086,29 @@ New keys added to `customer_accounts` locale files (`i18n/en.json`, `pl.json`, `
 **Route:** `/backend/customer_accounts/settings/domain`
 
 **Access:** Staff auth + `customer_accounts.domain.manage` feature
+
+### Multi-Org Tenant Behavior
+
+When the staff user has access to multiple organizations within the current tenant (and holds `customer_accounts.domain.manage` on more than one of them), the page header renders an **organization switcher** dropdown. Selecting an organization swaps the loaded `DomainMapping` and re-fetches the page state (the URL stays at `/backend/customer_accounts/settings/domain` — the active org is held in a `?org=<orgSlug>` query parameter so the page is shareable).
+
+```
+┌──────────────────────────────────────────────────────┐
+│ Custom Domain                                         │
+│ Map your own domain to the customer portal            │
+│                                                       │
+│ Organization: [ Acme Retail ▼ ]                       │
+│   ↳ Acme Retail (acme)                                │
+│     Acme Wholesale (acme-wholesale)                   │
+│     Acme EU (acme-eu)                                 │
+├──────────────────────────────────────────────────────┤
+│ ... rest of page is org-scoped ...                    │
+└──────────────────────────────────────────────────────┘
+```
+
+- **Single-org tenants**: the switcher is not rendered. The page implicitly operates on the user's only accessible organization.
+- **No-access state**: if the staff user has `customer_accounts.domain.manage` on zero organizations, the page renders an `<EmptyState>` explaining they need the feature granted on at least one org.
+- **Default org**: the dropdown defaults to `?org=<slug>` from the URL; if absent, the most recently active org (cookie-stored preference); if absent, the first alphabetical org the user can manage.
+- **Cross-org operations**: explicitly disallowed — the page never lets an admin manage one org's domain while looking at another's data. Switching the org is a full re-render, not a partial.
 
 ### Visual Stepper
 
@@ -833,7 +1173,7 @@ The setup flow is presented as a 4-step progress indicator at the top of the pag
 └──────────────────────────────────────────────────────┘
 ```
 
-### State: DNS Verification Failed (with Diagnostics)
+### State: DNS Verification Failed — `dns_failed` (with Diagnostics)
 
 ```
 ┌──────────────────────────────────────────────────────┐
@@ -844,7 +1184,7 @@ The setup flow is presented as a 4-step progress indicator at the top of the pag
 │    [done]      [error]                                │
 │                                                       │
 │  Domain: shop.acme.com                              │
-│  Status: ● Setup issue — see details below            │
+│  Status: ⚠ DNS issue — see details below              │
 │  Last checked: 30 seconds ago                         │
 │                                                       │
 │  ┌──────────────────────────────────────────────┐     │
@@ -861,7 +1201,41 @@ The setup flow is presented as a 4-step progress indicator at the top of the pag
 │  │ automatically.                                │     │
 │  └──────────────────────────────────────────────┘     │
 │                                                       │
-│  [Check Now]                       [Remove Domain]    │
+│  [Re-check DNS]                    [Remove Domain]    │
+│                                                       │
+└──────────────────────────────────────────────────────┘
+```
+
+### State: TLS Provisioning Failed — `tls_failed`
+
+When DNS verified successfully but Traefik / Let's Encrypt could not issue a certificate after 3 retries. The admin sees a different message — this is **not** a DNS problem and should not lead them to mess with their DNS records.
+
+```
+┌──────────────────────────────────────────────────────┐
+│ Custom Domain                                         │
+├──────────────────────────────────────────────────────┤
+│                                                       │
+│  ① Register  →  ② DNS  →  ③ SSL  →  ④ Live          │
+│    [done]       [done]    [error]                     │
+│                                                       │
+│  Domain: shop.acme.com                              │
+│  Status: ⚠ SSL certificate issue                      │
+│  TLS retries: 3 / 3                                   │
+│                                                       │
+│  ┌──────────────────────────────────────────────┐     │
+│  │ ⚠ SSL Certificate Provisioning Failed        │     │
+│  │                                               │     │
+│  │ Your DNS is correct — we just couldn't issue │     │
+│  │ a Let's Encrypt certificate after 3 attempts. │     │
+│  │                                               │     │
+│  │ Reason: TLS-ALPN-01 challenge timed out      │     │
+│  │                                               │     │
+│  │ This is usually temporary. Wait a minute and  │     │
+│  │ click "Retry SSL". If it keeps failing,      │     │
+│  │ contact support — we'll investigate.          │     │
+│  └──────────────────────────────────────────────┘     │
+│                                                       │
+│  [Retry SSL]   [Re-check DNS]    [Remove Domain]      │
 │                                                       │
 └──────────────────────────────────────────────────────┘
 ```
@@ -925,20 +1299,67 @@ When admin clicks "Change Domain" on an active domain:
 └──────────────────────────────────────────────────────┘
 ```
 
+### Loading, Empty, and Error States
+
+The page must satisfy the design-system rule "Every list/data page MUST handle empty state via `<EmptyState>` and every async page MUST show loading state via `<LoadingMessage>` / `<Spinner>` / `<DataLoader>`" from `packages/ui/AGENTS.md`.
+
+- **Loading state** (initial page mount, fetching the org's `DomainMapping`):
+
+  ```
+  <DataLoader query={domainMappingQuery}
+              loading={<LoadingMessage>Loading domain settings...</LoadingMessage>}
+              error={(err) => <ErrorMessage message={err.message} retry={refetch} />}>
+    {(data) => <DomainSettingsContent data={data} />}
+  </DataLoader>
+  ```
+
+- **Empty state** (org has no `DomainMapping` row at all — the "no domain configured" view above is itself the empty state, but it uses `<EmptyState>` semantics):
+
+  ```
+  <EmptyState
+    icon="globe"
+    title="No custom domain yet"
+    description="Map your own domain to the customer portal. Customers will see your branded URL instead of the platform's generic path."
+    action={<Button onClick={openRegisterDialog}>Register a domain</Button>}
+  />
+  ```
+
+  This replaces the bare "Domain: [____] [Register]" form on first render and pushes the form into a modal/dialog launched by the action button.
+
+- **Error state** (fetch failed — e.g., network error, 500 from the API): `<ErrorMessage message={err.message} retry={refetch} />`. The user can retry without leaving the page.
+
+- **No-access state** (multi-org tenant, user has the feature on zero organizations): `<EmptyState icon="lock" title="No managed organizations" description="Ask an admin to grant you the 'customer_accounts.domain.manage' feature on at least one organization." />`.
+
+- **Inline async** (after clicking "Re-check DNS" or "Retry SSL"): the button enters a `loading` state with a `<Spinner size="sm">`, the rest of the page stays visible. On success: `flash('DNS verified', 'success')`. On failure: status updates in place + `<Alert variant="warning">` is appended to the diagnostics card.
+
 ### Components
 
-- **Stepper indicator**: 4-step horizontal progress bar. Steps show checkmark (done), spinner (in progress), dot (upcoming), or warning icon (error).
-- **Hostname input**: Client-side hostname validation (no protocol, no path, valid TLD) with zod.
-- **Status indicator**: Color-coded: pending (yellow), verified (blue/animated), active (green), failed (red).
+- **Stepper indicator**: 4-step horizontal progress bar. Steps show checkmark (done), spinner (in progress), dot (upcoming), or warning icon (error). DS tokens: `text-status-success-icon` (done), `text-status-info-icon` (current), `text-muted-foreground` (upcoming), `text-status-warning-icon` (error). Never hardcoded colors.
+- **Hostname input**: Wrapped in `FormField` (label + error). Client-side hostname validation runs through the same `normalizeHostname` + zod schema as the server, so the user sees the canonical form (e.g., typing `Shop.Acme.com` previews as `shop.acme.com`). IDN input is auto-converted to Punycode with a small caption: *"Punycode form: xn--..."*.
+- **Status indicator**: Uses `<StatusBadge variant={domainStatusMap[status]} dot>` with the following `StatusMap<DomainStatus>`:
+
+```typescript
+import type { StatusMap } from '@open-mercato/ui/primitives/status-badge'
+
+export const domainStatusMap: StatusMap<DomainStatus> = {
+  pending:    'info',      // checking DNS — neutral information
+  verified:   'info',      // setting up SSL — neutral information
+  active:     'success',
+  dns_failed: 'warning',   // recoverable, admin action required
+  tls_failed: 'warning',   // recoverable, may auto-resolve
+}
+```
+
+No hardcoded color classes anywhere. Dark mode is provided by the semantic tokens.
 - **CNAME instruction card**: Copy-to-clipboard button for the target value. DNS provider quick-links open external help articles (Cloudflare, GoDaddy, Namecheap, Google Domains).
 - **Auto-polling indicator**: Shows "Last checked: {time}" and "Next check in ~{minutes} min". Powered by background worker — UI reflects status via real-time events.
 - **"Check Now" button**: Triggers `POST /api/customer-accounts/admin/domain-mappings/{id}/verify`. Replaces the old "Verify Now" label — more intuitive phrasing.
-- **Diagnostics card**: Shown on `failed` status. Displays `dnsFailureReason`, detected DNS records, expected target, and a specific actionable suggestion.
+- **Diagnostics card**: Shown on `dns_failed` status. Displays `dnsFailureReason`, detected DNS records, expected target, and a specific actionable suggestion. A separate **SSL diagnostics card** is shown on `tls_failed` status displaying `tlsFailureReason`, `tlsRetryCount`, and operator-friendly copy.
 - **"Test Domain" button**: Shown on `active` status. Opens `https://{hostname}` in a new tab. Disabled when domain is not yet active.
 - **"Change Domain" button**: Shown on `active` status. Opens the domain swap flow — registers a new domain with `replacesDomainId` pointing to the current active domain. Old domain stays active until replacement is ready.
 - **"Remove Domain" button**: Confirmation dialog with `Cmd/Ctrl+Enter` to confirm, `Escape` to cancel. Warning text changes based on whether there's a pending replacement.
 - **Real-time status updates**: `useAppEvent('customer_accounts.domain_mapping.*')` (DOM Event Bridge). UI auto-updates when background worker verifies DNS or TLS health check completes — admin sees transitions happen live without page refresh.
-- **Notifications**: In-app notification sent when domain transitions to `verified`, `active`, or `failed` (via notification subscriber). Includes actionable message with link to the domain settings page.
+- **Notifications**: In-app notification sent when domain transitions to `verified`, `active`, `dns_failed`, or `tls_failed` (via notification subscriber). Each includes actionable message with link to the domain settings page; `dns_failed` and `tls_failed` use distinct copy so the admin sees the right call to action.
 
 **Extension Points** (component handles for UMES extensibility):
 
@@ -964,8 +1385,16 @@ These handles are declared via `useRegisteredComponent(handle, FallbackComponent
 
 | Variable | Default | Description |
 |----------|---------|-------------|
-| `CUSTOM_DOMAIN_CNAME_TARGET` | `portal.openmercato.com` | The CNAME target tenants must point their domain to |
+| `CUSTOM_DOMAIN_CNAME_TARGET` | `portal.openmercato.com` | The CNAME target subdomain tenants must point their domain to |
+| `CUSTOM_DOMAIN_A_RECORD_TARGET` | *(required for apex support)* | The IPv4 address apex-domain tenants must point their A record to. **MUST be a dedicated IP** that serves only this platform — not a shared CDN/load balancer IP also used by other services. If shared, an attacker pointing their domain at the same IP would pass the A-record check without proxying through us. If unset, apex-domain registration is disabled and the verifier returns a `dns_failed` with a copy explaining apex isn't supported on this deployment. |
+| `DOMAIN_TLS_RETRY_INTERVAL_SECONDS` | `1800` | TLS-retry worker cadence (30 min default). |
+| `DOMAIN_TLS_MAX_RETRIES` | `6` | Per-domain retry cap. After this, only manual UI "Retry SSL" or operator action revives the domain. |
+| `DOMAIN_TLS_RETRY_BATCH` | `50` | Max domains the TLS-retry worker processes per run. |
+| `DOMAIN_TLS_RETRY_FAILURE_THRESHOLD` | `0.8` | If ≥80% of a worker run's health checks fail, the worker doubles its next interval (capped at 6h). |
+| `KNOWN_PROXY_IP_RANGES` | *(Cloudflare default list)* | Comma-separated CIDR ranges identifying known reverse-proxy networks (Cloudflare, Fastly, etc.). Triggers reverse-resolve fallback when an A record falls inside these ranges. |
+| `CUSTOMER_DOMAIN_ORIGIN_HEADER` | `X-Open-Mercato-Origin` | Name of the response header set on `/api/customer-accounts/domain-check` to confirm proxied requests reach our origin. |
 | `PLATFORM_DOMAINS` | `localhost,openmercato.com` | Comma-separated list of platform domains. Middleware skips these hosts. |
+| `PLATFORM_PORTAL_BASE_URL` | `https://openmercato.com` | Public base URL for the platform fallback portal. Used by `urlForCustomerOrg` when no custom domain is active. |
 | `DOMAIN_CHECK_SECRET` | *(required)* | **Mandatory** shared secret for the Traefik `domain-check` endpoint. Traefik must send `X-Domain-Check-Secret` header. App refuses to start if not set. |
 | `DOMAIN_RESOLVE_SECRET` | *(required)* | **Mandatory** shared secret for the middleware `domain-resolve` and `domain-resolve/all` endpoints. Middleware sends `X-Domain-Resolve-Secret` header. App refuses to start if not set. |
 | `DOMAIN_CACHE_TTL_SECONDS` | `60` | TTL for positive entries in the in-memory domain cache (stale-while-revalidate: stale entries served immediately while background refresh occurs) |
@@ -977,7 +1406,7 @@ These handles are declared via `useRegisteredComponent(handle, FallbackComponent
 
 ### Database Migration
 
-New migration creates the `domain_mappings` table:
+> **Note:** Per `AGENTS.md` ("Never hand-write migrations — update ORM entities, run `yarn db:generate`"), the actual migration is generated from the entity decorators. The SQL below is **illustrative only** — it documents the expected output shape so reviewers can confirm the indexes and constraints are right. Do not copy-paste this block into a migration file.
 
 ```sql
 CREATE TABLE domain_mappings (
@@ -991,16 +1420,22 @@ CREATE TABLE domain_mappings (
   verified_at TIMESTAMPTZ,
   last_dns_check_at TIMESTAMPTZ,
   dns_failure_reason VARCHAR(500),
+  tls_failure_reason VARCHAR(500),
+  tls_retry_count INT NOT NULL DEFAULT 0,
   created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
   updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
   CONSTRAINT domain_mappings_hostname_unique UNIQUE (hostname),
-  CONSTRAINT domain_mappings_replaces_domain_id_unique UNIQUE (replaces_domain_id)
+  CONSTRAINT domain_mappings_replaces_domain_id_unique UNIQUE (replaces_domain_id),
+  CONSTRAINT domain_mappings_hostname_normalized_chk
+    CHECK (hostname = lower(hostname) AND hostname NOT LIKE '%.')
 );
 
 CREATE INDEX domain_mappings_organization_id_idx ON domain_mappings(organization_id);
 CREATE INDEX domain_mappings_tenant_id_idx ON domain_mappings(tenant_id);
 CREATE INDEX domain_mappings_pending_verification_idx ON domain_mappings(status, last_dns_check_at)
-  WHERE status IN ('pending', 'failed');
+  WHERE status IN ('pending', 'dns_failed');
+CREATE INDEX domain_mappings_pending_tls_idx ON domain_mappings(status, updated_at)
+  WHERE status IN ('verified', 'tls_failed');
 ```
 
 ### Backward Compatibility
@@ -1020,10 +1455,11 @@ The `organization_id` column intentionally has no UNIQUE constraint — the sche
 
 **Goal:** `DomainMapping` entity, service, CRUD API routes, validation, events, ACL, DNS diagnostics. Integrates with `makeCrudRoute`, mutation guards, response enrichers, `@open-mercato/cache`, notification system, and widget injection.
 
-1. Add `DomainMapping` entity class (with `replacesDomain`, `lastDnsCheckAt`, `dnsFailureReason`), `DomainProvider` enum, and `DomainStatus` enum to `customer_accounts/data/entities.ts`
-2. Add Zod validation schemas to `customer_accounts/data/validators.ts`:
-   - `registerDomainSchema` — hostname + organizationId + optional `replacesDomainId`
-   - `hostnameSchema` — reusable hostname format validator
+1. Add `DomainMapping` entity class (with `replacesDomain`, `lastDnsCheckAt`, `dnsFailureReason`, `tlsFailureReason`, `tlsRetryCount`), `DomainProvider` enum, and `DomainStatus` enum (`pending | verified | active | dns_failed | tls_failed`) to `customer_accounts/data/entities.ts`. **Omit the `indexer` field** on the CRUD route config so the entity is excluded from the platform-wide search index — `indexer?` is optional in `CrudRouteConfig` (`packages/shared/src/lib/crud/factory.ts:424`), so omission is the documented opt-out. Add a one-line code comment on the route file: `// Domain mappings are tenant-private — intentionally excluded from search indexing.`
+2. Create `customer_accounts/lib/hostname.ts` exporting `normalizeHostname` (lowercase + trailing-dot strip + IDN → Punycode + 253-char cap). All callers (validators, service, middleware, API endpoints) MUST use this function — no ad-hoc normalization.
+3. Add Zod validation schemas to `customer_accounts/data/validators.ts`:
+   - `registerDomainSchema` — hostname (transforms via `normalizeHostname`) + organizationId + optional `replacesDomainId`
+   - `hostnameSchema` — reusable hostname format validator running on the post-normalization ASCII form
 3. Create `customer_accounts/data/guards.ts` — mutation guards for domain validation:
    - `customer_accounts.domain_mapping.hostname-format` (priority 10) — validates hostname against `hostnameSchema`
    - `customer_accounts.domain_mapping.hostname-unique` (priority 20) — checks DB uniqueness
@@ -1031,16 +1467,19 @@ The `organization_id` column intentionally has no UNIQUE constraint — the sche
 4. Create `customer_accounts/data/enrichers.ts` — response enricher on `directory:organization`:
    - `customer_accounts.domain-status:directory:organization` — adds `_customDomain: { hostname, status }` to Organization API responses
    - Uses `enrichMany()` with batch `$in` query; feature-gated by `customer_accounts.domain.manage`
-5. Create `customer_accounts/services/domainMappingService.ts` with: `register`, `verify` (with DNS diagnostics), `activate`, `remove`, `findByOrganization`, `resolveByHostname` (reads `@open-mercato/cache` first), `resolveAll`, `healthCheck`, `findPendingVerification`
-   - All write methods use `emitCrudSideEffects` for consistent event emission, cache invalidation, and search indexing
+5. Create `customer_accounts/services/domainMappingService.ts` with: `register`, `verify` (CNAME → A → reverse-resolve fallback chain with detailed diagnostics), `activate`, `remove`, `findByOrganization`, `resolveByHostname` (reads `@open-mercato/cache` first), `resolveActiveByOrg(orgId)` (used by `urlForCustomerOrg`), `resolveAll`, `healthCheck`, `findPendingVerification`, `findPendingTls`
+   - All write methods use `emitCrudSideEffects` for consistent event emission and cache invalidation. Search indexing is opt-out (`indexer: false`) — domain mappings are not searchable cross-tenant.
+5a. Create `customer_accounts/lib/proxyRanges.ts` — parses `KNOWN_PROXY_IP_RANGES` into in-memory CIDR matchers. Exposes `isInKnownProxyRange(ip)` and `detectProxy(ip)`.
+5b. Create `customer_accounts/lib/customerUrl.ts` — exports `urlForCustomerOrg(orgId, path)`. All customer-portal email templates must use this helper. Add a unit test asserting no template hardcodes the platform host.
 6. Register `domainMappingService` in `customer_accounts/di.ts`
-7. Add domain mapping events to `customer_accounts/events.ts` (6 events with `clientBroadcast: true`, including `replaced`)
+7. Add domain mapping events to `customer_accounts/events.ts` (7 events with `clientBroadcast: true`: `created`, `verified`, `activated`, `dns_failed`, `tls_failed`, `deleted`, `replaced`)
 8. Add `customer_accounts.domain.manage` feature to `customer_accounts/acl.ts`
 9. Update `customer_accounts/setup.ts` to assign `customer_accounts.domain.manage` to `superadmin` and `admin` default roles
 10. Add notification types to `customer_accounts/notifications.ts`:
     - `customer_accounts.domain_mapping.verified` (severity: success)
     - `customer_accounts.domain_mapping.activated` (severity: success)
-    - `customer_accounts.domain_mapping.failed` (severity: warning)
+    - `customer_accounts.domain_mapping.dns_failed` (severity: warning) — *user must fix DNS*
+    - `customer_accounts.domain_mapping.tls_failed` (severity: warning) — *operator should investigate; user typically takes no action*
     - All with `expiresAfterHours: 168`, action link to settings page
 11. Add client notification renderers to `customer_accounts/notifications.client.ts`
 12. Run `yarn db:generate` to create migration
@@ -1055,17 +1494,51 @@ The `organization_id` column intentionally has no UNIQUE constraint — the sche
     - `subscribers/invalidate-domain-cache.ts` — ephemeral subscriber on `customer_accounts.domain_mapping.*`, invalidates `@open-mercato/cache` tags `['domain_routing', 'domain_routing:{hostname}']`
     - `subscribers/domain-verified-notification.ts` — persistent, calls `buildFeatureNotificationFromType()` with `requiredFeature: 'customer_accounts.domain.manage'`
     - `subscribers/domain-activated-notification.ts` — persistent, same pattern
-    - `subscribers/domain-failed-notification.ts` — persistent, same pattern
+    - `subscribers/domain-dns-failed-notification.ts` — persistent, same pattern
+    - `subscribers/domain-tls-failed-notification.ts` — persistent, same pattern
 15. Add i18n keys to locale files (stepper, diagnostics, auto-verify, domain swap, preview, notifications)
 16. Validate mandatory env vars (`DOMAIN_CHECK_SECRET`, `DOMAIN_RESOLVE_SECRET`) at startup — fail fast if missing
 17. Run `yarn generate` (regenerates `enrichers.generated.ts`, `guards.generated.ts`, `injection-tables.generated.ts`, `notifications.generated.ts`, `workers.generated.ts`) and `yarn build:packages`
 
-### Phase 2: Next.js Edge Middleware
+### Phase 1.5: Customer Auth Host-Awareness
 
-**Goal:** Host-header resolution with stale-while-revalidate cache, batch warm-up, and URL rewriting.
+**Goal:** Make the existing customer-auth entry points work on custom domains without breaking existing platform-domain clients.
 
-1. Create `apps/mercato/src/middleware.ts`:
+1. Relax `loginSchema.tenantId` in `customer_accounts/data/validators.ts` from required to optional. Mirror the change in `signupSchema`, `magicLinkRequestSchema`, `passwordResetRequestSchema`, `passwordResetConfirmSchema`.
+2. Create `customer_accounts/lib/resolveTenantContext.ts`:
+   ```typescript
+   export async function resolveTenantContext(
+     req: Request,
+     bodyTenantId?: string,
+   ): Promise<{ tenantId: string; organizationId: string | null }>
+   ```
+   Logic:
+   - Read `Host` header, normalize via `normalizeHostname`.
+   - If host is in `PLATFORM_DOMAINS`: require `bodyTenantId`; return it.
+   - Else: call `domainMappingService.resolveByHostname(host)`. If `status !== 'active'` → throw 404. If `bodyTenantId` is supplied and differs from resolved → throw 400 (mismatch).
+3. Update `customer_accounts/api/login.ts`, `signup.ts`, `magic-link/request.ts`, `password/reset-request.ts`, `password/reset-confirm.ts` to call `resolveTenantContext(req, parsed.data.tenantId)` instead of asserting `tenantId` directly.
+4. Extend `customer_accounts/lib/customerAuthServer.ts`:
+   - Add optional `expectedTenantId` to `getCustomerAuthFromCookies`. When present and decoded JWT's `tenantId !== expectedTenantId`, return null.
+   - Add new helper `getCustomerAuthForHost(req)` that resolves the host first, then calls `getCustomerAuthFromCookies` with `expectedTenantId`.
+   - Existing callers that don't pass `expectedTenantId` see no behavior change (additive).
+5. Update `customer_accounts/api/signup.ts` to construct the welcome-email URL via `urlForCustomerOrg(orgId, '/portal')` instead of hard-coding `PLATFORM_PORTAL_BASE_URL`. This is the only existing call site that sends customer-portal email; future routes follow the same rule (forward-looking).
+6. Add unit tests:
+   - `loginSchema` accepts a missing `tenantId`.
+   - `resolveTenantContext` returns body-supplied `tenantId` on platform host, host-resolved `tenantId` on custom host, throws on mismatch.
+   - `getCustomerAuthFromCookies` rejects JWT when `expectedTenantId` doesn't match decoded `tenantId`.
+7. Add `customer_accounts.domain.manage` to `customer_accounts/AGENTS.md` along with the rule: "All customer-portal email senders MUST construct URLs via `urlForCustomerOrg`. Never hard-code `PLATFORM_PORTAL_BASE_URL`."
+
+### Phase 2: Next.js Node Middleware
+
+**Goal:** Host-header resolution with stale-while-revalidate cache, batch warm-up, and URL rewriting. Runs on `runtime: 'nodejs'` — Next.js ≥ 15.2 is a hard requirement.
+
+1. **Pre-task:** verify the source of the `x-next-url` request header that `apps/mercato/src/app/(frontend)/layout.tsx` already reads (line ~24). Today no `middleware.ts` exists in the repo, so this header is either set by Next.js internally or by a build-step injection. The new middleware MUST preserve (or replicate) whatever sets it, otherwise the existing portal layout's pathname-based orgSlug parsing breaks. Confirm via grep + a bare-middleware smoke test before committing the rewrite logic.
+2. Create `apps/mercato/src/middleware.ts`:
+   - `export const config = { matcher: [...], runtime: 'nodejs' }` — explicit Node runtime declaration. CI must enforce Next.js ≥ 15.2 in `package.json` engines (current: 16.2.4 — comfortably ahead).
    - Matcher config excluding `/_next/*`, `/favicon.ico`
+   - Normalize the incoming Host header through `normalizeHostname` before any cache lookup (defends against case/IDN/trailing-dot drift)
+   - When rewriting via `NextResponse.rewrite`, pass through the original `x-next-url` (or set it explicitly to the rewritten URL) so the catch-all layout's pathname extraction continues to work
+   - Set `x-open-mercato-origin: 1` response header on the `/api/customer-accounts/domain-check` and `/_next/health` endpoints so the proxied-DNS reverse-resolve check (Phase 1) can distinguish "request reached our origin" from "request was answered by an unrelated host"
    - Platform domain allow-list from `PLATFORM_DOMAINS` env var
    - **Stale-while-revalidate cache**: serve stale entries immediately, trigger async background refresh. Cold misses fall back to synchronous fetch.
    - **Batch warm-up on module init**: fetch `GET /api/customer-accounts/domain-resolve/all` (with `X-Domain-Resolve-Secret` header) to populate entire cache before first request.
@@ -1098,9 +1571,13 @@ The `organization_id` column intentionally has no UNIQUE constraint — the sche
 
 ### Phase 4: Back Office UI
 
-**Goal:** Guided stepper wizard with auto-polling, DNS diagnostics, domain swap, and preview. Uses platform UI patterns: `useGuardedMutation`, `useRegisteredComponent`, widget injection for navigation.
+**Goal:** Guided stepper wizard with auto-polling, DNS diagnostics, domain swap, multi-org switcher, and preview. Uses platform UI patterns: `useGuardedMutation`, `useRegisteredComponent`, `StatusBadge` + `StatusMap`, `<EmptyState>`/`<LoadingMessage>`/`<ErrorMessage>`, widget injection for navigation.
 
 1. Create `backend/customer_accounts/settings/domain/page.tsx`:
+   - **Multi-org switcher**: header dropdown listing every org the staff user can manage with `customer_accounts.domain.manage`. Persists selection via `?org=<slug>` URL param + cookie. Hidden when the user manages exactly one org.
+   - **Loading/empty/error states**: wrap the data fetch in `<DataLoader>` rendering `<LoadingMessage>` / `<ErrorMessage>` / `<EmptyState>` per the rules above.
+   - **Status display**: `<StatusBadge variant={domainStatusMap[status]} dot>` — `domainStatusMap` lives next to the page in `components/domainStatusMap.ts`. No hardcoded colors.
+   - **Distinct dns_failed vs tls_failed UX**: dns_failed shows the DNS diagnostics card with `[Re-check DNS]`. tls_failed shows the SSL diagnostics card with `[Retry SSL]` and `[Re-check DNS]` (both reachable). Copy makes clear which is the customer's problem to fix vs ours.
    - Page metadata with `requireAuth: true`, `requireFeatures: ['customer_accounts.domain.manage']`
    - **All write operations** wrapped in `useGuardedMutation(...).runMutation(...)` — no raw `apiCall` for POST/PUT/PATCH/DELETE
    - **4-step stepper indicator** (Register → DNS → SSL → Live) with state-driven progression. Wrapped in `useRegisteredComponent('section:customer_accounts.domain-settings:stepper', DefaultStepper)` for extensibility.
@@ -1108,7 +1585,7 @@ The `organization_id` column intentionally has no UNIQUE constraint — the sche
    - **CNAME instruction card** wrapped in `useRegisteredComponent('section:customer_accounts.domain-settings:dns-config', DefaultDnsConfig)` — replaceable by Cloudflare integration module
    - **Status badge** wrapped in `useRegisteredComponent('section:customer_accounts.domain-settings:status', DefaultStatusBadge)`
    - **Auto-polling status display**: "Last checked: {time}" + "Next check in ~{minutes} min" — powered by background worker events
-   - **DNS diagnostics card** on `failed` status: shows `dnsFailureReason`, detected records, expected target, actionable suggestion
+   - **DNS diagnostics card** on `dns_failed` status: shows `dnsFailureReason`, detected records, expected target, actionable suggestion. **SSL diagnostics card** on `tls_failed` status: shows `tlsFailureReason`, retry count, operator-investigation copy.
    - **Action buttons** wrapped in `useRegisteredComponent('section:customer_accounts.domain-settings:actions', DefaultActions)` — wrappable by enterprise modules
    - **"Check Now" button**: manual trigger for `POST /verify`
    - **"Test Domain" button**: opens `https://{hostname}` in new tab (shown when `active`)
@@ -1125,7 +1602,7 @@ The `organization_id` column intentionally has no UNIQUE constraint — the sche
 
 1. Create `customer_accounts/workers/domainVerificationWorker.ts`:
    - Runs on `DOMAIN_AUTO_VERIFY_INTERVAL_SECONDS` interval (default every 5 min)
-   - Queries `findPendingVerification()` — all domains with status `pending` or `failed` where `last_dns_check_at` is older than the interval
+   - Queries `findPendingVerification()` — all domains with status `pending` or `dns_failed` where `last_dns_check_at` is older than the interval
    - For each domain: runs DNS check with diagnostics, updates `lastDnsCheckAt`, transitions status
    - On verification success: triggers `healthCheck(id)` to auto-provision TLS and transition to `active`
    - Emits events for each transition (triggers real-time UI updates + in-app notifications)
@@ -1133,10 +1610,27 @@ The `organization_id` column intentionally has no UNIQUE constraint — the sche
 3. Create `domainMappingService.healthCheck(id)`:
    - Makes HTTPS GET to `https://{hostname}` to verify Traefik has provisioned TLS cert
    - On success (valid TLS): calls `activate(id)` — transitions to `active`, handles domain swap auto-removal
-   - On failure: retries up to 3 times with exponential backoff (1s, 4s, 16s). If all retries fail: transitions to `failed` with reason "TLS certificate provisioning failed — Traefik may not have processed the certificate request yet."
-4. End-to-end testing: register domain → background worker detects DNS → auto-verify → auto-TLS health check → auto-activate
+   - On failure: retries up to 3 times with exponential backoff (1s, 4s, 16s). If all retries fail: transitions to `tls_failed`, sets `tlsFailureReason` and `tlsRetryCount`, emits `customer_accounts.domain_mapping.tls_failed`.
+4. Create `customer_accounts/workers/domainTlsRetryWorker.ts` — separate worker, longer cadence:
+   - Metadata: `{ queue: 'domain-tls-retry', id: 'customer_accounts:domain-tls-retry', concurrency: 1 }`
+   - Runs on `DOMAIN_TLS_RETRY_INTERVAL_SECONDS` (default 1800s = 30 min)
+   - Queries `findPendingTls()` — domains with status `verified` (still waiting for first cert) or `tls_failed` with `tls_retry_count < DOMAIN_TLS_MAX_RETRIES` (default 6)
+   - **Worker-level rate limit**: processes at most `DOMAIN_TLS_RETRY_BATCH` (default 50) domains per run. If more are pending, the rest wait for the next interval. Prevents overwhelming Let's Encrypt or Traefik during a brief outage that affected many domains at once.
+   - **Worker-level backoff**: if any single run sees ≥ `DOMAIN_TLS_RETRY_FAILURE_THRESHOLD` (default 80%) of attempted health checks fail, the worker doubles its next interval (capped at 6h). Resets on a successful run. This mitigates Let's Encrypt account-level rate limits triggering across the board.
+   - Domains exceeding `DOMAIN_TLS_MAX_RETRIES` are NOT retried by the worker — they require operator intervention (UI "Retry SSL" or runbook escalation). They emit a `customer_accounts.domain_mapping.tls_failed` notification with severity bumped to surface the operator action.
+5. End-to-end testing: register domain → background DNS worker detects DNS → auto-verify → TLS retry worker provisions cert → auto-activate
 
 ### Testing Strategy
+
+**Test infrastructure for fake Host headers:**
+
+Custom-domain integration tests need to drive requests with arbitrary `Host` headers (e.g., `shop.acme.com`) without modifying `/etc/hosts` or doing real DNS. The chosen strategy:
+
+- Add a test-only header `X-Force-Host: shop.acme.com` that the middleware honors **only when `process.env.NODE_ENV === 'test'` AND the request also carries `X-Force-Host-Secret: <test-secret>`**. In all other modes the header is ignored, preventing prod abuse.
+- Playwright integration tests set both headers via `page.setExtraHTTPHeaders({...})` per test fixture.
+- Direct API tests (Jest/`fetch`) set the headers in the request init.
+- The middleware MUST log a single line at boot: `domain-routing: X-Force-Host enabled (NODE_ENV=test)` so misconfiguration is loud.
+- A unit test asserts that `X-Force-Host` is ignored when `NODE_ENV !== 'test'` even if the secret matches.
 
 **Integration tests** (Playwright):
 - Register a custom domain via API → verify record created with `pending` status
@@ -1145,8 +1639,8 @@ The `organization_id` column intentionally has no UNIQUE constraint — the sche
 - Verify domain-check endpoint returns 200 for verified domains, 404 for unknown, 403 for missing secret
 - Verify domain-resolve endpoint returns correct tenant/org data, 403 for missing secret
 - Verify domain-resolve/all batch endpoint returns all active domains
-- Verify Edge Middleware rewrites custom domain URLs to portal routes
-- Verify Edge Middleware serves stale cache entries during background refresh
+- Verify Node Middleware rewrites custom domain URLs to portal routes
+- Verify Node Middleware serves stale cache entries during background refresh
 - Verify platform domain traffic is unaffected
 - Verify removing a domain returns 404 on subsequent resolve
 - Verify duplicate hostname registration is rejected
@@ -1155,6 +1649,14 @@ The `organization_id` column intentionally has no UNIQUE constraint — the sche
 - Verify TLS health check auto-activates verified domains
 - Verify in-app notifications sent on domain lifecycle transitions
 - Verify mandatory secrets are enforced (app startup fails without `DOMAIN_CHECK_SECRET` / `DOMAIN_RESOLVE_SECRET`)
+- Verify customer login on a custom domain works **without** a `tenantId` in the request body (Host-based resolution)
+- Verify customer login on a platform domain still requires `tenantId` (backward compatibility)
+- Verify customer login with a *mismatched* `tenantId` in body on a custom domain returns 400
+- Verify JWT issued on `shop.acme.com` is rejected when replayed on `other.acme.com` (host-tenant binding)
+- Verify host-only cookies are not sent across hosts (cookie scope test)
+- Verify magic-link/password-reset/signup routes also accept Host-based tenant resolution (Phase 1.5 shared `resolveTenantContext` helper)
+- Verify the TLS-retry worker honors `DOMAIN_TLS_RETRY_BATCH` cap and the worker-level backoff multiplier on high failure rate
+- Verify `X-Force-Host` is honored only when `NODE_ENV=test` and ignored in production builds
 
 **Unit tests:**
 - Hostname validation schema (valid/invalid cases)
@@ -1188,7 +1690,7 @@ The `organization_id` column intentionally has no UNIQUE constraint — the sche
 ### Cascading Failures & Side Effects
 
 #### Middleware Cache Fetch Failure
-- **Scenario**: The Edge Middleware cannot reach the `domain-resolve` endpoint (app crash, network issue). All custom domain requests fail.
+- **Scenario**: The Node Middleware cannot reach the `domain-resolve` endpoint (app crash, network issue). All custom domain requests fail.
 - **Severity**: High
 - **Affected area**: All custom domain portal traffic
 - **Mitigation**: Stale-while-revalidate means existing cached entries continue serving even when the resolve endpoint is unreachable — stale data is better than no data. If the internal fetch fails, the background refresh silently retries on the next request. Only cold misses (domains not in cache at all) return 503. Batch warm-up on startup ensures the cache is pre-populated, so cold misses should be rare. Platform-domain traffic is completely unaffected (separate code path).
@@ -1263,6 +1765,48 @@ The `organization_id` column intentionally has no UNIQUE constraint — the sche
 - **Mitigation**: Both endpoints require a mandatory `X-Domain-Resolve-Secret` header matching `DOMAIN_RESOLVE_SECRET` env var. Requests with missing or incorrect secrets receive `403 Forbidden` with no data. The app refuses to start if `DOMAIN_RESOLVE_SECRET` is not set. Negative caching (5 min TTL) in the middleware prevents repeated queries for unknown hostnames even if the endpoint is accessible.
 - **Residual risk**: If the secret is compromised, an attacker could enumerate all active domains. The data exposed (hostname, orgSlug, tenantSlug) is low-sensitivity. Secret rotation requires a coordinated deploy of app + middleware config.
 
+#### Per-Domain Cookie Confusion
+- **Scenario**: A customer logs in on `openmercato.com/acme/portal`, then visits `shop.acme.com` and sees an unauthenticated page. They report "your site logged me out".
+- **Severity**: Low (UX, not security)
+- **Affected area**: Customer portal sign-in experience
+- **Mitigation**: Document the per-domain session model in customer-facing help. The settings page warns admins during domain swap. Customer portal login pages display *"Sign in to {hostname}"* so the host context is explicit. Long-term, an opt-in cross-domain SSO (federated login on the platform domain handing tokens to custom domains) is a future consideration but explicitly out of scope for this spec.
+- **Residual risk**: Some customer support tickets during early rollouts. Acceptable given the security and complexity savings of host-only cookies.
+
+#### Cross-Host JWT Replay Attempt
+- **Scenario**: An attacker obtains a JWT issued on `shop.acme.com` and attempts to replay it on `other.acme.com` (another tenant's domain).
+- **Severity**: Critical if it worked
+- **Affected area**: Tenant data isolation
+- **Mitigation**: API handlers resolve tenant by Host header (via `domainMappingService.resolveByHostname`) and assert `JWT.tenantId === resolvedTenantId`. Mismatch returns 401. The host is the authoritative scoping key — the cookie alone does not grant access. Documented as the cross-host invariance rule in the Customer Authentication section.
+- **Residual risk**: None — host resolution and JWT scope are both required to match.
+
+#### Shared `CUSTOM_DOMAIN_A_RECORD_TARGET` IP Bypass
+- **Scenario**: The operator sets `CUSTOM_DOMAIN_A_RECORD_TARGET` to a shared IP (e.g., a CDN edge IP or a load balancer also serving unrelated services). An attacker registers a domain that already points at that shared IP for unrelated reasons; the A-record verifier passes without the domain owner having actually opted in to our platform.
+- **Severity**: High
+- **Affected area**: Domain ownership verification, TLS issuance
+- **Mitigation**: `CUSTOM_DOMAIN_A_RECORD_TARGET` MUST be a dedicated IP (operator runbook explicit). Documentation calls this out in the env-var description. A startup check warns (logs `WARN`) if the configured A-record target falls inside a `KNOWN_PROXY_IP_RANGES` CIDR — that is a strong signal the operator picked a shared IP. Reverse-resolve over HTTPS provides defense in depth (an attacker pointing at a shared CDN IP won't reach our origin), but the cleanest mitigation is a dedicated IP.
+- **Residual risk**: Operator misconfiguration. Standard ops concern; mitigated by docs + startup warning.
+
+#### Apex-Domain Misregistration
+- **Scenario**: A tenant attempts to register an apex domain (`acme.com`) without `CUSTOM_DOMAIN_A_RECORD_TARGET` configured by the operator. The verifier fails repeatedly with confusing errors.
+- **Severity**: Low
+- **Affected area**: Onboarding UX
+- **Mitigation**: When `CUSTOM_DOMAIN_A_RECORD_TARGET` is unset, the verifier returns a `dns_failed` with copy *"Apex-domain registration is not enabled on this deployment. Use a subdomain (shop.acme.com) instead, or contact the platform operator."* The hostname validator may also reject apex registration up-front when the env var is missing — TBD by operator preference.
+- **Residual risk**: None.
+
+#### Hostname Normalization Bypass via Direct DB Insert
+- **Scenario**: A migration or admin DB tool inserts a `DomainMapping` with a non-normalized hostname (`Shop.Acme.com`). Lookups via the normalizer ignore the row; the row is effectively orphaned.
+- **Severity**: Low
+- **Affected area**: Data hygiene
+- **Mitigation**: A Postgres `CHECK` constraint enforces `hostname = lower(hostname)` and absence of trailing dot. A startup migration scans existing rows and normalizes any stragglers (no-op on a fresh deployment). Code paths can no longer insert non-normalized rows because the validator is the only entry point.
+- **Residual risk**: Operator using raw SQL outside the constraint. Standard ops concern.
+
+#### Cloudflare-Proxied Customer Bypassing Verification
+- **Scenario**: A tenant points their domain at Cloudflare which forwards to an attacker-controlled origin, then registers it claiming ownership. Reverse-resolve fails (does not return our origin header), so registration stays in `dns_failed` — but the tenant complains.
+- **Severity**: Low (operational)
+- **Affected area**: Onboarding support load
+- **Mitigation**: Verifier copy explicitly explains the proxy case and offers two fixes: (a) disable the proxy (grey cloud), (b) configure the proxy to forward to `portal.openmercato.com`. Operator runbook documents the diagnostic header.
+- **Residual risk**: None — verification is fail-closed.
+
 #### Domain Swap Race Condition
 - **Scenario**: Admin starts a domain swap (registers replacement), but another admin simultaneously removes the original domain or starts a different replacement.
 - **Severity**: Low
@@ -1270,7 +1814,7 @@ The `organization_id` column intentionally has no UNIQUE constraint — the sche
 - **Mitigation**: `replaces_domain_id` has a UNIQUE constraint — only one replacement can be pending per target domain. Service-level validation enforces max 2 domains per org. If the original domain is removed while a replacement is pending, the `ON DELETE SET NULL` FK action clears `replaces_domain_id`, and the replacement continues as a standalone registration.
 - **Residual risk**: Edge case where two admins act simultaneously on the same domain. The DB constraints prevent data corruption; the worst outcome is a confusing but recoverable state.
 
-## Final Compliance Report — 2026-04-08
+## Final Compliance Report — 2026-04-30 (rev 5)
 
 ### AGENTS.md Files Reviewed
 - `AGENTS.md` (root)
@@ -1291,7 +1835,7 @@ The `organization_id` column intentionally has no UNIQUE constraint — the sche
 | root AGENTS.md | Validate all inputs with zod | Compliant | `registerDomainSchema` and `hostnameSchema` defined in `data/validators.ts` |
 | root AGENTS.md | Use DI (Awilix) to inject services | Compliant | `domainMappingService` registered in `di.ts` |
 | root AGENTS.md | Event IDs: `module.entity.action` (singular entity, past tense) | Compliant | `customer_accounts.domain_mapping.created`, `.verified`, `.activated`, `.failed`, `.deleted` |
-| packages/core AGENTS.md | CRUD routes: use `makeCrudRoute` with `indexer: { entityType }` | Compliant | Admin domain-mappings route uses `makeCrudRoute` with `enrichers: { entityId: 'customer_accounts.domain_mapping' }`. Specialty routes (verify, health-check, domain-check, domain-resolve) are custom. |
+| packages/core AGENTS.md | CRUD routes: use `makeCrudRoute` with `indexer: { entityType }` | Compliant (with documented opt-out) | Admin domain-mappings route uses `makeCrudRoute` with `enrichers: { entityId: 'customer_accounts.domain_mapping' }`. The `indexer` field is **intentionally omitted** because hostnames are tenant-private and must not be in a platform-wide search index. Verified `indexer?` is optional at `factory.ts:424`, so omission is the supported opt-out. Specialty routes (verify, health-check, domain-check, domain-resolve) are custom. |
 | packages/core AGENTS.md | API routes MUST export `openApi` | Compliant | All API routes include `openApi` export |
 | packages/core AGENTS.md | Response enrichers: declare in `data/enrichers.ts` | Compliant | Organization entity enricher declared with `enrichMany()` batch optimization |
 | packages/core AGENTS.md | Widget injection: declare in `widgets/injection/`, map via `injection-table.ts` | Compliant | Settings menu item injected via `menu:sidebar:settings` spot with feature gating |
@@ -1309,6 +1853,12 @@ The `organization_id` column intentionally has no UNIQUE constraint — the sche
 | root AGENTS.md | Backward Compatibility Contract | Compliant | No existing surfaces modified. All additions are new: new entity, new API routes, new middleware file, new events. |
 
 | packages/queue AGENTS.md | Workers: export handler + metadata with `{ queue, id?, concurrency? }` | Compliant | `domainVerificationWorker` exports metadata with `{ queue: 'domain-verification', concurrency: 1 }` |
+| root AGENTS.md (DS rules) | Use `StatusBadge` for entity status; never hardcode colors on Badge | Compliant (rev 4) | `domainStatusMap: StatusMap<DomainStatus>` defined; status display uses `<StatusBadge variant={...} dot>`. No hardcoded color classes in the spec. |
+| packages/ui AGENTS.md | Every list/data page MUST handle empty state via `<EmptyState>`; every async page MUST show loading state | Compliant (rev 4) | Settings page wraps fetch in `<DataLoader>` with `<LoadingMessage>` / `<ErrorMessage>` / `<EmptyState>`. No-access state also uses `<EmptyState>`. |
+| root AGENTS.md (search) | Modules opt out of search indexing when data is tenant-private | Compliant (rev 5) | `DomainMapping` excluded by **omitting the optional `indexer` field** on `makeCrudRoute` (verified at `packages/shared/src/lib/crud/factory.ts:424`). |
+| root AGENTS.md (i18n) | No hardcoded user-facing strings | Compliant (rev 4) | DNS/TLS/diagnostic copy uses i18n keys; `domainMapping.notification.dnsFailed` and `tlsFailed` added. |
+| Backward Compatibility Contract — Type definitions | Status enum is additive (renaming `failed` → `dns_failed` + new `tls_failed`) | Compliant — pre-implementation | Spec is unimplemented; the rename is an in-spec change, not a deployed contract change. The migration ships the final shape; no live deployments rely on the old `failed` value. |
+| Customer Authentication on Custom Domains | Host-resolved tenant context is the authoritative scope; JWT scope must match host | Compliant (rev 4) | Documented in the Customer Authentication section + Cross-Host JWT Replay risk entry. |
 
 ### Internal Consistency Check
 
@@ -1318,7 +1868,7 @@ The `organization_id` column intentionally has no UNIQUE constraint — the sche
 | API contracts match UI/UX section | Pass | Settings page uses all CRUD endpoints. Stepper wizard maps to status lifecycle. Verify, health-check, remove, and domain swap actions map to specific API routes. |
 | Risks cover all write operations | Pass | Register, verify, activate, remove, and domain swap all have risk scenarios. Thundering herd, endpoint abuse, and swap race condition added. |
 | Service methods defined for all mutations | Pass | `register`, `verify`, `activate`, `remove`, `healthCheck`, `resolveAll`, `findPendingVerification` cover all operations. |
-| Cache strategy covers all read APIs | Pass | Two-tier cache: `@open-mercato/cache` (server-side, shared, tag-invalidated) for `domain-resolve` and `domain-check` endpoints. In-memory stale-while-revalidate (Edge Middleware, per-process) with batch warm-up. Event-driven invalidation via ephemeral subscriber. |
+| Cache strategy covers all read APIs | Pass | Two-tier cache: `@open-mercato/cache` (server-side, shared, tag-invalidated) for `domain-resolve` and `domain-check` endpoints. In-memory stale-while-revalidate (Node Middleware, per-process) with batch warm-up. Event-driven invalidation via ephemeral subscriber. |
 | Mandatory secrets enforced | Pass | Both `DOMAIN_CHECK_SECRET` and `DOMAIN_RESOLVE_SECRET` are required. App fails to start without them. All internal endpoints validate secrets. |
 | Platform integration completeness | Pass | Uses `makeCrudRoute` (CRUD factory), mutation guards (extensible validation), response enrichers (Organization entity), `@open-mercato/cache` (server-side caching), notification system (`notifications.ts` + subscribers), widget injection (`menu:sidebar:settings`), component handles (`useRegisteredComponent`), `useGuardedMutation` (UI writes), `emitCrudSideEffects` (event emission). No custom duplicates of platform infrastructure. |
 
@@ -1328,9 +1878,62 @@ None.
 
 ### Verdict
 
-**Fully compliant** — ready for implementation.
+**Fully compliant (rev 5)** — ready for implementation.
+
+**rev 5 closes all critical and important findings from `.ai/specs/analysis/ANALYSIS-2026-04-08-portal-custom-domain-routing.md`:**
+
+1. Cookie names corrected to match the actual codebase (`customer_auth_token` + `customer_session_token`).
+2. New Phase 1.5 defines the customer-auth host-awareness work: relaxed login schema, shared `resolveTenantContext` helper, host-bound `getCustomerAuthFromCookies`. Backward compatible for platform-domain clients.
+3. Indexer opt-out idiom verified against `factory.ts:424` — omit the optional field.
+4. Email migration scope narrowed to actual call sites; forward-looking rule added to module AGENTS.md.
+5. `x-next-url` source verification is now an explicit Phase 2 pre-task.
+6. Dedicated TLS-retry worker with worker-level rate limiting and backoff multiplier.
+7. `CUSTOM_DOMAIN_A_RECORD_TARGET` documented as MUST be dedicated; new risk entry for shared-IP bypass.
+8. Playwright Host-faking via test-only `X-Force-Host` gated by `NODE_ENV` + secret.
+9. Integration tests added for all new behaviors.
+
+**rev 4 outcomes preserved:**
+1. Per-domain host-only customer cookies.
+2. Node Middleware (`runtime: 'nodejs'`, Next.js ≥ 15.2 — repo is 16.2.4).
+3. Apex via A record + Cloudflare-proxy reverse-resolve fallback.
+4. Hostname normalization (Punycode/IDN/case/trailing-dot).
+5. Status enum split (`dns_failed` + `tls_failed`).
+6. Multi-org switcher.
+7. Search-index opt-out.
+8. DS tokens + StatusBadge.
+9. Empty/loading/error states.
+10. Canonical URLs + email-domain awareness.
 
 ## Changelog
+
+### 2026-04-30 (rev 5) — Pre-implementation audit fixes
+
+Resolves the 3 critical findings + 6 important gaps from `.ai/specs/analysis/ANALYSIS-2026-04-08-portal-custom-domain-routing.md`:
+
+- **Cookie names corrected**: spec now references the real cookies `customer_auth_token` (JWT, 8h) and `customer_session_token` (opaque session, 30d) instead of the non-existent `om_customer_session`. Both are already host-only by default — the per-domain isolation model "just works" without additional cookie attribute changes.
+- **Login flow defined (new Phase 1.5)**: `loginSchema.tenantId` becomes optional. New `resolveTenantContext(req, bodyTenantId)` helper. On platform domains → require body `tenantId` (backward compatible). On custom domains → resolve via `domainMappingService.resolveByHostname(host)`, reject mismatched body `tenantId`. Same logic applied to signup, magic-link, password-reset routes via the shared helper.
+- **Indexer opt-out fixed**: `indexer?` is optional in `CrudRouteConfig` (verified at `packages/shared/src/lib/crud/factory.ts:424`). Spec now says "omit the field" instead of the invalid `indexer: { entityType: null }`.
+- **`getCustomerAuthFromCookies` host binding**: explicit Phase 1.5 task to extend the helper with an optional `expectedTenantId`. New `getCustomerAuthForHost(req)` convenience wrapper. Backward compatible.
+- **Email migration scope narrowed**: only `customer_accounts/api/signup.ts` currently sends customer-portal email (verified). `urlForCustomerOrg` migration covers just those two `sendEmail` call sites. Forward-looking rule added to `customer_accounts/AGENTS.md` for future email senders.
+- **`x-next-url` source verification**: Phase 2 starts with a pre-task confirming what currently sets this header (today no `middleware.ts` exists yet `(frontend)/layout.tsx` reads it) and ensuring the new middleware preserves or replaces the mechanism cleanly.
+- **TLS-retry worker rate limiting**: new dedicated `domainTlsRetryWorker` separate from the DNS verification worker. Worker-level rate limit (`DOMAIN_TLS_RETRY_BATCH`, default 50/run), worker-level backoff multiplier when failure rate ≥80%, per-domain max retries (`DOMAIN_TLS_MAX_RETRIES`, default 6) before requiring operator action.
+- **Dedicated A-record IP requirement**: `CUSTOM_DOMAIN_A_RECORD_TARGET` MUST be a dedicated IP, not a shared CDN/load-balancer IP. New risk entry. Startup warning when the configured IP falls inside `KNOWN_PROXY_IP_RANGES`.
+- **Playwright Host-faking strategy**: test-only `X-Force-Host` header gated by `NODE_ENV === 'test'` AND a shared secret. Documented in Testing Strategy with explicit unit test for the prod-mode safety.
+- **New integration tests**: custom-domain login without body `tenantId`, platform-domain login still requires it, mismatched-tenantId 400, JWT cross-host replay rejection, host-only cookie scope, TLS retry worker batching/backoff, `X-Force-Host` ignored in non-test builds.
+
+### 2026-04-30 (rev 4) — Architecture & UX hardening
+
+- **Per-domain customer cookies**: Custom domains use host-only cookies (no `Domain=` attribute). Login form posts to the same custom domain. Customers logging in on `openmercato.com` and on `shop.acme.com` have separate sessions. JWT validation runs against the host-resolved org context — no cross-host leakage. During domain swap, customers on the old domain stay authenticated until the old domain is removed; visitors to the new domain log in on the new domain.
+- **Middleware runtime pinned to Node**: `apps/mercato/src/middleware.ts` runs on Next.js Node Middleware (`runtime: 'nodejs'`) with Next.js ≥ 15.2 as a hard requirement. Edge runtime explicitly rejected — V8 isolates do not share module state reliably across cold starts, breaking the SWR cache and batch warm-up.
+- **Apex domain support via A record**: Tenants can register apex domains (`acme.com`) by pointing an A record to `CUSTOM_DOMAIN_A_RECORD_TARGET` (server IP). Subdomains continue to use CNAME. Verification tries CNAME first, falls back to A record.
+- **Cloudflare/proxy fallback**: When A record resolves to a known proxy IP range (Cloudflare, Fastly), DNS verification falls back to a reverse-resolve HTTPS request to confirm traffic actually reaches our server.
+- **Hostname normalization**: All input hostnames are lowercased, trailing-dot trimmed, and converted from IDN (Unicode) to Punycode (ASCII) before storage and lookup. Validators enforce the 253-char DNS limit and reject empty/invalid output.
+- **Split status states**: `failed` is renamed to `dns_failed`. New `tls_failed` state added for TLS health-check failures. Distinct lifecycle edges and recovery paths for each. UI surfaces the difference (DNS issue vs SSL issue).
+- **Multi-org org switcher**: Settings page `/backend/customer_accounts/settings/domain` includes an org switcher dropdown for multi-org tenants. Single-org tenants render no switcher.
+- **Search indexing opt-out**: `DomainMapping` excluded from search index via `indexer: { entityType: null }` on `makeCrudRoute`. Hostnames must not be searchable cross-tenant.
+- **DS tokens applied**: Status display uses `StatusBadge` + a `domainStatusMap: StatusMap<DomainStatus>` per `AGENTS.md`. No hardcoded color names anywhere in the spec.
+- **Empty / loading / error states**: Settings page renders `<LoadingMessage>` while fetching, `<EmptyState>` when no domain is configured, `<ErrorMessage>` on fetch failure — per `packages/ui/AGENTS.md`.
+- **Canonical URL & email domains**: Portal pages emit canonical URLs based on the request `Host` header (custom domain when present). Customer-portal transactional emails (magic link, password reset, notifications) call `domainMappingService.resolveActiveByOrg(orgId)` and use the active custom domain when one exists, else the platform domain.
 
 ### 2026-04-08 (rev 3) — Platform integration & UMES alignment
 - **`makeCrudRoute`**: Admin domain-mappings CRUD (list/create/delete) now uses the CRUD factory for enricher pipeline, interceptor pipeline, and consistent API shape. Specialty endpoints (verify, health-check, domain-check, domain-resolve) remain custom routes.

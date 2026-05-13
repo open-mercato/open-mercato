@@ -31,8 +31,9 @@
  */
 
 import * as React from 'react'
-import { Boxes, ChevronDown, FileText, Package, PanelRightOpen, PenLine, Sparkles, Tags, TrendingUp } from 'lucide-react'
+import { Boxes, ChevronDown, FileText, Package, PanelRightOpen, PenLine, Tags, TrendingUp } from 'lucide-react'
 import { AiChat, type AiChatSuggestion, type AiChatContextItem } from '@open-mercato/ui/ai/AiChat'
+import { AiIcon } from '@open-mercato/ui/ai/AiIcon'
 import { useAiDock } from '@open-mercato/ui/ai/AiDock'
 import { useAiChatSessions } from '@open-mercato/ui/ai/AiChatSessions'
 import { ChatPaneTabs } from '@open-mercato/ui/ai/ChatPaneTabs'
@@ -249,7 +250,7 @@ function useMerchandisingAgents(): MerchandisingAgentsState {
           'catalog.merchandising_assistant.agents.merchandising.description',
           'Draft copy, normalize attributes, and propose price changes for the current selection.',
         ),
-        icon: <Sparkles className="size-4" />,
+        icon: <AiIcon className="size-4" />,
       },
     ],
     [t],
@@ -399,7 +400,7 @@ export function MerchandisingAssistantSheet({
             agents.length > 1 && 'rounded-r-none border-r-0',
           )}
         >
-          <Sparkles className="size-4" aria-hidden />
+          <AiIcon className="size-4" />
           <span>{labelText}</span>
           {hasSelection ? (
             <span

@@ -4,6 +4,7 @@ import * as React from 'react'
 import { Button } from '../primitives/button'
 import { IconButton } from '../primitives/icon-button'
 import { Input } from '../primitives/input'
+import { InlineInput } from '../primitives/inline-input'
 import {
   Select,
   SelectContent,
@@ -327,8 +328,9 @@ function JsonNode({ data, onChange, onDelete, readOnly, label, isRoot }: JsonNod
                         <div key={idx} className="flex">
                             <div className="pt-2">
                                 {/* Key Renamer */}
-                                <input
-                                    className="w-full sm:w-[100px] text-xs font-mono border-b border-transparent hover:border-gray-300 focus-visible:border-ring bg-transparent focus-visible:outline-none text-right pr-1"
+                                <InlineInput
+                                    className="w-full sm:w-[100px]"
+                                    inputClassName="text-right text-xs font-mono pr-1"
                                     value={key}
                                     onChange={(e) => handleKeyRename(key, e.target.value)}
                                     disabled={readOnly}

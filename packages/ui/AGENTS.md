@@ -23,9 +23,17 @@ When you need… use this. Details (variants, sizes, props, MUST rules) live in 
 | Marketing CTA with brand gradient | `FancyButton` | `@open-mercato/ui/primitives/fancy-button` |
 | Checkbox primitive (with indeterminate) | `Checkbox` | `@open-mercato/ui/primitives/checkbox` |
 | Checkbox with label + description | `CheckboxField` | `@open-mercato/ui/primitives/checkbox-field` |
-| Text input (text/email/password/number/etc.) | `Input` | `@open-mercato/ui/primitives/input` |
+| Text input (generic, text/number/url/etc.) | `Input` | `@open-mercato/ui/primitives/input` |
+| Email input (Figma Email variant — mail icon prefix) | `EmailInput` | `@open-mercato/ui/primitives/email-input` |
+| Search input (Figma Search variant — leading magnifier + trailing × clear) | `SearchInput` | `@open-mercato/ui/primitives/search-input` |
+| Password input (Figma Password variant — trailing eye/eye-off reveal toggle) | `PasswordInput` | `@open-mercato/ui/primitives/password-input` |
+| Phone input (Figma Phone variant — country picker + national number) | `PhoneNumberField` | `@open-mercato/ui/backend/inputs/PhoneNumberField` |
+| Website / URL input (Figma Website variant — `https://` prefix box) | `WebsiteInput` | `@open-mercato/ui/primitives/website-input` |
+| Amount input with currency picker (Figma Amount variant) | `AmountInput` | `@open-mercato/ui/primitives/amount-input` |
+| Input with trailing icon-button slot (Figma Button variant — copy URL, send, etc.) | `ButtonInput` | `@open-mercato/ui/primitives/button-input` |
+| Card-number input with brand auto-detection (Figma Card variant — Visa/MC/Amex/...) | `CardInput` | `@open-mercato/ui/primitives/card-input` |
 | Multi-line text input (with optional char counter) | `Textarea` | `@open-mercato/ui/primitives/textarea` |
-| Dropdown / select | `Select` (with `SelectTrigger` / `SelectContent` / `SelectItem`) | `@open-mercato/ui/primitives/select` |
+| Dropdown / select | `Select` (with `SelectTrigger` / `SelectTriggerLeading` / `SelectContent` / `SelectItem` / `SelectItemLeading`) | `@open-mercato/ui/primitives/select` |
 | Tooltip on hover (with arrow, dark/light) | `SimpleTooltip` (or `Tooltip`+`TooltipTrigger`+`TooltipContent`) | `@open-mercato/ui/primitives/tooltip` |
 | Toggle switch (binary on/off preference) | `Switch` | `@open-mercato/ui/primitives/switch` |
 | Switch with label + description (preference row) | `SwitchField` | `@open-mercato/ui/primitives/switch-field` |
@@ -84,27 +92,28 @@ import { Avatar, AvatarStack } from '@open-mercato/ui/primitives/avatar'
 
 | Size | px | Use case |
 |---|---|---|
-| `sm` | 24px | Table rows, AvatarStack, inline lists |
-| `default` | 32px | Default — sidebar, comments, activity feed |
-| `md` | 40px | Section headers, assignee cards |
-| `lg` | 80px | Profile / detail page header |
+| `xs` | 20px | Inline mentions, very compact lists |
+| `sm` | 28px | Table rows, AvatarStack, inline lists |
+| `md` (default) | 36px | Sidebar, comments, activity feed, assignee cards |
+| `lg` | 48px | Section headers, profile cards |
+| `xl` | 64px | Profile / detail page header |
 
 ### Usage
 
 ```tsx
 // Photo
-<Avatar src="/avatars/jan.jpg" name="Jan Kowalski" size="md" />
+<Avatar src="/avatars/jan.jpg" label="Jan Kowalski" size="md" />
 
-// Initials (auto-generated from name)
-<Avatar name="Jan Kowalski" />        // → "JK"
-<Avatar name="Copperleaf Design" />   // → "CD"
+// Initials (auto-generated from label)
+<Avatar label="Jan Kowalski" />        // → "JK"
+<Avatar label="Copperleaf Design" />   // → "CD"
 
 // Stack with overflow
 <AvatarStack max={3}>
-  <Avatar name="Jan Kowalski" size="sm" />
-  <Avatar name="Oliwia Z." size="sm" />
-  <Avatar name="Anna Nowak" size="sm" />
-  <Avatar name="Sarah Mitchell" size="sm" />
+  <Avatar label="Jan Kowalski" size="sm" />
+  <Avatar label="Oliwia Z." size="sm" />
+  <Avatar label="Anna Nowak" size="sm" />
+  <Avatar label="Sarah Mitchell" size="sm" />
 </AvatarStack>
 // renders: JK · OZ · AN · +1
 ```
@@ -230,6 +239,87 @@ const leadTagMap: TagMap<'customer' | 'hot' | 'inactive' | 'renewal'> = {
 - Keep table state (paging, sorting, filters, search) in component state and reload on scope changes.
 - Keep `extensionTableId` stable and deterministic.
 - Render injected row actions and bulk actions through `RowActions`/bulk handlers so they follow the same guard and i18n behavior as built-ins.
+- For mutating bulk actions, show operation progress in `ProgressTopBar`: return `{ ok, progressJobId }` from server/queued actions, or use shared bulk helpers that emit client-local progress events for browser-bound loops. MUST NOT add custom per-page progress bars for DataTable bulk work.
+- Prefer server-side `ProgressJob` + queue workers for bulk work that may exceed one second, touch many records, call external services, or should continue after navigation. Use client-local progress only for short in-page loops that intentionally preserve response-side metadata such as undo headers.
+
+### Using DataTable in Portal Pages
+
+`DataTable` is exported from the package root (`@open-mercato/ui`) and is the recommended list view component for **customer portal pages**, not just backoffice surfaces. Build portal list views with `DataTable` directly rather than hand-rolling `<table>` markup or wrapping a custom component, so portal lists stay consistent with the rest of the product (sorting, pagination, empty states, accessibility, row-click semantics).
+
+Backoffice-only features are **all opt-in via props** — they do not activate unless explicitly passed. Portal pages should leave them unset:
+
+| Prop | Treat as | Why portal omits it |
+|------|----------|---------------------|
+| `exporter` | backoffice-only | Portal users should not export full datasets to CSV/JSON/XML/Markdown. |
+| `perspective` | backoffice-only | Saved-view perspectives belong in admin tools. |
+| `advancedFilter` | backoffice-only | The advanced filter builder is a power-user tool. |
+| `columnChooser` | backoffice-only | Column chooser/reorder is a backoffice affordance. |
+| `injectionSpotId` / `replacementHandle` / `entityId` | backoffice-only | Widget injection and component replacement target backoffice extension points; portals use `usePortalInjectedMenuItems` and portal-specific spots instead (see Portal Extension below). |
+| `bulkActions` | backoffice-only by default | Avoid bulk admin operations from the portal; if a portal flow legitimately needs row selection, scope it tightly and gate via `requireCustomerFeatures`. |
+
+Portal-safe props (always available):
+
+- `columns` — column definitions with `header`/`accessorKey` plus optional `meta.truncate`/`meta.maxWidth`
+- `data` — the rows to render (load via `apiCall` from `@open-mercato/ui/backend/utils/apiCall`)
+- `isLoading`, `error`, `emptyState` — loading/error/empty UX
+- `pagination`, `sorting`, `onSortingChange`, `sortable`
+- `onRowClick`, `rowClickActionIds`, `disableRowClick` — row navigation
+- `rowActions` — per-row inline actions via `RowActions`
+- `searchValue`, `onSearchChange`, `searchPlaceholder` — basic search bar
+- `filters`, `filterValues`, `onFiltersApply`, `onFiltersClear` — basic FilterBar filters
+- `title`, `actions`, `toolbar` — header chrome
+
+Minimal portal usage example (drop into any `frontend/[orgSlug]/portal/.../page.tsx`):
+
+```tsx
+'use client'
+import * as React from 'react'
+import { DataTable } from '@open-mercato/ui'
+import { apiCall } from '@open-mercato/ui/backend/utils/apiCall'
+import { useT } from '@open-mercato/shared/lib/i18n/context'
+
+type PortalOrderRow = {
+  id: string
+  number: string
+  status: string
+  totalLabel: string
+}
+
+export default function PortalOrdersList({ orgSlug }: { orgSlug: string }) {
+  const t = useT()
+  const [rows, setRows] = React.useState<PortalOrderRow[]>([])
+  const [isLoading, setIsLoading] = React.useState(true)
+
+  React.useEffect(() => {
+    let cancelled = false
+    setIsLoading(true)
+    apiCall<{ items: PortalOrderRow[] }>(`/api/portal/orders?orgSlug=${encodeURIComponent(orgSlug)}`)
+      .then((res) => { if (!cancelled) setRows(res.data?.items ?? []) })
+      .finally(() => { if (!cancelled) setIsLoading(false) })
+    return () => { cancelled = true }
+  }, [orgSlug])
+
+  return (
+    <DataTable<PortalOrderRow>
+      title={t('orders.title', { fallback: 'Your orders' })}
+      columns={[
+        { header: t('orders.number'), accessorKey: 'number' },
+        { header: t('orders.status'), accessorKey: 'status' },
+        { header: t('orders.total'), accessorKey: 'totalLabel' },
+      ]}
+      data={rows}
+      isLoading={isLoading}
+      onRowClick={(row) => { window.location.href = `/${orgSlug}/portal/orders/${row.id}` }}
+      emptyState={t('orders.empty', { fallback: 'No orders yet.' })}
+    />
+  )
+}
+```
+
+Notes:
+- The example deliberately omits `exporter`, `perspective`, `advancedFilter`, `columnChooser`, `injectionSpotId`, and `replacementHandle` — those are backoffice-only.
+- Wrap mutation calls with `useGuardedMutation(...).runMutation(...)` per the **UI & HTTP** rules in the root `AGENTS.md` if the row actions perform writes.
+- Gate the page with `requireCustomerAuth` and `requireCustomerFeatures` in the sibling `page.meta.ts` (see Portal Page Metadata below).
 
 ## CrudForm Field Injection (UMES Phase G)
 
@@ -288,6 +378,8 @@ const leadTagMap: TagMap<'customer' | 'hot' | 'inactive' | 'renewal'> = {
 ## Portal Extension
 
 The portal extensibility system lets app modules build customer-facing pages that integrate with the shared portal shell, navigation, auth, and event bridge.
+
+> **Portal list views**: use `DataTable` from `@open-mercato/ui` for any portal page that displays a list of records (orders, addresses, invoices, etc.). Do not hand-roll `<table>` markup. See **DataTable Guidelines → Using DataTable in Portal Pages** above for the portal-safe prop subset and a minimal example.
 
 ### Portal Hooks (`packages/ui/src/portal/hooks/`)
 

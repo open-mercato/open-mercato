@@ -6,6 +6,8 @@ import Link from 'next/link'
 import { useRouter, useSearchParams } from 'next/navigation'
 import { Card, CardContent, CardHeader, CardDescription } from '@open-mercato/ui/primitives/card'
 import { Input } from '@open-mercato/ui/primitives/input'
+import { EmailInput } from '@open-mercato/ui/primitives/email-input'
+import { PasswordInput } from '@open-mercato/ui/primitives/password-input'
 import { Label } from '@open-mercato/ui/primitives/label'
 import { Button } from '@open-mercato/ui/primitives/button'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
@@ -352,10 +354,9 @@ export default function LoginPage() {
               )}
               <div className="grid gap-1">
                 <Label htmlFor="email">{t('auth.email')}</Label>
-                <Input
+                <EmailInput
                   id="email"
                   name="email"
-                  type="email"
                   required
                   aria-invalid={!!error}
                   onChange={(e) => setEmail(e.target.value)}
@@ -369,7 +370,7 @@ export default function LoginPage() {
               {authOverride?.hidePassword ? null : (
                 <div className="grid gap-1">
                   <Label htmlFor="password">{t('auth.password')}</Label>
-                  <Input id="password" name="password" type="password" required={!authOverride} aria-invalid={!!error} />
+                  <PasswordInput id="password" name="password" required={!authOverride} aria-invalid={!!error} autoComplete="current-password" />
                 </div>
               )}
               {!authOverride?.hideRememberMe && !authOverride?.hidePassword && (

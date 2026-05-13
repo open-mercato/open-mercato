@@ -201,6 +201,42 @@ Set to `false` for production deployments where you want to run workers separate
 AUTO_SPAWN_WORKERS=false yarn start
 ```
 
+`OM_AUTO_SPAWN_WORKERS` is an optional Open Mercato-prefixed alias. The legacy `AUTO_SPAWN_WORKERS` always wins when both are set, so existing deployments do not change behavior.
+
+#### Lazy Worker Auto-Spawn (Memory-Sensitive Dev)
+
+The default eager mode starts a single `mercato queue worker --all` process whose runner instantiates a per-queue runtime even when most queues have no jobs. Each runner adds polling timers (local) or BullMQ `Worker` + Redis resources (async) to the process tree, so the dev memory monitor's `Memory ... RSS (peak ...)` line scales with the number of enabled modules rather than actual workload.
+
+Lazy mode replaces `queue worker --all` with a lightweight watcher process. The watcher probes each discovered queue for ready jobs without importing handler code or creating BullMQ workers. The first ready job on a queue triggers `mercato queue worker <queueName>`; queues that never receive jobs stay completely idle.
+
+```bash
+# Enable lazy auto-spawn when bypassing the dev wrapper
+OM_AUTO_SPAWN_WORKERS_LAZY=true mercato server dev
+```
+
+The monorepo and standalone `yarn dev` wrappers set `OM_AUTO_SPAWN_WORKERS_LAZY=true` and `OM_AUTO_SPAWN_SCHEDULER_LAZY=true` automatically for local memory reduction. Direct `mercato server dev` and production `mercato server start` keep the eager default until these variables are set explicitly. Use `OM_AUTO_SPAWN_WORKERS_LAZY=false OM_AUTO_SPAWN_SCHEDULER_LAZY=false yarn dev` to force the historical eager mode.
+
+Lazy mode env variables:
+
+| Variable | Default | Purpose |
+|----------|---------|---------|
+| `OM_AUTO_SPAWN_WORKERS_LAZY` | `false` | Enables the lazy supervisor. Ignored when workers are disabled by `AUTO_SPAWN_WORKERS=false`. |
+| `OM_AUTO_SPAWN_WORKERS_LAZY_POLL_MS` | `1000` | Probe interval. Clamped to a minimum of `250`. |
+| `OM_AUTO_SPAWN_WORKERS_LAZY_RESTART` | `true` | Restart a per-queue worker if it exits unexpectedly while jobs remain pending. |
+| `OM_AUTO_SPAWN_SCHEDULER_LAZY` | `false` | Enables lazy local scheduler startup. Ignored when the scheduler is disabled by `AUTO_SPAWN_SCHEDULER=false`. |
+| `OM_AUTO_SPAWN_SCHEDULER_LAZY_POLL_MS` | `1000` | Enabled-schedule probe interval. Clamped to a minimum of `250`. |
+| `OM_AUTO_SPAWN_SCHEDULER_LAZY_RESTART` | `true` | Restart the scheduler process if it exits unexpectedly while enabled schedules remain. |
+
+Trade-offs:
+
+- The first job on a cold queue pays one poll cycle plus the worker startup time before it starts processing.
+- Probes are read-only and never invoke handlers. A probe failure (filesystem error, Redis unreachable) is logged at most once per queue per minute and keeps the queue idle until the next successful probe.
+- Lazy mode does not change worker handler contracts. Existing `workers/*.ts` metadata, `runWorker`, and `mercato queue worker <queueName>` continue to work unchanged.
+- Lazy scheduler mode does not change schedule execution. It still launches the existing `mercato scheduler start` process after an enabled schedule exists.
+- Production deployments should still prefer `AUTO_SPAWN_WORKERS=false` plus separately managed worker processes — lazy mode targets memory-sensitive dev and small unified deployments.
+
+The dev runtime's `🧠 Memory ... RSS (peak ...)` line measures the **process-tree RSS** of the app runtime, so any auto-spawned workers and the scheduler are counted in that figure. Lazy mode reduces idle RSS because no per-queue runner exists until a job triggers one and no local scheduler process exists until a schedule is enabled. The number rises again as queues and the scheduler become active.
+
 #### Available Scripts
 
 | Script | Description |

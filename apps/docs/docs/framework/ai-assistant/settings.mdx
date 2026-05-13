@@ -1,11 +1,95 @@
 ---
 title: Agent Settings
-description: Tenant-scoped prompt overrides and mutation-policy overrides for registered AI agents at /backend/config/ai-assistant/agents.
+description: Tenant-scoped provider/model overrides, prompt overrides, and mutation-policy overrides for registered AI agents.
 ---
 
 # Agent Settings
 
-Operators tune registered AI agents from the **AI Agents** settings page without touching code. Two overrides are supported — additive prompt sections and non-escalating mutation-policy downgrades. Both live behind the `ai_assistant.settings.manage` feature.
+Operators tune the AI assistant from two settings pages without touching code:
+
+- **`/backend/config/ai-assistant/settings`** — provider and model overrides (global and per-agent), plus developer tools.
+- **`/backend/config/ai-assistant/agents`** — prompt overrides and mutation-policy downgrades per agent.
+
+Both pages live behind the `ai_assistant.settings.manage` feature.
+
+## Provider and model settings (`/backend/config/ai-assistant/settings`)
+
+Navigate to **Settings → Module Configs → AI Assistant → Settings** (`/backend/config/ai-assistant/settings`).
+
+The page has three sections:
+
+### LLM Provider connections
+
+Shows which provider keys are configured via environment variables and whether each provider is connected. This is a read-only display — keys are set via `.env`, not via the UI.
+
+The list of providers shown here is the intersection of (a) the providers that have an API key in the current environment, (b) the operator-defined allowlist `OM_AI_AVAILABLE_PROVIDERS` from the env (when set), and (c) the per-tenant allowlist persisted in `ai_tenant_model_allowlists` (Phase 1780-6). Per-provider model dropdowns are similarly clipped to `OM_AI_AVAILABLE_MODELS_<PROVIDER>` ∩ tenant allowlist for that provider. The env allowlist is the OUTER constraint; the tenant allowlist narrows it further. The settings UI never offers a value the runtime would refuse to honor. See the [Provider/model allowlist row](./overview#environment-variables) in the overview for the full env contract and the **Tenant allowlist editor** section below for the admin-side controls.
+
+### Default provider and model override
+
+A form with two dropdowns — **Provider** and **Model** — populated from the server's `llmProviderRegistry` and clipped to the env-driven allowlist. Saving a selection creates or updates a row in `ai_settings` scoped to the tenant with `agentId = null`. This row sits at **Step 2** in the [model resolution order](./overview#model-resolution-order) (above per-agent env vars, below runtime `<ModelPicker>` selections).
+
+The settings `PUT /api/ai_assistant/settings` endpoint rejects out-of-allowlist values up-front with typed 400 codes — `provider_not_allowlisted` when the selected provider is missing from the **effective** allowlist (env ∩ tenant), and `model_not_allowlisted` when the selected model is missing — so a stale or hand-crafted PUT can never persist a setting that the runtime would only ever swap out at request time.
+
+### Tenant allowlist editor (Phase 1780-6)
+
+The route `/backend/config/ai-assistant/allowlist` ships a dedicated editor for the per-tenant provider/model allowlist. Admins with `ai_assistant.settings.manage` see one provider section per env-allowed provider with a **provider checkbox** and a list of **model checkboxes** drawn from each provider's curated catalog (clipped to `OM_AI_AVAILABLE_MODELS_<PROVIDER>` when the env var is set). Models hidden by the tenant allowlist remain visible in this editor so they can be re-enabled later. Saving issues a `PUT /api/ai_assistant/settings/allowlist` which:
+
+- validates that each tenant-picked provider is in `OM_AI_AVAILABLE_PROVIDERS` (rejects with `provider_not_in_env_allowlist` 400 otherwise);
+- validates that each tenant-picked model is in `OM_AI_AVAILABLE_MODELS_<PROVIDER>` for the matching provider (rejects with `model_not_in_env_allowlist` 400 otherwise);
+- writes the snapshot to `ai_tenant_model_allowlists` (one row per tenant/org).
+
+The runtime intersects the env allowlist with the tenant snapshot at every resolution call — the settings page, the chat-UI `<ModelPicker>`, the chat dispatcher, the runtime override PUT, and the model-factory all clip identically. Untick **all** providers in the editor and the runtime falls through to the env-only behaviour for that tenant. Click **Clear stored allowlist** to delete the row entirely (idempotent — `{ cleared: false }` when no row exists).
+
+Tenant snapshots may NEVER widen the env allowlist: the PUT validator and the model-factory both intersect at write time and at resolution time. Tightening `OM_AI_AVAILABLE_*` after a tenant has saved a snapshot is therefore safe — the runtime continues to enforce the (now smaller) env outer constraint without re-validating stored snapshots.
+
+### Per-agent provider/model overrides
+
+The route `/backend/config/ai-assistant/agents` now includes a **Provider and model** section for the selected agent. It shows the code-declared `defaultProvider` / `defaultModel`, the current tenant-scoped per-agent override (if one exists), the effective runtime pair, and dropdowns clipped to the effective allowlist. Saving writes an `ai_agent_runtime_overrides` row with `agentId = <module.agent>`; clearing removes only that agent-specific row and leaves the tenant-wide default untouched.
+
+To clear the override and return to the env-based defaults, click **Clear override**. This clears the provider/model fields on the `ai_agent_runtime_overrides` row for that agent; any saved **Chat override choices** stay in place.
+
+The same section includes **Chat override choices**. Use it to narrow which providers and models users may pick from the chat footer for this one agent. These choices are intersected with the global env allowlist and the tenant allowlist, so they can only narrow. The deployment-level version is:
+
+```env
+OM_AI_AGENT_CATALOG_CATALOG_ASSISTANT_AVAILABLE_PROVIDERS=openai,lm-studio
+OM_AI_AGENT_CATALOG_CATALOG_ASSISTANT_AVAILABLE_MODELS_OPENAI=gpt-5-mini,gpt-4o
+```
+
+The chat footer shows the effective default model name beside **Default**, making it easy to verify whether a per-agent default override is active before choosing a runtime override.
+
+### Per-agent override list
+
+A table listing every registered agent with its resolved **Provider**, **Model**, and **Source** (the resolution step that produced the effective values). Agents whose source is not `env_default` or `provider_default` show a **Clear override** button that deletes the per-agent `ai_settings` row.
+
+To add a per-agent override, contact the API directly:
+
+```http
+PUT /api/ai_assistant/settings
+Content-Type: application/json
+
+{
+  "agentId": "catalog.merchandising_assistant",
+  "provider": "openai",
+  "model": "gpt-4o"
+}
+```
+
+Future releases will add a per-row editing form to the table.
+
+### Developer tools section
+
+Contains links to generate the MCP config block, generate a session API key, and view the active MCP tool count. Unchanged from the previous release.
+
+## Feature gate for the settings page
+
+| Surface | Route | Required feature |
+|---------|-------|------------------|
+| Settings page | `/backend/config/ai-assistant/settings` | `ai_assistant.settings.manage` |
+| Global provider + model override | `PUT /api/ai_assistant/settings` | `ai_assistant.settings.manage` |
+| Clear global override | `DELETE /api/ai_assistant/settings` | `ai_assistant.settings.manage` |
+| Read resolved agent models | `GET /api/ai_assistant/settings` | `ai_assistant.settings.manage` |
+
+## Agent Settings page (`/backend/config/ai-assistant/agents`)
 
 Navigate to **Settings → Module Configs → AI Agents** (`/backend/config/ai-assistant/agents`).
 
@@ -76,13 +160,39 @@ Disabling a tool here removes it from the model's tool surface for the active te
 
 Unlike prompt overrides, the policy override is a single-value switch per `(tenantId, organizationId, agentId)`. Saving updates the row in place.
 
-## Feature gate
+## Loop policy overrides
 
-Both the page and every API route in `/api/ai/agents/:agentId/*` require the `ai_assistant.settings.manage` feature:
+The **Loop policy** panel on the agent settings page is the operator surface for spec [`2026-04-28-ai-agents-agentic-loop-controls`](https://github.com/open-mercato/open-mercato/blob/main/.ai/specs/2026-04-28-ai-agents-agentic-loop-controls.md). It writes to `ai_agent_runtime_overrides.loop_*` columns and is read on every dispatch — no cache flush, no redeploy.
+
+| Field | What it caps | Notes |
+|-------|--------------|-------|
+| **Disable agentic loop** (`loopDisabled: true`) | Collapses the agent to a single model call (no tool loop at all). | Kill switch for runaway agents. The `<AiChat>` and playground render a `LoopDisabledBanner` while the override is active. |
+| **Max steps** (`loopMaxSteps`) | Hard cap on the SDK step counter — overrides `agent.loop.maxSteps`. | Set lower than the code default to tighten; the runtime always applies the minimum of code + override. |
+| **Max tool calls** (`loopMaxToolCalls`) | Total tool invocations summed across all steps of a turn. | Aborts the turn with a `loop_budget_exceeded` stop reason once the count is reached. |
+| **Max wall-clock (ms)** (`loopMaxWallClockMs`) | Per-turn wall-clock budget. | Backed by an `AbortController`; partial step output is preserved. |
+| **Max tokens** (`loopMaxTokens`) | Input + output tokens aggregated from each step's `usage` field. | Useful for cost ceilings on long-context agents. |
+
+Restrictiveness rule mirrors mutation policy: **the override can only tighten**, never widen. If the code-declared `agent.loop.maxSteps` is 6, an override of 12 is silently clamped to 6.
+
+The settings UI exposes per-agent **Clear override** to drop the row entirely; the runtime then falls back to the agent's declared `loop` block plus the `OM_AI_<MODULE>_LOOP_*` env shorthands (`MAX_STEPS`, `BUDGET_TOKENS`, `BUDGET_MS` — env values cannot escalate either).
+
+### Loop override route
 
 | Surface | Route | Required feature |
 |---------|-------|------------------|
-| Settings page | `/backend/config/ai-assistant/agents` | `ai_assistant.settings.manage` |
+| Read effective loop policy for the agent | `GET /api/ai_assistant/ai/agents/:agentId/loop-override` | `ai_assistant.view` |
+| Save loop override | `PUT /api/ai_assistant/ai/agents/:agentId/loop-override` | `ai_assistant.settings.manage` |
+| Clear loop override | `DELETE /api/ai_assistant/ai/agents/:agentId/loop-override` | `ai_assistant.settings.manage` |
+
+The override is stored alongside the per-agent provider/model row (same `ai_agent_runtime_overrides` table) so a single delete clears all axes at once.
+
+## Feature gate for the agents page
+
+The agents page and every route in `/api/ai/agents/:agentId/*` require the `ai_assistant.settings.manage` feature:
+
+| Surface | Route | Required feature |
+|---------|-------|------------------|
+| Agents settings page | `/backend/config/ai-assistant/agents` | `ai_assistant.settings.manage` |
 | Prompt override read/write | `GET|PUT /api/ai/agents/:agentId/prompt-override` | `ai_assistant.settings.manage` |
 | Policy override read/write | `GET|PUT /api/ai/agents/:agentId/mutation-policy` | `ai_assistant.settings.manage` |
 
@@ -90,13 +200,22 @@ Removing this feature from a role hides the page and returns 403 on the API. The
 
 ## Operator workflow
 
-1. Open the settings page.
+### Override the default provider + model
+
+1. Open **Settings → Module Configs → AI Assistant → Settings**.
+2. Under **Default provider and model override**, pick a **Provider** and **Model** from the dropdowns.
+3. Click **Save override** — the page toasts success and the per-agent table refreshes to show the new effective values.
+4. To revert, click **Clear override**.
+
+### Override per-agent prompt and policy
+
+1. Open **Settings → Module Configs → AI Agents**.
 2. Pick an agent from the top dropdown.
 3. Edit a prompt section (for example, add a company-specific "respond in formal tone" rule under `responseStyle`).
 4. Save — the UI toasts the new version number.
 5. Optionally tighten the mutation policy (for example, flip `catalog.merchandising_assistant` from `confirm-required` to `destructive-confirm-required`).
 
-New chats pick up both changes on the next agent dispatch — no server restart, no cache flush.
+New chats pick up all changes on the next agent dispatch — no server restart, no cache flush.
 
 ## MUST rules
 

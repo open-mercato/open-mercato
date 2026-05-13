@@ -145,6 +145,21 @@ describe('extractAllCustomFieldEntries', () => {
       cf_existing: 'foo',
     })
   })
+
+  it('reads snake-case custom field containers', () => {
+    const item = {
+      custom_values: { api_url: 'https://snake.example', priority: 7 },
+      custom_fields: [
+        { key: 'array_key', value: 'array-value' },
+      ],
+    }
+
+    expect(extractAllCustomFieldEntries(item)).toEqual({
+      cf_api_url: 'https://snake.example',
+      cf_priority: 7,
+      cf_array_key: 'array-value',
+    })
+  })
 })
 
 describe('loadCustomFieldValues (encryption)', () => {

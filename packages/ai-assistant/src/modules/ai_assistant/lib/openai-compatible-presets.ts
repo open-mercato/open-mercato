@@ -24,6 +24,7 @@ const OPENAI_PRESET: OpenAICompatiblePreset = {
   id: 'openai',
   name: 'OpenAI',
   baseURL: undefined,
+  baseURLEnvKeys: ['OPENAI_BASE_URL'],
   envKeys: ['OPENAI_API_KEY', 'OPENCODE_OPENAI_API_KEY'],
   defaultModel: 'gpt-5-mini',
   defaultModels: [
@@ -62,6 +63,7 @@ const DEEPINFRA_PRESET: OpenAICompatiblePreset = {
   id: 'deepinfra',
   name: 'DeepInfra',
   baseURL: 'https://api.deepinfra.com/v1/openai',
+  baseURLEnvKeys: ['DEEPINFRA_BASE_URL'],
   envKeys: ['DEEPINFRA_API_KEY'],
   defaultModel: 'zai-org/GLM-5.1',
   defaultModels: [
@@ -111,6 +113,7 @@ const GROQ_PRESET: OpenAICompatiblePreset = {
   id: 'groq',
   name: 'Groq',
   baseURL: 'https://api.groq.com/openai/v1',
+  baseURLEnvKeys: ['GROQ_BASE_URL'],
   envKeys: ['GROQ_API_KEY'],
   defaultModel: 'llama-3.3-70b-versatile',
   defaultModels: [
@@ -139,6 +142,7 @@ const TOGETHER_PRESET: OpenAICompatiblePreset = {
   id: 'together',
   name: 'Together AI',
   baseURL: 'https://api.together.xyz/v1',
+  baseURLEnvKeys: ['TOGETHER_BASE_URL'],
   envKeys: ['TOGETHER_API_KEY'],
   defaultModel: 'meta-llama/Llama-3.3-70B-Instruct-Turbo',
   defaultModels: [
@@ -162,6 +166,7 @@ const FIREWORKS_PRESET: OpenAICompatiblePreset = {
   id: 'fireworks',
   name: 'Fireworks AI',
   baseURL: 'https://api.fireworks.ai/inference/v1',
+  baseURLEnvKeys: ['FIREWORKS_BASE_URL'],
   envKeys: ['FIREWORKS_API_KEY'],
   defaultModel: 'accounts/fireworks/models/llama-v3p3-70b-instruct',
   defaultModels: [
@@ -245,6 +250,43 @@ const OLLAMA_PRESET: OpenAICompatiblePreset = {
 }
 
 /**
+ * OpenRouter — unified API gateway providing access to hundreds of models
+ * from Anthropic, OpenAI, Google, Meta, and others via a single OpenAI-
+ * compatible endpoint.
+ */
+const OPENROUTER_PRESET: OpenAICompatiblePreset = {
+  id: 'openrouter',
+  name: 'OpenRouter',
+  baseURL: 'https://openrouter.ai/api/v1',
+  baseURLEnvKeys: ['OPENROUTER_BASE_URL'],
+  envKeys: ['OPENROUTER_API_KEY'],
+  defaultModel: 'meta-llama/llama-3.3-70b-instruct',
+  defaultModels: [
+    {
+      id: 'meta-llama/llama-3.3-70b-instruct',
+      name: 'Llama 3.3 70B Instruct',
+      contextWindow: 131072,
+    },
+  ],
+}
+
+/**
+ * LM Studio — local model server for development and offline use.
+ * Default port 1234 can be overridden via `LM_STUDIO_BASE_URL`.
+ * `defaultModel` is intentionally empty — LM Studio auto-detects
+ * the loaded model when the request body's `model` field is empty.
+ */
+const LM_STUDIO_PRESET: OpenAICompatiblePreset = {
+  id: 'lm-studio',
+  name: 'LM Studio (local)',
+  baseURL: 'http://localhost:1234/v1',
+  baseURLEnvKeys: ['LM_STUDIO_BASE_URL'],
+  envKeys: ['LM_STUDIO_API_KEY'],
+  defaultModel: '',
+  defaultModels: [],
+}
+
+/**
  * Built-in presets registered at bootstrap time. Order matters — it
  * determines the default iteration order of
  * `llmProviderRegistry.resolveFirstConfigured()` when no explicit order
@@ -259,4 +301,6 @@ export const OPENAI_COMPATIBLE_PRESETS: readonly OpenAICompatiblePreset[] = [
   AZURE_PRESET,
   LITELLM_PRESET,
   OLLAMA_PRESET,
+  OPENROUTER_PRESET,
+  LM_STUDIO_PRESET,
 ]

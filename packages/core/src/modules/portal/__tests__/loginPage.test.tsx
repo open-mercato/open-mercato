@@ -37,7 +37,7 @@ describe('PortalLoginPage', () => {
 
     const { getByLabelText, getByRole, queryByText } = renderWithProviders(<PortalLoginPage params={{ orgSlug: 'acme' }} />)
     fireEvent.change(getByLabelText(/email/i), { target: { value: 'u@example.com' } })
-    fireEvent.change(getByLabelText(/password/i), { target: { value: 'pw12345' } })
+    fireEvent.change(getByLabelText(/^password$/i), { target: { value: 'pw12345' } })
     await act(async () => {
       fireEvent.click(getByRole('button', { name: /sign in/i }))
     })
@@ -62,7 +62,7 @@ describe('PortalLoginPage', () => {
 
     const { getByLabelText, getByRole, findByText } = renderWithProviders(<PortalLoginPage params={{ orgSlug: 'acme' }} />)
     fireEvent.change(getByLabelText(/email/i), { target: { value: 'u@example.com' } })
-    fireEvent.change(getByLabelText(/password/i), { target: { value: 'pw' } })
+    fireEvent.change(getByLabelText(/^password$/i), { target: { value: 'pw' } })
     await act(async () => {
       fireEvent.click(getByRole('button', { name: /sign in/i }))
     })
@@ -75,7 +75,7 @@ describe('PortalLoginPage', () => {
 
     const { getByLabelText, getByRole, findByText } = renderWithProviders(<PortalLoginPage params={{ orgSlug: 'acme' }} />)
     fireEvent.change(getByLabelText(/email/i), { target: { value: 'u@example.com' } })
-    fireEvent.change(getByLabelText(/password/i), { target: { value: 'pw' } })
+    fireEvent.change(getByLabelText(/^password$/i), { target: { value: 'pw' } })
     await act(async () => {
       fireEvent.click(getByRole('button', { name: /sign in/i }))
     })
@@ -88,7 +88,7 @@ describe('PortalLoginPage', () => {
 
     const { getByLabelText, getByRole, findByText } = renderWithProviders(<PortalLoginPage params={{ orgSlug: 'acme' }} />)
     fireEvent.change(getByLabelText(/email/i), { target: { value: 'u@example.com' } })
-    fireEvent.change(getByLabelText(/password/i), { target: { value: 'pw' } })
+    fireEvent.change(getByLabelText(/^password$/i), { target: { value: 'pw' } })
     await act(async () => {
       fireEvent.click(getByRole('button', { name: /sign in/i }))
     })
@@ -102,7 +102,7 @@ describe('PortalLoginPage', () => {
 
     const { getByLabelText, getByRole, findByText } = renderWithProviders(<PortalLoginPage params={{ orgSlug: 'acme' }} />)
     fireEvent.change(getByLabelText(/email/i), { target: { value: 'u@example.com' } })
-    fireEvent.change(getByLabelText(/password/i), { target: { value: 'pw' } })
+    fireEvent.change(getByLabelText(/^password$/i), { target: { value: 'pw' } })
     await act(async () => {
       fireEvent.click(getByRole('button', { name: /sign in/i }))
     })

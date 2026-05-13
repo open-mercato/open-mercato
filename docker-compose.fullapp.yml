@@ -8,9 +8,45 @@ services:
     container_name: mercato-opencode-${DEPLOY_ENV:-local}
     restart: unless-stopped
     environment:
+      # Unified AI provider/model selection. OM_AI_* wins; OPENCODE_* stays
+      # as a BC fallback resolved by the opencode entrypoint script.
+      OM_AI_PROVIDER: ${OM_AI_PROVIDER:-openai}
+      OM_AI_MODEL: ${OM_AI_MODEL:-gpt-5-mini}
+      OPENCODE_PROVIDER: ${OPENCODE_PROVIDER:-}
+      OPENCODE_MODEL: ${OPENCODE_MODEL:-}
       ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY}
+      OPENAI_API_KEY: ${OPENAI_API_KEY:-}
+      GOOGLE_GENERATIVE_AI_API_KEY: ${GOOGLE_GENERATIVE_AI_API_KEY:-}
     extra_hosts:
       - "host.docker.internal:host-gateway"
+    networks:
+      - mercato-network-fullapp
+
+  traefik:
+    image: traefik:v3.2
+    container_name: mercato-traefik-${DEPLOY_ENV:-local}
+    restart: unless-stopped
+    command:
+      - "--configFile=/etc/traefik/traefik.yml"
+    ports:
+      - "${TRAEFIK_HTTP_PORT:-80}:80"
+      - "${TRAEFIK_HTTPS_PORT:-443}:443"
+      # Dashboard is NOT published by default. The Traefik dashboard exposes
+      # routers/services/cert metadata to anyone who can reach the published
+      # port. Set TRAEFIK_DASHBOARD_PORT to publish it (operator opt-in) and
+      # restrict access via firewall/VPN; otherwise keep it private.
+      # - "${TRAEFIK_DASHBOARD_PORT}:8080"
+    volumes:
+      - ./docker/traefik/traefik.yml:/etc/traefik/traefik.yml:ro
+      - traefik_acme:/letsencrypt
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+    environment:
+      ACME_EMAIL: ${ACME_EMAIL:-admin@example.com}
+      TRAEFIK_LOG_LEVEL: ${TRAEFIK_LOG_LEVEL:-INFO}
+      TRAEFIK_CA_SERVER: ${TRAEFIK_CA_SERVER:-https://acme-v02.api.letsencrypt.org/directory}
+      TRAEFIK_DOCKER_NETWORK: mercato-network-${DEPLOY_ENV:-local}
+    depends_on:
+      - app
     networks:
       - mercato-network-fullapp
 
@@ -37,6 +73,40 @@ services:
     working_dir: /app/apps/mercato
     ports:
       - "${APP_PORT:-3000}:${CONTAINER_PORT:-3000}"
+    labels:
+      - "traefik.enable=true"
+      - "traefik.docker.network=mercato-network-${DEPLOY_ENV:-local}"
+      # Platform router — known operator hostnames bypass the domain-check
+      # middleware. Configure PLATFORM_PRIMARY_HOST in the deployment env.
+      - "traefik.http.routers.platform.rule=Host(`${PLATFORM_PRIMARY_HOST:-openmercato.com}`)"
+      - "traefik.http.routers.platform.priority=100"
+      - "traefik.http.routers.platform.entrypoints=websecure"
+      - "traefik.http.routers.platform.tls=true"
+      - "traefik.http.routers.platform.tls.certresolver=letsencrypt"
+      - "traefik.http.routers.platform.service=app-upstream"
+      # Catch-all router for custom customer domains. Goes through the
+      # inject-secret + domain-check middlewares so unmapped hostnames are
+      # rejected at the edge.
+      - "traefik.http.routers.customer.rule=HostRegexp(`{any:.+}`)"
+      - "traefik.http.routers.customer.priority=1"
+      - "traefik.http.routers.customer.entrypoints=websecure"
+      - "traefik.http.routers.customer.tls=true"
+      - "traefik.http.routers.customer.tls.certresolver=letsencrypt"
+      - "traefik.http.routers.customer.service=app-upstream"
+      - "traefik.http.routers.customer.middlewares=inject-domain-check-secret,domain-check"
+      # Inject the shared secret onto the request so ForwardAuth can forward
+      # it to the app. The header is also delivered to the upstream app, but
+      # the app ignores X-Domain-Check-Secret outside the domain-check route.
+      - "traefik.http.middlewares.inject-domain-check-secret.headers.customrequestheaders.X-Domain-Check-Secret=${DOMAIN_CHECK_SECRET}"
+      # Verification endpoint — Traefik forwards X-Forwarded-Host (the
+      # original Host) which the app's domain-check route accepts.
+      - "traefik.http.middlewares.domain-check.forwardauth.address=http://app:3000/api/customer_accounts/domain-check"
+      - "traefik.http.middlewares.domain-check.forwardauth.authrequestheaders=X-Domain-Check-Secret,X-Forwarded-Host,X-Forwarded-Proto,X-Forwarded-Uri"
+      - "traefik.http.middlewares.domain-check.forwardauth.authresponseheaders=X-Open-Mercato-Origin"
+      - "traefik.http.middlewares.domain-check.forwardauth.trustforwardheader=false"
+      # Service definition: route to the app on its container port.
+      - "traefik.http.services.app-upstream.loadbalancer.server.port=${CONTAINER_PORT:-3000}"
+      - "traefik.http.services.app-upstream.loadbalancer.passhostheader=true"
     environment:
       TENANT_DATA_ENCRYPTION: ${TENANT_DATA_ENCRYPTION:-true}
       TENANT_DATA_ENCRYPTION_DEBUG: ${TENANT_DATA_ENCRYPTION_DEBUG:-false}
@@ -50,7 +120,13 @@ services:
       CACHE_REDIS_URL: redis://mercato-redis-${DEPLOY_ENV:-local}:6379
       CACHE_STRATEGY: redis
       ENABLE_CRUD_API_CACHE: ${ENABLE_CRUD_API_CACHE:-true}
+      OM_AI_PROVIDER: ${OM_AI_PROVIDER:-openai}
+      OM_AI_MODEL: ${OM_AI_MODEL:-gpt-5-mini}
+      OPENCODE_PROVIDER: ${OPENCODE_PROVIDER:-}
+      OPENCODE_MODEL: ${OPENCODE_MODEL:-}
       OPENAI_API_KEY: ${OPENAI_API_KEY}
+      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
+      GOOGLE_GENERATIVE_AI_API_KEY: ${GOOGLE_GENERATIVE_AI_API_KEY:-}
       MEILISEARCH_HOST: http://mercato-meilisearch-${DEPLOY_ENV:-local}:7700
       MEILISEARCH_API_KEY: ${MEILISEARCH_MASTER_KEY:-meilisearch-dev-key}
       NEXT_PUBLIC_UPGRADE_ACTIONS_ENABLED: ${NEXT_PUBLIC_UPGRADE_ACTIONS_ENABLED:-true}
@@ -66,6 +142,13 @@ services:
       OM_INIT_SUPERADMIN_EMAIL: ${OM_INIT_SUPERADMIN_EMAIL:-}
       OM_INIT_SUPERADMIN_PASSWORD: ${OM_INIT_SUPERADMIN_PASSWORD:-password}
       SSO_FORCE_ROLE_ON_LOGIN: employee
+      # Custom-domain routing (Phase 1–3 of portal-custom-domain spec).
+      DOMAIN_CHECK_SECRET: ${DOMAIN_CHECK_SECRET:-}
+      DOMAIN_RESOLVE_SECRET: ${DOMAIN_RESOLVE_SECRET:-}
+      INTERNAL_APP_ORIGIN: ${INTERNAL_APP_ORIGIN:-http://app:${CONTAINER_PORT:-3000}}
+      PLATFORM_DOMAINS: ${PLATFORM_DOMAINS:-localhost,${PLATFORM_PRIMARY_HOST:-openmercato.com}}
+      PLATFORM_PORTAL_BASE_URL: ${PLATFORM_PORTAL_BASE_URL:-https://${PLATFORM_PRIMARY_HOST:-openmercato.com}}
+      CUSTOMER_DOMAIN_ORIGIN_HEADER: ${CUSTOMER_DOMAIN_ORIGIN_HEADER:-X-Open-Mercato-Origin}
     depends_on:
       postgres:
         condition: service_healthy
@@ -139,6 +222,8 @@ volumes:
     name: mercato-init-marker-${DEPLOY_ENV:-local}
   attachments_storage:
     name: mercato-attachments-storage-${DEPLOY_ENV:-local}
+  traefik_acme:
+    name: mercato-traefik-acme-${DEPLOY_ENV:-local}
 
 networks:
   mercato-network-fullapp:

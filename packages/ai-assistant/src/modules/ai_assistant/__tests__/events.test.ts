@@ -29,12 +29,13 @@ const FROZEN_EVENT_IDS: ReadonlyArray<AiAssistantEventId> = [
 describe('ai_assistant events module', () => {
   it('declares the three FROZEN pending-action events under moduleId=ai_assistant', () => {
     expect(eventsConfig.moduleId).toBe('ai_assistant')
-    const declaredIds = eventsConfig.events.map((event) => event.id).sort()
-    expect(declaredIds).toEqual([...FROZEN_EVENT_IDS].sort())
+    const declaredIds = eventsConfig.events.map((event) => event.id)
+    expect(declaredIds).toEqual(expect.arrayContaining([...FROZEN_EVENT_IDS]))
   })
 
-  it('every declared event has category=system and entity=ai_pending_action', () => {
+  it('every FROZEN pending-action event has category=system and entity=ai_pending_action', () => {
     for (const event of eventsConfig.events) {
+      if (!FROZEN_EVENT_IDS.includes(event.id as AiAssistantEventId)) continue
       expect(event.category).toBe('system')
       expect(event.entity).toBe('ai_pending_action')
       expect(event.module).toBe('ai_assistant')

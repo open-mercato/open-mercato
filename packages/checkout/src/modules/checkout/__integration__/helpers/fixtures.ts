@@ -486,7 +486,7 @@ export async function deleteCheckoutEntityIfExists(
 export async function loginToBackendAndOpen(page: Page, path: string): Promise<void> {
   await page.goto('/login')
   await page.getByLabel('Email').fill('admin@acme.com')
-  await page.getByLabel('Password').fill('secret')
+  await page.getByLabel('Password', { exact: true }).fill('secret')
   await page.getByRole('button', { name: /sign in/i }).click()
   await page.waitForURL(/\/backend(?:\/.*)?$/)
   await page.goto(path)

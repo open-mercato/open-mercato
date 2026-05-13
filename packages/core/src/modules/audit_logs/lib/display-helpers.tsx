@@ -1,5 +1,11 @@
 import * as React from 'react'
 import type { TranslateFn } from '@open-mercato/shared/lib/i18n/context'
+import {
+  Accordion,
+  AccordionContent,
+  AccordionItem,
+  AccordionTrigger,
+} from '@open-mercato/ui/primitives/accordion'
 import type { ChangeRow } from './changeRows'
 import { isRecord } from './changeRows'
 export { extractChangeRows, isRecord } from './changeRows'
@@ -125,25 +131,27 @@ export type CollapsibleJsonSectionProps = {
 
 const DEFAULT_TRUNCATE_AT = 5000
 
+const COLLAPSIBLE_JSON_ITEM_VALUE = 'open'
+
 export function CollapsibleJsonSection({ label, value, truncateAt = DEFAULT_TRUNCATE_AT }: CollapsibleJsonSectionProps) {
-  const [isOpen, setIsOpen] = React.useState(false)
+  const [openValue, setOpenValue] = React.useState<string>('')
   const [showFull, setShowFull] = React.useState(false)
 
+  const isOpen = openValue === COLLAPSIBLE_JSON_ITEM_VALUE
   const stringified = React.useMemo(() => (isOpen ? safeStringify(value) : ''), [isOpen, value])
   const isTruncated = stringified.length > truncateAt
   const displayText = !showFull && isTruncated ? stringified.slice(0, truncateAt) : stringified
 
   return (
-    <details
-      className="group rounded-lg border px-4 py-3"
-      onToggle={(event) => setIsOpen((event.target as HTMLDetailsElement).open)}
-    >
-      <summary className="cursor-pointer text-sm font-semibold text-foreground transition-colors group-open:text-primary">
-        {label}
-      </summary>
-      {isOpen ? (
-        <>
-          <pre className="mt-2 max-h-96 overflow-auto whitespace-pre-wrap break-words text-xs leading-5 text-muted-foreground">
+    <Accordion type="single" collapsible value={openValue} onValueChange={setOpenValue}>
+      <AccordionItem value={COLLAPSIBLE_JSON_ITEM_VALUE}>
+        <AccordionTrigger>
+          <span className="font-semibold text-foreground group-data-[state=open]/accordion-trigger:text-primary">
+            {label}
+          </span>
+        </AccordionTrigger>
+        <AccordionContent>
+          <pre className="max-h-96 overflow-auto whitespace-pre-wrap break-words text-xs leading-5 text-muted-foreground">
             {displayText}
             {!showFull && isTruncated ? '\n…' : null}
           </pre>
@@ -156,8 +164,8 @@ export function CollapsibleJsonSection({ label, value, truncateAt = DEFAULT_TRUN
               {showFull ? 'Show less' : `Show all (${Math.ceil(stringified.length / 1024)} KB)`}
             </button>
           ) : null}
-        </>
-      ) : null}
-    </details>
+        </AccordionContent>
+      </AccordionItem>
+    </Accordion>
   )
 }

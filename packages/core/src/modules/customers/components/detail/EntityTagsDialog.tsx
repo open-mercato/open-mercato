@@ -1,7 +1,8 @@
 'use client'
 
 import * as React from 'react'
-import { Check, Plus, Search, SlidersHorizontal, Tag, X } from 'lucide-react'
+import { Check, Plus, Search, SearchX, SlidersHorizontal, Tag, X } from 'lucide-react'
+import { EmptyState } from '@open-mercato/ui/primitives/empty-state'
 import { VisuallyHidden } from '@radix-ui/react-visually-hidden'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { cn, slugifyTagLabel } from '@open-mercato/shared/lib/utils'
@@ -1238,13 +1239,17 @@ export function EntityTagsDialog({
                           {t('customers.personTags.loading', 'Loading...')}
                         </div>
                       ) : (
-                        <div className="rounded-lg border border-dashed border-border bg-background px-4 py-6 text-center text-sm text-muted-foreground">
-                          {searchValue.trim().length > 0
-                            ? t('customers.personTags.emptySearchResults', 'No options match the current search.')
-                            : activeCategory.source === 'dictionary'
-                              ? t('customers.personTags.emptyDictionaryCategory', 'No options are configured for this category yet.')
-                              : t('customers.personTags.emptyCategory', 'No items have been added for this category yet.')}
-                        </div>
+                        <EmptyState
+                          size="sm"
+                          icon={<SearchX className="h-8 w-8" aria-hidden="true" />}
+                          title={
+                            searchValue.trim().length > 0
+                              ? t('customers.personTags.emptySearchResults', 'No options match the current search.')
+                              : activeCategory.source === 'dictionary'
+                                ? t('customers.personTags.emptyDictionaryCategory', 'No options are configured for this category yet.')
+                                : t('customers.personTags.emptyCategory', 'No items have been added for this category yet.')
+                          }
+                        />
                       )}
 
                       {activeCategory.supportsCreate ? (

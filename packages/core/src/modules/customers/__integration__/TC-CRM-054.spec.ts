@@ -239,30 +239,47 @@ test.describe('TC-CRM-054: Edit historical activity (#1807)', () => {
       await expect(historicalRow).toBeVisible({ timeout: 30_000 })
       await historicalRow.click()
 
-      // The dialog's Date input is a native <input type="date"> rendered by
-      // DateTimeFields.tsx; without the prefill fix it would seed to today.
-      const dateInput = page.locator('input[type="date"]').first()
-      await expect(dateInput).toBeVisible({ timeout: 15_000 })
-      await expect(
-        dateInput,
-        'Date input MUST prefill from occurredAt, NOT today (#1807 prefill)',
-      ).toHaveValue(historicalDate)
+      // The dialog's Date / Start time fields used to be native `<input
+      // type="date">` and `<input type="time">`. DS Foundation v3 migrated
+      // ScheduleActivityDialog's DateTimeFields to the DS `DatePicker` +
+      // `TimePicker` primitives (button triggers over a Popover, no native
+      // input). The displayed trigger text is the source of truth for the
+      // user-visible value; we assert against the formatted button label so
+      // the prefill regression check survives the visual migration.
+      const dialog = page.getByRole('dialog')
+      const triggers = dialog.locator('button[aria-haspopup="dialog"]')
+      const dateTrigger = triggers.nth(0)
+      const timeTrigger = triggers.nth(1)
+      await expect(dateTrigger).toBeVisible({ timeout: 15_000 })
+      await expect(timeTrigger).toBeVisible({ timeout: 15_000 })
 
-      // Time input MUST also reflect the original local time. The fix uses
-      // `date-fns` `format(...)` so the hours/minutes match the user's local
-      // timezone projection of the stored UTC `occurredAt`.
-      const timeInput = page.locator('input[type="time"]').first()
-      await expect(timeInput).toBeVisible({ timeout: 15_000 })
-      const localExpectedTime = (() => {
-        const date = new Date(historicalIso)
-        const hh = String(date.getHours()).padStart(2, '0')
-        const mm = String(date.getMinutes()).padStart(2, '0')
-        return `${hh}:${mm}`
+      // DatePicker default format is `MMM d, yyyy` (en) — e.g. "Apr 12, 2026".
+      // Use a regex so leading-zero variants stay tolerant across locales.
+      const expectedDateLabel = (() => {
+        const month = historicalAnchor.toLocaleString('en-US', { month: 'short' })
+        const day = historicalAnchor.getDate()
+        const year = historicalAnchor.getFullYear()
+        return `${month} ${day}, ${year}`
       })()
       await expect(
-        timeInput,
-        'Time input MUST prefill from occurredAt projected to the user local zone (#1807 prefill)',
-      ).toHaveValue(localExpectedTime)
+        dateTrigger,
+        'Date trigger MUST prefill from occurredAt, NOT today (#1807 prefill)',
+      ).toContainText(expectedDateLabel)
+
+      // TimePicker shim renders 12h "hh:mm AM/PM" in the trigger label
+      // (matches the slot list inside the popover).
+      const expectedTimeLabel = (() => {
+        const h24 = historicalAnchor.getHours()
+        const h12 = h24 % 12 === 0 ? 12 : h24 % 12
+        const hh = String(h12).padStart(2, '0')
+        const mm = String(historicalAnchor.getMinutes()).padStart(2, '0')
+        const suffix = h24 < 12 ? 'AM' : 'PM'
+        return `${hh}:${mm} ${suffix}`
+      })()
+      await expect(
+        timeTrigger,
+        'Time trigger MUST prefill from occurredAt projected to the user local zone (#1807 prefill)',
+      ).toContainText(expectedTimeLabel)
     } finally {
       await deleteEntityIfExists(request, token, '/api/customers/interactions', interactionId)
       await deleteEntityIfExists(request, token, '/api/customers/companies', companyId)

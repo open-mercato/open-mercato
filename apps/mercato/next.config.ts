@@ -56,6 +56,7 @@ const nextConfig: NextConfig = {
     OM_SEARCH_MIN_LEN: process.env.OM_SEARCH_MIN_LEN,
   },
   async headers() {
+    const originHeaderName = (process.env.CUSTOMER_DOMAIN_ORIGIN_HEADER ?? 'X-Open-Mercato-Origin').trim()
     return [
       {
         source: '/:path*',
@@ -77,6 +78,14 @@ const nextConfig: NextConfig = {
           { key: 'X-Content-Type-Options', value: 'nosniff' },
           { key: 'X-Frame-Options', value: 'SAMEORIGIN' },
         ],
+      },
+      {
+        // Marker header consumed by the custom-domain DNS reverse-resolve check
+        // (see SPEC 2026-04-08-portal-custom-domain-routing). Lets the verifier
+        // tell "request reached our origin" from "request was answered by an
+        // unrelated host that proxied it through Cloudflare/Fastly".
+        source: '/_next/health',
+        headers: [{ key: originHeaderName, value: '1' }],
       },
     ]
   },

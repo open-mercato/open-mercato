@@ -64,21 +64,26 @@
     "@open-mercato/core": "workspace:*",
     "@open-mercato/queue": "workspace:*",
     "@open-mercato/ui": "workspace:*",
-    "@stripe/react-stripe-js": "^6.2.0",
+    "@stripe/react-stripe-js": "^6.3.0",
     "@stripe/stripe-js": "^9.3.1",
-    "stripe": "^22.1.0"
+    "stripe": "^22.1.1"
   },
   "peerDependencies": {
     "@mikro-orm/postgresql": "^7.0.14",
     "@open-mercato/shared": "workspace:*",
-    "react": "^19.0.0"
+    "react": "^19.0.0",
+    "react-dom": "^19.0.0"
   },
   "devDependencies": {
     "@open-mercato/shared": "workspace:*",
     "@types/jest": "^30.0.0",
+    "@types/react": "^19.2.14",
+    "@types/react-dom": "^19.2.3",
     "esbuild": "^0.28.0",
     "glob": "^13.0.6",
-    "jest": "^30.3.0",
+    "jest": "^30.4.2",
+    "react": "19.2.6",
+    "react-dom": "19.2.6",
     "ts-jest": "^29.4.9"
   },
   "publishConfig": {

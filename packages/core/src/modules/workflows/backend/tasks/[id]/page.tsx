@@ -6,6 +6,7 @@ import { useRouter } from 'next/navigation'
 import { Page, PageBody } from '@open-mercato/ui/backend/Page'
 import { Button } from '@open-mercato/ui/primitives/button'
 import { Input } from '@open-mercato/ui/primitives/input'
+import { EmailInput } from '@open-mercato/ui/primitives/email-input'
 import { FormHeader } from '@open-mercato/ui/backend/forms'
 import {
   Select,
@@ -182,8 +183,7 @@ export default function UserTaskDetailPage({ params }: { params: { id: string } 
               {fieldDescription && (
                 <p className="text-xs text-muted-foreground">{fieldDescription}</p>
               )}
-              <Input
-                type="email"
+              <EmailInput
                 id={fieldName}
                 value={fieldValue(fieldName)}
                 onChange={(e) => handleFieldChange(fieldName, e.target.value)}

@@ -235,6 +235,20 @@ MUST use `as const` — provides compile-time safety; undeclared events trigger 
 
 Run `yarn generate` after creating/modifying `events.ts` files.
 
+## Operation Progress
+
+Use the progress module for every user-visible bulk operation and every future long-running operation. Read `packages/core/src/modules/progress/AGENTS.md` before adding selected-row actions, import/export jobs, reindexing flows, external sync operations, or queued destructive work.
+
+MUST rules:
+
+1. **MUST create a `ProgressJob`** for server-side bulk or long-running work — return `progressJobId` to the UI so `ProgressTopBar` can track it.
+2. **MUST use `@open-mercato/queue` workers** for work that should continue after navigation or retry after process failure.
+3. **MUST execute domain mutations through commands** from workers — do not bypass audit, undo, cache invalidation, or events with direct ORM mutation loops.
+4. **MUST scope progress jobs and worker payloads** with `tenantId` and `organizationId`.
+5. **MUST use shared UI progress helpers** for browser-bound DataTable bulk loops; do not build page-local progress banners.
+
+Reference implementation: `packages/core/src/modules/catalog/api/bulk-delete/route.ts`, `packages/core/src/modules/catalog/workers/catalog-product-bulk-delete.ts`, and `packages/core/src/modules/catalog/lib/bulkDelete.ts`.
+
 ## Translatable Fields
 
 Declare translatable fields in the module's `translations.ts` at the module root (like `events.ts`). The generator auto-discovers these files and aggregates them into `translations-fields.generated.ts`.

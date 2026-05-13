@@ -121,6 +121,6 @@ export function normalizeCustomFieldSubmitValue(value: unknown): unknown {
   if (Array.isArray(value)) {
     return value.filter((entry) => entry !== undefined)
   }
-  if (value === undefined) return null
+  if (value === undefined) return undefined
   return value
 }

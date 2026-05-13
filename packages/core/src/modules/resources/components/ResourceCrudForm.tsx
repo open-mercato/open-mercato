@@ -131,7 +131,7 @@ export function useResourcesResourceFormConfig(options: {
         id: 'description',
         label: t('resources.resources.form.fields.description', 'Description'),
         type: 'richtext',
-        editor: 'uiw',
+        editor: 'html',
       },
       {
         id: 'resourceTypeId',

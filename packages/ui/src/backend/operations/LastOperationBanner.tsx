@@ -24,20 +24,27 @@ export function LastOperationBanner() {
   async function handleUndo() {
     const undoToken = operation?.undoToken
     if (!undoToken || isPending) return
+    const tokens = operation.bulkUndoTokens && operation.bulkUndoTokens.length > 0
+      ? operation.bulkUndoTokens
+      : [undoToken]
     setPendingToken(undoToken)
+    const completed: string[] = []
     try {
-      const call = await apiCall<Record<string, unknown>>('/api/audit_logs/audit-logs/actions/undo', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ undoToken }),
-      })
-      if (!call.ok) {
-        const message =
-          (call.result && typeof call.result.error === 'string' && call.result.error) ||
-          ''
-        throw new Error(message || t('audit_logs.banner.undo_failed', 'Failed to undo'))
+      for (const token of tokens.slice().reverse()) {
+        const call = await apiCall<Record<string, unknown>>('/api/audit_logs/audit-logs/actions/undo', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ undoToken: token }),
+        })
+        if (!call.ok) {
+          const message =
+            (call.result && typeof call.result.error === 'string' && call.result.error) ||
+            ''
+          throw new Error(message || t('audit_logs.banner.undo_failed', 'Failed to undo'))
+        }
+        completed.push(token)
       }
-      markUndoSuccess(undoToken)
+      markUndoSuccess(tokens)
       flash(t('audit_logs.banner.undo_success'), 'success')
       router.refresh()
       if (typeof window !== 'undefined') {
@@ -53,6 +60,7 @@ export function LastOperationBanner() {
         }
       }
     } catch (err) {
+      if (completed.length > 0) markUndoSuccess(completed)
       const message = err instanceof Error && err.message ? err.message : t('audit_logs.banner.undo_error')
       flash(message, 'error')
     } finally {

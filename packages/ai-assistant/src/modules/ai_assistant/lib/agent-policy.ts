@@ -18,6 +18,15 @@ export type AgentPolicyDenyCode =
   | 'mutation_blocked_by_policy'
   | 'execution_mode_not_supported'
   | 'attachment_type_not_accepted'
+  // Loop policy codes — Phase 0 of spec 2026-04-28-ai-agents-agentic-loop-controls
+  /** Object-mode rejects loop primitives that the SDK ignores for generateObject. */
+  | 'loop_unsupported_in_object_mode'
+  /** User prepareStep returned a tools map with a raw (unwrapped) mutation handler. */
+  | 'loop_violates_mutation_policy'
+  /** loop.activeTools contained names outside agent.allowedTools (thrown for caller-supplied overrides; warning-only for agent-declared). */
+  | 'loop_active_tools_outside_allowlist'
+  /** agent.loop.allowRuntimeOverride is false and a per-call loop override was supplied. */
+  | 'loop_runtime_override_disabled'
 
 export type AgentPolicyDecision =
   | { ok: true; agent: AiAgentDefinition; tool?: AiToolDefinition }

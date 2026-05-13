@@ -184,6 +184,7 @@ describe('GET /api/auth/users', () => {
         {
           id: matchedUserId,
           email: 'admin@acme.com',
+          name: 'Admin User',
           tenantId,
           organizationId,
         },
@@ -222,6 +223,7 @@ describe('GET /api/auth/users', () => {
     expect(body.items).toHaveLength(1)
     expect(body.items[0]).toMatchObject({
       email: 'admin@acme.com',
+      name: 'Admin User',
       tenantId,
       organizationId,
     })
@@ -245,6 +247,38 @@ describe('GET /api/auth/users', () => {
       { organizationId: { $in: [organizationId] } },
     ]))
     expect(body).toEqual({ items: [], total: 0, totalPages: 1, isSuperAdmin: false })
+  })
+
+  test('filters users by display name', async () => {
+    const matchedUserId = '623e4567-e89b-12d3-a456-426614174001'
+    mockEm.findAndCount.mockResolvedValueOnce([
+      [
+        {
+          id: matchedUserId,
+          email: 'named@acme.com',
+          name: 'Named User',
+          tenantId,
+          organizationId,
+        },
+      ],
+      1,
+    ])
+
+    const response = await GET(makeRequest('/api/auth/users?name=Named&page=1&pageSize=50'))
+    const body = await response.json()
+
+    expect(response.status).toBe(200)
+    const where = mockEm.findAndCount.mock.calls[0][1] as { $and: Array<Record<string, unknown>> }
+    expect(where.$and).toEqual(expect.arrayContaining([
+      { deletedAt: null },
+      { tenantId },
+      { name: { $ilike: '%Named%' } },
+    ]))
+    expect(body.items).toHaveLength(1)
+    expect(body.items[0]).toMatchObject({
+      id: matchedUserId,
+      name: 'Named User',
+    })
   })
 
   test('includes users whose role names match the unified search term', async () => {
@@ -290,7 +324,7 @@ describe('GET /api/auth/users', () => {
     const matchedUserId = '423e4567-e89b-12d3-a456-426614174002'
     mockSearchTokenExecute.mockResolvedValueOnce([{ entity_id: matchedUserId }])
     mockEm.findAndCount.mockResolvedValueOnce([
-      [{ id: matchedUserId, email: 'cross-tenant@example.com', tenantId: null, organizationId: null }],
+      [{ id: matchedUserId, email: 'cross-tenant@example.com', name: 'Cross Tenant', tenantId: null, organizationId: null }],
       1,
     ])
 

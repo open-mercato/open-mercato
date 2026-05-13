@@ -1,9 +1,15 @@
 "use client"
 import * as React from 'react'
-import { X } from 'lucide-react'
-import { IconButton } from '../primitives/icon-button'
+import { Alert, type AlertStatus } from '../primitives/alert'
 
 export type FlashKind = 'success' | 'error' | 'warning' | 'info'
+
+const flashKindToAlertStatus: Record<FlashKind, AlertStatus> = {
+  success: 'success',
+  error: 'error',
+  warning: 'warning',
+  info: 'information',
+}
 
 // Programmatic API to show a flash message without navigation.
 // Consumers can import { flash } and call flash('text', 'error').
@@ -141,32 +147,25 @@ function FlashMessagesInner() {
     return () => window.removeEventListener('flash', handler as EventListener)
   }, [showFlash])
 
-  if (!msg) return null
+  const handleDismiss = React.useCallback(() => {
+    clearDismissTimer()
+    setMsg(null)
+  }, [clearDismissTimer])
 
-  const colorMap: Record<FlashKind, string> = {
-    success: 'bg-status-success-icon',
-    error: 'bg-status-error-icon',
-    warning: 'bg-status-warning-icon',
-    info: 'bg-status-info-icon',
-  }
-  const color = colorMap[kind]
+  if (!msg) return null
 
   return (
     <div className="pointer-events-none fixed left-3 right-3 top-3 z-toast sm:left-auto sm:right-4 sm:w-[380px]">
-      <div className={`pointer-events-auto rounded px-3 py-2 text-white shadow-md ${color}`}>
-        <div className="flex items-center justify-between gap-2">
-          <div className="text-sm">{msg}</div>
-          <IconButton
-            type="button"
-            variant="ghost"
-            size="sm"
-            className="text-white/90 hover:text-white hover:bg-white/10"
-            onClick={() => setMsg(null)}
-            aria-label="Dismiss"
-          >
-            <X size={16} />
-          </IconButton>
-        </div>
+      <div className="pointer-events-auto">
+        <Alert
+          status={flashKindToAlertStatus[kind]}
+          size="sm"
+          dismissible
+          onDismiss={handleDismiss}
+          className="shadow-md"
+        >
+          {msg}
+        </Alert>
       </div>
     </div>
   )

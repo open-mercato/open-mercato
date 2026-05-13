@@ -4,6 +4,8 @@ import type { OperationMetadataPayload } from '@open-mercato/shared/lib/commands
 
 export type OperationEntry = OperationMetadataPayload & {
   receivedAt: number
+  bulkUndoTokens?: string[]
+  bulkCount?: number
 }
 
 export type UndoneEntry = OperationEntry & {
@@ -71,6 +73,12 @@ function isValidEntry(entry: unknown): entry is OperationEntry {
 
 function hydrateEntry(entry: unknown): OperationEntry {
   const source = entry as Partial<OperationEntry> & Record<string, unknown>
+  const bulkTokens = Array.isArray(source.bulkUndoTokens)
+    ? source.bulkUndoTokens.filter((t): t is string => typeof t === 'string' && t.length > 0)
+    : undefined
+  const bulkCount = typeof source.bulkCount === 'number' && Number.isFinite(source.bulkCount)
+    ? source.bulkCount
+    : undefined
   return {
     id: String(source.id),
     undoToken: String(source.undoToken),
@@ -80,6 +88,8 @@ function hydrateEntry(entry: unknown): OperationEntry {
     resourceId: typeof source.resourceId === 'string' ? source.resourceId : null,
     executedAt: typeof source.executedAt === 'string' ? source.executedAt : new Date((source.receivedAt as number | undefined) || now()).toISOString(),
     receivedAt: typeof source.receivedAt === 'number' ? source.receivedAt : now(),
+    ...(bulkTokens && bulkTokens.length > 0 ? { bulkUndoTokens: bulkTokens } : {}),
+    ...(bulkCount && bulkCount > 0 ? { bulkCount } : {}),
   }
 }
 
@@ -154,21 +164,80 @@ export function pushOperation(meta: OperationMetadataPayload) {
   })
 }
 
-export function markUndoSuccess(undoToken: string) {
+export function markUndoSuccess(undoTokens: string | string[]) {
   if (typeof window === 'undefined') return
+  const tokenSet = new Set(Array.isArray(undoTokens) ? undoTokens : [undoTokens])
+  if (tokenSet.size === 0) return
   const removed: OperationEntry[] = []
   updateState((prev) => {
-    const stack = prev.stack.filter((entry) => {
-      if (entry.undoToken === undoToken) {
-        removed.push(entry)
-        return false
+    const nextStack: OperationEntry[] = []
+    for (const entry of prev.stack) {
+      const bulk = entry.bulkUndoTokens && entry.bulkUndoTokens.length > 0 ? entry.bulkUndoTokens : null
+      if (!bulk) {
+        if (tokenSet.has(entry.undoToken)) removed.push(entry)
+        else nextStack.push(entry)
+        continue
       }
-      return true
-    })
+      const consumed: string[] = []
+      const remaining: string[] = []
+      for (const token of bulk) {
+        if (tokenSet.has(token)) consumed.push(token)
+        else remaining.push(token)
+      }
+      if (consumed.length === 0) {
+        nextStack.push(entry)
+      } else if (remaining.length === 0) {
+        removed.push(entry)
+      } else {
+        removed.push({ ...entry, bulkUndoTokens: consumed, bulkCount: consumed.length })
+        nextStack.push({ ...entry, bulkUndoTokens: remaining, bulkCount: remaining.length })
+      }
+    }
     const undone = removed.length
       ? [...prev.undone, ...removed.map((entry) => ({ ...entry, undoneAt: now() }))]
       : prev.undone
-    return { stack, undone }
+    return { stack: nextStack, undone }
+  })
+}
+
+export type CoalesceOptions = {
+  commandId?: string
+  actionLabel?: string | null
+  resourceKind?: string | null
+}
+
+function generateBulkId(seed: string): string {
+  const cryptoRef = typeof globalThis !== 'undefined' ? (globalThis as { crypto?: { randomUUID?: () => string } }).crypto : undefined
+  if (cryptoRef && typeof cryptoRef.randomUUID === 'function') {
+    return `bulk:${cryptoRef.randomUUID()}`
+  }
+  return `bulk:${seed}:${now()}`
+}
+
+export function coalesceLastOperations(count: number, options: CoalesceOptions = {}): void {
+  if (typeof window === 'undefined' || count <= 1) return
+  updateState((prev) => {
+    if (prev.stack.length < count) return prev
+    const tail = prev.stack.slice(-count)
+    if (options.commandId && !tail.every((entry) => entry.commandId === options.commandId)) {
+      return prev
+    }
+    const head = prev.stack.slice(0, prev.stack.length - count)
+    const last = tail[tail.length - 1]
+    const tokens = tail.map((entry) => entry.undoToken)
+    const bulkId = generateBulkId(last.id)
+    const synthetic: OperationEntry = {
+      ...last,
+      id: bulkId,
+      undoToken: bulkId,
+      actionLabel: options.actionLabel ?? last.actionLabel,
+      resourceKind: options.resourceKind ?? last.resourceKind,
+      resourceId: null,
+      bulkUndoTokens: tokens,
+      bulkCount: tail.length,
+      receivedAt: now(),
+    }
+    return { stack: [...head, synthetic], undone: prev.undone }
   })
 }
 

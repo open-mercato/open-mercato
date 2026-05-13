@@ -1,5 +1,6 @@
 "use client";
 import * as React from "react";
+import { createPortal } from "react-dom";
 import { useT } from "@open-mercato/shared/lib/i18n/context";
 import { Button } from "@open-mercato/ui/primitives/button";
 import { IconButton } from "../../primitives/icon-button";
@@ -53,6 +54,7 @@ export function ConfirmDialog({
   const [internalOpen, setInternalOpen] = React.useState(false);
   const cancelButtonRef = React.useRef<HTMLButtonElement>(null);
   const confirmButtonRef = React.useRef<HTMLButtonElement>(null);
+  const [portalTarget, setPortalTarget] = React.useState<HTMLElement | null>(null);
   // Unique IDs so multiple ConfirmDialog instances on the same page don't
   // collide and make `aria-labelledby` resolve to the wrong dialog's title.
   const reactId = React.useId();
@@ -88,8 +90,12 @@ export function ConfirmDialog({
     handleCancelCallback();
   }, [setOpen, handleCancelCallback]);
 
+  React.useLayoutEffect(() => {
+    setPortalTarget(document.body);
+  }, []);
+
   // Handle dialog open/close with native showModal/close
-  React.useEffect(() => {
+  React.useLayoutEffect(() => {
     const dialog = dialogRef.current;
     if (!dialog) return;
 
@@ -110,7 +116,7 @@ export function ConfirmDialog({
         dialog.close();
       }
     }
-  }, [open, resolvedCancelText]);
+  }, [open, resolvedCancelText, portalTarget]);
 
   // Handle native cancel event (Escape key)
   React.useEffect(() => {
@@ -172,6 +178,104 @@ export function ConfirmDialog({
     }
   };
 
+  const dialogElement = (
+    <dialog
+      ref={dialogRef}
+      role="alertdialog"
+      aria-labelledby={titleId}
+      aria-describedby={text ? descriptionId : undefined}
+      onClick={handleBackdropClick}
+      className={cn(
+        // Reset dialog defaults
+        "m-0 p-0 max-w-none bg-transparent border-none pointer-events-auto",
+        // Backdrop styling
+        "backdrop:bg-black/50 backdrop:backdrop-blur-sm backdrop:transition-opacity",
+        // Mobile: bottom sheet
+        "fixed inset-x-0 bottom-0 top-auto w-full",
+        // Desktop: centered
+        "sm:inset-auto sm:mx-auto sm:my-auto sm:max-w-md sm:top-1/2 sm:left-1/2 sm:-translate-x-1/2 sm:-translate-y-1/2",
+        // Animation with reduced motion support
+        "motion-safe:open:animate-in motion-safe:open:fade-in-0 motion-safe:open:slide-in-from-bottom-4",
+        "sm:motion-safe:open:slide-in-from-bottom-0 sm:motion-safe:open:zoom-in-95",
+        // Duration
+        "motion-safe:open:duration-300"
+      )}
+    >
+      <div
+        role="document"
+        className={cn(
+          // Panel container
+          "flex flex-col gap-4 rounded-t-2xl border-t bg-card p-6 text-foreground shadow-lg",
+          "sm:rounded-xl sm:border",
+          // Relative positioning for close button
+          "relative"
+        )}
+      >
+        {/* Close button */}
+        <IconButton
+          type="button"
+          variant="ghost"
+          size="sm"
+          onClick={handleCancel}
+          disabled={loading}
+          aria-label={closeAriaLabel}
+          className="absolute right-4 top-4 opacity-70 hover:opacity-100"
+        >
+          <X className="h-4 w-4" />
+        </IconButton>
+
+        {/* Title */}
+        <h2
+          id={titleId}
+          className={cn(
+            "text-sm font-medium leading-snug tracking-tight pr-6",
+            // Mobile: centered, Desktop: left-aligned
+            "text-center sm:text-left"
+          )}
+        >
+          {resolvedTitle}
+        </h2>
+
+        {/* Description (optional) */}
+        {text && (
+          <p
+            id={descriptionId}
+            className="text-sm font-medium leading-snug text-muted-foreground"
+          >
+            {text}
+          </p>
+        )}
+
+        {/* Actions */}
+        <div className="flex flex-col-reverse gap-2 sm:flex-row sm:justify-end">
+          {resolvedCancelText !== false && (
+            <Button
+              ref={cancelButtonRef}
+              variant="outline"
+              onClick={handleCancel}
+              disabled={loading}
+              className="w-full sm:w-auto"
+            >
+              {resolvedCancelText}
+            </Button>
+          )}
+          {resolvedConfirmText !== false && (
+            <Button
+              ref={confirmButtonRef}
+              variant={variant === "destructive" ? "destructive" : "default"}
+              onClick={handleConfirm}
+              disabled={loading}
+              className="w-full sm:w-auto"
+            >
+              {loading && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+              {resolvedConfirmText}
+            </Button>
+          )}
+        </div>
+      </div>
+    </dialog>
+  );
+
   return (
     <>
       {trigger && (
@@ -180,101 +284,7 @@ export function ConfirmDialog({
         </div>
       )}
 
-      <dialog
-        ref={dialogRef}
-        role="alertdialog"
-        aria-labelledby={titleId}
-        aria-describedby={text ? descriptionId : undefined}
-        onClick={handleBackdropClick}
-        className={cn(
-          // Reset dialog defaults
-          "m-0 p-0 max-w-none bg-transparent border-none pointer-events-auto",
-          // Backdrop styling
-          "backdrop:bg-black/50 backdrop:backdrop-blur-sm backdrop:transition-opacity",
-          // Mobile: bottom sheet
-          "fixed inset-x-0 bottom-0 top-auto w-full",
-          // Desktop: centered
-          "sm:inset-auto sm:mx-auto sm:my-auto sm:max-w-md sm:top-1/2 sm:left-1/2 sm:-translate-x-1/2 sm:-translate-y-1/2",
-          // Animation with reduced motion support
-          "motion-safe:open:animate-in motion-safe:open:fade-in-0 motion-safe:open:slide-in-from-bottom-4",
-          "sm:motion-safe:open:slide-in-from-bottom-0 sm:motion-safe:open:zoom-in-95",
-          // Duration
-          "motion-safe:open:duration-300"
-        )}
-      >
-        <div
-          role="document"
-          className={cn(
-            // Panel container
-            "flex flex-col gap-4 rounded-t-2xl border-t bg-card p-6 text-foreground shadow-lg",
-            "sm:rounded-xl sm:border",
-            // Relative positioning for close button
-            "relative"
-          )}
-        >
-          {/* Close button */}
-          <IconButton
-            type="button"
-            variant="ghost"
-            size="sm"
-            onClick={handleCancel}
-            disabled={loading}
-            aria-label={closeAriaLabel}
-            className="absolute right-4 top-4 opacity-70 hover:opacity-100"
-          >
-            <X className="h-4 w-4" />
-          </IconButton>
-
-          {/* Title */}
-          <h2
-            id={titleId}
-            className={cn(
-              "text-sm font-medium leading-snug tracking-tight pr-6",
-              // Mobile: centered, Desktop: left-aligned
-              "text-center sm:text-left"
-            )}
-          >
-            {resolvedTitle}
-          </h2>
-
-          {/* Description (optional) */}
-          {text && (
-            <p
-              id={descriptionId}
-              className="text-sm font-medium leading-snug text-muted-foreground"
-            >
-              {text}
-            </p>
-          )}
-
-          {/* Actions */}
-          <div className="flex flex-col-reverse gap-2 sm:flex-row sm:justify-end">
-            {resolvedCancelText !== false && (
-              <Button
-                ref={cancelButtonRef}
-                variant="outline"
-                onClick={handleCancel}
-                disabled={loading}
-                className="w-full sm:w-auto"
-              >
-                {resolvedCancelText}
-              </Button>
-            )}
-            {resolvedConfirmText !== false && (
-              <Button
-                ref={confirmButtonRef}
-                variant={variant === "destructive" ? "destructive" : "default"}
-                onClick={handleConfirm}
-                disabled={loading}
-                className="w-full sm:w-auto"
-              >
-                {loading && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
-                {resolvedConfirmText}
-              </Button>
-            )}
-          </div>
-        </div>
-      </dialog>
+      {portalTarget ? createPortal(dialogElement, portalTarget) : null}
     </>
   );
 }

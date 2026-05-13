@@ -20,14 +20,44 @@ const createModelMock = jest.fn(
 )
 const resolveApiKeyMock = jest.fn(() => 'test-api-key')
 
+const openaiCreateModelMock = jest.fn(
+  (options: { modelId: string; apiKey: string }) => ({ id: options.modelId, apiKey: options.apiKey, provider: 'openai' }),
+)
+const openaiResolveApiKeyMock = jest.fn(() => 'openai-test-key')
+
 jest.mock('@open-mercato/shared/lib/ai/llm-provider-registry', () => ({
   llmProviderRegistry: {
-    resolveFirstConfigured: () => ({
-      id: 'test-provider',
-      defaultModel: 'provider-default-model',
-      resolveApiKey: resolveApiKeyMock,
-      createModel: createModelMock,
-    }),
+    resolveFirstConfigured: (options?: { env?: Record<string, string | undefined>; order?: readonly string[] }) => {
+      const order = options?.order
+      if (order && order.includes('openai')) {
+        return {
+          id: 'openai',
+          defaultModel: 'gpt-4o-mini',
+          resolveApiKey: openaiResolveApiKeyMock,
+          createModel: openaiCreateModelMock,
+          isConfigured: () => true,
+        }
+      }
+      return {
+        id: 'test-provider',
+        defaultModel: 'provider-default-model',
+        resolveApiKey: resolveApiKeyMock,
+        createModel: createModelMock,
+        isConfigured: () => true,
+      }
+    },
+    get: (id: string) => {
+      if (id === 'openai') {
+        return {
+          id: 'openai',
+          defaultModel: 'gpt-4o-mini',
+          resolveApiKey: openaiResolveApiKeyMock,
+          createModel: openaiCreateModelMock,
+          isConfigured: () => true,
+        }
+      }
+      return null
+    },
   },
 }))
 
@@ -157,7 +187,8 @@ describe('runAiAgentText', () => {
 
     expect(stepCountIsMock).toHaveBeenCalledWith(5)
     const callArg = streamTextMock.mock.calls[0][0] as { stopWhen: unknown }
-    expect(callArg.stopWhen).toEqual({ __stopWhen: 'stepCount', count: 5 })
+    // Phase 2: stopWhen is now always an array from translateStopConditions
+    expect(callArg.stopWhen).toEqual([{ __stopWhen: 'stepCount', count: 5 }])
   })
 
   it('lets modelOverride win over agent.defaultModel', async () => {
@@ -272,6 +303,30 @@ describe('runAiAgentText', () => {
     const callArg = streamTextMock.mock.calls[0][0] as { system: string }
     expect(callArg.system).toBe('System prompt base.')
     errorSpy.mockRestore()
+  })
+
+  it('uses openai provider when agent.defaultProvider=openai and anthropic is registration-first', async () => {
+    seedAgentRegistryForTests([
+      makeAgent({
+        id: 'customers.assistant',
+        moduleId: 'customers',
+        defaultProvider: 'openai',
+        defaultModel: 'gpt-5-mini',
+      }),
+    ])
+
+    await runAiAgentText({
+      agentId: 'customers.assistant',
+      messages: baseMessages as never,
+      authContext: baseAuth,
+      container: {} as never,
+    })
+
+    expect(openaiCreateModelMock).toHaveBeenCalledWith(
+      expect.objectContaining({ modelId: 'gpt-5-mini' }),
+    )
+    const callArg = streamTextMock.mock.calls[0][0] as { model: { id: string; provider?: string } }
+    expect(callArg.model.provider).toBe('openai')
   })
 })
 
