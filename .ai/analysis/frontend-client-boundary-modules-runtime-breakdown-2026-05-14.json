@@ -1,0 +1,124 @@
+{
+  "staticImportCount": 551,
+  "dynamicImportCount": 1106,
+  "staticByKind": {
+    "other": 18,
+    "module-index": 46,
+    "acl": 41,
+    "setup": 42,
+    "i18n-json": 164,
+    "page/component": 15,
+    "encryption": 13,
+    "page-meta": 199,
+    "ce": 13
+  },
+  "dynamicByKind": {
+    "api": 771,
+    "page/component": 214,
+    "encryption": 15,
+    "other": 105,
+    "acl": 1
+  },
+  "topModules": [
+    [
+      "sales",
+      149
+    ],
+    [
+      "customers",
+      132
+    ],
+    [
+      "customer_accounts",
+      88
+    ],
+    [
+      "staff",
+      81
+    ],
+    [
+      "auth",
+      72
+    ],
+    [
+      "catalog",
+      64
+    ],
+    [
+      "checkout",
+      63
+    ],
+    [
+      "workflows",
+      55
+    ],
+    [
+      "ai_assistant",
+      52
+    ],
+    [
+      "entities",
+      46
+    ],
+    [
+      "business_rules",
+      44
+    ],
+    [
+      "messages",
+      43
+    ],
+    [
+      "webhooks",
+      43
+    ],
+    [
+      "resources",
+      42
+    ],
+    [
+      "inbox_ops",
+      41
+    ],
+    [
+      "currencies",
+      35
+    ],
+    [
+      "search",
+      31
+    ],
+    [
+      "data_sync",
+      31
+    ],
+    [
+      "directory",
+      30
+    ],
+    [
+      "integrations",
+      30
+    ],
+    [
+      "feature_toggles",
+      29
+    ],
+    [
+      "attachments",
+      26
+    ],
+    [
+      "planner",
+      24
+    ],
+    [
+      "notifications",
+      24
+    ],
+    [
+      "scheduler",
+      24
+    ]
+  ]
+}
