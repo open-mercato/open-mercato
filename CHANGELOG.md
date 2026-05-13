@@ -1,4 +1,78 @@
 
+# 0.6.1 (2026-05-13)
+
+## Highlights
+<!-- TODO: Highlights — auto-update-changelog leaves this blank for the human author to fill in. -->
+
+## ✨ Features
+- ✨ DS Foundation v4 — Figma input variants and specialized inputs (supersedes #1918). (#1921) *(@zielivia, via @pkarw)*
+- ✨ DS Foundation v3 — 15 primitives, LogList, production migrations (supersedes #1907) (fixes #1807). (#1910) *(@zielivia, via @pkarw)*
+- ✨ Scriptable provisioning flags on `mercato auth setup` — `--orgSlug` / `--with-examples` / `--json` (supersedes #1879). (#1900) *(@matgren, via @pkarw)*
+- ✨ New CRM pages filters. (#1887) *(@haxiorz)*
+- ✨ Portal custom domains (CNAME/A + on-demand TLS). (#1873) *(@pat-lewczuk)*
+- ✨ Per-agent provider, baseURL overrides, runtime overrides, ModelPicker UI, env allowlist. (#1858) *(@pkarw)*
+- ✨ Unified `OM_AI_PROVIDER` / `OM_AI_MODEL` with openai + gpt-5-mini defaults. (#1856) *(@pkarw)*
+- ✨ Lazy auto-spawn queue workers (fixes #1840). (#1844) *(@pkarw)*
+- ✨ Optional `--database-name` override for dev/setup scripts (fixes #1841). (#1843) *(@pkarw)*
+- ✨ Centralize custom-fields response normalization (fixes #1769). (#1800) *(@pkarw)*
+
+## 🔒 Security
+- 🔒 Enforce explicit promote-checks on RBAC delegation paths to close privilege-escalation vectors. (#1837) *(@WH173-P0NY)*
+
+## 🐛 Fixes
+- 🔧 Clear MikroORM MetadataStorage between `db:generate` iterations (fixes #1911). (#1917) *(@pkarw)*
+- 🐛 `raiseCrudError` extracts message from structured `{ error: { code, message } }` envelopes (fixes #1912). (#1916) *(@pkarw)*
+- 🔧 Stop indexing dead API endpoints on MCP boot (fixes #1876). (#1915) *(@pkarw)*
+- 📦 Default `DEMO_MODE=false` in create-app scaffold template (fixes #1861). (#1914) *(@pkarw)*
+- 🐛 Dedupe portal nav by pattern to prevent duplicate React keys (fixes #1851). (#1913) *(@pkarw)*
+- 🐛 Per-failure bulk delete toasts and bulk undo on CRM pages. (#1906) *(@haxiorz)*
+- 🐛 Resolve pre-populated ComboboxInput values to labels without interaction. (#1901) *(@pat-lewczuk)*
+- 🔧 Sort manifest routes inside matcher so literal segments beat dynamic. (#1899) *(@pkarw)*
+- 🔐 Surface `User.name` through auth user create/edit UI, CRUD payloads, and list filters (supersedes #1882). (#1886) *(@PawelSydorow, via @pkarw)*
+- 🐛 Suppress initial focus flicker on focus-driven inputs. (#1881) *(@PawelSydorow)*
+- 💰 Enforce return adjustment sign in calculations and validators (fixes #1705). (#1855) *(@pkarw)*
+- 📦 Enable `ai_assistant` in CRM preset and gate widgets by required modules (fixes #1849). (#1854) *(@pkarw)*
+- 🐛 Preserve in-flight reply on AiChat unmount (fixes #1816). (#1852) *(@pkarw)*
+- 🔧 Replace `instanceof CrudHttpError` with `isCrudHttpError()` to fix split-chunk class identity (98 sites, 9 modules). (#1850) *(@matgren)*
+- 🌍 Fix translation manager save flake. (#1847) *(@pkarw)*
+- 🐛 Popover/select dropdowns visible inside modals (fixes #1836). (#1842) *(@pkarw)*
+- 📦 Make agentic-shared `playwright.config.ts` ESM-safe. (#1839) *(@matgren)*
+- 🐛 CRM phase 3 fixes batch — activity visibility, scheduling validation, timeline rendering, filter UI. (#1819) *(@haxiorz)*
+- 🔧 Invalidate Turbopack module graph on structural cache purge. (#1818) *(@pkarw)*
+- 🐛 Show variant duplicate-name error inline inside add-variant dialog (fixes #1793). (#1799) *(@pkarw)*
+
+## 🛠️ Improvements
+- 🛠️ Migrate Dependabot PRs #1888–#1892 to develop (minor-and-patch group + `next` 16.2.6). (#1893) *(@pkarw)*
+- 🛠️ Migrate Dependabot PRs #1875 + #1877 to develop (`fast-uri` + `@babel/plugin-transform-modules-systemjs` security bumps). (#1884) *(@pkarw)*
+- 🛠️ Bump MikroORM 7.0.13 → 7.0.14. (#1823) *(@pat-lewczuk)*
+
+## 📝 Specs & Documentation
+- 📝 Add comprehensive documentation for the core sales module. (#1872) *(@kriss145)*
+- 📝 Staff decouple from core spec (Phase 1). (#1859) *(@migsilva89)*
+- 📝 Document DataTable usage in customer portal pages (fixes #1827). (#1853) *(@pkarw)*
+- 📝 Standalone AGENTS — encryption maps and mandatory module mechanisms. (#1817) *(@pkarw)*
+- 📝 Agentic property-based testing proposal. (#1702) *(@matgren)*
+
+## 🚀 CI/CD & Infrastructure
+- 🚀 Skip version commit for existing releases. (#1848) *(@pkarw)*
+- 🚀 Unique snapshot versions on canary reruns. (#1857) *(@pkarw)*
+- 🚀 Include `feat/wms` branch in CI workflow push events. (#1838) *(@dominikpalatynski)*
+
+## 👥 Contributors
+
+- @pkarw
+- @haxiorz
+- @pat-lewczuk
+- @matgren
+- @PawelSydorow
+- @WH173-P0NY
+- @kriss145
+- @migsilva89
+- @dominikpalatynski
+- @zielivia
+
+---
+
 # 0.6.0 (2026-05-06)
 
 ## Highlights
