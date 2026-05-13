@@ -117,6 +117,18 @@ Assign a priority to each area:
 - **P1** — CRM, catalog UX, attachments, table/UI rendering, custom fields.
 - **P2** — docs, tooling, tests, infra, DX. No dedicated admin pass.
 
+
+### Frontend Preview Performance Checks
+
+For PRs touching Next.js/UI surfaces, include perceived-performance checks in the QA plan:
+
+- cold-load the changed route and capture screenshot/browser-flow evidence,
+- verify first useful shell/loading state appears before heavy client interaction,
+- test interaction responsiveness for changed Client Islands,
+- smoke the mobile viewport,
+- run Lighthouse/Web Vitals when the preview environment supports it,
+- call out any blocked preview/performance evidence separately from functional QA.
+
 ### 4. Draft the execution plan
 
 Follow `.ai/skills/auto-create-pr/SKILL.md` step 3. The plan at

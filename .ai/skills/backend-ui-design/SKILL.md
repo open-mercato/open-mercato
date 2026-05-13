@@ -18,6 +18,18 @@ Backend UI prioritizes **usability, consistency, and productivity** over creativ
 5. **Clear Hierarchy**: Page → Section → Content. Use PageHeader, PageBody, and consistent spacing.
 6. **Design System Discipline**: Use semantic status tokens and the shared backend primitives (`StatusBadge`, `Alert`, `FormField`, `SectionHeader`, `CollapsibleSection`, `EmptyState`). No hardcoded status colors or arbitrary text sizes.
 
+
+## UX Constraints That Protect Performance
+
+Backoffice UX must support perceived and runtime performance:
+
+- prefer progressive disclosure over rendering every advanced control by default,
+- define skeleton/loading/empty/error states at route and island boundaries,
+- avoid unnecessarily heavy widgets; use plain DS primitives unless the richer widget is required,
+- keep mobile viewport states explicit and avoid desktop-only heavy layouts,
+- do not require global client providers for local interactions,
+- if a design needs editor/calendar/graph/canvas behavior, call it out as a Client Island with expected loading state.
+
 ## Required Component Library
 
 ALWAYS import from `@open-mercato/ui`. Reference the component documentation at `.ai/specs/SPEC-001-2026-01-21-ui-reusable-components.md`.

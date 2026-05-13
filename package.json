@@ -89,7 +89,9 @@
     "test:integration:ephemeral:interactive": "cross-env ENABLE_CRUD_API_CACHE=true yarn mercato test:integration:interactive",
     "test:integration:ephemeral:start": "cross-env ENABLE_CRUD_API_CACHE=true yarn mercato test:ephemeral",
     "test:integration:ephemeral:start:verbose": "cross-env ENABLE_CRUD_API_CACHE=true yarn mercato test:ephemeral --verbose",
-    "prepare": "husky"
+    "prepare": "husky",
+    "check:client-boundaries": "node scripts/check-client-boundaries.mjs",
+    "check:client-boundaries:fail": "node scripts/check-client-boundaries.mjs --fail"
   },
   "dependencies": {
     "@ai-sdk/openai": "^3.0.63",
