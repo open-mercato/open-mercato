@@ -99,9 +99,8 @@ test.describe('TC-AI-TOKEN-USAGE-001–005: token usage stats page', () => {
 
     await page.goto(USAGE_PAGE, { waitUntil: 'domcontentloaded' });
 
-    const inputTokensTile = page.getByText('1,000').first();
-    const outputTokensTile = page.getByText('500').first();
-    await expect(inputTokensTile.or(outputTokensTile)).toBeVisible({ timeout: 15_000 });
+    const summaryTile = page.locator('p.font-semibold.text-xl', { hasText: /^(1,000|500)$/ }).first();
+    await expect(summaryTile).toBeVisible({ timeout: 15_000 });
   });
 
   test('TC-AI-TOKEN-USAGE-002: apply filter triggers re-fetch with new date params', async ({ page }) => {
@@ -194,7 +193,8 @@ test.describe('TC-AI-TOKEN-USAGE-001–005: token usage stats page', () => {
 
     await page.route('**/api/ai_assistant/usage/sessions**', async (route, request) => {
       if (request.url().includes('/00000000-0000-0000-0000-000000000001')) {
-        await route.continue();
+        // Fall back to the previously registered (more specific) handler.
+        await route.fallback();
         return;
       }
       await route.fulfill({

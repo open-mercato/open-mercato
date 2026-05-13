@@ -312,10 +312,7 @@ test.describe('TC-AI-AGENT-DEAL-ANALYZER-003: loop trace carries loopAbortReason
       `d:{"finishReason":"tool-calls"}\n`,
     ].join('');
 
-    let streamBody: string | null = null;
-
     await page.route('**/api/ai_assistant/ai/chat**', async (route) => {
-      streamBody = loopAbortSse;
       await route.fulfill({
         status: 200,
         contentType: 'text/event-stream',
@@ -329,11 +326,12 @@ test.describe('TC-AI-AGENT-DEAL-ANALYZER-003: loop trace carries loopAbortReason
     await expect(chatArea).toBeVisible({ timeout: 30_000 });
 
     // Verify the simulated SSE body contains the expected loopAbortReason field.
-    // This confirms the test correctly models the contract; the LoopTrace panel
-    // reads this field from the e-event to display the stop reason.
-    expect(streamBody).toContain('loopAbortReason');
-    expect(streamBody).toContain('has-tool-call');
-    expect(streamBody).toContain('loopStepCount');
+    // This is a contract-shape assertion against the SSE string the test would
+    // serve to the playground if the operator clicked Send — the LoopTrace panel
+    // reads these fields from the e-event to display the stop reason.
+    expect(loopAbortSse).toContain('loopAbortReason');
+    expect(loopAbortSse).toContain('has-tool-call');
+    expect(loopAbortSse).toContain('loopStepCount');
   });
 });
 

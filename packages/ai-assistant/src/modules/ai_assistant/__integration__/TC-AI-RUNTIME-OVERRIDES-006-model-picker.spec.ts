@@ -346,11 +346,11 @@ test.describe('TC-AI-RUNTIME-OVERRIDES-006: runtime model overrides', () => {
       await page.goto(playgroundPath, { waitUntil: 'domcontentloaded' });
 
       // Wait for agent list to load
-      const agentSection = page.locator('[data-ai-playground-agent="catalog.merchandising_assistant"]');
+      const agentSection = page.locator('[data-ai-playground-chat="catalog.merchandising_assistant"]');
       await expect(agentSection).toBeVisible({ timeout: 30_000 });
 
       // The resolution panel should show provider info
-      const resolutionPanel = page.locator('[data-ai-playground-resolution-panel="catalog.merchandising_assistant"]');
+      const resolutionPanel = page.locator('[data-ai-playground-model-resolution="catalog.merchandising_assistant"]');
       await expect(resolutionPanel).toBeVisible({ timeout: 15_000 });
 
       // Provider field should be present
