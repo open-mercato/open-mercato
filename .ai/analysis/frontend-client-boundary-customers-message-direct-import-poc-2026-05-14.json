@@ -1,0 +1,56 @@
+{
+  "entry": "packages/core/src/modules/customers/message-objects.ts",
+  "mode": "respect-dynamic",
+  "files": 11,
+  "loc": 944,
+  "bytes": 26405,
+  "useClientFiles": 3,
+  "dynamicImports": 3,
+  "heavyHits": 0,
+  "top": [
+    {
+      "file": "packages/ui/src/backend/icons/lucideRegistry.generated.tsx",
+      "loc": 313
+    },
+    {
+      "file": "packages/shared/src/modules/messages/types.ts",
+      "loc": 171
+    },
+    {
+      "file": "packages/ui/src/backend/messages/MessageObjectDetail.tsx",
+      "loc": 96
+    },
+    {
+      "file": "packages/core/src/modules/customers/message-objects.ts",
+      "loc": 92
+    },
+    {
+      "file": "packages/shared/src/lib/i18n/context.tsx",
+      "loc": 81
+    },
+    {
+      "file": "packages/ui/src/backend/messages/MessageObjectPreview.tsx",
+      "loc": 56
+    },
+    {
+      "file": "packages/ui/src/primitives/button.tsx",
+      "loc": 56
+    },
+    {
+      "file": "packages/ui/src/primitives/badge.tsx",
+      "loc": 37
+    },
+    {
+      "file": "packages/shared/src/lib/utils.ts",
+      "loc": 22
+    },
+    {
+      "file": "packages/ui/src/backend/icons/lucideRegistry.ts",
+      "loc": 15
+    },
+    {
+      "file": "packages/shared/src/lib/i18n/config.ts",
+      "loc": 5
+    }
+  ]
+}

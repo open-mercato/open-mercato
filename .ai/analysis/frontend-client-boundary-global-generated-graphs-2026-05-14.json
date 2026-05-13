@@ -1,0 +1,933 @@
+{
+  "createdAt": "2026-05-13T22:12:29.517Z",
+  "results": [
+    {
+      "entry": "apps/mercato/src/components/AppProviders.tsx",
+      "files": 374,
+      "loc": 66547,
+      "bytes": 2336019,
+      "useClientFiles": 204,
+      "heavyHits": 7,
+      "dynamicImports": 92,
+      "top": [
+        {
+          "file": "packages/ui/src/backend/CrudForm.tsx",
+          "loc": 4238
+        },
+        {
+          "file": "packages/ui/src/backend/DataTable.tsx",
+          "loc": 2916
+        },
+        {
+          "file": "packages/ui/src/ai/AiChat.tsx",
+          "loc": 1708
+        },
+        {
+          "file": "packages/ui/src/primitives/rich-editor.tsx",
+          "loc": 1579
+        },
+        {
+          "file": "packages/ui/src/backend/custom-fields/FieldDefinitionsEditor.tsx",
+          "loc": 1447
+        },
+        {
+          "file": "packages/ui/src/backend/detail/NotesSection.tsx",
+          "loc": 1363
+        },
+        {
+          "file": "packages/ui/src/backend/AppShell.tsx",
+          "loc": 1349
+        },
+        {
+          "file": "packages/ui/src/backend/detail/ActivitiesSection.tsx",
+          "loc": 1274
+        },
+        {
+          "file": "packages/ui/src/ai/useAiChat.ts",
+          "loc": 1085
+        },
+        {
+          "file": "packages/ui/src/primitives/time-picker.tsx",
+          "loc": 1060
+        },
+        {
+          "file": "packages/ui/src/backend/filters/AdvancedFilterBuilder.tsx",
+          "loc": 969
+        },
+        {
+          "file": "packages/ui/src/backend/detail/InlineEditors.tsx",
+          "loc": 948
+        },
+        {
+          "file": "packages/ui/src/ai/AiAssistantLauncher.tsx",
+          "loc": 814
+        },
+        {
+          "file": "packages/ui/src/backend/dashboard/DashboardScreen.tsx",
+          "loc": 742
+        },
+        {
+          "file": "packages/ui/src/backend/messages/useMessageCompose.ts",
+          "loc": 728
+        }
+      ]
+    },
+    {
+      "entry": "apps/mercato/src/components/ClientBootstrap.tsx",
+      "files": 368,
+      "loc": 66253,
+      "bytes": 2324875,
+      "useClientFiles": 201,
+      "heavyHits": 7,
+      "dynamicImports": 92,
+      "top": [
+        {
+          "file": "packages/ui/src/backend/CrudForm.tsx",
+          "loc": 4238
+        },
+        {
+          "file": "packages/ui/src/backend/DataTable.tsx",
+          "loc": 2916
+        },
+        {
+          "file": "packages/ui/src/ai/AiChat.tsx",
+          "loc": 1708
+        },
+        {
+          "file": "packages/ui/src/primitives/rich-editor.tsx",
+          "loc": 1579
+        },
+        {
+          "file": "packages/ui/src/backend/custom-fields/FieldDefinitionsEditor.tsx",
+          "loc": 1447
+        },
+        {
+          "file": "packages/ui/src/backend/detail/NotesSection.tsx",
+          "loc": 1363
+        },
+        {
+          "file": "packages/ui/src/backend/AppShell.tsx",
+          "loc": 1349
+        },
+        {
+          "file": "packages/ui/src/backend/detail/ActivitiesSection.tsx",
+          "loc": 1274
+        },
+        {
+          "file": "packages/ui/src/ai/useAiChat.ts",
+          "loc": 1085
+        },
+        {
+          "file": "packages/ui/src/primitives/time-picker.tsx",
+          "loc": 1060
+        },
+        {
+          "file": "packages/ui/src/backend/filters/AdvancedFilterBuilder.tsx",
+          "loc": 969
+        },
+        {
+          "file": "packages/ui/src/backend/detail/InlineEditors.tsx",
+          "loc": 948
+        },
+        {
+          "file": "packages/ui/src/ai/AiAssistantLauncher.tsx",
+          "loc": 814
+        },
+        {
+          "file": "packages/ui/src/backend/dashboard/DashboardScreen.tsx",
+          "loc": 742
+        },
+        {
+          "file": "packages/ui/src/backend/messages/useMessageCompose.ts",
+          "loc": 728
+        }
+      ]
+    },
+    {
+      "entry": "apps/mercato/src/app/(backend)/backend/[...slug]/page.tsx",
+      "files": 399,
+      "loc": 63098,
+      "bytes": 3185101,
+      "useClientFiles": 133,
+      "heavyHits": 3,
+      "dynamicImports": 216,
+      "top": [
+        {
+          "file": "packages/ui/src/backend/CrudForm.tsx",
+          "loc": 4238
+        },
+        {
+          "file": "packages/ui/src/ai/AiChat.tsx",
+          "loc": 1708
+        },
+        {
+          "file": "packages/ui/src/primitives/rich-editor.tsx",
+          "loc": 1579
+        },
+        {
+          "file": "packages/ui/src/backend/custom-fields/FieldDefinitionsEditor.tsx",
+          "loc": 1447
+        },
+        {
+          "file": "packages/ui/src/backend/detail/NotesSection.tsx",
+          "loc": 1363
+        },
+        {
+          "file": "packages/ui/src/backend/AppShell.tsx",
+          "loc": 1349
+        },
+        {
+          "file": "packages/ui/src/backend/detail/ActivitiesSection.tsx",
+          "loc": 1274
+        },
+        {
+          "file": "packages/shared/src/lib/query/engine.ts",
+          "loc": 1191
+        },
+        {
+          "file": "packages/ui/src/ai/useAiChat.ts",
+          "loc": 1085
+        },
+        {
+          "file": "packages/ui/src/primitives/time-picker.tsx",
+          "loc": 1060
+        },
+        {
+          "file": "packages/ui/src/backend/detail/InlineEditors.tsx",
+          "loc": 948
+        },
+        {
+          "file": "packages/ui/src/ai/AiAssistantLauncher.tsx",
+          "loc": 814
+        },
+        {
+          "file": "packages/ui/src/backend/detail/CustomDataSection.tsx",
+          "loc": 717
+        },
+        {
+          "file": "packages/core/src/modules/audit_logs/services/actionLogService.ts",
+          "loc": 713
+        },
+        {
+          "file": "packages/shared/src/lib/data/engine.ts",
+          "loc": 679
+        }
+      ]
+    },
+    {
+      "entry": "apps/mercato/.mercato/generated/modules.runtime.generated.ts",
+      "files": 1003,
+      "loc": 200617,
+      "bytes": 9515813,
+      "useClientFiles": 136,
+      "heavyHits": 4,
+      "dynamicImports": 1143,
+      "top": [
+        {
+          "file": "packages/core/src/modules/sales/commands/documents.ts",
+          "loc": 8957
+        },
+        {
+          "file": "packages/ui/src/backend/CrudForm.tsx",
+          "loc": 4238
+        },
+        {
+          "file": "packages/core/src/modules/customers/cli.ts",
+          "loc": 3232
+        },
+        {
+          "file": "packages/core/src/modules/customers/i18n/de.json",
+          "loc": 2168
+        },
+        {
+          "file": "packages/core/src/modules/customers/i18n/en.json",
+          "loc": 2168
+        },
+        {
+          "file": "packages/core/src/modules/customers/i18n/es.json",
+          "loc": 2168
+        },
+        {
+          "file": "packages/core/src/modules/customers/i18n/pl.json",
+          "loc": 2168
+        },
+        {
+          "file": "packages/core/src/modules/sales/commands/configuration.ts",
+          "loc": 2084
+        },
+        {
+          "file": "packages/core/src/modules/catalog/commands/products.ts",
+          "loc": 2001
+        },
+        {
+          "file": "packages/core/src/modules/sales/data/entities.ts",
+          "loc": 1985
+        },
+        {
+          "file": "packages/core/src/modules/workflows/frontend/checkout-demo/page.tsx",
+          "loc": 1914
+        },
+        {
+          "file": "packages/core/src/modules/planner/components/AvailabilityRulesEditor.tsx",
+          "loc": 1843
+        },
+        {
+          "file": "packages/core/src/modules/sales/seed/examples.ts",
+          "loc": 1842
+        },
+        {
+          "file": "packages/ui/src/primitives/rich-editor.tsx",
+          "loc": 1579
+        },
+        {
+          "file": "packages/core/src/modules/customers/commands/people.ts",
+          "loc": 1548
+        }
+      ]
+    },
+    {
+      "entry": "apps/mercato/.mercato/generated/messages.client.generated.ts",
+      "files": 337,
+      "loc": 64590,
+      "bytes": 2268972,
+      "useClientFiles": 200,
+      "heavyHits": 7,
+      "dynamicImports": 35,
+      "top": [
+        {
+          "file": "packages/ui/src/backend/CrudForm.tsx",
+          "loc": 4238
+        },
+        {
+          "file": "packages/ui/src/backend/DataTable.tsx",
+          "loc": 2916
+        },
+        {
+          "file": "packages/ui/src/ai/AiChat.tsx",
+          "loc": 1708
+        },
+        {
+          "file": "packages/ui/src/primitives/rich-editor.tsx",
+          "loc": 1579
+        },
+        {
+          "file": "packages/ui/src/backend/custom-fields/FieldDefinitionsEditor.tsx",
+          "loc": 1447
+        },
+        {
+          "file": "packages/ui/src/backend/detail/NotesSection.tsx",
+          "loc": 1363
+        },
+        {
+          "file": "packages/ui/src/backend/AppShell.tsx",
+          "loc": 1349
+        },
+        {
+          "file": "packages/ui/src/backend/detail/ActivitiesSection.tsx",
+          "loc": 1274
+        },
+        {
+          "file": "packages/ui/src/ai/useAiChat.ts",
+          "loc": 1085
+        },
+        {
+          "file": "packages/ui/src/primitives/time-picker.tsx",
+          "loc": 1060
+        },
+        {
+          "file": "packages/ui/src/backend/filters/AdvancedFilterBuilder.tsx",
+          "loc": 969
+        },
+        {
+          "file": "packages/ui/src/backend/detail/InlineEditors.tsx",
+          "loc": 948
+        },
+        {
+          "file": "packages/ui/src/ai/AiAssistantLauncher.tsx",
+          "loc": 814
+        },
+        {
+          "file": "packages/ui/src/backend/dashboard/DashboardScreen.tsx",
+          "loc": 742
+        },
+        {
+          "file": "packages/ui/src/backend/messages/useMessageCompose.ts",
+          "loc": 728
+        }
+      ]
+    },
+    {
+      "entry": "apps/mercato/.mercato/generated/payments.client.generated.ts",
+      "files": 1,
+      "loc": 5,
+      "bytes": 184,
+      "useClientFiles": 0,
+      "heavyHits": 0,
+      "dynamicImports": 0,
+      "top": [
+        {
+          "file": "apps/mercato/.mercato/generated/payments.client.generated.ts",
+          "loc": 5
+        }
+      ]
+    },
+    {
+      "entry": "apps/mercato/.mercato/generated/injection-widgets.generated.ts",
+      "files": 8,
+      "loc": 1778,
+      "bytes": 57075,
+      "useClientFiles": 0,
+      "heavyHits": 0,
+      "dynamicImports": 45,
+      "top": [
+        {
+          "file": "packages/shared/src/modules/registry.ts",
+          "loc": 515
+        },
+        {
+          "file": "packages/shared/src/modules/widgets/injection.ts",
+          "loc": 471
+        },
+        {
+          "file": "packages/shared/src/modules/integrations/types.ts",
+          "loc": 263
+        },
+        {
+          "file": "apps/mercato/.mercato/generated/injection-widgets.generated.ts",
+          "loc": 234
+        },
+        {
+          "file": "packages/shared/src/modules/dashboard/widgets.ts",
+          "loc": 112
+        },
+        {
+          "file": "packages/shared/src/lib/openapi/types.ts",
+          "loc": 79
+        },
+        {
+          "file": "packages/shared/src/modules/widgets/injection-position.ts",
+          "loc": 60
+        },
+        {
+          "file": "packages/shared/src/lib/crud/sync-event-types.ts",
+          "loc": 44
+        }
+      ]
+    },
+    {
+      "entry": "apps/mercato/.mercato/generated/dashboard-widgets.generated.ts",
+      "files": 8,
+      "loc": 1664,
+      "bytes": 51784,
+      "useClientFiles": 0,
+      "heavyHits": 0,
+      "dynamicImports": 26,
+      "top": [
+        {
+          "file": "packages/shared/src/modules/registry.ts",
+          "loc": 515
+        },
+        {
+          "file": "packages/shared/src/modules/widgets/injection.ts",
+          "loc": 471
+        },
+        {
+          "file": "packages/shared/src/modules/integrations/types.ts",
+          "loc": 263
+        },
+        {
+          "file": "apps/mercato/.mercato/generated/dashboard-widgets.generated.ts",
+          "loc": 120
+        },
+        {
+          "file": "packages/shared/src/modules/dashboard/widgets.ts",
+          "loc": 112
+        },
+        {
+          "file": "packages/shared/src/lib/openapi/types.ts",
+          "loc": 79
+        },
+        {
+          "file": "packages/shared/src/modules/widgets/injection-position.ts",
+          "loc": 60
+        },
+        {
+          "file": "packages/shared/src/lib/crud/sync-event-types.ts",
+          "loc": 44
+        }
+      ]
+    },
+    {
+      "entry": "apps/mercato/.mercato/generated/notification-handlers.generated.ts",
+      "files": 4,
+      "loc": 209,
+      "bytes": 5424,
+      "useClientFiles": 0,
+      "heavyHits": 0,
+      "dynamicImports": 0,
+      "top": [
+        {
+          "file": "packages/shared/src/modules/notifications/types.ts",
+          "loc": 107
+        },
+        {
+          "file": "packages/shared/src/modules/notifications/handler.ts",
+          "loc": 53
+        },
+        {
+          "file": "apps/mercato/.mercato/generated/notification-handlers.generated.ts",
+          "loc": 25
+        },
+        {
+          "file": "apps/mercato/src/modules/example/notifications.handlers.ts",
+          "loc": 24
+        }
+      ]
+    },
+    {
+      "entry": "apps/mercato/.mercato/generated/backend-routes.generated.ts",
+      "files": 101,
+      "loc": 4216,
+      "bytes": 1112641,
+      "useClientFiles": 0,
+      "heavyHits": 0,
+      "dynamicImports": 198,
+      "top": [
+        {
+          "file": "packages/shared/src/modules/registry.ts",
+          "loc": 515
+        },
+        {
+          "file": "packages/shared/src/modules/widgets/injection.ts",
+          "loc": 471
+        },
+        {
+          "file": "apps/mercato/.mercato/generated/backend-routes.generated.ts",
+          "loc": 302
+        },
+        {
+          "file": "packages/shared/src/modules/integrations/types.ts",
+          "loc": 263
+        },
+        {
+          "file": "packages/shared/src/modules/dashboard/widgets.ts",
+          "loc": 112
+        },
+        {
+          "file": "packages/shared/src/lib/openapi/types.ts",
+          "loc": 79
+        },
+        {
+          "file": "packages/shared/src/modules/widgets/injection-position.ts",
+          "loc": 60
+        },
+        {
+          "file": "packages/shared/src/lib/crud/sync-event-types.ts",
+          "loc": 44
+        },
+        {
+          "file": "packages/core/src/modules/configs/backend/config/cache/page.meta.ts",
+          "loc": 37
+        },
+        {
+          "file": "packages/core/src/modules/customers/backend/customers/companies/page.meta.ts",
+          "loc": 36
+        },
+        {
+          "file": "packages/core/src/modules/customers/backend/customers/deals/create/page.meta.ts",
+          "loc": 36
+        },
+        {
+          "file": "packages/core/src/modules/customers/backend/customers/deals/pipeline/page.meta.ts",
+          "loc": 36
+        },
+        {
+          "file": "packages/core/src/modules/translations/backend/config/translations/page.meta.ts",
+          "loc": 36
+        },
+        {
+          "file": "packages/core/src/modules/customer_accounts/backend/customer_accounts/users/page.meta.ts",
+          "loc": 35
+        },
+        {
+          "file": "packages/core/src/modules/currencies/backend/currencies/page.meta.ts",
+          "loc": 34
+        }
+      ]
+    }
+  ],
+  "importStats": {
+    "apps/mercato/src/components/AppProviders.tsx": {
+      "bytes": 1339,
+      "loc": 36,
+      "staticImportCount": 8,
+      "dynamicImportCount": 0,
+      "staticImports": [
+        "react",
+        "@open-mercato/shared/lib/i18n/config",
+        "@open-mercato/shared/lib/i18n/context",
+        "@open-mercato/shared/lib/i18n/context",
+        "@open-mercato/ui",
+        "@/components/ClientBootstrap",
+        "@/components/GlobalNoticeBars",
+        "@/components/ComponentOverridesBootstrap"
+      ],
+      "dynamicImports": []
+    },
+    "apps/mercato/src/components/ClientBootstrap.tsx": {
+      "bytes": 2398,
+      "loc": 53,
+      "staticImportCount": 14,
+      "dynamicImportCount": 0,
+      "staticImports": [
+        "react",
+        "@/.mercato/generated/injection-widgets.generated",
+        "@/.mercato/generated/translations-fields.generated",
+        "@/.mercato/generated/injection-tables.generated",
+        "@/.mercato/generated/enabled-module-ids.generated",
+        "@open-mercato/core/modules/widgets/lib/injection",
+        "@open-mercato/ui/backend/injection/widgetRegistry",
+        "@/.mercato/generated/dashboard-widgets.generated",
+        "@open-mercato/ui/backend/dashboard/widgetRegistry",
+        "@/.mercato/generated/notification-handlers.generated",
+        "@open-mercato/shared/lib/notifications/handler-registry",
+        "@/.mercato/generated/translations-fields.generated",
+        "@/.mercato/generated/messages.client.generated",
+        "@/.mercato/generated/payments.client.generated"
+      ],
+      "dynamicImports": []
+    },
+    "apps/mercato/src/app/(backend)/backend/[...slug]/page.tsx": {
+      "bytes": 5418,
+      "loc": 128,
+      "staticImportCount": 18,
+      "dynamicImportCount": 0,
+      "staticImports": [
+        "next/navigation",
+        "next/headers",
+        "next/link",
+        "@open-mercato/shared/modules/registry",
+        "@/.mercato/generated/backend-routes.generated",
+        "@open-mercato/shared/lib/auth/server",
+        "@open-mercato/shared/lib/auth/server",
+        "@open-mercato/ui/backend/AppShell",
+        "@open-mercato/ui/backend/detail",
+        "@open-mercato/shared/lib/di/container",
+        "@open-mercato/core/modules/directory/utils/organizationScope",
+        "@open-mercato/shared/lib/i18n/server",
+        "@open-mercato/core/modules/auth/services/rbacService",
+        "@open-mercato/shared/modules/widgets/component-registry",
+        "next",
+        "@/lib/metadata",
+        "@open-mercato/shared/lib/middleware/page-executor",
+        "@/.mercato/generated/backend-middleware.generated"
+      ],
+      "dynamicImports": []
+    },
+    "apps/mercato/.mercato/generated/modules.runtime.generated.ts": {
+      "bytes": 894764,
+      "loc": 1395,
+      "staticImportCount": 542,
+      "dynamicImportCount": 1106,
+      "staticImports": [
+        "react",
+        "@open-mercato/shared/modules/registry",
+        "@open-mercato/core/modules/dashboards/index",
+        "@open-mercato/core/modules/dashboards/acl",
+        "@open-mercato/core/modules/dashboards/setup",
+        "@open-mercato/core/modules/dashboards/i18n/de.json",
+        "@open-mercato/core/modules/dashboards/i18n/en.json",
+        "@open-mercato/core/modules/dashboards/i18n/es.json",
+        "@open-mercato/core/modules/dashboards/i18n/pl.json",
+        "@open-mercato/core/modules/auth/index",
+        "@open-mercato/core/modules/auth/frontend/reset/[token]/page",
+        "@open-mercato/core/modules/auth/frontend/login",
+        "@open-mercato/core/modules/auth/frontend/reset",
+        "@open-mercato/core/modules/auth/acl",
+        "@open-mercato/core/modules/auth/setup",
+        "@open-mercato/core/modules/auth/encryption",
+        "@open-mercato/core/modules/auth/backend/auth/profile/page.meta",
+        "@open-mercato/core/modules/auth/backend/profile/change-password/page.meta",
+        "@open-mercato/core/modules/auth/backend/profile/page.meta",
+        "@open-mercato/core/modules/auth/backend/roles/create/page.meta",
+        "@open-mercato/core/modules/auth/backend/roles/page.meta",
+        "@open-mercato/core/modules/auth/backend/settings/page.meta",
+        "@open-mercato/core/modules/auth/backend/sidebar-customization/page.meta",
+        "@open-mercato/core/modules/auth/backend/users/create/page.meta",
+        "@open-mercato/core/modules/auth/backend/users/page.meta",
+        "@open-mercato/core/modules/auth/backend/roles/[id]/edit/page.meta",
+        "@open-mercato/core/modules/auth/backend/users/[id]/edit/page.meta",
+        "@open-mercato/core/modules/auth/i18n/de.json",
+        "@open-mercato/core/modules/auth/i18n/en.json",
+        "@open-mercato/core/modules/auth/i18n/es.json",
+        "@open-mercato/core/modules/auth/i18n/pl.json",
+        "@open-mercato/core/modules/directory/index",
+        "@open-mercato/core/modules/directory/acl",
+        "@open-mercato/core/modules/directory/setup",
+        "@open-mercato/core/modules/directory/backend/directory/organizations/create/page.meta",
+        "@open-mercato/core/modules/directory/backend/directory/organizations/page.meta",
+        "@open-mercato/core/modules/directory/backend/directory/tenants/create/page.meta",
+        "@open-mercato/core/modules/directory/backend/directory/tenants/page.meta",
+        "@open-mercato/core/modules/directory/backend/directory/organizations/[id]/edit/page.meta",
+        "@open-mercato/core/modules/directory/backend/directory/tenants/[id]/edit/page.meta"
+      ],
+      "dynamicImports": [
+        "@open-mercato/core/modules/dashboards/api/layout/route",
+        "@open-mercato/core/modules/dashboards/api/layout/route",
+        "@open-mercato/core/modules/dashboards/api/roles/widgets/route",
+        "@open-mercato/core/modules/dashboards/api/roles/widgets/route",
+        "@open-mercato/core/modules/dashboards/api/users/widgets/route",
+        "@open-mercato/core/modules/dashboards/api/users/widgets/route",
+        "@open-mercato/core/modules/dashboards/api/widgets/data/route",
+        "@open-mercato/core/modules/dashboards/api/layout/[itemId]/route",
+        "@open-mercato/core/modules/dashboards/api/widgets/catalog",
+        "@open-mercato/core/modules/auth/frontend/reset/[token]/page",
+        "@open-mercato/core/modules/auth/frontend/login",
+        "@open-mercato/core/modules/auth/frontend/reset",
+        "@open-mercato/core/modules/auth/backend/auth/profile/page",
+        "@open-mercato/core/modules/auth/backend/profile/change-password/page",
+        "@open-mercato/core/modules/auth/backend/profile/page",
+        "@open-mercato/core/modules/auth/backend/roles/create/page",
+        "@open-mercato/core/modules/auth/backend/roles/page",
+        "@open-mercato/core/modules/auth/backend/settings/page",
+        "@open-mercato/core/modules/auth/backend/sidebar-customization/page",
+        "@open-mercato/core/modules/auth/backend/users/create/page",
+        "@open-mercato/core/modules/auth/backend/users/page",
+        "@open-mercato/core/modules/auth/backend/roles/[id]/edit/page",
+        "@open-mercato/core/modules/auth/backend/users/[id]/edit/page",
+        "@open-mercato/core/modules/auth/api/locale/route",
+        "@open-mercato/core/modules/auth/api/locale/route",
+        "@open-mercato/core/modules/auth/api/profile/route",
+        "@open-mercato/core/modules/auth/api/profile/route",
+        "@open-mercato/core/modules/auth/api/roles/acl/route",
+        "@open-mercato/core/modules/auth/api/roles/acl/route",
+        "@open-mercato/core/modules/auth/api/roles/route",
+        "@open-mercato/core/modules/auth/api/roles/route",
+        "@open-mercato/core/modules/auth/api/roles/route",
+        "@open-mercato/core/modules/auth/api/roles/route",
+        "@open-mercato/core/modules/auth/api/sidebar/preferences/route",
+        "@open-mercato/core/modules/auth/api/sidebar/preferences/route",
+        "@open-mercato/core/modules/auth/api/sidebar/preferences/route",
+        "@open-mercato/core/modules/auth/api/sidebar/variants/route",
+        "@open-mercato/core/modules/auth/api/sidebar/variants/route",
+        "@open-mercato/core/modules/auth/api/users/acl/route",
+        "@open-mercato/core/modules/auth/api/users/acl/route"
+      ]
+    },
+    "apps/mercato/.mercato/generated/messages.client.generated.ts": {
+      "bytes": 9774,
+      "loc": 255,
+      "staticImportCount": 16,
+      "dynamicImportCount": 0,
+      "staticImports": [
+        "react",
+        "@open-mercato/shared/modules/messages/types",
+        "@open-mercato/core/modules/messages/lib/message-objects-registry",
+        "@open-mercato/core/modules/messages/components/utils/typeUiRegistry",
+        "@open-mercato/core/modules/staff/message-types",
+        "@open-mercato/core/modules/messages/message-types",
+        "@open-mercato/core/modules/inbox_ops/message-types",
+        "@open-mercato/core/modules/customers/message-objects",
+        "@open-mercato/core/modules/catalog/message-objects",
+        "@open-mercato/core/modules/sales/message-objects",
+        "@open-mercato/core/modules/currencies/message-objects",
+        "@open-mercato/core/modules/resources/message-objects",
+        "@open-mercato/core/modules/staff/message-objects",
+        "@open-mercato/core/modules/messages/message-objects",
+        "@open-mercato/core/modules/inbox_ops/message-objects",
+        "../../src/modules/example/message-objects"
+      ],
+      "dynamicImports": []
+    },
+    "apps/mercato/.mercato/generated/payments.client.generated.ts": {
+      "bytes": 184,
+      "loc": 5,
+      "staticImportCount": 1,
+      "dynamicImportCount": 0,
+      "staticImports": [
+        "@open-mercato/gateway-stripe/modules/gateway_stripe/widgets/payments/client"
+      ],
+      "dynamicImports": []
+    },
+    "apps/mercato/.mercato/generated/injection-widgets.generated.ts": {
+      "bytes": 10185,
+      "loc": 234,
+      "staticImportCount": 1,
+      "dynamicImportCount": 38,
+      "staticImports": [
+        "@open-mercato/shared/modules/registry"
+      ],
+      "dynamicImports": [
+        "@open-mercato/core/modules/catalog/widgets/injection/merchandising-assistant-trigger/widget",
+        "@open-mercato/core/modules/catalog/widgets/injection/product-bulk-delete/widget",
+        "@open-mercato/core/modules/catalog/widgets/injection/product-seo/widget",
+        "@open-mercato/checkout/modules/checkout/widgets/injection/gateway-transaction-link/widget",
+        "@open-mercato/checkout/modules/checkout/widgets/injection/payment-gateway-toolbar-link/widget",
+        "@open-mercato/core/modules/customer_accounts/widgets/injection/account-status/widget",
+        "@open-mercato/core/modules/customer_accounts/widgets/injection/company-users/widget",
+        "@open-mercato/core/modules/customer_accounts/widgets/injection/portal-ai-assistant-trigger/widget",
+        "@open-mercato/core/modules/customers/widgets/injection/ai-assistant-trigger/widget",
+        "@open-mercato/core/modules/customers/widgets/injection/ai-deal-analyzer-trigger/widget",
+        "@open-mercato/core/modules/customers/widgets/injection/ai-deal-detail-trigger/widget",
+        "../../src/modules/example/widgets/injection/catalog-seo-report/widget",
+        "../../src/modules/example/widgets/injection/crud-validation-addon/widget",
+        "../../src/modules/example/widgets/injection/crud-validation/widget",
+        "../../src/modules/example/widgets/injection/customer-priority-bulk-actions/widget",
+        "../../src/modules/example/widgets/injection/customer-priority-column/widget",
+        "../../src/modules/example/widgets/injection/customer-priority-detail/widget",
+        "../../src/modules/example/widgets/injection/customer-priority-field/widget",
+        "../../src/modules/example/widgets/injection/customer-priority-filter/widget",
+        "../../src/modules/example/widgets/injection/customer-priority-row-action/widget",
+        "../../src/modules/example/widgets/injection/example-menus/widget",
+        "../../src/modules/example/widgets/injection/example-profile-menu/widget",
+        "../../src/modules/example/widgets/injection/portal-quick-links/widget",
+        "../../src/modules/example/widgets/injection/portal-recent-activity/widget",
+        "../../src/modules/example/widgets/injection/portal-stats/widget",
+        "../../src/modules/example/widgets/injection/sales-todos/widget",
+        "@open-mercato/gateway-stripe/modules/gateway_stripe/widgets/injection/stripe-config/widget",
+        "@open-mercato/core/modules/sales/widgets/injection/document-history/widget",
+        "@open-mercato/core/modules/sales/widgets/injection/payment-gateway-config-field/widget",
+        "@open-mercato/core/modules/sales/widgets/injection/payment-gateway-status-column/widget",
+        "@open-mercato/core/modules/shipping_carriers/widgets/injection/create-shipment-button/widget",
+        "@open-mercato/core/modules/shipping_carriers/widgets/injection/tracking-column/widget",
+        "@open-mercato/core/modules/shipping_carriers/widgets/injection/tracking-status-badge/widget",
+        "@open-mercato/sync-akeneo/modules/sync_akeneo/widgets/injection/akeneo-config/widget",
+        "@open-mercato/core/modules/translations/widgets/injection/translation-manager/widget",
+        "@open-mercato/webhooks/modules/webhooks/widgets/injection/integration-deliveries/widget",
+        "@open-mercato/webhooks/modules/webhooks/widgets/injection/integration-setup/widget",
+        "@open-mercato/core/modules/workflows/widgets/injection/order-approval/widget"
+      ]
+    },
+    "apps/mercato/.mercato/generated/dashboard-widgets.generated.ts": {
+      "bytes": 4894,
+      "loc": 120,
+      "staticImportCount": 1,
+      "dynamicImportCount": 19,
+      "staticImports": [
+        "@open-mercato/shared/modules/registry"
+      ],
+      "dynamicImports": [
+        "@open-mercato/core/modules/customers/widgets/dashboard/customer-todos/widget",
+        "@open-mercato/core/modules/customers/widgets/dashboard/new-customers/widget",
+        "@open-mercato/core/modules/customers/widgets/dashboard/new-deals/widget",
+        "@open-mercato/core/modules/customers/widgets/dashboard/next-interactions/widget",
+        "@open-mercato/core/modules/dashboards/widgets/dashboard/aov-kpi/widget",
+        "@open-mercato/core/modules/dashboards/widgets/dashboard/new-customers-kpi/widget",
+        "@open-mercato/core/modules/dashboards/widgets/dashboard/orders-by-status/widget",
+        "@open-mercato/core/modules/dashboards/widgets/dashboard/orders-kpi/widget",
+        "@open-mercato/core/modules/dashboards/widgets/dashboard/pipeline-summary/widget",
+        "@open-mercato/core/modules/dashboards/widgets/dashboard/revenue-kpi/widget",
+        "@open-mercato/core/modules/dashboards/widgets/dashboard/revenue-trend/widget",
+        "@open-mercato/core/modules/dashboards/widgets/dashboard/sales-by-region/widget",
+        "@open-mercato/core/modules/dashboards/widgets/dashboard/top-customers/widget",
+        "@open-mercato/core/modules/dashboards/widgets/dashboard/top-products/widget",
+        "../../src/modules/example/widgets/dashboard/notes/widget",
+        "../../src/modules/example/widgets/dashboard/todos/widget",
+        "../../src/modules/example/widgets/dashboard/welcome/widget",
+        "@open-mercato/core/modules/sales/widgets/dashboard/new-orders/widget",
+        "@open-mercato/core/modules/sales/widgets/dashboard/new-quotes/widget"
+      ]
+    },
+    "apps/mercato/.mercato/generated/notification-handlers.generated.ts": {
+      "bytes": 806,
+      "loc": 25,
+      "staticImportCount": 2,
+      "dynamicImportCount": 0,
+      "staticImports": [
+        "@open-mercato/shared/modules/notifications/handler",
+        "../../src/modules/example/notifications.handlers"
+      ],
+      "dynamicImports": []
+    },
+    "apps/mercato/.mercato/generated/backend-routes.generated.ts": {
+      "bytes": 984319,
+      "loc": 302,
+      "staticImportCount": 104,
+      "dynamicImportCount": 191,
+      "staticImports": [
+        "@open-mercato/shared/modules/registry",
+        "@open-mercato/core/modules/auth/backend/roles/create/page.meta",
+        "@open-mercato/core/modules/auth/backend/roles/page.meta",
+        "@open-mercato/core/modules/auth/backend/settings/page.meta",
+        "@open-mercato/core/modules/auth/backend/sidebar-customization/page.meta",
+        "@open-mercato/core/modules/auth/backend/users/create/page.meta",
+        "@open-mercato/core/modules/auth/backend/users/page.meta",
+        "@open-mercato/core/modules/directory/backend/directory/organizations/page.meta",
+        "@open-mercato/core/modules/directory/backend/directory/tenants/page.meta",
+        "@open-mercato/core/modules/customers/backend/config/customers/page.meta",
+        "@open-mercato/core/modules/customers/backend/customer-tasks/page.meta",
+        "@open-mercato/core/modules/customers/backend/customers/companies/create/page.meta",
+        "@open-mercato/core/modules/customers/backend/customers/companies/page.meta",
+        "@open-mercato/core/modules/customers/backend/customers/deals/create/page.meta",
+        "@open-mercato/core/modules/customers/backend/customers/deals/page.meta",
+        "@open-mercato/core/modules/customers/backend/customers/deals/pipeline/page.meta",
+        "@open-mercato/core/modules/customers/backend/customers/people/create/page.meta",
+        "@open-mercato/core/modules/customers/backend/customers/people/page.meta",
+        "@open-mercato/core/modules/entities/backend/config/encryption/page.meta",
+        "@open-mercato/core/modules/entities/backend/entities/system/page.meta",
+        "@open-mercato/core/modules/entities/backend/entities/user/create/page.meta",
+        "@open-mercato/core/modules/entities/backend/entities/user/page.meta",
+        "@open-mercato/core/modules/configs/backend/config/cache/page.meta",
+        "@open-mercato/core/modules/configs/backend/config/system-status/page.meta",
+        "@open-mercato/core/modules/query_index/backend/query-indexes/page.meta",
+        "@open-mercato/core/modules/audit_logs/backend/audit-logs/page.meta",
+        "@open-mercato/core/modules/attachments/backend/config/attachments/page.meta",
+        "@open-mercato/core/modules/attachments/backend/storage/attachments/page.meta",
+        "@open-mercato/core/modules/catalog/backend/catalog/categories/create/page.meta",
+        "@open-mercato/core/modules/catalog/backend/catalog/categories/page.meta",
+        "@open-mercato/core/modules/catalog/backend/catalog/products/create/page.meta",
+        "@open-mercato/core/modules/catalog/backend/catalog/products/page.meta",
+        "@open-mercato/core/modules/catalog/backend/config/catalog/page.meta",
+        "@open-mercato/core/modules/sales/backend/config/sales/page.meta",
+        "@open-mercato/core/modules/sales/backend/sales/channels/create/page.meta",
+        "@open-mercato/core/modules/sales/backend/sales/channels/offers/page.meta",
+        "@open-mercato/core/modules/sales/backend/sales/channels/page.meta",
+        "@open-mercato/core/modules/sales/backend/sales/documents/create/page.meta",
+        "@open-mercato/core/modules/sales/backend/sales/orders/page.meta",
+        "@open-mercato/core/modules/sales/backend/sales/quotes/page.meta"
+      ],
+      "dynamicImports": [
+        "@open-mercato/core/modules/auth/backend/auth/profile/page",
+        "@open-mercato/core/modules/auth/backend/profile/change-password/page",
+        "@open-mercato/core/modules/auth/backend/profile/page",
+        "@open-mercato/core/modules/auth/backend/roles/create/page",
+        "@open-mercato/core/modules/auth/backend/roles/page",
+        "@open-mercato/core/modules/auth/backend/settings/page",
+        "@open-mercato/core/modules/auth/backend/sidebar-customization/page",
+        "@open-mercato/core/modules/auth/backend/users/create/page",
+        "@open-mercato/core/modules/auth/backend/users/page",
+        "@open-mercato/core/modules/auth/backend/roles/[id]/edit/page",
+        "@open-mercato/core/modules/auth/backend/users/[id]/edit/page",
+        "@open-mercato/core/modules/directory/backend/directory/organizations/create/page",
+        "@open-mercato/core/modules/directory/backend/directory/organizations/page",
+        "@open-mercato/core/modules/directory/backend/directory/tenants/create/page",
+        "@open-mercato/core/modules/directory/backend/directory/tenants/page",
+        "@open-mercato/core/modules/directory/backend/directory/organizations/[id]/edit/page",
+        "@open-mercato/core/modules/directory/backend/directory/tenants/[id]/edit/page",
+        "@open-mercato/core/modules/customers/backend/config/customers/page",
+        "@open-mercato/core/modules/customers/backend/config/customers/pipeline-stages/page",
+        "@open-mercato/core/modules/customers/backend/customer-tasks/page",
+        "@open-mercato/core/modules/customers/backend/customers/companies/create/page",
+        "@open-mercato/core/modules/customers/backend/customers/companies/page",
+        "@open-mercato/core/modules/customers/backend/customers/deals/create/page",
+        "@open-mercato/core/modules/customers/backend/customers/deals/page",
+        "@open-mercato/core/modules/customers/backend/customers/deals/pipeline/page",
+        "@open-mercato/core/modules/customers/backend/customers/people/create/page",
+        "@open-mercato/core/modules/customers/backend/customers/people/page",
+        "@open-mercato/core/modules/customers/backend/customers/companies-v2/[id]/page",
+        "@open-mercato/core/modules/customers/backend/customers/companies/[id]/page",
+        "@open-mercato/core/modules/customers/backend/customers/deals/[id]/page",
+        "@open-mercato/core/modules/customers/backend/customers/people-v2/[id]/page",
+        "@open-mercato/core/modules/customers/backend/customers/people/[id]/page",
+        "@open-mercato/core/modules/entities/backend/config/encryption/page",
+        "@open-mercato/core/modules/entities/backend/entities/system/page",
+        "@open-mercato/core/modules/entities/backend/entities/user/create/page",
+        "@open-mercato/core/modules/entities/backend/entities/user/page",
+        "@open-mercato/core/modules/entities/backend/entities/system/[entityId]/page",
+        "@open-mercato/core/modules/entities/backend/entities/user/[entityId]/page",
+        "@open-mercato/core/modules/entities/backend/entities/user/[entityId]/records/[recordId]/page",
+        "@open-mercato/core/modules/entities/backend/entities/user/[entityId]/records/create/page"
+      ]
+    }
+  }
+}

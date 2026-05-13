@@ -1,0 +1,59 @@
+{
+  "createdAt": "2026-05-13T22:23:52.679Z",
+  "out": [
+    {
+      "file": "packages/core/src/modules/entities/components/UserEntitiesTable.tsx",
+      "baseline": {
+        "files": 315,
+        "loc": 62989,
+        "bytes": 2216210,
+        "useClientFiles": 190,
+        "heavyHits": 8,
+        "dynamicImports": 17
+      },
+      "poc": {
+        "files": 88,
+        "loc": 17215,
+        "bytes": 607294,
+        "useClientFiles": 42,
+        "heavyHits": 4,
+        "dynamicImports": 9
+      },
+      "delta": {
+        "files": 227,
+        "loc": 45774,
+        "bytes": 1608916,
+        "useClientFiles": 148,
+        "heavyHits": 4,
+        "dynamicImports": 8
+      }
+    },
+    {
+      "file": "packages/core/src/modules/feature_toggles/components/FeatureToggleOverrideCard.tsx",
+      "baseline": {
+        "files": 318,
+        "loc": 63323,
+        "bytes": 2227254,
+        "useClientFiles": 191,
+        "heavyHits": 7,
+        "dynamicImports": 17
+      },
+      "poc": {
+        "files": 100,
+        "loc": 21121,
+        "bytes": 746141,
+        "useClientFiles": 55,
+        "heavyHits": 1,
+        "dynamicImports": 12
+      },
+      "delta": {
+        "files": 218,
+        "loc": 42202,
+        "bytes": 1481113,
+        "useClientFiles": 136,
+        "heavyHits": 6,
+        "dynamicImports": 5
+      }
+    }
+  ]
+}

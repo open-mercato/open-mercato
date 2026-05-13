@@ -1,0 +1,446 @@
+{
+  "entry": "apps/mercato/.mercato/generated/messages.client.generated.ts",
+  "specCount": 15,
+  "rows": [
+    {
+      "spec": "@open-mercato/core/modules/customers/message-objects",
+      "file": "packages/core/src/modules/customers/message-objects.ts",
+      "files": 315,
+      "loc": 62957,
+      "bytes": 2214251,
+      "useClientFiles": 189,
+      "heavyHits": 7,
+      "dynamicImports": 20,
+      "top": [
+        {
+          "file": "packages/ui/src/backend/CrudForm.tsx",
+          "loc": 4238
+        },
+        {
+          "file": "packages/ui/src/backend/DataTable.tsx",
+          "loc": 2916
+        },
+        {
+          "file": "packages/ui/src/ai/AiChat.tsx",
+          "loc": 1708
+        },
+        {
+          "file": "packages/ui/src/primitives/rich-editor.tsx",
+          "loc": 1579
+        },
+        {
+          "file": "packages/ui/src/backend/custom-fields/FieldDefinitionsEditor.tsx",
+          "loc": 1447
+        },
+        {
+          "file": "packages/ui/src/backend/detail/NotesSection.tsx",
+          "loc": 1363
+        }
+      ]
+    },
+    {
+      "spec": "@open-mercato/core/modules/staff/message-objects",
+      "file": "packages/core/src/modules/staff/message-objects.ts",
+      "files": 143,
+      "loc": 26376,
+      "bytes": 914750,
+      "useClientFiles": 79,
+      "heavyHits": 2,
+      "dynamicImports": 17,
+      "top": [
+        {
+          "file": "packages/ui/src/backend/CrudForm.tsx",
+          "loc": 4238
+        },
+        {
+          "file": "packages/ui/src/primitives/rich-editor.tsx",
+          "loc": 1579
+        },
+        {
+          "file": "packages/ui/src/backend/custom-fields/FieldDefinitionsEditor.tsx",
+          "loc": 1447
+        },
+        {
+          "file": "packages/ui/src/primitives/time-picker.tsx",
+          "loc": 1060
+        },
+        {
+          "file": "packages/ui/src/backend/messages/useMessageCompose.ts",
+          "loc": 728
+        },
+        {
+          "file": "packages/ui/src/backend/detail/AttachmentMetadataDialog.tsx",
+          "loc": 675
+        }
+      ]
+    },
+    {
+      "spec": "@open-mercato/core/modules/sales/message-objects",
+      "file": "packages/core/src/modules/sales/message-objects.ts",
+      "files": 143,
+      "loc": 26234,
+      "bytes": 909793,
+      "useClientFiles": 79,
+      "heavyHits": 2,
+      "dynamicImports": 15,
+      "top": [
+        {
+          "file": "packages/ui/src/backend/CrudForm.tsx",
+          "loc": 4238
+        },
+        {
+          "file": "packages/ui/src/primitives/rich-editor.tsx",
+          "loc": 1579
+        },
+        {
+          "file": "packages/ui/src/backend/custom-fields/FieldDefinitionsEditor.tsx",
+          "loc": 1447
+        },
+        {
+          "file": "packages/ui/src/primitives/time-picker.tsx",
+          "loc": 1060
+        },
+        {
+          "file": "packages/ui/src/backend/messages/useMessageCompose.ts",
+          "loc": 728
+        },
+        {
+          "file": "packages/ui/src/backend/detail/AttachmentMetadataDialog.tsx",
+          "loc": 675
+        }
+      ]
+    },
+    {
+      "spec": "@open-mercato/core/modules/catalog/message-objects",
+      "file": "packages/core/src/modules/catalog/message-objects.ts",
+      "files": 141,
+      "loc": 26095,
+      "bytes": 905487,
+      "useClientFiles": 77,
+      "heavyHits": 2,
+      "dynamicImports": 15,
+      "top": [
+        {
+          "file": "packages/ui/src/backend/CrudForm.tsx",
+          "loc": 4238
+        },
+        {
+          "file": "packages/ui/src/primitives/rich-editor.tsx",
+          "loc": 1579
+        },
+        {
+          "file": "packages/ui/src/backend/custom-fields/FieldDefinitionsEditor.tsx",
+          "loc": 1447
+        },
+        {
+          "file": "packages/ui/src/primitives/time-picker.tsx",
+          "loc": 1060
+        },
+        {
+          "file": "packages/ui/src/backend/messages/useMessageCompose.ts",
+          "loc": 728
+        },
+        {
+          "file": "packages/ui/src/backend/detail/AttachmentMetadataDialog.tsx",
+          "loc": 675
+        }
+      ]
+    },
+    {
+      "spec": "@open-mercato/core/modules/currencies/message-objects",
+      "file": "packages/core/src/modules/currencies/message-objects.ts",
+      "files": 141,
+      "loc": 26033,
+      "bytes": 903267,
+      "useClientFiles": 77,
+      "heavyHits": 2,
+      "dynamicImports": 13,
+      "top": [
+        {
+          "file": "packages/ui/src/backend/CrudForm.tsx",
+          "loc": 4238
+        },
+        {
+          "file": "packages/ui/src/primitives/rich-editor.tsx",
+          "loc": 1579
+        },
+        {
+          "file": "packages/ui/src/backend/custom-fields/FieldDefinitionsEditor.tsx",
+          "loc": 1447
+        },
+        {
+          "file": "packages/ui/src/primitives/time-picker.tsx",
+          "loc": 1060
+        },
+        {
+          "file": "packages/ui/src/backend/messages/useMessageCompose.ts",
+          "loc": 728
+        },
+        {
+          "file": "packages/ui/src/backend/detail/AttachmentMetadataDialog.tsx",
+          "loc": 675
+        }
+      ]
+    },
+    {
+      "spec": "@open-mercato/core/modules/resources/message-objects",
+      "file": "packages/core/src/modules/resources/message-objects.ts",
+      "files": 141,
+      "loc": 26029,
+      "bytes": 903225,
+      "useClientFiles": 77,
+      "heavyHits": 2,
+      "dynamicImports": 13,
+      "top": [
+        {
+          "file": "packages/ui/src/backend/CrudForm.tsx",
+          "loc": 4238
+        },
+        {
+          "file": "packages/ui/src/primitives/rich-editor.tsx",
+          "loc": 1579
+        },
+        {
+          "file": "packages/ui/src/backend/custom-fields/FieldDefinitionsEditor.tsx",
+          "loc": 1447
+        },
+        {
+          "file": "packages/ui/src/primitives/time-picker.tsx",
+          "loc": 1060
+        },
+        {
+          "file": "packages/ui/src/backend/messages/useMessageCompose.ts",
+          "loc": 728
+        },
+        {
+          "file": "packages/ui/src/backend/detail/AttachmentMetadataDialog.tsx",
+          "loc": 675
+        }
+      ]
+    },
+    {
+      "spec": "@open-mercato/core/modules/messages/message-types",
+      "file": "packages/core/src/modules/messages/message-types.ts",
+      "files": 23,
+      "loc": 2467,
+      "bytes": 80718,
+      "useClientFiles": 15,
+      "heavyHits": 0,
+      "dynamicImports": 0,
+      "top": [
+        {
+          "file": "packages/ui/src/backend/utils/serverErrors.ts",
+          "loc": 321
+        },
+        {
+          "file": "packages/ui/src/backend/operations/store.ts",
+          "loc": 300
+        },
+        {
+          "file": "packages/ui/src/primitives/alert.tsx",
+          "loc": 263
+        },
+        {
+          "file": "packages/ui/src/backend/utils/api.ts",
+          "loc": 240
+        },
+        {
+          "file": "packages/ui/src/backend/FlashMessages.tsx",
+          "loc": 181
+        },
+        {
+          "file": "packages/shared/src/modules/messages/types.ts",
+          "loc": 171
+        }
+      ]
+    },
+    {
+      "spec": "@open-mercato/core/modules/messages/components/utils/typeUiRegistry",
+      "file": "packages/core/src/modules/messages/components/utils/typeUiRegistry.ts",
+      "files": 11,
+      "loc": 736,
+      "bytes": 24360,
+      "useClientFiles": 4,
+      "heavyHits": 0,
+      "dynamicImports": 0,
+      "top": [
+        {
+          "file": "packages/shared/src/modules/messages/types.ts",
+          "loc": 171
+        },
+        {
+          "file": "packages/core/src/modules/messages/components/defaults/MessageRecordObjectDetail.tsx",
+          "loc": 115
+        },
+        {
+          "file": "packages/core/src/modules/messages/components/utils/typeUiRegistry.ts",
+          "loc": 107
+        },
+        {
+          "file": "packages/shared/src/lib/i18n/context.tsx",
+          "loc": 81
+        },
+        {
+          "file": "packages/core/src/modules/messages/components/defaults/MessageRecordObjectPreview.tsx",
+          "loc": 75
+        },
+        {
+          "file": "packages/core/src/modules/messages/lib/message-objects-registry.ts",
+          "loc": 61
+        }
+      ]
+    },
+    {
+      "spec": "@open-mercato/core/modules/inbox_ops/message-types",
+      "file": "packages/core/src/modules/inbox_ops/message-types.ts",
+      "files": 7,
+      "loc": 399,
+      "bytes": 11118,
+      "useClientFiles": 2,
+      "heavyHits": 0,
+      "dynamicImports": 0,
+      "top": [
+        {
+          "file": "packages/shared/src/modules/messages/types.ts",
+          "loc": 171
+        },
+        {
+          "file": "packages/shared/src/lib/i18n/context.tsx",
+          "loc": 81
+        },
+        {
+          "file": "packages/core/src/modules/inbox_ops/components/messages/InboxEmailContent.tsx",
+          "loc": 46
+        },
+        {
+          "file": "packages/core/src/modules/inbox_ops/message-types.ts",
+          "loc": 37
+        },
+        {
+          "file": "packages/ui/src/primitives/badge.tsx",
+          "loc": 37
+        },
+        {
+          "file": "packages/shared/src/lib/utils.ts",
+          "loc": 22
+        }
+      ]
+    },
+    {
+      "spec": "@open-mercato/core/modules/inbox_ops/message-objects",
+      "file": "packages/core/src/modules/inbox_ops/message-objects.ts",
+      "files": 7,
+      "loc": 392,
+      "bytes": 11173,
+      "useClientFiles": 2,
+      "heavyHits": 0,
+      "dynamicImports": 1,
+      "top": [
+        {
+          "file": "packages/shared/src/modules/messages/types.ts",
+          "loc": 171
+        },
+        {
+          "file": "packages/shared/src/lib/i18n/context.tsx",
+          "loc": 81
+        },
+        {
+          "file": "packages/core/src/modules/inbox_ops/components/messages/InboxEmailPreview.tsx",
+          "loc": 41
+        },
+        {
+          "file": "packages/ui/src/primitives/badge.tsx",
+          "loc": 37
+        },
+        {
+          "file": "packages/core/src/modules/inbox_ops/message-objects.ts",
+          "loc": 35
+        },
+        {
+          "file": "packages/shared/src/lib/utils.ts",
+          "loc": 22
+        }
+      ]
+    },
+    {
+      "spec": "@open-mercato/core/modules/messages/lib/message-objects-registry",
+      "file": "packages/core/src/modules/messages/lib/message-objects-registry.ts",
+      "files": 3,
+      "loc": 238,
+      "bytes": 6101,
+      "useClientFiles": 0,
+      "heavyHits": 0,
+      "dynamicImports": 0,
+      "top": [
+        {
+          "file": "packages/shared/src/modules/messages/types.ts",
+          "loc": 171
+        },
+        {
+          "file": "packages/core/src/modules/messages/lib/message-objects-registry.ts",
+          "loc": 61
+        },
+        {
+          "file": "packages/core/src/modules/messages/message-objects.ts",
+          "loc": 6
+        }
+      ]
+    },
+    {
+      "spec": "@open-mercato/core/modules/staff/message-types",
+      "file": "packages/core/src/modules/staff/message-types.ts",
+      "files": 2,
+      "loc": 193,
+      "bytes": 4636,
+      "useClientFiles": 0,
+      "heavyHits": 0,
+      "dynamicImports": 0,
+      "top": [
+        {
+          "file": "packages/shared/src/modules/messages/types.ts",
+          "loc": 171
+        },
+        {
+          "file": "packages/core/src/modules/staff/message-types.ts",
+          "loc": 22
+        }
+      ]
+    },
+    {
+      "spec": "@open-mercato/core/modules/messages/message-objects",
+      "file": "packages/core/src/modules/messages/message-objects.ts",
+      "files": 2,
+      "loc": 177,
+      "bytes": 4232,
+      "useClientFiles": 0,
+      "heavyHits": 0,
+      "dynamicImports": 0,
+      "top": [
+        {
+          "file": "packages/shared/src/modules/messages/types.ts",
+          "loc": 171
+        },
+        {
+          "file": "packages/core/src/modules/messages/message-objects.ts",
+          "loc": 6
+        }
+      ]
+    },
+    {
+      "spec": "@open-mercato/shared/modules/messages/types",
+      "file": "packages/shared/src/modules/messages/types.ts",
+      "files": 1,
+      "loc": 171,
+      "bytes": 4033,
+      "useClientFiles": 0,
+      "heavyHits": 0,
+      "dynamicImports": 0,
+      "top": [
+        {
+          "file": "packages/shared/src/modules/messages/types.ts",
+          "loc": 171
+        }
+      ]
+    }
+  ]
+}
