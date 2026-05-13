@@ -35,6 +35,20 @@ Debug/development policy (fail fast while authoring/fixing tests):
 - Override retries at command level with `--retries=0`.
 - Do not edit global config just to debug a single test.
 
+
+## Rendering and Performance Gates
+
+When a feature touches Next.js routes, generated frontend, Client Islands, shared providers, loading/error boundaries, or heavy widgets, plan tests beyond CRUD correctness:
+
+- verify the server-rendered shell loads before client-only interaction is required,
+- exercise each changed Client Island interaction (table/form/dialog/editor/calendar/graph),
+- cover loading and error boundaries for changed routes,
+- include accessibility assertions for labels, roles, focus, keyboard submit/cancel, and icon-only buttons,
+- add a regression E2E for critical flows,
+- record a smoke performance signal when feasible (cold load timing, Web Vitals/Lighthouse, or process/RSS note from the agreed profiling script).
+
+If performance evidence is not feasible in the environment, state the blocker and the exact command/check that should be run before merge.
+
 ## Workflow
 
 ### Phase 1 — Identify What to Test
