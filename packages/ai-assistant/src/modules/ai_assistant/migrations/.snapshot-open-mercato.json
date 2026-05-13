@@ -1,59 +1,13 @@
 {
+  "name": "public",
   "namespaces": [
     "public"
   ],
-  "name": "public",
   "tables": [
     {
+      "name": "ai_agent_mutation_policy_overrides",
+      "schema": "public",
       "columns": {
-        "id": {
-          "name": "id",
-          "type": "uuid",
-          "unsigned": false,
-          "autoincrement": false,
-          "primary": true,
-          "nullable": false,
-          "unique": false,
-          "length": null,
-          "precision": null,
-          "scale": null,
-          "default": "gen_random_uuid()",
-          "comment": null,
-          "enumItems": [],
-          "mappedType": "uuid"
-        },
-        "tenant_id": {
-          "name": "tenant_id",
-          "type": "uuid",
-          "unsigned": false,
-          "autoincrement": false,
-          "primary": false,
-          "nullable": false,
-          "unique": false,
-          "length": null,
-          "precision": null,
-          "scale": null,
-          "default": null,
-          "comment": null,
-          "enumItems": [],
-          "mappedType": "uuid"
-        },
-        "organization_id": {
-          "name": "organization_id",
-          "type": "uuid",
-          "unsigned": false,
-          "autoincrement": false,
-          "primary": false,
-          "nullable": true,
-          "unique": false,
-          "length": null,
-          "precision": null,
-          "scale": null,
-          "default": null,
-          "comment": null,
-          "enumItems": [],
-          "mappedType": "uuid"
-        },
         "agent_id": {
           "name": "agent_id",
           "type": "text",
@@ -69,6 +23,54 @@
           "comment": null,
           "enumItems": [],
           "mappedType": "text"
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "timestamptz(6)",
+          "unsigned": false,
+          "autoincrement": false,
+          "primary": false,
+          "nullable": false,
+          "unique": false,
+          "length": 6,
+          "precision": null,
+          "scale": null,
+          "default": null,
+          "comment": null,
+          "enumItems": [],
+          "mappedType": "datetime"
+        },
+        "created_by_user_id": {
+          "name": "created_by_user_id",
+          "type": "uuid",
+          "unsigned": false,
+          "autoincrement": false,
+          "primary": false,
+          "nullable": true,
+          "unique": false,
+          "length": null,
+          "precision": null,
+          "scale": null,
+          "default": null,
+          "comment": null,
+          "enumItems": [],
+          "mappedType": "uuid"
+        },
+        "id": {
+          "name": "id",
+          "type": "uuid",
+          "unsigned": false,
+          "autoincrement": false,
+          "primary": true,
+          "nullable": false,
+          "unique": false,
+          "length": null,
+          "precision": null,
+          "scale": null,
+          "default": "gen_random_uuid()",
+          "comment": null,
+          "enumItems": [],
+          "mappedType": "uuid"
         },
         "mutation_policy": {
           "name": "mutation_policy",
@@ -102,8 +104,8 @@
           "enumItems": [],
           "mappedType": "text"
         },
-        "created_by_user_id": {
-          "name": "created_by_user_id",
+        "organization_id": {
+          "name": "organization_id",
           "type": "uuid",
           "unsigned": false,
           "autoincrement": false,
@@ -114,104 +116,6 @@
           "precision": null,
           "scale": null,
           "default": null,
-          "comment": null,
-          "enumItems": [],
-          "mappedType": "uuid"
-        },
-        "created_at": {
-          "name": "created_at",
-          "type": "timestamptz",
-          "unsigned": false,
-          "autoincrement": false,
-          "primary": false,
-          "nullable": false,
-          "unique": false,
-          "length": 6,
-          "precision": null,
-          "scale": null,
-          "default": null,
-          "comment": null,
-          "enumItems": [],
-          "mappedType": "datetime"
-        },
-        "updated_at": {
-          "name": "updated_at",
-          "type": "timestamptz",
-          "unsigned": false,
-          "autoincrement": false,
-          "primary": false,
-          "nullable": false,
-          "unique": false,
-          "length": 6,
-          "precision": null,
-          "scale": null,
-          "default": null,
-          "comment": null,
-          "enumItems": [],
-          "mappedType": "datetime"
-        }
-      },
-      "name": "ai_agent_mutation_policy_overrides",
-      "schema": "public",
-      "indexes": [
-        {
-          "keyName": "ai_agent_mutation_policy_overrides_tenant_agent_idx",
-          "columnNames": [
-            "tenant_id",
-            "agent_id"
-          ],
-          "composite": true,
-          "constraint": false,
-          "primary": false,
-          "unique": false
-        },
-        {
-          "keyName": "ai_agent_mutation_policy_overrides_tenant_org_agent_uq",
-          "columnNames": [],
-          "composite": false,
-          "constraint": false,
-          "primary": false,
-          "unique": false,
-          "expression": "create unique index \"ai_agent_mutation_policy_overrides_tenant_org_agent_uq\" on \"ai_agent_mutation_policy_overrides\" (\"tenant_id\", \"organization_id\", \"agent_id\") where \"organization_id\" is not null"
-        },
-        {
-          "keyName": "ai_agent_mutation_policy_overrides_tenant_agent_null_org_uq",
-          "columnNames": [],
-          "composite": false,
-          "constraint": false,
-          "primary": false,
-          "unique": false,
-          "expression": "create unique index \"ai_agent_mutation_policy_overrides_tenant_agent_null_org_uq\" on \"ai_agent_mutation_policy_overrides\" (\"tenant_id\", \"agent_id\") where \"organization_id\" is null"
-        },
-        {
-          "keyName": "ai_agent_mutation_policy_overrides_pkey",
-          "columnNames": [
-            "id"
-          ],
-          "composite": false,
-          "constraint": true,
-          "primary": true,
-          "unique": true
-        }
-      ],
-      "checks": [],
-      "foreignKeys": {},
-      "nativeEnums": {}
-    },
-    {
-      "columns": {
-        "id": {
-          "name": "id",
-          "type": "uuid",
-          "unsigned": false,
-          "autoincrement": false,
-          "primary": true,
-          "nullable": false,
-          "unique": false,
-          "length": null,
-          "precision": null,
-          "scale": null,
-          "default": "gen_random_uuid()",
           "comment": null,
           "enumItems": [],
           "mappedType": "uuid"
@@ -232,22 +136,72 @@
           "enumItems": [],
           "mappedType": "uuid"
         },
-        "organization_id": {
-          "name": "organization_id",
-          "type": "uuid",
+        "updated_at": {
+          "name": "updated_at",
+          "type": "timestamptz(6)",
           "unsigned": false,
           "autoincrement": false,
           "primary": false,
-          "nullable": true,
+          "nullable": false,
           "unique": false,
-          "length": null,
+          "length": 6,
           "precision": null,
           "scale": null,
           "default": null,
           "comment": null,
           "enumItems": [],
-          "mappedType": "uuid"
+          "mappedType": "datetime"
+        }
+      },
+      "indexes": [
+        {
+          "columnNames": [
+            "id"
+          ],
+          "composite": false,
+          "constraint": true,
+          "keyName": "ai_agent_mutation_policy_overrides_pkey",
+          "primary": true,
+          "unique": true
         },
+        {
+          "columnNames": [
+            "tenant_id",
+            "agent_id"
+          ],
+          "composite": true,
+          "constraint": false,
+          "keyName": "ai_agent_mutation_policy_overrides_tenant_agent_idx",
+          "primary": false,
+          "unique": false
+        },
+        {
+          "columnNames": [],
+          "composite": false,
+          "constraint": false,
+          "keyName": "ai_agent_mutation_policy_overrides_tenant_agent_null_org_uq",
+          "primary": false,
+          "unique": false,
+          "expression": "create unique index \"ai_agent_mutation_policy_overrides_tenant_agent_null_org_uq\" on \"ai_agent_mutation_policy_overrides\" (\"tenant_id\", \"agent_id\") where \"organization_id\" is null"
+        },
+        {
+          "columnNames": [],
+          "composite": false,
+          "constraint": false,
+          "keyName": "ai_agent_mutation_policy_overrides_tenant_org_agent_uq",
+          "primary": false,
+          "unique": false,
+          "expression": "create unique index \"ai_agent_mutation_policy_overrides_tenant_org_agent_uq\" on \"ai_agent_mutation_policy_overrides\" (\"tenant_id\", \"organization_id\", \"agent_id\") where \"organization_id\" is not null"
+        }
+      ],
+      "checks": [],
+      "foreignKeys": {},
+      "comment": null
+    },
+    {
+      "name": "ai_agent_prompt_overrides",
+      "schema": "public",
+      "columns": {
         "agent_id": {
           "name": "agent_id",
           "type": "text",
@@ -264,29 +218,29 @@
           "enumItems": [],
           "mappedType": "text"
         },
-        "version": {
-          "name": "version",
-          "type": "int",
+        "created_at": {
+          "name": "created_at",
+          "type": "timestamptz(6)",
           "unsigned": false,
           "autoincrement": false,
           "primary": false,
           "nullable": false,
           "unique": false,
-          "length": null,
+          "length": 6,
           "precision": null,
           "scale": null,
           "default": null,
           "comment": null,
           "enumItems": [],
-          "mappedType": "integer"
+          "mappedType": "datetime"
         },
-        "sections": {
-          "name": "sections",
-          "type": "jsonb",
+        "created_by_user_id": {
+          "name": "created_by_user_id",
+          "type": "uuid",
           "unsigned": false,
           "autoincrement": false,
           "primary": false,
-          "nullable": false,
+          "nullable": true,
           "unique": false,
           "length": null,
           "precision": null,
@@ -294,7 +248,23 @@
           "default": null,
           "comment": null,
           "enumItems": [],
-          "mappedType": "json"
+          "mappedType": "uuid"
+        },
+        "id": {
+          "name": "id",
+          "type": "uuid",
+          "unsigned": false,
+          "autoincrement": false,
+          "primary": true,
+          "nullable": false,
+          "unique": false,
+          "length": null,
+          "precision": null,
+          "scale": null,
+          "default": "gen_random_uuid()",
+          "comment": null,
+          "enumItems": [],
+          "mappedType": "uuid"
         },
         "notes": {
           "name": "notes",
@@ -312,8 +282,8 @@
           "enumItems": [],
           "mappedType": "text"
         },
-        "created_by_user_id": {
-          "name": "created_by_user_id",
+        "organization_id": {
+          "name": "organization_id",
           "type": "uuid",
           "unsigned": false,
           "autoincrement": false,
@@ -328,112 +298,21 @@
           "enumItems": [],
           "mappedType": "uuid"
         },
-        "created_at": {
-          "name": "created_at",
-          "type": "timestamptz",
+        "sections": {
+          "name": "sections",
+          "type": "jsonb",
           "unsigned": false,
           "autoincrement": false,
           "primary": false,
-          "nullable": false,
-          "unique": false,
-          "length": 6,
-          "precision": null,
-          "scale": null,
-          "default": null,
-          "comment": null,
-          "enumItems": [],
-          "mappedType": "datetime"
-        },
-        "updated_at": {
-          "name": "updated_at",
-          "type": "timestamptz",
-          "unsigned": false,
-          "autoincrement": false,
-          "primary": false,
-          "nullable": false,
-          "unique": false,
-          "length": 6,
-          "precision": null,
-          "scale": null,
-          "default": null,
-          "comment": null,
-          "enumItems": [],
-          "mappedType": "datetime"
-        }
-      },
-      "name": "ai_agent_prompt_overrides",
-      "schema": "public",
-      "indexes": [
-        {
-          "keyName": "ai_agent_prompt_overrides_tenant_org_agent_version_idx",
-          "columnNames": [],
-          "composite": false,
-          "constraint": false,
-          "primary": false,
-          "unique": false,
-          "expression": "create index \"ai_agent_prompt_overrides_tenant_org_agent_version_idx\" on \"ai_agent_prompt_overrides\" (\"tenant_id\", \"organization_id\", \"agent_id\", \"version\" desc)"
-        },
-        {
-          "keyName": "ai_agent_prompt_overrides_tenant_agent_idx",
-          "columnNames": [
-            "tenant_id",
-            "agent_id"
-          ],
-          "composite": true,
-          "constraint": false,
-          "primary": false,
-          "unique": false
-        },
-        {
-          "keyName": "ai_agent_prompt_overrides_tenant_org_agent_version_uq",
-          "columnNames": [],
-          "composite": false,
-          "constraint": false,
-          "primary": false,
-          "unique": false,
-          "expression": "create unique index \"ai_agent_prompt_overrides_tenant_org_agent_version_uq\" on \"ai_agent_prompt_overrides\" (\"tenant_id\", \"organization_id\", \"agent_id\", \"version\") where \"organization_id\" is not null"
-        },
-        {
-          "keyName": "ai_agent_prompt_overrides_tenant_agent_version_null_org_uq",
-          "columnNames": [],
-          "composite": false,
-          "constraint": false,
-          "primary": false,
-          "unique": false,
-          "expression": "create unique index \"ai_agent_prompt_overrides_tenant_agent_version_null_org_uq\" on \"ai_agent_prompt_overrides\" (\"tenant_id\", \"agent_id\", \"version\") where \"organization_id\" is null"
-        },
-        {
-          "keyName": "ai_agent_prompt_overrides_pkey",
-          "columnNames": [
-            "id"
-          ],
-          "composite": false,
-          "constraint": true,
-          "primary": true,
-          "unique": true
-        }
-      ],
-      "checks": [],
-      "foreignKeys": {},
-      "nativeEnums": {}
-    },
-    {
-      "columns": {
-        "id": {
-          "name": "id",
-          "type": "uuid",
-          "unsigned": false,
-          "autoincrement": false,
-          "primary": true,
           "nullable": false,
           "unique": false,
           "length": null,
           "precision": null,
           "scale": null,
-          "default": "gen_random_uuid()",
+          "default": null,
           "comment": null,
           "enumItems": [],
-          "mappedType": "uuid"
+          "mappedType": "json"
         },
         "tenant_id": {
           "name": "tenant_id",
@@ -451,6 +330,225 @@
           "enumItems": [],
           "mappedType": "uuid"
         },
+        "updated_at": {
+          "name": "updated_at",
+          "type": "timestamptz(6)",
+          "unsigned": false,
+          "autoincrement": false,
+          "primary": false,
+          "nullable": false,
+          "unique": false,
+          "length": 6,
+          "precision": null,
+          "scale": null,
+          "default": null,
+          "comment": null,
+          "enumItems": [],
+          "mappedType": "datetime"
+        },
+        "version": {
+          "name": "version",
+          "type": "int",
+          "unsigned": false,
+          "autoincrement": false,
+          "primary": false,
+          "nullable": false,
+          "unique": false,
+          "length": null,
+          "precision": null,
+          "scale": null,
+          "default": null,
+          "comment": null,
+          "enumItems": [],
+          "mappedType": "integer"
+        }
+      },
+      "indexes": [
+        {
+          "columnNames": [
+            "id"
+          ],
+          "composite": false,
+          "constraint": true,
+          "keyName": "ai_agent_prompt_overrides_pkey",
+          "primary": true,
+          "unique": true
+        },
+        {
+          "columnNames": [
+            "tenant_id",
+            "agent_id"
+          ],
+          "composite": true,
+          "constraint": false,
+          "keyName": "ai_agent_prompt_overrides_tenant_agent_idx",
+          "primary": false,
+          "unique": false
+        },
+        {
+          "columnNames": [],
+          "composite": false,
+          "constraint": false,
+          "keyName": "ai_agent_prompt_overrides_tenant_agent_version_null_org_uq",
+          "primary": false,
+          "unique": false,
+          "expression": "create unique index \"ai_agent_prompt_overrides_tenant_agent_version_null_org_uq\" on \"ai_agent_prompt_overrides\" (\"tenant_id\", \"agent_id\", \"version\") where \"organization_id\" is null"
+        },
+        {
+          "columnNames": [],
+          "composite": false,
+          "constraint": false,
+          "keyName": "ai_agent_prompt_overrides_tenant_org_agent_version_idx",
+          "primary": false,
+          "unique": false,
+          "expression": "create index \"ai_agent_prompt_overrides_tenant_org_agent_version_idx\" on \"ai_agent_prompt_overrides\" (\"tenant_id\", \"organization_id\", \"agent_id\", \"version\" desc)"
+        },
+        {
+          "columnNames": [],
+          "composite": false,
+          "constraint": false,
+          "keyName": "ai_agent_prompt_overrides_tenant_org_agent_version_uq",
+          "primary": false,
+          "unique": false,
+          "expression": "create unique index \"ai_agent_prompt_overrides_tenant_org_agent_version_uq\" on \"ai_agent_prompt_overrides\" (\"tenant_id\", \"organization_id\", \"agent_id\", \"version\") where \"organization_id\" is not null"
+        }
+      ],
+      "checks": [],
+      "foreignKeys": {},
+      "comment": null
+    },
+    {
+      "name": "ai_agent_runtime_overrides",
+      "schema": "public",
+      "columns": {
+        "agent_id": {
+          "name": "agent_id",
+          "type": "varchar(128)",
+          "unsigned": false,
+          "autoincrement": false,
+          "primary": false,
+          "nullable": true,
+          "unique": false,
+          "length": 128,
+          "precision": null,
+          "scale": null,
+          "default": null,
+          "comment": null,
+          "enumItems": [],
+          "mappedType": "string"
+        },
+        "allowed_override_models_by_provider": {
+          "name": "allowed_override_models_by_provider",
+          "type": "jsonb",
+          "unsigned": false,
+          "autoincrement": false,
+          "primary": false,
+          "nullable": false,
+          "unique": false,
+          "length": null,
+          "precision": null,
+          "scale": null,
+          "default": "'{}'",
+          "comment": null,
+          "enumItems": [],
+          "mappedType": "json"
+        },
+        "allowed_override_providers": {
+          "name": "allowed_override_providers",
+          "type": "jsonb",
+          "unsigned": false,
+          "autoincrement": false,
+          "primary": false,
+          "nullable": true,
+          "unique": false,
+          "length": null,
+          "precision": null,
+          "scale": null,
+          "default": null,
+          "comment": null,
+          "enumItems": [],
+          "mappedType": "json"
+        },
+        "base_url": {
+          "name": "base_url",
+          "type": "varchar(2048)",
+          "unsigned": false,
+          "autoincrement": false,
+          "primary": false,
+          "nullable": true,
+          "unique": false,
+          "length": 2048,
+          "precision": null,
+          "scale": null,
+          "default": null,
+          "comment": null,
+          "enumItems": [],
+          "mappedType": "string"
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "timestamptz(6)",
+          "unsigned": false,
+          "autoincrement": false,
+          "primary": false,
+          "nullable": false,
+          "unique": false,
+          "length": 6,
+          "precision": null,
+          "scale": null,
+          "default": null,
+          "comment": null,
+          "enumItems": [],
+          "mappedType": "datetime"
+        },
+        "deleted_at": {
+          "name": "deleted_at",
+          "type": "timestamptz(6)",
+          "unsigned": false,
+          "autoincrement": false,
+          "primary": false,
+          "nullable": true,
+          "unique": false,
+          "length": 6,
+          "precision": null,
+          "scale": null,
+          "default": null,
+          "comment": null,
+          "enumItems": [],
+          "mappedType": "datetime"
+        },
+        "id": {
+          "name": "id",
+          "type": "uuid",
+          "unsigned": false,
+          "autoincrement": false,
+          "primary": true,
+          "nullable": false,
+          "unique": false,
+          "length": null,
+          "precision": null,
+          "scale": null,
+          "default": "gen_random_uuid()",
+          "comment": null,
+          "enumItems": [],
+          "mappedType": "uuid"
+        },
+        "model_id": {
+          "name": "model_id",
+          "type": "varchar(256)",
+          "unsigned": false,
+          "autoincrement": false,
+          "primary": false,
+          "nullable": true,
+          "unique": false,
+          "length": 256,
+          "precision": null,
+          "scale": null,
+          "default": null,
+          "comment": null,
+          "enumItems": [],
+          "mappedType": "string"
+        },
         "organization_id": {
           "name": "organization_id",
           "type": "uuid",
@@ -467,6 +565,137 @@
           "enumItems": [],
           "mappedType": "uuid"
         },
+        "provider_id": {
+          "name": "provider_id",
+          "type": "varchar(64)",
+          "unsigned": false,
+          "autoincrement": false,
+          "primary": false,
+          "nullable": true,
+          "unique": false,
+          "length": 64,
+          "precision": null,
+          "scale": null,
+          "default": null,
+          "comment": null,
+          "enumItems": [],
+          "mappedType": "string"
+        },
+        "tenant_id": {
+          "name": "tenant_id",
+          "type": "uuid",
+          "unsigned": false,
+          "autoincrement": false,
+          "primary": false,
+          "nullable": false,
+          "unique": false,
+          "length": null,
+          "precision": null,
+          "scale": null,
+          "default": null,
+          "comment": null,
+          "enumItems": [],
+          "mappedType": "uuid"
+        },
+        "updated_at": {
+          "name": "updated_at",
+          "type": "timestamptz(6)",
+          "unsigned": false,
+          "autoincrement": false,
+          "primary": false,
+          "nullable": false,
+          "unique": false,
+          "length": 6,
+          "precision": null,
+          "scale": null,
+          "default": null,
+          "comment": null,
+          "enumItems": [],
+          "mappedType": "datetime"
+        },
+        "updated_by_user_id": {
+          "name": "updated_by_user_id",
+          "type": "uuid",
+          "unsigned": false,
+          "autoincrement": false,
+          "primary": false,
+          "nullable": true,
+          "unique": false,
+          "length": null,
+          "precision": null,
+          "scale": null,
+          "default": null,
+          "comment": null,
+          "enumItems": [],
+          "mappedType": "uuid"
+        }
+      },
+      "indexes": [
+        {
+          "columnNames": [
+            "id"
+          ],
+          "composite": false,
+          "constraint": true,
+          "keyName": "ai_agent_runtime_overrides_pkey",
+          "primary": true,
+          "unique": true
+        },
+        {
+          "columnNames": [],
+          "composite": false,
+          "constraint": false,
+          "keyName": "ai_agent_runtime_overrides_tenant_agent_null_org_uq",
+          "primary": false,
+          "unique": false,
+          "expression": "create unique index \"ai_agent_runtime_overrides_tenant_agent_null_org_uq\" on \"ai_agent_runtime_overrides\" (\"tenant_id\", \"agent_id\") where \"deleted_at\" is null and \"organization_id\" is null and \"agent_id\" is not null"
+        },
+        {
+          "columnNames": [
+            "tenant_id"
+          ],
+          "composite": false,
+          "constraint": false,
+          "keyName": "ai_agent_runtime_overrides_tenant_idx",
+          "primary": false,
+          "unique": false
+        },
+        {
+          "columnNames": [],
+          "composite": false,
+          "constraint": false,
+          "keyName": "ai_agent_runtime_overrides_tenant_null_agent_null_org_uq",
+          "primary": false,
+          "unique": false,
+          "expression": "create unique index \"ai_agent_runtime_overrides_tenant_null_agent_null_org_uq\" on \"ai_agent_runtime_overrides\" (\"tenant_id\") where \"deleted_at\" is null and \"organization_id\" is null and \"agent_id\" is null"
+        },
+        {
+          "columnNames": [],
+          "composite": false,
+          "constraint": false,
+          "keyName": "ai_agent_runtime_overrides_tenant_org_agent_uq",
+          "primary": false,
+          "unique": false,
+          "expression": "create unique index \"ai_agent_runtime_overrides_tenant_org_agent_uq\" on \"ai_agent_runtime_overrides\" (\"tenant_id\", \"organization_id\", \"agent_id\") where \"deleted_at\" is null and \"organization_id\" is not null and \"agent_id\" is not null"
+        },
+        {
+          "columnNames": [],
+          "composite": false,
+          "constraint": false,
+          "keyName": "ai_agent_runtime_overrides_tenant_org_null_agent_uq",
+          "primary": false,
+          "unique": false,
+          "expression": "create unique index \"ai_agent_runtime_overrides_tenant_org_null_agent_uq\" on \"ai_agent_runtime_overrides\" (\"tenant_id\", \"organization_id\") where \"deleted_at\" is null and \"organization_id\" is not null and \"agent_id\" is null"
+        }
+      ],
+      "checks": [],
+      "foreignKeys": {},
+      "comment": null
+    },
+    {
+      "name": "ai_pending_actions",
+      "schema": "public",
+      "columns": {
         "agent_id": {
           "name": "agent_id",
           "type": "text",
@@ -483,8 +712,152 @@
           "enumItems": [],
           "mappedType": "text"
         },
-        "tool_name": {
-          "name": "tool_name",
+        "attachment_ids": {
+          "name": "attachment_ids",
+          "type": "jsonb",
+          "unsigned": false,
+          "autoincrement": false,
+          "primary": false,
+          "nullable": false,
+          "unique": false,
+          "length": null,
+          "precision": null,
+          "scale": null,
+          "default": "'[]'",
+          "comment": null,
+          "enumItems": [],
+          "mappedType": "json"
+        },
+        "conversation_id": {
+          "name": "conversation_id",
+          "type": "text",
+          "unsigned": false,
+          "autoincrement": false,
+          "primary": false,
+          "nullable": true,
+          "unique": false,
+          "length": null,
+          "precision": null,
+          "scale": null,
+          "default": null,
+          "comment": null,
+          "enumItems": [],
+          "mappedType": "text"
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "timestamptz(6)",
+          "unsigned": false,
+          "autoincrement": false,
+          "primary": false,
+          "nullable": false,
+          "unique": false,
+          "length": 6,
+          "precision": null,
+          "scale": null,
+          "default": null,
+          "comment": null,
+          "enumItems": [],
+          "mappedType": "datetime"
+        },
+        "created_by_user_id": {
+          "name": "created_by_user_id",
+          "type": "uuid",
+          "unsigned": false,
+          "autoincrement": false,
+          "primary": false,
+          "nullable": false,
+          "unique": false,
+          "length": null,
+          "precision": null,
+          "scale": null,
+          "default": null,
+          "comment": null,
+          "enumItems": [],
+          "mappedType": "uuid"
+        },
+        "execution_result": {
+          "name": "execution_result",
+          "type": "jsonb",
+          "unsigned": false,
+          "autoincrement": false,
+          "primary": false,
+          "nullable": true,
+          "unique": false,
+          "length": null,
+          "precision": null,
+          "scale": null,
+          "default": null,
+          "comment": null,
+          "enumItems": [],
+          "mappedType": "json"
+        },
+        "expires_at": {
+          "name": "expires_at",
+          "type": "timestamptz(6)",
+          "unsigned": false,
+          "autoincrement": false,
+          "primary": false,
+          "nullable": false,
+          "unique": false,
+          "length": 6,
+          "precision": null,
+          "scale": null,
+          "default": null,
+          "comment": null,
+          "enumItems": [],
+          "mappedType": "datetime"
+        },
+        "failed_records": {
+          "name": "failed_records",
+          "type": "jsonb",
+          "unsigned": false,
+          "autoincrement": false,
+          "primary": false,
+          "nullable": true,
+          "unique": false,
+          "length": null,
+          "precision": null,
+          "scale": null,
+          "default": null,
+          "comment": null,
+          "enumItems": [],
+          "mappedType": "json"
+        },
+        "field_diff": {
+          "name": "field_diff",
+          "type": "jsonb",
+          "unsigned": false,
+          "autoincrement": false,
+          "primary": false,
+          "nullable": false,
+          "unique": false,
+          "length": null,
+          "precision": null,
+          "scale": null,
+          "default": "'[]'",
+          "comment": null,
+          "enumItems": [],
+          "mappedType": "json"
+        },
+        "id": {
+          "name": "id",
+          "type": "uuid",
+          "unsigned": false,
+          "autoincrement": false,
+          "primary": true,
+          "nullable": false,
+          "unique": false,
+          "length": null,
+          "precision": null,
+          "scale": null,
+          "default": "gen_random_uuid()",
+          "comment": null,
+          "enumItems": [],
+          "mappedType": "uuid"
+        },
+        "idempotency_key": {
+          "name": "idempotency_key",
           "type": "text",
           "unsigned": false,
           "autoincrement": false,
@@ -499,13 +872,141 @@
           "enumItems": [],
           "mappedType": "text"
         },
-        "conversation_id": {
-          "name": "conversation_id",
+        "normalized_input": {
+          "name": "normalized_input",
+          "type": "jsonb",
+          "unsigned": false,
+          "autoincrement": false,
+          "primary": false,
+          "nullable": false,
+          "unique": false,
+          "length": null,
+          "precision": null,
+          "scale": null,
+          "default": null,
+          "comment": null,
+          "enumItems": [],
+          "mappedType": "json"
+        },
+        "organization_id": {
+          "name": "organization_id",
+          "type": "uuid",
+          "unsigned": false,
+          "autoincrement": false,
+          "primary": false,
+          "nullable": true,
+          "unique": false,
+          "length": null,
+          "precision": null,
+          "scale": null,
+          "default": null,
+          "comment": null,
+          "enumItems": [],
+          "mappedType": "uuid"
+        },
+        "queue_mode": {
+          "name": "queue_mode",
+          "type": "text",
+          "unsigned": false,
+          "autoincrement": false,
+          "primary": false,
+          "nullable": false,
+          "unique": false,
+          "length": null,
+          "precision": null,
+          "scale": null,
+          "default": "'inline'",
+          "comment": null,
+          "enumItems": [],
+          "mappedType": "text"
+        },
+        "record_version": {
+          "name": "record_version",
           "type": "text",
           "unsigned": false,
           "autoincrement": false,
           "primary": false,
           "nullable": true,
+          "unique": false,
+          "length": null,
+          "precision": null,
+          "scale": null,
+          "default": null,
+          "comment": null,
+          "enumItems": [],
+          "mappedType": "text"
+        },
+        "records": {
+          "name": "records",
+          "type": "jsonb",
+          "unsigned": false,
+          "autoincrement": false,
+          "primary": false,
+          "nullable": true,
+          "unique": false,
+          "length": null,
+          "precision": null,
+          "scale": null,
+          "default": null,
+          "comment": null,
+          "enumItems": [],
+          "mappedType": "json"
+        },
+        "resolved_at": {
+          "name": "resolved_at",
+          "type": "timestamptz(6)",
+          "unsigned": false,
+          "autoincrement": false,
+          "primary": false,
+          "nullable": true,
+          "unique": false,
+          "length": 6,
+          "precision": null,
+          "scale": null,
+          "default": null,
+          "comment": null,
+          "enumItems": [],
+          "mappedType": "datetime"
+        },
+        "resolved_by_user_id": {
+          "name": "resolved_by_user_id",
+          "type": "uuid",
+          "unsigned": false,
+          "autoincrement": false,
+          "primary": false,
+          "nullable": true,
+          "unique": false,
+          "length": null,
+          "precision": null,
+          "scale": null,
+          "default": null,
+          "comment": null,
+          "enumItems": [],
+          "mappedType": "uuid"
+        },
+        "side_effects_summary": {
+          "name": "side_effects_summary",
+          "type": "text",
+          "unsigned": false,
+          "autoincrement": false,
+          "primary": false,
+          "nullable": true,
+          "unique": false,
+          "length": null,
+          "precision": null,
+          "scale": null,
+          "default": null,
+          "comment": null,
+          "enumItems": [],
+          "mappedType": "text"
+        },
+        "status": {
+          "name": "status",
+          "type": "text",
+          "unsigned": false,
+          "autoincrement": false,
+          "primary": false,
+          "nullable": false,
           "unique": false,
           "length": null,
           "precision": null,
@@ -547,136 +1048,8 @@
           "enumItems": [],
           "mappedType": "text"
         },
-        "normalized_input": {
-          "name": "normalized_input",
-          "type": "jsonb",
-          "unsigned": false,
-          "autoincrement": false,
-          "primary": false,
-          "nullable": false,
-          "unique": false,
-          "length": null,
-          "precision": null,
-          "scale": null,
-          "default": null,
-          "comment": null,
-          "enumItems": [],
-          "mappedType": "json"
-        },
-        "field_diff": {
-          "name": "field_diff",
-          "type": "jsonb",
-          "unsigned": false,
-          "autoincrement": false,
-          "primary": false,
-          "nullable": false,
-          "unique": false,
-          "length": null,
-          "precision": null,
-          "scale": null,
-          "default": "'[]'",
-          "comment": null,
-          "enumItems": [],
-          "mappedType": "json"
-        },
-        "records": {
-          "name": "records",
-          "type": "jsonb",
-          "unsigned": false,
-          "autoincrement": false,
-          "primary": false,
-          "nullable": true,
-          "unique": false,
-          "length": null,
-          "precision": null,
-          "scale": null,
-          "default": null,
-          "comment": null,
-          "enumItems": [],
-          "mappedType": "json"
-        },
-        "failed_records": {
-          "name": "failed_records",
-          "type": "jsonb",
-          "unsigned": false,
-          "autoincrement": false,
-          "primary": false,
-          "nullable": true,
-          "unique": false,
-          "length": null,
-          "precision": null,
-          "scale": null,
-          "default": null,
-          "comment": null,
-          "enumItems": [],
-          "mappedType": "json"
-        },
-        "side_effects_summary": {
-          "name": "side_effects_summary",
-          "type": "text",
-          "unsigned": false,
-          "autoincrement": false,
-          "primary": false,
-          "nullable": true,
-          "unique": false,
-          "length": null,
-          "precision": null,
-          "scale": null,
-          "default": null,
-          "comment": null,
-          "enumItems": [],
-          "mappedType": "text"
-        },
-        "record_version": {
-          "name": "record_version",
-          "type": "text",
-          "unsigned": false,
-          "autoincrement": false,
-          "primary": false,
-          "nullable": true,
-          "unique": false,
-          "length": null,
-          "precision": null,
-          "scale": null,
-          "default": null,
-          "comment": null,
-          "enumItems": [],
-          "mappedType": "text"
-        },
-        "attachment_ids": {
-          "name": "attachment_ids",
-          "type": "jsonb",
-          "unsigned": false,
-          "autoincrement": false,
-          "primary": false,
-          "nullable": false,
-          "unique": false,
-          "length": null,
-          "precision": null,
-          "scale": null,
-          "default": "'[]'",
-          "comment": null,
-          "enumItems": [],
-          "mappedType": "json"
-        },
-        "idempotency_key": {
-          "name": "idempotency_key",
-          "type": "text",
-          "unsigned": false,
-          "autoincrement": false,
-          "primary": false,
-          "nullable": false,
-          "unique": false,
-          "length": null,
-          "precision": null,
-          "scale": null,
-          "default": null,
-          "comment": null,
-          "enumItems": [],
-          "mappedType": "text"
-        },
-        "created_by_user_id": {
-          "name": "created_by_user_id",
+        "tenant_id": {
+          "name": "tenant_id",
           "type": "uuid",
           "unsigned": false,
           "autoincrement": false,
@@ -691,8 +1064,8 @@
           "enumItems": [],
           "mappedType": "uuid"
         },
-        "status": {
-          "name": "status",
+        "tool_name": {
+          "name": "tool_name",
           "type": "text",
           "unsigned": false,
           "autoincrement": false,
@@ -706,10 +1079,75 @@
           "comment": null,
           "enumItems": [],
           "mappedType": "text"
+        }
+      },
+      "indexes": [
+        {
+          "columnNames": [
+            "id"
+          ],
+          "composite": false,
+          "constraint": true,
+          "keyName": "ai_pending_actions_pkey",
+          "primary": true,
+          "unique": true
         },
-        "queue_mode": {
-          "name": "queue_mode",
-          "type": "text",
+        {
+          "columnNames": [],
+          "composite": false,
+          "constraint": false,
+          "keyName": "ai_pending_actions_tenant_idem_null_org_uq",
+          "primary": false,
+          "unique": false,
+          "expression": "create unique index \"ai_pending_actions_tenant_idem_null_org_uq\" on \"ai_pending_actions\" (\"tenant_id\", \"idempotency_key\") where \"organization_id\" is null"
+        },
+        {
+          "columnNames": [
+            "tenant_id",
+            "organization_id",
+            "agent_id",
+            "status"
+          ],
+          "composite": true,
+          "constraint": false,
+          "keyName": "ai_pending_actions_tenant_org_agent_status_idx",
+          "primary": false,
+          "unique": false
+        },
+        {
+          "columnNames": [],
+          "composite": false,
+          "constraint": false,
+          "keyName": "ai_pending_actions_tenant_org_idempotency_uq",
+          "primary": false,
+          "unique": false,
+          "expression": "create unique index \"ai_pending_actions_tenant_org_idempotency_uq\" on \"ai_pending_actions\" (\"tenant_id\", \"organization_id\", \"idempotency_key\") where \"organization_id\" is not null"
+        },
+        {
+          "columnNames": [
+            "tenant_id",
+            "organization_id",
+            "status",
+            "expires_at"
+          ],
+          "composite": true,
+          "constraint": false,
+          "keyName": "ai_pending_actions_tenant_org_status_expires_idx",
+          "primary": false,
+          "unique": false
+        }
+      ],
+      "checks": [],
+      "foreignKeys": {},
+      "comment": null
+    },
+    {
+      "name": "ai_tenant_model_allowlists",
+      "schema": "public",
+      "columns": {
+        "allowed_models_by_provider": {
+          "name": "allowed_models_by_provider",
+          "type": "jsonb",
           "unsigned": false,
           "autoincrement": false,
           "primary": false,
@@ -718,13 +1156,13 @@
           "length": null,
           "precision": null,
           "scale": null,
-          "default": "'inline'",
+          "default": "'{}'",
           "comment": null,
           "enumItems": [],
-          "mappedType": "text"
+          "mappedType": "json"
         },
-        "execution_result": {
-          "name": "execution_result",
+        "allowed_providers": {
+          "name": "allowed_providers",
           "type": "jsonb",
           "unsigned": false,
           "autoincrement": false,
@@ -741,7 +1179,7 @@
         },
         "created_at": {
           "name": "created_at",
-          "type": "timestamptz",
+          "type": "timestamptz(6)",
           "unsigned": false,
           "autoincrement": false,
           "primary": false,
@@ -755,25 +1193,9 @@
           "enumItems": [],
           "mappedType": "datetime"
         },
-        "expires_at": {
-          "name": "expires_at",
-          "type": "timestamptz",
-          "unsigned": false,
-          "autoincrement": false,
-          "primary": false,
-          "nullable": false,
-          "unique": false,
-          "length": 6,
-          "precision": null,
-          "scale": null,
-          "default": null,
-          "comment": null,
-          "enumItems": [],
-          "mappedType": "datetime"
-        },
-        "resolved_at": {
-          "name": "resolved_at",
-          "type": "timestamptz",
+        "deleted_at": {
+          "name": "deleted_at",
+          "type": "timestamptz(6)",
           "unsigned": false,
           "autoincrement": false,
           "primary": false,
@@ -787,8 +1209,72 @@
           "enumItems": [],
           "mappedType": "datetime"
         },
-        "resolved_by_user_id": {
-          "name": "resolved_by_user_id",
+        "id": {
+          "name": "id",
+          "type": "uuid",
+          "unsigned": false,
+          "autoincrement": false,
+          "primary": true,
+          "nullable": false,
+          "unique": false,
+          "length": null,
+          "precision": null,
+          "scale": null,
+          "default": "gen_random_uuid()",
+          "comment": null,
+          "enumItems": [],
+          "mappedType": "uuid"
+        },
+        "organization_id": {
+          "name": "organization_id",
+          "type": "uuid",
+          "unsigned": false,
+          "autoincrement": false,
+          "primary": false,
+          "nullable": true,
+          "unique": false,
+          "length": null,
+          "precision": null,
+          "scale": null,
+          "default": null,
+          "comment": null,
+          "enumItems": [],
+          "mappedType": "uuid"
+        },
+        "tenant_id": {
+          "name": "tenant_id",
+          "type": "uuid",
+          "unsigned": false,
+          "autoincrement": false,
+          "primary": false,
+          "nullable": false,
+          "unique": false,
+          "length": null,
+          "precision": null,
+          "scale": null,
+          "default": null,
+          "comment": null,
+          "enumItems": [],
+          "mappedType": "uuid"
+        },
+        "updated_at": {
+          "name": "updated_at",
+          "type": "timestamptz(6)",
+          "unsigned": false,
+          "autoincrement": false,
+          "primary": false,
+          "nullable": false,
+          "unique": false,
+          "length": 6,
+          "precision": null,
+          "scale": null,
+          "default": null,
+          "comment": null,
+          "enumItems": [],
+          "mappedType": "datetime"
+        },
+        "updated_by_user_id": {
+          "name": "updated_by_user_id",
           "type": "uuid",
           "unsigned": false,
           "autoincrement": false,
@@ -804,68 +1290,51 @@
           "mappedType": "uuid"
         }
       },
-      "name": "ai_pending_actions",
-      "schema": "public",
       "indexes": [
         {
-          "keyName": "ai_pending_actions_tenant_org_agent_status_idx",
-          "columnNames": [
-            "tenant_id",
-            "organization_id",
-            "agent_id",
-            "status"
-          ],
-          "composite": true,
-          "constraint": false,
-          "primary": false,
-          "unique": false
-        },
-        {
-          "keyName": "ai_pending_actions_tenant_org_status_expires_idx",
-          "columnNames": [
-            "tenant_id",
-            "organization_id",
-            "status",
-            "expires_at"
-          ],
-          "composite": true,
-          "constraint": false,
-          "primary": false,
-          "unique": false
-        },
-        {
-          "keyName": "ai_pending_actions_tenant_org_idempotency_uq",
-          "columnNames": [],
-          "composite": false,
-          "constraint": false,
-          "primary": false,
-          "unique": false,
-          "expression": "create unique index \"ai_pending_actions_tenant_org_idempotency_uq\" on \"ai_pending_actions\" (\"tenant_id\", \"organization_id\", \"idempotency_key\") where \"organization_id\" is not null"
-        },
-        {
-          "keyName": "ai_pending_actions_tenant_idem_null_org_uq",
-          "columnNames": [],
-          "composite": false,
-          "constraint": false,
-          "primary": false,
-          "unique": false,
-          "expression": "create unique index \"ai_pending_actions_tenant_idem_null_org_uq\" on \"ai_pending_actions\" (\"tenant_id\", \"idempotency_key\") where \"organization_id\" is null"
-        },
-        {
-          "keyName": "ai_pending_actions_pkey",
           "columnNames": [
             "id"
           ],
           "composite": false,
           "constraint": true,
+          "keyName": "ai_tenant_model_allowlists_pkey",
           "primary": true,
           "unique": true
+        },
+        {
+          "columnNames": [
+            "tenant_id"
+          ],
+          "composite": false,
+          "constraint": false,
+          "keyName": "ai_tenant_model_allowlists_tenant_idx",
+          "primary": false,
+          "unique": false
+        },
+        {
+          "columnNames": [],
+          "composite": false,
+          "constraint": false,
+          "keyName": "ai_tenant_model_allowlists_tenant_null_org_uq",
+          "primary": false,
+          "unique": false,
+          "expression": "create unique index \"ai_tenant_model_allowlists_tenant_null_org_uq\" on \"ai_tenant_model_allowlists\" (\"tenant_id\") where \"deleted_at\" is null and \"organization_id\" is null"
+        },
+        {
+          "columnNames": [],
+          "composite": false,
+          "constraint": false,
+          "keyName": "ai_tenant_model_allowlists_tenant_org_uq",
+          "primary": false,
+          "unique": false,
+          "expression": "create unique index \"ai_tenant_model_allowlists_tenant_org_uq\" on \"ai_tenant_model_allowlists\" (\"tenant_id\", \"organization_id\") where \"deleted_at\" is null and \"organization_id\" is not null"
         }
       ],
       "checks": [],
       "foreignKeys": {},
-      "nativeEnums": {}
+      "comment": null
     }
   ],
+  "views": [],
   "nativeEnums": {}
 }

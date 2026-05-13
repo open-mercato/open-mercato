@@ -421,8 +421,10 @@ describe('normalizePath (CodeQL js/polynomial-redos regression)', () => {
     const out = normalizePath(huge)
     const elapsed = Date.now() - start
     expect(out).toBe('/')
-    // 200ms is generous; the linear scan typically finishes in <20ms.
-    expect(elapsed).toBeLessThan(200)
+    // 1000ms is intentionally loose so slow CI runners don't flake. The linear
+    // scan typically finishes in <20ms; the polynomial-backtracking regression
+    // would take several seconds, so this budget still catches it.
+    expect(elapsed).toBeLessThan(1000)
   })
 
   it('only strips trailing slashes — never internal ones', () => {

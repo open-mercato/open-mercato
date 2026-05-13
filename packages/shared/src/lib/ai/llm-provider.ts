@@ -21,7 +21,7 @@ export type EnvLookup = Record<string, string | undefined>
  * Metadata describing a single model available in an LLM provider.
  *
  * Used by the AI Assistant UI to populate model dropdowns and by the
- * routing layer to pick defaults when `OPENCODE_MODEL` is not set.
+ * routing layer to pick defaults when `OM_AI_MODEL` is not set.
  */
 export interface LlmModelInfo {
   /**
@@ -56,9 +56,10 @@ export interface LlmCreateModelOptions {
   /** Resolved API key for the provider. */
   apiKey: string
   /**
-   * Optional override for adapters that support a custom base URL
-   * (e.g. OpenAI protocol adapter pointed at DeepInfra, Groq, or LiteLLM).
-   * Adapters that don't use base URLs (Anthropic, Google) ignore this.
+   * Optional override for the upstream base URL. Every OpenAI-compatible
+   * adapter MUST honor baseURL; Anthropic now also honors it (Messages-
+   * protocol relays only — Cloudflare AI Gateway in Anthropic mode, Helicone
+   * proxy); Google honors it when the SDK supports it (@ai-sdk/google ≥3.0).
    */
   baseURL?: string
 }
@@ -76,8 +77,8 @@ export interface LlmProvider {
   /**
    * Stable identifier used in configuration, env vars, and the registry.
    * MUST be lowercase snake_case or kebab-case (e.g. `anthropic`, `deepinfra`,
-   * `openai`, `internal-litellm`). The `OPENCODE_PROVIDER` env var resolves
-   * to this value.
+   * `openai`, `internal-litellm`). The `OM_AI_PROVIDER` env var resolves to
+   * this value; the legacy `OPENCODE_PROVIDER` env var is a BC fallback.
    */
   readonly id: string
   /** Human-readable display name for UI dropdowns. */
@@ -90,7 +91,7 @@ export interface LlmProvider {
   /**
    * Default model id returned by {@link LlmProvider.defaultModels}[0]
    * when the caller does not specify one. Used by the routing layer when
-   * `OPENCODE_MODEL` is not set.
+   * `OM_AI_MODEL` is not set.
    */
   readonly defaultModel: string
   /** Curated list of models shown in the UI dropdown for this provider. */

@@ -509,7 +509,7 @@ a phase are mostly independent.
 
 - [ ] `3.1` Migrate `agent-runtime.resolveAgentModel` to `createModelFactory`. Delete the inline duplicate.
 - [ ] `3.2` Replace `api/route/route.ts`'s hardcoded `order` walk with the factory.
-- [ ] `3.3` Unify `inbox_ops/lib/llmProvider.ts` resolution order with the factory; legacy `OPENCODE_PROVIDER` / `OPENCODE_MODEL` move to step 5 (after `AI_DEFAULT_*`) instead of step 1.
+- [ ] `3.3` Unify `inbox_ops/lib/llmProvider.ts` resolution order with the factory; legacy `OPENCODE_PROVIDER` / `OPENCODE_MODEL` move behind canonical `OM_AI_PROVIDER` / `OM_AI_MODEL` instead of step 1.
 - [ ] `3.4` Remove the duplicate `AiAgentDefinition` shapes in `customers/ai-agents.ts` and `catalog/ai-agents.ts`; both import from `@open-mercato/ai-assistant`.
 - [ ] `3.5` Update `packages/ai-assistant/AGENTS.md` to mark the Step 5.2 follow-up as done; add changelog entry.
 - [ ] `3.6` Run `yarn test` and the integration suite for `inbox_ops`, `agent-runtime`, `agent-runtime-object`, `model-factory`, `chat-config`, and `route` route tests.
@@ -606,16 +606,18 @@ risk.** LOW with the doc-comment.
 
 ### R4 — `<MODULE>_AI_PROVIDER` collides with future env conventions (LOW)
 
-**Failure scenario.** A future module named `ai_default` would shadow
-`AI_DEFAULT_AI_MODEL` and `AI_DEFAULT_AI_PROVIDER` against the global env
-var.
+**Failure scenario.** A future module named `runtime_defaults` would create
+`OM_AI_RUNTIME_DEFAULTS_MODEL` and `OM_AI_RUNTIME_DEFAULTS_PROVIDER`
+per-module env vars, which look close to the global `OM_AI_MODEL` /
+`OM_AI_PROVIDER` names.
 
-**Mitigation.** The spec reserves `AI_DEFAULT_*` as a global namespace; the
-module-id-prefixed envs always include the moduleId verbatim, so a module
-named `ai_default` would resolve `AI_DEFAULT_AI_PROVIDER` (uppercased
-moduleId + `_AI_PROVIDER`), not `OM_AI_PROVIDER`. The collision is only
-hypothetical until someone adds such a module; if they do, the global wins
-and we revisit.
+**Mitigation.** The canonical global namespace is `OM_AI_PROVIDER` /
+`OM_AI_MODEL`; per-module overrides are namespaced as
+`OM_AI_<MODULE>_PROVIDER` / `OM_AI_<MODULE>_MODEL`. A hypothetical module
+named `runtime_defaults` would resolve `OM_AI_RUNTIME_DEFAULTS_PROVIDER`
+(uppercased moduleId between `OM_AI_` and `_PROVIDER`), not
+`OM_AI_PROVIDER`. The collision is only hypothetical until someone adds such
+a module; if they do, the global wins and we revisit.
 
 **Severity.** LOW. **Affected area.** Hypothetical. **Residual risk.** LOW.
 
@@ -649,7 +651,7 @@ AI Agent" with a TODO link to this spec.
 
 **Mitigation.** (a) The `<ModelPicker>` UI only lists models from the providers' curated `defaultModels` arrays — it does not expose a free-form input — so users can only pick from a vetted catalog. (b) The dispatcher logs the resolved `(providerId, modelId, source)` on every turn at info level so a billing audit can attribute spend to overrides. (c) Agents that pin a model for cost reasons set `allowRuntimeModelOverride: false`. (d) A future spec can add per-tenant model allowlists to `ai_agent_runtime_overrides` if (b) + (c) prove insufficient — out of scope here.
 
-**Severity.** MEDIUM. **Affected area.** Tenants who delegate chat access broadly. **Residual risk.** MEDIUM until a per-tenant model allowlist lands; documented as a known limitation in the Phase 4b docs.
+**Severity.** MEDIUM. **Affected area.** Tenants who delegate chat access broadly. **Residual risk.** LOW after Phase 1780-6 — admins can pin the tenant to specific cheap models from `/backend/config/ai-assistant/allowlist`; the editor's MultiSelect is the only on-rails surface for narrowing the model set without changing env vars.
 
 ### R8 — Backward compatibility (per `BACKWARD_COMPATIBILITY.md`)
 
@@ -696,3 +698,4 @@ keeps its name and input shape.
 - **2026-04-27** — Initial draft. Authored after a survey that found three independent gaps in the new typed-agent framework (no per-agent provider, no `.env`-driven default for the new framework, no consistent baseURL story). Phasing chosen so Phase 0 ships value in <30 lines and the riskier call-site unification is deferred to Phase 3 with mitigations.
 - **2026-04-27** — Phase 4 expanded into 4a (backend persistence + dispatcher API) and 4b (chat picker + editable settings + playground panel + docs) after feedback that runtime override surfaces (chat-UI picker, editable settings UI, API query params) were missing. Added `ai_agent_runtime_overrides` table, `allowRuntimeModelOverride` flag, `AI_RUNTIME_BASEURL_ALLOWLIST` env, and risks R6 (credential exfiltration via `baseUrl`) and R7 (cost burn via flagship model override). Resolution chain extended from 5 to 7 steps.
 - **2026-05-11** — Phase 0 env var names renamed during PR #1856 review. Process-wide knobs are now `OM_AI_PROVIDER` / `OM_AI_MODEL` (legacy `OPENCODE_PROVIDER` / `OPENCODE_MODEL` honored as BC fallbacks) and per-module overrides are `OM_AI_<MODULE>_MODEL` (legacy `<MODULE>_AI_MODEL` honored as BC fallback). Aligns Phase 0 with the existing `OM_*` env convention used by the rest of the runtime (`OM_SEARCH_*`, `OM_SECURITY_*`, `OM_ENABLE_*`). The PR also bumped scope to thread the new vars through `docker-compose.yml`, `docker-compose.fullapp*.yml`, `docker/opencode/entrypoint.sh`, `.devcontainer/devcontainer.json`, and the `create-mercato-app` standalone template so a deployment that only sets `OPENAI_API_KEY` resolves to OpenAI + `gpt-5-mini` out of the box.
+- **2026-05-12** — **Phase 1780-6**: tenant-editable provider/model allowlist. Adds the additive `ai_tenant_model_allowlists` table (one row per tenant/org, JSONB columns for `allowed_providers` / `allowed_models_by_provider`, soft-delete), `AiTenantModelAllowlistRepository`, the `intersectAllowlists(env, knownProviderIds, tenantSnapshot)` helper, an admin page at `/backend/config/ai-assistant/allowlist` with provider/model checkboxes, and a new sub-route `/api/ai_assistant/settings/allowlist` (PUT/DELETE) that rejects out-of-env entries with `provider_not_in_env_allowlist` / `model_not_in_env_allowlist` 400 codes. The model factory, the chat dispatcher, the per-agent `:agentId/models` endpoint, and the settings GET/PUT routes all now clip against the EFFECTIVE allowlist (env ∩ tenant). Closes the R7 "future spec for per-tenant model allowlists" follow-up. Adds 31 unit tests across `model-allowlist.test.ts`, `model-factory.test.ts`, and `AiTenantModelAllowlistRepository.test.ts`. No existing contract surface modified — additive across all 13 BC categories.

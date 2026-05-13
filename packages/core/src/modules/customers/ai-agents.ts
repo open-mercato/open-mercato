@@ -20,59 +20,12 @@
  * the structured template is additionally exported so downstream Phases
  * (5.3 prompt-override merge, 5.2 resolvePageContext hydration) can
  * address sections by name.
- *
- * Local type declarations mirror the public shapes from
- * `@open-mercato/ai-assistant`. The customers module does not depend on
- * `@open-mercato/ai-assistant` (see the companion comment in
- * `ai-tools/types.ts`) — the generator imports this file via the app's
- * bundler, so the runtime graph resolves through
- * `apps/mercato/.mercato/generated/ai-agents.generated.ts`. Keeping the
- * type declarations local mirrors how the `customers/ai-tools/types.ts`
- * handles `AiToolDefinition`.
  */
-import type { AwilixContainer } from 'awilix'
+import type {
+  AiAgentDefinition,
+  AiAgentPageContextInput,
+} from '@open-mercato/ai-assistant/modules/ai_assistant/lib/ai-agent-definition'
 import { hydrateCustomersAccountContext } from './ai-agents-context'
-
-type AiAgentExecutionMode = 'chat' | 'object'
-type AiAgentMutationPolicy = 'read-only' | 'confirm-required' | 'destructive-confirm-required'
-type AiAgentAcceptedMediaType = 'image' | 'pdf' | 'file'
-type AiAgentDataOperation = 'read' | 'search' | 'aggregate'
-
-interface AiAgentPageContextInput {
-  entityType: string
-  recordId: string
-  container: AwilixContainer
-  tenantId: string | null
-  organizationId: string | null
-}
-
-interface AiAgentDataCapabilities {
-  entities?: string[]
-  operations?: AiAgentDataOperation[]
-  searchableFields?: string[]
-}
-
-interface AiAgentDefinition {
-  id: string
-  moduleId: string
-  label: string
-  description: string
-  systemPrompt: string
-  allowedTools: string[]
-  executionMode?: AiAgentExecutionMode
-  defaultModel?: string
-  acceptedMediaTypes?: AiAgentAcceptedMediaType[]
-  requiredFeatures?: string[]
-  uiParts?: string[]
-  readOnly?: boolean
-  mutationPolicy?: AiAgentMutationPolicy
-  maxSteps?: number
-  output?: unknown
-  resolvePageContext?: (ctx: AiAgentPageContextInput) => Promise<string | null>
-  keywords?: string[]
-  domain?: string
-  dataCapabilities?: AiAgentDataCapabilities
-}
 
 type PromptSectionName =
   | 'role'
