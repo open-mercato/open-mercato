@@ -14,10 +14,38 @@ issues Let's Encrypt certificates on demand via TLS-ALPN-01.
 | `traefik.yml` | Static config: entrypoints (`web`/`websecure`), HTTP→HTTPS redirect, ACME resolver (Let's Encrypt + TLS-ALPN-01), Docker provider. |
 | `dynamic.example.yml` | Reference dynamic config for non-Docker deployments. Replace placeholders before mounting at `/etc/traefik/dynamic.yml`. |
 
-In Docker, routers/services/middlewares are declared as **labels** on the
-`app` service in `docker-compose.fullapp.yml` and `docker-compose.fullapp.dev.yml`,
-which lets compose-level `${ENV}` substitution inject `DOMAIN_CHECK_SECRET`
-and `PLATFORM_PRIMARY_HOST`.
+The bundled Traefik service and the routers/services/middlewares it reads
+live in **`docker-compose.fullapp.traefik.yml`** — an **opt-in overlay**.
+The base compose files (`docker-compose.fullapp.yml` / `…dev.yml`) ship
+without Traefik so the stack runs cleanly behind an external reverse proxy
+(Dokploy, Caddy, nginx, Cloudflare Tunnel, ELB, …) without port or label
+conflicts. Skip the overlay when something upstream already terminates TLS
+and replicate the routers + ForwardAuth middleware in *that* proxy's config.
+
+## When to use the bundled Traefik
+
+| Scenario | Bundled Traefik (this overlay)? |
+|----------|--------------------------------|
+| Self-hosted VPS, you own port 80/443 | Yes |
+| Behind Dokploy / Coolify / managed PaaS that already runs Traefik | **No** — register the routers + ForwardAuth middleware in the PaaS Traefik instead |
+| Cloudflare Tunnel / ngrok / external L7 load balancer terminates TLS | No |
+| Local dev without TLS (use `X-Force-Host` test bypass) | No |
+
+## Usage with the overlay
+
+```bash
+# Production:
+docker compose -f docker-compose.fullapp.yml \
+  -f docker-compose.fullapp.traefik.yml up -d
+
+# Dev (LE staging is the default — override TRAEFIK_CA_SERVER for prod):
+docker compose -f docker-compose.fullapp.dev.yml \
+  -f docker-compose.fullapp.traefik.yml up --build
+```
+
+Routers/services/middlewares are declared as **labels on the `app` service**
+inside the overlay so compose-level `${ENV}` substitution can inject
+`DOMAIN_CHECK_SECRET` and `PLATFORM_PRIMARY_HOST`.
 
 ## Required environment
 

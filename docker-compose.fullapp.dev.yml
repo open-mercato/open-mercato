@@ -23,31 +23,12 @@ services:
     networks:
       - mercato-network-fullapp
 
-  traefik:
-    image: traefik:v3.2
-    container_name: mercato-traefik-${DEPLOY_ENV:-local}
-    restart: unless-stopped
-    command:
-      - "--configFile=/etc/traefik/traefik.yml"
-    ports:
-      - "${TRAEFIK_HTTP_PORT:-80}:80"
-      - "${TRAEFIK_HTTPS_PORT:-443}:443"
-      - "${TRAEFIK_DASHBOARD_PORT:-8081}:8080"
-    volumes:
-      - ./docker/traefik/traefik.yml:/etc/traefik/traefik.yml:ro
-      - traefik_acme:/letsencrypt
-      - /var/run/docker.sock:/var/run/docker.sock:ro
-    environment:
-      ACME_EMAIL: ${ACME_EMAIL:-admin@example.com}
-      TRAEFIK_LOG_LEVEL: ${TRAEFIK_LOG_LEVEL:-INFO}
-      # Default to LE staging in dev so we don't burn rate limits while
-      # iterating. Set TRAEFIK_CA_SERVER to the prod URL to flip to real certs.
-      TRAEFIK_CA_SERVER: ${TRAEFIK_CA_SERVER:-https://acme-staging-v02.api.letsencrypt.org/directory}
-      TRAEFIK_DOCKER_NETWORK: mercato-network-${DEPLOY_ENV:-local}
-    depends_on:
-      - app
-    networks:
-      - mercato-network-fullapp
+  # Traefik (TLS termination, on-demand ACME, custom-domain ForwardAuth gate)
+  # is now an opt-in overlay so this base file works behind an external reverse
+  # proxy (Dokploy, Caddy, nginx, Cloudflare Tunnel, etc.) without conflict.
+  # To run the bundled Traefik in dev (staging ACME by default):
+  #   docker compose -f docker-compose.fullapp.dev.yml \
+  #     -f docker-compose.fullapp.traefik.yml up --build
 
   app:
     build:
@@ -56,29 +37,7 @@ services:
     image: open-mercato/app:${DEPLOY_ENV:-local}-dev
     user: "0"
     command: ["/bin/sh", "/app/docker/scripts/dev-entrypoint.sh"]
-    labels:
-      - "traefik.enable=true"
-      - "traefik.docker.network=mercato-network-${DEPLOY_ENV:-local}"
-      - "traefik.http.routers.platform.rule=Host(`${PLATFORM_PRIMARY_HOST:-openmercato.com}`)"
-      - "traefik.http.routers.platform.priority=100"
-      - "traefik.http.routers.platform.entrypoints=websecure"
-      - "traefik.http.routers.platform.tls=true"
-      - "traefik.http.routers.platform.tls.certresolver=letsencrypt"
-      - "traefik.http.routers.platform.service=app-upstream"
-      - "traefik.http.routers.customer.rule=HostRegexp(`{any:.+}`)"
-      - "traefik.http.routers.customer.priority=1"
-      - "traefik.http.routers.customer.entrypoints=websecure"
-      - "traefik.http.routers.customer.tls=true"
-      - "traefik.http.routers.customer.tls.certresolver=letsencrypt"
-      - "traefik.http.routers.customer.service=app-upstream"
-      - "traefik.http.routers.customer.middlewares=inject-domain-check-secret,domain-check"
-      - "traefik.http.middlewares.inject-domain-check-secret.headers.customrequestheaders.X-Domain-Check-Secret=${DOMAIN_CHECK_SECRET}"
-      - "traefik.http.middlewares.domain-check.forwardauth.address=http://app:3000/api/customer_accounts/domain-check"
-      - "traefik.http.middlewares.domain-check.forwardauth.authrequestheaders=X-Domain-Check-Secret,X-Forwarded-Host,X-Forwarded-Proto,X-Forwarded-Uri"
-      - "traefik.http.middlewares.domain-check.forwardauth.authresponseheaders=X-Open-Mercato-Origin"
-      - "traefik.http.middlewares.domain-check.forwardauth.trustforwardheader=false"
-      - "traefik.http.services.app-upstream.loadbalancer.server.port=3000"
-      - "traefik.http.services.app-upstream.loadbalancer.passhostheader=true"
+    # Traefik labels live in docker-compose.fullapp.traefik.yml — opt-in only.
     volumes:
       - .:/app
       - app_node_modules:/app/node_modules
@@ -278,8 +237,6 @@ volumes:
     name: mercato-pkg-ai-assistant-dist-${DEPLOY_ENV:-local}
   pkg_create_app_dist:
     name: mercato-pkg-create-app-dist-${DEPLOY_ENV:-local}
-  traefik_acme:
-    name: mercato-traefik-acme-${DEPLOY_ENV:-local}
 
 networks:
   mercato-network-fullapp:
