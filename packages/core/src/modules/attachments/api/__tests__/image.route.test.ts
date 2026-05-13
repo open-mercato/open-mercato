@@ -18,6 +18,7 @@ jest.mock('@open-mercato/core/modules/attachments/data/entities', () => ({
 }))
 
 jest.mock('@open-mercato/core/modules/attachments/lib/storage', () => ({
+  resolvePartitionRoot: jest.fn(() => '/tmp'),
   resolveAttachmentAbsolutePath: jest.fn(() => '/tmp/attachment'),
 }))
 

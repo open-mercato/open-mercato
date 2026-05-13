@@ -5,7 +5,6 @@ import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
 import { getAuthFromRequest } from '@open-mercato/shared/lib/auth/server'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import { Attachment, AttachmentPartition } from '@open-mercato/core/modules/attachments/data/entities'
-import { resolveAttachmentAbsolutePath } from '@open-mercato/core/modules/attachments/lib/storage'
 import {
   buildThumbnailCacheKey,
   readThumbnailCache,
@@ -14,13 +13,13 @@ import {
 import { canRenderInlineAttachment } from '@open-mercato/core/modules/attachments/lib/security'
 import { checkAttachmentAccess } from '@open-mercato/core/modules/attachments/lib/access'
 import type { EntityManager } from '@mikro-orm/postgresql'
-import { promises as fs } from 'fs'
 import { attachmentsTag, imageQuerySchema, attachmentErrorSchema } from '../../../openapi'
 import {
   MAX_IMAGE_SOURCE_PIXELS,
   validateImageDimensions,
   validateImageMagicBytes,
 } from '@open-mercato/core/modules/attachments/lib/imageSafety'
+import { StorageDriverFactory } from '../../../../lib/drivers'
 
 const querySchema = z.object({
   width: z.coerce.number().int().min(1).max(4000).optional(),
@@ -51,6 +50,8 @@ export async function GET(
 
   const { resolve } = await createRequestContainer()
   const em = resolve('em') as EntityManager
+  const storageDriverFactory =
+    (resolve('storageDriverFactory') as StorageDriverFactory | null) ?? new StorageDriverFactory(em)
 
   const attachment = await em.findOne(Attachment, {
     id,
@@ -71,10 +72,9 @@ export async function GET(
     return NextResponse.json({ error: message }, { status: access.status })
   }
 
-  const filePath = resolveAttachmentAbsolutePath(
-    attachment.partitionCode,
-    attachment.storagePath,
-    attachment.storageDriver
+  const driver = storageDriverFactory.resolveForAttachment(
+    attachment.storageDriver,
+    partition.configJson,
   )
   const cacheKey = buildThumbnailCacheKey(width, height, cropType)
   try {
@@ -83,7 +83,7 @@ export async function GET(
       buffer = await readThumbnailCache(attachment.partitionCode, attachment.id, cacheKey)
     }
     if (!buffer) {
-      const input = await fs.readFile(filePath)
+      const { buffer: input } = await driver.read(attachment.partitionCode, attachment.storagePath)
       const magicBytesValidation = validateImageMagicBytes(input, attachment.mimeType)
       if (!magicBytesValidation.ok) {
         return NextResponse.json({ error: magicBytesValidation.error }, { status: magicBytesValidation.status })

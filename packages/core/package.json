@@ -109,6 +109,10 @@
       "types": "./src/modules/attachments/index.ts",
       "default": "./dist/modules/attachments/index.js"
     },
+    "./modules/attachments/lib/drivers": {
+      "types": "./src/modules/attachments/lib/drivers/index.ts",
+      "default": "./dist/modules/attachments/lib/drivers/index.js"
+    },
     "./modules/dashboards": {
       "types": "./src/modules/dashboards/index.ts",
       "default": "./dist/modules/dashboards/index.js"

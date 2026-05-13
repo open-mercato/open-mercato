@@ -7,9 +7,9 @@ import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
 import { buildAttachmentFileUrl, buildAttachmentImageUrl, slugifyAttachmentFileName } from '../lib/imageUrls'
 import { ensureDefaultPartitions, resolveDefaultPartitionCode, sanitizePartitionCode } from '../lib/partitions'
 import { Attachment, AttachmentPartition } from '../data/entities'
-import { storePartitionFile, deletePartitionFile } from '../lib/storage'
 import { extractAttachmentContent } from '../lib/textExtraction'
 import { requestOcrProcessing } from '../lib/ocrQueue'
+import { StorageDriverFactory } from '../lib/drivers'
 import { OcrService, shouldUseLlmOcr } from '../lib/ocrService'
 import { clearAttachmentThumbnailCache } from '../lib/thumbnailCache'
 import {
@@ -289,6 +289,8 @@ export async function POST(req: Request) {
   const { resolve } = await createRequestContainer()
   const em = resolve('em') as EntityManager
   const dataEngine = resolve('dataEngine')
+  const storageDriverFactory =
+    (resolve('storageDriverFactory') as StorageDriverFactory | null) ?? new StorageDriverFactory(em)
   await ensureDefaultPartitions(em)
   // Optional per-field validations
   let partitionFromField: string | null = null
@@ -374,15 +376,17 @@ export async function POST(req: Request) {
   if (requestedPublicOverride) {
     return NextResponse.json({ error: t('attachments.errors.publicPartitionBlocked', 'Public storage partitions cannot be selected explicitly for this upload.') }, { status: 403 })
   }
-  let stored
+  const uploadDriver = await storageDriverFactory.resolveForPartition(partition.code, { tenantId, organizationId: orgId })
+  let storedPath: string
   try {
-    stored = await storePartitionFile({
+    const stored = await uploadDriver.store({
       partitionCode: partition.code,
       orgId,
       tenantId,
       fileName: safeName,
       buffer: buf,
     })
+    storedPath = stored.storagePath
   } catch (error) {
     console.error('[attachments] failed to persist file', error)
     return NextResponse.json({ error: 'Failed to persist attachment.' }, { status: 500 })
@@ -398,13 +402,16 @@ export async function POST(req: Request) {
   const useLlmOcr = Boolean(wantsLlmOcr && ocrService?.available)
 
   if (requiresOcr && !useLlmOcr) {
+    const { filePath: localPath, cleanup } = await uploadDriver.toLocalPath(partition.code, storedPath)
     try {
       extractedContent = await extractAttachmentContent({
-        filePath: stored.absolutePath,
+        filePath: localPath,
         mimeType: fileMimeType,
       })
     } catch (error) {
       console.error('[attachments] failed to extract attachment content', error)
+    } finally {
+      await cleanup().catch(() => {})
     }
   }
 
@@ -425,7 +432,7 @@ export async function POST(req: Request) {
     fileSize: buf.length,
     partitionCode: partition.code,
     storageDriver: partition.storageDriver || 'local',
-    storagePath: stored.storagePath,
+    storagePath: storedPath,
     url: buildAttachmentFileUrl(attachmentId),
     content: extractedContent,
     storageMetadata: metadata,
@@ -433,7 +440,7 @@ export async function POST(req: Request) {
   await em.persist(att).flush()
 
   if (useLlmOcr) {
-    requestOcrProcessing(em, att, stored.absolutePath).catch((error) => {
+    requestOcrProcessing(em, att, uploadDriver, storedPath).catch((error) => {
       console.error('[attachments] failed to queue OCR processing', error)
     })
   } else if (wantsLlmOcr) {
@@ -519,6 +526,8 @@ export async function DELETE(req: Request) {
   const { resolve } = await createRequestContainer()
   const em = resolve('em') as EntityManager
   const dataEngine = resolve('dataEngine')
+  const storageDriverFactory =
+    (resolve('storageDriverFactory') as StorageDriverFactory | null) ?? new StorageDriverFactory(em)
   const deleteFilter: Record<string, unknown> = { id, tenantId: auth.tenantId!, organizationId: auth.orgId }
   const record = await em.findOne(Attachment, deleteFilter)
   if (!record) return NextResponse.json({ error: 'Attachment not found' }, { status: 404 })
@@ -527,7 +536,9 @@ export async function DELETE(req: Request) {
     console.error('[attachments] failed to cleanup cached thumbnails', error)
   })
   if (record.storagePath) {
-    await deletePartitionFile(record.partitionCode, record.storagePath, record.storageDriver)
+    const delPartition = await em.findOne(AttachmentPartition, { code: record.partitionCode })
+    const delDriver = storageDriverFactory.resolveForAttachment(record.storageDriver, delPartition?.configJson)
+    await delDriver.delete(record.partitionCode, record.storagePath)
   }
   if (dataEngine) {
     await emitCrudSideEffects({

@@ -1,11 +1,13 @@
 import { Page, PageBody } from '@open-mercato/ui/backend/Page'
 import { Alert, AlertDescription, AlertTitle } from '@open-mercato/ui/primitives/alert'
 import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
+import { parseBooleanWithDefault } from '@open-mercato/shared/lib/boolean'
 import { AttachmentPartitionSettings } from '../../../components/AttachmentPartitionSettings'
 import { isPartitionSettingsLocked } from '../../../lib/partitions'
 
 export default async function AttachmentsConfigurationPage() {
   const partitionsLocked = isPartitionSettingsLocked()
+  const s3Enabled = parseBooleanWithDefault(process.env.OM_ENABLE_STORAGE_S3, false)
   const { t } = await resolveTranslations()
   const lockedTitle = t('attachments.partitions.locked.title', 'Partition settings locked')
   const lockedDescription = t(
@@ -30,7 +32,7 @@ export default async function AttachmentsConfigurationPage() {
             </AlertDescription>
           </Alert>
         ) : null}
-        {!partitionsLocked ? <AttachmentPartitionSettings /> : null}
+        {!partitionsLocked ? <AttachmentPartitionSettings s3Enabled={s3Enabled} /> : null}
       </PageBody>
     </Page>
   )

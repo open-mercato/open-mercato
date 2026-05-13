@@ -179,6 +179,28 @@ services:
     networks:
       - mercato-network-fullapp
 
+  localstack:
+    image: localstack/localstack:latest
+    container_name: mercato-localstack-${DEPLOY_ENV:-local}
+    restart: unless-stopped
+    profiles:
+      - storage-s3
+    ports:
+      - "${LOCALSTACK_PORT:-4566}:4566"
+    environment:
+      SERVICES: s3
+      AWS_DEFAULT_REGION: us-east-1
+      LOCALSTACK_HOST: localhost
+    volumes:
+      - localstack_data:/var/lib/localstack
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "http://localhost:4566/_localstack/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+    networks:
+      - mercato-network-fullapp
+
 volumes:
   postgres_data:
     name: mercato-postgres-data-${DEPLOY_ENV:-local}
@@ -186,6 +208,8 @@ volumes:
     name: mercato-redis-data-${DEPLOY_ENV:-local}
   meilisearch_data:
     name: mercato-meilisearch-data-${DEPLOY_ENV:-local}
+  localstack_data:
+    name: mercato-localstack-data-${DEPLOY_ENV:-local}
   init_marker:
     name: mercato-init-marker-${DEPLOY_ENV:-local}
   attachments_storage:
