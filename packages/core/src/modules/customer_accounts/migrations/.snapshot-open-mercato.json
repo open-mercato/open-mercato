@@ -1826,6 +1826,347 @@
         }
       },
       "nativeEnums": {}
+    },
+    {
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "uuid",
+          "unsigned": false,
+          "autoincrement": false,
+          "primary": true,
+          "nullable": false,
+          "unique": false,
+          "length": null,
+          "precision": null,
+          "scale": null,
+          "default": "gen_random_uuid()",
+          "comment": null,
+          "enumItems": [],
+          "mappedType": "uuid"
+        },
+        "hostname": {
+          "name": "hostname",
+          "type": "text",
+          "unsigned": false,
+          "autoincrement": false,
+          "primary": false,
+          "nullable": false,
+          "unique": true,
+          "length": null,
+          "precision": null,
+          "scale": null,
+          "default": null,
+          "comment": null,
+          "enumItems": [],
+          "mappedType": "text"
+        },
+        "tenant_id": {
+          "name": "tenant_id",
+          "type": "uuid",
+          "unsigned": false,
+          "autoincrement": false,
+          "primary": false,
+          "nullable": false,
+          "unique": false,
+          "length": null,
+          "precision": null,
+          "scale": null,
+          "default": null,
+          "comment": null,
+          "enumItems": [],
+          "mappedType": "uuid"
+        },
+        "organization_id": {
+          "name": "organization_id",
+          "type": "uuid",
+          "unsigned": false,
+          "autoincrement": false,
+          "primary": false,
+          "nullable": false,
+          "unique": false,
+          "length": null,
+          "precision": null,
+          "scale": null,
+          "default": null,
+          "comment": null,
+          "enumItems": [],
+          "mappedType": "uuid"
+        },
+        "replaces_domain_id": {
+          "name": "replaces_domain_id",
+          "type": "uuid",
+          "unsigned": false,
+          "autoincrement": false,
+          "primary": false,
+          "nullable": true,
+          "unique": false,
+          "length": null,
+          "precision": null,
+          "scale": null,
+          "default": null,
+          "comment": null,
+          "enumItems": [],
+          "mappedType": "uuid"
+        },
+        "provider": {
+          "name": "provider",
+          "type": "text",
+          "unsigned": false,
+          "autoincrement": false,
+          "primary": false,
+          "nullable": false,
+          "unique": false,
+          "length": null,
+          "precision": null,
+          "scale": null,
+          "default": "'traefik'",
+          "comment": null,
+          "enumItems": [
+            "traefik"
+          ],
+          "mappedType": "enum"
+        },
+        "status": {
+          "name": "status",
+          "type": "text",
+          "unsigned": false,
+          "autoincrement": false,
+          "primary": false,
+          "nullable": false,
+          "unique": false,
+          "length": null,
+          "precision": null,
+          "scale": null,
+          "default": "'pending'",
+          "comment": null,
+          "enumItems": [
+            "pending",
+            "verified",
+            "active",
+            "dns_failed",
+            "tls_failed"
+          ],
+          "mappedType": "enum"
+        },
+        "verified_at": {
+          "name": "verified_at",
+          "type": "timestamptz",
+          "unsigned": false,
+          "autoincrement": false,
+          "primary": false,
+          "nullable": true,
+          "unique": false,
+          "length": 6,
+          "precision": null,
+          "scale": null,
+          "default": null,
+          "comment": null,
+          "enumItems": [],
+          "mappedType": "datetime"
+        },
+        "last_dns_check_at": {
+          "name": "last_dns_check_at",
+          "type": "timestamptz",
+          "unsigned": false,
+          "autoincrement": false,
+          "primary": false,
+          "nullable": true,
+          "unique": false,
+          "length": 6,
+          "precision": null,
+          "scale": null,
+          "default": null,
+          "comment": null,
+          "enumItems": [],
+          "mappedType": "datetime"
+        },
+        "dns_failure_reason": {
+          "name": "dns_failure_reason",
+          "type": "text",
+          "unsigned": false,
+          "autoincrement": false,
+          "primary": false,
+          "nullable": true,
+          "unique": false,
+          "length": 500,
+          "precision": null,
+          "scale": null,
+          "default": null,
+          "comment": null,
+          "enumItems": [],
+          "mappedType": "text"
+        },
+        "tls_failure_reason": {
+          "name": "tls_failure_reason",
+          "type": "text",
+          "unsigned": false,
+          "autoincrement": false,
+          "primary": false,
+          "nullable": true,
+          "unique": false,
+          "length": 500,
+          "precision": null,
+          "scale": null,
+          "default": null,
+          "comment": null,
+          "enumItems": [],
+          "mappedType": "text"
+        },
+        "tls_retry_count": {
+          "name": "tls_retry_count",
+          "type": "int",
+          "unsigned": false,
+          "autoincrement": false,
+          "primary": false,
+          "nullable": false,
+          "unique": false,
+          "length": null,
+          "precision": null,
+          "scale": null,
+          "default": "0",
+          "comment": null,
+          "enumItems": [],
+          "mappedType": "integer"
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "timestamptz",
+          "unsigned": false,
+          "autoincrement": false,
+          "primary": false,
+          "nullable": false,
+          "unique": false,
+          "length": 6,
+          "precision": null,
+          "scale": null,
+          "default": null,
+          "comment": null,
+          "enumItems": [],
+          "mappedType": "datetime"
+        },
+        "updated_at": {
+          "name": "updated_at",
+          "type": "timestamptz",
+          "unsigned": false,
+          "autoincrement": false,
+          "primary": false,
+          "nullable": true,
+          "unique": false,
+          "length": 6,
+          "precision": null,
+          "scale": null,
+          "default": null,
+          "comment": null,
+          "enumItems": [],
+          "mappedType": "datetime"
+        }
+      },
+      "name": "domain_mappings",
+      "schema": "public",
+      "indexes": [
+        {
+          "columnNames": [
+            "hostname"
+          ],
+          "composite": false,
+          "constraint": true,
+          "keyName": "domain_mappings_hostname_unique",
+          "primary": false,
+          "unique": true
+        },
+        {
+          "columnNames": [
+            "organization_id"
+          ],
+          "composite": false,
+          "constraint": false,
+          "keyName": "domain_mappings_organization_id_idx",
+          "primary": false,
+          "unique": false
+        },
+        {
+          "columnNames": [],
+          "composite": false,
+          "constraint": false,
+          "keyName": "domain_mappings_pending_tls_idx",
+          "primary": false,
+          "unique": false,
+          "expression": "create index \"domain_mappings_pending_tls_idx\" on \"domain_mappings\" (\"status\", \"updated_at\") where \"status\" in ('verified', 'tls_failed')"
+        },
+        {
+          "columnNames": [],
+          "composite": false,
+          "constraint": false,
+          "keyName": "domain_mappings_pending_verification_idx",
+          "primary": false,
+          "unique": false,
+          "expression": "create index \"domain_mappings_pending_verification_idx\" on \"domain_mappings\" (\"status\", \"last_dns_check_at\") where \"status\" in ('pending', 'dns_failed')"
+        },
+        {
+          "columnNames": [
+            "id"
+          ],
+          "composite": false,
+          "constraint": true,
+          "keyName": "domain_mappings_pkey",
+          "primary": true,
+          "unique": true
+        },
+        {
+          "columnNames": [],
+          "composite": false,
+          "constraint": true,
+          "keyName": "domain_mappings_replaces_domain_id_unique",
+          "primary": false,
+          "unique": true,
+          "expression": "create unique index \"domain_mappings_replaces_domain_id_unique\" on \"domain_mappings\" (\"replaces_domain_id\") where \"replaces_domain_id\" is not null"
+        },
+        {
+          "columnNames": [
+            "tenant_id"
+          ],
+          "composite": false,
+          "constraint": false,
+          "keyName": "domain_mappings_tenant_id_idx",
+          "primary": false,
+          "unique": false
+        }
+      ],
+      "checks": [
+        {
+          "name": "domain_mappings_hostname_normalized_chk",
+          "expression": "\"hostname\" = lower(\"hostname\") and \"hostname\" not like '%.'",
+          "definition": "check (\"hostname\" = lower(\"hostname\") and \"hostname\" not like '%.')"
+        },
+        {
+          "name": "domain_mappings_provider_check",
+          "expression": "\"provider\" in ('traefik')",
+          "definition": "check (\"provider\" in ('traefik'))",
+          "columnName": "provider"
+        },
+        {
+          "name": "domain_mappings_status_check",
+          "expression": "\"status\" in ('pending', 'verified', 'active', 'dns_failed', 'tls_failed')",
+          "definition": "check (\"status\" in ('pending', 'verified', 'active', 'dns_failed', 'tls_failed'))",
+          "columnName": "status"
+        }
+      ],
+      "foreignKeys": {
+        "domain_mappings_replaces_domain_id_foreign": {
+          "columnNames": [
+            "replaces_domain_id"
+          ],
+          "constraintName": "domain_mappings_replaces_domain_id_foreign",
+          "localTableName": "public.domain_mappings",
+          "referencedColumnNames": [
+            "id"
+          ],
+          "referencedTableName": "public.domain_mappings",
+          "deleteRule": "set null"
+        }
+      },
+      "nativeEnums": {}
     }
   ],
   "nativeEnums": {}

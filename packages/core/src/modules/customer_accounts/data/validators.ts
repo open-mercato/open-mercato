@@ -1,4 +1,5 @@
 import { z } from 'zod'
+import { normalizeHostname } from '@open-mercato/core/modules/customer_accounts/lib/hostname'
 
 const emailField = z.string().email().max(255)
 const passwordField = z.string().min(8).max(128)
@@ -126,3 +127,28 @@ export type UpdateRoleAclInput = z.infer<typeof updateRoleAclSchema>
 export type InviteUserInput = z.infer<typeof inviteUserSchema>
 export type AssignRolesInput = z.infer<typeof assignRolesSchema>
 export type AdminUpdateUserInput = z.infer<typeof adminUpdateUserSchema>
+
+// Custom domain mapping
+export const hostnameSchema = z
+  .string()
+  .min(1, 'Hostname is required')
+  .max(512, 'Hostname is too long')
+  .transform((value, ctx) => {
+    try {
+      return normalizeHostname(value)
+    } catch (err) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: err instanceof Error ? err.message : 'Invalid hostname',
+      })
+      return z.NEVER
+    }
+  })
+
+export const registerDomainSchema = z.object({
+  hostname: hostnameSchema,
+  organizationId: z.string().uuid(),
+  replacesDomainId: z.string().uuid().optional(),
+})
+
+export type RegisterDomainInput = z.infer<typeof registerDomainSchema>

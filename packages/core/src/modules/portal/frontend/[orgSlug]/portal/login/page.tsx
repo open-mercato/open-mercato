@@ -39,6 +39,7 @@ export default function PortalLoginPage({ params }: Props) {
         const result = await apiCall<{ ok: boolean; error?: string }>('/api/customer_accounts/login', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
+          credentials: 'include',
           body: JSON.stringify({ email, password, tenantId: tenant.tenantId }),
         })
 
