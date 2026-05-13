@@ -7,6 +7,7 @@ import { z } from 'zod'
 import { syncExcelPreviewQuerySchema, syncExcelUploadResponseSchema } from '../../data/validators'
 import { SyncExcelUpload } from '../../data/entities'
 import { buildSuggestedMapping } from '../../lib/mapping'
+import { resolveSyncExcelConcreteScope } from '../../lib/scope'
 
 export const metadata = {
   GET: { requireAuth: true, requireFeatures: ['sync_excel.view'] },
@@ -34,7 +35,7 @@ export const openApi = {
 
 export async function GET(request: Request) {
   const auth = await getAuthFromRequest(request)
-  if (!auth?.tenantId || !auth.orgId) {
+  if (!auth?.tenantId) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
   }
 
@@ -49,20 +50,22 @@ export async function GET(request: Request) {
   }
 
   const container = await createRequestContainer()
+  const scopeResult = await resolveSyncExcelConcreteScope({ auth, container, request })
+  if (!scopeResult.ok) {
+    return NextResponse.json({ error: scopeResult.error }, { status: scopeResult.status })
+  }
+  const { scope } = scopeResult
   const em = container.resolve('em') as EntityManager
   const upload = await findOneWithDecryption(
     em,
     SyncExcelUpload,
     {
       id: parsedQuery.data.uploadId,
-      organizationId: auth.orgId,
-      tenantId: auth.tenantId,
+      organizationId: scope.organizationId,
+      tenantId: scope.tenantId,
     },
     undefined,
-    {
-      organizationId: auth.orgId,
-      tenantId: auth.tenantId,
-    },
+    scope,
   )
 
   if (!upload) {

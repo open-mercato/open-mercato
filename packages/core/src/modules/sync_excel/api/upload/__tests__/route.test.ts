@@ -3,6 +3,10 @@
 const mockGetAuthFromRequest = jest.fn()
 const mockIsMultipartRequestWithinUploadLimit = jest.fn()
 const mockResolveDefaultAttachmentMaxUploadBytes = jest.fn()
+const mockResolveSyncExcelConcreteScope = jest.fn()
+const mockContainer = {
+  resolve: jest.fn(),
+}
 
 jest.mock('@open-mercato/shared/lib/auth/server', () => ({
   getAuthFromRequest: jest.fn((request: Request) => mockGetAuthFromRequest(request)),
@@ -14,9 +18,11 @@ jest.mock('../../../../attachments/lib/upload-limits', () => ({
 }))
 
 jest.mock('@open-mercato/shared/lib/di/container', () => ({
-  createRequestContainer: jest.fn(async () => {
-    throw new Error('createRequestContainer should not be called for rejected uploads')
-  }),
+  createRequestContainer: jest.fn(async () => mockContainer),
+}))
+
+jest.mock('../../../lib/scope', () => ({
+  resolveSyncExcelConcreteScope: jest.fn((params: unknown) => mockResolveSyncExcelConcreteScope(params)),
 }))
 
 type RouteModule = typeof import('../route')
@@ -37,6 +43,31 @@ describe('sync_excel upload route limits', () => {
     })
     mockIsMultipartRequestWithinUploadLimit.mockReturnValue(true)
     mockResolveDefaultAttachmentMaxUploadBytes.mockReturnValue(5)
+    mockResolveSyncExcelConcreteScope.mockResolvedValue({
+      ok: true,
+      scope: {
+        organizationId: '33333333-3333-4333-8333-333333333333',
+        tenantId: '22222222-2222-4222-8222-222222222222',
+      },
+    })
+  })
+
+  it('rejects All organizations scope before parsing form data', async () => {
+    mockResolveSyncExcelConcreteScope.mockResolvedValueOnce({
+      ok: false,
+      status: 422,
+      error: 'Select a concrete organization before importing CSV.',
+    })
+
+    const response = await postHandler(new Request('http://localhost/api/sync_excel/upload', {
+      method: 'POST',
+      headers: {
+        cookie: 'om_selected_org=__all__',
+      },
+    }))
+
+    expect(response.status).toBe(422)
+    await expect(response.json()).resolves.toEqual({ error: 'Select a concrete organization before importing CSV.' })
   })
 
   it('rejects multipart payloads over the content-length guard before parsing form data', async () => {

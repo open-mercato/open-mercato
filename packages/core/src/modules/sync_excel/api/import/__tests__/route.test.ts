@@ -4,6 +4,7 @@ const mockGetAuthFromRequest = jest.fn()
 const mockReadJsonSafe = jest.fn()
 const mockStartDataSyncRun = jest.fn()
 const mockFindOneWithDecryption = jest.fn()
+const mockResolveSyncExcelConcreteScope = jest.fn()
 
 const mockUpload = {
   id: '11111111-1111-4111-8111-111111111111',
@@ -70,6 +71,10 @@ jest.mock('@open-mercato/shared/lib/encryption/find', () => ({
   findOneWithDecryption: (...args: unknown[]) => mockFindOneWithDecryption(...args),
 }))
 
+jest.mock('../../../lib/scope', () => ({
+  resolveSyncExcelConcreteScope: jest.fn((params: unknown) => mockResolveSyncExcelConcreteScope(params)),
+}))
+
 type RouteModule = typeof import('../route')
 let postHandler: RouteModule['POST']
 
@@ -102,6 +107,13 @@ describe('sync_excel import route', () => {
           { externalField: 'Last Name', localField: 'person.lastName', mappingKind: 'core' },
         ],
         unmappedColumns: ['Unused'],
+      },
+    })
+    mockResolveSyncExcelConcreteScope.mockResolvedValue({
+      ok: true,
+      scope: {
+        organizationId: '33333333-3333-4333-8333-333333333333',
+        tenantId: '22222222-2222-4222-8222-222222222222',
       },
     })
     mockFindOneWithDecryption.mockImplementation(async (_em: unknown, _entity: unknown, criteria: Record<string, unknown>) => {
@@ -180,6 +192,26 @@ describe('sync_excel import route', () => {
     expect(mockUpload.syncRunId).toBe('44444444-4444-4444-8444-444444444444')
     expect(mockUpload.status).toBe('importing')
     expect(mockEm.flush).toHaveBeenCalled()
+  })
+
+  it('returns 422 when All organizations is selected', async () => {
+    mockResolveSyncExcelConcreteScope.mockResolvedValueOnce({
+      ok: false,
+      status: 422,
+      error: 'Select a concrete organization before importing CSV.',
+    })
+
+    const response = await postHandler(new Request('http://localhost/api/sync_excel/import', {
+      method: 'POST',
+      headers: {
+        'content-type': 'application/json',
+        cookie: 'om_selected_org=__all__',
+      },
+      body: JSON.stringify({ ok: true }),
+    }))
+
+    expect(response.status).toBe(422)
+    await expect(response.json()).resolves.toEqual({ error: 'Select a concrete organization before importing CSV.' })
   })
 
   it('returns 404 when upload is missing', async () => {

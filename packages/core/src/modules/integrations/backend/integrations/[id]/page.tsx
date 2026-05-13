@@ -131,6 +131,27 @@ type HealthCheckResponse = {
   latencyMs: number | null
 }
 
+type DataSyncRunDetail = {
+  id: string
+  status: 'pending' | 'running' | 'completed' | 'failed' | 'cancelled'
+  progressJobId?: string | null
+  createdCount?: number
+  updatedCount?: number
+  skippedCount?: number
+  failedCount?: number
+  progressJob?: {
+    progressPercent?: number | null
+    processedCount?: number | null
+    totalCount?: number | null
+  } | null
+}
+
+const LOG_LEVEL_STYLES: Record<string, string> = {
+  info: 'bg-blue-100 text-blue-800',
+  warn: 'bg-yellow-100 text-yellow-800',
+  error: 'bg-red-100 text-red-800',
+}
+
 const HEALTH_STATUS_STYLES: Record<string, string> = {
   healthy: 'bg-green-100 text-green-800',
   degraded: 'bg-yellow-100 text-yellow-800',
@@ -143,6 +164,74 @@ const HEALTH_STATUS_ICONS: Record<string, React.ElementType> = {
   degraded: AlertTriangle,
   unhealthy: XCircle,
   unconfigured: AlertTriangle,
+}
+
+function formatRunStatusLabel(status: DataSyncRunDetail['status'], t: ReturnType<typeof useT>): string {
+  switch (status) {
+    case 'pending':
+      return t('integrations.detail.runActivity.status.pending', 'Pending')
+    case 'running':
+      return t('integrations.detail.runActivity.status.running', 'Running')
+    case 'completed':
+      return t('integrations.detail.runActivity.status.completed', 'Completed')
+    case 'failed':
+      return t('integrations.detail.runActivity.status.failed', 'Failed')
+    case 'cancelled':
+      return t('integrations.detail.runActivity.status.cancelled', 'Cancelled')
+    default:
+      return status
+  }
+}
+
+function RunActivityStrip({
+  run,
+  refreshedAt,
+  isRefreshing,
+  onRefresh,
+  t,
+}: {
+  run: DataSyncRunDetail | null
+  refreshedAt: string | null
+  isRefreshing: boolean
+  onRefresh: () => void
+  t: ReturnType<typeof useT>
+}) {
+  if (!run) return null
+
+  const progress = typeof run.progressJob?.progressPercent === 'number' ? run.progressJob.progressPercent : 0
+  const processed = typeof run.progressJob?.processedCount === 'number' ? run.progressJob.processedCount : 0
+  const total = typeof run.progressJob?.totalCount === 'number' ? run.progressJob.totalCount : null
+  const statusClass = run.status === 'completed'
+    ? 'border-emerald-500/30 bg-emerald-500/10 text-emerald-700 dark:text-emerald-300'
+    : run.status === 'failed'
+      ? 'border-red-500/30 bg-red-500/10 text-red-700 dark:text-red-300'
+      : run.status === 'cancelled'
+        ? 'border-zinc-500/30 bg-zinc-500/10 text-zinc-700 dark:text-zinc-300'
+        : 'border-blue-500/30 bg-blue-500/10 text-blue-700 dark:text-blue-300'
+
+  return (
+    <div className="flex flex-wrap items-center gap-3 rounded-lg border bg-muted/20 px-4 py-3 text-sm">
+      <Badge variant="outline" className={cn('gap-1.5', statusClass)}>
+        <RefreshCw className={cn('h-3.5 w-3.5', run.status === 'running' ? 'animate-spin' : '')} />
+        {formatRunStatusLabel(run.status, t)}
+      </Badge>
+      <span className="text-muted-foreground">
+        {t('integrations.detail.runActivity.processed', 'Processed')}: <span className="font-medium text-foreground">{processed}{total !== null ? ` / ${total}` : ''}</span>
+      </span>
+      <span className="text-muted-foreground">
+        {t('integrations.detail.runActivity.progress', 'Progress')}: <span className="font-medium text-foreground">{progress}%</span>
+      </span>
+      {refreshedAt ? (
+        <span className="text-muted-foreground">
+          {t('integrations.detail.runActivity.lastRefreshed', 'Last refreshed')}: {new Date(refreshedAt).toLocaleTimeString()}
+        </span>
+      ) : null}
+      <Button type="button" variant="outline" size="sm" className="ml-auto" onClick={onRefresh} disabled={isRefreshing}>
+        {isRefreshing ? <Spinner className="mr-2 h-4 w-4" /> : <RefreshCw className="mr-2 h-4 w-4" />}
+        {t('integrations.detail.runActivity.refresh', 'Refresh')}
+      </Button>
+    </div>
+  )
 }
 
 function DetailLogSparkline({ counts, className }: { counts: number[]; className?: string }) {
@@ -337,6 +426,9 @@ export default function IntegrationDetailPage({ params }: IntegrationDetailPageP
   const [isCheckingHealth, setIsCheckingHealth] = React.useState(false)
   const [isTogglingState, setIsTogglingState] = React.useState(false)
   const [latestHealthResult, setLatestHealthResult] = React.useState<HealthCheckResponse | null>(null)
+  const [activeRunDetail, setActiveRunDetail] = React.useState<DataSyncRunDetail | null>(null)
+  const [activeRunRefreshedAt, setActiveRunRefreshedAt] = React.useState<string | null>(null)
+  const [isRefreshingRunActivity, setIsRefreshingRunActivity] = React.useState(false)
   const [activeTab, setActiveTab] = React.useState<IntegrationDetailTab>('credentials')
 
   const credentialsFormId = React.useId()
@@ -430,6 +522,32 @@ export default function IntegrationDetailPage({ params }: IntegrationDetailPageP
   const refreshHealthSnapshot = React.useCallback(async () => {
     await loadDetail()
   }, [loadDetail])
+  const runIdFromUrl = searchParams?.get('runId') ?? null
+  const refreshRunActivity = React.useCallback(async (options?: { showLoading?: boolean }) => {
+    if (!runIdFromUrl) {
+      setActiveRunDetail(null)
+      setActiveRunRefreshedAt(null)
+      return null
+    }
+    if (options?.showLoading) setIsRefreshingRunActivity(true)
+    try {
+      const call = await apiCall<DataSyncRunDetail>(
+        `/api/data_sync/runs/${encodeURIComponent(runIdFromUrl)}`,
+        undefined,
+        { fallback: null },
+      )
+      await loadLogs()
+      await loadDetail()
+      if (call.ok && call.result) {
+        setActiveRunDetail(call.result)
+        setActiveRunRefreshedAt(new Date().toISOString())
+        return call.result
+      }
+      return null
+    } finally {
+      if (options?.showLoading) setIsRefreshingRunActivity(false)
+    }
+  }, [loadDetail, loadLogs, runIdFromUrl])
   const injectionContext = React.useMemo(
     () => ({
       formId: mutationContextId,
@@ -835,26 +953,21 @@ export default function IntegrationDetailPage({ params }: IntegrationDetailPageP
   }, [resolveCurrentIntegrationId, router, searchParams, visibleTabIds])
 
   React.useEffect(() => {
-    const runId = searchParams?.get('runId')
-    if (!runId) return
+    if (!runIdFromUrl) {
+      setActiveRunDetail(null)
+      setActiveRunRefreshedAt(null)
+      return
+    }
     if (activeTab !== 'logs' && activeTab !== 'health') return
 
     let cancelled = false
     let timeoutId: ReturnType<typeof setTimeout> | null = null
 
     const poll = async () => {
-      const call = await apiCall<{ status?: string }>(
-        `/api/data_sync/runs/${encodeURIComponent(runId)}`,
-        undefined,
-        { fallback: null },
-      )
-
+      const detail = await refreshRunActivity()
       if (cancelled) return
 
-      await loadLogs()
-      await loadDetail()
-
-      const status = typeof call.result?.status === 'string' ? call.result.status : null
+      const status = detail?.status ?? null
       if (status === 'pending' || status === 'running') {
         timeoutId = setTimeout(() => {
           void poll()
@@ -868,7 +981,7 @@ export default function IntegrationDetailPage({ params }: IntegrationDetailPageP
       cancelled = true
       if (timeoutId) clearTimeout(timeoutId)
     }
-  }, [activeTab, loadDetail, loadLogs, searchParams])
+  }, [activeTab, refreshRunActivity, runIdFromUrl])
 
   if (isLoading) return <Page><PageBody><LoadingMessage label={t('integrations.detail.title')} /></PageBody></Page>
   if (error || !detail || !resolvedIntegration || !resolvedState) {
@@ -1166,20 +1279,39 @@ export default function IntegrationDetailPage({ params }: IntegrationDetailPageP
 
           {showHealthTab ? (
             <TabsContent value="health" className="mt-0 space-y-4">
+              <RunActivityStrip
+                run={activeRunDetail}
+                refreshedAt={activeRunRefreshedAt}
+                isRefreshing={isRefreshingRunActivity}
+                onRefresh={() => void refreshRunActivity({ showLoading: true })}
+                t={t}
+              />
               <Card className="gap-4 py-4">
                 <CardHeader className="px-5">
                   <div className="flex items-center justify-between">
                     <CardTitle>{t('integrations.detail.health.title')}</CardTitle>
-                    <Button
-                      type="button"
-                      variant="outline"
-                      size="sm"
-                      onClick={() => void handleHealthCheck()}
-                      disabled={isCheckingHealth}
-                    >
-                      {isCheckingHealth ? <Spinner className="mr-2 h-4 w-4" /> : <Zap className="mr-2 h-4 w-4" />}
-                      {isCheckingHealth ? t('integrations.detail.health.checking') : t('integrations.detail.health.check')}
-                    </Button>
+                    <div className="flex flex-wrap items-center gap-2">
+                      <Button
+                        type="button"
+                        variant="outline"
+                        size="sm"
+                        onClick={() => void refreshRunActivity({ showLoading: true })}
+                        disabled={isRefreshingRunActivity || !runIdFromUrl}
+                      >
+                        {isRefreshingRunActivity ? <Spinner className="mr-2 h-4 w-4" /> : <RefreshCw className="mr-2 h-4 w-4" />}
+                        {t('integrations.detail.runActivity.refresh', 'Refresh')}
+                      </Button>
+                      <Button
+                        type="button"
+                        variant="outline"
+                        size="sm"
+                        onClick={() => void handleHealthCheck()}
+                        disabled={isCheckingHealth}
+                      >
+                        {isCheckingHealth ? <Spinner className="mr-2 h-4 w-4" /> : <Zap className="mr-2 h-4 w-4" />}
+                        {isCheckingHealth ? t('integrations.detail.health.checking') : t('integrations.detail.health.check')}
+                      </Button>
+                    </div>
                   </div>
                 </CardHeader>
                 <CardContent className="space-y-3 px-5">
@@ -1239,7 +1371,14 @@ export default function IntegrationDetailPage({ params }: IntegrationDetailPageP
 
           {showLogsTab ? (
             <TabsContent value="logs" className="mt-0 space-y-4">
-            <div className="flex items-center gap-3">
+            <RunActivityStrip
+              run={activeRunDetail}
+              refreshedAt={activeRunRefreshedAt}
+              isRefreshing={isRefreshingRunActivity}
+              onRefresh={() => void refreshRunActivity({ showLoading: true })}
+              t={t}
+            />
+            <div className="flex flex-wrap items-center gap-3">
               <div className="inline-flex">
                 <Select
                   value={logLevel || undefined}
@@ -1255,6 +1394,16 @@ export default function IntegrationDetailPage({ params }: IntegrationDetailPageP
                   </SelectContent>
                 </Select>
               </div>
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                onClick={() => void refreshRunActivity({ showLoading: true })}
+                disabled={isRefreshingRunActivity || !runIdFromUrl}
+              >
+                {isRefreshingRunActivity ? <Spinner className="mr-2 h-4 w-4" /> : <RefreshCw className="mr-2 h-4 w-4" />}
+                {t('integrations.detail.runActivity.refresh', 'Refresh')}
+              </Button>
             </div>
             {isLoadingLogs ? (
               <div className="flex justify-center py-8"><Spinner /></div>

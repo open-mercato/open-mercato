@@ -2,7 +2,7 @@
 
 ## TL;DR
 
-Add the first upstreamable `sync_excel` slice as a file-upload-based `data_sync` provider for CSV imports into `customers.person`. The slice now includes the additive `data_sync` contract changes (`runId`, richer field mapping semantics), a provider-owned upload session entity, upload/preview/import APIs, a `customers.person` adapter with external-ID/email dedupe, an integration-detail admin tab, tenant custom-field mapping support in the preview/import flow, flattened primary-address mapping/import for one address per CSV row, resumable upload/mapping state in the integration detail view, polling-based run/log/health refresh, duplicate-risk warnings, and automated unit/integration coverage. After production verification on split ECS web/worker tasks, the upload attachment now also stores an inline CSV copy in attachment metadata so imports do not depend on container-local attachment storage.
+Add the first upstreamable `sync_excel` slice as a file-upload-based `data_sync` provider for CSV imports into `customers.person`. The slice now includes the additive `data_sync` contract changes (`runId`, richer field mapping semantics), a provider-owned upload session entity, upload/preview/import APIs, a `customers.person` adapter with external-ID/email dedupe that is safe under encrypted customer columns, an integration-detail admin tab, tenant custom-field mapping support with typed value coercion in the import flow, flattened primary-address mapping/import for one address per CSV row, resumable upload/mapping state in the integration detail view, polling-based run/log/health refresh, duplicate-risk warnings, and automated unit/integration coverage. After production verification on split ECS web/worker tasks, the upload attachment now also stores an inline CSV copy in attachment metadata so imports do not depend on container-local attachment storage.
 
 ## Overview
 
@@ -25,7 +25,7 @@ Implement `sync_excel` as a first-class `data_sync` provider with these capabili
 1. Add optional `runId` to `StreamImportInput` and `StreamExportInput`
 2. Add optional `mappingKind` and `dedupeRole` to `FieldMapping`
 3. Introduce provider-owned `SyncExcelUpload` state backed by attachments with an inline attachment-metadata CSV fallback for worker-safe reads; persisted cursors keep only upload identity + row offset, never CSV payload bytes
-4. Expose provider APIs for upload, preview, and import start
+4. Expose provider APIs for upload, preview, and import start; all three require an explicitly selected concrete organization and reject the topbar “All organizations” scope with `422`
 5. Reuse `data_sync` runs, queue orchestration, and progress lifecycle for background execution
 6. Scope the first target adapter to `customers.person`
 7. Expose an integration detail tab for upload, mapping, preview, and run status
@@ -117,6 +117,10 @@ Response:
 - `totalRows`
 - `suggestedMapping`
 
+Errors:
+
+- `422` when the current request does not have an explicitly selected concrete organization
+
 ### `GET /api/sync_excel/preview`
 
 Query:
@@ -128,6 +132,10 @@ Response:
 
 - preview payload for the saved upload
 - rematerialized mapping suggestions
+
+Errors:
+
+- `422` when the current request does not have an explicitly selected concrete organization
 
 ### `POST /api/sync_excel/import`
 
@@ -144,6 +152,7 @@ Behavior:
 - creates a `SyncRun`
 - links `syncRunId` back to the upload session
 - enqueues a background import through the existing `data_sync` flow
+- rejects non-concrete organization scope before loading upload/import state
 
 ## UI/UX
 
@@ -155,7 +164,7 @@ The current slice adds a `sync_excel` integration detail tab with:
 4. import start button guarded by mapping diagnostics
 5. run status / progress / cancel affordances backed by `data_sync` run detail
 6. resumable upload session restore via `uploadId` / `runId` query params plus sessionStorage-backed manual mapping state
-7. smart polling that keeps run detail, logs, and the health snapshot in sync while a run is active
+7. smart polling that keeps run detail, logs, and the health snapshot in sync while a run is active, including Health/Logs tabs when the `sync_excel` injected tab is not mounted
 8. soft duplicate-risk warnings for custom matching and repeat imports of the same upload
 
 This slice intentionally does **not** yet add an Import button directly to customers DataTables.
@@ -194,7 +203,8 @@ Rejected because provider-owned upload flows should remain behind provider APIs 
 6. `customers.person` import adapter with external ID / email dedupe
 7. import start route wired into `data_sync`
 8. integration-detail admin tab
-9. unit and integration test coverage
+9. typed custom-field coercion for `boolean`, `integer`, `float`/`number`, `currency`, and `date`/`datetime` mapped CSV values
+10. unit and integration test coverage
 
 ### Still required before merge
 
@@ -206,9 +216,10 @@ Rejected because provider-owned upload flows should remain behind provider APIs 
 | --- | --- | --- | --- | --- |
 | Existing providers accidentally depend on exact adapter input shape | Low | `data_sync` adapters | New adapter fields are optional and additive-only | Low |
 | CSV mapping UI drops unmapped columns | Medium | `sync_excel` preview/import | Preview preserves all headers and distinguishes unmapped columns explicitly | Low |
-| File-backed imports create duplicate people | Medium | `customers.person` import | Prefer external ID mapping, fallback to email dedupe, keep scope limited to one entity type in v1 | Low |
+| File-backed imports create duplicate people | Medium | `customers.person` import | Prefer external ID mapping, fallback to decrypted batch-level email candidate scan, keep scope limited to one entity type in v1 | Low |
 | First PR scope grows into company/address/deals | Medium | reviewability / upstream acceptance | Current slice limits target support to `customers.person` only | Low |
 | Split web/worker deployments lose access to container-local upload files | High | release readiness | Persist inline CSV fallback in attachment metadata and verify imports on ECS | Low |
+| “All organizations” imports create orphan or unintended records | High | `sync_excel` provider APIs | Upload, preview, and import require an explicit selected organization and reject `__all__` with `422` | Low |
 
 ## Migration & Backward Compatibility
 
@@ -237,11 +248,16 @@ This branch remains additive-only because the operational fix reuses existing at
 - column detector tests
 - `customers` adapter tests
 - import route tests
+- preview/upload concrete-scope route tests
+- concrete-scope helper tests
+- typed custom-field coercion tests
+- encrypted-email fallback dedupe tests
 
 ### Integration
 
 - `packages/core/src/modules/sync_excel/__integration__/TC-SX-001.spec.ts`
   - auth/forbidden coverage
+  - topbar “All organizations” rejection for upload, preview, and import
   - upload + preview
   - import run start
   - polling `data_sync` run completion
@@ -262,14 +278,13 @@ This branch remains additive-only because the operational fix reuses existing at
 - `sync_excel` is discoverable as an integration provider
 - admins can upload CSV files and preview mappings
 - `customers.person` import runs in the background via `data_sync`
-- reimport updates existing records by external ID, with email fallback in adapter logic
+- reimport updates existing records by external ID, with decrypted email fallback in adapter logic
 - one flattened primary address can be mapped and imported per CSV row
 - current contracts remain backward compatible for existing sync providers
 
 ## Open Questions
 
 - Should follow-up slices persist unmapped provider columns as metadata/custom-field candidates instead of keeping them preview-only?
-- Should typed custom-field imports coerce CSV strings into number/date/boolean values before command validation? V1 intentionally passes raw CSV strings and surfaces type mismatches as per-row failures.
 - Should the next slice add `customers.company` / address support before or after a DataTable import entry point?
 - Should a future UI slice deep-link from customers DataTables into the `sync_excel` integration with preselected entity type?
 - Should old `SyncExcelUpload` rows and temporary upload attachments be removed by a retention/cleanup worker?
@@ -304,3 +319,11 @@ This branch remains additive-only because the operational fix reuses existing at
 - Added smart polling so sync run refresh updates detail, logs, and health without SSE
 - Added lifecycle-oriented `data_sync` operational logs and integration state snapshots for `sync_excel`
 - Added soft duplicate-risk warnings instead of hard-blocking repeat imports
+
+### 2026-05-13
+
+- Added concrete-organization enforcement for `sync_excel` upload, preview, and import APIs; `om_selected_org=__all__` now returns `422`
+- Reworked email fallback dedupe to scan decrypted customer candidates within one organization instead of querying encrypted `primaryEmail` plaintext
+- Added typed custom-field coercion for imported CSV values with per-row failures for invalid typed values
+- Added Health/Logs run activity refresh controls and polling independent of the injected `sync_excel` tab lifecycle
+- Added focused retest coverage for concrete scope rejection, cursor/upload hardening preservation, encrypted email dedupe, and typed custom-field coercion

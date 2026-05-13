@@ -160,6 +160,24 @@ function buildMultipartCsv(fileName: string, csv: string) {
   }
 }
 
+function decodeTokenScope(token: string): { tenantId: string; orgId: string } {
+  const [, payload] = token.split('.')
+  if (!payload) throw new Error('Auth token is missing a JWT payload')
+  const claims = JSON.parse(Buffer.from(payload, 'base64url').toString('utf8')) as JsonRecord
+  const tenantId = typeof claims.tenantId === 'string' ? claims.tenantId : ''
+  const orgId = typeof claims.orgId === 'string' ? claims.orgId : ''
+  if (!tenantId || !orgId) throw new Error('Auth token is missing tenantId/orgId claims')
+  return { tenantId, orgId }
+}
+
+function syncExcelHeaders(token: string, selectedOrgId?: string): Record<string, string> {
+  const scope = decodeTokenScope(token)
+  return {
+    Authorization: `Bearer ${token}`,
+    Cookie: `om_selected_tenant=${scope.tenantId}; om_selected_org=${selectedOrgId ?? scope.orgId}`,
+  }
+}
+
 function withFieldMapping(
   mapping: SyncExcelUploadPreview['suggestedMapping'],
   input: {
@@ -229,13 +247,36 @@ async function uploadCsv(
 ): Promise<JsonRecord> {
   const response = await request.fetch(`${BASE_URL}/api/sync_excel/upload`, {
     method: 'POST',
-    headers: {
-      Authorization: `Bearer ${token}`,
-    },
+    headers: syncExcelHeaders(token),
     multipart: buildMultipartCsv(fileName, csv),
   })
   expect(response.status()).toBe(200)
   return readJson(response)
+}
+
+async function previewUpload(
+  request: APIRequestContext,
+  token: string,
+  uploadId: string,
+): Promise<APIResponse> {
+  return request.get(`${BASE_URL}/api/sync_excel/preview?uploadId=${encodeURIComponent(uploadId)}&entityType=${encodeURIComponent(ENTITY_TYPE)}`, {
+    headers: syncExcelHeaders(token),
+  })
+}
+
+async function startSyncExcelImport(
+  request: APIRequestContext,
+  token: string,
+  data: JsonRecord,
+): Promise<APIResponse> {
+  return request.fetch(`${BASE_URL}/api/sync_excel/import`, {
+    method: 'POST',
+    headers: {
+      ...syncExcelHeaders(token),
+      'Content-Type': 'application/json',
+    },
+    data,
+  })
 }
 
 async function listSyncExcelMappings(
@@ -442,6 +483,42 @@ test.describe('TC-SX-001: sync_excel upload preview and import APIs', () => {
       multipart: buildMultipartCsv('forbidden.csv', 'Record Id,Lead Name\nforbidden-1,Forbidden Example\n'),
     })
     expect(forbiddenUpload.status()).toBe(403)
+
+    const adminToken = await getAuthToken(request, 'admin')
+    const allOrganizationsUpload = await request.fetch(`${BASE_URL}/api/sync_excel/upload`, {
+      method: 'POST',
+      headers: syncExcelHeaders(adminToken, '__all__'),
+      multipart: buildMultipartCsv('all-orgs.csv', 'Record Id,Lead Name\nall-1,All Organizations Example\n'),
+    })
+    expect(allOrganizationsUpload.status()).toBe(422)
+    await expect(readJson(allOrganizationsUpload)).resolves.toMatchObject({
+      error: 'Select a concrete organization before importing CSV.',
+    })
+
+    const allOrganizationsPreview = await request.get(`${BASE_URL}/api/sync_excel/preview?uploadId=00000000-0000-0000-0000-000000000000&entityType=${encodeURIComponent(ENTITY_TYPE)}`, {
+      headers: syncExcelHeaders(adminToken, '__all__'),
+    })
+    expect(allOrganizationsPreview.status()).toBe(422)
+
+    const allOrganizationsImport = await request.fetch(`${BASE_URL}/api/sync_excel/import`, {
+      method: 'POST',
+      headers: {
+        ...syncExcelHeaders(adminToken, '__all__'),
+        'Content-Type': 'application/json',
+      },
+      data: {
+        uploadId: '00000000-0000-0000-0000-000000000000',
+        entityType: ENTITY_TYPE,
+        mapping: {
+          entityType: ENTITY_TYPE,
+          matchStrategy: 'externalId',
+          matchField: 'person.externalId',
+          fields: [],
+          unmappedColumns: [],
+        },
+      },
+    })
+    expect(allOrganizationsImport.status()).toBe(422)
   })
 
   test('upload preview and import create then update a customer person', async ({ request }) => {
@@ -524,21 +601,13 @@ test.describe('TC-SX-001: sync_excel upload preview and import APIs', () => {
         localField: 'address.postalCode',
       })
 
-      const previewAgain = await apiRequest(
-        request,
-        'GET',
-        `/api/sync_excel/preview?uploadId=${encodeURIComponent(String(uploadPreview.uploadId))}&entityType=${encodeURIComponent(ENTITY_TYPE)}`,
-        { token },
-      )
+      const previewAgain = await previewUpload(request, token, String(uploadPreview.uploadId))
       expect(previewAgain.status()).toBe(200)
 
-      const importStart = await apiRequest(request, 'POST', '/api/sync_excel/import', {
-        token,
-        data: {
-          uploadId: uploadPreview.uploadId,
-          entityType: ENTITY_TYPE,
-          mapping: importMapping,
-        },
+      const importStart = await startSyncExcelImport(request, token, {
+        uploadId: uploadPreview.uploadId,
+        entityType: ENTITY_TYPE,
+        mapping: importMapping,
       })
       expect(importStart.status()).toBe(201)
       const importStartBody = await readJson(importStart)
@@ -623,13 +692,10 @@ test.describe('TC-SX-001: sync_excel upload preview and import APIs', () => {
         externalField: 'Postal Code',
         localField: 'address.postalCode',
       })
-      const secondImportStart = await apiRequest(request, 'POST', '/api/sync_excel/import', {
-        token,
-        data: {
-          uploadId: secondUpload.uploadId,
-          entityType: ENTITY_TYPE,
-          mapping: secondImportMapping,
-        },
+      const secondImportStart = await startSyncExcelImport(request, token, {
+        uploadId: secondUpload.uploadId,
+        entityType: ENTITY_TYPE,
+        mapping: secondImportMapping,
       })
       expect(secondImportStart.status()).toBe(201)
       const secondImportBody = await readJson(secondImportStart)
@@ -684,13 +750,10 @@ test.describe('TC-SX-001: sync_excel upload preview and import APIs', () => {
         externalField: 'Postal Code',
         localField: 'address.postalCode',
       })
-      const thirdImportStart = await apiRequest(request, 'POST', '/api/sync_excel/import', {
-        token,
-        data: {
-          uploadId: thirdUpload.uploadId,
-          entityType: ENTITY_TYPE,
-          mapping: thirdImportMapping,
-        },
+      const thirdImportStart = await startSyncExcelImport(request, token, {
+        uploadId: thirdUpload.uploadId,
+        entityType: ENTITY_TYPE,
+        mapping: thirdImportMapping,
       })
       expect(thirdImportStart.status()).toBe(201)
       const thirdImportBody = await readJson(thirdImportStart)

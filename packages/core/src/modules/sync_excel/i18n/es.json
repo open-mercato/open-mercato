@@ -92,6 +92,7 @@
   "sync_excel.widget.upload.fileLabel": "CSV file",
   "sync_excel.widget.upload.selectedFile": "Selected file",
   "sync_excel.widget.upload.title": "Upload CSV",
+  "sync_excel.widget.validation.duplicateRiskMessage": "Este mapeo no usa la estrategia recomendada de ID externo o correo electrónico. Reimportar el mismo conjunto de datos puede crear personas duplicadas.",
   "sync_excel.widget.validation.duplicateRiskTitle": "Riesgo de duplicados",
   "sync_excel.widget.validation.duplicateTargetsMessage": "Each target field can only be mapped once in this foundation slice: {targets}",
   "sync_excel.widget.validation.duplicateTargetsTitle": "Duplicate target fields",
@@ -101,5 +102,6 @@
   "sync_excel.widget.validation.nameTitle": "Map a name field",
   "sync_excel.widget.validation.readyMessage": "The current mapping is valid for the first customers.person slice.",
   "sync_excel.widget.validation.readyTitle": "Ready to import",
+  "sync_excel.widget.validation.reimportMessage": "Iniciar otra importación desde el mismo CSV cargado puede crear duplicados si la estrategia de coincidencia no identifica de forma fiable a las personas existentes.",
   "sync_excel.widget.validation.reimportTitle": "Esta carga ya tiene una ejecución"
 }

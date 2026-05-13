@@ -92,6 +92,7 @@
   "sync_excel.widget.upload.fileLabel": "Plik CSV",
   "sync_excel.widget.upload.selectedFile": "Wybrany plik",
   "sync_excel.widget.upload.title": "Prześlij CSV",
+  "sync_excel.widget.validation.duplicateRiskMessage": "To mapowanie nie używa rekomendowanej strategii Zewnętrznego ID ani E-maila. Ponowny import tego samego zestawu danych może utworzyć duplikaty osób.",
   "sync_excel.widget.validation.duplicateRiskTitle": "Ryzyko duplikatów",
   "sync_excel.widget.validation.duplicateTargetsMessage": "Każde pole docelowe może być zmapowane tylko raz w tym pierwszym zakresie: {targets}",
   "sync_excel.widget.validation.duplicateTargetsTitle": "Powielone pola docelowe",
@@ -101,5 +102,6 @@
   "sync_excel.widget.validation.nameTitle": "Zmapuj pole nazwy",
   "sync_excel.widget.validation.readyMessage": "Bieżące mapowanie jest poprawne dla pierwszego zakresu customers.person.",
   "sync_excel.widget.validation.readyTitle": "Gotowe do importu",
+  "sync_excel.widget.validation.reimportMessage": "Uruchomienie kolejnego importu z tego samego przesłanego CSV może utworzyć duplikaty, jeśli strategia dopasowania nie identyfikuje wiarygodnie istniejących osób.",
   "sync_excel.widget.validation.reimportTitle": "Ten upload ma już uruchomiony import"
 }

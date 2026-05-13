@@ -18,6 +18,7 @@ import {
   syncExcelImportRequestSchema,
   syncExcelImportResponseSchema,
 } from '../../data/validators'
+import { resolveSyncExcelConcreteScope } from '../../lib/scope'
 
 export const metadata = {
   POST: { requireAuth: true, requireFeatures: ['sync_excel.run'] },
@@ -46,7 +47,7 @@ export const openApi = {
 
 export async function POST(request: Request) {
   const auth = await getAuthFromRequest(request)
-  if (!auth?.tenantId || !auth.orgId) {
+  if (!auth?.tenantId) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
   }
 
@@ -62,10 +63,11 @@ export async function POST(request: Request) {
   const progressService = container.resolve('progressService') as ProgressService
   const credentialsService = container.resolve('integrationCredentialsService') as CredentialsService
   const integrationStateService = container.resolve('integrationStateService') as IntegrationStateService
-  const scope = {
-    organizationId: auth.orgId,
-    tenantId: auth.tenantId,
+  const scopeResult = await resolveSyncExcelConcreteScope({ auth, container, request })
+  if (!scopeResult.ok) {
+    return NextResponse.json({ error: scopeResult.error }, { status: scopeResult.status })
   }
+  const { scope } = scopeResult
 
   const upload = await findOneWithDecryption(
     em,
