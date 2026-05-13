@@ -466,9 +466,7 @@ packages/ai-assistant/
 │   │   │   ├── codemode-tools.ts       # Code Mode search + execute tools
 │   │   │   ├── sandbox.ts             # node:vm sandbox executor
 │   │   │   ├── truncate.ts            # Response size limiter
-│   │   │   ├── api-endpoint-index.ts   # OpenAPI endpoint indexing + raw spec cache
-│   │   │   ├── api-discovery-tools.ts  # (legacy, unused) old find_api/call_api
-│   │   │   ├── entity-graph-tools.ts   # (legacy, unused) old discover_schema
+│   │   │   ├── api-endpoint-index.ts   # OpenAPI endpoint parsing + raw spec cache for Code Mode
 │   │   │   ├── http-server.ts          # MCP HTTP server implementation
 │   │   │   ├── mcp-server.ts           # MCP stdio server implementation
 │   │   │   ├── tool-registry.ts        # Global tool registration
@@ -889,20 +887,27 @@ normalizeCode(code: string): string   // Strip markdown fences, validate shape
 truncateResult(value, maxChars?): string  // Default 40K chars (~10K tokens)
 ```
 
-**Legacy files kept but unused**: `lib/api-discovery-tools.ts` (old find_api/call_api) and `lib/entity-graph-tools.ts` (old discover_schema) remain in the tree but are no longer imported.
-
 ## Rules for the API Endpoint Index
 
-Located in `lib/api-endpoint-index.ts`. Use the singleton pattern — never instantiate directly:
+Located in `lib/api-endpoint-index.ts`. The module exposes pure functions — never instantiate. The Code Mode `search` and `execute` tools consume `getRawOpenApiSpec()` / `loadRichOpenApiSpec()` and `getApiEndpoints()`; no other live consumer exists.
 
 ```typescript
-class ApiEndpointIndex {
-  static getInstance(): ApiEndpointIndex
-  searchEndpoints(query: string, options?: SearchOptions): EndpointMatch[]
-  getEndpoint(operationId: string): EndpointInfo | null
-  getEndpointByPath(method: string, path: string): EndpointInfo | null
-}
+// Endpoint parsing (cached per process)
+getApiEndpoints(): Promise<ApiEndpoint[]>
+getEndpointByOperationId(operationId: string): Promise<ApiEndpoint | null>
+clearEndpointCache(): void
+
+// Raw spec for Code Mode
+getRawOpenApiSpec(): Promise<OpenApiDocument | null>
+loadRichOpenApiSpec(): Promise<OpenApiDocument | null>
+setRawSpecCache(doc: OpenApiDocument): void
+clearRawSpecCache(): void
+
+// Helper for request body schema flattening
+simplifyRequestBodySchema(schema): { required, properties } | null
 ```
+
+The module deliberately **does not** call `searchService.bulkIndex(...)` on boot — it has no live reader, and on a large OpenAPI surface (~600 operations) the fan-out triggered the embedding storm fixed by #1876.
 
 ## Docker Configuration
 
@@ -1422,6 +1427,26 @@ Agents that need multi-step tool loops configure the `loop` block on `AiAgentDef
 
 ## Changelog
 
+### 2026-05-13 - Remove dead `indexApiEndpoints` from MCP boot (#1876)
+
+**What changed**:
+- MCP HTTP / stdio / dev entry points no longer call `indexApiEndpoints(searchService)` at startup. The Code Mode rewrite (2026-02-22) deleted the only readers (`find_api` / `call_api` / `discover_schema`), so the call was indexing into fulltext + tokens + vector indexes that nothing queried. On large specs (≳200 ops + remote embedding latency) the search-service fan-out also burned an `OpenAI` embedding storm + pgvector load on every boot — Code Mode reads the OpenAPI document directly via `getRawOpenApiSpec()` / `loadRichOpenApiSpec()`, in-memory.
+- Deleted `lib/api-discovery-tools.ts`, `lib/entity-graph-tools.ts`, `lib/api-endpoint-index-config.ts` — all dead since the 2026-02-22 rewrite, kept only by the boot-time indexing call we removed.
+- Pruned `lib/api-endpoint-index.ts`: removed `indexApiEndpoints`, `searchEndpoints`, `searchEndpointsFallback`, `buildSearchableContent`, `lastIndexChecksum`, and the `API_ENDPOINT_ENTITY` deprecated alias. Kept `parseApiEndpoints` (private), `getApiEndpoints`, `getEndpointByOperationId`, `getRawOpenApiSpec`, `loadRichOpenApiSpec`, `setRawSpecCache`, `clearRawSpecCache`, `clearEndpointCache`, `simplifyRequestBodySchema` — those still serve Code Mode.
+
+**Files modified**:
+- `lib/http-server.ts`, `lib/mcp-server.ts`, `lib/mcp-dev-server.ts` — removed the `indexApiEndpoints` import + call
+- `lib/api-endpoint-index.ts` — pruned dead code
+
+**Files deleted**:
+- `lib/api-discovery-tools.ts`
+- `lib/entity-graph-tools.ts`
+- `lib/api-endpoint-index-config.ts`
+
+**Backward compatibility**: All removed symbols (`indexApiEndpoints`, `searchEndpoints`, `searchEndpointsFallback`, `endpointToIndexableRecord`, `API_ENDPOINT_ENTITY`, `API_ENDPOINT_SEARCH_CONFIG`, `apiEndpointEntityConfig`, `computeEndpointsChecksum`, `API_ENDPOINT_ENTITY_ID`, `GLOBAL_TENANT_ID` from `api-endpoint-index-config`) live inside the module's internal `lib/` path and are not part of the documented developer contract surface (see `BACKWARD_COMPATIBILITY.md`). They were already documented as legacy and unused.
+
+**Operator cleanup (optional)**: If a deployment previously booted MCP and accumulated rows in fulltext/vector/tokens under `entityId: 'ai_assistant:api_endpoint'` / `tenantId: '00000000-0000-0000-0000-000000000000'`, they are orphaned but inert — no live workflow reads them. Manual purge is purely cosmetic.
+
 ### 2026-05-08 - Phase 5 opt-in ToolLoopAgent backend (spec 2026-04-28-ai-agents-agentic-loop-controls)
 
 **What changed**:
@@ -1464,8 +1489,8 @@ Agents that need multi-step tool loops configure the `loop` block on `AiAgentDef
 - `lib/mcp-server.ts` — Generates entity graph and caches spec for stdio mode
 
 **Files kept but unused**:
-- `lib/api-discovery-tools.ts` — Old find_api/call_api (no longer imported)
-- `lib/entity-graph-tools.ts` — Old discover_schema (no longer imported)
+- `lib/api-discovery-tools.ts` — Old find_api/call_api (no longer imported, deleted in #1876)
+- `lib/entity-graph-tools.ts` — Old discover_schema (no longer imported, deleted in #1876)
 
 ### 2026-01-17 - Session Persistence Fix
 
