@@ -3,7 +3,7 @@ import { useCallback, useMemo, useState, useEffect } from 'react'
 import { useSearchParams } from 'next/navigation'
 import Link from 'next/link'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
-import { Input } from '@open-mercato/ui/primitives/input'
+import { PasswordInput } from '@open-mercato/ui/primitives/password-input'
 import { Label } from '@open-mercato/ui/primitives/label'
 import { Button } from '@open-mercato/ui/primitives/button'
 import { Alert, AlertDescription } from '@open-mercato/ui/primitives/alert'
@@ -142,12 +142,12 @@ export default function PortalResetPasswordPage({ params }: Props) {
 
         <div className="flex flex-col gap-1.5">
           <Label htmlFor="reset-password" className="text-overline font-semibold uppercase tracking-wider text-muted-foreground/70">{t('portal.resetPassword.password', 'New Password')}</Label>
-          <Input id="reset-password" type="password" autoComplete="new-password" required placeholder={t('portal.resetPassword.password.placeholder', '••••••••')} value={password} onChange={(e) => setPassword(e.target.value)} disabled={submitting || !token} className="rounded-lg" />
+          <PasswordInput id="reset-password" autoComplete="new-password" required placeholder={t('portal.resetPassword.password.placeholder', '••••••••')} value={password} onChange={(e) => setPassword(e.target.value)} disabled={submitting || !token} className="rounded-lg" />
         </div>
 
         <div className="flex flex-col gap-1.5">
           <Label htmlFor="confirm-password" className="text-overline font-semibold uppercase tracking-wider text-muted-foreground/70">{t('portal.resetPassword.confirmPassword', 'Confirm New Password')}</Label>
-          <Input id="confirm-password" type="password" autoComplete="new-password" required placeholder={t('portal.resetPassword.confirmPassword.placeholder', '••••••••')} value={confirmPassword} onChange={(e) => setConfirmPassword(e.target.value)} disabled={submitting || !token} className="rounded-lg" />
+          <PasswordInput id="confirm-password" autoComplete="new-password" required placeholder={t('portal.resetPassword.confirmPassword.placeholder', '••••••••')} value={confirmPassword} onChange={(e) => setConfirmPassword(e.target.value)} disabled={submitting || !token} className="rounded-lg" />
         </div>
 
         <Button type="submit" disabled={submitting || !token} className="mt-1 w-full rounded-lg">

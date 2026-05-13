@@ -6,6 +6,7 @@ import { apiCall } from '@open-mercato/ui/backend/utils/apiCall'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { Button } from '@open-mercato/ui/primitives/button'
 import { Input } from '@open-mercato/ui/primitives/input'
+import { EmailInput } from '@open-mercato/ui/primitives/email-input'
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
 
 interface AccountStatusData {
@@ -168,9 +169,8 @@ function InviteForm({ personEntityId, onSuccess }: { personEntityId: string; onS
         <label htmlFor="invite-email" className="block text-xs font-medium text-muted-foreground mb-1">
           {t('common.email', 'Email')}
         </label>
-        <Input
+        <EmailInput
           id="invite-email"
-          type="email"
           size="sm"
           value={email}
           onChange={(event) => setEmail(event.target.value)}

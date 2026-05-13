@@ -4,6 +4,7 @@ import React from 'react'
 import { useRouter } from 'next/navigation'
 import { Page, PageBody } from '@open-mercato/ui/backend/Page'
 import { Button } from '@open-mercato/ui/primitives/button'
+import { PasswordInput } from '@open-mercato/ui/primitives/password-input'
 import { apiCall, apiCallOrThrow } from '@open-mercato/ui/backend/utils/apiCall'
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
@@ -269,9 +270,7 @@ export default function SsoConfigCreateWizard() {
                 </div>
                 <div>
                   <label className="block text-sm font-medium mb-1">{t('sso.admin.field.clientSecret', 'Client Secret')}</label>
-                  <input
-                    type="password"
-                    className="w-full rounded-md border px-3 py-2 text-sm"
+                  <PasswordInput
                     value={state.clientSecret}
                     onChange={(e) => setState((prev) => ({ ...prev, clientSecret: e.target.value }))}
                   />

@@ -35,7 +35,7 @@ describe('PortalSignupPage', () => {
   function fillForm(getByLabelText: (matcher: RegExp) => HTMLElement) {
     fireEvent.change(getByLabelText(/full name/i), { target: { value: 'Jane Smith' } })
     fireEvent.change(getByLabelText(/email/i), { target: { value: 'jane@example.com' } })
-    fireEvent.change(getByLabelText(/password/i), { target: { value: 'pw12345' } })
+    fireEvent.change(getByLabelText(/^password$/i), { target: { value: 'pw12345' } })
   }
 
   it('submits the signup payload with tenant + organization scope on 202 success', async () => {

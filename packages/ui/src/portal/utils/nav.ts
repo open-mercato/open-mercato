@@ -46,6 +46,20 @@ function pickGroup(group: unknown): PortalNavGroupId {
   return 'main'
 }
 
+function pickPreferredRoute(
+  existing: FrontendRouteManifestEntry,
+  candidate: FrontendRouteManifestEntry,
+): FrontendRouteManifestEntry {
+  const existingFeatures = existing.requireCustomerFeatures ?? []
+  const candidateFeatures = candidate.requireCustomerFeatures ?? []
+  if (existingFeatures.length === 0 && candidateFeatures.length > 0) return candidate
+  if (candidateFeatures.length === 0 && existingFeatures.length > 0) return existing
+  if (existingFeatures.length !== candidateFeatures.length) {
+    return candidateFeatures.length > existingFeatures.length ? candidate : existing
+  }
+  return existing
+}
+
 /**
  * Build the portal sidebar from the frontend route manifest.
  *
@@ -66,19 +80,27 @@ export function buildPortalNav({
   const mainItems: PortalNavItem[] = []
   const accountItems: PortalNavItem[] = []
 
+  const dedupedByPattern = new Map<string, FrontendRouteManifestEntry>()
   for (const route of routes) {
     const pattern = route.pattern ?? route.path
     if (!isPortalPattern(pattern)) continue
     if (route.navHidden) continue
     const nav = route.nav
     if (!nav || typeof nav.label !== 'string' || nav.label.length === 0) continue
+    const existing = dedupedByPattern.get(pattern)
+    dedupedByPattern.set(pattern, existing ? pickPreferredRoute(existing, route) : route)
+  }
+
+  for (const route of dedupedByPattern.values()) {
+    const pattern = (route.pattern ?? route.path) as string
+    const nav = route.nav!
 
     const requireFeatures = route.requireCustomerFeatures ?? []
     if (!isPortalAdmin && requireFeatures.length) {
       if (!hasAllFeatures(grantedFeatures as string[], requireFeatures as string[])) continue
     }
 
-    const href = resolveHref(pattern as string, orgSlug)
+    const href = resolveHref(pattern, orgSlug)
     if (!hasNoUnresolvedParams(href)) continue
 
     const group = pickGroup(nav.group)

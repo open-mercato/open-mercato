@@ -1,6 +1,7 @@
 "use client"
 
 import * as React from 'react'
+import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { Button } from '../../primitives/button'
 
 export type ComboboxOption = {
@@ -72,6 +73,9 @@ export function ComboboxInput({
   disabled = false,
   allowCustomValues = true,
 }: ComboboxInputProps) {
+  const t = useT()
+  const resolvedPlaceholder = placeholder ?? t('ui.inputs.comboboxInput.placeholder', 'Type to search...')
+  const loadingLabel = t('ui.inputs.comboboxInput.loading', 'Loading suggestions…')
   const [input, setInput] = React.useState('')
   const [asyncOptions, setAsyncOptions] = React.useState<ComboboxOption[]>([])
   const [resolvedOptions, setResolvedOptions] = React.useState<ComboboxOption[]>([])
@@ -310,9 +314,9 @@ export function ComboboxInput({
       <input
         ref={inputRef}
         type="text"
-        className="w-full h-9 rounded border px-2 text-sm disabled:bg-muted disabled:text-muted-foreground disabled:cursor-not-allowed"
+        className="w-full h-9 rounded-md border border-input bg-background px-3 text-sm shadow-xs transition-colors outline-none placeholder:text-muted-foreground focus-visible:shadow-focus focus-visible:border-foreground disabled:bg-bg-disabled disabled:border-border-disabled disabled:text-muted-foreground disabled:cursor-not-allowed"
         value={input}
-        placeholder={placeholder || 'Type to search...'}
+        placeholder={resolvedPlaceholder}
         autoFocus={autoFocus}
         data-crud-focus-target=""
         disabled={disabled}
@@ -341,32 +345,34 @@ export function ComboboxInput({
       />
 
       {showSuggestions && !disabled && (loading || filteredSuggestions.length > 0) && (
-        <div className="absolute z-popover w-full mt-1 rounded border bg-popover shadow-lg max-h-48 sm:max-h-60 overflow-auto">
+        <div className="absolute z-popover w-full mt-1 rounded-md border border-input bg-popover p-2 shadow-md max-h-48 sm:max-h-60 overflow-auto">
           {loading && touched ? (
-            <div className="px-3 py-2 text-xs text-muted-foreground">Loading suggestions…</div>
+            <div className="px-2 py-1.5 text-xs text-muted-foreground">{loadingLabel}</div>
           ) : (
-            filteredSuggestions.map((option, index) => (
-              <Button
-                key={option.value}
-                type="button"
-                variant="ghost"
-                size="sm"
-                className={[
-                  'w-full h-auto justify-start font-normal text-left flex flex-col items-start px-3 py-2',
-                  index === selectedIndex ? 'bg-accent' : '',
-                ]
-                  .filter(Boolean)
-                  .join(' ')}
-                onMouseDown={(event) => event.preventDefault()}
-                onClick={() => selectValue(option.value)}
-                onMouseEnter={() => setSelectedIndex(index)}
-              >
-                <span className="font-medium">{option.label}</span>
-                {option.description ? (
-                  <span className="text-xs text-muted-foreground">{option.description}</span>
-                ) : null}
-              </Button>
-            ))
+            <div className="flex flex-col gap-1">
+              {filteredSuggestions.map((option, index) => (
+                <Button
+                  key={option.value}
+                  type="button"
+                  variant="ghost"
+                  size="sm"
+                  className={[
+                    'w-full h-auto justify-start font-normal text-left flex flex-col items-start rounded-lg p-2',
+                    index === selectedIndex ? 'bg-muted' : '',
+                  ]
+                    .filter(Boolean)
+                    .join(' ')}
+                  onMouseDown={(event) => event.preventDefault()}
+                  onClick={() => selectValue(option.value)}
+                  onMouseEnter={() => setSelectedIndex(index)}
+                >
+                  <span className="font-medium text-foreground">{option.label}</span>
+                  {option.description ? (
+                    <span className="text-xs text-muted-foreground">{option.description}</span>
+                  ) : null}
+                </Button>
+              ))}
+            </div>
           )}
         </div>
       )}

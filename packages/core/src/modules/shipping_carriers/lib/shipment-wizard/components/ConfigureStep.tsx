@@ -3,6 +3,7 @@
 import * as React from 'react'
 import { Button } from '@open-mercato/ui/primitives/button'
 import { Input } from '@open-mercato/ui/primitives/input'
+import { EmailInput } from '@open-mercato/ui/primitives/email-input'
 import {
   Select,
   SelectContent,
@@ -131,8 +132,7 @@ export const ConfigureStep = (props: ConfigureStepProps) => {
                 <label className="text-xs font-medium text-muted-foreground">
                   {t('shipping_carriers.create.field.email', 'Email')}
                 </label>
-                <Input
-                  type="email"
+                <EmailInput
                   size="sm"
                   value={senderContact.email}
                   onChange={(e) => onSenderContactChange({ ...senderContact, email: e.target.value })}
@@ -177,8 +177,7 @@ export const ConfigureStep = (props: ConfigureStepProps) => {
                 <label className="text-xs font-medium text-muted-foreground">
                   {t('shipping_carriers.create.field.email', 'Email')}
                 </label>
-                <Input
-                  type="email"
+                <EmailInput
                   size="sm"
                   value={receiverContact.email}
                   onChange={(e) => onReceiverContactChange({ ...receiverContact, email: e.target.value })}
