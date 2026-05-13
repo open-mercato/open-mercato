@@ -1,6 +1,7 @@
 "use client"
 import * as React from 'react'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
+import { extractCustomFieldEntries } from '@open-mercato/shared/lib/crud/custom-fields-client'
 import { E } from '#generated/entities.ids.generated'
 import { OrganizationSelect } from '@open-mercato/core/modules/directory/components/OrganizationSelect'
 import { TenantSelect } from '@open-mercato/core/modules/directory/components/TenantSelect'
@@ -124,11 +125,7 @@ export default function EditOrganizationPage({ params }: { params?: { id?: strin
         setChildSummary(childrenDetails)
         setOriginalChildIds(Array.isArray(record.childIds) ? record.childIds : [])
 
-        const customValues: Record<string, unknown> = {}
-        for (const [key, value] of Object.entries(record as Record<string, unknown>)) {
-          if (key.startsWith('cf_')) customValues[key] = value
-          else if (key.startsWith('cf:')) customValues[`cf_${key.slice(3)}`] = value
-        }
+        const customValues = extractCustomFieldEntries(record as Record<string, unknown>)
         setInitialValues({
           id: record.id,
           name: record.name,

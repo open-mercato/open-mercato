@@ -14,6 +14,7 @@ import { WidgetVisibilityEditor, type WidgetVisibilityEditorHandle } from '@open
 import { Button } from '@open-mercato/ui/primitives/button'
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
+import { extractCustomFieldEntries } from '@open-mercato/shared/lib/crud/custom-fields-client'
 import { formatPasswordRequirements, getPasswordPolicy } from '@open-mercato/shared/lib/auth/passwordPolicy'
 import { UserConsentsPanel } from '@open-mercato/core/modules/auth/components/UserConsentsPanel'
 
@@ -206,11 +207,7 @@ export default function EditUserPage({ params }: { params?: { id?: string } }) {
               hasPassword: item.hasPassword !== false,
             })
             setSelectedTenantId(item.tenantId ? String(item.tenantId) : null)
-            const custom: Record<string, unknown> = {}
-            for (const [key, value] of Object.entries(item)) {
-              if (key.startsWith('cf_')) custom[key] = value as unknown
-              else if (key.startsWith('cf:')) custom[`cf_${key.slice(3)}`] = value as unknown
-            }
+            const custom = extractCustomFieldEntries(item as Record<string, unknown>)
             setCustomFieldValues(custom)
           }
         }
