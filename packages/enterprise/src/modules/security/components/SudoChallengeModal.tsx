@@ -6,7 +6,7 @@ import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { readApiResultOrThrow } from '@open-mercato/ui/backend/utils/apiCall'
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '@open-mercato/ui/primitives/dialog'
 import { Button } from '@open-mercato/ui/primitives/button'
-import { Input } from '@open-mercato/ui/primitives/input'
+import { PasswordInput } from '@open-mercato/ui/primitives/password-input'
 import { useProviderChallengeComponent } from './mfa-ui-registry'
 
 export type SudoChallengeMethod = {
@@ -235,13 +235,13 @@ export default function SudoChallengeModal({
               <label className="text-sm font-medium" htmlFor="sudo-password">
                 {t('security.admin.sudo.challenge.password.label', 'Password')}
               </label>
-              <Input
+              <PasswordInput
                 id="sudo-password"
-                type="password"
                 value={password}
                 autoFocus
                 onChange={(event) => setPassword(event.target.value)}
                 placeholder={t('security.admin.sudo.challenge.password.placeholder', 'Enter your password')}
+                autoComplete="current-password"
               />
             </div>
 

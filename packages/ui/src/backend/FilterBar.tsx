@@ -1,7 +1,8 @@
 "use client"
 import * as React from 'react'
-import { ListFilter, Search } from 'lucide-react'
+import { ListFilter } from 'lucide-react'
 import { Button } from '../primitives/button'
+import { SearchInput } from '../primitives/search-input'
 import { FilterDef, FilterOverlay, FilterValues } from './FilterOverlay'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 
@@ -82,15 +83,13 @@ export function FilterBar({
   const containerClass = `flex flex-col ${layout === 'inline' ? 'gap-1 sm:gap-2' : 'gap-2'} w-full`
   const searchBlock = onSearchChange ? (
     <div className={`flex items-center gap-2 ${searchAlign === 'right' ? 'sm:ml-auto' : ''}`}>
-      <div className="relative w-full sm:w-72 lg:w-80">
-        <input
+      <div className="w-full sm:w-72 lg:w-80">
+        <SearchInput
           value={searchDraft}
-          onChange={(e) => setSearchDraft(e.target.value)}
+          onChange={setSearchDraft}
           placeholder={resolvedSearchPlaceholder}
-          className="h-9 w-full rounded-md border border-input bg-background pl-8 pr-2 text-sm shadow-xs outline-none transition-colors placeholder:text-muted-foreground focus-visible:border-ring focus-visible:ring-2 focus-visible:ring-ring/50"
           suppressHydrationWarning
         />
-        <Search aria-hidden="true" className="absolute left-2 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
       </div>
       {searchTrailing ? (
         <div className="flex items-center gap-1">{searchTrailing}</div>

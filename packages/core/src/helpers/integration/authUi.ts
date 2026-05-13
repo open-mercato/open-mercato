@@ -37,6 +37,6 @@ export async function createUserViaUi(page: Page, input: { email: string; passwo
 
   await page.getByRole('button', { name: 'Create' }).first().click();
   await expect(page).toHaveURL(/\/backend\/users(?:\?.*)?$/);
-  await page.getByRole('textbox', { name: 'Search', exact: true }).fill(input.email);
+  await page.getByRole('searchbox', { name: 'Search', exact: true }).fill(input.email);
   await expect(page.getByRole('row', { name: new RegExp(input.email, 'i') })).toBeVisible();
 }

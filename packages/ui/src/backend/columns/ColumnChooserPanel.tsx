@@ -1,10 +1,11 @@
 "use client"
 import * as React from 'react'
-import { Search, GripVertical, X, ChevronRight } from 'lucide-react'
+import { GripVertical, X, ChevronRight } from 'lucide-react'
 import { Button } from '../../primitives/button'
 import { IconButton } from '../../primitives/icon-button'
 import { Switch } from '../../primitives/switch'
 import { Input } from '../../primitives/input'
+import { SearchInput } from '../../primitives/search-input'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 import {
   DndContext,
@@ -168,13 +169,11 @@ export function ColumnChooserSection({
   return (
     <div className="flex flex-col">
       <div className="px-4 py-3 border-t">
-        <Input
-          type="text"
+        <SearchInput
           size="sm"
-          leftIcon={<Search />}
           placeholder={t('ui.columnChooser.search', 'Search columns...')}
           value={searchQuery}
-          onChange={(e) => setSearchQuery(e.target.value)}
+          onChange={setSearchQuery}
         />
       </div>
 
