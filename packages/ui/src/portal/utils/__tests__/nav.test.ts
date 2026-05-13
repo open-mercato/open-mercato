@@ -135,6 +135,86 @@ describe('buildPortalNav', () => {
     expect(buildPortalNav({ routes, orgSlug: 'my-org', grantedFeatures: [] })).toEqual([])
   })
 
+  it('dedupes manifest entries that share the same portal pattern', () => {
+    const routes: FrontendRouteManifestEntry[] = [
+      makeRoute({
+        moduleId: 'core',
+        pattern: '/[orgSlug]/portal/dashboard',
+        nav: { label: 'Dashboard', group: 'main', order: 10 },
+      }),
+      makeRoute({
+        moduleId: 'app',
+        pattern: '/[orgSlug]/portal/dashboard',
+        nav: { label: 'Dashboard', group: 'main', order: 10 },
+      }),
+    ]
+
+    const groups = buildPortalNav({ routes, orgSlug: 'my-org', grantedFeatures: [] })
+    const main = groups.find((g) => g.id === 'main')!
+    expect(main.items).toHaveLength(1)
+    const ids = main.items.map((i) => i.id)
+    expect(new Set(ids).size).toBe(ids.length)
+  })
+
+  it('prefers the override with non-empty requireCustomerFeatures over a broad fallback', () => {
+    const routes: FrontendRouteManifestEntry[] = [
+      makeRoute({
+        moduleId: 'core',
+        pattern: '/[orgSlug]/portal/dashboard',
+        nav: { label: 'Dashboard', group: 'main' },
+      }),
+      makeRoute({
+        moduleId: 'app',
+        pattern: '/[orgSlug]/portal/dashboard',
+        requireCustomerFeatures: ['portal.dashboard.view'],
+        nav: { label: 'Dashboard', group: 'main' },
+      }),
+    ]
+
+    const without = buildPortalNav({ routes, orgSlug: 'my-org', grantedFeatures: [] })
+    expect(without).toEqual([])
+
+    const withGrant = buildPortalNav({
+      routes,
+      orgSlug: 'my-org',
+      grantedFeatures: ['portal.dashboard.view'],
+    })
+    expect(withGrant).toEqual([
+      { id: 'main', items: [expect.objectContaining({ label: 'Dashboard' })] },
+    ])
+  })
+
+  it('prefers the override with the longer requireCustomerFeatures list', () => {
+    const routes: FrontendRouteManifestEntry[] = [
+      makeRoute({
+        moduleId: 'core',
+        pattern: '/[orgSlug]/portal/orders',
+        requireCustomerFeatures: ['portal.orders.view'],
+        nav: { label: 'Orders', group: 'main' },
+      }),
+      makeRoute({
+        moduleId: 'app',
+        pattern: '/[orgSlug]/portal/orders',
+        requireCustomerFeatures: ['portal.orders.view', 'portal.orders.manage'],
+        nav: { label: 'Orders', group: 'main' },
+      }),
+    ]
+
+    const partial = buildPortalNav({
+      routes,
+      orgSlug: 'my-org',
+      grantedFeatures: ['portal.orders.view'],
+    })
+    expect(partial).toEqual([])
+
+    const full = buildPortalNav({
+      routes,
+      orgSlug: 'my-org',
+      grantedFeatures: ['portal.orders.view', 'portal.orders.manage'],
+    })
+    expect(full[0].items[0].label).toBe('Orders')
+  })
+
   it('sorts items by order then label', () => {
     const routes: FrontendRouteManifestEntry[] = [
       makeRoute({
