@@ -1,4 +1,4 @@
-import { Entity, Index, PrimaryKey, Property } from '@mikro-orm/decorators/legacy';
+import { Entity, PrimaryKey, Property } from '@mikro-orm/decorators/legacy';
 
 @Entity({ tableName: 'example_items' })
 export class ExampleItem {
@@ -54,38 +54,6 @@ export class ExampleCustomerPriority {
   /** Customer priority level. Valid values: 'low' | 'normal' | 'high' | 'critical'. */
   @Property({ type: 'text', default: 'normal' })
   priority: 'low' | 'normal' | 'high' | 'critical' = 'normal'
-
-  @Property({ name: 'tenant_id', type: 'uuid' })
-  tenantId!: string
-
-  @Property({ name: 'organization_id', type: 'uuid' })
-  organizationId!: string
-
-  @Property({ name: 'created_at', type: Date, onCreate: () => new Date() })
-  createdAt: Date = new Date()
-
-  @Property({ name: 'updated_at', type: Date, onUpdate: () => new Date() })
-  updatedAt: Date = new Date()
-
-  @Property({ name: 'deleted_at', type: Date, nullable: true })
-  deletedAt?: Date | null
-}
-
-@Entity({ tableName: 'example_notes' })
-@Index({ name: 'example_notes_org_tenant_idx', properties: ['organizationId', 'tenantId'] })
-@Index({ name: 'example_notes_status_idx', properties: ['status', 'createdAt'] })
-export class ExampleNote {
-  @PrimaryKey({ type: 'uuid', defaultRaw: 'gen_random_uuid()' })
-  id!: string
-
-  @Property({ type: 'text' })
-  title!: string
-
-  @Property({ type: 'text', nullable: true })
-  body?: string | null
-
-  @Property({ type: 'text', default: 'draft' })
-  status: 'draft' | 'published' | 'archived' = 'draft'
 
   @Property({ name: 'tenant_id', type: 'uuid' })
   tenantId!: string

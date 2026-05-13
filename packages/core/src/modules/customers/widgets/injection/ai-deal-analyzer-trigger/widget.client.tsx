@@ -5,8 +5,9 @@
 // loop primitives this widget surfaces.
 
 import * as React from 'react'
-import { Handshake, PanelRightOpen, Sparkles, TrendingDown } from 'lucide-react'
+import { Handshake, PanelRightOpen, TrendingDown } from 'lucide-react'
 import { AiChat, type AiChatSuggestion, type AiChatContextItem } from '@open-mercato/ui/ai/AiChat'
+import { AiIcon } from '@open-mercato/ui/ai/AiIcon'
 import { useAiDock } from '@open-mercato/ui/ai/AiDock'
 import { useAiChatSessions } from '@open-mercato/ui/ai/AiChatSessions'
 import { ChatPaneTabs } from '@open-mercato/ui/ai/ChatPaneTabs'
@@ -124,7 +125,7 @@ function useDealAnalyzerSuggestions(
           'Deal health overview',
         ),
         prompt: 'Give me a health overview of all open deals ranked by activity recency',
-        icon: <Sparkles className="size-4" />,
+        icon: <AiIcon className="size-4" />,
       },
     ]
   }, [hasSelection, selectedCount, t])
@@ -221,7 +222,7 @@ export default function DealAnalyzerTriggerWidget({ context }: DealAnalyzerTrigg
         title={triggerLabel}
         className={cn('relative', 'hover:bg-brand-violet/10')}
       >
-        <Sparkles className="size-4 text-brand-violet" aria-hidden />
+        <AiIcon className="size-4" />
         <span>{labelText}</span>
         {hasSelection ? (
           <span

@@ -23,13 +23,23 @@ function readCsv(value: string | undefined): string[] {
     .filter((item) => item.length > 0)
 }
 
+function addOriginHostname(origins: Set<string>, hostname: string): void {
+  origins.add(hostname)
+
+  if (hostname === 'localhost' || hostname === '127.0.0.1' || hostname === '[::1]' || hostname === '::1') {
+    origins.add('localhost')
+    origins.add('127.0.0.1')
+    origins.add('[::1]')
+  }
+}
+
 export function resolveAllowedDevOrigins(env: NodeJS.ProcessEnv = process.env): string[] {
   const origins = new Set<string>()
 
   for (const raw of [env.APP_URL, env.NEXT_PUBLIC_APP_URL, ...readCsv(env.APP_ALLOWED_ORIGINS)]) {
     const hostname = readOriginHostname(raw)
     if (hostname) {
-      origins.add(hostname)
+      addOriginHostname(origins, hostname)
     }
   }
 

@@ -1846,7 +1846,7 @@ export async function run(argv = process.argv) {
                     restartOnUnexpectedExit: resolveLazyRestart(process.env),
                   })
                 } else {
-                  console.log('[server] Starting workers for all queues...')
+                  console.log('[server] Eager worker auto-spawn enabled - starting workers for all queues...')
                   const workerProcess = spawn('node', [mercatoBin, 'queue', 'worker', '--all'], {
                     stdio: 'inherit',
                     env: runtimeEnv,
@@ -1870,7 +1870,7 @@ export async function run(argv = process.argv) {
                     restartOnUnexpectedExit: resolveLazySchedulerRestart(process.env),
                   })
                 } else {
-                  console.log('[server] Starting scheduler polling engine...')
+                  console.log('[server] Eager scheduler auto-spawn enabled - starting scheduler polling engine...')
                   const schedulerProcess = spawn('node', [mercatoBin, 'scheduler', 'start'], {
                     stdio: 'inherit',
                     env: runtimeEnv,
@@ -2011,7 +2011,7 @@ export async function run(argv = process.argv) {
                   restartOnUnexpectedExit: resolveLazyRestart(process.env),
                 })
               } else {
-                console.log('[server] Starting workers for all queues...')
+                console.log('[server] Eager worker auto-spawn enabled - starting workers for all queues...')
                 const workerProcess = spawn('node', [mercatoBin, 'queue', 'worker', '--all'], {
                   stdio: 'inherit',
                   env: runtimeEnv,
@@ -2035,7 +2035,7 @@ export async function run(argv = process.argv) {
                   restartOnUnexpectedExit: resolveLazySchedulerRestart(process.env),
                 })
               } else {
-                console.log('[server] Starting scheduler polling engine...')
+                console.log('[server] Eager scheduler auto-spawn enabled - starting scheduler polling engine...')
                 const schedulerProcess = spawn('node', [mercatoBin, 'scheduler', 'start'], {
                   stdio: 'inherit',
                   env: runtimeEnv,

@@ -15,6 +15,16 @@ describe('resolveAllowedDevOrigins', () => {
     expect(resolveAllowedDevOrigins({ APP_URL: 'not-a-url', NEXT_PUBLIC_APP_URL: '', APP_ALLOWED_ORIGINS: '  ' })).toEqual([])
   })
 
+  it('allowlists loopback host aliases together', () => {
+    expect(
+      resolveAllowedDevOrigins({
+        APP_URL: 'http://localhost:3000',
+        NEXT_PUBLIC_APP_URL: '',
+        APP_ALLOWED_ORIGINS: '',
+      }),
+    ).toEqual(['localhost', '127.0.0.1', '[::1]'])
+  })
+
   it('strips explicit ports so only the hostname is allowlisted', () => {
     expect(
       resolveAllowedDevOrigins({
@@ -42,6 +52,6 @@ describe('resolveAllowedDevOrigins', () => {
         NEXT_PUBLIC_APP_URL: '',
         APP_ALLOWED_ORIGINS: '',
       }),
-    ).toEqual(['[::1]'])
+    ).toEqual(['[::1]', 'localhost', '127.0.0.1'])
   })
 })
