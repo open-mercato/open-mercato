@@ -13,6 +13,8 @@ import {
   buildPersonPayload,
   createCompanyDaneFiremyGroups,
   createPersonPersonalDataGroups,
+  mapCompanyOverviewToFormValues,
+  mapPersonOverviewToFormValues,
   type Translator,
 } from '../formConfig'
 
@@ -69,5 +71,71 @@ describe('detail page zone1 group layouts', () => {
     expect(person.customFields).toEqual({
       buying_role: null,
     })
+  })
+
+  it('maps company custom fields to bare and prefixed edit-form keys', () => {
+    const values = mapCompanyOverviewToFormValues({
+      company: {
+        id: 'company-1',
+        displayName: 'Acme',
+        primaryPhone: null,
+        primaryEmail: null,
+        status: null,
+        lifecycleStage: null,
+        source: null,
+        description: null,
+      },
+      profile: {
+        legalName: null,
+        brandName: null,
+        domain: null,
+        websiteUrl: null,
+        industry: null,
+        sizeBucket: null,
+        annualRevenue: null,
+      },
+      customFields: {
+        relationship_health: 'healthy',
+        renewal_quarter: 'Q3',
+        customer_marketing_case: true,
+      },
+    } as any)
+
+    expect(values.relationship_health).toBe('healthy')
+    expect(values.cf_relationship_health).toBe('healthy')
+    expect(values.renewal_quarter).toBe('Q3')
+    expect(values.cf_renewal_quarter).toBe('Q3')
+    expect(values.customer_marketing_case).toBe(true)
+    expect(values.cf_customer_marketing_case).toBe(true)
+  })
+
+  it('maps person custom fields to bare and prefixed edit-form keys', () => {
+    const values = mapPersonOverviewToFormValues({
+      person: {
+        id: 'person-1',
+        displayName: 'Ada Lovelace',
+        primaryPhone: null,
+        primaryEmail: null,
+        status: null,
+        lifecycleStage: null,
+        source: null,
+        description: null,
+      },
+      profile: {
+        firstName: 'Ada',
+        lastName: 'Lovelace',
+        companyEntityId: null,
+        jobTitle: null,
+        department: null,
+        linkedInUrl: null,
+        twitterUrl: null,
+      },
+      customFields: {
+        buying_role: 'champion',
+      },
+    } as any)
+
+    expect(values.buying_role).toBe('champion')
+    expect(values.cf_buying_role).toBe('champion')
   })
 })

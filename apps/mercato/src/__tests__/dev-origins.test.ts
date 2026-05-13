@@ -11,6 +11,16 @@ describe('resolveAllowedDevOrigins', () => {
     ).toEqual(['preview.example.com', 'public.example.com', 'builder.example.com'])
   })
 
+  it('accepts custom dev origins as URLs, bare hosts, and wildcard host patterns', () => {
+    expect(
+      resolveAllowedDevOrigins({
+        APP_URL: '',
+        NEXT_PUBLIC_APP_URL: '',
+        APP_ALLOWED_ORIGINS: 'https://builder.example.com, preview.example.com:3001, *.local-origin.dev, invalid',
+      }),
+    ).toEqual(['builder.example.com', 'preview.example.com', '*.local-origin.dev'])
+  })
+
   it('returns an empty list when no valid origins are configured', () => {
     expect(resolveAllowedDevOrigins({ APP_URL: 'not-a-url', NEXT_PUBLIC_APP_URL: '', APP_ALLOWED_ORIGINS: '  ' })).toEqual([])
   })
@@ -22,7 +32,17 @@ describe('resolveAllowedDevOrigins', () => {
         NEXT_PUBLIC_APP_URL: '',
         APP_ALLOWED_ORIGINS: '',
       }),
-    ).toEqual(['localhost', '127.0.0.1', '[::1]'])
+    ).toEqual(['localhost', '127.0.0.1', '[::1]', '0.0.0.0', 'host.docker.internal'])
+  })
+
+  it('keeps docker and dev-container loopback aliases when a loopback host is allowed explicitly', () => {
+    expect(
+      resolveAllowedDevOrigins({
+        APP_URL: '',
+        NEXT_PUBLIC_APP_URL: '',
+        APP_ALLOWED_ORIGINS: '127.0.0.1, host.docker.internal',
+      }),
+    ).toEqual(['127.0.0.1', 'localhost', '[::1]', '0.0.0.0', 'host.docker.internal'])
   })
 
   it('strips explicit ports so only the hostname is allowlisted', () => {
@@ -52,6 +72,6 @@ describe('resolveAllowedDevOrigins', () => {
         NEXT_PUBLIC_APP_URL: '',
         APP_ALLOWED_ORIGINS: '',
       }),
-    ).toEqual(['[::1]', 'localhost', '127.0.0.1'])
+    ).toEqual(['[::1]', 'localhost', '127.0.0.1', '0.0.0.0', 'host.docker.internal'])
   })
 })

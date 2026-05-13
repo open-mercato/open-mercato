@@ -1975,7 +1975,7 @@ export function DataTable<T>({
         )).sort((left, right) => left - right)
       : []
     const pageSizeSelect = pageSizeOptions.length > 0 && pagination.onPageSizeChange ? (
-      <span className="inline-flex items-center gap-1.5">
+      <span className="inline-flex flex-none items-center gap-1.5 whitespace-nowrap">
         <Select
           value={String(pagination.pageSize)}
           onValueChange={(value) => {
@@ -1995,7 +1995,7 @@ export function DataTable<T>({
             ))}
           </SelectContent>
         </Select>
-        <span className="text-muted-foreground">{t('ui.dataTable.pagination.perPage', 'per page')}</span>
+        <span className="whitespace-nowrap text-muted-foreground">{t('ui.dataTable.pagination.perPage', 'per page')}</span>
       </span>
     ) : null
 

@@ -1947,6 +1947,17 @@ export type PersonOverview = {
 // API response → form values mapping
 // ---------------------------------------------------------------------------
 
+function mapCustomFieldsToFormValues(customFields: Record<string, unknown> | null | undefined): Record<string, unknown> {
+  if (!customFields || typeof customFields !== 'object') return {}
+  const values: Record<string, unknown> = {}
+  for (const [key, value] of Object.entries(customFields)) {
+    values[key] = value
+    if (key.startsWith('cf_') || key.startsWith('cf:')) continue
+    values[`cf_${key}`] = value
+  }
+  return values
+}
+
 export function mapCompanyOverviewToFormValues(overview: CompanyOverview): Partial<CompanyEditFormValues> {
   const rawPhone = overview.company.primaryPhone
   const phoneValue = rawPhone == null ? '' : String(rawPhone)
@@ -1966,7 +1977,7 @@ export function mapCompanyOverviewToFormValues(overview: CompanyOverview): Parti
     industry: overview.profile?.industry ?? '',
     sizeBucket: overview.profile?.sizeBucket ?? '',
     annualRevenue: overview.profile?.annualRevenue ?? '',
-    ...overview.customFields,
+    ...mapCustomFieldsToFormValues(overview.customFields),
   }
 }
 
@@ -1989,6 +2000,6 @@ export function mapPersonOverviewToFormValues(overview: PersonOverview): Partial
     department: overview.profile?.department ?? '',
     linkedInUrl: overview.profile?.linkedInUrl ?? '',
     twitterUrl: overview.profile?.twitterUrl ?? '',
-    ...overview.customFields,
+    ...mapCustomFieldsToFormValues(overview.customFields),
   }
 }

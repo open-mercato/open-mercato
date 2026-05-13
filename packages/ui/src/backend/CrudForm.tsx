@@ -407,6 +407,22 @@ function readInitialCustomFieldValue(
   return undefined
 }
 
+function readRenderedFieldValue(
+  source: Record<string, unknown>,
+  fieldId: string,
+): unknown {
+  if (Object.prototype.hasOwnProperty.call(source, fieldId)) {
+    return source[fieldId]
+  }
+  if (fieldId.startsWith('cf_')) {
+    return readInitialCustomFieldValue(source, fieldId.slice(3))
+  }
+  if (fieldId.startsWith('cf:')) {
+    return readInitialCustomFieldValue(source, fieldId.slice(3))
+  }
+  return undefined
+}
+
 function serializeIssuePath(path: ReadonlyArray<string | number | symbol>): string | null {
   if (!Array.isArray(path) || path.length === 0) return null
   const segments = path
@@ -2686,7 +2702,7 @@ export function CrudForm<TValues extends Record<string, unknown>>({
             <FieldControl
               key={f.id}
               field={f}
-              value={values[f.id]}
+              value={readRenderedFieldValue(values as Record<string, unknown>, f.id)}
               error={errors[f.id]}
               options={fieldOptionsById.get(f.id) || EMPTY_OPTIONS}
               setValue={setValue}
