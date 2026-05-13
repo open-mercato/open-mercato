@@ -103,6 +103,14 @@ export const sidebarPreferencesInputSchema = z.object({
 // Optional helpers for CLI or admin forms
 export const userCreateSchema = z.object({
   email: z.string().email(),
+  name: z.preprocess(
+    (value) => {
+      if (typeof value !== 'string') return value
+      const trimmed = value.trim()
+      return trimmed.length ? trimmed : undefined
+    },
+    z.string().trim().min(1).max(120).optional(),
+  ),
   password: passwordSchema.optional(),
   sendInviteEmail: z.boolean().optional(),
   tenantId: z.string().uuid().optional(),
