@@ -73,7 +73,7 @@ describe('detail page zone1 group layouts', () => {
     })
   })
 
-  it('maps company custom fields to bare and prefixed edit-form keys', () => {
+  it('maps company custom fields to prefixed edit-form keys', () => {
     const values = mapCompanyOverviewToFormValues({
       company: {
         id: 'company-1',
@@ -101,15 +101,12 @@ describe('detail page zone1 group layouts', () => {
       },
     } as any)
 
-    expect(values.relationship_health).toBe('healthy')
     expect(values.cf_relationship_health).toBe('healthy')
-    expect(values.renewal_quarter).toBe('Q3')
     expect(values.cf_renewal_quarter).toBe('Q3')
-    expect(values.customer_marketing_case).toBe(true)
     expect(values.cf_customer_marketing_case).toBe(true)
   })
 
-  it('maps person custom fields to bare and prefixed edit-form keys', () => {
+  it('maps person custom fields to prefixed edit-form keys', () => {
     const values = mapPersonOverviewToFormValues({
       person: {
         id: 'person-1',
@@ -135,7 +132,6 @@ describe('detail page zone1 group layouts', () => {
       },
     } as any)
 
-    expect(values.buying_role).toBe('champion')
     expect(values.cf_buying_role).toBe('champion')
   })
 })
