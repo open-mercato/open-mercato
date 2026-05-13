@@ -2,7 +2,9 @@
 import * as React from 'react'
 import { apiCall } from '../utils/apiCall'
 import { useAppEvent } from '../injection/useAppEvent'
+import { subscribeProgressUpdate } from '@open-mercato/shared/lib/frontend/progressEvents'
 import type { ProgressJobDto, UseProgressPollResult } from './useProgressPoll'
+import { applyLocalProgressUpdate, isLocalProgressJob } from './useProgressPoll'
 
 function isVisibleProgressJob(job: ProgressJobDto): boolean {
   return job.meta?.hiddenFromTopBar !== true
@@ -32,8 +34,14 @@ export function useProgressSse(): UseProgressPollResult {
         '/api/progress/active',
       )
       if (result.ok && result.result) {
-        setActiveJobs(result.result.active.filter(isVisibleProgressJob))
-        setRecentlyCompleted(result.result.recentlyCompleted.filter(isVisibleProgressJob))
+        setActiveJobs((prev) => [
+          ...prev.filter((job) => isLocalProgressJob(job) && (job.status === 'pending' || job.status === 'running')),
+          ...result.result!.active.filter(isVisibleProgressJob),
+        ])
+        setRecentlyCompleted((prev) => [
+          ...prev.filter((job) => isLocalProgressJob(job) && (job.status === 'completed' || job.status === 'failed')),
+          ...result.result!.recentlyCompleted.filter(isVisibleProgressJob),
+        ].slice(0, 10))
         setError(null)
       }
     } catch (err) {
@@ -50,6 +58,12 @@ export function useProgressSse(): UseProgressPollResult {
   React.useEffect(() => {
     void fetchJobs()
   }, [fetchJobs])
+
+  React.useEffect(() => {
+    return subscribeProgressUpdate((detail) => {
+      applyLocalProgressUpdate(detail, setActiveJobs, setRecentlyCompleted)
+    })
+  }, [])
 
   useAppEvent(
     'progress.job.updated',

@@ -208,7 +208,7 @@ export default function DealAnalyzerTriggerWidget({ context }: DealAnalyzerTrigg
     'customers.deal_analyzer.trigger.ariaLabel',
     'Open Deal Analyzer AI agent',
   )
-  const labelText = t('customers.deal_analyzer.trigger.label', 'Analyze')
+  const labelText = t('customers.ai_assistant.trigger.label', 'AI')
 
   return (
     <>
@@ -219,13 +219,13 @@ export default function DealAnalyzerTriggerWidget({ context }: DealAnalyzerTrigg
         data-ai-deal-analyzer-trigger=""
         aria-label={triggerLabel}
         title={triggerLabel}
-        className="relative"
+        className={cn('relative', 'hover:bg-brand-violet/10')}
       >
-        <Sparkles className="size-4" aria-hidden />
+        <Sparkles className="size-4 text-brand-violet" aria-hidden />
         <span>{labelText}</span>
         {hasSelection ? (
           <span
-            className="absolute -top-1 -right-1 inline-flex h-4 min-w-4 items-center justify-center rounded-full bg-primary px-1 text-[9px] font-medium leading-none text-primary-foreground"
+            className="absolute -top-1 -right-1 inline-flex h-4 min-w-4 items-center justify-center rounded-full bg-primary px-1 text-[10px] font-medium leading-none text-primary-foreground"
             data-ai-deal-analyzer-selected-count={selectedCount}
           >
             {selectedCount}

@@ -31,9 +31,9 @@ import { login } from '@open-mercato/core/modules/core/__integration__/helpers/a
  *   with allowRuntimeOverride: true causes the playground to show the model
  *   picker selector.
  *
- * TC-AI-AGENT-DEAL-ANALYZER-006 — Provider override: the agents API payload
- *   carries defaultProvider: 'anthropic' and defaultModel containing 'haiku'
- *   (slash shorthand resolved) on the deal_analyzer entry.
+ * TC-AI-AGENT-DEAL-ANALYZER-006 — Env default inheritance: the agents API
+ *   payload leaves defaultProvider/defaultModel unset so runtime resolution
+ *   uses OM_AI_PROVIDER / OM_AI_MODEL.
  *
  * TC-AI-AGENT-DEAL-ANALYZER-007 — loop_disabled kill-switch: an agent entry
  *   with loop.disabled: true causes the AiChat component to render the
@@ -57,8 +57,8 @@ const dealAnalyzerAgentEntry = {
   mutationPolicy: 'confirm-required',
   readOnly: false,
   maxSteps: 12,
-  defaultModel: 'anthropic/claude-haiku-4-5-20251001',
-  defaultProvider: 'anthropic',
+  defaultModel: null,
+  defaultProvider: null,
   allowRuntimeOverride: true,
   allowedTools: [
     'customers.analyze_deals',
@@ -112,16 +112,16 @@ const agentsPayload = {
 const modelsPayload = {
   agentId: 'customers.deal_analyzer',
   allowRuntimeOverride: true,
-  defaultProviderId: 'anthropic',
-  defaultModelId: 'claude-haiku-4-5-20251001',
+  defaultProviderId: 'openai',
+  defaultModelId: 'gpt-5-mini',
   providers: [
     {
-      id: 'anthropic',
-      name: 'Anthropic',
+      id: 'openai',
+      name: 'OpenAI',
       isConfigured: true,
       models: [
-        { id: 'claude-haiku-4-5-20251001', name: 'Claude Haiku 4.5' },
-        { id: 'claude-sonnet-4-20250514', name: 'Claude Sonnet 4' },
+        { id: 'gpt-5-mini', name: 'GPT-5 Mini' },
+        { id: 'gpt-5', name: 'GPT-5' },
       ],
     },
   ],
@@ -166,8 +166,8 @@ test.describe('TC-AI-AGENT-DEAL-ANALYZER-001: deal_analyzer appears in agents re
     expect(analyzerEntry).toBeDefined();
     expect(analyzerEntry?.executionEngine).toBe('stream-text');
     expect(analyzerEntry?.allowRuntimeOverride).toBe(true);
-    expect(analyzerEntry?.defaultProvider).toBe('anthropic');
-    expect(analyzerEntry?.defaultModel).toContain('haiku');
+    expect(analyzerEntry?.defaultProvider).toBeNull();
+    expect(analyzerEntry?.defaultModel).toBeNull();
     expect(analyzerEntry?.loop?.stopWhen?.[0]?.toolName).toBe('customers.update_deal_stage');
     expect(analyzerEntry?.loop?.budget?.maxToolCalls).toBe(12);
     expect(analyzerEntry?.loop?.budget?.maxWallClockMs).toBe(60000);
@@ -438,17 +438,17 @@ test.describe('TC-AI-AGENT-DEAL-ANALYZER-005: ModelPicker visible when allowRunt
     expect(analyzerEntry?.allowRuntimeOverride).toBe(true);
     expect(modelsPayload.allowRuntimeOverride).toBe(true);
     expect(modelsPayload.providers).toContainEqual(
-      expect.objectContaining({ id: 'anthropic', isConfigured: true }),
+      expect.objectContaining({ id: 'openai', isConfigured: true }),
     );
     expect(modelsPayload.providers[0]?.models?.length ?? 0).toBeGreaterThan(0);
   });
 });
 
 // ---------------------------------------------------------------------------
-// TC-AI-AGENT-DEAL-ANALYZER-006 — Provider override (slash shorthand resolved)
+// TC-AI-AGENT-DEAL-ANALYZER-006 — Env default inheritance
 // ---------------------------------------------------------------------------
-test.describe('TC-AI-AGENT-DEAL-ANALYZER-006: provider override slash shorthand resolved in registry', () => {
-  test('deal_analyzer entry carries defaultProvider=anthropic and haiku model', async ({ page }) => {
+test.describe('TC-AI-AGENT-DEAL-ANALYZER-006: runtime provider/model default inherited from env', () => {
+  test('deal_analyzer entry leaves provider and model unset for runtime resolution', async ({ page }) => {
     test.setTimeout(120_000);
     await login(page, 'superadmin');
 
@@ -478,10 +478,8 @@ test.describe('TC-AI-AGENT-DEAL-ANALYZER-006: provider override slash shorthand 
 
     const entry = capturedPayload!.agents.find((a) => a.id === 'customers.deal_analyzer');
     expect(entry).toBeDefined();
-    // The agent is declared with defaultModel: 'anthropic/claude-haiku-4-5-20251001'
-    // The registry resolves the slash prefix and exposes both fields.
-    expect(entry?.defaultProvider).toBe('anthropic');
-    expect(entry?.defaultModel).toContain('haiku');
+    expect(entry?.defaultProvider).toBeNull();
+    expect(entry?.defaultModel).toBeNull();
   });
 });
 

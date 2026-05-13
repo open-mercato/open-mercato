@@ -23,15 +23,19 @@
  *   4. Global env `OM_AI_MODEL` (canonical) with `OPENCODE_MODEL` kept as
  *      a backward-compatibility fallback. Accepts either a plain model id
  *      (`gpt-5-mini`) or a slash-qualified id (`openai/gpt-5-mini`).
- *      Slash qualifiers consume the provider axis at the same step — a
- *      higher-priority provider source still wins, but a lower-priority
- *      one cannot overwrite a slash-qualified model.
+ *      Slash qualifiers consume the provider axis at the same step. When the
+ *      selected model source carries a provider hint, the provider/model pair
+ *      is atomic: an unconfigured hinted provider fails instead of sending
+ *      the model id to a different configured provider.
  *   5. The configured provider's own default model id
  *      (`provider.defaultModel`).
  *
  * Every model-axis source is parsed through {@link parseSlashShorthand}.
  * Resolution walks the chain top-down and takes the first non-null hint as
- * the registry-walk seed:
+ * the registry-walk seed. If the winning model source also supplies the
+ * winning provider hint — either through `<provider>/<model>` or through the
+ * same-source provider field/env var — that pair is resolved exactly and
+ * never mixed with a fallback provider.
  *
  *   Provider-axis seed order (highest priority first):
  *   1. Slash-prefix from `callerOverride` (Phase 1).
@@ -104,8 +108,10 @@ export interface AiModelFactoryInput {
   agentDefaultModel?: string
   /**
    * Agent-level default provider, typically `AiAgentDefinition.defaultProvider`.
-   * Named provider id; falls through transparently when the named provider is
-   * registered-but-unconfigured. Sits between `OM_AI_<MODULE>_PROVIDER`
+   * Named provider id. When paired with an agent default model, the pair is
+   * resolved exactly and fails if the provider is unconfigured. When used as
+   * a provider preference without an agent default model, it can fall through
+   * to the next configured provider. Sits between `OM_AI_<MODULE>_PROVIDER`
    * and the global `OM_AI_PROVIDER` in the provider-axis seed list above.
    *
    * Phase 1 of spec `2026-04-27-ai-agents-provider-model-baseurl-overrides`.
@@ -422,6 +428,28 @@ function normalizeProviderHint(
   return providerIdAliases(providerId)[0] ?? providerId
 }
 
+function resolveRequiredProvider(
+  providerId: string,
+  registry: AiModelFactoryRegistry,
+  env: EnvLookup,
+): LlmProvider | null {
+  const resolved = registry.resolveFirstConfigured({ env, order: [providerId] })
+  if (resolved?.id === providerId) return resolved
+
+  const direct = registry.get?.(providerId) ?? null
+  if (direct) return direct.isConfigured(env) ? direct : null
+  return null
+}
+
+function requiredProviderMessage(providerId: string, registry: AiModelFactoryRegistry, env: EnvLookup): string {
+  const provider = registry.get?.(providerId) ?? null
+  const envKey = provider?.getConfiguredEnvKey?.(env)
+  const credentialHint = envKey
+    ? ` Set ${envKey} to use this provider.`
+    : ' Configure the matching provider API key to use this provider.'
+  return `The resolved model is pinned to provider "${providerId}", but that provider is not configured.${credentialHint} The runtime refuses to send provider-specific model ids to a different provider.`
+}
+
 function moduleBaseUrlEnvVarName(moduleId: string): string {
   return `${moduleId.toUpperCase()}_AI_BASE_URL`
 }
@@ -535,10 +563,6 @@ export function createModelFactory(
       const agentModelParsed = agentModelRaw ? parseSlashShorthand(agentModelRaw, registry) : null
       const globalModelParsed = globalModelRaw ? parseSlashShorthand(globalModelRaw, registry) : null
 
-      // --- Provider-axis: walk from highest to lowest priority for the seed.
-      // A slash-qualified hint from a model source wins over a plain provider
-      // source at the same priority step. We walk top-down and take the first
-      // non-null hint.
       const providerOverrideRaw = normalizeOverride(input.providerOverride)
       const moduleProviderRaw = hasModule
         ? readModuleProviderEnvOverride(env, input.moduleId!)
@@ -548,27 +572,80 @@ export function createModelFactory(
       // a backward-compatibility fallback through readGlobalProviderFromEnv.
       const globalProviderRaw = readGlobalProviderFromEnv(env, registry)
 
+      const requestProviderHint = normalizeProviderHint(requestProviderRaw, registry)
+      const providerOverrideHint = normalizeProviderHint(providerOverrideRaw, registry)
+      const tenantProviderHint = normalizeProviderHint(tenantProviderRaw, registry)
+      const moduleProviderHint = normalizeProviderHint(moduleProviderRaw, registry)
+      const agentDefaultProviderHint = normalizeProviderHint(agentDefaultProviderRaw, registry)
+
       // Walk the provider-axis seed list: slash hint beats plain provider at
       // the same step. We keep only the first (highest-priority) non-null hint.
       const providerHintCandidates: Array<string | null> = [
         requestModelParsed?.providerHint ?? null,
-        normalizeProviderHint(requestProviderRaw, registry),
+        requestProviderHint,
         callerParsed?.providerHint ?? null,
-        normalizeProviderHint(providerOverrideRaw, registry),
+        providerOverrideHint,
         tenantModelParsed?.providerHint ?? null,
-        normalizeProviderHint(tenantProviderRaw, registry),
+        tenantProviderHint,
         moduleModelParsed?.providerHint ?? null,
-        normalizeProviderHint(moduleProviderRaw, registry),
+        moduleProviderHint,
         agentModelParsed?.providerHint ?? null,
-        normalizeProviderHint(agentDefaultProviderRaw, registry),
+        agentDefaultProviderHint,
         globalModelParsed?.providerHint ?? null,
         globalProviderRaw,
       ]
       const orderHint = providerHintCandidates.find((hint) => hint !== null) ?? null
       const order = orderHint ? [orderHint] : undefined
 
-      const provider = registry.resolveFirstConfigured({ env, order })
+      const pairPlainProviderIfWinning = (providerHint: string | null): string | null =>
+        providerHint && providerHint === orderHint ? providerHint : null
+
+      let modelId: string
+      let source: AiModelResolution['source']
+      let pairedProviderHint: string | null = null
+      if (requestModelParsed) {
+        modelId = requestModelParsed.modelId
+        source = 'request_override'
+        pairedProviderHint = requestModelParsed.providerHint ?? pairPlainProviderIfWinning(requestProviderHint)
+      } else if (callerParsed) {
+        modelId = callerParsed.modelId
+        source = 'caller_override'
+        pairedProviderHint = callerParsed.providerHint ?? pairPlainProviderIfWinning(providerOverrideHint)
+      } else if (tenantModelParsed) {
+        modelId = tenantModelParsed.modelId
+        source = 'tenant_override'
+        pairedProviderHint = tenantModelParsed.providerHint ?? pairPlainProviderIfWinning(tenantProviderHint)
+      } else if (moduleModelParsed) {
+        modelId = moduleModelParsed.modelId
+        source = 'module_env'
+        pairedProviderHint = moduleModelParsed.providerHint ?? pairPlainProviderIfWinning(moduleProviderHint)
+      } else if (agentModelParsed) {
+        modelId = agentModelParsed.modelId
+        source = 'agent_default'
+        pairedProviderHint = agentModelParsed.providerHint ?? pairPlainProviderIfWinning(agentDefaultProviderHint)
+      } else if (globalModelParsed) {
+        modelId = globalModelParsed.modelId
+        source = 'env_default'
+        pairedProviderHint = globalModelParsed.providerHint ?? pairPlainProviderIfWinning(globalProviderRaw)
+      } else {
+        modelId = ''
+        source = 'provider_default'
+      }
+
+      // --- Provider-axis: walk from highest to lowest priority for the seed.
+      // A slash-qualified hint from a model source wins over a plain provider
+      // source at the same priority step. We walk top-down and take the first
+      // non-null hint.
+      const provider = pairedProviderHint
+        ? resolveRequiredProvider(pairedProviderHint, registry, env)
+        : registry.resolveFirstConfigured({ env, order })
       if (!provider) {
+        if (pairedProviderHint) {
+          throw new AiModelFactoryError(
+            'no_provider_configured',
+            requiredProviderMessage(pairedProviderHint, registry, env),
+          )
+        }
         throw new AiModelFactoryError(
           'no_provider_configured',
           'No LLM provider is configured. Set OM_AI_PROVIDER (or the legacy OPENCODE_PROVIDER) plus a matching API key such as OPENAI_API_KEY, ANTHROPIC_API_KEY, or GOOGLE_GENERATIVE_AI_API_KEY, then restart the app. See https://docs.openmercato.com/framework/ai-assistant/overview.',
@@ -583,29 +660,8 @@ export function createModelFactory(
       }
 
       // --- Model-axis: use the post-parse model id from the winning source.
-      let modelId: string
-      let source: AiModelResolution['source']
-      if (requestModelParsed) {
-        modelId = requestModelParsed.modelId
-        source = 'request_override'
-      } else if (callerParsed) {
-        modelId = callerParsed.modelId
-        source = 'caller_override'
-      } else if (tenantModelParsed) {
-        modelId = tenantModelParsed.modelId
-        source = 'tenant_override'
-      } else if (moduleModelParsed) {
-        modelId = moduleModelParsed.modelId
-        source = 'module_env'
-      } else if (agentModelParsed) {
-        modelId = agentModelParsed.modelId
-        source = 'agent_default'
-      } else if (globalModelParsed) {
-        modelId = globalModelParsed.modelId
-        source = 'env_default'
-      } else {
+      if (source === 'provider_default') {
         modelId = provider.defaultModel
-        source = 'provider_default'
       }
 
       // --- BaseURL-axis resolution (highest to lowest priority) ---

@@ -394,9 +394,9 @@ describe('customers.deal_analyzer demo agents', () => {
     expect(dealAnalyzerToolLoop.executionEngine).toBe('tool-loop-agent')
   })
 
-  it('honors the slash-shorthand model + explicit defaultProvider', () => {
-    expect(dealAnalyzer.defaultModel).toBe('anthropic/claude-haiku-4-5-20251001')
-    expect(dealAnalyzer.defaultProvider).toBe('anthropic')
+  it('inherits the runtime default provider and model from environment settings', () => {
+    expect(dealAnalyzer.defaultModel).toBeUndefined()
+    expect(dealAnalyzer.defaultProvider).toBeUndefined()
     expect(dealAnalyzer.allowRuntimeOverride).toBe(true)
   })
 
@@ -429,28 +429,19 @@ describe('customers.deal_analyzer demo agents', () => {
     }
   })
 
-  it('prepareStep callback swaps model id by stepNumber', async () => {
+  it('prepareStep callback scopes tools by step without overriding the model', async () => {
     expect(typeof dealAnalyzer.loop?.prepareStep).toBe('function')
-    // The callback resolves a model via the global model factory which depends
-    // on `process.env`; pre-seed the env so the resolver returns a model the
-    // factory can construct without the DI container.
-    process.env.ANTHROPIC_API_KEY = process.env.ANTHROPIC_API_KEY ?? 'test-key'
-    try {
-      const stepZero = await dealAnalyzer.loop!.prepareStep!({
-        stepNumber: 0,
-      } as any)
-      const stepOne = await dealAnalyzer.loop!.prepareStep!({
-        stepNumber: 1,
-      } as any)
-      expect(stepZero).toBeDefined()
-      expect(stepOne).toBeDefined()
-      // Both calls return a model; the swap is observable via distinct returns.
-      expect((stepZero as any).model).toBeDefined()
-      expect((stepOne as any).model).toBeDefined()
-    } catch (err) {
-      // The model factory may reject in environments without a real provider;
-      // fall back to confirming the callback shape only.
-      expect(err).toBeInstanceOf(Error)
-    }
+    const stepZero = await dealAnalyzer.loop!.prepareStep!({
+      stepNumber: 0,
+    } as any)
+    const stepOne = await dealAnalyzer.loop!.prepareStep!({
+      stepNumber: 1,
+    } as any)
+
+    expect((stepZero as any).model).toBeUndefined()
+    expect((stepOne as any).model).toBeUndefined()
+    expect((stepZero as any).activeTools).toContain('customers.analyze_deals')
+    expect((stepZero as any).activeTools).not.toContain('customers.update_deal_stage')
+    expect((stepOne as any).activeTools).toContain('customers.update_deal_stage')
   })
 })

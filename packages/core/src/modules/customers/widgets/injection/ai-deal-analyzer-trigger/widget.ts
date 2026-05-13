@@ -23,7 +23,7 @@ const widget: InjectionWidgetModule<Record<string, unknown>, Record<string, unkn
     id: 'customers.injection.ai-deal-analyzer-trigger',
     title: 'Deal Analyzer Trigger',
     description:
-      'Renders an "Analyze" button in the deals list search-trailing slot that opens a sheet embedding the deal analyzer agent.',
+      'Renders an AI button in the deals list search-trailing slot that opens a sheet embedding the deal analyzer agent.',
     features: ['customers.deals.view', 'ai_assistant.view'],
     priority: 90,
     enabled: true,

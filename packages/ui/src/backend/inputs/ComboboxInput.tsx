@@ -49,6 +49,16 @@ function normalizeOptions(input?: Array<string | ComboboxOption>): ComboboxOptio
     .filter((option): option is ComboboxOption => !!option)
 }
 
+function areOptionsEqual(a: ComboboxOption[], b: ComboboxOption[]): boolean {
+  if (a.length !== b.length) return false
+  return a.every((option, index) => {
+    const next = b[index]
+    return option.value === next.value
+      && option.label === next.label
+      && (option.description ?? null) === (next.description ?? null)
+  })
+}
+
 export function ComboboxInput({
   value,
   onChange,
@@ -71,6 +81,7 @@ export function ComboboxInput({
   const [selectedIndex, setSelectedIndex] = React.useState(-1)
   const inputRef = React.useRef<HTMLInputElement>(null)
   const suppressOpenOnFocusRef = React.useRef(Boolean(autoFocus && !disabled))
+  const eagerFallbackLoadedValueRef = React.useRef<string | null>(null)
 
   const staticOptions = React.useMemo(
     () => normalizeOptions([...(seedOptions ?? []), ...(suggestions ?? [])]),
@@ -83,6 +94,14 @@ export function ComboboxInput({
     const set = new Set<string>()
     for (const option of [...staticOptions, ...asyncOptions, ...resolvedOptions]) {
       if (option.label && option.label !== option.value) set.add(option.value)
+    }
+    return set
+  }, [staticOptions, asyncOptions, resolvedOptions])
+
+  const coveredOptionValues = React.useMemo(() => {
+    const set = new Set<string>()
+    for (const option of [...staticOptions, ...asyncOptions, ...resolvedOptions]) {
+      set.add(option.value)
     }
     return set
   }, [staticOptions, asyncOptions, resolvedOptions])
@@ -102,16 +121,15 @@ export function ComboboxInput({
     if (value) {
       const existing = map.get(value)
       if (!existing) {
-        const sync = typeof resolveLabel === 'function' ? resolveLabel(value) : undefined
         map.set(value, {
           value,
-          label: typeof sync === 'string' && sync ? sync : value,
+          label: value,
           description: resolveDescription?.(value) ?? null,
         })
       }
     }
     return map
-  }, [asyncOptions, resolvedOptions, resolveDescription, resolveLabel, staticOptions, value])
+  }, [asyncOptions, resolvedOptions, resolveDescription, staticOptions, value])
 
   const availableOptions = React.useMemo(() => {
     return Array.from(optionMap.values())
@@ -136,7 +154,8 @@ export function ComboboxInput({
       try {
         const items = await loadSuggestions(query)
         if (!cancelled) {
-          setAsyncOptions(normalizeOptions(items))
+          const normalized = normalizeOptions(items)
+          setAsyncOptions((prev) => areOptionsEqual(prev, normalized) ? prev : normalized)
         }
       } finally {
         if (!cancelled) setLoading(false)
@@ -153,7 +172,6 @@ export function ComboboxInput({
   const eagerResolveLabel = typeof resolveLabel === 'function' ? resolveLabel : undefined
   React.useEffect(() => {
     if (!value || disabled) return
-    if (knownLabelValues.has(value)) return
     let cancelled = false
     const apply = (label?: string | null, description?: string | null) => {
       const clean = typeof label === 'string' ? label.trim() : ''
@@ -164,12 +182,16 @@ export function ComboboxInput({
       })
     }
     if (eagerResolveLabel) {
+      if (knownLabelValues.has(value)) return
       Promise.resolve()
         .then(() => eagerResolveLabel(value))
         .then((label) => apply(label, resolveDescription?.(value)))
         .catch(() => {})
       return () => { cancelled = true }
     }
+    if (coveredOptionValues.has(value)) return
+    if (eagerFallbackLoadedValueRef.current === value) return
+    eagerFallbackLoadedValueRef.current = value
     // Fallback: pull the first page of async suggestions so a remount that lost
     // its option cache can still recover the label without user interaction.
     if (loadSuggestions) {
@@ -179,14 +201,14 @@ export function ComboboxInput({
         .then((items) => {
           if (cancelled) return
           const normalized = normalizeOptions(items)
-          setAsyncOptions(normalized)
+          setAsyncOptions((prev) => areOptionsEqual(prev, normalized) ? prev : normalized)
         })
         .catch(() => {})
         .finally(() => { if (!cancelled) setLoading(false) })
     }
     return () => { cancelled = true }
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [value, disabled, knownLabelValues, eagerResolveLabel, loadSuggestions])
+  }, [value, disabled, knownLabelValues, coveredOptionValues, eagerResolveLabel, loadSuggestions])
 
   // Sync input with value when value changes externally and input is not focused.
   React.useEffect(() => {

@@ -290,7 +290,7 @@ function GroupView({
     : 'space-y-3 rounded-lg border border-border bg-muted/30 p-3'
 
   // Toolbar-first layout (Kendo React Filter pattern): one [And]/[Or] toggle per group
-  // is the only combinator UI. Mixing AND with OR requires `+ Add subgroup`. Matches
+  // is the only combinator UI. Mixing AND with OR requires `Add subgroup`. Matches
   // `CompositeFilterDescriptor` semantics (one logic per group).
   return (
     <div className={containerClass}>
@@ -841,8 +841,8 @@ function toneDotClass(tone: NonNullable<FilterFieldDef['options']>[number]['tone
   }
 }
 
-// Single Kendo-style toolbar per group: combinator toggle, `+ Add condition`,
-// `+ Add subgroup` / `+ Add group`, plus a trailing delete for non-root groups.
+// Single Kendo-style toolbar per group: combinator toggle, `Add condition`,
+// `Add subgroup` / `Add group`, plus a trailing delete for non-root groups.
 function GroupToolbar({
   group, level, tree, dispatch, defaultField, fields, isRoot, t,
 }: {
@@ -886,8 +886,8 @@ function GroupToolbar({
     : undefined
 
   const addGroupLabel = level === 1
-    ? t('ui.advancedFilter.addGroup', '+ Add group')
-    : t('ui.advancedFilter.addSubgroup', '+ Add subgroup')
+    ? t('ui.advancedFilter.addGroup', 'Add group')
+    : t('ui.advancedFilter.addSubgroup', 'Add subgroup')
 
   // `text-brand-violet` overrides Button's default disabled token, so we have to
   // re-state muted disabled colors here — otherwise disabled CTAs still look clickable.
@@ -912,7 +912,7 @@ function GroupToolbar({
           className={ctaClass}
         >
           <Plus className="size-4" />
-          {t('ui.advancedFilter.addCondition', '+ Add condition')}
+          {t('ui.advancedFilter.addCondition', 'Add condition')}
         </Button>
         <FilterFieldPicker
           fields={fields}

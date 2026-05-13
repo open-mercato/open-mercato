@@ -67,7 +67,6 @@ export const agent: AiAgentDefinition = {
   mutationPolicy: 'read-only',
   requiredFeatures: ['customers.view'],
   acceptedMediaTypes: ['image', 'pdf'],
-  defaultModel: 'claude-haiku-4-5',
 }
 ```
 
@@ -80,8 +79,8 @@ See [AI Agents](./agents) for the full declaration guide and the end-to-end exam
 | `ANTHROPIC_API_KEY` / `OPENAI_API_KEY` / `GOOGLE_GENERATIVE_AI_API_KEY` | — | Standard provider keys; at least one MUST be set. The runtime picks the first configured provider via `llmProviderRegistry.resolveFirstConfigured()`. |
 | `AI_PENDING_ACTION_TTL_SECONDS` | `900` (15 min) | Expiry window for pending mutation approvals. The cleanup worker flips stale rows to `expired`. |
 | `OM_AI_<MODULE>_MODEL` | unset | Per-module model override. Uppercased from the `moduleId`. Examples: `OM_AI_INBOX_OPS_MODEL=claude-haiku-4-5`, `OM_AI_CATALOG_MODEL=gpt-4o-mini`. The legacy `<MODULE>_AI_MODEL` form (`INBOX_OPS_AI_MODEL`, `CATALOG_AI_MODEL`) is read as a backward-compatibility fallback. |
-| `OM_AI_<MODULE>_PROVIDER` | unset | Per-module provider override (Phase 1). Uppercased from the `moduleId`. Examples: `OM_AI_CATALOG_PROVIDER=openai`, `OM_AI_INBOX_OPS_PROVIDER=anthropic`. The legacy `<MODULE>_AI_PROVIDER` form is read as a backward-compatibility fallback. Falls through transparently when the named provider is registered-but-unconfigured. |
-| `OM_AI_PROVIDER` | `openai` (when an `OPENAI_API_KEY` is set) | Process-wide default provider id. Built-in ids: `openai`, `anthropic`, `google`, `deepinfra`, `groq`, `together`, `fireworks`, `azure`, `litellm`, `ollama`, `openrouter`, `lm-studio`. Falls through transparently when the named provider is registered-but-unconfigured. Legacy `OPENCODE_PROVIDER` is read as a backward-compatibility fallback. |
+| `OM_AI_<MODULE>_PROVIDER` | unset | Per-module provider override (Phase 1). Uppercased from the `moduleId`. Examples: `OM_AI_CATALOG_PROVIDER=openai`, `OM_AI_INBOX_OPS_PROVIDER=anthropic`. The legacy `<MODULE>_AI_PROVIDER` form is read as a backward-compatibility fallback. A provider-only preference can fall through when unconfigured; a paired provider/model override fails instead of sending that model to another provider. |
+| `OM_AI_PROVIDER` | `openai` (when an `OPENAI_API_KEY` is set) | Process-wide default provider id. Built-in ids: `openai`, `anthropic`, `google`, `deepinfra`, `groq`, `together`, `fireworks`, `azure`, `litellm`, `ollama`, `openrouter`, `lm-studio`. A provider-only preference can fall through when unconfigured; when paired with `OM_AI_MODEL`, the provider must be configured. Legacy `OPENCODE_PROVIDER` is read as a backward-compatibility fallback. |
 | `OM_AI_MODEL` | `gpt-5-mini` (under the default `openai` provider) | Process-wide default model id. Plain ids resolve under the chosen provider; slash-qualified ids (`openai/gpt-5-mini`) consume the provider axis at the same step. DeepInfra-style ids that already contain slashes (`meta-llama/Llama-3.3-70B-Instruct-Turbo`) stay intact via the registry-membership guard. Legacy `OPENCODE_MODEL` is read as a backward-compatibility fallback. |
 | `OM_AI_AVAILABLE_PROVIDERS` | unset | Operator-defined ALLOWLIST of provider ids that the runtime accepts (comma-separated, whitespace-tolerant, case-insensitive). Unset / empty → no restriction. When set, the settings UI is clipped to this subset, the chat-UI `<ModelPicker>` only offers these values, the dispatcher rejects out-of-allowlist `?provider=` query params with `provider_not_allowlisted` 400, and the model-factory swaps to a safe pair (with `console.warn` + an `allowlistFallback` field on the resolution) whenever a higher-priority source resolves to a blocked provider. |
 | `OM_AI_AVAILABLE_MODELS_<PROVIDER>` | unset | Per-provider ALLOWLIST of model ids (comma-separated, case-sensitive). `<PROVIDER>` is uppercased from the registry id (e.g. `OM_AI_AVAILABLE_MODELS_OPENAI=gpt-5-mini,gpt-5`). Unset / empty → no model restriction for that provider. Honored at the same gates as `OM_AI_AVAILABLE_PROVIDERS`; the dispatcher 400 code is `model_not_allowlisted`. |
@@ -106,7 +105,7 @@ The shared `createModelFactory(container)` picks one model per agent run. Highes
 | 2 | **Tenant settings override** — `(provider, model)` row in `ai_agent_runtime_overrides` scoped to the tenant | Admin saves at `/backend/config/ai-assistant/settings` → Global Override form |
 | 3 | **Per-agent tenant settings override** — `(provider, model)` row in `ai_agent_runtime_overrides` scoped to a specific `agentId` | Admin saves at `/backend/config/ai-assistant/agents` → Provider and model |
 | 4 | **`OM_AI_<MODULE>_MODEL` env var** (legacy `<MODULE>_AI_MODEL` fallback) | `OM_AI_CATALOG_MODEL=gpt-4o` in `.env`; uppercased from `moduleId` |
-| 5 | **`AiAgentDefinition.defaultModel`** | `defaultModel: 'claude-haiku-4-5'` in `ai-agents.ts` |
+| 5 | **`AiAgentDefinition.defaultModel`** | Optional agent-level pin in `ai-agents.ts`; omit for generic shipped agents so env controls the model |
 | 6 | **`OM_AI_MODEL` env var** (legacy `OPENCODE_MODEL` fallback) | Process-wide fallback, plain or slash-qualified (`openai/gpt-5-mini`) |
 | 7 | **Provider default** | Hard-coded per provider (e.g. `claude-haiku-4-5-20251001` for Anthropic) |
 
@@ -124,7 +123,7 @@ The provider axis is resolved through `llmProviderRegistry.resolveFirstConfigure
 8. Slash-prefix from `OM_AI_MODEL` (legacy `OPENCODE_MODEL` BC fallback).
 9. `OM_AI_PROVIDER` env (legacy `OPENCODE_PROVIDER` BC fallback).
 
-The named provider is preferred but the walk falls through transparently when it is registered-but-unconfigured.
+Provider-only preferences can fall through when the named provider is registered but unconfigured. Provider/model pairs are atomic: if the selected model source is slash-qualified (`anthropic/claude-sonnet-4-20250514`) or paired with the same-source provider field/env var (`OM_AI_PROVIDER=anthropic` + `OM_AI_MODEL=claude-sonnet-4-20250514`), that provider must be configured. The factory fails closed instead of sending the model id to another provider.
 
 #### Example: full resolution trace
 
@@ -136,7 +135,7 @@ Browser sends ?provider=openai&model=gpt-4o  ← Step 1 wins → uses openai/gpt
 Browser sends nothing, tenant has override (openai, gpt-5-mini) ← Step 2 wins
 Tenant has per-agent override for catalog.merch (google, gemini-3-pro) ← Step 3 wins
 No runtime/tenant override, OM_AI_CATALOG_MODEL=gpt-4o-mini ← Step 4 wins
-No env, agent declares defaultModel: 'claude-haiku-4-5' ← Step 5 wins
+No env, agent intentionally pins defaultModel/defaultProvider ← Step 5 wins
 No agent default, OM_AI_MODEL=openai/gpt-5-mini ← Step 6 wins
 No OM_AI_MODEL, Anthropic key present ← Step 7: anthropic/claude-haiku-4-5-20251001
 ```

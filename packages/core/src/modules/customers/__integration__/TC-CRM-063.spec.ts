@@ -45,12 +45,12 @@ test.describe('TC-CRM-063: filter-aware empty state', () => {
   ): Promise<boolean> {
     const panel = page.locator('[data-testid="advanced-filter-panel"]').first();
 
-    // First "+ Add condition" CTA: empty state OR builder footer (depending on tree state).
+    // First "Add condition" CTA: empty state OR builder footer (depending on tree state).
     const emptyAddBtn = panel
       .locator('[data-testid="filter-empty-state"]')
       .getByRole('button', { name: /add condition/i })
       .first();
-    const builderAddBtn = panel.getByRole('button', { name: /\+\s*Add condition/i }).first();
+    const builderAddBtn = panel.getByRole('button', { name: /add condition/i }).first();
 
     if (await emptyAddBtn.isVisible({ timeout: 1_000 }).catch(() => false)) {
       await emptyAddBtn.click();

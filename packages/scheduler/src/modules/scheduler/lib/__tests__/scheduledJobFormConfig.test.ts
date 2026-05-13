@@ -1,5 +1,5 @@
 import * as React from 'react'
-import { scheduledJobFields } from '../scheduledJobFormConfig'
+import { loadTimezoneOptions, scheduledJobFields } from '../scheduledJobFormConfig'
 
 type AnyElement = React.ReactElement<any, any>
 
@@ -80,5 +80,12 @@ describe('scheduledJobFormConfig target fields', () => {
   it('does not render a Target Queue label when targetType=command', () => {
     const tree = renderComponent(renderTargetFields('command'))
     expect(findLabelFor(tree, 'targetQueue')).toBeNull()
+  })
+})
+
+describe('loadTimezoneOptions', () => {
+  it('includes UTC even when Intl.supportedValuesOf does not list it', async () => {
+    const options = await loadTimezoneOptions('utc')
+    expect(options).toContainEqual({ value: 'UTC', label: 'UTC' })
   })
 })

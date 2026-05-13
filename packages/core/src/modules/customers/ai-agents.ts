@@ -25,8 +25,6 @@ import type {
   AiAgentDefinition,
   AiAgentPageContextInput,
 } from '@open-mercato/ai-assistant/modules/ai_assistant/lib/ai-agent-definition'
-import { createModelFactory } from '@open-mercato/ai-assistant/modules/ai_assistant/lib/model-factory'
-import type { AwilixContainer } from 'awilix'
 import { hydrateCustomersAccountContext } from './ai-agents-context'
 
 type PromptSectionName =
@@ -439,30 +437,21 @@ const DEAL_ANALYZER_ALLOWED_TOOLS: readonly string[] = [
   'meta.describe_agent',
 ]
 
-// Step 0 → Sonnet (deep portfolio reasoning), step 1+ → Haiku (cheap
-// mutation proposal). The model factory does not actually read the
-// container, so a null cast keeps TypeScript happy without DI wiring.
 function buildDealAnalyzerPrepareStep() {
-  const SONNET_MODEL_ID = 'claude-sonnet-4-20250514'
-  const HAIKU_MODEL_ID = 'claude-haiku-4-5-20251001'
-
-  let lazyFactory: ReturnType<typeof createModelFactory> | null = null
-  function getFactory() {
-    if (!lazyFactory) {
-      lazyFactory = createModelFactory(null as unknown as AwilixContainer)
-    }
-    return lazyFactory
-  }
-
   return async function dealAnalyzerPrepareStep(state: { stepNumber: number }) {
-    const factory = getFactory()
-    const modelId = state.stepNumber === 0 ? SONNET_MODEL_ID : HAIKU_MODEL_ID
-    const resolution = factory.resolveModel({
-      moduleId: 'customers',
-      callerOverride: modelId,
-      allowRuntimeOverride: false,
-    })
-    return { model: resolution.model }
+    if (state.stepNumber === 0) {
+      return {
+        activeTools: [
+          'customers.analyze_deals',
+          'customers.list_deals',
+          'customers.get_deal',
+          'customers.list_activities',
+          'search.hybrid_search',
+          'meta.describe_agent',
+        ],
+      }
+    }
+    return { activeTools: [...DEAL_ANALYZER_ALLOWED_TOOLS] }
   }
 }
 
@@ -476,10 +465,6 @@ const dealAnalyzer: AiAgentDefinition = {
   allowedTools: [...DEAL_ANALYZER_ALLOWED_TOOLS],
   executionMode: 'chat',
   executionEngine: 'stream-text',
-  // Slash-qualified model id — exercises Phase 1 provider/model parser.
-  defaultModel: 'anthropic/claude-haiku-4-5-20251001',
-  // Explicit + redundant: proves the parser doesn't reject dual declaration.
-  defaultProvider: 'anthropic',
   allowRuntimeOverride: true,
   readOnly: false,
   mutationPolicy: 'confirm-required',

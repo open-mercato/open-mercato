@@ -95,8 +95,8 @@ describe('catalog.catalog_assistant agent definition', () => {
 
   it('declares the expected execution metadata', () => {
     expect(agent.executionMode).toBe('chat')
-    expect(agent.defaultProvider).toBe('openai')
-    expect(agent.defaultModel).toBe('gpt-5-mini')
+    expect(agent.defaultProvider).toBeUndefined()
+    expect(agent.defaultModel).toBeUndefined()
     expect(agent.maxSteps).toBeUndefined()
     expect(agent.output).toBeUndefined()
     expect(agent.acceptedMediaTypes).toEqual(['image', 'pdf', 'file'])
@@ -239,8 +239,8 @@ describe('catalog.merchandising_assistant agent definition (Step 4.9 / Spec §10
 
   it('declares the expected execution metadata', () => {
     expect(merchandisingAgent.executionMode).toBe('chat')
-    expect(merchandisingAgent.defaultProvider).toBe('openai')
-    expect(merchandisingAgent.defaultModel).toBe('gpt-5-mini')
+    expect(merchandisingAgent.defaultProvider).toBeUndefined()
+    expect(merchandisingAgent.defaultModel).toBeUndefined()
     expect(merchandisingAgent.maxSteps).toBeUndefined()
     expect(merchandisingAgent.output).toBeUndefined()
     expect(merchandisingAgent.acceptedMediaTypes).toEqual(['image', 'pdf', 'file'])

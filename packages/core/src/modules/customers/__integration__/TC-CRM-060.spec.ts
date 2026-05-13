@@ -40,7 +40,7 @@ test.describe('TC-CRM-060: Companies filter UX (V2 figma redesign)', () => {
     return visible;
   }
 
-  test('empty popover renders funnel + Add condition + Quick filters', async ({ page, request }) => {
+  test('empty popover renders funnel icon, Add condition control, and Quick filters', async ({ page, request }) => {
     let token: string | null = null;
     let companyId: string | null = null;
     const ts = Date.now();
@@ -133,7 +133,7 @@ test.describe('TC-CRM-060: Companies filter UX (V2 figma redesign)', () => {
     }
   });
 
-  test('Status filter added via + Add condition shows green-dot tone in chip', async ({ page, request }) => {
+  test('Status filter added via Add condition shows green-dot tone in chip', async ({ page, request }) => {
     let token: string | null = null;
     let companyId: string | null = null;
     const ts = Date.now();
@@ -148,7 +148,7 @@ test.describe('TC-CRM-060: Companies filter UX (V2 figma redesign)', () => {
       const opened = await openFiltersOrSkip(page);
       if (!opened) return;
 
-      // Click "+ Add condition" inside the empty state
+      // Click "Add condition" inside the empty state
       const addConditionBtn = page
         .locator('[data-testid="filter-empty-state"]')
         .getByRole('button', { name: /add condition/i })

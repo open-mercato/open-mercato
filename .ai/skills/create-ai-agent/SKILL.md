@@ -161,7 +161,6 @@ const accountAssistant: AiAgentDefinition = {
   mutationPolicy: 'read-only',               // 'read-only' | 'confirm-required' | 'destructive-confirm-required'
   requiredFeatures: ['<module>.thing.view'], // gated at the dispatcher
   acceptedMediaTypes: ['image', 'pdf', 'file'],
-  defaultModel: 'claude-haiku-4-5',          // optional — see provider docs
   domain: '<module>',
   keywords: ['<module>', '...'],
   suggestions: [

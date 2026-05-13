@@ -382,7 +382,7 @@ describe('createModelFactory', () => {
       expect(resolution.source).toBe('env_default')
     })
 
-    it('falls through when OM_AI_PROVIDER is registered but unconfigured', () => {
+    it('falls through when only OM_AI_PROVIDER is registered but unconfigured', () => {
       const anthropic = makeProvider({ id: 'anthropic', isConfigured: () => true })
       const openai = makeProvider({ id: 'openai', isConfigured: () => false })
       const { registry } = makeMultiProviderRegistry([anthropic, openai])
@@ -390,13 +390,26 @@ describe('createModelFactory', () => {
         registry,
         env: {
           OM_AI_PROVIDER: 'openai',
-          OM_AI_MODEL: 'gpt-5-mini',
         },
       })
       const resolution = factory.resolveModel({})
       expect(resolution.providerId).toBe('anthropic')
-      expect(resolution.modelId).toBe('gpt-5-mini')
-      expect(resolution.source).toBe('env_default')
+      expect(resolution.modelId).toBe('provider-default-model')
+      expect(resolution.source).toBe('provider_default')
+    })
+
+    it('does not mix an OM_AI_PROVIDER/OM_AI_MODEL pair into a different configured provider', () => {
+      const anthropic = makeProvider({ id: 'anthropic', isConfigured: () => false })
+      const openai = makeProvider({ id: 'openai', isConfigured: () => true })
+      const { registry } = makeMultiProviderRegistry([anthropic, openai])
+      const factory = createModelFactory(fakeContainer, {
+        registry,
+        env: {
+          OM_AI_PROVIDER: 'anthropic',
+          OM_AI_MODEL: 'claude-sonnet-4-20250514',
+        },
+      })
+      expect(() => factory.resolveModel({})).toThrow(AiModelFactoryError)
     })
 
     it('slash-qualified OM_AI_MODEL resets the provider for that resolution', () => {
@@ -592,6 +605,31 @@ describe('createModelFactory', () => {
       expect(resolution.providerId).toBe('openai')
       expect(resolution.modelId).toBe('gpt-5-mini')
       expect(resolution.source).toBe('agent_default')
+    })
+
+    it('does not send a slash-qualified agent default model to a fallback provider', () => {
+      const anthropic = makeProvider({ id: 'anthropic', isConfigured: () => false })
+      const openai = makeProvider({ id: 'openai', isConfigured: () => true })
+      const { registry } = makeMultiProviderRegistry([anthropic, openai])
+      const factory = createModelFactory(fakeContainer, { registry, env: {} })
+      expect(() =>
+        factory.resolveModel({
+          agentDefaultModel: 'anthropic/claude-sonnet-4-20250514',
+        }),
+      ).toThrow(AiModelFactoryError)
+    })
+
+    it('does not send an agent default provider/model pair to a fallback provider', () => {
+      const anthropic = makeProvider({ id: 'anthropic', isConfigured: () => false })
+      const openai = makeProvider({ id: 'openai', isConfigured: () => true })
+      const { registry } = makeMultiProviderRegistry([anthropic, openai])
+      const factory = createModelFactory(fakeContainer, { registry, env: {} })
+      expect(() =>
+        factory.resolveModel({
+          agentDefaultProvider: 'anthropic',
+          agentDefaultModel: 'claude-sonnet-4-20250514',
+        }),
+      ).toThrow(AiModelFactoryError)
     })
 
     it('slash-qualified OM_AI_<MODULE>_MODEL provides both provider hint and model id', () => {

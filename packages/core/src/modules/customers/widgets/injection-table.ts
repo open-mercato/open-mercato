@@ -3,7 +3,7 @@ import type { ModuleInjectionTable } from '@open-mercato/shared/modules/widgets/
 /**
  * Step 4.10 / Step 5.15 / Step d4 — customers module injection table.
  *
- * - Step 4.10 drops the `ai-assistant-trigger` widget on the People-list
+ * - Step 4.10 drops the `ai-assistant-trigger` widget on the People and Companies
  *   `DataTable` `:search-trailing` slot, which renders adjacent to the
  *   list search input. The previous mount point was the `:header` slot
  *   (separate row); the round icon-only trigger now lives next to the
@@ -28,12 +28,6 @@ export const injectionTable: ModuleInjectionTable = {
     },
   ],
   'data-table:customers.companies.list:search-trailing': [
-    {
-      widgetId: 'customers.injection.ai-assistant-trigger',
-      priority: 100,
-    },
-  ],
-  'data-table:customers.deals.list:search-trailing': [
     {
       widgetId: 'customers.injection.ai-assistant-trigger',
       priority: 100,

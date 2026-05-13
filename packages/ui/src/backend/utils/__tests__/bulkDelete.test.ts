@@ -1,6 +1,15 @@
 import { groupBulkDeleteFailures, runBulkDelete, type BulkDeleteFailure } from '../bulkDelete'
+import { emitProgressUpdate } from '@open-mercato/shared/lib/frontend/progressEvents'
+
+jest.mock('@open-mercato/shared/lib/frontend/progressEvents', () => ({
+  emitProgressUpdate: jest.fn(),
+}))
 
 describe('runBulkDelete', () => {
+  beforeEach(() => {
+    jest.mocked(emitProgressUpdate).mockClear()
+  })
+
   it('captures error message and code from thrown error', async () => {
     const dependencyErr = Object.assign(new Error('Cannot delete company: linked deals (2).'), {
       code: 'COMPANY_HAS_DEPENDENTS',
@@ -65,6 +74,39 @@ describe('runBulkDelete', () => {
     } finally {
       warnSpy.mockRestore()
     }
+  })
+
+  it('emits client progress events when progress metadata is provided', async () => {
+    const rows = [{ id: 'a' }, { id: 'b' }]
+    const deleteOne = jest.fn().mockResolvedValue(undefined)
+
+    await runBulkDelete(rows, deleteOne, {
+      progress: {
+        jobId: 'client:test',
+        jobType: 'customers.people.bulk_delete',
+        name: 'Delete selected people',
+      },
+    })
+
+    const calls = jest.mocked(emitProgressUpdate).mock.calls.map(([detail]) => detail)
+    expect(calls).toHaveLength(4)
+    expect(calls[0]).toMatchObject({
+      jobId: 'client:test',
+      status: 'running',
+      processedCount: 0,
+      totalCount: 2,
+      progressPercent: 0,
+    })
+    expect(calls[2]).toMatchObject({
+      status: 'running',
+      processedCount: 2,
+      progressPercent: 100,
+    })
+    expect(calls[3]).toMatchObject({
+      status: 'completed',
+      processedCount: 2,
+      progressPercent: 100,
+    })
   })
 })
 

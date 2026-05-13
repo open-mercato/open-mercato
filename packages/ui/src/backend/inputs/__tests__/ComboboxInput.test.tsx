@@ -34,9 +34,10 @@ describe('ComboboxInput — eager label resolution', () => {
     expect(getInput(container).value).toBe('uuid-123')
     await waitFor(() => expect(getInput(container).value).toBe('Resolved uuid-123'))
     expect(resolveLabel).toHaveBeenCalledWith('uuid-123')
+    expect(resolveLabel).toHaveBeenCalledTimes(1)
   })
 
-  it('resolves the label via a synchronous resolveLabel', () => {
+  it('resolves the label via a synchronous resolveLabel', async () => {
     const { container } = render(
       <ComboboxInput
         value="uuid-123"
@@ -44,7 +45,7 @@ describe('ComboboxInput — eager label resolution', () => {
         resolveLabel={(value) => (value === 'uuid-123' ? 'Sync Label' : value)}
       />,
     )
-    expect(getInput(container).value).toBe('Sync Label')
+    await waitFor(() => expect(getInput(container).value).toBe('Sync Label'))
   })
 
   it('does not call resolveLabel when the value is already covered by suggestions', () => {
@@ -67,6 +68,36 @@ describe('ComboboxInput — eager label resolution', () => {
     )
     await waitFor(() => expect(getInput(container).value).toBe('From Loader'))
     expect(loadSuggestions).toHaveBeenCalledWith()
+  })
+
+  it('does not reload suggestions after a self-labeled value is covered', async () => {
+    const loadSuggestions = jest.fn(async () => [{ value: 'UTC', label: 'UTC' }])
+    const { container } = render(
+      <ComboboxInput value="UTC" onChange={() => {}} loadSuggestions={loadSuggestions} />,
+    )
+
+    await waitFor(() => expect(loadSuggestions).toHaveBeenCalledTimes(1))
+    await act(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 25))
+    })
+
+    expect(loadSuggestions).toHaveBeenCalledTimes(1)
+    expect(getInput(container).value).toBe('UTC')
+  })
+
+  it('does not loop when the first suggestions page cannot resolve the value', async () => {
+    const loadSuggestions = jest.fn(async () => [{ value: 'Europe/Warsaw', label: 'Europe/Warsaw' }])
+    const { container } = render(
+      <ComboboxInput value="UTC" onChange={() => {}} loadSuggestions={loadSuggestions} />,
+    )
+
+    await waitFor(() => expect(loadSuggestions).toHaveBeenCalledTimes(1))
+    await act(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 25))
+    })
+
+    expect(loadSuggestions).toHaveBeenCalledTimes(1)
+    expect(getInput(container).value).toBe('UTC')
   })
 
   it('keeps the resolved label after a blur revert when custom values are disallowed', async () => {

@@ -509,6 +509,16 @@ export default function CustomersPeoplePage() {
           {
             fallbackErrorMessage: t('customers.people.list.deleteError', 'Failed to delete person.'),
             logTag: 'customers.people.list',
+            progress: {
+              jobType: 'customers.people.bulk_delete',
+              name: t('customers.people.list.bulkDelete.progressName', 'Delete selected people'),
+              description: t(
+                'customers.people.list.bulkDelete.progressDescription',
+                '{count} people selected for deletion',
+                { count: selectedRows.length },
+              ),
+              meta: { source: 'customers.people.list' },
+            },
           },
         ),
       context: {

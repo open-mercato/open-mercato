@@ -69,7 +69,7 @@ test.describe('TC-CRM-064: validation blocks apply', () => {
       const opened = await openFiltersOrSkip(page);
       if (!opened) return;
 
-      // Open field picker via the empty state's "+ Add condition" CTA
+      // Open field picker via the empty state's "Add condition" CTA
       await page
         .locator('[data-testid="filter-empty-state"]')
         .getByRole('button', { name: /add condition/i })
