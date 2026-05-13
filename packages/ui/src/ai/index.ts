@@ -1,6 +1,7 @@
 export { AiChat, type AiChatProps, type AiChatDebugTool, type AiChatDebugPromptSection } from './AiChat'
 export {
   AiAssistantLauncher,
+  AI_ASSISTANT_LAUNCHER_OPEN_EVENT,
   type AiAssistantLauncherAgent,
   type AiAssistantLauncherProps,
 } from './AiAssistantLauncher'

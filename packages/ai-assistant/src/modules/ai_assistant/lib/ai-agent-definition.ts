@@ -46,7 +46,55 @@ export interface AiAgentDefinition {
   allowedTools: string[]
   suggestions?: AiAgentSuggestion[]
   executionMode?: AiAgentExecutionMode
+  /**
+   * Optional provider id this agent prefers (e.g. `'openai'`, `'anthropic'`).
+   * Must match a registered `LlmProvider.id`. When the named provider is
+   * registered but unconfigured at runtime the factory falls through
+   * transparently to the next configured provider.
+   *
+   * Phase 1 of spec `2026-04-27-ai-agents-provider-model-baseurl-overrides`.
+   */
+  defaultProvider?: string
+  /**
+   * Optional model id fed through `createModelFactory` for this agent.
+   * Accepts either a plain model id (`claude-haiku-4-5-20251001`) or a
+   * slash-qualified `<provider>/<model>` shorthand (e.g. `openai/gpt-5-mini`).
+   * When the slash form is used the prefix must match a registered provider id;
+   * the registry-membership guard prevents mis-splitting model ids that already
+   * contain slashes (DeepInfra: `meta-llama/Llama-3.3-70B-Instruct-Turbo`).
+   *
+   * A higher-priority provider source still wins over the slash hint, but a
+   * lower-priority one cannot overwrite a slash-qualified model (cross-axis
+   * tie-break rule from spec §Phase-1).
+   *
+   * Phase 0 and Phase 1 of spec `2026-04-27-ai-agents-provider-model-baseurl-overrides`.
+   */
   defaultModel?: string
+  /**
+   * Optional base URL this agent prefers for its chosen provider.
+   * Sits between the `<MODULE>_AI_BASE_URL` env (step 2 of the public 5-step
+   * baseURL hierarchy) and the preset env override (`baseURLEnvKeys`, step 4).
+   * Only honoured by adapters that support baseURL (Anthropic Messages-
+   * protocol relays, all OpenAI-compatible adapters, Google via
+   * @ai-sdk/google ≥3.0). See `packages/ai-assistant/AGENTS.md` →
+   * "baseURL override hierarchy" for the full numbered chain.
+   *
+   * Phase 2 of spec `2026-04-27-ai-agents-provider-model-baseurl-overrides`.
+   */
+  defaultBaseUrl?: string
+  /**
+   * When false, per-request HTTP overrides (query params `provider`, `model`,
+   * `baseUrl`) and the per-tenant settings override stored in
+   * `ai_agent_runtime_overrides` are both suppressed. Steps 1 and 3 of the
+   * model-factory resolution chain are skipped for this agent.
+   *
+   * Default is `true` (permissive). Agents that pin a specific model for
+   * correctness reasons (e.g. a structured-output agent whose JSON-mode schema
+   * only works with one provider) should set this to `false`.
+   *
+   * Phase 4a of spec `2026-04-27-ai-agents-provider-model-baseurl-overrides`.
+   */
+  allowRuntimeModelOverride?: boolean
   acceptedMediaTypes?: AiAgentAcceptedMediaType[]
   requiredFeatures?: string[]
   uiParts?: string[]

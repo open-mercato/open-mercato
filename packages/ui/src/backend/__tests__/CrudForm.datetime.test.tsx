@@ -60,17 +60,20 @@ describe('CrudForm — datetime field types render correct picker component', ()
     expect(html).toContain('Pick a time')
   })
 
-  it('type: datetime-local renders raw <input> (backward compatibility)', () => {
+  it('type: datetime-local renders DateTimePicker trigger (DS unification — no native input)', () => {
     const fields: CrudField[] = [{ id: 'at', label: 'At', type: 'datetime-local' }]
     const html = renderForm(fields)
-    expect(html).toContain('type="datetime-local"')
-    expect(html).not.toContain('Pick date and time')
+    expect(html).toContain('aria-haspopup="dialog"')
+    expect(html).toContain('data-slot="date-picker-trigger"')
+    expect(html).not.toContain('type="datetime-local"')
   })
 
-  it('type: date renders raw <input type="date"> (backward compatibility)', () => {
+  it('type: date renders DatePicker trigger (DS unification — no native input)', () => {
     const fields: CrudField[] = [{ id: 'dt', label: 'Date', type: 'date' }]
     const html = renderForm(fields)
-    expect(html).toContain('type="date"')
+    expect(html).toContain('aria-haspopup="dialog"')
+    expect(html).toContain('data-slot="date-picker-trigger"')
+    expect(html).not.toContain('type="date"')
   })
 
   it('datepicker shows formatted date in trigger when initialValues provided', () => {
@@ -87,9 +90,11 @@ describe('CrudForm — datetime field types render correct picker component', ()
     expect(html).toContain('2026')
   })
 
-  it('time shows HH:MM in trigger when initialValues provided', () => {
+  it('time shows 12h-formatted value in trigger when initialValues provided', () => {
     const fields: CrudField[] = [{ id: 'sync_time', label: 'Sync Time', type: 'time' }]
     const html = renderForm(fields, { sync_time: '14:30' })
-    expect(html).toContain('14:30')
+    // Legacy TimePicker shim renders the trigger in 12h "HH:MM AM/PM" format to
+    // match the slot list inside the popover.
+    expect(html).toContain('02:30 PM')
   })
 })

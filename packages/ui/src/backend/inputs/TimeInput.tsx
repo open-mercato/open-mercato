@@ -109,7 +109,8 @@ export function TimeInput({
   )
 
   const wrapperClass = 'w-14'
-  const innerInputClass = 'text-center tabular-nums'
+  const innerInputClass =
+    'text-center tabular-nums leading-none [appearance:textfield] [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:m-0 [&::-webkit-outer-spin-button]:m-0'
 
   return (
     <div className={cn('flex items-center gap-1', className)}>

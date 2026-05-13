@@ -110,7 +110,10 @@ function PlaygroundNoAgents() {
 function AgentDetails({ agent }: { agent: PlaygroundAgent }) {
   const t = useT()
   return (
-    <div className="rounded-md border border-border bg-muted/30 p-3 text-sm">
+    <div
+      className="rounded-md border border-border bg-muted/30 p-3 text-sm"
+      data-ai-playground-agent={agent.id}
+    >
       <div className="font-semibold">{agent.label}</div>
       <p className="mt-1 text-xs text-muted-foreground">{agent.description}</p>
       <dl className="mt-3 grid grid-cols-2 gap-2 text-xs">
@@ -173,6 +176,77 @@ function buildDebugPromptSections(agent: PlaygroundAgent): AiChatDebugPromptSect
     sections.push({ id, source: 'placeholder' })
   }
   return sections
+}
+
+type AgentModelResolution = {
+  agentId: string
+  providerId: string
+  modelId: string
+  baseURL: string | null
+  source: string
+}
+
+type SettingsAgentResolutionResponse = {
+  agents: AgentModelResolution[]
+}
+
+async function fetchAgentResolutions(): Promise<SettingsAgentResolutionResponse> {
+  const result = await apiCall<SettingsAgentResolutionResponse>('/api/ai_assistant/settings')
+  if (!result.ok || !result.result) return { agents: [] }
+  return { agents: result.result.agents ?? [] }
+}
+
+function ModelResolutionPanel({ agentId }: { agentId: string }) {
+  const t = useT()
+  const { data } = useQuery({
+    queryKey: ['ai_assistant', 'settings', 'agents'],
+    queryFn: fetchAgentResolutions,
+    staleTime: 30000,
+  })
+
+  const resolution = data?.agents.find((agent) => agent.agentId === agentId)
+  if (!resolution) return null
+
+  return (
+    <dl
+      className="grid grid-cols-2 gap-x-4 gap-y-1 rounded-md border border-border bg-muted/30 p-3 text-xs sm:grid-cols-4"
+      data-ai-playground-model-resolution={agentId}
+      data-ai-playground-resolution-panel={agentId}
+    >
+      <div>
+        <dt className="font-medium text-muted-foreground">
+          {t('ai_assistant.playground.resolution.provider', 'Provider')}
+        </dt>
+        <dd className="font-mono" data-ai-playground-resolution-provider>
+          {resolution.providerId}
+        </dd>
+      </div>
+      <div>
+        <dt className="font-medium text-muted-foreground">
+          {t('ai_assistant.playground.resolution.model', 'Model')}
+        </dt>
+        <dd className="font-mono" data-ai-playground-resolution-model>
+          {resolution.modelId}
+        </dd>
+      </div>
+      <div>
+        <dt className="font-medium text-muted-foreground">
+          {t('ai_assistant.playground.resolution.baseUrl', 'Base URL')}
+        </dt>
+        <dd className="font-mono" data-ai-playground-resolution-base-url>
+          {resolution.baseURL ?? t('ai_assistant.playground.resolution.none', '—')}
+        </dd>
+      </div>
+      <div>
+        <dt className="font-medium text-muted-foreground">
+          {t('ai_assistant.playground.resolution.source', 'Source')}
+        </dt>
+        <dd className="font-mono" data-ai-playground-resolution-source>
+          {resolution.source}
+        </dd>
+      </div>
+    </dl>
+  )
 }
 
 type PlaygroundUiPartSeed = {
@@ -243,17 +317,19 @@ function ChatLane({ agent, debug }: { agent: PlaygroundAgent; debug: boolean }) 
   }
 
   return (
-    <AiChat
-      key={agent.id}
-      agent={agent.id}
-      pageContext={{ source: 'playground', pageId: 'ai_assistant.playground' }}
-      debug={debug}
-      registry={registry}
-      className="min-h-[360px]"
-      debugTools={debugTools}
-      debugPromptSections={debugPromptSections}
-      uiParts={uiParts}
-    />
+    <div data-ai-playground-chat={agent.id}>
+      <AiChat
+        key={agent.id}
+        agent={agent.id}
+        pageContext={{ source: 'playground', pageId: 'ai_assistant.playground' }}
+        debug={debug}
+        registry={registry}
+        className="min-h-96"
+        debugTools={debugTools}
+        debugPromptSections={debugPromptSections}
+        uiParts={uiParts}
+      />
+    </div>
   )
 }
 
@@ -574,6 +650,7 @@ export function AiPlaygroundPageClient() {
           </div>
         </div>
         {selectedAgent ? <AgentDetails agent={selectedAgent} /> : null}
+        {selectedAgent ? <ModelResolutionPanel agentId={selectedAgent.id} /> : null}
       </section>
 
       {selectedAgent ? (

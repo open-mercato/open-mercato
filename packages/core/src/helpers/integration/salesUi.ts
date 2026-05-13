@@ -1086,6 +1086,12 @@ export async function addAdjustment(page: Page, options: AddAdjustmentOptions): 
   const adjustmentRow = page.getByRole('row', { name: new RegExp(escapeRegExp(options.label), 'i') });
   const fillAdjustmentForm = async (): Promise<void> => {
     await dialog.getByText(/Loading adjustments/i).waitFor({ state: 'hidden', timeout: 3_000 }).catch(() => {});
+    // AdjustmentDialog has a useEffect([initialAdjustment, kindOptions,
+    // loadKindOptions, loadTaxRates, open]) that asynchronously loads tax
+    // rates and resets the form via setInitialValues + a formResetKey bump.
+    // If `.fill()` lands before the reset settles, the label is wiped out.
+    // Wait for the tax-rates network response to land before touching the form.
+    await page.waitForLoadState('networkidle', { timeout: 5_000 }).catch(() => {});
     // Radix Select trigger — target by CrudForm field id (kind picker)
     const kindTrigger = dialog.locator('[data-crud-field-id="kind"] [role="combobox"]').first();
     await expect(kindTrigger).toBeVisible({ timeout: TEST_WAIT_TIMEOUT_MS });

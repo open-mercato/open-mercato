@@ -26,60 +26,15 @@
  * prompt-override merges can address sections by name. The composed
  * text is fed into `systemPrompt` so the current runtime continues to
  * work.
- *
- * Local type declarations mirror the public shapes from
- * `@open-mercato/ai-assistant`. `@open-mercato/core` does not depend on
- * `@open-mercato/ai-assistant` (see the companion comment in
- * `ai-tools/types.ts` and the Step 4.7 / 4.8 implementation notes), so
- * the generator imports this file via the app's bundler and the runtime
- * graph resolves through `apps/mercato/.mercato/generated/ai-agents.generated.ts`.
  */
-import type { AwilixContainer } from 'awilix'
+import type {
+  AiAgentDefinition,
+  AiAgentPageContextInput,
+} from '@open-mercato/ai-assistant/modules/ai_assistant/lib/ai-agent-definition'
 import {
   hydrateCatalogAssistantContext,
   hydrateMerchandisingAssistantContext,
 } from './ai-agents-context'
-
-type AiAgentExecutionMode = 'chat' | 'object'
-type AiAgentMutationPolicy = 'read-only' | 'confirm-required' | 'destructive-confirm-required'
-type AiAgentAcceptedMediaType = 'image' | 'pdf' | 'file'
-type AiAgentDataOperation = 'read' | 'search' | 'aggregate'
-
-interface AiAgentPageContextInput {
-  entityType: string
-  recordId: string
-  container: AwilixContainer
-  tenantId: string | null
-  organizationId: string | null
-}
-
-interface AiAgentDataCapabilities {
-  entities?: string[]
-  operations?: AiAgentDataOperation[]
-  searchableFields?: string[]
-}
-
-interface AiAgentDefinition {
-  id: string
-  moduleId: string
-  label: string
-  description: string
-  systemPrompt: string
-  allowedTools: string[]
-  executionMode?: AiAgentExecutionMode
-  defaultModel?: string
-  acceptedMediaTypes?: AiAgentAcceptedMediaType[]
-  requiredFeatures?: string[]
-  uiParts?: string[]
-  readOnly?: boolean
-  mutationPolicy?: AiAgentMutationPolicy
-  maxSteps?: number
-  output?: unknown
-  resolvePageContext?: (ctx: AiAgentPageContextInput) => Promise<string | null>
-  keywords?: string[]
-  domain?: string
-  dataCapabilities?: AiAgentDataCapabilities
-}
 
 type PromptSectionName =
   | 'role'
@@ -314,6 +269,8 @@ const agent: AiAgentDefinition = {
   requiredFeatures: [...REQUIRED_FEATURES],
   readOnly: true,
   mutationPolicy: 'read-only',
+  defaultProvider: 'openai',
+  defaultModel: 'gpt-5-mini',
   keywords: ['catalog', 'products', 'categories', 'variants', 'prices', 'offers', 'media'],
   domain: 'catalog',
   dataCapabilities: {
@@ -506,6 +463,8 @@ const merchandisingAgent: AiAgentDefinition = {
   // the operator via the pending-action approval card. Per-tenant override
   // can downgrade to `read-only` to lock writes without a redeploy.
   mutationPolicy: 'confirm-required',
+  defaultProvider: 'openai',
+  defaultModel: 'gpt-5-mini',
   keywords: ['catalog', 'merchandising', 'products', 'attributes', 'pricing', 'copy'],
   domain: 'catalog',
   dataCapabilities: {

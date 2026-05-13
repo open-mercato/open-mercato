@@ -22,14 +22,14 @@
 | 1780-0 | 0.5 | Update `packages/ai-assistant/AGENTS.md` "How to Configure AI Providers" table | done | 267f0ae26 |
 | 1780-0 | 0.6 | Update `apps/docs/docs/framework/ai-assistant/overview.mdx` with env defaults | done | 54585d9b8 |
 | 1780-0 | 0.7 | Replace hardcoded provider order in `api/route/route.ts` with env-aware resolver | done | 4d3b5bdc4 |
-| 1780-1 | 1.1 | Add `defaultProvider?: string` to canonical `AiAgentDefinition` | todo | — |
-| 1780-1 | 1.2 | Add slash-shorthand parser (`parseModelToken`) honored at every model-axis source | todo | — |
-| 1780-1 | 1.3 | Add `agentDefaultProvider` and `<MODULE>_AI_PROVIDER` env axis to `AiModelFactoryInput` | todo | — |
-| 1780-1 | 1.4 | Validate `agent.defaultProvider` in `aggregateAiAgents`; warn + register undefined when unknown | todo | — |
-| 1780-1 | 1.5 | Wire `runAiAgentText` / `runAiAgentObject` to accept `providerOverride?: string` | todo | — |
-| 1780-1 | 1.6 | Update `model-factory.test.ts` and `agent-runtime.test.ts` with Phase 1 cases | todo | — |
-| 1780-1 | 1.7 | Update `packages/ai-assistant/AGENTS.md` and `agents.mdx` for `defaultProvider` + slash | todo | — |
-| 1780-1 | 1.8 | Update `customers/ai-agents.ts` and `catalog/ai-agents.ts` local `AiAgentDefinition` copies | todo | — |
+| 1780-1 | 1.1 | Add `defaultProvider?: string` to canonical `AiAgentDefinition` | done | 222f51488 |
+| 1780-1 | 1.2 | Add slash-shorthand parser honored at every model-axis source | done | eeb3296cd |
+| 1780-1 | 1.3 | Add `agentDefaultProvider` and `OM_AI_<MODULE>_PROVIDER` env axis to `AiModelFactoryInput` (legacy `<MODULE>_AI_PROVIDER` honored as BC fallback) | done | 15d3248e7 |
+| 1780-1 | 1.4 | Validate `agent.defaultProvider` in `aggregateAiAgents`; warn + register undefined when unknown | done | 85d6eb6cc |
+| 1780-1 | 1.5 | Wire `runAiAgentText` / `runAiAgentObject` to accept `providerOverride?: string` | done | 1fb69d598 |
+| 1780-1 | 1.6 | Update `model-factory.test.ts` and `agent-runtime.test.ts` with Phase 1 cases | done | 5e9ce89e8 |
+| 1780-1 | 1.7 | Update `packages/ai-assistant/AGENTS.md` and `agents.mdx` for `defaultProvider` + slash | done | 95fe40abf |
+| 1780-1 | 1.8 | Update `customers/ai-agents.ts` and `catalog/ai-agents.ts` local `AiAgentDefinition` copies | done | 22f31faf3 |
 | 1780-2 | 2.1 | Add `baseURLEnvKeys` to OPENAI/DEEPINFRA/GROQ/TOGETHER/FIREWORKS presets | todo | — |
 | 1780-2 | 2.2 | Add `OPENROUTER_PRESET` and `LM_STUDIO_PRESET` to `openai-compatible-presets.ts` | todo | — |
 | 1780-2 | 2.3 | Add `baseURL` plumbing to `anthropic.ts` adapter | todo | — |

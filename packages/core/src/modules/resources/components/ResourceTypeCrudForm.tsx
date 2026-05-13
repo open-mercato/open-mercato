@@ -78,7 +78,7 @@ export function ResourceTypeCrudForm({
 
   const fields = React.useMemo<CrudField[]>(() => [
     { id: 'name', label: t('resources.resourceTypes.form.name', 'Name'), type: 'text', required: true },
-    { id: 'description', label: t('resources.resourceTypes.form.description', 'Description'), type: 'richtext' },
+    { id: 'description', label: t('resources.resourceTypes.form.description', 'Description'), type: 'richtext', editor: 'html' },
     {
       id: 'appearance',
       label: t('resources.resourceTypes.form.appearance.label', 'Appearance'),

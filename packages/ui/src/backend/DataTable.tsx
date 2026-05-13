@@ -14,7 +14,9 @@ import {
   SelectTrigger,
   SelectValue,
 } from '../primitives/select'
+import { CompactSelectTrigger } from '../primitives/compact-select'
 import { Spinner } from '../primitives/spinner'
+import { EmptyState } from '../primitives/empty-state'
 import { TooltipProvider } from '../primitives/tooltip'
 import { TruncatedCell } from './TruncatedCell'
 import { FilterBar, type FilterDef, type FilterValues } from './FilterBar'
@@ -1981,13 +1983,12 @@ export function DataTable<T>({
             scrollTableIntoView()
           }}
         >
-          <SelectTrigger
-            size="sm"
+          <CompactSelectTrigger
             className="min-w-[4rem]"
             aria-label={t('ui.dataTable.pagination.rowsPerPage', 'Rows per page')}
           >
             <SelectValue />
-          </SelectTrigger>
+          </CompactSelectTrigger>
           <SelectContent>
             {pageSizeOptions.map((size) => (
               <SelectItem key={size} value={String(size)}>{size}</SelectItem>
@@ -2849,7 +2850,7 @@ export function DataTable<T>({
               </>
             ) : (
               <TableRow>
-                <TableCell colSpan={mergedColumns.length + (rowActions || injectedRowActions.length > 0 ? 1 : 0) + (hasInjectedBulkActions ? 1 : 0)} className="h-24 text-center text-muted-foreground">
+                <TableCell colSpan={mergedColumns.length + (rowActions || injectedRowActions.length > 0 ? 1 : 0) + (hasInjectedBulkActions ? 1 : 0)} className="py-6">
                   {filterAwareEmptyState?.active ? (
                     <FilteredEmptyResults
                       entityNamePlural={filterAwareEmptyState.entityNamePlural}
@@ -2857,8 +2858,17 @@ export function DataTable<T>({
                       onClearAll={filterAwareEmptyState.onClearAll}
                       onRemoveLast={filterAwareEmptyState.onRemoveLast}
                     />
+                  ) : emptyState && typeof emptyState !== 'string' ? (
+                    emptyState
                   ) : (
-                    emptyState ?? t('ui.dataTable.emptyState.default', 'No results.')
+                    <EmptyState
+                      size="sm"
+                      title={
+                        typeof emptyState === 'string'
+                          ? emptyState
+                          : t('ui.dataTable.emptyState.default', 'No results.')
+                      }
+                    />
                   )}
                 </TableCell>
               </TableRow>

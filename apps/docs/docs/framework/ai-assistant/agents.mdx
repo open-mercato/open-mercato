@@ -65,11 +65,77 @@ The generator aggregates every module's agents into `apps/mercato/.mercato/gener
 | `acceptedMediaTypes` | no | Subset of `image` \| `pdf` \| `file`. |
 | `executionMode` | no (default `chat`) | `chat` or `object`. See below. |
 | `output` | no | Structured-output schema when `executionMode === 'object'`. |
-| `defaultModel` | no | Model id fed through the factory (see [Overview](./overview#model-resolution-order)). |
+| `defaultProvider` | no | Provider id this agent prefers (e.g. `'openai'`, `'anthropic'`). Must match a registered provider id. When the named provider is registered but unconfigured the factory falls through transparently. Set this when an agent's `defaultModel` only works with a specific provider. Phase 1 of spec `2026-04-27-ai-agents-provider-model-baseurl-overrides`. |
+| `defaultModel` | no | Model id fed through the factory (see [Overview](./overview#model-resolution-order)). Accepts a plain id (`claude-haiku-4-5`) or a slash-qualified `<provider>/<model>` shorthand (e.g. `openai/gpt-5-mini`). The slash prefix must match a registered provider id; DeepInfra-style ids that contain slashes are kept intact via the registry-membership guard. |
 | `maxSteps` | no | Upper bound on AI SDK tool-use loops. |
 | `resolvePageContext` | no | Async callback invoked when the request carries `{ entityType, recordId }`. Returns extra prompt text appended to `systemPrompt`. |
 | `suggestions` | no | Starter prompts shown by generic chat launchers before the first message. |
 | `keywords` / `domain` / `dataCapabilities` | no | Metadata for the agent picker and search. |
+
+## Provider and model configuration
+
+### `defaultProvider` and `defaultModel`
+
+The two fields let a module author pin an agent to a preferred provider and model without overriding the global `OM_AI_PROVIDER` / `OM_AI_MODEL` envs:
+
+```ts
+export const merchandisingAssistant: AiAgentDefinition = {
+  id: 'catalog.merchandising_assistant',
+  moduleId: 'catalog',
+  // ...
+  defaultProvider: 'anthropic',
+  defaultModel: 'claude-haiku-4-5',  // or slash-qualified: 'openai/gpt-5-mini'
+}
+```
+
+`defaultProvider` must match a registered provider id (`anthropic`, `google`, `openai`, `deepinfra`, `groq`, `together`, `fireworks`, `azure`, `litellm`, `ollama`). When the named provider is registered but unconfigured the model factory falls through transparently to the next configured provider — this lets you ship agents that declare their preferred provider without breaking environments that use a different one.
+
+Slash-qualified `defaultModel` values (e.g. `openai/gpt-5-mini`) consume the provider axis in one go: the slash prefix names the provider and the remainder names the model, so `defaultProvider` is effectively overridden by the slash prefix. DeepInfra-style ids that already contain slashes (e.g. `meta-llama/Llama-3.3-70B-Instruct-Turbo`) are kept intact via the registry-membership guard.
+
+### `allowRuntimeModelOverride`
+
+By default every agent shows the `<ModelPicker>` in the chat composer, allowing operators to select a different provider + model at runtime. Set `allowRuntimeModelOverride: false` to disable the picker entirely and force a fixed model for this agent:
+
+```ts
+export const auditAgent: AiAgentDefinition = {
+  id: 'audit.audit_assistant',
+  moduleId: 'audit',
+  // ...
+  allowRuntimeModelOverride: false,  // always uses the server-side resolution chain
+}
+```
+
+When `false`, the runtime also rejects `?provider=` and `?model=` query parameters sent to the chat dispatcher route — the server-side resolution chain (steps 2–7 in [Overview → Model resolution order](./overview#model-resolution-order)) still applies.
+
+### Runtime model picker (`<ModelPicker>`)
+
+The `<AiChat>` component automatically renders a `<ModelPicker>` dropdown in the composer toolbar for every agent where `allowRuntimeModelOverride !== false`. The dropdown is populated by `GET /api/ai_assistant/ai/agents/:agentId/models` and shows all providers and models configured on the server side. The user's selection is persisted to `localStorage` under the key `om-ai-model-picker:<agentId>` and forwarded to the chat dispatcher as `?provider=&model=` query parameters. If the tenant allowlist later hides the stored model, `<AiChat>` replaces the stale selection with the first still-allowed model from the server response so the dispatcher never receives a now-forbidden picker value.
+
+The picker is stateless on the server — it never stores the user's selection in the database or the session. When the component unmounts or the agent is changed, the selection reverts to the default. This is by design (R6 mitigation): the picker exposes only models from the curated registry; free-form baseURL input is intentionally absent.
+
+```tsx
+// Embed AiChat — ModelPicker is wired automatically
+import { AiChat } from '@open-mercato/ui/ai'
+
+<AiChat agent="customers.account_assistant" />
+```
+
+To embed the picker standalone (e.g. in a custom toolbar):
+
+```tsx
+import { ModelPicker } from '@open-mercato/ui/ai'
+import type { ModelPickerValue } from '@open-mercato/ui/ai'
+
+<ModelPicker
+  providers={providers}            // ModelPickerProvider[] from the /models endpoint
+  value={pickerValue}              // ModelPickerValue | null
+  onChange={handleChange}          // (value: ModelPickerValue | null) => void
+  defaultProviderId="anthropic"    // highlighted as default
+  defaultModelId="claude-haiku-4-5"
+/>
+```
+
+The `providers` prop is an array of `ModelPickerProvider` objects, each containing a `providerId`, `label`, and `models: ModelPickerProviderModel[]`. The component is fully stateless — the parent owns the `value` state and must persist it if needed.
 
 ## Tool packs
 

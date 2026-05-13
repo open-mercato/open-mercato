@@ -4,8 +4,10 @@ import * as React from 'react'
 import { ClockIcon } from 'lucide-react'
 import { cn } from '@open-mercato/shared/lib/utils'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
-import { Popover, PopoverContent, PopoverTrigger } from '../../primitives/popover'
-import { TimeInput } from './TimeInput'
+import {
+  TimePicker as TimePickerPrimitive,
+  formatTimePickerDisplay,
+} from '../../primitives/time-picker'
 
 export type TimePickerProps = {
   value?: string | null
@@ -26,6 +28,14 @@ function currentHHMM(): string {
   return `${hour}:${minute}`
 }
 
+/**
+ * Legacy popover-anchored time picker. Preserved for backward compatibility with
+ * existing CrudForm `type: 'time'` consumers and DateTimePicker. Internally a shim
+ * over the new `<TimePicker>` primitive from `@open-mercato/ui/primitives/time-picker`.
+ *
+ * `minuteStep` maps to `intervalMinutes` (default 30 for sane slot list size).
+ * `showNowButton` / `showClearButton` render as `legacyFooterActions`.
+ */
 export function TimePicker({
   value,
   onChange,
@@ -33,9 +43,13 @@ export function TimePicker({
   disabled = false,
   readOnly = false,
   className,
-  minuteStep = 1,
+  minuteStep = 30,
   showNowButton = true,
-  showClearButton = true,
+  // Default changed 2026-05-11 from `true` → `false`: the new primitive's Cancel
+  // button already exits the popover without committing, which is what users mean
+  // by "Clear" in most flows. Pass `showClearButton={true}` to opt back in when
+  // you need an explicit "set value to null" action distinct from "dismiss".
+  showClearButton = false,
 }: TimePickerProps) {
   const t = useT()
   const [open, setOpen] = React.useState(false)
@@ -43,78 +57,93 @@ export function TimePicker({
   const placeholderText = placeholder ?? t('ui.timePicker.placeholder', 'Pick a time')
   const nowText = t('ui.timePicker.nowButton', 'Now')
   const clearText = t('ui.timePicker.clearButton', 'Clear')
-
-  const handleTimeChange = React.useCallback(
-    (time: string) => {
-      onChange(time)
-    },
-    [onChange]
-  )
-
-  const handleNow = React.useCallback(() => {
-    onChange(currentHHMM())
-    setOpen(false)
-  }, [onChange])
-
-  const handleClear = React.useCallback(() => {
-    onChange(null)
-    setOpen(false)
-  }, [onChange])
-
   const isInteractive = !disabled && !readOnly
 
+  // Render the trigger label in the same 12h "HH:MM AM/PM" format as the slot list
+  // inside the popover so users see one consistent representation.
+  const displayValue = value
+    ? (() => {
+        const { main, suffix } = formatTimePickerDisplay(value, '12h')
+        return suffix ? `${main} ${suffix}` : main
+      })()
+    : null
+
+  const triggerButton = (
+    <button
+      type="button"
+      data-crud-focus-target=""
+      disabled={disabled}
+      aria-haspopup="dialog"
+      className={cn(
+        'w-full h-10 flex items-center gap-2 rounded-md border bg-background px-3 text-sm text-left transition-colors',
+        'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-1',
+        'disabled:bg-muted disabled:text-muted-foreground disabled:cursor-not-allowed',
+        readOnly && 'cursor-default opacity-70',
+        !value && 'text-muted-foreground',
+        className,
+      )}
+      onClick={!isInteractive ? (event) => event.preventDefault() : undefined}
+    >
+      <ClockIcon className="h-4 w-4 shrink-0 text-muted-foreground" />
+      <span className="flex-1 truncate">{displayValue ?? placeholderText}</span>
+    </button>
+  )
+
+  if (!isInteractive) {
+    return triggerButton
+  }
+
+  const pinnedTopActions: Array<{
+    label: string
+    onClick: () => void
+    icon?: React.ReactNode
+    rightText?: string
+  }> = []
+  if (showNowButton) {
+    const nowValue = currentHHMM()
+    const { main: nowMain, suffix: nowSuffix } = formatTimePickerDisplay(nowValue, '12h')
+    pinnedTopActions.push({
+      label: nowText,
+      icon: <ClockIcon aria-hidden="true" />,
+      rightText: nowSuffix ? `${nowMain} ${nowSuffix}` : nowMain,
+      onClick: () => {
+        onChange(nowValue)
+        setOpen(false)
+      },
+    })
+  }
+
+  const legacyFooterActions: Array<{ label: string; onClick: () => void; variant: 'link' | 'muted' }> = []
+  if (showClearButton) {
+    legacyFooterActions.push({
+      label: clearText,
+      onClick: () => {
+        onChange(null)
+        setOpen(false)
+      },
+      variant: 'muted',
+    })
+  }
+
   return (
-    <Popover open={open} onOpenChange={isInteractive ? setOpen : undefined}>
-      <PopoverTrigger asChild>
-        <button
-          type="button"
-          data-crud-focus-target=""
-          disabled={disabled}
-          aria-haspopup="dialog"
-          className={cn(
-            'w-full h-9 flex items-center gap-2 rounded border px-3 text-sm text-left',
-            'bg-background transition-colors',
-            'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-1',
-            'disabled:bg-muted disabled:text-muted-foreground disabled:cursor-not-allowed',
-            readOnly && 'cursor-default opacity-70',
-            !value && 'text-muted-foreground',
-            className
-          )}
-          onClick={isInteractive ? undefined : (e) => e.preventDefault()}
-        >
-          <ClockIcon className="h-4 w-4 shrink-0 text-muted-foreground" />
-          <span className="flex-1 truncate">{value ?? placeholderText}</span>
-        </button>
-      </PopoverTrigger>
-      <PopoverContent className="p-3 w-auto min-w-[180px]">
-        <TimeInput
-          value={value}
-          onChange={handleTimeChange}
-          minuteStep={minuteStep}
-        />
-        {(showNowButton || showClearButton) && (
-          <div className="flex items-center justify-between gap-2 mt-3 pt-2 border-t">
-            {showNowButton && (
-              <button
-                type="button"
-                onClick={handleNow}
-                className="text-sm text-primary hover:underline focus-visible:outline-none"
-              >
-                {nowText}
-              </button>
-            )}
-            {showClearButton && (
-              <button
-                type="button"
-                onClick={handleClear}
-                className="text-sm text-muted-foreground hover:text-foreground hover:underline focus-visible:outline-none ml-auto"
-              >
-                {clearText}
-              </button>
-            )}
-          </div>
-        )}
-      </PopoverContent>
-    </Popover>
+    <TimePickerPrimitive
+      value={value ?? null}
+      onChange={(next) => onChange(next)}
+      onApply={(next) => {
+        onChange(next)
+      }}
+      intervalMinutes={Math.max(1, minuteStep)}
+      // Trigger button already displays current value — don't duplicate it
+      // inside the popover header.
+      showHeader={false}
+      showFooter
+      headerPlaceholder={placeholderText}
+      pinnedTopActions={pinnedTopActions.length > 0 ? pinnedTopActions : undefined}
+      legacyFooterActions={legacyFooterActions.length > 0 ? legacyFooterActions : undefined}
+      trigger={triggerButton}
+      open={open}
+      onOpenChange={setOpen}
+      disabled={disabled}
+    />
   )
 }

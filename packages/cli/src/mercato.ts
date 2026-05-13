@@ -349,6 +349,18 @@ function isExpectedManagedExitSignal(signal: NodeJS.Signals | null): boolean {
   return signal === 'SIGINT' || signal === 'SIGTERM'
 }
 
+function isExpectedManagedExit(
+  result: ManagedProcessExitResult,
+  options: { stopping?: boolean } = {},
+): boolean {
+  if (isExpectedManagedExitSignal(result.signal)) return true
+
+  // Queue workers handle SIGINT/SIGTERM themselves so they can close queue
+  // resources before exiting. That graceful path calls process.exit(0), which
+  // reports as { code: 0, signal: null } to the supervising server process.
+  return options.stopping === true && result.code === 0
+}
+
 function formatManagedProcessExitStatus(result: ManagedProcessExitResult): string {
   if (typeof result.code === 'number') {
     return `exit code ${result.code}`
@@ -1851,7 +1863,7 @@ export async function run(argv = process.argv) {
                 continue
               }
 
-              if (!isExpectedManagedExitSignal(firstExit.signal)) {
+              if (!isExpectedManagedExit(firstExit, { stopping })) {
                 throw createManagedProcessExitError(firstExit)
               }
 
@@ -1881,6 +1893,7 @@ export async function run(argv = process.argv) {
             port: runtimeEnv.PORT ?? process.env.PORT ?? null,
           })
           let activeLazySupervisor: ReturnType<typeof startLazyWorkerSupervisor> | null = null
+          let stopping = false
 
           function cleanup() {
             console.log('[server] Shutting down...')
@@ -1915,8 +1928,14 @@ export async function run(argv = process.argv) {
             }
           }
 
-          process.on('SIGTERM', cleanup)
-          process.on('SIGINT', cleanup)
+          process.on('SIGTERM', () => {
+            stopping = true
+            cleanup()
+          })
+          process.on('SIGINT', () => {
+            stopping = true
+            cleanup()
+          })
 
           console.log('[server] Starting Open Mercato in production mode...')
 
@@ -1983,7 +2002,7 @@ export async function run(argv = process.argv) {
 
             await cleanupAndWait()
 
-            if (!isExpectedManagedExitSignal(firstExit.signal)) {
+            if (!isExpectedManagedExit(firstExit, { stopping })) {
               throw createManagedProcessExitError(firstExit)
             }
           } finally {

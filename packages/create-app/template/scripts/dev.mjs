@@ -1028,7 +1028,7 @@ function isExpectedShutdownSignal(signal) {
 }
 
 function isGracefulShutdownResult(result) {
-  return shuttingDown && isExpectedShutdownSignal(result?.signal)
+  return shuttingDown && (isExpectedShutdownSignal(result?.signal) || result?.code === 0)
 }
 
 function resolveChildExitCode(result, fallback = 1) {

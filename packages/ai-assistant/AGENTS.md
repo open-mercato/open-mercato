@@ -103,7 +103,7 @@ APIs are automatically available via the Code Mode `search` tool (reads the Open
 Typed AI agents live in each module's root `ai-agents.ts`. The generator auto-discovers the file and aggregates it into `apps/mercato/.mercato/generated/ai-agents.generated.ts`. Reference implementations: `packages/core/src/modules/customers/ai-agents.ts` and `packages/core/src/modules/catalog/ai-agents.ts`.
 
 1. Create `<module>/ai-agents.ts` and export `aiAgents: AiAgentDefinition[]` (default export optional).
-2. Declare the agent with `defineAiAgent({ ... })` from `@open-mercato/ai-assistant`. Required fields: `id`, `moduleId`, `label`, `description`, `systemPrompt`, `allowedTools`. Useful optional fields: `executionMode` (`'chat'` — default — or `'object'`), `defaultModel`, `acceptedMediaTypes`, `requiredFeatures`, `uiParts`, `readOnly`, `mutationPolicy` (`'read-only'` | `'confirm-required'` | `'destructive-confirm-required'`), `maxSteps`, `output` (Zod schema for `'object'` mode), `resolvePageContext`, `keywords`, `suggestions`, `domain`, `dataCapabilities`.
+2. Declare the agent with `defineAiAgent({ ... })` from `@open-mercato/ai-assistant`. Required fields: `id`, `moduleId`, `label`, `description`, `systemPrompt`, `allowedTools`. Useful optional fields: `executionMode` (`'chat'` — default — or `'object'`), `defaultProvider` (registered provider id the agent prefers — falls through transparently when unconfigured; Phase 1 of `2026-04-27-ai-agents-provider-model-baseurl-overrides`), `defaultModel` (plain model id or slash-qualified `<provider>/<model>` shorthand, e.g. `openai/gpt-5-mini`), `acceptedMediaTypes`, `requiredFeatures`, `uiParts`, `readOnly`, `mutationPolicy` (`'read-only'` | `'confirm-required'` | `'destructive-confirm-required'`), `maxSteps`, `output` (Zod schema for `'object'` mode), `resolvePageContext`, `keywords`, `suggestions`, `domain`, `dataCapabilities`.
 3. Add the feature(s) you list in `requiredFeatures` to the module's `acl.ts` and grant them in `setup.ts` `defaultRoleFeatures`.
 4. Put the agent's tool allowlist behind the narrowest set possible. Start from the general-purpose packs (`search.hybrid_search`, `search.get_record_context`, `attachments.list_record_attachments`, `attachments.read_attachment`, `meta.describe_agent`) and add your module's own `defineAiTool`-registered tools.
 5. For mutation-capable agents, keep `readOnly: true` + `mutationPolicy: 'read-only'` on the agent and light up writes only via the per-tenant mutation-policy override table (spec Phase 3 WS-C §5.4). The runtime filters out any `isMutation: true` tool when the override is still read-only.
@@ -307,27 +307,80 @@ Full reference: `apps/docs/docs/framework/ai-assistant/launcher.mdx`.
 
 The unified AI runtime picks the first configured provider from `llmProviderRegistry`. Configure providers via env variables:
 
-| Variable | Provider | Default model |
-|----------|----------|---------------|
-| `ANTHROPIC_API_KEY` | Anthropic (Claude) | `claude-sonnet-4-20250514` |
-| `OPENAI_API_KEY` | OpenAI | `gpt-4o-mini` |
-| `GOOGLE_GENERATIVE_AI_API_KEY` | Google | `gemini-1.5-pro-latest` |
+| Variable | Provider | Default model | Base URL override |
+|----------|----------|---------------|-------------------|
+| `ANTHROPIC_API_KEY` | Anthropic (Claude) | `claude-haiku-4-5-20251001` | N/A (Messages-protocol relays only — set `baseURL` on the agent or pass `baseUrlOverride` to `runAiAgentText`) |
+| `OPENAI_API_KEY` | OpenAI | `gpt-5-mini` | `OPENAI_BASE_URL` |
+| `GOOGLE_GENERATIVE_AI_API_KEY` | Google | `gemini-3-flash` | N/A (pass `baseUrlOverride` to `runAiAgentText` when using a Vertex AI proxy) |
+| `DEEPINFRA_API_KEY` | DeepInfra | `zai-org/GLM-5.1` | `DEEPINFRA_BASE_URL` |
+| `GROQ_API_KEY` | Groq | `llama-3.3-70b-versatile` | `GROQ_BASE_URL` |
+| `TOGETHER_API_KEY` | Together AI | `meta-llama/Llama-3.3-70B-Instruct-Turbo` | `TOGETHER_BASE_URL` |
+| `FIREWORKS_API_KEY` | Fireworks AI | `accounts/fireworks/models/llama-v3p3-70b-instruct` | `FIREWORKS_BASE_URL` |
+| `AZURE_OPENAI_API_KEY` | Azure OpenAI | `gpt-5-mini` | `AZURE_OPENAI_BASE_URL` (required) |
+| `LITELLM_API_KEY` | LiteLLM | `gpt-4o-mini` | `LITELLM_BASE_URL` |
+| `OLLAMA_API_KEY` | Ollama (local) | `llama3.3` | `OLLAMA_BASE_URL` |
+| `OPENROUTER_API_KEY` | OpenRouter | `meta-llama/llama-3.3-70b-instruct` | `OPENROUTER_BASE_URL` |
+| `LM_STUDIO_API_KEY` | LM Studio (local) | *(empty — auto-detects loaded model)* | `LM_STUDIO_BASE_URL` |
 
 At least one MUST be set or the runtime throws `AiModelFactoryError` with `code: 'no_provider_configured'` on first invocation. See `/framework/ai-assistant/overview` for the full matrix.
+
+**baseURL override hierarchy** (highest to lowest priority for a given call):
+1. `baseUrlOverride` on `runAiAgentText` / `runAiAgentObject` — programmatic callers only (R6: no HTTP exposure before Phase 4a).
+2. `<MODULE>_AI_BASE_URL` env (e.g. `CATALOG_AI_BASE_URL`) — module-scoped override.
+3. `AiAgentDefinition.defaultBaseUrl` — agent-level default.
+4. `<PROVIDER>_BASE_URL` env (e.g. `OPENAI_BASE_URL`, `OPENROUTER_BASE_URL`) — preset env override.
+5. Preset `baseURL` (e.g. `https://openrouter.ai/api/v1`) — hard-coded default.
 
 Process-wide defaults (Phase 0 of spec
 `2026-04-27-ai-agents-provider-model-baseurl-overrides`):
 
 | Variable | Purpose |
 |----------|---------|
-| `OM_AI_PROVIDER` | Optional. Names the registered provider id to prefer when multiple are configured. Falls through transparently when the named provider is registered-but-unconfigured. Built-in ids: `anthropic`, `google`, `openai`, `deepinfra`, `groq`, `together`, `fireworks`, `azure`, `litellm`, `ollama`. |
-| `OM_AI_MODEL` | Optional. Process-wide model id used when neither caller override, `OM_AI_<MODULE>_MODEL`, nor `agentDefaultModel` applies. Slash-qualified ids (e.g. `openai/gpt-5-mini`) consume the provider axis at the same step — DeepInfra ids that already contain slashes (`meta-llama/Llama-3.3-70B-Instruct-Turbo`) stay intact via the registry-membership guard. |
+| `OM_AI_PROVIDER` | Optional. Names the registered provider id to prefer when multiple are configured. Falls through transparently when the named provider is registered-but-unconfigured. Built-in ids: `anthropic`, `google`, `openai`, `deepinfra`, `groq`, `together`, `fireworks`, `azure`, `litellm`, `ollama`, `openrouter`, `lm-studio`. The legacy `OPENCODE_PROVIDER` env is read as a backward-compatibility fallback. |
+| `OM_AI_MODEL` | Optional. Process-wide model id used when neither caller override, `OM_AI_<MODULE>_MODEL`, nor `agentDefaultModel` applies. Slash-qualified ids (e.g. `openai/gpt-5-mini`) consume the provider axis at the same step — DeepInfra ids that already contain slashes (`meta-llama/Llama-3.3-70B-Instruct-Turbo`) stay intact via the registry-membership guard. The legacy `OPENCODE_MODEL` env is read as a backward-compatibility fallback. |
 
-Both are deliberately decoupled from the legacy `OPENCODE_PROVIDER` / `OPENCODE_MODEL` envs (which stay bound to the OpenCode Code Mode stack) — see "Coexistence with OpenCode Code Mode" below.
+`OM_AI_*` are the canonical names; the legacy `OPENCODE_PROVIDER` / `OPENCODE_MODEL` envs stay bound to the OpenCode Code Mode stack and are also honored here as backward-compatibility fallbacks — see "Coexistence with OpenCode Code Mode" below.
 
-Per-module model overrides use `OM_AI_<MODULE>_MODEL` (uppercased from the agent's `moduleId`): for example, `OM_AI_CATALOG_MODEL=claude-opus-4-20250514`, `OM_AI_INBOX_OPS_MODEL=gpt-4o`.
+Per-module overrides (Phase 1 of the same spec — agent-default provider + per-call provider override are wired through `AiAgentDefinition.defaultProvider` and `runAiAgentText({ providerOverride })`):
+
+| Variable | Purpose |
+|----------|---------|
+| `OM_AI_<MODULE>_MODEL` | Optional. Per-module model override, uppercased from the agent's `moduleId`. Examples: `OM_AI_CATALOG_MODEL=claude-opus-4-20250514`, `OM_AI_INBOX_OPS_MODEL=gpt-4o`. The legacy `<MODULE>_AI_MODEL` form (e.g. `INBOX_OPS_AI_MODEL`) is read as a backward-compatibility fallback. Accepts a slash-qualified `<provider>/<model>` shorthand. |
+| `OM_AI_<MODULE>_PROVIDER` | Optional. Per-module provider override, uppercased from the agent's `moduleId`. Examples: `OM_AI_CATALOG_PROVIDER=openai`, `OM_AI_INBOX_OPS_PROVIDER=anthropic`. The legacy `<MODULE>_AI_PROVIDER` form (e.g. `INBOX_OPS_AI_PROVIDER`) is read as a backward-compatibility fallback. Falls through transparently when the named provider is registered-but-unconfigured. |
 
 All new callers MUST use `createModelFactory(container)` from `@open-mercato/ai-assistant/modules/ai_assistant/lib/model-factory` — never inline provider SDK calls (`createAnthropic`, `createOpenAI`, `createGoogleGenerativeAI`). The factory enforces the resolution order (caller override → `OM_AI_<MODULE>_MODEL` → `agentDefaultModel` → `OM_AI_MODEL` → provider default) and throws the documented `AiModelFactoryError` codes when misconfigured. See **Model Resolution** below.
+
+Operator-defined allowlist (Phase 1780-5) — the ULTIMATE constraint that clips every other source. When set, the settings UI is clipped to the allowed subset, the chat-UI `<ModelPicker>` only offers these values, the dispatcher rejects out-of-allowlist `?provider=` / `?model=` query params with typed 400 errors, and the model-factory swaps to a safe pair (emitting `console.warn` and an `allowlistFallback` field on the resolution) whenever an agent default, tenant override, or higher-priority source resolves to something blocked.
+
+| Variable | Purpose |
+|----------|---------|
+| `OM_AI_AVAILABLE_PROVIDERS` | Optional, comma-separated provider id list. Unset / empty → no provider restriction. Whitespace-tolerant; provider id comparison is case-insensitive. |
+| `OM_AI_AVAILABLE_MODELS_<PROVIDER>` | Optional, comma-separated model id list per provider. `<PROVIDER>` is uppercased from the registry id (`openai` → `OM_AI_AVAILABLE_MODELS_OPENAI`). Model id comparison is case-sensitive (model ids are vendor strings). Unset / empty → no model restriction for that provider. |
+| `OM_AI_AGENT_<AGENT_ID>_AVAILABLE_PROVIDERS` | Optional, comma-separated provider id list that narrows only chat-footer runtime overrides for one agent. `<AGENT_ID>` is the full id uppercased with non-alphanumerics replaced by `_` (`catalog.catalog_assistant` → `OM_AI_AGENT_CATALOG_CATALOG_ASSISTANT_AVAILABLE_PROVIDERS`). |
+| `OM_AI_AGENT_<AGENT_ID>_AVAILABLE_MODELS_<PROVIDER>` | Optional, comma-separated model id list that narrows chat-footer runtime overrides for one agent/provider pair. Example: `OM_AI_AGENT_CATALOG_CATALOG_ASSISTANT_AVAILABLE_MODELS_OPENAI=gpt-5-mini,gpt-4o`. |
+
+When a higher-priority override (request, caller, tenant, module env, agent default) resolves to a blocked combination, the factory falls back in this order:
+
+1. The agent's `defaultProvider` + `defaultModel` (when both are allowed and configured).
+2. The first allowed provider that is also configured in the registry; then that provider's `defaultModel` if allowed, else the first model in `OM_AI_AVAILABLE_MODELS_<PROVIDER>`.
+
+The resolution returns `source: 'allowlist_fallback'` and an `allowlistFallback` field describing the rejected pair so logs and UI can surface why the requested combination wasn't honored. The settings PUT endpoint rejects out-of-allowlist values up-front with `provider_not_allowlisted` / `model_not_allowlisted` 400 codes — that way persistent overrides can never end up in a state the runtime would only ever swap out at request time.
+
+Tenant-editable allowlist (Phase 1780-6) — the runtime intersects the env allowlist above with an optional per-tenant snapshot stored in `ai_tenant_model_allowlists`. Admins with `ai_assistant.settings.manage` edit the allowlist from `/backend/config/ai-assistant/allowlist`. The editor renders the env-clipped provider/model universe, not the tenant-clipped result, so deselected models remain visible and can be re-enabled. The constraint chain is **outer → inner**: `OM_AI_AVAILABLE_*` env → tenant allowlist → tenant runtime override → per-request override.
+
+Per-agent provider/model overrides are edited from `/backend/config/ai-assistant/agents` in the selected agent's **Provider and model** section. They write `ai_agent_runtime_overrides` rows scoped to the agent id and sit above tenant-wide defaults in the resolution chain. The same row also stores **Chat override choices** (`allowed_override_providers`, `allowed_override_models_by_provider`) that narrow which values users can pick in the chat footer for that agent. These choices are intersected with `OM_AI_AVAILABLE_*`, the tenant allowlist, and the per-agent `OM_AI_AGENT_<AGENT_ID>_AVAILABLE_*` env vars. The chat `<ModelPicker>` displays the effective default model name and self-heals stale localStorage selections after allowlist changes by swapping to the first still-allowed model returned by the `/models` endpoint.
+
+| Surface | Behaviour |
+|---------|-----------|
+| `GET /api/ai_assistant/settings` | Adds `tenantAllowlist` (raw snapshot, `null` when unset) and `effectiveAllowlist` (intersection). `availableProviders` is clipped to the effective allowlist so the UI never offers a value the runtime would refuse. |
+| `PUT /api/ai_assistant/settings/allowlist` | Persists the tenant snapshot. Body validates against env first — out-of-env entries are rejected with `provider_not_in_env_allowlist` / `model_not_in_env_allowlist` 400 codes. Tenant allowlist may NEVER widen the env allowlist. |
+| `DELETE /api/ai_assistant/settings/allowlist` | Soft-deletes the row; runtime falls back to env-only enforcement. Idempotent — `{ cleared: false }` when no active row exists. |
+| `PUT /api/ai_assistant/settings` (runtime override) | Re-validates against the **effective** allowlist when an `org_id`/tenant snapshot is available, so admins can't store an override that the tenant allowlist would later reject. |
+| `GET /api/ai_assistant/ai/agents/:id/models` | Picker response is clipped to the effective allowlist. The `<ModelPicker>` therefore only offers tenant-permitted values out of the box. |
+| `POST /api/ai_assistant/ai/chat?provider=&model=` | Chat dispatcher rejects out-of-effective-allowlist query params with the same `provider_not_allowlisted` / `model_not_allowlisted` codes. The error message names "the effective allowlist (env ∩ tenant)" when the tenant snapshot contributes a narrowing. |
+| `createModelFactory(...).resolveModel({ tenantAllowlist })` | The factory accepts an optional snapshot and intersects it with env at resolution time, so a stale tenant override or higher-priority source can never escape the effective set. Falls back via `allowlist_fallback` (same telemetry shape as Phase 1780-5). |
+
+The new table `ai_tenant_model_allowlists` ships in `Migration20260512090000_ai_tenant_model_allowlist`. It is additive — existing tenants resolve to "env-only" until an admin saves a snapshot.
 
 ## Architecture Constraints
 
@@ -519,13 +572,20 @@ Resolution order (highest precedence first):
 4. `OM_AI_MODEL` env (Phase 0 of spec
    `2026-04-27-ai-agents-provider-model-baseurl-overrides`). Plain id
    uses the resolved provider; slash-qualified id (`openai/gpt-5-mini`)
-   consumes the provider axis at the same step.
+   consumes the provider axis at the same step. Legacy `OPENCODE_MODEL` is
+   read as a backward-compatibility fallback.
 5. The configured provider's own default (`llmProvider.defaultModel`).
 
-The provider axis is resolved through `llmProviderRegistry.resolveFirstConfigured`. The walk's `order` argument is seeded from (in priority order):
+The provider axis is resolved through `llmProviderRegistry.resolveFirstConfigured`. Phase 1 generalizes the seed walk so every model-axis source contributes a slash hint and plain-provider sources sit between them (highest priority first):
 
-1. Slash-prefix from `OM_AI_MODEL` (when present and matches a registered provider id).
-2. `OM_AI_PROVIDER` env.
+1. Slash-prefix from `callerOverride` (Phase 1).
+2. `providerOverride` — request-time provider override on `runAiAgentText` / `runAiAgentObject` (Phase 1).
+3. Slash-prefix from `OM_AI_<MODULE>_MODEL` (legacy `<MODULE>_AI_MODEL`) (Phase 1).
+4. `OM_AI_<MODULE>_PROVIDER` env (legacy `<MODULE>_AI_PROVIDER`) (Phase 1).
+5. Slash-prefix from `agentDefaultModel` (Phase 1).
+6. `agentDefaultProvider` — `AiAgentDefinition.defaultProvider` (Phase 1).
+7. Slash-prefix from `OM_AI_MODEL` (legacy `OPENCODE_MODEL`) (Phase 0).
+8. `OM_AI_PROVIDER` (legacy `OPENCODE_PROVIDER`) env (Phase 0).
 
 The named provider is preferred but the walk falls through transparently when it is registered-but-unconfigured.
 
@@ -533,10 +593,6 @@ The factory throws `AiModelFactoryError` with `code: 'no_provider_configured'`
 when the registry has no configured provider and `code: 'api_key_missing'`
 when the picked provider returns an empty key — every current call site
 already relies on the throw bubbling up, do not swallow it.
-
-The `agent-runtime.ts` inline `resolveAgentModel` will migrate to
-`createModelFactory` in a follow-up Step (5.2+). New agents should accept
-the factory-backed path from day one.
 
 ## MANDATORY: Use AskUserQuestion for Confirmations
 
@@ -1350,6 +1406,14 @@ if (tool.requiredFeatures?.length) {
 ---
 
 ## Changelog
+
+### 2026-05-08 - Phase 3 call-site cleanup (spec 2026-04-27-ai-agents-provider-model-baseurl-overrides)
+
+**What changed**:
+- `agent-runtime.ts` `resolveAgentModel` fully migrated to `createModelFactory`. The inline fallback resolver (which ignored `AI_DEFAULT_PROVIDER`, `agentDefaultProvider`, `providerOverride`, `baseUrlOverride`) is removed. A throwaway `createContainer()` is used when no Awilix container is provided, keeping the function signature unchanged.
+- `api/route/route.ts` no-config fallback now delegates to `createModelFactory` instead of a manual `llmProviderRegistry.resolveFirstConfigured` call, ensuring `AI_DEFAULT_PROVIDER` / `AI_DEFAULT_MODEL` / all registered preset providers are honored in the routing path.
+- `inbox_ops/lib/llmProvider.ts` received a doc-comment explaining why `OPENCODE_PROVIDER` / `OPENCODE_MODEL` remain at the bottom of the resolution chain (BC isolation from the new `AI_DEFAULT_*` envs per spec R1 mitigation).
+- `customers/ai-agents.ts` and `catalog/ai-agents.ts` removed duplicate local `AiAgentDefinition` / `AiAgentPageContextInput` type declarations; both now import from `@open-mercato/ai-assistant/modules/ai_assistant/lib/ai-agent-definition`.
 
 ### 2026-02-22 - Code Mode Tools (search + execute)
 

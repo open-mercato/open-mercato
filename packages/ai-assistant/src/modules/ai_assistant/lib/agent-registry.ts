@@ -1,3 +1,4 @@
+import { llmProviderRegistry } from '@open-mercato/shared/lib/ai/llm-provider-registry'
 import type { AiAgentDefinition, AiAgentExtension, AiAgentSuggestion } from './ai-agent-definition'
 import {
   applyAgentOverrideMap,
@@ -104,6 +105,24 @@ function applySuggestionPatch(
   return out
 }
 
+function validateAndNormalizeAgent(candidate: AiAgentDefinition): AiAgentDefinition {
+  const rawProvider = candidate.defaultProvider
+  if (typeof rawProvider !== 'string' || rawProvider.trim().length === 0) {
+    return candidate
+  }
+  const providerHint = rawProvider.trim()
+  const registered = llmProviderRegistry.get(providerHint)
+  if (!registered) {
+    console.warn(
+      `[AI Agents] Agent "${candidate.id}" declares defaultProvider "${providerHint}" which is not registered in llmProviderRegistry. ` +
+        `The agent will be registered with defaultProvider: undefined so the resolution chain still works. ` +
+        `Built-in provider ids: anthropic, google, openai, deepinfra, groq, together, fireworks, azure, litellm, ollama.`,
+    )
+    return { ...candidate, defaultProvider: undefined }
+  }
+  return candidate
+}
+
 function populateFromAgents(agents: unknown[]): void {
   for (const candidate of agents) {
     if (!isAiAgentDefinition(candidate)) {
@@ -116,7 +135,7 @@ function populateFromAgents(agents: unknown[]): void {
         `[AI Agents] Duplicate agent id "${candidate.id}" — already registered by module "${existing.moduleId}", conflicts with module "${candidate.moduleId}". Export \`aiAgentOverrides\` from your module's \`ai-agents.ts\` (or set it on the modules.ts entry) to replace an agent across modules.`
       )
     }
-    agentsById.set(candidate.id, candidate)
+    agentsById.set(candidate.id, validateAndNormalizeAgent(candidate))
   }
 }
 

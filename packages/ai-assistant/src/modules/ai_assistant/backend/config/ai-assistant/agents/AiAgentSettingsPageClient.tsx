@@ -24,8 +24,17 @@ import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { Alert, AlertDescription, AlertTitle } from '@open-mercato/ui/primitives/alert'
 import { Badge } from '@open-mercato/ui/primitives/badge'
 import { Button } from '@open-mercato/ui/primitives/button'
+import { Checkbox } from '@open-mercato/ui/primitives/checkbox'
 import { IconButton } from '@open-mercato/ui/primitives/icon-button'
 import { Label } from '@open-mercato/ui/primitives/label'
+import { Radio, RadioGroup } from '@open-mercato/ui/primitives/radio'
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@open-mercato/ui/primitives/select'
 import { StatusBadge, type StatusMap } from '@open-mercato/ui/primitives/status-badge'
 import { Switch } from '@open-mercato/ui/primitives/switch'
 import { Textarea } from '@open-mercato/ui/primitives/textarea'
@@ -37,11 +46,13 @@ import {
 } from '@open-mercato/ui/primitives/tooltip'
 import { EmptyState } from '@open-mercato/ui/backend/EmptyState'
 import { apiCall, apiCallOrThrow } from '@open-mercato/ui/backend/utils/apiCall'
+import { flash } from '@open-mercato/ui/backend/FlashMessages'
+import { useGuardedMutation } from '@open-mercato/ui/backend/injection/useGuardedMutation'
 import { useAiShortcuts } from '@open-mercato/ui/ai'
 
-// Step 4.6: the <select>-based agent picker is deliberately duplicated between the
-// playground and this settings page. Duplicated markup is under the 50-line
-// threshold, so extraction stays deferred per the Step 4.6 brief.
+// The agent picker is deliberately duplicated between the playground and this
+// settings page. Duplicated markup is under the 50-line threshold, so extraction
+// stays deferred per the Step 4.6 brief.
 
 type AgentTool = {
   name: string
@@ -57,6 +68,10 @@ type AgentSettings = {
   description: string
   systemPrompt: string
   executionMode: 'chat' | 'object'
+  defaultProvider: string | null
+  defaultModel: string | null
+  defaultBaseUrl: string | null
+  allowRuntimeModelOverride: boolean
   mutationPolicy: string
   readOnly: boolean
   maxSteps: number | null
@@ -70,6 +85,58 @@ type AgentSettings = {
 type AgentsResponse = {
   agents: AgentSettings[]
   total: number
+}
+
+type ProviderConfig = {
+  id: string
+  name: string
+  defaultModel: string
+  configured: boolean
+  defaultModels: Array<{ id: string; name: string }>
+}
+
+type AgentResolution = {
+  agentId: string
+  moduleId: string
+  allowRuntimeModelOverride: boolean
+  codeDefaultProviderId: string | null
+  codeDefaultModelId: string | null
+  override: {
+    providerId: string | null
+    modelId: string | null
+    baseURL: string | null
+    updatedAt: string
+  } | null
+  runtimeOverrideAllowlist: {
+    env: TenantAllowlist | null
+    tenant: TenantAllowlist | null
+    effective: EffectiveAllowlist
+    envVarNames: {
+      providers: string
+      modelsByProvider: Record<string, string>
+    }
+  }
+  providerId: string
+  modelId: string
+  baseURL: string | null
+  source: string
+}
+
+type TenantAllowlist = {
+  allowedProviders: string[] | null
+  allowedModelsByProvider: Record<string, string[]>
+}
+
+type EffectiveAllowlist = {
+  providers: string[] | null
+  modelsByProvider: Record<string, string[]>
+  hasRestrictions: boolean
+  tenantOverridesActive: boolean
+}
+
+type RuntimeSettingsResponse = {
+  availableProviders: ProviderConfig[]
+  agents: AgentResolution[]
 }
 
 const PROMPT_SECTION_IDS = [
@@ -109,6 +176,16 @@ async function fetchAgents(): Promise<AgentsResponse> {
     { errorMessage: 'Failed to load agents' },
   )
   if (!result) throw new Error(`Failed to load agents (${status})`)
+  return result
+}
+
+async function fetchRuntimeSettings(): Promise<RuntimeSettingsResponse> {
+  const { result, status } = await apiCallOrThrow<RuntimeSettingsResponse>(
+    '/api/ai_assistant/settings',
+    { method: 'GET', credentials: 'include' },
+    { errorMessage: 'Failed to load runtime settings' },
+  )
+  if (!result) throw new Error(`Failed to load runtime settings (${status})`)
   return result
 }
 
@@ -258,8 +335,8 @@ function PromptSectionEditor({
       className="flex flex-col gap-2 rounded-md border border-border bg-muted/20 p-3"
       data-ai-agent-prompt-section={sectionId}
     >
-      <div className="flex items-center justify-between gap-3">
-        <div className="flex flex-col">
+      <div className="flex flex-wrap items-start justify-between gap-3">
+        <div className="flex min-w-0 flex-col">
           <span className="text-overline font-semibold uppercase tracking-wider text-muted-foreground">
             {sectionLabel}
           </span>
@@ -320,7 +397,7 @@ function ToolRow({ tool }: { tool: AgentTool }) {
   const t = useT()
   return (
     <div
-      className="flex items-center justify-between gap-3 rounded-md border border-border bg-background px-3 py-2"
+      className="flex flex-wrap items-center justify-between gap-3 rounded-md border border-border bg-background px-3 py-2"
       data-ai-agent-tool-row={tool.name}
     >
       <div className="flex items-start gap-2 min-w-0">
@@ -330,7 +407,7 @@ function ToolRow({ tool }: { tool: AgentTool }) {
           <span className="truncate text-xs font-mono text-muted-foreground">{tool.name}</span>
         </div>
       </div>
-      <div className="flex items-center gap-2 flex-shrink-0">
+      <div className="flex flex-wrap items-center gap-2 flex-shrink-0">
         {tool.isMutation ? (
           <StatusBadge variant="warning" dot>
             {t('ai_assistant.agents.tools.mutationBadge', 'Mutation')}
@@ -425,6 +502,12 @@ function MutationPolicySection({ agent }: { agent: AgentSettings }) {
     | { kind: 'success'; message: string }
     | { kind: 'error'; message: string }
   >({ kind: 'idle' })
+  const { runMutation: runSavePolicyMutation } = useGuardedMutation({
+    contextId: `ai-agent-mutation-policy-save-${agent.id}`,
+  })
+  const { runMutation: runClearPolicyMutation } = useGuardedMutation({
+    contextId: `ai-agent-mutation-policy-clear-${agent.id}`,
+  })
 
   React.useEffect(() => {
     setSelected(currentOverride?.mutationPolicy ?? null)
@@ -445,93 +528,94 @@ function MutationPolicySection({ agent }: { agent: AgentSettings }) {
     setIsSaving(true)
     setState({ kind: 'idle' })
     try {
-      const { ok, status, result } = await apiCall<{
-        ok?: boolean
-        error?: string
-        code?: string
-        codeDeclared?: MutationPolicy
-        requested?: MutationPolicy
-      }>(
-        `/api/ai_assistant/ai/agents/${encodeURIComponent(agent.id)}/mutation-policy`,
-        {
-          method: 'POST',
-          headers: { 'content-type': 'application/json' },
-          credentials: 'include',
-          body: JSON.stringify({ mutationPolicy: selected }),
+      await runSavePolicyMutation({
+        operation: async () => {
+          const { ok, status, result } = await apiCall<{
+            ok?: boolean
+            error?: string
+            code?: string
+            codeDeclared?: MutationPolicy
+            requested?: MutationPolicy
+          }>(
+            `/api/ai_assistant/ai/agents/${encodeURIComponent(agent.id)}/mutation-policy`,
+            {
+              method: 'POST',
+              headers: { 'content-type': 'application/json' },
+              credentials: 'include',
+              body: JSON.stringify({ mutationPolicy: selected }),
+            },
+          )
+          const payload = result ?? {}
+          if (!ok) {
+            const message =
+              payload.code === 'escalation_not_allowed'
+                ? (payload.error ??
+                    t(
+                      'ai_assistant.agents.mutation_policy.errors.escalationNotAllowed',
+                      'Cannot upgrade beyond the agent\'s declared policy — this is a code-level change.',
+                    ))
+                : (payload.error ??
+                    `Failed to save mutation policy (${status}).`)
+            throw new Error(message)
+          }
         },
-      )
-      const payload = result ?? {}
-      if (!ok) {
-        const message =
-          payload.code === 'escalation_not_allowed'
-            ? (payload.error ??
-                t(
-                  'ai_assistant.agents.mutation_policy.errors.escalationNotAllowed',
-                  'Cannot upgrade beyond the agent\'s declared policy — this is a code-level change.',
-                ))
-            : (payload.error ??
-                `Failed to save mutation policy (${status}).`)
-        setState({ kind: 'error', message })
-        return
-      }
-      setState({
-        kind: 'success',
-        message: t(
-          'ai_assistant.agents.mutation_policy.savedMessage',
-          'Mutation policy override saved.',
-        ),
+        context: {},
       })
+      const successMessage = t(
+        'ai_assistant.agents.mutation_policy.savedMessage',
+        'Mutation policy override saved.',
+      )
+      setState({ kind: 'success', message: successMessage })
+      flash(successMessage, 'success')
       await queryClient.invalidateQueries({
         queryKey: ['ai_assistant', 'agent_settings', 'mutation_policy', agent.id],
       })
     } catch (err) {
-      setState({
-        kind: 'error',
-        message: err instanceof Error ? err.message : String(err),
-      })
+      const message = err instanceof Error ? err.message : String(err)
+      setState({ kind: 'error', message })
+      flash(message, 'error')
     } finally {
       setIsSaving(false)
     }
-  }, [agent.id, isSaving, queryClient, selected, t])
+  }, [agent.id, isSaving, queryClient, runSavePolicyMutation, selected, t])
 
   const clear = React.useCallback(async () => {
     if (isClearing) return
     setIsClearing(true)
     setState({ kind: 'idle' })
     try {
-      const { ok, status, result } = await apiCall<{
-        ok?: boolean
-        error?: string
-      }>(
-        `/api/ai_assistant/ai/agents/${encodeURIComponent(agent.id)}/mutation-policy`,
-        {
-          method: 'DELETE',
-          credentials: 'include',
+      await runClearPolicyMutation({
+        operation: async () => {
+          const { ok, status, result } = await apiCall<{
+            ok?: boolean
+            error?: string
+          }>(
+            `/api/ai_assistant/ai/agents/${encodeURIComponent(agent.id)}/mutation-policy`,
+            {
+              method: 'DELETE',
+              credentials: 'include',
+            },
+          )
+          const payload = result ?? {}
+          if (!ok) {
+            throw new Error(payload.error ?? `Failed to clear override (${status}).`)
+          }
         },
-      )
-      const payload = result ?? {}
-      if (!ok) {
-        setState({
-          kind: 'error',
-          message: payload.error ?? `Failed to clear override (${status}).`,
-        })
-        return
-      }
-      setState({
-        kind: 'success',
-        message: t(
-          'ai_assistant.agents.mutation_policy.clearedMessage',
-          'Mutation policy override cleared; agent is using its code-declared policy.',
-        ),
+        context: {},
       })
+      const successMessage = t(
+        'ai_assistant.agents.mutation_policy.clearedMessage',
+        'Mutation policy override cleared; agent is using its code-declared policy.',
+      )
+      setState({ kind: 'success', message: successMessage })
+      flash(successMessage, 'success')
       await queryClient.invalidateQueries({
         queryKey: ['ai_assistant', 'agent_settings', 'mutation_policy', agent.id],
       })
     } catch (err) {
-      setState({
-        kind: 'error',
-        message: err instanceof Error ? err.message : String(err),
-      })
+      const message = err instanceof Error ? err.message : String(err)
+      setState({ kind: 'error', message })
+      flash(message, 'error')
     } finally {
       setIsClearing(false)
     }
@@ -542,10 +626,10 @@ function MutationPolicySection({ agent }: { agent: AgentSettings }) {
       className="rounded-lg border border-border bg-background p-4"
       data-ai-agent-mutation-policy={agent.id}
     >
-      <header className="flex items-center justify-between gap-3 border-b border-border pb-3">
-        <div className="flex items-center gap-2">
+      <header className="flex flex-wrap items-start justify-between gap-3 border-b border-border pb-3">
+        <div className="flex min-w-0 items-start gap-2">
           <ShieldAlert className="size-4 text-muted-foreground" aria-hidden />
-          <div>
+          <div className="min-w-0">
             <h3 className="text-sm font-semibold">
               {t('ai_assistant.agents.mutation_policy.title', 'Mutation policy')}
             </h3>
@@ -560,6 +644,7 @@ function MutationPolicySection({ agent }: { agent: AgentSettings }) {
         <StatusBadge
           variant={mutationPolicyStatusMap[effectivePolicy] ?? 'neutral'}
           dot
+          className="max-w-full whitespace-normal break-all"
           data-ai-agent-mutation-policy-effective
         >
           {effectivePolicy}
@@ -567,15 +652,16 @@ function MutationPolicySection({ agent }: { agent: AgentSettings }) {
       </header>
 
       <div className="mt-3 flex flex-col gap-3">
-        <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-          <div>
+        <div className="grid grid-cols-[repeat(auto-fit,minmax(min(100%,12rem),1fr))] gap-3">
+          <div className="min-w-0">
             <span className="text-overline font-semibold uppercase tracking-wider text-muted-foreground">
               {t('ai_assistant.agents.mutation_policy.codeDeclared', 'Code-declared')}
             </span>
-            <div className="mt-1 flex items-center gap-2">
+            <div className="mt-1 flex flex-wrap items-center gap-2">
               <StatusBadge
                 variant={mutationPolicyStatusMap[codeDeclared] ?? 'neutral'}
                 dot
+                className="max-w-full whitespace-normal break-all"
                 data-ai-agent-mutation-policy-code-declared
               >
                 {codeDeclared}
@@ -589,7 +675,7 @@ function MutationPolicySection({ agent }: { agent: AgentSettings }) {
               </span>
             </div>
           </div>
-          <div>
+          <div className="min-w-0">
             <span className="text-overline font-semibold uppercase tracking-wider text-muted-foreground">
               {t('ai_assistant.agents.mutation_policy.tenantOverride', 'Tenant override')}
             </span>
@@ -598,6 +684,7 @@ function MutationPolicySection({ agent }: { agent: AgentSettings }) {
                 <StatusBadge
                   variant={mutationPolicyStatusMap[currentOverride.mutationPolicy] ?? 'neutral'}
                   dot
+                  className="max-w-full whitespace-normal break-all"
                   data-ai-agent-mutation-policy-override-current
                 >
                   {currentOverride.mutationPolicy}
@@ -654,9 +741,12 @@ function MutationPolicySection({ agent }: { agent: AgentSettings }) {
             </AlertDescription>
           </Alert>
         ) : (
-          <div
+          <RadioGroup
+            value={selected ?? ''}
+            onValueChange={(value) => {
+              setSelected(value as MutationPolicy)
+            }}
             className="flex flex-col gap-2"
-            role="radiogroup"
             aria-label={t(
               'ai_assistant.agents.mutation_policy.pickerLabel',
               'Mutation policy override',
@@ -670,27 +760,24 @@ function MutationPolicySection({ agent }: { agent: AgentSettings }) {
               return (
                 <Tooltip key={option}>
                   <TooltipTrigger asChild>
-                    <label
+                    <div
                       className={`flex items-start gap-3 rounded-md border px-3 py-2 text-sm cursor-pointer transition-colors ${
                         wouldEscalate
                           ? 'border-border bg-muted/30 cursor-not-allowed opacity-60'
                           : isSelected
-                            ? 'border-primary bg-primary/5'
+                            ? 'border-accent-indigo bg-accent-indigo/5'
                             : 'border-border bg-background hover:bg-muted/40'
                       }`}
+                      onClick={() => {
+                        if (wouldEscalate) return
+                        setSelected(option)
+                      }}
                       data-ai-agent-mutation-policy-option={option}
                       data-ai-agent-mutation-policy-option-disabled={wouldEscalate ? 'true' : 'false'}
                     >
-                      <input
-                        type="radio"
-                        name={`mutation-policy-${agent.id}`}
+                      <Radio
                         value={option}
-                        checked={isSelected}
                         disabled={wouldEscalate}
-                        onChange={() => {
-                          if (wouldEscalate) return
-                          setSelected(option)
-                        }}
                         className="mt-0.5"
                         aria-disabled={wouldEscalate}
                       />
@@ -713,7 +800,7 @@ function MutationPolicySection({ agent }: { agent: AgentSettings }) {
                           )}
                         </span>
                       </div>
-                    </label>
+                    </div>
                   </TooltipTrigger>
                   {wouldEscalate ? (
                     <TooltipContent>
@@ -726,7 +813,7 @@ function MutationPolicySection({ agent }: { agent: AgentSettings }) {
                 </Tooltip>
               )
             })}
-          </div>
+          </RadioGroup>
         )}
 
         {state.kind === 'success' ? (
@@ -751,7 +838,7 @@ function MutationPolicySection({ agent }: { agent: AgentSettings }) {
           </Alert>
         ) : null}
 
-        <div className="flex items-center justify-end gap-2">
+        <div className="flex flex-wrap items-center justify-end gap-2">
           <Button
             type="button"
             size="sm"
@@ -780,6 +867,580 @@ function MutationPolicySection({ agent }: { agent: AgentSettings }) {
               <Save className="size-4" aria-hidden />
             )}
             <span>{t('ai_assistant.agents.mutation_policy.save', 'Save override')}</span>
+          </Button>
+        </div>
+      </div>
+    </section>
+  )
+}
+
+function AgentModelOverrideSection({ agent }: { agent: AgentSettings }) {
+  const t = useT()
+  const queryClient = useQueryClient()
+  const settingsQuery = useQuery<RuntimeSettingsResponse>({
+    queryKey: ['ai_assistant', 'agent_settings', 'runtime_settings'],
+    queryFn: fetchRuntimeSettings,
+    retry: false,
+  })
+
+  const agentResolution = settingsQuery.data?.agents.find((entry) => entry.agentId === agent.id) ?? null
+  const configuredProviders = React.useMemo(
+    () => (settingsQuery.data?.availableProviders ?? []).filter((provider) => provider.configured),
+    [settingsQuery.data?.availableProviders],
+  )
+
+  const [selectedProviderId, setSelectedProviderId] = React.useState('')
+  const [selectedModelId, setSelectedModelId] = React.useState('')
+  const [allowedProviders, setAllowedProviders] = React.useState<string[] | null>(null)
+  const [allowedModelsByProvider, setAllowedModelsByProvider] = React.useState<Record<string, string[]>>({})
+  const [allowlistDirty, setAllowlistDirty] = React.useState(false)
+  const [isSaving, setIsSaving] = React.useState(false)
+  const [isClearing, setIsClearing] = React.useState(false)
+  const [isSavingAllowlist, setIsSavingAllowlist] = React.useState(false)
+  const [state, setState] = React.useState<
+    | { kind: 'idle' }
+    | { kind: 'success'; message: string }
+    | { kind: 'error'; message: string }
+  >({ kind: 'idle' })
+  const { runMutation: runSaveModelOverrideMutation } = useGuardedMutation({
+    contextId: `ai-agent-model-override-save-${agent.id}`,
+  })
+  const { runMutation: runClearModelOverrideMutation } = useGuardedMutation({
+    contextId: `ai-agent-model-override-clear-${agent.id}`,
+  })
+  const { runMutation: runSaveModelAllowlistMutation } = useGuardedMutation({
+    contextId: `ai-agent-model-override-allowlist-${agent.id}`,
+  })
+
+  React.useEffect(() => {
+    const override = agentResolution?.override
+    setSelectedProviderId(override?.providerId ?? '')
+    setSelectedModelId(override?.modelId ?? '')
+    setAllowedProviders(agentResolution?.runtimeOverrideAllowlist.tenant?.allowedProviders ?? null)
+    setAllowedModelsByProvider({
+      ...(agentResolution?.runtimeOverrideAllowlist.tenant?.allowedModelsByProvider ?? {}),
+    })
+    setAllowlistDirty(false)
+    setState({ kind: 'idle' })
+  }, [
+    agent.id,
+    agentResolution?.override?.modelId,
+    agentResolution?.override?.providerId,
+    agentResolution?.runtimeOverrideAllowlist.tenant,
+  ])
+
+  const selectedProvider = configuredProviders.find((provider) => provider.id === selectedProviderId)
+  const isProviderAllowedForPicker = React.useCallback(
+    (providerId: string) => {
+      if (allowedProviders === null) return true
+      return allowedProviders.includes(providerId)
+    },
+    [allowedProviders],
+  )
+  const isModelAllowedForPicker = React.useCallback(
+    (providerId: string, modelId: string) => {
+      const list = allowedModelsByProvider[providerId]
+      if (list === undefined) return true
+      return list.includes(modelId)
+    },
+    [allowedModelsByProvider],
+  )
+  const hasChange =
+    selectedProviderId.length > 0 &&
+    selectedModelId.length > 0 &&
+    (
+      selectedProviderId !== (agentResolution?.override?.providerId ?? '') ||
+      selectedModelId !== (agentResolution?.override?.modelId ?? '')
+    )
+
+  const save = React.useCallback(async () => {
+    if (isSaving || !selectedProviderId || !selectedModelId) return
+    setIsSaving(true)
+    setState({ kind: 'idle' })
+    try {
+      await runSaveModelOverrideMutation({
+        operation: async () => {
+          const { ok, status, result } = await apiCall<{ error?: string; code?: string }>(
+            '/api/ai_assistant/settings',
+            {
+              method: 'PUT',
+              headers: { 'content-type': 'application/json' },
+              credentials: 'include',
+              body: JSON.stringify({
+                agentId: agent.id,
+                providerId: selectedProviderId,
+                modelId: selectedModelId,
+              }),
+            },
+          )
+          if (!ok) {
+            throw new Error(result?.error ?? `Failed to save model override (${status}).`)
+          }
+        },
+        context: {},
+      })
+      const successMessage = t('ai_assistant.agents.model_override.saved', 'Model override saved.')
+      setState({ kind: 'success', message: successMessage })
+      flash(successMessage, 'success')
+      await queryClient.invalidateQueries({
+        queryKey: ['ai_assistant', 'agent_settings', 'runtime_settings'],
+      })
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err)
+      setState({ kind: 'error', message })
+      flash(message, 'error')
+    } finally {
+      setIsSaving(false)
+    }
+  }, [agent.id, isSaving, queryClient, runSaveModelOverrideMutation, selectedModelId, selectedProviderId, t])
+
+  const clear = React.useCallback(async () => {
+    if (isClearing) return
+    setIsClearing(true)
+    setState({ kind: 'idle' })
+    try {
+      await runClearModelOverrideMutation({
+        operation: async () => {
+          const { ok, status, result } = await apiCall<{ error?: string }>(
+            '/api/ai_assistant/settings',
+            {
+              method: 'DELETE',
+              headers: { 'content-type': 'application/json' },
+              credentials: 'include',
+              body: JSON.stringify({ agentId: agent.id }),
+            },
+          )
+          if (!ok) {
+            throw new Error(result?.error ?? `Failed to clear model override (${status}).`)
+          }
+        },
+        context: {},
+      })
+      setSelectedProviderId('')
+      setSelectedModelId('')
+      const successMessage = t(
+        'ai_assistant.agents.model_override.cleared',
+        'Model override cleared; the agent is using the normal resolution chain.',
+      )
+      setState({ kind: 'success', message: successMessage })
+      flash(successMessage, 'success')
+      await queryClient.invalidateQueries({
+        queryKey: ['ai_assistant', 'agent_settings', 'runtime_settings'],
+      })
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err)
+      setState({ kind: 'error', message })
+      flash(message, 'error')
+    } finally {
+      setIsClearing(false)
+    }
+  }, [agent.id, isClearing, queryClient, runClearModelOverrideMutation, t])
+
+  const toggleAllowedProvider = React.useCallback(
+    (providerId: string, next: boolean) => {
+      setAllowlistDirty(true)
+      setState({ kind: 'idle' })
+      setAllowedProviders((current) => {
+        if (next) {
+          return current === null ? [providerId] : Array.from(new Set([...current, providerId]))
+        }
+        const baseline = current === null
+          ? configuredProviders.map((provider) => provider.id)
+          : current
+        return baseline.filter((id) => id !== providerId)
+      })
+    },
+    [configuredProviders],
+  )
+
+  const toggleAllowedModel = React.useCallback(
+    (providerId: string, modelId: string, next: boolean) => {
+      setAllowlistDirty(true)
+      setState({ kind: 'idle' })
+      const provider = configuredProviders.find((entry) => entry.id === providerId)
+      const allModelIds = provider?.defaultModels.map((model) => model.id) ?? []
+      setAllowedModelsByProvider((current) => {
+        const existing = current[providerId]
+        const baseline = existing === undefined ? allModelIds : existing
+        const nextModels = next
+          ? Array.from(new Set([...baseline, modelId]))
+          : baseline.filter((id) => id !== modelId)
+        return { ...current, [providerId]: nextModels }
+      })
+    },
+    [configuredProviders],
+  )
+
+  const resetAllowlistDraft = React.useCallback(() => {
+    setAllowedProviders(null)
+    setAllowedModelsByProvider({})
+    setAllowlistDirty(true)
+    setState({ kind: 'idle' })
+  }, [])
+
+  const saveAllowlist = React.useCallback(async () => {
+    if (isSavingAllowlist) return
+    setIsSavingAllowlist(true)
+    setState({ kind: 'idle' })
+    try {
+      await runSaveModelAllowlistMutation({
+        operation: async () => {
+          const { ok, status, result } = await apiCall<{ error?: string }>(
+            '/api/ai_assistant/settings',
+            {
+              method: 'PUT',
+              headers: { 'content-type': 'application/json' },
+              credentials: 'include',
+              body: JSON.stringify({
+                agentId: agent.id,
+                allowedOverrideProviders: allowedProviders,
+                allowedOverrideModelsByProvider: allowedModelsByProvider,
+              }),
+            },
+          )
+          if (!ok) {
+            throw new Error(result?.error ?? `Failed to save chat override allowlist (${status}).`)
+          }
+        },
+        context: {},
+      })
+      setAllowlistDirty(false)
+      const successMessage = t(
+        'ai_assistant.agents.model_override.allowlistSaved',
+        'Chat override choices saved.',
+      )
+      setState({ kind: 'success', message: successMessage })
+      flash(successMessage, 'success')
+      await queryClient.invalidateQueries({
+        queryKey: ['ai_assistant', 'agent_settings', 'runtime_settings'],
+      })
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err)
+      setState({ kind: 'error', message })
+      flash(message, 'error')
+    } finally {
+      setIsSavingAllowlist(false)
+    }
+  }, [agent.id, allowedModelsByProvider, allowedProviders, isSavingAllowlist, queryClient, runSaveModelAllowlistMutation, t])
+
+  const busy = isSaving || isClearing || isSavingAllowlist
+
+  return (
+    <section
+      className="rounded-lg border border-border bg-background p-4"
+      data-ai-agent-model-override={agent.id}
+    >
+      <header className="flex flex-wrap items-start justify-between gap-3 border-b border-border pb-3">
+        <div className="flex min-w-0 items-start gap-2">
+          <Bot className="size-4 text-muted-foreground" aria-hidden />
+          <div className="min-w-0">
+            <h3 className="text-sm font-semibold">
+              {t('ai_assistant.agents.model_override.title', 'Provider and model')}
+            </h3>
+            <p className="text-xs text-muted-foreground">
+              {t(
+                'ai_assistant.agents.model_override.subtitle',
+                'Override the default provider and model for this tenant and agent.',
+              )}
+            </p>
+          </div>
+        </div>
+        {agentResolution ? (
+          <StatusBadge
+            variant="info"
+            dot
+            className="max-w-full whitespace-normal break-all"
+            data-ai-agent-model-override-effective
+          >
+            {agentResolution.providerId} / {agentResolution.modelId}
+          </StatusBadge>
+        ) : null}
+      </header>
+
+      <div className="mt-3 flex flex-col gap-3">
+        <div className="grid grid-cols-[repeat(auto-fit,minmax(min(100%,12rem),1fr))] gap-3">
+          <div className="min-w-0">
+            <span className="text-overline font-semibold uppercase tracking-wider text-muted-foreground">
+              {t('ai_assistant.agents.model_override.codeDefault', 'Code-declared default')}
+            </span>
+            <p className="mt-1 break-all font-mono text-xs">
+              {agent.defaultProvider ?? t('ai_assistant.agents.model_override.anyProvider', 'first configured')}
+              {' / '}
+              {agent.defaultModel ?? t('ai_assistant.agents.model_override.providerDefault', 'provider default')}
+            </p>
+          </div>
+          <div className="min-w-0">
+            <span className="text-overline font-semibold uppercase tracking-wider text-muted-foreground">
+              {t('ai_assistant.agents.model_override.tenantOverride', 'Tenant override')}
+            </span>
+            <p className="mt-1 break-all font-mono text-xs text-muted-foreground">
+              {agentResolution?.override
+                ? `${agentResolution.override.providerId ?? '—'} / ${agentResolution.override.modelId ?? '—'}`
+                : t('ai_assistant.agents.model_override.noOverride', 'No per-agent override')}
+            </p>
+          </div>
+        </div>
+
+        {settingsQuery.isLoading ? (
+          <SettingsLoading
+            message={t(
+              'ai_assistant.agents.model_override.loading',
+              'Loading provider catalog...',
+            )}
+          />
+        ) : settingsQuery.isError ? (
+          <Alert variant="destructive" data-ai-agent-model-override-load-error>
+            <AlertCircle className="size-4" aria-hidden />
+            <AlertTitle>
+              {t(
+                'ai_assistant.agents.model_override.loadErrorTitle',
+                'Failed to load provider catalog',
+              )}
+            </AlertTitle>
+            <AlertDescription>
+              {settingsQuery.error instanceof Error
+                ? settingsQuery.error.message
+                : String(settingsQuery.error)}
+            </AlertDescription>
+          </Alert>
+        ) : (
+          <div className="grid grid-cols-[repeat(auto-fit,minmax(min(100%,12rem),1fr))] gap-3">
+            <div className="flex min-w-0 flex-col gap-1">
+              <Label htmlFor={`ai-agent-model-provider-${agent.id}`} className="text-xs">
+                {t('ai_assistant.agents.model_override.provider', 'Provider')}
+              </Label>
+              <Select
+                value={selectedProviderId}
+                onValueChange={(value) => {
+                  setSelectedProviderId(value)
+                  setSelectedModelId('')
+                  setState({ kind: 'idle' })
+                }}
+                disabled={busy || configuredProviders.length === 0}
+              >
+                <SelectTrigger
+                  id={`ai-agent-model-provider-${agent.id}`}
+                  className="w-full min-w-0"
+                  data-ai-agent-model-provider-select
+                >
+                  <SelectValue
+                    placeholder={t(
+                      'ai_assistant.agents.model_override.selectProvider',
+                      'Select provider',
+                    )}
+                  />
+                </SelectTrigger>
+                <SelectContent>
+                  {configuredProviders.map((provider) => (
+                    <SelectItem key={provider.id} value={provider.id}>
+                      {provider.name}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="flex min-w-0 flex-col gap-1">
+              <Label htmlFor={`ai-agent-model-model-${agent.id}`} className="text-xs">
+                {t('ai_assistant.agents.model_override.model', 'Model')}
+              </Label>
+              <Select
+                value={selectedModelId}
+                onValueChange={(value) => {
+                  setSelectedModelId(value)
+                  setState({ kind: 'idle' })
+                }}
+                disabled={busy || !selectedProvider}
+              >
+                <SelectTrigger
+                  id={`ai-agent-model-model-${agent.id}`}
+                  className="w-full min-w-0"
+                  data-ai-agent-model-select
+                >
+                  <SelectValue
+                    placeholder={t(
+                      'ai_assistant.agents.model_override.selectModel',
+                      'Select model',
+                    )}
+                  />
+                </SelectTrigger>
+                <SelectContent>
+                  {(selectedProvider?.defaultModels ?? []).map((model) => (
+                    <SelectItem key={model.id} value={model.id}>
+                      {model.name}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+          </div>
+        )}
+
+        {agent.allowRuntimeModelOverride ? (
+          <div className="rounded-md border border-border bg-muted/20 p-3" data-ai-agent-model-picker-allowlist>
+            <div className="flex flex-wrap items-start justify-between gap-3">
+              <div className="min-w-0">
+                <h4 className="text-sm font-semibold">
+                  {t(
+                    'ai_assistant.agents.model_override.allowlistTitle',
+                    'Chat override choices',
+                  )}
+                </h4>
+                <p className="text-xs text-muted-foreground">
+                  {t(
+                    'ai_assistant.agents.model_override.allowlistHelp',
+                    'Limit which provider/model overrides users can pick in the chat footer for this agent.',
+                  )}
+                </p>
+                {agentResolution?.runtimeOverrideAllowlist.env ? (
+                  <p className="mt-1 text-xs text-muted-foreground">
+                    <code className="font-mono text-xs">
+                      {agentResolution.runtimeOverrideAllowlist.envVarNames.providers}
+                    </code>
+                    {' '}
+                    {t(
+                      'ai_assistant.agents.model_override.envAlsoNarrows',
+                      'also narrows this list from env.',
+                    )}
+                  </p>
+                ) : null}
+              </div>
+              <StatusBadge
+                variant={agentResolution?.runtimeOverrideAllowlist.tenant ? 'info' : 'neutral'}
+                dot
+              >
+                {agentResolution?.runtimeOverrideAllowlist.tenant
+                  ? t('ai_assistant.agents.model_override.allowlistCustom', 'custom')
+                  : t('ai_assistant.agents.model_override.allowlistInherited', 'inherited')}
+              </StatusBadge>
+            </div>
+
+            <div className="mt-3 flex flex-col gap-3">
+              {configuredProviders.length === 0 ? (
+                <p className="text-xs text-muted-foreground">
+                  {t(
+                    'ai_assistant.agents.model_override.allowlistEmpty',
+                    'No configured providers are available for chat overrides.',
+                  )}
+                </p>
+              ) : (
+                configuredProviders.map((provider) => {
+                  const providerEnabled = isProviderAllowedForPicker(provider.id)
+                  return (
+                    <div key={provider.id} className="rounded-md border border-border bg-background p-3">
+                      <div className="flex items-center gap-2">
+                        <Checkbox
+                          id={`ai-agent-picker-provider-${agent.id}-${provider.id}`}
+                          checked={providerEnabled}
+                          onCheckedChange={(value) =>
+                            toggleAllowedProvider(provider.id, value === true)
+                          }
+                        />
+                        <Label
+                          htmlFor={`ai-agent-picker-provider-${agent.id}-${provider.id}`}
+                          className="text-sm font-medium"
+                        >
+                          {provider.name}
+                        </Label>
+                      </div>
+                      {providerEnabled ? (
+                        <div className="mt-2 grid grid-cols-[repeat(auto-fit,minmax(min(100%,12rem),1fr))] gap-2">
+                          {provider.defaultModels.map((model) => (
+                            <label
+                              key={model.id}
+                              className="flex min-w-0 items-center gap-2 text-xs"
+                            >
+                              <Checkbox
+                                checked={isModelAllowedForPicker(provider.id, model.id)}
+                                onCheckedChange={(value) =>
+                                  toggleAllowedModel(provider.id, model.id, value === true)
+                                }
+                              />
+                              <span className="truncate font-mono">{model.id}</span>
+                              {model.id === provider.defaultModel ? (
+                                <Badge variant="outline" className="text-overline">
+                                  {t('ai_assistant.agents.model_override.defaultBadge', 'default')}
+                                </Badge>
+                              ) : null}
+                            </label>
+                          ))}
+                        </div>
+                      ) : null}
+                    </div>
+                  )
+                })
+              )}
+            </div>
+
+            <div className="mt-3 flex flex-wrap items-center justify-end gap-2">
+              <Button
+                type="button"
+                size="sm"
+                variant="outline"
+                onClick={resetAllowlistDraft}
+                disabled={busy}
+              >
+                {t('ai_assistant.agents.model_override.allowlistReset', 'Inherit')}
+              </Button>
+              <Button
+                type="button"
+                size="sm"
+                onClick={() => void saveAllowlist()}
+                disabled={busy || !allowlistDirty}
+                data-ai-agent-model-allowlist-save
+              >
+                {isSavingAllowlist ? (
+                  <Loader2 className="size-4 animate-spin" aria-hidden />
+                ) : (
+                  <Save className="size-4" aria-hidden />
+                )}
+                <span>{t('ai_assistant.agents.model_override.allowlistSave', 'Save choices')}</span>
+              </Button>
+            </div>
+          </div>
+        ) : null}
+
+        {state.kind === 'success' ? (
+          <Alert variant="success" data-ai-agent-model-override-state="success">
+            <CheckCircle2 className="size-4" aria-hidden />
+            <AlertDescription>{state.message}</AlertDescription>
+          </Alert>
+        ) : null}
+        {state.kind === 'error' ? (
+          <Alert variant="destructive" data-ai-agent-model-override-state="error">
+            <AlertCircle className="size-4" aria-hidden />
+            <AlertDescription>{state.message}</AlertDescription>
+          </Alert>
+        ) : null}
+
+        <div className="flex flex-wrap items-center justify-end gap-2">
+          <Button
+            type="button"
+            size="sm"
+            variant="outline"
+            onClick={() => void clear()}
+            disabled={busy || !agentResolution?.override}
+            data-ai-agent-model-clear
+          >
+            {isClearing ? (
+              <Loader2 className="size-4 animate-spin" aria-hidden />
+            ) : (
+              <Trash2 className="size-4" aria-hidden />
+            )}
+            <span>{t('ai_assistant.agents.model_override.clear', 'Clear override')}</span>
+          </Button>
+          <Button
+            type="button"
+            size="sm"
+            onClick={() => void save()}
+            disabled={busy || !hasChange}
+            data-ai-agent-model-save
+          >
+            {isSaving ? (
+              <Loader2 className="size-4 animate-spin" aria-hidden />
+            ) : (
+              <Save className="size-4" aria-hidden />
+            )}
+            <span>{t('ai_assistant.agents.model_override.save', 'Save override')}</span>
           </Button>
         </div>
       </div>
@@ -816,6 +1477,9 @@ function AgentDetailPanel({ agent }: { agent: AgentSettings }) {
     | { kind: 'success'; message: string; version: number }
     | { kind: 'error'; message: string }
   >({ kind: 'idle' })
+  const { runMutation: runSavePromptOverrideMutation } = useGuardedMutation({
+    contextId: `ai-agent-prompt-override-save-${agent.id}`,
+  })
 
   const overrideQuery = useQuery<OverrideResponse>({
     queryKey: ['ai_assistant', 'agent_settings', 'override', agent.id],
@@ -901,94 +1565,102 @@ function AgentDetailPanel({ agent }: { agent: AgentSettings }) {
     setIsSaving(true)
     setSaveState({ kind: 'idle' })
     try {
-      const { ok, status, result } = await apiCall<{
-        ok?: boolean
-        pending?: boolean
-        version?: number
-        updatedAt?: string
-        message?: string
-        error?: string
-        code?: string
-        reservedKeys?: string[]
-      }>(
-        `/api/ai_assistant/ai/agents/${encodeURIComponent(agent.id)}/prompt-override`,
-        {
-          method: 'POST',
-          headers: { 'content-type': 'application/json' },
-          credentials: 'include',
-          body: JSON.stringify({
-            // Send both keys so a pre-Step-5.3 server still accepts the payload.
-            sections: activeOverrides,
-            overrides: activeOverrides,
-          }),
+      const payload = await runSavePromptOverrideMutation({
+        operation: async () => {
+          const { ok, status, result } = await apiCall<{
+            ok?: boolean
+            pending?: boolean
+            version?: number
+            updatedAt?: string
+            message?: string
+            error?: string
+            code?: string
+            reservedKeys?: string[]
+          }>(
+            `/api/ai_assistant/ai/agents/${encodeURIComponent(agent.id)}/prompt-override`,
+            {
+              method: 'POST',
+              headers: { 'content-type': 'application/json' },
+              credentials: 'include',
+              body: JSON.stringify({
+                // Send both keys so a pre-Step-5.3 server still accepts the payload.
+                sections: activeOverrides,
+                overrides: activeOverrides,
+              }),
+            },
+          )
+          const body = result ?? {}
+          if (!ok) {
+            const message =
+              body.code === 'reserved_key'
+                ? t(
+                    'ai_assistant.agents.override.errors.reservedKey',
+                    'Prompt overrides cannot modify policy fields (mutationPolicy, readOnly, allowedTools, acceptedMediaTypes). Remove those sections and retry.',
+                  )
+                : (body.error ?? `Failed to save overrides (${status}).`)
+            throw new Error(message)
+          }
+          return body
         },
-      )
-      const payload = result ?? {}
-      if (!ok) {
-        const message =
-          payload.code === 'reserved_key'
-            ? t(
-                'ai_assistant.agents.override.errors.reservedKey',
-                'Prompt overrides cannot modify policy fields (mutationPolicy, readOnly, allowedTools, acceptedMediaTypes). Remove those sections and retry.',
-              )
-            : (payload.error ?? `Failed to save overrides (${status}).`)
-        setSaveState({ kind: 'error', message })
-        return
-      }
+        context: {},
+      })
       if (payload.ok === true && typeof payload.version === 'number') {
+        const successMessage = t(
+          'ai_assistant.agents.override.savedMessage',
+          'Prompt override saved.',
+        )
         setSaveState({
           kind: 'success',
           version: payload.version,
-          message: t(
-            'ai_assistant.agents.override.savedMessage',
-            'Prompt override saved.',
-          ),
+          message: successMessage,
         })
+        flash(successMessage, 'success')
         await queryClient.invalidateQueries({
           queryKey: ['ai_assistant', 'agent_settings', 'override', agent.id],
         })
         return
       }
       // Legacy placeholder response: surfaces the Step-4.5 wording for BC.
+      const legacyMessage =
+        payload.message ??
+        t(
+          'ai_assistant.agents.prompt.pendingMessage',
+          'Prompt overrides accepted.',
+        )
       setSaveState({
         kind: 'success',
         version: 0,
-        message:
-          payload.message ??
-          t(
-            'ai_assistant.agents.prompt.pendingMessage',
-            'Prompt overrides accepted.',
-          ),
+        message: legacyMessage,
       })
+      flash(legacyMessage, 'success')
     } catch (err) {
-      setSaveState({
-        kind: 'error',
-        message: err instanceof Error ? err.message : String(err),
-      })
+      const message = err instanceof Error ? err.message : String(err)
+      setSaveState({ kind: 'error', message })
+      flash(message, 'error')
     } finally {
       setIsSaving(false)
     }
-  }, [activeOverrides, agent.id, isSaving, queryClient, t])
+  }, [activeOverrides, agent.id, isSaving, queryClient, runSavePromptOverrideMutation, t])
 
   return (
     <div className="flex flex-col gap-4" data-ai-agent-detail={agent.id}>
       <section className="rounded-lg border border-border bg-background p-4">
         <h2 className="text-xl font-semibold">{agent.label}</h2>
         <p className="mt-1 text-sm text-muted-foreground">{agent.description}</p>
-        <dl className="mt-4 grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-4 text-sm">
-          <div>
+        <dl className="mt-4 grid grid-cols-[repeat(auto-fit,minmax(min(100%,9rem),1fr))] gap-3 text-sm">
+          <div className="min-w-0">
             <dt className="text-overline font-semibold uppercase tracking-wider text-muted-foreground">
               {t('ai_assistant.agents.meta.module', 'Module')}
             </dt>
-            <dd className="mt-1 font-mono text-xs">{agent.moduleId}</dd>
+            <dd className="mt-1 break-all font-mono text-xs">{agent.moduleId}</dd>
           </div>
-          <div>
+          <div className="min-w-0">
             <dt className="text-overline font-semibold uppercase tracking-wider text-muted-foreground">
               {t('ai_assistant.agents.meta.id', 'Agent id')}
             </dt>
-            <dd className="mt-1 font-mono text-xs">{agent.id}</dd>
+            <dd className="mt-1 break-all font-mono text-xs">{agent.id}</dd>
           </div>
-          <div>
+          <div className="min-w-0">
             <dt className="text-overline font-semibold uppercase tracking-wider text-muted-foreground">
               {t('ai_assistant.agents.meta.executionMode', 'Execution mode')}
             </dt>
@@ -998,7 +1670,7 @@ function AgentDetailPanel({ agent }: { agent: AgentSettings }) {
               </StatusBadge>
             </dd>
           </div>
-          <div>
+          <div className="min-w-0">
             <dt className="text-overline font-semibold uppercase tracking-wider text-muted-foreground">
               {t('ai_assistant.agents.meta.mutationPolicy', 'Mutation policy')}
             </dt>
@@ -1006,12 +1678,13 @@ function AgentDetailPanel({ agent }: { agent: AgentSettings }) {
               <StatusBadge
                 variant={mutationPolicyStatusMap[agent.mutationPolicy] ?? 'neutral'}
                 dot
+                className="max-w-full whitespace-normal break-all"
               >
                 {agent.mutationPolicy}
               </StatusBadge>
             </dd>
           </div>
-          <div>
+          <div className="min-w-0">
             <dt className="text-overline font-semibold uppercase tracking-wider text-muted-foreground">
               {t('ai_assistant.agents.meta.readOnly', 'Read-only')}
             </dt>
@@ -1021,7 +1694,7 @@ function AgentDetailPanel({ agent }: { agent: AgentSettings }) {
                 : t('ai_assistant.agents.meta.readOnlyNo', 'No')}
             </dd>
           </div>
-          <div>
+          <div className="min-w-0">
             <dt className="text-overline font-semibold uppercase tracking-wider text-muted-foreground">
               {t('ai_assistant.agents.meta.maxSteps', 'Max steps')}
             </dt>
@@ -1032,14 +1705,16 @@ function AgentDetailPanel({ agent }: { agent: AgentSettings }) {
         </dl>
       </section>
 
+      <AgentModelOverrideSection agent={agent} />
+
       <MutationPolicySection agent={agent} />
 
       <section
         className="rounded-lg border border-border bg-background p-4"
         data-ai-agent-prompt-editor={agent.id}
       >
-        <header className="flex items-center justify-between gap-3 border-b border-border pb-3">
-          <div>
+        <header className="flex flex-wrap items-start justify-between gap-3 border-b border-border pb-3">
+          <div className="min-w-0">
             <h3 className="text-sm font-semibold">
               {t('ai_assistant.agents.prompt.title', 'Prompt sections')}
             </h3>
@@ -1152,8 +1827,8 @@ function AgentDetailPanel({ agent }: { agent: AgentSettings }) {
         className="rounded-lg border border-border bg-background p-4"
         data-ai-agent-tools-list={agent.id}
       >
-        <header className="flex items-center justify-between gap-3 border-b border-border pb-3">
-          <div>
+        <header className="flex flex-wrap items-start justify-between gap-3 border-b border-border pb-3">
+          <div className="min-w-0">
             <h3 className="text-sm font-semibold">
               {t('ai_assistant.agents.tools.title', 'Allowed tools')}
             </h3>
@@ -1186,10 +1861,10 @@ function AgentDetailPanel({ agent }: { agent: AgentSettings }) {
         className="rounded-lg border border-border bg-background p-4"
         data-ai-agent-override-history={agent.id}
       >
-        <header className="flex items-center justify-between gap-3 border-b border-border pb-3">
-          <div className="flex items-center gap-2">
+        <header className="flex flex-wrap items-start justify-between gap-3 border-b border-border pb-3">
+          <div className="flex min-w-0 items-start gap-2">
             <History className="size-4 text-muted-foreground" aria-hidden />
-            <div>
+            <div className="min-w-0">
               <h3 className="text-sm font-semibold">
                 {t('ai_assistant.agents.override.history.title', 'Prompt override history')}
               </h3>
@@ -1244,7 +1919,7 @@ function AgentDetailPanel({ agent }: { agent: AgentSettings }) {
             (overrideQuery.data?.versions ?? []).slice(0, 5).map((entry) => (
               <div
                 key={entry.id}
-                className="flex items-center justify-between gap-3 rounded-md border border-border bg-background px-3 py-2"
+                className="flex flex-wrap items-center justify-between gap-3 rounded-md border border-border bg-background px-3 py-2"
                 data-ai-agent-override-history-row={entry.version}
               >
                 <div className="flex flex-col min-w-0">
@@ -1269,8 +1944,8 @@ function AgentDetailPanel({ agent }: { agent: AgentSettings }) {
         className="rounded-lg border border-border bg-background p-4"
         data-ai-agent-attachments={agent.id}
       >
-        <header className="flex items-center justify-between gap-3 border-b border-border pb-3">
-          <div>
+        <header className="flex flex-wrap items-start justify-between gap-3 border-b border-border pb-3">
+          <div className="min-w-0">
             <h3 className="text-sm font-semibold">
               {t('ai_assistant.agents.attachments.title', 'Attachment policy')}
             </h3>
@@ -1357,8 +2032,8 @@ export function AiAgentSettingsPageClient() {
 
   return (
     <TooltipProvider delayDuration={200}>
-      <div className="flex flex-col gap-4" data-ai-agent-settings>
-        <header className="flex flex-col gap-1">
+      <div className="flex min-w-0 flex-col gap-4" data-ai-agent-settings>
+        <header className="flex min-w-0 flex-col gap-1">
           <h1 className="text-2xl font-bold tracking-tight">
             {t('ai_assistant.agents.title', 'AI Agents')}
           </h1>
@@ -1374,24 +2049,30 @@ export function AiAgentSettingsPageClient() {
           className="flex flex-col gap-3 rounded-lg border border-border bg-background p-3"
           data-ai-agent-settings-picker-wrap
         >
-          <div className="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
-            <div className="flex flex-col gap-2 sm:flex-1">
+          <div className="flex flex-wrap items-end justify-between gap-3">
+            <div className="flex min-w-[min(100%,16rem)] flex-1 flex-col gap-2">
               <Label htmlFor="ai-agent-settings-picker">
                 {t('ai_assistant.agents.agentPickerLabel', 'Agent')}
               </Label>
-              <select
-                id="ai-agent-settings-picker"
-                data-ai-agent-settings-picker
-                className="h-9 rounded-md border border-input bg-background px-3 text-sm"
+              <Select
                 value={selectedAgentId ?? ''}
-                onChange={(event) => setSelectedAgentId(event.target.value)}
+                onValueChange={(value) => setSelectedAgentId(value)}
               >
-                {agents.map((agent) => (
-                  <option key={agent.id} value={agent.id}>
-                    {agent.label} ({agent.id})
-                  </option>
-                ))}
-              </select>
+                <SelectTrigger
+                  id="ai-agent-settings-picker"
+                  data-ai-agent-settings-picker
+                  className="w-full min-w-0"
+                >
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  {agents.map((agent) => (
+                    <SelectItem key={agent.id} value={agent.id}>
+                      {agent.label} ({agent.id})
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
             </div>
             <div className="flex items-center gap-2 sm:flex-shrink-0">
               <IconButton

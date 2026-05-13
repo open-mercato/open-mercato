@@ -185,7 +185,7 @@
     "handlebars": "4.7.9",
     "path-to-regexp": "0.1.13",
     "picomatch": "2.3.2",
-    "protobufjs": "7.5.5",
+    "protobufjs": "7.5.8",
     "yaml": "2.8.3",
     "webpack": "5.104.1"
   }

@@ -438,7 +438,7 @@ export default function CompanyDetailV2Page({ params }: { params?: { id?: string
                   onSubmit={handleFormSubmit}
                   onDelete={handleDelete}
                   hideFooterActions
-                  collapsibleGroups={{ pageType: 'company-v2', chevronPosition: 'left' }}
+                  collapsibleGroups={{ pageType: 'company-v2', chevronPosition: 'right' }}
                   sortableGroups={{ pageType: 'company-v2' }}
                   onDirtyChange={setIsDirty}
                 />

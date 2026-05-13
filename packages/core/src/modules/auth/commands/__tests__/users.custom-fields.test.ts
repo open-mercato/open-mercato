@@ -31,7 +31,7 @@ describe('auth.users.update undo custom fields', () => {
     const setCustomFields = jest.fn(async (_opts: Parameters<DataEngine['setCustomFields']>[0]) => undefined) as jest.MockedFunction<DataEngine['setCustomFields']>
     const updateOrmEntity = (async (opts: Parameters<DataEngine['updateOrmEntity']>[0]) => {
       const entity = {
-        id: 'user-1',
+        id: '523e4567-e89b-12d3-a456-426614174901',
         email: 'after@example.com',
         organizationId: 'org-after',
         tenantId: 'tenant-1',
@@ -143,5 +143,78 @@ describe('auth.users.update undo custom fields', () => {
       values: { priority: 3, severity: null },
       notify: false,
     }))
+  })
+
+  it('updates the user display name when provided', async () => {
+    const handler = commandRegistry.get<Record<string, unknown>, unknown>('auth.users.update') as CommandHandler
+    expect(handler).toBeDefined()
+
+    const updateOrmEntity = jest.fn(async (opts: Parameters<DataEngine['updateOrmEntity']>[0]) => {
+      const entity = {
+        id: '523e4567-e89b-12d3-a456-426614174901',
+        email: 'before@example.com',
+        organizationId: 'org-1',
+        tenantId: 'tenant-1',
+        passwordHash: null,
+        name: 'Before',
+        isConfirmed: true,
+        roles: [],
+        acls: [],
+      } as unknown as User
+      await (opts.apply as (current: User) => Promise<void> | void)(entity)
+      expect(entity.name).toBe('After Display Name')
+      return entity
+    }) as DataEngine['updateOrmEntity']
+
+    const dataEngine: Pick<DataEngine, 'updateOrmEntity' | 'setCustomFields' | 'emitOrmEntityEvent' | 'markOrmEntityChange' | 'flushOrmEntityChanges'> = {
+      updateOrmEntity,
+      setCustomFields: jest.fn(async () => undefined) as DataEngine['setCustomFields'],
+      emitOrmEntityEvent: (async () => undefined) as DataEngine['emitOrmEntityEvent'],
+      markOrmEntityChange: jest.fn() as any,
+      flushOrmEntityChanges: (async () => undefined) as DataEngine['flushOrmEntityChanges'],
+    }
+
+    const em = {
+      find: async () => [],
+      remove: () => undefined,
+      persist: () => undefined,
+      flush: async () => undefined,
+      nativeDelete: async () => 0,
+      create: (_entity: unknown, data: unknown) => data,
+      findOne: async () => null,
+    } as unknown as EntityManager
+
+    const container = {
+      resolve: (token: string) => {
+        switch (token) {
+          case 'dataEngine':
+            return dataEngine
+          case 'em':
+            return em
+          case 'rbacService':
+            return { invalidateUserCache: jest.fn(async () => {}) }
+          case 'cache':
+            return { deleteByTags: jest.fn(async () => {}) }
+          default:
+            throw new Error(`Unexpected dependency: ${token}`)
+        }
+      },
+    }
+
+    const ctx: CommandRuntimeContext = {
+      container: container as any,
+      auth: { sub: 'actor-1', tenantId: 'tenant-1', orgId: null } as any,
+      organizationScope: null,
+      selectedOrganizationId: null,
+      organizationIds: null,
+      request: undefined as any,
+    }
+
+    await handler.execute({
+      id: '523e4567-e89b-12d3-a456-426614174901',
+      name: 'After Display Name',
+    }, ctx)
+
+    expect(updateOrmEntity).toHaveBeenCalled()
   })
 })

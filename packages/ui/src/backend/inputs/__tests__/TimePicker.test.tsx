@@ -23,9 +23,9 @@ describe('TimePicker SSR render', () => {
     expect(html).toContain('Pick a time')
   })
 
-  it('shows HH:MM value in trigger when value is provided', () => {
+  it('shows 12h-formatted value in trigger when value is provided (matches slot list)', () => {
     const html = render(<TimePicker value="14:30" onChange={jest.fn()} />)
-    expect(html).toContain('14:30')
+    expect(html).toContain('02:30 PM')
   })
 
   it('renders trigger button with aria-haspopup="dialog"', () => {
