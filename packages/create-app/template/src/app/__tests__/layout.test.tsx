@@ -97,4 +97,18 @@ describe('RootLayout', () => {
     expect(appProviders?.props.demoModeEnabled).toBe(false)
     expect(appProviders?.props.noticeBarsEnabled).toBe(true)
   })
+
+  it('defaults demo mode off when DEMO_MODE is unset', async () => {
+    delete process.env.DEMO_MODE
+    delete process.env.OM_INTEGRATION_TEST
+
+    const { default: RootLayout } = await import('../layout')
+    const { AppProviders } = await import('@/components/AppProviders')
+    const tree = await RootLayout({ children: 'child' })
+    const appProviders = findElementByType(tree, AppProviders)
+
+    expect(appProviders).not.toBeNull()
+    expect(appProviders?.props.demoModeEnabled).toBe(false)
+    expect(appProviders?.props.noticeBarsEnabled).toBe(true)
+  })
 })
