@@ -2,7 +2,7 @@ import path from 'node:path'
 import fs from 'node:fs'
 import { pathToFileURL } from 'node:url'
 import ts from 'typescript'
-import { MikroORM, type Logger } from '@mikro-orm/core'
+import { MikroORM, MetadataStorage, type Logger } from '@mikro-orm/core'
 import { ReflectMetadataProvider } from '@mikro-orm/decorators/legacy'
 import { Migrator } from '@mikro-orm/migrations'
 import { PostgreSqlDriver } from '@mikro-orm/postgresql'
@@ -234,18 +234,19 @@ export async function dbGenerate(resolver: PackageResolver, options: DbOptions =
   const ordered = sortModules(modules)
   const results: string[] = []
 
-  const moduleClasses = new Map<string, any[]>()
-  for (const entry of ordered) {
-    moduleClasses.set(entry.id, await loadModuleEntities(entry, resolver))
-  }
-
   const sslConfig = getSslConfig()
   const usedFileNames = new Set<string>()
 
   for (const entry of ordered) {
+    // Clear the global @Entity() decorator registry before loading this module's
+    // entities. MikroORM's migrator reads MetadataStorage at createMigration()
+    // time, so without this clear, every module's migration would include every
+    // previously-loaded module's tables (see issue #1911).
+    MetadataStorage.clear()
+
     const modId = entry.id
     const sanitizedModId = sanitizeModuleId(modId)
-    const entities = moduleClasses.get(modId) ?? []
+    const entities = await loadModuleEntities(entry, resolver)
     if (!entities.length) {
       if (entry.from === '@app') {
         results.push(formatResult(modId, 'no entities discovered', ''))
