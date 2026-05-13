@@ -73,7 +73,7 @@ export function AvailabilityRuleSetForm(props: AvailabilityRuleSetFormProps) {
       id: 'description',
       label: translate('planner.availabilityRuleSets.form.fields.description', 'Description'),
       type: 'richtext',
-      editor: 'uiw',
+      editor: 'html',
     },
   ], [translate])
 

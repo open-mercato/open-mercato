@@ -19,6 +19,22 @@ Detailed variant tables, size matrices, props, examples, and MUST rules for ever
 - [Avatar / AvatarStack](#avatar--avatarstack)
 - [Kbd / KbdShortcut](#kbd--kbdshortcut)
 - [Tag](#tag)
+- [TagInput](#taginput)
+- [CounterInput](#counterinput)
+- [DigitInput](#digitinput)
+- [CompactSelect](#compactselect)
+- [InlineInput](#inlineinput)
+- [InlineSelect](#inlineselect)
+- [DatePicker](#datepicker)
+- [DateRangePicker](#daterangepicker)
+- [TimePicker](#timepicker)
+- [EmptyState](#emptystate)
+- [Skeleton](#skeleton)
+- [Alert](#alert)
+- [Notification](#notification)
+- [Accordion](#accordion)
+- [LogList](#loglist)
+- [RichEditor](#richeditor)
 - [Common patterns](#common-patterns)
 
 ---
@@ -338,10 +354,10 @@ import { Input } from '@open-mercato/ui/primitives/input'
 
 | Variant | Component | Status |
 |---|---|---|
-| Tag input (multi-tag pill) | `TagInput` | TODO — Figma node `428:4860` |
-| Counter (number with +/- buttons) | `CounterInput` | TODO — Figma node `428:5656` |
-| Digit / OTP code | `DigitInput` | TODO — Figma node `429:5172` |
-| Inline edit (no border, click-to-edit) | `InlineInput` | TODO — Figma node `429:5195` |
+| Tag input (multi-tag pill) | `TagInput` | Available — see [TagInput](#taginput) section below |
+| Counter (number with +/- buttons) | `CounterInput` | Available — see [CounterInput](#counterinput) section below |
+| Digit / OTP code | `DigitInput` | Available — see [DigitInput](#digitinput) section below |
+| Inline edit (no border, click-to-edit) | `InlineInput` | Available — see [InlineInput](#inlineinput) section below |
 | Date picker | (existing date input components) | Already in `inputs/` folder |
 | Combobox / autocomplete | `ComboboxInput` | Already in `inputs/ComboboxInput` |
 
@@ -910,12 +926,1354 @@ const leadTagMap: TagMap<'customer' | 'hot' | 'inactive' | 'renewal'> = {
 <Tag variant={leadTagMap[tag.type]} dot>{tag.label}</Tag>
 ```
 
+### Shape
+
+| Shape | Token | Use case |
+|---|---|---|
+| `pill` (default) | `rounded-full px-2.5 py-0.5` | Status/category tag (Customer, Hot, Renewal) |
+| `square` | `rounded-md px-2 py-1` | Removable chips inside inputs (`TagInput`, `TagsInput`) |
+
+### Removable chips
+
+`onRemove` renders an inline close (×) button using Lucide `X`. The button calls `event.stopPropagation()` before invoking `onRemove`, so clicking × does not trigger the chip's own click. Always pass `removeAriaLabel` translated via `useT()`.
+
+```tsx
+const t = useT()
+<Tag
+  shape="square"
+  variant="default"
+  disabled={isLocked}
+  onRemove={() => removeTag(tag)}
+  removeAriaLabel={t('mymodule.tags.remove', 'Remove {label}', { label })}
+>
+  {label}
+</Tag>
+```
+
 ### MUST rules
 
 - NEVER hardcode colors on `Tag` — use variants only.
 - Use `dot` for status-like categories (Customer, Hot); omit for purely descriptive labels.
 - For "Manage tags" / add-tag affordances: use `Button variant="ghost"` or dashed outline — NOT `Tag`.
 - `brand` variant is for user-saved views and renewal/custom category tags only.
+- Use `shape="square"` for chips inside text inputs/combobox/`TagsInput`; keep `shape="pill"` (default) for standalone status/category tags.
+- When passing `onRemove`, MUST also pass `removeAriaLabel` translated via `useT()` — the primitive default `'Remove'` is English-only.
+
+---
+
+## TagInput
+
+```typescript
+import { TagInput } from '@open-mercato/ui/primitives/tag-input'
+```
+
+Two-row primitive (input on top, chips below) for collecting a flat list of free-form tags. Built on `Input` + `Tag shape="square"`. Use when the user types comma/separator-delimited values and the result is `string[]`. For value-from-suggestions (autocomplete with descriptions, async loaders), use `TagsInput` from `@open-mercato/ui/backend/inputs/TagsInput` instead.
+
+### Sizes
+
+| Size | Token | Figma |
+|---|---|---|
+| `sm` | `h-8` (32px) | `428:4860` sm |
+| `default` | `h-9` (36px) | `428:4860` default |
+| `lg` | `h-10` (40px) | `428:4860` lg |
+
+### Behaviors
+
+- **Enter** — commits current input as a tag.
+- **Separator paste** — pasting `'a,b,c'` (or matching `separator`) splits into multiple tags; trailing remainder stays in the input.
+- **Backspace on empty input** — removes the last tag.
+- **Click ×** on chip — removes that tag.
+- **`maxTags` reached** — input becomes `disabled`; further typing is blocked.
+- **`validate`** — `(tag) => true | false | string`. Return `false` to silently reject; return a string to surface as inline error.
+
+### Usage
+
+```tsx
+const t = useT()
+const [tags, setTags] = React.useState<string[]>([])
+
+<TagInput
+  value={tags}
+  onChange={setTags}
+  placeholder={t('mymodule.tags.placeholder', 'Add tag, press Enter')}
+  size="default"
+  maxTags={10}
+  separator={/[,\s]/}
+  validate={(tag) => tag.length <= 32 || t('mymodule.tags.tooLong', 'Max 32 chars')}
+/>
+```
+
+### MUST rules
+
+- NEVER hand-roll `<input> + <span>` chip rows — use `TagInput` (free-form) or `TagsInput` (with suggestions/labels).
+- Pass `placeholder` translated via `useT()` — primitive has no built-in i18n.
+- For value+label+description triples (where `value !== label`), use `TagsInput`, not `TagInput`. `TagInput` deliberately keeps the data shape flat (`string[]`).
+
+### Anti-patterns
+
+- `<Input value="tag1,tag2,tag3" onChange={...} />` + manual `.split(',')` → use `TagInput` (chips give visual feedback + Backspace edit).
+- Value-from-suggestions / autocomplete with descriptions or async loader → use [`TagsInput`](#taginput) backend shim, not `TagInput`.
+- Stuffing labelled options into `value` (`["seg_123:Beta"]`) → keep `value: string[]` flat; switch to `TagsInput` with `selectedOptions` for id-vs-label lookups.
+
+---
+
+## CounterInput
+
+```typescript
+import { CounterInput } from '@open-mercato/ui/primitives/counter-input'
+```
+
+Stepper primitive for entering an integer or decimal number with `−` / `+` buttons on each side. Built on a flex wrapper with two icon-only buttons and a centered native `<input type="number">`. Use whenever the value is a small bounded count (quantity in a cart, return qty per line, page size selector, retry count). For free-form numbers without min/max, prefer `<Input type="number">` directly.
+
+### Sizes
+
+| Size | Height | Figma | Use case |
+|---|---|---|---|
+| `sm` | h-8 (32px) | X-Small (32) | Dense table cells, inline qty selectors |
+| `default` | h-9 (36px) | Small (36) | Default |
+| `lg` | h-10 (40px) | Medium (40) | Form rows alongside `Input lg` / `Select` etc. |
+
+### Behaviors
+
+- **`+` / `−` buttons** — adjust value by `step` (default `1`). Clamped to `min` / `max`.
+- **Direct typing** — text typed in the input is parsed, clamped, and emitted on each change. Empty input emits `null`.
+- **Keyboard** — ArrowUp / ArrowDown step by `step` (preventDefault to avoid native browser increment).
+- **Disabled at boundary** — the `+` button is disabled when value === `max`; the `−` button is disabled when value === `min`. Both are disabled when the `disabled` prop is set.
+- **Precision** — `precision={n}` formats the displayed value to `n` decimals (default `0`). Useful for currency-adjacent fields.
+- **Native spinner arrows hidden** — `[appearance:textfield]` + the webkit override hide the browser's own spinner buttons so the primitive owns the increment UX.
+
+### Usage
+
+```tsx
+const [qty, setQty] = React.useState<number | null>(1)
+const t = useT()
+
+<CounterInput
+  value={qty}
+  onChange={setQty}
+  min={1}
+  max={available}
+  step={1}
+  decrementAriaLabel={t('cart.qty.decrease', 'Decrease quantity')}
+  incrementAriaLabel={t('cart.qty.increase', 'Increase quantity')}
+/>
+```
+
+For an error state, pass `aria-invalid` — the wrapper border switches to `border-destructive`.
+
+### MUST rules
+
+- NEVER hand-roll `<Input type="number">` + plus/minus buttons — use `CounterInput`.
+- Pass `decrementAriaLabel` / `incrementAriaLabel` translated via `useT()` — primitive defaults `Decrease` / `Increase` are English.
+- For free-form numbers without bounded `min`/`max` (e.g. unit price, percentage, free-text amount), prefer `<Input type="number">` directly — `CounterInput` is for **stepper** UX (small bounded counts).
+- Always pass both `min` and a sensible `max` when a `+` button would otherwise grow the value unbounded — the primitive enforces clamping, but the disabled state on the buttons only kicks in when bounds are known.
+
+---
+
+## DigitInput
+
+```typescript
+import { DigitInput } from '@open-mercato/ui/primitives/digit-input'
+```
+
+`length`-cell verification code input for OTP / 2FA / PIN entry flows. Renders `length` separate `<input maxLength={1}>` boxes side by side. Auto-focuses the next cell on type, the previous cell on Backspace from an empty cell. Paste distributes the clipboard string across cells and fires `onComplete` when all cells fill.
+
+The `value` prop is the assembled string (`'123456'`), not a tuple — cells are an internal layout concern.
+
+### Props
+
+| Prop | Type | Default | Notes |
+|---|---|---|---|
+| `value` / `onChange` | `string` / `(value) => void` | uncontrolled | Assembled value. `onChange` fires on every char/paste. |
+| `length` | `number` | `6` | Number of cells. |
+| `inputMode` | `'numeric' \| 'text'` | `'numeric'` | `numeric` filters out non-digits both for typing and paste. `text` accepts any character. |
+| `mask` | `boolean` | `false` | Renders each cell as `type='password'` so characters display as bullets. Consumers still receive the raw characters in `onChange` / `onComplete`. |
+| `autoFocus` | `boolean` | `false` | Auto-focuses the first cell on mount. |
+| `disabled` | `boolean` | `false` | Disables all cells. |
+| `onComplete` | `(value) => void` | — | Fires when the assembled value reaches `length`. |
+| `aria-label` | `string` | `Verification code` | Applied to the group wrapper. Each cell gets `<aria-label> digit N`. |
+| `aria-invalid` | `boolean` | — | Propagates to the wrapper and every cell — triggers the destructive border. |
+| `id` / `name` | `string` | — | Forwarded to the **first** cell only so consumers can label the whole group via `<label htmlFor>` and so form submissions carry the assembled value. |
+| `className` / `cellClassName` | `string` | — | Override wrapper / individual cell classes. |
+
+### Usage
+
+```tsx
+const t = useT()
+const [code, setCode] = React.useState('')
+
+<DigitInput
+  value={code}
+  onChange={setCode}
+  onComplete={(filled) => verifyCode(filled)}
+  length={6}
+  autoFocus
+  aria-label={t('auth.twoFactor.code', 'Two-factor code')}
+/>
+```
+
+### Keyboard contract
+
+- **Type a digit** — commits the value and focuses the next cell.
+- **Backspace on an empty cell** — focuses the previous cell and clears its value.
+- **Backspace on a filled cell** — clears the current cell (native input behaviour).
+- **ArrowLeft / ArrowRight** — navigate between cells without mutating values.
+- **Paste** — splits the clipboard text into cells (filtered by `inputMode`) and fires `onComplete` if the resulting string reaches `length`.
+
+### MUST rules
+
+- NEVER hand-roll a row of `<input maxLength={1}>` cells with manual `useRef` arrays — use `DigitInput`.
+- Pass `aria-label` translated via `useT()` so the group label and the per-cell labels are localized.
+- Use `inputMode="text"` only when the verification code includes letters — keep the default `numeric` for OTPs (it triggers the mobile number pad and rejects accidental keystrokes from password managers).
+- `mask=true` swaps `type='text'` for `type='password'` to hide the digits visually. Combine with `autoComplete="one-time-code"` (already on by default) to stay aligned with native OTP autofill flows.
+
+---
+
+## CompactSelect
+
+```typescript
+import {
+  CompactSelectTrigger,
+  Select,
+  SelectContent,
+  SelectGroup,
+  SelectItem,
+  SelectLabel,
+  SelectSeparator,
+  SelectValue,
+} from '@open-mercato/ui/primitives/compact-select'
+```
+
+Toolbar-density variant of the `Select` trigger — the trigger renders at the new `Select` `size="xs"` (h-7 / 28px / px-2 / text-xs) while the `Select` root, content, and items stay identical. Use when a Select sits in a toolbar / pagination footer / DataTable settings cluster next to icon buttons that are h-7 themselves. Anywhere a full h-9 `Select` would dwarf the surrounding row.
+
+### When NOT to use
+
+- For form rows next to `<Input>` / `<DatePicker>` / regular buttons — use the regular `Select size="default"` (h-9) so heights match.
+- For dense filter chips that need a wholly different popover UX — use `FilterOverlay` or `DropdownMenu` instead.
+
+### `triggerLabel` prefix
+
+Render an inline muted prefix before the selected value (e.g. `View:` / `Sort by:` / `Period:`). Slot is omitted when not provided.
+
+```tsx
+const t = useT()
+<Select value={view} onValueChange={setView}>
+  <CompactSelectTrigger
+    triggerLabel={t('dashboards.view.label', 'View:')}
+    aria-label={t('dashboards.view.aria', 'Switch dashboard view')}
+  >
+    <SelectValue />
+  </CompactSelectTrigger>
+  <SelectContent>
+    <SelectItem value="grid">{t('dashboards.view.grid', 'Grid')}</SelectItem>
+    <SelectItem value="list">{t('dashboards.view.list', 'List')}</SelectItem>
+  </SelectContent>
+</Select>
+```
+
+### MUST rules
+
+- NEVER hand-roll `<SelectTrigger size="sm" className="h-7">` — use `CompactSelectTrigger`. The xs (h-7) size is reserved for `CompactSelect`.
+- Pair with the regular `Select` root + `SelectContent` / `SelectItem`. The primitive only customizes the trigger; the content/items intentionally share Radix instances with the regular `Select`.
+- Pass `triggerLabel` through `useT()` and add `aria-label` to the trigger — the prefix label is visual, not announced by screen readers (it lives inside the trigger button alongside the value).
+
+---
+
+## InlineInput
+
+```typescript
+import { InlineInput } from '@open-mercato/ui/primitives/inline-input'
+```
+
+Borderless variant of `Input` for click-to-edit cells, key/value renamers, kanban card titles, and other inline editing UI where a fully bordered field would look heavy. At rest the input renders as plain text (transparent border, transparent background, no shadow). On hover a subtle border + muted background reveals the affordance; on focus the standard `border-foreground` + focus shadow inherited from the underlying `Input` wrapper takes over for accessibility.
+
+### Sizes
+
+| Size | Height | Use case |
+|---|---|---|
+| `sm` (default) | h-8 (32px) | Dense rows, kanban titles, JSON key renamers |
+| `default` | h-9 (36px) | Inline editors that sit next to h-9 controls (Buttons, Selects) |
+
+### Behaviors
+
+- **At rest** — transparent border + transparent bg + no shadow. Looks like plain text aligned to the surrounding row.
+- **Hover** — `border-input` + `bg-muted/40` (when `showBorderOnHover={true}`, the default). Skipped when `false`.
+- **Focus** — inherits `Input` wrapper's `focus-within:border-foreground` + `focus-within:shadow-focus`. Always shown for keyboard a11y.
+- **`onBlur`** — fully forwarded. Consumers wire it for the typical "save on blur" pattern.
+- **All `Input` props** — `value`, `onChange`, `placeholder`, `type`, `leftIcon`, `rightIcon`, `inputClassName`, `aria-invalid`, etc. — flow through unchanged.
+
+### Usage
+
+```tsx
+const t = useT()
+const [draft, setDraft] = React.useState(value)
+
+<InlineInput
+  value={draft}
+  onChange={(event) => setDraft(event.target.value)}
+  onBlur={() => onSave(draft)}
+  placeholder={t('mymodule.field.placeholder', 'Edit title')}
+/>
+
+// Borderless-on-rest, no hover affordance (read-only-looking cells):
+<InlineInput
+  showBorderOnHover={false}
+  value={value}
+  onChange={onChange}
+  onBlur={onSave}
+/>
+```
+
+### MUST rules
+
+- NEVER hand-roll `<input className="border-transparent hover:border-input ...">` — use `InlineInput`.
+- For high-level "click-to-edit with save / cancel buttons + validation" UX, use the `InlineTextEditor` from `@open-mercato/ui/backend/detail/InlineEditors` instead. `InlineInput` is the **low-level** atom — consumers wire the save / cancel state machine themselves.
+- Pass `placeholder` translated via `useT()`. The primitive has no built-in i18n (matches `Input`).
+- Use `showBorderOnHover={false}` only when the field is decorative or part of a much larger interactive surface — the hover border is the discoverability hint that the field is editable.
+
+---
+
+## InlineSelect
+
+```typescript
+import {
+  InlineSelectTrigger,
+  Select,
+  SelectContent,
+  SelectGroup,
+  SelectItem,
+  SelectLabel,
+  SelectSeparator,
+  SelectValue,
+} from '@open-mercato/ui/primitives/inline-select'
+```
+
+Borderless variant of `SelectTrigger` — the select-typed counterpart to `InlineInput`. At rest the trigger renders as plain text (transparent border, transparent background, no shadow); on hover a subtle border + muted bg reveals the affordance, on focus the standard `border-foreground` + focus shadow inherited from the underlying `SelectTrigger` takes over for accessibility. Pair with the regular `Select` root + `SelectContent` / `SelectItem`; the composition only customizes the trigger.
+
+### Sizes
+
+| Size | Height | Use case |
+|---|---|---|
+| `sm` (default) | h-8 (32px) | Dense rows, kanban card stage selectors, detail cards |
+| `default` | h-9 (36px) | Inline selectors next to h-9 controls |
+
+### When NOT to use
+
+- For high-level "click-to-edit with save / cancel + draft state" UX, use `InlineSelectEditor` from `@open-mercato/ui/backend/detail/InlineEditors`. `InlineSelectTrigger` is the **low-level atom** — consumers wire their own state machine (the trigger is always live, no display-vs-edit boundary).
+- For toolbar-density dropdowns (DataTable pagination, dashboard widget settings), use `CompactSelectTrigger` instead — that one is h-7 toolbar density, not borderless.
+
+### Usage
+
+```tsx
+const t = useT()
+const [stage, setStage] = React.useState<string>(initialStage)
+
+<Select value={stage} onValueChange={(next) => { setStage(next); persist(next) }}>
+  <InlineSelectTrigger aria-label={t('deals.stage.aria', 'Deal stage')}>
+    <SelectValue />
+  </InlineSelectTrigger>
+  <SelectContent>
+    {stages.map((option) => (
+      <SelectItem key={option.value} value={option.value}>{option.label}</SelectItem>
+    ))}
+  </SelectContent>
+</Select>
+
+// Borderless-on-rest, no hover affordance (heavily contextual surfaces):
+<Select value={value} onValueChange={onChange}>
+  <InlineSelectTrigger showBorderOnHover={false} aria-label="Quick filter">
+    <SelectValue />
+  </InlineSelectTrigger>
+  ...
+</Select>
+```
+
+### MUST rules
+
+- NEVER hand-roll `<SelectTrigger className="border-transparent hover:border-input ...">` — use `InlineSelectTrigger`.
+- Pair with the regular `Select` root + `SelectContent` / `SelectItem`. The primitive only customizes the trigger.
+- Always pass `aria-label` to the trigger — `InlineSelectTrigger` renders as plain text at rest, so screen-reader users rely on the explicit label rather than visual chrome.
+- Use `showBorderOnHover={false}` only when the trigger sits inside a larger interactive surface that already signals editability — the hover border is the default discoverability cue.
+
+---
+
+## DatePicker
+
+```typescript
+import { DatePicker, type DatePickerProps, type DatePickerFooter } from '@open-mercato/ui/primitives/date-picker'
+```
+
+Single-date popover trigger per Figma `446:7413` (368×432 popover; trigger styled as Figma `Date Selector [1.1]`). Subsumes the legacy `backend/inputs/DatePicker` and `backend/inputs/DateTimePicker` via the `withTime` prop; both legacy paths are kept as `@deprecated` re-export shims so existing imports stay zero-diff. Built on the shared `Calendar` primitive, so month navigation comes from `Calendar`'s `MonthCaption` (paged prev/next month buttons with a centred caption pill, `goToMonth` from `useDayPicker()`).
+
+### Quick usage
+
+```tsx
+const [date, setDate] = React.useState<Date | null>(null)
+
+<DatePicker
+  value={date}
+  onChange={setDate}
+  withTime
+  minuteStep={5}
+  minDate={new Date()}
+  locale={pl}
+  aria-label={t('orders.scheduledFor', 'Scheduled for')}
+/>
+```
+
+### Footer modes
+
+| `footer` | Behaviour |
+|---|---|
+| `'apply-cancel'` (default, Figma-aligned) | Selecting a day stages a draft inside the popover. `Apply` commits and closes; `Cancel` reverts and closes. |
+| `'today-clear'` | Legacy footer with link-style `Today` / `Clear` buttons. Selecting a day commits immediately (set `closeOnSelect={false}` to keep the popover open). Toggle individual buttons with `showTodayButton` / `showClearButton`. |
+| `'none'` | No footer; selecting a day commits and closes. |
+
+### Props
+
+| Prop | Type | Default | Notes |
+|---|---|---|---|
+| `value` | `Date \| null` | — | Controlled value. `null` renders the placeholder. |
+| `onChange` | `(value: Date \| null) => void` | — | Called on Apply / immediate commit / Clear / Today. |
+| `footer` | `'apply-cancel' \| 'today-clear' \| 'none'` | `'apply-cancel'` | Footer mode (see table above). |
+| `closeOnSelect` | `boolean` | `footer === 'today-clear'` | Only meaningful in `'today-clear'` mode. |
+| `showTodayButton` / `showClearButton` | `boolean` | `true` | `'today-clear'` mode only. |
+| `withTime` | `boolean` | `false` | Renders an `HH:MM` `TimeInput` row under the calendar; combines into a single `Date`. |
+| `minuteStep` | `number` | `1` | Forwarded to `TimeInput` when `withTime`. |
+| `size` | `'sm' \| 'default'` | `'default'` | `sm` = `h-8`, `default` = `h-9`. |
+| `align` | `'start' \| 'center' \| 'end'` | `'start'` | Popover alignment relative to trigger. |
+| `minDate` / `maxDate` | `Date` | — | Disable out-of-range cells. |
+| `locale` | `date-fns Locale` | — | Forwarded to `format()` AND the underlying `Calendar` (drives month / weekday labels). |
+| `displayFormat` | `string` | derives from `locale` (`d MMM yyyy` for day-first locales, `MMM d, yyyy` otherwise; `+ HH:mm` when `withTime`) | Override the trigger label format. |
+| `disabled` / `readOnly` | `boolean` | `false` | `readOnly` allows opening the popover but blocks selection commit. |
+| `placeholder` | `string` | `t('ui.datePicker.placeholder', 'Pick a date')` or `t('ui.dateTimePicker.placeholder', 'Pick date and time')` when `withTime` | — |
+| `className` / `popoverClassName` | `string` | — | Trigger / popover content classes. |
+| `id` / `name` / `required` / `aria-label` / `aria-describedby` | — | — | Standard form/a11y forwarding. |
+
+### MUST rules
+
+- Locale-aware labels: pass `locale` from the user's resolved date-fns locale; do NOT hand-craft `displayFormat` strings unless the design genuinely diverges from the default day-first / month-first heuristic.
+- `value` must be `Date | null` (not `string`). Convert ISO strings on the API boundary, not inside the trigger.
+- Do NOT import from `@open-mercato/ui/backend/inputs/DatePicker` or `…/DateTimePicker` in new code — those are `@deprecated` shims that re-export this primitive (`<DateTimePicker>` is a thin wrapper that always sets `withTime`). New consumers import from `@open-mercato/ui/primitives/date-picker` directly.
+- When `withTime`, hand `minuteStep` (typical 5/10/15) — minute-by-minute scrolling is rarely the right UX.
+- Combine with `minDate` / `maxDate` for booking flows; don't post-validate after onChange.
+- Pass `aria-label` (or wrap in a `FormField` with a visible label) — the trigger has no built-in label.
+
+### Anti-patterns
+
+- `<input type="date" value={iso} onChange={...} />` → use `DatePicker` (popover, locale-aware, footer actions, `minDate` / `maxDate`).
+- Two separate `<DatePicker>` fields wired to a custom range validator → use [`DateRangePicker`](#daterangepicker) (one popover, shared `Calendar`, presets).
+- Two-step "pick date" then "pick time" UI → set `withTime` + `minuteStep` on a single `DatePicker`.
+- Importing from `@open-mercato/ui/backend/inputs/DatePicker` or `DateTimePicker` in new code → use `@open-mercato/ui/primitives/date-picker` directly (shims are `@deprecated`).
+
+---
+
+## DateRangePicker
+
+```typescript
+import {
+  DateRangePicker,
+  type DateRangePickerProps,
+  type DateRangePresetItem,
+} from '@open-mercato/ui/primitives/date-range-picker'
+import { defaultDateRangePresets } from '@open-mercato/ui/primitives/date-picker-helpers'
+import type { DateRange } from '@open-mercato/ui/backend/date-range'
+```
+
+Two-month range popover per Figma `446:7412` (936×432 popover, optional preset sidebar on the left). Built on the shared `Calendar` primitive (`mode='range'`, `numberOfMonths={2}`) so month navigation uses the same `MonthCaption` (paged prev/next) as `DatePicker`. The legacy `FilterOverlay` date-range UI has been migrated onto this primitive (single source of truth for range selection across the app).
+
+### Quick usage
+
+```tsx
+const [range, setRange] = React.useState<DateRange | null>(null)
+
+<DateRangePicker
+  value={range}
+  onChange={setRange}
+  numberOfMonths={2}
+  locale={pl}
+  aria-label={t('reports.period', 'Period')}
+/>
+```
+
+### Range type and presets
+
+The range type comes from `@open-mercato/ui/backend/date-range` (single source of truth — same shape feeds dashboards, analytics, and CSV exports):
+
+```ts
+type DateRange = { start: Date; end: Date }
+
+type DateRangePresetItem = {
+  id: string
+  labelKey: string                                 // i18n key, resolved via useT()
+  range: (referenceDate?: Date) => DateRange       // pure getter, defaults to "now"
+}
+```
+
+`defaultDateRangePresets()` (from `primitives/date-picker-helpers`) returns the canonical sidebar list aligned with the Figma Period Range track:
+
+| `id` | `labelKey` |
+|---|---|
+| `today` | `ui.dateRangePicker.presets.today` |
+| `last_7_days` | `ui.dateRangePicker.presets.last7Days` |
+| `last_30_days` | `ui.dateRangePicker.presets.last30Days` |
+| `last_3_months` | `ui.dateRangePicker.presets.last3Months` |
+| `last_12_months` | `ui.dateRangePicker.presets.last12Months` |
+| `month_to_date` | `ui.dateRangePicker.presets.monthToDate` |
+| `year_to_date` | `ui.dateRangePicker.presets.yearToDate` |
+| `all_time` | `ui.dateRangePicker.presets.allTime` |
+
+Pass a custom array to override — each entry is `{ id, labelKey, range(refDate) }` and the getter must be pure (use `date-fns` `startOfDay` / `endOfDay` / `subMonths` etc.). `all_time` uses `new Date(0)` as `start`.
+
+### Props
+
+| Prop | Type | Default | Notes |
+|---|---|---|---|
+| `value` | `DateRange \| null` | — | Controlled range. `null` renders the placeholder. |
+| `onChange` | `(value: DateRange \| null) => void` | — | Called on Apply (when `withFooter`) or immediately on range completion / preset click (when `withFooter={false}`). |
+| `presets` | `DateRangePresetItem[]` | `defaultDateRangePresets()` | Sidebar list. Empty array + `showPresets={false}` to hide. |
+| `showPresets` | `boolean` | `true` | Hide the left-hand preset sidebar without dropping the data. |
+| `withFooter` | `boolean` | `true` | Renders the bottom `Cancel` / `Apply` bar with a summary of the staged range. Set to `false` to commit on range completion. |
+| `numberOfMonths` | `1 \| 2` | `2` | Two months side-by-side per Figma; drop to `1` for compact triggers. |
+| `size` | `'sm' \| 'default'` | `'default'` | `sm` = `h-8`. |
+| `align` | `'start' \| 'center' \| 'end'` | `'start'` | Popover alignment. |
+| `minDate` / `maxDate` | `Date` | — | Disable out-of-range cells. |
+| `locale` | `date-fns Locale` | — | Forwarded to `format()` AND the underlying `Calendar`. |
+| `formatRange` | `(value: DateRange, locale?: Locale) => string` | derives from `locale` (`d MMM yyyy` / `MMM d, yyyy`, separated by an en-dash) | Override the trigger label. |
+| `disabled` / `readOnly` | `boolean` | `false` | `readOnly` keeps the popover openable but blocks selection. |
+| `placeholder` | `string` | `t('ui.dateRangePicker.placeholder', 'Pick a date range')` | — |
+| `className` / `popoverClassName` | `string` | — | Trigger / popover content classes. |
+| `id` / `name` / `required` / `aria-label` / `aria-describedby` | — | — | Standard form/a11y forwarding. |
+
+### MUST rules
+
+- Range type is `{ start: Date; end: Date }` (from `@open-mercato/ui/backend/date-range`), NOT `{ from, to }` — convert at the react-day-picker boundary if you ever need to interop directly.
+- Pass `locale` (and forward to `Calendar` via the prop, never roll a custom caption) so month / weekday labels follow the user's locale.
+- `presets[].range` getters MUST be pure and accept an optional reference date; `defaultDateRangePresets()` already does this — when extending the list, mirror the same shape.
+- For dashboard-style "13 preset" UIs that share state with chart filters, pull the option list from `DATE_RANGE_OPTIONS` in `@open-mercato/ui/backend/date-range` and map it to `DateRangePresetItem[]`. Do not duplicate preset logic in the consumer.
+- When migrating an old `FilterOverlay` date-range field, use this primitive — there is no longer a separate range UI inside `FilterOverlay`.
+- The popover height is capped to `--radix-popover-content-available-height`; the calendar+sidebar area scrolls and the footer stays pinned, so do NOT wrap the trigger in additional `overflow-hidden` containers that fight the popover sizing.
+
+### Anti-patterns
+
+- Two separate `<DatePicker>` fields wired to a custom "from <= to" validator → use `DateRangePicker` (one popover, two-month view, shared calendar state).
+- Building your own preset list duplicating `DATE_RANGE_OPTIONS` → import `defaultDateRangePresets()` or pull `DATE_RANGE_OPTIONS` from `@open-mercato/ui/backend/date-range` and map to `DateRangePresetItem[]`.
+- Returning `{ from, to }` from `onChange` consumers → the contract is `{ start, end }`; convert at the API boundary, not in the trigger.
+
+---
+
+## TimePicker
+
+```typescript
+import {
+  TimePicker,
+  TimePickerSlot,
+  TimePickerDurationChip,
+  TimePickerStatusChip,
+  HorizontalScrollRow,
+  formatDuration,
+  formatTimePickerDisplay,
+  type TimePickerValue,
+  type TimePickerStatusVariant,
+} from '@open-mercato/ui/primitives/time-picker'
+```
+
+Compound primitive per Figma `164611:83414`: a popover/inline card with optional header (current value), optional duration chip row, optional status chip row, scrollable slot list (12h/24h), pinned-top quick actions (e.g. "Now"), and footer with Cancel/Apply. Built on Lucide icons + `Popover` + `Button`.
+
+For free-form "HH:MM" trigger UX without slots/durations, use the legacy `backend/inputs/TimePicker` shim — it wraps this primitive with `headerPlaceholder`/`Now`/`Clear` already wired through `useT()`.
+
+### Atoms
+
+| Atom | Purpose | Key props |
+|---|---|---|
+| `TimePickerSlot` | Single time row (e.g. `01:30 PM`) | `value`, `selected`, `disabled`, `rightText`, `format='12h'\|'24h'`, `onSelect` |
+| `TimePickerDurationChip` | Round chip showing a duration (e.g. `30 min` / `1h 30m`) | `value`, `label?`, `selected`, `disabled`, `onSelect` |
+| `TimePickerStatusChip` | Coloured dot + label (`Available` / `Busy` / `In meeting` / `Offline`) | `variant`, `label?`, `selected`, `disabled`, `onSelect` |
+| `HorizontalScrollRow` | Horizontally-scrollable row with chevron arrows that appear on overflow | `children`, `ariaLabel`, `scrollLeftAriaLabel`, `scrollRightAriaLabel`, `arrowSize` |
+
+`HorizontalScrollRow` is exported standalone — use it whenever a row of chips needs the same scroll/fade/arrow UX (e.g. inline duration row inside a meeting form).
+
+### Composition
+
+```tsx
+<TimePicker
+  value={value}
+  onChange={setValue}
+  slots={['09:00', '09:30', '10:00', '10:30', '11:00']}
+  durations={[{ value: 30 }, { value: 60 }, { value: 90 }]}
+  activeDuration={30}
+  onDurationChange={setDuration}
+  trigger={<Button variant="outline">{formatTimePickerDisplay(value, '12h').main}</Button>}
+/>
+```
+
+Common options:
+
+- `headerPlaceholder` — header text when value is null (default: `t('ui.timePicker.placeholder', 'Pick a time')`)
+- `cancelLabel` / `applyLabel` — footer button labels (default: `useT('ui.timePicker.cancelButton'|'applyButton')`)
+- `statusLabel` — caption above the status chip row (default: `useT('ui.timePicker.statusLabel')`)
+- `pinnedTopActions` — sticky quick-action rows above the slot list (used for legacy "Now")
+- `legacyFooterActions` — link-style buttons rendered to the LEFT of Cancel/Apply
+- `format: '12h' | '24h'` — default `'12h'`
+- `trigger` — wraps the card in `Popover`; without it the card renders inline
+
+### i18n keys (built-in defaults)
+
+| Key | Default | Used for |
+|---|---|---|
+| `ui.timePicker.placeholder` | `Pick a time` | Header when value is null |
+| `ui.timePicker.label` | `Time picker` | Dialog aria-label |
+| `ui.timePicker.closeButton` | `Close` | Close (×) button aria-label |
+| `ui.timePicker.cancelButton` | `Cancel` | Footer cancel |
+| `ui.timePicker.applyButton` | `Apply` | Footer apply |
+| `ui.timePicker.statusLabel` | `Select status` | Caption above status row |
+| `ui.timePicker.durationsRowLabel` | `Quick duration` | aria-label of the duration row |
+| `ui.timePicker.scrollLeft` / `.scrollRight` | `Scroll left` / `Scroll right` | HorizontalScrollRow chevrons |
+
+### Helpers
+
+- `formatTimePickerDisplay(value, format)` returns `{ main, suffix }` for the trigger/header (e.g. `{ main: '01:30', suffix: 'PM' }`).
+- `formatDuration(minutes, options?)` — English-only utility. Returns strings like `'15 min'`, `'1 hour'`, `'1h 30m'`. **Do not call directly in user-facing UI** — instead, build a translatable lookup table per consumer (see `customers/components/detail/schedule/DateTimeFields.tsx` for the canonical pattern).
+
+### MUST rules
+
+- NEVER hand-roll a time-of-day input — use `TimePicker` (slots/duration/status workflow) or the legacy `backend/inputs/TimePicker` shim (free-form HH:MM trigger).
+- For a row of duration chips in a custom form layout, use `<HorizontalScrollRow>` to get the same scrollbar-less + fade-gradient + chevron UX as the composition.
+- When passing custom `cancelLabel` / `applyLabel` / `statusLabel` / `headerPlaceholder`, route them through `useT()` — primitive defaults are English.
+- `formatDuration` is English-only — for translatable labels, define a lookup map keyed on the integer minutes value, with `t(key, fallback)` resolution inside the consumer.
+- Active state for slot / duration / status uses `bg-brand-violet/10 text-brand-violet`, NOT `bg-primary/10` — `--primary` in this codebase is near-black; `--brand-violet` is the actual violet.
+
+### Anti-patterns
+
+- `<input type="time" />` → use `TimePicker` (Figma-aligned scroll slots, locale-aware 12h/24h, Now / Clear actions).
+- `<DatePicker withTime>` for time-only entry → use `TimePicker` directly; `DatePicker withTime` is for date+time combined.
+- Three nested `<Select>`s for hours / minutes / period → use the compound `TimePickerSlot` sub-primitives if you need to render slots manually, or the full `TimePicker` for the popover composition.
+- Calling `formatDuration` in user-facing UI → English-only; build a `t()`-resolved lookup map per consumer.
+
+---
+
+## EmptyState
+
+```typescript
+import { EmptyState, type EmptyStateProps, emptyStateVariants } from '@open-mercato/ui/primitives/empty-state'
+```
+
+Centered "nothing-to-show" panel for empty lists, empty tabs, empty DataTable cells, and zero-result search panes. Title is required; the rest (icon / illustration / description / actions) is optional. Default variant renders a dashed-border muted card; `'subtle'` drops the border for embedded contexts (inside cards / popovers / DataTable empty cells).
+
+### Quick usage
+
+```tsx
+<EmptyState
+  size="default"
+  icon={<UsersRound className="h-6 w-6" aria-hidden="true" />}
+  title={t('customers.empty.title', 'No customers yet')}
+  description={t('customers.empty.description', 'Create your first customer to start tracking opportunities.')}
+  actions={
+    <Button onClick={openCreateDialog}>
+      <Plus className="h-4 w-4" aria-hidden="true" />
+      {t('customers.empty.action', 'Add customer')}
+    </Button>
+  }
+/>
+```
+
+### Variants / Sizes
+
+| `variant` | Token | Use |
+|---|---|---|
+| `default` | `rounded-lg border border-dashed border-muted-foreground/40 bg-muted/30` | Standalone empty page / tab. |
+| `subtle` | `rounded-lg` (no border, no fill) | Inside cards, popovers, DataTable empty cells. |
+
+| `size` | Padding / gap | Icon box (subtle variant) |
+|---|---|---|
+| `sm` | `gap-2 px-4 py-6` | `size-10` |
+| `default` | `gap-3 px-6 py-10` | `size-12` |
+| `lg` | `gap-4 px-8 py-16` | `size-16` |
+
+Title type scale: `text-sm` for `sm` / `default`, `text-base` for `lg`. Description is always `text-sm text-muted-foreground` and capped to `max-w-sm` centred.
+
+### Props
+
+| Prop | Type | Default | Notes |
+|---|---|---|---|
+| `title` | `string` | — | Required. Rendered as `<p>` (not a heading) so it does not disrupt page heading hierarchy. |
+| `description` | `string` | — | Optional muted body line under the title. |
+| `icon` | `React.ReactNode` | — | Typically a `lucide-react` icon. With `variant='subtle'` it is wrapped in a round muted box (`size-10` / `size-12` / `size-16`); with `variant='default'` it sits inline tinted as `text-muted-foreground`. Ignored when `illustration` is provided. |
+| `illustration` | `React.ReactNode` | — | Figma-style illustration slot (typically a scaled SVG from the DS illustrations library). Takes precedence over `icon`; rendered without any icon-box wrapping so its own background shows through. |
+| `actions` | `React.ReactNode` | — | Primary action node, typically `<Button>` or a button group. |
+| `children` | `React.ReactNode` | — | Alternative to `actions` for custom content rendered below the title/description block. |
+| `size` | `'sm' \| 'default' \| 'lg'` | `'default'` | Controls padding, gap, and icon-box size. |
+| `variant` | `'default' \| 'subtle'` | `'default'` | See variants table. |
+| `className` | `string` | — | Applied to the outer wrapper. |
+| `action` / `actionLabel` / `onAction` / `actionLabelClassName` | — | — | `@deprecated` — kept only for the legacy backend `EmptyState` consumers. New code MUST use `actions={<Button>…</Button>}`. |
+
+### MUST rules
+
+- Title is plain text in a `<p>` — DO NOT pre-wrap it in `<h1>`/`<h2>`. If the surrounding page needs a heading, render it OUTSIDE the `EmptyState`. This keeps the heading hierarchy of the page intact wherever an empty state appears (DataTable cell, tab, dialog, etc.).
+- For empty DataTable cells, use `variant='subtle'` so the dashed border doesn't double up with the table chrome.
+- Prefer `illustration` over `icon` when the DS illustration library has a relevant asset — it ships with its own circular background and reads better at `size='lg'`.
+- Use `actions` (not the deprecated `action` / `actionLabel` / `onAction` triple) for any new code. The deprecated props are routed to a built-in `<Button variant="outline" size="sm">` with a leading `<Plus />` icon — keep that only for legacy parity.
+- Pass all strings through `useT()` — the primitive has no built-in default copy.
+
+### Anti-patterns
+
+- `<div className="text-center text-muted-foreground py-12">Nothing yet</div>` → use `EmptyState` (dashed-border card + token-driven spacing + a11y heading slot).
+- Wrapping `title` in `<h1>` / `<h2>` inside `EmptyState` → renders a `<p>`; if the page needs a heading render it OUTSIDE the EmptyState.
+- Reaching for `action` / `actionLabel` / `onAction` / `actionLabelClassName` props in new code → those are `@deprecated`; use `actions={<Button>…</Button>}`.
+- Passing a custom `<Plus />` button as `children` instead of `actions` → `children` sits between description and actions; for the primary CTA use the typed slot.
+
+---
+
+## Skeleton
+
+```typescript
+import { Skeleton, type SkeletonProps, type SkeletonShape } from '@open-mercato/ui/primitives/skeleton'
+```
+
+Inline loading placeholder for content that has a known shape but no data yet. Three shapes: `'rect'` (default block, `rounded-md`), `'circle'` (avatar / icon), and `'text'` (multi-line text with a naturally narrower last line). All sizing is done via `className` — the primitive ships only with the pulse animation and shape geometry.
+
+### Quick usage
+
+```tsx
+{isLoading ? (
+  <Skeleton shape="rect" className="h-9 w-32" />
+) : (
+  <Button onClick={save}>{t('actions.save', 'Save')}</Button>
+)}
+
+<div className="flex items-center gap-3">
+  <Skeleton shape="circle" className="size-10" />
+  <Skeleton shape="text" lines={2} className="flex-1" />
+</div>
+```
+
+Composing many `Skeleton`s into a table row / card skeleton:
+
+```tsx
+<div className="space-y-2" aria-label={t('common.loading', 'Loading')}>
+  {Array.from({ length: 6 }).map((_, index) => (
+    <div key={index} className="flex items-center gap-3 rounded-md border p-3">
+      <Skeleton shape="circle" className="size-8" />
+      <Skeleton shape="rect" className="h-4 w-1/3" />
+      <Skeleton shape="rect" className="ml-auto h-4 w-20" />
+    </div>
+  ))}
+</div>
+```
+
+### Shapes
+
+| `shape` | Renders | Default sizing | Use case |
+|---|---|---|---|
+| `'rect'` (default) | Single `animate-pulse bg-muted rounded-md` block | Sized via `className` (none by default) | Buttons, inputs, thumbnails, generic blocks. |
+| `'circle'` | Same block with `rounded-full` | Sized via `className` (typical: `size-8` / `size-10` / `size-12`) | Avatars, status dots, icon placeholders. |
+| `'text'` | `lines` (default `1`) horizontal `h-4` bars stacked with `space-y-2`. Last line is `w-3/4` when `lines > 1` to mimic natural text wrap. | `w-full` per line | Paragraph stubs, list-row labels. |
+
+### Props
+
+| Prop | Type | Default | Notes |
+|---|---|---|---|
+| `shape` | `'rect' \| 'circle' \| 'text'` | `'rect'` | See table above. |
+| `lines` | `number` | `1` | Only meaningful for `shape='text'`. Coerced to `>= 1`. |
+| `className` | `string` | — | All sizing happens here. |
+| `...rest` | `React.HTMLAttributes<HTMLDivElement>` minus `role` / `aria-busy` | — | The primitive owns the accessibility attributes — do not override `role` or `aria-busy`. |
+
+### MUST rules
+
+- The primitive sets `role="status"`, `aria-busy="true"`, and `aria-live="polite"` automatically — do NOT pass overrides for those. If you need screen readers to announce a label, wrap a group of `Skeleton`s in a container with `aria-label={t('common.loading', 'Loading')}` (see composition example).
+- Skeletons must match the final content's footprint — render the same wrapper, gap, and padding around the `Skeleton` that the loaded UI uses, so the layout doesn't jump on hydration.
+- Use `shape='text'` with `lines` (don't stack three `shape='rect'` blocks by hand) — the primitive already handles the narrower final line.
+- DO NOT animate skeletons differently than the built-in `animate-pulse` (e.g. shimmer libraries) — keep the loading state consistent across the app.
+- Avoid sub-200ms skeleton flashes: if the underlying data resolves synchronously or from cache, render the actual content directly instead of flashing a placeholder.
+
+### Anti-patterns
+
+- `<div className="animate-pulse bg-muted rounded h-4 w-32" />` → use `Skeleton` (primitive owns `role` / `aria-busy` / `aria-live`).
+- Three stacked `<Skeleton shape='rect' />` for multi-line text → use `<Skeleton shape='text' lines={3} />` (the primitive narrows the last line).
+- Passing `role="status"` / `aria-busy` / `aria-live` overrides → the primitive owns these; do NOT override.
+- Custom shimmer animation library wrapped around Skeleton → keep `animate-pulse` for consistency.
+
+---
+
+## Alert
+
+```typescript
+import { Alert, AlertTitle, AlertDescription } from '@open-mercato/ui/primitives/alert'
+```
+
+Unified component for inline contextual messages, floating notifications, and toast feedback. Per the Figma `169:2358` guidelines, **Alert / Notification / Toast share the same primitive** — only their layout, lifetime, and consumer wrapper differ. Use the props matrix below to dial in the right look for the surface.
+
+### Status (5)
+
+| Status | Default icon | Token family (Figma `state/{x}/*`) | Use case |
+|---|---|---|---|
+| `information` (default) | `Info` | `status-info-*` (Figma `state/information/*`) | Neutral / informational state |
+| `success` | `CheckCircle2` | `status-success-*` (Figma `state/success/*`) | Completed action, saved state |
+| `warning` | `AlertTriangle` | `status-warning-*` (Figma `state/warning/*`) | Heads-up that needs attention |
+| `error` | `AlertCircle` | `status-error-*` (Figma `state/error/*`) | Failed action, blocking validation |
+| `feature` | `Rocket` | `status-neutral-*` (Figma `state/faded/*` — **neutral gray, not brand-violet**) | New release / changelog teaser |
+
+### Style (4)
+
+Tokens map to the Figma `state/{x}/*` variable family — `status-{x}-icon` ↔ Figma `state/{x}/base` (saturated, e.g. `#dc2626`), `status-{x}-border` ↔ Figma `state/{x}/light` (medium tint, e.g. `#fecaca`), `status-{x}-bg` ↔ Figma `state/{x}/lighter` (very light tint, e.g. `#fef2f2`). The `feature` status uses the `status-neutral-*` family because Figma maps it to `state/faded/*` gray, **not** brand-violet.
+
+| Style | Description | Outer wrapper | Icon |
+|---|---|---|---|
+| `light` (default) | Saturated tinted bg, status-colored text, no border | `bg-status-{x}-border text-status-{x}-text border-transparent` | Rounded badge with `bg-status-{x}-icon` + white icon |
+| `lighter` | Very light tinted bg, status-colored text, no border | `bg-status-{x}-bg text-status-{x}-text border-transparent` | Rounded badge with `bg-status-{x}-icon` + white icon |
+| `stroke` | White bg, neutral text, soft border + drop shadow | `bg-background text-foreground border-border shadow-lg` | Rounded badge with `bg-status-{x}-icon` + white icon |
+| `filled` | Saturated bg, white text | `bg-status-{x}-icon text-white border-transparent` | Plain white icon (no badge wrap) |
+
+`feature` status maps to `--brand-violet` tokens instead of `--status-*` because there is no dedicated `feature` token set in `globals.css`.
+
+### Size (3)
+
+| Size | Layout | Use case |
+|---|---|---|
+| `sm` (default) | `min-h-9 rounded-md px-3 py-2 text-xs` + `size-4` icon | Toast / inline strip. Grows vertically when content wraps (`min-h-*`). |
+| `xs` | `min-h-8 rounded-md px-3 py-1 text-xs` + `size-4` icon | Dense table inline notice. |
+| `default` | `rounded-lg px-4 py-3 text-sm` + `size-5` icon | Full inline alert with `AlertTitle` + `AlertDescription` paragraphs. No min height — content drives layout. |
+
+### Usage
+
+```tsx
+const t = useT()
+
+// Default inline alert (info, light, default size)
+<Alert>
+  <AlertTitle>{t('signup.almostThere', 'Almost there')}</AlertTitle>
+  <AlertDescription>{t('signup.verifyEmail', 'Check your inbox for the verification link.')}</AlertDescription>
+</Alert>
+
+// Saturated success toast with explicit dismiss + action
+<Alert
+  status="success"
+  style="filled"
+  size="sm"
+  dismissible
+  onDismiss={() => closeToast(id)}
+  dismissAriaLabel={t('common.dismiss', 'Dismiss')}
+  action={<LinkButton onClick={undo}>{t('common.undo', 'Undo')}</LinkButton>}
+>
+  {t('sales.order.created', 'Order created')}
+</Alert>
+
+// Feature announcement with custom icon override
+<Alert status="feature" icon={<Sparkles aria-hidden="true" />}>
+  <AlertTitle>{t('release.newCheckout', 'New checkout experience')}</AlertTitle>
+  <AlertDescription>{t('release.newCheckoutBody', '…')}</AlertDescription>
+</Alert>
+```
+
+### Props
+
+| Prop | Type | Default | Notes |
+|---|---|---|---|
+| `status` | `'information' \| 'success' \| 'warning' \| 'error' \| 'feature'` | `'information'` | One of the 5 statuses. |
+| `style` | `'light' \| 'lighter' \| 'stroke' \| 'filled'` | `'light'` | Visual emphasis. `'light'` is the safe default (saturated tinted bg using the Figma `state/{x}/light` family — `#fecaca` for error etc.). `'lighter'` uses the very light `state/{x}/lighter` tint. `'stroke'` is the white-bg + drop-shadow variant. `'filled'` is the saturated-bg + white-text variant. |
+| `size` | `'sm' \| 'xs' \| 'default'` | `'sm'` | Layout density. `'sm'` uses `min-h-9` so multi-line content still grows the alert vertically. |
+| `showIcon` | `boolean` | `true` | Toggle the leading icon. |
+| `icon` | `ReactNode` | status default | Override the leading icon (`feature` is the typical case — pass a custom Lucide icon). |
+| `dismissible` | `boolean` | `false` | Render a trailing `X` close button. |
+| `onDismiss` | `() => void` | — | Fired when the close button is clicked. |
+| `dismissAriaLabel` | `string` | `'Dismiss'` | i18n hook for the close button. |
+| `action` | `ReactNode` | — | Inline action slot rendered to the right of the body (link buttons typical). |
+| `variant` | `'default' \| 'destructive' \| 'success' \| 'warning' \| 'info'` | — | **Deprecated.** BC alias for the pre-Figma-169:2358 API. Maps to `status` and picks up the new `light` + `sm` defaults — visually matches the pre-Figma `light` look (tinted bg with border) at the new `min-h-9` density (which still grows for multi-line content). Prefer `status` in new code. |
+
+### MUST rules
+
+- NEVER hand-roll a tinted `<div role="alert">` — use `Alert`. The five status × four style matrix covers every contextual-message look in the Figma guidelines.
+- Use the `light` + `sm` defaults for inline alerts, toasts (FlashMessages already wires them via `flash()`), and notifications — `light` maps to the Figma `state/{x}/light` tokens (`#fecaca` saturated pink for error etc.) and the rounded icon badge gives every status a recognizable badge mark.
+- Step up to `size="default"` whenever the message wraps to multiple lines or carries an `AlertTitle` + `AlertDescription` paragraph — `default` has no min-height, larger padding, and uses `rounded-xl` per the Figma Large size.
+- Drop to `style="lighter"` for the lowest-emphasis tint (`state/{x}/lighter` — `#fef2f2` for error) when the surface is already crowded.
+- Use `style="stroke"` (white bg + soft border + drop shadow + neutral text + icon badge) for floating cards where the alert should sit visually on top of arbitrary page content without taking on a tint.
+- Reserve `style="filled"` for explicit high-contrast call-outs where the message must dominate the surrounding chrome — `filled` drops the icon badge in favor of a plain icon over the saturated background.
+- The `feature` status renders with the `state/faded/*` gray (Figma palette name) → `status-neutral-*` tokens in code. Do **not** map it to `brand-violet`; that mismatch happened during early iteration and Figma keeps `feature` neutral on purpose so it does not collide with the product's brand color elsewhere.
+- Pass `dismissAriaLabel` translated via `useT()` — the primitive default `'Dismiss'` is English-only.
+- For ephemeral "save on action" feedback, prefer the global `flash()` helper from `@open-mercato/ui/backend/FlashMessages` (it wraps `Alert` internally) over building your own toast queue.
+- The legacy `variant` prop is **deprecated** but still honored — new code should use the explicit `status` + `style` props. Existing call sites continue to work; their look softens slightly (bg `/50`, no border) because the default style is now `lighter` instead of `light`.
+
+---
+
+## Notification
+
+```typescript
+import {
+  Notification,
+  NotificationProvider,
+  NotificationStack,
+  useNotification,
+  type NotifyOptions,
+  type NotificationEntry,
+  type NotificationStackPlacement,
+} from '@open-mercato/ui/primitives/notification'
+// (NotificationProvider / NotificationStack / useNotification live in `notification-stack`)
+import {
+  NotificationProvider,
+  NotificationStack,
+  useNotification,
+} from '@open-mercato/ui/primitives/notification-stack'
+```
+
+Card composition over `Alert` for corner-floating manual-dismiss UX — the "Notification" surface in the Figma `169:2358` Alert / Notification / Toast guidelines. Matches Figma cell `170:1839` (Error/Light/Large): status icon (or custom `avatar`), title + timestamp row, `opacity-72` description, optional row of action links, trailing dismiss X.
+
+### When to use
+
+| Surface | Component |
+|---|---|
+| Inline contextual message inside a form / page | `Alert` |
+| Ephemeral "saved" / "failed" feedback (auto-dismiss) | `flash()` from `FlashMessages` (renders `Alert` under the hood) |
+| Corner-floating manual-dismiss notifications (multiple stackable) | `Notification` inside `NotificationStack` (this section) |
+| Persistent in-app notification panel (bell icon + popover) | `NotificationItem` / `NotificationPanel` from `@open-mercato/ui/backend/notifications` |
+
+`Notification` is the **DS primitive** for the corner-floating case. `NotificationItem` is a richer panel-list item and stays separate by design (different layout, includes read-state indicator and module-specific renderer dispatch).
+
+### Notification card
+
+```tsx
+import { Avatar } from '@open-mercato/ui/primitives/avatar'
+import { LinkButton } from '@open-mercato/ui/primitives/link-button'
+
+<Notification
+  status="information"
+  avatar={<Avatar name="John Smith" size="md" />}
+  title="John commented on Acme renewal"
+  description="Looped in legal for the new clause. Will follow up by EOD."
+  timestamp="2 min ago"
+  actions={
+    <>
+      <LinkButton variant="primary" onClick={openDeal}>View deal</LinkButton>
+      <span className="opacity-40">·</span>
+      <LinkButton variant="gray" onClick={mute}>Mute thread</LinkButton>
+    </>
+  }
+  onDismiss={() => dismiss(id)}
+/>
+```
+
+The primitive forwards every `status` / `style` value from `Alert`, defaults to `style='light'`, and always renders the dismiss X (`dismissible` defaults to `true`). Pass `avatar` to replace the default per-status Lucide icon — typical for user-driven notifications.
+
+### Programmatic queue (`NotificationProvider` + `useNotification()`)
+
+Mount once near the app root next to `FlashMessages`:
+
+```tsx
+// app shell (already client component)
+<NotificationProvider maxVisible={5}>
+  <AppContent />
+  <NotificationStack placement="top-right" />
+  <FlashMessages />
+</NotificationProvider>
+```
+
+Then from any client component:
+
+```tsx
+function DealActions({ dealId }: { dealId: string }) {
+  const { notify, dismiss } = useNotification()
+  const onSave = async () => {
+    const id = notify({
+      status: 'success',
+      title: 'Deal saved',
+      description: 'Customers will be notified within 5 minutes.',
+      autoDismissMs: 5000,
+      actions: <LinkButton onClick={() => dismiss(id)}>Got it</LinkButton>,
+    })
+  }
+  return <Button onClick={onSave}>Save deal</Button>
+}
+```
+
+`notify()` returns the entry id; `dismiss(id)` removes it (also cancels its auto-dismiss timer). `dismissAll()` clears the queue. The provider FIFO-trims entries beyond `maxVisible` (default 5).
+
+### `NotificationStack` placement
+
+| `placement` | Position |
+|---|---|
+| `'top-right'` (default) | Top-right corner |
+| `'top-left'` | Top-left corner |
+| `'bottom-right'` | Bottom-right corner |
+| `'bottom-left'` | Bottom-left corner |
+| `'top-center'` | Top center (translated -50% via Tailwind) |
+| `'bottom-center'` | Bottom center |
+
+The wrapper has `pointer-events-none` so it does not block clicks on the page underneath; each notification card has `pointer-events-auto` so its X / action buttons stay interactive.
+
+### Props
+
+`Notification` accepts:
+
+| Prop | Type | Default | Notes |
+|---|---|---|---|
+| `status` | `AlertStatus` | `'information'` | Forwarded to `Alert`. |
+| `style` | `AlertStyle` | `'light'` | Forwarded to `Alert`. |
+| `avatar` | `ReactNode` | — | Replaces the default per-status icon. Pair with `Avatar` primitive for user-driven feeds. |
+| `title` | `ReactNode` | — | `AlertTitle` (Label/Small `font-medium 14/20`). |
+| `description` | `ReactNode` | — | `AlertDescription` at `opacity-72` (Paragraph/Small `14/20`). |
+| `timestamp` | `ReactNode` | — | Right-aligned next to the title, `text-xs opacity-60`. Pre-format via `formatRelativeTime()` from shared. |
+| `actions` | `ReactNode` | — | Row of action links rendered below the description. Wrap multiple in a fragment with manual `·` separators per Figma. |
+| `dismissible` | `boolean` | `true` | Default opposite of `Alert` — notifications always need a way out. |
+| `onDismiss` | `() => void` | — | Click handler for the X. When used inside `NotificationStack`, the stack provides the handler automatically. |
+| `dismissAriaLabel` | `string` | `'Dismiss'` | Pass through `useT()` for i18n. |
+| `id` | `string` | — | Forwarded as `data-notification-id` for external tracking. |
+
+`NotifyOptions` (passed to `notify()`) = `Omit<NotificationProps, 'id' \| 'onDismiss'> & { autoDismissMs?: number }`.
+
+### MUST rules
+
+- Use `Notification` for corner-floating / stackable manual-dismiss UX. For inline alerts use `Alert` directly; for ephemeral save-feedback toasts use `flash()`; for persistent notification panel rows use `NotificationItem`.
+- Always wrap the app in `NotificationProvider` if any consumer uses `useNotification()`. The hook throws when no provider is mounted — this is intentional.
+- Pass `dismissAriaLabel` and translatable title / description through `useT()` — the primitive has English defaults.
+- For user-driven notifications, pass `avatar={<Avatar name="..." />}` so the leading visual matches the rest of the product's identity treatment.
+- Keep `autoDismissMs` short (3000–6000 ms) for transient confirmations. Omit it entirely for actionable notifications the user must address before dismissing.
+
+---
+
+## Accordion
+
+```typescript
+import {
+  Accordion,
+  AccordionItem,
+  AccordionTrigger,
+  AccordionContent,
+  type AccordionTriggerIcon,
+  type AccordionIconPosition,
+} from '@open-mercato/ui/primitives/accordion'
+```
+
+Collapsible-section primitive built on `@radix-ui/react-accordion`. Matches Figma `210:4022` — a card with three visual states: white card + soft border + x-small shadow when closed (idle), `bg-muted` + no border + no shadow on hover or when open. The Figma `Flip Icon` toggle is exposed as `iconPosition` (`'end'` default / `'start'`) and the indicator style is selectable through `triggerIcon` (`'plus-minus'` default / `'chevron'` / `'none'`).
+
+### Basic usage
+
+```tsx
+<Accordion type="single" collapsible>
+  <AccordionItem value="payment">
+    <AccordionTrigger>What payment methods are accepted?</AccordionTrigger>
+    <AccordionContent>
+      Major credit and debit cards (Visa, MasterCard, AmEx), plus PayPal and Apple Pay.
+    </AccordionContent>
+  </AccordionItem>
+  <AccordionItem value="refund">
+    <AccordionTrigger>How do I get a refund?</AccordionTrigger>
+    <AccordionContent>
+      Go to Orders → select the order → Request refund. Refunds are processed within 5 business days.
+    </AccordionContent>
+  </AccordionItem>
+</Accordion>
+```
+
+`type="single" collapsible` is the FAQ pattern from Figma `2878:905`. Use `type="multiple"` when several panels should stay open at once (onboarding checklists, settings groups).
+
+### Leading icon
+
+```tsx
+import { BankCard, Repeat2, MapPinTime, Lock } from 'lucide-react'
+
+<Accordion type="single" collapsible>
+  <AccordionItem value="payment">
+    <AccordionTrigger leftIcon={<BankCard />}>What payment methods are accepted?</AccordionTrigger>
+    <AccordionContent>…</AccordionContent>
+  </AccordionItem>
+</Accordion>
+```
+
+When `leftIcon` is set and `iconPosition="end"`, the parent `AccordionItem` auto-promotes its `--accordion-indent` CSS variable from 14 px to 44 px so `AccordionContent`'s left and right inner padding aligns the body with the title text (Figma `210:4064` column layout). This happens via a Tailwind v4 `has-[…trigger-left-icon]:` variant — no React state, no hydration flash.
+
+### Indicator variants
+
+```tsx
+// Plus / Minus (default — matches Figma 210:4019 add-line / 210:4069 subtract-line)
+<AccordionTrigger triggerIcon="plus-minus">…</AccordionTrigger>
+
+// Rotating chevron (shadcn-style)
+<AccordionTrigger triggerIcon="chevron">…</AccordionTrigger>
+
+// No indicator — pair with a custom `indicator` node if needed
+<AccordionTrigger triggerIcon="none" indicator={<Badge>New</Badge>}>…</AccordionTrigger>
+```
+
+### Flip-icon layout (`iconPosition="start"`)
+
+```tsx
+<AccordionTrigger iconPosition="start" triggerIcon="plus-minus">
+  Customize your store-front
+</AccordionTrigger>
+```
+
+Matches Figma `Flip Icon = On`. The open/close indicator becomes the leading affordance; any `leftIcon` is suppressed because the indicator owns the leading slot. Pair this with a status icon embedded inside the trigger children or with a custom `indicator` carrying both states (e.g. a `loader-2-line` for in-progress steps).
+
+### Variants
+
+```tsx
+// Default — card with border + x-small shadow on closed state
+<AccordionItem variant="card" value="a">…</AccordionItem>
+
+// Borderless — for embedded use on a coloured surface or nav-style lists
+<AccordionItem variant="borderless" value="b">…</AccordionItem>
+```
+
+### Props
+
+`Accordion` (Radix `Root`) accepts the full `@radix-ui/react-accordion` API: `type='single' | 'multiple'`, `collapsible`, `value`, `defaultValue`, `onValueChange`, `disabled`, `dir`, `orientation`.
+
+`AccordionItem`:
+
+| Prop | Type | Default | Notes |
+|---|---|---|---|
+| `variant` | `'card' \| 'borderless'` | `'card'` | Card variant matches Figma states; borderless drops chrome for embedded use. |
+| `value` | `string` | — | Required by Radix; identifies the item for `value` / `defaultValue` / `onValueChange`. |
+| `disabled` | `boolean` | `false` | Disables the trigger and locks the closed state. |
+
+`AccordionTrigger`:
+
+| Prop | Type | Default | Notes |
+|---|---|---|---|
+| `leftIcon` | `ReactNode` | — | 20×20 decorative glyph before the label. Auto-indents `AccordionContent` when `iconPosition="end"`. |
+| `triggerIcon` | `'plus-minus' \| 'chevron' \| 'none'` | `'plus-minus'` | Default matches Figma add-line / subtract-line; chevron rotates 180° via `data-state=open`. |
+| `iconPosition` | `'end' \| 'start'` | `'end'` | Mirrors Figma `Flip Icon` toggle. With `'start'`, `leftIcon` is suppressed. |
+| `indicator` | `ReactNode` | — | Custom override for the indicator slot (overrides `triggerIcon`). |
+| `headerClassName` | `string` | — | Extra classes for the internal `AccordionPrimitive.Header` (`<h3>`) wrapper. Use when the trigger row shares its line with sibling action buttons (e.g. a `RowActions` kebab next to a settings row) — set `headerClassName="min-w-0 flex-1"` so the header grows while the sibling keeps its natural size. |
+
+`AccordionContent` forwards every `@radix-ui/react-accordion` Content prop and animates open/close via `tw-animate-css` (`animate-accordion-down` / `animate-accordion-up`) keyed off `--radix-accordion-content-height`.
+
+### MUST rules
+
+- Always set `value` on every `AccordionItem` — Radix requires it for controlled/uncontrolled state.
+- For FAQ surfaces use `type="single" collapsible`. For onboarding / multi-section configurations use `type="multiple"`.
+- Pass translatable trigger labels through `useT()` — the primitive ships no English defaults.
+- When customising `triggerIcon="none"` keep the trigger reachable: either provide a meaningful `indicator` or rely on the trigger's text + `aria-expanded` for screen-reader feedback.
+- Do not nest interactive elements inside `AccordionTrigger` — it is already a `<button>`. Put links and buttons inside `AccordionContent` only. If the row needs sibling actions, place them as a sibling of `AccordionTrigger` inside `AccordionItem` and grow the header with `headerClassName="min-w-0 flex-1"` (see `PipelineSettings` for the canonical example).
+
+---
+
+## LogList
+
+```typescript
+import {
+  LogList,
+  LogLevelBadge,
+  type LogListEntry,
+  type LogListLevel,
+} from '@open-mercato/ui/backend/LogList'
+```
+
+Unified `Accordion`-driven list for admin "logs" tabs (integrations, data sync runs, payment gateway transactions, …). Replaces the per-module `<table>` + `expandedLogId` row-expand pattern with a Figma-aligned card list that uses the DS `Accordion` primitive under the hood. Each row shows time + level badge + message in the trigger; the consumer controls the expanded body content (metadata grid, JSON payload, etc.).
+
+### Basic usage
+
+```tsx
+<LogList
+  entries={logs.map((log) => ({
+    id: log.id,
+    time: new Date(log.createdAt).toLocaleString(),
+    level: log.level,
+    message: log.message,
+    body: (
+      <pre className="overflow-x-auto whitespace-pre-wrap rounded-md border bg-card p-3 text-xs">
+        {JSON.stringify(log.payload, null, 2)}
+      </pre>
+    ),
+  }))}
+  emptyMessage={t('logs.empty')}
+/>
+```
+
+`LogList` uses `Accordion type='single' collapsible` internally — matches the previous "one expanded row at a time" behaviour. For multi-open admin views, drop `LogList` and compose `Accordion` directly.
+
+### Level palette
+
+The built-in `LogLevelBadge` maps `info` → blue, `warn` / `warning` → amber, `error` → red, `debug` → zinc. Unknown levels fall through to the default `Badge` neutral palette. Pass `levelLabel` to override the badge text (e.g. translated level names):
+
+```tsx
+{
+  id: log.id,
+  level: log.level,
+  levelLabel: t(`payment_gateways.transactions.level.${log.level}`, log.level),
+  // …
+}
+```
+
+### Body slot (rich expanded content)
+
+The `body` prop accepts any React node. Use it for metadata grids, inline / nested JSON via `JsonDisplay`, summary text, etc. The DS deployment in [`integrations/[id]/page.tsx`](../packages/core/src/modules/integrations/backend/integrations/[id]/page.tsx) builds a two-column body with a metadata grid + nested `JsonDisplay`; [`data_sync/runs/[id]/page.tsx`](../packages/core/src/modules/data_sync/backend/data-sync/runs/[id]/page.tsx) renders a single `<pre>` JSON block.
+
+### Props
+
+`LogList`:
+
+| Prop | Type | Default | Notes |
+|---|---|---|---|
+| `entries` | `LogListEntry[]` | — | Each entry maps to one `AccordionItem`. Pass an empty array to trigger the empty state. |
+| `emptyMessage` | `ReactNode` | — | Rendered when `entries` is empty. Omit to render nothing. |
+| `className` | `string` | — | Applied to the `<Accordion>` root. |
+
+`LogListEntry`:
+
+| Field | Type | Notes |
+|---|---|---|
+| `id` | `string` | Required; used as the Radix Accordion item value and forwarded as `data-log-entry-id`. |
+| `time` | `ReactNode` | Pre-formatted timestamp — `new Date(...).toLocaleString()` or `formatDateTime(...)`. |
+| `level` | `LogListLevel` | Any string; recognized values drive the badge palette. |
+| `levelLabel` | `ReactNode` | Optional translated label override; falls back to `level` verbatim. |
+| `message` | `ReactNode` | One-liner shown in the trigger row (truncates). |
+| `body` | `ReactNode` | Mounted lazily by Radix when the entry expands. Build the metadata grid + payload here. |
+
+`LogLevelBadge` exposes the same level mapping for standalone use outside `LogList` (e.g. a level pill inside a detail summary card).
+
+### MUST rules
+
+- Pass `id` that is stable across re-renders — Radix uses it as the accordion item value, so a changing id will collapse the open row.
+- Pre-format `time` in the consumer (the primitive ships no `formatDateTime`); pair with the same locale used elsewhere on the page for consistency.
+- Build `body` content with the same translation keys as the legacy table headers (`<dt>` labels remain the existing `t(...)` keys, so PL / EN translations stay in sync).
+- Keep `body` heavyweight (large `JsonDisplay`, fetch-on-expand) — it mounts lazily, so the closed state stays cheap regardless of payload size.
+
+---
+
+## RichEditor
+
+```typescript
+import {
+  RichEditor,
+  RichEditorToolbar,
+  RichEditorIconButton,
+  RichEditorTextDropdown,
+  RichEditorDropdownButton,
+  RichEditorColorButton,
+  RichEditorColorPalette,
+  RichEditorContent,
+  RichEditorDivider,
+  RICH_EDITOR_COLOR_PALETTE,
+  type RichEditorLabels,
+  type RichEditorColorKey,
+  type RichEditorVariant,
+} from '@open-mercato/ui/primitives/rich-editor'
+```
+
+`contentEditable`-based HTML rich text editor with a Figma-aligned toolbar (`164611:20259`). Compound API + four preset toolbar variants. Output is sanitized through the existing `sanitizeHtmlRichText` pipeline so the editor remains drop-in for any consumer that wrote against the legacy `HtmlRichTextEditor`.
+
+### Quick usage (preset variant)
+
+```tsx
+const [value, setValue] = React.useState('<p>Hello</p>')
+
+<RichEditor value={value} onChange={setValue} variant="standard" />
+```
+
+`variant` chooses the toolbar layout:
+
+| Variant | Items |
+|---|---|
+| `'minimal'` | Bold / Italic / Underline |
+| `'basic'` | Bold / Italic / Underline / Bullet list / Link |
+| `'standard'` (default) | Heading dropdown / Bold / Italic / Underline / Bullet list / Numbered list / Link |
+| `'full'` | Heading / Font size / Color / Bold / Italic / Underline / Strikethrough / Bullet list / Numbered list / HR / Quote / Inline code / Code block / Image / Table / Checklist / Align / Link / Comment / Mention / Help (Figma `166331:4006`) |
+| `'custom'` | Render `<RichEditorToolbar>...</RichEditorToolbar>` + `<RichEditorContent />` children manually |
+
+The `'full'` variant is what `CrudForm` `editor: 'html'` ships today (the standalone preset is the same compound API, just opted into via the variant prop on a one-off `<RichEditor />`).
+
+### Auto-overflow toolbar (`'full'` / `'standard'` / `'basic'` / `'minimal'`)
+
+The preset toolbar measures its container via `ResizeObserver` and renders all items in a single row. Items that don't fit spill into the existing `⋮ More` popover button (rendered as a second row of icon buttons inside the popover — same toolbar style, not a text menu). The `⋮` button auto-appears only when items overflow OR when the consumer passes a `moreMenu` prop; consumer-supplied items render at the top of the popover with a separator above auto-spilled items.
+
+Implementation notes for consumers:
+
+- No prop to disable — overflow is the toolbar contract; if you need a frozen layout use `variant="custom"` and supply the toolbar yourself.
+- The measure pass is SSR / jsdom-safe (`typeof ResizeObserver === 'undefined'` short-circuit), so unit tests see every item under the `getByRole('button', { name })` query as if the toolbar were full-width.
+- The `⋮` button omits its trailing chevron (`showChevron={false}` on `RichEditorDropdownButton`) — the three-dot glyph already signals "more actions". The `Help (?)` button does the same.
+
+### i18n
+
+Pass `labels` to override the English defaults. The `CrudForm` `editor: 'html'` integration maps the existing `ui.forms.richtext.*` keys (`bold`, `italic`, `underline`, `list`, `orderedList`, `heading`, `heading1`, `heading2`, `heading3`, `paragraph`, `link`, `linkUrlPrompt`, `placeholder`, `comment`, `mention`, `more`) onto this contract. Keys not yet mapped through `CrudForm` (strikethrough, checklist, color, fontSize, align*, horizontalRule, blockquote, inlineCode, codeBlock, image, imageUrlPrompt, table, help, fullscreen) fall back to the English `DEFAULT_LABELS` baked into the primitive — file an issue when you migrate a consumer that needs them.
+
+```tsx
+const t = useT()
+<RichEditor
+  value={value}
+  onChange={setValue}
+  labels={{
+    bold: t('ui.forms.richtext.bold'),
+    italic: t('ui.forms.richtext.italic'),
+    underline: t('ui.forms.richtext.underline'),
+    // …
+  }}
+/>
+```
+
+### Custom toolbar (compound API)
+
+When `variant="custom"` the primitive renders no preset items — you supply the toolbar layout via children. Useful for slim toolbars, additional buttons, or third-party command bridges. Compound atoms must be rendered inside `<RichEditor>` (they read the editor context).
+
+```tsx
+<RichEditor value={value} onChange={setValue} variant="custom">
+  <RichEditorToolbar>
+    <RichEditorIconButton icon={<Bold />} command="bold" ariaLabel="Bold" />
+    <RichEditorIconButton icon={<Italic />} command="italic" ariaLabel="Italic" />
+    <RichEditorDivider />
+    <RichEditorColorButton ariaLabel="Text color" command="foreColor" />
+  </RichEditorToolbar>
+  <RichEditorContent placeholder="Type here…" minRows={6} />
+</RichEditor>
+```
+
+### Color palette (Figma `Rich Editor Colors [1.1]`, node `166331:4100`)
+
+```ts
+RICH_EDITOR_COLOR_PALETTE = {
+  gray:   '#7b7b7b',
+  black:  '#171717',
+  white:  '#ffffff',
+  blue:   '#6366f1',
+  orange: '#f59e0b',
+  red:    '#ef4444',
+  green:  '#22c55e',
+  yellow: '#f6b51e',
+  purple: '#7d52f4',
+  sky:    '#47c2ff',
+  pink:   '#fb4ba3',
+  teal:   '#22d3bb',
+}
+```
+
+`<RichEditorColorButton>` uses this palette by default; pass `command="hiliteColor"` for highlight instead of `foreColor`. `<RichEditorColorPalette>` is also exported standalone for popovers or pickers that want the same swatch grid without the toolbar trigger.
+
+### Props
+
+`RichEditor`:
+
+| Prop | Type | Default | Notes |
+|---|---|---|---|
+| `value` | `string` | `''` | HTML — sanitized through `sanitizeHtmlRichText` on every mount and on blur. |
+| `onChange` | `(html: string) => void` | — | Called with the sanitized HTML when the editor loses focus. |
+| `variant` | `'minimal' \| 'basic' \| 'standard' \| 'full' \| 'custom'` | `'standard'` | Toolbar preset; pass `'custom'` to render children-supplied atoms. |
+| `placeholder` | `string` | `labels.placeholder` | Rendered via `data-placeholder` + Tailwind `empty:before:content`. |
+| `minRows` | `number` | `4` | Sets the content area `min-height` in line-height units. |
+| `disabled` | `boolean` | `false` | Disables editing + dims the surface to `opacity-60`. |
+| `labels` | `Partial<RichEditorLabels>` | English defaults | Translation overrides — see i18n example above. |
+| `className` / `contentClassName` | `string` | — | Compose extra utilities on the wrapper / content. |
+| `aria-invalid` | `boolean` | — | Forwarded to the root for form validation styling hooks. |
+| `maxLength` | `number` | — | When set, renders a character counter in the bottom-right of the content area (counts plaintext length of the sanitized HTML). |
+| `onComment` | `() => void` | inserts `[comment: ]` at caret | Override the `'full'` variant Comment button (open your own popover / inline UI). |
+| `onMention` | `() => void` | inserts `@` at caret | Override the `'full'` variant Mention button. |
+| `moreMenu` | `React.ReactNode` | — | Custom items rendered on top of the `⋮` overflow popover (consumer-defined; auto-spilled items render below a separator). |
+| `onFullscreen` | `() => void` | — | When set, the `'full'` variant renders the trailing fullscreen icon (consumer wires the actual modal/portal layout). |
+| `onImageInsert` | `() => void` | DS Dialog URL prompt | Bypass the built-in URL prompt and open your own image picker. |
+
+Toolbar atoms (`RichEditorIconButton`, `RichEditorTextDropdown`, `RichEditorDropdownButton`, `RichEditorColorButton`) expose `active`, `tooltipLabel`, `ariaLabel`, `command`, and `onActivate` props for full customization. All four follow the Figma `Rich Editor Items` spec (28×h, `rounded-md`, `bg-card` default, `bg-muted` hover/active). `RichEditorDropdownButton` additionally accepts an optional `showChevron` prop (default `true`) — set to `false` when the icon itself signals "opens a menu" (e.g. `⋮ More`, `? Help`).
+
+### MUST rules
+
+- Pass an `ariaLabel` on every custom toolbar button — the primitive uses it for `aria-label` and the `<title>` tooltip fallback.
+- Wrap any `RichEditorToolbar` / `RichEditorIconButton` / `RichEditorTextDropdown` / `RichEditorDropdownButton` / `RichEditorColorButton` inside `<RichEditor>` — they throw outside the editor context (the error message points to the offending component).
+- Keep the editor output trustworthy: do not bypass `onChange` (the sanitizer enforces the allowed tag/attr set). For custom commands, write through `useRichEditorContext().exec`.
+- For server-rendered content always feed the editor through `dangerouslySetInnerHTML` of `sanitizeHtmlRichText(value)` before passing to `value` — the primitive re-sanitizes but storing pre-sanitized HTML keeps the DB clean.
+
+### Anti-patterns
+
+- `<Textarea>` for content that needs bold / italic / lists / links → use `RichEditor` (sanitized HTML pipeline, Figma toolbar).
+- Custom toolbar built over a raw `contentEditable` `<div>` → use `RichEditor variant='custom'` and compose `<RichEditorToolbar>` + `<RichEditorIconButton>` atoms.
+- Storing raw HTML straight from a third-party editor → always round-trip through `sanitizeHtmlRichText(...)` before persisting; the primitive sanitizes on mount and blur but the DB shouldn't accumulate stale unsafe tags.
+- Switching between markdown and rich text via `SwitchableMarkdownInput` for *new* fields → `SwitchableMarkdownInput` is `@deprecated`; new rich-text fields MUST use `RichEditor`.
 
 ---
 

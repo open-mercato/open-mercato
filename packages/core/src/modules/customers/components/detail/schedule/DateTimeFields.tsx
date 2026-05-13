@@ -1,14 +1,48 @@
 'use client'
 
 import * as React from 'react'
-import { Calendar, Clock, ChevronDown, Globe, Repeat } from 'lucide-react'
+import { Globe, Repeat } from 'lucide-react'
 import { cn } from '@open-mercato/shared/lib/utils'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { Button } from '@open-mercato/ui/primitives/button'
+import { DatePicker } from '@open-mercato/ui/primitives/date-picker'
+import { TimePicker } from '@open-mercato/ui/backend/inputs/TimePicker'
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@open-mercato/ui/primitives/select'
 import type { ActivityType, ScheduleFieldId } from './fieldConfig'
 import { isVisible, getFieldLabel } from './fieldConfig'
 
-const DURATION_OPTIONS = [15, 30, 45, 60, 90, 120]
+function parseIsoDate(value: string): Date | null {
+  if (!value) return null
+  const parts = value.split('-')
+  if (parts.length !== 3) return null
+  const [y, m, d] = parts.map((p) => parseInt(p, 10))
+  if (!Number.isFinite(y) || !Number.isFinite(m) || !Number.isFinite(d)) return null
+  const date = new Date(y, m - 1, d)
+  return Number.isNaN(date.getTime()) ? null : date
+}
+
+function formatIsoDate(date: Date | null): string {
+  if (!date) return ''
+  const y = date.getFullYear()
+  const m = String(date.getMonth() + 1).padStart(2, '0')
+  const d = String(date.getDate()).padStart(2, '0')
+  return `${y}-${m}-${d}`
+}
+
+const DURATION_OPTIONS: Array<{ value: number; key: string; fallback: string }> = [
+  { value: 15, key: 'customers.schedule.duration.option.15min', fallback: '15 min' },
+  { value: 30, key: 'customers.schedule.duration.option.30min', fallback: '30 min' },
+  { value: 45, key: 'customers.schedule.duration.option.45min', fallback: '45 min' },
+  { value: 60, key: 'customers.schedule.duration.option.1hour', fallback: '1 hour' },
+  { value: 90, key: 'customers.schedule.duration.option.1h30m', fallback: '1h 30m' },
+  { value: 120, key: 'customers.schedule.duration.option.2hours', fallback: '2 hours' },
+]
 const DAYS_OF_WEEK = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun']
 
 interface DateTimeFieldsProps {
@@ -73,30 +107,23 @@ export function DateTimeFields({
   return (
     <>
       {/* Date / Time / Duration */}
-      <div className="flex gap-3">
-        <div className="flex flex-[2] flex-col gap-1.5">
+      <div className="flex flex-wrap gap-3">
+        <div className="flex min-w-0 flex-[1.5] flex-col gap-1.5">
           <label className="text-overline font-semibold text-muted-foreground tracking-wider">
             {getFieldLabel(activityType, 'date', t, 'customers.schedule.date', 'Date')}
             <span aria-hidden="true" className="ml-1 text-status-error-foreground">*</span>
           </label>
-          <div
+          <DatePicker
+            value={parseIsoDate(date)}
+            onChange={(next) => setDate(formatIsoDate(next))}
+            placeholder={t('customers.schedule.date.placeholder', 'Pick a date')}
+            required
+            aria-describedby={dateMissing ? dateErrorId : undefined}
             className={cn(
-              'flex items-center gap-2 rounded-md border bg-background px-3 py-2.5',
-              dateMissing ? 'border-status-error-border' : 'border-border',
+              'h-10',
+              dateMissing && 'border-status-error-border',
             )}
-          >
-            <Calendar className="size-3.5 text-muted-foreground" />
-            <input
-              type="date"
-              value={date}
-              onChange={(e) => setDate(e.target.value)}
-              required
-              aria-required="true"
-              aria-invalid={dateMissing ? true : undefined}
-              aria-describedby={dateMissing ? dateErrorId : undefined}
-              className="flex-1 bg-transparent text-sm text-foreground focus:outline-none"
-            />
-          </div>
+          />
           {dateMissing ? (
             <p id={dateErrorId} className="text-xs text-status-error-foreground">
               {t('customers.activities.errors.dateRequired', 'Date is required')}
@@ -104,30 +131,23 @@ export function DateTimeFields({
           ) : null}
         </div>
         {showStartTime && (
-          <div className="flex flex-1 flex-col gap-1.5">
+          <div className="flex min-w-0 flex-1 flex-col gap-1.5">
             <label className="text-overline font-semibold text-muted-foreground tracking-wider">
               {getFieldLabel(activityType, 'startTime', t, 'customers.schedule.start', 'Start')}
               <span aria-hidden="true" className="ml-1 text-status-error-foreground">*</span>
             </label>
-            <div
+            <TimePicker
+              value={startTime || null}
+              onChange={(next) => setStartTime(next ?? '')}
+              disabled={allDay}
+              placeholder={t('customers.schedule.start.placeholder', 'Pick a time')}
               className={cn(
-                'flex items-center gap-2 rounded-md border bg-background px-3 py-2.5',
-                timeMissing ? 'border-status-error-border' : 'border-border',
+                'py-2.5',
+                timeMissing ? 'border-status-error-border' : undefined,
               )}
-            >
-              <Clock className="size-3.5 text-muted-foreground" />
-              <input
-                type="time"
-                value={startTime}
-                onChange={(e) => setStartTime(e.target.value)}
-                disabled={allDay}
-                required={!allDay}
-                aria-required={!allDay}
-                aria-invalid={timeMissing ? true : undefined}
-                aria-describedby={timeMissing ? timeErrorId : undefined}
-                className="flex-1 bg-transparent text-sm text-foreground focus:outline-none disabled:opacity-50"
-              />
-            </div>
+              showNowButton
+              showClearButton={false}
+            />
             {timeMissing ? (
               <p id={timeErrorId} className="text-xs text-status-error-foreground">
                 {t('customers.activities.errors.timeRequired', 'Time is required')}
@@ -136,23 +156,29 @@ export function DateTimeFields({
           </div>
         )}
         {showDuration && (
-          <div className="flex flex-1 flex-col gap-1.5">
+          <div className="flex min-w-0 flex-1 flex-col gap-1.5">
             <label className="text-overline font-semibold text-muted-foreground tracking-wider">
               {getFieldLabel(activityType, 'duration', t, 'customers.schedule.duration', 'Duration')}
             </label>
-            <div className="flex items-center gap-2 rounded-md border border-border bg-background px-3 py-2.5">
-              <select
-                value={duration}
-                onChange={(e) => setDuration(Number(e.target.value))}
-                disabled={allDay}
-                className="flex-1 appearance-none bg-transparent text-sm text-foreground focus:outline-none disabled:opacity-50"
-              >
-                {DURATION_OPTIONS.map((m) => (
-                  <option key={m} value={m}>{m} min</option>
+            <Select
+              value={String(duration)}
+              onValueChange={(next) => {
+                const parsed = Number(next)
+                if (Number.isFinite(parsed)) setDuration(parsed)
+              }}
+              disabled={allDay}
+            >
+              <SelectTrigger className="h-10">
+                <SelectValue placeholder={t('customers.schedule.duration.placeholder', 'Pick duration')} />
+              </SelectTrigger>
+              <SelectContent>
+                {DURATION_OPTIONS.map((option) => (
+                  <SelectItem key={option.value} value={String(option.value)}>
+                    {t(option.key, option.fallback)}
+                  </SelectItem>
                 ))}
-              </select>
-              <ChevronDown className="size-3.5 text-muted-foreground" />
-            </div>
+              </SelectContent>
+            </Select>
           </div>
         )}
       </div>
