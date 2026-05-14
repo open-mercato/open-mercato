@@ -11,6 +11,7 @@ import {
   WidgetDataValidationError,
 } from '../../../services/widgetDataService'
 import type { AnalyticsRegistry } from '../../../services/analyticsRegistry'
+import { runApiInterceptorsBefore } from '@open-mercato/shared/lib/crud/interceptor-runner'
 import type { OpenApiMethodDoc, OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
 import { dashboardsTag, dashboardsErrorSchema } from '../../openapi'
 
@@ -170,10 +171,44 @@ export async function POST(req: Request) {
     return undefined
   })()
 
+  const userFeatures = Array.isArray(auth.features)
+    ? auth.features.filter((value): value is string => typeof value === 'string')
+    : []
+
+  const headers: Record<string, string> = {}
+  req.headers.forEach((value, key) => {
+    headers[key] = value
+  })
+
+  const interceptorResult = await runApiInterceptorsBefore({
+    routePath: 'dashboards/widgets/data',
+    method: 'POST',
+    request: {
+      method: 'POST',
+      url: req.url,
+      headers,
+      body: parsed.data as unknown as Record<string, unknown>,
+    },
+    context: {
+      em,
+      container,
+      userId: auth.sub ?? '',
+      tenantId,
+      organizationId: organizationIds?.[0] ?? auth.orgId ?? '',
+      userFeatures,
+    },
+  })
+
+  if (!interceptorResult.ok) {
+    return NextResponse.json(interceptorResult.body, { status: interceptorResult.statusCode })
+  }
+
+  const requestData = (interceptorResult.request.body ?? parsed.data) as WidgetDataRequest
+
   try {
     const cache = container.resolve<CacheStrategy>('cache')
     const service = createWidgetDataService(em, { tenantId, organizationIds }, analyticsRegistry, cache)
-    const result = await service.fetchWidgetData(parsed.data as WidgetDataRequest)
+    const result = await service.fetchWidgetData(requestData)
     return NextResponse.json(result)
   } catch (err) {
     console.error('[widgets/data] Error:', err)

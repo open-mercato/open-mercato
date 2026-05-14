@@ -1,4 +1,12 @@
 import { z } from 'zod'
+import { PROJECT_COLOR_KEYS } from '../lib/timesheets-ui/colors'
+
+const projectColorSchema = z
+  .string()
+  .refine(
+    (value) => (PROJECT_COLOR_KEYS as readonly string[]).includes(value),
+    { message: 'Invalid project color key.' },
+  )
 
 const tagsSchema = z.array(z.string().min(1)).optional().default([])
 
@@ -242,3 +250,124 @@ export type StaffLeaveRequestCreateInput = z.infer<typeof staffLeaveRequestCreat
 export type StaffLeaveRequestUpdateInput = z.infer<typeof staffLeaveRequestUpdateSchema>
 export type StaffLeaveRequestDecisionInput = z.infer<typeof staffLeaveRequestDecisionSchema>
 export type StaffTeamMemberSelfCreateInput = z.infer<typeof staffTeamMemberSelfCreateSchema>
+
+// --- Timesheets validators (Phase 1) ---
+
+const timeEntrySourceSchema = z.enum(['manual', 'timer', 'kiosk', 'mobile'])
+const timeProjectStatusSchema = z.enum(['active', 'on_hold', 'completed'])
+const timeProjectMemberStatusSchema = z.enum(['active', 'inactive'])
+const timeEntrySegmentTypeSchema = z.enum(['work', 'break'])
+const projectCodeSchema = z.string().min(1).max(50).regex(/^[a-zA-Z0-9-]+$/)
+
+export const staffTimeEntryCreateSchema = z.object({
+  ...scopedCreateFields,
+  staffMemberId: z.string().uuid(),
+  date: z.coerce.date(),
+  durationMinutes: z.number().int().min(0).max(1440),
+  startedAt: z.coerce.date().optional().nullable(),
+  endedAt: z.coerce.date().optional().nullable(),
+  timeProjectId: z.string().uuid().optional().nullable(),
+  customerId: z.string().uuid().optional().nullable(),
+  dealId: z.string().uuid().optional().nullable(),
+  orderId: z.string().uuid().optional().nullable(),
+  notes: z.string().max(2000).optional().nullable(),
+  source: timeEntrySourceSchema.optional().default('manual'),
+})
+
+export const staffTimeEntryUpdateSchema = z.object({
+  ...scopedUpdateFields,
+  date: z.coerce.date().optional(),
+  durationMinutes: z.number().int().min(0).max(1440).optional(),
+  timeProjectId: z.string().uuid().optional().nullable(),
+  customerId: z.string().uuid().optional().nullable(),
+  dealId: z.string().uuid().optional().nullable(),
+  orderId: z.string().uuid().optional().nullable(),
+  notes: z.string().max(2000).optional().nullable(),
+})
+
+export const staffTimeEntryBulkItemSchema = z.object({
+  id: z.string().uuid().optional().nullable(),
+  date: z.coerce.date(),
+  timeProjectId: z.string().uuid(),
+  durationMinutes: z.number().int().min(0).max(1440),
+  notes: z.string().max(2000).optional().nullable(),
+})
+
+export const staffTimeEntryBulkSaveSchema = z.object({
+  entries: z.array(staffTimeEntryBulkItemSchema).min(1).max(200),
+})
+
+export const staffTimeEntrySegmentCreateSchema = z.object({
+  ...scopedCreateFields,
+  timeEntryId: z.string().uuid(),
+  startedAt: z.coerce.date(),
+  endedAt: z.coerce.date().optional().nullable(),
+  segmentType: timeEntrySegmentTypeSchema.optional().default('work'),
+})
+
+export const staffTimeEntrySegmentUpdateSchema = z.object({
+  ...scopedUpdateFields,
+  startedAt: z.coerce.date().optional(),
+  endedAt: z.coerce.date().optional().nullable(),
+  segmentType: timeEntrySegmentTypeSchema.optional(),
+})
+
+export const staffTimeProjectCreateSchema = z.object({
+  ...scopedCreateFields,
+  name: z.string().min(1).max(255),
+  customerId: z.string().uuid().optional().nullable(),
+  code: projectCodeSchema,
+  description: z.string().max(2000).optional().nullable(),
+  projectType: z.string().max(100).optional().nullable(),
+  color: projectColorSchema.optional().nullable(),
+  status: timeProjectStatusSchema.optional().default('active'),
+  ownerUserId: z.string().uuid().optional().nullable(),
+  costCenter: z.string().max(100).optional().nullable(),
+  startDate: z.coerce.date().optional().nullable(),
+})
+
+export const staffTimeProjectUpdateSchema = z.object({
+  ...scopedUpdateFields,
+  name: z.string().min(1).max(255).optional(),
+  customerId: z.string().uuid().optional().nullable(),
+  code: projectCodeSchema.optional(),
+  description: z.string().max(2000).optional().nullable(),
+  projectType: z.string().max(100).optional().nullable(),
+  color: projectColorSchema.optional().nullable(),
+  status: timeProjectStatusSchema.optional(),
+  ownerUserId: z.string().uuid().optional().nullable(),
+  costCenter: z.string().max(100).optional().nullable(),
+  startDate: z.coerce.date().optional().nullable(),
+})
+
+export const staffTimeProjectMemberAssignSchema = z.object({
+  ...scopedCreateFields,
+  timeProjectId: z.string().uuid(),
+  staffMemberId: z.string().uuid(),
+  role: z.string().max(100).optional().nullable(),
+  status: timeProjectMemberStatusSchema.optional().default('active'),
+  assignedStartDate: z.coerce.date(),
+  assignedEndDate: z.coerce.date().optional().nullable(),
+})
+
+export const staffTimeProjectMemberUpdateSchema = z.object({
+  ...scopedUpdateFields,
+  role: z.string().max(100).optional().nullable(),
+  status: timeProjectMemberStatusSchema.optional(),
+  assignedEndDate: z.coerce.date().optional().nullable(),
+})
+
+export const staffMyProjectVisibilityUpdateSchema = z.object({
+  showInGrid: z.boolean(),
+})
+
+export type StaffTimeEntryCreateInput = z.infer<typeof staffTimeEntryCreateSchema>
+export type StaffTimeEntryUpdateInput = z.infer<typeof staffTimeEntryUpdateSchema>
+export type StaffTimeEntryBulkSaveInput = z.infer<typeof staffTimeEntryBulkSaveSchema>
+export type StaffTimeEntrySegmentCreateInput = z.infer<typeof staffTimeEntrySegmentCreateSchema>
+export type StaffTimeEntrySegmentUpdateInput = z.infer<typeof staffTimeEntrySegmentUpdateSchema>
+export type StaffTimeProjectCreateInput = z.infer<typeof staffTimeProjectCreateSchema>
+export type StaffTimeProjectUpdateInput = z.infer<typeof staffTimeProjectUpdateSchema>
+export type StaffTimeProjectMemberAssignInput = z.infer<typeof staffTimeProjectMemberAssignSchema>
+export type StaffTimeProjectMemberUpdateInput = z.infer<typeof staffTimeProjectMemberUpdateSchema>
+export type StaffMyProjectVisibilityUpdateInput = z.infer<typeof staffMyProjectVisibilityUpdateSchema>
