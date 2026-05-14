@@ -335,5 +335,6 @@
   "forms.studio.logic.jumps.target.submit": "Submit",
   "forms.studio.logic.jumps.target.page": "Page \"{name}\"",
   "forms.studio.logic.jumps.target.ending": "Ending \"{name}\"",
-  "forms.runner.ending.restart": "Start over"
+  "forms.runner.ending.restart": "Start over",
+  "forms.runner.submit.error": "Could not submit the form. Try again."
 }

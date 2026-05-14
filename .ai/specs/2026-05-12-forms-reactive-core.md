@@ -649,6 +649,7 @@ All new keys 4-level deep per visual-builder Decision 17a (`forms.studio.<area>.
 - 2026-05-14 — Phase D implemented: `setVariables` helper (cross-keyword collision + grammar gated); `VariablesPanel.tsx` with sum / count_yes / raw jsonlogic builders; mounted in Input Parameters tab; declared variables surface in ConditionBuilder + recall picker via the existing `var.*` namespace; PHQ-9 round-trip test confirms `phq_total` and `qualifies` computed correctly; i18n keys added; 286 tests pass.
 - 2026-05-14 — Phase E implemented: layout catalog gains `Ending screen` entry; `resolvePaletteId` decodes `layout:ending`; `addLayoutFromPalette` accepts `kind: 'ending'`; `setRedirectUrl` helper (rejects non-ending sections); canvas `SectionContainer` shows an "Ending" chip in place of the page chip; FormStudio palette-drop dispatch rejects non-`info_block` drops into endings (with flash); SectionPropertiesPanel hides the Logic tab on endings and surfaces the Redirect URL input in Style; i18n keys added; 291 tests pass.
 - 2026-05-14 — Phase F implemented: `setJumps` helper (cross-keyword validator rejects dangling page/ending targets); `JumpsEditor.tsx` — ordered branch list (each branch is a ConditionBuilder + target Select) with move-up/move-down and an Otherwise fallback; mounted on the Logic tab of `kind: 'page'` sections; PreviewSurface "Next" button consults `logicState.nextTarget(pageKey)` and routes to page / ending / submit; reaching an ending renders the ending body (with recall) + "Start over" reset; i18n keys added; 295 tests pass.
+- 2026-05-14 — Phase G implemented (minimal): pure `runner/tamper-check.ts` (server-side ending reachability) and `pickHiddenFromUrl` helper; `runner/FormRunner.tsx` page-at-a-time client renderer using the evaluator; `frontend/forms/[id]/run/page.tsx` Next page mounts the runner, populates hidden fields from URL params, and honours `x-om-redirect-url` on ending submit; `api/forms/[id]/run/context/route.ts` GET returns published schema + uiSchema; `api/forms/[id]/run/submissions/route.ts` POST re-runs the evaluator and returns 422 on tamper; SubmissionService write path remains scope of phase 1d (R-7 acknowledged); i18n keys added; 302 tests pass.
 
 ## Implementation Status
 
@@ -660,7 +661,7 @@ All new keys 4-level deep per visual-builder Decision 17a (`forms.studio.<area>.
 | Phase D — Variables / Calculator panel | Done | 2026-05-14 | VariablesPanel (sum/count_yes/raw); PHQ-9 round-trip green; 286 tests pass |
 | Phase E — Endings (palette/canvas/properties) | Done | 2026-05-14 | Ending palette card; Ending chip in canvas; non-info_block drops rejected; Redirect URL input; 291 tests pass |
 | Phase F — Logic jumps (page sections) | Done | 2026-05-14 | setJumps helper + JumpsEditor; preview navigation honors jumps + endings; 295 tests pass |
-| Phase G — Public runner (minimal) | Not Started | — | — |
+| Phase G — Public runner (minimal) | Done | 2026-05-14 | FormRunner + GET context + POST submissions with tamper-resistance; SubmissionService persistence deferred to phase 1d per spec scope; 302 tests pass |
 
 ### Phase A — Detailed Progress
 - [x] Extend `OM_ROOT_KEYWORDS` with `jumps` / `variables` / `hiddenFields`
@@ -673,6 +674,15 @@ All new keys 4-level deep per visual-builder Decision 17a (`forms.studio.<area>.
 - [x] Add cross-keyword validator (`validateOmCrossKeyword`) wired into schema-helpers + form-version-compiler
 - [x] Tests: `form-logic-evaluator.test.ts`, `recall.test.ts`, `jsonlogic-grammar.test.ts`, extended `jsonschema-extensions.test.ts`
 - [x] Update `packages/forms/AGENTS.md` MUST 13 (jsonlogic grammar gate) + MUST 14 (name collision)
+
+### Phase G — Detailed Progress
+- [x] `runner/tamper-check.ts` — pure `checkSubmissionTamper` + `pickHiddenFromUrl`
+- [x] `runner/FormRunner.tsx` — page-at-a-time client renderer (uses the evaluator, calls the submit endpoint, honours `x-om-redirect-url` on ending submit)
+- [x] `frontend/forms/[id]/run/page.tsx` — Next page server-side reads URL params and mounts FormRunner
+- [x] `api/forms/[id]/run/context/route.ts` — GET the published schema (no auth)
+- [x] `api/forms/[id]/run/submissions/route.ts` — POST submission with server-side tamper-resistance (422 on mismatch); persistence intentionally deferred to phase 1d
+- [x] i18n keys: `forms.runner.submit.error`
+- [x] Tests: `runner-tamper.test.ts` — accepts matching ending; rejects mismatched ending / unknown ending; URL-param picker with defaults + record fallback
 
 ### Phase F — Detailed Progress
 - [x] `setJumps` helper (clears on empty list; cross-keyword validator rejects dangling targets and grammar violations)
