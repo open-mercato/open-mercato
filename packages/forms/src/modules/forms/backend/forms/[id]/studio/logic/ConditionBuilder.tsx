@@ -238,5 +238,34 @@ export function buildFieldSourceOptions(schema: FormSchema, currentLocale: strin
     const typeLabel = resolveTypeLabel(omType, t)
     result.push({ value: key, label: `${label} · ${typeLabel}`, fieldType: omType, namespace: 'field' })
   }
+  const hiddenFields = (schema as Record<string, unknown>)['x-om-hidden-fields']
+  if (Array.isArray(hiddenFields)) {
+    for (const entry of hiddenFields) {
+      if (!entry || typeof entry !== 'object') continue
+      const name = (entry as Record<string, unknown>).name
+      if (typeof name !== 'string') continue
+      result.push({
+        value: `hidden.${name}`,
+        label: `${name} · ${t('forms.studio.logic.source.hidden')}`,
+        fieldType: null,
+        namespace: 'hidden',
+      })
+    }
+  }
+  const variables = (schema as Record<string, unknown>)['x-om-variables']
+  if (Array.isArray(variables)) {
+    for (const entry of variables) {
+      if (!entry || typeof entry !== 'object') continue
+      const name = (entry as Record<string, unknown>).name
+      if (typeof name !== 'string') continue
+      const variableType = String((entry as Record<string, unknown>).type ?? '')
+      result.push({
+        value: `var.${name}`,
+        label: `${name} · ${t('forms.studio.logic.source.variable')}`,
+        fieldType: variableType,
+        namespace: 'variable',
+      })
+    }
+  }
   return result
 }

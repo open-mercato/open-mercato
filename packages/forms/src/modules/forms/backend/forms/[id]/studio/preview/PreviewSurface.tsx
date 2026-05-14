@@ -369,6 +369,7 @@ function SectionPreview({
               labelPosition={labelPosition}
               value={answers[fieldKey]}
               onChange={(value) => onAnswerChange(fieldKey, value)}
+              logicState={logicState}
               t={t}
             />
           )
@@ -403,10 +404,13 @@ function FieldPreviewRow({
   labelPosition,
   value,
   onChange,
+  logicState,
   t,
-}: FieldPreviewRowProps) {
-  const label = (node['x-om-label']?.en as string) ?? fieldKey
-  const help = (node['x-om-help']?.en as string) ?? ''
+}: FieldPreviewRowProps & { logicState: LogicState }) {
+  const rawLabel = node['x-om-label'] as Record<string, string> | undefined
+  const rawHelp = node['x-om-help'] as Record<string, string> | undefined
+  const label = (rawLabel ? logicState.resolveRecall(rawLabel, 'en') : '') || fieldKey
+  const help = rawHelp ? logicState.resolveRecall(rawHelp, 'en') : ''
   if (omType === 'info_block') {
     return (
       <div

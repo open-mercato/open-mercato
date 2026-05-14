@@ -724,6 +724,38 @@ export function setFieldAlign(input: {
   return next
 }
 
+export type HiddenFieldEntry = {
+  name: string
+  defaultValue?: string
+}
+
+/**
+ * Replaces the form's `x-om-hidden-fields` declarations. Passing an empty
+ * array clears the keyword entirely so the persisted shape stays minimal
+ * (R-9 mitigation — no-op round-trip preserves schema hash).
+ */
+export function setHiddenFields(input: {
+  schema: FormSchema
+  entries: HiddenFieldEntry[]
+}): FormSchema {
+  const { schema, entries } = input
+  const next = deepClone(schema)
+  if (!entries || entries.length === 0) {
+    delete (next as Record<string, unknown>)[OM_ROOT_KEYWORDS.hiddenFields]
+  } else {
+    const cleaned = entries.map((entry) => {
+      const result: Record<string, unknown> = { name: entry.name }
+      if (entry.defaultValue !== undefined && entry.defaultValue.length > 0) {
+        result.defaultValue = entry.defaultValue
+      }
+      return result
+    })
+    ;(next as Record<string, unknown>)[OM_ROOT_KEYWORDS.hiddenFields] = cleaned
+  }
+  validateSchemaExtensions(next)
+  return next
+}
+
 /**
  * Sets (or clears) a field's `x-om-visibility-if` jsonlogic predicate
  * (reactive-core spec — Phase B). `null` / `undefined` clears the keyword

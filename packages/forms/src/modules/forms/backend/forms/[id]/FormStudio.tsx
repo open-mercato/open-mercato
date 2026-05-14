@@ -62,7 +62,9 @@ import {
   setFieldGridSpan,
   setFieldHideMobile,
   setFieldVisibilityIf,
+  setHiddenFields,
   setSectionVisibilityIf,
+  type HiddenFieldEntry,
   setFormLabelPosition,
   setFormStyle,
   setPageMode,
@@ -536,6 +538,13 @@ export function FormStudio({ formId }: { formId: string }) {
     [updateSchema],
   )
 
+  const handleHiddenFieldsChange = React.useCallback(
+    (entries: HiddenFieldEntry[]) => {
+      updateSchema((current) => setHiddenFields({ schema: current, entries }))
+    },
+    [updateSchema],
+  )
+
   const handleFieldTypeSwap = React.useCallback(
     (fieldKey: string, targetType: string) => {
       try {
@@ -939,7 +948,20 @@ export function FormStudio({ formId }: { formId: string }) {
   const canRedo = undoController.canRedo()
   void undoNonce // re-render trigger after undo/redo
 
+  const persistedHiddenFields = React.useMemo<HiddenFieldEntry[]>(() => {
+    const raw = (schema as Record<string, unknown>)['x-om-hidden-fields']
+    if (!Array.isArray(raw)) return []
+    return raw
+      .filter((entry): entry is Record<string, unknown> => !!entry && typeof entry === 'object')
+      .map((entry) => ({
+        name: String(entry.name ?? ''),
+        defaultValue: typeof entry.defaultValue === 'string' ? entry.defaultValue : undefined,
+      }))
+      .filter((entry) => entry.name.length > 0)
+  }, [schema])
+
   const paletteParameters = {
+    formId,
     formKey: form.key,
     name: form.name,
     description: form.description ?? '',
@@ -951,6 +973,7 @@ export function FormStudio({ formId }: { formId: string }) {
     pageMode,
     showProgress: persistedShowProgress,
     pagesCount: derivedPages.length,
+    hiddenFields: persistedHiddenFields,
     onNameChange: handleNameChange,
     onDescriptionChange: handleDescriptionChange,
     onDefaultActorRoleChange: handleDefaultActorRoleChange,
@@ -958,6 +981,7 @@ export function FormStudio({ formId }: { formId: string }) {
     onLabelPositionChange: handleLabelPositionChange,
     onPageModeChange: handlePageModeChange,
     onShowProgressChange: handleShowProgressChange,
+    onHiddenFieldsChange: handleHiddenFieldsChange,
   }
 
   return (

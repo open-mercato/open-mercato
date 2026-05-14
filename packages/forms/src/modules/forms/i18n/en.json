@@ -285,5 +285,22 @@
   "forms.studio.logic.visibility.op.is_not_empty": "is not empty",
   "forms.studio.logic.visibility.op.is_true": "is true",
   "forms.studio.logic.visibility.op.is_false": "is false",
-  "forms.studio.logic.visibility.op.in": "in list"
+  "forms.studio.logic.visibility.op.in": "in list",
+  "forms.studio.logic.source.field": "field",
+  "forms.studio.logic.source.hidden": "hidden",
+  "forms.studio.logic.source.variable": "variable",
+  "forms.studio.parameters.hidden.heading": "Hidden fields",
+  "forms.studio.parameters.hidden.empty": "No hidden fields declared.",
+  "forms.studio.parameters.hidden.add": "Add hidden field",
+  "forms.studio.parameters.hidden.remove": "Remove hidden field",
+  "forms.studio.parameters.hidden.namePlaceholder": "name (e.g. patient_id)",
+  "forms.studio.parameters.hidden.defaultPlaceholder": "Optional default",
+  "forms.studio.parameters.hidden.defaultLabel": "Default: {value}",
+  "forms.studio.parameters.hidden.noDefault": "No default",
+  "forms.studio.parameters.hidden.error.name": "Name must match [a-z][a-z0-9_]* (lowercase, no spaces).",
+  "forms.studio.parameters.hidden.error.duplicate": "A hidden field with this name already exists.",
+  "forms.studio.parameters.hidden.urlSnippet.label": "Populate via URL:",
+  "forms.studio.recall.trigger.ariaLabel": "Insert recall token",
+  "forms.studio.recall.picker.placeholder": "Filter tokens",
+  "forms.studio.recall.picker.empty": "No tokens available yet."
 }
