@@ -387,13 +387,13 @@ export type AddLayoutResult = {
  */
 export function addLayoutFromPalette(input: {
   schema: FormSchema
-  kind: 'page' | 'section'
+  kind: 'page' | 'section' | 'ending'
   target?: AddLayoutTarget
 }): AddLayoutResult {
   const { schema, kind } = input
-  if (kind !== 'page' && kind !== 'section') {
+  if (kind !== 'page' && kind !== 'section' && kind !== 'ending') {
     throw new SchemaHelperError(
-      `Unknown layout kind "${String(kind)}" — expected "page" or "section".`,
+      `Unknown layout kind "${String(kind)}" — expected "page", "section", or "ending".`,
       'invalid_layout_kind',
       ['kind'],
     )
@@ -404,7 +404,9 @@ export function addLayoutFromPalette(input: {
   const newSection: SectionNode = {
     key: newKey,
     kind,
-    title: { en: kind === 'page' ? 'New page' : 'New section' },
+    title: {
+      en: kind === 'page' ? 'New page' : kind === 'ending' ? 'New ending' : 'New section',
+    },
     fieldKeys: [],
   }
   const desiredIndex = input.target?.index
@@ -787,6 +789,44 @@ export function setHiddenFields(input: {
       return result
     })
     ;(next as Record<string, unknown>)[OM_ROOT_KEYWORDS.hiddenFields] = cleaned
+  }
+  validateSchemaExtensions(next)
+  return next
+}
+
+/**
+ * Sets (or clears) an ending section's `x-om-redirect-url`. Throws if the
+ * section is not `kind: 'ending'` — validators reject redirect-url on
+ * non-ending sections (Phase A `OM_ROOT_VALIDATORS`).
+ */
+export function setRedirectUrl(input: {
+  schema: FormSchema
+  sectionKey: string
+  url: string | null
+}): FormSchema {
+  const { schema, sectionKey, url } = input
+  const next = deepClone(schema)
+  const sections = (next[OM_ROOT_KEYWORDS.sections] ?? []) as SectionNode[]
+  const section = sections.find((entry) => entry.key === sectionKey)
+  if (!section) {
+    throw new SchemaHelperError(
+      `Section "${sectionKey}" not found.`,
+      'unknown_section',
+      [sectionKey],
+    )
+  }
+  if (section.kind !== 'ending') {
+    throw new SchemaHelperError(
+      `Section "${sectionKey}" is not an ending — redirect URL is only valid on ending sections.`,
+      'invalid_redirect_target',
+      [sectionKey],
+    )
+  }
+  const trimmed = typeof url === 'string' ? url.trim() : ''
+  if (!trimmed) {
+    delete (section as Record<string, unknown>)['x-om-redirect-url']
+  } else {
+    ;(section as Record<string, unknown>)['x-om-redirect-url'] = trimmed
   }
   validateSchemaExtensions(next)
   return next

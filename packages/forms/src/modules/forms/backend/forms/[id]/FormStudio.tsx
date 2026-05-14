@@ -63,6 +63,7 @@ import {
   setFieldHideMobile,
   setFieldVisibilityIf,
   setHiddenFields,
+  setRedirectUrl,
   setSectionVisibilityIf,
   setVariables,
   type HiddenFieldEntry,
@@ -554,6 +555,13 @@ export function FormStudio({ formId }: { formId: string }) {
     [updateSchema],
   )
 
+  const handleRedirectUrlChange = React.useCallback(
+    (sectionKey: string, url: string | null) => {
+      updateSchema((current) => setRedirectUrl({ schema: current, sectionKey, url }))
+    },
+    [updateSchema],
+  )
+
   const handleFieldTypeSwap = React.useCallback(
     (fieldKey: string, targetType: string) => {
       try {
@@ -760,6 +768,13 @@ export function FormStudio({ formId }: { formId: string }) {
       if (resolved.kind === 'input' || resolved.kind === 'layout-field') {
         const target = resolveTargetSection()
         if (!target) return
+        const targetSection = (schemaRef.current['x-om-sections'] ?? []).find(
+          (entry: SectionNode) => entry.key === target.sectionKey,
+        )
+        if (targetSection?.kind === 'ending' && resolved.typeKey !== 'info_block') {
+          flash('forms.studio.canvas.ending.dropRejected', 'error')
+          return
+        }
         try {
           const result = addFieldFromPalette({
             schema: schemaRef.current,
@@ -1127,6 +1142,7 @@ export function FormStudio({ formId }: { formId: string }) {
                       onKindChange={handleSectionKindChange}
                       onHideTitleChange={handleSectionHideTitleChange}
                       onVisibilityChange={handleSectionVisibilityChange}
+                      onRedirectUrlChange={handleRedirectUrlChange}
                       t={t}
                     />
                   ) : !selectedField || !selectedFieldKey ? (
@@ -1233,6 +1249,7 @@ type SectionPropertiesPanelProps = {
   onKindChange: (sectionKey: string, kind: 'page' | 'section') => void
   onHideTitleChange: (sectionKey: string, hideTitle: boolean) => void
   onVisibilityChange: (sectionKey: string, predicate: unknown | null) => void
+  onRedirectUrlChange: (sectionKey: string, url: string | null) => void
   t: ReturnType<typeof useT>
 }
 
@@ -1288,6 +1305,7 @@ function SectionStyleTabContent({
   onDividerChange,
   onKindChange,
   onHideTitleChange,
+  onRedirectUrlChange,
   t,
 }: SectionStyleTabContentProps) {
   void schema
@@ -1296,28 +1314,48 @@ function SectionStyleTabContent({
   const divider = section.divider === true
   const kind = section.kind ?? 'section'
   const hideTitle = section.hideTitle === true
+  const isEnding = kind === 'ending'
+  const redirectUrl = typeof section['x-om-redirect-url'] === 'string' ? section['x-om-redirect-url'] : ''
   return (
     <div className="space-y-3">
-      <div className="space-y-1">
-        <label className="block text-xs font-medium text-muted-foreground">
-          {t('forms.studio.style.section.kind.label')}
-        </label>
-        <Select
-          value={kind}
-          onValueChange={(next) => onKindChange(sectionKey, (next as 'page' | 'section'))}
-        >
-          <SelectTrigger>
-            <SelectValue />
-          </SelectTrigger>
-          <SelectContent>
-            <SelectItem value="section">{t('forms.studio.style.section.kind.section')}</SelectItem>
-            <SelectItem value="page">{t('forms.studio.style.section.kind.page')}</SelectItem>
-          </SelectContent>
-        </Select>
-        <p className="text-xs text-muted-foreground">
-          {t('forms.studio.style.section.kind.helper')}
-        </p>
-      </div>
+      {isEnding ? (
+        <div className="space-y-1">
+          <label className="block text-xs font-medium text-muted-foreground">
+            {t('forms.studio.style.section.redirect.label')}
+          </label>
+          <Input
+            type="url"
+            placeholder="https://example.com/thanks"
+            value={redirectUrl}
+            onChange={(event) => onRedirectUrlChange(sectionKey, event.target.value)}
+          />
+          <p className="text-xs text-muted-foreground">
+            {t('forms.studio.style.section.redirect.helper')}
+          </p>
+        </div>
+      ) : null}
+      {!isEnding ? (
+        <div className="space-y-1">
+          <label className="block text-xs font-medium text-muted-foreground">
+            {t('forms.studio.style.section.kind.label')}
+          </label>
+          <Select
+            value={kind}
+            onValueChange={(next) => onKindChange(sectionKey, (next as 'page' | 'section'))}
+          >
+            <SelectTrigger>
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="section">{t('forms.studio.style.section.kind.section')}</SelectItem>
+              <SelectItem value="page">{t('forms.studio.style.section.kind.page')}</SelectItem>
+            </SelectContent>
+          </Select>
+          <p className="text-xs text-muted-foreground">
+            {t('forms.studio.style.section.kind.helper')}
+          </p>
+        </div>
+      ) : null}
       <div className="space-y-1">
         <label className="block text-xs font-medium text-muted-foreground">
           {t('forms.studio.style.section.columns.label')}

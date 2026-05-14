@@ -316,5 +316,10 @@
   "forms.studio.parameters.variables.noFields": "No fields to select.",
   "forms.studio.parameters.variables.error.name": "Name must match [a-z][a-z0-9_]* (lowercase, no spaces).",
   "forms.studio.parameters.variables.error.duplicate": "A variable with this name already exists.",
-  "forms.studio.parameters.variables.error.formula": "Formula could not be parsed as JSON."
+  "forms.studio.parameters.variables.error.formula": "Formula could not be parsed as JSON.",
+  "forms.studio.palette.layout.ending": "Ending screen",
+  "forms.studio.canvas.ending.chip": "Ending",
+  "forms.studio.canvas.ending.dropRejected": "Endings only accept Info / Heading blocks.",
+  "forms.studio.style.section.redirect.label": "Redirect on submit",
+  "forms.studio.style.section.redirect.helper": "Optional URL — respondents are sent here after submit. Leave empty to stay on the form."
 }

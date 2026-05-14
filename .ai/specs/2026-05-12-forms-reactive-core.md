@@ -647,6 +647,7 @@ All new keys 4-level deep per visual-builder Decision 17a (`forms.studio.<area>.
 - 2026-05-14 — Phase B implemented: visual `ConditionBuilder` (rows ⇄ jsonlogic round-trip with raw fallback); `setFieldVisibilityIf` / `setSectionVisibilityIf` helpers; FormStudio Properties panel gains Logic tab on Field + Section (`[Field, Style, Logic]` and `[Style, Logic]`); `PreviewSurface` runs the evaluator on every answer change so hidden fields/sections disappear in preview; i18n keys added; 277 tests pass.
 - 2026-05-14 — Phase C implemented: `setHiddenFields` helper; `HiddenFieldsPanel.tsx` mounted in Input Parameters tab with add/remove + URL snippet; `RecallTokenPicker.tsx` (`@` button + filter popover); `ConditionBuilder` source dropdown now includes hidden + variable namespaces; `PreviewSurface` resolves recall tokens in labels/help (`@{name}`, `@{hidden.x}`, `@{var.y}`) via the evaluator; i18n keys added; 282 tests pass.
 - 2026-05-14 — Phase D implemented: `setVariables` helper (cross-keyword collision + grammar gated); `VariablesPanel.tsx` with sum / count_yes / raw jsonlogic builders; mounted in Input Parameters tab; declared variables surface in ConditionBuilder + recall picker via the existing `var.*` namespace; PHQ-9 round-trip test confirms `phq_total` and `qualifies` computed correctly; i18n keys added; 286 tests pass.
+- 2026-05-14 — Phase E implemented: layout catalog gains `Ending screen` entry; `resolvePaletteId` decodes `layout:ending`; `addLayoutFromPalette` accepts `kind: 'ending'`; `setRedirectUrl` helper (rejects non-ending sections); canvas `SectionContainer` shows an "Ending" chip in place of the page chip; FormStudio palette-drop dispatch rejects non-`info_block` drops into endings (with flash); SectionPropertiesPanel hides the Logic tab on endings and surfaces the Redirect URL input in Style; i18n keys added; 291 tests pass.
 
 ## Implementation Status
 
@@ -656,7 +657,7 @@ All new keys 4-level deep per visual-builder Decision 17a (`forms.studio.<area>.
 | Phase B — Studio: Logic tab — conditional visibility | Done | 2026-05-14 | ConditionBuilder + helpers + preview wiring; 277 tests pass |
 | Phase C — Hidden fields panel + recall tokens | Done | 2026-05-14 | HiddenFieldsPanel + RecallTokenPicker; PreviewSurface labels/help resolve `@{...}`; 282 tests pass |
 | Phase D — Variables / Calculator panel | Done | 2026-05-14 | VariablesPanel (sum/count_yes/raw); PHQ-9 round-trip green; 286 tests pass |
-| Phase E — Endings (palette/canvas/properties) | Not Started | — | — |
+| Phase E — Endings (palette/canvas/properties) | Done | 2026-05-14 | Ending palette card; Ending chip in canvas; non-info_block drops rejected; Redirect URL input; 291 tests pass |
 | Phase F — Logic jumps (page sections) | Not Started | — | — |
 | Phase G — Public runner (minimal) | Not Started | — | — |
 
@@ -671,6 +672,18 @@ All new keys 4-level deep per visual-builder Decision 17a (`forms.studio.<area>.
 - [x] Add cross-keyword validator (`validateOmCrossKeyword`) wired into schema-helpers + form-version-compiler
 - [x] Tests: `form-logic-evaluator.test.ts`, `recall.test.ts`, `jsonlogic-grammar.test.ts`, extended `jsonschema-extensions.test.ts`
 - [x] Update `packages/forms/AGENTS.md` MUST 13 (jsonlogic grammar gate) + MUST 14 (name collision)
+
+### Phase E — Detailed Progress
+- [x] `layoutCatalogEntries` gains the `Ending screen` entry (icon `flag`, key `forms.studio.palette.layout.ending`)
+- [x] `resolvePaletteId` decodes `layout:ending` into `{ kind: 'layout-primitive', layoutKind: 'ending' }`
+- [x] `addLayoutFromPalette` accepts `kind: 'ending'` (writes minimal `{ key, kind, title, fieldKeys }`)
+- [x] `setRedirectUrl` helper in `schema-helpers.ts` (rejects non-ending sections, clears on empty string)
+- [x] `SectionContainer` renders an "Ending" Tag chip on `view.kind === 'ending'`
+- [x] FormStudio palette-drop dispatch rejects non-`info_block` drops into endings (flash error)
+- [x] `SectionPropertiesPanel` hides the Logic tab on endings (endings reached only via jumps)
+- [x] `SectionStyleTabContent` surfaces the Redirect URL input + helper for endings; hides the kind dropdown
+- [x] i18n keys: palette ending name, ending chip label, drop rejection, redirect URL labels
+- [x] Tests: `endings.test.ts` — palette catalog entry, palette id resolution, layout creation, redirect URL write/clear/reject
 
 ### Phase D — Detailed Progress
 - [x] `setVariables` helper in `schema-helpers.ts` (clears on empty, validates via cross-keyword)
