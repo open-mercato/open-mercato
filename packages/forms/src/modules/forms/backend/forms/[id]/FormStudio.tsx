@@ -64,7 +64,9 @@ import {
   setFieldVisibilityIf,
   setHiddenFields,
   setSectionVisibilityIf,
+  setVariables,
   type HiddenFieldEntry,
+  type VariableEntry,
   setFormLabelPosition,
   setFormStyle,
   setPageMode,
@@ -545,6 +547,13 @@ export function FormStudio({ formId }: { formId: string }) {
     [updateSchema],
   )
 
+  const handleVariablesChange = React.useCallback(
+    (entries: VariableEntry[]) => {
+      updateSchema((current) => setVariables({ schema: current, entries }))
+    },
+    [updateSchema],
+  )
+
   const handleFieldTypeSwap = React.useCallback(
     (fieldKey: string, targetType: string) => {
       try {
@@ -960,6 +969,26 @@ export function FormStudio({ formId }: { formId: string }) {
       .filter((entry) => entry.name.length > 0)
   }, [schema])
 
+  const persistedVariables = React.useMemo<VariableEntry[]>(() => {
+    const raw = (schema as Record<string, unknown>)['x-om-variables']
+    if (!Array.isArray(raw)) return []
+    const result: VariableEntry[] = []
+    for (const entry of raw) {
+      if (!entry || typeof entry !== 'object') continue
+      const candidate = entry as Record<string, unknown>
+      const type = candidate.type
+      if (type !== 'number' && type !== 'boolean' && type !== 'string') continue
+      const name = String(candidate.name ?? '')
+      if (name.length === 0) continue
+      const next: VariableEntry = { name, type, formula: candidate.formula }
+      if (candidate.default !== undefined) {
+        next.default = candidate.default as number | boolean | string
+      }
+      result.push(next)
+    }
+    return result
+  }, [schema])
+
   const paletteParameters = {
     formId,
     formKey: form.key,
@@ -974,6 +1003,8 @@ export function FormStudio({ formId }: { formId: string }) {
     showProgress: persistedShowProgress,
     pagesCount: derivedPages.length,
     hiddenFields: persistedHiddenFields,
+    variables: persistedVariables,
+    schema,
     onNameChange: handleNameChange,
     onDescriptionChange: handleDescriptionChange,
     onDefaultActorRoleChange: handleDefaultActorRoleChange,
@@ -982,6 +1013,7 @@ export function FormStudio({ formId }: { formId: string }) {
     onPageModeChange: handlePageModeChange,
     onShowProgressChange: handleShowProgressChange,
     onHiddenFieldsChange: handleHiddenFieldsChange,
+    onVariablesChange: handleVariablesChange,
   }
 
   return (

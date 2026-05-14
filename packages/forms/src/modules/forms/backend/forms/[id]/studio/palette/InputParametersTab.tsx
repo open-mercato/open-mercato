@@ -14,7 +14,8 @@ import {
   SelectValue,
 } from '@open-mercato/ui/primitives/select'
 import { HiddenFieldsPanel } from '../logic/HiddenFieldsPanel'
-import type { HiddenFieldEntry } from '../schema-helpers'
+import { VariablesPanel } from '../logic/VariablesPanel'
+import type { FormSchema, HiddenFieldEntry, VariableEntry } from '../schema-helpers'
 
 export type InputParametersTabProps = {
   formId: string
@@ -29,6 +30,8 @@ export type InputParametersTabProps = {
   pageMode: 'stacked' | 'paginated'
   showProgress: boolean
   hiddenFields: HiddenFieldEntry[]
+  variables: VariableEntry[]
+  schema: FormSchema
   /** Number of derived pages — used to gate the progress switch (Decision 20c). */
   pagesCount: number
   onNameChange: (next: string) => void
@@ -39,6 +42,7 @@ export type InputParametersTabProps = {
   onPageModeChange: (next: 'stacked' | 'paginated') => void
   onShowProgressChange: (next: boolean) => void
   onHiddenFieldsChange: (entries: HiddenFieldEntry[]) => void
+  onVariablesChange: (entries: VariableEntry[]) => void
 }
 
 export function InputParametersTab(props: InputParametersTabProps) {
@@ -57,6 +61,8 @@ export function InputParametersTab(props: InputParametersTabProps) {
     showProgress,
     pagesCount,
     hiddenFields,
+    variables,
+    schema,
     onNameChange,
     onDescriptionChange,
     onDefaultActorRoleChange,
@@ -65,6 +71,7 @@ export function InputParametersTab(props: InputParametersTabProps) {
     onPageModeChange,
     onShowProgressChange,
     onHiddenFieldsChange,
+    onVariablesChange,
   } = props
 
   const roleOptions = React.useMemo(() => {
@@ -242,6 +249,13 @@ export function InputParametersTab(props: InputParametersTabProps) {
           formId={formId}
           entries={hiddenFields}
           onChange={onHiddenFieldsChange}
+        />
+      </div>
+      <div className="border-t border-border pt-3">
+        <VariablesPanel
+          schema={schema}
+          entries={variables}
+          onChange={onVariablesChange}
         />
       </div>
     </div>

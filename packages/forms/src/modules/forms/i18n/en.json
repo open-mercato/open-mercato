@@ -302,5 +302,19 @@
   "forms.studio.parameters.hidden.urlSnippet.label": "Populate via URL:",
   "forms.studio.recall.trigger.ariaLabel": "Insert recall token",
   "forms.studio.recall.picker.placeholder": "Filter tokens",
-  "forms.studio.recall.picker.empty": "No tokens available yet."
+  "forms.studio.recall.picker.empty": "No tokens available yet.",
+  "forms.studio.parameters.variables.heading": "Variables",
+  "forms.studio.parameters.variables.empty": "No variables declared.",
+  "forms.studio.parameters.variables.add": "Add variable",
+  "forms.studio.parameters.variables.remove": "Remove variable",
+  "forms.studio.parameters.variables.namePlaceholder": "name (e.g. phq_total)",
+  "forms.studio.parameters.variables.defaultPlaceholder": "Optional default",
+  "forms.studio.parameters.variables.mode.sum": "Sum of fields",
+  "forms.studio.parameters.variables.mode.countYes": "Count of 'yes' answers",
+  "forms.studio.parameters.variables.mode.raw": "Raw jsonlogic",
+  "forms.studio.parameters.variables.rawHint": "Edit raw jsonlogic",
+  "forms.studio.parameters.variables.noFields": "No fields to select.",
+  "forms.studio.parameters.variables.error.name": "Name must match [a-z][a-z0-9_]* (lowercase, no spaces).",
+  "forms.studio.parameters.variables.error.duplicate": "A variable with this name already exists.",
+  "forms.studio.parameters.variables.error.formula": "Formula could not be parsed as JSON."
 }

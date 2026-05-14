@@ -729,6 +729,42 @@ export type HiddenFieldEntry = {
   defaultValue?: string
 }
 
+export type VariableEntry = {
+  name: string
+  type: 'number' | 'boolean' | 'string'
+  formula: unknown
+  default?: number | boolean | string
+}
+
+/**
+ * Replaces the form's `x-om-variables` declarations. Passing an empty array
+ * clears the keyword entirely so a verbatim round-trip preserves the schema
+ * hash (R-9 mitigation).
+ */
+export function setVariables(input: {
+  schema: FormSchema
+  entries: VariableEntry[]
+}): FormSchema {
+  const { schema, entries } = input
+  const next = deepClone(schema)
+  if (!entries || entries.length === 0) {
+    delete (next as Record<string, unknown>)[OM_ROOT_KEYWORDS.variables]
+  } else {
+    const cleaned = entries.map((entry) => {
+      const result: Record<string, unknown> = {
+        name: entry.name,
+        type: entry.type,
+        formula: entry.formula,
+      }
+      if (entry.default !== undefined) result.default = entry.default
+      return result
+    })
+    ;(next as Record<string, unknown>)[OM_ROOT_KEYWORDS.variables] = cleaned
+  }
+  validateSchemaExtensions(next)
+  return next
+}
+
 /**
  * Replaces the form's `x-om-hidden-fields` declarations. Passing an empty
  * array clears the keyword entirely so the persisted shape stays minimal
