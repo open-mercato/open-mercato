@@ -20,6 +20,7 @@ import { escapeLikePattern } from '@open-mercato/shared/lib/db/escapeLikePattern
 import { resolveSearchConfig } from '@open-mercato/shared/lib/search/config'
 import { tokenizeText } from '@open-mercato/shared/lib/search/tokenize'
 import { sql } from 'kysely'
+import { normalizeDisplayNameInput } from '@open-mercato/core/modules/auth/lib/displayName'
 
 const querySchema = z.object({
   id: z.string().uuid().optional(),
@@ -36,12 +37,8 @@ const rawBodySchema = z.object({}).passthrough()
 const passwordSchema = buildPasswordSchema()
 
 const displayNameSchema = z.preprocess(
-  (value) => {
-    if (typeof value !== 'string') return value
-    const trimmed = value.trim()
-    return trimmed.length ? trimmed : undefined
-  },
-  z.string().trim().min(1).max(120).optional(),
+  normalizeDisplayNameInput,
+  z.string().trim().min(1).max(120).nullable().optional(),
 )
 
 const userCreateSchema = z.object({

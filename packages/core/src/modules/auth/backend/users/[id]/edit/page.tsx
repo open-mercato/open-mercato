@@ -17,6 +17,7 @@ import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { extractCustomFieldEntries } from '@open-mercato/shared/lib/crud/custom-fields-client'
 import { formatPasswordRequirements, getPasswordPolicy } from '@open-mercato/shared/lib/auth/passwordPolicy'
 import { UserConsentsPanel } from '@open-mercato/core/modules/auth/components/UserConsentsPanel'
+import { normalizeDisplayNameInput } from '@open-mercato/core/modules/auth/lib/displayName'
 
 type EditUserFormValues = {
   email: string
@@ -442,7 +443,7 @@ export default function EditUserPage({ params }: { params?: { id?: string } }) {
             const payload = {
               id: id ? String(id) : '',
               email: values.email,
-              name: typeof values.name === 'string' && values.name.trim().length ? values.name.trim() : undefined,
+              name: normalizeDisplayNameInput(values.name),
               password: values.password && values.password.trim() ? values.password : undefined,
               organizationId: values.organizationId ? values.organizationId : undefined,
               roles: Array.isArray(values.roles) ? values.roles : [],
