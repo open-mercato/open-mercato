@@ -786,3 +786,22 @@ The RAM problem is now likely a stack of these issues:
 7. Large `"use client"` page roots add per-view spikes on top.
 
 This means we should not jump straight to page refactors. The first production fixes should remove accidental breadth from generated/global registries and root barrels; otherwise every page-level benchmark is dominated by global graph noise.
+
+# PoC code delivery
+
+Follow-up to review feedback asking for runnable PoC code, not only benchmark artifacts.
+
+Added in the PoC code branch:
+
+- `apps/mercato/src/components/ClientBootstrap.tsx` and `packages/create-app/template/src/components/ClientBootstrap.tsx` now lazy-load generated client registries from the bootstrap effect instead of statically importing them into the app root client graph.
+- `packages/core/src/modules/{catalog,currencies,customers,resources,sales,staff}/message-objects.ts` now imports `MessageObjectDetail` and `MessageObjectPreview` directly from their component files instead of the UI root/backend messages barrel.
+- `.ai/analysis/frontend-client-boundary-poc-code-2026-05-14.md` documents run instructions, CI commands, manual smoke checks, and known PoC limitations.
+
+Validation performed locally:
+
+```bash
+yarn install --immutable
+yarn build:packages
+yarn generate
+yarn turbo run typecheck --filter=@open-mercato/core --filter=@open-mercato/app
+```
