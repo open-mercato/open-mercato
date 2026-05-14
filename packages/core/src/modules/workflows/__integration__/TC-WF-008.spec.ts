@@ -96,17 +96,32 @@ async function addEventTriggerViaUi(page: Page, triggerName: string, eventPatter
   await expect(dialog).toBeVisible()
 
   await fillText(page, dialog.locator('#trigger-name'), triggerName)
-  const patternInput = dialog.getByPlaceholder('sales.orders.updated')
-  await fillText(page, patternInput, eventPattern)
-  // EventPatternInput only commits via blur/Enter; press Tab to trigger confirmSelection
-  await patternInput.press('Tab')
 
-  await expect(dialog.getByRole('button', { name: /^create$/i })).toBeEnabled({ timeout: 5_000 })
-  await dialog.getByRole('button', { name: /^create$/i }).click()
+  // EventPatternInput wraps ComboboxInput, which keeps its own internal state
+  // and only propagates to the parent when confirmSelection runs (synchronously
+  // on Enter; via a 200ms setTimeout on blur). Playwright's fill() + Tab path
+  // is racy against the blur timer in compiled production builds, so type the
+  // value with real keystrokes, press Enter to attempt synchronous commit, and
+  // then click another field to force a real blur — both paths are needed
+  // because Enter alone can fire with a stale `input` closure when keystrokes
+  // arrive faster than React can re-render handleKeyDown.
+  const patternInput = dialog.getByPlaceholder('sales.orders.updated')
+  await patternInput.click()
+  await patternInput.pressSequentially(eventPattern, { delay: 20 })
+  await patternInput.press('Enter')
+  await dialog.locator('#trigger-name').click()
+
+  const createButton = dialog.getByRole('button', { name: /^create$/i })
+  await expect(createButton).toBeEnabled({ timeout: 5_000 })
+  await createButton.click()
   await expect(dialog).toBeHidden({ timeout: 5_000 })
 
-  // Trigger card now lists the pattern inline
-  await expect(page.getByText(eventPattern, { exact: true }).first()).toBeVisible()
+  // Wait for the trigger card itself (containing the unique triggerName) to
+  // render. This guarantees the parent's onChange fired and the next page-
+  // level Update Workflow submit will see the trigger in state — without it,
+  // we race the React state update.
+  await expect(page.getByText(triggerName, { exact: true }).first()).toBeVisible({ timeout: 5_000 })
+  await expect(page.locator('code', { hasText: eventPattern }).first()).toBeVisible({ timeout: 5_000 })
 }
 
 /**
@@ -148,9 +163,28 @@ test.describe('TC-WF-008: Event-triggered workflow runs end-to-end via UI', () =
 
       await addEventTriggerViaUi(page, triggerName, 'customers.person.created')
 
-      // Persist the trigger by submitting the definition edit form
+      // Persist the trigger by submitting the definition edit form.
+      // Asserting both the redirect AND the workflow row appearing in the list
+      // confirms the PUT finished and the page navigated successfully — without
+      // this we could proceed to person creation against a stale UI state.
       await page.getByRole('button', { name: /^update workflow$/i }).first().click()
       await expect(page).toHaveURL(/\/backend\/definitions(\?|$|\/)/, { timeout: 15_000 })
+      await expect(page.getByRole('row').filter({ hasText: workflowId }).first())
+        .toBeVisible({ timeout: 10_000 })
+
+      // Verify the trigger actually persisted server-side before continuing.
+      // Without this assertion the test races event-bus pickup vs. the slow
+      // 60s instance-completion poll, which fails opaquely if the dialog
+      // submit dropped the trigger in the compiled production bundle.
+      await expect(async () => {
+        const defId = await findDefinitionIdByWorkflowId(request, token!, workflowId)
+        expect(defId, 'workflow definition should be discoverable by workflowId').toBeTruthy()
+        const defRes = await apiRequest(request, 'GET', `/api/workflows/definitions/${defId}`, { token: token! })
+        const defBody = await defRes.json().catch(() => null)
+        const savedTriggers = defBody?.data?.definition?.triggers as Array<{ eventPattern?: string }> | undefined
+        expect(savedTriggers?.length ?? 0, 'definition should have at least one trigger after Update Workflow').toBeGreaterThan(0)
+        expect(savedTriggers?.[0]?.eventPattern).toBe('customers.person.created')
+      }).toPass({ timeout: 10_000, intervals: [500, 1_000] })
 
       // Create a person via the CRM UI → fires customers.person.created → trigger runs
       await page.goto('/backend/customers/people/create')
