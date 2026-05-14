@@ -1201,6 +1201,9 @@ None. All previously identified gaps have been resolved.
 
 ## Changelog
 
+### 2026-05-13 — Filename normalized to date+slug convention
+- Renamed `SPEC-069-2026-02-23-core-timesheets.md` to `2026-02-23-core-timesheets.md` to align with `.ai/specs/AGENTS.md` filename convention. README link updated. Other documents keep "SPEC-069" as a textual identifier.
+
 ### 2026-05-13 — TimeProject.customer_id documentation fix
 - Clarified that `TimeProject.customer_id` is optional (`UUID | null`), matching the implementation. Internal projects have no associated customer. Updates both the Data Models table and the Projects API "Create/Update fields" line.
 
