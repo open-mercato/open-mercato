@@ -805,3 +805,21 @@ yarn build:packages
 yarn generate
 yarn turbo run typecheck --filter=@open-mercato/core --filter=@open-mercato/app
 ```
+
+# `useRef` hotspot follow-up
+
+Added `.ai/analysis/frontend-useref-hotspots-2026-05-14.md` after reviewing the client-heavy areas for imperative mutable state.
+
+Scan scope:
+
+- `packages/core/src/modules`
+- `packages/ui/src`
+- `apps/mercato/src`
+
+Headline:
+
+- `370` `useRef` mentions;
+- `140` files with at least one `useRef`;
+- top hotspots are `CrudForm.tsx` with 30, `DataTable.tsx` with 14, `AvailabilityRulesEditor.tsx` with 11, `useAiChat.ts` with 10, and sales document page root with 9.
+
+Conclusion: not all refs are bad, but the high-count files are another symptom of oversized client boundaries and hidden imperative state. Recommended follow-up is a warning-mode guardrail for files above 8 refs plus targeted splits of `CrudForm`, `DataTable`, and page-root client blobs.
