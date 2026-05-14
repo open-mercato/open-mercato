@@ -1,17 +1,13 @@
-import { z } from 'zod'
-import { makeCrudRoute } from '@open-mercato/shared/lib/crud/factory'
+import { makeCrudRoute, type CrudCtx } from '@open-mercato/shared/lib/crud/factory'
+import { SalesInvoice } from '../../data/entities'
+import { E } from '#generated/entities.ids.generated'
+import { invoiceCreateSchema, invoiceUpdateSchema } from '../../data/validators'
+import { createSalesCrudOpenApi, createPagedListResponseSchema, defaultDeleteRequestSchema } from '../openapi'
+import { parseScopedCommandInput, resolveCrudRecordId } from '../utils'
 import { splitCustomFieldPayload } from '@open-mercato/shared/lib/crud/custom-fields'
 import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
-import { SalesInvoice } from '../../data/entities'
-import { invoiceCreateSchema, invoiceUpdateSchema } from '../../data/validators'
 import { escapeLikePattern } from '@open-mercato/shared/lib/db/escapeLikePattern'
-import { withScopedPayload } from '../utils'
-import {
-  createPagedListResponseSchema,
-  createSalesCrudOpenApi,
-  defaultDeleteRequestSchema,
-} from '../openapi'
-import { E } from '#generated/entities.ids.generated'
+import { z } from 'zod'
 
 const rawBodySchema = z.object({}).passthrough()
 
@@ -27,15 +23,7 @@ const listSchema = z
   })
   .passthrough()
 
-const routeMetadata = {
-  GET: { requireAuth: true, requireFeatures: ['sales.invoices.manage'] },
-  POST: { requireAuth: true, requireFeatures: ['sales.invoices.manage'] },
-  PUT: { requireAuth: true, requireFeatures: ['sales.invoices.manage'] },
-  DELETE: { requireAuth: true, requireFeatures: ['sales.invoices.manage'] },
-}
-
 const crud = makeCrudRoute({
-  metadata: routeMetadata,
   orm: {
     entity: SalesInvoice,
     idField: 'id',
@@ -43,33 +31,16 @@ const crud = makeCrudRoute({
     tenantField: 'tenantId',
     softDeleteField: 'deletedAt',
   },
-  indexer: {
-    entityType: E.sales.sales_invoice,
+  indexer: { entityType: E.sales.sales_invoice },
+  metadata: {
+    GET: { requireAuth: true, requireFeatures: ['sales.invoices.manage'] },
+    POST: { requireAuth: true, requireFeatures: ['sales.invoices.manage'] },
+    PUT: { requireAuth: true, requireFeatures: ['sales.invoices.manage'] },
+    DELETE: { requireAuth: true, requireFeatures: ['sales.invoices.manage'] },
   },
   list: {
     schema: listSchema,
     entityId: E.sales.sales_invoice,
-    fields: [
-      'id',
-      'order_id',
-      'invoice_number',
-      'status_entry_id',
-      'status',
-      'issue_date',
-      'due_date',
-      'currency_code',
-      'subtotal_net_amount',
-      'subtotal_gross_amount',
-      'discount_total_amount',
-      'tax_total_amount',
-      'grand_total_net_amount',
-      'grand_total_gross_amount',
-      'paid_total_amount',
-      'outstanding_amount',
-      'metadata',
-      'created_at',
-      'updated_at',
-    ],
     sortFieldMap: {
       invoiceNumber: 'invoice_number',
       status: 'status',
@@ -78,14 +49,14 @@ const crud = makeCrudRoute({
       grandTotalGrossAmount: 'grand_total_gross_amount',
       createdAt: 'created_at',
     },
-    buildFilters: async (query: z.infer<typeof listSchema>) => {
+    buildFilters: async (query) => {
       const filters: Record<string, unknown> = {}
-      if (query.id) filters.id = { $eq: query.id }
-      if (query.orderId) filters.order_id = { $eq: query.orderId }
+      if (query.id) filters.id = query.id
+      if (query.orderId) filters.orderId = query.orderId
       if (query.search) {
         const term = `%${escapeLikePattern(query.search.trim())}%`
         filters.$or = [
-          { invoice_number: { $ilike: term } },
+          { invoiceNumber: { $ilike: term } },
           { status: { $ilike: term } },
         ]
       }
@@ -96,30 +67,45 @@ const crud = makeCrudRoute({
     create: {
       commandId: 'sales.invoices.create',
       schema: rawBodySchema,
-      mapInput: async ({ raw, ctx }) => {
+      mapInput: async ({ raw, ctx }: { raw: unknown; ctx: CrudCtx }) => {
         const { translate } = await resolveTranslations()
-        const scoped = withScopedPayload(raw ?? {}, ctx, translate)
-        const { base } = splitCustomFieldPayload(scoped)
-        return invoiceCreateSchema.parse(base)
+        const { base, custom } = splitCustomFieldPayload(raw ?? {})
+        const parsed = parseScopedCommandInput(
+          invoiceCreateSchema,
+          Object.keys(custom).length ? { ...base, customFields: custom } : base,
+          ctx,
+          translate,
+        )
+        return parsed
       },
+      response: ({ result }: { result: any }) => ({ invoiceId: result?.invoiceId ?? result?.id ?? null }),
+      status: 201,
     },
     update: {
       commandId: 'sales.invoices.update',
       schema: rawBodySchema,
-      mapInput: async ({ raw, ctx }) => {
+      mapInput: async ({ raw, ctx }: { raw: unknown; ctx: CrudCtx }) => {
         const { translate } = await resolveTranslations()
-        const scoped = withScopedPayload(raw ?? {}, ctx, translate)
-        const { base } = splitCustomFieldPayload(scoped)
-        return invoiceUpdateSchema.parse(base)
+        const { base, custom } = splitCustomFieldPayload(raw ?? {})
+        const parsed = parseScopedCommandInput(
+          invoiceUpdateSchema,
+          Object.keys(custom).length ? { ...base, customFields: custom } : base,
+          ctx,
+          translate,
+        )
+        return parsed
       },
+      response: ({ result }: { result: any }) => ({ invoiceId: result?.invoiceId ?? result?.id ?? null }),
     },
     delete: {
       commandId: 'sales.invoices.delete',
       schema: rawBodySchema,
-      mapInput: async ({ raw, ctx }) => {
+      mapInput: async ({ parsed, ctx }: { parsed: any; ctx: CrudCtx }) => {
         const { translate } = await resolveTranslations()
-        return withScopedPayload(raw ?? {}, ctx, translate)
+        const id = resolveCrudRecordId(parsed, ctx, translate)
+        return { id }
       },
+      response: () => ({ ok: true }),
     },
   },
 })
@@ -150,5 +136,5 @@ export const openApi = createSalesCrudOpenApi({
   listResponseSchema: createPagedListResponseSchema(invoiceItemSchema),
   create: { schema: invoiceCreateSchema, description: 'Create a new invoice' },
   update: { schema: invoiceUpdateSchema, responseSchema: z.object({ invoiceId: z.string().uuid() }), description: 'Update an invoice' },
-  del: { schema: defaultDeleteRequestSchema, responseSchema: z.object({ invoiceId: z.string().uuid() }), description: 'Delete an invoice' },
+  del: { schema: defaultDeleteRequestSchema, responseSchema: z.object({ ok: z.boolean() }), description: 'Delete an invoice' },
 })
