@@ -77,6 +77,10 @@ packages/**/dist/
 /data/*.db-journal
 /data/*.db-wal
 /data/*.db-shm
+apps/*/data/*.db
+apps/*/data/*.db-journal
+apps/*/data/*.db-wal
+apps/*/data/*.db-shm
 
 # prevent accidental check-in of transpiled JS alongside TS sources
 src/**/*.js
