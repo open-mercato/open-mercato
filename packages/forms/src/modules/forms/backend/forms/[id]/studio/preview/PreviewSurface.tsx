@@ -141,12 +141,16 @@ export function PreviewSurface({
   const progressActive = isPaginated && pages.length >= 2 && showProgress
 
   const [activePageIndex, setActivePageIndex] = React.useState(0)
+  const [activeEndingKey, setActiveEndingKey] = React.useState<string | null>(null)
   React.useEffect(() => {
     if (!isPaginated) return
     if (activePageIndex >= pages.length) {
       setActivePageIndex(Math.max(0, pages.length - 1))
     }
   }, [pages.length, isPaginated, activePageIndex])
+  React.useEffect(() => {
+    setActiveEndingKey(null)
+  }, [pages.length])
 
   const sectionsByKey = React.useMemo(() => {
     const map = new Map<string, ResolvedSectionView>()
@@ -193,6 +197,53 @@ export function PreviewSurface({
       ) : null}
     </div>
   )
+
+  if (activeEndingKey) {
+    const endingSection = sections.find((entry) => entry.key === activeEndingKey)
+    if (endingSection) {
+      const title = logicState.resolveRecall(endingSection.title, 'en')
+      const bodyFieldKeys = endingSection.fieldKeys
+      return (
+        <div className="space-y-4 rounded-lg border border-border bg-card p-6">
+          <div className="space-y-2">
+            <Tag variant="neutral" dot>{t('forms.studio.canvas.ending.chip')}</Tag>
+            <h2 className="text-lg font-semibold text-foreground">{title || endingSection.key}</h2>
+          </div>
+          <div className="space-y-2">
+            {bodyFieldKeys.map((fieldKey) => {
+              const node = schema.properties[fieldKey]
+              if (!node) return null
+              const label = logicState.resolveRecall(
+                (node['x-om-label'] as Record<string, string> | undefined) ?? undefined,
+                'en',
+              )
+              const help = logicState.resolveRecall(
+                (node['x-om-help'] as Record<string, string> | undefined) ?? undefined,
+                'en',
+              )
+              return (
+                <div key={fieldKey} className="rounded-md border border-border bg-muted/30 p-3">
+                  {label ? <p className="text-sm font-medium text-foreground">{label}</p> : null}
+                  {help ? <p className="mt-1 whitespace-pre-line text-xs text-muted-foreground">{help}</p> : null}
+                </div>
+              )
+            })}
+          </div>
+          <Button
+            type="button"
+            variant="outline"
+            onClick={() => {
+              setActiveEndingKey(null)
+              setActivePageIndex(0)
+              setAnswers({})
+            }}
+          >
+            {t('forms.runner.ending.restart')}
+          </Button>
+        </div>
+      )
+    }
+  }
 
   if (!isPaginated) {
     return stackedBody
@@ -276,7 +327,30 @@ export function PreviewSurface({
         <Button
           type="button"
           disabled={isLastPage}
-          onClick={() => setActivePageIndex((current) => Math.min(pages.length - 1, current + 1))}
+          onClick={() => {
+            const currentPageKey = activePage?.sectionKeys.find(
+              (key) => sectionsByKey.get(key)?.kind === 'page',
+            ) ?? activePage?.sectionKeys[0]
+            if (currentPageKey) {
+              const target = logicState.nextTarget(currentPageKey)
+              if (target.type === 'ending') {
+                setActiveEndingKey(target.endingKey)
+                return
+              }
+              if (target.type === 'page') {
+                const pageIndex = pages.findIndex((page) => page.sectionKeys.includes(target.pageKey))
+                if (pageIndex >= 0) {
+                  setActivePageIndex(pageIndex)
+                  return
+                }
+              }
+              if (target.type === 'submit') {
+                setActivePageIndex(pages.length - 1)
+                return
+              }
+            }
+            setActivePageIndex((current) => Math.min(pages.length - 1, current + 1))
+          }}
         >
           {t('forms.studio.preview.paginated.next')}
         </Button>

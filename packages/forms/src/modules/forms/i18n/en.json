@@ -321,5 +321,19 @@
   "forms.studio.canvas.ending.chip": "Ending",
   "forms.studio.canvas.ending.dropRejected": "Endings only accept Info / Heading blocks.",
   "forms.studio.style.section.redirect.label": "Redirect on submit",
-  "forms.studio.style.section.redirect.helper": "Optional URL — respondents are sent here after submit. Leave empty to stay on the form."
+  "forms.studio.style.section.redirect.helper": "Optional URL — respondents are sent here after submit. Leave empty to stay on the form.",
+  "forms.studio.logic.jumps.heading": "When this page completes",
+  "forms.studio.logic.jumps.empty": "No jumps — next page on completion.",
+  "forms.studio.logic.jumps.addRule": "Add jump rule",
+  "forms.studio.logic.jumps.removeBranch": "Remove jump rule",
+  "forms.studio.logic.jumps.moveUp": "Move rule up",
+  "forms.studio.logic.jumps.moveDown": "Move rule down",
+  "forms.studio.logic.jumps.goto": "Go to:",
+  "forms.studio.logic.jumps.otherwise": "Otherwise",
+  "forms.studio.logic.jumps.branch.heading": "Rule #{n}",
+  "forms.studio.logic.jumps.target.next": "Next page",
+  "forms.studio.logic.jumps.target.submit": "Submit",
+  "forms.studio.logic.jumps.target.page": "Page \"{name}\"",
+  "forms.studio.logic.jumps.target.ending": "Ending \"{name}\"",
+  "forms.runner.ending.restart": "Start over"
 }

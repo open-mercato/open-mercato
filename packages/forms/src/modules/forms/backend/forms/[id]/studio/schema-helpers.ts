@@ -738,6 +738,45 @@ export type VariableEntry = {
   default?: number | boolean | string
 }
 
+export type JumpTarget =
+  | { type: 'page'; pageKey: string }
+  | { type: 'ending'; endingKey: string }
+  | { type: 'next' }
+  | { type: 'submit' }
+
+export type JumpRuleEntry = {
+  from: { type: 'page'; pageKey: string } | { type: 'field'; fieldKey: string }
+  rules: Array<{ if: unknown; goto: JumpTarget }>
+  otherwise?: JumpTarget
+}
+
+/**
+ * Replaces the form's `x-om-jumps` declarations. Passing an empty array
+ * clears the keyword (R-9 minimalism — no-op round-trip preserves hash).
+ * Cross-keyword validation rejects dangling targets at save time.
+ */
+export function setJumps(input: {
+  schema: FormSchema
+  rules: JumpRuleEntry[]
+}): FormSchema {
+  const { schema, rules } = input
+  const next = deepClone(schema)
+  if (!rules || rules.length === 0) {
+    delete (next as Record<string, unknown>)[OM_ROOT_KEYWORDS.jumps]
+  } else {
+    ;(next as Record<string, unknown>)[OM_ROOT_KEYWORDS.jumps] = rules.map((rule) => {
+      const result: Record<string, unknown> = {
+        from: rule.from,
+        rules: rule.rules,
+      }
+      if (rule.otherwise) result.otherwise = rule.otherwise
+      return result
+    })
+  }
+  validateSchemaExtensions(next)
+  return next
+}
+
 /**
  * Replaces the form's `x-om-variables` declarations. Passing an empty array
  * clears the keyword entirely so a verbatim round-trip preserves the schema

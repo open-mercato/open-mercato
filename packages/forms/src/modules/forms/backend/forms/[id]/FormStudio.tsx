@@ -63,10 +63,12 @@ import {
   setFieldHideMobile,
   setFieldVisibilityIf,
   setHiddenFields,
+  setJumps,
   setRedirectUrl,
   setSectionVisibilityIf,
   setVariables,
   type HiddenFieldEntry,
+  type JumpRuleEntry,
   type VariableEntry,
   setFormLabelPosition,
   setFormStyle,
@@ -97,6 +99,7 @@ import {
 import { createUndoController } from './studio/undo-controller'
 import { PreviewSurface } from './studio/preview/PreviewSurface'
 import { ConditionBuilder, buildFieldSourceOptions } from './studio/logic/ConditionBuilder'
+import { JumpsEditor } from './studio/logic/JumpsEditor'
 import { ViewportFrame, type PreviewViewport } from './studio/preview/ViewportFrame'
 import type { StudioSelection, StudioTopTab } from './studio/types'
 
@@ -562,6 +565,13 @@ export function FormStudio({ formId }: { formId: string }) {
     [updateSchema],
   )
 
+  const handleJumpsChange = React.useCallback(
+    (rules: JumpRuleEntry[]) => {
+      updateSchema((current) => setJumps({ schema: current, rules }))
+    },
+    [updateSchema],
+  )
+
   const handleFieldTypeSwap = React.useCallback(
     (fieldKey: string, targetType: string) => {
       try {
@@ -984,6 +994,24 @@ export function FormStudio({ formId }: { formId: string }) {
       .filter((entry) => entry.name.length > 0)
   }, [schema])
 
+  const persistedJumps = React.useMemo<JumpRuleEntry[]>(() => {
+    const raw = (schema as Record<string, unknown>)['x-om-jumps']
+    if (!Array.isArray(raw)) return []
+    const result: JumpRuleEntry[] = []
+    for (const entry of raw) {
+      if (!entry || typeof entry !== 'object') continue
+      const candidate = entry as Record<string, unknown>
+      if (!candidate.from || typeof candidate.from !== 'object') continue
+      if (!Array.isArray(candidate.rules)) continue
+      result.push({
+        from: candidate.from as JumpRuleEntry['from'],
+        rules: candidate.rules as JumpRuleEntry['rules'],
+        otherwise: candidate.otherwise as JumpRuleEntry['otherwise'] | undefined,
+      })
+    }
+    return result
+  }, [schema])
+
   const persistedVariables = React.useMemo<VariableEntry[]>(() => {
     const raw = (schema as Record<string, unknown>)['x-om-variables']
     if (!Array.isArray(raw)) return []
@@ -1136,6 +1164,7 @@ export function FormStudio({ formId }: { formId: string }) {
                       schema={schema}
                       sectionKey={selection.key}
                       activeLocale={activeLocale}
+                      jumps={persistedJumps}
                       onColumnsChange={handleSectionColumnsChange}
                       onGapChange={handleSectionGapChange}
                       onDividerChange={handleSectionDividerChange}
@@ -1143,6 +1172,7 @@ export function FormStudio({ formId }: { formId: string }) {
                       onHideTitleChange={handleSectionHideTitleChange}
                       onVisibilityChange={handleSectionVisibilityChange}
                       onRedirectUrlChange={handleRedirectUrlChange}
+                      onJumpsChange={handleJumpsChange}
                       t={t}
                     />
                   ) : !selectedField || !selectedFieldKey ? (
@@ -1243,6 +1273,7 @@ type SectionPropertiesPanelProps = {
   schema: FormSchema
   sectionKey: string
   activeLocale: string
+  jumps: JumpRuleEntry[]
   onColumnsChange: (sectionKey: string, columns: 1 | 2 | 3 | 4) => void
   onGapChange: (sectionKey: string, gap: 'sm' | 'md' | 'lg') => void
   onDividerChange: (sectionKey: string, divider: boolean) => void
@@ -1250,11 +1281,12 @@ type SectionPropertiesPanelProps = {
   onHideTitleChange: (sectionKey: string, hideTitle: boolean) => void
   onVisibilityChange: (sectionKey: string, predicate: unknown | null) => void
   onRedirectUrlChange: (sectionKey: string, url: string | null) => void
+  onJumpsChange: (rules: JumpRuleEntry[]) => void
   t: ReturnType<typeof useT>
 }
 
 function SectionPropertiesPanel(props: SectionPropertiesPanelProps) {
-  const { schema, sectionKey, activeLocale, onVisibilityChange, t } = props
+  const { schema, sectionKey, activeLocale, jumps, onVisibilityChange, onJumpsChange, t } = props
   const [tab, setTab] = React.useState<'style' | 'logic'>('style')
   const sections = (schema['x-om-sections'] ?? []) as SectionNode[]
   const section = sections.find((entry) => entry.key === sectionKey)
@@ -1262,6 +1294,7 @@ function SectionPropertiesPanel(props: SectionPropertiesPanelProps) {
     return <p className="text-sm text-muted-foreground">{t('forms.studio.empty')}</p>
   }
   const isEnding = section.kind === 'ending'
+  const isPage = section.kind === 'page'
   const sourceOptions = React.useMemo(
     () => buildFieldSourceOptions(schema, activeLocale, t),
     [schema, activeLocale, t],
@@ -1282,12 +1315,21 @@ function SectionPropertiesPanel(props: SectionPropertiesPanelProps) {
         <SectionStyleTabContent {...props} section={section} />
       </TabsContent>
       {!isEnding ? (
-        <TabsContent value="logic">
+        <TabsContent value="logic" className="space-y-4">
           <ConditionBuilder
             predicate={(section as Record<string, unknown>)['x-om-visibility-if'] ?? null}
             sources={sourceOptions}
             onChange={(next) => onVisibilityChange(sectionKey, next)}
           />
+          {isPage ? (
+            <JumpsEditor
+              schema={schema}
+              pageKey={sectionKey}
+              sources={sourceOptions}
+              rules={jumps}
+              onChange={onJumpsChange}
+            />
+          ) : null}
         </TabsContent>
       ) : null}
     </Tabs>

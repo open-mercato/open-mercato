@@ -648,6 +648,7 @@ All new keys 4-level deep per visual-builder Decision 17a (`forms.studio.<area>.
 - 2026-05-14 — Phase C implemented: `setHiddenFields` helper; `HiddenFieldsPanel.tsx` mounted in Input Parameters tab with add/remove + URL snippet; `RecallTokenPicker.tsx` (`@` button + filter popover); `ConditionBuilder` source dropdown now includes hidden + variable namespaces; `PreviewSurface` resolves recall tokens in labels/help (`@{name}`, `@{hidden.x}`, `@{var.y}`) via the evaluator; i18n keys added; 282 tests pass.
 - 2026-05-14 — Phase D implemented: `setVariables` helper (cross-keyword collision + grammar gated); `VariablesPanel.tsx` with sum / count_yes / raw jsonlogic builders; mounted in Input Parameters tab; declared variables surface in ConditionBuilder + recall picker via the existing `var.*` namespace; PHQ-9 round-trip test confirms `phq_total` and `qualifies` computed correctly; i18n keys added; 286 tests pass.
 - 2026-05-14 — Phase E implemented: layout catalog gains `Ending screen` entry; `resolvePaletteId` decodes `layout:ending`; `addLayoutFromPalette` accepts `kind: 'ending'`; `setRedirectUrl` helper (rejects non-ending sections); canvas `SectionContainer` shows an "Ending" chip in place of the page chip; FormStudio palette-drop dispatch rejects non-`info_block` drops into endings (with flash); SectionPropertiesPanel hides the Logic tab on endings and surfaces the Redirect URL input in Style; i18n keys added; 291 tests pass.
+- 2026-05-14 — Phase F implemented: `setJumps` helper (cross-keyword validator rejects dangling page/ending targets); `JumpsEditor.tsx` — ordered branch list (each branch is a ConditionBuilder + target Select) with move-up/move-down and an Otherwise fallback; mounted on the Logic tab of `kind: 'page'` sections; PreviewSurface "Next" button consults `logicState.nextTarget(pageKey)` and routes to page / ending / submit; reaching an ending renders the ending body (with recall) + "Start over" reset; i18n keys added; 295 tests pass.
 
 ## Implementation Status
 
@@ -658,7 +659,7 @@ All new keys 4-level deep per visual-builder Decision 17a (`forms.studio.<area>.
 | Phase C — Hidden fields panel + recall tokens | Done | 2026-05-14 | HiddenFieldsPanel + RecallTokenPicker; PreviewSurface labels/help resolve `@{...}`; 282 tests pass |
 | Phase D — Variables / Calculator panel | Done | 2026-05-14 | VariablesPanel (sum/count_yes/raw); PHQ-9 round-trip green; 286 tests pass |
 | Phase E — Endings (palette/canvas/properties) | Done | 2026-05-14 | Ending palette card; Ending chip in canvas; non-info_block drops rejected; Redirect URL input; 291 tests pass |
-| Phase F — Logic jumps (page sections) | Not Started | — | — |
+| Phase F — Logic jumps (page sections) | Done | 2026-05-14 | setJumps helper + JumpsEditor; preview navigation honors jumps + endings; 295 tests pass |
 | Phase G — Public runner (minimal) | Not Started | — | — |
 
 ### Phase A — Detailed Progress
@@ -672,6 +673,15 @@ All new keys 4-level deep per visual-builder Decision 17a (`forms.studio.<area>.
 - [x] Add cross-keyword validator (`validateOmCrossKeyword`) wired into schema-helpers + form-version-compiler
 - [x] Tests: `form-logic-evaluator.test.ts`, `recall.test.ts`, `jsonlogic-grammar.test.ts`, extended `jsonschema-extensions.test.ts`
 - [x] Update `packages/forms/AGENTS.md` MUST 13 (jsonlogic grammar gate) + MUST 14 (name collision)
+
+### Phase F — Detailed Progress
+- [x] `setJumps` helper (clears on empty list; cross-keyword validator rejects dangling targets and grammar violations)
+- [x] `studio/logic/JumpsEditor.tsx` — ordered branch list, reorder buttons, ConditionBuilder per branch, Goto/Otherwise pickers
+- [x] Mounted on the Logic tab of `kind: 'page'` sections; passes `persistedJumps` + `handleJumpsChange` through
+- [x] PreviewSurface Next button calls `logicState.nextTarget(pageKey)`; routes to page / ending / submit
+- [x] Ending screen renders body + recall + "Start over" reset (clears answers + activeEndingKey + page index)
+- [x] i18n keys: `forms.studio.logic.jumps.*`, `forms.runner.ending.restart`
+- [x] Tests: `jumps.test.ts` — helper write/clear, dangling-target rejection, grammar rejection, evaluator round-trip
 
 ### Phase E — Detailed Progress
 - [x] `layoutCatalogEntries` gains the `Ending screen` entry (icon `flag`, key `forms.studio.palette.layout.ending`)
