@@ -13,6 +13,7 @@ import {
   OM_ROOT_KEYWORDS,
   OM_ROOT_VALIDATORS,
   addOmKeywords,
+  validateOmCrossKeyword,
   type OmExtensionViolation,
 } from '../schema/jsonschema-extensions'
 
@@ -35,6 +36,32 @@ export type FieldDescriptor = {
   visibleTo: string[]
   /** Whether the field is required by `schema.required`. */
   required: boolean
+}
+
+/**
+ * Default-applied view of an `OmSection`. The compiler never writes these
+ * defaults back to the persisted schema (Decision 9 / R-9 mitigation).
+ */
+export type ResolvedSectionView = {
+  key: string
+  title: Record<string, string>
+  fieldKeys: string[]
+  kind: 'page' | 'section'
+  columns: 1 | 2 | 3 | 4
+  gap: 'sm' | 'md' | 'lg'
+  divider: boolean
+  hideTitle: boolean
+}
+
+/**
+ * One page of the implicit-Page-1 partition (Decisions 2a / 2b). The
+ * compiler exposes `partitionPages` so the studio canvas and the eventual
+ * paginated runner agree on the page boundaries derived from a flat
+ * `x-om-sections` list.
+ */
+export type ResolvedPage = {
+  /** Section keys belonging to this page, in declaration order. */
+  sectionKeys: string[]
 }
 
 export type RolePolicyLookup = (
@@ -154,6 +181,11 @@ export class FormVersionCompiler {
 
     const declaredRoles = readDeclaredRoles(schema)
     validateRootExtensions(schema, declaredRoles)
+
+    const crossKeywordViolation = validateOmCrossKeyword(schema)
+    if (crossKeywordViolation) {
+      throw new FormCompilationError('INVALID_EXTENSION', crossKeywordViolation, [])
+    }
 
     const properties = readProperties(schema)
     const requiredFields = readRequired(schema)
@@ -378,6 +410,165 @@ function buildSectionLookup(sections: ResolvedSection[]): Map<string, string> {
     }
   }
   return lookup
+}
+
+// ============================================================================
+// Read-time defaulters & page partitioning (Phase C — Decisions 2a/2b/9)
+// ============================================================================
+
+/**
+ * Returns a defaulted view of a single section without mutating the input.
+ *
+ * Defaults applied (Decision 9):
+ * - `kind`: `'section'`
+ * - `columns`: `1`
+ * - `gap`: `'md'`
+ * - `divider`: `false`
+ * - `hideTitle`: `false`
+ *
+ * The compiler never writes these defaults back to the persisted schema —
+ * a verbatim round-trip preserves byte-identity (R-9 mitigation).
+ */
+export function resolveSectionView(section: unknown): ResolvedSectionView | null {
+  if (!section || typeof section !== 'object' || Array.isArray(section)) return null
+  const candidate = section as Record<string, unknown>
+  if (typeof candidate.key !== 'string') return null
+  const titleSource = candidate.title
+  const title: Record<string, string> = {}
+  if (titleSource && typeof titleSource === 'object' && !Array.isArray(titleSource)) {
+    for (const [locale, raw] of Object.entries(titleSource as Record<string, unknown>)) {
+      if (typeof raw === 'string') title[locale] = raw
+    }
+  }
+  const fieldKeys = Array.isArray(candidate.fieldKeys)
+    ? (candidate.fieldKeys as unknown[]).filter((entry): entry is string => typeof entry === 'string')
+    : []
+  const kind = candidate.kind === 'page' ? 'page' : 'section'
+  const columnsRaw = candidate.columns
+  const columns: 1 | 2 | 3 | 4 =
+    columnsRaw === 2 || columnsRaw === 3 || columnsRaw === 4 ? columnsRaw : 1
+  const gapRaw = candidate.gap
+  const gap: 'sm' | 'md' | 'lg' =
+    gapRaw === 'sm' || gapRaw === 'lg' ? gapRaw : 'md'
+  const divider = candidate.divider === true
+  const hideTitle = candidate.hideTitle === true
+  return { key: candidate.key, title, fieldKeys, kind, columns, gap, divider, hideTitle }
+}
+
+/**
+ * Resolves all sections from a schema with read-time defaults applied.
+ * Skips malformed entries (matching `readSections` lenience).
+ */
+export function resolveSectionViews(schema: Record<string, unknown>): ResolvedSectionView[] {
+  const value = schema[OM_ROOT_KEYWORDS.sections]
+  if (!Array.isArray(value)) return []
+  const result: ResolvedSectionView[] = []
+  for (const entry of value) {
+    const view = resolveSectionView(entry)
+    if (view) result.push(view)
+  }
+  return result
+}
+
+/**
+ * Implicit Page 1 partition (Decisions 2a / 2b).
+ *
+ * Algorithm:
+ * - When no section declares `kind: 'page'`, return one page containing
+ *   every section in declaration order.
+ * - Otherwise, every `kind: 'page'` section starts a new page; sections
+ *   preceding the first page-marker form an implicit Page 1.
+ *
+ * Page count formula: `pages = page-markers; if any sections precede the
+ * first marker (or no markers exist), pages += 1`.
+ *
+ * The function accepts both raw `OmSection`-shaped entries and resolved
+ * views — anything with `{ key, kind? }` works.
+ */
+export function partitionPages(
+  sections: ReadonlyArray<{ key: string; kind?: 'page' | 'section' }>,
+): ResolvedPage[] {
+  if (sections.length === 0) return []
+  const pages: ResolvedPage[] = []
+  let current: ResolvedPage = { sectionKeys: [] }
+  let hasContentBeforeFirstMarker = false
+  let seenMarker = false
+  for (const section of sections) {
+    if (section.kind === 'page') {
+      if (!seenMarker) {
+        if (current.sectionKeys.length > 0) {
+          // Sections precede the first page-marker — they form an implicit
+          // Page 1. Emit the implicit page before starting the marker page.
+          pages.push(current)
+          hasContentBeforeFirstMarker = true
+        }
+        seenMarker = true
+        current = { sectionKeys: [section.key] }
+      } else {
+        // Subsequent page-markers always emit a new page.
+        pages.push(current)
+        current = { sectionKeys: [section.key] }
+      }
+    } else {
+      current.sectionKeys.push(section.key)
+    }
+  }
+  pages.push(current)
+  // When no markers were ever seen, the lone `current` is Page 1; nothing else to do.
+  void hasContentBeforeFirstMarker
+  return pages
+}
+
+/**
+ * Returns the configured page mode for a schema, defaulting to `'stacked'`
+ * (Decision 2c). Never writes the default back.
+ */
+export function resolvePageMode(schema: Record<string, unknown>): 'stacked' | 'paginated' {
+  const value = schema[OM_ROOT_KEYWORDS.pageMode]
+  return value === 'paginated' ? 'paginated' : 'stacked'
+}
+
+/**
+ * Returns the configured supported locales for a schema, defaulting to
+ * `['en']` (Decision 29b). Never writes the default back.
+ */
+export function resolveSupportedLocales(schema: Record<string, unknown>): string[] {
+  const value = schema[OM_ROOT_KEYWORDS.supportedLocales]
+  if (!Array.isArray(value)) return ['en']
+  const filtered = value.filter((entry): entry is string => typeof entry === 'string')
+  return filtered.length > 0 ? filtered : ['en']
+}
+
+/**
+ * Returns the configured form style (theme density), defaulting to
+ * `'default'` (Decision 20a). Never writes the default back.
+ */
+export function resolveFormStyle(
+  schema: Record<string, unknown>,
+): 'default' | 'compact' | 'spacious' {
+  const value = schema[OM_ROOT_KEYWORDS.formStyle]
+  return value === 'compact' || value === 'spacious' ? value : 'default'
+}
+
+/**
+ * Returns the configured form-level label position, defaulting to `'top'`
+ * (Decision 20b). Never writes the default back. Mobile viewport collapses
+ * `'left'` → `'top'` at render time.
+ */
+export function resolveFormLabelPosition(
+  schema: Record<string, unknown>,
+): 'top' | 'left' {
+  const value = schema[OM_ROOT_KEYWORDS.formLabelPosition]
+  return value === 'left' ? 'left' : 'top'
+}
+
+/**
+ * Returns whether the form should show a progress indicator. Defaults to
+ * `false` (Decision 20c). Effective only when `pageMode === 'paginated'`
+ * AND derived `pages.length >= 2` — gating is a renderer concern.
+ */
+export function resolveShowProgress(schema: Record<string, unknown>): boolean {
+  return schema[OM_ROOT_KEYWORDS.showProgress] === true
 }
 
 function readStringArray(
