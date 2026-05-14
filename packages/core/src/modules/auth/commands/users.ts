@@ -37,6 +37,7 @@ import InviteUserEmail from '@open-mercato/core/modules/auth/emails/InviteUserEm
 import { INVITE_TOKEN_TTL_MS } from '@open-mercato/core/modules/auth/lib/inviteToken'
 import { getSecurityEmailBaseUrl } from '@open-mercato/shared/lib/url'
 import { generateAuthToken, hashAuthToken } from '@open-mercato/core/modules/auth/lib/tokenHash'
+import { normalizeDisplayNameInput } from '@open-mercato/core/modules/auth/lib/displayName'
 
 type SerializedUser = {
   email: string
@@ -76,12 +77,8 @@ type UserSnapshots = {
 const passwordSchema = buildPasswordSchema()
 
 const displayNameSchema = z.preprocess(
-  (value) => {
-    if (typeof value !== 'string') return value
-    const trimmed = value.trim()
-    return trimmed.length ? trimmed : undefined
-  },
-  z.string().trim().min(1).max(120).optional(),
+  normalizeDisplayNameInput,
+  z.string().trim().min(1).max(120).nullable().optional(),
 )
 
 const createSchema = z.object({
