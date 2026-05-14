@@ -45,9 +45,9 @@ const sheetVariants = cva(
         bottom:
           'inset-x-0 bottom-0 border-t data-[state=closed]:slide-out-to-bottom data-[state=open]:slide-in-from-bottom',
         left:
-          'inset-y-[var(--topbar-height,0px)_0] left-0 h-[calc(100svh-var(--topbar-height,0px))] w-3/4 border-r data-[state=closed]:slide-out-to-left data-[state=open]:slide-in-from-left sm:max-w-md',
+          'top-[var(--topbar-height,0px)] bottom-0 left-0 w-3/4 border-r data-[state=closed]:slide-out-to-left data-[state=open]:slide-in-from-left sm:max-w-md',
         right:
-          'right-0 top-[var(--topbar-height,0px)] bottom-0 w-full sm:max-w-md border-l data-[state=closed]:slide-out-to-right data-[state=open]:slide-in-from-right',
+          'top-[var(--topbar-height,0px)] bottom-0 right-0 w-full sm:max-w-md border-l data-[state=closed]:slide-out-to-right data-[state=open]:slide-in-from-right',
       },
     },
     defaultVariants: {
@@ -63,6 +63,25 @@ export type SheetContentProps = React.ComponentPropsWithoutRef<typeof DialogPrim
     /** Override the aria-label for the built-in close button. */
     closeLabel?: string
   }
+
+/**
+ * SheetContent — side-anchored Radix Dialog wrapper.
+ *
+ * Topbar integration: the `left` and `right` variants anchor at
+ * `top: var(--topbar-height, 0px)` so a sticky app topbar stays visible above
+ * the panel. Consumers that render inside `AppShell` get the correct offset
+ * because the shell sets `--topbar-height` on the outer container. Surfaces
+ * outside the shell (portal modals, marketing pages, standalone embeds) keep
+ * the default `0px` fallback and align to the viewport top — that is the
+ * correct behavior when there is no topbar to clear.
+ *
+ * To opt into the offset from your own layout, set the CSS variable on any
+ * ancestor of `<SheetContent>`:
+ *
+ * ```css
+ * .my-shell { --topbar-height: 60px; }
+ * ```
+ */
 
 const SheetContent = React.forwardRef<
   React.ElementRef<typeof DialogPrimitive.Content>,

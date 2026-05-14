@@ -112,6 +112,18 @@ describe('Sheet primitive', () => {
     expect(dialog.className).toContain('data-[state=open]:slide-in-from-left')
   })
 
+  it('side="left" uses separate top/bottom utilities (not invalid combined inset-y two-value) so the panel honors --topbar-height', () => {
+    // Regression: a previous implementation used `inset-y-[var(--topbar-height,0px)_0]`
+    // which compiles to `top: var(--topbar-height,0px) 0; bottom: var(--topbar-height,0px) 0;`
+    // — both rules invalid (top/bottom accept ONE length) and silently dropped by the
+    // browser. Assert the resolved class string carries two separate inset utilities.
+    renderControlled(true, { side: 'left' })
+    const dialog = screen.getByRole('dialog')
+    expect(dialog.className).toContain('top-[var(--topbar-height,0px)]')
+    expect(dialog.className).toContain('bottom-0')
+    expect(dialog.className).not.toMatch(/inset-y-\[[^\]]+_[^\]]+\]/)
+  })
+
   it('renders side="top" with corresponding slide direction', () => {
     renderControlled(true, { side: 'top' })
     const dialog = screen.getByRole('dialog')

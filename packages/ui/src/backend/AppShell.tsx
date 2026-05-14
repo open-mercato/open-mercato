@@ -1146,7 +1146,6 @@ function AppShellBody({ productName, logo, email, groups, rightHeaderSlot, child
             type="button"
             variant="outline"
             size="sm"
-            className="h-7 text-xs"
             data-menu-item-id={item.id}
             onClick={() => item.onClick?.()}
           >
@@ -1170,7 +1169,7 @@ function AppShellBody({ productName, logo, email, groups, rightHeaderSlot, child
         type="button"
         onClick={() => setCollapsed((c) => !c)}
         aria-label={t('appShell.toggleSidebar')}
-        className="hidden lg:flex fixed top-4 z-[var(--z-index-dropdown)] size-7 items-center justify-center rounded-md border bg-background text-muted-foreground shadow-sm transition-all hover:text-foreground hover:bg-muted focus:outline-none focus-visible:shadow-focus"
+        className="hidden lg:flex fixed top-4 z-dropdown size-7 items-center justify-center rounded-md border bg-background text-muted-foreground shadow-sm transition-all hover:text-foreground hover:bg-muted focus:outline-none focus-visible:shadow-focus"
         style={{ left: `calc(${asideWidth} - 14px)` }}
       >
         {effectiveCollapsed ? <PanelLeftOpen className="size-4" /> : <PanelLeftClose className="size-4" />}
@@ -1237,7 +1236,7 @@ function AppShellBody({ productName, logo, email, groups, rightHeaderSlot, child
       ) : null}
 
       <div className="flex min-h-svh flex-col min-w-0">
-        <header className="sticky top-0 z-[var(--z-index-sticky)] border-b bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/80 px-3 sm:px-4 lg:px-6 py-3 flex items-center justify-between gap-2 sm:gap-3">
+        <header className="sticky top-0 z-sticky border-b bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/80 px-3 sm:px-4 lg:px-6 py-3 flex items-center justify-between gap-2 sm:gap-3">
           <div
             data-testid="backend-chrome-ready"
             data-ready={isChromeReady ? 'true' : 'false'}
@@ -1403,12 +1402,15 @@ function AppShellBody({ productName, logo, email, groups, rightHeaderSlot, child
                 ]).map((tab) => {
                   const isActive =
                     tab.id === 'main' ? mobileDrawerView === 'main' : mobileDrawerView === 'auto'
+                  const tabId = `mobile-drawer-tab-${tab.id}`
                   return (
                     <button
                       key={tab.id}
+                      id={tabId}
                       type="button"
                       role="tab"
                       aria-selected={isActive}
+                      aria-controls="mobile-drawer-tabpanel"
                       onClick={() => setMobileDrawerView(tab.id === 'main' ? 'main' : 'auto')}
                       className="relative inline-flex items-center pb-2 text-sm font-medium leading-5 tracking-tight transition-colors focus:outline-none data-[active=true]:text-foreground data-[active=false]:text-muted-foreground hover:text-foreground"
                       data-active={isActive}
@@ -1425,7 +1427,16 @@ function AppShellBody({ productName, logo, email, groups, rightHeaderSlot, child
                 })}
               </div>
             ) : null}
-            <div className="min-h-0 flex-1 overflow-y-auto overflow-x-hidden p-3">
+            <div
+              id="mobile-drawer-tabpanel"
+              role={sidebarMode !== 'main' ? 'tabpanel' : undefined}
+              aria-labelledby={
+                sidebarMode !== 'main'
+                  ? `mobile-drawer-tab-${mobileDrawerView === 'main' ? 'main' : 'section'}`
+                  : undefined
+              }
+              className="min-h-0 flex-1 overflow-y-auto overflow-x-hidden p-3"
+            >
               {/* Force expanded sidebar in mobile drawer, hide its header and collapse toggle */}
               {renderSidebar(false, true, mobileDrawerView === 'main')}
             </div>

@@ -161,7 +161,7 @@ export function NotificationItem({
   return (
     <div
       className={cn(
-        'group relative flex gap-[15px] items-start rounded-xl p-3 transition-colors hover:bg-muted/40 cursor-pointer',
+        'group relative flex gap-4 items-start rounded-xl p-3 transition-colors hover:bg-muted/40 cursor-pointer',
         isUnread && 'bg-muted/20'
       )}
       onClick={handleClick}

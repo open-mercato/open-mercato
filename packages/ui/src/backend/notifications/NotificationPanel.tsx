@@ -167,7 +167,7 @@ export function NotificationPanel({
               >
                 <span>{label}</span>
                 {value === 'unread' && unreadCount > 0 ? (
-                  <span className="inline-flex min-w-4 items-center justify-center rounded-full bg-accent-indigo px-1 text-[10px] font-medium text-accent-indigo-foreground">
+                  <span className="inline-flex min-w-4 items-center justify-center rounded-full bg-accent-indigo px-1 text-overline font-medium text-accent-indigo-foreground">
                     {unreadCount > 99 ? '99+' : unreadCount}
                   </span>
                 ) : null}

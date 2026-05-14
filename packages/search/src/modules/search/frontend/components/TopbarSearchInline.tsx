@@ -55,6 +55,7 @@ import {
 import { isAllOrganizationsSelection } from '@open-mercato/core/modules/directory/constants'
 import { parseSelectedOrganizationCookie } from '@open-mercato/core/modules/directory/utils/scopeCookies'
 import { ForbiddenError } from '@open-mercato/ui/backend/utils/api'
+import { IconButton } from '@open-mercato/ui/primitives/icon-button'
 import { resolveSearchMinTokenLength } from '@open-mercato/shared/lib/search/config'
 import { fetchGlobalSearchResults } from '../utils'
 
@@ -333,18 +334,23 @@ export function TopbarSearchInline({
 
   if (!expanded) {
     return (
-      <button
+      <span
         ref={(el) => {
           containerRef.current = el
         }}
-        type="button"
-        onClick={expandAndFocus}
-        aria-label={t('search.dialog.actions.openGlobalSearch', 'Open global search')}
-        title={t('search.dialog.actions.openGlobalSearch', 'Open global search')}
-        className="inline-flex size-9 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-muted hover:text-foreground focus:outline-none focus-visible:shadow-focus"
+        className="inline-flex"
       >
-        <Search className="size-4" aria-hidden="true" />
-      </button>
+        <IconButton
+          type="button"
+          variant="ghost"
+          size="lg"
+          onClick={expandAndFocus}
+          aria-label={t('search.dialog.actions.openGlobalSearch', 'Open global search')}
+          title={t('search.dialog.actions.openGlobalSearch', 'Open global search')}
+        >
+          <Search className="size-4" aria-hidden="true" />
+        </IconButton>
+      </span>
     )
   }
 
@@ -400,7 +406,7 @@ export function TopbarSearchInline({
             <X className="size-3.5" aria-hidden="true" />
           </button>
         ) : (
-          <kbd className="hidden md:inline-flex shrink-0 items-center rounded border bg-muted/50 px-1.5 text-[10px] font-medium uppercase tracking-wider text-muted-foreground">
+          <kbd className="hidden md:inline-flex shrink-0 items-center rounded border bg-muted/50 px-1.5 text-overline font-medium uppercase tracking-wider text-muted-foreground">
             ⌘K
           </kbd>
         )}
@@ -429,7 +435,7 @@ export function TopbarSearchInline({
             </div>
           ) : null}
           {showScopeHint ? (
-            <p className="border-b px-3 py-1.5 text-[10px] font-medium uppercase tracking-wider text-muted-foreground">
+            <p className="border-b px-3 py-1.5 text-overline font-medium uppercase tracking-wider text-muted-foreground">
               {t('search.scopeHint.currentOrg', 'Scoped to current organization')}
             </p>
           ) : null}
@@ -488,7 +494,7 @@ export function TopbarSearchInline({
                           {presenter?.title ?? result.recordId}
                         </span>
                       </span>
-                      <span className="flex items-center gap-2 text-[11px] text-muted-foreground">
+                      <span className="flex items-center gap-2 text-overline text-muted-foreground">
                         <span className="truncate">{formatEntityId(result.entityId)}</span>
                         {presenter?.subtitle ? (
                           <>

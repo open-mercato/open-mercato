@@ -362,7 +362,7 @@ export function ProfileDropdown({
                   </span>
                 ) : null}
                 {!displayName && email ? (
-                  <span className="truncate text-[10px] uppercase tracking-wider text-muted-foreground/80">
+                  <span className="truncate text-overline uppercase tracking-wider text-muted-foreground/80">
                     {t('ui.userMenu.loggedInAs', 'Logged in')}
                   </span>
                 ) : null}
