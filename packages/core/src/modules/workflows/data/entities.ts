@@ -147,13 +147,16 @@ export interface WorkflowInstanceMetadata {
 @Index({ name: 'workflow_definitions_tenant_org_idx', properties: ['tenantId', 'organizationId'] })
 @Index({ name: 'workflow_definitions_workflow_id_idx', properties: ['workflowId'] })
 export class WorkflowDefinition {
-  [OptionalProps]?: 'enabled' | 'version' | 'createdAt' | 'updatedAt' | 'deletedAt'
+  [OptionalProps]?: 'enabled' | 'version' | 'createdAt' | 'updatedAt' | 'deletedAt' | 'codeWorkflowId'
 
   @PrimaryKey({ type: 'uuid', defaultRaw: 'gen_random_uuid()' })
   id!: string
 
   @Property({ name: 'workflow_id', type: 'varchar', length: 100 })
   workflowId!: string
+
+  @Property({ name: 'code_workflow_id', type: 'varchar', length: 100, nullable: true })
+  codeWorkflowId?: string | null
 
   @Property({ name: 'workflow_name', type: 'varchar', length: 255 })
   workflowName!: string

@@ -34,8 +34,8 @@ export type WorkflowDefinitionFormValues = {
 export const workflowDefinitionFormSchema = z.object({
   workflowId: z.string()
     .min(1, 'Workflow ID is required')
-    .max(50, 'Workflow ID must be 50 characters or less')
-    .regex(/^[a-z0-9_-]+$/, 'Workflow ID must contain only lowercase letters, numbers, hyphens, and underscores'),
+    .max(100, 'Workflow ID must be 100 characters or less')
+    .regex(/^[a-z0-9_.-]+$/, 'Workflow ID must contain only lowercase letters, numbers, hyphens, underscores, and dots'),
   workflowName: z.string()
     .min(1, 'Workflow name is required')
     .max(200, 'Workflow name must be 200 characters or less'),

@@ -518,6 +518,16 @@
           "length": 100,
           "mappedType": "string"
         },
+        "code_workflow_id": {
+          "name": "code_workflow_id",
+          "type": "varchar(100)",
+          "unsigned": false,
+          "autoincrement": false,
+          "primary": false,
+          "nullable": true,
+          "length": 100,
+          "mappedType": "string"
+        },
         "workflow_name": {
           "name": "workflow_name",
           "type": "varchar(255)",

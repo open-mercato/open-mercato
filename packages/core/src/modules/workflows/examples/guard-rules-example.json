@@ -5,7 +5,7 @@
     "description": "Guard rule that blocks checkout if cart has no items",
     "ruleType": "GUARD",
     "ruleCategory": "checkout_validation",
-    "entityType": "workflow:checkout_simple_v1:start",
+    "entityType": "workflow:workflows.checkout-demo:start",
     "eventType": "validate_start",
     "conditionExpression": {
       "operator": "AND",
@@ -46,7 +46,7 @@
     "description": "Guard rule that checks if all items are in stock",
     "ruleType": "GUARD",
     "ruleCategory": "checkout_validation",
-    "entityType": "workflow:checkout_simple_v1:transition_seed",
+    "entityType": "workflow:workflows.checkout-demo:transition_seed",
     "eventType": "pre_transition",
     "conditionExpression": {
       "field": "workflowContext.inventory.available",
@@ -70,7 +70,7 @@
     "description": "Guard rule that enforces minimum order amount of $10",
     "ruleType": "GUARD",
     "ruleCategory": "checkout_validation",
-    "entityType": "workflow:checkout_simple_v1:transition_seed",
+    "entityType": "workflow:workflows.checkout-demo:transition_seed",
     "eventType": "pre_transition",
     "conditionExpression": {
       "field": "workflowContext.cart.total",
@@ -94,7 +94,7 @@
     "description": "Guard rule for payment step - checks payment method is set",
     "ruleType": "GUARD",
     "ruleCategory": "payment_validation",
-    "entityType": "workflow:checkout_simple_v1:transition_seed",
+    "entityType": "workflow:workflows.checkout-demo:transition_seed",
     "eventType": "pre_transition",
     "conditionExpression": {
       "operator": "AND",
@@ -127,7 +127,7 @@
     "description": "Guard rule that checks customer has email and shipping address",
     "ruleType": "GUARD",
     "ruleCategory": "checkout_validation",
-    "entityType": "workflow:checkout_simple_v1:transition_seed",
+    "entityType": "workflow:workflows.checkout-demo:transition_seed",
     "eventType": "pre_transition",
     "conditionExpression": {
       "operator": "AND",
@@ -163,7 +163,7 @@
     "description": "Guard rule that only allows orders between 9 AM and 5 PM",
     "ruleType": "GUARD",
     "ruleCategory": "business_logic",
-    "entityType": "workflow:checkout_simple_v1:transition_seed",
+    "entityType": "workflow:workflows.checkout-demo:transition_seed",
     "eventType": "pre_transition",
     "conditionExpression": {
       "operator": "AND",

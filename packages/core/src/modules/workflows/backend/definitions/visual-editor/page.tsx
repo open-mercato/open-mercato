@@ -106,6 +106,10 @@ export default function VisualEditorPage() {
   const [effectiveFrom, setEffectiveFrom] = useState('')
   const [effectiveTo, setEffectiveTo] = useState('')
   const [triggers, setTriggers] = useState<WorkflowDefinitionTrigger[]>([])
+  const [source, setSource] = useState<'code' | 'code_override' | 'user' | null>(null)
+
+  const isCodeOnly = source === 'code'
+  const isCodeOverride = source === 'code_override'
 
   // Load existing definition if ID is provided
   useEffect(() => {
@@ -146,7 +150,10 @@ export default function VisualEditorPage() {
         // Load embedded triggers from definition
         setTriggers(definition.definition?.triggers || [])
 
-        flash('Workflow loaded successfully', 'success')
+        // Track source so the editor mirrors the non-visual edit page UX:
+        // code → read-only with Customize button; code_override → editable
+        // with Reset to code; user → editable, no banner.
+        setSource((definition.source as 'code' | 'code_override' | 'user') ?? null)
       } catch (error) {
         console.error('Error loading workflow definition:', error)
         flash('Failed to load workflow definition', 'error')
@@ -160,16 +167,19 @@ export default function VisualEditorPage() {
 
   // Handle node changes from ReactFlow
   const handleNodesChange = useCallback((changes: NodeChange[]) => {
+    if (isCodeOnly) return
     setNodes((nds) => applyNodeChanges(changes, nds))
-  }, [])
+  }, [isCodeOnly])
 
   // Handle edge changes from ReactFlow
   const handleEdgesChange = useCallback((changes: EdgeChange[]) => {
+    if (isCodeOnly) return
     setEdges((eds) => applyEdgeChanges(changes, eds))
-  }, [])
+  }, [isCodeOnly])
 
   // Handle adding new node from palette
   const handleAddNode = useCallback((nodeType: string) => {
+    if (isCodeOnly) return
     const newNode: Node = {
       id: generateStepId(nodeType),
       type: nodeType,
@@ -186,21 +196,24 @@ export default function VisualEditorPage() {
     }
 
     setNodes((nds) => [...nds, newNode])
-  }, [nodes.length])
+  }, [nodes.length, isCodeOnly])
 
-  // Handle node selection - open edit dialog
+  // Handle node selection - open edit dialog (suppressed in read-only mode
+  // so users can't open the node editor on a code-defined workflow).
   const handleNodeClick = useCallback((_event: React.MouseEvent, node: Node) => {
+    if (isCodeOnly) return
     setSelectedNode(node)
     setSelectedEdge(null)
     setShowNodeDialog(true)
-  }, [])
+  }, [isCodeOnly])
 
   // Handle edge selection - open edit dialog
   const handleEdgeClick = useCallback((_event: React.MouseEvent, edge: Edge) => {
+    if (isCodeOnly) return
     setSelectedEdge(edge)
     setSelectedNode(null)
     setShowEdgeDialog(true)
-  }, [])
+  }, [isCodeOnly])
 
   // Save node updates
   const handleSaveNode = useCallback((nodeId: string, updates: Partial<Node['data']>) => {
@@ -355,13 +368,22 @@ export default function VisualEditorPage() {
 
       let result
       if (isUpdate) {
-        // Update existing definition
+        // Update existing definition — send the full editable payload so metadata
+        // edits (name, description, version, category, tags, icon, effective
+        // dates) actually persist. Previously only `definition` + `enabled`
+        // were sent, silently dropping every other field.
         result = await apiCall<{ data: any; error?: string }>(`/api/workflows/definitions/${definitionId}`, {
           method: 'PUT',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
+            workflowName,
+            description: description || null,
+            version,
             definition: definitionData,
+            metadata: Object.keys(metadata).length > 0 ? metadata : null,
             enabled,
+            effectiveFrom: effectiveFrom || null,
+            effectiveTo: effectiveTo || null,
           }),
         })
       } else {
@@ -404,6 +426,60 @@ export default function VisualEditorPage() {
       setIsSaving(false)
     }
   }, [nodes, edges, workflowId, workflowName, description, version, enabled, category, tags, icon, effectiveFrom, effectiveTo, triggers, definitionId, router])
+
+  // Customize a code-defined workflow → creates an override and reloads the
+  // editor pointed at the new UUID. Mirrors the non-visual edit page button.
+  const handleCustomize = useCallback(async () => {
+    if (!definitionId) return
+    setIsSaving(true)
+    try {
+      const result = await apiCall<{ data?: { id?: string }; error?: string }>(
+        `/api/workflows/definitions/${definitionId}/customize`,
+        { method: 'POST' },
+      )
+      if (!result.ok) {
+        flash(result.result?.error || 'Failed to customize workflow', 'error')
+        return
+      }
+      const newId = result.result?.data?.id
+      if (!newId) return
+      router.push(`/backend/definitions/visual-editor?id=${encodeURIComponent(newId)}`)
+      router.refresh()
+    } finally {
+      setIsSaving(false)
+    }
+  }, [definitionId, router])
+
+  // Reset a code-override back to its code definition. Mirrors the
+  // non-visual edit page action, with the same confirm dialog.
+  const handleResetToCode = useCallback(async () => {
+    if (!definitionId) return
+    const confirmed = await confirm({
+      title: t('workflows.actions.resetToCode'),
+      description: t('workflows.actions.resetConfirm'),
+      confirmText: t('workflows.actions.resetToCode'),
+      variant: 'destructive',
+    })
+    if (!confirmed) return
+
+    setIsSaving(true)
+    try {
+      const result = await apiCall<{ data?: { id?: string }; error?: string }>(
+        `/api/workflows/definitions/${definitionId}/reset-to-code`,
+        { method: 'POST' },
+      )
+      if (!result.ok) {
+        flash(result.result?.error || 'Failed to reset workflow', 'error')
+        return
+      }
+      const codeId = result.result?.data?.id || (workflowId ? `code:${workflowId}` : null)
+      if (!codeId) return
+      router.push(`/backend/definitions/visual-editor?id=${encodeURIComponent(codeId)}`)
+      router.refresh()
+    } finally {
+      setIsSaving(false)
+    }
+  }, [definitionId, workflowId, router, confirm, t])
 
   // Test workflow
   const handleTest = useCallback(() => {
@@ -628,26 +704,30 @@ export default function VisualEditorPage() {
                 {showMetadata ? <PanelTopClose className="mr-1.5 h-4 w-4" /> : <PanelTopOpen className="mr-1.5 h-4 w-4" />}
                 {showMetadata ? t('workflows.visualEditor.hideMetadata') : t('workflows.visualEditor.showMetadata')}
               </Button>
-              <Button
-                variant="outline"
-                size="sm"
-                onClick={handleLoadExample}
-                disabled={isSaving}
-                className="h-8 text-xs"
-              >
-                {t('workflows.visualEditor.loadExample')}
-              </Button>
-              <Button
-                variant="destructive"
-                size="sm"
-                onClick={handleClear}
-                disabled={isSaving}
-                className="h-8 px-2 text-xs"
-                aria-label={t('workflows.visualEditor.clear')}
-              >
-                <Trash2 className="mr-1.5 h-4 w-4" />
-                {t('workflows.visualEditor.clear')}
-              </Button>
+              {!isCodeOnly && (
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={handleLoadExample}
+                  disabled={isSaving}
+                  className="h-8 text-xs"
+                >
+                  {t('workflows.visualEditor.loadExample')}
+                </Button>
+              )}
+              {!isCodeOnly && (
+                <Button
+                  variant="destructive"
+                  size="sm"
+                  onClick={handleClear}
+                  disabled={isSaving}
+                  className="h-8 px-2 text-xs"
+                  aria-label={t('workflows.visualEditor.clear')}
+                >
+                  <Trash2 className="mr-1.5 h-4 w-4" />
+                  {t('workflows.visualEditor.clear')}
+                </Button>
+              )}
               <Button
                 variant="outline"
                 size="sm"
@@ -659,30 +739,70 @@ export default function VisualEditorPage() {
                 <CircleQuestionMark className="mr-1.5 h-4 w-4" />
                 {t('workflows.visualEditor.validate')}
               </Button>
-              <Button
-                variant="outline"
-                size="sm"
-                onClick={handleTest}
-                disabled={isSaving}
-                className="h-8 text-xs"
-              >
-                <Play className="mr-1.5 h-4 w-4" />
-                {t('workflows.visualEditor.runTest')}
-              </Button>
-              <Button
-                size="sm"
-                onClick={handleSave}
-                disabled={isSaving}
-                className="h-8 px-2 text-xs md:px-3"
-                aria-label={isSaving ? t('workflows.mobile.saving') : definitionId ? t('workflows.common.update') : t('workflows.common.save')}
-              >
-                <Save className="mr-1.5 h-4 w-4" />
-                {isSaving ? t('workflows.mobile.saving') : definitionId ? t('workflows.common.update') : t('workflows.common.save')}
-              </Button>
+              {!isCodeOnly && (
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={handleTest}
+                  disabled={isSaving}
+                  className="h-8 text-xs"
+                >
+                  <Play className="mr-1.5 h-4 w-4" />
+                  {t('workflows.visualEditor.runTest')}
+                </Button>
+              )}
+              {isCodeOverride && (
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={handleResetToCode}
+                  disabled={isSaving}
+                  className="h-8 text-xs"
+                >
+                  {t('workflows.actions.resetToCode')}
+                </Button>
+              )}
+              {isCodeOnly ? (
+                <Button
+                  size="sm"
+                  onClick={handleCustomize}
+                  disabled={isSaving}
+                  className="h-8 px-2 text-xs md:px-3"
+                >
+                  {t('workflows.actions.customize')}
+                </Button>
+              ) : (
+                <Button
+                  size="sm"
+                  onClick={handleSave}
+                  disabled={isSaving}
+                  className="h-8 px-2 text-xs md:px-3"
+                  aria-label={isSaving ? t('workflows.mobile.saving') : definitionId ? t('workflows.common.update') : t('workflows.common.save')}
+                >
+                  <Save className="mr-1.5 h-4 w-4" />
+                  {isSaving ? t('workflows.mobile.saving') : definitionId ? t('workflows.common.update') : t('workflows.common.save')}
+                </Button>
+              )}
             </div>
           }
         />
       </div>
+
+      {/* Source banner (code-defined / customized) */}
+      {(isCodeOnly || isCodeOverride) && (
+        <div className="shrink-0 border-b border-border bg-background px-3 py-2 md:px-6 md:py-3">
+          {isCodeOnly && (
+            <Alert variant="info">
+              <AlertTitle>{t('workflows.source.code.readonlyBanner')}</AlertTitle>
+            </Alert>
+          )}
+          {isCodeOverride && (
+            <Alert variant="warning">
+              <AlertTitle>{t('workflows.source.code_override.banner')}</AlertTitle>
+            </Alert>
+          )}
+        </div>
+      )}
 
       {/* Workflow Metadata Form */}
       {showMetadata && (
@@ -690,7 +810,7 @@ export default function VisualEditorPage() {
           ? 'shrink-0 border-b border-border bg-background px-3 py-2 max-h-[60svh] overflow-y-auto overscroll-contain md:px-6 md:py-3'
           : 'shrink-0 border-b border-border bg-background px-3 py-2 md:px-6 md:py-3'
         }>
-          <div className="rounded-lg border bg-card p-3 md:p-4">
+          <fieldset disabled={isCodeOnly} className="rounded-lg border bg-card p-3 disabled:opacity-70 md:p-4">
             <h2 className="mb-3 text-xs font-semibold uppercase text-muted-foreground">{t('workflows.visualEditor.workflowMetadata')}</h2>
             <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3 md:gap-4">
               {/* Workflow ID */}
@@ -817,14 +937,15 @@ export default function VisualEditorPage() {
                 />
               </div>
             </div>
-          </div>
+          </fieldset>
 
-          {/* Event Triggers */}
-          <DefinitionTriggersEditor
-            value={triggers}
-            onChange={setTriggers}
-            className="mt-3"
-          />
+          {/* Event Triggers — also locked when the workflow is code-defined */}
+          <fieldset disabled={isCodeOnly} className="mt-3 disabled:opacity-70">
+            <DefinitionTriggersEditor
+              value={triggers}
+              onChange={setTriggers}
+            />
+          </fieldset>
         </div>
       )}
 
@@ -841,7 +962,7 @@ export default function VisualEditorPage() {
                 onNodeClick={handleNodeClick}
                 onEdgeClick={handleEdgeClick}
                 onConnect={handleConnect}
-                editable={true}
+                editable={!isCodeOnly}
                 height="100%"
               />
             </div>
@@ -862,30 +983,33 @@ export default function VisualEditorPage() {
             )}
           </div>
 
-          <div className="mt-3 rounded-lg border bg-card p-3">
-            <h2 className="mb-2 text-xs font-semibold uppercase text-muted-foreground">Step Palette</h2>
-            <p className="mb-3 text-xs text-muted-foreground">Tap a step type to add it to the canvas</p>
+          {!isCodeOnly && (
+            <div className="mt-3 rounded-lg border bg-card p-3">
+              <h2 className="mb-2 text-xs font-semibold uppercase text-muted-foreground">Step Palette</h2>
+              <p className="mb-3 text-xs text-muted-foreground">Tap a step type to add it to the canvas</p>
 
-            <div className="flex gap-2 overflow-x-auto pb-1">
-              {(['start', 'userTask', 'automated', 'waitForSignal', 'subWorkflow', 'end'] as const).map((nodeType) => {
-                const Icon = NODE_TYPE_ICONS[nodeType]
-                return (
-                  <button
-                    key={nodeType}
-                    onClick={() => handleAddNode(nodeType)}
-                    className="flex shrink-0 items-center gap-1 rounded-md border bg-background px-2 py-1 text-xs hover:bg-muted active:bg-muted/50"
-                  >
-                    <Icon className="h-3.5 w-3.5" />
-                    <span>{NODE_TYPE_LABELS[nodeType].title}</span>
-                  </button>
-                )
-              })}
+              <div className="flex gap-2 overflow-x-auto pb-1">
+                {(['start', 'userTask', 'automated', 'waitForSignal', 'subWorkflow', 'end'] as const).map((nodeType) => {
+                  const Icon = NODE_TYPE_ICONS[nodeType]
+                  return (
+                    <button
+                      key={nodeType}
+                      onClick={() => handleAddNode(nodeType)}
+                      className="flex shrink-0 items-center gap-1 rounded-md border bg-background px-2 py-1 text-xs hover:bg-muted active:bg-muted/50"
+                    >
+                      <Icon className="h-3.5 w-3.5" />
+                      <span>{NODE_TYPE_LABELS[nodeType].title}</span>
+                    </button>
+                  )
+                })}
+              </div>
             </div>
-          </div>
+          )}
         </div>
       ) : (
         <div className="flex min-h-[72svh] min-w-0 flex-1 border-t border-border">
-          {/* Left Sidebar - Step Palette */}
+          {/* Left Sidebar - Step Palette (hidden in read-only mode) */}
+          {!isCodeOnly && (
           <div className="w-[24rem] shrink-0 overflow-y-auto border-r border-border bg-background p-6">
             <div className="rounded-lg border bg-card p-4">
               <h2 className="mb-2 text-sm font-semibold uppercase text-muted-foreground">Step Palette</h2>
@@ -1001,6 +1125,7 @@ export default function VisualEditorPage() {
               </Alert>
             </div>
           </div>
+          )}
 
           {/* Main Canvas */}
           <div className="min-w-0 flex-1 p-6">
@@ -1014,7 +1139,7 @@ export default function VisualEditorPage() {
                   onNodeClick={handleNodeClick}
                   onEdgeClick={handleEdgeClick}
                   onConnect={handleConnect}
-                  editable={true}
+                  editable={!isCodeOnly}
                   height="100%"
                 />
               </div>
