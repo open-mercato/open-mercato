@@ -644,13 +644,14 @@ All new keys 4-level deep per visual-builder Decision 17a (`forms.studio.<area>.
 - 2026-05-12 — Skeleton drafted; Open Questions gate opened.
 - 2026-05-14 — Gate resolved (Q1=b minimal-runner, Q2=b render-only variables, Q3 jsonlogic-only, Q4 kind=ending, Q5 `@{…}`, Q6 sections too, Q7 properties-panel-only). Full spec written: schema extensions, pure evaluator service, Studio Logic tab + jumps editor + variables panel + hidden fields panel + recall picker, endings palette/canvas/properties surfaces, minimal public renderer with tamper-resistant submit. 7 phases (A–G), 8 risks documented.
 - 2026-05-14 — Phase A implemented: schema extensions (`x-om-jumps`, `x-om-variables`, `x-om-hidden-fields`, `kind: 'ending'`, section-level `x-om-visibility-if` and `x-om-redirect-url`); per-keyword + cross-keyword validators; `jsonlogic-grammar.ts` allowlist; `form-logic-evaluator.ts` (variables → visibility → jumps, with topological sort + cycle detection); `studio/recall.ts` (tokenizer + resolver); 4 new test suites; AGENTS.md MUST 13/14 added; verified — 269 tests pass.
+- 2026-05-14 — Phase B implemented: visual `ConditionBuilder` (rows ⇄ jsonlogic round-trip with raw fallback); `setFieldVisibilityIf` / `setSectionVisibilityIf` helpers; FormStudio Properties panel gains Logic tab on Field + Section (`[Field, Style, Logic]` and `[Style, Logic]`); `PreviewSurface` runs the evaluator on every answer change so hidden fields/sections disappear in preview; i18n keys added; 277 tests pass.
 
 ## Implementation Status
 
 | Phase | Status | Date | Notes |
 |-------|--------|------|-------|
 | Phase A — Schema + evaluator (pure) | Done | 2026-05-14 | All steps implemented, 269 tests pass, typecheck clean for Phase A files |
-| Phase B — Studio: Logic tab — conditional visibility | Not Started | — | — |
+| Phase B — Studio: Logic tab — conditional visibility | Done | 2026-05-14 | ConditionBuilder + helpers + preview wiring; 277 tests pass |
 | Phase C — Hidden fields panel + recall tokens | Not Started | — | — |
 | Phase D — Variables / Calculator panel | Not Started | — | — |
 | Phase E — Endings (palette/canvas/properties) | Not Started | — | — |
@@ -668,3 +669,14 @@ All new keys 4-level deep per visual-builder Decision 17a (`forms.studio.<area>.
 - [x] Add cross-keyword validator (`validateOmCrossKeyword`) wired into schema-helpers + form-version-compiler
 - [x] Tests: `form-logic-evaluator.test.ts`, `recall.test.ts`, `jsonlogic-grammar.test.ts`, extended `jsonschema-extensions.test.ts`
 - [x] Update `packages/forms/AGENTS.md` MUST 13 (jsonlogic grammar gate) + MUST 14 (name collision)
+
+### Phase B — Detailed Progress
+- [x] `studio/logic/condition-model.ts` — pure parse/compile between builder rows and jsonlogic
+- [x] `studio/logic/ConditionBuilder.tsx` — visual jsonlogic editor with raw-fallback view
+- [x] `setFieldVisibilityIf` / `setSectionVisibilityIf` helpers in `schema-helpers.ts`
+- [x] Mount Logic tab in `FieldPropertiesPanel` (`[field, style, logic]`) and convert `SectionStylePanel` → `SectionPropertiesPanel` (`[style, logic]`)
+- [x] Wire `handleFieldVisibilityChange` / `handleSectionVisibilityChange` in `FormStudio.tsx`
+- [x] PreviewSurface honours evaluator visibility (fields, sections, cascade) and binds inputs to local `answers` state so visibility recomputes live
+- [x] Extend `ResolvedSectionView.kind` and `SectionNode.kind` to allow `'ending'`
+- [x] i18n keys (`forms.studio.logic.*`) added to `en.json`
+- [x] Tests: `condition-builder.test.ts` (model round-trip, helpers, evaluator round-trip)

@@ -46,7 +46,7 @@ export type ResolvedSectionView = {
   key: string
   title: Record<string, string>
   fieldKeys: string[]
-  kind: 'page' | 'section'
+  kind: 'page' | 'section' | 'ending'
   columns: 1 | 2 | 3 | 4
   gap: 'sm' | 'md' | 'lg'
   divider: boolean
@@ -443,7 +443,8 @@ export function resolveSectionView(section: unknown): ResolvedSectionView | null
   const fieldKeys = Array.isArray(candidate.fieldKeys)
     ? (candidate.fieldKeys as unknown[]).filter((entry): entry is string => typeof entry === 'string')
     : []
-  const kind = candidate.kind === 'page' ? 'page' : 'section'
+  const kind: 'page' | 'section' | 'ending' =
+    candidate.kind === 'page' ? 'page' : candidate.kind === 'ending' ? 'ending' : 'section'
   const columnsRaw = candidate.columns
   const columns: 1 | 2 | 3 | 4 =
     columnsRaw === 2 || columnsRaw === 3 || columnsRaw === 4 ? columnsRaw : 1
@@ -486,7 +487,7 @@ export function resolveSectionViews(schema: Record<string, unknown>): ResolvedSe
  * views — anything with `{ key, kind? }` works.
  */
 export function partitionPages(
-  sections: ReadonlyArray<{ key: string; kind?: 'page' | 'section' }>,
+  sections: ReadonlyArray<{ key: string; kind?: 'page' | 'section' | 'ending' }>,
 ): ResolvedPage[] {
   if (sections.length === 0) return []
   const pages: ResolvedPage[] = []

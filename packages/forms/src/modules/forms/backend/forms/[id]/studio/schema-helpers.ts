@@ -43,11 +43,13 @@ export type SectionNode = {
   key: string
   title: { [locale: string]: string }
   fieldKeys: string[]
-  kind?: 'page' | 'section'
+  kind?: 'page' | 'section' | 'ending'
   columns?: 1 | 2 | 3 | 4
   gap?: 'sm' | 'md' | 'lg'
   divider?: boolean
   hideTitle?: boolean
+  'x-om-visibility-if'?: unknown
+  'x-om-redirect-url'?: string | null
   [key: string]: unknown
 }
 
@@ -717,6 +719,65 @@ export function setFieldAlign(input: {
     delete node[OM_FIELD_KEYWORDS.align]
   } else {
     node[OM_FIELD_KEYWORDS.align] = align
+  }
+  validateSchemaExtensions(next)
+  return next
+}
+
+/**
+ * Sets (or clears) a field's `x-om-visibility-if` jsonlogic predicate
+ * (reactive-core spec — Phase B). `null` / `undefined` clears the keyword
+ * to keep the persisted shape minimal so a no-op round-trip preserves the
+ * schema hash (R-9 mitigation).
+ */
+export function setFieldVisibilityIf(input: {
+  schema: FormSchema
+  fieldKey: string
+  predicate: unknown | null
+}): FormSchema {
+  const { schema, fieldKey, predicate } = input
+  const next = deepClone(schema)
+  const node = next.properties[fieldKey]
+  if (!node) {
+    throw new SchemaHelperError(
+      `Field "${fieldKey}" not found.`,
+      'unknown_field',
+      [fieldKey],
+    )
+  }
+  if (predicate === null || predicate === undefined) {
+    delete node[OM_FIELD_KEYWORDS.visibilityIf]
+  } else {
+    node[OM_FIELD_KEYWORDS.visibilityIf] = predicate
+  }
+  validateSchemaExtensions(next)
+  return next
+}
+
+/**
+ * Sets (or clears) a section's `x-om-visibility-if` jsonlogic predicate.
+ * Endings reject visibility predicates (validated by `OM_ROOT_VALIDATORS`).
+ */
+export function setSectionVisibilityIf(input: {
+  schema: FormSchema
+  sectionKey: string
+  predicate: unknown | null
+}): FormSchema {
+  const { schema, sectionKey, predicate } = input
+  const next = deepClone(schema)
+  const sections = (next[OM_ROOT_KEYWORDS.sections] ?? []) as SectionNode[]
+  const section = sections.find((entry) => entry.key === sectionKey)
+  if (!section) {
+    throw new SchemaHelperError(
+      `Section "${sectionKey}" not found.`,
+      'unknown_section',
+      [sectionKey],
+    )
+  }
+  if (predicate === null || predicate === undefined) {
+    delete (section as Record<string, unknown>)['x-om-visibility-if']
+  } else {
+    ;(section as Record<string, unknown>)['x-om-visibility-if'] = predicate
   }
   validateSchemaExtensions(next)
   return next
