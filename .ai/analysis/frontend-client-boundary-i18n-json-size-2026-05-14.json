@@ -1,0 +1,127 @@
+{
+  "count": 128,
+  "totalBytes": 3098007,
+  "totalKb": 3025.4,
+  "top": [
+    {
+      "spec": "@open-mercato/core/modules/customers/i18n/de.json",
+      "bytes": 155579
+    },
+    {
+      "spec": "@open-mercato/core/modules/customers/i18n/es.json",
+      "bytes": 154369
+    },
+    {
+      "spec": "@open-mercato/core/modules/customers/i18n/pl.json",
+      "bytes": 153582
+    },
+    {
+      "spec": "@open-mercato/core/modules/customers/i18n/en.json",
+      "bytes": 147124
+    },
+    {
+      "spec": "@open-mercato/core/modules/sales/i18n/de.json",
+      "bytes": 97811
+    },
+    {
+      "spec": "@open-mercato/core/modules/sales/i18n/es.json",
+      "bytes": 96980
+    },
+    {
+      "spec": "@open-mercato/core/modules/sales/i18n/pl.json",
+      "bytes": 95316
+    },
+    {
+      "spec": "@open-mercato/core/modules/sales/i18n/en.json",
+      "bytes": 91127
+    },
+    {
+      "spec": "@open-mercato/core/modules/workflows/i18n/es.json",
+      "bytes": 84070
+    },
+    {
+      "spec": "@open-mercato/core/modules/workflows/i18n/de.json",
+      "bytes": 83724
+    },
+    {
+      "spec": "@open-mercato/core/modules/workflows/i18n/pl.json",
+      "bytes": 82726
+    },
+    {
+      "spec": "@open-mercato/core/modules/workflows/i18n/en.json",
+      "bytes": 78064
+    },
+    {
+      "spec": "@open-mercato/core/modules/staff/i18n/de.json",
+      "bytes": 68252
+    },
+    {
+      "spec": "@open-mercato/core/modules/staff/i18n/es.json",
+      "bytes": 66790
+    },
+    {
+      "spec": "@open-mercato/core/modules/staff/i18n/pl.json",
+      "bytes": 66632
+    },
+    {
+      "spec": "@open-mercato/core/modules/staff/i18n/en.json",
+      "bytes": 62531
+    },
+    {
+      "spec": "@open-mercato/core/modules/resources/i18n/de.json",
+      "bytes": 59819
+    },
+    {
+      "spec": "@open-mercato/core/modules/resources/i18n/pl.json",
+      "bytes": 58092
+    },
+    {
+      "spec": "@open-mercato/core/modules/resources/i18n/es.json",
+      "bytes": 58090
+    },
+    {
+      "spec": "@open-mercato/core/modules/resources/i18n/en.json",
+      "bytes": 54872
+    },
+    {
+      "spec": "@open-mercato/core/modules/catalog/i18n/es.json",
+      "bytes": 44421
+    },
+    {
+      "spec": "@open-mercato/core/modules/catalog/i18n/de.json",
+      "bytes": 44131
+    },
+    {
+      "spec": "@open-mercato/core/modules/catalog/i18n/pl.json",
+      "bytes": 43175
+    },
+    {
+      "spec": "@open-mercato/core/modules/planner/i18n/de.json",
+      "bytes": 42089
+    },
+    {
+      "spec": "@open-mercato/core/modules/catalog/i18n/en.json",
+      "bytes": 41147
+    },
+    {
+      "spec": "@open-mercato/core/modules/planner/i18n/pl.json",
+      "bytes": 41034
+    },
+    {
+      "spec": "@open-mercato/core/modules/planner/i18n/es.json",
+      "bytes": 41023
+    },
+    {
+      "spec": "@open-mercato/core/modules/planner/i18n/en.json",
+      "bytes": 38651
+    },
+    {
+      "spec": "@open-mercato/core/modules/business_rules/i18n/es.json",
+      "bytes": 28869
+    },
+    {
+      "spec": "@open-mercato/core/modules/business_rules/i18n/de.json",
+      "bytes": 28745
+    }
+  ]
+}

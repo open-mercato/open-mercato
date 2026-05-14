@@ -1,0 +1,1615 @@
+{
+  "createdAt": "2026-05-13T22:18:58.767Z",
+  "results": [
+    {
+      "entry": "packages/core/src/index.ts",
+      "files": 1,
+      "loc": 3,
+      "bytes": 57,
+      "useClientFiles": 0,
+      "heavyHits": 0,
+      "dynamicImports": 0,
+      "top": [
+        {
+          "file": "packages/core/src/index.ts",
+          "loc": 3
+        }
+      ],
+      "importStats": {
+        "loc": 3,
+        "bytes": 57,
+        "imports": 0,
+        "exports": 0,
+        "dynamicImports": 0,
+        "importExamples": [],
+        "exportExamples": [],
+        "dynamicExamples": []
+      }
+    },
+    {
+      "entry": "packages/core/src/bootstrap.ts",
+      "files": 45,
+      "loc": 7019,
+      "bytes": 221875,
+      "useClientFiles": 0,
+      "heavyHits": 0,
+      "dynamicImports": 3,
+      "top": [
+        {
+          "file": "packages/cache/src/strategies/redis.ts",
+          "loc": 444
+        },
+        {
+          "file": "packages/shared/src/lib/encryption/subscriber.ts",
+          "loc": 417
+        },
+        {
+          "file": "packages/cache/src/service.ts",
+          "loc": 390
+        },
+        {
+          "file": "packages/queue/src/strategies/local.ts",
+          "loc": 384
+        },
+        {
+          "file": "packages/shared/src/lib/encryption/kms.ts",
+          "loc": 359
+        },
+        {
+          "file": "packages/shared/src/lib/encryption/tenantDataEncryptionService.ts",
+          "loc": 344
+        },
+        {
+          "file": "packages/shared/src/modules/search.ts",
+          "loc": 332
+        },
+        {
+          "file": "packages/cache/src/strategies/sqlite.ts",
+          "loc": 290
+        },
+        {
+          "file": "packages/core/src/modules/entities/data/entities.ts",
+          "loc": 279
+        },
+        {
+          "file": "packages/queue/src/types.ts",
+          "loc": 256
+        },
+        {
+          "file": "packages/cache/src/strategies/jsonfile.ts",
+          "loc": 251
+        },
+        {
+          "file": "packages/shared/src/modules/events/factory.ts",
+          "loc": 241
+        }
+      ],
+      "importStats": {
+        "loc": 178,
+        "bytes": 7790,
+        "imports": 14,
+        "exports": 0,
+        "dynamicImports": 2,
+        "importExamples": [
+          "awilix",
+          "awilix",
+          "@open-mercato/events/index",
+          "@open-mercato/shared/modules/events",
+          "@open-mercato/cache",
+          "@open-mercato/shared/lib/encryption/kms",
+          "@open-mercato/shared/lib/encryption/tenantDataEncryptionService",
+          "@open-mercato/shared/lib/encryption/subscriber",
+          "@open-mercato/shared/lib/encryption/toggles",
+          "@open-mercato/shared/modules/search",
+          "@open-mercato/search",
+          "@open-mercato/shared/lib/ratelimit/service",
+          "@open-mercato/shared/lib/ratelimit/config",
+          "@mikro-orm/postgresql"
+        ],
+        "exportExamples": [],
+        "dynamicExamples": [
+          "@open-mercato/shared/lib/i18n/server",
+          "@open-mercato/shared/lib/crud/sync-subscriber-store"
+        ]
+      }
+    },
+    {
+      "entry": "packages/core/src/modules/customers/index.ts",
+      "files": 145,
+      "loc": 31337,
+      "bytes": 1073097,
+      "useClientFiles": 2,
+      "heavyHits": 0,
+      "dynamicImports": 15,
+      "top": [
+        {
+          "file": "packages/core/src/modules/customers/commands/people.ts",
+          "loc": 1548
+        },
+        {
+          "file": "packages/core/src/modules/customers/commands/companies.ts",
+          "loc": 1368
+        },
+        {
+          "file": "packages/core/src/modules/customers/data/entities.ts",
+          "loc": 1166
+        },
+        {
+          "file": "packages/core/src/modules/customers/commands/interactions.ts",
+          "loc": 1144
+        },
+        {
+          "file": "packages/core/src/modules/customers/commands/deals.ts",
+          "loc": 889
+        },
+        {
+          "file": "packages/core/src/modules/audit_logs/services/actionLogService.ts",
+          "loc": 713
+        },
+        {
+          "file": "packages/shared/src/lib/data/engine.ts",
+          "loc": 679
+        },
+        {
+          "file": "packages/shared/src/lib/crud/custom-fields.ts",
+          "loc": 671
+        },
+        {
+          "file": "packages/core/src/modules/customers/data/validators.ts",
+          "loc": 668
+        },
+        {
+          "file": "packages/shared/src/lib/commands/command-bus.ts",
+          "loc": 668
+        },
+        {
+          "file": "packages/core/src/modules/customers/commands/personCompanyLinks.ts",
+          "loc": 656
+        },
+        {
+          "file": "packages/core/src/modules/customers/commands/dictionaries.ts",
+          "loc": 643
+        }
+      ],
+      "importStats": {
+        "loc": 15,
+        "bytes": 415,
+        "imports": 2,
+        "exports": 1,
+        "dynamicImports": 0,
+        "importExamples": [
+          "@open-mercato/shared/modules/registry",
+          "./commands"
+        ],
+        "exportExamples": [
+          "./acl"
+        ],
+        "dynamicExamples": []
+      }
+    },
+    {
+      "entry": "packages/core/src/modules/sales/index.ts",
+      "files": 153,
+      "loc": 39976,
+      "bytes": 1391755,
+      "useClientFiles": 1,
+      "heavyHits": 0,
+      "dynamicImports": 15,
+      "top": [
+        {
+          "file": "packages/core/src/modules/sales/commands/documents.ts",
+          "loc": 8957
+        },
+        {
+          "file": "packages/core/src/modules/sales/commands/configuration.ts",
+          "loc": 2084
+        },
+        {
+          "file": "packages/core/src/modules/sales/data/entities.ts",
+          "loc": 1985
+        },
+        {
+          "file": "packages/core/src/modules/customers/data/entities.ts",
+          "loc": 1166
+        },
+        {
+          "file": "packages/core/src/modules/sales/commands/shipments.ts",
+          "loc": 1000
+        },
+        {
+          "file": "packages/core/src/modules/sales/commands/payments.ts",
+          "loc": 973
+        },
+        {
+          "file": "packages/core/src/modules/sales/data/validators.ts",
+          "loc": 941
+        },
+        {
+          "file": "packages/core/src/modules/catalog/data/entities.ts",
+          "loc": 769
+        },
+        {
+          "file": "packages/core/src/modules/audit_logs/services/actionLogService.ts",
+          "loc": 713
+        },
+        {
+          "file": "packages/shared/src/lib/data/engine.ts",
+          "loc": 679
+        },
+        {
+          "file": "packages/shared/src/lib/crud/custom-fields.ts",
+          "loc": 671
+        },
+        {
+          "file": "packages/shared/src/lib/commands/command-bus.ts",
+          "loc": 668
+        }
+      ],
+      "importStats": {
+        "loc": 18,
+        "bytes": 511,
+        "imports": 3,
+        "exports": 1,
+        "dynamicImports": 0,
+        "importExamples": [
+          "@open-mercato/shared/modules/registry",
+          "./commands",
+          "./lib/providers"
+        ],
+        "exportExamples": [
+          "./acl"
+        ],
+        "dynamicExamples": []
+      }
+    },
+    {
+      "entry": "packages/core/src/modules/catalog/index.ts",
+      "files": 132,
+      "loc": 26526,
+      "bytes": 894428,
+      "useClientFiles": 1,
+      "heavyHits": 0,
+      "dynamicImports": 15,
+      "top": [
+        {
+          "file": "packages/core/src/modules/catalog/commands/products.ts",
+          "loc": 2001
+        },
+        {
+          "file": "packages/core/src/modules/sales/data/entities.ts",
+          "loc": 1985
+        },
+        {
+          "file": "packages/core/src/modules/catalog/commands/variants.ts",
+          "loc": 1058
+        },
+        {
+          "file": "packages/core/src/modules/catalog/commands/prices.ts",
+          "loc": 920
+        },
+        {
+          "file": "packages/core/src/modules/catalog/data/entities.ts",
+          "loc": 769
+        },
+        {
+          "file": "packages/core/src/modules/audit_logs/services/actionLogService.ts",
+          "loc": 713
+        },
+        {
+          "file": "packages/shared/src/lib/data/engine.ts",
+          "loc": 679
+        },
+        {
+          "file": "packages/shared/src/lib/crud/custom-fields.ts",
+          "loc": 671
+        },
+        {
+          "file": "packages/shared/src/lib/commands/command-bus.ts",
+          "loc": 668
+        },
+        {
+          "file": "packages/core/src/modules/catalog/commands/productUnitConversions.ts",
+          "loc": 627
+        },
+        {
+          "file": "packages/core/src/modules/catalog/commands/categories.ts",
+          "loc": 525
+        },
+        {
+          "file": "packages/shared/src/modules/registry.ts",
+          "loc": 515
+        }
+      ],
+      "importStats": {
+        "loc": 15,
+        "bytes": 411,
+        "imports": 2,
+        "exports": 1,
+        "dynamicImports": 0,
+        "importExamples": [
+          "@open-mercato/shared/modules/registry",
+          "./commands"
+        ],
+        "exportExamples": [
+          "./acl"
+        ],
+        "dynamicExamples": []
+      }
+    },
+    {
+      "entry": "packages/core/src/modules/workflows/index.ts",
+      "files": 8,
+      "loc": 1562,
+      "bytes": 47378,
+      "useClientFiles": 0,
+      "heavyHits": 0,
+      "dynamicImports": 7,
+      "top": [
+        {
+          "file": "packages/shared/src/modules/registry.ts",
+          "loc": 515
+        },
+        {
+          "file": "packages/shared/src/modules/widgets/injection.ts",
+          "loc": 471
+        },
+        {
+          "file": "packages/shared/src/modules/integrations/types.ts",
+          "loc": 263
+        },
+        {
+          "file": "packages/shared/src/modules/dashboard/widgets.ts",
+          "loc": 112
+        },
+        {
+          "file": "packages/shared/src/lib/openapi/types.ts",
+          "loc": 79
+        },
+        {
+          "file": "packages/shared/src/modules/widgets/injection-position.ts",
+          "loc": 60
+        },
+        {
+          "file": "packages/shared/src/lib/crud/sync-event-types.ts",
+          "loc": 44
+        },
+        {
+          "file": "packages/core/src/modules/workflows/index.ts",
+          "loc": 18
+        }
+      ],
+      "importStats": {
+        "loc": 18,
+        "bytes": 488,
+        "imports": 1,
+        "exports": 0,
+        "dynamicImports": 0,
+        "importExamples": [
+          "@open-mercato/shared/modules/registry"
+        ],
+        "exportExamples": [],
+        "dynamicExamples": []
+      }
+    },
+    {
+      "entry": "packages/shared/src/index.ts",
+      "files": 1,
+      "loc": 1,
+      "bytes": 0,
+      "useClientFiles": 0,
+      "heavyHits": 0,
+      "dynamicImports": 0,
+      "top": [
+        {
+          "file": "packages/shared/src/index.ts",
+          "loc": 1
+        }
+      ],
+      "importStats": {
+        "loc": 1,
+        "bytes": 0,
+        "imports": 0,
+        "exports": 0,
+        "dynamicImports": 0,
+        "importExamples": [],
+        "exportExamples": [],
+        "dynamicExamples": []
+      }
+    },
+    {
+      "entry": "packages/ui/src/index.ts",
+      "files": 314,
+      "loc": 62866,
+      "bytes": 2211380,
+      "useClientFiles": 189,
+      "heavyHits": 7,
+      "dynamicImports": 17,
+      "top": [
+        {
+          "file": "packages/ui/src/backend/CrudForm.tsx",
+          "loc": 4238
+        },
+        {
+          "file": "packages/ui/src/backend/DataTable.tsx",
+          "loc": 2916
+        },
+        {
+          "file": "packages/ui/src/ai/AiChat.tsx",
+          "loc": 1708
+        },
+        {
+          "file": "packages/ui/src/primitives/rich-editor.tsx",
+          "loc": 1579
+        },
+        {
+          "file": "packages/ui/src/backend/custom-fields/FieldDefinitionsEditor.tsx",
+          "loc": 1447
+        },
+        {
+          "file": "packages/ui/src/backend/detail/NotesSection.tsx",
+          "loc": 1363
+        },
+        {
+          "file": "packages/ui/src/backend/AppShell.tsx",
+          "loc": 1349
+        },
+        {
+          "file": "packages/ui/src/backend/detail/ActivitiesSection.tsx",
+          "loc": 1274
+        },
+        {
+          "file": "packages/ui/src/ai/useAiChat.ts",
+          "loc": 1085
+        },
+        {
+          "file": "packages/ui/src/primitives/time-picker.tsx",
+          "loc": 1060
+        },
+        {
+          "file": "packages/ui/src/backend/filters/AdvancedFilterBuilder.tsx",
+          "loc": 969
+        },
+        {
+          "file": "packages/ui/src/backend/detail/InlineEditors.tsx",
+          "loc": 948
+        }
+      ],
+      "importStats": {
+        "loc": 51,
+        "bytes": 1852,
+        "imports": 0,
+        "exports": 49,
+        "dynamicImports": 0,
+        "importExamples": [],
+        "exportExamples": [
+          "./theme/ThemeProvider",
+          "./theme/ThemeToggle",
+          "./theme/QueryProvider",
+          "./backend/AppShell",
+          "./backend/Page",
+          "./backend/DataTable",
+          "./backend/filters/AdvancedFilterBuilder",
+          "./backend/columns/ColumnChooserPanel",
+          "./backend/FilterBar",
+          "./backend/ValueIcons",
+          "./backend/confirm-dialog",
+          "./backend/UserMenu",
+          "./backend/RowActions",
+          "./backend/utils/nav",
+          "./backend/CrudForm",
+          "./backend/JsonBuilder",
+          "./backend/detail",
+          "./backend/TruncatedCell",
+          "./backend/schedule",
+          "./backend/inputs",
+          "./backend/ContextHelp",
+          "./backend/dashboard",
+          "./backend/messages",
+          "./frontend/Layout",
+          "./frontend/AuthFooter",
+          "./frontend/LanguageSwitcher",
+          "./primitives/button",
+          "./primitives/icon-button",
+          "./primitives/link-button",
+          "./primitives/social-button"
+        ],
+        "dynamicExamples": []
+      }
+    },
+    {
+      "entry": "packages/ui/src/backend/detail/index.ts",
+      "files": 145,
+      "loc": 31847,
+      "bytes": 1120786,
+      "useClientFiles": 83,
+      "heavyHits": 3,
+      "dynamicImports": 12,
+      "top": [
+        {
+          "file": "packages/ui/src/backend/CrudForm.tsx",
+          "loc": 4238
+        },
+        {
+          "file": "packages/ui/src/primitives/rich-editor.tsx",
+          "loc": 1579
+        },
+        {
+          "file": "packages/ui/src/backend/custom-fields/FieldDefinitionsEditor.tsx",
+          "loc": 1447
+        },
+        {
+          "file": "packages/ui/src/backend/detail/NotesSection.tsx",
+          "loc": 1363
+        },
+        {
+          "file": "packages/ui/src/backend/detail/ActivitiesSection.tsx",
+          "loc": 1274
+        },
+        {
+          "file": "packages/ui/src/primitives/time-picker.tsx",
+          "loc": 1060
+        },
+        {
+          "file": "packages/ui/src/backend/detail/InlineEditors.tsx",
+          "loc": 948
+        },
+        {
+          "file": "packages/ui/src/backend/detail/CustomDataSection.tsx",
+          "loc": 717
+        },
+        {
+          "file": "packages/ui/src/backend/detail/AttachmentMetadataDialog.tsx",
+          "loc": 675
+        },
+        {
+          "file": "packages/ui/src/backend/detail/AddressTiles.tsx",
+          "loc": 592
+        },
+        {
+          "file": "packages/shared/src/modules/widgets/injection-loader.ts",
+          "loc": 554
+        },
+        {
+          "file": "packages/core/src/modules/dictionaries/components/dictionaryAppearance.tsx",
+          "loc": 515
+        }
+      ],
+      "importStats": {
+        "loc": 47,
+        "bytes": 1637,
+        "imports": 0,
+        "exports": 24,
+        "dynamicImports": 0,
+        "importExamples": [],
+        "exportExamples": [
+          "./InlineEditors",
+          "./DetailFieldsSection",
+          "./LoadingMessage",
+          "./ErrorMessage",
+          "./AccessDeniedMessage",
+          "./TabEmptyState",
+          "./CustomDataSection",
+          "./TagsSection",
+          "./NotesSection",
+          "./NotesSection",
+          "./ActivitiesSection",
+          "./ActivitiesSection",
+          "./AddressesSection",
+          "./AddressesSection",
+          "./AddressTiles",
+          "./AddressTiles",
+          "./AddressEditor",
+          "./AddressEditor",
+          "./addressFormat",
+          "./addressFormat",
+          "./AttachmentMetadataDialog",
+          "./AttachmentDeleteDialog",
+          "./AttachmentsSection",
+          "./AttachmentVisualPreview"
+        ],
+        "dynamicExamples": []
+      }
+    },
+    {
+      "entry": "packages/ui/src/backend/forms/index.ts",
+      "files": 19,
+      "loc": 3314,
+      "bytes": 108351,
+      "useClientFiles": 6,
+      "heavyHits": 0,
+      "dynamicImports": 7,
+      "top": [
+        {
+          "file": "packages/shared/src/modules/widgets/injection-loader.ts",
+          "loc": 554
+        },
+        {
+          "file": "packages/shared/src/modules/registry.ts",
+          "loc": 515
+        },
+        {
+          "file": "packages/shared/src/modules/widgets/injection.ts",
+          "loc": 471
+        },
+        {
+          "file": "packages/ui/src/backend/injection/InjectionSpot.tsx",
+          "loc": 458
+        },
+        {
+          "file": "packages/shared/src/modules/integrations/types.ts",
+          "loc": 263
+        },
+        {
+          "file": "packages/ui/src/backend/forms/FormHeader.tsx",
+          "loc": 205
+        },
+        {
+          "file": "packages/ui/src/backend/forms/ActionsDropdown.tsx",
+          "loc": 199
+        },
+        {
+          "file": "packages/shared/src/modules/dashboard/widgets.ts",
+          "loc": 112
+        },
+        {
+          "file": "packages/ui/src/backend/forms/FormActionButtons.tsx",
+          "loc": 98
+        },
+        {
+          "file": "packages/shared/src/lib/i18n/context.tsx",
+          "loc": 81
+        },
+        {
+          "file": "packages/shared/src/lib/openapi/types.ts",
+          "loc": 79
+        },
+        {
+          "file": "packages/shared/src/modules/widgets/injection-position.ts",
+          "loc": 60
+        }
+      ],
+      "importStats": {
+        "loc": 5,
+        "bytes": 363,
+        "imports": 0,
+        "exports": 4,
+        "dynamicImports": 0,
+        "importExamples": [],
+        "exportExamples": [
+          "./FormActionButtons",
+          "./ActionsDropdown",
+          "./FormHeader",
+          "./FormFooter"
+        ],
+        "dynamicExamples": []
+      }
+    },
+    {
+      "entry": "packages/ui/src/backend/messages/index.ts",
+      "files": 140,
+      "loc": 25992,
+      "bytes": 902014,
+      "useClientFiles": 77,
+      "heavyHits": 2,
+      "dynamicImports": 12,
+      "top": [
+        {
+          "file": "packages/ui/src/backend/CrudForm.tsx",
+          "loc": 4238
+        },
+        {
+          "file": "packages/ui/src/primitives/rich-editor.tsx",
+          "loc": 1579
+        },
+        {
+          "file": "packages/ui/src/backend/custom-fields/FieldDefinitionsEditor.tsx",
+          "loc": 1447
+        },
+        {
+          "file": "packages/ui/src/primitives/time-picker.tsx",
+          "loc": 1060
+        },
+        {
+          "file": "packages/ui/src/backend/messages/useMessageCompose.ts",
+          "loc": 728
+        },
+        {
+          "file": "packages/ui/src/backend/detail/AttachmentMetadataDialog.tsx",
+          "loc": 675
+        },
+        {
+          "file": "packages/shared/src/modules/widgets/injection-loader.ts",
+          "loc": 554
+        },
+        {
+          "file": "packages/shared/src/modules/registry.ts",
+          "loc": 515
+        },
+        {
+          "file": "packages/shared/src/modules/widgets/injection.ts",
+          "loc": 471
+        },
+        {
+          "file": "packages/ui/src/backend/injection/InjectionSpot.tsx",
+          "loc": 458
+        },
+        {
+          "file": "packages/ui/src/backend/messages/message-compose-form-groups.tsx",
+          "loc": 393
+        },
+        {
+          "file": "packages/ui/src/backend/custom-fields/FieldDefinitionsManager.tsx",
+          "loc": 382
+        }
+      ],
+      "importStats": {
+        "loc": 25,
+        "bytes": 949,
+        "imports": 0,
+        "exports": 14,
+        "dynamicImports": 0,
+        "importExamples": [],
+        "exportExamples": [
+          "./MessageComposer",
+          "./MessageComposer",
+          "./SendObjectMessageDialog",
+          "./SendObjectMessageDialog",
+          "./MessageObjectRecordPicker",
+          "./MessageObjectRecordPicker",
+          "./MessagesIcon",
+          "./MessagesIcon",
+          "./useMessages",
+          "./useMessagesPoll",
+          "./useMessagesSse",
+          "./useMessagesPoll",
+          "./MessageObjectPreview",
+          "./MessageObjectDetail"
+        ],
+        "dynamicExamples": []
+      }
+    },
+    {
+      "entry": "packages/ui/src/backend/dashboard/index.ts",
+      "files": 30,
+      "loc": 5324,
+      "bytes": 176446,
+      "useClientFiles": 12,
+      "heavyHits": 0,
+      "dynamicImports": 7,
+      "top": [
+        {
+          "file": "packages/ui/src/backend/dashboard/DashboardScreen.tsx",
+          "loc": 742
+        },
+        {
+          "file": "packages/shared/src/modules/widgets/injection-loader.ts",
+          "loc": 554
+        },
+        {
+          "file": "packages/shared/src/modules/registry.ts",
+          "loc": 515
+        },
+        {
+          "file": "packages/shared/src/modules/widgets/injection.ts",
+          "loc": 471
+        },
+        {
+          "file": "packages/ui/src/backend/injection/InjectionSpot.tsx",
+          "loc": 458
+        },
+        {
+          "file": "packages/ui/src/backend/utils/serverErrors.ts",
+          "loc": 321
+        },
+        {
+          "file": "packages/ui/src/backend/operations/store.ts",
+          "loc": 300
+        },
+        {
+          "file": "packages/shared/src/modules/integrations/types.ts",
+          "loc": 263
+        },
+        {
+          "file": "packages/ui/src/primitives/alert.tsx",
+          "loc": 263
+        },
+        {
+          "file": "packages/ui/src/backend/utils/api.ts",
+          "loc": 240
+        },
+        {
+          "file": "packages/ui/src/backend/FlashMessages.tsx",
+          "loc": 181
+        },
+        {
+          "file": "packages/ui/src/backend/utils/apiCall.ts",
+          "loc": 124
+        }
+      ],
+      "importStats": {
+        "loc": 2,
+        "bytes": 52,
+        "imports": 0,
+        "exports": 1,
+        "dynamicImports": 0,
+        "importExamples": [],
+        "exportExamples": [
+          "./DashboardScreen"
+        ],
+        "dynamicExamples": []
+      }
+    },
+    {
+      "entry": "packages/core/src/modules/customers/message-objects.ts",
+      "files": 315,
+      "loc": 62957,
+      "bytes": 2214251,
+      "useClientFiles": 189,
+      "heavyHits": 7,
+      "dynamicImports": 20,
+      "top": [
+        {
+          "file": "packages/ui/src/backend/CrudForm.tsx",
+          "loc": 4238
+        },
+        {
+          "file": "packages/ui/src/backend/DataTable.tsx",
+          "loc": 2916
+        },
+        {
+          "file": "packages/ui/src/ai/AiChat.tsx",
+          "loc": 1708
+        },
+        {
+          "file": "packages/ui/src/primitives/rich-editor.tsx",
+          "loc": 1579
+        },
+        {
+          "file": "packages/ui/src/backend/custom-fields/FieldDefinitionsEditor.tsx",
+          "loc": 1447
+        },
+        {
+          "file": "packages/ui/src/backend/detail/NotesSection.tsx",
+          "loc": 1363
+        },
+        {
+          "file": "packages/ui/src/backend/AppShell.tsx",
+          "loc": 1349
+        },
+        {
+          "file": "packages/ui/src/backend/detail/ActivitiesSection.tsx",
+          "loc": 1274
+        },
+        {
+          "file": "packages/ui/src/ai/useAiChat.ts",
+          "loc": 1085
+        },
+        {
+          "file": "packages/ui/src/primitives/time-picker.tsx",
+          "loc": 1060
+        },
+        {
+          "file": "packages/ui/src/backend/filters/AdvancedFilterBuilder.tsx",
+          "loc": 969
+        },
+        {
+          "file": "packages/ui/src/backend/detail/InlineEditors.tsx",
+          "loc": 948
+        }
+      ],
+      "importStats": {
+        "loc": 91,
+        "bytes": 2871,
+        "imports": 2,
+        "exports": 0,
+        "dynamicImports": 3,
+        "importExamples": [
+          "@open-mercato/shared/modules/messages/types",
+          "@open-mercato/ui"
+        ],
+        "exportExamples": [],
+        "dynamicExamples": [
+          "./lib/messageObjectPreviews",
+          "./lib/messageObjectPreviews",
+          "./lib/messageObjectPreviews"
+        ]
+      }
+    },
+    {
+      "entry": "packages/core/src/modules/sales/message-objects.ts",
+      "files": 143,
+      "loc": 26234,
+      "bytes": 909793,
+      "useClientFiles": 79,
+      "heavyHits": 2,
+      "dynamicImports": 15,
+      "top": [
+        {
+          "file": "packages/ui/src/backend/CrudForm.tsx",
+          "loc": 4238
+        },
+        {
+          "file": "packages/ui/src/primitives/rich-editor.tsx",
+          "loc": 1579
+        },
+        {
+          "file": "packages/ui/src/backend/custom-fields/FieldDefinitionsEditor.tsx",
+          "loc": 1447
+        },
+        {
+          "file": "packages/ui/src/primitives/time-picker.tsx",
+          "loc": 1060
+        },
+        {
+          "file": "packages/ui/src/backend/messages/useMessageCompose.ts",
+          "loc": 728
+        },
+        {
+          "file": "packages/ui/src/backend/detail/AttachmentMetadataDialog.tsx",
+          "loc": 675
+        },
+        {
+          "file": "packages/shared/src/modules/widgets/injection-loader.ts",
+          "loc": 554
+        },
+        {
+          "file": "packages/shared/src/modules/registry.ts",
+          "loc": 515
+        },
+        {
+          "file": "packages/shared/src/modules/widgets/injection.ts",
+          "loc": 471
+        },
+        {
+          "file": "packages/ui/src/backend/injection/InjectionSpot.tsx",
+          "loc": 458
+        },
+        {
+          "file": "packages/ui/src/backend/messages/message-compose-form-groups.tsx",
+          "loc": 393
+        },
+        {
+          "file": "packages/ui/src/backend/custom-fields/FieldDefinitionsManager.tsx",
+          "loc": 382
+        }
+      ],
+      "importStats": {
+        "loc": 99,
+        "bytes": 3103,
+        "imports": 4,
+        "exports": 0,
+        "dynamicImports": 3,
+        "importExamples": [
+          "@open-mercato/shared/modules/messages/types",
+          "@open-mercato/ui/backend/messages",
+          "./widgets/messages/SalesDocumentMessageDetail",
+          "./widgets/messages/SalesDocumentMessagePreview"
+        ],
+        "exportExamples": [],
+        "dynamicExamples": [
+          "./lib/messageObjectPreviews",
+          "./lib/messageObjectPreviews",
+          "./lib/messageObjectPreviews"
+        ]
+      }
+    },
+    {
+      "entry": "packages/core/src/modules/catalog/message-objects.ts",
+      "files": 141,
+      "loc": 26095,
+      "bytes": 905487,
+      "useClientFiles": 77,
+      "heavyHits": 2,
+      "dynamicImports": 15,
+      "top": [
+        {
+          "file": "packages/ui/src/backend/CrudForm.tsx",
+          "loc": 4238
+        },
+        {
+          "file": "packages/ui/src/primitives/rich-editor.tsx",
+          "loc": 1579
+        },
+        {
+          "file": "packages/ui/src/backend/custom-fields/FieldDefinitionsEditor.tsx",
+          "loc": 1447
+        },
+        {
+          "file": "packages/ui/src/primitives/time-picker.tsx",
+          "loc": 1060
+        },
+        {
+          "file": "packages/ui/src/backend/messages/useMessageCompose.ts",
+          "loc": 728
+        },
+        {
+          "file": "packages/ui/src/backend/detail/AttachmentMetadataDialog.tsx",
+          "loc": 675
+        },
+        {
+          "file": "packages/shared/src/modules/widgets/injection-loader.ts",
+          "loc": 554
+        },
+        {
+          "file": "packages/shared/src/modules/registry.ts",
+          "loc": 515
+        },
+        {
+          "file": "packages/shared/src/modules/widgets/injection.ts",
+          "loc": 471
+        },
+        {
+          "file": "packages/ui/src/backend/injection/InjectionSpot.tsx",
+          "loc": 458
+        },
+        {
+          "file": "packages/ui/src/backend/messages/message-compose-form-groups.tsx",
+          "loc": 393
+        },
+        {
+          "file": "packages/ui/src/backend/custom-fields/FieldDefinitionsManager.tsx",
+          "loc": 382
+        }
+      ],
+      "importStats": {
+        "loc": 103,
+        "bytes": 3473,
+        "imports": 2,
+        "exports": 0,
+        "dynamicImports": 3,
+        "importExamples": [
+          "@open-mercato/shared/modules/messages/types",
+          "@open-mercato/ui/backend/messages"
+        ],
+        "exportExamples": [],
+        "dynamicExamples": [
+          "./lib/messageObjectPreviews",
+          "./lib/messageObjectPreviews",
+          "./lib/messageObjectPreviews"
+        ]
+      }
+    },
+    {
+      "entry": "packages/core/src/modules/staff/message-objects.ts",
+      "files": 143,
+      "loc": 26376,
+      "bytes": 914750,
+      "useClientFiles": 79,
+      "heavyHits": 2,
+      "dynamicImports": 17,
+      "top": [
+        {
+          "file": "packages/ui/src/backend/CrudForm.tsx",
+          "loc": 4238
+        },
+        {
+          "file": "packages/ui/src/primitives/rich-editor.tsx",
+          "loc": 1579
+        },
+        {
+          "file": "packages/ui/src/backend/custom-fields/FieldDefinitionsEditor.tsx",
+          "loc": 1447
+        },
+        {
+          "file": "packages/ui/src/primitives/time-picker.tsx",
+          "loc": 1060
+        },
+        {
+          "file": "packages/ui/src/backend/messages/useMessageCompose.ts",
+          "loc": 728
+        },
+        {
+          "file": "packages/ui/src/backend/detail/AttachmentMetadataDialog.tsx",
+          "loc": 675
+        },
+        {
+          "file": "packages/shared/src/modules/widgets/injection-loader.ts",
+          "loc": 554
+        },
+        {
+          "file": "packages/shared/src/modules/registry.ts",
+          "loc": 515
+        },
+        {
+          "file": "packages/shared/src/modules/widgets/injection.ts",
+          "loc": 471
+        },
+        {
+          "file": "packages/ui/src/backend/injection/InjectionSpot.tsx",
+          "loc": 458
+        },
+        {
+          "file": "packages/ui/src/backend/messages/message-compose-form-groups.tsx",
+          "loc": 393
+        },
+        {
+          "file": "packages/ui/src/backend/custom-fields/FieldDefinitionsManager.tsx",
+          "loc": 382
+        }
+      ],
+      "importStats": {
+        "loc": 174,
+        "bytes": 5502,
+        "imports": 4,
+        "exports": 0,
+        "dynamicImports": 5,
+        "importExamples": [
+          "@open-mercato/shared/modules/messages/types",
+          "@open-mercato/ui/backend/messages",
+          "./components/LeaveRequestDetail",
+          "./components/LeaveRequestPreview"
+        ],
+        "exportExamples": [],
+        "dynamicExamples": [
+          "./lib/messageObjectPreviews",
+          "./lib/messageObjectPreviews",
+          "./lib/messageObjectPreviews",
+          "./lib/messageObjectPreviews",
+          "./lib/messageObjectPreviews"
+        ]
+      }
+    },
+    {
+      "entry": "packages/core/src/modules/resources/message-objects.ts",
+      "files": 141,
+      "loc": 26029,
+      "bytes": 903225,
+      "useClientFiles": 77,
+      "heavyHits": 2,
+      "dynamicImports": 13,
+      "top": [
+        {
+          "file": "packages/ui/src/backend/CrudForm.tsx",
+          "loc": 4238
+        },
+        {
+          "file": "packages/ui/src/primitives/rich-editor.tsx",
+          "loc": 1579
+        },
+        {
+          "file": "packages/ui/src/backend/custom-fields/FieldDefinitionsEditor.tsx",
+          "loc": 1447
+        },
+        {
+          "file": "packages/ui/src/primitives/time-picker.tsx",
+          "loc": 1060
+        },
+        {
+          "file": "packages/ui/src/backend/messages/useMessageCompose.ts",
+          "loc": 728
+        },
+        {
+          "file": "packages/ui/src/backend/detail/AttachmentMetadataDialog.tsx",
+          "loc": 675
+        },
+        {
+          "file": "packages/shared/src/modules/widgets/injection-loader.ts",
+          "loc": 554
+        },
+        {
+          "file": "packages/shared/src/modules/registry.ts",
+          "loc": 515
+        },
+        {
+          "file": "packages/shared/src/modules/widgets/injection.ts",
+          "loc": 471
+        },
+        {
+          "file": "packages/ui/src/backend/injection/InjectionSpot.tsx",
+          "loc": 458
+        },
+        {
+          "file": "packages/ui/src/backend/messages/message-compose-form-groups.tsx",
+          "loc": 393
+        },
+        {
+          "file": "packages/ui/src/backend/custom-fields/FieldDefinitionsManager.tsx",
+          "loc": 382
+        }
+      ],
+      "importStats": {
+        "loc": 37,
+        "bytes": 1211,
+        "imports": 2,
+        "exports": 0,
+        "dynamicImports": 1,
+        "importExamples": [
+          "@open-mercato/shared/modules/messages/types",
+          "@open-mercato/ui/backend/messages"
+        ],
+        "exportExamples": [],
+        "dynamicExamples": [
+          "./lib/messageObjectPreviews"
+        ]
+      }
+    },
+    {
+      "entry": "packages/core/src/modules/currencies/message-objects.ts",
+      "files": 141,
+      "loc": 26033,
+      "bytes": 903267,
+      "useClientFiles": 77,
+      "heavyHits": 2,
+      "dynamicImports": 13,
+      "top": [
+        {
+          "file": "packages/ui/src/backend/CrudForm.tsx",
+          "loc": 4238
+        },
+        {
+          "file": "packages/ui/src/primitives/rich-editor.tsx",
+          "loc": 1579
+        },
+        {
+          "file": "packages/ui/src/backend/custom-fields/FieldDefinitionsEditor.tsx",
+          "loc": 1447
+        },
+        {
+          "file": "packages/ui/src/primitives/time-picker.tsx",
+          "loc": 1060
+        },
+        {
+          "file": "packages/ui/src/backend/messages/useMessageCompose.ts",
+          "loc": 728
+        },
+        {
+          "file": "packages/ui/src/backend/detail/AttachmentMetadataDialog.tsx",
+          "loc": 675
+        },
+        {
+          "file": "packages/shared/src/modules/widgets/injection-loader.ts",
+          "loc": 554
+        },
+        {
+          "file": "packages/shared/src/modules/registry.ts",
+          "loc": 515
+        },
+        {
+          "file": "packages/shared/src/modules/widgets/injection.ts",
+          "loc": 471
+        },
+        {
+          "file": "packages/ui/src/backend/injection/InjectionSpot.tsx",
+          "loc": 458
+        },
+        {
+          "file": "packages/ui/src/backend/messages/message-compose-form-groups.tsx",
+          "loc": 393
+        },
+        {
+          "file": "packages/ui/src/backend/custom-fields/FieldDefinitionsManager.tsx",
+          "loc": 382
+        }
+      ],
+      "importStats": {
+        "loc": 41,
+        "bytes": 1253,
+        "imports": 2,
+        "exports": 0,
+        "dynamicImports": 1,
+        "importExamples": [
+          "@open-mercato/shared/modules/messages/types",
+          "@open-mercato/ui/backend/messages"
+        ],
+        "exportExamples": [],
+        "dynamicExamples": [
+          "./lib/messageObjectPreviews"
+        ]
+      }
+    },
+    {
+      "entry": "packages/core/src/modules/messages/lib/message-objects-registry.ts",
+      "files": 3,
+      "loc": 238,
+      "bytes": 6101,
+      "useClientFiles": 0,
+      "heavyHits": 0,
+      "dynamicImports": 0,
+      "top": [
+        {
+          "file": "packages/shared/src/modules/messages/types.ts",
+          "loc": 171
+        },
+        {
+          "file": "packages/core/src/modules/messages/lib/message-objects-registry.ts",
+          "loc": 61
+        },
+        {
+          "file": "packages/core/src/modules/messages/message-objects.ts",
+          "loc": 6
+        }
+      ],
+      "importStats": {
+        "loc": 61,
+        "bytes": 1869,
+        "imports": 2,
+        "exports": 0,
+        "dynamicImports": 0,
+        "importExamples": [
+          "@open-mercato/shared/modules/messages/types",
+          "../message-objects"
+        ],
+        "exportExamples": [],
+        "dynamicExamples": []
+      }
+    },
+    {
+      "entry": "packages/core/src/modules/messages/components/utils/typeUiRegistry.ts",
+      "files": 11,
+      "loc": 736,
+      "bytes": 24360,
+      "useClientFiles": 4,
+      "heavyHits": 0,
+      "dynamicImports": 0,
+      "top": [
+        {
+          "file": "packages/shared/src/modules/messages/types.ts",
+          "loc": 171
+        },
+        {
+          "file": "packages/core/src/modules/messages/components/defaults/MessageRecordObjectDetail.tsx",
+          "loc": 115
+        },
+        {
+          "file": "packages/core/src/modules/messages/components/utils/typeUiRegistry.ts",
+          "loc": 107
+        },
+        {
+          "file": "packages/shared/src/lib/i18n/context.tsx",
+          "loc": 81
+        },
+        {
+          "file": "packages/core/src/modules/messages/components/defaults/MessageRecordObjectPreview.tsx",
+          "loc": 75
+        },
+        {
+          "file": "packages/core/src/modules/messages/lib/message-objects-registry.ts",
+          "loc": 61
+        },
+        {
+          "file": "packages/ui/src/primitives/button.tsx",
+          "loc": 56
+        },
+        {
+          "file": "packages/ui/src/primitives/badge.tsx",
+          "loc": 37
+        },
+        {
+          "file": "packages/shared/src/lib/utils.ts",
+          "loc": 22
+        },
+        {
+          "file": "packages/core/src/modules/messages/message-objects.ts",
+          "loc": 6
+        },
+        {
+          "file": "packages/shared/src/lib/i18n/config.ts",
+          "loc": 5
+        }
+      ],
+      "importStats": {
+        "loc": 107,
+        "bytes": 4317,
+        "imports": 4,
+        "exports": 0,
+        "dynamicImports": 0,
+        "importExamples": [
+          "react",
+          "@open-mercato/shared/modules/messages/types",
+          "../defaults/MessageRecordObjectDetail",
+          "./../defaults/MessageRecordObjectPreview"
+        ],
+        "exportExamples": [],
+        "dynamicExamples": []
+      }
+    },
+    {
+      "entry": "apps/mercato/.mercato/generated/backend-middleware.generated.ts",
+      "files": 5,
+      "loc": 772,
+      "bytes": 27137,
+      "useClientFiles": 0,
+      "heavyHits": 0,
+      "dynamicImports": 6,
+      "top": [
+        {
+          "file": "packages/shared/src/lib/auth/server.ts",
+          "loc": 351
+        },
+        {
+          "file": "packages/shared/src/lib/auth/jwt.ts",
+          "loc": 226
+        },
+        {
+          "file": "packages/shared/src/lib/auth/apiKeyAuthCache.ts",
+          "loc": 133
+        },
+        {
+          "file": "packages/shared/src/modules/middleware/page.ts",
+          "loc": 54
+        },
+        {
+          "file": "apps/mercato/.mercato/generated/backend-middleware.generated.ts",
+          "loc": 8
+        }
+      ],
+      "importStats": {
+        "loc": 8,
+        "bytes": 391,
+        "imports": 1,
+        "exports": 0,
+        "dynamicImports": 0,
+        "importExamples": [
+          "@open-mercato/shared/modules/middleware/page"
+        ],
+        "exportExamples": [],
+        "dynamicExamples": []
+      }
+    },
+    {
+      "entry": "apps/mercato/.mercato/generated/api-routes.generated.ts",
+      "files": 8,
+      "loc": 1990,
+      "bytes": 135868,
+      "useClientFiles": 0,
+      "heavyHits": 0,
+      "dynamicImports": 445,
+      "top": [
+        {
+          "file": "packages/shared/src/modules/registry.ts",
+          "loc": 515
+        },
+        {
+          "file": "packages/shared/src/modules/widgets/injection.ts",
+          "loc": 471
+        },
+        {
+          "file": "apps/mercato/.mercato/generated/api-routes.generated.ts",
+          "loc": 446
+        },
+        {
+          "file": "packages/shared/src/modules/integrations/types.ts",
+          "loc": 263
+        },
+        {
+          "file": "packages/shared/src/modules/dashboard/widgets.ts",
+          "loc": 112
+        },
+        {
+          "file": "packages/shared/src/lib/openapi/types.ts",
+          "loc": 79
+        },
+        {
+          "file": "packages/shared/src/modules/widgets/injection-position.ts",
+          "loc": 60
+        },
+        {
+          "file": "packages/shared/src/lib/crud/sync-event-types.ts",
+          "loc": 44
+        }
+      ],
+      "importStats": {
+        "loc": 446,
+        "bytes": 88978,
+        "imports": 1,
+        "exports": 0,
+        "dynamicImports": 438,
+        "importExamples": [
+          "@open-mercato/shared/modules/registry"
+        ],
+        "exportExamples": [],
+        "dynamicExamples": [
+          "@open-mercato/core/modules/dashboards/api/layout/route",
+          "@open-mercato/core/modules/dashboards/api/roles/widgets/route",
+          "@open-mercato/core/modules/dashboards/api/users/widgets/route",
+          "@open-mercato/core/modules/dashboards/api/widgets/data/route",
+          "@open-mercato/core/modules/dashboards/api/layout/[itemId]/route",
+          "@open-mercato/core/modules/dashboards/api/widgets/catalog",
+          "@open-mercato/core/modules/auth/api/locale/route",
+          "@open-mercato/core/modules/auth/api/profile/route",
+          "@open-mercato/core/modules/auth/api/roles/acl/route",
+          "@open-mercato/core/modules/auth/api/roles/route",
+          "@open-mercato/core/modules/auth/api/sidebar/preferences/route",
+          "@open-mercato/core/modules/auth/api/sidebar/variants/route",
+          "@open-mercato/core/modules/auth/api/users/acl/route",
+          "@open-mercato/core/modules/auth/api/users/consents/route",
+          "@open-mercato/core/modules/auth/api/users/resend-invite/route",
+          "@open-mercato/core/modules/auth/api/users/route",
+          "@open-mercato/core/modules/auth/api/sidebar/variants/[id]/route",
+          "@open-mercato/core/modules/auth/api/admin/nav",
+          "@open-mercato/core/modules/auth/api/feature-check",
+          "@open-mercato/core/modules/auth/api/features",
+          "@open-mercato/core/modules/auth/api/login",
+          "@open-mercato/core/modules/auth/api/logout",
+          "@open-mercato/core/modules/auth/api/reset/confirm",
+          "@open-mercato/core/modules/auth/api/reset",
+          "@open-mercato/core/modules/auth/api/session/refresh",
+          "@open-mercato/core/modules/directory/api/organization-switcher/route",
+          "@open-mercato/core/modules/directory/api/organizations/route",
+          "@open-mercato/core/modules/directory/api/tenants/route",
+          "@open-mercato/core/modules/directory/api/get/organizations/lookup",
+          "@open-mercato/core/modules/directory/api/get/tenants/lookup"
+        ]
+      }
+    },
+    {
+      "entry": "apps/mercato/.mercato/generated/frontend-routes.generated.ts",
+      "files": 8,
+      "loc": 1575,
+      "bytes": 97865,
+      "useClientFiles": 0,
+      "heavyHits": 0,
+      "dynamicImports": 30,
+      "top": [
+        {
+          "file": "packages/shared/src/modules/registry.ts",
+          "loc": 515
+        },
+        {
+          "file": "packages/shared/src/modules/widgets/injection.ts",
+          "loc": 471
+        },
+        {
+          "file": "packages/shared/src/modules/integrations/types.ts",
+          "loc": 263
+        },
+        {
+          "file": "packages/shared/src/modules/dashboard/widgets.ts",
+          "loc": 112
+        },
+        {
+          "file": "packages/shared/src/lib/openapi/types.ts",
+          "loc": 79
+        },
+        {
+          "file": "packages/shared/src/modules/widgets/injection-position.ts",
+          "loc": 60
+        },
+        {
+          "file": "packages/shared/src/lib/crud/sync-event-types.ts",
+          "loc": 44
+        },
+        {
+          "file": "apps/mercato/.mercato/generated/frontend-routes.generated.ts",
+          "loc": 31
+        }
+      ],
+      "importStats": {
+        "loc": 31,
+        "bytes": 50975,
+        "imports": 1,
+        "exports": 0,
+        "dynamicImports": 23,
+        "importExamples": [
+          "@open-mercato/shared/modules/registry"
+        ],
+        "exportExamples": [],
+        "dynamicExamples": [
+          "@open-mercato/core/modules/auth/frontend/reset/[token]/page",
+          "@open-mercato/core/modules/auth/frontend/login",
+          "@open-mercato/core/modules/auth/frontend/reset",
+          "@open-mercato/core/modules/sales/frontend/quote/[token]/page",
+          "@open-mercato/content/modules/content/frontend/privacy/page",
+          "@open-mercato/content/modules/content/frontend/terms/page",
+          "@open-mercato/onboarding/modules/onboarding/frontend/onboarding/page",
+          "@open-mercato/onboarding/modules/onboarding/frontend/onboarding/preparing/page",
+          "@open-mercato/core/modules/api_docs/frontend/docs/api/page",
+          "@open-mercato/core/modules/workflows/frontend/checkout-demo/page",
+          "@open-mercato/core/modules/messages/frontend/messages/view/[token]/page",
+          "@open-mercato/checkout/modules/checkout/frontend/pay/[slug]/cancel/[transactionId]/page",
+          "@open-mercato/checkout/modules/checkout/frontend/pay/[slug]/page",
+          "@open-mercato/checkout/modules/checkout/frontend/pay/[slug]/success/[transactionId]/page",
+          "@open-mercato/core/modules/portal/frontend/[orgSlug]/portal/dashboard/page",
+          "@open-mercato/core/modules/portal/frontend/[orgSlug]/portal/login/page",
+          "@open-mercato/core/modules/portal/frontend/[orgSlug]/portal/page",
+          "@open-mercato/core/modules/portal/frontend/[orgSlug]/portal/profile/page",
+          "@open-mercato/core/modules/portal/frontend/[orgSlug]/portal/reset-password/page",
+          "@open-mercato/core/modules/portal/frontend/[orgSlug]/portal/signup/page",
+          "@open-mercato/core/modules/portal/frontend/[orgSlug]/portal/verify/page",
+          "../../src/modules/example/frontend/blog/[id]/page",
+          "../../src/modules/example/frontend/example"
+        ]
+      }
+    }
+  ]
+}

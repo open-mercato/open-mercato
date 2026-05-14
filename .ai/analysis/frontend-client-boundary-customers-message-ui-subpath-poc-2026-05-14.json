@@ -1,0 +1,92 @@
+{
+  "entry": "packages/core/src/modules/customers/message-objects.ts",
+  "mode": "respect-dynamic",
+  "files": 141,
+  "loc": 26083,
+  "bytes": 904902,
+  "useClientFiles": 77,
+  "dynamicImports": 15,
+  "heavyHits": 2,
+  "top": [
+    {
+      "file": "packages/ui/src/backend/CrudForm.tsx",
+      "loc": 4238
+    },
+    {
+      "file": "packages/ui/src/primitives/rich-editor.tsx",
+      "loc": 1579
+    },
+    {
+      "file": "packages/ui/src/backend/custom-fields/FieldDefinitionsEditor.tsx",
+      "loc": 1447
+    },
+    {
+      "file": "packages/ui/src/primitives/time-picker.tsx",
+      "loc": 1060
+    },
+    {
+      "file": "packages/ui/src/backend/messages/useMessageCompose.ts",
+      "loc": 728
+    },
+    {
+      "file": "packages/ui/src/backend/detail/AttachmentMetadataDialog.tsx",
+      "loc": 675
+    },
+    {
+      "file": "packages/shared/src/modules/widgets/injection-loader.ts",
+      "loc": 554
+    },
+    {
+      "file": "packages/shared/src/modules/registry.ts",
+      "loc": 515
+    },
+    {
+      "file": "packages/shared/src/modules/widgets/injection.ts",
+      "loc": 471
+    },
+    {
+      "file": "packages/ui/src/backend/injection/InjectionSpot.tsx",
+      "loc": 458
+    },
+    {
+      "file": "packages/ui/src/backend/messages/message-compose-form-groups.tsx",
+      "loc": 393
+    },
+    {
+      "file": "packages/ui/src/backend/custom-fields/FieldDefinitionsManager.tsx",
+      "loc": 382
+    },
+    {
+      "file": "packages/ui/src/backend/inputs/ComboboxInput.tsx",
+      "loc": 382
+    },
+    {
+      "file": "packages/ui/src/backend/detail/AttachmentsSection.tsx",
+      "loc": 371
+    },
+    {
+      "file": "packages/ui/src/backend/version-history/VersionHistoryPanel.tsx",
+      "loc": 334
+    },
+    {
+      "file": "packages/ui/src/backend/utils/serverErrors.ts",
+      "loc": 321
+    },
+    {
+      "file": "packages/ui/src/backend/icons/lucideRegistry.generated.tsx",
+      "loc": 313
+    },
+    {
+      "file": "packages/ui/src/backend/inputs/TagsInput.tsx",
+      "loc": 306
+    },
+    {
+      "file": "packages/ui/src/backend/operations/store.ts",
+      "loc": 300
+    },
+    {
+      "file": "packages/ui/src/backend/confirm-dialog/ConfirmDialog.tsx",
+      "loc": 291
+    }
+  ]
+}

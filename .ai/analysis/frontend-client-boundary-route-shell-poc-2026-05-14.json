@@ -1,0 +1,446 @@
+{
+  "createdAt": "2026-05-13T22:03:52.553Z",
+  "results": [
+    {
+      "entry": "packages/core/src/modules/sales/backend/sales/documents/[id]/page.tsx",
+      "baseline": {
+        "files": 301,
+        "loc": 72605,
+        "bytes": 2569079,
+        "useClientFiles": 145,
+        "heavyHits": 8,
+        "dynamicImports": 16,
+        "rootLoc": 4868,
+        "top": [
+          {
+            "file": "packages/core/src/modules/sales/backend/sales/documents/[id]/page.tsx",
+            "loc": 4868
+          },
+          {
+            "file": "packages/ui/src/backend/CrudForm.tsx",
+            "loc": 4238
+          },
+          {
+            "file": "packages/ui/src/backend/DataTable.tsx",
+            "loc": 2916
+          },
+          {
+            "file": "packages/core/src/modules/sales/components/documents/LineItemDialog.tsx",
+            "loc": 2843
+          },
+          {
+            "file": "packages/core/src/modules/sales/data/entities.ts",
+            "loc": 1985
+          }
+        ]
+      },
+      "routeShell": {
+        "files": 1,
+        "loc": 10,
+        "bytes": 251,
+        "useClientFiles": 0,
+        "heavyHits": 0,
+        "dynamicImports": 1,
+        "rootLoc": 10,
+        "top": [
+          {
+            "file": "packages/core/src/modules/sales/backend/sales/documents/[id]/page.tsx",
+            "loc": 10
+          }
+        ]
+      }
+    },
+    {
+      "entry": "packages/core/src/modules/catalog/backend/catalog/products/[id]/page.tsx",
+      "baseline": {
+        "files": 178,
+        "loc": 40222,
+        "bytes": 1402927,
+        "useClientFiles": 96,
+        "heavyHits": 4,
+        "dynamicImports": 12,
+        "rootLoc": 3181,
+        "top": [
+          {
+            "file": "packages/ui/src/backend/CrudForm.tsx",
+            "loc": 4238
+          },
+          {
+            "file": "packages/core/src/modules/catalog/backend/catalog/products/[id]/page.tsx",
+            "loc": 3181
+          },
+          {
+            "file": "packages/ui/src/primitives/rich-editor.tsx",
+            "loc": 1579
+          },
+          {
+            "file": "packages/ui/src/backend/custom-fields/FieldDefinitionsEditor.tsx",
+            "loc": 1447
+          },
+          {
+            "file": "packages/ui/src/backend/detail/NotesSection.tsx",
+            "loc": 1363
+          }
+        ]
+      },
+      "routeShell": {
+        "files": 1,
+        "loc": 10,
+        "bytes": 251,
+        "useClientFiles": 0,
+        "heavyHits": 0,
+        "dynamicImports": 1,
+        "rootLoc": 10,
+        "top": [
+          {
+            "file": "packages/core/src/modules/catalog/backend/catalog/products/[id]/page.tsx",
+            "loc": 10
+          }
+        ]
+      }
+    },
+    {
+      "entry": "packages/core/src/modules/catalog/backend/catalog/products/create/page.tsx",
+      "baseline": {
+        "files": 109,
+        "loc": 24641,
+        "bytes": 869401,
+        "useClientFiles": 56,
+        "heavyHits": 2,
+        "dynamicImports": 12,
+        "rootLoc": 2085,
+        "top": [
+          {
+            "file": "packages/ui/src/backend/CrudForm.tsx",
+            "loc": 4238
+          },
+          {
+            "file": "packages/core/src/modules/catalog/backend/catalog/products/create/page.tsx",
+            "loc": 2085
+          },
+          {
+            "file": "packages/ui/src/primitives/rich-editor.tsx",
+            "loc": 1579
+          },
+          {
+            "file": "packages/ui/src/backend/custom-fields/FieldDefinitionsEditor.tsx",
+            "loc": 1447
+          },
+          {
+            "file": "packages/ui/src/primitives/time-picker.tsx",
+            "loc": 1060
+          }
+        ]
+      },
+      "routeShell": {
+        "files": 1,
+        "loc": 10,
+        "bytes": 251,
+        "useClientFiles": 0,
+        "heavyHits": 0,
+        "dynamicImports": 1,
+        "rootLoc": 10,
+        "top": [
+          {
+            "file": "packages/core/src/modules/catalog/backend/catalog/products/create/page.tsx",
+            "loc": 10
+          }
+        ]
+      }
+    },
+    {
+      "entry": "packages/core/src/modules/integrations/backend/integrations/[id]/page.tsx",
+      "baseline": {
+        "files": 158,
+        "loc": 34794,
+        "bytes": 1233100,
+        "useClientFiles": 91,
+        "heavyHits": 3,
+        "dynamicImports": 12,
+        "rootLoc": 1326,
+        "top": [
+          {
+            "file": "packages/ui/src/backend/CrudForm.tsx",
+            "loc": 4238
+          },
+          {
+            "file": "packages/ui/src/primitives/rich-editor.tsx",
+            "loc": 1579
+          },
+          {
+            "file": "packages/ui/src/backend/custom-fields/FieldDefinitionsEditor.tsx",
+            "loc": 1447
+          },
+          {
+            "file": "packages/ui/src/backend/detail/NotesSection.tsx",
+            "loc": 1363
+          },
+          {
+            "file": "packages/core/src/modules/integrations/backend/integrations/[id]/page.tsx",
+            "loc": 1326
+          }
+        ]
+      },
+      "routeShell": {
+        "files": 1,
+        "loc": 10,
+        "bytes": 251,
+        "useClientFiles": 0,
+        "heavyHits": 0,
+        "dynamicImports": 1,
+        "rootLoc": 10,
+        "top": [
+          {
+            "file": "packages/core/src/modules/integrations/backend/integrations/[id]/page.tsx",
+            "loc": 10
+          }
+        ]
+      }
+    },
+    {
+      "entry": "packages/core/src/modules/workflows/backend/definitions/visual-editor/page.tsx",
+      "baseline": {
+        "files": 192,
+        "loc": 44156,
+        "bytes": 1578668,
+        "useClientFiles": 113,
+        "heavyHits": 21,
+        "dynamicImports": 13,
+        "rootLoc": 1076,
+        "top": [
+          {
+            "file": "packages/ui/src/backend/CrudForm.tsx",
+            "loc": 4238
+          },
+          {
+            "file": "packages/ui/src/primitives/rich-editor.tsx",
+            "loc": 1579
+          },
+          {
+            "file": "packages/ui/src/backend/custom-fields/FieldDefinitionsEditor.tsx",
+            "loc": 1447
+          },
+          {
+            "file": "packages/core/src/modules/workflows/components/NodeEditDialog.tsx",
+            "loc": 1434
+          },
+          {
+            "file": "packages/ui/src/backend/detail/NotesSection.tsx",
+            "loc": 1363
+          }
+        ]
+      },
+      "routeShell": {
+        "files": 1,
+        "loc": 10,
+        "bytes": 251,
+        "useClientFiles": 0,
+        "heavyHits": 0,
+        "dynamicImports": 1,
+        "rootLoc": 10,
+        "top": [
+          {
+            "file": "packages/core/src/modules/workflows/backend/definitions/visual-editor/page.tsx",
+            "loc": 10
+          }
+        ]
+      }
+    },
+    {
+      "entry": "packages/core/src/modules/customers/backend/customers/deals/page.tsx",
+      "baseline": {
+        "files": 109,
+        "loc": 20946,
+        "bytes": 745632,
+        "useClientFiles": 55,
+        "heavyHits": 4,
+        "dynamicImports": 9,
+        "rootLoc": 1123,
+        "top": [
+          {
+            "file": "packages/ui/src/backend/DataTable.tsx",
+            "loc": 2916
+          },
+          {
+            "file": "packages/core/src/modules/customers/backend/customers/deals/page.tsx",
+            "loc": 1123
+          },
+          {
+            "file": "packages/ui/src/backend/filters/AdvancedFilterBuilder.tsx",
+            "loc": 969
+          },
+          {
+            "file": "packages/shared/src/modules/widgets/injection-loader.ts",
+            "loc": 554
+          },
+          {
+            "file": "packages/shared/src/lib/query/advanced-filter.ts",
+            "loc": 522
+          }
+        ]
+      },
+      "routeShell": {
+        "files": 1,
+        "loc": 10,
+        "bytes": 251,
+        "useClientFiles": 0,
+        "heavyHits": 0,
+        "dynamicImports": 1,
+        "rootLoc": 10,
+        "top": [
+          {
+            "file": "packages/core/src/modules/customers/backend/customers/deals/page.tsx",
+            "loc": 10
+          }
+        ]
+      }
+    },
+    {
+      "entry": "packages/core/src/modules/data_sync/backend/data-sync/page.tsx",
+      "baseline": {
+        "files": 96,
+        "loc": 18513,
+        "bytes": 659725,
+        "useClientFiles": 45,
+        "heavyHits": 4,
+        "dynamicImports": 9,
+        "rootLoc": 1023,
+        "top": [
+          {
+            "file": "packages/ui/src/backend/DataTable.tsx",
+            "loc": 2916
+          },
+          {
+            "file": "packages/core/src/modules/data_sync/backend/data-sync/page.tsx",
+            "loc": 1023
+          },
+          {
+            "file": "packages/ui/src/backend/filters/AdvancedFilterBuilder.tsx",
+            "loc": 969
+          },
+          {
+            "file": "packages/shared/src/modules/widgets/injection-loader.ts",
+            "loc": 554
+          },
+          {
+            "file": "packages/shared/src/lib/query/advanced-filter.ts",
+            "loc": 522
+          }
+        ]
+      },
+      "routeShell": {
+        "files": 1,
+        "loc": 10,
+        "bytes": 251,
+        "useClientFiles": 0,
+        "heavyHits": 0,
+        "dynamicImports": 1,
+        "rootLoc": 10,
+        "top": [
+          {
+            "file": "packages/core/src/modules/data_sync/backend/data-sync/page.tsx",
+            "loc": 10
+          }
+        ]
+      }
+    },
+    {
+      "entry": "packages/core/src/modules/customers/backend/customers/people/page.tsx",
+      "baseline": {
+        "files": 109,
+        "loc": 20826,
+        "bytes": 741438,
+        "useClientFiles": 55,
+        "heavyHits": 4,
+        "dynamicImports": 9,
+        "rootLoc": 1003,
+        "top": [
+          {
+            "file": "packages/ui/src/backend/DataTable.tsx",
+            "loc": 2916
+          },
+          {
+            "file": "packages/core/src/modules/customers/backend/customers/people/page.tsx",
+            "loc": 1003
+          },
+          {
+            "file": "packages/ui/src/backend/filters/AdvancedFilterBuilder.tsx",
+            "loc": 969
+          },
+          {
+            "file": "packages/shared/src/modules/widgets/injection-loader.ts",
+            "loc": 554
+          },
+          {
+            "file": "packages/shared/src/lib/query/advanced-filter.ts",
+            "loc": 522
+          }
+        ]
+      },
+      "routeShell": {
+        "files": 1,
+        "loc": 10,
+        "bytes": 251,
+        "useClientFiles": 0,
+        "heavyHits": 0,
+        "dynamicImports": 1,
+        "rootLoc": 10,
+        "top": [
+          {
+            "file": "packages/core/src/modules/customers/backend/customers/people/page.tsx",
+            "loc": 10
+          }
+        ]
+      }
+    },
+    {
+      "entry": "packages/core/src/modules/customers/backend/customers/companies/page.tsx",
+      "baseline": {
+        "files": 109,
+        "loc": 20799,
+        "bytes": 740222,
+        "useClientFiles": 55,
+        "heavyHits": 4,
+        "dynamicImports": 9,
+        "rootLoc": 976,
+        "top": [
+          {
+            "file": "packages/ui/src/backend/DataTable.tsx",
+            "loc": 2916
+          },
+          {
+            "file": "packages/core/src/modules/customers/backend/customers/companies/page.tsx",
+            "loc": 976
+          },
+          {
+            "file": "packages/ui/src/backend/filters/AdvancedFilterBuilder.tsx",
+            "loc": 969
+          },
+          {
+            "file": "packages/shared/src/modules/widgets/injection-loader.ts",
+            "loc": 554
+          },
+          {
+            "file": "packages/shared/src/lib/query/advanced-filter.ts",
+            "loc": 522
+          }
+        ]
+      },
+      "routeShell": {
+        "files": 1,
+        "loc": 10,
+        "bytes": 251,
+        "useClientFiles": 0,
+        "heavyHits": 0,
+        "dynamicImports": 1,
+        "rootLoc": 10,
+        "top": [
+          {
+            "file": "packages/core/src/modules/customers/backend/customers/companies/page.tsx",
+            "loc": 10
+          }
+        ]
+      }
+    }
+  ]
+}

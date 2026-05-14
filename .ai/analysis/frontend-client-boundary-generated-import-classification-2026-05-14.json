@@ -1,0 +1,386 @@
+{
+  "apps/mercato/.mercato/generated/modules.runtime.generated.ts": {
+    "total": 1657,
+    "unique": 1284,
+    "counts": {
+      "external": 10,
+      "shared": 24,
+      "core-module": 1278,
+      "open-mercato-other": 218,
+      "package-module": 43,
+      "relative": 84
+    },
+    "examples": {
+      "external": [
+        "react",
+        ", queue: ",
+        ", concurrency: 5, handler: createLazyModuleWorker(() => import(",
+        "), ",
+        ") }, { id: ",
+        ", metadata: {",
+        ", concurrency: 1, handler: createLazyModuleWorker(() => import(",
+        ") }],\n      \n      customFieldSets: [],\n      \n      \n      setup: (SETUP_sync_akeneo_1540.default ?? SETUP_sync_akeneo_1540.setup) || undefined,\n      \n      integrations: (( INTEGRATION_sync_akeneo_1541.integrations ?? (INTEGRATION_sync_akeneo_1541.integration ? [INTEGRATION_sync_akeneo_1541.integration] : []) ) as import("
+      ],
+      "shared": [
+        "@open-mercato/shared/modules/registry",
+        "@open-mercato/shared/modules/encryption",
+        "@open-mercato/shared/modules/entities",
+        "@open-mercato/shared/modules/integrations/types"
+      ],
+      "core-module": [
+        "@open-mercato/core/modules/dashboards/index",
+        "@open-mercato/core/modules/dashboards/acl",
+        "@open-mercato/core/modules/dashboards/setup",
+        "@open-mercato/core/modules/dashboards/i18n/de.json",
+        "@open-mercato/core/modules/dashboards/i18n/en.json",
+        "@open-mercato/core/modules/dashboards/i18n/es.json",
+        "@open-mercato/core/modules/dashboards/i18n/pl.json",
+        "@open-mercato/core/modules/auth/index",
+        "@open-mercato/core/modules/auth/frontend/reset/[token]/page",
+        "@open-mercato/core/modules/auth/frontend/login",
+        "@open-mercato/core/modules/auth/frontend/reset",
+        "@open-mercato/core/modules/auth/acl",
+        "@open-mercato/core/modules/auth/setup",
+        "@open-mercato/core/modules/auth/encryption",
+        "@open-mercato/core/modules/auth/backend/auth/profile/page.meta",
+        "@open-mercato/core/modules/auth/backend/profile/change-password/page.meta",
+        "@open-mercato/core/modules/auth/backend/profile/page.meta",
+        "@open-mercato/core/modules/auth/backend/roles/create/page.meta",
+        "@open-mercato/core/modules/auth/backend/roles/page.meta",
+        "@open-mercato/core/modules/auth/backend/settings/page.meta",
+        "@open-mercato/core/modules/auth/backend/sidebar-customization/page.meta",
+        "@open-mercato/core/modules/auth/backend/users/create/page.meta",
+        "@open-mercato/core/modules/auth/backend/users/page.meta",
+        "@open-mercato/core/modules/auth/backend/roles/[id]/edit/page.meta",
+        "@open-mercato/core/modules/auth/backend/users/[id]/edit/page.meta"
+      ],
+      "open-mercato-other": [
+        "@open-mercato/content/modules/content/index",
+        "@open-mercato/content/modules/content/frontend/privacy/page.meta",
+        "@open-mercato/content/modules/content/frontend/terms/page.meta",
+        "@open-mercato/onboarding/modules/onboarding/index",
+        "@open-mercato/onboarding/modules/onboarding/frontend/onboarding/page",
+        "@open-mercato/onboarding/modules/onboarding/frontend/onboarding/preparing/page",
+        "@open-mercato/onboarding/modules/onboarding/acl",
+        "@open-mercato/onboarding/modules/onboarding/encryption",
+        "@open-mercato/onboarding/modules/onboarding/i18n/de.json",
+        "@open-mercato/onboarding/modules/onboarding/i18n/en.json",
+        "@open-mercato/onboarding/modules/onboarding/i18n/es.json",
+        "@open-mercato/onboarding/modules/onboarding/i18n/pl.json",
+        "@open-mercato/search/modules/search/index",
+        "@open-mercato/search/modules/search/acl",
+        "@open-mercato/search/modules/search/setup",
+        "@open-mercato/search/modules/search/encryption",
+        "@open-mercato/search/modules/search/backend/config/search/page.meta",
+        "@open-mercato/search/modules/search/i18n/de.json",
+        "@open-mercato/search/modules/search/i18n/en.json",
+        "@open-mercato/search/modules/search/i18n/es.json",
+        "@open-mercato/search/modules/search/i18n/pl.json",
+        "@open-mercato/events/modules/events/index",
+        "@open-mercato/ai-assistant/modules/ai_assistant/index",
+        "@open-mercato/ai-assistant/modules/ai_assistant/acl",
+        "@open-mercato/ai-assistant/modules/ai_assistant/setup"
+      ],
+      "package-module": [
+        "@open-mercato/webhooks/modules/webhooks/index",
+        "@open-mercato/webhooks/modules/webhooks/acl",
+        "@open-mercato/webhooks/modules/webhooks/setup",
+        "@open-mercato/webhooks/modules/webhooks/encryption",
+        "@open-mercato/webhooks/modules/webhooks/integration",
+        "@open-mercato/webhooks/modules/webhooks/backend/webhooks/create/page.meta",
+        "@open-mercato/webhooks/modules/webhooks/backend/webhooks/page.meta",
+        "@open-mercato/webhooks/modules/webhooks/backend/webhooks/[id]/page.meta",
+        "@open-mercato/webhooks/modules/webhooks/i18n/de.json",
+        "@open-mercato/webhooks/modules/webhooks/i18n/en.json",
+        "@open-mercato/webhooks/modules/webhooks/i18n/es.json",
+        "@open-mercato/webhooks/modules/webhooks/i18n/pl.json",
+        "@open-mercato/webhooks/modules/webhooks/backend/webhooks/create/page",
+        "@open-mercato/webhooks/modules/webhooks/backend/webhooks/page",
+        "@open-mercato/webhooks/modules/webhooks/backend/webhooks/[id]/page",
+        "@open-mercato/webhooks/modules/webhooks/api/deliveries/route",
+        "@open-mercato/webhooks/modules/webhooks/api/events/route",
+        "@open-mercato/webhooks/modules/webhooks/api/route",
+        "@open-mercato/webhooks/modules/webhooks/api/webhook-deliveries/route",
+        "@open-mercato/webhooks/modules/webhooks/api/webhooks/route",
+        "@open-mercato/webhooks/modules/webhooks/api/[id]/rotate-secret/route",
+        "@open-mercato/webhooks/modules/webhooks/api/[id]/route",
+        "@open-mercato/webhooks/modules/webhooks/api/[id]/test/route",
+        "@open-mercato/webhooks/modules/webhooks/api/deliveries/[id]/retry/route",
+        "@open-mercato/webhooks/modules/webhooks/api/deliveries/[id]/route"
+      ],
+      "relative": [
+        "../../src/modules/champion_crm/index",
+        "../../src/modules/champion_crm/setup",
+        "../../src/modules/champion_crm/backend/page.meta",
+        "../../src/modules/example/index",
+        "../../src/modules/example/frontend/blog/[id]/page",
+        "../../src/modules/example/frontend/example",
+        "../../src/modules/example/acl",
+        "../../src/modules/example/ce",
+        "../../src/modules/example/setup",
+        "../../src/modules/example/backend/mutation-lifecycle/page.meta",
+        "../../src/modules/example/backend/page.meta",
+        "../../src/modules/example/backend/payments/page.meta",
+        "../../src/modules/example/backend/products/page.meta",
+        "../../src/modules/example/backend/todos/create/page.meta",
+        "../../src/modules/example/backend/todos/page.meta",
+        "../../src/modules/example/backend/umes-extensions/page.meta",
+        "../../src/modules/example/backend/umes-handlers/page.meta",
+        "../../src/modules/example/backend/umes-integrations/page.meta",
+        "../../src/modules/example/backend/umes-next-phases/page.meta",
+        "../../src/modules/example/backend/umes-query-extensions/page.meta",
+        "../../src/modules/example/backend/blog/[id]/page",
+        "../../src/modules/example/backend/todos/[id]/edit/page.meta",
+        "../../src/modules/example/i18n/de.json",
+        "../../src/modules/example/i18n/en.json",
+        "../../src/modules/example/i18n/es.json"
+      ]
+    }
+  },
+  "apps/mercato/.mercato/generated/backend-routes.generated.ts": {
+    "total": 295,
+    "unique": 295,
+    "counts": {
+      "shared": 1,
+      "core-module": 235,
+      "open-mercato-other": 30,
+      "package-module": 4,
+      "relative": 25
+    },
+    "examples": {
+      "shared": [
+        "@open-mercato/shared/modules/registry"
+      ],
+      "core-module": [
+        "@open-mercato/core/modules/auth/backend/roles/create/page.meta",
+        "@open-mercato/core/modules/auth/backend/roles/page.meta",
+        "@open-mercato/core/modules/auth/backend/settings/page.meta",
+        "@open-mercato/core/modules/auth/backend/sidebar-customization/page.meta",
+        "@open-mercato/core/modules/auth/backend/users/create/page.meta",
+        "@open-mercato/core/modules/auth/backend/users/page.meta",
+        "@open-mercato/core/modules/directory/backend/directory/organizations/page.meta",
+        "@open-mercato/core/modules/directory/backend/directory/tenants/page.meta",
+        "@open-mercato/core/modules/customers/backend/config/customers/page.meta",
+        "@open-mercato/core/modules/customers/backend/customer-tasks/page.meta",
+        "@open-mercato/core/modules/customers/backend/customers/companies/create/page.meta",
+        "@open-mercato/core/modules/customers/backend/customers/companies/page.meta",
+        "@open-mercato/core/modules/customers/backend/customers/deals/create/page.meta",
+        "@open-mercato/core/modules/customers/backend/customers/deals/page.meta",
+        "@open-mercato/core/modules/customers/backend/customers/deals/pipeline/page.meta",
+        "@open-mercato/core/modules/customers/backend/customers/people/create/page.meta",
+        "@open-mercato/core/modules/customers/backend/customers/people/page.meta",
+        "@open-mercato/core/modules/entities/backend/config/encryption/page.meta",
+        "@open-mercato/core/modules/entities/backend/entities/system/page.meta",
+        "@open-mercato/core/modules/entities/backend/entities/user/create/page.meta",
+        "@open-mercato/core/modules/entities/backend/entities/user/page.meta",
+        "@open-mercato/core/modules/configs/backend/config/cache/page.meta",
+        "@open-mercato/core/modules/configs/backend/config/system-status/page.meta",
+        "@open-mercato/core/modules/query_index/backend/query-indexes/page.meta",
+        "@open-mercato/core/modules/audit_logs/backend/audit-logs/page.meta"
+      ],
+      "open-mercato-other": [
+        "@open-mercato/search/modules/search/backend/config/search/page.meta",
+        "@open-mercato/ai-assistant/modules/ai_assistant/backend/config/ai-assistant/agents/page.meta",
+        "@open-mercato/ai-assistant/modules/ai_assistant/backend/config/ai-assistant/allowlist/page.meta",
+        "@open-mercato/ai-assistant/modules/ai_assistant/backend/config/ai-assistant/legacy/page.meta",
+        "@open-mercato/ai-assistant/modules/ai_assistant/backend/config/ai-assistant/playground/page.meta",
+        "@open-mercato/ai-assistant/modules/ai_assistant/backend/config/ai-assistant/settings/page.meta",
+        "@open-mercato/ai-assistant/modules/ai_assistant/backend/config/ai-assistant/usage/page.meta",
+        "@open-mercato/scheduler/modules/scheduler/backend/config/scheduled-jobs/page.meta",
+        "@open-mercato/search/modules/search/backend/config/search/page",
+        "@open-mercato/ai-assistant/modules/ai_assistant/backend/config/ai-assistant/agents/page",
+        "@open-mercato/ai-assistant/modules/ai_assistant/backend/config/ai-assistant/allowlist/page",
+        "@open-mercato/ai-assistant/modules/ai_assistant/backend/config/ai-assistant/legacy/page",
+        "@open-mercato/ai-assistant/modules/ai_assistant/backend/config/ai-assistant/page",
+        "@open-mercato/ai-assistant/modules/ai_assistant/backend/config/ai-assistant/playground/page",
+        "@open-mercato/ai-assistant/modules/ai_assistant/backend/config/ai-assistant/settings/page",
+        "@open-mercato/ai-assistant/modules/ai_assistant/backend/config/ai-assistant/usage/page",
+        "@open-mercato/scheduler/modules/scheduler/backend/config/scheduled-jobs/new/page",
+        "@open-mercato/scheduler/modules/scheduler/backend/config/scheduled-jobs/page",
+        "@open-mercato/scheduler/modules/scheduler/backend/config/scheduled-jobs/[id]/edit/page",
+        "@open-mercato/scheduler/modules/scheduler/backend/config/scheduled-jobs/[id]/page",
+        "@open-mercato/checkout/modules/checkout/backend/checkout/pay-links/create/page",
+        "@open-mercato/checkout/modules/checkout/backend/checkout/pay-links/page",
+        "@open-mercato/checkout/modules/checkout/backend/checkout/templates/create/page",
+        "@open-mercato/checkout/modules/checkout/backend/checkout/templates/page",
+        "@open-mercato/checkout/modules/checkout/backend/checkout/transactions/page"
+      ],
+      "package-module": [
+        "@open-mercato/webhooks/modules/webhooks/backend/webhooks/page.meta",
+        "@open-mercato/webhooks/modules/webhooks/backend/webhooks/create/page",
+        "@open-mercato/webhooks/modules/webhooks/backend/webhooks/page",
+        "@open-mercato/webhooks/modules/webhooks/backend/webhooks/[id]/page"
+      ],
+      "relative": [
+        "../../src/modules/champion_crm/backend/page.meta",
+        "../../src/modules/example/backend/mutation-lifecycle/page.meta",
+        "../../src/modules/example/backend/page.meta",
+        "../../src/modules/example/backend/payments/page.meta",
+        "../../src/modules/example/backend/todos/create/page.meta",
+        "../../src/modules/example/backend/todos/page.meta",
+        "../../src/modules/example/backend/umes-extensions/page.meta",
+        "../../src/modules/example/backend/umes-handlers/page.meta",
+        "../../src/modules/example/backend/umes-integrations/page.meta",
+        "../../src/modules/example/backend/umes-next-phases/page.meta",
+        "../../src/modules/example/backend/umes-query-extensions/page.meta",
+        "../../src/modules/champion_crm/backend/page",
+        "../../src/modules/example/backend/mutation-lifecycle/page",
+        "../../src/modules/example/backend/page",
+        "../../src/modules/example/backend/payments/page",
+        "../../src/modules/example/backend/products/page",
+        "../../src/modules/example/backend/todos/create/page",
+        "../../src/modules/example/backend/todos/page",
+        "../../src/modules/example/backend/umes-extensions/page",
+        "../../src/modules/example/backend/umes-handlers/page",
+        "../../src/modules/example/backend/umes-integrations/page",
+        "../../src/modules/example/backend/umes-next-phases/page",
+        "../../src/modules/example/backend/umes-query-extensions/page",
+        "../../src/modules/example/backend/blog/[id]/page",
+        "../../src/modules/example/backend/todos/[id]/edit/page"
+      ]
+    }
+  },
+  "apps/mercato/.mercato/generated/messages.client.generated.ts": {
+    "total": 16,
+    "unique": 16,
+    "counts": {
+      "external": 1,
+      "shared": 1,
+      "core-module": 13,
+      "relative": 1
+    },
+    "examples": {
+      "external": [
+        "react"
+      ],
+      "shared": [
+        "@open-mercato/shared/modules/messages/types"
+      ],
+      "core-module": [
+        "@open-mercato/core/modules/messages/lib/message-objects-registry",
+        "@open-mercato/core/modules/messages/components/utils/typeUiRegistry",
+        "@open-mercato/core/modules/staff/message-types",
+        "@open-mercato/core/modules/messages/message-types",
+        "@open-mercato/core/modules/inbox_ops/message-types",
+        "@open-mercato/core/modules/customers/message-objects",
+        "@open-mercato/core/modules/catalog/message-objects",
+        "@open-mercato/core/modules/sales/message-objects",
+        "@open-mercato/core/modules/currencies/message-objects",
+        "@open-mercato/core/modules/resources/message-objects",
+        "@open-mercato/core/modules/staff/message-objects",
+        "@open-mercato/core/modules/messages/message-objects",
+        "@open-mercato/core/modules/inbox_ops/message-objects"
+      ],
+      "relative": [
+        "../../src/modules/example/message-objects"
+      ]
+    }
+  },
+  "apps/mercato/.mercato/generated/injection-widgets.generated.ts": {
+    "total": 39,
+    "unique": 39,
+    "counts": {
+      "shared": 1,
+      "core-module": 17,
+      "open-mercato-other": 4,
+      "relative": 15,
+      "package-module": 2
+    },
+    "examples": {
+      "shared": [
+        "@open-mercato/shared/modules/registry"
+      ],
+      "core-module": [
+        "@open-mercato/core/modules/catalog/widgets/injection/merchandising-assistant-trigger/widget",
+        "@open-mercato/core/modules/catalog/widgets/injection/product-bulk-delete/widget",
+        "@open-mercato/core/modules/catalog/widgets/injection/product-seo/widget",
+        "@open-mercato/core/modules/customer_accounts/widgets/injection/account-status/widget",
+        "@open-mercato/core/modules/customer_accounts/widgets/injection/company-users/widget",
+        "@open-mercato/core/modules/customer_accounts/widgets/injection/portal-ai-assistant-trigger/widget",
+        "@open-mercato/core/modules/customers/widgets/injection/ai-assistant-trigger/widget",
+        "@open-mercato/core/modules/customers/widgets/injection/ai-deal-analyzer-trigger/widget",
+        "@open-mercato/core/modules/customers/widgets/injection/ai-deal-detail-trigger/widget",
+        "@open-mercato/core/modules/sales/widgets/injection/document-history/widget",
+        "@open-mercato/core/modules/sales/widgets/injection/payment-gateway-config-field/widget",
+        "@open-mercato/core/modules/sales/widgets/injection/payment-gateway-status-column/widget",
+        "@open-mercato/core/modules/shipping_carriers/widgets/injection/create-shipment-button/widget",
+        "@open-mercato/core/modules/shipping_carriers/widgets/injection/tracking-column/widget",
+        "@open-mercato/core/modules/shipping_carriers/widgets/injection/tracking-status-badge/widget",
+        "@open-mercato/core/modules/translations/widgets/injection/translation-manager/widget",
+        "@open-mercato/core/modules/workflows/widgets/injection/order-approval/widget"
+      ],
+      "open-mercato-other": [
+        "@open-mercato/checkout/modules/checkout/widgets/injection/gateway-transaction-link/widget",
+        "@open-mercato/checkout/modules/checkout/widgets/injection/payment-gateway-toolbar-link/widget",
+        "@open-mercato/gateway-stripe/modules/gateway_stripe/widgets/injection/stripe-config/widget",
+        "@open-mercato/sync-akeneo/modules/sync_akeneo/widgets/injection/akeneo-config/widget"
+      ],
+      "relative": [
+        "../../src/modules/example/widgets/injection/catalog-seo-report/widget",
+        "../../src/modules/example/widgets/injection/crud-validation-addon/widget",
+        "../../src/modules/example/widgets/injection/crud-validation/widget",
+        "../../src/modules/example/widgets/injection/customer-priority-bulk-actions/widget",
+        "../../src/modules/example/widgets/injection/customer-priority-column/widget",
+        "../../src/modules/example/widgets/injection/customer-priority-detail/widget",
+        "../../src/modules/example/widgets/injection/customer-priority-field/widget",
+        "../../src/modules/example/widgets/injection/customer-priority-filter/widget",
+        "../../src/modules/example/widgets/injection/customer-priority-row-action/widget",
+        "../../src/modules/example/widgets/injection/example-menus/widget",
+        "../../src/modules/example/widgets/injection/example-profile-menu/widget",
+        "../../src/modules/example/widgets/injection/portal-quick-links/widget",
+        "../../src/modules/example/widgets/injection/portal-recent-activity/widget",
+        "../../src/modules/example/widgets/injection/portal-stats/widget",
+        "../../src/modules/example/widgets/injection/sales-todos/widget"
+      ],
+      "package-module": [
+        "@open-mercato/webhooks/modules/webhooks/widgets/injection/integration-deliveries/widget",
+        "@open-mercato/webhooks/modules/webhooks/widgets/injection/integration-setup/widget"
+      ]
+    }
+  },
+  "apps/mercato/.mercato/generated/dashboard-widgets.generated.ts": {
+    "total": 20,
+    "unique": 20,
+    "counts": {
+      "shared": 1,
+      "core-module": 16,
+      "relative": 3
+    },
+    "examples": {
+      "shared": [
+        "@open-mercato/shared/modules/registry"
+      ],
+      "core-module": [
+        "@open-mercato/core/modules/customers/widgets/dashboard/customer-todos/widget",
+        "@open-mercato/core/modules/customers/widgets/dashboard/new-customers/widget",
+        "@open-mercato/core/modules/customers/widgets/dashboard/new-deals/widget",
+        "@open-mercato/core/modules/customers/widgets/dashboard/next-interactions/widget",
+        "@open-mercato/core/modules/dashboards/widgets/dashboard/aov-kpi/widget",
+        "@open-mercato/core/modules/dashboards/widgets/dashboard/new-customers-kpi/widget",
+        "@open-mercato/core/modules/dashboards/widgets/dashboard/orders-by-status/widget",
+        "@open-mercato/core/modules/dashboards/widgets/dashboard/orders-kpi/widget",
+        "@open-mercato/core/modules/dashboards/widgets/dashboard/pipeline-summary/widget",
+        "@open-mercato/core/modules/dashboards/widgets/dashboard/revenue-kpi/widget",
+        "@open-mercato/core/modules/dashboards/widgets/dashboard/revenue-trend/widget",
+        "@open-mercato/core/modules/dashboards/widgets/dashboard/sales-by-region/widget",
+        "@open-mercato/core/modules/dashboards/widgets/dashboard/top-customers/widget",
+        "@open-mercato/core/modules/dashboards/widgets/dashboard/top-products/widget",
+        "@open-mercato/core/modules/sales/widgets/dashboard/new-orders/widget",
+        "@open-mercato/core/modules/sales/widgets/dashboard/new-quotes/widget"
+      ],
+      "relative": [
+        "../../src/modules/example/widgets/dashboard/notes/widget",
+        "../../src/modules/example/widgets/dashboard/todos/widget",
+        "../../src/modules/example/widgets/dashboard/welcome/widget"
+      ]
+    }
+  },
+  "serverOnlyStringHits": [
+    {
+      "file": "apps/mercato/.mercato/generated/modules.runtime.generated.ts",
+      "hits": [
+        "@open-mercato/events"
+      ]
+    }
+  ]
+}

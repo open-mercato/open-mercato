@@ -1,0 +1,325 @@
+{
+  "createdAt": "2026-05-13T22:04:08.908Z",
+  "results": [
+    {
+      "entry": "packages/ui/src/backend/CrudForm.tsx",
+      "files": 94,
+      "loc": 20227,
+      "bytes": 713754,
+      "useClientFiles": 51,
+      "heavyHits": 1,
+      "dynamicImports": 12,
+      "selfLoc": 4238,
+      "top": [
+        {
+          "file": "packages/ui/src/backend/CrudForm.tsx",
+          "loc": 4238
+        },
+        {
+          "file": "packages/ui/src/primitives/rich-editor.tsx",
+          "loc": 1579
+        },
+        {
+          "file": "packages/ui/src/backend/custom-fields/FieldDefinitionsEditor.tsx",
+          "loc": 1447
+        },
+        {
+          "file": "packages/ui/src/primitives/time-picker.tsx",
+          "loc": 1060
+        },
+        {
+          "file": "packages/shared/src/modules/widgets/injection-loader.ts",
+          "loc": 554
+        }
+      ]
+    },
+    {
+      "entry": "packages/ui/src/backend/DataTable.tsx",
+      "files": 86,
+      "loc": 17059,
+      "bytes": 601469,
+      "useClientFiles": 40,
+      "heavyHits": 3,
+      "dynamicImports": 9,
+      "selfLoc": 2916,
+      "top": [
+        {
+          "file": "packages/ui/src/backend/DataTable.tsx",
+          "loc": 2916
+        },
+        {
+          "file": "packages/ui/src/backend/filters/AdvancedFilterBuilder.tsx",
+          "loc": 969
+        },
+        {
+          "file": "packages/shared/src/modules/widgets/injection-loader.ts",
+          "loc": 554
+        },
+        {
+          "file": "packages/shared/src/lib/query/advanced-filter.ts",
+          "loc": 522
+        },
+        {
+          "file": "packages/shared/src/modules/registry.ts",
+          "loc": 515
+        }
+      ]
+    },
+    {
+      "entry": "packages/core/src/modules/sales/components/documents/LineItemDialog.tsx",
+      "files": 166,
+      "loc": 34467,
+      "bytes": 1191098,
+      "useClientFiles": 64,
+      "heavyHits": 2,
+      "dynamicImports": 14,
+      "selfLoc": 2843,
+      "top": [
+        {
+          "file": "packages/ui/src/backend/CrudForm.tsx",
+          "loc": 4238
+        },
+        {
+          "file": "packages/core/src/modules/sales/components/documents/LineItemDialog.tsx",
+          "loc": 2843
+        },
+        {
+          "file": "packages/core/src/modules/sales/data/entities.ts",
+          "loc": 1985
+        },
+        {
+          "file": "packages/ui/src/primitives/rich-editor.tsx",
+          "loc": 1579
+        },
+        {
+          "file": "packages/ui/src/backend/custom-fields/FieldDefinitionsEditor.tsx",
+          "loc": 1447
+        }
+      ]
+    },
+    {
+      "entry": "packages/ui/src/primitives/rich-editor.tsx",
+      "files": 11,
+      "loc": 2286,
+      "bytes": 78434,
+      "useClientFiles": 5,
+      "heavyHits": 0,
+      "dynamicImports": 0,
+      "selfLoc": 1579,
+      "top": [
+        {
+          "file": "packages/ui/src/primitives/rich-editor.tsx",
+          "loc": 1579
+        },
+        {
+          "file": "packages/shared/src/lib/html/sanitizeRichText.ts",
+          "loc": 151
+        },
+        {
+          "file": "packages/ui/src/primitives/dialog.tsx",
+          "loc": 134
+        },
+        {
+          "file": "packages/ui/src/primitives/tooltip.tsx",
+          "loc": 130
+        },
+        {
+          "file": "packages/ui/src/primitives/input.tsx",
+          "loc": 82
+        }
+      ]
+    },
+    {
+      "entry": "packages/ui/src/backend/custom-fields/FieldDefinitionsEditor.tsx",
+      "files": 94,
+      "loc": 20227,
+      "bytes": 713754,
+      "useClientFiles": 51,
+      "heavyHits": 1,
+      "dynamicImports": 12,
+      "selfLoc": 1447,
+      "top": [
+        {
+          "file": "packages/ui/src/backend/CrudForm.tsx",
+          "loc": 4238
+        },
+        {
+          "file": "packages/ui/src/primitives/rich-editor.tsx",
+          "loc": 1579
+        },
+        {
+          "file": "packages/ui/src/backend/custom-fields/FieldDefinitionsEditor.tsx",
+          "loc": 1447
+        },
+        {
+          "file": "packages/ui/src/primitives/time-picker.tsx",
+          "loc": 1060
+        },
+        {
+          "file": "packages/shared/src/modules/widgets/injection-loader.ts",
+          "loc": 554
+        }
+      ]
+    },
+    {
+      "entry": "packages/ui/src/backend/detail/NotesSection.tsx",
+      "files": 51,
+      "loc": 8278,
+      "bytes": 287184,
+      "useClientFiles": 31,
+      "heavyHits": 1,
+      "dynamicImports": 0,
+      "selfLoc": 1363,
+      "top": [
+        {
+          "file": "packages/ui/src/primitives/rich-editor.tsx",
+          "loc": 1579
+        },
+        {
+          "file": "packages/ui/src/backend/detail/NotesSection.tsx",
+          "loc": 1363
+        },
+        {
+          "file": "packages/core/src/modules/dictionaries/components/dictionaryAppearance.tsx",
+          "loc": 515
+        },
+        {
+          "file": "packages/ui/src/backend/utils/serverErrors.ts",
+          "loc": 321
+        },
+        {
+          "file": "packages/ui/src/backend/operations/store.ts",
+          "loc": 300
+        }
+      ]
+    },
+    {
+      "entry": "packages/core/src/modules/workflows/components/NodeEditDialog.tsx",
+      "files": 35,
+      "loc": 6998,
+      "bytes": 254141,
+      "useClientFiles": 23,
+      "heavyHits": 2,
+      "dynamicImports": 0,
+      "selfLoc": 1434,
+      "top": [
+        {
+          "file": "packages/core/src/modules/workflows/components/NodeEditDialog.tsx",
+          "loc": 1434
+        },
+        {
+          "file": "packages/core/src/modules/workflows/lib/graph-utils.ts",
+          "loc": 659
+        },
+        {
+          "file": "packages/core/src/modules/workflows/data/entities.ts",
+          "loc": 565
+        },
+        {
+          "file": "packages/core/src/modules/workflows/components/fields/StartPreConditionsEditor.tsx",
+          "loc": 386
+        },
+        {
+          "file": "packages/ui/src/backend/JsonBuilder.tsx",
+          "loc": 380
+        }
+      ]
+    },
+    {
+      "entry": "packages/ui/src/backend/filters/AdvancedFilterBuilder.tsx",
+      "files": 15,
+      "loc": 2852,
+      "bytes": 104097,
+      "useClientFiles": 5,
+      "heavyHits": 0,
+      "dynamicImports": 2,
+      "selfLoc": 969,
+      "top": [
+        {
+          "file": "packages/ui/src/backend/filters/AdvancedFilterBuilder.tsx",
+          "loc": 969
+        },
+        {
+          "file": "packages/shared/src/lib/query/advanced-filter.ts",
+          "loc": 522
+        },
+        {
+          "file": "packages/shared/src/lib/query/advanced-filter-tree.ts",
+          "loc": 329
+        },
+        {
+          "file": "packages/ui/src/primitives/select.tsx",
+          "loc": 289
+        },
+        {
+          "file": "packages/ui/src/backend/filters/treeReducer.ts",
+          "loc": 202
+        }
+      ]
+    },
+    {
+      "entry": "packages/shared/src/modules/widgets/injection-loader.ts",
+      "files": 8,
+      "loc": 2098,
+      "bytes": 67169,
+      "useClientFiles": 0,
+      "heavyHits": 0,
+      "dynamicImports": 7,
+      "selfLoc": 554,
+      "top": [
+        {
+          "file": "packages/shared/src/modules/widgets/injection-loader.ts",
+          "loc": 554
+        },
+        {
+          "file": "packages/shared/src/modules/registry.ts",
+          "loc": 515
+        },
+        {
+          "file": "packages/shared/src/modules/widgets/injection.ts",
+          "loc": 471
+        },
+        {
+          "file": "packages/shared/src/modules/integrations/types.ts",
+          "loc": 263
+        },
+        {
+          "file": "packages/shared/src/modules/dashboard/widgets.ts",
+          "loc": 112
+        }
+      ]
+    },
+    {
+      "entry": "packages/ui/src/backend/messages/SendObjectMessageDialog.tsx",
+      "files": 128,
+      "loc": 24961,
+      "bytes": 873117,
+      "useClientFiles": 69,
+      "heavyHits": 2,
+      "dynamicImports": 12,
+      "selfLoc": null,
+      "top": [
+        {
+          "file": "packages/ui/src/backend/CrudForm.tsx",
+          "loc": 4238
+        },
+        {
+          "file": "packages/ui/src/primitives/rich-editor.tsx",
+          "loc": 1579
+        },
+        {
+          "file": "packages/ui/src/backend/custom-fields/FieldDefinitionsEditor.tsx",
+          "loc": 1447
+        },
+        {
+          "file": "packages/ui/src/primitives/time-picker.tsx",
+          "loc": 1060
+        },
+        {
+          "file": "packages/ui/src/backend/messages/useMessageCompose.ts",
+          "loc": 728
+        }
+      ]
+    }
+  ]
+}
