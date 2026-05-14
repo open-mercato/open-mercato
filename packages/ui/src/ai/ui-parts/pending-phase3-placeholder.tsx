@@ -1,7 +1,6 @@
 "use client"
 
 import * as React from 'react'
-import { Info } from 'lucide-react'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { Alert, AlertDescription, AlertTitle } from '../../primitives/alert'
 import type { AiUiPartProps } from '../ui-part-registry'
@@ -27,7 +26,6 @@ export function PendingPhase3Placeholder({ componentId }: AiUiPartProps) {
       variant="info"
       data-ai-ui-part-pending-phase3={componentId}
     >
-      <Info className="size-4" aria-hidden />
       <AlertTitle>
         {t(
           'ai_assistant.chat.pending_phase3.title',

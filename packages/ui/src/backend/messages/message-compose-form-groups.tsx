@@ -3,6 +3,7 @@ import { FileCode, Globe, Lock } from 'lucide-react'
 import { type CrudField } from '../CrudForm'
 import { IconButton } from '../../primitives/icon-button'
 import { Input } from '../../primitives/input'
+import { EmailInput } from '../../primitives/email-input'
 import { Label } from '../../primitives/label'
 import {
   Select,
@@ -191,9 +192,8 @@ function ComposeModeFields({ compose }: ComposeProps) {
             {compose.visibility === 'public' ? (
               <>
                 <Label htmlFor="messages-compose-external-email">{compose.t('messages.externalEmail', 'External email')}</Label>
-                <Input
+                <EmailInput
                   id="messages-compose-external-email"
-                  type="email"
                   value={compose.externalEmail}
                   onChange={(event) => compose.setExternalEmail(event.target.value)}
                   placeholder={compose.t('messages.placeholders.externalEmail', 'name@example.com')}

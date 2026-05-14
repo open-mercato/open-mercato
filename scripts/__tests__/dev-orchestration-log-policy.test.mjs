@@ -10,6 +10,7 @@ import {
   isIgnorableTurboBannerLine,
   isIgnorableTurboCacheCancellationLine,
   isIgnorableTurboLine,
+  isIgnorableTurboShutdownLine,
   isIgnorableTurboSummaryLine,
 } from '../dev-orchestration-log-policy.mjs'
 
@@ -66,6 +67,14 @@ test('isIgnorableTurboCacheCancellationLine catches the cache flush message on C
   assert.equal(isIgnorableTurboCacheCancellationLine('^C    ...Cancelled'), false)
 })
 
+test('isIgnorableTurboShutdownLine catches Turbo shutdown chatter', () => {
+  assert.equal(isIgnorableTurboShutdownLine('^C'), true)
+  assert.equal(isIgnorableTurboShutdownLine('^C    ...Cancelled'), true)
+  assert.equal(isIgnorableTurboShutdownLine('received SIGTERM, shutting down'), true)
+  assert.equal(isIgnorableTurboShutdownLine('command interrupted'), true)
+  assert.equal(isIgnorableTurboShutdownLine('Error: turbo failed'), false)
+})
+
 test('isIgnorableFailureLine treats empty/whitespace and noise predicates as ignorable', () => {
   assert.equal(isIgnorableFailureLine(''), true)
   assert.equal(isIgnorableFailureLine('   '), true)
@@ -90,6 +99,8 @@ test('isIgnorableTurboLine treats empty/whitespace and turbo noise predicates as
   assert.equal(isIgnorableTurboLine('Time: 5.1s'), true)
   assert.equal(isIgnorableTurboLine('╭── error'), true)
   assert.equal(isIgnorableTurboLine('^C    ...Finishing writing to cache...'), true)
+  assert.equal(isIgnorableTurboLine('^C'), true)
+  assert.equal(isIgnorableTurboLine('command canceled'), true)
   // Real progress lines should NOT be filtered
   assert.equal(isIgnorableTurboLine('@open-mercato/core:build: building'), false)
   assert.equal(isIgnorableTurboLine('Error: turbo failed'), false)

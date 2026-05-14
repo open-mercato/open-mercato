@@ -1,6 +1,7 @@
 "use client"
 
 import * as React from 'react'
+import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { Button } from '../../primitives/button'
 
 export type ComboboxOption = {
@@ -14,8 +15,15 @@ export type ComboboxInputProps = {
   onChange: (next: string) => void
   placeholder?: string
   suggestions?: Array<string | ComboboxOption>
+  // Options to hydrate the option map up front (typically the linked entity's
+  // display fields, already present in a record-detail payload). Merged with
+  // `suggestions` so a pre-selected value renders its label without interaction.
+  seedOptions?: ComboboxOption[]
   loadSuggestions?: (query?: string) => Promise<Array<string | ComboboxOption>>
-  resolveLabel?: (value: string) => string
+  // Eagerly resolve a pre-selected `value` to a human label when it is not
+  // covered by `suggestions`/`seedOptions`/`loadSuggestions` results. Runs once
+  // per value, before any user interaction. May be sync or async.
+  resolveLabel?: (value: string) => string | Promise<string>
   resolveDescription?: (value: string) => string | null | undefined
   autoFocus?: boolean
   disabled?: boolean
@@ -42,11 +50,22 @@ function normalizeOptions(input?: Array<string | ComboboxOption>): ComboboxOptio
     .filter((option): option is ComboboxOption => !!option)
 }
 
+function areOptionsEqual(a: ComboboxOption[], b: ComboboxOption[]): boolean {
+  if (a.length !== b.length) return false
+  return a.every((option, index) => {
+    const next = b[index]
+    return option.value === next.value
+      && option.label === next.label
+      && (option.description ?? null) === (next.description ?? null)
+  })
+}
+
 export function ComboboxInput({
   value,
   onChange,
   placeholder,
   suggestions,
+  seedOptions,
   loadSuggestions,
   resolveLabel,
   resolveDescription,
@@ -54,37 +73,67 @@ export function ComboboxInput({
   disabled = false,
   allowCustomValues = true,
 }: ComboboxInputProps) {
+  const t = useT()
+  const resolvedPlaceholder = placeholder ?? t('ui.inputs.comboboxInput.placeholder', 'Type to search...')
+  const loadingLabel = t('ui.inputs.comboboxInput.loading', 'Loading suggestions…')
   const [input, setInput] = React.useState('')
   const [asyncOptions, setAsyncOptions] = React.useState<ComboboxOption[]>([])
+  const [resolvedOptions, setResolvedOptions] = React.useState<ComboboxOption[]>([])
   const [loading, setLoading] = React.useState(false)
   const [touched, setTouched] = React.useState(false)
   const [showSuggestions, setShowSuggestions] = React.useState(false)
   const [selectedIndex, setSelectedIndex] = React.useState(-1)
   const inputRef = React.useRef<HTMLInputElement>(null)
+  const suppressOpenOnFocusRef = React.useRef(Boolean(autoFocus && !disabled))
+  const eagerFallbackLoadedValueRef = React.useRef<string | null>(null)
 
-  const staticOptions = React.useMemo(() => normalizeOptions(suggestions), [suggestions])
+  const staticOptions = React.useMemo(
+    () => normalizeOptions([...(seedOptions ?? []), ...(suggestions ?? [])]),
+    [seedOptions, suggestions]
+  )
+
+  // Options whose label is genuinely known (not a self-mapping `value === label`
+  // placeholder). Used to decide whether eager resolution still needs to run.
+  const knownLabelValues = React.useMemo(() => {
+    const set = new Set<string>()
+    for (const option of [...staticOptions, ...asyncOptions, ...resolvedOptions]) {
+      if (option.label && option.label !== option.value) set.add(option.value)
+    }
+    return set
+  }, [staticOptions, asyncOptions, resolvedOptions])
+
+  const coveredOptionValues = React.useMemo(() => {
+    const set = new Set<string>()
+    for (const option of [...staticOptions, ...asyncOptions, ...resolvedOptions]) {
+      set.add(option.value)
+    }
+    return set
+  }, [staticOptions, asyncOptions, resolvedOptions])
 
   const optionMap = React.useMemo(() => {
     const map = new Map<string, ComboboxOption>()
     const register = (option: ComboboxOption) => {
-      if (!map.has(option.value)) {
+      const existing = map.get(option.value)
+      // Prefer an entry that carries a real label over a self-mapping placeholder.
+      if (!existing || (existing.label === existing.value && option.label !== option.value)) {
         map.set(option.value, option)
       }
     }
     staticOptions.forEach(register)
     asyncOptions.forEach(register)
+    resolvedOptions.forEach(register)
     if (value) {
       const existing = map.get(value)
       if (!existing) {
         map.set(value, {
           value,
-          label: resolveLabel?.(value) ?? value,
+          label: value,
           description: resolveDescription?.(value) ?? null,
         })
       }
     }
     return map
-  }, [asyncOptions, resolveDescription, resolveLabel, staticOptions, value])
+  }, [asyncOptions, resolvedOptions, resolveDescription, staticOptions, value])
 
   const availableOptions = React.useMemo(() => {
     return Array.from(optionMap.values())
@@ -109,7 +158,8 @@ export function ComboboxInput({
       try {
         const items = await loadSuggestions(query)
         if (!cancelled) {
-          setAsyncOptions(normalizeOptions(items))
+          const normalized = normalizeOptions(items)
+          setAsyncOptions((prev) => areOptionsEqual(prev, normalized) ? prev : normalized)
         }
       } finally {
         if (!cancelled) setLoading(false)
@@ -121,7 +171,50 @@ export function ComboboxInput({
     }
   }, [disabled, input, loadSuggestions, touched])
 
-  // Sync input with value when value changes externally and input is not focused
+  // Eagerly resolve a pre-selected value to its label without requiring the user
+  // to focus the field. Runs once per value when it is not already covered.
+  const eagerResolveLabel = typeof resolveLabel === 'function' ? resolveLabel : undefined
+  React.useEffect(() => {
+    if (!value || disabled) return
+    let cancelled = false
+    const apply = (label?: string | null, description?: string | null) => {
+      const clean = typeof label === 'string' ? label.trim() : ''
+      if (cancelled || !clean || clean === value) return
+      setResolvedOptions((prev) => {
+        if (prev.some((option) => option.value === value && option.label === clean)) return prev
+        return [...prev.filter((option) => option.value !== value), { value, label: clean, description: description ?? null }]
+      })
+    }
+    if (eagerResolveLabel) {
+      if (knownLabelValues.has(value)) return
+      Promise.resolve()
+        .then(() => eagerResolveLabel(value))
+        .then((label) => apply(label, resolveDescription?.(value)))
+        .catch(() => {})
+      return () => { cancelled = true }
+    }
+    if (coveredOptionValues.has(value)) return
+    if (eagerFallbackLoadedValueRef.current === value) return
+    eagerFallbackLoadedValueRef.current = value
+    // Fallback: pull the first page of async suggestions so a remount that lost
+    // its option cache can still recover the label without user interaction.
+    if (loadSuggestions) {
+      setLoading(true)
+      Promise.resolve()
+        .then(() => loadSuggestions())
+        .then((items) => {
+          if (cancelled) return
+          const normalized = normalizeOptions(items)
+          setAsyncOptions((prev) => areOptionsEqual(prev, normalized) ? prev : normalized)
+        })
+        .catch(() => {})
+        .finally(() => { if (!cancelled) setLoading(false) })
+    }
+    return () => { cancelled = true }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [value, disabled, knownLabelValues, coveredOptionValues, eagerResolveLabel, loadSuggestions])
+
+  // Sync input with value when value changes externally and input is not focused.
   React.useEffect(() => {
     if (document.activeElement !== inputRef.current) {
       const option = optionMap.get(value)
@@ -164,10 +257,16 @@ export function ComboboxInput({
         return
       }
       if (!allowCustomValues) {
-        // Revert to current value if custom values not allowed
-        const currentOption = optionMap.get(value)
-        setInput(currentOption?.label ?? value ?? '')
+        // Revert to the current value's label — but only if we actually know it.
+        // Baking the raw value back in while eager resolution is still pending
+        // would freeze a placeholder (e.g. a UUID) into the visible input.
         setShowSuggestions(false)
+        const currentOption = optionMap.get(value)
+        if (currentOption && currentOption.label !== currentOption.value) {
+          setInput(currentOption.label)
+        } else if (!value) {
+          setInput('')
+        }
         return
       }
       selectValue(raw)
@@ -215,14 +314,18 @@ export function ComboboxInput({
       <input
         ref={inputRef}
         type="text"
-        className="w-full h-9 rounded border px-2 text-sm disabled:bg-muted disabled:text-muted-foreground disabled:cursor-not-allowed"
+        className="w-full h-9 rounded-md border border-input bg-background px-3 text-sm shadow-xs transition-colors outline-none placeholder:text-muted-foreground focus-visible:shadow-focus focus-visible:border-foreground disabled:bg-bg-disabled disabled:border-border-disabled disabled:text-muted-foreground disabled:cursor-not-allowed"
         value={input}
-        placeholder={placeholder || 'Type to search...'}
+        placeholder={resolvedPlaceholder}
         autoFocus={autoFocus}
         data-crud-focus-target=""
         disabled={disabled}
         onFocus={() => {
           setTouched(true)
+          if (suppressOpenOnFocusRef.current) {
+            suppressOpenOnFocusRef.current = false
+            return
+          }
           setShowSuggestions(true)
         }}
         onChange={(event) => {
@@ -242,32 +345,34 @@ export function ComboboxInput({
       />
 
       {showSuggestions && !disabled && (loading || filteredSuggestions.length > 0) && (
-        <div className="absolute z-popover w-full mt-1 rounded border bg-popover shadow-lg max-h-48 sm:max-h-60 overflow-auto">
+        <div className="absolute z-popover w-full mt-1 rounded-md border border-input bg-popover p-2 shadow-md max-h-48 sm:max-h-60 overflow-auto">
           {loading && touched ? (
-            <div className="px-3 py-2 text-xs text-muted-foreground">Loading suggestions…</div>
+            <div className="px-2 py-1.5 text-xs text-muted-foreground">{loadingLabel}</div>
           ) : (
-            filteredSuggestions.map((option, index) => (
-              <Button
-                key={option.value}
-                type="button"
-                variant="ghost"
-                size="sm"
-                className={[
-                  'w-full h-auto justify-start font-normal text-left flex flex-col items-start px-3 py-2',
-                  index === selectedIndex ? 'bg-accent' : '',
-                ]
-                  .filter(Boolean)
-                  .join(' ')}
-                onMouseDown={(event) => event.preventDefault()}
-                onClick={() => selectValue(option.value)}
-                onMouseEnter={() => setSelectedIndex(index)}
-              >
-                <span className="font-medium">{option.label}</span>
-                {option.description ? (
-                  <span className="text-xs text-muted-foreground">{option.description}</span>
-                ) : null}
-              </Button>
-            ))
+            <div className="flex flex-col gap-1">
+              {filteredSuggestions.map((option, index) => (
+                <Button
+                  key={option.value}
+                  type="button"
+                  variant="ghost"
+                  size="sm"
+                  className={[
+                    'w-full h-auto justify-start font-normal text-left flex flex-col items-start rounded-lg p-2',
+                    index === selectedIndex ? 'bg-muted' : '',
+                  ]
+                    .filter(Boolean)
+                    .join(' ')}
+                  onMouseDown={(event) => event.preventDefault()}
+                  onClick={() => selectValue(option.value)}
+                  onMouseEnter={() => setSelectedIndex(index)}
+                >
+                  <span className="font-medium text-foreground">{option.label}</span>
+                  {option.description ? (
+                    <span className="text-xs text-muted-foreground">{option.description}</span>
+                  ) : null}
+                </Button>
+              ))}
+            </div>
           )}
         </div>
       )}

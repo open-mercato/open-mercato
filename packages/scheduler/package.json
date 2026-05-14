@@ -80,8 +80,8 @@
   "devDependencies": {
     "@open-mercato/shared": "workspace:*",
     "@types/jest": "^30.0.0",
-    "@types/node": "^25.6.0",
-    "jest": "^30.3.0",
+    "@types/node": "^25.6.2",
+    "jest": "^30.4.2",
     "ts-jest": "^29.4.9"
   },
   "publishConfig": {

@@ -19,6 +19,7 @@ import { CSS } from '@dnd-kit/utilities'
 import { DataLoader } from '../primitives/DataLoader'
 import { Checkbox } from '../primitives/checkbox'
 import { Input } from '../primitives/input'
+import { PasswordInput } from '../primitives/password-input'
 import { Textarea } from '../primitives/textarea'
 import {
   Select,
@@ -101,7 +102,7 @@ import { InjectedField } from './injection/InjectedField'
 import type { InjectionFieldDefinition, FieldContext } from '@open-mercato/shared/modules/widgets/injection'
 import { evaluateInjectedVisibility } from './injection/visibility-utils'
 import { ComponentReplacementHandles } from '@open-mercato/shared/modules/widgets/component-registry'
-import { sanitizeHtmlRichText, sanitizeRichTextHref, sanitizeRichTextPasteContent } from './utils/richTextSanitizer'
+import { RichEditor, type RichEditorLabels } from '../primitives/rich-editor'
 
 // Stable empty options array to avoid creating a new [] every render
 const EMPTY_OPTIONS: CrudFieldOption[] = []
@@ -216,6 +217,13 @@ export type CrudBuiltinField = CrudFieldBase & {
   suggestions?: string[]
   // for combobox fields; allow custom values or restrict to suggestions only
   allowCustomValues?: boolean
+  // for combobox fields; hydrate the option map up front so a pre-selected value
+  // (typically an FK whose row is not on the first page of `loadOptions`) renders
+  // its label without requiring the user to focus the field
+  seedOptions?: CrudFieldOption[]
+  // for combobox fields; resolve a pre-selected value to its display label when it
+  // is not covered by `options`/`seedOptions`/`loadOptions` results (may be async)
+  resolveLabel?: (value: string) => string | Promise<string>
   // for text/textarea fields; HTML maxLength + (textarea only) char counter when showCount=true
   maxLength?: number
   // for textarea fields; show character counter (requires maxLength)
@@ -268,6 +276,12 @@ export type CrudFormProps<TValues extends Record<string, unknown>> = {
   schema?: z.ZodType<TValues>
   fields: CrudField[]
   initialValues?: Partial<TValues>
+  /**
+   * When true, suppresses the form's mount-time autofocus entirely.
+   * Hosts can keep this enabled while async record data is still loading, then
+   * flip it off once the initial values are ready to let the first field gain focus.
+   */
+  disableInitialFocus?: boolean
   submitLabel?: string
   submitIcon?: React.ComponentType<{ className?: string }>
   formId?: string
@@ -389,6 +403,22 @@ function readInitialCustomFieldValue(
     if (Object.prototype.hasOwnProperty.call(source, candidate)) {
       return source[candidate]
     }
+  }
+  return undefined
+}
+
+function readRenderedFieldValue(
+  source: Record<string, unknown>,
+  fieldId: string,
+): unknown {
+  if (Object.prototype.hasOwnProperty.call(source, fieldId)) {
+    return source[fieldId]
+  }
+  if (fieldId.startsWith('cf_')) {
+    return readInitialCustomFieldValue(source, fieldId.slice(3))
+  }
+  if (fieldId.startsWith('cf:')) {
+    return readInitialCustomFieldValue(source, fieldId.slice(3))
   }
   return undefined
 }
@@ -528,6 +558,7 @@ export function CrudForm<TValues extends Record<string, unknown>>({
   schema,
   fields,
   initialValues,
+  disableInitialFocus = false,
   submitLabel,
   submitIcon,
   formId: providedFormId,
@@ -822,7 +853,16 @@ export function CrudForm<TValues extends Record<string, unknown>>({
         if (!target || navigationPromptBypassRef.current || submitNavigationBypassRef.current) {
           return original(data, unused, url)
         }
+        if (!isDirtyRef.current) {
+          return original(data, unused, url)
+        }
         if (shouldBypassUnsavedChangesGuardRef.current?.(target)) {
+          return original(data, unused, url)
+        }
+        const baselineSnapshot = dirtyBaselineSnapshotRef.current
+        if (baselineSnapshot && JSON.stringify(valuesRef.current) === baselineSnapshot) {
+          isDirtyRef.current = false
+          setHasUnsavedChanges(false)
           return original(data, unused, url)
         }
         if (navigationConfirmPendingRef.current) {
@@ -1882,7 +1922,7 @@ export function CrudForm<TValues extends Record<string, unknown>>({
   React.useEffect(() => {
     if (typeof window === 'undefined' || typeof document === 'undefined') return
 
-    if (isLoading || isLoadingCustomFields || formReadOnly) {
+    if (disableInitialFocus || isLoading || isLoadingCustomFields || formReadOnly) {
       lastFocusedFieldRef.current = null
       return
     }
@@ -1929,7 +1969,7 @@ export function CrudForm<TValues extends Record<string, unknown>>({
         window.clearTimeout(frame as number)
       }
     }
-  }, [firstFieldId, formId, formReadOnly, isLoading, isLoadingCustomFields])
+  }, [disableInitialFocus, firstFieldId, formId, formReadOnly, isLoading, isLoadingCustomFields])
 
   React.useEffect(() => {
     if (typeof window === 'undefined' || typeof document === 'undefined') return
@@ -2662,14 +2702,14 @@ export function CrudForm<TValues extends Record<string, unknown>>({
             <FieldControl
               key={f.id}
               field={f}
-              value={values[f.id]}
+              value={readRenderedFieldValue(values as Record<string, unknown>, f.id)}
               error={errors[f.id]}
               options={fieldOptionsById.get(f.id) || EMPTY_OPTIONS}
               setValue={setValue}
               onBlurRequest={onBlurRequest}
               values={values}
               loadFieldOptions={loadFieldOptions}
-              autoFocus={!formReadOnly && Boolean(firstFieldId && f.id === firstFieldId)}
+                autoFocus={!disableInitialFocus && !formReadOnly && Boolean(firstFieldId && f.id === firstFieldId)}
               onSubmitRequest={requestSubmit}
               wrapperClassName={wrapperClassName}
               entityIdForField={primaryEntityId ?? undefined}
@@ -3230,7 +3270,7 @@ export function CrudForm<TValues extends Record<string, unknown>>({
                     onBlurRequest={onBlurRequest}
                     values={values}
                     loadFieldOptions={loadFieldOptions}
-                    autoFocus={!formReadOnly && Boolean(firstFieldId && f.id === firstFieldId)}
+                    autoFocus={!disableInitialFocus && !formReadOnly && Boolean(firstFieldId && f.id === firstFieldId)}
                     onSubmitRequest={requestSubmit}
                     wrapperClassName={wrapperClassName}
                     entityIdForField={primaryEntityId ?? undefined}
@@ -3387,6 +3427,22 @@ function TextInput({
     commitIfChanged()
   }, [commitIfChanged])
 
+  if (inputType === 'password') {
+    return (
+      <PasswordInput
+        placeholder={placeholder}
+        value={local}
+        onChange={handleChange}
+        onKeyDown={handleKeyDown}
+        onFocus={handleFocus}
+        onBlur={handleBlur}
+        spellCheck={false}
+        autoFocus={autoFocus}
+        data-crud-focus-target=""
+        disabled={disabled}
+      />
+    )
+  }
   return (
     <>
       <Input
@@ -3613,106 +3669,33 @@ const MarkdownEditor = React.memo(function MarkdownEditor({ value = '', onChange
   )
 }, (prev, next) => prev.value === next.value)
 
-// HTML Rich Text editor (contentEditable) with shortcuts; returns HTML string
-type HtmlRTProps = { value?: string; onChange: (html: string) => void }
-const HtmlRichTextEditor = React.memo(function HtmlRichTextEditor({ value = '', onChange }: HtmlRTProps) {
+// HTML Rich Text editor wrapper for the CrudForm builtin `editor: 'html'`.
+// Maps the existing `ui.forms.richtext.*` i18n keys onto the `RichEditor`
+// `labels` contract and pins the `standard` toolbar variant — heading
+// dropdown + B/I/U + lists + link, matching the legacy behaviour plus
+// the Figma `164611:20259` heading selector.
+type HtmlRichEditorFieldProps = { value?: string; onChange: (html: string) => void }
+const HtmlRichEditorField = React.memo(function HtmlRichEditorField({ value = '', onChange }: HtmlRichEditorFieldProps) {
   const t = useT()
-  const boldLabel = t('ui.forms.richtext.bold')
-  const italicLabel = t('ui.forms.richtext.italic')
-  const underlineLabel = t('ui.forms.richtext.underline')
-  const listLabel = t('ui.forms.richtext.list')
-  const heading3Label = t('ui.forms.richtext.heading3')
-  const linkLabel = t('ui.forms.richtext.link')
-  const linkUrlPrompt = t('ui.forms.richtext.linkUrlPrompt')
-  const ref = React.useRef<HTMLDivElement | null>(null)
-  const applyingExternal = React.useRef(false)
-  const typingRef = React.useRef(false)
-
-  React.useEffect(() => {
-    const el = ref.current
-    if (!el) return
-    const current = el.innerHTML
-    const sanitizedValue = sanitizeHtmlRichText(value)
-    if (!typingRef.current && current !== sanitizedValue) {
-      applyingExternal.current = true
-      el.innerHTML = sanitizedValue
-      requestAnimationFrame(() => { applyingExternal.current = false })
-    }
-  }, [value])
-
-  const exec = (cmd: string, arg?: string) => {
-    const el = ref.current
-    if (!el) return
-    el.focus()
-    try {
-      document.execCommand(cmd, false, arg)
-    } catch {
-      // ignore execCommand failures
-    }
-  }
-
-  const onKeyDown = (e: React.KeyboardEvent<HTMLDivElement>) => {
-    const isMod = e.metaKey || e.ctrlKey
-    if (!isMod) return
-    const k = e.key.toLowerCase()
-    if (k === 'b') { e.preventDefault(); exec('bold') }
-    if (k === 'i') { e.preventDefault(); exec('italic') }
-    if (k === 'u') { e.preventDefault(); exec('underline') }
-  }
-
-  const onPaste = (e: React.ClipboardEvent<HTMLDivElement>) => {
-    const html = e.clipboardData.getData('text/html')
-    const text = e.clipboardData.getData('text/plain')
-    const sanitizedPaste = sanitizeRichTextPasteContent(html, text)
-    if (!sanitizedPaste) return
-
-    e.preventDefault()
-    exec(sanitizedPaste.command, sanitizedPaste.value)
-  }
-
-  return (
-    <div className="w-full rounded border">
-      <div className="flex items-center gap-1 px-2 py-1 border-b">
-        <Button variant="ghost" size="sm" className="h-auto px-2 py-0.5 text-xs" onMouseDown={(e) => e.preventDefault()} onClick={() => exec('bold')}>{boldLabel}</Button>
-        <Button variant="ghost" size="sm" className="h-auto px-2 py-0.5 text-xs" onMouseDown={(e) => e.preventDefault()} onClick={() => exec('italic')}>{italicLabel}</Button>
-        <Button variant="ghost" size="sm" className="h-auto px-2 py-0.5 text-xs" onMouseDown={(e) => e.preventDefault()} onClick={() => exec('underline')}>{underlineLabel}</Button>
-        <span className="mx-2 text-muted-foreground">|</span>
-        <Button variant="ghost" size="sm" className="h-auto px-2 py-0.5 text-xs" onMouseDown={(e) => e.preventDefault()} onClick={() => exec('insertUnorderedList')}>• {listLabel}</Button>
-        <Button variant="ghost" size="sm" className="h-auto px-2 py-0.5 text-xs" onMouseDown={(e) => e.preventDefault()} onClick={() => exec('formatBlock', '<h3>')}>{heading3Label}</Button>
-        <Button
-          variant="ghost"
-          size="sm"
-          className="h-auto px-2 py-0.5 text-xs"
-          onMouseDown={(e) => e.preventDefault()}
-          onClick={() => {
-            const url = sanitizeRichTextHref(window.prompt(linkUrlPrompt))
-            if (url) exec('createLink', url)
-          }}
-        >{linkLabel}</Button>
-      </div>
-      <div
-        ref={ref}
-        className="w-full px-2 py-2 min-h-[100px] sm:min-h-[160px] focus-visible:outline-none prose prose-sm max-w-none"
-        contentEditable
-        suppressContentEditableWarning
-        onKeyDown={onKeyDown}
-        onPaste={onPaste}
-        onInput={() => { if (!applyingExternal.current) typingRef.current = true }}
-        onBlur={() => {
-          const el = ref.current
-          if (!el) return
-          typingRef.current = false
-          const sanitizedValue = sanitizeHtmlRichText(el.innerHTML)
-          if (el.innerHTML !== sanitizedValue) {
-            applyingExternal.current = true
-            el.innerHTML = sanitizedValue
-            requestAnimationFrame(() => { applyingExternal.current = false })
-          }
-          onChange(sanitizedValue)
-        }}
-      />
-    </div>
-  )
+  const labels = React.useMemo<Partial<RichEditorLabels>>(() => ({
+    bold: t('ui.forms.richtext.bold'),
+    italic: t('ui.forms.richtext.italic'),
+    underline: t('ui.forms.richtext.underline'),
+    unorderedList: t('ui.forms.richtext.list'),
+    orderedList: t('ui.forms.richtext.orderedList', 'Numbered list'),
+    heading: t('ui.forms.richtext.heading', 'Heading'),
+    heading1: t('ui.forms.richtext.heading1', 'Heading 1'),
+    heading2: t('ui.forms.richtext.heading2', 'Heading 2'),
+    heading3: t('ui.forms.richtext.heading3'),
+    paragraph: t('ui.forms.richtext.paragraph', 'Paragraph'),
+    link: t('ui.forms.richtext.link'),
+    linkUrlPrompt: t('ui.forms.richtext.linkUrlPrompt'),
+    placeholder: t('ui.forms.richtext.placeholder'),
+    comment: t('ui.forms.richtext.comment', 'Add comment'),
+    mention: t('ui.forms.richtext.mention', 'Mention'),
+    more: t('ui.forms.richtext.more', 'More'),
+  }), [t])
+  return <RichEditor value={value} onChange={onChange} variant="full" labels={labels} />
 }, (prev, next) => prev.value === next.value)
 
 // Very simple markdown editor with Bold/Italic/Underline + shortcuts.
@@ -3963,23 +3946,31 @@ const FieldControl = React.memo(function FieldControlImpl({
         />
       )}
       {field.type === 'date' && (
-        <Input
-          type="date"
-          value={typeof value === 'string' ? value : ''}
-          onChange={(e) => setValue(field.id, e.target.value || undefined)}
-          autoFocus={autoFocusField}
-          data-crud-focus-target=""
+        <DatePicker
+          value={typeof value === 'string' && value ? parseISO(value) : value instanceof Date ? value : null}
+          onChange={(date) => setValue(field.id, date ? format(date, 'yyyy-MM-dd') : undefined)}
           disabled={disabled}
+          readOnly={readOnly}
+          placeholder={placeholder}
+          minDate={builtin?.minDate}
+          maxDate={builtin?.maxDate}
+          displayFormat={builtin?.displayFormat}
+          closeOnSelect={builtin?.closeOnSelect}
+          locale={builtin?.locale}
         />
       )}
       {field.type === 'datetime-local' && (
-        <Input
-          type="datetime-local"
-          value={typeof value === 'string' ? value : ''}
-          onChange={(e) => setValue(field.id, e.target.value || undefined)}
-          autoFocus={autoFocusField}
-          data-crud-focus-target=""
+        <DateTimePicker
+          value={typeof value === 'string' && value ? new Date(value) : value instanceof Date ? value : null}
+          onChange={(date) => setValue(field.id, date ? format(date, "yyyy-MM-dd'T'HH:mm") : undefined)}
           disabled={disabled}
+          readOnly={readOnly}
+          placeholder={placeholder}
+          minuteStep={builtin?.minuteStep}
+          minDate={builtin?.minDate}
+          maxDate={builtin?.maxDate}
+          displayFormat={builtin?.displayFormat}
+          locale={builtin?.locale}
         />
       )}
       {field.type === 'datepicker' && (
@@ -4036,7 +4027,7 @@ const FieldControl = React.memo(function FieldControlImpl({
         <SimpleMarkdownEditor value={String(value ?? '')} onChange={fieldSetValue} />
       )}
       {field.type === 'richtext' && builtin?.editor === 'html' && (
-        <HtmlRichTextEditor value={String(value ?? '')} onChange={fieldSetValue} />
+        <HtmlRichEditorField value={String(value ?? '')} onChange={fieldSetValue} />
       )}
       {field.type === 'richtext' && (!builtin?.editor || (builtin.editor !== 'simple' && builtin.editor !== 'html')) && (
         <MarkdownEditor value={String(value ?? '')} onChange={fieldSetValue} />
@@ -4047,6 +4038,7 @@ const FieldControl = React.memo(function FieldControlImpl({
           onChange={(next) => fieldSetValue(next)}
           placeholder={placeholder}
           autoFocus={autoFocusField}
+          suppressInitialSuggestionsOnFocus={autoFocusField}
           suggestions={options.map((opt) => ({ value: opt.value, label: opt.label }))}
           loadSuggestions={
             typeof builtin?.loadOptions === 'function'
@@ -4069,6 +4061,12 @@ const FieldControl = React.memo(function FieldControlImpl({
               ? builtin.suggestions
               : options.map((opt) => ({ value: opt.value, label: opt.label }))
           }
+          seedOptions={
+            builtin?.seedOptions
+              ? builtin.seedOptions.map((opt) => ({ value: opt.value, label: opt.label }))
+              : undefined
+          }
+          resolveLabel={builtin?.resolveLabel}
           loadSuggestions={
             typeof builtin?.loadOptions === 'function'
               ? async (query?: string) => {
@@ -4108,9 +4106,11 @@ const FieldControl = React.memo(function FieldControlImpl({
                 : String(value)
           }
           onValueChange={(next) => {
-            // Sentinel maps back to undefined so optional selects can be cleared.
+            // Custom field clears must be explicit nulls; normal optional
+            // fields keep the existing undefined clear semantics.
             if (!next || next === SELECT_CLEAR_SENTINEL) {
-              setValue(field.id, undefined)
+              const isCustomField = field.id.startsWith('cf_') || field.id.startsWith('cf:')
+              setValue(field.id, isCustomField ? null : undefined)
               return
             }
             setValue(field.id, next)

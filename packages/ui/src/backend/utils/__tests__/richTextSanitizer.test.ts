@@ -8,9 +8,12 @@ describe('richTextSanitizer', () => {
   })
 
   it('removes executable content and unsafe attributes', () => {
+    // `<img>` is allowlisted (RichEditor `insertImage` toolbar action), so
+    // the tag stays but `onerror` is stripped and `color:red` (CSS keyword,
+    // not in the hex/rgb regex) falls away too.
     expect(
       sanitizeHtmlRichText('<p onclick="alert(1)" style="color:red">Hi<script>alert(1)</script><img src=x onerror=alert(2)>there</p>'),
-    ).toBe('<p>Hithere</p>')
+    ).toBe('<p>Hi<img src="x" />there</p>')
   })
 
   it('removes unsafe href values from links', () => {
@@ -40,7 +43,7 @@ describe('richTextSanitizer', () => {
       ),
     ).toEqual({
       command: 'insertHTML',
-      value: '<p>Safe text</p><a>Bad link</a>',
+      value: '<p>Safe text</p><img src="x" /><a>Bad link</a>',
     })
   })
 

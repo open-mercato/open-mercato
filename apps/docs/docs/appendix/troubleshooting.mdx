@@ -37,11 +37,37 @@ DB_POOL_IDLE_TIMEOUT=10000
 DB_POOL_ACQUIRE_TIMEOUT=30000
 ```
 
-The native monorepo dev runtime starts multiple PostgreSQL-backed processes at once: the Next.js app server, `queue:worker --all`, and `scheduler:start`. Size `DB_POOL_MAX` for the aggregate footprint, not for a single process. For example, `DB_POOL_MAX=20` can translate to roughly 60 potential connections before you count psql, migrations, or other local tools.
+The native monorepo dev runtime can start multiple PostgreSQL-backed processes at once: the Next.js app server, queue workers, and `scheduler:start` once an enabled schedule exists. Size `DB_POOL_MAX` for the aggregate footprint, not for a single process. For example, `DB_POOL_MAX=20` can translate to roughly 60 potential connections before you count psql, migrations, or other local tools.
 
 `DB_POOL_MAX=20` is now the conservative default for local and general development. If your deployment previously relied on the older implicit default of `50`, set `DB_POOL_MAX` explicitly based on your real concurrency and PostgreSQL `max_connections` budget.
 
 If you continue to hit connection limits, verify that background workers and migrations use the same pool settings, and confirm that your database `max_connections` value comfortably exceeds the aggregate pool size across all applications connecting to it.
+
+## Dev Memory Usage (`🧠 Memory ... RSS`)
+
+The dev runtime prints a `🧠 Memory ... RSS (peak ...)` line that measures the **process-tree RSS** rooted at the app runtime — so the Next.js dev server, the auto-spawned queue workers, and the scheduler are all included in the number. A high idle RSS often reflects per-queue runner overhead rather than Next.js itself.
+
+The monorepo and standalone `yarn dev` wrappers enable lazy worker and lazy scheduler auto-spawn by default to keep local idle RSS down. Direct `mercato server dev` and production `mercato server start` keep the historical eager default unless you opt in:
+
+```bash
+OM_AUTO_SPAWN_WORKERS_LAZY=true OM_AUTO_SPAWN_SCHEDULER_LAZY=true mercato server dev
+```
+
+To force the historical eager worker and scheduler modes from the dev wrapper, run:
+
+```bash
+OM_AUTO_SPAWN_WORKERS_LAZY=false OM_AUTO_SPAWN_SCHEDULER_LAZY=false yarn dev
+```
+
+In lazy mode the runtime starts lightweight supervisors. The worker supervisor watches each discovered queue for the first ready job and only then spawns `mercato queue worker <queueName>`. The scheduler supervisor watches for enabled schedules and only then spawns `mercato scheduler start`. Idle queues and empty scheduler installations do not contribute polling timers (local strategy) or BullMQ `Worker`/Redis resources (async strategy) to the process tree. See [Queue Workers — Lazy Worker Auto-Spawn](../framework/events/queue-workers.mdx#lazy-worker-auto-spawn-memory-sensitive-dev) for the env variable reference.
+
+For production deployments, prefer `AUTO_SPAWN_WORKERS=false` plus separately managed worker processes — lazy mode targets memory-sensitive dev and small unified deployments.
+
+The monorepo package watcher also defaults to low-memory one-shot rebuilds. It watches package source files without keeping a persistent esbuild graph for every package after the initial build. To restore the previous faster-but-heavier incremental watcher for a session, run:
+
+```bash
+OM_PACKAGE_WATCH_MODE=persistent yarn dev
+```
 
 ## PostgreSQL auth errors on local setup
 

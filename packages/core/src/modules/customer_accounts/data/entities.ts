@@ -1,4 +1,16 @@
-import { Entity, Index, ManyToOne, PrimaryKey, Property, Unique } from '@mikro-orm/decorators/legacy'
+import { Check, Entity, Enum, Index, ManyToOne, PrimaryKey, Property, Unique } from '@mikro-orm/decorators/legacy'
+
+export type DomainProvider = 'traefik'
+export type DomainStatus = 'pending' | 'verified' | 'active' | 'dns_failed' | 'tls_failed'
+
+export const DOMAIN_PROVIDERS: readonly DomainProvider[] = ['traefik'] as const
+export const DOMAIN_STATUSES: readonly DomainStatus[] = [
+  'pending',
+  'verified',
+  'active',
+  'dns_failed',
+  'tls_failed',
+] as const
 
 @Entity({ tableName: 'customer_users' })
 @Unique({ properties: ['tenantId', 'emailHash'], name: 'customer_users_tenant_email_hash_uniq' })
@@ -302,4 +314,71 @@ export class CustomerUserInvitation {
 
   @Property({ name: 'created_at', type: Date, onCreate: () => new Date() })
   createdAt: Date = new Date()
+}
+
+@Entity({ tableName: 'domain_mappings' })
+@Unique({ properties: ['hostname'], name: 'domain_mappings_hostname_unique' })
+@Index({ properties: ['organizationId'], name: 'domain_mappings_organization_id_idx' })
+@Index({ properties: ['tenantId'], name: 'domain_mappings_tenant_id_idx' })
+@Unique({
+  name: 'domain_mappings_replaces_domain_id_unique',
+  expression:
+    `create unique index "domain_mappings_replaces_domain_id_unique" on "domain_mappings" ("replaces_domain_id") where "replaces_domain_id" is not null`,
+})
+@Index({
+  name: 'domain_mappings_pending_verification_idx',
+  expression:
+    `create index "domain_mappings_pending_verification_idx" on "domain_mappings" ("status", "last_dns_check_at") where "status" in ('pending', 'dns_failed')`,
+})
+@Index({
+  name: 'domain_mappings_pending_tls_idx',
+  expression:
+    `create index "domain_mappings_pending_tls_idx" on "domain_mappings" ("status", "updated_at") where "status" in ('verified', 'tls_failed')`,
+})
+@Check({
+  name: 'domain_mappings_hostname_normalized_chk',
+  expression: `"hostname" = lower("hostname") and "hostname" not like '%.'`,
+})
+export class DomainMapping {
+  @PrimaryKey({ type: 'uuid', defaultRaw: 'gen_random_uuid()' })
+  id!: string
+
+  @Property({ type: 'text' })
+  hostname!: string
+
+  @Property({ name: 'tenant_id', type: 'uuid' })
+  tenantId!: string
+
+  @Property({ name: 'organization_id', type: 'uuid' })
+  organizationId!: string
+
+  @ManyToOne(() => DomainMapping, { fieldName: 'replaces_domain_id', nullable: true })
+  replacesDomain?: DomainMapping | null
+
+  @Enum({ items: () => DOMAIN_PROVIDERS as unknown as string[], type: 'text', name: 'provider' })
+  provider: DomainProvider = 'traefik'
+
+  @Enum({ items: () => DOMAIN_STATUSES as unknown as string[], type: 'text', name: 'status' })
+  status: DomainStatus = 'pending'
+
+  @Property({ name: 'verified_at', type: Date, nullable: true })
+  verifiedAt?: Date | null
+
+  @Property({ name: 'last_dns_check_at', type: Date, nullable: true })
+  lastDnsCheckAt?: Date | null
+
+  @Property({ name: 'dns_failure_reason', type: 'text', nullable: true, length: 500 })
+  dnsFailureReason?: string | null
+
+  @Property({ name: 'tls_failure_reason', type: 'text', nullable: true, length: 500 })
+  tlsFailureReason?: string | null
+
+  @Property({ name: 'tls_retry_count', type: 'int', default: 0 })
+  tlsRetryCount: number = 0
+
+  @Property({ name: 'created_at', type: Date, onCreate: () => new Date() })
+  createdAt: Date = new Date()
+
+  @Property({ name: 'updated_at', type: Date, onUpdate: () => new Date(), nullable: true })
+  updatedAt?: Date | null
 }

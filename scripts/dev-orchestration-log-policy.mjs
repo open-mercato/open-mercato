@@ -57,6 +57,15 @@ export function isIgnorableTurboCacheCancellationLine(line) {
   return normalize(line) === '^C    ...Finishing writing to cache...'
 }
 
+export function isIgnorableTurboShutdownLine(line) {
+  if (typeof line !== 'string') return false
+  const plain = normalize(line)
+  return plain === '^C'
+    || plain.startsWith('^C ')
+    || /^received (SIGINT|SIGTERM),? shutting down/i.test(plain)
+    || /^command (interrupted|cancelled|canceled)/i.test(plain)
+}
+
 const FAILURE_NOISE_PREDICATES = [
   isIgnorableBoxDrawingLine,
   isIgnorableEnvInjectionLine,
@@ -78,6 +87,7 @@ const TURBO_NOISE_PREDICATES = [
   isIgnorableTurboBannerLine,
   isIgnorableTurboSummaryLine,
   isIgnorableTurboCacheCancellationLine,
+  isIgnorableTurboShutdownLine,
   isIgnorableBoxDrawingLine,
 ]
 

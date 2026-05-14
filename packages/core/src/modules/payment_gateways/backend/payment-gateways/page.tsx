@@ -18,7 +18,8 @@ import { Badge } from '@open-mercato/ui/primitives/badge'
 import { Button } from '@open-mercato/ui/primitives/button'
 import { Card, CardContent, CardHeader, CardTitle } from '@open-mercato/ui/primitives/card'
 import { Spinner } from '@open-mercato/ui/primitives/spinner'
-import { ChevronDown, ChevronRight, CreditCard, HandCoins, RefreshCw, Webhook } from 'lucide-react'
+import { LogList, type LogListEntry } from '@open-mercato/ui/backend/LogList'
+import { CreditCard, HandCoins, RefreshCw, Webhook } from 'lucide-react'
 
 type TransactionRow = {
   id: string
@@ -100,12 +101,6 @@ const STATUS_STYLES: Record<string, string> = {
   failed: 'bg-red-100 text-red-800',
   expired: 'bg-neutral-200 text-neutral-900',
   unknown: 'bg-purple-100 text-purple-800',
-}
-
-const LOG_LEVEL_STYLES: Record<string, string> = {
-  info: 'bg-blue-100 text-blue-800',
-  warn: 'bg-yellow-100 text-yellow-800',
-  error: 'bg-red-100 text-red-800',
 }
 
 function formatDateTime(value: string | null | undefined): string {
@@ -194,7 +189,6 @@ export default function PaymentTransactionsPage() {
   const [detail, setDetail] = React.useState<TransactionDetail | null>(null)
   const [isLoadingDetail, setIsLoadingDetail] = React.useState(false)
   const [detailError, setDetailError] = React.useState<string | null>(null)
-  const [expandedLogId, setExpandedLogId] = React.useState<string | null>(null)
   const [isRefreshingStatus, setIsRefreshingStatus] = React.useState(false)
   const [isCapturing, setIsCapturing] = React.useState(false)
   const { runMutation } = useGuardedMutation<{
@@ -249,7 +243,6 @@ export default function PaymentTransactionsPage() {
     const call = await apiCall<TransactionDetail>(`/api/payment_gateways/transactions/${encodeURIComponent(transactionId)}`, undefined, { fallback: null })
     if (call.ok && call.result) {
       setDetail(call.result)
-      setExpandedLogId((current) => (current && call.result?.logs.some((log) => log.id === current) ? current : null))
     } else {
       setDetail(null)
       setDetailError(t('payment_gateways.transactions.error.loadDetail', 'Failed to load transaction details'))
@@ -610,100 +603,64 @@ export default function PaymentTransactionsPage() {
 
                       <section className="space-y-3">
                         <h3 className="text-sm font-semibold">{t('payment_gateways.transactions.detail.logs', 'Gateway logs')}</h3>
-                        {detail.logs.length === 0 ? (
-                          <p className="text-sm text-muted-foreground">{t('payment_gateways.transactions.detail.logsEmpty', 'No transaction-scoped logs are available yet.')}</p>
-                        ) : (
-                          <div className="overflow-hidden rounded-lg border">
-                            <table className="w-full text-sm">
-                              <thead>
-                                <tr className="border-b bg-muted/50">
-                                  <th className="px-4 py-2 text-left font-medium">{t('payment_gateways.transactions.columns.time', 'Time')}</th>
-                                  <th className="px-4 py-2 text-left font-medium">{t('payment_gateways.transactions.columns.level', 'Level')}</th>
-                                  <th className="px-4 py-2 text-left font-medium">{t('payment_gateways.transactions.columns.message', 'Message')}</th>
-                                </tr>
-                              </thead>
-                              <tbody>
-                                {detail.logs.map((log) => {
-                                  const isExpanded = expandedLogId === log.id
-                                  const metadataEntries = [
-                                    [t('payment_gateways.transactions.log.time', 'Time'), formatDateTime(log.createdAt)],
-                                    [t('payment_gateways.transactions.log.level', 'Level'), t(`payment_gateways.transactions.level.${log.level}`, log.level)],
-                                    [t('payment_gateways.transactions.log.code', 'Code'), log.code ?? null],
-                                    [t('payment_gateways.transactions.log.runId', 'Run ID'), log.runId ?? null],
-                                    [t('payment_gateways.transactions.log.entityType', 'Entity Type'), log.scopeEntityType ?? null],
-                                    [t('payment_gateways.transactions.log.entityId', 'Entity ID'), log.scopeEntityId ?? null],
-                                  ].filter((entry): entry is [string, string] => typeof entry[1] === 'string' && entry[1].trim().length > 0)
-                                  const { inlineEntries, nestedEntries } = splitLogPayload(log.payload)
+                        <LogList
+                          entries={detail.logs.map<LogListEntry>((log) => {
+                            const metadataEntries = [
+                              [t('payment_gateways.transactions.log.time', 'Time'), formatDateTime(log.createdAt)],
+                              [t('payment_gateways.transactions.log.level', 'Level'), t(`payment_gateways.transactions.level.${log.level}`, log.level)],
+                              [t('payment_gateways.transactions.log.code', 'Code'), log.code ?? null],
+                              [t('payment_gateways.transactions.log.runId', 'Run ID'), log.runId ?? null],
+                              [t('payment_gateways.transactions.log.entityType', 'Entity Type'), log.scopeEntityType ?? null],
+                              [t('payment_gateways.transactions.log.entityId', 'Entity ID'), log.scopeEntityId ?? null],
+                            ].filter((entry): entry is [string, string] => typeof entry[1] === 'string' && entry[1].trim().length > 0)
+                            const { inlineEntries, nestedEntries } = splitLogPayload(log.payload)
 
-                                  return (
-                                    <React.Fragment key={log.id}>
-                                      <tr className="border-b last:border-0">
-                                        <td className="whitespace-nowrap px-4 py-2 text-muted-foreground">{formatDateTime(log.createdAt)}</td>
-                                        <td className="px-4 py-2">
-                                          <Badge variant="secondary" className={LOG_LEVEL_STYLES[log.level] ?? ''}>
-                                            {t(`payment_gateways.transactions.level.${log.level}`, log.level)}
-                                          </Badge>
-                                        </td>
-                                        <td className="px-4 py-2">
-                                          <Button
-                                            type="button"
-                                            variant="ghost"
-                                            size="sm"
-                                            className="h-auto w-full justify-start gap-2 px-0 py-0 text-left hover:bg-transparent"
-                                            onClick={() => setExpandedLogId((current) => current === log.id ? null : log.id)}
-                                          >
-                                            {isExpanded ? <ChevronDown className="h-4 w-4 shrink-0" /> : <ChevronRight className="h-4 w-4 shrink-0" />}
-                                            <span className="truncate">{log.message}</span>
-                                          </Button>
-                                        </td>
-                                      </tr>
-                                      {isExpanded ? (
-                                        <tr className="border-b bg-muted/30 last:border-0">
-                                          <td colSpan={3} className="px-4 py-4">
-                                            <div className="space-y-4 rounded-lg border bg-card p-4">
-                                              {metadataEntries.length > 0 ? (
-                                                <dl className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
-                                                  {metadataEntries.map(([label, value]) => (
-                                                    <div key={label} className="rounded-md border bg-muted/30 px-3 py-2">
-                                                      <dt className="text-overline font-medium uppercase tracking-wide text-muted-foreground">{label}</dt>
-                                                      <dd className="mt-1 break-all text-sm">{value}</dd>
-                                                    </div>
-                                                  ))}
-                                                </dl>
-                                              ) : null}
-                                              {inlineEntries.length > 0 ? (
-                                                <dl className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
-                                                  {inlineEntries.map(([key, value]) => (
-                                                    <div key={key} className="rounded-md border bg-muted/30 px-3 py-2">
-                                                      <dt className="text-overline font-medium uppercase tracking-wide text-muted-foreground">{formatLogDetailLabel(key)}</dt>
-                                                      <dd className="mt-1 break-words text-sm">{formatLogPrimitiveValue(value)}</dd>
-                                                    </div>
-                                                  ))}
-                                                </dl>
-                                              ) : null}
-                                              {nestedEntries.map(([key, value]) => (
-                                                <JsonDisplay
-                                                  key={key}
-                                                  data={value}
-                                                  title={formatLogDetailLabel(key)}
-                                                  defaultExpanded
-                                                  maxInitialDepth={1}
-                                                  theme="dark"
-                                                  maxHeight="16rem"
-                                                  className="p-4"
-                                                />
-                                              ))}
-                                            </div>
-                                          </td>
-                                        </tr>
-                                      ) : null}
-                                    </React.Fragment>
-                                  )
-                                })}
-                              </tbody>
-                            </table>
-                          </div>
-                        )}
+                            return {
+                              id: log.id,
+                              time: formatDateTime(log.createdAt),
+                              level: log.level,
+                              levelLabel: t(`payment_gateways.transactions.level.${log.level}`, log.level),
+                              message: log.message,
+                              body: (
+                                <div className="space-y-4">
+                                  {metadataEntries.length > 0 ? (
+                                    <dl className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
+                                      {metadataEntries.map(([label, value]) => (
+                                        <div key={label} className="rounded-md border bg-muted/30 px-3 py-2">
+                                          <dt className="text-overline font-medium uppercase tracking-wide text-muted-foreground">{label}</dt>
+                                          <dd className="mt-1 break-all text-sm">{value}</dd>
+                                        </div>
+                                      ))}
+                                    </dl>
+                                  ) : null}
+                                  {inlineEntries.length > 0 ? (
+                                    <dl className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
+                                      {inlineEntries.map(([key, value]) => (
+                                        <div key={key} className="rounded-md border bg-muted/30 px-3 py-2">
+                                          <dt className="text-overline font-medium uppercase tracking-wide text-muted-foreground">{formatLogDetailLabel(key)}</dt>
+                                          <dd className="mt-1 break-words text-sm">{formatLogPrimitiveValue(value)}</dd>
+                                        </div>
+                                      ))}
+                                    </dl>
+                                  ) : null}
+                                  {nestedEntries.map(([key, value]) => (
+                                    <JsonDisplay
+                                      key={key}
+                                      data={value}
+                                      title={formatLogDetailLabel(key)}
+                                      defaultExpanded
+                                      maxInitialDepth={1}
+                                      theme="dark"
+                                      maxHeight="16rem"
+                                      className="p-4"
+                                    />
+                                  ))}
+                                </div>
+                              ),
+                            }
+                          })}
+                          emptyMessage={t('payment_gateways.transactions.detail.logsEmpty', 'No transaction-scoped logs are available yet.')}
+                        />
                       </section>
                     </div>
 

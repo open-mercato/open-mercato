@@ -94,10 +94,6 @@ function parseCurrencyAmount(value: string): number {
   return Number.parseFloat(lastMatch.replace('$', ''));
 }
 
-function normalizeAdjustmentKindValue(kindLabel: string): string {
-  return kindLabel.trim().toLowerCase().replace(/\s+/g, '_');
-}
-
 function readId(payload: unknown, keys: string[]): string | null {
   if (!payload || typeof payload !== 'object') return null;
   const map = payload as Record<string, unknown>;
@@ -347,6 +343,21 @@ async function waitForDialogFieldReady(
   }
   await waitForStableVisibility(field, TEST_WAIT_TIMEOUT_MS);
   await field.scrollIntoViewIfNeeded().catch(() => {});
+}
+
+async function fillControlledInput(input: Locator, value: string, timeout = 2_000): Promise<void> {
+  await waitForStableVisibility(input, TEST_WAIT_TIMEOUT_MS);
+  await input.fill(value);
+  await input.evaluate((element, nextValue) => {
+    const control = element as HTMLInputElement | HTMLTextAreaElement;
+    const prototype = control instanceof HTMLTextAreaElement ? HTMLTextAreaElement.prototype : HTMLInputElement.prototype;
+    const valueSetter = Object.getOwnPropertyDescriptor(prototype, 'value')?.set;
+    valueSetter?.call(control, nextValue);
+    control.dispatchEvent(new InputEvent('input', { bubbles: true, inputType: 'insertText', data: nextValue }));
+    control.dispatchEvent(new Event('change', { bubbles: true }));
+  }, value);
+  await expect(input).toHaveValue(value, { timeout });
+  await input.press('Tab').catch(() => {});
 }
 
 async function recoverGenericErrorPageIfPresent(page: Page): Promise<boolean> {
@@ -1075,30 +1086,49 @@ export async function addAdjustment(page: Page, options: AddAdjustmentOptions): 
   const adjustmentRow = page.getByRole('row', { name: new RegExp(escapeRegExp(options.label), 'i') });
   const fillAdjustmentForm = async (): Promise<void> => {
     await dialog.getByText(/Loading adjustments/i).waitFor({ state: 'hidden', timeout: 3_000 }).catch(() => {});
+    // AdjustmentDialog has a useEffect([initialAdjustment, kindOptions,
+    // loadKindOptions, loadTaxRates, open]) that asynchronously loads tax
+    // rates and resets the form via setInitialValues + a formResetKey bump.
+    // If `.fill()` lands before the reset settles, the label is wiped out.
+    // Wait for the tax-rates network response to land before touching the form.
+    await page.waitForLoadState('networkidle', { timeout: 5_000 }).catch(() => {});
     // Radix Select trigger — target by CrudForm field id (kind picker)
     const kindTrigger = dialog.locator('[data-crud-field-id="kind"] [role="combobox"]').first();
     await expect(kindTrigger).toBeVisible({ timeout: TEST_WAIT_TIMEOUT_MS });
+    const kindLabel = options.kindLabel ?? 'Surcharge';
+    const selectKindOption = async (): Promise<void> => {
+      if ((await kindTrigger.count()) === 0) return;
+      await waitForOptionalTextToDisappear(
+        dialog,
+        /Loading adjustment kinds…|Loading adjustment kinds\.\.\./i,
+        TEST_WAIT_TIMEOUT_MS,
+      );
+      await expect(kindTrigger).toBeEnabled({ timeout: TEST_WAIT_TIMEOUT_MS });
+      await kindTrigger.click();
+      const kindOption = page.getByRole('option', { name: new RegExp(`^${escapeRegExp(kindLabel)}$`, 'i') }).first();
+      const optionVisible = await kindOption
+        .waitFor({ state: 'visible', timeout: TEST_WAIT_TIMEOUT_MS })
+        .then(() => true, () => false);
+      if (optionVisible) {
+        await kindOption.click({ force: true });
+      } else {
+        // Fallback: drive selection via keyboard when modal-backdrop click interception
+        // hides the rendered option. Brought forward from develop.
+        await page.keyboard.type(kindLabel.charAt(0));
+        await page.waitForTimeout(150);
+        await page.keyboard.press('Enter');
+      }
+      await expect(kindTrigger).toContainText(kindLabel, { timeout: 2_000 });
+    };
+
+    // Select kind first — the Radix Select interaction can trigger CrudForm re-renders that
+    // clear inputs filled before it, so we run the dropdown sequence up front and then fill
+    // the remaining fields once.
+    await selectKindOption();
 
     const labelInput = dialog.getByPlaceholder(/e\.g\. Shipping fee/i).first();
     await expect(labelInput).toBeVisible({ timeout: TEST_WAIT_TIMEOUT_MS });
-    await labelInput.fill(options.label);
-    await expect(labelInput).toHaveValue(options.label, { timeout: 2_000 });
-
-    if ((await kindTrigger.count()) > 0) {
-      const expectedKindValue = normalizeAdjustmentKindValue(options.kindLabel ?? 'Surcharge');
-      const kindLabel = options.kindLabel ?? 'Surcharge';
-      // Open Radix Select via click; then drive selection via keyboard so the
-      // listbox keystroke matching jumps to the desired option (Discount /
-      // Surcharge / etc.). This sidesteps modal-backdrop click interception
-      // that occurs when a Radix Select is rendered inside a Radix Dialog.
-      await kindTrigger.click();
-      await page.waitForTimeout(150);
-      // Type the first letter to jump to the matching option
-      await page.keyboard.type(kindLabel.charAt(0));
-      await page.waitForTimeout(150);
-      await page.keyboard.press('Enter');
-      void expectedKindValue;
-    }
+    await fillControlledInput(labelInput, options.label);
 
     const fixedAmountButton = dialog.getByRole('button', { name: /^Fixed amount$/i }).first();
     if ((await fixedAmountButton.count()) > 0) {
@@ -1108,8 +1138,7 @@ export async function addAdjustment(page: Page, options: AddAdjustmentOptions): 
     const enabledAmountInputs = dialog.locator('input[placeholder="0.00"]:not([disabled])');
     await expect(enabledAmountInputs.first()).toBeVisible({ timeout: TEST_WAIT_TIMEOUT_MS });
     if ((await enabledAmountInputs.count()) > 0) {
-      await enabledAmountInputs.first().fill(String(options.netAmount));
-      await expect(enabledAmountInputs.first()).toHaveValue(String(options.netAmount), { timeout: 2_000 }).catch(() => {});
+      await fillControlledInput(enabledAmountInputs.first(), String(options.netAmount));
     }
   };
 
@@ -1134,7 +1163,7 @@ export async function addAdjustment(page: Page, options: AddAdjustmentOptions): 
   }
   if (!(await adjustmentRow.isVisible().catch(() => false))) {
     await adjustmentsTab.click().catch(() => {});
-    await adjustmentRow.waitFor({ state: 'visible', timeout: 2_000 }).catch(() => {});
+    await expect(adjustmentRow).toBeVisible({ timeout: TEST_WAIT_TIMEOUT_MS });
   }
 }
 

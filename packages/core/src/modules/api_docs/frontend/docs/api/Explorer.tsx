@@ -3,7 +3,9 @@
 import { useEffect, useMemo, useState, type ReactNode } from 'react'
 import Image from 'next/image'
 import Link from 'next/link'
+import { SearchX } from 'lucide-react'
 import { Input } from '@open-mercato/ui/primitives/input'
+import { EmptyState } from '@open-mercato/ui/primitives/empty-state'
 import {
   Select,
   SelectContent,
@@ -781,9 +783,11 @@ export default function ApiDocsExplorer(props: ApiDocsExplorerProps) {
               )
             })}
             {!categories.length ? (
-              <div className="rounded-lg border border-dashed bg-muted/50 p-6 text-center text-sm text-muted-foreground">
-                No endpoints match your filters. Try adjusting the method filters or clearing the search query.
-              </div>
+              <EmptyState
+                icon={<SearchX className="h-8 w-8" aria-hidden="true" />}
+                title="No endpoints match your filters."
+                description="Try adjusting the method filters or clearing the search query."
+              />
             ) : null}
           </div>
         </section>

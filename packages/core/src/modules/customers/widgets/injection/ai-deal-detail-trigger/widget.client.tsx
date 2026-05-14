@@ -24,7 +24,7 @@
  */
 
 import * as React from 'react'
-import { Sparkles } from 'lucide-react'
+import { AiIcon } from '@open-mercato/ui/ai/AiIcon'
 import { AiChat } from '@open-mercato/ui/ai/AiChat'
 import { Button } from '@open-mercato/ui/primitives/button'
 import {
@@ -136,7 +136,7 @@ export default function AiDealDetailTriggerWidget({ context, data }: AiDealDetai
           'Open AI assistant for this deal',
         )}
       >
-        <Sparkles className="size-4" aria-hidden />
+        <AiIcon className="size-4" />
         <span>{t('customers.ai_assistant.dealDetail.trigger.label', 'Ask AI')}</span>
       </Button>
       <Dialog open={open} onOpenChange={setOpen}>

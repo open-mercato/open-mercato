@@ -11,10 +11,11 @@ import { AiDockProvider, useAiDock, type AiDockedAssistant } from '../AiDock'
 jest.mock('../AiChat', () => {
   const ReactModule = require('react') as typeof import('react')
   return {
-    AiChat: ({ agent }: { agent: string }) =>
+    AiChat: ({ agent, defaultCompactFooter }: { agent: string; defaultCompactFooter?: boolean }) =>
       ReactModule.createElement('div', {
         'data-testid': 'ai-chat',
         'data-agent': agent,
+        'data-default-compact-footer': defaultCompactFooter ? 'true' : 'false',
       }),
   }
 })
@@ -120,5 +121,15 @@ describe('<AiDockProvider>', () => {
       expect(readStoredAssistant()).toBeNull()
     })
     expect(document.querySelector('[data-ai-dock-panel=""]')).not.toBeInTheDocument()
+  })
+
+  it('starts the chat footer compact inside the dock', async () => {
+    renderWithProviders(<Harness />)
+
+    fireEvent.click(screen.getByRole('button', { name: 'Dock assistant' }))
+
+    await waitFor(() => {
+      expect(screen.getByTestId('ai-chat')).toHaveAttribute('data-default-compact-footer', 'true')
+    })
   })
 })

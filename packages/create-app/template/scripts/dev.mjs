@@ -30,6 +30,7 @@ import {
   resolveDevBaseUrl,
   resolveSplashUrl as resolveSplashAccessUrl,
 } from './dev-splash-url.mjs'
+import { resolveDatabaseNameOverride } from './dev-database-url.mjs'
 
 function detectDevRuntimeMode() {
   const cwd = process.cwd()
@@ -508,6 +509,27 @@ function buildSplashChildEnv() {
   }
 }
 
+function applyLocalDevBackgroundServiceDefaults(childEnv) {
+  const env = childEnv ?? {}
+  if (
+    typeof process.env.OM_AUTO_SPAWN_WORKERS_LAZY !== 'string'
+    || process.env.OM_AUTO_SPAWN_WORKERS_LAZY.trim() === ''
+  ) {
+    env.OM_AUTO_SPAWN_WORKERS_LAZY = 'true'
+  }
+  if (
+    typeof process.env.OM_AUTO_SPAWN_SCHEDULER_LAZY !== 'string'
+    || process.env.OM_AUTO_SPAWN_SCHEDULER_LAZY.trim() === ''
+  ) {
+    env.OM_AUTO_SPAWN_SCHEDULER_LAZY = 'true'
+  }
+  return env
+}
+
+function buildAppDevEnv() {
+  return applyLocalDevBackgroundServiceDefaults(buildSplashChildEnv() ?? {})
+}
+
 function launchStandaloneDev(options = {}) {
   if (!fs.existsSync(standaloneRuntimeScript)) {
     console.error(`❌ Standalone dev runtime not found at ${standaloneRuntimeScript}`)
@@ -542,7 +564,7 @@ function launchStandaloneDev(options = {}) {
 
   const app = spawnCommand(process.execPath, runtimeArgs, {
     stdio: 'inherit',
-    env: buildSplashChildEnv(),
+    env: buildAppDevEnv(),
   })
 
   app.on('close', (code) => {
@@ -571,6 +593,39 @@ function ensureStandaloneEnvFile() {
       activity: 'Project files are ready',
     })
   }
+}
+
+function resolveDatabaseEnvFilePath() {
+  return isMonorepo
+    ? path.join(process.cwd(), 'apps', 'mercato', '.env')
+    : path.join(process.cwd(), '.env')
+}
+
+async function applyDatabaseNameOverrideIfRequested() {
+  let result
+  try {
+    result = await resolveDatabaseNameOverride({
+      argv: args,
+      env: process.env,
+      cwd: process.cwd(),
+      envFilePath: resolveDatabaseEnvFilePath(),
+      stdin: process.stdin,
+      stdout: process.stdout,
+      logger: { info: (msg) => console.log(msg) },
+    })
+  } catch (error) {
+    console.error(`❌ ${error instanceof Error ? error.message : String(error)}`)
+    shutdown(1)
+    return null
+  }
+
+  if (result?.applied) {
+    process.env.DATABASE_URL = result.childEnv.DATABASE_URL
+    updateSplashState({
+      activity: `Using database "${result.databaseName}" for this run`,
+    })
+  }
+  return result
 }
 
 function normalizeLocaleToken(value) {
@@ -994,7 +1049,7 @@ function isExpectedShutdownSignal(signal) {
 }
 
 function isGracefulShutdownResult(result) {
-  return shuttingDown && isExpectedShutdownSignal(result?.signal)
+  return shuttingDown && (isExpectedShutdownSignal(result?.signal) || result?.code === 0)
 }
 
 function resolveChildExitCode(result, fallback = 1) {
@@ -1556,7 +1611,7 @@ function launchMonorepoAppDev() {
   })
   const app = spawnCommand(yarnCommand, appArgs, {
     stdio: 'inherit',
-    env: buildSplashChildEnv(),
+    env: buildAppDevEnv(),
   })
 
   app.on('close', (code, signal) => {
@@ -1613,6 +1668,7 @@ async function runClassicGreenfieldDev() {
 
 async function runStandaloneSetup() {
   ensureStandaloneEnvFile()
+  await applyDatabaseNameOverrideIfRequested()
   if (standaloneLocalRegistryRefresh) {
     await runStage('🧼 Clearing local Open Mercato cache', ['cache', 'clean', '--all'], {
       stageCurrent: 0,
@@ -1639,6 +1695,7 @@ async function runStandaloneSetup() {
 
 async function runClassicStandaloneSetup() {
   ensureStandaloneEnvFile()
+  await applyDatabaseNameOverrideIfRequested()
   if (standaloneLocalRegistryRefresh) {
     await runRawYarnCommand(['cache', 'clean', '--all'])
   }
@@ -1675,6 +1732,7 @@ async function main() {
       await runStandaloneSetup()
       return
     }
+    await applyDatabaseNameOverrideIfRequested()
     if (classic) {
       await runClassicStandaloneDev()
       return
@@ -1698,6 +1756,8 @@ async function main() {
     launchStandaloneDev()
     return
   }
+
+  await applyDatabaseNameOverrideIfRequested()
 
   if (appOnly) {
     launchMonorepoAppDev()

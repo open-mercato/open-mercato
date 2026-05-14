@@ -15,6 +15,10 @@ import {
   customerLoginRateLimitConfig,
   customerLoginIpRateLimitConfig,
 } from '@open-mercato/core/modules/customer_accounts/lib/rateLimiter'
+import {
+  resolveTenantContext,
+  TenantResolutionError,
+} from '@open-mercato/core/modules/customer_accounts/lib/resolveTenantContext'
 
 export const metadata: { path?: string; requireAuth?: boolean } = { requireAuth: false }
 
@@ -31,9 +35,16 @@ export async function POST(req: Request) {
     return NextResponse.json({ ok: false, error: 'Invalid credentials' }, { status: 400 })
   }
 
-  const { email, password, tenantId } = parsed.data
-  if (!tenantId) {
-    return NextResponse.json({ ok: false, error: 'tenantId is required' }, { status: 400 })
+  const { email, password } = parsed.data
+  let tenantId: string
+  try {
+    const context = await resolveTenantContext(req, parsed.data.tenantId)
+    tenantId = context.tenantId
+  } catch (err) {
+    if (err instanceof TenantResolutionError) {
+      return NextResponse.json({ ok: false, error: err.message }, { status: err.status })
+    }
+    throw err
   }
 
   const { error: rateLimitError, compoundKey } = await checkAuthRateLimit({

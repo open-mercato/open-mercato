@@ -86,6 +86,38 @@ Not every assistant can write. An assistant's operating envelope is printed in t
 
 Your administrator can tighten an assistant from `confirm-required` down to `read-only` at any time (see [AI Agents settings](/framework/ai-assistant/settings)). They cannot loosen it beyond what the shipped agent declares.
 
+## Local LLMs with LM Studio or Llama
+
+Open Mercato can use local OpenAI-compatible servers for typed AI agents. This is useful for development, demos, offline work, or testing open-weight Llama models before choosing a hosted provider.
+
+### LM Studio
+
+1. Install LM Studio and download a chat/instruct model, such as a Llama instruct model.
+2. Start LM Studio's local server and keep it listening on `http://localhost:1234/v1`.
+3. Add these values to your app `.env`:
+
+```bash
+OM_AI_PROVIDER=lm-studio
+LM_STUDIO_API_KEY=lm-studio
+LM_STUDIO_BASE_URL=http://localhost:1234/v1
+OM_AI_MODEL=<the model id shown by LM Studio>
+```
+
+LM Studio accepts OpenAI-compatible requests on the local server. The API key is only a placeholder for local development; use the exact model id reported by LM Studio's server or model list.
+
+### Ollama / local Llama
+
+If you run Llama through Ollama's OpenAI-compatible endpoint, use the built-in `ollama` provider:
+
+```bash
+OM_AI_PROVIDER=ollama
+OLLAMA_API_KEY=ollama
+OLLAMA_BASE_URL=http://localhost:11434/v1
+OM_AI_MODEL=llama3.3
+```
+
+For hosted Llama models, use one of the OpenAI-compatible providers in the settings page, such as OpenRouter, Groq, Together, Fireworks, or DeepInfra. After changing env values, restart the app and open **Settings → AI Allowlist** and **Settings → AI Agents** to confirm the provider and model are available for the tenant and agent.
+
 ## Tips
 
 - The assistant only sees records your user account can already see. It inherits your roles and permissions.

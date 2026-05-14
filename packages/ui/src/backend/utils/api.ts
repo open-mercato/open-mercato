@@ -23,6 +23,23 @@ function readRedirectOverride(headers: Headers, headerName: string): boolean {
   return headers.get(headerName) === '0'
 }
 
+function isSameOriginRequest(input: RequestInfo | URL): boolean {
+  if (typeof window === 'undefined') return false
+  const host = window.location?.host
+  if (!host) return false
+  let urlString: string
+  if (typeof input === 'string') urlString = input
+  else if (input instanceof URL) urlString = input.toString()
+  else if (typeof Request !== 'undefined' && input instanceof Request) urlString = input.url
+  else return false
+  if (!/^[a-z][a-z0-9+.-]*:/i.test(urlString)) return true
+  try {
+    return new URL(urlString).host === host
+  } catch {
+    return false
+  }
+}
+
 export async function withScopedApiHeaders<T>(headers: Record<string, string>, run: () => Promise<T>): Promise<T> {
   return scopedHeaders.withScopedHeaders(headers, run)
 }
@@ -109,9 +126,17 @@ export async function apiFetch(input: RequestInfo | URL, init?: RequestInit): Pr
     )
   }
   const scoped = scopedHeaders.resolveScopedHeaders()
-  const mergedInit = Object.keys(scoped).length
+  const baseInit: RequestInit = Object.keys(scoped).length
     ? { ...(init ?? {}), headers: mergeHeaders(init?.headers, scoped) }
-    : init
+    : init ?? {}
+  // Only auto-inject credentials: 'include' for same-origin requests so cookies
+  // round-trip across Next.js proxy.ts rewrites (custom-domain portal flows)
+  // without leaking session cookies to third-party hosts.
+  const mergedInit: RequestInit = baseInit.credentials
+    ? baseInit
+    : isSameOriginRequest(input)
+      ? { ...baseInit, credentials: 'include' }
+      : baseInit
   const requestHeaders = new Headers(mergedInit?.headers)
   const disableUnauthorizedRedirect = readRedirectOverride(requestHeaders, 'x-om-unauthorized-redirect')
   const disableForbiddenRedirect = readRedirectOverride(requestHeaders, 'x-om-forbidden-redirect')

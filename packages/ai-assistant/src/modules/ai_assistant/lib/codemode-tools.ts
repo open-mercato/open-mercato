@@ -528,7 +528,6 @@ function formatValidationError(data: unknown): string {
 
 /**
  * Build entity schema array from the entity graph.
- * Same structure as buildEntityResult in entity-graph-tools.ts.
  */
 function buildEntitySchemas(graph: EntityGraph) {
   return graph.nodes.map((node) => {
@@ -761,7 +760,6 @@ RULES: For FIND/LIST → GET only (1 call). For UPDATE → PUT to collection pat
 
 /**
  * Create the api.request() function for the execute sandbox.
- * Replicates the authenticated API call logic from api-discovery-tools.ts.
  */
 function createApiRequestFn(
   ctx: McpToolContext,

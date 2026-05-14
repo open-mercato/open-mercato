@@ -22,7 +22,12 @@ jest.mock('../TaskDialog', () => ({
 
 jest.mock('@open-mercato/ui/backend/detail', () => ({
   LoadingMessage: () => null,
-  TabEmptyState: ({ title }: { title: string }) => <div>{title}</div>,
+  TabEmptyState: ({ title, children }: { title: string; children?: React.ReactNode }) => (
+    <div>
+      <div>{title}</div>
+      {children}
+    </div>
+  ),
 }))
 
 jest.mock('../../../lib/interactionCompatibility', () => ({

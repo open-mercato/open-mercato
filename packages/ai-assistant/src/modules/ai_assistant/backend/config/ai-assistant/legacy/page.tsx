@@ -5,7 +5,7 @@ export default async function AiAssistantLegacySettingsPage() {
   return (
     <Page>
       <PageBody>
-        <AiAssistantSettingsPageClient />
+        <AiAssistantSettingsPageClient launchMode="legacy" showVisibilityControl />
       </PageBody>
     </Page>
   )

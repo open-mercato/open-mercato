@@ -512,7 +512,8 @@ packages/ai-assistant/
 │   │   ├── lib/
 │   │   │   ├── opencode-client.ts      # OpenCode API client
 │   │   │   ├── opencode-handlers.ts    # Request handlers
-│   │   │   ├── api-discovery-tools.ts  # api_discover, api_execute, api_schema
+│   │   │   ├── codemode-tools.ts       # Code Mode meta-tools (search + execute)
+│   │   │   ├── api-endpoint-index.ts   # OpenAPI parsing + raw spec cache
 │   │   │   ├── http-server.ts          # MCP HTTP server
 │   │   │   ├── mcp-dev-server.ts       # Development MCP server
 │   │   │   └── tool-registry.ts        # Tool registration

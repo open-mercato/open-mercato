@@ -389,4 +389,174 @@ describe('DataTable extensions', () => {
       rendered.cleanupQueryClient()
     }
   })
+
+  it('does not expose saved filters through the perspectives action row', async () => {
+    const originalFetch = globalThis.fetch
+    const fetchMock = jest.fn(async (input: RequestInfo | URL) => {
+      const url = String(input)
+      if (url.includes('/api/auth/feature-check')) {
+        return new Response(JSON.stringify({ granted: ['perspectives.use'] }), {
+          status: 200,
+          headers: { 'content-type': 'application/json' },
+        })
+      }
+      if (url.includes('/api/perspectives/customers.people.list')) {
+        return new Response(JSON.stringify({
+          tableId: 'customers.people.list',
+          perspectives: [],
+          rolePerspectives: [],
+          roles: [],
+          defaultPerspectiveId: null,
+          canApplyToRoles: false,
+        }), {
+          status: 200,
+          headers: { 'content-type': 'application/json' },
+        })
+      }
+      return new Response(JSON.stringify({}), {
+        status: 404,
+        headers: { 'content-type': 'application/json' },
+      })
+    })
+    ;(globalThis as typeof globalThis & { fetch: typeof fetch }).fetch = fetchMock as unknown as typeof fetch
+
+    const rendered = renderTable({
+      columns: [{ accessorKey: 'name', header: 'Name' }],
+      data: [{ id: 'r1', name: 'Alice' }],
+      searchValue: '',
+      onSearchChange: () => {},
+      perspective: { tableId: 'customers.people.list' },
+      advancedFilter: {
+        value: {
+          root: {
+            id: 'root',
+            type: 'group',
+            combinator: 'and',
+            children: [
+              { id: 'rule-1', type: 'rule', field: 'name', operator: 'contains', value: 'Alice' },
+            ],
+          },
+        },
+        fields: [{ key: 'name', label: 'Name', type: 'text' }],
+        onChange: () => {},
+        onApply: () => {},
+        onClear: () => {},
+        externalPopover: true,
+      },
+    })
+
+    try {
+      await screen.findByRole('button', { name: /All views/ })
+      expect(screen.queryByTestId('advanced-filter-save-trigger')).not.toBeInTheDocument()
+      expect(screen.queryByRole('button', { name: 'Save filter' })).not.toBeInTheDocument()
+      expect(fetchMock.mock.calls.some(([input, init]) =>
+        String(input).includes('/api/perspectives/customers.people.list') && init?.method === 'POST'
+      )).toBe(false)
+    } finally {
+      if (originalFetch) {
+        globalThis.fetch = originalFetch
+      } else {
+        delete (globalThis as typeof globalThis & { fetch?: typeof fetch }).fetch
+      }
+      rendered.cleanupQueryClient()
+    }
+  })
+
+  it('clears the advanced filter tree when No view is selected', async () => {
+    const originalFetch = globalThis.fetch
+    const savedTree = {
+      v: 2,
+      root: {
+        id: 'saved-root',
+        type: 'group',
+        combinator: 'and',
+        children: [
+          { id: 'saved-rule', type: 'rule', field: 'name', operator: 'contains', value: 'Alice' },
+        ],
+      },
+    }
+    const perspectiveResponse = {
+      tableId: 'customers.people.list.clear-test',
+      perspectives: [
+        {
+          id: 'saved-filter-1',
+          name: 'Owned leads',
+          tableId: 'customers.people.list.clear-test',
+          isDefault: false,
+          settings: { filters: savedTree },
+          createdAt: new Date().toISOString(),
+          updatedAt: new Date().toISOString(),
+        },
+      ],
+      rolePerspectives: [],
+      roles: [],
+      defaultPerspectiveId: null,
+      canApplyToRoles: false,
+    }
+    const fetchMock = jest.fn(async (input: RequestInfo | URL) => {
+      const url = String(input)
+      if (url.includes('/api/auth/feature-check')) {
+        return new Response(JSON.stringify({ granted: ['perspectives.use'] }), {
+          status: 200,
+          headers: { 'content-type': 'application/json' },
+        })
+      }
+      if (url.includes('/api/perspectives/customers.people.list.clear-test')) {
+        return new Response(JSON.stringify(perspectiveResponse), {
+          status: 200,
+          headers: { 'content-type': 'application/json' },
+        })
+      }
+      return new Response(JSON.stringify({}), {
+        status: 404,
+        headers: { 'content-type': 'application/json' },
+      })
+    })
+    ;(globalThis as typeof globalThis & { fetch: typeof fetch }).fetch = fetchMock as unknown as typeof fetch
+    window.localStorage.clear()
+
+    const onApplyTree = jest.fn()
+    const rendered = renderTable({
+      columns: [{ accessorKey: 'name', header: 'Name' }],
+      data: [{ id: 'r1', name: 'Alice' }],
+      searchValue: '',
+      onSearchChange: () => {},
+      perspective: {
+        tableId: 'customers.people.list.clear-test',
+        initialState: { response: perspectiveResponse },
+      },
+      advancedFilter: {
+        value: savedTree,
+        fields: [{ key: 'name', label: 'Name', type: 'text' }],
+        onChange: () => {},
+        onApply: () => {},
+        onClear: () => {},
+        externalPopover: true,
+        onApplyTree,
+      },
+    })
+
+    try {
+      await waitFor(() => expect(onApplyTree).toHaveBeenCalled())
+      const activeViewButton = await screen.findByRole('button', { name: /Owned leads/ })
+      fireEvent.click(activeViewButton)
+      fireEvent.click(screen.getByRole('button', { name: /No view/ }))
+
+      await waitFor(() => {
+        const calls = onApplyTree.mock.calls
+        const lastTree = calls[calls.length - 1]?.[0]
+        expect(lastTree?.root.children).toHaveLength(0)
+      })
+      await waitFor(() => expect(screen.getByRole('button', { name: /All views/ })).toBeInTheDocument())
+      const calls = onApplyTree.mock.calls
+      expect(calls[calls.length - 1]?.[0]?.root.children).toHaveLength(0)
+    } finally {
+      if (originalFetch) {
+        globalThis.fetch = originalFetch
+      } else {
+        delete (globalThis as typeof globalThis & { fetch?: typeof fetch }).fetch
+      }
+      rendered.cleanupQueryClient()
+    }
+  })
 })

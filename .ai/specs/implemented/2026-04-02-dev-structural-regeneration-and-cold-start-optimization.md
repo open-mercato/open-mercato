@@ -79,6 +79,10 @@ Status on April 2, 2026 after implementation and rerun:
   - when one changes, the CLI reloads app env files while preserving shell-provided variables as authoritative
   - the managed runtime group restarts together: Next.js dev server, queue workers, and scheduler polling engine
   - structural generation remains separate; env changes do not run generators
+- May 13, 2026 amendment:
+  - monorepo package watch defaults to low-memory one-shot rebuilds after the initial `build:packages` stage instead of holding a persistent esbuild graph for every package at idle
+  - `OM_PACKAGE_WATCH_MODE=persistent` restores the previous persistent esbuild-context tradeoff for developers who prefer faster rebuilds over lower idle RSS
+  - root `yarn dev` injects lazy queue worker auto-spawn by default while direct CLI/runtime defaults stay backward-compatible
 
 ## Overview
 

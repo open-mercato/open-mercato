@@ -14,7 +14,11 @@ export const RICH_TEXT_ALLOWED_TAGS = [
   'h4',
   'h5',
   'h6',
+  'hr',
   'i',
+  'img',
+  'input',
+  'label',
   'li',
   'ol',
   'p',
@@ -22,6 +26,12 @@ export const RICH_TEXT_ALLOWED_TAGS = [
   's',
   'span',
   'strong',
+  'table',
+  'tbody',
+  'td',
+  'th',
+  'thead',
+  'tr',
   'u',
   'ul',
 ] as const
@@ -31,7 +41,6 @@ const RICH_TEXT_DROP_WITH_CONTENT_TAGS = [
   'embed',
   'form',
   'iframe',
-  'input',
   'link',
   'math',
   'meta',
@@ -66,11 +75,53 @@ export function sanitizeRichTextHtml(value: string | null | undefined): string {
     allowedTags: [...RICH_TEXT_ALLOWED_TAGS],
     allowedAttributes: {
       a: ['href', 'title'],
+      img: ['src', 'alt', 'width', 'height'],
+      table: ['style'],
+      tr: [],
+      td: ['colspan', 'rowspan', 'style'],
+      th: ['colspan', 'rowspan', 'style'],
+      input: ['type', 'checked', 'disabled'],
+      label: [],
+      span: ['style'],
+      p: ['style'],
+      div: ['style'],
+      ul: ['data-task-list', 'style'],
+      ol: ['style'],
+      li: ['style'],
+      h1: ['style'], h2: ['style'], h3: ['style'], h4: ['style'], h5: ['style'], h6: ['style'],
     },
     allowedSchemes: ['http', 'https', 'mailto', 'tel'],
-    allowedSchemesAppliedToAttributes: ['href'],
+    allowedSchemesAppliedToAttributes: ['href', 'src'],
     allowProtocolRelative: false,
     nonTextTags: [...RICH_TEXT_DROP_WITH_CONTENT_TAGS],
+    allowedStyles: {
+      '*': {
+        'color': [/^#(?:[0-9a-f]{3}){1,2}$/i, /^rgb\([\d,\s]+\)$/i, /^rgba\([\d.,\s]+\)$/i],
+        'background-color': [/^#(?:[0-9a-f]{3}){1,2}$/i, /^rgb\([\d,\s]+\)$/i, /^rgba\([\d.,\s]+\)$/i],
+        'font-size': [/^\d+(?:\.\d+)?(?:px|em|rem|%)$/],
+        'font-weight': [/^(?:normal|bold|\d{3})$/],
+        'font-style': [/^(?:normal|italic|oblique)$/],
+        'text-align': [/^(?:left|right|center|justify)$/],
+        'text-decoration': [/^(?:none|underline|line-through)$/],
+        'width': [/^\d+(?:\.\d+)?(?:px|em|rem|%)$/],
+        'height': [/^\d+(?:\.\d+)?(?:px|em|rem|%)$/],
+        'border': [/^[\w\-:#.,\s()]+$/],
+        'border-collapse': [/^(?:collapse|separate)$/],
+        'padding': [/^[\d.\spxemr%]+$/],
+        'list-style': [/^(?:none|disc|circle|square|decimal)$/],
+        'padding-left': [/^\d+(?:\.\d+)?(?:px|em|rem|%)?$/],
+      },
+    },
+    transformTags: {
+      // Restrict <input> to checkbox toggles only — strip any other `type` so
+      // text/file/etc. inputs don't slip through the rich text channel.
+      'input': (tagName, attribs) => {
+        if (attribs.type === 'checkbox') {
+          return { tagName: 'input', attribs }
+        }
+        return { tagName: '', attribs: {}, text: '' }
+      },
+    },
   })
 }
 

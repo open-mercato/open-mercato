@@ -11,6 +11,7 @@ const selectTriggerVariants = cva(
   {
     variants: {
       size: {
+        xs: 'h-7 px-2 text-xs',
         sm: 'h-8 px-2.5 text-xs',
         default: 'h-9 px-3 text-sm',
         lg: 'h-10 px-3 text-sm',
@@ -42,6 +43,46 @@ const SelectTrigger = React.forwardRef<
   </SelectPrimitive.Trigger>
 ))
 SelectTrigger.displayName = SelectPrimitive.Trigger.displayName
+
+/**
+ * Leading visual slot inside a `SelectTrigger` — render flags, avatars,
+ * provider logos, brand marks, or company icons before the `<SelectValue>`.
+ *
+ * Mirrors the Type variants in the Figma DS (Basic / Country / Avatar /
+ * Provider / Brand / Company — Figma `Select [1.1]`, node `270:1085`).
+ *
+ * Render inside `SelectTrigger`, BEFORE the `<SelectValue>`:
+ *
+ * ```tsx
+ * <SelectTrigger>
+ *   <SelectTriggerLeading><Avatar size="sm" label={user.name} /></SelectTriggerLeading>
+ *   <SelectValue placeholder="Select user" />
+ * </SelectTrigger>
+ * ```
+ *
+ * Sizing follows the trigger: icons render `size-4`, images render `size-5`
+ * by default — pass your own classes on the inner element when you need a
+ * different visual size (e.g. country flags `h-3 w-4`).
+ */
+const SelectTriggerLeading = React.forwardRef<
+  HTMLSpanElement,
+  React.HTMLAttributes<HTMLSpanElement>
+>(({ className, children, ...props }, ref) => (
+  <span
+    ref={ref}
+    data-slot="select-trigger-leading"
+    aria-hidden="true"
+    className={cn(
+      'flex shrink-0 items-center justify-center',
+      '[&>svg]:size-4 [&>svg]:shrink-0 [&>img]:size-5 [&>img]:shrink-0',
+      className
+    )}
+    {...props}
+  >
+    {children}
+  </span>
+))
+SelectTriggerLeading.displayName = 'SelectTriggerLeading'
 
 const SelectScrollUpButton = React.forwardRef<
   React.ElementRef<typeof SelectPrimitive.ScrollUpButton>,
@@ -91,7 +132,7 @@ const SelectContent = React.forwardRef<
       <SelectScrollUpButton />
       <SelectPrimitive.Viewport
         className={cn(
-          'p-1 max-h-[var(--radix-select-content-available-height)] overflow-y-auto',
+          'p-2 max-h-[var(--radix-select-content-available-height)] overflow-y-auto',
           position === 'popper' && 'w-full min-w-[var(--radix-select-trigger-width)]'
         )}
       >
@@ -109,7 +150,11 @@ const SelectLabel = React.forwardRef<
 >(({ className, ...props }, ref) => (
   <SelectPrimitive.Label
     ref={ref}
-    className={cn('px-2 py-1.5 text-overline uppercase text-muted-foreground', className)}
+    className={cn(
+      'px-2 pt-2 pb-1 text-overline font-semibold uppercase tracking-wider text-muted-foreground/80',
+      'select-none',
+      className
+    )}
     {...props}
   />
 ))
@@ -122,7 +167,7 @@ const SelectItem = React.forwardRef<
   <SelectPrimitive.Item
     ref={ref}
     className={cn(
-      'relative flex w-full cursor-default select-none items-center gap-2 rounded-sm py-1.5 pl-2 pr-8 text-sm outline-none transition-colors',
+      'relative flex w-full cursor-default select-none items-center gap-2 rounded-md p-2 text-sm outline-none transition-colors',
       'focus:bg-muted focus:text-foreground',
       'data-[state=checked]:bg-muted/70 data-[state=checked]:text-foreground',
       'data-[disabled]:pointer-events-none data-[disabled]:opacity-50',
@@ -131,17 +176,58 @@ const SelectItem = React.forwardRef<
     )}
     {...props}
   >
-    <span className="flex-1 truncate">
-      <SelectPrimitive.ItemText>{children}</SelectPrimitive.ItemText>
-    </span>
-    <span className="absolute right-2 flex h-3.5 w-3.5 items-center justify-center">
-      <SelectPrimitive.ItemIndicator>
-        <Check className="size-4 text-foreground" aria-hidden="true" />
-      </SelectPrimitive.ItemIndicator>
-    </span>
+    <SelectPrimitive.ItemText asChild>
+      <span className="flex min-w-0 flex-1 items-center gap-2 truncate">
+        {children}
+      </span>
+    </SelectPrimitive.ItemText>
+    <SelectPrimitive.ItemIndicator className="ml-auto flex shrink-0 items-center justify-center">
+      <Check className="size-4 text-foreground" aria-hidden="true" />
+    </SelectPrimitive.ItemIndicator>
   </SelectPrimitive.Item>
 ))
 SelectItem.displayName = SelectPrimitive.Item.displayName
+
+/**
+ * Leading visual slot inside a `SelectItem` — mirror of `SelectTriggerLeading`
+ * for dropdown rows. Compose with the DS `Avatar`, country flag images, or
+ * `lucide-react` icons.
+ *
+ * Render inside the `<SelectItem>` children, before the row label:
+ *
+ * ```tsx
+ * <SelectItem value="us">
+ *   <SelectItemLeading><span className="h-3 w-4 rounded-sm overflow-hidden">🇺🇸</span></SelectItemLeading>
+ *   United States
+ * </SelectItem>
+ * ```
+ *
+ * NOTE: `SelectPrimitive.ItemText` only reads the text node siblings for the
+ * trigger preview — wrap the leading slot OUTSIDE `ItemText` (which this
+ * primitive does by default, since `SelectItem`'s `children` are placed inside
+ * `<SelectPrimitive.ItemText>` only via the inner `<span className="flex-1
+ * truncate">`). Place the `SelectItemLeading` alongside the row text and the
+ * label will read correctly in the trigger preview.
+ */
+const SelectItemLeading = React.forwardRef<
+  HTMLSpanElement,
+  React.HTMLAttributes<HTMLSpanElement>
+>(({ className, children, ...props }, ref) => (
+  <span
+    ref={ref}
+    data-slot="select-item-leading"
+    aria-hidden="true"
+    className={cn(
+      'flex shrink-0 items-center justify-center',
+      '[&>svg]:size-4 [&>svg]:shrink-0 [&>img]:size-5 [&>img]:shrink-0',
+      className
+    )}
+    {...props}
+  >
+    {children}
+  </span>
+))
+SelectItemLeading.displayName = 'SelectItemLeading'
 
 const SelectSeparator = React.forwardRef<
   React.ElementRef<typeof SelectPrimitive.Separator>,
@@ -190,9 +276,11 @@ export {
   SelectGroup,
   SelectValue,
   SelectTrigger,
+  SelectTriggerLeading,
   SelectContent,
   SelectLabel,
   SelectItem,
+  SelectItemLeading,
   SelectSeparator,
   SelectScrollUpButton,
   SelectScrollDownButton,

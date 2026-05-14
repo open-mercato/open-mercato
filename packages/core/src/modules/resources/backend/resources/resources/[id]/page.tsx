@@ -14,6 +14,7 @@ import { ActivitiesSection, NotesSection, type SectionAction, type TagOption } f
 import { VersionHistoryAction } from '@open-mercato/ui/backend/version-history'
 import { SendObjectMessageDialog } from '@open-mercato/ui/backend/messages'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
+import { extractCustomFieldEntries } from '@open-mercato/shared/lib/crud/custom-fields-client'
 import { createTranslatorWithFallback } from '@open-mercato/shared/lib/i18n/translate'
 import { buildResourceScheduleItems } from '@open-mercato/core/modules/resources/lib/resourceSchedule'
 import { RESOURCES_RESOURCE_FIELDSET_DEFAULT } from '@open-mercato/core/modules/resources/lib/resourceCustomFields'
@@ -422,11 +423,7 @@ export default function ResourcesResourceDetailPage({ params }: { params?: { id?
         const resource = resourceRaw ? normalizeResourceRecord(resourceRaw) : null
         if (!resource) throw new Error(t('resources.resources.form.errors.notFound', 'Resource not found.'))
         if (!cancelled) {
-          const customValues: Record<string, unknown> = {}
-          for (const [key, value] of Object.entries(resource)) {
-            if (key.startsWith('cf_')) customValues[key] = value
-            else if (key.startsWith('cf:')) customValues[`cf_${key.slice(3)}`] = value
-          }
+          const customValues = extractCustomFieldEntries(resource)
           setTags(Array.isArray(resource.tags) ? resource.tags : [])
           setAvailabilityRuleSetId(
             typeof resource.availabilityRuleSetId === 'string'

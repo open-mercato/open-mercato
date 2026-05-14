@@ -37,8 +37,11 @@ The panel shows the resolution the dispatcher used for the current session:
 - **Resolved tool list** — names, `isMutation` flags, and `requiredFeatures`.
 - **Prompt section map** — each section's source (`default` \| `override` \| `placeholder`).
 - **Tool call + tool result log** streamed live from the dispatcher.
+- **Loop trace** — per-step breakdown of the last completed turn: which model each step used (`prepareStep` swaps are visible here), tool calls and `repairToolCall` attempts per step, total tokens, and the **stop reason** (`stepCountIs` / `hasToolCall` / `loop_budget_exceeded` / `finish-reason:stop|tool-calls|length` / `aborted`). Populated from the dispatcher SSE `loop-finish` event; the same trace renders inside any host `<AiChat>` whose `debug` prop is truthy.
 
-Use the panel to confirm that a newly-saved prompt override reached the runtime without restarting anything.
+When a tenant has flipped the **Disable agentic loop** kill switch from [Settings](./settings#loop-policy-overrides), the playground (and any `<AiChat>` instance for that agent) renders a `LoopDisabledBanner` above the composer and the dispatcher collapses the agent to a single model call.
+
+Use the panel to confirm that a newly-saved prompt or loop override reached the runtime without restarting anything.
 
 ## Shortcuts
 

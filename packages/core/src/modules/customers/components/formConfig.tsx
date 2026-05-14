@@ -6,8 +6,10 @@ import Link from 'next/link'
 import { Check, Pencil, Plus, Settings } from 'lucide-react'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { useOrganizationScopeVersion } from '@open-mercato/shared/lib/frontend/useOrganizationScope'
+import { extractCustomFieldEntries } from '@open-mercato/shared/lib/crud/custom-fields-client'
 import { Button } from '@open-mercato/ui/primitives/button'
 import { Input } from '@open-mercato/ui/primitives/input'
+import { EmailInput } from '@open-mercato/ui/primitives/email-input'
 import {
   Select,
   SelectContent,
@@ -263,8 +265,7 @@ const createPrimaryEmailField = (t: Translator): CrudField => ({
 
     return (
       <div className="space-y-2">
-        <Input
-          type="email"
+        <EmailInput
           value={inputValue}
           onChange={(event) => {
             const nextValue = event.target.value
@@ -1966,7 +1967,7 @@ export function mapCompanyOverviewToFormValues(overview: CompanyOverview): Parti
     industry: overview.profile?.industry ?? '',
     sizeBucket: overview.profile?.sizeBucket ?? '',
     annualRevenue: overview.profile?.annualRevenue ?? '',
-    ...overview.customFields,
+    ...extractCustomFieldEntries({ customFields: overview.customFields }),
   }
 }
 
@@ -1989,6 +1990,6 @@ export function mapPersonOverviewToFormValues(overview: PersonOverview): Partial
     department: overview.profile?.department ?? '',
     linkedInUrl: overview.profile?.linkedInUrl ?? '',
     twitterUrl: overview.profile?.twitterUrl ?? '',
-    ...overview.customFields,
+    ...extractCustomFieldEntries({ customFields: overview.customFields }),
   }
 }

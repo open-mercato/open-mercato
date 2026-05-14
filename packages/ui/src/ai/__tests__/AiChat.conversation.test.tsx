@@ -158,3 +158,19 @@ describe('<AiChat> conversationId threading (Step 5.15)', () => {
     expect(parsedBody.conversationId).toBe('conv-body-xyz')
   })
 })
+
+// <AiChat> mounts useAgentModels (Phase 4b) which hits /api/ai_assistant/ai/agents/<id>/models
+// on first render via apiCall. Stub apiCall with a no-providers response so this files
+// chat-flow assertions remain scoped to the dispatcher mock above.
+jest.mock('../../backend/utils/apiCall', () => ({
+  apiCall: jest.fn(async () => ({
+    ok: true,
+    status: 200,
+    result: {
+      allowRuntimeModelOverride: false,
+      defaultProviderId: 'openai',
+      defaultModelId: 'gpt-5-mini',
+      providers: [],
+    },
+  })),
+}))
