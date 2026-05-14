@@ -41,6 +41,9 @@ test.describe('TC-AUTH-039: Clear user display name through the API', () => {
         token,
       })
       const body = await readJsonSafe<{ items?: Array<{ name?: string | null }> }>(readResponse)
+      if (!body) {
+        throw new Error('Expected user list response body')
+      }
       expect(body.items?.[0]?.name).toBeNull()
 
       await login(page, 'admin')
