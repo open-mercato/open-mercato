@@ -3,12 +3,24 @@ export interface TenantScope {
   tenantId: string
 }
 
+export type FieldMappingKind =
+  | 'core'
+  | 'relation'
+  | 'external_id'
+  | 'custom_field'
+  | 'metadata'
+  | 'ignore'
+
+export type FieldMappingDedupeRole = 'primary' | 'secondary'
+
 export interface FieldMapping {
   externalField: string
   localField: string
   transform?: string
   required?: boolean
   defaultValue?: unknown
+  mappingKind?: FieldMappingKind
+  dedupeRole?: FieldMappingDedupeRole
 }
 
 export interface DataMapping {
@@ -25,6 +37,7 @@ export interface StreamImportInput {
   credentials: Record<string, unknown>
   mapping: DataMapping
   scope: TenantScope
+  runId?: string
 }
 
 export interface ImportItem {
@@ -53,6 +66,7 @@ export interface StreamExportInput {
   mapping: DataMapping
   scope: TenantScope
   filter?: Record<string, unknown>
+  runId?: string
 }
 
 export interface ExportItemResult {
@@ -79,6 +93,7 @@ export interface DataSyncAdapter {
   readonly providerKey: string
   readonly direction: 'import' | 'export' | 'bidirectional'
   readonly supportedEntities: string[]
+  readonly operationalTelemetry?: boolean
 
   streamImport?(input: StreamImportInput): AsyncIterable<ImportBatch>
   streamExport?(input: StreamExportInput): AsyncIterable<ExportBatch>
