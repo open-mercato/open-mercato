@@ -88,7 +88,9 @@ test.describe('TC-STAFF-005: Assignable team-members route (staff-owned)', () =>
       expect(location, 'redirect Location header missing').toBeTruthy()
       const target = new URL(location as string, 'http://localhost')
       expect(target.pathname).toBe('/api/staff/team-members/assignable')
-      expect(target.search).toBe(`?pageSize=20&page=1&search=${encodeURIComponent(memberName)}`)
+      expect(target.searchParams.get('pageSize')).toBe('20')
+      expect(target.searchParams.get('page')).toBe('1')
+      expect(target.searchParams.get('search')).toBe(memberName)
     } finally {
       if (adminToken && memberId) {
         await apiRequest(
