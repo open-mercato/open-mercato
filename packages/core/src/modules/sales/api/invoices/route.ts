@@ -11,6 +11,7 @@ import {
   createSalesCrudOpenApi,
   defaultDeleteRequestSchema,
 } from '../openapi'
+import { attachOrderContext, attachInvoiceLines } from '../_documentListEnrichers'
 import { E } from '#generated/entities.ids.generated'
 
 const rawBodySchema = z.object({}).passthrough()
@@ -90,6 +91,12 @@ const crud = makeCrudRoute({
         ]
       }
       return filters
+    },
+  },
+  hooks: {
+    afterList: async (payload, ctx) => {
+      await attachOrderContext(payload as { items?: unknown }, ctx as never)
+      await attachInvoiceLines(payload as { items?: unknown }, ctx as never)
     },
   },
   actions: {

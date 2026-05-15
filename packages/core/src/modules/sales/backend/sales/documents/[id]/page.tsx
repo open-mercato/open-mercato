@@ -22,7 +22,7 @@ import { Spinner } from '@open-mercato/ui/primitives/spinner'
 import { Input } from '@open-mercato/ui/primitives/input'
 import { EmailInput } from '@open-mercato/ui/primitives/email-input'
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@open-mercato/ui/primitives/dialog'
-import { ArrowRightLeft, Building2, CreditCard, Mail, Pencil, Plus, Send, Store, Truck, UserRound, Wand2, X } from 'lucide-react'
+import { ArrowRightLeft, Building2, CreditCard, FileText, Mail, Pencil, Plus, Send, Store, Truck, UserRound, Wand2, X } from 'lucide-react'
 import { FormHeader, type ActionItem } from '@open-mercato/ui/backend/forms'
 import { VersionHistoryAction } from '@open-mercato/ui/backend/version-history'
 import { SendObjectMessageDialog } from '@open-mercato/ui/backend/messages'
@@ -1886,12 +1886,15 @@ export default function SalesDocumentDetailPage({
   const detailSectionRef = React.useRef<HTMLDivElement | null>(null)
   const [generating, setGenerating] = React.useState(false)
   const [converting, setConverting] = React.useState(false)
+  const [creatingInvoice, setCreatingInvoice] = React.useState(false)
   const [deleting, setDeleting] = React.useState(false)
   const [sending, setSending] = React.useState(false)
   const [sendOpen, setSendOpen] = React.useState(false)
   const [validForDays, setValidForDays] = React.useState(14)
   const [numberEditing, setNumberEditing] = React.useState(false)
   const [canEditNumber, setCanEditNumber] = React.useState(false)
+  const [canCreateInvoice, setCanCreateInvoice] = React.useState(false)
+  const [hasExistingInvoice, setHasExistingInvoice] = React.useState(false)
   const [currencyError, setCurrencyError] = React.useState<string | null>(null)
   const [hasItems, setHasItems] = React.useState(false)
   const [hasPayments, setHasPayments] = React.useState(false)
@@ -2000,7 +2003,36 @@ export default function SalesDocumentDetailPage({
         if (active) setCanEditNumber(false)
       }
     }
+    async function loadInvoicePermission() {
+      try {
+        const call = await apiCall<{ granted?: unknown[] }>(
+          '/api/auth/feature-check',
+          {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ features: ['sales.invoices.manage'] }),
+          }
+        )
+        if (!active) return
+        const granted = Array.isArray(call.result?.granted)
+          ? call.result?.granted.map((item) => String(item))
+          : []
+        const has = granted.some((feature) => {
+          if (feature === '*') return true
+          if (feature === 'sales.invoices.manage') return true
+          if (feature.endsWith('.*')) {
+            const prefix = feature.slice(0, -2)
+            return 'sales.invoices.manage' === prefix || 'sales.invoices.manage'.startsWith(`${prefix}.`)
+          }
+          return false
+        })
+        setCanCreateInvoice(Boolean(call.ok && has))
+      } catch {
+        if (active) setCanCreateInvoice(false)
+      }
+    }
     loadNumberPermission().catch(() => {})
+    loadInvoicePermission().catch(() => {})
     return () => {
       active = false
     }
@@ -2296,6 +2328,25 @@ export default function SalesDocumentDetailPage({
     }
   }, [kind, record?.id])
 
+  const refreshInvoicePresence = React.useCallback(async () => {
+    if (!record?.id || kind !== 'order') {
+      setHasExistingInvoice(false)
+      return
+    }
+    const params = new URLSearchParams({ page: '1', pageSize: '1', orderId: record.id })
+    try {
+      const response = await apiCall<{ items?: Array<Record<string, unknown>> }>(
+        `/api/sales/invoices?${params.toString()}`,
+        undefined,
+        { fallback: { items: [] } }
+      )
+      const items = Array.isArray(response.result?.items) ? response.result.items : []
+      setHasExistingInvoice(items.some((item) => item && typeof (item as any).id === 'string'))
+    } catch (err) {
+      console.error('sales.documents.invoicesPresence', err)
+    }
+  }, [kind, record?.id])
+
   const fetchCustomerEmail = React.useCallback(
     async (id: string, kindHint?: 'person' | 'company'): Promise<string | null> => {
       try {
@@ -2546,6 +2597,10 @@ export default function SalesDocumentDetailPage({
   React.useEffect(() => {
     void refreshPaymentPresence()
   }, [refreshPaymentPresence])
+
+  React.useEffect(() => {
+    void refreshInvoicePresence()
+  }, [refreshInvoicePresence])
 
   const normalizeGuardList = React.useCallback((value: unknown): string[] | null => {
     if (value === null) return null
@@ -3659,6 +3714,96 @@ export default function SalesDocumentDetailPage({
     }
   }, [kind, record, router, runMutationWithContext, t])
 
+  const handleCreateInvoice = React.useCallback(async () => {
+    if (!record || kind !== 'order') return
+    if (hasExistingInvoice) {
+      flash(t('sales.invoices.duplicateForOrder', 'An invoice already exists for this order.'), 'warning')
+      return
+    }
+    setCreatingInvoice(true)
+    try {
+      await runMutationWithContext(async () => {
+        // Fetch order lines via API (not available on DocumentRecord)
+        const linesResult = await apiCall<{ items?: Array<Record<string, unknown>>; total?: number }>(
+          `/api/sales/order-lines?orderId=${record.id}&pageSize=100`
+        )
+        const orderLines = linesResult.ok && Array.isArray(linesResult.result?.items) ? linesResult.result.items : []
+        const totalLines = linesResult.result?.total ?? orderLines.length
+        if (totalLines > orderLines.length) {
+          flash(t('sales.invoices.createTruncatedWarning', `Only ${orderLines.length} of ${totalLines} lines included. Create remaining lines manually.`), 'warning')
+        }
+        const str = (v: unknown) => typeof v === 'string' ? v : undefined
+        const num = (v: unknown) => typeof v === 'string' ? v : typeof v === 'number' ? String(v) : '0'
+        function snakeToCamel(obj: Record<string, unknown>): Record<string, unknown> {
+          const result: Record<string, unknown> = {}
+          for (const [key, value] of Object.entries(obj)) {
+            result[key.replace(/_([a-z])/g, (_, c) => c.toUpperCase())] = value
+          }
+          return result
+        }
+        const lines = orderLines.map((raw: Record<string, unknown>, index: number) => {
+          const line = snakeToCamel(raw)
+          return {
+            orderLineId: String(line.id ?? ''),
+            lineNumber: index + 1,
+            kind: String(line.kind ?? 'product'),
+            name: str(line.name) ?? str(line.productName) ?? str(line.description),
+            sku: str(line.sku),
+            description: str(line.description),
+            quantity: num(line.quantity),
+            quantityUnit: str(line.quantityUnit),
+            currencyCode: str(line.currencyCode) ?? record.currencyCode,
+            unitPriceNet: num(line.unitPriceNet),
+            unitPriceGross: num(line.unitPriceGross),
+            discountAmount: num(line.discountAmount),
+            discountPercent: num(line.discountPercent),
+            taxRate: num(line.taxRate),
+            taxAmount: num(line.taxAmount),
+            totalNetAmount: num(line.totalNetAmount),
+            totalGrossAmount: num(line.totalGrossAmount),
+          }
+        })
+        const call = await apiCallOrThrow<{ invoiceId?: string }>(
+          '/api/sales/invoices',
+          {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              orderId: record.id,
+              currencyCode: record.currencyCode,
+              lines,
+              subtotalNetAmount: record.subtotalNetAmount ?? '0',
+              subtotalGrossAmount: record.subtotalGrossAmount ?? '0',
+              discountTotalAmount: record.discountTotalAmount ?? '0',
+              taxTotalAmount: record.taxTotalAmount ?? '0',
+              grandTotalNetAmount: record.grandTotalNetAmount ?? '0',
+              grandTotalGrossAmount: record.grandTotalGrossAmount ?? '0',
+            }),
+          },
+          { errorMessage: t('sales.invoices.createError', 'Failed to create invoice.') },
+        )
+        const invoiceId = call.result?.invoiceId
+        flash(t('sales.invoices.createSuccess', 'Invoice created successfully.'), 'success')
+        setHasExistingInvoice(true)
+        if (invoiceId) {
+          router.push(`/backend/sales/invoices/${invoiceId}`)
+        }
+      }, { orderId: record.id })
+    } catch (err) {
+      console.error('sales.invoices.createFromOrder', err)
+      const code = (err as { code?: unknown } | null)?.code
+      if (code === 'sales.invoices.duplicate_for_order') {
+        setHasExistingInvoice(true)
+        flash(t('sales.invoices.duplicateForOrder', 'An invoice already exists for this order.'), 'warning')
+      } else {
+        const message = (err instanceof Error && err.message) ? err.message : null
+        flash(message ?? t('sales.invoices.createError', 'Failed to create invoice.'), 'error')
+      }
+    } finally {
+      setCreatingInvoice(false)
+    }
+  }, [hasExistingInvoice, kind, record, router, runMutationWithContext, t])
+
   const handleSendQuote = React.useCallback(async () => {
     if (!record || kind !== 'quote') return
     setSending(true)
@@ -4566,6 +4711,17 @@ export default function SalesDocumentDetailPage({
           menuActions={kind === 'quote' ? ([
             { id: 'convert', label: t('sales.documents.detail.convertToOrder', 'Convert to order'), icon: ArrowRightLeft, onSelect: () => void handleConvert(), disabled: converting, loading: converting },
             { id: 'send', label: t('sales.quotes.send.action', 'Send to customer'), icon: Send, onSelect: () => setSendOpen(true), disabled: !contactEmail || sending, loading: sending },
+          ] satisfies ActionItem[]) : kind === 'order' ? ([
+            ...(canCreateInvoice ? [{
+              id: 'create-invoice',
+              label: hasExistingInvoice
+                ? t('sales.invoices.alreadyExistsForOrder', 'Invoice already exists')
+                : t('sales.invoices.createFromOrder', 'Create invoice'),
+              icon: FileText,
+              onSelect: () => void handleCreateInvoice(),
+              disabled: creatingInvoice || hasExistingInvoice,
+              loading: creatingInvoice,
+            }] : []),
           ] satisfies ActionItem[]) : undefined}
           onDelete={() => void handleDelete()}
           isDeleting={deleting}

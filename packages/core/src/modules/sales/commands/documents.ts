@@ -8061,6 +8061,19 @@ const createInvoiceCommand: CommandHandler<
       if (!orderExists) {
         throw new CrudHttpError(400, { error: "Referenced order not found in current scope." });
       }
+      const existingInvoice = await em.findOne(SalesInvoice, {
+        order: parsed.orderId,
+        organizationId: parsed.organizationId,
+        tenantId: parsed.tenantId,
+        deletedAt: null,
+      });
+      if (existingInvoice) {
+        throw new CrudHttpError(409, {
+          error: "An invoice already exists for this order.",
+          code: "sales.invoices.duplicate_for_order",
+          existingInvoiceId: existingInvoice.id,
+        });
+      }
     }
 
     const invoiceId = randomUUID();
@@ -8069,7 +8082,7 @@ const createInvoiceCommand: CommandHandler<
       organizationId: parsed.organizationId,
       tenantId: parsed.tenantId,
       invoiceNumber: ensuredInvoiceNumber,
-      orderId: parsed.orderId ?? null,
+      order: parsed.orderId ?? null,
       statusEntryId: parsed.statusEntryId ?? null,
       status,
       issueDate: parsed.issueDate ?? new Date(),
@@ -8549,8 +8562,8 @@ const createCreditMemoCommand: CommandHandler<
       organizationId: parsed.organizationId,
       tenantId: parsed.tenantId,
       creditMemoNumber: ensuredCreditMemoNumber,
-      orderId: parsed.orderId ?? null,
-      invoiceId: parsed.invoiceId ?? null,
+      order: parsed.orderId ?? null,
+      invoice: parsed.invoiceId ?? null,
       statusEntryId: parsed.statusEntryId ?? null,
       status,
       reason: parsed.reason ?? null,
