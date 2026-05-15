@@ -1,9 +1,10 @@
 "use client"
 import * as React from 'react'
-import { X, Bell, CheckCheck, Loader2, RotateCcw } from 'lucide-react'
+import Link from 'next/link'
+import { ArrowDown, ArrowUp, Bell, Loader2, RotateCcw, Settings2, X } from 'lucide-react'
 import { Button } from '../../primitives/button'
 import { IconButton } from '../../primitives/icon-button'
-import { Tabs, TabsList, TabsTrigger } from '../../primitives/tabs'
+import { Sheet, SheetContent, SheetTitle } from '../../primitives/sheet'
 import { NotificationItem } from './NotificationItem'
 import type { NotificationDto, NotificationRendererProps } from '@open-mercato/shared/modules/notifications/types'
 import type { TranslateFn } from '@open-mercato/shared/lib/i18n/context'
@@ -96,117 +97,119 @@ export function NotificationPanel({
     }
   }
 
+  // Preserve the body scroll lock contract that consumers (and integration
+  // tests) rely on. Radix Dialog locks scroll via react-remove-scroll which
+  // does not set `document.body.style.overflow` — we set it ourselves so the
+  // contract is observable.
   React.useEffect(() => {
-    if (!open) return
-    const prevOverflow = document.body.style.overflow
+    if (!open || typeof document === 'undefined') return
+    const previous = document.body.style.overflow
     document.body.style.overflow = 'hidden'
     return () => {
-      document.body.style.overflow = prevOverflow
+      document.body.style.overflow = previous
     }
   }, [open])
 
-  React.useEffect(() => {
-    const handleKeyDown = (event: KeyboardEvent) => {
-      if (event.key === 'Escape' && open) {
-        onOpenChange(false)
-      }
-    }
-    document.addEventListener('keydown', handleKeyDown)
-    return () => document.removeEventListener('keydown', handleKeyDown)
-  }, [open, onOpenChange])
-
-  if (!open) return null
-
   return (
-    <>
-      <div
-        className="fixed inset-0 z-overlay bg-black/20"
-        onClick={() => onOpenChange(false)}
-        aria-hidden="true"
-      />
-
-      <div
-        className="fixed right-0 top-0 z-modal h-full w-full max-w-md border-l bg-background shadow-lg"
-        role="dialog"
-        aria-modal="true"
+    <Sheet open={open} onOpenChange={onOpenChange}>
+      <SheetContent
+        side="right"
+        className="gap-0 p-0"
+        hideClose
         aria-label={t('notifications.title', 'Notifications')}
       >
-        <div className="flex h-full flex-col">
-          <div className="flex items-center justify-between border-b px-4 py-3">
-            <div className="flex items-center gap-2">
-              <Bell className="h-5 w-5" />
-              <h2 className="font-semibold">{t('notifications.title', 'Notifications')}</h2>
-              {unreadCount > 0 && (
-                <span className="rounded-full bg-destructive px-2 py-0.5 text-xs text-destructive-foreground">
-                  {unreadCount}
-                </span>
-              )}
-            </div>
-            <div className="flex items-center gap-2">
-              {unreadCount > 0 && (
-                <Button
-                  variant="ghost"
-                  size="sm"
-                  onClick={handleMarkAllRead}
-                  disabled={markingAllRead}
-                >
-                  {markingAllRead ? (
-                    <Loader2 className="mr-1 h-4 w-4 animate-spin" />
-                  ) : (
-                    <CheckCheck className="mr-1 h-4 w-4" />
-                  )}
-                  {t('notifications.markAllRead', 'Mark all read')}
-                </Button>
-              )}
-              <IconButton variant="ghost" size="lg" onClick={() => onOpenChange(false)}>
-                <X className="h-5 w-5" />
-              </IconButton>
+        <div className="flex items-center justify-between gap-3 border-b px-5 py-4">
+          <SheetTitle className="text-base font-medium leading-6 tracking-tight text-foreground">
+            {t('notifications.title', 'Notifications')}
+          </SheetTitle>
+          <div className="flex items-center gap-1">
+            {unreadCount > 0 ? (
+              <button
+                type="button"
+                onClick={handleMarkAllRead}
+                disabled={markingAllRead}
+                className="inline-flex items-center gap-1 rounded-md px-1 text-sm font-medium leading-5 text-accent-indigo transition-colors hover:text-accent-indigo/80 disabled:opacity-50"
+              >
+                {markingAllRead ? <Loader2 className="size-3.5 animate-spin" /> : null}
+                {t('notifications.markAllRead', 'Mark all read')}
+              </button>
+            ) : null}
+            <IconButton
+              type="button"
+              variant="ghost"
+              size="sm"
+              onClick={() => onOpenChange(false)}
+              aria-label={t('notifications.close', 'Close notifications')}
+            >
+              <X className="size-4" />
+            </IconButton>
+          </div>
+        </div>
+
+        <div role="tablist" className="flex items-center gap-5 border-b px-5 py-3.5">
+          {(['all', 'unread', 'action'] as const).map((value) => {
+            const isActive = filter === value
+            const label =
+              value === 'all'
+                ? t('notifications.filters.all', 'All')
+                : value === 'unread'
+                  ? t('notifications.filters.unread', 'Unread')
+                  : t('notifications.filters.actionRequired', 'Action Required')
+            return (
+              <button
+                key={value}
+                type="button"
+                role="tab"
+                aria-selected={isActive}
+                onClick={() => setFilter(value)}
+                className="relative inline-flex items-center gap-1.5 pb-2 text-sm font-medium leading-5 tracking-tight transition-colors focus:outline-none focus-visible:text-foreground data-[active=true]:text-foreground data-[active=false]:text-muted-foreground hover:text-foreground"
+                data-active={isActive}
+              >
+                <span>{label}</span>
+                {value === 'unread' && unreadCount > 0 ? (
+                  <span className="inline-flex min-w-4 items-center justify-center rounded-full bg-accent-indigo px-1 text-overline font-medium text-accent-indigo-foreground">
+                    {unreadCount > 99 ? '99+' : unreadCount}
+                  </span>
+                ) : null}
+                {isActive ? (
+                  <span
+                    className="absolute bottom-[-14px] left-0 right-0 h-0.5 bg-foreground"
+                    aria-hidden="true"
+                  />
+                ) : null}
+              </button>
+            )
+          })}
+        </div>
+
+        {dismissUndo && onUndoDismiss && (
+          <div className="border-b bg-muted/50 px-4 py-2 text-sm">
+            <div className="flex items-center justify-between gap-3">
+              <span>
+                {t('notifications.toast.dismissed', 'Notification dismissed')}
+              </span>
+              <Button variant="ghost" size="sm" onClick={() => onUndoDismiss()}>
+                <RotateCcw className="mr-1 h-3 w-3" />
+                {t('notifications.actions.undo', 'Undo')}
+              </Button>
             </div>
           </div>
+        )}
 
-          <Tabs
-            value={filter}
-            onValueChange={(v) => setFilter(v as typeof filter)}
-            className="border-b"
-          >
-            <TabsList className="w-full justify-start rounded-none border-0 bg-transparent px-4">
-              <TabsTrigger value="all">
-                {t('notifications.filters.all', 'All')}
-              </TabsTrigger>
-              <TabsTrigger value="unread">
-                {t('notifications.filters.unread', 'Unread')}
-              </TabsTrigger>
-              <TabsTrigger value="action">
-                {t('notifications.filters.actionRequired', 'Action Required')}
-              </TabsTrigger>
-            </TabsList>
-          </Tabs>
-
-          {dismissUndo && onUndoDismiss && (
-            <div className="border-b bg-muted/50 px-4 py-2 text-sm">
-              <div className="flex items-center justify-between gap-3">
-                <span>
-                  {t('notifications.toast.dismissed', 'Notification dismissed')}
-                </span>
-                <Button variant="ghost" size="sm" onClick={() => onUndoDismiss()}>
-                  <RotateCcw className="mr-1 h-3 w-3" />
-                  {t('notifications.actions.undo', 'Undo')}
-                </Button>
+        <div className="flex-1 overflow-y-auto overflow-x-hidden overscroll-contain">
+          {filteredNotifications.length === 0 ? (
+            <div className="flex flex-col items-center justify-center gap-2 py-16 text-muted-foreground">
+              <div className="flex size-12 items-center justify-center rounded-full bg-muted/50">
+                <Bell className="size-5" aria-hidden="true" />
               </div>
+              <p className="text-sm">{t('notifications.empty', 'No notifications')}</p>
             </div>
-          )}
-
-          <div className="flex-1 overflow-y-auto overscroll-contain">
-            {filteredNotifications.length === 0 ? (
-              <div className="flex flex-col items-center justify-center py-12 text-muted-foreground">
-                <Bell className="mb-2 h-8 w-8 opacity-50" />
-                <p>{t('notifications.empty', 'No notifications')}</p>
-              </div>
-            ) : (
-              <div className="divide-y">
-                {filteredNotifications.map((notification) => (
+          ) : (
+            <div className="flex flex-col gap-1 p-2">
+              {filteredNotifications.map((notification, idx) => (
+                <React.Fragment key={notification.id}>
+                  {idx > 0 ? <div className="my-px h-px bg-border" aria-hidden="true" /> : null}
                   <NotificationItem
-                    key={notification.id}
                     notification={notification}
                     onMarkAsRead={() => onMarkAsRead(notification.id)}
                     onExecuteAction={(actionId) => onExecuteAction(notification.id, actionId)}
@@ -214,12 +217,33 @@ export function NotificationPanel({
                     t={t}
                     customRenderer={customRenderers?.[notification.type]}
                   />
-                ))}
-              </div>
-            )}
-          </div>
+                </React.Fragment>
+              ))}
+            </div>
+          )}
         </div>
-      </div>
-    </>
+
+        <div className="flex items-center justify-between gap-3 border-t px-5 py-3.5 text-xs leading-4 text-muted-foreground">
+          <div className="flex items-center gap-2">
+            <span>{t('notifications.footer.useHint', 'Use')}</span>
+            <span className="inline-flex items-center rounded border bg-muted/50 px-1 py-0.5">
+              <ArrowUp className="size-3" aria-hidden="true" />
+            </span>
+            <span className="inline-flex items-center rounded border bg-muted/50 px-1 py-0.5">
+              <ArrowDown className="size-3" aria-hidden="true" />
+            </span>
+            <span>{t('notifications.footer.toNavigate', 'to navigate')}</span>
+          </div>
+          <Link
+            href="/backend/config/notifications"
+            onClick={() => onOpenChange(false)}
+            className="inline-flex items-center gap-1.5 font-medium text-muted-foreground transition-colors hover:text-foreground"
+          >
+            <Settings2 className="size-3.5" aria-hidden="true" />
+            {t('notifications.footer.manage', 'Manage notifications')}
+          </Link>
+        </div>
+      </SheetContent>
+    </Sheet>
   )
 }
