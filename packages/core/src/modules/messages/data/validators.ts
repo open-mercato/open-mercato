@@ -186,6 +186,7 @@ export const updateDraftSchema = z.object({
   attachmentIds: z.array(z.string().uuid()).optional(),
   actionData: messageActionDataSchema.optional(),
   sendViaEmail: z.boolean().optional(),
+  isDraft: z.literal(false).optional(),
 }).superRefine((value, ctx) => {
   if (value.recipients) {
     const duplicateRecipientIds = collectDuplicateRecipientIds(value.recipients)
