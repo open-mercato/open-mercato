@@ -20,22 +20,32 @@ import {
 import { findWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import { escapeLikePattern } from '@open-mercato/shared/lib/db/escapeLikePattern'
 import { consumeAdvancedFilterState, mergeAdvancedFilterTree } from '@open-mercato/shared/lib/crud/advanced-filter-integration'
+import { fetchStuckDealIds } from '../../lib/stuckDeals'
 
 const rawBodySchema = z.object({}).passthrough()
+
+const stringOrStringArray = z.union([z.string(), z.array(z.string())])
 
 const listSchema = z
   .object({
     page: z.coerce.number().min(1).default(1),
     pageSize: z.coerce.number().min(1).max(100).default(50),
     search: z.string().optional(),
-    status: z.string().optional(),
+    status: stringOrStringArray.optional(),
     pipelineStage: z.string().optional(),
-    pipelineId: z.string().uuid().optional(),
+    pipelineId: stringOrStringArray.optional(),
     pipelineStageId: z.string().uuid().optional(),
+    ownerUserId: stringOrStringArray.optional(),
+    expectedCloseAtFrom: z.string().optional(),
+    expectedCloseAtTo: z.string().optional(),
+    isStuck: z.coerce.boolean().optional(),
+    isOverdue: z.coerce.boolean().optional(),
     sortField: z.string().optional(),
     sortDir: z.enum(['asc', 'desc']).optional(),
     personEntityId: z.string().uuid().optional(),
     companyEntityId: z.string().uuid().optional(),
+    personId: stringOrStringArray.optional(),
+    companyId: stringOrStringArray.optional(),
   })
   .passthrough()
 
@@ -56,6 +66,78 @@ function parseUuid(value: unknown): string | null {
   if (!trimmed.length) return null
   const result = z.string().uuid().safeParse(trimmed)
   return result.success ? trimmed : null
+}
+
+function normalizeStringList(value: unknown): string[] {
+  const set = new Set<string>()
+  const visit = (entry: unknown) => {
+    if (entry == null) return
+    if (Array.isArray(entry)) {
+      entry.forEach(visit)
+      return
+    }
+    if (typeof entry !== 'string') return
+    entry
+      .split(',')
+      .map((token) => token.trim())
+      .filter((token) => token.length > 0)
+      .forEach((token) => set.add(token))
+  }
+  visit(value)
+  return Array.from(set)
+}
+
+function parseDateInput(value: unknown): Date | null {
+  if (!(typeof value === 'string') || value.trim().length === 0) return null
+  const date = new Date(value)
+  return Number.isNaN(date.getTime()) ? null : date
+}
+
+/**
+ * Pre-pagination ID narrowing for person/company filters.
+ *
+ * Mirrors the SQL the aggregate route uses (`EXISTS ... IN (...)`) so the list endpoint
+ * and the lane-header aggregate return a consistent set of deals for the same filters.
+ * Semantics: OR within a category (any selected person/company matches), AND across
+ * categories (deal must match at least one person AND at least one company when both
+ * filter lists are provided).
+ *
+ * Returns the matched deal IDs (UUIDs). An empty array means "no deals match" — callers
+ * must intersect with `restrictedIds` (which will collapse the list to zero).
+ */
+async function fetchDealIdsMatchingAssociations(
+  em: EntityManager,
+  organizationId: string,
+  tenantId: string,
+  personIds: string[],
+  companyIds: string[],
+): Promise<string[]> {
+  if (!personIds.length && !companyIds.length) return []
+  const where: string[] = [
+    'organization_id = ?',
+    'tenant_id = ?',
+    'deleted_at IS NULL',
+  ]
+  const values: Array<string | number> = [organizationId, tenantId]
+  if (personIds.length) {
+    const placeholders = personIds.map(() => '?').join(',')
+    where.push(
+      `EXISTS (SELECT 1 FROM customer_deal_people dp WHERE dp.deal_id = customer_deals.id AND dp.person_entity_id IN (${placeholders}))`,
+    )
+    values.push(...personIds)
+  }
+  if (companyIds.length) {
+    const placeholders = companyIds.map(() => '?').join(',')
+    where.push(
+      `EXISTS (SELECT 1 FROM customer_deal_companies dc WHERE dc.deal_id = customer_deals.id AND dc.company_entity_id IN (${placeholders}))`,
+    )
+    values.push(...companyIds)
+  }
+  const rows = await em.getConnection().execute<Array<{ id: string }>>(
+    `SELECT id FROM customer_deals WHERE ${where.join(' AND ')}`,
+    values,
+  )
+  return rows.map((row) => row.id)
 }
 
 function normalizeUuidList(values: Array<unknown>): string[] {
@@ -96,6 +178,7 @@ const crud = makeCrudRoute<unknown, unknown, DealListQuery>({
   indexer: {
     entityType: E.customers.customer_deal,
   },
+  enrichers: { entityId: 'customers.deal' },
   list: {
     schema: listSchema,
     entityId: E.customers.customer_deal,
@@ -129,12 +212,25 @@ const crud = makeCrudRoute<unknown, unknown, DealListQuery>({
       updatedAt: 'updated_at',
       title: 'title',
       value: 'value_amount',
+      probability: 'probability',
+      expectedCloseAt: 'expected_close_at',
     },
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     buildFilters: async (query: any, ctx) => {
       const advancedFilterTree = consumeAdvancedFilterState(query)
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       const filters: Record<string, any> = {}
+      let restrictedIds: string[] | null = null
+
+      const intersectIds = (ids: string[]) => {
+        if (restrictedIds === null) {
+          restrictedIds = ids
+          return
+        }
+        const lookup = new Set(ids)
+        restrictedIds = restrictedIds.filter((id) => lookup.has(id))
+      }
+
       if (query.search) {
         const matchingIds = ctx
           ? await findMatchingEntityIdsBySearchTokensAcrossSources({
@@ -159,7 +255,7 @@ const crud = makeCrudRoute<unknown, unknown, DealListQuery>({
             })
           : null
         if (matchingIds !== null && matchingIds.length > 0) {
-          applyEntityIdRestriction(filters, matchingIds)
+          intersectIds(matchingIds)
         } else {
           const searchPattern = `%${escapeLikePattern(query.search)}%`
           filters.$or = [
@@ -168,18 +264,102 @@ const crud = makeCrudRoute<unknown, unknown, DealListQuery>({
           ]
         }
       }
-      if (query.status) {
-        filters.status = { $eq: query.status }
+
+      const statusList = query.status ? normalizeStringList(query.status) : []
+      if (statusList.length > 0) {
+        filters.status = statusList.length === 1 ? { $eq: statusList[0] } : { $in: statusList }
       }
+
       if (query.pipelineStage) {
         filters.pipeline_stage = { $eq: query.pipelineStage }
       }
-      if (query.pipelineId) {
-        filters.pipeline_id = { $eq: query.pipelineId }
+
+      const pipelineIds = query.pipelineId ? normalizeUuidList([query.pipelineId]) : []
+      if (pipelineIds.length > 0) {
+        filters.pipeline_id = pipelineIds.length === 1 ? { $eq: pipelineIds[0] } : { $in: pipelineIds }
       }
+
       if (query.pipelineStageId) {
         filters.pipeline_stage_id = { $eq: query.pipelineStageId }
       }
+
+      const ownerUserIds = query.ownerUserId ? normalizeUuidList([query.ownerUserId]) : []
+      if (ownerUserIds.length > 0) {
+        filters.owner_user_id =
+          ownerUserIds.length === 1 ? { $eq: ownerUserIds[0] } : { $in: ownerUserIds }
+      }
+
+      const expectedCloseFrom = parseDateInput(query.expectedCloseAtFrom)
+      const expectedCloseTo = parseDateInput(query.expectedCloseAtTo)
+      if (expectedCloseFrom || expectedCloseTo) {
+        const range: Record<string, Date> = {}
+        if (expectedCloseFrom) range.$gte = expectedCloseFrom
+        if (expectedCloseTo) range.$lte = expectedCloseTo
+        filters.expected_close_at = range
+      }
+
+      if (query.isOverdue) {
+        const today = new Date()
+        today.setHours(0, 0, 0, 0)
+        if (statusList.length === 0) {
+          filters.status = { $eq: 'open' }
+        }
+        const existingRange =
+          filters.expected_close_at && typeof filters.expected_close_at === 'object'
+            ? (filters.expected_close_at as Record<string, Date>)
+            : {}
+        existingRange.$lt = today
+        filters.expected_close_at = existingRange
+      }
+
+      if (query.isStuck && ctx) {
+        const tenantId = ctx.auth?.tenantId
+        // CrudCtx.auth carries `orgId` (not `organizationId`). The previous code referenced
+        // `organizationId` which is always `undefined`, so the typeof check below silently
+        // skipped the entire isStuck branch — `?isStuck=true` was a no-op on this endpoint.
+        const organizationId = ctx.auth?.orgId
+        if (typeof tenantId === 'string' && typeof organizationId === 'string') {
+          const em = ctx.container.resolve<EntityManager>('em')
+          const stuckIds = await fetchStuckDealIds(em, organizationId, tenantId)
+          intersectIds(stuckIds)
+        }
+      }
+
+      // Pre-pagination association filter. Must run on the FULL dataset (before pagination),
+      // otherwise matching deals on later pages disappear and `total` would be wrong. Read the
+      // raw URL too so legacy `?personEntityId=` / `?companyEntityId=` keep working alongside the
+      // canonical `?personId=` / `?companyId=`.
+      const url = ctx?.request ? new URL(ctx.request.url) : null
+      const personCandidates: unknown[] = [query.personId, query.personEntityId]
+      const companyCandidates: unknown[] = [query.companyId, query.companyEntityId]
+      if (url) {
+        personCandidates.push(url.searchParams.getAll('personId'))
+        personCandidates.push(url.searchParams.getAll('personEntityId'))
+        companyCandidates.push(url.searchParams.getAll('companyId'))
+        companyCandidates.push(url.searchParams.getAll('companyEntityId'))
+      }
+      const selectedPersonIds = normalizeUuidList(personCandidates)
+      const selectedCompanyIds = normalizeUuidList(companyCandidates)
+      if ((selectedPersonIds.length > 0 || selectedCompanyIds.length > 0) && ctx) {
+        const tenantId = ctx.auth?.tenantId
+        // `ctx.auth` exposes `orgId` (see AuthContext in @open-mercato/shared/lib/auth/server).
+        // Read it under the correct key — the previous code's `organizationId` would always be
+        // `undefined`, silently disabling association filtering on the deals list endpoint.
+        const organizationId = ctx.auth?.orgId
+        if (typeof tenantId === 'string' && typeof organizationId === 'string') {
+          const em = ctx.container.resolve<EntityManager>('em')
+          const matchedIds = await fetchDealIdsMatchingAssociations(
+            em,
+            organizationId,
+            tenantId,
+            selectedPersonIds,
+            selectedCompanyIds,
+          )
+          // intersectIds with empty array → no rows; collapses the page to zero, total stays correct.
+          intersectIds(matchedIds)
+        }
+      }
+
       if (ctx && advancedFilterTree) {
         const advancedFilters = mergeAdvancedFilterTree({ ...filters }, advancedFilterTree)
         const matchedIds = await findMatchingEntityIdsWithQueryEngine({
@@ -187,8 +367,15 @@ const crud = makeCrudRoute<unknown, unknown, DealListQuery>({
           entityId: E.customers.customer_deal,
           filters: advancedFilters,
         })
-        applyEntityIdRestriction(filters, matchedIds)
+        if (matchedIds !== null) {
+          intersectIds(matchedIds)
+        }
       }
+
+      if (restrictedIds !== null) {
+        applyEntityIdRestriction(filters, restrictedIds)
+      }
+
       return filters
     },
   },
@@ -229,41 +416,11 @@ const crud = makeCrudRoute<unknown, unknown, DealListQuery>({
     },
   },
   hooks: {
-    beforeList: (query, ctx) => {
-      const url = ctx.request ? new URL(ctx.request.url) : null
-      const legacyPersonId = query.personEntityId ?? null
-      const legacyCompanyId = query.companyEntityId ?? null
-      const allPersonCandidates: unknown[] = []
-      const allCompanyCandidates: unknown[] = []
-      if (legacyPersonId) allPersonCandidates.push(legacyPersonId)
-      if (legacyCompanyId) allCompanyCandidates.push(legacyCompanyId)
-      if (url) {
-        const personParams = url.searchParams.getAll('personId')
-        const companyParams = url.searchParams.getAll('companyId')
-        if (personParams.length) allPersonCandidates.push(...personParams)
-        if (companyParams.length) allCompanyCandidates.push(...companyParams)
-        const legacyRepeatPerson = url.searchParams.getAll('personEntityId')
-        const legacyRepeatCompany = url.searchParams.getAll('companyEntityId')
-        if (legacyRepeatPerson.length) allPersonCandidates.push(...legacyRepeatPerson)
-        if (legacyRepeatCompany.length) allCompanyCandidates.push(...legacyRepeatCompany)
-      }
-      const personIds = normalizeUuidList(allPersonCandidates)
-      const companyIds = normalizeUuidList(allCompanyCandidates)
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      ;(ctx as any).__dealsFilters = {
-        personIds,
-        companyIds,
-      }
-    },
+    // afterList only DECORATES results with `people`/`companies` arrays — it must not filter,
+    // because filtering after pagination would drop deals on later pages and rewrite `total`
+    // to a misleading value. Association filtering happens pre-pagination in `buildFilters`
+    // via `fetchDealIdsMatchingAssociations`.
     afterList: async (payload, ctx) => {
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const filters = ((ctx as any).__dealsFilters || {}) as {
-        personIds?: string[]
-        companyIds?: string[]
-      }
-      const selectedPersonIds = Array.isArray(filters.personIds) ? filters.personIds : []
-      const selectedCompanyIds = Array.isArray(filters.companyIds) ? filters.companyIds : []
-
       const items = Array.isArray(payload.items) ? payload.items : []
       if (!items.length) return
       const scopeSource = (items[0] ?? {}) as Record<string, unknown>
@@ -305,7 +462,6 @@ const crud = makeCrudRoute<unknown, unknown, DealListQuery>({
         ])
 
         const personAssignments = new Map<string, { id: string; label: string }[]>()
-        const personMemberships = new Map<string, Set<string>>()
         allPersonLinks.forEach((link) => {
           const deal = link.deal
           const dealRecord = deal && typeof deal === 'object' ? deal as unknown as Record<string, unknown> : null
@@ -327,13 +483,9 @@ const crud = makeCrudRoute<unknown, unknown, DealListQuery>({
             bucket.push({ id: personId, label })
             personAssignments.set(dealId, bucket)
           }
-          const membership = personMemberships.get(dealId) ?? new Set<string>()
-          membership.add(personId)
-          personMemberships.set(dealId, membership)
         })
 
         const companyAssignments = new Map<string, { id: string; label: string }[]>()
-        const companyMemberships = new Map<string, Set<string>>()
         allCompanyLinks.forEach((link) => {
           const deal = link.deal
           const dealRecord = deal && typeof deal === 'object' ? deal as unknown as Record<string, unknown> : null
@@ -355,19 +507,7 @@ const crud = makeCrudRoute<unknown, unknown, DealListQuery>({
             bucket.push({ id: companyId, label })
             companyAssignments.set(dealId, bucket)
           }
-          const membership = companyMemberships.get(dealId) ?? new Set<string>()
-          membership.add(companyId)
-          companyMemberships.set(dealId, membership)
         })
-
-        const hasPersonFilter = selectedPersonIds.length > 0
-        const hasCompanyFilter = selectedCompanyIds.length > 0
-        const matchesAll = (selected: string[], memberships: Map<string, Set<string>>, dealId: string) => {
-          if (!selected.length) return true
-          const membership = memberships.get(dealId)
-          if (!membership || membership.size === 0) return false
-          return selected.every((id) => membership.has(id))
-        }
 
         const enhancedItems = items
           .map((item: unknown) => {
@@ -377,9 +517,6 @@ const crud = makeCrudRoute<unknown, unknown, DealListQuery>({
             if (!candidate || !candidate.trim().length) return null
             const people = personAssignments.get(candidate) ?? []
             const companies = companyAssignments.get(candidate) ?? []
-            const matchesPerson = matchesAll(selectedPersonIds, personMemberships, candidate)
-            const matchesCompany = matchesAll(selectedCompanyIds, companyMemberships, candidate)
-            if (!matchesPerson || !matchesCompany) return null
             const tenantIdRaw =
               typeof data.tenantId === 'string'
                 ? data.tenantId
@@ -409,14 +546,9 @@ const crud = makeCrudRoute<unknown, unknown, DealListQuery>({
           )
 
         payload.items = enhancedItems
-        if (hasPersonFilter || hasCompanyFilter) {
-          payload.total = enhancedItems.length
-          payload.totalPages = 1
-          payload.page = 1
-        }
       } catch (err) {
-        console.warn('[customers.deals] failed to filter by person/company link', err)
-        // fall back to unfiltered list to avoid breaking the endpoint
+        console.warn('[customers.deals] failed to decorate items with person/company links', err)
+        // fall back to undecorated items to avoid breaking the endpoint
       }
     },
   },

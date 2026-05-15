@@ -24,18 +24,47 @@ const createPipelineStageCommand: CommandHandler<PipelineStageCreateInput, { sta
 
     const em = (ctx.container.resolve('em') as EntityManager).fork()
 
-    const existingCount = await em.count(CustomerPipelineStage, {
-      organizationId: parsed.organizationId,
-      tenantId: parsed.tenantId,
-      pipelineId: parsed.pipelineId,
-    })
+    // Load the full ordered list once. We need it both to know where "end" is and to
+    // shift any stages that occupy positions at or after the chosen insert point.
+    const existingStages = await em.find(
+      CustomerPipelineStage,
+      {
+        organizationId: parsed.organizationId,
+        tenantId: parsed.tenantId,
+        pipelineId: parsed.pipelineId,
+      },
+      { orderBy: { order: 'ASC' } },
+    )
+
+    // Clamp the requested insert position into the legal range [0, length]. Anything
+    // outside that range (negative, way past the end) collapses to "append" so we never
+    // create stages that hop the visible board boundary.
+    const requestedOrder = parsed.order
+    const insertOrder =
+      requestedOrder === undefined
+        ? existingStages.length
+        : Math.max(0, Math.min(requestedOrder, existingStages.length))
+
+    // Shift the order of every stage at or after the insert position. We use the
+    // already-forked EM so the shifts and the new INSERT land in a single `flush()`
+    // (one transaction by default with MikroORM's `forceTransactions` config). Skipping
+    // this step would either duplicate `order` values (silently corrupting kanban
+    // ordering) or push the new stage to the wrong spot when re-sorting.
+    if (requestedOrder !== undefined) {
+      for (const stage of existingStages) {
+        if (stage.order >= insertOrder) {
+          stage.order += 1
+          stage.updatedAt = new Date()
+        }
+      }
+    }
 
     const stage = em.create(CustomerPipelineStage, {
       organizationId: parsed.organizationId,
       tenantId: parsed.tenantId,
       pipelineId: parsed.pipelineId,
       label: parsed.label,
-      order: parsed.order ?? existingCount,
+      order: insertOrder,
       createdAt: new Date(),
       updatedAt: new Date(),
     })

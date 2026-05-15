@@ -5485,6 +5485,22 @@
           "enumItems": [],
           "mappedType": "uuid"
         },
+        "stuck_threshold_days": {
+          "name": "stuck_threshold_days",
+          "type": "int",
+          "unsigned": false,
+          "autoincrement": false,
+          "primary": false,
+          "nullable": false,
+          "unique": false,
+          "length": null,
+          "precision": null,
+          "scale": null,
+          "default": "14",
+          "comment": null,
+          "enumItems": [],
+          "mappedType": "integer"
+        },
         "tenant_id": {
           "name": "tenant_id",
           "type": "uuid",
