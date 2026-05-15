@@ -30,6 +30,16 @@ TODO: Fix that latter to have reference by the package names
   z-index: var(--z-index-modal-elevated, 55);
 }
 
+/* Explicit text-overline utility. Tailwind 4 sometimes does not generate the
+   `text-X` utility from `--font-size-X` in @theme inline if no class literal
+   is found in the source scanner ahead of compilation. Declaring the utility
+   here guarantees the rule lands in the bundle. Used for tiny section labels
+   (workspace switcher TENANT / ORGANIZATION, notification count badge, etc.). */
+@utility text-overline {
+  font-size: var(--font-size-overline, 0.6875rem);
+  line-height: var(--font-size-overline--line-height, 1rem);
+}
+
 @theme inline {
   --color-background: var(--background);
   --color-foreground: var(--foreground);

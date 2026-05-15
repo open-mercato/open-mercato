@@ -62,7 +62,7 @@ export function SalesOrderCreatedRenderer({
   return (
     <div
       className={cn(
-        'group relative flex gap-[15px] items-start rounded-xl p-3 transition-colors hover:bg-muted/40 cursor-pointer',
+        'group relative flex gap-4 items-start rounded-xl p-3 transition-colors hover:bg-muted/40 cursor-pointer',
         isUnread && 'bg-muted/20',
       )}
       onClick={handleView}
@@ -102,7 +102,7 @@ export function SalesOrderCreatedRenderer({
           ) : null}
           {orderNumber ? (
             <>
-              <span className="inline-flex items-center rounded bg-muted px-1.5 py-0.5 font-mono text-[11px] text-foreground">
+              <span className="inline-flex items-center rounded bg-muted px-1.5 py-0.5 font-mono text-overline text-foreground">
                 #{orderNumber}
               </span>
               <span aria-hidden="true" className="mx-1 text-text-disabled">·</span>
