@@ -2,7 +2,7 @@
 
 > **Parent:** [`2026-04-22-forms-module.md`](./2026-04-22-forms-module.md)
 > **Depends on:** [Phase 2a Inbox](./2026-04-22-forms-phase-2a-admin-inbox.md), [Phase 2b Compliance](./2026-04-22-forms-phase-2b-compliance.md), [Phase 2c Advanced Fields](./2026-04-22-forms-phase-2c-advanced-fields.md).
-> **Unblocks:** DentalOS v1 production.
+> **Unblocks:** the pilot vertical's v1 production.
 > **Session sizing:** ~1.5–2 weeks, but each sub-part is independently schedulable.
 
 ## TLDR
@@ -10,17 +10,17 @@
 - Documents the pattern for registering vertical-specific field types (dental tooth chart, body diagram, clinical photo) via `FieldTypeRegistry.register`.
 - Ships a basic analytics surface: completion rate, drop-off per field, avg time-to-submit — one widget per form.
 - Ships outbound webhook integration: `forms.submission.submitted` and `forms.submission.anonymized` events fed to the webhooks module.
-- Optionally ships the consent-record aggregate (Q10 from source draft) if DentalOS requires it; otherwise defers.
+- Optionally ships the consent-record aggregate (Q10 from source draft) if the pilot vertical requires it; otherwise defers.
 
 ## Overview
 
-Phase 3 is the "after the platform ships, the verticals take over" phase. The module itself mostly just exposes extension points and documents how to use them. Concrete custom types (`dental.tooth_chart` etc.) live in the consumer module (`packages/dentalos` or equivalent), not in `@open-mercato/forms` — the Forms module ships only the registry pattern + a demo type to validate the extension surface.
+Phase 3 is the "after the platform ships, the verticals take over" phase. The module itself mostly just exposes extension points and documents how to use them. Concrete custom types (`dental.tooth_chart` etc.) live in the consumer module (`packages/<vertical>` or equivalent), not in `@open-mercato/forms` — the Forms module ships only the registry pattern + a demo type to validate the extension surface.
 
 Because each of the four sub-parts is independent, they can be delivered in any order after phase 2 is complete — or staggered across sprints as vertical needs emerge.
 
 ## Problem Statement
 
-The MVP from phases 1–2 supports the 11 core field types and the generic operational/compliance needs. But DentalOS requires medical-specific widgets, and operational teams want dashboards + automated downstream triggers. Bundling these after the core is stable avoids premature abstractions and lets each vertical co-design with real users.
+The MVP from phases 1–2 supports the 11 core field types and the generic operational/compliance needs. But the pilot vertical requires medical-specific widgets, and operational teams want dashboards + automated downstream triggers. Bundling these after the core is stable avoids premature abstractions and lets each vertical co-design with real users.
 
 ## Proposed Solution
 
@@ -63,7 +63,7 @@ Four independent sub-tracks. Each is ~half a spec's worth of work.
 
 ### Track D — Consent record aggregate (optional)
 
-Deferred in the source draft (Q10). Ship only if DentalOS needs `(subject, clause_key) → signed_at` as a queryable projection. If needed:
+Deferred in the source draft (Q10). Ship only if the pilot vertical needs `(subject, clause_key) → signed_at` as a queryable projection. If needed:
 
 1. New entity `form_consent_record` — materialized from revisions where a `signature` field was saved.
 2. Maintained via subscriber on `forms.submission.submitted` that walks fields flagged `x-om-consent-clause: true`.

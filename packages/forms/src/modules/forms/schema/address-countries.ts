@@ -3,7 +3,7 @@
  * (Phase C of `.ai/specs/2026-05-14-forms-tier-2-question-palette.md`).
  *
  * The list is intentionally small (~25 commonly-targeted countries for the
- * DentalOS pilot + early B2B deployments). Authors who need a longer catalog
+ * pilot vertical + early B2B deployments). Authors who need a longer catalog
  * can override the country select per-form via Phase F+ extensions. The codes
  * follow ISO 3166-1 alpha-2 per § Implementation Plan C.
  */

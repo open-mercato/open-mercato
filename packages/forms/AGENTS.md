@@ -1,6 +1,6 @@
 # Forms Package — Agent Guidelines
 
-Use `@open-mercato/forms` for the audit-grade questionnaire / form primitive: versioned form definitions, append-only submission revisions, role-sliced rendering, and GDPR-safe anonymization. First consumer is DentalOS medical questionnaires; same primitives serve B2B onboarding, RFPs, NPS, HR, and maintenance checklists.
+Use `@open-mercato/forms` for the audit-grade questionnaire / form primitive: versioned form definitions, append-only submission revisions, role-sliced rendering, and GDPR-safe anonymization. First consumer is a medical-questionnaire vertical; same primitives serve B2B onboarding, RFPs, NPS, HR, and maintenance checklists.
 
 The module ships in phases — see `.ai/specs/2026-04-22-forms-module.md` and the per-phase sub-specs (`2026-04-22-forms-phase-1a` … `phase-3`).
 
@@ -101,7 +101,7 @@ Future phases append `commands/`, `api/`, `ui/`, `subscribers/`, more entities u
 | `forms.submissions.manage` | `admin` | Reopen, assign actors, export PDF (2a consumer) |
 | `forms.submissions.anonymize` | `admin` | Trigger GDPR erasure (2b consumer) |
 
-When DentalOS or another vertical introduces a `clinician` (or similar) role, extend `setup.ts` `defaultRoleFeatures` to grant `forms.view + forms.submissions.manage` and run `yarn mercato auth sync-role-acls`.
+When a medical or other vertical introduces a `clinician` (or similar) role, extend `setup.ts` `defaultRoleFeatures` to grant `forms.view + forms.submissions.manage` and run `yarn mercato auth sync-role-acls`.
 
 ## Cross-Reference
 

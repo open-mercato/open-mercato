@@ -2,7 +2,7 @@
 
 > **Status:** Draft — split into per-phase sub-specs for parallel/independent implementation.
 > **Scope:** Open Source (`.ai/specs/`).
-> **First consumer:** DentalOS (medical questionnaires for patients).
+> **First consumer:** a medical-questionnaire vertical (medical questionnaires for patients).
 > **Module:** `@open-mercato/forms` (new).
 > **Source:** Derived from the consolidated draft `2026-04-21-forms-module.md` (project root) — kept intact as the architectural reference for this split.
 
@@ -28,13 +28,13 @@
 
 The Forms module provides a generic audit-grade questionnaire/form primitive for Open Mercato. Back-office admins design forms in a studio UI, publish immutable versions, and expose them to end-users (patients, customers, employees) who fill them in via a dedicated renderer with autosave and resume. Every edit to a submission is preserved as an append-only revision for audit; every form definition is versioned; submissions are pinned to the exact version they were answered against. Multi-role co-editing (e.g. patient + clinician) is supported through field-level role permissions.
 
-First consumer: **DentalOS** medical history, consent, and anamnesis questionnaires. Designed to also serve customer onboarding, B2B PRM RFPs, HR surveys, NPS, maintenance checklists.
+First consumer: a **medical-questionnaire vertical** (medical history, consent, and anamnesis questionnaires). Designed to also serve customer onboarding, B2B PRM RFPs, HR surveys, NPS, maintenance checklists.
 
 The full architectural narrative, market references (Form.io, JSONForms, SurveyJS, REDCap), alternatives considered, and full risk register live in the source draft at project root (`2026-04-21-forms-module.md`). This main spec captures only the invariants load-bearing across phases; detailed design lives in each phase sub-spec.
 
 ## Problem Statement
 
-DentalOS needs Art. 9–grade medical questionnaires with provable versioning, append-only submission history, 20-year retention, and GDPR erasure semantics. Building this inside DentalOS would re-invent form design, versioning, rendering, and submissions for every subsequent vertical. The existing EAV/custom-fields machinery describes *entity shape*, not *human-facing questionnaires that produce submissions*, and lacks immutable render semantics and audit read trails.
+The pilot vertical needs Art. 9–grade medical questionnaires with provable versioning, append-only submission history, 20-year retention, and GDPR erasure semantics. Building this inside the vertical would re-invent form design, versioning, rendering, and submissions for every subsequent vertical. The existing EAV/custom-fields machinery describes *entity shape*, not *human-facing questionnaires that produce submissions*, and lacks immutable render semantics and audit read trails.
 
 ## Invariants (apply to every phase)
 

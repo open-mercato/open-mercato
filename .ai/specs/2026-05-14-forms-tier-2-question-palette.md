@@ -595,7 +595,7 @@ All new keys 4-level deep per visual-builder Decision 17a (`forms.studio.<area>.
 - **Scenario**: International phone numbers in formats the default regex doesn't accept (e.g. `+86 (010) 5555 5555`) get rejected; respondents can't submit.
 - **Severity**: Medium (loss of submissions in international deployments).
 - **Affected area**: Public runner.
-- **Mitigation**: Decision 3 keeps the default permissive (`^\+?[0-9\s\-().]{6,32}$`) and lets authors override per field. Document the override pattern in the studio's pattern editor (link to "international phone regex examples" in the help drawer). For DentalOS pilot we recommend authors leave the default in place.
+- **Mitigation**: Decision 3 keeps the default permissive (`^\+?[0-9\s\-().]{6,32}$`) and lets authors override per field. Document the override pattern in the studio's pattern editor (link to "international phone regex examples" in the help drawer). For the pilot vertical we recommend authors leave the default in place.
 - **Residual risk**: Acceptable — locale-aware phone validation is out of scope; libphonenumber is deferred to a future spec.
 
 ### R-5 — Ranking — non-exhaustive submissions

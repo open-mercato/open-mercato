@@ -12,7 +12,7 @@ import {
  * exercise the registry's `register(...)` extension surface and to anchor
  * the regression test that an unregistered type fails compile (R-3-1
  * regression test). Real vertical types (`dental.tooth_chart`, etc.) live
- * in consumer modules (e.g. `packages/dentalos`); they follow this same
+ * in consumer modules (e.g. `packages/<vertical>`); they follow this same
  * pattern.
  *
  * The pattern:

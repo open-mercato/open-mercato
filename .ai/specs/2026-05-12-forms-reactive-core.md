@@ -36,7 +36,7 @@
 
 ## Overview
 
-The Forms module today (post phase 1b + visual builder) renders **static** forms: every field is always visible, every page is reached in order, the form has one ending. That's enough for simple intake checklists, but inadequate for the first-class use cases the parent spec calls out — medical questionnaires (DentalOS), B2B onboarding, RFP qualification, NPS routing. Those forms need to *branch*: show the prenatal section only when relevant, route a high-risk respondent to a different ending, total a PHQ-9 score live, pre-link a submission to a patient, echo the patient's name in later question copy.
+The Forms module today (post phase 1b + visual builder) renders **static** forms: every field is always visible, every page is reached in order, the form has one ending. That's enough for simple intake checklists, but inadequate for the first-class use cases the parent spec calls out — medical questionnaires (the pilot vertical), B2B onboarding, RFP qualification, NPS routing. Those forms need to *branch*: show the prenatal section only when relevant, route a high-risk respondent to a different ending, total a PHQ-9 score live, pre-link a submission to a patient, echo the patient's name in later question copy.
 
 This spec adds the reactive-form core in a single coordinated change so the studio, evaluator, and renderer all speak the same logic surface. Every addition is an additive optional `x-om-*` keyword with a registered validator and a read-time defaulter — old forms keep rendering identically, `schemaHash` survives a round-trip, and downstream consumers (compiler, runner, exporters) ignore unknown keys if they choose.
 
