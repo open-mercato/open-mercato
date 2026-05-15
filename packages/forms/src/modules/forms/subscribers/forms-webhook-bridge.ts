@@ -9,9 +9,7 @@
  * Idempotent forwarding is the responsibility of the webhooks module.
  */
 
-import type { EventSubscriberMetadata } from '@open-mercato/shared/modules/registry'
-
-export const metadata: EventSubscriberMetadata = {
+export const metadata = {
   event: 'forms.submission.submitted',
   persistent: true,
   id: 'forms.webhook-bridge.submitted',

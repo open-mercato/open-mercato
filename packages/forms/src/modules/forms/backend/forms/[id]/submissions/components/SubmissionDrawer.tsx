@@ -345,7 +345,7 @@ const DrawerShell = React.forwardRef<HTMLDivElement, {
             <IconButton
               type="button"
               variant="ghost"
-              size="icon"
+              size="default"
               onClick={onClose}
               aria-label="Close drawer"
             >
@@ -538,7 +538,7 @@ function ActorPanel({
             <IconButton
               type="button"
               variant="ghost"
-              size="icon"
+              size="default"
               aria-label={t('forms.actor.revoke', { fallback: 'Revoke actor' })}
               onClick={() => onRevoke(actor)}
             >

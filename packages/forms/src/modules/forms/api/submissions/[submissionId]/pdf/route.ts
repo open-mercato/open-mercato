@@ -114,16 +114,18 @@ const pdfMethodDoc: OpenApiMethodDoc = {
   summary: 'Download the PDF snapshot of a submitted form',
   description:
     'Streams the immutable PDF snapshot generated at submit time. Never re-renders. Writes an audit row with `access_purpose = "export"`.',
-  tags: ['forms', 'compliance'],
-  responses: {
-    '200': { description: 'PDF stream', contentType: 'application/pdf' },
-    '404': { description: 'Submission not found or snapshot not yet generated' },
-    '501': {
+  tags: ['Forms Compliance'],
+  responses: [{ status: 200, description: 'PDF stream', mediaType: 'application/pdf' }],
+  errors: [
+    { status: 404, description: 'Submission not found or snapshot not yet generated' },
+    {
+      status: 501,
       description: 'Snapshot is referenced by `file_id` and the deployment lacks a files-module storage adapter',
     },
-  },
+  ],
 }
 
 export const openApi: OpenApiRouteDoc = {
-  GET: pdfMethodDoc,
+  summary: 'Submission PDF snapshot',
+  methods: { GET: pdfMethodDoc },
 }

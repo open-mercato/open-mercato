@@ -3,9 +3,7 @@
  * See `forms-webhook-bridge.ts` for the rationale.
  */
 
-import type { EventSubscriberMetadata } from '@open-mercato/shared/modules/registry'
-
-export const metadata: EventSubscriberMetadata = {
+export const metadata = {
   event: 'forms.submission.anonymized',
   persistent: true,
   id: 'forms.webhook-bridge.anonymized',

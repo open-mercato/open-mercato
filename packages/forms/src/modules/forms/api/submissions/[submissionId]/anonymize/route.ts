@@ -28,6 +28,17 @@ const anonymizeBodySchema = z.object({
   confirm: z.literal('DELETE'),
 })
 
+const anonymizeResponseSchema = z.object({
+  submissionId: z.string().uuid(),
+  revisionsAnonymized: z.number().int(),
+  anonymizedAt: z.string(),
+})
+
+const anonymizeErrorSchema = z.object({
+  error: z.string(),
+  message: z.string().optional(),
+})
+
 export const metadata = {
   POST: { requireAuth: true, requireFeatures: ['forms.submissions.anonymize'] },
 }
@@ -102,35 +113,19 @@ const anonymizeMethodDoc: OpenApiMethodDoc = {
   summary: 'Anonymize a submission (irreversible)',
   description:
     'Tombstones every sensitive field across every revision. Requires body `{ "confirm": "DELETE" }`. Preserves actor rows and access-audit rows. Emits `forms.submission.anonymized`.',
-  tags: ['forms', 'compliance'],
-  body: {
+  tags: ['Forms Compliance'],
+  requestBody: {
     contentType: 'application/json',
-    schema: {
-      type: 'object',
-      required: ['confirm'],
-      properties: {
-        confirm: { type: 'string', enum: ['DELETE'] },
-      },
-    },
+    schema: anonymizeBodySchema,
   },
-  responses: {
-    '200': {
-      description: 'Anonymization complete',
-      contentType: 'application/json',
-      schema: {
-        type: 'object',
-        properties: {
-          submissionId: { type: 'string', format: 'uuid' },
-          revisionsAnonymized: { type: 'integer' },
-          anonymizedAt: { type: 'string', format: 'date-time' },
-        },
-      },
-    },
-    '404': { description: 'Submission not found' },
-    '422': { description: 'Missing typed confirmation or other validation failure' },
-  },
+  responses: [{ status: 200, description: 'Anonymization complete', schema: anonymizeResponseSchema }],
+  errors: [
+    { status: 404, description: 'Submission not found', schema: anonymizeErrorSchema },
+    { status: 422, description: 'Missing typed confirmation or other validation failure', schema: anonymizeErrorSchema },
+  ],
 }
 
 export const openApi: OpenApiRouteDoc = {
-  POST: anonymizeMethodDoc,
+  summary: 'Anonymize submission',
+  methods: { POST: anonymizeMethodDoc },
 }
