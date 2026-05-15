@@ -2,6 +2,7 @@
 
 import * as React from 'react'
 import type { TranslateFn } from '@open-mercato/shared/lib/i18n/context'
+import { Alert } from '@open-mercato/ui/primitives/alert'
 import { Button } from '@open-mercato/ui/primitives/button'
 import { Checkbox } from '@open-mercato/ui/primitives/checkbox'
 import { Input } from '@open-mercato/ui/primitives/input'
@@ -16,6 +17,17 @@ import { Separator } from '@open-mercato/ui/primitives/separator'
 import { Switch } from '@open-mercato/ui/primitives/switch'
 import { Tag } from '@open-mercato/ui/primitives/tag'
 import { Textarea } from '@open-mercato/ui/primitives/textarea'
+import { resolveLucideIcon } from '../lucide-icons'
+import { RankingField } from '../../../../../runner/RankingField'
+import { MatrixField, type MatrixFieldColumn, type MatrixFieldRow } from '../../../../../runner/MatrixField'
+import {
+  COUNTRY_OPTIONS,
+  resolveCountryName,
+} from '../../../../../schema/address-countries'
+import {
+  compileFieldValidationRules,
+  validateFieldValue,
+} from '../../../../../services/field-validation-service'
 import {
   partitionPages,
   resolveFormLabelPosition,
@@ -519,6 +531,7 @@ function FieldPreviewRow({
       label={label}
       value={value}
       onChange={onChange}
+      t={t}
     />
   )
   const baseClass = `${SPAN_TO_CLASS[renderSpan]} ${ALIGN_TO_CLASS[align]}`
@@ -553,6 +566,7 @@ type FieldPreviewInputProps = {
   label: string
   value: unknown
   onChange: (value: unknown) => void
+  t: TranslateFn
 }
 
 function FieldPreviewInput({
@@ -563,6 +577,7 @@ function FieldPreviewInput({
   label,
   value,
   onChange,
+  t,
 }: FieldPreviewInputProps) {
   const id = `preview-${fieldKey}`
   const options = Array.isArray(node['x-om-options'])
@@ -744,6 +759,125 @@ function FieldPreviewInput({
         </div>
       )
     }
+    case 'nps':
+      return (
+        <NpsPreviewInput
+          node={node}
+          canEdit={canEdit}
+          value={value}
+          onChange={onChange}
+        />
+      )
+    case 'opinion_scale':
+      return (
+        <OpinionScalePreviewInput
+          node={node}
+          canEdit={canEdit}
+          value={value}
+          onChange={onChange}
+        />
+      )
+    case 'email':
+      return (
+        <FormatPreviewInput
+          id={id}
+          format="email"
+          inputType="email"
+          inputMode="email"
+          autoComplete="email"
+          autoCapitalize="off"
+          iconName="mail"
+          readOnly={!canEdit}
+          label={label}
+          value={stringValue}
+          onChange={(next) => onChange(next)}
+          node={node}
+          t={t}
+        />
+      )
+    case 'phone':
+      return (
+        <FormatPreviewInput
+          id={id}
+          format="phone"
+          inputType="tel"
+          inputMode="tel"
+          autoComplete="tel"
+          iconName="phone"
+          readOnly={!canEdit}
+          label={label}
+          value={stringValue}
+          onChange={(next) => onChange(next)}
+          node={node}
+          t={t}
+        />
+      )
+    case 'website':
+      return (
+        <FormatPreviewInput
+          id={id}
+          format="website"
+          inputType="url"
+          inputMode="url"
+          autoCapitalize="off"
+          iconName="globe"
+          readOnly={!canEdit}
+          label={label}
+          value={stringValue}
+          onChange={(next) => onChange(next)}
+          node={node}
+          t={t}
+        />
+      )
+    case 'address':
+      return (
+        <AddressPreviewInput
+          idPrefix={id}
+          canEdit={canEdit}
+          value={value}
+          onChange={onChange}
+          t={t}
+        />
+      )
+    case 'ranking': {
+      const rankingOptions = options.map((option) => ({
+        value: option.value,
+        label: optionLabel(option),
+      }))
+      const rankingValue = Array.isArray(value)
+        ? (value as unknown[]).filter((entry): entry is string => typeof entry === 'string')
+        : []
+      return (
+        <RankingField
+          idPrefix={id}
+          options={rankingOptions}
+          value={rankingValue}
+          onChange={(next) => onChange(next)}
+          canEdit={canEdit}
+          t={t}
+        />
+      )
+    }
+    case 'matrix': {
+      const rawRows = Array.isArray(node['x-om-matrix-rows'])
+        ? (node['x-om-matrix-rows'] as MatrixFieldRow[])
+        : []
+      const rawColumns = Array.isArray(node['x-om-matrix-columns'])
+        ? (node['x-om-matrix-columns'] as MatrixFieldColumn[])
+        : []
+      return (
+        <MatrixField
+          idPrefix={id}
+          rows={rawRows}
+          columns={rawColumns}
+          value={value}
+          onChange={(next) => onChange(next)}
+          locale="en"
+          readOnly={!canEdit}
+          t={t}
+        />
+      )
+    }
     case 'text':
     default:
       return (
@@ -757,4 +891,406 @@ function FieldPreviewInput({
         />
       )
   }
+}
+
+type FormatPreviewInputProps = {
+  id: string
+  format: 'email' | 'phone' | 'website'
+  inputType: 'email' | 'tel' | 'url'
+  inputMode: 'email' | 'tel' | 'url'
+  autoComplete?: string
+  autoCapitalize?: 'off' | 'none' | 'on'
+  iconName: 'mail' | 'phone' | 'globe'
+  readOnly: boolean
+  label: string
+  value: string
+  onChange: (value: string) => void
+  node: FieldNode
+  t: TranslateFn
+}
+
+function FormatPreviewInput({
+  id,
+  format,
+  inputType,
+  inputMode,
+  autoComplete,
+  autoCapitalize,
+  iconName,
+  readOnly,
+  label,
+  value,
+  onChange,
+  node,
+  t,
+}: FormatPreviewInputProps) {
+  const [error, setError] = React.useState<string | null>(null)
+  const Icon = resolveLucideIcon(iconName)
+  const rules = React.useMemo(
+    () => compileFieldValidationRules(node, format),
+    [node, format],
+  )
+  const handleBlur = React.useCallback(() => {
+    if (!value) {
+      setError(null)
+      return
+    }
+    const result = validateFieldValue(value, rules, 'en', undefined, node)
+    if (result.valid) {
+      setError(null)
+      return
+    }
+    if (result.rule === 'format' || result.rule === 'pattern') {
+      const localizedKey =
+        format === 'email'
+          ? 'forms.runner.validation.email.default'
+          : format === 'phone'
+            ? 'forms.runner.validation.phone.default'
+            : 'forms.runner.validation.website.default'
+      const localized = t(localizedKey)
+      setError(localized && localized !== localizedKey ? localized : result.message)
+      return
+    }
+    setError(result.message)
+  }, [value, rules, format, node, t])
+  return (
+    <div className="space-y-1">
+      <div className="relative">
+        <Icon
+          aria-hidden="true"
+          className="pointer-events-none absolute left-2 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground"
+        />
+        <Input
+          id={id}
+          type={inputType}
+          inputMode={inputMode}
+          autoComplete={autoComplete}
+          autoCapitalize={autoCapitalize}
+          readOnly={readOnly}
+          aria-label={label}
+          aria-invalid={error ? true : undefined}
+          className="pl-8"
+          value={value}
+          onChange={(event) => onChange(event.target.value)}
+          onFocus={() => setError(null)}
+          onBlur={handleBlur}
+        />
+      </div>
+      {error ? (
+        <Alert variant="destructive" className="px-3 py-2 text-xs">
+          {error}
+        </Alert>
+      ) : null}
+    </div>
+  )
+}
+
+type NpsPreviewInputProps = {
+  node: FieldNode
+  canEdit: boolean
+  value: unknown
+  onChange: (value: unknown) => void
+}
+
+function npsBandClass(entry: number): string {
+  if (entry <= 6) {
+    return 'bg-status-error-surface text-status-error-text border-status-error-border'
+  }
+  if (entry <= 8) {
+    return 'bg-status-warning-surface text-status-warning-text border-status-warning-border'
+  }
+  return 'bg-status-success-surface text-status-success-text border-status-success-border'
+}
+
+function readNpsAnchorCaption(
+  node: FieldNode,
+  anchor: 'low' | 'high',
+): string {
+  const raw = (node as Record<string, unknown>)['x-om-nps-anchors']
+  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return ''
+  const target = (raw as Record<string, unknown>)[anchor]
+  if (!target || typeof target !== 'object' || Array.isArray(target)) return ''
+  const map = target as Record<string, unknown>
+  const en = map.en
+  if (typeof en === 'string' && en.length > 0) return en
+  for (const value of Object.values(map)) {
+    if (typeof value === 'string' && value.length > 0) return value
+  }
+  return ''
+}
+
+function NpsPreviewInput({ node, canEdit, value, onChange }: NpsPreviewInputProps) {
+  const lowCaption = readNpsAnchorCaption(node, 'low')
+  const highCaption = readNpsAnchorCaption(node, 'high')
+  const currentValue = typeof value === 'number' && Number.isInteger(value) ? value : null
+  const entries: number[] = []
+  for (let i = 0; i <= 10; i += 1) entries.push(i)
+  return (
+    <div className="space-y-1">
+      <div className="flex flex-wrap gap-1">
+        {entries.map((entry) => {
+          const selected = currentValue === entry
+          const baseBand = npsBandClass(entry)
+          const ringClass = selected ? ' ring-2 ring-primary' : ''
+          return (
+            <button
+              key={entry}
+              type="button"
+              disabled={!canEdit}
+              onClick={() => onChange(entry)}
+              aria-pressed={selected}
+              className={
+                'h-11 w-11 rounded-md border text-sm font-medium transition-colors disabled:cursor-not-allowed disabled:opacity-60 '
+                + baseBand
+                + ringClass
+              }
+            >
+              {entry}
+            </button>
+          )
+        })}
+      </div>
+      {lowCaption || highCaption ? (
+        <div className="flex justify-between text-xs text-muted-foreground mt-1">
+          <span>{lowCaption}</span>
+          <span>{highCaption}</span>
+        </div>
+      ) : null}
+    </div>
+  )
+}
+
+type OpinionScalePreviewInputProps = {
+  node: FieldNode
+  canEdit: boolean
+  value: unknown
+  onChange: (value: unknown) => void
+}
+
+function readOpinionIconChoice(node: FieldNode): 'star' | 'dot' | 'thumb' {
+  const raw = (node as Record<string, unknown>)['x-om-opinion-icon']
+  if (raw === 'star' || raw === 'thumb') return raw
+  return 'dot'
+}
+
+function OpinionScalePreviewInput({
+  node,
+  canEdit,
+  value,
+  onChange,
+}: OpinionScalePreviewInputProps) {
+  const icon = readOpinionIconChoice(node)
+  const minRaw = (node as Record<string, unknown>)['x-om-min']
+  const maxRaw = (node as Record<string, unknown>)['x-om-max']
+  const min = typeof minRaw === 'number' && Number.isInteger(minRaw) ? minRaw : 1
+  const maxResolved = typeof maxRaw === 'number' && Number.isInteger(maxRaw) ? maxRaw : 5
+  const max = maxResolved < min ? min : maxResolved
+  const entries: number[] = []
+  for (let i = min; i <= max; i += 1) entries.push(i)
+  const currentValue = typeof value === 'number' && Number.isInteger(value) ? value : null
+  const StarIcon = resolveLucideIcon('star')
+  const CircleIcon = resolveLucideIcon('circle')
+  const ThumbIcon = resolveLucideIcon('thumbs-up')
+  return (
+    <div className="space-y-1">
+      <div className="flex flex-wrap gap-1">
+        {entries.map((entry) => {
+          const filled = icon === 'star'
+            ? currentValue !== null && entry <= currentValue
+            : currentValue === entry
+          const iconClass = filled ? 'fill-current text-primary' : 'text-muted-foreground'
+          const IconComponent =
+            icon === 'star' ? StarIcon : icon === 'thumb' ? ThumbIcon : CircleIcon
+          return (
+            <button
+              key={entry}
+              type="button"
+              disabled={!canEdit}
+              onClick={() => onChange(entry)}
+              aria-pressed={filled}
+              className={
+                'inline-flex h-11 w-11 items-center justify-center rounded-md border border-border bg-background transition-colors disabled:cursor-not-allowed disabled:opacity-60 '
+                + (filled ? 'border-primary' : 'hover:border-primary')
+              }
+            >
+              <IconComponent aria-hidden="true" className={`size-7 ${iconClass}`} />
+            </button>
+          )
+        })}
+      </div>
+    </div>
+  )
+}
+
+type AddressPreviewInputProps = {
+  idPrefix: string
+  canEdit: boolean
+  value: unknown
+  onChange: (value: unknown) => void
+  t: TranslateFn
+}
+
+type AddressFieldValue = {
+  street1?: string
+  street2?: string
+  city?: string
+  region?: string
+  postalCode?: string
+  country?: string
+}
+
+function readAddressSubValue(value: unknown, key: keyof AddressFieldValue): string {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return ''
+  const entry = (value as Record<string, unknown>)[key]
+  return typeof entry === 'string' ? entry : ''
+}
+
+function AddressPreviewInput({
+  idPrefix,
+  canEdit,
+  value,
+  onChange,
+  t,
+}: AddressPreviewInputProps) {
+  const street1 = readAddressSubValue(value, 'street1')
+  const street2 = readAddressSubValue(value, 'street2')
+  const city = readAddressSubValue(value, 'city')
+  const region = readAddressSubValue(value, 'region')
+  const postalCode = readAddressSubValue(value, 'postalCode')
+  const country = readAddressSubValue(value, 'country')
+  const labels = {
+    street1: t('forms.studio.field.address.street1'),
+    street2: t('forms.studio.field.address.street2'),
+    city: t('forms.studio.field.address.city'),
+    region: t('forms.studio.field.address.region'),
+    postalCode: t('forms.studio.field.address.postalCode'),
+    country: t('forms.studio.field.address.country'),
+  }
+  const update = (key: keyof AddressFieldValue) => (next: string) => {
+    const current: AddressFieldValue =
+      value && typeof value === 'object' && !Array.isArray(value)
+        ? { ...(value as AddressFieldValue) }
+        : {}
+    current[key] = next
+    onChange(current)
+  }
+  return (
+    <div className="space-y-2">
+      <div className="space-y-1">
+        <label
+          className="block text-xs font-medium text-muted-foreground"
+          htmlFor={`${idPrefix}-street1`}
+        >
+          {labels.street1}
+        </label>
+        <Input
+          id={`${idPrefix}-street1`}
+          readOnly={!canEdit}
+          type="text"
+          aria-label={labels.street1}
+          value={street1}
+          onChange={(event) => update('street1')(event.target.value)}
+        />
+      </div>
+      <div className="space-y-1">
+        <label
+          className="block text-xs font-medium text-muted-foreground"
+          htmlFor={`${idPrefix}-street2`}
+        >
+          {labels.street2}
+        </label>
+        <Input
+          id={`${idPrefix}-street2`}
+          readOnly={!canEdit}
+          type="text"
+          aria-label={labels.street2}
+          value={street2}
+          onChange={(event) => update('street2')(event.target.value)}
+        />
+      </div>
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-2">
+        <div className="space-y-1">
+          <label
+            className="block text-xs font-medium text-muted-foreground"
+            htmlFor={`${idPrefix}-city`}
+          >
+            {labels.city}
+          </label>
+          <Input
+            id={`${idPrefix}-city`}
+            readOnly={!canEdit}
+            type="text"
+            aria-label={labels.city}
+            value={city}
+            onChange={(event) => update('city')(event.target.value)}
+          />
+        </div>
+        <div className="space-y-1">
+          <label
+            className="block text-xs font-medium text-muted-foreground"
+            htmlFor={`${idPrefix}-region`}
+          >
+            {labels.region}
+          </label>
+          <Input
+            id={`${idPrefix}-region`}
+            readOnly={!canEdit}
+            type="text"
+            aria-label={labels.region}
+            value={region}
+            onChange={(event) => update('region')(event.target.value)}
+          />
+        </div>
+        <div className="space-y-1">
+          <label
+            className="block text-xs font-medium text-muted-foreground"
+            htmlFor={`${idPrefix}-postalCode`}
+          >
+            {labels.postalCode}
+          </label>
+          <Input
+            id={`${idPrefix}-postalCode`}
+            readOnly={!canEdit}
+            type="text"
+            aria-label={labels.postalCode}
+            value={postalCode}
+            onChange={(event) => update('postalCode')(event.target.value)}
+          />
+        </div>
+      </div>
+      <div className="space-y-1">
+        <label
+          className="block text-xs font-medium text-muted-foreground"
+          htmlFor={`${idPrefix}-country`}
+        >
+          {labels.country}
+        </label>
+        {canEdit ? (
+          <Select
+            value={country.length > 0 ? country : undefined}
+            onValueChange={(next) => update('country')(next)}
+          >
+            <SelectTrigger id={`${idPrefix}-country`} aria-label={labels.country}>
+              <SelectValue placeholder={labels.country} />
+            </SelectTrigger>
+            <SelectContent>
+              {COUNTRY_OPTIONS.map((option) => (
+                <SelectItem key={option.code} value={option.code}>
+                  {option.name}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        ) : (
+          <span
+            id={`${idPrefix}-country`}
+            className="block rounded-md border border-border bg-muted/30 px-3 py-2 text-sm text-muted-foreground"
+            aria-label={labels.country}
+          >
+            {country ? resolveCountryName(country) : ''}
+          </span>
+        )}
+      </div>
+    </div>
+  )
 }

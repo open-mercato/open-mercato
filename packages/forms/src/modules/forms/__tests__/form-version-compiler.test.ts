@@ -190,6 +190,131 @@ describe('FormVersionCompiler', () => {
     expect(compiler.size()).toBeLessThanOrEqual(4)
   })
 
+  it('populates FieldDescriptor.validations from x-om-pattern / x-om-min-length / x-om-max-length', () => {
+    const schema = baseSchema()
+    Object.assign(schema.properties.full_name as Record<string, unknown>, {
+      'x-om-pattern': '^[A-Z][a-z]+$',
+      'x-om-min-length': 1,
+      'x-om-max-length': 64,
+    })
+    const compiled = compiler.compile({
+      id: 'with-validations',
+      updatedAt: new Date('2026-05-14T00:00:00Z'),
+      schema,
+      uiSchema: {},
+    })
+    expect(compiled.fieldIndex.full_name.validations).toEqual([
+      { type: 'pattern', pattern: '^[A-Z][a-z]+$' },
+      { type: 'minLength', value: 1 },
+      { type: 'maxLength', value: 64 },
+    ])
+  })
+
+  it('surfaces validation message overrides on the descriptor', () => {
+    const schema = baseSchema()
+    Object.assign(schema.properties.full_name as Record<string, unknown>, {
+      'x-om-pattern': '^.+$',
+      'x-om-validation-messages': {
+        en: { pattern: 'Please type your name.' },
+      },
+    })
+    const compiled = compiler.compile({
+      id: 'with-messages',
+      updatedAt: new Date('2026-05-14T01:00:00Z'),
+      schema,
+      uiSchema: {},
+    })
+    expect(compiled.fieldIndex.full_name.validationMessages).toEqual({
+      en: { pattern: 'Please type your name.' },
+    })
+  })
+
+  it('schema hash survives a JSON-clone round-trip with validation keywords', () => {
+    const schema = baseSchema()
+    Object.assign(schema.properties.full_name as Record<string, unknown>, {
+      'x-om-pattern': '^[A-Z][a-z]+$',
+      'x-om-min-length': 1,
+      'x-om-max-length': 64,
+      'x-om-validation-messages': { en: { pattern: 'No.' } },
+    })
+    const a = compiler.compile({
+      id: 'hash-a',
+      updatedAt: new Date('2026-05-14T02:00:00Z'),
+      schema,
+      uiSchema: { full_name: { 'ui:widget': 'text' } },
+    })
+    const cloned = JSON.parse(JSON.stringify(schema))
+    const b = compiler.compile({
+      id: 'hash-b',
+      updatedAt: new Date('2026-05-14T02:00:00Z'),
+      schema: cloned,
+      uiSchema: { full_name: { 'ui:widget': 'text' } },
+    })
+    expect(a.schemaHash).toBe(b.schemaHash)
+  })
+
+  it('emits a format rule on the descriptor for an email field (Tier-2 Phase B)', () => {
+    const schema = baseSchema()
+    ;(schema.properties as Record<string, unknown>)['contact_email'] = {
+      type: 'string',
+      'x-om-type': 'email',
+      'x-om-label': { en: 'Email' },
+      'x-om-editable-by': ['patient'],
+    }
+    ;(schema['x-om-sections'] as Array<{ key: string; fieldKeys: string[] }>)[0]
+      .fieldKeys.push('contact_email')
+    const compiled = compiler.compile({
+      id: 'with-email',
+      updatedAt: new Date('2026-05-14T03:00:00Z'),
+      schema,
+      uiSchema: {},
+    })
+    expect(compiled.fieldIndex.contact_email.type).toBe('email')
+    expect(compiled.fieldIndex.contact_email.validations).toEqual([
+      { type: 'format', format: 'email' },
+    ])
+  })
+
+  it('compiles an address field cleanly (Tier-2 Phase C composite)', () => {
+    const schema = baseSchema()
+    ;(schema.properties as Record<string, unknown>)['billing_address'] = {
+      type: 'object',
+      'x-om-type': 'address',
+      'x-om-label': { en: 'Billing address' },
+      'x-om-editable-by': ['patient'],
+      properties: {
+        street1: { type: 'string' },
+        street2: { type: 'string' },
+        city: { type: 'string' },
+        region: { type: 'string' },
+        postalCode: { type: 'string' },
+        country: { type: 'string' },
+      },
+      required: ['street1', 'city', 'country'],
+      additionalProperties: false,
+    }
+    ;(schema['x-om-sections'] as Array<{ key: string; fieldKeys: string[] }>)[0]
+      .fieldKeys.push('billing_address')
+    const compiled = compiler.compile({
+      id: 'with-address',
+      updatedAt: new Date('2026-05-14T05:00:00Z'),
+      schema,
+      uiSchema: {},
+    })
+    expect(compiled.fieldIndex.billing_address.type).toBe('address')
+    expect(compiled.fieldIndex.billing_address.validations).toEqual([])
+    expect(
+      compiled.ajv({
+        full_name: 'Jane',
+        billing_address: {
+          street1: '123 Main St',
+          city: 'Springfield',
+          country: 'US',
+        },
+      }),
+    ).toBe(true)
+  })
+
   it('captures the registry version from the registry', () => {
     const registry = new FieldTypeRegistry()
     registry.register('text', defaultFieldTypeRegistry.get('text')!)

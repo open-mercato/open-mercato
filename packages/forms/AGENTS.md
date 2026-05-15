@@ -20,6 +20,7 @@ The module ships in phases — see `.ai/specs/2026-04-22-forms-module.md` and th
 12. **MUST NOT silently rewrite the persisted schema on load** — read-time defaults for additive layout keys (`columns`, `gap`, `divider`, `hideTitle`, page mode, supported locales, grid-span clamp) are applied to derived views only. The compiler / studio MUST keep the persisted bytes verbatim so `schemaHash` survives a round-trip (Decision 12, R-9 mitigation).
 13. **MUST gate all persisted jsonlogic expressions through `jsonlogic-grammar.ts`** — visibility predicates, jump `if` clauses, and variable formulas can only use the operators in `ALLOWED_JSONLOGIC_OPS`. The validator (`validateOmCrossKeyword`) throws at save/publish time on unknown operators; the runtime evaluator (`form-logic-evaluator`) is the second line of defence (R-5 mitigation). Sensitive fields (`x-om-sensitive: true`) MUST NOT resolve via recall — the resolver returns the empty string for any token referencing them (R-4 mitigation).
 14. **MUST keep identifier namespaces disjoint** — field keys in `properties`, hidden-field names in `x-om-hidden-fields`, and variable names in `x-om-variables` MUST NOT collide. `validateOmCrossKeyword` enforces this at save/publish time and is invoked from both `schema-helpers.validateSchemaExtensions` and the compiler's `compileFresh` path.
+15. **MUST compile validation rules at AJV-compile time AND surface them on `FieldDescriptor.validations`** for runtime parity. The studio preview, the public runner, and the submission service all consume `FieldDescriptor.validations` / `FieldDescriptor.validationMessages`; the runner re-runs the same rule set server-side before persisting (defence in depth). `services/field-validation-service.ts` is pure — no I/O, no DI, only a module-scoped regex cache keyed on the source string. Regex evaluation is wrapped in a 50ms wall-clock guard (R-1 mitigation — catastrophic regex).
 
 ## DI Keys (FROZEN)
 
@@ -51,6 +52,8 @@ Every form definition is a JSON Schema 7-shaped object decorated with `x-om-*` e
 ## v1 Field Types (FROZEN core list)
 
 `text`, `textarea`, `number`, `integer`, `boolean`, `date`, `datetime`, `select_one`, `select_many`, `scale`, `info_block`. Vertical extensions (signature, file, tooth chart, body diagram) land in phases 2c/3.
+
+Tier-2 types (`email`, `phone`, `website`, …) register via the same `FieldTypeRegistry.register(...)` API and are additive — they do not appear in the FROZEN v1 list.
 
 ## Module Structure
 

@@ -15,7 +15,13 @@ import {
   addOmKeywords,
   validateOmCrossKeyword,
   type OmExtensionViolation,
+  type OmValidationMessages,
 } from '../schema/jsonschema-extensions'
+import {
+  compileFieldValidationRules,
+  type ValidationRules,
+} from './field-validation-service'
+import type { FieldNode } from '../backend/forms/[id]/studio/schema-helpers'
 
 // ============================================================================
 // Public types
@@ -36,6 +42,19 @@ export type FieldDescriptor = {
   visibleTo: string[]
   /** Whether the field is required by `schema.required`. */
   required: boolean
+  /**
+   * Compiled validation rules surfaced to the runtime (Tier-2 spec MUST 15).
+   * The studio preview, the public runner, and the submission service all
+   * read from this array — never from the raw `x-om-*` keywords.
+   */
+  validations: ValidationRules
+  /**
+   * Locale-specific message overrides for the validation rules above.
+   * `messages[locale][ruleType]` resolves to a localised string; missing
+   * locales fall back through `en` to the generic English defaults inside
+   * `field-validation-service`.
+   */
+  validationMessages?: OmValidationMessages
 }
 
 /**
@@ -259,6 +278,9 @@ export class FormVersionCompiler {
         }
       }
 
+      const validations = compileFieldValidationRules(fieldNode as unknown as FieldNode, omType)
+      const validationMessages = readValidationMessages(fieldNode)
+
       fieldIndex[fieldKey] = {
         key: fieldKey,
         type: omType,
@@ -267,6 +289,8 @@ export class FormVersionCompiler {
         editableBy,
         visibleTo,
         required: requiredFields.has(fieldKey),
+        validations,
+        ...(validationMessages ? { validationMessages } : {}),
       }
     }
 
@@ -570,6 +594,25 @@ export function resolveFormLabelPosition(
  */
 export function resolveShowProgress(schema: Record<string, unknown>): boolean {
   return schema[OM_ROOT_KEYWORDS.showProgress] === true
+}
+
+function readValidationMessages(
+  fieldNode: Record<string, unknown>,
+): OmValidationMessages | undefined {
+  const raw = fieldNode[OM_FIELD_KEYWORDS.validationMessages]
+  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return undefined
+  const result: OmValidationMessages = {}
+  for (const [locale, inner] of Object.entries(raw as Record<string, unknown>)) {
+    if (!inner || typeof inner !== 'object' || Array.isArray(inner)) continue
+    const innerOut: Record<string, string> = {}
+    for (const [rule, message] of Object.entries(inner as Record<string, unknown>)) {
+      if (typeof message === 'string' && message.length > 0) {
+        innerOut[rule] = message
+      }
+    }
+    if (Object.keys(innerOut).length > 0) result[locale] = innerOut
+  }
+  return Object.keys(result).length > 0 ? result : undefined
 }
 
 function readStringArray(

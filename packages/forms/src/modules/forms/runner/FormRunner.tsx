@@ -1,6 +1,7 @@
 'use client'
 
 import * as React from 'react'
+import { Circle, Globe, Mail, Phone, Star, ThumbsUp, type LucideIcon } from 'lucide-react'
 import { Button } from '@open-mercato/ui/primitives/button'
 import { Input } from '@open-mercato/ui/primitives/input'
 import { Textarea } from '@open-mercato/ui/primitives/textarea'
@@ -16,9 +17,20 @@ import {
   SelectValue,
 } from '@open-mercato/ui/primitives/select'
 import { apiCall } from '@open-mercato/ui/backend/utils/apiCall'
-import { useT } from '@open-mercato/shared/lib/i18n/context'
+import { useT, type TranslateFn } from '@open-mercato/shared/lib/i18n/context'
 import { evaluateFormLogic, type LogicState, type JumpTarget } from '../services/form-logic-evaluator'
 import { partitionPages } from '../services/form-version-compiler'
+import {
+  compileFieldValidationRules,
+  validateFieldValue,
+} from '../services/field-validation-service'
+import {
+  COUNTRY_OPTIONS,
+  resolveCountryName,
+} from '../schema/address-countries'
+import { RankingField } from './RankingField'
+import { MatrixField, type MatrixFieldColumn, type MatrixFieldRow } from './MatrixField'
+import type { FieldNode } from '../backend/forms/[id]/studio/schema-helpers'
 
 export type FormRunnerProps = {
   formId: string
@@ -185,6 +197,7 @@ export function FormRunner({
                     state={state}
                     locale={locale}
                     required={Array.isArray(schema.required) && (schema.required as string[]).includes(fieldKey)}
+                    t={t}
                   />
                 )
               })}
@@ -246,9 +259,10 @@ type FieldRunnerRowProps = {
   state: LogicState
   locale: string
   required: boolean
+  t: TranslateFn
 }
 
-function FieldRunnerRow({ fieldKey, node, value, onChange, state, locale, required }: FieldRunnerRowProps) {
+function FieldRunnerRow({ fieldKey, node, value, onChange, state, locale, required, t }: FieldRunnerRowProps) {
   const omType = String(node['x-om-type'] ?? 'text')
   const label = state.resolveRecall(node['x-om-label'] as Record<string, string>, locale) || fieldKey
   const help = state.resolveRecall(node['x-om-help'] as Record<string, string>, locale)
@@ -327,10 +341,490 @@ function FieldRunnerRow({ fieldKey, node, value, onChange, state, locale, requir
                 </SelectContent>
               </Select>
             )
+          case 'nps':
+            return (
+              <NpsRunnerInput
+                node={node as FieldNode}
+                value={value}
+                onChange={(next) => onChange(next)}
+                locale={locale}
+              />
+            )
+          case 'opinion_scale':
+            return (
+              <OpinionScaleRunnerInput
+                node={node as FieldNode}
+                value={value}
+                onChange={(next) => onChange(next)}
+              />
+            )
+          case 'email':
+            return (
+              <FormatRunnerInput
+                id={`runner-${fieldKey}`}
+                format="email"
+                inputType="email"
+                inputMode="email"
+                autoComplete="email"
+                autoCapitalize="off"
+                Icon={Mail}
+                label={label}
+                value={stringValue}
+                onChange={(next) => onChange(next)}
+                node={node as FieldNode}
+                t={t}
+              />
+            )
+          case 'phone':
+            return (
+              <FormatRunnerInput
+                id={`runner-${fieldKey}`}
+                format="phone"
+                inputType="tel"
+                inputMode="tel"
+                autoComplete="tel"
+                Icon={Phone}
+                label={label}
+                value={stringValue}
+                onChange={(next) => onChange(next)}
+                node={node as FieldNode}
+                t={t}
+              />
+            )
+          case 'website':
+            return (
+              <FormatRunnerInput
+                id={`runner-${fieldKey}`}
+                format="website"
+                inputType="url"
+                inputMode="url"
+                autoCapitalize="off"
+                Icon={Globe}
+                label={label}
+                value={stringValue}
+                onChange={(next) => onChange(next)}
+                node={node as FieldNode}
+                t={t}
+              />
+            )
+          case 'address':
+            return (
+              <AddressRunnerInput
+                idPrefix={`runner-${fieldKey}`}
+                value={value}
+                onChange={(next) => onChange(next)}
+                t={t}
+              />
+            )
+          case 'ranking': {
+            const rankingOptions = options.map((option) => ({
+              value: option.value,
+              label: option.label?.[locale] ?? option.label?.en ?? option.value,
+            }))
+            const rankingValue = Array.isArray(value)
+              ? (value as unknown[]).filter((entry): entry is string => typeof entry === 'string')
+              : []
+            return (
+              <RankingField
+                idPrefix={`runner-${fieldKey}`}
+                options={rankingOptions}
+                value={rankingValue}
+                onChange={(next) => onChange(next)}
+                canEdit={true}
+                t={t}
+              />
+            )
+          }
+          case 'matrix': {
+            const matrixRows = Array.isArray(node['x-om-matrix-rows'])
+              ? (node['x-om-matrix-rows'] as MatrixFieldRow[])
+              : []
+            const matrixColumns = Array.isArray(node['x-om-matrix-columns'])
+              ? (node['x-om-matrix-columns'] as MatrixFieldColumn[])
+              : []
+            return (
+              <MatrixField
+                idPrefix={`runner-${fieldKey}`}
+                rows={matrixRows}
+                columns={matrixColumns}
+                value={value}
+                onChange={(next) => onChange(next)}
+                locale={locale}
+                t={t}
+              />
+            )
+          }
           default:
             return <Input id={`runner-${fieldKey}`} type="text" value={stringValue} onChange={(event) => onChange(event.target.value)} />
         }
       })()}
+    </div>
+  )
+}
+
+type FormatRunnerInputProps = {
+  id: string
+  format: 'email' | 'phone' | 'website'
+  inputType: 'email' | 'tel' | 'url'
+  inputMode: 'email' | 'tel' | 'url'
+  autoComplete?: string
+  autoCapitalize?: 'off' | 'none' | 'on'
+  Icon: LucideIcon
+  label: string
+  value: string
+  onChange: (value: string) => void
+  node: FieldNode
+  t: TranslateFn
+}
+
+function FormatRunnerInput({
+  id,
+  format,
+  inputType,
+  inputMode,
+  autoComplete,
+  autoCapitalize,
+  Icon,
+  label,
+  value,
+  onChange,
+  node,
+  t,
+}: FormatRunnerInputProps) {
+  const [error, setError] = React.useState<string | null>(null)
+  const rules = React.useMemo(
+    () => compileFieldValidationRules(node, format),
+    [node, format],
+  )
+  const handleBlur = React.useCallback(() => {
+    if (!value) {
+      setError(null)
+      return
+    }
+    const result = validateFieldValue(value, rules, 'en', undefined, node)
+    if (result.valid) {
+      setError(null)
+      return
+    }
+    if (result.rule === 'format' || result.rule === 'pattern') {
+      const localizedKey =
+        format === 'email'
+          ? 'forms.runner.validation.email.default'
+          : format === 'phone'
+            ? 'forms.runner.validation.phone.default'
+            : 'forms.runner.validation.website.default'
+      const localized = t(localizedKey)
+      setError(localized && localized !== localizedKey ? localized : result.message)
+      return
+    }
+    setError(result.message)
+  }, [value, rules, format, node, t])
+  return (
+    <div className="space-y-1">
+      <div className="relative">
+        <Icon
+          aria-hidden="true"
+          className="pointer-events-none absolute left-2 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground"
+        />
+        <Input
+          id={id}
+          type={inputType}
+          inputMode={inputMode}
+          autoComplete={autoComplete}
+          autoCapitalize={autoCapitalize}
+          aria-label={label}
+          aria-invalid={error ? true : undefined}
+          className="pl-8"
+          value={value}
+          onChange={(event) => onChange(event.target.value)}
+          onFocus={() => setError(null)}
+          onBlur={handleBlur}
+        />
+      </div>
+      {error ? (
+        <Alert variant="destructive" className="px-3 py-2 text-xs">
+          {error}
+        </Alert>
+      ) : null}
+    </div>
+  )
+}
+
+type NpsRunnerInputProps = {
+  node: FieldNode
+  value: unknown
+  onChange: (value: unknown) => void
+  locale: string
+}
+
+function npsRunnerBandClass(entry: number): string {
+  if (entry <= 6) {
+    return 'bg-status-error-surface text-status-error-text border-status-error-border'
+  }
+  if (entry <= 8) {
+    return 'bg-status-warning-surface text-status-warning-text border-status-warning-border'
+  }
+  return 'bg-status-success-surface text-status-success-text border-status-success-border'
+}
+
+function resolveNpsAnchorRunner(
+  node: FieldNode,
+  anchor: 'low' | 'high',
+  locale: string,
+): string {
+  const raw = (node as Record<string, unknown>)['x-om-nps-anchors']
+  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return ''
+  const target = (raw as Record<string, unknown>)[anchor]
+  if (!target || typeof target !== 'object' || Array.isArray(target)) return ''
+  const map = target as Record<string, unknown>
+  const exact = map[locale]
+  if (typeof exact === 'string' && exact.length > 0) return exact
+  const en = map.en
+  if (typeof en === 'string' && en.length > 0) return en
+  for (const value of Object.values(map)) {
+    if (typeof value === 'string' && value.length > 0) return value
+  }
+  return ''
+}
+
+function NpsRunnerInput({ node, value, onChange, locale }: NpsRunnerInputProps) {
+  const lowCaption = resolveNpsAnchorRunner(node, 'low', locale)
+  const highCaption = resolveNpsAnchorRunner(node, 'high', locale)
+  const currentValue = typeof value === 'number' && Number.isInteger(value) ? value : null
+  const entries: number[] = []
+  for (let i = 0; i <= 10; i += 1) entries.push(i)
+  return (
+    <div className="space-y-1">
+      <div className="flex flex-wrap gap-1">
+        {entries.map((entry) => {
+          const selected = currentValue === entry
+          const ringClass = selected ? ' ring-2 ring-primary' : ''
+          return (
+            <button
+              key={entry}
+              type="button"
+              onClick={() => onChange(entry)}
+              aria-pressed={selected}
+              className={
+                'h-11 w-11 rounded-md border text-sm font-medium transition-colors '
+                + npsRunnerBandClass(entry)
+                + ringClass
+              }
+            >
+              {entry}
+            </button>
+          )
+        })}
+      </div>
+      {lowCaption || highCaption ? (
+        <div className="flex justify-between text-xs text-muted-foreground mt-1">
+          <span>{lowCaption}</span>
+          <span>{highCaption}</span>
+        </div>
+      ) : null}
+    </div>
+  )
+}
+
+type OpinionScaleRunnerInputProps = {
+  node: FieldNode
+  value: unknown
+  onChange: (value: unknown) => void
+}
+
+function resolveOpinionIconRunner(node: FieldNode): 'star' | 'dot' | 'thumb' {
+  const raw = (node as Record<string, unknown>)['x-om-opinion-icon']
+  if (raw === 'star' || raw === 'thumb') return raw
+  return 'dot'
+}
+
+function OpinionScaleRunnerInput({ node, value, onChange }: OpinionScaleRunnerInputProps) {
+  const icon = resolveOpinionIconRunner(node)
+  const minRaw = (node as Record<string, unknown>)['x-om-min']
+  const maxRaw = (node as Record<string, unknown>)['x-om-max']
+  const min = typeof minRaw === 'number' && Number.isInteger(minRaw) ? minRaw : 1
+  const maxResolved = typeof maxRaw === 'number' && Number.isInteger(maxRaw) ? maxRaw : 5
+  const max = maxResolved < min ? min : maxResolved
+  const entries: number[] = []
+  for (let i = min; i <= max; i += 1) entries.push(i)
+  const currentValue = typeof value === 'number' && Number.isInteger(value) ? value : null
+  const IconComponent = icon === 'star' ? Star : icon === 'thumb' ? ThumbsUp : Circle
+  return (
+    <div className="space-y-1">
+      <div className="flex flex-wrap gap-1">
+        {entries.map((entry) => {
+          const filled = icon === 'star'
+            ? currentValue !== null && entry <= currentValue
+            : currentValue === entry
+          const iconClass = filled ? 'fill-current text-primary' : 'text-muted-foreground'
+          return (
+            <button
+              key={entry}
+              type="button"
+              onClick={() => onChange(entry)}
+              aria-pressed={filled}
+              className={
+                'inline-flex h-11 w-11 items-center justify-center rounded-md border border-border bg-background transition-colors '
+                + (filled ? 'border-primary' : 'hover:border-primary')
+              }
+            >
+              <IconComponent aria-hidden="true" className={`size-7 ${iconClass}`} />
+            </button>
+          )
+        })}
+      </div>
+    </div>
+  )
+}
+
+type AddressRunnerInputProps = {
+  idPrefix: string
+  value: unknown
+  onChange: (value: unknown) => void
+  t: TranslateFn
+}
+
+type AddressRunnerValue = {
+  street1?: string
+  street2?: string
+  city?: string
+  region?: string
+  postalCode?: string
+  country?: string
+}
+
+function readAddressSubField(value: unknown, key: keyof AddressRunnerValue): string {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return ''
+  const entry = (value as Record<string, unknown>)[key]
+  return typeof entry === 'string' ? entry : ''
+}
+
+function AddressRunnerInput({ idPrefix, value, onChange, t }: AddressRunnerInputProps) {
+  void resolveCountryName
+  const street1 = readAddressSubField(value, 'street1')
+  const street2 = readAddressSubField(value, 'street2')
+  const city = readAddressSubField(value, 'city')
+  const region = readAddressSubField(value, 'region')
+  const postalCode = readAddressSubField(value, 'postalCode')
+  const country = readAddressSubField(value, 'country')
+  const labels = {
+    street1: t('forms.studio.field.address.street1'),
+    street2: t('forms.studio.field.address.street2'),
+    city: t('forms.studio.field.address.city'),
+    region: t('forms.studio.field.address.region'),
+    postalCode: t('forms.studio.field.address.postalCode'),
+    country: t('forms.studio.field.address.country'),
+  }
+  const update = (key: keyof AddressRunnerValue) => (next: string) => {
+    const current: AddressRunnerValue =
+      value && typeof value === 'object' && !Array.isArray(value)
+        ? { ...(value as AddressRunnerValue) }
+        : {}
+    current[key] = next
+    onChange(current)
+  }
+  return (
+    <div className="space-y-2">
+      <div className="space-y-1">
+        <label
+          className="block text-xs font-medium text-muted-foreground"
+          htmlFor={`${idPrefix}-street1`}
+        >
+          {labels.street1}
+        </label>
+        <Input
+          id={`${idPrefix}-street1`}
+          type="text"
+          aria-label={labels.street1}
+          value={street1}
+          onChange={(event) => update('street1')(event.target.value)}
+        />
+      </div>
+      <div className="space-y-1">
+        <label
+          className="block text-xs font-medium text-muted-foreground"
+          htmlFor={`${idPrefix}-street2`}
+        >
+          {labels.street2}
+        </label>
+        <Input
+          id={`${idPrefix}-street2`}
+          type="text"
+          aria-label={labels.street2}
+          value={street2}
+          onChange={(event) => update('street2')(event.target.value)}
+        />
+      </div>
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-2">
+        <div className="space-y-1">
+          <label
+            className="block text-xs font-medium text-muted-foreground"
+            htmlFor={`${idPrefix}-city`}
+          >
+            {labels.city}
+          </label>
+          <Input
+            id={`${idPrefix}-city`}
+            type="text"
+            aria-label={labels.city}
+            value={city}
+            onChange={(event) => update('city')(event.target.value)}
+          />
+        </div>
+        <div className="space-y-1">
+          <label
+            className="block text-xs font-medium text-muted-foreground"
+            htmlFor={`${idPrefix}-region`}
+          >
+            {labels.region}
+          </label>
+          <Input
+            id={`${idPrefix}-region`}
+            type="text"
+            aria-label={labels.region}
+            value={region}
+            onChange={(event) => update('region')(event.target.value)}
+          />
+        </div>
+        <div className="space-y-1">
+          <label
+            className="block text-xs font-medium text-muted-foreground"
+            htmlFor={`${idPrefix}-postalCode`}
+          >
+            {labels.postalCode}
+          </label>
+          <Input
+            id={`${idPrefix}-postalCode`}
+            type="text"
+            aria-label={labels.postalCode}
+            value={postalCode}
+            onChange={(event) => update('postalCode')(event.target.value)}
+          />
+        </div>
+      </div>
+      <div className="space-y-1">
+        <label
+          className="block text-xs font-medium text-muted-foreground"
+          htmlFor={`${idPrefix}-country`}
+        >
+          {labels.country}
+        </label>
+        <Select
+          value={country.length > 0 ? country : undefined}
+          onValueChange={(next) => update('country')(next)}
+        >
+          <SelectTrigger id={`${idPrefix}-country`} aria-label={labels.country}>
+            <SelectValue placeholder={labels.country} />
+          </SelectTrigger>
+          <SelectContent>
+            {COUNTRY_OPTIONS.map((option) => (
+              <SelectItem key={option.code} value={option.code}>
+                {option.name}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+      </div>
     </div>
   )
 }

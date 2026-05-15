@@ -88,6 +88,7 @@ import {
   type SectionNode,
 } from './studio/schema-helpers'
 import { createAutosaveGuard } from './studio/autosave-guard'
+import { ValidationPanel } from './studio/validation/ValidationPanel'
 import {
   partitionPages,
   resolveFormLabelPosition,
@@ -714,7 +715,7 @@ export function FormStudio({ formId }: { formId: string }) {
   const paletteEntries = React.useMemo(() => buildPaletteEntries(), [])
   const paletteEntryById = React.useMemo(() => {
     const map = new Map<string, { displayNameKey: string; iconName: string }>()
-    for (const entry of [...paletteEntries.input, ...paletteEntries.layout]) {
+    for (const entry of [...paletteEntries.input, ...paletteEntries.survey, ...paletteEntries.layout]) {
       map.set(entry.id, { displayNameKey: entry.displayNameKey, iconName: entry.iconName })
     }
     return map
@@ -1708,6 +1709,196 @@ function FieldTabContent({
     },
     [onUpdate],
   )
+  const handlePatternChange = React.useCallback(
+    (next: string | null) => {
+      onUpdate((current) => {
+        const updated: FieldNode = { ...current }
+        if (next === null || next.length === 0) {
+          delete updated['x-om-pattern']
+        } else {
+          updated['x-om-pattern'] = next
+        }
+        return updated
+      })
+    },
+    [onUpdate],
+  )
+  const handleLengthRangeChange = React.useCallback(
+    (patch: { min?: number | null; max?: number | null }) => {
+      onUpdate((current) => {
+        const updated: FieldNode = { ...current }
+        if (patch.min !== undefined) {
+          if (patch.min === null) delete updated['x-om-min-length']
+          else updated['x-om-min-length'] = patch.min
+        }
+        if (patch.max !== undefined) {
+          if (patch.max === null) delete updated['x-om-max-length']
+          else updated['x-om-max-length'] = patch.max
+        }
+        return updated
+      })
+    },
+    [onUpdate],
+  )
+  const handleNumberRangeChange = React.useCallback(
+    (patch: { min?: number | null; max?: number | null }) => {
+      onUpdate((current) => {
+        const updated: FieldNode = { ...current }
+        if (patch.min !== undefined) {
+          if (patch.min === null) delete updated['x-om-min']
+          else updated['x-om-min'] = patch.min
+        }
+        if (patch.max !== undefined) {
+          if (patch.max === null) delete updated['x-om-max']
+          else updated['x-om-max'] = patch.max
+        }
+        return updated
+      })
+    },
+    [onUpdate],
+  )
+  const handleMessageChange = React.useCallback(
+    (patch: { rule: string; message: string | null }) => {
+      onUpdate((current) => {
+        const updated: FieldNode = { ...current }
+        const existing = current['x-om-validation-messages']
+        const cloned: Record<string, Record<string, string>> =
+          existing && typeof existing === 'object' && !Array.isArray(existing)
+            ? Object.fromEntries(
+                Object.entries(existing).map(([loc, inner]) => [
+                  loc,
+                  inner && typeof inner === 'object' && !Array.isArray(inner)
+                    ? { ...(inner as Record<string, string>) }
+                    : {},
+                ]),
+              )
+            : {}
+        const inner = cloned.en ? { ...cloned.en } : {}
+        const trimmed = typeof patch.message === 'string' ? patch.message : ''
+        if (!trimmed) {
+          delete inner[patch.rule]
+        } else {
+          inner[patch.rule] = trimmed
+        }
+        if (Object.keys(inner).length === 0) {
+          delete cloned.en
+        } else {
+          cloned.en = inner
+        }
+        if (Object.keys(cloned).length === 0) {
+          delete updated['x-om-validation-messages']
+        } else {
+          updated['x-om-validation-messages'] = cloned
+        }
+        return updated
+      })
+    },
+    [onUpdate],
+  )
+  const handleRankingExhaustiveChange = React.useCallback(
+    (next: boolean) => {
+      onUpdate((current) => {
+        const updated: FieldNode = { ...current }
+        if (next === false) {
+          delete updated['x-om-ranking-exhaustive']
+        } else {
+          updated['x-om-ranking-exhaustive'] = true
+        }
+        return updated
+      })
+    },
+    [onUpdate],
+  )
+  const handleOpinionIconChange = React.useCallback(
+    (next: 'star' | 'dot' | 'thumb') => {
+      onUpdate((current) => {
+        const updated: FieldNode = { ...current }
+        if (next === 'dot') {
+          delete updated['x-om-opinion-icon']
+        } else {
+          updated['x-om-opinion-icon'] = next
+        }
+        return updated
+      })
+    },
+    [onUpdate],
+  )
+  const handleNpsAnchorChange = React.useCallback(
+    (patch: { anchor: 'low' | 'high'; label: string | null }) => {
+      onUpdate((current) => {
+        const updated: FieldNode = { ...current }
+        const existing = current['x-om-nps-anchors']
+        const sourceLow =
+          existing && typeof existing === 'object' && !Array.isArray(existing)
+            && (existing as Record<string, unknown>).low
+            && typeof (existing as Record<string, unknown>).low === 'object'
+            ? { ...((existing as Record<string, Record<string, string>>).low) }
+            : {}
+        const sourceHigh =
+          existing && typeof existing === 'object' && !Array.isArray(existing)
+            && (existing as Record<string, unknown>).high
+            && typeof (existing as Record<string, unknown>).high === 'object'
+            ? { ...((existing as Record<string, Record<string, string>>).high) }
+            : {}
+        const map: { low: Record<string, string>; high: Record<string, string> } = {
+          low: sourceLow,
+          high: sourceHigh,
+        }
+        const target = map[patch.anchor]
+        const trimmed = typeof patch.label === 'string' ? patch.label : ''
+        if (!trimmed) {
+          delete target['en']
+        } else {
+          target['en'] = trimmed
+        }
+        const hasLow = Object.keys(map.low).length > 0
+        const hasHigh = Object.keys(map.high).length > 0
+        if (!hasLow && !hasHigh) {
+          delete updated['x-om-nps-anchors']
+        } else {
+          updated['x-om-nps-anchors'] = { low: map.low, high: map.high }
+        }
+        return updated
+      })
+    },
+    [onUpdate],
+  )
+  const handleMatrixRowsChange = React.useCallback(
+    (next: Array<{ key: string; label: Record<string, string>; multiple?: boolean; required?: boolean }>) => {
+      onUpdate((current) => {
+        const updated: FieldNode = { ...current }
+        if (!next || next.length === 0) {
+          delete updated['x-om-matrix-rows']
+        } else {
+          updated['x-om-matrix-rows'] = next.map((row) => {
+            const result: Record<string, unknown> = { key: row.key, label: row.label }
+            if (row.multiple === true) result.multiple = true
+            if (row.required === true) result.required = true
+            return result
+          }) as FieldNode['x-om-matrix-rows']
+        }
+        return updated
+      })
+    },
+    [onUpdate],
+  )
+  const handleMatrixColumnsChange = React.useCallback(
+    (next: Array<{ value: string; label: Record<string, string> }>) => {
+      onUpdate((current) => {
+        const updated: FieldNode = { ...current }
+        if (!next || next.length === 0) {
+          delete updated['x-om-matrix-columns']
+        } else {
+          updated['x-om-matrix-columns'] = next.map((column) => ({
+            value: column.value,
+            label: column.label,
+          })) as FieldNode['x-om-matrix-columns']
+        }
+        return updated
+      })
+    },
+    [onUpdate],
+  )
   return (
     <div className="space-y-3">
       <div>
@@ -1785,6 +1976,21 @@ function FieldTabContent({
         />
         {t('forms.studio.fields.sensitive')}
       </label>
+      <ValidationPanel
+        fieldKey={fieldKey}
+        fieldType={omType}
+        node={node}
+        locale="en"
+        onPatternChange={handlePatternChange}
+        onLengthRangeChange={handleLengthRangeChange}
+        onNumberRangeChange={handleNumberRangeChange}
+        onMessageChange={handleMessageChange}
+        onOpinionIconChange={handleOpinionIconChange}
+        onNpsAnchorChange={handleNpsAnchorChange}
+        onRankingExhaustiveChange={handleRankingExhaustiveChange}
+        onMatrixRowsChange={handleMatrixRowsChange}
+        onMatrixColumnsChange={handleMatrixColumnsChange}
+      />
       <Button type="button" variant="destructive-outline" onClick={onDelete}>
         <Trash2 className="size-4" aria-hidden="true" />
         {t('forms.studio.fields.deleteButton')}

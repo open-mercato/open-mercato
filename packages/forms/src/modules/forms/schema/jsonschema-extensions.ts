@@ -81,6 +81,24 @@ export const OM_FIELD_KEYWORDS = {
   align: 'x-om-align',
   /** Hide the field on mobile viewport only. Wired by Phase D — keyword declared now for forward consistency. */
   hideMobile: 'x-om-hide-mobile',
+  /** Regex source for string-typed fields. Tier-2 spec — additive. */
+  pattern: 'x-om-pattern',
+  /** Minimum string length for string-typed fields. Tier-2 spec — additive. */
+  minLength: 'x-om-min-length',
+  /** Maximum string length for string-typed fields. Tier-2 spec — additive. */
+  maxLength: 'x-om-max-length',
+  /** Localised custom validation messages: `{ [locale]: { [ruleType]: string } }`. Tier-2 spec — additive. */
+  validationMessages: 'x-om-validation-messages',
+  /** Icon style for opinion_scale renderer: `'star' | 'dot' | 'thumb'`. Tier-2 Phase D — additive. */
+  opinionIcon: 'x-om-opinion-icon',
+  /** NPS anchor captions: `{ low: LocalizedText, high: LocalizedText }`. Tier-2 Phase D — additive. */
+  npsAnchors: 'x-om-nps-anchors',
+  /** Require every option ranked on a `ranking` field. Tier-2 Phase E — additive. */
+  rankingExhaustive: 'x-om-ranking-exhaustive',
+  /** Row descriptors for a `matrix` field: `[{ key, label, multiple?, required? }]`. Tier-2 Phase F — additive. */
+  matrixRows: 'x-om-matrix-rows',
+  /** Column descriptors for a `matrix` field: `[{ value, label }]`. Tier-2 Phase F — additive. */
+  matrixColumns: 'x-om-matrix-columns',
 } as const
 
 export type OmRootKeyword = (typeof OM_ROOT_KEYWORDS)[keyof typeof OM_ROOT_KEYWORDS]
@@ -189,7 +207,58 @@ export type OmFieldExtensions = {
   [OM_FIELD_KEYWORDS.gridSpan]?: OmFieldGridSpan
   [OM_FIELD_KEYWORDS.align]?: OmFieldAlign
   [OM_FIELD_KEYWORDS.hideMobile]?: boolean
+  [OM_FIELD_KEYWORDS.pattern]?: string
+  [OM_FIELD_KEYWORDS.minLength]?: number
+  [OM_FIELD_KEYWORDS.maxLength]?: number
+  [OM_FIELD_KEYWORDS.validationMessages]?: OmValidationMessages
+  [OM_FIELD_KEYWORDS.opinionIcon]?: OmOpinionIcon
+  [OM_FIELD_KEYWORDS.npsAnchors]?: OmNpsAnchors
+  [OM_FIELD_KEYWORDS.rankingExhaustive]?: boolean
+  [OM_FIELD_KEYWORDS.matrixRows]?: OmMatrixRow[]
+  [OM_FIELD_KEYWORDS.matrixColumns]?: OmMatrixColumn[]
 }
+
+export type OmMatrixRow = {
+  key: string
+  label: LocalizedText
+  multiple?: boolean
+  required?: boolean
+}
+
+export type OmMatrixColumn = {
+  value: string
+  label: LocalizedText
+}
+
+/** R-3 soft caps — matrix grows quadratically; cap the persisted bytes early. */
+export const MATRIX_ROWS_SOFT_CAP = 30
+export const MATRIX_COLUMNS_SOFT_CAP = 10
+
+export type OmOpinionIcon = 'star' | 'dot' | 'thumb'
+
+export type OmNpsAnchors = {
+  low: LocalizedText
+  high: LocalizedText
+}
+
+/**
+ * Allowed rule names inside `x-om-validation-messages[locale]`. The compiler
+ * surfaces matching defaults for every entry; missing locales fall back to
+ * `en` and then to the generic English defaults registered in the
+ * `field-validation-service`.
+ */
+export const OM_VALIDATION_MESSAGE_RULE_NAMES: ReadonlySet<string> = new Set([
+  'pattern',
+  'minLength',
+  'maxLength',
+  'minValue',
+  'maxValue',
+  'format',
+  'rankingExhaustive',
+  'matrixRowsRequired',
+])
+
+export type OmValidationMessages = Record<string, Record<string, string>>
 
 // ============================================================================
 // Static meta-schema fragments — used by the compiler to validate the OM
@@ -433,7 +502,121 @@ export const OM_FIELD_VALIDATORS: Record<OmFieldKeyword, (value: unknown) => str
       : 'x-om-align must be "start", "center", or "end".',
   [OM_FIELD_KEYWORDS.hideMobile]: (value) =>
     typeof value === 'boolean' ? null : 'x-om-hide-mobile must be a boolean.',
+  [OM_FIELD_KEYWORDS.pattern]: (value) => {
+    if (typeof value !== 'string' || value.length === 0) {
+      return 'x-om-pattern must be a non-empty regex source string.'
+    }
+    try {
+      new RegExp(value)
+    } catch {
+      return 'x-om-pattern must compile as a JavaScript regular expression.'
+    }
+    return null
+  },
+  [OM_FIELD_KEYWORDS.minLength]: (value) =>
+    typeof value === 'number' && Number.isInteger(value) && value >= 0
+      ? null
+      : 'x-om-min-length must be a non-negative integer.',
+  [OM_FIELD_KEYWORDS.maxLength]: (value) =>
+    typeof value === 'number' && Number.isInteger(value) && value >= 0
+      ? null
+      : 'x-om-max-length must be a non-negative integer.',
+  [OM_FIELD_KEYWORDS.validationMessages]: (value) => {
+    if (!value || typeof value !== 'object' || Array.isArray(value)) {
+      return 'x-om-validation-messages must be a `{ [locale]: { [rule]: string } }` map.'
+    }
+    for (const [locale, inner] of Object.entries(value as Record<string, unknown>)) {
+      if (locale.length === 0) {
+        return 'x-om-validation-messages locale keys must be non-empty strings.'
+      }
+      if (!inner || typeof inner !== 'object' || Array.isArray(inner)) {
+        return `x-om-validation-messages["${locale}"] must be a `
+          + '`{ [rule]: string }` map.'
+      }
+      for (const [rule, message] of Object.entries(inner as Record<string, unknown>)) {
+        if (!OM_VALIDATION_MESSAGE_RULE_NAMES.has(rule)) {
+          return `x-om-validation-messages["${locale}"]["${rule}"] is not a recognized rule.`
+        }
+        if (typeof message !== 'string' || message.length === 0) {
+          return `x-om-validation-messages["${locale}"]["${rule}"] must be a non-empty string.`
+        }
+      }
+    }
+    return null
+  },
+  [OM_FIELD_KEYWORDS.opinionIcon]: (value) =>
+    value === 'star' || value === 'dot' || value === 'thumb'
+      ? null
+      : 'x-om-opinion-icon must be "star", "dot", or "thumb".',
+  [OM_FIELD_KEYWORDS.npsAnchors]: (value) => {
+    if (!value || typeof value !== 'object' || Array.isArray(value)) {
+      return 'x-om-nps-anchors must be a `{ low, high }` object.'
+    }
+    const candidate = value as Record<string, unknown>
+    if (!('low' in candidate) || !('high' in candidate)) {
+      return 'x-om-nps-anchors must declare both `low` and `high` anchor maps.'
+    }
+    if (!localizedTextValid(candidate.low)) {
+      return 'x-om-nps-anchors.low must be a `{ [locale]: string }` map.'
+    }
+    if (!localizedTextValid(candidate.high)) {
+      return 'x-om-nps-anchors.high must be a `{ [locale]: string }` map.'
+    }
+    return null
+  },
+  [OM_FIELD_KEYWORDS.rankingExhaustive]: (value) =>
+    typeof value === 'boolean' ? null : 'x-om-ranking-exhaustive must be a boolean.',
+  [OM_FIELD_KEYWORDS.matrixRows]: (value) => {
+    if (!Array.isArray(value)) return 'x-om-matrix-rows must be an array of `{ key, label }` entries.'
+    const seenKeys = new Set<string>()
+    for (const entry of value) {
+      if (!entry || typeof entry !== 'object' || Array.isArray(entry)) {
+        return 'Each matrix row must be an object.'
+      }
+      const candidate = entry as Record<string, unknown>
+      if (typeof candidate.key !== 'string' || !MATRIX_ROW_KEY_PATTERN.test(candidate.key)) {
+        return 'Each matrix row must declare a `key` matching /^[a-z][a-z0-9_]*$/.'
+      }
+      if (seenKeys.has(candidate.key)) {
+        return `Duplicate matrix row key "${candidate.key}".`
+      }
+      seenKeys.add(candidate.key)
+      if (!localizedTextValid(candidate.label)) {
+        return `Matrix row "${candidate.key}" must declare a localized \`label\` map.`
+      }
+      if (candidate.multiple !== undefined && typeof candidate.multiple !== 'boolean') {
+        return `Matrix row "${candidate.key}" \`multiple\` must be a boolean when present.`
+      }
+      if (candidate.required !== undefined && typeof candidate.required !== 'boolean') {
+        return `Matrix row "${candidate.key}" \`required\` must be a boolean when present.`
+      }
+    }
+    return null
+  },
+  [OM_FIELD_KEYWORDS.matrixColumns]: (value) => {
+    if (!Array.isArray(value)) return 'x-om-matrix-columns must be an array of `{ value, label }` entries.'
+    const seenValues = new Set<string>()
+    for (const entry of value) {
+      if (!entry || typeof entry !== 'object' || Array.isArray(entry)) {
+        return 'Each matrix column must be an object.'
+      }
+      const candidate = entry as Record<string, unknown>
+      if (typeof candidate.value !== 'string' || candidate.value.length === 0) {
+        return 'Each matrix column must declare a non-empty string `value`.'
+      }
+      if (seenValues.has(candidate.value)) {
+        return `Duplicate matrix column value "${candidate.value}".`
+      }
+      seenValues.add(candidate.value)
+      if (!localizedTextValid(candidate.label)) {
+        return `Matrix column "${candidate.value}" must declare a localized \`label\` map.`
+      }
+    }
+    return null
+  },
 }
+
+const MATRIX_ROW_KEY_PATTERN = /^[a-z][a-z0-9_]*$/
 
 // ============================================================================
 // Cross-keyword validation — collisions between identifier namespaces and
@@ -483,15 +666,59 @@ export function validateOmCrossKeyword(schema: Record<string, unknown>): string 
     else pageKeys.add(section.key)
   }
 
-  // Validate visibility predicates (field-level + section-level).
+  // Validate visibility predicates (field-level + section-level) and the
+  // string-only Tier-2 validation keywords.
   const properties = schema.properties
   if (properties && typeof properties === 'object' && !Array.isArray(properties)) {
     for (const [fieldKey, fieldNode] of Object.entries(properties as Record<string, unknown>)) {
       if (!fieldNode || typeof fieldNode !== 'object') continue
-      const predicate = (fieldNode as Record<string, unknown>)[OM_FIELD_KEYWORDS.visibilityIf]
+      const node = fieldNode as Record<string, unknown>
+      const predicate = node[OM_FIELD_KEYWORDS.visibilityIf]
       if (predicate !== undefined) {
         const message = validateJsonLogicGrammar(predicate)
         if (message) return `Field "${fieldKey}" x-om-visibility-if: ${message}`
+      }
+      const requiresStringType =
+        node[OM_FIELD_KEYWORDS.pattern] !== undefined
+        || node[OM_FIELD_KEYWORDS.minLength] !== undefined
+        || node[OM_FIELD_KEYWORDS.maxLength] !== undefined
+      if (requiresStringType && node.type !== 'string') {
+        return `Field "${fieldKey}" declares pattern/length validation but its JSON Schema type is not "string".`
+      }
+      const minLen = node[OM_FIELD_KEYWORDS.minLength]
+      const maxLen = node[OM_FIELD_KEYWORDS.maxLength]
+      if (typeof minLen === 'number' && typeof maxLen === 'number' && minLen > maxLen) {
+        return `Field "${fieldKey}" x-om-min-length (${minLen}) must be <= x-om-max-length (${maxLen}).`
+      }
+      if (node[OM_FIELD_KEYWORDS.opinionIcon] !== undefined
+        && node[OM_FIELD_KEYWORDS.type] !== 'opinion_scale') {
+        return `Field "${fieldKey}" declares x-om-opinion-icon but its x-om-type is not "opinion_scale".`
+      }
+      if (node[OM_FIELD_KEYWORDS.npsAnchors] !== undefined
+        && node[OM_FIELD_KEYWORDS.type] !== 'nps') {
+        return `Field "${fieldKey}" declares x-om-nps-anchors but its x-om-type is not "nps".`
+      }
+      if (node[OM_FIELD_KEYWORDS.rankingExhaustive] !== undefined
+        && node[OM_FIELD_KEYWORDS.type] !== 'ranking') {
+        return `Field "${fieldKey}" declares x-om-ranking-exhaustive but its x-om-type is not "ranking".`
+      }
+      const matrixRowsValue = node[OM_FIELD_KEYWORDS.matrixRows]
+      if (matrixRowsValue !== undefined) {
+        if (node[OM_FIELD_KEYWORDS.type] !== 'matrix') {
+          return `Field "${fieldKey}" declares x-om-matrix-rows but its x-om-type is not "matrix".`
+        }
+        if (Array.isArray(matrixRowsValue) && matrixRowsValue.length > MATRIX_ROWS_SOFT_CAP) {
+          return `Matrix has too many rows (max ${MATRIX_ROWS_SOFT_CAP}).`
+        }
+      }
+      const matrixColumnsValue = node[OM_FIELD_KEYWORDS.matrixColumns]
+      if (matrixColumnsValue !== undefined) {
+        if (node[OM_FIELD_KEYWORDS.type] !== 'matrix') {
+          return `Field "${fieldKey}" declares x-om-matrix-columns but its x-om-type is not "matrix".`
+        }
+        if (Array.isArray(matrixColumnsValue) && matrixColumnsValue.length > MATRIX_COLUMNS_SOFT_CAP) {
+          return `Matrix has too many columns (max ${MATRIX_COLUMNS_SOFT_CAP}).`
+        }
       }
     }
   }
