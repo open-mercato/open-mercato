@@ -84,7 +84,7 @@ export function CustomizeViewDialog({
 
         <div className="flex flex-col gap-4">
           <section className="flex flex-col gap-1">
-            <span className="text-overline font-semibold uppercase tracking-widest text-muted-foreground">
+            <span className="text-overline font-semibold uppercase tracking-wider text-muted-foreground">
               {translateWithFallback(t, 'customers.deals.kanban.customize.actions', 'Actions')}
             </span>
             <button

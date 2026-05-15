@@ -31,9 +31,9 @@ export function FilterBarRow({
 }: FilterBarRowProps): React.ReactElement {
   const t = useT()
   return (
-    <div className="flex flex-wrap items-center justify-between gap-y-[8px] rounded-[10px] bg-muted/40 px-[14px] py-[12px]">
-      <div className="flex flex-wrap items-center gap-[8px]">
-        <span className="text-[11px] font-bold uppercase leading-[normal] text-muted-foreground">
+    <div className="flex flex-wrap items-center justify-between gap-y-2 rounded-lg bg-muted/40 px-3.5 py-3">
+      <div className="flex flex-wrap items-center gap-2">
+        <span className="text-overline font-bold uppercase leading-normal text-muted-foreground">
           {translateWithFallback(t, 'customers.deals.kanban.filter.label', 'Filter')}:
         </span>
         {leadingChips}

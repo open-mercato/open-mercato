@@ -78,9 +78,9 @@ export function DealCardMenu({ items, ariaLabel }: DealCardMenuProps): React.Rea
           setOpen((v) => !v)
           requestAnimationFrame(updatePosition)
         }}
-        className="inline-flex size-[16px] items-center justify-center rounded-[4px] text-muted-foreground transition-colors hover:bg-muted hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+        className="inline-flex size-4 items-center justify-center rounded-sm text-muted-foreground transition-colors hover:bg-muted hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
       >
-        <MoreVertical className="size-[14px]" aria-hidden="true" />
+        <MoreVertical className="size-3.5" aria-hidden="true" />
       </button>
       {open && anchor && typeof document !== 'undefined'
         ? createPortal(
@@ -107,7 +107,7 @@ export function DealCardMenu({ items, ariaLabel }: DealCardMenuProps): React.Rea
                     setOpen(false)
                     item.onSelect?.()
                   }}
-                  className={`flex w-full items-center rounded-sm px-2 py-1.5 text-left text-[12px] leading-[16px] transition-colors hover:bg-muted focus-visible:bg-muted focus-visible:outline-none ${
+                  className={`flex w-full items-center rounded-sm px-2 py-1.5 text-left text-xs leading-[16px] transition-colors hover:bg-muted focus-visible:bg-muted focus-visible:outline-none ${
                     item.destructive ? 'text-status-error-text hover:bg-status-error-bg/30' : 'text-foreground'
                   }`}
                 >

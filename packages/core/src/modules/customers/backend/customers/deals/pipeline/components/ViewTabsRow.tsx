@@ -22,7 +22,7 @@ export function ViewTabsRow({ active, className }: ViewTabsRowProps): React.Reac
   }
 
   const baseTab =
-    'inline-flex items-center px-[14px] py-[10px] text-[13px] leading-[normal] transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2'
+    'inline-flex items-center px-3.5 py-2.5 text-sm leading-normal transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2'
   const activeTab = 'border-b-2 border-foreground font-semibold text-foreground'
   const inactiveTab = 'border-b-2 border-transparent font-normal text-muted-foreground hover:text-foreground'
 
@@ -30,7 +30,7 @@ export function ViewTabsRow({ active, className }: ViewTabsRowProps): React.Reac
     <div
       role="tablist"
       aria-label={translateWithFallback(t, 'customers.deals.kanban.view.tablistLabel', 'Deals views')}
-      className={`flex items-end gap-[4px] border-b border-border ${className ?? ''}`.trim()}
+      className={`flex items-end gap-1 border-b border-border ${className ?? ''}`.trim()}
     >
       <span
         role="tab"

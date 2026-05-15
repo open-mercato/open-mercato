@@ -81,7 +81,7 @@ export function LaneCurrencyBreakdown({
           )}
           className={
             triggerClassName ??
-            'inline-flex shrink-0 items-center rounded-full bg-muted px-[8px] py-[3px] text-[12px] font-bold leading-[normal] text-muted-foreground transition-colors hover:bg-muted/80 hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2'
+            'inline-flex shrink-0 items-center rounded-full bg-muted px-2 py-1 text-xs font-bold leading-normal text-muted-foreground transition-colors hover:bg-muted/80 hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2'
           }
         >
           {triggerLabel}
@@ -130,7 +130,7 @@ export function LaneCurrencyBreakdown({
                 <span className="flex items-center gap-1.5 font-medium text-foreground">
                   {isMissingRate ? (
                     <AlertTriangle
-                      className="size-[14px] text-status-warning-icon"
+                      className="size-3.5 text-status-warning-icon"
                       aria-hidden="true"
                     />
                   ) : null}

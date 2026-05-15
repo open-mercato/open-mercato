@@ -25,7 +25,7 @@ export const ChipButton = React.forwardRef<HTMLButtonElement, ChipButtonProps>(
         onClick={onClick}
         aria-label={ariaLabel ?? (label ? `${label}: ${value}` : value)}
         aria-pressed={active}
-        className={`inline-flex items-center gap-[6px] rounded-[6px] border border-border bg-card px-[10px] py-[6px] text-[12px] leading-[normal] transition-colors hover:bg-muted/60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 ${
+        className={`inline-flex items-center gap-1.5 rounded-sm border border-border bg-card px-2.5 py-1.5 text-xs leading-normal transition-colors hover:bg-muted/60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 ${
           active ? 'border-foreground/40 bg-muted text-foreground' : 'text-foreground'
         }`}
       >
@@ -34,7 +34,7 @@ export const ChipButton = React.forwardRef<HTMLButtonElement, ChipButtonProps>(
           {value}
         </span>
         {withChevron ? (
-          <ChevronDown className="size-[12px] text-muted-foreground" aria-hidden="true" />
+          <ChevronDown className="size-3 text-muted-foreground" aria-hidden="true" />
         ) : null}
       </button>
     )

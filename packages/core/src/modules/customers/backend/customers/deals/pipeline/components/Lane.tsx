@@ -225,18 +225,18 @@ function LaneImpl({
 
   return (
     <div
-      className="relative flex flex-none flex-col gap-[12px]"
+      className="relative flex flex-none flex-col gap-3"
       style={{ width: typeof width === 'number' && Number.isFinite(width) ? `${width}px` : '308px' }}
     >
-      <div className="flex flex-col gap-[10px] overflow-clip rounded-[12px] bg-muted/40 px-[17px] py-[14px]">
-        <div className={`h-[5px] w-full rounded-[3px] ${accentClass}`} aria-hidden="true" />
-        <div className="flex items-center justify-between gap-[7px]">
-          <div className="flex min-w-0 items-center gap-[10px]">
-            <span className="truncate text-[13px] font-bold uppercase leading-[normal] text-foreground">
+      <div className="flex flex-col gap-2.5 overflow-clip rounded-lg bg-muted/40 px-4 py-3.5">
+        <div className={`h-1.5 w-full rounded-sm ${accentClass}`} aria-hidden="true" />
+        <div className="flex items-center justify-between gap-2">
+          <div className="flex min-w-0 items-center gap-2.5">
+            <span className="truncate text-sm font-bold uppercase leading-normal text-foreground">
               {stage.label}
             </span>
             <span
-              className={`inline-flex shrink-0 items-center rounded-full px-[8px] py-[3px] text-[12px] font-bold leading-[normal] ${countBadgeClass}`}
+              className={`inline-flex shrink-0 items-center rounded-full px-2 py-1 text-xs font-bold leading-normal ${countBadgeClass}`}
               title={
                 hasMoreDeals
                   ? translateWithFallback(
@@ -251,9 +251,9 @@ function LaneImpl({
               {totalCount}
             </span>
           </div>
-          <div className="flex shrink-0 items-center gap-[7px]">
+          <div className="flex shrink-0 items-center gap-2">
             {totalLabel ? (
-              <span className="text-[14px] font-bold leading-[normal] text-foreground">
+              <span className="text-sm font-bold leading-normal text-foreground">
                 {totalLabel}
               </span>
             ) : null}
@@ -274,7 +274,7 @@ function LaneImpl({
       <button
         type="button"
         onClick={handleQuickAdd}
-        className="flex h-[44px] items-center justify-center gap-[10px] rounded-[12px] border border-dashed border-muted-foreground/60 bg-muted/40 text-[14px] font-semibold leading-[normal] text-foreground transition-colors hover:bg-muted/70 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
+        className="flex h-11 items-center justify-center gap-2.5 rounded-lg border border-dashed border-muted-foreground/60 bg-muted/40 text-sm font-semibold leading-normal text-foreground transition-colors hover:bg-muted/70 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
         aria-label={translateWithFallback(
           t,
           'customers.deals.kanban.lane.aria.quickAdd',
@@ -282,13 +282,13 @@ function LaneImpl({
           { stage: stage.label },
         )}
       >
-        <span className="text-[17px] font-bold leading-none">+</span>
+        <span className="text-base font-bold leading-none">+</span>
         <span>{translateWithFallback(t, 'customers.deals.kanban.cta.quickDeal', 'Quick deal')}</span>
       </button>
 
       <div
         ref={setNodeRef}
-        className={`flex min-h-[40vh] flex-col gap-[12px] rounded-[12px] p-[5px] ${
+        className={`flex min-h-[40vh] flex-col gap-3 rounded-lg p-1.5 ${
           isOver
             ? 'bg-accent-indigo/10 outline-dashed outline-2 outline-accent-indigo -outline-offset-[2px]'
             : showDropHighlight
@@ -324,7 +324,7 @@ function LaneImpl({
             type="button"
             onClick={() => onLoadMore(stage.id)}
             disabled={isLoadingMore}
-            className="mt-[3px] inline-flex items-center justify-center gap-[7px] rounded-[10px] border border-dashed border-border bg-muted/30 px-[12px] py-[10px] text-[14px] font-semibold leading-[normal] text-muted-foreground transition-colors hover:bg-muted hover:text-foreground disabled:cursor-not-allowed disabled:opacity-60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
+            className="mt-0.75 inline-flex items-center justify-center gap-2 rounded-lg border border-dashed border-border bg-muted/30 px-3 py-2.5 text-sm font-semibold leading-normal text-muted-foreground transition-colors hover:bg-muted hover:text-foreground disabled:cursor-not-allowed disabled:opacity-60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
             aria-label={translateWithFallback(
               t,
               'customers.deals.kanban.lane.aria.loadMore',

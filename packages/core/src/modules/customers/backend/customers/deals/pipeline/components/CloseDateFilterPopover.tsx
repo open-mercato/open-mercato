@@ -173,7 +173,7 @@ export function CloseDateFilterPopover({ value, onApply }: CloseDateFilterPopove
               key={preset.key}
               type="button"
               onClick={() => applyPreset(preset.key)}
-              className="rounded-full border border-input bg-card px-3 py-1 text-[12px] font-medium text-foreground transition-colors hover:bg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+              className="rounded-full border border-input bg-card px-3 py-1 text-xs font-medium text-foreground transition-colors hover:bg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
             >
               {preset.label}
             </button>
@@ -181,22 +181,22 @@ export function CloseDateFilterPopover({ value, onApply }: CloseDateFilterPopove
         </div>
 
         <div className="grid grid-cols-2 gap-2 p-3">
-          <label className="flex flex-col gap-1 text-[12px] font-medium text-muted-foreground">
+          <label className="flex flex-col gap-1 text-xs font-medium text-muted-foreground">
             {translateWithFallback(t, 'customers.deals.kanban.filter.from', 'From')}
             <input
               type="date"
               value={draft.from ?? ''}
               onChange={(e) => setDraft((p) => ({ ...p, from: e.target.value || null }))}
-              className="rounded-md border border-input bg-card px-2 py-1 text-[13px] text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+              className="rounded-md border border-input bg-card px-2 py-1 text-sm text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
             />
           </label>
-          <label className="flex flex-col gap-1 text-[12px] font-medium text-muted-foreground">
+          <label className="flex flex-col gap-1 text-xs font-medium text-muted-foreground">
             {translateWithFallback(t, 'customers.deals.kanban.filter.to', 'To')}
             <input
               type="date"
               value={draft.to ?? ''}
               onChange={(e) => setDraft((p) => ({ ...p, to: e.target.value || null }))}
-              className="rounded-md border border-input bg-card px-2 py-1 text-[13px] text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+              className="rounded-md border border-input bg-card px-2 py-1 text-sm text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
             />
           </label>
         </div>
@@ -205,7 +205,7 @@ export function CloseDateFilterPopover({ value, onApply }: CloseDateFilterPopove
           <button
             type="button"
             onClick={handleClear}
-            className="text-[12px] font-medium text-muted-foreground transition-colors hover:text-foreground"
+            className="text-xs font-medium text-muted-foreground transition-colors hover:text-foreground"
           >
             {translateWithFallback(t, 'customers.deals.kanban.filter.clear', 'Clear')}
           </button>

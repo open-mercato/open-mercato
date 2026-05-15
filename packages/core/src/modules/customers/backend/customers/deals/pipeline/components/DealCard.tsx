@@ -229,14 +229,14 @@ function DealCardImpl({
       role="article"
       aria-label={ariaLabel}
       onClick={handleCardClick}
-      className={`group relative flex w-full flex-col gap-[12px] rounded-[12px] border border-border bg-card px-[17px] py-[14px] shadow-xs transition-shadow ${
+      className={`group relative flex w-full flex-col gap-3 rounded-lg border border-border bg-card px-4 py-3.5 shadow-xs transition-shadow ${
         dimmed ? 'cursor-grabbing opacity-30' : 'cursor-grab hover:shadow-sm active:cursor-grabbing'
       } ${selected ? 'ring-2 ring-accent-indigo' : ''}`}
     >
-      <div className="flex items-start justify-between gap-[10px]">
+      <div className="flex items-start justify-between gap-2.5">
         <div
           data-card-action="true"
-          className={`mr-[2px] mt-[2px] shrink-0 ${
+          className={`mr-0.5 mt-0.5 shrink-0 ${
             selected
               ? 'flex'
               : 'hidden group-hover:flex group-focus-within:flex [@media(hover:none)]:flex'
@@ -250,21 +250,21 @@ function DealCardImpl({
             aria-label={translateWithFallback(t, 'customers.deals.kanban.card.aria.select', 'Select deal')}
           />
         </div>
-        <div className="flex min-w-0 flex-1 flex-col gap-[3px]">
-          <h3 className="line-clamp-2 text-[16px] font-semibold leading-[normal] text-foreground">
+        <div className="flex min-w-0 flex-1 flex-col gap-1">
+          <h3 className="line-clamp-2 text-base font-semibold leading-normal text-foreground">
             {deal.title}
           </h3>
-          <span className="text-[12px] leading-[normal] text-muted-foreground">{shortDealRef(deal.id)}</span>
+          <span className="text-xs leading-normal text-muted-foreground">{shortDealRef(deal.id)}</span>
         </div>
         <div
-          className="flex shrink-0 items-center gap-[7px]"
+          className="flex shrink-0 items-center gap-2"
           data-card-action="true"
           onClick={(event) => event.stopPropagation()}
           onPointerDown={stopPointerDown}
         >
           {activityBadgeLabel ? (
             <span
-              className={`inline-flex items-center justify-center rounded-full px-[8px] py-[1px] text-[12px] font-bold leading-[normal] ${activityBadgeClass}`}
+              className={`inline-flex items-center justify-center rounded-full px-2 py-px text-xs font-bold leading-normal ${activityBadgeClass}`}
               aria-label={translateWithFallback(
                 t,
                 'customers.deals.kanban.card.aria.openActivities',
@@ -289,13 +289,13 @@ function DealCardImpl({
       {showOverdue || showStuck ? (
         <div>
           {showOverdue ? (
-            <span className="inline-flex items-center gap-[6px] rounded-[7px] bg-status-error-bg px-[10px] py-[4px] text-[12px] font-semibold leading-[normal] text-status-error-text">
-              <AlertTriangle className="size-[13px]" aria-hidden="true" />
+            <span className="inline-flex items-center gap-1.5 rounded-md bg-status-error-bg px-2.5 py-1 text-xs font-semibold leading-normal text-status-error-text">
+              <AlertTriangle className="size-3.5" aria-hidden="true" />
               {translateWithFallback(t, 'customers.deals.kanban.card.statusOverdue', 'OVERDUE')}
             </span>
           ) : (
-            <span className="inline-flex items-center gap-[6px] rounded-[7px] bg-status-warning-bg px-[10px] py-[4px] text-[12px] font-semibold leading-[normal] text-status-warning-text">
-              <Clock className="size-[13px]" aria-hidden="true" />
+            <span className="inline-flex items-center gap-1.5 rounded-md bg-status-warning-bg px-2.5 py-1 text-xs font-semibold leading-normal text-status-warning-text">
+              <Clock className="size-3.5" aria-hidden="true" />
               {translateWithFallback(t, 'customers.deals.kanban.card.statusStuck', 'STUCK')}
             </span>
           )}
@@ -311,7 +311,7 @@ function DealCardImpl({
       */}
       <div
         data-card-action="true"
-        className="hidden items-center gap-[3px] group-hover:flex group-focus-within:flex [@media(hover:none)]:flex"
+        className="hidden items-center gap-1 group-hover:flex group-focus-within:flex [@media(hover:none)]:flex"
         onClick={(event) => event.stopPropagation()}
         onPointerDown={stopPointerDown}
       >
@@ -325,7 +325,7 @@ function DealCardImpl({
               )
             : undefined
           const baseClass =
-            'inline-flex shrink-0 items-center gap-[5px] whitespace-nowrap rounded-[7px] px-[8px] py-[4px] text-[13px] font-medium text-muted-foreground transition-colors hover:bg-muted hover:text-foreground disabled:pointer-events-none disabled:opacity-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2'
+            'inline-flex shrink-0 items-center gap-1.5 whitespace-nowrap rounded-md px-2 py-1 text-sm font-medium text-muted-foreground transition-colors hover:bg-muted hover:text-foreground disabled:pointer-events-none disabled:opacity-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2'
           return (
             <>
               <button
@@ -336,7 +336,7 @@ function DealCardImpl({
                 aria-disabled={disabled || undefined}
                 className={baseClass}
               >
-                <Phone className="size-[13px] shrink-0" aria-hidden="true" />
+                <Phone className="size-3.5 shrink-0" aria-hidden="true" />
                 <span>{translateWithFallback(t, 'customers.deals.kanban.card.action.call', 'Call')}</span>
               </button>
               <button
@@ -347,7 +347,7 @@ function DealCardImpl({
                 aria-disabled={disabled || undefined}
                 className={baseClass}
               >
-                <Mail className="size-[13px] shrink-0" aria-hidden="true" />
+                <Mail className="size-3.5 shrink-0" aria-hidden="true" />
                 <span>{translateWithFallback(t, 'customers.deals.kanban.card.action.email', 'Email')}</span>
               </button>
               <button
@@ -358,7 +358,7 @@ function DealCardImpl({
                 aria-disabled={disabled || undefined}
                 className={baseClass}
               >
-                <StickyNote className="size-[13px] shrink-0" aria-hidden="true" />
+                <StickyNote className="size-3.5 shrink-0" aria-hidden="true" />
                 <span>{translateWithFallback(t, 'customers.deals.kanban.card.action.note', 'Note')}</span>
               </button>
             </>
@@ -366,26 +366,26 @@ function DealCardImpl({
         })()}
       </div>
 
-      <div className="flex items-center justify-between gap-[10px]">
+      <div className="flex items-center justify-between gap-2.5">
         {valuePieces ? (
-          <div className="flex items-baseline gap-[6px]">
-            <span className="text-[19px] font-bold leading-[normal] text-foreground">
+          <div className="flex items-baseline gap-1.5">
+            <span className="text-lg font-bold leading-normal text-foreground">
               {valuePieces.display}
             </span>
             {valuePieces.code ? (
-              <span className="text-[13px] font-semibold leading-[normal] text-muted-foreground">
+              <span className="text-sm font-semibold leading-normal text-muted-foreground">
                 {valuePieces.code}
               </span>
             ) : null}
           </div>
         ) : (
-          <span className="text-[13px] text-muted-foreground">
+          <span className="text-sm text-muted-foreground">
             {translateWithFallback(t, 'customers.deals.kanban.card.noValue', 'No value')}
           </span>
         )}
         {probabilityLabel ? (
           <span
-            className={`inline-flex items-center rounded-[7px] px-[10px] py-[4px] text-[13px] font-semibold leading-[normal] ${probabilityPillClass}`}
+            className={`inline-flex items-center rounded-md px-2.5 py-1 text-sm font-semibold leading-normal ${probabilityPillClass}`}
           >
             {probabilityLabel}
           </span>
@@ -393,16 +393,16 @@ function DealCardImpl({
       </div>
 
       {deal.primaryCompany || extraCompaniesCount > 0 ? (
-        <div className="flex items-center gap-[5px]">
+        <div className="flex items-center gap-1.5">
           {deal.primaryCompany ? (
-            <span className="inline-flex max-w-full items-center gap-[6px] overflow-hidden rounded-[7px] bg-muted px-[10px] py-[4px] text-[13px] font-semibold leading-[normal] text-foreground">
-              <Building2 className="size-[14px] shrink-0 text-muted-foreground" aria-hidden="true" />
+            <span className="inline-flex max-w-full items-center gap-1.5 overflow-hidden rounded-md bg-muted px-2.5 py-1 text-sm font-semibold leading-normal text-foreground">
+              <Building2 className="size-3.5 shrink-0 text-muted-foreground" aria-hidden="true" />
               <span className="truncate">{deal.primaryCompany.label}</span>
             </span>
           ) : null}
           {extraCompaniesCount > 0 ? (
             <span
-              className="inline-flex shrink-0 items-center rounded-[7px] bg-muted px-[10px] py-[4px] text-[13px] font-semibold leading-[normal] text-muted-foreground"
+              className="inline-flex shrink-0 items-center rounded-md bg-muted px-2.5 py-1 text-sm font-semibold leading-normal text-muted-foreground"
               aria-label={translateWithFallback(
                 t,
                 'customers.deals.kanban.card.aria.moreCompanies',
@@ -418,12 +418,12 @@ function DealCardImpl({
 
       <div className="h-px w-full bg-border" aria-hidden="true" />
 
-      <div className="flex items-center justify-between gap-[10px]">
-        <div className="flex items-center gap-[7px] text-[13px] leading-[normal]">
+      <div className="flex items-center justify-between gap-2.5">
+        <div className="flex items-center gap-2 text-sm leading-normal">
           {dateLabel ? (
-            <span className="inline-flex items-center gap-[7px]">
+            <span className="inline-flex items-center gap-2">
               <Calendar
-                className={`size-[14px] ${showOverdue ? 'text-status-error-icon' : 'text-muted-foreground'}`}
+                className={`size-3.5 ${showOverdue ? 'text-status-error-icon' : 'text-muted-foreground'}`}
                 aria-hidden="true"
               />
               <span
@@ -457,7 +457,7 @@ function DealCardImpl({
                   label={owner.label || owner.userId.slice(0, 2).toUpperCase()}
                   size="sm"
                   style={{ backgroundColor: accent.bg, color: accent.text }}
-                  className={`size-[26px] text-[12px] font-bold ring-[1.5px] ring-card ${idx > 0 ? '-ml-[10px]' : ''}`}
+                  className={`size-7 text-xs font-bold ring-2 ring-card ${idx > 0 ? '-ml-2.5' : ''}`}
                 />
               )
             })}
@@ -466,7 +466,7 @@ function DealCardImpl({
                 label={`+${ownerOverflow}`}
                 size="sm"
                 variant="monochrome"
-                className="size-[26px] -ml-[10px] text-[12px] font-bold ring-[1.5px] ring-card"
+                className="size-7 -ml-2.5 text-xs font-bold ring-2 ring-card"
               />
             ) : null}
           </div>

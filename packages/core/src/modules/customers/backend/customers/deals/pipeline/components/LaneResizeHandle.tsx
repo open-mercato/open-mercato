@@ -97,7 +97,7 @@ export function LaneResizeHandle({ onResize, onResizeEnd, onReset }: LaneResizeH
         'customers.deals.kanban.lane.resizeHandle',
         'Drag to resize · double-click to reset',
       )}
-      className={`absolute -right-[3px] top-0 z-20 h-full w-[6px] cursor-col-resize touch-none select-none ${
+      className={`absolute -right-0.5 top-0 z-20 h-full w-1.5 cursor-col-resize touch-none select-none ${
         isActive ? 'bg-accent-indigo/40' : 'bg-transparent hover:bg-accent-indigo/20'
       }`}
     />

@@ -2212,8 +2212,8 @@ export default function DealsKanbanPage(): React.ReactElement {
   return (
     <Page>
       <PageBody>
-        <div className="flex flex-col gap-[8px]">
-          <nav className="flex items-center gap-[6px] text-[12px] leading-[normal]" aria-label="Breadcrumb">
+        <div className="flex flex-col gap-2">
+          <nav className="flex items-center gap-1.5 text-xs leading-normal" aria-label="Breadcrumb">
             <Link href="/backend" className="font-normal text-muted-foreground hover:text-foreground">
               {translateWithFallback(t, 'customers.deals.kanban.breadcrumb.dashboard', 'Dashboard')}
             </Link>
@@ -2237,7 +2237,7 @@ export default function DealsKanbanPage(): React.ReactElement {
                  * surfaces the full breakdown and missing-rate disclosure. Clicking the
                  * popover trigger here gives the operator the same board-level detail view.
                  */
-                <div className="flex items-center gap-2 text-[13px] text-muted-foreground">
+                <div className="flex items-center gap-2 text-sm text-muted-foreground">
                   <span>
                     {translateWithFallback(
                       t,
@@ -2267,7 +2267,7 @@ export default function DealsKanbanPage(): React.ReactElement {
                       </span>
                       {!boardSummary.convertedAll ? (
                         <span
-                          className="text-[11px] uppercase tracking-wide text-status-warning-text"
+                          className="text-overline uppercase tracking-wide text-status-warning-text"
                           title={translateWithFallback(
                             t,
                             'customers.deals.kanban.boardSummary.partialHint',
@@ -2296,13 +2296,13 @@ export default function DealsKanbanPage(): React.ReactElement {
                         'customers.deals.kanban.boardSummary.breakdownTrigger',
                         'Breakdown',
                       )}
-                      triggerClassName="inline-flex items-center rounded-md border border-border bg-card px-2 py-0.5 text-[11px] font-medium uppercase tracking-wide text-muted-foreground transition-colors hover:bg-muted hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
+                      triggerClassName="inline-flex items-center rounded-md border border-border bg-card px-2 py-0.5 text-overline font-medium uppercase tracking-wide text-muted-foreground transition-colors hover:bg-muted hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
                     />
                   ) : null}
                 </div>
               ) : null}
             </div>
-            <div className="flex flex-wrap items-center gap-[10px]">
+            <div className="flex flex-wrap items-center gap-2.5">
               <SearchInput
                 value={search}
                 onChange={setSearch}
@@ -2421,7 +2421,7 @@ export default function DealsKanbanPage(): React.ReactElement {
               scroller keeps as much horizontal room as possible (= more lanes fit). The buttons
               are absolute inside the gutter so they never overlap card content. */}
           <div className="flex items-stretch">
-            <div className="relative flex w-[36px] shrink-0">
+            <div className="relative flex w-9 shrink-0">
               <button
                 type="button"
                 onClick={handleScrollPrev}
@@ -2431,17 +2431,17 @@ export default function DealsKanbanPage(): React.ReactElement {
                 onPointerCancel={stopContinuousScroll}
                 aria-label={translateWithFallback(t, 'customers.deals.kanban.board.scrollPrev', 'Scroll to previous stage')}
                 aria-disabled={scrollEdges.atStart}
-                className={`absolute left-0 top-[110px] flex size-[36px] items-center justify-center rounded-full border border-border bg-card text-foreground shadow-lg transition-opacity hover:bg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 ${
+                className={`absolute left-0 top-28 flex size-9 items-center justify-center rounded-full border border-border bg-card text-foreground shadow-lg transition-opacity hover:bg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 ${
                   scrollEdges.atStart ? 'opacity-30' : ''
                 }`}
               >
-                <ChevronLeft className="size-[18px]" aria-hidden="true" />
+                <ChevronLeft className="size-5" aria-hidden="true" />
               </button>
             </div>
             <div
               ref={setBoardScroller}
               data-kanban-scroller
-              className={`flex min-w-0 flex-1 gap-[14px] overflow-x-auto pb-6 ${
+              className={`flex min-w-0 flex-1 gap-3.5 overflow-x-auto pb-6 ${
                 activeDragDealId ? 'cursor-grabbing select-none' : ''
               }`}
             >
@@ -2484,7 +2484,7 @@ export default function DealsKanbanPage(): React.ReactElement {
                 </>
               )}
             </div>
-            <div className="relative flex w-[36px] shrink-0">
+            <div className="relative flex w-9 shrink-0">
               <button
                 type="button"
                 onClick={handleScrollNext}
@@ -2494,24 +2494,24 @@ export default function DealsKanbanPage(): React.ReactElement {
                 onPointerCancel={stopContinuousScroll}
                 aria-label={translateWithFallback(t, 'customers.deals.kanban.board.scrollNext', 'Scroll to next stage')}
                 aria-disabled={scrollEdges.atEnd}
-                className={`absolute right-0 top-[110px] flex size-[36px] items-center justify-center rounded-full border border-border bg-card text-foreground shadow-lg transition-opacity hover:bg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 ${
+                className={`absolute right-0 top-28 flex size-9 items-center justify-center rounded-full border border-border bg-card text-foreground shadow-lg transition-opacity hover:bg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 ${
                   scrollEdges.atEnd ? 'opacity-30' : ''
                 }`}
               >
-                <ChevronRight className="size-[18px]" aria-hidden="true" />
+                <ChevronRight className="size-5" aria-hidden="true" />
               </button>
             </div>
           </div>
             <DragOverlay dropAnimation={null}>
               {activeDragDeal ? (
-                <div className="pointer-events-none w-[308px] rotate-2 cursor-grabbing select-none rounded-[12px] border border-border bg-card px-[17px] py-[14px] shadow-xl ring-2 ring-accent-indigo/40">
-                  <div className="flex flex-col gap-[7px]">
-                    <h3 className="line-clamp-2 text-[16px] font-semibold leading-[normal] text-foreground">
+                <div className="pointer-events-none w-[308px] rotate-2 cursor-grabbing select-none rounded-lg border border-border bg-card px-4 py-3.5 shadow-xl ring-2 ring-accent-indigo/40">
+                  <div className="flex flex-col gap-2">
+                    <h3 className="line-clamp-2 text-base font-semibold leading-normal text-foreground">
                       {activeDragDeal.title}
                     </h3>
                     {typeof activeDragDeal.valueAmount === 'number' ? (
-                      <div className="flex items-baseline gap-[6px]">
-                        <span className="text-[19px] font-bold leading-[normal] text-foreground">
+                      <div className="flex items-baseline gap-1.5">
+                        <span className="text-lg font-bold leading-normal text-foreground">
                           {new Intl.NumberFormat(undefined, {
                             style: 'decimal',
                             maximumFractionDigits: 0,
@@ -2519,14 +2519,14 @@ export default function DealsKanbanPage(): React.ReactElement {
                           }).format(activeDragDeal.valueAmount)}
                         </span>
                         {activeDragDeal.valueCurrency ? (
-                          <span className="text-[13px] font-semibold leading-[normal] text-muted-foreground">
+                          <span className="text-sm font-semibold leading-normal text-muted-foreground">
                             {activeDragDeal.valueCurrency.toUpperCase()}
                           </span>
                         ) : null}
                       </div>
                     ) : null}
                     {activeDragDeal.primaryCompany ? (
-                      <span className="inline-flex w-fit max-w-full items-center gap-[6px] overflow-hidden rounded-[7px] bg-muted px-[10px] py-[4px] text-[13px] font-semibold leading-[normal] text-foreground">
+                      <span className="inline-flex w-fit max-w-full items-center gap-1.5 overflow-hidden rounded-md bg-muted px-2.5 py-1 text-sm font-semibold leading-normal text-foreground">
                         <span className="truncate">{activeDragDeal.primaryCompany.label}</span>
                       </span>
                     ) : null}

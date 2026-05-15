@@ -19,10 +19,10 @@ export function AddStageLane({ onClick, disabled = false }: AddStageLaneProps): 
       onClick={onClick}
       disabled={disabled}
       aria-label={label}
-      className="group flex w-[308px] min-h-[60vh] flex-none flex-col items-center justify-center gap-[7px] rounded-[14px] border border-dashed border-muted-foreground/60 bg-muted/40 px-[14px] py-[19px] text-muted-foreground transition-colors hover:bg-muted/70 hover:text-foreground disabled:cursor-not-allowed disabled:opacity-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
+      className="group flex w-[308px] min-h-[60vh] flex-none flex-col items-center justify-center gap-2 rounded-xl border border-dashed border-muted-foreground/60 bg-muted/40 px-3.5 py-5 text-muted-foreground transition-colors hover:bg-muted/70 hover:text-foreground disabled:cursor-not-allowed disabled:opacity-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
     >
-      <span className="text-[27px] font-bold leading-none">+</span>
-      <span className="text-[16px] font-semibold leading-[normal]">{label}</span>
+      <span className="text-3xl font-bold leading-none">+</span>
+      <span className="text-base font-semibold leading-normal">{label}</span>
     </button>
   )
 }
