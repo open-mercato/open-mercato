@@ -11,7 +11,11 @@ import {
   createSalesCrudOpenApi,
   defaultDeleteRequestSchema,
 } from '../openapi'
-import { attachOrderContext, attachCreditMemoLines } from '../_documentListEnrichers'
+import {
+  attachOrderContext,
+  attachCreditMemoLines,
+  normalizeFinancialDocumentItem,
+} from '../_documentListEnrichers'
 import { E } from '#generated/entities.ids.generated'
 
 const rawBodySchema = z.object({}).passthrough()
@@ -78,6 +82,7 @@ const crud = makeCrudRoute({
       grandTotalGrossAmount: 'grand_total_gross_amount',
       createdAt: 'created_at',
     },
+    transformItem: (item: Record<string, unknown>) => normalizeFinancialDocumentItem(item, 'credit-memo'),
     buildFilters: async (query: z.infer<typeof listSchema>) => {
       const filters: Record<string, unknown> = {}
       if (query.id) filters.id = { $eq: query.id }
