@@ -48,6 +48,7 @@ import { FormCanvas, type FieldResizeState } from './studio/canvas/FormCanvas'
 import { FIELD_DRAGGABLE_PREFIX } from './studio/canvas/FieldRow'
 import { SECTION_DROP_PREFIX, parseSectionDropId } from './studio/canvas/GridSlot'
 import { gridAwareCollision } from './studio/canvas/grid-collision'
+import { computeOverlayWidthPx } from './studio/canvas/overlay-size'
 import { computeRowLayout, dropHintToLinearIndex, readSpan } from './studio/canvas/row-layout'
 import { SECTION_DRAGGABLE_PREFIX } from './studio/canvas/SectionContainer'
 import {
@@ -271,6 +272,10 @@ export function FormStudio({ formId }: { formId: string }) {
   const dirtyFlagRef = React.useRef(false)
   const schemaRef = React.useRef<FormSchema>(DEFAULT_SCHEMA)
   const selectionRef = React.useRef<StudioSelection>(null)
+  // Phase 4 — gridRefs ownership lives here so dragOverlayContent can measure
+  // the target section's pixel rect when computing the overlay width. The
+  // canvas writes section grid nodes into this Map via the ref-prop below.
+  const gridRefs = React.useRef<Map<string, HTMLDivElement | null>>(new Map())
   const { confirm, ConfirmDialogElement } = useConfirmDialog()
   const selectedFieldKey = selection?.kind === 'field' ? selection.key : null
   const undoController = React.useMemo(() => createUndoController({ capacity: 50 }), [])
@@ -1061,16 +1066,69 @@ export function FormStudio({ formId }: { formId: string }) {
 
   const dragOverlayContent = React.useMemo(() => {
     if (!activeDragId) return null
+
+    // Phase 4 — resolve the hovered section so the overlay can mirror the
+    // target cell's pixel width. Section drags keep full width; when no
+    // section is identifiable we fall back to the fixed-width pill.
+    const resolveHoveredSectionKey = (): string | null => {
+      if (!activeDropTarget) return null
+      if (activeDropTarget.kind === 'sortable') {
+        if (activeDropTarget.id.startsWith(FIELD_DRAGGABLE_PREFIX)) {
+          const overFieldKey = activeDropTarget.id.slice(FIELD_DRAGGABLE_PREFIX.length)
+          const owning = findSectionOwning(schemaRef.current, overFieldKey)
+          return owning ? owning.key : null
+        }
+        if (activeDropTarget.id.startsWith(SECTION_DRAGGABLE_PREFIX)) {
+          return activeDropTarget.id.slice(SECTION_DRAGGABLE_PREFIX.length)
+        }
+        return null
+      }
+      return activeDropTarget.sectionKey
+    }
+
+    const resolveTargetGeometry = (
+      spanIntent: 1 | 2 | 3 | 4,
+    ): { widthPx: number } | null => {
+      const sectionKey = resolveHoveredSectionKey()
+      if (!sectionKey) return null
+      const node = gridRefs.current.get(sectionKey)
+      if (!node) return null
+      const rect = node.getBoundingClientRect()
+      if (!rect || rect.width <= 0) return null
+      const view = resolveSectionViews(schemaRef.current as Record<string, unknown>).find(
+        (entry) => entry.key === sectionKey,
+      )
+      if (!view) return null
+      const widthPx = computeOverlayWidthPx({
+        sectionWidthPx: rect.width,
+        columns: view.columns,
+        span: spanIntent,
+        gap: view.gap,
+      })
+      if (!Number.isFinite(widthPx) || widthPx <= 0) return null
+      return { widthPx }
+    }
+
     if (activeDragId.startsWith(PALETTE_DRAGGABLE_PREFIX)) {
       const rawId = activeDragId.slice(PALETTE_DRAGGABLE_PREFIX.length)
       const meta = paletteEntryById.get(rawId)
       if (!meta) return null
+      const resolved = resolvePaletteId(rawId)
+      // Section primitives (page/section/ending) are full-width — leave the
+      // fixed-width pill so we don't pretend they slot into a single cell.
+      const isSectionPrimitive = resolved.kind === 'layout-primitive'
+      const geometry = isSectionPrimitive ? null : resolveTargetGeometry(1)
       return (
         <DragOverlayCard
           Icon={resolveLucideIcon(meta.iconName)}
           label={t(meta.displayNameKey)}
+          widthPx={geometry?.widthPx}
         />
       )
+    }
+    if (activeDragId.startsWith(SECTION_DRAGGABLE_PREFIX)) {
+      // Sections are full-width by construction — keep the fixed-width pill.
+      return null
     }
     if (activeDragId.startsWith(FIELD_DRAGGABLE_PREFIX)) {
       const fieldKey = activeDragId.slice(FIELD_DRAGGABLE_PREFIX.length)
@@ -1081,10 +1139,12 @@ export function FormStudio({ formId }: { formId: string }) {
         paletteEntryById.get(omType)?.iconName ?? paletteEntryById.get(`layout:field:${omType}`)?.iconName,
       )
       const label = (node['x-om-label']?.en as string) ?? fieldKey
-      return <DragOverlayCard Icon={Icon} label={label} />
+      const persistedSpan = readSpan(node['x-om-grid-span']) ?? 1
+      const geometry = resolveTargetGeometry(persistedSpan)
+      return <DragOverlayCard Icon={Icon} label={label} widthPx={geometry?.widthPx} />
     }
     return null
-  }, [activeDragId, paletteEntryById, t])
+  }, [activeDragId, activeDropTarget, paletteEntryById, t])
 
   const persistFormPatch = React.useMemo(
     () =>
@@ -1347,6 +1407,7 @@ export function FormStudio({ formId }: { formId: string }) {
                     onFieldResizeStart={handleFieldResizeStart}
                     onFieldResizePreview={handleFieldResizePreview}
                     onFieldResizeCommit={handleFieldResizeCommit}
+                    gridRefs={gridRefs}
                     t={t}
                   />
                 </section>

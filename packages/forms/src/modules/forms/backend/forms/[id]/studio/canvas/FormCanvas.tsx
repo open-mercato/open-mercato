@@ -49,6 +49,7 @@ export function FormCanvas({
   onFieldResizeStart,
   onFieldResizePreview,
   onFieldResizeCommit,
+  gridRefs,
   t,
 }: {
   schema: FormSchema
@@ -70,6 +71,11 @@ export function FormCanvas({
   onFieldResizeStart?: (input: { fieldKey: string; sectionKey: string; startSpan: 1 | 2 | 3 | 4 }) => void
   onFieldResizePreview?: (input: { fieldKey: string; previewSpan: 1 | 2 | 3 | 4 }) => void
   onFieldResizeCommit?: (input: { fieldKey: string; finalSpan: 1 | 2 | 3 | 4 }) => void
+  // Phase 4 — optional ref-prop ownership: when supplied, FormCanvas writes
+  // each section's grid node into this Map so parent components can measure
+  // section width (e.g., to size the drag overlay). Falls back to a private
+  // ref when not provided so resize-from-FieldRow keeps working in isolation.
+  gridRefs?: React.MutableRefObject<Map<string, HTMLDivElement | null>>
 }) {
   const sections = React.useMemo(
     () => resolveSectionViews(schema as Record<string, unknown>),
@@ -80,17 +86,18 @@ export function FormCanvas({
   const claimedFields = new Set(sections.flatMap((section) => section.fieldKeys))
   const ungroupedFields = fields.filter((entry) => !entry.sectionKey || !claimedFields.has(entry.key))
   const sectionIds = sections.map((section) => sectionDraggableId(section.key))
-  const gridRefs = React.useRef<Map<string, HTMLDivElement | null>>(new Map())
+  const localGridRefs = React.useRef<Map<string, HTMLDivElement | null>>(new Map())
+  const effectiveGridRefs = gridRefs ?? localGridRefs
   const registerGridRef = React.useCallback(
     (sectionKey: string) => (node: HTMLDivElement | null) => {
-      const map = gridRefs.current
+      const map = effectiveGridRefs.current
       if (node) {
         map.set(sectionKey, node)
       } else {
         map.delete(sectionKey)
       }
     },
-    [],
+    [effectiveGridRefs],
   )
 
   if (sections.length === 0 && Object.keys(schema.properties).length === 0) {
@@ -111,7 +118,7 @@ export function FormCanvas({
             pageIndex >= 0 && pages[pageIndex]?.sectionKeys[0] === section.key
           const fieldKeys = section.fieldKeys.filter((fieldKey) => schema.properties[fieldKey])
           const getSectionRect = () => {
-            const node = gridRefs.current.get(section.key)
+            const node = effectiveGridRefs.current.get(section.key)
             return node ? node.getBoundingClientRect() : null
           }
           return (
