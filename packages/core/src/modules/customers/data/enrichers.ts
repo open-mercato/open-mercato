@@ -1,5 +1,6 @@
 import type { Kysely } from 'kysely'
 import type { ResponseEnricher, EnricherContext } from '@open-mercato/shared/lib/crud/response-enricher'
+import { resolveKyselyClient } from '../lib/kysely'
 
 type DealRecord = Record<string, unknown> & {
   id: string
@@ -24,11 +25,6 @@ const DAY_MS = 24 * 60 * 60 * 1000
 // We accept `completed` defensively too, even though `done` is the canonical "completed"
 // value in the validator, in case any legacy rows exist with the longer spelling.
 const TERMINAL_INTERACTION_STATUSES = ['done', 'canceled', 'completed'] as const
-
-function getDb(em: unknown): Kysely<any> | null {
-  const getter = (em as any)?.getKysely
-  return typeof getter === 'function' ? getter.call(em) : null
-}
 
 function parseDate(value: unknown): Date | null {
   if (!value) return null
@@ -154,7 +150,7 @@ const dealPipelineEnricher: ResponseEnricher<DealRecord> = {
 
   async enrichMany(records, context: EnricherContext) {
     if (records.length === 0) return records
-    const db = getDb(context.em)
+    const db = resolveKyselyClient(context.em)
     if (!db) return records
 
     const dealIds = new Set<string>()

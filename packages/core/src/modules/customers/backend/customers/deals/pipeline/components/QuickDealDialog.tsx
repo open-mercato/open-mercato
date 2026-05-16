@@ -309,7 +309,7 @@ export function QuickDealDialog({
         if (!next) onClose()
       }}
     >
-      <DialogContent className="sm:max-w-[520px]">
+      <DialogContent>
         <DialogHeader>
           <DialogTitle>
             {translateWithFallback(t, 'customers.deals.kanban.quickDeal.title', 'Quick deal')}

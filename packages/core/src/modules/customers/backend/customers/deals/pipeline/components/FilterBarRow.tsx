@@ -19,7 +19,6 @@ type FilterBarRowProps = {
   /** Right-aligned sort chip (popover-backed) */
   sortNode: React.ReactNode
   onChipClick: (chipId: KanbanFilterChip['id']) => void
-  onAddFilterClick: () => void
 }
 
 export function FilterBarRow({
@@ -27,9 +26,12 @@ export function FilterBarRow({
   chips,
   sortNode,
   onChipClick,
-  onAddFilterClick,
 }: FilterBarRowProps): React.ReactElement {
   const t = useT()
+  // Note: the Figma mock includes a "+ Add filter" chip (1045:11987) that opens a picker for
+  // Tags / Source / Currency / Created date / Updated date / Last activity / custom fields.
+  // That picker is not wired up in this slice (it would need AdvancedFilterPanel integration),
+  // so the affordance is intentionally omitted instead of shipping a "coming next" toast.
   return (
     <div className="flex flex-wrap items-center justify-between gap-y-2 rounded-lg bg-muted/40 px-3.5 py-3">
       <div className="flex flex-wrap items-center gap-2">
@@ -51,12 +53,6 @@ export function FilterBarRow({
             )}
           />
         ))}
-        <ChipButton
-          onClick={onAddFilterClick}
-          withChevron={false}
-          value={translateWithFallback(t, 'customers.deals.kanban.filter.add', '+ More')}
-          ariaLabel={translateWithFallback(t, 'customers.deals.kanban.filter.more', 'More filters')}
-        />
       </div>
       <div className="ml-auto">{sortNode}</div>
     </div>

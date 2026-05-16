@@ -2,6 +2,7 @@
 
 import * as React from 'react'
 import { ChevronDown } from 'lucide-react'
+import { Button } from '@open-mercato/ui/primitives/button'
 
 export type ChipButtonProps = {
   label?: string
@@ -19,7 +20,9 @@ export const ChipButton = React.forwardRef<HTMLButtonElement, ChipButtonProps>(
     ref,
   ) {
     return (
-      <button
+      <Button
+        variant="ghost"
+        size="sm"
         ref={ref}
         type="button"
         onClick={onClick}
@@ -36,7 +39,7 @@ export const ChipButton = React.forwardRef<HTMLButtonElement, ChipButtonProps>(
         {withChevron ? (
           <ChevronDown className="size-3 text-muted-foreground" aria-hidden="true" />
         ) : null}
-      </button>
+      </Button>
     )
   },
 )

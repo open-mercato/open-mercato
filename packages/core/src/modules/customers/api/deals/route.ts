@@ -5,6 +5,7 @@ import { CustomerDeal, CustomerDealPersonLink, CustomerDealCompanyLink } from '.
 import { dealCreateSchema, dealUpdateSchema } from '../../data/validators'
 import { E } from '#generated/entities.ids.generated'
 import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
+import { parseBooleanFromUnknown } from '@open-mercato/shared/lib/boolean'
 import {
   applyEntityIdRestriction,
   findMatchingEntityIdsWithQueryEngine,
@@ -25,8 +26,12 @@ import { fetchStuckDealIds } from '../../lib/stuckDeals'
 const rawBodySchema = z.object({}).passthrough()
 
 const stringOrStringArray = z.union([z.string(), z.array(z.string())])
+const booleanQueryParam = z.preprocess((value) => {
+  const parsed = parseBooleanFromUnknown(value)
+  return parsed === null ? value : parsed
+}, z.boolean()).optional()
 
-const listSchema = z
+export const dealListQuerySchema = z
   .object({
     page: z.coerce.number().min(1).default(1),
     pageSize: z.coerce.number().min(1).max(100).default(50),
@@ -34,12 +39,12 @@ const listSchema = z
     status: stringOrStringArray.optional(),
     pipelineStage: z.string().optional(),
     pipelineId: stringOrStringArray.optional(),
-    pipelineStageId: z.string().uuid().optional(),
+    pipelineStageId: z.union([z.string().uuid(), z.literal('__unassigned')]).optional(),
     ownerUserId: stringOrStringArray.optional(),
     expectedCloseAtFrom: z.string().optional(),
     expectedCloseAtTo: z.string().optional(),
-    isStuck: z.coerce.boolean().optional(),
-    isOverdue: z.coerce.boolean().optional(),
+    isStuck: booleanQueryParam,
+    isOverdue: booleanQueryParam,
     sortField: z.string().optional(),
     sortDir: z.enum(['asc', 'desc']).optional(),
     personEntityId: z.string().uuid().optional(),
@@ -58,7 +63,7 @@ const routeMetadata = {
 
 export const metadata = routeMetadata
 
-type DealListQuery = z.infer<typeof listSchema>
+export type DealListQuery = z.infer<typeof dealListQuerySchema>
 
 function parseUuid(value: unknown): string | null {
   if (typeof value !== 'string') return null
@@ -166,6 +171,171 @@ function normalizeUuidList(values: Array<unknown>): string[] {
   return Array.from(set)
 }
 
+export async function buildDealListFilters(query: DealListQuery, ctx?: import('@open-mercato/shared/lib/crud/factory').CrudCtx) {
+  const advancedFilterTree = consumeAdvancedFilterState(query)
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const filters: Record<string, any> = {}
+  let restrictedIds: string[] | null = null
+
+  const intersectIds = (ids: string[]) => {
+    if (restrictedIds === null) {
+      restrictedIds = ids
+      return
+    }
+    const lookup = new Set(ids)
+    restrictedIds = restrictedIds.filter((id) => lookup.has(id))
+  }
+
+  if (query.search) {
+    const matchingIds = ctx
+      ? await findMatchingEntityIdsBySearchTokensAcrossSources({
+          ctx,
+          query: query.search,
+          sources: [
+            {
+              entityType: E.customers.customer_deal,
+              fields: [
+                'title',
+                'description',
+                'status',
+                'pipeline_stage',
+                'source',
+                'value_amount',
+                'value_currency',
+                'cf:competitive_risk',
+                'cf:implementation_complexity',
+              ],
+            },
+          ],
+        })
+      : null
+    if (matchingIds !== null && matchingIds.length > 0) {
+      intersectIds(matchingIds)
+    } else {
+      const searchPattern = `%${escapeLikePattern(query.search)}%`
+      filters.$or = [
+        { title: { $ilike: searchPattern } },
+        { description: { $ilike: searchPattern } },
+      ]
+    }
+  }
+
+  const statusList = query.status ? normalizeStringList(query.status) : []
+  if (statusList.length > 0) {
+    filters.status = statusList.length === 1 ? { $eq: statusList[0] } : { $in: statusList }
+  }
+
+  if (query.pipelineStage) {
+    filters.pipeline_stage = { $eq: query.pipelineStage }
+  }
+
+  const pipelineIds = query.pipelineId ? normalizeUuidList([query.pipelineId]) : []
+  if (pipelineIds.length > 0) {
+    filters.pipeline_id = pipelineIds.length === 1 ? { $eq: pipelineIds[0] } : { $in: pipelineIds }
+  }
+
+  if (query.pipelineStageId === '__unassigned') {
+    filters.pipeline_stage_id = { $eq: null }
+  } else if (query.pipelineStageId) {
+    filters.pipeline_stage_id = { $eq: query.pipelineStageId }
+  }
+
+  const ownerUserIds = query.ownerUserId ? normalizeUuidList([query.ownerUserId]) : []
+  if (ownerUserIds.length > 0) {
+    filters.owner_user_id =
+      ownerUserIds.length === 1 ? { $eq: ownerUserIds[0] } : { $in: ownerUserIds }
+  }
+
+  const expectedCloseFrom = parseDateInput(query.expectedCloseAtFrom)
+  const expectedCloseTo = parseDateInput(query.expectedCloseAtTo)
+  if (expectedCloseFrom || expectedCloseTo) {
+    const range: Record<string, Date> = {}
+    if (expectedCloseFrom) range.$gte = expectedCloseFrom
+    if (expectedCloseTo) range.$lte = expectedCloseTo
+    filters.expected_close_at = range
+  }
+
+  if (query.isOverdue) {
+    const today = new Date()
+    today.setHours(0, 0, 0, 0)
+    if (statusList.length === 0) {
+      filters.status = { $eq: 'open' }
+    }
+    const existingRange =
+      filters.expected_close_at && typeof filters.expected_close_at === 'object'
+        ? (filters.expected_close_at as Record<string, Date>)
+        : {}
+    existingRange.$lt = today
+    filters.expected_close_at = existingRange
+  }
+
+  if (query.isStuck && ctx) {
+    const tenantId = ctx.auth?.tenantId
+    // CrudCtx.auth carries `orgId` (not `organizationId`). The previous code referenced
+    // `organizationId` which is always `undefined`, so the typeof check below silently
+    // skipped the entire isStuck branch — `?isStuck=true` was a no-op on this endpoint.
+    const organizationId = ctx.auth?.orgId
+    if (typeof tenantId === 'string' && typeof organizationId === 'string') {
+      const em = ctx.container.resolve<EntityManager>('em')
+      const stuckIds = await fetchStuckDealIds(em, organizationId, tenantId)
+      intersectIds(stuckIds)
+    }
+  }
+
+  // Pre-pagination association filter. Must run on the FULL dataset (before pagination),
+  // otherwise matching deals on later pages disappear and `total` would be wrong. Read the
+  // raw URL too so legacy `?personEntityId=` / `?companyEntityId=` keep working alongside the
+  // canonical `?personId=` / `?companyId=`.
+  const url = ctx?.request ? new URL(ctx.request.url) : null
+  const personCandidates: unknown[] = [query.personId, query.personEntityId]
+  const companyCandidates: unknown[] = [query.companyId, query.companyEntityId]
+  if (url) {
+    personCandidates.push(url.searchParams.getAll('personId'))
+    personCandidates.push(url.searchParams.getAll('personEntityId'))
+    companyCandidates.push(url.searchParams.getAll('companyId'))
+    companyCandidates.push(url.searchParams.getAll('companyEntityId'))
+  }
+  const selectedPersonIds = normalizeUuidList(personCandidates)
+  const selectedCompanyIds = normalizeUuidList(companyCandidates)
+  if ((selectedPersonIds.length > 0 || selectedCompanyIds.length > 0) && ctx) {
+    const tenantId = ctx.auth?.tenantId
+    // `ctx.auth` exposes `orgId` (see AuthContext in @open-mercato/shared/lib/auth/server).
+    // Read it under the correct key — the previous code's `organizationId` would always be
+    // `undefined`, silently disabling association filtering on the deals list endpoint.
+    const organizationId = ctx.auth?.orgId
+    if (typeof tenantId === 'string' && typeof organizationId === 'string') {
+      const em = ctx.container.resolve<EntityManager>('em')
+      const matchedIds = await fetchDealIdsMatchingAssociations(
+        em,
+        organizationId,
+        tenantId,
+        selectedPersonIds,
+        selectedCompanyIds,
+      )
+      // intersectIds with empty array → no rows; collapses the page to zero, total stays correct.
+      intersectIds(matchedIds)
+    }
+  }
+
+  if (ctx && advancedFilterTree) {
+    const advancedFilters = mergeAdvancedFilterTree({ ...filters }, advancedFilterTree)
+    const matchedIds = await findMatchingEntityIdsWithQueryEngine({
+      ctx,
+      entityId: E.customers.customer_deal,
+      filters: advancedFilters,
+    })
+    if (matchedIds !== null) {
+      intersectIds(matchedIds)
+    }
+  }
+
+  if (restrictedIds !== null) {
+    applyEntityIdRestriction(filters, restrictedIds)
+  }
+
+  return filters
+}
+
 const crud = makeCrudRoute<unknown, unknown, DealListQuery>({
   metadata: routeMetadata,
   orm: {
@@ -180,7 +350,7 @@ const crud = makeCrudRoute<unknown, unknown, DealListQuery>({
   },
   enrichers: { entityId: 'customers.deal' },
   list: {
-    schema: listSchema,
+    schema: dealListQuerySchema,
     entityId: E.customers.customer_deal,
     fields: [
       'id',
@@ -215,169 +385,7 @@ const crud = makeCrudRoute<unknown, unknown, DealListQuery>({
       probability: 'probability',
       expectedCloseAt: 'expected_close_at',
     },
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    buildFilters: async (query: any, ctx) => {
-      const advancedFilterTree = consumeAdvancedFilterState(query)
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const filters: Record<string, any> = {}
-      let restrictedIds: string[] | null = null
-
-      const intersectIds = (ids: string[]) => {
-        if (restrictedIds === null) {
-          restrictedIds = ids
-          return
-        }
-        const lookup = new Set(ids)
-        restrictedIds = restrictedIds.filter((id) => lookup.has(id))
-      }
-
-      if (query.search) {
-        const matchingIds = ctx
-          ? await findMatchingEntityIdsBySearchTokensAcrossSources({
-              ctx,
-              query: query.search,
-              sources: [
-                {
-                  entityType: E.customers.customer_deal,
-                  fields: [
-                    'title',
-                    'description',
-                    'status',
-                    'pipeline_stage',
-                    'source',
-                    'value_amount',
-                    'value_currency',
-                    'cf:competitive_risk',
-                    'cf:implementation_complexity',
-                  ],
-                },
-              ],
-            })
-          : null
-        if (matchingIds !== null && matchingIds.length > 0) {
-          intersectIds(matchingIds)
-        } else {
-          const searchPattern = `%${escapeLikePattern(query.search)}%`
-          filters.$or = [
-            { title: { $ilike: searchPattern } },
-            { description: { $ilike: searchPattern } },
-          ]
-        }
-      }
-
-      const statusList = query.status ? normalizeStringList(query.status) : []
-      if (statusList.length > 0) {
-        filters.status = statusList.length === 1 ? { $eq: statusList[0] } : { $in: statusList }
-      }
-
-      if (query.pipelineStage) {
-        filters.pipeline_stage = { $eq: query.pipelineStage }
-      }
-
-      const pipelineIds = query.pipelineId ? normalizeUuidList([query.pipelineId]) : []
-      if (pipelineIds.length > 0) {
-        filters.pipeline_id = pipelineIds.length === 1 ? { $eq: pipelineIds[0] } : { $in: pipelineIds }
-      }
-
-      if (query.pipelineStageId) {
-        filters.pipeline_stage_id = { $eq: query.pipelineStageId }
-      }
-
-      const ownerUserIds = query.ownerUserId ? normalizeUuidList([query.ownerUserId]) : []
-      if (ownerUserIds.length > 0) {
-        filters.owner_user_id =
-          ownerUserIds.length === 1 ? { $eq: ownerUserIds[0] } : { $in: ownerUserIds }
-      }
-
-      const expectedCloseFrom = parseDateInput(query.expectedCloseAtFrom)
-      const expectedCloseTo = parseDateInput(query.expectedCloseAtTo)
-      if (expectedCloseFrom || expectedCloseTo) {
-        const range: Record<string, Date> = {}
-        if (expectedCloseFrom) range.$gte = expectedCloseFrom
-        if (expectedCloseTo) range.$lte = expectedCloseTo
-        filters.expected_close_at = range
-      }
-
-      if (query.isOverdue) {
-        const today = new Date()
-        today.setHours(0, 0, 0, 0)
-        if (statusList.length === 0) {
-          filters.status = { $eq: 'open' }
-        }
-        const existingRange =
-          filters.expected_close_at && typeof filters.expected_close_at === 'object'
-            ? (filters.expected_close_at as Record<string, Date>)
-            : {}
-        existingRange.$lt = today
-        filters.expected_close_at = existingRange
-      }
-
-      if (query.isStuck && ctx) {
-        const tenantId = ctx.auth?.tenantId
-        // CrudCtx.auth carries `orgId` (not `organizationId`). The previous code referenced
-        // `organizationId` which is always `undefined`, so the typeof check below silently
-        // skipped the entire isStuck branch — `?isStuck=true` was a no-op on this endpoint.
-        const organizationId = ctx.auth?.orgId
-        if (typeof tenantId === 'string' && typeof organizationId === 'string') {
-          const em = ctx.container.resolve<EntityManager>('em')
-          const stuckIds = await fetchStuckDealIds(em, organizationId, tenantId)
-          intersectIds(stuckIds)
-        }
-      }
-
-      // Pre-pagination association filter. Must run on the FULL dataset (before pagination),
-      // otherwise matching deals on later pages disappear and `total` would be wrong. Read the
-      // raw URL too so legacy `?personEntityId=` / `?companyEntityId=` keep working alongside the
-      // canonical `?personId=` / `?companyId=`.
-      const url = ctx?.request ? new URL(ctx.request.url) : null
-      const personCandidates: unknown[] = [query.personId, query.personEntityId]
-      const companyCandidates: unknown[] = [query.companyId, query.companyEntityId]
-      if (url) {
-        personCandidates.push(url.searchParams.getAll('personId'))
-        personCandidates.push(url.searchParams.getAll('personEntityId'))
-        companyCandidates.push(url.searchParams.getAll('companyId'))
-        companyCandidates.push(url.searchParams.getAll('companyEntityId'))
-      }
-      const selectedPersonIds = normalizeUuidList(personCandidates)
-      const selectedCompanyIds = normalizeUuidList(companyCandidates)
-      if ((selectedPersonIds.length > 0 || selectedCompanyIds.length > 0) && ctx) {
-        const tenantId = ctx.auth?.tenantId
-        // `ctx.auth` exposes `orgId` (see AuthContext in @open-mercato/shared/lib/auth/server).
-        // Read it under the correct key — the previous code's `organizationId` would always be
-        // `undefined`, silently disabling association filtering on the deals list endpoint.
-        const organizationId = ctx.auth?.orgId
-        if (typeof tenantId === 'string' && typeof organizationId === 'string') {
-          const em = ctx.container.resolve<EntityManager>('em')
-          const matchedIds = await fetchDealIdsMatchingAssociations(
-            em,
-            organizationId,
-            tenantId,
-            selectedPersonIds,
-            selectedCompanyIds,
-          )
-          // intersectIds with empty array → no rows; collapses the page to zero, total stays correct.
-          intersectIds(matchedIds)
-        }
-      }
-
-      if (ctx && advancedFilterTree) {
-        const advancedFilters = mergeAdvancedFilterTree({ ...filters }, advancedFilterTree)
-        const matchedIds = await findMatchingEntityIdsWithQueryEngine({
-          ctx,
-          entityId: E.customers.customer_deal,
-          filters: advancedFilters,
-        })
-        if (matchedIds !== null) {
-          intersectIds(matchedIds)
-        }
-      }
-
-      if (restrictedIds !== null) {
-        applyEntityIdRestriction(filters, restrictedIds)
-      }
-
-      return filters
-    },
+    buildFilters: buildDealListFilters,
   },
   actions: {
     create: {
@@ -547,8 +555,21 @@ const crud = makeCrudRoute<unknown, unknown, DealListQuery>({
 
         payload.items = enhancedItems
       } catch (err) {
+        // We swallow rather than fail the request because the kanban is still useful without
+        // people/companies labels (cards just lose their company pill). Tag every item with
+        // `_associations: { ok: false }` so a future surface can render a degraded-state hint
+        // instead of silently showing cards without company badges.
         console.warn('[customers.deals] failed to decorate items with person/company links', err)
-        // fall back to undecorated items to avoid breaking the endpoint
+        payload.items = items.map((item: unknown) => {
+          if (!item || typeof item !== 'object') return item
+          return {
+            ...(item as Record<string, unknown>),
+            _associations: {
+              ok: false,
+              reason: err instanceof Error ? err.message : 'unknown',
+            },
+          }
+        })
       }
     },
   },
@@ -598,7 +619,7 @@ const dealCreateResponseSchema = z.object({
 
 export const openApi = createCustomersCrudOpenApi({
   resourceName: 'Deal',
-  querySchema: listSchema,
+  querySchema: dealListQuerySchema,
   listResponseSchema: createPagedListResponseSchema(dealListItemSchema),
   create: {
     schema: dealCreateSchema,

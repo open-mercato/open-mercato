@@ -7,10 +7,10 @@ import {
   PopoverContent,
   PopoverTrigger,
 } from '@open-mercato/ui/primitives/popover'
-import { Button } from '@open-mercato/ui/primitives/button'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { translateWithFallback } from '@open-mercato/shared/lib/i18n/translate'
 import { ChipButton } from './ChipButton'
+import { FilterPopoverShell } from './FilterPopoverShell'
 
 /**
  * Filter options exposed to the operator.
@@ -27,20 +27,28 @@ const STATUS_OPTIONS: Array<{
   value: string
   labelKey: string
   labelFallback: string
-  tone: 'success' | 'error' | 'warning' | 'info' | 'neutral'
+  /** Tone selects the small ●-dot color on the pill (per Figma: green / amber / gray) */
+  dotClass: string
 }> = [
-  { value: 'open', labelKey: 'customers.deals.kanban.filter.status.open', labelFallback: 'Open', tone: 'success' },
-  { value: 'win', labelKey: 'customers.deals.kanban.filter.status.won', labelFallback: 'Won', tone: 'warning' },
-  { value: 'loose', labelKey: 'customers.deals.kanban.filter.status.lost', labelFallback: 'Lost', tone: 'neutral' },
+  {
+    value: 'open',
+    labelKey: 'customers.deals.kanban.filter.status.open',
+    labelFallback: 'Open',
+    dotClass: 'bg-status-success-icon',
+  },
+  {
+    value: 'win',
+    labelKey: 'customers.deals.kanban.filter.status.won',
+    labelFallback: 'Won',
+    dotClass: 'bg-status-warning-icon',
+  },
+  {
+    value: 'loose',
+    labelKey: 'customers.deals.kanban.filter.status.lost',
+    labelFallback: 'Lost',
+    dotClass: 'bg-status-neutral-icon',
+  },
 ]
-
-const TONE_BG: Record<(typeof STATUS_OPTIONS)[number]['tone'], string> = {
-  success: 'bg-status-success-bg text-status-success-text border-status-success-border',
-  error: 'bg-status-error-bg text-status-error-text border-status-error-border',
-  warning: 'bg-status-warning-bg text-status-warning-text border-status-warning-border',
-  info: 'bg-status-info-bg text-status-info-text border-status-info-border',
-  neutral: 'bg-status-neutral-bg text-status-neutral-text border-status-neutral-border',
-}
 
 type StatusFilterPopoverProps = {
   values: string[]
@@ -94,56 +102,64 @@ export function StatusFilterPopover({ values, onApply }: StatusFilterPopoverProp
       <PopoverTrigger asChild>
         <ChipButton label={chipLabel} value={chipValue} active={values.length > 0} />
       </PopoverTrigger>
-      <PopoverContent className="w-[420px] p-0" align="start" onKeyDown={handleKeyDown}>
-        <div className="flex items-center justify-between border-b border-border p-3">
-          <span className="text-sm font-semibold text-foreground">
-            {translateWithFallback(t, 'customers.deals.kanban.filter.status.title', 'Filter · Status')}
+      <PopoverContent
+        className="w-96 rounded-2xl border-border bg-transparent p-0 shadow-xl"
+        align="start"
+        onKeyDown={handleKeyDown}
+      >
+        <FilterPopoverShell
+          title={
+            <>
+              <span className="font-bold">
+                {translateWithFallback(t, 'customers.deals.kanban.filter.status.title.label', 'Filter : ')}
+              </span>
+              <span className="font-normal">
+                {translateWithFallback(t, 'customers.deals.kanban.filter.status', 'Status')}
+              </span>
+            </>
+          }
+          onClose={() => setOpen(false)}
+          onCancel={() => setOpen(false)}
+          onApply={handleApply}
+          footerLeft={
+            <span>
+              {draft.length}{' '}
+              {translateWithFallback(t, 'customers.deals.kanban.filter.selected', 'selected')}
+            </span>
+          }
+        >
+          <span className="text-[10px] font-semibold uppercase leading-normal tracking-wide text-muted-foreground">
+            {translateWithFallback(t, 'customers.deals.kanban.filter.status', 'Status')}
           </span>
-          <button
-            type="button"
-            onClick={() => setOpen(false)}
-            aria-label={translateWithFallback(t, 'customers.deals.kanban.filter.close', 'Close')}
-            className="inline-flex size-6 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-muted hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
-          >
-            <X className="size-4" aria-hidden="true" />
-          </button>
-        </div>
-
-        <div className="flex flex-wrap gap-2 p-3">
-          {STATUS_OPTIONS.map((option) => {
-            const isSelected = draft.includes(option.value)
-            const label = translateWithFallback(t, option.labelKey, option.labelFallback)
-            return (
-              <button
-                key={option.value}
-                type="button"
-                onClick={() => toggleDraft(option.value)}
-                aria-pressed={isSelected}
-                className={`inline-flex items-center gap-1 rounded-full border px-3 py-1 text-xs font-medium transition-opacity focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 ${
-                  isSelected ? TONE_BG[option.tone] : 'border-input bg-card text-muted-foreground hover:text-foreground'
-                }`}
-              >
-                <span className="size-2 rounded-full bg-current" aria-hidden="true" />
-                <span>{label}</span>
-              </button>
-            )
-          })}
-        </div>
-
-        <div className="flex items-center justify-between border-t border-border p-3 text-xs text-muted-foreground">
-          <span>
-            {draft.length}{' '}
-            {translateWithFallback(t, 'customers.deals.kanban.filter.selected', 'selected')}
-          </span>
-          <div className="flex items-center gap-2">
-            <Button variant="outline" size="sm" type="button" onClick={() => setOpen(false)}>
-              {translateWithFallback(t, 'customers.deals.kanban.filter.cancel', 'Cancel')}
-            </Button>
-            <Button size="sm" type="button" onClick={handleApply}>
-              {translateWithFallback(t, 'customers.deals.kanban.filter.apply', 'Apply')}
-            </Button>
+          <div className="flex flex-wrap items-center gap-x-1.5 gap-y-2">
+            {STATUS_OPTIONS.map((option) => {
+              const isSelected = draft.includes(option.value)
+              const label = translateWithFallback(t, option.labelKey, option.labelFallback)
+              return (
+                <button
+                  key={option.value}
+                  type="button"
+                  onClick={() => toggleDraft(option.value)}
+                  aria-pressed={isSelected}
+                  className={`inline-flex items-center gap-1.5 rounded-full px-2.5 py-1.5 text-[12px] leading-normal transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 ${
+                    isSelected
+                      ? 'bg-muted font-semibold text-foreground'
+                      : 'border border-border bg-card font-normal text-muted-foreground hover:bg-muted'
+                  }`}
+                >
+                  <span
+                    className={`inline-block size-[7px] shrink-0 rounded-full ${option.dotClass}`}
+                    aria-hidden="true"
+                  />
+                  <span>{label}</span>
+                  {isSelected ? (
+                    <X className="size-2.5 shrink-0 text-muted-foreground" aria-hidden="true" />
+                  ) : null}
+                </button>
+              )
+            })}
           </div>
-        </div>
+        </FilterPopoverShell>
       </PopoverContent>
     </Popover>
   )

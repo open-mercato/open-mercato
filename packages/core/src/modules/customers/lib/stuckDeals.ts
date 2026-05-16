@@ -1,4 +1,6 @@
 import type { EntityManager } from '@mikro-orm/postgresql'
+import type { Kysely } from 'kysely'
+import { resolveKyselyClient } from './kysely'
 
 /**
  * Default number of days a deal can sit in a stage before it counts as "stuck".
@@ -12,8 +14,7 @@ const DAY_MS = 24 * 60 * 60 * 1000
  * `STUCK_DEFAULT_THRESHOLD_DAYS` when no setting row is present or the value is invalid.
  */
 export async function fetchStuckThresholdDays(
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  db: any,
+  db: Kysely<any>,
   organizationId: string,
   tenantId: string,
 ): Promise<number> {
@@ -42,10 +43,7 @@ export async function fetchStuckDealIds(
   organizationId: string,
   tenantId: string,
 ): Promise<string[]> {
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const getter = (em as any).getKysely
-  if (typeof getter !== 'function') return []
-  const db = getter.call(em)
+  const db = resolveKyselyClient(em)
   if (!db) return []
 
   const threshold = await fetchStuckThresholdDays(db, organizationId, tenantId)

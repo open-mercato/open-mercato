@@ -1,16 +1,16 @@
 "use client"
 
 import * as React from 'react'
-import { X } from 'lucide-react'
+import { Tag } from 'lucide-react'
 import {
   Popover,
   PopoverContent,
   PopoverTrigger,
 } from '@open-mercato/ui/primitives/popover'
-import { Button } from '@open-mercato/ui/primitives/button'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { translateWithFallback } from '@open-mercato/shared/lib/i18n/translate'
 import { ChipButton } from './ChipButton'
+import { FilterPopoverShell } from './FilterPopoverShell'
 
 export type SortOption =
   | 'updated_desc'
@@ -54,6 +54,19 @@ type SortByPopoverProps = {
   onApply: (next: SortOption) => void
 }
 
+function RadioDot({ selected }: { selected: boolean }): React.ReactElement {
+  return (
+    <span
+      className={`flex size-4 shrink-0 items-center justify-center rounded-full border ${
+        selected ? 'border-accent-indigo' : 'border-input bg-card'
+      }`}
+      aria-hidden="true"
+    >
+      {selected ? <span className="size-2 rounded-full bg-accent-indigo" /> : null}
+    </span>
+  )
+}
+
 export function SortByPopover({ value, onApply }: SortByPopoverProps): React.ReactElement {
   const t = useT()
   const [open, setOpen] = React.useState(false)
@@ -80,90 +93,75 @@ export function SortByPopover({ value, onApply }: SortByPopoverProps): React.Rea
     }
   }
 
+  const footerLeft = (
+    <span>
+      {translateWithFallback(
+        t,
+        'customers.deals.kanban.sort.defaultHint',
+        'Default: {label}',
+        {
+          label: translateWithFallback(
+            t,
+            SORT_LABEL_KEYS[DEFAULT_SORT].key,
+            SORT_LABEL_KEYS[DEFAULT_SORT].fallback,
+          ),
+        },
+      )}
+    </span>
+  )
+
   return (
     <Popover open={open} onOpenChange={setOpen}>
       <PopoverTrigger asChild>
         <ChipButton label={chipLabel} value={chipValue} active={value !== DEFAULT_SORT} />
       </PopoverTrigger>
-      <PopoverContent className="w-[420px] p-0" align="end" onKeyDown={handleKeyDown}>
-        <div className="flex items-center justify-between border-b border-border p-3">
-          <span className="text-sm font-semibold text-foreground">
-            {translateWithFallback(t, 'customers.deals.kanban.sort.title', 'Sort by')}
-          </span>
-          <button
-            type="button"
-            onClick={() => setOpen(false)}
-            aria-label={translateWithFallback(t, 'customers.deals.kanban.filter.close', 'Close')}
-            className="inline-flex size-6 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-muted hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
-          >
-            <X className="size-4" aria-hidden="true" />
-          </button>
-        </div>
-
-        <div className="flex flex-col gap-1 p-1">
+      <PopoverContent
+        className="w-96 rounded-2xl border-border bg-transparent p-0 shadow-xl"
+        align="end"
+        onKeyDown={handleKeyDown}
+      >
+        <FilterPopoverShell
+          title={translateWithFallback(t, 'customers.deals.kanban.sort.title', 'Sort by')}
+          leadingIcon={<Tag className="size-4" />}
+          onClose={() => setOpen(false)}
+          onCancel={() => setOpen(false)}
+          onApply={handleApply}
+          footerLeft={footerLeft}
+        >
           {SORT_ORDER.map((option) => {
             const isSelected = draft === option
             const isDefault = option === DEFAULT_SORT
+            const rowClass = isSelected ? 'bg-muted' : 'bg-card'
             return (
               <button
                 key={option}
                 type="button"
                 onClick={() => setDraft(option)}
-                className={`flex w-full items-center justify-between rounded-md px-3 py-2 text-sm transition-colors hover:bg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 ${
-                  isSelected ? 'bg-muted' : ''
-                }`}
+                className={`flex w-full items-center gap-3 rounded-md px-4 py-2.5 text-left transition-colors hover:bg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 ${rowClass}`}
               >
-                <span className="flex flex-col text-left">
-                  <span className="font-medium text-foreground">
+                <RadioDot selected={isSelected} />
+                <div className="flex min-w-0 flex-1 flex-col gap-px">
+                  <span
+                    className={`text-[13px] leading-normal text-foreground ${
+                      isSelected ? 'font-semibold' : 'font-normal'
+                    }`}
+                  >
                     {translateWithFallback(
                       t,
                       SORT_LABEL_KEYS[option].key,
                       SORT_LABEL_KEYS[option].fallback,
                     )}
                   </span>
-                  {isDefault ? (
-                    <span className="text-xs text-muted-foreground">
+                  {isDefault && isSelected ? (
+                    <span className="text-[11px] font-normal leading-normal text-muted-foreground">
                       {translateWithFallback(t, 'customers.deals.kanban.sort.default', 'Default')}
                     </span>
                   ) : null}
-                </span>
-                <span
-                  className={`inline-flex size-4 items-center justify-center rounded-full border ${
-                    isSelected ? 'border-primary bg-primary' : 'border-input'
-                  }`}
-                  aria-hidden="true"
-                >
-                  {isSelected ? <span className="size-1.5 rounded-full bg-primary-foreground" /> : null}
-                </span>
+                </div>
               </button>
             )
           })}
-        </div>
-
-        <div className="flex items-center justify-between border-t border-border p-3 text-xs text-muted-foreground">
-          <span>
-            {translateWithFallback(
-              t,
-              'customers.deals.kanban.sort.defaultHint',
-              'Default: {label}',
-              {
-                label: translateWithFallback(
-                  t,
-                  SORT_LABEL_KEYS[DEFAULT_SORT].key,
-                  SORT_LABEL_KEYS[DEFAULT_SORT].fallback,
-                ),
-              },
-            )}
-          </span>
-          <div className="flex items-center gap-2">
-            <Button variant="outline" size="sm" type="button" onClick={() => setOpen(false)}>
-              {translateWithFallback(t, 'customers.deals.kanban.filter.cancel', 'Cancel')}
-            </Button>
-            <Button size="sm" type="button" onClick={handleApply}>
-              {translateWithFallback(t, 'customers.deals.kanban.filter.apply', 'Apply')}
-            </Button>
-          </div>
-        </div>
+        </FilterPopoverShell>
       </PopoverContent>
     </Popover>
   )

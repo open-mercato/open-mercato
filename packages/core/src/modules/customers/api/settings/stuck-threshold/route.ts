@@ -7,6 +7,7 @@ import type { CommandBus, CommandRuntimeContext } from '@open-mercato/shared/lib
 import type { EntityManager } from '@mikro-orm/postgresql'
 import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
 import { CrudHttpError, isCrudHttpError } from '@open-mercato/shared/lib/crud/errors'
+import { readJsonSafe } from '@open-mercato/shared/lib/http/readJsonSafe'
 import {
   runCrudMutationGuardAfterSuccess,
   validateCrudMutationGuard,
@@ -94,7 +95,7 @@ export async function GET(req: Request) {
 export async function PUT(req: Request) {
   try {
     const { ctx, tenantId, organizationId, translate } = await resolveSettingsContext(req)
-    const payload = await req.json().catch(() => ({}))
+    const payload = await readJsonSafe(req, {})
     const scoped = withScopedPayload(payload, ctx, translate)
     const input = customerStuckThresholdUpsertSchema.parse(scoped)
 

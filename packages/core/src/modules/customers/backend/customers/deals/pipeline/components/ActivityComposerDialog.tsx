@@ -224,7 +224,7 @@ export function ActivityComposerDialog({
         if (!next) onClose()
       }}
     >
-      <DialogContent className="sm:max-w-[520px]">
+      <DialogContent>
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2">
             <Icon className="size-4" aria-hidden="true" />

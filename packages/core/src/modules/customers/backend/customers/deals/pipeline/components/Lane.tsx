@@ -2,7 +2,7 @@
 
 import * as React from 'react'
 import { useDroppable } from '@dnd-kit/core'
-import { Plus } from 'lucide-react'
+import { Button } from '@open-mercato/ui/primitives/button'
 import { EmptyState } from '@open-mercato/ui/primitives/empty-state'
 import type { RowActionItem } from '@open-mercato/ui/backend/RowActions'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
@@ -210,6 +210,11 @@ function LaneImpl({
   //  - any drag is active and this lane is not the source (so all candidate targets are clearly tagged)
   const showDropHighlight = isOver || (isDragActive && !sourceLane)
   const stats = React.useMemo(() => buildLaneStats(deals, aggregate), [deals, aggregate])
+  // Pull boolean out of the Set so each DealCard receives a stable primitive — that lets
+  // React.memo on DealCard skip re-renders when the Set reference changes but its emptiness
+  // does not. Flipping false→true (first selection) or true→false (last cleared) forces a
+  // full pass over the lane's cards so their checkbox visibility updates atomically.
+  const bulkSelectionActive = selectedDealIds.size > 0
   const totalLabel = stats.primaryAmount > 0 && stats.primaryCurrency
     ? `${compactCurrency(stats.primaryAmount)} ${stats.primaryCurrency}`
     : null
@@ -271,7 +276,8 @@ function LaneImpl({
         </div>
       </div>
 
-      <button
+      <Button
+        variant="ghost"
         type="button"
         onClick={handleQuickAdd}
         className="flex h-11 items-center justify-center gap-2.5 rounded-lg border border-dashed border-muted-foreground/60 bg-muted/40 text-sm font-semibold leading-normal text-foreground transition-colors hover:bg-muted/70 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
@@ -284,7 +290,7 @@ function LaneImpl({
       >
         <span className="text-base font-bold leading-none">+</span>
         <span>{translateWithFallback(t, 'customers.deals.kanban.cta.quickDeal', 'Quick deal')}</span>
-      </button>
+      </Button>
 
       <div
         ref={setNodeRef}
@@ -311,6 +317,7 @@ function LaneImpl({
               key={deal.id}
               deal={deal}
               selected={selectedDealIds.has(deal.id)}
+              bulkSelectionActive={bulkSelectionActive}
               buildMenuItems={buildMenuItems}
               isActiveDrag={activeDragDealId === deal.id}
               onToggleSelect={onToggleSelect}
@@ -320,7 +327,8 @@ function LaneImpl({
           ))
         )}
         {hasMoreDeals && onLoadMore ? (
-          <button
+          <Button
+            variant="ghost"
             type="button"
             onClick={() => onLoadMore(stage.id)}
             disabled={isLoadingMore}
@@ -340,7 +348,7 @@ function LaneImpl({
                   'Show more ({remaining})',
                   { remaining: totalCount - visibleCount },
                 )}
-          </button>
+          </Button>
         ) : null}
       </div>
       {onResize ? (

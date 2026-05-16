@@ -90,7 +90,7 @@ export function ChangeOwnerDialog({
         if (!next && !isSubmitting) onClose()
       }}
     >
-      <DialogContent className="sm:max-w-[480px]" onKeyDown={handleKeyDown}>
+      <DialogContent className="sm:max-w-md" onKeyDown={handleKeyDown}>
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2">
             <UserCircle2 className="size-4" aria-hidden="true" />
@@ -121,7 +121,7 @@ export function ChangeOwnerDialog({
             )}
             autoFocus
           />
-          <div className="flex max-h-[280px] flex-col gap-1 overflow-y-auto pr-1">
+          <div className="flex max-h-72 flex-col gap-1 overflow-y-auto pr-1">
             {isLoading ? (
               <div className="flex justify-center py-4">
                 <Spinner />
@@ -138,7 +138,8 @@ export function ChangeOwnerDialog({
               items.map((member) => {
                 const isSelected = selectedUserId === member.userId
                 return (
-                  <button
+                  <Button
+                    variant="ghost"
                     key={member.teamMemberId}
                     type="button"
                     onClick={() => setSelectedUserId(member.userId)}
@@ -155,7 +156,7 @@ export function ChangeOwnerDialog({
                         <span className="text-xs text-muted-foreground">{member.email}</span>
                       ) : null}
                     </span>
-                  </button>
+                  </Button>
                 )
               })
             )}

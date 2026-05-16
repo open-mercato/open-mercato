@@ -63,7 +63,7 @@ export function ChangeStageDialog({
         if (!next && !isSubmitting) onClose()
       }}
     >
-      <DialogContent className="sm:max-w-[420px]" onKeyDown={handleKeyDown}>
+      <DialogContent className="sm:max-w-md" onKeyDown={handleKeyDown}>
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2">
             <Workflow className="size-4" aria-hidden="true" />
@@ -88,7 +88,8 @@ export function ChangeStageDialog({
           {stages.map((stage) => {
             const isSelected = draftStageId === stage.id
             return (
-              <button
+              <Button
+                variant="ghost"
                 key={stage.id}
                 type="button"
                 onClick={() => setDraftStageId(stage.id)}
@@ -107,7 +108,7 @@ export function ChangeStageDialog({
                     <span className="size-1.5 rounded-full bg-primary-foreground" />
                   ) : null}
                 </span>
-              </button>
+              </Button>
             )
           })}
         </div>

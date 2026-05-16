@@ -10,6 +10,7 @@ import {
   DialogTitle,
 } from '@open-mercato/ui/primitives/dialog'
 import { Button } from '@open-mercato/ui/primitives/button'
+import { IconButton } from '@open-mercato/ui/primitives/icon-button'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { translateWithFallback } from '@open-mercato/shared/lib/i18n/translate'
 
@@ -55,7 +56,7 @@ export function CustomizeViewDialog({
         if (!next) onClose()
       }}
     >
-      <DialogContent className="sm:max-w-[480px]">
+      <DialogContent className="sm:max-w-md">
         <DialogHeader>
           <div className="flex items-center justify-between gap-2">
             <DialogTitle>
@@ -70,14 +71,15 @@ export function CustomizeViewDialog({
                   'Reset to default',
                 )}
               </Button>
-              <button
-                type="button"
+              <IconButton
+                variant="ghost"
+                size="xs"
                 onClick={onClose}
                 aria-label={translateWithFallback(t, 'customers.deals.kanban.filter.close', 'Close')}
                 className="inline-flex size-6 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-muted hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
               >
                 <X className="size-4" aria-hidden="true" />
-              </button>
+              </IconButton>
             </div>
           </div>
         </DialogHeader>
@@ -87,7 +89,8 @@ export function CustomizeViewDialog({
             <span className="text-overline font-semibold uppercase tracking-wider text-muted-foreground">
               {translateWithFallback(t, 'customers.deals.kanban.customize.actions', 'Actions')}
             </span>
-            <button
+            <Button
+              variant="ghost"
               type="button"
               onClick={onConfigureCardFields}
               className="flex items-center justify-between gap-2 rounded-md px-3 py-2 text-left transition-colors hover:bg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
@@ -109,7 +112,7 @@ export function CustomizeViewDialog({
                 </span>
               </span>
               <ChevronRight className="size-4 text-muted-foreground" aria-hidden="true" />
-            </button>
+            </Button>
             <Link
               href="/backend/config/customers/pipeline-stages"
               className="flex items-center justify-between gap-2 rounded-md px-3 py-2 text-left transition-colors hover:bg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
@@ -134,7 +137,8 @@ export function CustomizeViewDialog({
               <ChevronRight className="size-4 text-muted-foreground" aria-hidden="true" />
             </Link>
             {onResetColumnWidths ? (
-              <button
+              <Button
+                variant="ghost"
                 type="button"
                 disabled={resizedLanesCount === 0}
                 onClick={() => {
@@ -167,9 +171,10 @@ export function CustomizeViewDialog({
                   </span>
                 </span>
                 <ChevronRight className="size-4 text-muted-foreground" aria-hidden="true" />
-              </button>
+              </Button>
             ) : null}
-            <button
+            <Button
+              variant="ghost"
               type="button"
               onClick={() => {
                 onResetToDefault()
@@ -194,7 +199,7 @@ export function CustomizeViewDialog({
                 </span>
               </span>
               <ChevronRight className="size-4 text-muted-foreground" aria-hidden="true" />
-            </button>
+            </Button>
           </section>
         </div>
 

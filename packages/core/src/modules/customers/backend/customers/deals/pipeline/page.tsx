@@ -21,6 +21,7 @@ import { sortableKeyboardCoordinates } from '@dnd-kit/sortable'
 import { ChevronLeft, ChevronRight, Layers, Plus, RotateCcw, SlidersHorizontal, Workflow } from 'lucide-react'
 import { Page, PageBody } from '@open-mercato/ui/backend/Page'
 import { Button } from '@open-mercato/ui/primitives/button'
+import { IconButton } from '@open-mercato/ui/primitives/icon-button'
 import { SearchInput } from '@open-mercato/ui/primitives/search-input'
 import { Spinner } from '@open-mercato/ui/primitives/spinner'
 import { ErrorNotice } from '@open-mercato/ui/primitives/ErrorNotice'
@@ -37,6 +38,7 @@ import { useCurrentUserId } from '@open-mercato/ui/backend/utils/useCurrentUserI
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
 import { useConfirmDialog } from '@open-mercato/ui/backend/confirm-dialog'
 import { useGuardedMutation } from '@open-mercato/ui/backend/injection/useGuardedMutation'
+import { useAppEvent } from '@open-mercato/ui/backend/injection/useAppEvent'
 import type { RowActionItem } from '@open-mercato/ui/backend/RowActions'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { translateWithFallback } from '@open-mercato/shared/lib/i18n/translate'
@@ -89,6 +91,12 @@ type StageAggregateRow = {
 type StageAggregateResponse = {
   baseCurrencyCode: string | null
   perStage: StageAggregateRow[]
+}
+
+type BulkJobResponse = {
+  ok: boolean
+  progressJobId: string | null
+  message?: string
 }
 
 export type LaneAggregate = {
@@ -558,6 +566,7 @@ export default function DealsKanbanPage(): React.ReactElement {
       'kanban-aggregate',
       `scope:${scopeVersion}`,
       `pipeline:${selectedPipelineId ?? 'none'}`,
+      `search:${filterSignature.search}`,
       `status:${filterSignature.status}`,
       `owners:${filterSignature.owners}`,
       `people:${filterSignature.people}`,
@@ -570,6 +579,7 @@ export default function DealsKanbanPage(): React.ReactElement {
       if (!selectedPipelineId) return null
       const params = new URLSearchParams()
       params.set('pipelineId', selectedPipelineId)
+      if (filterSignature.search.length) params.set('search', filterSignature.search)
       for (const status of statusFilters) params.append('status', status)
       for (const ownerId of ownerFilters) params.append('ownerUserId', ownerId)
       for (const personId of peopleFilters) params.append('personId', personId)
@@ -652,7 +662,7 @@ export default function DealsKanbanPage(): React.ReactElement {
           params.set('page', '1')
           params.set('pageSize', String(LANE_PAGE_SIZE))
           params.set('pipelineId', selectedPipelineId)
-          if (stage.id !== '__unassigned') params.set('pipelineStageId', stage.id)
+          params.set('pipelineStageId', stage.id)
           params.set('sortField', apiSort.sortField)
           params.set('sortDir', apiSort.sortDir)
           if (filterSignature.search.length) params.set('search', filterSignature.search)
@@ -674,13 +684,6 @@ export default function DealsKanbanPage(): React.ReactElement {
             },
           )
           const items = Array.isArray(payload?.items) ? (payload!.items as DealApiRecord[]) : []
-          if (stage.id === '__unassigned') {
-            // The API can't filter by "no stage" yet; do it client-side
-            return {
-              items: items.filter((it) => !it.pipeline_stage_id || (typeof it.pipeline_stage_id === 'string' && !it.pipeline_stage_id.trim().length)),
-              total: typeof payload?.total === 'number' ? payload.total : items.length,
-            }
-          }
           return { items, total: typeof payload?.total === 'number' ? payload.total : items.length }
         },
       }
@@ -823,7 +826,7 @@ export default function DealsKanbanPage(): React.ReactElement {
         params.set('page', String(nextPage))
         params.set('pageSize', String(LANE_PAGE_SIZE))
         params.set('pipelineId', selectedPipelineId)
-        if (stageId !== '__unassigned') params.set('pipelineStageId', stageId)
+        params.set('pipelineStageId', stageId)
         // Show-more MUST request the same sort as page 1; otherwise the appended cards land
         // in an arbitrary order relative to the cards already on screen.
         params.set('sortField', apiSort.sortField)
@@ -840,12 +843,9 @@ export default function DealsKanbanPage(): React.ReactElement {
         )
         if (!call.ok) return
         const items = Array.isArray(call.result?.items) ? (call.result!.items as DealApiRecord[]) : []
-        const filtered = stageId === '__unassigned'
-          ? items.filter((it) => !it.pipeline_stage_id || (typeof it.pipeline_stage_id === 'string' && !it.pipeline_stage_id.trim().length))
-          : items
         setExtraCardsByStage((prev) => ({
           ...prev,
-          [stageId]: [...(prev[stageId] ?? []), ...filtered],
+          [stageId]: [...(prev[stageId] ?? []), ...items],
         }))
       } finally {
         setLoadingMoreByStage((prev) => {
@@ -888,6 +888,49 @@ export default function DealsKanbanPage(): React.ReactElement {
     // Clear appended pages — they'll be re-fetched on demand by the user
     setExtraCardsByStage({})
   }, [queryClient])
+
+  const trackedBulkProgressJobIdsRef = React.useRef(new Set<string>())
+
+  const trackBulkProgressJob = React.useCallback((jobId: string | null | undefined) => {
+    if (!jobId) return
+    trackedBulkProgressJobIdsRef.current.add(jobId)
+  }, [])
+
+  const clearTrackedBulkProgressJob = React.useCallback((jobId: string | null): boolean => {
+    if (!jobId) return false
+    return trackedBulkProgressJobIdsRef.current.delete(jobId)
+  }, [])
+
+  useAppEvent(
+    'progress.job.completed',
+    (event) => {
+      const payload = event.payload as { jobId?: unknown } | null | undefined
+      const jobId = typeof payload?.jobId === 'string' ? payload.jobId : null
+      if (!clearTrackedBulkProgressJob(jobId)) return
+      invalidateKanbanData()
+    },
+    [clearTrackedBulkProgressJob, invalidateKanbanData],
+  )
+
+  useAppEvent(
+    'progress.job.failed',
+    (event) => {
+      const payload = event.payload as { jobId?: unknown } | null | undefined
+      const jobId = typeof payload?.jobId === 'string' ? payload.jobId : null
+      clearTrackedBulkProgressJob(jobId)
+    },
+    [clearTrackedBulkProgressJob],
+  )
+
+  useAppEvent(
+    'progress.job.cancelled',
+    (event) => {
+      const payload = event.payload as { jobId?: unknown } | null | undefined
+      const jobId = typeof payload?.jobId === 'string' ? payload.jobId : null
+      clearTrackedBulkProgressJob(jobId)
+    },
+    [clearTrackedBulkProgressJob],
+  )
 
   const sensors = useSensors(
     useSensor(PointerSensor, { activationConstraint: { distance: 4 } }),
@@ -1390,10 +1433,6 @@ export default function DealsKanbanPage(): React.ReactElement {
     [handleComingSoon, t],
   )
 
-  const handleAddFilter = React.useCallback(() => {
-    handleComingSoon(translateWithFallback(t, 'customers.deals.kanban.filter.more', 'More filters'))
-  }, [handleComingSoon, t])
-
   const handleCustomizeView = React.useCallback(() => {
     setCustomizeOpen(true)
   }, [])
@@ -1605,30 +1644,51 @@ export default function DealsKanbanPage(): React.ReactElement {
 
   const bulkSelectionSummary = React.useMemo(() => {
     if (selectedDealIds.size === 0) return { count: 0, totalLabel: null, currency: null as string | null, ids: [] as string[] }
-    let total = 0
-    let currency: string | null = null
+    // Group totals by currency so the label is HONEST when the selection mixes currencies.
+    // The previous implementation summed `valueAmount` across every selected deal and labeled
+    // the result with whichever currency happened to appear first — e.g. selecting €100k + $50k
+    // displayed as "€150k", which is meaningless. We now keep one bucket per currency.
+    const totalsByCurrency = new Map<string, number>()
     const ids: string[] = []
     for (const deal of deals) {
       if (!selectedDealIds.has(deal.id)) continue
       ids.push(deal.id)
-      if (typeof deal.valueAmount === 'number' && Number.isFinite(deal.valueAmount)) {
-        total += deal.valueAmount
-        if (!currency && deal.valueCurrency) currency = deal.valueCurrency
+      if (typeof deal.valueAmount === 'number' && Number.isFinite(deal.valueAmount) && deal.valueAmount > 0) {
+        const code = deal.valueCurrency && deal.valueCurrency.length === 3
+          ? deal.valueCurrency.toUpperCase()
+          : 'USD'
+        totalsByCurrency.set(code, (totalsByCurrency.get(code) ?? 0) + deal.valueAmount)
       }
     }
-    let totalLabel: string | null = null
-    if (total > 0) {
-      const code = currency && currency.length === 3 ? currency.toUpperCase() : 'USD'
+    const rows = Array.from(totalsByCurrency.entries())
+      .map(([code, amount]) => ({ code, amount }))
+      .sort((a, b) => b.amount - a.amount)
+    const formatOne = (code: string, amount: number) => {
       try {
-        totalLabel = new Intl.NumberFormat(undefined, {
+        return new Intl.NumberFormat(undefined, {
           style: 'currency',
           currency: code,
           maximumFractionDigits: 0,
-        }).format(total)
+        }).format(amount)
       } catch {
-        totalLabel = `${code} ${Math.round(total)}`
+        return `${code} ${Math.round(amount)}`
       }
     }
+    let totalLabel: string | null = null
+    if (rows.length === 1) {
+      totalLabel = formatOne(rows[0].code, rows[0].amount)
+    } else if (rows.length >= 2) {
+      // Concatenate per-currency totals with " + " so multi-currency selections stay readable.
+      // Capping at 3 visible rows keeps the bar narrow; the rest collapses into "+N more"
+      // so the operator sees the dominant currencies and an explicit "mixed" hint without
+      // misleading aggregation across rates.
+      const visible = rows.slice(0, 3).map((row) => formatOne(row.code, row.amount))
+      const overflow = rows.length - visible.length
+      totalLabel = overflow > 0 ? `${visible.join(' + ')} +${overflow}` : visible.join(' + ')
+    }
+    // `currency` (singular) is intentionally null when 2+ currencies are present so downstream
+    // consumers (CSV export, change-stage dialog) don't assume a single canonical currency.
+    const currency = rows.length === 1 ? rows[0].code : null
     return { count: ids.length, totalLabel, currency, ids }
   }, [deals, selectedDealIds])
 
@@ -1649,6 +1709,7 @@ export default function DealsKanbanPage(): React.ReactElement {
     async (stageId: string) => {
       if (bulkSelectionSummary.ids.length === 0) return
       setIsBulkMutating(true)
+      let progressJobId: string | null = null
       try {
         // Bulk writes MUST go through useGuardedMutation so injection modules (record-lock
         // conflict handling, retry chains, scoped headers) run the same `onBeforeSave`/
@@ -1657,7 +1718,7 @@ export default function DealsKanbanPage(): React.ReactElement {
         // surfaces the error message via flash().
         await runDealMutation({
           operation: async () => {
-            await apiCallOrThrow(
+            const call = await apiCallOrThrow<BulkJobResponse>(
               '/api/customers/deals/bulk-update-stage',
               {
                 method: 'POST',
@@ -1675,6 +1736,7 @@ export default function DealsKanbanPage(): React.ReactElement {
                 ),
               },
             )
+            progressJobId = call.result?.progressJobId ?? null
           },
           context: {
             formId: dealMutationContextId,
@@ -1694,6 +1756,9 @@ export default function DealsKanbanPage(): React.ReactElement {
         )
         setChangeStageOpen(false)
         setSelectedDealIds(new Set())
+        if (progressJobId) {
+          trackBulkProgressJob(progressJobId)
+        }
         invalidateKanbanData()
       } catch (error) {
         const message =
@@ -1717,6 +1782,7 @@ export default function DealsKanbanPage(): React.ReactElement {
       retryDealMutation,
       runDealMutation,
       t,
+      trackBulkProgressJob,
     ],
   )
 
@@ -1724,10 +1790,11 @@ export default function DealsKanbanPage(): React.ReactElement {
     async (ownerUserId: string | null) => {
       if (bulkSelectionSummary.ids.length === 0) return
       setIsBulkMutating(true)
+      let progressJobId: string | null = null
       try {
         await runDealMutation({
           operation: async () => {
-            await apiCallOrThrow(
+            const call = await apiCallOrThrow<BulkJobResponse>(
               '/api/customers/deals/bulk-update-owner',
               {
                 method: 'POST',
@@ -1745,6 +1812,7 @@ export default function DealsKanbanPage(): React.ReactElement {
                 ),
               },
             )
+            progressJobId = call.result?.progressJobId ?? null
           },
           context: {
             formId: dealMutationContextId,
@@ -1764,6 +1832,9 @@ export default function DealsKanbanPage(): React.ReactElement {
         )
         setChangeOwnerOpen(false)
         setSelectedDealIds(new Set())
+        if (progressJobId) {
+          trackBulkProgressJob(progressJobId)
+        }
         invalidateKanbanData()
       } catch (error) {
         const message =
@@ -1787,6 +1858,7 @@ export default function DealsKanbanPage(): React.ReactElement {
       retryDealMutation,
       runDealMutation,
       t,
+      trackBulkProgressJob,
     ],
   )
 
@@ -2311,7 +2383,7 @@ export default function DealsKanbanPage(): React.ReactElement {
                   'customers.deals.kanban.search.placeholder',
                   'Search deals…',
                 )}
-                className="w-[260px]"
+                className="w-64"
               />
               {Object.keys(laneWidths).length > 0 ? (
                 <Button
@@ -2354,7 +2426,7 @@ export default function DealsKanbanPage(): React.ReactElement {
                 value={selectedPipelineId ?? undefined}
                 onValueChange={(value) => setSelectedPipelineId(value || null)}
               >
-                <SelectTrigger className="w-auto min-w-[12rem]">
+                <SelectTrigger className="w-auto min-w-48">
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
@@ -2376,7 +2448,6 @@ export default function DealsKanbanPage(): React.ReactElement {
           chips={filterChips}
           sortNode={sortNode}
           onChipClick={handleChipClick}
-          onAddFilterClick={handleAddFilter}
         />
 
         {!selectedPipelineId ? (
@@ -2422,8 +2493,10 @@ export default function DealsKanbanPage(): React.ReactElement {
               are absolute inside the gutter so they never overlap card content. */}
           <div className="flex items-stretch">
             <div className="relative flex w-9 shrink-0">
-              <button
-                type="button"
+              <IconButton
+                variant="outline"
+                size="lg"
+                fullRadius
                 onClick={handleScrollPrev}
                 onPointerDown={handleHoldPrevStart}
                 onPointerUp={stopContinuousScroll}
@@ -2436,7 +2509,7 @@ export default function DealsKanbanPage(): React.ReactElement {
                 }`}
               >
                 <ChevronLeft className="size-5" aria-hidden="true" />
-              </button>
+              </IconButton>
             </div>
             <div
               ref={setBoardScroller}
@@ -2485,8 +2558,10 @@ export default function DealsKanbanPage(): React.ReactElement {
               )}
             </div>
             <div className="relative flex w-9 shrink-0">
-              <button
-                type="button"
+              <IconButton
+                variant="outline"
+                size="lg"
+                fullRadius
                 onClick={handleScrollNext}
                 onPointerDown={handleHoldNextStart}
                 onPointerUp={stopContinuousScroll}
@@ -2499,7 +2574,7 @@ export default function DealsKanbanPage(): React.ReactElement {
                 }`}
               >
                 <ChevronRight className="size-5" aria-hidden="true" />
-              </button>
+              </IconButton>
             </div>
           </div>
             <DragOverlay dropAnimation={null}>

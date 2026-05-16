@@ -7,6 +7,8 @@ import {
   PopoverContent,
   PopoverTrigger,
 } from '@open-mercato/ui/primitives/popover'
+import { Button } from '@open-mercato/ui/primitives/button'
+import { IconButton } from '@open-mercato/ui/primitives/icon-button'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { translateWithFallback } from '@open-mercato/shared/lib/i18n/translate'
 
@@ -71,7 +73,9 @@ export function LaneCurrencyBreakdown({
   return (
     <Popover open={open} onOpenChange={setOpen}>
       <PopoverTrigger asChild>
-        <button
+        <Button
+          variant="ghost"
+          size="sm"
           type="button"
           aria-label={translateWithFallback(
             t,
@@ -85,11 +89,11 @@ export function LaneCurrencyBreakdown({
           }
         >
           {triggerLabel}
-        </button>
+        </Button>
       </PopoverTrigger>
       <PopoverContent
         align="end"
-        className="w-[260px] p-0"
+        className="w-64 p-0"
         onCloseAutoFocus={(event) => event.preventDefault()}
       >
         <div className="flex items-center justify-between border-b border-border px-3 py-2">
@@ -100,14 +104,15 @@ export function LaneCurrencyBreakdown({
               'Per-currency breakdown',
             )}
           </span>
-          <button
-            type="button"
+          <IconButton
+            variant="ghost"
+            size="xs"
             onClick={() => setOpen(false)}
             aria-label={closeLabel}
             className="inline-flex size-6 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-muted hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
           >
             <span aria-hidden="true">×</span>
-          </button>
+          </IconButton>
         </div>
         <ul className="flex flex-col gap-1 px-3 py-2 text-sm">
           {rows.map((row) => {

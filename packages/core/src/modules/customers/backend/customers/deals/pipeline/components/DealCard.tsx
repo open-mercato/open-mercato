@@ -4,6 +4,7 @@ import * as React from 'react'
 import { useDraggable } from '@dnd-kit/core'
 import { AlertTriangle, Building2, Calendar, Clock, Mail, Phone, StickyNote } from 'lucide-react'
 import { Avatar } from '@open-mercato/ui/primitives/avatar'
+import { Button } from '@open-mercato/ui/primitives/button'
 import { Checkbox } from '@open-mercato/ui/primitives/checkbox'
 import type { RowActionItem } from '@open-mercato/ui/backend/RowActions'
 import { DealCardMenu } from './DealCardMenu'
@@ -46,6 +47,15 @@ export type DealCardData = {
 type DealCardProps = {
   deal: DealCardData
   selected: boolean
+  /**
+   * `true` whenever at least one deal anywhere on the board is selected. Forces the
+   * checkbox to render even when this card is not yet selected and not currently hovered,
+   * so the operator can multi-select without re-aiming at the small 16px target after
+   * every click. Without this, the second-click had to land precisely on the still-hidden
+   * checkbox area before the `:hover` made it visible, which is what the spec called
+   * "persistent visibility once any card is selected".
+   */
+  bulkSelectionActive?: boolean
   /** Stable function called once per render to build the row-action items for this deal */
   buildMenuItems: (deal: DealCardData) => RowActionItem[]
   extraCompaniesCount?: number
@@ -60,24 +70,29 @@ const ACTIVITY_BADGE_CAP = 9
 const ACTIVITY_BADGE_WARNING_THRESHOLD = 9
 const AVATAR_STACK_MAX = 3
 
-// Hash-derived avatar accent colors mirroring Figma palette (cyan / violet / orange / slate / green / pink).
-// Each tuple is the background colour + safe contrast text colour.
-const AVATAR_PALETTE: Array<{ bg: string; text: string }> = [
-  { bg: 'oklch(0.72 0.16 220)', text: '#ffffff' }, // cyan
-  { bg: 'oklch(0.55 0.2 293)', text: '#ffffff' }, // violet
-  { bg: 'oklch(0.74 0.18 60)', text: '#ffffff' }, // orange
-  { bg: 'oklch(0.45 0.06 256)', text: '#ffffff' }, // slate
-  { bg: 'oklch(0.68 0.18 145)', text: '#ffffff' }, // green
-  { bg: 'oklch(0.66 0.21 0)', text: '#ffffff' }, // red/pink
+// Hash-derived avatar accent classes that map to semantic DS tokens (no hardcoded oklch/hex).
+// Each entry uses the saturated `*-icon` background (Figma calls for vivid, not pale, avatars)
+// paired with white-on-tone text since `*-icon` tokens are saturated foreground colors. The
+// choice is deterministic-but-arbitrary — we only need stable visual differentiation between
+// different owners, not semantic mapping to status meanings.
+const AVATAR_ACCENT_CLASSES: string[] = [
+  'bg-status-info-icon text-white',
+  'bg-brand-violet text-brand-violet-foreground',
+  'bg-status-warning-icon text-white',
+  'bg-status-neutral-icon text-white',
+  'bg-status-success-icon text-white',
+  'bg-status-pink-icon text-white',
 ]
 
-function hashAccent(seed: string): { bg: string; text: string } {
+function hashAccent(seed: string): string {
+  // Deterministic hash (Java string-hash variant). The bit pattern is not cryptographically
+  // meaningful — it only needs to spread inputs across the palette indices.
   let h = 0
   for (let i = 0; i < seed.length; i += 1) {
     h = ((h << 5) - h + seed.charCodeAt(i)) | 0
   }
-  const idx = Math.abs(h) % AVATAR_PALETTE.length
-  return AVATAR_PALETTE[idx]
+  const idx = Math.abs(h) % AVATAR_ACCENT_CLASSES.length
+  return AVATAR_ACCENT_CLASSES[idx]
 }
 
 function splitCurrencyAmount(amount: number, currency: string | null): { display: string; code: string | null } {
@@ -118,6 +133,7 @@ function shortDealRef(id: string): string {
 function DealCardImpl({
   deal,
   selected,
+  bulkSelectionActive = false,
   buildMenuItems,
   extraCompaniesCount = 0,
   extraOwners,
@@ -170,6 +186,15 @@ function DealCardImpl({
   const handleCardClick = (event: React.MouseEvent<HTMLDivElement>) => {
     const target = event.target as HTMLElement
     if (target.closest('[data-card-action="true"]')) return
+    // Once at least one card is selected the board is in "bulk-select mode" — clicking
+    // anywhere on a card toggles that card's selection rather than navigating to the
+    // detail page. This matches Gmail/Asana selection semantics and rescues the
+    // user-reported failure mode where a slight mis-aim at the 16px checkbox button
+    // navigated to the deal instead of adding it to the selection.
+    if (bulkSelectionActive) {
+      onToggleSelect(deal.id)
+      return
+    }
     onOpenDetail(deal.id)
   }
 
@@ -237,7 +262,7 @@ function DealCardImpl({
         <div
           data-card-action="true"
           className={`mr-0.5 mt-0.5 shrink-0 ${
-            selected
+            selected || bulkSelectionActive
               ? 'flex'
               : 'hidden group-hover:flex group-focus-within:flex [@media(hover:none)]:flex'
           }`}
@@ -328,7 +353,9 @@ function DealCardImpl({
             'inline-flex shrink-0 items-center gap-1.5 whitespace-nowrap rounded-md px-2 py-1 text-sm font-medium text-muted-foreground transition-colors hover:bg-muted hover:text-foreground disabled:pointer-events-none disabled:opacity-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2'
           return (
             <>
-              <button
+              <Button
+                variant="ghost"
+                size="sm"
                 type="button"
                 onClick={handleActionClick('call')}
                 disabled={disabled}
@@ -338,8 +365,10 @@ function DealCardImpl({
               >
                 <Phone className="size-3.5 shrink-0" aria-hidden="true" />
                 <span>{translateWithFallback(t, 'customers.deals.kanban.card.action.call', 'Call')}</span>
-              </button>
-              <button
+              </Button>
+              <Button
+                variant="ghost"
+                size="sm"
                 type="button"
                 onClick={handleActionClick('email')}
                 disabled={disabled}
@@ -349,8 +378,10 @@ function DealCardImpl({
               >
                 <Mail className="size-3.5 shrink-0" aria-hidden="true" />
                 <span>{translateWithFallback(t, 'customers.deals.kanban.card.action.email', 'Email')}</span>
-              </button>
-              <button
+              </Button>
+              <Button
+                variant="ghost"
+                size="sm"
                 type="button"
                 onClick={handleActionClick('note')}
                 disabled={disabled}
@@ -360,7 +391,7 @@ function DealCardImpl({
               >
                 <StickyNote className="size-3.5 shrink-0" aria-hidden="true" />
                 <span>{translateWithFallback(t, 'customers.deals.kanban.card.action.note', 'Note')}</span>
-              </button>
+              </Button>
             </>
           )
         })()}
@@ -450,14 +481,13 @@ function DealCardImpl({
         {ownersStack.length > 0 ? (
           <div className="flex items-center">
             {visibleOwners.map((owner, idx) => {
-              const accent = hashAccent(owner.userId)
+              const accentClass = hashAccent(owner.userId)
               return (
                 <Avatar
                   key={`${owner.userId}-${idx}`}
                   label={owner.label || owner.userId.slice(0, 2).toUpperCase()}
                   size="sm"
-                  style={{ backgroundColor: accent.bg, color: accent.text }}
-                  className={`size-7 text-xs font-bold ring-2 ring-card ${idx > 0 ? '-ml-2.5' : ''}`}
+                  className={`size-7 text-xs font-bold ring-2 ring-card ${accentClass} ${idx > 0 ? '-ml-2.5' : ''}`}
                 />
               )
             })}
@@ -481,6 +511,7 @@ function DealCardImpl({
 export const DealCard = React.memo(DealCardImpl, (prev, next) => {
   if (prev.deal !== next.deal) return false
   if (prev.selected !== next.selected) return false
+  if (prev.bulkSelectionActive !== next.bulkSelectionActive) return false
   if (prev.isActiveDrag !== next.isActiveDrag) return false
   if (prev.buildMenuItems !== next.buildMenuItems) return false
   if (prev.extraCompaniesCount !== next.extraCompaniesCount) return false

@@ -2,6 +2,8 @@
 
 import * as React from 'react'
 import { Download, Trash2, Workflow, UserCircle2, X } from 'lucide-react'
+import { Button } from '@open-mercato/ui/primitives/button'
+import { IconButton } from '@open-mercato/ui/primitives/icon-button'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { translateWithFallback } from '@open-mercato/shared/lib/i18n/translate'
 
@@ -37,8 +39,9 @@ export function BulkActionsBar({
       )}
       className="fixed bottom-6 left-1/2 z-toast flex w-[min(960px,calc(100%-2rem))] -translate-x-1/2 items-center gap-3 rounded-lg bg-foreground px-4 py-3 text-background shadow-xl"
     >
-      <button
-        type="button"
+      <IconButton
+        variant="ghost"
+        size="xs"
         onClick={onClear}
         aria-label={translateWithFallback(
           t,
@@ -48,7 +51,7 @@ export function BulkActionsBar({
         className="inline-flex size-6 items-center justify-center rounded-md transition-colors hover:bg-background/10 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-foreground"
       >
         <X className="size-4" aria-hidden="true" />
-      </button>
+      </IconButton>
 
       <span className="inline-flex size-7 items-center justify-center rounded-md bg-background/10 text-xs font-semibold">
         {count}
@@ -73,7 +76,9 @@ export function BulkActionsBar({
       ) : null}
 
       <div className="ml-auto flex items-center gap-1">
-        <button
+        <Button
+          variant="ghost"
+          size="sm"
           type="button"
           onClick={onChangeStage}
           className="inline-flex items-center gap-1 rounded-md px-3 py-1 text-sm transition-colors hover:bg-background/10 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-foreground"
@@ -86,8 +91,10 @@ export function BulkActionsBar({
               'Change stage',
             )}
           </span>
-        </button>
-        <button
+        </Button>
+        <Button
+          variant="ghost"
+          size="sm"
           type="button"
           onClick={onChangeOwner}
           className="inline-flex items-center gap-1 rounded-md px-3 py-1 text-sm transition-colors hover:bg-background/10 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-foreground"
@@ -100,8 +107,10 @@ export function BulkActionsBar({
               'Change owner',
             )}
           </span>
-        </button>
-        <button
+        </Button>
+        <Button
+          variant="ghost"
+          size="sm"
           type="button"
           onClick={onExportCsv}
           className="inline-flex items-center gap-1 rounded-md px-3 py-1 text-sm transition-colors hover:bg-background/10 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-foreground"
@@ -114,8 +123,10 @@ export function BulkActionsBar({
               'Export CSV',
             )}
           </span>
-        </button>
-        <button
+        </Button>
+        <Button
+          variant="destructive-ghost"
+          size="sm"
           type="button"
           onClick={onDelete}
           className="inline-flex items-center gap-1 rounded-md px-3 py-1 text-sm text-status-error-text transition-colors hover:bg-status-error-bg/10 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-foreground"
@@ -128,7 +139,7 @@ export function BulkActionsBar({
               'Delete',
             )}
           </span>
-        </button>
+        </Button>
       </div>
     </div>
   )

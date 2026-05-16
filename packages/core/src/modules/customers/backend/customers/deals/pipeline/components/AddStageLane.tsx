@@ -1,6 +1,7 @@
 "use client"
 
 import * as React from 'react'
+import { Button } from '@open-mercato/ui/primitives/button'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { translateWithFallback } from '@open-mercato/shared/lib/i18n/translate'
 
@@ -14,7 +15,8 @@ export function AddStageLane({ onClick, disabled = false }: AddStageLaneProps): 
   const label = translateWithFallback(t, 'customers.deals.kanban.cta.newStage', 'New stage')
 
   return (
-    <button
+    <Button
+      variant="ghost"
       type="button"
       onClick={onClick}
       disabled={disabled}
@@ -23,7 +25,7 @@ export function AddStageLane({ onClick, disabled = false }: AddStageLaneProps): 
     >
       <span className="text-3xl font-bold leading-none">+</span>
       <span className="text-base font-semibold leading-normal">{label}</span>
-    </button>
+    </Button>
   )
 }
 

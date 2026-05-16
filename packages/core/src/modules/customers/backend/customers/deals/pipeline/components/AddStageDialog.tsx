@@ -209,11 +209,13 @@ export function AddStageDialog({
         component: ({ value, setValue }) => {
           const current = typeof value === 'string' && value.length > 0 ? value : POSITION_END
           return (
-            <div className="flex max-h-[200px] flex-col gap-1 overflow-y-auto rounded-md border border-input bg-card p-1">
+            <div className="flex max-h-52 flex-col gap-1 overflow-y-auto rounded-md border border-input bg-card p-1">
               {positionOptions.map((option) => {
                 const selected = current === option.value
                 return (
-                  <button
+                  <Button
+                    variant="ghost"
+                    size="sm"
                     key={option.value}
                     type="button"
                     onClick={() => setValue(option.value)}
@@ -235,7 +237,7 @@ export function AddStageDialog({
                         <span className="size-1.5 rounded-full bg-primary-foreground" />
                       ) : null}
                     </span>
-                  </button>
+                  </Button>
                 )
               })}
             </div>
@@ -256,7 +258,9 @@ export function AddStageDialog({
                 const selected = current === option.value
                 const label = translateWithFallback(t, option.labelKey, option.labelFallback)
                 return (
-                  <button
+                  <Button
+                    variant="outline"
+                    size="sm"
                     key={option.value || 'none'}
                     type="button"
                     onClick={() => setValue(option.value)}
@@ -281,7 +285,7 @@ export function AddStageDialog({
                       />
                     )}
                     <span>{label}</span>
-                  </button>
+                  </Button>
                 )
               })}
             </div>
@@ -348,7 +352,7 @@ export function AddStageDialog({
         if (!next) onClose()
       }}
     >
-      <DialogContent className="sm:max-w-[480px]">
+      <DialogContent className="sm:max-w-md">
         <DialogHeader>
           <DialogTitle>
             {translateWithFallback(t, 'customers.deals.kanban.addStage.title', 'New stage')}

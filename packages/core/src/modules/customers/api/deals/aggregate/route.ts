@@ -5,7 +5,12 @@ import type { EntityManager as PgEntityManager } from '@mikro-orm/postgresql'
 import { getAuthFromRequest } from '@open-mercato/shared/lib/auth/server'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import type { ExchangeRateService } from '@open-mercato/core/modules/currencies/services/exchangeRateService'
+import { parseBooleanFromUnknown } from '@open-mercato/shared/lib/boolean'
+import { escapeLikePattern } from '@open-mercato/shared/lib/db/escapeLikePattern'
+import type { CrudCtx } from '@open-mercato/shared/lib/crud/factory'
 import { fetchStuckDealIds } from '../../../lib/stuckDeals'
+import { findMatchingEntityIdsBySearchTokensAcrossSources } from '../../utils'
+import { E } from '#generated/entities.ids.generated'
 
 export const metadata = {
   GET: { requireAuth: true, requireFeatures: ['customers.deals.view'] },
@@ -13,12 +18,19 @@ export const metadata = {
 
 const querySchema = z.object({
   pipelineId: z.string().uuid().optional(),
+  search: z.string().optional(),
   status: z.array(z.enum(['open', 'closed', 'win', 'loose'])).optional(),
   ownerUserId: z.array(z.string().uuid()).optional(),
   personId: z.array(z.string().uuid()).optional(),
   companyId: z.array(z.string().uuid()).optional(),
-  isStuck: z.coerce.boolean().optional(),
-  isOverdue: z.coerce.boolean().optional(),
+  isStuck: z.preprocess((value) => {
+    const parsed = parseBooleanFromUnknown(value)
+    return parsed === null ? value : parsed
+  }, z.boolean()).optional(),
+  isOverdue: z.preprocess((value) => {
+    const parsed = parseBooleanFromUnknown(value)
+    return parsed === null ? value : parsed
+  }, z.boolean()).optional(),
   expectedCloseAtFrom: z.string().optional(),
   expectedCloseAtTo: z.string().optional(),
 })
@@ -70,6 +82,17 @@ function readArrayParam(searchParams: URLSearchParams, key: string): string[] | 
   return trimmed.length ? trimmed : null
 }
 
+function restrictToIds(where: string[], values: Array<string | number | null>, ids: string[]) {
+  if (ids.length === 0) {
+    where.push('id = ?')
+    values.push('00000000-0000-0000-0000-000000000000')
+    return
+  }
+  const placeholders = ids.map(() => '?').join(',')
+  where.push(`id IN (${placeholders})`)
+  values.push(...ids)
+}
+
 export async function GET(req: Request) {
   const auth = await getAuthFromRequest(req)
   if (!auth?.tenantId || !auth.orgId) {
@@ -80,6 +103,7 @@ export async function GET(req: Request) {
   const params = url.searchParams
   const parsed = querySchema.safeParse({
     pipelineId: params.get('pipelineId') ?? undefined,
+    search: params.get('search') ?? undefined,
     status: readArrayParam(params, 'status') ?? undefined,
     ownerUserId: readArrayParam(params, 'ownerUserId') ?? undefined,
     personId: readArrayParam(params, 'personId') ?? undefined,
@@ -115,6 +139,44 @@ export async function GET(req: Request) {
     where.push('pipeline_id = ?')
     values.push(parsed.data.pipelineId)
   }
+  const search = parsed.data.search?.trim()
+  if (search) {
+    const searchCtx: CrudCtx = {
+      container,
+      auth,
+      organizationScope: null,
+      selectedOrganizationId: auth.orgId,
+      organizationIds: [auth.orgId],
+      request: req,
+    }
+    const matchingIds = await findMatchingEntityIdsBySearchTokensAcrossSources({
+      ctx: searchCtx,
+      query: search,
+      sources: [
+        {
+          entityType: E.customers.customer_deal,
+          fields: [
+            'title',
+            'description',
+            'status',
+            'pipeline_stage',
+            'source',
+            'value_amount',
+            'value_currency',
+            'cf:competitive_risk',
+            'cf:implementation_complexity',
+          ],
+        },
+      ],
+    })
+    if (matchingIds !== null && matchingIds.length > 0) {
+      restrictToIds(where, values, matchingIds)
+    } else {
+      const searchPattern = `%${escapeLikePattern(search)}%`
+      where.push("(title ILIKE ? ESCAPE '\\' OR description ILIKE ? ESCAPE '\\')")
+      values.push(searchPattern, searchPattern)
+    }
+  }
   if (parsed.data.status && parsed.data.status.length) {
     const placeholders = parsed.data.status.map(() => '?').join(',')
     where.push(`status IN (${placeholders})`)
@@ -141,14 +203,7 @@ export async function GET(req: Request) {
     // cards rendered inside each lane agree on the same definition of "stuck". Empty result
     // → narrow to a sentinel UUID so the WHERE clause collapses to zero rows.
     const stuckIds = await fetchStuckDealIds(em as unknown as PgEntityManager, auth.orgId, auth.tenantId)
-    if (stuckIds.length === 0) {
-      where.push('id = ?')
-      values.push('00000000-0000-0000-0000-000000000000')
-    } else {
-      const placeholders = stuckIds.map(() => '?').join(',')
-      where.push(`id IN (${placeholders})`)
-      values.push(...stuckIds)
-    }
+    restrictToIds(where, values, stuckIds)
   }
   if (parsed.data.personId && parsed.data.personId.length) {
     const placeholders = parsed.data.personId.map(() => '?').join(',')
@@ -248,8 +303,11 @@ export async function GET(req: Request) {
             }
           }
         }
-      } catch {
-        // Swallow — partial totals are still useful and we'll fall back to currency-native sums
+      } catch (err) {
+        // Swallow — partial totals are still useful and we'll fall back to currency-native
+        // sums. Logging at warn level so operators can correlate missing-rate disclosures in
+        // the UI (`convertedAll: false` / `missingRateCurrencies`) with the underlying error.
+        console.warn('[customers.deals.aggregate] exchange-rate lookup failed; falling back to per-currency totals', err)
       }
     }
 

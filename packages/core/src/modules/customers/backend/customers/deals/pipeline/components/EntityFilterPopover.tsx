@@ -1,7 +1,7 @@
 "use client"
 
 import * as React from 'react'
-import { Check, Search, X } from 'lucide-react'
+import { Check, Search } from 'lucide-react'
 import {
   Popover,
   PopoverContent,
@@ -12,6 +12,7 @@ import { Spinner } from '@open-mercato/ui/primitives/spinner'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { translateWithFallback } from '@open-mercato/shared/lib/i18n/translate'
 import { ChipButton } from './ChipButton'
+import { FilterPopoverShell } from './FilterPopoverShell'
 
 export type EntityFilterOption = {
   value: string
@@ -40,8 +41,10 @@ type EntityFilterPopoverProps = {
 const DEBOUNCE_MS = 250
 
 /**
- * Reusable async-search multi-select popover used by Owner / People / Companies kanban filter chips.
- * Mirrors the pattern from People list page's owner filter but bound to a chip trigger.
+ * Reusable async-search multi-select popover used by Owner / People / Companies kanban filter
+ * chips. Wraps the shared FilterPopoverShell so the chrome (rounded-2xl container, white header
+ * with bold title, muted footer with Cancel + Apply) matches the SPEC-048 mock surfaces for the
+ * Status (1045:11861) and Pipeline (1045:11917) popovers.
  */
 export function EntityFilterPopover({
   label,
@@ -132,97 +135,115 @@ export function EntityFilterPopover({
     }
   }
 
+  const headerTitle = title ?? translateWithFallback(
+    t,
+    'customers.deals.kanban.filter.title',
+    'Filter · {label}',
+    { label },
+  )
+
+  const footerLeft = (
+    <div className="flex items-center gap-3">
+      <span>
+        {draft.length === 0
+          ? translateWithFallback(t, 'customers.deals.kanban.filter.noneSelected', 'None selected')
+          : translateWithFallback(
+              t,
+              'customers.deals.kanban.filter.countSelected',
+              '{count} selected',
+              { count: draft.length },
+            )}
+      </span>
+      {draft.length > 0 ? (
+        <button
+          type="button"
+          onClick={handleClear}
+          className="text-[12px] font-medium leading-normal text-muted-foreground underline-offset-2 transition-colors hover:text-foreground hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
+        >
+          {translateWithFallback(t, 'customers.deals.kanban.filter.clear', 'Clear')}
+        </button>
+      ) : null}
+    </div>
+  )
+
   return (
     <Popover open={open} onOpenChange={setOpen}>
       <PopoverTrigger asChild>
         <ChipButton label={label} value={chipValue} active={values.length > 0} />
       </PopoverTrigger>
-      <PopoverContent className="w-[360px] p-0" align="start" onKeyDown={handleKeyDown}>
-        <div className="flex items-center justify-between border-b border-border p-3">
-          <span className="text-sm font-semibold text-foreground">
-            {title ?? translateWithFallback(t, 'customers.deals.kanban.filter.title', 'Filter · {label}', { label })}
-          </span>
-          <button
-            type="button"
-            onClick={() => setOpen(false)}
-            aria-label={translateWithFallback(t, 'customers.deals.kanban.filter.close', 'Close')}
-            className="inline-flex size-6 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-muted hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-          >
-            <X className="size-4" aria-hidden="true" />
-          </button>
-        </div>
-
-        <div className="flex items-center gap-2 border-b border-border px-3 py-2">
-          <Search className="size-4 shrink-0 text-muted-foreground" aria-hidden="true" />
-          <input
-            type="text"
-            value={query}
-            onChange={(e) => setQuery(e.target.value)}
-            placeholder={translateWithFallback(
-              t,
-              'customers.deals.kanban.filter.searchPlaceholder',
-              'Search…',
-            )}
-            className="h-7 w-full bg-transparent text-sm leading-normal text-foreground outline-none placeholder:text-muted-foreground"
-            autoFocus
-          />
-          {isLoading ? <Spinner className="size-3" /> : null}
-        </div>
-
-        <div className="max-h-[260px] overflow-y-auto">
-          {options.length === 0 && !isLoading ? (
-            <div className="px-3 py-6 text-center text-xs text-muted-foreground">
-              {translateWithFallback(t, 'customers.deals.kanban.filter.noResults', 'No matches')}
-            </div>
-          ) : (
-            <ul className="py-1">
-              {options.map((option) => {
-                const checked = draft.includes(option.value)
-                return (
-                  <li key={option.value}>
-                    <button
-                      type="button"
-                      onClick={() => toggleDraft(option.value)}
-                      className={`flex w-full items-center gap-2 px-3 py-1.5 text-left text-sm leading-normal transition-colors hover:bg-muted ${
-                        checked ? 'text-foreground' : 'text-foreground/80'
-                      }`}
-                    >
-                      <span
-                        className={`flex size-4 shrink-0 items-center justify-center rounded-sm border ${
-                          checked
-                            ? 'border-accent-indigo bg-accent-indigo text-white'
-                            : 'border-input bg-card'
-                        }`}
-                        aria-hidden="true"
-                      >
-                        {checked ? <Check className="size-3" /> : null}
-                      </span>
-                      <span className="truncate">{option.label}</span>
-                    </button>
-                  </li>
-                )
-              })}
-            </ul>
-          )}
-        </div>
-
-        <div className="flex items-center justify-between border-t border-border p-3 text-xs text-muted-foreground">
-          <button
-            type="button"
-            onClick={handleClear}
-            className="text-xs font-medium text-muted-foreground transition-colors hover:text-foreground"
-          >
-            {translateWithFallback(t, 'customers.deals.kanban.filter.clear', 'Clear')}
-          </button>
-          <div className="flex items-center gap-2">
-            <Button variant="outline" size="sm" type="button" onClick={() => setOpen(false)}>
-              {translateWithFallback(t, 'customers.deals.kanban.filter.cancel', 'Cancel')}
-            </Button>
-            <Button size="sm" type="button" onClick={handleApply}>
-              {translateWithFallback(t, 'customers.deals.kanban.filter.apply', 'Apply')}
-            </Button>
+      <PopoverContent
+        className="w-96 rounded-2xl border-border bg-transparent p-0 shadow-xl"
+        align="start"
+        onKeyDown={handleKeyDown}
+      >
+        <FilterPopoverShell
+          title={headerTitle}
+          onClose={() => setOpen(false)}
+          onCancel={() => setOpen(false)}
+          onApply={handleApply}
+          footerLeft={footerLeft}
+          bodyClassName="flex flex-col bg-card"
+        >
+          <div className="flex items-center gap-2 border-b border-border px-4 py-2.5">
+            <Search className="size-4 shrink-0 text-muted-foreground" aria-hidden="true" />
+            <input
+              type="text"
+              value={query}
+              onChange={(e) => setQuery(e.target.value)}
+              placeholder={translateWithFallback(
+                t,
+                'customers.deals.kanban.filter.searchPlaceholder',
+                'Search…',
+              )}
+              className="h-7 w-full bg-transparent text-[13px] leading-normal text-foreground outline-none placeholder:text-muted-foreground"
+              autoFocus
+            />
+            {isLoading ? <Spinner className="size-3" /> : null}
           </div>
-        </div>
+
+          <div className="max-h-64 overflow-y-auto">
+            {options.length === 0 && !isLoading ? (
+              <div className="px-4 py-6 text-center text-[12px] text-muted-foreground">
+                {translateWithFallback(t, 'customers.deals.kanban.filter.noResults', 'No matches')}
+              </div>
+            ) : (
+              <ul className="py-1">
+                {options.map((option) => {
+                  const checked = draft.includes(option.value)
+                  return (
+                    <li key={option.value}>
+                      <button
+                        type="button"
+                        onClick={() => toggleDraft(option.value)}
+                        className={`flex w-full items-center gap-3 px-4 py-2.5 text-left transition-colors hover:bg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 ${
+                          checked ? 'bg-muted/60' : 'bg-card'
+                        }`}
+                      >
+                        <span
+                          className={`flex size-4 shrink-0 items-center justify-center rounded-[4px] border ${
+                            checked
+                              ? 'border-accent-indigo bg-accent-indigo text-accent-indigo-foreground'
+                              : 'border-input bg-card'
+                          }`}
+                          aria-hidden="true"
+                        >
+                          {checked ? <Check className="size-3" /> : null}
+                        </span>
+                        <span
+                          className={`truncate text-[13px] leading-normal text-foreground ${
+                            checked ? 'font-semibold' : 'font-normal'
+                          }`}
+                        >
+                          {option.label}
+                        </span>
+                      </button>
+                    </li>
+                  )
+                })}
+              </ul>
+            )}
+          </div>
+        </FilterPopoverShell>
       </PopoverContent>
     </Popover>
   )

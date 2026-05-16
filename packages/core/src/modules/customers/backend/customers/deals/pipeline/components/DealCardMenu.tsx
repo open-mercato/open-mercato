@@ -3,6 +3,8 @@
 import * as React from 'react'
 import { createPortal } from 'react-dom'
 import { MoreVertical } from 'lucide-react'
+import { Button } from '@open-mercato/ui/primitives/button'
+import { IconButton } from '@open-mercato/ui/primitives/icon-button'
 import type { RowActionItem } from '@open-mercato/ui/backend/RowActions'
 
 type DealCardMenuProps = {
@@ -67,9 +69,10 @@ export function DealCardMenu({ items, ariaLabel }: DealCardMenuProps): React.Rea
 
   return (
     <div className="relative inline-flex" data-card-action="true" onClick={(event) => event.stopPropagation()}>
-      <button
+      <IconButton
         ref={btnRef}
-        type="button"
+        variant="ghost"
+        size="xs"
         aria-haspopup="menu"
         aria-expanded={open}
         aria-label={ariaLabel}
@@ -81,7 +84,7 @@ export function DealCardMenu({ items, ariaLabel }: DealCardMenuProps): React.Rea
         className="inline-flex size-4 items-center justify-center rounded-sm text-muted-foreground transition-colors hover:bg-muted hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
       >
         <MoreVertical className="size-3.5" aria-hidden="true" />
-      </button>
+      </IconButton>
       {open && anchor && typeof document !== 'undefined'
         ? createPortal(
             <div
@@ -98,7 +101,9 @@ export function DealCardMenu({ items, ariaLabel }: DealCardMenuProps): React.Rea
               }}
             >
               {items.map((item, idx) => (
-                <button
+                <Button
+                  variant={item.destructive ? 'destructive-ghost' : 'ghost'}
+                  size="sm"
                   key={item.id ?? `${item.label}-${idx}`}
                   type="button"
                   role="menuitem"
@@ -112,7 +117,7 @@ export function DealCardMenu({ items, ariaLabel }: DealCardMenuProps): React.Rea
                   }`}
                 >
                   {item.label}
-                </button>
+                </Button>
               ))}
             </div>,
             document.body,

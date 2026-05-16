@@ -1,7 +1,6 @@
 "use client"
 
 import * as React from 'react'
-import { X } from 'lucide-react'
 import {
   Popover,
   PopoverContent,
@@ -11,6 +10,7 @@ import { Button } from '@open-mercato/ui/primitives/button'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { translateWithFallback } from '@open-mercato/shared/lib/i18n/translate'
 import { ChipButton } from './ChipButton'
+import { FilterPopoverShell } from './FilterPopoverShell'
 
 export type CloseDateRange = {
   from: string | null
@@ -57,8 +57,6 @@ function endOfQuarter(): Date {
   d.setUTCDate(0)
   return d
 }
-
-const today = (): string => ymd(new Date())
 
 function buildPresetRange(key: PresetKey): CloseDateRange {
   const now = new Date()
@@ -139,85 +137,87 @@ export function CloseDateFilterPopover({ value, onApply }: CloseDateFilterPopove
     }
   }
 
+  const hasDraft = !!(draft.from || draft.to)
+  const footerLeft = (
+    <div className="flex items-center gap-3">
+      <span>
+        {hasDraft
+          ? translateWithFallback(t, 'customers.deals.kanban.filter.dateRange.applied', 'Range set')
+          : translateWithFallback(t, 'customers.deals.kanban.filter.any', 'Any')}
+      </span>
+      {hasDraft ? (
+        <button
+          type="button"
+          onClick={handleClear}
+          className="text-[12px] font-medium leading-normal text-muted-foreground underline-offset-2 transition-colors hover:text-foreground hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
+        >
+          {translateWithFallback(t, 'customers.deals.kanban.filter.clear', 'Clear')}
+        </button>
+      ) : null}
+    </div>
+  )
+
   return (
     <Popover open={open} onOpenChange={setOpen}>
       <PopoverTrigger asChild>
         <ChipButton label={chipLabel} value={chipValue} active={isActive} />
       </PopoverTrigger>
-      <PopoverContent className="w-[320px] p-0" align="start" onKeyDown={handleKeyDown}>
-        <div className="flex items-center justify-between border-b border-border p-3">
-          <span className="text-sm font-semibold text-foreground">
-            {translateWithFallback(t, 'customers.deals.kanban.filter.close.title', 'Filter · Expected close')}
-          </span>
-          <button
-            type="button"
-            onClick={() => setOpen(false)}
-            aria-label={translateWithFallback(t, 'customers.deals.kanban.filter.close', 'Close')}
-            className="inline-flex size-6 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-muted hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-          >
-            <X className="size-4" aria-hidden="true" />
-          </button>
-        </div>
-
-        <div className="flex flex-wrap gap-2 border-b border-border p-3">
-          {(
-            [
-              { key: 'next-30', label: translateWithFallback(t, 'customers.deals.kanban.filter.preset.next30', 'Next 30 days') },
-              { key: 'next-90', label: translateWithFallback(t, 'customers.deals.kanban.filter.preset.next90', 'Next 90 days') },
-              { key: 'this-month', label: translateWithFallback(t, 'customers.deals.kanban.filter.preset.thisMonth', 'This month') },
-              { key: 'this-quarter', label: translateWithFallback(t, 'customers.deals.kanban.filter.preset.thisQuarter', 'This quarter') },
-              { key: 'overdue', label: translateWithFallback(t, 'customers.deals.kanban.filter.preset.overdue', 'Overdue') },
-            ] as Array<{ key: PresetKey; label: string }>
-          ).map((preset) => (
-            <button
-              key={preset.key}
-              type="button"
-              onClick={() => applyPreset(preset.key)}
-              className="rounded-full border border-input bg-card px-3 py-1 text-xs font-medium text-foreground transition-colors hover:bg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-            >
-              {preset.label}
-            </button>
-          ))}
-        </div>
-
-        <div className="grid grid-cols-2 gap-2 p-3">
-          <label className="flex flex-col gap-1 text-xs font-medium text-muted-foreground">
-            {translateWithFallback(t, 'customers.deals.kanban.filter.from', 'From')}
-            <input
-              type="date"
-              value={draft.from ?? ''}
-              onChange={(e) => setDraft((p) => ({ ...p, from: e.target.value || null }))}
-              className="rounded-md border border-input bg-card px-2 py-1 text-sm text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-            />
-          </label>
-          <label className="flex flex-col gap-1 text-xs font-medium text-muted-foreground">
-            {translateWithFallback(t, 'customers.deals.kanban.filter.to', 'To')}
-            <input
-              type="date"
-              value={draft.to ?? ''}
-              onChange={(e) => setDraft((p) => ({ ...p, to: e.target.value || null }))}
-              className="rounded-md border border-input bg-card px-2 py-1 text-sm text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-            />
-          </label>
-        </div>
-
-        <div className="flex items-center justify-between border-t border-border p-3 text-xs text-muted-foreground">
-          <button
-            type="button"
-            onClick={handleClear}
-            className="text-xs font-medium text-muted-foreground transition-colors hover:text-foreground"
-          >
-            {translateWithFallback(t, 'customers.deals.kanban.filter.clear', 'Clear')}
-          </button>
-          <div className="flex items-center gap-2">
-            <Button variant="outline" size="sm" type="button" onClick={() => setOpen(false)}>
-              {translateWithFallback(t, 'customers.deals.kanban.filter.cancel', 'Cancel')}
-            </Button>
-            <Button size="sm" type="button" onClick={handleApply}>
-              {translateWithFallback(t, 'customers.deals.kanban.filter.apply', 'Apply')}
-            </Button>
+      <PopoverContent
+        className="w-80 rounded-2xl border-border bg-transparent p-0 shadow-xl"
+        align="start"
+        onKeyDown={handleKeyDown}
+      >
+        <FilterPopoverShell
+          title={translateWithFallback(t, 'customers.deals.kanban.filter.close.title', 'Filter · Expected close')}
+          onClose={() => setOpen(false)}
+          onCancel={() => setOpen(false)}
+          onApply={handleApply}
+          footerLeft={footerLeft}
+        >
+          <div className="flex flex-wrap gap-1.5">
+            {(
+              [
+                { key: 'next-30', label: translateWithFallback(t, 'customers.deals.kanban.filter.preset.next30', 'Next 30 days') },
+                { key: 'next-90', label: translateWithFallback(t, 'customers.deals.kanban.filter.preset.next90', 'Next 90 days') },
+                { key: 'this-month', label: translateWithFallback(t, 'customers.deals.kanban.filter.preset.thisMonth', 'This month') },
+                { key: 'this-quarter', label: translateWithFallback(t, 'customers.deals.kanban.filter.preset.thisQuarter', 'This quarter') },
+                { key: 'overdue', label: translateWithFallback(t, 'customers.deals.kanban.filter.preset.overdue', 'Overdue') },
+              ] as Array<{ key: PresetKey; label: string }>
+            ).map((preset) => (
+              <Button
+                variant="outline"
+                size="sm"
+                key={preset.key}
+                type="button"
+                onClick={() => applyPreset(preset.key)}
+                className="h-auto rounded-full border-border bg-card px-2.5 py-1 text-[12px] font-medium text-muted-foreground hover:bg-muted hover:text-foreground"
+              >
+                {preset.label}
+              </Button>
+            ))}
           </div>
-        </div>
+
+          <div className="grid grid-cols-2 gap-3">
+            <label className="flex flex-col gap-1 text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
+              {translateWithFallback(t, 'customers.deals.kanban.filter.fromLabel', 'From')}
+              <input
+                type="date"
+                value={draft.from ?? ''}
+                onChange={(e) => setDraft((p) => ({ ...p, from: e.target.value || null }))}
+                className="rounded-md border border-input bg-card px-2.5 py-1.5 text-[13px] font-normal leading-normal text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+              />
+            </label>
+            <label className="flex flex-col gap-1 text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
+              {translateWithFallback(t, 'customers.deals.kanban.filter.toLabel', 'To')}
+              <input
+                type="date"
+                value={draft.to ?? ''}
+                onChange={(e) => setDraft((p) => ({ ...p, to: e.target.value || null }))}
+                className="rounded-md border border-input bg-card px-2.5 py-1.5 text-[13px] font-normal leading-normal text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+              />
+            </label>
+          </div>
+        </FilterPopoverShell>
       </PopoverContent>
     </Popover>
   )

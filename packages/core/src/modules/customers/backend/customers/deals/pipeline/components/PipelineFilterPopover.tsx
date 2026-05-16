@@ -1,16 +1,15 @@
 "use client"
 
 import * as React from 'react'
-import { Check, X } from 'lucide-react'
 import {
   Popover,
   PopoverContent,
   PopoverTrigger,
 } from '@open-mercato/ui/primitives/popover'
-import { Button } from '@open-mercato/ui/primitives/button'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { translateWithFallback } from '@open-mercato/shared/lib/i18n/translate'
 import { ChipButton } from './ChipButton'
+import { FilterPopoverShell } from './FilterPopoverShell'
 
 export type PipelineFilterOption = {
   id: string
@@ -22,6 +21,24 @@ type PipelineFilterPopoverProps = {
   pipelines: PipelineFilterOption[]
   selectedPipelineId: string | null
   onApply: (pipelineId: string | null) => void
+}
+
+/**
+ * Single radio button matching the Figma spec at 1045:11917 — an outlined 16px circle that
+ * fills with the accent-indigo when selected. Reused for every row + the "All pipelines"
+ * sentinel so the visual is consistent.
+ */
+function RadioDot({ selected }: { selected: boolean }): React.ReactElement {
+  return (
+    <span
+      className={`flex size-4 shrink-0 items-center justify-center rounded-full border ${
+        selected ? 'border-accent-indigo' : 'border-input bg-card'
+      }`}
+      aria-hidden="true"
+    >
+      {selected ? <span className="size-2 rounded-full bg-accent-indigo" /> : null}
+    </span>
+  )
 }
 
 export function PipelineFilterPopover({
@@ -60,47 +77,64 @@ export function PipelineFilterPopover({
     }
   }
 
+  const allSelected = draft === null
+  const allRowClass = allSelected ? 'bg-muted' : 'bg-card'
+
+  const footerLeft = draft ? (
+    <span>
+      {translateWithFallback(
+        t,
+        'customers.deals.kanban.filter.pipeline.selectedOne',
+        '1 selected · {name}',
+        { name: pipelines.find((p) => p.id === draft)?.name ?? '' },
+      )}
+    </span>
+  ) : (
+    <span>
+      {translateWithFallback(
+        t,
+        'customers.deals.kanban.filter.pipeline.selectedNone',
+        'No pipeline filter',
+      )}
+    </span>
+  )
+
   return (
     <Popover open={open} onOpenChange={setOpen}>
       <PopoverTrigger asChild>
         <ChipButton label={chipLabel} value={chipValue} active={!!selectedPipelineId} />
       </PopoverTrigger>
-      <PopoverContent className="w-[420px] p-0" align="start" onKeyDown={handleKeyDown}>
-        <div className="flex items-center justify-between border-b border-border p-3">
-          <span className="text-sm font-semibold text-foreground">
-            {translateWithFallback(
-              t,
-              'customers.deals.kanban.filter.pipeline.title',
-              'Filter · Pipeline',
-            )}
-          </span>
-          <button
-            type="button"
-            onClick={() => setOpen(false)}
-            aria-label={translateWithFallback(t, 'customers.deals.kanban.filter.close', 'Close')}
-            className="inline-flex size-6 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-muted hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
-          >
-            <X className="size-4" aria-hidden="true" />
-          </button>
-        </div>
-
-        <div className="flex flex-col gap-1 p-1">
+      <PopoverContent
+        className="w-96 rounded-2xl border-border bg-transparent p-0 shadow-xl"
+        align="start"
+        onKeyDown={handleKeyDown}
+      >
+        <FilterPopoverShell
+          title={translateWithFallback(t, 'customers.deals.kanban.filter.pipeline.title', 'Filter · Pipeline')}
+          onClose={() => setOpen(false)}
+          onCancel={() => setOpen(false)}
+          onApply={handleApply}
+          footerLeft={footerLeft}
+        >
+          {/*
+            "All pipelines" sentinel row. Per Figma it shows the total deal count in
+            accent-indigo (active emphasis), regardless of whether it's selected.
+          */}
           <button
             type="button"
             onClick={() => setDraft(null)}
-            className={`flex w-full items-center justify-between rounded-md px-3 py-2 text-sm transition-colors hover:bg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 ${
-              draft === null ? 'bg-muted' : ''
-            }`}
+            className={`flex w-full items-center gap-3 rounded-md px-4 py-2.5 text-left transition-colors hover:bg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 ${allRowClass}`}
           >
-            <span className="flex flex-col">
-              <span className="font-medium text-foreground">
-                {translateWithFallback(
-                  t,
-                  'customers.deals.kanban.filter.pipeline.all',
-                  'All pipelines',
-                )}
+            <RadioDot selected={allSelected} />
+            <div className="flex min-w-0 flex-1 flex-col gap-px">
+              <span
+                className={`text-[13px] leading-normal text-foreground ${
+                  allSelected ? 'font-semibold' : 'font-normal'
+                }`}
+              >
+                {translateWithFallback(t, 'customers.deals.kanban.filter.pipeline.all', 'All pipelines')}
               </span>
-              <span className="text-xs text-muted-foreground">
+              <span className="text-[11px] font-normal leading-normal text-muted-foreground">
                 {translateWithFallback(
                   t,
                   'customers.deals.kanban.filter.pipeline.allHelper',
@@ -108,58 +142,45 @@ export function PipelineFilterPopover({
                   { count: pipelines.length },
                 )}
               </span>
-            </span>
-            <span className="text-sm font-medium text-primary">
-              {draft === null ? <Check className="size-4" aria-hidden="true" /> : totalCount}
+            </div>
+            <span className="text-[12px] font-semibold leading-normal text-accent-indigo">
+              {totalCount}
             </span>
           </button>
+
           {pipelines.map((pipeline) => {
             const isSelected = draft === pipeline.id
+            const rowClass = isSelected ? 'bg-muted' : 'bg-card'
             return (
               <button
                 key={pipeline.id}
                 type="button"
                 onClick={() => setDraft(pipeline.id)}
-                className={`flex w-full items-center justify-between rounded-md px-3 py-2 text-sm transition-colors hover:bg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 ${
-                  isSelected ? 'bg-muted' : ''
-                }`}
+                className={`flex w-full items-center gap-3 rounded-md px-4 py-2.5 text-left transition-colors hover:bg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 ${rowClass}`}
               >
-                <span className="font-medium text-foreground">{pipeline.name}</span>
-                <span className="flex items-center gap-2 text-xs text-muted-foreground">
-                  {typeof pipeline.dealCount === 'number' ? <span>{pipeline.dealCount}</span> : null}
-                  {isSelected ? (
-                    <Check className="size-4 text-primary" aria-hidden="true" />
-                  ) : null}
+                <RadioDot selected={isSelected} />
+                <span
+                  className={`flex-1 truncate text-[13px] leading-normal text-foreground ${
+                    isSelected ? 'font-semibold' : 'font-normal'
+                  }`}
+                >
+                  {pipeline.name}
                 </span>
+                {typeof pipeline.dealCount === 'number' ? (
+                  <span
+                    className={`text-[12px] leading-normal ${
+                      isSelected
+                        ? 'font-semibold text-accent-indigo'
+                        : 'font-normal text-muted-foreground'
+                    }`}
+                  >
+                    {pipeline.dealCount}
+                  </span>
+                ) : null}
               </button>
             )
           })}
-        </div>
-
-        <div className="flex items-center justify-between border-t border-border p-3 text-xs text-muted-foreground">
-          <span>
-            {draft
-              ? translateWithFallback(
-                  t,
-                  'customers.deals.kanban.filter.pipeline.selectedOne',
-                  '1 selected · {name}',
-                  { name: pipelines.find((p) => p.id === draft)?.name ?? '' },
-                )
-              : translateWithFallback(
-                  t,
-                  'customers.deals.kanban.filter.pipeline.selectedNone',
-                  'No pipeline filter',
-                )}
-          </span>
-          <div className="flex items-center gap-2">
-            <Button variant="outline" size="sm" type="button" onClick={() => setOpen(false)}>
-              {translateWithFallback(t, 'customers.deals.kanban.filter.cancel', 'Cancel')}
-            </Button>
-            <Button size="sm" type="button" onClick={handleApply}>
-              {translateWithFallback(t, 'customers.deals.kanban.filter.apply', 'Apply')}
-            </Button>
-          </div>
-        </div>
+        </FilterPopoverShell>
       </PopoverContent>
     </Popover>
   )
