@@ -29,6 +29,10 @@ type LeadListRow = {
   id: string
   source: string | null
   source_external_id: string | null
+  api_idempotency_key: string | null
+  form_type: string | null
+  message: string | null
+  investment_id: string | null
   utm_source: string | null
   utm_medium: string | null
   utm_campaign: string | null
@@ -42,8 +46,12 @@ type LeadListRow = {
   deal_id: string | null
   owner_user_id: string | null
   qualified_at: Date | string | null
+  qualification_status_changed_at: Date | string | null
+  qualification_history: Array<Record<string, unknown>> | null
   disqualified_at: Date | string | null
   last_attempt_at: Date | string | null
+  submitted_at: Date | string | null
+  received_at: Date | string | null
   next_followup_at: Date | string | null
   organization_id: string
   tenant_id: string
@@ -62,6 +70,10 @@ function mapLeadRow(item: LeadListRow) {
     id: item.id,
     source: item.source ?? null,
     sourceExternalId: item.source_external_id ?? null,
+    apiIdempotencyKey: item.api_idempotency_key ?? null,
+    formType: item.form_type ?? null,
+    message: item.message ?? null,
+    investmentId: item.investment_id ?? null,
     utmSource: item.utm_source ?? null,
     utmMedium: item.utm_medium ?? null,
     utmCampaign: item.utm_campaign ?? null,
@@ -75,8 +87,12 @@ function mapLeadRow(item: LeadListRow) {
     dealId: item.deal_id ?? null,
     ownerUserId: item.owner_user_id ?? null,
     qualifiedAt: toIso(item.qualified_at),
+    qualificationStatusChangedAt: toIso(item.qualification_status_changed_at),
+    qualificationHistory: item.qualification_history ?? [],
     disqualifiedAt: toIso(item.disqualified_at),
     lastAttemptAt: toIso(item.last_attempt_at),
+    submittedAt: toIso(item.submitted_at),
+    receivedAt: toIso(item.received_at),
     nextFollowupAt: toIso(item.next_followup_at),
     organizationId: item.organization_id,
     tenantId: item.tenant_id,
@@ -102,6 +118,10 @@ function mapCreateInput(input: ChampionLeadCreateInput) {
     source: cleanOptional(input.source),
     sourceExternalId: cleanOptional(input.sourceExternalId),
     sourcePayload: input.sourcePayload ?? {},
+    apiIdempotencyKey: cleanOptional(input.apiIdempotencyKey),
+    formType: cleanOptional(input.formType),
+    message: cleanOptional(input.message),
+    investmentId: input.investmentId ?? null,
     utmSource: cleanOptional(input.utmSource),
     utmMedium: cleanOptional(input.utmMedium),
     utmCampaign: cleanOptional(input.utmCampaign),
@@ -117,8 +137,12 @@ function mapCreateInput(input: ChampionLeadCreateInput) {
     dealId: input.dealId ?? null,
     ownerUserId: input.ownerUserId ?? null,
     qualifiedAt: toDateOrNull(input.qualifiedAt),
+    qualificationStatusChangedAt: toDateOrNull(input.qualificationStatusChangedAt),
+    qualificationHistory: input.qualificationHistory ?? [],
     disqualifiedAt: toDateOrNull(input.disqualifiedAt),
     lastAttemptAt: toDateOrNull(input.lastAttemptAt),
+    submittedAt: toDateOrNull(input.submittedAt),
+    receivedAt: toDateOrNull(input.receivedAt),
     nextFollowupAt: toDateOrNull(input.nextFollowupAt),
   }
 }
@@ -127,6 +151,10 @@ function applyLeadUpdate(entity: ChampionLead, input: ChampionLeadUpdateInput) {
   if ('source' in input) entity.source = cleanOptional(input.source)
   if ('sourceExternalId' in input) entity.sourceExternalId = cleanOptional(input.sourceExternalId)
   if ('sourcePayload' in input && input.sourcePayload) entity.sourcePayload = input.sourcePayload
+  if ('apiIdempotencyKey' in input) entity.apiIdempotencyKey = cleanOptional(input.apiIdempotencyKey)
+  if ('formType' in input) entity.formType = cleanOptional(input.formType)
+  if ('message' in input) entity.message = cleanOptional(input.message)
+  if ('investmentId' in input) entity.investmentId = input.investmentId ?? null
   if ('utmSource' in input) entity.utmSource = cleanOptional(input.utmSource)
   if ('utmMedium' in input) entity.utmMedium = cleanOptional(input.utmMedium)
   if ('utmCampaign' in input) entity.utmCampaign = cleanOptional(input.utmCampaign)
@@ -142,8 +170,12 @@ function applyLeadUpdate(entity: ChampionLead, input: ChampionLeadUpdateInput) {
   if ('dealId' in input) entity.dealId = input.dealId ?? null
   if ('ownerUserId' in input) entity.ownerUserId = input.ownerUserId ?? null
   if ('qualifiedAt' in input) entity.qualifiedAt = toDateOrNull(input.qualifiedAt)
+  if ('qualificationStatusChangedAt' in input) entity.qualificationStatusChangedAt = toDateOrNull(input.qualificationStatusChangedAt)
+  if ('qualificationHistory' in input && input.qualificationHistory) entity.qualificationHistory = input.qualificationHistory
   if ('disqualifiedAt' in input) entity.disqualifiedAt = toDateOrNull(input.disqualifiedAt)
   if ('lastAttemptAt' in input) entity.lastAttemptAt = toDateOrNull(input.lastAttemptAt)
+  if ('submittedAt' in input) entity.submittedAt = toDateOrNull(input.submittedAt)
+  if ('receivedAt' in input) entity.receivedAt = toDateOrNull(input.receivedAt)
   if ('nextFollowupAt' in input) entity.nextFollowupAt = toDateOrNull(input.nextFollowupAt)
   entity.updatedAt = new Date()
 }
@@ -166,6 +198,10 @@ export const { metadata, GET, POST, PUT, DELETE } = makeCrudRoute({
       'id',
       'source',
       'source_external_id',
+      'api_idempotency_key',
+      'form_type',
+      'message',
+      'investment_id',
       'utm_source',
       'utm_medium',
       'utm_campaign',
@@ -179,8 +215,12 @@ export const { metadata, GET, POST, PUT, DELETE } = makeCrudRoute({
       'deal_id',
       'owner_user_id',
       'qualified_at',
+      'qualification_status_changed_at',
+      'qualification_history',
       'disqualified_at',
       'last_attempt_at',
+      'submitted_at',
+      'received_at',
       'next_followup_at',
       'organization_id',
       'tenant_id',

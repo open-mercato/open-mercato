@@ -6,7 +6,11 @@ import { login } from '@open-mercato/core/helpers/integration/auth'
 import { resolveChampionCrmAiAdapter } from '../ai/adapter'
 import {
   cleanupChampionCrmRun,
+  cleanupChampionCrmDemo,
   closeChampionCrmDb,
+  advanceDealStageAction,
+  assignApartmentAction,
+  convertLeadToDealAction,
   createActivityFixture,
   createApartmentFixture,
   createAuditEventFixture,
@@ -16,12 +20,15 @@ import {
   createRunId,
   getLeadById,
   intakeLead,
+  markDealWonAction,
+  qualifyLeadAction,
   readDbOne,
+  seedChampionCrmDemo,
   scopeFromToken,
   updateLead,
 } from './helpers/championCrmFixtures'
 
-test.describe('TC-CHAMP-CRM-010-020: Champion CRM business path contracts', () => {
+test.describe('TC-CHAMP-CRM-010-021: Champion CRM business path contracts', () => {
   test.afterAll(async () => {
     await closeChampionCrmDb()
   })
@@ -381,5 +388,74 @@ test.describe('TC-CHAMP-CRM-010-020: Champion CRM business path contracts', () =
 
   test('TC-CHAMP-CRM-020: AI adapter is disabled by default', async () => {
     expect(resolveChampionCrmAiAdapter()).toBeNull()
+  })
+
+  test('TC-CHAMP-CRM-021: Anna / Hussar happy path qualifies, reserves A2.14, wins deal, and renders Contact 360', async ({ page, request }) => {
+    const token = await getAuthToken(request, 'admin')
+    try {
+      await cleanupChampionCrmDemo()
+      const seed = await seedChampionCrmDemo(request, token)
+      expect(seed.response.status()).toBe(200)
+      const leadId = String(seed.body?.leadId)
+
+      const qualify = await qualifyLeadAction(request, token, leadId)
+      expect(qualify.status()).toBe(200)
+
+      const converted = await convertLeadToDealAction(request, token, leadId)
+      expect(converted.response.status()).toBe(200)
+      const dealId = String(converted.body?.dealId)
+      const contactId = String(converted.body?.contactId)
+
+      const apartment = await readDbOne<{ id: string }>(
+        "select id from champion_crm_apartments where unit_number = 'A2.14' and metadata->>'demo' = 'anna-hussar'",
+        [],
+      )
+      expect(apartment?.id).toBeTruthy()
+
+      const assign = await assignApartmentAction(request, token, dealId, String(apartment?.id))
+      expect(assign.status()).toBe(200)
+      const offer = await advanceDealStageAction(request, token, dealId, 'offer_open')
+      expect(offer.status()).toBe(200)
+      const reserve = await advanceDealStageAction(request, token, dealId, 'reservation_agreement')
+      expect(reserve.status()).toBe(200)
+      const won = await markDealWonAction(request, token, dealId)
+      expect(won.status()).toBe(200)
+
+      const result = await readDbOne<{
+        deal_status: string
+        deal_stage: string
+        apartment_status: string
+        lifecycle: string
+        activity_count: string
+        audit_count: string
+      }>(
+        `select d.status as deal_status,
+          d.stage as deal_stage,
+          a.status as apartment_status,
+          c.lifecycle,
+          (select count(*) from champion_crm_activities where deal_id = d.id)::text as activity_count,
+          (select count(*) from champion_crm_audit_events where entity_id = d.id)::text as audit_count
+        from champion_crm_deals d
+        join champion_crm_contacts c on c.id = d.contact_id
+        join champion_crm_apartments a on a.id = d.apartment_id
+        where d.id = $1`,
+        [dealId],
+      )
+      expect(result?.deal_status).toBe('won')
+      expect(result?.deal_stage).toBe('won')
+      expect(result?.apartment_status).toBe('sold')
+      expect(['client', 'customer']).toContain(result?.lifecycle)
+      expect(Number(result?.activity_count ?? 0)).toBeGreaterThanOrEqual(4)
+      expect(Number(result?.audit_count ?? 0)).toBeGreaterThanOrEqual(4)
+
+      await login(page, 'admin')
+      await page.goto(`/backend/champion-crm/contacts/${contactId}`, { waitUntil: 'domcontentloaded' })
+      await expect(page.getByRole('heading', { name: 'Anna Kowalska' })).toBeVisible()
+      await expect(page.getByText('Hussar Loft')).toBeVisible()
+      await expect(page.getByText('A2.14')).toBeVisible()
+      await expect(page.getByText('Deal won')).toBeVisible()
+    } finally {
+      await cleanupChampionCrmDemo()
+    }
   })
 })

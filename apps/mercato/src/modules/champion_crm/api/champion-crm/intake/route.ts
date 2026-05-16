@@ -43,7 +43,7 @@ export async function POST(req: Request) {
       requestHeaders: req.headers,
       mutationPayload: normalized,
     })
-    if (guardResult && !guardResult.ok) return NextResponse.json(guardResult.body, { status: guardResult.status })
+    if (guardResult?.ok === false) return NextResponse.json(guardResult.body, { status: guardResult.status })
 
     const em = ctx.container.resolve('em') as EntityManager
     const lead = await createOrUpdateLead(em, normalized, scope, actorUserId)
@@ -117,6 +117,10 @@ async function createOrUpdateLead(
   })
 
   lead.sourcePayload = normalized.sourcePayload
+  lead.apiIdempotencyKey = normalized.apiIdempotencyKey
+  lead.formType = normalized.formType
+  lead.message = normalized.message
+  lead.investmentId = normalized.investmentId
   lead.utmSource = normalized.utmSource
   lead.utmMedium = normalized.utmMedium
   lead.utmCampaign = normalized.utmCampaign
@@ -128,6 +132,8 @@ async function createOrUpdateLead(
   lead.ownerUserId = lead.ownerUserId ?? actorUserId
   lead.techStatus = existing ? lead.techStatus : 'new'
   lead.qualificationStatus = lead.qualificationStatus ?? 'do_kwalifikacji'
+  lead.receivedAt = lead.receivedAt ?? new Date()
+  lead.submittedAt = normalized.submittedAt ?? lead.submittedAt ?? null
   lead.updatedAt = new Date()
   await em.persist(lead).flush()
   return lead

@@ -2,6 +2,7 @@ import { z } from 'zod'
 
 export const championLeadTechStatusSchema = z.enum(['new', 'created_contact', 'matched_contact', 'manual_review', 'rejected', 'error'])
 export const championLeadQualificationStatusSchema = z.enum(['do_kwalifikacji', 'zakwalifikowany', 'niezakwalifikowany', 'spam', 'pomylka'])
+export const championDealStageSchema = z.enum(['qualified', 'offer_open', 'reservation_agreement', 'won', 'lost'])
 
 const nullableText = z.string().trim().max(500).optional().nullable()
 const nullableUuid = z.string().uuid().optional().nullable()
@@ -12,6 +13,10 @@ export const championLeadCreateSchema = z.object({
   source: nullableText,
   sourceExternalId: nullableText,
   sourcePayload: z.record(z.string(), z.unknown()).optional(),
+  apiIdempotencyKey: nullableText,
+  formType: nullableText,
+  message: z.string().trim().max(5000).optional().nullable(),
+  investmentId: nullableUuid,
   utmSource: nullableText,
   utmMedium: nullableText,
   utmCampaign: nullableText,
@@ -30,8 +35,12 @@ export const championLeadCreateSchema = z.object({
   dealId: nullableUuid,
   ownerUserId: nullableUuid,
   qualifiedAt: nullableDate,
+  qualificationStatusChangedAt: nullableDate,
+  qualificationHistory: z.array(z.record(z.string(), z.unknown())).optional(),
   disqualifiedAt: nullableDate,
   lastAttemptAt: nullableDate,
+  submittedAt: nullableDate,
+  receivedAt: nullableDate,
   nextFollowupAt: nullableDate,
 })
 
@@ -65,10 +74,15 @@ export const championConsentInputSchema = z.object({
 export const championLeadIntakeSchema = z.object({
   source: z.string().trim().min(1).max(200).default('api'),
   sourceExternalId: nullableText,
+  apiIdempotencyKey: nullableText,
+  formType: nullableText,
   payload: z.record(z.string(), z.unknown()).optional(),
   email: nullableText,
   phone: nullableText,
   name: nullableText,
+  message: z.string().trim().max(5000).optional().nullable(),
+  investmentId: nullableUuid,
+  submittedAt: nullableDate,
   firstName: nullableText,
   lastName: nullableText,
   utm: z.object({
@@ -91,4 +105,3 @@ export type ChampionLeadUpdateInput = z.infer<typeof championLeadUpdateSchema>
 export type ChampionLeadListQuery = z.infer<typeof championLeadListQuerySchema>
 export type ChampionLeadIntakeInput = z.infer<typeof championLeadIntakeSchema>
 export type ChampionConsentInput = z.infer<typeof championConsentInputSchema>
-

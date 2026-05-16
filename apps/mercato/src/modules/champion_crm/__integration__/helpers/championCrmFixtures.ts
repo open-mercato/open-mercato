@@ -31,6 +31,10 @@ export type ChampionLeadItem = {
   techStatus: string
   qualificationStatus: string
   disqualificationReason: string | null
+  apiIdempotencyKey?: string | null
+  formType?: string | null
+  message?: string | null
+  investmentId?: string | null
   contactId: string | null
   dealId?: string | null
   nextFollowupAt?: string | null
@@ -119,6 +123,76 @@ export async function updateLead(
     token,
     data: { id, ...input },
   })
+}
+
+export async function seedChampionCrmDemo(
+  request: APIRequestContext,
+  token: string,
+): Promise<{ response: APIResponse; body: Record<string, unknown> | null }> {
+  const response = await apiRequest(request, 'POST', '/api/champion-crm/demo/seed', { token, data: {} })
+  return { response, body: await readJsonSafe<Record<string, unknown>>(response) }
+}
+
+export async function qualifyLeadAction(request: APIRequestContext, token: string, leadId: string): Promise<APIResponse> {
+  return apiRequest(request, 'POST', `/api/champion-crm/leads/${leadId}/qualify`, { token, data: {} })
+}
+
+export async function convertLeadToDealAction(
+  request: APIRequestContext,
+  token: string,
+  leadId: string,
+): Promise<{ response: APIResponse; body: Record<string, unknown> | null }> {
+  const response = await apiRequest(request, 'POST', `/api/champion-crm/leads/${leadId}/convert-to-deal`, { token, data: {} })
+  return { response, body: await readJsonSafe<Record<string, unknown>>(response) }
+}
+
+export async function assignApartmentAction(
+  request: APIRequestContext,
+  token: string,
+  dealId: string,
+  apartmentId: string,
+): Promise<APIResponse> {
+  return apiRequest(request, 'POST', `/api/champion-crm/deals/${dealId}/assign-apartment`, {
+    token,
+    data: { apartmentId },
+  })
+}
+
+export async function advanceDealStageAction(
+  request: APIRequestContext,
+  token: string,
+  dealId: string,
+  stage: string,
+): Promise<APIResponse> {
+  return apiRequest(request, 'POST', `/api/champion-crm/deals/${dealId}/stage`, {
+    token,
+    data: { stage },
+  })
+}
+
+export async function markDealWonAction(request: APIRequestContext, token: string, dealId: string): Promise<APIResponse> {
+  return apiRequest(request, 'POST', `/api/champion-crm/deals/${dealId}/win`, { token, data: {} })
+}
+
+export async function cleanupChampionCrmDemo(): Promise<void> {
+  const client = await getChampionCrmDb()
+  const leadIds = await client.query(
+    "select id from champion_crm_leads where source_external_id = 'demo-anna-kowalska-hussar-loft' or source_payload->>'demo' = 'anna-hussar'",
+  ) as { rows: Array<{ id: string }> }
+  const ids = leadIds.rows.map((row: { id: string }) => row.id)
+  const dealIds = await client.query(
+    "select id from champion_crm_deals where metadata->>'demo' = 'anna-hussar' or lead_id = any($1::uuid[]) or source_lead_id = any($1::uuid[])",
+    [ids],
+  ) as { rows: Array<{ id: string }> }
+  const dIds = dealIds.rows.map((row: { id: string }) => row.id)
+  await client.query('delete from champion_crm_consent_events where lead_id = any($1::uuid[])', [ids])
+  await client.query("delete from champion_crm_audit_events where metadata->>'demo' = 'anna-hussar' or entity_id = any($1::uuid[]) or entity_id = any($2::uuid[])", [ids, dIds])
+  await client.query("delete from champion_crm_activities where metadata->>'demo' = 'anna-hussar' or lead_id = any($1::uuid[]) or deal_id = any($2::uuid[])", [ids, dIds])
+  await client.query('delete from champion_crm_deals where id = any($1::uuid[])', [dIds])
+  await client.query("delete from champion_crm_apartments where metadata->>'demo' = 'anna-hussar'")
+  await client.query("delete from champion_crm_investments where metadata->>'demo' = 'anna-hussar'")
+  await client.query('delete from champion_crm_contacts where first_lead_id = any($1::uuid[]) or last_lead_id = any($1::uuid[])', [ids])
+  await client.query('delete from champion_crm_leads where id = any($1::uuid[])', [ids])
 }
 
 export async function cleanupChampionCrmRun(runId: string): Promise<void> {

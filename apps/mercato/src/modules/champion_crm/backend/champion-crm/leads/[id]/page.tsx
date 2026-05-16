@@ -6,7 +6,9 @@ import { findOneWithDecryption, findWithDecryption } from '@open-mercato/shared/
 import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
 import { Page, PageBody, PageHeader } from '@open-mercato/ui/backend/Page'
 import { ErrorMessage } from '@open-mercato/ui/backend/detail'
+import { Button } from '@open-mercato/ui/primitives/button'
 import { ChampionActivity, ChampionAuditEvent, ChampionContact, ChampionDeal, ChampionLead } from '../../../../data/entities'
+import { createDealFromLeadAction, qualifyLeadAction } from '../../actions'
 
 type DetailData = {
   lead: ChampionLead | null
@@ -126,15 +128,35 @@ export default async function ChampionCrmLeadDetailPage({ params }: { params: Pr
         <div className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_320px]">
           <section className="space-y-4">
             <div className="rounded-md border bg-background p-4">
-              <h2 className="text-base font-semibold">{t('champion_crm.leads.detail.lead', 'Lead')}</h2>
+              <div className="flex flex-wrap items-center justify-between gap-3">
+                <h2 className="text-base font-semibold">{t('champion_crm.leads.detail.lead', 'Lead')}</h2>
+                <div className="flex flex-wrap gap-2">
+                  <form action={qualifyLeadAction}>
+                    <input name="leadId" type="hidden" value={lead.id} />
+                    <Button type="submit" size="sm" variant="outline">{t('champion_crm.actions.qualify', 'Qualify')}</Button>
+                  </form>
+                  <form action={createDealFromLeadAction}>
+                    <input name="leadId" type="hidden" value={lead.id} />
+                    <Button type="submit" size="sm">{lead.dealId ? t('champion_crm.actions.openDeal', 'Open deal') : t('champion_crm.actions.createDeal', 'Create deal')}</Button>
+                  </form>
+                </div>
+              </div>
               <dl className="mt-4 grid gap-4 md:grid-cols-3">
                 <Field label={t('champion_crm.fields.source', 'Source')} value={lead.source} />
+                <Field label={t('champion_crm.fields.formType', 'Form type')} value={lead.formType} />
                 <Field label={t('champion_crm.fields.email', 'Email')} value={lead.emailNormalized} />
                 <Field label={t('champion_crm.fields.phone', 'Phone')} value={lead.phoneE164} />
+                <Field label={t('champion_crm.fields.investmentId', 'Investment')} value={lead.investmentId} />
                 <Field label={t('champion_crm.fields.techStatus', 'Dedup status')} value={lead.techStatus} />
                 <Field label={t('champion_crm.fields.qualificationStatus', 'Qualification')} value={lead.qualificationStatus} />
                 <Field label={t('champion_crm.fields.createdAt', 'Created')} value={formatDate(lead.createdAt)} />
               </dl>
+              {lead.message ? (
+                <div className="mt-4 rounded-md bg-muted/30 p-3 text-sm">
+                  <div className="text-xs font-medium uppercase text-muted-foreground">{t('champion_crm.fields.message', 'Message')}</div>
+                  <p className="mt-1 whitespace-pre-wrap">{lead.message}</p>
+                </div>
+              ) : null}
             </div>
             <div className="rounded-md border bg-background p-4">
               <h2 className="text-base font-semibold">{t('champion_crm.leads.detail.activity', 'Activity')}</h2>
@@ -154,12 +176,17 @@ export default async function ChampionCrmLeadDetailPage({ params }: { params: Pr
             <div className="rounded-md border bg-background p-4">
               <h2 className="text-base font-semibold">{t('champion_crm.leads.detail.contact360', 'Contact 360')}</h2>
               {data.contact ? (
-                <dl className="mt-4 grid gap-3">
-                  <Field label={t('champion_crm.fields.name', 'Name')} value={data.contact.displayName} />
-                  <Field label={t('champion_crm.fields.lifecycle', 'Lifecycle')} value={data.contact.lifecycle} />
-                  <Field label={t('champion_crm.fields.email', 'Email')} value={data.contact.primaryEmail} />
-                  <Field label={t('champion_crm.fields.phone', 'Phone')} value={data.contact.primaryPhoneE164} />
-                </dl>
+                <>
+                  <dl className="mt-4 grid gap-3">
+                    <Field label={t('champion_crm.fields.name', 'Name')} value={data.contact.displayName} />
+                    <Field label={t('champion_crm.fields.lifecycle', 'Lifecycle')} value={data.contact.lifecycle} />
+                    <Field label={t('champion_crm.fields.email', 'Email')} value={data.contact.primaryEmail} />
+                    <Field label={t('champion_crm.fields.phone', 'Phone')} value={data.contact.primaryPhoneE164} />
+                  </dl>
+                  <Link className="mt-4 inline-flex text-sm text-primary underline-offset-4 hover:underline" href={`/backend/champion-crm/contacts/${data.contact.id}`}>
+                    {t('champion_crm.contacts.open360', 'Open Contact 360')}
+                  </Link>
+                </>
               ) : (
                 <p className="mt-3 text-sm text-muted-foreground">{t('champion_crm.contacts.empty', 'No contact linked yet.')}</p>
               )}
@@ -171,8 +198,10 @@ export default async function ChampionCrmLeadDetailPage({ params }: { params: Pr
                   <p className="py-3 text-sm text-muted-foreground">{t('champion_crm.deals.empty', 'No deals yet.')}</p>
                 ) : data.deals.map((deal) => (
                   <div key={deal.id} className="py-3 text-sm">
-                    <div className="font-medium">{deal.title}</div>
-                    <div className="text-xs text-muted-foreground">{deal.status}</div>
+                    <Link className="font-medium text-primary underline-offset-4 hover:underline" href={`/backend/champion-crm/deals/${deal.id}`}>
+                      {deal.title}
+                    </Link>
+                    <div className="text-xs text-muted-foreground">{deal.dealNumber || deal.status} · {deal.stage || deal.status}</div>
                   </div>
                 ))}
               </div>
@@ -196,4 +225,3 @@ export default async function ChampionCrmLeadDetailPage({ params }: { params: Pr
     </Page>
   )
 }
-

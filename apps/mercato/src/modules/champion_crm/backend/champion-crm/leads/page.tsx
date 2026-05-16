@@ -6,7 +6,9 @@ import { findWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
 import { Page, PageBody, PageHeader } from '@open-mercato/ui/backend/Page'
 import { ErrorMessage } from '@open-mercato/ui/backend/detail'
+import { Button } from '@open-mercato/ui/primitives/button'
 import { ChampionLead } from '../../../data/entities'
+import { seedDemoAction } from '../actions'
 
 async function loadLeads(): Promise<{ items: ChampionLead[]; error: string | null }> {
   try {
@@ -49,6 +51,9 @@ export default async function ChampionCrmLeadsPage() {
         description={t('champion_crm.leads.inbox.description', 'Inbound Champion CRM leads awaiting deduplication and qualification.')}
       />
       <PageBody>
+        <form action={seedDemoAction} className="mb-4 flex justify-end">
+          <Button type="submit" variant="outline">{t('champion_crm.demo.seed', 'Seed Anna / Hussar demo')}</Button>
+        </form>
         {error ? <ErrorMessage label={error} /> : null}
         <div className="overflow-hidden rounded-md border bg-background">
           <table className="w-full table-fixed text-sm">
@@ -93,4 +98,3 @@ export default async function ChampionCrmLeadsPage() {
     </Page>
   )
 }
-

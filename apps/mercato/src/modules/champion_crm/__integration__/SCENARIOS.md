@@ -2,6 +2,8 @@
 
 Executable specs in this folder cover the 20 confirmed Champion CRM business paths.
 
+Slice 2 adds 30 Investment/Apartment/demo-flow UI business scenarios in `SCENARIOS_SLICE2_INVESTMENTS_UI.md` (`TC-CHAMP-CRM-021` through `TC-CHAMP-CRM-050`).
+
 | ID | Scenario | Spec |
 | --- | --- | --- |
 | 01 | Lead intake from website/form -> new Lead -> new Contact | `TC-CHAMP-CRM-001-006-intake.spec.ts` |

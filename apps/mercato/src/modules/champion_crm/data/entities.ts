@@ -1,9 +1,11 @@
-import { Entity, Index, OptionalProps, PrimaryKey, Property } from '@mikro-orm/core'
+import { OptionalProps } from '@mikro-orm/core'
+import { Entity, Index, PrimaryKey, Property } from '@mikro-orm/decorators/legacy'
 
 export type ChampionLeadTechStatus = 'new' | 'created_contact' | 'matched_contact' | 'manual_review' | 'rejected' | 'error'
 export type ChampionLeadQualificationStatus = 'do_kwalifikacji' | 'zakwalifikowany' | 'niezakwalifikowany' | 'spam' | 'pomylka'
-export type ChampionContactLifecycle = 'lead' | 'prospect' | 'customer' | 'lost' | 'archived'
+export type ChampionContactLifecycle = 'lead' | 'prospect' | 'client' | 'customer' | 'lost' | 'archived'
 export type ChampionDealStatus = 'open' | 'reserved' | 'won' | 'lost' | 'cancelled'
+export type ChampionDealStage = 'qualified' | 'offer_open' | 'reservation_agreement' | 'won' | 'lost'
 export type ChampionInvestmentStatus = 'planned' | 'selling' | 'sold_out' | 'archived'
 export type ChampionApartmentStatus = 'available' | 'reserved' | 'sold' | 'blocked'
 export type ChampionActivityType = 'form_submit' | 'call_attempt' | 'call' | 'meeting' | 'note' | 'email' | 'task' | 'system'
@@ -15,7 +17,7 @@ export type ChampionConsentScope = 'contact_request' | 'marketing_email' | 'mark
 @Index({ name: 'champion_crm_leads_phone_idx', properties: ['organizationId', 'tenantId', 'phoneE164'] })
 @Index({ name: 'champion_crm_leads_contact_idx', properties: ['contactId'] })
 export class ChampionLead {
-  [OptionalProps]?: 'sourcePayload' | 'techStatus' | 'qualificationStatus' | 'isActive' | 'createdAt' | 'updatedAt' | 'deletedAt'
+  [OptionalProps]?: 'sourcePayload' | 'techStatus' | 'qualificationStatus' | 'qualificationHistory' | 'isActive' | 'createdAt' | 'updatedAt' | 'deletedAt'
 
   @PrimaryKey({ type: 'uuid', defaultRaw: 'gen_random_uuid()' })
   id!: string
@@ -34,6 +36,18 @@ export class ChampionLead {
 
   @Property({ name: 'source_payload', type: 'jsonb', defaultRaw: "'{}'::jsonb" })
   sourcePayload: Record<string, unknown> = {}
+
+  @Property({ name: 'api_idempotency_key', type: 'text', nullable: true })
+  apiIdempotencyKey?: string | null
+
+  @Property({ name: 'form_type', type: 'text', nullable: true })
+  formType?: string | null
+
+  @Property({ type: 'text', nullable: true })
+  message?: string | null
+
+  @Property({ name: 'investment_id', type: 'uuid', nullable: true })
+  investmentId?: string | null
 
   @Property({ name: 'utm_source', type: 'text', nullable: true })
   utmSource?: string | null
@@ -80,11 +94,23 @@ export class ChampionLead {
   @Property({ name: 'qualified_at', type: Date, nullable: true })
   qualifiedAt?: Date | null
 
+  @Property({ name: 'qualification_status_changed_at', type: Date, nullable: true })
+  qualificationStatusChangedAt?: Date | null
+
+  @Property({ name: 'qualification_history', type: 'jsonb', defaultRaw: "'[]'::jsonb" })
+  qualificationHistory: Array<Record<string, unknown>> = []
+
   @Property({ name: 'disqualified_at', type: Date, nullable: true })
   disqualifiedAt?: Date | null
 
   @Property({ name: 'last_attempt_at', type: Date, nullable: true })
   lastAttemptAt?: Date | null
+
+  @Property({ name: 'submitted_at', type: Date, nullable: true })
+  submittedAt?: Date | null
+
+  @Property({ name: 'received_at', type: Date, nullable: true })
+  receivedAt?: Date | null
 
   @Property({ name: 'next_followup_at', type: Date, nullable: true })
   nextFollowupAt?: Date | null
@@ -201,6 +227,12 @@ export class ChampionDeal {
   @Property({ name: 'lead_id', type: 'uuid', nullable: true })
   leadId?: string | null
 
+  @Property({ name: 'source_lead_id', type: 'uuid', nullable: true })
+  sourceLeadId?: string | null
+
+  @Property({ name: 'deal_number', type: 'text', nullable: true })
+  dealNumber?: string | null
+
   @Property({ name: 'investment_id', type: 'uuid', nullable: true })
   investmentId?: string | null
 
@@ -214,7 +246,10 @@ export class ChampionDeal {
   status: ChampionDealStatus = 'open'
 
   @Property({ name: 'stage', type: 'text', nullable: true })
-  stage?: string | null
+  stage?: ChampionDealStage | null
+
+  @Property({ name: 'stage_changed_at', type: Date, nullable: true })
+  stageChangedAt?: Date | null
 
   @Property({ name: 'budget_amount', type: 'numeric', precision: 16, scale: 2, nullable: true })
   budgetAmount?: string | null
@@ -222,11 +257,20 @@ export class ChampionDeal {
   @Property({ name: 'budget_currency', type: 'text', nullable: true })
   budgetCurrency?: string | null
 
+  @Property({ name: 'value_gross', type: 'numeric', precision: 16, scale: 2, nullable: true })
+  valueGross?: string | null
+
+  @Property({ type: 'text', nullable: true })
+  currency?: string | null
+
   @Property({ name: 'expected_close_at', type: Date, nullable: true })
   expectedCloseAt?: Date | null
 
   @Property({ name: 'closed_at', type: Date, nullable: true })
   closedAt?: Date | null
+
+  @Property({ name: 'won_at', type: Date, nullable: true })
+  wonAt?: Date | null
 
   @Property({ type: 'integer', default: 0 })
   probability: number = 0
@@ -270,17 +314,35 @@ export class ChampionInvestment {
   @Property({ type: 'text' })
   name!: string
 
+  @Property({ type: 'text', nullable: true })
+  slug?: string | null
+
   @Property({ type: 'text', default: 'planned' })
   status: ChampionInvestmentStatus = 'planned'
 
   @Property({ type: 'text', nullable: true })
   description?: string | null
 
+  @Property({ name: 'description_short', type: 'text', nullable: true })
+  descriptionShort?: string | null
+
   @Property({ type: 'text', nullable: true })
   city?: string | null
 
   @Property({ type: 'text', nullable: true })
   address?: string | null
+
+  @Property({ name: 'address_line1', type: 'text', nullable: true })
+  addressLine1?: string | null
+
+  @Property({ name: 'price_min', type: 'numeric', precision: 16, scale: 2, nullable: true })
+  priceMin?: string | null
+
+  @Property({ name: 'price_max', type: 'numeric', precision: 16, scale: 2, nullable: true })
+  priceMax?: string | null
+
+  @Property({ type: 'text', nullable: true })
+  currency?: string | null
 
   @Property({ name: 'sales_start_at', type: Date, nullable: true })
   salesStartAt?: Date | null
@@ -326,6 +388,9 @@ export class ChampionApartment {
   unitNumber!: string
 
   @Property({ type: 'text', nullable: true })
+  type?: string | null
+
+  @Property({ type: 'text', nullable: true })
   building?: string | null
 
   @Property({ type: 'text', nullable: true })
@@ -342,6 +407,9 @@ export class ChampionApartment {
 
   @Property({ name: 'price_currency', type: 'text', nullable: true })
   priceCurrency?: string | null
+
+  @Property({ name: 'list_price_gross', type: 'numeric', precision: 16, scale: 2, nullable: true })
+  listPriceGross?: string | null
 
   @Property({ type: 'text', default: 'available' })
   status: ChampionApartmentStatus = 'available'
@@ -514,4 +582,3 @@ export class ChampionAuditEvent {
   @Property({ name: 'created_at', type: Date, onCreate: () => new Date() })
   createdAt: Date = new Date()
 }
-

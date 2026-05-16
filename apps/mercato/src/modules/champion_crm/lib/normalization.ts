@@ -15,7 +15,12 @@ export type NormalizedConsent = {
 export type NormalizedIntakePayload = NormalizedLeadIdentity & {
   source: string
   sourceExternalId: string | null
+  apiIdempotencyKey: string | null
+  formType: string | null
   sourcePayload: Record<string, unknown>
+  message: string | null
+  investmentId: string | null
+  submittedAt: Date | null
   utmSource: string | null
   utmMedium: string | null
   utmCampaign: string | null
@@ -116,7 +121,12 @@ export function normalizeIntakePayload(input: Record<string, unknown>): Normaliz
   return {
     source,
     sourceExternalId: cleanText(input.sourceExternalId ?? input.source_external_id, 200),
+    apiIdempotencyKey: cleanText(input.apiIdempotencyKey ?? input.api_idempotency_key, 200),
+    formType: cleanText(input.formType ?? input.form_type, 200),
     sourcePayload,
+    message: cleanText(input.message, 5000),
+    investmentId: cleanText(input.investmentId ?? input.investment_id, 80),
+    submittedAt: normalizeDate(input.submittedAt ?? input.submitted_at),
     utmSource: normalizeUtmValue(input.utmSource ?? input.utm_source ?? utm.source),
     utmMedium: normalizeUtmValue(input.utmMedium ?? input.utm_medium ?? utm.medium),
     utmCampaign: normalizeUtmValue(input.utmCampaign ?? input.utm_campaign ?? utm.campaign),
@@ -132,4 +142,3 @@ export function normalizeIntakePayload(input: Record<string, unknown>): Normaliz
 export function hasUsableIdentifier(identity: NormalizedLeadIdentity): boolean {
   return Boolean(identity.emailNormalized || identity.phoneE164)
 }
-
