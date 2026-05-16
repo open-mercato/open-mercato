@@ -326,7 +326,33 @@ export function SectionGridBody({
   gridRef?: React.Ref<HTMLDivElement>
 }) {
   if (isEmpty) {
-    return <GridSlot sectionKey={view.key} columnIndex={null} isEmpty copy={emptyCopy} />
+    // Phase 5 — multi-column sections render a silhouette of ghost cells so
+    // the column structure is visible before any field is dropped. The
+    // single-column case keeps the legacy big-rectangle for regression safety.
+    if (view.columns === 1) {
+      return <GridSlot sectionKey={view.key} columnIndex={null} isEmpty copy={emptyCopy} />
+    }
+    const cellTarget: CellTarget | null =
+      gridDropTarget && gridDropTarget.kind === 'cell' ? gridDropTarget : null
+    return (
+      <div ref={gridRef} className={sectionGridClasses(view.columns, view.gap)}>
+        {Array.from({ length: view.columns }).map((_, c) => {
+          const showCellGhost =
+            !!cellTarget && cellTarget.rowIndex === 0 && cellTarget.columnIndex === c
+          return (
+            <div key={`empty-cell-${c}`} className="relative">
+              <SectionCellSlot
+                sectionKey={view.key}
+                rowIndex={0}
+                columnIndex={c}
+                copy={c === 0 ? emptyCopy : ''}
+              />
+              {showCellGhost ? <GhostCell /> : null}
+            </div>
+          )
+        })}
+      </div>
+    )
   }
 
   if (view.columns === 1 || !layoutPlan || !renderField) {

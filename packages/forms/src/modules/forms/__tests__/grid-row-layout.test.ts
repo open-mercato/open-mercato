@@ -4,6 +4,16 @@ import {
 } from '../backend/forms/[id]/studio/canvas/row-layout'
 
 describe('computeRowLayout', () => {
+  // Phase 5 empty-grid — multi-column empty sections report 0 rows but
+  // preserve the columns count so the silhouette renderer knows how many
+  // ghost cells to draw.
+  it('columns=4 with no fields: 0 rows, totalFields=0, columns preserved', () => {
+    const result = computeRowLayout({ fieldKeys: [], spans: {}, columns: 4 })
+    expect(result.rows).toHaveLength(0)
+    expect(result.totalFields).toBe(0)
+    expect(result.columns).toBe(4)
+  })
+
   it('columns=1: every field is its own row, empty layout has zero rows', () => {
     const empty = computeRowLayout({ fieldKeys: [], spans: {}, columns: 1 })
     expect(empty.rows).toHaveLength(0)
@@ -105,6 +115,18 @@ describe('dropHintToLinearIndex', () => {
   it('returns 0 for row=0 col=0 in an empty section', () => {
     const layout = computeRowLayout({ fieldKeys: [], spans: {}, columns: 3 })
     expect(dropHintToLinearIndex({ layout, rowIndex: 0, columnIndex: 0 })).toBe(0)
+  })
+
+  // Phase 5 empty-grid: silhouette cells at columnIndex 0..columns-1 all
+  // map to the first slot regardless of the hint (column is informational).
+  it('returns 0 for any silhouette cell in an empty multi-column section', () => {
+    const layout = computeRowLayout({ fieldKeys: [], spans: {}, columns: 4 })
+    expect(layout.rows).toHaveLength(0)
+    expect(layout.totalFields).toBe(0)
+    expect(layout.columns).toBe(4)
+    for (let columnIndex = 0; columnIndex < 4; columnIndex += 1) {
+      expect(dropHintToLinearIndex({ layout, rowIndex: 0, columnIndex })).toBe(0)
+    }
   })
 
   it('returns fieldKeys.length when dropping into a row past the layout', () => {

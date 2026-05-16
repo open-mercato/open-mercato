@@ -882,6 +882,11 @@ export function FormStudio({ formId }: { formId: string }) {
         )
         const columns = view?.columns ?? 1
         const fieldKeys = section.fieldKeys.filter((key) => schemaRef.current.properties[key])
+        // Phase 5 — empty multi-column section silhouette: every grid drop
+        // hint short-circuits to the first slot (column hint is informational).
+        if (fieldKeys.length === 0) {
+          return { sectionKey: parsed.sectionKey, index: 0 }
+        }
         const spans: Record<string, number | undefined> = {}
         for (const key of fieldKeys) {
           spans[key] = readSpan(schemaRef.current.properties[key]?.['x-om-grid-span'])
