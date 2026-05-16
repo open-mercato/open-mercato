@@ -1,7 +1,7 @@
 import type { ModuleCli } from '@open-mercato/shared/modules/registry'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import type { EntityManager } from '@mikro-orm/postgresql'
-import { Attachment, AttachmentPartition } from './data/entities'
+import { Attachment } from './data/entities'
 import type { StorageDriverFactory } from './lib/drivers'
 
 type ParsedArgs = Record<string, string | boolean>
@@ -77,8 +77,10 @@ const deleteAttachments: ModuleCli = {
       }
       const removedIds = new Set<string>()
       for (const entry of attachments) {
-        const partition = await em.findOne(AttachmentPartition, { code: entry.partitionCode })
-        const driver = storageDriverFactory.resolveForAttachment(entry.storageDriver, partition?.configJson)
+        const driver = await storageDriverFactory.resolveForPartition(entry.partitionCode, {
+          tenantId: entry.tenantId ?? '',
+          organizationId: entry.organizationId ?? '',
+        })
         await driver.delete(entry.partitionCode, entry.storagePath)
         em.remove(entry)
         removedIds.add(entry.id)

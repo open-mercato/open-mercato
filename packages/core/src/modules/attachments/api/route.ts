@@ -536,8 +536,10 @@ export async function DELETE(req: Request) {
     console.error('[attachments] failed to cleanup cached thumbnails', error)
   })
   if (record.storagePath) {
-    const delPartition = await em.findOne(AttachmentPartition, { code: record.partitionCode })
-    const delDriver = storageDriverFactory.resolveForAttachment(record.storageDriver, delPartition?.configJson)
+    const delDriver = await storageDriverFactory.resolveForPartition(record.partitionCode, {
+      tenantId: record.tenantId ?? auth.tenantId!,
+      organizationId: record.organizationId ?? auth.orgId,
+    })
     await delDriver.delete(record.partitionCode, record.storagePath)
   }
   if (dataEngine) {

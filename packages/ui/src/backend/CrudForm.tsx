@@ -2285,7 +2285,7 @@ export function CrudForm<TValues extends Record<string, unknown>>({
     for (const field of allFields) {
       if (!field.required) continue
       if (field.disabled) continue
-      if (hiddenInjectedFieldIds.has(field.id)) continue
+      if (hiddenBaseFieldIds.has(field.id) || hiddenInjectedFieldIds.has(field.id)) continue
       const v = values[field.id]
       const isArray = Array.isArray(v)
       const isString = typeof v === 'string'
