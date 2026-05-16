@@ -8,7 +8,6 @@ import {
   DragOverlay,
   KeyboardSensor,
   PointerSensor,
-  closestCenter,
   useSensor,
   useSensors,
   type DragEndEvent,
@@ -48,6 +47,7 @@ import { DragOverlayCard } from './studio/canvas/DragOverlayCard'
 import { FormCanvas } from './studio/canvas/FormCanvas'
 import { FIELD_DRAGGABLE_PREFIX } from './studio/canvas/FieldRow'
 import { SECTION_DROP_PREFIX, parseSectionDropId } from './studio/canvas/GridSlot'
+import { gridAwareCollision } from './studio/canvas/grid-collision'
 import { computeRowLayout, dropHintToLinearIndex, readSpan } from './studio/canvas/row-layout'
 import { SECTION_DRAGGABLE_PREFIX } from './studio/canvas/SectionContainer'
 import {
@@ -105,7 +105,7 @@ import { PreviewSurface } from './studio/preview/PreviewSurface'
 import { ConditionBuilder, buildFieldSourceOptions } from './studio/logic/ConditionBuilder'
 import { JumpsEditor } from './studio/logic/JumpsEditor'
 import { ViewportFrame, type PreviewViewport } from './studio/preview/ViewportFrame'
-import type { StudioSelection, StudioTopTab } from './studio/types'
+import type { ActiveDropTarget, StudioSelection, StudioTopTab } from './studio/types'
 
 type VersionDetail = {
   id: string
@@ -263,10 +263,7 @@ export function FormStudio({ formId }: { formId: string }) {
   const [showPublishDialog, setShowPublishDialog] = React.useState(false)
   const [topTab, setTopTab] = React.useState<StudioTopTab>('builder')
   const [activeDragId, setActiveDragId] = React.useState<string | null>(null)
-  const [activeDropTarget, setActiveDropTarget] = React.useState<{
-    id: string
-    position: 'before' | 'after'
-  } | null>(null)
+  const [activeDropTarget, setActiveDropTarget] = React.useState<ActiveDropTarget>(null)
   const [focusSectionTitleKey, setFocusSectionTitleKey] = React.useState<string | null>(null)
   const [activeLocale] = React.useState<string>('en')
   const [previewViewport, setPreviewViewport] = React.useState<PreviewViewport>('desktop')
@@ -751,7 +748,41 @@ export function FormStudio({ formId }: { formId: string }) {
       return
     }
     if (overId.startsWith(FIELD_DRAGGABLE_PREFIX) || overId.startsWith(SECTION_DRAGGABLE_PREFIX)) {
-      setActiveDropTarget({ id: overId, position: resolveDropPosition(event) })
+      setActiveDropTarget({ kind: 'sortable', id: overId, position: resolveDropPosition(event) })
+      return
+    }
+    if (overId.startsWith(SECTION_DROP_PREFIX)) {
+      const parsed = parseSectionDropId(overId)
+      if (!parsed || parsed.kind === 'legacy') {
+        setActiveDropTarget(null)
+        return
+      }
+      if (parsed.kind === 'cell') {
+        setActiveDropTarget({
+          kind: 'cell',
+          sectionKey: parsed.sectionKey,
+          rowIndex: parsed.rowIndex,
+          columnIndex: parsed.columnIndex,
+          dropId: overId,
+        })
+        return
+      }
+      if (parsed.kind === 'col-gap') {
+        setActiveDropTarget({
+          kind: 'col-gap',
+          sectionKey: parsed.sectionKey,
+          rowIndex: parsed.rowIndex,
+          columnIndex: parsed.columnIndex,
+          dropId: overId,
+        })
+        return
+      }
+      setActiveDropTarget({
+        kind: 'row-gap',
+        sectionKey: parsed.sectionKey,
+        rowIndex: parsed.rowIndex,
+        dropId: overId,
+      })
       return
     }
     setActiveDropTarget(null)
@@ -1240,7 +1271,7 @@ export function FormStudio({ formId }: { formId: string }) {
           <TabsContent value="builder">
             <DndContext
               sensors={sensors}
-              collisionDetection={closestCenter}
+              collisionDetection={gridAwareCollision}
               onDragStart={handleDragStart}
               onDragOver={handleDragOver}
               onDragEnd={handleDragEnd}

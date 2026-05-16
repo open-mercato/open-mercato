@@ -10,7 +10,7 @@ import {
   UNGROUPED_SECTION_KEY,
   type FormSchema,
 } from '../schema-helpers'
-import type { StudioSelection } from '../types'
+import type { ActiveDropTarget, StudioSelection } from '../types'
 import { fieldDraggableId, FieldRow } from './FieldRow'
 import {
   SectionContainer,
@@ -54,10 +54,7 @@ export function FormCanvas({
   onSectionTitleFocusConsumed: () => void
   activeLocale: string
   t: TranslateFn
-  activeDropTarget?: {
-    id: string
-    position: 'before' | 'after'
-  } | null
+  activeDropTarget?: ActiveDropTarget
 }) {
   const sections = React.useMemo(
     () => resolveSectionViews(schema as Record<string, unknown>),
@@ -109,7 +106,8 @@ export function FormCanvas({
               canMoveUp={sectionIndex > 0}
               canMoveDown={sectionIndex < sections.length - 1}
               dropIndicator={
-                activeDropTarget?.id === sectionDraggableId(section.key)
+                activeDropTarget?.kind === 'sortable' &&
+                activeDropTarget.id === sectionDraggableId(section.key)
                   ? activeDropTarget.position
                   : null
               }
@@ -143,7 +141,8 @@ export function FormCanvas({
                       canMoveUp={fieldIndex > 0}
                       canMoveDown={fieldIndex < fieldKeys.length - 1}
                       dropIndicator={
-                        activeDropTarget?.id === fieldDraggableId(fieldKey)
+                        activeDropTarget?.kind === 'sortable' &&
+                        activeDropTarget.id === fieldDraggableId(fieldKey)
                           ? activeDropTarget.position
                           : null
                       }
@@ -151,6 +150,12 @@ export function FormCanvas({
                       t={t}
                     />
                   )
+                  const sectionDropTarget =
+                    activeDropTarget &&
+                    activeDropTarget.kind !== 'sortable' &&
+                    activeDropTarget.sectionKey === section.key
+                      ? activeDropTarget
+                      : null
                   return (
                     <SectionGridBody
                       view={section}
@@ -158,6 +163,7 @@ export function FormCanvas({
                       emptyCopy={t('forms.studio.canvas.dropHere.field')}
                       layoutPlan={layoutPlan}
                       renderField={renderField}
+                      gridDropTarget={sectionDropTarget}
                     >
                       {fieldKeys.map((fieldKey, fieldIndex) => renderField(fieldKey, fieldIndex))}
                     </SectionGridBody>

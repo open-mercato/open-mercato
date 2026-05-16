@@ -14,8 +14,16 @@ import {
   SectionColGapDrop,
   SectionRowGapDrop,
 } from './GridSlot'
+import { GhostCell, HorizontalDropBar, VerticalDropBar } from './DropIndicator'
 import type { RowLayout } from './row-layout'
+import type { ActiveDropTarget } from '../types'
 import type { ResolvedSectionView } from '../../../../../services/form-version-compiler'
+
+type GridDropTarget = Exclude<ActiveDropTarget, null | { kind: 'sortable' }>
+
+type RowGapTarget = Extract<GridDropTarget, { kind: 'row-gap' }>
+type ColGapTarget = Extract<GridDropTarget, { kind: 'col-gap' }>
+type CellTarget = Extract<GridDropTarget, { kind: 'cell' }>
 
 export const SECTION_DRAGGABLE_PREFIX = 'section:'
 
@@ -301,6 +309,7 @@ export function SectionGridBody({
   children,
   layoutPlan,
   renderField,
+  gridDropTarget,
 }: {
   view: ResolvedSectionView
   isEmpty: boolean
@@ -308,6 +317,7 @@ export function SectionGridBody({
   children?: React.ReactNode
   layoutPlan?: RowLayout
   renderField?: (fieldKey: string, fieldIndex: number) => React.ReactNode
+  gridDropTarget?: GridDropTarget | null
 }) {
   if (isEmpty) {
     return <GridSlot sectionKey={view.key} columnIndex={null} isEmpty copy={emptyCopy} />
@@ -324,13 +334,34 @@ export function SectionGridBody({
     )
   }
 
+  const rowGapTarget: RowGapTarget | null =
+    gridDropTarget && gridDropTarget.kind === 'row-gap' ? gridDropTarget : null
+  const colGapTarget: ColGapTarget | null =
+    gridDropTarget && gridDropTarget.kind === 'col-gap' ? gridDropTarget : null
+  const cellTarget: CellTarget | null =
+    gridDropTarget && gridDropTarget.kind === 'cell' ? gridDropTarget : null
+
   // Decision 6b — per-cell + per-gap droppables; column hint is informational.
   return (
     <div className={sectionGridClasses(view.columns, view.gap)}>
       {layoutPlan.rows.map((row, rowIndex) => (
         <React.Fragment key={`row-${rowIndex}`}>
           <SectionRowGapDrop sectionKey={view.key} rowIndex={rowIndex} />
+          {rowGapTarget && rowGapTarget.rowIndex === rowIndex ? (
+            <div className="relative col-span-full h-0">
+              <HorizontalDropBar position="top" />
+            </div>
+          ) : null}
           {row.cells.map((cell, cellIndex) => {
+            const showLeftColGap =
+              !!colGapTarget &&
+              colGapTarget.rowIndex === rowIndex &&
+              colGapTarget.columnIndex === cellIndex
+            const showRightColGap =
+              !!colGapTarget &&
+              colGapTarget.rowIndex === rowIndex &&
+              colGapTarget.columnIndex === view.columns &&
+              cellIndex === row.cells.length - 1
             if (cell.kind === 'field') {
               const spanClass = SPAN_TO_GRID_CLASS[cell.span]
               const isLastCell = cellIndex === row.cells.length - 1
@@ -342,6 +373,7 @@ export function SectionGridBody({
                     columnIndex={cellIndex}
                     edge="left"
                   />
+                  {showLeftColGap ? <VerticalDropBar position="left" /> : null}
                   {renderField(cell.fieldKey, cell.linearIndex)}
                   {isLastCell ? (
                     <SectionColGapDrop
@@ -351,23 +383,35 @@ export function SectionGridBody({
                       edge="right"
                     />
                   ) : null}
+                  {showRightColGap ? <VerticalDropBar position="right" /> : null}
                 </div>
               )
             }
+            const showCellGhost =
+              !!cellTarget &&
+              cellTarget.rowIndex === rowIndex &&
+              cellTarget.columnIndex === cellIndex
             return (
               <div key={`cell-${rowIndex}-${cellIndex}`} className="relative">
+                {showLeftColGap ? <VerticalDropBar position="left" /> : null}
                 <SectionCellSlot
                   sectionKey={view.key}
                   rowIndex={rowIndex}
                   columnIndex={cellIndex}
                   copy={emptyCopy}
                 />
+                {showCellGhost ? <GhostCell /> : null}
               </div>
             )
           })}
         </React.Fragment>
       ))}
       <SectionRowGapDrop sectionKey={view.key} rowIndex={layoutPlan.rows.length} />
+      {rowGapTarget && rowGapTarget.rowIndex === layoutPlan.rows.length ? (
+        <div className="relative col-span-full h-0">
+          <HorizontalDropBar position="top" />
+        </div>
+      ) : null}
       <div className="sm:col-span-full md:col-span-full">
         <GridSlot sectionKey={view.key} columnIndex={null} copy={emptyCopy} />
       </div>
