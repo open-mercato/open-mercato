@@ -1,0 +1,11 @@
+{
+  "champion_crm": {
+    "leads": {
+      "inbox": {
+        "title": "Lead-Eingang",
+        "description": "Eingehende Champion CRM Leads zur Deduplizierung und Qualifizierung."
+      }
+    }
+  }
+}
+
