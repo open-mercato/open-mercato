@@ -1,0 +1,54 @@
+{
+  "champion_crm": {
+    "leads": {
+      "inbox": {
+        "title": "Lead inbox",
+        "description": "Inbound Champion CRM leads awaiting deduplication and qualification."
+      },
+      "table": {
+        "lead": "Lead",
+        "source": "Source",
+        "dedup": "Dedup",
+        "qualification": "Qualification",
+        "created": "Created"
+      },
+      "empty": "No leads yet.",
+      "unnamed": "Unnamed lead",
+      "detail": {
+        "title": "Lead detail",
+        "description": "Contact 360 shell for qualification, deal, investment, apartment, activity, and audit context.",
+        "notFoundTitle": "Lead not found",
+        "notFound": "The requested lead was not found.",
+        "back": "Back to leads",
+        "lead": "Lead",
+        "activity": "Activity",
+        "contact360": "Contact 360",
+        "deals": "Deals",
+        "audit": "Audit"
+      }
+    },
+    "fields": {
+      "source": "Source",
+      "email": "Email",
+      "phone": "Phone",
+      "techStatus": "Dedup status",
+      "qualificationStatus": "Qualification",
+      "createdAt": "Created",
+      "name": "Name",
+      "lifecycle": "Lifecycle"
+    },
+    "activities": {
+      "empty": "No activity yet."
+    },
+    "contacts": {
+      "empty": "No contact linked yet."
+    },
+    "deals": {
+      "empty": "No deals yet."
+    },
+    "audit": {
+      "empty": "No audit events yet."
+    }
+  }
+}
+

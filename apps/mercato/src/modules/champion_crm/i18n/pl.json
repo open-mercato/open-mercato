@@ -1,0 +1,11 @@
+{
+  "champion_crm": {
+    "leads": {
+      "inbox": {
+        "title": "Skrzynka leadow",
+        "description": "Przychodzace leady Champion CRM czekajace na deduplikacje i kwalifikacje."
+      }
+    }
+  }
+}
+

@@ -1,0 +1,11 @@
+{
+  "champion_crm": {
+    "leads": {
+      "inbox": {
+        "title": "Bandeja de leads",
+        "description": "Leads entrantes de Champion CRM pendientes de deduplicacion y cualificacion."
+      }
+    }
+  }
+}
+
