@@ -12,6 +12,7 @@ import {
   useSensor,
   useSensors,
   type DragEndEvent,
+  type DragOverEvent,
   type DragStartEvent,
 } from '@dnd-kit/core'
 import { sortableKeyboardCoordinates } from '@dnd-kit/sortable'
@@ -41,17 +42,19 @@ import { useConfirmDialog } from '@open-mercato/ui/backend/confirm-dialog'
 import { FormPalettePanel } from './studio/palette/FormPalettePanel'
 import { PALETTE_DRAGGABLE_PREFIX } from './studio/palette/PaletteCard'
 import { buildPaletteEntries, resolvePaletteId } from './studio/palette/entries'
-import { resolveLucideIcon, Trash2, Undo2, Redo2 } from './studio/lucide-icons'
+import { ArrowDown, ArrowUp, Plus, resolveLucideIcon, Trash2, Undo2, Redo2 } from './studio/lucide-icons'
 import { resolveTypeLabel } from './studio/type-label'
 import { DragOverlayCard } from './studio/canvas/DragOverlayCard'
 import { FormCanvas } from './studio/canvas/FormCanvas'
 import { FIELD_DRAGGABLE_PREFIX } from './studio/canvas/FieldRow'
 import { SECTION_DROP_PREFIX, parseSectionDropId } from './studio/canvas/GridSlot'
+import { computeRowLayout, dropHintToLinearIndex, readSpan } from './studio/canvas/row-layout'
 import { SECTION_DRAGGABLE_PREFIX } from './studio/canvas/SectionContainer'
 import {
   addFieldFromPalette,
   addLayoutFromPalette,
   adoptUngroupedAsSection,
+  deleteField,
   deleteSection,
   findSectionOwning,
   indexOfFieldInSection,
@@ -139,6 +142,11 @@ type FormDetail = {
     publishedAt: string | null
     changelog: string | null
   }>
+}
+
+type FieldOption = {
+  value: string
+  label: Record<string, string>
 }
 
 const DEFAULT_SECTION_KEY = 'default_section'
@@ -255,6 +263,10 @@ export function FormStudio({ formId }: { formId: string }) {
   const [showPublishDialog, setShowPublishDialog] = React.useState(false)
   const [topTab, setTopTab] = React.useState<StudioTopTab>('builder')
   const [activeDragId, setActiveDragId] = React.useState<string | null>(null)
+  const [activeDropTarget, setActiveDropTarget] = React.useState<{
+    id: string
+    position: 'before' | 'after'
+  } | null>(null)
   const [focusSectionTitleKey, setFocusSectionTitleKey] = React.useState<string | null>(null)
   const [activeLocale] = React.useState<string>('en')
   const [previewViewport, setPreviewViewport] = React.useState<PreviewViewport>('desktop')
@@ -415,10 +427,7 @@ export function FormStudio({ formId }: { formId: string }) {
 
   const handleDeleteField = React.useCallback((fieldKey: string) => {
     updateSchemaStructural((current) => {
-      const next = deepClone(current)
-      delete next.properties[fieldKey]
-      next.required = (next.required ?? []).filter((entry) => entry !== fieldKey)
-      return next
+      return deleteField({ schema: current, fieldKey })
     })
     clearSelection()
     flash(t('forms.studio.fields.deletedFlash'), 'info')
@@ -723,10 +732,34 @@ export function FormStudio({ formId }: { formId: string }) {
 
   const handleDragStart = React.useCallback((event: DragStartEvent) => {
     setActiveDragId(String(event.active.id))
+    setActiveDropTarget(null)
   }, [])
+
+  const resolveDropPosition = React.useCallback((event: DragOverEvent | DragEndEvent): 'before' | 'after' => {
+    const activeTop = event.active.rect.current.translated?.top ?? event.active.rect.current.initial?.top ?? null
+    const activeHeight = event.active.rect.current.translated?.height ?? event.active.rect.current.initial?.height ?? 0
+    const overTop = event.over?.rect.top ?? null
+    const overHeight = event.over?.rect.height ?? 0
+    if (activeTop === null || overTop === null) return 'before'
+    return activeTop + activeHeight / 2 > overTop + overHeight / 2 ? 'after' : 'before'
+  }, [])
+
+  const handleDragOver = React.useCallback((event: DragOverEvent) => {
+    const overId = event.over ? String(event.over.id) : null
+    if (!overId) {
+      setActiveDropTarget(null)
+      return
+    }
+    if (overId.startsWith(FIELD_DRAGGABLE_PREFIX) || overId.startsWith(SECTION_DRAGGABLE_PREFIX)) {
+      setActiveDropTarget({ id: overId, position: resolveDropPosition(event) })
+      return
+    }
+    setActiveDropTarget(null)
+  }, [resolveDropPosition])
 
   const handleDragEnd = React.useCallback((event: DragEndEvent) => {
     setActiveDragId(null)
+    setActiveDropTarget(null)
     const { active, over } = event
     if (!over) return
     const activeId = String(active.id)
@@ -760,15 +793,48 @@ export function FormStudio({ formId }: { formId: string }) {
     const resolveTargetSection = (): { sectionKey: string; index?: number } | null => {
       if (overId.startsWith(SECTION_DROP_PREFIX)) {
         const parsed = parseSectionDropId(overId)
-        if (parsed) return { sectionKey: parsed.sectionKey }
-        return { sectionKey: overId.slice(SECTION_DROP_PREFIX.length) }
+        if (!parsed) {
+          return { sectionKey: overId.slice(SECTION_DROP_PREFIX.length) }
+        }
+        if (parsed.kind === 'legacy') {
+          return { sectionKey: parsed.sectionKey }
+        }
+        // Decision 6b — map grid drop hints to a linear index within fieldKeys.
+        const sections = (schemaRef.current['x-om-sections'] ?? []) as SectionNode[]
+        const section = sections.find((entry) => entry.key === parsed.sectionKey)
+        if (!section) return { sectionKey: parsed.sectionKey }
+        const view = resolveSectionViews(schemaRef.current as Record<string, unknown>).find(
+          (entry) => entry.key === parsed.sectionKey,
+        )
+        const columns = view?.columns ?? 1
+        const fieldKeys = section.fieldKeys.filter((key) => schemaRef.current.properties[key])
+        const spans: Record<string, number | undefined> = {}
+        for (const key of fieldKeys) {
+          spans[key] = readSpan(schemaRef.current.properties[key]?.['x-om-grid-span'])
+        }
+        const layout = computeRowLayout({ fieldKeys, spans, columns })
+        if (parsed.kind === 'cell' || parsed.kind === 'col-gap') {
+          const index = dropHintToLinearIndex({
+            layout,
+            rowIndex: parsed.rowIndex,
+            columnIndex: parsed.columnIndex,
+          })
+          return { sectionKey: parsed.sectionKey, index }
+        }
+        let index = 0
+        for (let r = 0; r < parsed.rowIndex && r < layout.rows.length; r += 1) {
+          index += layout.rows[r].cells.filter((cell) => cell.kind === 'field').length
+        }
+        return { sectionKey: parsed.sectionKey, index }
       }
       if (overId.startsWith(FIELD_DRAGGABLE_PREFIX)) {
         const overFieldKey = overId.slice(FIELD_DRAGGABLE_PREFIX.length)
         const owning = findSectionOwning(schemaRef.current, overFieldKey)
         if (!owning) return null
-        const index = indexOfFieldInSection(schemaRef.current, owning.key, overFieldKey)
-        return { sectionKey: owning.key, index: index >= 0 ? index : undefined }
+        const overIndex = indexOfFieldInSection(schemaRef.current, owning.key, overFieldKey)
+        if (overIndex < 0) return { sectionKey: owning.key }
+        const position = resolveDropPosition(event)
+        return { sectionKey: owning.key, index: overIndex + (position === 'after' ? 1 : 0) }
       }
       return null
     }
@@ -811,7 +877,9 @@ export function FormStudio({ formId }: { formId: string }) {
         if (overId.startsWith(SECTION_DRAGGABLE_PREFIX)) {
           const overSectionKey = overId.slice(SECTION_DRAGGABLE_PREFIX.length)
           const candidate = sections.findIndex((entry) => entry.key === overSectionKey)
-          if (candidate >= 0) insertionIndex = candidate
+          if (candidate >= 0) {
+            insertionIndex = candidate + (resolveDropPosition(event) === 'after' ? 1 : 0)
+          }
         }
         try {
           const result = addLayoutFromPalette({
@@ -840,7 +908,15 @@ export function FormStudio({ formId }: { formId: string }) {
       let beforeKey: string | null = null
       if (overId.startsWith(SECTION_DRAGGABLE_PREFIX)) {
         const overKey = overId.slice(SECTION_DRAGGABLE_PREFIX.length)
-        if (overKey !== sectionKey) beforeKey = overKey
+        if (overKey !== sectionKey) {
+          if (resolveDropPosition(event) === 'after') {
+            const sections = (schemaRef.current['x-om-sections'] ?? []) as SectionNode[]
+            const overIndex = sections.findIndex((entry) => entry.key === overKey)
+            beforeKey = sections[overIndex + 1]?.key ?? null
+          } else {
+            beforeKey = overKey
+          }
+        }
       }
       try {
         const nextSchema = moveSection({ schema: schemaRef.current, sectionKey, beforeKey })
@@ -858,6 +934,17 @@ export function FormStudio({ formId }: { formId: string }) {
       const fieldKey = activeId.slice(FIELD_DRAGGABLE_PREFIX.length)
       const target = resolveTargetSection()
       if (!target) return
+      const owning = findSectionOwning(schemaRef.current, fieldKey)
+      if (
+        owning &&
+        owning.key === target.sectionKey &&
+        typeof target.index === 'number'
+      ) {
+        const currentIndex = indexOfFieldInSection(schemaRef.current, owning.key, fieldKey)
+        if (currentIndex >= 0 && currentIndex < target.index) {
+          target.index -= 1
+        }
+      }
       try {
         const nextSchema = moveField({
           schema: schemaRef.current,
@@ -872,11 +959,36 @@ export function FormStudio({ formId }: { formId: string }) {
         }
       }
     }
-  }, [persistDraft, undoController])
+  }, [persistDraft, resolveDropPosition, undoController])
 
   const handleDragCancel = React.useCallback(() => {
     setActiveDragId(null)
+    setActiveDropTarget(null)
   }, [])
+
+  const handleMoveField = React.useCallback((fieldKey: string, direction: 'up' | 'down') => {
+    const owning = findSectionOwning(schemaRef.current, fieldKey)
+    if (!owning) return
+    const currentIndex = indexOfFieldInSection(schemaRef.current, owning.key, fieldKey)
+    const nextIndex = direction === 'up' ? currentIndex - 1 : currentIndex + 1
+    if (currentIndex < 0 || nextIndex < 0 || nextIndex >= owning.fieldKeys.length) return
+    updateSchemaStructural((current) => moveField({
+      schema: current,
+      fieldKey,
+      target: { sectionKey: owning.key, index: nextIndex },
+    }))
+  }, [updateSchemaStructural])
+
+  const handleMoveSection = React.useCallback((sectionKey: string, direction: 'up' | 'down') => {
+    const sections = (schemaRef.current['x-om-sections'] ?? []) as SectionNode[]
+    const currentIndex = sections.findIndex((entry) => entry.key === sectionKey)
+    const nextIndex = direction === 'up' ? currentIndex - 1 : currentIndex + 1
+    if (currentIndex < 0 || nextIndex < 0 || nextIndex >= sections.length) return
+    const beforeKey = direction === 'up'
+      ? sections[nextIndex]?.key ?? null
+      : sections[nextIndex + 1]?.key ?? null
+    updateSchemaStructural((current) => moveSection({ schema: current, sectionKey, beforeKey }))
+  }, [updateSchemaStructural])
 
   const dragOverlayContent = React.useMemo(() => {
     if (!activeDragId) return null
@@ -946,32 +1058,6 @@ export function FormStudio({ formId }: { formId: string }) {
       ? ((schema['x-om-sections'] ?? []) as SectionNode[]).find((entry) => entry.key === selection.key) ?? null
       : null
 
-  if (isLoading) {
-    return (
-      <Page>
-        <PageBody>
-          <LoadingMessage label={t('forms.studio.title')} />
-        </PageBody>
-      </Page>
-    )
-  }
-  if (loadError || !form) {
-    return (
-      <Page>
-        <PageBody>
-          <ErrorMessage
-            label={t(loadError ?? 'forms.errors.internal')}
-            action={(
-              <Button asChild variant="outline">
-                <Link href="/backend/forms">{t('forms.list.title')}</Link>
-              </Button>
-            )}
-          />
-        </PageBody>
-      </Page>
-    )
-  }
-
   const sectionsForDerivation = resolveSectionViews(schema as Record<string, unknown>)
   const derivedPages = partitionPages(sectionsForDerivation)
   const density = resolveFormStyle(schema as Record<string, unknown>)
@@ -1032,6 +1118,32 @@ export function FormStudio({ formId }: { formId: string }) {
     }
     return result
   }, [schema])
+
+  if (isLoading) {
+    return (
+      <Page>
+        <PageBody>
+          <LoadingMessage label={t('forms.studio.title')} />
+        </PageBody>
+      </Page>
+    )
+  }
+  if (loadError || !form) {
+    return (
+      <Page>
+        <PageBody>
+          <ErrorMessage
+            label={t(loadError ?? 'forms.errors.internal')}
+            action={(
+              <Button asChild variant="outline">
+                <Link href="/backend/forms">{t('forms.list.title')}</Link>
+              </Button>
+            )}
+          />
+        </PageBody>
+      </Page>
+    )
+  }
 
   const paletteParameters = {
     formId,
@@ -1130,9 +1242,15 @@ export function FormStudio({ formId }: { formId: string }) {
               sensors={sensors}
               collisionDetection={closestCenter}
               onDragStart={handleDragStart}
+              onDragOver={handleDragOver}
               onDragEnd={handleDragEnd}
               onDragCancel={handleDragCancel}
-              accessibility={{ announcements }}
+              accessibility={{
+                announcements,
+                screenReaderInstructions: {
+                  draggable: t('forms.studio.dnd.instructions.draggable'),
+                },
+              }}
             >
               <div className="grid grid-cols-1 gap-4 lg:grid-cols-[280px_1fr_320px]">
                 <FormPalettePanel parameters={paletteParameters} />
@@ -1146,12 +1264,16 @@ export function FormStudio({ formId }: { formId: string }) {
                     selectedKey={selection}
                     onSelectField={selectField}
                     onSelectSection={selectSection}
+                    onDeleteField={handleDeleteField}
                     onDeleteSection={(key) => { void handleDeleteSection(key) }}
+                    onMoveField={handleMoveField}
+                    onMoveSection={handleMoveSection}
                     onAdoptUngrouped={handleAdoptUngrouped}
                     onSectionTitleCommit={handleSectionTitleCommit}
                     focusSectionTitleKey={focusSectionTitleKey}
                     onSectionTitleFocusConsumed={() => setFocusSectionTitleKey(null)}
                     activeLocale={activeLocale}
+                    activeDropTarget={activeDropTarget}
                     t={t}
                   />
                 </section>
@@ -1899,6 +2021,20 @@ function FieldTabContent({
     },
     [onUpdate],
   )
+  const handleOptionsChange = React.useCallback(
+    (next: FieldOption[]) => {
+      onUpdate((current) => {
+        const updated: FieldNode = { ...current }
+        updated['x-om-options'] = next.map((option) => ({
+          value: option.value,
+          label: option.label,
+        }))
+        return updated
+      })
+    },
+    [onUpdate],
+  )
+  const showOptionsEditor = omType === 'select_one' || omType === 'select_many' || omType === 'ranking'
   return (
     <div className="space-y-3">
       <div>
@@ -1991,11 +2127,175 @@ function FieldTabContent({
         onMatrixRowsChange={handleMatrixRowsChange}
         onMatrixColumnsChange={handleMatrixColumnsChange}
       />
+      {showOptionsEditor ? (
+        <OptionsEditor
+          options={readFieldOptions(node)}
+          onChange={handleOptionsChange}
+          t={t}
+        />
+      ) : null}
       <Button type="button" variant="destructive-outline" onClick={onDelete}>
         <Trash2 className="size-4" aria-hidden="true" />
         {t('forms.studio.fields.deleteButton')}
       </Button>
     </div>
+  )
+}
+
+function readFieldOptions(node: FieldNode): FieldOption[] {
+  const raw = node['x-om-options']
+  if (!Array.isArray(raw)) return []
+  return raw
+    .filter((entry): entry is { value: string; label?: Record<string, string> } =>
+      Boolean(entry) && typeof entry === 'object' && typeof entry.value === 'string',
+    )
+    .map((entry) => ({
+      value: entry.value,
+      label: entry.label && typeof entry.label === 'object' && !Array.isArray(entry.label)
+        ? { ...entry.label }
+        : { en: entry.value },
+    }))
+}
+
+function slugOptionValue(label: string, fallback: string): string {
+  const slug = label
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, '_')
+    .replace(/^_+|_+$/g, '')
+  return slug || fallback
+}
+
+function nextOptionValue(options: FieldOption[]): string {
+  const used = new Set(options.map((option) => option.value))
+  let index = options.length + 1
+  let candidate = `option_${index}`
+  while (used.has(candidate)) {
+    index += 1
+    candidate = `option_${index}`
+  }
+  return candidate
+}
+
+function moveArrayItem<T>(items: T[], from: number, to: number): T[] {
+  const next = [...items]
+  const [item] = next.splice(from, 1)
+  if (!item) return items
+  next.splice(to, 0, item)
+  return next
+}
+
+function OptionsEditor({
+  options,
+  onChange,
+  t,
+}: {
+  options: FieldOption[]
+  onChange: (options: FieldOption[]) => void
+  t: ReturnType<typeof useT>
+}) {
+  const addOption = React.useCallback(() => {
+    const value = nextOptionValue(options)
+    onChange([...options, { value, label: { en: t('forms.studio.field.options.defaultLabel', { n: String(options.length + 1) }) } }])
+  }, [onChange, options, t])
+
+  const updateOption = React.useCallback((index: number, patch: Partial<FieldOption>) => {
+    onChange(options.map((option, optionIndex) => {
+      if (optionIndex !== index) return option
+      return {
+        ...option,
+        ...patch,
+        label: patch.label ?? option.label,
+      }
+    }))
+  }, [onChange, options])
+
+  return (
+    <section className="space-y-2 rounded-md border border-border bg-muted/20 p-3">
+      <div className="flex items-center justify-between gap-2">
+        <h3 className="text-xs font-semibold uppercase text-muted-foreground">
+          {t('forms.studio.field.options.heading')}
+        </h3>
+        <Button type="button" variant="outline" size="sm" onClick={addOption}>
+          <Plus className="size-4" aria-hidden="true" />
+          {t('forms.studio.field.options.add')}
+        </Button>
+      </div>
+      {options.length === 0 ? (
+        <p className="text-xs text-muted-foreground">{t('forms.studio.field.options.empty')}</p>
+      ) : (
+        <div className="space-y-2">
+          {options.map((option, index) => {
+            const label = option.label.en ?? ''
+            return (
+              <div key={`${option.value}:${index}`} className="rounded-md border border-border bg-background p-2">
+                <div className="grid gap-2 sm:grid-cols-[minmax(0,1fr)_minmax(0,1fr)_auto]">
+                  <label className="space-y-1">
+                    <span className="block text-xs font-medium text-muted-foreground">
+                      {t('forms.studio.field.options.label')}
+                    </span>
+                    <Input
+                      value={label}
+                      onChange={(event) => {
+                        const nextLabel = event.target.value
+                        const currentValue = option.value
+                        const generatedValue = slugOptionValue(nextLabel, currentValue || `option_${index + 1}`)
+                        updateOption(index, {
+                          value: currentValue.startsWith('option_') ? generatedValue : currentValue,
+                          label: { ...option.label, en: nextLabel },
+                        })
+                      }}
+                    />
+                  </label>
+                  <label className="space-y-1">
+                    <span className="block text-xs font-medium text-muted-foreground">
+                      {t('forms.studio.field.options.value')}
+                    </span>
+                    <Input
+                      value={option.value}
+                      onChange={(event) => updateOption(index, {
+                        value: slugOptionValue(event.target.value, `option_${index + 1}`),
+                      })}
+                    />
+                  </label>
+                  <div className="flex items-end gap-1">
+                    <IconButton
+                      type="button"
+                      variant="ghost"
+                      size="sm"
+                      disabled={index === 0}
+                      aria-label={t('forms.studio.field.options.moveUp')}
+                      onClick={() => onChange(moveArrayItem(options, index, index - 1))}
+                    >
+                      <ArrowUp className="size-4" aria-hidden="true" />
+                    </IconButton>
+                    <IconButton
+                      type="button"
+                      variant="ghost"
+                      size="sm"
+                      disabled={index >= options.length - 1}
+                      aria-label={t('forms.studio.field.options.moveDown')}
+                      onClick={() => onChange(moveArrayItem(options, index, index + 1))}
+                    >
+                      <ArrowDown className="size-4" aria-hidden="true" />
+                    </IconButton>
+                    <IconButton
+                      type="button"
+                      variant="ghost"
+                      size="sm"
+                      aria-label={t('forms.studio.field.options.delete')}
+                      onClick={() => onChange(options.filter((_, optionIndex) => optionIndex !== index))}
+                    >
+                      <Trash2 className="size-4" aria-hidden="true" />
+                    </IconButton>
+                  </div>
+                </div>
+              </div>
+            )
+          })}
+        </div>
+      )}
+    </section>
   )
 }
 

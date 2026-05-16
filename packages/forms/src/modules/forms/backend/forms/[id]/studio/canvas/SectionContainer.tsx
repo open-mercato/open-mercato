@@ -7,8 +7,14 @@ import { IconButton } from '@open-mercato/ui/primitives/icon-button'
 import { Separator } from '@open-mercato/ui/primitives/separator'
 import { Tag } from '@open-mercato/ui/primitives/tag'
 import type { TranslateFn } from '@open-mercato/shared/lib/i18n/context'
-import { GripVertical, Trash2 } from '../lucide-icons'
-import { GridSlot } from './GridSlot'
+import { ArrowDown, ArrowUp, GripVertical, Trash2 } from '../lucide-icons'
+import {
+  GridSlot,
+  SectionCellSlot,
+  SectionColGapDrop,
+  SectionRowGapDrop,
+} from './GridSlot'
+import type { RowLayout } from './row-layout'
 import type { ResolvedSectionView } from '../../../../../services/form-version-compiler'
 
 export const SECTION_DRAGGABLE_PREFIX = 'section:'
@@ -34,6 +40,7 @@ export type SectionContainerProps = {
   isSelected: boolean
   onSelect: (sectionKey: string) => void
   onDelete: (sectionKey: string) => void
+  onMove: (sectionKey: string, direction: 'up' | 'down') => void
   onTitleCommit: (sectionKey: string, title: string) => void
   /** Currently active locale for inline title edits (Decision 26b). */
   activeLocale: string
@@ -43,6 +50,11 @@ export type SectionContainerProps = {
   titlePlaceholder: string
   deleteAriaLabel: string
   dragHandleAriaLabel: string
+  moveUpAriaLabel: string
+  moveDownAriaLabel: string
+  canMoveUp: boolean
+  canMoveDown: boolean
+  dropIndicator?: 'before' | 'after' | null
   t: TranslateFn
   children: React.ReactNode
   isFocusedForTitleEdit?: boolean
@@ -62,12 +74,18 @@ export function SectionContainer(props: SectionContainerProps) {
     isSelected,
     onSelect,
     onDelete,
+    onMove,
     onTitleCommit,
     activeLocale,
     pageChipLabel,
     titlePlaceholder,
     deleteAriaLabel,
     dragHandleAriaLabel,
+    moveUpAriaLabel,
+    moveDownAriaLabel,
+    canMoveUp,
+    canMoveDown,
+    dropIndicator,
     children,
     isFocusedForTitleEdit,
     onTitleEditConsumed,
@@ -132,13 +150,23 @@ export function SectionContainer(props: SectionContainerProps) {
 
   const showTitleHeader = !view.hideTitle
   const containerClass =
-    'rounded-lg border bg-background p-4 ' +
-    (isSelected ? 'border-primary/30' : 'border-border')
+    'relative rounded-lg border bg-background p-4 ' +
+    (isSelected ? 'border-primary/30' : 'border-border') +
+    (dropIndicator ? ' ring-1 ring-primary/30' : '')
 
   const visibleTitle = initialTitle.length > 0 ? initialTitle : titlePlaceholder
 
   return (
     <div ref={setNodeRef} style={style} data-section-key={view.key} className={containerClass}>
+      {dropIndicator ? (
+        <span
+          className={[
+            'pointer-events-none absolute left-4 right-4 h-0.5 rounded-full bg-primary',
+            dropIndicator === 'before' ? '-top-2' : '-bottom-2',
+          ].join(' ')}
+          aria-hidden="true"
+        />
+      ) : null}
       {view.kind === 'ending' ? (
         <div className="mb-2">
           <Tag variant="neutral" dot>
@@ -203,18 +231,46 @@ export function SectionContainer(props: SectionContainerProps) {
             <span className="flex-1 text-sm italic text-muted-foreground">{titlePlaceholder}</span>
           )}
         </div>
-        <IconButton
-          type="button"
-          aria-label={deleteAriaLabel}
-          variant="ghost"
-          size="sm"
-          onClick={(event) => {
-            event.stopPropagation()
-            onDelete(view.key)
-          }}
-        >
-          <Trash2 className="size-4" aria-hidden="true" />
-        </IconButton>
+        <div className="flex shrink-0 items-center gap-1">
+          <IconButton
+            type="button"
+            aria-label={moveUpAriaLabel}
+            variant="ghost"
+            size="sm"
+            disabled={!canMoveUp}
+            onClick={(event) => {
+              event.stopPropagation()
+              onMove(view.key, 'up')
+            }}
+          >
+            <ArrowUp className="size-4" aria-hidden="true" />
+          </IconButton>
+          <IconButton
+            type="button"
+            aria-label={moveDownAriaLabel}
+            variant="ghost"
+            size="sm"
+            disabled={!canMoveDown}
+            onClick={(event) => {
+              event.stopPropagation()
+              onMove(view.key, 'down')
+            }}
+          >
+            <ArrowDown className="size-4" aria-hidden="true" />
+          </IconButton>
+          <IconButton
+            type="button"
+            aria-label={deleteAriaLabel}
+            variant="ghost"
+            size="sm"
+            onClick={(event) => {
+              event.stopPropagation()
+              onDelete(view.key)
+            }}
+          >
+            <Trash2 className="size-4" aria-hidden="true" />
+          </IconButton>
+        </div>
       </header>
       {view.divider ? <Separator className="mb-3" /> : null}
       {children}
@@ -231,24 +287,97 @@ export const sectionGridClasses = (
  * Body wrapper that lays out child rows in a CSS grid based on the
  * resolved `columns` value. Empty sections fall back to a single
  * full-width drop zone (Decision 28).
+ *
+ * Phase 1 grid DnD — when `columns > 1` and a `layoutPlan` is provided,
+ * the body owns layout: it walks the `RowLayout` rows, renders each
+ * field via `renderField(fieldKey, fieldIndex)`, and interleaves
+ * per-cell + per-gap droppables. `columns === 1` keeps legacy children
+ * rendering for regression safety.
  */
 export function SectionGridBody({
   view,
   isEmpty,
   emptyCopy,
   children,
+  layoutPlan,
+  renderField,
 }: {
   view: ResolvedSectionView
   isEmpty: boolean
   emptyCopy: string
-  children: React.ReactNode
+  children?: React.ReactNode
+  layoutPlan?: RowLayout
+  renderField?: (fieldKey: string, fieldIndex: number) => React.ReactNode
 }) {
   if (isEmpty) {
     return <GridSlot sectionKey={view.key} columnIndex={null} isEmpty copy={emptyCopy} />
   }
+
+  if (view.columns === 1 || !layoutPlan || !renderField) {
+    return (
+      <div className={sectionGridClasses(view.columns, view.gap)}>
+        {children}
+        <div className="sm:col-span-full md:col-span-full">
+          <GridSlot sectionKey={view.key} columnIndex={null} copy={emptyCopy} />
+        </div>
+      </div>
+    )
+  }
+
+  // Decision 6b — per-cell + per-gap droppables; column hint is informational.
   return (
     <div className={sectionGridClasses(view.columns, view.gap)}>
-      {children}
+      {layoutPlan.rows.map((row, rowIndex) => (
+        <React.Fragment key={`row-${rowIndex}`}>
+          <SectionRowGapDrop sectionKey={view.key} rowIndex={rowIndex} />
+          {row.cells.map((cell, cellIndex) => {
+            if (cell.kind === 'field') {
+              const spanClass = SPAN_TO_GRID_CLASS[cell.span]
+              const isLastCell = cellIndex === row.cells.length - 1
+              return (
+                <div key={`cell-${rowIndex}-${cellIndex}`} className={`relative ${spanClass}`}>
+                  <SectionColGapDrop
+                    sectionKey={view.key}
+                    rowIndex={rowIndex}
+                    columnIndex={cellIndex}
+                    edge="left"
+                  />
+                  {renderField(cell.fieldKey, cell.linearIndex)}
+                  {isLastCell ? (
+                    <SectionColGapDrop
+                      sectionKey={view.key}
+                      rowIndex={rowIndex}
+                      columnIndex={view.columns}
+                      edge="right"
+                    />
+                  ) : null}
+                </div>
+              )
+            }
+            return (
+              <div key={`cell-${rowIndex}-${cellIndex}`} className="relative">
+                <SectionCellSlot
+                  sectionKey={view.key}
+                  rowIndex={rowIndex}
+                  columnIndex={cellIndex}
+                  copy={emptyCopy}
+                />
+              </div>
+            )
+          })}
+        </React.Fragment>
+      ))}
+      <SectionRowGapDrop sectionKey={view.key} rowIndex={layoutPlan.rows.length} />
+      <div className="sm:col-span-full md:col-span-full">
+        <GridSlot sectionKey={view.key} columnIndex={null} copy={emptyCopy} />
+      </div>
     </div>
   )
+}
+
+const SPAN_TO_GRID_CLASS: Record<1 | 2 | 3 | 4, string> = {
+  1: 'sm:col-span-1',
+  2: 'sm:col-span-2',
+  3: 'md:col-span-3',
+  4: 'md:col-span-4',
 }
