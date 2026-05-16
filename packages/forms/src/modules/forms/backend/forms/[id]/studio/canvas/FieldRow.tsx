@@ -11,6 +11,7 @@ import { buildPaletteEntries } from '../palette/entries'
 import { resolveTypeLabel } from '../type-label'
 import type { FieldNode } from '../schema-helpers'
 import { readSpan as readSpanShared } from './row-layout'
+import { computeResizedSpan, GAP_PX } from './resize-math'
 
 export const FIELD_DRAGGABLE_PREFIX = 'field:'
 
@@ -39,6 +40,12 @@ export function FieldRow({
   canMoveDown,
   dropIndicator,
   dropIndicatorGap,
+  columns,
+  gap,
+  getSectionRect,
+  onResizeStart,
+  onResizePreview,
+  onResizeCommit,
   t,
 }: {
   fieldKey: string
@@ -51,6 +58,12 @@ export function FieldRow({
   canMoveDown: boolean
   dropIndicator?: 'before' | 'after' | null
   dropIndicatorGap?: 'sm' | 'md' | 'lg'
+  columns?: 1 | 2 | 3 | 4
+  gap?: 'sm' | 'md' | 'lg'
+  getSectionRect?: () => DOMRect | null
+  onResizeStart?: (fieldKey: string, startSpan: 1 | 2 | 3 | 4) => void
+  onResizePreview?: (fieldKey: string, previewSpan: 1 | 2 | 3 | 4) => void
+  onResizeCommit?: (fieldKey: string, finalSpan: 1 | 2 | 3 | 4) => void
   t: TranslateFn
 }) {
   const {
@@ -77,16 +90,111 @@ export function FieldRow({
         ? dropIndicator === 'before' ? '-top-3' : '-bottom-3'
         : dropIndicator === 'before' ? '-top-2' : '-bottom-2'
 
+  const containerRef = React.useRef<HTMLDivElement | null>(null)
+  const setRefs = React.useCallback(
+    (node: HTMLDivElement | null) => {
+      setNodeRef(node)
+      containerRef.current = node
+    },
+    [setNodeRef],
+  )
+
+  const resizeStateRef = React.useRef<{
+    pointerId: number
+    fieldLeft: number
+    sectionLeft: number
+    sectionWidth: number
+    columns: 1 | 2 | 3 | 4
+    gapPx: number
+    startSpan: 1 | 2 | 3 | 4
+    lastPreview: 1 | 2 | 3 | 4
+  } | null>(null)
+
+  const canResize = !!columns && columns > 1 && !!getSectionRect && !!onResizeCommit
+
+  const handleResizePointerDown = React.useCallback(
+    (event: React.PointerEvent<HTMLDivElement>) => {
+      if (!canResize) return
+      if (event.button !== 0) return
+      const fieldNode = containerRef.current
+      const sectionRect = getSectionRect?.()
+      if (!fieldNode || !sectionRect) return
+      const fieldRect = fieldNode.getBoundingClientRect()
+      const gapPx = GAP_PX[gap ?? 'md']
+      const startSpan = span
+      const targetCols = (columns ?? 1) as 1 | 2 | 3 | 4
+      resizeStateRef.current = {
+        pointerId: event.pointerId,
+        fieldLeft: fieldRect.left,
+        sectionLeft: sectionRect.left,
+        sectionWidth: sectionRect.width,
+        columns: targetCols,
+        gapPx,
+        startSpan,
+        lastPreview: startSpan,
+      }
+      try {
+        event.currentTarget.setPointerCapture(event.pointerId)
+      } catch {
+        // Some browsers throw if capture is unavailable — safe to ignore.
+      }
+      event.preventDefault()
+      event.stopPropagation()
+      onResizeStart?.(fieldKey, startSpan)
+    },
+    [canResize, columns, fieldKey, gap, getSectionRect, onResizeStart, span],
+  )
+
+  const handleResizePointerMove = React.useCallback(
+    (event: React.PointerEvent<HTMLDivElement>) => {
+      const state = resizeStateRef.current
+      if (!state || state.pointerId !== event.pointerId) return
+      const next = computeResizedSpan({
+        sectionLeft: state.sectionLeft,
+        sectionWidth: state.sectionWidth,
+        fieldLeft: state.fieldLeft,
+        pointerClientX: event.clientX,
+        columns: state.columns,
+        startSpan: state.startSpan,
+        gapPx: state.gapPx,
+      })
+      if (next !== state.lastPreview) {
+        state.lastPreview = next
+        onResizePreview?.(fieldKey, next)
+      }
+      event.preventDefault()
+    },
+    [fieldKey, onResizePreview],
+  )
+
+  const finishResize = React.useCallback(
+    (event: React.PointerEvent<HTMLDivElement>) => {
+      const state = resizeStateRef.current
+      if (!state || state.pointerId !== event.pointerId) return
+      try {
+        if (event.currentTarget.hasPointerCapture(event.pointerId)) {
+          event.currentTarget.releasePointerCapture(event.pointerId)
+        }
+      } catch {
+        // Ignore release errors — pointer capture may already be gone.
+      }
+      const final = state.lastPreview
+      resizeStateRef.current = null
+      onResizeCommit?.(fieldKey, final)
+    },
+    [fieldKey, onResizeCommit],
+  )
+
   return (
     <div
-      ref={setNodeRef}
+      ref={setRefs}
       style={{
         transform: CSS.Transform.toString(transform),
         transition,
         opacity: isDragging ? 0.5 : 1,
       }}
       className={[
-        'relative min-w-0 rounded-md border bg-background p-3',
+        'group relative min-w-0 rounded-md border bg-background p-3',
         SPAN_TO_CLASS[span],
         isSelected ? 'border-primary/40' : 'border-border',
         dropIndicator ? 'ring-1 ring-primary/30' : '',
@@ -167,6 +275,21 @@ export function FieldRow({
           <Trash2 className="size-4" aria-hidden="true" />
         </IconButton>
       </div>
+      {canResize ? (
+        <div
+          className="absolute inset-y-0 -right-1 hidden sm:flex w-2 cursor-col-resize items-center justify-center touch-none select-none"
+          onPointerDown={handleResizePointerDown}
+          onPointerMove={handleResizePointerMove}
+          onPointerUp={finishResize}
+          onPointerCancel={finishResize}
+          role="separator"
+          aria-orientation="vertical"
+          aria-label={t('forms.studio.canvas.field.resizeHandle')}
+          data-no-dnd="true"
+        >
+          <span className="h-6 w-0.5 rounded-full bg-border opacity-0 transition-opacity group-hover:opacity-100" />
+        </div>
+      ) : null}
     </div>
   )
 }

@@ -44,7 +44,7 @@ import { buildPaletteEntries, resolvePaletteId } from './studio/palette/entries'
 import { ArrowDown, ArrowUp, Plus, resolveLucideIcon, Trash2, Undo2, Redo2 } from './studio/lucide-icons'
 import { resolveTypeLabel } from './studio/type-label'
 import { DragOverlayCard } from './studio/canvas/DragOverlayCard'
-import { FormCanvas } from './studio/canvas/FormCanvas'
+import { FormCanvas, type FieldResizeState } from './studio/canvas/FormCanvas'
 import { FIELD_DRAGGABLE_PREFIX } from './studio/canvas/FieldRow'
 import { SECTION_DROP_PREFIX, parseSectionDropId } from './studio/canvas/GridSlot'
 import { gridAwareCollision } from './studio/canvas/grid-collision'
@@ -264,6 +264,7 @@ export function FormStudio({ formId }: { formId: string }) {
   const [topTab, setTopTab] = React.useState<StudioTopTab>('builder')
   const [activeDragId, setActiveDragId] = React.useState<string | null>(null)
   const [activeDropTarget, setActiveDropTarget] = React.useState<ActiveDropTarget>(null)
+  const [fieldResizeState, setFieldResizeState] = React.useState<FieldResizeState>(null)
   const [focusSectionTitleKey, setFocusSectionTitleKey] = React.useState<string | null>(null)
   const [activeLocale] = React.useState<string>('en')
   const [previewViewport, setPreviewViewport] = React.useState<PreviewViewport>('desktop')
@@ -520,6 +521,43 @@ export function FormStudio({ formId }: { formId: string }) {
       updateSchemaStructural((current) => setFieldGridSpan({ schema: current, fieldKey, span }))
     },
     [updateSchemaStructural],
+  )
+
+  const handleFieldResizeStart = React.useCallback(
+    (input: { fieldKey: string; sectionKey: string; startSpan: 1 | 2 | 3 | 4 }) => {
+      setFieldResizeState({
+        fieldKey: input.fieldKey,
+        sectionKey: input.sectionKey,
+        startSpan: input.startSpan,
+        previewSpan: input.startSpan,
+      })
+    },
+    [],
+  )
+
+  const handleFieldResizePreview = React.useCallback(
+    (input: { fieldKey: string; previewSpan: 1 | 2 | 3 | 4 }) => {
+      setFieldResizeState((current) => {
+        if (!current || current.fieldKey !== input.fieldKey) return current
+        if (current.previewSpan === input.previewSpan) return current
+        return { ...current, previewSpan: input.previewSpan }
+      })
+    },
+    [],
+  )
+
+  const handleFieldResizeCommit = React.useCallback(
+    (input: { fieldKey: string; finalSpan: 1 | 2 | 3 | 4 }) => {
+      setFieldResizeState((current) => {
+        if (current && current.fieldKey === input.fieldKey) {
+          if (input.finalSpan !== current.startSpan) {
+            handleFieldGridSpan(input.fieldKey, input.finalSpan)
+          }
+        }
+        return null
+      })
+    },
+    [handleFieldGridSpan],
   )
 
   const handleFieldAlign = React.useCallback(
@@ -1305,6 +1343,10 @@ export function FormStudio({ formId }: { formId: string }) {
                     onSectionTitleFocusConsumed={() => setFocusSectionTitleKey(null)}
                     activeLocale={activeLocale}
                     activeDropTarget={activeDropTarget}
+                    resizeState={fieldResizeState}
+                    onFieldResizeStart={handleFieldResizeStart}
+                    onFieldResizePreview={handleFieldResizePreview}
+                    onFieldResizeCommit={handleFieldResizeCommit}
                     t={t}
                   />
                 </section>

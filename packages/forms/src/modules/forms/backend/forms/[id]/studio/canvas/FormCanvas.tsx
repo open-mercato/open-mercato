@@ -23,6 +23,13 @@ import {
 } from '../../../../../services/form-version-compiler'
 import { computeRowLayout, readSpan } from './row-layout'
 
+export type FieldResizeState = {
+  fieldKey: string
+  sectionKey: string
+  startSpan: 1 | 2 | 3 | 4
+  previewSpan: 1 | 2 | 3 | 4
+} | null
+
 export function FormCanvas({
   schema,
   selectedKey,
@@ -38,6 +45,10 @@ export function FormCanvas({
   onSectionTitleFocusConsumed,
   activeLocale,
   activeDropTarget,
+  resizeState,
+  onFieldResizeStart,
+  onFieldResizePreview,
+  onFieldResizeCommit,
   t,
 }: {
   schema: FormSchema
@@ -55,6 +66,10 @@ export function FormCanvas({
   activeLocale: string
   t: TranslateFn
   activeDropTarget?: ActiveDropTarget
+  resizeState?: FieldResizeState
+  onFieldResizeStart?: (input: { fieldKey: string; sectionKey: string; startSpan: 1 | 2 | 3 | 4 }) => void
+  onFieldResizePreview?: (input: { fieldKey: string; previewSpan: 1 | 2 | 3 | 4 }) => void
+  onFieldResizeCommit?: (input: { fieldKey: string; finalSpan: 1 | 2 | 3 | 4 }) => void
 }) {
   const sections = React.useMemo(
     () => resolveSectionViews(schema as Record<string, unknown>),
@@ -65,6 +80,18 @@ export function FormCanvas({
   const claimedFields = new Set(sections.flatMap((section) => section.fieldKeys))
   const ungroupedFields = fields.filter((entry) => !entry.sectionKey || !claimedFields.has(entry.key))
   const sectionIds = sections.map((section) => sectionDraggableId(section.key))
+  const gridRefs = React.useRef<Map<string, HTMLDivElement | null>>(new Map())
+  const registerGridRef = React.useCallback(
+    (sectionKey: string) => (node: HTMLDivElement | null) => {
+      const map = gridRefs.current
+      if (node) {
+        map.set(sectionKey, node)
+      } else {
+        map.delete(sectionKey)
+      }
+    },
+    [],
+  )
 
   if (sections.length === 0 && Object.keys(schema.properties).length === 0) {
     return (
@@ -83,6 +110,10 @@ export function FormCanvas({
           const isFirstOfPage =
             pageIndex >= 0 && pages[pageIndex]?.sectionKeys[0] === section.key
           const fieldKeys = section.fieldKeys.filter((fieldKey) => schema.properties[fieldKey])
+          const getSectionRect = () => {
+            const node = gridRefs.current.get(section.key)
+            return node ? node.getBoundingClientRect() : null
+          }
           return (
             <SectionContainer
               key={section.key}
@@ -147,6 +178,18 @@ export function FormCanvas({
                           : null
                       }
                       dropIndicatorGap={section.gap}
+                      columns={section.columns}
+                      gap={section.gap}
+                      getSectionRect={getSectionRect}
+                      onResizeStart={(key, startSpan) =>
+                        onFieldResizeStart?.({ fieldKey: key, sectionKey: section.key, startSpan })
+                      }
+                      onResizePreview={(key, previewSpan) =>
+                        onFieldResizePreview?.({ fieldKey: key, previewSpan })
+                      }
+                      onResizeCommit={(key, finalSpan) =>
+                        onFieldResizeCommit?.({ fieldKey: key, finalSpan })
+                      }
                       t={t}
                     />
                   )
@@ -156,6 +199,8 @@ export function FormCanvas({
                     activeDropTarget.sectionKey === section.key
                       ? activeDropTarget
                       : null
+                  const sectionResize =
+                    resizeState && resizeState.sectionKey === section.key ? resizeState : null
                   return (
                     <SectionGridBody
                       view={section}
@@ -164,6 +209,9 @@ export function FormCanvas({
                       layoutPlan={layoutPlan}
                       renderField={renderField}
                       gridDropTarget={sectionDropTarget}
+                      resizingFieldKey={sectionResize?.fieldKey ?? null}
+                      resizingPreviewSpan={sectionResize?.previewSpan ?? null}
+                      gridRef={registerGridRef(section.key)}
                     >
                       {fieldKeys.map((fieldKey, fieldIndex) => renderField(fieldKey, fieldIndex))}
                     </SectionGridBody>

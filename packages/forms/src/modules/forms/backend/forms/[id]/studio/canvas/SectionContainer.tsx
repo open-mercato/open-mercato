@@ -310,6 +310,9 @@ export function SectionGridBody({
   layoutPlan,
   renderField,
   gridDropTarget,
+  resizingFieldKey,
+  resizingPreviewSpan,
+  gridRef,
 }: {
   view: ResolvedSectionView
   isEmpty: boolean
@@ -318,6 +321,9 @@ export function SectionGridBody({
   layoutPlan?: RowLayout
   renderField?: (fieldKey: string, fieldIndex: number) => React.ReactNode
   gridDropTarget?: GridDropTarget | null
+  resizingFieldKey?: string | null
+  resizingPreviewSpan?: 1 | 2 | 3 | 4 | null
+  gridRef?: React.Ref<HTMLDivElement>
 }) {
   if (isEmpty) {
     return <GridSlot sectionKey={view.key} columnIndex={null} isEmpty copy={emptyCopy} />
@@ -325,7 +331,7 @@ export function SectionGridBody({
 
   if (view.columns === 1 || !layoutPlan || !renderField) {
     return (
-      <div className={sectionGridClasses(view.columns, view.gap)}>
+      <div ref={gridRef} className={sectionGridClasses(view.columns, view.gap)}>
         {children}
         <div className="sm:col-span-full md:col-span-full">
           <GridSlot sectionKey={view.key} columnIndex={null} copy={emptyCopy} />
@@ -343,7 +349,7 @@ export function SectionGridBody({
 
   // Decision 6b — per-cell + per-gap droppables; column hint is informational.
   return (
-    <div className={sectionGridClasses(view.columns, view.gap)}>
+    <div ref={gridRef} className={sectionGridClasses(view.columns, view.gap)}>
       {layoutPlan.rows.map((row, rowIndex) => (
         <React.Fragment key={`row-${rowIndex}`}>
           <SectionRowGapDrop sectionKey={view.key} rowIndex={rowIndex} />
@@ -363,7 +369,14 @@ export function SectionGridBody({
               colGapTarget.columnIndex === view.columns &&
               cellIndex === row.cells.length - 1
             if (cell.kind === 'field') {
-              const spanClass = SPAN_TO_GRID_CLASS[cell.span]
+              const isResizingThis =
+                !!resizingFieldKey &&
+                resizingFieldKey === cell.fieldKey &&
+                !!resizingPreviewSpan
+              const previewSpan = isResizingThis
+                ? (Math.min(resizingPreviewSpan ?? cell.span, view.columns) as 1 | 2 | 3 | 4)
+                : cell.span
+              const spanClass = SPAN_TO_GRID_CLASS[previewSpan]
               const isLastCell = cellIndex === row.cells.length - 1
               return (
                 <div key={`cell-${rowIndex}-${cellIndex}`} className={`relative ${spanClass}`}>
@@ -375,6 +388,7 @@ export function SectionGridBody({
                   />
                   {showLeftColGap ? <VerticalDropBar position="left" /> : null}
                   {renderField(cell.fieldKey, cell.linearIndex)}
+                  {isResizingThis ? <GhostCell /> : null}
                   {isLastCell ? (
                     <SectionColGapDrop
                       sectionKey={view.key}
