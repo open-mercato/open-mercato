@@ -14,7 +14,7 @@ import {
   type DragOverEvent,
   type DragStartEvent,
 } from '@dnd-kit/core'
-import { sortableKeyboardCoordinates } from '@dnd-kit/sortable'
+import { gridKeyboardCoordinates } from './studio/canvas/keyboard-coordinates'
 import { Page, PageBody } from '@open-mercato/ui/backend/Page'
 import { Button } from '@open-mercato/ui/primitives/button'
 import { IconButton } from '@open-mercato/ui/primitives/icon-button'
@@ -198,9 +198,42 @@ function buildAnnouncements(t: TranslateFn, schemaRef: React.MutableRefObject<Fo
     }
     return rawId
   }
+  // Phase 7 — row/column context in announcements. For grid drops we
+  // resolve the parsed drop ID into row/column hints so screen readers
+  // can describe where the active item now sits in 2-D space.
+  const describeGridTarget = (rawId: string): string | null => {
+    if (!rawId.startsWith(SECTION_DROP_PREFIX)) return null
+    const parsed = parseSectionDropId(rawId)
+    if (!parsed || parsed.kind === 'legacy') return null
+    const sectionName = describeSectionForAnnouncement(schemaRef.current, parsed.sectionKey)
+    if (parsed.kind === 'cell') {
+      return t('forms.studio.dnd.announce.movedToCell', {
+        item: '',
+        section: sectionName,
+        row: String(parsed.rowIndex + 1),
+        column: String(parsed.columnIndex + 1),
+      })
+    }
+    if (parsed.kind === 'col-gap') {
+      return t('forms.studio.dnd.announce.movedToCell', {
+        item: '',
+        section: sectionName,
+        row: String(parsed.rowIndex + 1),
+        column: String(parsed.columnIndex + 1),
+      })
+    }
+    return t('forms.studio.dnd.announce.movedToRowGap', {
+      item: '',
+      section: sectionName,
+      previous: String(parsed.rowIndex),
+      next: String(parsed.rowIndex + 1),
+    })
+  }
   const targetOf = (rawId: string | null): string => {
     if (!rawId) return ''
     if (rawId.startsWith(SECTION_DROP_PREFIX)) {
+      const grid = describeGridTarget(rawId)
+      if (grid) return grid
       const sectionKey = rawId.slice(SECTION_DROP_PREFIX.length)
       return describeSectionForAnnouncement(schemaRef.current, sectionKey)
     }
@@ -266,6 +299,9 @@ export function FormStudio({ formId }: { formId: string }) {
   const [activeDragId, setActiveDragId] = React.useState<string | null>(null)
   const [activeDropTarget, setActiveDropTarget] = React.useState<ActiveDropTarget>(null)
   const [fieldResizeState, setFieldResizeState] = React.useState<FieldResizeState>(null)
+  // Phase 7 — aria-live region message for resize commits. Plain string keeps
+  // the polite live region scoped to a single source of truth.
+  const [resizeAnnouncement, setResizeAnnouncement] = React.useState<string>('')
   const [focusSectionTitleKey, setFocusSectionTitleKey] = React.useState<string | null>(null)
   const [activeLocale] = React.useState<string>('en')
   const [previewViewport, setPreviewViewport] = React.useState<PreviewViewport>('desktop')
@@ -536,8 +572,13 @@ export function FormStudio({ formId }: { formId: string }) {
         startSpan: input.startSpan,
         previewSpan: input.startSpan,
       })
+      setResizeAnnouncement(
+        t('forms.studio.canvas.field.resizeStart', {
+          item: describeFieldForAnnouncement(schemaRef.current, input.fieldKey),
+        }),
+      )
     },
-    [],
+    [t],
   )
 
   const handleFieldResizePreview = React.useCallback(
@@ -561,8 +602,14 @@ export function FormStudio({ formId }: { formId: string }) {
         }
         return null
       })
+      setResizeAnnouncement(
+        t('forms.studio.canvas.field.resizeCommit', {
+          item: describeFieldForAnnouncement(schemaRef.current, input.fieldKey),
+          span: String(input.finalSpan),
+        }),
+      )
     },
-    [handleFieldGridSpan],
+    [handleFieldGridSpan, t],
   )
 
   const handleFieldAlign = React.useCallback(
@@ -756,7 +803,7 @@ export function FormStudio({ formId }: { formId: string }) {
 
   const sensors = useSensors(
     useSensor(PointerSensor, { activationConstraint: { distance: 6 } }),
-    useSensor(KeyboardSensor, { coordinateGetter: sortableKeyboardCoordinates }),
+    useSensor(KeyboardSensor, { coordinateGetter: gridKeyboardCoordinates }),
   )
 
   const announcements = React.useMemo(() => buildAnnouncements(t, schemaRef), [t])
@@ -1309,6 +1356,14 @@ export function FormStudio({ formId }: { formId: string }) {
   return (
     <Page>
       <PageBody>
+        <div
+          role="status"
+          aria-live="polite"
+          aria-atomic="true"
+          className="sr-only"
+        >
+          {resizeAnnouncement}
+        </div>
         <header className="mb-4 flex flex-col gap-2 lg:flex-row lg:items-center lg:justify-between">
           <div>
             <h1 className="text-xl font-semibold text-foreground">{form.name}</h1>

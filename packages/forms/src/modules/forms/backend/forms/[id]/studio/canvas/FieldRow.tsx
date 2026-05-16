@@ -192,9 +192,16 @@ export function FieldRow({
         transform: CSS.Transform.toString(transform),
         transition,
         opacity: isDragging ? 0.5 : 1,
+        // Phase 7 polish — hoist the cell to its own compositor layer during
+        // an active drag so adjacent cells don't jank when transforms cascade.
+        // Scoped to the drag duration so long forms keep their layer budget.
+        willChange: isDragging ? 'transform' : undefined,
       }}
       className={[
         'group relative min-w-0 rounded-md border bg-background p-3',
+        // Phase 7 polish — smooth ring / border colour transitions so the
+        // drop indicator fades in instead of snapping in instantly.
+        'transition-[border-color,box-shadow] duration-150',
         SPAN_TO_CLASS[span],
         isSelected ? 'border-primary/40' : 'border-border',
         dropIndicator ? 'ring-1 ring-primary/30' : '',
