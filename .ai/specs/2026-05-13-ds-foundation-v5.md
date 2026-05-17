@@ -682,24 +682,33 @@ yarn test:integration:ephemeral  # full suite — Badge is too cascade-heavy for
 
 ---
 
-### 20. Table (polish pass)
+### 20. Table (polish pass) — **IMPLEMENTED (Phase B.6)**
 
-**Figma node:** TBD.
+**Figma source:** DS Open Mercato `Table` page (`553:14955`) — `Table Header Cell [1.1]` (`587:5793`, default / disabled / empty states with `bg-muted/40` strip), `Table Row Cell [1.1]` (`553:22175`), `Sorting Icons [1.1]` (`581:2327`, handled by DataTable). Assembled examples in `Blocks` frames (167144:147461 et al.) confirm the chrome: `bg-muted/40` header strip, white body rows with subtle hover affordance, comfortable cell padding.
 
-**Purpose:** Low-level `<table>` primitive used inside `DataTable`. Per user — "muszę jeszcze poprawić kilka rzeczy".
+**Purpose:** Low-level `<table>` primitive used inside `DataTable` plus 1 direct consumer (`DictionaryEntriesEditor.tsx`). The Phase B.6 polish aligns the chrome with Figma without forcing every list view to opt in.
 
-**Scope of polish (closed list):**
-- Header cell padding alignment with Figma.
-- Row-hover state token (was `bg-muted/40`, Figma may use a different token).
-- Sortable-header indicator placement (current arrow vs Figma indicator).
-- Empty-state row rendering when `data.length === 0` (currently inconsistent across consumers).
-- Striped variant (`<Table variant='striped'>`) per Figma if applicable.
+**Backward compatibility (1 direct + DataTable internals):**
+- All existing exports (`Table`, `TableHeader`, `TableBody`, `TableRow`, `TableHead`, `TableCell`) stay callable verbatim.
+- DataTable uses the primitives directly (`Table / TableBody / TableCell / TableHead / TableHeader / TableRow` imports) — no DataTable changes needed; the new chrome flows through automatically.
+- `className` passthrough works on every slot; existing custom styles cn-merge on top.
+- Cell padding stays `px-4 py-2` (current Figma examples show generous padding but the polish scope explicitly preserves row heights to avoid pushing every existing list page taller).
 
-**Backward compatibility:**
-- All existing exports (`Table`, `TableHeader`, `TableBody`, `TableFooter`, `TableHead`, `TableRow`, `TableCell`, `TableCaption`) stay verbatim.
-- `DataTable.tsx` consumer code unchanged (relies on table primitive internals).
+**Visual deltas vs pre-rewrite (Figma-aligned defaults):**
+- `TableHeader` now ships `bg-muted/40` subtle strip per Figma `Table Header Cell [1.1]`. Subtle enough that header rows read as a distinct band without breaking visual hierarchy in dense list views.
+- `TableRow` now ships `hover:bg-muted/30` body-row hover affordance + `transition-colors` for the bounce. Limited via `[&:not(thead_*)]` selector so header rows don't bounce on hover (their own `bg-muted/40` strip is the canonical look).
 
-**Tests:** Existing tests stay green; new test for `variant='striped'`.
+**New (additive):**
+- `<Table variant="striped">` — even-row `bg-muted/20` tint via Table-level context. Targets body rows only (header / footer rows opt out via the `[&:not(thead_*)]` selector). Per Figma striped block example.
+- `<TableFooter>` export — bordered top + `bg-muted/40` strip + `font-medium`. Use for total rows.
+- `<TableCaption>` export — accessible `<caption>` element with `text-muted-foreground` styling. Pair with screen-reader-friendly tables that need a title.
+- Every slot now exposes `data-slot` attributes (`table`, `table-header`, `table-body`, `table-footer`, `table-row`, `table-head`, `table-cell`, `table-caption`) for CSS / test selectors. Root `<table>` also exposes `data-variant` (`default` / `striped`).
+
+**Out of scope (DataTable-level, not primitive):**
+- Sortable-header indicator placement — already handled by DataTable using lucide chevrons.
+- Empty-state row rendering — handled by DataTable's `emptyState` prop.
+
+**Tests (9 smoke tests, all passing — none pre-existing):** data-slot attributes on every slot; TableHeader bg-muted/40 strip; TableFooter border-t + bg-muted/40 + font-medium; TableRow hover:bg-muted/30 + border-b last:border-b-0 + transition-colors; striped variant adds even:bg-muted/20 on body rows; default variant data-variant attr; TableHead keeps text-muted-foreground / font-medium / whitespace-nowrap / px-4 / py-2; TableCell keeps px-4 / py-2 (backward compat); className forwards on every slot.
 
 ---
 
@@ -747,7 +756,7 @@ Each commit includes: primitive file, unit test file, `.ai/ui-components.md` sec
 15. `refactor(ds): rewrite Separator primitive per Figma — add labeled / dashed variants` (5 import sites) — **DONE (B.3)**
 16. `refactor(ds): rewrite Avatar primitive per Figma — add status + ring` (4 import sites) — **DONE (B.4)**
 17. `refactor(ds): rewrite Tabs primitive per Figma — add pills / vertical / count` (6 import sites) — **DONE (B.5)**
-18. `refactor(ds): polish Table primitive — padding / hover / sortable indicator / striped` (1 direct + DataTable internals)
+18. `refactor(ds): polish Table primitive — padding / hover / sortable indicator / striped` (1 direct + DataTable internals) — **DONE (B.6)**
 19. `refactor(ds): rewrite Dialog primitive per Figma — additive size variant` (40 import sites)
 20. `refactor(ds): rewrite Badge primitive per Figma — additive variants/sizes` (83 import sites)
 
@@ -942,3 +951,4 @@ To be filled in after all phases land and before opening the PR. Sections:
 | 2026-05-17 | PHASE B.3 — Separator | Rewrote `Separator` per Figma `Content Divider [1.1]` (`414:4401`). Solid default keeps legacy `h-px bg-border` style for max backward compat (5 import sites use `<Separator />` / `<Separator className="my-4" />`). New props: `variant: 'solid' \| 'dashed'`, `label` (inline label between two rule halves, default center, also `start`/`end` align), `section` (bg-muted strip with uppercase label per Figma "AMOUNT & ACCOUNT" variant). Center-button overlays (Figma variants 6-9: `+` button, navigation, "Add", button row) intentionally NOT shipped as primitive slots — consumers compose at parent level to avoid layout failure modes. 12 smoke tests added. 1218 UI tests passing total. |
 | 2026-05-17 | PHASE B.4 — Avatar | Rewrote `Avatar` per Figma `Avatars` page (`210:4129`). Plain avatars (no decorations) still render as single `<div data-slot="avatar">` for backward compat (4 import sites in core customers linking adapters + ds-v5 demo). New props: `status` (8 tones; bottom-right dot per Figma `Bottom Status [1.1]`), `statusPosition` (`bottom-right` / `top-right`), `ring` (boolean or 5 tones; outer `ring-2 ring-offset-2` per `Top Status` ring style), `badge` ReactNode slot for top-right icon overlays (verified check / premium / etc. per `Top Status [1.1]`), `badgeClassName` override. Status-dot size scales 1/3 of avatar diameter (size-1.5 → size-4 across xs → xl). 10 new tests added (20 total Avatar tests). 1228 UI tests passing total. |
 | 2026-05-17 | PHASE B.5 — Tabs | Rewrote `Tabs` per Figma `Tab Menu` page (`553:734`). Default `variant="pill"` keeps original look (6 import sites — `integrations`, `scheduler`, `checkout`, `search` × 2, `ai-assistant` — render unchanged). New `variant="underline"` matches Figma `Tab Menu Horizontal [1.1]`: flat strip with `border-b border-input` rail + `border-b-2 border-accent-indigo` active. New `orientation="vertical"` for column layout (per Figma `Tab Menu Vertical [1.1]`). New trigger slots: `leading` icon (accent-indigo on underline-active), `count` badge (accent-indigo/10 tone on active, muted otherwise; `count={0}` still renders). 8 new tests added (10 total Tabs tests). 1236 UI tests passing total. |
+| 2026-05-17 | PHASE B.6 — Table polish | Polished `Table` primitive per Figma `Table` page (`553:14955`). TableHeader now ships `bg-muted/40` strip per Figma `Table Header Cell [1.1]`; TableRow ships `hover:bg-muted/30` + `transition-colors` (scoped via `[&:not(thead_*)]` so header rows don't bounce). New `variant="striped"` adds even:bg-muted/20 via Table context. New `TableFooter` + `TableCaption` exports. Every slot exposes `data-slot` attribute for CSS hooks. Cell padding preserved (`px-4 py-2`) to avoid pushing list pages taller. DataTable consumers flow through automatically without changes. 9 new tests added (first-ever Table tests). 1245 UI tests passing total. |
