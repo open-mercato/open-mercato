@@ -62,6 +62,16 @@ const eventsWorkerFixture: Pick<Module, 'id' | 'workers'> = {
   ],
 }
 
+const schedulerCliFixture: Pick<Module, 'id' | 'cli'> = {
+  id: 'scheduler',
+  cli: [
+    {
+      command: 'start',
+      run: jest.fn(),
+    },
+  ],
+}
+
 describe('mercato CLI module registration', () => {
   beforeEach(() => {
     // Reset module state by re-importing
@@ -620,6 +630,7 @@ describe('server dev managed process exits', () => {
   const originalAutoSpawnScheduler = process.env.AUTO_SPAWN_SCHEDULER
   const originalAutoSpawnWorkers = process.env.AUTO_SPAWN_WORKERS
   const originalLazy = process.env.OM_AUTO_SPAWN_WORKERS_LAZY
+  const originalLazyScheduler = process.env.OM_AUTO_SPAWN_SCHEDULER_LAZY
 
   beforeEach(() => {
     jest.restoreAllMocks()
@@ -627,6 +638,7 @@ describe('server dev managed process exits', () => {
     process.env.AUTO_SPAWN_SCHEDULER = 'false'
     process.env.AUTO_SPAWN_WORKERS = 'true'
     delete process.env.OM_AUTO_SPAWN_WORKERS_LAZY
+    delete process.env.OM_AUTO_SPAWN_SCHEDULER_LAZY
   })
 
   afterEach(() => {
@@ -636,8 +648,10 @@ describe('server dev managed process exits', () => {
     jest.dontMock('../lib/generators')
     jest.dontMock('../lib/resolver')
     jest.dontMock('../lib/queue-worker-supervisor')
+    jest.dontMock('../lib/scheduler-supervisor')
     jest.resetModules()
     delete process.env.OM_AUTO_SPAWN_WORKERS_LAZY
+    delete process.env.OM_AUTO_SPAWN_SCHEDULER_LAZY
   })
 
   afterAll(() => {
@@ -645,6 +659,8 @@ describe('server dev managed process exits', () => {
     process.env.AUTO_SPAWN_WORKERS = originalAutoSpawnWorkers
     if (originalLazy === undefined) delete process.env.OM_AUTO_SPAWN_WORKERS_LAZY
     else process.env.OM_AUTO_SPAWN_WORKERS_LAZY = originalLazy
+    if (originalLazyScheduler === undefined) delete process.env.OM_AUTO_SPAWN_SCHEDULER_LAZY
+    else process.env.OM_AUTO_SPAWN_SCHEDULER_LAZY = originalLazyScheduler
   })
 
   it('skips scheduler auto-start when the module is not enabled', async () => {
@@ -801,12 +817,79 @@ describe('server dev managed process exits', () => {
     consoleErrorSpy.mockRestore()
     consoleLogSpy.mockRestore()
   })
+
+  it('starts the lazy scheduler supervisor instead of the scheduler process when OM_AUTO_SPAWN_SCHEDULER_LAZY=true', async () => {
+    const consoleErrorSpy = jest.spyOn(console, 'error').mockImplementation()
+    const consoleLogSpy = jest.spyOn(console, 'log').mockImplementation()
+    process.env.AUTO_SPAWN_SCHEDULER = 'true'
+    process.env.AUTO_SPAWN_WORKERS = 'false'
+    process.env.OM_AUTO_SPAWN_SCHEDULER_LAZY = 'true'
+
+    jest.doMock('node:fs', () => {
+      const actual = jest.requireActual('node:fs')
+      return {
+        ...actual,
+        existsSync: jest.fn((candidate: string) =>
+          candidate.includes('next/dist/bin/next') || candidate.includes('@open-mercato/cli/bin/mercato'),
+        ),
+        unlinkSync: jest.fn(),
+      }
+    })
+    jest.doMock('../lib/generators', () => ({
+      generateModulePackageSources: jest.fn().mockResolvedValue(undefined),
+    }))
+    jest.doMock('../lib/resolver', () => ({
+      resolveEnvironment: () => ({
+        appDir: '/tmp/test-app',
+        rootDir: '/tmp/test-root',
+      }),
+      createResolver: () => ({}),
+    }))
+
+    const schedulerClose = jest.fn().mockResolvedValue(undefined)
+    const startLazySchedulerSupervisor = jest.fn(() => ({
+      started: false,
+      getActiveChild: () => undefined,
+      close: schedulerClose,
+      done: Promise.resolve(),
+    }))
+    jest.doMock('../lib/scheduler-supervisor', () => ({
+      startLazySchedulerSupervisor,
+    }))
+
+    jest.doMock('child_process', () =>
+      buildMockChildProcessModule((args) =>
+        args[0]?.includes('next/dist/bin/next') ? { code: null, signal: 'SIGTERM' } : undefined,
+      ),
+    )
+
+    const mercado = await import('../mercato')
+    mercado.registerCliModules([schedulerCliFixture as Module])
+
+    const exitCode = await mercado.run(['node', 'mercato', 'server', 'dev'])
+
+    expect(exitCode).toBe(0)
+    expect(startLazySchedulerSupervisor).toHaveBeenCalledTimes(1)
+    const supervisorCall = startLazySchedulerSupervisor.mock.calls[0][0]
+    expect(supervisorCall.pollMs).toBe(1000)
+    expect(supervisorCall.restartOnUnexpectedExit).toBe(true)
+    expect(schedulerClose).toHaveBeenCalled()
+
+    const { spawn } = await import('child_process')
+    const allSpawnCalls = (spawn as jest.Mock).mock.calls.map((call) => call[1] as string[])
+    const schedulerSpawn = allSpawnCalls.find((args) => args.slice(1).join(' ') === 'scheduler start')
+    expect(schedulerSpawn).toBeUndefined()
+
+    consoleErrorSpy.mockRestore()
+    consoleLogSpy.mockRestore()
+  })
 })
 
 describe('server start managed process exits', () => {
   const originalAutoSpawnScheduler = process.env.AUTO_SPAWN_SCHEDULER
   const originalAutoSpawnWorkers = process.env.AUTO_SPAWN_WORKERS
   const originalLazy = process.env.OM_AUTO_SPAWN_WORKERS_LAZY
+  const originalLazyScheduler = process.env.OM_AUTO_SPAWN_SCHEDULER_LAZY
 
   beforeEach(() => {
     jest.restoreAllMocks()
@@ -814,6 +897,7 @@ describe('server start managed process exits', () => {
     process.env.AUTO_SPAWN_SCHEDULER = 'false'
     process.env.AUTO_SPAWN_WORKERS = 'true'
     delete process.env.OM_AUTO_SPAWN_WORKERS_LAZY
+    delete process.env.OM_AUTO_SPAWN_SCHEDULER_LAZY
   })
 
   afterEach(() => {
@@ -822,8 +906,10 @@ describe('server start managed process exits', () => {
     jest.dontMock('../lib/resolver')
     jest.dontMock('../lib/server-start-lock')
     jest.dontMock('../lib/queue-worker-supervisor')
+    jest.dontMock('../lib/scheduler-supervisor')
     jest.resetModules()
     delete process.env.OM_AUTO_SPAWN_WORKERS_LAZY
+    delete process.env.OM_AUTO_SPAWN_SCHEDULER_LAZY
   })
 
   afterAll(() => {
@@ -831,6 +917,8 @@ describe('server start managed process exits', () => {
     process.env.AUTO_SPAWN_WORKERS = originalAutoSpawnWorkers
     if (originalLazy === undefined) delete process.env.OM_AUTO_SPAWN_WORKERS_LAZY
     else process.env.OM_AUTO_SPAWN_WORKERS_LAZY = originalLazy
+    if (originalLazyScheduler === undefined) delete process.env.OM_AUTO_SPAWN_SCHEDULER_LAZY
+    else process.env.OM_AUTO_SPAWN_SCHEDULER_LAZY = originalLazyScheduler
   })
 
   it('skips scheduler auto-start when the module is not enabled', async () => {

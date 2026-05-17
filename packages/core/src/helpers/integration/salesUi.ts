@@ -94,10 +94,6 @@ function parseCurrencyAmount(value: string): number {
   return Number.parseFloat(lastMatch.replace('$', ''));
 }
 
-function normalizeAdjustmentKindValue(kindLabel: string): string {
-  return kindLabel.trim().toLowerCase().replace(/\s+/g, '_');
-}
-
 function readId(payload: unknown, keys: string[]): string | null {
   if (!payload || typeof payload !== 'object') return null;
   const map = payload as Record<string, unknown>;
@@ -1090,32 +1086,49 @@ export async function addAdjustment(page: Page, options: AddAdjustmentOptions): 
   const adjustmentRow = page.getByRole('row', { name: new RegExp(escapeRegExp(options.label), 'i') });
   const fillAdjustmentForm = async (): Promise<void> => {
     await dialog.getByText(/Loading adjustments/i).waitFor({ state: 'hidden', timeout: 3_000 }).catch(() => {});
+    // AdjustmentDialog has a useEffect([initialAdjustment, kindOptions,
+    // loadKindOptions, loadTaxRates, open]) that asynchronously loads tax
+    // rates and resets the form via setInitialValues + a formResetKey bump.
+    // If `.fill()` lands before the reset settles, the label is wiped out.
+    // Wait for the tax-rates network response to land before touching the form.
+    await page.waitForLoadState('networkidle', { timeout: 5_000 }).catch(() => {});
     // Radix Select trigger — target by CrudForm field id (kind picker)
     const kindTrigger = dialog.locator('[data-crud-field-id="kind"] [role="combobox"]').first();
     await expect(kindTrigger).toBeVisible({ timeout: TEST_WAIT_TIMEOUT_MS });
-
-    const labelInput = dialog.getByPlaceholder(/e\.g\. Shipping fee/i).first();
-    await expect(labelInput).toBeVisible({ timeout: TEST_WAIT_TIMEOUT_MS });
-    await fillControlledInput(labelInput, options.label);
-
-    if ((await kindTrigger.count()) > 0) {
-      const expectedKindValue = normalizeAdjustmentKindValue(options.kindLabel ?? 'Surcharge');
-      const kindLabel = options.kindLabel ?? 'Surcharge';
-      await kindTrigger.click();
-      const option = page.getByRole('option', { name: new RegExp(`^${escapeRegExp(kindLabel)}$`, 'i') }).first();
-      const optionVisible = await option.waitFor({ state: 'visible', timeout: 2_000 }).then(
-        () => true,
-        () => false,
+    const kindLabel = options.kindLabel ?? 'Surcharge';
+    const selectKindOption = async (): Promise<void> => {
+      if ((await kindTrigger.count()) === 0) return;
+      await waitForOptionalTextToDisappear(
+        dialog,
+        /Loading adjustment kinds…|Loading adjustment kinds\.\.\./i,
+        TEST_WAIT_TIMEOUT_MS,
       );
+      await expect(kindTrigger).toBeEnabled({ timeout: TEST_WAIT_TIMEOUT_MS });
+      await kindTrigger.click();
+      const kindOption = page.getByRole('option', { name: new RegExp(`^${escapeRegExp(kindLabel)}$`, 'i') }).first();
+      const optionVisible = await kindOption
+        .waitFor({ state: 'visible', timeout: TEST_WAIT_TIMEOUT_MS })
+        .then(() => true, () => false);
       if (optionVisible) {
-        await option.click({ force: true });
+        await kindOption.click({ force: true });
       } else {
+        // Fallback: drive selection via keyboard when modal-backdrop click interception
+        // hides the rendered option. Brought forward from develop.
         await page.keyboard.type(kindLabel.charAt(0));
         await page.waitForTimeout(150);
         await page.keyboard.press('Enter');
       }
-      void expectedKindValue;
-    }
+      await expect(kindTrigger).toContainText(kindLabel, { timeout: 2_000 });
+    };
+
+    // Select kind first — the Radix Select interaction can trigger CrudForm re-renders that
+    // clear inputs filled before it, so we run the dropdown sequence up front and then fill
+    // the remaining fields once.
+    await selectKindOption();
+
+    const labelInput = dialog.getByPlaceholder(/e\.g\. Shipping fee/i).first();
+    await expect(labelInput).toBeVisible({ timeout: TEST_WAIT_TIMEOUT_MS });
+    await fillControlledInput(labelInput, options.label);
 
     const fixedAmountButton = dialog.getByRole('button', { name: /^Fixed amount$/i }).first();
     if ((await fixedAmountButton.count()) > 0) {

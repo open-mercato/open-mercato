@@ -7,11 +7,15 @@ import { useQueryClient } from '@tanstack/react-query'
 import type { ColumnDef } from '@tanstack/react-table'
 import { Page, PageBody } from '@open-mercato/ui/backend/Page'
 import { DataTable, type DataTableExportFormat, withDataTableNamespaces } from '@open-mercato/ui/backend/DataTable'
-import type { FilterDef, FilterValues } from '@open-mercato/ui/backend/FilterBar'
-import type { AdvancedFilterState } from '@open-mercato/shared/lib/query/advanced-filter'
-import { deserializeAdvancedFilter, serializeAdvancedFilter } from '@open-mercato/shared/lib/query/advanced-filter'
+import type { AdvancedFilterTree } from '@open-mercato/shared/lib/query/advanced-filter-tree'
+import { createEmptyTree, makeRuleTree, makeMultiRuleTree } from '@open-mercato/shared/lib/query/advanced-filter-tree'
+import { deserializeTree, deserializeAdvancedFilter, flatToTree, mapDictionaryColorToTone, serializeTree, type FilterFieldDef, type FilterOption as AdvancedFilterOption } from '@open-mercato/shared/lib/query/advanced-filter'
+import { useCurrentUserId } from '@open-mercato/ui/backend/utils/useCurrentUserId'
 import { apiCall } from '@open-mercato/ui/backend/utils/apiCall'
 import { buildCrudExportUrl, deleteCrud } from '@open-mercato/ui/backend/utils/crud'
+import { groupBulkDeleteFailures, runBulkDelete } from '@open-mercato/ui/backend/utils/bulkDelete'
+import { useGuardedMutation } from '@open-mercato/ui/backend/injection/useGuardedMutation'
+import { coalesceLastOperations } from '@open-mercato/ui/backend/operations/store'
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
 import { RowActions } from '@open-mercato/ui/backend/RowActions'
 import { Button } from '@open-mercato/ui/primitives/button'
@@ -37,6 +41,53 @@ import {
   supportsCustomFieldColumn,
 } from '@open-mercato/ui/backend/utils/customFieldColumns'
 import { CollectionPreviewCell, normalizeCollectionLabels } from '../../../components/list/CollectionPreviewCell'
+import { useAutoDiscoveredFields } from '@open-mercato/ui/backend/utils/useAutoDiscoveredFields'
+import { useAdvancedFilterTree } from '@open-mercato/ui/backend/hooks/useAdvancedFilter'
+import { AdvancedFilterPanel } from '@open-mercato/ui/backend/filters/AdvancedFilterPanel'
+import { ActiveFilterChips } from '@open-mercato/ui/backend/filters/ActiveFilterChips'
+import type { FilterPreset } from '@open-mercato/ui/backend/filters/QuickFilters'
+import {
+  ensureCurrentUserFilterOption,
+  fetchAssignableStaffMembers,
+  mapAssignableStaffToFilterOptions,
+} from '../../../components/detail/assignableStaff'
+
+function makeDealsPresets(): FilterPreset[] {
+  return [
+    {
+      id: 'my-deals',
+      labelKey: 'customers.deals.presets.myDeals',
+      requiresUser: true,
+      build: ({ userId }) => makeRuleTree({ field: 'owner_user_id', operator: 'is', value: userId }),
+    },
+    {
+      id: 'closing-month',
+      labelKey: 'customers.deals.presets.closingMonth',
+      iconName: 'clock',
+      build: ({ now }) => {
+        const start = new Date(now.getFullYear(), now.getMonth(), 1).toISOString().slice(0, 10)
+        const end = new Date(now.getFullYear(), now.getMonth() + 1, 0).toISOString().slice(0, 10)
+        return makeRuleTree({ field: 'expected_close_at', operator: 'between', value: [start, end] })
+      },
+    },
+    // The Deal entity has no dedicated "at risk" or health-score field — `customer_deals`
+    // exposes only `status` (open/win/loose/closed/in_progress, dictionary-driven) and
+    // `closure_outcome`. Rather than fabricate a mapping, the "At risk" preset is omitted
+    // until the data model exposes a first-class signal.
+    {
+      id: 'won-quarter',
+      labelKey: 'customers.deals.presets.wonQuarter',
+      build: ({ now }) => {
+        const quarter = Math.floor(now.getMonth() / 3)
+        const start = new Date(now.getFullYear(), quarter * 3, 1).toISOString().slice(0, 10)
+        return makeMultiRuleTree([
+          { field: 'status', operator: 'is', value: 'win' },
+          { field: 'expected_close_at', operator: 'is_after', value: start },
+        ], 'and')
+      },
+    },
+  ]
+}
 
 type DealRow = {
   id: string
@@ -50,6 +101,7 @@ type DealRow = {
   probability?: number | null
   expectedCloseAt?: string | null
   updatedAt?: string | null
+  ownerUserId?: string | null
   companies: { id: string; label: string }[]
   people: { id: string; label: string }[]
 } & Record<string, unknown>
@@ -61,56 +113,9 @@ type DealsResponse = {
 }
 
 type FilterOption = { value: string; label: string }
+type DictionaryOptionWithTone = AdvancedFilterOption & FilterOption
 
 type DictionaryKey = Extract<CustomerDictionaryKind, 'deal-statuses' | 'pipeline-stages'>
-
-type PersonLookupRecord = {
-  id: string
-  name: string | null
-  email: string | null
-  phone: string | null
-}
-
-type CompanyLookupRecord = {
-  id: string
-  name: string | null
-  domain: string | null
-  email: string | null
-}
-
-function parsePersonLookupRecord(item: unknown): PersonLookupRecord | null {
-  if (typeof item !== 'object' || item === null) return null
-  const record = item as Record<string, unknown>
-  const id = typeof record.id === 'string' ? record.id : null
-  if (!id || !isUuid(id)) return null
-  const name = typeof record.display_name === 'string' ? record.display_name : null
-  const email = typeof record.primary_email === 'string' ? record.primary_email : null
-  const phone = typeof record.primary_phone === 'string' ? record.primary_phone : null
-  return { id, name, email, phone }
-}
-
-function parseCompanyLookupRecord(item: unknown): CompanyLookupRecord | null {
-  if (typeof item !== 'object' || item === null) return null
-  const record = item as Record<string, unknown>
-  const id = typeof record.id === 'string' ? record.id : null
-  if (!id || !isUuid(id)) return null
-  const name = typeof record.display_name === 'string' ? record.display_name : null
-  const domain = typeof record.primary_domain === 'string' ? record.primary_domain : null
-  const email = typeof record.primary_email === 'string' ? record.primary_email : null
-  return { id, name, domain, email }
-}
-
-type OptionsState = {
-  options: FilterOption[]
-  idToLabel: Record<string, string>
-  labelToId: Record<string, string>
-}
-
-const EMPTY_OPTIONS_STATE: OptionsState = {
-  options: [],
-  idToLabel: {},
-  labelToId: {},
-}
 
 const PAGE_SIZE = 20
 const UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i
@@ -140,106 +145,6 @@ function extractIdsFromParams(params: URLSearchParams | null | undefined, key: s
   return normalizeIdCandidates(values)
 }
 
-function ensureUniqueLabel(base: string, occupied: Set<string>): string {
-  const trimmed = base.trim() || 'Unnamed'
-  if (!occupied.has(trimmed)) {
-    occupied.add(trimmed)
-    return trimmed
-  }
-  let counter = 2
-  let candidate = `${trimmed} • ${counter}`
-  while (occupied.has(candidate)) {
-    counter += 1
-    candidate = `${trimmed} • ${counter}`
-  }
-  occupied.add(candidate)
-  return candidate
-}
-
-async function fetchPeopleLookup(query?: string): Promise<PersonLookupRecord[]> {
-  const search = new URLSearchParams()
-  search.set('page', '1')
-  search.set('pageSize', '20')
-  if (query && query.trim().length) search.set('search', query.trim())
-  try {
-    const call = await apiCall<{ items?: unknown[] }>(`/api/customers/people?${search.toString()}`)
-    if (!call.ok) return []
-    const items = Array.isArray(call.result?.items) ? call.result.items : []
-    return items
-      .map((item) => parsePersonLookupRecord(item))
-      .filter((record): record is PersonLookupRecord => record !== null)
-  } catch {
-    return []
-  }
-}
-
-async function fetchPeopleLookupByIds(ids: string[]): Promise<PersonLookupRecord[]> {
-  const unique = Array.from(new Set(ids.filter((id) => isUuid(id))))
-  if (!unique.length) return []
-  const results = await Promise.all(
-    unique.map(async (id) => {
-      const search = new URLSearchParams()
-      search.set('id', id)
-      search.set('page', '1')
-      search.set('pageSize', '1')
-      try {
-        const call = await apiCall<{ items?: unknown[] }>(`/api/customers/people?${search.toString()}`)
-        if (!call.ok) return null
-        const items = Array.isArray(call.result?.items) ? call.result.items : []
-        const match = items
-          .map((item) => parsePersonLookupRecord(item))
-          .find((record) => record?.id === id)
-        return match ?? null
-      } catch {
-        return null
-      }
-    }),
-  )
-  return results.filter((record): record is PersonLookupRecord => !!record)
-}
-
-async function fetchCompaniesLookup(query?: string): Promise<CompanyLookupRecord[]> {
-  const search = new URLSearchParams()
-  search.set('page', '1')
-  search.set('pageSize', '20')
-  if (query && query.trim().length) search.set('search', query.trim())
-  try {
-    const call = await apiCall<{ items?: unknown[] }>(`/api/customers/companies?${search.toString()}`)
-    if (!call.ok) return []
-    const items = Array.isArray(call.result?.items) ? call.result.items : []
-    return items
-      .map((item) => parseCompanyLookupRecord(item))
-      .filter((record): record is CompanyLookupRecord => record !== null)
-  } catch {
-    return []
-  }
-}
-
-async function fetchCompaniesLookupByIds(ids: string[]): Promise<CompanyLookupRecord[]> {
-  const unique = Array.from(new Set(ids.filter((id) => isUuid(id))))
-  if (!unique.length) return []
-  const results = await Promise.all(
-    unique.map(async (id) => {
-      const search = new URLSearchParams()
-      search.set('id', id)
-      search.set('page', '1')
-      search.set('pageSize', '1')
-      try {
-        const call = await apiCall<{ items?: unknown[] }>(`/api/customers/companies?${search.toString()}`)
-        if (!call.ok) return null
-        const items = Array.isArray(call.result?.items) ? call.result.items : []
-        const match = items
-          .map((item) => parseCompanyLookupRecord(item))
-          .find((record) => record?.id === id)
-        return match ?? null
-      } catch {
-        return null
-      }
-    }),
-  )
-  return results.filter((record): record is CompanyLookupRecord => !!record)
-}
-
 function formatCurrency(amount: number | null | undefined, currency: string | null | undefined, fallback: string): string {
   if (typeof amount !== 'number' || Number.isNaN(amount)) return fallback
   try {
@@ -259,14 +164,6 @@ function formatDateValue(value: string | null | undefined, fallback: string): st
   const date = new Date(value)
   if (Number.isNaN(date.getTime())) return fallback
   return date.toLocaleDateString()
-}
-
-function arraysEqual(a: string[], b: string[]): boolean {
-  if (a.length !== b.length) return false
-  for (let i = 0; i < a.length; i += 1) {
-    if (a[i] !== b[i]) return false
-  }
-  return true
 }
 
 export default function CustomersDealsPage() {
@@ -291,17 +188,43 @@ export default function CustomersDealsPage() {
   const [isLoading, setIsLoading] = React.useState(false)
   const [reloadToken, setReloadToken] = React.useState(0)
   const [pendingDeleteId, setPendingDeleteId] = React.useState<string | null>(null)
-  const [filterValues, setFilterValues] = React.useState<FilterValues>({})
-  const [advancedFilterState, setAdvancedFilterState] = React.useState<AdvancedFilterState>(() => {
-    const params = searchParams
-    if (!params) return { logic: 'and', conditions: [] }
+  // One-shot URL hydration used as the hook's initial value. The hook is the
+  // single source of truth from this point on — the page MUST NOT keep a
+  // parallel `useState<AdvancedFilterTree>` (see spec "Migration & Backward
+  // Compatibility" → state ownership).
+  const initialFilterTree = React.useMemo<AdvancedFilterTree>(() => {
+    if (!searchParams) return createEmptyTree()
     const record: Record<string, string> = {}
-    params.forEach((value, key) => {
+    searchParams.forEach((value, key) => {
       if (key.startsWith('filter[')) record[key] = value
     })
-    const hydrated = deserializeAdvancedFilter(record)
-    return hydrated ?? { logic: 'and', conditions: [] }
+    const v2 = deserializeTree(record)
+    if (v2) return v2
+    const flat = deserializeAdvancedFilter(record)
+    if (flat) return flatToTree(flat)
+    return createEmptyTree()
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
+  // `filterPanel` lives at the top of the component so derived state below
+  // (URL params, data fetch, export config) can read `filterPanel.appliedTree`
+  // directly. Real `FilterFieldDef[]` arrives later from `useAutoDiscoveredFields`
+  // (it depends on columns) and is synced into the hook via a small effect at
+  // the bottom of the component. The hook reads fields through a ref at
+  // validation time only — first validation cannot fire before user input, by
+  // which point fields have settled, so the empty initial value is safe.
+  const [panelFields, setPanelFields] = React.useState<FilterFieldDef[]>([])
+  const [filtersOpen, setFiltersOpen] = React.useState(false)
+  const filtersTriggerRef = React.useRef<HTMLButtonElement | null>(null)
+  const filterPanel = useAdvancedFilterTree({
+    initial: initialFilterTree,
+    fields: panelFields,
+    onApply: () => setPage(1),
   })
+  const advancedFilterState = filterPanel.appliedTree
+  const handleAdvancedFilterClear = React.useCallback(() => {
+    filterPanel.clear()
+    setPage(1)
+  }, [filterPanel])
   const [cacheStatus, setCacheStatus] = React.useState<'hit' | 'miss' | null>(null)
 
   const initialPersonIds = React.useMemo(
@@ -315,147 +238,6 @@ export default function CustomersDealsPage() {
 
   const [selectedPersonIds, setSelectedPersonIds] = React.useState<string[]>(initialPersonIds)
   const [selectedCompanyIds, setSelectedCompanyIds] = React.useState<string[]>(initialCompanyIds)
-
-  const [peopleState, setPeopleState] = React.useState<OptionsState>(EMPTY_OPTIONS_STATE)
-  const [companiesState, setCompaniesState] = React.useState<OptionsState>(EMPTY_OPTIONS_STATE)
-  const peopleCacheRef = React.useRef<Map<string, FilterOption[]>>(new Map())
-  const companiesCacheRef = React.useRef<Map<string, FilterOption[]>>(new Map())
-
-  const buildPersonLabel = React.useCallback((record: PersonLookupRecord): string => {
-    const parts: string[] = []
-    const name = record.name?.trim()
-    if (name) parts.push(name)
-    const email = record.email?.trim()
-    if (email && !parts.includes(email)) parts.push(email)
-    const phone = record.phone?.trim()
-    if (!parts.length && phone) parts.push(phone)
-    if (!parts.length) parts.push(t('customers.deals.list.unnamedPerson', 'Unnamed person'))
-    return parts.join(' • ')
-  }, [t])
-
-  const buildCompanyLabel = React.useCallback((record: CompanyLookupRecord): string => {
-    const parts: string[] = []
-    const name = record.name?.trim()
-    if (name) parts.push(name)
-    const domain = record.domain?.trim()
-    if (domain && !parts.includes(domain)) parts.push(domain)
-    const email = record.email?.trim()
-    if (!parts.length && email) parts.push(email)
-    if (!parts.length) parts.push(t('customers.deals.list.unnamedCompany', 'Unnamed company'))
-    return parts.join(' • ')
-  }, [t])
-
-  const ingestPeopleRecords = React.useCallback((records: PersonLookupRecord[]) => {
-    if (!records.length) return [] as FilterOption[]
-    const queryMap = new Map<string, FilterOption>()
-    setPeopleState((prev) => {
-      const idToLabel = { ...prev.idToLabel }
-      const labelToId: Record<string, string> = {}
-      const merged = new Map(prev.options.map((opt) => [opt.value, opt]))
-      const occupied = new Set<string>()
-      Object.entries(prev.labelToId).forEach(([label, id]) => {
-        occupied.add(label)
-        labelToId[label] = id
-      })
-      records.forEach((record) => {
-        if (!isUuid(record.id)) return
-        const base = buildPersonLabel(record)
-        let previousLabel = idToLabel[record.id]
-        if (previousLabel) {
-          delete labelToId[previousLabel]
-          occupied.delete(previousLabel)
-        }
-        const label = ensureUniqueLabel(base, occupied)
-        idToLabel[record.id] = label
-        labelToId[label] = record.id
-        const option = { value: record.id, label }
-        merged.set(record.id, option)
-        queryMap.set(record.id, option)
-      })
-      const nextOptions = Array.from(merged.values()).sort((a, b) => a.label.localeCompare(b.label))
-      return { options: nextOptions, idToLabel, labelToId }
-    })
-    return Array.from(queryMap.values()).sort((a, b) => a.label.localeCompare(b.label))
-  }, [buildPersonLabel])
-
-  const ingestCompanyRecords = React.useCallback((records: CompanyLookupRecord[]) => {
-    if (!records.length) return [] as FilterOption[]
-    const queryMap = new Map<string, FilterOption>()
-    setCompaniesState((prev) => {
-      const idToLabel = { ...prev.idToLabel }
-      const labelToId: Record<string, string> = {}
-      const merged = new Map(prev.options.map((opt) => [opt.value, opt]))
-      const occupied = new Set<string>()
-      Object.entries(prev.labelToId).forEach(([label, id]) => {
-        occupied.add(label)
-        labelToId[label] = id
-      })
-      records.forEach((record) => {
-        if (!isUuid(record.id)) return
-        const base = buildCompanyLabel(record)
-        let previousLabel = idToLabel[record.id]
-        if (previousLabel) {
-          delete labelToId[previousLabel]
-          occupied.delete(previousLabel)
-        }
-        const label = ensureUniqueLabel(base, occupied)
-        idToLabel[record.id] = label
-        labelToId[label] = record.id
-        const option = { value: record.id, label }
-        merged.set(record.id, option)
-        queryMap.set(record.id, option)
-      })
-      const nextOptions = Array.from(merged.values()).sort((a, b) => a.label.localeCompare(b.label))
-      return { options: nextOptions, idToLabel, labelToId }
-    })
-    return Array.from(queryMap.values()).sort((a, b) => a.label.localeCompare(b.label))
-  }, [buildCompanyLabel])
-
-  const loadPeopleOptions = React.useCallback(async (query?: string) => {
-    const normalizedQuery = (query || '').trim().toLowerCase()
-    const cacheKey = `${scopeVersion}|${normalizedQuery}`
-    const cached = peopleCacheRef.current.get(cacheKey)
-    if (cached) return cached
-    const records = await fetchPeopleLookup(query)
-    const options = ingestPeopleRecords(records)
-    peopleCacheRef.current.set(cacheKey, options)
-    return options
-  }, [scopeVersion, ingestPeopleRecords])
-
-  const loadCompanyOptions = React.useCallback(async (query?: string) => {
-    const normalizedQuery = (query || '').trim().toLowerCase()
-    const cacheKey = `${scopeVersion}|${normalizedQuery}`
-    const cached = companiesCacheRef.current.get(cacheKey)
-    if (cached) return cached
-    const records = await fetchCompaniesLookup(query)
-    const options = ingestCompanyRecords(records)
-    companiesCacheRef.current.set(cacheKey, options)
-    return options
-  }, [scopeVersion, ingestCompanyRecords])
-
-  React.useEffect(() => {
-    let cancelled = false
-    if (!selectedPersonIds.length) return
-    const missing = selectedPersonIds.filter((id) => !peopleState.idToLabel[id])
-    if (!missing.length) return
-    fetchPeopleLookupByIds(missing).then((records) => {
-      if (cancelled) return
-      ingestPeopleRecords(records)
-    })
-    return () => { cancelled = true }
-  }, [selectedPersonIds, peopleState.idToLabel, ingestPeopleRecords])
-
-  React.useEffect(() => {
-    let cancelled = false
-    if (!selectedCompanyIds.length) return
-    const missing = selectedCompanyIds.filter((id) => !companiesState.idToLabel[id])
-    if (!missing.length) return
-    fetchCompaniesLookupByIds(missing).then((records) => {
-      if (cancelled) return
-      ingestCompanyRecords(records)
-    })
-    return () => { cancelled = true }
-  }, [selectedCompanyIds, companiesState.idToLabel, ingestCompanyRecords])
 
   const [dictionaryMaps, setDictionaryMaps] = React.useState<Record<DictionaryKey, CustomerDictionaryMap>>({
     'deal-statuses': {},
@@ -485,6 +267,21 @@ export default function CustomersDealsPage() {
     loadDictionaries().catch(() => {})
     return () => { cancelled = true }
   }, [fetchDictionaryEntries, reloadToken])
+  const dictionaryOptions = React.useMemo(() => {
+    const toOptions = (map?: CustomerDictionaryMap | null): DictionaryOptionWithTone[] =>
+      Object.values(map ?? {})
+        .map((entry) => {
+          const tone = mapDictionaryColorToTone(entry.color)
+          const option: DictionaryOptionWithTone = { value: entry.value, label: entry.label }
+          if (tone) option.tone = tone
+          return option
+        })
+        .sort((a, b) => a.label.localeCompare(b.label, undefined, { sensitivity: 'base' }))
+    return {
+      dealStatuses: toOptions(dictionaryMaps['deal-statuses']),
+      pipelineStages: toOptions(dictionaryMaps['pipeline-stages']),
+    }
+  }, [dictionaryMaps])
 
   React.useEffect(() => {
     let cancelled = false
@@ -506,84 +303,8 @@ export default function CustomersDealsPage() {
     return () => { cancelled = true }
   }, [reloadToken, scopeVersion])
 
-  React.useEffect(() => {
-    peopleCacheRef.current.clear()
-    companiesCacheRef.current.clear()
-    setPeopleState((prev) => {
-      if (!prev.options.length && !Object.keys(prev.idToLabel).length) return prev
-      return { ...EMPTY_OPTIONS_STATE }
-    })
-    setCompaniesState((prev) => {
-      if (!prev.options.length && !Object.keys(prev.idToLabel).length) return prev
-      return { ...EMPTY_OPTIONS_STATE }
-    })
-  }, [scopeVersion, reloadToken])
-
-  const syncFilterIds = React.useCallback((
-    key: 'people' | 'companies',
-    ids: string[],
-  ) => {
-    setFilterValues((prev) => {
-      const current = Array.isArray(prev[key]) ? (prev[key] as string[]) : []
-      if (!ids.length) {
-        if (!current.length) return prev
-        const next = { ...prev }
-        delete next[key]
-        return next
-      }
-      if (arraysEqual(current, ids)) return prev
-      return { ...prev, [key]: [...ids] }
-    })
-  }, [])
-
-  React.useEffect(() => {
-    syncFilterIds('people', selectedPersonIds)
-  }, [selectedPersonIds, syncFilterIds])
-
-  React.useEffect(() => {
-    syncFilterIds('companies', selectedCompanyIds)
-  }, [selectedCompanyIds, syncFilterIds])
-
   const handleSearchChange = React.useCallback((value: string) => {
     setSearch(value.trim())
-    setPage(1)
-  }, [])
-
-  const handleFiltersApply = React.useCallback((values: FilterValues) => {
-    const next: FilterValues = { ...values }
-
-    const rawPeople = Array.isArray(values.people) ? (values.people as string[]) : []
-    const nextPersonIds = Array.from(
-      new Set(
-        rawPeople
-          .map((value) => (typeof value === 'string' ? value.trim() : ''))
-          .filter((value) => value.length > 0 && isUuid(value)),
-      ),
-    )
-    setSelectedPersonIds(nextPersonIds)
-    if (nextPersonIds.length) next.people = nextPersonIds
-    else delete next.people
-
-    const rawCompanies = Array.isArray(values.companies) ? (values.companies as string[]) : []
-    const nextCompanyIds = Array.from(
-      new Set(
-        rawCompanies
-          .map((value) => (typeof value === 'string' ? value.trim() : ''))
-          .filter((value) => value.length > 0 && isUuid(value)),
-      ),
-    )
-    setSelectedCompanyIds(nextCompanyIds)
-    if (nextCompanyIds.length) next.companies = nextCompanyIds
-    else delete next.companies
-
-    setFilterValues(next)
-    setPage(1)
-  }, [])
-
-  const handleFiltersClear = React.useCallback(() => {
-    setFilterValues({})
-    setSelectedPersonIds([])
-    setSelectedCompanyIds([])
     setPage(1)
   }, [])
 
@@ -598,35 +319,12 @@ export default function CustomersDealsPage() {
     if (search.trim().length) params.set('search', search.trim())
     if (selectedPersonIds.length) params.set('personId', selectedPersonIds.join(','))
     if (selectedCompanyIds.length) params.set('companyId', selectedCompanyIds.join(','))
-    Object.entries(filterValues).forEach(([key, value]) => {
-      if (key === 'people' || key === 'companies') return
-      if (value == null) return
-      if (Array.isArray(value)) {
-        const normalized = value
-          .map((item) => {
-            if (item == null) return ''
-            if (typeof item === 'string') return item.trim()
-            return String(item).trim()
-          })
-          .filter((item) => item.length > 0)
-        if (normalized.length) params.set(key, normalized.join(','))
-      } else if (typeof value === 'object') {
-        const obj = value as Record<string, unknown>
-        const from = typeof obj.from === 'string' ? obj.from.trim() : ''
-        const to = typeof obj.to === 'string' ? obj.to.trim() : ''
-        if (from) params.set(`${key}[from]`, from)
-        if (to) params.set(`${key}[to]`, to)
-      } else {
-        const stringValue = typeof value === 'string' ? value.trim() : String(value)
-        if (stringValue) params.set(key, stringValue)
-      }
-    })
-    const advancedParams = serializeAdvancedFilter(advancedFilterState)
+    const advancedParams = serializeTree(advancedFilterState)
     for (const [key, val] of Object.entries(advancedParams)) {
       params.set(key, val)
     }
     return params.toString()
-  }, [advancedFilterState, filterValues, page, pageSize, search, selectedCompanyIds, selectedPersonIds, sorting])
+  }, [advancedFilterState, page, pageSize, search, selectedCompanyIds, selectedPersonIds, sorting])
 
   const currentParams = React.useMemo(
     () => Object.fromEntries(new URLSearchParams(queryParams)),
@@ -699,7 +397,7 @@ export default function CustomersDealsPage() {
     if (selectedPersonIds.length) selectedPersonIds.forEach((id) => params.append('personId', id))
     if (selectedCompanyIds.length) selectedCompanyIds.forEach((id) => params.append('companyId', id))
     if (page > 1) params.set('page', String(page))
-    const advancedParams = serializeAdvancedFilter(advancedFilterState)
+    const advancedParams = serializeTree(advancedFilterState)
     for (const [key, val] of Object.entries(advancedParams)) {
       params.set(key, val)
     }
@@ -710,14 +408,32 @@ export default function CustomersDealsPage() {
   }, [pathname, router, page, search, selectedPersonIds, selectedCompanyIds, advancedFilterState])
 
   const handleRefresh = React.useCallback(() => {
-    peopleCacheRef.current.clear()
-    companiesCacheRef.current.clear()
     void Promise.all([
       invalidateCustomerDictionary(queryClient, 'deal-statuses'),
       invalidateCustomerDictionary(queryClient, 'pipeline-stages'),
     ])
     setReloadToken((token) => token + 1)
   }, [queryClient])
+
+  const bulkMutationContextId = 'customers-deals-list:bulk-delete'
+  const { runMutation: runBulkMutation, retryLastMutation: retryBulkMutation } = useGuardedMutation<{
+    formId: string
+    resourceKind: string
+    retryLastMutation: () => Promise<boolean>
+  }>({
+    contextId: bulkMutationContextId,
+    blockedMessage: t('ui.forms.flash.saveBlocked', 'Save blocked by validation'),
+  })
+  const singleMutationContextId = 'customers-deals-list:single-delete'
+  const { runMutation: runSingleMutation, retryLastMutation: retrySingleMutation } = useGuardedMutation<{
+    formId: string
+    resourceKind: string
+    resourceId: string
+    retryLastMutation: () => Promise<boolean>
+  }>({
+    contextId: singleMutationContextId,
+    blockedMessage: t('ui.forms.flash.saveBlocked', 'Save blocked by validation'),
+  })
 
   const handleDeleteDeal = React.useCallback(
     async (dealId: string) => {
@@ -732,9 +448,19 @@ export default function CustomersDealsPage() {
       if (!confirmed) return
       setPendingDeleteId(dealId)
       try {
-        await deleteCrud('customers/deals', {
-          body: { id: dealId },
-          errorMessage: t('customers.deals.list.deleteError', 'Failed to delete deal.'),
+        await runSingleMutation({
+          operation: async () => {
+            await deleteCrud('customers/deals', {
+              body: { id: dealId },
+              errorMessage: t('customers.deals.list.deleteError', 'Failed to delete deal.'),
+            })
+          },
+          context: {
+            formId: singleMutationContextId,
+            resourceKind: 'customers.deal',
+            resourceId: dealId,
+            retryLastMutation: retrySingleMutation,
+          },
         })
         flash(t('customers.deals.list.deleteSuccess', 'Deal deleted.'), 'success')
         setRows((prev) => prev.filter((row) => row.id !== dealId))
@@ -750,7 +476,7 @@ export default function CustomersDealsPage() {
         setPendingDeleteId(null)
       }
     },
-    [confirm, handleRefresh, pendingDeleteId, t],
+    [confirm, handleRefresh, pendingDeleteId, retrySingleMutation, runSingleMutation, singleMutationContextId, t],
   )
 
   const handlePageSizeChange = React.useCallback((newSize: number) => {
@@ -765,73 +491,114 @@ export default function CustomersDealsPage() {
       variant: 'destructive',
     })
     if (!confirmed) return false
-    let deletedCount = 0
-    const failedIds: string[] = []
-    for (const row of selectedRows) {
-      try {
-        await deleteCrud('customers/deals', {
-          body: { id: row.id },
-          errorMessage: t('customers.deals.list.deleteError', 'Failed to delete deal.'),
+
+    const { succeeded, failures } = await runBulkMutation({
+      operation: async () =>
+        runBulkDelete(
+          selectedRows,
+          async (row) => {
+            await deleteCrud('customers/deals', {
+              body: { id: row.id },
+              errorMessage: t('customers.deals.list.deleteError', 'Failed to delete deal.'),
+            })
+          },
+          {
+            fallbackErrorMessage: t('customers.deals.list.deleteError', 'Failed to delete deal.'),
+            logTag: 'customers.deals.list',
+            progress: {
+              jobType: 'customers.deals.bulk_delete',
+              name: t('customers.deals.list.bulkDelete.progressName', 'Delete selected deals'),
+              description: t(
+                'customers.deals.list.bulkDelete.progressDescription',
+                '{count} deals selected for deletion',
+                { count: selectedRows.length },
+              ),
+              meta: { source: 'customers.deals.list' },
+            },
+          },
+        ),
+      context: {
+        formId: bulkMutationContextId,
+        resourceKind: 'customers.deal',
+        retryLastMutation: retryBulkMutation,
+      },
+    })
+
+    if (succeeded.length > 0) {
+      const succeededIds = new Set(succeeded.map((r) => r.id))
+      setRows((prev) => prev.filter((r) => !succeededIds.has(r.id)))
+      setTotal((prev) => Math.max(0, prev - succeeded.length))
+      setReloadToken((prev) => prev + 1)
+      if (succeeded.length > 1) {
+        coalesceLastOperations(succeeded.length, {
+          commandId: 'customers.deals.delete',
+          actionLabel: t('customers.deals.list.bulkDelete.operationLabel', 'Delete {count} deals', { count: succeeded.length }),
+          resourceKind: 'customers.deal',
         })
-        deletedCount++
-      } catch (err) {
-        failedIds.push(row.id)
-        console.warn('[customers.deals.list] bulk delete failed', row.id, err)
       }
-    }
-    if (deletedCount > 0) {
-      setRows((prev) => {
-        const succeeded = new Set(selectedRows.map((r) => r.id).filter((id) => !failedIds.includes(id)))
-        return prev.filter((r) => !succeeded.has(r.id))
-      })
-      setTotal((prev) => Math.max(0, prev - deletedCount))
-      if (failedIds.length === 0) {
-        flash(t('customers.deals.list.bulkDelete.success', '{count} deals deleted', { count: deletedCount }), 'success')
+      if (failures.length === 0) {
+        flash(
+          t('customers.deals.list.bulkDelete.success', '{count} deals deleted', { count: succeeded.length }),
+          'success',
+        )
       } else {
         flash(
           t('customers.deals.list.bulkDelete.partial', '{deleted} of {total} deals deleted; {failed} failed', {
-            deleted: deletedCount,
+            deleted: succeeded.length,
             total: selectedRows.length,
-            failed: failedIds.length,
+            failed: failures.length,
           }),
           'warning',
         )
       }
-    } else if (failedIds.length > 0) {
-      flash(t('customers.deals.list.bulkDelete.failed', 'Failed to delete {count} deals', { count: failedIds.length }), 'error')
     }
-    return deletedCount > 0
-  }, [confirm, t])
 
-  const personOptions = peopleState.options
-  const companyOptions = companiesState.options
+    for (const group of groupBulkDeleteFailures(failures)) {
+      const message = group.count === 1
+        ? group.sampleMessage
+        : t(
+            'customers.deals.list.bulkDelete.failedGroup',
+            '{count} deals could not be deleted: {message}',
+            { count: group.count, message: group.sampleMessage },
+          )
+      flash(message, 'error')
+    }
 
-  const peopleIdToLabel = peopleState.idToLabel
-  const companyIdToLabel = companiesState.idToLabel
-  const filters = React.useMemo<FilterDef[]>(() => [
-    {
-      id: 'people',
-      label: t('customers.deals.list.filters.people'),
-      type: 'tags',
-      options: personOptions,
-      loadOptions: loadPeopleOptions,
-      placeholder: t('customers.deals.list.filters.peoplePlaceholder'),
-      formatValue: (value: string) => peopleIdToLabel[value] ?? value,
-    },
-    {
-      id: 'companies',
-      label: t('customers.deals.list.filters.companies'),
-      type: 'tags',
-      options: companyOptions,
-      loadOptions: loadCompanyOptions,
-      placeholder: t('customers.deals.list.filters.companiesPlaceholder'),
-      formatValue: (value: string) => companyIdToLabel[value] ?? value,
-    },
-  ], [companyIdToLabel, companyOptions, loadCompanyOptions, loadPeopleOptions, peopleIdToLabel, personOptions, t])
+    return succeeded.length > 0
+  }, [bulkMutationContextId, confirm, retryBulkMutation, runBulkMutation, t])
 
   const { data: customFieldDefs = [] } = useCustomFieldDefs([E.customers.customer_deal], {
     keyExtras: [scopeVersion, reloadToken],
   })
+  const currentUserId = useCurrentUserId()
+  const [ownerFilterOptions, setOwnerFilterOptions] = React.useState<AdvancedFilterOption[]>([])
+  React.useEffect(() => {
+    const controller = new AbortController()
+    let cancelled = false
+    void fetchAssignableStaffMembers('', { pageSize: 100, signal: controller.signal })
+      .then((items) => {
+        if (!cancelled) setOwnerFilterOptions(mapAssignableStaffToFilterOptions(items))
+      })
+      .catch(() => {
+        if (!cancelled) setOwnerFilterOptions([])
+      })
+    return () => {
+      cancelled = true
+      controller.abort()
+    }
+  }, [scopeVersion])
+  const resolvedOwnerFilterOptions = React.useMemo(
+    () => ensureCurrentUserFilterOption(
+      ownerFilterOptions,
+      currentUserId,
+      t('customers.filters.currentUser', 'Current user'),
+    ),
+    [currentUserId, ownerFilterOptions, t],
+  )
+  const loadOwnerFilterOptions = React.useCallback(async (query?: string): Promise<AdvancedFilterOption[]> => {
+    const items = await fetchAssignableStaffMembers(query ?? '', { pageSize: 100 })
+    return mapAssignableStaffToFilterOptions(items)
+  }, [])
 
   const columns = React.useMemo<ColumnDef<DealRow>[]>(() => {
     const noValue = <span className="text-muted-foreground text-sm">{t('customers.deals.list.noValue')}</span>
@@ -911,6 +678,7 @@ export default function CustomersDealsPage() {
           alwaysVisible: true,
           columnChooserGroup: 'Basic Info',
           filterKey: 'title',
+          filterGroup: 'Deal',
           maxWidth: '280px',
         },
         cell: ({ row }) => <span className="font-medium text-sm">{row.original.title}</span>,
@@ -918,19 +686,36 @@ export default function CustomersDealsPage() {
       {
         accessorKey: 'status',
         header: t('customers.deals.list.columns.status'),
-        meta: { filterType: 'select' as const, columnChooserGroup: 'Basic Info', filterKey: 'status' },
+        meta: {
+          filterType: 'select' as const,
+          filterOptions: dictionaryOptions.dealStatuses,
+          columnChooserGroup: 'Basic Info',
+          filterKey: 'status',
+          filterGroup: 'Deal',
+        },
         cell: ({ row }) => renderDictionaryCell('deal-statuses', row.original.status),
       },
       {
         accessorKey: 'pipelineStage',
         header: t('customers.deals.list.columns.pipelineStage'),
-        meta: { columnChooserGroup: 'Pipeline', filterKey: 'pipeline_stage' },
+        meta: {
+          filterType: 'select' as const,
+          filterOptions: dictionaryOptions.pipelineStages,
+          columnChooserGroup: 'Pipeline',
+          filterKey: 'pipeline_stage',
+          filterGroup: 'Deal',
+        },
         cell: ({ row }) => renderDictionaryCell('pipeline-stages', row.original.pipelineStage),
       },
       {
         accessorKey: 'pipelineId',
         header: t('customers.deals.list.columns.pipeline', 'Pipeline'),
-        meta: { columnChooserGroup: 'Pipeline', filterKey: 'pipeline_id', maxWidth: '220px' },
+        meta: {
+          columnChooserGroup: 'Pipeline',
+          filterKey: 'pipeline_id',
+          filterGroup: 'Deal',
+          maxWidth: '220px',
+        },
         cell: ({ row }) => {
           const name = row.original.pipelineId ? pipelineNames[row.original.pipelineId] : null
           return name ? <span className="text-sm">{name}</span> : noValue
@@ -939,7 +724,12 @@ export default function CustomersDealsPage() {
       {
         accessorKey: 'valueAmount',
         header: t('customers.deals.list.columns.value'),
-        meta: { filterType: 'number' as const, columnChooserGroup: 'Financial', filterKey: 'value_amount' },
+        meta: {
+          filterType: 'number' as const,
+          columnChooserGroup: 'Financial',
+          filterKey: 'value_amount',
+          filterGroup: 'Deal',
+        },
         cell: ({ row }) => (
           <span className="text-sm font-medium">
             {formatCurrency(row.original.valueAmount ?? null, row.original.valueCurrency ?? null, t('customers.deals.list.noValue'))}
@@ -949,7 +739,12 @@ export default function CustomersDealsPage() {
       {
         accessorKey: 'probability',
         header: t('customers.deals.list.columns.probability'),
-        meta: { filterType: 'number' as const, columnChooserGroup: 'Financial', filterKey: 'probability' },
+        meta: {
+          filterType: 'number' as const,
+          columnChooserGroup: 'Financial',
+          filterKey: 'probability',
+          filterGroup: 'Deal',
+        },
         cell: ({ row }) => {
           const value = row.original.probability
           if (typeof value === 'number' && Number.isFinite(value)) {
@@ -961,7 +756,12 @@ export default function CustomersDealsPage() {
       {
         accessorKey: 'expectedCloseAt',
         header: t('customers.deals.list.columns.expectedClose'),
-        meta: { columnChooserGroup: 'Dates', filterKey: 'expected_close_at' },
+        meta: {
+          columnChooserGroup: 'Dates',
+          filterKey: 'expected_close_at',
+          filterGroup: 'Activity',
+          filterIconName: 'calendar',
+        },
         cell: ({ row }) => (
           <span className="text-sm">
             {formatDateValue(row.original.expectedCloseAt ?? null, t('customers.deals.list.noValue'))}
@@ -969,11 +769,28 @@ export default function CustomersDealsPage() {
         ),
       },
       {
+        accessorKey: 'ownerUserId',
+        header: t('customers.deals.list.columns.owner', 'Owner'),
+        meta: {
+          columnChooserGroup: 'CRM',
+          filterType: 'select',
+          filterOptions: resolvedOwnerFilterOptions,
+          filterLoadOptions: loadOwnerFilterOptions,
+          filterGroup: 'CRM',
+          filterIconName: 'user-round',
+          filterKey: 'owner_user_id',
+          hidden: true,
+        },
+        cell: ({ row }) => row.original.ownerUserId ?? null,
+      },
+      {
         accessorKey: 'companies',
         header: t('customers.deals.list.columns.companies'),
         meta: {
           columnChooserGroup: 'Associations',
           filterable: false,
+          filterGroup: 'CRM',
+          filterIconName: 'building-2',
           maxWidth: '220px',
           tooltipContent: (row: DealRow) =>
             normalizeCollectionLabels(
@@ -988,6 +805,8 @@ export default function CustomersDealsPage() {
         meta: {
           columnChooserGroup: 'Associations',
           filterable: false,
+          filterGroup: 'CRM',
+          filterIconName: 'user-round',
           maxWidth: '220px',
           tooltipContent: (row: DealRow) =>
             normalizeCollectionLabels(
@@ -999,7 +818,12 @@ export default function CustomersDealsPage() {
       {
         accessorKey: 'updatedAt',
         header: t('customers.deals.list.columns.updatedAt'),
-        meta: { columnChooserGroup: 'Dates', filterKey: 'updated_at' },
+        meta: {
+          columnChooserGroup: 'Dates',
+          filterKey: 'updated_at',
+          filterGroup: 'Activity',
+          filterIconName: 'calendar',
+        },
         cell: ({ row }) => (
           <span className="text-sm">
             {formatDateValue(row.original.updatedAt ?? null, t('customers.deals.list.noValue'))}
@@ -1008,7 +832,75 @@ export default function CustomersDealsPage() {
       },
       ...customColumns,
     ]
-  }, [customFieldDefs, dictionaryMaps, pipelineNames, t])
+  }, [customFieldDefs, dictionaryMaps, dictionaryOptions, loadOwnerFilterOptions, pipelineNames, resolvedOwnerFilterOptions, t])
+
+  const { advancedFilterFields } = useAutoDiscoveredFields({ columns, customFieldDefs })
+
+  // Sync auto-discovered fields into the `filterPanel` declared at the top of
+  // the component. See the comment on the `panelFields` state for why this
+  // late-binding is safe. Bail out by content (field-key list) — every render
+  // of `useAutoDiscoveredFields` produces fresh `FilterFieldDef` object refs
+  // even when the set of fields hasn't actually changed, so a naive reference
+  // setState would loop ("Maximum update depth exceeded").
+  React.useEffect(() => {
+    setPanelFields((prev) => {
+      if (prev === advancedFilterFields) return prev
+      if (prev.length === advancedFilterFields.length) {
+        let same = true
+        for (let i = 0; i < prev.length; i++) {
+          if (prev[i].key !== advancedFilterFields[i].key) { same = false; break }
+        }
+        if (same) return prev
+      }
+      return advancedFilterFields
+    })
+  }, [advancedFilterFields])
+
+  const associationFilterFields = React.useMemo<FilterFieldDef[]>(() => {
+    const personLabels = new Map<string, string>()
+    const companyLabels = new Map<string, string>()
+    for (const row of rows) {
+      for (const person of row.people) {
+        if (selectedPersonIds.includes(person.id) && person.label.trim().length > 0) {
+          personLabels.set(person.id, person.label)
+        }
+      }
+      for (const company of row.companies) {
+        if (selectedCompanyIds.includes(company.id) && company.label.trim().length > 0) {
+          companyLabels.set(company.id, company.label)
+        }
+      }
+    }
+    return [
+      {
+        key: 'people',
+        label: t('customers.deals.list.columns.people', 'People'),
+        type: 'select',
+        options: selectedPersonIds.map((id) => ({ value: id, label: personLabels.get(id) ?? id })),
+      },
+      {
+        key: 'companies',
+        label: t('customers.deals.list.columns.companies', 'Companies'),
+        type: 'select',
+        options: selectedCompanyIds.map((id) => ({ value: id, label: companyLabels.get(id) ?? id })),
+      },
+    ]
+  }, [rows, selectedCompanyIds, selectedPersonIds, t])
+  const associationFilterTree = React.useMemo<AdvancedFilterTree>(() => {
+    const rules: Array<{ field: string; operator: 'is_any_of'; value: string[] }> = []
+    if (selectedPersonIds.length) rules.push({ field: 'people', operator: 'is_any_of', value: selectedPersonIds })
+    if (selectedCompanyIds.length) rules.push({ field: 'companies', operator: 'is_any_of', value: selectedCompanyIds })
+    return rules.length ? makeMultiRuleTree(rules) : createEmptyTree()
+  }, [selectedCompanyIds, selectedPersonIds])
+  const handleAssociationFilterRemove = React.useCallback((nodeId: string) => {
+    const node = associationFilterTree.root.children.find((child) => child.id === nodeId)
+    if (!node || node.type !== 'rule') return
+    if (node.field === 'people') setSelectedPersonIds([])
+    if (node.field === 'companies') setSelectedCompanyIds([])
+    setPage(1)
+  }, [associationFilterTree.root.children])
+
+  const dealsPresets = React.useMemo<FilterPreset[]>(() => makeDealsPresets(), [])
 
   return (
     <Page>
@@ -1075,10 +967,6 @@ export default function CustomersDealsPage() {
           searchValue={search}
           onSearchChange={handleSearchChange}
           searchPlaceholder={t('customers.deals.list.searchPlaceholder')}
-          filters={filters}
-          filterValues={filterValues}
-          onFiltersApply={handleFiltersApply}
-          onFiltersClear={handleFiltersClear}
           pagination={{
             page,
             pageSize,
@@ -1098,13 +986,60 @@ export default function CustomersDealsPage() {
           entityId={E.customers.customer_deal}
           perspective={{ tableId: 'customers.deals.list' }}
           advancedFilter={{
-              auto: true,
-              value: advancedFilterState,
-              onChange: setAdvancedFilterState,
-              onApply: () => { setPage(1) },
-              onClear: () => { setAdvancedFilterState({ logic: 'and', conditions: [] }); setPage(1) },
-            }}
+            auto: true,
+            value: filterPanel.tree,
+            onChange: filterPanel.setTree,
+            onApply: () => filterPanel.flush(),
+            onClear: handleAdvancedFilterClear,
+            triggerRef: filtersTriggerRef,
+            externalPopover: true,
+            onTriggerClick: () => setFiltersOpen((prev) => !prev),
+            onApplyTree: (tree) => {
+              filterPanel.replaceTree(tree)
+              setPage(1)
+            },
+          }}
+          activeFilterChips={(
+            <>
+              <ActiveFilterChips
+                tree={associationFilterTree}
+                fields={associationFilterFields}
+                popoverOpen={filtersOpen}
+                onRemoveNode={handleAssociationFilterRemove}
+                onOpen={() => setFiltersOpen(true)}
+              />
+              <ActiveFilterChips
+                tree={filterPanel.tree}
+                fields={advancedFilterFields}
+                popoverOpen={filtersOpen}
+                onRemoveNode={(id) => filterPanel.dispatch({ type: 'removeNode', nodeId: id })}
+                onOpen={() => setFiltersOpen(true)}
+              />
+            </>
+          )}
+          filterAwareEmptyState={{
+            active: advancedFilterState.root.children.length > 0,
+            entityNamePlural: t('customers.deals.entityPlural', 'deals'),
+            canRemoveLast: filterPanel.tree.root.children.length > 0,
+            onClearAll: handleAdvancedFilterClear,
+            onRemoveLast: () => filterPanel.dispatch({ type: 'removeLast' }),
+          }}
           virtualized
+        />
+        <AdvancedFilterPanel
+          fields={advancedFilterFields}
+          value={filterPanel.tree}
+          onChange={filterPanel.setTree}
+          onApply={filterPanel.flush}
+          onClear={handleAdvancedFilterClear}
+          onFlush={filterPanel.flush}
+          pendingErrors={filterPanel.pendingErrors}
+          userId={currentUserId}
+          presets={dealsPresets}
+          open={filtersOpen}
+          onOpenChange={setFiltersOpen}
+          triggerRef={filtersTriggerRef}
+          savedFilterStorageKey="customers.deals.list"
         />
       </PageBody>
       {ConfirmDialogElement}
@@ -1140,6 +1075,7 @@ function mapDeal(item: Record<string, unknown>): DealRow | null {
         : null
   const expectedCloseAt = typeof item.expected_close_at === 'string' ? item.expected_close_at : null
   const updatedAt = typeof item.updated_at === 'string' ? item.updated_at : null
+  const ownerUserId = typeof item.owner_user_id === 'string' ? item.owner_user_id : null
   const peopleRaw = Array.isArray(item.people) ? item.people : []
   const companiesRaw = Array.isArray(item.companies) ? item.companies : []
   const people = peopleRaw
@@ -1178,6 +1114,7 @@ function mapDeal(item: Record<string, unknown>): DealRow | null {
     probability,
     expectedCloseAt,
     updatedAt,
+    ownerUserId,
     people,
     companies,
     ...customFields,

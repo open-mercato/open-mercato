@@ -20,6 +20,7 @@ import {
 } from '@open-mercato/ui/primitives/select'
 import { Loader2, Search, Image as ImageIcon, Trash2 } from 'lucide-react'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
+import { extractCustomFieldEntries } from '@open-mercato/shared/lib/crud/custom-fields-client'
 import { E } from '#generated/entities.ids.generated'
 import { buildAttachmentImageUrl, slugifyAttachmentFileName } from '@open-mercato/core/modules/attachments/lib/imageUrls'
 import { cn } from '@open-mercato/shared/lib/utils'
@@ -753,55 +754,7 @@ function collectPriceIds(source: PriceOverrideDraft[] | null | undefined): Set<s
 }
 
 function mergeCustomFieldValues(target: Record<string, unknown>, source: Record<string, unknown> | null | undefined) {
-  if (!source || typeof source !== 'object') return
-  const assign = (key: string | null | undefined, value: unknown) => {
-    if (!key) return
-    target[`cf_${key}`] = value
-  }
-  for (const [rawKey, rawValue] of Object.entries(source)) {
-    if (rawKey.startsWith('cf_')) {
-      if (rawKey.endsWith('__is_multi')) continue
-      target[rawKey] = rawValue
-    } else if (rawKey.startsWith('cf:')) {
-      assign(rawKey.slice(3), rawValue)
-    }
-  }
-  const customValues =
-    (source as Record<string, unknown>).customValues ??
-    (source as Record<string, unknown>).custom_values
-  if (customValues && typeof customValues === 'object' && !Array.isArray(customValues)) {
-    for (const [key, value] of Object.entries(customValues as Record<string, unknown>)) {
-      assign(key, value)
-    }
-  }
-  const customFields =
-    (source as Record<string, unknown>).customFields ??
-    (source as Record<string, unknown>).custom_fields
-  if (Array.isArray(customFields)) {
-    customFields.forEach((entry) => {
-      if (!entry || typeof entry !== 'object') return
-      const entryRecord = entry as Record<string, unknown>
-      const key = typeof entryRecord.key === 'string' ? entryRecord.key : null
-      if (!key) return
-      assign(key, entryRecord.value)
-    })
-  } else if (customFields && typeof customFields === 'object') {
-    for (const [key, value] of Object.entries(customFields as Record<string, unknown>)) {
-      assign(key, value)
-    }
-  }
-  const customEntries =
-    (source as Record<string, unknown>).customFieldEntries ??
-    (source as Record<string, unknown>).custom_field_entries
-  if (Array.isArray(customEntries)) {
-    customEntries.forEach((entry) => {
-      if (!entry || typeof entry !== 'object') return
-      const entryRecord = entry as Record<string, unknown>
-      const key = typeof entryRecord.key === 'string' ? entryRecord.key : null
-      if (!key) return
-      assign(key, entryRecord.value)
-    })
-  }
+  Object.assign(target, extractCustomFieldEntries(source ?? {}))
 }
 
 function buildChannelOffersHref(channelId?: string | null): string {

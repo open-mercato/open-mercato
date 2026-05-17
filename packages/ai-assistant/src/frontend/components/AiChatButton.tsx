@@ -1,7 +1,7 @@
 'use client'
 
 import * as React from 'react'
-import { Sparkles } from 'lucide-react'
+import { AiIcon } from '@open-mercato/ui/ai/AiIcon'
 import { Button } from '@open-mercato/ui/primitives/button'
 import { Tooltip, TooltipContent, TooltipTrigger, TooltipProvider } from '@open-mercato/ui/primitives/tooltip'
 
@@ -23,13 +23,14 @@ export function AiChatButton({ onClick, className }: AiChatButtonProps) {
       <Tooltip>
         <TooltipTrigger asChild>
           <Button
+            type="button"
             variant="ghost"
             size="icon"
             onClick={handleClick}
             className={className}
             aria-label="Open AI Assistant"
           >
-            <Sparkles className="h-5 w-5" />
+            <AiIcon className="h-5 w-5" />
           </Button>
         </TooltipTrigger>
         <TooltipContent side="bottom">

@@ -20,6 +20,7 @@ import dealsAiTools from './ai-tools/deals-pack'
 import activitiesTasksAiTools from './ai-tools/activities-tasks-pack'
 import addressesTagsAiTools from './ai-tools/addresses-tags-pack'
 import settingsAiTools from './ai-tools/settings-pack'
+import dealAnalyzerAiTools from './ai-tools/deal-analyzer-pack'
 import type { CustomersAiToolDefinition } from './ai-tools/types'
 
 export const aiTools: CustomersAiToolDefinition[] = [
@@ -29,6 +30,7 @@ export const aiTools: CustomersAiToolDefinition[] = [
   ...activitiesTasksAiTools,
   ...addressesTagsAiTools,
   ...settingsAiTools,
+  ...dealAnalyzerAiTools,
 ]
 
 export default aiTools

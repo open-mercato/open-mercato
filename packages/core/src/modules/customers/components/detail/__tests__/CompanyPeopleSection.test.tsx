@@ -100,6 +100,12 @@ describe('CompanyPeopleSection', () => {
     mockCompanyPeopleApi()
   })
 
+  async function waitForInitialPeopleLoad() {
+    await waitFor(() => {
+      expect(screen.queryByText(/Loading people/)).not.toBeInTheDocument()
+    })
+  }
+
   it('opens the inline create dialog from the empty state', async () => {
     renderWithProviders(
       <CompanyPeopleSection
@@ -111,6 +117,7 @@ describe('CompanyPeopleSection', () => {
       />,
     )
 
+    await waitForInitialPeopleLoad()
     fireEvent.click(await screen.findByRole('button', { name: 'Create person' }))
 
     expect(screen.getByText('Add new person')).toBeInTheDocument()
@@ -143,6 +150,7 @@ describe('CompanyPeopleSection', () => {
       />,
     )
 
+    await waitForInitialPeopleLoad()
     fireEvent.click(screen.getByRole('button', { name: 'Link existing person' }))
 
     const checkbox = await screen.findByRole('checkbox', { name: 'Select Ada Lovelace' })
@@ -204,6 +212,7 @@ describe('CompanyPeopleSection', () => {
       />,
     )
 
+    await waitForInitialPeopleLoad()
     fireEvent.click(screen.getByRole('button', { name: 'Link existing person' }))
     fireEvent.click(await screen.findByRole('checkbox', { name: 'Select Ada Lovelace' }))
     fireEvent.click(screen.getByRole('checkbox', { name: 'Select Grace Hopper' }))
@@ -306,6 +315,7 @@ describe('CompanyPeopleSection', () => {
       />,
     )
 
+    await waitForInitialPeopleLoad()
     fireEvent.click(screen.getByRole('button', { name: 'Link existing person' }))
 
     const adaCheckbox = await screen.findByRole('checkbox', { name: 'Select Ada Lovelace' })
@@ -345,6 +355,7 @@ describe('CompanyPeopleSection', () => {
       />,
     )
 
+    await waitForInitialPeopleLoad()
     fireEvent.click(screen.getByRole('button', { name: 'Link existing person' }))
     fireEvent.click(await screen.findByRole('checkbox', { name: 'Select Ada Lovelace' }))
 
@@ -415,6 +426,7 @@ describe('CompanyPeopleSection', () => {
     try {
       renderWithProviders(<Harness />)
 
+      await waitForInitialPeopleLoad()
       fireEvent.click(screen.getByRole('button', { name: 'Link existing person' }))
       fireEvent.click(await screen.findByRole('checkbox', { name: 'Select Ada Lovelace' }))
 

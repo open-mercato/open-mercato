@@ -10,6 +10,8 @@ import type { ColumnDef } from '@tanstack/react-table'
 import { RowActions } from '@open-mercato/ui/backend/RowActions'
 import { Button } from '@open-mercato/ui/primitives/button'
 import { Input } from '@open-mercato/ui/primitives/input'
+import { EmailInput } from '@open-mercato/ui/primitives/email-input'
+import { PasswordInput } from '@open-mercato/ui/primitives/password-input'
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@open-mercato/ui/primitives/dialog'
 import { apiCall, readApiResultOrThrow } from '@open-mercato/ui/backend/utils/apiCall'
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
@@ -144,9 +146,8 @@ function CreateUserDialog({
             <label className="text-sm font-medium" htmlFor="create-email">
               {t('customer_accounts.admin.createUser.fields.email', 'Email')}
             </label>
-            <Input
+            <EmailInput
               id="create-email"
-              type="email"
               required
               value={email}
               onChange={(event) => setEmail(event.target.value)}
@@ -170,14 +171,14 @@ function CreateUserDialog({
             <label className="text-sm font-medium" htmlFor="create-password">
               {t('customer_accounts.admin.createUser.fields.password', 'Password')}
             </label>
-            <Input
+            <PasswordInput
               id="create-password"
-              type="password"
               required
               minLength={8}
               value={password}
               onChange={(event) => setPassword(event.target.value)}
               placeholder={t('customer_accounts.admin.createUser.fields.passwordPlaceholder', 'Min. 8 characters')}
+              autoComplete="new-password"
             />
           </div>
           {roleOptions.length > 0 && (

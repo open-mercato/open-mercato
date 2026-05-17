@@ -38,7 +38,7 @@ test.describe('TC-CAT-008: Create Nested Category Hierarchy', () => {
       await expect(page).toHaveURL(/\/backend\/catalog\/categories$/);
       await waitForList();
 
-      await page.getByRole('textbox', { name: 'Search categories' }).fill(parentName);
+      await page.getByRole('searchbox', { name: 'Search categories' }).fill(parentName);
       const parentRow = page.getByRole('row', { name: new RegExp(parentName) });
       await expect(parentRow).toBeVisible();
       await parentRow.getByText(parentName, { exact: true }).first().click();
@@ -52,7 +52,7 @@ test.describe('TC-CAT-008: Create Nested Category Hierarchy', () => {
       await expect(page).toHaveURL(/\/backend\/catalog\/categories$/);
       await waitForList();
 
-      await page.getByRole('textbox', { name: 'Search categories' }).fill(childName);
+      await page.getByRole('searchbox', { name: 'Search categories' }).fill(childName);
       const childRow = page.getByRole('row', { name: new RegExp(childName) }).first();
       await expect(childRow).toBeVisible();
       await childRow.click();

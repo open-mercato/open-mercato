@@ -3,6 +3,7 @@
 import { useState, useEffect, useCallback } from 'react'
 import { Button } from '@open-mercato/ui/primitives/button'
 import { Input } from '@open-mercato/ui/primitives/input'
+import { EmailInput } from '@open-mercato/ui/primitives/email-input'
 import {
   Select,
   SelectContent,
@@ -766,8 +767,7 @@ export default function CheckoutDemoPage() {
               {fieldDescription && (
                 <p className="text-xs text-gray-500 mb-1">{fieldDescription}</p>
               )}
-              <Input
-                type="email"
+              <EmailInput
                 id={fieldName}
                 value={formData[fieldName] || ''}
                 onChange={(e) => handleFieldChange(fieldName, e.target.value)}

@@ -26,7 +26,13 @@ import { Button } from '../primitives/button'
 import { IconButton } from '../primitives/icon-button'
 import { Label } from '../primitives/label'
 import { Textarea } from '../primitives/textarea'
+import { apiCall } from '../backend/utils/apiCall'
 import { parseAiContentSegments } from './AiMessageContent'
+import {
+  ModelPicker,
+  type ModelPickerProvider,
+  type ModelPickerValue,
+} from './ModelPicker'
 import { RecordCard } from './records/RecordCard'
 import {
   defaultAiUiPartRegistry,
@@ -43,11 +49,117 @@ import {
 } from './useAiChat'
 import { useAiChatUpload } from './useAiChatUpload'
 import { useAiShortcuts } from './useAiShortcuts'
+import { LoopTracePanel, type LoopTracePanelTrace } from './LoopTracePanel'
 
 // Cap inline previews so we do not blow past localStorage quota (~5MB on most
 // browsers). Images larger than this still upload + send to the LLM as inline
 // base64 server-side; only the in-chat preview is dropped on reload.
 const PREVIEW_DATA_URL_MAX_BYTES = 2 * 1024 * 1024
+const COMPACT_FOOTER_MAX_WIDTH = 640
+
+const MODEL_PICKER_STORAGE_PREFIX = 'om-ai-model-picker:'
+
+function readModelPickerValue(agentId: string): ModelPickerValue | null {
+  if (typeof window === 'undefined') return null
+  try {
+    const raw = window.localStorage.getItem(`${MODEL_PICKER_STORAGE_PREFIX}${agentId}`)
+    if (!raw) return null
+    const parsed = JSON.parse(raw) as unknown
+    if (
+      parsed &&
+      typeof parsed === 'object' &&
+      typeof (parsed as Record<string, unknown>).providerId === 'string' &&
+      typeof (parsed as Record<string, unknown>).modelId === 'string'
+    ) {
+      const value = parsed as ModelPickerValue
+      return { providerId: value.providerId, modelId: value.modelId }
+    }
+    return null
+  } catch {
+    return null
+  }
+}
+
+function writeModelPickerValue(agentId: string, value: ModelPickerValue | null): void {
+  if (typeof window === 'undefined') return
+  try {
+    const key = `${MODEL_PICKER_STORAGE_PREFIX}${agentId}`
+    if (value === null) {
+      window.localStorage.removeItem(key)
+    } else {
+      window.localStorage.setItem(key, JSON.stringify({ providerId: value.providerId, modelId: value.modelId }))
+    }
+  } catch {
+    // Quota exceeded / privacy mode — silently ignore.
+  }
+}
+
+interface ModelsApiResponse {
+  agentId: string
+  allowRuntimeOverride: boolean
+  allowRuntimeModelOverride?: boolean
+  defaultProviderId: string | null
+  defaultModelId: string | null
+  defaultProviderName?: string | null
+  defaultModelName?: string | null
+  providers: ModelPickerProvider[]
+}
+
+function useAgentModels(agent: string): {
+  providers: ModelPickerProvider[]
+  allowRuntimeOverride: boolean
+  allowRuntimeModelOverride: boolean
+  defaultLabel: string | null
+  loaded: boolean
+} {
+  const [providers, setProviders] = React.useState<ModelPickerProvider[]>([])
+  const [allowRuntimeOverride, setAllowRuntimeOverride] = React.useState(false)
+  const [defaultLabel, setDefaultLabel] = React.useState<string | null>(null)
+  const [loaded, setLoaded] = React.useState(false)
+
+  React.useEffect(() => {
+    const modelsUrl = `/api/ai_assistant/ai/agents/${encodeURIComponent(agent)}/models`
+    setLoaded(false)
+    setDefaultLabel(null)
+    void apiCall<ModelsApiResponse>(modelsUrl).then((result) => {
+      if (!result.ok || !result.result) {
+        setLoaded(true)
+        return
+      }
+      const effectiveAllowRuntimeOverride =
+        result.result.allowRuntimeOverride ?? result.result.allowRuntimeModelOverride ?? false
+      setAllowRuntimeOverride(effectiveAllowRuntimeOverride)
+      setProviders(result.result.providers)
+      setDefaultLabel(
+        result.result.defaultProviderName && result.result.defaultModelName
+          ? `${result.result.defaultProviderName} / ${result.result.defaultModelName}`
+          : result.result.defaultProviderId && result.result.defaultModelId
+            ? `${result.result.defaultProviderId} / ${result.result.defaultModelId}`
+            : null,
+      )
+      setLoaded(true)
+    })
+  }, [agent])
+
+  return {
+    providers,
+    allowRuntimeOverride,
+    allowRuntimeModelOverride: allowRuntimeOverride,
+    defaultLabel,
+    loaded,
+  }
+}
+
+function isModelPickerValueAvailable(
+  value: ModelPickerValue,
+  providers: ModelPickerProvider[],
+): boolean {
+  return providers.some(
+    (provider) =>
+      provider.id === value.providerId &&
+      provider.models.some((model) => model.id === value.modelId),
+  )
+}
 
 async function readFileAsDataUrl(file: File): Promise<string | undefined> {
   if (!file.type.startsWith('image/')) return undefined
@@ -150,6 +262,13 @@ export interface AiChatProps {
    * `debug` is falsy.
    */
   debugPromptSections?: AiChatDebugPromptSection[]
+  /**
+   * Optional loop trace from the last completed turn. When present and
+   * `debug` is truthy, renders a `LoopTracePanel` inside the debug panel.
+   * Populated by the host from the dispatcher SSE `loop-finish` event
+   * (wired in l4.4). Ignored when `debug` is falsy.
+   */
+  loopTrace?: LoopTracePanelTrace
   /** Suggested prompts shown in the empty / welcome state. */
   suggestions?: AiChatSuggestion[]
   /** Context items shown as pills above the transcript (e.g. selected products). */
@@ -158,6 +277,8 @@ export interface AiChatProps {
   welcomeTitle?: string
   /** Welcome description shown below the heading. */
   welcomeDescription?: string
+  /** Initial compact composer state used before the footer has been measured. */
+  defaultCompactFooter?: boolean
 }
 
 interface ServerEmittedUiPartRef {
@@ -266,6 +387,10 @@ function ToolCallList({ toolCalls }: { toolCalls: AiChatToolCallSnapshot[] }) {
   if (!toolCalls || toolCalls.length === 0) return null
   return (
     <div className="space-y-1" data-ai-chat-tool-calls="">
+      <div className="flex items-center justify-between px-0.5 text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
+        <span>{t('ai_assistant.chat.agentTasksTitle', 'Agent tasks')}</span>
+        <span>{toolCalls.length}</span>
+      </div>
       {toolCalls.map((call) => {
         const isOpen = openId === call.id
         const isError = call.state === 'error'
@@ -713,11 +838,13 @@ export function AiChat({
   uiParts: uiPartsProp,
   debugTools,
   debugPromptSections,
+  loopTrace,
   conversationId,
   suggestions,
   contextItems,
   welcomeTitle,
   welcomeDescription,
+  defaultCompactFooter = false,
 }: AiChatProps) {
   const t = useT()
   const textareaRef = React.useRef<HTMLTextAreaElement | null>(null)
@@ -740,6 +867,26 @@ export function AiChat({
   const [pendingFiles, setPendingFiles] = React.useState<PendingAttachment[]>([])
   const upload = useAiChatUpload()
   const isUploading = upload.busy
+  const footerRef = React.useRef<HTMLDivElement | null>(null)
+  const [isCompactFooter, setIsCompactFooter] = React.useState(defaultCompactFooter)
+
+  React.useEffect(() => {
+    const element = footerRef.current
+    if (!element || typeof ResizeObserver === 'undefined') return
+
+    const updateCompactState = (width: number) => {
+      setIsCompactFooter(width < COMPACT_FOOTER_MAX_WIDTH)
+    }
+
+    updateCompactState(element.getBoundingClientRect().width)
+    const observer = new ResizeObserver((entries) => {
+      const entry = entries[0]
+      if (!entry) return
+      updateCompactState(entry.contentRect.width)
+    })
+    observer.observe(element)
+    return () => observer.disconnect()
+  }, [])
 
   const uploadedAttachmentIds = React.useMemo(
     () =>
@@ -754,6 +901,66 @@ export function AiChat({
     [attachmentIds, uploadedAttachmentIds],
   )
 
+  const {
+    providers: modelProviders,
+    allowRuntimeOverride,
+    allowRuntimeModelOverride,
+    defaultLabel: modelDefaultLabel,
+    loaded: modelProvidersLoaded,
+  } = useAgentModels(agent)
+
+  const [modelPickerValue, setModelPickerValue] = React.useState<ModelPickerValue | null>(() =>
+    readModelPickerValue(agent),
+  )
+
+  const effectiveModelPickerValue = React.useMemo(() => {
+    if (!modelProvidersLoaded || !allowRuntimeOverride || modelProviders.length === 0) {
+      return null
+    }
+    if (modelPickerValue && isModelPickerValueAvailable(modelPickerValue, modelProviders)) {
+      return modelPickerValue
+    }
+    return null
+  }, [
+    allowRuntimeOverride,
+    modelPickerValue,
+    modelProviders,
+    modelProvidersLoaded,
+  ])
+
+  React.useEffect(() => {
+    setModelPickerValue(readModelPickerValue(agent))
+  }, [agent])
+
+  React.useEffect(() => {
+    if (!modelProvidersLoaded) return
+    if (!allowRuntimeModelOverride || modelProviders.length === 0) {
+      if (modelPickerValue !== null) {
+        setModelPickerValue(null)
+        writeModelPickerValue(agent, null)
+      }
+      return
+    }
+    if (modelPickerValue && !isModelPickerValueAvailable(modelPickerValue, modelProviders)) {
+      setModelPickerValue(null)
+      writeModelPickerValue(agent, null)
+    }
+  }, [
+    agent,
+    allowRuntimeModelOverride,
+    modelPickerValue,
+    modelProviders,
+    modelProvidersLoaded,
+  ])
+
+  const handleModelPickerChange = React.useCallback(
+    (value: ModelPickerValue | null) => {
+      setModelPickerValue(value)
+      writeModelPickerValue(agent, value)
+    },
+    [agent],
+  )
+
   const chat = useAiChat({
     agent,
     apiPath,
@@ -763,6 +970,8 @@ export function AiChat({
     initialMessages,
     onError,
     conversationId,
+    providerOverride: effectiveModelPickerValue?.providerId ?? null,
+    modelOverride: effectiveModelPickerValue?.modelId ?? null,
   })
 
   const isStreaming = chat.status === 'streaming'
@@ -781,7 +990,9 @@ export function AiChat({
   //   (d) streaming, and the last visible event was a finished tool call
   //       — the model is reasoning about the result before emitting more
   //       text or kicking off the next tool
-  //   (e) streaming, but no delta has landed in the last ~300 ms (idle gap)
+  // Once visible text/reasoning exists and no tool is pending, hide the
+  // placeholder even if the network stream stays open for a tail event. That
+  // avoids showing "Thinking..." under an already usable answer.
   const lastAssistant = React.useMemo(() => {
     for (let index = chat.messages.length - 1; index >= 0; index -= 1) {
       const candidate = chat.messages[index]
@@ -816,28 +1027,15 @@ export function AiChat({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [lastAssistant])
 
-  const lastStreamUpdateRef = React.useRef<number>(Date.now())
   const lastSnapshotRef = React.useRef<string>('')
   const [, setStreamTick] = React.useState(0)
 
   React.useEffect(() => {
     if (assistantStreamSnapshot !== lastSnapshotRef.current) {
       lastSnapshotRef.current = assistantStreamSnapshot
-      lastStreamUpdateRef.current = Date.now()
       setStreamTick((value) => value + 1)
     }
   }, [assistantStreamSnapshot])
-
-  React.useEffect(() => {
-    if (!isStreaming && !isSubmitting) return
-    const interval = window.setInterval(() => {
-      setStreamTick((value) => value + 1)
-    }, 200)
-    return () => window.clearInterval(interval)
-  }, [isStreaming, isSubmitting])
-
-  const idleDuringStream =
-    isStreaming && Date.now() - lastStreamUpdateRef.current >= 300
 
   const showThinkingIndicator =
     isSubmitting ||
@@ -846,8 +1044,7 @@ export function AiChat({
         !hasAnyVisibleSignal ||
         hasPendingToolCall ||
         // Tool just returned and the model hasn't started speaking yet.
-        (hasCompletedToolCall && !trimmedContent) ||
-        idleDuringStream
+        (hasCompletedToolCall && !trimmedContent)
       ))
 
   const activeRegistry = registry ?? defaultAiUiPartRegistry
@@ -1065,15 +1262,15 @@ export function AiChat({
   return (
     <section
       className={cn(
-        'flex h-full min-h-[320px] flex-col gap-3 rounded-lg border border-border bg-background p-3',
+        'flex h-full min-h-[320px] min-w-0 flex-col gap-3 overflow-hidden rounded-lg border border-border bg-background p-3',
         className,
       )}
       aria-label={t('ai_assistant.chat.regionLabel', 'AI chat')}
       data-ai-chat-agent={agent}
       data-ai-chat-conversation-id={chat.conversationId}
     >
-      <div className="flex items-center justify-between gap-2 border-b border-border pb-2">
-        <div className="flex flex-1 items-center gap-2 text-xs text-muted-foreground">
+      <div className="flex min-w-0 items-center justify-between gap-2 border-b border-border pb-2">
+        <div className="flex min-w-0 flex-1 items-center gap-2 text-xs text-muted-foreground">
           {contextItems && contextItems.length > 0 ? (
             <ContextItemsPill items={contextItems} />
           ) : (
@@ -1100,7 +1297,7 @@ export function AiChat({
         role="log"
         aria-live="polite"
         aria-label={t('ai_assistant.chat.transcriptLabel', 'Chat transcript')}
-        className="flex-1 space-y-2 overflow-y-auto pr-1"
+        className="min-w-0 flex-1 space-y-2 overflow-y-auto overflow-x-hidden pr-1"
       >
         {chat.messages.length === 0 ? (
           <WelcomeState
@@ -1153,7 +1350,7 @@ export function AiChat({
       ) : null}
 
       <form
-        className="flex flex-col gap-2"
+        className="flex min-w-0 flex-col gap-2"
         onSubmit={(event) => {
           event.preventDefault()
           handleSubmit()
@@ -1203,7 +1400,7 @@ export function AiChat({
           onKeyDown={handleKeyDown}
           rows={3}
           aria-label={t('ai_assistant.chat.composerLabel', 'Message composer')}
-          className="resize-none"
+          className="min-w-0 resize-none"
         />
         <input
           ref={fileInputRef}
@@ -1214,8 +1411,13 @@ export function AiChat({
           onChange={handleFileSelect}
           data-ai-chat-file-input=""
         />
-        <div className="flex items-center justify-between gap-2">
-          <div className="flex items-center gap-2">
+        <div
+          ref={footerRef}
+          className="flex min-w-0 items-center justify-between gap-2"
+          data-ai-chat-footer=""
+          data-ai-chat-footer-compact={isCompactFooter ? 'true' : 'false'}
+        >
+          <div className="flex min-w-0 items-center gap-2">
             <IconButton
               type="button"
               variant="ghost"
@@ -1226,7 +1428,19 @@ export function AiChat({
             >
               <Paperclip className="size-4" aria-hidden />
             </IconButton>
-            <p className="text-xs text-muted-foreground">
+            {allowRuntimeOverride && modelProviders.length > 0 ? (
+              <ModelPicker
+                agentId={agent}
+                value={effectiveModelPickerValue}
+                onChange={handleModelPickerChange}
+                availableProviders={modelProviders}
+                disabled={isBusy}
+                compact={isCompactFooter}
+                defaultLabel={modelDefaultLabel}
+                className="shrink-0"
+              />
+            ) : null}
+            <p className={cn('text-xs text-muted-foreground', isCompactFooter && 'hidden')}>
               {hasUploadingFiles || isUploading
                 ? t(
                     'ai_assistant.chat.uploadingHint',
@@ -1238,7 +1452,7 @@ export function AiChat({
                   )}
             </p>
           </div>
-          <div className="flex items-center gap-2">
+          <div className="flex shrink-0 items-center gap-2">
             {isStreaming ? (
               <IconButton
                 type="button"
@@ -1269,9 +1483,12 @@ export function AiChat({
                   ? t('ai_assistant.chat.sendWaitingForUpload', 'Waiting for upload to finish…')
                   : undefined
               }
+              className={cn(isCompactFooter && 'w-8 px-0')}
             >
               <Send className="size-4" aria-hidden />
-              <span>{t('ai_assistant.chat.send', 'Send message')}</span>
+              {!isCompactFooter ? (
+                <span>{t('ai_assistant.chat.send', 'Send message')}</span>
+              ) : null}
             </Button>
           </div>
         </div>
@@ -1281,6 +1498,7 @@ export function AiChat({
         <AiChatDebugPanel
           tools={debugTools}
           promptSections={debugPromptSections}
+          loopTrace={loopTrace ?? chat.lastLoopTrace ?? undefined}
           lastRequestDebug={chat.lastRequestDebug}
           lastResponseDebug={chat.lastResponseDebug}
           status={chat.status}
@@ -1294,6 +1512,7 @@ export function AiChat({
 interface DebugPanelProps {
   tools?: AiChatDebugTool[]
   promptSections?: AiChatDebugPromptSection[]
+  loopTrace?: LoopTracePanelTrace
   lastRequestDebug: { url: string; body: unknown } | null
   lastResponseDebug: { status: number; text: string } | null
   status: 'idle' | 'submitting' | 'streaming'
@@ -1303,6 +1522,7 @@ interface DebugPanelProps {
 function AiChatDebugPanel({
   tools,
   promptSections,
+  loopTrace,
   lastRequestDebug,
   lastResponseDebug,
   status,
@@ -1317,6 +1537,10 @@ function AiChatDebugPanel({
       <div className="font-semibold">
         {t('ai_assistant.chat.debug.panelTitle', 'Debug panel')}
       </div>
+
+      {loopTrace ? (
+        <LoopTracePanel trace={loopTrace} />
+      ) : null}
 
       <details className="rounded border border-border bg-background" data-ai-chat-debug-section="tools" open>
         <summary className="cursor-pointer px-2 py-1 font-semibold">

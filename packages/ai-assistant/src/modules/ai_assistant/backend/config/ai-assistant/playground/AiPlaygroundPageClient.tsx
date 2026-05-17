@@ -2,7 +2,7 @@
 
 import * as React from 'react'
 import { useQuery } from '@tanstack/react-query'
-import { AlertCircle, Bot, BookOpen, Loader2, Play, RefreshCcw } from 'lucide-react'
+import { Bot, BookOpen, Loader2, Play, RefreshCcw } from 'lucide-react'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { Alert, AlertDescription, AlertTitle } from '@open-mercato/ui/primitives/alert'
 import { Button } from '@open-mercato/ui/primitives/button'
@@ -13,7 +13,7 @@ import { Tabs, TabsList, TabsTrigger, TabsContent } from '@open-mercato/ui/primi
 import { Textarea } from '@open-mercato/ui/primitives/textarea'
 import { EmptyState } from '@open-mercato/ui/backend/EmptyState'
 import { apiCall, apiCallOrThrow } from '@open-mercato/ui/backend/utils/apiCall'
-import { AiChat, createAiUiPartRegistry, useAiShortcuts } from '@open-mercato/ui/ai'
+import { AiChat, createAiUiPartRegistry, LoopDisabledBanner, useAiShortcuts } from '@open-mercato/ui/ai'
 import type { AiChatDebugPromptSection, AiChatDebugTool } from '@open-mercato/ui/ai'
 
 type PlaygroundAgentTool = {
@@ -175,6 +175,97 @@ function buildDebugPromptSections(agent: PlaygroundAgent): AiChatDebugPromptSect
   return sections
 }
 
+type AgentModelResolution = {
+  agentId: string
+  providerId: string
+  modelId: string
+  baseURL: string | null
+  source: string
+}
+
+type SettingsAgentResolutionResponse = {
+  agents: AgentModelResolution[]
+}
+
+async function fetchAgentResolutions(): Promise<SettingsAgentResolutionResponse> {
+  const result = await apiCall<SettingsAgentResolutionResponse>('/api/ai_assistant/settings')
+  if (!result.ok || !result.result) return { agents: [] }
+  return { agents: result.result.agents ?? [] }
+}
+
+async function fetchLoopOverrideForAgent(
+  agentId: string,
+): Promise<{ agentId: string; override: { loopDisabled?: boolean | null } | null }> {
+  const result = await apiCall<{ agentId: string; override: { loopDisabled?: boolean | null } | null }>(
+    `/api/ai_assistant/ai/agents/${encodeURIComponent(agentId)}/loop-override`,
+    { method: 'GET', credentials: 'include' },
+  )
+  if (!result.ok || !result.result) return { agentId, override: null }
+  return result.result
+}
+
+function LoopDisabledPlaygroundBanner({ agentId }: { agentId: string }) {
+  const { data } = useQuery({
+    queryKey: ['ai_assistant', 'loop_override', agentId],
+    queryFn: () => fetchLoopOverrideForAgent(agentId),
+    staleTime: 30000,
+  })
+  if (!data?.override?.loopDisabled) return null
+  return <LoopDisabledBanner agentId={agentId} />
+}
+
+function ModelResolutionPanel({ agentId }: { agentId: string }) {
+  const t = useT()
+  const { data } = useQuery({
+    queryKey: ['ai_assistant', 'settings', 'agents'],
+    queryFn: fetchAgentResolutions,
+    staleTime: 30000,
+  })
+
+  const resolution = data?.agents.find((agent) => agent.agentId === agentId)
+  if (!resolution) return null
+
+  return (
+    <dl
+      className="grid grid-cols-2 gap-x-4 gap-y-1 rounded-md border border-border bg-muted/30 p-3 text-xs sm:grid-cols-4"
+      data-ai-playground-model-resolution={agentId}
+    >
+      <div>
+        <dt className="font-medium text-muted-foreground">
+          {t('ai_assistant.playground.resolution.provider', 'Provider')}
+        </dt>
+        <dd className="font-mono" data-ai-playground-resolution-provider>
+          {resolution.providerId}
+        </dd>
+      </div>
+      <div>
+        <dt className="font-medium text-muted-foreground">
+          {t('ai_assistant.playground.resolution.model', 'Model')}
+        </dt>
+        <dd className="font-mono" data-ai-playground-resolution-model>
+          {resolution.modelId}
+        </dd>
+      </div>
+      <div>
+        <dt className="font-medium text-muted-foreground">
+          {t('ai_assistant.playground.resolution.baseUrl', 'Base URL')}
+        </dt>
+        <dd className="font-mono" data-ai-playground-resolution-base-url>
+          {resolution.baseURL ?? t('ai_assistant.playground.resolution.none', '—')}
+        </dd>
+      </div>
+      <div>
+        <dt className="font-medium text-muted-foreground">
+          {t('ai_assistant.playground.resolution.source', 'Source')}
+        </dt>
+        <dd className="font-mono" data-ai-playground-resolution-source>
+          {resolution.source}
+        </dd>
+      </div>
+    </dl>
+  )
+}
+
 type PlaygroundUiPartSeed = {
   componentId: string
   pendingActionId?: string
@@ -243,17 +334,19 @@ function ChatLane({ agent, debug }: { agent: PlaygroundAgent; debug: boolean }) 
   }
 
   return (
-    <AiChat
-      key={agent.id}
-      agent={agent.id}
-      pageContext={{ source: 'playground', pageId: 'ai_assistant.playground' }}
-      debug={debug}
-      registry={registry}
-      className="min-h-[360px]"
-      debugTools={debugTools}
-      debugPromptSections={debugPromptSections}
-      uiParts={uiParts}
-    />
+    <div className="flex flex-col gap-2" data-ai-playground-chat={agent.id}>
+      <AiChat
+        key={agent.id}
+        agent={agent.id}
+        pageContext={{ source: 'playground', pageId: 'ai_assistant.playground' }}
+        debug={debug}
+        registry={registry}
+        className="min-h-96"
+        debugTools={debugTools}
+        debugPromptSections={debugPromptSections}
+        uiParts={uiParts}
+      />
+    </div>
   )
 }
 
@@ -486,7 +579,6 @@ export function AiPlaygroundPageClient() {
   if (isError) {
     return (
       <Alert variant="destructive" data-ai-playground-error>
-        <AlertCircle className="size-4" aria-hidden />
         <AlertTitle>
           {t('ai_assistant.playground.loadErrorTitle', 'Failed to load AI agents')}
         </AlertTitle>
@@ -574,6 +666,8 @@ export function AiPlaygroundPageClient() {
           </div>
         </div>
         {selectedAgent ? <AgentDetails agent={selectedAgent} /> : null}
+        {selectedAgent ? <ModelResolutionPanel agentId={selectedAgent.id} /> : null}
+        {selectedAgent ? <LoopDisabledPlaygroundBanner agentId={selectedAgent.id} /> : null}
       </section>
 
       {selectedAgent ? (

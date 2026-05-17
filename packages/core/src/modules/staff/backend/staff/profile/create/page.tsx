@@ -53,7 +53,7 @@ export default function StaffProfileCreatePage() {
 
   const fields = React.useMemo<CrudField[]>(() => ([
     { id: 'displayName', label: t('staff.teamMembers.form.fields.displayName', 'Display name'), type: 'text', required: true },
-    { id: 'description', label: t('staff.teamMembers.form.fields.description', 'Description'), type: 'richtext', editor: 'uiw' },
+    { id: 'description', label: t('staff.teamMembers.form.fields.description', 'Description'), type: 'richtext', editor: 'html' },
   ]), [t])
 
   const handleSubmit = React.useCallback(async (values: SelfProfileValues) => {

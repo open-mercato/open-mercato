@@ -21,6 +21,7 @@ import { Button } from '@open-mercato/ui/primitives/button'
 import { Card, CardContent } from '@open-mercato/ui/primitives/card'
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@open-mercato/ui/primitives/dialog'
 import { Input } from '@open-mercato/ui/primitives/input'
+import { PasswordInput } from '@open-mercato/ui/primitives/password-input'
 import { Spinner } from '@open-mercato/ui/primitives/spinner'
 import { Textarea } from '@open-mercato/ui/primitives/textarea'
 import {
@@ -1997,9 +1998,8 @@ export function PayPage({
                 </div>
                 <h1 className="text-2xl font-semibold">{payload.title ?? t('checkout.payPage.protectedTitle', 'Protected payment link')}</h1>
               </div>
-              <Input
+              <PasswordInput
                 className={READABLE_INPUT_CLASSNAME}
-                type="password"
                 value={password}
                 onChange={(event) => setPassword(event.target.value)}
                 placeholder={t('checkout.payPage.passwordPlaceholder', 'Password')}

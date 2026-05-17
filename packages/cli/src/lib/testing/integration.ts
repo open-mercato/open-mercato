@@ -920,7 +920,15 @@ async function hasBuildInputChangesSince(
       }
       seenPaths.add(resolvedPath)
 
-      const fileStat = await stat(resolvedPath)
+      let fileStat: Awaited<ReturnType<typeof stat>>
+      try {
+        fileStat = await stat(resolvedPath)
+      } catch (error) {
+        if ((error as NodeJS.ErrnoException).code === 'ENOENT') {
+          return true
+        }
+        throw error
+      }
       if (fileStat.isFile() && fileStat.mtimeMs > timestampMs) {
         return true
       }

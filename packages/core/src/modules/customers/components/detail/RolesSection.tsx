@@ -2,7 +2,8 @@
 
 import * as React from 'react'
 import Link from 'next/link'
-import { Plus } from 'lucide-react'
+import { Plus, Settings, UserCheck } from 'lucide-react'
+import { EmptyState } from '@open-mercato/ui/primitives/empty-state'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { apiCallOrThrow, readApiResultOrThrow } from '@open-mercato/ui/backend/utils/apiCall'
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
@@ -254,37 +255,39 @@ export function RolesSection({ entityType, entityId, entityName }: RolesSectionP
           )}
         </div>
       ) : hasConfiguredRoleTypes ? (
-        <div className="rounded-lg border border-dashed p-4 text-center">
-          <p className="text-xs text-muted-foreground">
-            {t('customers.roles.emptyState', 'No roles assigned yet. Click below to assign a person.')}
-          </p>
-          <Button
-            type="button"
-            variant="outline"
-            size="sm"
-            className="mt-2"
-            onClick={() => openDialog(null)}
-          >
-            {t('customers.roles.choosePerson', 'Choose person')}
-          </Button>
-        </div>
+        <EmptyState
+          size="sm"
+          icon={<UserCheck className="h-8 w-8" aria-hidden="true" />}
+          title={t('customers.roles.emptyState', 'No roles assigned yet. Click below to assign a person.')}
+          actions={
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              onClick={() => openDialog(null)}
+            >
+              <Plus className="h-4 w-4" aria-hidden="true" />
+              {t('customers.roles.choosePerson', 'Choose person')}
+            </Button>
+          }
+        />
       ) : (
-        <div className="rounded-lg border border-dashed p-4 text-center">
-          <div className="text-sm font-medium text-foreground">
-            {t('customers.roles.noRoleTypesTitle', 'No role types configured')}
-          </div>
-          <p className="mt-2 text-xs text-muted-foreground">
-            {t(
-              'customers.roles.noRoleTypesDescription',
-              'Create role types in Customers config before assigning owners here.',
-            )}
-          </p>
-          <Button asChild type="button" variant="outline" size="sm" className="mt-3">
-            <Link href="/backend/config/customers">
-              {t('customers.roles.configureRoleTypes', 'Configure role types')}
-            </Link>
-          </Button>
-        </div>
+        <EmptyState
+          size="sm"
+          icon={<Settings className="h-8 w-8" aria-hidden="true" />}
+          title={t('customers.roles.noRoleTypesTitle', 'No role types configured')}
+          description={t(
+            'customers.roles.noRoleTypesDescription',
+            'Create role types in Customers config before assigning owners here.',
+          )}
+          actions={
+            <Button asChild type="button" variant="outline" size="sm">
+              <Link href="/backend/config/customers">
+                {t('customers.roles.configureRoleTypes', 'Configure role types')}
+              </Link>
+            </Button>
+          }
+        />
       )}
 
       {hasConfiguredRoleTypes ? (

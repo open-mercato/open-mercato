@@ -110,7 +110,7 @@ export function TeamRoleForm(props: TeamRoleFormProps) {
     }
     base.push(
       { id: 'name', label: t('staff.teamRoles.form.fields.name', 'Name'), type: 'text', required: true },
-      { id: 'description', label: t('staff.teamRoles.form.fields.description', 'Description'), type: 'richtext' },
+      { id: 'description', label: t('staff.teamRoles.form.fields.description', 'Description'), type: 'richtext', editor: 'html' },
       {
         id: 'appearance',
         label: t('staff.teamRoles.form.appearance.label', 'Appearance'),

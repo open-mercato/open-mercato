@@ -246,7 +246,7 @@ const dealStatusMap: StatusMap<'open' | 'won' | 'lost'> = {
 | Confirm a destructive action | `useConfirmDialog()` |
 | Display entity status (active, draft, etc.) | `<StatusBadge variant={statusMap[status]} dot>` |
 | Display a user-applied entity tag | `<Tag variant={tagMap[tag.type]} dot>` |
-| Display a user / entity avatar with initials | `<Avatar name="Jan Kowalski" size="default">` |
+| Display a user / entity avatar with initials | `<Avatar label="Jan Kowalski" size="md">` |
 | Display multiple avatars overlapping | `<AvatarStack max={4}><Avatar .../></AvatarStack>` |
 | Show a keyboard shortcut hint | `<KbdShortcut keys={['⌘', 'Enter']}>` |
 | Wrap a form field with label + error | `<FormField label="..." error={...}>` |

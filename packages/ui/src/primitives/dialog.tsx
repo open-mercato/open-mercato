@@ -16,12 +16,17 @@ const DialogClose = DialogPrimitive.Close
 
 const DialogOverlay = React.forwardRef<
   React.ElementRef<typeof DialogPrimitive.Overlay>,
-  React.ComponentPropsWithoutRef<typeof DialogPrimitive.Overlay>
->(({ className, ...props }, ref) => (
+  React.ComponentPropsWithoutRef<typeof DialogPrimitive.Overlay> & {
+    /** Render above popovers (z-modal-elevated, 55) instead of the default z-modal (40).
+     *  Use when this dialog is opened from inside a popover so it isn't occluded. */
+    elevated?: boolean
+  }
+>(({ className, elevated, ...props }, ref) => (
   <DialogPrimitive.Overlay
     ref={ref}
     className={cn(
-      'fixed inset-0 z-modal bg-black/50 backdrop-blur-sm transition-opacity data-[state=open]:animate-in data-[state=closed]:animate-out',
+      'fixed inset-0 bg-black/50 backdrop-blur-sm transition-opacity data-[state=open]:animate-in data-[state=closed]:animate-out',
+      elevated ? 'z-modal-elevated' : 'z-modal',
       className
     )}
     {...props}
@@ -31,8 +36,13 @@ DialogOverlay.displayName = DialogPrimitive.Overlay.displayName
 
 const DialogContent = React.forwardRef<
   React.ElementRef<typeof DialogPrimitive.Content>,
-  React.ComponentPropsWithoutRef<typeof DialogPrimitive.Content>
->(({ className, children, ...props }, ref) => {
+  React.ComponentPropsWithoutRef<typeof DialogPrimitive.Content> & {
+    /** Render above popovers (z-modal-elevated, 55) instead of the default z-modal (40).
+     *  Set on dialogs that open from inside another popover (e.g. the SaveFilterDialog
+     *  inside the AdvancedFilterPanel popover) so they aren't hidden behind the popover. */
+    elevated?: boolean
+  }
+>(({ className, children, elevated, ...props }, ref) => {
   const t = useT()
 
   React.useEffect(() => {
@@ -48,12 +58,13 @@ const DialogContent = React.forwardRef<
 
   return (
     <DialogPortal>
-      <DialogOverlay />
+      <DialogOverlay elevated={elevated} />
       <DialogPrimitive.Content
         ref={ref}
         data-dialog-content=""
         className={cn(
-          'fixed inset-x-0 bottom-0 z-modal flex min-h-[50vh] max-h-[70vh] w-full translate-x-0 translate-y-0 flex-col gap-4 overflow-y-auto rounded-t-2xl border-t bg-card p-6 shadow-lg',
+          'fixed inset-x-0 bottom-0 flex min-h-[50vh] max-h-[70vh] w-full translate-x-0 translate-y-0 flex-col gap-4 overflow-y-auto rounded-t-2xl border-t bg-card p-6 shadow-lg',
+          elevated ? 'z-modal-elevated' : 'z-modal',
           'sm:inset-auto sm:left-1/2 sm:top-1/2 sm:min-h-0 sm:h-auto sm:w-full sm:max-w-lg sm:max-h-[90vh] sm:-translate-x-1/2 sm:-translate-y-1/2 sm:rounded-xl sm:border',
           'focus-visible:outline-none data-[state=open]:animate-in data-[state=closed]:animate-out',
           className,

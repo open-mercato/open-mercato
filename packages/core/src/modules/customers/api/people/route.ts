@@ -14,7 +14,6 @@ import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
 import {
   applyEntityIdExclusion,
   applyEntityIdRestriction,
-  consumeAdvancedFilterState,
   findMatchingEntityIdsWithQueryEngine,
   findMatchingEntityIdsBySearchTokensAcrossSources,
   withScopedPayload,
@@ -23,7 +22,7 @@ import { buildCustomFieldFiltersFromQuery, extractAllCustomFieldEntries, splitCu
 import { escapeLikePattern } from '@open-mercato/shared/lib/db/escapeLikePattern'
 import { parseBooleanToken } from '@open-mercato/shared/lib/boolean'
 import { findWithDecryption } from '@open-mercato/shared/lib/encryption/find'
-import { mergeAdvancedFilters } from '@open-mercato/shared/lib/crud/advanced-filter-integration'
+import { consumeAdvancedFilterState, mergeAdvancedFilterTree } from '@open-mercato/shared/lib/crud/advanced-filter-integration'
 import {
   createCustomersCrudOpenApi,
   createPagedListResponseSchema,
@@ -112,8 +111,7 @@ const crud = makeCrudRoute({
       updatedAt: 'updated_at',
     },
     buildFilters: async (query, ctx) => {
-      const advancedQuery = { ...query }
-      const advancedFilterState = consumeAdvancedFilterState(query)
+      const advancedFilterTree = consumeAdvancedFilterState(query)
       const filters: Record<string, unknown> = { kind: { $eq: 'person' } }
       if (query.id) filters.id = { $eq: query.id }
       if (query.search) {
@@ -304,11 +302,8 @@ const crud = makeCrudRoute({
           console.warn('[customers.people.list] custom field filter resolution failed; falling back to base filters', err)
         }
       }
-      if (ctx && advancedFilterState) {
-        const advancedFilters = mergeAdvancedFilters(
-          { ...filters },
-          advancedQuery as Record<string, unknown>,
-        )
+      if (ctx && advancedFilterTree) {
+        const advancedFilters = mergeAdvancedFilterTree({ ...filters }, advancedFilterTree)
         const matchedIds = await findMatchingEntityIdsWithQueryEngine({
           ctx,
           entityId: E.customers.customer_entity,
@@ -559,5 +554,15 @@ export const openApi = createCustomersCrudOpenApi({
     schema: z.object({ id: z.string().uuid() }),
     responseSchema: defaultOkResponseSchema,
     description: 'Deletes a person by id. Request body or query may provide the identifier.',
+    errors: [
+      {
+        status: 422,
+        description: 'Person has dependent records (e.g. linked deals); unlink or reassign before delete.',
+        schema: z.object({
+          error: z.string(),
+          code: z.literal('PERSON_HAS_DEPENDENTS'),
+        }),
+      },
+    ],
   },
 })

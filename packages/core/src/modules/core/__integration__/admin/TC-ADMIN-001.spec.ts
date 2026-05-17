@@ -49,7 +49,7 @@ test.describe('TC-ADMIN-001: Create API Key', () => {
       await page.getByText('Loading data...').waitFor({ state: 'hidden', timeout: 10_000 }).catch(() => {});
 
       // Search for the created key
-      await page.getByRole('textbox', { name: 'Search', exact: true }).fill(keyName);
+      await page.getByRole('searchbox', { name: 'Search', exact: true }).fill(keyName);
       await expect(page.getByText(keyName)).toBeVisible({ timeout: 5_000 });
     } finally {
       // Cleanup: try to delete the API key via API (best effort)

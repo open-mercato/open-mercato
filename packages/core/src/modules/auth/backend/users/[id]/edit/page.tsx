@@ -14,11 +14,13 @@ import { WidgetVisibilityEditor, type WidgetVisibilityEditorHandle } from '@open
 import { Button } from '@open-mercato/ui/primitives/button'
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
+import { extractCustomFieldEntries } from '@open-mercato/shared/lib/crud/custom-fields-client'
 import { formatPasswordRequirements, getPasswordPolicy } from '@open-mercato/shared/lib/auth/passwordPolicy'
 import { UserConsentsPanel } from '@open-mercato/core/modules/auth/components/UserConsentsPanel'
 
 type EditUserFormValues = {
   email: string
+  name: string
   password: string
   tenantId: string | null
   organizationId: string | null
@@ -28,6 +30,7 @@ type EditUserFormValues = {
 type LoadedUser = {
   id: string
   email: string
+  name: string | null
   organizationId: string | null
   tenantId: string | null
   tenantName: string | null
@@ -40,6 +43,7 @@ type LoadedUser = {
 type UserApiItem = {
   id?: string | null
   email?: string | null
+  name?: string | null
   organizationId?: string | null
   tenantId?: string | null
   tenantName?: string | null
@@ -193,6 +197,7 @@ export default function EditUserPage({ params }: { params?: { id?: string } }) {
             setInitialUser({
               id: item.id ? String(item.id) : String(id),
               email: item.email ? String(item.email) : '',
+              name: item.name ? String(item.name) : null,
               organizationId: item.organizationId ? String(item.organizationId) : null,
               tenantId: item.tenantId ? String(item.tenantId) : null,
               tenantName: item.tenantName ? String(item.tenantName) : null,
@@ -202,11 +207,7 @@ export default function EditUserPage({ params }: { params?: { id?: string } }) {
               hasPassword: item.hasPassword !== false,
             })
             setSelectedTenantId(item.tenantId ? String(item.tenantId) : null)
-            const custom: Record<string, unknown> = {}
-            for (const [key, value] of Object.entries(item)) {
-              if (key.startsWith('cf_')) custom[key] = value as unknown
-              else if (key.startsWith('cf:')) custom[`cf_${key.slice(3)}`] = value as unknown
-            }
+            const custom = extractCustomFieldEntries(item as Record<string, unknown>)
             setCustomFieldValues(custom)
           }
         }
@@ -261,6 +262,7 @@ export default function EditUserPage({ params }: { params?: { id?: string } }) {
   const fields: CrudField[] = React.useMemo(() => {
     const items: CrudField[] = [
       { id: 'email', label: t('auth.users.form.field.email', 'Email'), type: 'text', required: true },
+      { id: 'name', label: t('auth.users.form.field.name', 'Display name'), type: 'text' },
       {
         id: 'password',
         label: userHasPassword
@@ -327,7 +329,7 @@ export default function EditUserPage({ params }: { params?: { id?: string } }) {
   }, [actorIsSuperAdmin, loadRoleOptions, passwordDescription, preloadedTenants, selectedOrgId, selectedTenantId, t, userHasPassword])
 
   const detailFieldIds = React.useMemo(() => {
-    const base: string[] = ['email', 'password', 'organizationId', 'roles']
+    const base: string[] = ['email', 'name', 'password', 'organizationId', 'roles']
     if (actorIsSuperAdmin) base.splice(2, 0, 'tenantId')
     return base
   }, [actorIsSuperAdmin])
@@ -382,6 +384,7 @@ export default function EditUserPage({ params }: { params?: { id?: string } }) {
     if (initialUser) {
       return {
         email: initialUser.email,
+        name: initialUser.name ?? '',
         password: '',
         tenantId: initialUser.tenantId,
         organizationId: initialUser.organizationId,
@@ -391,6 +394,7 @@ export default function EditUserPage({ params }: { params?: { id?: string } }) {
     }
     return {
       email: '',
+      name: '',
       password: '',
       tenantId: selectedTenantId ?? null,
       organizationId: null,
@@ -438,6 +442,7 @@ export default function EditUserPage({ params }: { params?: { id?: string } }) {
             const payload = {
               id: id ? String(id) : '',
               email: values.email,
+              name: typeof values.name === 'string' && values.name.trim().length ? values.name.trim() : undefined,
               password: values.password && values.password.trim() ? values.password : undefined,
               organizationId: values.organizationId ? values.organizationId : undefined,
               roles: Array.isArray(values.roles) ? values.roles : [],

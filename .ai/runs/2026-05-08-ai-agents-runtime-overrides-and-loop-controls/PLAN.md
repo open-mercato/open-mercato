@@ -22,14 +22,14 @@
 | 1780-0 | 0.5 | Update `packages/ai-assistant/AGENTS.md` "How to Configure AI Providers" table | done | 267f0ae26 |
 | 1780-0 | 0.6 | Update `apps/docs/docs/framework/ai-assistant/overview.mdx` with env defaults | done | 54585d9b8 |
 | 1780-0 | 0.7 | Replace hardcoded provider order in `api/route/route.ts` with env-aware resolver | done | 4d3b5bdc4 |
-| 1780-1 | 1.1 | Add `defaultProvider?: string` to canonical `AiAgentDefinition` | todo | — |
-| 1780-1 | 1.2 | Add slash-shorthand parser (`parseModelToken`) honored at every model-axis source | todo | — |
-| 1780-1 | 1.3 | Add `agentDefaultProvider` and `<MODULE>_AI_PROVIDER` env axis to `AiModelFactoryInput` | todo | — |
-| 1780-1 | 1.4 | Validate `agent.defaultProvider` in `aggregateAiAgents`; warn + register undefined when unknown | todo | — |
-| 1780-1 | 1.5 | Wire `runAiAgentText` / `runAiAgentObject` to accept `providerOverride?: string` | todo | — |
-| 1780-1 | 1.6 | Update `model-factory.test.ts` and `agent-runtime.test.ts` with Phase 1 cases | todo | — |
-| 1780-1 | 1.7 | Update `packages/ai-assistant/AGENTS.md` and `agents.mdx` for `defaultProvider` + slash | todo | — |
-| 1780-1 | 1.8 | Update `customers/ai-agents.ts` and `catalog/ai-agents.ts` local `AiAgentDefinition` copies | todo | — |
+| 1780-1 | 1.1 | Add `defaultProvider?: string` to canonical `AiAgentDefinition` | done | 222f51488 |
+| 1780-1 | 1.2 | Add slash-shorthand parser honored at every model-axis source | done | eeb3296cd |
+| 1780-1 | 1.3 | Add `agentDefaultProvider` and `OM_AI_<MODULE>_PROVIDER` env axis to `AiModelFactoryInput` (legacy `<MODULE>_AI_PROVIDER` honored as BC fallback) | done | 15d3248e7 |
+| 1780-1 | 1.4 | Validate `agent.defaultProvider` in `aggregateAiAgents`; warn + register undefined when unknown | done | 85d6eb6cc |
+| 1780-1 | 1.5 | Wire `runAiAgentText` / `runAiAgentObject` to accept `providerOverride?: string` | done | 1fb69d598 |
+| 1780-1 | 1.6 | Update `model-factory.test.ts` and `agent-runtime.test.ts` with Phase 1 cases | done | 5e9ce89e8 |
+| 1780-1 | 1.7 | Update `packages/ai-assistant/AGENTS.md` and `agents.mdx` for `defaultProvider` + slash | done | 95fe40abf |
+| 1780-1 | 1.8 | Update `customers/ai-agents.ts` and `catalog/ai-agents.ts` local `AiAgentDefinition` copies | done | 22f31faf3 |
 | 1780-2 | 2.1 | Add `baseURLEnvKeys` to OPENAI/DEEPINFRA/GROQ/TOGETHER/FIREWORKS presets | todo | — |
 | 1780-2 | 2.2 | Add `OPENROUTER_PRESET` and `LM_STUDIO_PRESET` to `openai-compatible-presets.ts` | todo | — |
 | 1780-2 | 2.3 | Add `baseURL` plumbing to `anthropic.ts` adapter | todo | — |
@@ -82,18 +82,18 @@
 | 1782-2 | l2.2 | Extend prepared-options bag with `stopWhen` / `prepareStep` / `onStepFinish` / repair / activeTools / toolChoice / abortSignal | todo | — |
 | 1782-2 | l2.3 | Wrapper-composed `prepareStep` documented as security-critical contract | todo | — |
 | 1782-2 | l2.4 | Tests for native callback path with full bag | todo | — |
-| 1782-3 | l3.1 | Migration adding 7 loop columns to `ai_agent_runtime_overrides` | todo | — |
-| 1782-3 | l3.2 | Repository validates `loop_stop_when_json` (JSON-safe variants only) and `loop_active_tools_json` subset rule | todo | — |
-| 1782-3 | l3.3 | Settings UI "Loop policy" section (read/write/kill-switch) + `<AiChat>` banner when disabled | todo | — |
-| 1782-3 | l3.4 | `<MODULE>_AI_LOOP_*` env shorthands lower precedence than DB override | todo | — |
-| 1782-3 | l3.5 | Budget enforcement (`maxToolCalls`, `maxWallClockMs`, `maxTokens`) via AbortController | todo | — |
-| 1782-3 | l3.6 | Tests for kill-switch + budget aborts + tenant abort reason surfaced | todo | — |
-| 1782-4 | l4.1 | `LoopTrace` shape + wrapper aggregator | todo | — |
-| 1782-4 | l4.2 | Playground "Loop" panel rendering trace per turn | todo | — |
-| 1782-4 | l4.3 | `<AiChat>` debug panel exposes loop trace | todo | — |
-| 1782-4 | l4.4 | Dispatcher `?loopBudget=tight\|default\|loose` query param gated by `allowRuntimeOverride` | todo | — |
-| 1782-4 | l4.5 | Rename `allowRuntimeModelOverride` → `allowRuntimeOverride` (deprecated alias for one minor) | todo | — |
-| 1782-4 | l4.6 | Tests + i18n + integration coverage TC-AI-AGENT-LOOP-{001..006} | todo | — |
+| 1782-3 | l3.1 | Migration adding 7 loop columns to `ai_agent_runtime_overrides` | done | 30f4d6dec |
+| 1782-3 | l3.2 | Repository validates `loop_stop_when_json` (JSON-safe variants only) and `loop_active_tools_json` subset rule | done | 0ce75e423 |
+| 1782-3 | l3.3 | Settings UI "Loop policy" section (read/write/kill-switch) + `<AiChat>` banner when disabled | done | 4ae84aed0 |
+| 1782-3 | l3.4 | `<MODULE>_AI_LOOP_*` env shorthands lower precedence than DB override | done | 28380fd16 |
+| 1782-3 | l3.5 | Budget enforcement (`maxToolCalls`, `maxWallClockMs`, `maxTokens`) via AbortController | done | 13bcdc206 |
+| 1782-3 | l3.6 | Tests for kill-switch + budget aborts + tenant abort reason surfaced | done | 62a5196f0 |
+| 1782-4 | l4.1 | `LoopTrace` shape + wrapper aggregator | done | 9beb9e2bb |
+| 1782-4 | l4.2 | Playground "Loop" panel rendering trace per turn | done | 5b833e1e3 |
+| 1782-4 | l4.3 | `<AiChat>` debug panel exposes loop trace | done | 68ee75ccc |
+| 1782-4 | l4.4 | Dispatcher `?loopBudget=tight\|default\|loose` query param gated by `allowRuntimeOverride` | done | a9508a7d1 |
+| 1782-4 | l4.5 | Rename `allowRuntimeModelOverride` → `allowRuntimeOverride` (deprecated alias for one minor) | done | 78d96e420 |
+| 1782-4 | l4.6 | Tests + i18n + integration coverage TC-AI-AGENT-LOOP-{001..006} | done | 2c08f8b74 |
 | 1782-5 | l5.1 | Add `executionEngine?: 'stream-text' \| 'tool-loop-agent'` to `AiAgentDefinition` | todo | — |
 | 1782-5 | l5.2 | Construct `Experimental_Agent` per agent registry entry; wire `prepareCall` + `prepareStep` correctly | todo | — |
 | 1782-5 | l5.3 | Mutation-approval integration test for `tool-loop-agent` engine (TC-AI-AGENT-LOOP-006) | todo | — |

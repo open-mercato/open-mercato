@@ -9,11 +9,17 @@ export type ProgressUpdateDetail = {
   jobId: string
   jobType: string
   name: string
+  description?: string | null
+  meta?: Record<string, unknown> | null
   progressPercent: number
   processedCount: number
   totalCount?: number | null
   etaSeconds?: number | null
   status: 'pending' | 'running' | 'completed' | 'failed' | 'cancelled'
+  cancellable?: boolean
+  startedAt?: string | null
+  finishedAt?: string | null
+  errorMessage?: string | null
 }
 
 export function emitProgressUpdate(detail: ProgressUpdateDetail): void {

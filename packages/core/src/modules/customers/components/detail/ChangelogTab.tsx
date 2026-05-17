@@ -14,6 +14,7 @@ import { ErrorMessage, LoadingMessage, TabEmptyState } from '@open-mercato/ui/ba
 import { ChangelogFilters } from './ChangelogFilters'
 import { ChangelogKpiCards } from './ChangelogKpiCards'
 import { ChangelogEntryRow } from './ChangelogEntryRow'
+import { formatChangelogValue } from './changelogValues'
 
 type AuditAction = {
   id: string
@@ -95,14 +96,6 @@ const HEADER_COLUMNS: Array<{ field: SortField; key: string; fallback: string; a
   { field: 'source', key: 'customers.changelog.col.source', fallback: 'Source', align: 'right' },
 ]
 
-function formatValue(value: unknown): string {
-  if (value == null) return ''
-  if (value instanceof Date) return value.toISOString()
-  if (Array.isArray(value)) return value.map((entry) => formatValue(entry)).filter(Boolean).join(', ')
-  if (typeof value === 'object') return JSON.stringify(value)
-  return String(value)
-}
-
 function formatFieldLabel(fieldName: string): string {
   return fieldName
     .replace(/\./g, ' ')
@@ -126,8 +119,8 @@ function mergeFilterOptions(...groups: FilterOption[][]): FilterOption[] {
 function mapAuditActionToEntry(action: AuditAction): ChangelogEntry {
   const changes = extractChangeRows(action.changes, action.snapshotBefore).map((change) => ({
     fieldName: change.field,
-    oldValue: formatValue(change.from),
-    newValue: formatValue(change.to),
+    oldValue: formatChangelogValue(change.from),
+    newValue: formatChangelogValue(change.to),
   }))
 
   return {

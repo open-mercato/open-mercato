@@ -21,7 +21,7 @@ test.describe('TC-CAT-012: Product Search and Filter', () => {
 
       await login(page, 'admin');
       await page.goto('/backend/catalog/products');
-      const search = page.getByRole('textbox', { name: 'Search', exact: true });
+      const search = page.getByRole('searchbox', { name: 'Search', exact: true });
 
       await search.fill(productName);
       await expect(page.getByText(productName).first()).toBeVisible({ timeout: 10_000 });
