@@ -90,6 +90,8 @@ When you need… use this. Details (variants, sizes, props, MUST rules) live in 
 | Cmd+K spotlight palette (global navigation / quick actions / universal search) | `CommandMenu` (compound: `CommandMenuContent` / `Input` / `List` / `Group` / `Item` / `Separator` / `Footer`) — auto-filter via `cmdk` | `@open-mercato/ui/primitives/command-menu` |
 | Chronological actor-action timeline (detail panes, audit feeds, customer activity logs) | `ActivityFeed` (compound: `ActivityFeedItem` / `ActivityFeedFileChip` / `ActivityFeedComment` / `ActivityFeedStatusChip`) | `@open-mercato/ui/primitives/activity-feed` |
 | Bell-icon inbox / notification panel (the dropdown that opens from the app shell bell affordance) | `NotificationFeed` (compound: `NotificationFeedHeader` / `NotificationFeedList` / `NotificationFeedItem` / `NotificationFeedFooter` / `NotificationFeedIconBadge`) | `@open-mercato/ui/primitives/notification-feed` |
+| Determinate linear progress bar (job percentage, file upload, onboarding) | `Progress` (`size`: `sm`/`default`/`lg`, `tone`: `accent`/`success`/`warning`/`destructive`/`muted`, optional `label`/`showValue`/`description` slots) | `@open-mercato/ui/primitives/progress` |
+| Determinate circular progress (compact KPI dial, attachment upload thumbnail, sprint completion %) | `CircularProgress` (same `tone`s; `size`: `xs` / `sm` / `default` / `lg`; optional center `showValue` or custom `children`) | `@open-mercato/ui/primitives/progress` |
 | Wrap a `<Link>` as button | `Button asChild` / `IconButton asChild` | — |
 
 ## Critical Primitive Rules

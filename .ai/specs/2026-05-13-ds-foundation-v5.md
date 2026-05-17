@@ -604,23 +604,29 @@ yarn test:integration:ephemeral  # full suite — Badge is too cascade-heavy for
 
 ---
 
-### 17. Progress (rewrite)
+### 17. Progress (rewrite) — **IMPLEMENTED (Phase B.1)**
 
-**Figma node:** TBD.
+**Figma source:** DS Open Mercato `Progress Bar` page (`450:17758`) — `Progress Bar [1.1]` (`450:17821`), `Progress Bar Label [1.1]` (`515:3758`), `Progress Bar Line [1.1]` (`450:17810`, 5 tone variants: muted / accent / destructive / warning / success), `Circular Progress Bar [1.1]` (`466:4652`).
 
-**Purpose:** Determinate / indeterminate progress bar.
+**Purpose:** Determinate progress indicators — both linear (default `Progress` export) and circular (`CircularProgress`).
 
-**Backward compatibility:**
-- `<Progress value={N}>` keeps working.
-- `className` passthrough works.
+**Backward compatibility (3 import sites):**
+- Existing `<Progress value={n} max={100} className="..." />` callable verbatim. The 3 call sites (`packages/ui/src/backend/NextStepCallout.tsx`, `packages/core/.../data_sync/.../runs/[id]/page.tsx`, `packages/sync-akeneo/.../akeneo-config/widget.client.tsx`) keep working without changes.
+- Existing `className="h-2"` / `className="h-3"` overrides still work (cn-merged on top of the default `h-2`).
+
+**Visual deltas vs. pre-rewrite:**
+- Track color: `bg-secondary` → `bg-input` (both muted greys, semantic-aligned with v5 token system).
+- Fill color: `bg-primary` (black) → `bg-accent-indigo` (Figma source — Figma uses `#4F46E5` indigo for the default tone).
+- These are visible but not contrast-regressions; the rewrite is the canonical Figma look.
 
 **New (additive):**
-- Optional `size` discriminant.
-- Optional `variant` discriminant (e.g. `default | success | warning` for status-colored progress).
-- Optional `indeterminate` boolean (animated stripe / shimmer).
-- Optional `showValue` (render "42%" overlay).
+- `size: 'sm' | 'default' | 'lg'` (track heights h-1 / h-2 / h-3).
+- `tone: 'accent' | 'success' | 'warning' | 'destructive' | 'muted'` matching Figma `Progress Bar Line [1.1]` variants.
+- `label`, `showValue`, `description` slots — when any is provided the primitive auto-wraps in a `data-slot="progress-wrapper"` flex column.
+- `fillClassName` override for custom fills (e.g. brand gradient).
+- New `CircularProgress` export with 4 sizes (`xs` 24px / `sm` 32px / `default` 48px / `lg` 64px) and the same 5 `tone`s. Supports `showValue` percentage badge in the centre and `children` override (e.g. `3/7`). Renders an SVG with rotated-`-90deg` track + fill circles using stroke-dasharray math.
 
-**Tests:** Existing test stays green; new tests for variant, indeterminate animation, showValue.
+**Tests (18 smoke tests, all passing):** percentage clamping (`-50` → 0, `250` → 100); custom `max`; all 3 sizes (h-1/h-2/h-3); all 5 tones (data-tone attr + fill class); label + value row when `label` + `showValue` set; description slot; label-row omission when no slots; `fillClassName` cn-merged with default tone class; `className` cn-merged with default track classes. CircularProgress: SVG track + fill render; stroke-dasharray math for radius `(box-stroke)/2`; clamping; centre value badge gated on `showValue`; `children` override; `ariaLabel` override; all 5 tone strokes; all 4 size box dimensions.
 
 ---
 
@@ -722,7 +728,7 @@ Each commit includes: primitive file, unit test file, `.ai/ui-components.md` sec
 
 ### Phase B — Rewrites (8 commits, low-blast → high-blast)
 
-13. `refactor(ds): rewrite Progress primitive per Figma — additive variants` (3 import sites)
+13. `refactor(ds): rewrite Progress primitive per Figma — additive variants` (3 import sites) — **DONE (B.1)** + new `CircularProgress` export
 14. `refactor(ds): rewrite Notification toast primitive per Figma — additive` (0 import sites)
 15. `refactor(ds): rewrite Separator primitive per Figma — add labeled / dashed variants` (5 import sites)
 16. `refactor(ds): rewrite Avatar primitive per Figma — add status + ring` (4 import sites)
@@ -917,3 +923,4 @@ To be filled in after all phases land and before opening the PR. Sections:
 | 2026-05-17 | FIXUP — A.9 Drawer | Realigned Drawer to canonical Figma source (`486:7366` — user-pointed). Panel: `rounded-l-2xl` (and per-side counterparts) + `shadow-2xl`, removed `border-l/r/t/b` from the seam. Header: removed `border-b`, added optional `leading` icon badge slot (`size-10 rounded-full border`) matching `Drawer Header [1.1]` variants 2 + 4. Footer: removed `border-t`, added `layout` variant (`default` / `equal` 50/50 stretched) + optional `leading` slot (checkbox / switch / link / step dots) matching `Drawer Footer [1.1]` variants 1–6. R4 risk note updated with the lesson: always list `figma.root.children` before declaring a primitive has no Figma source. Drawer tests grew from 12 → 17 (5 new cases for leading badge, default no-border, default footer layout, equal layout, footer leading slot). All 1157 UI tests passing. |
 | 2026-05-17 | IN PROGRESS — Phase A 11/12 | Shipped A.11 ActivityFeed. Compound API (`ActivityFeed` + `ActivityFeedItem` + `ActivityFeedFileChip` + `ActivityFeedComment` + `ActivityFeedStatusChip`) instead of the originally-spec'd data-driven `items={[]}` shape — title is a ReactNode so Figma sentences (bold actor + muted verb + inline status chip) compose naturally. 12 smoke tests added (1169 UI tests passing). Remaining: A.12 NotificationFeed, then Phase B (8 rewrites) + Phase C polish. |
 | 2026-05-17 | PHASE A COMPLETE (12/12) | Shipped A.12 NotificationFeed. Compound API (`NotificationFeed` + `NotificationFeedHeader` + `NotificationFeedList` + `NotificationFeedItem` + `NotificationFeedFooter` + `NotificationFeedIconBadge`) — 7-tone IconBadge helper, `unread` dot, `onClick` row activation with Enter/Space, hover-revealed `actions` slot, indented `children` for inline Approve/Deny pairs / file chips / reply previews. 13 smoke tests added (1182 UI tests total). Phase A done — 12 new primitives shipped: A.1 ScrollArea, A.2 ButtonGroup, A.3 SegmentedControl, A.4 Slider, A.5 Rating, A.6 StepIndicator, A.7 ColorPicker, A.8 Pagination, A.9 Drawer (+ A.9-fixup), A.10 CommandMenu, A.11 ActivityFeed, A.12 NotificationFeed. Next: Phase B (8 rewrites: Avatar, Badge, Dialog, Separator, Progress, Notification toast, Tabs, Table) + Phase C polish (FilterBar, i18n, docs sweep). |
+| 2026-05-17 | PHASE B START — B.1 Progress | Rewrote `Progress` primitive per Figma `Progress Bar` page (`450:17758`). Track `bg-secondary` → `bg-input`, fill `bg-primary` → `bg-accent-indigo`. Added optional `size` (sm/default/lg), `tone` (accent/success/warning/destructive/muted), `label`/`showValue`/`description` slots, `fillClassName` override. Shipped new `CircularProgress` export — 4 sizes (xs/sm/default/lg), same 5 tones, SVG-stroke-dasharray ring with optional centre value badge or custom children. 18 smoke tests added. Backward compatibility verified: 3 existing call sites (`NextStepCallout.tsx`, `data_sync .../runs/[id]/page.tsx`, `akeneo-config widget.client.tsx`) keep working without changes. 1200 UI tests passing. |

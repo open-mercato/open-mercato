@@ -56,6 +56,7 @@ Detailed variant tables, size matrices, props, examples, and MUST rules for ever
 - [CommandMenu](#commandmenu)
 - [ActivityFeed](#activityfeed)
 - [NotificationFeed](#notificationfeed)
+- [Progress / CircularProgress](#progress--circularprogress)
 - [Specialized Inputs (overview)](#specialized-inputs-overview)
 - [ComboboxInput](#comboboxinput)
 - [TagsInput (backend)](#tagsinput-backend)
@@ -4492,6 +4493,114 @@ Matches Figma `Notifications Items [1.1]` assembled examples. Surface is a soft 
 - Items separate via `divide-y` on the parent `<ol>` — no per-item border styling.
 - The primitive's footer is intentionally bare. The Figma examples ship two distinct footer designs: full-width "Archive All" button OR a navigation hint row with `↑ ↓ to navigate` Kbd shortcuts + a "Manage Notification" link on the right. Consumers compose whichever fits.
 - Tests: 13 smoke tests cover root card chrome, header title + actions, item slots (title + body + timestamp without separator glyph), unread dot gating, icon + indented children, `onClick` wires Enter/Space/click, action click stops propagation, footer slot, all 7 IconBadge tones, badge default `tone="indigo"` + size, `size="sm"` variant, className forwarding.
+
+---
+
+## Progress / CircularProgress
+
+Determinate progress indicators — `Progress` for linear bars (job percentage, file upload, onboarding), `CircularProgress` for compact ring dials (KPI cards, upload thumbnails, sprint completion).
+
+### Import
+
+```typescript
+import { Progress, CircularProgress } from '@open-mercato/ui/primitives/progress'
+```
+
+### `Progress` — linear bar
+
+Backward-compatible with the original `<Progress value={n} max={100} className="..." />` API. The Phase B rewrite adds optional `size`, `tone`, `label`, `showValue`, `description`, and `fillClassName` props — all additive.
+
+```tsx
+// Bare bar (original API — still works verbatim)
+<Progress value={50} />
+
+// Sizes
+<Progress value={50} size="sm" />   // h-1
+<Progress value={50} />              // h-2 (default)
+<Progress value={50} size="lg" />   // h-3
+
+// Tones per Figma `Progress Bar Line [1.1]`
+<Progress value={42} tone="accent" />       // bg-accent-indigo (default)
+<Progress value={42} tone="success" />      // bg-status-success-icon
+<Progress value={42} tone="warning" />      // bg-status-warning-icon
+<Progress value={42} tone="destructive" />  // bg-status-error-icon
+<Progress value={42} tone="muted" />        // bg-muted-foreground
+
+// Labelled variant per Figma `Progress Bar Label [1.1]`
+<Progress
+  value={80}
+  label="Data Storage"
+  showValue
+  description="Upgrade to unlock unlimited storage."
+/>
+
+// Custom fill via fillClassName (e.g. brand gradient)
+<Progress
+  value={50}
+  fillClassName="bg-gradient-to-r from-brand-violet to-accent-indigo"
+/>
+```
+
+### `CircularProgress` — ring dial
+
+```tsx
+<CircularProgress value={75} />                       // size="default" (48px)
+<CircularProgress value={75} size="xs" />             // 24px — inline use
+<CircularProgress value={75} size="sm" />             // 32px — list-row use
+<CircularProgress value={75} size="lg" />             // 64px — KPI card hero
+
+// Center percentage badge
+<CircularProgress value={75} showValue />
+
+// Custom center content (replaces the percentage)
+<CircularProgress value={3} max={7} showValue>
+  3/7
+</CircularProgress>
+
+// Same tone palette as linear
+<CircularProgress value={42} tone="success" showValue />
+```
+
+### Size + tone tokens
+
+| `size` (Progress) | Track height |
+|---|---|
+| `sm` | `h-1` (4px) |
+| `default` | `h-2` (8px) |
+| `lg` | `h-3` (12px) |
+
+| `size` (CircularProgress) | Box | Stroke |
+|---|---|---|
+| `xs` | 24px | 3px |
+| `sm` | 32px | 3px |
+| `default` | 48px | 4px |
+| `lg` | 64px | 5px |
+
+| `tone` | Fill (Progress) | Stroke (CircularProgress) |
+|---|---|---|
+| `accent` (default) | `bg-accent-indigo` | `stroke-accent-indigo` |
+| `success` | `bg-status-success-icon` | `stroke-status-success-icon` |
+| `warning` | `bg-status-warning-icon` | `stroke-status-warning-icon` |
+| `destructive` | `bg-status-error-icon` | `stroke-status-error-icon` |
+| `muted` | `bg-muted-foreground` | `stroke-muted-foreground` |
+
+Track on both: `bg-input` (Progress) / `stroke-input` (CircularProgress).
+
+### MUST rules
+
+- NEVER hand-roll `<div className="h-2 rounded-full bg-secondary"><div ... style={width}/></div>` for progress — use `Progress` so track + fill tokens stay aligned with the DS as the palette evolves.
+- For job-completion percentages (data sync, upload, queue worker), pass `tone="success"` only when the job has completed and `tone="destructive"` when it failed. While in flight stay at the `accent` default.
+- For "X of Y" counters where the center text is more informative than the percentage (e.g. `3/7 done`), use `CircularProgress` with custom `children` instead of the default `showValue` percentage.
+- The `value` prop is clamped to `[0, max]` — passing 200 / 100 renders 100% (won't overflow). Always pass `max` if the unit is not a percentage (e.g. `<Progress value={completed} max={total} />`).
+- Existing consumers that pass `className="h-2"` or `className="h-3"` keep working — `className` is appended via `cn()`, the default `size` (h-2) is overridden by a `h-N` in the className.
+- `Cmd+Enter` / `Escape` keyboard shortcuts: not applicable; this is a display primitive.
+
+### Notes
+
+- Figma source: DS Open Mercato `Progress Bar` page (`450:17758`) — `Progress Bar [1.1]` (`450:17821`), `Progress Bar Label [1.1]` (`515:3758`), `Progress Bar Line [1.1]` (`450:17810`, 5 tone variants), `Circular Progress Bar [1.1]` (`466:4652`).
+- Both primitives announce as `role="progressbar"` with `aria-valuenow` / `aria-valuemin` / `aria-valuemax`. `CircularProgress` adds `aria-label` defaulting to `${percentage}%`; override via the `ariaLabel` prop for richer labels (e.g. `"Sprint completion"`).
+- Phase B.1 rewrite — original `<Progress value={n} max={100} className="..." />` callable verbatim. The 3 existing call sites (`packages/ui/src/backend/NextStepCallout.tsx`, `packages/core/.../data_sync/.../runs/[id]/page.tsx`, `packages/sync-akeneo/.../akeneo-config/widget.client.tsx`) keep working without changes; the only visible delta is the colour (was `bg-primary` / black, now `bg-accent-indigo` per Figma) and the track tone (was `bg-secondary`, now `bg-input` — both muted greys, no contrast regression).
+- Tests: 18 smoke tests cover percentage clamping, custom `max`, all 3 sizes, all 5 tones, label / showValue / description slots, label-row omission when no slots, `fillClassName` override, `className` forwarding (+ CircularProgress dashoffset math, ariaLabel override, all 4 sizes, all 5 stroke tones, custom center children).
 
 ---
 
