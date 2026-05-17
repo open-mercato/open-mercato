@@ -658,22 +658,27 @@ yarn test:integration:ephemeral  # full suite — Badge is too cascade-heavy for
 
 ---
 
-### 19. Tabs (rewrite — a.k.a. Tab Menu)
+### 19. Tabs (rewrite — a.k.a. Tab Menu) — **IMPLEMENTED (Phase B.5)**
 
-**Figma node:** TBD.
+**Figma source:** DS Open Mercato `Tab Menu` page (`553:734`) — `Tab Menu Horizontal [1.1]` (`3511:9958`, underline strip with selected tab carrying an accent-indigo underline), `Tab Menu Horizontal Items [1.1]` (`3511:9832`, 3 states: default / hover / selected with icon + label + chevron), `Tab Menu Vertical [1.1]` (`3516:10411`, pill list under uppercase section headers), `Tab Menu Vertical Items [1.1]` (`3515:10326`).
 
-**Purpose:** Tab navigation for detail-page sections. Existing primitive `tabs.tsx` ships standard Radix Tabs styling.
+**Purpose:** Tab navigation for detail-page sections. The existing primitive ships a pill-style segmented tab strip; the Phase B.5 rewrite adds the Figma underline variant, vertical orientation, leading icon, and count badge.
 
-**Backward compatibility:**
-- Compound API (`Tabs`, `TabsList`, `TabsTrigger`, `TabsContent`) stays verbatim.
-- `value` / `defaultValue` / `onValueChange` Radix passthroughs unchanged.
+**Backward compatibility (6 import sites):**
+- `Tabs / TabsList / TabsTrigger / TabsContent` compound API callable verbatim.
+- `value` / `defaultValue` / `onValueChange` keep working identically.
+- Default `variant="pill"` reproduces the original look (bg-muted shell, bg-background pill on selected) — the 6 existing consumers see no visual delta.
+- All 6 call sites (`integrations/[id]/page.tsx`, `scheduler JobLogsModal.tsx`, `checkout LinkTemplateForm.tsx`, `search VectorSearchSection.tsx`, `search FulltextSearchSection.tsx`, `ai-assistant AiPlaygroundPageClient.tsx`) keep rendering unchanged.
 
-**New (additive):**
-- Optional `variant`: `default` (underline) | `pills` (filled background) | `vertical` (sidebar-style).
-- Optional `size` for the trigger row.
-- Optional `count` slot on `TabsTrigger` (badge with item count, common in inbox / segmented list views).
+**New (additive) on `<Tabs>`:**
+- `variant: 'pill' | 'underline'` (default `pill`). Underline matches Figma `Tab Menu Horizontal [1.1]`: flat strip with `border-b border-input` rail + `border-b-2 border-accent-indigo` on the active trigger, `font-semibold text-foreground` on active.
+- `orientation: 'horizontal' | 'vertical'`. Vertical pill renders the strip as a column of pills sitting alongside the content; vertical underline renders the strip as a column with `border-r border-input` rail + `bg-muted/40 text-foreground` on the active item (per Figma `Tab Menu Vertical [1.1]`).
 
-**Tests:** Existing test stays green; new tests for variant, count slot, vertical orientation.
+**New (additive) on `<TabsTrigger>`:**
+- `leading?: ReactNode` — icon slot before the label. On underline-active triggers the icon shifts to `text-accent-indigo`; otherwise stays `text-muted-foreground`. Per Figma `Tab Menu Horizontal Items [1.1]` (icon-prefixed items).
+- `count?: ReactNode` — trailing pill badge (e.g. `count={5}` or `count="New"`). Selected trigger gets `bg-accent-indigo/10 text-accent-indigo`; inactive gets `bg-muted text-muted-foreground`. `count={0}` still renders (the gate is `typeof !== 'undefined'`, so `0` reads as "intentionally zero" rather than "absent").
+
+**Tests (10 smoke tests, all passing — 2 pre-existing + 8 new):** default `variant="pill"` + `orientation="horizontal"` (backward compat); underline variant rail + active border + bold weight; vertical orientation renders list as column; vertical underline uses border-right + active `bg-muted/40`; `leading` slot renders for both variants; count slot tones (selected → accent-indigo, inactive → muted); `count={0}` still renders; count omitted entirely when prop is undefined.
 
 ---
 
@@ -741,7 +746,7 @@ Each commit includes: primitive file, unit test file, `.ai/ui-components.md` sec
 14. `refactor(ds): rewrite Notification toast primitive per Figma — additive` (0 import sites; Phase 2 already aligned visual; B.2 adds `autoDismissMs` + `pauseOnHover` for toast UX) — **DONE (B.2)**
 15. `refactor(ds): rewrite Separator primitive per Figma — add labeled / dashed variants` (5 import sites) — **DONE (B.3)**
 16. `refactor(ds): rewrite Avatar primitive per Figma — add status + ring` (4 import sites) — **DONE (B.4)**
-17. `refactor(ds): rewrite Tabs primitive per Figma — add pills / vertical / count` (6 import sites)
+17. `refactor(ds): rewrite Tabs primitive per Figma — add pills / vertical / count` (6 import sites) — **DONE (B.5)**
 18. `refactor(ds): polish Table primitive — padding / hover / sortable indicator / striped` (1 direct + DataTable internals)
 19. `refactor(ds): rewrite Dialog primitive per Figma — additive size variant` (40 import sites)
 20. `refactor(ds): rewrite Badge primitive per Figma — additive variants/sizes` (83 import sites)
@@ -936,3 +941,4 @@ To be filled in after all phases land and before opening the PR. Sections:
 | 2026-05-17 | PHASE B.2 — Notification toast | Existing Phase 2 Notification (thin wrapper over Alert) is already Figma-aligned. B.2 adds toast UX: `autoDismissMs` fires `onDismiss` after the configured delay; `pauseOnHover` (default true when autoDismissMs is set) pauses the timer while the user hovers the card. Exposes `data-auto-dismiss-paused="true"` on the root for CSS hooks. 6 new tests added (timer fires, undefined/0 no-op, hover pauses + leave restarts, pauseOnHover=false override, prop cancellation clears timer). 1206 UI tests passing total. |
 | 2026-05-17 | PHASE B.3 — Separator | Rewrote `Separator` per Figma `Content Divider [1.1]` (`414:4401`). Solid default keeps legacy `h-px bg-border` style for max backward compat (5 import sites use `<Separator />` / `<Separator className="my-4" />`). New props: `variant: 'solid' \| 'dashed'`, `label` (inline label between two rule halves, default center, also `start`/`end` align), `section` (bg-muted strip with uppercase label per Figma "AMOUNT & ACCOUNT" variant). Center-button overlays (Figma variants 6-9: `+` button, navigation, "Add", button row) intentionally NOT shipped as primitive slots — consumers compose at parent level to avoid layout failure modes. 12 smoke tests added. 1218 UI tests passing total. |
 | 2026-05-17 | PHASE B.4 — Avatar | Rewrote `Avatar` per Figma `Avatars` page (`210:4129`). Plain avatars (no decorations) still render as single `<div data-slot="avatar">` for backward compat (4 import sites in core customers linking adapters + ds-v5 demo). New props: `status` (8 tones; bottom-right dot per Figma `Bottom Status [1.1]`), `statusPosition` (`bottom-right` / `top-right`), `ring` (boolean or 5 tones; outer `ring-2 ring-offset-2` per `Top Status` ring style), `badge` ReactNode slot for top-right icon overlays (verified check / premium / etc. per `Top Status [1.1]`), `badgeClassName` override. Status-dot size scales 1/3 of avatar diameter (size-1.5 → size-4 across xs → xl). 10 new tests added (20 total Avatar tests). 1228 UI tests passing total. |
+| 2026-05-17 | PHASE B.5 — Tabs | Rewrote `Tabs` per Figma `Tab Menu` page (`553:734`). Default `variant="pill"` keeps original look (6 import sites — `integrations`, `scheduler`, `checkout`, `search` × 2, `ai-assistant` — render unchanged). New `variant="underline"` matches Figma `Tab Menu Horizontal [1.1]`: flat strip with `border-b border-input` rail + `border-b-2 border-accent-indigo` active. New `orientation="vertical"` for column layout (per Figma `Tab Menu Vertical [1.1]`). New trigger slots: `leading` icon (accent-indigo on underline-active), `count` badge (accent-indigo/10 tone on active, muted otherwise; `count={0}` still renders). 8 new tests added (10 total Tabs tests). 1236 UI tests passing total. |
