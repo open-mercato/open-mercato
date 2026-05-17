@@ -37,30 +37,31 @@ test.describe('TC-CRM-013: Pipeline View Navigation', () => {
 
       await login(page, 'admin');
       await page.goto('/backend/customers/deals/pipeline');
-      await expect(page.getByRole('heading', { name: 'Sales Pipeline' })).toBeVisible();
+      // SPEC-048 renamed the page heading from "Sales Pipeline" to "Deals"
+      // (customers.deals.kanban.pageTitle); the breadcrumb still says "Deals" too.
+      await expect(page.getByRole('heading', { name: 'Deals', level: 1 })).toBeVisible();
 
-      // Pipeline picker is a Radix Select inside <label>Pipeline ...</label>.
-      // The page also has a "Sort by" Select — scope by the wrapping label so
-      // .first() doesn't accidentally pick Sort while the pipelines query loads.
-      const pipelineCombobox = page
-        .locator('label')
-        .filter({ has: page.getByText('Pipeline', { exact: true }) })
-        .getByRole('combobox');
-      await expect(pipelineCombobox).toBeVisible({ timeout: 10_000 });
-      await pipelineCombobox.click();
-      await page.getByRole('option', { name: pipelineName, exact: true }).click();
+      // SPEC-048 kanban redesign: pipeline selector is a chip+popover. See TC-CRM-009 for
+      // the matching interaction. The chip's accessible name follows the pattern
+      // "Pipeline: <value>" (PipelineFilterPopover → ChipButton).
+      const pipelineChip = page.getByRole('button', { name: /^Pipeline:/ });
+      await expect(pipelineChip).toBeVisible({ timeout: 10_000 });
+      await pipelineChip.click();
+      const pipelinePopover = page.getByRole('dialog').last();
+      await pipelinePopover.getByRole('button', { name: pipelineName, exact: true }).click();
+      await pipelinePopover.getByRole('button', { name: 'Apply', exact: true }).click();
 
       await expect(page.getByText('Opportunity', { exact: true })).toBeVisible();
       await expect(page.getByText('Win', { exact: true })).toBeVisible();
 
-      const dealCard = page
-        .locator('div')
-        .filter({ has: page.getByText(dealTitle, { exact: true }) })
-        .first();
+      // Each deal card is rendered as <div role="article" aria-label="Deal: {title}"> by
+      // DealCard.tsx; navigation to the detail page is via router.push on the card's
+      // click handler (no anchor element). Click the article role to navigate.
+      const dealCard = page.getByRole('article', { name: `Deal: ${dealTitle}` });
       await expect(dealCard).toBeVisible();
       await expect(page.getByText('$', { exact: false }).first()).toBeVisible();
 
-      await page.locator(`a[href="/backend/customers/deals/${dealId}"]`).click();
+      await dealCard.click();
       await expect(page).toHaveURL(new RegExp(`/backend/customers/deals/${dealId}$`));
       await expect(page.getByText(dealTitle, { exact: true }).first()).toBeVisible();
 
