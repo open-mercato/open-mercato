@@ -239,13 +239,13 @@ Default swatches: 16 colors curated from the DS palette (red, orange, amber, yel
 - Surface does NOT bind `⌘K` globally — consumer wires the shortcut at the host so multiple palettes can coexist (e.g. global launcher + per-page quick actions).
 - `cmdk` auto-filters items based on each item's `value` prop (NOT `children`) — every `CommandMenuItem` MUST pass a stable lowercase `value` capturing the search tokens. For server-side search pass `commandProps={{ shouldFilter: false }}`.
 
-**Tests (12 smoke tests, all passing):** content slots inside Radix Dialog · controlled open via trigger click · auto SR-only dialog title · default leading magnifier + `⌘K` kbd · kbd swaps to × clear toggle when value present · clear button clears value · item description + auto chevron slots · `onSelect` fires on item click · group action button renders + invokes `onAction` · default footer Navigate/Select hints · `helpSlot` renders · `className` forwarded to content without dropping default positioning. Test file polyfills `Element.prototype.scrollIntoView` because `cmdk` calls it on selection change and jsdom does not implement it.
+**Tests (12 smoke tests, all passing):** content slots inside Radix Dialog; controlled open via trigger click; auto SR-only dialog title; default leading magnifier + `⌘K` kbd; kbd swaps to × clear toggle when value present; clear button clears value; item description + auto chevron slots; `onSelect` fires on item click; group action button renders + invokes `onAction`; default footer Navigate/Select hints; `helpSlot` renders; `className` forwarded to content without dropping default positioning. Test file polyfills `Element.prototype.scrollIntoView` because `cmdk` calls it on selection change and jsdom does not implement it.
 
 ---
 
 ### 5. Drawer (new) — **IMPLEMENTED (Phase A.9 + A.9-fixup)**
 
-**Figma source:** DS Open Mercato `Drawer` page (`486:7366`) — `Drawer Header [1.1]` (`3187:2897`, 4 header variants: title only / title + leading icon / title + description / title + description + leading icon badge); `Drawer Footer [1.1]` (`4096:21416`, 6 footer variants: 50/50 stretched, right-aligned compact, left checkbox + right buttons, left switch + right buttons, left step dots + right buttons, left link button + right buttons); assembled examples `167124:24738` (Service Fee), `167124:24794` (Goal), `167124:24859` (Internet Banking Support). The initial A.9 commit shipped with R4 "inferred from DS tokens" framing — incorrect; the A.9-fixup commit aligns the primitive to the canonical Figma source.
+**Figma source:** DS Open Mercato `Drawer` page (`486:7366`) — `Drawer Header [1.1]` (`3187:2897`, 4 variants: title only / title + leading icon / title + description / title + description + leading icon badge); `Drawer Footer [1.1]` (`4096:21416`, 6 variants: 50/50 stretched, right-aligned compact, left checkbox + right buttons, left switch + right buttons, left step dots + right buttons, left link button + right buttons); assembled examples `167124:24738` (Service Fee), `167124:24794` (Goal), `167124:24859` (Internet Banking Support). The initial A.9 commit shipped with R4 "inferred from DS tokens" framing — incorrect; the A.9-fixup commit aligns the primitive to the canonical Figma source.
 
 **Purpose:** Side sheet — slides in from `right` (default), `left`, `top`, or `bottom`. Used for detail panes, secondary forms, mobile menus. Distinct from `Dialog` — `Drawer` is *contextual / non-blocking-feeling*, `Dialog` is *modal / focused*.
 
@@ -283,7 +283,7 @@ Default swatches: 16 colors curated from the DS palette (red, orange, amber, yel
 - **Footer per Figma:** no chrome `border-t` (removed in fixup). Two layouts: `default` (right-aligned with optional `leading` slot for checkbox / switch / link / step-indicator) and `equal` (children stretched flex-1 — confirmation-flow 50/50 shape, mutually exclusive with `leading`).
 - `Cmd+Enter` and `Escape` keyboard contract inherited from Radix Dialog.
 
-**Tests (17 smoke tests, all passing):** content slots inside Radix Dialog · controlled open via trigger click · default `right` side data attribute · per-side classes incl. inner-edge rounded corners (`rounded-l-2xl` / `rounded-r-2xl` / `rounded-b-2xl` / `rounded-t-2xl`) · auto close button by default · `hideCloseButton` hides the button · ARIA labelledby/describedby from Title + Description · DrawerClose dismisses the drawer · header `leading` badge renders when provided · header is borderless by default · footer is borderless by default + trailing wrapper anchors right when no `leading` · footer `layout="equal"` stretches children via `[&>*]:flex-1` · footer `leading` slot anchors left and drops the trailing wrapper's `ml-auto` · className forwarded to content without dropping default classes.
+**Tests (17 smoke tests, all passing):** content slots inside Radix Dialog; controlled open via trigger click; default `right` side data attribute; per-side classes incl. inner-edge rounded corners (`rounded-l-2xl` / `rounded-r-2xl` / `rounded-b-2xl` / `rounded-t-2xl`); auto close button by default; `hideCloseButton` hides the button; ARIA labelledby/describedby from Title + Description; DrawerClose dismisses the drawer; header `leading` badge renders when provided; header is borderless by default; footer is borderless by default + trailing wrapper anchors right when no `leading`; footer `layout="equal"` stretches children via `[&>*]:flex-1`; footer `leading` slot anchors left and drops the trailing wrapper's `ml-auto`; className forwarded to content without dropping default classes.
 
 ---
 
@@ -661,14 +661,14 @@ Atomic commit sequence (one concern per commit):
 
 Order chosen so primitives with lower dependency are first; primitives that depend on others (e.g. `CommandMenu` uses `Dialog`) come after.
 
-1. `feat(ds): add ScrollArea primitive` — leaf utility, used by Drawer/CommandMenu.
-2. `feat(ds): add ButtonGroup primitive`
-3. `feat(ds): add SegmentedControl primitive`
-4. `feat(ds): add Slider primitive`
-5. `feat(ds): add Rating primitive`
-6. `feat(ds): add StepIndicator primitive`
-7. `feat(ds): add ColorPicker primitive`
-8. `feat(ds): add Pagination primitive` (standalone — DataTable migration deferred)
+1. `feat(ds): add ScrollArea primitive` — leaf utility, used by Drawer/CommandMenu. **DONE (A.1)**
+2. `feat(ds): add ButtonGroup primitive` — **DONE (A.2)**
+3. `feat(ds): add SegmentedControl primitive` — **DONE (A.3)**
+4. `feat(ds): add Slider primitive` — **DONE (A.4)**
+5. `feat(ds): add Rating primitive` — **DONE (A.5)**
+6. `feat(ds): add StepIndicator primitive` — **DONE (A.6)**
+7. `feat(ds): add ColorPicker primitive` — **DONE (A.7)**
+8. `feat(ds): add Pagination primitive` (standalone — DataTable migration deferred) — **DONE (A.8)**
 9. `feat(ds): add Drawer primitive` (uses ScrollArea) — **DONE (A.9)** + `fix(ds): align Drawer with canonical Figma source (rounded inner edges, leading icon badge, footer layout/leading slots)` — **DONE (A.9-fixup)**
 10. `feat(ds): add CommandMenu primitive` (built on `cmdk` + `@radix-ui/react-dialog`; both promoted from transitive to direct deps) — **DONE (A.10)**
 11. `feat(ds): add ActivityFeed primitive` (uses Avatar; compound API instead of data-driven `items={[]}`; defers EmptyState/Skeleton to consumers) — **DONE (A.11)**
@@ -869,6 +869,6 @@ To be filled in after all phases land and before opening the PR. Sections:
 | Date | Status | Notes |
 |---|---|---|
 | 2026-05-13 | DRAFT | Initial spec. Awaiting user approval before commit 1. Scope: 12 new primitives + 8 rewrites + Table polish + FilterBar polish. 25-commit Implementation Plan. Per-primitive Figma node IDs marked `TBD` (resolved during each primitive's commit). |
-| 2026-05-17 | FIXUP — A.9 Drawer | Realigned Drawer to canonical Figma source (`486:7366` — user-pointed). Panel: `rounded-l-2xl` (and per-side counterparts) + `shadow-2xl`, removed `border-l/r/t/b` from the seam. Header: removed `border-b`, added optional `leading` icon badge slot (`size-10 rounded-full border`) matching `Drawer Header [1.1]` variants 2 + 4. Footer: removed `border-t`, added `layout` variant (`default` / `equal` 50/50 stretched) + optional `leading` slot (checkbox / switch / link / step dots) matching `Drawer Footer [1.1]` variants 1–6. R4 risk note updated with the lesson: always list `figma.root.children` before declaring a primitive has no Figma source. Drawer tests grew from 12 → 17 (5 new cases for leading badge, default no-border, default footer layout, equal layout, footer leading slot). |
-| 2026-05-17 | IN PROGRESS — Phase A 10/12 | Shipped A.10 CommandMenu. Compound API (`CommandMenu` + `Trigger` + `Content` + `Input` + `List` + `Empty` + `Group` + `Item` + `Separator` + `Footer`) built on `cmdk` + `@radix-ui/react-dialog`; both deps promoted from transitive to direct in `packages/ui/package.json`. 12 smoke tests added. R5 (cmdk new direct dep) resolved. |
-| 2026-05-17 | IN PROGRESS — Phase A 11/12 | Shipped A.11 ActivityFeed. Compound API (`ActivityFeed` + `ActivityFeedItem` + `ActivityFeedFileChip` + `ActivityFeedComment` + `ActivityFeedStatusChip`) instead of the originally-spec'd data-driven `items={[]}` shape — title is a ReactNode so Figma sentences (bold actor + muted verb + inline status chip) compose naturally. 12 smoke tests added. Remaining: A.12 NotificationFeed, then Phase B (8 rewrites) + Phase C polish. |
+| 2026-05-17 | IN PROGRESS — Phase A 10/12 | Shipped A.1 ScrollArea, A.2 ButtonGroup, A.3 SegmentedControl, A.4 Slider, A.5 Rating, A.6 StepIndicator, A.7 ColorPicker, A.8 Pagination, A.9 Drawer, A.10 CommandMenu. A.10 promoted `cmdk` and `@radix-ui/react-dialog` from transitive to direct deps in `packages/ui/package.json`. Remaining: A.11 ActivityFeed, A.12 NotificationFeed, then Phase B (8 rewrites) + Phase C polish. R5 (cmdk new direct dep) resolved. 1152 UI tests passing (12 added for CommandMenu). |
+| 2026-05-17 | FIXUP — A.9 Drawer | Realigned Drawer to canonical Figma source (`486:7366` — user-pointed). Panel: `rounded-l-2xl` (and per-side counterparts) + `shadow-2xl`, removed `border-l/r/t/b` from the seam. Header: removed `border-b`, added optional `leading` icon badge slot (`size-10 rounded-full border`) matching `Drawer Header [1.1]` variants 2 + 4. Footer: removed `border-t`, added `layout` variant (`default` / `equal` 50/50 stretched) + optional `leading` slot (checkbox / switch / link / step dots) matching `Drawer Footer [1.1]` variants 1–6. R4 risk note updated with the lesson: always list `figma.root.children` before declaring a primitive has no Figma source. Drawer tests grew from 12 → 17 (5 new cases for leading badge, default no-border, default footer layout, equal layout, footer leading slot). All 1157 UI tests passing. |
+| 2026-05-17 | IN PROGRESS — Phase A 11/12 | Shipped A.11 ActivityFeed. Compound API (`ActivityFeed` + `ActivityFeedItem` + `ActivityFeedFileChip` + `ActivityFeedComment` + `ActivityFeedStatusChip`) instead of the originally-spec'd data-driven `items={[]}` shape — title is a ReactNode so Figma sentences (bold actor + muted verb + inline status chip) compose naturally. 12 smoke tests added (1169 UI tests passing). Remaining: A.12 NotificationFeed, then Phase B (8 rewrites) + Phase C polish. |

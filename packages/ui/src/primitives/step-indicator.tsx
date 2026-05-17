@@ -12,7 +12,8 @@ import { cn } from '@open-mercato/shared/lib/utils'
  *
  * Anchored on Figma:
  * - `Step Indicator Horizontal [1.1]` (DS OM componentSet `3507:28`) —
- *   horizontal flow: `Item · chevron-right · Item · chevron-right · …`
+ *   horizontal flow: each item followed by a chevron-right icon
+ *   connector except the last item, which has no trailing connector
  * - `Step Indicator Horizontal Items [1.1]` (componentSet `3505:3498`) —
  *   horizontal item with 3 states (Default / Active / Completed)
  * - `Step Indicator Vertical [1.1]` (componentSet `3507:227`) — vertical
