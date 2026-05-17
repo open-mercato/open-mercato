@@ -81,39 +81,44 @@ describe('Drawer', () => {
     expect(content.getAttribute('data-side')).toBe('right')
   })
 
-  it('applies right-side positioning classes by default', () => {
+  it('applies right-side positioning classes + inner rounded corners by default', () => {
     const { container } = render(<ExampleDrawer />)
     const content = document.querySelector('[data-slot="drawer-content"]') as HTMLElement
     expect(content.className).toContain('right-0')
     expect(content.className).toContain('inset-y-0')
     expect(content.className).toContain('max-w-md')
-    expect(content.className).toContain('border-l')
+    // Per Figma: inner edge rounded, no panel border on the seam.
+    expect(content.className).toContain('rounded-l-2xl')
+    expect(content.className).not.toMatch(/\bborder-l\b/)
   })
 
-  it('applies left-side classes when side="left"', () => {
+  it('applies left-side classes (rounded right edge) when side="left"', () => {
     const { container } = render(<ExampleDrawer side="left" />)
     const content = document.querySelector('[data-slot="drawer-content"]') as HTMLElement
     expect(content.className).toContain('left-0')
     expect(content.className).toContain('inset-y-0')
-    expect(content.className).toContain('border-r')
+    expect(content.className).toContain('rounded-r-2xl')
+    expect(content.className).not.toMatch(/\bborder-r\b/)
     expect(content.getAttribute('data-side')).toBe('left')
   })
 
-  it('applies top-side classes when side="top"', () => {
+  it('applies top-side classes (rounded bottom edge) when side="top"', () => {
     const { container } = render(<ExampleDrawer side="top" />)
     const content = document.querySelector('[data-slot="drawer-content"]') as HTMLElement
     expect(content.className).toContain('top-0')
     expect(content.className).toContain('inset-x-0')
-    expect(content.className).toContain('border-b')
+    expect(content.className).toContain('rounded-b-2xl')
+    expect(content.className).not.toMatch(/\bborder-b\b/)
     expect(content.className).toContain('max-h-[80vh]')
   })
 
-  it('applies bottom-side classes when side="bottom"', () => {
+  it('applies bottom-side classes (rounded top edge) when side="bottom"', () => {
     const { container } = render(<ExampleDrawer side="bottom" />)
     const content = document.querySelector('[data-slot="drawer-content"]') as HTMLElement
     expect(content.className).toContain('bottom-0')
     expect(content.className).toContain('inset-x-0')
-    expect(content.className).toContain('border-t')
+    expect(content.className).toContain('rounded-t-2xl')
+    expect(content.className).not.toMatch(/\bborder-t\b/)
     expect(content.className).toContain('max-h-[80vh]')
   })
 
@@ -145,6 +150,101 @@ describe('Drawer', () => {
     expect(document.querySelector('[data-slot="drawer-content"]')).toBeNull()
   })
 
+  it('renders the header leading badge slot when `leading` is provided', () => {
+    render(
+      <Drawer defaultOpen>
+        <DrawerTrigger>Open</DrawerTrigger>
+        <DrawerContent>
+          <DrawerHeader leading={<span data-testid="leading-icon">⏱</span>}>
+            <DrawerTitle>With leading</DrawerTitle>
+            <DrawerDescription>Optional description.</DrawerDescription>
+          </DrawerHeader>
+        </DrawerContent>
+      </Drawer>,
+    )
+    const badge = document.querySelector('[data-slot="drawer-header-leading"]') as HTMLElement
+    expect(badge).not.toBeNull()
+    expect(badge.querySelector('[data-testid="leading-icon"]')).not.toBeNull()
+    expect(badge.className).toContain('rounded-full')
+    expect(badge.className).toContain('size-10')
+    // Title + description still render inside the text block alongside the badge.
+    const text = document.querySelector('[data-slot="drawer-header-text"]') as HTMLElement
+    expect(text).not.toBeNull()
+    expect(text.textContent).toContain('With leading')
+    expect(text.textContent).toContain('Optional description.')
+  })
+
+  it('renders the header without a leading badge by default', () => {
+    render(<ExampleDrawer />)
+    expect(document.querySelector('[data-slot="drawer-header-leading"]')).toBeNull()
+    // Per Figma: no chrome border below the header.
+    const header = document.querySelector('[data-slot="drawer-header"]') as HTMLElement
+    expect(header.className).not.toMatch(/\bborder-b\b/)
+  })
+
+  it('renders the footer default layout with right-aligned trailing children and no top border', () => {
+    render(<ExampleDrawer />)
+    const footer = document.querySelector('[data-slot="drawer-footer"]') as HTMLElement
+    expect(footer.getAttribute('data-layout')).toBe('default')
+    expect(footer.className).not.toMatch(/\bborder-t\b/)
+    expect(document.querySelector('[data-slot="drawer-footer-leading"]')).toBeNull()
+    const trailing = document.querySelector('[data-slot="drawer-footer-trailing"]') as HTMLElement
+    expect(trailing).not.toBeNull()
+    // Without a leading slot the trailing group anchors itself to the right.
+    expect(trailing.className).toContain('ml-auto')
+  })
+
+  it('stretches children evenly when footer layout="equal"', () => {
+    render(
+      <Drawer defaultOpen>
+        <DrawerTrigger>Open</DrawerTrigger>
+        <DrawerContent>
+          <DrawerHeader>
+            <DrawerTitle>T</DrawerTitle>
+          </DrawerHeader>
+          <DrawerFooter layout="equal">
+            <DrawerClose>Cancel</DrawerClose>
+            <button>Continue</button>
+          </DrawerFooter>
+        </DrawerContent>
+      </Drawer>,
+    )
+    const footer = document.querySelector('[data-slot="drawer-footer"]') as HTMLElement
+    expect(footer.getAttribute('data-layout')).toBe('equal')
+    // The `[&>*]:flex-1` selector lives in the class list so children
+    // stretch equally. There is no trailing wrapper in equal layout.
+    expect(footer.className).toContain('[&>*]:flex-1')
+    expect(document.querySelector('[data-slot="drawer-footer-trailing"]')).toBeNull()
+  })
+
+  it('renders a left-side leading slot in the footer when `leading` is provided', () => {
+    render(
+      <Drawer defaultOpen>
+        <DrawerTrigger>Open</DrawerTrigger>
+        <DrawerContent>
+          <DrawerHeader>
+            <DrawerTitle>T</DrawerTitle>
+          </DrawerHeader>
+          <DrawerFooter
+            leading={<label data-testid="dont-show">Don&apos;t show again</label>}
+          >
+            <DrawerClose>Cancel</DrawerClose>
+            <button>Continue</button>
+          </DrawerFooter>
+        </DrawerContent>
+      </Drawer>,
+    )
+    const leading = document.querySelector('[data-slot="drawer-footer-leading"]') as HTMLElement
+    expect(leading).not.toBeNull()
+    expect(leading.className).toContain('mr-auto')
+    expect(leading.querySelector('[data-testid="dont-show"]')).not.toBeNull()
+    // When a leading slot is present the trailing wrapper drops `ml-auto`
+    // (the leading mr-auto already pushes them apart).
+    const trailing = document.querySelector('[data-slot="drawer-footer-trailing"]') as HTMLElement
+    expect(trailing).not.toBeNull()
+    expect(trailing.className).not.toMatch(/\bml-auto\b/)
+  })
+
   it('forwards className to drawer-content without dropping side classes', () => {
     const { container } = render(
       <Drawer defaultOpen>
@@ -159,5 +259,6 @@ describe('Drawer', () => {
     const content = document.querySelector('[data-slot="drawer-content"]') as HTMLElement
     expect(content.className).toContain('custom-class')
     expect(content.className).toContain('right-0')
+    expect(content.className).toContain('rounded-l-2xl')
   })
 })

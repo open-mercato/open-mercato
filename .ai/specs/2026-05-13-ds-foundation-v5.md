@@ -207,34 +207,47 @@ Built on `cmdk` (confirm as direct dep or transitive). Fuzzy search, keyboard na
 
 ---
 
-### 5. Drawer (new)
+### 5. Drawer (new) — **IMPLEMENTED (Phase A.9 + A.9-fixup)**
 
-**Figma node:** No dedicated node in the DS Open Mercato library (audited via `search_design_system` — only `Modal Overlay [1.1]` covers the overlay surface; no side-positioned variants ship). Styling inferred from DS tokens per R4 in the v5 spec.
+**Figma source:** DS Open Mercato `Drawer` page (`486:7366`) — `Drawer Header [1.1]` (`3187:2897`, 4 header variants: title only / title + leading icon / title + description / title + description + leading icon badge); `Drawer Footer [1.1]` (`4096:21416`, 6 footer variants: 50/50 stretched, right-aligned compact, left checkbox + right buttons, left switch + right buttons, left step dots + right buttons, left link button + right buttons); assembled examples `167124:24738` (Service Fee), `167124:24794` (Goal), `167124:24859` (Internet Banking Support). The initial A.9 commit shipped with R4 "inferred from DS tokens" framing — incorrect; the A.9-fixup commit aligns the primitive to the canonical Figma source.
 
 **Purpose:** Side sheet — slides in from `right` (default), `left`, `top`, or `bottom`. Used for detail panes, secondary forms, mobile menus. Distinct from `Dialog` — `Drawer` is *contextual / non-blocking-feeling*, `Dialog` is *modal / focused*.
 
-**API:**
+**Final API (as shipped):**
 
 ```tsx
-<Drawer open={open} onOpenChange={setOpen} side='right'>
-  <DrawerTrigger>Open</DrawerTrigger>
+<Drawer open={open} onOpenChange={setOpen} side="right">
+  <DrawerTrigger asChild><Button>Open</Button></DrawerTrigger>
   <DrawerContent>
-    <DrawerHeader>
-      <DrawerTitle>Edit person</DrawerTitle>
-      <DrawerDescription>...</DrawerDescription>
+    <DrawerHeader leading={<Clock className="size-4" />}>
+      <DrawerTitle>Service fee</DrawerTitle>
+      <DrawerDescription>Configure your service pricing and terms.</DrawerDescription>
     </DrawerHeader>
-    <DrawerBody>{/* scroll-area inside */}</DrawerBody>
-    <DrawerFooter>
-      <Button>Save</Button>
-      <DrawerClose asChild><Button variant='ghost'>Cancel</Button></DrawerClose>
+    <DrawerBody>{/* scrollable content */}</DrawerBody>
+    <DrawerFooter
+      leading={<CheckboxField checked={dontShow} onCheckedChange={...} label="Don't show again" />}
+    >
+      <DrawerClose asChild><Button variant="outline">Cancel</Button></DrawerClose>
+      <Button>Continue</Button>
     </DrawerFooter>
   </DrawerContent>
 </Drawer>
+
+// Or 50/50 stretched footer per Figma Footer variant 1:
+<DrawerFooter layout="equal">
+  <DrawerClose asChild><Button variant="outline">Cancel</Button></DrawerClose>
+  <Button>Continue</Button>
+</DrawerFooter>
 ```
 
-Uses Radix Dialog under the hood with custom positioning (Drawer is a Dialog variant in Radix). Default width: `420px` (`max-w-md`) for right/left, `60vh` for top/bottom. `Cmd+Enter` and `Escape` keyboard contract per UI rules.
+**Implementation notes (post-fixup):**
+- Uses Radix Dialog under the hood with custom positioning. Default width: `max-w-md` (~420px) for right/left, `max-h-[80vh]` for top/bottom.
+- **Panel chrome per Figma:** inner-edge rounded corners only (`rounded-l-2xl` for right, `rounded-r-2xl` for left, `rounded-b-2xl` for top, `rounded-t-2xl` for bottom), `shadow-2xl`, NO border on the seam. The page-facing edge stays flush against the viewport.
+- **Header per Figma:** no chrome `border-b` (the initial A.9 commit had this — removed in fixup). Optional `leading` prop renders a `size-10 rounded-full border` icon badge to the left of the title block, matching Figma `Drawer Header [1.1]` variants 2 + 4.
+- **Footer per Figma:** no chrome `border-t` (removed in fixup). Two layouts: `default` (right-aligned with optional `leading` slot for checkbox / switch / link / step-indicator) and `equal` (children stretched flex-1 — confirmation-flow 50/50 shape, mutually exclusive with `leading`).
+- `Cmd+Enter` and `Escape` keyboard contract inherited from Radix Dialog.
 
-**Tests:** Smoke test asserts open/close, side prop applies positioning class, Escape closes, focus trap activates.
+**Tests (17 smoke tests, all passing):** content slots inside Radix Dialog · controlled open via trigger click · default `right` side data attribute · per-side classes incl. inner-edge rounded corners (`rounded-l-2xl` / `rounded-r-2xl` / `rounded-b-2xl` / `rounded-t-2xl`) · auto close button by default · `hideCloseButton` hides the button · ARIA labelledby/describedby from Title + Description · DrawerClose dismisses the drawer · header `leading` badge renders when provided · header is borderless by default · footer is borderless by default + trailing wrapper anchors right when no `leading` · footer `layout="equal"` stretches children via `[&>*]:flex-1` · footer `leading` slot anchors left and drops the trailing wrapper's `ml-auto` · className forwarded to content without dropping default classes.
 
 ---
 
@@ -620,7 +633,7 @@ Order chosen so primitives with lower dependency are first; primitives that depe
 6. `feat(ds): add StepIndicator primitive`
 7. `feat(ds): add ColorPicker primitive`
 8. `feat(ds): add Pagination primitive` (standalone — DataTable migration deferred)
-9. `feat(ds): add Drawer primitive` (uses ScrollArea)
+9. `feat(ds): add Drawer primitive` (uses ScrollArea) — **DONE (A.9)** + `fix(ds): align Drawer with canonical Figma source (rounded inner edges, leading icon badge, footer layout/leading slots)` — **DONE (A.9-fixup)**
 10. `feat(ds): add CommandMenu primitive` (uses Dialog + ScrollArea)
 11. `feat(ds): add ActivityFeed primitive` (uses Avatar + EmptyState + Skeleton)
 12. `feat(ds): add NotificationFeed primitive`
@@ -750,7 +763,8 @@ Concrete failure scenarios per the AGENTS.md rule: each entry has a severity, af
 
 - **Affected area:** 20 of 20 primitive specs in `## Per-Primitive Specs` carry `**Figma node:** TBD`.
 - **Failure scenario:** Implementation proceeds without consulting Figma source, drifts from canonical visual — auto-review-pr flags Figma-fidelity issues, forcing carry-forward.
-- **Mitigation:** Each Phase A / Phase B commit's pre-implementation step is `mcp__figma__search_design_system` for the component name to retrieve the node ID, then `use_figma` (via `figma-use` skill) to inspect the canonical look. Node ID is written into the spec section BEFORE the implementation commit lands.
+- **Realised on A.9 Drawer.** The initial A.9 commit shipped with R4 "inferred from DS tokens" framing (incorrect — `Drawer` page `486:7366` exists in the file with full Header / Footer variant coverage). Caught by the user mid-PR. The fixup commit (A.9-fixup) realigns the primitive to the canonical Figma source: panel `rounded-l-2xl` + `shadow-2xl`, no chrome `border-l/border-b/border-t`, optional header `leading` icon badge, footer `layout="equal"` + `leading` slot. Lesson: ALWAYS check the Figma file's page list first (cheap one-call `figma.root.children.map(p => p.name)`) before declaring a primitive has no source.
+- **Mitigation:** Each Phase A / Phase B commit's pre-implementation step is `mcp__figma__search_design_system` for the component name to retrieve the node ID, then `use_figma` (via `figma-use` skill) to inspect the canonical look. Node ID is written into the spec section BEFORE the implementation commit lands. **Pre-flight rule (added post A.9):** if `search_design_system` returns nothing, ALSO list `figma.root.children` and grep for partial name matches before falling back to R4-inferred styling.
 - **Residual risk:** Some Figma nodes may not exist for components we infer from product usage (e.g. `ActivityFeed`, `NotificationFeed`). For those, document the inferred design in the spec section and the implementation commit message — explicitly call out "no Figma source; inferred from current product usage".
 
 ### R5. `cmdk` as a new direct dependency for `CommandMenu` — **SEV: LOW**
@@ -819,3 +833,4 @@ To be filled in after all phases land and before opening the PR. Sections:
 | Date | Status | Notes |
 |---|---|---|
 | 2026-05-13 | DRAFT | Initial spec. Awaiting user approval before commit 1. Scope: 12 new primitives + 8 rewrites + Table polish + FilterBar polish. 25-commit Implementation Plan. Per-primitive Figma node IDs marked `TBD` (resolved during each primitive's commit). |
+| 2026-05-17 | FIXUP — A.9 Drawer | Realigned Drawer to canonical Figma source (`486:7366` — user-pointed). Panel: `rounded-l-2xl` (and per-side counterparts) + `shadow-2xl`, removed `border-l/r/t/b` from the seam. Header: removed `border-b`, added optional `leading` icon badge slot (`size-10 rounded-full border`) matching `Drawer Header [1.1]` variants 2 + 4. Footer: removed `border-t`, added `layout` variant (`default` / `equal` 50/50 stretched) + optional `leading` slot (checkbox / switch / link / step dots) matching `Drawer Footer [1.1]` variants 1–6. R4 risk note updated with the lesson: always list `figma.root.children` before declaring a primitive has no Figma source. Drawer tests grew from 12 → 17 (5 new cases for leading badge, default no-border, default footer layout, equal layout, footer leading slot). |

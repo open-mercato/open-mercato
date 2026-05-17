@@ -4021,13 +4021,57 @@ Both share the underlying Radix Dialog, the same `Cmd/Ctrl+Enter` submit + `Esca
 | Slot | Purpose | Notes |
 |---|---|---|
 | `DrawerTrigger` | Opens the drawer. Use `asChild` to wrap any clickable. | Radix passthrough |
-| `DrawerContent` | The panel itself. Accepts `side`, `hideCloseButton`, `closeAriaLabel`. | Auto-renders the top-right close button unless `hideCloseButton` is set |
-| `DrawerHeader` | Title + Description row. Has bottom border. | Right-padded (`pr-12`) so the close button doesn't overlap the title |
-| `DrawerBody` | The body. `overflow-y-auto` + `flex-1` so it fills free space and scrolls if content exceeds height. | |
-| `DrawerFooter` | Action row at the bottom. Has top border, right-aligned. | Place primary action LAST per platform convention |
+| `DrawerContent` | The panel itself. Accepts `side`, `hideCloseButton`, `closeAriaLabel`. | Auto-renders the top-right close button unless `hideCloseButton` is set. Inner-edge rounded (`rounded-l-2xl` for right, etc.) per Figma. |
+| `DrawerHeader` | Title + Description block. Accepts optional `leading` slot. | Right-padded (`pr-14`) so the close button doesn't overlap the title. No chrome border — per Figma `Drawer Header [1.1]`. |
+| `DrawerBody` | The body. `overflow-y-auto` + `flex-1` so it fills free space and scrolls if content exceeds height. | Content drives its own section dividers — no chrome borders from the Drawer. |
+| `DrawerFooter` | Action row at the bottom. Accepts `layout` (`default` / `equal`) and optional `leading` slot. | No chrome border — per Figma `Drawer Footer [1.1]`. Place primary action LAST per platform convention. |
 | `DrawerTitle` | Wraps Radix's Title for ARIA. | Required for `aria-labelledby` wiring |
 | `DrawerDescription` | Wraps Radix's Description for ARIA. | Required for `aria-describedby` wiring |
 | `DrawerClose` | Dismiss button. Use `asChild` to wrap any clickable. | Radix passthrough |
+
+### Header — `leading` slot
+
+Matches Figma `Drawer Header [1.1]` variants 2 + 4 (icon-prefixed title). Renders the node inside a `size-10 rounded-full border` badge to the left of the title block.
+
+```tsx
+<DrawerHeader leading={<Clock className="size-4" />}>
+  <DrawerTitle>Activity log</DrawerTitle>
+  <DrawerDescription>Last 30 days of customer activity.</DrawerDescription>
+</DrawerHeader>
+```
+
+Pass a `lucide-react` icon at `size-4` for the canonical look. The badge inherits `text-muted-foreground` so the icon color resolves correctly without extra Tailwind classes.
+
+### Footer — layouts
+
+Matches Figma `Drawer Footer [1.1]` variants 1–6.
+
+| `layout` | Visual | When to use |
+|---|---|---|
+| `default` (default) | Right-aligned buttons. Optional `leading` slot anchors left. | The standard pattern — Cancel + Save on the right, optional "Don't show again" / "Remember me" / link button on the left. |
+| `equal` | All children stretched to share the row equally (50/50 for two buttons). | Confirmation-flow shape per Figma variant 1 — full-width Cancel + Continue. Use when both buttons carry equal visual weight. |
+
+```tsx
+// Default — right-aligned, optional leading slot
+<DrawerFooter
+  leading={
+    <CheckboxField checked={dontShow} onCheckedChange={setDontShow}>
+      Don&apos;t show again
+    </CheckboxField>
+  }
+>
+  <DrawerClose asChild><Button variant="outline">Cancel</Button></DrawerClose>
+  <Button>Continue</Button>
+</DrawerFooter>
+
+// Equal — 50/50 stretched
+<DrawerFooter layout="equal">
+  <DrawerClose asChild><Button variant="outline">Cancel</Button></DrawerClose>
+  <Button>Continue</Button>
+</DrawerFooter>
+```
+
+`layout="equal"` is mutually exclusive with `leading` — Figma never combines the two (the 50/50 split is a confirmation-flow shape and the leading slot belongs to the right-aligned variant family).
 
 ### MUST rules
 
@@ -4072,12 +4116,13 @@ Both share the underlying Radix Dialog, the same `Cmd/Ctrl+Enter` submit + `Esca
 
 ### Notes
 
-- No dedicated Figma node in the DS Open Mercato library (R4 in v5 spec — `Modal Overlay [1.1]` covers the overlay, but no side variants ship). Styling inferred from DS tokens.
-- Built on `@radix-ui/react-dialog` (already installed via the `Dialog` primitive — no new dep).
-- Overlay: `bg-foreground/40 backdrop-blur-sm` — same overlay treatment as Dialog, lets the user feel the page is still "there" while focusing on the drawer.
-- Content panel: `bg-background shadow-lg` + 1px border on the panel-facing edge (border-l for right, border-r for left, etc.). The page-facing edge stays flush against the viewport — no border, no rounded corners (matches OS-native drawer feel).
-- Default `max-w-md` (~420px) for right/left works well for forms; pass `className="max-w-2xl"` for wider detail panes.
-- Auto-rendered top-right close button (`X` icon, `size-8`, muted-foreground). Use `hideCloseButton` when the body provides its own dismissal (e.g. a Save/Cancel footer alone).
+- Figma source: DS Open Mercato `Drawer` page (`486:7366`) — `Drawer Header [1.1]` (`3187:2897`) and `Drawer Footer [1.1]` (`4096:21416`) plus assembled examples (`167124:24738`, `167124:24794`, `167124:24859`, ...).
+- Built on `@radix-ui/react-dialog` (Radix Dialog under the hood). `@radix-ui/react-dialog` was promoted from transitive to a direct dep of `packages/ui` in the v5 A.10 CommandMenu commit.
+- **Overlay:** `bg-foreground/40 backdrop-blur-sm` — page chrome stays visible-but-dimmed behind the drawer.
+- **Content panel:** `bg-background shadow-2xl` + rounded corners on the inner (viewport-facing) edges only. Per Figma there is NO border on the seam — the rounded corners + the shadow do the visual separation work. Resulting classes by side: `rounded-l-2xl` (right), `rounded-r-2xl` (left), `rounded-b-2xl` (top), `rounded-t-2xl` (bottom).
+- **No chrome dividers** between Header / Body / Footer. Section separators inside the body (e.g. "ELIGIBILITY CRITERIA" labels) come from content composition, not from the Drawer primitive.
+- Default `max-w-md` (~420px) for right/left works well for forms; pass `className="max-w-2xl"` on `DrawerContent` for wider detail panes.
+- Auto-rendered top-right close button (`X` icon, `size-8`, muted-foreground, hover bg `muted/40`). Use `hideCloseButton` when the body provides its own dismissal (e.g. a Save/Cancel footer alone).
 
 ---
 
