@@ -630,22 +630,22 @@ yarn test:integration:ephemeral  # full suite — Badge is too cascade-heavy for
 
 ---
 
-### 18. Notification (toast — rewrite)
+### 18. Notification (toast — rewrite) — **IMPLEMENTED (Phase B.2)**
 
-**Figma node:** TBD.
+**Figma source:** DS Open Mercato `Alert, Notification & Toast` page (`169:2358`) — `Alert & Notification & Toast [1.1]` component set (`169:2399`). The Phase 2 hackathon already shipped a thin wrapper over the `Alert` primitive matching this Figma source (status × style × icon override × title × description × timestamp × actions × dismissible). Phase B.2 enhancement is **additive toast UX** — auto-dismiss timer + pause-on-hover.
 
-**Purpose:** Single toast notification (existing primitive `notification.tsx`). Distinct from new `NotificationFeed` (§ 6, inbox panel).
+**Purpose:** Single toast notification (existing primitive `notification.tsx`). Distinct from new `NotificationFeed` (§ 6, inbox panel) and `NotificationStack` (corner-floating pile of toasts).
 
-**Backward compatibility:**
-- Existing `<Notification>` props (`title`, `description`, `type`, `onClose`) keep working.
+**Backward compatibility (0 import sites — but `NotificationStack` consumes it internally):**
+- All existing props stay verbatim: `status`, `style`, `avatar`, `title`, `description`, `timestamp`, `actions`, `dismissible`, `onDismiss`, `dismissAriaLabel`, `className`, `id`.
 - `NotificationStack` (top-right pile) keeps working unchanged.
+- Title / timestamp / description / actions slot layout unchanged.
 
 **New (additive):**
-- Optional `action` slot (button inside the toast).
-- Optional `icon` override.
-- Figma styling alignments — padding, radius, shadow.
+- `autoDismissMs?: number` — fire `onDismiss` after the configured delay. Standard toast UX: 4000–6000ms for success/info, 8000+ for warnings, no auto-dismiss for errors. Default `undefined` (manual dismiss only).
+- `pauseOnHover?: boolean` — pause the auto-dismiss timer while the user is hovering the card. Defaults to `true` whenever `autoDismissMs` is set. Exposes `data-auto-dismiss-paused="true"` on the root for CSS hooks / debugging.
 
-**Tests:** Existing test stays green; new tests for action slot, icon override.
+**Tests (22 smoke tests, all passing — 16 pre-existing + 6 new):** new tests cover `autoDismissMs` fires after the delay, no auto-dismiss when prop is undefined or 0, hover pauses + leave restarts the timer, `pauseOnHover=false` overrides the auto-pause, and cancelling the prop mid-flight clears the pending timer.
 
 ---
 
@@ -729,7 +729,7 @@ Each commit includes: primitive file, unit test file, `.ai/ui-components.md` sec
 ### Phase B — Rewrites (8 commits, low-blast → high-blast)
 
 13. `refactor(ds): rewrite Progress primitive per Figma — additive variants` (3 import sites) — **DONE (B.1)** + new `CircularProgress` export
-14. `refactor(ds): rewrite Notification toast primitive per Figma — additive` (0 import sites)
+14. `refactor(ds): rewrite Notification toast primitive per Figma — additive` (0 import sites; Phase 2 already aligned visual; B.2 adds `autoDismissMs` + `pauseOnHover` for toast UX) — **DONE (B.2)**
 15. `refactor(ds): rewrite Separator primitive per Figma — add labeled / dashed variants` (5 import sites)
 16. `refactor(ds): rewrite Avatar primitive per Figma — add status + ring` (4 import sites)
 17. `refactor(ds): rewrite Tabs primitive per Figma — add pills / vertical / count` (6 import sites)
@@ -924,3 +924,4 @@ To be filled in after all phases land and before opening the PR. Sections:
 | 2026-05-17 | IN PROGRESS — Phase A 11/12 | Shipped A.11 ActivityFeed. Compound API (`ActivityFeed` + `ActivityFeedItem` + `ActivityFeedFileChip` + `ActivityFeedComment` + `ActivityFeedStatusChip`) instead of the originally-spec'd data-driven `items={[]}` shape — title is a ReactNode so Figma sentences (bold actor + muted verb + inline status chip) compose naturally. 12 smoke tests added (1169 UI tests passing). Remaining: A.12 NotificationFeed, then Phase B (8 rewrites) + Phase C polish. |
 | 2026-05-17 | PHASE A COMPLETE (12/12) | Shipped A.12 NotificationFeed. Compound API (`NotificationFeed` + `NotificationFeedHeader` + `NotificationFeedList` + `NotificationFeedItem` + `NotificationFeedFooter` + `NotificationFeedIconBadge`) — 7-tone IconBadge helper, `unread` dot, `onClick` row activation with Enter/Space, hover-revealed `actions` slot, indented `children` for inline Approve/Deny pairs / file chips / reply previews. 13 smoke tests added (1182 UI tests total). Phase A done — 12 new primitives shipped: A.1 ScrollArea, A.2 ButtonGroup, A.3 SegmentedControl, A.4 Slider, A.5 Rating, A.6 StepIndicator, A.7 ColorPicker, A.8 Pagination, A.9 Drawer (+ A.9-fixup), A.10 CommandMenu, A.11 ActivityFeed, A.12 NotificationFeed. Next: Phase B (8 rewrites: Avatar, Badge, Dialog, Separator, Progress, Notification toast, Tabs, Table) + Phase C polish (FilterBar, i18n, docs sweep). |
 | 2026-05-17 | PHASE B START — B.1 Progress | Rewrote `Progress` primitive per Figma `Progress Bar` page (`450:17758`). Track `bg-secondary` → `bg-input`, fill `bg-primary` → `bg-accent-indigo`. Added optional `size` (sm/default/lg), `tone` (accent/success/warning/destructive/muted), `label`/`showValue`/`description` slots, `fillClassName` override. Shipped new `CircularProgress` export — 4 sizes (xs/sm/default/lg), same 5 tones, SVG-stroke-dasharray ring with optional centre value badge or custom children. 18 smoke tests added. Backward compatibility verified: 3 existing call sites (`NextStepCallout.tsx`, `data_sync .../runs/[id]/page.tsx`, `akeneo-config widget.client.tsx`) keep working without changes. 1200 UI tests passing. |
+| 2026-05-17 | PHASE B.2 — Notification toast | Existing Phase 2 Notification (thin wrapper over Alert) is already Figma-aligned. B.2 adds toast UX: `autoDismissMs` fires `onDismiss` after the configured delay; `pauseOnHover` (default true when autoDismissMs is set) pauses the timer while the user hovers the card. Exposes `data-auto-dismiss-paused="true"` on the root for CSS hooks. 6 new tests added (timer fires, undefined/0 no-op, hover pauses + leave restarts, pauseOnHover=false override, prop cancellation clears timer). 1206 UI tests passing total. |
