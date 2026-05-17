@@ -571,22 +571,37 @@ yarn test:integration:ephemeral  # full suite — Badge is too cascade-heavy for
 
 ---
 
-### 15. Dialog (rewrite — MEDIUM cascade, 40 import sites)
+### 15. Dialog (rewrite — MEDIUM cascade, 40 import sites) — **IMPLEMENTED (Phase B.7)**
 
-**Figma node:** TBD.
+**Figma source:** DS Open Mercato `Modals` page (`466:4630`) — `Modal Header [1.1]` (`466:4778`, optional leading icon badge + title + description), `Modal Footer [1.1]` (`472:566`, right-aligned default + 50/50 stretched variant), `Status Modals [1.1]` (`480:1372`, status-icon hero variants), `Modal Overlay [1.1]` (`480:2474`). Assembled examples in `Modals [Blocks]` frames (167140:29924 et al.).
 
-**Purpose:** Modal overlay. 40 import sites makes this the second-riskiest rewrite.
+**Purpose:** Modal overlay. 40 import sites makes this the second-riskiest rewrite — additivity is a hard requirement.
 
-**Backward compatibility (HARD constraint):**
-- The compound API (`Dialog`, `DialogTrigger`, `DialogContent`, `DialogHeader`, `DialogTitle`, `DialogDescription`, `DialogFooter`, `DialogClose`) MUST stay callable verbatim.
-- `Cmd/Ctrl+Enter` submit and `Escape` cancel contract MUST stay enforced.
-- `forceMount`, `modal`, `defaultOpen` Radix passthroughs MUST stay supported.
+**Backward compatibility (HARD constraint, 40 import sites):**
+- The compound API (`Dialog`, `DialogTrigger`, `DialogPortal`, `DialogOverlay`, `DialogClose`, `DialogContent`, `DialogHeader`, `DialogFooter`, `DialogTitle`, `DialogDescription`) stays callable verbatim.
+- Cmd/Ctrl+Enter submit and Escape cancel inherit from Radix Dialog — unchanged.
+- `forceMount`, `modal`, `defaultOpen`, `open`, `onOpenChange` Radix passthroughs unchanged.
+- Default `size="default"` reproduces the original `sm:max-w-lg` width.
+- Default header (no `leading` prop) keeps the original `flex-col space-y-1.5 text-center sm:text-left` layout.
+- Default footer (`layout="default"`) keeps the original `flex-col-reverse gap-2 sm:flex-row sm:justify-end` look.
+- `elevated` prop for popover-nested dialogs unchanged.
+- Auto-X close button keeps the same position + icon + opacity transitions.
 
-**New (additive / styling-only):**
-- Figma may adjust padding, radius, shadow, header treatment, animation timing — all internal styling, no API break.
-- Optional `size` discriminant if Figma documents `sm | default | lg | xl` Dialog widths.
+**New (additive) on `DialogContent`:**
+- `size: 'sm' | 'default' | 'lg' | 'xl'` — max-width breakpoints (`sm:max-w-sm` / `sm:max-w-lg` / `sm:max-w-2xl` / `sm:max-w-4xl`).
+- `dismissible: boolean` (default `true`) — render the auto X top-right close button. Pass `false` for confirmation dialogs that must complete via explicit action buttons.
+- `closeAriaLabel` override (defaults to the `ui.dialog.close.ariaLabel` translation).
 
-**Tests:** Existing dialog tests stay green; new test for `size` variants.
+**New (additive) on `DialogHeader`:**
+- `leading?: ReactNode` — renders a `size-10 rounded-full border` icon badge to the left of the title block, matching Figma `Modal Header [1.1]` icon-prefixed variants (same chrome as the Drawer header `leading` slot from A.9-fixup).
+- When `leading` is set, the header switches from `flex-col` to `flex items-start gap-3` with the badge on the left and a `flex-col gap-1` text wrapper holding title + description.
+
+**New (additive) on `DialogFooter`:**
+- `layout: 'default' | 'equal'` (default `default`). `equal` stretches children `flex-1` for 50/50 confirmation footers per Figma `Modal Footer [1.1]` variant 1 (Cancel + Continue at equal weight). Mutually parallel to the same `layout="equal"` on `DrawerFooter`.
+
+**`data-slot` attributes:** Every slot now exposes a `data-slot` (`dialog-overlay`, `dialog-content`, `dialog-header`, `dialog-header-leading`, `dialog-header-text`, `dialog-footer`, `dialog-title`, `dialog-description`, `dialog-close-button`) for CSS / test selectors. Root `<DialogContent>` exposes `data-size`; root `<DialogFooter>` exposes `data-layout`.
+
+**Tests (13 smoke tests, all passing — first-ever Dialog tests):** content / overlay / header / title / description / footer slots inside Radix Dialog; controlled open via trigger click; auto X close button by default; `dismissible=false` hides X; default `size="default"` + `sm:max-w-lg`; all 4 size variants with matching `sm:max-w-{sm|lg|2xl|4xl}`; header leading badge renders when provided (size-10 rounded-full border + title/description inside text wrapper); leading badge omitted by default; default footer layout reads `default` + `flex-col-reverse`; `layout="equal"` stretches children via `[&>*]:flex-1`; Radix Dialog ARIA contract (`role="dialog"`, labelledby/describedby); DialogClose dismisses the dialog; className forwarded to content without dropping size classes.
 
 ---
 
@@ -757,7 +772,7 @@ Each commit includes: primitive file, unit test file, `.ai/ui-components.md` sec
 16. `refactor(ds): rewrite Avatar primitive per Figma — add status + ring` (4 import sites) — **DONE (B.4)**
 17. `refactor(ds): rewrite Tabs primitive per Figma — add pills / vertical / count` (6 import sites) — **DONE (B.5)**
 18. `refactor(ds): polish Table primitive — padding / hover / sortable indicator / striped` (1 direct + DataTable internals) — **DONE (B.6)**
-19. `refactor(ds): rewrite Dialog primitive per Figma — additive size variant` (40 import sites)
+19. `refactor(ds): rewrite Dialog primitive per Figma — additive size variant + leading + footer layout` (40 import sites) — **DONE (B.7)**
 20. `refactor(ds): rewrite Badge primitive per Figma — additive variants/sizes` (83 import sites)
 
 ### Phase C — Backend polish + i18n + docs (5 commits)
@@ -952,3 +967,4 @@ To be filled in after all phases land and before opening the PR. Sections:
 | 2026-05-17 | PHASE B.4 — Avatar | Rewrote `Avatar` per Figma `Avatars` page (`210:4129`). Plain avatars (no decorations) still render as single `<div data-slot="avatar">` for backward compat (4 import sites in core customers linking adapters + ds-v5 demo). New props: `status` (8 tones; bottom-right dot per Figma `Bottom Status [1.1]`), `statusPosition` (`bottom-right` / `top-right`), `ring` (boolean or 5 tones; outer `ring-2 ring-offset-2` per `Top Status` ring style), `badge` ReactNode slot for top-right icon overlays (verified check / premium / etc. per `Top Status [1.1]`), `badgeClassName` override. Status-dot size scales 1/3 of avatar diameter (size-1.5 → size-4 across xs → xl). 10 new tests added (20 total Avatar tests). 1228 UI tests passing total. |
 | 2026-05-17 | PHASE B.5 — Tabs | Rewrote `Tabs` per Figma `Tab Menu` page (`553:734`). Default `variant="pill"` keeps original look (6 import sites — `integrations`, `scheduler`, `checkout`, `search` × 2, `ai-assistant` — render unchanged). New `variant="underline"` matches Figma `Tab Menu Horizontal [1.1]`: flat strip with `border-b border-input` rail + `border-b-2 border-accent-indigo` active. New `orientation="vertical"` for column layout (per Figma `Tab Menu Vertical [1.1]`). New trigger slots: `leading` icon (accent-indigo on underline-active), `count` badge (accent-indigo/10 tone on active, muted otherwise; `count={0}` still renders). 8 new tests added (10 total Tabs tests). 1236 UI tests passing total. |
 | 2026-05-17 | PHASE B.6 — Table polish | Polished `Table` primitive per Figma `Table` page (`553:14955`). TableHeader now ships `bg-muted/40` strip per Figma `Table Header Cell [1.1]`; TableRow ships `hover:bg-muted/30` + `transition-colors` (scoped via `[&:not(thead_*)]` so header rows don't bounce). New `variant="striped"` adds even:bg-muted/20 via Table context. New `TableFooter` + `TableCaption` exports. Every slot exposes `data-slot` attribute for CSS hooks. Cell padding preserved (`px-4 py-2`) to avoid pushing list pages taller. DataTable consumers flow through automatically without changes. 9 new tests added (first-ever Table tests). 1245 UI tests passing total. |
+| 2026-05-17 | PHASE B.7 — Dialog | Rewrote `Dialog` per Figma `Modals` page (`466:4630`). 40 import sites preserved: default `size="default"` keeps `sm:max-w-lg`; default header keeps `flex-col` layout; default footer keeps `flex-col-reverse sm:flex-row sm:justify-end`. New props: `DialogContent.size` (sm/default/lg/xl with sm:max-w-{sm,lg,2xl,4xl}), `DialogContent.dismissible` (default true), `DialogContent.closeAriaLabel` override; `DialogHeader.leading` ReactNode slot rendering size-10 rounded-full border icon badge (matches Figma `Modal Header [1.1]` icon-prefixed variants and the Drawer header leading from A.9-fixup); `DialogFooter.layout` (`default` / `equal` 50/50 stretched per Figma `Modal Footer [1.1]` variant 1). Every slot now exposes `data-slot` attributes. 13 new tests added (first-ever Dialog tests). 1258 UI tests passing total. |
