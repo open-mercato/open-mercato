@@ -72,10 +72,10 @@ export async function GET(
     return NextResponse.json({ error: message }, { status: access.status })
   }
 
-  const driver = storageDriverFactory.resolveForAttachment(
-    attachment.storageDriver,
-    partition.configJson,
-  )
+  const driver = await storageDriverFactory.resolveForPartition(attachment.partitionCode, {
+    tenantId: attachment.tenantId ?? '',
+    organizationId: attachment.organizationId ?? '',
+  })
   const cacheKey = buildThumbnailCacheKey(width, height, cropType)
   try {
     let buffer: Buffer | null = null

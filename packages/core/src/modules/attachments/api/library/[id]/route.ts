@@ -238,11 +238,10 @@ export async function DELETE(req: NextRequest, ctx: RouteContext) {
   if (!record) {
     return NextResponse.json({ error: 'Attachment not found' }, { status: 404 })
   }
-  const recordPartition = await em.findOne(AttachmentPartition, { code: record.partitionCode })
-  const deleteDriver = storageDriverFactory.resolveForAttachment(
-    record.storageDriver,
-    recordPartition?.configJson,
-  )
+  const deleteDriver = await storageDriverFactory.resolveForPartition(record.partitionCode, {
+    tenantId: record.tenantId ?? auth.tenantId,
+    organizationId: record.organizationId ?? auth.orgId,
+  })
   await deleteDriver.delete(record.partitionCode, record.storagePath)
   await em.remove(record).flush()
 
