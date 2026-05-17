@@ -132,22 +132,26 @@ export type AvatarProps = {
 } & VariantProps<typeof avatarVariants> &
   Omit<React.HTMLAttributes<HTMLDivElement>, 'role' | 'aria-label'>
 
-// Inner div (the actual avatar circle).
-function AvatarCircle({
-  className,
-  label,
-  src,
-  icon,
-  size,
-  variant,
-  ariaLabel,
-  ...rest
-}: Omit<AvatarProps, 'status' | 'statusPosition' | 'ring' | 'badge' | 'badgeClassName'> & {
+type AvatarCircleProps = Omit<
+  AvatarProps,
+  'status' | 'statusPosition' | 'ring' | 'badge' | 'badgeClassName'
+> & {
   className?: string
-}) {
+}
+
+// Inner div (the actual avatar circle). Implemented as forwardRef so
+// the outer Avatar wrapper can forward refs through to the rendered
+// `<div role="img">` regardless of whether it lives directly inside
+// Avatar or inside the decorated `<span data-slot="avatar-root">`
+// wrapper.
+const AvatarCircle = React.forwardRef<HTMLDivElement, AvatarCircleProps>(function AvatarCircle(
+  { className, label, src, icon, size, variant, ariaLabel, ...rest },
+  ref,
+) {
   const initials = React.useMemo(() => computeInitials(label), [label])
   return (
     <div
+      ref={ref}
       role="img"
       aria-label={ariaLabel ?? label}
       data-slot="avatar"
@@ -165,7 +169,7 @@ function AvatarCircle({
       )}
     </div>
   )
-}
+})
 
 export const Avatar = React.forwardRef<HTMLDivElement, AvatarProps>((props, ref) => {
   const {
