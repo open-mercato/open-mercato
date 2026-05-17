@@ -51,6 +51,7 @@ Detailed variant tables, size matrices, props, examples, and MUST rules for ever
 - [Rating](#rating)
 - [StepIndicator](#stepindicator)
 - [ColorPicker](#colorpicker)
+- [Pagination](#pagination)
 - [Specialized Inputs (overview)](#specialized-inputs-overview)
 - [ComboboxInput](#comboboxinput)
 - [TagsInput (backend)](#tagsinput-backend)
@@ -3813,6 +3814,141 @@ useEffect(() => api.save(color), [color])   // stable: ColorPicker normalises to
 - Hue slider commits a *pure saturated* color (`hsl(hue, 100%, 50%)`). To pick a desaturated or darker shade, type the hex directly. The full 2D HSV spectrum + opacity slider is intentionally NOT part of this primitive's Figma source — those would belong to a separate "advanced color picker" primitive in a future release.
 - Eyedropper uses the browser's `window.EyeDropper` API (Chromium-based — Chrome, Edge, Opera, Brave). On Firefox / Safari / older browsers the button auto-hides; the rest of the picker keeps working.
 - "Saved colors" semantics: the `swatches` list is read-only from the primitive's perspective. To support a user-editable palette, pair `swatches` with `onAddSwatch(color)` — the consumer owns the storage / persistence and decides whether new entries are appended, deduped, etc.
+
+---
+
+## Pagination
+
+Page navigation primitive per Figma `Pagination Group [1.1]` (DS Open Mercato componentSet `199985:4135`). Layout: `[Page X of Y]  [⏮ ◀ pages ▶ ⏭]  [N / page]`.
+
+```typescript
+import { Pagination, buildPaginationItems } from '@open-mercato/ui/primitives/pagination'
+```
+
+### When to use
+
+- **List views without DataTable** — search result pages, portal lists, ad-hoc list surfaces that need page navigation. The `DataTable` primitive keeps its own internal pager for now; migrating it to use `Pagination` is a follow-up. Reach for `Pagination` directly when you're building a list outside DataTable.
+- **Portal pages** — pair with `DataTable` (which already paginates) only when you need a non-DataTable list. The portal-safe prop subset of DataTable is documented separately in `packages/ui/AGENTS.md`.
+
+### API
+
+```tsx
+<Pagination
+  page={number}                                  // 1-indexed
+  pageSize={number}
+  total={number}                                 // total item count
+  onPageChange={(next: number) => void}
+  onPageSizeChange={(next: number) => void}      // optional; hides the "X / page" select when omitted
+  pageSizeOptions={readonly number[]}            // default [10, 25, 50, 100]
+
+  showInfo={boolean}                             // default true  — "Page X of Y" on the left
+  showPageSize={boolean}                         // default true (when onPageSizeChange is set)
+  showFirstLast={boolean}                        // default true — ⏮ / ⏭ buttons
+  showPrevNext={boolean}                         // default true — ◀ / ▶ buttons
+  siblingCount={number}                          // default 1 — pages on either side of current
+  boundaryCount={number}                         // default 1 — pages pinned at each end
+  disabled={boolean}
+  aria-label={string}                            // default "Pagination"
+
+  // Optional copy overrides:
+  formatPageInfo={(page, totalPages) => string}        // default `"Page ${p} of ${t}"`
+  formatPageSizeLabel={(size) => string}                // default `"${size} / page"`
+/>
+```
+
+### Layout (matches Figma `Pagination Group [1.1]` Basic variant)
+
+| Slot | Position | Content | Toggle |
+|---|---|---|---|
+| Info | left | `"Page X of Y"` | `showInfo` |
+| First | center | `⏮` button | `showFirstLast` |
+| Prev | center | `◀` button | `showPrevNext` |
+| Pages | center | `[1][2][3]…[N-1][N]` cells with ellipsis | always |
+| Next | center | `▶` button | `showPrevNext` |
+| Last | center | `⏭` button | `showFirstLast` |
+| Page size | right | `"N / page"` CompactSelect | `showPageSize` + `onPageSizeChange` |
+
+### Ellipsis algorithm
+
+The page list uses the standard MUI / shadcn pattern: `boundaryCount` pages at each end (default 1), `siblingCount` pages on either side of the current (default 1). When the gap between a boundary and a sibling is:
+
+- **0 or 1 pages** → render the single missing page number (cleaner than `"…"`).
+- **≥2 pages** → render an `"…"` ellipsis placeholder.
+
+Defaults at `siblingCount=1, boundaryCount=1` give 7 visible slots: `1 … 4 5 6 … 10`. Bump `siblingCount=2` for `1 … 3 4 5 6 7 … 10` (9 slots) when the list is wide enough.
+
+```tsx
+import { buildPaginationItems } from '@open-mercato/ui/primitives/pagination'
+
+// Useful for SSR list previews or analytics:
+buildPaginationItems(5, 20, 1, 1)
+// → [1, 'ellipsis-left', 4, 5, 6, 'ellipsis-right', 20]
+```
+
+### Usage
+
+```tsx
+// Basic — full layout
+const [page, setPage] = React.useState(1)
+const [pageSize, setPageSize] = React.useState(25)
+<Pagination
+  page={page}
+  pageSize={pageSize}
+  total={items.length}
+  onPageChange={setPage}
+  onPageSizeChange={setPageSize}
+/>
+
+// Compact — no first/last, no page-size select
+<Pagination
+  page={page}
+  pageSize={20}
+  total={120}
+  onPageChange={setPage}
+  showFirstLast={false}
+  showPageSize={false}
+/>
+
+// Read-only at boundaries — buttons auto-disable on page 1 and last page
+
+// Custom copy for localisation
+<Pagination
+  page={page}
+  pageSize={pageSize}
+  total={500}
+  onPageChange={setPage}
+  formatPageInfo={(p, t) => t('pagination.info', { page: p, total: t })}
+  formatPageSizeLabel={(s) => t('pagination.size', { size: s })}
+/>
+```
+
+### MUST rules
+
+1. **`page` is 1-indexed.** Page 1 is the first, page `Math.ceil(total / pageSize)` is the last. Passing 0 or a value beyond the last page silently clamps to the valid range — the primitive doesn't fire `onPageChange` for a no-op clamp.
+2. **Always pass `total`, not `totalPages`.** The primitive derives total pages from `total / pageSize`. This way a `pageSize` change recomputes correctly even when the caller forgets to compensate.
+3. **Hide `showPageSize` when you don't accept page-size changes.** The select renders only when `onPageSizeChange` is wired AND `showPageSize !== false`. If you set the prop to `true` without the callback, the select still hides — explicit safety.
+4. **NEVER use Pagination as a stepper** (e.g. "Step 2 of 5" in a wizard). Use `StepIndicator` — it carries labels per step and the `aria-current="step"` semantic.
+5. **Provide an `aria-label`** when the page belongs to a specific list (e.g. `"Customers pagination"`) — screen readers announce it as the landmark's name. The default `"Pagination"` is fine for a single-list page.
+
+### Anti-patterns
+
+```tsx
+// WRONG — passing totalPages instead of total
+<Pagination page={1} pageSize={10} total={Math.ceil(items.length / 10)} ... />
+
+// WRONG — using Pagination for a wizard
+<Pagination page={currentStep} pageSize={1} total={5} onPageChange={goToStep} />
+
+// CORRECT — wizard via StepIndicator
+<StepIndicator steps={wizardSteps} onStepClick={goToStepId} />
+```
+
+### Notes
+
+- Anchored on Figma `Pagination Group [1.1]` (componentSet `199985:4135`). Cell 32×32, `rounded-lg`, white default bg, `bg-muted` (`#F7F7F7`) when selected. Nav buttons same 32×32 frame, muted-foreground icon.
+- Built without Radix — single component with semantic `<nav>` + `<ol>` markup. ARIA: `nav[aria-label]` landmark, `button[aria-current="page"]` on the current page cell, `aria-label="First/Previous/Next/Last page"` on the nav buttons.
+- The page-size select uses the existing `CompactSelect` + `CompactSelectTrigger` primitives (size `xs`, h-7) — matches Figma's right-aligned "X / page" dropdown.
+- DataTable currently keeps its internal pager — migrating DataTable to use `Pagination` is a follow-up tracked in `.ai/specs/2026-05-13-ds-foundation-v5.md` § Out of scope. Use `Pagination` directly for any list outside DataTable.
 
 ---
 

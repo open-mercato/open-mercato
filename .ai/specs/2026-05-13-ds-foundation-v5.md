@@ -265,7 +265,7 @@ Uses Radix Dialog under the hood with custom positioning (Drawer is a Dialog var
 
 ### 7. Pagination (new — primitive)
 
-**Figma node:** TBD.
+**Figma node:** [`Pagination Group [1.1]`](https://www.figma.com/design/qCq9z6q1if0mpoRstV5OEA/DS---Open-Mercato?node-id=199985-4135) — DS Open Mercato componentSet `199985:4135`. Three variants (Basic / Group / Full Radius) × three booleans (`First/Last`, `Next/Previous`, `Advanced`). v5 ships the Basic variant 1:1: `[Page X of Y]  [⏮ ◀ pages ▶ ⏭]  [N / page CompactSelect]`. Cell 32×32 rounded-8, white default, `#F7F7F7` muted when selected. Page-size select uses existing `CompactSelect` (size `xs`, h-7).
 
 **Purpose:** Standalone pagination primitive. Today, pagination lives inside `DataTable` as an internal sub-component — this PR extracts the visual + accessibility primitive so non-DataTable lists can reuse it (portal lists, search results, etc.).
 
