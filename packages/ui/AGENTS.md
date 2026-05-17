@@ -78,6 +78,7 @@ When you need… use this. Details (variants, sizes, props, MUST rules) live in 
 | Keyboard shortcut keys | `Kbd`, `KbdShortcut` | `@open-mercato/ui/primitives/kbd` |
 | Entity tag pill | `Tag` (with `TagMap`) | `@open-mercato/ui/primitives/tag` |
 | Breadcrumb navigation (DS-aligned, slash/arrow/dot divider, ARIA correct) | `Breadcrumb` (with `BreadcrumbList` / `BreadcrumbItem` / `BreadcrumbLink` / `BreadcrumbPage` / `BreadcrumbStatic` / `BreadcrumbSeparator` / `BreadcrumbEllipsis`) | `@open-mercato/ui/primitives/breadcrumb` |
+| Scrollable container with DS-styled scrollbars | `ScrollArea` (compound: `ScrollAreaRoot` / `Viewport` / `Scrollbar` / `Thumb` / `Corner`) | `@open-mercato/ui/primitives/scroll-area` |
 | Wrap a `<Link>` as button | `Button asChild` / `IconButton asChild` | — |
 
 ## Critical Primitive Rules

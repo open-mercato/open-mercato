@@ -44,6 +44,7 @@ Detailed variant tables, size matrices, props, examples, and MUST rules for ever
 - [Accordion](#accordion)
 - [LogList](#loglist)
 - [RichEditor](#richeditor)
+- [ScrollArea](#scrollarea)
 - [Specialized Inputs (overview)](#specialized-inputs-overview)
 - [ComboboxInput](#comboboxinput)
 - [TagsInput (backend)](#tagsinput-backend)
@@ -2960,6 +2961,72 @@ Toolbar atoms (`RichEditorIconButton`, `RichEditorTextDropdown`, `RichEditorDrop
 - Custom toolbar built over a raw `contentEditable` `<div>` → use `RichEditor variant='custom'` and compose `<RichEditorToolbar>` + `<RichEditorIconButton>` atoms.
 - Storing raw HTML straight from a third-party editor → always round-trip through `sanitizeHtmlRichText(...)` before persisting; the primitive sanitizes on mount and blur but the DB shouldn't accumulate stale unsafe tags.
 - Switching between markdown and rich text via `SwitchableMarkdownInput` for *new* fields → `SwitchableMarkdownInput` is `@deprecated`; new rich-text fields MUST use `RichEditor`.
+
+---
+
+## ScrollArea
+
+DS-styled scrollable container. Wraps Radix `ScrollArea` with token-driven thumb / track styling so scrollbars stay consistent across macOS / Windows / Linux instead of falling back to native OS chrome.
+
+```typescript
+import {
+  ScrollArea,
+  ScrollAreaRoot,
+  ScrollAreaViewport,
+  ScrollAreaScrollbar,
+  ScrollAreaThumb,
+  ScrollAreaCorner,
+} from '@open-mercato/ui/primitives/scroll-area'
+```
+
+### When to use
+
+Reach for `ScrollArea` whenever you'd otherwise write `<div className="overflow-auto …">`. The DS-styled thumb (`bg-muted-foreground/30`, `rounded-full`, hover state) is the canonical look — bare `overflow-auto` exposes OS-native scrollbars that drift visually across platforms.
+
+### Single-element API (90% case)
+
+```tsx
+<ScrollArea className="h-72">
+  <div className="p-4 space-y-2">
+    {longList.map((item) => <Row key={item.id} item={item} />)}
+  </div>
+</ScrollArea>
+```
+
+### Compound API (for custom layouts)
+
+```tsx
+<ScrollAreaRoot className="h-72">
+  <ScrollAreaViewport>{children}</ScrollAreaViewport>
+  <ScrollAreaScrollbar orientation="vertical">
+    <ScrollAreaThumb />
+  </ScrollAreaScrollbar>
+  <ScrollAreaCorner />
+</ScrollAreaRoot>
+```
+
+### Props (`<ScrollArea>` convenience wrapper)
+
+| Prop | Type | Default | Notes |
+|------|------|---------|-------|
+| `scrollbars` | `'vertical' \| 'horizontal' \| 'both'` | `'vertical'` | Which scrollbars to render. |
+| `className` | `string` | — | Applied to the `Root` element. Pass `h-…` / `w-…` here. |
+| `viewportClassName` | `string` | — | Applied to the inner `Viewport`. Use for padding inside the scroll area. |
+| `scrollbarClassName` | `string` | — | Applied to every `Scrollbar`. |
+| `thumbClassName` | `string` | — | Applied to every `Thumb`. |
+| All Radix `ScrollArea.Root` props | — | — | `dir`, `type`, `scrollHideDelay` etc. |
+
+### MUST rules
+
+- NEVER render `<div className="overflow-auto …">` when DS-styled scrollbars are wanted — use `ScrollArea`.
+- Always set a height (`className="h-72"` or `h-full`) on the `Root`. Without a constrained height the viewport has nothing to scroll.
+- Padding goes on the child inside the viewport, NOT on `Root` — padding on `Root` is clipped by `overflow-hidden`.
+- For horizontal-only carousels: pass `scrollbars="horizontal"` and set `whitespace-nowrap` on the inner row.
+
+### Notes
+
+- No dedicated Figma node — DS Open Mercato library did not ship a `ScrollArea` master component at the time this primitive was authored. Styling is inferred from DS scrollbar token decisions used elsewhere.
+- Built on `@radix-ui/react-scroll-area`. Scrollbar visibility is layout-driven (Radix only mounts the thumb when content overflows). jsdom unit tests cannot exercise scroll behaviour — coverage lives in visual / integration tests instead.
 
 ---
 
