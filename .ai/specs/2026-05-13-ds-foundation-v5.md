@@ -329,7 +329,7 @@ Single-component primitive — no compound API needed.
 
 ### 10. Slider (new)
 
-**Figma node:** TBD.
+**Figma node:** [`Slider [1.1]`](https://www.figma.com/design/qCq9z6q1if0mpoRstV5OEA/DS---Open-Mercato?node-id=2617-1169) — DS Open Mercato componentSet `2617:1169`. 5-variant set parameterized by `Percentage` (0% / 25% / 50% / 75% / 100%); boolean props for Label / Sublabel / Tooltip. Track 6px `#EBEBEB`, progress `#6366F1` (indigo-500), 16px thumb with white outer + 6×6 indigo inner dot.
 
 **Purpose:** Numeric value selector (single value or range). Used for price ranges, quantity selectors, opacity / brightness controls.
 

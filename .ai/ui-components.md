@@ -47,6 +47,7 @@ Detailed variant tables, size matrices, props, examples, and MUST rules for ever
 - [ScrollArea](#scrollarea)
 - [ButtonGroup](#buttongroup)
 - [SegmentedControl](#segmentedcontrol)
+- [Slider](#slider)
 - [Specialized Inputs (overview)](#specialized-inputs-overview)
 - [ComboboxInput](#comboboxinput)
 - [TagsInput (backend)](#tagsinput-backend)
@@ -3255,6 +3256,132 @@ const [period, setPeriod] = React.useState('1M')
 - Built on `@radix-ui/react-radio-group` (already installed via `Radio` primitive — no new dep).
 - Figma defines 5-item variants (1D / 1W / 1M / 3M / 1Y), but the primitive accepts any number of items. Width grows with content.
 - Underlying ARIA structure: `role="radiogroup"` on root, `role="radio"` + `aria-checked` on each item. Arrow keys move focus + selection between items (Radix default).
+
+---
+
+## Slider
+
+Numeric value selector — single value or two-thumb range. Built on `@radix-ui/react-slider`, which provides the slider ARIA contract (`role="slider"`, `aria-valuemin/max/now`, arrow / home / end keyboard navigation, RTL flip) without effort on our side.
+
+```typescript
+import { Slider } from '@open-mercato/ui/primitives/slider'
+```
+
+### When to use
+
+Use for **continuous numeric selection** — price-range filters, quantity selectors, opacity / brightness sliders, threshold knobs. The thumb count is derived from the length of `value` / `defaultValue`:
+
+- `value={[N]}` → single thumb (one number selected)
+- `value={[A, B]}` → two thumbs (range selected — `A <= B` enforced by Radix)
+
+For discrete categorical selection use `SegmentedControl` (selection) or `RadioGroup` (form field). For incrementing a single quantity by 1 step use `CounterInput` (Phase 3 primitive).
+
+### API
+
+```tsx
+<Slider
+  value={value}                                  // [number] or [number, number]
+  onValueChange={(next) => setValue(next)}       // fires while dragging
+  onValueCommit={(final) => save(final)}         // fires on release / blur (Radix)
+  min?={number}                                  // default 0
+  max?={number}                                  // default 100
+  step?={number}                                 // default 1
+  disabled?={boolean}
+  orientation?={'horizontal' | 'vertical'}       // default 'horizontal'
+  aria-label?={string}                           // recommended
+  // …all Radix Slider.Root props pass through
+/>
+```
+
+### Sizing
+
+The primitive ships a single visual size (Radix-driven track `h-1.5`, thumb `size-4`). Width is controlled by the `className`:
+
+```tsx
+<Slider value={value} onValueChange={setValue} className="w-64" />
+```
+
+For vertical sliders pass `orientation="vertical"` and constrain height via className (`className="h-48"`).
+
+### Usage
+
+```tsx
+// Single — opacity slider
+const [opacity, setOpacity] = React.useState([100])
+<Slider
+  value={opacity}
+  onValueChange={setOpacity}
+  min={0}
+  max={100}
+  step={5}
+  aria-label="Layer opacity"
+/>
+
+// Range — price filter
+const [range, setRange] = React.useState([10, 80])
+<Slider
+  value={range}
+  onValueChange={setRange}
+  min={0}
+  max={500}
+  step={10}
+  aria-label="Price range (USD)"
+/>
+
+// Display the current value next to the slider
+<div className="flex items-center gap-3">
+  <Slider value={[volume]} onValueChange={(next) => setVolume(next[0])} className="w-48" />
+  <span className="tabular-nums text-sm text-muted-foreground">{volume}%</span>
+</div>
+```
+
+### MUST rules
+
+1. **`value` MUST be an array**, even for a single thumb. `<Slider value={[42]}>` — not `<Slider value={42}>`. Radix expects array shape; passing a scalar breaks the thumb-count derivation.
+2. **Always provide `aria-label`** when the slider's purpose isn't obvious from surrounding context. Without it, screen-readers announce only the numeric value.
+3. **NEVER use Slider for discrete categorical selection.** Use `SegmentedControl` (selection state) or `RadioGroup` (form field).
+4. **For "save on release" semantics**, listen on `onValueCommit`, not `onValueChange`. `onValueChange` fires every drag tick — wiring an API call there spams the server.
+5. **Always constrain width via className** on horizontal sliders. The Radix root defaults to `w-full` and consumes the entire row otherwise.
+
+### Anti-patterns
+
+```tsx
+// WRONG — scalar value, Radix expects array
+<Slider value={42} onValueChange={(next) => setV(next)} />
+
+// WRONG — saving via onValueChange (fires hundreds of times during drag)
+<Slider value={[v]} onValueChange={(next) => api.save({ value: next[0] })} />
+
+// CORRECT — local state on drag, persist on release
+<Slider
+  value={[v]}
+  onValueChange={(next) => setV(next[0])}
+  onValueCommit={(final) => api.save({ value: final[0] })}
+/>
+```
+
+### Notes
+
+- Anchored on Figma `Slider [1.1]` (DS Open Mercato componentSet id `2617:1169`). 5-variant component set parameterized by `Percentage` (0% / 25% / 50% / 75% / 100%) and Boolean props for Label / Sublabel / Tooltip. The standalone "Level Slider" entry elsewhere in the file is an emoji icon, not this primitive.
+- Track: `bg-muted` `h-1.5` `rounded-full` (Figma: 6px track height, `#EBEBEB` BG, fully-pill corner-radius 999). Selected range: `bg-accent-indigo` `rounded-full` (Figma: `#6366F1` indigo-500 — the DS OM `--accent-indigo` token, same value Radio uses for the checked state). Thumb: `size-4` (16px, Figma exact) outer ring is pure `bg-background` (NO border — Figma shows `fills: white, no strokes`), separation from the track comes from `shadow-sm` (hover → `shadow-md`). Inner 6×6 indigo dot rendered via `::after` so the entire thumb stays a single DOM node. Focus-visible → `shadow-focus`.
+- Built on `@radix-ui/react-slider` (new direct dep — added in the Slider commit). No transitive availability.
+
+### Labeled use (matches Figma `Label / (Optional) / value` row)
+
+The Figma source pairs the slider with a label row above it (label text + optional sublabel + current value, right-aligned). We compose this at the consumer level rather than baking it into the primitive — the primitive stays minimal so non-labeled use cases (filter rails, range bands) don't pay for unused chrome.
+
+```tsx
+<div className="space-y-1">
+  <div className="flex items-center justify-between text-sm">
+    <span className="text-muted-foreground">
+      Volume{' '}
+      <span className="text-muted-foreground/60">(Optional)</span>
+    </span>
+    <span className="tabular-nums text-muted-foreground">{value[0]}</span>
+  </div>
+  <Slider value={value} onValueChange={setValue} aria-label="Volume" />
+</div>
+```
 
 ---
 
