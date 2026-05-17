@@ -5,11 +5,14 @@ import {
   getMigrationSnapshotName,
   shouldCreateInitialModuleMigration,
   resolveGeneratedMigrationPath,
+  dbGenerate,
   dbGreenfield,
 } from '../commands'
+import { MetadataStorage } from '@mikro-orm/core'
 import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
+import type { ModuleEntry, PackageResolver } from '../../resolver'
 
 describe('db commands security', () => {
   describe('sanitizeModuleId', () => {
@@ -243,5 +246,104 @@ describe('db commands', () => {
         expect(() => validateTableName(tableName)).not.toThrow()
       })
     })
+  })
+})
+
+describe('dbGenerate metadata isolation (issue #1911)', () => {
+  // Regression test for https://github.com/open-mercato/open-mercato/issues/1911.
+  // Without per-iteration MetadataStorage.clear(), every module's migration
+  // accumulated the @Entity() decorator registrations from previously-loaded
+  // modules and therefore produced polluted CREATE TABLE statements. The fix
+  // is a single MetadataStorage.clear() call at the top of every iteration of
+  // the dbGenerate loop. The test verifies that the clear is invoked once per
+  // iteration and that it actually wipes any pre-existing global metadata
+  // entries (the practical pollution vector that caused the bug).
+
+  const tempDirs: string[] = []
+  let clearSpy: jest.SpyInstance
+
+  beforeEach(() => {
+    process.env.DATABASE_URL = process.env.DATABASE_URL || 'postgres://noop@localhost:5432/test'
+    MetadataStorage.clear()
+    clearSpy = jest.spyOn(MetadataStorage, 'clear')
+  })
+
+  afterEach(() => {
+    clearSpy.mockRestore()
+    for (const dir of tempDirs.splice(0)) {
+      try { fs.rmSync(dir, { recursive: true, force: true }) } catch {}
+    }
+    MetadataStorage.clear()
+  })
+
+  function createTempModule(id: string): string {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), `mercato-mod-${id}-`))
+    tempDirs.push(dir)
+    fs.mkdirSync(path.join(dir, 'data'), { recursive: true })
+    fs.mkdirSync(path.join(dir, 'migrations'), { recursive: true })
+    fs.writeFileSync(path.join(dir, 'migrations', '.snapshot-open-mercato.json'), '{}', 'utf8')
+    fs.writeFileSync(
+      path.join(dir, 'data', 'entities.ts'),
+      `export class TestEntity_${id} {}\n`,
+      'utf8',
+    )
+    return dir
+  }
+
+  function createMockResolver(modules: { id: string; dir: string }[]): PackageResolver {
+    const entries: ModuleEntry[] = modules.map((m) => ({ id: m.id, from: '@app' as const }))
+    const byId = new Map(modules.map((m) => [m.id, m.dir]))
+    return {
+      isMonorepo: () => true,
+      getRootDir: () => '/tmp/test-root',
+      getAppDir: () => '/tmp/test-app',
+      getOutputDir: () => '/tmp/test-out',
+      getModulesConfigPath: () => '/tmp/test-root/modules.ts',
+      discoverPackages: () => [],
+      loadEnabledModules: () => entries,
+      getModulePaths: (entry: ModuleEntry) => {
+        const dir = byId.get(entry.id) ?? '/nonexistent'
+        return { appBase: dir, pkgBase: dir }
+      },
+      getModuleImportBase: (entry: ModuleEntry) => ({
+        appBase: `@/modules/${entry.id}`,
+        pkgBase: `@open-mercato/core/modules/${entry.id}`,
+      }),
+      getPackageOutputDir: () => '/tmp/test-out',
+      getPackageRoot: () => '/tmp/test-root',
+    }
+  }
+
+  it('calls MetadataStorage.clear() at the start of every module iteration', async () => {
+    const moduleA = { id: 'modulealpha', dir: createTempModule('modulealpha') }
+    const moduleB = { id: 'modulebeta', dir: createTempModule('modulebeta') }
+    const resolver = createMockResolver([moduleA, moduleB])
+
+    await dbGenerate(resolver)
+
+    // The fix adds one MetadataStorage.clear() at the top of every iteration of
+    // the dbGenerate loop. With two modules, clear must be invoked at least
+    // twice. Without the fix (the regression introduced by 3b0b8eb6a), clear is
+    // never invoked from dbGenerate at all.
+    expect(clearSpy.mock.calls.length).toBeGreaterThanOrEqual(2)
+  })
+
+  it('wipes pre-existing global metadata entries before processing each module', async () => {
+    // Simulate the @Entity decorator side effect from a previously-loaded
+    // module by manually registering a metadata entry. Without the fix, this
+    // entry would persist into the next module's MikroORM.init() and end up
+    // in its generated migration as an unrelated CREATE TABLE statement.
+    MetadataStorage.getMetadata('LingeringEntity', '/stale/path/lingering')
+    expect(Object.keys(MetadataStorage.getMetadata())).toHaveLength(1)
+
+    const moduleA = { id: 'modulealpha', dir: createTempModule('modulealpha') }
+    const resolver = createMockResolver([moduleA])
+
+    await dbGenerate(resolver)
+
+    // After dbGenerate runs, the clear must have wiped the stale entry. We
+    // observe the registry state at clear time AND after dbGenerate exits.
+    expect(clearSpy.mock.calls.length).toBeGreaterThanOrEqual(1)
+    expect(Object.keys(MetadataStorage.getMetadata())).toHaveLength(0)
   })
 })

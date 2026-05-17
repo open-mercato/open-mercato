@@ -1,7 +1,6 @@
 "use client"
 
 import * as React from 'react'
-import { Info } from 'lucide-react'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { Alert, AlertDescription } from '../../primitives/alert'
 import type {
@@ -129,7 +128,6 @@ export function FieldDiffCard({ fieldDiff, records }: FieldDiffCardProps) {
               />
             ) : (
               <Alert variant="info">
-                <Info className="size-4" aria-hidden />
                 <AlertDescription>
                   {t(
                     'ai_assistant.chat.mutation_cards.diff.empty',
@@ -147,7 +145,6 @@ export function FieldDiffCard({ fieldDiff, records }: FieldDiffCardProps) {
   if (flat.length === 0) {
     return (
       <Alert variant="info" data-ai-field-diff-mode="empty">
-        <Info className="size-4" aria-hidden />
         <AlertDescription>
           {t(
             'ai_assistant.chat.mutation_cards.diff.empty',

@@ -40,9 +40,11 @@ function entity(input: {
 
 describe('htmlRichTextSanitizer', () => {
   it('removes executable html and unsafe attributes on the server', () => {
+    // `<img>` is allowlisted for the RichEditor `insertImage` toolbar action,
+    // so the tag survives but `onerror` is stripped on the server too.
     expect(
       sanitizeHtmlRichTextServer('<p onclick="alert(1)">Hi<script>alert(2)</script><img src=x onerror=alert(3)><a href="javascript:alert(4)" title="ok">link</a></p>'),
-    ).toBe('<p>Hi<a title="ok">link</a></p>')
+    ).toBe('<p>Hi<img src="x" /><a title="ok">link</a></p>')
   })
 
   it('sanitizes only values whose definitions use html rich text', async () => {

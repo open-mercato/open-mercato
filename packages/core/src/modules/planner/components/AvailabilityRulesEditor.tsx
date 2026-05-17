@@ -18,7 +18,7 @@ import { apiCall, apiCallOrThrow } from '@open-mercato/ui/backend/utils/apiCall'
 import { createCrud, deleteCrud, updateCrud } from '@open-mercato/ui/backend/utils/crud'
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
 import { Spinner } from '@open-mercato/ui/primitives/spinner'
-import { ComboboxInput } from '@open-mercato/ui/backend/inputs'
+import { ComboboxInput, TimePicker } from '@open-mercato/ui/backend/inputs'
 import { DictionaryEntrySelect, type DictionarySelectLabels } from '@open-mercato/core/modules/dictionaries/components/DictionaryEntrySelect'
 import {
   createUnavailabilityReasonEntry,
@@ -1425,20 +1425,20 @@ export function AvailabilityRulesEditor({
                               return (
                                 <div key={`${day.code}-${windowIndex}`} className="space-y-1">
                                   <div className="flex flex-wrap items-center gap-2">
-                                    <Input
-                                      type="time"
+                                    <TimePicker
                                       value={window.start}
-                                      onChange={(event) => handleWeeklyWindowChange(index, windowIndex, { ...window, start: event.target.value })}
-                                      className={`h-9 w-[120px] ${errorClass}`}
+                                      onChange={(value) => handleWeeklyWindowChange(index, windowIndex, { ...window, start: value ?? '' })}
+                                      className={`w-[120px] ${errorClass}`}
                                       disabled={usingRuleSet || isReadOnly}
+                                      showClearButton={false}
                                     />
                                     <span className="text-sm text-muted-foreground">-</span>
-                                    <Input
-                                      type="time"
+                                    <TimePicker
                                       value={window.end}
-                                      onChange={(event) => handleWeeklyWindowChange(index, windowIndex, { ...window, end: event.target.value })}
-                                      className={`h-9 w-[120px] ${errorClass}`}
+                                      onChange={(value) => handleWeeklyWindowChange(index, windowIndex, { ...window, end: value ?? '' })}
+                                      className={`w-[120px] ${errorClass}`}
                                       disabled={usingRuleSet || isReadOnly}
+                                      showClearButton={false}
                                     />
                                     <Button
                                       type="button"
@@ -1753,18 +1753,18 @@ export function AvailabilityRulesEditor({
                             return (
                               <div key={`${index}-${window.start}`} className="space-y-1">
                                 <div className="flex flex-wrap items-center gap-2">
-                                  <Input
-                                    type="time"
+                                  <TimePicker
                                     value={window.start}
-                                    onChange={(event) => handleEditorWindowChange(index, { ...window, start: event.target.value })}
-                                    className={`h-9 w-[120px] ${errorClass}`}
+                                    onChange={(value) => handleEditorWindowChange(index, { ...window, start: value ?? '' })}
+                                    className={`w-[120px] ${errorClass}`}
+                                    showClearButton={false}
                                   />
                                   <span className="text-sm text-muted-foreground">-</span>
-                                  <Input
-                                    type="time"
+                                  <TimePicker
                                     value={window.end}
-                                    onChange={(event) => handleEditorWindowChange(index, { ...window, end: event.target.value })}
-                                    className={`h-9 w-[120px] ${errorClass}`}
+                                    onChange={(value) => handleEditorWindowChange(index, { ...window, end: value ?? '' })}
+                                    className={`w-[120px] ${errorClass}`}
+                                    showClearButton={false}
                                   />
                                   <Button
                                     type="button"

@@ -7,6 +7,7 @@ import { Page, PageBody } from '@open-mercato/ui/backend/Page'
 import { FormHeader } from '@open-mercato/ui/backend/forms'
 import { Button } from '@open-mercato/ui/primitives/button'
 import { Input } from '@open-mercato/ui/primitives/input'
+import { PasswordInput } from '@open-mercato/ui/primitives/password-input'
 import { Spinner } from '@open-mercato/ui/primitives/spinner'
 import { SwitchField } from '@open-mercato/ui/primitives/switch-field'
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@open-mercato/ui/primitives/dialog'
@@ -112,14 +113,14 @@ function ResetPasswordDialog({
             <label className="text-sm font-medium" htmlFor="reset-password">
               {t('customer_accounts.admin.detail.resetPassword.fields.newPassword', 'New Password')}
             </label>
-            <Input
+            <PasswordInput
               id="reset-password"
-              type="password"
               required
               minLength={8}
               value={newPassword}
               onChange={(event) => setNewPassword(event.target.value)}
               placeholder={t('customer_accounts.admin.detail.resetPassword.fields.placeholder', 'Min. 8 characters')}
+              autoComplete="new-password"
             />
           </div>
           <div className="flex justify-end gap-2 pt-2">

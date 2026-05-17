@@ -1,12 +1,14 @@
 /** @jest-environment jsdom */
 import * as React from 'react'
 import { render, screen } from '@testing-library/react'
+import { renderToString } from 'react-dom/server'
 import { z } from 'zod'
 import {
   registerComponent,
   registerComponentOverrides,
   ComponentReplacementHandles,
 } from '@open-mercato/shared/modules/widgets/component-registry'
+import { ComponentOverrideProvider } from '../injection/ComponentOverrideProvider'
 import { useRegisteredComponent } from '../injection/useRegisteredComponent'
 import { DetailFieldsSection } from '../detail/DetailFieldsSection'
 
@@ -63,6 +65,48 @@ describe('component replacement', () => {
     render(<Consumer />)
     expect(screen.getByTestId('wrapped')).toBeInTheDocument()
     expect(screen.getByText('wrapped rendered')).toBeInTheDocument()
+  })
+
+  it('applies provider overrides during the first render for hydration parity', () => {
+    const componentId = 'test.provider.first.render'
+    const Base = ({ value }: { value: string }) => <span>{value}</span>
+
+    registerComponent({
+      id: componentId,
+      component: Base,
+      metadata: { module: 'test' },
+    })
+
+    function Consumer() {
+      const Resolved = useRegisteredComponent<{ value: string }>(componentId)
+      return <Resolved value="first render" />
+    }
+
+    const html = renderToString(
+      <ComponentOverrideProvider
+        overrides={[
+          {
+            target: { componentId },
+            priority: 10,
+            metadata: { module: 'test' },
+            wrapper: (Original) => {
+              const Wrapped = (props: { value: string }) => (
+                <div data-testid="provider-wrapped">
+                  <Original {...props} />
+                </div>
+              )
+              Wrapped.displayName = 'ProviderWrapped'
+              return Wrapped
+            },
+          },
+        ]}
+      >
+        <Consumer />
+      </ComponentOverrideProvider>,
+    )
+
+    expect(html).toContain('data-testid="provider-wrapped"')
+    expect(html).toContain('first render')
   })
 
   it('ignores invalid override entries when resolving registered components', () => {

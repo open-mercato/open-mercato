@@ -80,7 +80,7 @@ export default async function BackendLayout({
 
   const collapsedCookie = cookieStore.get('om_sidebar_collapsed')?.value
   const initialCollapsed = collapsedCookie === '1'
-  const demoModeEnabled = parseBooleanWithDefault(process.env.DEMO_MODE, true)
+  const demoModeEnabled = parseBooleanWithDefault(process.env.DEMO_MODE, false)
   const deployEnv = process.env.DEPLOY_ENV
   const baseProductName = translate('appShell.productName', 'Open Mercato')
   const productName = deployEnv && deployEnv !== 'local'

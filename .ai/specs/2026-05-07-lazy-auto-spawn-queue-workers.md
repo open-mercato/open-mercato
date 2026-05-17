@@ -520,6 +520,7 @@ None.
 ### 2026-05-07
 - Initial comprehensive specification for lazy auto-spawned queue workers.
 - Implementation landed: `packages/cli/src/lib/auto-spawn-workers.ts` (env resolver), `packages/queue/src/pending-probe.ts` (read-only local + async probes), `packages/cli/src/lib/queue-worker-supervisor.ts` (per-queue child supervisor), and wiring in `server dev` / `server start` (`packages/cli/src/mercato.ts`). Lazy mode keys `OM_AUTO_SPAWN_WORKERS_LAZY`, `OM_AUTO_SPAWN_WORKERS_LAZY_POLL_MS`, `OM_AUTO_SPAWN_WORKERS_LAZY_RESTART`, and the `OM_AUTO_SPAWN_WORKERS` alias resolve as documented; eager and `AUTO_SPAWN_WORKERS=false` paths are unchanged. Docs updated in `apps/docs/docs/framework/events/queue-workers.mdx` and `apps/docs/docs/appendix/troubleshooting.mdx`.
+- May 13, 2026 update: the monorepo root `yarn dev` wrapper now injects `OM_AUTO_SPAWN_WORKERS_LAZY=true` when the variable is unset, so local monorepo development gets the memory-saving supervisor by default. The CLI resolver and direct `mercato server dev` / `mercato server start` defaults remain unchanged for backward compatibility, and `OM_AUTO_SPAWN_WORKERS_LAZY=false yarn dev` forces the historical eager worker mode.
 
 ### Review - 2026-05-07
 - **Reviewer**: Codex

@@ -31,7 +31,6 @@ import {
   ArrowRightLeft,
   Boxes,
   CalendarClock,
-  CircleAlert,
   Clock3,
   Gauge,
   Play,
@@ -964,17 +963,15 @@ export default function SyncRunsDashboardPage() {
 
             {selectedIntegration && !selectedIntegration.isEnabled ? (
               <Alert variant="warning">
-                <AlertDescription className="inline-flex items-center gap-2">
-                  <CircleAlert className="size-4" />
-                  <span>{t('integrations.detail.state.disabled', 'This integration is disabled. Enable it on the integration settings page before starting a sync.')}</span>
+                <AlertDescription>
+                  {t('integrations.detail.state.disabled', 'This integration is disabled. Enable it on the integration settings page before starting a sync.')}
                 </AlertDescription>
               </Alert>
             ) : null}
             {selectedIntegration && !selectedIntegration.hasCredentials ? (
               <Alert variant="warning">
-                <AlertDescription className="inline-flex items-center gap-2">
-                  <CircleAlert className="size-4" />
-                  <span>{t('integrations.detail.credentials.notConfigured', 'Credentials are not configured yet. Save the integration credentials before starting a sync.')}</span>
+                <AlertDescription>
+                  {t('integrations.detail.credentials.notConfigured', 'Credentials are not configured yet. Save the integration credentials before starting a sync.')}
                 </AlertDescription>
               </Alert>
             ) : null}

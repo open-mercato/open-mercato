@@ -3,7 +3,7 @@
 import * as React from 'react'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { Button } from '../../primitives/button'
-import { IconButton } from '../../primitives/icon-button'
+import { Tag } from '../../primitives/tag'
 
 export type TagsInputOption = {
   value: string
@@ -208,24 +208,21 @@ export function TagsInput({
           const label = option?.label ?? tag
           const description = option?.description
           return (
-            <span key={tag} className="inline-flex items-center gap-2 rounded-sm bg-muted px-2 py-0.5 text-xs">
+            <Tag
+              key={tag}
+              shape="square"
+              variant="default"
+              disabled={disabled}
+              onRemove={() => removeTag(tag)}
+              removeAriaLabel={t('ui.inputs.tagsInput.removeTag', 'Remove {label}', { label })}
+            >
               <span className="flex flex-col items-start leading-tight">
                 <span className="whitespace-nowrap">{label}</span>
                 {description ? (
                   <span className="text-overline text-muted-foreground">{description}</span>
                 ) : null}
               </span>
-              <IconButton
-                type="button"
-                variant="ghost"
-                size="xs"
-                className="opacity-60 hover:opacity-100"
-                onClick={() => removeTag(tag)}
-                disabled={disabled}
-              >
-                ×
-              </IconButton>
-            </span>
+            </Tag>
           )
         })}
         <input

@@ -1,7 +1,7 @@
 "use client"
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@open-mercato/ui/primitives/card'
 import { Button } from '@open-mercato/ui/primitives/button'
-import { Input } from '@open-mercato/ui/primitives/input'
+import { PasswordInput } from '@open-mercato/ui/primitives/password-input'
 import { Label } from '@open-mercato/ui/primitives/label'
 import { useState } from 'react'
 import { useRouter } from 'next/navigation'
@@ -69,19 +69,19 @@ export default function ResetWithTokenPage({ params }: { params: { token: string
             {error && <div className="text-sm text-status-error-text">{error}</div>}
             <div className="grid gap-1">
               <Label htmlFor="password">{t('auth.reset.form.password', 'New password')}</Label>
-              <Input id="password" name="password" type="password" required minLength={passwordPolicy.minLength} />
+              <PasswordInput id="password" name="password" required minLength={passwordPolicy.minLength} autoComplete="new-password" />
               {passwordDescription ? (
                 <p className="text-xs text-muted-foreground">{passwordDescription}</p>
               ) : null}
             </div>
             <div className="grid gap-1">
               <Label htmlFor="confirmPassword">{t('auth.profile.form.confirmPassword', 'Confirm new password')}</Label>
-              <Input
+              <PasswordInput
                 id="confirmPassword"
                 name="confirmPassword"
-                type="password"
                 required
                 minLength={passwordPolicy.minLength}
+                autoComplete="new-password"
               />
             </div>
             <Button type="submit" className="mt-2 w-full" disabled={submitting}>

@@ -3,6 +3,7 @@
 import * as React from 'react'
 import { createAiAgentTransport } from '@open-mercato/ai-assistant/modules/ai_assistant/lib/agent-transport'
 import { apiFetch } from '../backend/utils/api'
+import type { LoopTracePanelTrace } from './LoopTracePanel'
 
 /**
  * Chat message shape used by {@link AiChat}. Kept intentionally minimal so the
@@ -70,6 +71,18 @@ export interface UseAiChatInput {
    * props at any time to reset the conversation.
    */
   conversationId?: string
+  /**
+   * Runtime provider override (4b.2). Forwarded as `?provider=` query param
+   * on every POST to the dispatcher. Undefined/null means use the agent's
+   * configured default (no override sent).
+   */
+  providerOverride?: string | null
+  /**
+   * Runtime model override (4b.2). Forwarded as `?model=` query param
+   * on every POST to the dispatcher. Undefined/null means use the agent's
+   * configured default (no override sent).
+   */
+  modelOverride?: string | null
 }
 
 export interface AiChatErrorEnvelope {
@@ -90,6 +103,15 @@ export interface UseAiChatResult {
    * given mount (Phase 3 WS-D contract with `prepareMutation`).
    */
   conversationId: string
+  /**
+   * Loop trace from the last completed turn. Populated when the dispatcher
+   * emits a `loop-finish` SSE event at the end of the response stream.
+   * `null` until the first turn completes or when the dispatcher does not
+   * emit trace events (non-debug deployments may omit them).
+   *
+   * Phase 4 of spec `2026-04-28-ai-agents-agentic-loop-controls`.
+   */
+  lastLoopTrace: LoopTracePanelTrace | null
   sendMessage: (input: string, files?: AiChatMessageFile[]) => Promise<void>
   cancel: () => void
   reset: () => void
@@ -238,7 +260,12 @@ function clearPersistedSession(agent: string, conversationId?: string | null): v
   }
 }
 
-function getTransportEndpoint(agent: string, apiPath?: string): string {
+function getTransportEndpoint(
+  agent: string,
+  apiPath?: string,
+  providerOverride?: string | null,
+  modelOverride?: string | null,
+): string {
   // Reuse the transport factory so UI consumers share the dispatcher URL
   // convention with server-side callers (e.g. runAiAgentText / Playwright
   // fixtures). The factory returns a ChatTransport<UI_MESSAGE> whose internal
@@ -252,7 +279,14 @@ function getTransportEndpoint(agent: string, apiPath?: string): string {
   void transport
   const base = apiPath && apiPath.length > 0 ? apiPath : '/api/ai_assistant/ai/chat'
   const separator = base.includes('?') ? '&' : '?'
-  return `${base}${separator}agent=${encodeURIComponent(agent)}`
+  let url = `${base}${separator}agent=${encodeURIComponent(agent)}`
+  if (providerOverride) {
+    url += `&provider=${encodeURIComponent(providerOverride)}`
+  }
+  if (modelOverride) {
+    url += `&model=${encodeURIComponent(modelOverride)}`
+  }
+  return url
 }
 
 interface AssistantBuilderState {
@@ -408,6 +442,11 @@ function updateToolCall(
   return { ...state, toolCalls: nextCalls }
 }
 
+function displayToolName(toolName: unknown): string | undefined {
+  if (typeof toolName !== 'string') return undefined
+  return toolName.replace(/__/g, '.')
+}
+
 function applyChunk(
   state: AssistantBuilderState,
   chunk: { type: string; [key: string]: unknown },
@@ -431,12 +470,12 @@ function applyChunk(
       return { ...state, reasoningStreaming: false }
     case 'tool-input-start':
       return updateToolCall(state, String(chunk.toolCallId ?? ''), {
-        toolName: typeof chunk.toolName === 'string' ? chunk.toolName : undefined,
+        toolName: displayToolName(chunk.toolName),
         state: 'pending',
       })
     case 'tool-input-available':
       return updateToolCall(state, String(chunk.toolCallId ?? ''), {
-        toolName: typeof chunk.toolName === 'string' ? chunk.toolName : undefined,
+        toolName: displayToolName(chunk.toolName),
         input: chunk.input,
         state: 'pending',
       })
@@ -472,7 +511,7 @@ function applyChunk(
       })
     case 'tool-input-error':
       return updateToolCall(state, String(chunk.toolCallId ?? ''), {
-        toolName: typeof chunk.toolName === 'string' ? chunk.toolName : undefined,
+        toolName: displayToolName(chunk.toolName),
         input: chunk.input,
         state: 'error',
         errorMessage:
@@ -549,7 +588,7 @@ async function readErrorEnvelope(response: Response): Promise<AiChatErrorEnvelop
 }
 
 export function useAiChat(input: UseAiChatInput): UseAiChatResult {
-  const { agent, apiPath, pageContext, attachmentIds, debug, initialMessages, onError, conversationId: conversationIdInput } = input
+  const { agent, apiPath, pageContext, attachmentIds, debug, initialMessages, onError, conversationId: conversationIdInput, providerOverride, modelOverride } = input
 
   // Minted once on mount when the caller does not supply a conversationId.
   // The ref keeps the id stable across re-renders and is reused for every
@@ -695,6 +734,8 @@ export function useAiChat(input: UseAiChatInput): UseAiChatResult {
     { status: number; text: string } | null
   >(null)
 
+  const [lastLoopTrace, setLastLoopTrace] = React.useState<LoopTracePanelTrace | null>(null)
+
   const abortRef = React.useRef<AbortController | null>(null)
   const onErrorRef = React.useRef(onError)
   React.useEffect(() => {
@@ -728,6 +769,7 @@ export function useAiChat(input: UseAiChatInput): UseAiChatResult {
     setError(null)
     setLastRequestDebug(null)
     setLastResponseDebug(null)
+    setLastLoopTrace(null)
     clearPersistedSession(agent, persistKey)
     mintedConversationIdRef.current = makeConversationId()
   }, [agent, cancel, persistKey, updateMessages])
@@ -763,7 +805,7 @@ export function useAiChat(input: UseAiChatInput): UseAiChatResult {
       const controller = new AbortController()
       abortRef.current = controller
 
-      const url = getTransportEndpoint(agent, apiPath)
+      const url = getTransportEndpoint(agent, apiPath, providerOverride, modelOverride)
       const body = {
         messages: outgoingHistory.map((message) => ({
           role: message.role,
@@ -833,6 +875,10 @@ export function useAiChat(input: UseAiChatInput): UseAiChatResult {
         return
       }
 
+      // Per-turn loop trace collected from the `loop-finish` SSE event emitted
+      // by the dispatcher at the end of the stream (Phase 4).
+      let pendingLoopTrace: LoopTracePanelTrace | null = null
+
       const headerGet = (name: string): string | null => {
         const headers = (response as { headers?: { get?: (k: string) => string | null } })
           .headers
@@ -862,8 +908,12 @@ export function useAiChat(input: UseAiChatInput): UseAiChatResult {
           if (!data) continue
           if (data === '[DONE]') continue
           try {
-            const parsed = JSON.parse(data) as { type?: string }
-            if (parsed && typeof parsed.type === 'string') {
+            const parsed = JSON.parse(data) as { type?: string; trace?: unknown }
+            if (!parsed || typeof parsed.type !== 'string') continue
+            if (parsed.type === 'loop-finish') {
+              // Capture the loop trace for post-stream state update.
+              pendingLoopTrace = parsed.trace as LoopTracePanelTrace ?? null
+            } else {
               builder = applyChunk(builder, parsed as { type: string })
             }
           } catch {
@@ -922,6 +972,9 @@ export function useAiChat(input: UseAiChatInput): UseAiChatResult {
         )
         if (mountedRef.current) {
           setLastResponseDebug({ status: response.status, text: streamedRaw })
+          if (pendingLoopTrace !== null) {
+            setLastLoopTrace(pendingLoopTrace)
+          }
         }
         const isEmpty =
           !builder.text.trim() && builder.toolCalls.length === 0 && !builder.reasoning
@@ -966,18 +1019,7 @@ export function useAiChat(input: UseAiChatInput): UseAiChatResult {
         setStatus('idle')
       }
     },
-    [
-      agent,
-      apiPath,
-      attachmentIds,
-      debug,
-      effectiveConversationId,
-      emitError,
-      pageContext,
-      sessionStorageKey,
-      setStatus,
-      updateMessages,
-    ],
+    [agent, apiPath, attachmentIds, debug, effectiveConversationId, emitError, messages, modelOverride, pageContext, providerOverride],
   )
 
   React.useEffect(() => {
@@ -1034,6 +1076,7 @@ export function useAiChat(input: UseAiChatInput): UseAiChatResult {
     lastRequestDebug,
     lastResponseDebug,
     conversationId: effectiveConversationId,
+    lastLoopTrace,
     sendMessage,
     cancel,
     reset,

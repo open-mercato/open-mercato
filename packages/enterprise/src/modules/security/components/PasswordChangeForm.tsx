@@ -5,7 +5,7 @@ import { z } from 'zod'
 import { CrudForm, type CrudField, type CrudCustomFieldRenderProps } from '@open-mercato/ui/backend/CrudForm'
 import { readApiResultOrThrow } from '@open-mercato/ui/backend/utils/apiCall'
 import { createCrudFormError } from '@open-mercato/ui/backend/utils/serverErrors'
-import { Input } from '@open-mercato/ui/primitives/input'
+import { PasswordInput } from '@open-mercato/ui/primitives/password-input'
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { getPasswordPolicy, getPasswordRequirements, buildPasswordSchema, validatePassword } from '@open-mercato/shared/lib/auth/passwordPolicy'
@@ -28,9 +28,8 @@ function PasswordInputField({
   autoFocus,
 }: CrudCustomFieldRenderProps) {
   return (
-    <Input
+    <PasswordInput
       className="max-w-xl"
-      type="password"
       value={typeof value === 'string' ? value : ''}
       onChange={(event) => setValue(event.target.value)}
       disabled={disabled}
@@ -51,9 +50,8 @@ function TrackedPasswordInput({
   onValueChange,
 }: TrackedPasswordInputProps) {
   return (
-    <Input
+    <PasswordInput
       className="max-w-xl"
-      type="password"
       value={typeof value === 'string' ? value : ''}
       onChange={(event) => {
         const nextValue = event.target.value

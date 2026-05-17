@@ -17,8 +17,9 @@
  */
 
 import * as React from 'react'
-import { Building2, ChevronDown, Handshake, PanelRightOpen, Search, Sparkles, Users } from 'lucide-react'
+import { Building2, ChevronDown, Handshake, PanelRightOpen, Search, Users } from 'lucide-react'
 import { AiChat, type AiChatSuggestion, type AiChatContextItem } from '@open-mercato/ui/ai/AiChat'
+import { AiIcon } from '@open-mercato/ui/ai/AiIcon'
 import { useAiDock } from '@open-mercato/ui/ai/AiDock'
 import { useAiChatSessions } from '@open-mercato/ui/ai/AiChatSessions'
 import { ChatPaneTabs } from '@open-mercato/ui/ai/ChatPaneTabs'
@@ -37,7 +38,10 @@ import { cn } from '@open-mercato/shared/lib/utils'
 
 export const CUSTOMERS_AI_INJECT_AGENT_ID = 'customers.account_assistant'
 
-export type CustomersAiInjectView = 'customers.people.list' | 'customers.companies.list'
+export type CustomersAiInjectView =
+  | 'customers.people.list'
+  | 'customers.companies.list'
+  | 'customers.deals.list'
 
 export interface CustomersAiInjectPageContext {
   view: CustomersAiInjectView
@@ -83,8 +87,9 @@ function readNumber(value: unknown): number {
 }
 
 function resolveView(tableId: string | null | undefined): CustomersAiInjectView {
-  if (typeof tableId === 'string' && tableId.includes('companies')) {
-    return 'customers.companies.list'
+  if (typeof tableId === 'string') {
+    if (tableId.includes('deals')) return 'customers.deals.list'
+    if (tableId.includes('companies')) return 'customers.companies.list'
   }
   return 'customers.people.list'
 }
@@ -115,6 +120,78 @@ function useCustomerSuggestions(
 ): AiChatSuggestion[] {
   const t = useT()
   return React.useMemo(() => {
+    if (view === 'customers.deals.list') {
+      if (hasSelection) {
+        return [
+          {
+            label: t(
+              'customers.ai_assistant.suggestions.summarizeSelectedDeals',
+              'Summarize selected deals',
+            ),
+            prompt: `Give me a summary of my ${selectedCount} selected deals — stage, value, and close date`,
+            icon: <Handshake className="size-4" />,
+          },
+          {
+            label: t(
+              'customers.ai_assistant.suggestions.atRiskSelectedDeals',
+              'Selected deals at risk',
+            ),
+            prompt: `Of my ${selectedCount} selected deals, which look at risk of slipping their close date?`,
+            icon: <Handshake className="size-4" />,
+          },
+          {
+            label: t(
+              'customers.ai_assistant.suggestions.companiesForSelectedDeals',
+              'Companies on selected deals',
+            ),
+            prompt: `List the companies associated with my ${selectedCount} selected deals`,
+            icon: <Building2 className="size-4" />,
+          },
+        ]
+      }
+      return [
+        {
+          label: t(
+            'customers.ai_assistant.suggestions.dealsClosingThisMonth',
+            'Deals closing this month',
+          ),
+          prompt: 'Which deals are closing this month?',
+          icon: <Handshake className="size-4" />,
+        },
+        {
+          label: t(
+            'customers.ai_assistant.suggestions.dealsAtRisk',
+            'Deals at risk of slipping',
+          ),
+          prompt: 'Show me deals at risk of slipping their close date',
+          icon: <Handshake className="size-4" />,
+        },
+        {
+          label: t(
+            'customers.ai_assistant.suggestions.totalOpenDealValue',
+            'Total open deal value',
+          ),
+          prompt: "What's the total value of open deals across the pipeline?",
+          icon: <Handshake className="size-4" />,
+        },
+        {
+          label: t(
+            'customers.ai_assistant.suggestions.topDealsByValue',
+            'Top deals by value',
+          ),
+          prompt: 'Show me the top 5 deals by value',
+          icon: <Handshake className="size-4" />,
+        },
+        {
+          label: t(
+            'customers.ai_assistant.suggestions.searchDeals',
+            'Search for a deal',
+          ),
+          prompt: 'Search for deals by title, company, or stage',
+          icon: <Search className="size-4" />,
+        },
+      ]
+    }
     if (view === 'customers.companies.list') {
       if (hasSelection) {
         return [
@@ -228,22 +305,113 @@ function useCustomerContextItems(pageContext: CustomersAiInjectPageContext): AiC
   return React.useMemo(() => {
     const items: AiChatContextItem[] = []
     const { selectedCount, totalMatching } = pageContext.extra
-    const isCompanies = pageContext.view === 'customers.companies.list'
+    const view = pageContext.view
+    let selectedKey = 'customers.ai_assistant.context.selectedPeople'
+    let selectedFallback = '{count} contacts selected'
+    let matchingKey = 'customers.ai_assistant.context.matchingPeople'
+    let matchingFallback = '{count} contacts in view'
+    if (view === 'customers.companies.list') {
+      selectedKey = 'customers.ai_assistant.context.selectedCompanies'
+      selectedFallback = '{count} companies selected'
+      matchingKey = 'customers.ai_assistant.context.matchingCompanies'
+      matchingFallback = '{count} companies in view'
+    } else if (view === 'customers.deals.list') {
+      selectedKey = 'customers.ai_assistant.context.selectedDeals'
+      selectedFallback = '{count} deals selected'
+      matchingKey = 'customers.ai_assistant.context.matchingDeals'
+      matchingFallback = '{count} deals in view'
+    }
     if (selectedCount > 0) {
-      const key = isCompanies
-        ? 'customers.ai_assistant.context.selectedCompanies'
-        : 'customers.ai_assistant.context.selectedPeople'
-      const fallback = isCompanies ? '{count} companies selected' : '{count} contacts selected'
-      items.push({ label: t(key, fallback).replace('{count}', String(selectedCount)) })
+      items.push({ label: t(selectedKey, selectedFallback).replace('{count}', String(selectedCount)) })
     } else if (totalMatching > 0) {
-      const key = isCompanies
-        ? 'customers.ai_assistant.context.matchingCompanies'
-        : 'customers.ai_assistant.context.matchingPeople'
-      const fallback = isCompanies ? '{count} companies in view' : '{count} contacts in view'
-      items.push({ label: t(key, fallback).replace('{count}', String(totalMatching)) })
+      items.push({ label: t(matchingKey, matchingFallback).replace('{count}', String(totalMatching)) })
     }
     return items
   }, [pageContext, t])
+}
+
+interface ViewCopy {
+  welcomeDescriptionAll: string
+  welcomeDescriptionSelection: string
+  descriptionWithSelection: string
+  triggerAriaLabel: string
+}
+
+function useViewCopy(view: CustomersAiInjectView, selectedCount: number): ViewCopy {
+  const t = useT()
+  return React.useMemo(() => {
+    const replaceCount = (s: string) => s.replace('{count}', String(selectedCount))
+    if (view === 'customers.deals.list') {
+      return {
+        welcomeDescriptionAll: t(
+          'customers.ai_assistant.sheet.welcomeDescriptionAllDeals',
+          'Ask about deals, pipeline, or close dates:',
+        ),
+        welcomeDescriptionSelection: replaceCount(
+          t(
+            'customers.ai_assistant.sheet.welcomeDescriptionSelectionDeals',
+            'Ready to explore your {count} selected deals:',
+          ),
+        ),
+        descriptionWithSelection: replaceCount(
+          t(
+            'customers.ai_assistant.sheet.descriptionWithSelectionDeals',
+            'Working with {count} selected deals. Ask about their stage, value, and close dates.',
+          ),
+        ),
+        triggerAriaLabel: t(
+          'customers.ai_assistant.trigger.ariaLabelDeals',
+          'Open AI assistant for deals',
+        ),
+      }
+    }
+    if (view === 'customers.companies.list') {
+      return {
+        welcomeDescriptionAll: t(
+          'customers.ai_assistant.sheet.welcomeDescriptionAllCompanies',
+          'Ask me anything about your companies, deals, and activities:',
+        ),
+        welcomeDescriptionSelection: replaceCount(
+          t(
+            'customers.ai_assistant.sheet.welcomeDescriptionSelectionCompanies',
+            'Ready to explore your {count} selected companies:',
+          ),
+        ),
+        descriptionWithSelection: replaceCount(
+          t(
+            'customers.ai_assistant.sheet.descriptionWithSelectionCompanies',
+            'Working with {count} selected companies. Ask about their deals, contacts, and activities.',
+          ),
+        ),
+        triggerAriaLabel: t(
+          'customers.ai_assistant.trigger.ariaLabelCompanies',
+          'Open AI assistant for companies',
+        ),
+      }
+    }
+    return {
+      welcomeDescriptionAll: t(
+        'customers.ai_assistant.sheet.welcomeDescriptionAll',
+        'Ask me anything about your customers, companies, and deals:',
+      ),
+      welcomeDescriptionSelection: replaceCount(
+        t(
+          'customers.ai_assistant.sheet.welcomeDescriptionSelection',
+          'Ready to explore your {count} selected contacts:',
+        ),
+      ),
+      descriptionWithSelection: replaceCount(
+        t(
+          'customers.ai_assistant.sheet.descriptionWithSelection',
+          'Working with {count} selected contacts. Ask about their details, deals, companies, and activities.',
+        ),
+      ),
+      triggerAriaLabel: t(
+        'customers.ai_assistant.trigger.ariaLabel',
+        'Open AI assistant for people',
+      ),
+    }
+  }, [view, selectedCount, t])
 }
 
 interface CustomerAgentDescriptor {
@@ -264,7 +432,7 @@ function useCustomerAgents(): CustomerAgentDescriptor[] {
           'customers.ai_assistant.agents.account.description',
           'Explore people, companies, deals, and activities.',
         ),
-        icon: <Sparkles className="size-4" />,
+        icon: <AiIcon className="size-4" />,
       },
     ],
     [t],
@@ -285,6 +453,7 @@ export default function AiAssistantTriggerWidget({ context }: AiAssistantTrigger
   const hasSelection = selectedCount > 0
   const suggestions = useCustomerSuggestions(pageContext.view, hasSelection, selectedCount)
   const contextItems = useCustomerContextItems(pageContext)
+  const viewCopy = useViewCopy(pageContext.view, selectedCount)
 
   const openAgent = React.useCallback((agentId: string) => {
     setActiveAgent(agentId)
@@ -330,14 +499,8 @@ export default function AiAssistantTriggerWidget({ context }: AiAssistantTrigger
       contextItems,
       welcomeTitle: t('customers.ai_assistant.sheet.welcomeTitle', 'CRM Assistant'),
       welcomeDescription: hasSelection
-        ? t(
-            'customers.ai_assistant.sheet.welcomeDescriptionSelection',
-            'Ready to explore your {count} selected contacts:',
-          ).replace('{count}', String(selectedCount))
-        : t(
-            'customers.ai_assistant.sheet.welcomeDescriptionAll',
-            'Ask me anything about your customers, companies, and deals:',
-          ),
+        ? viewCopy.welcomeDescriptionSelection
+        : viewCopy.welcomeDescriptionAll,
     })
     setOpen(false)
   }, [
@@ -347,15 +510,12 @@ export default function AiAssistantTriggerWidget({ context }: AiAssistantTrigger
     dock,
     hasSelection,
     pageContext,
-    selectedCount,
     suggestions,
     t,
+    viewCopy,
   ])
 
-  const triggerLabel = t(
-    'customers.ai_assistant.trigger.ariaLabel',
-    'Open AI assistant for people',
-  )
+  const triggerLabel = viewCopy.triggerAriaLabel
 
   const labelText = t('customers.ai_assistant.trigger.label', 'AI')
   const moreAgentsLabel = t(
@@ -375,10 +535,11 @@ export default function AiAssistantTriggerWidget({ context }: AiAssistantTrigger
           title={triggerLabel}
           className={cn(
             'relative',
+            'hover:bg-brand-violet/10',
             agents.length > 1 && 'rounded-r-none border-r-0',
           )}
         >
-          <Sparkles className="size-4" aria-hidden />
+          <AiIcon className="size-4" />
           <span>{labelText}</span>
           {hasSelection ? (
             <span
@@ -487,10 +648,7 @@ export default function AiAssistantTriggerWidget({ context }: AiAssistantTrigger
             </div>
             <DialogDescription>
               {hasSelection
-                ? t(
-                    'customers.ai_assistant.sheet.descriptionWithSelection',
-                    'Working with {count} selected contacts. Ask about their details, deals, companies, and activities.',
-                  ).replace('{count}', String(selectedCount))
+                ? viewCopy.descriptionWithSelection
                 : t(
                     'customers.ai_assistant.sheet.description',
                     'Your CRM assistant. Ask about people, companies, deals, and activities.',
@@ -504,6 +662,7 @@ export default function AiAssistantTriggerWidget({ context }: AiAssistantTrigger
             contextItems={contextItems}
             hasSelection={hasSelection}
             selectedCount={selectedCount}
+            viewCopy={viewCopy}
           />
         </DialogContent>
       </Dialog>
@@ -518,6 +677,7 @@ interface CustomersChatBodyProps {
   contextItems: AiChatContextItem[]
   hasSelection: boolean
   selectedCount: number
+  viewCopy: ViewCopy
 }
 
 function CustomersChatBody({
@@ -527,6 +687,7 @@ function CustomersChatBody({
   contextItems,
   hasSelection,
   selectedCount,
+  viewCopy,
 }: CustomersChatBodyProps) {
   const t = useT()
   const sessions = useAiChatSessions()
@@ -563,14 +724,8 @@ function CustomersChatBody({
             welcomeTitle={t('customers.ai_assistant.sheet.welcomeTitle', 'CRM Assistant')}
             welcomeDescription={
               hasSelection
-                ? t(
-                    'customers.ai_assistant.sheet.welcomeDescriptionSelection',
-                    'Ready to explore your {count} selected contacts:',
-                  ).replace('{count}', String(selectedCount))
-                : t(
-                    'customers.ai_assistant.sheet.welcomeDescriptionAll',
-                    'Ask me anything about your customers, companies, and deals:',
-                  )
+                ? viewCopy.welcomeDescriptionSelection
+                : viewCopy.welcomeDescriptionAll
             }
           />
         ) : null}

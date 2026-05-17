@@ -2,7 +2,8 @@
 
 import * as React from 'react'
 import Link from 'next/link'
-import { Building2, Users } from 'lucide-react'
+import { Building2, UserSearch, Users } from 'lucide-react'
+import { EmptyState } from '@open-mercato/ui/primitives/empty-state'
 import { useRouter, useSearchParams } from 'next/navigation'
 import { Page, PageBody } from '@open-mercato/ui/backend/Page'
 import { Button } from '@open-mercato/ui/primitives/button'
@@ -337,7 +338,7 @@ export default function DealDetailPage({ params }: { params?: { id?: string } })
         showVersionHistory={false}
         showCancelAction={false}
         onDirtyChange={setIsDirty}
-        collapsibleGroups={{ pageType: 'deal-detail-v3', chevronPosition: 'left' }}
+        collapsibleGroups={{ pageType: 'deal-detail-v3', chevronPosition: 'right' }}
         sortableGroups={{ pageType: 'deal-detail-v3' }}
         initialValues={{
           ...data.deal,
@@ -424,17 +425,15 @@ export default function DealDetailPage({ params }: { params?: { id?: string } })
                   onScheduleRequested={openSchedule}
                 />
               ) : (
-                <div className="rounded-[10px] border border-dashed border-border bg-muted/10 px-5 py-5">
-                  <div className="text-sm font-semibold text-foreground">
-                    {t('customers.deals.detail.activities.selectEntityRequiredTitle', 'Choose a person or company to continue')}
-                  </div>
-                  <div className="mt-1 text-sm text-muted-foreground">
-                    {t(
-                      'customers.deals.detail.activities.selectEntityRequiredDescription',
-                      'Select the customer record that should receive new deal activities before logging or scheduling anything.',
-                    )}
-                  </div>
-                </div>
+                <EmptyState
+                  size="sm"
+                  icon={<UserSearch className="h-8 w-8" aria-hidden="true" />}
+                  title={t('customers.deals.detail.activities.selectEntityRequiredTitle', 'Choose a person or company to continue')}
+                  description={t(
+                    'customers.deals.detail.activities.selectEntityRequiredDescription',
+                    'Select the customer record that should receive new deal activities before logging or scheduling anything.',
+                  )}
+                />
               )}
               <PlannedActivitiesSection
                 activities={plannedActivities}

@@ -1,0 +1,55 @@
+# Traefik static configuration for Open Mercato custom-domain routing.
+# Phase 3 of `.ai/specs/2026-04-08-portal-custom-domain-routing.md`.
+#
+# Routers, services, and middlewares are declared via Docker labels on the
+# `app` service in docker-compose.fullapp.yml / docker-compose.fullapp.dev.yml,
+# which lets compose-level ${ENV} substitution inject secrets like
+# DOMAIN_CHECK_SECRET. Operators who prefer a file provider can mount
+# `dynamic.example.yml` instead — see docker/traefik/README.md.
+#
+# Required environment for the Traefik container:
+#   - ACME_EMAIL              contact email for Let's Encrypt
+#   - TRAEFIK_LOG_LEVEL       (optional) defaults to INFO
+#   - TRAEFIK_CA_SERVER       (optional) override ACME directory; set to the
+#                             staging URL when iterating to avoid hitting LE
+#                             rate limits
+
+global:
+  checkNewVersion: false
+  sendAnonymousUsage: false
+
+log:
+  level: ${TRAEFIK_LOG_LEVEL:-INFO}
+
+accessLog: {}
+
+api:
+  dashboard: true
+  insecure: false
+
+entryPoints:
+  web:
+    address: ":80"
+    http:
+      redirections:
+        entryPoint:
+          to: websecure
+          scheme: https
+          permanent: true
+  websecure:
+    address: ":443"
+
+certificatesResolvers:
+  letsencrypt:
+    acme:
+      email: ${ACME_EMAIL}
+      storage: /letsencrypt/acme.json
+      # TLS-ALPN-01 keeps the challenge on port 443 only — no HTTP serving
+      # required, and survives the HTTP→HTTPS redirect on the `web` entrypoint.
+      tlsChallenge: {}
+      caServer: ${TRAEFIK_CA_SERVER:-https://acme-v02.api.letsencrypt.org/directory}
+
+providers:
+  docker:
+    exposedByDefault: false
+    network: ${TRAEFIK_DOCKER_NETWORK:-mercato-network-fullapp}

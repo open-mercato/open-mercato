@@ -11,11 +11,14 @@ test.describe('TC-AUTH-009: User Creation Validation Errors', () => {
     await page.goto('/backend/users/create');
     await expect(page.getByText('Create User')).toBeVisible();
 
-    const emailInput = page.getByRole('textbox').first();
-    const passwordInput = page.getByRole('textbox').nth(1);
+    const emailInput = page.locator('[data-crud-field-id="email"] input').first();
+    const nameInput = page.locator('[data-crud-field-id="name"] input').first();
+    const passwordInput = page.locator('[data-crud-field-id="password"] input').first();
     await expect(emailInput).toBeVisible();
+    await expect(nameInput).toBeVisible();
     await expect(passwordInput).toBeVisible();
     await emailInput.fill(`qa-auth-009-${Date.now()}@acme.com`);
+    await nameInput.fill('QA Auth User');
     await passwordInput.fill('Valid1!Pass');
     const rolesInput = page.getByRole('textbox', { name: /add tag and press enter/i });
     await rolesInput.fill('employee');

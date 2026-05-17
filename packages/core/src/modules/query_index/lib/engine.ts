@@ -625,14 +625,19 @@ export class HybridQueryEngine implements QueryEngine {
           existing.push(filter)
           groups.set(filter.orGroup, existing)
         }
-        let next = q
-        for (const [, groupFilters] of groups) {
-          if (!groupFilters.length) continue
-          next = next.where((eb: any) => eb.or(
-            groupFilters.map((filter) => this.buildBaseFilterExpression(eb, filter, resolveBaseColumn, qualify, entity, searchRuntime))
-          ))
-        }
-        return next
+        const groupList = Array.from(groups.values()).filter((g) => g.length > 0)
+        if (groupList.length === 0) return q
+        // Combine all groups in a single WHERE: disjuncts are OR'd together; within
+        // each disjunct, fields are AND'd. Building this as separate `.where()` calls
+        // would AND the disjuncts (wrong semantics).
+        return q.where((eb: any) => eb.or(
+          groupList.map((groupFilters) => {
+            const parts = groupFilters.map((filter) =>
+              this.buildBaseFilterExpression(eb, filter, resolveBaseColumn, qualify, entity, searchRuntime),
+            )
+            return parts.length === 1 ? parts[0] : eb.and(parts)
+          }),
+        ))
       }
 
       const applyAliasScopes = async (target: AnyBuilder, aliasName: string): Promise<AnyBuilder> => {
@@ -1340,6 +1345,39 @@ export class HybridQueryEngine implements QueryEngine {
     if (!baseField) {
       // Doc-based filter via `ei` alias — returned as EXISTS where possible
       return this.buildIndexDocFilterExpression(eb, 'ei', entity, fieldName, filter.op, filter.value, 'b.id', searchRuntime)
+    }
+    // For like/ilike with active search-tokens, route through hashed-token EXISTS subquery
+    // so encrypted-at-rest columns can still be searched.
+    if (
+      (filter.op === 'like' || filter.op === 'ilike') &&
+      searchRuntime?.enabled &&
+      typeof filter.value === 'string'
+    ) {
+      const tokens = tokenizeText(String(filter.value), searchRuntime.config)
+      if (tokens.hashes.length) {
+        const sources: SearchTokenSource[] = (searchRuntime.searchSources && searchRuntime.searchSources.length
+          ? searchRuntime.searchSources
+          : [{ entity: String(entity), recordIdColumn: 'b.id' }]
+        ).filter((src) => src.recordIdColumn && src.entity)
+        if (sources.length) {
+          return eb.or(
+            sources.map((src) =>
+              eb.exists(this.buildSearchTokensSub(eb, {
+                entity: src.entity,
+                field: fieldName,
+                hashes: tokens.hashes,
+                recordIdColumn: src.recordIdColumn,
+                tenantId: searchRuntime.tenantId ?? null,
+                organizationScope: searchRuntime.organizationScope ?? null,
+              })),
+            ),
+          )
+        }
+      }
+      // Tokenizer produced no hashes (e.g. value too short). Match the regular-base-filter
+      // path's behavior of skipping the predicate (no filter), which is preferable to
+      // silently turning into a plain `ilike` against an encrypted column.
+      return sql<boolean>`true`
     }
     return this.buildColumnFilterExpression(eb, qualify(baseField), filter.op, filter.value)
   }

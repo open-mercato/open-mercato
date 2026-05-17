@@ -1,5 +1,9 @@
 /** @jest-environment jsdom */
 
+jest.mock('@open-mercato/shared/lib/i18n/context', () => ({
+  useT: () => (_key: string, fallback: string) => fallback,
+}))
+
 jest.mock('@open-mercato/shared/lib/phone', () => ({
   extractPhoneDigits: (value: string | null | undefined) => {
     if (typeof value !== 'string') return ''

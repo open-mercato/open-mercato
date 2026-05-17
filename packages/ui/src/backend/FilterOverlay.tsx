@@ -1,7 +1,10 @@
 "use client"
 import * as React from 'react'
+import { format } from 'date-fns'
 import { Button } from '../primitives/button'
 import { Checkbox } from '../primitives/checkbox'
+import { DateRangePicker } from '../primitives/date-range-picker'
+import type { DateRange } from './date-range/dateRanges'
 import {
   Select,
   SelectContent,
@@ -227,28 +230,41 @@ export function FilterOverlay({
                       onChange={(e) => setValue(f.id, e.target.value || undefined)}
                     />
                   )}
-                  {f.type === 'dateRange' && (
-                    <div className="grid grid-cols-1 gap-2">
-                      <div>
-                        <div className="text-xs text-muted-foreground mb-1">{t('ui.filters.dateRange.from', 'From')}</div>
-                        <input
-                          type="date"
-                          className="w-full h-11 rounded border px-2 text-sm"
-                          value={values[f.id]?.from ?? ''}
-                          onChange={(e) => setValue(f.id, { ...(values[f.id] ?? {}), from: e.target.value || undefined })}
-                        />
-                      </div>
-                      <div>
-                        <div className="text-xs text-muted-foreground mb-1">{t('ui.filters.dateRange.to', 'To')}</div>
-                        <input
-                          type="date"
-                          className="w-full h-11 rounded border px-2 text-sm"
-                          value={values[f.id]?.to ?? ''}
-                          onChange={(e) => setValue(f.id, { ...(values[f.id] ?? {}), to: e.target.value || undefined })}
-                        />
-                      </div>
-                    </div>
-                  )}
+                  {f.type === 'dateRange' && (() => {
+                    const fromStr = values[f.id]?.from
+                    const toStr = values[f.id]?.to
+                    const parseISODate = (input: unknown): Date | null => {
+                      if (typeof input !== 'string' || !input.length) return null
+                      const candidate = new Date(input)
+                      return Number.isNaN(candidate.getTime()) ? null : candidate
+                    }
+                    const fromDate = parseISODate(fromStr)
+                    const toDate = parseISODate(toStr)
+                    const rangeValue: DateRange | null =
+                      fromDate && toDate
+                        ? { start: fromDate, end: toDate }
+                        : fromDate
+                          ? { start: fromDate, end: fromDate }
+                          : toDate
+                            ? { start: toDate, end: toDate }
+                            : null
+                    return (
+                      <DateRangePicker
+                        value={rangeValue}
+                        onChange={(next) => {
+                          if (!next) {
+                            setValue(f.id, { from: undefined, to: undefined })
+                            return
+                          }
+                          setValue(f.id, {
+                            from: format(next.start, 'yyyy-MM-dd'),
+                            to: format(next.end, 'yyyy-MM-dd'),
+                          })
+                        }}
+                        placeholder={t('ui.filters.dateRange.placeholder', 'Pick a date range')}
+                      />
+                    )
+                  })()}
                   {f.type === 'select' && (
                     <div className="space-y-1">
                       {f.multiple ? (

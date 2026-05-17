@@ -51,7 +51,7 @@ import {
 import type { CrudIndexerConfig, CrudEventsConfig } from '@open-mercato/shared/lib/crud/types'
 import { E } from '#generated/entities.ids.generated'
 import { findOneWithDecryption, findWithDecryption } from '@open-mercato/shared/lib/encryption/find'
-import { CUSTOMER_ENTITY_ID } from '../lib/customFieldRouting'
+import { CUSTOMER_ENTITY_ID, resolveCompanyCustomFieldRouting } from '../lib/customFieldRouting'
 import { CustomFieldValue } from '@open-mercato/core/modules/entities/data/entities'
 
 const COMPANY_ENTITY_ID = 'customers:customer_company_profile'
@@ -413,22 +413,46 @@ async function loadCompanySnapshot(em: EntityManager, id: string): Promise<Compa
 
 async function setCompanyCustomFields(
   ctx: CommandRuntimeContext,
+  entityId: string,
   profileId: string,
   organizationId: string,
   tenantId: string,
   values: Record<string, unknown>
 ) {
   if (!values || !Object.keys(values).length) return
+  const em = (ctx.container.resolve('em') as EntityManager)
+  const routing = await resolveCompanyCustomFieldRouting(em, tenantId, organizationId)
+  const entityScoped: Record<string, unknown> = {}
+  const profileScoped: Record<string, unknown> = {}
+  for (const [key, value] of Object.entries(values)) {
+    const target = routing.get(key) ?? COMPANY_ENTITY_ID
+    if (target === CUSTOMER_ENTITY_ID) entityScoped[key] = value
+    else profileScoped[key] = value
+  }
+
   const de = (ctx.container.resolve('dataEngine') as DataEngine)
-  await setCustomFieldsIfAny({
-    dataEngine: de,
-    entityId: COMPANY_ENTITY_ID,
-    recordId: profileId,
-    organizationId,
-    tenantId,
-    values,
-    notify: false,
-  })
+  if (Object.keys(entityScoped).length) {
+    await setCustomFieldsIfAny({
+      dataEngine: de,
+      entityId: CUSTOMER_ENTITY_ID,
+      recordId: entityId,
+      organizationId,
+      tenantId,
+      values: entityScoped,
+      notify: false,
+    })
+  }
+  if (Object.keys(profileScoped).length) {
+    await setCustomFieldsIfAny({
+      dataEngine: de,
+      entityId: COMPANY_ENTITY_ID,
+      recordId: profileId,
+      organizationId,
+      tenantId,
+      values: profileScoped,
+      notify: false,
+    })
+  }
 }
 
 function normalizeOptionalString(value: string | null | undefined): string | null {
@@ -495,7 +519,7 @@ const createCompanyCommand: CommandHandler<CompanyCreateInput, { entityId: strin
 
     await syncEntityTags(em, entity, parsed.tags)
     await em.flush()
-    await setCompanyCustomFields(ctx, profile.id, entity.organizationId, entity.tenantId, custom)
+    await setCompanyCustomFields(ctx, entity.id, profile.id, entity.organizationId, entity.tenantId, custom)
 
     const de = (ctx.container.resolve('dataEngine') as DataEngine)
     await emitCrudSideEffects({
@@ -622,7 +646,7 @@ const updateCompanyCommand: CommandHandler<CompanyUpdateInput, { entityId: strin
     await syncEntityTags(em, record, parsed.tags)
     await em.flush()
 
-    await setCompanyCustomFields(ctx, profile.id, record.organizationId, record.tenantId, custom)
+    await setCompanyCustomFields(ctx, record.id, profile.id, record.organizationId, record.tenantId, custom)
 
     const de = (ctx.container.resolve('dataEngine') as DataEngine)
     await emitCrudSideEffects({
@@ -801,7 +825,7 @@ const updateCompanyCommand: CommandHandler<CompanyUpdateInput, { entityId: strin
 
     const resetValues = buildCustomFieldResetMap(before.custom, payload?.after?.custom)
     if (Object.keys(resetValues).length) {
-      await setCompanyCustomFields(ctx, profile.id, entity.organizationId, entity.tenantId, resetValues)
+      await setCompanyCustomFields(ctx, entity.id, profile.id, entity.organizationId, entity.tenantId, resetValues)
     }
   },
 }
@@ -1329,7 +1353,7 @@ const deleteCompanyCommand: CommandHandler<{ body?: Record<string, unknown>; que
 
       const resetValues = buildCustomFieldResetMap(before.custom, undefined)
       if (Object.keys(resetValues).length) {
-        await setCompanyCustomFields(ctx, profile.id, entity.organizationId, entity.tenantId, resetValues)
+        await setCompanyCustomFields(ctx, entity.id, profile.id, entity.organizationId, entity.tenantId, resetValues)
       }
       await emitQueryIndexUpsertEvents(ctx, [companyEntityIndexEntry(entity)])
       await emitQueryIndexUpsertEvents(ctx, childUpserts)

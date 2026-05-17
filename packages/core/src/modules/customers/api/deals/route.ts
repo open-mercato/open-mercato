@@ -7,7 +7,6 @@ import { E } from '#generated/entities.ids.generated'
 import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
 import {
   applyEntityIdRestriction,
-  consumeAdvancedFilterState,
   findMatchingEntityIdsWithQueryEngine,
   findMatchingEntityIdsBySearchTokensAcrossSources,
   parseScopedCommandInput,
@@ -20,7 +19,7 @@ import {
 } from '../openapi'
 import { findWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import { escapeLikePattern } from '@open-mercato/shared/lib/db/escapeLikePattern'
-import { mergeAdvancedFilters } from '@open-mercato/shared/lib/crud/advanced-filter-integration'
+import { consumeAdvancedFilterState, mergeAdvancedFilterTree } from '@open-mercato/shared/lib/crud/advanced-filter-integration'
 
 const rawBodySchema = z.object({}).passthrough()
 
@@ -133,8 +132,7 @@ const crud = makeCrudRoute<unknown, unknown, DealListQuery>({
     },
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     buildFilters: async (query: any, ctx) => {
-      const advancedQuery = { ...query }
-      const advancedFilterState = consumeAdvancedFilterState(query)
+      const advancedFilterTree = consumeAdvancedFilterState(query)
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       const filters: Record<string, any> = {}
       if (query.search) {
@@ -182,11 +180,8 @@ const crud = makeCrudRoute<unknown, unknown, DealListQuery>({
       if (query.pipelineStageId) {
         filters.pipeline_stage_id = { $eq: query.pipelineStageId }
       }
-      if (ctx && advancedFilterState) {
-        const advancedFilters = mergeAdvancedFilters(
-          { ...filters },
-          advancedQuery as Record<string, unknown>,
-        )
+      if (ctx && advancedFilterTree) {
+        const advancedFilters = mergeAdvancedFilterTree({ ...filters }, advancedFilterTree)
         const matchedIds = await findMatchingEntityIdsWithQueryEngine({
           ctx,
           entityId: E.customers.customer_deal,

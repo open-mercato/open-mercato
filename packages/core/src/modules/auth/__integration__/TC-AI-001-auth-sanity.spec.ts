@@ -35,7 +35,7 @@ test.describe('TC-AI-001: AI framework auth sanity', () => {
     await expect(emailInput).toBeVisible();
     await emailInput.fill(superadmin.email);
 
-    const passwordInput = page.getByLabel('Password').first();
+    const passwordInput = page.getByLabel('Password', { exact: true }).first();
     await expect(passwordInput).toBeVisible();
     await passwordInput.fill('this-password-is-intentionally-wrong');
 

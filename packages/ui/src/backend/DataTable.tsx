@@ -14,10 +14,13 @@ import {
   SelectTrigger,
   SelectValue,
 } from '../primitives/select'
+import { CompactSelectTrigger } from '../primitives/compact-select'
 import { Spinner } from '../primitives/spinner'
+import { EmptyState } from '../primitives/empty-state'
 import { TooltipProvider } from '../primitives/tooltip'
 import { TruncatedCell } from './TruncatedCell'
 import { FilterBar, type FilterDef, type FilterValues } from './FilterBar'
+import { FilteredEmptyResults } from './filters/FilteredEmptyResults'
 import { useCustomFieldFilterDefs } from './utils/customFieldFilters'
 import { fetchCustomFieldDefinitionsPayload, type CustomFieldsetDto } from './utils/customFieldDefs'
 import { RowActions, type RowActionItem } from './RowActions'
@@ -51,8 +54,20 @@ import type {
 import { ComponentReplacementHandles } from '@open-mercato/shared/modules/widgets/component-registry'
 import { insertByInjectionPlacement } from '@open-mercato/shared/modules/widgets/injection-position'
 import { useVirtualizer } from '@tanstack/react-virtual'
-import type { AdvancedFilterState, FilterFieldDef as AdvancedFilterFieldDef } from '@open-mercato/shared/lib/query/advanced-filter'
-import { createEmptyCondition, getDefaultOperator } from '@open-mercato/shared/lib/query/advanced-filter'
+import type {
+  FilterFieldDef as AdvancedFilterFieldDef,
+  AdvancedFilterState,
+} from '@open-mercato/shared/lib/query/advanced-filter'
+import { getDefaultOperator, isAdvancedFilterState, flatToTree } from '@open-mercato/shared/lib/query/advanced-filter'
+import type { AdvancedFilterTree } from '@open-mercato/shared/lib/query/advanced-filter-tree'
+import {
+  createEmptyTree,
+  serializeTreeForPersist,
+  deserializeTreeFromPersist,
+  isPersistedFilterTree,
+  treeToFlat,
+} from '@open-mercato/shared/lib/query/advanced-filter-tree'
+import { treeReducer } from './filters/treeReducer'
 import { AdvancedFilterBuilder } from './filters/AdvancedFilterBuilder'
 import { type ColumnChooserField } from './columns/ColumnChooserPanel'
 import { useAutoDiscoveredFields } from './utils/useAutoDiscoveredFields'
@@ -237,17 +252,85 @@ export type DataTableProps<T> = {
   virtualized?: boolean
   virtualizedMaxHeight?: number | string
   virtualizedOverscan?: number
-  advancedFilter?: {
-    fields?: AdvancedFilterFieldDef[]
-    auto?: boolean
-    value: AdvancedFilterState
-    onChange: (state: AdvancedFilterState) => void
-    onApply: () => void
-    onClear: () => void
-  }
+  /**
+   * Advanced filter configuration. Accepts either the v2 tree shape (preferred)
+   * or the legacy flat `AdvancedFilterState` shape as a backward-compatibility
+   * bridge. The bridge is provided for one minor version; legacy callers SHOULD
+   * migrate to the tree shape — see the spec
+   * `.ai/specs/2026-05-10-crm-list-filter-redesign.md` "Migration & Backward
+   * Compatibility" section and `RELEASE_NOTES.md`.
+   *
+   * When the legacy flat shape is detected, DataTable converts it to a tree via
+   * `flatToTree` for internal rendering and converts any user edits back via
+   * `treeToFlat` before calling `onChange`. The back-conversion flattens nested
+   * groups into the top level (lossy for sub-group structure), so consumers
+   * that need full tree semantics MUST migrate.
+   */
+  advancedFilter?:
+    | {
+        fields?: AdvancedFilterFieldDef[]
+        auto?: boolean
+        value: AdvancedFilterTree
+        onChange: (state: AdvancedFilterTree) => void
+        onApply: () => void
+        onClear: () => void
+        /**
+         * Optional ref forwarded to the internal Filters trigger button. When set,
+         * external popovers (e.g. AdvancedFilterPanel) can anchor to this trigger.
+         * The internal popover is suppressed when externalPopover is true.
+         */
+        triggerRef?: React.RefObject<HTMLButtonElement | null>
+        /**
+         * When true, DataTable suppresses its internal advanced filter popover/builder
+         * and only renders the trigger button. The host page is responsible for
+         * rendering an external popover (e.g. AdvancedFilterPanel) and toggling
+         * its open state via onTriggerClick.
+         */
+        externalPopover?: boolean
+        onTriggerClick?: () => void
+        /**
+         * Optional callback invoked when a saved perspective contains a persisted
+         * advanced-filter tree (`{v:2, root:...}`). The host page receives the
+         * restored tree and is responsible for replacing both its local state and
+         * the `useAdvancedFilterTree` hook's tree. When omitted, perspectives that
+         * carry a tree-shape `filters` payload are ignored on load (and the legacy
+         * `onFiltersApply` callback is called with an empty record).
+         */
+        onApplyTree?: (tree: AdvancedFilterTree) => void
+      }
+    | {
+        /**
+         * @deprecated Legacy flat `AdvancedFilterState` shape. Convert to the
+         * v2 tree shape above before the next minor version. The bridge will be
+         * removed per the deprecation protocol in `BACKWARD_COMPATIBILITY.md`.
+         */
+        fields?: AdvancedFilterFieldDef[]
+        auto?: boolean
+        value: AdvancedFilterState
+        onChange: (state: AdvancedFilterState) => void
+        onApply: () => void
+        onClear: () => void
+      }
   columnChooser?: {
     availableColumns?: ColumnChooserField[]
     auto?: boolean
+  }
+  /**
+   * Slot rendered between the toolbar and the table body when filters are active
+   * and the popover is closed. Use ActiveFilterChips from filters/.
+   */
+  activeFilterChips?: React.ReactNode
+  /**
+   * When provided AND .active is true, replaces the generic empty state with the
+   * filter-aware FilteredEmptyResults. Pages set this when their filter tree has
+   * rules and the table body is empty.
+   */
+  filterAwareEmptyState?: {
+    active: boolean
+    entityNamePlural: string
+    canRemoveLast: boolean
+    onClearAll: () => void
+    onRemoveLast: () => void
   }
 }
 
@@ -892,8 +975,10 @@ export function DataTable<T>({
   virtualized = false,
   virtualizedMaxHeight,
   virtualizedOverscan = 10,
-  advancedFilter,
+  advancedFilter: advancedFilterInput,
   columnChooser,
+  activeFilterChips,
+  filterAwareEmptyState,
 }: DataTableProps<T>) {
   const t = useT()
   const { confirm, ConfirmDialogElement } = useConfirmDialog()
@@ -902,6 +987,53 @@ export function DataTable<T>({
   const containerRef = React.useRef<HTMLDivElement>(null)
   const lastScopeRef = React.useRef<OrganizationScopeChangedDetail | null>(null)
   const hasInitializedScopeRef = React.useRef(false)
+
+  // BC bridge: legacy callers may pass the flat `AdvancedFilterState` shape on
+  // `advancedFilter.value`. Normalize to the tree shape that the rest of
+  // DataTable expects, and back-convert on `onChange` so the caller's typed
+  // callback still receives the shape it declared. Tree-only fields
+  // (`triggerRef`, `externalPopover`, `onApplyTree`, `onTriggerClick`) are
+  // undefined for legacy callers — they were added in this PR and didn't exist
+  // in the legacy contract.
+  // See spec `.ai/specs/2026-05-10-crm-list-filter-redesign.md` ("Migration &
+  // Backward Compatibility") and BACKWARD_COMPATIBILITY.md §3.
+  type AdvancedFilterNormalized = {
+    fields?: AdvancedFilterFieldDef[]
+    auto?: boolean
+    value: AdvancedFilterTree
+    onChange: (state: AdvancedFilterTree) => void
+    onApply: () => void
+    onClear: () => void
+    triggerRef?: React.RefObject<HTMLButtonElement | null>
+    externalPopover?: boolean
+    onTriggerClick?: () => void
+    onApplyTree?: (tree: AdvancedFilterTree) => void
+  }
+  const legacyAdvancedFilterWarnedRef = React.useRef(false)
+  const advancedFilter: AdvancedFilterNormalized | undefined = React.useMemo(() => {
+    if (!advancedFilterInput) return undefined
+    if (!isAdvancedFilterState(advancedFilterInput.value)) {
+      return advancedFilterInput as AdvancedFilterNormalized
+    }
+    if (!legacyAdvancedFilterWarnedRef.current && process.env.NODE_ENV !== 'production') {
+      legacyAdvancedFilterWarnedRef.current = true
+      // eslint-disable-next-line no-console
+      console.warn(
+        '[DataTable] `advancedFilter.value` was passed as the legacy `AdvancedFilterState` shape. ' +
+        'This bridge will be removed in the next minor version — migrate to the tree shape ' +
+        '(`AdvancedFilterTree`, see `@open-mercato/shared/lib/query/advanced-filter-tree`).',
+      )
+    }
+    const legacy = advancedFilterInput as Extract<typeof advancedFilterInput, { value: AdvancedFilterState }>
+    return {
+      fields: legacy.fields,
+      auto: legacy.auto,
+      value: flatToTree(legacy.value),
+      onChange: (next: AdvancedFilterTree) => legacy.onChange(treeToFlat(next)),
+      onApply: legacy.onApply,
+      onClear: legacy.onClear,
+    }
+  }, [advancedFilterInput])
   React.useEffect(() => {
     return subscribeOrganizationScopeChanged((detail) => {
       const prev = lastScopeRef.current
@@ -1393,21 +1525,47 @@ export function DataTable<T>({
         visibility[key] = value
       }
     }
-    const filtersRecord: Record<string, unknown> = {}
-    for (const [key, value] of Object.entries(filterValues ?? {})) {
-      if (typeof key === 'string') filtersRecord[key] = value
+    // When the host page wires an advanced-filter tree, persist that as the
+    // single source of truth for `filters`. The tree wins over legacy
+    // `filterValues` because the CRM redesign (SPEC-048) absorbed all simple
+    // filters into the tree on those pages — keeping both shapes in sync
+    // would re-introduce the dual-state bug the redesign deliberately fixed.
+    let filtersPayload: Record<string, unknown> | undefined
+    if (advancedFilter) {
+      const persisted = serializeTreeForPersist(advancedFilter.value)
+      filtersPayload = persisted.root.children.length > 0
+        ? (persisted as unknown as Record<string, unknown>)
+        : undefined
+    } else {
+      const filtersRecord: Record<string, unknown> = {}
+      for (const [key, value] of Object.entries(filterValues ?? {})) {
+        if (typeof key === 'string') filtersRecord[key] = value
+      }
+      if (Object.keys(filtersRecord).length) filtersPayload = filtersRecord
     }
     const candidate: PerspectiveSettings = {
       columnOrder,
       columnVisibility: visibility,
       sorting,
-      filters: filtersRecord,
+      filters: filtersPayload,
       searchValue,
     }
     return sanitizePerspectiveSettings(candidate) ?? {}
-  }, [columnOrder, columnVisibility, sorting, filterValues, searchValue])
+  }, [columnOrder, columnVisibility, sorting, filterValues, searchValue, advancedFilter])
 
-  const applyPerspectiveSettings = React.useCallback((settings: PerspectiveSettings, nextId: string | null) => {
+  const applyPerspectiveSettings = React.useCallback((
+    settings: PerspectiveSettings,
+    nextId: string | null,
+    options?: {
+      /** When true, do NOT touch the host's advanced-filter tree or the legacy
+       *  filter callback. Used by the mount-time snapshot restore so a stale
+       *  localStorage snapshot can't override URL-derived filter state on
+       *  pages that own filter persistence (People/Companies/Deals). Other
+       *  callsites — explicit perspective selection, "No view" clear — leave
+       *  this off so the user's intent (apply this view / clear) wins. */
+      preserveAdvancedFilter?: boolean
+    },
+  ) => {
     const normalized = sanitizePerspectiveSettings(settings) ?? {}
     if (normalized.columnOrder && normalized.columnOrder.length) {
       setColumnOrder(normalized.columnOrder)
@@ -1428,8 +1586,31 @@ export function DataTable<T>({
       setSorting([])
       onSortingChange?.([])
     }
-    if (onFiltersApply) {
-      onFiltersApply((normalized.filters ?? {}) as FilterValues)
+    // Two filter shapes can live in `settings.filters`:
+    //   1. Persisted advanced-filter tree: `{ v: 2, root: {...} }`
+    //   2. Legacy flat FilterValues record: arbitrary `{ key: value, ... }`
+    // Tree wins when both a tree-shape payload and an `onApplyTree` callback
+    // are present (the host owns an `AdvancedFilterTree`). For pages that
+    // still drive the legacy FilterBar we fall back to `onFiltersApply`.
+    if (!options?.preserveAdvancedFilter) {
+      const restoredTree = isPersistedFilterTree(normalized.filters)
+        ? deserializeTreeFromPersist(normalized.filters)
+        : null
+      if (advancedFilter?.onApplyTree) {
+        advancedFilter.onApplyTree(restoredTree ?? createEmptyTree())
+        // Clear any legacy callback so a stale FilterValues map doesn't override
+        // the tree on the next render. Selecting "No view" also clears the
+        // external advanced-filter tree instead of leaving the prior view's
+        // filters visible.
+        if (onFiltersApply) onFiltersApply({} as FilterValues)
+      } else if (onFiltersApply) {
+        // Either no tree was saved, or the page doesn't accept trees. Pass the
+        // legacy filters through unchanged. A tree-shape payload reaching this
+        // branch (no `onApplyTree`) is intentionally dropped — the host page
+        // would need the wiring to consume it.
+        const legacy = restoredTree ? {} : (normalized.filters ?? {})
+        onFiltersApply(legacy as FilterValues)
+      }
     }
     if (onSearchChange) {
       onSearchChange(normalized.searchValue ?? '')
@@ -1446,7 +1627,7 @@ export function DataTable<T>({
         initialSnapshotRef.current = null
       }
     }
-  }, [onFiltersApply, onSearchChange, onSortingChange, perspectiveTableId, table])
+  }, [onFiltersApply, onSearchChange, onSortingChange, perspectiveTableId, table, advancedFilter])
 
   React.useLayoutEffect(() => {
     if (!perspectiveTableId) return
@@ -1455,9 +1636,24 @@ export function DataTable<T>({
     const snapshot = readPerspectiveSnapshot(perspectiveTableId)
     if (!snapshot) return
     initialSnapshotRef.current = snapshot
-    applyPerspectiveSettings(snapshot.settings, snapshot.perspectiveId ?? null)
+    // When the host page wired an advanced-filter tree (`advancedFilter.onApplyTree`),
+    // the host owns filter persistence — typically by hydrating from / writing to the
+    // URL (see CRM People/Companies/Deals lazy useState initializers + URL writer
+    // effects). The mount-time snapshot from a prior session can be arbitrarily
+    // stale and MUST NOT override the host's filter — including the empty case
+    // (Clear all → refresh would otherwise resurrect the previously-saved rules).
+    // The snapshot still drives non-filter settings: column order, visibility,
+    // sorting, search. Explicit perspective selection and "No view" go through
+    // a different applyPerspectiveSettings call without this option, so they
+    // still update the host filter as expected.
+    const preserveAdvancedFilter = !!advancedFilter?.onApplyTree
+    applyPerspectiveSettings(
+      snapshot.settings,
+      snapshot.perspectiveId ?? null,
+      { preserveAdvancedFilter },
+    )
     initialPerspectiveAppliedRef.current = true
-  }, [perspectiveTableId, applyPerspectiveSettings])
+  }, [perspectiveTableId, applyPerspectiveSettings, advancedFilter])
 
   type SavePerspectivePayload = {
     name: string
@@ -1707,7 +1903,7 @@ export function DataTable<T>({
     if (!canUsePerspectives) return
     if (!perspectiveTableId) return
     if (initialSnapshotRef.current) return
-    if (initialPerspectiveAppliedRef.current && activePerspectiveId != null) return
+    if (initialPerspectiveAppliedRef.current) return
 
     const source = perspectiveData ?? perspectiveConfig?.initialState?.response
     if (!source) return
@@ -1779,7 +1975,7 @@ export function DataTable<T>({
         )).sort((left, right) => left - right)
       : []
     const pageSizeSelect = pageSizeOptions.length > 0 && pagination.onPageSizeChange ? (
-      <span className="inline-flex items-center gap-1.5">
+      <span className="inline-flex flex-none items-center gap-1.5 whitespace-nowrap">
         <Select
           value={String(pagination.pageSize)}
           onValueChange={(value) => {
@@ -1787,20 +1983,19 @@ export function DataTable<T>({
             scrollTableIntoView()
           }}
         >
-          <SelectTrigger
-            size="sm"
+          <CompactSelectTrigger
             className="min-w-[4rem]"
             aria-label={t('ui.dataTable.pagination.rowsPerPage', 'Rows per page')}
           >
             <SelectValue />
-          </SelectTrigger>
+          </CompactSelectTrigger>
           <SelectContent>
             {pageSizeOptions.map((size) => (
               <SelectItem key={size} value={String(size)}>{size}</SelectItem>
             ))}
           </SelectContent>
         </Select>
-        <span className="text-muted-foreground">{t('ui.dataTable.pagination.perPage', 'per page')}</span>
+        <span className="whitespace-nowrap text-muted-foreground">{t('ui.dataTable.pagination.perPage', 'per page')}</span>
       </span>
     ) : null
 
@@ -1968,6 +2163,19 @@ export function DataTable<T>({
   const resolvedAdvancedFilterFields = isAutoAdvancedFilter
     ? autoDiscovered.advancedFilterFields
     : advancedFilter?.fields ?? []
+
+  const advancedFilterRuleCount = React.useMemo<number>(() => {
+    if (!advancedFilter) return 0
+    function countRules(group: AdvancedFilterTree['root']): number {
+      let n = 0
+      for (const c of group.children) {
+        if (c.type === 'rule') n += 1
+        else n += countRules(c)
+      }
+      return n
+    }
+    return countRules(advancedFilter.value.root)
+  }, [advancedFilter])
   const resolvedColumnChooserFields = isAutoColumnChooser
     ? autoDiscovered.columnChooserFields
     : columnChooser?.availableColumns ?? []
@@ -2105,15 +2313,63 @@ export function DataTable<T>({
   const builtToolbar = React.useMemo(() => {
     if (toolbar) return toolbar
     const anySearch = onSearchChange != null
-    const anyFilters = (baseFilters && baseFilters.length > 0) || (cfFilters && cfFilters.length > 0) || injectedFilters.length > 0
+    // When the host wires the V2 advanced-filter popover externally, suppress the
+    // FilterBar's own auto-discovered filter trigger. The V2 popover is the
+    // single filter UI; surfacing the legacy FilterOverlay here would show two
+    // filter triggers side-by-side and confuse the user.
+    const suppressFilterBarFilters = !!(advancedFilter && advancedFilter.externalPopover)
+    const effectiveBaseFilters = suppressFilterBarFilters ? [] : baseFilters
+    const effectiveCfFilters = suppressFilterBarFilters ? [] : cfFilters
+    const effectiveInjectedFilters = suppressFilterBarFilters ? [] : injectedFilters
+    const anyFilters = (effectiveBaseFilters && effectiveBaseFilters.length > 0) || (effectiveCfFilters && effectiveCfFilters.length > 0) || effectiveInjectedFilters.length > 0
     const hasBulkButtons = hasInjectedBulkActions || hasPropBulkActions
-    if (!anySearch && !anyFilters && !hasBulkButtons) return null
+    const hasAdvancedFilterButton = Boolean(advancedFilter)
+    const hasPerspectiveButton = canUsePerspectives
+    if (!anySearch && !anyFilters && !hasBulkButtons && !hasAdvancedFilterButton && !hasPerspectiveButton) return null
     // Merge base filters with CF filters, preferring base definitions when ids collide
-    const baseList = baseFilters || []
+    const baseList = effectiveBaseFilters || []
     const existing = new Set(baseList.map((f) => f.id))
-    const cfOnly = (cfFilters || []).filter((f) => !existing.has(f.id))
-    const injectedOnly = injectedFilters.filter((f) => !existing.has(f.id) && !cfOnly.some((cf) => cf.id === f.id))
+    const cfOnly = (effectiveCfFilters || []).filter((f) => !existing.has(f.id))
+    const injectedOnly = effectiveInjectedFilters.filter((f) => !existing.has(f.id) && !cfOnly.some((cf) => cf.id === f.id))
     const combined: FilterDef[] = [...baseList, ...cfOnly, ...injectedOnly]
+    const advancedFilterButton = advancedFilter ? (
+      <Button
+        ref={advancedFilter.triggerRef}
+        type="button"
+        variant={advancedFilterRuleCount > 0 ? 'default' : 'outline'}
+        size="default"
+        className={advancedFilterRuleCount > 0 ? 'bg-foreground text-background hover:bg-foreground/90' : ''}
+        onClick={() => {
+          if (advancedFilter.externalPopover) {
+            advancedFilter.onTriggerClick?.()
+            return
+          }
+          const opening = !isAdvancedFilterOpen
+          if (opening && advancedFilterRuleCount === 0) {
+            const defaultField = resolvedAdvancedFilterFields[0]
+            const seeded = treeReducer(advancedFilter.value, {
+              type: 'addRule',
+              groupId: advancedFilter.value.root.id,
+              defaultField: defaultField?.key,
+              defaultOperator: defaultField ? getDefaultOperator(defaultField.type) : undefined,
+            })
+            advancedFilter.onChange(seeded)
+          }
+          setAdvancedFilterOpen(opening)
+        }}
+        aria-label={t('ui.advancedFilter.toggle', 'Advanced filters')}
+        title={t('ui.advancedFilter.toggle', 'Advanced filters')}
+        data-testid="advanced-filter-trigger"
+      >
+        <Filter className="h-4 w-4" />
+        <span>{t('ui.dataTable.filters', 'Filters')}</span>
+        {advancedFilterRuleCount > 0 ? (
+          <span className="ml-1 inline-flex h-5 min-w-5 px-1.5 items-center justify-center rounded-full bg-muted-foreground/30 text-background text-xs">
+            {advancedFilterRuleCount}
+          </span>
+        ) : null}
+      </Button>
+    ) : null
     const perspectiveButton = canUsePerspectives ? (
       <ViewSwitcherDropdown
         activePerspectiveId={activePerspectiveId}
@@ -2150,7 +2406,12 @@ export function DataTable<T>({
           </div>
         )
         : null
-    const leadingItems = perspectiveButton ? <div className="flex items-center gap-2">{perspectiveButton}</div> : null
+    const leadingItems = advancedFilterButton || perspectiveButton ? (
+      <div className="flex items-center gap-2">
+        {advancedFilterButton}
+        {perspectiveButton}
+      </div>
+    ) : null
     const trailingItems = hasBulkButtons ? (
       <div className="flex flex-wrap items-center gap-2">
         {selectedRows.length > 0 ? (
@@ -2243,6 +2504,10 @@ export function DataTable<T>({
     runPropBulkAction,
     searchTrailingInjectionSpotId,
     resolvedInjectionContext,
+    advancedFilter,
+    advancedFilterRuleCount,
+    isAdvancedFilterOpen,
+    resolvedAdvancedFilterFields,
   ])
 
   const hasTitle = title != null
@@ -2255,7 +2520,7 @@ export function DataTable<T>({
   const hasRefreshButton = Boolean(refreshButtonConfig)
   const hasToolbar = builtToolbar != null
   const hasToolbarInjection = Boolean(toolbarInjectionSpotId)
-  const shouldRenderActionsWrapper = hasActions || hasRefreshButton || shouldReserveActionsSpace || hasExport || hasToolbarInjection || Boolean(advancedFilter)
+  const shouldRenderActionsWrapper = hasActions || hasRefreshButton || shouldReserveActionsSpace || hasExport || hasToolbarInjection
   const renderToolbarInline = embedded && hasToolbar
   const shouldRenderToolbarBelow = hasToolbar && !renderToolbarInline
   const shouldRenderHeader = hasTitle || renderToolbarInline || shouldRenderActionsWrapper || shouldRenderToolbarBelow
@@ -2320,34 +2585,6 @@ export function DataTable<T>({
                       <span className="sr-only">{refreshButtonConfig.label}</span>
                     </Button>
                   ) : null}
-                  {advancedFilter ? (
-                    <Button
-                      type="button"
-                      variant={advancedFilter.value.conditions.length > 0 ? 'secondary' : 'ghost'}
-                      size="icon"
-                      onClick={() => {
-                        const opening = !isAdvancedFilterOpen
-                        if (opening && advancedFilter.value.conditions.length === 0) {
-                          const newCondition = createEmptyCondition()
-                          if (resolvedAdvancedFilterFields.length > 0) {
-                            newCondition.field = resolvedAdvancedFilterFields[0].key
-                            newCondition.operator = getDefaultOperator(resolvedAdvancedFilterFields[0].type)
-                          }
-                          advancedFilter.onChange({ ...advancedFilter.value, conditions: [newCondition] })
-                        }
-                        setAdvancedFilterOpen(opening)
-                      }}
-                      aria-label={t('ui.advancedFilter.toggle', 'Advanced filters')}
-                      title={t('ui.advancedFilter.toggle', 'Advanced filters')}
-                    >
-                      <Filter className="h-4 w-4" />
-                      {advancedFilter.value.conditions.length > 0 ? (
-                        <span className="absolute -top-1 -right-1 flex h-4 w-4 items-center justify-center rounded-full bg-primary text-overline text-primary-foreground">
-                          {advancedFilter.value.conditions.length}
-                        </span>
-                      ) : null}
-                    </Button>
-                  ) : null}
                   {canUsePerspectives ? (
                     <Button
                       type="button"
@@ -2378,7 +2615,7 @@ export function DataTable<T>({
           ) : null}
         </div>
       )}
-      {advancedFilter && isAdvancedFilterOpen ? (
+      {advancedFilter && !advancedFilter.externalPopover && isAdvancedFilterOpen ? (
         <div className="border-b">
           <AdvancedFilterBuilder
             fields={resolvedAdvancedFilterFields}
@@ -2389,10 +2626,10 @@ export function DataTable<T>({
           />
         </div>
       ) : null}
-      {advancedFilter && advancedFilter.value.conditions.length > 0 && !isAdvancedFilterOpen ? (
+      {advancedFilter && !advancedFilter.externalPopover && advancedFilterRuleCount > 0 && !isAdvancedFilterOpen ? (
         <div className="flex items-center gap-2 flex-wrap px-4 py-2 border-b text-sm">
           <span className="text-muted-foreground">
-            {t('ui.advancedFilter.activeCount', '{count} active filters', { count: advancedFilter.value.conditions.length })}
+            {t('ui.advancedFilter.activeCount', '{count} active filters', { count: advancedFilterRuleCount })}
           </span>
           <Button type="button" variant="ghost" size="sm" className="h-auto px-1 py-0.5 text-xs" onClick={() => setAdvancedFilterOpen(true)}>
             {t('ui.advancedFilter.edit', 'Edit')}
@@ -2402,6 +2639,7 @@ export function DataTable<T>({
           </Button>
         </div>
       ) : null}
+      {activeFilterChips}
       <HeaderDndWrapper
         enabled={enableHeaderDnd}
         contextId={`${stableDndContextId}-headers`}
@@ -2612,8 +2850,26 @@ export function DataTable<T>({
               </>
             ) : (
               <TableRow>
-                <TableCell colSpan={mergedColumns.length + (rowActions || injectedRowActions.length > 0 ? 1 : 0) + (hasInjectedBulkActions ? 1 : 0)} className="h-24 text-center text-muted-foreground">
-                  {emptyState ?? t('ui.dataTable.emptyState.default', 'No results.')}
+                <TableCell colSpan={mergedColumns.length + (rowActions || injectedRowActions.length > 0 ? 1 : 0) + (hasInjectedBulkActions ? 1 : 0)} className="py-6">
+                  {filterAwareEmptyState?.active ? (
+                    <FilteredEmptyResults
+                      entityNamePlural={filterAwareEmptyState.entityNamePlural}
+                      canRemoveLast={filterAwareEmptyState.canRemoveLast}
+                      onClearAll={filterAwareEmptyState.onClearAll}
+                      onRemoveLast={filterAwareEmptyState.onRemoveLast}
+                    />
+                  ) : emptyState && typeof emptyState !== 'string' ? (
+                    emptyState
+                  ) : (
+                    <EmptyState
+                      size="sm"
+                      title={
+                        typeof emptyState === 'string'
+                          ? emptyState
+                          : t('ui.dataTable.emptyState.default', 'No results.')
+                      }
+                    />
+                  )}
                 </TableCell>
               </TableRow>
             )}

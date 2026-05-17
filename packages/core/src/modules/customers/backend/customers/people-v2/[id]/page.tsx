@@ -446,7 +446,7 @@ export default function PersonDetailV2Page({ params }: { params?: { id?: string 
                   onSubmit={handleFormSubmit}
                   onDelete={handleFormDelete}
                   hideFooterActions
-                  collapsibleGroups={{ pageType: 'person-v2', chevronPosition: 'left' }}
+                  collapsibleGroups={{ pageType: 'person-v2', chevronPosition: 'right' }}
                   sortableGroups={{ pageType: 'person-v2' }}
                   onDirtyChange={setIsDirty}
                 />

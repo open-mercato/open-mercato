@@ -27,6 +27,7 @@ IMPORTANT: Before any research or coding, match the task to the root `AGENTS.md`
 | Injecting menu items into main/settings/profile sidebars or topbar/profile dropdown (`useInjectedMenuItems`, `mergeMenuItems`) | `packages/ui/AGENTS.md` |
 | Adding API route interceptors (`api/interceptors.ts`, before/after hooks, body/query rewrite contracts) | `packages/core/AGENTS.md` → API Interceptors |
 | Adding DataTable extension widgets (columns/row actions/bulk actions/filters) | `packages/core/AGENTS.md` → Widget Injection + `packages/ui/AGENTS.md` → DataTable Guidelines |
+| Adding bulk operations, DataTable bulk actions, selected-row mutations, or future long-running operations with progress | `packages/core/src/modules/progress/AGENTS.md` + `packages/ui/AGENTS.md` → DataTable Guidelines + `packages/queue/AGENTS.md` |
 | Adding CrudForm field injection widgets (`crud-form:<entityId>:fields`) | `packages/core/AGENTS.md` → Widget Injection + `packages/ui/AGENTS.md` → CrudForm Guidelines |
 | Replacing or wrapping UI components via `widgets/components.ts` (`replace`/`wrapper`/`props`) | `packages/core/AGENTS.md` → Component Replacement + `packages/ui/AGENTS.md` |
 | Adding custom fields/entities, using DSL helpers (`defineLink`, `cf.*`), declaring `ce.ts` | `packages/core/AGENTS.md` → Custom Fields |
@@ -43,6 +44,7 @@ IMPORTANT: Before any research or coding, match the task to the root `AGENTS.md`
 | Registering typed AI tools via `defineAiTool` in `ai-tools.ts`, building tool packs (`search`, `attachments`, `meta`, domain packs) | `.ai/skills/create-ai-agent/SKILL.md` + `packages/ai-assistant/AGENTS.md` + `apps/docs/docs/framework/ai-assistant/agents.mdx` |
 | Gating AI-mutation writes behind the approval flow (`prepareMutation`, `ai_pending_actions`, approval cards, cleanup worker) | `.ai/skills/create-ai-agent/SKILL.md` + `packages/ai-assistant/AGENTS.md` + `apps/docs/docs/framework/ai-assistant/mutation-approvals.mdx` |
 | Overriding AI agent prompts, mutation policies, or model per tenant via the settings UI | `packages/ai-assistant/AGENTS.md` + `apps/docs/docs/framework/ai-assistant/settings.mdx` |
+| Wiring agentic-loop controls on an AI agent (`loop.stopWhen` / `loop.prepareStep` / `loop.budget`), per-tenant loop kill switch + budgets, `executionEngine: 'tool-loop-agent'`, and the `<AiChat>` LoopTrace debug panel | `.ai/specs/2026-04-28-ai-agents-agentic-loop-controls.md` + `packages/ai-assistant/AGENTS.md` → Loop controls and execution engines + `apps/docs/docs/framework/ai-assistant/agents.mdx` → Agentic loop controls + `apps/docs/docs/framework/ai-assistant/settings.mdx` → Loop policy overrides + `.ai/skills/create-ai-agent/SKILL.md` §4.4 |
 | Replacing or disabling another module's AI agent / AI tool (per-module, modules.ts, or programmatic) | `apps/docs/docs/framework/ai-assistant/overrides.mdx` + `packages/ai-assistant/AGENTS.md` → How to Override + `.ai/specs/2026-04-30-ai-overrides-and-module-disable.md` |
 | Replacing/disabling any module contract at the app level (unified `entry.overrides` umbrella — AI today; other domains rolling out) | `.ai/specs/2026-05-04-modules-ts-unified-overrides.md` + `packages/shared/src/modules/overrides.ts` |
 | Configuring AI providers (Anthropic / OpenAI / Google) and per-module model overrides (`OM_AI_<MODULE>_MODEL`) | `packages/ai-assistant/AGENTS.md` → Model Resolution + `apps/docs/docs/framework/ai-assistant/overview.mdx` |
@@ -70,6 +72,7 @@ IMPORTANT: Before any research or coding, match the task to the root `AGENTS.md`
 | Event bus architecture, ephemeral vs persistent subscriptions, queue integration for events, event workers | `packages/events/AGENTS.md` |
 | Adding cache to a module, tag-based invalidation, tenant-scoped caching, choosing strategy (memory/SQLite/Redis) | `packages/cache/AGENTS.md` |
 | Adding background workers, configuring concurrency (I/O vs CPU-bound), idempotent job processing, queue strategies | `packages/queue/AGENTS.md` |
+| Tracking operation progress in the top bar, creating `ProgressJob`s, or emitting client-local progress events | `packages/core/src/modules/progress/AGENTS.md` + `packages/events/AGENTS.md` → DOM Event Bridge |
 | Adding onboarding wizard steps, tenant setup hooks (`onTenantCreated`/`seedDefaults`), welcome/invitation emails | `packages/onboarding/AGENTS.md` |
 | Adding static content pages (privacy policies, terms, legal pages) | `packages/content/AGENTS.md` |
 | Testing standalone apps with Verdaccio, publishing packages, canary releases, template scaffolding | `packages/create-app/AGENTS.md` |

@@ -15,6 +15,76 @@ interface SeedScope {
   organizationId: string
 }
 
+type SchedulerServiceLike = {
+  register: (registration: {
+    id: string
+    name: string
+    description?: string
+    scopeType: 'system'
+    scheduleType: 'interval'
+    scheduleValue: string
+    timezone?: string
+    targetType: 'queue'
+    targetQueue: string
+    targetPayload?: Record<string, unknown>
+    sourceType: 'module'
+    sourceModule: string
+    isEnabled?: boolean
+  }) => Promise<void>
+}
+
+// Stable, deterministic UUIDs for the two domain-routing system schedules so
+// re-running setup re-upserts the same rows instead of creating duplicates.
+const DOMAIN_VERIFICATION_SCHEDULE_ID = '5e9ef5fc-1f4d-5b3d-8b58-8e1a5a4d1001'
+const DOMAIN_TLS_RETRY_SCHEDULE_ID = '5e9ef5fc-1f4d-5b3d-8b58-8e1a5a4d1002'
+
+function intervalSecondsFromEnv(envName: string, fallbackSeconds: number): string {
+  const parsed = Number.parseInt(process.env[envName] ?? '', 10)
+  const seconds = Number.isFinite(parsed) && parsed > 0 ? parsed : fallbackSeconds
+  return `${seconds}s`
+}
+
+async function registerDomainSchedules(
+  container: { hasRegistration?: (name: string) => boolean; resolve: (name: string) => unknown },
+): Promise<void> {
+  if (typeof container.hasRegistration !== 'function' || !container.hasRegistration('schedulerService')) {
+    return
+  }
+  const schedulerService = container.resolve('schedulerService') as SchedulerServiceLike
+
+  await schedulerService.register({
+    id: DOMAIN_VERIFICATION_SCHEDULE_ID,
+    name: 'Custom domain — DNS auto-verification',
+    description:
+      'Re-runs DNS verification for custom-domain mappings stuck in pending or dns_failed, and triggers TLS health checks on success.',
+    scopeType: 'system',
+    scheduleType: 'interval',
+    scheduleValue: intervalSecondsFromEnv('DOMAIN_AUTO_VERIFY_INTERVAL_SECONDS', 300),
+    timezone: 'UTC',
+    targetType: 'queue',
+    targetQueue: 'domain-verification',
+    sourceType: 'module',
+    sourceModule: 'customer_accounts',
+    isEnabled: true,
+  })
+
+  await schedulerService.register({
+    id: DOMAIN_TLS_RETRY_SCHEDULE_ID,
+    name: 'Custom domain — TLS retry',
+    description:
+      'Retries TLS certificate provisioning for verified or tls_failed custom-domain mappings, with batch cap and adaptive backoff on Let\'s Encrypt rate limits.',
+    scopeType: 'system',
+    scheduleType: 'interval',
+    scheduleValue: intervalSecondsFromEnv('DOMAIN_TLS_RETRY_INTERVAL_SECONDS', 1800),
+    timezone: 'UTC',
+    targetType: 'queue',
+    targetQueue: 'domain-tls-retry',
+    sourceType: 'module',
+    sourceModule: 'customer_accounts',
+    isEnabled: true,
+  })
+}
+
 const DEFAULT_ROLES = [
   {
     name: 'Portal Admin',
@@ -155,7 +225,7 @@ export const setup: ModuleSetupConfig = {
     await seedDefaultRoles(em, { tenantId, organizationId })
   },
 
-  async seedDefaults({ em, tenantId, organizationId }) {
+  async seedDefaults({ em, tenantId, organizationId, container }) {
     await seedDefaultRoles(em, { tenantId, organizationId })
     // Merge defaultCustomerRoleFeatures from all enabled modules
     try {
@@ -164,6 +234,16 @@ export const setup: ModuleSetupConfig = {
       await ensureDefaultCustomerRoleAcls(em, tenantId, allModules)
     } catch {
       // Modules may not be registered yet during initial setup
+    }
+
+    // System-scoped schedules: register is idempotent, so re-running setup
+    // (or running it for additional tenants) just upserts the same two rows.
+    try {
+      await registerDomainSchedules(
+        container as { hasRegistration?: (name: string) => boolean; resolve: (name: string) => unknown },
+      )
+    } catch {
+      // Scheduler may not be installed in this deployment; ignore.
     }
   },
 

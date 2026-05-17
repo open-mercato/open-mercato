@@ -2,7 +2,8 @@
 
 import * as React from 'react'
 import Link from 'next/link'
-import { Search, Check, Settings2 } from 'lucide-react'
+import { Search, Check, CheckCheck, Settings2 } from 'lucide-react'
+import { EmptyState } from '@open-mercato/ui/primitives/empty-state'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { Button } from '@open-mercato/ui/primitives/button'
 import { Badge } from '@open-mercato/ui/primitives/badge'
@@ -419,12 +420,14 @@ export function AssignRoleDialog({
                 </div>
 
                 {!availableRoleTypes.length ? (
-                  <div className="rounded-lg border border-dashed border-border/80 px-4 py-6 text-sm text-muted-foreground">
-                    {t(
+                  <EmptyState
+                    size="sm"
+                    icon={<CheckCheck className="h-8 w-8" aria-hidden="true" />}
+                    title={t(
                       'customers.roles.dialog.noAvailableRoles',
                       'All available role types are already assigned.',
                     )}
-                  </div>
+                  />
                 ) : null}
               </div>
             ) : null}

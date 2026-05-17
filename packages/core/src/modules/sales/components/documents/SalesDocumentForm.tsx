@@ -4,6 +4,7 @@ import * as React from 'react'
 import { CrudForm, type CrudCustomFieldRenderProps, type CrudField, type CrudFormGroup } from '@open-mercato/ui/backend/CrudForm'
 import { LookupSelect, type LookupSelectItem } from '@open-mercato/ui/backend/inputs'
 import { Input } from '@open-mercato/ui/primitives/input'
+import { EmailInput } from '@open-mercato/ui/primitives/email-input'
 import { Button } from '@open-mercato/ui/primitives/button'
 import {
   Select,
@@ -1222,9 +1223,7 @@ export function SalesDocumentForm({ onCreated, isSubmitting = false, initialKind
               />
             </div>
             <div className="space-y-2">
-              <Input
-                type="email"
-                leftIcon={<Mail />}
+              <EmailInput
                 value={emailValue}
                 onChange={(event) => setValue('customerEmail', event.target.value)}
                 placeholder={t('sales.documents.form.email.placeholder', 'Email used for the document')}

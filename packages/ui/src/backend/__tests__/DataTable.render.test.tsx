@@ -45,4 +45,40 @@ describe('DataTable SSR render', () => {
       queryClient.clear()
     }
   })
+
+  it('keeps rows-per-page controls on one line', () => {
+    const columns: ColumnDef<Row>[] = [
+      { accessorKey: 'name', header: 'Name' },
+    ]
+    const queryClient = new QueryClient({ defaultOptions: { queries: { gcTime: 0 } } })
+    try {
+      const html = renderToString(
+        React.createElement(
+          QueryClientProvider as any,
+          { client: queryClient },
+          React.createElement(
+            I18nProvider as any,
+            { locale: 'en', dict: {} },
+            React.createElement(DataTable as any, {
+              columns,
+              data: [{ id: '1', name: 'Ada' }],
+              pagination: {
+                page: 1,
+                pageSize: 20,
+                total: 1,
+                totalPages: 1,
+                onPageChange: () => {},
+                onPageSizeChange: () => {},
+                pageSizeOptions: [10, 20, 50],
+              },
+            }),
+          ),
+        )
+      )
+      expect(html).toContain('whitespace-nowrap')
+      expect(html).toContain('per page')
+    } finally {
+      queryClient.clear()
+    }
+  })
 })
