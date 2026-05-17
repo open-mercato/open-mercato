@@ -55,8 +55,10 @@ test.describe('TC-CRM-013: Pipeline View Navigation', () => {
       await expect(page.getByText('Win', { exact: true })).toBeVisible();
 
       // Each deal card is rendered as <div role="article" aria-label="Deal: {title}"> by
-      // DealCard.tsx; navigation to the detail page is via router.push on the card's
-      // click handler (no anchor element). Click the article role to navigate.
+      // DealCard.tsx; navigation to the detail page is via router.push from the kebab
+      // menu's "Open deal" item (the card body is also draggable via dnd-kit, so a raw
+      // .click() on the article competes with the PointerSensor's pointer-capture and
+      // doesn't reliably fire the navigation handler under Playwright).
       const dealCard = page.getByRole('article', { name: `Deal: ${dealTitle}` });
       await expect(dealCard).toBeVisible();
       // SPEC-048: DealCard.tsx renders value as decimal-formatted amount + separate
@@ -65,7 +67,10 @@ test.describe('TC-CRM-013: Pipeline View Navigation', () => {
       // on the page (e.g. lane-total breakdown).
       await expect(dealCard.getByText('USD', { exact: true })).toBeVisible();
 
-      await dealCard.click();
+      // Open the card's kebab menu and choose "Open deal". The menu items are
+      // rendered via React portal, so the menuitem lookup is page-scoped, not card-scoped.
+      await dealCard.getByRole('button', { name: 'Deal actions' }).click();
+      await page.getByRole('menuitem', { name: 'Open deal', exact: true }).click();
       await expect(page).toHaveURL(new RegExp(`/backend/customers/deals/${dealId}$`));
       await expect(page.getByText(dealTitle, { exact: true }).first()).toBeVisible();
 
