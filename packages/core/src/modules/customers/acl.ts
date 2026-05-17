@@ -5,6 +5,7 @@ export const features = [
   { id: 'customers.companies.manage', title: 'Manage companies', module: 'customers' },
   { id: 'customers.deals.view', title: 'View deals', module: 'customers' },
   { id: 'customers.deals.manage', title: 'Manage deals', module: 'customers' },
+  { id: 'customers.deals.export', title: 'Export deals (CSV/XLSX)', module: 'customers' },
   { id: 'customers.activities.view', title: 'View activities', module: 'customers' },
   { id: 'customers.activities.manage', title: 'Manage activities', module: 'customers' },
   { id: 'customers.settings.manage', title: 'Manage customer settings', module: 'customers' },

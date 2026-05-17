@@ -497,6 +497,10 @@ export const customerSettingsUpsertSchema = scopedSchema.extend({
   addressFormat: customerAddressFormatSchema,
 })
 
+export const customerStuckThresholdUpsertSchema = scopedSchema.extend({
+  stuckThresholdDays: z.number().int().min(1).max(365),
+})
+
 export type PersonCreateInput = z.infer<typeof personCreateSchema>
 export type PersonUpdateInput = z.infer<typeof personUpdateSchema>
 export type CompanyCreateInput = z.infer<typeof companyCreateSchema>
@@ -515,6 +519,7 @@ export type TagAssignmentInput = z.infer<typeof tagAssignmentSchema>
 export type TodoLinkCreateInput = z.infer<typeof todoLinkCreateSchema>
 export type TodoLinkWithTodoCreateInput = z.infer<typeof todoLinkWithTodoCreateSchema>
 export type CustomerSettingsUpsertInput = z.infer<typeof customerSettingsUpsertSchema>
+export type CustomerStuckThresholdUpsertInput = z.infer<typeof customerStuckThresholdUpsertSchema>
 export type CustomerAddressFormatInput = z.infer<typeof customerAddressFormatSchema>
 export type InteractionCompleteInput = z.infer<typeof interactionCompleteSchema>
 export type InteractionCancelInput = z.infer<typeof interactionCancelSchema>

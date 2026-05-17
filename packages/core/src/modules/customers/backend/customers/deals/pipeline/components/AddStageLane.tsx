@@ -1,0 +1,32 @@
+"use client"
+
+import * as React from 'react'
+import { Button } from '@open-mercato/ui/primitives/button'
+import { useT } from '@open-mercato/shared/lib/i18n/context'
+import { translateWithFallback } from '@open-mercato/shared/lib/i18n/translate'
+
+type AddStageLaneProps = {
+  onClick: () => void
+  disabled?: boolean
+}
+
+export function AddStageLane({ onClick, disabled = false }: AddStageLaneProps): React.ReactElement {
+  const t = useT()
+  const label = translateWithFallback(t, 'customers.deals.kanban.cta.newStage', 'New stage')
+
+  return (
+    <Button
+      variant="ghost"
+      type="button"
+      onClick={onClick}
+      disabled={disabled}
+      aria-label={label}
+      className="group flex w-[308px] min-h-[60vh] flex-none flex-col items-center justify-center gap-2 rounded-xl border border-dashed border-muted-foreground/60 bg-muted/40 px-3.5 py-5 text-muted-foreground transition-colors hover:bg-muted/70 hover:text-foreground disabled:cursor-not-allowed disabled:opacity-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
+    >
+      <span className="text-3xl font-bold leading-none">+</span>
+      <span className="text-base font-semibold leading-normal">{label}</span>
+    </Button>
+  )
+}
+
+export default AddStageLane
