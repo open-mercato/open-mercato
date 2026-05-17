@@ -287,28 +287,72 @@ Default swatches: 16 colors curated from the DS palette (red, orange, amber, yel
 
 ---
 
-### 6. NotificationFeed (new)
+### 6. NotificationFeed (new) — **IMPLEMENTED (Phase A.12)**
 
-**Figma node:** TBD.
+**Figma source:** DS Open Mercato `Notifications` page (`4096:21398`) — `Notifications Items [1.1]` (`4308:731`, 8 variants — 4 designs × 2 states: default + hover/selected: plain, inline Approve/Deny buttons, file attachment, reply preview); `Notifications Header [1.1]` (`4308:1004`); `Notifications Footer [1.1]` (`4308:5526`); `Notifications Tab Menu [1.1]` (`4349:46656`). Assembled examples: `166926:7047`, `166926:7088`, `166926:7114`, `166926:7138`.
 
 **Purpose:** Persistent panel listing in-app notifications (the "you have 5 notifications" inbox). Distinct from existing `Notification` (single toast) and `NotificationStack` (top-right toast pile). NotificationFeed is what opens when the user clicks the bell icon.
 
-**API:**
+**Final API (as shipped — compound, opted for inline composability over a data-driven `items={[]}` prop because Figma items mix titles/bodies with arbitrary inline children: file chips, Approve/Deny pairs, reply previews):**
 
 ```tsx
-<NotificationFeed
-  items: NotificationFeedItem[]
-  onItemClick?: (item) => void
-  onMarkAllRead?: () => void
-  isLoading?: boolean
-  emptyState?: ReactNode
-  groupBy?: 'day' | 'unread-vs-read' | 'none'
-/>
+<NotificationFeed>
+  <NotificationFeedHeader title="Notifications">
+    <IconButton variant="ghost" size="sm" aria-label="Settings">
+      <Settings />
+    </IconButton>
+  </NotificationFeedHeader>
+
+  <NotificationFeedList>
+    <NotificationFeedItem
+      icon={
+        <NotificationFeedIconBadge tone="indigo">
+          <UserPlus className="size-5" />
+        </NotificationFeedIconBadge>
+      }
+      title="New Lead Generated"
+      body="John Smith submitted web form"
+      timestamp="10 minutes ago"
+      unread
+      onClick={() => router.push('/leads/123')}
+      actions={
+        <IconButton variant="ghost" size="sm" aria-label="More">
+          <MoreHorizontal />
+        </IconButton>
+      }
+    />
+
+    <NotificationFeedItem
+      icon={<NotificationFeedIconBadge tone="info"><CheckCircle2 className="size-5" /></NotificationFeedIconBadge>}
+      title="Document approval requested"
+      body="Wei Chen asks you to approve Q2 financial report"
+      timestamp="2 hours ago"
+      unread
+    >
+      <div className="flex gap-2">
+        <Button variant="outline" size="sm">Deny</Button>
+        <Button size="sm">Approve</Button>
+      </div>
+    </NotificationFeedItem>
+  </NotificationFeedList>
+
+  <NotificationFeedFooter>
+    <Button variant="outline" className="w-full">Archive all</Button>
+  </NotificationFeedFooter>
+</NotificationFeed>
 ```
 
-`NotificationFeedItem` = `{ id, type, title, body, createdAt, read, actor?, action? }`. Renderers per `type` come from the existing notification renderer system (`notifications.client.ts`).
+**Compound surface:** `NotificationFeed` (root rounded card with `border-input` + `shadow-lg`) / `NotificationFeedHeader` (title + actions slot, bordered bottom) / `NotificationFeedList` (`<ol>` with `divide-y` so items auto-separate) / `NotificationFeedItem` (icon + title + body + timestamp + actions + indented children; `unread` toggles a small indigo dot; `onClick` makes the row clickable with Enter/Space activation) / `NotificationFeedFooter` (bordered top, free-form children) / `NotificationFeedIconBadge` (size-10 rounded-full helper with 7 tones: `indigo` / `success` / `warning` / `error` / `info` / `brand` / `neutral`).
 
-**Tests:** Smoke test asserts item click, mark-all-read callback, grouping, empty state.
+**Implementation notes:**
+- Compound API instead of data-driven `items={[]}` (originally spec'd) — Figma items inline arbitrary children (Approve/Deny pairs, file chips, reply preview cards) that a JSON shape would fight. The compound approach also lets consumers reuse `ActivityFeedFileChip` directly inside `NotificationFeedItem` children for file attachments.
+- Item timestamp renders as a separate muted line (smaller `text-xs leading-4`) beneath the body. No separator glyph between body and timestamp — they stack as 3 rows: title / body / timestamp.
+- `onClick` wires `role="button"`, `tabIndex="0"`, Enter/Space activation, hover bg `bg-muted/40`, and a focus-visible affordance. Aria-label defaults to the title string.
+- Actions slot wrapper has `event.stopPropagation()` on click — kebab/menu clicks don't bubble up to the row's `onClick`. Nested menu items must also stop propagation if they trigger nested actions.
+- No grouping (`groupBy: 'day' | 'unread-vs-read'`), no `isLoading` skeletons, no `emptyState` prop, no `items={[]}` shape. The original spec called for those — the compound API obsoletes them. Grouping is a content concern (consumers render a header row between groups); loading skeletons reuse the existing `Skeleton` primitive; empty state is whatever the consumer renders in place of the list.
+- Tab filtering (`All` / `Mentions` / `Unread` per Figma `Notifications Tab Menu [1.1]`) is left to the existing `Tabs` primitive — wrap `<NotificationFeed>` in `<Tabs>` rather than building tab UI into the inbox primitive.
+
+**Tests (13 smoke tests, all passing):** root card chrome (rounded-2xl + border + slots); header title + actions; item title/body/timestamp without separator glyph; unread dot gated on `unread`; icon + indented children render; `onClick` wires role="button" + tabIndex + Enter/Space activation; non-clickable when `onClick` omitted; actions slot wrapper stops propagation on click; footer slot; IconBadge tone classes for all 7 tones; IconBadge defaults (tone="indigo", size="default"); IconBadge `size="sm"` variant; className forwarded on all 5 compound slots.
 
 ---
 
@@ -672,7 +716,7 @@ Order chosen so primitives with lower dependency are first; primitives that depe
 9. `feat(ds): add Drawer primitive` (uses ScrollArea) — **DONE (A.9)** + `fix(ds): align Drawer with canonical Figma source (rounded inner edges, leading icon badge, footer layout/leading slots)` — **DONE (A.9-fixup)**
 10. `feat(ds): add CommandMenu primitive` (built on `cmdk` + `@radix-ui/react-dialog`; both promoted from transitive to direct deps) — **DONE (A.10)**
 11. `feat(ds): add ActivityFeed primitive` (uses Avatar; compound API instead of data-driven `items={[]}`; defers EmptyState/Skeleton to consumers) — **DONE (A.11)**
-12. `feat(ds): add NotificationFeed primitive`
+12. `feat(ds): add NotificationFeed primitive` (compound API; reuses `ActivityFeedFileChip` for file attachments; defers tabs / grouping / empty state / skeletons to consumers) — **DONE (A.12)**
 
 Each commit includes: primitive file, unit test file, `.ai/ui-components.md` section, `packages/ui/AGENTS.md` quick-ref row, i18n keys (if any).
 
@@ -872,3 +916,4 @@ To be filled in after all phases land and before opening the PR. Sections:
 | 2026-05-17 | IN PROGRESS — Phase A 10/12 | Shipped A.1 ScrollArea, A.2 ButtonGroup, A.3 SegmentedControl, A.4 Slider, A.5 Rating, A.6 StepIndicator, A.7 ColorPicker, A.8 Pagination, A.9 Drawer, A.10 CommandMenu. A.10 promoted `cmdk` and `@radix-ui/react-dialog` from transitive to direct deps in `packages/ui/package.json`. Remaining: A.11 ActivityFeed, A.12 NotificationFeed, then Phase B (8 rewrites) + Phase C polish. R5 (cmdk new direct dep) resolved. 1152 UI tests passing (12 added for CommandMenu). |
 | 2026-05-17 | FIXUP — A.9 Drawer | Realigned Drawer to canonical Figma source (`486:7366` — user-pointed). Panel: `rounded-l-2xl` (and per-side counterparts) + `shadow-2xl`, removed `border-l/r/t/b` from the seam. Header: removed `border-b`, added optional `leading` icon badge slot (`size-10 rounded-full border`) matching `Drawer Header [1.1]` variants 2 + 4. Footer: removed `border-t`, added `layout` variant (`default` / `equal` 50/50 stretched) + optional `leading` slot (checkbox / switch / link / step dots) matching `Drawer Footer [1.1]` variants 1–6. R4 risk note updated with the lesson: always list `figma.root.children` before declaring a primitive has no Figma source. Drawer tests grew from 12 → 17 (5 new cases for leading badge, default no-border, default footer layout, equal layout, footer leading slot). All 1157 UI tests passing. |
 | 2026-05-17 | IN PROGRESS — Phase A 11/12 | Shipped A.11 ActivityFeed. Compound API (`ActivityFeed` + `ActivityFeedItem` + `ActivityFeedFileChip` + `ActivityFeedComment` + `ActivityFeedStatusChip`) instead of the originally-spec'd data-driven `items={[]}` shape — title is a ReactNode so Figma sentences (bold actor + muted verb + inline status chip) compose naturally. 12 smoke tests added (1169 UI tests passing). Remaining: A.12 NotificationFeed, then Phase B (8 rewrites) + Phase C polish. |
+| 2026-05-17 | PHASE A COMPLETE (12/12) | Shipped A.12 NotificationFeed. Compound API (`NotificationFeed` + `NotificationFeedHeader` + `NotificationFeedList` + `NotificationFeedItem` + `NotificationFeedFooter` + `NotificationFeedIconBadge`) — 7-tone IconBadge helper, `unread` dot, `onClick` row activation with Enter/Space, hover-revealed `actions` slot, indented `children` for inline Approve/Deny pairs / file chips / reply previews. 13 smoke tests added (1182 UI tests total). Phase A done — 12 new primitives shipped: A.1 ScrollArea, A.2 ButtonGroup, A.3 SegmentedControl, A.4 Slider, A.5 Rating, A.6 StepIndicator, A.7 ColorPicker, A.8 Pagination, A.9 Drawer (+ A.9-fixup), A.10 CommandMenu, A.11 ActivityFeed, A.12 NotificationFeed. Next: Phase B (8 rewrites: Avatar, Badge, Dialog, Separator, Progress, Notification toast, Tabs, Table) + Phase C polish (FilterBar, i18n, docs sweep). |

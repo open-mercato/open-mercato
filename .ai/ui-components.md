@@ -55,6 +55,7 @@ Detailed variant tables, size matrices, props, examples, and MUST rules for ever
 - [Drawer](#drawer)
 - [CommandMenu](#commandmenu)
 - [ActivityFeed](#activityfeed)
+- [NotificationFeed](#notificationfeed)
 - [Specialized Inputs (overview)](#specialized-inputs-overview)
 - [ComboboxInput](#comboboxinput)
 - [TagsInput (backend)](#tagsinput-backend)
@@ -4370,6 +4371,127 @@ Pass a custom `icon` slot to override the auto status icon (e.g. a brand mark fo
 - The primitive does NOT include a built-in comment composer. The composer is a separate concern — use `Textarea` + `Button` (or a dedicated comment component once one ships).
 - File / Comment / Status chips are intentionally compact — they fit either inline in the title row OR in the indented row below. The same chip primitive serves both contexts.
 - The Item's `children` slot wraps in `flex-wrap gap-2` so multiple chips (file + file, status + status, ...) line-break naturally on narrow viewports.
+
+---
+
+## NotificationFeed
+
+Bell-icon inbox panel — the dropdown that opens when the user clicks the bell affordance in the app shell. Each entry is a self-contained notification card with an icon badge, headline + body + timestamp, optional inline action buttons (Approve / Deny / file chip / reply preview), and a hover-revealed kebab menu. Distinct from `Notification` (single toast in the top-right stack) and from `ActivityFeed` (chronological audit log scoped to one entity).
+
+### Import
+
+```typescript
+import {
+  NotificationFeed,
+  NotificationFeedHeader,
+  NotificationFeedList,
+  NotificationFeedItem,
+  NotificationFeedFooter,
+  NotificationFeedIconBadge,
+} from '@open-mercato/ui/primitives/notification-feed'
+```
+
+### Compound API
+
+| Slot | Role |
+|---|---|
+| `NotificationFeed` | Root card. `rounded-2xl border border-input bg-background shadow-lg overflow-hidden`. |
+| `NotificationFeedHeader` | Top row. Optional `title` prop + children slot for actions (settings cog, "Mark all as read" link, etc.). Bordered bottom. |
+| `NotificationFeedList` | `<ol>` list with `divide-y divide-input` so items auto-separate without per-item borders. |
+| `NotificationFeedItem` | Single entry. Slots: `icon` (left, typically `NotificationFeedIconBadge`), `title` (bold), `body` (muted), `timestamp` (smaller muted), `actions` (right slot, hover-revealed), `children` (indented content). Booleans: `unread` (renders indigo dot beside the title). Callbacks: `onClick` (makes the whole row a clickable button with hover bg + Enter/Space activation). |
+| `NotificationFeedFooter` | Bottom row. Bordered top. Free-form children — typical content: a full-width Archive All button OR keyboard-hint + settings link. |
+| `NotificationFeedIconBadge` | Helper for the leading icon: `size-10 rounded-full` with semantic tint. `tone="indigo" \| "success" \| "warning" \| "error" \| "info" \| "brand" \| "neutral"`. Default tone `indigo`, default size `default` (size-10). `size="sm"` shrinks to size-8 for denser lists. |
+
+### Usage
+
+```tsx
+<NotificationFeed>
+  <NotificationFeedHeader title="Notifications">
+    <IconButton variant="ghost" size="sm" aria-label="Settings">
+      <Settings />
+    </IconButton>
+  </NotificationFeedHeader>
+
+  <NotificationFeedList>
+    <NotificationFeedItem
+      icon={
+        <NotificationFeedIconBadge tone="indigo">
+          <UserPlus className="size-5" />
+        </NotificationFeedIconBadge>
+      }
+      title="New Lead Generated"
+      body="John Smith submitted web form"
+      timestamp="10 minutes ago"
+      unread
+      onClick={() => router.push('/leads/123')}
+      actions={
+        <IconButton variant="ghost" size="sm" aria-label="More">
+          <MoreHorizontal />
+        </IconButton>
+      }
+    />
+
+    <NotificationFeedItem
+      icon={
+        <NotificationFeedIconBadge tone="warning">
+          <Target className="size-5" />
+        </NotificationFeedIconBadge>
+      }
+      title="Campaign Milestone"
+      body="Black Friday campaign hit 150% target"
+      timestamp="3 days ago"
+      onClick={() => router.push('/campaigns/123')}
+    >
+      <div className="flex gap-2">
+        <Button variant="outline" size="sm" onClick={(e) => { e.stopPropagation(); deny() }}>
+          Deny
+        </Button>
+        <Button size="sm" onClick={(e) => { e.stopPropagation(); approve() }}>
+          Approve
+        </Button>
+      </div>
+    </NotificationFeedItem>
+  </NotificationFeedList>
+
+  <NotificationFeedFooter>
+    <Button variant="outline" className="w-full" onClick={archiveAll}>
+      Archive all
+    </Button>
+  </NotificationFeedFooter>
+</NotificationFeed>
+```
+
+### Icon badge tones
+
+Matches Figma `Notifications Items [1.1]` assembled examples. Surface is a soft `tone/10` background; icon carries the semantic color directly (no white-on-color or color-on-color).
+
+| `tone` | Background tint | Icon color |
+|---|---|---|
+| `indigo` (default) | `bg-accent-indigo/10` | `text-accent-indigo` |
+| `success` | `bg-status-success-icon/10` | `text-status-success-icon` |
+| `warning` | `bg-status-warning-icon/10` | `text-status-warning-icon` |
+| `error` | `bg-status-error-icon/10` | `text-status-error-icon` |
+| `info` | `bg-status-info-icon/10` | `text-status-info-icon` |
+| `brand` | `bg-brand-violet/10` | `text-brand-violet` |
+| `neutral` | `bg-muted` | `text-muted-foreground` |
+
+### MUST rules
+
+- NEVER hand-roll the bell-dropdown inbox markup — use `NotificationFeed`. The existing `Notification` primitive is for the top-right toast STACK only; this primitive is for the persistent inbox PANEL.
+- For row-level navigation, ALWAYS pass `onClick` instead of wrapping `<NotificationFeedItem>` in a `<Link>` — the primitive auto-wires `role="button"`, `tabIndex`, Enter/Space activation, and a focus-visible affordance. Wrapping in `<Link>` doubles the click area and breaks focus management.
+- When the `actions` slot fires a callback, call `event.stopPropagation()` so the action click doesn't bubble up to the row's `onClick`. The primitive's wrapper already stops propagation at the wrapper level, but if you nest dropdown menus the menu items must also stop propagation explicitly.
+- Use `NotificationFeedIconBadge` for the leading slot. Hand-rolling a `<div className="size-10 rounded-full bg-X/10">...</div>` drift on padding, ring color, and icon centering — the primitive's `inline-flex shrink-0 items-center justify-center` keeps every variant aligned.
+- Format `timestamp` with the project's `formatRelativeTime()` helper.
+- For "Mark all as read" / "Archive all" affordances: header → "Mark all as read" link button; footer → full-width "Archive all" Button. Don't mix the two locations.
+- For tab filters ("All" / "Mentions" / "Unread"): wrap `<NotificationFeed>` in a `<Tabs>` container — the primitive itself ships no tab UI. Figma `Notifications Tab Menu [1.1]` is a separate variant covered by the existing `Tabs` primitive.
+
+### Notes
+
+- Figma source: DS Open Mercato `Notifications` page (`4096:21398`) — `Notifications Items [1.1]` (`4308:731`, 4 designs × 2 states), `Notifications Header [1.1]` (`4308:1004`), `Notifications Footer [1.1]` (`4308:5526`), `Notifications Tab Menu [1.1]` (`4349:46656`). Assembled examples: `166926:7047` (bell dropdown), `166926:7088`, `166926:7114`, `166926:7138`.
+- Item layout per Figma: icon badge (left, size-10) + stacked title/body/timestamp + hover-revealed kebab (right). On hover the row gets `bg-muted/40` and the kebab fades in via `group-hover:opacity-100`.
+- Items separate via `divide-y` on the parent `<ol>` — no per-item border styling.
+- The primitive's footer is intentionally bare. The Figma examples ship two distinct footer designs: full-width "Archive All" button OR a navigation hint row with `↑ ↓ to navigate` Kbd shortcuts + a "Manage Notification" link on the right. Consumers compose whichever fits.
+- Tests: 13 smoke tests cover root card chrome, header title + actions, item slots (title + body + timestamp without separator glyph), unread dot gating, icon + indented children, `onClick` wires Enter/Space/click, action click stops propagation, footer slot, all 7 IconBadge tones, badge default `tone="indigo"` + size, `size="sm"` variant, className forwarding.
 
 ---
 

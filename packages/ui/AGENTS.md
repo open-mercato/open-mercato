@@ -89,6 +89,7 @@ When you need… use this. Details (variants, sizes, props, MUST rules) live in 
 | Side sheet / non-blocking overlay (detail pane, secondary form) | `Drawer` (with `DrawerContent` / `DrawerHeader` / `DrawerBody` / `DrawerFooter` / `DrawerClose`) | `@open-mercato/ui/primitives/drawer` |
 | Cmd+K spotlight palette (global navigation / quick actions / universal search) | `CommandMenu` (compound: `CommandMenuContent` / `Input` / `List` / `Group` / `Item` / `Separator` / `Footer`) — auto-filter via `cmdk` | `@open-mercato/ui/primitives/command-menu` |
 | Chronological actor-action timeline (detail panes, audit feeds, customer activity logs) | `ActivityFeed` (compound: `ActivityFeedItem` / `ActivityFeedFileChip` / `ActivityFeedComment` / `ActivityFeedStatusChip`) | `@open-mercato/ui/primitives/activity-feed` |
+| Bell-icon inbox / notification panel (the dropdown that opens from the app shell bell affordance) | `NotificationFeed` (compound: `NotificationFeedHeader` / `NotificationFeedList` / `NotificationFeedItem` / `NotificationFeedFooter` / `NotificationFeedIconBadge`) | `@open-mercato/ui/primitives/notification-feed` |
 | Wrap a `<Link>` as button | `Button asChild` / `IconButton asChild` | — |
 
 ## Critical Primitive Rules
