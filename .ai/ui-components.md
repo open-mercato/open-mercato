@@ -49,6 +49,7 @@ Detailed variant tables, size matrices, props, examples, and MUST rules for ever
 - [SegmentedControl](#segmentedcontrol)
 - [Slider](#slider)
 - [Rating](#rating)
+- [StepIndicator](#stepindicator)
 - [Specialized Inputs (overview)](#specialized-inputs-overview)
 - [ComboboxInput](#comboboxinput)
 - [TagsInput (backend)](#tagsinput-backend)
@@ -3481,6 +3482,122 @@ const [v, setV] = React.useState(0)
 - Hover (interactive): items scale up via `enabled:hover:scale-110` for tactile feedback. No background change — keeps the visual minimal.
 - Keyboard navigation: ArrowRight / ArrowUp = increment, ArrowLeft / ArrowDown = decrement, Home = first position, End = last position. Step is `1` by default, `0.5` when `allowHalf`. Clamped at `0` and `max`.
 - Click precision when `allowHalf`: clicking the left half of an icon commits `index + 0.5`, the right half commits `index + 1` — matches the common review-form pattern.
+
+---
+
+## StepIndicator
+
+Multi-step progress indicator for wizards, onboarding flows, checkout funnels. Discrete steps with labels and visual state per step. Distinct from `Progress` (continuous 0-100%) — StepIndicator is **discrete** ("Step 2 of 5") and carries per-step labels.
+
+```typescript
+import { StepIndicator, type StepIndicatorStep } from '@open-mercato/ui/primitives/step-indicator'
+```
+
+### When to use
+
+- **StepIndicator**: discrete multi-step flow with named stages (onboarding, checkout, multi-page form). Past steps show as complete, current shows as active, future as pending.
+- **Progress** (separate primitive): continuous progress (download %, upload %, job completion). Single number.
+- **Tabs** (separate primitive): user-driven content swap with no progression semantics.
+- **SegmentedControl** (separate primitive): mutually-exclusive view state with no ordering / progression.
+
+### Step model
+
+```typescript
+type StepIndicatorStep = {
+  id: string                                    // stable id, returned by onStepClick
+  label: string                                 // primary label
+  description?: string                          // optional sub-text
+  status: 'pending' | 'current' | 'complete' | 'error'
+}
+```
+
+### API
+
+```tsx
+<StepIndicator
+  steps={steps}                                 // StepIndicatorStep[]
+  orientation="horizontal" | "vertical"         // default 'horizontal'
+  size="sm" | "default"                         // dot size; default 'default' (size-8)
+  onStepClick={(id) => void}                    // optional — flips into interactive
+  clickableStatuses={['complete', 'current']}   // default; widens with prop
+/>
+```
+
+### Visual states
+
+| Status | Dot | Label | Use |
+|---|---|---|---|
+| `pending` | outline circle (`border-muted-foreground/30`, transparent bg, no glyph) | `text-muted-foreground` | Future step |
+| `current` | solid `bg-accent-indigo` (Figma `#6366F1`), no glyph | `text-foreground` + `font-medium` | Active step (carries `aria-current="step"`) |
+| `complete` | solid `bg-status-success-icon` (Figma `#16A34A`) + white Check icon | `text-muted-foreground` | Past step |
+| `error` | solid `bg-status-error-icon` + white X icon | `text-status-error-text` + `font-medium` | Extension beyond Figma — failed sub-step |
+
+### Connectors
+
+| Orientation | Between items | Source |
+|---|---|---|
+| `horizontal` | **ChevronRight icon** (`text-muted-foreground/50`, `size-4`) — matches Figma `arrow-right-s-line` between every pair of items | `Step Indicator Horizontal [1.1]` |
+| `vertical` | **No connector** — each item is its own pill (`rounded-lg` + bg per state). Active item additionally shows a trailing `ChevronRight` as the "you are here" cue. | `Step Indicator Vertical Items [1.1]` |
+
+### Sizes
+
+| Size | Dot | Use case |
+|---|---|---|
+| `default` (default) | `size-5` (20px — Figma source) | Full-page wizards, checkout shells |
+| `sm` | `size-4` (16px) | Side-panel wizards, narrow drawers |
+
+### Usage
+
+```tsx
+const steps: StepIndicatorStep[] = [
+  { id: 'account',  label: 'Account',  status: 'complete', description: 'Email verified' },
+  { id: 'profile',  label: 'Profile',  status: 'current',  description: 'Tell us about you' },
+  { id: 'review',   label: 'Review',   status: 'pending' },
+]
+
+// Read-only horizontal — typical wizard header
+<StepIndicator steps={steps} />
+
+// Vertical — side panel / mobile
+<StepIndicator steps={steps} orientation="vertical" />
+
+// Click-back navigation — only completed / current steps are clickable
+<StepIndicator steps={steps} onStepClick={(id) => router.push(`/wizard/${id}`)} />
+
+// Wider click target — also allow pending (useful for "preview" wizards)
+<StepIndicator
+  steps={steps}
+  onStepClick={(id) => goTo(id)}
+  clickableStatuses={['complete', 'current', 'pending']}
+/>
+
+// Error state — failed sub-step
+const failedSteps: StepIndicatorStep[] = [
+  { id: 'pay', label: 'Payment', status: 'complete' },
+  { id: 'ship', label: 'Shipping', status: 'error', description: 'Address rejected' },
+  { id: 'done', label: 'Done', status: 'pending' },
+]
+<StepIndicator steps={failedSteps} />
+```
+
+### MUST rules
+
+1. **Exactly one step SHOULD carry `status: 'current'`** at a time. Multiple "current" steps confuse the visual hierarchy and the `aria-current="step"` semantic.
+2. **NEVER use StepIndicator for a flat tab navigation.** Use `Tabs` — StepIndicator implies ordering / progression that's not present in tabs.
+3. **`error` status must point to the step that actually failed.** Don't paint *every* downstream step as `error` — leave them `pending` so the user knows recovery is possible.
+4. **For interactive variants, pin `clickableStatuses` to what makes sense.** `['complete']` for "review past steps", `['complete', 'current']` (default) for typical wizards, `['complete', 'current', 'pending']` only when the user can legitimately jump forward.
+5. **Pass meaningful `id`s** — they're returned by `onStepClick` and used as the React key. Don't reuse them across renders if the step's identity changes.
+
+### Notes
+
+- Anchored on Figma DS Open Mercato component sets:
+  - Horizontal — `Step Indicator Horizontal [1.1]` (`3507:28`) + items `Step Indicator Horizontal Items [1.1]` (`3505:3498`)
+  - Vertical — `Step Indicator Vertical [1.1]` (`3507:227`) + items `Step Indicator Vertical Items [1.1]` (`3507:190`)
+- Figma source defines **three** states (Default / Active / Completed). `'error'` is an extension beyond the source — Figma does not model it, but real product surfaces (failed checkout step, rejected workflow step) need one, so the primitive ships it. Renders parallel to `'complete'` (solid status-error fill + white X glyph).
+- Horizontal connector is a `ChevronRight` lucide icon — matches Figma `arrow-right-s-line` between every item pair. NOT a line.
+- Vertical layout: every item is its own pill (`rounded-lg` + bg). Active item flips to `bg-background` + `ring-1 ring-border` (raises above the muted siblings); past + future items sit on `bg-muted/40`. The active item adds a trailing `ChevronRight` cue per Figma's "Active" variant.
+- Active dot color is `bg-accent-indigo` (same `#6366F1` token used by `Slider`, `Radio` checked, etc.) — keeps the "you are here" signal consistent across primitives.
+- Built without Radix — single component, plain `<ol>` / `<li>` markup. Accessibility comes from `aria-current="step"` on the current dot + `aria-orientation` on the list.
 
 ---
 

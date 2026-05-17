@@ -355,7 +355,14 @@ Built on Radix Slider. Single thumb when `value.length === 1`, range when `value
 
 ### 11. StepIndicator (new)
 
-**Figma node:** TBD.
+**Figma nodes:** DS Open Mercato ships four related component sets that together define the step indicator (initial `search_design_system` query missed them — the documentation page is named "Step Indicator [Overview]" at [`479:14388`](https://www.figma.com/design/qCq9z6q1if0mpoRstV5OEA/DS---Open-Mercato?node-id=479-14388)):
+
+- `Step Indicator Horizontal [1.1]` — componentSet `3507:28`. Wrapper with `Quantity` variant (3 / 4 / 5). Inter-item separator is `arrow-right-s-line` icon, NOT a line.
+- `Step Indicator Horizontal Items [1.1]` — componentSet `3505:3498`. Item with `State` variant (Default / Active / Completed). Dot 20×20 rounded-full. Active fill `#6366F1` (indigo-500), Completed fill `#16A34A` (green-600).
+- `Step Indicator Vertical [1.1]` — componentSet `3507:227`. Vertical wrapper with `Quantity` variant; each item is its own pill (not a connecting line).
+- `Step Indicator Vertical Items [1.1]` — componentSet `3507:190`. Item `cornerRadius: 10`; bg per state (`#F7F7F7` muted for past/future, `#FFFFFF` for active). Active variant also renders `arrow-right-s-line` trailing the label as "you are here".
+
+Mapped to DS tokens: `accent-indigo` (active), `status-success-icon` (complete), `muted/40` + `border-muted-foreground/30` (pending). Figma source defines only three states; the primitive extends them with `'error'` (status-error-icon + X glyph) for product surfaces that need failure indication.
 
 **Purpose:** Progress display for multi-step flows (wizards, onboarding, checkout). Distinct from `Progress` (continuous %) — `StepIndicator` is discrete (Step 2 of 5, with labels).
 
