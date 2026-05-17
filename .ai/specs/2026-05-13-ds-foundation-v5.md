@@ -141,7 +141,20 @@ Renders children with shared border-radius corners (first child = left corners, 
 
 ### 3. ColorPicker (new)
 
-**Figma node:** TBD.
+**Figma node:** [`Color Picker`](https://www.figma.com/design/qCq9z6q1if0mpoRstV5OEA/DS---Open-Mercato?node-id=167184-38583) frame (`167184:38583`) on doc page [`553:22078`](https://www.figma.com/design/qCq9z6q1if0mpoRstV5OEA/DS---Open-Mercato?node-id=553-22078). 4-section vertical stack (316×334, `rounded-xl`):
+
+1. **Choose color** — title + current hex (right) + pill hue slider (rainbow gradient, draggable white thumb).
+2. **Input** — hex text field + eyedropper button (Sip).
+3. **Saved colors** — title + row of swatch dots (24×24 wrapper, 16×16 dot inside).
+4. **Add new color** *(optional)* — footer button with `+` icon that fires `onAddSwatch(currentValue)`.
+
+No 2D HSV spectrum, no opacity slider, no format dropdown — those belong to a separate "advanced color picker" primitive (deferred indefinitely; current DS source doesn't ship them). Implementation is vanilla — hue slider is a native `<input type="range">` with a CSS gradient track, hex / RGB / HSL conversion done inline. No `react-colorful` / `tinycolor2` / `color` dep.
+
+Swatch dot states match `Color Dots [1.1]` 4-state contract (componentSet `3365:22464`): Default (color fill), Hover (16→14px shrink via `scale-[0.875]`), Selected (color fill + 2px **inset** white ring on the dot itself, NOT outer outline), Disabled (opacity-50 on the wrapper).
+
+10 default swatches mirror the `Color Dots [1.1]` palette 1:1: Gray / Blue / Orange / Red / Green / Yellow / Purple / Sky / Pink / Teal.
+
+**New deps:** None beyond the existing Radix Popover.
 
 **Purpose:** Selecting a color, primarily for tagging (custom tag colors), category branding, and brand-color configuration. Renders as a `Popover` trigger + grid of swatches + optional custom hex input.
 

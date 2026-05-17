@@ -50,6 +50,7 @@ Detailed variant tables, size matrices, props, examples, and MUST rules for ever
 - [Slider](#slider)
 - [Rating](#rating)
 - [StepIndicator](#stepindicator)
+- [ColorPicker](#colorpicker)
 - [Specialized Inputs (overview)](#specialized-inputs-overview)
 - [ComboboxInput](#comboboxinput)
 - [TagsInput (backend)](#tagsinput-backend)
@@ -3598,6 +3599,220 @@ const failedSteps: StepIndicatorStep[] = [
 - Vertical layout: every item is its own pill (`rounded-lg` + bg). Active item flips to `bg-background` + `ring-1 ring-border` (raises above the muted siblings); past + future items sit on `bg-muted/40`. The active item adds a trailing `ChevronRight` cue per Figma's "Active" variant.
 - Active dot color is `bg-accent-indigo` (same `#6366F1` token used by `Slider`, `Radio` checked, etc.) — keeps the "you are here" signal consistent across primitives.
 - Built without Radix — single component, plain `<ol>` / `<li>` markup. Accessibility comes from `aria-current="step"` on the current dot + `aria-orientation` on the list.
+
+---
+
+## ColorPicker
+
+Swatch + hex color selection. Click trigger → popover with grid of recommended colors + optional hex input. Anchored on Figma `Color Picker [1.1]` (DS Open Mercato componentKey `037353153a0ac1898322da4c20ceb88d2cb3d78a`).
+
+```typescript
+import {
+  ColorPicker,
+  COLOR_PICKER_DEFAULT_SWATCHES,
+  normalizeHex,
+} from '@open-mercato/ui/primitives/color-picker'
+```
+
+### Layout (Figma 1:1)
+
+The picker renders a 4-section vertical stack inside the popover, matching the Figma source frame (316×334, `rounded-xl`, white surface, 1px border, dividers between sections):
+
+| # | Section | Contents |
+|---|---|---|
+| 1 | **Choose color** | Section title + current hex (right-aligned, muted) + pill hue slider (full rainbow gradient, draggable white thumb). |
+| 2 | **Hex input + Eyedropper** | Inline color preview + hex text field + standalone eyedropper button (Sip). Hidden when `allowCustom={false}`. |
+| 3 | **Saved colors** | Section title + row of swatch dots (24×24 wrapper, 16×16 dot inside). Selected dot carries the Figma 2px inset white ring. |
+| 4 | **Add new color** *(optional)* | Footer button with `+` icon that fires `onAddSwatch(currentValue)`. Only rendered when consumers pass an `onAddSwatch` callback. |
+
+No 2D HSV spectrum, no opacity slider, no RGB / HSL format dropdown — those belong to a heavier picker layout that isn't this DS source.
+
+### When to use
+
+- **ColorPicker**: tag colors, category branding, brand-color configuration, custom-field color metadata. Any case where the value space is "any color, but here are sensible defaults".
+- Static brand swatches with no picker UI: render a row of `<Tag>` or coloured `<Badge>` — don't lean on ColorPicker for read-only display.
+- Theme switching (light / dark / system): `SegmentedControl` — categorical, NOT free-form hex.
+
+### API
+
+```tsx
+<ColorPicker
+  value="#RRGGBB"                              // controlled value, 6-digit hex (3-digit accepted on input + expanded)
+  onChange={(next: string) => void}            // fires on swatch click + hue drag + valid hex commit
+
+  // Swatches palette — pick ONE of these three modes:
+  swatches={readonly string[]}                 // (1) CONTROLLED — consumer owns the list, primitive never mutates
+  defaultSwatches={readonly string[]}          // (2) UNCONTROLLED initial value; defaults to COLOR_PICKER_DEFAULT_SWATCHES
+  persistKey={string}                          // (3) UNCONTROLLED + auto-persist to localStorage[persistKey]
+                                               //     Buttons appear automatically — no callbacks needed.
+
+  onAddSwatch={(next: string) => void}         // optional notification callback (fires in every mode)
+  onRemoveColor={(current: string) => void}    // optional notification callback (fires in every mode)
+  onEditSavedColors={() => void}               // optional; renders "Edit" link in the saved-colors header
+  showOpacity={boolean}                        // default false; renders "100%" badge inside the hex container
+  allowCustom={boolean}                        // default true; hex input visibility
+  enableEyedropper={boolean}                   // default true; auto-hides when browser lacks EyeDropper API
+  size="sm" | "default"                        // trigger height; default 'default' (h-9)
+  disabled={boolean}
+  aria-label={string}                          // recommended
+
+  // Optional copy overrides:
+  chooseLabel="Choose color"
+  savedLabel="Saved colors"
+  addLabel="Add new color"
+  editLabel="Edit"
+  removeAriaLabel="Remove color"
+/>
+```
+
+### Palette state modes
+
+| Mode | Trigger | Storage | Add / Remove buttons |
+|---|---|---|---|
+| **Static** | no `swatches`, no `persistKey` | in-memory, `defaultSwatches` only | hidden (read-only palette) |
+| **Controlled** | `swatches` prop provided | consumer's `useState` / API | rendered only when consumer wires `onAddSwatch` / `onRemoveColor` |
+| **Persisted** | `persistKey` prop provided | `localStorage[persistKey]` (auto-save) | rendered automatically; callbacks optional |
+
+The persisted mode is the simplest path to a "save / load" UX:
+
+```tsx
+const [color, setColor] = React.useState('#6366F1')
+<ColorPicker
+  value={color}
+  onChange={setColor}
+  persistKey="tag-colors"                        // hydrates + auto-saves
+  defaultSwatches={['#6366F1', '#22C55E', '#EF4343']}  // initial palette if storage is empty
+  showOpacity
+/>
+```
+
+Reload the page — saved colors stay. Switch to **controlled mode** only when you need server persistence, dedup logic, or a shared palette across users.
+
+### Managed-palette UX (Figma full set)
+
+To replicate the full Figma `Color Picker` UX (palette management surface), use either persisted or controlled mode plus `showOpacity` + `onEditSavedColors`:
+
+```tsx
+// Persisted (simplest)
+const [color, setColor] = React.useState('#EE2121')
+<ColorPicker
+  value={color}
+  onChange={setColor}
+  persistKey="tag-colors"
+  defaultSwatches={['#FFFFFF', '#F5F5F5', '#6366F1']}
+  showOpacity
+  onEditSavedColors={() => openManageDialog()}
+/>
+
+// Controlled (when you need server persistence)
+const [palette, setPalette] = React.useState<string[]>(['#FFFFFF', '#F5F5F5', '#6366F1'])
+<ColorPicker
+  value={color}
+  onChange={setColor}
+  swatches={palette}
+  showOpacity
+  onAddSwatch={(next) =>
+    setPalette((prev) =>
+      prev.includes(next.toUpperCase()) ? prev : [...prev, next.toUpperCase()],
+    )
+  }
+  onRemoveColor={(current) =>
+    setPalette((prev) => prev.filter((c) => c.toUpperCase() !== current.toUpperCase()))
+  }
+  onEditSavedColors={() => openManageDialog()}
+/>
+```
+
+Result (matches Figma 1:1):
+
+- **Section 2** — hex container shows `[● bullet] [#EE2121] [100%]`, followed by a separate **trash** button.
+- **Section 3** — `"Saved colors"` label + an **"Edit"** link on the right.
+- **Section 4** — `"+ Add new color"` footer.
+
+### Default palette
+
+`COLOR_PICKER_DEFAULT_SWATCHES` mirrors the Figma `Color Dots [1.1]` component set (DS OM `3365:22464`) 1:1 — 10 brand-curated colors:
+
+```ts
+['#71777C', // Gray
+ '#6366F1', // Blue (= DS OM accent-indigo)
+ '#F59E0B', // Orange
+ '#EF4343', // Red
+ '#22C55E', // Green
+ '#F6B51E', // Yellow (= Rating amber)
+ '#7D52F3', // Purple
+ '#47C2FF', // Sky
+ '#FB4BA3', // Pink
+ '#22D3BB', // Teal
+]
+```
+
+### Swatch states (matches Figma `Color Dots [1.1]` 4-state variant)
+
+| State | Visual | Trigger |
+|---|---|---|
+| **Default** | 16×16 color fill, no inner ring | Idle |
+| **Hover** | Same color, dot shrinks to 14×14 (`scale-[0.875]` transform) | Mouse over (enabled only) |
+| **Selected** | Same color + **2px inset white ring** on the dot (`ring-2 ring-inset ring-background`) | `value` matches the swatch hex |
+| **Disabled** | `opacity-50` on the wrapper button — color stays visible so the user can still see which swatch is locked | `disabled` prop on `<ColorPicker>` |
+
+The Selected state uses a *white inner ring* (inset shadow on the dot) rather than an outer foreground outline — the outer outline drifts on dark themes and clips against the popover border. Inner ring is the canonical Figma look.
+
+### Usage
+
+```tsx
+// Default — 8 Figma swatches + hex input
+const [color, setColor] = React.useState('#6366F1')
+<ColorPicker value={color} onChange={setColor} aria-label="Tag color" />
+
+// Domain-specific palette (e.g. status colors)
+<ColorPicker
+  value={color}
+  onChange={setColor}
+  swatches={['#22C55E', '#F59E0B', '#EF4343']}
+  allowCustom={false}
+/>
+
+// As a CrudForm field
+<FormField label="Brand color">
+  <ColorPicker value={form.brandColor} onChange={(v) => setForm({ ...form, brandColor: v })} />
+</FormField>
+```
+
+### MUST rules
+
+1. **`value` MUST be a `#RRGGBB` hex** (or any string `normalizeHex()` can parse — `#RGB`, `RRGGBB` without prefix). The primitive normalises to upper-case `#RRGGBB` on every commit.
+2. **`onChange` only fires for valid hex.** Invalid hex input renders an inline error and is NOT committed. Consumers don't have to validate.
+3. **Provide `aria-label`** when the field's purpose isn't obvious — the trigger only announces its hex code by default.
+4. **NEVER use `style={{ backgroundColor: value }}`** on a DS surface to render a "color preview" outside ColorPicker — use a small `<span style={{ backgroundColor }}>` inside a `Tag`/`Badge` wrapper. Brand colors on UI chrome are an anti-pattern; the picker is for *data*.
+5. **For locked palettes (no free-form input), set `allowCustom={false}`** — without this, the hex field is shown and a user can drift outside your palette.
+
+### Anti-patterns
+
+```tsx
+// WRONG — value drift; the picker normalises to upper-case
+const [color, setColor] = React.useState('#abcdef')
+useEffect(() => api.save(color), [color])   // stable: ColorPicker normalises to '#ABCDEF' on commit
+
+// WRONG — validating hex outside; ColorPicker already gates onChange
+<ColorPicker value={v} onChange={(next) => {
+  if (!/^#[0-9A-F]{6}$/i.test(next)) return  // dead code — primitive guarantees valid hex
+  setV(next)
+}} />
+
+// CORRECT
+<ColorPicker value={v} onChange={setV} />
+```
+
+### Notes
+
+- Built on `@radix-ui/react-popover` (already installed via Popover primitive — no new dep). The hue slider is a vanilla `<input type="range">` with a CSS gradient track — no external color-picker library.
+- Selected swatch dot carries `aria-checked="true"` + a 2px **inset** white ring on the dot itself (Figma Selected state — NOT an outer outline).
+- Hex input is fully controlled, committed on blur + Enter. Escape reverts the field and closes the popover. Invalid hex shows an inline `text-status-error-text` message — no toast / flash needed.
+- 3-digit hex (`#FAB`) auto-expanded to 6-digit (`#FFAABB`) on commit.
+- Hue slider commits a *pure saturated* color (`hsl(hue, 100%, 50%)`). To pick a desaturated or darker shade, type the hex directly. The full 2D HSV spectrum + opacity slider is intentionally NOT part of this primitive's Figma source — those would belong to a separate "advanced color picker" primitive in a future release.
+- Eyedropper uses the browser's `window.EyeDropper` API (Chromium-based — Chrome, Edge, Opera, Brave). On Firefox / Safari / older browsers the button auto-hides; the rest of the picker keeps working.
+- "Saved colors" semantics: the `swatches` list is read-only from the primitive's perspective. To support a user-editable palette, pair `swatches` with `onAddSwatch(color)` — the consumer owns the storage / persistence and decides whether new entries are appended, deduped, etc.
 
 ---
 
