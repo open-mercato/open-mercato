@@ -585,22 +585,26 @@ yarn test:integration:ephemeral  # full suite — Badge is too cascade-heavy for
 
 ---
 
-### 16. Separator (rewrite — a.k.a. Content Divider)
+### 16. Separator (rewrite — a.k.a. Content Divider) — **IMPLEMENTED (Phase B.3)**
 
-**Figma node:** TBD.
+**Figma source:** DS Open Mercato `Content Divider` page (`414:4397`) — `Content Divider [1.1]` (`414:4401`, ~9 variants: plain, centered label "OR", start-aligned label, section-header bg-muted strip, dashed, plus center-button overlays — `+`, navigation, "Add" button, button row).
 
-**Purpose:** Visual divider between content blocks. Existing primitive is a thin `<div className='border-t'>` wrapper.
+**Purpose:** Visual divider between content blocks. The original primitive was a thin `<div className='bg-border'>` wrapper.
 
-**Backward compatibility:**
-- `<Separator orientation='horizontal' | 'vertical'>` keeps working.
-- All `className` passthrough works.
+**Backward compatibility (5 import sites — all use `<Separator />` or `<Separator className="my-4" />`):**
+- `<Separator orientation='horizontal' | 'vertical'>` callable verbatim.
+- `className` passthrough works on every variant.
+- Default solid horizontal rule keeps the legacy `h-px bg-border` painted-line style so any consumer relying on box-model sizing stays unaffected. Dashed variant switches to `border-t border-dashed border-border` because CSS `border-style` is required for the dash pattern.
 
 **New (additive):**
-- Figma may introduce labeled separators (e.g. `<Separator label='OR'>` with text in the middle and lines on both sides — common login-page pattern).
-- Optional `decorative` prop (Radix passthrough — affects ARIA role).
-- Optional `dashed` / `dotted` variants.
+- `variant: 'solid' | 'dashed'` (default `solid`). Dashed flows through to all rule segments, including the labeled / vertical variants.
+- `label?: ReactNode` — when set, renders the inline-label variant: two rule halves with the label between them (horizontal only). Label is `text-xs font-medium uppercase tracking-wide text-muted-foreground` per Figma.
+- `labelAlign?: 'center' | 'start' | 'end'` (default `center`). `start` renders a short `w-6` stub on the left + flex-1 right segment; `end` mirrors; `center` splits the rule evenly.
+- `section?: boolean` — section-header style with full-width `bg-muted` strip + uppercase label (Figma variant 5: "AMOUNT & ACCOUNT"). Pass content via `label` prop or `children`. Mutually exclusive with the inline-label variant.
 
-**Tests:** Smoke test for labeled variant, vertical orientation, custom variants.
+**Out of scope (consumer wraps in parent):** The Figma center-button overlay variants 6–9 (`+`, navigation, "Add" button, button row over the rule) are NOT shipped as primitive slots. Adding an `overlay` slot would multiply layout failure modes (button width / height / spacing). Consumers compose at the parent level.
+
+**Tests (12 smoke tests, all passing):** horizontal default keeps legacy `h-px bg-border` look + role/aria/data-variant; `className` forwarding doesn't strip default base classes; vertical orientation `w-px h-full`; vertical + dashed switches to `border-l border-dashed`; horizontal dashed switches to `border-t border-dashed` (no bg-border); inline label slot with two `data-slot="separator-rule"` segments + label text content; start-aligned label has `w-6` left + `flex-1` right; end-aligned label mirrors; label + dashed flows through; section variant renders `bg-muted` strip with uppercase; section accepts `children` when label omitted; section forwards className.
 
 ---
 
@@ -730,7 +734,7 @@ Each commit includes: primitive file, unit test file, `.ai/ui-components.md` sec
 
 13. `refactor(ds): rewrite Progress primitive per Figma — additive variants` (3 import sites) — **DONE (B.1)** + new `CircularProgress` export
 14. `refactor(ds): rewrite Notification toast primitive per Figma — additive` (0 import sites; Phase 2 already aligned visual; B.2 adds `autoDismissMs` + `pauseOnHover` for toast UX) — **DONE (B.2)**
-15. `refactor(ds): rewrite Separator primitive per Figma — add labeled / dashed variants` (5 import sites)
+15. `refactor(ds): rewrite Separator primitive per Figma — add labeled / dashed variants` (5 import sites) — **DONE (B.3)**
 16. `refactor(ds): rewrite Avatar primitive per Figma — add status + ring` (4 import sites)
 17. `refactor(ds): rewrite Tabs primitive per Figma — add pills / vertical / count` (6 import sites)
 18. `refactor(ds): polish Table primitive — padding / hover / sortable indicator / striped` (1 direct + DataTable internals)
@@ -925,3 +929,4 @@ To be filled in after all phases land and before opening the PR. Sections:
 | 2026-05-17 | PHASE A COMPLETE (12/12) | Shipped A.12 NotificationFeed. Compound API (`NotificationFeed` + `NotificationFeedHeader` + `NotificationFeedList` + `NotificationFeedItem` + `NotificationFeedFooter` + `NotificationFeedIconBadge`) — 7-tone IconBadge helper, `unread` dot, `onClick` row activation with Enter/Space, hover-revealed `actions` slot, indented `children` for inline Approve/Deny pairs / file chips / reply previews. 13 smoke tests added (1182 UI tests total). Phase A done — 12 new primitives shipped: A.1 ScrollArea, A.2 ButtonGroup, A.3 SegmentedControl, A.4 Slider, A.5 Rating, A.6 StepIndicator, A.7 ColorPicker, A.8 Pagination, A.9 Drawer (+ A.9-fixup), A.10 CommandMenu, A.11 ActivityFeed, A.12 NotificationFeed. Next: Phase B (8 rewrites: Avatar, Badge, Dialog, Separator, Progress, Notification toast, Tabs, Table) + Phase C polish (FilterBar, i18n, docs sweep). |
 | 2026-05-17 | PHASE B START — B.1 Progress | Rewrote `Progress` primitive per Figma `Progress Bar` page (`450:17758`). Track `bg-secondary` → `bg-input`, fill `bg-primary` → `bg-accent-indigo`. Added optional `size` (sm/default/lg), `tone` (accent/success/warning/destructive/muted), `label`/`showValue`/`description` slots, `fillClassName` override. Shipped new `CircularProgress` export — 4 sizes (xs/sm/default/lg), same 5 tones, SVG-stroke-dasharray ring with optional centre value badge or custom children. 18 smoke tests added. Backward compatibility verified: 3 existing call sites (`NextStepCallout.tsx`, `data_sync .../runs/[id]/page.tsx`, `akeneo-config widget.client.tsx`) keep working without changes. 1200 UI tests passing. |
 | 2026-05-17 | PHASE B.2 — Notification toast | Existing Phase 2 Notification (thin wrapper over Alert) is already Figma-aligned. B.2 adds toast UX: `autoDismissMs` fires `onDismiss` after the configured delay; `pauseOnHover` (default true when autoDismissMs is set) pauses the timer while the user hovers the card. Exposes `data-auto-dismiss-paused="true"` on the root for CSS hooks. 6 new tests added (timer fires, undefined/0 no-op, hover pauses + leave restarts, pauseOnHover=false override, prop cancellation clears timer). 1206 UI tests passing total. |
+| 2026-05-17 | PHASE B.3 — Separator | Rewrote `Separator` per Figma `Content Divider [1.1]` (`414:4401`). Solid default keeps legacy `h-px bg-border` style for max backward compat (5 import sites use `<Separator />` / `<Separator className="my-4" />`). New props: `variant: 'solid' \| 'dashed'`, `label` (inline label between two rule halves, default center, also `start`/`end` align), `section` (bg-muted strip with uppercase label per Figma "AMOUNT & ACCOUNT" variant). Center-button overlays (Figma variants 6-9: `+` button, navigation, "Add", button row) intentionally NOT shipped as primitive slots — consumers compose at parent level to avoid layout failure modes. 12 smoke tests added. 1218 UI tests passing total. |
