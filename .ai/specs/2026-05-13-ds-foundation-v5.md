@@ -516,23 +516,28 @@ Compound API. Renders inside a `bg-muted/40` track with the selected item highli
 
 ---
 
-### 13. Avatar (rewrite)
+### 13. Avatar (rewrite) — **IMPLEMENTED (Phase B.4)**
 
-**Figma node:** TBD (DS file → "Avatar" master component).
+**Figma source:** DS Open Mercato `Avatars` page (`210:4129`) — `Avatar [1.1]` (`245:18786`), `Bottom Status [1.1]` (`245:18721`, 5 dot tones: online/offline/busy/away/custom), `Top Status [1.1]` (`245:18697`, 6 icon-badge variants: verified check / premium / star / add user / decline / red dot), `Avatar Group [1.1]` (`581:6198`) and `Compact Avatar Group [1.1]` (`2906:14962`).
 
-**Purpose:** Visual identifier for a user/entity. Existing primitive already supports sizes xs/sm/md/lg/xl, image fallback, initials generation. Rewrite aligns with Figma styling — possibly: status indicator dot, group/team variant, optional ring color per role.
+**Purpose:** Visual identifier for a user/entity. The Phase B.4 rewrite adds status indicators, custom top-right badge slot, and an outer ring affordance for selected/role-tagged states.
 
-**Backward compatibility:**
-- `<Avatar label='...'>` keeps working (PR #1869 renamed `name=` → `label=`).
-- All sizes (`xs | sm | md | lg | xl`) keep their pixel values.
-- `src` / `alt` / `className` keep working.
+**Backward compatibility (4 import sites in core + ds-v5 demo):**
+- `<Avatar label='...'>`, `src`, `icon`, `size`, `variant`, `ariaLabel`, `className` callable verbatim.
 - `AvatarStack` API unchanged.
+- All sizes (`xs | sm | md | lg | xl`) keep their pixel values (20 / 28 / 36 / 48 / 64).
+- Plain avatars (no `status` / `ring` / `badge` props) still render as a single `<div data-slot="avatar">` element — no wrapping `<span>` added — so any consumer relying on `container.firstChild` to grab the circle keeps working.
 
 **New (additive):**
-- `status?: 'online' | 'offline' | 'busy' | 'away'` — renders a status dot at corner.
-- `ringColor?: string` — optional DS-token-backed ring for role indication.
+- `status?: 'online' | 'offline' | 'busy' | 'away' | 'success' | 'warning' | 'error' | 'info'` — corner dot with semantic color (success/error/warning/info match the existing status-token palette; online/offline/busy/away are Figma-vocab aliases that map onto the same colors). The dot has a `ring-2 ring-background` so it reads as an overlay on top of the avatar circle.
+- `statusPosition?: 'bottom-right' | 'top-right'` (default `bottom-right` per Figma `Bottom Status [1.1]`).
+- `ring?: boolean | 'accent' | 'success' | 'warning' | 'error' | 'muted'` — outer ring affordance for selected / role-tagged avatars. `ring={true}` is an alias for `'accent'`. Rendered as `ring-2 ring-{tone} ring-offset-2 ring-offset-background` on a wrapping `<span data-slot="avatar-root">`.
+- `badge?: ReactNode` — custom top-right slot (Figma `Top Status [1.1]` variants: verified check, premium icon, X to remove, etc.). Rendered inside a `rounded-full ring-2 ring-background` shell auto-sized relative to the avatar (size-3.5 for xs/sm, size-4 for md, size-5 for lg, size-6 for xl). When `badge` is set, the top-right `status` dot is suppressed (badge replaces it).
+- `badgeClassName?: string` override for the badge wrapper (size, bg, etc.).
 
-**Tests:** Smoke test asserts status dot rendering, ring color application, initial generation unchanged.
+**Status dot sizing per avatar size:** xs `size-1.5` (6px), sm `size-2` (8px), md `size-2.5` (10px), lg `size-3` (12px), xl `size-4` (16px). Scales as ~1/3 of the avatar diameter.
+
+**Tests (20 smoke tests, all passing — 10 pre-existing + 10 new):** plain Avatar single-element backward compat (no wrapper added); `data-slot="avatar-root"` wrapper appears only when status/ring/badge set; bottom-right status dot by default + `data-status` + `data-position` attrs; `statusPosition="top-right"`; all 8 status tones with matching bg-class; status-dot size scales with avatar size (all 5 sizes); badge slot replaces top-right status dot; badge + bottom-right status coexist (bottom dot suppressed by badge); `ring={true}` → accent; all 5 ring tones; `badgeClassName` override.
 
 ---
 
@@ -735,7 +740,7 @@ Each commit includes: primitive file, unit test file, `.ai/ui-components.md` sec
 13. `refactor(ds): rewrite Progress primitive per Figma — additive variants` (3 import sites) — **DONE (B.1)** + new `CircularProgress` export
 14. `refactor(ds): rewrite Notification toast primitive per Figma — additive` (0 import sites; Phase 2 already aligned visual; B.2 adds `autoDismissMs` + `pauseOnHover` for toast UX) — **DONE (B.2)**
 15. `refactor(ds): rewrite Separator primitive per Figma — add labeled / dashed variants` (5 import sites) — **DONE (B.3)**
-16. `refactor(ds): rewrite Avatar primitive per Figma — add status + ring` (4 import sites)
+16. `refactor(ds): rewrite Avatar primitive per Figma — add status + ring` (4 import sites) — **DONE (B.4)**
 17. `refactor(ds): rewrite Tabs primitive per Figma — add pills / vertical / count` (6 import sites)
 18. `refactor(ds): polish Table primitive — padding / hover / sortable indicator / striped` (1 direct + DataTable internals)
 19. `refactor(ds): rewrite Dialog primitive per Figma — additive size variant` (40 import sites)
@@ -930,3 +935,4 @@ To be filled in after all phases land and before opening the PR. Sections:
 | 2026-05-17 | PHASE B START — B.1 Progress | Rewrote `Progress` primitive per Figma `Progress Bar` page (`450:17758`). Track `bg-secondary` → `bg-input`, fill `bg-primary` → `bg-accent-indigo`. Added optional `size` (sm/default/lg), `tone` (accent/success/warning/destructive/muted), `label`/`showValue`/`description` slots, `fillClassName` override. Shipped new `CircularProgress` export — 4 sizes (xs/sm/default/lg), same 5 tones, SVG-stroke-dasharray ring with optional centre value badge or custom children. 18 smoke tests added. Backward compatibility verified: 3 existing call sites (`NextStepCallout.tsx`, `data_sync .../runs/[id]/page.tsx`, `akeneo-config widget.client.tsx`) keep working without changes. 1200 UI tests passing. |
 | 2026-05-17 | PHASE B.2 — Notification toast | Existing Phase 2 Notification (thin wrapper over Alert) is already Figma-aligned. B.2 adds toast UX: `autoDismissMs` fires `onDismiss` after the configured delay; `pauseOnHover` (default true when autoDismissMs is set) pauses the timer while the user hovers the card. Exposes `data-auto-dismiss-paused="true"` on the root for CSS hooks. 6 new tests added (timer fires, undefined/0 no-op, hover pauses + leave restarts, pauseOnHover=false override, prop cancellation clears timer). 1206 UI tests passing total. |
 | 2026-05-17 | PHASE B.3 — Separator | Rewrote `Separator` per Figma `Content Divider [1.1]` (`414:4401`). Solid default keeps legacy `h-px bg-border` style for max backward compat (5 import sites use `<Separator />` / `<Separator className="my-4" />`). New props: `variant: 'solid' \| 'dashed'`, `label` (inline label between two rule halves, default center, also `start`/`end` align), `section` (bg-muted strip with uppercase label per Figma "AMOUNT & ACCOUNT" variant). Center-button overlays (Figma variants 6-9: `+` button, navigation, "Add", button row) intentionally NOT shipped as primitive slots — consumers compose at parent level to avoid layout failure modes. 12 smoke tests added. 1218 UI tests passing total. |
+| 2026-05-17 | PHASE B.4 — Avatar | Rewrote `Avatar` per Figma `Avatars` page (`210:4129`). Plain avatars (no decorations) still render as single `<div data-slot="avatar">` for backward compat (4 import sites in core customers linking adapters + ds-v5 demo). New props: `status` (8 tones; bottom-right dot per Figma `Bottom Status [1.1]`), `statusPosition` (`bottom-right` / `top-right`), `ring` (boolean or 5 tones; outer `ring-2 ring-offset-2` per `Top Status` ring style), `badge` ReactNode slot for top-right icon overlays (verified check / premium / etc. per `Top Status [1.1]`), `badgeClassName` override. Status-dot size scales 1/3 of avatar diameter (size-1.5 → size-4 across xs → xl). 10 new tests added (20 total Avatar tests). 1228 UI tests passing total. |
