@@ -48,6 +48,7 @@ Detailed variant tables, size matrices, props, examples, and MUST rules for ever
 - [ButtonGroup](#buttongroup)
 - [SegmentedControl](#segmentedcontrol)
 - [Slider](#slider)
+- [Rating](#rating)
 - [Specialized Inputs (overview)](#specialized-inputs-overview)
 - [ComboboxInput](#comboboxinput)
 - [TagsInput (backend)](#tagsinput-backend)
@@ -3382,6 +3383,104 @@ The Figma source pairs the slider with a label row above it (label text + option
   <Slider value={value} onValueChange={setValue} aria-label="Volume" />
 </div>
 ```
+
+---
+
+## Rating
+
+1-to-N star / heart / dot rating widget. Two modes — read-only display (no `onChange`) and interactive input (`onChange` present). Anchored on Figma `Rating & Review [1.0]` (DS Open Mercato componentSet `199969:1797`, key `544eab9fbc72c0038c0a28b7ff27a93ab8c3c01a`).
+
+```typescript
+import { Rating } from '@open-mercato/ui/primitives/rating'
+```
+
+### Modes
+
+| Mode | Trigger | Rendered as | ARIA |
+|---|---|---|---|
+| **Read-only display** | No `onChange` prop | `<span role="img">` + N decorative spans | `aria-label` auto-falls back to `"{value} out of {max}"` |
+| **Interactive input** | `onChange` provided | `<span role="radiogroup">` + N `<button role="radio">` | Consumer SHOULD pass `aria-label` (e.g. `"Your rating"`) |
+
+### API
+
+```tsx
+<Rating
+  value={number}                            // 0..max; floats allowed when allowHalf
+  max={5}                                   // default 5
+  onChange={(next: number) => void}         // omit for read-only
+  size="sm" | "default" | "lg"              // default 'default' (size-5 = 20px)
+  icon="star" | "heart" | "circle"          // default 'star'
+  allowHalf={boolean}                       // default false; stars only
+  disabled={boolean}                        // false
+  aria-label={string}                       // required when interactive
+/>
+```
+
+### Sizes (matches Figma 20×20 default)
+
+| Size | Pixel | Use case |
+|---|---|---|
+| `sm` | `size-4` (16px) | Inline mentions, list rows |
+| `default` (default) | `size-5` (20px) | Product cards, feedback summaries (Figma source size) |
+| `lg` | `size-6` (24px) | Detail page header, hero review block |
+
+### Usage
+
+```tsx
+// Read-only — review average
+<Rating value={4.5} max={5} allowHalf />
+<span className="ml-2 text-sm text-muted-foreground">4.5 · 5.2K ratings</span>
+
+// Interactive — submit a rating
+const [v, setV] = React.useState(0)
+<Rating
+  value={v}
+  onChange={setV}
+  aria-label="Your rating for this product"
+  size="lg"
+/>
+
+// Heart variant — favourites strength
+<Rating value={3} max={5} icon="heart" />
+
+// Disabled
+<Rating value={3} max={5} onChange={() => {}} disabled aria-label="Locked rating" />
+```
+
+### MUST rules
+
+1. **Always provide `aria-label`** when `onChange` is supplied. Without it, screen-reader users only hear `"1 of 5", "2 of 5"` per button with no context for what is being rated.
+2. **NEVER use `allowHalf` with `icon="heart"` or `icon="circle"`** — Lucide ships `StarHalf` but no half-precision variants for heart / circle. Half values are silently rendered as full for those icons. Stick to stars when half precision matters.
+3. **For interactive ratings, render with `size="lg"`** when the rating is a primary form field (review submission). The default `size-5` is for read-only summaries; `size-6` matches typical "tap target" expectations on touch screens.
+4. **NEVER use `Rating` as a non-rating selector** (e.g. priority level, intensity). Reach for `SegmentedControl` (1-5 step picker), `Slider` (continuous numeric), or `RadioGroup` (form field). Rating's semantics are tied to "stars / hearts" — repurposing it confuses screen-readers.
+
+### Anti-patterns
+
+```tsx
+// WRONG — interactive Rating without aria-label (screen-reader: "1 of 5" with no context)
+<Rating value={v} onChange={setV} />
+
+// WRONG — half precision on heart (silently rounds up to full hearts)
+<Rating value={2.5} max={5} icon="heart" allowHalf />
+
+// WRONG — using Rating for priority level selection
+<Rating value={priority} onChange={setPriority} icon="circle" max={3} />
+
+// CORRECT — SegmentedControl for categorical
+<SegmentedControl value={priority} onValueChange={setPriority}>
+  <SegmentedControlItem value="low">Low</SegmentedControlItem>
+  <SegmentedControlItem value="medium">Medium</SegmentedControlItem>
+  <SegmentedControlItem value="high">High</SegmentedControlItem>
+</SegmentedControl>
+```
+
+### Notes
+
+- Color: `text-status-warning-icon` (`--status-warning-icon`, `oklch(0.666 0.179 58.318)` ≈ amber-600). Figma source uses `#F6B51E` (amber-400) but our DS token is the closest semantic equivalent and stays consistent with other warning-tier accents (status badges, alerts). Override per-call via `className` if a specific surface needs a custom hue.
+- Empty items: `text-muted-foreground/30` (washed-out grey outline).
+- Hover (interactive): items scale up via `enabled:hover:scale-110` for tactile feedback. No background change — keeps the visual minimal.
+- Keyboard navigation: ArrowRight / ArrowUp = increment, ArrowLeft / ArrowDown = decrement, Home = first position, End = last position. Step is `1` by default, `0.5` when `allowHalf`. Clamped at `0` and `max`.
+- Click precision when `allowHalf`: clicking the left half of an icon commits `index + 0.5`, the right half commits `index + 1` — matches the common review-form pattern.
 
 ---
 

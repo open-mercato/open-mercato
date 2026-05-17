@@ -82,6 +82,7 @@ When you need… use this. Details (variants, sizes, props, MUST rules) live in 
 | Joined buttons sharing outer border (Save / Save & New / overflow) | `ButtonGroup` (NOT for selection — use `SegmentedControl`) | `@open-mercato/ui/primitives/button-group` |
 | Mutually-exclusive view toggle (All / Active / Archived, 1D / 1W / 1M) | `SegmentedControl` (with `SegmentedControlItem`) | `@open-mercato/ui/primitives/segmented-control` |
 | Continuous numeric selector — single or two-thumb range | `Slider` (`value` MUST be `[number]` or `[number, number]`) | `@open-mercato/ui/primitives/slider` |
+| 1-N star / heart / dot rating (read-only display OR interactive input) | `Rating` (no `onChange` = read-only; `onChange` = interactive) | `@open-mercato/ui/primitives/rating` |
 | Wrap a `<Link>` as button | `Button asChild` / `IconButton asChild` | — |
 
 ## Critical Primitive Rules

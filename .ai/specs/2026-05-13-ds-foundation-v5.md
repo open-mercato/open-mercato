@@ -282,7 +282,7 @@ Renders: `« First < Prev [1] [2] ... [N-1] [N] Next > Last »` with `Kbd`-style
 
 ### 8. Rating (new)
 
-**Figma node:** TBD.
+**Figma node:** [`Rating & Review [1.0]`](https://www.figma.com/design/qCq9z6q1if0mpoRstV5OEA/DS---Open-Mercato?node-id=199969-1797) — DS Open Mercato componentSet `199969:1797`, key `544eab9fbc72c0038c0a28b7ff27a93ab8c3c01a`. 6-variant set = 2 types (Star | Heart) × 3 alignments (Only Ratings | Vertical | Horizontal); item size 20×20, gap 2px, star fill `#F6B51E` (mapped to `status-warning-icon`).
 
 **Purpose:** 1-to-N star/heart/dot rating widget. Read-only display mode and interactive input mode.
 
