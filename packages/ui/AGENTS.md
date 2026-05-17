@@ -80,6 +80,7 @@ When you need… use this. Details (variants, sizes, props, MUST rules) live in 
 | Breadcrumb navigation (DS-aligned, slash/arrow/dot divider, ARIA correct) | `Breadcrumb` (with `BreadcrumbList` / `BreadcrumbItem` / `BreadcrumbLink` / `BreadcrumbPage` / `BreadcrumbStatic` / `BreadcrumbSeparator` / `BreadcrumbEllipsis`) | `@open-mercato/ui/primitives/breadcrumb` |
 | Scrollable container with DS-styled scrollbars | `ScrollArea` (compound: `ScrollAreaRoot` / `Viewport` / `Scrollbar` / `Thumb` / `Corner`) | `@open-mercato/ui/primitives/scroll-area` |
 | Joined buttons sharing outer border (Save / Save & New / overflow) | `ButtonGroup` (NOT for selection — use `SegmentedControl`) | `@open-mercato/ui/primitives/button-group` |
+| Mutually-exclusive view toggle (All / Active / Archived, 1D / 1W / 1M) | `SegmentedControl` (with `SegmentedControlItem`) | `@open-mercato/ui/primitives/segmented-control` |
 | Wrap a `<Link>` as button | `Button asChild` / `IconButton asChild` | — |
 
 ## Critical Primitive Rules

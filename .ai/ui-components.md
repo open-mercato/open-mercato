@@ -46,6 +46,7 @@ Detailed variant tables, size matrices, props, examples, and MUST rules for ever
 - [RichEditor](#richeditor)
 - [ScrollArea](#scrollarea)
 - [ButtonGroup](#buttongroup)
+- [SegmentedControl](#segmentedcontrol)
 - [Specialized Inputs (overview)](#specialized-inputs-overview)
 - [ComboboxInput](#comboboxinput)
 - [TagsInput (backend)](#tagsinput-backend)
@@ -3147,6 +3148,113 @@ import { ButtonGroup, buttonGroupVariants } from '@open-mercato/ui/primitives/bu
 - Wrapper applies `[&>*]:rounded-none [&>*]:shadow-none [&>*]:border-0` and adds `border-r` / `border-b` between siblings via `[&>*:not(:last-child)]`. Children render normally but lose their own corners/shadow.
 - Wrapper carries the shared `shadow-xs`. Don't add per-child shadows.
 - Figma node: DS Open Mercato `Button Group [1.1]` (`componentKey: 3447dc22e79d714aded761678bcff3d8bd6221f0`). 3 sizes × 5 quantities × `Default | Hover | Active | Disabled` state per item. Item-level states (hover / active / disabled) come from the child `Button` itself — the wrapper does not own them.
+
+---
+
+## SegmentedControl
+
+iOS-style segmented selector for **mutually-exclusive view state** per Figma `Switch / Chart / Cryptocurrency` (DS Open Mercato `componentKey: 4fdcde6e834a674e7db86e3aa60d6b781377abb1`). Pill-shaped track with N items; exactly one selected at a time. Selecting a different item fires `onValueChange`.
+
+```typescript
+import { SegmentedControl, SegmentedControlItem } from '@open-mercato/ui/primitives/segmented-control'
+```
+
+### When to use
+
+- **SegmentedControl**: list filters ("All / Active / Archived"), chart period selectors (1D / 1W / 1M), layout toggles (List / Grid). The thing being switched changes the *view*, not the action.
+- **ButtonGroup** (separate primitive): related actions where each child does something different (Save / Save & New / overflow). NOT for selection.
+- **Tabs** (separate primitive): when each option swaps a content panel, not just a state filter. Tabs carry their own ARIA `tabpanel` contract.
+- **RadioGroup + Radio** (separate primitive): when the choice is part of a form (one of several options for a field), not chrome state.
+
+### API
+
+```tsx
+<SegmentedControl
+  value={view}                                  // current selected value
+  onValueChange={(next) => setView(next)}       // fires on selection change
+  size="sm" | "default"                         // optional, default "default"
+  disabled={false}                              // optional
+  aria-label="View filter"                      // recommended
+>
+  <SegmentedControlItem value="all">All</SegmentedControlItem>
+  <SegmentedControlItem value="active">Active</SegmentedControlItem>
+  <SegmentedControlItem value="archived">Archived</SegmentedControlItem>
+</SegmentedControl>
+```
+
+Built on Radix `RadioGroup` — inherits arrow-key navigation, roving tabindex, `role="radiogroup"` + `role="radio"` + `aria-checked` for free.
+
+### Sizes
+
+| Size | Track height | Item height | Item text | Use case |
+|---|---|---|---|---|
+| `default` (default) | `h-8` (32px) | `h-7` (28px) | `text-sm` | Standard toolbar density |
+| `sm` | `h-7` (28px) | `h-6` (24px) | `text-xs` | Tight rows, chart period selectors |
+
+### Usage
+
+```tsx
+// Filter on a list page
+const [status, setStatus] = React.useState('all')
+<SegmentedControl value={status} onValueChange={setStatus} aria-label="Status filter">
+  <SegmentedControlItem value="all">All</SegmentedControlItem>
+  <SegmentedControlItem value="active">Active</SegmentedControlItem>
+  <SegmentedControlItem value="archived">Archived</SegmentedControlItem>
+</SegmentedControl>
+
+// Chart period
+const [period, setPeriod] = React.useState('1M')
+<SegmentedControl value={period} onValueChange={setPeriod} size="sm" aria-label="Chart period">
+  <SegmentedControlItem value="1D">1D</SegmentedControlItem>
+  <SegmentedControlItem value="1W">1W</SegmentedControlItem>
+  <SegmentedControlItem value="1M">1M</SegmentedControlItem>
+  <SegmentedControlItem value="3M">3M</SegmentedControlItem>
+  <SegmentedControlItem value="1Y">1Y</SegmentedControlItem>
+</SegmentedControl>
+```
+
+### MUST rules
+
+1. **Always provide `aria-label`** on the root when the purpose isn't obvious from items (e.g. `1D / 1W / 1M` — no surrounding context tells a screen-reader user that this is a chart period).
+2. **NEVER use SegmentedControl as a tab navigation** that swaps content panels. Use `Tabs` for that — it ships the `tabpanel` contract.
+3. **Every item MUST have a unique `value`.** Duplicate values break Radix's keyboard navigation and selection state.
+4. **NEVER nest `Button` / `IconButton` inside `SegmentedControlItem`.** Radix RadioGroup.Item already provides a `<button>` — nesting another interactive element breaks ARIA.
+5. **`disabled` on the root cascades to every item** via Radix; do not pass `disabled` per-item unless intentionally locking a subset.
+
+### Anti-patterns
+
+```tsx
+// WRONG — selection via ButtonGroup (no selection semantics, no ARIA radio)
+<ButtonGroup>
+  <Button onClick={() => setView('all')}>All</Button>
+  <Button onClick={() => setView('active')}>Active</Button>
+</ButtonGroup>
+
+// WRONG — SegmentedControl swapping content panels (use Tabs)
+<SegmentedControl value={panel} onValueChange={setPanel}>
+  <SegmentedControlItem value="overview">Overview</SegmentedControlItem>
+  <SegmentedControlItem value="settings">Settings</SegmentedControlItem>
+</SegmentedControl>
+{panel === 'overview' && <OverviewPanel />}
+{panel === 'settings' && <SettingsPanel />}
+
+// CORRECT — Tabs for content panels
+<Tabs value={panel} onValueChange={setPanel}>
+  <TabsList>
+    <TabsTrigger value="overview">Overview</TabsTrigger>
+    <TabsTrigger value="settings">Settings</TabsTrigger>
+  </TabsList>
+  <TabsContent value="overview"><OverviewPanel /></TabsContent>
+  <TabsContent value="settings"><SettingsPanel /></TabsContent>
+</Tabs>
+```
+
+### Notes
+
+- Selected item raises with `bg-background` + `shadow-xs` over the muted `bg-muted/40` track — produces the iOS-segmented "slide thumb" effect via simple background swap (no JS animation).
+- Built on `@radix-ui/react-radio-group` (already installed via `Radio` primitive — no new dep).
+- Figma defines 5-item variants (1D / 1W / 1M / 3M / 1Y), but the primitive accepts any number of items. Width grows with content.
+- Underlying ARIA structure: `role="radiogroup"` on root, `role="radio"` + `aria-checked` on each item. Arrow keys move focus + selection between items (Radix default).
 
 ---
 
