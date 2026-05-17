@@ -29,7 +29,7 @@
 - **Badge cascade (83 import sites)** is the largest single-rewrite risk in the v5 batch. Mitigation: keep the existing `variant` API (`default | secondary | destructive | outline | success | warning | brand`) callable verbatim; add Figma's new variants as additional discriminants on the union. No removed variants, no renamed sizes, no dropped props.
 - **Dialog cascade (40 import sites)** is second-largest. Mitigation: same — keep `<Dialog>` / `<DialogTrigger>` / `<DialogContent>` / `<DialogHeader>` / `<DialogTitle>` / `<DialogDescription>` / `<DialogFooter>` / `<DialogClose>` compound API stable; restyle the slots, do not refactor the composition.
 - **Table is touched indirectly via `DataTable` consumers (every list view in the product)**. Treat the `Table` primitive rewrite as a styling-only sweep — no header-cell prop changes, no `Row` / `Cell` API rewrites, no sort-behaviour changes in `DataTable`. The "kilka rzeczy do poprawienia" the user mentioned is captured in § 20 (Table) as a closed list — anything beyond that list ships in a follow-up PR.
-- **New third-party deps audit**. `CommandMenu` uses `cmdk` (already transitively installed — confirmed via `yarn.lock`). `ScrollArea` requires `@radix-ui/react-scroll-area` (**not currently installed** — must be added to `packages/ui/package.json` in the ScrollArea commit; spec note revised post-audit). `Slider` requires `@radix-ui/react-slider` (audit at Slider commit time — likely needs adding too). All other primitives use already-installed Radix packages or no third-party deps.
+- **New third-party deps audit**. `CommandMenu` uses `cmdk` — was transitive in `yarn.lock`; **promoted to direct dep** in the A.10 commit alongside `@radix-ui/react-dialog` (also previously transitive via shadcn-style imports in the Drawer/Dialog primitives but missing from `packages/ui/package.json`). `ScrollArea` requires `@radix-ui/react-scroll-area` (**added in the A.1 commit**). `Slider` requires `@radix-ui/react-slider` (**added in the A.4 commit**). All other primitives use already-installed Radix packages or no third-party deps.
 
 ---
 
@@ -177,33 +177,43 @@ Default swatches: 16 colors curated from the DS palette (red, orange, amber, yel
 
 ---
 
-### 4. CommandMenu (new)
+### 4. CommandMenu (new) — **IMPLEMENTED (Phase A.10)**
 
-**Figma node:** TBD.
+**Figma source:** DS Open Mercato `Command Menu` page (`4152:24764`) — `Command Menu Search Input [1.1]` (`4187:559`), `Command Menu Items [1.1]` (`4171:15653`), `Command Menu Footer [1.1]` (`4172:16590`).
 
 **Purpose:** Cmd+K (Ctrl+K on Windows) global command palette — searchable list of actions, pages, recently-viewed entities. Distinct from `Combobox` (in-form) and `Select` (closed-list).
 
-**API:**
+**Final API (as shipped):**
 
 ```tsx
 <CommandMenu open={open} onOpenChange={setOpen}>
-  <CommandMenuInput placeholder='Type a command...' />
-  <CommandMenuList>
-    <CommandMenuEmpty>No results.</CommandMenuEmpty>
-    <CommandMenuGroup heading='Pages'>
-      <CommandMenuItem onSelect={...}>Customers</CommandMenuItem>
-      <CommandMenuItem onSelect={...}>Sales</CommandMenuItem>
-    </CommandMenuGroup>
-    <CommandMenuGroup heading='Actions'>
-      <CommandMenuItem onSelect={...} shortcut='⌘N'>New person</CommandMenuItem>
-    </CommandMenuGroup>
-  </CommandMenuList>
+  <CommandMenuContent title="Command palette">
+    <CommandMenuInput placeholder="Search HR tools or press..." />
+    <CommandMenuList>
+      <CommandMenuEmpty>No results.</CommandMenuEmpty>
+      <CommandMenuGroup heading="Pages" actionLabel="See all" onAction={...}>
+        <CommandMenuItem value="customers" leading={<Users className="size-4" />} onSelect={...}>Customers</CommandMenuItem>
+        <CommandMenuItem value="sales" leading={<DollarSign className="size-4" />} onSelect={...}>Sales</CommandMenuItem>
+      </CommandMenuGroup>
+      <CommandMenuSeparator />
+      <CommandMenuGroup heading="Actions">
+        <CommandMenuItem value="new-person" shortcut={<Kbd>⌘N</Kbd>} onSelect={...}>New person</CommandMenuItem>
+      </CommandMenuGroup>
+    </CommandMenuList>
+    <CommandMenuFooter helpSlot={<a href="/help">Contact</a>} />
+  </CommandMenuContent>
 </CommandMenu>
 ```
 
-Built on `cmdk` (confirm as direct dep or transitive). Fuzzy search, keyboard navigation (↑/↓/Enter), `shortcut` slot renders `Kbd`. Renders inside a `Dialog` with `forceMount`-style mounting so global hotkey listener can open it from any page.
+**Compound surface:** `CommandMenu` (Radix Dialog root) / `CommandMenuTrigger` / `CommandMenuContent` (Portal + auto SR-only title + `cmdk` root) / `CommandMenuInput` (leading magnifier + `⌘K` kbd swapped to × clear once user types) / `CommandMenuList` / `CommandMenuEmpty` / `CommandMenuGroup` (with optional `actionLabel` + `onAction` "see all" affordance per Figma group header) / `CommandMenuItem` (with `leading`, `description`, `shortcut`, auto chevron on selected) / `CommandMenuSeparator` / `CommandMenuFooter` (default ↑/↓ Navigate, ↵ Select hints + optional `helpSlot`).
 
-**Tests:** Smoke test asserts open/close via prop, item `onSelect` fires, group rendering, empty state.
+**Implementation notes:**
+- Built on `cmdk` (`Command`, `Command.Input`, `Command.List`, `Command.Group`, `Command.Item`, `Command.Separator`, `Command.Empty`) hosted inside `@radix-ui/react-dialog`. Inherits dialog ARIA + focus trap + ESC dismissal + outside-click dismissal.
+- `cmdk` is now a **direct dependency** of `packages/ui` (was transitive — promoted in the A.10 commit). `@radix-ui/react-dialog` likewise promoted to direct (previously implicit via the Drawer/Dialog primitives but missing from `dependencies`).
+- Surface does NOT bind `⌘K` globally — consumer wires the shortcut at the host so multiple palettes can coexist (e.g. global launcher + per-page quick actions).
+- `cmdk` auto-filters items based on each item's `value` prop (NOT `children`) — every `CommandMenuItem` MUST pass a stable lowercase `value` capturing the search tokens. For server-side search pass `commandProps={{ shouldFilter: false }}`.
+
+**Tests (12 smoke tests, all passing):** content slots inside Radix Dialog · controlled open via trigger click · auto SR-only dialog title · default leading magnifier + `⌘K` kbd · kbd swaps to × clear toggle when value present · clear button clears value · item description + auto chevron slots · `onSelect` fires on item click · group action button renders + invokes `onAction` · default footer Navigate/Select hints · `helpSlot` renders · `className` forwarded to content without dropping default positioning. Test file polyfills `Element.prototype.scrollIntoView` because `cmdk` calls it on selection change and jsdom does not implement it.
 
 ---
 
@@ -634,7 +644,7 @@ Order chosen so primitives with lower dependency are first; primitives that depe
 7. `feat(ds): add ColorPicker primitive`
 8. `feat(ds): add Pagination primitive` (standalone — DataTable migration deferred)
 9. `feat(ds): add Drawer primitive` (uses ScrollArea) — **DONE (A.9)** + `fix(ds): align Drawer with canonical Figma source (rounded inner edges, leading icon badge, footer layout/leading slots)` — **DONE (A.9-fixup)**
-10. `feat(ds): add CommandMenu primitive` (uses Dialog + ScrollArea)
+10. `feat(ds): add CommandMenu primitive` (built on `cmdk` + `@radix-ui/react-dialog`; both promoted from transitive to direct deps) — **DONE (A.10)**
 11. `feat(ds): add ActivityFeed primitive` (uses Avatar + EmptyState + Skeleton)
 12. `feat(ds): add NotificationFeed primitive`
 
@@ -767,11 +777,11 @@ Concrete failure scenarios per the AGENTS.md rule: each entry has a severity, af
 - **Mitigation:** Each Phase A / Phase B commit's pre-implementation step is `mcp__figma__search_design_system` for the component name to retrieve the node ID, then `use_figma` (via `figma-use` skill) to inspect the canonical look. Node ID is written into the spec section BEFORE the implementation commit lands. **Pre-flight rule (added post A.9):** if `search_design_system` returns nothing, ALSO list `figma.root.children` and grep for partial name matches before falling back to R4-inferred styling.
 - **Residual risk:** Some Figma nodes may not exist for components we infer from product usage (e.g. `ActivityFeed`, `NotificationFeed`). For those, document the inferred design in the spec section and the implementation commit message — explicitly call out "no Figma source; inferred from current product usage".
 
-### R5. `cmdk` as a new direct dependency for `CommandMenu` — **SEV: LOW**
+### R5. `cmdk` as a new direct dependency for `CommandMenu` — **SEV: LOW** — **RESOLVED (A.10)**
 
 - **Affected area:** `package.json` of `@open-mercato/ui`.
 - **Failure scenario:** Adding `cmdk` as a direct dep increases bundle size for every consumer (~6KB gzipped). Audit gate might block the PR.
-- **Mitigation:** Confirm `cmdk` is already transitively present via Radix. If yes, no new dep needed — import via existing path. If no, declare direct dep in the CommandMenu commit and justify in commit message + spec.
+- **Mitigation applied:** `cmdk@^1.0.0` was already transitively in `yarn.lock` (via shadcn). The A.10 commit **promotes it to direct dep** alongside `@radix-ui/react-dialog@^1.1.6` (likewise transitively present, used directly by `dialog.tsx` and `drawer.tsx` without being declared). Both deps are now explicit in `packages/ui/package.json`. Audit impact: zero net bundle change — both packages were already shipped to consumers.
 - **Residual risk:** None — `cmdk` is the de-facto standard for Cmd+K palettes and is unavoidable without re-implementing fuzzy search from scratch.
 
 ### R6. Test coverage gap on rewrites — **SEV: MEDIUM**
@@ -834,3 +844,4 @@ To be filled in after all phases land and before opening the PR. Sections:
 |---|---|---|
 | 2026-05-13 | DRAFT | Initial spec. Awaiting user approval before commit 1. Scope: 12 new primitives + 8 rewrites + Table polish + FilterBar polish. 25-commit Implementation Plan. Per-primitive Figma node IDs marked `TBD` (resolved during each primitive's commit). |
 | 2026-05-17 | FIXUP — A.9 Drawer | Realigned Drawer to canonical Figma source (`486:7366` — user-pointed). Panel: `rounded-l-2xl` (and per-side counterparts) + `shadow-2xl`, removed `border-l/r/t/b` from the seam. Header: removed `border-b`, added optional `leading` icon badge slot (`size-10 rounded-full border`) matching `Drawer Header [1.1]` variants 2 + 4. Footer: removed `border-t`, added `layout` variant (`default` / `equal` 50/50 stretched) + optional `leading` slot (checkbox / switch / link / step dots) matching `Drawer Footer [1.1]` variants 1–6. R4 risk note updated with the lesson: always list `figma.root.children` before declaring a primitive has no Figma source. Drawer tests grew from 12 → 17 (5 new cases for leading badge, default no-border, default footer layout, equal layout, footer leading slot). |
+| 2026-05-17 | IN PROGRESS — Phase A 10/12 | Shipped A.10 CommandMenu. Compound API (`CommandMenu` + `Trigger` + `Content` + `Input` + `List` + `Empty` + `Group` + `Item` + `Separator` + `Footer`) built on `cmdk` + `@radix-ui/react-dialog`; both deps promoted from transitive to direct in `packages/ui/package.json`. 12 smoke tests added. R5 (cmdk new direct dep) resolved. |

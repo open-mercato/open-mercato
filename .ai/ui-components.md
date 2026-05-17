@@ -53,6 +53,7 @@ Detailed variant tables, size matrices, props, examples, and MUST rules for ever
 - [ColorPicker](#colorpicker)
 - [Pagination](#pagination)
 - [Drawer](#drawer)
+- [CommandMenu](#commandmenu)
 - [Specialized Inputs (overview)](#specialized-inputs-overview)
 - [ComboboxInput](#comboboxinput)
 - [TagsInput (backend)](#tagsinput-backend)
@@ -4123,6 +4124,130 @@ Matches Figma `Drawer Footer [1.1]` variants 1–6.
 - **No chrome dividers** between Header / Body / Footer. Section separators inside the body (e.g. "ELIGIBILITY CRITERIA" labels) come from content composition, not from the Drawer primitive.
 - Default `max-w-md` (~420px) for right/left works well for forms; pass `className="max-w-2xl"` on `DrawerContent` for wider detail panes.
 - Auto-rendered top-right close button (`X` icon, `size-8`, muted-foreground, hover bg `muted/40`). Use `hideCloseButton` when the body provides its own dismissal (e.g. a Save/Cancel footer alone).
+
+---
+
+## CommandMenu
+
+Cmd+K spotlight palette — modal launcher hosted in a Radix Dialog overlay with `cmdk` powering auto-filter on input. Use for navigation across the whole app ("Go to Customers", "Open settings"), quick actions (Create deal, Switch organization), or universal search.
+
+### Import
+
+```typescript
+import {
+  CommandMenu,
+  CommandMenuTrigger,
+  CommandMenuContent,
+  CommandMenuInput,
+  CommandMenuList,
+  CommandMenuEmpty,
+  CommandMenuGroup,
+  CommandMenuItem,
+  CommandMenuSeparator,
+  CommandMenuFooter,
+} from '@open-mercato/ui/primitives/command-menu'
+```
+
+### Compound API
+
+| Slot | Role |
+|---|---|
+| `CommandMenu` | Root (Radix Dialog). Controlled via `open` / `onOpenChange`, or uncontrolled via `defaultOpen`. |
+| `CommandMenuTrigger` | Optional anchor button. Most apps open the palette via `⌘K` keyboard shortcut and skip the trigger. |
+| `CommandMenuContent` | Centered overlay card. Renders through Portal, includes overlay, `cmdk` root, and an auto SR-only `DialogTitle` ("Command menu" by default — override via `title`). |
+| `CommandMenuInput` | Leading magnifier + input + trailing `⌘K` kbd. When the user types, the kbd is replaced by a × clear button. |
+| `CommandMenuList` | Scrollable list container (`max-h-[420px]`). |
+| `CommandMenuEmpty` | Fallback when no items match the current query. |
+| `CommandMenuGroup` | Labelled section. Optional trailing "see all" action: pass `actionLabel` + `onAction`. |
+| `CommandMenuItem` | Selectable row. Supports `leading`, `description`, `shortcut` (overrides chevron). |
+| `CommandMenuSeparator` | Visual divider between groups. |
+| `CommandMenuFooter` | Bottom bar with default shortcut hints (↑/↓ Navigate, ↵ Select). Optional `helpSlot` for a right-side link. |
+
+### Usage
+
+```tsx
+const [open, setOpen] = React.useState(false)
+
+React.useEffect(() => {
+  const onKey = (e: KeyboardEvent) => {
+    if (e.key === 'k' && (e.metaKey || e.ctrlKey)) {
+      e.preventDefault()
+      setOpen((o) => !o)
+    }
+  }
+  window.addEventListener('keydown', onKey)
+  return () => window.removeEventListener('keydown', onKey)
+}, [])
+
+<CommandMenu open={open} onOpenChange={setOpen}>
+  <CommandMenuContent>
+    <CommandMenuInput placeholder="Search HR tools or press..." />
+    <CommandMenuList>
+      <CommandMenuEmpty>No results found.</CommandMenuEmpty>
+
+      <CommandMenuGroup heading="Tools & Apps" actionLabel="See all" onAction={() => router.push('/apps')}>
+        <CommandMenuItem
+          value="monday.com"
+          leading={<img src="/logos/monday.svg" className="size-5" />}
+          onSelect={() => open('https://monday.com')}
+        >
+          Monday.com
+        </CommandMenuItem>
+        <CommandMenuItem value="loom" leading={<img src="/logos/loom.svg" className="size-5" />}>
+          Loom
+        </CommandMenuItem>
+      </CommandMenuGroup>
+
+      <CommandMenuSeparator />
+
+      <CommandMenuGroup heading="Employees">
+        <CommandMenuItem
+          value="james brown"
+          leading={<Avatar size="sm" label="James Brown" />}
+          description="Engineer at Aurora"
+        >
+          James Brown
+        </CommandMenuItem>
+      </CommandMenuGroup>
+    </CommandMenuList>
+    <CommandMenuFooter helpSlot={<a href="/help" className="underline">Any problem? Contact</a>} />
+  </CommandMenuContent>
+</CommandMenu>
+```
+
+### Auto-filter behaviour
+
+`cmdk` filters items automatically based on the `value` prop of each `CommandMenuItem` and the current input query. Set `value` to a stable lowercase string that captures what the user might type (e.g. `value="james brown engineer"` for fuzzier matches). Pass `commandProps={{ shouldFilter: false }}` to disable internal filtering when you have your own server-side search wired to `onValueChange`.
+
+### Leading slot patterns
+
+| Visual | What to pass |
+|---|---|
+| Brand logo / app icon | `<img src="/logos/monday.svg" className="size-5 rounded-sm" />` |
+| Country flag | `<img src="/flags/us.svg" className="size-5 rounded-full" />` |
+| User avatar | `<Avatar size="sm" label="James Brown" />` |
+| Generic icon | `<Search className="size-4 text-muted-foreground" />` |
+| Filled-circle icon | `<div className="size-6 rounded-full bg-accent-indigo flex items-center justify-center"><Spotify className="size-3 text-white" /></div>` |
+
+The slot is a `size-6` flex box that centers the leading content — pass any element, the wrapper handles alignment.
+
+### MUST rules
+
+- NEVER hand-roll a `<Dialog>` + `<input>` + `<div>` list for command palettes — use `CommandMenu` so keyboard nav (`↑/↓`, `↵`), focus trap, and ESC dismissal stay consistent across the app.
+- NEVER omit the `value` prop on `CommandMenuItem` — `cmdk` filters on `value`, not `children`. Without it the item won't be selectable by typing.
+- NEVER use `CommandMenuItem` for navigation links rendered via Next.js `<Link>` — pass an `onSelect` handler instead, then call `router.push(...)`. `<Link>` swallows `cmdk`'s keyboard activation.
+- Wire `⌘K` (mac) / `Ctrl+K` (win) at the surface that hosts the palette — the primitive doesn't bind shortcuts globally so multiple palettes can coexist.
+- Keep group headings concise (1–2 words). The trailing "see all" action button overlays the heading row — long headings will collide.
+- For server-side search (`shouldFilter: false`), debounce `onValueChange` on the input and load groups async; render `<CommandMenuEmpty>Loading…</CommandMenuEmpty>` while pending.
+
+### Notes
+
+- Figma source: DS Open Mercato `Command Menu` page (`4152:24764`) — Search Input [1.1] (`4187:559`), Items [1.1] (`4171:15653`), Footer [1.1] (`4172:16590`).
+- Built on `cmdk` (`Command`, `Command.Input`, `Command.List`, `Command.Group`, `Command.Item`, `Command.Separator`, `Command.Empty`) hosted inside `@radix-ui/react-dialog`. Inherits dialog ARIA + focus trap.
+- Item hover/selection background: `data-[selected=true]:bg-muted/40`. Chevron auto-shows on selected items (overrides to `opacity-100`). Pass `shortcut={...}` to swap the chevron for a keyboard hint.
+- Description renders below the label in `text-xs text-muted-foreground`. Both label + description are `truncate`-ed.
+- Footer hints render `↑ ↓ Navigate / ↵ Select` Kbd row by default. Override via `hints` prop. `helpSlot` is right-aligned and suitable for a "Contact" link.
+- Test pattern: jsdom does not implement `Element.scrollIntoView` (used by `cmdk` on selection change). Add `Element.prototype.scrollIntoView = () => {}` once at the top of the test file.
 
 ---
 
