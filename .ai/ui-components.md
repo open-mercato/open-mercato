@@ -45,6 +45,7 @@ Detailed variant tables, size matrices, props, examples, and MUST rules for ever
 - [LogList](#loglist)
 - [RichEditor](#richeditor)
 - [ScrollArea](#scrollarea)
+- [ButtonGroup](#buttongroup)
 - [Specialized Inputs (overview)](#specialized-inputs-overview)
 - [ComboboxInput](#comboboxinput)
 - [TagsInput (backend)](#tagsinput-backend)
@@ -3027,6 +3028,125 @@ Reach for `ScrollArea` whenever you'd otherwise write `<div className="overflow-
 
 - No dedicated Figma node — DS Open Mercato library did not ship a `ScrollArea` master component at the time this primitive was authored. Styling is inferred from DS scrollbar token decisions used elsewhere.
 - Built on `@radix-ui/react-scroll-area`. Scrollbar visibility is layout-driven (Radix only mounts the thumb when content overflows). jsdom unit tests cannot exercise scroll behaviour — coverage lives in visual / integration tests instead.
+
+---
+
+## ButtonGroup
+
+Joined / connected buttons sharing a common outer border, per Figma `Button Group [1.1]`. Use for **related actions** on the same row (Save / Save & New / overflow ellipsis) or compact view-mode toggles (List / Grid). For mutually-exclusive *selection* states (only one selected) use `SegmentedControl` instead.
+
+```typescript
+import { ButtonGroup, buttonGroupVariants } from '@open-mercato/ui/primitives/button-group'
+```
+
+### When to use
+
+- **ButtonGroup**: related-but-distinct actions on the same row. Each child does something different.
+- **SegmentedControl** (separate primitive): mutually-exclusive view state. Only one child is "selected" at a time.
+- **Toolbar** (`Page` toolbar / `DataTable` actions row): independent actions that don't share a border. Use plain `Button` siblings with `gap-2`.
+
+### Sizes
+
+| Size | Outer radius | Maps to Figma | Use with child Button size |
+|---|---|---|---|
+| `2xs` | `rounded-sm` (6px) | 2X-Small (24) | `2xs` (h-7) — toolbar-density rows |
+| `sm` | `rounded-md` (8px) | X-Small (32) | `sm` (h-8) — dense compositions |
+| `default` (default) | `rounded-md` (8px) | Small (36) | `default` (h-9) — standard rows |
+
+### Orientation
+
+| Value | Layout | Internal separator |
+|---|---|---|
+| `horizontal` (default) | `flex-row` | `border-r` between siblings |
+| `vertical` | `flex-col` | `border-b` between siblings |
+
+### Usage
+
+```tsx
+// Horizontal — related actions
+<ButtonGroup>
+  <Button variant="outline">Save</Button>
+  <Button variant="outline">Save & New</Button>
+  <IconButton variant="outline" aria-label="More"><MoreHorizontal /></IconButton>
+</ButtonGroup>
+
+// Vertical — stacked stepper actions
+<ButtonGroup orientation="vertical" size="sm">
+  <IconButton variant="outline" aria-label="Move up"><ChevronUp /></IconButton>
+  <IconButton variant="outline" aria-label="Move down"><ChevronDown /></IconButton>
+</ButtonGroup>
+
+// Compact (2xs) — toolbar
+<ButtonGroup size="2xs">
+  <Button variant="ghost" size="2xs">All</Button>
+  <Button variant="ghost" size="2xs">Active</Button>
+  <Button variant="ghost" size="2xs">Archived</Button>
+</ButtonGroup>
+```
+
+### MUST rules
+
+1. **Every child MUST share the same *height* as the group.** Heights differ between `Button` and `IconButton` for the same `size` prop (DS asymmetry — see [packages/ui/AGENTS.md → Same-row size consistency](../packages/ui/AGENTS.md)). The matching pairs are:
+
+   | Group size | Button child size | IconButton child size | Pixel height |
+   |---|---|---|---|
+   | `default` | `default` (h-9) | `lg` (size-9) | 36px |
+   | `sm` | `sm` (h-8) | `default` (size-8) | 32px |
+   | `2xs` | `2xs` (h-7) | `sm` (size-7) | 28px |
+
+   `<ButtonGroup>` + `<IconButton>` without explicit `size="lg"` is the most common mistake — IconButton defaults to `size-8` (32px) while ButtonGroup defaults to 36px (matching Button default), leaving a 4px gap and a visible white strip at the bottom of the IconButton segment.
+
+2. **NEVER mix `variant`s inside one group** unless intentional. Same-row visual coherence requires the same variant on every child (typically `outline` or `ghost`).
+3. **NEVER add `className="rounded-md"` on children** — the wrapper strips child corners on purpose. Adding back rounds re-introduces double corners.
+4. **NEVER use ButtonGroup for selection state.** Use `SegmentedControl` — it carries `value` / `onValueChange` + the iOS-segmented indicator slide.
+5. **Wrap with `aria-label`** when the group's purpose is not obvious from children: `<ButtonGroup aria-label="View mode">`.
+
+### Anti-patterns
+
+```tsx
+// WRONG — mixed sizes break the joined visual
+<ButtonGroup>
+  <Button size="default">A</Button>
+  <Button size="sm">B</Button>
+</ButtonGroup>
+
+// WRONG — IconButton default (size-8 = 32px) inside a default group
+// (36px). 4px white strip at the bottom of the icon segment.
+<ButtonGroup>
+  <Button>Save</Button>
+  <IconButton aria-label="More"><MoreHorizontal /></IconButton>
+</ButtonGroup>
+
+// CORRECT — IconButton size="lg" matches Button default (both h-9 / 36px)
+<ButtonGroup>
+  <Button>Save</Button>
+  <IconButton size="lg" aria-label="More"><MoreHorizontal /></IconButton>
+</ButtonGroup>
+
+// WRONG — using ButtonGroup for view toggle (use SegmentedControl)
+<ButtonGroup>
+  <Button onClick={() => setView('all')}>All</Button>
+  <Button onClick={() => setView('active')}>Active</Button>
+</ButtonGroup>
+
+// WRONG — re-adding child corners
+<ButtonGroup>
+  <Button className="rounded-md">A</Button>
+  <Button>B</Button>
+</ButtonGroup>
+
+// CORRECT — view toggle via SegmentedControl
+<SegmentedControl value={view} onValueChange={setView}>
+  <SegmentedControlItem value="all">All</SegmentedControlItem>
+  <SegmentedControlItem value="active">Active</SegmentedControlItem>
+</SegmentedControl>
+```
+
+### Notes
+
+- Wrapper applies `[&>*]:rounded-none [&>*]:shadow-none [&>*]:border-0` and adds `border-r` / `border-b` between siblings via `[&>*:not(:last-child)]`. Children render normally but lose their own corners/shadow.
+- Wrapper carries the shared `shadow-xs`. Don't add per-child shadows.
+- Figma node: DS Open Mercato `Button Group [1.1]` (`componentKey: 3447dc22e79d714aded761678bcff3d8bd6221f0`). 3 sizes × 5 quantities × `Default | Hover | Active | Disabled` state per item. Item-level states (hover / active / disabled) come from the child `Button` itself — the wrapper does not own them.
 
 ---
 
