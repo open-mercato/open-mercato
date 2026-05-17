@@ -158,7 +158,7 @@ export function EntityFilterPopover({
         <button
           type="button"
           onClick={handleClear}
-          className="text-[12px] font-medium leading-normal text-muted-foreground underline-offset-2 transition-colors hover:text-foreground hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
+          className="text-xs font-medium leading-normal text-muted-foreground underline-offset-2 transition-colors hover:text-foreground hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
         >
           {translateWithFallback(t, 'customers.deals.kanban.filter.clear', 'Clear')}
         </button>
@@ -195,7 +195,7 @@ export function EntityFilterPopover({
                 'customers.deals.kanban.filter.searchPlaceholder',
                 'Search…',
               )}
-              className="h-7 w-full bg-transparent text-[13px] leading-normal text-foreground outline-none placeholder:text-muted-foreground"
+              className="h-7 w-full bg-transparent text-sm leading-normal text-foreground outline-none placeholder:text-muted-foreground"
               autoFocus
             />
             {isLoading ? <Spinner className="size-3" /> : null}
@@ -203,7 +203,7 @@ export function EntityFilterPopover({
 
           <div className="max-h-64 overflow-y-auto">
             {options.length === 0 && !isLoading ? (
-              <div className="px-4 py-6 text-center text-[12px] text-muted-foreground">
+              <div className="px-4 py-6 text-center text-xs text-muted-foreground">
                 {translateWithFallback(t, 'customers.deals.kanban.filter.noResults', 'No matches')}
               </div>
             ) : (
@@ -220,7 +220,7 @@ export function EntityFilterPopover({
                         }`}
                       >
                         <span
-                          className={`flex size-4 shrink-0 items-center justify-center rounded-[4px] border ${
+                          className={`flex size-4 shrink-0 items-center justify-center rounded-sm border ${
                             checked
                               ? 'border-accent-indigo bg-accent-indigo text-accent-indigo-foreground'
                               : 'border-input bg-card'
@@ -230,7 +230,7 @@ export function EntityFilterPopover({
                           {checked ? <Check className="size-3" /> : null}
                         </span>
                         <span
-                          className={`truncate text-[13px] leading-normal text-foreground ${
+                          className={`truncate text-sm leading-normal text-foreground ${
                             checked ? 'font-semibold' : 'font-normal'
                           }`}
                         >

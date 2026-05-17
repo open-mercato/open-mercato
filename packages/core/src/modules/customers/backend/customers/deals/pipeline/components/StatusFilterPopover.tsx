@@ -128,7 +128,7 @@ export function StatusFilterPopover({ values, onApply }: StatusFilterPopoverProp
             </span>
           }
         >
-          <span className="text-[10px] font-semibold uppercase leading-normal tracking-wide text-muted-foreground">
+          <span className="text-xs font-semibold uppercase leading-normal tracking-wide text-muted-foreground">
             {translateWithFallback(t, 'customers.deals.kanban.filter.status', 'Status')}
           </span>
           <div className="flex flex-wrap items-center gap-x-1.5 gap-y-2">
@@ -141,14 +141,14 @@ export function StatusFilterPopover({ values, onApply }: StatusFilterPopoverProp
                   type="button"
                   onClick={() => toggleDraft(option.value)}
                   aria-pressed={isSelected}
-                  className={`inline-flex items-center gap-1.5 rounded-full px-2.5 py-1.5 text-[12px] leading-normal transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 ${
+                  className={`inline-flex items-center gap-1.5 rounded-full px-2.5 py-1.5 text-xs leading-normal transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 ${
                     isSelected
                       ? 'bg-muted font-semibold text-foreground'
                       : 'border border-border bg-card font-normal text-muted-foreground hover:bg-muted'
                   }`}
                 >
                   <span
-                    className={`inline-block size-[7px] shrink-0 rounded-full ${option.dotClass}`}
+                    className={`inline-block size-2 shrink-0 rounded-full ${option.dotClass}`}
                     aria-hidden="true"
                   />
                   <span>{label}</span>

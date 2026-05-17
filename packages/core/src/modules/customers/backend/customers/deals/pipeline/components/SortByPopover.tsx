@@ -142,7 +142,7 @@ export function SortByPopover({ value, onApply }: SortByPopoverProps): React.Rea
                 <RadioDot selected={isSelected} />
                 <div className="flex min-w-0 flex-1 flex-col gap-px">
                   <span
-                    className={`text-[13px] leading-normal text-foreground ${
+                    className={`text-sm leading-normal text-foreground ${
                       isSelected ? 'font-semibold' : 'font-normal'
                     }`}
                   >
@@ -153,7 +153,7 @@ export function SortByPopover({ value, onApply }: SortByPopoverProps): React.Rea
                     )}
                   </span>
                   {isDefault && isSelected ? (
-                    <span className="text-[11px] font-normal leading-normal text-muted-foreground">
+                    <span className="text-xs font-normal leading-normal text-muted-foreground">
                       {translateWithFallback(t, 'customers.deals.kanban.sort.default', 'Default')}
                     </span>
                   ) : null}

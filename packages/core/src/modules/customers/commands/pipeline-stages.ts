@@ -1,6 +1,7 @@
 import { registerCommand } from '@open-mercato/shared/lib/commands'
 import type { CommandHandler } from '@open-mercato/shared/lib/commands'
 import type { EntityManager } from '@mikro-orm/postgresql'
+import { findOneWithDecryption, findWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import { CustomerPipelineStage, CustomerDeal } from '../data/entities'
 import {
   pipelineStageCreateSchema,
@@ -26,7 +27,8 @@ const createPipelineStageCommand: CommandHandler<PipelineStageCreateInput, { sta
 
     // Load the full ordered list once. We need it both to know where "end" is and to
     // shift any stages that occupy positions at or after the chosen insert point.
-    const existingStages = await em.find(
+    const existingStages = await findWithDecryption(
+      em,
       CustomerPipelineStage,
       {
         organizationId: parsed.organizationId,
@@ -34,6 +36,7 @@ const createPipelineStageCommand: CommandHandler<PipelineStageCreateInput, { sta
         pipelineId: parsed.pipelineId,
       },
       { orderBy: { order: 'ASC' } },
+      { tenantId: parsed.tenantId, organizationId: parsed.organizationId },
     )
 
     // Clamp the requested insert position into the legal range [0, length]. Anything
@@ -91,7 +94,7 @@ const updatePipelineStageCommand: CommandHandler<PipelineStageUpdateInput, void>
     const parsed = pipelineStageUpdateSchema.parse(rawInput)
 
     const em = (ctx.container.resolve('em') as EntityManager).fork()
-    const stage = await em.findOne(CustomerPipelineStage, { id: parsed.id })
+    const stage = await findOneWithDecryption(em, CustomerPipelineStage, { id: parsed.id })
     if (!stage) throw new CrudHttpError(404, { error: 'Pipeline stage not found' })
 
     ensureTenantScope(ctx, stage.tenantId)
@@ -123,7 +126,7 @@ const deletePipelineStageCommand: CommandHandler<PipelineStageDeleteInput, void>
     const parsed = pipelineStageDeleteSchema.parse(rawInput)
 
     const em = (ctx.container.resolve('em') as EntityManager).fork()
-    const stage = await em.findOne(CustomerPipelineStage, { id: parsed.id })
+    const stage = await findOneWithDecryption(em, CustomerPipelineStage, { id: parsed.id })
     if (!stage) throw new CrudHttpError(404, { error: 'Pipeline stage not found' })
 
     ensureTenantScope(ctx, stage.tenantId)
@@ -152,11 +155,17 @@ const reorderPipelineStagesCommand: CommandHandler<PipelineStageReorderInput, vo
     const em = (ctx.container.resolve('em') as EntityManager).fork()
 
     const ids = parsed.stages.map((s) => s.id)
-    const stages = await em.find(CustomerPipelineStage, {
-      id: { $in: ids },
-      organizationId: parsed.organizationId,
-      tenantId: parsed.tenantId,
-    })
+    const stages = await findWithDecryption(
+      em,
+      CustomerPipelineStage,
+      {
+        id: { $in: ids },
+        organizationId: parsed.organizationId,
+        tenantId: parsed.tenantId,
+      },
+      undefined,
+      { tenantId: parsed.tenantId, organizationId: parsed.organizationId },
+    )
 
     const stageMap = new Map<string, CustomerPipelineStage>()
     stages.forEach((stage) => stageMap.set(stage.id, stage))

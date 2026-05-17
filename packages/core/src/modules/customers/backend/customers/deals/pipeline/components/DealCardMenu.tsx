@@ -112,7 +112,7 @@ export function DealCardMenu({ items, ariaLabel }: DealCardMenuProps): React.Rea
                     setOpen(false)
                     item.onSelect?.()
                   }}
-                  className={`flex w-full items-center rounded-sm px-2 py-1.5 text-left text-xs leading-[16px] transition-colors hover:bg-muted focus-visible:bg-muted focus-visible:outline-none ${
+                  className={`flex w-full items-center rounded-sm px-2 py-1.5 text-left text-xs leading-4 transition-colors hover:bg-muted focus-visible:bg-muted focus-visible:outline-none ${
                     item.destructive ? 'text-status-error-text hover:bg-status-error-bg/30' : 'text-foreground'
                   }`}
                 >

@@ -13,7 +13,8 @@ import type { Kysely } from 'kysely'
  * (empty stuck-id list, un-enriched records) when the env doesn't have Kysely available
  * (e.g. unit tests with a stub EntityManager).
  */
-export function resolveKyselyClient<TDb = unknown>(em: unknown): Kysely<TDb> | null {
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+export function resolveKyselyClient<TDb = any>(em: unknown): Kysely<TDb> | null {
   if (em == null || typeof em !== 'object') return null
   const candidate = (em as { getKysely?: unknown }).getKysely
   if (typeof candidate !== 'function') return null

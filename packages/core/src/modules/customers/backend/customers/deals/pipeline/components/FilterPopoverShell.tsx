@@ -58,7 +58,7 @@ export function FilterPopoverShell({
               {leadingIcon}
             </span>
           ) : null}
-          <span className="text-[15px] font-bold leading-normal text-foreground">{title}</span>
+          <span className="text-base font-bold leading-normal text-foreground">{title}</span>
         </div>
         <button
           type="button"
@@ -73,20 +73,20 @@ export function FilterPopoverShell({
       <div className={bodyClassName ?? 'flex flex-col gap-4 bg-card px-5 py-4'}>{children}</div>
 
       <div className="flex items-center justify-between border-t border-border bg-muted/30 px-5 py-3.5">
-        <div className="text-[12px] leading-normal text-muted-foreground">{footerLeft ?? null}</div>
+        <div className="text-xs leading-normal text-muted-foreground">{footerLeft ?? null}</div>
         <div className="flex items-center gap-6">
           <Button
             variant="outline"
             type="button"
             onClick={onCancel}
-            className="h-auto rounded-lg border-input bg-card px-4 py-[9px] text-[13px] font-semibold text-foreground"
+            className="h-auto rounded-lg border-input bg-card px-4 py-2 text-sm font-semibold text-foreground"
           >
             {translateWithFallback(t, 'customers.deals.kanban.filter.cancel', 'Cancel')}
           </Button>
           <Button
             type="button"
             onClick={onApply}
-            className="h-auto rounded-lg bg-foreground px-[18px] py-[9px] text-[13px] font-semibold text-background hover:bg-foreground/90"
+            className="h-auto rounded-lg bg-foreground px-5 py-2 text-sm font-semibold text-background hover:bg-foreground/90"
           >
             {applyLabel ?? translateWithFallback(t, 'customers.deals.kanban.filter.apply', 'Apply')}
           </Button>

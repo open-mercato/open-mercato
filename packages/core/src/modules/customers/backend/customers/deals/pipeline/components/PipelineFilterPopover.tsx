@@ -128,13 +128,13 @@ export function PipelineFilterPopover({
             <RadioDot selected={allSelected} />
             <div className="flex min-w-0 flex-1 flex-col gap-px">
               <span
-                className={`text-[13px] leading-normal text-foreground ${
+                className={`text-sm leading-normal text-foreground ${
                   allSelected ? 'font-semibold' : 'font-normal'
                 }`}
               >
                 {translateWithFallback(t, 'customers.deals.kanban.filter.pipeline.all', 'All pipelines')}
               </span>
-              <span className="text-[11px] font-normal leading-normal text-muted-foreground">
+              <span className="text-xs font-normal leading-normal text-muted-foreground">
                 {translateWithFallback(
                   t,
                   'customers.deals.kanban.filter.pipeline.allHelper',
@@ -143,7 +143,7 @@ export function PipelineFilterPopover({
                 )}
               </span>
             </div>
-            <span className="text-[12px] font-semibold leading-normal text-accent-indigo">
+            <span className="text-xs font-semibold leading-normal text-accent-indigo">
               {totalCount}
             </span>
           </button>
@@ -160,7 +160,7 @@ export function PipelineFilterPopover({
               >
                 <RadioDot selected={isSelected} />
                 <span
-                  className={`flex-1 truncate text-[13px] leading-normal text-foreground ${
+                  className={`flex-1 truncate text-sm leading-normal text-foreground ${
                     isSelected ? 'font-semibold' : 'font-normal'
                   }`}
                 >
@@ -168,7 +168,7 @@ export function PipelineFilterPopover({
                 </span>
                 {typeof pipeline.dealCount === 'number' ? (
                   <span
-                    className={`text-[12px] leading-normal ${
+                    className={`text-xs leading-normal ${
                       isSelected
                         ? 'font-semibold text-accent-indigo'
                         : 'font-normal text-muted-foreground'

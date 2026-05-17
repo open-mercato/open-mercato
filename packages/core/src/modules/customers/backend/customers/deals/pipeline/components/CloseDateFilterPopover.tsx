@@ -149,7 +149,7 @@ export function CloseDateFilterPopover({ value, onApply }: CloseDateFilterPopove
         <button
           type="button"
           onClick={handleClear}
-          className="text-[12px] font-medium leading-normal text-muted-foreground underline-offset-2 transition-colors hover:text-foreground hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
+          className="text-xs font-medium leading-normal text-muted-foreground underline-offset-2 transition-colors hover:text-foreground hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
         >
           {translateWithFallback(t, 'customers.deals.kanban.filter.clear', 'Clear')}
         </button>
@@ -190,7 +190,7 @@ export function CloseDateFilterPopover({ value, onApply }: CloseDateFilterPopove
                 key={preset.key}
                 type="button"
                 onClick={() => applyPreset(preset.key)}
-                className="h-auto rounded-full border-border bg-card px-2.5 py-1 text-[12px] font-medium text-muted-foreground hover:bg-muted hover:text-foreground"
+                className="h-auto rounded-full border-border bg-card px-2.5 py-1 text-xs font-medium text-muted-foreground hover:bg-muted hover:text-foreground"
               >
                 {preset.label}
               </Button>
@@ -198,22 +198,22 @@ export function CloseDateFilterPopover({ value, onApply }: CloseDateFilterPopove
           </div>
 
           <div className="grid grid-cols-2 gap-3">
-            <label className="flex flex-col gap-1 text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
+            <label className="flex flex-col gap-1 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
               {translateWithFallback(t, 'customers.deals.kanban.filter.fromLabel', 'From')}
               <input
                 type="date"
                 value={draft.from ?? ''}
                 onChange={(e) => setDraft((p) => ({ ...p, from: e.target.value || null }))}
-                className="rounded-md border border-input bg-card px-2.5 py-1.5 text-[13px] font-normal leading-normal text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                className="rounded-md border border-input bg-card px-2.5 py-1.5 text-sm font-normal leading-normal text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
               />
             </label>
-            <label className="flex flex-col gap-1 text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
+            <label className="flex flex-col gap-1 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
               {translateWithFallback(t, 'customers.deals.kanban.filter.toLabel', 'To')}
               <input
                 type="date"
                 value={draft.to ?? ''}
                 onChange={(e) => setDraft((p) => ({ ...p, to: e.target.value || null }))}
-                className="rounded-md border border-input bg-card px-2.5 py-1.5 text-[13px] font-normal leading-normal text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                className="rounded-md border border-input bg-card px-2.5 py-1.5 text-sm font-normal leading-normal text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
               />
             </label>
           </div>
