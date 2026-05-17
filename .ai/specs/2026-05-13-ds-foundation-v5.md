@@ -91,29 +91,55 @@ Per `feedback_ds_v3_monolithic_strategy` memory rule, the user prefers a single 
 
 Each section below documents one component. New primitives use the heading "(new)"; rewrites use "(rewrite)" with a "Backward compatibility" subsection explicitly enumerating what stays callable.
 
-### 1. ActivityFeed (new)
+### 1. ActivityFeed (new) — **IMPLEMENTED (Phase A.11)**
 
-**Figma node:** TBD (DS file → "Activity Feed" or similar).
+**Figma source:** DS Open Mercato `Activity Feed` page (`164611:26451`) — `Activity Feed [1.1]` (`166035:46833`, 5 entry variants: plain, file attachments, comment, avatar stack, task-status pills); `Activity Feed File Items [1.1]` (`165967:4028`); `Activity Feed Comment Items [1.1]` (`166017:612`); `Activity Feed Task Status Items [1.1]` (`166035:47290`, 4 statuses: success / warning / info / error); assembled example `166707:8700`.
 
-**Purpose:** Chronological list of actions/events scoped to an entity (deal, person, order). Distinct from `Notification` (toast) and the planned `NotificationFeed` (inbox panel). Used in detail-page "Activity" / "Timeline" tabs.
+**Purpose:** Chronological list of actor-actions scoped to an entity (deal, person, order, audit log). Distinct from `Notification` (toast) and the planned `NotificationFeed` (inbox panel). Used in detail-page "Activity" / "Timeline" tabs, audit logs, customer-interaction feeds.
 
-**API:**
+**Final API (as shipped — compound, opted for inline composability over a data-driven `items={[]}` prop because Figma title sentences mix bold actor names with muted verbs + inline chips that JSON shapes would fight):**
 
 ```tsx
-<ActivityFeed
-  items={items}
-  groupBy?: 'day' | 'week' | 'none'    // default 'day'
-  renderItem?: (item) => ReactNode      // custom renderer override
-  emptyState?: ReactNode                // defaults to <EmptyState>
-  isLoading?: boolean                   // defaults to false; renders <Skeleton> rows
-/>
+<ActivityFeed>
+  <ActivityFeedItem
+    avatar={<Avatar label="Wei Chen" size="sm" />}
+    title={
+      <>
+        Wei Chen <span className="text-muted-foreground font-normal">uploaded</span>{' '}
+        <strong>Q2 financial report</strong>
+      </>
+    }
+    timestamp="4 min ago"
+    actions={<IconButton variant="ghost" size="sm" aria-label="More"><MoreHorizontal /></IconButton>}
+  >
+    <ActivityFeedFileChip name="apex-report.pdf" size="4mb" onDownload={...} />
+  </ActivityFeedItem>
+
+  <ActivityFeedItem
+    avatar={<Avatar label="Laura Perez" size="sm" />}
+    title={<>Laura Perez <span className="text-muted-foreground font-normal">requested changes</span> <ActivityFeedStatusChip status="error">Needs revision</ActivityFeedStatusChip></>}
+    timestamp="6 days ago"
+  >
+    <ActivityFeedComment onReply={...}>
+      Please revise the risk metrics and review portfolio allocations.
+    </ActivityFeedComment>
+  </ActivityFeedItem>
+</ActivityFeed>
 ```
 
-Each `ActivityFeedItem` carries: `id`, `timestamp`, `actor` (optional `Avatar` source), `verb` (translated), `target` (optional badge / link), `details` (optional ReactNode), `icon` (optional, falls back to a default per `verb`).
+**Compound surface:** `ActivityFeed` (root `<ol>` list, `flex flex-col gap-3`) / `ActivityFeedItem` (avatar + ReactNode title + muted timestamp suffix + actions + optional indented children) / `ActivityFeedFileChip` (paperclip + filename + size + optional download button) / `ActivityFeedComment` (speech-bubble icon + body + optional `Reply` link) / `ActivityFeedStatusChip` (status pill — `success`/`warning`/`info`/`error`/`neutral`, icon-tinted per status token, chip surface stays neutral matching Figma `Task Status Items [1.1]`).
 
-**Anti-patterns this replaces:** Ad-hoc `<div>`-based activity lists in `customers/components/detail/ActivityTimeline.tsx` and similar. Migration of those consumers is **out of scope for this PR** (per Concerns) — they migrate in a follow-up.
+**Implementation notes:**
+- Title is a ReactNode rather than `{ actor, verb, target }` — Figma sentences interleave bold + muted + inline chips ("Lena Muller added document 📎 financial-report.pdf, 3 days ago"); a structured shape would either drop chips or force escape hatches. The compound approach also lets consumers translate verbs in their own i18n layer without re-wrapping the primitive.
+- Timestamp slot renders as a `text-muted-foreground` suffix on the title row. No separator glyph (the wrapping `gap-x-2` provides the visual separation). Consumers pass plain strings (e.g. `"4 min ago"`) and use `formatRelativeTime()` to render.
+- Status chip icon colors come from `--status-{success,warning,info,error}-icon` tokens; chip surface stays neutral (matches Figma — visual weight sits with the icon, not the surface).
+- The primitive does NOT render the "Activity" page heading or the dotted divider visible in Figma's assembled example — those are page-chrome decisions. Consumers wrap with their own `<h2>` + `<Separator />`.
+- The primitive does NOT include a comment composer (Figma example shows a textarea below the feed — out of scope for this primitive; reuse `Textarea` + `Button`).
+- No grouping (`groupBy: 'day' | 'week'`), no `isLoading` skeletons, no `items={[]}` data-driven shape. The original spec called for those — the compound API obsoletes them. Grouping is a content concern (consumers render a `<h3>` between groups); loading skeletons reuse the existing `Skeleton` primitive.
 
-**Tests:** Smoke test asserts grouping logic, empty state, loading state, custom `renderItem`.
+**Anti-patterns this replaces:** Ad-hoc `<div>`-based activity lists in `customers/components/detail/ActivityTimeline.tsx`, `customers/components/detail/ChangelogList.tsx`, sales-document audit panels. Migration of those consumers is **out of scope for this PR** (per Concerns) — they migrate in a follow-up.
+
+**Tests (12 smoke tests, all passing):** root `<ol>` + data-slot marker; title + muted timestamp suffix without any separator glyph; timestamp slot omitted when absent; avatar + actions slots render; indented content block renders for children; content block omitted when no children; FileChip download button gated on `onDownload` + click handler fires; Comment Reply button gated on `onReply` + click handler fires; StatusChip renders the correct `data-status` + tone class per status; StatusChip defaults to `neutral`; className forwarded on all 5 compound slots; inline-status pattern (StatusChip nested inside the title ReactNode) renders correctly.
 
 ---
 
@@ -645,7 +671,7 @@ Order chosen so primitives with lower dependency are first; primitives that depe
 8. `feat(ds): add Pagination primitive` (standalone — DataTable migration deferred)
 9. `feat(ds): add Drawer primitive` (uses ScrollArea) — **DONE (A.9)** + `fix(ds): align Drawer with canonical Figma source (rounded inner edges, leading icon badge, footer layout/leading slots)` — **DONE (A.9-fixup)**
 10. `feat(ds): add CommandMenu primitive` (built on `cmdk` + `@radix-ui/react-dialog`; both promoted from transitive to direct deps) — **DONE (A.10)**
-11. `feat(ds): add ActivityFeed primitive` (uses Avatar + EmptyState + Skeleton)
+11. `feat(ds): add ActivityFeed primitive` (uses Avatar; compound API instead of data-driven `items={[]}`; defers EmptyState/Skeleton to consumers) — **DONE (A.11)**
 12. `feat(ds): add NotificationFeed primitive`
 
 Each commit includes: primitive file, unit test file, `.ai/ui-components.md` section, `packages/ui/AGENTS.md` quick-ref row, i18n keys (if any).
@@ -845,3 +871,4 @@ To be filled in after all phases land and before opening the PR. Sections:
 | 2026-05-13 | DRAFT | Initial spec. Awaiting user approval before commit 1. Scope: 12 new primitives + 8 rewrites + Table polish + FilterBar polish. 25-commit Implementation Plan. Per-primitive Figma node IDs marked `TBD` (resolved during each primitive's commit). |
 | 2026-05-17 | FIXUP — A.9 Drawer | Realigned Drawer to canonical Figma source (`486:7366` — user-pointed). Panel: `rounded-l-2xl` (and per-side counterparts) + `shadow-2xl`, removed `border-l/r/t/b` from the seam. Header: removed `border-b`, added optional `leading` icon badge slot (`size-10 rounded-full border`) matching `Drawer Header [1.1]` variants 2 + 4. Footer: removed `border-t`, added `layout` variant (`default` / `equal` 50/50 stretched) + optional `leading` slot (checkbox / switch / link / step dots) matching `Drawer Footer [1.1]` variants 1–6. R4 risk note updated with the lesson: always list `figma.root.children` before declaring a primitive has no Figma source. Drawer tests grew from 12 → 17 (5 new cases for leading badge, default no-border, default footer layout, equal layout, footer leading slot). |
 | 2026-05-17 | IN PROGRESS — Phase A 10/12 | Shipped A.10 CommandMenu. Compound API (`CommandMenu` + `Trigger` + `Content` + `Input` + `List` + `Empty` + `Group` + `Item` + `Separator` + `Footer`) built on `cmdk` + `@radix-ui/react-dialog`; both deps promoted from transitive to direct in `packages/ui/package.json`. 12 smoke tests added. R5 (cmdk new direct dep) resolved. |
+| 2026-05-17 | IN PROGRESS — Phase A 11/12 | Shipped A.11 ActivityFeed. Compound API (`ActivityFeed` + `ActivityFeedItem` + `ActivityFeedFileChip` + `ActivityFeedComment` + `ActivityFeedStatusChip`) instead of the originally-spec'd data-driven `items={[]}` shape — title is a ReactNode so Figma sentences (bold actor + muted verb + inline status chip) compose naturally. 12 smoke tests added. Remaining: A.12 NotificationFeed, then Phase B (8 rewrites) + Phase C polish. |

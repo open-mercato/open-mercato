@@ -54,6 +54,7 @@ Detailed variant tables, size matrices, props, examples, and MUST rules for ever
 - [Pagination](#pagination)
 - [Drawer](#drawer)
 - [CommandMenu](#commandmenu)
+- [ActivityFeed](#activityfeed)
 - [Specialized Inputs (overview)](#specialized-inputs-overview)
 - [ComboboxInput](#comboboxinput)
 - [TagsInput (backend)](#tagsinput-backend)
@@ -4248,6 +4249,127 @@ The slot is a `size-6` flex box that centers the leading content — pass any el
 - Description renders below the label in `text-xs text-muted-foreground`. Both label + description are `truncate`-ed.
 - Footer hints render `↑ ↓ Navigate / ↵ Select` Kbd row by default. Override via `hints` prop. `helpSlot` is right-aligned and suitable for a "Contact" link.
 - Test pattern: jsdom does not implement `Element.scrollIntoView` (used by `cmdk` on selection change). Add `Element.prototype.scrollIntoView = () => {}` once at the top of the test file.
+
+---
+
+## ActivityFeed
+
+Chronological actor-action timeline — one entry per user action with optional inline objects (file chip, status chip) or indented attachment rows (file chip list, comment card, status pill row). Use for detail-pane "Activity" sections, audit trails, customer-interaction logs.
+
+### Import
+
+```typescript
+import {
+  ActivityFeed,
+  ActivityFeedItem,
+  ActivityFeedFileChip,
+  ActivityFeedComment,
+  ActivityFeedStatusChip,
+} from '@open-mercato/ui/primitives/activity-feed'
+```
+
+### Compound API
+
+| Slot | Role |
+|---|---|
+| `ActivityFeed` | Root `<ol>` list. `flex flex-col gap-3` so entries stack with a comfortable vertical rhythm. |
+| `ActivityFeedItem` | Single entry. Slots: `avatar` (left, `size-7` recommended), `title` (ReactNode — actor + verb + inline object), `timestamp` (rendered as muted suffix text, no separator glyph), `actions` (right slot for kebab IconButton), and `children` (indented attachment / comment / status row below the title). |
+| `ActivityFeedFileChip` | Paperclip + filename + size + optional download button. Used either inline in the title or in the indented attachment row. |
+| `ActivityFeedComment` | Comment card with leading speech-bubble icon + body + optional `onReply` link. Renders as a child of `ActivityFeedItem` (indented attachment style). |
+| `ActivityFeedStatusChip` | Semantic status pill (`success` / `warning` / `info` / `error` / `neutral`). Icon color comes from the status token; chip surface stays neutral so the icon carries the visual weight (matches Figma `Task Status Items [1.1]`). |
+
+### Usage — inline status pattern
+
+```tsx
+<ActivityFeed>
+  <ActivityFeedItem
+    avatar={<Avatar label="Juma Omondi" size="sm" />}
+    title={
+      <>
+        Juma Omondi{' '}
+        <span className="text-muted-foreground font-normal">submitted for audit review</span>{' '}
+        <ActivityFeedStatusChip status="info">Pending review</ActivityFeedStatusChip>
+      </>
+    }
+    timestamp="5 days ago"
+    actions={
+      <IconButton variant="ghost" size="sm" aria-label="More">
+        <MoreHorizontal />
+      </IconButton>
+    }
+  />
+</ActivityFeed>
+```
+
+### Usage — indented attachment pattern
+
+```tsx
+<ActivityFeed>
+  <ActivityFeedItem
+    avatar={<Avatar label="Wei Chen" size="sm" />}
+    title={
+      <>
+        Wei Chen{' '}
+        <span className="text-muted-foreground font-normal">uploaded</span>{' '}
+        <strong>Q2 financial report</strong>
+      </>
+    }
+    timestamp="4 min ago"
+    actions={
+      <IconButton variant="ghost" size="sm" aria-label="More"><MoreHorizontal /></IconButton>
+    }
+  >
+    <ActivityFeedFileChip name="apex-report.pdf" size="4mb" onDownload={() => download('apex-report.pdf')} />
+    <ActivityFeedFileChip name="appendix.pdf" size="2mb" onDownload={() => download('appendix.pdf')} />
+  </ActivityFeedItem>
+
+  <ActivityFeedItem
+    avatar={<Avatar label="Laura Perez" size="sm" />}
+    title={
+      <>
+        Laura Perez{' '}
+        <span className="text-muted-foreground font-normal">requested changes</span>{' '}
+        <ActivityFeedStatusChip status="error">Needs revision</ActivityFeedStatusChip>
+      </>
+    }
+    timestamp="6 days ago"
+  >
+    <ActivityFeedComment onReply={() => openReplyComposer(commentId)}>
+      Please revise the risk metrics and review portfolio allocations.
+    </ActivityFeedComment>
+  </ActivityFeedItem>
+</ActivityFeed>
+```
+
+### `ActivityFeedStatusChip` — status tokens
+
+| `status` | Icon | Tone |
+|---|---|---|
+| `success` | `CheckCircle2` | `text-status-success-icon` |
+| `warning` | `AlertTriangle` | `text-status-warning-icon` |
+| `info` (default in DS task pills) | `Clock` | `text-status-info-icon` |
+| `error` | `XCircle` | `text-status-error-icon` |
+| `neutral` (default) | `Clock` | `text-muted-foreground` |
+
+Pass a custom `icon` slot to override the auto status icon (e.g. a brand mark for "approved by integration X" entries).
+
+### MUST rules
+
+- NEVER hand-roll a `<ul>` + `<li>` + avatar + timestamp layout for activity logs — use `ActivityFeed`/`ActivityFeedItem`. Every detail page used to roll its own and they all drifted on padding, timestamp formatting, kebab button size.
+- `title` is a `ReactNode`, not a plain string — that is intentional. Mix bold actor names with `<span className="text-muted-foreground font-normal">verb</span>` and inline chips (`ActivityFeedFileChip` / `ActivityFeedStatusChip`) to match Figma's "Lena Muller added document 📎 financial-report.pdf, 3 days ago" pattern.
+- Place `<MoreHorizontal>` inside `<IconButton variant="ghost" size="sm" aria-label="More">` for the `actions` slot. Mixing `default`/`icon` `IconButton` sizes inside the timeline breaks vertical alignment (root AGENTS.md size-row rule).
+- Format `timestamp` with the project's existing `formatRelativeTime()` helper — don't recompute relative-time strings inline.
+- Use `Avatar size="sm"` (28px) for entry avatars. Larger sizes break the title baseline alignment.
+- For "X and Y others did Z" style aggregation, render a single `ActivityFeedItem` with an inline `AvatarStack` in the title slot — don't render N separate items.
+- For activity logs that need pagination, wrap the list in a parent `<div>` and render `Pagination` after `</ActivityFeed>`. The primitive itself is bare list markup.
+
+### Notes
+
+- Figma source: DS Open Mercato `Activity Feed` page (`164611:26451`) — `Activity Feed [1.1]` (`166035:46833`, 5 entry variants), `Activity Feed File Items [1.1]` (`165967:4028`), `Activity Feed Comment Items [1.1]` (`166017:612`), `Activity Feed Task Status Items [1.1]` (`166035:47290`). Assembled example: `166707:8700` (audit-trail style).
+- The primitive does NOT render the surrounding "Activity" title or the horizontal separator from the Figma assembled example — those are page-chrome decisions. Consumers wrap `<ActivityFeed>` with their own `<h2>` + `<Separator />` where needed.
+- The primitive does NOT include a built-in comment composer. The composer is a separate concern — use `Textarea` + `Button` (or a dedicated comment component once one ships).
+- File / Comment / Status chips are intentionally compact — they fit either inline in the title row OR in the indented row below. The same chip primitive serves both contexts.
+- The Item's `children` slot wraps in `flex-wrap gap-2` so multiple chips (file + file, status + status, ...) line-break naturally on narrow viewports.
 
 ---
 
