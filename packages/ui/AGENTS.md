@@ -86,6 +86,7 @@ When you need… use this. Details (variants, sizes, props, MUST rules) live in 
 | Multi-step progress (wizard / onboarding / checkout) | `StepIndicator` (steps[] with `status` per step) | `@open-mercato/ui/primitives/step-indicator` |
 | Color selection (tag color, brand color, category) | `ColorPicker` (swatch popover + optional hex input) | `@open-mercato/ui/primitives/color-picker` |
 | Page navigation for lists outside DataTable | `Pagination` (1-indexed, `total` not `totalPages`) | `@open-mercato/ui/primitives/pagination` |
+| Side sheet / non-blocking overlay (detail pane, secondary form) | `Drawer` (with `DrawerContent` / `DrawerHeader` / `DrawerBody` / `DrawerFooter` / `DrawerClose`) | `@open-mercato/ui/primitives/drawer` |
 | Wrap a `<Link>` as button | `Button asChild` / `IconButton asChild` | — |
 
 ## Critical Primitive Rules

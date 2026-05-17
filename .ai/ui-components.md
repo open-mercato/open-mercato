@@ -52,6 +52,7 @@ Detailed variant tables, size matrices, props, examples, and MUST rules for ever
 - [StepIndicator](#stepindicator)
 - [ColorPicker](#colorpicker)
 - [Pagination](#pagination)
+- [Drawer](#drawer)
 - [Specialized Inputs (overview)](#specialized-inputs-overview)
 - [ComboboxInput](#comboboxinput)
 - [TagsInput (backend)](#tagsinput-backend)
@@ -3949,6 +3950,134 @@ const [pageSize, setPageSize] = React.useState(25)
 - Built without Radix — single component with semantic `<nav>` + `<ol>` markup. ARIA: `nav[aria-label]` landmark, `button[aria-current="page"]` on the current page cell, `aria-label="First/Previous/Next/Last page"` on the nav buttons.
 - The page-size select uses the existing `CompactSelect` + `CompactSelectTrigger` primitives (size `xs`, h-7) — matches Figma's right-aligned "X / page" dropdown.
 - DataTable currently keeps its internal pager — migrating DataTable to use `Pagination` is a follow-up tracked in `.ai/specs/2026-05-13-ds-foundation-v5.md` § Out of scope. Use `Pagination` directly for any list outside DataTable.
+
+---
+
+## Drawer
+
+Side-sheet that slides in from `right` (default), `left`, `top`, or `bottom`. Built on `@radix-ui/react-dialog` so we inherit Dialog's full ARIA contract (`role="dialog"`, `aria-modal`, focus trap, `Escape` to close, outside-click dismiss) for free.
+
+```typescript
+import {
+  Drawer,
+  DrawerTrigger,
+  DrawerContent,
+  DrawerHeader,
+  DrawerTitle,
+  DrawerDescription,
+  DrawerBody,
+  DrawerFooter,
+  DrawerClose,
+} from '@open-mercato/ui/primitives/drawer'
+```
+
+### Drawer vs Dialog
+
+| | `Drawer` | `Dialog` |
+|---|---|---|
+| Feel | Contextual / non-blocking | Modal / focused |
+| Position | Slides from a viewport edge | Centered |
+| Use for | Detail panes, secondary forms, mobile menus, "more details" | Confirmations, critical forms, full-content workflows |
+| Animation | Slide in/out from a side | Fade + scale |
+
+Both share the underlying Radix Dialog, the same `Cmd/Ctrl+Enter` submit + `Escape` cancel keyboard contract, and the same focus-trap semantics. Pick `Drawer` when the user should still see the page chrome behind them.
+
+### Compound API
+
+```tsx
+<Drawer open={open} onOpenChange={setOpen} side="right">
+  <DrawerTrigger asChild>
+    <Button>Edit</Button>
+  </DrawerTrigger>
+  <DrawerContent>                       {/* default side="right" */}
+    <DrawerHeader>
+      <DrawerTitle>Edit person</DrawerTitle>
+      <DrawerDescription>Update the contact info.</DrawerDescription>
+    </DrawerHeader>
+    <DrawerBody>
+      {/* scrollable content */}
+    </DrawerBody>
+    <DrawerFooter>
+      <DrawerClose asChild>
+        <Button variant="ghost">Cancel</Button>
+      </DrawerClose>
+      <Button>Save</Button>
+    </DrawerFooter>
+  </DrawerContent>
+</Drawer>
+```
+
+### Sides
+
+| `side` | Slot | Default size | Use case |
+|---|---|---|---|
+| `right` (default) | `inset-y-0 right-0` | `w-full max-w-md` (~420px) | Detail panes, edit forms — the most common case |
+| `left` | `inset-y-0 left-0` | `w-full max-w-md` | Navigation drawers, mobile menus |
+| `top` | `inset-x-0 top-0` | `max-h-[80vh]` | Notification banners, quick filters |
+| `bottom` | `inset-x-0 bottom-0` | `max-h-[80vh]` | Mobile action sheets, command palette |
+
+### Compound slots
+
+| Slot | Purpose | Notes |
+|---|---|---|
+| `DrawerTrigger` | Opens the drawer. Use `asChild` to wrap any clickable. | Radix passthrough |
+| `DrawerContent` | The panel itself. Accepts `side`, `hideCloseButton`, `closeAriaLabel`. | Auto-renders the top-right close button unless `hideCloseButton` is set |
+| `DrawerHeader` | Title + Description row. Has bottom border. | Right-padded (`pr-12`) so the close button doesn't overlap the title |
+| `DrawerBody` | The body. `overflow-y-auto` + `flex-1` so it fills free space and scrolls if content exceeds height. | |
+| `DrawerFooter` | Action row at the bottom. Has top border, right-aligned. | Place primary action LAST per platform convention |
+| `DrawerTitle` | Wraps Radix's Title for ARIA. | Required for `aria-labelledby` wiring |
+| `DrawerDescription` | Wraps Radix's Description for ARIA. | Required for `aria-describedby` wiring |
+| `DrawerClose` | Dismiss button. Use `asChild` to wrap any clickable. | Radix passthrough |
+
+### MUST rules
+
+1. **Every Drawer MUST include `DrawerTitle`** even when visually hidden — Radix uses it for `aria-labelledby`. Wrap with `sr-only` if you need to hide it.
+2. **`Cmd/Ctrl+Enter` + `Escape` keyboard contract** — Drawer inherits these from Radix Dialog. Don't intercept them on form children without forwarding.
+3. **Place primary action LAST in `DrawerFooter`** — matches platform convention (Save on right, Cancel on left).
+4. **NEVER nest Drawer inside Dialog** (or vice versa). Both compete for focus trap and overlay z-index, leading to broken keyboard nav.
+5. **For long forms in DrawerBody, use `CrudForm`** — it handles validation + scroll behavior + `Cmd+Enter` submit. Don't hand-roll `<form>` markup inside `DrawerBody`.
+
+### Anti-patterns
+
+```tsx
+// WRONG — no DrawerTitle = broken aria-labelledby
+<Drawer open={open} onOpenChange={setOpen}>
+  <DrawerContent>
+    <DrawerBody>{children}</DrawerBody>
+  </DrawerContent>
+</Drawer>
+
+// CORRECT — visually hidden Title for accessibility
+<Drawer open={open} onOpenChange={setOpen}>
+  <DrawerContent>
+    <DrawerHeader>
+      <DrawerTitle className="sr-only">Edit details</DrawerTitle>
+    </DrawerHeader>
+    <DrawerBody>{children}</DrawerBody>
+  </DrawerContent>
+</Drawer>
+
+// WRONG — primary action on the left of the footer
+<DrawerFooter>
+  <Button>Save</Button>
+  <DrawerClose asChild><Button variant="ghost">Cancel</Button></DrawerClose>
+</DrawerFooter>
+
+// CORRECT — primary action LAST
+<DrawerFooter>
+  <DrawerClose asChild><Button variant="ghost">Cancel</Button></DrawerClose>
+  <Button>Save</Button>
+</DrawerFooter>
+```
+
+### Notes
+
+- No dedicated Figma node in the DS Open Mercato library (R4 in v5 spec — `Modal Overlay [1.1]` covers the overlay, but no side variants ship). Styling inferred from DS tokens.
+- Built on `@radix-ui/react-dialog` (already installed via the `Dialog` primitive — no new dep).
+- Overlay: `bg-foreground/40 backdrop-blur-sm` — same overlay treatment as Dialog, lets the user feel the page is still "there" while focusing on the drawer.
+- Content panel: `bg-background shadow-lg` + 1px border on the panel-facing edge (border-l for right, border-r for left, etc.). The page-facing edge stays flush against the viewport — no border, no rounded corners (matches OS-native drawer feel).
+- Default `max-w-md` (~420px) for right/left works well for forms; pass `className="max-w-2xl"` for wider detail panes.
+- Auto-rendered top-right close button (`X` icon, `size-8`, muted-foreground). Use `hideCloseButton` when the body provides its own dismissal (e.g. a Save/Cancel footer alone).
 
 ---
 

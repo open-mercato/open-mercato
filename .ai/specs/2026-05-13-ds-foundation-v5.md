@@ -209,7 +209,7 @@ Built on `cmdk` (confirm as direct dep or transitive). Fuzzy search, keyboard na
 
 ### 5. Drawer (new)
 
-**Figma node:** TBD.
+**Figma node:** No dedicated node in the DS Open Mercato library (audited via `search_design_system` — only `Modal Overlay [1.1]` covers the overlay surface; no side-positioned variants ship). Styling inferred from DS tokens per R4 in the v5 spec.
 
 **Purpose:** Side sheet — slides in from `right` (default), `left`, `top`, or `bottom`. Used for detail panes, secondary forms, mobile menus. Distinct from `Dialog` — `Drawer` is *contextual / non-blocking-feeling*, `Dialog` is *modal / focused*.
 
