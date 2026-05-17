@@ -59,7 +59,11 @@ test.describe('TC-CRM-013: Pipeline View Navigation', () => {
       // click handler (no anchor element). Click the article role to navigate.
       const dealCard = page.getByRole('article', { name: `Deal: ${dealTitle}` });
       await expect(dealCard).toBeVisible();
-      await expect(page.getByText('$', { exact: false }).first()).toBeVisible();
+      // SPEC-048: DealCard.tsx renders value as decimal-formatted amount + separate
+      // currency-code span (e.g. "5,000  USD") — no '$' glyph appears on the kanban card.
+      // Scope to the deal card so we don't accidentally match a currency code elsewhere
+      // on the page (e.g. lane-total breakdown).
+      await expect(dealCard.getByText('USD', { exact: true })).toBeVisible();
 
       await dealCard.click();
       await expect(page).toHaveURL(new RegExp(`/backend/customers/deals/${dealId}$`));
