@@ -43,6 +43,7 @@ When you need shared type definitions, import from these:
 | Search config types (`SearchModuleConfig`) | `@open-mercato/shared/modules/search` |
 | Module setup types (`ModuleSetupConfig`) | `@open-mercato/shared/modules/setup` |
 | Module registry types (`Module`) | `@open-mercato/shared/modules/registry` |
+| Module-level overrides (`ModuleOverrides`, dispatcher, per-domain compose helpers) | `@open-mercato/shared/modules/overrides` |
 
 ## Key Patterns
 
@@ -93,6 +94,25 @@ import { hasFeature, hasAllFeatures } from '@open-mercato/shared/security/featur
 
 - Use `parseIdsParam()` and `mergeIdFilter()` from `@open-mercato/shared/lib/crud/ids` for factory-level `ids` query support.
 - Keep `ids` format as comma-separated UUIDs (`?ids=uuid1,uuid2`) and intersect with existing `id` filters.
+
+### Module-Level Overrides (`@open-mercato/shared/modules/overrides`)
+
+Downstream apps replace or disable any contract a module presents through a single `entry.overrides` field on a `ModuleEntry`. The umbrella spec is `.ai/specs/2026-05-04-modules-ts-unified-overrides.md`; AI (Phase 1) and Routes — API (Phase 2) are wired.
+
+| Use case | Helper |
+|----------|--------|
+| Walk `enabledModules` and dispatch every `overrides.<domain>` shape to wired appliers | `applyModuleOverridesFromEnabledModules(enabledModules)` |
+| Register a per-domain runtime hook (used by each wired phase) | `registerModuleOverrideApplier('<domain>', applier)` |
+| **Phase 2** — apply API-route overrides programmatically | `applyApiRouteOverrides({ 'GET /api/path': null \| { handler, metadata? } })` |
+| **Phase 2** — compose the final API-route override map across tiers | `composeApiRouteOverrides()` |
+| **Phase 2** — rewrite a manifest list with the resolved override map | `applyApiOverridesToManifests(routes, overrides)` |
+
+MUST rules:
+- `entry.overrides` is the ONLY canonical override surface — never patch upstream module source.
+- API-route override keys are `'METHOD /api/path'` (method case-insensitive, path leading slash optional). Trailing slashes are stripped.
+- `null` disables the matching method; `{ handler, metadata? }` replaces it. Disabling every method on an entry drops the entry.
+- The dispatcher SHOULD run from `bootstrap.ts` BEFORE any registry first-loads (`registerApiRouteManifests` etc.) so the overrides take effect when the manifest is stored.
+- Adding a new domain applier MUST follow the per-phase contract in the umbrella spec: composer + runtime hook + tests + AGENTS.md update + status-table tick.
 
 ### Query Engine Extensibility (UMES)
 

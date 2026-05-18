@@ -1,8 +1,9 @@
 # SPEC — Unified `modules.ts` Overrides
 
-**Status:** in progress (Phase 1 wired, Phases 2–18 stubbed)
+**Status:** in progress (Phases 1–2 wired, Phases 3–18 stubbed)
 **Owner:** core / shared / ai-assistant
 **Date:** 2026-05-04
+**Last revised:** 2026-05-18
 **Tracking issue:** [open-mercato/open-mercato#1787](https://github.com/open-mercato/open-mercato/issues/1787)
 
 ## Problem
@@ -136,8 +137,8 @@ Each phase is a focused PR that:
 
 | # | Phase | Domain | Stable ids | Wired? |
 |---|-------|--------|------------|--------|
-| 1 | AI overrides | `ai.agents`, `ai.tools` | agent id / tool name | **YES (this branch)** |
-| 2 | Routes — API | `routes.api` | `'METHOD /api/path'` | NO |
+| 1 | AI overrides | `ai.agents`, `ai.tools` | agent id / tool name | **YES** |
+| 2 | Routes — API | `routes.api` | `'METHOD /api/path'` | **YES** |
 | 3 | Routes — Pages | `routes.pages` | `'/backend/...'` / `'/frontend/...'` | NO |
 | 4 | Events — Subscribers | `events.subscribers` | subscriber id | NO |
 | 5 | Workers | `workers` | worker id (`<module>:<id>`) | NO |
@@ -243,3 +244,4 @@ Every phase is purely additive. Modules without `entry.overrides` are unaffected
 ## Changelog
 
 - **2026-05-04 — initial draft.** Phased umbrella spec. Phase 1 (AI) wired in this branch; Phases 2–18 stubbed and tracked on the GitHub issue (link in the issue body).
+- **2026-05-18 — Phase 2 wired (`overrides.routes.api`).** The shared package's umbrella dispatcher now routes `entry.overrides.routes.api` to a per-domain applier that composes a `'METHOD /api/path'` → override map. `registerApiRouteManifests` consults the composed map at registration time and rewrites the stored manifest: a `null` override drops the matching method (or the whole entry when every method is disabled), and a `{ handler, metadata? }` override wraps the manifest's `load()` so the override handler ships at `module[METHOD]` and override metadata replaces the matching per-method metadata. Resolution order today is **programmatic (`applyApiRouteOverrides`) → `modules.ts` inline → base**. The file-based tier is intentionally out of scope for Phase 2 — modules that want to override another module's API route do so through `modules.ts` or programmatically. The applier also emits a one-shot sub-domain warning when `overrides.routes.pages` is set, since Phase 3 is still stubbed. Tests live at `packages/shared/src/modules/__tests__/route-overrides.test.ts`. The existing "unwired domain" assertion in `overrides.test.ts` was retargeted to `widgets` since `routes` is now wired.

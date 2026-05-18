@@ -4,6 +4,7 @@ import type { SyncCrudEventResult } from '../lib/crud/sync-event-types'
 import type { DashboardWidgetModule } from './dashboard/widgets'
 import type { InjectionAnyWidgetModule, ModuleInjectionTable } from './widgets/injection'
 import type { IntegrationBundle, IntegrationDefinition } from './integrations/types'
+import { applyApiOverridesToManifests, composeApiRouteOverrides } from './overrides'
 
 // Context passed to dynamic metadata guards
 export type RouteVisibilityContext = { path?: string; auth?: any }
@@ -416,7 +417,15 @@ export function getFrontendRouteManifests(): FrontendRouteManifestEntry[] {
 let _apiRouteManifests: ApiRouteManifestEntry[] | null = null
 
 export function registerApiRouteManifests(routes: ApiRouteManifestEntry[]) {
-  _apiRouteManifests = sortRoutesBySpecificity(routes)
+  // Apply any `entry.overrides.routes.api` overrides registered through the
+  // unified `modules.ts` dispatcher or programmatic API before storing the
+  // manifest. The composer is cheap and returns an empty object when no
+  // overrides exist, so this is a no-op for apps that do not opt in.
+  const routeOverrides = composeApiRouteOverrides()
+  const finalRoutes = Object.keys(routeOverrides).length === 0
+    ? routes
+    : applyApiOverridesToManifests(routes, routeOverrides)
+  _apiRouteManifests = sortRoutesBySpecificity(finalRoutes)
 }
 
 export function getApiRouteManifests(): ApiRouteManifestEntry[] {

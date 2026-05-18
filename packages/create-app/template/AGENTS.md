@@ -248,7 +248,7 @@ export const aiAgentOverrides: AiAgentOverridesMap = {
 }
 ```
 
-Example `modules.ts` inline override (preferred for app-level decisions that don't deserve a fake module). AI lives at `overrides.ai.*`; other domains (routes, events, workers, widgets, …) reuse the same `entry.overrides` umbrella per the [unified spec](https://github.com/open-mercato/open-mercato/blob/main/.ai/specs/2026-05-04-modules-ts-unified-overrides.md) — AI is Phase 1, other domains roll out as separate PRs:
+Example `modules.ts` inline override (preferred for app-level decisions that don't deserve a fake module). AI lives at `overrides.ai.*` and API routes at `overrides.routes.api`; other domains (events, workers, widgets, …) reuse the same `entry.overrides` umbrella per the [unified spec](https://github.com/open-mercato/open-mercato/blob/main/.ai/specs/2026-05-04-modules-ts-unified-overrides.md) — AI (Phase 1) and Routes — API (Phase 2) are wired today, other domains roll out as separate PRs:
 
 ```ts
 // src/modules.ts
@@ -289,6 +289,52 @@ yarn mercato configs cache structural --all-tenants
 ```
 
 Refer to the `create-ai-agent` skill (`.ai/skills/create-ai-agent/SKILL.md`) and the public docs at `framework/ai-assistant/overrides` for the full contract, MUST rules, and the resolution order.
+
+### Overriding an upstream module's API route (Phase 2)
+
+The same `entry.overrides` surface that disables/replaces AI agents also wires API routes. Use it when you want to replace a handler shipped by an upstream module (or disable an endpoint entirely) without forking the source.
+
+```ts
+// src/modules.ts — disable + replace upstream API routes
+{
+  id: 'example',
+  from: '@app',
+  overrides: {
+    routes: {
+      api: {
+        // disable
+        'DELETE /api/example/items': null,
+        // replace
+        'POST /api/example/items': {
+          handler: async (req) => new Response(JSON.stringify({ ok: true }), { status: 200 }),
+          metadata: { requireAuth: true, requireFeatures: ['example.manage'] },
+        },
+      },
+    },
+  },
+},
+```
+
+Programmatic equivalent (boot-time, env-driven, or test scaffold):
+
+```ts
+// src/bootstrap.ts (extra)
+import { applyApiRouteOverrides } from '@open-mercato/shared/modules/overrides'
+
+applyApiRouteOverrides({
+  'GET /api/example/items': null,
+})
+```
+
+Key rules:
+
+- Keys are `'METHOD /api/path'`; method is normalized, path leading slash optional, trailing slashes stripped.
+- `null` disables the matching method on the route; the entry is dropped entirely when every method is disabled.
+- `{ handler, metadata? }` replaces the handler (and optionally the per-method metadata).
+- Programmatic > `modules.ts` > base. The dispatcher MUST run before `registerApiRouteManifests` — the template's `bootstrap.ts` already does this.
+- Stale override keys (no matching registered route) log a single warning so operators notice.
+
+Full reference: `framework/modules/routes-and-pages` → "Overriding API Routes from Downstream Apps".
 
 ## Disabling the Dashboards Module: Update /backend
 

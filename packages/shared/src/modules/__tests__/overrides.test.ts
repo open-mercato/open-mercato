@@ -75,25 +75,26 @@ describe('applyModuleOverridesFromEnabledModules', () => {
   it('emits a one-shot structured warning per unwired domain', () => {
     const warnSpy = jest.spyOn(console, 'warn').mockImplementation(() => {})
 
+    // `widgets` is still stubbed (Phases 6/7/8 — see umbrella spec).
     applyModuleOverridesFromEnabledModules([
       {
         id: 'a',
-        overrides: { routes: { api: { 'GET /api/x': null } } },
+        overrides: { widgets: { injection: { 'spot.foo': null } } },
       },
       {
         id: 'b',
-        overrides: { routes: { api: { 'POST /api/y': null } } },
+        overrides: { widgets: { injection: { 'spot.bar': null } } },
       },
     ])
 
     // Same domain hit twice — only one warning per process.
-    const routesCalls = warnSpy.mock.calls.filter((args) =>
-      typeof args[0] === 'string' && args[0].includes('Domain "routes"'),
+    const widgetsCalls = warnSpy.mock.calls.filter((args) =>
+      typeof args[0] === 'string' && args[0].includes('Domain "widgets"'),
     )
-    expect(routesCalls).toHaveLength(1)
-    expect(routesCalls[0][0]).toContain('not yet wired')
-    expect(routesCalls[0][0]).toContain('module(s) [a, b]')
-    expect(routesCalls[0][0]).toContain('issues/1787')
+    expect(widgetsCalls).toHaveLength(1)
+    expect(widgetsCalls[0][0]).toContain('not yet wired')
+    expect(widgetsCalls[0][0]).toContain('module(s) [a, b]')
+    expect(widgetsCalls[0][0]).toContain('issues/1787')
 
     // Different unwired domain — separate one-shot warning.
     applyModuleOverridesFromEnabledModules([
