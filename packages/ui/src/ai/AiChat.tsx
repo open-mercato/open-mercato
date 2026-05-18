@@ -6,8 +6,13 @@ import {
   Check,
   ChevronDown,
   ChevronRight,
+  Circle,
+  CircleAlert,
+  CircleCheck,
+  CircleDashed,
   Copy,
   Lightbulb,
+  ListChecks,
   Loader2,
   Paperclip,
   Plus,
@@ -42,6 +47,7 @@ import {
 } from './ui-part-registry'
 import {
   useAiChat,
+  type AiAgentTaskSnapshot,
   type AiChatMessage,
   type AiChatMessageFile,
   type AiChatMessageUiPart,
@@ -381,6 +387,89 @@ function safeStringify(value: unknown): string {
   }
 }
 
+/**
+ * Visible agent task plan rendered above raw tool-call rows. Phase 1
+ * implementation of spec `.ai/specs/2026-05-13-ai-chat-visible-task-plan.md`:
+ * compact, fixed-height rows with icon + label + status badge so the
+ * panel does not jump while streaming. Source of truth is the
+ * client-local `taskPlan` array on the assistant message.
+ */
+function AiChatTaskPlan({ tasks }: { tasks: AiAgentTaskSnapshot[] }) {
+  const t = useT()
+  if (!tasks || tasks.length === 0) return null
+  return (
+    <div
+      className="rounded-md border border-border bg-muted/30"
+      data-ai-chat-task-plan=""
+      data-ai-chat-task-plan-count={tasks.length}
+    >
+      <div className="flex items-center gap-2 border-b border-border/60 px-2 py-1.5 text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
+        <ListChecks className="size-3.5 text-muted-foreground" aria-hidden />
+        <span>{t('ai_assistant.chat.taskPlanTitle', 'Plan')}</span>
+        <span className="ml-auto font-mono">{tasks.length}</span>
+      </div>
+      <ul className="divide-y divide-border/60" data-ai-chat-task-plan-list="">
+        {tasks.map((task) => (
+          <AiChatTaskRow key={task.id} task={task} />
+        ))}
+      </ul>
+    </div>
+  )
+}
+
+function AiChatTaskRow({ task }: { task: AiAgentTaskSnapshot }) {
+  const t = useT()
+  const statusLabel =
+    task.state === 'running'
+      ? t('ai_assistant.chat.taskRunning', 'running…')
+      : task.state === 'done'
+        ? t('ai_assistant.chat.taskDone', 'done')
+        : task.state === 'failed'
+          ? t('ai_assistant.chat.taskFailed', 'failed')
+          : task.state === 'skipped'
+            ? t('ai_assistant.chat.taskSkipped', 'skipped')
+            : t('ai_assistant.chat.taskPending', 'pending')
+  const Icon =
+    task.state === 'running'
+      ? Loader2
+      : task.state === 'done'
+        ? CircleCheck
+        : task.state === 'failed'
+          ? CircleAlert
+          : task.state === 'skipped'
+            ? CircleDashed
+            : Circle
+  const iconClassName = cn(
+    'size-3.5 shrink-0',
+    task.state === 'running' && 'animate-spin text-muted-foreground',
+    task.state === 'done' && 'text-status-success-icon',
+    task.state === 'failed' && 'text-destructive',
+    task.state === 'skipped' && 'text-muted-foreground',
+    task.state === 'pending' && 'text-muted-foreground',
+  )
+  const statusBadgeClassName = cn(
+    'ml-auto text-[10px] uppercase tracking-wide',
+    task.state === 'done' && 'text-status-success-text',
+    task.state === 'failed' && 'text-destructive',
+    task.state !== 'done' && task.state !== 'failed' && 'text-muted-foreground',
+  )
+  return (
+    <li
+      className="flex h-7 items-center gap-2 px-2 text-xs"
+      data-ai-chat-task-id={task.id}
+      data-ai-chat-task-state={task.state}
+      data-ai-chat-task-source={task.source}
+      data-ai-chat-task-tool-call-id={task.toolCallId}
+    >
+      <Icon className={iconClassName} aria-hidden />
+      <span className="truncate" title={task.detail ?? task.label}>
+        {task.label}
+      </span>
+      <span className={statusBadgeClassName}>{statusLabel}</span>
+    </li>
+  )
+}
+
 function ToolCallList({ toolCalls }: { toolCalls: AiChatToolCallSnapshot[] }) {
   const t = useT()
   const [openId, setOpenId] = React.useState<string | null>(null)
@@ -637,6 +726,9 @@ function MessageRow({
             text={message.reasoning}
             streaming={message.reasoningStreaming === true}
           />
+        ) : null}
+        {isAssistant && message.taskPlan && message.taskPlan.length > 0 ? (
+          <AiChatTaskPlan tasks={message.taskPlan} />
         ) : null}
         {isAssistant && message.toolCalls && message.toolCalls.length > 0 ? (
           <ToolCallList toolCalls={message.toolCalls} />

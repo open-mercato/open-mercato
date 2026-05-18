@@ -231,14 +231,15 @@ Backward compatible:
 
 ## Final Compliance Report
 
-- **Backward compatibility:** PASS for completed companion fixes — dev origins are additive/config-driven, create-app template remains synchronized, and the DataTable footer change is CSS-only. PASS by design for proposed AI task-plan chunks because they are additive and optional.
-- **Security/privacy:** PASS with mitigation — no chain-of-thought display; no persistence. Dev-origin expansion is limited to local/container aliases plus explicit custom origins.
+- **Backward compatibility:** PASS — the new SSE chunks are additive (`data-agent-task-plan`, `data-agent-task-update`) and ignored by older clients. Existing `tool-input-*`, `tool-output-*`, `loop-finish`, `toolCalls`, `uiParts`, and `reasoning` paths are unchanged.
+- **Security/privacy:** PASS — Phase 1 labels are derived from already-emitted tool lifecycle events. No chain-of-thought, no provider reasoning text, no persistence. Phase 2 (agent-authored labels) lands separately and adds sanitization on top.
 - **Tenant isolation:** PASS — no new data access path; labels derive from already-authorized tool calls.
-- **Design system:** PASS for DataTable footer fix; repository-wide DS health report still shows pre-existing findings. PENDING for the future AI task-plan UI.
-- **Tests:** PASS for dev-origin and DataTable companion fixes. PENDING for AI task-plan parser/rendering tests before that feature can merge.
+- **Design system:** PASS — `<AiChatTaskPlan>` uses shared semantic status tokens (`text-status-success-icon`, `text-status-success-text`, `text-destructive`, `text-muted-foreground`) and lucide icons; no hardcoded colors or arbitrary text sizes (the `text-[10px]` status-badge size matches the existing tool-call row precedent).
+- **Tests:** PASS for Phase 1 — `packages/ai-assistant/.../__tests__/task-plan-stream.test.ts` covers label derivation, terminal-state ordering, and SSE injection; `packages/ui/src/ai/__tests__/AiChat.task-plan.test.tsx` covers UI rendering (running / done / failed) and unknown-chunk safety. `yarn test`, `yarn typecheck`, `yarn i18n:check-sync`, and `yarn i18n:check-usage` all pass. `yarn build:packages` passes. `yarn build:app` fails with a pre-existing prerender error in `I18nProvider` (`useMemo` is null) that reproduces on a clean `origin/develop`; tracked separately.
 
 ## Changelog
 
+- 2026-05-18 — **Phase 1 implemented (#1922).** Runtime-derived task plan now streams through `data-agent-task-plan` / `data-agent-task-update` SSE chunks emitted by `injectTaskPlanIntoStream` in `agent-runtime.ts`. Client-side `useAiChat` merges snapshots/updates into a `taskPlan` array on each assistant message, and `<AiChatTaskPlan>` renders the plan above the existing tool-call detail rows in `AiChat.tsx`. Unit tests cover label derivation, ordering safeguards, and renderer states; tool-call detail rows, `LoopTrace`, `reasoning`, and `uiParts` behavior are unchanged. Phases 2 (agent-authored labels) and 3 (docs/playground) remain pending.
 - 2026-05-13 — Added implementation notes for dev-origin allowlist support, Docker/dev-container aliases, and the shared DataTable rows-per-page no-wrap fix.
 - 2026-05-13 — Added verification log for focused app/UI tests, template sync check, and DS health check output.
 - 2026-05-13 — Initial short spec for visible live task plans in AI chat.

@@ -60,6 +60,7 @@ import { composeSystemPromptWithOverride } from './prompt-override-merge'
 import { isKnownMutationPolicy } from './agent-policy'
 import type { AiAgentMutationPolicy } from './ai-agent-definition'
 import { recordTokenUsage } from './token-usage-recorder'
+import { injectTaskPlanIntoStream } from './task-plan-stream'
 
 // Ensure built-in LLM providers are registered. Side-effect import; identical to
 // what `./ai-sdk.ts` consumers already rely on.
@@ -1615,6 +1616,13 @@ export async function runAiAgentText(input: RunAiAgentTextInput): Promise<Respon
     ...(builtToolLoopAgent !== undefined ? { toolLoopAgent: builtToolLoopAgent } : {}),
   }
 
+  // Phase 1 of `2026-05-13-ai-chat-visible-task-plan` — every chat-mode
+  // response stream is wrapped in a task-plan injector so operators see a
+  // compact, runtime-derived checklist alongside the existing tool-call
+  // detail rows. The injector is additive and keyed by the per-turn
+  // `turnId` so old clients that ignore unknown chunks keep working.
+  const taskPlanId = `turn_${turnId}`
+
   if (input.generateText) {
     try {
       const callbackResult = await input.generateText(preparedOptions)
@@ -1625,10 +1633,11 @@ export async function runAiAgentText(input: RunAiAgentTextInput): Promise<Respon
           Connection: 'keep-alive',
         },
       })
+      const withTaskPlan = injectTaskPlanIntoStream(baseResponse, taskPlanId)
       if (input.emitLoopTrace) {
-        return appendLoopFinishToStream(baseResponse, preparedOptions.finalizeLoopTrace)
+        return appendLoopFinishToStream(withTaskPlan, preparedOptions.finalizeLoopTrace)
       }
-      return baseResponse
+      return withTaskPlan
     } finally {
       if (wallClockTimer !== undefined) clearTimeout(wallClockTimer)
     }
@@ -1654,10 +1663,11 @@ export async function runAiAgentText(input: RunAiAgentTextInput): Promise<Respon
         Connection: 'keep-alive',
       },
     })
+    const withTaskPlan = injectTaskPlanIntoStream(baseResponse, taskPlanId)
     if (input.emitLoopTrace) {
-      return appendLoopFinishToStream(baseResponse, preparedOptions.finalizeLoopTrace)
+      return appendLoopFinishToStream(withTaskPlan, preparedOptions.finalizeLoopTrace)
     }
-    return baseResponse
+    return withTaskPlan
   }
 
   // Default stream-text path (executionEngine === 'stream-text' or unset).
@@ -1688,10 +1698,11 @@ export async function runAiAgentText(input: RunAiAgentTextInput): Promise<Respon
       Connection: 'keep-alive',
     },
   })
+  const withTaskPlan = injectTaskPlanIntoStream(baseResponse, taskPlanId)
   if (input.emitLoopTrace) {
-    return appendLoopFinishToStream(baseResponse, preparedOptions.finalizeLoopTrace)
+    return appendLoopFinishToStream(withTaskPlan, preparedOptions.finalizeLoopTrace)
   }
-  return baseResponse
+  return withTaskPlan
 }
 
 /**

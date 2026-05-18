@@ -34,6 +34,25 @@ export interface AiChatMessageUiPart {
   key: string
 }
 
+/**
+ * Snapshot of a single task in the visible agent task plan
+ * (spec `.ai/specs/2026-05-13-ai-chat-visible-task-plan.md`). Tasks are
+ * streamed as additive `data-agent-task-plan` / `data-agent-task-update`
+ * SSE chunks and rendered above raw tool-call rows in `<AiChat>`.
+ *
+ * `source: 'runtime'` tasks are derived from tool lifecycle events by the
+ * agent runtime. `source: 'agent'` is reserved for a constrained
+ * agent-authored task API and is not produced by Phase 1.
+ */
+export interface AiAgentTaskSnapshot {
+  id: string
+  label: string
+  state: 'pending' | 'running' | 'done' | 'failed' | 'skipped'
+  detail?: string
+  source: 'runtime' | 'agent'
+  toolCallId?: string
+}
+
 export interface AiChatMessage {
   id: string
   role: 'user' | 'assistant'
@@ -52,6 +71,13 @@ export interface AiChatMessage {
    * the UI-part registry never surfaces.
    */
   uiParts?: AiChatMessageUiPart[]
+  /**
+   * Client-local visible task plan derived from streamed
+   * `data-agent-task-plan` snapshots and `data-agent-task-update` deltas.
+   * Phase 1 of the visible task-plan spec — runtime-derived tasks only.
+   * Not persisted in any chat storage payload.
+   */
+  taskPlan?: AiAgentTaskSnapshot[]
 }
 
 export interface UseAiChatInput {
@@ -295,10 +321,73 @@ interface AssistantBuilderState {
   reasoningStreaming: boolean
   toolCalls: AiChatToolCallSnapshot[]
   uiParts: AiChatMessageUiPart[]
+  taskPlan: AiAgentTaskSnapshot[]
 }
 
 function createBuilder(): AssistantBuilderState {
-  return { text: '', reasoning: '', reasoningStreaming: false, toolCalls: [], uiParts: [] }
+  return {
+    text: '',
+    reasoning: '',
+    reasoningStreaming: false,
+    toolCalls: [],
+    uiParts: [],
+    taskPlan: [],
+  }
+}
+
+const VALID_TASK_STATES: ReadonlySet<AiAgentTaskSnapshot['state']> = new Set([
+  'pending',
+  'running',
+  'done',
+  'failed',
+  'skipped',
+])
+const VALID_TASK_SOURCES: ReadonlySet<AiAgentTaskSnapshot['source']> = new Set(['runtime', 'agent'])
+
+function coerceTaskSnapshot(raw: unknown): AiAgentTaskSnapshot | null {
+  if (!raw || typeof raw !== 'object') return null
+  const value = raw as Record<string, unknown>
+  const id = typeof value.id === 'string' ? value.id.trim() : ''
+  if (!id) return null
+  const label = typeof value.label === 'string' ? value.label : ''
+  if (!label) return null
+  const state = VALID_TASK_STATES.has(value.state as AiAgentTaskSnapshot['state'])
+    ? (value.state as AiAgentTaskSnapshot['state'])
+    : 'pending'
+  const source = VALID_TASK_SOURCES.has(value.source as AiAgentTaskSnapshot['source'])
+    ? (value.source as AiAgentTaskSnapshot['source'])
+    : 'runtime'
+  const detail = typeof value.detail === 'string' && value.detail.length > 0 ? value.detail : undefined
+  const toolCallId =
+    typeof value.toolCallId === 'string' && value.toolCallId.length > 0 ? value.toolCallId : undefined
+  return { id, label, state, source, detail, toolCallId }
+}
+
+const TERMINAL_TASK_STATES: ReadonlySet<AiAgentTaskSnapshot['state']> = new Set([
+  'done',
+  'failed',
+  'skipped',
+])
+
+function mergeTaskSnapshot(
+  current: AiAgentTaskSnapshot[],
+  incoming: AiAgentTaskSnapshot,
+): AiAgentTaskSnapshot[] {
+  const idx = current.findIndex((task) => task.id === incoming.id)
+  if (idx === -1) return [...current, incoming]
+  const prior = current[idx]
+  // Stream ordering safeguard: once a task reaches a terminal state we keep
+  // it terminal so a late "running" event cannot revert it (spec §Risks —
+  // "Stream ordering bugs cause stale statuses").
+  const nextState = TERMINAL_TASK_STATES.has(prior.state) ? prior.state : incoming.state
+  const merged: AiAgentTaskSnapshot = {
+    ...prior,
+    ...incoming,
+    state: nextState,
+  }
+  const next = current.slice()
+  next[idx] = merged
+  return next
 }
 
 /**
@@ -517,6 +606,26 @@ function applyChunk(
         errorMessage:
           typeof chunk.errorText === 'string' ? chunk.errorText : 'Tool error',
       })
+    case 'data-agent-task-plan': {
+      // Initial / replacement plan snapshot. The agent runtime emits this
+      // when the first task in a turn becomes visible. Subsequent
+      // `data-agent-task-update` events patch individual tasks.
+      const rawTasks = Array.isArray(chunk.tasks) ? chunk.tasks : []
+      const coerced = rawTasks
+        .map(coerceTaskSnapshot)
+        .filter((task): task is AiAgentTaskSnapshot => task !== null)
+      if (coerced.length === 0) return state
+      let nextPlan = state.taskPlan
+      for (const task of coerced) {
+        nextPlan = mergeTaskSnapshot(nextPlan, task)
+      }
+      return { ...state, taskPlan: nextPlan }
+    }
+    case 'data-agent-task-update': {
+      const incoming = coerceTaskSnapshot(chunk.task)
+      if (!incoming) return state
+      return { ...state, taskPlan: mergeTaskSnapshot(state.taskPlan, incoming) }
+    }
     default:
       return state
   }
@@ -533,6 +642,7 @@ function mergeAssistantMessage(
     reasoningStreaming: state.reasoning ? state.reasoningStreaming : undefined,
     toolCalls: state.toolCalls.length > 0 ? state.toolCalls : undefined,
     uiParts: state.uiParts.length > 0 ? state.uiParts : undefined,
+    taskPlan: state.taskPlan.length > 0 ? state.taskPlan : undefined,
   }
 }
 
