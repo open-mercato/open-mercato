@@ -12,6 +12,22 @@ import { flash } from '@open-mercato/ui/backend/FlashMessages'
 
 type FinancialDocumentKind = 'invoice' | 'credit-memo'
 
+type CustomerSnapshot = {
+  customer?: {
+    id?: string | null
+    displayName?: string | null
+    primaryEmail?: string | null
+    primaryPhone?: string | null
+  } | null
+  contact?: {
+    firstName?: string | null
+    lastName?: string | null
+    preferredName?: string | null
+    jobTitle?: string | null
+    department?: string | null
+  } | null
+}
+
 type FinancialDocumentRecord = {
   id: string
   invoiceNumber?: string
@@ -31,6 +47,8 @@ type FinancialDocumentRecord = {
   outstandingAmount?: string
   orderId?: string | null
   invoiceId?: string | null
+  customerEntityId?: string | null
+  customerSnapshot?: CustomerSnapshot | null
   lines?: Array<{
     id: string
     lineNumber: number
@@ -55,6 +73,28 @@ type KindConfig = {
   numberField: keyof FinancialDocumentRecord
   i18nPrefix: string
   listPath: string
+}
+
+function resolveCustomerName(snapshot: CustomerSnapshot | null | undefined): string | null {
+  if (!snapshot) return null
+  const displayName = snapshot.customer?.displayName
+  if (typeof displayName === 'string' && displayName.trim().length) return displayName
+  const contact = snapshot.contact
+  if (contact) {
+    const parts = [contact.preferredName, contact.firstName, contact.lastName]
+      .map((part) => (typeof part === 'string' ? part.trim() : ''))
+      .filter((part) => part.length)
+    if (parts.length) return parts.join(' ')
+  }
+  return null
+}
+
+function resolveContactRole(contact: CustomerSnapshot['contact']): string | null {
+  if (!contact) return null
+  const parts = [contact.jobTitle, contact.department]
+    .map((part) => (typeof part === 'string' ? part.trim() : ''))
+    .filter((part) => part.length)
+  return parts.length ? parts.join(' · ') : null
 }
 
 const kindConfigs: Record<FinancialDocumentKind, KindConfig> = {
@@ -141,6 +181,20 @@ export default function FinancialDocumentDetailPage({
   }
 
   const documentNumber = String(record[config.numberField] ?? '')
+  const customerName = resolveCustomerName(record.customerSnapshot)
+  const customerEmail = record.customerSnapshot?.customer?.primaryEmail ?? null
+  const customerPhone = record.customerSnapshot?.customer?.primaryPhone ?? null
+  const customerId = record.customerSnapshot?.customer?.id ?? record.customerEntityId ?? null
+  const contactName = (() => {
+    const contact = record.customerSnapshot?.contact
+    if (!contact) return null
+    const parts = [contact.preferredName, contact.firstName, contact.lastName]
+      .map((part) => (typeof part === 'string' ? part.trim() : ''))
+      .filter((part) => part.length)
+    return parts.length ? parts.join(' ') : null
+  })()
+  const contactRole = resolveContactRole(record.customerSnapshot?.contact ?? null)
+  const hasCustomer = Boolean(customerName || customerEmail || customerPhone || customerId)
 
   return (
     <Page>
@@ -182,6 +236,68 @@ export default function FinancialDocumentDetailPage({
               <div>
                 <div className="text-sm text-muted-foreground">{t('sales.credit_memos.columns.reason', 'Reason')}</div>
                 <div className="font-medium">{record.reason}</div>
+              </div>
+            )}
+          </div>
+
+          {/* Customer */}
+          <div className="rounded-lg border p-4">
+            <h3 className="mb-3 font-semibold">{t('sales.documents.detail.customer', 'Customer')}</h3>
+            {hasCustomer ? (
+              <div className="grid grid-cols-1 gap-3 text-sm md:grid-cols-2">
+                <div>
+                  <div className="text-xs uppercase tracking-wide text-muted-foreground">
+                    {t(`${config.i18nPrefix}.customer.name`, 'Name')}
+                  </div>
+                  {customerId ? (
+                    <Link href={`/backend/customers/${customerId}`} className="font-medium text-primary hover:underline">
+                      {customerName ?? customerId}
+                    </Link>
+                  ) : (
+                    <div className="font-medium">{customerName ?? '—'}</div>
+                  )}
+                </div>
+                <div>
+                  <div className="text-xs uppercase tracking-wide text-muted-foreground">
+                    {t(`${config.i18nPrefix}.customer.email`, 'Email')}
+                  </div>
+                  <div className="font-medium">
+                    {customerEmail ? (
+                      <a href={`mailto:${customerEmail}`} className="text-primary hover:underline">
+                        {customerEmail}
+                      </a>
+                    ) : (
+                      '—'
+                    )}
+                  </div>
+                </div>
+                <div>
+                  <div className="text-xs uppercase tracking-wide text-muted-foreground">
+                    {t(`${config.i18nPrefix}.customer.phone`, 'Phone')}
+                  </div>
+                  <div className="font-medium">
+                    {customerPhone ? (
+                      <a href={`tel:${customerPhone}`} className="text-primary hover:underline">
+                        {customerPhone}
+                      </a>
+                    ) : (
+                      '—'
+                    )}
+                  </div>
+                </div>
+                {(contactName || contactRole) && (
+                  <div>
+                    <div className="text-xs uppercase tracking-wide text-muted-foreground">
+                      {t(`${config.i18nPrefix}.customer.contact`, 'Contact')}
+                    </div>
+                    <div className="font-medium">{contactName ?? '—'}</div>
+                    {contactRole && <div className="text-xs text-muted-foreground">{contactRole}</div>}
+                  </div>
+                )}
+              </div>
+            ) : (
+              <div className="text-sm text-muted-foreground">
+                {t('sales.documents.detail.customer.empty', 'Not linked')}
               </div>
             )}
           </div>
