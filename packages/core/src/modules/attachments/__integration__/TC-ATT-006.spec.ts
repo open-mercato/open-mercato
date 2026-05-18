@@ -14,7 +14,7 @@ test.describe('TC-ATT-006: Standalone S3 API routes', () => {
   test('should upload, download, list, generate signed URL, and delete via standalone S3 routes', async ({
     request,
   }) => {
-    if (!isLocalstackAvailable()) {
+    if (!(await isLocalstackAvailable())) {
       test.skip()
     }
 

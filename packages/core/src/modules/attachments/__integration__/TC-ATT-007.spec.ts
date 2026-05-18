@@ -17,7 +17,7 @@ const BASE_URL = process.env.BASE_URL?.trim() || 'http://localhost:3000'
 
 test.describe('TC-ATT-007: S3 partition storageDriver update via API', () => {
   test('should update a partition storageDriver from local to s3 and upload a new file to S3', async ({ request }) => {
-    if (!isLocalstackAvailable()) {
+    if (!(await isLocalstackAvailable())) {
       test.skip()
     }
 

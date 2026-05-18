@@ -3,6 +3,7 @@ import {
   CreateBucketCommand,
   DeleteBucketCommand,
   DeleteObjectsCommand,
+  ListBucketsCommand,
   ListObjectsV2Command,
 } from '@aws-sdk/client-s3'
 
@@ -66,6 +67,20 @@ export function localstackS3Config(bucketName: string): Record<string, unknown> 
   }
 }
 
-export function isLocalstackAvailable(): boolean {
+export function isLocalstackConfigured(): boolean {
   return Boolean(process.env.LOCALSTACK_PORT || process.env.LOCALSTACK_S3_ACCESS_KEY_ID)
+}
+
+export async function isLocalstackAvailable(): Promise<boolean> {
+  if (!isLocalstackConfigured()) {
+    return false
+  }
+
+  try {
+    const client = createLocalstackClient()
+    await client.send(new ListBucketsCommand({}))
+    return true
+  } catch {
+    return false
+  }
 }

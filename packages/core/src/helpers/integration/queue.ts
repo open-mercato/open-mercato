@@ -89,6 +89,7 @@ function drainQueueInAppProcess(queueName: string, options: Required<DrainQueueO
       await queue.close();
     }
     console.log(JSON.stringify({ processed: processedJobs }));
+    process.exit(0);
   `
 
   return new Promise((resolve, reject) => {
