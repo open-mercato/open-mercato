@@ -1,22 +1,6 @@
 import * as React from 'react'
+import { format } from 'date-fns'
 import type { ActivityType } from './fieldConfig'
-
-// Local replacements for `date-fns` `format(date, 'yyyy-MM-dd' | 'HH:mm')`.
-// Avoids pulling `date-fns` type declarations through `@open-mercato/core` into
-// standalone-app builds, where its `exports`-only types fail to resolve and
-// break `tsc` during `next build`.
-function formatLocalDateYmd(date: Date): string {
-  const yyyy = date.getFullYear()
-  const mm = String(date.getMonth() + 1).padStart(2, '0')
-  const dd = String(date.getDate()).padStart(2, '0')
-  return `${yyyy}-${mm}-${dd}`
-}
-
-function formatLocalTimeHm(date: Date): string {
-  const hh = String(date.getHours()).padStart(2, '0')
-  const mm = String(date.getMinutes()).padStart(2, '0')
-  return `${hh}:${mm}`
-}
 
 export type RsvpStatus = 'pending' | 'accepted' | 'declined' | 'tentative'
 
@@ -87,7 +71,7 @@ interface UseScheduleFormStateParams {
 export function useScheduleFormState({ open, editData }: UseScheduleFormStateParams) {
   const [activityType, setActivityType] = React.useState<ActivityType>('meeting')
   const [title, setTitle] = React.useState('')
-  const [date, setDate] = React.useState(() => formatLocalDateYmd(new Date()))
+  const [date, setDate] = React.useState(() => format(new Date(), 'yyyy-MM-dd'))
   const [startTime, setStartTime] = React.useState('10:00')
   const [duration, setDuration] = React.useState(30)
   const [allDay, setAllDay] = React.useState(false)
@@ -117,15 +101,15 @@ export function useScheduleFormState({ open, editData }: UseScheduleFormStatePar
         // For historical activities the canonical timestamp is `occurredAt`; for
         // planned/future ones it's `scheduledAt`. Without this fallback editing a
         // past activity prefilled to "today" instead of its actual moment (#1807).
-        // Use the local-date helpers so the seed values are in the user's local
+        // Use `date-fns` `format(...)` so the seed values are in the user's local
         // timezone (matches the cluster-E local-day convention).
         const sourceTimestamp = editData.occurredAt ?? editData.scheduledAt ?? null
         const seedDate = sourceTimestamp ? new Date(sourceTimestamp) : new Date()
         const seedDateValid = !Number.isNaN(seedDate.getTime())
         const fallbackNow = new Date()
         const dateForForm = seedDateValid ? seedDate : fallbackNow
-        setDate(formatLocalDateYmd(dateForForm))
-        setStartTime(formatLocalTimeHm(dateForForm))
+        setDate(format(dateForForm, 'yyyy-MM-dd'))
+        setStartTime(format(dateForForm, 'HH:mm'))
         setDuration(editData.durationMinutes ?? 30)
         setAllDay(editData.allDay ?? false)
         setDescription(editData.body ?? '')
@@ -186,7 +170,7 @@ export function useScheduleFormState({ open, editData }: UseScheduleFormStatePar
         // Create mode: reset all fields
         setActivityType('meeting')
         setTitle('')
-        setDate(formatLocalDateYmd(new Date()))
+        setDate(format(new Date(), 'yyyy-MM-dd'))
         setStartTime('10:00')
         setDuration(30)
         setAllDay(false)
