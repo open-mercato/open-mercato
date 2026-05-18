@@ -2,11 +2,11 @@
 
 ## TLDR
 
-Register the full set of externally-useful sales module MikroORM entities in the Awilix DI container so external modules can resolve them via `container.resolve('SalesQuote')` (and other sales entities) without direct import coupling. Three internal-only entities (`SalesSettings`, `SalesDocumentSequence`, `SalesDocumentTagAssignment`) are intentionally excluded.
+Register the full set of externally-useful sales module MikroORM entities in the Awilix DI container so external modules can resolve them via `container.resolve('SalesQuote')` (and other sales entities) without direct import coupling. Two internal-only entities (`SalesSettings`, `SalesDocumentSequence`) are intentionally excluded.
 
 ## Overview
 
-The sales module's `di.ts` previously registered only three entities: `SalesOrder`, `SalesChannel`, and `SalesShipment`. 21 of the remaining 24 entities were inaccessible via DI resolution. This change registers all externally-useful entities, leaving out only three internal-only entities that have no valid external consumer use case (see Intentional Exclusions below).
+The sales module's `di.ts` previously registered only three entities: `SalesOrder`, `SalesChannel`, and `SalesShipment`. 22 of the remaining 24 entities were inaccessible via DI resolution. This change registers all externally-useful entities, leaving out only two internal-only entities that have no valid external consumer use case (see Intentional Exclusions below).
 
 ## Problem Statement
 
@@ -46,6 +46,7 @@ Register all sales module entities as `asValue(...)` entries in `packages/core/s
 | `SalesNote` | `SalesNote` |
 | `SalesDocumentAddress` | `SalesDocumentAddress` |
 | `SalesDocumentTag` | `SalesDocumentTag` |
+| `SalesDocumentTagAssignment` | `SalesDocumentTagAssignment` |
 | `SalesShippingMethod` | `SalesShippingMethod` |
 | `SalesDeliveryWindow` | `SalesDeliveryWindow` |
 | `SalesPaymentMethod` | `SalesPaymentMethod` |
@@ -57,7 +58,6 @@ Register all sales module entities as `asValue(...)` entries in `packages/core/s
 |--------|--------|
 | `SalesSettings` | Singleton per-tenant config row — no valid external consumer; accessed via `salesSettingsService` |
 | `SalesDocumentSequence` | Internal numbering counter — managed exclusively by `SalesDocumentNumberGenerator` |
-| `SalesDocumentTagAssignment` | Junction table — `SalesDocumentTag` is registered; assignments are an implementation detail of the tagging system |
 
 ### Usage Pattern (unchanged)
 
@@ -91,5 +91,5 @@ Additive-only change. No existing `resolve('Sales*')` calls return different typ
 
 ## Changelog
 
-- **2026-05-18** — Follow-up: added 7 overlooked child entities (`SalesOrderAdjustment`, `SalesQuoteAdjustment`, `SalesShipmentItem`, `SalesInvoiceLine`, `SalesCreditMemoLine`, `SalesReturnLine`, `SalesPaymentAllocation`) after code review; updated spec to document intentional exclusions.
+- **2026-05-18** — Follow-up: added 7 overlooked child entities (`SalesOrderAdjustment`, `SalesQuoteAdjustment`, `SalesShipmentItem`, `SalesInvoiceLine`, `SalesCreditMemoLine`, `SalesReturnLine`, `SalesPaymentAllocation`) after code review; added `SalesDocumentTagAssignment` (junction table needed for tag queries); updated intentional exclusions to `SalesSettings` and `SalesDocumentSequence` only.
 - **2026-05-17** — Initial implementation: registered 14 previously missing sales entities in `di.ts`.
