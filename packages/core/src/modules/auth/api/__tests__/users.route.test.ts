@@ -1,7 +1,7 @@
 /** @jest-environment node */
 
 import { GET, POST, PUT } from '@open-mercato/core/modules/auth/api/users/route'
-import { Role, RoleAcl, User } from '@open-mercato/core/modules/auth/data/entities'
+import { Role, RoleAcl, User, UserRole } from '@open-mercato/core/modules/auth/data/entities'
 import { Organization } from '@open-mercato/core/modules/directory/data/entities'
 
 const mockGetAuthFromRequest = jest.fn()
@@ -569,5 +569,126 @@ describe('GET /api/auth/users', () => {
 
     expect(response.status).toBe(403)
     expect(body.error).toContain('Cannot grant feature api_keys.create')
+  })
+
+  test('allows limited users to save non-role fields on a more-privileged user when role set is unchanged (regression for #1938)', async () => {
+    const targetUserId = '523e4567-e89b-12d3-a456-426614174601'
+    const superadminRoleId = '323e4567-e89b-12d3-a456-426614174501'
+    mockLoadAcl.mockResolvedValueOnce({
+      isSuperAdmin: false,
+      features: ['auth.users.edit'],
+      organizations: null,
+    })
+    mockFindOneWithDecryption.mockImplementation(async (_em: unknown, entity: unknown) => {
+      if (entity === User) return { id: targetUserId, tenantId, organizationId }
+      return null
+    })
+    mockFindWithDecryption.mockImplementation(async (_em: unknown, entity: unknown) => {
+      if (entity === UserRole) {
+        return [
+          {
+            user: { id: targetUserId },
+            role: { id: superadminRoleId, name: 'Superadmin', tenantId },
+          },
+        ]
+      }
+      return []
+    })
+
+    const response = await PUT(new Request('http://localhost/api/auth/users', {
+      method: 'PUT',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({
+        id: targetUserId,
+        name: 'Updated Display Name',
+        roles: [superadminRoleId],
+      }),
+    }))
+
+    expect(response.status).toBe(200)
+    expect(mockFindOneWithDecryption).not.toHaveBeenCalledWith(expect.anything(), RoleAcl, expect.anything(), expect.anything(), expect.anything())
+  })
+
+  test('allows limited users to keep the same role set when sent by role name on update', async () => {
+    const targetUserId = '523e4567-e89b-12d3-a456-426614174602'
+    const superadminRoleId = '323e4567-e89b-12d3-a456-426614174502'
+    mockLoadAcl.mockResolvedValueOnce({
+      isSuperAdmin: false,
+      features: ['auth.users.edit'],
+      organizations: null,
+    })
+    mockFindOneWithDecryption.mockImplementation(async (_em: unknown, entity: unknown) => {
+      if (entity === User) return { id: targetUserId, tenantId, organizationId }
+      return null
+    })
+    mockFindWithDecryption.mockImplementation(async (_em: unknown, entity: unknown) => {
+      if (entity === UserRole) {
+        return [
+          {
+            user: { id: targetUserId },
+            role: { id: superadminRoleId, name: 'superadmin', tenantId },
+          },
+        ]
+      }
+      return []
+    })
+
+    const response = await PUT(new Request('http://localhost/api/auth/users', {
+      method: 'PUT',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({
+        id: targetUserId,
+        name: 'New Name',
+        roles: ['superadmin'],
+      }),
+    }))
+
+    expect(response.status).toBe(200)
+  })
+
+  test('rejects limited users attempting to revoke a privileged role they cannot grant (privilege de-escalation guard)', async () => {
+    const targetUserId = '523e4567-e89b-12d3-a456-426614174603'
+    const superadminRoleId = '323e4567-e89b-12d3-a456-426614174503'
+    mockLoadAcl.mockResolvedValueOnce({
+      isSuperAdmin: false,
+      features: ['auth.users.edit'],
+      organizations: null,
+    })
+    mockFindOneWithDecryption.mockImplementation(async (_em: unknown, entity: unknown) => {
+      if (entity === User) return { id: targetUserId, tenantId, organizationId }
+      if (entity === RoleAcl) {
+        return {
+          isSuperAdmin: true,
+          featuresJson: [],
+          organizationsJson: null,
+          tenantId,
+        }
+      }
+      return null
+    })
+    mockFindWithDecryption.mockImplementation(async (_em: unknown, entity: unknown) => {
+      if (entity === UserRole) {
+        return [
+          {
+            user: { id: targetUserId },
+            role: { id: superadminRoleId, name: 'Superadmin', tenantId },
+          },
+        ]
+      }
+      return []
+    })
+
+    const response = await PUT(new Request('http://localhost/api/auth/users', {
+      method: 'PUT',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({
+        id: targetUserId,
+        roles: [],
+      }),
+    }))
+    const body = await response.json()
+
+    expect(response.status).toBe(403)
+    expect(body.error).toContain('Only super administrators can grant super admin access')
   })
 })

@@ -13,7 +13,10 @@ import { E } from '#generated/entities.ids.generated'
 import { loadCustomFieldValues } from '@open-mercato/shared/lib/crud/custom-fields'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import { userCrudEvents, userCrudIndexer } from '@open-mercato/core/modules/auth/commands/users'
-import { assertActorCanGrantRoleTokens } from '@open-mercato/core/modules/auth/lib/grantChecks'
+import {
+  assertActorCanGrantRoleTokens,
+  assertActorCanGrantRoles,
+} from '@open-mercato/core/modules/auth/lib/grantChecks'
 import { findOneWithDecryption, findWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import { buildPasswordSchema } from '@open-mercato/shared/lib/auth/passwordPolicy'
 import { escapeLikePattern } from '@open-mercato/shared/lib/db/escapeLikePattern'
@@ -430,21 +433,114 @@ async function findUserIdsBySearchTokens(
     .filter((id): id is string => typeof id === 'string' && id.length > 0)
 }
 
+const ROLE_TOKEN_UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
+
 async function assertCanAssignRoles(req: Request, roles: unknown, payload: Record<string, unknown>) {
   if (!Array.isArray(roles)) return
   const auth = await getAuthFromRequest(req)
   if (!auth?.sub) throw new CrudHttpError(401, { error: 'Unauthorized' })
   const container = await createRequestContainer()
   const em = container.resolve('em') as EntityManager
+  const rbacService = container.resolve('rbacService') as RbacService
   const tenantId = await resolveTargetTenantIdForRoleGrant(em, payload, auth.tenantId ?? null)
-  await assertActorCanGrantRoleTokens({
-    em,
-    rbacService: container.resolve('rbacService') as RbacService,
-    actorUserId: auth.sub,
-    tenantId,
-    organizationId: auth.orgId ?? null,
-    roleTokens: roles,
+  const organizationId = auth.orgId ?? null
+
+  const userId = typeof payload.id === 'string' ? payload.id : null
+  if (!userId) {
+    await assertActorCanGrantRoleTokens({
+      em,
+      rbacService,
+      actorUserId: auth.sub,
+      tenantId,
+      organizationId,
+      roleTokens: roles,
+    })
+    return
+  }
+
+  // On update, only validate the role assignment *diff* — roles being added or
+  // removed. Re-checking unchanged assignments would block a limited admin from
+  // saving non-role fields on a more-privileged user whose existing roles they
+  // could never grant in the first place (issue #1938). Both halves of the diff
+  // are still gated: the actor must have the privilege to grant any added role
+  // and to revoke any removed role.
+  const existingRoles = await loadExistingRolesForUser(em, userId)
+  const existingRoleIds = new Set(existingRoles.map((role) => String(role.id)))
+  const existingRoleNames = new Set(
+    existingRoles
+      .map((role) => (typeof role.name === 'string' ? role.name.trim() : ''))
+      .filter((name): name is string => name.length > 0),
+  )
+
+  const requestedRoleIds = new Set<string>()
+  const requestedRoleNames = new Set<string>()
+  const addedRoleTokens: string[] = []
+  for (const token of roles) {
+    if (typeof token !== 'string') {
+      addedRoleTokens.push(token as unknown as string)
+      continue
+    }
+    const trimmed = token.trim()
+    if (!trimmed) continue
+    if (ROLE_TOKEN_UUID_RE.test(trimmed)) {
+      requestedRoleIds.add(trimmed)
+      if (!existingRoleIds.has(trimmed)) addedRoleTokens.push(trimmed)
+    } else {
+      requestedRoleNames.add(trimmed)
+      if (!existingRoleNames.has(trimmed)) addedRoleTokens.push(trimmed)
+    }
+  }
+
+  if (addedRoleTokens.length) {
+    await assertActorCanGrantRoleTokens({
+      em,
+      rbacService,
+      actorUserId: auth.sub,
+      tenantId,
+      organizationId,
+      roleTokens: addedRoleTokens,
+    })
+  }
+
+  const removedRoles = existingRoles.filter((role) => {
+    const id = String(role.id)
+    const name = typeof role.name === 'string' ? role.name.trim() : ''
+    if (requestedRoleIds.has(id)) return false
+    if (name && requestedRoleNames.has(name)) return false
+    return true
   })
+
+  if (removedRoles.length) {
+    await assertActorCanGrantRoles({
+      em,
+      rbacService,
+      actorUserId: auth.sub,
+      tenantId,
+      organizationId,
+      roles: removedRoles,
+    })
+  }
+}
+
+async function loadExistingRolesForUser(em: EntityManager, userId: string): Promise<Role[]> {
+  const links = await findWithDecryption(
+    em,
+    UserRole,
+    { user: userId as unknown as User } as any,
+    { populate: ['role'] },
+    { tenantId: null, organizationId: null },
+  )
+  const roles: Role[] = []
+  const seen = new Set<string>()
+  for (const link of links) {
+    const role = (link as any).role as Role | undefined
+    if (!role?.id) continue
+    const id = String(role.id)
+    if (seen.has(id)) continue
+    seen.add(id)
+    roles.push(role)
+  }
+  return roles
 }
 
 async function resolveTargetTenantIdForRoleGrant(
