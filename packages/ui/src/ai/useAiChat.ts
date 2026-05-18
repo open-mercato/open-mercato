@@ -18,6 +18,7 @@ import {
  * shape for `messages`.
  */
 export interface AiChatMessageFile {
+  id?: string
   name: string
   type: string
   previewUrl?: string
@@ -228,19 +229,20 @@ function writePersistedSession(
   if (typeof window === 'undefined') return
   try {
     // Strip transient blob/object preview URLs before persisting (they would
-    // not survive a reload). Self-contained `data:` URLs are kept so image
-    // previews come back unchanged after the chat is reopened — public
-    // attachment URLs are intentionally not used because the LLM provider
-    // cannot reach a localhost origin and we want a single durable shape
-    // that works for both transport and reload.
+    // not survive a reload). Self-contained `data:` URLs and same-origin
+    // attachment thumbnail URLs are durable enough for local fallback storage.
     const messages = session.messages.map((message) => {
       if (!message.files || message.files.length === 0) return message
-      const safeFiles = message.files.map(({ name, type, previewUrl }) => {
+      const safeFiles = message.files.map(({ id, name, type, previewUrl }) => {
         const durable =
-          typeof previewUrl === 'string' && previewUrl.startsWith('data:')
+          typeof previewUrl === 'string' &&
+          (previewUrl.startsWith('data:') ||
+            previewUrl.startsWith('/api/attachments/image/') ||
+            previewUrl.startsWith('/api/attachments/file/'))
             ? previewUrl
             : undefined
-        return durable ? { name, type, previewUrl: durable } : { name, type }
+        const base = id ? { id, name, type } : { name, type }
+        return durable ? { ...base, previewUrl: durable } : base
       })
       return { ...message, files: safeFiles }
     })

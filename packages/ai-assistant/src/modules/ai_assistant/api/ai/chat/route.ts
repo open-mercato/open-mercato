@@ -44,9 +44,11 @@ const chatMessageSchema = z.object({
     .array(
       z
         .object({
+          id: z.string().optional(),
           name: z.string().optional(),
           type: z.string().optional(),
           mimeType: z.string().optional(),
+          size: z.number().optional(),
         })
         .passthrough(),
     )
@@ -318,10 +320,16 @@ async function persistChatTurnStart(input: {
       content: userMessage.content,
       uiParts: userMessage.uiParts,
       attachmentIds: input.attachmentIds,
-      files: userMessage.files?.map((file) => ({
-        name: file.name,
-        mimeType: file.mimeType ?? file.type,
-      })),
+      files: userMessage.files?.map((file, index) => {
+        const id = file.id ?? input.attachmentIds?.[index]
+        const mimeType = file.mimeType ?? file.type
+        return {
+          ...(id ? { id } : {}),
+          ...(file.name ? { name: file.name } : {}),
+          ...(mimeType ? { mimeType } : {}),
+          ...(typeof file.size === 'number' ? { size: file.size } : {}),
+        }
+      }),
     },
     ctx,
   )

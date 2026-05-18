@@ -183,8 +183,13 @@ describe('<AiChat> conversationId threading (Step 5.15)', () => {
             role: 'user',
             content: 'Server question',
             uiParts: [],
-            attachmentIds: [],
-            files: [],
+            attachmentIds: ['att-image-1'],
+            files: [
+              {
+                name: 'IMG_5328.JPEG',
+                mimeType: 'image/jpeg',
+              },
+            ],
             model: null,
             metadata: null,
             createdAt: '2026-05-18T10:00:00.000Z',
@@ -214,6 +219,11 @@ describe('<AiChat> conversationId threading (Step 5.15)', () => {
       )
 
       expect(await screen.findByText('Server question')).toBeInTheDocument()
+      const image = await screen.findByRole('img', { name: 'IMG_5328.JPEG' })
+      expect(image).toHaveAttribute(
+        'src',
+        '/api/attachments/image/att-image-1?width=320&height=320&cropType=contain',
+      )
       expect(await screen.findByText('Server answer')).toBeInTheDocument()
       expect(fetchMock).toHaveBeenCalledWith(
         '/api/ai_assistant/ai/conversations/conv-server-xyz?limit=100',

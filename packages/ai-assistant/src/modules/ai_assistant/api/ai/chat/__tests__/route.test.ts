@@ -341,7 +341,21 @@ describe('POST /api/ai/chat', () => {
         agent: 'customers.assistant',
         body: {
           conversationId: 'conv-persist-1',
-          messages: [{ id: 'msg-user-1', role: 'user', content: 'Hello assistant' }],
+          attachmentIds: ['att-image-1'],
+          messages: [
+            {
+              id: 'msg-user-1',
+              role: 'user',
+              content: 'Hello assistant',
+              files: [
+                {
+                  id: 'att-image-1',
+                  name: 'IMG_5328.JPEG',
+                  type: 'image/jpeg',
+                },
+              ],
+            },
+          ],
         },
       }) as any,
     )
@@ -366,6 +380,14 @@ describe('POST /api/ai/chat', () => {
         clientMessageId: 'msg-user-1',
         role: 'user',
         content: 'Hello assistant',
+        attachmentIds: ['att-image-1'],
+        files: [
+          {
+            id: 'att-image-1',
+            name: 'IMG_5328.JPEG',
+            mimeType: 'image/jpeg',
+          },
+        ],
       }),
       expect.objectContaining({
         tenantId: 'tenant-1',

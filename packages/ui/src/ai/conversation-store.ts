@@ -47,6 +47,19 @@ export interface AiServerImportResponse {
   skippedMessageCount: number
 }
 
+function readString(value: unknown): string | null {
+  return typeof value === 'string' && value.length > 0 ? value : null
+}
+
+function buildAttachmentImagePreviewUrl(attachmentId: string): string {
+  const params = new URLSearchParams({
+    width: '320',
+    height: '320',
+    cropType: 'contain',
+  })
+  return `/api/attachments/image/${encodeURIComponent(attachmentId)}?${params.toString()}`
+}
+
 function getFetch(): typeof fetch | null {
   const fetchImpl = (globalThis as typeof globalThis & { fetch?: typeof fetch }).fetch
   return typeof fetchImpl === 'function' ? fetchImpl.bind(globalThis) : null
@@ -162,6 +175,7 @@ export async function importAiLocalConversation(input: {
         content: message.content,
         uiParts: message.uiParts ?? [],
         files: (message.files ?? []).map((file) => ({
+          id: file.id,
           name: file.name,
           mimeType: file.type,
         })),
@@ -200,8 +214,8 @@ export function serverMessageToChatMessage(message: AiServerMessage): AiChatMess
     role: message.role,
     content: message.content,
     files: message.files
-      .map((file) => {
-        const name = typeof file.name === 'string' ? file.name : null
+      .map((file, index) => {
+        const name = readString(file.name)
         if (!name) return null
         const type =
           typeof file.mimeType === 'string'
@@ -209,9 +223,22 @@ export function serverMessageToChatMessage(message: AiServerMessage): AiChatMess
             : typeof file.type === 'string'
               ? file.type
               : 'application/octet-stream'
-        return { name, type }
+        const id = readString(file.id) ?? readString(message.attachmentIds[index])
+        const rawPreviewUrl =
+          readString(file.previewUrl) ??
+          readString(file.thumbnailUrl) ??
+          readString(file.url)
+        const previewUrl = type.startsWith('image/')
+          ? rawPreviewUrl ?? (id ? buildAttachmentImagePreviewUrl(id) : undefined)
+          : undefined
+        return {
+          ...(id ? { id } : {}),
+          name,
+          type,
+          ...(previewUrl ? { previewUrl } : {}),
+        }
       })
-      .filter((file): file is { name: string; type: string } => file !== null),
+      .filter((file): file is NonNullable<AiChatMessage['files']>[number] => file !== null),
     uiParts,
   }
 }

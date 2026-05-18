@@ -856,10 +856,9 @@ export function AiChat({
     attachmentId?: string
     /**
      * Base64 data URL of the image (capped by PREVIEW_DATA_URL_MAX_BYTES).
-     * Stored on the message so the preview survives a reload — durable
-     * server URLs were intentionally avoided because the LLM provider can
-     * never reach a localhost dev URL anyway, and HTTP fetches add latency
-     * the chat doesn't need.
+     * Stored on the local message for immediate previews; once the transcript
+     * is loaded from server storage the attachment id is used to rebuild a
+     * same-origin thumbnail URL.
      */
     previewDataUrl?: string
     error?: string
@@ -1081,6 +1080,7 @@ export function AiChat({
         const isImage = entry.file.type.startsWith('image/')
         const fallback = isImage ? URL.createObjectURL(entry.file) : undefined
         return {
+          id: entry.attachmentId,
           name: entry.file.name,
           type: entry.file.type,
           previewUrl: isImage ? (entry.previewDataUrl ?? fallback) : undefined,
