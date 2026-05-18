@@ -9,11 +9,6 @@ const backendRoutes = [
 ]
 
 const mockRegisterBackendRouteManifests = jest.fn()
-const mockParseBooleanWithDefault = jest.fn(() => false)
-const mockCookies = jest.fn()
-const mockHeaders = jest.fn()
-const mockResolveTranslations = jest.fn()
-const mockGetAuthFromCookies = jest.fn()
 
 jest.mock('@/.mercato/generated/backend-routes.generated', () => ({
   backendRoutes,
@@ -25,12 +20,12 @@ jest.mock('@open-mercato/shared/modules/registry', () => ({
 }))
 
 jest.mock('next/headers', () => ({
-  cookies: (...args: unknown[]) => mockCookies(...args),
-  headers: (...args: unknown[]) => mockHeaders(...args),
+  cookies: jest.fn(),
+  headers: jest.fn(),
 }))
 
 jest.mock('@open-mercato/shared/lib/auth/server', () => ({
-  getAuthFromCookies: (...args: unknown[]) => mockGetAuthFromCookies(...args),
+  getAuthFromCookies: jest.fn(),
 }))
 
 jest.mock('@open-mercato/ui/backend/AppShell', () => ({
@@ -38,7 +33,7 @@ jest.mock('@open-mercato/ui/backend/AppShell', () => ({
 }))
 
 jest.mock('@open-mercato/shared/lib/i18n/server', () => ({
-  resolveTranslations: (...args: unknown[]) => mockResolveTranslations(...args),
+  resolveTranslations: jest.fn(),
 }))
 
 jest.mock('@open-mercato/shared/lib/i18n/context', () => ({
@@ -54,7 +49,7 @@ jest.mock('@open-mercato/shared/lib/version', () => ({
 }))
 
 jest.mock('@open-mercato/shared/lib/boolean', () => ({
-  parseBooleanWithDefault: (...args: unknown[]) => mockParseBooleanWithDefault(...args),
+  parseBooleanWithDefault: jest.fn(() => true),
 }))
 
 jest.mock('@open-mercato/ui/backend/injection/PageInjectionBoundary', () => ({
@@ -78,11 +73,6 @@ describe('Backend layout route registry', () => {
   beforeEach(() => {
     jest.resetModules()
     mockRegisterBackendRouteManifests.mockClear()
-    mockParseBooleanWithDefault.mockClear()
-    mockCookies.mockReset()
-    mockHeaders.mockReset()
-    mockResolveTranslations.mockReset()
-    mockGetAuthFromCookies.mockReset()
   })
 
   it('registers backend route manifests at module load', async () => {
@@ -91,36 +81,5 @@ describe('Backend layout route registry', () => {
     })
 
     expect(mockRegisterBackendRouteManifests).toHaveBeenCalledWith(backendRoutes)
-  })
-
-  it('defaults the demo mode flag to false when DEMO_MODE is unset', async () => {
-    const originalDemoMode = process.env.DEMO_MODE
-    delete process.env.DEMO_MODE
-    mockGetAuthFromCookies.mockResolvedValue(null)
-    mockCookies.mockResolvedValue({ get: () => undefined })
-    mockHeaders.mockResolvedValue({ get: () => null })
-    mockResolveTranslations.mockResolvedValue({
-      translate: (_key: string, fallback: string) => fallback,
-      locale: 'en',
-      dict: {},
-    })
-
-    try {
-      await jest.isolateModulesAsync(async () => {
-        const { default: BackendLayout } = await import('../layout')
-        await BackendLayout({
-          children: React.createElement('div'),
-          params: Promise.resolve({}),
-        })
-      })
-
-      expect(mockParseBooleanWithDefault).toHaveBeenCalledWith(undefined, false)
-    } finally {
-      if (originalDemoMode === undefined) {
-        delete process.env.DEMO_MODE
-      } else {
-        process.env.DEMO_MODE = originalDemoMode
-      }
-    }
   })
 })

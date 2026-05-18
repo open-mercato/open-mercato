@@ -157,20 +157,19 @@ describe('customers.update_deal_stage — loadBeforeRecord', () => {
 
   it('returns current and proposed stage snapshots keyed to updatedAt as recordVersion', async () => {
     const updatedAt = new Date('2026-04-18T12:00:00Z')
-    findOneWithDecryptionMock.mockResolvedValue({
-      id: DEAL_ID,
-      tenantId: 'tenant-1',
-      organizationId: 'org-1',
-      status: 'open',
-      pipelineStage: 'Prospect',
-      pipelineStageId: STAGE_ID,
-      updatedAt,
-    })
+    findOneWithDecryptionMock
+      .mockResolvedValueOnce({
+        id: DEAL_ID,
+        tenantId: 'tenant-1',
+        organizationId: 'org-1',
+        status: 'open',
+        pipelineStage: 'Prospect',
+        pipelineStageId: STAGE_ID,
+        updatedAt,
+      })
+      .mockResolvedValueOnce({ id: 'b1b2c3d4-e5f6-4f01-8f02-0123456789ab', label: 'Negotiation' })
     const targetStageId = 'b1b2c3d4-e5f6-4f01-8f02-0123456789ab'
-    const em = {
-      findOne: jest.fn().mockResolvedValue({ id: targetStageId, label: 'Negotiation' }),
-    }
-    const ctx = makeMutationCtx({ em })
+    const ctx = makeMutationCtx()
     const before = await tool.loadBeforeRecord!(
       { dealId: DEAL_ID, toPipelineStageId: targetStageId } as any,
       ctx as any,
@@ -305,6 +304,7 @@ describe('customers.update_deal_stage — handler delegates to API runner', () =
         pipelineStageId: null,
         updatedAt: initialUpdatedAt,
       })
+      .mockResolvedValueOnce({ id: STAGE_ID, label: 'Negotiation' })
       .mockResolvedValueOnce({
         id: DEAL_ID,
         tenantId: 'tenant-1',
@@ -314,11 +314,8 @@ describe('customers.update_deal_stage — handler delegates to API runner', () =
         pipelineStageId: STAGE_ID,
         updatedAt: laterUpdatedAt,
       })
-    const em = {
-      findOne: jest.fn().mockResolvedValue({ id: STAGE_ID, label: 'Negotiation' }),
-    }
     runMock.mockResolvedValue({ success: true, statusCode: 200, data: { ok: true } })
-    const ctx = makeMutationCtx({ em })
+    const ctx = makeMutationCtx()
     const result = await tool.handler(
       { dealId: DEAL_ID, toPipelineStageId: STAGE_ID },
       ctx as any,
@@ -392,17 +389,18 @@ describe('customers.update_deal_stage — handler delegates to API runner', () =
   })
 
   it('throws when the pipeline stage id is unknown', async () => {
-    findOneWithDecryptionMock.mockResolvedValue({
-      id: DEAL_ID,
-      tenantId: 'tenant-1',
-      organizationId: 'org-1',
-      status: 'open',
-      pipelineStage: null,
-      pipelineStageId: null,
-      updatedAt: new Date(),
-    })
-    const em = { findOne: jest.fn().mockResolvedValue(null) }
-    const ctx = makeMutationCtx({ em })
+    findOneWithDecryptionMock
+      .mockResolvedValueOnce({
+        id: DEAL_ID,
+        tenantId: 'tenant-1',
+        organizationId: 'org-1',
+        status: 'open',
+        pipelineStage: null,
+        pipelineStageId: null,
+        updatedAt: new Date(),
+      })
+      .mockResolvedValueOnce(null)
+    const ctx = makeMutationCtx()
     await expect(
       tool.handler({ dealId: DEAL_ID, toPipelineStageId: STAGE_ID }, ctx as any),
     ).rejects.toThrow(/Pipeline stage/)

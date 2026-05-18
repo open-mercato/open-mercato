@@ -21,7 +21,6 @@ import {
   looksLikeHiddenReasoning,
   sanitizeAgentTaskPlanInput,
 } from '../lib/task-plan-labels'
-import type { AiToolDefinition } from '../lib/types'
 
 function summarizeAgent(agent: AiAgentDefinition): Record<string, unknown> {
   return {
@@ -209,7 +208,7 @@ const updateTaskPlanTool = defineAiTool({
   },
 })
 
-export const metaAiTools: AiToolDefinition<any, any>[] = [
+export const metaAiTools = [
   listAgentsTool,
   describeAgentTool,
   updateTaskPlanTool,

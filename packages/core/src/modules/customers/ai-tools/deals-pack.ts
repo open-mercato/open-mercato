@@ -14,7 +14,7 @@
  * the spec's residual N+1 budget; deeper aggregation can earn a first-class
  * API later without touching the AI surface.
  */
-import type { EntityManager } from '@mikro-orm/postgresql'
+import type { EntityManager, FilterQuery } from '@mikro-orm/postgresql'
 import { z } from 'zod'
 import { defineApiBackedAiTool } from '@open-mercato/ai-assistant/modules/ai_assistant/lib/api-backed-tool'
 import {
@@ -410,13 +410,33 @@ async function loadDealWithStage(
   const deal = await findOneWithDecryption<CustomerDeal>(
     em,
     CustomerDeal,
-    where as any,
+    where as FilterQuery<CustomerDeal>,
     undefined,
     buildScope(ctx, tenantId),
   )
   if (!deal || deal.tenantId !== tenantId) return null
   if (ctx.organizationId && deal.organizationId !== ctx.organizationId) return null
   return deal
+}
+
+async function loadPipelineStage(
+  em: EntityManager,
+  ctx: CustomersToolContext,
+  tenantId: string,
+  stageId: string,
+  organizationId: string,
+): Promise<CustomerPipelineStage | null> {
+  return findOneWithDecryption<CustomerPipelineStage>(
+    em,
+    CustomerPipelineStage,
+    {
+      id: stageId,
+      tenantId,
+      organizationId,
+    },
+    undefined,
+    buildScope(ctx, tenantId),
+  )
 }
 
 const updateDealStageTool: CustomersAiToolDefinition = {
@@ -438,11 +458,10 @@ const updateDealStageTool: CustomersAiToolDefinition = {
     let afterPipelineStageId = deal.pipelineStageId ?? null
     let afterPipelineStageLabel = deal.pipelineStage ?? null
     if (input.toPipelineStageId) {
-      const stage = await em.findOne(CustomerPipelineStage, {
-        id: input.toPipelineStageId,
-        tenantId,
-        organizationId: deal.organizationId ?? ctx.organizationId ?? undefined,
-      })
+      const organizationId = deal.organizationId ?? ctx.organizationId ?? null
+      const stage = organizationId
+        ? await loadPipelineStage(em, ctx, tenantId, input.toPipelineStageId, organizationId)
+        : null
       afterPipelineStageId = input.toPipelineStageId
       afterPipelineStageLabel = stage?.label ?? input.toPipelineStageId
     } else if (input.toStage) {
@@ -504,11 +523,7 @@ const updateDealStageTool: CustomersAiToolDefinition = {
       organizationId,
     }
     if (input.toPipelineStageId) {
-      const stage = await em.findOne(CustomerPipelineStage, {
-        id: input.toPipelineStageId,
-        tenantId,
-        organizationId,
-      })
+      const stage = await loadPipelineStage(em, ctx, tenantId, input.toPipelineStageId, organizationId)
       if (!stage) {
         throw new Error('Pipeline stage not found.')
       }

@@ -527,10 +527,12 @@ function ToolCallList({ toolCalls }: { toolCalls: AiChatToolCallSnapshot[] }) {
             data-ai-chat-tool-call={call.toolName}
             data-ai-chat-tool-state={call.state}
           >
-            <button
+            <Button
+              variant="ghost"
+              size="2xs"
               type="button"
               onClick={() => setOpenId(isOpen ? null : call.id)}
-              className="flex h-7 w-full items-center gap-2 px-2 text-left text-xs font-medium hover:bg-muted/60"
+              className="w-full justify-start rounded-none px-2 text-left hover:bg-muted/60"
             >
               {isOpen ? (
                 <ChevronDown className="size-3.5 text-muted-foreground" aria-hidden />
@@ -563,7 +565,7 @@ function ToolCallList({ toolCalls }: { toolCalls: AiChatToolCallSnapshot[] }) {
               >
                 {statusLabel}
               </span>
-            </button>
+            </Button>
             {isOpen ? (
               <div className="space-y-1 border-t border-border/60 px-2 py-1.5 text-xs">
                 {call.input !== undefined ? (
@@ -940,10 +942,11 @@ function WelcomeState({
           {suggestions.map((suggestion, index) => {
             const suggestionIcon = getSuggestionIcon(suggestion)
             return (
-              <button
+              <Button
+                variant="outline"
                 key={index}
                 type="button"
-                className="flex items-center gap-2 rounded-lg border border-border bg-card px-3 py-2.5 text-left text-sm transition-colors hover:bg-accent hover:text-accent-foreground"
+                className="h-auto w-full justify-start whitespace-normal rounded-lg bg-card px-3 py-2.5 text-left text-sm"
                 onClick={() => onSuggestionClick(suggestion.prompt)}
                 data-ai-chat-suggestion={index}
                 data-ai-chat-suggestion-icon={suggestionIcon.name}
@@ -952,7 +955,7 @@ function WelcomeState({
                   {suggestionIcon.icon}
                 </span>
                 <span>{suggestion.label}</span>
-              </button>
+              </Button>
             )
           })}
         </div>
