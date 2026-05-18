@@ -26,9 +26,12 @@ services:
   # Traefik (TLS termination, on-demand ACME, custom-domain ForwardAuth gate)
   # is now an opt-in overlay so this base file works behind an external reverse
   # proxy (Dokploy, Caddy, nginx, Cloudflare Tunnel, etc.) without conflict.
-  # To run the bundled Traefik in dev (staging ACME by default):
+  # To run the bundled Traefik in dev, layer the prod-default overlay plus the
+  # dev overlay (the dev overlay flips ACME to LE staging so iteration does
+  # not burn LE production rate limits):
   #   docker compose -f docker-compose.fullapp.dev.yml \
-  #     -f docker-compose.fullapp.traefik.yml up --build
+  #     -f docker-compose.fullapp.traefik.yml \
+  #     -f docker-compose.fullapp.traefik.dev.yml up --build
 
   app:
     build:

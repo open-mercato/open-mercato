@@ -9,14 +9,21 @@
 # the app container's port and replicate the two routers + ForwardAuth
 # middleware in its own config. See docker/traefik/README.md.
 #
+# This overlay defaults `TRAEFIK_CA_SERVER` to the LE **production** directory
+# so the prod invocation issues real certificates. Dev workflows layer the
+# dev-only `docker-compose.fullapp.traefik.dev.yml` overlay on top to flip the
+# default to LE staging (untrusted certs, much higher rate limits) for safe
+# iteration.
+#
 # Usage:
 #   # Production:
 #   docker compose -f docker-compose.fullapp.yml \
 #     -f docker-compose.fullapp.traefik.yml up -d
 #
-#   # Dev (LE staging is the default in dev — override TRAEFIK_CA_SERVER for prod):
+#   # Dev (staging ACME via the dev overlay; drop the third file to use prod):
 #   docker compose -f docker-compose.fullapp.dev.yml \
-#     -f docker-compose.fullapp.traefik.yml up --build
+#     -f docker-compose.fullapp.traefik.yml \
+#     -f docker-compose.fullapp.traefik.dev.yml up --build
 
 services:
   traefik:
