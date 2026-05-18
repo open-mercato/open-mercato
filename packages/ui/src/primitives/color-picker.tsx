@@ -6,6 +6,7 @@ import { Pipette, Plus, Trash2 } from 'lucide-react'
 import { cva, type VariantProps } from 'class-variance-authority'
 
 import { cn } from '@open-mercato/shared/lib/utils'
+import { useT } from '@open-mercato/shared/lib/i18n/context'
 
 /**
  * Color picker per Figma `Color Picker` frame (DS Open Mercato
@@ -281,6 +282,7 @@ export const ColorPicker = React.forwardRef<HTMLButtonElement, ColorPickerProps>
     },
     ref,
   ) => {
+    const t = useT()
     const normalizedValue = React.useMemo(() => normalizeHex(value) ?? value, [value])
     const [hexInput, setHexInput] = React.useState(normalizedValue)
     const [hexError, setHexError] = React.useState<string | null>(null)
@@ -559,7 +561,7 @@ export const ColorPicker = React.forwardRef<HTMLButtonElement, ColorPickerProps>
                     type="button"
                     onClick={handleEyedropper}
                     data-slot="color-picker-eyedropper"
-                    aria-label="Pick color from screen"
+                    aria-label={t('ui.colorPicker.eyedropper.ariaLabel', 'Pick color from screen')}
                     className={cn(
                       'inline-flex size-9 shrink-0 items-center justify-center rounded-md border border-input bg-background text-muted-foreground shadow-xs transition-colors',
                       'hover:bg-muted/40 hover:text-foreground',

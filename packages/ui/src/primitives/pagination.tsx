@@ -10,6 +10,7 @@ import {
 import { cva, type VariantProps } from 'class-variance-authority'
 
 import { cn } from '@open-mercato/shared/lib/utils'
+import { useT } from '@open-mercato/shared/lib/i18n/context'
 import {
   CompactSelectTrigger,
   Select,
@@ -203,6 +204,7 @@ export const Pagination = React.forwardRef<HTMLDivElement, PaginationProps>(
     },
     ref,
   ) => {
+    const t = useT()
     const totalPages = Math.max(1, Math.ceil(total / Math.max(1, pageSize)))
     const safePage = Math.min(Math.max(1, page), totalPages)
     const items = React.useMemo(
@@ -247,7 +249,7 @@ export const Pagination = React.forwardRef<HTMLDivElement, PaginationProps>(
             <button
               type="button"
               data-slot="pagination-first"
-              aria-label="First page"
+              aria-label={t('ui.pagination.first.ariaLabel', 'First page')}
               disabled={disabled || safePage <= 1}
               onClick={() => goTo(1)}
               className={cn(navButtonVariants())}
@@ -259,7 +261,7 @@ export const Pagination = React.forwardRef<HTMLDivElement, PaginationProps>(
             <button
               type="button"
               data-slot="pagination-prev"
-              aria-label="Previous page"
+              aria-label={t('ui.pagination.previous.ariaLabel', 'Previous page')}
               disabled={disabled || safePage <= 1}
               onClick={() => goTo(safePage - 1)}
               className={cn(navButtonVariants())}
@@ -293,7 +295,11 @@ export const Pagination = React.forwardRef<HTMLDivElement, PaginationProps>(
                     data-slot="pagination-page"
                     data-state={selected ? 'on' : 'off'}
                     aria-current={selected ? 'page' : undefined}
-                    aria-label={selected ? `Page ${entry}, current page` : `Go to page ${entry}`}
+                    aria-label={
+                      selected
+                        ? t('ui.pagination.page.currentAriaLabel', 'Page {page}, current page', { page: entry })
+                        : t('ui.pagination.page.goToAriaLabel', 'Go to page {page}', { page: entry })
+                    }
                     disabled={disabled}
                     onClick={() => goTo(entry)}
                     className={cn(cellVariants({ selected }))}
@@ -309,7 +315,7 @@ export const Pagination = React.forwardRef<HTMLDivElement, PaginationProps>(
             <button
               type="button"
               data-slot="pagination-next"
-              aria-label="Next page"
+              aria-label={t('ui.pagination.next.ariaLabel', 'Next page')}
               disabled={disabled || safePage >= totalPages}
               onClick={() => goTo(safePage + 1)}
               className={cn(navButtonVariants())}
@@ -321,7 +327,7 @@ export const Pagination = React.forwardRef<HTMLDivElement, PaginationProps>(
             <button
               type="button"
               data-slot="pagination-last"
-              aria-label="Last page"
+              aria-label={t('ui.pagination.last.ariaLabel', 'Last page')}
               disabled={disabled || safePage >= totalPages}
               onClick={() => goTo(totalPages)}
               className={cn(navButtonVariants())}
@@ -338,7 +344,7 @@ export const Pagination = React.forwardRef<HTMLDivElement, PaginationProps>(
               onValueChange={(next) => onPageSizeChange(Number(next))}
               disabled={disabled}
             >
-              <CompactSelectTrigger aria-label="Items per page">
+              <CompactSelectTrigger aria-label={t('ui.pagination.itemsPerPage.ariaLabel', 'Items per page')}>
                 <SelectValue />
               </CompactSelectTrigger>
               <SelectContent>

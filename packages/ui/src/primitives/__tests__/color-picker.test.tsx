@@ -1,8 +1,20 @@
 /** @jest-environment jsdom */
 
 import * as React from 'react'
-import { render, fireEvent, screen, waitFor } from '@testing-library/react'
+import { render as rtlRender, fireEvent, screen, waitFor } from '@testing-library/react'
+import { I18nProvider } from '@open-mercato/shared/lib/i18n/context'
 import { ColorPicker, normalizeHex, COLOR_PICKER_DEFAULT_SWATCHES } from '../color-picker'
+
+// ColorPicker uses useT() for the eyedropper aria-label; wrap every
+// render in an empty-dict I18nProvider so the primitive falls back
+// to its hardcoded English defaults.
+const render: typeof rtlRender = (ui: React.ReactElement, options?: Parameters<typeof rtlRender>[1]) =>
+  rtlRender(
+    <I18nProvider locale="en" dict={{}}>
+      {ui}
+    </I18nProvider>,
+    options,
+  )
 
 describe('normalizeHex', () => {
   it('uppercases and prefixes 6-digit hex', () => {

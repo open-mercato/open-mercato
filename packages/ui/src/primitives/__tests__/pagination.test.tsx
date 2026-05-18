@@ -1,8 +1,20 @@
 /** @jest-environment jsdom */
 
 import * as React from 'react'
-import { render, fireEvent } from '@testing-library/react'
+import { render as rtlRender, fireEvent } from '@testing-library/react'
+import { I18nProvider } from '@open-mercato/shared/lib/i18n/context'
 import { Pagination, buildPaginationItems } from '../pagination'
+
+// Pagination uses useT() for aria-labels; wrap every render in an
+// empty-dict I18nProvider so the primitive falls back to its English
+// hardcoded defaults ("First page", "Previous page", ...).
+const render: typeof rtlRender = (ui: React.ReactElement, options?: Parameters<typeof rtlRender>[1]) =>
+  rtlRender(
+    <I18nProvider locale="en" dict={{}}>
+      {ui}
+    </I18nProvider>,
+    options,
+  )
 
 describe('buildPaginationItems', () => {
   it('returns every page when totalPages <= total slots', () => {
