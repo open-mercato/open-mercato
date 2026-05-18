@@ -297,14 +297,22 @@ async function startSyncExcelImport(
   token: string,
   data: JsonRecord,
 ): Promise<APIResponse> {
-  return request.fetch(`${BASE_URL}/api/sync_excel/import`, {
-    method: 'POST',
-    headers: {
-      ...syncExcelHeaders(token),
-      'Content-Type': 'application/json',
-    },
-    data,
-  })
+  let response: APIResponse | null = null
+  for (let attempt = 0; attempt < 3; attempt += 1) {
+    response = await request.fetch(`${BASE_URL}/api/sync_excel/import`, {
+      method: 'POST',
+      headers: {
+        ...syncExcelHeaders(token),
+        'Content-Type': 'application/json',
+      },
+      data,
+    })
+    if (response.status() !== 500) return response
+    if (attempt < 2) {
+      await new Promise((resolve) => setTimeout(resolve, 500 * (attempt + 1)))
+    }
+  }
+  return response as APIResponse
 }
 
 async function listSyncExcelMappings(
