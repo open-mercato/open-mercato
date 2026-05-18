@@ -18,7 +18,7 @@
     "@docusaurus/theme-mermaid": "^3.10.1",
     "@easyops-cn/docusaurus-search-local": "^0.55.1",
     "@mdx-js/react": "^3.0.0",
-    "@mermaid-js/layout-elk": "~0.1.9",
+    "@mermaid-js/layout-elk": "~0.2.1",
     "clsx": "^2.1.0",
     "mermaid": "^11.12.2",
     "prism-react-renderer": "^2.3.1",
@@ -27,7 +27,7 @@
   },
   "devDependencies": {
     "@tsconfig/docusaurus": "^2.0.9",
-    "@types/node": "^25.6.2",
+    "@types/node": "^25.9.0",
     "@types/react": "^19.2.14",
     "@types/react-dom": "^19.2.3",
     "rimraf": "^6.1.3",
