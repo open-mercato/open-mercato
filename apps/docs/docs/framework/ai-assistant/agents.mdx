@@ -187,6 +187,8 @@ Agents shipped in `packages/core` that whitelist any `isMutation: true` tool def
 
 For operator-facing chat agents, set `taskPlan: { enabled: true }` to expose the read-only `meta.update_task_plan` helper. The runtime injects prompt guidance telling the model to call it before domain tools on tool-using turns, and `<AiChat>` renders those agent-authored steps as the compact live plan above raw tool-call details.
 
+This is a code-level agent contract, not a tenant setting in **AI Agents**. CRM/customer agents ship with it enabled by default; other agents stay quiet unless their `AiAgentDefinition` or an `aiAgentExtensions` entry opts in.
+
 Keep labels short and user-facing:
 
 ```ts
