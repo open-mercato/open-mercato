@@ -2,11 +2,11 @@
 
 ## TLDR
 
-Register all sales module MikroORM entities in the Awilix DI container so external modules can resolve them via `container.resolve('SalesQuote')` (and other sales entities) without direct import coupling.
+Register the full set of externally-useful sales module MikroORM entities in the Awilix DI container so external modules can resolve them via `container.resolve('SalesQuote')` (and other sales entities) without direct import coupling. Three internal-only entities (`SalesSettings`, `SalesDocumentSequence`, `SalesDocumentTagAssignment`) are intentionally excluded.
 
 ## Overview
 
-The sales module's `di.ts` previously registered only three entities: `SalesOrder`, `SalesChannel`, and `SalesShipment`. The remaining 14 entities (`SalesQuote`, `SalesInvoice`, `SalesCreditMemo`, `SalesPayment`, `SalesReturn`, `SalesOrderLine`, `SalesQuoteLine`, `SalesNote`, `SalesDocumentAddress`, `SalesDocumentTag`, `SalesShippingMethod`, `SalesDeliveryWindow`, `SalesPaymentMethod`, `SalesTaxRate`) were inaccessible via DI resolution.
+The sales module's `di.ts` previously registered only three entities: `SalesOrder`, `SalesChannel`, and `SalesShipment`. 21 of the remaining 24 entities were inaccessible via DI resolution. This change registers all externally-useful entities, leaving out only three internal-only entities that have no valid external consumer use case (see Intentional Exclusions below).
 
 ## Problem Statement
 
@@ -29,13 +29,20 @@ Register all sales module entities as `asValue(...)` entries in `packages/core/s
 
 | DI Key | Entity Class |
 |--------|-------------|
-| `SalesQuote` | `SalesQuote` |
-| `SalesInvoice` | `SalesInvoice` |
-| `SalesCreditMemo` | `SalesCreditMemo` |
-| `SalesPayment` | `SalesPayment` |
-| `SalesReturn` | `SalesReturn` |
 | `SalesOrderLine` | `SalesOrderLine` |
+| `SalesOrderAdjustment` | `SalesOrderAdjustment` |
+| `SalesQuote` | `SalesQuote` |
 | `SalesQuoteLine` | `SalesQuoteLine` |
+| `SalesQuoteAdjustment` | `SalesQuoteAdjustment` |
+| `SalesShipmentItem` | `SalesShipmentItem` |
+| `SalesInvoice` | `SalesInvoice` |
+| `SalesInvoiceLine` | `SalesInvoiceLine` |
+| `SalesCreditMemo` | `SalesCreditMemo` |
+| `SalesCreditMemoLine` | `SalesCreditMemoLine` |
+| `SalesPayment` | `SalesPayment` |
+| `SalesPaymentAllocation` | `SalesPaymentAllocation` |
+| `SalesReturn` | `SalesReturn` |
+| `SalesReturnLine` | `SalesReturnLine` |
 | `SalesNote` | `SalesNote` |
 | `SalesDocumentAddress` | `SalesDocumentAddress` |
 | `SalesDocumentTag` | `SalesDocumentTag` |
@@ -43,6 +50,14 @@ Register all sales module entities as `asValue(...)` entries in `packages/core/s
 | `SalesDeliveryWindow` | `SalesDeliveryWindow` |
 | `SalesPaymentMethod` | `SalesPaymentMethod` |
 | `SalesTaxRate` | `SalesTaxRate` |
+
+### Intentional Exclusions
+
+| Entity | Reason |
+|--------|--------|
+| `SalesSettings` | Singleton per-tenant config row — no valid external consumer; accessed via `salesSettingsService` |
+| `SalesDocumentSequence` | Internal numbering counter — managed exclusively by `SalesDocumentNumberGenerator` |
+| `SalesDocumentTagAssignment` | Junction table — `SalesDocumentTag` is registered; assignments are an implementation detail of the tagging system |
 
 ### Usage Pattern (unchanged)
 
@@ -76,4 +91,5 @@ Additive-only change. No existing `resolve('Sales*')` calls return different typ
 
 ## Changelog
 
-- **2026-05-17** — Initial implementation: registered all 14 previously missing sales entities in `di.ts`.
+- **2026-05-18** — Follow-up: added 7 overlooked child entities (`SalesOrderAdjustment`, `SalesQuoteAdjustment`, `SalesShipmentItem`, `SalesInvoiceLine`, `SalesCreditMemoLine`, `SalesReturnLine`, `SalesPaymentAllocation`) after code review; updated spec to document intentional exclusions.
+- **2026-05-17** — Initial implementation: registered 14 previously missing sales entities in `di.ts`.
