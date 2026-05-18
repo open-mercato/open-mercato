@@ -280,6 +280,7 @@
   "staff.messageObjects.notFound": "Not found",
   "staff.messageObjects.team.title": "Team",
   "staff.messageObjects.teamMember.title": "Team member",
+  "staff.messages.leaveRequestApproval": "Leave request approval",
   "staff.myAvailability.empty.profileRequired": "Create your team member profile to manage availability.",
   "staff.myAvailability.errors.load": "Failed to load availability.",
   "staff.myAvailability.loading": "Loading availability...",

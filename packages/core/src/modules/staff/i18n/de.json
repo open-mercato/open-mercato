@@ -280,6 +280,7 @@
   "staff.messageObjects.notFound": "Nicht gefunden",
   "staff.messageObjects.team.title": "Team",
   "staff.messageObjects.teamMember.title": "Teammitglied",
+  "staff.messages.leaveRequestApproval": "Urlaubsantrag – Genehmigung",
   "staff.myAvailability.empty.profileRequired": "Erstelle dein Teamprofil, um Verfügbarkeit zu verwalten.",
   "staff.myAvailability.errors.load": "Verfügbarkeit konnte nicht geladen werden.",
   "staff.myAvailability.loading": "Verfügbarkeit wird geladen...",
