@@ -586,7 +586,7 @@ const updateUserCommand: CommandHandler<Record<string, unknown>, User> = {
         entity.organizationId = before.organizationId ?? null
         entity.tenantId = before.tenantId ?? null
         entity.passwordHash = before.passwordHash ?? null
-        entity.name = before.name ?? undefined
+        entity.name = before.name ?? null
         entity.isConfirmed = before.isConfirmed
       },
     })
@@ -712,7 +712,7 @@ const deleteUserCommand: CommandHandler<{ body?: Record<string, unknown>; query?
       user.organizationId = before.organizationId ?? null
       user.tenantId = before.tenantId ?? null
       user.passwordHash = before.passwordHash ?? null
-      user.name = before.name ?? undefined
+      user.name = before.name ?? null
       user.isConfirmed = before.isConfirmed
       await em.flush()
     } else {
