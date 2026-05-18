@@ -1,0 +1,165 @@
+---
+title: Module dependency graph
+description: Which modules ship with Open Mercato, which are foundational, and how the `requires` field wires inter-module dependencies.
+---
+
+Open Mercato is composed of independent modules that you enable per app in `apps/mercato/src/modules.ts`. Most modules can be disabled freely — but a small subset of **foundational** modules are pulled in transitively because other modules declare them via `ModuleInfo.requires`. This page enumerates every module that ships in the monorepo, names its declared dependencies, and explains how the platform enforces the graph.
+
+## TL;DR
+
+- Declare hard inter-module dependencies in your module's `index.ts` via `metadata.requires: string[]`.
+- `yarn generate` fails with a clear message if an enabled module's `requires` list references a module that is not enabled.
+- Tenant setup (`mercato init`, `setupInitialTenant()`) runs `seedDefaults` and `seedExamples` in dependency order derived from `requires` — see `packages/shared/src/modules/setup.ts`.
+
+## Where dependencies are declared
+
+Each module's root `index.ts` may export a `ModuleInfo` metadata object. The `requires` array names the module ids (the same id you'd put in `enabledModules`) that must be co-enabled:
+
+```ts
+// packages/core/src/modules/sales/index.ts
+import type { ModuleInfo } from '@open-mercato/shared/modules/registry'
+
+export const metadata: ModuleInfo = {
+  name: 'sales',
+  title: 'Sales Management',
+  version: '0.1.0',
+  description: 'Quoting, ordering, fulfillment, and billing.',
+  requires: ['catalog', 'customers', 'dictionaries'],
+  ejectable: true,
+}
+```
+
+The shape lives in `packages/shared/src/modules/registry.ts` (`ModuleInfo`). Only the `requires` field participates in the dependency graph; the other fields (`title`, `description`, `author`, `license`, `ejectable`, …) are descriptive metadata.
+
+## Enforcement
+
+The check runs at code-generation time, not at HTTP request time, but the effect on the running app is the same: if a required module is missing the generator refuses to write `modules.generated.ts`.
+
+```text
+Module dependency check failed:
+- Module "sales" requires: catalog, customers, dictionaries
+
+Fix: Enable required module(s) in src/modules.ts. Example:
+  export const enabledModules = [ { id: 'catalog' }, { id: 'customers' }, { id: 'dictionaries' } ]
+```
+
+(See `packages/cli/src/lib/generators/module-registry.ts:3010` for the check.) Because the generator emits the registry that the Next.js dispatcher imports, a failed `yarn generate` means the app cannot boot until the dependency is satisfied.
+
+In addition, `seedDefaults` and `seedExamples` hooks in each module's `setup.ts` are executed in topological order derived from `requires` so that a dependent module sees the data its dependency seeded.
+
+## Module catalog
+
+The tables below enumerate every module discovered under `packages/*/src/modules/*` and the create-app templates. The **Requires** column reproduces the module's declared `metadata.requires`; an empty cell means the module has no declared hard dependencies. **Foundational** marks modules that another module declares as a dependency — disabling one of these is only safe if every dependent module is also disabled.
+
+### Core platform (`@open-mercato/core`)
+
+| Module id | Title | Requires | Foundational? |
+| --- | --- | --- | --- |
+| `api_docs` | API Documentation | — | |
+| `api_keys` | API Keys | `auth` | |
+| `attachments` | Attachments | — | |
+| `audit_logs` | Audit & Action Logs | — | |
+| `auth` | Authentication & Accounts | — | ✅ (api_keys) |
+| `business_rules` | Business Rules | — | |
+| `catalog` | Product Catalog | — | ✅ (sales, sync_akeneo) |
+| `configs` | Configuration | — | |
+| `currencies` | Currencies | — | |
+| `customer_accounts` | Customer Identity & Portal Authentication | — | ✅ (portal) |
+| `customers` | Customer Relationship Management | — | ✅ (sales) |
+| `dashboards` | Admin Dashboards | — | |
+| `data_sync` | Data Sync | — | ✅ (sync_akeneo) |
+| `dictionaries` | Shared Dictionaries | — | ✅ (sales) |
+| `directory` | Directory (Tenants & Organizations) | — | |
+| `entities` | Custom Entities & Fields | `query_index` | |
+| `feature_toggles` | Feature Toggles | — | |
+| `inbox_ops` | InboxOps — Email-to-ERP Agent | — | |
+| `integrations` | Integrations | — | ✅ (sync_akeneo) |
+| `messages` | Messages | — | |
+| `notifications` | Notifications | — | |
+| `payment_gateways` | Payment Gateways | — | |
+| `perspectives` | Table perspectives | — | |
+| `planner` | Worktime / Availabilities | — | ✅ (resources, staff) |
+| `portal` | Customer Portal | `customer_accounts` | |
+| `progress` | Progress | — | |
+| `query_index` | Query Indexes | — | ✅ (entities) |
+| `resources` | Resource planning | `planner` | ✅ (staff) |
+| `sales` | Sales Management | `catalog`, `customers`, `dictionaries` | ✅ (sync_akeneo) |
+| `shipping_carriers` | Shipping Carriers | — | |
+| `staff` | Employees | `planner`, `resources` | |
+| `sync_excel` | Excel / CSV Import | — | |
+| `translations` | Entity Translations | — | |
+| `workflows` | Workflow Engine | — | |
+
+### Other first-party packages
+
+| Module id | Package | Requires | Foundational? |
+| --- | --- | --- | --- |
+| `ai_assistant` | `@open-mercato/ai-assistant` | — | |
+| `checkout` | `@open-mercato/checkout` | — | |
+| `content` | `@open-mercato/content` | — | |
+| `events` | `@open-mercato/events` | — | |
+| `gateway_stripe` | `@open-mercato/gateway-stripe` | — | |
+| `onboarding` | `@open-mercato/onboarding` | — | |
+| `scheduler` | `@open-mercato/scheduler` | — | |
+| `search` | `@open-mercato/search` | — | |
+| `sync_akeneo` | `@open-mercato/sync-akeneo` | `integrations`, `data_sync`, `catalog`, `sales` | |
+| `webhooks` | `@open-mercato/webhooks` | — | |
+
+### Enterprise (`@open-mercato/enterprise`)
+
+Enterprise modules are off by default. Toggle them via `OM_ENABLE_ENTERPRISE_MODULES`, `OM_ENABLE_ENTERPRISE_MODULES_SSO`, and `OM_ENABLE_ENTERPRISE_MODULES_SECURITY`.
+
+| Module id | Title | Requires |
+| --- | --- | --- |
+| `record_locks` | Record Locking | — |
+| `security` | Security | — |
+| `sso` | Single Sign-On | — |
+| `system_status_overlays` | System Status Overlays | — |
+
+### Templates and examples
+
+These are scaffolded into new apps by `create-app` but are not enabled in the monorepo dev app.
+
+| Module id | Package | Requires |
+| --- | --- | --- |
+| `example` | `@open-mercato/create-app` template | — |
+| `example_customers_sync` | `@open-mercato/create-app` template | — |
+
+## Reading the graph
+
+The current declared edges are:
+
+```text
+api_keys      → auth
+entities      → query_index
+portal        → customer_accounts
+resources     → planner
+sales         → catalog, customers, dictionaries
+staff         → planner, resources
+sync_akeneo   → integrations, data_sync, catalog, sales
+```
+
+Transitive closures worth noting:
+
+- Enabling `staff` implicitly requires `planner` and `resources` — and `resources` itself requires `planner`, so the effective set is `{ planner, resources, staff }`.
+- Enabling `sync_akeneo` implicitly requires the entire sales chain: `{ catalog, customers, dictionaries, sales, integrations, data_sync, sync_akeneo }`.
+- `entities` requires `query_index` because hybrid querying for custom entities is delegated to the query-index layer.
+
+A module that does not appear on the right-hand side of any arrow (no module has it as `requires`) is safe to remove from `enabledModules` without breaking another enabled module. That said, individual modules may still have **soft** runtime expectations (for example, a module's UI might link to another module's page) that the dependency graph does not capture — treat the graph as the floor, not the ceiling.
+
+## Adding a new dependency
+
+When you build a module that depends on another:
+
+1. Edit your module's `index.ts` and add the dependency id to `metadata.requires`.
+2. Run `yarn generate`. If the dependency is not enabled in the consuming app, the generator will fail with the message above.
+3. If your module relies on a dependency's setup data (currencies, dictionaries, statuses, …), put that logic in `setup.ts` under `seedDefaults`/`seedExamples`; the platform already invokes those hooks in dependency order.
+4. Document the new dependency in your module's `AGENTS.md` or matching `framework/modules/<module>.mdx` page so other contributors can discover it.
+
+Never reach across modules with direct ORM relationships — declare the dependency in `requires` and load data via the dependency's public services or the query engine. See `AGENTS.md` → *Critical Rules → Architecture* for the broader rule set.
+
+## See also
+
+- [Module registry API](../api/modules.mdx) — programmatic access to `modules`, `modulesInfo`, and the generated registry.
+- [Modules: authoring and usage](../framework/modules/overview.mdx) — module conventions, discovery, and overrides.
+- [System overview](./system-overview.mdx) — how modules feed into the generator and the runtime registry.
