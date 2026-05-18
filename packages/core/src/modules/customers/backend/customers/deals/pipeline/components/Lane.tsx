@@ -270,6 +270,8 @@ function LaneImpl({
                 convertedAll={stats.convertedAll}
                 missingRateCurrencies={stats.missingRateCurrencies}
                 triggerLabel={`+${stats.rows.length - 1}`}
+                headingLabel={stage.label.toUpperCase()}
+                headingCount={totalCount}
               />
             ) : null}
           </div>

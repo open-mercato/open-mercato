@@ -48,6 +48,7 @@ import { ViewTabsRow } from './components/ViewTabsRow'
 import { FilterBarRow, type KanbanFilterChip } from './components/FilterBarRow'
 import { Lane, type LaneStage } from './components/Lane'
 import { LaneCurrencyBreakdown } from './components/LaneCurrencyBreakdown'
+import { CurrencyFilterPopover } from './components/CurrencyFilterPopover'
 import { AddStageLane } from './components/AddStageLane'
 import type { DealCardData } from './components/DealCard'
 import {
@@ -374,6 +375,11 @@ export default function DealsKanbanPage(): React.ReactElement {
   const [peopleFilters, setPeopleFilters] = React.useState<string[]>([])
   const [companyFilters, setCompanyFilters] = React.useState<string[]>([])
   const [closeDateFilter, setCloseDateFilter] = React.useState<CloseDateRange>({ from: null, to: null })
+  // Currency filter narrows visible deal cards (list query) but DOES NOT narrow the aggregate
+  // query — lane headers + the Currency popover keep the full breakdown so the operator can
+  // see what they're filtering for and change selection without losing context. `null` = "All
+  // currencies" sentinel from the Figma popover (1251:699).
+  const [currencyFilter, setCurrencyFilter] = React.useState<string | null>(null)
   // Cache labels for selected ids so the chip can show readable text without re-fetching
   const [ownerLabels, setOwnerLabels] = React.useState<Record<string, string>>({})
   const [peopleLabels, setPeopleLabels] = React.useState<Record<string, string>>({})
@@ -540,7 +546,7 @@ export default function DealsKanbanPage(): React.ReactElement {
   React.useEffect(() => {
     setExtraCardsByStage({})
     setLoadingMoreByStage({})
-  }, [selectedPipelineId, search, statusFilters, ownerFilters, peopleFilters, companyFilters, closeDateFilter])
+  }, [selectedPipelineId, search, statusFilters, ownerFilters, peopleFilters, companyFilters, closeDateFilter, currencyFilter])
 
   // Filter signature shared by every per-lane query so all lanes invalidate together when filters change
   const filterSignature = React.useMemo(
@@ -553,8 +559,9 @@ export default function DealsKanbanPage(): React.ReactElement {
       companies: companyFilters.slice().sort().join(','),
       closeFrom: closeDateFilter.from ?? '',
       closeTo: closeDateFilter.to ?? '',
+      currency: currencyFilter ?? '',
     }),
-    [selectedPipelineId, search, statusFilters, ownerFilters, peopleFilters, companyFilters, closeDateFilter],
+    [selectedPipelineId, search, statusFilters, ownerFilters, peopleFilters, companyFilters, closeDateFilter, currencyFilter],
   )
 
   // Aggregate query — gives accurate per-stage counts + totals (in base currency) across the entire pipeline,
@@ -652,6 +659,7 @@ export default function DealsKanbanPage(): React.ReactElement {
           // otherwise switching from "Value (high to low)" to "Close (soonest)" reuses
           // the old (wrong-sort) cache and silently keeps the wrong slice on screen.
           `sort:${apiSort.sortField}:${apiSort.sortDir}`,
+          `currency:${filterSignature.currency}`,
           `stage:${stage.id}`,
         ],
         enabled: !!selectedPipelineId,
@@ -672,6 +680,7 @@ export default function DealsKanbanPage(): React.ReactElement {
           for (const companyId of companyFilters) params.append('companyId', companyId)
           if (closeDateFilter.from) params.set('expectedCloseAtFrom', closeDateFilter.from)
           if (closeDateFilter.to) params.set('expectedCloseAtTo', closeDateFilter.to)
+          if (currencyFilter) params.set('valueCurrency', currencyFilter)
           const payload = await readApiResultOrThrow<{ items?: DealApiRecord[]; total?: number }>(
             `/api/customers/deals?${params.toString()}`,
             undefined,
@@ -838,6 +847,7 @@ export default function DealsKanbanPage(): React.ReactElement {
         for (const companyId of companyFilters) params.append('companyId', companyId)
         if (closeDateFilter.from) params.set('expectedCloseAtFrom', closeDateFilter.from)
         if (closeDateFilter.to) params.set('expectedCloseAtTo', closeDateFilter.to)
+        if (currencyFilter) params.set('valueCurrency', currencyFilter)
         const call = await apiCall<{ items?: DealApiRecord[] }>(
           `/api/customers/deals?${params.toString()}`,
         )
@@ -2232,6 +2242,21 @@ export default function DealsKanbanPage(): React.ReactElement {
         selectedPipelineId={selectedPipelineId}
         onApply={setSelectedPipelineId}
       />
+      {boardSummary && boardSummary.rows.length > 0 ? (
+        <CurrencyFilterPopover
+          rows={boardSummary.rows}
+          baseCurrencyCode={boardSummary.baseCurrencyCode}
+          totalInBaseCurrency={boardSummary.totalInBaseCurrency}
+          headingLabel={translateWithFallback(
+            t,
+            'customers.deals.kanban.boardSummary.headingLabel',
+            'PIPELINE',
+          )}
+          headingCount={total}
+          selectedCurrency={currencyFilter}
+          onApply={setCurrencyFilter}
+        />
+      ) : null}
       <EntityFilterPopover
         label={translateWithFallback(t, 'customers.deals.kanban.filter.owner', 'Owner')}
         anyLabel={translateWithFallback(t, 'customers.deals.kanban.filter.all', 'All')}
@@ -2363,6 +2388,12 @@ export default function DealsKanbanPage(): React.ReactElement {
                       totalInBaseCurrency={boardSummary.totalInBaseCurrency}
                       convertedAll={boardSummary.convertedAll}
                       missingRateCurrencies={boardSummary.missingRateCurrencies}
+                      headingLabel={translateWithFallback(
+                        t,
+                        'customers.deals.kanban.boardSummary.headingLabel',
+                        'PIPELINE',
+                      )}
+                      headingCount={total}
                       triggerLabel={translateWithFallback(
                         t,
                         'customers.deals.kanban.boardSummary.breakdownTrigger',

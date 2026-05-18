@@ -45,6 +45,7 @@ export const dealListQuerySchema = z
     expectedCloseAtTo: z.string().optional(),
     isStuck: booleanQueryParam,
     isOverdue: booleanQueryParam,
+    valueCurrency: stringOrStringArray.optional(),
     sortField: z.string().optional(),
     sortDir: z.enum(['asc', 'desc']).optional(),
     personEntityId: z.string().uuid().optional(),
@@ -143,6 +144,25 @@ async function fetchDealIdsMatchingAssociations(
     values,
   )
   return rows.map((row) => row.id)
+}
+
+function normalizeCurrencyList(value: unknown): string[] {
+  const set = new Set<string>()
+  const visit = (entry: unknown) => {
+    if (entry == null) return
+    if (Array.isArray(entry)) {
+      entry.forEach(visit)
+      return
+    }
+    if (typeof entry !== 'string') return
+    entry
+      .split(',')
+      .map((token) => token.trim().toUpperCase())
+      .filter((token) => /^[A-Z]{3}$/.test(token))
+      .forEach((token) => set.add(token))
+  }
+  visit(value)
+  return Array.from(set)
 }
 
 function normalizeUuidList(values: Array<unknown>): string[] {
@@ -244,6 +264,15 @@ export async function buildDealListFilters(query: DealListQuery, ctx?: import('@
   if (ownerUserIds.length > 0) {
     filters.owner_user_id =
       ownerUserIds.length === 1 ? { $eq: ownerUserIds[0] } : { $in: ownerUserIds }
+  }
+
+  // Currency filter (additive; sourced by the kanban Currency popover). Codes are
+  // normalised to upper-case so `usd` / `USD` / mixed-case query params all hit the same
+  // stored value (the deals API persists `value_currency` upper-case already).
+  const currencyCodes = query.valueCurrency ? normalizeCurrencyList(query.valueCurrency) : []
+  if (currencyCodes.length > 0) {
+    filters.value_currency =
+      currencyCodes.length === 1 ? { $eq: currencyCodes[0] } : { $in: currencyCodes }
   }
 
   const expectedCloseFrom = parseDateInput(query.expectedCloseAtFrom)
