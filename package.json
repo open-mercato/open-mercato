@@ -113,7 +113,7 @@
     "bcryptjs": "^3.0.3",
     "class-variance-authority": "^0.7.1",
     "clsx": "^2.1.1",
-    "date-fns": "^4.1.0",
+    "date-fns": "4.1.0",
     "date-fns-tz": "^3.2.0",
     "dotenv": "^17.4.2",
     "lucide-react": "^1.11.0",
