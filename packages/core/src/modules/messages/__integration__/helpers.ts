@@ -181,15 +181,19 @@ export async function selectRecipientFromComposer(root: Page | Locator, email: s
 
 export async function searchMessages(page: Page, searchValue: string): Promise<void> {
   const input = page.getByPlaceholder('Search messages');
-  const listResponsePromise = page.waitForResponse(
-    (response) =>
-      response.request().method() === 'GET' &&
-      /\/api\/messages(?:\?|$)/.test(response.url()) &&
-      response.ok(),
-    { timeout: 5_000 },
-  ).catch(() => null);
+  const currentValue = await input.inputValue().catch(() => '');
+  const expectedSearch = searchValue.trim();
   await input.fill(searchValue);
-  await listResponsePromise;
+  if (currentValue.trim() !== expectedSearch) {
+    await page.waitForResponse(
+      (response) => {
+        if (response.request().method() !== 'GET' || !response.ok()) return false;
+        const url = new URL(response.url());
+        return url.pathname === '/api/messages' && (url.searchParams.get('search') ?? '') === expectedSearch;
+      },
+      { timeout: 10_000 },
+    ).catch(() => null);
+  }
   await page.waitForTimeout(200);
 }
 

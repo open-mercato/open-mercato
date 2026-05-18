@@ -178,6 +178,7 @@ export function MessagesInboxPageClient() {
   }, [messageTypesQuery.data, t])
 
   const [senderOptions, setSenderOptions] = React.useState<SenderOption[]>([])
+  const senderOptionsScopeRef = React.useRef(scopeVersion)
 
   const mergeSenderOptions = React.useCallback((incoming: SenderOption[]) => {
     if (incoming.length === 0) return
@@ -212,12 +213,18 @@ export function MessagesInboxPageClient() {
         description: email && email !== label ? email : null,
       }]
     })
-    mergeSenderOptions(next)
+    if (senderOptionsScopeRef.current === scopeVersion) {
+      mergeSenderOptions(next)
+    }
     return next
-  }, [mergeSenderOptions])
+  }, [mergeSenderOptions, scopeVersion])
 
   React.useEffect(() => {
-    loadSenderOptions().catch(() => {})
+    senderOptionsScopeRef.current = scopeVersion
+    setSenderOptions([])
+    loadSenderOptions().catch((error: unknown) => {
+      console.warn('[messages] Failed to load sender filter options', error)
+    })
   }, [loadSenderOptions, scopeVersion])
 
   const listItemComponentKeyByType = React.useMemo(() => {

@@ -102,6 +102,7 @@ export function normalizeMessagesSinceValue(input: string): string | null {
   if (DATE_ONLY_PATTERN.test(trimmed)) {
     const parsed = new Date(`${trimmed}T00:00:00.000Z`)
     if (Number.isNaN(parsed.getTime())) return null
+    if (parsed.toISOString().slice(0, 10) !== trimmed) return null
     return parsed.toISOString()
   }
   const parsed = new Date(trimmed)

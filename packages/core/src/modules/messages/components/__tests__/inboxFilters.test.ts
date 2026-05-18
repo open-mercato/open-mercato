@@ -85,6 +85,7 @@ describe('normalizeMessagesSinceValue', () => {
     expect(normalizeMessagesSinceValue('')).toBeNull()
     expect(normalizeMessagesSinceValue('   ')).toBeNull()
     expect(normalizeMessagesSinceValue('not-a-date')).toBeNull()
+    expect(normalizeMessagesSinceValue('2026-02-31')).toBeNull()
   })
 })
 
