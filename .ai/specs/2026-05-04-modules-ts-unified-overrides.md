@@ -181,6 +181,7 @@ Phases 2-18 now ship through PR #1960. The dispatcher still supports the "not ye
 - [x] Phase 16 — ACL feature overrides.
 - [x] Phase 17 — DI binding overrides.
 - [x] Phase 18 — encryption map overrides.
+- [x] Documentation follow-up — bb2030e1b.
 
 ## Migration & backward compatibility
 
