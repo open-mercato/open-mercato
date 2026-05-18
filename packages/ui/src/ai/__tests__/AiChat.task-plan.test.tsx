@@ -3,7 +3,7 @@
  */
 
 /**
- * Phase 1 acceptance tests for the visible agent task plan
+ * Acceptance tests for the visible agent task plan
  * (spec `.ai/specs/2026-05-13-ai-chat-visible-task-plan.md`).
  *
  * Asserts that:
@@ -70,7 +70,7 @@ const dict = {
   'ai_assistant.chat.composerLabel': 'Message composer',
   'ai_assistant.chat.composerPlaceholder': 'Message the AI agent...',
   'ai_assistant.chat.errorTitle': 'Agent dispatch failed',
-  'ai_assistant.chat.agentTasksTitle': 'Agent tasks',
+  'ai_assistant.chat.agentTasksTitle': 'Tool calls',
   'ai_assistant.chat.regionLabel': 'AI chat',
   'ai_assistant.chat.send': 'Send message',
   'ai_assistant.chat.taskPlanTitle': 'Plan',
@@ -152,7 +152,7 @@ describe('<AiChat> task plan', () => {
               id: 'call-1',
               label: 'Customers · List people',
               state: 'running',
-              source: 'runtime',
+              source: 'agent',
               toolCallId: 'call-1',
             },
           ],
@@ -174,8 +174,8 @@ describe('<AiChat> task plan', () => {
     expect(taskRow?.getAttribute('data-ai-chat-task-state')).toBe('running')
     expect(taskRow?.textContent).toContain('running…')
     expect(screen.getByText('Working on it…')).toBeInTheDocument()
-    // Existing tool-call detail row is still rendered separately.
-    expect(screen.getByText('customers.list_people')).toBeInTheDocument()
+    // Existing tool-call detail row is still rendered separately with a friendly caption.
+    expect(screen.getByText('Customers - List People (customers.list_people)')).toBeInTheDocument()
   })
 
   it('updates task state from running to done when a task-update arrives', async () => {
@@ -190,7 +190,7 @@ describe('<AiChat> task plan', () => {
               id: 'call-1',
               label: 'Catalog · Search products',
               state: 'running',
-              source: 'runtime',
+              source: 'agent',
               toolCallId: 'call-1',
             },
           ],
@@ -202,7 +202,7 @@ describe('<AiChat> task plan', () => {
             id: 'call-1',
             label: 'Catalog · Search products',
             state: 'done',
-            source: 'runtime',
+            source: 'agent',
             toolCallId: 'call-1',
           },
         },
@@ -221,6 +221,49 @@ describe('<AiChat> task plan', () => {
     expect(screen.queryByText('running…')).not.toBeInTheDocument()
   })
 
+  it('renders agent-authored plan snapshots without exposing the internal plan tool row', async () => {
+    const fetchMock = apiFetch as unknown as jest.Mock
+    fetchMock.mockResolvedValueOnce(
+      createUiMessageSseResponse([
+        { type: 'tool-input-start', toolCallId: 'plan-call', toolName: 'meta__update_task_plan' },
+        {
+          type: 'data-agent-task-plan',
+          planId: 'turn_plan',
+          tasks: [
+            {
+              id: 'search-step',
+              label: 'Search matching products',
+              state: 'pending',
+              source: 'agent',
+            },
+          ],
+        },
+        {
+          type: 'tool-input-available',
+          toolCallId: 'plan-call',
+          toolName: 'meta__update_task_plan',
+          input: { tasks: [{ label: 'Search matching products' }] },
+        },
+        {
+          type: 'tool-output-available',
+          toolCallId: 'plan-call',
+          output: { ok: true },
+        },
+        { type: 'text-delta', id: 't', delta: 'Starting now.' },
+      ]),
+    )
+
+    renderWithProviders(<AiChat agent="customers.account_assistant" />, { dict })
+    await sendAndWait()
+
+    await waitFor(() => {
+      expect(screen.getByText('Search matching products')).toBeInTheDocument()
+    })
+    expect(screen.getByText('pending')).toBeInTheDocument()
+    expect(screen.queryByText('meta.update_task_plan')).not.toBeInTheDocument()
+    expect(screen.getByText('Starting now.')).toBeInTheDocument()
+  })
+
   it('renders failed state without hiding text output', async () => {
     const fetchMock = apiFetch as unknown as jest.Mock
     fetchMock.mockResolvedValueOnce(
@@ -233,7 +276,7 @@ describe('<AiChat> task plan', () => {
               id: 'call-1',
               label: 'Catalog · Search products',
               state: 'failed',
-              source: 'runtime',
+              source: 'agent',
               toolCallId: 'call-1',
             },
           ],
@@ -249,6 +292,39 @@ describe('<AiChat> task plan', () => {
       expect(screen.getByText('failed')).toBeInTheDocument()
     })
     expect(screen.getByText('I could not search.')).toBeInTheDocument()
+  })
+
+  it('does not render runtime-derived tool lifecycle tasks as the visible plan', async () => {
+    const fetchMock = apiFetch as unknown as jest.Mock
+    fetchMock.mockResolvedValueOnce(
+      createUiMessageSseResponse([
+        {
+          type: 'data-agent-task-plan',
+          planId: 'turn_runtime',
+          tasks: [
+            {
+              id: 'call-1',
+              label: 'Customers · List deals',
+              state: 'running',
+              source: 'runtime',
+              toolCallId: 'call-1',
+            },
+          ],
+        },
+        { type: 'tool-input-start', toolCallId: 'call-1', toolName: 'customers__list_deals' },
+        { type: 'text-delta', id: 't', delta: 'Checking deals.' },
+      ]),
+    )
+
+    renderWithProviders(<AiChat agent="customers.account_assistant" />, { dict })
+    await sendAndWait()
+
+    await waitFor(() => {
+      expect(screen.getByText('Checking deals.')).toBeInTheDocument()
+    })
+    expect(screen.queryByText('Plan')).not.toBeInTheDocument()
+    expect(screen.queryByText('Customers · List deals')).not.toBeInTheDocument()
+    expect(screen.getByText('Customers - List Deals (customers.list_deals)')).toBeInTheDocument()
   })
 
   it('ignores task-update chunks that are missing required fields', async () => {

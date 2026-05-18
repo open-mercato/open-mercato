@@ -146,7 +146,7 @@
   "ai_assistant.allowlist.save.success": "Allowlist saved.",
   "ai_assistant.allowlist.subtitle": "Limit which providers and models the runtime, settings, and chat picker may use for this tenant. The env allowlist is the outer constraint — tenant picks narrow it further.",
   "ai_assistant.allowlist.title": "AI provider & model allowlist",
-  "ai_assistant.chat.agentTasksTitle": "Agent tasks",
+  "ai_assistant.chat.agentTasksTitle": "Tool calls",
   "ai_assistant.chat.assistantRoleLabel": "Assistant",
   "ai_assistant.chat.attachFile": "Attach file",
   "ai_assistant.chat.betaChip": "beta",

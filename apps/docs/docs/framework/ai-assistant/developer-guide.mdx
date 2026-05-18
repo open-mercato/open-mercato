@@ -105,6 +105,7 @@ const accountAssistant: AiAgentDefinition = {
     'attachments.read_attachment',
     'meta.describe_agent',
   ],
+  taskPlan: { enabled: true },
   executionMode: 'chat',
   readOnly: true,                            // hard-filters isMutation tools when true
   mutationPolicy: 'read-only',               // pair with readOnly above

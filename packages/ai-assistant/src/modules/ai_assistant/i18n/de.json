@@ -146,7 +146,7 @@
   "ai_assistant.allowlist.save.success": "Liste gespeichert.",
   "ai_assistant.allowlist.subtitle": "Schränke Anbieter und Modelle ein, die für diesen Mandanten verwendet werden dürfen. Die ENV-Liste ist die äußere Beschränkung — die Mandantenauswahl engt sie weiter ein.",
   "ai_assistant.allowlist.title": "Anbieter- & Modell-Allowlist",
-  "ai_assistant.chat.agentTasksTitle": "Agent-Aufgaben",
+  "ai_assistant.chat.agentTasksTitle": "Tool-Aufrufe",
   "ai_assistant.chat.assistantRoleLabel": "Assistent",
   "ai_assistant.chat.attachFile": "Attach file",
   "ai_assistant.chat.betaChip": "beta",

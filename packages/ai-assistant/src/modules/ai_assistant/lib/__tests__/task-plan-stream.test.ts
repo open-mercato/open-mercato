@@ -2,9 +2,10 @@
  * Tests for the server-side task-plan SSE injector
  * (`packages/ai-assistant/src/modules/ai_assistant/lib/task-plan-stream.ts`).
  *
- * Covers spec `.ai/specs/2026-05-13-ai-chat-visible-task-plan.md` (Phase 1)
+ * Covers spec `.ai/specs/2026-05-13-ai-chat-visible-task-plan.md`
  * acceptance criteria:
  *   - runtime-derived labels from tool lifecycle chunks
+ *   - agent-authored labels via the safe `meta.update_task_plan` tool
  *   - additive `data-agent-task-plan` snapshot + `data-agent-task-update` deltas
  *   - terminal-state ordering safeguard (done/failed/skipped wins over running)
  *   - non-tool chunks are passed through unchanged
@@ -22,6 +23,10 @@ import {
 
 function chunk(type: string, extras: Record<string, unknown> = {}): { type: string } & Record<string, unknown> {
   return { type, ...extras }
+}
+
+function parseInjected(line: string): Record<string, unknown> {
+  return JSON.parse(line.replace('data: ', '').trim()) as Record<string, unknown>
 }
 
 describe('deriveTaskLabel', () => {
@@ -118,6 +123,116 @@ describe('TaskPlanAccumulator', () => {
     expect(acc.handleToolChunk(chunk('tool-input-start'))).toEqual([])
     expect(acc.handleToolChunk(chunk('text-delta', { delta: 'hi' }))).toEqual([])
   })
+
+  it('emits a safe agent-authored plan from meta.update_task_plan input', () => {
+    const acc = new TaskPlanAccumulator('turn_test')
+    const emitted = acc.handleToolChunk(
+      chunk('tool-input-available', {
+        toolCallId: 'plan-call',
+        toolName: 'meta__update_task_plan',
+        input: {
+          tasks: [
+            {
+              id: 'find-products',
+              label: 'Find matching products',
+              detail: 'Catalog search',
+              toolName: 'catalog.search_products',
+            },
+            {
+              label: 'Summarize useful matches',
+            },
+          ],
+        },
+      }),
+    )
+    expect(emitted).toHaveLength(1)
+    const parsed = parseInjected(emitted[0]!)
+    expect(parsed).toMatchObject({
+      type: 'data-agent-task-plan',
+      planId: 'turn_test',
+      tasks: [
+        {
+          id: 'find-products',
+          label: 'Find matching products',
+          detail: 'Catalog search',
+          state: 'pending',
+          source: 'agent',
+        },
+        {
+          id: 'agent-plan-2',
+          label: 'Summarize useful matches',
+          state: 'pending',
+          source: 'agent',
+        },
+      ],
+    })
+  })
+
+  it('drops hidden-reasoning-like agent task labels', () => {
+    const acc = new TaskPlanAccumulator('turn_test')
+    const emitted = acc.handleToolChunk(
+      chunk('tool-input-available', {
+        toolCallId: 'plan-call',
+        toolName: 'meta.update_task_plan',
+        input: {
+          tasks: [
+            {
+              id: 'bad',
+              label: '<thinking>inspect tenant data</thinking>',
+            },
+          ],
+        },
+      }),
+    )
+    expect(emitted).toEqual([])
+  })
+
+  it('updates an agent-authored step when the mapped tool runs and finishes', () => {
+    const acc = new TaskPlanAccumulator('turn_test')
+    acc.handleToolChunk(
+      chunk('tool-input-available', {
+        toolCallId: 'plan-call',
+        toolName: 'meta__update_task_plan',
+        input: {
+          tasks: [
+            {
+              id: 'catalog-search',
+              label: 'Search the catalog',
+              toolName: 'catalog.search_products',
+            },
+          ],
+        },
+      }),
+    )
+    const running = acc.handleToolChunk(
+      chunk('tool-input-start', {
+        toolCallId: 'call-1',
+        toolName: 'catalog__search_products',
+      }),
+    )
+    expect(parseInjected(running[0]!)).toMatchObject({
+      type: 'data-agent-task-update',
+      task: {
+        id: 'catalog-search',
+        label: 'Search the catalog',
+        state: 'running',
+        source: 'agent',
+        toolCallId: 'call-1',
+      },
+    })
+
+    const done = acc.handleToolChunk(chunk('tool-output-available', { toolCallId: 'call-1' }))
+    expect(parseInjected(done[0]!)).toMatchObject({
+      type: 'data-agent-task-update',
+      task: {
+        id: 'catalog-search',
+        label: 'Search the catalog',
+        state: 'done',
+        source: 'agent',
+        toolCallId: 'call-1',
+      },
+    })
+  })
 })
 
 function buildSseResponse(events: Array<Record<string, unknown>>): Response {
@@ -193,6 +308,50 @@ describe('injectTaskPlanIntoStream', () => {
     // Text-delta is forwarded unchanged.
     const textEvent = events.find((e) => e.type === 'text-delta')
     expect(textEvent).toMatchObject({ delta: 'Done.' })
+  })
+
+  it('injects an agent-authored plan before the meta tool input passthrough', async () => {
+    const base = buildSseResponse([
+      { type: 'tool-input-start', toolCallId: 'plan-call', toolName: 'meta__update_task_plan' },
+      {
+        type: 'tool-input-available',
+        toolCallId: 'plan-call',
+        toolName: 'meta__update_task_plan',
+        input: {
+          tasks: [
+            {
+              id: 'search-step',
+              label: 'Search matching products',
+              toolName: 'catalog.search_products',
+            },
+          ],
+        },
+      },
+      { type: 'tool-output-available', toolCallId: 'plan-call', output: { ok: true } },
+      { type: 'tool-input-start', toolCallId: 'call-1', toolName: 'catalog__search_products' },
+    ])
+    const wrapped = injectTaskPlanIntoStream(base, 'turn_agent')
+    const events = await readEvents(wrapped)
+    const planIndex = events.findIndex((e) => e.type === 'data-agent-task-plan')
+    const metaInputIndex = events.findIndex(
+      (e) => e.type === 'tool-input-available' && e.toolCallId === 'plan-call',
+    )
+    const domainStartIndex = events.findIndex(
+      (e) => e.type === 'tool-input-start' && e.toolCallId === 'call-1',
+    )
+    expect(planIndex).toBeGreaterThan(-1)
+    expect(planIndex).toBeLessThan(metaInputIndex)
+    expect(planIndex).toBeLessThan(domainStartIndex)
+    expect(events[planIndex]).toMatchObject({
+      tasks: [{ id: 'search-step', label: 'Search matching products', source: 'agent' }],
+    })
+    expect(
+      events.some(
+        (e) =>
+          (e.type === 'data-agent-task-update' || e.type === 'data-agent-task-plan') &&
+          JSON.stringify(e).includes('plan-call'),
+      ),
+    ).toBe(false)
   })
 
   it('does not inject anything when there are no tool events', async () => {

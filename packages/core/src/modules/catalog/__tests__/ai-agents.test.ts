@@ -103,6 +103,11 @@ describe('catalog.catalog_assistant agent definition', () => {
     expect(agent.acceptedMediaTypes).toEqual(['image', 'pdf', 'file'])
   })
 
+  it('leaves visible task planning disabled by default', () => {
+    expect(agent.taskPlan).toBeUndefined()
+    expect(agent.allowedTools).not.toContain('meta.update_task_plan')
+  })
+
   it('answers capability and example-question prompts without tools', async () => {
     expect(typeof agent.loop?.prepareStep).toBe('function')
     const result = await agent.loop!.prepareStep!({
@@ -275,6 +280,11 @@ describe('catalog.merchandising_assistant agent definition (Step 4.9 / Spec §10
     expect(merchandisingAgent.maxSteps).toBeUndefined()
     expect(merchandisingAgent.output).toBeUndefined()
     expect(merchandisingAgent.acceptedMediaTypes).toEqual(['image', 'pdf', 'file'])
+  })
+
+  it('leaves visible task planning opt-in for merchandising', () => {
+    expect(merchandisingAgent.taskPlan).toBeUndefined()
+    expect(merchandisingAgent.allowedTools).not.toContain('meta.update_task_plan')
   })
 
   it('whitelists every D18 read tool', () => {

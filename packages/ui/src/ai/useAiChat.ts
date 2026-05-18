@@ -20,6 +20,7 @@ export interface AiChatMessageFile {
 export interface AiChatToolCallSnapshot {
   id: string
   toolName: string
+  caption?: string
   state: 'pending' | 'complete' | 'error'
   input?: unknown
   output?: unknown
@@ -41,8 +42,8 @@ export interface AiChatMessageUiPart {
  * SSE chunks and rendered above raw tool-call rows in `<AiChat>`.
  *
  * `source: 'runtime'` tasks are derived from tool lifecycle events by the
- * agent runtime. `source: 'agent'` is reserved for a constrained
- * agent-authored task API and is not produced by Phase 1.
+ * agent runtime. `source: 'agent'` tasks are emitted through the reserved
+ * `meta.update_task_plan` helper and sanitized before they reach the client.
  */
 export interface AiAgentTaskSnapshot {
   id: string
@@ -74,7 +75,6 @@ export interface AiChatMessage {
   /**
    * Client-local visible task plan derived from streamed
    * `data-agent-task-plan` snapshots and `data-agent-task-update` deltas.
-   * Phase 1 of the visible task-plan spec — runtime-derived tasks only.
    * Not persisted in any chat storage payload.
    */
   taskPlan?: AiAgentTaskSnapshot[]
@@ -320,6 +320,8 @@ interface AssistantBuilderState {
   reasoning: string
   reasoningStreaming: boolean
   toolCalls: AiChatToolCallSnapshot[]
+  toolCallCaptions: Record<string, string>
+  internalToolCallIds: string[]
   uiParts: AiChatMessageUiPart[]
   taskPlan: AiAgentTaskSnapshot[]
 }
@@ -330,6 +332,8 @@ function createBuilder(): AssistantBuilderState {
     reasoning: '',
     reasoningStreaming: false,
     toolCalls: [],
+    toolCallCaptions: {},
+    internalToolCallIds: [],
     uiParts: [],
     taskPlan: [],
   }
@@ -510,6 +514,7 @@ function updateToolCall(
     const next: AiChatToolCallSnapshot = {
       id,
       toolName: patch.toolName ?? 'tool',
+      caption: patch.caption ?? state.toolCallCaptions[id],
       state: patch.state ?? 'pending',
       input: patch.input,
       output: patch.output,
@@ -521,6 +526,7 @@ function updateToolCall(
   const merged: AiChatToolCallSnapshot = {
     ...current,
     toolName: patch.toolName ?? current.toolName,
+    caption: patch.caption ?? current.caption,
     state: patch.state ?? current.state,
     input: patch.input !== undefined ? patch.input : current.input,
     output: patch.output !== undefined ? patch.output : current.output,
@@ -531,9 +537,38 @@ function updateToolCall(
   return { ...state, toolCalls: nextCalls }
 }
 
+function updateToolCallCaption(
+  state: AssistantBuilderState,
+  toolCallId: string | undefined,
+  caption: string,
+): AssistantBuilderState {
+  if (!toolCallId || !caption) return state
+  const toolCallCaptions = { ...state.toolCallCaptions, [toolCallId]: caption }
+  const idx = state.toolCalls.findIndex((entry) => entry.id === toolCallId)
+  if (idx === -1) return { ...state, toolCallCaptions }
+  const nextCalls = state.toolCalls.slice()
+  nextCalls[idx] = { ...nextCalls[idx], caption }
+  return { ...state, toolCallCaptions, toolCalls: nextCalls }
+}
+
 function displayToolName(toolName: unknown): string | undefined {
   if (typeof toolName !== 'string') return undefined
   return toolName.replace(/__/g, '.')
+}
+
+function isInternalTaskPlanTool(toolName: unknown): boolean {
+  return displayToolName(toolName) === 'meta.update_task_plan'
+}
+
+function markInternalToolCall(state: AssistantBuilderState, toolCallId: unknown): AssistantBuilderState {
+  const id = String(toolCallId ?? '')
+  if (!id || state.internalToolCallIds.includes(id)) return state
+  return { ...state, internalToolCallIds: [...state.internalToolCallIds, id] }
+}
+
+function isInternalToolCallId(state: AssistantBuilderState, toolCallId: unknown): boolean {
+  const id = String(toolCallId ?? '')
+  return id.length > 0 && state.internalToolCallIds.includes(id)
 }
 
 function applyChunk(
@@ -558,11 +593,13 @@ function applyChunk(
     case 'reasoning-end':
       return { ...state, reasoningStreaming: false }
     case 'tool-input-start':
+      if (isInternalTaskPlanTool(chunk.toolName)) return markInternalToolCall(state, chunk.toolCallId)
       return updateToolCall(state, String(chunk.toolCallId ?? ''), {
         toolName: displayToolName(chunk.toolName),
         state: 'pending',
       })
     case 'tool-input-available':
+      if (isInternalTaskPlanTool(chunk.toolName)) return markInternalToolCall(state, chunk.toolCallId)
       return updateToolCall(state, String(chunk.toolCallId ?? ''), {
         toolName: displayToolName(chunk.toolName),
         input: chunk.input,
@@ -570,6 +607,7 @@ function applyChunk(
       })
     case 'tool-output-available': {
       const toolCallId = String(chunk.toolCallId ?? '')
+      if (isInternalToolCallId(state, toolCallId)) return state
       const next = updateToolCall(state, toolCallId, {
         output: chunk.output,
         state: 'complete',
@@ -593,12 +631,14 @@ function applyChunk(
       return { ...next, uiParts: merged }
     }
     case 'tool-output-error':
+      if (isInternalToolCallId(state, chunk.toolCallId)) return state
       return updateToolCall(state, String(chunk.toolCallId ?? ''), {
         state: 'error',
         errorMessage:
           typeof chunk.errorText === 'string' ? chunk.errorText : 'Tool error',
       })
     case 'tool-input-error':
+      if (isInternalTaskPlanTool(chunk.toolName)) return markInternalToolCall(state, chunk.toolCallId)
       return updateToolCall(state, String(chunk.toolCallId ?? ''), {
         toolName: displayToolName(chunk.toolName),
         input: chunk.input,
@@ -615,16 +655,19 @@ function applyChunk(
         .map(coerceTaskSnapshot)
         .filter((task): task is AiAgentTaskSnapshot => task !== null)
       if (coerced.length === 0) return state
-      let nextPlan = state.taskPlan
-      for (const task of coerced) {
-        nextPlan = mergeTaskSnapshot(nextPlan, task)
-      }
-      return { ...state, taskPlan: nextPlan }
+      return coerced.reduce(
+        (nextState, task) => updateToolCallCaption(nextState, task.toolCallId, task.label),
+        { ...state, taskPlan: coerced },
+      )
     }
     case 'data-agent-task-update': {
       const incoming = coerceTaskSnapshot(chunk.task)
       if (!incoming) return state
-      return { ...state, taskPlan: mergeTaskSnapshot(state.taskPlan, incoming) }
+      return updateToolCallCaption(
+        { ...state, taskPlan: mergeTaskSnapshot(state.taskPlan, incoming) },
+        incoming.toolCallId,
+        incoming.label,
+      )
     }
     default:
       return state

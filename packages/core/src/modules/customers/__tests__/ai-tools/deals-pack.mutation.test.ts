@@ -6,7 +6,7 @@
  * - `isMutation: true` flag is set (the Step 5.6 runtime wrapper keys off
  *   this flag to intercept the call and emit a `mutation-preview-card`).
  * - `requiredFeatures` matches an existing ACL feature (`customers.deals.manage`).
- * - `loadBeforeRecord` snapshots `{ status, pipelineStage, pipelineStageId }`
+ * - `loadBeforeRecord` snapshots raw status/stage ids plus display labels
  *   with the deal's `updatedAt` as the recordVersion — the Step 5.8 confirm
  *   route uses that version to reject stale writes (`stale_version` 412).
  * - `loadBeforeRecord` returns `null` when the deal is outside the caller's
@@ -155,7 +155,7 @@ describe('customers.update_deal_stage — loadBeforeRecord', () => {
     createRunnerMock.mockClear()
   })
 
-  it('returns the current stage snapshot keyed to updatedAt as recordVersion', async () => {
+  it('returns current and proposed stage snapshots keyed to updatedAt as recordVersion', async () => {
     const updatedAt = new Date('2026-04-18T12:00:00Z')
     findOneWithDecryptionMock.mockResolvedValue({
       id: DEAL_ID,
@@ -166,9 +166,13 @@ describe('customers.update_deal_stage — loadBeforeRecord', () => {
       pipelineStageId: STAGE_ID,
       updatedAt,
     })
-    const ctx = makeMutationCtx()
+    const targetStageId = 'b1b2c3d4-e5f6-4f01-8f02-0123456789ab'
+    const em = {
+      findOne: jest.fn().mockResolvedValue({ id: targetStageId, label: 'Negotiation' }),
+    }
+    const ctx = makeMutationCtx({ em })
     const before = await tool.loadBeforeRecord!(
-      { dealId: DEAL_ID, toStage: 'won' } as any,
+      { dealId: DEAL_ID, toPipelineStageId: targetStageId } as any,
       ctx as any,
     )
     expect(before).toEqual({
@@ -177,8 +181,25 @@ describe('customers.update_deal_stage — loadBeforeRecord', () => {
       recordVersion: updatedAt.toISOString(),
       before: {
         status: 'open',
-        pipelineStage: 'Prospect',
         pipelineStageId: STAGE_ID,
+      },
+      after: {
+        status: 'open',
+        pipelineStageId: targetStageId,
+      },
+      display: {
+        fieldLabels: {
+          status: 'Status',
+          pipelineStageId: 'Pipeline stage',
+        },
+        before: {
+          status: 'Open',
+          pipelineStageId: 'Prospect',
+        },
+        after: {
+          status: 'Open',
+          pipelineStageId: 'Negotiation',
+        },
       },
     })
   })

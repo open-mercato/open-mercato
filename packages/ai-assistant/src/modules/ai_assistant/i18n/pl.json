@@ -146,7 +146,7 @@
   "ai_assistant.allowlist.save.success": "Lista zapisana.",
   "ai_assistant.allowlist.subtitle": "Ogranicz dostawców i modele dostępne dla tego najemcy. Lista ENV jest zewnętrznym ograniczeniem — wybory najemcy je zawężają.",
   "ai_assistant.allowlist.title": "Lista dozwolonych dostawców i modeli AI",
-  "ai_assistant.chat.agentTasksTitle": "Zadania agenta",
+  "ai_assistant.chat.agentTasksTitle": "Wywołania narzędzi",
   "ai_assistant.chat.assistantRoleLabel": "Asystent",
   "ai_assistant.chat.attachFile": "Attach file",
   "ai_assistant.chat.betaChip": "beta",

@@ -2,7 +2,11 @@
 
 import * as React from 'react'
 import {
+  Activity,
+  AlertTriangle,
+  BadgeQuestionMark,
   Bot,
+  ChartNoAxesCombined,
   Check,
   ChevronDown,
   ChevronRight,
@@ -11,13 +15,19 @@ import {
   CircleCheck,
   CircleDashed,
   Copy,
+  Database,
+  FileQuestion,
+  GitBranch,
+  Handshake,
   Lightbulb,
   ListChecks,
   Loader2,
   Paperclip,
   Plus,
+  Search,
   Send,
   Square,
+  TrendingDown,
   User,
   Wrench,
   X,
@@ -56,6 +66,7 @@ import {
 import { useAiChatUpload } from './useAiChatUpload'
 import { useAiShortcuts } from './useAiShortcuts'
 import { LoopTracePanel, type LoopTracePanelTrace } from './LoopTracePanel'
+import { AiIcon } from './AiIcon'
 
 // Cap inline previews so we do not blow past localStorage quota (~5MB on most
 // browsers). Images larger than this still upload + send to the LLM as inline
@@ -387,6 +398,17 @@ function safeStringify(value: unknown): string {
   }
 }
 
+function titleWords(value: string): string {
+  return value.replace(/\b[a-z]/g, (char) => char.toUpperCase())
+}
+
+function formatToolCaption(call: AiChatToolCallSnapshot): string {
+  const rawCaption = call.caption?.trim()
+  if (!rawCaption) return call.toolName
+  const caption = titleWords(rawCaption.replace(/\s*·\s*/g, ' - '))
+  return `${caption} (${call.toolName})`
+}
+
 /**
  * Visible agent task plan rendered above raw tool-call rows. Phase 1
  * implementation of spec `.ai/specs/2026-05-13-ai-chat-visible-task-plan.md`:
@@ -475,11 +497,17 @@ function ToolCallList({ toolCalls }: { toolCalls: AiChatToolCallSnapshot[] }) {
   const [openId, setOpenId] = React.useState<string | null>(null)
   if (!toolCalls || toolCalls.length === 0) return null
   return (
-    <div className="space-y-1" data-ai-chat-tool-calls="">
-      <div className="flex items-center justify-between px-0.5 text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
-        <span>{t('ai_assistant.chat.agentTasksTitle', 'Agent tasks')}</span>
-        <span>{toolCalls.length}</span>
+    <div
+      className="rounded-md border border-border bg-muted/30"
+      data-ai-chat-tool-calls=""
+      data-ai-chat-tool-call-count={toolCalls.length}
+    >
+      <div className="flex items-center gap-2 border-b border-border/60 px-2 py-1.5 text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
+        <Wrench className="size-3.5 text-muted-foreground" aria-hidden />
+        <span>{t('ai_assistant.chat.agentTasksTitle', 'Tool calls')}</span>
+        <span className="ml-auto font-mono">{toolCalls.length}</span>
       </div>
+      <ul className="divide-y divide-border/60">
       {toolCalls.map((call) => {
         const isOpen = openId === call.id
         const isError = call.state === 'error'
@@ -491,11 +519,10 @@ function ToolCallList({ toolCalls }: { toolCalls: AiChatToolCallSnapshot[] }) {
             ? t('ai_assistant.chat.toolRunning', 'running…')
             : t('ai_assistant.chat.toolDone', 'done')
         return (
-          <div
+          <li
             key={call.id}
             className={cn(
-              'rounded-md border border-border bg-muted/30',
-              isError ? 'border-destructive/40 bg-destructive/5' : '',
+              isError ? 'bg-destructive/5' : '',
             )}
             data-ai-chat-tool-call={call.toolName}
             data-ai-chat-tool-state={call.state}
@@ -503,7 +530,7 @@ function ToolCallList({ toolCalls }: { toolCalls: AiChatToolCallSnapshot[] }) {
             <button
               type="button"
               onClick={() => setOpenId(isOpen ? null : call.id)}
-              className="flex w-full items-center gap-2 px-2 py-1.5 text-left text-xs font-medium hover:bg-muted/60"
+              className="flex h-7 w-full items-center gap-2 px-2 text-left text-xs font-medium hover:bg-muted/60"
             >
               {isOpen ? (
                 <ChevronDown className="size-3.5 text-muted-foreground" aria-hidden />
@@ -521,7 +548,9 @@ function ToolCallList({ toolCalls }: { toolCalls: AiChatToolCallSnapshot[] }) {
                   aria-hidden
                 />
               )}
-              <span className="font-mono">{call.toolName}</span>
+              <span className="truncate" title={formatToolCaption(call)}>
+                {formatToolCaption(call)}
+              </span>
               <span
                 className={cn(
                   'ml-auto text-[10px] uppercase tracking-wide',
@@ -562,9 +591,10 @@ function ToolCallList({ toolCalls }: { toolCalls: AiChatToolCallSnapshot[] }) {
                 ) : null}
               </div>
             ) : null}
-          </div>
+          </li>
         )
       })}
+      </ul>
     </div>
   )
 }
@@ -623,6 +653,10 @@ function MessageRow({
   const Icon = isAssistant ? Bot : User
   const [copied, setCopied] = React.useState(false)
   const copyTimerRef = React.useRef<ReturnType<typeof setTimeout> | null>(null)
+  const visibleTaskPlan =
+    isAssistant && message.taskPlan
+      ? message.taskPlan.filter((task) => task.source === 'agent')
+      : []
 
   React.useEffect(() => {
     return () => {
@@ -727,8 +761,8 @@ function MessageRow({
             streaming={message.reasoningStreaming === true}
           />
         ) : null}
-        {isAssistant && message.taskPlan && message.taskPlan.length > 0 ? (
-          <AiChatTaskPlan tasks={message.taskPlan} />
+        {visibleTaskPlan.length > 0 ? (
+          <AiChatTaskPlan tasks={visibleTaskPlan} />
         ) : null}
         {isAssistant && message.toolCalls && message.toolCalls.length > 0 ? (
           <ToolCallList toolCalls={message.toolCalls} />
@@ -827,6 +861,49 @@ function AiUiPartRenderer({
   )
 }
 
+function getSuggestionIcon(suggestion: AiChatSuggestion): {
+  icon: React.ReactNode
+  name: string
+} {
+  if (suggestion.icon) return { icon: suggestion.icon, name: 'custom' }
+  const text = `${suggestion.label} ${suggestion.prompt}`.toLowerCase()
+  const iconClassName = 'size-4 text-foreground'
+  if (/\b(analy[sz]e|analysis|health|score|summary|summari[sz]e)\b/.test(text)) {
+    return { icon: <ChartNoAxesCombined className={iconClassName} />, name: 'analysis' }
+  }
+  if (/\b(at[-\s]?risk|risk|stalled|stale|overdue|danger)\b/.test(text)) {
+    return { icon: <AlertTriangle className={iconClassName} />, name: 'risk' }
+  }
+  if (/\bpipeline|stage|funnel\b/.test(text)) {
+    return { icon: <GitBranch className={iconClassName} />, name: 'pipeline' }
+  }
+  if (/\bdeal|opportunit(?:y|ies)\b/.test(text)) {
+    return { icon: <Handshake className={iconClassName} />, name: 'deal' }
+  }
+  if (/\bdata|access|record|records|schema\b/.test(text)) {
+    return { icon: <Database className={iconClassName} />, name: 'data' }
+  }
+  if (/\bwhat can you help|help me|capabilit(?:y|ies)\b/.test(text)) {
+    return { icon: <BadgeQuestionMark className={iconClassName} />, name: 'capabilities' }
+  }
+  if (/\bsuggest|try|idea|ideas|recommend\b/.test(text)) {
+    return { icon: <Lightbulb className={iconClassName} />, name: 'ideas' }
+  }
+  if (/\bhow do i|how to|use this|instructions?|guide\b/.test(text)) {
+    return { icon: <FileQuestion className={iconClassName} />, name: 'guide' }
+  }
+  if (/\bfind|search|show|list|lookup\b/.test(text)) {
+    return { icon: <Search className={iconClassName} />, name: 'search' }
+  }
+  if (/\bactivity|activities|timeline|recent\b/.test(text)) {
+    return { icon: <Activity className={iconClassName} />, name: 'activity' }
+  }
+  if (/\bdown|drop|declin|loss|lost\b/.test(text)) {
+    return { icon: <TrendingDown className={iconClassName} />, name: 'trend-down' }
+  }
+  return { icon: <AiIcon className={iconClassName} />, name: 'ai' }
+}
+
 function WelcomeState({
   title,
   description,
@@ -860,22 +937,24 @@ function WelcomeState({
       </div>
       {suggestions && suggestions.length > 0 ? (
         <div className="flex w-full max-w-md flex-col gap-2" data-ai-chat-suggestions="">
-          {suggestions.map((suggestion, index) => (
-            <button
-              key={index}
-              type="button"
-              className="flex items-center gap-2 rounded-lg border border-border bg-card px-3 py-2.5 text-left text-sm transition-colors hover:bg-accent hover:text-accent-foreground"
-              onClick={() => onSuggestionClick(suggestion.prompt)}
-              data-ai-chat-suggestion={index}
-            >
-              {suggestion.icon ? (
+          {suggestions.map((suggestion, index) => {
+            const suggestionIcon = getSuggestionIcon(suggestion)
+            return (
+              <button
+                key={index}
+                type="button"
+                className="flex items-center gap-2 rounded-lg border border-border bg-card px-3 py-2.5 text-left text-sm transition-colors hover:bg-accent hover:text-accent-foreground"
+                onClick={() => onSuggestionClick(suggestion.prompt)}
+                data-ai-chat-suggestion={index}
+                data-ai-chat-suggestion-icon={suggestionIcon.name}
+              >
                 <span className="shrink-0 text-muted-foreground" aria-hidden>
-                  {suggestion.icon}
+                  {suggestionIcon.icon}
                 </span>
-              ) : null}
-              <span>{suggestion.label}</span>
-            </button>
-          ))}
+                <span>{suggestion.label}</span>
+              </button>
+            )
+          })}
         </div>
       ) : null}
     </div>

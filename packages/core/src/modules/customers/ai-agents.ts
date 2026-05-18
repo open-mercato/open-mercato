@@ -281,6 +281,7 @@ const agent: AiAgentDefinition = {
   executionMode: 'chat',
   acceptedMediaTypes: ['image', 'pdf', 'file'],
   requiredFeatures: [...REQUIRED_FEATURES],
+  taskPlan: { enabled: true },
   readOnly: false,
   // Default for write-capable agents: every mutation must be confirmed by
   // the operator. Per-tenant override can downgrade to `read-only` to lock
@@ -339,7 +340,7 @@ const DEAL_ANALYZER_PROMPT_SECTIONS: DealAnalyzerPromptSection[] = [
     content: [
       'SCOPE',
       'Stay inside the customers module. Respect tenant and organization isolation.',
-      'ALWAYS call customers.analyze_deals as your FIRST tool call — do not skip this.',
+      'ALWAYS call customers.analyze_deals as your FIRST domain tool — do not skip this.',
       'Reason about stalled deals: any deal with no activity for more than 14 days',
       'is considered stalled. For each stalled deal with a value greater than $5,000',
       'propose a stage move via customers.update_deal_stage.',
@@ -448,6 +449,7 @@ function buildDealAnalyzerPrepareStep() {
           'customers.list_activities',
           'search.hybrid_search',
           'meta.describe_agent',
+          'meta.update_task_plan',
         ],
       }
     }
@@ -466,6 +468,7 @@ const dealAnalyzer: AiAgentDefinition = {
   executionMode: 'chat',
   executionEngine: 'stream-text',
   allowRuntimeOverride: true,
+  taskPlan: { enabled: true },
   readOnly: false,
   mutationPolicy: 'confirm-required',
   requiredFeatures: ['customers.deals.view'],

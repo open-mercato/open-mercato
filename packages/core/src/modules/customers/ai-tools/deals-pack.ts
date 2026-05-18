@@ -390,6 +390,15 @@ function recordVersionFromUpdatedAt(updatedAt: Date | null | undefined): string 
   return value.toISOString()
 }
 
+function titleStatus(value: string | null | undefined): string | undefined {
+  if (!value) return undefined
+  return value
+    .split(/[_\s-]+/)
+    .filter(Boolean)
+    .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
+    .join(' ')
+}
+
 async function loadDealWithStage(
   em: EntityManager,
   ctx: CustomersToolContext,
@@ -425,14 +434,48 @@ const updateDealStageTool: CustomersAiToolDefinition = {
     const em = resolveEm(ctx)
     const deal = await loadDealWithStage(em, ctx, tenantId, input.dealId)
     if (!deal) return null
+    let afterStatus = deal.status ?? null
+    let afterPipelineStageId = deal.pipelineStageId ?? null
+    let afterPipelineStageLabel = deal.pipelineStage ?? null
+    if (input.toPipelineStageId) {
+      const stage = await em.findOne(CustomerPipelineStage, {
+        id: input.toPipelineStageId,
+        tenantId,
+        organizationId: deal.organizationId ?? ctx.organizationId ?? undefined,
+      })
+      afterPipelineStageId = input.toPipelineStageId
+      afterPipelineStageLabel = stage?.label ?? input.toPipelineStageId
+    } else if (input.toStage) {
+      afterStatus = input.toStage
+    }
+    const beforeStatus = deal.status ?? null
+    const beforePipelineStageId = deal.pipelineStageId ?? null
+    const beforePipelineStageLabel = deal.pipelineStage ?? beforePipelineStageId
     return {
       recordId: deal.id,
       entityType: 'customers.deal',
       recordVersion: recordVersionFromUpdatedAt(deal.updatedAt),
       before: {
-        status: deal.status ?? null,
-        pipelineStage: deal.pipelineStage ?? null,
-        pipelineStageId: deal.pipelineStageId ?? null,
+        status: beforeStatus,
+        pipelineStageId: beforePipelineStageId,
+      },
+      after: {
+        status: afterStatus,
+        pipelineStageId: afterPipelineStageId,
+      },
+      display: {
+        fieldLabels: {
+          status: 'Status',
+          pipelineStageId: 'Pipeline stage',
+        },
+        before: {
+          ...(beforeStatus ? { status: titleStatus(beforeStatus) } : {}),
+          ...(beforePipelineStageLabel ? { pipelineStageId: beforePipelineStageLabel } : {}),
+        },
+        after: {
+          ...(afterStatus ? { status: titleStatus(afterStatus) } : {}),
+          ...(afterPipelineStageLabel ? { pipelineStageId: afterPipelineStageLabel } : {}),
+        },
       },
     }
   },

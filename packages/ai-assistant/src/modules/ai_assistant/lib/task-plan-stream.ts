@@ -1,7 +1,7 @@
 /**
  * Visible AI chat agent task plan — server-side SSE injector.
  *
- * Spec: `.ai/specs/2026-05-13-ai-chat-visible-task-plan.md` (Phase 1).
+ * Spec: `.ai/specs/2026-05-13-ai-chat-visible-task-plan.md`.
  *
  * Wraps a streaming `Response` produced by `streamText().toUIMessageStreamResponse()`
  * (or the equivalent `ToolLoopAgent.stream(...).toUIMessageStreamResponse()`)
@@ -17,9 +17,18 @@
  *   - `tool-output-error`        → mark task `failed`
  *   - `tool-input-error`         → mark task `failed`
  *
- * Phase 1 emits only runtime-derived labels. Agent-authored labels arrive in
- * Phase 2 via a constrained helper and have separate sanitization rules.
+ * Agent-authored labels flow through the reserved non-mutation
+ * `meta.update_task_plan` tool. Its input is sanitized before the plan reaches
+ * the client; the raw meta-tool call is still passed through for older clients
+ * but the visible plan uses only the safe labels.
  */
+
+import {
+  TASK_PLAN_LABEL_MAX_CHARS,
+  isTaskPlanToolName,
+  normalizeTaskPlanToolName,
+  sanitizeAgentTaskPlanInput,
+} from './task-plan-labels'
 
 const SSE_ENCODER = new TextEncoder()
 const SSE_DECODER = new TextDecoder()
@@ -45,7 +54,7 @@ const TERMINAL_STATES: ReadonlySet<ServerTaskSnapshot['state']> = new Set([
   'skipped',
 ])
 
-const TASK_LABEL_MAX_CHARS = 80
+const TASK_LABEL_MAX_CHARS = TASK_PLAN_LABEL_MAX_CHARS
 
 /**
  * Convert a raw model-sanitized tool name (e.g. `customers__list_people`) to a
@@ -77,13 +86,24 @@ type AccumulatorEntry = {
   emitted: boolean
 }
 
+type ToolChunk = {
+  type?: unknown
+  toolCallId?: unknown
+  toolName?: unknown
+  input?: unknown
+}
+
 /**
  * Encapsulates the per-turn task-plan state. Exposed for unit tests so the
  * derivation logic can be exercised without standing up a full SSE pipeline.
  */
 export class TaskPlanAccumulator {
   private readonly tasks = new Map<string, AccumulatorEntry>()
+  private readonly toolCallToTaskId = new Map<string, string>()
+  private readonly taskToolNames = new Map<string, string>()
+  private readonly internalToolCallIds = new Set<string>()
   private snapshotEmitted = false
+  private hasAgentAuthoredPlan = false
 
   constructor(public readonly planId: string) {}
 
@@ -107,12 +127,107 @@ export class TaskPlanAccumulator {
     const current = existing.snapshot
     const nextState = TERMINAL_STATES.has(current.state) ? current.state : patch.state ?? current.state
     const merged: ServerTaskSnapshot = {
-      ...current,
-      ...patch,
+      id: current.id,
+      label: patch.label ?? current.label,
       state: nextState,
+      source: patch.source ?? current.source,
+      detail: patch.detail ?? current.detail,
+      toolCallId: patch.toolCallId ?? current.toolCallId,
     }
     this.tasks.set(id, { snapshot: merged, emitted: existing.emitted })
     return merged
+  }
+
+  private makeUniqueTaskId(baseId: string): string {
+    let candidate = baseId
+    let suffix = 2
+    while (this.tasks.has(candidate)) {
+      candidate = `${baseId}-${suffix}`
+      suffix += 1
+    }
+    return candidate
+  }
+
+  private emitFullSnapshot(): string[] {
+    if (this.tasks.size === 0) return []
+    this.snapshotEmitted = true
+    const initialTasks = Array.from(this.tasks.values()).map((e) => e.snapshot)
+    for (const e of this.tasks.values()) e.emitted = true
+    return [
+      formatSseEvent({
+        type: 'data-agent-task-plan',
+        planId: this.planId,
+        tasks: initialTasks,
+      }),
+    ]
+  }
+
+  private handleAgentAuthoredPlan(input: unknown): string[] {
+    const plan = sanitizeAgentTaskPlanInput(input)
+    if (plan.tasks.length === 0) return []
+
+    this.tasks.clear()
+    this.toolCallToTaskId.clear()
+    this.taskToolNames.clear()
+    this.snapshotEmitted = false
+    this.hasAgentAuthoredPlan = true
+
+    plan.tasks.forEach((task, index) => {
+      const id = this.makeUniqueTaskId(task.id ?? `agent-plan-${index + 1}`)
+      const snapshot: ServerTaskSnapshot = {
+        id,
+        label: task.label,
+        state: 'pending',
+        source: 'agent',
+        detail: task.detail,
+      }
+      this.tasks.set(id, { snapshot, emitted: false })
+      if (task.toolName) {
+        this.taskToolNames.set(id, task.toolName)
+      }
+    })
+
+    return this.emitFullSnapshot()
+  }
+
+  private resolveTaskIdForToolCall(toolCallId: string, toolName: string | undefined): string {
+    const existing = this.toolCallToTaskId.get(toolCallId)
+    if (existing) return existing
+    const plannedTaskId = this.findPlannedTaskId(toolName)
+    if (plannedTaskId) {
+      this.toolCallToTaskId.set(toolCallId, plannedTaskId)
+      return plannedTaskId
+    }
+    this.toolCallToTaskId.set(toolCallId, toolCallId)
+    return toolCallId
+  }
+
+  private findPlannedTaskId(toolName: string | undefined): string | null {
+    if (!this.hasAgentAuthoredPlan) return null
+    const entries = Array.from(this.tasks.entries())
+    const isAvailable = (entry: AccumulatorEntry) => !TERMINAL_STATES.has(entry.snapshot.state)
+    if (toolName) {
+      const exactPending = entries.find(([id, entry]) => {
+        return entry.snapshot.state === 'pending' && this.taskToolNames.get(id) === toolName
+      })
+      if (exactPending) return exactPending[0]
+      const exactAvailable = entries.find(([id, entry]) => {
+        return isAvailable(entry) && this.taskToolNames.get(id) === toolName
+      })
+      if (exactAvailable) return exactAvailable[0]
+    }
+    const genericPending = entries.find(([id, entry]) => {
+      return entry.snapshot.state === 'pending' && !this.taskToolNames.has(id)
+    })
+    if (genericPending) return genericPending[0]
+    const genericAvailable = entries.find(([id, entry]) => {
+      return isAvailable(entry) && !this.taskToolNames.has(id)
+    })
+    return genericAvailable?.[0] ?? null
+  }
+
+  private existingSnapshot(taskId: string): ServerTaskSnapshot | undefined {
+    return this.tasks.get(taskId)?.snapshot
   }
 
   /**
@@ -120,45 +235,59 @@ export class TaskPlanAccumulator {
    * `data: ...\n\n`-formatted) that should be injected ahead of forwarding
    * the original chunk to the client.
    */
-  handleToolChunk(chunk: { type?: unknown; toolCallId?: unknown; toolName?: unknown }): string[] {
+  handleToolChunk(chunk: ToolChunk): string[] {
     if (!chunk || typeof chunk.type !== 'string') return []
     const toolCallId = typeof chunk.toolCallId === 'string' ? chunk.toolCallId : null
+    const toolName = normalizeTaskPlanToolName(chunk.toolName)
+    if (isTaskPlanToolName(toolName)) {
+      if (toolCallId) this.internalToolCallIds.add(toolCallId)
+      if (chunk.type === 'tool-input-available') {
+        return this.handleAgentAuthoredPlan(chunk.input)
+      }
+      return []
+    }
     if (!toolCallId) return []
-    const toolName = typeof chunk.toolName === 'string' ? chunk.toolName : undefined
+    if (this.internalToolCallIds.has(toolCallId)) return []
+    const taskId = this.resolveTaskIdForToolCall(toolCallId, toolName)
+    const existing = this.existingSnapshot(taskId)
+    const source = existing?.source ?? 'runtime'
+    const runtimeLabel = deriveTaskLabel(toolName)
+    const runtimeDetail = toolName
     let nextSnapshot: ServerTaskSnapshot | null = null
     switch (chunk.type) {
       case 'tool-input-start':
-        nextSnapshot = this.upsert(toolCallId, {
-          label: deriveTaskLabel(toolName),
+        nextSnapshot = this.upsert(taskId, {
+          label: source === 'agent' ? existing?.label : runtimeLabel,
           state: 'running',
-          source: 'runtime',
+          source,
           toolCallId,
-          detail: toolName ? toolName.replace(/__/g, '.') : undefined,
+          detail: source === 'agent' ? existing?.detail : runtimeDetail,
         })
         break
       case 'tool-input-available':
-        // Refine the label when the SDK includes a richer toolName on the
-        // input-available chunk; otherwise keep the running state.
-        nextSnapshot = this.upsert(toolCallId, {
-          label: toolName ? deriveTaskLabel(toolName) : undefined,
+        // Runtime-derived tasks can refine the label when the SDK includes a
+        // richer toolName on input-available. Agent-authored tasks keep the
+        // safe label the model supplied through `meta.update_task_plan`.
+        nextSnapshot = this.upsert(taskId, {
+          label: source === 'agent' ? existing?.label : runtimeLabel,
           state: 'running',
-          source: 'runtime',
+          source,
           toolCallId,
-          detail: toolName ? toolName.replace(/__/g, '.') : undefined,
+          detail: source === 'agent' ? existing?.detail : runtimeDetail,
         })
         break
       case 'tool-output-available':
-        nextSnapshot = this.upsert(toolCallId, {
+        nextSnapshot = this.upsert(taskId, {
           state: 'done',
-          source: 'runtime',
+          source,
           toolCallId,
         })
         break
       case 'tool-output-error':
       case 'tool-input-error':
-        nextSnapshot = this.upsert(toolCallId, {
+        nextSnapshot = this.upsert(taskId, {
           state: 'failed',
-          source: 'runtime',
+          source,
           toolCallId,
         })
         break
@@ -166,7 +295,7 @@ export class TaskPlanAccumulator {
         return []
     }
     if (!nextSnapshot) return []
-    return this.emitForSnapshot(toolCallId, nextSnapshot)
+    return this.emitForSnapshot(taskId, nextSnapshot)
   }
 
   private emitForSnapshot(id: string, snapshot: ServerTaskSnapshot): string[] {
@@ -174,18 +303,7 @@ export class TaskPlanAccumulator {
     if (!entry) return []
     const lines: string[] = []
     if (!this.snapshotEmitted) {
-      this.snapshotEmitted = true
-      const initialTasks = Array.from(this.tasks.values()).map((e) => e.snapshot)
-      lines.push(
-        formatSseEvent({
-          type: 'data-agent-task-plan',
-          planId: this.planId,
-          tasks: initialTasks,
-        }),
-      )
-      // Mark every task as emitted because the snapshot covers them all.
-      for (const e of this.tasks.values()) e.emitted = true
-      return lines
+      return this.emitFullSnapshot()
     }
     if (!entry.emitted) {
       // First time we surface this task: it must be part of the next snapshot
@@ -306,7 +424,7 @@ function inspectEventBlock(
   if (!dataPayload || dataPayload === '[DONE]') {
     return { before: [], after: [] }
   }
-  let parsed: { type?: unknown; toolCallId?: unknown; toolName?: unknown } | null = null
+  let parsed: ToolChunk | null = null
   try {
     parsed = JSON.parse(dataPayload)
   } catch {
