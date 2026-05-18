@@ -428,6 +428,57 @@ describe('AiChatConversationRepository', () => {
     expect(em.__stores.message).toHaveLength(0)
   })
 
+  it('getTranscript returns messages ascending and emits a usable forward-pagination cursor', async () => {
+    const em = mockEm()
+    const repo = new AiChatConversationRepository(em)
+    const ctx = { tenantId: tenantAlpha, organizationId: null, userId: 'u-1' }
+    await repo.createOrGet({ conversationId: 'paged', agentId: 'a' }, ctx)
+    for (let i = 0; i < 5; i += 1) {
+      await repo.appendMessage(
+        'paged',
+        { role: 'user', content: `m${i}`, clientMessageId: `cm-${i}` },
+        ctx,
+        { createdAt: new Date(`2026-05-18T12:0${i}:00.000Z`) },
+      )
+    }
+
+    const firstPage = await repo.getTranscript('paged', ctx, { limit: 2 })
+    expect(firstPage).not.toBeNull()
+    expect(firstPage!.messages.map((m) => m.content)).toEqual(['m3', 'm4'])
+    expect(firstPage!.nextCursor).toBe(new Date('2026-05-18T12:03:00.000Z').toISOString())
+
+    const secondPage = await repo.getTranscript('paged', ctx, {
+      limit: 2,
+      before: firstPage!.nextCursor!,
+    })
+    expect(secondPage).not.toBeNull()
+    expect(secondPage!.messages.map((m) => m.content)).toEqual(['m1', 'm2'])
+    expect(secondPage!.nextCursor).toBe(new Date('2026-05-18T12:01:00.000Z').toISOString())
+
+    const thirdPage = await repo.getTranscript('paged', ctx, {
+      limit: 2,
+      before: secondPage!.nextCursor!,
+    })
+    expect(thirdPage).not.toBeNull()
+    expect(thirdPage!.messages.map((m) => m.content)).toEqual(['m0'])
+    expect(thirdPage!.nextCursor).toBeNull()
+  })
+
+  it('getTranscript refuses to leak a transcript to a non-owner', async () => {
+    const em = mockEm()
+    const repo = new AiChatConversationRepository(em)
+    const owner = { tenantId: tenantAlpha, organizationId: null, userId: 'u-1' }
+    const intruder = { tenantId: tenantAlpha, organizationId: null, userId: 'u-2' }
+    await repo.createOrGet({ conversationId: 'private', agentId: 'a' }, owner)
+    await repo.appendMessage(
+      'private',
+      { role: 'user', content: 'secret', clientMessageId: 'cm-1' },
+      owner,
+    )
+    const leak = await repo.getTranscript('private', intruder)
+    expect(leak).toBeNull()
+  })
+
   it('update refuses to touch a conversation owned by another user', async () => {
     const em = mockEm()
     const repo = new AiChatConversationRepository(em)

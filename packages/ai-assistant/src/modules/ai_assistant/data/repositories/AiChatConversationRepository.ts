@@ -310,7 +310,14 @@ export class AiChatConversationRepository {
     })
   }
 
-  /** Owner-only transcript hydration ordered ascending. */
+  /**
+   * Owner-only transcript hydration. Internally fetched DESC so the `before`
+   * cursor naturally advances toward older messages, then reversed so the
+   * response contract (`messages` array ordered ascending by `createdAt`)
+   * stays stable for callers. `nextCursor` points to the OLDEST message in
+   * the returned page — the next call with `before=<cursor>` fetches the
+   * next-older window.
+   */
   async getTranscript(
     conversationId: string,
     ctx: AiChatConversationContext,
@@ -338,7 +345,7 @@ export class AiChatConversationRepository {
       AiChatMessage,
       where as any,
       {
-        orderBy: { createdAt: 'asc' } as any,
+        orderBy: { createdAt: 'desc' } as any,
         limit: limit + 1,
       },
       {
@@ -347,13 +354,16 @@ export class AiChatConversationRepository {
       },
     )
     let nextCursor: string | null = null
+    let pageDesc: AiChatMessage[]
     if (rows.length > limit) {
-      const trimmed = rows.slice(0, limit)
-      const last = trimmed[trimmed.length - 1]
-      nextCursor = last?.createdAt ? last.createdAt.toISOString() : null
-      return { conversation, messages: trimmed, nextCursor }
+      pageDesc = rows.slice(0, limit)
+      const oldestIncluded = pageDesc[pageDesc.length - 1]
+      nextCursor = oldestIncluded?.createdAt ? oldestIncluded.createdAt.toISOString() : null
+    } else {
+      pageDesc = rows
     }
-    return { conversation, messages: rows, nextCursor }
+    const messages = [...pageDesc].reverse()
+    return { conversation, messages, nextCursor }
   }
 
   /**
