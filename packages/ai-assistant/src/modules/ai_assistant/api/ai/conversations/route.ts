@@ -14,6 +14,7 @@ import {
 } from '../../../lib/conversation-storage'
 
 const REQUIRED_FEATURE = 'ai_assistant.view'
+const MANAGE_CONVERSATIONS_FEATURE = 'ai_assistant.conversations.manage'
 
 export const openApi: OpenApiRouteDoc = {
   tag: 'AI Assistant',
@@ -21,10 +22,12 @@ export const openApi: OpenApiRouteDoc = {
   methods: {
     GET: {
       operationId: 'aiAssistantListConversations',
-      summary: 'List the caller-owned AI chat conversations.',
+      summary: 'List AI chat conversations visible to the caller.',
       description:
         'Returns `{ items, nextCursor }` for the authenticated caller, ordered by `lastMessageAt` ' +
-        'descending. Tenant + organization + owner scoping is enforced by the repository. The ' +
+        'descending. View-only callers receive only their own conversations. Callers with ' +
+        '`ai_assistant.conversations.manage` may list conversations across users in the same ' +
+        'tenant/organization. The ' +
         '`agent` and `status` filters are optional; `cursor` is the ISO timestamp returned by a ' +
         'previous response.',
       responses: [
@@ -91,6 +94,7 @@ async function loadCallerContext(req: NextRequest): Promise<
       tenantId: string
       organizationId: string | null
       userId: string
+      canManageConversations: boolean
     }
 > {
   const auth = await getAuthFromRequest(req)
@@ -104,6 +108,12 @@ async function loadCallerContext(req: NextRequest): Promise<
   if (!hasRequiredFeatures([REQUIRED_FEATURE], acl.features, acl.isSuperAdmin, rbacService)) {
     return { kind: 'forbidden' }
   }
+  const canManageConversations = hasRequiredFeatures(
+    [MANAGE_CONVERSATIONS_FEATURE],
+    acl.features,
+    acl.isSuperAdmin,
+    rbacService,
+  )
   if (!auth.tenantId) {
     return { kind: 'missing-tenant' }
   }
@@ -112,6 +122,7 @@ async function loadCallerContext(req: NextRequest): Promise<
     tenantId: auth.tenantId,
     organizationId: auth.orgId ?? null,
     userId: auth.sub,
+    canManageConversations,
   }
 }
 
@@ -146,6 +157,7 @@ export async function GET(req: NextRequest): Promise<Response> {
         tenantId: callerCtx.tenantId,
         organizationId: callerCtx.organizationId,
         userId: callerCtx.userId,
+        canManageConversations: callerCtx.canManageConversations,
       },
       {
         agentId: parseResult.data.agent ?? null,
@@ -199,6 +211,7 @@ export async function POST(req: NextRequest): Promise<Response> {
       tenantId: callerCtx.tenantId,
       organizationId: callerCtx.organizationId,
       userId: callerCtx.userId,
+      canManageConversations: false,
     }
     const beforeRow = parseResult.data.conversationId
       ? await repo.getById(parseResult.data.conversationId, ctx)

@@ -16,6 +16,7 @@ import {
 } from '../../../../lib/conversation-storage'
 
 const REQUIRED_FEATURE = 'ai_assistant.view'
+const MANAGE_CONVERSATIONS_FEATURE = 'ai_assistant.conversations.manage'
 
 const conversationIdParamSchema = z.object({
   conversationId: z
@@ -34,8 +35,10 @@ export const openApi: OpenApiRouteDoc = {
       summary: 'Fetch a conversation summary and recent transcript.',
       description:
         'Returns `{ conversation, messages, nextCursor }` for the supplied `conversationId`. ' +
-        'Messages are ordered ascending by `createdAt`. The `before` cursor returns the next ' +
-        'older page when paging back through long transcripts.',
+        'View-only callers can load only their own conversations. Callers with ' +
+        '`ai_assistant.conversations.manage` can load conversations across users in the same ' +
+        'tenant/organization. Messages are ordered ascending by `createdAt`. The `before` cursor ' +
+        'returns the next older page when paging back through long transcripts.',
       responses: [
         {
           status: 200,
@@ -52,10 +55,12 @@ export const openApi: OpenApiRouteDoc = {
     },
     PATCH: {
       operationId: 'aiAssistantUpdateConversation',
-      summary: 'Update an existing conversation (owner-only).',
+      summary: 'Update an existing conversation.',
       description:
         'Accepts a partial body containing any of `title`, `status`, `pageContext`. Setting ' +
-        '`status` to `closed` archives the conversation while keeping its transcript intact.',
+        '`status` to `closed` archives the conversation while keeping its transcript intact. ' +
+        'View-only callers can update only their own conversations; conversation managers can ' +
+        'update conversations in the same tenant/organization.',
       responses: [
         {
           status: 200,
@@ -72,8 +77,10 @@ export const openApi: OpenApiRouteDoc = {
     },
     DELETE: {
       operationId: 'aiAssistantDeleteConversation',
-      summary: 'Soft-delete a conversation and its messages (owner-only).',
+      summary: 'Soft-delete a conversation and its messages.',
       description:
+        'View-only callers can delete only their own conversations. Callers with ' +
+        '`ai_assistant.conversations.manage` can delete conversations in the same tenant/organization. ' +
         'Marks the conversation row and every undeleted message row with a `deleted_at` timestamp ' +
         'in one transaction. The transcript remains in the database for audit/restore until a future ' +
         'retention worker hard-deletes it.',
@@ -123,6 +130,7 @@ async function resolveCallerContext(req: NextRequest, context: RouteContext): Pr
       organizationId: string | null
       userId: string
       conversationId: string
+      canManageConversations: boolean
     }
 > {
   const auth = await getAuthFromRequest(req)
@@ -141,6 +149,12 @@ async function resolveCallerContext(req: NextRequest, context: RouteContext): Pr
   if (!hasRequiredFeatures([REQUIRED_FEATURE], acl.features, acl.isSuperAdmin, rbacService)) {
     return { kind: 'forbidden' }
   }
+  const canManageConversations = hasRequiredFeatures(
+    [MANAGE_CONVERSATIONS_FEATURE],
+    acl.features,
+    acl.isSuperAdmin,
+    rbacService,
+  )
   if (!auth.tenantId) return { kind: 'missing-tenant' }
   return {
     kind: 'ok',
@@ -148,6 +162,7 @@ async function resolveCallerContext(req: NextRequest, context: RouteContext): Pr
     organizationId: auth.orgId ?? null,
     userId: auth.sub,
     conversationId: parseResult.data.conversationId,
+    canManageConversations,
   }
 }
 
@@ -186,6 +201,7 @@ export async function GET(req: NextRequest, context: RouteContext): Promise<Resp
         tenantId: callerCtx.tenantId,
         organizationId: callerCtx.organizationId,
         userId: callerCtx.userId,
+        canManageConversations: callerCtx.canManageConversations,
       },
       {
         limit: queryResult.data.limit,
@@ -248,6 +264,7 @@ export async function PATCH(req: NextRequest, context: RouteContext): Promise<Re
         tenantId: callerCtx.tenantId,
         organizationId: callerCtx.organizationId,
         userId: callerCtx.userId,
+        canManageConversations: callerCtx.canManageConversations,
       },
     )
     return NextResponse.json(serializeAiChatConversation(row))
@@ -286,6 +303,7 @@ export async function DELETE(req: NextRequest, context: RouteContext): Promise<R
       tenantId: callerCtx.tenantId,
       organizationId: callerCtx.organizationId,
       userId: callerCtx.userId,
+      canManageConversations: callerCtx.canManageConversations,
     })
     return NextResponse.json({ ok: true })
   } catch (error) {

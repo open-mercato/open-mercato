@@ -16,25 +16,28 @@ import type {
 /**
  * Persistent store for AI chat conversations, participants, and messages.
  *
- * Owner-only MVP per spec
+ * Owner-first MVP per spec
  * `2026-05-05-ai-chat-server-side-conversation-storage`. Every read/write
  * goes through `findOneWithDecryption` / `findWithDecryption` so the repo
  * stays consistent with the rest of the module and is GDPR-encryption-ready
  * without a second refactor when `content` / `ui_parts` columns are
  * eventually flagged.
  *
- * Tenant + organization scope is required on every method. The "access
- * predicate" for read/update/delete is owner-only in MVP: the caller must be
- * the conversation's `ownerUserId`. The participant row is written
- * transactionally alongside conversation create/import so future sharing can
- * widen the predicate to "any undeleted participant" without a schema
- * change.
+ * Tenant + organization scope is required on every method. View-only callers
+ * are owner-scoped. Callers with `ai_assistant.conversations.manage` may
+ * list/read/update/delete any conversation in the same tenant/org, but never
+ * outside that boundary. The participant row is written transactionally
+ * alongside conversation create/import.
+ *
+ * TODO(ai-chat-sharing): widen the non-manage read predicate to include
+ * explicit undeleted participants once shared conversations are implemented.
  */
 
 export interface AiChatConversationContext {
   tenantId: string
   organizationId?: string | null
   userId: string
+  canManageConversations?: boolean
 }
 
 export interface AiChatConversationCreateOrGetInput {
@@ -163,7 +166,7 @@ export class AiChatConversationRepository {
     })
   }
 
-  /** Owner-only fetch. Returns `null` when the conversation is missing, soft-deleted, or not owned by the caller. */
+  /** Fetch within tenant/org. View-only callers see only their own conversations. */
   async getById(
     conversationId: string,
     ctx: AiChatConversationContext,
@@ -172,11 +175,11 @@ export class AiChatConversationRepository {
     if (!conversationId) return null
     const row = await findOneAccessibleConversation(this.em, conversationId, ctx)
     if (!row) return null
-    if (row.ownerUserId !== ctx.userId) return null
+    if (!canAccessConversation(row, ctx)) return null
     return row
   }
 
-  /** Owner-scoped list, ordered by `last_message_at DESC NULLS LAST, created_at DESC`. */
+  /** Owner-scoped list unless the caller has tenant/org manage access. */
   async list(
     ctx: AiChatConversationContext,
     options: AiChatConversationListOptions = {},
@@ -186,9 +189,9 @@ export class AiChatConversationRepository {
     const where: Record<string, unknown> = {
       tenantId: ctx.tenantId,
       organizationId: ctx.organizationId ?? null,
-      ownerUserId: ctx.userId,
       deletedAt: null,
     }
+    if (!canManageConversations(ctx)) where.ownerUserId = ctx.userId
     if (options.agentId) where.agentId = options.agentId
     if (options.status) where.status = options.status
     if (options.cursor) {
@@ -219,7 +222,7 @@ export class AiChatConversationRepository {
     return { items: rows.slice(0, limit), nextCursor }
   }
 
-  /** Owner-only update. Throws `AiChatConversationAccessError` for cross-user/cross-tenant attempts. */
+  /** Update within tenant/org. View-only callers can update only their own conversations. */
   async update(
     conversationId: string,
     patch: AiChatConversationUpdateInput,
@@ -240,7 +243,7 @@ export class AiChatConversationRepository {
           `Conversation "${conversationId}" was not found for the caller.`,
         )
       }
-      if (existing.ownerUserId !== ctx.userId) {
+      if (!canAccessConversation(existing, ctx)) {
         throw new AiChatConversationAccessError()
       }
       const now = patch.now ?? new Date()
@@ -257,7 +260,7 @@ export class AiChatConversationRepository {
     })
   }
 
-  /** Soft-delete the conversation and all its messages in one transaction. Owner-only. */
+  /** Soft-delete the conversation and all its messages in one transaction. */
   async softDelete(
     conversationId: string,
     ctx: AiChatConversationContext,
@@ -278,7 +281,7 @@ export class AiChatConversationRepository {
           `Conversation "${conversationId}" was not found for the caller.`,
         )
       }
-      if (existing.ownerUserId !== ctx.userId) {
+      if (!canAccessConversation(existing, ctx)) {
         throw new AiChatConversationAccessError()
       }
       existing.deletedAt = now
@@ -523,6 +526,17 @@ function assertContext(ctx: AiChatConversationContext | undefined, method: strin
   if (!ctx?.userId) {
     throw new Error(`AiChatConversationRepository.${method} requires userId`)
   }
+}
+
+function canManageConversations(ctx: AiChatConversationContext): boolean {
+  return ctx.canManageConversations === true
+}
+
+function canAccessConversation(
+  row: AiChatConversation,
+  ctx: AiChatConversationContext,
+): boolean {
+  return canManageConversations(ctx) || row.ownerUserId === ctx.userId
 }
 
 async function findOneAccessibleConversation(

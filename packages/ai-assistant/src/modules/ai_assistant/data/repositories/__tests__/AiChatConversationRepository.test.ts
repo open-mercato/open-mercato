@@ -379,6 +379,31 @@ describe('AiChatConversationRepository', () => {
     expect(result.items[0].conversationId).toBe('a')
   })
 
+  it('list returns same-tenant conversations across owners for conversation managers only', async () => {
+    const em = mockEm()
+    const repo = new AiChatConversationRepository(em)
+    const u1 = { tenantId: tenantAlpha, organizationId: null, userId: 'u-1' }
+    const u2 = { tenantId: tenantAlpha, organizationId: null, userId: 'u-2' }
+    await repo.createOrGet({ conversationId: 'alpha-owned', agentId: 'x' }, u1)
+    await repo.createOrGet({ conversationId: 'alpha-other', agentId: 'x' }, u2)
+    await repo.createOrGet(
+      { conversationId: 'beta-other', agentId: 'x' },
+      { tenantId: tenantBeta, organizationId: null, userId: 'u-3' },
+    )
+
+    const viewOnly = await repo.list(u1, { agentId: 'x' })
+    expect(viewOnly.items.map((row) => row.conversationId)).toEqual(['alpha-owned'])
+
+    const manager = await repo.list(
+      { ...u1, canManageConversations: true },
+      { agentId: 'x' },
+    )
+    expect(manager.items.map((row) => row.conversationId).sort()).toEqual([
+      'alpha-other',
+      'alpha-owned',
+    ])
+  })
+
   it('list filters by agentId when supplied', async () => {
     const em = mockEm()
     const repo = new AiChatConversationRepository(em)
@@ -479,6 +504,37 @@ describe('AiChatConversationRepository', () => {
     expect(leak).toBeNull()
   })
 
+  it('getTranscript allows a conversation manager to load another user transcript in the same tenant only', async () => {
+    const em = mockEm()
+    const repo = new AiChatConversationRepository(em)
+    const owner = { tenantId: tenantAlpha, organizationId: null, userId: 'u-1' }
+    const manager = {
+      tenantId: tenantAlpha,
+      organizationId: null,
+      userId: 'u-2',
+      canManageConversations: true,
+    }
+    await repo.createOrGet({ conversationId: 'managed', agentId: 'a' }, owner)
+    await repo.appendMessage(
+      'managed',
+      { role: 'user', content: 'same-tenant secret', clientMessageId: 'cm-1' },
+      owner,
+    )
+
+    const transcript = await repo.getTranscript('managed', manager)
+    expect(transcript?.messages.map((message) => message.content)).toEqual([
+      'same-tenant secret',
+    ])
+
+    const crossTenant = await repo.getTranscript('managed', {
+      tenantId: tenantBeta,
+      organizationId: null,
+      userId: 'u-2',
+      canManageConversations: true,
+    })
+    expect(crossTenant).toBeNull()
+  })
+
   it('update refuses to touch a conversation owned by another user', async () => {
     const em = mockEm()
     const repo = new AiChatConversationRepository(em)
@@ -493,5 +549,44 @@ describe('AiChatConversationRepository', () => {
         { tenantId: tenantAlpha, organizationId: null, userId: 'u-2' },
       ),
     ).rejects.toBeInstanceOf(AiChatConversationAccessError)
+  })
+
+  it('softDelete lets a conversation manager delete another user conversation in the same tenant only', async () => {
+    const em = mockEm()
+    const repo = new AiChatConversationRepository(em)
+    await repo.createOrGet(
+      { conversationId: 'same-tenant', agentId: 'a' },
+      { tenantId: tenantAlpha, organizationId: null, userId: 'u-1' },
+    )
+    await repo.createOrGet(
+      { conversationId: 'other-tenant', agentId: 'a' },
+      { tenantId: tenantBeta, organizationId: null, userId: 'u-3' },
+    )
+    const at = new Date('2026-05-18T14:00:00.000Z')
+    await repo.softDelete(
+      'same-tenant',
+      {
+        tenantId: tenantAlpha,
+        organizationId: null,
+        userId: 'u-2',
+        canManageConversations: true,
+      },
+      at,
+    )
+    expect(
+      em.__stores.conv.find((row: ConvRow) => row.conversationId === 'same-tenant')?.deletedAt,
+    ).toEqual(at)
+
+    await expect(
+      repo.softDelete('other-tenant', {
+        tenantId: tenantAlpha,
+        organizationId: null,
+        userId: 'u-2',
+        canManageConversations: true,
+      }),
+    ).rejects.toBeInstanceOf(AiChatConversationAccessError)
+    expect(
+      em.__stores.conv.find((row: ConvRow) => row.conversationId === 'other-tenant')?.deletedAt,
+    ).toBeNull()
   })
 })

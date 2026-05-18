@@ -102,6 +102,7 @@ export const setup: ModuleSetupConfig = {
     admin: [
       'ai_assistant.view',
       'ai_assistant.settings.manage',
+      'ai_assistant.conversations.manage',
       'ai_assistant.mcp.serve',
       'ai_assistant.tools.list',
       'ai_assistant.mcp_servers.view',
