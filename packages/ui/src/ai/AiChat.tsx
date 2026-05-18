@@ -618,24 +618,29 @@ function MessageFileAttachment({ file }: { file: AiChatMessageFile }) {
               {t('ai_assistant.chat.imagePreviewDialogDescription', 'Image preview')}
             </DialogDescription>
           </DialogHeader>
-          {downloadUrl ? (
-            <IconButton
-              asChild
-              variant="ghost"
-              size="sm"
-              className="absolute right-12 top-4"
-            >
-              <a href={downloadUrl} download={file.name} aria-label={downloadLabel}>
-                <Download className="size-4" aria-hidden />
-              </a>
-            </IconButton>
-          ) : null}
-          <div className="flex min-h-0 items-center justify-center overflow-auto rounded-md bg-muted/30 p-2">
+          <div className="relative flex min-h-0 items-center justify-center overflow-auto rounded-md bg-muted/30 p-2">
             <img
               src={imageUrl ?? file.previewUrl}
               alt={file.name}
               className="max-h-[75vh] max-w-full object-contain"
             />
+            {downloadUrl ? (
+              <IconButton
+                asChild
+                variant="white"
+                size="sm"
+                className="absolute bottom-3 right-3 shadow-xs"
+              >
+                <a
+                  href={downloadUrl}
+                  download={file.name}
+                  aria-label={downloadLabel}
+                  data-ai-chat-file-download=""
+                >
+                  <Download className="size-4" aria-hidden />
+                </a>
+              </IconButton>
+            ) : null}
           </div>
         </DialogContent>
       </Dialog>
