@@ -1,4 +1,5 @@
 import { z } from 'zod'
+import { parseBooleanFlag } from '@open-mercato/shared/lib/boolean'
 
 function collectDuplicateRecipientIds(
   recipients: Array<{ userId: string }>,
@@ -209,9 +210,9 @@ export const listMessagesSchema = z.object({
   sourceEntityType: z.string().optional(),
   sourceEntityId: z.string().uuid().optional(),
   externalEmail: z.string().email().optional(),
-  hasObjects: z.coerce.boolean().optional(),
-  hasAttachments: z.coerce.boolean().optional(),
-  hasActions: z.coerce.boolean().optional(),
+  hasObjects: z.string().transform(parseBooleanFlag).optional(),
+  hasAttachments: z.string().transform(parseBooleanFlag).optional(),
+  hasActions: z.string().transform(parseBooleanFlag).optional(),
   senderId: z.string().uuid().optional(),
   search: z.string().max(200).optional(),
   since: z.string().datetime().optional(),
