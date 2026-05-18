@@ -2,7 +2,7 @@ import type { EntityManager } from '@mikro-orm/postgresql'
 import { z } from 'zod'
 import { registerCommand, type CommandHandler } from '@open-mercato/shared/lib/commands'
 import { extractUndoPayload, type UndoPayload } from '@open-mercato/shared/lib/commands/undo'
-import { findOneWithDecryption } from '@open-mercato/shared/lib/encryption/find'
+import { findOneWithDecryption, findWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import { Message, MessageObject, MessageRecipient, type MessageActionData } from '../data/entities'
 import { emitMessagesEvent } from '../events'
 import {
@@ -370,7 +370,16 @@ const updateDraftCommand: CommandHandler<unknown, { ok: true; id: string }> = {
 
     const isSending = input.isDraft === false
     const preloadedRecipients = isSending && !input.recipients
-      ? await em.find(MessageRecipient, { messageId: message.id, deletedAt: null })
+      ? await findWithDecryption(
+        em,
+        MessageRecipient,
+        { messageId: message.id, deletedAt: null },
+        undefined,
+        {
+          tenantId: input.tenantId,
+          organizationId: input.organizationId,
+        },
+      )
       : null
 
     const nextMessageType = input.type ?? message.type

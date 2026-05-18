@@ -100,4 +100,20 @@ describe('messages validators', () => {
 
     expect(result.success).toBe(false)
   })
+
+  it('allows the draft send transition with isDraft=false', () => {
+    const result = updateDraftSchema.safeParse({
+      isDraft: false,
+    })
+
+    expect(result.success).toBe(true)
+  })
+
+  it('rejects isDraft=true when updating a draft', () => {
+    const result = updateDraftSchema.safeParse({
+      isDraft: true,
+    })
+
+    expect(result.success).toBe(false)
+  })
 })
