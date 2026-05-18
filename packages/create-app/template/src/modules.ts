@@ -15,6 +15,52 @@ export type ModuleEntry = {
   overrides?: ModuleOverrides
 }
 
+/**
+ * Copyable examples for every wired `entry.overrides` domain.
+ *
+ * This object is intentionally not assigned to any enabled module. Use it as
+ * a reference when a downstream app needs to disable or replace contracts
+ * from a package-backed module without editing that module's source.
+ */
+export const moduleOverrideExamples: ModuleOverrides = {
+  ai: {
+    agents: { 'catalog.catalog_assistant': null },
+    tools: { inbox_ops_accept_action: null },
+  },
+  routes: {
+    api: { 'DELETE /api/example/items': null },
+    pages: { '/backend/example/reports': null },
+  },
+  events: {
+    subscribers: { 'example.todo.audit': null },
+  },
+  workers: { 'example:sync': null },
+  widgets: {
+    injection: { 'example.sidebar': null },
+    components: { 'page:/backend/example': null },
+    dashboard: { 'example.kpi': null },
+  },
+  notifications: {
+    types: { 'example.notice': null },
+    handlers: { 'example.notice.toast': null },
+  },
+  interceptors: { 'example.items.interceptor': null },
+  commandInterceptors: { 'example.command.interceptor': null },
+  enrichers: { 'example.items.enricher': null },
+  guards: { 'example.backend.guard': null },
+  cli: { 'example seed': null },
+  setup: {
+    seedExamples: false,
+  },
+  acl: {
+    features: { 'example.manage': null },
+  },
+  di: { exampleService: null },
+  encryption: {
+    maps: { 'example:item': null },
+  },
+}
+
 export const enabledModules: ModuleEntry[] = [
   { id: 'dashboards', from: '@open-mercato/core' },
   { id: 'auth', from: '@open-mercato/core' },

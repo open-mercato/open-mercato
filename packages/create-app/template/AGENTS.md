@@ -147,6 +147,17 @@ This is a Next.js 16 application built on the **Open Mercato** modular ERP frame
 - `src/bootstrap.ts` - Application initialization (imports generated files, registers i18n)
 - `.mercato/generated/` - Auto-generated files from `yarn generate` (do not edit manually)
 
+### Module Overrides
+
+Use the unified `entry.overrides` field in `src/modules.ts` when this app needs to replace or disable a contract from a package-backed module without forking it. The template ships a non-applied `moduleOverrideExamples` object covering AI, routes, events, workers, widgets, notifications, interceptors, setup, ACL, DI, and encryption. Copy only the specific domains you need into the target module entry's `overrides` field.
+
+Rules:
+
+- `null` disables a matching contract; an object/function definition replaces it.
+- API route keys are `'METHOD /api/path'`; page route keys are `'/backend/path'` or `'/frontend/path'`.
+- `setup` overrides apply to the module entry carrying them, not to a separate setup id map.
+- The standard `src/bootstrap.ts` already calls `applyModuleOverridesFromEnabledModules(enabledModules)` before registries load.
+
 ### Routing Structure
 
 - `/backend/*` - Admin panel routes (AppShell with sidebar navigation)
