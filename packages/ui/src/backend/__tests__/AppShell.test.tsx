@@ -173,6 +173,14 @@ describe('AppShell', () => {
     expect(screen.getByTestId('injection-spot:backend:sidebar:footer')).toBeInTheDocument()
     expect(screen.getByTestId('injection-spot:backend-mutation:global')).toBeInTheDocument()
     expect(screen.getByText('Child content')).toBeInTheDocument()
+
+    const breadcrumbNav = screen.getByRole('navigation', { name: 'Breadcrumb' })
+    expect(breadcrumbNav).toHaveAttribute('data-slot', 'breadcrumb')
+    expect(breadcrumbNav).toHaveAttribute('data-divider', 'arrow')
+    const dashboardHome = within(breadcrumbNav).getByRole('link', { name: 'Dashboard' })
+    expect(dashboardHome).toHaveAttribute('href', '/backend')
+    const activePage = within(breadcrumbNav).getByText((_, el) => el?.getAttribute('data-slot') === 'breadcrumb-page')
+    expect(activePage).toHaveAttribute('aria-current', 'page')
     expect(mockInjectionSpot).toHaveBeenCalledWith(
       expect.objectContaining({
         spotId: 'backend-mutation:global',

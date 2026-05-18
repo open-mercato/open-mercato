@@ -18,6 +18,11 @@ jest.mock('next/dynamic', () => (loader: () => Promise<unknown>) => {
   return Lazy
 })
 
+jest.mock('@open-mercato/shared/lib/i18n/context', () => ({
+  useT: () => (_key: string, fallback?: string) => fallback ?? _key,
+  useLocale: () => 'en',
+}))
+
 jest.mock('@open-mercato/ui/backend/BackendChromeProvider', () => ({
   useBackendChrome: () => ({ payload: { groups: [], grantedFeatures: [] }, isReady: true }),
 }))
