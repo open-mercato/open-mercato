@@ -53,17 +53,33 @@ describe('invoice and credit memo route modules', () => {
     expect(creditMemoRoute.metadata).toBeDefined()
   })
 
-  it('invoice route metadata requires auth and invoices.manage feature', () => {
+  it('invoice route metadata uses .view for read and .manage for writes', () => {
     const { metadata } = require('../../api/invoices/route')
     expect(metadata.GET.requireAuth).toBe(true)
-    expect(metadata.GET.requireFeatures).toContain('sales.invoices.manage')
+    expect(metadata.GET.requireFeatures).toContain('sales.invoices.view')
     expect(metadata.POST.requireFeatures).toContain('sales.invoices.manage')
+    expect(metadata.PUT.requireFeatures).toContain('sales.invoices.manage')
+    expect(metadata.DELETE.requireFeatures).toContain('sales.invoices.manage')
   })
 
-  it('credit memo route metadata requires auth and credit_memos.manage feature', () => {
+  it('credit memo route metadata uses .view for read and .manage for writes', () => {
     const { metadata } = require('../../api/credit-memos/route')
     expect(metadata.GET.requireAuth).toBe(true)
-    expect(metadata.GET.requireFeatures).toContain('sales.credit_memos.manage')
+    expect(metadata.GET.requireFeatures).toContain('sales.credit_memos.view')
     expect(metadata.POST.requireFeatures).toContain('sales.credit_memos.manage')
+    expect(metadata.PUT.requireFeatures).toContain('sales.credit_memos.manage')
+    expect(metadata.DELETE.requireFeatures).toContain('sales.credit_memos.manage')
+  })
+
+  it('invoice [id] route requires .view for read', () => {
+    const { metadata } = require('../../api/invoices/[id]/route')
+    expect(metadata.GET.requireAuth).toBe(true)
+    expect(metadata.GET.requireFeatures).toContain('sales.invoices.view')
+  })
+
+  it('credit memo [id] route requires .view for read', () => {
+    const { metadata } = require('../../api/credit-memos/[id]/route')
+    expect(metadata.GET.requireAuth).toBe(true)
+    expect(metadata.GET.requireFeatures).toContain('sales.credit_memos.view')
   })
 })

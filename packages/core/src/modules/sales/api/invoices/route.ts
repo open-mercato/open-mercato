@@ -33,7 +33,7 @@ const crud = makeCrudRoute({
   },
   indexer: { entityType: E.sales.sales_invoice },
   metadata: {
-    GET: { requireAuth: true, requireFeatures: ['sales.invoices.manage'] },
+    GET: { requireAuth: true, requireFeatures: ['sales.invoices.view'] },
     POST: { requireAuth: true, requireFeatures: ['sales.invoices.manage'] },
     PUT: { requireAuth: true, requireFeatures: ['sales.invoices.manage'] },
     DELETE: { requireAuth: true, requireFeatures: ['sales.invoices.manage'] },
