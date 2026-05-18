@@ -9,6 +9,10 @@ import type {
   ModuleInjectionTable,
   InjectionWidgetPlacement,
 } from './injection'
+import {
+  applyInjectionWidgetOverridesToEntries,
+  applyInjectionWidgetOverridesToTables,
+} from '../overrides'
 
 type LoadedWidgetModule = InjectionWidgetModule<any, any> & { metadata: InjectionWidgetMetadata }
 type LoadedDataWidgetModule = InjectionDataWidgetModule & { metadata: InjectionWidgetMetadata }
@@ -137,8 +141,9 @@ export function registerCoreInjectionWidgets(entries: ModuleInjectionWidgetEntry
   if (_coreInjectionWidgetEntries !== null && process.env.NODE_ENV === 'development') {
     console.debug('[Bootstrap] Core injection widgets re-registered (this may occur during HMR)')
   }
-  _coreInjectionWidgetEntries = entries
-  writeGlobalInjectionWidgets(entries)
+  const finalEntries = applyInjectionWidgetOverridesToEntries(entries)
+  _coreInjectionWidgetEntries = finalEntries
+  writeGlobalInjectionWidgets(finalEntries)
   notifyInjectionRegistryChanged()
 }
 
@@ -159,8 +164,9 @@ export function registerCoreInjectionTables(tables: Array<{ moduleId: string; ta
   if (_coreInjectionTables !== null && process.env.NODE_ENV === 'development') {
     console.debug('[Bootstrap] Core injection tables re-registered (this may occur during HMR)')
   }
-  _coreInjectionTables = tables
-  writeGlobalInjectionTables(tables)
+  const finalTables = applyInjectionWidgetOverridesToTables(tables)
+  _coreInjectionTables = finalTables
+  writeGlobalInjectionTables(finalTables)
   notifyInjectionRegistryChanged()
 }
 

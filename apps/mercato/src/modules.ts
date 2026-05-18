@@ -2,10 +2,10 @@
 // - id: module id (plural snake_case; special cases: 'auth')
 // - from: '@open-mercato/core' | '@app' | custom alias/path in future
 // - overrides: optional unified per-app override surface — replace or
-//   disable any contract a module presents. AI is wired today (Phase 1);
-//   other domains are stubbed and emit a one-shot warning if used.
+//   disable any contract a module presents: AI, routes, events, workers,
+//   widgets, notifications, interceptors, setup, ACL, DI, encryption, etc.
 //   See `.ai/specs/2026-05-04-modules-ts-unified-overrides.md` and
-//   `apps/docs/docs/framework/ai-assistant/overrides.mdx`.
+//   `apps/docs/docs/framework/modules/overrides.mdx`.
 import { parseBooleanWithDefault } from '@open-mercato/shared/lib/boolean'
 import type { ModuleOverrides } from '@open-mercato/shared/modules/overrides'
 
@@ -59,7 +59,24 @@ export const enabledModules: ModuleEntry[] = [
   { id: 'webhooks', from: '@open-mercato/webhooks' },
   { id: 'customer_accounts', from: '@open-mercato/core' },
   { id: 'portal', from: '@open-mercato/core' },
-  { id: 'example', from: '@app' },
+  {
+    id: 'example',
+    from: '@app',
+    overrides: {
+      routes: {
+        api: {
+          'GET /api/example/override-probe': {
+            handler: async () => Response.json({
+              ok: true,
+              source: 'modules.ts override',
+              route: 'example.override-probe',
+            }),
+            metadata: { requireAuth: false },
+          },
+        },
+      },
+    },
+  },
   { id: 'ratelimit_probe', from: '@app' },
 ]
 

@@ -97,22 +97,26 @@ import { hasFeature, hasAllFeatures } from '@open-mercato/shared/security/featur
 
 ### Module-Level Overrides (`@open-mercato/shared/modules/overrides`)
 
-Downstream apps replace or disable any contract a module presents through a single `entry.overrides` field on a `ModuleEntry`. The umbrella spec is `.ai/specs/2026-05-04-modules-ts-unified-overrides.md`; AI (Phase 1) and Routes — API (Phase 2) are wired.
+Downstream apps replace or disable any contract a module presents through a single `entry.overrides` field on a `ModuleEntry`. The umbrella spec is `.ai/specs/2026-05-04-modules-ts-unified-overrides.md`; phases 1-18 are wired.
 
 | Use case | Helper |
 |----------|--------|
 | Walk `enabledModules` and dispatch every `overrides.<domain>` shape to wired appliers | `applyModuleOverridesFromEnabledModules(enabledModules)` |
 | Register a per-domain runtime hook (used by each wired phase) | `registerModuleOverrideApplier('<domain>', applier)` |
-| **Phase 2** — apply API-route overrides programmatically | `applyApiRouteOverrides({ 'GET /api/path': null \| { handler, metadata? } })` |
-| **Phase 2** — compose the final API-route override map across tiers | `composeApiRouteOverrides()` |
-| **Phase 2** — rewrite a manifest list with the resolved override map | `applyApiOverridesToManifests(routes, overrides)` |
+| API routes | `applyApiRouteOverrides()`, `composeApiRouteOverrides()`, `applyApiOverridesToManifests()` |
+| Page routes | `applyPageRouteOverrides()`, `composePageRouteOverrides()`, `applyPageOverridesToManifests()` |
+| Subscribers / workers / CLI / ACL / encryption / setup | `applyModuleOverridesToModules()` plus `applySubscriberOverrides()`, `applyWorkerOverrides()`, `applyCliOverrides()`, `applyAclFeatureOverrides()`, `applyEncryptionMapOverrides()` |
+| Widgets | `applyInjectionWidgetOverridesToEntries()`, `applyInjectionWidgetOverridesToTables()`, `applyDashboardWidgetOverridesToEntries()`, `applyComponentOverridesToEntries()` |
+| Notifications / interceptors / enrichers / guards | `applyNotificationTypeOverridesToEntries()`, `applyNotificationHandlerOverridesToEntries()`, `applyApiInterceptorOverridesToEntries()`, `applyCommandInterceptorOverridesToEntries()`, `applyResponseEnricherOverridesToEntries()`, `applyPageGuardOverridesToEntries()` |
+| DI | `applyDiOverridesToContainer()` |
 
 MUST rules:
 - `entry.overrides` is the ONLY canonical override surface — never patch upstream module source.
 - API-route override keys are `'METHOD /api/path'` (method case-insensitive, path leading slash optional). Trailing slashes are stripped.
+- Page-route override keys are `'/backend/path'` or `'/frontend/path'`.
 - `null` disables the matching method; `{ handler, metadata? }` replaces it. Disabling every method on an entry drops the entry.
-- The dispatcher SHOULD run from `bootstrap.ts` BEFORE any registry first-loads (`registerApiRouteManifests` etc.) so the overrides take effect when the manifest is stored.
-- Adding a new domain applier MUST follow the per-phase contract in the umbrella spec: composer + runtime hook + tests + AGENTS.md update + status-table tick.
+- The dispatcher SHOULD run from `bootstrap.ts` BEFORE any registry first-loads (`registerApiRouteManifests`, widget registries, notification registries, etc.) so the overrides take effect when the registry stores entries.
+- Adding a new override domain MUST follow the umbrella spec: typed sub-shape + composer + runtime hook + tests + AGENTS.md/docs update + status-table tick.
 
 ### Query Engine Extensibility (UMES)
 

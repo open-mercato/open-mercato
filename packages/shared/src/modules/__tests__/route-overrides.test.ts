@@ -1,11 +1,11 @@
 /**
- * Phase 2 — unified `entry.overrides.routes.api` wiring.
+ * Phase 2/3 — unified `entry.overrides.routes.*` wiring.
  *
  * Covers:
  *   - The dispatcher routes `overrides.routes.api` to the wired applier
  *     (no "Domain routes not yet wired" warning).
- *   - The applier still emits a sub-domain warning for unwired
- *     `overrides.routes.pages` (Phase 3).
+ *   - The dispatcher routes `overrides.routes.pages` to the page-route
+ *     composer and the manifest registries apply it.
  *   - `applyApiOverridesToManifests` drops disabled methods, drops fully
  *     disabled entries, and wraps `load()` for replacement handlers.
  *   - Programmatic overrides supersede `modules.ts` overrides.
@@ -18,15 +18,25 @@ import {
   applyApiOverridesToManifests,
   applyApiRouteOverrides,
   applyModuleOverridesFromEnabledModules,
+  applyPageOverridesToManifests,
+  applyPageRouteOverrides,
   composeApiRouteOverrides,
+  composePageRouteOverrides,
   resetApiRouteOverridesForTests,
+  resetModuleContractOverridesForTests,
   type ApiRouteOverridesMap,
 } from '../overrides'
 import {
   getApiRouteManifests,
+  getBackendRouteManifests,
+  getFrontendRouteManifests,
   registerApiRouteManifests,
+  registerBackendRouteManifests,
+  registerFrontendRouteManifests,
   type ApiHandler,
   type ApiRouteManifestEntry,
+  type BackendRouteManifestEntry,
+  type FrontendRouteManifestEntry,
   type HttpMethod,
 } from '../registry'
 
@@ -49,13 +59,38 @@ function makeHandler(label: string): ApiHandler {
   return () => new Response(label)
 }
 
+function makeBackendPage(path: string): BackendRouteManifestEntry {
+  return {
+    moduleId: 'example',
+    path,
+    pattern: path,
+    title: 'Original',
+    load: jest.fn(async () => function OriginalPage() { return null }),
+  }
+}
+
+function makeFrontendPage(path: string): FrontendRouteManifestEntry {
+  return {
+    moduleId: 'example',
+    path,
+    pattern: path,
+    title: 'Original',
+    load: jest.fn(async () => function OriginalPage() { return null }),
+  }
+}
+
 beforeEach(() => {
+  resetModuleContractOverridesForTests()
   resetApiRouteOverridesForTests()
   registerApiRouteManifests([])
+  registerBackendRouteManifests([])
+  registerFrontendRouteManifests([])
 })
 
 afterEach(() => {
   registerApiRouteManifests([])
+  registerBackendRouteManifests([])
+  registerFrontendRouteManifests([])
 })
 
 describe('applyApiOverridesToManifests', () => {
@@ -70,6 +105,15 @@ describe('applyApiOverridesToManifests', () => {
     const entries = [makeEntry('a', '/api/foo', ['GET', 'POST'])]
     const result = applyApiOverridesToManifests(entries, {
       'GET /api/foo': null,
+    })
+    expect(result).toHaveLength(1)
+    expect(result[0].methods).toEqual(['POST'])
+  })
+
+  it('matches public /api override keys against generated manifest paths', () => {
+    const entries = [makeEntry('a', '/example/override-probe', ['GET', 'POST'])]
+    const result = applyApiOverridesToManifests(entries, {
+      'GET /api/example/override-probe': null,
     })
     expect(result).toHaveLength(1)
     expect(result[0].methods).toEqual(['POST'])
@@ -202,24 +246,40 @@ describe('dispatcher → routes applier', () => {
     warnSpy.mockRestore()
   })
 
-  it('emits a one-shot warning when `overrides.routes.pages` is present (Phase 3 stubbed)', () => {
+  it('routes `overrides.routes.pages` to the page override composer', () => {
     const warnSpy = jest.spyOn(console, 'warn').mockImplementation(() => {})
     applyModuleOverridesFromEnabledModules([
       {
-        id: 'app',
-        overrides: { routes: { pages: { '/backend/foo': null } } },
+        id: 'first',
+        overrides: {
+          routes: {
+            pages: {
+              '/backend/foo': null,
+              '/frontend/store': { metadata: { title: 'Store Override' } },
+            },
+          },
+        },
       },
       {
-        id: 'app2',
-        overrides: { routes: { pages: { '/backend/bar': null } } },
+        id: 'second',
+        overrides: {
+          routes: {
+            pages: {
+              '/backend/bar/': null,
+            },
+          },
+        },
       },
     ])
-    const subDomainCalls = warnSpy.mock.calls.filter((args) =>
-      typeof args[0] === 'string' && args[0].includes('Sub-domain "routes.pages" not yet wired'),
+    const unwiredCalls = warnSpy.mock.calls.filter((args) =>
+      typeof args[0] === 'string' && args[0].includes('not yet wired'),
     )
-    expect(subDomainCalls).toHaveLength(1)
-    expect(subDomainCalls[0][0]).toContain('module(s) [app, app2]')
-    expect(subDomainCalls[0][0]).toContain('issues/1787')
+    expect(unwiredCalls).toHaveLength(0)
+    expect(composePageRouteOverrides()).toMatchObject({
+      'backend:/backend/foo': null,
+      'backend:/backend/bar': null,
+      'frontend:/store': { metadata: { title: 'Store Override' } },
+    })
     warnSpy.mockRestore()
   })
 
@@ -264,6 +324,53 @@ describe('dispatcher → routes applier', () => {
   })
 })
 
+describe('applyPageOverridesToManifests', () => {
+  it('drops disabled backend pages and replaces metadata/loader for frontend pages', async () => {
+    const Replacement = function ReplacementPage() { return null }
+    const backendEntries = [
+      makeBackendPage('/backend/example'),
+      makeBackendPage('/backend/keep'),
+    ]
+    const frontendEntries = [
+      makeFrontendPage('/store'),
+    ]
+
+    const backendResult = applyPageOverridesToManifests(backendEntries, {
+      '/backend/example': null,
+    }, 'backend')
+    const frontendResult = applyPageOverridesToManifests(frontendEntries, {
+      '/frontend/store': {
+        Component: Replacement,
+        metadata: { title: 'Store Override', navHidden: true },
+      },
+    }, 'frontend')
+
+    expect(backendResult.map((entry) => entry.path)).toEqual(['/backend/keep'])
+    expect(frontendResult).toHaveLength(1)
+    expect(frontendResult[0].title).toBe('Store Override')
+    expect(frontendResult[0].navHidden).toBe(true)
+    await expect(frontendResult[0].load()).resolves.toBe(Replacement)
+  })
+
+  it('lets programmatic page overrides supersede modules.ts inline overrides', () => {
+    applyModuleOverridesFromEnabledModules([
+      {
+        id: 'app',
+        overrides: { routes: { pages: { '/backend/foo': null } } },
+      },
+    ])
+    const loader = async () => function RestoredPage() { return null }
+    applyPageRouteOverrides({
+      '/backend/foo': { load: loader, metadata: { title: 'Restored' } },
+    })
+
+    const result = applyPageOverridesToManifests([makeBackendPage('/backend/foo')], composePageRouteOverrides(), 'backend')
+    expect(result).toHaveLength(1)
+    expect(result[0].title).toBe('Restored')
+    expect(result[0].load).toBe(loader)
+  })
+})
+
 describe('registerApiRouteManifests consults overrides', () => {
   it('drops disabled methods at registration time', () => {
     applyModuleOverridesFromEnabledModules([
@@ -300,5 +407,35 @@ describe('registerApiRouteManifests consults overrides', () => {
     const loaded = (await registered[0].load()) as Record<string, unknown>
     expect(loaded.GET).toBe(overrideHandler)
     expect(loaded.metadata).toEqual({ GET: { requireAuth: false } })
+  })
+})
+
+describe('page manifest registries consult overrides', () => {
+  it('applies backend and frontend page overrides at registration time', () => {
+    applyModuleOverridesFromEnabledModules([
+      {
+        id: 'app',
+        overrides: {
+          routes: {
+            pages: {
+              '/backend/example': null,
+              '/frontend/store': { metadata: { title: 'Store Override' } },
+            },
+          },
+        },
+      },
+    ])
+
+    registerBackendRouteManifests([
+      makeBackendPage('/backend/example'),
+      makeBackendPage('/backend/keep'),
+    ])
+    registerFrontendRouteManifests([
+      makeFrontendPage('/store'),
+    ])
+
+    expect(getBackendRouteManifests().map((entry) => entry.path)).toEqual(['/backend/keep'])
+    expect(getFrontendRouteManifests()).toHaveLength(1)
+    expect(getFrontendRouteManifests()[0].title).toBe('Store Override')
   })
 })

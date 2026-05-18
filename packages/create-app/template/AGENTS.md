@@ -248,7 +248,7 @@ export const aiAgentOverrides: AiAgentOverridesMap = {
 }
 ```
 
-Example `modules.ts` inline override (preferred for app-level decisions that don't deserve a fake module). AI lives at `overrides.ai.*` and API routes at `overrides.routes.api`; other domains (events, workers, widgets, …) reuse the same `entry.overrides` umbrella per the [unified spec](https://github.com/open-mercato/open-mercato/blob/main/.ai/specs/2026-05-04-modules-ts-unified-overrides.md) — AI (Phase 1) and Routes — API (Phase 2) are wired today, other domains roll out as separate PRs:
+Example `modules.ts` inline override (preferred for app-level decisions that do not deserve a fake module). All module contract domains live under the same `entry.overrides` umbrella per the [unified spec](https://github.com/open-mercato/open-mercato/blob/main/.ai/specs/2026-05-04-modules-ts-unified-overrides.md):
 
 ```ts
 // src/modules.ts
@@ -259,6 +259,17 @@ Example `modules.ts` inline override (preferred for app-level decisions that don
     ai: {
       agents: { 'catalog.catalog_assistant': null },
       tools:  { 'inbox_ops_accept_action': null },
+    },
+    routes: {
+      api: {
+        'GET /api/example/override-probe': {
+          handler: async () => Response.json({ ok: true, source: 'override' }),
+          metadata: { requireAuth: false },
+        },
+      },
+      pages: {
+        '/backend/example/reports': null,
+      },
     },
   },
 },
@@ -290,12 +301,12 @@ yarn mercato configs cache structural --all-tenants
 
 Refer to the `create-ai-agent` skill (`.ai/skills/create-ai-agent/SKILL.md`) and the public docs at `framework/ai-assistant/overrides` for the full contract, MUST rules, and the resolution order.
 
-### Overriding an upstream module's API route (Phase 2)
+### Unified module contract overrides
 
-The same `entry.overrides` surface that disables/replaces AI agents also wires API routes. Use it when you want to replace a handler shipped by an upstream module (or disable an endpoint entirely) without forking the source.
+The same `entry.overrides` surface that disables/replaces AI agents also wires routes, subscribers, workers, widgets, notifications, interceptors, enrichers, guards, CLI commands, setup hooks, ACL features, DI bindings, and encryption maps. Use it when you want to replace a contract shipped by an upstream module without forking the source.
 
 ```ts
-// src/modules.ts — disable + replace upstream API routes
+// src/modules.ts — representative examples across override phases
 {
   id: 'example',
   from: '@app',
@@ -310,6 +321,52 @@ The same `entry.overrides` surface that disables/replaces AI agents also wires A
           metadata: { requireAuth: true, requireFeatures: ['example.manage'] },
         },
       },
+      pages: {
+        '/backend/example/items': null,
+      },
+    },
+    events: {
+      subscribers: {
+        'example.todo.created.notify': null,
+      },
+    },
+    workers: {
+      'example:sync': null,
+    },
+    widgets: {
+      injection: { 'example.toolbar': null },
+      dashboard: { 'example.kpi': null },
+      components: {
+        'page:/backend/example': {
+          target: { componentId: 'page:/backend/example' },
+          priority: 10,
+          propsTransform: (props) => props,
+        },
+      },
+    },
+    notifications: {
+      types: { 'example.notice': null },
+      handlers: { 'example.notice.toast': null },
+    },
+    interceptors: { 'example.items.audit': null },
+    commandInterceptors: { 'example.command.audit': null },
+    enrichers: { 'example.items.enricher': null },
+    guards: { 'example.backend.guard': null },
+    cli: { 'example seed': null },
+    setup: {
+      defaultRoleFeatures: { admin: ['example.view'] },
+      seedExamples: false,
+    },
+    acl: {
+      features: { 'example.manage': null },
+    },
+    di: {
+      exampleService: {
+        register: (container, key) => container.register({ [key]: { mode: 'replacement' } }),
+      },
+    },
+    encryption: {
+      maps: { 'example:item': null },
     },
   },
 },
@@ -319,22 +376,32 @@ Programmatic equivalent (boot-time, env-driven, or test scaffold):
 
 ```ts
 // src/bootstrap.ts (extra)
-import { applyApiRouteOverrides } from '@open-mercato/shared/modules/overrides'
+import {
+  applyApiRouteOverrides,
+  applyPageRouteOverrides,
+  applyWorkerOverrides,
+} from '@open-mercato/shared/modules/overrides'
 
 applyApiRouteOverrides({
   'GET /api/example/items': null,
+})
+applyPageRouteOverrides({
+  '/backend/example/items': null,
+})
+applyWorkerOverrides({
+  'example:sync': null,
 })
 ```
 
 Key rules:
 
 - Keys are `'METHOD /api/path'`; method is normalized, path leading slash optional, trailing slashes stripped.
-- `null` disables the matching method on the route; the entry is dropped entirely when every method is disabled.
-- `{ handler, metadata? }` replaces the handler (and optionally the per-method metadata).
-- Programmatic > `modules.ts` > base. The dispatcher MUST run before `registerApiRouteManifests` — the template's `bootstrap.ts` already does this.
-- Stale override keys (no matching registered route) log a single warning so operators notice.
+- Page route keys are `'/backend/path'` or `'/frontend/path'`.
+- `null` disables the matching contract; a definition replaces it.
+- Programmatic > `modules.ts` > file-based where supported > base. The dispatcher MUST run before registries first-load — the template's `bootstrap.ts` already does this.
+- Stale override keys log a warning so operators notice renamed or removed upstream contracts.
 
-Full reference: `framework/modules/routes-and-pages` → "Overriding API Routes from Downstream Apps".
+Full reference: `framework/modules/overrides` and `framework/modules/routes-and-pages`.
 
 ## Disabling the Dashboards Module: Update /backend
 

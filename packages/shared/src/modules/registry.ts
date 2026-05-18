@@ -4,7 +4,13 @@ import type { SyncCrudEventResult } from '../lib/crud/sync-event-types'
 import type { DashboardWidgetModule } from './dashboard/widgets'
 import type { InjectionAnyWidgetModule, ModuleInjectionTable } from './widgets/injection'
 import type { IntegrationBundle, IntegrationDefinition } from './integrations/types'
-import { applyApiOverridesToManifests, composeApiRouteOverrides } from './overrides'
+import {
+  applyApiOverridesToManifests,
+  applyModuleOverridesToModules,
+  applyPageOverridesToManifests,
+  composeApiRouteOverrides,
+  composePageRouteOverrides,
+} from './overrides'
 
 // Context passed to dynamic metadata guards
 export type RouteVisibilityContext = { path?: string; auth?: any }
@@ -397,7 +403,11 @@ export function findApiRouteManifestMatch<T extends { path: string; methods: Htt
 let _backendRouteManifests: BackendRouteManifestEntry[] | null = null
 
 export function registerBackendRouteManifests(routes: BackendRouteManifestEntry[]) {
-  _backendRouteManifests = sortRoutesBySpecificity(routes)
+  const pageOverrides = composePageRouteOverrides()
+  const finalRoutes = Object.keys(pageOverrides).length === 0
+    ? routes
+    : applyPageOverridesToManifests(routes, pageOverrides, 'backend')
+  _backendRouteManifests = sortRoutesBySpecificity(finalRoutes)
 }
 
 export function getBackendRouteManifests(): BackendRouteManifestEntry[] {
@@ -407,7 +417,11 @@ export function getBackendRouteManifests(): BackendRouteManifestEntry[] {
 let _frontendRouteManifests: FrontendRouteManifestEntry[] | null = null
 
 export function registerFrontendRouteManifests(routes: FrontendRouteManifestEntry[]) {
-  _frontendRouteManifests = sortRoutesBySpecificity(routes)
+  const pageOverrides = composePageRouteOverrides()
+  const finalRoutes = Object.keys(pageOverrides).length === 0
+    ? routes
+    : applyPageOverridesToManifests(routes, pageOverrides, 'frontend')
+  _frontendRouteManifests = sortRoutesBySpecificity(finalRoutes)
 }
 
 export function getFrontendRouteManifests(): FrontendRouteManifestEntry[] {
@@ -439,7 +453,7 @@ export function registerCliModules(modules: Module[]) {
   if (_cliModules !== null && process.env.NODE_ENV === 'development') {
     console.debug('[Bootstrap] CLI modules re-registered (this may occur during HMR)')
   }
-  _cliModules = modules
+  _cliModules = applyModuleOverridesToModules(modules)
 }
 
 export function getCliModules(): Module[] {
