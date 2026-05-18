@@ -1,20 +1,25 @@
 'use client'
 
 import dynamic from 'next/dynamic'
+import Link from 'next/link'
 import * as React from 'react'
+import { MoreHorizontal, PlugZap, Settings, Mail } from 'lucide-react'
 import { hasFeature } from '@open-mercato/shared/security/features'
+import { IconButton } from '@open-mercato/ui/primitives/icon-button'
+import { Popover, PopoverContent, PopoverTrigger } from '@open-mercato/ui/primitives/popover'
 import { IntegrationsButton } from '@open-mercato/ui/backend/IntegrationsButton'
 import { ProfileDropdown } from '@open-mercato/ui/backend/ProfileDropdown'
 import { SettingsButton } from '@open-mercato/ui/backend/SettingsButton'
 import { useBackendChrome } from '@open-mercato/ui/backend/BackendChromeProvider'
+import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { AiAssistantShellIntegration } from '@/components/AiAssistantShellIntegration'
 
 const LazyAiChatHeaderButton = dynamic(
   () => import('@open-mercato/ai-assistant/frontend').then((module) => module.AiChatHeaderButton),
   { ssr: false, loading: () => null },
 )
-const LazyGlobalSearchDialog = dynamic(
-  () => import('@open-mercato/search/modules/search/frontend').then((module) => module.GlobalSearchDialog),
+const LazyTopbarSearchInline = dynamic(
+  () => import('@open-mercato/search/modules/search/frontend').then((module) => module.TopbarSearchInline),
   { ssr: false, loading: () => null },
 )
 const LazyOrganizationSwitcher = dynamic(() => import('@/components/OrganizationSwitcher'), {
@@ -50,6 +55,51 @@ function hasVisibleRoute(groups: Array<{ items?: Array<{ href: string; hidden?: 
   return false
 }
 
+type MobileMoreItem = {
+  id: string
+  href: string
+  icon: React.ReactNode
+  label: string
+}
+
+function MobileMoreMenu({ items }: { items: MobileMoreItem[] }) {
+  const t = useT()
+  const [open, setOpen] = React.useState(false)
+  if (items.length === 0) return null
+  return (
+    <Popover open={open} onOpenChange={setOpen}>
+      <PopoverTrigger asChild>
+        <IconButton
+          type="button"
+          variant="ghost"
+          size="sm"
+          aria-label={t('appShell.moreActions', 'More actions')}
+          title={t('appShell.moreActions', 'More actions')}
+        >
+          <MoreHorizontal className="size-4" />
+        </IconButton>
+      </PopoverTrigger>
+      <PopoverContent align="end" className="w-[220px] p-1">
+        <div className="flex flex-col">
+          {items.map((item) => (
+            <Link
+              key={item.id}
+              href={item.href}
+              onClick={() => setOpen(false)}
+              className="flex items-center gap-3 rounded-sm px-3 py-2 text-sm text-foreground transition-colors hover:bg-muted/60 focus:outline-none focus-visible:bg-muted/60"
+            >
+              <span className="inline-flex size-4 shrink-0 items-center justify-center text-muted-foreground">
+                {item.icon}
+              </span>
+              <span className="flex-1 truncate">{item.label}</span>
+            </Link>
+          ))}
+        </div>
+      </PopoverContent>
+    </Popover>
+  )
+}
+
 export function BackendHeaderChrome({
   email,
   embeddingConfigured,
@@ -57,6 +107,7 @@ export function BackendHeaderChrome({
   tenantId,
   organizationId,
 }: BackendHeaderChromeProps) {
+  const t = useT()
   const { payload, isReady } = useBackendChrome()
   const grantedFeatures = payload?.grantedFeatures ?? []
   const showIntegrationsButton = React.useMemo(
@@ -80,6 +131,33 @@ export function BackendHeaderChrome({
     [grantedFeatures],
   )
 
+  const mobileMoreItems = React.useMemo<MobileMoreItem[]>(() => {
+    const items: MobileMoreItem[] = []
+    if (showIntegrationsButton) {
+      items.push({
+        id: 'integrations',
+        href: '/backend/integrations',
+        icon: <PlugZap className="size-4" aria-hidden="true" />,
+        label: t('integrations.nav.title', 'Integrations'),
+      })
+    }
+    items.push({
+      id: 'settings',
+      href: '/backend/settings',
+      icon: <Settings className="size-4" aria-hidden="true" />,
+      label: t('backend.nav.settings', 'Settings'),
+    })
+    if (isReady && showMessages) {
+      items.push({
+        id: 'messages',
+        href: '/backend/messages',
+        icon: <Mail className="size-4" aria-hidden="true" />,
+        label: t('messages.nav.inbox', 'Messages'),
+      })
+    }
+    return items
+  }, [showIntegrationsButton, isReady, showMessages, t])
+
   return (
     <>
       {isReady && showAiAssistant ? (
@@ -88,17 +166,33 @@ export function BackendHeaderChrome({
         </AiAssistantShellIntegration>
       ) : null}
       {isReady && showSearch ? (
-        <LazyGlobalSearchDialog
+        <LazyTopbarSearchInline
           embeddingConfigured={embeddingConfigured}
           missingConfigMessage={missingConfigMessage}
         />
       ) : null}
       {isReady ? <LazyOrganizationSwitcher /> : null}
-      {showIntegrationsButton ? <IntegrationsButton /> : null}
-      <SettingsButton />
-      <ProfileDropdown email={email} />
+
+      {/* Secondary actions — inline on md+, grouped under a More button on <md */}
+      {showIntegrationsButton ? (
+        <span className="hidden md:contents">
+          <IntegrationsButton />
+        </span>
+      ) : null}
+      <span className="hidden md:contents">
+        <SettingsButton />
+      </span>
+      {isReady && showMessages ? (
+        <span className="hidden md:contents">
+          <LazyMessagesIcon />
+        </span>
+      ) : null}
+      <span className="md:hidden">
+        <MobileMoreMenu items={mobileMoreItems} />
+      </span>
+
       {isReady && showNotifications ? <LazyNotificationBellWrapper /> : null}
-      {isReady && showMessages ? <LazyMessagesIcon /> : null}
+      <ProfileDropdown email={email} />
     </>
   )
 }
