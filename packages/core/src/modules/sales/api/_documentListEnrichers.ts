@@ -1,6 +1,7 @@
 import type { EntityManager } from '@mikro-orm/postgresql'
 import { parseDecryptedFieldValue } from '@open-mercato/shared/lib/encryption/tenantDataEncryptionService'
 import { SalesOrder, SalesInvoiceLine, SalesCreditMemoLine } from '../data/entities'
+import { CustomerEntity } from '../../customers/data/entities'
 
 type AnyRecord = Record<string, unknown>
 
@@ -112,6 +113,27 @@ function serializeLine(line: AnyRecord): AnyRecord {
   }
 }
 
+function hasCustomerDisplayName(snapshot: unknown): boolean {
+  if (!snapshot || typeof snapshot !== 'object') return false
+  const customer = (snapshot as { customer?: unknown }).customer
+  if (!customer || typeof customer !== 'object') return false
+  const displayName = (customer as { displayName?: unknown }).displayName
+  return typeof displayName === 'string' && displayName.trim().length > 0
+}
+
+function buildSnapshotFromCustomer(customer: CustomerEntity): Record<string, unknown> {
+  return {
+    customer: {
+      id: customer.id,
+      kind: customer.kind,
+      displayName: customer.displayName,
+      primaryEmail: customer.primaryEmail ?? null,
+      primaryPhone: customer.primaryPhone ?? null,
+    },
+    contact: null,
+  }
+}
+
 export async function attachOrderContext(payload: { items?: unknown }, ctx: EnricherCtx): Promise<void> {
   const items = Array.isArray(payload?.items) ? (payload.items as AnyRecord[]) : []
   if (!items.length) return
@@ -122,14 +144,13 @@ export async function attachOrderContext(payload: { items?: unknown }, ctx: Enri
         .filter((id): id is string => !!id),
     ),
   )
+  const em = resolveEm(ctx)
   const orderById = new Map<string, SalesOrder>()
-  if (orderIds.length) {
-    const em = resolveEm(ctx)
-    if (em) {
-      const orders = await em.find(SalesOrder, scopeWhere(ctx, { id: { $in: orderIds }, deletedAt: null }) as never)
-      for (const order of orders) orderById.set(order.id, order)
-    }
+  if (orderIds.length && em) {
+    const orders = await em.find(SalesOrder, scopeWhere(ctx, { id: { $in: orderIds }, deletedAt: null }) as never)
+    for (const order of orders) orderById.set(order.id, order)
   }
+
   for (const item of items) {
     const orderId = readId(item.order_id ?? item.orderId ?? item.order)
     const order = orderId ? orderById.get(orderId) ?? null : null
@@ -137,6 +158,32 @@ export async function attachOrderContext(payload: { items?: unknown }, ctx: Enri
     item.order = order ? { id: order.id, orderNumber: order.orderNumber } : null
     item.customerEntityId = order?.customerEntityId ?? null
     item.customerSnapshot = order?.customerSnapshot ?? null
+  }
+
+  const customerIdsToHydrate = Array.from(
+    new Set(
+      items
+        .filter((item) => !hasCustomerDisplayName(item.customerSnapshot))
+        .map((item) => readId(item.customerEntityId))
+        .filter((id): id is string => !!id),
+    ),
+  )
+  if (!customerIdsToHydrate.length || !em) return
+
+  const customers = await em.find(
+    CustomerEntity,
+    scopeWhere(ctx, { id: { $in: customerIdsToHydrate }, deletedAt: null }) as never,
+  )
+  const customerById = new Map<string, CustomerEntity>()
+  for (const customer of customers) customerById.set(customer.id, customer)
+
+  for (const item of items) {
+    if (hasCustomerDisplayName(item.customerSnapshot)) continue
+    const customerId = readId(item.customerEntityId)
+    if (!customerId) continue
+    const customer = customerById.get(customerId)
+    if (!customer) continue
+    item.customerSnapshot = buildSnapshotFromCustomer(customer)
   }
 }
 
