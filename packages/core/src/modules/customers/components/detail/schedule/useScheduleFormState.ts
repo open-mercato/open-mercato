@@ -1,24 +1,6 @@
 import * as React from 'react'
+import { format } from 'date-fns'
 import type { ActivityType } from './fieldConfig'
-
-// Local-time date/time formatters. We avoid `date-fns` here because
-// @open-mercato/core ships raw .ts sources as `types` via package.json#exports,
-// so any date-fns import here gets traversed by the standalone-app's TypeScript
-// checker (where date-fns@4's type resolution from nested package contexts is
-// unreliable and breaks `next build`). These are the only two patterns the
-// form needs — keep them inline rather than re-introducing the dependency.
-function toLocalDateString(value: Date): string {
-  const year = value.getFullYear()
-  const month = String(value.getMonth() + 1).padStart(2, '0')
-  const day = String(value.getDate()).padStart(2, '0')
-  return `${year}-${month}-${day}`
-}
-
-function toLocalTimeString(value: Date): string {
-  const hours = String(value.getHours()).padStart(2, '0')
-  const minutes = String(value.getMinutes()).padStart(2, '0')
-  return `${hours}:${minutes}`
-}
 
 export type RsvpStatus = 'pending' | 'accepted' | 'declined' | 'tentative'
 
@@ -89,7 +71,7 @@ interface UseScheduleFormStateParams {
 export function useScheduleFormState({ open, editData }: UseScheduleFormStateParams) {
   const [activityType, setActivityType] = React.useState<ActivityType>('meeting')
   const [title, setTitle] = React.useState('')
-  const [date, setDate] = React.useState(() => toLocalDateString(new Date()))
+  const [date, setDate] = React.useState(() => format(new Date(), 'yyyy-MM-dd'))
   const [startTime, setStartTime] = React.useState('10:00')
   const [duration, setDuration] = React.useState(30)
   const [allDay, setAllDay] = React.useState(false)
@@ -119,15 +101,15 @@ export function useScheduleFormState({ open, editData }: UseScheduleFormStatePar
         // For historical activities the canonical timestamp is `occurredAt`; for
         // planned/future ones it's `scheduledAt`. Without this fallback editing a
         // past activity prefilled to "today" instead of its actual moment (#1807).
-        // Seed values are produced in the user's local timezone to match the
-        // cluster-E local-day convention used elsewhere in the form.
+        // Use `date-fns` `format(...)` so the seed values are in the user's local
+        // timezone (matches the cluster-E local-day convention).
         const sourceTimestamp = editData.occurredAt ?? editData.scheduledAt ?? null
         const seedDate = sourceTimestamp ? new Date(sourceTimestamp) : new Date()
         const seedDateValid = !Number.isNaN(seedDate.getTime())
         const fallbackNow = new Date()
         const dateForForm = seedDateValid ? seedDate : fallbackNow
-        setDate(toLocalDateString(dateForForm))
-        setStartTime(toLocalTimeString(dateForForm))
+        setDate(format(dateForForm, 'yyyy-MM-dd'))
+        setStartTime(format(dateForForm, 'HH:mm'))
         setDuration(editData.durationMinutes ?? 30)
         setAllDay(editData.allDay ?? false)
         setDescription(editData.body ?? '')
@@ -188,7 +170,7 @@ export function useScheduleFormState({ open, editData }: UseScheduleFormStatePar
         // Create mode: reset all fields
         setActivityType('meeting')
         setTitle('')
-        setDate(toLocalDateString(new Date()))
+        setDate(format(new Date(), 'yyyy-MM-dd'))
         setStartTime('10:00')
         setDuration(30)
         setAllDay(false)
