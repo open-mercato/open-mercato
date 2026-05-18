@@ -121,6 +121,42 @@ describe('MessageComposer draft flow', () => {
     expect(flash).toHaveBeenCalledWith('Draft saved.', 'success')
   })
 
+  it('updates an existing draft when saving from the edit composer', async () => {
+    renderWithProviders(
+      <MessageComposer
+        inline
+        variant="compose"
+        messageId="draft-1"
+        defaultValues={{
+          recipients: ['11111111-1111-4111-8111-111111111111'],
+          subject: 'Updated draft subject',
+          body: 'Updated draft body',
+        }}
+      />,
+      { dict: {} },
+    )
+
+    fireEvent.click(await screen.findByRole('button', { name: 'Save draft' }))
+
+    await waitFor(() => {
+      expect(apiCall).toHaveBeenCalledWith(
+        '/api/messages/draft-1',
+        expect.objectContaining({
+          method: 'PATCH',
+        }),
+      )
+    })
+
+    const updateRequest = (apiCall as jest.Mock).mock.calls.find(
+      (call) => call[0] === '/api/messages/draft-1' && call[1]?.method === 'PATCH',
+    )
+    const payload = JSON.parse(updateRequest?.[1]?.body ?? '{}') as Record<string, unknown>
+    expect(payload.subject).toBe('Updated draft subject')
+    expect(payload.body).toBe('Updated draft body')
+    expect(payload.isDraft).toBeUndefined()
+    expect(flash).toHaveBeenCalledWith('Draft saved.', 'success')
+  })
+
   it('keeps the send action disabled after a successful compose submit until the composer resets', async () => {
     let resolveMessagePost!: (value: {
       ok: boolean

@@ -477,6 +477,7 @@ export function useMessageCompose({
 
   const composeDraftOperation = useComposeDraftOperation({
     t,
+    messageId,
     messageType,
     priority,
     visibility,
@@ -556,10 +557,10 @@ export function useMessageCompose({
       }
 
       if (!shouldReturnFalse) {
-        const { endpoint, payload } = operation.buildRequest({ attachmentIds: nextAttachmentIds })
+        const { endpoint, method, payload } = operation.buildRequest({ attachmentIds: nextAttachmentIds })
 
         const call = await apiCall<{ id?: string }>(endpoint, {
-          method: 'POST',
+          method,
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify(payload),
         })
