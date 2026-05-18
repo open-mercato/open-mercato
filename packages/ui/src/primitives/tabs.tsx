@@ -123,7 +123,7 @@ export function TabsList({ children, className }: TabsListProps) {
       : // Pill strip (original) — rounded container, bg-muted shell.
         orientation === 'vertical'
         ? 'inline-flex flex-col items-stretch gap-1 rounded-lg bg-muted p-1 text-muted-foreground'
-        : 'inline-flex h-9 items-center justify-start rounded-lg bg-muted p-1 text-muted-foreground'
+        : 'inline-flex h-9 items-center justify-start gap-1 rounded-lg bg-muted p-1 text-muted-foreground'
 
   return (
     <div

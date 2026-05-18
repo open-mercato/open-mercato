@@ -164,14 +164,53 @@ const DialogContent = React.forwardRef<
 )
 DialogContent.displayName = DialogPrimitive.Content.displayName
 
-export type DialogHeaderProps = React.HTMLAttributes<HTMLDivElement> & {
-  /** Optional leading icon — rendered inside a size-10 rounded-full
-   * bordered badge to the left of the title block. Matches Figma
-   * `Modal Header [1.1]` icon-prefixed variants. */
-  leading?: React.ReactNode
+export type DialogHeaderTone =
+  | 'default'
+  | 'accent'
+  | 'success'
+  | 'warning'
+  | 'error'
+  | 'info'
+
+// Soft-tinted status leading badges per canonical Figma `Status
+// Modals [1.1]` (`480:1372`). Each status tone uses the soft tint
+// background paired with a saturated colored icon (red `!` on light
+// pink, amber triangle on light amber, green check on light green,
+// indigo `i` on light indigo). The bordered `default` tone keeps
+// the white-bg + border-input shell for generic settings icons per
+// `Modal Header [1.1]` (`466:4778`).
+const DIALOG_HEADER_TONE_CLASS: Record<DialogHeaderTone, string> = {
+  default: 'border border-input bg-background text-muted-foreground',
+  accent: 'bg-accent-indigo/10 text-accent-indigo',
+  success: 'bg-status-success-bg text-status-success-icon',
+  warning: 'bg-status-warning-bg text-status-warning-icon',
+  error: 'bg-status-error-bg text-status-error-icon',
+  info: 'bg-status-info-bg text-status-info-icon',
 }
 
-const DialogHeader = ({ className, leading, children, ...props }: DialogHeaderProps) => (
+export type DialogHeaderProps = React.HTMLAttributes<HTMLDivElement> & {
+  /** Optional leading icon — rendered inside a size-10 rounded-full
+   * badge to the left of the title block. Matches Figma `Modal
+   * Header [1.1]` icon-prefixed variants and `Status Modals [1.1]`
+   * status-tinted badges. */
+  leading?: React.ReactNode
+  /** Visual tone for the leading badge. `default` keeps the
+   * bordered white badge (generic settings icons); status tones
+   * (`success`/`warning`/`error`/`info`) use the matching
+   * `bg-status-*-bg text-status-*-icon` tint per Figma `Status
+   * Modals [1.1]`. Use `error` / `warning` to signal destructive
+   * flows via the badge instead of a red CTA button.
+   * @default 'default' */
+  leadingTone?: DialogHeaderTone
+}
+
+const DialogHeader = ({
+  className,
+  leading,
+  leadingTone = 'default',
+  children,
+  ...props
+}: DialogHeaderProps) => (
   <div
     data-slot="dialog-header"
     className={cn(
@@ -183,8 +222,12 @@ const DialogHeader = ({ className, leading, children, ...props }: DialogHeaderPr
     {leading ? (
       <span
         data-slot="dialog-header-leading"
+        data-tone={leadingTone}
         aria-hidden="true"
-        className="inline-flex size-10 shrink-0 items-center justify-center rounded-full border border-input bg-background text-muted-foreground"
+        className={cn(
+          'inline-flex size-10 shrink-0 items-center justify-center rounded-full',
+          DIALOG_HEADER_TONE_CLASS[leadingTone],
+        )}
       >
         {leading}
       </span>
@@ -209,21 +252,106 @@ export type DialogFooterProps = React.HTMLAttributes<HTMLDivElement> & {
    * `equal` stretches children flex-1 for 50/50 confirmation footers
    * per Figma `Modal Footer [1.1]` variant 1. */
   layout?: 'default' | 'equal'
+  /** Render the canonical `border-t` separator above the button row.
+   * Per Figma `Modal Footer [1.1]` every variant ships the rule.
+   * @default true */
+  bordered?: boolean
+  /** Optional left-side slot — typically a "Don't show it again"
+   * CheckboxField, a "Remember me" Switch, a left link button, or a
+   * step-indicator. Per Figma `Modal Footer [1.1]` variants 2–6.
+   * When provided, children stay right-aligned and the leading slot
+   * anchors left. Mutually exclusive with `layout="equal"` (the
+   * 50/50 split is a confirmation-flow shape that doesn't combine
+   * with the leading-content footers per Figma). */
+  leading?: React.ReactNode
 }
 
-const DialogFooter = ({ className, layout = 'default', ...props }: DialogFooterProps) => (
-  <div
-    data-slot="dialog-footer"
-    data-layout={layout}
-    className={cn(
-      layout === 'equal'
-        ? 'flex flex-row gap-2 [&>*]:flex-1'
-        : 'flex flex-col-reverse gap-2 sm:flex-row sm:justify-end',
-      className,
-    )}
-    {...props}
-  />
-)
+const DialogFooter = ({
+  className,
+  layout = 'default',
+  bordered = true,
+  leading,
+  children,
+  ...props
+}: DialogFooterProps) => {
+  if (layout === 'equal') {
+    return (
+      <div
+        data-slot="dialog-footer"
+        data-layout="equal"
+        data-bordered={bordered ? 'true' : undefined}
+        className={cn(
+          // Per Figma: the border-t separator runs edge-to-edge across
+      // the modal card (terminates at the rounded corners), NOT
+      // inset inside the DialogContent's `p-6` padding. We escape
+      // the parent's horizontal padding with `-mx-6` and re-apply
+      // `px-6` so the button row keeps its inset position.
+      bordered ? '-mx-6 border-t border-input px-6 pt-4' : '',
+          'flex flex-row gap-2 [&>*]:flex-1',
+          className,
+        )}
+        {...props}
+      >
+        {children}
+      </div>
+    )
+  }
+
+  if (leading) {
+    return (
+      <div
+        data-slot="dialog-footer"
+        data-layout="default"
+        data-bordered={bordered ? 'true' : undefined}
+        className={cn(
+          // Per Figma: the border-t separator runs edge-to-edge across
+      // the modal card (terminates at the rounded corners), NOT
+      // inset inside the DialogContent's `p-6` padding. We escape
+      // the parent's horizontal padding with `-mx-6` and re-apply
+      // `px-6` so the button row keeps its inset position.
+      bordered ? '-mx-6 border-t border-input px-6 pt-4' : '',
+          'flex flex-col gap-3 sm:flex-row sm:items-center',
+          className,
+        )}
+        {...props}
+      >
+        <div
+          data-slot="dialog-footer-leading"
+          className="inline-flex items-center gap-2 sm:mr-auto"
+        >
+          {leading}
+        </div>
+        <div
+          data-slot="dialog-footer-trailing"
+          className="flex flex-col-reverse gap-2 sm:flex-row sm:items-center"
+        >
+          {children}
+        </div>
+      </div>
+    )
+  }
+
+  return (
+    <div
+      data-slot="dialog-footer"
+      data-layout="default"
+      data-bordered={bordered ? 'true' : undefined}
+      className={cn(
+        // Per Figma: the border-t separator runs edge-to-edge across
+      // the modal card (terminates at the rounded corners), NOT
+      // inset inside the DialogContent's `p-6` padding. We escape
+      // the parent's horizontal padding with `-mx-6` and re-apply
+      // `px-6` so the button row keeps its inset position.
+      bordered ? '-mx-6 border-t border-input px-6 pt-4' : '',
+        'flex flex-col-reverse gap-2 sm:flex-row sm:justify-end',
+        className,
+      )}
+      {...props}
+    >
+      {children}
+    </div>
+  )
+}
 DialogFooter.displayName = 'DialogFooter'
 
 const DialogTitle = React.forwardRef<
