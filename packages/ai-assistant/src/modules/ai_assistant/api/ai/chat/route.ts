@@ -349,6 +349,7 @@ function persistAssistantOnStreamCompletion(input: {
   userClientMessageId: string | null
 }): Response {
   if (!input.response.body || !input.tenantId) return input.response
+  const tenantId = input.tenantId
   const { readable, writable } = new TransformStream<Uint8Array, Uint8Array>()
   const writer = writable.getWriter()
   const decoder = new TextDecoder()
@@ -380,7 +381,7 @@ function persistAssistantOnStreamCompletion(input: {
             uiParts: assistant.uiParts,
           },
           {
-            tenantId: input.tenantId,
+            tenantId,
             organizationId: input.organizationId ?? null,
             userId: input.userId,
           },
