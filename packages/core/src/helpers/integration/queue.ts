@@ -6,10 +6,10 @@ import { createQueue } from '@open-mercato/queue'
 
 type DrainQueueOptions = {
   appRoot?: string
-  batchLimit?: number
+  jobLimit?: number
 }
 
-const DEFAULT_BATCH_LIMIT = 100
+const DEFAULT_JOB_LIMIT = 100
 
 function resolveAppRoot(input?: string): string {
   return path.resolve(input?.trim() || process.env.OM_TEST_APP_ROOT?.trim() || path.resolve(process.cwd(), 'apps/mercato'))
@@ -36,7 +36,7 @@ async function drainQueueInCurrentProcess(queueName: string, options: Required<D
         async (job, ctx) => {
           await Promise.resolve(worker.handler(job, { ...ctx, resolve }))
         },
-        { limit: options.batchLimit },
+        { limit: options.jobLimit },
       )
       const handled = result.processed + result.failed
       processedJobs += handled
@@ -56,7 +56,7 @@ function drainQueueInAppProcess(queueName: string, options: Required<DrainQueueO
 
     const queueName = process.env.OM_INTEGRATION_QUEUE_NAME;
     const appRoot = process.env.OM_INTEGRATION_APP_ROOT;
-    const batchLimit = Number.parseInt(process.env.OM_INTEGRATION_QUEUE_BATCH_LIMIT || '100', 10) || 100;
+    const jobLimit = Number.parseInt(process.env.OM_INTEGRATION_QUEUE_JOB_LIMIT || '100', 10) || 100;
     if (!queueName || !appRoot) throw new Error('Missing queue drain environment');
 
     const data = await bootstrapFromAppRoot(appRoot);
@@ -79,7 +79,7 @@ function drainQueueInAppProcess(queueName: string, options: Required<DrainQueueO
           async (job, ctx) => {
             await Promise.resolve(worker.handler(job, { ...ctx, resolve }));
           },
-          { limit: batchLimit },
+          { limit: jobLimit },
         );
         const handled = result.processed + result.failed;
         processedJobs += handled;
@@ -99,7 +99,7 @@ function drainQueueInAppProcess(queueName: string, options: Required<DrainQueueO
         ...process.env,
         OM_INTEGRATION_APP_ROOT: options.appRoot,
         OM_INTEGRATION_QUEUE_NAME: queueName,
-        OM_INTEGRATION_QUEUE_BATCH_LIMIT: String(options.batchLimit),
+        OM_INTEGRATION_QUEUE_JOB_LIMIT: String(options.jobLimit),
         QUEUE_BASE_DIR: path.resolve(options.appRoot, '.mercato/queue'),
       },
       stdio: ['ignore', 'pipe', 'pipe'],
@@ -129,7 +129,7 @@ function drainQueueInAppProcess(queueName: string, options: Required<DrainQueueO
 export async function drainIntegrationQueue(queueName: string, options: DrainQueueOptions = {}): Promise<number> {
   const resolved = {
     appRoot: resolveAppRoot(options.appRoot),
-    batchLimit: options.batchLimit ?? DEFAULT_BATCH_LIMIT,
+    jobLimit: options.jobLimit ?? DEFAULT_JOB_LIMIT,
   }
   if (process.env.OM_TEST_APP_ROOT?.trim()) {
     return drainQueueInAppProcess(queueName, resolved)
