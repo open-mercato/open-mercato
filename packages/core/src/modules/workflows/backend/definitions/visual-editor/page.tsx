@@ -815,7 +815,7 @@ export default function VisualEditorPage() {
             <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3 md:gap-4">
               {/* Workflow ID */}
               <div className="min-w-0 space-y-1">
-                <Label htmlFor="workflowId" className="text-xs">Workflow ID *</Label>
+                <Label htmlFor="workflowId" className="text-xs">{t('workflows.form.workflowId')} *</Label>
                 <Input
                   id="workflowId"
                   value={workflowId}
@@ -824,12 +824,12 @@ export default function VisualEditorPage() {
                   disabled={!!definitionId}
                   className="h-8 text-sm"
                 />
-                {definitionId && <p className="text-overline text-muted-foreground">Read-only</p>}
+                {definitionId && <p className="text-overline text-muted-foreground">{t('workflows.visualEditor.readOnly')}</p>}
               </div>
 
               {/* Workflow Name */}
               <div className="min-w-0 space-y-1">
-                <Label htmlFor="workflowName" className="text-xs">Name *</Label>
+                <Label htmlFor="workflowName" className="text-xs">{t('workflows.form.workflowName')} *</Label>
                 <Input
                   id="workflowName"
                   value={workflowName}
@@ -841,7 +841,7 @@ export default function VisualEditorPage() {
 
               {/* Category */}
               <div className="min-w-0 space-y-1">
-                <Label htmlFor="category" className="text-xs">Category</Label>
+                <Label htmlFor="category" className="text-xs">{t('workflows.form.category')}</Label>
                 <Input
                   id="category"
                   value={category}
@@ -853,12 +853,12 @@ export default function VisualEditorPage() {
 
               {/* Description */}
               <div className="min-w-0 space-y-1 sm:col-span-2 lg:col-span-3">
-                <Label htmlFor="description" className="text-xs">Description</Label>
+                <Label htmlFor="description" className="text-xs">{t('workflows.form.description')}</Label>
                 <Textarea
                   id="description"
                   value={description}
                   onChange={(e) => setDescription(e.target.value)}
-                  placeholder="Describe the purpose of this workflow..."
+                  placeholder={t('workflows.form.placeholders.description')}
                   rows={2}
                   className="min-h-[60px] text-sm"
                 />
@@ -866,7 +866,7 @@ export default function VisualEditorPage() {
 
               {/* Version */}
               <div className="min-w-0 space-y-1">
-                <Label htmlFor="version" className="text-xs">Version *</Label>
+                <Label htmlFor="version" className="text-xs">{t('workflows.form.version')} *</Label>
                 <Input
                   id="version"
                   type="number"
@@ -895,7 +895,7 @@ export default function VisualEditorPage() {
 
               {/* Tags */}
               <div className="min-w-0 space-y-1">
-                <Label className="text-xs">Tags</Label>
+                <Label className="text-xs">{t('workflows.form.tags')}</Label>
                 <TagsInput
                   value={tags}
                   onChange={setTags}
@@ -905,7 +905,7 @@ export default function VisualEditorPage() {
 
               {/* Icon */}
               <div className="min-w-0 space-y-1">
-                <Label htmlFor="icon" className="text-xs">Icon</Label>
+                <Label htmlFor="icon" className="text-xs">{t('workflows.form.icon')}</Label>
                 <Input
                   id="icon"
                   value={icon}
@@ -916,7 +916,7 @@ export default function VisualEditorPage() {
               </div>
 
               <div className="min-w-0 space-y-1">
-                <Label htmlFor="effectiveFrom" className="text-xs">Effective From</Label>
+                <Label htmlFor="effectiveFrom" className="text-xs">{t('workflows.form.effectiveFrom')}</Label>
                 <Input
                   id="effectiveFrom"
                   type="date"
@@ -927,7 +927,7 @@ export default function VisualEditorPage() {
               </div>
 
               <div className="min-w-0 space-y-1">
-                <Label htmlFor="effectiveTo" className="text-xs">Effective To</Label>
+                <Label htmlFor="effectiveTo" className="text-xs">{t('workflows.form.effectiveTo')}</Label>
                 <Input
                   id="effectiveTo"
                   type="date"
@@ -970,13 +970,13 @@ export default function VisualEditorPage() {
             {nodes.length === 0 && (
               <div className="pointer-events-none absolute inset-0 flex items-center justify-center px-4">
                 <div className="text-center">
-                  <h2 className="mb-2 text-lg font-semibold text-foreground">Start Building Your Workflow</h2>
-                  <p className="mb-4 text-sm text-muted-foreground">Tap a step type below to add it to the canvas</p>
+                  <h2 className="mb-2 text-lg font-semibold text-foreground">{t('workflows.visualEditor.startBuilding')}</h2>
+                  <p className="mb-4 text-sm text-muted-foreground">{t('workflows.visualEditor.tapToAddBelow')}</p>
                   <button
                     onClick={handleLoadExample}
                     className="pointer-events-auto text-sm text-primary hover:underline"
                   >
-                    Load an example workflow
+                    {t('workflows.visualEditor.loadExampleWorkflow')}
                   </button>
                 </div>
               </div>
@@ -985,8 +985,8 @@ export default function VisualEditorPage() {
 
           {!isCodeOnly && (
             <div className="mt-3 rounded-lg border bg-card p-3">
-              <h2 className="mb-2 text-xs font-semibold uppercase text-muted-foreground">Step Palette</h2>
-              <p className="mb-3 text-xs text-muted-foreground">Tap a step type to add it to the canvas</p>
+              <h2 className="mb-2 text-xs font-semibold uppercase text-muted-foreground">{t('workflows.visualEditor.stepPalette')}</h2>
+              <p className="mb-3 text-xs text-muted-foreground">{t('workflows.visualEditor.tapToAdd')}</p>
 
               <div className="flex gap-2 overflow-x-auto pb-1">
                 {(['start', 'userTask', 'automated', 'waitForSignal', 'subWorkflow', 'end'] as const).map((nodeType) => {
@@ -1012,9 +1012,9 @@ export default function VisualEditorPage() {
           {!isCodeOnly && (
           <div className="w-[24rem] shrink-0 overflow-y-auto border-r border-border bg-background p-6">
             <div className="rounded-lg border bg-card p-4">
-              <h2 className="mb-2 text-sm font-semibold uppercase text-muted-foreground">Step Palette</h2>
+              <h2 className="mb-2 text-sm font-semibold uppercase text-muted-foreground">{t('workflows.visualEditor.stepPalette')}</h2>
               <p className="mb-4 text-xs text-muted-foreground">
-                Click a step type to add it to the canvas
+                {t('workflows.visualEditor.clickToAdd')}
               </p>
 
               <div className="space-y-3">
@@ -1149,16 +1149,16 @@ export default function VisualEditorPage() {
                 <div className="pointer-events-none absolute inset-0 flex items-center justify-center px-4">
                   <div className="text-center">
                     <h2 className="mb-2 text-xl font-semibold text-foreground">
-                      Start Building Your Workflow
+                      {t('workflows.visualEditor.startBuilding')}
                     </h2>
                     <p className="mb-4 text-muted-foreground">
-                      Click a step type from the palette to add it to the canvas
+                      {t('workflows.visualEditor.clickToAddFromPalette')}
                     </p>
                     <button
                       onClick={handleLoadExample}
                       className="pointer-events-auto text-sm text-primary hover:underline"
                     >
-                      Load an example workflow
+                      {t('workflows.visualEditor.loadExampleWorkflow')}
                     </button>
                   </div>
                 </div>

@@ -1152,6 +1152,8 @@
   "workflows.visualEditor.clear": "Borrar",
   "workflows.visualEditor.clearDescription": "Esto borrará todos los metadatos y el lienzo del flujo de trabajo. Esta acción no se puede deshacer.",
   "workflows.visualEditor.clearTitle": "¿Borrar todo?",
+  "workflows.visualEditor.clickToAdd": "Haz clic en un tipo de paso para añadirlo al lienzo",
+  "workflows.visualEditor.clickToAddFromPalette": "Haz clic en un tipo de paso de la paleta para añadirlo al lienzo",
   "workflows.visualEditor.hideMetadata": "Ocultar metadatos",
   "workflows.visualEditor.hint.addSteps": "Haz clic en los tipos de pasos para agregarlos",
   "workflows.visualEditor.hint.connectSteps": "Conecta pasos arrastrando desde los conectores",
@@ -1160,8 +1162,14 @@
   "workflows.visualEditor.hint.validate": "Valida antes de guardar",
   "workflows.visualEditor.howToUse": "Cómo usar:",
   "workflows.visualEditor.loadExample": "Cargar ejemplo",
+  "workflows.visualEditor.loadExampleWorkflow": "Cargar un flujo de trabajo de ejemplo",
+  "workflows.visualEditor.readOnly": "Solo lectura",
   "workflows.visualEditor.runTest": "Ejecutar prueba",
   "workflows.visualEditor.showMetadata": "Mostrar metadatos",
+  "workflows.visualEditor.startBuilding": "Empieza a construir tu flujo de trabajo",
+  "workflows.visualEditor.stepPalette": "Paleta de pasos",
+  "workflows.visualEditor.tapToAdd": "Toca un tipo de paso para añadirlo al lienzo",
+  "workflows.visualEditor.tapToAddBelow": "Toca un tipo de paso debajo para añadirlo al lienzo",
   "workflows.visualEditor.validate": "Validar",
   "workflows.visualEditor.workflowMetadata": "Metadatos del flujo de trabajo"
 }

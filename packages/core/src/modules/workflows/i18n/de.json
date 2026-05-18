@@ -1152,6 +1152,8 @@
   "workflows.visualEditor.clear": "Löschen",
   "workflows.visualEditor.clearDescription": "Dies löscht alle Metadaten und die Workflow-Arbeitsfläche. Diese Aktion kann nicht rückgängig gemacht werden.",
   "workflows.visualEditor.clearTitle": "Alles löschen?",
+  "workflows.visualEditor.clickToAdd": "Klicke auf einen Schritttyp, um ihn zur Arbeitsfläche hinzuzufügen",
+  "workflows.visualEditor.clickToAddFromPalette": "Klicke auf einen Schritttyp aus der Palette, um ihn zur Arbeitsfläche hinzuzufügen",
   "workflows.visualEditor.hideMetadata": "Metadaten ausblenden",
   "workflows.visualEditor.hint.addSteps": "Klicke auf Schritttypen, um sie hinzuzufügen",
   "workflows.visualEditor.hint.connectSteps": "Verbinde Schritte durch Ziehen von den Griffen",
@@ -1160,8 +1162,14 @@
   "workflows.visualEditor.hint.validate": "Vor dem Speichern validieren",
   "workflows.visualEditor.howToUse": "Anleitung:",
   "workflows.visualEditor.loadExample": "Beispiel laden",
+  "workflows.visualEditor.loadExampleWorkflow": "Beispiel-Workflow laden",
+  "workflows.visualEditor.readOnly": "Schreibgeschützt",
   "workflows.visualEditor.runTest": "Test ausführen",
   "workflows.visualEditor.showMetadata": "Metadaten anzeigen",
+  "workflows.visualEditor.startBuilding": "Beginne mit dem Aufbau deines Workflows",
+  "workflows.visualEditor.stepPalette": "Schrittpalette",
+  "workflows.visualEditor.tapToAdd": "Tippe auf einen Schritttyp, um ihn zur Arbeitsfläche hinzuzufügen",
+  "workflows.visualEditor.tapToAddBelow": "Tippe unten auf einen Schritttyp, um ihn zur Arbeitsfläche hinzuzufügen",
   "workflows.visualEditor.validate": "Validieren",
   "workflows.visualEditor.workflowMetadata": "Workflow-Metadaten"
 }

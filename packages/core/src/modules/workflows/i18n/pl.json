@@ -1152,6 +1152,8 @@
   "workflows.visualEditor.clear": "Wyczyść",
   "workflows.visualEditor.clearDescription": "Spowoduje to wyczyszczenie wszystkich metadanych i obszaru roboczego przepływu pracy. Tej czynności nie można cofnąć.",
   "workflows.visualEditor.clearTitle": "Wyczyścić wszystko?",
+  "workflows.visualEditor.clickToAdd": "Kliknij typ kroku, aby dodać go do obszaru roboczego",
+  "workflows.visualEditor.clickToAddFromPalette": "Kliknij typ kroku z palety, aby dodać go do obszaru roboczego",
   "workflows.visualEditor.hideMetadata": "Ukryj metadane",
   "workflows.visualEditor.hint.addSteps": "Kliknij typy kroków, aby je dodać",
   "workflows.visualEditor.hint.connectSteps": "Łącz kroki, przeciągając z uchwytów",
@@ -1160,8 +1162,14 @@
   "workflows.visualEditor.hint.validate": "Zwaliduj przed zapisaniem",
   "workflows.visualEditor.howToUse": "Jak używać:",
   "workflows.visualEditor.loadExample": "Załaduj przykład",
+  "workflows.visualEditor.loadExampleWorkflow": "Załaduj przykładowy przepływ pracy",
+  "workflows.visualEditor.readOnly": "Tylko do odczytu",
   "workflows.visualEditor.runTest": "Uruchom test",
   "workflows.visualEditor.showMetadata": "Pokaż metadane",
+  "workflows.visualEditor.startBuilding": "Zacznij budować swój przepływ pracy",
+  "workflows.visualEditor.stepPalette": "Paleta kroków",
+  "workflows.visualEditor.tapToAdd": "Dotknij typu kroku, aby dodać go do obszaru roboczego",
+  "workflows.visualEditor.tapToAddBelow": "Dotknij typu kroku poniżej, aby dodać go do obszaru roboczego",
   "workflows.visualEditor.validate": "Waliduj",
   "workflows.visualEditor.workflowMetadata": "Metadane przepływu pracy"
 }
