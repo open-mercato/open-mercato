@@ -106,6 +106,7 @@ export default async function BackendLayout({
         rightHeaderSlot={(
           <BackendHeaderChrome
             email={auth?.email}
+            userId={auth?.sub ?? null}
             embeddingConfigured={embeddingConfigured}
             missingConfigMessage={missingConfigMessage}
             tenantId={auth?.tenantId ?? null}

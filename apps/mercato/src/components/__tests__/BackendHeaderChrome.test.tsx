@@ -34,6 +34,10 @@ jest.mock('@open-mercato/ui/backend/SettingsButton', () => ({
   SettingsButton: () => <div data-testid="settings-button" />,
 }))
 
+jest.mock('@open-mercato/ui/backend/AuthSessionGuard', () => ({
+  AuthSessionGuard: () => <div data-testid="auth-session-guard" />,
+}))
+
 jest.mock('@/components/AiAssistantShellIntegration', () => ({
   AiAssistantShellIntegration: ({ children }: { children: React.ReactNode }) => <>{children}</>,
 }))
@@ -43,6 +47,7 @@ describe('BackendHeaderChrome', () => {
     const { container } = render(
       <BackendHeaderChrome
         email="demo@example.com"
+        userId="user-1"
         embeddingConfigured={false}
         missingConfigMessage=""
         tenantId={null}

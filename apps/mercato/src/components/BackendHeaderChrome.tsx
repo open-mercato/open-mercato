@@ -3,6 +3,7 @@
 import dynamic from 'next/dynamic'
 import * as React from 'react'
 import { hasFeature } from '@open-mercato/shared/security/features'
+import { AuthSessionGuard } from '@open-mercato/ui/backend/AuthSessionGuard'
 import { IntegrationsButton } from '@open-mercato/ui/backend/IntegrationsButton'
 import { ProfileDropdown } from '@open-mercato/ui/backend/ProfileDropdown'
 import { SettingsButton } from '@open-mercato/ui/backend/SettingsButton'
@@ -32,6 +33,7 @@ const LazyMessagesIcon = dynamic(
 
 type BackendHeaderChromeProps = {
   email?: string
+  userId: string | null
   embeddingConfigured: boolean
   missingConfigMessage: string
   tenantId: string | null
@@ -52,6 +54,7 @@ function hasVisibleRoute(groups: Array<{ items?: Array<{ href: string; hidden?: 
 
 export function BackendHeaderChrome({
   email,
+  userId,
   embeddingConfigured,
   missingConfigMessage,
   tenantId,
@@ -82,6 +85,7 @@ export function BackendHeaderChrome({
 
   return (
     <>
+      <AuthSessionGuard serverUserId={userId} />
       {isReady && showAiAssistant ? (
         <AiAssistantShellIntegration tenantId={tenantId} organizationId={organizationId}>
           <LazyAiChatHeaderButton />
