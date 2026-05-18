@@ -256,7 +256,8 @@ if (source.kind === 'package') {
 {
   const modulesTsPath = path.join(repoRoot, 'apps', 'mercato', 'src', 'modules.ts')
   const lines = fs.readFileSync(modulesTsPath, 'utf8').split('\n')
-  const entryRe = new RegExp(`\\bid:\\s*['"]${moduleId}['"]`)
+  const escapedModuleId = moduleId.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+  const entryRe = new RegExp(`\\bid:\\s*['"]${escapedModuleId}['"]`)
   const kept = lines.filter((line) => !(entryRe.test(line) && /\bfrom:\s*['"]/.test(line)))
   if (kept.length !== lines.length) {
     fs.writeFileSync(modulesTsPath, kept.join('\n'))
