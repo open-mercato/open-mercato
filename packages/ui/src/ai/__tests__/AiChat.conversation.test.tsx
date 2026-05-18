@@ -224,6 +224,16 @@ describe('<AiChat> conversationId threading (Step 5.15)', () => {
         'src',
         '/api/attachments/image/att-image-1?width=320&height=320&cropType=contain',
       )
+      const download = screen.getByLabelText('Download IMG_5328.JPEG')
+      expect(download).toHaveAttribute(
+        'href',
+        '/api/attachments/file/att-image-1?download=1',
+      )
+      fireEvent.click(image)
+      expect(await screen.findByRole('dialog')).toBeInTheDocument()
+      expect(screen.getByRole('heading', { name: 'IMG_5328.JPEG' })).toBeInTheDocument()
+      const images = screen.getAllByRole('img', { name: 'IMG_5328.JPEG' })
+      expect(images[1]).toHaveAttribute('src', '/api/attachments/image/att-image-1')
       expect(await screen.findByText('Server answer')).toBeInTheDocument()
       expect(fetchMock).toHaveBeenCalledWith(
         '/api/ai_assistant/ai/conversations/conv-server-xyz?limit=100',
