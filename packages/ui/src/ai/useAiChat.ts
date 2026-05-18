@@ -4,6 +4,12 @@ import * as React from 'react'
 import { createAiAgentTransport } from '@open-mercato/ai-assistant/modules/ai_assistant/lib/agent-transport'
 import { apiFetch } from '../backend/utils/api'
 import type { LoopTracePanelTrace } from './LoopTracePanel'
+import {
+  createAiServerConversation,
+  importAiLocalConversation,
+  loadAiServerTranscript,
+  serverMessageToChatMessage,
+} from './conversation-store'
 
 /**
  * Chat message shape used by {@link AiChat}. Kept intentionally minimal so the
@@ -140,6 +146,7 @@ function makeConversationId(): string {
 }
 
 const SESSION_STORAGE_PREFIX = 'om-ai-chat:'
+const SESSION_IMPORT_MARKER_PREFIX = 'om-ai-chat-imported:'
 const SESSION_STORAGE_VERSION = 1
 const SESSION_UPDATED_EVENT = 'om-ai-chat-session-updated'
 const SESSION_STREAM_STATE_EVENT = 'om-ai-chat-session-stream-state'
@@ -257,6 +264,28 @@ function clearPersistedSession(agent: string, conversationId?: string | null): v
     window.localStorage.removeItem(getSessionStorageKey(agent, conversationId))
   } catch {
     // ignore
+  }
+}
+
+function getImportMarkerKey(agent: string, conversationId: string): string {
+  return `${SESSION_IMPORT_MARKER_PREFIX}${agent}:${conversationId}`
+}
+
+function hasImportMarker(agent: string, conversationId: string): boolean {
+  if (typeof window === 'undefined') return false
+  try {
+    return window.localStorage.getItem(getImportMarkerKey(agent, conversationId)) === '1'
+  } catch {
+    return false
+  }
+}
+
+function writeImportMarker(agent: string, conversationId: string): void {
+  if (typeof window === 'undefined') return
+  try {
+    window.localStorage.setItem(getImportMarkerKey(agent, conversationId), '1')
+  } catch {
+    // ignore local marker failures; the server import remains authoritative
   }
 }
 
@@ -649,14 +678,19 @@ export function useAiChat(input: UseAiChatInput): UseAiChatResult {
   // Without this, closing the dock or switching agents while the assistant
   // is "Thinking" abandons the partial reply (issue #1816).
   const latestMessagesRef = React.useRef<AiChatMessage[]>(messages)
+  const latestStatusRef = React.useRef<'idle' | 'submitting' | 'streaming'>(status)
   const persistKeyRef = React.useRef<string | null>(null)
   const agentRef = React.useRef<string>(agent)
+  const pageContextRef = React.useRef<Record<string, unknown> | undefined>(pageContext)
   const effectiveConversationIdRef = React.useRef<string>(effectiveConversationId)
   const sessionStorageKeyRef = React.useRef<string>(sessionStorageKey)
   const mountedRef = React.useRef(true)
   React.useEffect(() => {
     latestMessagesRef.current = messages
   }, [messages])
+  React.useEffect(() => {
+    latestStatusRef.current = status
+  }, [status])
   React.useEffect(() => {
     persistKeyRef.current =
       typeof conversationIdInput === 'string' && conversationIdInput.length > 0
@@ -666,6 +700,9 @@ export function useAiChat(input: UseAiChatInput): UseAiChatResult {
   React.useEffect(() => {
     agentRef.current = agent
   }, [agent])
+  React.useEffect(() => {
+    pageContextRef.current = pageContext
+  }, [pageContext])
   React.useEffect(() => {
     effectiveConversationIdRef.current = effectiveConversationId
   }, [effectiveConversationId])
@@ -720,6 +757,53 @@ export function useAiChat(input: UseAiChatInput): UseAiChatResult {
     },
     [persistSnapshot],
   )
+
+  React.useEffect(() => {
+    let cancelled = false
+    const localCandidate = readPersistedSession(agent, persistKey)
+
+    async function hydrateFromServer(): Promise<void> {
+      const transcript = await loadAiServerTranscript(effectiveConversationId, { limit: 100 })
+      if (cancelled || latestStatusRef.current !== 'idle') return
+
+      if (transcript) {
+        const serverMessages = transcript.messages
+          .map(serverMessageToChatMessage)
+          .filter((message): message is AiChatMessage => message !== null)
+        if (serverMessages.length > 0 || !localCandidate || localCandidate.messages.length === 0) {
+          updateMessages(serverMessages)
+          if (serverMessages.length > 0) persistSnapshot(serverMessages, true)
+          return
+        }
+      }
+
+      if (!localCandidate || localCandidate.messages.length === 0) {
+        if (!transcript) {
+          void createAiServerConversation({
+            agentId: agent,
+            conversationId: effectiveConversationId,
+            pageContext: pageContextRef.current ?? null,
+          })
+        }
+        return
+      }
+
+      if (hasImportMarker(agent, effectiveConversationId)) return
+      const imported = await importAiLocalConversation({
+        agentId: agent,
+        conversationId: effectiveConversationId,
+        pageContext: pageContextRef.current ?? null,
+        messages: localCandidate.messages,
+      })
+      if (cancelled || !imported) return
+      writeImportMarker(agent, effectiveConversationId)
+    }
+
+    void hydrateFromServer()
+    return () => {
+      cancelled = true
+    }
+  }, [agent, effectiveConversationId, persistKey, persistSnapshot, updateMessages])
 
   const setStatus = React.useCallback((next: 'idle' | 'submitting' | 'streaming') => {
     if (mountedRef.current) {
@@ -808,8 +892,11 @@ export function useAiChat(input: UseAiChatInput): UseAiChatResult {
       const url = getTransportEndpoint(agent, apiPath, providerOverride, modelOverride)
       const body = {
         messages: outgoingHistory.map((message) => ({
+          id: message.id,
           role: message.role,
           content: message.content,
+          files: message.files,
+          uiParts: message.uiParts,
         })),
         pageContext,
         attachmentIds,

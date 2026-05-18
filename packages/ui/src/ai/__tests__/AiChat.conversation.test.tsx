@@ -157,6 +157,72 @@ describe('<AiChat> conversationId threading (Step 5.15)', () => {
     const parsedBody = JSON.parse(init.body as string)
     expect(parsedBody.conversationId).toBe('conv-body-xyz')
   })
+
+  it('hydrates the transcript from server storage for an existing conversation', async () => {
+    const originalFetch = globalThis.fetch
+    const fetchMock = jest.fn(async () => ({
+      ok: true,
+      status: 200,
+      json: async () => ({
+        conversation: {
+          conversationId: 'conv-server-xyz',
+          agentId: 'customers.account_assistant',
+          title: null,
+          status: 'open',
+          visibility: 'private',
+          pageContext: null,
+          createdAt: '2026-05-18T10:00:00.000Z',
+          updatedAt: '2026-05-18T10:00:00.000Z',
+          lastMessageAt: '2026-05-18T10:00:00.000Z',
+          importedFromLocalAt: null,
+        },
+        messages: [
+          {
+            id: 'server-msg-1',
+            clientMessageId: 'client-msg-1',
+            role: 'user',
+            content: 'Server question',
+            uiParts: [],
+            attachmentIds: [],
+            files: [],
+            model: null,
+            metadata: null,
+            createdAt: '2026-05-18T10:00:00.000Z',
+          },
+          {
+            id: 'server-msg-2',
+            clientMessageId: 'client-msg-2',
+            role: 'assistant',
+            content: 'Server answer',
+            uiParts: [],
+            attachmentIds: [],
+            files: [],
+            model: null,
+            metadata: null,
+            createdAt: '2026-05-18T10:00:01.000Z',
+          },
+        ],
+        nextCursor: null,
+      }),
+    })) as unknown as typeof fetch
+    globalThis.fetch = fetchMock
+
+    try {
+      renderWithProviders(
+        <AiChat agent="customers.account_assistant" conversationId="conv-server-xyz" />,
+        { dict },
+      )
+
+      expect(await screen.findByText('Server question')).toBeInTheDocument()
+      expect(await screen.findByText('Server answer')).toBeInTheDocument()
+      expect(fetchMock).toHaveBeenCalledWith(
+        '/api/ai_assistant/ai/conversations/conv-server-xyz?limit=100',
+        expect.objectContaining({ credentials: 'include' }),
+      )
+    } finally {
+      globalThis.fetch = originalFetch
+    }
+  })
 })
 
 // <AiChat> mounts useAgentModels (Phase 4b) which hits /api/ai_assistant/ai/agents/<id>/models
