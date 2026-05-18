@@ -1110,21 +1110,30 @@ export async function addAdjustment(page: Page, options: AddAdjustmentOptions): 
         TEST_WAIT_TIMEOUT_MS,
       );
       await expect(kindTrigger).toBeEnabled({ timeout: TEST_WAIT_TIMEOUT_MS });
-      await kindTrigger.click();
-      const kindOption = page.getByRole('option', { name: new RegExp(`^${escapeRegExp(kindLabel)}$`, 'i') }).first();
-      const optionVisible = await kindOption
-        .waitFor({ state: 'visible', timeout: TEST_WAIT_TIMEOUT_MS })
-        .then(() => true, () => false);
-      if (optionVisible) {
-        await kindOption.click({ force: true });
-      } else {
-        // Fallback: drive selection via keyboard when modal-backdrop click interception
-        // hides the rendered option. Brought forward from develop.
-        await page.keyboard.type(kindLabel.charAt(0));
-        await page.waitForTimeout(150);
-        await page.keyboard.press('Enter');
+      for (let attempt = 0; attempt < 3; attempt += 1) {
+        const currentLabel = await kindTrigger.textContent().catch(() => '');
+        if (currentLabel?.includes(kindLabel)) return;
+        const expanded = await kindTrigger.getAttribute('aria-expanded').catch(() => null);
+        if (expanded === 'true') {
+          await page.keyboard.press('Escape').catch(() => {});
+        }
+        await kindTrigger.click();
+        const kindOption = page.getByRole('option', { name: new RegExp(`^${escapeRegExp(kindLabel)}$`, 'i') }).first();
+        const optionVisible = await kindOption
+          .waitFor({ state: 'visible', timeout: TEST_WAIT_TIMEOUT_MS })
+          .then(() => true, () => false);
+        if (optionVisible) {
+          await kindOption.click({ force: true });
+        } else {
+          // Fallback: drive selection via keyboard when modal-backdrop click interception
+          // hides the rendered option. Brought forward from develop.
+          await page.keyboard.type(kindLabel.charAt(0));
+          await page.waitForTimeout(150);
+          await page.keyboard.press('Enter');
+        }
+        await expect(kindTrigger).toContainText(kindLabel, { timeout: 2_000 }).catch(() => {});
       }
-      await expect(kindTrigger).toContainText(kindLabel, { timeout: 2_000 });
+      await expect(kindTrigger).toContainText(kindLabel, { timeout: 5_000 });
     };
 
     // Select kind first — the Radix Select interaction can trigger CrudForm re-renders that
