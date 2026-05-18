@@ -2,12 +2,9 @@ import path from 'node:path'
 import { config as loadEnv } from 'dotenv'
 import { expect, test, type APIRequestContext, type APIResponse } from '@playwright/test'
 import '@open-mercato/core/modules/customers/commands/index'
-import type { BootstrapData } from '@open-mercato/shared/lib/bootstrap'
-import { bootstrapFromAppRoot } from '@open-mercato/shared/lib/bootstrap/dynamicLoader'
-import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
-import { createQueue } from '@open-mercato/queue'
 import { apiRequest, getAuthToken } from '@open-mercato/core/helpers/integration/api'
 import { deleteEntityIfExists, readJsonSafe } from '@open-mercato/core/helpers/integration/crmFixtures'
+import { drainIntegrationQueue } from '@open-mercato/core/helpers/integration/queue'
 
 type JsonRecord = Record<string, unknown>
 type SyncExcelUploadPreview = JsonRecord & {
@@ -47,8 +44,6 @@ const INTEGRATION_ID = 'sync_excel'
 const PERSON_PROFILE_ENTITY_ID = 'customers:customer_person_profile'
 const DATA_SYNC_IMPORT_QUEUE = 'data-sync-import'
 
-let bootstrapDataPromise: Promise<BootstrapData> | null = null
-
 if (!TEST_APP_ROOT) {
   loadEnv({ path: path.resolve(APP_ROOT, '.env') })
   process.env.QUEUE_BASE_DIR = APP_QUEUE_BASE_DIR
@@ -56,46 +51,6 @@ if (!TEST_APP_ROOT) {
 
 async function readJson(response: APIResponse): Promise<JsonRecord> {
   return ((await readJsonSafe<JsonRecord>(response)) ?? {}) as JsonRecord
-}
-
-async function getBootstrapData(): Promise<BootstrapData> {
-  if (!bootstrapDataPromise) {
-    bootstrapDataPromise = bootstrapFromAppRoot(APP_ROOT)
-  }
-  return bootstrapDataPromise
-}
-
-async function drainQueue(queueName: string): Promise<number> {
-  const data = await getBootstrapData()
-  const worker = data.modules
-    .flatMap((module) => module.workers ?? [])
-    .find((entry) => entry.queue === queueName)
-  if (!worker) return 0
-
-  const container = await createRequestContainer()
-  const queue = createQueue(queueName, 'local', { baseDir: APP_QUEUE_BASE_DIR, concurrency: 1 })
-  const resolve = <T = unknown>(name: string): T => container.resolve(name) as T
-
-  try {
-    let processedJobs = 0
-    while (true) {
-      const result = await queue.process(
-        async (job, ctx) => {
-          await Promise.resolve(worker.handler(job, { ...ctx, resolve }))
-        },
-        { limit: 100 },
-      )
-      const handled = result.processed + result.failed
-      processedJobs += handled
-      if (handled === 0) return processedJobs
-    }
-  } finally {
-    await queue.close()
-  }
-}
-
-async function drainDataSyncImportQueue(): Promise<void> {
-  await drainQueue(DATA_SYNC_IMPORT_QUEUE)
 }
 
 async function waitForCompletedRun(
@@ -109,7 +64,7 @@ async function waitForCompletedRun(
     const runBody = await readJson(runResponse)
     const status = String(runBody.status ?? '')
     if (status !== 'completed') {
-      await drainDataSyncImportQueue()
+      await drainIntegrationQueue(DATA_SYNC_IMPORT_QUEUE, { appRoot: APP_ROOT })
     }
     return status
   }, { timeout: 30_000, intervals: [250, 500, 1_000, 2_000] }).toBe('completed')

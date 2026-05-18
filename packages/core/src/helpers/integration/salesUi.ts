@@ -1011,16 +1011,22 @@ export async function addCustomLine(page: Page, options: AddLineOptions): Promis
   await dialog.getByRole('textbox', { name: '1' }).fill(String(options.quantity));
 
   if (options.taxClassName) {
-    // Radix Select inside Dialog — force click on option to bypass overlay
-    const taxClassTrigger = dialog
-      .locator('[role="combobox"]')
-      .filter({ hasText: /No tax class selected/i })
-      .first();
+    const taxClassTrigger = dialog.locator('[data-crud-field-id="taxRateId"] [role="combobox"]').first();
     if ((await taxClassTrigger.count()) > 0) {
-      await taxClassTrigger.click();
-      const opt = page.getByRole('option', { name: options.taxClassName, exact: true });
-      await opt.first().waitFor({ state: 'visible', timeout: 3_000 });
-      await opt.first().click({ force: true });
+      await expect(taxClassTrigger).toBeEnabled({ timeout: TEST_WAIT_TIMEOUT_MS });
+      const selectedLabel = options.taxClassName.split('•')[0].trim();
+      for (let attempt = 0; attempt < 3; attempt += 1) {
+        await taxClassTrigger.click();
+        const opt = page.getByRole('option', { name: options.taxClassName, exact: true }).first();
+        await opt.waitFor({ state: 'visible', timeout: 3_000 });
+        await opt.click();
+        const selected = await taxClassTrigger
+          .filter({ hasText: new RegExp(escapeRegExp(selectedLabel), 'i') })
+          .waitFor({ state: 'visible', timeout: 1_500 })
+          .then(() => true, () => false);
+        if (selected) break;
+      }
+      await expect(taxClassTrigger).toContainText(selectedLabel, { timeout: TEST_WAIT_TIMEOUT_MS });
     }
   }
 
