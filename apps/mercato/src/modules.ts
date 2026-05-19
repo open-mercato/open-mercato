@@ -8,6 +8,7 @@
 //   `apps/docs/docs/framework/modules/overrides.mdx`.
 import { parseBooleanWithDefault } from '@open-mercato/shared/lib/boolean'
 import type { ModuleOverrides } from '@open-mercato/shared/modules/overrides'
+import { officialModuleEntries } from './official-modules.generated'
 
 export type ModuleEntry = {
   id: string
@@ -92,6 +93,7 @@ export const enabledModules: ModuleEntry[] = [
   { id: 'progress', from: '@open-mercato/core' },
   { id: 'integrations', from: '@open-mercato/core' },
   { id: 'data_sync', from: '@open-mercato/core' },
+  { id: 'sync_excel', from: '@open-mercato/core' },
   { id: 'messages', from: '@open-mercato/core' },
   { id: 'ai_assistant', from: '@open-mercato/ai-assistant' },
   { id: 'translations', from: '@open-mercato/core' },
@@ -126,8 +128,18 @@ export const enabledModules: ModuleEntry[] = [
   { id: 'ratelimit_probe', from: '@app' },
 ]
 
+// Official modules activated via official-modules.json / official-modules.local.json
+// (managed by `yarn official-modules`; backed by the external/official-modules submodule).
+for (const entry of officialModuleEntries) {
+  if (!enabledModules.some((existing) => existing.id === entry.id)) enabledModules.push(entry)
+}
+
 if (enabledModules.some((entry) => entry.id === 'example')) {
   enabledModules.push({ id: 'example_customers_sync', from: '@app' })
+}
+
+if (parseBooleanWithDefault(process.env.OM_ENABLE_STORAGE_S3, false)) {
+  enabledModules.push({ id: 'storage_s3', from: '@open-mercato/storage-s3' })
 }
 
 const enterpriseModulesEnabled = parseBooleanWithDefault(process.env.OM_ENABLE_ENTERPRISE_MODULES, false)

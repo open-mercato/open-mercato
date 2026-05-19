@@ -27,6 +27,10 @@ function resolveTenantSegment(tenantId: string | null | undefined): string {
   return 'tenant_shared'
 }
 
+/**
+ * @deprecated Use `StorageDriverFactory.resolveForPartition()` + `driver.store()` instead.
+ * Kept for backward compatibility with external callers.
+ */
 export type StorePartitionFilePayload = {
   partitionCode: string
   orgId: string | null | undefined
@@ -41,6 +45,9 @@ export type StoredPartitionFile = {
   fileName: string
 }
 
+/**
+ * @deprecated Use `StorageDriverFactory.resolveForPartition()` + `driver.store()` instead.
+ */
 export async function storePartitionFile(payload: StorePartitionFilePayload): Promise<StoredPartitionFile> {
   const root = resolvePartitionRoot(payload.partitionCode)
   const orgSegment = resolveOrgSegment(payload.orgId ?? null)
@@ -59,6 +66,9 @@ export async function storePartitionFile(payload: StorePartitionFilePayload): Pr
   }
 }
 
+/**
+ * @deprecated Use `StorageDriverFactory.resolveForAttachment()` + `driver.read()` / `driver.toLocalPath()` instead.
+ */
 export function resolveAttachmentAbsolutePath(
   partitionCode: string,
   storagePath: string,
@@ -78,6 +88,9 @@ export function resolveAttachmentAbsolutePath(
   return path.join(root, safeRelative)
 }
 
+/**
+ * @deprecated Use `StorageDriverFactory.resolveForAttachment()` + `driver.delete()` instead.
+ */
 export async function deletePartitionFile(
   partitionCode: string,
   storagePath: string,

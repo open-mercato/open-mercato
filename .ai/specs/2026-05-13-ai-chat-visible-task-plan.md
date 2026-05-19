@@ -1,7 +1,7 @@
 # AI Chat — Visible Agent Task Plan
 
 **Date:** 2026-05-13
-**Status:** Draft, with 2026-05-13 companion implementation notes
+**Status:** Implemented — Phases 1-3 complete as of 2026-05-18
 **Primary Scope:** OSS, `@open-mercato/ai-assistant`, `@open-mercato/ui`
 **Companion Scope:** `apps/mercato`, `packages/create-app`, shared backend DataTable UX
 **Extends:**
@@ -66,7 +66,7 @@ The design mirrors coding-agent UIs at the interaction level, but the data sourc
 ## Problem Statement
 
 Current behavior:
-- `tool-input-*` / `tool-output-*` chunks are rendered as "Agent tasks", but the labels are raw tool names like `catalog.search_products`.
+- `tool-input-*` / `tool-output-*` chunks are rendered as "Tool calls". They can receive friendly captions derived from task-plan labels, while still showing the raw tool id in parentheses for debugging.
 - After a tool finishes, the UI may show "Thinking..." while the agent decides whether to call another tool or answer.
 - `LoopTrace` has useful step telemetry, but it is debug-only and emitted after the turn completes.
 
@@ -188,18 +188,20 @@ Backward compatible:
 4. Emit runtime-derived task updates from AI assistant tool lifecycle hooks.
 5. Add unit tests for streamed task-plan chunks and rendering.
 
-### Phase 2 — Agent-Authored Safe Labels
+### Phase 2 — Agent-Authored Safe Labels — Completed 2026-05-18
 
-1. Add a constrained task-plan helper to tool/agent context.
-2. Validate label length and sanitize text.
-3. Document prompt guidance: task plans are user-visible progress summaries, not internal reasoning.
-4. Add tests proving hidden-reasoning-like payloads are rejected or redacted.
+1. Added the read-only `meta.update_task_plan` helper to the general-purpose meta tool pack.
+2. Added shared label sanitization and length bounds in `task-plan-labels.ts`.
+3. Documented prompt guidance: task plans are user-visible progress summaries, not internal reasoning.
+4. Added unit coverage proving hidden-reasoning-like payloads are rejected or dropped.
+5. Added optional agent-level `taskPlan: { enabled: true }` config. The registry exposes `meta.update_task_plan` only for opted-in agents and removes manual allowlist entries otherwise.
+6. Enabled task planning by default for CRM/customer agents; catalog agents remain disabled by default and can opt in through an agent definition or `AiAgentExtension`.
 
-### Phase 3 — Docs and Playground
+### Phase 3 — Docs and Playground — Completed 2026-05-18
 
-1. Update `apps/docs/docs/framework/ai-assistant/ui-parts.mdx`.
-2. Update playground docs to distinguish live task plans from debug `LoopTrace`.
-3. Add a manual QA route covering catalog search and a tool error case.
+1. Updated `apps/docs/docs/framework/ai-assistant/ui-parts.mdx`.
+2. Updated playground docs to distinguish live task plans from debug `LoopTrace`.
+3. Added a manual QA route covering CRM tool usage and a tool error case.
 
 ## Testing Strategy
 
@@ -217,28 +219,32 @@ Backward compatible:
 - Unit: `AiChat` renders pending/running/done/failed states without hiding text output.
 - Unit: unknown task-plan chunks are ignored safely by old parser paths.
 - Integration: a mocked agent stream emits task plan + tool call + text in order.
-- Manual QA: ask catalog assistant to find products with missing descriptions and verify the live plan updates before final text appears.
+- Manual QA: ask a CRM agent with `taskPlan.enabled` to find assigned deals and verify the live plan updates before final text appears. Confirm catalog agents do not show a plan unless opted in.
 
 ## Risks & Impact Review
 
 | Risk | Severity | Mitigation | Residual Risk |
 |------|----------|------------|---------------|
 | Hidden reasoning leaks into visible plan labels | High | Runtime-derived labels by default; sanitize and length-bound agent-authored labels; document that task plans are UI copy | Low |
-| Duplicate UI with existing tool-call rows | Medium | Plan shows high-level progress; tool rows remain technical detail | Low |
+| Duplicate UI with existing tool-call rows | Medium | `<AiChat>` renders the Plan block only for agent-authored steps; runtime-derived tool lifecycle rows remain technical detail | Low |
 | Stream ordering bugs cause stale statuses | Medium | Plan updates keyed by `planId` + task `id`; terminal states win over running | Low |
-| Over-promising next actions the agent does not take | Medium | Phase 1 derives from actual tool lifecycle; Phase 2 labels are optional and stateful | Medium |
+| Over-promising next actions the agent does not take | Medium | Runtime-derived fallback derives from actual tool lifecycle; agent-authored labels are stateful and mapped to matching tool updates when `toolName` is supplied | Medium |
 | Persisted conversation storage accidentally stores task plans | Medium | Keep `taskPlan` client-local and optional; do not include in storage payload without a follow-up spec | Low |
 
 ## Final Compliance Report
 
-- **Backward compatibility:** PASS for completed companion fixes — dev origins are additive/config-driven, create-app template remains synchronized, and the DataTable footer change is CSS-only. PASS by design for proposed AI task-plan chunks because they are additive and optional.
-- **Security/privacy:** PASS with mitigation — no chain-of-thought display; no persistence. Dev-origin expansion is limited to local/container aliases plus explicit custom origins.
+- **Backward compatibility:** PASS — the new SSE chunks are additive (`data-agent-task-plan`, `data-agent-task-update`) and ignored by older clients. Existing `tool-input-*`, `tool-output-*`, `loop-finish`, `toolCalls`, `uiParts`, and `reasoning` paths are unchanged.
+- **Security/privacy:** PASS — agent-authored labels flow only through `meta.update_task_plan`, are length-bounded and sanitized, and hidden-reasoning-like text is rejected or dropped. The helper is exposed only when `taskPlan.enabled === true`; no chain-of-thought, no provider reasoning text, no persistence.
 - **Tenant isolation:** PASS — no new data access path; labels derive from already-authorized tool calls.
-- **Design system:** PASS for DataTable footer fix; repository-wide DS health report still shows pre-existing findings. PENDING for the future AI task-plan UI.
-- **Tests:** PASS for dev-origin and DataTable companion fixes. PENDING for AI task-plan parser/rendering tests before that feature can merge.
+- **Design system:** PASS — `<AiChatTaskPlan>` and the Tool calls panel use shared semantic status tokens (`text-status-success-icon`, `text-status-success-text`, `text-destructive`, `text-muted-foreground`) and lucide icons; no hardcoded colors or arbitrary text sizes (the `text-[10px]` status-badge size matches the existing tool-call row precedent).
+- **Tests:** PASS for Phases 1-3 focused coverage — `packages/ai-assistant/.../__tests__/task-plan-stream.test.ts` covers label derivation, terminal-state ordering, SSE injection, agent-authored plan snapshots, and hidden-reasoning rejection; `packages/ai-assistant/.../ai-tools/__tests__/meta-pack.test.ts` covers `meta.update_task_plan`; `packages/ai-assistant/.../__tests__/agent-registry.test.ts` covers opt-in/opt-out registry normalization; `packages/ui/src/ai/__tests__/AiChat.task-plan.test.tsx` covers UI rendering (pending / running / done / failed), runtime-only plan suppression, internal plan-tool hiding, and unknown-chunk safety; core customers/catalog agent-definition tests cover the shipped prompt/allowlist updates.
 
 ## Changelog
 
+- 2026-05-18 — **Task-plan opt-in refinement.** Added `taskPlan.enabled` to agent definitions/extensions, made the registry manage `meta.update_task_plan` exposure, injected prompt guidance only for opted-in agents, enabled CRM/customer agents by default, left catalog agents disabled by default, and changed `<AiChat>` to show the Plan block only for agent-authored steps while keeping runtime tool calls under Tool calls.
+- 2026-05-18 — **Tool-call caption refinement.** Renamed the raw execution panel from "Agent tasks" to "Tool calls", matched its bordered layout to the Plan panel, kept runtime-derived tool lifecycle rows out of the Plan block, and reused provided task labels as friendly captions such as `Customers - Get Deal (customers.get_deal)`.
+- 2026-05-18 — **Phases 2-3 implemented.** Added the read-only `meta.update_task_plan` tool, shared safe-label sanitization, runtime mapping from agent-authored planned steps to subsequent tool lifecycle updates, client hiding for the internal plan tool, prompt/allowlist updates for shipped customers and catalog agents, docs for UI parts/playground/agent authoring, and focused unit coverage for hidden-reasoning rejection plus plan-before-domain-tool streaming.
+- 2026-05-18 — **Phase 1 implemented (#1922).** Runtime-derived task-plan chunks stream through `data-agent-task-plan` / `data-agent-task-update` emitted by `injectTaskPlanIntoStream` in `agent-runtime.ts`, and `useAiChat` merges them into the client-local `taskPlan` array. After the opt-in refinement, `<AiChatTaskPlan>` renders only agent-authored steps; runtime-derived lifecycle updates remain available through the existing tool-call detail rows. Unit tests cover label derivation, ordering safeguards, and renderer states; tool-call detail rows, `LoopTrace`, `reasoning`, and `uiParts` behavior are unchanged.
 - 2026-05-13 — Added implementation notes for dev-origin allowlist support, Docker/dev-container aliases, and the shared DataTable rows-per-page no-wrap fix.
 - 2026-05-13 — Added verification log for focused app/UI tests, template sync check, and DS health check output.
 - 2026-05-13 — Initial short spec for visible live task plans in AI chat.

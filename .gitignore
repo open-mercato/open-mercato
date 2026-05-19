@@ -77,6 +77,10 @@ packages/**/dist/
 /data/*.db-journal
 /data/*.db-wal
 /data/*.db-shm
+apps/*/data/*.db
+apps/*/data/*.db-journal
+apps/*/data/*.db-wal
+apps/*/data/*.db-shm
 
 # prevent accidental check-in of transpiled JS alongside TS sources
 src/**/*.js
@@ -133,3 +137,6 @@ apps/mercato/data/
 # Local security-tooling working dir
 .deepsec/
 apps/mercato/data/cache.db
+
+# Official modules submodule — personal activation override
+official-modules.local.json

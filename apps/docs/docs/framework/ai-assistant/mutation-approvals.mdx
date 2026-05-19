@@ -67,7 +67,7 @@ When the runtime intercepts an `isMutation: true` tool call, it calls `prepareMu
 1. **Tenant scope check** — rejects calls without `tenantId`.
 2. **Effective policy** — `resolveEffectiveMutationPolicy(agent.mutationPolicy, override)` picks the most restrictive of code-declared vs tenant override.
 3. **Normalize input** — applies the tool's Zod schema.
-4. **Build diff** — the tool's `loadBeforeRecord` / `loadBeforeSingleRecord` callbacks populate `fieldDiff` or `records[]`. If the tool declares no resolver, the row gets a no-diff side-effects summary ("will proceed without a preview").
+4. **Build diff** — the tool's `loadBeforeRecord` / `loadBeforeSingleRecord` callbacks populate `fieldDiff` or `records[]`. A resolver may also return a proposed `after` snapshot and display hints (`fieldLabel`, `beforeDisplay`, `afterDisplay`) so approval cards can show names like "Negotiation" while preserving raw IDs for execution. If the tool declares no resolver, the row gets a no-diff side-effects summary ("will proceed without a preview").
 5. **Persist** — inserts one row with `status = 'pending'` and an `idempotencyKey` built from `agent_id + tool_name + tenant + org + conversationId + hash(input)`. Double-submits within the TTL collapse onto the existing row.
 6. **Emit a UI part** — returns a `mutation-preview-card` `AiUiPart` the chat renders inline.
 
@@ -127,6 +127,8 @@ The D18 demo does not listen directly for these three events — it listens for 
 | `mutation-result-card` | `packages/ui/src/ai/parts/MutationResultCard.tsx` | After the confirm route returns; renders success + `failedRecords` mixed outcomes |
 
 The cards stream into the chat inline. A pending action looks like this in the Customers Account Assistant — the previous turn already finished (`Action applied`), and the new tool call (`customers.manage_record_activity`) is staged for review with a per-field diff and the Cancel/Confirm buttons:
+
+`field-diff-card` renders `fieldLabel`, `beforeDisplay`, and `afterDisplay` when present. The raw `field`, `before`, and `after` values remain in the pending action payload for stale checks and execution; display values are UI-only.
 
 ![Mutation approval card inside the AI chat showing a customers.manage_record_activity proposal with field-by-field diff and Confirm/Cancel buttons](/screenshots/open-mercato-ai-assistant-mutations-approvals.png)
 

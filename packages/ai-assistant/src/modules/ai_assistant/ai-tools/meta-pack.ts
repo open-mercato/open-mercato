@@ -12,7 +12,15 @@ import type { AiAgentDefinition } from '../lib/ai-agent-definition'
 import { listAgents, getAgent } from '../lib/agent-registry'
 import { hasRequiredFeatures } from '../lib/auth'
 import { defineAiTool } from '../lib/ai-tool-definition'
-import type { AiToolDefinition } from '../lib/types'
+import {
+  TASK_PLAN_DETAIL_MAX_CHARS,
+  TASK_PLAN_ID_MAX_CHARS,
+  TASK_PLAN_LABEL_MAX_CHARS,
+  TASK_PLAN_MAX_TASKS,
+  TASK_PLAN_TOOL_NAME_MAX_CHARS,
+  looksLikeHiddenReasoning,
+  sanitizeAgentTaskPlanInput,
+} from '../lib/task-plan-labels'
 
 function summarizeAgent(agent: AiAgentDefinition): Record<string, unknown> {
   return {
@@ -30,6 +38,7 @@ function summarizeAgent(agent: AiAgentDefinition): Record<string, unknown> {
     domain: agent.domain ?? null,
     keywords: agent.keywords ?? [],
     suggestions: agent.suggestions ?? [],
+    taskPlan: agent.taskPlan ?? { enabled: false },
     dataCapabilities: agent.dataCapabilities ?? null,
     hasOutputSchema: Boolean(agent.output),
     hasPageContextResolver: typeof agent.resolvePageContext === 'function',
@@ -135,6 +144,74 @@ const describeAgentTool = defineAiTool({
   },
 })
 
-export const metaAiTools: AiToolDefinition<any, any>[] = [listAgentsTool, describeAgentTool]
+const visibleTaskLabel = z
+  .string()
+  .min(1)
+  .max(TASK_PLAN_LABEL_MAX_CHARS)
+  .superRefine((value, ctx) => {
+    if (!looksLikeHiddenReasoning(value)) return
+    ctx.addIssue({
+      code: 'custom',
+      message: 'Task-plan labels are user-visible UI copy and must not include private reasoning.',
+    })
+  })
+
+const visibleTaskDetail = z
+  .string()
+  .max(TASK_PLAN_DETAIL_MAX_CHARS)
+  .optional()
+  .superRefine((value, ctx) => {
+    if (!value || !looksLikeHiddenReasoning(value)) return
+    ctx.addIssue({
+      code: 'custom',
+      message: 'Task-plan details must not include private reasoning.',
+    })
+  })
+
+const updateTaskPlanInput = z.object({
+  tasks: z
+    .array(
+      z.object({
+        id: z.string().min(1).max(TASK_PLAN_ID_MAX_CHARS).optional(),
+        label: visibleTaskLabel.describe('Concise user-visible step label. Do not include private reasoning.'),
+        detail: visibleTaskDetail.describe('Optional short visible detail, not private reasoning.'),
+        toolName: z
+          .string()
+          .min(1)
+          .max(TASK_PLAN_TOOL_NAME_MAX_CHARS)
+          .optional()
+          .describe('Optional whitelisted tool name that this planned step maps to.'),
+      }),
+    )
+    .min(1)
+    .max(TASK_PLAN_MAX_TASKS),
+})
+
+const updateTaskPlanTool = defineAiTool({
+  name: 'meta.update_task_plan',
+  displayName: 'Update task plan',
+  description:
+    'Set the concise user-visible task plan for this assistant turn before calling domain tools. Labels are progress UI, not hidden reasoning.',
+  inputSchema: updateTaskPlanInput,
+  requiredFeatures: ['ai_assistant.view'],
+  tags: ['read', 'meta', 'task-plan'],
+  isMutation: false,
+  handler: async (rawInput) => {
+    const input = updateTaskPlanInput.parse(rawInput)
+    const sanitized = sanitizeAgentTaskPlanInput(input)
+    return {
+      ok: sanitized.tasks.length > 0,
+      tasks: sanitized.tasks,
+      accepted: sanitized.tasks.length,
+      dropped: input.tasks.length - sanitized.tasks.length,
+    }
+  },
+})
+
+export const metaAiTools = [
+  listAgentsTool,
+  describeAgentTool,
+  updateTaskPlanTool,
+]
 
 export default metaAiTools
