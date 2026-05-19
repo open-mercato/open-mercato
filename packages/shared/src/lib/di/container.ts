@@ -6,7 +6,7 @@ import { BasicQueryEngine } from '@open-mercato/shared/lib/query/engine'
 import { DefaultDataEngine } from '@open-mercato/shared/lib/data/engine'
 import { commandRegistry, CommandBus } from '@open-mercato/shared/lib/commands'
 
-type DynamicCradle = Record<string, any>
+type DynamicCradle = Record<string, unknown>
 
 export type AppContainer = AwilixContainer<DynamicCradle>
 export type DiRegistrar = (container: AppContainer) => void
