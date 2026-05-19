@@ -1,4 +1,4 @@
-import { createContainer, asValue, AwilixContainer, InjectionMode, type NameAndRegistrationPair, type Resolver } from 'awilix'
+import { createContainer, asValue, AwilixContainer, InjectionMode, type Resolver } from 'awilix'
 import { RequestContext } from '@mikro-orm/core'
 import { getOrm } from '@open-mercato/shared/lib/db/mikro'
 import { EntityManager } from '@mikro-orm/postgresql'
@@ -45,7 +45,7 @@ function isAwilixResolver(value: unknown): value is Resolver<unknown> {
   return Boolean(value && typeof value === 'object' && typeof (value as { resolve?: unknown }).resolve === 'function')
 }
 
-function toAwilixRegistrations(registrations: Record<string, unknown>): NameAndRegistrationPair<Record<string, unknown>> {
+function toAwilixRegistrations(registrations: Record<string, unknown>): Record<string, Resolver<any>> {
   return Object.fromEntries(
     Object.entries(registrations).map(([key, value]) => [
       key,
