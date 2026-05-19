@@ -14,6 +14,7 @@ import { RadioGroup } from '@open-mercato/ui/primitives/radio'
 import { RadioField } from '@open-mercato/ui/primitives/radio-field'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { formatPasswordRequirements, getPasswordPolicy } from '@open-mercato/shared/lib/auth/passwordPolicy'
+import { normalizeDisplayNameInput } from '@open-mercato/core/modules/auth/lib/displayName'
 
 type CreateUserFormValues = {
   email: string
@@ -326,7 +327,7 @@ export default function CreateUserPage() {
             const customFields = collectCustomFieldValues(values)
             const payload: Record<string, unknown> = {
               email: values.email,
-              name: typeof values.name === 'string' && values.name.trim().length ? values.name.trim() : undefined,
+              name: normalizeDisplayNameInput(values.name),
               organizationId: values.organizationId ? values.organizationId : null,
               roles: Array.isArray(values.roles) ? values.roles : [],
               ...(Object.keys(customFields).length ? { customFields } : {}),
