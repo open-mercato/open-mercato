@@ -16,9 +16,15 @@ const MENU_GAP = 6
 
 // Right-aligned shortcut hint inside a menu row. Mirrors the Figma deal-card menu
 // (node 1045:12254), which shows ⏎ for Open, E for Edit, ⌘D for Duplicate.
+// `aria-hidden="true"` keeps the kbd out of the menu item's accessible name —
+// without this the menu item reads as "Open deal ↵" instead of "Open deal" and
+// `getByRole('menuitem', { name: 'Open deal', exact: true })` fails in tests.
 function MenuShortcut({ children }: { children: React.ReactNode }): React.ReactElement {
   return (
-    <kbd className="ml-auto inline-flex items-center rounded border border-border bg-muted px-1.5 py-px font-mono text-[10px] font-medium leading-none text-muted-foreground">
+    <kbd
+      aria-hidden="true"
+      className="ml-auto inline-flex items-center rounded border border-border bg-muted px-1.5 py-px font-mono text-[10px] font-medium leading-none text-muted-foreground"
+    >
       {children}
     </kbd>
   )

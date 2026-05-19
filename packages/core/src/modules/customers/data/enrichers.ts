@@ -114,12 +114,12 @@ export function buildPipelineState(
 const dealPipelineEnricher: ResponseEnricher<DealRecord> = {
   id: 'customers.deal-pipeline-state',
   targetEntity: 'customers.deal',
-  // Self-document the gate even though the deals list route already enforces
-  // `customers.deals.view` — any future route that enriches `customers.deal`
-  // records (detail GETs, ad-hoc handlers) will be guarded automatically and
-  // won't silently expose stuck/overdue/activity-count derivations to callers
-  // without the view feature.
-  features: ['customers.deals.view'],
+  // No `features` gate: the deals list route already enforces `customers.deals.view`
+  // at the route-metadata level (see api/deals/route.ts). Declaring `features` here
+  // would silently disable the enricher in environments where `rbacService` resolves
+  // to undefined or `getGrantedFeatures` throws — `hasRequiredFeatures` treats a
+  // missing `userFeatures` as "no access", which made `_pipeline` disappear from
+  // CI responses (TC-CRM-066) while keeping the local kanban working.
   priority: 10,
   timeout: ENRICHER_TIMEOUT_MS,
   critical: false,

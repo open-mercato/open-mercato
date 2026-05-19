@@ -95,33 +95,49 @@ async function postImpl(req: Request, translate: TranslateWithFallbackFn): Promi
     return NextResponse.json(guardResult.body, { status: guardResult.status })
   }
 
-  const progressService = container.resolve('progressService') as ProgressService
+  let progressService: ProgressService
+  try {
+    progressService = container.resolve('progressService') as ProgressService
+  } catch (resolveError) {
+    console.error('[customers.deals.bulk-update-stage] progressService resolve failed', resolveError)
+    throw new Error(
+      `progressService resolve failed: ${resolveError instanceof Error ? resolveError.message : String(resolveError)}`,
+    )
+  }
 
-  const progressJob = await progressService.createJob(
-    {
-      jobType: 'customers.deals.bulk_update_stage',
-      name: translate(
-        'customers.deals.kanban.bulk.changeStage.progress.name',
-        'Move selected deals to a new stage',
-      ),
-      description: translate(
-        'customers.deals.kanban.bulk.changeStage.progress.description',
-        '{count} deals queued for stage update',
-        { count: ids.length },
-      ),
-      totalCount: ids.length,
-      cancellable: false,
-      meta: {
-        source: 'customers.deals.bulk-update-stage',
-        pipelineStageId: parsed.data.pipelineStageId,
+  let progressJob: Awaited<ReturnType<ProgressService['createJob']>>
+  try {
+    progressJob = await progressService.createJob(
+      {
+        jobType: 'customers.deals.bulk_update_stage',
+        name: translate(
+          'customers.deals.kanban.bulk.changeStage.progress.name',
+          'Move selected deals to a new stage',
+        ),
+        description: translate(
+          'customers.deals.kanban.bulk.changeStage.progress.description',
+          '{count} deals queued for stage update',
+          { count: ids.length },
+        ),
+        totalCount: ids.length,
+        cancellable: false,
+        meta: {
+          source: 'customers.deals.bulk-update-stage',
+          pipelineStageId: parsed.data.pipelineStageId,
+        },
       },
-    },
-    {
-      tenantId: auth.tenantId,
-      organizationId: auth.orgId,
-      userId: auth.sub,
-    },
-  )
+      {
+        tenantId: auth.tenantId,
+        organizationId: auth.orgId,
+        userId: auth.sub,
+      },
+    )
+  } catch (createError) {
+    console.error('[customers.deals.bulk-update-stage] progressService.createJob failed', createError)
+    throw new Error(
+      `progressService.createJob failed: ${createError instanceof Error ? createError.message : String(createError)}`,
+    )
+  }
 
   const queue = getCustomersQueue(CUSTOMERS_DEALS_BULK_UPDATE_STAGE_QUEUE)
   try {
