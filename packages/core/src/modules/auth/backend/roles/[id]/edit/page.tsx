@@ -175,6 +175,7 @@ export default function EditRolePage({ params }: { params?: { id?: string } }) {
             kind="role"
             targetId={String(id)}
             tenantId={selectedTenantId ?? (initial?.tenantId ?? null)}
+            preserveOnTenantChange
             ref={widgetEditorRef}
           />
         )
