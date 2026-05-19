@@ -159,6 +159,8 @@
   "messages.forwardNote": "Notatka opcjonalna",
   "messages.includeAttachments": "Dołącz załączniki",
   "messages.includeAttachmentsHint": "Przenieś załączniki z oryginalnej wiadomości.",
+  "messages.list.noRecipient": "(Brak odbiorcy)",
+  "messages.list.noSubject": "(Brak tematu)",
   "messages.loading.attachments": "Ładowanie załączników...",
   "messages.loading.detail": "Ładowanie wiadomości...",
   "messages.loading.objectTypes": "Ładowanie typów obiektów...",

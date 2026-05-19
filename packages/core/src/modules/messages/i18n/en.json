@@ -159,6 +159,8 @@
   "messages.forwardNote": "Optional note",
   "messages.includeAttachments": "Include attachments",
   "messages.includeAttachmentsHint": "Carry over attachments from the original message.",
+  "messages.list.noRecipient": "(No recipient)",
+  "messages.list.noSubject": "(No subject)",
   "messages.loading.attachments": "Loading attachments...",
   "messages.loading.detail": "Loading message...",
   "messages.loading.objectTypes": "Loading object types...",

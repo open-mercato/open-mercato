@@ -159,6 +159,8 @@
   "messages.forwardNote": "Optionale Notiz",
   "messages.includeAttachments": "Anhänge einschließen",
   "messages.includeAttachmentsHint": "Anhänge aus der Originalnachricht übernehmen.",
+  "messages.list.noRecipient": "(Kein Empfänger)",
+  "messages.list.noSubject": "(Kein Betreff)",
   "messages.loading.attachments": "Anhänge werden geladen...",
   "messages.loading.detail": "Nachricht wird geladen...",
   "messages.loading.objectTypes": "Objekttypen werden geladen...",
