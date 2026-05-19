@@ -1,4 +1,4 @@
-import { GET } from '@open-mercato/core/modules/messages/api/[id]/route'
+import { GET, PATCH } from '@open-mercato/core/modules/messages/api/[id]/route'
 import { Message, MessageObject, MessageRecipient } from '@open-mercato/core/modules/messages/data/entities'
 import { User } from '@open-mercato/core/modules/auth/data/entities'
 
@@ -207,5 +207,71 @@ describe('messages /api/messages/[id] GET', () => {
       undefined,
       { tenantId, organizationId },
     )
+  })
+})
+
+describe('messages /api/messages/[id] PATCH', () => {
+  beforeEach(() => {
+    jest.clearAllMocks()
+  })
+
+  it('accepts a draft update with an empty body and forwards it to the command bus', async () => {
+    const tenantId = 'eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee'
+    const organizationId = 'ffffffff-ffff-4fff-8fff-ffffffffffff'
+    const userId = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa'
+    const messageId = '22222222-2222-4222-8222-222222222222'
+
+    const draftMessage = {
+      id: messageId,
+      tenantId,
+      organizationId,
+      senderUserId: userId,
+      isDraft: true,
+      deletedAt: null,
+    }
+
+    const em = {
+      fork: jest.fn().mockReturnThis(),
+      findOne: jest.fn().mockResolvedValue(draftMessage),
+    }
+    const commandBus = {
+      execute: jest.fn().mockResolvedValue({ result: { ok: true, id: messageId }, logEntry: null }),
+    }
+    const container = {
+      resolve: (name: string) => {
+        if (name === 'em') return em
+        if (name === 'commandBus') return commandBus
+        return null
+      },
+    }
+
+    resolveMessageContextMock.mockResolvedValue({
+      ctx: { container, auth: null },
+      scope: { tenantId, organizationId, userId },
+    })
+
+    const request = new Request('https://example.test/api/messages/22222222-2222-4222-8222-222222222222', {
+      method: 'PATCH',
+      body: JSON.stringify({
+        subject: 'Updated draft subject',
+        body: '',
+        recipients: [{ userId: '11111111-1111-4111-8111-111111111111', type: 'to' }],
+      }),
+    })
+
+    const response = await PATCH(request, { params: { id: messageId } })
+
+    expect(response.status).toBe(200)
+    expect(commandBus.execute).toHaveBeenCalledTimes(1)
+    const [commandId, args] = commandBus.execute.mock.calls[0]
+    expect(commandId).toBe('messages.messages.update_draft')
+    expect(args.input).toEqual(expect.objectContaining({
+      messageId,
+      subject: 'Updated draft subject',
+      body: '',
+      tenantId,
+      organizationId,
+      userId,
+    }))
   })
 })
