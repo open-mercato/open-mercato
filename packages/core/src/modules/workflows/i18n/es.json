@@ -916,6 +916,7 @@
   "workflows.nodeTypes.subWorkflow": "SUBFLUJO DE TRABAJO",
   "workflows.nodeTypes.userTask": "TAREA DE USUARIO",
   "workflows.nodeTypes.waitForSignal": "ESPERAR SENAL",
+  "workflows.nodeTypes.waitForTimer": "ESPERAR TEMPORIZADOR",
   "workflows.notifications.task.assigned.body": "Se te ha asignado la tarea \"{taskName}\" en el flujo de trabajo \"{workflowName}\"{dueDate, select, other { (vence: {dueDate})}}",
   "workflows.notifications.task.assigned.title": "Tarea asignada",
   "workflows.orderApproval.approveButton": "Aprobar",

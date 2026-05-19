@@ -916,6 +916,7 @@
   "workflows.nodeTypes.subWorkflow": "SUB-WORKFLOW",
   "workflows.nodeTypes.userTask": "USER TASK",
   "workflows.nodeTypes.waitForSignal": "WAIT FOR SIGNAL",
+  "workflows.nodeTypes.waitForTimer": "WAIT FOR TIMER",
   "workflows.notifications.task.assigned.body": "You have been assigned to task \"{taskName}\" in workflow \"{workflowName}\"{dueDate, select, other { (due: {dueDate})}}",
   "workflows.notifications.task.assigned.title": "Task Assigned",
   "workflows.orderApproval.approveButton": "Approve",

@@ -916,6 +916,7 @@
   "workflows.nodeTypes.subWorkflow": "SUB-WORKFLOW",
   "workflows.nodeTypes.userTask": "BENUTZERAUFGABE",
   "workflows.nodeTypes.waitForSignal": "AUF SIGNAL WARTEN",
+  "workflows.nodeTypes.waitForTimer": "AUF TIMER WARTEN",
   "workflows.notifications.task.assigned.body": "Ihnen wurde die Aufgabe \"{taskName}\" im Workflow \"{workflowName}\" zugewiesen{dueDate, select, other { (fällig: {dueDate})}}",
   "workflows.notifications.task.assigned.title": "Aufgabe zugewiesen",
   "workflows.orderApproval.approveButton": "Genehmigen",

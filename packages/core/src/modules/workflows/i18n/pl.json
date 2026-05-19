@@ -916,6 +916,7 @@
   "workflows.nodeTypes.subWorkflow": "PODPRZEPŁYW",
   "workflows.nodeTypes.userTask": "ZADANIE UŻYTKOWNIKA",
   "workflows.nodeTypes.waitForSignal": "CZEKAJ NA SYGNAŁ",
+  "workflows.nodeTypes.waitForTimer": "CZEKAJ NA TIMER",
   "workflows.notifications.task.assigned.body": "Przypisano Ci zadanie \"{taskName}\" w przepływie \"{workflowName}\"{dueDate, select, other { (termin: {dueDate})}}",
   "workflows.notifications.task.assigned.title": "Przypisano Zadanie",
   "workflows.orderApproval.approveButton": "Zatwierdź",

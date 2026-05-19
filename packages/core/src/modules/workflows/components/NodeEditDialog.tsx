@@ -81,6 +81,10 @@ export function NodeEditDialog({ node, isOpen, onClose, onSave, onDelete }: Node
   const [signalName, setSignalName] = useState('')
   const [signalTimeout, setSignalTimeout] = useState('')
 
+  // Wait for timer configuration fields
+  const [timerDuration, setTimerDuration] = useState('')
+  const [timerUntil, setTimerUntil] = useState('')
+
   // Step activities state (for AUTOMATED steps)
   const [stepActivities, setStepActivities] = useState<any[]>([])
   const [expandedStepActivities, setExpandedStepActivities] = useState<Set<number>>(new Set())
@@ -209,6 +213,15 @@ export function NodeEditDialog({ node, isOpen, onClose, onSave, onDelete }: Node
       } else {
         setSignalName('')
         setSignalTimeout('')
+      }
+
+      // Load timer configuration
+      if (node.type === 'waitForTimer') {
+        setTimerDuration(nodeData?.config?.duration || '')
+        setTimerUntil(nodeData?.config?.until || '')
+      } else {
+        setTimerDuration('')
+        setTimerUntil('')
       }
 
       // Load step activities (for AUTOMATED steps)
@@ -407,6 +420,17 @@ export function NodeEditDialog({ node, isOpen, onClose, onSave, onDelete }: Node
       }
     }
 
+    // Wait for timer specific fields (duration XOR until)
+    if (node.type === 'waitForTimer') {
+      const config: any = {}
+      if (timerDuration) {
+        config.duration = timerDuration
+      } else if (timerUntil) {
+        config.until = timerUntil
+      }
+      updates.config = Object.keys(config).length > 0 ? config : undefined
+    }
+
     // Step activities (for AUTOMATED steps)
     if (node.type === 'automated' && stepActivities.length > 0) {
       updates.activities = stepActivities
@@ -449,6 +473,9 @@ export function NodeEditDialog({ node, isOpen, onClose, onSave, onDelete }: Node
     userTask: t('workflows.nodeTypes.userTask'),
     automated: t('workflows.nodeTypes.automated'),
     decision: t('workflows.nodeTypes.decision'),
+    waitForSignal: t('workflows.nodeTypes.waitForSignal'),
+    waitForTimer: t('workflows.nodeTypes.waitForTimer'),
+    subWorkflow: t('workflows.nodeTypes.subWorkflow'),
   }[node.type || 'automated']
 
   // START nodes are partially editable (pre-conditions only), END nodes are not editable
@@ -1389,6 +1416,55 @@ export function NodeEditDialog({ node, isOpen, onClose, onSave, onDelete }: Node
                     />
                     <p className="text-xs text-gray-500 mt-1">
                       {t('workflows.form.descriptions.signalTimeout')}
+                    </p>
+                  </div>
+                </>
+              )}
+
+              {/* Wait for Timer Configuration */}
+              {node.type === 'waitForTimer' && (
+                <>
+                  <div className="border-t border-gray-200 pt-4 mt-4">
+                    <h3 className="text-sm font-semibold text-gray-900 mb-3">
+                      {t('workflows.steps.types.WAIT_FOR_TIMER')}
+                    </h3>
+                  </div>
+
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">
+                      {t('workflows.activities.waitDuration')}
+                    </label>
+                    <Input
+                      type="text"
+                      value={timerDuration}
+                      onChange={(e) => {
+                        setTimerDuration(e.target.value)
+                        if (e.target.value) setTimerUntil('')
+                      }}
+                      placeholder={t('workflows.activities.waitDurationPlaceholder')}
+                      disabled={!!timerUntil}
+                    />
+                    <p className="text-xs text-gray-500 mt-1">
+                      {t('workflows.activities.waitDurationDescription')}
+                    </p>
+                  </div>
+
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">
+                      {t('workflows.activities.waitUntil')}
+                    </label>
+                    <Input
+                      type="datetime-local"
+                      value={timerUntil ? timerUntil.slice(0, 16) : ''}
+                      onChange={(e) => {
+                        const next = e.target.value ? new Date(e.target.value).toISOString() : ''
+                        setTimerUntil(next)
+                        if (next) setTimerDuration('')
+                      }}
+                      disabled={!!timerDuration}
+                    />
+                    <p className="text-xs text-gray-500 mt-1">
+                      {t('workflows.activities.waitUntilDescription')}
                     </p>
                   </div>
                 </>
