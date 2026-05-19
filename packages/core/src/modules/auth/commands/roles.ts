@@ -235,6 +235,14 @@ const updateRoleCommand: CommandHandler<Record<string, unknown>, Role> = {
         }
       }
     }
+    const wantsTenantChange = parsed.tenantId !== undefined && parsed.tenantId !== current.tenantId
+    if (wantsTenantChange) {
+      const assignments = await em.count(UserRole, { role: current, deletedAt: null })
+      if (assignments > 0) {
+        throw new CrudHttpError(400, { error: 'Role cannot be moved to another tenant while users are assigned' })
+      }
+      await em.nativeDelete(RoleAcl, { role: parsed.id as unknown as Role })
+    }
     const de = (ctx.container.resolve('dataEngine') as DataEngine)
     const role = await de.updateOrmEntity({
       entity: Role,

@@ -93,6 +93,7 @@ export default function EditRolePage({ params }: { params?: { id?: string } }) {
         label: t('auth.roles.form.field.tenant', 'Tenant'),
         type: 'custom',
         required: true,
+        disabled,
         component: ({ value, setValue }) => {
           const normalizedValue = typeof value === 'string'
             ? value
@@ -104,10 +105,13 @@ export default function EditRolePage({ params }: { params?: { id?: string } }) {
               onChange={(next) => {
                 const resolved = next ?? null
                 setValue(resolved)
+                if (selectedTenantId !== resolved) {
+                  setAclData((prev) => ({ ...prev, organizations: null }))
+                }
                 setSelectedTenantId(resolved)
-                setAclData({ isSuperAdmin: false, features: [], organizations: null })
               }}
               includeEmptyOption
+              disabled={disabled}
               className="w-full h-9 rounded border px-2 text-sm"
               tenants={preloadedTenants}
             />
@@ -131,19 +135,35 @@ export default function EditRolePage({ params }: { params?: { id?: string } }) {
       id: 'acl',
       title: t('auth.roles.form.group.access', 'Access'),
       column: 1,
-      component: () => (id
-        ? (
-          <AclEditor
-            kind="role"
-            targetId={String(id)}
-            canEditOrganizations
-            value={aclData}
-            onChange={setAclData}
-            currentUserIsSuperAdmin={actorIsSuperAdmin}
-            tenantId={selectedTenantId ?? null}
-          />
+      component: () => {
+        if (!id) return null
+        const initialTenantId = initial?.tenantId ?? null
+        const tenantReassigned = actorIsSuperAdmin
+          && initial != null
+          && (selectedTenantId ?? null) !== (initialTenantId ?? null)
+        return (
+          <div className="space-y-3">
+            {tenantReassigned ? (
+              <div className="rounded border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-900">
+                {t(
+                  'auth.roles.form.tenantReassignWarning',
+                  'This role is being reassigned to a different tenant. The permissions selected here will be saved under the new tenant when you submit.',
+                )}
+              </div>
+            ) : null}
+            <AclEditor
+              kind="role"
+              targetId={String(id)}
+              canEditOrganizations
+              value={aclData}
+              onChange={setAclData}
+              currentUserIsSuperAdmin={actorIsSuperAdmin}
+              tenantId={selectedTenantId ?? null}
+              preserveOnTenantChange
+            />
+          </div>
         )
-        : null),
+      },
     },
     {
       id: 'dashboardWidgets',
