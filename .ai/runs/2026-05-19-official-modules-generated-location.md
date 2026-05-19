@@ -97,5 +97,5 @@ None. No `--skill-url` flags supplied.
 - [x] 4.1 Open PR against develop — https://github.com/open-mercato/open-mercato/pull/1983
 - [x] 4.2 Apply review, skip-qa, documentation labels with comments
 - [x] 4.3 auto-review-pr autofix pass to clean verdict — APPROVED (no findings); review submitted as COMMENTED (self-approval blocked); pipeline label flipped review→merge-queue — c56c1cba4
-- [ ] 4.4 Post comprehensive summary comment
-- [ ] 4.5 Flip plan Status to complete, push
+- [x] 4.4 Post comprehensive summary comment — PR #1983 comment-4485325965
+- [x] 4.5 Flip plan Status to complete, push — Status flipped to `complete` in PR body and plan
