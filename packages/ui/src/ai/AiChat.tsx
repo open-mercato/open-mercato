@@ -16,12 +16,14 @@ import {
   CircleDashed,
   Copy,
   Database,
+  Download,
   FileQuestion,
   GitBranch,
   Handshake,
   Lightbulb,
   ListChecks,
   Loader2,
+  Maximize2,
   Paperclip,
   Plus,
   Search,
@@ -38,6 +40,13 @@ import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { cn } from '@open-mercato/shared/lib/utils'
 import { Alert, AlertDescription, AlertTitle } from '../primitives/alert'
 import { Button } from '../primitives/button'
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogHeader,
+  DialogTitle,
+} from '../primitives/dialog'
 import { IconButton } from '../primitives/icon-button'
 import { Label } from '../primitives/label'
 import { Textarea } from '../primitives/textarea'
@@ -638,6 +647,128 @@ function ReasoningPanel({ text, streaming }: { text: string; streaming: boolean 
   )
 }
 
+function getAttachmentImageUrl(file: AiChatMessageFile): string | null {
+  if (file.id) return `/api/attachments/image/${encodeURIComponent(file.id)}`
+  return file.previewUrl ?? null
+}
+
+function getAttachmentDownloadUrl(file: AiChatMessageFile): string | null {
+  if (file.id) return `/api/attachments/file/${encodeURIComponent(file.id)}?download=1`
+  return file.previewUrl ?? null
+}
+
+function MessageFileAttachment({ file }: { file: AiChatMessageFile }) {
+  const t = useT()
+  const [zoomOpen, setZoomOpen] = React.useState(false)
+  const imageUrl = file.previewUrl ? getAttachmentImageUrl(file) : null
+  const downloadUrl = getAttachmentDownloadUrl(file)
+  const downloadLabel = t('ai_assistant.chat.downloadFile', 'Download {name}').replace(
+    '{name}',
+    file.name,
+  )
+  const zoomLabel = t('ai_assistant.chat.zoomImage', 'Open {name} preview').replace(
+    '{name}',
+    file.name,
+  )
+
+  if (!file.previewUrl) {
+    return (
+      <span className="inline-flex max-w-full items-center gap-1 rounded-full border border-border bg-muted px-2 py-0.5 text-xs">
+        <Paperclip className="size-3 shrink-0" aria-hidden />
+        <span className="max-w-[180px] truncate">{file.name}</span>
+        {downloadUrl ? (
+          <IconButton
+            asChild
+            variant="ghost"
+            size="xs"
+            className="-mr-1 size-5 shrink-0"
+          >
+            <a href={downloadUrl} download={file.name} aria-label={downloadLabel}>
+              <Download className="size-3" aria-hidden />
+            </a>
+          </IconButton>
+        ) : null}
+      </span>
+    )
+  }
+
+  return (
+    <>
+      <div className="group/file relative max-w-full">
+        <button
+          type="button"
+          className="block max-w-full rounded-md border border-border bg-muted/30 focus-visible:outline-none focus-visible:shadow-focus"
+          onClick={() => setZoomOpen(true)}
+          aria-label={zoomLabel}
+          data-ai-chat-image-preview=""
+        >
+          <img
+            src={file.previewUrl}
+            alt={file.name}
+            className="max-h-32 max-w-[200px] rounded-md object-cover"
+          />
+          <span className="pointer-events-none absolute right-1 top-1 inline-flex size-6 items-center justify-center rounded-md bg-background/90 text-muted-foreground opacity-0 shadow-xs transition-opacity group-hover/file:opacity-100 group-focus-within/file:opacity-100">
+            <Maximize2 className="size-3.5" aria-hidden />
+          </span>
+        </button>
+        {downloadUrl ? (
+          <IconButton
+            asChild
+            variant="white"
+            size="xs"
+            className="absolute bottom-1 right-1 opacity-0 shadow-xs transition-opacity group-hover/file:opacity-100 group-focus-within/file:opacity-100"
+          >
+            <a
+              href={downloadUrl}
+              download={file.name}
+              aria-label={downloadLabel}
+              onClick={(event) => event.stopPropagation()}
+              data-ai-chat-file-download=""
+            >
+              <Download className="size-3.5" aria-hidden />
+            </a>
+          </IconButton>
+        ) : null}
+      </div>
+
+      <Dialog open={zoomOpen} onOpenChange={setZoomOpen}>
+        <DialogContent className="gap-3 p-4 sm:max-w-[min(96vw,960px)]">
+          <DialogHeader className="min-w-0 pr-16">
+            <DialogTitle className="truncate text-sm">{file.name}</DialogTitle>
+            <DialogDescription className="sr-only">
+              {t('ai_assistant.chat.imagePreviewDialogDescription', 'Image preview')}
+            </DialogDescription>
+          </DialogHeader>
+          <div className="relative flex min-h-0 items-center justify-center overflow-auto rounded-md bg-muted/30 p-2">
+            <img
+              src={imageUrl ?? file.previewUrl}
+              alt={file.name}
+              className="max-h-[75vh] max-w-full object-contain"
+            />
+            {downloadUrl ? (
+              <IconButton
+                asChild
+                variant="white"
+                size="sm"
+                className="absolute bottom-3 right-3 shadow-xs"
+              >
+                <a
+                  href={downloadUrl}
+                  download={file.name}
+                  aria-label={downloadLabel}
+                  data-ai-chat-file-download=""
+                >
+                  <Download className="size-4" aria-hidden />
+                </a>
+              </IconButton>
+            ) : null}
+          </div>
+        </DialogContent>
+      </Dialog>
+    </>
+  )
+}
+
 function MessageRow({
   message,
   registry,
@@ -737,24 +868,9 @@ function MessageRow({
         </div>
         {message.files && message.files.length > 0 ? (
           <div className="flex flex-wrap gap-2 py-1">
-            {message.files.map((file, i) =>
-              file.previewUrl ? (
-                <img
-                  key={i}
-                  src={file.previewUrl}
-                  alt={file.name}
-                  className="max-h-32 max-w-[200px] rounded-md border border-border object-cover"
-                />
-              ) : (
-                <span
-                  key={i}
-                  className="inline-flex items-center gap-1 rounded-full border border-border bg-muted px-2 py-0.5 text-xs"
-                >
-                  <Paperclip className="size-3" aria-hidden />
-                  {file.name}
-                </span>
-              ),
-            )}
+            {message.files.map((file, i) => (
+              <MessageFileAttachment key={`${file.id ?? file.name}:${i}`} file={file} />
+            ))}
           </div>
         ) : null}
         {isAssistant && message.reasoning ? (
@@ -1030,10 +1146,9 @@ export function AiChat({
     attachmentId?: string
     /**
      * Base64 data URL of the image (capped by PREVIEW_DATA_URL_MAX_BYTES).
-     * Stored on the message so the preview survives a reload — durable
-     * server URLs were intentionally avoided because the LLM provider can
-     * never reach a localhost dev URL anyway, and HTTP fetches add latency
-     * the chat doesn't need.
+     * Stored on the local message for immediate previews; once the transcript
+     * is loaded from server storage the attachment id is used to rebuild a
+     * same-origin thumbnail URL.
      */
     previewDataUrl?: string
     error?: string
@@ -1255,6 +1370,7 @@ export function AiChat({
         const isImage = entry.file.type.startsWith('image/')
         const fallback = isImage ? URL.createObjectURL(entry.file) : undefined
         return {
+          id: entry.attachmentId,
           name: entry.file.name,
           type: entry.file.type,
           previewUrl: isImage ? (entry.previewDataUrl ?? fallback) : undefined,

@@ -173,9 +173,10 @@ packages/ui/src/ai/
 ├── AiChat.tsx                  # Chat sheet — composer, transcript, attachments, UI parts
 ├── AiAssistantLauncher.tsx     # Topbar launcher + Cmd/Ctrl+L global shortcut
 ├── AiDock.tsx                  # Right-side docked chat surface
-├── AiChatSessions.tsx          # Multi-session tab persistence (localStorage)
+├── AiChatSessions.tsx          # Multi-session tabs backed by server conversations
 ├── ChatPaneTabs.tsx            # Tab strip for the dock
-├── useAiChat.ts                # SSE parser, message state, request builder
+├── useAiChat.ts                # Server transcript hydrate/import, SSE parser, request builder
+├── conversation-store.ts       # Browser adapter for /api/ai_assistant/ai/conversations
 ├── useAiChatUpload.ts          # Upload state + per-file progress
 ├── upload-adapter.ts           # multipart POST /api/attachments + per-file timeout
 ├── useAiShortcuts.ts           # Cmd+Enter / Esc shortcuts shared by every dialog
