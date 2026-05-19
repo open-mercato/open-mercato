@@ -96,8 +96,10 @@ The bulk of the work. One large markdown file under `.ai/specs/` following `.ai/
 - [x] 3.4 Open PR with labels — PR #1898
 - [x] 3.5 Run auto-review-pr autofix pass — aa0e383ed (addressed A.1 .gitignore contradiction, A.2 worker command, A.3 next standalone, plus canonical heading bridges)
 - [x] 3.6 Post comprehensive summary comment — PR #1898 (final summary posted; PR body Status flipped to complete)
+- [x] 3.7 Merge latest `origin/develop` to refresh CI baseline — e22228ea0
 
 ## Changelog
 
 - 2026-05-12 — Plan created (`auto-create-pr` skill, slug `railway-one-command-deploy`).
 - 2026-05-12 — Run completed. Status: **complete**. PR #1898 opened against `develop`, autofix applied at `aa0e383ed` (Medium: `.mercato/` gitignore allowlist; Low: precise worker command; Low: Next.js standalone assumption; canonical heading bridges for `.ai/specs/AGENTS.md` compliance). Final labels: `merge-queue`, `feature`, `documentation`, `skip-qa`. In-progress lock released.
+- 2026-05-19 — Maintenance resume merged latest `origin/develop` into PR #1898 without conflicts. Local audit now passes after the develop merge updated `next` to 16.2.6; local global lint remains blocked by unrelated current-develop app hook-order errors outside this PR diff.
