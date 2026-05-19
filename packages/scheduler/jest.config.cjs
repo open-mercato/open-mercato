@@ -19,6 +19,8 @@ module.exports = {
       '<rootDir>/../../scripts/jest-mikroorm-transformer.cjs',
       {
         tsconfig: {
+          rootDir: '.',
+          ignoreDeprecations: '6.0',
           esModuleInterop: true,
           allowJs: true,
         },
@@ -26,6 +28,6 @@ module.exports = {
     ],
   },
   transformIgnorePatterns: [
-    'node_modules/(?!(@mikro-orm)/)',
+    'node_modules/(?!(@mikro-orm|kysely)/)',
   ],
 }
