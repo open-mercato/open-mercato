@@ -1,10 +1,11 @@
-import { createContainer, asValue, AwilixContainer, InjectionMode } from 'awilix'
+import { createContainer, asValue, AwilixContainer, InjectionMode, type NameAndRegistrationPair, type Resolver } from 'awilix'
 import { RequestContext } from '@mikro-orm/core'
 import { getOrm } from '@open-mercato/shared/lib/db/mikro'
 import { EntityManager } from '@mikro-orm/postgresql'
 import { BasicQueryEngine } from '@open-mercato/shared/lib/query/engine'
 import { DefaultDataEngine } from '@open-mercato/shared/lib/data/engine'
 import { commandRegistry, CommandBus } from '@open-mercato/shared/lib/commands'
+import { applyDiOverridesToContainer } from '@open-mercato/shared/modules/overrides'
 
 type DynamicCradle = Record<string, any>
 
@@ -38,6 +39,19 @@ export function getDiRegistrars(): DiRegistrar[] {
     throw new Error('[Bootstrap] DI registrars not registered. Call registerDiRegistrars() at bootstrap.')
   }
   return registrars
+}
+
+function isAwilixResolver(value: unknown): value is Resolver<unknown> {
+  return Boolean(value && typeof value === 'object' && typeof (value as { resolve?: unknown }).resolve === 'function')
+}
+
+function toAwilixRegistrations(registrations: Record<string, unknown>): NameAndRegistrationPair<Record<string, unknown>> {
+  return Object.fromEntries(
+    Object.entries(registrations).map(([key, value]) => [
+      key,
+      isAwilixResolver(value) ? value : asValue(value),
+    ]),
+  )
 }
 
 export async function createRequestContainer(): Promise<AppContainer> {
@@ -84,6 +98,10 @@ export async function createRequestContainer(): Promise<AppContainer> {
       } catch {}
     }
   } catch {}
+  applyDiOverridesToContainer({
+    register: (registrations) => container.register(toAwilixRegistrations(registrations)),
+    unregister: (key) => container.register({ [key]: asValue(undefined) }),
+  })
   // Ensure tenant encryption subscriber is always registered on the fresh request-scoped EM
   try {
     const emForEnc = container.resolve('em') as any

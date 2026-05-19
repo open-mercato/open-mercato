@@ -16,6 +16,8 @@ import {
   useComposeSendOperation,
   useForwardSubmitOperation,
   useReplySubmitOperation,
+  useSendDraftOperation,
+  useUpdateDraftOperation,
 } from './useMessageComposeOperations'
 
 function toErrorMessage(payload: unknown): string | null {
@@ -514,16 +516,59 @@ export function useMessageCompose({
     sendViaEmail,
   })
 
+  const sendDraftOperation = useSendDraftOperation({
+    t,
+    messageId: messageId ?? '',
+    messageType,
+    priority,
+    visibility,
+    externalEmail,
+    recipientIds,
+    subject,
+    body,
+    bodyFormat,
+    sendViaEmail,
+    contextObject,
+    defaultValues,
+    contextActionOptions,
+    normalizedRequiredActionMode,
+    shouldShowContextActions,
+    contextActionRequired,
+    contextActionType,
+  })
+
+  const updateDraftOperation = useUpdateDraftOperation({
+    t,
+    messageId: messageId ?? '',
+    messageType,
+    priority,
+    visibility,
+    externalEmail,
+    recipientIds,
+    subject,
+    body,
+    bodyFormat,
+    sendViaEmail,
+    contextObject,
+    defaultValues,
+    contextActionOptions,
+    normalizedRequiredActionMode,
+    shouldShowContextActions,
+    contextActionRequired,
+    contextActionType,
+  })
+
   const handleSubmit = React.useCallback(async ({ saveAsDraft = false }: { saveAsDraft?: boolean } = {}) => {
     if (submitting) return false
 
     setSubmitError(null)
 
+    const isEditingExistingDraft = variant === 'compose' && Boolean(messageId)
     const isComposeDraftSubmit = saveAsDraft && variant === 'compose'
     const operation = isComposeDraftSubmit
-      ? composeDraftOperation
+      ? (isEditingExistingDraft ? updateDraftOperation : composeDraftOperation)
       : variant === 'compose'
-        ? composeSendOperation
+        ? (isEditingExistingDraft ? sendDraftOperation : composeSendOperation)
         : variant === 'reply'
           ? replyOperation
           : forwardOperation
@@ -556,10 +601,10 @@ export function useMessageCompose({
       }
 
       if (!shouldReturnFalse) {
-        const { endpoint, payload } = operation.buildRequest({ attachmentIds: nextAttachmentIds })
+        const { endpoint, method, payload } = operation.buildRequest({ attachmentIds: nextAttachmentIds })
 
         const call = await apiCall<{ id?: string }>(endpoint, {
-          method: 'POST',
+          method: method ?? 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify(payload),
         })
@@ -612,11 +657,14 @@ export function useMessageCompose({
     forwardOperation,
     inline,
     loadAttachmentIds,
+    messageId,
     onOpenChange,
     onSuccess,
     replyOperation,
+    sendDraftOperation,
     submitting,
     t,
+    updateDraftOperation,
     variant,
   ])
 

@@ -1,0 +1,261 @@
+---
+title: Module overrides
+description: Replace or disable module contracts from modules.ts without forking upstream modules.
+---
+
+# Module overrides
+
+Use `entry.overrides` in `apps/<app>/src/modules.ts` when an app needs to replace or disable a contract shipped by an upstream module. The override is static app configuration: it applies during bootstrap before the affected registries are stored.
+
+```ts
+import type { ModuleEntry } from './modules'
+
+export const enabledModules: ModuleEntry[] = [
+  {
+    id: 'example',
+    from: '@app',
+    overrides: {
+      routes: {
+        api: {
+          'GET /api/example/override-probe': {
+            handler: async () => Response.json({ ok: true, source: 'override' }),
+            metadata: { requireAuth: false },
+          },
+        },
+        pages: {
+          '/backend/example': null,
+          '/frontend/store': { metadata: { title: 'Storefront' } },
+        },
+      },
+    },
+  },
+]
+```
+
+Resolution order is:
+
+1. Programmatic `apply*Overrides(...)`.
+2. `modules.ts` inline `entry.overrides`.
+3. File-based overrides where a domain supports them.
+4. The module's own registrations.
+
+`null` disables the contract. A definition replaces it. Programmatic overrides can restore a contract disabled by `modules.ts` by mapping the same id back to a definition.
+
+The default app and `create-mercato-app` template also export a non-applied `moduleOverrideExamples` object from `src/modules.ts`. It is a copyable catalog for all wired domains; it does not change runtime behavior unless you assign one of those shapes to a module entry's `overrides` field.
+
+## Domains
+
+| Domain | Key | Stable id |
+|---|---|---|
+| AI | `ai.agents`, `ai.tools` | agent id / tool name |
+| API routes | `routes.api` | `'METHOD /api/path'` |
+| Page routes | `routes.pages` | `'/backend/path'` or `'/frontend/path'` |
+| Event subscribers | `events.subscribers` | subscriber id |
+| Workers | `workers` | worker id |
+| Widget injection | `widgets.injection` | injection widget id |
+| Component overrides | `widgets.components` | component handle |
+| Dashboard widgets | `widgets.dashboard` | widget id |
+| Notification types and handlers | `notifications.types`, `notifications.handlers` | type id / handler id |
+| API interceptors | `interceptors` | interceptor id |
+| Command interceptors | `commandInterceptors` | interceptor id |
+| Response enrichers | `enrichers` | enricher id |
+| Page guards | `guards` | middleware id |
+| CLI commands | `cli` | command string |
+| Setup hooks | `setup` | module id |
+| ACL features | `acl.features` | feature id |
+| DI bindings | `di` | container key |
+| Encryption maps | `encryption.maps` | entity id |
+
+## Examples
+
+### Full `modules.ts` Catalog
+
+Use this shape when you need to find the correct key for a domain quickly. Keep only the domains you actually intend to override.
+
+```ts
+import type { ModuleOverrides } from '@open-mercato/shared/modules/overrides'
+
+export const moduleOverrideExamples: ModuleOverrides = {
+  ai: {
+    agents: { 'catalog.catalog_assistant': null },
+    tools: { inbox_ops_accept_action: null },
+  },
+  routes: {
+    api: { 'DELETE /api/example/items': null },
+    pages: { '/backend/example/reports': null },
+  },
+  events: {
+    subscribers: { 'example.todo.audit': null },
+  },
+  workers: { 'example:sync': null },
+  widgets: {
+    injection: { 'example.sidebar': null },
+    components: { 'page:/backend/example': null },
+    dashboard: { 'example.kpi': null },
+  },
+  notifications: {
+    types: { 'example.notice': null },
+    handlers: { 'example.notice.toast': null },
+  },
+  interceptors: { 'example.items.interceptor': null },
+  commandInterceptors: { 'example.command.interceptor': null },
+  enrichers: { 'example.items.enricher': null },
+  guards: { 'example.backend.guard': null },
+  cli: { 'example seed': null },
+  setup: { seedExamples: false },
+  acl: {
+    features: { 'example.manage': null },
+  },
+  di: { exampleService: null },
+  encryption: {
+    maps: { 'example:item': null },
+  },
+}
+```
+
+`setup` overrides apply to the module entry that carries them. For example, `setup: { seedExamples: false }` on `{ id: 'catalog', ... }` skips catalog's `seedExamples` hook; it does not address setup hooks by a separate map key.
+
+### Routes
+
+```ts
+overrides: {
+  routes: {
+    api: {
+      'DELETE /api/catalog/products/[id]': null,
+      'POST /api/catalog/products': {
+        handler: async (req) => Response.json({ ok: true }),
+        metadata: { requireAuth: true, requireFeatures: ['catalog.manage'] },
+      },
+    },
+    pages: {
+      '/backend/catalog/products': null,
+      '/frontend/products': { metadata: { navHidden: true } },
+    },
+  },
+}
+```
+
+### Events, Workers, CLI
+
+```ts
+overrides: {
+  events: {
+    subscribers: {
+      'catalog.product.updated.reindex': null,
+    },
+  },
+  workers: {
+    'catalog:reindex': {
+      id: 'catalog:reindex',
+      queue: 'catalog-reindex-fast',
+      concurrency: 4,
+      handler: async (job, ctx) => {},
+    },
+  },
+  cli: {
+    'catalog reindex': null,
+  },
+}
+```
+
+### Widgets
+
+```ts
+overrides: {
+  widgets: {
+    injection: {
+      'catalog.product.toolbar': null,
+    },
+    components: {
+      'page:/backend/catalog/products': {
+        target: { componentId: 'page:/backend/catalog/products' },
+        priority: 10,
+        propsTransform: (props) => props,
+      },
+    },
+    dashboard: {
+      'catalog.low_stock': null,
+    },
+  },
+}
+```
+
+### Notifications And Runtime Hooks
+
+```ts
+overrides: {
+  notifications: {
+    types: {
+      'catalog.low_stock': null,
+    },
+    handlers: {
+      'catalog.low_stock.toast': null,
+    },
+  },
+  interceptors: {
+    'catalog.products.audit': null,
+  },
+  commandInterceptors: {
+    'catalog.products.command_audit': null,
+  },
+  enrichers: {
+    'catalog.products.stock_enricher': null,
+  },
+  guards: {
+    'catalog.products.page_guard': null,
+  },
+}
+```
+
+### Setup, ACL, DI, Encryption
+
+```ts
+overrides: {
+  setup: {
+    defaultRoleFeatures: {
+      admin: ['catalog.view'],
+    },
+    seedExamples: false,
+  },
+  acl: {
+    features: {
+      'catalog.manage': null,
+    },
+  },
+  di: {
+    catalogPricingService: {
+      register: (container, key) => container.register({ [key]: { mode: 'custom' } }),
+    },
+  },
+  encryption: {
+    maps: {
+      'catalog:product': null,
+    },
+  },
+}
+```
+
+## Programmatic Overrides
+
+Use programmatic helpers for env-driven boot decisions and tests:
+
+```ts
+import {
+  applyApiRouteOverrides,
+  applyPageRouteOverrides,
+  applyWorkerOverrides,
+} from '@open-mercato/shared/modules/overrides'
+
+applyApiRouteOverrides({ 'GET /api/example/override-probe': null })
+applyPageRouteOverrides({ '/backend/example': null })
+applyWorkerOverrides({ 'example:sync': null })
+```
+
+Programmatic calls must happen before the affected registry registers its base entries. The standard app bootstrap already calls `applyModuleOverridesFromEnabledModules(enabledModules)` for inline `modules.ts` overrides.
+
+## Notes
+
+- Override your own app module by editing the module directly; use `entry.overrides` for cross-module app policy.
+- API route keys normalize method case and trailing slashes.
+- Page route keys normalize `/frontend/foo` to frontend route `/foo`; `/backend/foo` stays backend.
+- Stale keys log a warning so operators can find renamed or removed upstream contracts.

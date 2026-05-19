@@ -3,20 +3,22 @@
 **Created:** 2026-04-23
 **Module:** `messages`, `ui`
 **Status:** Draft
-**Related:** `.ai/specs/implemented/SPEC-002-2026-01-23-messages-module.md`, `.ai/specs/2026-04-03-advanced-datatable-ux.md`, `BACKWARD_COMPATIBILITY.md`
+**Related:** `.ai/specs/implemented/SPEC-002-2026-01-23-messages-module.md`, `.ai/specs/2026-04-03-advanced-datatable-ux.md`, `BACKWARD_COMPATIBILITY.md`, GitHub issue #1941
 
 ## TLDR
 
 **Key Points:**
 - Add checkbox selection and batch actions to the Messages inbox list at `/backend/messages` by reusing the shared `DataTable` bulk-actions pattern.
 - Support four inbox actions on the currently visible page: mark as read, mark as unread, archive, and delete.
+- Support safe folder-specific actions outside the inbox: read/unread/delete in Archived, delete in Sent and Drafts, and no bulk actions in All.
 - Reuse the existing single-message APIs (`/api/messages/:id/read`, `/api/messages/:id/archive`, `DELETE /api/messages/:id`) through client-side fan-out in v1; do not add a new batch API route.
 
 **Scope:**
-- Inbox-only row selection on the Messages list
+- Folder-scoped row selection on the Messages list for Inbox, Archived, Sent, and Drafts
 - Header select-all checkbox for the current page
 - Bulk action buttons with selected-count display
 - Delete confirmation dialog
+- Informative placeholders for incomplete message rows, including `(No subject)` and `(No recipient)`
 - Query refresh, partial-failure feedback, and integration coverage
 
 **Concerns:**
@@ -36,17 +38,18 @@ Today, `/backend/messages` renders through `MessagesInboxPageClient` and already
 1. High-volume inbox workflows are inefficient because the current page requires one detail-page visit per message mutation.
 2. The shared `DataTable` already supports bulk actions, but the Messages inbox does not opt into that capability.
 3. The proposal assumes batch APIs already exist. In reality, the Messages module currently exposes only single-message routes for read/unread, archive/unarchive, and delete.
-4. The page supports multiple folders (`inbox`, `sent`, `drafts`, `archived`, `all`), but the requested action set is only valid for recipient-owned inbox rows. The spec must avoid ambiguous behavior on mixed folders.
+4. The page supports multiple folders (`inbox`, `sent`, `drafts`, `archived`, `all`), but each folder has different ownership semantics. The UI must expose only actions that map safely to the existing actor-scoped routes.
+5. Draft rows with missing subjects or recipients currently render terse dashes instead of labels that explain what data is missing.
 
 ## Proposed Solution
 
-Enable bulk selection on the Messages list when the active folder is `inbox`, wire four bulk actions through the existing single-message routes, and keep all writes inside the current Messages module command model.
+Enable bulk selection on the Messages list when the active folder has safe actor-scoped actions, wire those actions through the existing single-message routes, and keep all writes inside the current Messages module command model.
 
 ### Design Decisions
 
 | Decision | Choice | Rationale |
 |----------|--------|-----------|
-| Selection scope | `folder === 'inbox'` only | The requested actions are recipient-scoped and map cleanly to inbox rows. This avoids ambiguous behavior in `sent`, `drafts`, `archived`, and `all`. |
+| Selection scope | Folder-specific action matrix | Inbox supports read/unread/archive/delete; Archived supports read/unread/delete; Sent and Drafts support delete only; All stays disabled because it mixes sender and recipient contexts. |
 | Action transport | Client-side fan-out over existing single-message APIs | Smallest change surface; no new route, schema, command, or migration needed for v1. |
 | Toolbar pattern | Reuse shared `DataTable` bulk-action toolbar | Matches existing admin list behavior and avoids a Messages-only UI fork. |
 | Perspectives | Do not pass `perspective={{ tableId: 'messages.inbox' }}` on `/backend/messages` | The inbox list currently exposes a single primary column, so perspective management adds little value and unnecessary UI chrome in v1. |
@@ -59,7 +62,7 @@ Enable bulk selection on the Messages list when the active folder is `inbox`, wi
 |-------------|-------------|
 | New `POST /api/messages/bulk` route | More API surface than v1 needs. Existing per-message routes already cover the requested behavior. |
 | Use conversation routes (`/conversation/archive`, `/conversation/read`, `/conversation`) | The list rows are individual messages, not thread summaries. Conversation-level actions would over-mutate when multiple rows from one thread are selected. |
-| Enable actions in every folder | The semantics differ by folder and would produce confusing 403/404 cases on sender-owned or archived rows. |
+| Enable the same action set in every folder | The semantics differ by folder and would produce confusing 403/404 cases on sender-owned, draft, archived, or mixed rows. |
 | Build a sticky, floating Messages-only action bar | Requires extra shared-table API or duplicated selection state with limited value at the current page size. |
 
 ## User Stories / Use Cases
@@ -74,13 +77,13 @@ Enable bulk selection on the Messages list when the active folder is `inbox`, wi
 
 | Area | File | Change |
 |------|------|--------|
-| Messages list page | `packages/core/src/modules/messages/components/MessagesInboxPageClient.tsx` | Add inbox-only `bulkActions`, action handlers, confirmation flow, flash messaging, and selection reset wiring; intentionally omit `perspective={{ tableId: 'messages.inbox' }}` because the inbox currently renders a single primary column |
+| Messages list page | `packages/core/src/modules/messages/components/MessagesInboxPageClient.tsx` | Add folder-aware `bulkActions`, action handlers, confirmation flow, flash messaging, participant placeholders, and selection reset wiring; intentionally omit `perspective={{ tableId: 'messages.inbox' }}` because the inbox currently renders a single primary column |
 | Shared table | `packages/ui/src/backend/DataTable.tsx` | Add an optional additive prop to clear row selection when host list scope changes |
 | Shared table tests | `packages/ui/src/backend/__tests__/DataTable.extensions.test.tsx` | Cover selection reset behavior |
 
 ### Selection Model
 
-- Selection is enabled only when the current folder is `inbox`.
+- Selection is enabled only when the current folder has at least one safe bulk action.
 - The header checkbox selects all rows on the current page only. There is no cross-page or "select all search results" behavior in v1.
 - Selection must reset when the host list scope changes. To support that cleanly, `DataTable` will add an optional `selectionScopeKey?: string` prop; when the value changes, `rowSelection` resets to `{}`.
 - `MessagesInboxPageClient` will pass a scope key derived from `folder`, `page`, `search`, and normalized filters.
@@ -102,12 +105,14 @@ User selects inbox rows
 
 ### Action-to-Route Mapping
 
-| UI Action | HTTP Request Per Selected Message | Existing Server Command(s) Reused |
-|-----------|----------------------------------|-----------------------------------|
-| Mark as read | `PUT /api/messages/:id/read` | `messages.recipients.mark_read` |
-| Mark as unread | `DELETE /api/messages/:id/read` | `messages.recipients.mark_unread` |
-| Archive | `PUT /api/messages/:id/archive` | `messages.recipients.archive` |
-| Delete | `DELETE /api/messages/:id` | `messages.messages.delete_for_actor` |
+| Folder | UI Action | HTTP Request Per Selected Message | Existing Server Command(s) Reused |
+|--------|-----------|----------------------------------|-----------------------------------|
+| Inbox | Mark as read | `PUT /api/messages/:id/read` | `messages.recipients.mark_read` |
+| Inbox | Mark as unread | `DELETE /api/messages/:id/read` | `messages.recipients.mark_unread` |
+| Inbox | Archive | `PUT /api/messages/:id/archive` | `messages.recipients.archive` |
+| Inbox, Archived, Sent, Drafts | Delete | `DELETE /api/messages/:id` | `messages.messages.delete_for_actor` |
+| Archived | Mark as read | `PUT /api/messages/:id/read` | `messages.recipients.mark_read` |
+| Archived | Mark as unread | `DELETE /api/messages/:id/read` | `messages.recipients.mark_unread` |
 
 ### Execution Details
 
@@ -203,25 +208,31 @@ Add new keys in `packages/core/src/modules/messages/i18n/{en,pl,de,es}.json`:
 | `messages.bulk.flash.deleteSuccess` | `{count} messages deleted.` |
 | `messages.bulk.flash.partial` | `{succeeded} of {total} messages processed; {failed} failed.` |
 | `messages.bulk.flash.failed` | `Failed to process {count} messages.` |
+| `messages.list.noRecipient` | `(No recipient)` |
+| `messages.list.noSubject` | `(No subject)` |
 
 The selected-count label continues to use the shared `ui.dataTable.bulkAction.selectedCount` key from the UI package.
 
 ## UI/UX
 
-### Inbox List Behavior
+### Messages List Behavior
 
-- Bulk checkboxes are visible only in the `Inbox` folder on `/backend/messages`.
+- Bulk checkboxes are visible only in supported folders on `/backend/messages`: Inbox, Archived, Sent, and Drafts.
+- The `All` folder stays read-only for bulk actions because it can mix sender-owned and recipient-owned rows.
 - The header checkbox selects all rows on the current page.
 - The selected-count label and bulk action buttons appear in the existing `DataTable` toolbar area when at least one row is selected.
 - The inbox page intentionally does not expose the `messages.inbox` perspective picker in v1 because the table currently has a single primary column.
 - Delete requires the shared `ConfirmDialog`; mark read, mark unread, and archive do not require confirmation.
 - Buttons remain enabled for mixed read/unread selections because the underlying endpoints are idempotent.
+- Blank subjects render `(No subject)`.
+- Sent and draft rows without recipients render `(No recipient)` instead of showing the sender as the primary participant.
 
 ### Explicit Non-Goals
 
 - No sticky or floating action bar in v1
 - No cross-page selection
-- No batch actions in `Sent`, `Drafts`, `Archived`, or `All`
+- No batch actions in `All`
+- No archive/unarchive action outside `Inbox`
 - No conversation-level bulk actions
 
 ### Accessibility
@@ -257,7 +268,7 @@ This is a user-visible UX reduction on an existing page, but it does not remove 
 ### Phase 2: Messages Inbox Bulk Actions
 
 1. Add `useConfirmDialog()` to `MessagesInboxPageClient`.
-2. Define inbox-only `bulkActions` for mark read, mark unread, archive, and delete.
+2. Define folder-aware `bulkActions` for the safe action matrix.
 3. Implement a small page-local bulk executor that:
    - maps selected rows to the correct route
    - limits concurrency to `5`
@@ -335,8 +346,8 @@ The feature does not add any new query surface. All writes continue to use alrea
 - **Scenario**: Bulk actions are shown on sender-owned or mixed folders, causing avoidable 403 responses
 - **Severity**: Medium
 - **Affected area**: Messages list UX
-- **Mitigation**: Only enable bulk actions when `folder === 'inbox'`
-- **Residual risk**: None for v1 inbox scope
+- **Mitigation**: Use a folder-specific action matrix: recipient-only read/unread actions only appear in Inbox and Archived; Sent and Drafts expose delete only; All exposes no bulk actions
+- **Residual risk**: Low; the `All` folder remains disabled for bulk actions to avoid mixed-context mutations
 
 ### Migration & Deployment Risks
 
@@ -415,6 +426,9 @@ None.
 ### 2026-04-24
 - Documented the intentional removal of the `messages.inbox` perspective UI from `/backend/messages`; the inbox page now relies on bulk actions without the perspective picker because it currently renders a single primary column
 
+### 2026-05-18
+- Updated the spec for GitHub issue #1941: bulk actions now use a folder-specific safe action matrix for Inbox, Archived, Sent, and Drafts, while All remains disabled; incomplete message rows now render `(No subject)` and `(No recipient)` placeholders
+
 ### Review — 2026-04-23
 - **Reviewer**: Agent
 - **Security**: Passed
@@ -429,7 +443,8 @@ None.
 | Phase | Status | Date | Notes |
 |-------|--------|------|-------|
 | Phase 1 — Shared Selection Reset Hook | Done | 2026-04-23 | Added additive `selectionScopeKey` support to `DataTable` with regression coverage |
-| Phase 2 — Messages Inbox Bulk Actions | Done | 2026-04-23 | Added inbox-only bulk read/unread/archive/delete actions with guarded mutations, partial-failure summaries, delete confirmation, and no inbox perspective picker because the page currently renders a single primary column |
+| Phase 2 — Messages Inbox Bulk Actions | Done | 2026-04-23 | Added initial inbox-only bulk read/unread/archive/delete actions with guarded mutations, partial-failure summaries, delete confirmation, and no inbox perspective picker because the page currently renders a single primary column |
+| Issue #1941 follow-up — Folder Actions and Placeholders | Done | 2026-05-18 | Expanded supported bulk actions to Archived, Sent, and Drafts using the safe action matrix, kept All disabled, and added `(No subject)` / `(No recipient)` placeholders |
 | Phase 3 — Verification | Done | 2026-04-23 | Added focused `DataTable` tests and new Playwright coverage for bulk read/unread and archive/delete flows |
 
 ### Phase 1 — Detailed Progress
@@ -439,7 +454,7 @@ None.
 
 ### Phase 2 — Detailed Progress
 - [x] Step 1: Add `useConfirmDialog()` to `MessagesInboxPageClient`
-- [x] Step 2: Define inbox-only `bulkActions` for mark read, mark unread, archive, and delete
+- [x] Step 2: Define folder-aware `bulkActions` for mark read, mark unread, archive, and delete where each action is safe
 - [x] Step 3: Implement page-local bulk execution with concurrency cap, exact success/failure summaries, and query invalidation after success
 - [x] Step 4: Pass `selectionScopeKey` derived from folder, page, search, and filter state
 - [x] Step 5: Add new i18n keys in all four locales

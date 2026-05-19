@@ -280,6 +280,7 @@
   "staff.messageObjects.notFound": "No encontrado",
   "staff.messageObjects.team.title": "Equipo",
   "staff.messageObjects.teamMember.title": "Miembro del equipo",
+  "staff.messages.leaveRequestApproval": "Solicitud de permiso: aprobación",
   "staff.myAvailability.empty.profileRequired": "Crea tu perfil de miembro para gestionar la disponibilidad.",
   "staff.myAvailability.errors.load": "No se pudo cargar la disponibilidad.",
   "staff.myAvailability.loading": "Cargando disponibilidad...",

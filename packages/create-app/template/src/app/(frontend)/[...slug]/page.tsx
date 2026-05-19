@@ -1,9 +1,8 @@
 import { notFound, redirect } from 'next/navigation'
 import Link from 'next/link'
-import { findRouteManifestMatch, registerFrontendRouteManifests } from '@open-mercato/shared/modules/registry'
+import { findRouteManifestMatch, getFrontendRouteManifests, registerFrontendRouteManifests } from '@open-mercato/shared/modules/registry'
+import { bootstrap } from '@/bootstrap'
 import { frontendRoutes } from '@/.mercato/generated/frontend-routes.generated'
-
-registerFrontendRouteManifests(frontendRoutes)
 import { getAuthFromCookies } from '@open-mercato/shared/lib/auth/server'
 import { AccessDeniedMessage } from '@open-mercato/ui/backend/detail'
 import type { AuthContext } from '@open-mercato/shared/lib/auth/server'
@@ -15,6 +14,9 @@ import type { Metadata } from 'next'
 import { resolveLocalizedTitleMetadata } from '@/lib/metadata'
 import { resolvePageMiddlewareRedirect } from '@open-mercato/shared/lib/middleware/page-executor'
 import { frontendMiddlewareEntries } from '@/.mercato/generated/frontend-middleware.generated'
+
+bootstrap()
+registerFrontendRouteManifests(frontendRoutes)
 
 type FrontendParams = { params: Promise<{ slug: string[] }> }
 
@@ -36,7 +38,7 @@ async function renderAccessDenied() {
 export async function generateMetadata({ params }: FrontendParams): Promise<Metadata> {
   const p = await params
   const pathname = '/' + (p.slug?.join('/') ?? '')
-  const match = findRouteManifestMatch(frontendRoutes, pathname)
+  const match = findRouteManifestMatch(getFrontendRouteManifests(), pathname)
   if (!match) {
     return {}
   }
@@ -50,7 +52,7 @@ export async function generateMetadata({ params }: FrontendParams): Promise<Meta
 export default async function SiteCatchAll({ params }: FrontendParams) {
   const p = await params
   const pathname = '/' + (p.slug?.join('/') ?? '')
-  const match = findRouteManifestMatch(frontendRoutes, pathname)
+  const match = findRouteManifestMatch(getFrontendRouteManifests(), pathname)
   if (!match) return notFound()
 
   // Customer portal auth gate — separate from staff auth
