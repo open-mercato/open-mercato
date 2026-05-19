@@ -4,7 +4,7 @@ import { getAuthFromRequest } from '@open-mercato/shared/lib/auth/server'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import type { RbacService } from '@open-mercato/core/modules/auth/services/rbacService'
 import { llmProviderRegistry } from '@open-mercato/shared/lib/ai/llm-provider-registry'
-import { listAgents, loadAgentRegistry } from '../../../lib/agent-registry'
+import { isAgentTaskPlanEnabled, listAgents, loadAgentRegistry } from '../../../lib/agent-registry'
 import { hasRequiredFeatures } from '../../../lib/auth'
 import { toolRegistry } from '../../../lib/tool-registry'
 import type { AiToolDefinition } from '../../../lib/types'
@@ -90,6 +90,7 @@ export async function GET(req: NextRequest) {
         mutationPolicy: agent.mutationPolicy ?? 'read-only',
         readOnly: Boolean(agent.readOnly),
         maxSteps: agent.maxSteps ?? null,
+        taskPlan: { enabled: isAgentTaskPlanEnabled(agent) },
         allowedTools: agent.allowedTools,
         tools,
         requiredFeatures: agent.requiredFeatures ?? [],

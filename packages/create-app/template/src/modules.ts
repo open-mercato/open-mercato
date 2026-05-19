@@ -46,6 +46,7 @@ export const enabledModules: ModuleEntry[] = [
   { id: 'progress', from: '@open-mercato/core' },
   { id: 'integrations', from: '@open-mercato/core' },
   { id: 'data_sync', from: '@open-mercato/core' },
+  { id: 'sync_excel', from: '@open-mercato/core' },
   { id: 'messages', from: '@open-mercato/core' },
   { id: 'ai_assistant', from: '@open-mercato/ai-assistant' },
   { id: 'translations', from: '@open-mercato/core' },
@@ -65,6 +66,10 @@ export const enabledModules: ModuleEntry[] = [
 
 if (enabledModules.some((entry) => entry.id === 'example')) {
   enabledModules.push({ id: 'example_customers_sync', from: '@app' })
+}
+
+if (parseBooleanWithDefault(process.env.OM_ENABLE_STORAGE_S3, false)) {
+  enabledModules.push({ id: 'storage_s3', from: '@open-mercato/storage-s3' })
 }
 
 const enterpriseModulesEnabled = parseBooleanWithDefault(process.env.OM_ENABLE_ENTERPRISE_MODULES, false)

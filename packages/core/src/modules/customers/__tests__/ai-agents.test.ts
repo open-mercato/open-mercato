@@ -72,6 +72,11 @@ describe('customers.account_assistant agent definition', () => {
     expect(agent.acceptedMediaTypes).toEqual(['image', 'pdf', 'file'])
   })
 
+  it('enables the visible task-plan helper by agent configuration', () => {
+    expect(agent.taskPlan).toEqual({ enabled: true })
+    expect(agent.allowedTools).not.toContain('meta.update_task_plan')
+  })
+
   it('whitelists only read-only tools that exist in the customers pack or general-purpose packs', () => {
     const customersToolNames = new Set(customersAiTools.map((tool) => tool.name))
     for (const toolName of agent.allowedTools) {
@@ -413,7 +418,12 @@ describe('customers.deal_analyzer demo agents', () => {
   it('whitelists the analyze + update-stage tools and not others', () => {
     expect(dealAnalyzer.allowedTools).toContain('customers.analyze_deals')
     expect(dealAnalyzer.allowedTools).toContain('customers.update_deal_stage')
+    expect(dealAnalyzer.allowedTools).not.toContain('meta.update_task_plan')
     expect(dealAnalyzer.allowedTools).not.toContain('customers.manage_record_activity')
+  })
+
+  it('enables visible task planning through taskPlan config', () => {
+    expect(dealAnalyzer.taskPlan).toEqual({ enabled: true })
   })
 
   it('requiredFeatures stays inside the customers acl namespace', () => {
@@ -434,6 +444,7 @@ describe('customers.deal_analyzer demo agents', () => {
 
     expect((stepZero as any).model).toBeUndefined()
     expect((stepOne as any).model).toBeUndefined()
+    expect((stepZero as any).activeTools).toContain('meta.update_task_plan')
     expect((stepZero as any).activeTools).toContain('customers.analyze_deals')
     expect((stepZero as any).activeTools).not.toContain('customers.update_deal_stage')
     expect((stepOne as any).activeTools).toContain('customers.update_deal_stage')

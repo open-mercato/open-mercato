@@ -8,9 +8,19 @@ const appPackageJsonPath = new URL('./package.json', import.meta.url)
 const appPackageJson = JSON.parse(fs.readFileSync(appPackageJsonPath, 'utf8')) as {
   dependencies?: Record<string, string>
 }
-const transpiledWorkspacePackages = Object.keys(appPackageJson.dependencies ?? {}).filter(
-  (packageName) => packageName.startsWith('@open-mercato/') && packageName !== '@open-mercato/cli',
-)
+const officialModulesPackagesDir = path.resolve(process.cwd(), '..', '..', 'external', 'official-modules', 'packages')
+const officialModulesPackages = fs.existsSync(officialModulesPackagesDir)
+  ? fs
+      .readdirSync(officialModulesPackagesDir, { withFileTypes: true })
+      .filter((entry) => entry.isDirectory() && fs.existsSync(path.join(officialModulesPackagesDir, entry.name, 'package.json')))
+      .map((entry) => `@open-mercato/${entry.name}`)
+  : []
+const transpiledWorkspacePackages = [
+  ...Object.keys(appPackageJson.dependencies ?? {}).filter(
+    (packageName) => packageName.startsWith('@open-mercato/') && packageName !== '@open-mercato/cli',
+  ),
+  ...officialModulesPackages,
+]
 const allowedDevOrigins = isDevelopment ? resolveAllowedDevOrigins() : []
 
 const contentSecurityPolicy = [
