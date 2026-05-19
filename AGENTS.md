@@ -182,7 +182,7 @@ All packages use the `@open-mercato/<package>` naming convention:
 - Put shared utilities and types in `packages/shared/src/lib/` or `packages/shared/src/modules/`
 - Put UI components in `packages/ui/src/`
 - Put user/app-specific modules in `apps/mercato/src/modules/<module>/`
-- MUST NOT add code directly in `apps/mercato/src/` — it's a boilerplate for user apps
+- MUST NOT add code directly in `apps/mercato/src/` — it's a boilerplate for user apps. Narrow exception: committed, typed *generated registries* (files matching `*.generated.ts`) consumed by `modules.ts` or other root entry points may live in `apps/mercato/src/` when they must survive `yarn clean-generated` and travel with the repo — see [Generated Files: versioned vs ephemeral](#generated-files-versioned-vs-ephemeral).
 
 ### `external/official-modules/` (git submodule)
 
@@ -282,7 +282,9 @@ All paths use `src/modules/<module>/` as shorthand. See `packages/core/AGENTS.md
 - API interception: declare interceptors in `api/interceptors.ts`; keep hooks fail-closed and scoped by route + method
 - Interceptors that narrow CRUD list results SHOULD prefer rewriting `query.ids` (comma-separated UUID list) instead of post-filtering response arrays
 - Component replacement: use handle-based IDs (`page:*`, `data-table:*`, `crud-form:*`, `section:*`) for deterministic overrides
-- Generated files: `apps/mercato/.mercato/generated/` — never edit manually
+- Generated files split into two buckets — see [Generated Files: versioned vs ephemeral](#generated-files-versioned-vs-ephemeral):
+  - **Ephemeral** (gitignored, regenerated on every `yarn generate`, wiped by `yarn clean-generated`): `apps/mercato/.mercato/generated/`, `packages/*/generated/`, `src/generated/`. Never edit manually and never depend on them being present in a fresh clone before `yarn generate` runs.
+  - **Versioned** (committed `*.generated.ts` files living next to source — e.g. `apps/mercato/src/official-modules.generated.ts`, `packages/core/src/generated-shims/entities.ids.generated.ts`, `packages/ui/src/backend/fields/registry.generated.ts`): also never edit by hand, but they MUST stay in git because they encode source-of-truth state (module activation, frozen ID maps, registry shape) that must travel with the repo and survive `yarn clean-generated`.
 - Enable modules in your app’s `src/modules.ts` (e.g. `apps/mercato/src/modules.ts`)
 - Run `yarn generate` after adding/modifying module files
 - Agents MUST automatically run `yarn mercato configs cache structural --all-tenants` after enabling/disabling modules in `src/modules.ts`, adding/removing backend or frontend pages, or changing sidebar/navigation injection — stale `nav:*` cache and stale Turbopack module-graph fingerprints can both hide structural changes until they are purged. The structural command purges `nav:*` Redis keys and bumps mtimes on `.mercato/generated/*.generated.{ts,checksum}` so Turbopack re-evaluates the import graph without a dev-server restart. If Turbopack still serves a stale compiled chunk after that, run `yarn dev:reset` to clear `.next/cache/turbopack` and restart `yarn dev`.
