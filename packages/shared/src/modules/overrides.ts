@@ -452,6 +452,13 @@ function clearStore<T>(store: OverrideStore<T>): void {
   for (const key of Object.keys(store.programmatic)) delete store.programmatic[key]
 }
 
+// Shared frozen empty override map. Returned from compose* helpers when both
+// the modules-tier and programmatic-tier stores are empty so per-request hot
+// paths (page guards, etc.) reuse one object instead of allocating fresh `{}`
+// per call. Consumers MUST NOT mutate — internal applier loops iterate keys
+// only, and the public API hands out shallow copies through composeApiRouteOverrides.
+const EMPTY_OVERRIDE_MAP: Readonly<Record<string, never>> = Object.freeze({})
+
 function applyStoreOverrides<T>(
   store: OverrideStore<T>,
   target: 'modules' | 'programmatic',
@@ -471,6 +478,11 @@ function applyStoreOverrides<T>(
 }
 
 function composeStore<T>(store: OverrideStore<T>): OverrideMap<T> {
+  const modulesKeys = Object.keys(store.modules)
+  const programmaticKeys = Object.keys(store.programmatic)
+  if (modulesKeys.length === 0 && programmaticKeys.length === 0) {
+    return EMPTY_OVERRIDE_MAP as OverrideMap<T>
+  }
   return { ...store.modules, ...store.programmatic }
 }
 
@@ -723,9 +735,14 @@ export function resetModuleContractOverridesForTests(): void {
  *   2. Programmatic (`applyApiRouteOverrides`).
  */
 export function composeApiRouteOverrides(): ApiRouteOverridesMap {
+  const modulesKeys = Object.keys(modulesConfigApiRouteOverrides)
+  const programmaticKeys = Object.keys(programmaticApiRouteOverrides)
+  if (modulesKeys.length === 0 && programmaticKeys.length === 0) {
+    return EMPTY_OVERRIDE_MAP as ApiRouteOverridesMap
+  }
   const out: ApiRouteOverridesMap = {}
-  for (const [k, v] of Object.entries(modulesConfigApiRouteOverrides)) out[k] = v
-  for (const [k, v] of Object.entries(programmaticApiRouteOverrides)) out[k] = v
+  for (const k of modulesKeys) out[k] = modulesConfigApiRouteOverrides[k]
+  for (const k of programmaticKeys) out[k] = programmaticApiRouteOverrides[k]
   return out
 }
 
@@ -1043,7 +1060,11 @@ function applyEntryListOverrides<TEntry extends { moduleId: string }, TValue>(
     isReplacement: (value: unknown) => value is TValue
   },
 ): TEntry[] | undefined {
-  if (!entries || Object.keys(overrides).length === 0) return entries ? Array.from(entries) : entries
+  // Fast path: when no overrides are registered, return the input directly.
+  // All known callers iterate the result (.forEach/.flatMap/.map/storage),
+  // never mutate it. This avoids a per-request Array.from copy on hot paths
+  // like executePageMiddleware → applyPageGuardOverridesToEntries.
+  if (!entries || Object.keys(overrides).length === 0) return entries as TEntry[] | undefined
   const consumed = new Set<string>()
   let changed = false
   const result = entries.map((entry) => {
