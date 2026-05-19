@@ -220,18 +220,35 @@ function DealCardImpl({
   const ariaLabel = translateWithFallback(t, 'customers.deals.kanban.card.aria', 'Deal: {title}', {
     title: deal.title,
   })
+  const ariaRoleDescription = translateWithFallback(
+    t,
+    'customers.deals.kanban.card.aria.roledescription',
+    'deal card',
+  )
 
   const valuePieces =
     deal.valueAmount !== null && Number.isFinite(deal.valueAmount)
       ? splitCurrencyAmount(deal.valueAmount, deal.valueCurrency)
       : null
 
-  // Probability pill tone mirrors alert state per Figma (orange for stuck, red for overdue)
-  const probabilityPillClass = showOverdue
-    ? 'bg-status-error-bg text-status-error-text'
-    : showStuck
-      ? 'bg-status-warning-bg text-status-warning-text'
-      : 'bg-muted text-muted-foreground'
+  // Probability pill tone tracks the probability VALUE, not stage state. Figma uses three
+  // tiers (nodes 982:369/417/674/745/797/928/1002):
+  //   <40%  → de-emphasized (gray bg + faded text) — Figma `bg-[#f4f5f7] text-[#808794]`
+  //   40-69% → warning tone (orange bg + warning text) — Figma `bg-[#fff2e0] text-[#fe9a00]`
+  //   ≥70%  → emphasized (gray bg + dark text) — Figma `bg-[#f4f5f7] text-[#474c5a]`
+  //
+  // Importantly the high-probability tier is NOT green: Figma keeps the neutral surface and
+  // signals confidence with darker foreground text instead. Stuck/overdue state is already
+  // surfaced by the separate badge above, so coloring this pill by stage state (the previous
+  // behavior) double-stacked the signal and made e.g. "80% on a red background" read as
+  // "80% is bad" — the inverse of intent.
+  const probabilityValue = typeof deal.probability === 'number' ? deal.probability : null
+  const probabilityPillClass =
+    probabilityValue !== null && probabilityValue >= 70
+      ? 'bg-muted text-foreground'
+      : probabilityValue !== null && probabilityValue >= 40
+        ? 'bg-status-warning-bg text-status-warning-text'
+        : 'bg-muted text-muted-foreground'
 
   const activityBadgeClass = activityWarning
     ? 'bg-status-warning-bg text-status-warning-text'
@@ -251,20 +268,32 @@ function DealCardImpl({
       style={style}
       {...attributes}
       {...listeners}
-      role="article"
       aria-label={ariaLabel}
+      aria-roledescription={ariaRoleDescription}
       onClick={handleCardClick}
       className={`group relative flex w-full flex-col gap-3 rounded-lg border border-border bg-card px-4 py-3.5 shadow-xs transition-shadow ${
-        dimmed ? 'cursor-grabbing opacity-30' : 'cursor-grab hover:shadow-sm active:cursor-grabbing'
+        dimmed
+          ? 'cursor-grabbing opacity-30'
+          : bulkSelectionActive
+            ? 'cursor-pointer hover:shadow-sm'
+            : 'cursor-grab hover:shadow-sm active:cursor-grabbing'
       } ${selected ? 'ring-2 ring-accent-indigo' : ''}`}
     >
       <div className="flex items-start justify-between gap-2.5">
         <div
           data-card-action="true"
-          className={`mr-0.5 mt-0.5 shrink-0 ${
+          className={`mr-0.5 mt-0.5 flex shrink-0 transition-opacity ${
             selected || bulkSelectionActive
-              ? 'flex'
-              : 'hidden group-hover:flex group-focus-within:flex [@media(hover:none)]:flex'
+              ? 'opacity-100'
+              // `opacity-0` alone leaves the element in the DOM with hit-testable pointer
+              // areas — its `onPointerDown={stopPointerDown}` would then swallow drag
+              // starts whenever the operator grabs the card near the (invisible) checkbox,
+              // and dnd-kit never sees the gesture. Pairing with `pointer-events-none`
+              // lets the drag pass through while preserving tab/focus reachability (focus
+              // events ignore `pointer-events`), and the matching `group-hover` /
+              // `focus-within` variants restore hit testing the moment the affordance
+              // becomes visible. `[@media(hover:none)]` keeps it always-on for touch.
+              : 'opacity-0 pointer-events-none group-hover:opacity-100 group-hover:pointer-events-auto focus-within:opacity-100 focus-within:pointer-events-auto [@media(hover:none)]:opacity-100 [@media(hover:none)]:pointer-events-auto'
           }`}
           onClick={(event) => event.stopPropagation()}
           onPointerDown={stopPointerDown}
@@ -336,7 +365,11 @@ function DealCardImpl({
       */}
       <div
         data-card-action="true"
-        className="hidden items-center gap-1 group-hover:flex group-focus-within:flex [@media(hover:none)]:flex"
+        // See note on the checkbox wrapper above — pairing `opacity-0` with `pointer-events-none`
+        // is what restores drag-and-drop. Without it the (invisible) Call/Email/Note row sits in
+        // the middle of the card and intercepts every pointer-down, so dnd-kit never gets the
+        // gesture and the card snaps back to the source lane.
+        className="flex items-center gap-1 opacity-0 pointer-events-none transition-opacity group-hover:opacity-100 group-hover:pointer-events-auto focus-within:opacity-100 focus-within:pointer-events-auto [@media(hover:none)]:opacity-100 [@media(hover:none)]:pointer-events-auto"
         onClick={(event) => event.stopPropagation()}
         onPointerDown={stopPointerDown}
       >
@@ -417,6 +450,12 @@ function DealCardImpl({
         {probabilityLabel ? (
           <span
             className={`inline-flex items-center rounded-md px-2.5 py-1 text-sm font-semibold leading-normal ${probabilityPillClass}`}
+            aria-label={translateWithFallback(
+              t,
+              'customers.deals.kanban.card.aria.probability',
+              'Probability: {value}',
+              { value: probabilityLabel },
+            )}
           >
             {probabilityLabel}
           </span>

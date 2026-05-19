@@ -146,13 +146,15 @@ export function CloseDateFilterPopover({ value, onApply }: CloseDateFilterPopove
           : translateWithFallback(t, 'customers.deals.kanban.filter.any', 'Any')}
       </span>
       {hasDraft ? (
-        <button
+        <Button
+          variant="link"
+          size="sm"
           type="button"
           onClick={handleClear}
-          className="text-xs font-medium leading-normal text-muted-foreground underline-offset-2 transition-colors hover:text-foreground hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
+          className="h-auto px-0 py-0 text-xs font-medium leading-normal"
         >
           {translateWithFallback(t, 'customers.deals.kanban.filter.clear', 'Clear')}
-        </button>
+        </Button>
       ) : null}
     </div>
   )

@@ -27,6 +27,29 @@ export function BulkActionsBar({
   onClear,
 }: BulkActionsBarProps): React.ReactElement | null {
   const t = useT()
+  // Global ESC clears the selection — matches the Gmail/Asana/Notion convention. The
+  // listener is only mounted while at least one deal is selected so we don't intercept
+  // ESC anywhere else on the kanban (e.g. inside dialogs/popovers, which all stopPropagation
+  // before their own ESC handlers fire). `count` is the only thing that gates "is the bar
+  // currently rendered?", and `onClear` is the page-level handler that empties the Set.
+  React.useEffect(() => {
+    if (count === 0) return
+    const onKey = (event: KeyboardEvent) => {
+      if (event.key !== 'Escape') return
+      // Defer if the focus is inside an editable surface — typing ESC to abort a value
+      // edit shouldn't also clear the bulk selection.
+      const active = document.activeElement as HTMLElement | null
+      if (active) {
+        const tag = active.tagName
+        if (tag === 'INPUT' || tag === 'TEXTAREA' || active.isContentEditable) return
+      }
+      event.preventDefault()
+      onClear()
+    }
+    document.addEventListener('keydown', onKey)
+    return () => document.removeEventListener('keydown', onKey)
+  }, [count, onClear])
+
   if (count === 0) return null
 
   return (

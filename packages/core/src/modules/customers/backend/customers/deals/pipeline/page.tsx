@@ -20,6 +20,14 @@ import {
 import { sortableKeyboardCoordinates } from '@dnd-kit/sortable'
 import { ChevronLeft, ChevronRight, Layers, Plus, RotateCcw, SlidersHorizontal, Workflow } from 'lucide-react'
 import { Page, PageBody } from '@open-mercato/ui/backend/Page'
+import {
+  Breadcrumb,
+  BreadcrumbItem,
+  BreadcrumbLink,
+  BreadcrumbList,
+  BreadcrumbPage,
+  BreadcrumbSeparator,
+} from '@open-mercato/ui/primitives/breadcrumb'
 import { Button } from '@open-mercato/ui/primitives/button'
 import { IconButton } from '@open-mercato/ui/primitives/icon-button'
 import { SearchInput } from '@open-mercato/ui/primitives/search-input'
@@ -45,6 +53,8 @@ import { translateWithFallback } from '@open-mercato/shared/lib/i18n/translate'
 import { useOrganizationScopeVersion } from '@open-mercato/shared/lib/frontend/useOrganizationScope'
 import type { FilterOptionTone } from '@open-mercato/shared/lib/query/advanced-filter'
 import { ViewTabsRow } from './components/ViewTabsRow'
+import { LANE_WIDTH_CLASS } from './components/constants'
+import { useCurrencyDictionary } from '../../../../components/detail/hooks/useCurrencyDictionary'
 import { FilterBarRow, type KanbanFilterChip } from './components/FilterBarRow'
 import { Lane, type LaneStage } from './components/Lane'
 import { LaneCurrencyBreakdown } from './components/LaneCurrencyBreakdown'
@@ -110,7 +120,16 @@ export type LaneAggregate = {
   convertedAll: boolean
   missingRateCurrencies: string[]
 }
-type PipelineStageRecord = { id: string; label: string; order: number; pipelineId: string }
+type PipelineStageRecord = {
+  id: string
+  label: string
+  order: number
+  pipelineId: string
+  // `color` is sourced from the `customer_dictionary_entries` row that backs each stage
+  // (kind = 'pipeline_stage'). After the 2026-05-19 hex→tone migration this stores a
+  // canonical tone identifier ('success', 'warning', etc.) rather than a hex string.
+  color?: string | null
+}
 
 type DealApiRecord = Record<string, unknown> & {
   id: string
@@ -259,6 +278,18 @@ function mapDealRecord(item: DealApiRecord, fallbackTitle: string): DealCardData
   }
 }
 
+// Canonical tone identifiers stored in `customer_dictionary_entries.color` after the
+// 2026-05-19 hex→tone migration. Keep in sync with `TONE_OPTIONS` in `AddStageDialog.tsx`.
+const KNOWN_STAGE_TONES: ReadonlySet<string> = new Set([
+  'success',
+  'warning',
+  'info',
+  'error',
+  'neutral',
+  'brand',
+  'pink',
+])
+
 function buildLaneStages(
   stages: PipelineStageRecord[],
   unassignedLabel: string,
@@ -268,7 +299,14 @@ function buildLaneStages(
   const lanes: LaneStage[] = sorted.map((stage, index) => ({
     id: stage.id,
     label: stage.label,
-    tone: FALLBACK_TONES[index % FALLBACK_TONES.length],
+    // Prefer the stage's persisted tone (now stored as a canonical identifier post-migration)
+    // so colors picked by operators in AddStageDialog actually show up on the kanban. Falls
+    // back to the position-based rotation for stages with no color set or unmapped legacy
+    // values that survived the migration's neutral-fallback arm.
+    tone:
+      stage.color && KNOWN_STAGE_TONES.has(stage.color)
+        ? (stage.color as FilterOptionTone)
+        : FALLBACK_TONES[index % FALLBACK_TONES.length],
   }))
   if (hasUnassigned) {
     lanes.push({ id: '__unassigned', label: unassignedLabel, tone: 'neutral' })
@@ -494,6 +532,12 @@ export default function DealsKanbanPage(): React.ReactElement {
   const handleResetAllLaneWidths = React.useCallback(() => {
     setLaneWidths({})
   }, [])
+
+  // Tenant currency list for the Quick deal dialog. The currencies module is the source
+  // of truth (it backs `LaneAggregateProp.baseCurrencyCode` already); we used to hardcode
+  // `['PLN','EUR','USD','GBP']` in the dialog which excluded any tenant operating in CZK,
+  // SEK, HUF, BRL, etc. from quick-add.
+  const currencyDictionary = useCurrencyDictionary()
 
   const companiesQuery = useQuery<QuickDealCompanyOption[]>({
     queryKey: ['customers', 'companies', 'kanban-quick-deal', `scope:${scopeVersion}`],
@@ -1435,20 +1479,20 @@ export default function DealsKanbanPage(): React.ReactElement {
     setCustomizeOpen(true)
   }, [])
 
+  // "Reset to default" must clear every filter chip the operator may have set, otherwise
+  // the menu copy ("Clear filters and restore columns") is a lie. Previously only the
+  // status filter and sort were reset, which left the operator confused when other chips
+  // (pipeline, owner, people, companies, close date, currency, search) stayed populated.
   const handleResetView = React.useCallback(() => {
     setStatusFilters([])
+    setOwnerFilters([])
+    setPeopleFilters([])
+    setCompanyFilters([])
+    setCloseDateFilter({ from: null, to: null })
+    setCurrencyFilter(null)
+    setSearch('')
     setSortBy(DEFAULT_SORT)
   }, [])
-
-  const handleConfigureCardFields = React.useCallback(() => {
-    handleComingSoon(
-      translateWithFallback(
-        t,
-        'customers.deals.kanban.customize.configCols',
-        'Configure card fields',
-      ),
-    )
-  }, [handleComingSoon, t])
 
   const activePipelineName = React.useMemo(() => {
     if (!selectedPipelineId) return ''
@@ -2298,19 +2342,34 @@ export default function DealsKanbanPage(): React.ReactElement {
     <Page>
       <PageBody>
         <div className="flex flex-col gap-2">
-          <nav className="flex items-center gap-1.5 text-xs leading-normal" aria-label="Breadcrumb">
-            <Link href="/backend" className="font-normal text-muted-foreground hover:text-foreground">
-              {translateWithFallback(t, 'customers.deals.kanban.breadcrumb.dashboard', 'Dashboard')}
-            </Link>
-            <span aria-hidden="true" className="font-normal text-muted-foreground">/</span>
-            <span className="font-semibold text-foreground">
-              {translateWithFallback(t, 'customers.deals.kanban.breadcrumb.deals', 'Deals')}
-            </span>
-          </nav>
+          <Breadcrumb>
+            <BreadcrumbList>
+              <BreadcrumbItem>
+                <BreadcrumbLink asChild>
+                  <Link href="/backend">
+                    {translateWithFallback(t, 'customers.deals.kanban.breadcrumb.dashboard', 'Dashboard')}
+                  </Link>
+                </BreadcrumbLink>
+              </BreadcrumbItem>
+              <BreadcrumbSeparator />
+              <BreadcrumbItem>
+                <BreadcrumbPage>
+                  {translateWithFallback(t, 'customers.deals.kanban.breadcrumb.deals', 'Deals')}
+                </BreadcrumbPage>
+              </BreadcrumbItem>
+            </BreadcrumbList>
+          </Breadcrumb>
 
           <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
             <div className="flex flex-col gap-1">
-              <h1 className="text-2xl font-bold tracking-tight text-foreground">
+              {/*
+                Heading typography mirrors DS PageHeader (text-xl sm:text-2xl font-semibold
+                leading-tight) so the kanban title matches /backend/customers/people and
+                other backoffice pages. We don't use the PageHeader component itself because
+                it can't host the rich board-summary content (LaneCurrencyBreakdown popover)
+                that lives directly under the title.
+              */}
+              <h1 className="text-xl font-semibold leading-tight text-foreground sm:text-2xl">
                 {translateWithFallback(t, 'customers.deals.kanban.pageTitle', 'Deals')}
               </h1>
               {boardSummary && boardSummary.rows.length > 0 ? (
@@ -2428,7 +2487,7 @@ export default function DealsKanbanPage(): React.ReactElement {
                 {translateWithFallback(t, 'customers.deals.kanban.cta.customize', 'Customize view')}
               </Button>
               <Button asChild>
-                <Link href="/backend/customers/deals/create">
+                <Link href="/backend/customers/deals/create?returnTo=/backend/customers/deals/pipeline">
                   <Plus className="size-4" aria-hidden="true" />
                   {translateWithFallback(t, 'customers.deals.kanban.cta.newDeal', 'New deal')}
                 </Link>
@@ -2598,7 +2657,7 @@ export default function DealsKanbanPage(): React.ReactElement {
           </div>
             <DragOverlay dropAnimation={null}>
               {activeDragDeal ? (
-                <div className="pointer-events-none w-[308px] rotate-2 cursor-grabbing select-none rounded-lg border border-border bg-card px-4 py-3.5 shadow-xl ring-2 ring-accent-indigo/40">
+                <div className={`pointer-events-none ${LANE_WIDTH_CLASS} rotate-2 cursor-grabbing select-none rounded-lg border border-border bg-card px-4 py-3.5 shadow-xl ring-2 ring-accent-indigo/40`}>
                   <div className="flex flex-col gap-2">
                     <h3 className="line-clamp-2 text-base font-semibold leading-normal text-foreground">
                       {activeDragDeal.title}
@@ -2648,6 +2707,17 @@ export default function DealsKanbanPage(): React.ReactElement {
         currentUserId={currentUserId || undefined}
         currentUserLabel={currentUserLabel}
         companies={companiesQuery.data ?? []}
+        currencies={
+          currencyDictionary.data
+            ? currencyDictionary.data.entries.map((entry) => ({
+                code: entry.value,
+                label: entry.label,
+                isBase: boardSummary?.baseCurrencyCode
+                  ? entry.value === boardSummary.baseCurrencyCode
+                  : false,
+              }))
+            : undefined
+        }
       />
       <AddStageDialog
         open={!!addStageContext}
@@ -2660,7 +2730,6 @@ export default function DealsKanbanPage(): React.ReactElement {
         resizedLanesCount={Object.keys(laneWidths).length}
         onClose={() => setCustomizeOpen(false)}
         onResetToDefault={handleResetView}
-        onConfigureCardFields={handleConfigureCardFields}
         onResetColumnWidths={handleResetAllLaneWidths}
       />
       <ActivityComposerDialog

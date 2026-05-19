@@ -9,9 +9,9 @@ import {
   DialogHeader,
   DialogTitle,
 } from '@open-mercato/ui/primitives/dialog'
-import { Button } from '@open-mercato/ui/primitives/button'
 import { Avatar } from '@open-mercato/ui/primitives/avatar'
 import { CrudForm, type CrudField, type CrudFormGroup } from '@open-mercato/ui/backend/CrudForm'
+import { ComboboxInput } from '@open-mercato/ui/backend/inputs/ComboboxInput'
 import { createCrud } from '@open-mercato/ui/backend/utils/crud'
 import { createCrudFormError } from '@open-mercato/ui/backend/utils/serverErrors'
 import { useGuardedMutation } from '@open-mercato/ui/backend/injection/useGuardedMutation'
@@ -22,9 +22,27 @@ import { translateWithFallback } from '@open-mercato/shared/lib/i18n/translate'
 // Deal status values written by the kanban flow. These intentionally do NOT include 'closed'
 // because the rest of the app only persists 'loose' for lost deals (see StatusFilterPopover
 // notes). 'in_progress' is kept for backwards compatibility with quick-deals created from
-// the previous version of this dialog.
+// the previous version of this dialog. The labels are looked up via i18n at render time so
+// the historic typo 'loose' doesn't leak to operators — the storage value stays unchanged.
 const STATUS_OPTIONS = ['open', 'in_progress', 'win', 'loose'] as const
-const CURRENCY_OPTIONS = ['PLN', 'EUR', 'USD', 'GBP'] as const
+
+/**
+ * Tenant currency option. The page resolves these from the currencies module (see
+ * `useCurrencyDictionary`) and passes them in; we no longer hardcode the 4-currency
+ * list that previously locked tenants on CZK/SEK/HUF/etc. out of quick-add.
+ */
+export type QuickDealCurrencyOption = {
+  code: string
+  label?: string
+  isBase?: boolean
+}
+
+const FALLBACK_CURRENCIES: QuickDealCurrencyOption[] = [
+  { code: 'USD', isBase: true },
+  { code: 'EUR' },
+  { code: 'GBP' },
+  { code: 'PLN' },
+]
 
 export type QuickDealContext = {
   pipelineId: string
@@ -46,12 +64,18 @@ type QuickDealDialogProps = {
   currentUserId?: string
   currentUserLabel?: string
   companies?: QuickDealCompanyOption[]
+  /**
+   * Tenant currency list. When omitted (e.g. dictionary not yet loaded), we render a
+   * conservative fallback so the dialog still works end-to-end. The default selection is
+   * always the entry with `isBase: true`, falling back to the first item.
+   */
+  currencies?: QuickDealCurrencyOption[]
 }
 
 type QuickDealFormValues = {
   title: string
   valueAmount: number | null
-  valueCurrency: (typeof CURRENCY_OPTIONS)[number]
+  valueCurrency: string
   companyId: string
   status: (typeof STATUS_OPTIONS)[number]
   probability: number | null
@@ -69,6 +93,7 @@ export function QuickDealDialog({
   currentUserId,
   currentUserLabel,
   companies = [],
+  currencies,
 }: QuickDealDialogProps): React.ReactElement | null {
   const t = useT()
   // Re-mount CrudForm whenever the dialog opens so cleared state is consistently fresh.
@@ -94,12 +119,27 @@ export function QuickDealDialog({
     'Title is required.',
   )
 
+  // Default currency selection: tenant base currency, else first available, else 'USD' as
+  // a last-resort literal that satisfies the form validator (which now accepts any 3-char
+  // code rather than a hardcoded enum).
+  const resolvedCurrencies = React.useMemo(
+    () => (currencies && currencies.length > 0 ? currencies : FALLBACK_CURRENCIES),
+    [currencies],
+  )
+  const defaultCurrencyCode = React.useMemo(() => {
+    const base = resolvedCurrencies.find((c) => c.isBase)
+    return base?.code ?? resolvedCurrencies[0]?.code ?? 'USD'
+  }, [resolvedCurrencies])
+
   const formSchema = React.useMemo(
     () =>
       z.object({
         title: z.string().trim().min(1, titleRequiredMessage),
         valueAmount: z.number().min(0).nullable().optional(),
-        valueCurrency: z.enum(CURRENCY_OPTIONS),
+        // The set of valid currencies is tenant-defined and resolved at runtime; we accept
+        // any non-empty string here and let the server (which knows the canonical list)
+        // reject anything bogus.
+        valueCurrency: z.string().min(1),
         companyId: z.string().optional(),
         status: z.enum(STATUS_OPTIONS),
         probability: z.number().min(0).max(100).nullable().optional(),
@@ -114,14 +154,14 @@ export function QuickDealDialog({
     () => ({
       title: '',
       valueAmount: null,
-      valueCurrency: 'PLN',
+      valueCurrency: defaultCurrencyCode,
       companyId: '',
       status: 'open',
       probability: 25,
       expectedCloseAt: '',
       description: '',
     }),
-    [],
+    [defaultCurrencyCode],
   )
 
   const fields = React.useMemo<CrudField[]>(
@@ -152,21 +192,32 @@ export function QuickDealDialog({
           label: translateWithFallback(t, 'customers.deals.kanban.quickDeal.currency', 'Currency'),
           type: 'select',
           layout: 'half',
-          options: CURRENCY_OPTIONS.map((code) => ({ value: code, label: code })),
+          options: resolvedCurrencies.map((c) => ({
+            value: c.code,
+            label: c.label && c.label !== c.code ? `${c.code} — ${c.label}` : c.code,
+          })),
         },
         {
+          // Company is a typeahead (ComboboxInput) rather than a plain <select>: tenants
+          // with hundreds of companies get an unusable dropdown otherwise. The `seedOptions`
+          // carry the most-recent companies the page already loaded; an async loader could
+          // be added later to hit the companies search endpoint for full coverage.
           id: 'companyId',
           label: translateWithFallback(t, 'customers.deals.kanban.quickDeal.company', 'Company'),
-          type: 'select',
-          placeholder: translateWithFallback(
-            t,
-            'customers.deals.kanban.quickDeal.companyPh',
-            'Pick a company or add new…',
+          type: 'custom',
+          component: ({ value, setValue }) => (
+            <ComboboxInput
+              value={typeof value === 'string' ? value : ''}
+              onChange={(next) => setValue(next)}
+              seedOptions={companies.map((c) => ({ value: c.id, label: c.label }))}
+              placeholder={translateWithFallback(
+                t,
+                'customers.deals.kanban.quickDeal.companyPh',
+                'Pick a company or add new…',
+              )}
+              allowCustomValues={false}
+            />
           ),
-          options: [
-            { value: '', label: translateWithFallback(t, 'customers.deals.kanban.quickDeal.companyPh', 'Pick a company or add new…') },
-            ...companies.map((c) => ({ value: c.id, label: c.label })),
-          ],
         },
       ]
       // Owner is read-only display of the current user (mirrors original UX). Hidden when
@@ -193,7 +244,12 @@ export function QuickDealDialog({
           id: 'status',
           label: translateWithFallback(t, 'customers.deals.kanban.quickDeal.status', 'Status'),
           type: 'select',
-          options: STATUS_OPTIONS.map((v) => ({ value: v, label: v })),
+          // Storage value is preserved (`loose` etc.) — only the displayed label is
+          // translated, so we never write a localised string back to the DB.
+          options: STATUS_OPTIONS.map((v) => ({
+            value: v,
+            label: translateWithFallback(t, `customers.deals.kanban.quickDeal.status.${v}`, v),
+          })),
         },
         {
           id: 'probability',
@@ -222,7 +278,7 @@ export function QuickDealDialog({
       )
       return list
     },
-    [companies, currentUserLabel, t],
+    [companies, currentUserLabel, resolvedCurrencies, t],
   )
 
   const groups = React.useMemo<CrudFormGroup[]>(
@@ -337,11 +393,6 @@ export function QuickDealDialog({
           schema={formSchema}
           submitLabel={translateWithFallback(t, 'customers.deals.kanban.quickDeal.submit', 'Add deal')}
           onSubmit={handleSubmit}
-          extraActions={
-            <Button type="button" variant="outline" onClick={onClose}>
-              {translateWithFallback(t, 'customers.deals.kanban.quickDeal.cancel', 'Cancel')}
-            </Button>
-          }
         />
       </DialogContent>
     </Dialog>

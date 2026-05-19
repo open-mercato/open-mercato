@@ -7,6 +7,7 @@ import {
   PopoverContent,
   PopoverTrigger,
 } from '@open-mercato/ui/primitives/popover'
+import { Radio, RadioGroup } from '@open-mercato/ui/primitives/radio'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { translateWithFallback } from '@open-mercato/shared/lib/i18n/translate'
 import { ChipButton } from './ChipButton'
@@ -52,19 +53,6 @@ const DEFAULT_SORT: SortOption = 'updated_desc'
 type SortByPopoverProps = {
   value: SortOption
   onApply: (next: SortOption) => void
-}
-
-function RadioDot({ selected }: { selected: boolean }): React.ReactElement {
-  return (
-    <span
-      className={`flex size-4 shrink-0 items-center justify-center rounded-full border ${
-        selected ? 'border-accent-indigo' : 'border-input bg-card'
-      }`}
-      aria-hidden="true"
-    >
-      {selected ? <span className="size-2 rounded-full bg-accent-indigo" /> : null}
-    </span>
-  )
 }
 
 export function SortByPopover({ value, onApply }: SortByPopoverProps): React.ReactElement {
@@ -128,39 +116,45 @@ export function SortByPopover({ value, onApply }: SortByPopoverProps): React.Rea
           onApply={handleApply}
           footerLeft={footerLeft}
         >
-          {SORT_ORDER.map((option) => {
-            const isSelected = draft === option
-            const isDefault = option === DEFAULT_SORT
-            const rowClass = isSelected ? 'bg-muted' : 'bg-card'
-            return (
-              <button
-                key={option}
-                type="button"
-                onClick={() => setDraft(option)}
-                className={`flex w-full items-center gap-3 rounded-md px-4 py-2.5 text-left transition-colors hover:bg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 ${rowClass}`}
-              >
-                <RadioDot selected={isSelected} />
-                <div className="flex min-w-0 flex-1 flex-col gap-px">
-                  <span
-                    className={`text-sm leading-normal text-foreground ${
-                      isSelected ? 'font-semibold' : 'font-normal'
-                    }`}
-                  >
-                    {translateWithFallback(
-                      t,
-                      SORT_LABEL_KEYS[option].key,
-                      SORT_LABEL_KEYS[option].fallback,
-                    )}
-                  </span>
-                  {isDefault && isSelected ? (
-                    <span className="text-xs font-normal leading-normal text-muted-foreground">
-                      {translateWithFallback(t, 'customers.deals.kanban.sort.default', 'Default')}
+          <RadioGroup
+            value={draft}
+            onValueChange={(next) => setDraft(next as SortOption)}
+            className="gap-0"
+          >
+            {SORT_ORDER.map((option) => {
+              const isSelected = draft === option
+              const isDefault = option === DEFAULT_SORT
+              const rowClass = isSelected ? 'bg-muted' : 'bg-card'
+              const inputId = `sort-by-${option}`
+              return (
+                <label
+                  key={option}
+                  htmlFor={inputId}
+                  className={`flex w-full cursor-pointer items-center gap-3 rounded-md px-4 py-2.5 text-left transition-colors hover:bg-muted ${rowClass}`}
+                >
+                  <Radio id={inputId} value={option} />
+                  <div className="flex min-w-0 flex-1 flex-col gap-px">
+                    <span
+                      className={`text-sm leading-normal text-foreground ${
+                        isSelected ? 'font-semibold' : 'font-normal'
+                      }`}
+                    >
+                      {translateWithFallback(
+                        t,
+                        SORT_LABEL_KEYS[option].key,
+                        SORT_LABEL_KEYS[option].fallback,
+                      )}
                     </span>
-                  ) : null}
-                </div>
-              </button>
-            )
-          })}
+                    {isDefault && isSelected ? (
+                      <span className="text-xs font-normal leading-normal text-muted-foreground">
+                        {translateWithFallback(t, 'customers.deals.kanban.sort.default', 'Default')}
+                      </span>
+                    ) : null}
+                  </div>
+                </label>
+              )
+            })}
+          </RadioGroup>
         </FilterPopoverShell>
       </PopoverContent>
     </Popover>

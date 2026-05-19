@@ -2,13 +2,14 @@
 
 import * as React from 'react'
 import { useDroppable } from '@dnd-kit/core'
-import { Button } from '@open-mercato/ui/primitives/button'
 import { EmptyState } from '@open-mercato/ui/primitives/empty-state'
 import type { RowActionItem } from '@open-mercato/ui/backend/RowActions'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { translateWithFallback } from '@open-mercato/shared/lib/i18n/translate'
 import type { FilterOptionTone } from '@open-mercato/shared/lib/query/advanced-filter'
 import { DealCard, type DealCardData } from './DealCard'
+import { DashedTileButton } from './DashedTileButton'
+import { LANE_WIDTH_PX } from './constants'
 import { LaneCurrencyBreakdown } from './LaneCurrencyBreakdown'
 import { LaneResizeHandle } from './LaneResizeHandle'
 
@@ -231,7 +232,7 @@ function LaneImpl({
   return (
     <div
       className="relative flex flex-none flex-col gap-3"
-      style={{ width: typeof width === 'number' && Number.isFinite(width) ? `${width}px` : '308px' }}
+      style={{ width: typeof width === 'number' && Number.isFinite(width) ? `${width}px` : `${LANE_WIDTH_PX}px` }}
     >
       <div className="flex flex-col gap-2.5 overflow-clip rounded-lg bg-muted/40 px-4 py-3.5">
         <div className={`h-1.5 w-full rounded-sm ${accentClass}`} aria-hidden="true" />
@@ -278,12 +279,10 @@ function LaneImpl({
         </div>
       </div>
 
-      <Button
-        variant="ghost"
-        type="button"
+      <DashedTileButton
         onClick={handleQuickAdd}
-        className="flex h-11 items-center justify-center gap-2.5 rounded-lg border border-dashed border-muted-foreground/60 bg-muted/40 text-sm font-semibold leading-normal text-foreground transition-colors hover:bg-muted/70 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
-        aria-label={translateWithFallback(
+        className="h-11"
+        ariaLabel={translateWithFallback(
           t,
           'customers.deals.kanban.lane.aria.quickAdd',
           'Quickly add a deal to {stage}',
@@ -292,7 +291,7 @@ function LaneImpl({
       >
         <span className="text-base font-bold leading-none">+</span>
         <span>{translateWithFallback(t, 'customers.deals.kanban.cta.quickDeal', 'Quick deal')}</span>
-      </Button>
+      </DashedTileButton>
 
       <div
         ref={setNodeRef}
@@ -329,13 +328,11 @@ function LaneImpl({
           ))
         )}
         {hasMoreDeals && onLoadMore ? (
-          <Button
-            variant="ghost"
-            type="button"
+          <DashedTileButton
             onClick={() => onLoadMore(stage.id)}
             disabled={isLoadingMore}
-            className="mt-0.75 inline-flex items-center justify-center gap-2 rounded-lg border border-dashed border-border bg-muted/30 px-3 py-2.5 text-sm font-semibold leading-normal text-muted-foreground transition-colors hover:bg-muted hover:text-foreground disabled:cursor-not-allowed disabled:opacity-60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
-            aria-label={translateWithFallback(
+            className="mt-0.75 px-3 py-2.5 text-muted-foreground"
+            ariaLabel={translateWithFallback(
               t,
               'customers.deals.kanban.lane.aria.loadMore',
               'Load more deals in {stage}',
@@ -350,7 +347,7 @@ function LaneImpl({
                   'Show more ({remaining})',
                   { remaining: totalCount - visibleCount },
                 )}
-          </Button>
+          </DashedTileButton>
         ) : null}
       </div>
       {onResize ? (

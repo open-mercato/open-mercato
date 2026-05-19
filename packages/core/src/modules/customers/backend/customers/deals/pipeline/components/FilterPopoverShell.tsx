@@ -51,7 +51,7 @@ export function FilterPopoverShell({
 }: FilterPopoverShellProps): React.ReactElement {
   const t = useT()
   return (
-    <div className="flex flex-col overflow-hidden rounded-2xl bg-muted/30">
+    <div className="flex flex-col overflow-hidden rounded-2xl bg-card">
       <div className="flex items-center justify-between border-b border-border bg-card px-5 py-4">
         <div className="flex items-center gap-2">
           {leadingIcon ? (
@@ -74,7 +74,7 @@ export function FilterPopoverShell({
 
       <div className={bodyClassName ?? 'flex flex-col gap-4 bg-card px-5 py-4'}>{children}</div>
 
-      <div className="flex items-center justify-between border-t border-border bg-muted/30 px-5 py-3.5">
+      <div className="flex items-center justify-between border-t border-border bg-muted px-5 py-3.5">
         <div className="text-xs leading-normal text-muted-foreground">{footerLeft ?? null}</div>
         <div className="flex items-center gap-6">
           <Button

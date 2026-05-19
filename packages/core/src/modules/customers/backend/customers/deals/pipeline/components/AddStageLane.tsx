@@ -1,9 +1,10 @@
 "use client"
 
 import * as React from 'react'
-import { Button } from '@open-mercato/ui/primitives/button'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { translateWithFallback } from '@open-mercato/shared/lib/i18n/translate'
+import { DashedTileButton } from './DashedTileButton'
+import { LANE_WIDTH_CLASS } from './constants'
 
 type AddStageLaneProps = {
   onClick: () => void
@@ -15,17 +16,15 @@ export function AddStageLane({ onClick, disabled = false }: AddStageLaneProps): 
   const label = translateWithFallback(t, 'customers.deals.kanban.cta.newStage', 'New stage')
 
   return (
-    <Button
-      variant="ghost"
-      type="button"
+    <DashedTileButton
       onClick={onClick}
       disabled={disabled}
-      aria-label={label}
-      className="group flex w-[308px] min-h-[60vh] flex-none flex-col items-center justify-center gap-2 rounded-xl border border-dashed border-muted-foreground/60 bg-muted/40 px-3.5 py-5 text-muted-foreground transition-colors hover:bg-muted/70 hover:text-foreground disabled:cursor-not-allowed disabled:opacity-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
+      ariaLabel={label}
+      className={`${LANE_WIDTH_CLASS} flex-none flex-col rounded-xl px-3.5 py-5 text-muted-foreground hover:text-foreground min-h-[60vh]`}
     >
       <span className="text-3xl font-bold leading-none">+</span>
       <span className="text-base font-semibold leading-normal">{label}</span>
-    </Button>
+    </DashedTileButton>
   )
 }
 

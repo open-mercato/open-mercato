@@ -96,10 +96,23 @@ export function ActivityComposerDialog({
     blockedMessage: translateWithFallback(t, 'ui.forms.flash.saveBlocked', 'Save blocked by validation'),
   })
 
-  const eitherRequiredMessage = translateWithFallback(
-    t,
-    'customers.deals.kanban.activityComposer.required',
-    'Add a title or body before saving.',
+  // Email mode shows the field as "Subject" (see TYPE_META + the field config below), so
+  // the refine error must reference "subject" instead of "title" to stay coherent. Call
+  // and Note modes keep the "title or body" copy that matches their Subject-labelled field.
+  const eitherRequiredMessage = React.useMemo(
+    () =>
+      context?.type === 'email'
+        ? translateWithFallback(
+            t,
+            'customers.deals.kanban.activityComposer.required.email',
+            'Add a subject or body before saving.',
+          )
+        : translateWithFallback(
+            t,
+            'customers.deals.kanban.activityComposer.required.titleOrBody',
+            'Add a title or body before saving.',
+          ),
+    [context?.type, t],
   )
 
   const formSchema = React.useMemo(
@@ -252,11 +265,6 @@ export function ActivityComposerDialog({
             'Save activity',
           )}
           onSubmit={handleSubmit}
-          extraActions={
-            <Button type="button" variant="outline" onClick={onClose}>
-              {translateWithFallback(t, 'customers.deals.kanban.quickDeal.cancel', 'Cancel')}
-            </Button>
-          }
         />
       </DialogContent>
     </Dialog>

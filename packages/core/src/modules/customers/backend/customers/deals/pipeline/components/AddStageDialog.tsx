@@ -20,17 +20,61 @@ import { translateWithFallback } from '@open-mercato/shared/lib/i18n/translate'
 
 const ADD_STAGE_CONTEXT_ID = 'customers-deals-kanban:add-stage'
 
-// Stage color palette — mirrors the kanban's lane accent tones. Empty string = no color
-// (lane will fall back to the neutral border tone). Kept as a tuple so the Zod schema can
-// validate against the same set without drifting.
-const COLOR_OPTIONS = [
-  { value: '', labelKey: 'customers.deals.kanban.addStage.color.none', labelFallback: 'No color' },
-  { value: '#16a34a', labelKey: 'customers.deals.kanban.addStage.color.green', labelFallback: 'Green' },
-  { value: '#f59e0b', labelKey: 'customers.deals.kanban.addStage.color.amber', labelFallback: 'Amber' },
-  { value: '#dc2626', labelKey: 'customers.deals.kanban.addStage.color.red', labelFallback: 'Red' },
-  { value: '#2563eb', labelKey: 'customers.deals.kanban.addStage.color.blue', labelFallback: 'Blue' },
-  { value: '#6b7280', labelKey: 'customers.deals.kanban.addStage.color.gray', labelFallback: 'Gray' },
-  { value: '#7c3aed', labelKey: 'customers.deals.kanban.addStage.color.violet', labelFallback: 'Violet' },
+// Stage color palette — semantic tone identifiers matching Lane.tsx's ACCENT_TONE_CLASS
+// map. We switched from arbitrary hex values to canonical tones (success / warning / info
+// / error / neutral / brand / pink) so the picker can't silently fall through to gray
+// when the implicit hex→tone mapping doesn't recognise a value. Empty string = no color
+// (lane falls back to the position-based rotation). Forward-only migration 2026-05-19
+// backfills existing hex values to their nearest tone.
+const TONE_OPTIONS = [
+  {
+    value: '',
+    swatchClass: 'border border-dashed border-border',
+    labelKey: 'customers.deals.kanban.addStage.color.none',
+    labelFallback: 'No color',
+  },
+  {
+    value: 'success',
+    swatchClass: 'bg-status-success-icon',
+    labelKey: 'customers.deals.kanban.addStage.color.success',
+    labelFallback: 'Green',
+  },
+  {
+    value: 'warning',
+    swatchClass: 'bg-status-warning-icon',
+    labelKey: 'customers.deals.kanban.addStage.color.warning',
+    labelFallback: 'Amber',
+  },
+  {
+    value: 'info',
+    swatchClass: 'bg-status-info-icon',
+    labelKey: 'customers.deals.kanban.addStage.color.info',
+    labelFallback: 'Blue',
+  },
+  {
+    value: 'error',
+    swatchClass: 'bg-status-error-icon',
+    labelKey: 'customers.deals.kanban.addStage.color.error',
+    labelFallback: 'Red',
+  },
+  {
+    value: 'neutral',
+    swatchClass: 'bg-status-neutral-icon',
+    labelKey: 'customers.deals.kanban.addStage.color.neutral',
+    labelFallback: 'Gray',
+  },
+  {
+    value: 'brand',
+    swatchClass: 'bg-brand-violet',
+    labelKey: 'customers.deals.kanban.addStage.color.brand',
+    labelFallback: 'Violet',
+  },
+  {
+    value: 'pink',
+    swatchClass: 'bg-status-pink-icon',
+    labelKey: 'customers.deals.kanban.addStage.color.pink',
+    labelFallback: 'Pink',
+  },
 ] as const
 
 /**
@@ -246,7 +290,8 @@ export function AddStageDialog({
       },
       {
         // Custom render — built-in `select` can't render a swatch alongside each label.
-        // Keep the same palette + "No color" semantics the previous version exposed.
+        // Each swatch uses the same DS class the lane bar renders, so the picker is a
+        // true preview of the kanban appearance instead of a separate hex translation.
         id: 'color',
         label: translateWithFallback(t, 'customers.deals.kanban.addStage.color', 'Color'),
         type: 'custom',
@@ -254,7 +299,7 @@ export function AddStageDialog({
           const current = typeof value === 'string' ? value : ''
           return (
             <div className="flex flex-wrap gap-2">
-              {COLOR_OPTIONS.map((option) => {
+              {TONE_OPTIONS.map((option) => {
                 const selected = current === option.value
                 const label = translateWithFallback(t, option.labelKey, option.labelFallback)
                 return (
@@ -272,18 +317,10 @@ export function AddStageDialog({
                         : 'border-input bg-card text-muted-foreground hover:bg-muted hover:text-foreground'
                     }`}
                   >
-                    {option.value ? (
-                      <span
-                        className="size-3 rounded-sm border border-border"
-                        style={{ backgroundColor: option.value }}
-                        aria-hidden="true"
-                      />
-                    ) : (
-                      <span
-                        className="size-3 rounded-sm border border-dashed border-border"
-                        aria-hidden="true"
-                      />
-                    )}
+                    <span
+                      className={`size-3 rounded-sm ${option.swatchClass}`}
+                      aria-hidden="true"
+                    />
                     <span>{label}</span>
                   </Button>
                 )
@@ -379,11 +416,6 @@ export function AddStageDialog({
             'Add stage',
           )}
           onSubmit={handleSubmit}
-          extraActions={
-            <Button type="button" variant="outline" onClick={onClose}>
-              {translateWithFallback(t, 'customers.deals.kanban.quickDeal.cancel', 'Cancel')}
-            </Button>
-          }
         />
       </DialogContent>
     </Dialog>

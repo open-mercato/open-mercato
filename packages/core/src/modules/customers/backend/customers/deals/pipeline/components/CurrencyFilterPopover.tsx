@@ -250,6 +250,9 @@ function CurrencyRow({
           {label}
         </span>
         {showBasePill ? (
+          // text-[9px] is an intentional Figma exception for the BASE badge (node 1251:671).
+          // The DS scale bottoms out at text-xs (12px); this 9px is design-system tracked as
+          // a tiny-badge exception and should not be migrated to text-overline.
           <span className="inline-flex items-center rounded-sm bg-muted px-1.5 py-px text-[9px] font-bold uppercase leading-normal tracking-wider text-muted-foreground">
             {translateWithFallback(t, 'customers.deals.kanban.currencyBreakdown.basePill', 'BASE')}
           </span>

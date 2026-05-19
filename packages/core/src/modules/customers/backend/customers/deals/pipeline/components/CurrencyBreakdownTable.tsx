@@ -77,6 +77,8 @@ export function CurrencyBreakdownTable({
                 ) : null}
                 <span>{code}</span>
                 {isBase ? (
+                  // text-[9px] is an intentional Figma exception for the BASE badge (node 1251:671).
+                  // See CurrencyFilterPopover for the same rationale — both share the badge.
                   <span className="inline-flex items-center rounded-sm bg-brand-violet/10 px-1.5 py-px text-[9px] font-bold uppercase leading-normal tracking-wider text-brand-violet">
                     {translateWithFallback(t, 'customers.deals.kanban.currencyBreakdown.basePill', 'BASE')}
                   </span>
