@@ -1,3 +1,4 @@
+import path from 'node:path';
 import { expect, test, type APIRequestContext } from '@playwright/test';
 import {
   createCompanyFixture,
@@ -7,15 +8,66 @@ import {
   deleteEntityIfExists,
 } from '@open-mercato/core/modules/core/__integration__/helpers/crmFixtures';
 import { apiRequest, getAuthToken } from '@open-mercato/core/modules/core/__integration__/helpers/api';
+import { bootstrapFromAppRoot } from '@open-mercato/shared/lib/bootstrap/dynamicLoader';
+import { createRequestContainer } from '@open-mercato/shared/lib/di/container';
+import { createQueue } from '@open-mercato/queue';
 
 const POLL_INTERVAL_MS = 200;
 const POLL_TIMEOUT_MS = 30_000;
+
+const TEST_APP_ROOT = process.env.OM_TEST_APP_ROOT?.trim();
+const APP_ROOT = TEST_APP_ROOT
+  ? path.resolve(TEST_APP_ROOT)
+  : path.resolve(process.cwd(), 'apps/mercato');
+const APP_QUEUE_BASE_DIR = path.resolve(APP_ROOT, '.mercato/queue');
+
+if (!TEST_APP_ROOT) {
+  process.env.QUEUE_BASE_DIR = APP_QUEUE_BASE_DIR;
+}
+
+/**
+ * Drains a local file-based queue in-process. See TC-CRM-068 for full rationale —
+ * CI's integration test harness does not start worker processes, so without this drain
+ * the bulk owner-update job stays `pending` forever and the progress poll times out.
+ */
+async function drainQueue(queueName: string): Promise<number> {
+  const data = await bootstrapFromAppRoot(APP_ROOT);
+  const worker = data.modules
+    .flatMap((module) => module.workers ?? [])
+    .find((entry) => entry.queue === queueName);
+  if (!worker) return 0;
+
+  const container = await createRequestContainer();
+  const queue = createQueue(queueName, 'local', { baseDir: APP_QUEUE_BASE_DIR, concurrency: 1 });
+  const resolve = <T = unknown>(name: string): T => container.resolve(name) as T;
+
+  try {
+    let processedJobs = 0;
+    while (true) {
+      const result = await queue.process(
+        async (job, ctx) => {
+          await Promise.resolve(worker.handler(job, { ...ctx, resolve }));
+        },
+        { limit: 100 },
+      );
+      const handled = result.processed + result.failed;
+      processedJobs += handled;
+      if (handled === 0) return processedJobs;
+    }
+  } finally {
+    await queue.close();
+  }
+}
 
 async function waitForProgressJob(
   request: APIRequestContext,
   token: string,
   jobId: string,
+  queueName?: string,
 ): Promise<Record<string, unknown>> {
+  if (queueName) {
+    await drainQueue(queueName);
+  }
   const deadline = Date.now() + POLL_TIMEOUT_MS;
   let last: Record<string, unknown> | null = null;
   while (Date.now() < deadline) {
@@ -111,7 +163,12 @@ test.describe('TC-CRM-069: Bulk reassign deal owner', () => {
       expect(enqueueBody.ok).toBe(true);
       expect(typeof enqueueBody.progressJobId, 'response must carry a progressJobId').toBe('string');
 
-      const finalJob = await waitForProgressJob(request, token, enqueueBody.progressJobId!);
+      const finalJob = await waitForProgressJob(
+        request,
+        token,
+        enqueueBody.progressJobId!,
+        'customers-deals-bulk-update-owner',
+      );
       expect(finalJob.status, `progress job final status: ${JSON.stringify(finalJob)}`).toBe('completed');
       const summary = finalJob.resultSummary as { affectedCount?: number; failedCount?: number } | undefined;
       expect(summary?.affectedCount).toBe(2);
@@ -171,7 +228,12 @@ test.describe('TC-CRM-069: Bulk reassign deal owner', () => {
       const enqueueBody = (await enqueueResponse.json()) as { ok?: boolean; progressJobId?: string };
       expect(enqueueBody.ok).toBe(true);
 
-      const finalJob = await waitForProgressJob(request, token, enqueueBody.progressJobId!);
+      const finalJob = await waitForProgressJob(
+        request,
+        token,
+        enqueueBody.progressJobId!,
+        'customers-deals-bulk-update-owner',
+      );
       expect(finalJob.status).toBe('completed');
 
       const listResponse = await apiRequest(
