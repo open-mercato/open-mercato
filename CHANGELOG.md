@@ -1,4 +1,59 @@
 
+# 0.6.2 (2026-05-19)
+
+## Highlights
+
+<!-- TODO: Highlights — auto-update-changelog leaves this blank for the human author to fill in. -->
+
+## ✨ Features
+- ✨ Code-based workflow definitions with customize/reset (supersedes #1935). (#1959) *(@jtomaszewski, @KubaBir, via @pkarw)*
+- ✨ DS Breadcrumb + Sheet primitives and backend topbar redesign. (#1933) *(@zielivia)*
+- ✨ Server-side AI chat conversation storage (fixes #1797). (#1961) *(@pkarw)*
+- ✨ Visible AI chat agent task plan (fixes #1922). (#1963) *(@pkarw)*
+- ✨ Complete `modules.ts` unified overrides for routes/pages/subscribers/workers/widgets/notifications/interceptors/enrichers/CLI/setup/ACL/DI/encryption. (#1960) *(@pkarw)*
+- ✨ Agentic-loop controls — `loop.stopWhen` / `loop.prepareStep` / `loop.budget` + LoopTrace debug panel. (#1903) *(@pkarw)*
+- ✨ Optional `official-modules` git submodule + config-driven activation. (#1908) *(@pat-lewczuk)*
+- ✨ CSV import foundation for `customers.person` via the `sync_excel` data-sync provider. (#1110) *(@pmadajthey)*
+- ✨ Storage hub for module-owned file storage (fixes #929). (#1617) *(@Sawarz)*
+- ✨ Register the remaining 14 sales entities in the Awilix DI container. (#1953) *(@kriss145)*
+
+## 🔒 Security
+- 🔒 Reload backend tabs on cookie identity change (fixes #1947). (#1956) *(@pkarw)*
+
+## 🐛 Fixes
+- 🔧 Purge Turbopack `.mercato/next` cache before greenfield rebuilds (fixes #1950). (#1984) *(@pkarw)*
+- 🐛 Update existing message drafts from composer instead of creating duplicates (fixes #1939). (#1966) *(@pkarw)*
+- 🐛 Expand Messages list bulk actions and add `(No subject)` / `(No recipient)` placeholders (fixes #1941). (#1967) *(@pkarw)*
+- 🐛 Sent drafts no longer remain in the Drafts folder (supersedes #1945). (#1965) *(@adeptofvoltron, via @pkarw)*
+- 🐛 Clarify Messages inbox filter labels and populate the sender dropdown (fixes #1943). (#1962) *(@pkarw)*
+- 🔐 Allow clearing user display name on the undo path (supersedes #1937). (#1957) *(@PawelSydorow, via @pkarw)*
+- 💰 Enforce sign semantics for non-return sales adjustment kinds (fixes #1905). (#1955) *(@pkarw)*
+- 🐳 Make bundled Traefik an opt-in compose overlay so base files run cleanly behind external reverse proxies. (#1928) *(@pat-lewczuk)*
+
+## 🛠️ Improvements
+- 🛠️ Consolidate Dependabot bumps. (#1982) *(@pkarw)*
+
+## 📝 Specs & Documentation
+- 📝 Document the module dependency graph (fixes #1831). (#1954) *(@pkarw)*
+- 📝 Specify frontend client-boundary RAM guardrails for Next.js pages. (#1931) *(@daweed2701)*
+- 📝 Explain why `*.generated.ts` lives in `src/`, not `generated/` (official-modules decision record). (#1983) *(@pkarw)*
+
+## 👥 Contributors
+
+- @pkarw
+- @jtomaszewski
+- @zielivia
+- @pat-lewczuk
+- @pmadajthey
+- @Sawarz
+- @kriss145
+- @adeptofvoltron
+- @PawelSydorow
+- @daweed2701
+- @KubaBir
+
+---
+
 # 0.6.1 (2026-05-13)
 
 ## Highlights
