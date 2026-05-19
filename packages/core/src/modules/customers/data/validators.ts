@@ -126,7 +126,10 @@ export const dealCreateSchema = scopedSchema.extend({
   valueCurrency: z.string().min(3).max(3).optional(),
   probability: z.number().min(0).max(100).optional(),
   expectedCloseAt: z.coerce.date().optional(),
-  ownerUserId: uuid().optional(),
+  // Nullable: the bulk owner-update worker passes `null` to clear ownership.
+  // Without `.nullable()`, dealUpdateSchema.parse({ ownerUserId: null }) throws
+  // ZodError "expected string, received null" inside the queue worker (TC-CRM-069).
+  ownerUserId: uuid().optional().nullable(),
   source: z.string().max(150).optional(),
   closureOutcome: z.enum(['won', 'lost']).optional(),
   lossReasonId: uuid().optional(),

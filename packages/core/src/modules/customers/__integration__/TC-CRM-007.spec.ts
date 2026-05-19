@@ -91,14 +91,24 @@ test.describe('TC-CRM-007: Create Deal', () => {
 
       await expect(page).toHaveURL(/\/backend\/customers\/deals$/i, { timeout: 30_000 });
       await page.getByPlaceholder(/Search by title/i).fill(dealTitle);
+      // Wait for the debounced search to apply to the URL before clicking the row.
+      // The deals list page has a useEffect that calls router.replace whenever the
+      // search state changes. Under heavy CI load, this replace can fire *after*
+      // the row click's router.push and silently overwrite the /deals/{id}
+      // navigation with /deals?search=... (CI shard 7 flake — TC-CRM-007).
+      await page.waitForURL(/\/backend\/customers\/deals\?.*search=/i, { timeout: 15_000 });
       const dealRow = page.locator('tr').filter({ hasText: dealTitle }).first();
       await expect(dealRow).toBeVisible();
-      await dealRow.click();
+      // Click the title text inside the row rather than the row itself.
+      // Clicking the TR center can land inside the trailing actions cell
+      // (data-actions-cell) when columns reflow under narrow viewports, and the
+      // DataTable's row-click handler short-circuits on actions-cell clicks.
+      await dealRow.getByText(dealTitle, { exact: true }).click();
 
-      await expect(page).toHaveURL(/\/backend\/customers\/deals\/[0-9a-f-]{36}$/i);
+      await expect(page).toHaveURL(/\/backend\/customers\/deals\/[0-9a-f-]{36}(?:\?.*)?$/i, { timeout: 30_000 });
       await expect(page.getByText(dealTitle, { exact: true }).first()).toBeVisible();
 
-      const idMatch = page.url().match(/\/backend\/customers\/deals\/([0-9a-f-]{36})$/i);
+      const idMatch = page.url().match(/\/backend\/customers\/deals\/([0-9a-f-]{36})(?:\?|$)/i);
       dealId = idMatch?.[1] ?? null;
       expect(dealId, 'Expected created deal id in detail URL').toBeTruthy();
     } finally {
