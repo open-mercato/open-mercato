@@ -6,6 +6,7 @@ import {
   PopoverContent,
   PopoverTrigger,
 } from '@open-mercato/ui/primitives/popover'
+import { Button } from '@open-mercato/ui/primitives/button'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { translateWithFallback } from '@open-mercato/shared/lib/i18n/translate'
 import { ChipButton } from './ChipButton'
@@ -120,10 +121,13 @@ export function PipelineFilterPopover({
             "All pipelines" sentinel row. Per Figma it shows the total deal count in
             accent-indigo (active emphasis), regardless of whether it's selected.
           */}
-          <button
+          <Button
             type="button"
+            variant="ghost"
+            role="radio"
+            aria-checked={allSelected}
             onClick={() => setDraft(null)}
-            className={`flex w-full items-center gap-3 rounded-md px-4 py-2.5 text-left transition-colors hover:bg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 ${allRowClass}`}
+            className={`h-auto w-full justify-start gap-3 px-4 py-2.5 text-left font-normal ${allRowClass}`}
           >
             <RadioDot selected={allSelected} />
             <div className="flex min-w-0 flex-1 flex-col gap-px">
@@ -146,17 +150,20 @@ export function PipelineFilterPopover({
             <span className="text-xs font-semibold leading-normal text-accent-indigo">
               {totalCount}
             </span>
-          </button>
+          </Button>
 
           {pipelines.map((pipeline) => {
             const isSelected = draft === pipeline.id
             const rowClass = isSelected ? 'bg-muted' : 'bg-card'
             return (
-              <button
+              <Button
                 key={pipeline.id}
                 type="button"
+                variant="ghost"
+                role="radio"
+                aria-checked={isSelected}
                 onClick={() => setDraft(pipeline.id)}
-                className={`flex w-full items-center gap-3 rounded-md px-4 py-2.5 text-left transition-colors hover:bg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 ${rowClass}`}
+                className={`h-auto w-full justify-start gap-3 px-4 py-2.5 text-left font-normal ${rowClass}`}
               >
                 <RadioDot selected={isSelected} />
                 <span
@@ -177,7 +184,7 @@ export function PipelineFilterPopover({
                     {pipeline.dealCount}
                   </span>
                 ) : null}
-              </button>
+              </Button>
             )
           })}
         </FilterPopoverShell>

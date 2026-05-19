@@ -193,8 +193,7 @@ function normalizeUuidList(values: Array<unknown>): string[] {
 
 export async function buildDealListFilters(query: DealListQuery, ctx?: import('@open-mercato/shared/lib/crud/factory').CrudCtx) {
   const advancedFilterTree = consumeAdvancedFilterState(query)
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const filters: Record<string, any> = {}
+  const filters: Record<string, unknown> = {}
   let restrictedIds: string[] | null = null
 
   const intersectIds = (ids: string[]) => {

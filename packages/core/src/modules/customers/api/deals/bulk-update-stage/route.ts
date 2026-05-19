@@ -3,6 +3,7 @@ import { z } from 'zod'
 import { getAuthFromRequest } from '@open-mercato/shared/lib/auth/server'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import { readJsonSafe } from '@open-mercato/shared/lib/http/readJsonSafe'
+import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
 import {
   runCrudMutationGuardAfterSuccess,
   validateCrudMutationGuard,
@@ -36,13 +37,14 @@ export const openApi = {
 }
 
 export async function POST(req: Request) {
+  const { translate } = await resolveTranslations()
   const auth = await getAuthFromRequest(req)
   if (!auth?.tenantId || !auth.orgId) {
     return NextResponse.json(
       responseSchema.parse({
         ok: false,
         progressJobId: null,
-        message: 'Unauthorized',
+        message: translate('customers.errors.unauthorized', 'Unauthorized'),
       }),
       { status: 401 },
     )
@@ -54,7 +56,7 @@ export async function POST(req: Request) {
       responseSchema.parse({
         ok: false,
         progressJobId: null,
-        message: 'Invalid payload',
+        message: translate('customers.errors.invalid_payload', 'Invalid payload'),
       }),
       { status: 400 },
     )
@@ -88,8 +90,15 @@ export async function POST(req: Request) {
   const progressJob = await progressService.createJob(
     {
       jobType: 'customers.deals.bulk_update_stage',
-      name: 'Move selected deals to a new stage',
-      description: `${ids.length} deals queued for stage update`,
+      name: translate(
+        'customers.deals.kanban.bulk.changeStage.progress.name',
+        'Move selected deals to a new stage',
+      ),
+      description: translate(
+        'customers.deals.kanban.bulk.changeStage.progress.description',
+        '{count} deals queued for stage update',
+        { count: ids.length },
+      ),
       totalCount: ids.length,
       cancellable: false,
       meta: {
@@ -139,7 +148,11 @@ export async function POST(req: Request) {
     responseSchema.parse({
       ok: true,
       progressJobId: progressJob.id,
-      message: 'Bulk stage update started.',
+      message: translate(
+        'customers.deals.kanban.bulk.changeStage.queued',
+        'Bulk stage update started ({count} deals).',
+        { count: ids.length },
+      ),
     }),
     { status: 202 },
   )

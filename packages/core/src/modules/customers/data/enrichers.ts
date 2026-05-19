@@ -1,5 +1,5 @@
-import type { Kysely } from 'kysely'
 import type { ResponseEnricher, EnricherContext } from '@open-mercato/shared/lib/crud/response-enricher'
+import type { CustomerKysely } from '../lib/kysely'
 import { resolveKyselyClient } from '../lib/kysely'
 
 type DealRecord = Record<string, unknown> & {
@@ -41,25 +41,26 @@ function diffDays(from: Date, to: Date): number {
 }
 
 async function fetchOpenInteractionCounts(
-  db: Kysely<any>,
+  db: CustomerKysely,
   dealIds: Set<string>,
   organizationId: string,
   tenantId: string,
 ): Promise<Map<string, number>> {
   const map = new Map<string, number>()
   if (dealIds.size === 0) return map
-  const rows = (await (db as any)
+  const rows = await db
     .selectFrom('customer_interactions')
     .select(['deal_id'])
-    .select((eb: any) => eb.fn.countAll().as('count'))
+    .select((eb) => eb.fn.countAll().as('count'))
     .where('deal_id', 'in', [...dealIds])
     .where('organization_id', '=', organizationId)
     .where('tenant_id', '=', tenantId)
     .where('deleted_at', 'is', null)
-    .where('status', 'not in', TERMINAL_INTERACTION_STATUSES)
+    .where('status', 'not in', [...TERMINAL_INTERACTION_STATUSES])
     .groupBy('deal_id')
-    .execute()) as Array<{ deal_id: string; count: string | number }>
+    .execute()
   for (const row of rows) {
+    if (row.deal_id == null) continue
     const count = typeof row.count === 'number' ? row.count : Number(row.count)
     if (Number.isFinite(count)) map.set(row.deal_id, count)
   }
@@ -67,23 +68,23 @@ async function fetchOpenInteractionCounts(
 }
 
 async function fetchLatestStageTransitions(
-  db: Kysely<any>,
+  db: CustomerKysely,
   dealIds: Set<string>,
   organizationId: string,
   tenantId: string,
 ): Promise<Map<string, Date>> {
   const map = new Map<string, Date>()
   if (dealIds.size === 0) return map
-  const rows = (await (db as any)
+  const rows = await db
     .selectFrom('customer_deal_stage_transitions')
     .select(['deal_id'])
-    .select((eb: any) => eb.fn.max('transitioned_at').as('last_transitioned_at'))
+    .select((eb) => eb.fn.max('transitioned_at').as('last_transitioned_at'))
     .where('deal_id', 'in', [...dealIds])
     .where('organization_id', '=', organizationId)
     .where('tenant_id', '=', tenantId)
     .where('deleted_at', 'is', null)
     .groupBy('deal_id')
-    .execute()) as Array<{ deal_id: string; last_transitioned_at: string | Date | null }>
+    .execute()
   for (const row of rows) {
     const parsed = parseDate(row.last_transitioned_at)
     if (parsed) map.set(row.deal_id, parsed)
@@ -92,16 +93,16 @@ async function fetchLatestStageTransitions(
 }
 
 async function fetchStuckThreshold(
-  db: Kysely<any>,
+  db: CustomerKysely,
   organizationId: string,
   tenantId: string,
 ): Promise<number> {
-  const row = (await (db as any)
+  const row = await db
     .selectFrom('customer_settings')
     .select(['stuck_threshold_days'])
     .where('organization_id', '=', organizationId)
     .where('tenant_id', '=', tenantId)
-    .executeTakeFirst()) as { stuck_threshold_days: number | string | null } | undefined
+    .executeTakeFirst()
   const raw = row?.stuck_threshold_days
   const value = typeof raw === 'number' ? raw : typeof raw === 'string' ? Number(raw) : null
   if (value !== null && Number.isFinite(value) && value > 0) return value

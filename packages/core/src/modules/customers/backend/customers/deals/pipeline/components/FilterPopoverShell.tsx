@@ -3,6 +3,7 @@
 import * as React from 'react'
 import { X } from 'lucide-react'
 import { Button } from '@open-mercato/ui/primitives/button'
+import { IconButton } from '@open-mercato/ui/primitives/icon-button'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { translateWithFallback } from '@open-mercato/shared/lib/i18n/translate'
 
@@ -60,14 +61,15 @@ export function FilterPopoverShell({
           ) : null}
           <span className="text-base font-bold leading-normal text-foreground">{title}</span>
         </div>
-        <button
+        <IconButton
           type="button"
+          variant="outline"
+          size="sm"
           onClick={onClose}
           aria-label={translateWithFallback(t, 'customers.deals.kanban.filter.close', 'Close')}
-          className="flex size-7 items-center justify-center rounded-md border border-border bg-card text-muted-foreground transition-colors hover:bg-muted hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
         >
           <X className="size-3.5" aria-hidden="true" />
-        </button>
+        </IconButton>
       </div>
 
       <div className={bodyClassName ?? 'flex flex-col gap-4 bg-card px-5 py-4'}>{children}</div>
