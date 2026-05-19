@@ -87,6 +87,13 @@ export function renderGenerated(activated) {
     '// AUTO-GENERATED — do not edit by hand.\n' +
     '// Source: official-modules.json (+ official-modules.local.json override).\n' +
     '// Regenerate with: yarn official-modules\n' +
+    '//\n' +
+    '// Why is this file in src/ and not under .mercato/generated/?\n' +
+    '// It is a *versioned* generated registry — the activation set must travel\n' +
+    '// with the repo and survive `yarn clean-generated`. Moving it under any\n' +
+    '// `generated/` folder would gitignore-and-wipe it. See\n' +
+    "// .ai/specs/2026-05-19-official-modules-generated-location-decision.md\n" +
+    '// and the "Generated Files: versioned vs ephemeral" section in AGENTS.md.\n' +
     "import type { ModuleEntry } from './modules'\n\n" +
     `export const officialModuleEntries: ModuleEntry[] = [${body}]\n`
   )
