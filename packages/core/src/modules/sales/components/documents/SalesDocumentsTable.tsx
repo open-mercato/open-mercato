@@ -488,7 +488,8 @@ export function SalesDocumentsTable({ kind }: { kind: SalesDocumentKind }) {
 
       const numberFieldKey = kindConfig.numberField
       const snakeFallback = numberFieldKey.replace(/[A-Z]/g, (ch) => `_${ch.toLowerCase()}`)
-      const number = (doc as any)[numberFieldKey] ?? (item as any)?.[snakeFallback] ?? id
+      const rawNumber = doc[numberFieldKey] ?? item[snakeFallback]
+      const number = typeof rawNumber === 'string' && rawNumber.trim().length ? rawNumber : id
 
       const customerSnapshot = (doc.customerSnapshot ?? null) as CustomerSnapshot | null
       const customerName = resolveCustomerName(customerSnapshot, doc.customerEntityId ?? null)
@@ -782,7 +783,7 @@ export function SalesDocumentsTable({ kind }: { kind: SalesDocumentKind }) {
           stickyActionsColumn
           title={(
             <div className="flex flex-col">
-              <span>{title}</span>
+              <h2 className="text-base font-semibold leading-tight">{title}</h2>
               <span className="text-sm font-normal text-muted-foreground">{subtitle}</span>
             </div>
           )}

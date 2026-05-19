@@ -107,6 +107,7 @@ export default function SalesInvoiceDetailPage({ params }: { params: { id: strin
   return (
     <Page>
       <FormHeader
+        mode="detail"
         title={`${t('sales.invoices.title', 'Invoice')} ${record.invoiceNumber}`}
         backHref="/backend/sales/invoices"
       />

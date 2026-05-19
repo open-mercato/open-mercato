@@ -11,6 +11,11 @@ import { z } from 'zod'
 
 const rawBodySchema = z.object({}).passthrough()
 
+type InvoiceCommandResult = {
+  id?: string | null
+  invoiceId?: string | null
+}
+
 const listSchema = z
   .object({
     page: z.coerce.number().min(1).default(1),
@@ -78,7 +83,9 @@ const crud = makeCrudRoute({
         )
         return parsed
       },
-      response: ({ result }: { result: any }) => ({ invoiceId: result?.invoiceId ?? result?.id ?? null }),
+      response: ({ result }: { result: InvoiceCommandResult | null | undefined }) => ({
+        invoiceId: result?.invoiceId ?? result?.id ?? null,
+      }),
       status: 201,
     },
     update: {
@@ -95,12 +102,14 @@ const crud = makeCrudRoute({
         )
         return parsed
       },
-      response: ({ result }: { result: any }) => ({ invoiceId: result?.invoiceId ?? result?.id ?? null }),
+      response: ({ result }: { result: InvoiceCommandResult | null | undefined }) => ({
+        invoiceId: result?.invoiceId ?? result?.id ?? null,
+      }),
     },
     delete: {
       commandId: 'sales.invoices.delete',
       schema: rawBodySchema,
-      mapInput: async ({ parsed, ctx }: { parsed: any; ctx: CrudCtx }) => {
+      mapInput: async ({ parsed, ctx }: { parsed: unknown; ctx: CrudCtx }) => {
         const { translate } = await resolveTranslations()
         const id = resolveCrudRecordId(parsed, ctx, translate)
         return { id }

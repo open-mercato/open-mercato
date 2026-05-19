@@ -4,6 +4,7 @@ import type { EntityManager } from '@mikro-orm/postgresql'
 import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
 import { getAuthFromRequest } from '@open-mercato/shared/lib/auth/server'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
+import { findOneWithDecryption, findWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import { SalesInvoice, SalesInvoiceLine } from '../../../data/entities'
 
 const paramsSchema = z.object({ id: z.string().uuid() })
@@ -66,19 +67,22 @@ export async function GET(req: Request, ctx: { params?: { id?: string } }) {
 
   const container = await createRequestContainer()
   const em = (container.resolve('em') as EntityManager).fork()
+  const scope = { organizationId: auth.orgId, tenantId: auth.tenantId }
 
-  const invoice = await em.findOne(SalesInvoice, {
+  const invoice = await findOneWithDecryption(em, SalesInvoice, {
     id: parsed.data.id,
-    organizationId: auth.orgId,
-    tenantId: auth.tenantId,
+    organizationId: scope.organizationId,
+    tenantId: scope.tenantId,
     deletedAt: null,
-  })
+  }, {}, scope)
   if (!invoice) return NextResponse.json({ error: 'Invoice not found' }, { status: 404 })
 
-  const lineRecords = await em.find(
+  const lineRecords = await findWithDecryption(
+    em,
     SalesInvoiceLine,
-    { invoice, organizationId: auth.orgId, tenantId: auth.tenantId },
+    { invoice, organizationId: scope.organizationId, tenantId: scope.tenantId },
     { orderBy: { lineNumber: 'asc' } },
+    scope,
   )
 
   return NextResponse.json({

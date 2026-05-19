@@ -24,6 +24,11 @@ const listSchema = z
 
 const rawBodySchema = z.object({}).passthrough()
 
+type CreditMemoCommandResult = {
+  id?: string | null
+  creditMemoId?: string | null
+}
+
 const crud = makeCrudRoute({
   orm: {
     entity: SalesCreditMemo,
@@ -81,7 +86,9 @@ const crud = makeCrudRoute({
         )
         return parsed
       },
-      response: ({ result }: { result: any }) => ({ creditMemoId: result?.creditMemoId ?? result?.id ?? null }),
+      response: ({ result }: { result: CreditMemoCommandResult | null | undefined }) => ({
+        creditMemoId: result?.creditMemoId ?? result?.id ?? null,
+      }),
       status: 201,
     },
     update: {
@@ -98,12 +105,14 @@ const crud = makeCrudRoute({
         )
         return parsed
       },
-      response: ({ result }: { result: any }) => ({ creditMemoId: result?.creditMemoId ?? result?.id ?? null }),
+      response: ({ result }: { result: CreditMemoCommandResult | null | undefined }) => ({
+        creditMemoId: result?.creditMemoId ?? result?.id ?? null,
+      }),
     },
     delete: {
       commandId: 'sales.credit_memos.delete',
       schema: rawBodySchema,
-      mapInput: async ({ parsed, ctx }: { parsed: any; ctx: CrudCtx }) => {
+      mapInput: async ({ parsed, ctx }: { parsed: unknown; ctx: CrudCtx }) => {
         const { translate } = await resolveTranslations()
         const id = resolveCrudRecordId(parsed, ctx, translate)
         return { id }

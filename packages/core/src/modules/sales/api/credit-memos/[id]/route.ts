@@ -4,6 +4,7 @@ import type { EntityManager } from '@mikro-orm/postgresql'
 import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
 import { getAuthFromRequest } from '@open-mercato/shared/lib/auth/server'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
+import { findOneWithDecryption, findWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import { SalesCreditMemo, SalesCreditMemoLine } from '../../../data/entities'
 
 const paramsSchema = z.object({ id: z.string().uuid() })
@@ -61,19 +62,22 @@ export async function GET(req: Request, ctx: { params?: { id?: string } }) {
 
   const container = await createRequestContainer()
   const em = (container.resolve('em') as EntityManager).fork()
+  const scope = { organizationId: auth.orgId, tenantId: auth.tenantId }
 
-  const creditMemo = await em.findOne(SalesCreditMemo, {
+  const creditMemo = await findOneWithDecryption(em, SalesCreditMemo, {
     id: parsed.data.id,
-    organizationId: auth.orgId,
-    tenantId: auth.tenantId,
+    organizationId: scope.organizationId,
+    tenantId: scope.tenantId,
     deletedAt: null,
-  })
+  }, {}, scope)
   if (!creditMemo) return NextResponse.json({ error: 'Credit memo not found' }, { status: 404 })
 
-  const lineRecords = await em.find(
+  const lineRecords = await findWithDecryption(
+    em,
     SalesCreditMemoLine,
-    { creditMemo, organizationId: auth.orgId, tenantId: auth.tenantId },
+    { creditMemo, organizationId: scope.organizationId, tenantId: scope.tenantId },
     { orderBy: { lineNumber: 'asc' } },
+    scope,
   )
 
   return NextResponse.json({

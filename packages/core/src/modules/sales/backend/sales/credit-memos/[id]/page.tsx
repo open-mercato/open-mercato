@@ -103,6 +103,7 @@ export default function SalesCreditMemoDetailPage({ params }: { params: { id: st
   return (
     <Page>
       <FormHeader
+        mode="detail"
         title={`${t('sales.credit_memos.title', 'Credit Memo')} ${record.creditMemoNumber}`}
         backHref="/backend/sales/credit-memos"
       />
