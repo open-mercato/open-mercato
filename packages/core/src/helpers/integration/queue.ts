@@ -1,8 +1,7 @@
 import { spawn } from 'node:child_process'
+import { createRequire } from 'node:module'
 import path from 'node:path'
-import { bootstrapFromAppRoot } from '@open-mercato/shared/lib/bootstrap/dynamicLoader'
-import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
-import { createQueue } from '@open-mercato/queue'
+import { drainQueueFromAppRoot } from './queue-runner'
 
 type DrainQueueOptions = {
   appRoot?: string
@@ -16,84 +15,17 @@ function resolveAppRoot(input?: string): string {
 }
 
 async function drainQueueInCurrentProcess(queueName: string, options: Required<DrainQueueOptions>): Promise<number> {
-  const data = await bootstrapFromAppRoot(options.appRoot)
-  const worker = data.modules
-    .flatMap((module) => module.workers ?? [])
-    .find((entry) => entry.queue === queueName)
-  if (!worker) return 0
+  return drainQueueFromAppRoot(queueName, options)
+}
 
-  const container = await createRequestContainer()
-  const queue = createQueue(queueName, 'local', {
-    baseDir: path.resolve(options.appRoot, '.mercato/queue'),
-    concurrency: 1,
-  })
-  const resolve = <T = unknown>(name: string): T => container.resolve(name) as T
-
-  try {
-    let processedJobs = 0
-    while (true) {
-      const result = await queue.process(
-        async (job, ctx) => {
-          await Promise.resolve(worker.handler(job, { ...ctx, resolve }))
-        },
-        { limit: options.jobLimit },
-      )
-      const handled = result.processed + result.failed
-      processedJobs += handled
-      if (handled === 0) return processedJobs
-    }
-  } finally {
-    await queue.close()
-  }
+function resolveAppRunnerPath(appRoot: string): string {
+  const requireFromApp = createRequire(path.join(appRoot, 'package.json'))
+  return requireFromApp.resolve('@open-mercato/core/helpers/integration/queue-runner')
 }
 
 function drainQueueInAppProcess(queueName: string, options: Required<DrainQueueOptions>): Promise<number> {
-  const script = `
-    import path from 'node:path';
-    import { bootstrapFromAppRoot } from '@open-mercato/shared/lib/bootstrap/dynamicLoader';
-    import { createRequestContainer } from '@open-mercato/shared/lib/di/container';
-    import { createQueue } from '@open-mercato/queue';
-
-    const queueName = process.env.OM_INTEGRATION_QUEUE_NAME;
-    const appRoot = process.env.OM_INTEGRATION_APP_ROOT;
-    const jobLimit = Number.parseInt(process.env.OM_INTEGRATION_QUEUE_JOB_LIMIT || '100', 10) || 100;
-    if (!queueName || !appRoot) throw new Error('Missing queue drain environment');
-
-    const data = await bootstrapFromAppRoot(appRoot);
-    const worker = data.modules.flatMap((module) => module.workers || []).find((entry) => entry.queue === queueName);
-    if (!worker) {
-      console.log(JSON.stringify({ processed: 0 }));
-      process.exit(0);
-    }
-
-    const container = await createRequestContainer();
-    const queue = createQueue(queueName, 'local', {
-      baseDir: path.resolve(appRoot, '.mercato/queue'),
-      concurrency: 1,
-    });
-    const resolve = (name) => container.resolve(name);
-    let processedJobs = 0;
-    try {
-      while (true) {
-        const result = await queue.process(
-          async (job, ctx) => {
-            await Promise.resolve(worker.handler(job, { ...ctx, resolve }));
-          },
-          { limit: jobLimit },
-        );
-        const handled = result.processed + result.failed;
-        processedJobs += handled;
-        if (handled === 0) break;
-      }
-    } finally {
-      await queue.close();
-    }
-    console.log(JSON.stringify({ processed: processedJobs }));
-    process.exit(0);
-  `
-
   return new Promise((resolve, reject) => {
-    const child = spawn(process.execPath, ['--input-type=module', '-e', script], {
+    const child = spawn(process.execPath, [resolveAppRunnerPath(options.appRoot)], {
       cwd: options.appRoot,
       env: {
         ...process.env,
