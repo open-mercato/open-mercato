@@ -57,7 +57,7 @@ describe('customers deal bulk update helpers', () => {
 
     expect(summary).toEqual({ affectedCount: 2, failedCount: 0 })
     expect(execute).toHaveBeenNthCalledWith(1, 'customers.deals.update', {
-      input: { body: { id: 'deal-1', pipelineStageId: 'stage-1' } },
+      input: { id: 'deal-1', pipelineStageId: 'stage-1' },
       ctx: expect.objectContaining({
         selectedOrganizationId: 'org-1',
         organizationIds: ['org-1'],
@@ -65,7 +65,7 @@ describe('customers deal bulk update helpers', () => {
       skipCacheInvalidation: true,
     })
     expect(execute).toHaveBeenNthCalledWith(2, 'customers.deals.update', {
-      input: { body: { id: 'deal-2', pipelineStageId: 'stage-1' } },
+      input: { id: 'deal-2', pipelineStageId: 'stage-1' },
       ctx: expect.objectContaining({
         selectedOrganizationId: 'org-1',
         organizationIds: ['org-1'],

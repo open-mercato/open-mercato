@@ -99,10 +99,14 @@ async function runBulkDealUpdate(params: {
 
   for (const [index, id] of ids.entries()) {
     try {
-      await commandBus.execute<{ body?: Record<string, unknown> }, { dealId: string }>(
+      // `customers.deals.update` parses its input with `parseWithCustomFields(dealUpdateSchema, rawInput)`
+      // and reads `parsed.id` at the top level (see commands/deals.ts). Wrapping the body in
+      // `{ body: ... }` made `id` undefined and every per-deal call ZodError'd in the bulk
+      // worker, so the job completed with affectedCount=0 in CI (TC-CRM-068/069).
+      await commandBus.execute<Record<string, unknown>, { dealId: string }>(
         'customers.deals.update',
         {
-          input: { body: buildBody(id) },
+          input: buildBody(id),
           ctx: commandContext,
           skipCacheInvalidation: true,
         },
