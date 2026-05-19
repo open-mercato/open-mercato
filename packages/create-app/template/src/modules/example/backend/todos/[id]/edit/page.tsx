@@ -8,6 +8,7 @@ import { pushWithFlash } from '@open-mercato/ui/backend/utils/flash'
 import { SendObjectMessageDialog } from '@open-mercato/ui/backend/messages'
 import type { TodoListItem } from '../../../../types'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
+import { extractCustomFieldEntries } from '@open-mercato/shared/lib/crud/custom-fields-client'
 
 type TodoItem = TodoListItem
 type TodoCustomFieldValues = Record<`cf_${string}`, unknown>
@@ -80,13 +81,8 @@ export default function EditTodoPage({ params }: { params?: { id?: string } }) {
         const item = data?.items?.[0]
         if (!item) throw new Error(t('example.todos.form.error.notFound'))
         // Map to form initial values
-        const cfInit: Partial<TodoCustomFieldValues> = {}
         const extended = item as TodoItem & Record<string, unknown>
-        for (const [key, value] of Object.entries(extended)) {
-          if (key.startsWith('cf_')) {
-            cfInit[key as keyof TodoCustomFieldValues] = value
-          }
-        }
+        const cfInit = extractCustomFieldEntries(extended) as Partial<TodoCustomFieldValues>
         const init: TodoFormValues = {
           id: item.id,
           title: item.title,
