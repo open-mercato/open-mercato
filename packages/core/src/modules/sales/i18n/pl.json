@@ -4,6 +4,8 @@
   "audit_logs.resource_kind.sales.payment": "Płatność",
   "audit_logs.resource_kind.sales.shipment": "Wysyłka",
   "customers~sales.nav.group": "Sprzedaż",
+  "sales.adjustments.error.returnExceedsRemainingGrandTotalGross": "Kwota brutto korekty zwrotu przekracza pozostałą wartość zamówienia. Zmniejsz kwotę lub usuń istniejące zwroty.",
+  "sales.adjustments.error.returnExceedsRemainingGrandTotalNet": "Kwota netto korekty zwrotu przekracza pozostałą wartość zamówienia. Zmniejsz kwotę lub usuń istniejące zwroty.",
   "sales.audit.channels.create": "Utwórz kanał sprzedaży",
   "sales.audit.channels.delete": "Usuń kanał sprzedaży",
   "sales.audit.channels.update": "Zaktualizuj kanał sprzedaży",
