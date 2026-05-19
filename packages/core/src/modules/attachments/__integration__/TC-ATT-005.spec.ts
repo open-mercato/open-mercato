@@ -27,7 +27,7 @@ function makeMinimalPng(): Buffer {
 
 test.describe('TC-ATT-005: S3 image thumbnail with S3-backed partition', () => {
   test('should generate a thumbnail for an image uploaded to an S3-backed partition', async ({ request }) => {
-    if (!isLocalstackAvailable()) {
+    if (!(await isLocalstackAvailable())) {
       test.skip()
     }
 

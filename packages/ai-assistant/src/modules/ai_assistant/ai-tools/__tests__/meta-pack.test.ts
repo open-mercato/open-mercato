@@ -3,7 +3,8 @@
  *
  * Covers `list_agents` empty-registry graceful case, RBAC filtering,
  * super-admin bypass, `describe_agent` not-found / forbidden / happy,
- * and the `output.schema` JSON-Schema fallback.
+ * `update_task_plan` sanitization, and the `output.schema` JSON-Schema
+ * fallback.
  */
 import { z } from 'zod'
 import type { AiAgentDefinition } from '../../lib/ai-agent-definition'
@@ -148,6 +149,7 @@ describe('meta.describe_agent', () => {
         readOnly: true,
         mutationPolicy: 'read-only',
         acceptedMediaTypes: ['image', 'pdf'],
+        taskPlan: { enabled: true },
         maxSteps: 6,
         output: { schemaName: 'MerchProposal', schema, mode: 'generate' },
         keywords: ['catalog', 'merch'],
@@ -159,9 +161,14 @@ describe('meta.describe_agent', () => {
     const agent = result.agent as Record<string, unknown>
     expect(agent.id).toBe('catalog.merch')
     expect(agent.executionMode).toBe('object')
-    expect(agent.allowedTools).toEqual(['search.hybrid_search', 'catalog.get_product_bundle'])
+    expect(agent.allowedTools).toEqual([
+      'search.hybrid_search',
+      'catalog.get_product_bundle',
+      'meta.update_task_plan',
+    ])
     expect(agent.readOnly).toBe(true)
     expect(agent.acceptedMediaTypes).toEqual(['image', 'pdf'])
+    expect(agent.taskPlan).toEqual({ enabled: true })
     const output = agent.output as Record<string, unknown>
     expect(output.schemaName).toBe('MerchProposal')
     expect(output.jsonSchema).toBeDefined()
@@ -206,10 +213,59 @@ describe('meta.describe_agent', () => {
   })
 })
 
+describe('meta.update_task_plan', () => {
+  const tool = findTool('meta.update_task_plan')
+
+  it('returns sanitized user-visible task labels', async () => {
+    const ctx = makeCtx()
+    const result = (await tool.handler(
+      {
+        tasks: [
+          {
+            id: ' step one ',
+            label: '  Search catalog products  ',
+            detail: '  Use product search  ',
+            toolName: 'catalog__search_products',
+          },
+        ],
+      },
+      ctx as any,
+    )) as Record<string, unknown>
+
+    expect(result.ok).toBe(true)
+    expect(result.accepted).toBe(1)
+    expect(result.tasks).toEqual([
+      {
+        id: 'step-one',
+        label: 'Search catalog products',
+        detail: 'Use product search',
+        toolName: 'catalog.search_products',
+      },
+    ])
+  })
+
+  it('rejects hidden-reasoning-like labels at schema validation', () => {
+    expect(() =>
+      tool.inputSchema.parse({
+        tasks: [
+          {
+            label: '<thinking>First I will inspect private chain of thought</thinking>',
+          },
+        ],
+      }),
+    ).toThrow(/private reasoning|Task-plan labels/i)
+  })
+
+  it('does not expose mutation capability', () => {
+    expect(tool.isMutation).not.toBe(true)
+    expect(tool.requiredFeatures).toEqual(['ai_assistant.view'])
+  })
+})
+
 describe('meta-pack tool surface', () => {
-  it('exports the two read-only meta tools', () => {
+  it('exports the read-only meta tools', () => {
     const names = metaAiTools.map((tool) => tool.name)
-    expect(names).toEqual(['meta.list_agents', 'meta.describe_agent'])
+    expect(names).toEqual(['meta.list_agents', 'meta.describe_agent', 'meta.update_task_plan'])
     for (const tool of metaAiTools) {
       expect(tool.isMutation).not.toBe(true)
       expect(tool.requiredFeatures).toEqual(['ai_assistant.view'])

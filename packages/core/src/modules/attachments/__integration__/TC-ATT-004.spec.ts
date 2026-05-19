@@ -17,7 +17,7 @@ const BASE_URL = process.env.BASE_URL?.trim() || 'http://localhost:3000'
 
 test.describe('TC-ATT-004: S3 partition upload and download roundtrip', () => {
   test('should upload and download a file through an S3-backed attachment partition', async ({ request }) => {
-    if (!isLocalstackAvailable()) {
+    if (!(await isLocalstackAvailable())) {
       test.skip()
     }
 
