@@ -83,7 +83,7 @@ function makeEntity(overrides: Partial<CustomerEntity> = {}): CustomerEntity {
 }
 
 function makeEm(entity: CustomerEntity): jest.Mocked<Pick<EntityManager,
-  'fork' | 'findOne' | 'find' | 'nativeDelete' | 'remove' | 'flush' | 'create' | 'persist' | 'getReference'
+  'fork' | 'findOne' | 'find' | 'count' | 'nativeDelete' | 'remove' | 'flush' | 'create' | 'persist' | 'getReference'
 >> {
   const em: any = {
     fork: jest.fn().mockReturnThis(),
@@ -92,6 +92,7 @@ function makeEm(entity: CustomerEntity): jest.Mocked<Pick<EntityManager,
       return null
     }),
     find: jest.fn(async () => []),
+    count: jest.fn(async () => 0),
     nativeDelete: jest.fn(async () => undefined),
     remove: jest.fn().mockReturnValue({ flush: jest.fn().mockResolvedValue(undefined) }),
     flush: jest.fn().mockResolvedValue(undefined),

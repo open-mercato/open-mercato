@@ -233,6 +233,82 @@ describe('CustomDataSection relation display', () => {
     expect(notesContent.className).toContain('text-sm')
   })
 
+  it('renders select values from bare custom-field response keys', async () => {
+    const fields: CrudField[] = [
+      {
+        id: 'cf_buying_role',
+        label: 'Buying role',
+        type: 'select',
+        options: [
+          { value: 'economic_buyer', label: 'Economic buyer' },
+          { value: 'champion', label: 'Champion' },
+          { value: 'technical_evaluator', label: 'Technical evaluator' },
+          { value: 'influencer', label: 'Influencer' },
+        ],
+      },
+      {
+        id: 'cf_relationship_health',
+        label: 'Relationship health',
+        type: 'select',
+        options: [
+          { value: 'healthy', label: 'Healthy' },
+          { value: 'monitor', label: 'Monitor' },
+          { value: 'at_risk', label: 'At risk' },
+        ],
+      },
+      {
+        id: 'cf_renewal_quarter',
+        label: 'Renewal quarter',
+        type: 'select',
+        options: [
+          { value: 'Q1', label: 'Q1' },
+          { value: 'Q2', label: 'Q2' },
+          { value: 'Q3', label: 'Q3' },
+          { value: 'Q4', label: 'Q4' },
+        ],
+      },
+    ]
+    const definitions: CustomFieldDefDto[] = [
+      {
+        key: 'buying_role',
+        kind: 'select',
+        label: 'Buying role',
+      },
+      {
+        key: 'relationship_health',
+        kind: 'select',
+        label: 'Relationship health',
+      },
+      {
+        key: 'renewal_quarter',
+        kind: 'select',
+        label: 'Renewal quarter',
+      },
+    ]
+
+    renderWithProviders(
+      <CustomDataSection
+        entityIds={['customers:customer_person_profile', 'customers:customer_company_profile']}
+        values={{ buying_role: 'champion', relationship_health: 'monitor', renewal_quarter: 'Q4' }}
+        onSubmit={async () => {}}
+        title="Custom fields"
+        loadFields={async () => ({ fields, definitions })}
+        labels={{
+          loading: 'Loading custom data\u2026',
+          emptyValue: 'No value',
+          noFields: 'No fields',
+          saveShortcut: 'Save now',
+          edit: 'Edit',
+          cancel: 'Cancel',
+        }}
+      />,
+    )
+
+    expect(await screen.findByText('Champion')).toBeInTheDocument()
+    expect(await screen.findByText('Monitor')).toBeInTheDocument()
+    expect(screen.getByText('Q4')).toBeInTheDocument()
+  })
+
   it('resolves customer_person_profile with entity_id route context', async () => {
     const entityId = 'aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee'
     const profileId = 'pppppppp-1111-2222-3333-444444444444'

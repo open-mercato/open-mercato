@@ -61,10 +61,9 @@ test.describe('TC-CRM-047: advancedFilterState round-trips through the URL', () 
 
       // Reload — the URL still carries the filter, state is re-hydrated from it.
       await page.reload({ waitUntil: 'domcontentloaded' });
-      // Playwright serialises the URL bar as the browser does — brackets are
-      // URL-encoded (`%5B` / `%5D`). Match either form so the assertion stays
-      // robust across Next.js / browser serialisation changes.
-      await expect(page).toHaveURL(/filter(\[|%5B)conditions(\]|%5D)(\[|%5B)0(\]|%5D)(\[|%5B)value(\]|%5D)=/i);
+      // The page accepts legacy `filter[conditions]` params, then normalizes the
+      // address bar to the V2 tree-shaped `filter[root]` form.
+      await expect(page).toHaveURL(new RegExp(`filter(\\[|%5B)v(\\]|%5D)=2.*${keeperToken}`, 'i'));
       await expect(page.getByRole('cell', { name: dealATitle, exact: true })).toBeVisible({ timeout: 15000 });
       await expect(page.getByRole('cell', { name: dealBTitle, exact: true })).toHaveCount(0);
     } finally {

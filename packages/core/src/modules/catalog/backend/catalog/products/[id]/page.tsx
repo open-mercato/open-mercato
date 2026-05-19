@@ -32,6 +32,7 @@ import { TagsInput } from "@open-mercato/ui/backend/inputs/TagsInput";
 import { Textarea } from "@open-mercato/ui/primitives/textarea";
 import { DataLoader } from "@open-mercato/ui/primitives/DataLoader";
 import { cn } from "@open-mercato/shared/lib/utils";
+import { extractCustomFieldEntries } from "@open-mercato/shared/lib/crud/custom-fields-client";
 import { Spinner } from "@open-mercato/ui/primitives/spinner";
 import {
   apiCall,
@@ -619,7 +620,7 @@ export default function EditCatalogProductPage({
           ? readProductConversionRows(conversionsRes.result?.items)
           : [];
         initialConversionsRef.current = conversionRows;
-        const { customValues } = extractCustomFields(record);
+        const customValues = extractCustomFieldEntries(record);
         const offers = readOfferSnapshots(record);
         offerSnapshotsRef.current = offers;
         const channelIds = extractChannelIds(offers);
@@ -2627,17 +2628,6 @@ function readOptionSchema(metadata: Record<string, any>): ProductOptionInput[] {
       };
     })
     .filter((entry): entry is ProductOptionInput => !!entry);
-}
-
-function extractCustomFields(record: Record<string, unknown>): {
-  customValues: Record<string, unknown>;
-} {
-  const customValues: Record<string, unknown> = {};
-  Object.entries(record).forEach(([key, value]) => {
-    if (key.startsWith("cf_")) customValues[key] = value;
-    else if (key.startsWith("cf:")) customValues[`cf_${key.slice(3)}`] = value;
-  });
-  return { customValues };
 }
 
 function normalizeIdList(value: unknown): string[] {

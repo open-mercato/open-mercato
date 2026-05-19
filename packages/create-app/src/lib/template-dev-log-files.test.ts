@@ -49,3 +49,13 @@ test('standalone template dev-log-files exports the runtime logging API expected
     rmTempDir(tempDir)
   }
 })
+
+test('standalone template dev wrapper defaults background services to lazy mode', () => {
+  const devScriptPath = new URL('../../template/scripts/dev.mjs', import.meta.url)
+  const source = fs.readFileSync(devScriptPath, 'utf8')
+
+  assert.match(source, /function applyLocalDevBackgroundServiceDefaults/)
+  assert.match(source, /OM_AUTO_SPAWN_WORKERS_LAZY = 'true'/)
+  assert.match(source, /OM_AUTO_SPAWN_SCHEDULER_LAZY = 'true'/)
+  assert.match(source, /env: buildAppDevEnv\(\)/)
+})

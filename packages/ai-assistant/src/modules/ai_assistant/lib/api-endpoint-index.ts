@@ -1,22 +1,17 @@
 /**
  * API Endpoint Index
  *
- * Parses OpenAPI spec and indexes endpoints for discovery via hybrid search.
+ * Parses the OpenAPI spec into a cached, in-memory list of endpoints and
+ * exposes the raw OpenAPI document to Code Mode's `search` tool. The Code
+ * Mode rewrite (2026-02-22) made this the only consumer — the legacy
+ * `find_api` / `call_api` / `discover_schema` tools and their search-index
+ * fan-out have been removed.
  */
 
 import type { OpenApiDocument } from '@open-mercato/shared/lib/openapi'
 import { buildOpenApiDocument } from '@open-mercato/shared/lib/openapi'
 import type { Module } from '@open-mercato/shared/modules/registry'
-import type { SearchService } from '@open-mercato/search/service'
-import type { IndexableRecord } from '@open-mercato/search/types'
 import { fetchWithTimeout, resolveTimeoutMs } from '@open-mercato/shared/lib/http/fetchWithTimeout'
-import {
-  API_ENDPOINT_ENTITY_ID,
-  GLOBAL_TENANT_ID,
-  API_ENDPOINT_SEARCH_CONFIG,
-  endpointToIndexableRecord,
-  computeEndpointsChecksum,
-} from './api-endpoint-index-config'
 
 const DEFAULT_OPENAPI_FETCH_TIMEOUT_MS = 10_000
 
@@ -50,12 +45,6 @@ export interface ApiParameter {
   type: string
   description: string
 }
-
-/**
- * Entity type for API endpoints in search index
- * @deprecated Use API_ENDPOINT_ENTITY_ID from api-endpoint-index-config.ts
- */
-export const API_ENDPOINT_ENTITY = API_ENDPOINT_ENTITY_ID
 
 /**
  * In-memory cache of parsed endpoints (avoid re-parsing on each request)
@@ -467,176 +456,6 @@ function extractRequestBodySchema(
   }
 
   return schema
-}
-
-/**
- * Checksum from last indexing operation
- */
-let lastIndexChecksum: string | null = null
-
-/**
- * Index endpoints for search discovery using hybrid search strategies.
- * Uses checksum-based change detection to avoid unnecessary re-indexing.
- *
- * @param searchService - The search service to use for indexing
- * @param force - Force re-indexing even if checksum hasn't changed
- * @returns Number of endpoints indexed
- */
-export async function indexApiEndpoints(
-  searchService: SearchService,
-  force = false
-): Promise<number> {
-  const endpoints = await getApiEndpoints()
-
-  if (endpoints.length === 0) {
-    console.error('[API Index] No endpoints to index')
-    return 0
-  }
-
-  // Compute checksum to detect changes
-  const checksum = computeEndpointsChecksum(
-    endpoints.map((e) => ({ operationId: e.operationId, method: e.method, path: e.path }))
-  )
-
-  // Skip if checksum matches and not forced
-  if (!force && lastIndexChecksum === checksum) {
-    console.error(`[API Index] Skipping indexing - ${endpoints.length} endpoints unchanged`)
-    return 0
-  }
-
-  // Convert to indexable records using the proper format
-  const records: IndexableRecord[] = endpoints.map((endpoint) =>
-    endpointToIndexableRecord(endpoint)
-  )
-
-  try {
-    console.error(`[API Index] Starting bulk index of ${records.length} endpoints...`)
-    // Bulk index using all available strategies (fulltext + vector)
-    // Use Promise.race with timeout to prevent hanging
-    const timeoutMs = 60000 // 60 second timeout
-    const indexPromise = searchService.bulkIndex(records)
-    const timeoutPromise = new Promise<never>((_, reject) =>
-      setTimeout(() => reject(new Error(`Bulk index timed out after ${timeoutMs}ms`)), timeoutMs)
-    )
-
-    await Promise.race([indexPromise, timeoutPromise])
-    lastIndexChecksum = checksum
-    console.error(`[API Index] Indexed ${records.length} API endpoints for hybrid search`)
-    return records.length
-  } catch (error) {
-    console.error('[API Index] Failed to index endpoints:', error)
-    // Still return the count - some strategies may have succeeded
-    lastIndexChecksum = checksum
-    return records.length
-  }
-}
-
-/**
- * Build searchable content from endpoint
- */
-function buildSearchableContent(endpoint: ApiEndpoint): string {
-  const parts = [
-    endpoint.operationId,
-    endpoint.method,
-    endpoint.path,
-    endpoint.summary,
-    endpoint.description,
-    ...endpoint.tags,
-    ...endpoint.parameters.map((p) => `${p.name} ${p.description}`),
-  ]
-
-  return parts.filter(Boolean).join(' ')
-}
-
-/**
- * Search endpoints using hybrid search (fulltext + vector).
- * Falls back to in-memory search if search service is not available.
- */
-export async function searchEndpoints(
-  searchService: SearchService | null,
-  query: string,
-  options: { limit?: number; method?: string } = {}
-): Promise<ApiEndpoint[]> {
-  const { limit = API_ENDPOINT_SEARCH_CONFIG.defaultLimit, method } = options
-
-  // Ensure endpoints are loaded
-  await getApiEndpoints()
-
-  // Try hybrid search first if search service is available
-  if (searchService) {
-    try {
-      // Use hybrid search (fulltext + vector)
-      const results = await searchService.search(query, {
-        tenantId: GLOBAL_TENANT_ID,
-        organizationId: null,
-        entityTypes: [API_ENDPOINT_ENTITY_ID],
-        limit: limit * 2, // Get extra to account for filtering
-      })
-
-      // Map search results back to ApiEndpoint objects
-      const endpoints: ApiEndpoint[] = []
-      for (const result of results) {
-        if (endpoints.length >= limit) break
-
-        const endpoint = endpointsByOperationId?.get(result.recordId)
-        if (endpoint) {
-          // Apply method filter if not handled by search
-          if (method && endpoint.method !== method.toUpperCase()) continue
-          endpoints.push(endpoint)
-        }
-      }
-
-      if (endpoints.length > 0) {
-        return endpoints
-      }
-
-      // Fall through to fallback if no results from hybrid search
-      console.error('[API Index] No hybrid search results, falling back to in-memory search')
-    } catch (error) {
-      console.error('[API Index] Hybrid search failed, falling back to in-memory:', error)
-    }
-  }
-
-  // Fallback: Simple in-memory text matching
-  return searchEndpointsFallback(query, { limit, method })
-}
-
-/**
- * Fallback in-memory search when hybrid search is not available.
- */
-function searchEndpointsFallback(
-  query: string,
-  options: { limit?: number; method?: string } = {}
-): ApiEndpoint[] {
-  const { limit = API_ENDPOINT_SEARCH_CONFIG.defaultLimit, method } = options
-
-  if (!endpointsCache) {
-    return []
-  }
-
-  const queryLower = query.toLowerCase()
-  const queryTerms = queryLower.split(/\s+/).filter(Boolean)
-
-  let matches = endpointsCache.filter((endpoint) => {
-    const content = buildSearchableContent(endpoint).toLowerCase()
-    return queryTerms.some((term) => content.includes(term))
-  })
-
-  // Filter by method if specified
-  if (method) {
-    matches = matches.filter((e) => e.method === method.toUpperCase())
-  }
-
-  // Sort by relevance (number of matching terms)
-  matches.sort((a, b) => {
-    const aContent = buildSearchableContent(a).toLowerCase()
-    const bContent = buildSearchableContent(b).toLowerCase()
-    const aScore = queryTerms.filter((t) => aContent.includes(t)).length
-    const bScore = queryTerms.filter((t) => bContent.includes(t)).length
-    return bScore - aScore
-  })
-
-  return matches.slice(0, limit)
 }
 
 /**

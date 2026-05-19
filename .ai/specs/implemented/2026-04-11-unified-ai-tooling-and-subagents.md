@@ -727,7 +727,14 @@ Rules:
     recordId: string
     entityType: string
     label: string
-    fieldDiff: Array<{ field: string; before: unknown; after: unknown }>
+    fieldDiff: Array<{
+      field: string
+      fieldLabel?: string
+      before: unknown
+      after: unknown
+      beforeDisplay?: unknown
+      afterDisplay?: unknown
+    }>
     recordVersion: string | null
     attachmentIds?: string[]
   }
@@ -737,6 +744,7 @@ Rules:
   ```
 
 - `records` is optional; single-record actions keep using the top-level `fieldDiff` as before (no BC break for the Phase 3 single-record flow)
+- `fieldLabel`, `beforeDisplay`, and `afterDisplay` are optional UI-only labels. The raw `field`, `before`, and `after` values remain authoritative for execution, stale checks, and audit; approval cards render the display values when present so dictionary IDs can appear as names.
 - on confirm, the server re-runs the full re-check contract from section 9.4 **per record** before executing any write; if any single record fails re-check (permissions, scope, record version, schema drift), the whole batch fails with `207 Multi-Status` and `executionResult.failedRecords[]` populated — the runtime does not execute a partial batch unless the tool opts into `partialSuccess: true` at registration time
 - confirmed batches run inside one transaction by default; rollback semantics mirror the underlying command path
 - the `mutation-preview-card` UI part renders a grouped diff (per-record collapsible rows) with a single `[Confirm All] [Cancel]` pair; `Cmd/Ctrl+Enter` confirms the whole batch, `Escape` cancels
@@ -1021,8 +1029,11 @@ type AiPendingAction = {
   normalizedInput: Record<string, unknown>
   fieldDiff: Array<{
     field: string
+    fieldLabel?: string
     before: unknown
     after: unknown
+    beforeDisplay?: unknown
+    afterDisplay?: unknown
   }>
   // Batch form: populated by bulk tools (e.g. catalog.bulk_update_products).
   // When set, the per-record entries are authoritative and the top-level fieldDiff is unused.
@@ -1030,7 +1041,7 @@ type AiPendingAction = {
     recordId: string
     entityType: string
     label: string
-    fieldDiff: Array<{ field: string; before: unknown; after: unknown }>
+    fieldDiff: Array<{ field: string; fieldLabel?: string; before: unknown; after: unknown; beforeDisplay?: unknown; afterDisplay?: unknown }>
     recordVersion: string | null
     attachmentIds?: string[]
   }>
@@ -1190,7 +1201,7 @@ type AiPendingActionResponse = {
     title: string
     targetEntityType: string | null
     targetRecordId: string | null
-    fieldDiff: Array<{ field: string; before: unknown; after: unknown }>
+    fieldDiff: Array<{ field: string; fieldLabel?: string; before: unknown; after: unknown; beforeDisplay?: unknown; afterDisplay?: unknown }>
     sideEffectsSummary: string | null
   }
   executionResult: AiPendingAction['executionResult']

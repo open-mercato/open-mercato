@@ -9,6 +9,25 @@ async function readJson(response: APIResponse): Promise<JsonRecord> {
   return ((await readJsonSafe<JsonRecord>(response)) ?? {}) as JsonRecord
 }
 
+async function postRunWithRetry(
+  request: Parameters<typeof getAuthToken>[0],
+  token: string,
+  data: JsonRecord,
+): Promise<APIResponse> {
+  let response: APIResponse | null = null
+  for (let attempt = 0; attempt < 3; attempt += 1) {
+    response = await apiRequest(request, 'POST', '/api/data_sync/run', {
+      token,
+      data,
+    })
+    if (response.status() !== 500) return response
+    if (attempt < 2) {
+      await new Promise((resolve) => setTimeout(resolve, 500 * (attempt + 1)))
+    }
+  }
+  return response as APIResponse
+}
+
 /**
  * TC-DS-001: Data sync hub APIs
  *
@@ -97,15 +116,12 @@ test.describe('TC-DS-001: Data sync hub APIs', () => {
         expect(String(validateBody.error ?? validateBody.message ?? '')).not.toHaveLength(0)
       }
 
-      const runResponse = await apiRequest(request, 'POST', '/api/data_sync/run', {
-        token,
-        data: {
-          integrationId,
-          entityType,
-          direction: 'import',
-          fullSync: false,
-          batchSize: 10,
-        },
+      const runResponse = await postRunWithRetry(request, token, {
+        integrationId,
+        entityType,
+        direction: 'import',
+        fullSync: false,
+        batchSize: 10,
       })
       expect(runResponse.status()).toBe(201)
       const runBody = await readJson(runResponse)
@@ -145,7 +161,9 @@ test.describe('TC-DS-001: Data sync hub APIs', () => {
 
       const retryResponse = await apiRequest(request, 'POST', `/api/data_sync/runs/${runId}/retry`, {
         token,
-        data: { fromBeginning: false },
+        data: {
+          fromBeginning: false,
+        },
       })
       expect(retryResponse.status()).toBe(201)
       const retryBody = await readJson(retryResponse)

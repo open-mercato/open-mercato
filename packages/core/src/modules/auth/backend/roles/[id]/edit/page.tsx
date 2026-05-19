@@ -10,6 +10,7 @@ import { WidgetVisibilityEditor, type WidgetVisibilityEditorHandle } from '@open
 import { E } from '#generated/entities.ids.generated'
 import { TenantSelect } from '@open-mercato/core/modules/directory/components/TenantSelect'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
+import { extractCustomFieldEntries } from '@open-mercato/shared/lib/crud/custom-fields-client'
 
 type EditRoleFormValues = {
   name?: string
@@ -51,7 +52,7 @@ export default function EditRolePage({ params }: { params?: { id?: string } }) {
         const found = (foundList?.[0] ?? null) as RoleRecord | null
         if (!cancelled) {
           setActorIsSuperAdmin(Boolean(result?.isSuperAdmin))
-          setInitial(found || null)
+          setInitial(found ? { ...found, ...extractCustomFieldEntries(found) } : null)
           const tenant = found && typeof found.tenantId === 'string' ? found.tenantId : null
           setSelectedTenantId(tenant)
         }

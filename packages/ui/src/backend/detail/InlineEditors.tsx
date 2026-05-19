@@ -14,8 +14,10 @@ import {
   SelectValue,
 } from '@open-mercato/ui/primitives/select'
 import { Textarea } from '@open-mercato/ui/primitives/textarea'
+import { DatePicker } from '@open-mercato/ui/primitives/date-picker'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { cn } from '@open-mercato/shared/lib/utils'
+import { format } from 'date-fns'
 import { LoadingMessage } from './LoadingMessage'
 import { mapCrudServerErrorToFormErrors } from '../utils/serverErrors'
 import { MarkdownPreview } from '../markdown'
@@ -317,33 +319,82 @@ export function InlineTextEditor({
                 }
               }}
             >
-              {resolvedType === 'tel' ? (
-                <PhoneNumberField
-                  value={draft.length ? draft : undefined}
-                  onValueChange={(next) => {
-                    if (error) setError(null)
-                    setDraft(next ?? '')
-                  }}
-                  placeholder={placeholder}
-                  autoFocus
-                  disabled={saving}
-                  minDigits={7}
-                />
-              ) : (
-              <input
-                className="w-full rounded-md border px-3 py-2 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-                value={draft}
-                onChange={(event) => {
-                  if (error) setError(null)
-                  setDraft(event.target.value)
-                }}
-                placeholder={placeholder}
-                type={inputType ?? resolvedType}
-                autoFocus
-              />
-              )}
+              {(() => {
+                const lowerType = (inputType ?? resolvedType ?? '').toLowerCase()
+                const isDate = lowerType === 'date'
+                const isDateTime = lowerType === 'datetime-local' || lowerType === 'datetime'
+                if (resolvedType === 'tel') {
+                  return (
+                    <PhoneNumberField
+                      value={draft.length ? draft : undefined}
+                      onValueChange={(next) => {
+                        if (error) setError(null)
+                        setDraft(next ?? '')
+                      }}
+                      placeholder={placeholder}
+                      autoFocus
+                      disabled={saving}
+                      minDigits={7}
+                    />
+                  )
+                }
+                if (isDate || isDateTime) {
+                  let parsed: Date | null = null
+                  if (draft && draft.length) {
+                    const candidate = new Date(draft)
+                    if (!Number.isNaN(candidate.getTime())) parsed = candidate
+                  }
+                  return (
+                    <DatePicker
+                      value={parsed}
+                      onChange={(date) => {
+                        if (error) setError(null)
+                        const formatted = !date
+                          ? ''
+                          : isDateTime
+                            ? format(date, "yyyy-MM-dd'T'HH:mm")
+                            : format(date, 'yyyy-MM-dd')
+                        setDraft(formatted)
+                        setSaving(true)
+                        ;(async () => {
+                          try {
+                            await onSave(formatted.length ? formatted : null)
+                            setEditingSafe(false)
+                          } catch (err) {
+                            setError(resolveInlineErrorMessage(err, fallbackError))
+                          } finally {
+                            setSaving(false)
+                          }
+                        })()
+                      }}
+                      withTime={isDateTime}
+                      footer="apply-cancel"
+                      placeholder={placeholder}
+                      disabled={saving}
+                    />
+                  )
+                }
+                return (
+                  <input
+                    className="w-full rounded-md border px-3 py-2 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                    value={draft}
+                    onChange={(event) => {
+                      if (error) setError(null)
+                      setDraft(event.target.value)
+                    }}
+                    placeholder={placeholder}
+                    type={inputType ?? resolvedType}
+                    autoFocus
+                  />
+                )
+              })()}
               {error ? <p className="text-xs text-destructive">{error}</p> : null}
               {renderBelowInput ? renderBelowInput({ draft, resolvedType, error, saving }) : null}
+              {(() => {
+                const lowerType = (inputType ?? resolvedType ?? '').toLowerCase()
+                const isDateLike = lowerType === 'date' || lowerType === 'datetime-local' || lowerType === 'datetime'
+                if (isDateLike) return null
+                return (
               <div className="flex items-center gap-2">
                 <Button type="submit" size="sm" disabled={saving}>
                   {saving ? <Loader2 className="mr-2 h-3.5 w-3.5 animate-spin" /> : null}
@@ -353,6 +404,8 @@ export function InlineTextEditor({
                   {t('ui.detail.inline.cancel', 'Cancel')}
                 </Button>
               </div>
+                )
+              })()}
             </form>
           ) : (
             <div className={variant === 'plain' ? '' : 'mt-1'}>{displayContent}</div>

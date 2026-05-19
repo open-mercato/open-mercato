@@ -431,7 +431,13 @@ export function TasksSection({
         ) : null}
 
         {!isInitialLoading && !hasTasks ? (
-          <TabEmptyState title={emptyState.title} />
+          <TabEmptyState title={emptyState.title}>
+            <Button asChild variant="outline" size="sm" className="mt-2">
+              <Link href="/backend/customer-tasks">
+                {t('customers.people.detail.tasks.viewAll', 'View all tasks')}
+              </Link>
+            </Button>
+          </TabEmptyState>
         ) : null}
 
         {!isInitialLoading && hasTasks ? (
@@ -565,13 +571,15 @@ export function TasksSection({
             ) : null}
           </div>
         ) : null}
-        <div className="flex justify-center">
-          <Button asChild variant="outline" size="sm">
-            <Link href="/backend/customer-tasks">
-              {t('customers.people.detail.tasks.viewAll', 'View all tasks')}
-            </Link>
-          </Button>
-        </div>
+        {!isInitialLoading && hasTasks ? (
+          <div className="flex justify-center">
+            <Button asChild variant="outline" size="sm">
+              <Link href="/backend/customer-tasks">
+                {t('customers.people.detail.tasks.viewAll', 'View all tasks')}
+              </Link>
+            </Button>
+          </div>
+        ) : null}
       </div>
 
       <TaskDialog

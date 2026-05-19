@@ -920,7 +920,15 @@ async function hasBuildInputChangesSince(
       }
       seenPaths.add(resolvedPath)
 
-      const fileStat = await stat(resolvedPath)
+      let fileStat: Awaited<ReturnType<typeof stat>>
+      try {
+        fileStat = await stat(resolvedPath)
+      } catch (error) {
+        if ((error as NodeJS.ErrnoException).code === 'ENOENT') {
+          return true
+        }
+        throw error
+      }
       if (fileStat.isFile() && fileStat.mtimeMs > timestampMs) {
         return true
       }
@@ -1628,6 +1636,7 @@ function buildReusableEnvironment(baseUrl: string, captureScreenshots: boolean):
     NEXT_PUBLIC_OM_EXAMPLE_INJECTION_WIDGETS_ENABLED: 'true',
     NEXT_PUBLIC_UMES_DEVTOOLS: 'true',
     CI: 'true',
+    TENANT_DATA_ENCRYPTION_FALLBACK_KEY: process.env.TENANT_DATA_ENCRYPTION_FALLBACK_KEY ?? 'om-ephemeral-integration-fallback-key',
     OM_CLI_QUIET: '1',
     MERCATO_QUIET: '1',
     NODE_NO_WARNINGS: '1',
@@ -2891,7 +2900,7 @@ export async function startEphemeralEnvironment(options: EphemeralRuntimeOptions
       NEXT_PUBLIC_OM_EXAMPLE_INJECTION_WIDGETS_ENABLED: 'true',
       NEXT_PUBLIC_UMES_DEVTOOLS: 'true',
       CI: 'true',
-      TENANT_DATA_ENCRYPTION_FALLBACK_KEY: 'om-ephemeral-integration-fallback-key',
+      TENANT_DATA_ENCRYPTION_FALLBACK_KEY: process.env.TENANT_DATA_ENCRYPTION_FALLBACK_KEY ?? 'om-ephemeral-integration-fallback-key',
       AUTO_SPAWN_WORKERS: 'false',
       AUTO_SPAWN_SCHEDULER: 'false',
       OM_CLI_QUIET: '1',

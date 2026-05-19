@@ -234,6 +234,29 @@ function normalizeEmail(value: string | null | undefined): string | null {
   return normalized ? normalized.toLowerCase() : null
 }
 
+type PersonDeleteBlockerCounts = {
+  dealLinks: number
+}
+
+function buildPersonHasDependentsError(
+  translate: (key: string, fallback?: string, params?: Record<string, string | number>) => string,
+  counts: PersonDeleteBlockerCounts,
+): CrudHttpError {
+  const blockers: string[] = []
+  if (counts.dealLinks > 0) {
+    blockers.push(
+      translate('customers.people.delete.blockers.deals', 'linked deals ({{count}})', { count: counts.dealLinks }),
+    )
+  }
+  const summary = blockers.join(', ')
+  const message = translate(
+    'customers.people.delete.blocked',
+    'Cannot delete person: {{blockers}}. Please unlink or reassign first.',
+    { blockers: summary },
+  )
+  return new CrudHttpError(422, { error: message, code: 'PERSON_HAS_DEPENDENTS' })
+}
+
 function serializePersonSnapshot(
   entity: CustomerEntity,
   profile: CustomerPersonProfile,
@@ -1010,6 +1033,13 @@ const deletePersonCommand: CommandHandler<{ body?: Record<string, unknown>; quer
       const record = assertFound(entity, 'Person not found')
       ensureTenantScope(ctx, record.tenantId)
       ensureOrganizationScope(ctx, record.organizationId)
+
+      const dealLinks = await em.count(CustomerDealPersonLink, { person: record })
+      if (dealLinks > 0) {
+        const { translate } = await resolveTranslations()
+        throw buildPersonHasDependentsError(translate, { dealLinks })
+      }
+
       const profile = await em.findOne(CustomerPersonProfile, { entity: record })
       if (profile) em.remove(profile)
       await em.nativeDelete(CustomerAddress, { entity: record, organizationId: record.organizationId, tenantId: record.tenantId })

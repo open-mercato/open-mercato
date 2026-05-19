@@ -17,6 +17,7 @@ IMPORTANT: Before any research or coding, match the task to the root `AGENTS.md`
 |------|-------|
 | **Module Development** | |
 | Creating a new module, scaffolding module files, auto-discovery paths | `packages/core/AGENTS.md` |
+| Working on official modules via the `external/official-modules` submodule, activating them (`yarn official-modules`, `official-modules.json`), committing to the submodule's git | this file → `external/official-modules/` (git submodule) |
 | Building CRUD API routes, adding OpenAPI specs, using `makeCrudRoute`, query engine integration | `packages/core/AGENTS.md` → API Routes |
 | Adding `setup.ts` for tenant init, declaring role features, syncing new ACL grants to roles, seeding defaults/examples | `packages/core/AGENTS.md` → Module Setup |
 | Declaring typed events with `createModuleEvents`, emitting CRUD/lifecycle events, adding event subscribers | `packages/core/AGENTS.md` → Events |
@@ -27,6 +28,7 @@ IMPORTANT: Before any research or coding, match the task to the root `AGENTS.md`
 | Injecting menu items into main/settings/profile sidebars or topbar/profile dropdown (`useInjectedMenuItems`, `mergeMenuItems`) | `packages/ui/AGENTS.md` |
 | Adding API route interceptors (`api/interceptors.ts`, before/after hooks, body/query rewrite contracts) | `packages/core/AGENTS.md` → API Interceptors |
 | Adding DataTable extension widgets (columns/row actions/bulk actions/filters) | `packages/core/AGENTS.md` → Widget Injection + `packages/ui/AGENTS.md` → DataTable Guidelines |
+| Adding bulk operations, DataTable bulk actions, selected-row mutations, or future long-running operations with progress | `packages/core/src/modules/progress/AGENTS.md` + `packages/ui/AGENTS.md` → DataTable Guidelines + `packages/queue/AGENTS.md` |
 | Adding CrudForm field injection widgets (`crud-form:<entityId>:fields`) | `packages/core/AGENTS.md` → Widget Injection + `packages/ui/AGENTS.md` → CrudForm Guidelines |
 | Replacing or wrapping UI components via `widgets/components.ts` (`replace`/`wrapper`/`props`) | `packages/core/AGENTS.md` → Component Replacement + `packages/ui/AGENTS.md` |
 | Adding custom fields/entities, using DSL helpers (`defineLink`, `cf.*`), declaring `ce.ts` | `packages/core/AGENTS.md` → Custom Fields |
@@ -43,6 +45,7 @@ IMPORTANT: Before any research or coding, match the task to the root `AGENTS.md`
 | Registering typed AI tools via `defineAiTool` in `ai-tools.ts`, building tool packs (`search`, `attachments`, `meta`, domain packs) | `.ai/skills/create-ai-agent/SKILL.md` + `packages/ai-assistant/AGENTS.md` + `apps/docs/docs/framework/ai-assistant/agents.mdx` |
 | Gating AI-mutation writes behind the approval flow (`prepareMutation`, `ai_pending_actions`, approval cards, cleanup worker) | `.ai/skills/create-ai-agent/SKILL.md` + `packages/ai-assistant/AGENTS.md` + `apps/docs/docs/framework/ai-assistant/mutation-approvals.mdx` |
 | Overriding AI agent prompts, mutation policies, or model per tenant via the settings UI | `packages/ai-assistant/AGENTS.md` + `apps/docs/docs/framework/ai-assistant/settings.mdx` |
+| Wiring agentic-loop controls on an AI agent (`loop.stopWhen` / `loop.prepareStep` / `loop.budget`), per-tenant loop kill switch + budgets, `executionEngine: 'tool-loop-agent'`, and the `<AiChat>` LoopTrace debug panel | `.ai/specs/2026-04-28-ai-agents-agentic-loop-controls.md` + `packages/ai-assistant/AGENTS.md` → Loop controls and execution engines + `apps/docs/docs/framework/ai-assistant/agents.mdx` → Agentic loop controls + `apps/docs/docs/framework/ai-assistant/settings.mdx` → Loop policy overrides + `.ai/skills/create-ai-agent/SKILL.md` §4.4 |
 | Replacing or disabling another module's AI agent / AI tool (per-module, modules.ts, or programmatic) | `apps/docs/docs/framework/ai-assistant/overrides.mdx` + `packages/ai-assistant/AGENTS.md` → How to Override + `.ai/specs/2026-04-30-ai-overrides-and-module-disable.md` |
 | Replacing/disabling any module contract at the app level (unified `entry.overrides` umbrella — AI today; other domains rolling out) | `.ai/specs/2026-05-04-modules-ts-unified-overrides.md` + `packages/shared/src/modules/overrides.ts` |
 | Configuring AI providers (Anthropic / OpenAI / Google) and per-module model overrides (`OM_AI_<MODULE>_MODEL`) | `packages/ai-assistant/AGENTS.md` → Model Resolution + `apps/docs/docs/framework/ai-assistant/overview.mdx` |
@@ -70,6 +73,7 @@ IMPORTANT: Before any research or coding, match the task to the root `AGENTS.md`
 | Event bus architecture, ephemeral vs persistent subscriptions, queue integration for events, event workers | `packages/events/AGENTS.md` |
 | Adding cache to a module, tag-based invalidation, tenant-scoped caching, choosing strategy (memory/SQLite/Redis) | `packages/cache/AGENTS.md` |
 | Adding background workers, configuring concurrency (I/O vs CPU-bound), idempotent job processing, queue strategies | `packages/queue/AGENTS.md` |
+| Tracking operation progress in the top bar, creating `ProgressJob`s, or emitting client-local progress events | `packages/core/src/modules/progress/AGENTS.md` + `packages/events/AGENTS.md` → DOM Event Bridge |
 | Adding onboarding wizard steps, tenant setup hooks (`onTenantCreated`/`seedDefaults`), welcome/invitation emails | `packages/onboarding/AGENTS.md` |
 | Adding static content pages (privacy policies, terms, legal pages) | `packages/content/AGENTS.md` |
 | Testing standalone apps with Verdaccio, publishing packages, canary releases, template scaffolding | `packages/create-app/AGENTS.md` |
@@ -181,6 +185,18 @@ All packages use the `@open-mercato/<package>` naming convention:
 - Put UI components in `packages/ui/src/`
 - Put user/app-specific modules in `apps/mercato/src/modules/<module>/`
 - MUST NOT add code directly in `apps/mercato/src/` — it's a boilerplate for user apps
+
+### `external/official-modules/` (git submodule)
+
+`external/official-modules/` is a **git submodule** pointing at `open-mercato/official-modules` (a public repo). When present it is real working code — treat it as first-class for search, grep, refactoring, and cross-module reasoning, not as vendored/build output.
+
+- It is **optional and not committed** — `.gitmodules` and the `external/official-modules` checkout are not part of the open-mercato repo. They're created locally by `yarn official-modules add …` (which runs `git submodule add`). A fresh clone has no submodule; `yarn install` and CI are unchanged.
+- **Activation is driven by `official-modules.json`** (committed; `activated` is the team default, `available` is auto-filled once the submodule is present) and `official-modules.local.json` (gitignored personal override). Use `yarn official-modules` to inspect/change activation; the `postinstall` worker (`scripts/official-modules-setup.mjs`) — a no-op until the submodule is registered, then it inits/refreshes it — regenerates `apps/mercato/src/official-modules.generated.ts`, which `apps/mercato/src/modules.ts` spreads into `enabledModules`.
+- **Module-id convention:** package `@open-mercato/<suffix>` ⇒ module id `<suffix>` with dashes converted to underscores (e.g. `@open-mercato/ai-assistant` ⇒ `ai_assistant`).
+- **Edits under `external/official-modules/` commit to the submodule's git, not open-mercato's.** Commit/push from inside `external/official-modules/` on a feature branch; create the changeset there (`yarn changeset`); open the PR against `open-mercato/official-modules`.
+- **Never `git add external/official-modules` (pointer bump) unless explicitly asked** — the pointer may lag intentionally. Always check `git diff --staged` before committing in the host repo. The same applies to `apps/mercato/src/official-modules.generated.ts` / `official-modules.json` `available` churn unless you actually intend to change the activation set.
+- After activating/deactivating official modules: run `yarn mercato configs cache structural --all-tenants` (and `yarn dev:reset` if Turbopack serves a stale chunk).
+- **Cross-cutting changes** (core API + an official module): two coordinated PRs — core in open-mercato first → (prerelease) publish → submodule bumps the peer dep → submodule PR. Explain the merge order to the user. No PR is atomic across the two repos.
 
 ### When You Need an Import
 

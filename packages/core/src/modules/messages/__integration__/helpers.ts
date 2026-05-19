@@ -173,7 +173,10 @@ export async function selectRecipientFromComposer(root: Page | Locator, email: s
 
   await expect(suggestion).toBeVisible({ timeout: 10_000 });
   await suggestion.click();
-  await expect(root.getByRole('button', { name: new RegExp(escapeRegex(email), 'i') })).toHaveCount(0);
+  // Anchor the regex: the DS Tag primitive renders the chip's remove icon as
+  // a button with `aria-label="Remove <label>"`, which would otherwise match
+  // the same regex used to assert "suggestion gone".
+  await expect(root.getByRole('button', { name: new RegExp(`^${escapeRegex(email)}$`, 'i') })).toHaveCount(0);
 }
 
 export async function searchMessages(page: Page, searchValue: string): Promise<void> {

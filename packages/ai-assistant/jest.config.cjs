@@ -8,6 +8,8 @@ module.exports = {
   moduleNameMapper: {
     '^@open-mercato/ai-assistant/(.*)$': '<rootDir>/src/$1',
     '^@open-mercato/shared/(.*)$': '<rootDir>/../shared/src/$1',
+    '^@open-mercato/cache$': '<rootDir>/../cache/src/index.ts',
+    '^@open-mercato/cache/(.*)$': '<rootDir>/../cache/src/$1',
     // Redirect core module imports to the TS source so Jest's ts-jest
     // transformer handles them cleanly. Without this, the built dist/
     // ESM output trips Jest's CJS-only parser (see

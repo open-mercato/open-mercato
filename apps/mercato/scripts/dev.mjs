@@ -42,6 +42,27 @@ function isEnabledEnvFlag(value) {
   return ['1', 'true', 'yes', 'on'].includes(value.trim().toLowerCase())
 }
 
+function parseEnvBooleanToken(value) {
+  if (typeof value !== 'string') return null
+  const normalized = value.trim().toLowerCase()
+  if (['1', 'true', 'yes', 'on'].includes(normalized)) return true
+  if (['0', 'false', 'no', 'off'].includes(normalized)) return false
+  return null
+}
+
+function resolveAutoSpawnEnabled(env, legacyName, aliasedName) {
+  const legacy = parseEnvBooleanToken(env[legacyName])
+  if (legacy !== null) return legacy
+  const aliased = parseEnvBooleanToken(env[aliasedName])
+  if (aliased !== null) return aliased
+  return true
+}
+
+function resolveAutoSpawnMode(env, legacyName, aliasedName, lazyName) {
+  if (!resolveAutoSpawnEnabled(env, legacyName, aliasedName)) return 'off'
+  return parseEnvBooleanToken(env[lazyName]) === true ? 'lazy' : 'eager'
+}
+
 const {
   clampPercent,
   connectLineStream,
@@ -83,6 +104,10 @@ const CYAN_BORDER = '\u001B[46m\u001B[30m'
 const ERROR_BANNER = '\u001B[41m\u001B[97m'
 const warmupRequestTimeoutsMs = [45000, 120000]
 const maxWarmupRetryAttempts = 3
+const backgroundServiceModes = {
+  workers: resolveAutoSpawnMode(process.env, 'AUTO_SPAWN_WORKERS', 'OM_AUTO_SPAWN_WORKERS', 'OM_AUTO_SPAWN_WORKERS_LAZY'),
+  scheduler: resolveAutoSpawnMode(process.env, 'AUTO_SPAWN_SCHEDULER', 'OM_AUTO_SPAWN_SCHEDULER', 'OM_AUTO_SPAWN_SCHEDULER_LAZY'),
+}
 const splashState = {
   mode: splashMode,
   phase: startupSplashPhase,
@@ -98,6 +123,8 @@ const splashState = {
   packageNames: [],
   workerQueues: [],
   schedulerActive: false,
+  workerMode: backgroundServiceModes.workers,
+  schedulerMode: backgroundServiceModes.scheduler,
   progressCurrent: runtimeProgressCurrent,
   progressTotal: runtimeProgressTotal,
   progressPercent: 0,
@@ -120,6 +147,8 @@ const runtimeSummaryState = {
   packageNames: [],
   workerQueues: [],
   schedulerActive: false,
+  workerMode: backgroundServiceModes.workers,
+  schedulerMode: backgroundServiceModes.scheduler,
   packagesPrinted: false,
   workersPrinted: false,
   lastWorkersSignature: '',
@@ -145,6 +174,22 @@ function printCompactSummary(icon, title, lines) {
   }
 }
 
+function formatBackgroundServiceMode(modes = runtimeSummaryState) {
+  const activeModes = []
+  if (modes.workerMode !== 'off') activeModes.push(['workers', modes.workerMode])
+  if (modes.schedulerMode !== 'off') activeModes.push(['scheduler', modes.schedulerMode])
+  if (activeModes.length === 0) return 'off'
+
+  const uniqueModes = new Set(activeModes.map(([, mode]) => mode))
+  if (uniqueModes.size === 1) return activeModes[0][1]
+
+  return activeModes.map(([service, mode]) => `${service} ${mode}`).join(', ')
+}
+
+function formatBackgroundServiceStatus(action = 'Starting background services', modes = runtimeSummaryState) {
+  return `${action} (${formatBackgroundServiceMode(modes)})`
+}
+
 function loadRuntimePackageNames() {
   const pkg = readJsonFile(path.join(process.cwd(), 'package.json'))
   if (!pkg || typeof pkg !== 'object') return []
@@ -168,6 +213,8 @@ function updateRuntimeSummaryState() {
     packageNames: runtimeSummaryState.packageNames,
     workerQueues: runtimeSummaryState.workerQueues,
     schedulerActive: runtimeSummaryState.schedulerActive,
+    workerMode: runtimeSummaryState.workerMode,
+    schedulerMode: runtimeSummaryState.schedulerMode,
   })
 }
 
@@ -193,6 +240,8 @@ function printBackgroundServicesSummary() {
 
   const signature = JSON.stringify({
     schedulerActive: runtimeSummaryState.schedulerActive,
+    workerMode: runtimeSummaryState.workerMode,
+    schedulerMode: runtimeSummaryState.schedulerMode,
     workerQueues: runtimeSummaryState.workerQueues,
   })
 
@@ -204,7 +253,7 @@ function printBackgroundServicesSummary() {
   runtimeSummaryState.workersPrinted = true
   printCompactSummary(
     '⚙️',
-    `Background services (${detailItems.length})`,
+    `Background services (${formatBackgroundServiceMode()}, ${detailItems.length} active)`,
     detailItems.map((item, index) => `${index === 0 ? '🕒' : '🧵'} ${item}`),
   )
 }
@@ -215,6 +264,32 @@ function initializeRuntimeSummary() {
 }
 
 function captureBackgroundServiceLine(line) {
+  if (
+    line.startsWith('[server] Lazy worker auto-spawn enabled')
+    || line.startsWith('[lazy-supervisor] Watching')
+    || line.startsWith('[lazy-supervisor] Pending job detected')
+  ) {
+    runtimeSummaryState.workerMode = 'lazy'
+    updateRuntimeSummaryState()
+    return true
+  }
+
+  if (
+    line === '[server] Starting workers for all queues...'
+    || line === '[server] Eager worker auto-spawn enabled - starting workers for all queues...'
+    || line.startsWith('🚀 Running queue:worker')
+  ) {
+    runtimeSummaryState.workerMode = 'eager'
+    updateRuntimeSummaryState()
+    return true
+  }
+
+  if (line.startsWith('[server] Lazy scheduler auto-spawn enabled')) {
+    runtimeSummaryState.schedulerMode = 'lazy'
+    updateRuntimeSummaryState()
+    return true
+  }
+
   const queuesMatch = line.match(/^\[worker\] Starting workers for all queues: (.+)$/)
   if (queuesMatch) {
     const queueNames = queuesMatch[1].split(',').map((item) => item.trim()).filter(Boolean)
@@ -241,7 +316,24 @@ function captureBackgroundServiceLine(line) {
     return true
   }
 
-  if (line === '[server] Starting scheduler polling engine...' || line.startsWith('✓ Local scheduler started')) {
+  if (
+    line === '[server] Starting scheduler polling engine...'
+    || line === '[server] Eager scheduler auto-spawn enabled - starting scheduler polling engine...'
+    || line.startsWith('🚀 Running scheduler:start')
+  ) {
+    runtimeSummaryState.schedulerMode = 'eager'
+    runtimeSummaryState.schedulerActive = true
+    updateRuntimeSummaryState()
+    return true
+  }
+
+  if (
+    line === '[lazy-scheduler] Enabled schedule detected - starting scheduler polling engine.'
+    || line.startsWith('✓ Local scheduler started')
+  ) {
+    if (line === '[lazy-scheduler] Enabled schedule detected - starting scheduler polling engine.') {
+      runtimeSummaryState.schedulerMode = 'lazy'
+    }
     runtimeSummaryState.schedulerActive = true
     updateRuntimeSummaryState()
     return true
@@ -315,6 +407,8 @@ function updateSplashState(patch) {
   if (Array.isArray(patch.packageNames)) splashState.packageNames = patch.packageNames
   if (Array.isArray(patch.workerQueues)) splashState.workerQueues = patch.workerQueues
   if (typeof patch.schedulerActive === 'boolean') splashState.schedulerActive = patch.schedulerActive
+  if (typeof patch.workerMode === 'string') splashState.workerMode = patch.workerMode
+  if (typeof patch.schedulerMode === 'string') splashState.schedulerMode = patch.schedulerMode
   if (typeof patch.progressCurrent === 'number') splashState.progressCurrent = patch.progressCurrent
   if (typeof patch.progressTotal === 'number') splashState.progressTotal = patch.progressTotal
   if (typeof patch.progressPercent === 'number') splashState.progressPercent = clampPercent(patch.progressPercent)
@@ -425,7 +519,7 @@ function isExpectedShutdownSignal(signal) {
 }
 
 function isGracefulShutdownResult(result) {
-  return shuttingDown && isExpectedShutdownSignal(result?.signal)
+  return shuttingDown && (isExpectedShutdownSignal(result?.signal) || result?.code === 0)
 }
 
 function resolveChildExitCode(result, fallback = 1) {
@@ -1403,18 +1497,63 @@ function classifyServerLine(line) {
   }
   if (
     line === '[server] Starting workers for all queues...'
+    || line === '[server] Eager worker auto-spawn enabled - starting workers for all queues...'
     || line === '[server] Starting scheduler polling engine...'
+    || line === '[server] Eager scheduler auto-spawn enabled - starting scheduler polling engine...'
+    || line === '[lazy-scheduler] Enabled schedule detected - starting scheduler polling engine.'
     || line.startsWith('🚀 Running queue:worker')
     || line.startsWith('🚀 Running scheduler:start')
   ) {
+    const isLazyTrigger = line === '[lazy-scheduler] Enabled schedule detected - starting scheduler polling engine.'
+    const modes = isLazyTrigger
+      ? { workerMode: runtimeSummaryState.workerMode, schedulerMode: 'lazy' }
+      : runtimeSummaryState
+    const status = formatBackgroundServiceStatus('Starting background services', modes)
     return {
       type: 'status',
-      message: '⚙️ Starting background services',
+      message: `⚙️ ${status}`,
       splashPhase: startupSplashPhase,
-      splashDetail: 'Starting background services',
-      activity: 'Starting queue workers and scheduler',
+      splashDetail: status,
+      activity: status,
       progressCurrent: 3,
-      progressLabel: 'Starting background services',
+      progressLabel: status,
+    }
+  }
+  if (line.startsWith('[server] Lazy worker auto-spawn enabled')) {
+    const status = 'Background workers armed (lazy)'
+    return {
+      type: 'status',
+      message: `⚙️ ${status}`,
+      splashPhase: startupSplashPhase,
+      splashDetail: status,
+      activity: status,
+      progressCurrent: 3,
+      progressLabel: 'Background services (lazy)',
+    }
+  }
+  if (line.startsWith('[server] Lazy scheduler auto-spawn enabled')) {
+    const status = 'Scheduler armed (lazy)'
+    return {
+      type: 'status',
+      message: `⚙️ ${status}`,
+      splashPhase: startupSplashPhase,
+      splashDetail: status,
+      activity: status,
+      progressCurrent: 3,
+      progressLabel: 'Background services (lazy)',
+    }
+  }
+  const lazyWorkerStartMatch = line.match(/^\[lazy-supervisor\] Pending job detected .+ starting worker for queue "(.+)"$/)
+  if (lazyWorkerStartMatch) {
+    const status = `Starting worker "${lazyWorkerStartMatch[1]}" (lazy)`
+    return {
+      type: 'status',
+      message: `⚙️ ${status}`,
+      splashPhase: startupSplashPhase,
+      splashDetail: status,
+      activity: status,
+      progressCurrent: 3,
+      progressLabel: 'Background services (lazy)',
     }
   }
 

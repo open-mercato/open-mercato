@@ -36,6 +36,7 @@ describe('customers module-root ai-tools aggregator', () => {
         'customers.list_addresses',
         'customers.list_tags',
         'customers.get_settings',
+        'customers.analyze_deals',
       ].sort(),
     )
   })

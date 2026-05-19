@@ -2,7 +2,8 @@
 
 import * as React from 'react'
 import { useSearchParams } from 'next/navigation'
-import { Plus, Pencil, Trash2 } from 'lucide-react'
+import { Book, Plus, Pencil, Trash2 } from 'lucide-react'
+import { EmptyState } from '@open-mercato/ui/primitives/empty-state'
 import { Button } from '@open-mercato/ui/primitives/button'
 import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from '@open-mercato/ui/primitives/dialog'
 import { Spinner } from '@open-mercato/ui/primitives/spinner'
@@ -324,9 +325,11 @@ export function DictionariesManager() {
             readOnly={selectedDictionary.isInherited}
           />
         ) : (
-          <div className="flex h-full flex-col items-center justify-center rounded border border-dashed p-10 text-center text-sm text-muted-foreground">
-            {t('dictionaries.config.entries.placeholder', 'Select a dictionary to manage its entries.')}
-          </div>
+          <EmptyState
+            icon={<Book className="h-8 w-8" aria-hidden="true" />}
+            title={t('dictionaries.config.entries.placeholder', 'Select a dictionary to manage its entries.')}
+            className="h-full"
+          />
         )}
       </div>
 

@@ -9,6 +9,7 @@ import { updateCrud, deleteCrud } from '@open-mercato/ui/backend/utils/crud'
 import { readApiResultOrThrow } from '@open-mercato/ui/backend/utils/apiCall'
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
+import { extractCustomFieldEntries } from '@open-mercato/shared/lib/crud/custom-fields-client'
 import { useChannelFields, buildChannelPayload, type ChannelFormValues } from '@open-mercato/core/modules/sales/components/channels/channelFormFields'
 import { E } from '#generated/entities.ids.generated'
 import { SalesChannelOffersPanel } from '@open-mercato/core/modules/sales/components/channels/SalesChannelOffersPanel'
@@ -196,31 +197,5 @@ function mapChannelToFormValues(item: Record<string, unknown>): ChannelFormValue
         : null,
     isActive: item.isActive === true || item.is_active === true,
   }
-  const mergeCustomObject = (source: unknown) => {
-    if (!source || typeof source !== 'object' || Array.isArray(source)) return
-    for (const [key, value] of Object.entries(source as Record<string, unknown>)) {
-      if (!key) continue
-      values[`cf_${key}`] = value
-    }
-  }
-  const mergeCustomArray = (source: unknown) => {
-    if (!Array.isArray(source)) return
-    source.forEach((entry) => {
-      if (!entry || typeof entry !== 'object') return
-      const key = typeof (entry as Record<string, unknown>).key === 'string'
-        ? (entry as Record<string, unknown>).key
-        : null
-      if (!key) return
-      values[`cf_${key}`] = (entry as Record<string, unknown>).value
-    })
-  }
-  mergeCustomObject(item.customValues)
-  mergeCustomObject((item as Record<string, unknown>).custom_values)
-  mergeCustomObject(item.customFields)
-  mergeCustomObject((item as Record<string, unknown>).custom_fields)
-  mergeCustomArray(item.customFields)
-  mergeCustomArray((item as Record<string, unknown>).custom_fields)
-  mergeCustomArray((item as Record<string, unknown>).customFieldEntries)
-  mergeCustomArray((item as Record<string, unknown>).custom_field_entries)
-  return values
+  return { ...values, ...extractCustomFieldEntries(item) }
 }

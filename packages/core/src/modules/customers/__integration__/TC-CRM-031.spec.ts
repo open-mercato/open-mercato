@@ -33,27 +33,23 @@ test.describe('TC-CRM-031: DataTable Advanced Filter Builder', () => {
       await page.goto('/backend/customers/people', { waitUntil: 'domcontentloaded' });
       await page.getByText('Loading table', { exact: false }).waitFor({ state: 'hidden', timeout: 10000 }).catch(() => {});
 
-      const advancedFilterToggle = page.getByRole('button', { name: 'Advanced filters' });
+      const advancedFilterToggle = page.getByTestId('advanced-filter-trigger').first();
       await expect(advancedFilterToggle).toBeVisible();
       await advancedFilterToggle.click();
 
-      const whereLabel = page.getByText('Where');
-      await expect(whereLabel).toBeVisible();
+      const panel = page.locator('[data-testid="advanced-filter-panel"]').first();
+      await expect(panel).toBeVisible();
 
-      // Radix Select: trigger has aria-label, options live in portal
-      const fieldTrigger = page.locator('[role="combobox"][aria-label="Select field"]').first();
-      await fieldTrigger.click();
-      await page.getByRole('option', { name: 'Name', exact: true }).click();
+      const addConditionButton = panel.getByRole('button', { name: /add condition/i }).first();
+      await addConditionButton.click();
 
-      const operatorTrigger = page.locator('[role="combobox"][aria-label="Select operator"]').first();
-      await operatorTrigger.click();
-      await page.getByRole('option', { name: 'contains', exact: true }).click();
+      const searchInput = page.getByPlaceholder(/search field/i).first();
+      await expect(searchInput).toBeVisible();
+      await searchInput.fill('Name');
+      await page.getByRole('option', { name: /^Name$/i }).click();
 
       const valueInput = page.locator('input[aria-label="Text value"]').first();
       await valueInput.fill(`TC031${ts}`);
-
-      const applyButton = page.getByRole('button', { name: 'Apply' });
-      await applyButton.click();
 
       await page.getByText('Loading table', { exact: false }).waitFor({ state: 'hidden', timeout: 10000 }).catch(() => {});
 

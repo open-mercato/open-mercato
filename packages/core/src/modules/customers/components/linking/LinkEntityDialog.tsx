@@ -7,8 +7,10 @@ import {
   Loader2,
   Plus,
   Search,
+  SearchX,
   X,
 } from 'lucide-react'
+import { EmptyState } from '@open-mercato/ui/primitives/empty-state'
 import { cn } from '@open-mercato/shared/lib/utils'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { Avatar } from '@open-mercato/ui/primitives/avatar'
@@ -631,9 +633,11 @@ export function LinkEntityDialog<TDetails = unknown, TLinkSettings = Record<stri
                     {t('customers.linking.searching', 'Searching…')}
                   </div>
                 ) : displayedResults.length === 0 ? (
-                  <div className="rounded-lg border border-dashed border-border/70 px-4 py-6 text-sm text-muted-foreground">
-                    {adapter.searchEmptyHint}
-                  </div>
+                  <EmptyState
+                    size="sm"
+                    icon={<SearchX className="h-8 w-8" aria-hidden="true" />}
+                    title={adapter.searchEmptyHint}
+                  />
                 ) : (
                   displayedResults.map((result) => {
                     const checked = draftSet.has(result.id)

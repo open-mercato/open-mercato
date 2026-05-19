@@ -16,8 +16,8 @@ test.describe('TC-UMES-013: Ephemeral login page suppresses global notice bars',
     await expect(page.getByText(/this instance is provided for demo purposes only/i)).toHaveCount(0)
 
     await page.getByLabel('Email').fill(DEFAULT_CREDENTIALS.admin.email)
-    await page.getByLabel('Password').fill(DEFAULT_CREDENTIALS.admin.password)
-    await page.getByLabel('Password').press('Enter')
+    await page.getByLabel('Password', { exact: true }).fill(DEFAULT_CREDENTIALS.admin.password)
+    await page.getByLabel('Password', { exact: true }).press('Enter')
 
     await expect(page).toHaveURL(/\/backend(?:\/.*)?$/, { timeout: 20_000 })
   })

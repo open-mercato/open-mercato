@@ -442,9 +442,10 @@ export class BasicQueryEngine implements QueryEngine {
       }
       if (resolvedGroupFilters.length > 0) {
         q = q.where((eb: any) => eb.or(
-          resolvedGroupFilters.map((group) => eb.and(
-            group.map((rf) => this.buildColumnOpExpression(eb, rf.qualified, rf.op, rf.value))
-          ))
+          resolvedGroupFilters.map((group) => {
+            const parts = group.map((rf) => this.buildColumnOpExpression(eb, rf.qualified, rf.op, rf.value))
+            return parts.length === 1 ? parts[0] : eb.and(parts)
+          })
         ))
       }
     }

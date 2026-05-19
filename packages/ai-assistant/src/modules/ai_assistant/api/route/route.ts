@@ -5,15 +5,13 @@ import { z } from 'zod'
 import { getAuthFromRequest } from '@open-mercato/shared/lib/auth/server'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import { llmProviderRegistry } from '@open-mercato/shared/lib/ai/llm-provider-registry'
-import {
-  resolveAiProviderIdFromEnv,
-  resolveOpenCodeModel,
-} from '@open-mercato/shared/lib/ai/opencode-provider'
+import { resolveOpenCodeModel } from '@open-mercato/shared/lib/ai/opencode-provider'
 import {
   resolveChatConfig,
   isProviderConfigured,
   type ChatProviderId,
 } from '../../lib/chat-config'
+import { createModelFactory, AiModelFactoryError } from '../../lib/model-factory'
 
 export const openApi: OpenApiRouteDoc = {
   tag: 'AI Assistant',
@@ -103,29 +101,55 @@ export async function POST(req: NextRequest) {
     const container = await createRequestContainer()
     let config = await resolveChatConfig(container)
 
-    // Fallback to first configured provider from the LLM provider registry.
-    // Honors the operator-selected provider via OM_AI_PROVIDER (with the
-    // legacy OPENCODE_PROVIDER as the BC fallback) and only then walks the
-    // native adapters before any OpenAI-compatible presets so a deployment
-    // that just sets OPENAI_API_KEY still resolves to OpenAI by default.
+    // When no DB-stored config is present, delegate provider + model resolution
+    // to createModelFactory so OM_AI_PROVIDER / OM_AI_MODEL (Phase 0 of spec
+    // 2026-04-27-ai-agents-provider-model-baseurl-overrides) and all registered
+    // OpenAI-compatible presets are respected without duplicating the
+    // resolution chain here. Legacy OPENCODE_PROVIDER / OPENCODE_MODEL envs are
+    // still honored as BC fallbacks inside the factory.
     if (!config) {
-      const operatorPreferred = resolveAiProviderIdFromEnv(process.env)
-      const baseOrder: ChatProviderId[] = ['openai', 'anthropic', 'google']
-      const order = [
-        operatorPreferred,
-        ...baseOrder.filter((id) => id !== operatorPreferred),
-      ]
-      const picked = llmProviderRegistry.resolveFirstConfigured({ order })
-      if (!picked) {
-        return NextResponse.json(
-          {
-            error:
-              'No AI provider configured. Please set an API key for one of the registered providers (Anthropic, OpenAI, Google, DeepInfra, Groq, …).',
-          },
-          { status: 503 },
-        )
+      let factoryResolution
+      try {
+        factoryResolution = createModelFactory(container).resolveModel({
+          callerOverride: undefined,
+        })
+      } catch (error) {
+        if (error instanceof AiModelFactoryError && error.code === 'no_provider_configured') {
+          return NextResponse.json(
+            {
+              error:
+                'No AI provider configured. Please set an API key for one of the registered providers (Anthropic, OpenAI, Google, DeepInfra, Groq, …).',
+            },
+            { status: 503 },
+          )
+        }
+        throw error
       }
-      config = { providerId: picked.id, model: '', updatedAt: '' }
+
+      console.log('[AI Route] Using provider:', factoryResolution.providerId)
+
+      const modelWithProvider = `${factoryResolution.providerId}/${factoryResolution.modelId}`
+      console.log('[AI Route] Calling generateObject with', modelWithProvider)
+
+      const result = await generateObject({
+        model: factoryResolution.model as Parameters<typeof generateObject>[0]['model'],
+        schema: RouteResultSchema,
+        prompt: `You are a routing assistant. Given a user query, determine if they want to use a specific tool or have a general conversation.
+
+Available tools:
+${availableTools.map((t) => `- ${t.name}: ${t.description}`).join('\n')}
+
+User query: "${query}"
+
+Respond with:
+- intent: "tool" if user wants to perform an action with a specific tool, "general_chat" otherwise
+- toolName: the exact tool name if intent is "tool"
+- confidence: 0-1 how confident you are
+- reasoning: brief explanation`,
+      })
+
+      console.log('[AI Route] Result:', result.object)
+      return NextResponse.json(result.object)
     }
 
     console.log('[AI Route] Using provider:', config.providerId)

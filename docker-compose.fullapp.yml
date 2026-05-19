@@ -22,6 +22,11 @@ services:
     networks:
       - mercato-network-fullapp
 
+  # Traefik (TLS termination, on-demand ACME, custom-domain ForwardAuth gate)
+  # is now an opt-in overlay so this base file works behind an external reverse
+  # proxy (Dokploy, Caddy, nginx, Cloudflare Tunnel, etc.) without conflict.
+  # To run the bundled Traefik, add `-f docker-compose.fullapp.traefik.yml`.
+
   app:
     build:
       context: .
@@ -45,6 +50,9 @@ services:
     working_dir: /app/apps/mercato
     ports:
       - "${APP_PORT:-3000}:${CONTAINER_PORT:-3000}"
+    # Traefik labels are declared in docker-compose.fullapp.traefik.yml so
+    # external reverse proxies (Dokploy, etc.) that also watch the Docker
+    # socket don't accidentally pick them up.
     environment:
       TENANT_DATA_ENCRYPTION: ${TENANT_DATA_ENCRYPTION:-true}
       TENANT_DATA_ENCRYPTION_DEBUG: ${TENANT_DATA_ENCRYPTION_DEBUG:-false}
@@ -80,6 +88,13 @@ services:
       OM_INIT_SUPERADMIN_EMAIL: ${OM_INIT_SUPERADMIN_EMAIL:-}
       OM_INIT_SUPERADMIN_PASSWORD: ${OM_INIT_SUPERADMIN_PASSWORD:-password}
       SSO_FORCE_ROLE_ON_LOGIN: employee
+      # Custom-domain routing (Phase 1–3 of portal-custom-domain spec).
+      DOMAIN_CHECK_SECRET: ${DOMAIN_CHECK_SECRET:-}
+      DOMAIN_RESOLVE_SECRET: ${DOMAIN_RESOLVE_SECRET:-}
+      INTERNAL_APP_ORIGIN: ${INTERNAL_APP_ORIGIN:-http://app:${CONTAINER_PORT:-3000}}
+      PLATFORM_DOMAINS: ${PLATFORM_DOMAINS:-localhost,${PLATFORM_PRIMARY_HOST:-openmercato.com}}
+      PLATFORM_PORTAL_BASE_URL: ${PLATFORM_PORTAL_BASE_URL:-https://${PLATFORM_PRIMARY_HOST:-openmercato.com}}
+      CUSTOMER_DOMAIN_ORIGIN_HEADER: ${CUSTOMER_DOMAIN_ORIGIN_HEADER:-X-Open-Mercato-Origin}
     depends_on:
       postgres:
         condition: service_healthy
@@ -142,6 +157,28 @@ services:
     networks:
       - mercato-network-fullapp
 
+  localstack:
+    image: localstack/localstack:latest
+    container_name: mercato-localstack-${DEPLOY_ENV:-local}
+    restart: unless-stopped
+    profiles:
+      - storage-s3
+    ports:
+      - "${LOCALSTACK_PORT:-4566}:4566"
+    environment:
+      SERVICES: s3
+      AWS_DEFAULT_REGION: us-east-1
+      LOCALSTACK_HOST: localhost
+    volumes:
+      - localstack_data:/var/lib/localstack
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "http://localhost:4566/_localstack/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+    networks:
+      - mercato-network-fullapp
+
 volumes:
   postgres_data:
     name: mercato-postgres-data-${DEPLOY_ENV:-local}
@@ -149,6 +186,8 @@ volumes:
     name: mercato-redis-data-${DEPLOY_ENV:-local}
   meilisearch_data:
     name: mercato-meilisearch-data-${DEPLOY_ENV:-local}
+  localstack_data:
+    name: mercato-localstack-data-${DEPLOY_ENV:-local}
   init_marker:
     name: mercato-init-marker-${DEPLOY_ENV:-local}
   attachments_storage:
