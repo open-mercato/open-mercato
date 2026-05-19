@@ -200,7 +200,15 @@ export function MessagesInboxPageClient() {
       params.set('search', query.trim())
     }
 
-    const call = await apiCall<{ items?: UserListItem[] }>(`/api/auth/users?${params.toString()}`)
+    const call = await apiCall<{ items?: UserListItem[] }>(
+      `/api/auth/users?${params.toString()}`,
+      {
+        headers: {
+          'x-om-forbidden-redirect': '0',
+        },
+      },
+    ).catch(() => null)
+    if (!call) return []
     if (!call.ok) return []
 
     const items = Array.isArray(call.result?.items) ? call.result?.items ?? [] : []
@@ -220,6 +228,26 @@ export function MessagesInboxPageClient() {
     }
     return next
   }, [mergeSenderOptions, scopeVersion])
+
+  React.useEffect(() => {
+    const items = listQuery.data?.items ?? []
+    const next = items.flatMap((item): SenderOption[] => {
+      if (typeof item.senderUserId !== 'string' || item.senderUserId.trim().length === 0) return []
+      const name = typeof item.senderName === 'string' && item.senderName.trim().length > 0
+        ? item.senderName.trim()
+        : null
+      const email = typeof item.senderEmail === 'string' && item.senderEmail.trim().length > 0
+        ? item.senderEmail.trim()
+        : null
+      const label = name ?? email ?? item.senderUserId
+      return [{
+        value: item.senderUserId,
+        label,
+        description: email && email !== label ? email : null,
+      }]
+    })
+    mergeSenderOptions(next)
+  }, [listQuery.data?.items, mergeSenderOptions])
 
   React.useEffect(() => {
     senderOptionsScopeRef.current = scopeVersion
