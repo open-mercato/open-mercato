@@ -29,7 +29,7 @@ const TEMPLATE_SRC_ROOT = path.join(ROOT, 'packages', 'create-app', 'template', 
 const APP_PACKAGE_FILE = path.join(ROOT, 'apps', 'mercato', 'package.json')
 const TEMPLATE_PACKAGE_FILE = path.join(ROOT, 'packages', 'create-app', 'template', 'package.json.template')
 const SYNC_FOLDERS = ['app', 'components', 'lib', 'modules'] as const
-const SYNC_ROOT_FILES = ['bootstrap.ts', 'modules.ts'] as const
+const SYNC_ROOT_FILES = ['bootstrap.ts', 'modules.ts', 'official-modules.generated.ts'] as const
 const EXPLICIT_TEMPLATE_FILE_MAPPINGS = [
   {
     sourceFile: path.join(ROOT, 'scripts', 'dev.mjs'),
