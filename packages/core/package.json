@@ -109,6 +109,10 @@
       "types": "./src/modules/attachments/index.ts",
       "default": "./dist/modules/attachments/index.js"
     },
+    "./modules/attachments/lib/drivers": {
+      "types": "./src/modules/attachments/lib/drivers/index.ts",
+      "default": "./dist/modules/attachments/lib/drivers/index.js"
+    },
     "./modules/dashboards": {
       "types": "./src/modules/dashboards/index.ts",
       "default": "./dist/modules/dashboards/index.js"
@@ -228,7 +232,7 @@
     "@mikro-orm/postgresql": "^7.0.15",
     "@xyflow/react": "^12.10.2",
     "ai": "^6.0.177",
-    "date-fns": "^4.1.0",
+    "date-fns": "4.1.0",
     "date-fns-tz": "^3.2.0",
     "html-to-text": "^9.0.5",
     "mammoth": "^1.9.0",
