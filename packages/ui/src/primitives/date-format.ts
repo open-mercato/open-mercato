@@ -1,5 +1,5 @@
-import { format as formatDateFns } from 'date-fns'
-import type { Locale } from 'date-fns'
+import { format as formatDateFns } from 'date-fns/format'
+import type { Locale } from 'date-fns/locale'
 
 type LocaleLike = Locale | string | null | undefined
 

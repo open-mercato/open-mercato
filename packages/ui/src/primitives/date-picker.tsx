@@ -1,7 +1,7 @@
 "use client"
 
 import * as React from 'react'
-import type { Locale } from 'date-fns'
+import type { Locale } from 'date-fns/locale'
 import { CalendarIcon } from 'lucide-react'
 import { cn } from '@open-mercato/shared/lib/utils'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
