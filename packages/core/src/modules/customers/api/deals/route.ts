@@ -19,6 +19,7 @@ import {
   defaultOkResponseSchema,
 } from '../openapi'
 import { findWithDecryption } from '@open-mercato/shared/lib/encryption/find'
+import { isTenantDataEncryptionEnabled } from '@open-mercato/shared/lib/encryption/toggles'
 import { escapeLikePattern } from '@open-mercato/shared/lib/db/escapeLikePattern'
 import { consumeAdvancedFilterState, mergeAdvancedFilterTree } from '@open-mercato/shared/lib/crud/advanced-filter-integration'
 import { fetchStuckDealIds } from '../../lib/stuckDeals'
@@ -230,6 +231,13 @@ export async function buildDealListFilters(query: DealListQuery, ctx?: import('@
       : null
     if (matchingIds !== null && matchingIds.length > 0) {
       intersectIds(matchingIds)
+    } else if (isTenantDataEncryptionEnabled()) {
+      // `customers:customer_deal.title` and `.description` are encrypted at rest
+      // (see `encryption.ts`). The `$ilike` fallback below would silently match
+      // nothing on the ciphertext and produce empty pages without disclosing why —
+      // collapse the result to "no matches" instead so the kanban + list views
+      // agree, and lane aggregates stay consistent with the list endpoint.
+      intersectIds([])
     } else {
       const searchPattern = `%${escapeLikePattern(query.search)}%`
       filters.$or = [

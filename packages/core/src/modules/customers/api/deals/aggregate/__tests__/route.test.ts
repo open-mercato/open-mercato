@@ -79,7 +79,11 @@ describe('customers deals aggregate route', () => {
     expect(values).toContain(dealId)
   })
 
-  it('falls back to title and description ILIKE search when token lookup has no matches', async () => {
+  it('collapses to zero rows when token lookup has no matches and encryption is enabled (default)', async () => {
+    // `customers:customer_deal.title` and `.description` are encrypted at rest, so
+    // the ILIKE fallback would silently match nothing on the ciphertext. The route
+    // collapses to a sentinel-id restriction instead — keeps the response shape
+    // consistent and prevents misleading partial totals.
     findMatchingEntityIdsBySearchTokensAcrossSourcesMock.mockResolvedValueOnce([])
 
     const response = await GET(
@@ -92,8 +96,33 @@ describe('customers deals aggregate route', () => {
     const sql = String(aggregateCall[0])
     const values = aggregateCall[1] as string[]
 
-    expect(sql).toContain('title ILIKE ?')
-    expect(sql).toContain('description ILIKE ?')
-    expect(values).toContain('%Acme%')
+    expect(sql).not.toContain('title ILIKE')
+    expect(sql).not.toContain('description ILIKE')
+    // Sentinel UUID forces the WHERE clause to match zero rows.
+    expect(values).toContain('00000000-0000-0000-0000-000000000000')
+  })
+
+  it('falls back to title and description ILIKE search when encryption is disabled', async () => {
+    findMatchingEntityIdsBySearchTokensAcrossSourcesMock.mockResolvedValueOnce([])
+    const prev = process.env.TENANT_DATA_ENCRYPTION
+    process.env.TENANT_DATA_ENCRYPTION = 'false'
+    try {
+      const response = await GET(
+        new Request(`http://localhost/api/customers/deals/aggregate?pipelineId=${pipelineId}&search=Acme`),
+      )
+
+      expect(response.status).toBe(200)
+
+      const aggregateCall = executeMock.mock.calls[1]
+      const sql = String(aggregateCall[0])
+      const values = aggregateCall[1] as string[]
+
+      expect(sql).toContain('title ILIKE ?')
+      expect(sql).toContain('description ILIKE ?')
+      expect(values).toContain('%Acme%')
+    } finally {
+      if (prev === undefined) delete process.env.TENANT_DATA_ENCRYPTION
+      else process.env.TENANT_DATA_ENCRYPTION = prev
+    }
   })
 })

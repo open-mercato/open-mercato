@@ -112,16 +112,41 @@ export async function POST(req: Request) {
   )
 
   const queue = getCustomersQueue(CUSTOMERS_DEALS_BULK_UPDATE_OWNER_QUEUE)
-  await queue.enqueue({
-    progressJobId: progressJob.id,
-    ids,
-    ownerUserId: parsed.data.ownerUserId,
-    scope: {
-      organizationId: auth.orgId,
-      tenantId: auth.tenantId,
-      userId: auth.sub,
-    },
-  })
+  try {
+    await queue.enqueue({
+      progressJobId: progressJob.id,
+      ids,
+      ownerUserId: parsed.data.ownerUserId,
+      scope: {
+        organizationId: auth.orgId,
+        tenantId: auth.tenantId,
+        userId: auth.sub,
+      },
+    })
+  } catch (error) {
+    // See bulk-update-stage route for rationale: without this guard the progress
+    // job hangs in `pending` because the worker will never pick it up after a
+    // failed enqueue, and the top-bar polls indefinitely.
+    await progressService
+      .failJob(
+        progressJob.id,
+        {
+          errorMessage:
+            error instanceof Error
+              ? error.message
+              : translate('customers.errors.bulk_enqueue_failed', 'Failed to enqueue bulk job'),
+        },
+        {
+          tenantId: auth.tenantId,
+          organizationId: auth.orgId,
+          userId: auth.sub,
+        },
+      )
+      .catch((failErr) => {
+        console.warn('[customers.deals.bulk-update-owner] failed to mark progress job as failed', failErr)
+      })
+    throw error
+  }
 
   // After-success half of the mutation-guard contract — see bulk-update-stage route.
   if (guardResult?.ok && guardResult.shouldRunAfterSuccess) {

@@ -93,8 +93,17 @@ const updatePipelineStageCommand: CommandHandler<PipelineStageUpdateInput, void>
   async execute(rawInput, ctx) {
     const parsed = pipelineStageUpdateSchema.parse(rawInput)
 
+    // Restrict the lookup to the caller's tenant/organization scope so a
+    // wrong-tenant id returns 404 (same as a missing row), not 403 — avoids
+    // leaking existence of stages outside the caller's scope.
+    const callerTenantId = ctx.auth?.tenantId ?? null
+    const callerOrganizationId = ctx.selectedOrganizationId ?? ctx.auth?.orgId ?? null
     const em = (ctx.container.resolve('em') as EntityManager).fork()
-    const stage = await findOneWithDecryption(em, CustomerPipelineStage, { id: parsed.id })
+    const stage = await findOneWithDecryption(em, CustomerPipelineStage, {
+      id: parsed.id,
+      ...(callerTenantId ? { tenantId: callerTenantId } : {}),
+      ...(callerOrganizationId ? { organizationId: callerOrganizationId } : {}),
+    })
     if (!stage) throw new CrudHttpError(404, { error: 'Pipeline stage not found' })
 
     ensureTenantScope(ctx, stage.tenantId)
@@ -125,8 +134,16 @@ const deletePipelineStageCommand: CommandHandler<PipelineStageDeleteInput, void>
   async execute(rawInput, ctx) {
     const parsed = pipelineStageDeleteSchema.parse(rawInput)
 
+    // See update command above — scope the lookup to the caller's tenant/org so a
+    // cross-tenant id returns 404, not 403.
+    const callerTenantId = ctx.auth?.tenantId ?? null
+    const callerOrganizationId = ctx.selectedOrganizationId ?? ctx.auth?.orgId ?? null
     const em = (ctx.container.resolve('em') as EntityManager).fork()
-    const stage = await findOneWithDecryption(em, CustomerPipelineStage, { id: parsed.id })
+    const stage = await findOneWithDecryption(em, CustomerPipelineStage, {
+      id: parsed.id,
+      ...(callerTenantId ? { tenantId: callerTenantId } : {}),
+      ...(callerOrganizationId ? { organizationId: callerOrganizationId } : {}),
+    })
     if (!stage) throw new CrudHttpError(404, { error: 'Pipeline stage not found' })
 
     ensureTenantScope(ctx, stage.tenantId)

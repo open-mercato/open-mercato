@@ -114,16 +114,42 @@ export async function POST(req: Request) {
   )
 
   const queue = getCustomersQueue(CUSTOMERS_DEALS_BULK_UPDATE_STAGE_QUEUE)
-  await queue.enqueue({
-    progressJobId: progressJob.id,
-    ids,
-    pipelineStageId: parsed.data.pipelineStageId,
-    scope: {
-      organizationId: auth.orgId,
-      tenantId: auth.tenantId,
-      userId: auth.sub,
-    },
-  })
+  try {
+    await queue.enqueue({
+      progressJobId: progressJob.id,
+      ids,
+      pipelineStageId: parsed.data.pipelineStageId,
+      scope: {
+        organizationId: auth.orgId,
+        tenantId: auth.tenantId,
+        userId: auth.sub,
+      },
+    })
+  } catch (error) {
+    // Without this guard the progress row sits in `pending` forever — the worker
+    // never picks the job up, and the top-bar polls a job that will never finish.
+    // Mark it failed so the operator gets a deterministic UX (a failure toast +
+    // ability to retry) instead of an invisible stuck job.
+    await progressService
+      .failJob(
+        progressJob.id,
+        {
+          errorMessage:
+            error instanceof Error
+              ? error.message
+              : translate('customers.errors.bulk_enqueue_failed', 'Failed to enqueue bulk job'),
+        },
+        {
+          tenantId: auth.tenantId,
+          organizationId: auth.orgId,
+          userId: auth.sub,
+        },
+      )
+      .catch((failErr) => {
+        console.warn('[customers.deals.bulk-update-stage] failed to mark progress job as failed', failErr)
+      })
+    throw error
+  }
 
   // After-success half of the mutation-guard contract — fires `onAfterSave` injection
   // hooks. We invoke it here because enqueue succeeded; the worker takes over from here.

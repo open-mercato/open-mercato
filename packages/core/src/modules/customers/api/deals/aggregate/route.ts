@@ -8,6 +8,7 @@ import type { ExchangeRateService } from '@open-mercato/core/modules/currencies/
 import { parseBooleanFromUnknown } from '@open-mercato/shared/lib/boolean'
 import { escapeLikePattern } from '@open-mercato/shared/lib/db/escapeLikePattern'
 import type { CrudCtx } from '@open-mercato/shared/lib/crud/factory'
+import { isTenantDataEncryptionEnabled } from '@open-mercato/shared/lib/encryption/toggles'
 import { fetchStuckDealIds } from '../../../lib/stuckDeals'
 import { findMatchingEntityIdsBySearchTokensAcrossSources } from '../../utils'
 import { E } from '#generated/entities.ids.generated'
@@ -171,6 +172,13 @@ export async function GET(req: Request) {
     })
     if (matchingIds !== null && matchingIds.length > 0) {
       restrictToIds(where, values, matchingIds)
+    } else if (isTenantDataEncryptionEnabled()) {
+      // `customers:customer_deal.title` and `.description` are declared in
+      // `encryption.ts` as encrypted columns. A raw `ILIKE` over the ciphertext would
+      // silently match nothing on encrypted tenants and produce misleading lane totals,
+      // so we collapse the result to zero rows instead — consistent with the list
+      // endpoint's behavior when the token index has nothing to offer.
+      restrictToIds(where, values, [])
     } else {
       const searchPattern = `%${escapeLikePattern(search)}%`
       where.push("(title ILIKE ? ESCAPE '\\' OR description ILIKE ? ESCAPE '\\')")
@@ -263,7 +271,11 @@ export async function GET(req: Request) {
     const agg = stageMap.get(stageId)!
     agg.count += count
     agg.openCount += openCount
-    if (currency.length > 0 && Math.abs(total) > 0) {
+    // Include any row that has a real currency code, even when its summed amount is
+    // zero — `byCurrency` should agree with `count` so the per-currency breakdown
+    // doesn't silently drop deals whose amount happens to be zero. Rows with no
+    // currency code at all still get folded into the stage totals via `count`.
+    if (currency.length > 0) {
       agg.byCurrency.push({ currency, total, count })
     }
   }
