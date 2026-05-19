@@ -124,12 +124,11 @@ test.describe('TC-WF-007: Visual editor renders a UI-created workflow', () => {
     }
   })
 
-  // Covers branch: NodeEditDialog's activity-type dropdown now lists WAIT
-  // (d8aa7f499) and WAIT_FOR_TIMER renders as a node in the visual editor
-  // (db48d0295). The definition is created via API to keep the test scoped to
-  // the visual editor surface — end-to-end creation via the Create form is
-  // already exercised by the first test in this describe.
-  test('exposes WAIT activity option and renders WAIT_FOR_TIMER node in visual editor', async ({ page, request }) => {
+  // Covers branch db48d0295: WAIT_FOR_TIMER renders as a dedicated node in the
+  // visual editor and its NodeEditDialog exposes duration/until inputs. The
+  // definition is seeded via API so the assertion stays scoped to the React
+  // Flow + NodeEditDialog surface.
+  test('renders WAIT_FOR_TIMER as a dedicated node with timer-config inputs', async ({ page, request }) => {
     const timestamp = Date.now()
     const workflowId = `qa-wf-007-timer-${timestamp}`
     let token: string | null = null
@@ -177,22 +176,81 @@ test.describe('TC-WF-007: Visual editor renders a UI-created workflow', () => {
       const dialog = page.getByRole('dialog').first()
       await expect(dialog).toBeVisible({ timeout: 10_000 })
 
-      // Add a fresh activity so the activity-type <select> mounts, then expand
-      // it (the default UI shows each activity as a collapsed accordion button).
-      await dialog.getByRole('button', { name: /add activity/i }).first().click()
-      const activityAccordion = dialog.getByRole('button', { name: /Activity \d/i }).first()
-      if (await activityAccordion.isVisible().catch(() => false)) {
-        await activityAccordion.click()
-      }
+      // The waitForTimer branch of NodeEditDialog renders the "Wait for Timer"
+      // section heading plus a Duration input pre-filled from config and a
+      // datetime-local "Wait Until" input — assertions target those surfaces.
+      await expect(dialog.getByRole('heading', { name: /wait for timer/i })).toBeVisible()
+      await expect(dialog.locator('input[placeholder="PT5M"]')).toHaveValue('PT5M')
+      await expect(dialog.locator('input[type="datetime-local"]')).toBeVisible()
+    } finally {
+      await deleteWorkflowDefinitionIfExists(request, token, definitionId)
+    }
+  })
 
-      // The branch d8aa7f499 added WAIT to the activity-type dropdown. Native
-      // <select><option> doesn't expose reliable combobox semantics in headless
-      // runs, so we assert structurally.
-      const waitOption = dialog.locator('select >> option[value="WAIT"]').first()
+  // Covers branch d8aa7f499: NodeEditDialog's activity-type dropdown lists the
+  // WAIT option on AUTOMATED steps. Uses Radix Select semantics (the dropdown
+  // migrated from native <select> on develop) — we open the combobox and
+  // assert the option role is present.
+  test('NodeEditDialog activity-type dropdown offers the WAIT option on AUTOMATED steps', async ({ page, request }) => {
+    const timestamp = Date.now()
+    const workflowId = `qa-wf-007-automated-${timestamp}`
+    let token: string | null = null
+    let definitionId: string | null = null
+
+    try {
+      token = await getAuthToken(request, 'admin')
+
+      definitionId = await createWorkflowDefinitionFixture(request, token, {
+        workflowId,
+        workflowName: `QA TC-WF-007 automated ${timestamp}`,
+        description: 'Integration test: WAIT option visible in activity-type dropdown',
+        version: 1,
+        enabled: true,
+        definition: {
+          steps: [
+            { stepId: 'start', stepName: 'Start', stepType: 'START' },
+            { stepId: 'notify', stepName: 'Notify', stepType: 'AUTOMATED' },
+            { stepId: 'end', stepName: 'End', stepType: 'END' },
+          ],
+          transitions: [
+            { transitionId: 'start-to-notify', fromStepId: 'start', toStepId: 'notify', trigger: 'auto' },
+            { transitionId: 'notify-to-end', fromStepId: 'notify', toStepId: 'end', trigger: 'auto' },
+          ],
+        },
+      })
+
+      await login(page, 'admin')
+      await page.goto(`/backend/definitions/visual-editor?id=${encodeURIComponent(definitionId)}`)
+      await expect(page).toHaveURL(/\/backend\/definitions\/visual-editor\?id=/, { timeout: 15_000 })
+
+      const nodes = page.locator('.react-flow__node')
+      await expect(nodes).toHaveCount(3, { timeout: 15_000 })
+
+      // Open NodeEditDialog on the AUTOMATED node — that's where the
+      // per-activity editor (and its activity-type dropdown) lives.
+      await nodes.filter({ hasText: 'Notify' }).first().click()
+      const dialog = page.getByRole('dialog').first()
+      await expect(dialog).toBeVisible({ timeout: 10_000 })
+
+      // Mount the first activity and expand its accordion so the Activity Type
+      // Select trigger renders. The accordion's accessible name is
+      // "Activity 1 CALL_API ID: activity_1" (header text + badge + id), so
+      // anchor only at the start.
+      await dialog.getByRole('button', { name: /add activity/i }).click()
+      await dialog.getByRole('button', { name: /^Activity 1\b/i }).click()
+
+      // Open the Radix Select for activity-type. The combobox role is unique
+      // inside the dialog because no other Select is visible on AUTOMATED
+      // nodes when no form fields exist.
+      const trigger = dialog.getByRole('combobox').first()
+      await trigger.click()
+
+      // Radix portals SelectContent to <body>, not inside the dialog — assert
+      // at the page level instead of scoping to the dialog locator.
       await expect(
-        waitOption,
-        'NodeEditDialog activity type dropdown should offer the WAIT option',
-      ).toHaveCount(1, { timeout: 10_000 })
+        page.getByRole('option', { name: /wait \/ delay/i }),
+        'NodeEditDialog activity-type dropdown should offer the WAIT option',
+      ).toBeVisible({ timeout: 10_000 })
     } finally {
       await deleteWorkflowDefinitionIfExists(request, token, definitionId)
     }
