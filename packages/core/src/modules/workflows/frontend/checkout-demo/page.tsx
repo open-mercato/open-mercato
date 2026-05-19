@@ -157,9 +157,9 @@ export default function CheckoutDemoPage() {
 
   // Fetch workflow definition to get dynamic steps
   const { data: workflowDefinition } = useQuery({
-    queryKey: ['workflow-definition', 'checkout_simple_v1'],
+    queryKey: ['workflow-definition', 'workflows.checkout-demo'],
     queryFn: async () => {
-      const response = await fetch('/api/workflows/definitions?workflowId=checkout_simple_v1')
+      const response = await fetch('/api/workflows/definitions?workflowId=workflows.checkout-demo')
       if (!response.ok) return null
       const json = await response.json()
       return json.data?.[0] || null
@@ -317,7 +317,7 @@ export default function CheckoutDemoPage() {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          workflowId: 'checkout_simple_v1',
+          workflowId: 'workflows.checkout-demo',
           context: {
             cart: {
               items: demoCart,
@@ -424,7 +424,7 @@ export default function CheckoutDemoPage() {
           'Content-Type': 'application/json',
         },
         body: JSON.stringify({
-          workflowId: 'checkout_simple_v1',
+          workflowId: 'workflows.checkout-demo',
           version: 1,
           correlationKey: `DEMO-ORDER-${Date.now()}`,
           initialContext,
