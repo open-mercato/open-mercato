@@ -4,7 +4,7 @@ import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
 import { CrudHttpError } from '@open-mercato/shared/lib/crud/errors'
 import { SalesOrderAdjustment } from '../../data/entities'
 import {
-  enforceReturnAdjustmentSign,
+  enforceAdjustmentSign,
   orderAdjustmentCreateSchema,
 } from '../../data/validators'
 import { createPagedListResponseSchema, createSalesCrudOpenApi, defaultOkResponseSchema } from '../openapi'
@@ -34,7 +34,7 @@ const routeMetadata = {
 
 const upsertSchema = orderAdjustmentCreateSchema
   .extend({ id: z.string().uuid().optional() })
-  .superRefine(enforceReturnAdjustmentSign)
+  .superRefine(enforceAdjustmentSign)
 
 const deleteSchema = z.object({
   id: z.string().uuid(),

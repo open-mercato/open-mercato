@@ -452,7 +452,16 @@ export async function GET(_req: Request, ctx: { params?: { id?: string } }) {
     })
     const em = (container.resolve('em') as EntityManager)
 
-    const person = await findOneWithDecryption(em, CustomerEntity, { id: parse.data.id, kind: 'person', deletedAt: null }, {}, { tenantId: auth.tenantId ?? null, organizationId: auth.orgId ?? null })
+    const person = await findOneWithDecryption(
+      em,
+      CustomerEntity,
+      { id: parse.data.id, kind: 'person', deletedAt: null },
+      {},
+      {
+        tenantId: scope?.tenantId ?? auth.tenantId ?? null,
+        organizationId: scope?.selectedId ?? auth.orgId ?? null,
+      },
+    )
     profiler.mark('person_loaded', { found: !!person })
     if (!person) {
       statusCode = 404
