@@ -244,7 +244,7 @@ export function DateRangePicker({
               locale={locale}
               disabled={disabledMatcher}
               numberOfMonths={numberOfMonths}
-              initialFocus
+              autoFocus
             />
           </div>
         </div>

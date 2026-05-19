@@ -6,8 +6,10 @@ import { BasicQueryEngine } from '@open-mercato/shared/lib/query/engine'
 import { DefaultDataEngine } from '@open-mercato/shared/lib/data/engine'
 import { commandRegistry, CommandBus } from '@open-mercato/shared/lib/commands'
 
-export type AppContainer = AwilixContainer
-export type DiRegistrar = (container: AwilixContainer) => void
+type DynamicCradle = Record<string, any>
+
+export type AppContainer = AwilixContainer<DynamicCradle>
+export type DiRegistrar = (container: AppContainer) => void
 
 // Registration pattern for publishable packages
 // Use globalThis to survive tsx/esbuild module duplication issue where the same
@@ -44,7 +46,7 @@ export async function createRequestContainer(): Promise<AppContainer> {
   // Use a fresh event manager so request-level subscribers (e.g., encryption) don't pile up globally
   const baseEm = (RequestContext.getEntityManager() as any) ?? orm.em
   const em = baseEm.fork({ clear: true, freshEventManager: true, useContext: true }) as unknown as EntityManager
-  const container = createContainer({ injectionMode: InjectionMode.CLASSIC })
+  const container = createContainer<DynamicCradle>({ injectionMode: InjectionMode.CLASSIC })
   // Core registrations
   container.register({
     em: asValue(em),
