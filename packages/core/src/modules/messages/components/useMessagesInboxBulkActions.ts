@@ -13,7 +13,7 @@ import { toErrorMessage } from './message-detail/utils'
 
 export type MessageFolder = 'inbox' | 'sent' | 'drafts' | 'archived' | 'all'
 
-type MessageBulkActionId = 'markRead' | 'markUnread' | 'archive' | 'delete'
+export type MessageBulkActionId = 'markRead' | 'markUnread' | 'archive' | 'delete'
 
 type BulkExecutionSummary = {
   action: MessageBulkActionId
@@ -29,6 +29,13 @@ type MessageBulkRequestConfig = {
   successFallback: string
   errorKey: string
   errorFallback: string
+}
+
+type MessageBulkActionDefinition = {
+  id: string
+  labelKey: string
+  labelFallback: string
+  destructive?: boolean
 }
 
 type MessageInboxBulkMutationContext = {
@@ -85,6 +92,42 @@ const MESSAGE_BULK_REQUESTS: Record<MessageBulkActionId, MessageBulkRequestConfi
     errorKey: 'messages.errors.deleteFailed',
     errorFallback: 'Failed to delete message.',
   },
+}
+
+const MESSAGE_BULK_ACTIONS: Record<MessageBulkActionId, MessageBulkActionDefinition> = {
+  markRead: {
+    id: 'messages-mark-read',
+    labelKey: 'messages.actions.markRead',
+    labelFallback: 'Mark read',
+  },
+  markUnread: {
+    id: 'messages-mark-unread',
+    labelKey: 'messages.actions.markUnread',
+    labelFallback: 'Mark unread',
+  },
+  archive: {
+    id: 'messages-archive',
+    labelKey: 'messages.actions.archive',
+    labelFallback: 'Archive',
+  },
+  delete: {
+    id: 'messages-delete',
+    labelKey: 'messages.actions.delete',
+    labelFallback: 'Delete',
+    destructive: true,
+  },
+}
+
+const MESSAGE_BULK_ACTION_IDS_BY_FOLDER = {
+  inbox: ['markRead', 'markUnread', 'archive', 'delete'],
+  archived: ['markRead', 'markUnread', 'delete'],
+  sent: ['delete'],
+  drafts: ['delete'],
+  all: [],
+} satisfies Record<MessageFolder, readonly MessageBulkActionId[]>
+
+export function getMessageBulkActionIdsForFolder(folder: MessageFolder): MessageBulkActionId[] {
+  return [...MESSAGE_BULK_ACTION_IDS_BY_FOLDER[folder]]
 }
 
 function normalizeSelectionScopeValue(value: unknown): unknown {
@@ -287,31 +330,20 @@ export function useMessagesInboxBulkActions<T extends MessageInboxBulkRow>({
   }, [confirm, filterValues, folder, page, queryClient, retryLastMutation, runMutation, search, t])
 
   const bulkActions = React.useMemo<BulkAction<T>[] | undefined>(
-    () => folder === 'inbox'
-      ? [
-          {
-            id: 'messages-mark-read',
-            label: t('messages.actions.markRead', 'Mark read'),
-            onExecute: (selectedRows: T[]) => executeBulkAction('markRead', selectedRows),
-          },
-          {
-            id: 'messages-mark-unread',
-            label: t('messages.actions.markUnread', 'Mark unread'),
-            onExecute: (selectedRows: T[]) => executeBulkAction('markUnread', selectedRows),
-          },
-          {
-            id: 'messages-archive',
-            label: t('messages.actions.archive', 'Archive'),
-            onExecute: (selectedRows: T[]) => executeBulkAction('archive', selectedRows),
-          },
-          {
-            id: 'messages-delete',
-            label: t('messages.actions.delete', 'Delete'),
-            destructive: true,
-            onExecute: (selectedRows: T[]) => executeBulkAction('delete', selectedRows),
-          },
-        ]
-      : undefined,
+    () => {
+      const actionIds = getMessageBulkActionIdsForFolder(folder)
+      if (actionIds.length === 0) return undefined
+
+      return actionIds.map((actionId) => {
+        const action = MESSAGE_BULK_ACTIONS[actionId]
+        return {
+          id: action.id,
+          label: t(action.labelKey, action.labelFallback),
+          destructive: action.destructive,
+          onExecute: (selectedRows: T[]) => executeBulkAction(actionId, selectedRows),
+        }
+      })
+    },
     [executeBulkAction, folder, t],
   )
 

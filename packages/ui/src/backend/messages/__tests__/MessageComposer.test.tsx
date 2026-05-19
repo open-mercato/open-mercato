@@ -121,7 +121,7 @@ describe('MessageComposer draft flow', () => {
     expect(flash).toHaveBeenCalledWith('Draft saved.', 'success')
   })
 
-  it('updates an existing draft when saving from the edit composer', async () => {
+  it('sends an existing draft via PATCH with isDraft=false', async () => {
     renderWithProviders(
       <MessageComposer
         inline
@@ -129,8 +129,42 @@ describe('MessageComposer draft flow', () => {
         messageId="draft-1"
         defaultValues={{
           recipients: ['11111111-1111-4111-8111-111111111111'],
-          subject: 'Updated draft subject',
-          body: 'Updated draft body',
+          subject: 'Existing draft',
+          body: 'Existing draft body',
+        }}
+      />,
+      { dict: {} },
+    )
+
+    fireEvent.click(await screen.findByRole('button', { name: 'Send' }))
+
+    await waitFor(() => {
+      expect(apiCall).toHaveBeenCalledWith(
+        '/api/messages/draft-1',
+        expect.objectContaining({
+          method: 'PATCH',
+        }),
+      )
+    })
+
+    const updateRequest = (apiCall as jest.Mock).mock.calls.find(
+      (call) => call[0] === '/api/messages/draft-1' && call[1]?.method === 'PATCH',
+    )
+    const payload = JSON.parse(updateRequest?.[1]?.body ?? '{}') as Record<string, unknown>
+    expect(payload.isDraft).toBe(false)
+    expect(payload.recipients).toEqual([{ userId: '11111111-1111-4111-8111-111111111111', type: 'to' }])
+    expect(flash).toHaveBeenCalledWith('Message sent.', 'success')
+  })
+
+  it('saves an existing draft via PATCH without a draft transition flag', async () => {
+    renderWithProviders(
+      <MessageComposer
+        inline
+        variant="compose"
+        messageId="draft-1"
+        defaultValues={{
+          subject: 'Existing draft',
+          body: 'Existing draft body',
         }}
       />,
       { dict: {} },
@@ -151,9 +185,11 @@ describe('MessageComposer draft flow', () => {
       (call) => call[0] === '/api/messages/draft-1' && call[1]?.method === 'PATCH',
     )
     const payload = JSON.parse(updateRequest?.[1]?.body ?? '{}') as Record<string, unknown>
-    expect(payload.subject).toBe('Updated draft subject')
-    expect(payload.body).toBe('Updated draft body')
-    expect(payload.isDraft).toBeUndefined()
+    expect(payload).not.toHaveProperty('isDraft')
+    expect(payload).toEqual(expect.objectContaining({
+      subject: 'Existing draft',
+      body: 'Existing draft body',
+    }))
     expect(flash).toHaveBeenCalledWith('Draft saved.', 'success')
   })
 

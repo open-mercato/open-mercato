@@ -16,6 +16,7 @@ import { useAppEvent } from '@open-mercato/ui/backend/injection/useAppEvent'
 import { Archive, ChevronDown, FilePenLine, Inbox, Layers, Send } from 'lucide-react'
 import { getMessageUiComponentRegistry } from './utils/typeUiRegistry'
 import { DefaultMessageListItem } from './defaults/DefaultMessageListItem'
+import { getMessageListParticipantLabel } from './messageListLabels'
 import { toErrorMessage } from './message-detail/utils'
 import { useMessagesInboxBulkActions, type MessageFolder } from './useMessagesInboxBulkActions'
 
@@ -33,6 +34,7 @@ type MessageListItem = {
   objectCount: number
   hasAttachments: boolean
   attachmentCount: number
+  recipientCount?: number
   hasActions: boolean
   actionTaken?: string | null
   sentAt?: string | null
@@ -319,11 +321,12 @@ export function MessagesInboxPageClient() {
               bodyFormat: 'text' as const,
               priority: (item.priority as 'low' | 'normal' | 'high' | 'urgent') ?? 'normal',
               sentAt: item.sentAt ? new Date(item.sentAt) : null,
-              senderName: item.senderName || item.senderEmail || item.senderUserId,
+              senderName: getMessageListParticipantLabel(item, folder, t),
               hasObjects: item.hasObjects,
               objectCount: item.objectCount,
               hasAttachments: item.hasAttachments,
               attachmentCount: item.attachmentCount,
+              recipientCount: item.recipientCount ?? 0,
               hasActions: item.hasActions,
               actionTaken: item.actionTaken ?? null,
               unread: item.status === 'unread',
@@ -333,7 +336,7 @@ export function MessagesInboxPageClient() {
         )
       },
     },
-  ], [listItemComponentKeyByType, messageTypeLabelMap, messageUiRegistry, router, t])
+  ], [folder, listItemComponentKeyByType, messageTypeLabelMap, messageUiRegistry, router, t])
 
   const folderOptions = React.useMemo(() => [
     { id: 'inbox' as const, label: t('messages.folder.inbox', 'Inbox'), icon: Inbox },

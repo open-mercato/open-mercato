@@ -31,7 +31,7 @@ function formatSentTime(value: Date | null): string {
 
 function truncateWords(value: string, maxWords: number): string {
   const normalized = value.trim().replace(/\s+/g, ' ')
-  if (!normalized) return '—'
+  if (!normalized) return ''
   const words = normalized.split(' ')
   if (words.length <= maxWords) return normalized
   return `${words.slice(0, maxWords).join(' ')}...`
@@ -39,8 +39,8 @@ function truncateWords(value: string, maxWords: number): string {
 
 export function DefaultMessageListItem({ message, onClick }: MessageListItemProps) {
   const t = useT()
-  const senderLabel = message.senderName || '—'
-  const subject = message.subject || '—'
+  const senderLabel = message.senderName?.trim() || t('messages.list.noRecipient', '(No recipient)')
+  const subject = message.subject.trim() || t('messages.list.noSubject', '(No subject)')
   const absoluteSentAt = formatDateTime(message.sentAt)
   const sentAtLabel = formatSentTime(message.sentAt)
   const bodyPreview = truncateWords(message.body || '', 16)
@@ -75,8 +75,12 @@ export function DefaultMessageListItem({ message, onClick }: MessageListItemProp
           <span className={cn('truncate text-foreground', message.unread ? 'font-semibold' : 'font-normal')}>
             {subject}
           </span>
-          <span className="text-muted-foreground">-</span>
-          <span className="truncate text-muted-foreground">{bodyPreview}</span>
+          {bodyPreview ? (
+            <>
+              <span className="text-muted-foreground">-</span>
+              <span className="truncate text-muted-foreground">{bodyPreview}</span>
+            </>
+          ) : null}
         </div>
 
         <div className="flex flex-shrink-0 items-center gap-1.5 text-muted-foreground">

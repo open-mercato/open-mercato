@@ -4,12 +4,10 @@
  * Multi-tab AI chat sessions.
  *
  * Each agent can have several concurrent conversation threads (sessions).
- * The provider stores their *metadata* — id, conversationId, optional
- * user-given name, timestamps, status — in localStorage, so closing and
- * re-opening the chat pane (or refreshing the page) restores the tabs and
- * their history. The actual messages live in `useAiChat`'s per-conversation
- * persistence slot keyed by `(agent, conversationId)`, which is why every
- * session gets its own UUID even when it shares an agent with the next tab.
+ * The provider mirrors session metadata from the server-side conversation
+ * store. localStorage remains a backward-compatible cache so existing browser
+ * sessions can be imported rather than orphaned, but the server is the source
+ * of truth whenever it is reachable.
  *
  * Sessions are partitioned into:
  *   - `open`   → currently shown in the tab strip
@@ -22,6 +20,12 @@
  */
 
 import * as React from 'react'
+import {
+  createAiServerConversation,
+  listAiServerConversations,
+  updateAiServerConversation,
+  type AiServerConversation,
+} from './conversation-store'
 
 const STORAGE_KEY = 'om-ai-chat-sessions-v1'
 const HISTORY_LIMIT = 50
@@ -135,6 +139,49 @@ function writePersisted(state: AiChatSessionsState): void {
   }
 }
 
+function serverConversationToSession(
+  conversation: AiServerConversation,
+  existing?: AiChatSession,
+): AiChatSession {
+  const createdAt = Date.parse(conversation.createdAt)
+  const updatedAt = Date.parse(conversation.lastMessageAt ?? conversation.updatedAt)
+  return {
+    id: existing?.id ?? conversation.conversationId,
+    agentId: conversation.agentId,
+    conversationId: conversation.conversationId,
+    name: conversation.title ?? existing?.name,
+    createdAt: Number.isFinite(createdAt) ? createdAt : existing?.createdAt ?? Date.now(),
+    lastUsedAt: Number.isFinite(updatedAt) ? updatedAt : existing?.lastUsedAt ?? Date.now(),
+    status: conversation.status,
+  }
+}
+
+function mergeServerConversations(
+  prev: AiChatSessionsState,
+  conversations: AiServerConversation[],
+): AiChatSessionsState {
+  const byConversationId = new Map(prev.sessions.map((session) => [session.conversationId, session]))
+  const serverSessions = conversations.map((conversation) =>
+    serverConversationToSession(conversation, byConversationId.get(conversation.conversationId)),
+  )
+  const serverIds = new Set(serverSessions.map((session) => session.conversationId))
+  const localOnly = prev.sessions.filter((session) => !serverIds.has(session.conversationId))
+  const sessions = [...serverSessions, ...localOnly]
+  const activeByAgent = { ...prev.activeByAgent }
+  const agentIds = new Set(sessions.map((session) => session.agentId))
+  for (const agentId of agentIds) {
+    const activeId = activeByAgent[agentId]
+    const active = sessions.find((session) => session.id === activeId)
+    if (active && active.status === 'open') continue
+    const nextOpen = sessions
+      .filter((session) => session.agentId === agentId && session.status === 'open')
+      .sort((a, b) => b.lastUsedAt - a.lastUsedAt)[0]
+    if (nextOpen) activeByAgent[agentId] = nextOpen.id
+    else delete activeByAgent[agentId]
+  }
+  return { sessions, activeByAgent }
+}
+
 export function AiChatSessionsProvider({ children }: { children: React.ReactNode }) {
   // Hydrate synchronously via a lazy initializer. The previous "empty
   // state + post-mount load effect" pattern had a window where the
@@ -152,6 +199,17 @@ export function AiChatSessionsProvider({ children }: { children: React.ReactNode
   React.useEffect(() => {
     writePersisted(state)
   }, [state])
+
+  React.useEffect(() => {
+    let cancelled = false
+    void listAiServerConversations({ limit: 100 }).then((conversations) => {
+      if (cancelled || !conversations) return
+      setState((prev) => mergeServerConversations(prev, conversations))
+    })
+    return () => {
+      cancelled = true
+    }
+  }, [])
 
   const update = React.useCallback(
     (mutator: (prev: AiChatSessionsState) => AiChatSessionsState) => {
@@ -197,6 +255,10 @@ export function AiChatSessionsProvider({ children }: { children: React.ReactNode
       lastUsedAt: Date.now(),
       status: 'open',
     }
+    void createAiServerConversation({
+      agentId: session.agentId,
+      conversationId: session.conversationId,
+    })
     update((prev) => ({
       sessions: [...prev.sessions, session],
       activeByAgent: { ...prev.activeByAgent, [agentId]: session.id },
@@ -206,6 +268,10 @@ export function AiChatSessionsProvider({ children }: { children: React.ReactNode
 
   const closeSession = React.useCallback(
     (sessionId: string) => {
+      const serverTarget = state.sessions.find((s) => s.id === sessionId)
+      if (serverTarget) {
+        void updateAiServerConversation(serverTarget.conversationId, { status: 'closed' })
+      }
       update((prev) => {
         const target = prev.sessions.find((s) => s.id === sessionId)
         if (!target) return prev
@@ -227,11 +293,15 @@ export function AiChatSessionsProvider({ children }: { children: React.ReactNode
         return { sessions, activeByAgent }
       })
     },
-    [update],
+    [state.sessions, update],
   )
 
   const reopenSession = React.useCallback(
     (sessionId: string) => {
+      const serverTarget = state.sessions.find((s) => s.id === sessionId)
+      if (serverTarget) {
+        void updateAiServerConversation(serverTarget.conversationId, { status: 'open' })
+      }
       update((prev) => {
         const target = prev.sessions.find((s) => s.id === sessionId)
         if (!target) return prev
@@ -244,7 +314,7 @@ export function AiChatSessionsProvider({ children }: { children: React.ReactNode
         }
       })
     },
-    [update],
+    [state.sessions, update],
   )
 
   const setActiveSession = React.useCallback(
@@ -267,6 +337,12 @@ export function AiChatSessionsProvider({ children }: { children: React.ReactNode
   const renameSession = React.useCallback(
     (sessionId: string, name: string) => {
       const trimmed = name.trim()
+      const serverTarget = state.sessions.find((s) => s.id === sessionId)
+      if (serverTarget) {
+        void updateAiServerConversation(serverTarget.conversationId, {
+          title: trimmed.length > 0 ? trimmed : null,
+        })
+      }
       update((prev) => ({
         ...prev,
         sessions: prev.sessions.map((s) =>
@@ -276,7 +352,7 @@ export function AiChatSessionsProvider({ children }: { children: React.ReactNode
         ),
       }))
     },
-    [update],
+    [state.sessions, update],
   )
 
   const touchSession = React.useCallback(
@@ -334,6 +410,10 @@ export function AiChatSessionsProvider({ children }: { children: React.ReactNode
             lastUsedAt: Date.now(),
             status: 'open',
           }
+          void createAiServerConversation({
+            agentId: mintedSession.agentId,
+            conversationId: mintedSession.conversationId,
+          })
         }
         resolved = mintedSession
         return {
