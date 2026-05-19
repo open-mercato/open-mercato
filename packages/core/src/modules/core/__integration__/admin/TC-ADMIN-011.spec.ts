@@ -113,8 +113,11 @@ test.describe('TC-ADMIN-011: User Widget Override And Dashboard Enablement', () 
       await page.getByRole('radio', { name: 'Override for this user' }).check();
       await page.getByRole('checkbox', { name: /New Orders/i }).check();
       await page.getByRole('checkbox', { name: /New Quotes/i }).check();
+      const saveResponse = page.waitForResponse((response) =>
+        response.url().includes('/api/dashboards/users/widgets') && response.request().method() === 'PUT',
+      );
       await page.getByRole('button', { name: 'Save widgets' }).click();
-      await expect(page.getByText('Dashboard widgets updated').first()).toBeVisible();
+      expect((await saveResponse).ok()).toBe(true);
 
       await page.goto('/backend', { waitUntil: 'domcontentloaded' });
       await expect(page.getByText('No widgets selected yet.')).toBeVisible();

@@ -1,0 +1,230 @@
+---
+title: Developing Official Modules
+description: How to develop modules for the official-modules repository from inside the open-mercato monorepo using the git-submodule workflow.
+---
+
+# Developing Official Modules
+
+The [Official Modules](/framework/modules/official-modules) repository (`open-mercato/official-modules`) is a separate repo that publishes each module as its own npm package. To develop those modules with the **full open-mercato context** — core source, `AGENTS.md`, skills, the running dev app — without copy-pasting code between repos, open-mercato can pull `official-modules` in as a **git submodule** at `external/official-modules/`.
+
+In this setup:
+
+- The submodule is **optional and not committed to open-mercato** — `.gitmodules` and the `external/official-modules` checkout are *not* part of the repo. They're created locally the first time you activate an official module (`yarn official-modules add …`). Without that, the repo behaves exactly as before — vanilla clones and CI are unaffected, and `yarn.lock` is unchanged.
+- Files under `external/official-modules/` are real working code: searchable, refactorable, importable. Edits there commit to the **submodule's** git (`open-mercato/official-modules`), not to open-mercato's.
+- Which official modules are active in your local dev app is driven by a small config file, not by editing `apps/mercato/src/modules.ts` by hand.
+
+:::note Who this page is for
+This is for contributors working **inside the open-mercato monorepo** on official modules. If you just want to *use* an official module in your own app, see [Official Modules](/framework/modules/official-modules) and the [`module add` CLI reference](/cli/module-add) instead.
+:::
+
+## Layout
+
+```
+open-mercato/                       ← open-mercato git repo
+├── packages/                       ← core/first-party packages
+├── apps/mercato/                   ← the dev app
+├── official-modules.json           ← committed: submodule metadata + default activation set
+├── official-modules.local.json     ← gitignored: your personal activation override
+├── .gitmodules                     ← created locally on first activation (NOT committed)
+└── external/
+    └── official-modules/           ← submodule — its own git repo (open-mercato/official-modules); NOT committed
+        ├── packages/
+        │   ├── test-package/       ← template you copy when creating a new module
+        │   └── <your-module>/
+        └── .changeset/
+```
+
+`apps/mercato/src/modules.ts` imports `apps/mercato/src/official-modules.generated.ts` and spreads its entries into `enabledModules`. That generated file is rewritten from `official-modules.json` (+ `official-modules.local.json`) by `scripts/official-modules-setup.mjs`, which runs automatically on `yarn install` (postinstall — a no-op until the submodule is registered) and on every `yarn official-modules` command.
+
+### Module-id ↔ package-name convention
+
+A package named `@open-mercato/<suffix>` provides a module whose id is `<suffix>` with dashes converted to underscores — the same rule core uses (`@open-mercato/ai-assistant` → module `ai_assistant`). So `packages/loyalty-program/` provides module `loyalty_program`, and inside the package its source lives under `src/modules/loyalty_program/`.
+
+## Getting started
+
+Clone open-mercato normally — there's no submodule to fetch yet:
+
+```bash
+git clone https://github.com/open-mercato/open-mercato.git
+cd open-mercato
+yarn install
+```
+
+The first `yarn official-modules add …` (next section) registers the submodule (`git submodule add`) and checks it out. After that, `yarn install`'s postinstall worker keeps it initialized and refreshes `official-modules.json`'s `available` list on every run. (If `.gitmodules` already exists locally — e.g. someone shared it — `git submodule update --init --recursive` restores the checkout.)
+
+### Activating a module
+
+```bash
+# See what's available and what's active
+yarn official-modules
+
+# Activate one or more modules (personal, gitignored — written to official-modules.local.json)
+yarn official-modules add forms --local
+
+# ...or activate as the committed team default (written to official-modules.json)
+yarn official-modules add forms
+
+# Other commands
+yarn official-modules remove forms [--local]
+yarn official-modules set forms sdk [--local]    # replace the whole set (no args clears it)
+yarn official-modules sync                        # re-init the submodule + regenerate, no changes
+```
+
+After changing the activation set:
+
+```bash
+yarn install                                        # only needed the first time new workspace packages appear
+yarn mercato configs cache structural --all-tenants # purge stale nav:* cache + bump generated fingerprints
+yarn generate                                       # wire the module into .mercato/generated (yarn dev also does this)
+yarn dev
+```
+
+:::tip First-run two-step
+Workspaces are resolved when `yarn install` runs. If the submodule (and its packages) were fetched *during* that install — e.g. the very first `yarn official-modules add` had to clone it — run `yarn install` once more so Yarn links the new packages as workspaces. Every subsequent install is a single pass. `yarn official-modules` prints a reminder when this applies.
+:::
+
+### Config files
+
+| File | Tracked? | Purpose |
+|------|----------|---------|
+| `official-modules.json` | committed | Submodule `repo` / `path` / `branch`, the auto-filled `available` list, and the **team default** `activated` list |
+| `official-modules.local.json` | gitignored | Your **personal** `activated` override (merged on top of the committed list) |
+| `apps/mercato/src/official-modules.generated.ts` | committed | Compiled `ModuleEntry[]` consumed by `modules.ts` — regenerated; don't edit by hand |
+
+Use `--local` while iterating so you don't accidentally commit "module X is on" for everyone. Edit the committed `activated` list only when the team genuinely wants a module enabled by default.
+
+## Daily workflow
+
+Open `open-mercato/` as your IDE root. Edit files under `external/official-modules/packages/<module>/...` exactly like any other source — TypeScript navigation, refactors, find-usages, and agent search all work because it's one file tree.
+
+Run two terminals:
+
+- **Terminal 1** (`cwd = open-mercato`): `yarn dev` — the Next dev app, plus commits to core.
+- **Terminal 2** (`cwd = open-mercato/external/official-modules`): commits to the module, changesets.
+
+The host's package watcher only covers `packages/*`, not the submodule, so run the module package's own watcher in a third terminal (or fold it into Terminal 1) so its `dist/` rebuilds on save:
+
+```bash
+yarn workspace @open-mercato/<module> watch
+```
+
+### Committing a change to a module
+
+Commits to anything under `external/official-modules/` go to the **submodule's** git, on a feature branch, with a changeset:
+
+```bash
+cd external/official-modules
+git checkout develop && git pull --rebase origin develop
+git checkout -b feat/<scope>
+git add packages/<module>
+yarn changeset                       # generate the changeset here, inside the submodule
+git add .changeset/*.md
+git commit -m "feat(<scope>): ..."
+git push -u origin feat/<scope>
+gh pr create --base develop
+```
+
+The PR lands in `open-mercato/official-modules`. Back in open-mercato:
+
+- **Do not** run `git add external/official-modules` (a submodule pointer bump) unless you explicitly intend to record "open-mercato now points at this commit of official-modules". The pointer may lag intentionally.
+- The same applies to churn in `official-modules.generated.ts` / `official-modules.json` (`available`) — only commit it if you're actually changing the activation set. Always check `git diff --staged` before committing in the host repo.
+
+## Creating a brand-new module
+
+A new official module is a new package inside the submodule:
+
+```bash
+# 1. Branch in the submodule
+cd external/official-modules
+git checkout develop && git pull --rebase origin develop
+git checkout -b feat/<name>
+
+# 2. Scaffold from the template package
+cp -r packages/test-package packages/<name>
+#    edit packages/<name>/package.json: name -> "@open-mercato/<name>", version, deps/peerDeps
+#    build out packages/<name>/src/modules/<module_id>/  (index.ts exporting `metadata`, plus
+#    api/, backend/, acl.ts, setup.ts, data/, ... per the Module Development guide)
+#    src/index.ts re-exports: export { metadata } from './modules/<module_id>/index'
+
+# 3. Link & activate from the open-mercato root
+cd ../..
+yarn install                                        # links @open-mercato/<name> as a workspace
+yarn official-modules add <name> --local            # activate (re-scans the submodule, so new packages are accepted)
+yarn mercato configs cache structural --all-tenants
+yarn generate
+
+# 4. Develop
+yarn dev                                            # in one terminal
+yarn workspace @open-mercato/<name> watch           # in another
+
+# 5. Commit — to the submodule's git (see "Committing a change to a module" above)
+```
+
+Where it does **not** go: not `apps/mercato/src/modules/` (that's app-specific user modules), not `packages/` (that's core/first-party packages of this repo). Official modules live only in `external/official-modules/packages/`.
+
+For the conventions a module's `src/modules/<id>/` must follow, see [Module Development](/framework/modules/overview) and `packages/core/AGENTS.md`.
+
+## Promoting an in-repo module to official
+
+Already prototyped a module as an app module (`apps/mercato/src/modules/<id>/`) or as a dedicated package (`packages/<pkg>/`) and want to graduate it to official-modules? Use the promote command:
+
+```bash
+# Dry run — prints the plan and the manual follow-ups, changes nothing
+yarn official-modules promote <module-id>
+
+# Perform the mechanical steps
+yarn official-modules promote <module-id> --apply
+```
+
+What `--apply` does (it never commits and never pushes):
+
+1. **App module source** → scaffolds a package wrapper from `test-package` (`package.json` → `@open-mercato/<name>` v0.0.0; `build.mjs`, `watch.mjs`, `tsconfig.json`, `jest.config.cjs`), copies the module into `src/modules/<id>/`, and writes `src/index.ts` re-exporting `metadata`.
+   **Dedicated-package source** → moves the whole package into `external/official-modules/packages/<name>/` (keeping its `package.json`) and drops it from `apps/mercato/package.json` dependencies.
+2. `git rm -r` the source (skip with `--keep-source`).
+3. Removes the `{ id: '<id>', from: ... }` entry from `apps/mercato/src/modules.ts`.
+4. Activates `<name>` in `official-modules.local.json` (or `official-modules.json` with `--committed`) and regenerates `official-modules.generated.ts`.
+
+It then prints the follow-ups it deliberately leaves to you:
+
+- `yarn install` (link the new workspace, drop the old), `yarn generate`, `yarn mercato configs cache structural --all-tenants`
+- Review the new package's `dependencies` / `peerDependencies` (pin `@open-mercato/core` etc.)
+- Review the migrations under `src/modules/<id>/migrations/` — official packages own their own migration set
+- A `git grep` list of files still referencing `modules/<id>` (and the old package name)
+- The cross-repo sequence: branch + `yarn changeset` + commit `packages/<name>` + push + PR (`--base develop`) inside the submodule; then commit the removal + `modules.ts` + `official-modules.*` changes in open-mercato (not the pointer bump unless intended)
+
+Flags: `--as=<kebab-name>` (override the package suffix), `--apply`, `--keep-source`, `--committed`.
+
+:::caution
+The promote command **refuses** to extract a module out of `@open-mercato/core` (or `shared` / `ui` / `cli`), or out of a package that contains more than one module — those touch core barrel exports, the generated registry, and a shared migration snapshot, so do them by hand. Also: it *copies* files (a fresh "import" commit in the submodule); the original commit history stays in open-mercato's log.
+:::
+
+## Cross-cutting changes (core + an official module)
+
+There is no atomic PR across the two repos. For a change that touches both core and an official module:
+
+1. Open the core PR in open-mercato → merge → publish a prerelease (e.g. `@open-mercato/core@2.1.0-next.0`).
+2. In the submodule: bump the module's peer dep to the prerelease, adjust the code, open the official-modules PR.
+3. After core's stable release (`2.1.0`): a second submodule PR bumps the peer dep to stable.
+
+For small, non-breaking changes you can develop both sides locally at once (the workspace links pick up both immediately) and coordinate merge order (core first → publish → module bump → merge module).
+
+## Releasing a module
+
+After an official-modules PR merges, the submodule's own CI takes over: the changesets action aggregates changesets, opens/updates the "Version Packages" PR, and on merge publishes to npm + creates a GitHub Release. Nothing happens in open-mercato. End users then run `yarn mercato module add @open-mercato/<name>` (or `yarn upgrade @open-mercato/<name>` + `yarn db:migrate`).
+
+## CI
+
+CI is **not** wired for the submodule by default — with an empty `activated` set in `official-modules.json` there is nothing extra to build, so CI behaves exactly as it did before. When the team commits an activation in `official-modules.json`, add `submodules: recursive` to the `actions/checkout` steps in `.github/workflows/ci.yml` (the repo is public, so the default token is enough) so CI builds — and, for integration tests, exercises — those modules too.
+
+## Command reference
+
+| Command | What it does |
+|---------|--------------|
+| `yarn official-modules` / `... list` | Show available + activated modules and usage |
+| `yarn official-modules add <m...> [--local]` | Activate module(s) |
+| `yarn official-modules remove <m...> [--local]` | Deactivate module(s) |
+| `yarn official-modules set <m...> [--local]` | Replace the activation set (no args clears it) |
+| `yarn official-modules sync` | Re-init/refresh the submodule and regenerate, without changing the set |
+| `yarn official-modules promote <id> [--apply] [--as=<name>] [--keep-source] [--committed]` | Move an in-repo module into the submodule |
+| `yarn install` | Runs the postinstall worker (inits the submodule when registered, refreshes `available`) |
+| `yarn mercato configs cache structural --all-tenants` | Purge `nav:*` cache + bump generated fingerprints after a module-set change |

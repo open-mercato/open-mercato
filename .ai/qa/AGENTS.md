@@ -68,6 +68,7 @@ Use shared helpers from `@open-mercato/core/helpers/integration/*`. These are pu
 | `@open-mercato/core/helpers/integration/crmFixtures` | `createCompanyFixture`, `createPersonFixture`, `createDealFixture`, `deleteEntityIfExists`, `readJsonSafe` | Customers/CRM fixture creation and cleanup; `readJsonSafe` for parsing Playwright APIResponse body to JSON |
 | `@open-mercato/core/helpers/integration/salesFixtures` | `createSalesQuoteFixture`, `createSalesOrderFixture`, `createOrderLineFixture`, `deleteSalesEntityIfExists` | Sales API fixture lifecycle |
 | `@open-mercato/core/helpers/integration/salesUi` | `createSalesDocument`, `addCustomLine`, `updateLineQuantity`, `deleteLine`, `addAdjustment`, `addPayment`, `addShipment`, `readGrandTotalGross` | Sales document UI interactions and totals assertions |
+| `@open-mercato/core/helpers/integration/queue` | `drainIntegrationQueue` | Drains local queue jobs in the correct app context; standalone runs spawn from `OM_TEST_APP_ROOT` so worker env/package resolution matches the app under test |
 | `@open-mercato/core/helpers/integration/authFixtures` | `createRoleFixture`, `deleteRoleIfExists`, `createUserFixture`, `deleteUserIfExists` | Role and user fixture lifecycle |
 | `@open-mercato/core/helpers/integration/generalFixtures` | `readJsonSafe`, `getTokenContext`, `expectId`, `deleteEntityByPathIfExists` | General-purpose test utilities |
 | `@open-mercato/core/helpers/integration/dictionariesFixtures` | `createDictionaryFixture` | Dictionary fixture creation |
@@ -78,6 +79,10 @@ Import pattern from module tests:
 import { login } from '@open-mercato/core/helpers/integration/auth';
 import { apiRequest, getAuthToken } from '@open-mercato/core/helpers/integration/api';
 ```
+
+Queue-backed tests:
+- If a test creates a local queue job and then waits for a result, call `drainIntegrationQueue('<queue-name>')` instead of importing worker handlers or `createRequestContainer` directly in the spec.
+- This is required for standalone parity (`OM_TEST_APP_ROOT`) because the Playwright process is the monorepo, while the job was created by the scaffolded app. The helper runs the drain from the target app root so env, generated files, package versions, and encryption keys match.
 
 > **Barrel import** (subset): `@open-mercato/core/testing/integration` re-exports the most common helpers as a single import for convenience.
 
