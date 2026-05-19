@@ -6,6 +6,13 @@ import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { CrudForm, type CrudField, type CrudFormGroup } from '@open-mercato/ui/backend/CrudForm'
 import { Button } from '@open-mercato/ui/primitives/button'
 import { IconButton } from '@open-mercato/ui/primitives/icon-button'
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@open-mercato/ui/primitives/select'
 import { apiCall } from '@open-mercato/ui/backend/utils/apiCall'
 import { createCrudFormError } from '@open-mercato/ui/backend/utils/serverErrors'
 import { DictionarySelectField } from '../formConfig'
@@ -417,7 +424,7 @@ function EntityMultiSelect({
               <span className="flex flex-col items-start">
                 <span>{option.label}</span>
                 {option.subtitle ? (
-                  <span className="text-xs text-muted-foreground">{option.subtitle}</span>
+                  <span className="text-overline text-muted-foreground">{option.subtitle}</span>
                 ) : null}
               </span>
             </Button>
@@ -797,20 +804,23 @@ export function DealForm({
       type: 'custom',
       layout: 'half',
       component: ({ value, setValue }) => (
-        <select
-          className="w-full rounded border px-2 py-1.5 text-sm"
-          value={typeof value === 'string' ? value : ''}
-          onChange={(e) => {
-            setValue(e.target.value)
-            loadStagesForPipeline(e.target.value).catch(() => {})
+        <Select
+          value={typeof value === 'string' && value ? value : undefined}
+          onValueChange={(next) => {
+            setValue(next ?? '')
+            loadStagesForPipeline(next ?? '').catch(() => {})
           }}
           disabled={disabled}
         >
-          <option value="">{t('customers.deals.form.pipeline.placeholder', 'Select pipeline…')}</option>
-          {pipelines.map((p) => (
-            <option key={p.id} value={p.id}>{p.name}</option>
-          ))}
-        </select>
+          <SelectTrigger>
+            <SelectValue placeholder={t('customers.deals.form.pipeline.placeholder', 'Select pipeline…')} />
+          </SelectTrigger>
+          <SelectContent>
+            {pipelines.map((p) => (
+              <SelectItem key={p.id} value={p.id}>{p.name}</SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
       ),
     } as CrudField,
     {
@@ -819,17 +829,20 @@ export function DealForm({
       type: 'custom',
       layout: 'half',
       component: ({ value, setValue }) => (
-        <select
-          className="w-full rounded border px-2 py-1.5 text-sm"
-          value={typeof value === 'string' ? value : ''}
-          onChange={(e) => setValue(e.target.value)}
+        <Select
+          value={typeof value === 'string' && value ? value : undefined}
+          onValueChange={(next) => setValue(next ?? '')}
           disabled={disabled || !pipelineStages.length}
         >
-          <option value="">{t('customers.deals.form.pipelineStage.placeholder', 'Select stage…')}</option>
-          {pipelineStages.map((s) => (
-            <option key={s.id} value={s.id}>{s.label}</option>
-          ))}
-        </select>
+          <SelectTrigger>
+            <SelectValue placeholder={t('customers.deals.form.pipelineStage.placeholder', 'Select stage…')} />
+          </SelectTrigger>
+          <SelectContent>
+            {pipelineStages.map((s) => (
+              <SelectItem key={s.id} value={s.id}>{s.label}</SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
       ),
     } as CrudField,
     {

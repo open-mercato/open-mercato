@@ -27,6 +27,7 @@ Run `yarn mercato --help` to list modules and `yarn mercato <module> --help` to 
   - `yarn dev:greenfield:classic` – run the greenfield boot flow with raw passthrough output and no splash screen.
   - [`yarn dev:ephemeral`](./dev-ephemeral) – start a dev server on a free port, open browser automatically, and register active instances in `.ai/dev-ephemeral-envs.json`.
   - `yarn dev:ephemeral:classic` – run the ephemeral flow with raw passthrough output and no splash screen.
+  - **Database name override (optional, additive)**: every dev/setup command above accepts `--database-name[=<name>]` to rewrite the database segment of `DATABASE_URL` for the run. Examples: `yarn dev --database-name=client_a` (explicit), `yarn dev --database-name` (derive from `process.cwd()`), `yarn dev --database-name=temp --no-update-env` (current run only). Without the flag, behavior is unchanged. See the monorepo and standalone installation guides for the full walkthrough.
 - **Code Generation**
   - `mercato generate` or `mercato generate all` – run all generators (entity IDs, registry, entities, DI, API client).
   - `mercato generate entity-ids` – generate entity ID mappings.

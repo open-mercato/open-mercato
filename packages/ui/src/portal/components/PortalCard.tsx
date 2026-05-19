@@ -35,7 +35,7 @@ export function PortalCardHeader({ title, description, label, action }: PortalCa
     <div className="mb-4 flex items-start justify-between gap-4">
       <div>
         {label ? (
-          <p className="mb-1.5 text-[11px] font-medium uppercase tracking-widest text-muted-foreground/60">
+          <p className="mb-1.5 text-overline font-medium uppercase tracking-widest text-muted-foreground/60">
             {label}
           </p>
         ) : null}
@@ -61,7 +61,7 @@ type PortalStatRowProps = {
 export function PortalStatRow({ label, value }: PortalStatRowProps) {
   return (
     <div className="flex items-center justify-between gap-4 py-2.5">
-      <span className="text-[11px] font-medium uppercase tracking-wider text-muted-foreground/70">
+      <span className="text-overline font-medium uppercase tracking-wider text-muted-foreground/70">
         {label}
       </span>
       <span className="text-sm font-medium text-foreground">{value}</span>

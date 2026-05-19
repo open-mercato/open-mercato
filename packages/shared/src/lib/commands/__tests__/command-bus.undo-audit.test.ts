@@ -33,6 +33,8 @@ describe('CommandBus undo audit trace', () => {
           resourceId: 'person-1',
           parentResourceKind: null,
           parentResourceId: null,
+          relatedResourceKind: 'customers.deal',
+          relatedResourceId: 'deal-1',
           commandPayload: { id: 'person-1' },
           snapshotBefore: originalBefore,
           snapshotAfter: originalAfter,
@@ -63,6 +65,8 @@ describe('CommandBus undo audit trace', () => {
       actorUserId: 'user-2',
       resourceKind: 'customers.person',
       resourceId: 'person-1',
+      relatedResourceKind: 'customers.deal',
+      relatedResourceId: 'deal-1',
       snapshotBefore: originalAfter,
       snapshotAfter: originalBefore,
       changes: {

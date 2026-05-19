@@ -2,10 +2,9 @@ import { NextResponse } from 'next/server'
 import { z } from 'zod'
 import type { CommandBus } from '@open-mercato/shared/lib/commands'
 import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
-import { serializeOperationMetadata } from '@open-mercato/shared/lib/commands/operationMetadata'
 import { readJsonSafe } from '@open-mercato/shared/lib/http/readJsonSafe'
 import { validateCrudMutationGuard, runCrudMutationGuardAfterSuccess } from '@open-mercato/shared/lib/crud/mutation-guard'
-import { CrudHttpError } from '@open-mercato/shared/lib/crud/errors'
+import { CrudHttpError, isCrudHttpError } from '@open-mercato/shared/lib/crud/errors'
 import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
 import { findOneWithDecryption, findWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import { User } from '@open-mercato/core/modules/auth/data/entities'
@@ -14,6 +13,8 @@ import { CustomerEntity, CustomerEntityRole } from '../data/entities'
 import { entityRoleCreateSchema, entityRoleUpdateSchema, entityRoleDeleteSchema, type EntityRoleCreateInput, type EntityRoleUpdateInput, type EntityRoleDeleteInput } from '../data/validators'
 import { withScopedPayload } from './utils'
 import { resolveCustomersRequestContext, resolveAuthActorId } from '../lib/interactionRequestContext'
+import { deriveDisplayNameFromEmail } from '../lib/displayName'
+import { withOperationMetadata } from '../lib/operationMetadata'
 
 const paramsSchema = z.object({ id: z.string().uuid() })
 const roleIdQuerySchema = z.object({ roleId: z.string().uuid() })
@@ -58,27 +59,6 @@ function buildValidationErrorResponse(error: z.ZodError, translate: Translator) 
     { error: translate('customers.errors.validationFailed', 'Validation failed'), fieldErrors: error.flatten().fieldErrors },
     { status: 400 },
   )
-}
-
-function withOperationMetadata(
-  response: NextResponse,
-  logEntry: { undoToken?: string | null; id?: string | null; commandId?: string | null; actionLabel?: string | null; resourceKind?: string | null; resourceId?: string | null; createdAt?: Date | null } | null | undefined,
-  fallback: { resourceKind: string; resourceId: string | null },
-) {
-  if (!logEntry?.undoToken || !logEntry.id || !logEntry.commandId) return response
-  response.headers.set(
-    'x-om-operation',
-    serializeOperationMetadata({
-      id: logEntry.id,
-      undoToken: logEntry.undoToken,
-      commandId: logEntry.commandId,
-      actionLabel: logEntry.actionLabel ?? null,
-      resourceKind: logEntry.resourceKind ?? fallback.resourceKind,
-      resourceId: logEntry.resourceId ?? fallback.resourceId,
-      executedAt: logEntry.createdAt instanceof Date ? logEntry.createdAt.toISOString() : new Date().toISOString(),
-    }),
-  )
-  return response
 }
 
 async function buildContext(request: Request) {
@@ -314,7 +294,7 @@ export function createEntityRolesHandlers(entityType: EntityType) {
           )
         : []
       const userMap = new Map(users.map((user) => [user.id, {
-        name: user.name ?? null,
+        name: user.name ?? deriveDisplayNameFromEmail(user.email) ?? null,
         email: user.email ?? null,
         phone: null,
       }]))
@@ -338,7 +318,7 @@ export function createEntityRolesHandlers(entityType: EntityType) {
         })),
       })
     } catch (err) {
-      if (err instanceof CrudHttpError) return NextResponse.json(err.body, { status: err.status })
+      if (isCrudHttpError(err)) return NextResponse.json(err.body, { status: err.status })
       if (err instanceof z.ZodError) return buildValidationErrorResponse(err, translate)
       console.error(`${logPrefix}.get failed`, err)
       return NextResponse.json({ error: translate('customers.errors.failed_to_load_roles', 'Failed to load roles') }, { status: 500 })
@@ -395,7 +375,7 @@ export function createEntityRolesHandlers(entityType: EntityType) {
         { resourceKind, resourceId: entityId },
       )
     } catch (err) {
-      if (err instanceof CrudHttpError) return NextResponse.json(err.body, { status: err.status })
+      if (isCrudHttpError(err)) return NextResponse.json(err.body, { status: err.status })
       if (err instanceof z.ZodError) return buildValidationErrorResponse(err, translate)
       console.error(`${logPrefix}.post failed`, err)
       return NextResponse.json({ error: translate('customers.errors.failed_to_assign_role', 'Failed to assign role') }, { status: 500 })
@@ -453,7 +433,7 @@ export function createEntityRolesHandlers(entityType: EntityType) {
         { resourceKind, resourceId: entityId },
       )
     } catch (err) {
-      if (err instanceof CrudHttpError) return NextResponse.json(err.body, { status: err.status })
+      if (isCrudHttpError(err)) return NextResponse.json(err.body, { status: err.status })
       if (err instanceof z.ZodError) return buildValidationErrorResponse(err, translate)
       console.error(`${logPrefix}.put failed`, err)
       return NextResponse.json({ error: translate('customers.errors.failed_to_update_role', 'Failed to update role') }, { status: 500 })
@@ -509,7 +489,7 @@ export function createEntityRolesHandlers(entityType: EntityType) {
         { resourceKind, resourceId: entityId },
       )
     } catch (err) {
-      if (err instanceof CrudHttpError) return NextResponse.json(err.body, { status: err.status })
+      if (isCrudHttpError(err)) return NextResponse.json(err.body, { status: err.status })
       if (err instanceof z.ZodError) return buildValidationErrorResponse(err, translate)
       console.error(`${logPrefix}.delete failed`, err)
       return NextResponse.json({ error: translate('customers.errors.failed_to_delete_role', 'Failed to delete role') }, { status: 500 })

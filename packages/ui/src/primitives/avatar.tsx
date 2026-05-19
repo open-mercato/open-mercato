@@ -73,3 +73,25 @@ export const Avatar = React.forwardRef<HTMLDivElement, AvatarProps>(
 Avatar.displayName = 'Avatar'
 
 export { avatarVariants }
+
+export type AvatarStackProps = {
+  children: React.ReactNode
+  max?: number
+  size?: VariantProps<typeof avatarVariants>['size']
+  className?: string
+}
+
+export function AvatarStack({ children, max = 4, size = 'md', className }: AvatarStackProps) {
+  const items = React.Children.toArray(children)
+  const visible = items.slice(0, max)
+  const overflow = items.length - max
+
+  return (
+    <div className={cn('flex items-center [&>*:not(:first-child)]:-ml-2 [&>*]:ring-2 [&>*]:ring-background', className)}>
+      {visible}
+      {overflow > 0 && (
+        <Avatar label={`+${overflow}`} size={size} variant="monochrome" className="-ml-2" />
+      )}
+    </div>
+  )
+}

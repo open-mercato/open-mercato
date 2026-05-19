@@ -599,7 +599,7 @@ async function cleanupDbRows(input: {
 }
 
 test.describe('TC-CRM-028: Example customer sync (standalone smoke)', () => {
-  test.beforeAll(async ({ request }) => {
+  test.beforeAll(async () => {
     test.skip(!IS_STANDALONE_APP, 'Standalone smoke coverage runs only when OM_TEST_APP_ROOT is set');
   });
 

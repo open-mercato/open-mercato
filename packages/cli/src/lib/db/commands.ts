@@ -2,7 +2,7 @@ import path from 'node:path'
 import fs from 'node:fs'
 import { pathToFileURL } from 'node:url'
 import ts from 'typescript'
-import { MikroORM, type Logger } from '@mikro-orm/core'
+import { MikroORM, MetadataStorage, type Logger } from '@mikro-orm/core'
 import { ReflectMetadataProvider } from '@mikro-orm/decorators/legacy'
 import { Migrator } from '@mikro-orm/migrations'
 import { PostgreSqlDriver } from '@mikro-orm/postgresql'
@@ -93,6 +93,22 @@ export function makeConstraintDropsIdempotent(sql: string): string {
 export function getMigrationSnapshotName(resolver: Pick<PackageResolver, 'getRootDir'>): string {
   void resolver
   return '.snapshot-open-mercato'
+}
+
+export function shouldCreateInitialModuleMigration(migrationsPath: string, snapshotName: string): boolean {
+  const snapshotPath = path.join(migrationsPath, `${snapshotName}.json`)
+  if (fs.existsSync(snapshotPath)) return false
+  if (!fs.existsSync(migrationsPath)) return true
+
+  const migrationFiles = fs
+    .readdirSync(migrationsPath)
+    .filter((file) => /^Migration.*\.(ts|js)$/.test(file) && !file.endsWith('.d.ts'))
+
+  return migrationFiles.length === 0
+}
+
+export function resolveGeneratedMigrationPath(fileName: string, migrationsPath: string): string {
+  return path.isAbsolute(fileName) ? fileName : path.join(migrationsPath, fileName)
 }
 
 let tsxLoaderRegistered = false
@@ -218,18 +234,19 @@ export async function dbGenerate(resolver: PackageResolver, options: DbOptions =
   const ordered = sortModules(modules)
   const results: string[] = []
 
-  const moduleClasses = new Map<string, any[]>()
-  for (const entry of ordered) {
-    moduleClasses.set(entry.id, await loadModuleEntities(entry, resolver))
-  }
-
   const sslConfig = getSslConfig()
   const usedFileNames = new Set<string>()
 
   for (const entry of ordered) {
+    // Clear the global @Entity() decorator registry before loading this module's
+    // entities. MikroORM's migrator reads MetadataStorage at createMigration()
+    // time, so without this clear, every module's migration would include every
+    // previously-loaded module's tables (see issue #1911).
+    MetadataStorage.clear()
+
     const modId = entry.id
     const sanitizedModId = sanitizeModuleId(modId)
-    const entities = moduleClasses.get(modId) ?? []
+    const entities = await loadModuleEntities(entry, resolver)
     if (!entities.length) {
       if (entry.from === '@app') {
         results.push(formatResult(modId, 'no entities discovered', ''))
@@ -242,6 +259,8 @@ export async function dbGenerate(resolver: PackageResolver, options: DbOptions =
 
     const tableName = `mikro_orm_migrations_${sanitizedModId}`
     validateTableName(tableName)
+    const snapshotName = getMigrationSnapshotName(resolver)
+    const createInitialMigration = shouldCreateInitialModuleMigration(migrationsPath, snapshotName)
 
     const orm = await MikroORM.init<PostgreSqlDriver>({
       driver: PostgreSqlDriver,
@@ -254,7 +273,7 @@ export async function dbGenerate(resolver: PackageResolver, options: DbOptions =
         path: migrationsPath,
         glob: '!(*.d).{ts,js}',
         tableName,
-        snapshotName: getMigrationSnapshotName(resolver),
+        snapshotName,
         dropTables: false,
       },
       schemaGenerator: {
@@ -272,10 +291,10 @@ export async function dbGenerate(resolver: PackageResolver, options: DbOptions =
     })
 
     try {
-      const diff = await orm.migrator.create()
+      const diff = await orm.migrator.create(undefined, false, createInitialMigration)
       if (diff && diff.fileName) {
         try {
-          const orig = diff.fileName
+          const orig = resolveGeneratedMigrationPath(diff.fileName, migrationsPath)
           const base = path.basename(orig)
           const dir = path.dirname(orig)
           const ext = path.extname(base)

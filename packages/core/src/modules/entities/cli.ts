@@ -17,7 +17,10 @@ import {
   TenantDataEncryptionError,
   TenantDataEncryptionErrorCode,
 } from '@open-mercato/shared/lib/encryption/aes'
-import { TenantDataEncryptionService } from '@open-mercato/shared/lib/encryption/tenantDataEncryptionService'
+import {
+  TenantDataEncryptionService,
+  parseDecryptedFieldValue,
+} from '@open-mercato/shared/lib/encryption/tenantDataEncryptionService'
 import { resolveEntityIdFromMetadata } from '@open-mercato/shared/lib/encryption/entityIds'
 import { Organization } from '../directory/data/entities'
 import crypto from 'node:crypto'
@@ -563,11 +566,7 @@ const rotateEncryptionKey: ModuleCli = {
             if (typeof value !== 'string' || !isEncryptedPayload(value)) continue
             const decrypted = decryptWithOldKey(value, oldDek)
             if (decrypted === null) continue
-            try {
-              payload[rule.field] = JSON.parse(decrypted)
-            } catch {
-              payload[rule.field] = decrypted
-            }
+            payload[rule.field] = parseDecryptedFieldValue(decrypted)
           }
         }
         const encrypted = await encryptionService.encryptEntityPayload(

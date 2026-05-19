@@ -65,7 +65,7 @@ export function TimelineItemHeader({
       {icon ? (
         <span
           className={cn(
-            'inline-flex items-center justify-center rounded border border-border bg-muted/40',
+            'inline-flex items-center justify-center rounded border border-border bg-muted/50',
             wrapperSize,
           )}
         >

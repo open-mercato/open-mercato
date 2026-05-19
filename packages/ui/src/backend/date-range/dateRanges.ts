@@ -1,21 +1,19 @@
-import {
-  startOfDay,
-  endOfDay,
-  startOfWeek,
-  endOfWeek,
-  startOfMonth,
-  endOfMonth,
-  startOfQuarter,
-  endOfQuarter,
-  startOfYear,
-  endOfYear,
-  subDays,
-  subWeeks,
-  subMonths,
-  subQuarters,
-  subYears,
-  differenceInDays,
-} from 'date-fns'
+import { differenceInDays } from 'date-fns/differenceInDays'
+import { endOfDay } from 'date-fns/endOfDay'
+import { endOfMonth } from 'date-fns/endOfMonth'
+import { endOfQuarter } from 'date-fns/endOfQuarter'
+import { endOfWeek } from 'date-fns/endOfWeek'
+import { endOfYear } from 'date-fns/endOfYear'
+import { startOfDay } from 'date-fns/startOfDay'
+import { startOfMonth } from 'date-fns/startOfMonth'
+import { startOfQuarter } from 'date-fns/startOfQuarter'
+import { startOfWeek } from 'date-fns/startOfWeek'
+import { startOfYear } from 'date-fns/startOfYear'
+import { subDays } from 'date-fns/subDays'
+import { subMonths } from 'date-fns/subMonths'
+import { subQuarters } from 'date-fns/subQuarters'
+import { subWeeks } from 'date-fns/subWeeks'
+import { subYears } from 'date-fns/subYears'
 
 export type DateRangePreset =
   | 'today'

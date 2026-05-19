@@ -13,9 +13,11 @@ import {
 } from '@open-mercato/shared/lib/browser/safeLocalStorage'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { createTranslatorWithFallback } from '@open-mercato/shared/lib/i18n/translate'
+import { useAppEvent } from '@open-mercato/ui/backend/injection/useAppEvent'
 import type { SectionAction, TabEmptyStateConfig, Translator } from './types'
 import { CreatePersonDialog } from './CreatePersonDialog'
 import { PersonCard } from './PersonCard'
+import { coerceDisplayName } from '../../lib/displayName'
 import { DecisionMakersFooter } from './DecisionMakersFooter'
 import { RolesSection } from './RolesSection'
 import { LinkEntityDialog, type LinkEntityOption } from '../linking/LinkEntityDialog'
@@ -164,8 +166,8 @@ function sortCompanyPeople(
       const rightTimestamp = Date.parse(right.linkedAt ?? right.createdAt ?? '') || 0
       return rightTimestamp - leftTimestamp
     }
-    const leftLabel = left.displayName.trim().toLowerCase()
-    const rightLabel = right.displayName.trim().toLowerCase()
+    const leftLabel = coerceDisplayName(left.displayName).trim().toLowerCase()
+    const rightLabel = coerceDisplayName(right.displayName).trim().toLowerCase()
     if (sortMode === 'name-desc') return rightLabel.localeCompare(leftLabel)
     return leftLabel.localeCompare(rightLabel)
   })
@@ -318,6 +320,13 @@ export function CompanyPeopleSection({
   React.useEffect(() => {
     void loadVisiblePeople()
   }, [loadVisiblePeople])
+
+  useAppEvent('customers.person_company_link.deleted', (event) => {
+    const payload = event.payload as { companyEntityId?: string | null } | null | undefined
+    if (payload && payload.companyEntityId === companyId) {
+      void loadVisiblePeople()
+    }
+  }, [companyId, loadVisiblePeople])
 
   React.useEffect(() => {
     setListPage(1)
@@ -520,9 +529,6 @@ export function CompanyPeopleSection({
             companyId,
           },
         )
-        applyPeopleChange((current) => current.filter((entry) => entry.id !== personId))
-        setVisiblePeople((current) => current.filter((entry) => entry.id !== personId))
-        setListTotalCount((current) => Math.max(0, current - 1))
         await loadVisiblePeople()
         flash(
           translate(
@@ -546,7 +552,6 @@ export function CompanyPeopleSection({
       }
     },
     [
-      applyPeopleChange,
       companyId,
       loadVisiblePeople,
       onLoadingChange,

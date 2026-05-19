@@ -14,7 +14,6 @@ import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
 import {
   applyEntityIdExclusion,
   applyEntityIdRestriction,
-  consumeAdvancedFilterState,
   findMatchingEntityIdsWithQueryEngine,
   findMatchingEntityIdsBySearchTokensAcrossSources,
   withScopedPayload,
@@ -27,13 +26,16 @@ import {
 import { escapeLikePattern } from '@open-mercato/shared/lib/db/escapeLikePattern'
 import { parseBooleanToken } from '@open-mercato/shared/lib/boolean'
 import { findWithDecryption } from '@open-mercato/shared/lib/encryption/find'
-import { mergeAdvancedFilters } from '@open-mercato/shared/lib/crud/advanced-filter-integration'
+import { consumeAdvancedFilterState, mergeAdvancedFilterTree } from '@open-mercato/shared/lib/crud/advanced-filter-integration'
 import {
   createCustomersCrudOpenApi,
   createPagedListResponseSchema,
   defaultOkResponseSchema,
 } from '../openapi'
-import { withActiveCustomerPersonCompanyLinkFilter } from '../../lib/personCompanyLinkTable'
+import {
+  filterActivePersonCompanyLinks,
+  withActiveCustomerPersonCompanyLinkFilter,
+} from '../../lib/personCompanyLinkTable'
 import { normalizeCompanyProfilePayload } from './payload'
 
 const rawBodySchema = z.object({}).passthrough()
@@ -116,8 +118,7 @@ const crud = makeCrudRoute({
       updatedAt: 'updated_at',
     },
     buildFilters: async (query, ctx) => {
-      const advancedQuery = { ...query }
-      const advancedFilterState = consumeAdvancedFilterState(query)
+      const advancedFilterTree = consumeAdvancedFilterState(query)
       const filters: Record<string, unknown> = { kind: { $eq: 'company' } }
       if (query.id) filters.id = { $eq: query.id }
       if (query.search) {
@@ -217,12 +218,14 @@ const crud = makeCrudRoute({
             { person: query.excludeLinkedPersonId },
             'customers.companies.GET',
           )
-          const links = await findWithDecryption(
-            em,
-            CustomerPersonCompanyLink,
-            linkWhere,
-            { populate: ['company'] },
-            decryptionScope,
+          const links = filterActivePersonCompanyLinks(
+            await findWithDecryption(
+              em,
+              CustomerPersonCompanyLink,
+              linkWhere,
+              { populate: ['company'] },
+              decryptionScope,
+            ),
           )
           links.forEach((link) => {
             const companyId = link.company?.id
@@ -308,11 +311,8 @@ const crud = makeCrudRoute({
           console.warn('[customers.companies.list] custom field filter resolution failed; falling back to base filters', err)
         }
       }
-      if (ctx && advancedFilterState) {
-        const advancedFilters = mergeAdvancedFilters(
-          { ...filters },
-          advancedQuery as Record<string, unknown>,
-        )
+      if (ctx && advancedFilterTree) {
+        const advancedFilters = mergeAdvancedFilterTree({ ...filters }, advancedFilterTree)
         const matchedIds = await findMatchingEntityIdsWithQueryEngine({
           ctx,
           entityId: E.customers.customer_entity,
@@ -523,5 +523,15 @@ export const openApi = createCustomersCrudOpenApi({
     schema: z.object({ id: z.string().uuid() }),
     responseSchema: defaultOkResponseSchema,
     description: 'Deletes a company by id. The identifier can be provided via body or query.',
+    errors: [
+      {
+        status: 422,
+        description: 'Company has dependent records (people, deals, or direct staff); unlink or reassign before delete.',
+        schema: z.object({
+          error: z.string(),
+          code: z.literal('COMPANY_HAS_DEPENDENTS'),
+        }),
+      },
+    ],
   },
 })

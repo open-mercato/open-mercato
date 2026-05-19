@@ -22,10 +22,16 @@ import {
   resolveProgressPercent,
   stripAnsi,
 } from './dev-splash-helpers.mjs'
+import { purgeAppBuildCaches } from './dev-cache-purge.mjs'
 import { resolveSpawnCommand } from './dev-spawn-utils.mjs'
 import { createDevSplashCodingFlow } from './dev-splash-coding-flow.mjs'
 import { createDevSplashGitRepoFlow } from './dev-splash-git-repo-flow.mjs'
 import { normalizeSplashDisplayState } from './dev-splash-state.mjs'
+import {
+  resolveDevBaseUrl,
+  resolveSplashUrl as resolveSplashAccessUrl,
+} from './dev-splash-url.mjs'
+import { resolveDatabaseNameOverride } from './dev-database-url.mjs'
 
 function detectDevRuntimeMode() {
   const cwd = process.cwd()
@@ -155,23 +161,17 @@ function shouldRetrySplashServerWithRandomPort(error) {
   return error.code === 'EADDRINUSE'
 }
 
-function normalizePublicBaseUrl(value) {
-  if (typeof value !== 'string' || value.trim().length === 0) return null
-
-  try {
-    const parsed = new URL(value)
-    parsed.pathname = ''
-    parsed.search = ''
-    parsed.hash = ''
-    return parsed.toString().replace(/\/$/, '')
-  } catch {
-    return null
-  }
-}
-
 function isEnabledEnvFlag(value) {
   if (typeof value !== 'string') return false
   return ['1', 'true', 'yes', 'on'].includes(value.trim().toLowerCase())
+}
+
+// OM_DEV_AUTO_MIGRATE defaults to ON: yarn dev applies pending migrations once
+// at startup unless the user explicitly opts out. Documented in template AGENTS.md.
+function shouldAutoMigrateOnDev() {
+  const raw = process.env.OM_DEV_AUTO_MIGRATE
+  if (typeof raw !== 'string') return true
+  return !['0', 'false', 'no', 'off'].includes(raw.trim().toLowerCase())
 }
 
 const splashPortConfig = (() => {
@@ -295,9 +295,7 @@ function formatProgressLine(label, current, total, percent) {
 }
 
 function resolveExpectedAppBaseUrl() {
-  return normalizePublicBaseUrl(process.env.APP_URL)
-    ?? normalizePublicBaseUrl(process.env.NEXT_PUBLIC_APP_URL)
-    ?? `http://localhost:${parsePortNumber(process.env.PORT) ?? 3000}`
+  return resolveDevBaseUrl(process.env).url
 }
 
 function resolveExpectedBackendUrl() {
@@ -512,6 +510,27 @@ function buildSplashChildEnv() {
   }
 }
 
+function applyLocalDevBackgroundServiceDefaults(childEnv) {
+  const env = childEnv ?? {}
+  if (
+    typeof process.env.OM_AUTO_SPAWN_WORKERS_LAZY !== 'string'
+    || process.env.OM_AUTO_SPAWN_WORKERS_LAZY.trim() === ''
+  ) {
+    env.OM_AUTO_SPAWN_WORKERS_LAZY = 'true'
+  }
+  if (
+    typeof process.env.OM_AUTO_SPAWN_SCHEDULER_LAZY !== 'string'
+    || process.env.OM_AUTO_SPAWN_SCHEDULER_LAZY.trim() === ''
+  ) {
+    env.OM_AUTO_SPAWN_SCHEDULER_LAZY = 'true'
+  }
+  return env
+}
+
+function buildAppDevEnv() {
+  return applyLocalDevBackgroundServiceDefaults(buildSplashChildEnv() ?? {})
+}
+
 function launchStandaloneDev(options = {}) {
   if (!fs.existsSync(standaloneRuntimeScript)) {
     console.error(`❌ Standalone dev runtime not found at ${standaloneRuntimeScript}`)
@@ -546,7 +565,7 @@ function launchStandaloneDev(options = {}) {
 
   const app = spawnCommand(process.execPath, runtimeArgs, {
     stdio: 'inherit',
-    env: buildSplashChildEnv(),
+    env: buildAppDevEnv(),
   })
 
   app.on('close', (code) => {
@@ -575,6 +594,39 @@ function ensureStandaloneEnvFile() {
       activity: 'Project files are ready',
     })
   }
+}
+
+function resolveDatabaseEnvFilePath() {
+  return isMonorepo
+    ? path.join(process.cwd(), 'apps', 'mercato', '.env')
+    : path.join(process.cwd(), '.env')
+}
+
+async function applyDatabaseNameOverrideIfRequested() {
+  let result
+  try {
+    result = await resolveDatabaseNameOverride({
+      argv: args,
+      env: process.env,
+      cwd: process.cwd(),
+      envFilePath: resolveDatabaseEnvFilePath(),
+      stdin: process.stdin,
+      stdout: process.stdout,
+      logger: { info: (msg) => console.log(msg) },
+    })
+  } catch (error) {
+    console.error(`❌ ${error instanceof Error ? error.message : String(error)}`)
+    shutdown(1)
+    return null
+  }
+
+  if (result?.applied) {
+    process.env.DATABASE_URL = result.childEnv.DATABASE_URL
+    updateSplashState({
+      activity: `Using database "${result.databaseName}" for this run`,
+    })
+  }
+  return result
 }
 
 function normalizeLocaleToken(value) {
@@ -916,7 +968,7 @@ async function startSplashServer() {
 
   const address = splashServer.address()
   if (!address || typeof address === 'string') return
-  splashUrl = `http://localhost:${address.port}`
+  splashUrl = resolveSplashAccessUrl(process.env, address.port)
   if (splashPortConfig.port !== 0 && address.port !== splashPortConfig.port) {
     console.log(`🪟 Dev splash moved to ${splashUrl}`)
   }
@@ -998,7 +1050,7 @@ function isExpectedShutdownSignal(signal) {
 }
 
 function isGracefulShutdownResult(result) {
-  return shuttingDown && isExpectedShutdownSignal(result?.signal)
+  return shuttingDown && (isExpectedShutdownSignal(result?.signal) || result?.code === 0)
 }
 
 function resolveChildExitCode(result, fallback = 1) {
@@ -1560,12 +1612,15 @@ function launchMonorepoAppDev() {
   })
   const app = spawnCommand(yarnCommand, appArgs, {
     stdio: 'inherit',
-    env: buildSplashChildEnv(),
+    env: buildAppDevEnv(),
   })
 
   app.on('close', (code, signal) => {
     if (!shuttingDown) {
-      shutdown(resolveChildExitCode({ code, signal }, 0))
+      // Unexpected child exit MUST surface as non-zero even if the child reported
+      // code 0 — hiding a broken runtime as success masks failures from scripts/CI.
+      const childCode = resolveChildExitCode({ code, signal }, 1)
+      shutdown(childCode === 0 ? 1 : childCode)
     }
   })
 }
@@ -1593,6 +1648,7 @@ async function runClassicStandardDev() {
 }
 
 async function runGreenfieldDev() {
+  purgeAppBuildCaches()
   await runStage('🧱 Greenfield build packages', ['build:packages'], { stageCurrent: 1, stageTotal: 5 })
   await runStage('🧬 Greenfield generate artifacts', ['generate'], { stageCurrent: 2, stageTotal: 5 })
   await runStage('🧱 Greenfield rebuild packages', ['build:packages'], { stageCurrent: 3, stageTotal: 5 })
@@ -1603,6 +1659,7 @@ async function runGreenfieldDev() {
 }
 
 async function runClassicGreenfieldDev() {
+  purgeAppBuildCaches()
   await runRawYarnCommand(['build:packages'])
   await runRawYarnCommand(['generate'])
   await runRawYarnCommand(['build:packages'])
@@ -1614,6 +1671,7 @@ async function runClassicGreenfieldDev() {
 
 async function runStandaloneSetup() {
   ensureStandaloneEnvFile()
+  await applyDatabaseNameOverrideIfRequested()
   if (standaloneLocalRegistryRefresh) {
     await runStage('🧼 Clearing local Open Mercato cache', ['cache', 'clean', '--all'], {
       stageCurrent: 0,
@@ -1640,6 +1698,7 @@ async function runStandaloneSetup() {
 
 async function runClassicStandaloneSetup() {
   ensureStandaloneEnvFile()
+  await applyDatabaseNameOverrideIfRequested()
   if (standaloneLocalRegistryRefresh) {
     await runRawYarnCommand(['cache', 'clean', '--all'])
   }
@@ -1654,6 +1713,10 @@ async function runClassicStandaloneDev() {
   if (standaloneLocalRegistryRefresh) {
     await runRawYarnCommand(['cache', 'clean', '--all'])
     await runRawYarnCommand(['install'])
+  }
+
+  if (shouldAutoMigrateOnDev()) {
+    await runRawYarnCommand(['db:migrate'])
   }
 
   launchStandaloneDev()
@@ -1672,6 +1735,7 @@ async function main() {
       await runStandaloneSetup()
       return
     }
+    await applyDatabaseNameOverrideIfRequested()
     if (classic) {
       await runClassicStandaloneDev()
       return
@@ -1686,9 +1750,17 @@ async function main() {
         stageTotal: standaloneStageTotal,
       })
     }
+    if (shouldAutoMigrateOnDev()) {
+      await runPassthroughStage('🗄️ Applying database migrations', ['db:migrate'], {
+        stageCurrent: 2,
+        stageTotal: standaloneStageTotal,
+      })
+    }
     launchStandaloneDev()
     return
   }
+
+  await applyDatabaseNameOverrideIfRequested()
 
   if (appOnly) {
     launchMonorepoAppDev()

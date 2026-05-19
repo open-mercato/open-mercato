@@ -1,0 +1,29 @@
+=== DESIGN SYSTEM HEALTH CHECK ===
+Date: 2026-05-13
+
+--- Hardcoded Status Colors ---
+  Count: 617 (target: 0)
+
+--- Arbitrary Text Sizes ---
+  Count: 38 (target: 1)
+
+--- Deprecated Notice Usage ---
+  Notice imports: 1 (target: 0)
+  ErrorNotice imports: 8 (target: 0)
+
+--- Inline SVG ---
+  Files with inline SVG: 30 (target: 0)
+
+--- Raw fetch() in Backend ---
+  Raw fetch files: 1 (target: 0)
+
+--- Empty State Coverage ---
+  Pages with empty state: 8 / 152 (5%)
+
+--- Loading State Coverage ---
+  Pages with loading state: 90 / 152 (59%)
+
+--- Semantic Token Adoption ---
+  Semantic token usages: 515
+
+=== END REPORT ===

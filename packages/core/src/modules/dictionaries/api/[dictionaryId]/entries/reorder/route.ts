@@ -7,7 +7,7 @@ import {
   reorderDictionaryEntriesSchema,
   type ReorderDictionaryEntriesCommandInput,
 } from '@open-mercato/core/modules/dictionaries/data/validators'
-import { CrudHttpError } from '@open-mercato/shared/lib/crud/errors'
+import { CrudHttpError, isCrudHttpError } from '@open-mercato/shared/lib/crud/errors'
 import type { CommandBus } from '@open-mercato/shared/lib/commands'
 import type { OpenApiMethodDoc, OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
 import { serializeOperationMetadata } from '@open-mercato/shared/lib/commands/operationMetadata'
@@ -124,7 +124,7 @@ export async function POST(req: Request, ctx: { params?: { dictionaryId?: string
     }
     return response
   } catch (err) {
-    if (err instanceof CrudHttpError) {
+    if (isCrudHttpError(err)) {
       return NextResponse.json(err.body, { status: err.status })
     }
     console.error('[dictionaries/:id/entries/reorder.POST] Unexpected error', err)

@@ -22,7 +22,7 @@ export function SalesDocumentMessagePreview({
   const subtitle = previewData?.subtitle || ""
 
   return (
-    <div className="flex items-start gap-3 rounded-md border bg-muted/20 p-3">
+    <div className="flex items-start gap-3 rounded-md border bg-muted/30 p-3">
       <Icon className="mt-0.5 h-4 w-4 text-muted-foreground" />
       <div className="min-w-0 flex-1 space-y-1">
         <div className="flex items-center gap-2">

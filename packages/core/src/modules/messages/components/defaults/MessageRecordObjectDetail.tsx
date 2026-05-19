@@ -62,7 +62,7 @@ export function MessageRecordObjectDetail({
 
   return (
     <div className="space-y-3 rounded p-3 text-sm">
-      <div className="flex items-start gap-3 rounded bg-muted/20 p-3">
+      <div className="flex items-start gap-3 rounded bg-muted/30 p-3">
         <Link2 className="mt-0.5 h-4 w-4 text-muted-foreground" />
         <div className="min-w-0 flex-1 space-y-1">
           <p className="font-medium">{title}</p>

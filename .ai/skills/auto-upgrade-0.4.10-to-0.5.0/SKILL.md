@@ -1,6 +1,6 @@
 ---
 name: auto-upgrade-0.4.10-to-0.5.0
-description: Migrate a downstream Open Mercato user's codebase (custom modules, app-level code, extensions) from framework 0.4.10 to 0.5.0. This release is the biggest Open Mercato release so far and bundles 250+ post-Hackathon fixes plus several important dependency upgrades, so this skill acts as the executable companion to UPGRADE_NOTES.md. It mechanically applies the documented codemods for the 0.4.10 → 0.5.0 window — Meilisearch class rename, Stripe API-version typing, lucide-react brand-icon removals and metadata-icon safety fixes, react-markdown className wrap, cron-parser `CronExpressionParser.parse` rename, @simplewebauthn Uint8Array narrowing, react-email CLI rename, plus the Jest ESM allow-list. Runs inside the user's repo, detects which patterns are actually in use, edits files in place, typechecks, and reports what was migrated and what still needs a human eye. Use when a user asks to "upgrade my Open Mercato project from 0.4.10 to 0.5.0", "bump open-mercato to 0.5.0", or "apply the UPGRADE_NOTES migrations".
+description: Migrate a downstream Open Mercato user codebase from 0.4.10 to 0.5.0. Executable companion to UPGRADE_NOTES.md — detects which codemod patterns are in use, applies them in place, typechecks, and reports what still needs human review. Triggers on "upgrade open-mercato to 0.5.0", "bump to 0.5.0", or "apply UPGRADE_NOTES migrations".
 ---
 
 # auto-upgrade-0.4.10-to-0.5.0

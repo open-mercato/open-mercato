@@ -1,7 +1,7 @@
 import { NextResponse } from 'next/server'
 import { z } from 'zod'
 import type { EntityManager } from '@mikro-orm/postgresql'
-import { CrudHttpError } from '@open-mercato/shared/lib/crud/errors'
+import { CrudHttpError, isCrudHttpError } from '@open-mercato/shared/lib/crud/errors'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import { getAuthFromRequest } from '@open-mercato/shared/lib/auth/server'
 import { resolveOrganizationScopeForRequest } from '@open-mercato/core/modules/directory/utils/organizationScope'
@@ -142,7 +142,7 @@ export async function GET(req: Request, ctx: { params?: { id?: string } }) {
       totalPages,
     })
   } catch (error) {
-    if (error instanceof CrudHttpError) {
+    if (isCrudHttpError(error)) {
       return NextResponse.json(error.body, { status: error.status })
     }
     console.error('[customers.deals.people.GET]', error)

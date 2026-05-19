@@ -33,6 +33,12 @@ export const DataTableInjectionSpots = {
   header: (tableId: string): InjectionSpotId => `data-table:${tableId}:header`,
   footer: (tableId: string): InjectionSpotId => `data-table:${tableId}:footer`,
   toolbar: (tableId: string): InjectionSpotId => `data-table:${tableId}:toolbar`,
+  // Slot rendered immediately after the search input on the same row as the
+  // FilterBar — intended for compact, icon-sized triggers (AI assistants,
+  // saved view shortcuts, etc.). Hosts pass the resolved spot ID through to
+  // FilterBar's `searchTrailing` prop. Stays empty when the table has no
+  // search input.
+  searchTrailing: (tableId: string): InjectionSpotId => `data-table:${tableId}:search-trailing`,
   emptyState: (tableId: string): InjectionSpotId => `data-table:${tableId}:empty-state`,
   columns: (tableId: string): InjectionSpotId => `data-table:${tableId}:columns`,
   rowActions: (tableId: string): InjectionSpotId => `data-table:${tableId}:row-actions`,

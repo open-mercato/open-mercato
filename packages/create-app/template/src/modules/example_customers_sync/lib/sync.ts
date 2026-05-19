@@ -749,7 +749,6 @@ function decodeCursor(token: string | undefined): CursorPayload | null {
     if (typeof parsed.id !== 'string' || typeof parsed.createdAt !== 'string') return null
     return parsed
   } catch {
-    /* malformed cursor token — treat as no cursor */
     return null
   }
 }

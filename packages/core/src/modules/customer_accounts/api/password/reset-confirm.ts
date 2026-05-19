@@ -7,6 +7,7 @@ import { CustomerUserService } from '@open-mercato/core/modules/customer_account
 import { CustomerTokenService } from '@open-mercato/core/modules/customer_accounts/services/customerTokenService'
 import { CustomerSessionService } from '@open-mercato/core/modules/customer_accounts/services/customerSessionService'
 import { CustomerUser } from '@open-mercato/core/modules/customer_accounts/data/entities'
+import { emitCustomerAccountsEvent } from '@open-mercato/core/modules/customer_accounts/events'
 import type { EntityManager } from '@mikro-orm/postgresql'
 
 export const metadata: { path?: string; requireAuth?: boolean } = { requireAuth: false }
@@ -34,20 +35,31 @@ export async function POST(req: Request) {
     return NextResponse.json({ ok: false, error: 'Invalid or expired token' }, { status: 400 })
   }
 
-  await customerUserService.updatePassword(
-    { id: result.userId } as any,
-    parsed.data.password,
-  )
+  const user = await customerUserService.findById(result.userId, result.tenantId)
+  if (!user) {
+    return NextResponse.json({ ok: false, error: 'Invalid or expired token' }, { status: 400 })
+  }
 
   const em = container.resolve('em') as EntityManager
+  await em.transactional(async (trx) => {
+    await customerUserService.updatePassword(user, parsed.data.password, trx)
+    await customerSessionService.revokeAllUserSessions(user.id, trx)
+  })
+
   await em.nativeUpdate(
     CustomerUser,
-    { id: result.userId, emailVerifiedAt: null },
+    { id: user.id, emailVerifiedAt: null },
     { emailVerifiedAt: new Date() },
   )
 
-  // Revoke all existing sessions for security
-  await customerSessionService.revokeAllUserSessions(result.userId)
+  void emitCustomerAccountsEvent('customer_accounts.password.changed', {
+    userId: user.id,
+    tenantId: user.tenantId,
+    organizationId: user.organizationId ?? null,
+    changedBy: 'reset',
+    changedById: null,
+    at: new Date().toISOString(),
+  }).catch(() => undefined)
 
   return NextResponse.json({ ok: true })
 }

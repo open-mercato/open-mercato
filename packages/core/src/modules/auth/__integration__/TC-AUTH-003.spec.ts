@@ -14,9 +14,9 @@ test.describe('TC-AUTH-003: Login with Remember Me', () => {
 
     await page.goto('/login');
     await page.getByLabel('Email').fill('admin@acme.com');
-    await page.getByLabel('Password').fill('secret');
+    await page.getByLabel('Password', { exact: true }).fill('secret');
     await page.getByRole('checkbox', { name: /remember me/i }).check();
-    await page.getByLabel('Password').press('Enter');
+    await page.getByLabel('Password', { exact: true }).press('Enter');
 
     await expect(page).toHaveURL(/\/backend(?:\/.*)?$/);
 

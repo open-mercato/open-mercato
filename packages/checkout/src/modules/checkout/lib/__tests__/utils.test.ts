@@ -345,4 +345,32 @@ describe('checkout utils', () => {
     expect(serializeTransaction(transaction, null, false).userAgent).toBeNull()
     expect(serializeTransaction(transaction, null, true).userAgent).toBe('Mozilla/5.0')
   })
+
+  it('serializes decrypted JSONB strings back into object-shaped PII fields', () => {
+    const transaction = new CheckoutTransaction()
+    transaction.id = 'txn_1'
+    transaction.linkId = 'link_1'
+    transaction.amount = '99.99'
+    transaction.currencyCode = 'USD'
+    transaction.status = 'completed'
+    transaction.idempotencyKey = 'idem_1'
+    const decryptedTransaction = transaction as unknown as {
+      acceptedLegalConsents: unknown
+      customerData: unknown
+    }
+    decryptedTransaction.acceptedLegalConsents = '{"terms":{"title":"Terms of Service","required":true}}'
+    decryptedTransaction.customerData = '{"email":"buyer@example.com"}'
+
+    expect(serializeTransaction(transaction, null, true)).toMatchObject({
+      acceptedLegalConsents: {
+        terms: {
+          title: 'Terms of Service',
+          required: true,
+        },
+      },
+      customerData: {
+        email: 'buyer@example.com',
+      },
+    })
+  })
 })

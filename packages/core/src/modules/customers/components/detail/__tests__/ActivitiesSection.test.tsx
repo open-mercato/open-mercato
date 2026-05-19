@@ -51,6 +51,15 @@ jest.mock('../ActivityTimelineFilters', () => ({
   ActivityTimelineFilters: () => null,
 }))
 
+const sampleActivity = (overrides: Record<string, unknown>) => ({
+  status: 'done',
+  scheduledAt: null,
+  occurredAt: '2026-03-29T09:00:00.000Z',
+  createdAt: '2026-03-29T09:00:00.000Z',
+  updatedAt: '2026-03-29T09:00:00.000Z',
+  ...overrides,
+})
+
 jest.mock('../ActivityTimeline', () => ({
   ActivityTimeline: (props: unknown) => {
     activityTimelineMock(props)
@@ -224,5 +233,95 @@ describe('Customer ActivitiesSection wrapper', () => {
     }
 
     expect(timelineProps.activities.map((item) => item.id)).toEqual(['page-1', 'page-2'])
+  })
+
+  it('filters timeline by search term across title, body, and author', async () => {
+    readApiResultOrThrowMock.mockResolvedValue({
+      items: [
+        sampleActivity({ id: 'meeting-1', interactionType: 'meeting', title: 'Q2 review with Sarah', body: null, authorName: 'Jan Kowalski' }),
+        sampleActivity({ id: 'email-1', interactionType: 'email', title: 'Pricing PDF', body: 'Three pricing variants attached', authorName: 'Oliwia Z.' }),
+        sampleActivity({ id: 'call-1', interactionType: 'call', title: 'Discovery call', body: 'Budget confirmed', authorName: 'Anna Nowak' }),
+      ],
+    })
+
+    renderWithProviders(
+      <CustomerActivitiesSection
+        entityId="company-123"
+        useCanonicalInteractions
+        addActionLabel="Log activity"
+        emptyState={{ title: 'No activities logged yet', actionLabel: 'Log activity' }}
+      />,
+    )
+
+    await waitFor(() => {
+      const props = activityTimelineMock.mock.calls.at(-1)?.[0] as { activities: Array<{ id: string }> }
+      expect(props.activities).toHaveLength(3)
+    })
+
+    const searchInput = screen.getByRole('searchbox', { name: /search interaction history/i })
+
+    fireEvent.change(searchInput, { target: { value: 'pricing' } })
+    await waitFor(() => {
+      const props = activityTimelineMock.mock.calls.at(-1)?.[0] as { activities: Array<{ id: string }> }
+      expect(props.activities.map((item) => item.id)).toEqual(['email-1'])
+    })
+
+    fireEvent.change(searchInput, { target: { value: 'jan' } })
+    await waitFor(() => {
+      const props = activityTimelineMock.mock.calls.at(-1)?.[0] as { activities: Array<{ id: string }> }
+      expect(props.activities.map((item) => item.id)).toEqual(['meeting-1'])
+    })
+
+    fireEvent.change(searchInput, { target: { value: 'Budget' } })
+    await waitFor(() => {
+      const props = activityTimelineMock.mock.calls.at(-1)?.[0] as { activities: Array<{ id: string }> }
+      expect(props.activities.map((item) => item.id)).toEqual(['call-1'])
+    })
+
+    fireEvent.change(searchInput, { target: { value: '   ' } })
+    await waitFor(() => {
+      const props = activityTimelineMock.mock.calls.at(-1)?.[0] as { activities: Array<{ id: string }> }
+      expect(props.activities.map((item) => item.id)).toEqual(['meeting-1', 'email-1', 'call-1'])
+    })
+  })
+
+  it('focuses the search input when Cmd+1 / Ctrl+1 is pressed', async () => {
+    readApiResultOrThrowMock.mockResolvedValue({ items: [] })
+
+    renderWithProviders(
+      <CustomerActivitiesSection
+        entityId="company-123"
+        useCanonicalInteractions
+        addActionLabel="Log activity"
+        emptyState={{ title: 'No activities logged yet', actionLabel: 'Log activity' }}
+      />,
+    )
+
+    const searchInput = await screen.findByRole('searchbox', { name: /search interaction history/i })
+    expect(document.activeElement).not.toBe(searchInput)
+
+    fireEvent.keyDown(window, { key: '1', metaKey: true })
+    expect(document.activeElement).toBe(searchInput)
+
+    searchInput.blur()
+    expect(document.activeElement).not.toBe(searchInput)
+
+    fireEvent.keyDown(window, { key: '1', ctrlKey: true })
+    expect(document.activeElement).toBe(searchInput)
+  })
+
+  it('does not bind the Cmd+1 shortcut when entityId is missing', async () => {
+    renderWithProviders(
+      <CustomerActivitiesSection
+        entityId={null}
+        useCanonicalInteractions
+        addActionLabel="Log activity"
+        emptyState={{ title: 'No activities logged yet', actionLabel: 'Log activity' }}
+      />,
+    )
+
+    const searchInput = await screen.findByRole('searchbox', { name: /search interaction history/i })
+    fireEvent.keyDown(window, { key: '1', metaKey: true })
+    expect(document.activeElement).not.toBe(searchInput)
   })
 })

@@ -7,6 +7,12 @@ function resolveUrl(path: string): string {
   return BASE_URL ? `${BASE_URL}${path}` : path;
 }
 
+// Cached tokens per credential to dodge the login rate limit
+// (5 attempts/60s per email). Tokens are reused across tests in the same
+// Playwright worker; each worker still mints its own.
+const tokenCache = new Map<string, { token: string; mintedAt: number }>();
+const TOKEN_TTL_MS = 45 * 60 * 1000; // 45 min; well under the default 2h session TTL.
+
 export async function getAuthToken(
   request: APIRequestContext,
   roleOrEmail: Role | string = 'admin',
@@ -25,6 +31,14 @@ export async function getAuthToken(
     credentialAttempts.push({ email: roleOrEmail, password: password ?? 'secret' });
   }
 
+  const cacheKey = credentialAttempts
+    .map((entry) => `${entry.email}:${entry.password}`)
+    .join('|');
+  const cached = tokenCache.get(cacheKey);
+  if (cached && Date.now() - cached.mintedAt < TOKEN_TTL_MS) {
+    return cached.token;
+  }
+
   let lastStatus = 0;
 
   for (const attempt of credentialAttempts) {
@@ -32,24 +46,32 @@ export async function getAuthToken(
     form.set('email', attempt.email);
     form.set('password', attempt.password);
 
-    const response = await request.post(resolveUrl('/api/auth/login'), {
-      headers: {
-        'content-type': 'application/x-www-form-urlencoded',
-      },
-      data: form.toString(),
-    });
+    // Retry on 429 (auth rate limit kicks in after ~25-30 rapid attempts from
+    // the same test run). Capped exponential backoff: 1s, 2s, 4s; 3 retries.
+    for (let retry = 0; retry < 4; retry += 1) {
+      const response = await request.post(resolveUrl('/api/auth/login'), {
+        headers: {
+          'content-type': 'application/x-www-form-urlencoded',
+        },
+        data: form.toString(),
+      });
 
-    const raw = await response.text();
-    let body: Record<string, unknown> | null = null;
-    try {
-      body = raw ? (JSON.parse(raw) as Record<string, unknown>) : null;
-    } catch {
-      body = null;
-    }
+      const raw = await response.text();
+      let body: Record<string, unknown> | null = null;
+      try {
+        body = raw ? (JSON.parse(raw) as Record<string, unknown>) : null;
+      } catch {
+        body = null;
+      }
 
-    lastStatus = response.status();
-    if (response.ok() && body && typeof body.token === 'string' && body.token) {
-      return body.token;
+      lastStatus = response.status();
+      if (response.ok() && body && typeof body.token === 'string' && body.token) {
+        tokenCache.set(cacheKey, { token: body.token, mintedAt: Date.now() });
+        return body.token;
+      }
+      if (response.status() !== 429) break;
+      const backoffMs = 1000 * 2 ** retry;
+      await new Promise((resolve) => setTimeout(resolve, backoffMs));
     }
   }
 

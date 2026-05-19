@@ -50,6 +50,10 @@ const persist = jest.fn(function persist(this: any, entity: any) {
   return this
 })
 const flush = jest.fn(async () => {})
+const persistAndFlush = jest.fn(async (entity: any) => {
+  persist(entity)
+  await flush()
+})
 
 jest.mock('@open-mercato/shared/lib/di/container', () => ({
   createRequestContainer: async () => ({
@@ -58,8 +62,10 @@ jest.mock('@open-mercato/shared/lib/di/container', () => ({
       find,
       create,
       persist,
+      persistAndFlush,
       flush,
-      transactional: async (cb: (tem: any) => any) => cb({ findOne, find, create, persist, flush }),
+      transactional: async (cb: (tem: any) => any) =>
+        cb({ findOne, find, create, persist, persistAndFlush, flush }),
     }),
   }),
 }))

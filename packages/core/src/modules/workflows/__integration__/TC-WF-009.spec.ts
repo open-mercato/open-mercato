@@ -1,100 +1,464 @@
-import { expect, test } from '@playwright/test'
+import { expect, test, type APIRequestContext } from '@playwright/test'
 import { apiRequest, getAuthToken } from '@open-mercato/core/modules/core/__integration__/helpers/api'
 import { readJsonSafe } from '@open-mercato/core/modules/core/__integration__/helpers/generalFixtures'
 import {
-  cancelWorkflowInstanceIfExists,
-  createWorkflowDefinitionFixture,
   deleteWorkflowDefinitionIfExists,
-  startWorkflowInstanceFixture,
 } from '@open-mercato/core/modules/core/__integration__/helpers/workflowsFixtures'
 
 /**
- * TC-WF-009: Sync WAIT activity executes end-to-end
+ * TC-WF-009: Code-Based Workflow Definitions
  *
- * Starts an instance of a definition whose sole transition carries a
- * synchronous WAIT activity (`duration: PT1S`). Polls the instance until it
- * reaches COMPLETED and asserts the completion was delayed by at least ~1s,
- * proving the WAIT activity actually paused execution rather than being
- * skipped.
+ * Covers: code definitions in list API, code definition detail via code:<id>,
+ *         customization via PUT code:<id>, reset-to-code, and source field.
+ *
+ * Prerequisites: The app must have code-based workflow definitions registered
+ * at bootstrap (e.g., workflows.simple-approval from the workflows module).
  */
-test.describe('TC-WF-009: Sync WAIT activity delays and completes', () => {
-  test('workflow with sync WAIT reaches COMPLETED after the configured duration', async ({ request }) => {
+
+// A code workflow registered by the workflows module in workflows.ts
+const CODE_WORKFLOW_ID = 'workflows.simple-approval'
+const CODE_WORKFLOW_API_ID = `code:${CODE_WORKFLOW_ID}`
+
+type DefinitionRecord = {
+  id: string
+  workflowId: string
+  workflowName: string
+  description?: string | null
+  version: number
+  definition: Record<string, unknown>
+  enabled: boolean
+  source?: string
+  isCodeBased?: boolean
+  codeModuleId?: string
+}
+
+type ListResponse = {
+  data?: DefinitionRecord[]
+  pagination?: { total?: number }
+}
+
+type DetailResponse = {
+  data?: DefinitionRecord
+  message?: string
+}
+
+async function findCodeDefinitionInList(
+  request: APIRequestContext,
+  token: string,
+  workflowId: string,
+): Promise<DefinitionRecord | undefined> {
+  const response = await apiRequest(
+    request,
+    'GET',
+    `/api/workflows/definitions?workflowId=${encodeURIComponent(workflowId)}`,
+    { token },
+  )
+  expect(response.status()).toBe(200)
+  const body = await readJsonSafe<ListResponse>(response)
+  return body?.data?.find((d) => d.workflowId === workflowId)
+}
+
+test.describe('TC-WF-009: Code-Based Workflow Definitions', () => {
+  test('GET list should include code-based definitions with source field', async ({ request }) => {
     const token = await getAuthToken(request, 'admin')
-    const timestamp = Date.now()
-    const workflowId = `qa-wf-009-${timestamp}`
 
-    const definitionPayload = {
-      workflowId,
-      workflowName: `QA TC-WF-009 ${timestamp}`,
-      description: 'Integration test: sync WAIT activity delays transition',
-      version: 1,
-      enabled: true,
-      definition: {
-        steps: [
-          { stepId: 'start', stepName: 'Start', stepType: 'START' },
-          { stepId: 'end', stepName: 'End', stepType: 'END' },
-        ],
-        transitions: [
-          {
-            transitionId: 'start-to-end',
-            fromStepId: 'start',
-            toStepId: 'end',
-            trigger: 'auto',
-            activities: [
-              {
-                activityId: 'pause-briefly',
-                activityName: 'Pause briefly',
-                activityType: 'WAIT',
-                async: false,
-                config: { duration: 'PT1S' },
-              },
-            ],
-          },
-        ],
-      },
-    }
+    const response = await apiRequest(
+      request,
+      'GET',
+      '/api/workflows/definitions',
+      { token },
+    )
+    expect(response.status()).toBe(200)
+    const body = await readJsonSafe<ListResponse>(response)
+    expect(body?.data).toBeDefined()
 
-    let definitionId: string | null = null
-    let instanceId: string | null = null
+    // Find the code-based definition
+    const codeDef = body?.data?.find((d) => d.workflowId === CODE_WORKFLOW_ID)
+    expect(codeDef, `Code definition "${CODE_WORKFLOW_ID}" should appear in list`).toBeDefined()
+    expect(codeDef?.source).toBe('code')
+    expect(codeDef?.isCodeBased).toBe(true)
+    expect(codeDef?.id).toBe(CODE_WORKFLOW_API_ID)
+  })
+
+  test('GET code:<workflowId> should return the code-based definition', async ({ request }) => {
+    const token = await getAuthToken(request, 'admin')
+
+    const response = await apiRequest(
+      request,
+      'GET',
+      `/api/workflows/definitions/${encodeURIComponent(CODE_WORKFLOW_API_ID)}`,
+      { token },
+    )
+    expect(response.status()).toBe(200)
+    const body = await readJsonSafe<DetailResponse>(response)
+    expect(body?.data?.workflowId).toBe(CODE_WORKFLOW_ID)
+    expect(body?.data?.source).toBe('code')
+    expect(body?.data?.isCodeBased).toBe(true)
+    expect(body?.data?.id).toBe(CODE_WORKFLOW_API_ID)
+    expect(body?.data?.definition).toBeDefined()
+    expect(body?.data?.workflowName).toBeTruthy()
+  })
+
+  test('GET code:<unknown> should return 404', async ({ request }) => {
+    const token = await getAuthToken(request, 'admin')
+
+    const response = await apiRequest(
+      request,
+      'GET',
+      `/api/workflows/definitions/${encodeURIComponent('code:nonexistent.workflow')}`,
+      { token },
+    )
+    expect(response.status()).toBe(404)
+  })
+
+  test('PUT code:<workflowId> should create a DB override (customize)', async ({ request }) => {
+    const token = await getAuthToken(request, 'admin')
+    let overrideId: string | null = null
 
     try {
-      definitionId = await createWorkflowDefinitionFixture(request, token, definitionPayload)
+      // Fetch original code definition
+      const originalResponse = await apiRequest(
+        request,
+        'GET',
+        `/api/workflows/definitions/${encodeURIComponent(CODE_WORKFLOW_API_ID)}`,
+        { token },
+      )
+      expect(originalResponse.status()).toBe(200)
+      const original = await readJsonSafe<DetailResponse>(originalResponse)
+      expect(original?.data?.source).toBe('code')
 
-      const startedAt = Date.now()
-      instanceId = await startWorkflowInstanceFixture(request, token, {
-        workflowId,
-        initialContext: { test: true },
-      })
+      // Customize: PUT with enabled=false
+      const customizeResponse = await apiRequest(
+        request,
+        'PUT',
+        `/api/workflows/definitions/${encodeURIComponent(CODE_WORKFLOW_API_ID)}`,
+        {
+          token,
+          data: { enabled: false },
+        },
+      )
+      expect(customizeResponse.status(), 'PUT code:<id> should return 200').toBe(200)
+      const customized = await readJsonSafe<DetailResponse>(customizeResponse)
+      expect(customized?.data?.source).toBe('code_override')
+      expect(customized?.data?.isCodeBased).toBe(true)
+      expect(customized?.data?.workflowId).toBe(CODE_WORKFLOW_ID)
+      expect(customized?.data?.enabled).toBe(false)
+      expect(customized?.data?.id).toBeTruthy()
+      // The override gets a real UUID, not a code: prefixed ID
+      expect(customized?.data?.id).not.toContain('code:')
+      overrideId = customized?.data?.id ?? null
 
-      const timeoutAt = startedAt + 8_000
-      let finalStatus: string | undefined
-      let finalBody: { data?: { status?: string } } | null = null
-      while (Date.now() < timeoutAt) {
-        const response = await apiRequest(
-          request,
-          'GET',
-          `/api/workflows/instances/${encodeURIComponent(instanceId)}`,
-          { token },
-        )
-        expect(response.status()).toBe(200)
-        finalBody = await readJsonSafe<{ data?: { status?: string } }>(response)
-        finalStatus = finalBody?.data?.status
-        if (finalStatus === 'COMPLETED' || finalStatus === 'FAILED') break
-        await new Promise((resolve) => setTimeout(resolve, 250))
-      }
-
-      expect(
-        finalStatus,
-        `Workflow should complete after sync WAIT (status=${finalStatus}, body=${JSON.stringify(finalBody)})`,
-      ).toBe('COMPLETED')
-
-      const elapsed = Date.now() - startedAt
-      expect(
-        elapsed,
-        `Workflow completion should be delayed by at least ~1s due to WAIT (took ${elapsed}ms)`,
-      ).toBeGreaterThanOrEqual(900)
+      // Verify: list shows the DB override, not the code version
+      const listed = await findCodeDefinitionInList(request, token, CODE_WORKFLOW_ID)
+      expect(listed, 'Override should appear in list').toBeDefined()
+      expect(listed?.source).toBe('code_override')
+      expect(listed?.id).toBe(overrideId)
     } finally {
-      await cancelWorkflowInstanceIfExists(request, token, instanceId)
+      await deleteWorkflowDefinitionIfExists(request, token, overrideId)
+    }
+  })
+
+  test('POST reset-to-code should delete DB override and restore code version', async ({ request }) => {
+    const token = await getAuthToken(request, 'admin')
+    let overrideId: string | null = null
+
+    try {
+      // Step 1: create an override
+      const customizeResponse = await apiRequest(
+        request,
+        'PUT',
+        `/api/workflows/definitions/${encodeURIComponent(CODE_WORKFLOW_API_ID)}`,
+        {
+          token,
+          data: { enabled: false },
+        },
+      )
+      expect(customizeResponse.status()).toBe(200)
+      const customized = await readJsonSafe<DetailResponse>(customizeResponse)
+      overrideId = customized?.data?.id ?? null
+      expect(overrideId).toBeTruthy()
+
+      // Step 2: reset to code
+      const resetResponse = await apiRequest(
+        request,
+        'POST',
+        `/api/workflows/definitions/${encodeURIComponent(overrideId!)}/reset-to-code`,
+        { token },
+      )
+      expect(resetResponse.status(), 'POST reset-to-code should return 200').toBe(200)
+      const resetBody = await readJsonSafe<DetailResponse>(resetResponse)
+      expect(resetBody?.data?.source).toBe('code')
+      expect(resetBody?.data?.isCodeBased).toBe(true)
+      expect(resetBody?.data?.workflowId).toBe(CODE_WORKFLOW_ID)
+
+      // Override was deleted, no need to clean up
+      overrideId = null
+
+      // Step 3: verify list shows code version again
+      const listed = await findCodeDefinitionInList(request, token, CODE_WORKFLOW_ID)
+      expect(listed, 'Code definition should reappear in list after reset').toBeDefined()
+      expect(listed?.source).toBe('code')
+    } finally {
+      await deleteWorkflowDefinitionIfExists(request, token, overrideId)
+    }
+  })
+
+  test('POST reset-to-code should return 400 for non-code-based definitions', async ({ request }) => {
+    const token = await getAuthToken(request, 'admin')
+    const timestamp = Date.now()
+    let definitionId: string | null = null
+
+    try {
+      // Create a plain user-defined workflow
+      const createResponse = await apiRequest(
+        request,
+        'POST',
+        '/api/workflows/definitions',
+        {
+          token,
+          data: {
+            workflowId: `qa-wf-reset-${timestamp}`,
+            workflowName: `QA Reset Test ${timestamp}`,
+            version: 1,
+            definition: {
+              steps: [
+                { stepId: 'start', stepName: 'Start', stepType: 'START' },
+                { stepId: 'end', stepName: 'End', stepType: 'END' },
+              ],
+              transitions: [
+                { transitionId: 'start-to-end', fromStepId: 'start', toStepId: 'end', trigger: 'auto' },
+              ],
+            },
+            enabled: true,
+          },
+        },
+      )
+      expect(createResponse.status()).toBe(201)
+      const created = await readJsonSafe<DetailResponse>(createResponse)
+      definitionId = created?.data?.id ?? null
+
+      // Try to reset — should fail
+      const resetResponse = await apiRequest(
+        request,
+        'POST',
+        `/api/workflows/definitions/${encodeURIComponent(definitionId!)}/reset-to-code`,
+        { token },
+      )
+      expect(resetResponse.status(), 'Reset on user-created def should return 400').toBe(400)
+    } finally {
+      await deleteWorkflowDefinitionIfExists(request, token, definitionId)
+    }
+  })
+
+  test('GET list search should match code-based definitions', async ({ request }) => {
+    const token = await getAuthToken(request, 'admin')
+
+    // Search by partial workflow name — "Simple Approval" is the name in the code def
+    const response = await apiRequest(
+      request,
+      'GET',
+      `/api/workflows/definitions?search=${encodeURIComponent('Simple Approval')}`,
+      { token },
+    )
+    expect(response.status()).toBe(200)
+    const body = await readJsonSafe<ListResponse>(response)
+    const match = body?.data?.find((d) => d.workflowId === CODE_WORKFLOW_ID)
+    expect(match, 'Code definition should be found via search').toBeDefined()
+    expect(match?.source).toBe('code')
+  })
+
+  test('POST /customize should create a DB override seeded from the code registry', async ({ request }) => {
+    const token = await getAuthToken(request, 'admin')
+    let overrideId: string | null = null
+
+    try {
+      const response = await apiRequest(
+        request,
+        'POST',
+        `/api/workflows/definitions/${encodeURIComponent(CODE_WORKFLOW_API_ID)}/customize`,
+        { token },
+      )
+      expect(response.status(), 'POST /customize should return 200').toBe(200)
+      const body = await readJsonSafe<DetailResponse>(response)
+      expect(body?.data?.source).toBe('code_override')
+      expect(body?.data?.workflowId).toBe(CODE_WORKFLOW_ID)
+      expect(body?.data?.id).toBeTruthy()
+      expect(body?.data?.id).not.toContain('code:')
+      overrideId = body?.data?.id ?? null
+
+      const listed = await findCodeDefinitionInList(request, token, CODE_WORKFLOW_ID)
+      expect(listed?.source).toBe('code_override')
+      expect(listed?.id).toBe(overrideId)
+    } finally {
+      await deleteWorkflowDefinitionIfExists(request, token, overrideId)
+    }
+  })
+
+  test('POST /customize should revive a soft-deleted override instead of erroring', async ({ request }) => {
+    const token = await getAuthToken(request, 'admin')
+    let overrideId: string | null = null
+
+    try {
+      const first = await apiRequest(
+        request,
+        'POST',
+        `/api/workflows/definitions/${encodeURIComponent(CODE_WORKFLOW_API_ID)}/customize`,
+        { token },
+      )
+      expect(first.status()).toBe(200)
+      const firstBody = await readJsonSafe<DetailResponse>(first)
+      overrideId = firstBody?.data?.id ?? null
+      expect(overrideId).toBeTruthy()
+
+      // Soft-delete it
+      const del = await apiRequest(
+        request,
+        'DELETE',
+        `/api/workflows/definitions/${encodeURIComponent(overrideId!)}`,
+        { token },
+      )
+      expect(del.status()).toBeLessThan(400)
+
+      // Customize again — should revive the soft-deleted row
+      const second = await apiRequest(
+        request,
+        'POST',
+        `/api/workflows/definitions/${encodeURIComponent(CODE_WORKFLOW_API_ID)}/customize`,
+        { token },
+      )
+      expect(second.status(), 'POST /customize should revive soft-deleted override').toBe(200)
+      const secondBody = await readJsonSafe<DetailResponse>(second)
+      expect(secondBody?.data?.source).toBe('code_override')
+      overrideId = secondBody?.data?.id ?? null
+    } finally {
+      await deleteWorkflowDefinitionIfExists(request, token, overrideId)
+    }
+  })
+
+  test('POST /customize should return 400 for non-code ids', async ({ request }) => {
+    const token = await getAuthToken(request, 'admin')
+    const timestamp = Date.now()
+    let definitionId: string | null = null
+
+    try {
+      const createResponse = await apiRequest(
+        request,
+        'POST',
+        '/api/workflows/definitions',
+        {
+          token,
+          data: {
+            workflowId: `qa-wf-customize-${timestamp}`,
+            workflowName: `QA Customize Test ${timestamp}`,
+            version: 1,
+            definition: {
+              steps: [
+                { stepId: 'start', stepName: 'Start', stepType: 'START' },
+                { stepId: 'end', stepName: 'End', stepType: 'END' },
+              ],
+              transitions: [
+                { transitionId: 'start-to-end', fromStepId: 'start', toStepId: 'end', trigger: 'auto' },
+              ],
+            },
+            enabled: true,
+          },
+        },
+      )
+      expect(createResponse.status()).toBe(201)
+      const created = await readJsonSafe<DetailResponse>(createResponse)
+      definitionId = created?.data?.id ?? null
+
+      const response = await apiRequest(
+        request,
+        'POST',
+        `/api/workflows/definitions/${encodeURIComponent(definitionId!)}/customize`,
+        { token },
+      )
+      expect(response.status(), 'POST /customize on non-code id should return 400').toBe(400)
+    } finally {
+      await deleteWorkflowDefinitionIfExists(request, token, definitionId)
+    }
+  })
+
+  test('POST /customize should return 404 for unknown code workflow ids', async ({ request }) => {
+    const token = await getAuthToken(request, 'admin')
+    const response = await apiRequest(
+      request,
+      'POST',
+      `/api/workflows/definitions/${encodeURIComponent('code:nonexistent.workflow')}/customize`,
+      { token },
+    )
+    expect(response.status()).toBe(404)
+  })
+
+  test('PUT with full form-shaped payload should not reject unrecognized keys (regression)', async ({ request }) => {
+    // Regression: the UI submits the full CrudForm values (workflowName, description,
+    // version, metadata, definition, enabled, etc.). The earlier validator was
+    // .strict() with only { definition, enabled } and rejected the real client payload.
+    const token = await getAuthToken(request, 'admin')
+    const timestamp = Date.now()
+    let definitionId: string | null = null
+
+    try {
+      const createResponse = await apiRequest(
+        request,
+        'POST',
+        '/api/workflows/definitions',
+        {
+          token,
+          data: {
+            workflowId: `qa-wf-put-${timestamp}`,
+            workflowName: `QA PUT Test ${timestamp}`,
+            description: 'Original description',
+            version: 1,
+            definition: {
+              steps: [
+                { stepId: 'start', stepName: 'Start', stepType: 'START' },
+                { stepId: 'end', stepName: 'End', stepType: 'END' },
+              ],
+              transitions: [
+                { transitionId: 'start-to-end', fromStepId: 'start', toStepId: 'end', trigger: 'auto' },
+              ],
+            },
+            enabled: true,
+          },
+        },
+      )
+      expect(createResponse.status()).toBe(201)
+      const created = await readJsonSafe<DetailResponse>(createResponse)
+      definitionId = created?.data?.id ?? null
+
+      const putResponse = await apiRequest(
+        request,
+        'PUT',
+        `/api/workflows/definitions/${encodeURIComponent(definitionId!)}`,
+        {
+          token,
+          data: {
+            workflowId: `qa-wf-put-${timestamp}`,
+            workflowName: `QA PUT Test ${timestamp} edited`,
+            description: 'Updated description',
+            version: 2,
+            definition: {
+              steps: [
+                { stepId: 'start', stepName: 'Start', stepType: 'START' },
+                { stepId: 'end', stepName: 'End', stepType: 'END' },
+              ],
+              transitions: [
+                { transitionId: 'start-to-end', fromStepId: 'start', toStepId: 'end', trigger: 'auto' },
+              ],
+            },
+            metadata: { category: 'general' },
+            enabled: false,
+          },
+        },
+      )
+      expect(putResponse.status(), 'PUT with full form payload should return 200').toBe(200)
+      const updated = await readJsonSafe<DetailResponse>(putResponse)
+      expect(updated?.data?.workflowName).toBe(`QA PUT Test ${timestamp} edited`)
+      expect(updated?.data?.enabled).toBe(false)
+      expect(updated?.data?.version).toBe(2)
+    } finally {
       await deleteWorkflowDefinitionIfExists(request, token, definitionId)
     }
   })

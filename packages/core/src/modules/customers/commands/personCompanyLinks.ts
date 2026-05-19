@@ -535,14 +535,15 @@ const deletePersonCompanyLinkCommand: CommandHandler<PersonCompanyLinkDeleteInpu
     const profile = await requirePersonProfile(em, person)
     const linkWasPrimary = link.isPrimary
 
+    const existingLinks = await loadPersonCompanyLinks(em, person)
+    const remainingLinks = existingLinks.filter((entry) => entry.id !== link.id)
+
     await withAtomicFlush(em, [
       () => {
         link.isPrimary = false
         link.deletedAt = new Date()
       },
       async () => {
-        const existingLinks = await loadPersonCompanyLinks(em, person)
-        const remainingLinks = existingLinks.filter((entry) => entry.id !== link.id)
         if (linkWasPrimary) {
           await promoteFallbackPrimaryLink(em, person, profile, remainingLinks, companyId)
         } else if (profile.company && typeof profile.company !== 'string' && profile.company.id === companyId) {

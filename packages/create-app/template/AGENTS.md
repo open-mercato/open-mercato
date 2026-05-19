@@ -62,11 +62,14 @@ mercato test coverage
 # Generate code from modules
 yarn generate
 
-# Manually purge structural navigation/sidebar caches when needed
+# Manually purge structural caches when needed (Redis nav:* + Turbopack barrel mtimes)
 yarn mercato configs cache structural --all-tenants
 
+# Escape hatch: clear .next/cache/turbopack when Turbopack still serves a stale chunk
+yarn dev:reset
+
 # Database operations
-yarn db:generate    # Generate migrations
+yarn db:generate    # Generate/probe migrations; keep or write only scoped SQL and update the touched snapshot
 yarn db:migrate     # Run migrations
 yarn db:greenfield  # Reset and recreate database
 
@@ -102,6 +105,20 @@ yarn reinstall
 | `OM_DEV_SPLASH_CLAUDE_CODE_PATH` | auto-detect | Optional path override for the Claude Code CLI. |
 | `OM_DEV_SPLASH_CODEX_PATH` | auto-detect | Optional path override for the Codex CLI. |
 | `OM_DEV_AUTO_MIGRATE` | `1` | When set to `1` (default), `yarn dev` runs `yarn db:migrate` once at startup before Next.js boots. Set to `0` to disable. See "Single-shot Database Migrations" below. |
+| `OM_DEV_DATABASE_NAME` | unset | Same as passing `--database-name=<value>` to `yarn dev` / `yarn setup`. CLI flag wins. |
+| `OM_DEV_DATABASE_UPDATE_ENV` | unset | Non-interactive answer for the `.env` update prompt (`true`/`false`). Equivalent to `--update-env` / `--no-update-env`. |
+
+### Persistent Parallel Local Databases
+
+Add `--database-name[=<name>]` to `yarn dev`, `yarn dev:greenfield`, or `yarn setup` to point this app at an isolated PostgreSQL database without manually editing `.env` first. Behavior:
+
+- `yarn dev` (no flag) is unchanged — no prompt, no `.env` mutation.
+- `yarn setup --database-name=client_a` rewrites the `DATABASE_URL` database segment in `./.env` after a confirmation prompt (default yes).
+- `yarn dev --database-name` (bare flag) derives the database name from the current directory.
+- `yarn dev --database-name=review_1720 --no-update-env` injects the rewritten URL into the current child process only and leaves `.env` untouched.
+- Non-interactive runs (`CI=true` or piped stdin) default to updating `.env`; pass `--no-update-env` to opt out.
+
+The override only changes the database segment of `DATABASE_URL`. Credentials, host, port, query strings (`?schema=…`, `?sslmode=…`), and other env variables are preserved verbatim.
 
 ## Infrastructure
 
@@ -130,6 +147,17 @@ This is a Next.js 16 application built on the **Open Mercato** modular ERP frame
 - `src/bootstrap.ts` - Application initialization (imports generated files, registers i18n)
 - `.mercato/generated/` - Auto-generated files from `yarn generate` (do not edit manually)
 
+### Module Overrides
+
+Use the unified `entry.overrides` field in `src/modules.ts` when this app needs to replace or disable a contract from a package-backed module without forking it. The template ships a non-applied `moduleOverrideExamples` object covering AI, routes, events, workers, widgets, notifications, interceptors, setup, ACL, DI, and encryption. Copy only the specific domains you need into the target module entry's `overrides` field.
+
+Rules:
+
+- `null` disables a matching contract; an object/function definition replaces it.
+- API route keys are `'METHOD /api/path'`; page route keys are `'/backend/path'` or `'/frontend/path'`.
+- `setup` overrides apply to the module entry carrying them, not to a separate setup id map.
+- The standard `src/bootstrap.ts` already calls `applyModuleOverridesFromEnabledModules(enabledModules)` before registries load.
+
 ### Routing Structure
 
 - `/backend/*` - Admin panel routes (AppShell with sidebar navigation)
@@ -147,6 +175,12 @@ Custom modules go in `src/modules/`. Each module can define:
 
 Add new modules to `src/modules.ts` with `from: '@app'`.
 Install official package-backed modules with `yarn mercato module add @open-mercato/<package>`.
+
+### Data Entities
+
+- Define module entities in `src/modules/<module>/data/entities.ts`.
+- Import entity decorators from `@mikro-orm/decorators/legacy`, not `@mikro-orm/core`.
+- Treat `yarn db:generate` as a schema-diff probe. Default to the generated SQL, but if it emits unrelated churn, keep or write only the scoped SQL for the module you are changing and update `src/modules/<module>/migrations/.snapshot-open-mercato.json` in the same change.
 
 ### API Route Files MUST Export `metadata`
 
@@ -188,12 +222,197 @@ Legacy top-level `export const requireAuth` / `export const requireFeatures` exp
 Practical consequences:
 
 - Prefer writing migration files in **one shot** — generate them with `yarn db:generate`, review, commit, move on.
+- Treat `yarn db:generate` as a schema-diff probe. If it creates migrations for unrelated modules, delete that unrelated output and fix the stale snapshot instead of committing noise.
+- Manual SQL is allowed when it is the only clean way to avoid unrelated churn, but the touched module's `.snapshot-open-mercato.json` MUST be updated to the post-change schema in the same change.
+- For the specific entity change you are making, keep or write only the intended SQL migration and update `src/modules/<module>/migrations/.snapshot-open-mercato.json` to the post-change schema in the same change.
+- Do not run `yarn db:migrate` unless the user explicitly asks you to apply migrations. A code change should carry migration files and snapshots; applying them is local database state.
 - Editing an already-applied migration is risky: the next `yarn dev` / `yarn db:migrate` will skip the file (it is already marked applied), so your edits will not land in the database. If iteration is truly unavoidable:
   1. Set `OM_DEV_AUTO_MIGRATE=0` in `.env.local` to stop auto-apply.
   2. Roll back the migration (`yarn db:migrate --down` or reset the dev DB).
   3. Edit the migration file.
   4. Re-apply (`yarn db:migrate`) and commit.
 - Never hand-edit historical migrations that have shipped; add a **new** migration that performs the correction instead.
+
+## AI Assistant — adding agents, tools, UI parts, and overrides
+
+Standalone apps consume the AI framework from `@open-mercato/ai-assistant` (in `node_modules/`). The same conventions used in the monorepo apply here:
+
+- Add a typed agent for a new module by creating `<module>/ai-agents.ts` + `<module>/ai-tools.ts` at the **module root**. Run `yarn generate` after.
+- Add inline UI widgets (record cards, custom server-emitted parts) per the [UI Parts guide](https://docs.open-mercato.dev/framework/ai-assistant/ui-parts).
+- Replace or disable an agent / tool that another module shipped through three paths: extra `aiAgentOverrides` / `aiToolOverrides` exports on the existing `<module>/ai-agents.ts` / `<module>/ai-tools.ts` (per-module), inline on a `ModuleEntry` in `src/modules.ts` (per-app), or programmatically via `applyAiAgentOverrides({...})` / `applyAiToolOverrides({...})` from `@open-mercato/ai-assistant`. `null` disables; a definition replaces. Resolution order is **programmatic → modules.ts → file-based → base**.
+
+Example per-module override (preferred when the override should ship with a module):
+
+```ts
+// src/modules/<my_module>/ai-agents.ts
+import type {
+  AiAgentDefinition,
+  AiAgentOverridesMap,
+} from '@open-mercato/ai-assistant'
+import myAgent from './agents/my-merchandising-agent'
+
+export const aiAgents: AiAgentDefinition[] = [/* ...your module's own agents */]
+
+export const aiAgentOverrides: AiAgentOverridesMap = {
+  'catalog.merchandising_assistant': myAgent,  // replace
+  'catalog.catalog_assistant': null,           // disable
+}
+```
+
+Example `modules.ts` inline override (preferred for app-level decisions that do not deserve a fake module). All module contract domains live under the same `entry.overrides` umbrella per the [unified spec](https://github.com/open-mercato/open-mercato/blob/main/.ai/specs/2026-05-04-modules-ts-unified-overrides.md):
+
+```ts
+// src/modules.ts
+{
+  id: 'example',
+  from: '@app',
+  overrides: {
+    ai: {
+      agents: { 'catalog.catalog_assistant': null },
+      tools:  { 'inbox_ops_accept_action': null },
+    },
+    routes: {
+      api: {
+        'GET /api/example/override-probe': {
+          handler: async () => Response.json({ ok: true, source: 'override' }),
+          metadata: { requireAuth: false },
+        },
+      },
+      pages: {
+        '/backend/example/reports': null,
+      },
+    },
+  },
+},
+```
+
+The template's `src/bootstrap.ts` already calls `applyModuleOverridesFromEnabledModules(enabledModules)` from `@open-mercato/shared/modules/overrides` for you. Importing `@open-mercato/ai-assistant` (also in bootstrap) runs the side-effect that registers the AI domain applier with the dispatcher.
+
+Example programmatic override at boot (env-driven or test-only):
+
+```ts
+// src/bootstrap.ts (extra)
+import {
+  applyAiAgentOverrides,
+  applyAiToolOverrides,
+} from '@open-mercato/ai-assistant'
+
+// Disable an agent provided by the assistant module by default.
+applyAiAgentOverrides({ 'catalog.catalog_assistant': null })
+// Disable a default tool we do not use.
+applyAiToolOverrides({ 'inbox_ops_accept_action': null })
+```
+
+After editing any `aiAgentOverrides` / `aiToolOverrides` export:
+
+```bash
+yarn generate
+yarn mercato configs cache structural --all-tenants
+```
+
+Refer to the `create-ai-agent` skill (`.ai/skills/create-ai-agent/SKILL.md`) and the public docs at `framework/ai-assistant/overrides` for the full contract, MUST rules, and the resolution order.
+
+### Unified module contract overrides
+
+The same `entry.overrides` surface that disables/replaces AI agents also wires routes, subscribers, workers, widgets, notifications, interceptors, enrichers, guards, CLI commands, setup hooks, ACL features, DI bindings, and encryption maps. Use it when you want to replace a contract shipped by an upstream module without forking the source.
+
+```ts
+// src/modules.ts — representative examples across override phases
+{
+  id: 'example',
+  from: '@app',
+  overrides: {
+    routes: {
+      api: {
+        // disable
+        'DELETE /api/example/items': null,
+        // replace
+        'POST /api/example/items': {
+          handler: async (req) => new Response(JSON.stringify({ ok: true }), { status: 200 }),
+          metadata: { requireAuth: true, requireFeatures: ['example.manage'] },
+        },
+      },
+      pages: {
+        '/backend/example/items': null,
+      },
+    },
+    events: {
+      subscribers: {
+        'example.todo.created.notify': null,
+      },
+    },
+    workers: {
+      'example:sync': null,
+    },
+    widgets: {
+      injection: { 'example.toolbar': null },
+      dashboard: { 'example.kpi': null },
+      components: {
+        'page:/backend/example': {
+          target: { componentId: 'page:/backend/example' },
+          priority: 10,
+          propsTransform: (props) => props,
+        },
+      },
+    },
+    notifications: {
+      types: { 'example.notice': null },
+      handlers: { 'example.notice.toast': null },
+    },
+    interceptors: { 'example.items.audit': null },
+    commandInterceptors: { 'example.command.audit': null },
+    enrichers: { 'example.items.enricher': null },
+    guards: { 'example.backend.guard': null },
+    cli: { 'example seed': null },
+    setup: {
+      defaultRoleFeatures: { admin: ['example.view'] },
+      seedExamples: false,
+    },
+    acl: {
+      features: { 'example.manage': null },
+    },
+    di: {
+      exampleService: {
+        register: (container, key) => container.register({ [key]: { mode: 'replacement' } }),
+      },
+    },
+    encryption: {
+      maps: { 'example:item': null },
+    },
+  },
+},
+```
+
+Programmatic equivalent (boot-time, env-driven, or test scaffold):
+
+```ts
+// src/bootstrap.ts (extra)
+import {
+  applyApiRouteOverrides,
+  applyPageRouteOverrides,
+  applyWorkerOverrides,
+} from '@open-mercato/shared/modules/overrides'
+
+applyApiRouteOverrides({
+  'GET /api/example/items': null,
+})
+applyPageRouteOverrides({
+  '/backend/example/items': null,
+})
+applyWorkerOverrides({
+  'example:sync': null,
+})
+```
+
+Key rules:
+
+- Keys are `'METHOD /api/path'`; method is normalized, path leading slash optional, trailing slashes stripped.
+- Page route keys are `'/backend/path'` or `'/frontend/path'`.
+- `null` disables the matching contract; a definition replaces it.
+- Programmatic > `modules.ts` > file-based where supported > base. The dispatcher MUST run before registries first-load — the template's `bootstrap.ts` already does this.
+- Stale override keys log a warning so operators notice renamed or removed upstream contracts.
+
+Full reference: `framework/modules/overrides` and `framework/modules/routes-and-pages`.
 
 ## Disabling the Dashboards Module: Update /backend
 
@@ -219,14 +438,14 @@ Do this in the same change where you disable the module — otherwise `/backend`
 
 Every time you add a new feature ID (e.g. `my_module.view`, `my_module.manage`) to `src/modules/<module>/acl.ts`, you MUST also:
 
-1. **Add it to `defaultRoleFeatures`** in the same module's `setup.ts` so admin and superadmin roles receive it on every new tenant setup:
+1. **Add it to `defaultRoleFeatures`** in the same module's `setup.ts` so the admin role and any other appropriate default roles receive it on every new tenant setup:
 
    ```ts
    // src/modules/<module>/setup.ts
    export const setup = {
      defaultRoleFeatures: {
-       admin:      ['my_module.view', 'my_module.manage'],
-       superadmin: ['my_module.view', 'my_module.manage'],
+       admin: ['my_module.view', 'my_module.manage'],
+       employee: ['my_module.view'],
      },
      // ...
    }
@@ -235,12 +454,86 @@ Every time you add a new feature ID (e.g. `my_module.view`, `my_module.manage`) 
 2. **Reconcile existing tenants** by running the ACL sync command so existing installs pick up the new feature without a reinstall:
 
    ```bash
-   yarn mercato auth sync-role-acls --all-tenants
+   yarn mercato auth sync-role-acls
    ```
 
-Do this automatically unless the user has explicitly said otherwise. If the current user is an admin or superadmin, they should see the feature you just built — not stare at a blank admin because their role is missing the grant.
+Do this automatically unless the user has explicitly said otherwise. If the current user has a default role that should access the module, they should see the feature you just built — not stare at a blank admin because their role is missing the grant. Use `--tenant <tenantId>` only when the user asks to target one tenant.
 
 Feature IDs are FROZEN once shipped (they are stored in the DB as `role_features.feature_id`). If a rename is required, add the new ID, grant it, and keep the old one alongside as a deprecated alias until downstream data can be migrated.
+
+## Mandatory Module Mechanisms (no DIY substitutes)
+
+When building a new application or a new module under `src/modules/<id>/`, do not invent custom routing, auth, persistence, forms, or caching. The framework provides one canonical primitive for each concern. If a feature is not on this list, ask before adding it.
+
+| Concern | Canonical mechanism | Reference |
+|---|---|---|
+| Module structure & auto-discovery | `src/modules/<id>/{api,backend,frontend,data,subscribers,workers,widgets}` + `index.ts` + `src/modules.ts` (`from: '@app'`); discovered by `yarn generate` | <https://docs.open-mercato.dev/framework/modules/overview> |
+| Backend admin pages | Auto-discovered files under `backend/**` with paired `page.meta.ts` (`requireAuth`, `requireFeatures`, `pageGroup`, `pageGroupKey`, `pageOrder`) | <https://docs.open-mercato.dev/framework/modules/routes-and-pages> |
+| Frontend public pages and customer portal | Auto-discovered files under `frontend/**`. Portal pages live at `frontend/[orgSlug]/portal/<path>/page.tsx` with `requireCustomerAuth` / `requireCustomerFeatures` | <https://docs.open-mercato.dev/framework/modules/routes-and-pages> |
+| API routes (auth + OpenAPI) | `src/modules/<id>/api/**/route.ts` exporting handlers + `metadata` (per-method `requireAuth` / `requireFeatures`) + `openApi` | <https://docs.open-mercato.dev/framework/api/api-development-guide> |
+| CRUD APIs (factory) | `makeCrudRoute({ entity, entityId, operations, schema, indexer: { entityType } })` from `@open-mercato/shared/lib/crud/factory` | <https://docs.open-mercato.dev/framework/api/crud-factory> |
+| CRUD forms in admin | `<CrudForm entityId apiPath mode fields />` from `@open-mercato/ui/backend/CrudForm`; helpers `createCrud` / `updateCrud` / `deleteCrud` from `@open-mercato/ui/backend/utils/crud`; `createCrudFormError` from `@open-mercato/ui/backend/utils/serverErrors`. Never raw `<form>` or raw `fetch` | <https://docs.open-mercato.dev/framework/admin-ui/crud-form> |
+| DataTables in admin | `<DataTable entityId apiPath columns />` from `@open-mercato/ui/backend/DataTable`; keep `entityId` and `extensionTableId` stable so widget injection (columns, row actions, filters, toolbar) keeps working | <https://docs.open-mercato.dev/framework/admin-ui/data-grids> |
+| Authorization (RBAC) | Declare features in `<module>/acl.ts`, grant in `<module>/setup.ts` `defaultRoleFeatures`, gate routes/pages with `requireFeatures` in `metadata`. NEVER use `requireRoles`. Run `yarn mercato auth sync-role-acls` after adding features | <https://docs.open-mercato.dev/framework/rbac/overview> |
+| Multi-tenant scoping (default) | Every tenant-scoped entity MUST include indexed `organization_id` and `tenant_id`; every read/write filters by them. The CRUD factory injects the scope automatically — do not bypass it | <https://docs.open-mercato.dev/architecture/system-overview> |
+| **Encryption maps for sensitive data** | Declare `<module>/encryption.ts` exporting `defaultEncryptionMaps: ModuleEncryptionMap[]`; read via `findWithDecryption` / `findOneWithDecryption`. NEVER hand-roll AES/KMS — see the next section | <https://docs.open-mercato.dev/user-guide/encryption> |
+| Cache | Resolve from DI (`container.resolve('cache')`); never `new Redis(...)` or raw SQLite. Tag with `tenant:<id>` / `org:<id>` for tenant-scoped invalidation | <https://docs.open-mercato.dev/user-guide/cache-management> |
+| Background workers | `src/modules/<id>/workers/*.ts` exporting `metadata: { queue, id?, concurrency? }` + default handler. Never spin up custom queues | <https://docs.open-mercato.dev/framework/events/queue-workers> |
+| Events between modules | `<module>/events.ts` with `createModuleEvents({ moduleId, events } as const)`; subscribers in `subscribers/*.ts` | <https://docs.open-mercato.dev/framework/events/overview> |
+| i18n (every user-facing string) | `useT()` client-side from `@open-mercato/shared/lib/i18n/context`, `resolveTranslations()` server-side from `@open-mercato/shared/lib/i18n/server`; keys in `src/i18n/<locale>.json` | The `@open-mercato/shared` package (`node_modules/@open-mercato/shared/lib/i18n/`) |
+
+> Rule of thumb: if you reach for raw `fetch`, raw `<form>`, ad-hoc `crypto`, ad-hoc `Redis`, or a manual cross-module ORM join, stop and check the row above first.
+
+## Data Encryption (sensitive / GDPR-relevant fields)
+
+The framework ships a tenant-data-encryption mechanism with per-tenant DEKs, KMS-backed key resolution (Vault by default), declarative field-level maps per module, and deterministic-hash sibling columns for equality lookups. **Use it. Never hand-roll AES, `crypto.subtle`, or custom KMS calls. Never store sensitive columns as plaintext "for now".**
+
+When the user asks for "we need this column encrypted", "store this securely", "this is PII", "GDPR", or "encryption at rest" — and whenever you are designing a column that holds names, addresses, contact info, free-text notes about people, integration credentials, secrets, or anything subject to a data-processing agreement — declare an `encryption.ts` at the module root.
+
+```ts
+// src/modules/<module>/encryption.ts
+import type { ModuleEncryptionMap } from '@open-mercato/shared/modules/encryption'
+
+export const defaultEncryptionMaps: ModuleEncryptionMap[] = [
+  {
+    entityId: '<module>:<entity>',
+    fields: [
+      { field: 'first_name' },
+      { field: 'last_name' },
+      { field: 'phone' },
+      // For deterministic equality lookups (e.g. login by email), add a sibling hash column.
+      { field: 'email', hashField: 'email_hash' },
+    ],
+  },
+]
+
+export default defaultEncryptionMaps
+```
+
+Read with decryption — never raw `em.find` / `em.findOne` on encrypted columns:
+
+```ts
+import { findWithDecryption, findOneWithDecryption } from '@open-mercato/shared/lib/encryption/find'
+
+// Signature: (em, entityName, where, options?, scope?). Pass MikroORM FindOptions in slot 4
+// (or `undefined`), and the decryption scope in slot 5.
+const records = await findWithDecryption(em, '<Entity>', filter, undefined, { tenantId, organizationId })
+const single  = await findOneWithDecryption(em, '<Entity>', { id }, undefined, { tenantId, organizationId })
+```
+
+Apply maps to existing tenants after declaring them (new tenants pick them up automatically during `auth:setup`):
+
+```bash
+yarn mercato entities seed-encryption --tenant <tenantId> [--organization <orgId>]
+```
+
+Notes:
+
+- Toggling the **Encrypted** flag on a custom field via the admin UI only applies to data written *after* the change. Backfill historical plaintext rows with `yarn mercato entities rotate-encryption-key --tenant <tenantId> --org <organizationId>` (without `--old-key` it only encrypts plaintext and skips already-encrypted fields). Use `yarn mercato entities decrypt-database` to roll back.
+- The `vector` module stores raw embeddings unencrypted in the vector store — treat embeddings as sensitive even when the source text is encrypted.
+- Env switches: `TENANT_DATA_ENCRYPTION` (default `yes`), `TENANT_DATA_ENCRYPTION_DEBUG`, Vault (`VAULT_ADDR` / `VAULT_TOKEN` / `VAULT_KV_PATH`), and dev fallback (`TENANT_DATA_ENCRYPTION_FALLBACK_KEY`).
+
+Full guide: <https://docs.open-mercato.dev/user-guide/encryption>.
 
 ## Design System (Strict — applies to every UI change)
 
@@ -322,6 +615,10 @@ Notes:
 - The validation gate runs `yarn typecheck`, `yarn test`, `yarn generate`, and `yarn build` only when the corresponding `package.json` script exists.
 
 The standalone template enables the `configs` module from `@open-mercato/core`, so `yarn mercato configs cache ...` is available here after installation. After structural changes such as enabling or disabling modules, adding or removing backend/frontend pages, or changing sidebar/navigation injections, run `yarn generate`. The generator now performs a best-effort structural cache purge automatically after successful generation; if the cache command is unavailable, generation still succeeds.
+
+The structural cache purge invalidates two layers: Redis `nav:*` cache keys and Turbopack's module-graph fingerprints (it bumps mtimes on every file in `.mercato/generated/` without changing content). When Turbopack still serves a stale compiled chunk after a structural change — typically because its own internal cache pinned a previous compile error — run `yarn dev:reset` to clear `.next/cache/turbopack` and restart `yarn dev`.
+
+Detail/read-model APIs that expose `customFields` must return bare field keys via `normalizeCustomFieldResponse()` (for example `{ priority: 3 }`). Keep `cf_` / `cf:` prefixes for request payloads, filters, and form field IDs only.
 
 ### Path Aliases
 

@@ -6,7 +6,7 @@ import { resolveOrganizationScopeForRequest } from '@open-mercato/core/modules/d
 import type { CommandRuntimeContext, CommandBus } from '@open-mercato/shared/lib/commands'
 import { pipelineStageReorderSchema, type PipelineStageReorderInput } from '../../../data/validators'
 import { withScopedPayload } from '../../utils'
-import { CrudHttpError } from '@open-mercato/shared/lib/crud/errors'
+import { CrudHttpError, isCrudHttpError } from '@open-mercato/shared/lib/crud/errors'
 import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
 import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
 
@@ -40,7 +40,7 @@ export async function POST(req: Request) {
     )
     return NextResponse.json({ ok: true })
   } catch (err) {
-    if (err instanceof CrudHttpError) {
+    if (isCrudHttpError(err)) {
       return NextResponse.json(err.body, { status: err.status })
     }
     console.error('customers.pipeline-stages.reorder failed', err)

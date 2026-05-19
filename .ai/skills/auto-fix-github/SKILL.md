@@ -1,6 +1,6 @@
 ---
 name: auto-fix-github
-description: Fix a GitHub issue by number from the current repository. First check whether the issue is already solved or already has an open solution, then use an isolated git worktree to implement the minimal fix, add unit tests, run code review and backward-compatibility checks, run validation including i18n, typecheck, unit tests, and other required checks, then push a branch and open a pull request with a full description linked to the original issue.
+description: Fix a GitHub issue by number. Checks whether it's already solved or has an open solution, then in an isolated worktree implements the minimal fix, adds tests, runs code-review/BC/typecheck/i18n, pushes a branch, opens a PR linked to the issue.
 ---
 
 # Auto Fix GitHub

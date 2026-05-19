@@ -370,6 +370,22 @@ export default aiTools
 `,
   )
 
+  // -- AI agents --
+  touchFile(
+    pkgModulePath('orders', 'ai-agents.ts'),
+    `export const aiAgents = [
+  {
+    id: 'orders.assistant',
+    module: 'orders',
+    displayName: 'Orders Assistant',
+    allowedTools: ['list_orders'],
+    readOnly: true,
+  },
+]
+export default aiAgents
+`,
+  )
+
   // -- Frontend middleware --
   touchFile(
     pkgModulePath('orders', 'frontend', 'middleware.ts'),
@@ -652,6 +668,7 @@ function captureGeneratedFiles(): Map<string, string> {
 describe('generator output compatibility', () => {
   const registryFiles = [
     'ai-tools.generated.ts',
+    'ai-agents.generated.ts',
     'analytics.generated.ts',
     'api-routes.generated.ts',
     'backend-middleware.generated.ts',
@@ -704,6 +721,7 @@ describe('generator output compatibility', () => {
       'entity-fields-registry.ts',
       'modules.app.generated.ts',
       'modules.cli.generated.ts',
+      'enabled-module-ids.generated.ts',
     ]))
   })
 
@@ -762,6 +780,7 @@ describe('generator output compatibility', () => {
       'entity-fields-registry.ts',
       'modules.app.generated.ts',
       'modules.cli.generated.ts',
+      'enabled-module-ids.generated.ts',
     ]))
   })
 

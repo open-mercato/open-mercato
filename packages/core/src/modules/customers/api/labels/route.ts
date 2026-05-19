@@ -5,7 +5,7 @@ import { labelCreateCommandSchema, labelCreateSchema, type LabelCreateCommandInp
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import { getAuthFromRequest } from '@open-mercato/shared/lib/auth/server'
 import { resolveOrganizationScopeForRequest } from '@open-mercato/core/modules/directory/utils/organizationScope'
-import { CrudHttpError } from '@open-mercato/shared/lib/crud/errors'
+import { CrudHttpError, isCrudHttpError } from '@open-mercato/shared/lib/crud/errors'
 import type { EntityManager, FilterQuery } from '@mikro-orm/postgresql'
 import type { CommandBus } from '@open-mercato/shared/lib/commands'
 import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
@@ -139,7 +139,7 @@ export async function GET(req: Request) {
     if (isMissingCustomerLabelTable(err)) {
       return NextResponse.json({ items: [], assignedIds: [] })
     }
-    if (err instanceof CrudHttpError) {
+    if (isCrudHttpError(err)) {
       return NextResponse.json(err.body, { status: err.status })
     }
     console.error('[customers/labels.GET]', err)
@@ -256,7 +256,7 @@ export async function POST(req: Request) {
       const migrationError = await createMissingCustomerLabelTablesError()
       return NextResponse.json(migrationError.body, { status: migrationError.status })
     }
-    if (err instanceof CrudHttpError) {
+    if (isCrudHttpError(err)) {
       return NextResponse.json(err.body, { status: err.status })
     }
     console.error('[customers/labels.POST]', err)

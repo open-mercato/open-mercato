@@ -431,14 +431,13 @@ export function TasksSection({
         ) : null}
 
         {!isInitialLoading && !hasTasks ? (
-          <TabEmptyState
-            title={emptyState.title}
-            action={{
-              label: emptyState.actionLabel,
-              onClick: openCreateDialog,
-              disabled: isMutating || !entityId,
-            }}
-          />
+          <TabEmptyState title={emptyState.title}>
+            <Button asChild variant="outline" size="sm" className="mt-2">
+              <Link href="/backend/customer-tasks">
+                {t('customers.people.detail.tasks.viewAll', 'View all tasks')}
+              </Link>
+            </Button>
+          </TabEmptyState>
         ) : null}
 
         {!isInitialLoading && hasTasks ? (
@@ -458,7 +457,7 @@ export function TasksSection({
               const checkboxId = `person-task-${task.id}`
               const isPendingToggle = pendingTaskId === task.todoId
               return (
-                <article key={task.id} className="group space-y-3 rounded-lg border bg-card p-4 transition hover:border-border/80">
+                <article key={task.id} className="group space-y-3 rounded-lg border bg-card p-4 transition hover:border-border/70">
                   <div className="flex flex-wrap items-start justify-between gap-3">
                     <TimelineItemHeader
                       title={
@@ -572,13 +571,15 @@ export function TasksSection({
             ) : null}
           </div>
         ) : null}
-        <div className="flex justify-center">
-          <Button asChild variant="outline" size="sm">
-            <Link href="/backend/customer-tasks">
-              {t('customers.people.detail.tasks.viewAll', 'View all tasks')}
-            </Link>
-          </Button>
-        </div>
+        {!isInitialLoading && hasTasks ? (
+          <div className="flex justify-center">
+            <Button asChild variant="outline" size="sm">
+              <Link href="/backend/customer-tasks">
+                {t('customers.people.detail.tasks.viewAll', 'View all tasks')}
+              </Link>
+            </Button>
+          </div>
+        ) : null}
       </div>
 
       <TaskDialog

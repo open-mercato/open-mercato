@@ -94,10 +94,6 @@ function parseCurrencyAmount(value: string): number {
   return Number.parseFloat(lastMatch.replace('$', ''));
 }
 
-function normalizeAdjustmentKindValue(kindLabel: string): string {
-  return kindLabel.trim().toLowerCase().replace(/\s+/g, '_');
-}
-
 function readId(payload: unknown, keys: string[]): string | null {
   if (!payload || typeof payload !== 'object') return null;
   const map = payload as Record<string, unknown>;
@@ -258,20 +254,23 @@ async function ensureSalesDocumentFixtures(
 }
 
 async function selectFirstAddressIfAvailable(page: Page): Promise<void> {
-  const addressSelect = page
-    .locator('select')
-    .filter({ has: page.locator('option', { hasText: 'Select address' }) })
+  // Radix Select: trigger has placeholder text "Select address" rendered inside
+  const addressTrigger = page
+    .locator('[role="combobox"]')
+    .filter({ hasText: /Select address/i })
     .first();
-  if ((await addressSelect.count()) === 0) return;
-  if (!(await addressSelect.isEnabled())) return;
+  if ((await addressTrigger.count()) === 0) return;
+  if (!(await addressTrigger.isEnabled().catch(() => false))) return;
 
-  const nextValue = await addressSelect.evaluate((element) => {
-    const select = element as HTMLSelectElement;
-    return select.options.length > 1 ? select.options[1]?.value ?? null : null;
-  });
-  if (nextValue) {
-    await addressSelect.selectOption(nextValue);
+  await addressTrigger.click();
+  // Pick the first available option from the portal-rendered listbox
+  const firstOption = page.getByRole('option').first();
+  if ((await firstOption.count()) === 0) {
+    // Close listbox if no options
+    await page.keyboard.press('Escape');
+    return;
   }
+  await firstOption.click();
 }
 
 async function ensureShippingMethodFixture(page: Page): Promise<void> {
@@ -344,6 +343,21 @@ async function waitForDialogFieldReady(
   }
   await waitForStableVisibility(field, TEST_WAIT_TIMEOUT_MS);
   await field.scrollIntoViewIfNeeded().catch(() => {});
+}
+
+async function fillControlledInput(input: Locator, value: string, timeout = 2_000): Promise<void> {
+  await waitForStableVisibility(input, TEST_WAIT_TIMEOUT_MS);
+  await input.fill(value);
+  await input.evaluate((element, nextValue) => {
+    const control = element as HTMLInputElement | HTMLTextAreaElement;
+    const prototype = control instanceof HTMLTextAreaElement ? HTMLTextAreaElement.prototype : HTMLInputElement.prototype;
+    const valueSetter = Object.getOwnPropertyDescriptor(prototype, 'value')?.set;
+    valueSetter?.call(control, nextValue);
+    control.dispatchEvent(new InputEvent('input', { bubbles: true, inputType: 'insertText', data: nextValue }));
+    control.dispatchEvent(new Event('change', { bubbles: true }));
+  }, value);
+  await expect(input).toHaveValue(value, { timeout });
+  await input.press('Tab').catch(() => {});
 }
 
 async function recoverGenericErrorPageIfPresent(page: Page): Promise<boolean> {
@@ -997,12 +1011,22 @@ export async function addCustomLine(page: Page, options: AddLineOptions): Promis
   await dialog.getByRole('textbox', { name: '1' }).fill(String(options.quantity));
 
   if (options.taxClassName) {
-    const taxClassSelect = dialog
-      .locator('select')
-      .filter({ has: dialog.locator('option', { hasText: /No tax class selected/i }) })
-      .first();
-    if ((await taxClassSelect.count()) > 0) {
-      await taxClassSelect.selectOption({ label: options.taxClassName });
+    const taxClassTrigger = dialog.locator('[data-crud-field-id="taxRateId"] [role="combobox"]').first();
+    if ((await taxClassTrigger.count()) > 0) {
+      await expect(taxClassTrigger).toBeEnabled({ timeout: TEST_WAIT_TIMEOUT_MS });
+      const selectedLabel = options.taxClassName.split('•')[0].trim();
+      for (let attempt = 0; attempt < 3; attempt += 1) {
+        await taxClassTrigger.click();
+        const opt = page.getByRole('option', { name: options.taxClassName, exact: true }).first();
+        await opt.waitFor({ state: 'visible', timeout: 3_000 });
+        await opt.click();
+        const selected = await taxClassTrigger
+          .filter({ hasText: new RegExp(escapeRegExp(selectedLabel), 'i') })
+          .waitFor({ state: 'visible', timeout: 1_500 })
+          .then(() => true, () => false);
+        if (selected) break;
+      }
+      await expect(taxClassTrigger).toContainText(selectedLabel, { timeout: TEST_WAIT_TIMEOUT_MS });
     }
   }
 
@@ -1068,27 +1092,58 @@ export async function addAdjustment(page: Page, options: AddAdjustmentOptions): 
   const adjustmentRow = page.getByRole('row', { name: new RegExp(escapeRegExp(options.label), 'i') });
   const fillAdjustmentForm = async (): Promise<void> => {
     await dialog.getByText(/Loading adjustments/i).waitFor({ state: 'hidden', timeout: 3_000 }).catch(() => {});
-    const kindSelect = dialog.locator('select').first();
-    await expect(kindSelect).toBeVisible({ timeout: TEST_WAIT_TIMEOUT_MS });
+    // AdjustmentDialog has a useEffect([initialAdjustment, kindOptions,
+    // loadKindOptions, loadTaxRates, open]) that asynchronously loads tax
+    // rates and resets the form via setInitialValues + a formResetKey bump.
+    // If `.fill()` lands before the reset settles, the label is wiped out.
+    // Wait for the tax-rates network response to land before touching the form.
+    await page.waitForLoadState('networkidle', { timeout: 5_000 }).catch(() => {});
+    // Radix Select trigger — target by CrudForm field id (kind picker)
+    const kindTrigger = dialog.locator('[data-crud-field-id="kind"] [role="combobox"]').first();
+    await expect(kindTrigger).toBeVisible({ timeout: TEST_WAIT_TIMEOUT_MS });
+    const kindLabel = options.kindLabel ?? 'Surcharge';
+    const selectKindOption = async (): Promise<void> => {
+      if ((await kindTrigger.count()) === 0) return;
+      await waitForOptionalTextToDisappear(
+        dialog,
+        /Loading adjustment kinds…|Loading adjustment kinds\.\.\./i,
+        TEST_WAIT_TIMEOUT_MS,
+      );
+      await expect(kindTrigger).toBeEnabled({ timeout: TEST_WAIT_TIMEOUT_MS });
+      for (let attempt = 0; attempt < 3; attempt += 1) {
+        const currentLabel = await kindTrigger.textContent().catch(() => '');
+        if (currentLabel?.includes(kindLabel)) return;
+        const expanded = await kindTrigger.getAttribute('aria-expanded').catch(() => null);
+        if (expanded === 'true') {
+          await page.keyboard.press('Escape').catch(() => {});
+        }
+        await kindTrigger.click();
+        const kindOption = page.getByRole('option', { name: new RegExp(`^${escapeRegExp(kindLabel)}$`, 'i') }).first();
+        const optionVisible = await kindOption
+          .waitFor({ state: 'visible', timeout: TEST_WAIT_TIMEOUT_MS })
+          .then(() => true, () => false);
+        if (optionVisible) {
+          await kindOption.click({ force: true });
+        } else {
+          // Fallback: drive selection via keyboard when modal-backdrop click interception
+          // hides the rendered option. Brought forward from develop.
+          await page.keyboard.type(kindLabel.charAt(0));
+          await page.waitForTimeout(150);
+          await page.keyboard.press('Enter');
+        }
+        await expect(kindTrigger).toContainText(kindLabel, { timeout: 2_000 }).catch(() => {});
+      }
+      await expect(kindTrigger).toContainText(kindLabel, { timeout: 5_000 });
+    };
+
+    // Select kind first — the Radix Select interaction can trigger CrudForm re-renders that
+    // clear inputs filled before it, so we run the dropdown sequence up front and then fill
+    // the remaining fields once.
+    await selectKindOption();
 
     const labelInput = dialog.getByPlaceholder(/e\.g\. Shipping fee/i).first();
     await expect(labelInput).toBeVisible({ timeout: TEST_WAIT_TIMEOUT_MS });
-    await labelInput.fill(options.label);
-    await expect(labelInput).toHaveValue(options.label, { timeout: 2_000 });
-
-    if ((await kindSelect.count()) > 0) {
-      const expectedKindValue = normalizeAdjustmentKindValue(options.kindLabel ?? 'Surcharge');
-      await kindSelect.locator('option', { hasText: new RegExp(`^${escapeRegExp(options.kindLabel ?? 'Surcharge')}$`, 'i') })
-        .first()
-        .waitFor({ state: 'attached', timeout: 2_000 })
-        .catch(() => {});
-      await kindSelect.selectOption({ label: options.kindLabel ?? 'Surcharge' }).catch(async () => {
-        await kindSelect.selectOption({ label: 'Custom' });
-      });
-      await expect(kindSelect).toHaveValue(new RegExp(`^${escapeRegExp(expectedKindValue)}$`, 'i'), {
-        timeout: 2_000,
-      });
-    }
+    await fillControlledInput(labelInput, options.label);
 
     const fixedAmountButton = dialog.getByRole('button', { name: /^Fixed amount$/i }).first();
     if ((await fixedAmountButton.count()) > 0) {
@@ -1098,8 +1153,7 @@ export async function addAdjustment(page: Page, options: AddAdjustmentOptions): 
     const enabledAmountInputs = dialog.locator('input[placeholder="0.00"]:not([disabled])');
     await expect(enabledAmountInputs.first()).toBeVisible({ timeout: TEST_WAIT_TIMEOUT_MS });
     if ((await enabledAmountInputs.count()) > 0) {
-      await enabledAmountInputs.first().fill(String(options.netAmount));
-      await expect(enabledAmountInputs.first()).toHaveValue(String(options.netAmount), { timeout: 2_000 }).catch(() => {});
+      await fillControlledInput(enabledAmountInputs.first(), String(options.netAmount));
     }
   };
 
@@ -1124,7 +1178,7 @@ export async function addAdjustment(page: Page, options: AddAdjustmentOptions): 
   }
   if (!(await adjustmentRow.isVisible().catch(() => false))) {
     await adjustmentsTab.click().catch(() => {});
-    await adjustmentRow.waitFor({ state: 'visible', timeout: 2_000 }).catch(() => {});
+    await expect(adjustmentRow).toBeVisible({ timeout: TEST_WAIT_TIMEOUT_MS });
   }
 }
 

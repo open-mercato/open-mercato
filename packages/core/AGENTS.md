@@ -122,6 +122,19 @@ Follow the customers module API patterns (CRUD factory + query engine):
 - Set `indexer: { entityType }` in `makeCrudRoute`
 - Reference: `src/modules/customers/api/people/route.ts`
 
+### Entity Schema And Migration Workflow
+
+When adding or changing a MikroORM entity, coding agents MUST read this section, the customers reference module guide, and `packages/cli/AGENTS.md` before editing.
+
+1. Update `data/entities.ts` using MikroORM v7 imports: decorators from `@mikro-orm/decorators/legacy`, types from `@mikro-orm/core`.
+2. Run `yarn generate` when module structure or entity discovery changed.
+3. Treat `yarn db:generate` as a schema-diff probe. Review every generated file before keeping it.
+4. Keep only SQL for the intended module/entity change. If the generator emits unrelated migrations because another module's snapshot is stale, remove those files from the diff instead of committing them.
+5. If you author a scoped SQL migration yourself to avoid unrelated generated churn, base it on the entity metadata and existing module migration style, then update that module's `migrations/.snapshot-open-mercato.json` to the post-change schema in the same commit.
+6. Do not run `yarn db:migrate` unless the user explicitly asks to apply migrations. PRs should normally contain the migration file and snapshot, not local DB state.
+
+For new CRUD modules, use `packages/core/src/modules/customers/AGENTS.md` as the file-structure reference and copy the command/API patterns before inventing new ones.
+
 ## Module Setup Convention
 
 Every module participating in tenant initialization must declare `setup.ts`. The generator auto-discovers these files.
@@ -161,7 +174,7 @@ export default setup
 | `onTenantCreated` | Inside `setupInitialTenant()` | Always | Settings rows, sequences, config |
 | `seedDefaults` | During init/onboarding | Always | Dictionaries, tax rates, statuses |
 | `seedExamples` | During init/onboarding | Skipped with `--no-examples` | Demo data |
-| `defaultRoleFeatures` | Declarative, merged during `ensureDefaultRoleAcls()` | Always | Role ACL features |
+| `defaultRoleFeatures` | Declarative, merged during `ensureDefaultRoleAcls()` and `yarn mercato auth sync-role-acls` | Always | Role ACL features |
 
 ### Decoupling Rules
 
@@ -170,6 +183,16 @@ export default setup
 3. Access entity IDs with optional chaining: `(E as any).catalog?.catalog_product`
 4. Use `getEntityIds()` at runtime (not import-time) for cross-module lookups
 5. Integration provider packages that need bootstrap credentials or mappings SHOULD preconfigure themselves from env inside the provider module via `setup.ts` and provider-local helpers/CLI. Do not add provider-specific env bootstrapping to core setup orchestration.
+
+### ACL Grant Sync
+
+When adding features to `acl.ts`, also add them to `setup.ts` `defaultRoleFeatures` for `admin` and any other default roles that should see the module immediately (for example `employee`, portal/customer roles, or module-specific custom roles). Then run the idempotent sync command so existing tenants receive the new grants:
+
+```bash
+yarn mercato auth sync-role-acls
+```
+
+Do this automatically unless the user explicitly asks to leave role ACLs untouched. New tenants get `defaultRoleFeatures` during setup; existing tenants only receive newly declared grants after the sync command. Use `--tenant <tenantId>` only when the user asks to target one tenant.
 
 ### Testing with Disabled Modules
 
@@ -211,6 +234,20 @@ Event fields: `id` (required), `label` (required), `description`, `category` (`c
 MUST use `as const` — provides compile-time safety; undeclared events trigger TypeScript errors and runtime warnings.
 
 Run `yarn generate` after creating/modifying `events.ts` files.
+
+## Operation Progress
+
+Use the progress module for every user-visible bulk operation and every future long-running operation. Read `packages/core/src/modules/progress/AGENTS.md` before adding selected-row actions, import/export jobs, reindexing flows, external sync operations, or queued destructive work.
+
+MUST rules:
+
+1. **MUST create a `ProgressJob`** for server-side bulk or long-running work — return `progressJobId` to the UI so `ProgressTopBar` can track it.
+2. **MUST use `@open-mercato/queue` workers** for work that should continue after navigation or retry after process failure.
+3. **MUST execute domain mutations through commands** from workers — do not bypass audit, undo, cache invalidation, or events with direct ORM mutation loops.
+4. **MUST scope progress jobs and worker payloads** with `tenantId` and `organizationId`.
+5. **MUST use shared UI progress helpers** for browser-bound DataTable bulk loops; do not build page-local progress banners.
+
+Reference implementation: `packages/core/src/modules/catalog/api/bulk-delete/route.ts`, `packages/core/src/modules/catalog/workers/catalog-product-bulk-delete.ts`, and `packages/core/src/modules/catalog/lib/bulkDelete.ts`.
 
 ## Translatable Fields
 
@@ -305,6 +342,8 @@ DataTable deep-extension surfaces:
 - `data-table:<tableId>:row-actions`
 - `data-table:<tableId>:bulk-actions`
 - `data-table:<tableId>:filters`
+- `data-table:<tableId>:toolbar` — right-side actions row (Refresh, Filters, Columns, Export). Renders on the same row as the title; full-sized buttons.
+- `data-table:<tableId>:search-trailing` — adjacent to the search input on the FilterBar row. Reserve for **compact triggers** (AI assistants, saved-view shortcuts). Suppressed when the host DataTable has no search input. Use `Button variant="outline"` (default size, h-9, `rounded-md`) with a single leading icon plus a short caption (e.g. `AI`) so the trigger matches the search input's `h-9` row height and the toolbar's standard rounded-rectangle button radius.
 
 CrudForm field-injection surface:
 - `crud-form:<entityId>:fields`
@@ -348,9 +387,29 @@ Always reference generated ids (`E.<module>.<entity>`) so system entities stay a
 
 ### Helpers
 
-- **Shared helpers**: `splitCustomFieldPayload`, `normalizeCustomFieldValues`, `normalizeCustomFieldResponse` from `@open-mercato/shared`
+- **Shared helpers**: `splitCustomFieldPayload`, `normalizeCustomFieldValues`, `normalizeCustomFieldResponse`, `applyCustomFieldsNormalization` from `@open-mercato/shared`
 - **Form collection**: `collectCustomFieldValues()` from `@open-mercato/ui/backend/utils/customFieldValues`
 - **Command undo**: capture custom field snapshots in `before`/`after` payloads (`snapshot.custom`), restore via `buildCustomFieldResetMap(before.custom, after.custom)`
+
+### Response Shape
+
+`makeCrudRoute` already extracts custom field values into `customValues` (bare keys, e.g. `{ priority: 3 }`) and `customFields` (definition array) when `list.decorateCustomFields` is configured.
+
+To opt into the canonical single-source response shape (no top-level `cf_*`/`cf:*` redundancy — the standardization requested in #1769), set `stripPrefixedKeys: true`:
+
+```typescript
+list: {
+  // ...
+  decorateCustomFields: {
+    entityIds: E.example.todo,
+    stripPrefixedKeys: true,
+  },
+}
+```
+
+For non-CRUD routes (custom detail GETs, ad-hoc handlers), call `applyCustomFieldsNormalization(record, decorated, { stripPrefixedKeys: true })` to get the same shape.
+
+The flag is opt-in to keep the existing wire format stable for callers that read `cf_*` from the top level — turn it on for new modules and migrate existing modules deliberately, with a deprecation note for any external consumer that still reads the prefixed keys.
 
 ### DSL Helpers
 
@@ -463,7 +522,8 @@ await emitCrudSideEffects({ ... })
 - Module-scoped with MikroORM: files live in `src/modules/<module>/migrations/`
 - Generate: `yarn db:generate` (iterates all modules)
 - Apply: `yarn db:migrate` (ordered, directory first)
-- **Never hand-write migration files.** Update ORM entities, let `yarn db:generate` emit SQL.
+- Default: update ORM entities and let `yarn db:generate` emit SQL.
+- Exception: when generated output includes unrelated snapshot drift, keep or write only the intended SQL and update that module's `.snapshot-open-mercato.json` in the same change.
 
 ## Database Entities
 

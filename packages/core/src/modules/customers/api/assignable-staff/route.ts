@@ -1,7 +1,7 @@
 import { NextResponse } from 'next/server'
 import { z } from 'zod'
 import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
-import { CrudHttpError } from '@open-mercato/shared/lib/crud/errors'
+import { CrudHttpError, isCrudHttpError } from '@open-mercato/shared/lib/crud/errors'
 import { findWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
 import type { RbacService } from '@open-mercato/core/modules/auth/services/rbacService'
@@ -213,7 +213,7 @@ export async function GET(request: Request) {
       pageSize: query.pageSize,
     })
   } catch (error) {
-    if (error instanceof CrudHttpError) {
+    if (isCrudHttpError(error)) {
       return NextResponse.json(error.body, { status: error.status })
     }
     if (error instanceof z.ZodError) {

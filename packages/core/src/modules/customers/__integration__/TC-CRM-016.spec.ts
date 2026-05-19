@@ -21,6 +21,7 @@ test.describe('TC-CRM-016: Company Note And Activity CRUD', () => {
 
       const noteText = `QA company note ${Date.now()}`;
       const activitySubject = `QA company activity ${Date.now()}`;
+      const occurredAtIso = new Date().toISOString();
 
       const noteResp = await apiRequest(request, 'POST', '/api/customers/comments', {
         token,
@@ -28,6 +29,9 @@ test.describe('TC-CRM-016: Company Note And Activity CRUD', () => {
       });
       expect(noteResp.status(), `POST /api/customers/comments returned ${noteResp.status()}`).toBeLessThan(400);
 
+      // The redesigned activity-log tab renders ActivityHistorySection, which only fetches
+      // interactions with status='done'. Explicitly mark the call as done so it surfaces in the
+      // history list (the API validator otherwise defaults status to 'planned').
       const activityResp = await apiRequest(request, 'POST', '/api/customers/interactions', {
         token,
         data: {
@@ -35,6 +39,8 @@ test.describe('TC-CRM-016: Company Note And Activity CRUD', () => {
           interactionType: 'call',
           title: activitySubject,
           body: 'QA activity description',
+          status: 'done',
+          occurredAt: occurredAtIso,
         },
       });
       expect(activityResp.status(), `POST /api/customers/interactions returned ${activityResp.status()}`).toBeLessThan(400);

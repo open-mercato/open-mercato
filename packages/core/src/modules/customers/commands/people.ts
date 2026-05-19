@@ -54,6 +54,7 @@ import {
 import type { CrudIndexerConfig, CrudEventsConfig } from '@open-mercato/shared/lib/crud/types'
 import { E } from '#generated/entities.ids.generated'
 import { findWithDecryption, findOneWithDecryption } from '@open-mercato/shared/lib/encryption/find'
+import { deriveDisplayName, isDerivedDisplayName } from '../lib/displayName'
 import {
   loadPersonCompanyLinks,
   summarizePersonCompanies,
@@ -231,6 +232,29 @@ function normalizeHexColor(value: string | null | undefined): string | null {
 function normalizeEmail(value: string | null | undefined): string | null {
   const normalized = normalizeOptionalString(value)
   return normalized ? normalized.toLowerCase() : null
+}
+
+type PersonDeleteBlockerCounts = {
+  dealLinks: number
+}
+
+function buildPersonHasDependentsError(
+  translate: (key: string, fallback?: string, params?: Record<string, string | number>) => string,
+  counts: PersonDeleteBlockerCounts,
+): CrudHttpError {
+  const blockers: string[] = []
+  if (counts.dealLinks > 0) {
+    blockers.push(
+      translate('customers.people.delete.blockers.deals', 'linked deals ({{count}})', { count: counts.dealLinks }),
+    )
+  }
+  const summary = blockers.join(', ')
+  const message = translate(
+    'customers.people.delete.blocked',
+    'Cannot delete person: {{blockers}}. Please unlink or reassign first.',
+    { blockers: summary },
+  )
+  return new CrudHttpError(422, { error: message, code: 'PERSON_HAS_DEPENDENTS' })
 }
 
 function serializePersonSnapshot(
@@ -523,7 +547,10 @@ const createPersonCommand: CommandHandler<PersonCreateInput, { entityId: string;
     const timezone = normalizeOptionalString(parsed.timezone)
     const linkedInUrl = normalizeOptionalString(parsed.linkedInUrl)
     const twitterUrl = normalizeOptionalString(parsed.twitterUrl)
-    const displayName = parsed.displayName?.trim() ?? ''
+    const displayNameInput = parsed.displayName?.trim() ?? ''
+    const displayName = displayNameInput.length > 0
+      ? displayNameInput
+      : deriveDisplayName(firstName, lastName)
     const nextInteractionName = parsed.nextInteraction?.name ? parsed.nextInteraction.name.trim() : null
     const nextInteractionRefId = normalizeOptionalString(parsed.nextInteraction?.refId)
     const nextInteractionIcon = normalizeOptionalString(parsed.nextInteraction?.icon)
@@ -713,6 +740,17 @@ const updatePersonCommand: CommandHandler<PersonUpdateInput, { entityId: string 
       if (!nextDisplayName) {
         throw new CrudHttpError(400, { error: 'Display name is required' })
       }
+    }
+
+    if (
+      parsed.displayName === undefined
+      && (parsed.firstName !== undefined || parsed.lastName !== undefined)
+      && isDerivedDisplayName(record.displayName, profile.firstName, profile.lastName)
+    ) {
+      const nextFirst = parsed.firstName !== undefined ? parsed.firstName : profile.firstName
+      const nextLast = parsed.lastName !== undefined ? parsed.lastName : profile.lastName
+      const derived = deriveDisplayName(nextFirst, nextLast)
+      if (derived.length > 0) parsed.displayName = derived
     }
 
     await withAtomicFlush(em, [
@@ -995,6 +1033,13 @@ const deletePersonCommand: CommandHandler<{ body?: Record<string, unknown>; quer
       const record = assertFound(entity, 'Person not found')
       ensureTenantScope(ctx, record.tenantId)
       ensureOrganizationScope(ctx, record.organizationId)
+
+      const dealLinks = await em.count(CustomerDealPersonLink, { person: record })
+      if (dealLinks > 0) {
+        const { translate } = await resolveTranslations()
+        throw buildPersonHasDependentsError(translate, { dealLinks })
+      }
+
       const profile = await em.findOne(CustomerPersonProfile, { entity: record })
       if (profile) em.remove(profile)
       await em.nativeDelete(CustomerAddress, { entity: record, organizationId: record.organizationId, tenantId: record.tenantId })

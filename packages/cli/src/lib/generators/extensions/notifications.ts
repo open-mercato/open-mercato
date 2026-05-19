@@ -123,6 +123,7 @@ export function createNotificationsExtension(): GeneratorExtension {
         fileName: 'notifications.generated.ts',
         imports: [
           { namedImports: [{ name: 'NotificationTypeDefinition', isTypeOnly: true }], moduleSpecifier: '@open-mercato/shared/modules/notifications/types' },
+          { namedImports: [{ name: 'applyNotificationTypeOverridesToEntries' }], moduleSpecifier: '@open-mercato/shared/modules/overrides' },
           ...notificationImports,
         ],
         build(sourceFile) {
@@ -139,8 +140,12 @@ export function createNotificationsExtension(): GeneratorExtension {
                 initializer: arrayLiteral(notificationTypeEntries, writeValue),
               },
               {
+                name: 'entries',
+                initializer: callExpression(identifier('applyNotificationTypeOverridesToEntries'), [identifier('entriesRaw')]),
+              },
+              {
                 name: 'allTypes',
-                initializer: methodCall(identifier('entriesRaw'), 'flatMap', [
+                initializer: methodCall(identifier('entries'), 'flatMap', [
                   arrowFunction({
                     parameters: ['entry'],
                     body: propertyAccess(identifier('entry'), 'types'),
@@ -153,7 +158,7 @@ export function createNotificationsExtension(): GeneratorExtension {
             declarationKind: VariableDeclarationKind.Const,
             isExported: true,
             declarations: [
-              { name: 'notificationTypeEntries', initializer: identifier('entriesRaw') },
+              { name: 'notificationTypeEntries', initializer: identifier('entries') },
               { name: 'notificationTypes', initializer: identifier('allTypes') },
             ],
           })
@@ -193,6 +198,7 @@ export function createNotificationsExtension(): GeneratorExtension {
             ],
             moduleSpecifier: '@open-mercato/shared/modules/notifications/types',
           },
+          { namedImports: [{ name: 'applyNotificationTypeOverridesToEntries' }], moduleSpecifier: '@open-mercato/shared/modules/overrides' },
           ...notificationClientImports,
         ],
         build(sourceFile) {
@@ -214,8 +220,12 @@ export function createNotificationsExtension(): GeneratorExtension {
                 initializer: arrayLiteral(notificationClientTypeEntries, writeValue),
               },
               {
+                name: 'entries',
+                initializer: callExpression(identifier('applyNotificationTypeOverridesToEntries'), [identifier('entriesRaw')]),
+              },
+              {
                 name: 'allTypes',
-                initializer: methodCall(identifier('entriesRaw'), 'flatMap', [
+                initializer: methodCall(identifier('entries'), 'flatMap', [
                   arrowFunction({
                     parameters: ['entry'],
                     body: propertyAccess(identifier('entry'), 'types'),
@@ -255,7 +265,7 @@ export function createNotificationsExtension(): GeneratorExtension {
             declarationKind: VariableDeclarationKind.Const,
             isExported: true,
             declarations: [
-              { name: 'notificationClientTypeEntries', initializer: identifier('entriesRaw') },
+              { name: 'notificationClientTypeEntries', initializer: identifier('entries') },
               { name: 'notificationClientTypes', initializer: identifier('allTypes') },
               { name: 'notificationRenderers', initializer: identifier('renderers') },
             ],

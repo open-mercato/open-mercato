@@ -11,7 +11,9 @@ import {
   Check,
   History,
   Paperclip,
+  Plus,
 } from 'lucide-react'
+import type { SectionAction } from '@open-mercato/ui/backend/detail'
 
 export type PersonTabId =
   | 'activities'
@@ -38,6 +40,7 @@ type PersonDetailTabsProps = {
   companiesCount?: number
   tasksCount?: number
   filesCount?: number
+  sectionAction?: SectionAction | null
   children: React.ReactNode
 }
 
@@ -74,6 +77,7 @@ export function PersonDetailTabs({
   companiesCount = 0,
   tasksCount = 0,
   filesCount = 0,
+  sectionAction = null,
   children,
 }: PersonDetailTabsProps) {
   const t = useT()
@@ -134,8 +138,8 @@ export function PersonDetailTabs({
   return (
     <div>
       {/* Tab navigation — full width above both zones */}
-      <div className="border-b" role="tablist" aria-label={t('customers.people.detail.tabs.label', 'Person detail sections')}>
-        <nav className="-mb-px flex gap-1 overflow-x-auto px-1">
+      <div className="flex items-end justify-between gap-2 border-b" role="tablist" aria-label={t('customers.people.detail.tabs.label', 'Person detail sections')}>
+        <nav className="-mb-px flex flex-1 gap-1 overflow-x-auto px-1">
           {allTabs.map((tab) => {
             const isActive = activeTab === tab.id
             return (
@@ -161,6 +165,18 @@ export function PersonDetailTabs({
             )
           })}
         </nav>
+        {sectionAction ? (
+          <Button
+            type="button"
+            size="sm"
+            onClick={sectionAction.onClick}
+            disabled={sectionAction.disabled}
+            className="mb-1.5 mr-1 shrink-0"
+          >
+            <Plus className="mr-1.5 h-4 w-4" />
+            {sectionAction.label}
+          </Button>
+        ) : null}
       </div>
 
       {/* Two-column content below tabs */}

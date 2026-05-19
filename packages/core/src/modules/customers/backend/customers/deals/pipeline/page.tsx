@@ -4,8 +4,17 @@ import * as React from 'react'
 import Link from 'next/link'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { Page, PageBody } from '@open-mercato/ui/backend/Page'
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@open-mercato/ui/primitives/select'
+import { Layers, MoveRight, Workflow } from 'lucide-react'
 import { Spinner } from '@open-mercato/ui/primitives/spinner'
 import { ErrorNotice } from '@open-mercato/ui/primitives/ErrorNotice'
+import { EmptyState } from '@open-mercato/ui/primitives/empty-state'
 import { apiCallOrThrow, readApiResultOrThrow } from '@open-mercato/ui/backend/utils/apiCall'
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
@@ -399,9 +408,8 @@ export default function SalesPipelinePage(): React.ReactElement {
     event.stopPropagation()
   }, [])
 
-  const handleSortChange = React.useCallback((event: React.ChangeEvent<HTMLSelectElement>) => {
-    const value = event.target.value as SortOption
-    if (sortOptions.includes(value)) setSortBy(value)
+  const handleSortChange = React.useCallback((value: string) => {
+    if (sortOptions.includes(value as SortOption)) setSortBy(value as SortOption)
   }, [])
 
   const handleDragStart = React.useCallback((dealId: string) => {
@@ -478,15 +486,19 @@ export default function SalesPipelinePage(): React.ReactElement {
               {pipelinesQuery.data && pipelinesQuery.data.length > 0 ? (
                 <label className="flex items-center gap-2 text-sm font-medium text-muted-foreground">
                   <span>{translate('customers.deals.pipeline.switch.label', 'Pipeline')}</span>
-                  <select
-                    className="h-9 rounded-md border border-border bg-background px-3 text-sm text-foreground shadow-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/40"
-                    value={selectedPipelineId ?? ''}
-                    onChange={(e) => setSelectedPipelineId(e.target.value || null)}
+                  <Select
+                    value={selectedPipelineId || undefined}
+                    onValueChange={(value) => setSelectedPipelineId(value || null)}
                   >
-                    {pipelinesQuery.data.map((p) => (
-                      <option key={p.id} value={p.id}>{p.name}</option>
-                    ))}
-                  </select>
+                    <SelectTrigger className="w-auto min-w-[12rem]">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {pipelinesQuery.data.map((p) => (
+                        <SelectItem key={p.id} value={p.id}>{p.name}</SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
                 </label>
               ) : null}
               <Link
@@ -497,31 +509,32 @@ export default function SalesPipelinePage(): React.ReactElement {
               </Link>
               <label className="flex items-center gap-2 text-sm font-medium text-muted-foreground">
                 <span>{translate('customers.deals.pipeline.sort.label', 'Sort by')}</span>
-                <select
-                  className="h-9 rounded-md border border-border bg-background px-3 text-sm text-foreground shadow-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/40"
-                  value={sortBy}
-                  onChange={handleSortChange}
-                >
-                  <option value="probability">
-                    {translate('customers.deals.pipeline.sort.probability', 'Probability (high to low)')}
-                  </option>
-                  <option value="createdAt">
-                    {translate('customers.deals.pipeline.sort.createdAt', 'Created (newest first)')}
-                  </option>
-                  <option value="expectedCloseAt">
-                    {translate('customers.deals.pipeline.sort.expectedCloseAt', 'Expected close (soonest first)')}
-                  </option>
-                </select>
+                <Select value={sortBy} onValueChange={handleSortChange}>
+                  <SelectTrigger className="w-auto min-w-[14rem]">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="probability">
+                      {translate('customers.deals.pipeline.sort.probability', 'Probability (high to low)')}
+                    </SelectItem>
+                    <SelectItem value="createdAt">
+                      {translate('customers.deals.pipeline.sort.createdAt', 'Created (newest first)')}
+                    </SelectItem>
+                    <SelectItem value="expectedCloseAt">
+                      {translate('customers.deals.pipeline.sort.expectedCloseAt', 'Expected close (soonest first)')}
+                    </SelectItem>
+                  </SelectContent>
+                </Select>
               </label>
             </div>
           </div>
 
           {!selectedPipelineId ? (
-            <div className="flex h-[50vh] items-center justify-center">
-              <span className="text-sm text-muted-foreground">
-                {translate('customers.deals.pipeline.noPipeline', 'No pipeline selected. Create a pipeline in settings.')}
-              </span>
-            </div>
+            <EmptyState
+              icon={<Workflow className="h-8 w-8" aria-hidden="true" />}
+              title={translate('customers.deals.pipeline.noPipeline', 'No pipeline selected. Create a pipeline in settings.')}
+              className="h-[50vh] w-full"
+            />
           ) : dealsQuery.isLoading ? (
             <div className="flex h-[50vh] items-center justify-center">
               <Spinner />
@@ -550,11 +563,11 @@ export default function SalesPipelinePage(): React.ReactElement {
 
               <div className="flex flex-col gap-4 pb-6 md:flex-row md:overflow-x-auto">
                 {stages.length === 0 ? (
-                  <div className="flex h-[50vh] w-full items-center justify-center rounded-lg border border-dashed border-border bg-muted/20">
-                    <span className="text-sm text-muted-foreground">
-                      {translate('customers.deals.pipeline.noStages', 'Define pipeline stages to start tracking deals.')}
-                    </span>
-                  </div>
+                  <EmptyState
+                    icon={<Layers className="h-8 w-8" aria-hidden="true" />}
+                    title={translate('customers.deals.pipeline.noStages', 'Define pipeline stages to start tracking deals.')}
+                    className="h-[50vh] w-full"
+                  />
                 ) : (
                   stages.map((stage) => {
                     const stageKey = stage.value ?? null
@@ -573,9 +586,11 @@ export default function SalesPipelinePage(): React.ReactElement {
                         {renderLaneHeader(stage, laneDeals.length)}
                         <div className="flex flex-1 flex-col gap-3 overflow-y-auto px-4 py-3">
                           {sortedLaneDeals.length === 0 ? (
-                            <div className="rounded-md border border-dashed border-border bg-muted/10 p-4 text-center text-xs text-muted-foreground">
-                              {translate('customers.deals.pipeline.emptyLane', 'No deals in this stage yet.')}
-                            </div>
+                            <EmptyState
+                              size="sm"
+                              icon={<MoveRight className="h-6 w-6" aria-hidden="true" />}
+                              title={translate('customers.deals.pipeline.emptyLane', 'No deals in this stage yet.')}
+                            />
                           ) : (
                             sortedLaneDeals.map((deal) => {
                               const isDragging = draggingId === deal.id

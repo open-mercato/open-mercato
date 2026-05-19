@@ -63,14 +63,8 @@ function mergeAdditiveRecord<T extends Record<string, unknown>>(base: T, candida
   }
 }
 
-// `loadCustomFieldValues` returns keys prefixed with `cf_` (the CRUD-factory projection shape).
-// The canonical `InteractionRecord.customValues` contract is unprefixed (e.g. `severity`,
-// `priority`, `description`) and every downstream consumer — the UI hooks, the todo/interaction
-// compatibility helpers, and the example-customers-sync outbound worker — reads the unprefixed
-// form. Normalize at the read-model boundary so the two shapes can't drift again.
 function normalizeInteractionCustomValues(values: Record<string, unknown> | null | undefined): Record<string, unknown> | null {
-  const normalized = normalizeCustomFieldResponse(values)
-  return normalized ?? null
+  return normalizeCustomFieldResponse(values) ?? null
 }
 
 async function resolveUserFeatures(

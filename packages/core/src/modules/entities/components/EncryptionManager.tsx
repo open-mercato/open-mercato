@@ -3,17 +3,26 @@
 import * as React from 'react'
 import { useQuery, useMutation } from '@tanstack/react-query'
 import { Button } from '@open-mercato/ui/primitives/button'
+import { Checkbox } from '@open-mercato/ui/primitives/checkbox'
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@open-mercato/ui/primitives/select'
 import { LoadingMessage, ErrorMessage } from '@open-mercato/ui/backend/detail'
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
 import { apiCall, readApiResultOrThrow } from '@open-mercato/ui/backend/utils/apiCall'
 import { raiseCrudError } from '@open-mercato/ui/backend/utils/serverErrors'
-import { useCustomFieldDefs } from '@open-mercato/ui/backend/utils/customFieldDefs'
+import { useCustomFieldDefs, type CustomFieldDefDto } from '@open-mercato/ui/backend/utils/customFieldDefs'
 import { Plus, Save, Trash2 } from 'lucide-react'
 import { useOrganizationScopeVersion } from '@open-mercato/shared/lib/frontend/useOrganizationScope'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { getEntityFields } from '#generated/entity-fields-registry'
 
 type EntityOption = { entityId: string; label?: string; source?: string }
+type FieldOption = { value: string; label: string }
 
 type EncryptionFieldRow = {
   id: string
@@ -28,6 +37,8 @@ type EncryptionMapResponse = {
 }
 
 type CanonicalOption = { value: string; label?: string }
+
+const EMPTY_FIELD_DEFS: CustomFieldDefDto[] = []
 
 function normalizeToken(value: string): string {
   return value
@@ -57,6 +68,24 @@ function normalizeFieldRows(raw: EncryptionMapResponse | undefined, options: Can
   }))
 }
 
+function areFieldRowsEqual(a: EncryptionFieldRow[], b: EncryptionFieldRow[]): boolean {
+  if (a === b) return true
+  if (a.length !== b.length) return false
+  return a.every((row, idx) => {
+    const other = b[idx]
+    return !!other && row.id === other.id && row.field === other.field && (row.hashField ?? null) === (other.hashField ?? null)
+  })
+}
+
+function areFieldOptionsEqual(a: FieldOption[], b: FieldOption[]): boolean {
+  if (a === b) return true
+  if (a.length !== b.length) return false
+  return a.every((option, idx) => {
+    const other = b[idx]
+    return !!other && option.value === other.value && option.label === other.label
+  })
+}
+
 function buildRowId(): string {
   if (typeof crypto !== 'undefined' && crypto.randomUUID) return crypto.randomUUID()
   return `row-${Math.random().toString(36).slice(2)}`
@@ -68,11 +97,12 @@ export function EncryptionManager() {
   const [selectedEntityId, setSelectedEntityId] = React.useState('')
   const [fields, setFields] = React.useState<EncryptionFieldRow[]>([])
   const [isActive, setIsActive] = React.useState(true)
-  const [baseFieldOptions, setBaseFieldOptions] = React.useState<Array<{ value: string; label: string }>>([])
+  const [baseFieldOptions, setBaseFieldOptions] = React.useState<FieldOption[]>([])
   const [hasUserEdited, setHasUserEdited] = React.useState(false)
-  const { data: fieldDefs = [], isLoading: loadingFieldDefs } = useCustomFieldDefs(selectedEntityId ? [selectedEntityId] : [], {
+  const { data: rawFieldDefs, isLoading: loadingFieldDefs } = useCustomFieldDefs(selectedEntityId ? [selectedEntityId] : [], {
     enabled: !!selectedEntityId,
   })
+  const fieldDefs = rawFieldDefs ?? EMPTY_FIELD_DEFS
   const canonicalOptions = React.useMemo<CanonicalOption[]>(() => {
     const options: CanonicalOption[] = []
     for (const option of baseFieldOptions) {
@@ -126,13 +156,13 @@ export function EncryptionManager() {
 
   React.useEffect(() => {
     if (!selectedEntityId) {
-      setBaseFieldOptions([])
+      setBaseFieldOptions((prev) => (prev.length ? [] : prev))
       return
     }
     const parts = selectedEntityId.split(':')
     const entitySlug = parts[1]
     if (!entitySlug) {
-      setBaseFieldOptions([])
+      setBaseFieldOptions((prev) => (prev.length ? [] : prev))
       return
     }
 
@@ -140,11 +170,11 @@ export function EncryptionManager() {
     const mod = getEntityFields(entitySlug)
     if (!mod) {
       console.warn('[encryption] No fields found for entity', entitySlug)
-      setBaseFieldOptions([])
+      setBaseFieldOptions((prev) => (prev.length ? [] : prev))
       return
     }
 
-    const options: Array<{ value: string; label: string }> = []
+    const options: FieldOption[] = []
     for (const raw of Object.values(mod)) {
       if (typeof raw !== 'string' || !raw.trim()) continue
       const value = raw.trim()
@@ -156,7 +186,7 @@ export function EncryptionManager() {
         .trim() || value
       options.push({ value, label })
     }
-    setBaseFieldOptions(options)
+    setBaseFieldOptions((prev) => (areFieldOptionsEqual(prev, options) ? prev : options))
   }, [selectedEntityId])
 
   const {
@@ -181,14 +211,16 @@ export function EncryptionManager() {
     const isSameMap = signature === lastMapSignatureRef.current
     if (isSameMap && hasUserEdited) return
     if (!map) {
-      setFields([])
-      setIsActive(true)
+      setFields((prev) => (prev.length ? [] : prev))
+      setIsActive((prev) => (prev === true ? prev : true))
       setHasUserEdited(false)
       lastMapSignatureRef.current = signature
       return
     }
-    setFields(normalizeFieldRows(map, canonicalOptions))
-    setIsActive(map?.isActive !== false)
+    const nextFields = normalizeFieldRows(map, canonicalOptions)
+    setFields((prev) => (areFieldRowsEqual(prev, nextFields) ? prev : nextFields))
+    const nextIsActive = map?.isActive !== false
+    setIsActive((prev) => (prev === nextIsActive ? prev : nextIsActive))
     setHasUserEdited(false)
     lastMapSignatureRef.current = signature
   }, [mapSignature, map, canonicalOptions, hasUserEdited])
@@ -260,7 +292,7 @@ export function EncryptionManager() {
         <ErrorMessage
           label={t('entities.encryption.errors.loadMap', 'Failed to load encryption map')}
           action={(
-            <Button variant="outline" size="sm" onClick={() => void refetchMap()}>
+            <Button type="button" variant="outline" size="sm" onClick={() => void refetchMap()}>
               {t('entities.encryption.actions.retry', 'Retry')}
             </Button>
           )}
@@ -269,7 +301,7 @@ export function EncryptionManager() {
     }
     if (!fields.length) {
       return (
-        <div className="rounded border bg-background/70 p-4 text-sm text-muted-foreground">
+        <div className="rounded border bg-background/80 p-4 text-sm text-muted-foreground">
           {t('entities.encryption.empty', 'No fields are encrypted yet. Add the first one below.')}
         </div>
       )
@@ -303,38 +335,45 @@ export function EncryptionManager() {
               return (
                 <tr key={row.id} className="border-t">
                   <td className="px-3 py-2 align-top">
-                    <select
-                      className="w-full rounded border bg-background px-3 py-2 text-sm"
-                      value={row.field}
-                      onChange={(event) => updateField(row.id, { field: event.target.value })}
+                    <Select
+                      value={row.field || undefined}
+                      onValueChange={(value) => updateField(row.id, { field: value ?? '' })}
                     >
-                      <option value="">{t('entities.encryption.fields.selectField', 'Select field')}</option>
-                      {fieldOpts.map((option) => (
-                        <option key={option.value} value={option.value}>
-                          {option.label}
-                        </option>
-                      ))}
-                    </select>
+                      <SelectTrigger>
+                        <SelectValue placeholder={t('entities.encryption.fields.selectField', 'Select field')} />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {fieldOpts.map((option) => (
+                          <SelectItem key={option.value} value={option.value}>
+                            {option.label}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
                   </td>
                   <td className="px-3 py-2 align-top">
-                    <select
-                      className="w-full rounded border bg-background px-3 py-2 text-sm"
-                      value={row.hashField || ''}
-                      onChange={(event) => updateField(row.id, { hashField: event.target.value ? event.target.value : null })}
+                    <Select
+                      value={row.hashField || undefined}
+                      onValueChange={(value) => updateField(row.id, { hashField: value || null })}
                     >
-                      <option value="">{t('entities.encryption.fields.selectHash', 'Select hash field (optional)')}</option>
-                      {hashOpts.map((option) => (
-                        <option key={option.value} value={option.value}>
-                          {option.label}
-                        </option>
-                      ))}
-                    </select>
-                    <p className="mt-1 text-[11px] text-muted-foreground">
+                      <SelectTrigger>
+                        <SelectValue placeholder={t('entities.encryption.fields.selectHash', 'Select hash field (optional)')} />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {hashOpts.map((option) => (
+                          <SelectItem key={option.value} value={option.value}>
+                            {option.label}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                    <p className="mt-1 text-overline text-muted-foreground">
                       {t('entities.encryption.fields.hashHint', 'Use when lookups must stay deterministic (e.g., login by email).')}
                     </p>
                   </td>
                   <td className="px-3 py-2 align-top text-right">
                     <Button
+                      type="button"
                       variant="ghost"
                       size="sm"
                       className="h-9 w-9 px-0"
@@ -368,21 +407,24 @@ export function EncryptionManager() {
               <label className="text-xs text-muted-foreground">
                 {t('entities.encryption.selectEntity', 'Choose entity')}
               </label>
-              <select
-                className="mt-1 w-full rounded border px-3 py-2 text-sm"
-                value={selectedEntityId}
-                onChange={(event) => setSelectedEntityId(event.target.value)}
+              <Select
+                value={selectedEntityId || undefined}
+                onValueChange={(value) => setSelectedEntityId(value ?? '')}
                 disabled={loadingEntities || !!entitiesError}
               >
-                {!selectedEntityId ? <option value="">{t('entities.encryption.placeholder', 'Select an entity')}</option> : null}
-                {(entities?.items || []).map((item) => (
-                  <option key={item.entityId} value={item.entityId}>
-                    {item.label || item.entityId} {item.source === 'custom' ? `(${t('entities.encryption.source.custom', 'custom')})` : ''}
-                  </option>
-                ))}
-              </select>
+                <SelectTrigger className="mt-1">
+                  <SelectValue placeholder={t('entities.encryption.placeholder', 'Select an entity')} />
+                </SelectTrigger>
+                <SelectContent>
+                  {(entities?.items || []).map((item) => (
+                    <SelectItem key={item.entityId} value={item.entityId}>
+                      {item.label || item.entityId} {item.source === 'custom' ? `(${t('entities.encryption.source.custom', 'custom')})` : ''}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
               {entitiesError ? (
-                <p className="mt-1 text-xs text-red-600">
+                <p className="mt-1 text-xs text-status-error-text">
                   {t('entities.encryption.errors.loadEntities', 'Failed to load entities')}
                 </p>
               ) : (
@@ -391,17 +433,19 @@ export function EncryptionManager() {
                 </p>
               )}
             </div>
-            <label className="inline-flex items-center gap-2 text-sm">
-              <input
-                type="checkbox"
+            <div className="inline-flex items-center gap-2 text-sm">
+              <Checkbox
+                id="entities-encryption-active"
                 checked={isActive}
-                onChange={(event) => setIsActive(event.target.checked)}
+                onCheckedChange={(checked) => setIsActive(checked === true)}
               />
-              {t('entities.encryption.active', 'Encryption enabled for this entity')}
-            </label>
+              <label htmlFor="entities-encryption-active">
+                {t('entities.encryption.active', 'Encryption enabled for this entity')}
+              </label>
+            </div>
           </div>
         </div>
-        <div className="rounded-lg border bg-background/70 p-4">
+        <div className="rounded-lg border bg-background/80 p-4">
           <div className="mb-3 flex items-center justify-between">
             <div>
               <h3 className="text-sm font-medium">{t('entities.encryption.fields.title', 'Encrypted fields')}</h3>
@@ -409,7 +453,7 @@ export function EncryptionManager() {
                 {t('entities.encryption.fields.subtitle', 'List the attributes that should be encrypted with the tenant key.')}
               </p>
             </div>
-            <Button variant="outline" size="sm" onClick={addField}>
+            <Button type="button" variant="outline" size="sm" onClick={addField}>
               <Plus className="mr-2 h-4 w-4" />
               {t('entities.encryption.actions.add', 'Add field')}
             </Button>
@@ -418,6 +462,7 @@ export function EncryptionManager() {
         </div>
         <div className="flex justify-end">
           <Button
+            type="button"
             onClick={() => mutation.mutate()}
             disabled={mutation.isPending || loadingEntities || !!entitiesError || !selectedEntityId}
           >

@@ -1,9 +1,13 @@
 import { z } from 'zod'
+import type { EntityManager } from '@mikro-orm/core'
 import { makeCrudRoute } from '@open-mercato/shared/lib/crud/factory'
 import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
 import { CrudHttpError } from '@open-mercato/shared/lib/crud/errors'
 import { SalesQuoteAdjustment } from '../../data/entities'
-import { quoteAdjustmentCreateSchema } from '../../data/validators'
+import {
+  enforceAdjustmentSign,
+  quoteAdjustmentCreateSchema,
+} from '../../data/validators'
 import { createPagedListResponseSchema, createSalesCrudOpenApi, defaultOkResponseSchema } from '../openapi'
 import { withScopedPayload } from '../utils'
 import { E } from '#generated/entities.ids.generated'
@@ -29,7 +33,9 @@ const routeMetadata = {
   DELETE: { requireAuth: true, requireFeatures: ['sales.quotes.manage'] },
 }
 
-const upsertSchema = quoteAdjustmentCreateSchema.extend({ id: z.string().uuid().optional() })
+const upsertSchema = quoteAdjustmentCreateSchema
+  .extend({ id: z.string().uuid().optional() })
+  .superRefine(enforceAdjustmentSign)
 
 const deleteSchema = z.object({
   id: z.string().uuid(),
@@ -77,7 +83,7 @@ const crud = makeCrudRoute({
       const filters: Record<string, unknown> = {}
       if (query.quoteId) filters.quote_id = { $eq: query.quoteId }
       try {
-        const em = ctx.container.resolve('em')
+        const em = ctx.container.resolve<EntityManager>('em')
         const cfFilters = await buildCustomFieldFiltersFromQuery({
           entityId: E.sales.sales_quote_adjustment,
           query,

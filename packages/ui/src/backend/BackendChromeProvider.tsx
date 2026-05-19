@@ -41,6 +41,8 @@ export function BackendChromeProvider({ adminNavApi, children }: BackendChromePr
       const nextPayload = call.result
       chromeCache.set(buildCacheKey(adminNavApi), nextPayload)
       setPayload(nextPayload)
+    } catch {
+      return
     } finally {
       setIsLoading(false)
     }

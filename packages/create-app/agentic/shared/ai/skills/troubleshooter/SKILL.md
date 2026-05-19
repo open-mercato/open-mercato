@@ -128,17 +128,21 @@ yarn typecheck
 
 1. **Did you create a migration after adding/changing the entity?**
    ```bash
-   yarn db:generate     # Creates migration file
+   yarn db:generate     # Probes/creates migration file
    ```
-   Fix: Run `yarn db:generate` to create the migration.
+   Fix: Run `yarn db:generate` to inspect the required migration, then keep only the scoped SQL for your module and update `src/modules/<module_id>/migrations/.snapshot-open-mercato.json`.
 
-2. **Did you apply the migration?**
+2. **Is the entity declared in the right file with the right imports?**
+   Entity classes belong in `src/modules/<module_id>/data/entities.ts` and decorators must come from `@mikro-orm/decorators/legacy`.
+   Fix: move stale `entities/<Entity>.ts` patterns into `data/entities.ts` and fix the imports before regenerating the migration.
+
+3. **Did you apply the migration?**
    ```bash
    yarn db:migrate      # Applies pending migrations
    ```
    Fix: Run `yarn db:migrate`.
 
-3. **Is the migration file correct?**
+4. **Is the migration file correct?**
    Check `src/modules/<module_id>/migrations/` for the latest migration.
    Verify it has the expected columns and types.
    Fix: If wrong, delete the migration file, fix the entity, and regenerate.
@@ -158,16 +162,21 @@ yarn typecheck
    Never edit `node_modules/@open-mercato/*`.
    Fix: Revert changes to node_modules. Use UMES extensions instead, or eject the module.
 
+3. **Is a module snapshot stale?**
+   Check whether the generated SQL recreates a table or column that already has a committed migration.
+   Fix: update that module's `migrations/.snapshot-open-mercato.json` to include the already-migrated schema, then re-run `yarn db:generate` and expect `no changes`.
+
 ### Entity changes not reflected
 
 **Symptoms**: Changed entity file but API still returns old schema
 
 **Checklist**:
 
-1. Run `yarn generate` — entity discovery is cached
-2. Run `yarn db:generate` — schema needs a migration
-3. Run `yarn db:migrate` — migration needs to be applied
-4. Restart `yarn dev` — server caches entity metadata
+1. Verify the entity lives in `src/modules/<module_id>/data/entities.ts` and imports decorators from `@mikro-orm/decorators/legacy`
+2. Run `yarn generate` — entity discovery is cached
+3. Run `yarn db:generate` — schema needs a migration
+4. Run `yarn db:migrate` — migration needs to be applied
+5. Restart `yarn dev` — server caches entity metadata
 
 ---
 

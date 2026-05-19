@@ -2,7 +2,7 @@ import { NextResponse } from 'next/server'
 import { z } from 'zod'
 import { Dictionary } from '@open-mercato/core/modules/dictionaries/data/entities'
 import { resolveDictionariesRouteContext } from '@open-mercato/core/modules/dictionaries/api/context'
-import { CrudHttpError } from '@open-mercato/shared/lib/crud/errors'
+import { CrudHttpError, isCrudHttpError } from '@open-mercato/shared/lib/crud/errors'
 import type { OpenApiMethodDoc, OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
 import {
   dictionariesErrorSchema,
@@ -83,7 +83,7 @@ export async function GET(req: Request, ctx: { params?: { dictionaryId?: string 
       updatedAt: dictionary.updatedAt,
     })
   } catch (err) {
-    if (err instanceof CrudHttpError) {
+    if (isCrudHttpError(err)) {
       return NextResponse.json(err.body, { status: err.status })
     }
     console.error('[dictionaries/:id.GET] Unexpected error', err)
@@ -157,7 +157,7 @@ export async function PATCH(req: Request, ctx: { params?: { dictionaryId?: strin
       updatedAt: dictionary.updatedAt,
     })
   } catch (err) {
-    if (err instanceof CrudHttpError) {
+    if (isCrudHttpError(err)) {
       return NextResponse.json(err.body, { status: err.status })
     }
     console.error('[dictionaries/:id.PATCH] Unexpected error', err)
@@ -181,7 +181,7 @@ export async function DELETE(req: Request, ctx: { params?: { dictionaryId?: stri
 
     return NextResponse.json({ ok: true })
   } catch (err) {
-    if (err instanceof CrudHttpError) {
+    if (isCrudHttpError(err)) {
       return NextResponse.json(err.body, { status: err.status })
     }
     console.error('[dictionaries/:id.DELETE] Unexpected error', err)

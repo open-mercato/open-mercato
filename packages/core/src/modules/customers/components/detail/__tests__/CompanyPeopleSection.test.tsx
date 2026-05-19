@@ -100,6 +100,12 @@ describe('CompanyPeopleSection', () => {
     mockCompanyPeopleApi()
   })
 
+  async function waitForInitialPeopleLoad() {
+    await waitFor(() => {
+      expect(screen.queryByText(/Loading people/)).not.toBeInTheDocument()
+    })
+  }
+
   it('opens the inline create dialog from the empty state', async () => {
     renderWithProviders(
       <CompanyPeopleSection
@@ -111,6 +117,7 @@ describe('CompanyPeopleSection', () => {
       />,
     )
 
+    await waitForInitialPeopleLoad()
     fireEvent.click(await screen.findByRole('button', { name: 'Create person' }))
 
     expect(screen.getByText('Add new person')).toBeInTheDocument()
@@ -143,6 +150,7 @@ describe('CompanyPeopleSection', () => {
       />,
     )
 
+    await waitForInitialPeopleLoad()
     fireEvent.click(screen.getByRole('button', { name: 'Link existing person' }))
 
     const checkbox = await screen.findByRole('checkbox', { name: 'Select Ada Lovelace' })
@@ -204,6 +212,7 @@ describe('CompanyPeopleSection', () => {
       />,
     )
 
+    await waitForInitialPeopleLoad()
     fireEvent.click(screen.getByRole('button', { name: 'Link existing person' }))
     fireEvent.click(await screen.findByRole('checkbox', { name: 'Select Ada Lovelace' }))
     fireEvent.click(screen.getByRole('checkbox', { name: 'Select Grace Hopper' }))
@@ -306,6 +315,7 @@ describe('CompanyPeopleSection', () => {
       />,
     )
 
+    await waitForInitialPeopleLoad()
     fireEvent.click(screen.getByRole('button', { name: 'Link existing person' }))
 
     const adaCheckbox = await screen.findByRole('checkbox', { name: 'Select Ada Lovelace' })
@@ -345,6 +355,7 @@ describe('CompanyPeopleSection', () => {
       />,
     )
 
+    await waitForInitialPeopleLoad()
     fireEvent.click(screen.getByRole('button', { name: 'Link existing person' }))
     fireEvent.click(await screen.findByRole('checkbox', { name: 'Select Ada Lovelace' }))
 
@@ -415,6 +426,7 @@ describe('CompanyPeopleSection', () => {
     try {
       renderWithProviders(<Harness />)
 
+      await waitForInitialPeopleLoad()
       fireEvent.click(screen.getByRole('button', { name: 'Link existing person' }))
       fireEvent.click(await screen.findByRole('checkbox', { name: 'Select Ada Lovelace' }))
 
@@ -444,8 +456,22 @@ describe('CompanyPeopleSection', () => {
         displayName: 'Grace Hopper',
       },
     ]
-    mockCompanyPeopleApi({ linkedPeople: initialPeople })
-    apiCallOrThrowMock.mockResolvedValue({ ok: true })
+    let linked = initialPeople
+    readApiResultOrThrowMock.mockImplementation(async (url: string) => {
+      if (url.startsWith('/api/customers/companies/company-123/people')) {
+        return {
+          items: linked,
+          page: 1,
+          total: linked.length,
+          totalPages: 1,
+        }
+      }
+      return { items: [], totalPages: 1 }
+    })
+    apiCallOrThrowMock.mockImplementation(async () => {
+      linked = []
+      return { ok: true }
+    })
 
     renderWithProviders(
       <CompanyPeopleSection
@@ -474,7 +500,7 @@ describe('CompanyPeopleSection', () => {
       expect.any(Object),
     )
     await waitFor(() => {
-      expect(onPeopleChange).toHaveBeenCalledWith([])
+      expect(screen.queryByRole('button', { name: 'Unlink' })).toBeNull()
     })
   })
 

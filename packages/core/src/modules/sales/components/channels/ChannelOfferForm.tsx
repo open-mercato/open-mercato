@@ -10,8 +10,17 @@ import { createCrudFormError, type CrudServerFieldErrors } from '@open-mercato/u
 import { readApiResultOrThrow, apiCall } from '@open-mercato/ui/backend/utils/apiCall'
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
 import { Button } from '@open-mercato/ui/primitives/button'
+import { Input } from '@open-mercato/ui/primitives/input'
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@open-mercato/ui/primitives/select'
 import { Loader2, Search, Image as ImageIcon, Trash2 } from 'lucide-react'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
+import { extractCustomFieldEntries } from '@open-mercato/shared/lib/crud/custom-fields-client'
 import { E } from '#generated/entities.ids.generated'
 import { buildAttachmentImageUrl, slugifyAttachmentFileName } from '@open-mercato/core/modules/attachments/lib/imageUrls'
 import { cn } from '@open-mercato/shared/lib/utils'
@@ -745,55 +754,7 @@ function collectPriceIds(source: PriceOverrideDraft[] | null | undefined): Set<s
 }
 
 function mergeCustomFieldValues(target: Record<string, unknown>, source: Record<string, unknown> | null | undefined) {
-  if (!source || typeof source !== 'object') return
-  const assign = (key: string | null | undefined, value: unknown) => {
-    if (!key) return
-    target[`cf_${key}`] = value
-  }
-  for (const [rawKey, rawValue] of Object.entries(source)) {
-    if (rawKey.startsWith('cf_')) {
-      if (rawKey.endsWith('__is_multi')) continue
-      target[rawKey] = rawValue
-    } else if (rawKey.startsWith('cf:')) {
-      assign(rawKey.slice(3), rawValue)
-    }
-  }
-  const customValues =
-    (source as Record<string, unknown>).customValues ??
-    (source as Record<string, unknown>).custom_values
-  if (customValues && typeof customValues === 'object' && !Array.isArray(customValues)) {
-    for (const [key, value] of Object.entries(customValues as Record<string, unknown>)) {
-      assign(key, value)
-    }
-  }
-  const customFields =
-    (source as Record<string, unknown>).customFields ??
-    (source as Record<string, unknown>).custom_fields
-  if (Array.isArray(customFields)) {
-    customFields.forEach((entry) => {
-      if (!entry || typeof entry !== 'object') return
-      const entryRecord = entry as Record<string, unknown>
-      const key = typeof entryRecord.key === 'string' ? entryRecord.key : null
-      if (!key) return
-      assign(key, entryRecord.value)
-    })
-  } else if (customFields && typeof customFields === 'object') {
-    for (const [key, value] of Object.entries(customFields as Record<string, unknown>)) {
-      assign(key, value)
-    }
-  }
-  const customEntries =
-    (source as Record<string, unknown>).customFieldEntries ??
-    (source as Record<string, unknown>).custom_field_entries
-  if (Array.isArray(customEntries)) {
-    customEntries.forEach((entry) => {
-      if (!entry || typeof entry !== 'object') return
-      const entryRecord = entry as Record<string, unknown>
-      const key = typeof entryRecord.key === 'string' ? entryRecord.key : null
-      if (!key) return
-      assign(key, entryRecord.value)
-    })
-  }
+  Object.assign(target, extractCustomFieldEntries(source ?? {}))
 }
 
 function buildChannelOffersHref(channelId?: string | null): string {
@@ -933,18 +894,18 @@ function ChannelSelectInput({
     )
   }
   return (
-    <select
-      className="w-full rounded border px-2 py-2 text-sm"
-      value={value ?? ''}
-      onChange={(event) => onChange(event.target.value || null)}
-    >
-      <option value="">{t('sales.channels.offers.form.channelPlaceholder', 'Select channel')}</option>
-      {options.map((opt) => (
-        <option key={opt.id} value={opt.id}>
-          {opt.code ? `${opt.name} (${opt.code})` : opt.name}
-        </option>
-      ))}
-    </select>
+    <Select value={value || undefined} onValueChange={(next) => onChange(next || null)}>
+      <SelectTrigger>
+        <SelectValue placeholder={t('sales.channels.offers.form.channelPlaceholder', 'Select channel')} />
+      </SelectTrigger>
+      <SelectContent>
+        {options.map((opt) => (
+          <SelectItem key={opt.id} value={opt.id}>
+            {opt.code ? `${opt.name} (${opt.code})` : opt.name}
+          </SelectItem>
+        ))}
+      </SelectContent>
+    </Select>
   )
 }
 
@@ -1027,19 +988,16 @@ function ProductSelectInput({
 
   return (
     <div className="space-y-3">
-      <div className="relative">
-        <Search className="pointer-events-none absolute left-2 top-2.5 h-4 w-4 text-muted-foreground" />
-        <input
-          className="w-full rounded border pl-8 pr-2 py-2 text-sm"
-          value={query}
-          onChange={(event) => {
-            setQuery(event.target.value)
-            setHasTyped(true)
-          }}
-          onKeyDown={handleKeyDown}
-          placeholder={t('sales.channels.offers.form.productSearchPlaceholder', 'Search by title, SKU, or ID…')}
-        />
-      </div>
+      <Input
+        leftIcon={<Search />}
+        value={query}
+        onChange={(event) => {
+          setQuery(event.target.value)
+          setHasTyped(true)
+        }}
+        onKeyDown={handleKeyDown}
+        placeholder={t('sales.channels.offers.form.productSearchPlaceholder', 'Search by title, SKU, or ID…')}
+      />
       {selectedHint ? (
         <div className="rounded border bg-muted px-3 py-2 text-xs text-muted-foreground">
           {selectedHint}
@@ -1782,7 +1740,7 @@ function PriceOverridesEditor({
 
   return (
     <div className="space-y-4">
-      <div className="rounded border bg-muted/60 px-3 py-2">
+      <div className="rounded border bg-muted/50 px-3 py-2">
         <div className="text-xs uppercase text-muted-foreground">
           {t('sales.channels.offers.pricing.basePriceLabel', 'Original product price')}
         </div>
@@ -1819,11 +1777,10 @@ function PriceOverridesEditor({
         <div className="space-y-2">
           {values.map((row) => (
             <div key={row.tempId} className="grid gap-2 rounded border p-3 md:grid-cols-3">
-              <select
-                className="rounded border px-2 py-2 text-sm"
-                value={row.priceKindId ?? ''}
-                onChange={(event) => {
-                  const next = priceKinds.find((kind) => kind.id === event.target.value)
+              <Select
+                value={row.priceKindId || undefined}
+                onValueChange={(value) => {
+                  const next = priceKinds.find((kind) => kind.id === value)
                   updateRow(row.tempId, {
                     priceKindId: next?.id ?? null,
                     priceKindCode: next?.code ?? next?.title ?? null,
@@ -1832,28 +1789,29 @@ function PriceOverridesEditor({
                   })
                 }}
               >
-                <option value="">{t('sales.channels.offers.pricing.selectKind', 'Select price kind')}</option>
-                {priceKinds.map((kind) => (
-                  <option
-                    key={kind.id}
-                    value={kind.id}
-                    disabled={usedKindIdSet.has(kind.id) && row.priceKindId !== kind.id}
-                  >
-                  {kind.title ?? kind.code ?? kind.id}
-                </option>
-              ))}
-            </select>
+                <SelectTrigger>
+                  <SelectValue placeholder={t('sales.channels.offers.pricing.selectKind', 'Select price kind')} />
+                </SelectTrigger>
+                <SelectContent>
+                  {priceKinds.map((kind) => (
+                    <SelectItem
+                      key={kind.id}
+                      value={kind.id}
+                      disabled={usedKindIdSet.has(kind.id) && row.priceKindId !== kind.id}
+                    >
+                      {kind.title ?? kind.code ?? kind.id}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
               <div className="relative">
                 {(row.currencyCode ?? basePrice?.currencyCode) ? (
                   <span className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-xs font-semibold text-muted-foreground">
                     {row.currencyCode ?? basePrice?.currencyCode}
                   </span>
                 ) : null}
-                <input
-                  className={cn(
-                    'w-full rounded border py-2 text-sm',
-                    row.currencyCode || basePrice?.currencyCode ? 'pl-16 pr-2' : 'px-2',
-                  )}
+                <Input
+                  inputClassName={cn(row.currencyCode || basePrice?.currencyCode ? 'pl-13' : '')}
                   type="number"
                   placeholder={t('sales.channels.offers.pricing.amount', 'Amount')}
                   value={row.amount ?? ''}

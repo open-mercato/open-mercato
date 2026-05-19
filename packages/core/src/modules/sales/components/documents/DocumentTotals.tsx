@@ -55,10 +55,10 @@ export function DocumentTotals({ title, currency, items, className }: DocumentTo
   return (
     <div className={cn('space-y-3', className)}>
       <div className="overflow-hidden rounded-xl border bg-card shadow-sm">
-        <div className="flex items-center justify-between border-b bg-muted/40 px-4 py-3">
+        <div className="flex items-center justify-between border-b bg-muted/50 px-4 py-3">
           <span className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">{heading}</span>
           {currency ? (
-            <span className="rounded-full border border-border/60 bg-background/60 px-3 py-1 text-xs font-semibold tracking-wide text-foreground">
+            <span className="rounded-full border border-border/70 bg-background/80 px-3 py-1 text-xs font-semibold tracking-wide text-foreground">
               {currency}
             </span>
           ) : null}
@@ -68,7 +68,7 @@ export function DocumentTotals({ title, currency, items, className }: DocumentTo
             {visibleItems
               .filter((item) => !item.emphasize)
               .map((item) => (
-                <tr key={item.key} className="bg-background/60 transition-colors hover:bg-muted/30">
+                <tr key={item.key} className="bg-background/80 transition-colors hover:bg-muted/30">
                   <td className="px-4 py-3 font-medium text-foreground/90">{item.label}</td>
                   <td className="px-4 py-3 text-right">
                     <PriceWithCurrency amount={item.amount} currency={currency} className="font-mono text-base" />

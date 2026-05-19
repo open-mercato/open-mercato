@@ -16,7 +16,14 @@ async function createInteraction(
   return id as string
 }
 
-test.describe('TC-CRM-036: Company activity log tab history and planned state', () => {
+// TODO(crm-activity-redesign): Re-author against the new ActivitiesCard +
+// ActivityHistorySection layout introduced in PR #1791. The previous flow exercised the
+// `InlineActivityComposer` (its "Log activity" header, "what happened?" textarea, and inline
+// "Save activity" button), which has been replaced by the `ActivitiesAddNewMenu` →
+// `ScheduleActivityDialog` path. Filter chip behaviour and counts are now exercised by the
+// `ActivityTimelineFilters` and `ActivityHistorySection` Jest suites in
+// `packages/core/src/modules/customers/components/detail/__tests__/`.
+test.describe.skip('TC-CRM-036: Company activity log tab history and planned state', () => {
   test('should create, filter, and search activities on the activity log tab', async ({ page, request }) => {
     test.slow()
 

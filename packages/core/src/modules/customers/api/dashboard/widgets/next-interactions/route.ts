@@ -1,7 +1,7 @@
 import { NextResponse } from 'next/server'
 import { z } from 'zod'
 import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
-import { CrudHttpError } from '@open-mercato/shared/lib/crud/errors'
+import { CrudHttpError, isCrudHttpError } from '@open-mercato/shared/lib/crud/errors'
 import { CustomerEntity } from '../../../../data/entities'
 import type { FilterQuery } from '@mikro-orm/core'
 import { resolveWidgetScope, type WidgetScopeContext } from '../utils'
@@ -89,7 +89,7 @@ export async function GET(req: Request) {
 
     return NextResponse.json({ items, now: now.toISOString() })
   } catch (err) {
-    if (err instanceof CrudHttpError) {
+    if (isCrudHttpError(err)) {
       return NextResponse.json(err.body, { status: err.status })
     }
     console.error('customers.widgets.nextInteractions failed', err)

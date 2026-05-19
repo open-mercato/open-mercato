@@ -99,7 +99,7 @@ export default function PortalDashboardPage({ params }: Props) {
               type="button"
               variant={editing ? 'default' : 'outline'}
               size="sm"
-              className="rounded-lg text-[13px]"
+              className="rounded-lg text-sm"
               onClick={() => setEditing((prev) => !prev)}
             >
               {editing ? t('portal.dashboard.done', 'Done') : t('portal.dashboard.customize', 'Customize')}
@@ -120,7 +120,7 @@ export default function PortalDashboardPage({ params }: Props) {
             {dashboardWidgets.map((widget) => {
               const isHidden = hiddenWidgets.has(widget.metadata.id)
               return (
-                <Button key={widget.metadata.id} type="button" variant={isHidden ? 'outline' : 'default'} size="sm" className="rounded-lg text-[13px]" onClick={() => toggleWidget(widget.metadata.id)}>
+                <Button key={widget.metadata.id} type="button" variant={isHidden ? 'outline' : 'default'} size="sm" className="rounded-lg text-sm" onClick={() => toggleWidget(widget.metadata.id)}>
                   {widget.metadata.title || widget.metadata.id}
                 </Button>
               )

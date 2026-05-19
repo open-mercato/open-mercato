@@ -24,11 +24,9 @@ test.describe('TC-CRM-006: Customer Address Management', () => {
       await page.getByRole('tab', { name: 'Addresses' }).click();
       await page.getByRole('button', { name: 'Add address' }).click();
       await page.getByRole('textbox', { name: 'Label' }).fill(firstLabel);
-      await page
-        .locator('select')
-        .filter({ has: page.locator('option', { hasText: 'Office' }) })
-        .first()
-        .selectOption({ label: 'Office' });
+      // Radix Select for address type — click trigger then portal option
+      await page.locator('[role="combobox"][aria-expanded="false"]').first().click();
+      await page.getByRole('option', { name: 'Office', exact: true }).click();
       await page.getByRole('textbox', { name: 'Address line 1' }).fill('100 Main Street');
       await page.getByRole('textbox', { name: 'City' }).fill('Austin');
       await page.getByRole('textbox', { name: 'Region / State' }).fill('TX');
@@ -41,11 +39,9 @@ test.describe('TC-CRM-006: Customer Address Management', () => {
 
       await page.getByRole('button', { name: 'Add address' }).click();
       await page.getByRole('textbox', { name: 'Label' }).fill(secondLabel);
-      await page
-        .locator('select')
-        .filter({ has: page.locator('option', { hasText: 'Shipping' }) })
-        .first()
-        .selectOption({ label: 'Shipping' });
+      // Radix Select for address type — click trigger then portal option
+      await page.locator('[role="combobox"][aria-expanded="false"]').first().click();
+      await page.getByRole('option', { name: 'Shipping', exact: true }).click();
       await page.getByRole('textbox', { name: 'Address line 1' }).fill('200 Warehouse Road');
       await page.getByRole('textbox', { name: 'City' }).fill('Dallas');
       await page.getByRole('textbox', { name: 'Region / State' }).fill('TX');

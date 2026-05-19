@@ -12,6 +12,7 @@ export type ActionLogExecutionState = 'done' | 'undone' | 'failed' | 'redone'
 @Index({ name: 'action_logs_source_key_idx', properties: ['tenantId', 'organizationId', 'sourceKey', 'createdAt'] })
 @Index({ name: 'action_logs_primary_changed_field_idx', properties: ['tenantId', 'organizationId', 'primaryChangedField', 'createdAt'] })
 @Index({ name: 'action_logs_changed_fields_idx', properties: ['changedFields'], type: 'gin' })
+@Index({ name: 'action_logs_related_resource_idx', properties: ['tenantId', 'relatedResourceKind', 'relatedResourceId', 'createdAt'] })
 export class ActionLog {
   @PrimaryKey({ type: 'uuid', defaultRaw: 'gen_random_uuid()' })
   id!: string
@@ -75,6 +76,12 @@ export class ActionLog {
 
   @Property({ name: 'source_key', type: 'text', nullable: true })
   sourceKey: ActionLogSourceKey | null = null
+
+  @Property({ name: 'related_resource_kind', type: 'text', nullable: true })
+  relatedResourceKind: string | null = null
+
+  @Property({ name: 'related_resource_id', type: 'text', nullable: true })
+  relatedResourceId: string | null = null
 
   @Property({ name: 'created_at', type: Date, onCreate: () => new Date() })
   createdAt: Date = new Date()

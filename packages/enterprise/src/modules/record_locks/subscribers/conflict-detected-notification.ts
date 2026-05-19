@@ -2,6 +2,8 @@ import { buildNotificationFromType } from '@open-mercato/core/modules/notificati
 import { resolveNotificationService } from '@open-mercato/core/modules/notifications/lib/notificationService'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import { ActionLog } from '@open-mercato/core/modules/audit_logs/data/entities'
+import { findOneWithDecryption } from '@open-mercato/shared/lib/encryption/find'
+import { parseDecryptedFieldValue } from '@open-mercato/shared/lib/encryption/tenantDataEncryptionService'
 import {
   isConflictNotificationEnabled,
   resolveRecordLockNotificationType,
@@ -48,6 +50,19 @@ function formatChangedFieldLabel(rawField: string): string {
     .join(' ')
 }
 
+function readActionLogChanges(log: ActionLog | null): Record<string, unknown> | null {
+  const rawChanges = log?.changesJson as unknown
+  if (rawChanges && typeof rawChanges === 'object' && !Array.isArray(rawChanges)) {
+    return rawChanges as Record<string, unknown>
+  }
+  if (typeof rawChanges !== 'string') return null
+
+  const parsed = parseDecryptedFieldValue(rawChanges)
+  return parsed && typeof parsed === 'object' && !Array.isArray(parsed)
+    ? parsed as Record<string, unknown>
+    : null
+}
+
 export default async function handle(payload: Payload, ctx: ResolverContext) {
   if (!payload.conflictActorUserId) return
 
@@ -60,10 +75,17 @@ export default async function handle(payload: Payload, ctx: ResolverContext) {
   try {
     const em = (ctx.resolve('em') as EntityManager).fork()
     const incomingLog = payload.incomingActionLogId
-      ? await em.findOne(ActionLog, { id: payload.incomingActionLogId, deletedAt: null })
+      ? await findOneWithDecryption(
+          em,
+          ActionLog,
+          { id: payload.incomingActionLogId, deletedAt: null },
+          undefined,
+          { tenantId: payload.tenantId, organizationId: payload.organizationId ?? null },
+        )
       : null
-    const changedFields = incomingLog?.changesJson && typeof incomingLog.changesJson === 'object'
-      ? Object.keys(incomingLog.changesJson).slice(0, 12).map(formatChangedFieldLabel).join(', ')
+    const changesJson = readActionLogChanges(incomingLog)
+    const changedFields = changesJson
+      ? Object.keys(changesJson).slice(0, 12).map(formatChangedFieldLabel).join(', ')
       : ''
 
     const notificationService = resolveNotificationService(ctx)

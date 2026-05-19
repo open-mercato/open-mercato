@@ -162,9 +162,9 @@ export default function McpConfigDialog({ open, onOpenChange, mcpUrl }: Props) {
           )}
 
           {apiKey && (
-            <div className="flex items-start gap-2 p-3 bg-amber-50 dark:bg-amber-900/20 rounded-lg border border-amber-200 dark:border-amber-800">
-              <AlertTriangle className="h-4 w-4 text-amber-600 dark:text-amber-400 mt-0.5 shrink-0" />
-              <p className="text-sm text-amber-700 dark:text-amber-300">
+            <div className="flex items-start gap-2 p-3 bg-status-warning-bg rounded-lg border border-status-warning-border">
+              <AlertTriangle className="h-4 w-4 text-status-warning-icon mt-0.5 shrink-0" />
+              <p className="text-sm text-status-warning-text">
                 {t('ai_assistant.mcp.saveKeyWarning')}
               </p>
             </div>

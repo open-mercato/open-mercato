@@ -26,6 +26,11 @@ import { resolveSpawnCommand } from './dev-spawn-utils.mjs'
 import { createDevSplashCodingFlow } from './dev-splash-coding-flow.mjs'
 import { createDevSplashGitRepoFlow } from './dev-splash-git-repo-flow.mjs'
 import { normalizeSplashDisplayState } from './dev-splash-state.mjs'
+import {
+  resolveDevBaseUrl,
+  resolveSplashUrl as resolveSplashAccessUrl,
+} from './dev-splash-url.mjs'
+import { resolveDatabaseNameOverride } from './dev-database-url.mjs'
 
 function detectDevRuntimeMode() {
   const cwd = process.cwd()
@@ -155,23 +160,17 @@ function shouldRetrySplashServerWithRandomPort(error) {
   return error.code === 'EADDRINUSE'
 }
 
-function normalizePublicBaseUrl(value) {
-  if (typeof value !== 'string' || value.trim().length === 0) return null
-
-  try {
-    const parsed = new URL(value)
-    parsed.pathname = ''
-    parsed.search = ''
-    parsed.hash = ''
-    return parsed.toString().replace(/\/$/, '')
-  } catch {
-    return null
-  }
-}
-
 function isEnabledEnvFlag(value) {
   if (typeof value !== 'string') return false
   return ['1', 'true', 'yes', 'on'].includes(value.trim().toLowerCase())
+}
+
+// OM_DEV_AUTO_MIGRATE defaults to ON: yarn dev applies pending migrations once
+// at startup unless the user explicitly opts out. Documented in template AGENTS.md.
+function shouldAutoMigrateOnDev() {
+  const raw = process.env.OM_DEV_AUTO_MIGRATE
+  if (typeof raw !== 'string') return true
+  return !['0', 'false', 'no', 'off'].includes(raw.trim().toLowerCase())
 }
 
 const splashPortConfig = (() => {
@@ -295,9 +294,7 @@ function formatProgressLine(label, current, total, percent) {
 }
 
 function resolveExpectedAppBaseUrl() {
-  return normalizePublicBaseUrl(process.env.APP_URL)
-    ?? normalizePublicBaseUrl(process.env.NEXT_PUBLIC_APP_URL)
-    ?? `http://localhost:${parsePortNumber(process.env.PORT) ?? 3000}`
+  return resolveDevBaseUrl(process.env).url
 }
 
 function resolveExpectedBackendUrl() {
@@ -512,6 +509,27 @@ function buildSplashChildEnv() {
   }
 }
 
+function applyLocalDevBackgroundServiceDefaults(childEnv) {
+  const env = childEnv ?? {}
+  if (
+    typeof process.env.OM_AUTO_SPAWN_WORKERS_LAZY !== 'string'
+    || process.env.OM_AUTO_SPAWN_WORKERS_LAZY.trim() === ''
+  ) {
+    env.OM_AUTO_SPAWN_WORKERS_LAZY = 'true'
+  }
+  if (
+    typeof process.env.OM_AUTO_SPAWN_SCHEDULER_LAZY !== 'string'
+    || process.env.OM_AUTO_SPAWN_SCHEDULER_LAZY.trim() === ''
+  ) {
+    env.OM_AUTO_SPAWN_SCHEDULER_LAZY = 'true'
+  }
+  return env
+}
+
+function buildAppDevEnv() {
+  return applyLocalDevBackgroundServiceDefaults(buildSplashChildEnv() ?? {})
+}
+
 function launchStandaloneDev(options = {}) {
   if (!fs.existsSync(standaloneRuntimeScript)) {
     console.error(`❌ Standalone dev runtime not found at ${standaloneRuntimeScript}`)
@@ -546,7 +564,7 @@ function launchStandaloneDev(options = {}) {
 
   const app = spawnCommand(process.execPath, runtimeArgs, {
     stdio: 'inherit',
-    env: buildSplashChildEnv(),
+    env: buildAppDevEnv(),
   })
 
   app.on('close', (code) => {
@@ -575,6 +593,39 @@ function ensureStandaloneEnvFile() {
       activity: 'Project files are ready',
     })
   }
+}
+
+function resolveDatabaseEnvFilePath() {
+  return isMonorepo
+    ? path.join(process.cwd(), 'apps', 'mercato', '.env')
+    : path.join(process.cwd(), '.env')
+}
+
+async function applyDatabaseNameOverrideIfRequested() {
+  let result
+  try {
+    result = await resolveDatabaseNameOverride({
+      argv: args,
+      env: process.env,
+      cwd: process.cwd(),
+      envFilePath: resolveDatabaseEnvFilePath(),
+      stdin: process.stdin,
+      stdout: process.stdout,
+      logger: { info: (msg) => console.log(msg) },
+    })
+  } catch (error) {
+    console.error(`❌ ${error instanceof Error ? error.message : String(error)}`)
+    shutdown(1)
+    return null
+  }
+
+  if (result?.applied) {
+    process.env.DATABASE_URL = result.childEnv.DATABASE_URL
+    updateSplashState({
+      activity: `Using database "${result.databaseName}" for this run`,
+    })
+  }
+  return result
 }
 
 function normalizeLocaleToken(value) {
@@ -916,7 +967,7 @@ async function startSplashServer() {
 
   const address = splashServer.address()
   if (!address || typeof address === 'string') return
-  splashUrl = `http://localhost:${address.port}`
+  splashUrl = resolveSplashAccessUrl(process.env, address.port)
   if (splashPortConfig.port !== 0 && address.port !== splashPortConfig.port) {
     console.log(`🪟 Dev splash moved to ${splashUrl}`)
   }
@@ -998,7 +1049,7 @@ function isExpectedShutdownSignal(signal) {
 }
 
 function isGracefulShutdownResult(result) {
-  return shuttingDown && isExpectedShutdownSignal(result?.signal)
+  return shuttingDown && (isExpectedShutdownSignal(result?.signal) || result?.code === 0)
 }
 
 function resolveChildExitCode(result, fallback = 1) {
@@ -1440,70 +1491,6 @@ async function runPassthroughStage(label, commandArgs, options = {}) {
   console.log(`✅ ${formatProgressLine(label, stageCurrent, stageTotal, resolveProgressPercent(stageCurrent, stageTotal))} in ${formatDuration(Date.now() - startedAt)}`)
 }
 
-function isAutoMigrateEnabled() {
-  const raw = process.env.OM_DEV_AUTO_MIGRATE
-  if (typeof raw !== 'string') return true
-  const normalized = raw.trim().toLowerCase()
-  if (normalized === '') return true
-  return !['0', 'false', 'no', 'off'].includes(normalized)
-}
-
-async function runAutoMigrateIfEnabled() {
-  if (!isAutoMigrateEnabled()) {
-    console.log('ℹ️  Skipping auto-migrate: OM_DEV_AUTO_MIGRATE is disabled.')
-    return
-  }
-
-  const label = '🗄️ Auto-applying database migrations'
-  const startedAt = Date.now()
-  console.log(`${label}...`)
-  updateSplashState({
-    phase: label,
-    detail: 'Running yarn db:migrate before dev launch',
-    activity: 'Auto-migrate running',
-  })
-
-  const child = spawnCommand(yarnCommand, ['db:migrate'], {
-    label: 'db:migrate (auto)',
-    logFile: getDevRunnerLog(),
-  })
-  const capturedLines = []
-  const capture = (line) => {
-    capturedLines.push(line)
-    if (capturedLines.length > 200) capturedLines.shift()
-  }
-  connectLineStream(child.stdout, capture)
-  connectLineStream(child.stderr, capture)
-
-  const result = await waitForClose(child)
-  if (isGracefulShutdownResult(result)) return
-
-  const exitCode = resolveChildExitCode(result)
-  if (exitCode === 0) {
-    console.log(`✅ ${label} in ${formatDuration(Date.now() - startedAt)}`)
-    return
-  }
-
-  console.warn('')
-  console.warn('⚠️  Auto-migrate reported a non-zero exit.')
-  console.warn('   This usually means a migration conflict — for example, a parallel')
-  console.warn('   `yarn db:migrate` from another shell already applied the pending change.')
-  console.warn('   Last captured output (tail):')
-  for (const line of capturedLines.slice(-20)) {
-    console.warn(`   | ${line}`)
-  }
-  console.warn('')
-  console.warn('   Suggested next steps:')
-  console.warn('     • Re-run `yarn db:migrate` manually to inspect the exact error.')
-  console.warn('     • If a migration was only partially applied, roll back with')
-  console.warn('       `yarn db:migrate --down` and re-apply.')
-  console.warn('     • To disable auto-migrate entirely for this project, set')
-  console.warn('       `OM_DEV_AUTO_MIGRATE=0` in `.env.local`.')
-  console.warn('   Continuing to launch dev — the app may still work if the schema is')
-  console.warn('   actually up to date. If it does not, fix the migration before reloading.')
-  console.warn('')
-}
-
 function startPackageWatch() {
   if (classic) {
     const child = spawnCommand(yarnCommand, ['watch:packages'], {
@@ -1624,12 +1611,15 @@ function launchMonorepoAppDev() {
   })
   const app = spawnCommand(yarnCommand, appArgs, {
     stdio: 'inherit',
-    env: buildSplashChildEnv(),
+    env: buildAppDevEnv(),
   })
 
   app.on('close', (code, signal) => {
     if (!shuttingDown) {
-      shutdown(resolveChildExitCode({ code, signal }, 0))
+      // Unexpected child exit MUST surface as non-zero even if the child reported
+      // code 0 — hiding a broken runtime as success masks failures from scripts/CI.
+      const childCode = resolveChildExitCode({ code, signal }, 1)
+      shutdown(childCode === 0 ? 1 : childCode)
     }
   })
 }
@@ -1678,6 +1668,7 @@ async function runClassicGreenfieldDev() {
 
 async function runStandaloneSetup() {
   ensureStandaloneEnvFile()
+  await applyDatabaseNameOverrideIfRequested()
   if (standaloneLocalRegistryRefresh) {
     await runStage('🧼 Clearing local Open Mercato cache', ['cache', 'clean', '--all'], {
       stageCurrent: 0,
@@ -1704,6 +1695,7 @@ async function runStandaloneSetup() {
 
 async function runClassicStandaloneSetup() {
   ensureStandaloneEnvFile()
+  await applyDatabaseNameOverrideIfRequested()
   if (standaloneLocalRegistryRefresh) {
     await runRawYarnCommand(['cache', 'clean', '--all'])
   }
@@ -1720,7 +1712,10 @@ async function runClassicStandaloneDev() {
     await runRawYarnCommand(['install'])
   }
 
-  await runAutoMigrateIfEnabled()
+  if (shouldAutoMigrateOnDev()) {
+    await runRawYarnCommand(['db:migrate'])
+  }
+
   launchStandaloneDev()
 }
 
@@ -1737,6 +1732,7 @@ async function main() {
       await runStandaloneSetup()
       return
     }
+    await applyDatabaseNameOverrideIfRequested()
     if (classic) {
       await runClassicStandaloneDev()
       return
@@ -1751,10 +1747,17 @@ async function main() {
         stageTotal: standaloneStageTotal,
       })
     }
-    await runAutoMigrateIfEnabled()
+    if (shouldAutoMigrateOnDev()) {
+      await runPassthroughStage('🗄️ Applying database migrations', ['db:migrate'], {
+        stageCurrent: 2,
+        stageTotal: standaloneStageTotal,
+      })
+    }
     launchStandaloneDev()
     return
   }
+
+  await applyDatabaseNameOverrideIfRequested()
 
   if (appOnly) {
     launchMonorepoAppDev()

@@ -15,7 +15,10 @@ import {
   deriveActionLogProjection,
 } from '@open-mercato/core/modules/audit_logs/lib/projections'
 import { decryptWithAesGcm } from '@open-mercato/shared/lib/encryption/aes'
-import { TenantDataEncryptionService } from '@open-mercato/shared/lib/encryption/tenantDataEncryptionService'
+import {
+  TenantDataEncryptionService,
+  parseDecryptedFieldValue,
+} from '@open-mercato/shared/lib/encryption/tenantDataEncryptionService'
 import { toOptionalString } from '@open-mercato/shared/lib/string/coerce'
 
 let validationWarningLogged = false
@@ -27,6 +30,7 @@ const isZodRuntimeMissing = (err: unknown) => err instanceof TypeError && typeof
 const SORT_FIELDS = {
   createdAt: 'action_logs.created_at',
 } as const
+const UUID_REGEX = /^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-5][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}$/
 
 type ActionLogProjectionBackfillOptions = {
   batchSize?: number
@@ -122,11 +126,7 @@ export class ActionLogService {
         if (typeof value === 'string' && value.split(':').length === 4 && value.endsWith(':v1')) {
           const decrypted = decryptWithAesGcm(value, dek.key)
           if (decrypted === null) return value
-          try {
-            return JSON.parse(decrypted)
-          } catch {
-            return decrypted
-          }
+          return parseDecryptedFieldValue(decrypted)
         }
         if (Array.isArray(value)) return value.map((item) => deepDecrypt(item))
         if (value && typeof value === 'object') {
@@ -151,15 +151,23 @@ export class ActionLogService {
         ...decrypted,
       } as Record<string, unknown>
 
-      merged.changesJson = deepDecrypt(merged.changesJson ?? merged.changes_json ?? entry.changesJson ?? entry.changes_json)
+      // Audit log jsonb columns are encrypted as JSON-stringified payloads. After the
+      // service-level `decryptEntityPayload` call (which now returns raw strings —
+      // see issue #1810 follow-up), reattach the structured shape via
+      // `parseDecryptedFieldValue` before running the recursive `deepDecrypt` walk
+      // so nested encrypted strings inside payload objects/arrays are handled.
+      const restoreJson = (value: unknown): unknown =>
+        typeof value === 'string' ? parseDecryptedFieldValue(value) : value
+
+      merged.changesJson = deepDecrypt(restoreJson(merged.changesJson ?? merged.changes_json ?? entry.changesJson ?? entry.changes_json))
       merged.changes_json = merged.changesJson
-      merged.snapshotBefore = deepDecrypt(merged.snapshotBefore ?? merged.snapshot_before ?? entry.snapshotBefore ?? entry.snapshot_before)
+      merged.snapshotBefore = deepDecrypt(restoreJson(merged.snapshotBefore ?? merged.snapshot_before ?? entry.snapshotBefore ?? entry.snapshot_before))
       merged.snapshot_before = merged.snapshotBefore
-      merged.snapshotAfter = deepDecrypt(merged.snapshotAfter ?? merged.snapshot_after ?? entry.snapshotAfter ?? entry.snapshot_after)
+      merged.snapshotAfter = deepDecrypt(restoreJson(merged.snapshotAfter ?? merged.snapshot_after ?? entry.snapshotAfter ?? entry.snapshot_after))
       merged.snapshot_after = merged.snapshotAfter
-      merged.commandPayload = deepDecrypt(merged.commandPayload ?? merged.command_payload ?? entry.commandPayload ?? entry.command_payload)
+      merged.commandPayload = deepDecrypt(restoreJson(merged.commandPayload ?? merged.command_payload ?? entry.commandPayload ?? entry.command_payload))
       merged.command_payload = merged.commandPayload
-      merged.contextJson = deepDecrypt(merged.contextJson ?? merged.context_json ?? entry.contextJson ?? entry.context_json)
+      merged.contextJson = deepDecrypt(restoreJson(merged.contextJson ?? merged.context_json ?? entry.contextJson ?? entry.context_json))
       merged.context_json = merged.contextJson
 
       return merged as T
@@ -236,6 +244,8 @@ export class ActionLogService {
       resourceId: data.resourceId ?? null,
       parentResourceKind: data.parentResourceKind ?? null,
       parentResourceId: data.parentResourceId ?? null,
+      relatedResourceKind: toOptionalString(data.relatedResourceKind) ?? null,
+      relatedResourceId: toOptionalString(data.relatedResourceId) ?? null,
       executionState: data.executionState ?? 'done',
       undoToken: data.undoToken ?? null,
       commandPayload: data.commandPayload ?? null,
@@ -261,6 +271,8 @@ export class ActionLogService {
         actionLabel: undefined,
         resourceKind: undefined,
         resourceId: undefined,
+        relatedResourceKind: null,
+        relatedResourceId: null,
         executionState: 'done',
         undoToken: undefined,
         commandPayload: undefined,
@@ -274,13 +286,7 @@ export class ActionLogService {
     const UUID_REGEX = /^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-5][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}$/
     const toNullableUuid = (value: unknown) => {
       if (typeof value !== 'string' || value.length === 0) return null
-      // Extract UUID from "api_key:<uuid>" format (used by workflow authentication).
       const candidate = value.startsWith('api_key:') ? value.slice('api_key:'.length) : value
-      // System actors (outbound sync workers, scheduler, etc.) carry subjects like
-      // "system:example_customers_sync:outbound" that are not UUIDs. Writing them into
-      // `actor_user_id` (uuid column) trips the Postgres driver with
-      // `invalid input syntax for type uuid`. Reject anything that isn't a UUID so the
-      // action log safely records a null actor for system-originated commands.
       return UUID_REGEX.test(candidate) ? candidate : null
     }
 
@@ -307,6 +313,8 @@ export class ActionLogService {
       resourceId: toOptionalString(input.resourceId) ?? undefined,
       parentResourceKind: toOptionalString(input.parentResourceKind) ?? null,
       parentResourceId: toOptionalString(input.parentResourceId) ?? null,
+      relatedResourceKind: toOptionalString(input.relatedResourceKind) ?? null,
+      relatedResourceId: toOptionalString(input.relatedResourceId) ?? null,
       executionState: input.executionState === 'undone' || input.executionState === 'failed' ? input.executionState : 'done',
       undoToken: toOptionalString(input.undoToken) ?? undefined,
       commandPayload: input.commandPayload,
@@ -407,6 +415,10 @@ export class ActionLogService {
           eb.and([
             eb('action_logs.parent_resource_kind', '=', parsed.resourceKind),
             eb('action_logs.parent_resource_id', '=', parsed.resourceId),
+          ]),
+          eb.and([
+            eb('action_logs.related_resource_kind', '=', parsed.resourceKind),
+            eb('action_logs.related_resource_id', '=', parsed.resourceId),
           ]),
         ])
       )

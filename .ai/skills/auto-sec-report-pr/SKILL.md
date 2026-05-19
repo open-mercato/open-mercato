@@ -1,6 +1,6 @@
 ---
 name: auto-sec-report-pr
-description: Produce a paranoid OWASP-oriented security analysis for a SINGLE unit of work (one merged or open pull request, one spec file under `.ai/specs/`, or one branch diff against a base). Goes beyond obvious OWASP Top 10 checks to hunt non-obvious attack vectors (TOCTOU, cache-key cross-tenant leakage, JWT alg confusion, ReDoS, SSRF via redirect chains, webhook replay, prototype pollution, deserialization, path traversal, log forging, CORS/CSP/cookie misconfig, mass assignment via loose zod, SSE cross-tenant bleed, signed-URL expiry, etc.). Identifies other places in the codebase that exhibit the same pattern and emits them as concrete "Next steps — go deeper" follow-up scopes so the reviewer can keep drilling. Runs either standalone (writes markdown + HTML under `.ai/analysis/` and optionally opens a docs-only PR) or as a sub-unit invoked by `auto-sec-report`. Reuses the claim/worktree/lock discipline of `auto-review-pr` and the security checks already codified in the `code-review` skill.
+description: "Paranoid OWASP-oriented security analysis for a SINGLE unit of work — one PR, one spec under `.ai/specs/`, or one branch diff. Hunts non-obvious attack vectors beyond OWASP Top 10, flags same-pattern hotspots elsewhere, and emits \"Next steps — go deeper\" follow-ups. Writes markdown + HTML under `.ai/analysis/`; runs standalone or as a sub-unit of `auto-sec-report`."
 ---
 
 # Auto Security Report — Single Unit

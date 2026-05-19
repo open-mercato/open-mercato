@@ -3,6 +3,13 @@
 import * as React from 'react'
 import { Page, PageBody } from '@open-mercato/ui/backend/Page'
 import { Button } from '@open-mercato/ui/primitives/button'
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@open-mercato/ui/primitives/select'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { registerIntegration, getAllIntegrations, getIntegrationTitle } from '@open-mercato/shared/modules/integrations/types'
 
@@ -244,32 +251,38 @@ export default function UmesIntegrationsPage() {
             {currentStepId === 'scope' && (
               <div data-crud-field-id="syncDirection" className="space-y-1">
                 <label className="text-sm font-medium">Sync Direction</label>
-                <select
-                  value={wizardData.syncDirection ?? ''}
-                  onChange={(event) => handleWizardChange('syncDirection', event.target.value)}
-                  className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
+                <Select
+                  value={wizardData.syncDirection || undefined}
+                  onValueChange={(value) => handleWizardChange('syncDirection', value ?? '')}
                 >
-                  <option value="">Select direction</option>
-                  <option value="push">Push</option>
-                  <option value="pull">Pull</option>
-                  <option value="bidirectional">Bidirectional</option>
-                </select>
+                  <SelectTrigger>
+                    <SelectValue placeholder="Select direction" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="push">Push</SelectItem>
+                    <SelectItem value="pull">Pull</SelectItem>
+                    <SelectItem value="bidirectional">Bidirectional</SelectItem>
+                  </SelectContent>
+                </Select>
               </div>
             )}
 
             {currentStepId === 'schedule' && (
               <div data-crud-field-id="frequency" className="space-y-1">
                 <label className="text-sm font-medium">Frequency</label>
-                <select
-                  value={wizardData.frequency ?? ''}
-                  onChange={(event) => handleWizardChange('frequency', event.target.value)}
-                  className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
+                <Select
+                  value={wizardData.frequency || undefined}
+                  onValueChange={(value) => handleWizardChange('frequency', value ?? '')}
                 >
-                  <option value="">Select frequency</option>
-                  <option value="hourly">Hourly</option>
-                  <option value="daily">Daily</option>
-                  <option value="weekly">Weekly</option>
-                </select>
+                  <SelectTrigger>
+                    <SelectValue placeholder="Select frequency" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="hourly">Hourly</SelectItem>
+                    <SelectItem value="daily">Daily</SelectItem>
+                    <SelectItem value="weekly">Weekly</SelectItem>
+                  </SelectContent>
+                </Select>
               </div>
             )}
 

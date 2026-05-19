@@ -46,15 +46,13 @@ describe('ActivityHistorySection', () => {
       await Promise.resolve()
     })
 
+    let interactionsCall: string | undefined
     await waitFor(() => {
-      expect(readApiResultOrThrowMock).toHaveBeenCalledWith(
-        expect.stringContaining('/api/customers/interactions?'),
-      )
+      interactionsCall = readApiResultOrThrowMock.mock.calls.find(
+        ([url]) => typeof url === 'string' && url.startsWith('/api/customers/interactions?'),
+      )?.[0] as string | undefined
+      expect(interactionsCall).toBeDefined()
     })
-
-    const interactionsCall = readApiResultOrThrowMock.mock.calls.find(
-      ([url]) => typeof url === 'string' && url.startsWith('/api/customers/interactions?'),
-    )?.[0] as string | undefined
 
     expect(interactionsCall).toBeDefined()
 
@@ -62,7 +60,7 @@ describe('ActivityHistorySection', () => {
     const from = url.searchParams.get('from')
 
     expect(url.searchParams.get('entityId')).toBe('company-123')
-    expect(url.searchParams.get('status')).toBe('done')
+    expect(url.searchParams.get('status')).toBeNull()
     expect(url.searchParams.get('excludeInteractionType')).toBe('task')
     expect(url.searchParams.get('type')).toBeNull()
     expect(from).not.toBeNull()

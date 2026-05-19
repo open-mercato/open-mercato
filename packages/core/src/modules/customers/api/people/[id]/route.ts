@@ -38,6 +38,7 @@ import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
 import { findWithDecryption, findOneWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import { parseBooleanFromUnknown, parseBooleanToken } from '@open-mercato/shared/lib/boolean'
 import { loadPersonCompanyLinks, summarizePersonCompanies } from '../../../lib/personCompanies'
+import { normalizeCustomerDetailCustomFields } from '../../detailCustomFields'
 
 export const metadata = {
   GET: { requireAuth: true, requireFeatures: ['customers.people.view'] },
@@ -451,7 +452,16 @@ export async function GET(_req: Request, ctx: { params?: { id?: string } }) {
     })
     const em = (container.resolve('em') as EntityManager)
 
-    const person = await findOneWithDecryption(em, CustomerEntity, { id: parse.data.id, kind: 'person', deletedAt: null }, {}, { tenantId: auth.tenantId ?? null, organizationId: auth.orgId ?? null })
+    const person = await findOneWithDecryption(
+      em,
+      CustomerEntity,
+      { id: parse.data.id, kind: 'person', deletedAt: null },
+      {},
+      {
+        tenantId: scope?.tenantId ?? auth.tenantId ?? null,
+        organizationId: scope?.selectedId ?? auth.orgId ?? null,
+      },
+    )
     profiler.mark('person_loaded', { found: !!person })
     if (!person) {
       statusCode = 404
@@ -683,10 +693,12 @@ export async function GET(_req: Request, ctx: { params?: { id?: string } }) {
 
     const routing = await resolvePersonCustomFieldRouting(em, person.tenantId ?? null, person.organizationId ?? null)
     profiler.mark('custom_field_routing_resolved', { keys: routing.size })
-    customFields = mergePersonCustomFieldValues(
-      routing,
-      entityCustomFieldValues?.[person.id] ?? {},
-      profileId ? profileCustomFieldValues?.[profileId] ?? {} : {},
+    customFields = normalizeCustomerDetailCustomFields(
+      mergePersonCustomFieldValues(
+        routing,
+        entityCustomFieldValues?.[person.id] ?? {},
+        profileId ? profileCustomFieldValues?.[profileId] ?? {} : {},
+      ),
     )
     profiler.mark('custom_fields_merged', { keys: Object.keys(customFields).length })
 

@@ -4,7 +4,7 @@ import { exampleTag, exampleErrorSchema } from '../../openapi'
 
 export const metadata = {
   GET: { requireAuth: true, requireFeatures: ['example.todos.view'] },
-  POST: { requireAuth: true, requireFeatures: ['example.todos.manage'] },
+  POST: { requireAuth: true, requireFeatures: ['example.todos.view'] },
 }
 
 export async function GET(_req: Request, ctx: { params: { id: string } }) {

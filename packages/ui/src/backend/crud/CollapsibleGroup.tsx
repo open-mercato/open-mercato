@@ -5,6 +5,7 @@ import { cn } from '@open-mercato/shared/lib/utils'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { Button } from '../../primitives/button'
 import { useGroupCollapse } from './useGroupCollapse'
+import { SortableGroupHandle, useSortableGroupHandle } from './SortableGroupHandle'
 
 export interface CollapsibleGroupProps {
   groupId: string
@@ -25,8 +26,10 @@ export interface CollapsibleGroupHandle {
 export const CollapsibleGroup = React.forwardRef<CollapsibleGroupHandle, CollapsibleGroupProps>(
   function CollapsibleGroup({ groupId, title, pageType, defaultExpanded = true, errorCount = 0, fieldCount, chevronPosition = 'right', icon, children }, ref) {
     const t = useT()
-    const { expanded, toggle, setExpanded } = useGroupCollapse(pageType, groupId, defaultExpanded)
+    const { expanded, toggle, setExpanded, isHydrated } = useGroupCollapse(pageType, groupId, defaultExpanded)
     const contentId = `collapsible-group-${groupId}`
+    const sortableHandle = useSortableGroupHandle()
+    const showDragHandle = sortableHandle !== null
 
     React.useImperativeHandle(ref, () => ({
       expand: () => setExpanded(true),
@@ -57,42 +60,85 @@ export const CollapsibleGroup = React.forwardRef<CollapsibleGroupHandle, Collaps
       </span>
     ) : null
 
+    const dragHandle = showDragHandle ? (
+      <span
+        className="inline-flex shrink-0 items-center"
+        onClick={(event) => event.stopPropagation()}
+        onPointerDown={(event) => event.stopPropagation()}
+        onKeyDown={(event) => event.stopPropagation()}
+      >
+        <SortableGroupHandle ariaLabel={t('ui.crud.dragHandle.aria', 'Drag to reorder')} />
+      </span>
+    ) : null
+
     return (
-      <div className={cn('rounded-lg border bg-card', errorCount > 0 && 'border-destructive')}>
+      <div
+        id={`collapsible-group-wrapper-${groupId}`}
+        className={cn(
+          // Aligned with Figma Accordion `210:4022`: rounded-10, three visual
+          // states (closed = white card + soft border + x-small shadow,
+          // hover-while-closed = bg-muted + no border + no shadow,
+          // open = bg-muted + no border + no shadow). Destructive border
+          // wins over the Figma states when the group has validation errors.
+          'rounded-[10px] border bg-card transition-colors',
+          !isHydrated && 'invisible',
+          errorCount > 0
+            ? 'border-destructive'
+            : expanded
+              ? 'border-transparent bg-muted shadow-none'
+              : 'border-border shadow-xs hover:border-transparent hover:bg-muted hover:shadow-none',
+        )}
+        data-collapsible-group-id={groupId}
+        data-state={expanded ? 'open' : 'closed'}
+        data-persistence-hydrated={isHydrated ? 'true' : 'false'}
+        aria-hidden={isHydrated ? undefined : true}
+      >
         {title && (
-          <Button
-            type="button"
-            variant="muted"
-            onClick={toggle}
+          <div
             className={cn(
-              'w-full px-4 py-3 text-sm font-medium hover:bg-accent/50 rounded-lg',
-              chevronPosition === 'left' ? 'justify-start gap-2' : 'justify-between',
+              'flex items-center gap-2 px-2 py-2',
+              chevronPosition === 'left' ? 'flex-row' : 'flex-row',
             )}
-            aria-expanded={expanded}
-            aria-controls={contentId}
           >
-            {chevronPosition === 'left' ? (
-              <>
-                {chevronIcon}
-                <span className="flex items-center gap-2">
-                  {icon && <span className="relative shrink-0 text-muted-foreground">{icon}{!expanded && errorCount > 0 && <span className="absolute -right-0.5 -top-0.5 size-2 rounded-full bg-destructive" />}</span>}
-                  <span>{title}</span>
-                  {fieldCountLabel}
-                  {errorBadge}
-                </span>
-              </>
-            ) : (
-              <>
-                <span className="flex items-center gap-2">
-                  {icon && <span className="relative shrink-0 text-muted-foreground">{icon}{!expanded && errorCount > 0 && <span className="absolute -right-0.5 -top-0.5 size-2 rounded-full bg-destructive" />}</span>}
-                  <span>{title}</span>
-                  {fieldCountLabel}
-                  {errorBadge}
-                </span>
-                {chevronIcon}
-              </>
-            )}
-          </Button>
+            {dragHandle}
+            <Button
+              type="button"
+              variant="muted"
+              onClick={toggle}
+              className={cn(
+                // Defer hover styling to the surrounding wrapper so the whole
+                // row toggles to `bg-muted` together (Figma Accordion behaviour)
+                // instead of stacking a second hover layer over the trigger
+                // button.
+                'flex-1 rounded-md px-2 py-1 text-sm font-medium hover:bg-transparent dark:hover:bg-transparent',
+                chevronPosition === 'left' ? 'justify-start gap-2' : 'justify-between',
+              )}
+              aria-expanded={expanded}
+              aria-controls={contentId}
+            >
+              {chevronPosition === 'left' ? (
+                <>
+                  {chevronIcon}
+                  <span className="flex items-center gap-2">
+                    {icon && <span className="relative shrink-0 text-muted-foreground">{icon}{!expanded && errorCount > 0 && <span className="absolute -right-0.5 -top-0.5 size-2 rounded-full bg-destructive" />}</span>}
+                    <span>{title}</span>
+                    {fieldCountLabel}
+                    {errorBadge}
+                  </span>
+                </>
+              ) : (
+                <>
+                  <span className="flex items-center gap-2">
+                    {icon && <span className="relative shrink-0 text-muted-foreground">{icon}{!expanded && errorCount > 0 && <span className="absolute -right-0.5 -top-0.5 size-2 rounded-full bg-destructive" />}</span>}
+                    <span>{title}</span>
+                    {fieldCountLabel}
+                    {errorBadge}
+                  </span>
+                  {chevronIcon}
+                </>
+              )}
+            </Button>
+          </div>
         )}
         <div
           id={contentId}

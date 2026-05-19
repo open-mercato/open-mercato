@@ -105,8 +105,8 @@ export function useActionTypeLabels(): Record<string, string> {
 export function ConfidenceBadge({ value }: { value: string }) {
   const num = parseFloat(value)
   const pct = Math.round(num * 100)
-  const color = num >= 0.8 ? 'text-green-600' : num >= 0.6 ? 'text-yellow-600' : 'text-red-600'
-  const bgColor = num >= 0.8 ? 'bg-green-200' : num >= 0.6 ? 'bg-yellow-200' : 'bg-red-200'
+  const color = num >= 0.8 ? 'text-status-success-text' : num >= 0.6 ? 'text-status-warning-text' : 'text-status-error-text'
+  const bgColor = num >= 0.8 ? 'bg-status-success-icon' : num >= 0.6 ? 'bg-status-warning-icon' : 'bg-status-error-icon'
   const width = Math.round(num * 100)
   return (
     <div className="flex items-center gap-2">
@@ -247,15 +247,15 @@ export function ActionCard({
 
   if (action.status === 'executed') {
     return (
-      <div className="border rounded-lg p-3 md:p-4 bg-green-50 dark:bg-green-950/20">
+      <div className="border rounded-lg p-3 md:p-4 bg-status-success-bg border-status-success-border">
         <div className="flex items-center gap-2 mb-2">
-          <CheckCircle className="h-5 w-5 text-green-600 flex-shrink-0" />
+          <CheckCircle className="h-5 w-5 text-status-success-icon flex-shrink-0" />
           <span className="text-sm font-medium">{label}</span>
         </div>
         <p className="text-sm text-muted-foreground">{displayDescription}</p>
         {action.createdEntityId && (
           <div className="mt-2">
-            <span className="text-xs text-green-600">
+            <span className="text-xs text-status-success-text">
               {t('inbox_ops.action.created_entity', 'Created {type}').replace('{type}', action.createdEntityType || '')} · {action.executedAt && new Date(action.executedAt).toLocaleString()}
             </span>
           </div>
@@ -279,15 +279,15 @@ export function ActionCard({
 
   if (action.status === 'failed') {
     return (
-      <div className="border rounded-lg p-3 md:p-4 bg-red-50 dark:bg-red-950/20">
+      <div className="border rounded-lg p-3 md:p-4 bg-status-error-bg border-status-error-border">
         <div className="flex items-center gap-2 mb-2">
-          <AlertTriangle className="h-5 w-5 text-red-600 flex-shrink-0" />
+          <AlertTriangle className="h-5 w-5 text-status-error-icon flex-shrink-0" />
           <span className="text-sm font-medium">{label}</span>
-          <span className="text-xs text-red-600">{t('inbox_ops.extraction_failed', 'Failed')}</span>
+          <span className="text-xs text-status-error-text">{t('inbox_ops.extraction_failed', 'Failed')}</span>
         </div>
         <p className="text-sm text-muted-foreground">{displayDescription}</p>
         {action.executionError && (
-          <p className="text-xs text-red-600 mt-1">{action.executionError}</p>
+          <p className="text-xs text-status-error-text mt-1">{action.executionError}</p>
         )}
         <div className="mt-3 flex items-center gap-2">
           <Button
@@ -347,13 +347,13 @@ export function ActionCard({
         <div className="mb-3 space-y-1">
           {actionDiscrepancies.map((d) => (
             <div key={d.id} className={`flex items-start gap-2 text-xs rounded px-2 py-1.5 ${
-              d.severity === 'error' ? 'bg-red-50 text-red-700 dark:bg-red-950/20' : 'bg-yellow-50 text-yellow-700 dark:bg-yellow-950/20'
+              d.severity === 'error' ? 'bg-status-error-bg text-status-error-text' : 'bg-status-warning-bg text-status-warning-text'
             }`}>
               <AlertTriangle className="h-3 w-3 mt-0.5 flex-shrink-0" />
               <div>
                 <span>{resolveDiscrepancyDescription ? resolveDiscrepancyDescription(d.description, d.foundValue) : d.description}</span>
                 {(d.expectedValue || d.foundValue) && (
-                  <div className="mt-0.5 text-[11px] opacity-80">
+                  <div className="mt-0.5 text-overline opacity-80">
                     {d.expectedValue && <span>{t('inbox_ops.discrepancy.expected', 'Expected')}: {d.expectedValue}</span>}
                     {d.expectedValue && d.foundValue && <span> · </span>}
                     {d.foundValue && <span>{t('inbox_ops.discrepancy.found', 'Found')}: {d.foundValue}</span>}
@@ -366,7 +366,7 @@ export function ActionCard({
       )}
 
       {hasNameIssue && (
-        <div className="mb-3 flex items-start gap-2 text-xs rounded px-2 py-1.5 bg-amber-50 text-amber-700 dark:bg-amber-950/20 dark:text-amber-300">
+        <div className="mb-3 flex items-start gap-2 text-xs rounded px-2 py-1.5 bg-status-warning-bg text-status-warning-text">
           <AlertTriangle className="h-3 w-3 mt-0.5 flex-shrink-0" />
           <span>{action.actionType === 'link_contact'
             ? t('inbox_ops.contact.link_name_missing_warning', 'Contact name is missing. Please edit and provide a name before accepting.')

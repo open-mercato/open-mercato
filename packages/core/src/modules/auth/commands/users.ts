@@ -37,6 +37,7 @@ import InviteUserEmail from '@open-mercato/core/modules/auth/emails/InviteUserEm
 import { INVITE_TOKEN_TTL_MS } from '@open-mercato/core/modules/auth/lib/inviteToken'
 import { getSecurityEmailBaseUrl } from '@open-mercato/shared/lib/url'
 import { generateAuthToken, hashAuthToken } from '@open-mercato/core/modules/auth/lib/tokenHash'
+import { normalizeDisplayNameInput } from '@open-mercato/core/modules/auth/lib/displayName'
 
 type SerializedUser = {
   email: string
@@ -75,8 +76,14 @@ type UserSnapshots = {
 
 const passwordSchema = buildPasswordSchema()
 
+const displayNameSchema = z.preprocess(
+  normalizeDisplayNameInput,
+  z.string().trim().min(1).max(120).nullable().optional(),
+)
+
 const createSchema = z.object({
   email: z.string().email(),
+  name: displayNameSchema,
   password: passwordSchema.optional(),
   sendInviteEmail: z.boolean().optional(),
   organizationId: z.string().uuid(),
@@ -89,6 +96,7 @@ const createSchema = z.object({
 const updateSchema = z.object({
   id: z.string().uuid(),
   email: z.string().email().optional(),
+  name: displayNameSchema,
   password: passwordSchema.optional(),
   organizationId: z.string().uuid().optional(),
   roles: z.array(z.string()).optional(),
@@ -196,6 +204,7 @@ const createUserCommand: CommandHandler<Record<string, unknown>, CreateUserResul
         entity: User,
         data: {
           email: parsed.email,
+          name: parsed.name,
           emailHash,
           passwordHash,
           isConfirmed: true,
@@ -451,6 +460,9 @@ const updateUserCommand: CommandHandler<Record<string, unknown>, User> = {
             entity.email = parsed.email
             entity.emailHash = emailHash
           }
+          if (parsed.name !== undefined) {
+            entity.name = parsed.name
+          }
           if (parsed.organizationId !== undefined) {
             entity.organizationId = parsed.organizationId
             entity.tenantId = tenantId ?? null
@@ -574,7 +586,7 @@ const updateUserCommand: CommandHandler<Record<string, unknown>, User> = {
         entity.organizationId = before.organizationId ?? null
         entity.tenantId = before.tenantId ?? null
         entity.passwordHash = before.passwordHash ?? null
-        entity.name = before.name ?? undefined
+        entity.name = before.name ?? null
         entity.isConfirmed = before.isConfirmed
       },
     })
@@ -700,7 +712,7 @@ const deleteUserCommand: CommandHandler<{ body?: Record<string, unknown>; query?
       user.organizationId = before.organizationId ?? null
       user.tenantId = before.tenantId ?? null
       user.passwordHash = before.passwordHash ?? null
-      user.name = before.name ?? undefined
+      user.name = before.name ?? null
       user.isConfirmed = before.isConfirmed
       await em.flush()
     } else {

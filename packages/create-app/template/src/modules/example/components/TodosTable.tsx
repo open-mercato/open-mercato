@@ -72,7 +72,7 @@ function buildBaseColumns(t: (key: string, params?: Record<string, string | numb
         return (
           <span className="flex flex-wrap gap-1">
             {vals.map((v) => (
-              <span key={v} className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs border bg-accent/20">
+              <span key={v} className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs border bg-accent/50">
                 {v}
               </span>
             ))}

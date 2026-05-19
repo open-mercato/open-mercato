@@ -29,7 +29,8 @@ The following file names, their expected export names, and their role in module 
 | `translations.ts` | `translatableFields` | MUST NOT change record shape |
 | `notifications.ts` | `notificationTypes: NotificationTypeDefinition[]` | MUST NOT change required fields; may add optional fields |
 | `notifications.client.ts` | — | MUST NOT change renderer props contract |
-| `ai-tools.ts` | `aiTools: McpToolDefinition[]` | MUST NOT change `McpToolDefinition` required fields |
+| `ai-agents.ts` | `aiAgents: AiAgentDefinition[]` | MUST NOT change `AiAgentDefinition` required fields; optional sibling exports `aiAgentOverrides` and `aiAgentExtensions` are stable |
+| `ai-tools.ts` | `aiTools: AiToolDefinition[]` | MUST NOT change `AiToolDefinition` / inherited `McpToolDefinition` required fields; optional sibling export `aiToolOverrides` is stable |
 | `di.ts` | `register(container)` | MUST NOT change function signature |
 | `cli.ts` | default export | MUST NOT change expected signature |
 | `data/entities.ts` | Entity class exports | See Database Schema rules below |
@@ -73,6 +74,11 @@ These exported types are consumed by module developers. Required fields MUST NOT
 - `DashboardWidgetComponentProps`: `mode`, `layout`, `settings`, `context`, `onSettingsChange`, `refreshToken` — MUST NOT remove
 - `OpenApiRouteDoc`: `methods` — MUST NOT remove
 - `McpToolDefinition`: `name`, `description`, `inputSchema`, `handler` — MUST NOT remove
+- `AiToolDefinition`: inherited `McpToolDefinition` fields (`name`, `description`, `inputSchema`, `handler`) — MUST NOT remove; `requiredFeatures` remains optional for legacy/plain-object compatibility; `isMutation`, `isBulk`, `isDestructive`, `loadBeforeRecord`, `loadBeforeRecords`, `maxCallsPerTurn`, and `supportsAttachments` remain optional
+- `AiAgentDefinition`: `id`, `moduleId`, `label`, `description`, `systemPrompt`, `allowedTools` — MUST NOT remove; optional fields (`suggestions`, `executionMode`, `defaultModel`, `acceptedMediaTypes`, `requiredFeatures`, `uiParts`, `readOnly`, `mutationPolicy`, `maxSteps`, `output`, `resolvePageContext`, `keywords`, `domain`, `dataCapabilities`) MAY be extended but MUST NOT be narrowed
+- `AiAgentExtension`: `targetAgentId` — MUST NOT remove; patch fields (`replaceAllowedTools`, `deleteAllowedTools`, `appendAllowedTools`, `replaceSystemPrompt`, `appendSystemPrompt`, `replaceSuggestions`, `deleteSuggestions`, `appendSuggestions`) MUST keep their existing meaning; deprecated `suggestions` remains an append alias until removed through the deprecation protocol
+- `AiAgentOverridesMap` / `AiToolOverridesMap`: `Record<string, AiAgentDefinition | null>` and `Record<string, AiToolDefinition | null>` semantics are STABLE; `null` means disable
+- `ModuleOverrides`: `overrides.ai.agents`, `overrides.ai.tools`, and `overrides.ai.extensions` shapes are STABLE; other domain keys are reserved by the unified override contract and may be wired additively
 - `WorkerMeta`: `queue` — MUST NOT remove
 
 ### 3. Function Signatures (STABLE)
@@ -92,6 +98,17 @@ These functions are called directly by module code. Their signatures MUST NOT ch
 | `cf.text`, `cf.multiline`, `cf.integer`, `cf.float`, `cf.boolean`, `cf.select`, `cf.currency`, `cf.dictionary` | `@open-mercato/shared/modules/dsl` | MUST NOT remove any helper or change required params |
 | `lazyDashboardWidget(loader)` | `@open-mercato/shared/modules/dashboard/widgets` | MUST NOT change |
 | `registerMcpTool(tool, options?)` | `@open-mercato/ai-assistant` | MUST NOT change |
+| `defineAiAgent(definition)` | `@open-mercato/ai-assistant` | MUST NOT change parameter or return shape |
+| `defineAiAgentExtension(extension)` | `@open-mercato/ai-assistant` | MUST NOT change parameter or return shape |
+| `defineAiTool(definition)` | `@open-mercato/ai-assistant` | MUST NOT change parameter or return shape |
+| `applyAiAgentOverrides(overrides)` | `@open-mercato/ai-assistant` | MUST preserve map semantics and precedence |
+| `applyAiToolOverrides(overrides)` | `@open-mercato/ai-assistant` | MUST preserve map semantics and precedence |
+| `applyAiAgentExtensions(extensions)` | `@open-mercato/ai-assistant` | MUST preserve append/patch semantics |
+| `applyAiOverridesFromEnabledModules(modules)` | `@open-mercato/ai-assistant` | MUST keep accepting the `overrides.ai` module-entry shape |
+| `prepareMutation(input, context)` | `@open-mercato/ai-assistant` | MUST NOT bypass pending-action approval semantics or change required params |
+| `runAiAgentText(input)` / `runAiAgentObject(input)` | `@open-mercato/ai-assistant` | MUST NOT remove existing input fields or narrow output shape |
+| `applyModuleOverridesFromEnabledModules(modules)` | `@open-mercato/shared/modules/overrides` | MUST keep dispatching `entry.overrides.<domain>` by module-load order |
+| `registerModuleOverrideApplier(domain, applier)` | `@open-mercato/shared/modules/overrides` | MUST NOT change registration semantics |
 | `apiCall` / `apiCallOrThrow` / `readApiResultOrThrow` | `@open-mercato/ui/backend/utils/apiCall` | MUST NOT change |
 | `useT()` | `@open-mercato/shared/lib/i18n/context` | MUST NOT change return type |
 | `resolveTranslations()` | `@open-mercato/shared/lib/i18n/server` | MUST NOT change |
@@ -179,18 +196,51 @@ Notification types are referenced by subscribers, stored in database records, an
 - MUST NOT remove an existing notification type
 - MAY add new notification types freely
 
-### 12. CLI Commands (STABLE)
+### 12. AI Agent, Tool, UI Part, and Override IDs (FROZEN / STABLE)
+
+AI framework registries are public extension points. Published IDs are referenced by module code, generated registries, app-level overrides, tenant prompt/policy overrides, launcher UI, and `allowedTools` arrays.
+
+**FROZEN IDs:**
+
+- MUST NOT rename an existing `AiAgentDefinition.id`
+- MUST NOT rename an existing `AiToolDefinition.name`
+- MUST NOT rename an existing AI UI part `componentId`
+- MUST NOT rename reserved AI UI part IDs (`mutation-preview-card`, `field-diff-card`, `confirmation-card`, `mutation-result-card`)
+- MUST NOT change the meaning of `null` in `AiAgentOverridesMap` / `AiToolOverridesMap`; it always means "disable this agent/tool"
+- MUST NOT change the meaning of `AiAgentDefinition.allowedTools`; entries are tool names and missing/disabled tools are omitted by the runtime with a warning
+
+**STABLE override surfaces:**
+
+- Per-module override exports MUST remain co-located in module-root `ai-agents.ts` / `ai-tools.ts`: `aiAgentOverrides`, `aiAgentExtensions`, `aiToolOverrides`
+- App-level overrides MUST remain under `ModuleEntry.overrides.ai.agents`, `ModuleEntry.overrides.ai.tools`, and `ModuleEntry.overrides.ai.extensions`
+- Programmatic overrides MUST keep highest precedence: `applyAiAgentOverrides`, `applyAiToolOverrides`, and `applyAiAgentExtensions`
+- Resolution order MUST remain: programmatic → `modules.ts` inline → file-based override exports → base registrations
+- `AiAgentExtension` patch order MUST remain: `replace*` first, `delete*` second, `append*` last
+- Override value validation MUST keep key/value matching semantics: a non-null agent override's `id` must equal the map key; a non-null tool override's `name` must equal the map key
+
+**Mutation approval contract:**
+
+- AI write tools MUST keep using `isMutation: true` and the `prepareMutation(...)` pending-action flow
+- `AiAgentMutationPolicy` values (`read-only`, `confirm-required`, `destructive-confirm-required`) MUST NOT be renamed or repurposed
+- Tenant prompt and mutation-policy override tables/API contracts are STABLE; fields may be added, but existing policy values and agent IDs must continue to resolve
+
+To retire an AI agent or tool: deprecate it, keep the old ID available or bridged for at least one minor version, update any shipped `allowedTools` references, and document migration instructions in the referenced spec and release notes.
+
+### 13. CLI Commands (STABLE)
 
 - MUST NOT rename or remove existing CLI commands or their required flags
 - MAY add new commands or optional flags freely
 
-### 13. Generated File Contracts (STABLE)
+### 14. Generated File Contracts (STABLE)
 
 Files in `apps/mercato/.mercato/generated/` are produced by the CLI generators. The generator output shape MUST remain compatible with the bootstrap consumer.
 
 - MUST NOT change the export names of generated files
 - MUST NOT change the `BootstrapData` type's required fields
+- MUST NOT remove AI generated registry exports: `aiAgentConfigEntries`, `allAiAgents`, `aiAgentOverrideEntries`, `aiAgentExtensionEntries`, `allAiAgentExtensions`, `aiToolConfigEntries`, `allAiTools`, `aiToolOverrideEntries`
+- MUST NOT change generated AI entry shapes: agent entries keep `{ moduleId, agents, overrides, extensions }`; tool entries keep `{ moduleId, tools, overrides }`
 - MAY add new generated files and new optional fields to `BootstrapData`
+- MAY add new generated AI registry exports additively
 
 ---
 
@@ -207,6 +257,9 @@ Files in `apps/mercato/.mercato/generated/` are produced by the CLI generators. 
 | DB columns | OK (with default) | n/a | BREAKING | BREAKING | BREAKING (narrowing) |
 | DI names | OK | OK | BREAKING | BREAKING | BREAKING |
 | Feature IDs | OK | n/a | BREAKING* | BREAKING | n/a |
+| AI agent/tool IDs | OK | OK | BREAKING | BREAKING | BREAKING |
+| AI override surfaces | OK | OK | BREAKING | BREAKING | BREAKING |
 | Import paths | OK | n/a | BREAKING | BREAKING | n/a |
+| Generated registry exports | OK | OK | BREAKING | BREAKING | BREAKING |
 
 \* Feature ID removal requires a data migration.

@@ -31,8 +31,15 @@ Verify the spec is aligned with all relevant AGENTS rules and internally consist
 |-------------|------|--------|-------|
 | root AGENTS.md | No direct ORM relationships between modules | Compliant | Uses FK IDs only |
 | root AGENTS.md | Filter by organization_id | Compliant | All queries scoped |
+| root AGENTS.md (Design System Rules) | No hardcoded Tailwind status colors / arbitrary text sizes; use semantic tokens and the text scale | Compliant / Non-compliant | List any `text-red-*` / `text-[13px]` / inline `<svg>` survivors and the page they live on |
+| `.ai/ds-rules.md` + `.ai/ui-components.md` | Use shared UI primitives (`StatusBadge`, `Alert`, `FormField`, `SectionHeader`, `CollapsibleSection`, `LoadingMessage`/`Spinner`/`DataLoader`, `EmptyState`); dialogs `Cmd/Ctrl+Enter` + `Escape`; `aria-label` on icon-only buttons | Compliant | Cite the spec UI section that mentions each primitive |
+| packages/core/AGENTS.md → API Routes | CRUD routes use `makeCrudRoute` with `indexer: { entityType }` | Compliant / Non-compliant | Cite the file path the spec proposes |
+| packages/core/AGENTS.md → Encryption | Sensitive / GDPR fields are declared in `<module>/encryption.ts` `defaultEncryptionMaps` and read via `findWithDecryption` | Compliant / Non-compliant | List the entity / field set; flag any hand-rolled `crypto.subtle` or "encrypt later" stubs |
+| packages/ui/AGENTS.md | Backend forms use `<CrudForm>`; lists use `<DataTable>` with stable `entityId`/`extensionTableId`; non-`CrudForm` writes use `useGuardedMutation` | Compliant | — |
+| packages/ui/src/backend/AGENTS.md | All HTTP goes through `apiCall` / `apiCallOrThrow` (never raw `fetch`) | Compliant | — |
+| packages/cache/AGENTS.md | Cache resolved via DI; tenant-scoped tags; tag-based invalidation declared per write path | Compliant | — |
+| packages/events/AGENTS.md | Cross-module side effects go through `createModuleEvents` + subscribers, not direct imports | Compliant | — |
 | packages/core/AGENTS.md | API routes MUST export openApi | Non-compliant | Missing on GET /api/... |
-| packages/cache/AGENTS.md | Tag-based invalidation | Compliant | Tags declared in cache section |
 | ... | ... | ... | ... |
 ```
 

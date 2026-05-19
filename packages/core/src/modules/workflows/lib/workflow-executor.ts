@@ -19,6 +19,7 @@ import {
   type WorkflowInstanceStatus,
 } from '../data/entities'
 import { compensateWorkflow } from './compensation-handler'
+import { findWorkflowDefinition } from './find-definition'
 
 // ============================================================================
 // Types and Interfaces
@@ -903,45 +904,7 @@ export async function updateWorkflowContext(
   await em.flush()
 }
 
-/**
- * Find workflow definition by ID and optional version
- *
- * @param em - Entity manager
- * @param options - Search options
- * @returns Workflow definition or null
- */
-async function findWorkflowDefinition(
-  em: EntityManager,
-  options: {
-    workflowId: string
-    version?: number
-    tenantId: string
-    organizationId: string
-  }
-): Promise<WorkflowDefinition | null> {
-  const { workflowId, version, tenantId, organizationId } = options
-
-  const where: any = {
-    workflowId,
-    tenantId,
-    organizationId,
-    deletedAt: null,
-  }
-
-  if (version !== undefined) {
-    where.version = version
-  }
-
-  // If no version specified, get latest enabled version
-  if (version === undefined) {
-    where.enabled = true
-    return em.findOne(WorkflowDefinition, where, {
-      orderBy: { version: 'DESC' },
-    })
-  }
-
-  return em.findOne(WorkflowDefinition, where)
-}
+// findWorkflowDefinition is imported from ./find-definition
 
 /**
  * Log workflow event to event sourcing table

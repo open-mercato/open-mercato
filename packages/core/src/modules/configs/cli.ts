@@ -12,6 +12,7 @@ import {
   previewCachePurge,
   type CachePurgeRequest,
 } from './lib/cache-cli'
+import { touchGeneratedBarrels } from './lib/touchGeneratedBarrels'
 
 type ParsedArgs = Record<string, string | boolean>
 
@@ -256,6 +257,16 @@ async function runStructuralCachePurge(args: ParsedArgs) {
     pattern: 'nav:*',
   }
   await runCachePurge(nextArgs)
+  const quiet = flagEnabled(args, 'quiet')
+  try {
+    touchGeneratedBarrels({ quiet })
+  } catch (err) {
+    if (!quiet) {
+      console.warn(
+        `[structural] failed to touch generated barrels: ${(err as Error).message ?? err}`,
+      )
+    }
+  }
 }
 
 function envDisablesAutoIndexing(): boolean {

@@ -1,10 +1,12 @@
 {
+  "name": "public",
   "namespaces": [
     "public"
   ],
-  "name": "public",
   "tables": [
     {
+      "name": "access_logs",
+      "schema": "public",
       "columns": {
         "id": {
           "name": "id",
@@ -183,8 +185,6 @@
           "mappedType": "datetime"
         }
       },
-      "name": "access_logs",
-      "schema": "public",
       "indexes": [
         {
           "keyName": "access_logs_actor_idx",
@@ -224,6 +224,8 @@
       "nativeEnums": {}
     },
     {
+      "name": "action_logs",
+      "schema": "public",
       "columns": {
         "id": {
           "name": "id",
@@ -561,6 +563,38 @@
           "enumItems": [],
           "mappedType": "text"
         },
+        "related_resource_kind": {
+          "name": "related_resource_kind",
+          "type": "text",
+          "unsigned": false,
+          "autoincrement": false,
+          "primary": false,
+          "nullable": true,
+          "unique": false,
+          "length": null,
+          "precision": null,
+          "scale": null,
+          "default": null,
+          "comment": null,
+          "enumItems": [],
+          "mappedType": "text"
+        },
+        "related_resource_id": {
+          "name": "related_resource_id",
+          "type": "text",
+          "unsigned": false,
+          "autoincrement": false,
+          "primary": false,
+          "nullable": true,
+          "unique": false,
+          "length": null,
+          "precision": null,
+          "scale": null,
+          "default": null,
+          "comment": null,
+          "enumItems": [],
+          "mappedType": "text"
+        },
         "created_at": {
           "name": "created_at",
           "type": "timestamptz",
@@ -610,9 +644,20 @@
           "mappedType": "datetime"
         }
       },
-      "name": "action_logs",
-      "schema": "public",
       "indexes": [
+        {
+          "keyName": "action_logs_related_resource_idx",
+          "columnNames": [
+            "tenant_id",
+            "related_resource_kind",
+            "related_resource_id",
+            "created_at"
+          ],
+          "composite": true,
+          "constraint": false,
+          "primary": false,
+          "unique": false
+        },
         {
           "keyName": "action_logs_changed_fields_idx",
           "columnNames": [
@@ -727,5 +772,6 @@
       "nativeEnums": {}
     }
   ],
+  "views": [],
   "nativeEnums": {}
 }

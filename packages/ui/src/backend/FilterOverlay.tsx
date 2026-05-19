@@ -1,6 +1,17 @@
 "use client"
 import * as React from 'react'
+import { format } from 'date-fns/format'
 import { Button } from '../primitives/button'
+import { Checkbox } from '../primitives/checkbox'
+import { DateRangePicker } from '../primitives/date-range-picker'
+import type { DateRange } from './date-range/dateRanges'
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '../primitives/select'
 import { ComboboxInput } from './inputs/ComboboxInput'
 import { TagsInput, type TagsInputOption } from './inputs/TagsInput'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
@@ -190,8 +201,8 @@ export function FilterOverlay({
   return (
     <>
       {open && (
-        <div className="fixed inset-0 z-50">
-          <div className="absolute inset-0 bg-black/30" onClick={() => onOpenChange(false)} role="presentation" />
+        <div className="fixed inset-0 z-modal">
+          <div className="absolute inset-0 bg-black/20" onClick={() => onOpenChange(false)} role="presentation" />
           <div className="absolute left-0 top-0 h-full w-full sm:w-[380px] bg-background shadow-xl border-r flex flex-col">
             <div className="flex items-center justify-between p-4 border-b">
               <h2 className="text-base font-semibold">{defaultTitle}</h2>
@@ -219,28 +230,41 @@ export function FilterOverlay({
                       onChange={(e) => setValue(f.id, e.target.value || undefined)}
                     />
                   )}
-                  {f.type === 'dateRange' && (
-                    <div className="grid grid-cols-1 gap-2">
-                      <div>
-                        <div className="text-xs text-muted-foreground mb-1">{t('ui.filters.dateRange.from', 'From')}</div>
-                        <input
-                          type="date"
-                          className="w-full h-11 rounded border px-2 text-sm"
-                          value={values[f.id]?.from ?? ''}
-                          onChange={(e) => setValue(f.id, { ...(values[f.id] ?? {}), from: e.target.value || undefined })}
-                        />
-                      </div>
-                      <div>
-                        <div className="text-xs text-muted-foreground mb-1">{t('ui.filters.dateRange.to', 'To')}</div>
-                        <input
-                          type="date"
-                          className="w-full h-11 rounded border px-2 text-sm"
-                          value={values[f.id]?.to ?? ''}
-                          onChange={(e) => setValue(f.id, { ...(values[f.id] ?? {}), to: e.target.value || undefined })}
-                        />
-                      </div>
-                    </div>
-                  )}
+                  {f.type === 'dateRange' && (() => {
+                    const fromStr = values[f.id]?.from
+                    const toStr = values[f.id]?.to
+                    const parseISODate = (input: unknown): Date | null => {
+                      if (typeof input !== 'string' || !input.length) return null
+                      const candidate = new Date(input)
+                      return Number.isNaN(candidate.getTime()) ? null : candidate
+                    }
+                    const fromDate = parseISODate(fromStr)
+                    const toDate = parseISODate(toStr)
+                    const rangeValue: DateRange | null =
+                      fromDate && toDate
+                        ? { start: fromDate, end: toDate }
+                        : fromDate
+                          ? { start: fromDate, end: fromDate }
+                          : toDate
+                            ? { start: toDate, end: toDate }
+                            : null
+                    return (
+                      <DateRangePicker
+                        value={rangeValue}
+                        onChange={(next) => {
+                          if (!next) {
+                            setValue(f.id, { from: undefined, to: undefined })
+                            return
+                          }
+                          setValue(f.id, {
+                            from: format(next.start, 'yyyy-MM-dd'),
+                            to: format(next.end, 'yyyy-MM-dd'),
+                          })
+                        }}
+                        placeholder={t('ui.filters.dateRange.placeholder', 'Pick a date range')}
+                      />
+                    )
+                  })()}
                   {f.type === 'select' && (
                     <div className="space-y-1">
                       {f.multiple ? (
@@ -249,15 +273,14 @@ export function FilterOverlay({
                             const arr: string[] = Array.isArray(values[f.id]) ? values[f.id] : []
                             const checked = arr.includes(opt.value)
                             return (
-                              <label key={opt.value} className="inline-flex items-center gap-2">
-                                <input
-                                  type="checkbox"
+                              <label key={opt.value} className="inline-flex items-center gap-2 cursor-pointer">
+                                <Checkbox
                                   checked={checked}
-                                  onChange={(e) => {
-                                    const next = new Set(arr)
-                                    if (e.target.checked) next.add(opt.value)
-                                    else next.delete(opt.value)
-                                    setValue(f.id, Array.from(next))
+                                  onCheckedChange={(next) => {
+                                    const set = new Set(arr)
+                                    if (next === true) set.add(opt.value)
+                                    else set.delete(opt.value)
+                                    setValue(f.id, Array.from(set))
                                   }}
                                 />
                                 <span className="text-sm">{opt.label}</span>
@@ -266,16 +289,21 @@ export function FilterOverlay({
                           })}
                         </div>
                       ) : (
-                        <select
-                          className="w-full h-11 rounded border px-2 text-sm"
-                          value={values[f.id] ?? ''}
-                          onChange={(e) => setValue(f.id, e.target.value || undefined)}
+                        <Select
+                          value={values[f.id] || undefined}
+                          onValueChange={(next) => setValue(f.id, next || undefined)}
                         >
-                          <option value="">{t('ui.forms.select.emptyOption', '—')}</option>
-                          {(f.options || dynamicOptions[f.id] || []).map((opt) => (
-                            <option key={opt.value} value={opt.value}>{opt.label}</option>
-                          ))}
-                        </select>
+                          <SelectTrigger size="lg">
+                            <SelectValue placeholder={t('ui.forms.select.emptyOption', '—')} />
+                          </SelectTrigger>
+                          <SelectContent>
+                            {(f.options || dynamicOptions[f.id] || [])
+                              .filter((opt) => opt.value !== '')
+                              .map((opt) => (
+                                <SelectItem key={opt.value} value={opt.value}>{opt.label}</SelectItem>
+                              ))}
+                          </SelectContent>
+                        </Select>
                       )}
                     </div>
                   )}
@@ -354,20 +382,22 @@ export function FilterOverlay({
                   })()}
                   {f.type === 'checkbox' && (
                     <div>
-                      <select
-                        className="w-full h-11 rounded border px-2 text-sm"
-                        value={values[f.id] === true ? 'true' : values[f.id] === false ? 'false' : ''}
-                        onChange={(e) => {
-                          const v = e.target.value
-                          if (v === '') setValue(f.id, undefined)
-                          else if (v === 'true') setValue(f.id, true)
-                          else if (v === 'false') setValue(f.id, false)
+                      <Select
+                        value={values[f.id] === true ? 'true' : values[f.id] === false ? 'false' : undefined}
+                        onValueChange={(next) => {
+                          if (!next) setValue(f.id, undefined)
+                          else if (next === 'true') setValue(f.id, true)
+                          else if (next === 'false') setValue(f.id, false)
                         }}
                       >
-                        <option value="">{t('ui.forms.select.emptyOption', '—')}</option>
-                        <option value="true">{t('common.yes', 'Yes')}</option>
-                        <option value="false">{t('common.no', 'No')}</option>
-                      </select>
+                        <SelectTrigger size="lg">
+                          <SelectValue placeholder={t('ui.forms.select.emptyOption', '—')} />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="true">{t('common.yes', 'Yes')}</SelectItem>
+                          <SelectItem value="false">{t('common.no', 'No')}</SelectItem>
+                        </SelectContent>
+                      </Select>
                     </div>
                   )}
                 </div>

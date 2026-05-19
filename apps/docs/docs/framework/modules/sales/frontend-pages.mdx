@@ -1,0 +1,20 @@
+---
+title: Frontend Pages
+description: Public-facing frontend pages provided by the Sales module.
+---
+
+# Sales — Frontend Pages
+
+The sales module exposes the following public-facing (storefront) pages under the `frontend/` directory.
+
+## Quote acceptance page
+
+**Path:** `frontend/quote/[token]`
+
+A public page where customers can review and accept a sales quote. Accessible via a tokenized URL sent to the customer — no login required.
+
+Can be overridden by placing a file at the same relative path in `apps/mercato/src/modules/sales/frontend/quote/`.
+
+## See also
+
+- [Routes and pages](/framework/modules/routes-and-pages)

@@ -2,12 +2,15 @@
 
 import * as React from 'react'
 import Link from 'next/link'
-import { Plus } from 'lucide-react'
+import { Plus, Settings, UserCheck } from 'lucide-react'
+import { EmptyState } from '@open-mercato/ui/primitives/empty-state'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { apiCallOrThrow, readApiResultOrThrow } from '@open-mercato/ui/backend/utils/apiCall'
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
 import { useGuardedMutation } from '@open-mercato/ui/backend/injection/useGuardedMutation'
+import { useBackendChrome } from '@open-mercato/ui/backend/BackendChromeProvider'
 import { Button } from '@open-mercato/ui/primitives/button'
+import { hasFeature } from '@open-mercato/shared/security/features'
 import type { DictionaryEntryOption } from '@open-mercato/core/modules/dictionaries/lib/clientEntries'
 import { RoleAssignmentRow, type RoleAssignment } from './RoleAssignmentRow'
 import { AssignRoleDialog } from './AssignRoleDialog'
@@ -25,6 +28,11 @@ type GuardedMutationRunner = <T,>(
 
 export function RolesSection({ entityType, entityId, entityName }: RolesSectionProps) {
   const t = useT()
+  const { payload } = useBackendChrome()
+  const canManageRoleTypes = React.useMemo(
+    () => hasFeature(payload?.grantedFeatures ?? [], 'customers.settings.manage'),
+    [payload?.grantedFeatures],
+  )
   const [roles, setRoles] = React.useState<RoleAssignment[]>([])
   const [roleTypes, setRoleTypes] = React.useState<DictionaryEntryOption[]>([])
   const [loading, setLoading] = React.useState(true)
@@ -183,10 +191,21 @@ export function RolesSection({ entityType, entityId, entityName }: RolesSectionP
     )
   }
 
+  const resolvedEntityName =
+    entityName && entityName.trim().length
+      ? entityName.trim()
+      : entityType === 'company'
+        ? t('customers.roles.defaultEntityName.company', 'this company')
+        : t('customers.roles.defaultEntityName.person', 'this person')
+  const groupTitle =
+    entityType === 'company'
+      ? t('customers.roles.groupTitle.company', 'Roles at {{name}}', { name: resolvedEntityName })
+      : t('customers.roles.groupTitle.person', 'My roles with {{name}}', { name: resolvedEntityName })
+
   return (
     <div className="space-y-4">
       <div className="space-y-1">
-        <div className="text-sm font-semibold">{t('customers.roles.groupTitle', 'Roles')}</div>
+        <div className="text-sm font-semibold">{groupTitle}</div>
         <p className="text-xs text-muted-foreground">
           {entityType === 'company'
             ? t('customers.roles.subtitle.company', 'Who is responsible for this company on your side')
@@ -236,37 +255,39 @@ export function RolesSection({ entityType, entityId, entityName }: RolesSectionP
           )}
         </div>
       ) : hasConfiguredRoleTypes ? (
-        <div className="rounded-lg border border-dashed p-4 text-center">
-          <p className="text-xs text-muted-foreground">
-            {t('customers.roles.emptyState', 'No roles assigned yet. Click below to assign a person.')}
-          </p>
-          <Button
-            type="button"
-            variant="outline"
-            size="sm"
-            className="mt-2"
-            onClick={() => openDialog(null)}
-          >
-            {t('customers.roles.choosePerson', 'Choose person')}
-          </Button>
-        </div>
+        <EmptyState
+          size="sm"
+          icon={<UserCheck className="h-8 w-8" aria-hidden="true" />}
+          title={t('customers.roles.emptyState', 'No roles assigned yet. Click below to assign a person.')}
+          actions={
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              onClick={() => openDialog(null)}
+            >
+              <Plus className="h-4 w-4" aria-hidden="true" />
+              {t('customers.roles.choosePerson', 'Choose person')}
+            </Button>
+          }
+        />
       ) : (
-        <div className="rounded-lg border border-dashed p-4 text-center">
-          <div className="text-sm font-medium text-foreground">
-            {t('customers.roles.noRoleTypesTitle', 'No role types configured')}
-          </div>
-          <p className="mt-2 text-xs text-muted-foreground">
-            {t(
-              'customers.roles.noRoleTypesDescription',
-              'Create role types in Customers config before assigning owners here.',
-            )}
-          </p>
-          <Button asChild type="button" variant="outline" size="sm" className="mt-3">
-            <Link href="/backend/config/customers">
-              {t('customers.roles.configureRoleTypes', 'Configure role types')}
-            </Link>
-          </Button>
-        </div>
+        <EmptyState
+          size="sm"
+          icon={<Settings className="h-8 w-8" aria-hidden="true" />}
+          title={t('customers.roles.noRoleTypesTitle', 'No role types configured')}
+          description={t(
+            'customers.roles.noRoleTypesDescription',
+            'Create role types in Customers config before assigning owners here.',
+          )}
+          actions={
+            <Button asChild type="button" variant="outline" size="sm">
+              <Link href="/backend/config/customers">
+                {t('customers.roles.configureRoleTypes', 'Configure role types')}
+              </Link>
+            </Button>
+          }
+        />
       )}
 
       {hasConfiguredRoleTypes ? (
@@ -305,6 +326,7 @@ export function RolesSection({ entityType, entityId, entityName }: RolesSectionP
         existingRoleTypes={assignedRoleTypes}
         existingAssignments={roles}
         initialRoleType={initialRoleType}
+        canManageRoleTypes={canManageRoleTypes}
       />
     </div>
   )

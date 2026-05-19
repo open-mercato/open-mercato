@@ -33,27 +33,27 @@ export function PartialIndexBanner() {
   const hasExcessIndexedRows = hasCounts && indexed > base
 
   return (
-    <div className="mb-4 flex flex-col gap-3 rounded-md border border-amber-300 bg-amber-50 px-3 py-3 text-sm text-amber-900 dark:border-amber-600/60 dark:bg-amber-950/40 dark:text-amber-100 md:flex-row md:items-center md:justify-between">
+    <div className="mb-4 flex flex-col gap-3 rounded-md border border-status-warning-border bg-status-warning-bg px-3 py-3 text-sm text-status-warning-text md:flex-row md:items-center md:justify-between">
       <div className="flex flex-col gap-2 text-sm">
-        <div className="flex items-center gap-2 font-medium text-amber-950 dark:text-amber-50">
+        <div className="flex items-center gap-2 font-medium text-status-warning-text">
           <AlertTriangle className="size-4" aria-hidden="true" />
           <span>{t('query_index.banner.partial_title')}</span>
         </div>
-        <p className="text-amber-900 dark:text-amber-100">
+        <p className="text-status-warning-text">
           {t('query_index.banner.partial_description')}
         </p>
-        <p className="text-xs text-amber-900/90 dark:text-amber-100/90">
+        <p className="text-xs text-status-warning-text">
           {t('query_index.banner.partial_entity', { entity: entityLabel })}
         </p>
         {hasCounts && (
-          <p className="text-xs text-amber-900/90 dark:text-amber-100/90">
+          <p className="text-xs text-status-warning-text">
             {hasExcessIndexedRows
               ? t('query_index.banner.partial_counts_excess', { indexed, total: base })
               : t('query_index.banner.partial_counts', { indexed, total: base })}
           </p>
         )}
         {warning.scope === 'global' && (
-          <p className="text-xs text-amber-900/80 dark:text-amber-100/75">
+          <p className="text-xs text-status-warning-text">
             {t('query_index.banner.partial_global_note')}
           </p>
         )}
@@ -63,7 +63,7 @@ export function PartialIndexBanner() {
           asChild
           variant="outline"
           size="sm"
-          className="border-amber-300 text-amber-900 hover:bg-amber-100 dark:border-amber-500/60 dark:text-amber-100 dark:hover:bg-amber-900/60"
+          className="border-status-warning-border text-status-warning-text hover:bg-status-warning-bg"
         >
           <Link href={manageIndexesHref}>
             {t('query_index.banner.manage_indexes')}
@@ -74,7 +74,7 @@ export function PartialIndexBanner() {
           size="sm"
           type="button"
           onClick={() => dismissPartialIndexWarning()}
-          className="text-amber-900 hover:bg-amber-100 dark:text-amber-100 dark:hover:bg-amber-900/60"
+          className="text-status-warning-text hover:bg-status-warning-bg"
           aria-label={t('query_index.banner.dismiss')}
         >
           <X className="mr-1 size-4" aria-hidden="true" />

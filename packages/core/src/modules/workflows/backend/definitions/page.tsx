@@ -25,6 +25,8 @@ import { useT } from '@open-mercato/shared/lib/i18n/context'
 import type { FilterDef, FilterValues } from '@open-mercato/ui/backend/FilterBar'
 import { Trash2 } from 'lucide-react'
 
+type WorkflowDefinitionSource = 'code' | 'code_override' | 'user'
+
 type WorkflowDefinition = {
   id: string
   workflowId: string
@@ -45,6 +47,8 @@ type WorkflowDefinition = {
   createdAt: string
   updatedAt: string
   createdBy: string | null
+  source?: WorkflowDefinitionSource
+  isCodeBased?: boolean
 }
 
 type DefinitionsResponse = {
@@ -241,7 +245,15 @@ export default function WorkflowDefinitionsListPage() {
       meta: { truncate: false },
       cell: ({ row }) => (
         <div>
-          <div className="font-medium">{row.original.workflowName}</div>
+          <div className="flex items-center gap-2">
+            <span className="font-medium">{row.original.workflowName}</span>
+            {row.original.source === 'code' && (
+              <Badge variant="secondary">{t('workflows.source.code')}</Badge>
+            )}
+            {row.original.source === 'code_override' && (
+              <Badge variant="outline">{t('workflows.source.code_override')}</Badge>
+            )}
+          </div>
           {row.original.description && (
             <div className="text-xs text-gray-500">
               {row.original.description}
@@ -316,38 +328,38 @@ export default function WorkflowDefinitionsListPage() {
     {
       id: 'actions',
       header: '',
-      cell: ({ row }) => (
-        <RowActions
-          items={[
-            {
-              id: 'edit',
-              label: t('common.edit'),
-              href: `/backend/definitions/${row.original.id}`,
-            },
-            {
-              id: 'edit-visual',
-              label: t('workflows.actions.editVisually'),
-              href: `/backend/definitions/visual-editor?id=${row.original.id}`,
-            },
-            {
-              id: row.original.enabled ? 'disable' : 'enable',
-              label: row.original.enabled ? t('common.disable') : t('common.enable'),
-              onSelect: () => handleToggleEnabled(row.original.id, row.original.enabled),
-            },
-            {
-              id: 'duplicate',
-              label: t('common.duplicate'),
-              onSelect: () => handleDuplicate(row.original),
-            },
-            {
-              id: 'delete',
-              label: t('common.delete'),
-              onSelect: () => handleDelete(row.original.id, row.original.workflowName),
-              destructive: true,
-            },
-          ]}
-        />
-      ),
+      cell: ({ row }) => {
+        const isCodeOnly = row.original.source === 'code'
+        const items = [
+          {
+            id: 'edit',
+            label: isCodeOnly ? t('common.view') : t('common.edit'),
+            href: `/backend/definitions/${row.original.id}`,
+          },
+          ...(!isCodeOnly ? [{
+            id: 'edit-visual',
+            label: t('workflows.actions.editVisually'),
+            href: `/backend/definitions/visual-editor?id=${row.original.id}`,
+          }] : []),
+          ...(!isCodeOnly ? [{
+            id: row.original.enabled ? 'disable' : 'enable',
+            label: row.original.enabled ? t('common.disable') : t('common.enable'),
+            onSelect: () => handleToggleEnabled(row.original.id, row.original.enabled),
+          }] : []),
+          ...(!isCodeOnly ? [{
+            id: 'duplicate',
+            label: t('common.duplicate'),
+            onSelect: () => handleDuplicate(row.original),
+          }] : []),
+          ...(!isCodeOnly ? [{
+            id: 'delete',
+            label: t('common.delete'),
+            onSelect: () => handleDelete(row.original.id, row.original.workflowName),
+            destructive: true,
+          }] : []),
+        ]
+        return <RowActions items={items} />
+      },
     },
   ]
 

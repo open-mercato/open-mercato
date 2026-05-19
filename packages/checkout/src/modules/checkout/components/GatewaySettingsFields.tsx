@@ -85,7 +85,7 @@ export function GatewaySettingsFields({ providerKey, value, onChange }: Props) {
       {fields.map((field) => {
         const currentValue = value?.[field.key]
         return (
-          <div key={field.key} className="space-y-2 rounded-lg border border-border/70 bg-muted/20 p-3">
+          <div key={field.key} className="space-y-2 rounded-lg border border-border/70 bg-muted/30 p-3">
             <Label>{field.label}</Label>
             {field.type === 'select' ? (
               <select

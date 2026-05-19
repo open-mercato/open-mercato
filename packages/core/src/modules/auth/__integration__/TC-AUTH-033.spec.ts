@@ -1,5 +1,6 @@
 import { expect, test } from '@playwright/test'
 import { execFileSync, spawnSync } from 'node:child_process'
+import { parse as parseDotenv } from 'dotenv'
 import fs from 'node:fs'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
@@ -29,20 +30,39 @@ function findRepoRoot(startDir: string): string {
   }
 }
 
-const repoRoot = findRepoRoot(__dirname)
-const mercatoCwd = process.env.OM_TEST_APP_ROOT?.trim()
-  ? path.resolve(process.env.OM_TEST_APP_ROOT.trim())
-  : repoRoot
+function resolveMercatoCwd(): string {
+  const appRoot = process.env.OM_TEST_APP_ROOT?.trim()
+  if (appRoot) return path.resolve(appRoot)
+  try {
+    return findRepoRoot(__dirname)
+  } catch {
+    return process.cwd()
+  }
+}
+
+const mercatoCwd = resolveMercatoCwd()
+const mercatoEnv = readMercatoEnvFile(mercatoCwd)
+
+function readMercatoEnvFile(appRoot: string): Record<string, string> {
+  const envPath = path.join(appRoot, '.env')
+  if (!fs.existsSync(envPath)) return {}
+  return parseDotenv(fs.readFileSync(envPath, 'utf8'))
+}
+
+function buildMercatoCommandEnv(): NodeJS.ProcessEnv {
+  return {
+    ...mercatoEnv,
+    ...process.env,
+    FORCE_COLOR: '0',
+    NODE_NO_WARNINGS: '1',
+  }
+}
 
 function runMercato(args: string[]): string {
   return execFileSync('yarn', ['mercato', ...args], {
     cwd: mercatoCwd,
     encoding: 'utf8',
-    env: {
-      ...process.env,
-      FORCE_COLOR: '0',
-      NODE_NO_WARNINGS: '1',
-    },
+    env: buildMercatoCommandEnv(),
   })
 }
 
@@ -50,11 +70,7 @@ function runMercatoCapture(args: string[]): { status: number | null; output: str
   const result = spawnSync('yarn', ['mercato', ...args], {
     cwd: mercatoCwd,
     encoding: 'utf8',
-    env: {
-      ...process.env,
-      FORCE_COLOR: '0',
-      NODE_NO_WARNINGS: '1',
-    },
+    env: buildMercatoCommandEnv(),
   })
   return {
     status: result.status,

@@ -11,12 +11,13 @@
  */
 
 import { EntityManager } from '@mikro-orm/core'
+import type { EntityManager as PostgreSqlEntityManager } from '@mikro-orm/postgresql'
 import type { AwilixContainer } from 'awilix'
 import { WorkflowInstance } from '../data/entities'
 import { createModuleQueue, Queue } from '@open-mercato/queue'
 import { getRedisUrl } from '@open-mercato/shared/lib/redis/connection'
 import {
-  assertSafeOutboundUrl,
+  safeOutboundFetch,
   UnsafeOutboundUrlError,
   type HostLookup,
 } from '@open-mercato/shared/lib/url-safety'
@@ -449,7 +450,7 @@ export async function executeSendEmail(
 
   // Check if email service is available in container
   try {
-    const emailService = container.resolve('emailService')
+    const emailService = container.resolve<{ send: (input: unknown) => Promise<unknown> | unknown }>('emailService')
     if (emailService && typeof emailService.send === 'function') {
       await emailService.send({
         to,
@@ -484,7 +485,7 @@ export async function executeEmitEvent(
   }
 
   // Get event bus from container
-  const eventBus = container.resolve('eventBus')
+  const eventBus = container.resolve<{ emitEvent: (event: string, payload: unknown, options?: unknown) => Promise<unknown> | unknown }>('eventBus')
 
   if (!eventBus || typeof eventBus.emitEvent !== 'function') {
     throw new Error('Event bus not available in container')
@@ -689,12 +690,27 @@ export async function executeCallWebhook(
 
   const allowPrivate = deps.allowPrivate ?? isAllowPrivateWorkflowWebhookUrlsEnabled()
 
+  let response: Response
   try {
-    await assertSafeOutboundUrl(url, {
-      subject: 'Workflow webhook URL',
-      allowPrivate,
-      lookupHost: deps.lookupHost,
-    })
+    response = await safeOutboundFetch(
+      url,
+      {
+        method,
+        headers: {
+          'Content-Type': 'application/json',
+          ...headers,
+        },
+        body: body !== undefined && body !== null ? JSON.stringify(body) : undefined,
+        redirect: 'manual',
+        signal: deps.signal,
+      },
+      {
+        subject: 'Workflow webhook URL',
+        allowPrivate,
+        lookupHost: deps.lookupHost,
+        fetchImpl: deps.fetchImpl,
+      },
+    )
   } catch (error) {
     if (error instanceof UnsafeOutboundUrlError) {
       throw new Error(
@@ -703,18 +719,6 @@ export async function executeCallWebhook(
     }
     throw error
   }
-
-  const fetchImpl = deps.fetchImpl ?? fetch
-  const response = await fetchImpl(url, {
-    method,
-    headers: {
-      'Content-Type': 'application/json',
-      ...headers,
-    },
-    body: body !== undefined && body !== null ? JSON.stringify(body) : undefined,
-    redirect: 'manual',
-    signal: deps.signal,
-  })
 
   if (response.status >= 300 && response.status < 400) {
     const location = response.headers.get('location')
@@ -870,7 +874,7 @@ export async function executeCallApi(
   const { withOnetimeApiKey } = await import('../../api_keys/services/apiKeyService')
 
   // 4. Get EntityManager from container (for correct type)
-  const apiKeyEm = container.resolve('em')
+  const apiKeyEm = container.resolve<PostgreSqlEntityManager>('em')
 
   // 5. Resolve the roles that the one-time API key will inherit.
   //

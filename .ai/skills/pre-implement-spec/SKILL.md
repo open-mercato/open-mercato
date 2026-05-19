@@ -1,6 +1,6 @@
 ---
 name: pre-implement-spec
-description: Analyze a specification before implementation to assess backward compatibility impact, identify risks, find gaps, and produce a readiness report. Use when the user says "analyze spec", "pre-implement", "check spec impact", "spec readiness", "BC analysis", "backward compatibility check", "what can go wrong", or "spec gap analysis". Produces an actionable report with BC violations, missing sections, risk assessment, and suggested spec improvements.
+description: "Analyze a spec before implementation: BC audit, risk assessment, gap analysis. Produces a readiness report with BC violations, missing sections, and suggested improvements. Triggers on \"analyze spec\", \"pre-implement\", \"spec readiness\", \"BC analysis\", \"spec gap analysis\"."
 ---
 
 # Pre-Implement Spec Skill
@@ -76,17 +76,28 @@ Check that the spec's proposed implementation follows all relevant AGENTS.md rul
 - Does the spec mention zod validation for new inputs?
 - Does it use `findWithDecryption` for entity queries?
 - Are tenant scoping requirements addressed?
-- Are GDPR/encryption considerations mentioned for PII fields?
+- **Encryption maps mechanism — every PII / GDPR-relevant column the spec adds (names, addresses, contacts, free-text notes about people, integration credentials, secrets, document numbers) MUST be declared in a module-level `<module>/encryption.ts` exporting `defaultEncryptionMaps` (type from `@open-mercato/shared/modules/encryption`). Reads MUST go through `findWithDecryption` / `findOneWithDecryption` (5-arg `(em, entity, where, options?, scope?)`). Equality-lookup columns declare a sibling `hashField`. Hand-rolled AES, `crypto.subtle`, custom KMS, or "encrypt later" stubs are violations. See `packages/core/AGENTS.md` → Encryption + `apps/docs/docs/user-guide/encryption.mdx`.**
+
+**API & UI canonical mechanisms** (no DIY substitutes):
+- **CRUD APIs use `makeCrudRoute({ entity, entityId, operations, schema, indexer: { entityType } })`. Custom write routes call `validateCrudMutationGuard` before + `runCrudMutationGuardAfterSuccess` after.** See `packages/core/AGENTS.md` → API Routes / CRUD Factory.
+- **API route files export per-method `metadata`** (`requireAuth` / `requireFeatures`) — flag any top-level `export const requireAuth`.
+- **Backend forms use `<CrudForm>`** with `createCrud` / `updateCrud` / `deleteCrud` and `createCrudFormError`; lists use `<DataTable>` with stable `entityId` + `extensionTableId`. No raw `<form>`, no raw `fetch`. See `packages/ui/AGENTS.md`.
+- **HTTP via `apiCall` / `apiCallOrThrow`** from `@open-mercato/ui/backend/utils/apiCall`. Non-`CrudForm` writes wrapped in `useGuardedMutation`.
+- **Cache resolved via DI** (`container.resolve('cache')`); tags include `tenant:<id>` / `org:<id>`; invalidation declared per write path. Flag any spec proposing `new Redis(...)` or raw SQLite. See `packages/cache/AGENTS.md`.
+- Are keyboard shortcuts mentioned (`Cmd/Ctrl+Enter`, `Escape`) for every dialog?
+- Are i18n keys planned (`useT()` / `resolveTranslations()`, never hardcoded labels)?
+
+**Design System compliance for every UI mock / className snippet** (root `AGENTS.md` → Design System Rules + `.ai/ds-rules.md` + `.ai/ui-components.md`):
+- Semantic status tokens — flag any `text-red-*` / `bg-green-*` / `text-amber-*` / `text-emerald-*` / `bg-blue-*` shades the spec proposes; require `text-status-error-text` / `bg-status-success-bg` / `border-status-warning-border` / `text-status-info-icon` / `text-destructive` instead.
+- Tailwind text scale — flag any arbitrary sizes (`text-[11px]`, `text-[13px]`, `text-[15px]`, `p-[13px]`, `rounded-[24px]`, `z-[9999]`); require `text-xs` / `text-sm` / `text-base` / `text-lg` / `text-xl` / `text-2xl` or the `text-overline` token for 11px uppercase labels.
+- Shared primitives — `<StatusBadge>`, `<Alert>`, `<FormField>`, `<SectionHeader>`, `<CollapsibleSection>`, `<LoadingMessage>` / `<Spinner>` / `<DataLoader>`, `<EmptyState>`.
+- Icons — lucide-react in page body (never inline `<svg>`); `aria-label` on icon-only buttons; `page.meta.ts` icons via the `React.createElement('svg', …)` pattern.
+- Boy Scout rule on any line the spec touches in an existing page.
 
 **Events & side effects**:
-- Are new events declared with `createModuleEvents()`?
+- Are new events declared with `createModuleEvents()` (with `as const`)?
 - Do cross-module side effects use events (not direct imports)?
 - Are subscribers idempotent?
-
-**UI conventions**:
-- Does the spec use `CrudForm`/`DataTable` for CRUD UI?
-- Are keyboard shortcuts mentioned (Cmd+Enter, Escape)?
-- Are i18n keys planned (not hardcoded strings)?
 
 **Commands**:
 - Are write operations implemented as undoable commands?

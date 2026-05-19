@@ -28,6 +28,7 @@ import { apiCall, apiCallOrThrow, readApiResultOrThrow } from '@open-mercato/ui/
 import { collectCustomFieldValues } from '@open-mercato/ui/backend/utils/customFieldValues'
 import { Button } from '@open-mercato/ui/primitives/button'
 import { Input } from '@open-mercato/ui/primitives/input'
+import { PasswordInput } from '@open-mercato/ui/primitives/password-input'
 import { Label } from '@open-mercato/ui/primitives/label'
 import { Alert, AlertDescription, AlertTitle } from '@open-mercato/ui/primitives/alert'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@open-mercato/ui/primitives/tabs'
@@ -305,7 +306,7 @@ function toTemplateOption(template: TemplateSummary): ComboboxOption {
 }
 
 function errorInputClassName(error?: string): string | undefined {
-  return error ? 'border-destructive focus-visible:ring-destructive/30' : undefined
+  return error ? 'border-destructive aria-invalid:ring-destructive' : undefined
 }
 
 function SectionLabel({
@@ -576,7 +577,7 @@ function PricingSection({ values, setValue, errors }: CrudFormGroupComponentProp
           </SectionLabel>
 
           <div className="flex items-end">
-            <label className="flex items-center gap-2 rounded-lg border border-border/70 bg-muted/20 px-3 py-2 text-sm">
+            <label className="flex items-center gap-2 rounded-lg border border-border/70 bg-muted/30 px-3 py-2 text-sm">
               <input
                 type="checkbox"
                 checked={readBoolean(values.fixedPriceIncludesTax, true)}
@@ -852,7 +853,7 @@ function AppearanceSection({
         </select>
       </SectionLabel>
 
-      <label className="flex items-center gap-2 rounded-lg border border-border/70 bg-muted/20 px-3 py-2 text-sm">
+      <label className="flex items-center gap-2 rounded-lg border border-border/70 bg-muted/30 px-3 py-2 text-sm">
         <input
           type="checkbox"
           checked={readBoolean(values.displayCustomFieldsOnPage)}
@@ -920,7 +921,7 @@ function CustomerDetailsSection({ values, setValue, errors }: CrudFormGroupCompo
 
   return (
     <div className="space-y-4">
-      <label className="flex items-start gap-3 rounded-xl border border-border/70 bg-muted/20 px-4 py-3 text-sm">
+      <label className="flex items-start gap-3 rounded-xl border border-border/70 bg-muted/30 px-4 py-3 text-sm">
         <input
           type="checkbox"
           checked={collectCustomerDetails}
@@ -1218,7 +1219,7 @@ function EmailsSection({ values, setValue, errors }: CrudFormGroupComponentProps
 
         {(['start', 'success', 'error'] as const).map((item) => (
           <TabsContent key={item} value={item} className="space-y-4">
-            <label className="flex items-center gap-2 rounded-lg border border-border/70 bg-muted/20 px-3 py-2 text-sm">
+            <label className="flex items-center gap-2 rounded-lg border border-border/70 bg-muted/30 px-3 py-2 text-sm">
               <input
                 type="checkbox"
                 checked={readBoolean(values[config[item].enabledKey], true)}
@@ -1296,8 +1297,7 @@ function SettingsSection({ values, setValue, errors }: CrudFormGroupComponentPro
       </SectionLabel>
 
       <SectionLabel label={t('checkout.linkTemplateForm.settings.fields.password')} hint={t('checkout.linkTemplateForm.settings.hints.password')} error={passwordError}>
-        <Input
-          type="password"
+        <PasswordInput
           value={readString(values.password)}
           onChange={(event) => setValue('password', event.target.value)}
           placeholder={t('checkout.linkTemplateForm.settings.placeholders.password')}
@@ -1551,7 +1551,7 @@ export function LinkTemplateForm({ mode, recordId }: Props) {
     </Alert>
   ) : undefined
   const lockedOverlay = isLocked ? (
-    <div className="mx-auto mt-6 max-w-md rounded-2xl border border-amber-200 bg-background/95 px-5 py-4 text-center shadow-sm">
+    <div className="mx-auto mt-6 max-w-md rounded-xl border border-amber-200 bg-background/95 px-5 py-4 text-center shadow-sm">
       <div className="mx-auto mb-3 flex h-10 w-10 items-center justify-center rounded-full bg-amber-100 text-amber-700">
         <Shield className="h-5 w-5" />
       </div>

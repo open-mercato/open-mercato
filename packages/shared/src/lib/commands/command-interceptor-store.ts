@@ -6,6 +6,7 @@
  */
 
 import type { CommandInterceptor } from './command-interceptor'
+import { applyCommandInterceptorOverridesToEntries } from '../../modules/overrides'
 
 export interface CommandInterceptorRegistryEntry {
   moduleId: string
@@ -41,8 +42,9 @@ function writeGlobal(entries: CommandInterceptorRegistryEntry[]) {
 export function registerCommandInterceptors(
   entries: Array<{ moduleId: string; interceptors: CommandInterceptor[] }>,
 ) {
+  const finalEntries = applyCommandInterceptorOverridesToEntries(entries)
   const flat: CommandInterceptorRegistryEntry[] = []
-  for (const entry of entries) {
+  for (const entry of finalEntries) {
     for (const interceptor of entry.interceptors) {
       flat.push({ moduleId: entry.moduleId, interceptor })
     }

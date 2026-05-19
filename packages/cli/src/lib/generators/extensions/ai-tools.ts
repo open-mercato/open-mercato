@@ -6,17 +6,36 @@ import {
   binaryExpression,
   identifier,
   methodCall,
+  objectLiteral,
+  parenthesized,
   propertyAccess,
   writeValue,
 } from '../ast'
 import {
   emptyArray,
+  emptyObject,
   moduleEntry,
   namespaceFallback,
   namespaceImportSpec,
   renderGeneratedTsSource,
 } from './shared'
 
+/**
+ * Generator extension for `<module>/ai-tools.ts` files.
+ *
+ * Each module's `ai-tools.ts` may export both base tool contributions
+ * (`aiTools`) AND cross-module override declarations (`aiToolOverrides`).
+ * The generator scans the file once and emits two filtered exports
+ * inside `ai-tools.generated.ts`:
+ *
+ *   - `aiToolConfigEntries` (entries that declare base tools)
+ *   - `aiToolOverrideEntries` (entries that declare overrides)
+ *
+ * The runtime (`@open-mercato/ai-assistant`) reads `aiToolConfigEntries`
+ * to populate the tool registry and `aiToolOverrideEntries` to apply
+ * cross-module replacements after the base load. See spec
+ * `.ai/specs/2026-04-30-ai-overrides-and-module-disable.md`.
+ */
 export function createAiToolsExtension(): GeneratorExtension {
   const imports = [] as Array<ReturnType<typeof namespaceImportSpec>>
   const entries: WriterFunction[] = []
@@ -45,6 +64,15 @@ export function createAiToolsExtension(): GeneratorExtension {
                 castType: 'unknown[]',
               }),
             },
+            {
+              name: 'overrides',
+              value: namespaceFallback({
+                importName,
+                members: ['aiToolOverrides'],
+                fallback: emptyObject(),
+                castType: 'Record<string, unknown>',
+              }),
+            },
           ]),
       })
     },
@@ -55,7 +83,11 @@ export function createAiToolsExtension(): GeneratorExtension {
         build(sourceFile) {
           sourceFile.addTypeAlias({
             name: 'AiToolConfigEntry',
-            type: '{ moduleId: string; tools: unknown[] }',
+            type: '{ moduleId: string; tools: unknown[]; overrides: Record<string, unknown> }',
+          })
+          sourceFile.addTypeAlias({
+            name: 'AiToolOverrideConfigEntry',
+            type: '{ moduleId: string; overrides: Record<string, unknown> }',
           })
           sourceFile.addVariableStatement({
             declarationKind: VariableDeclarationKind.Const,
@@ -95,6 +127,45 @@ export function createAiToolsExtension(): GeneratorExtension {
                     body: propertyAccess(identifier('entry'), 'tools'),
                   }),
                 ]),
+              },
+            ],
+          })
+          sourceFile.addVariableStatement({
+            declarationKind: VariableDeclarationKind.Const,
+            isExported: true,
+            declarations: [
+              {
+                name: 'aiToolOverrideEntries',
+                type: 'AiToolOverrideConfigEntry[]',
+                initializer: methodCall(
+                  methodCall(identifier('aiToolConfigEntriesRaw'), 'filter', [
+                    arrowFunction({
+                      parameters: ['entry'],
+                      body: binaryExpression(
+                        propertyAccess(
+                          methodCall(identifier('Object'), 'keys', [
+                            propertyAccess(identifier('entry'), 'overrides'),
+                          ]),
+                          'length',
+                        ),
+                        '>',
+                        0,
+                      ),
+                    }),
+                  ]),
+                  'map',
+                  [
+                    arrowFunction({
+                      parameters: ['entry'],
+                      body: parenthesized(
+                        objectLiteral([
+                          { name: 'moduleId', value: propertyAccess(identifier('entry'), 'moduleId') },
+                          { name: 'overrides', value: propertyAccess(identifier('entry'), 'overrides') },
+                        ]),
+                      ),
+                    }),
+                  ],
+                ),
               },
             ],
           })

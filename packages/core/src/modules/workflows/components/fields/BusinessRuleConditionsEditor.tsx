@@ -4,14 +4,13 @@ import { useState, useEffect } from 'react'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { Button } from '@open-mercato/ui/primitives/button'
 import { Badge } from '@open-mercato/ui/primitives/badge'
-import { Label } from '@open-mercato/ui/primitives/label'
 import { Plus, Trash2, AlertCircle } from 'lucide-react'
 import type { CrudCustomFieldRenderProps } from '@open-mercato/ui/backend/CrudForm'
 import { BusinessRulesSelector, type BusinessRule } from '../BusinessRulesSelector'
 import { apiFetch } from '@open-mercato/ui/backend/utils/api'
 import { EmptyState } from '@open-mercato/ui/backend/EmptyState'
 import { Spinner } from '@open-mercato/ui/primitives/spinner'
-import { Switch } from '@open-mercato/ui/primitives/switch'
+import { SwitchField } from '@open-mercato/ui/primitives/switch-field'
 import { ConfirmDialog } from '@open-mercato/ui/backend/confirm-dialog'
 
 /**
@@ -219,17 +218,14 @@ export function BusinessRuleConditionsEditor({
                     </div>
 
                     {/* Required Toggle */}
-                    <div className="flex items-center gap-2">
-                      <Switch
-                        id={`${id}-${index}-required`}
-                        checked={normalized.required}
-                        onCheckedChange={() => toggleRequired(index)}
-                        disabled={disabled}
-                      />
-                      <Label htmlFor={`${id}-${index}-required`} className="text-xs font-medium cursor-pointer">
-                        {t('workflows.fieldEditors.businessRuleConditions.requiredLabel')}
-                      </Label>
-                    </div>
+                    <SwitchField
+                      id={`${id}-${index}-required`}
+                      label={t('workflows.fieldEditors.businessRuleConditions.requiredLabel')}
+                      flip
+                      checked={normalized.required}
+                      onCheckedChange={() => toggleRequired(index)}
+                      disabled={disabled}
+                    />
                   </div>
 
                   {/* Delete Button */}

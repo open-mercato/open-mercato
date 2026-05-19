@@ -53,7 +53,7 @@ gh label create in-progress       --color c5def5 --description "Auto-skill is wo
 
 ## 3. Validation gate probes `package.json` scripts
 
-SKILL.md lists commands like `yarn typecheck`, `yarn test`, `yarn generate`, `yarn build:packages`, `yarn build:app`, `yarn i18n:check-sync`, `yarn i18n:check-usage`. Standalone apps typically have `yarn typecheck`, `yarn test`, `yarn generate`, `yarn build`, but not the monorepo-specific `:packages` / `:app` splits.
+SKILL.md lists commands like `yarn typecheck`, `yarn test`, `yarn generate`, `yarn build:packages`, `yarn build:app`, `yarn i18n:check-sync`, `yarn i18n:check-usage`. The current standalone template ships `yarn build`, `yarn typecheck`, `yarn test`, `yarn generate`, `yarn db:generate`, and `yarn db:migrate`; monorepo-specific `build:packages`, `build:app`, and `i18n:*` scripts usually do not exist.
 
 Before running each step, probe:
 

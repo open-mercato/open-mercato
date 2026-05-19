@@ -1,3 +1,4 @@
+/** @jest-environment jsdom */
 import * as React from 'react'
 import { act, fireEvent, screen } from '@testing-library/react'
 import { renderWithProviders } from '@open-mercato/shared/lib/testing/renderWithProviders'
@@ -72,6 +73,42 @@ describe('TagsInput', () => {
     })
 
     expect(screen.getByTestId('value')).toHaveTextContent('["first-tag","second-tag"]')
+
+    jest.useRealTimers()
+  })
+
+  it('skips loading suggestions on the first programmatic focus when suppressed', async () => {
+    jest.useFakeTimers()
+
+    const loadSuggestions = jest.fn().mockResolvedValue([
+      { value: 'catalog.product.deleted', label: 'Product Deleted' },
+    ])
+
+    function Harness() {
+      const [value, setValue] = React.useState<string[]>([])
+
+      return (
+        <TagsInput
+          value={value}
+          onChange={setValue}
+          autoFocus
+          suppressInitialSuggestionsOnFocus
+          loadSuggestions={loadSuggestions}
+        />
+      )
+    }
+
+    const { getByRole } = renderWithProviders(<Harness />)
+    const input = getByRole('textbox')
+
+    await act(async () => {
+      jest.advanceTimersByTime(300)
+      await Promise.resolve()
+    })
+
+    expect(loadSuggestions).not.toHaveBeenCalled()
+
+    expect(loadSuggestions).not.toHaveBeenCalled()
 
     jest.useRealTimers()
   })

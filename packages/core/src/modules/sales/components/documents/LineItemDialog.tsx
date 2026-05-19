@@ -23,6 +23,18 @@ import {
 } from "@open-mercato/ui/primitives/dialog";
 import { Button } from "@open-mercato/ui/primitives/button";
 import { Input } from "@open-mercato/ui/primitives/input";
+import {
+  Alert,
+  AlertDescription,
+  AlertTitle,
+} from "@open-mercato/ui/primitives/alert";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@open-mercato/ui/primitives/select";
 import { DollarSign, Settings } from "lucide-react";
 import { normalizeCustomFieldValues } from "@open-mercato/shared/lib/custom-fields/normalize";
 import {
@@ -343,6 +355,71 @@ function normalizeUnitPriceInputValue(value: number): string {
   return rounded.toString();
 }
 
+function mapProductOption(item: Record<string, unknown>): ProductOption | null {
+  const id = typeof item.id === "string" ? item.id : null;
+  if (!id) return null;
+  const productItem = item as ApiProductItem;
+  const title =
+    typeof item.title === "string"
+      ? item.title
+      : typeof productItem.name === "string"
+        ? productItem.name
+        : id;
+  const sku = typeof productItem.sku === "string" ? productItem.sku : null;
+  const thumbnail =
+    typeof productItem.default_media_url === "string"
+      ? productItem.default_media_url
+      : typeof productItem.defaultMediaUrl === "string"
+        ? productItem.defaultMediaUrl
+        : null;
+  const pricing =
+    typeof productItem.pricing === "object" && productItem.pricing
+      ? productItem.pricing
+      : null;
+  const metadata =
+    typeof productItem.metadata === "object" && productItem.metadata
+      ? productItem.metadata
+      : null;
+  const pricingMeta = pricing as ApiPricingMetadata | null;
+  const metaMeta = metadata as ApiPricingMetadata | null;
+  const pricingTaxRateId =
+    typeof pricingMeta?.tax_rate_id === "string" &&
+    pricingMeta.tax_rate_id.trim().length
+      ? pricingMeta.tax_rate_id.trim()
+      : typeof pricingMeta?.taxRateId === "string" &&
+          pricingMeta.taxRateId.trim().length
+        ? pricingMeta.taxRateId.trim()
+        : null;
+  const metaTaxRateId =
+    typeof metaMeta?.taxRateId === "string" && metaMeta.taxRateId.trim().length
+      ? metaMeta.taxRateId.trim()
+      : typeof metaMeta?.tax_rate_id === "string" &&
+          metaMeta.tax_rate_id.trim().length
+        ? metaMeta.tax_rate_id.trim()
+        : null;
+  const taxRateValue = normalizeNumber(
+    pricingMeta?.tax_rate ??
+      pricingMeta?.taxRate ??
+      productItem.tax_rate ??
+      productItem.taxRate,
+    Number.NaN,
+  );
+  const uomFields = getUomProductFields(item);
+  return {
+    id,
+    title,
+    sku,
+    thumbnailUrl: thumbnail,
+    taxRateId: pricingTaxRateId ?? metaTaxRateId ?? null,
+    taxRate: Number.isFinite(taxRateValue) ? taxRateValue : null,
+    defaultUnit: uomFields.defaultUnit,
+    defaultSalesUnit: uomFields.defaultSalesUnit,
+    defaultSalesUnitQuantity: Number.isFinite(uomFields.defaultSalesUnitQuantity)
+      ? uomFields.defaultSalesUnitQuantity
+      : null,
+  };
+}
+
 export function LineItemDialog({
   open,
   kind,
@@ -375,6 +452,8 @@ export function LineItemDialog({
   const [taxRates, setTaxRates] = React.useState<TaxRateOption[]>([]);
   const [lineStatuses, setLineStatuses] = React.useState<StatusOption[]>([]);
   const [unitOptions, setUnitOptions] = React.useState<UnitOption[]>([]);
+  const [deletedCatalogReference, setDeletedCatalogReference] =
+    React.useState(false);
   const [, setLineStatusLoading] = React.useState(false);
   const productOptionsRef = React.useRef<Map<string, ProductOption>>(new Map());
   const variantOptionsRef = React.useRef<Map<string, VariantOption>>(new Map());
@@ -470,6 +549,7 @@ export function LineItemDialog({
       setVariantOption(null);
       setPriceOptions([]);
       setUnitOptions([]);
+      setDeletedCatalogReference(false);
       setEditingId(null);
       setFormResetKey((prev) => prev + 1);
     },
@@ -532,6 +612,29 @@ export function LineItemDialog({
     }
   }, []);
 
+  const loadProductOptionById = React.useCallback(
+    async (productId: string): Promise<ProductOption | null> => {
+      if (!productId) return null;
+      const response = await apiCall<{
+        items?: Array<Record<string, unknown>>;
+      }>(
+        `/api/catalog/products?id=${encodeURIComponent(productId)}&pageSize=1`,
+        undefined,
+        { fallback: { items: [] } },
+      );
+      const items = Array.isArray(response.result?.items)
+        ? response.result.items
+        : [];
+      const matched =
+        items.find((entry) => entry.id === productId) ?? items[0] ?? null;
+      if (!matched) return null;
+      const option = mapProductOption(matched);
+      if (option) productOptionsRef.current.set(option.id, option);
+      return option;
+    },
+    [],
+  );
+
   const loadProductOptions = React.useCallback(
     async (query?: string): Promise<LookupSelectItem[]> => {
       const params = new URLSearchParams({ pageSize: "8" });
@@ -550,88 +653,22 @@ export function LineItemDialog({
         : [];
       const mapped = items
         .map((item) => {
-          const id = typeof item.id === "string" ? item.id : null;
-          if (!id) return null;
-          const productItem = item as ApiProductItem;
-          const title =
-            typeof item.title === "string"
-              ? item.title
-              : typeof productItem.name === "string"
-                ? productItem.name
-                : id;
-          const sku =
-            typeof productItem.sku === "string" ? productItem.sku : null;
-          const thumbnail =
-            typeof productItem.default_media_url === "string"
-              ? productItem.default_media_url
-              : typeof productItem.defaultMediaUrl === "string"
-                ? productItem.defaultMediaUrl
-                : null;
-          const pricing =
-            typeof productItem.pricing === "object" && productItem.pricing
-              ? productItem.pricing
-              : null;
-          const metadata =
-            typeof productItem.metadata === "object" && productItem.metadata
-              ? productItem.metadata
-              : null;
-          const pricingMeta = pricing as ApiPricingMetadata | null;
-          const metaMeta = metadata as ApiPricingMetadata | null;
-          const pricingTaxRateId =
-            typeof pricingMeta?.tax_rate_id === "string" &&
-            pricingMeta.tax_rate_id.trim().length
-              ? pricingMeta.tax_rate_id.trim()
-              : typeof pricingMeta?.taxRateId === "string" &&
-                  pricingMeta.taxRateId.trim().length
-                ? pricingMeta.taxRateId.trim()
-                : null;
-          const metaTaxRateId =
-            typeof metaMeta?.taxRateId === "string" &&
-            metaMeta.taxRateId.trim().length
-              ? metaMeta.taxRateId.trim()
-              : typeof metaMeta?.tax_rate_id === "string" &&
-                  metaMeta.tax_rate_id.trim().length
-                ? metaMeta.tax_rate_id.trim()
-                : null;
-          const taxRateValue = normalizeNumber(
-            pricingMeta?.tax_rate ??
-              pricingMeta?.taxRate ??
-              productItem.tax_rate ??
-              productItem.taxRate,
-            Number.NaN,
-          );
-          const uomFields = getUomProductFields(item);
-          const defaultUnit = uomFields.defaultUnit;
-          const defaultSalesUnit = uomFields.defaultSalesUnit;
-          const defaultSalesUnitQuantity = uomFields.defaultSalesUnitQuantity;
+          const option = mapProductOption(item);
+          if (!option) return null;
           return {
-            id,
-            title,
-            subtitle: sku ?? undefined,
-            icon: thumbnail ? (
+            id: option.id,
+            title: option.title,
+            subtitle: option.sku ?? undefined,
+            icon: option.thumbnailUrl ? (
               <img
-                src={thumbnail}
-                alt={title}
+                src={option.thumbnailUrl}
+                alt={option.title}
                 className="h-8 w-8 rounded object-cover"
               />
             ) : (
-              buildPlaceholder(title)
+              buildPlaceholder(option.title)
             ),
-            option: {
-              id,
-              title,
-              sku,
-              thumbnailUrl: thumbnail,
-              taxRateId: pricingTaxRateId ?? metaTaxRateId ?? null,
-              taxRate: Number.isFinite(taxRateValue) ? taxRateValue : null,
-              defaultUnit,
-              defaultSalesUnit,
-              defaultSalesUnitQuantity: Number.isFinite(
-                defaultSalesUnitQuantity,
-              )
-                ? defaultSalesUnitQuantity
-                : null,
-            } satisfies ProductOption,
+            option,
           } as LookupSelectItem & { option: ProductOption };
         })
         .filter(
@@ -1467,6 +1504,18 @@ export function LineItemDialog({
               setFormValue?.("catalogSnapshot", null);
               setFormValue?.("quantityUnit", null);
             } else {
+              if (deletedCatalogReference) {
+                setDeletedCatalogReference(false);
+                setProductOption(null);
+                setVariantOption(null);
+                setPriceOptions([]);
+                setUnitOptions([]);
+                setFormValue?.("productId", null);
+                setFormValue?.("variantId", null);
+                setFormValue?.("priceId", null);
+                setFormValue?.("catalogSnapshot", null);
+                setFormValue?.("quantityUnit", null);
+              }
               setFormValue?.("unitPrice", "");
               setFormValue?.("priceMode", "gross");
             }
@@ -1501,6 +1550,35 @@ export function LineItemDialog({
           );
         },
       } satisfies CrudField,
+      ...(deletedCatalogReference
+        ? [
+            {
+              id: "deletedCatalogReference",
+              label: t(
+                "sales.documents.items.deletedCatalogReference.label",
+                "Deleted catalog item",
+              ),
+              type: "custom",
+              layout: "full",
+              component: () => (
+                <Alert status="information" style="lighter">
+                  <AlertTitle>
+                    {t(
+                      "sales.documents.items.deletedCatalogReference.title",
+                      "This catalog item was deleted",
+                    )}
+                  </AlertTitle>
+                  <AlertDescription>
+                    {t(
+                      "sales.documents.items.deletedCatalogReference.description",
+                      "The saved line data is kept and the line is shown as a custom line. Switch to Catalog item to replace it with an existing product.",
+                    )}
+                  </AlertDescription>
+                </Alert>
+              ),
+            } satisfies CrudField,
+          ]
+        : []),
       ...(!isCustomLine
         ? [
             {
@@ -1521,6 +1599,7 @@ export function LineItemDialog({
                     const selectedOption = next
                       ? (productOptionsRef.current.get(next) ?? null)
                       : null;
+                    if (next) setDeletedCatalogReference(false);
                     setProductOption(selectedOption);
                     setVariantOption(null);
                     setPriceOptions([]);
@@ -1969,22 +2048,25 @@ export function LineItemDialog({
                   onChange={(event) => setValue(event.target.value)}
                   placeholder="0.00"
                 />
-                <select
-                  className="w-32 rounded border px-2 text-sm"
+                <Select
                   value={mode}
-                  onChange={(event) => {
-                    const nextMode =
-                      event.target.value === "net" ? "net" : "gross";
+                  onValueChange={(value) => {
+                    const nextMode = value === "net" ? "net" : "gross";
                     setFormValue?.("priceMode", nextMode);
                   }}
                 >
-                  <option value="gross">
-                    {t("sales.documents.items.priceGross", "Gross")}
-                  </option>
-                  <option value="net">
-                    {t("sales.documents.items.priceNet", "Net")}
-                  </option>
-                </select>
+                  <SelectTrigger className="w-32">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="gross">
+                      {t("sales.documents.items.priceGross", "Gross")}
+                    </SelectItem>
+                    <SelectItem value="net">
+                      {t("sales.documents.items.priceNet", "Net")}
+                    </SelectItem>
+                  </SelectContent>
+                </Select>
               </div>
               {isCatalogLine && selectedPrice && quantityUnitCode && baseUnitCode ? (
                 unitFactor !== null && convertedAmount !== null ? (
@@ -2048,31 +2130,36 @@ export function LineItemDialog({
           };
           return (
             <div className="flex items-center gap-2">
-              <select
-                className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
-                value={resolvedValue ?? ""}
-                onChange={handleChange}
+              <Select
+                value={resolvedValue || undefined}
+                onValueChange={(value) => handleChange({ target: { value } } as React.ChangeEvent<HTMLSelectElement>)}
                 disabled={!taxRates.length}
               >
-                <option value="">
-                  {taxRates.length
-                    ? t(
-                        "sales.documents.items.taxRate.none",
-                        "No tax class selected",
-                      )
-                    : t(
-                        "sales.documents.items.taxRate.empty",
-                        "No tax classes available",
-                      )}
-                </option>
-                {taxRates.map((rate) => (
-                  <option key={rate.id} value={rate.id}>
-                    {rate.name}
-                    {rate.code ? ` • ${rate.code.toUpperCase()}` : ""}
-                    {Number.isFinite(rate.rate) ? ` • ${rate.rate}%` : ""}
-                  </option>
-                ))}
-              </select>
+                <SelectTrigger>
+                  <SelectValue
+                    placeholder={
+                      taxRates.length
+                        ? t(
+                            "sales.documents.items.taxRate.none",
+                            "No tax class selected",
+                          )
+                        : t(
+                            "sales.documents.items.taxRate.empty",
+                            "No tax classes available",
+                          )
+                    }
+                  />
+                </SelectTrigger>
+                <SelectContent>
+                  {taxRates.map((rate) => (
+                    <SelectItem key={rate.id} value={rate.id}>
+                      {rate.name}
+                      {rate.code ? ` • ${rate.code.toUpperCase()}` : ""}
+                      {Number.isFinite(rate.rate) ? ` • ${rate.rate}%` : ""}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
               <Button
                 type="button"
                 variant="ghost"
@@ -2120,11 +2207,10 @@ export function LineItemDialog({
             );
           }
           return (
-            <select
-              className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
-              value={typeof value === "string" ? value : ""}
-              onChange={(event) => {
-                const nextValue = event.target.value || null;
+            <Select
+              value={typeof value === "string" && value ? value : undefined}
+              onValueChange={(next) => {
+                const nextValue = next || null;
                 const nextUnitPrice = convertUnitPriceForUnitChange(
                   values?.unitPrice,
                   typeof value === "string" ? value : null,
@@ -2172,17 +2258,21 @@ export function LineItemDialog({
               }}
               disabled={!productId}
             >
-              <option value="">
-                {t("sales.documents.items.quantityUnitSelect", "Select unit")}
-              </option>
-              {unitOptions.map((option) => (
-                <option key={option.code} value={option.code}>
-                  {option.isBase
-                    ? `${option.code} (${t("sales.documents.items.baseUnitTag", "base")})`
-                    : option.code}
-                </option>
-              ))}
-            </select>
+              <SelectTrigger>
+                <SelectValue
+                  placeholder={t("sales.documents.items.quantityUnitSelect", "Select unit")}
+                />
+              </SelectTrigger>
+              <SelectContent>
+                {unitOptions.map((option) => (
+                  <SelectItem key={option.code} value={option.code}>
+                    {option.isBase
+                      ? `${option.code} (${t("sales.documents.items.baseUnitTag", "base")})`
+                      : option.code}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
           );
         },
       } satisfies CrudField,
@@ -2353,6 +2443,7 @@ export function LineItemDialog({
     loadProductOptions,
     loadVariantOptions,
     fetchLineStatusItems,
+    deletedCatalogReference,
     priceLoading,
     priceOptions,
     productOption,
@@ -2385,6 +2476,8 @@ export function LineItemDialog({
       resetForm();
       return;
     }
+    let cancelled = false;
+    setDeletedCatalogReference(false);
     setEditingId(initialLine.id);
     const nextForm = defaultForm(initialLine.currencyCode ?? currencyCode);
     const meta = initialLine.metadata ?? {};
@@ -2597,18 +2690,74 @@ export function LineItemDialog({
       variantOptionsRef.current.set(initialLine.productVariantId, option);
       resolvedVariantOption = option;
     }
-    if (resolvedProductOption) setProductOption(resolvedProductOption);
-    if (resolvedVariantOption) setVariantOption(resolvedVariantOption);
+    if (resolvedProductOption) {
+      setProductOption(resolvedProductOption);
+    } else {
+      setProductOption(null);
+    }
+    if (resolvedVariantOption) {
+      setVariantOption(resolvedVariantOption);
+    } else {
+      setVariantOption(null);
+    }
     const customValues = extractCustomFieldValues(
       initialLine as Record<string, unknown>,
     );
     const merged = { ...nextForm, ...customValues };
+    const markDeletedCatalogReference = () => {
+      if (cancelled) return;
+      const nextMerged = { ...merged, lineMode: "custom" as const };
+      setDeletedCatalogReference(true);
+      setProductOption(null);
+      setVariantOption(null);
+      setPriceOptions([]);
+      setUnitOptions([]);
+      setInitialValues(nextMerged);
+      setLineMode("custom");
+      setFormResetKey((prev) => prev + 1);
+    };
     setInitialValues(merged);
     setLineMode(merged.lineMode);
     setFormResetKey((prev) => prev + 1);
     if (initialLine.productId) {
+      void (async () => {
+        try {
+          const currentProduct = await loadProductOptionById(
+            initialLine.productId as string,
+          );
+          if (cancelled) return;
+          if (!currentProduct) {
+            markDeletedCatalogReference();
+            return;
+          }
+          if (merged.lineMode !== "custom") {
+            setProductOption(currentProduct);
+          }
+          if (initialLine.productVariantId) {
+            await loadVariantOptions(
+              initialLine.productId as string,
+              currentProduct.thumbnailUrl,
+            );
+            if (cancelled) return;
+            const currentVariant =
+              variantOptionsRef.current.get(initialLine.productVariantId) ??
+              null;
+            if (!currentVariant) {
+              markDeletedCatalogReference();
+              return;
+            }
+            if (merged.lineMode !== "custom") {
+              setVariantOption(currentVariant);
+            }
+          }
+          setDeletedCatalogReference(false);
+        } catch (err) {
+          console.error("sales.document.items.verifyCatalogReference", err);
+        }
+      })();
       void loadProductUnits(initialLine.productId, resolvedProductOption).then(
         (options) => {
+          if (cancelled) return;
           const requestedUnit = normalizeUnitCode(nextForm.quantityUnit);
           if (
             requestedUnit &&
@@ -2631,12 +2780,17 @@ export function LineItemDialog({
       setPriceOptions([]);
       setUnitOptions([]);
     }
+    return () => {
+      cancelled = true;
+    };
   }, [
     currencyCode,
     findTaxRateIdByValue,
     initialLine,
+    loadProductOptionById,
     loadPrices,
     loadProductUnits,
+    loadVariantOptions,
     open,
     resetForm,
   ]);

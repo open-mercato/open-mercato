@@ -19,8 +19,8 @@ test.describe('TC-AUTH-026: Login redirect query parameter', () => {
 
     await page.waitForSelector('form[data-auth-ready="1"]', { state: 'visible', timeout: 5_000 })
     await page.getByLabel('Email').fill('admin@acme.com')
-    await page.getByLabel('Password').fill('secret')
-    await page.getByLabel('Password').press('Enter')
+    await page.getByLabel('Password', { exact: true }).fill('secret')
+    await page.getByLabel('Password', { exact: true }).press('Enter')
 
     await expect(page).toHaveURL(new RegExp(targetPath.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')), { timeout: 10_000 })
   })
@@ -32,8 +32,8 @@ test.describe('TC-AUTH-026: Login redirect query parameter', () => {
 
     await page.waitForSelector('form[data-auth-ready="1"]', { state: 'visible', timeout: 5_000 })
     await page.getByLabel('Email').fill('admin@acme.com')
-    await page.getByLabel('Password').fill('secret')
-    await page.getByLabel('Password').press('Enter')
+    await page.getByLabel('Password', { exact: true }).fill('secret')
+    await page.getByLabel('Password', { exact: true }).press('Enter')
 
     await expect(page).toHaveURL(/\/backend/, { timeout: 10_000 })
   })

@@ -1,0 +1,33 @@
+---
+title: Services
+description: DI-registered services provided by the Sales module.
+---
+
+# Sales — Services
+
+The sales module registers the following services into the DI container. Resolve them in your own module's `di.ts` or command handlers.
+
+## Available services
+
+| Service key | Description |
+|---|---|
+| `salesCalculationService` | Runs the full document and line calculation pipeline. Always use this instead of inline price math. |
+| `taxCalculationService` | Handles tax calculation for sales documents. |
+| `salesDocumentNumberGenerator` | Generates sequential document numbers for orders, quotes, invoices, etc. |
+
+## Usage
+
+```typescript
+// src/modules/<your_module>/di.ts
+export function register(container) {
+  // salesCalculationService is already registered by the sales module
+}
+
+// In a command handler or service:
+const calcService = container.resolve('salesCalculationService')
+```
+
+## See also
+
+- [Sales calculations](/framework/modules/sales/calculations)
+- [Container & DI](/framework/ioc/container)

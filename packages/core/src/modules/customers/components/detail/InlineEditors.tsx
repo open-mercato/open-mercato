@@ -563,8 +563,8 @@ export function InlineNextInteractionEditor({
               <input
                 type="datetime-local"
                 className={cn(
-                  'w-full rounded-md border px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-ring',
-                  dateError ? 'border-destructive focus:border-destructive focus:ring-destructive/40' : null,
+                  'w-full rounded-md border px-3 py-2 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring',
+                  dateError ? 'border-destructive aria-invalid:border-destructive aria-invalid:ring-destructive' : null,
                 )}
                 value={draftDate}
                 aria-invalid={dateError ? 'true' : undefined}
@@ -584,8 +584,8 @@ export function InlineNextInteractionEditor({
               <input
                 placeholder={t('customers.people.detail.inline.nextInteractionName')}
                 className={cn(
-                  'w-full rounded-md border px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-ring',
-                  nameError ? 'border-destructive focus:border-destructive focus:ring-destructive/40' : null,
+                  'w-full rounded-md border px-3 py-2 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring',
+                  nameError ? 'border-destructive aria-invalid:border-destructive aria-invalid:ring-destructive' : null,
                 )}
                 value={draftName}
                 aria-invalid={nameError ? 'true' : undefined}
@@ -604,7 +604,7 @@ export function InlineNextInteractionEditor({
               ) : null}
               <input
                 placeholder={t('customers.people.detail.inline.nextInteractionRef')}
-                className="w-full rounded-md border px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-ring"
+                className="w-full rounded-md border px-3 py-2 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
                 value={draftRefId}
                 onChange={(event) => {
                   if (submitError) setSubmitError(null)

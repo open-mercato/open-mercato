@@ -21,6 +21,6 @@ test.describe('TC-SALES-006: Order Tax Calculation', () => {
 
     const row = page.getByRole('row', { name: new RegExp(lineName, 'i') });
     await expect(row).toContainText('$123.00 gross');
-    await expect(row).toContainText('$123.00 net');
+    await expect(row).toContainText('$100.00 net');
   });
 });

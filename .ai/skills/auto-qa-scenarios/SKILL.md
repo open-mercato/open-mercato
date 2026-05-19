@@ -1,6 +1,6 @@
 ---
 name: auto-qa-scenarios
-description: Generate a human QA report for a window of merged pull requests and deliver it as a docs-only PR. Accepts a date (reports PRs merged on or after that date), a PR number floor (reports PRs whose number is >= that value), or defaults to the last 7 days when nothing is specified. Groups merged work into practical testing routes (P0/P1/P2), lists where QA should click, what to verify, and what can go wrong. Writes both markdown and HTML artifacts under `.ai/analysis/`. Uses the `auto-create-pr` workflow to open a PR against `develop` (never merges), and hands off to `auto-continue-pr` when the run cannot finish in one pass.
+description: Generate a human QA report for a window of merged PRs (date floor, PR-number floor, or default last 7 days) and ship it as a docs-only PR against `develop`. Groups work into P0/P1/P2 testing routes with click paths, verification points, and risk callouts. Writes markdown + HTML under `.ai/analysis/`. Hands off to `auto-continue-pr` if it cannot finish in one pass.
 ---
 
 # Auto QA Scenarios
@@ -116,6 +116,18 @@ Assign a priority to each area:
   reliability, anything that can leak data across tenants or double-charge.
 - **P1** — CRM, catalog UX, attachments, table/UI rendering, custom fields.
 - **P2** — docs, tooling, tests, infra, DX. No dedicated admin pass.
+
+
+### Frontend Preview Performance Checks
+
+For PRs touching Next.js/UI surfaces, include perceived-performance checks in the QA plan:
+
+- cold-load the changed route and capture screenshot/browser-flow evidence,
+- verify first useful shell/loading state appears before heavy client interaction,
+- test interaction responsiveness for changed Client Islands,
+- smoke the mobile viewport,
+- run Lighthouse/Web Vitals when the preview environment supports it,
+- call out any blocked preview/performance evidence separately from functional QA.
 
 ### 4. Draft the execution plan
 

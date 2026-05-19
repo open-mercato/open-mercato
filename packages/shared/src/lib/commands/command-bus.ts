@@ -377,6 +377,8 @@ export class CommandBus {
       resourceId: log.resourceId ?? undefined,
       parentResourceKind: log.parentResourceKind ?? null,
       parentResourceId: log.parentResourceId ?? null,
+      relatedResourceKind: log.relatedResourceKind ?? null,
+      relatedResourceId: log.relatedResourceId ?? null,
       snapshotBefore,
       snapshotAfter,
       changes,
@@ -465,6 +467,8 @@ export class CommandBus {
       resourceId: secondary?.resourceId ?? primary?.resourceId ?? null,
       parentResourceKind: secondary?.parentResourceKind ?? primary?.parentResourceKind ?? null,
       parentResourceId: secondary?.parentResourceId ?? primary?.parentResourceId ?? null,
+      relatedResourceKind: secondary?.relatedResourceKind ?? primary?.relatedResourceKind ?? null,
+      relatedResourceId: secondary?.relatedResourceId ?? primary?.relatedResourceId ?? null,
       undoToken: secondary?.undoToken ?? primary?.undoToken ?? null,
       payload: secondary?.payload ?? primary?.payload ?? null,
       snapshotBefore: secondary?.snapshotBefore ?? primary?.snapshotBefore ?? null,
@@ -511,6 +515,8 @@ export class CommandBus {
       if ('resourceId' in metadata && metadata.resourceId != null) payload.resourceId = metadata.resourceId
       if ('parentResourceKind' in metadata && metadata.parentResourceKind != null) payload.parentResourceKind = metadata.parentResourceKind
       if ('parentResourceId' in metadata && metadata.parentResourceId != null) payload.parentResourceId = metadata.parentResourceId
+      if ('relatedResourceKind' in metadata && metadata.relatedResourceKind != null) payload.relatedResourceKind = metadata.relatedResourceKind
+      if ('relatedResourceId' in metadata && metadata.relatedResourceId != null) payload.relatedResourceId = metadata.relatedResourceId
       if ('undoToken' in metadata && metadata.undoToken != null) payload.undoToken = metadata.undoToken
       if ('payload' in metadata && metadata.payload !== undefined) payload.commandPayload = metadata.payload
       if ('snapshotBefore' in metadata && metadata.snapshotBefore !== undefined) payload.snapshotBefore = metadata.snapshotBefore

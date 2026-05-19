@@ -190,7 +190,7 @@ export default function WebhooksListPage() {
       accessorKey: 'isActive',
       header: t('webhooks.list.columns.status'),
       cell: ({ row }) => (
-        <span className={`inline-flex items-center rounded-full px-2 py-0.5 text-xs font-medium ${row.original.isActive ? 'bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-200' : 'bg-gray-100 text-gray-600 dark:bg-gray-800 dark:text-gray-400'}`}>
+        <span className={`inline-flex items-center rounded-full px-2 py-0.5 text-xs font-medium ${row.original.isActive ? 'bg-status-success-bg text-status-success-text' : 'bg-status-neutral-bg text-status-neutral-text'}`}>
           {row.original.isActive ? t('webhooks.list.status.active') : t('webhooks.list.status.inactive')}
         </span>
       ),

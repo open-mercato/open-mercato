@@ -9,7 +9,7 @@ import { Button } from '@open-mercato/ui/primitives/button'
 import { IconButton } from '@open-mercato/ui/primitives/icon-button'
 import { Popover, PopoverContent, PopoverTrigger } from '@open-mercato/ui/primitives/popover'
 import type { ActivityType, ScheduleFieldId } from './fieldConfig'
-import { isVisible } from './fieldConfig'
+import { isVisible, getFieldLabel } from './fieldConfig'
 import type { LinkedEntity } from './useScheduleFormState'
 
 const ENTITY_LINK_TYPES = ['company', 'deal', 'offer'] as const
@@ -242,10 +242,18 @@ export function LinkedEntitiesField({
 
   if (!isVisible(activityType, 'linkedEntities')) return null
 
+  const sectionLabel = getFieldLabel(
+    activityType,
+    'linkedEntities',
+    t,
+    'customers.schedule.linkedEntities',
+    'Linked entities',
+  )
+
   return (
     <div>
       <label className="text-overline font-semibold uppercase text-muted-foreground tracking-wider">
-        {t('customers.schedule.linkedEntities', 'Linked entities')}
+        {sectionLabel}
       </label>
       <div className="mt-2.5 flex flex-wrap content-center items-center gap-2">
         {linkedEntities.map((entity) => (

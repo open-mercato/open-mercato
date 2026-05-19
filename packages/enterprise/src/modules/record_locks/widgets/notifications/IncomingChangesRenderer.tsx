@@ -41,8 +41,8 @@ export function IncomingChangesRenderer({ notification }: NotificationRendererPr
   return (
     <div
       className={cn(
-        'group relative px-4 py-3 hover:bg-muted/50 transition-colors border-l-4 border-l-sky-500',
-        isUnread && 'bg-sky-50/50 dark:bg-sky-950/20',
+        'group relative px-4 py-3 hover:bg-muted/50 transition-colors border-l-4 border-l-status-info-border',
+        isUnread && 'bg-status-info-bg',
       )}
     >
       {isUnread ? (
@@ -51,8 +51,8 @@ export function IncomingChangesRenderer({ notification }: NotificationRendererPr
 
       <div className="flex gap-3">
         <div className="mt-0.5 flex-shrink-0">
-          <div className="h-10 w-10 rounded-lg bg-sky-100 dark:bg-sky-900/40 flex items-center justify-center">
-            <GitPullRequestArrow className="h-5 w-5 text-sky-600 dark:text-sky-400" />
+          <div className="h-10 w-10 rounded-lg bg-status-info-bg flex items-center justify-center">
+            <GitPullRequestArrow className="h-5 w-5 text-status-info-icon" />
           </div>
         </div>
 
@@ -69,7 +69,7 @@ export function IncomingChangesRenderer({ notification }: NotificationRendererPr
 
           <div className="mt-2 overflow-x-auto rounded border border-border/70">
             <table className="w-full text-xs">
-              <thead className="bg-muted/40">
+              <thead className="bg-muted/50">
                 <tr>
                   <th className="px-2 py-1.5 text-left font-medium">{t('record_locks.conflict.field', 'Field')}</th>
                   <th className="px-2 py-1.5 text-left font-medium">{t('record_locks.conflict.incoming_label', 'Incoming')}</th>
@@ -78,7 +78,7 @@ export function IncomingChangesRenderer({ notification }: NotificationRendererPr
               </thead>
               <tbody>
                 {rows.length ? rows.map((row, index) => (
-                  <tr key={`${row.field}-${index}`} className="border-t border-border/50">
+                  <tr key={`${row.field}-${index}`} className="border-t border-border/70">
                     <td className="px-2 py-1.5 align-top text-foreground">{row.field}</td>
                     <td className="px-2 py-1.5 align-top text-muted-foreground">{row.incoming}</td>
                     <td className="px-2 py-1.5 align-top text-muted-foreground">{row.current}</td>

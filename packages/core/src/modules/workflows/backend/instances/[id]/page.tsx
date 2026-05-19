@@ -101,7 +101,7 @@ export default function WorkflowInstanceDetailPage({ params }: { params?: { id?:
       case 'FAILED':
         return 'bg-red-100 text-red-800'
       case 'CANCELLED':
-        return 'bg-muted text-foreground dark:bg-muted dark:text-foreground'
+        return 'bg-muted text-foreground'
       case 'COMPENSATING':
         return 'bg-orange-100 text-orange-800'
       case 'COMPENSATED':
@@ -121,7 +121,7 @@ export default function WorkflowInstanceDetailPage({ params }: { params?: { id?:
     } else if (eventType.includes('FAILED') || eventType.includes('REJECTED')) {
       return 'bg-red-100 text-red-800'
     } else if (eventType.includes('CANCELLED')) {
-      return 'bg-muted text-foreground dark:bg-muted dark:text-foreground'
+      return 'bg-muted text-foreground'
     } else if (eventType.includes('PAUSED')) {
       return 'bg-yellow-100 text-yellow-800'
     } else {

@@ -1,6 +1,6 @@
 ---
 name: auto-update-changelog
-description: Draft a new CHANGELOG.md release entry in the house emoji-driven format (✨ Features / 🐛 Fixes / 🔒 Security / 🛠️ Improvements / 🧪 Testing / 📝 Specs & Documentation / 🚀 CI/CD / 👥 Contributors) covering every PR merged since the last release, then delegate the edit to `auto-create-pr` so the bump lands as a docs PR against `develop`. Correctly credits the original author when a merged PR supersedes another contributor's PR (the carry-forward pattern that `auto-review-pr` uses). Use this at release time or when cutting a release candidate.
+description: Draft a CHANGELOG.md release entry in the house emoji-driven format for every PR merged since the last release, then delegate to `auto-create-pr` so it lands as a docs PR against `develop`. Honors the Supersede Credit Rule for carried-forward fork PRs. Use at release time.
 ---
 
 # Auto Update Changelog

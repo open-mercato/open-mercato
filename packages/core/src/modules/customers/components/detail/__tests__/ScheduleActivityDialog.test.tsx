@@ -2,12 +2,16 @@
  * @jest-environment jsdom
  */
 import * as React from 'react'
-import { act, waitFor } from '@testing-library/react'
+import { act, fireEvent, screen, waitFor } from '@testing-library/react'
 import { renderWithProviders } from '@open-mercato/shared/lib/testing/renderWithProviders'
+import { apiCallOrThrow } from '@open-mercato/ui/backend/utils/apiCall'
+import { flash } from '@open-mercato/ui/backend/FlashMessages'
 import { ScheduleActivityDialog } from '../ScheduleActivityDialog'
 
 const readApiResultOrThrowMock = jest.fn()
 const setConflictMock = jest.fn()
+const apiCallOrThrowMock = apiCallOrThrow as jest.Mock
+const flashMock = flash as jest.Mock
 
 function createScheduleState(overrides: Record<string, unknown> = {}) {
   return {
@@ -105,6 +109,27 @@ jest.mock('@open-mercato/ui/primitives/alert', () => ({
 }))
 
 jest.mock('@open-mercato/ui/backend/inputs', () => ({
+  PhoneNumberField: ({
+    id,
+    value,
+    onValueChange,
+    externalError,
+  }: {
+    id?: string
+    value?: string | null
+    onValueChange: (next: string | undefined) => void
+    externalError?: string | null
+  }) => (
+    <div>
+      <input
+        id={id}
+        aria-label="Phone number"
+        value={value ?? ''}
+        onChange={(event) => onValueChange(event.target.value || undefined)}
+      />
+      {externalError ? <p>{externalError}</p> : null}
+    </div>
+  ),
   SwitchableMarkdownInput: () => null,
 }))
 
@@ -137,6 +162,8 @@ describe('ScheduleActivityDialog', () => {
   beforeEach(() => {
     jest.useFakeTimers()
     readApiResultOrThrowMock.mockReset()
+    apiCallOrThrowMock.mockReset()
+    flashMock.mockReset()
     setConflictMock.mockReset()
     mockScheduleState = createScheduleState()
     readApiResultOrThrowMock.mockResolvedValue({ hasConflicts: false, conflicts: [] })
@@ -180,5 +207,33 @@ describe('ScheduleActivityDialog', () => {
 
     const requestUrl = new URL(String(readApiResultOrThrowMock.mock.calls.at(-1)?.[0] ?? ''), 'http://localhost')
     expect(requestUrl.searchParams.get('timezoneOffsetMinutes')).toBe('120')
+  })
+
+  it('shows an inline phone error without submitting an invalid call phone', async () => {
+    mockScheduleState = createScheduleState({
+      activityType: 'call',
+      title: 'Follow-up call',
+    })
+
+    renderWithProviders(
+      <ScheduleActivityDialog
+        open
+        onClose={() => undefined}
+        entityId="person-1"
+        entityType="person"
+      />,
+    )
+
+    fireEvent.change(screen.getByLabelText('Phone number'), {
+      target: { value: 'not-a-phone' },
+    })
+    await act(async () => {
+      fireEvent.click(screen.getByRole('button', { name: /^Log call$/ }))
+    })
+
+    const expectedMessage = 'Enter a valid phone number with country code (e.g. +1 212 555 1234)'
+    expect(apiCallOrThrowMock).not.toHaveBeenCalled()
+    expect(screen.getByText(expectedMessage)).toBeInTheDocument()
+    expect(flashMock).toHaveBeenCalledWith(expectedMessage, 'error')
   })
 })

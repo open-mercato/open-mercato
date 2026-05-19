@@ -6,11 +6,14 @@ import Link from 'next/link'
 import { useRouter, useSearchParams } from 'next/navigation'
 import { Card, CardContent, CardHeader, CardDescription } from '@open-mercato/ui/primitives/card'
 import { Input } from '@open-mercato/ui/primitives/input'
+import { EmailInput } from '@open-mercato/ui/primitives/email-input'
+import { PasswordInput } from '@open-mercato/ui/primitives/password-input'
 import { Label } from '@open-mercato/ui/primitives/label'
 import { Button } from '@open-mercato/ui/primitives/button'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { translateWithFallback } from '@open-mercato/shared/lib/i18n/translate'
 import { clearAllOperations } from '@open-mercato/ui/backend/operations/store'
+import { notifyAuthIdentityChange } from '@open-mercato/ui/backend/AuthSessionGuard'
 import { apiCall } from '@open-mercato/ui/backend/utils/apiCall'
 import { X } from 'lucide-react'
 import { Alert, AlertDescription } from '@open-mercato/ui/primitives/alert'
@@ -124,6 +127,43 @@ export default function LoginPage() {
   }, [])
 
   useEffect(() => {
+    let cancelled = false
+    void (async () => {
+      try {
+        const res = await apiCall<{ userId?: string }>('/api/auth/feature-check', {
+          method: 'POST',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({ features: [] }),
+          cache: 'no-store',
+        })
+        if (cancelled) return
+        const activeUserId = typeof res.result?.userId === 'string' ? res.result.userId : ''
+        if (!activeUserId) return
+        const rawRedirect = searchParams.get('redirect') || ''
+        let destination = '/backend'
+        if (rawRedirect) {
+          try {
+            const resolved = new URL(rawRedirect, window.location.origin)
+            if (
+              resolved.origin === window.location.origin &&
+              resolved.pathname.startsWith('/') &&
+              !resolved.pathname.includes('//')
+            ) {
+              destination = resolved.pathname + resolved.search + resolved.hash
+            }
+          } catch {
+            // fall back to /backend
+          }
+        }
+        router.replace(destination)
+      } catch {
+        // ignore — leave login form usable on network failure
+      }
+    })()
+    return () => { cancelled = true }
+  }, [router, searchParams])
+
+  useEffect(() => {
     const tenantParam = (searchParams.get('tenant') || '').trim()
     if (tenantParam) {
       setTenantId(tenantParam)
@@ -210,6 +250,7 @@ export default function LoginPage() {
       const res = await fetch('/api/auth/login', { method: 'POST', body: form })
       if (res.redirected) {
         clearAllOperations()
+        notifyAuthIdentityChange()
         // NextResponse.redirect from API
         router.replace(res.url)
         return
@@ -263,6 +304,7 @@ export default function LoginPage() {
       const data = await res.json().catch(() => null) as LoginResponseEventDetail
       emitLoginResponseEvent(data)
       clearAllOperations()
+      notifyAuthIdentityChange()
       if (data && typeof data.redirect === 'string' && data.redirect.length > 0) {
         router.replace(data.redirect)
       }
@@ -352,10 +394,9 @@ export default function LoginPage() {
               )}
               <div className="grid gap-1">
                 <Label htmlFor="email">{t('auth.email')}</Label>
-                <Input
+                <EmailInput
                   id="email"
                   name="email"
-                  type="email"
                   required
                   aria-invalid={!!error}
                   onChange={(e) => setEmail(e.target.value)}
@@ -369,7 +410,7 @@ export default function LoginPage() {
               {authOverride?.hidePassword ? null : (
                 <div className="grid gap-1">
                   <Label htmlFor="password">{t('auth.password')}</Label>
-                  <Input id="password" name="password" type="password" required={!authOverride} aria-invalid={!!error} />
+                  <PasswordInput id="password" name="password" required={!authOverride} aria-invalid={!!error} autoComplete="current-password" />
                 </div>
               )}
               {!authOverride?.hideRememberMe && !authOverride?.hidePassword && (

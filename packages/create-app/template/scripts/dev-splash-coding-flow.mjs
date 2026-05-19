@@ -303,11 +303,10 @@ function writeJson(res, statusCode, payload) {
   res.end(JSON.stringify(payload))
 }
 
-// Reject any string that would smuggle control characters or NUL bytes through
-// the shell-launching codepath. This is the canonical sanitizer for paths and
-// shell argument values used by the splash coding flow; CodeQL recognizes the
-// explicit reject as a safe boundary.
-const SHELL_UNSAFE_CHAR_PATTERN = /[\u0000-\u001f\u007f`$"';&|<>()[\]!^]/
+// Reject control characters and shell metacharacters that could alter command
+// semantics. Quotes are allowed here because these values are passed through
+// `spawn` argument arrays instead of shell interpolation.
+const SHELL_UNSAFE_CHAR_PATTERN = /[\u0000-\u001f\u007f`$&|;<>()[\]{}*!?~]/
 
 export function isShellSafePathString(value) {
   return typeof value === 'string'
@@ -324,11 +323,29 @@ export function assertShellSafePath(value, label) {
 
 export { sanitizeLaunchDirectory }
 
-function sanitizeLaunchDirectory(value) {
-  const homeFallback = path.resolve(os.homedir())
-  const tmpFallback = path.resolve(os.tmpdir())
-  const fallback = isShellSafePathString(homeFallback) ? homeFallback : assertShellSafePath(tmpFallback, 'Fallback launch directory')
+function resolveSafeLaunchFallbackDirectory() {
+  const candidates = [process.cwd(), os.homedir(), path.parse(process.cwd()).root]
+  for (const candidate of candidates) {
+    const resolvedCandidate = path.resolve(candidate)
+    if (!isShellSafePathString(resolvedCandidate)) {
+      continue
+    }
 
+    try {
+      const stat = fs.statSync(resolvedCandidate)
+      if (stat.isDirectory()) {
+        return resolvedCandidate
+      }
+    } catch {
+      // Try next fallback candidate
+    }
+  }
+
+  return path.parse(process.cwd()).root
+}
+
+function sanitizeLaunchDirectory(value) {
+  const fallback = resolveSafeLaunchFallbackDirectory()
   if (!isShellSafePathString(value) || value.trim().length === 0) {
     return fallback
   }

@@ -295,6 +295,25 @@ export async function POST(req: Request) {
 }
 ```
 
+## Testing
+
+Rate limiting is automatically disabled when `OM_INTEGRATION_TEST=true` is set in the environment. The ephemeral integration-test runtime (`yarn test:integration`, `yarn test:integration:ephemeral`) sets this for you, so test suites do not have to disable limits by hand or flush counters between cases.
+
+When running tests against a long-lived dev server (e.g. `yarn dev` + `npx playwright test`), set the flag yourself:
+
+```bash
+OM_INTEGRATION_TEST=true yarn dev
+```
+
+For suites that deliberately exercise rate-limit behavior, keep the integration flag off and opt in per-request with the targeted auth-endpoint escape hatch:
+
+| Variable | Effect |
+|----------|--------|
+| `OM_TEST_MODE=1` + `OM_TEST_AUTH_RATE_LIMIT_MODE=opt-in` | `checkAuthRateLimit` becomes inert by default |
+| Request header `x-om-test-rate-limit: on` | Re-enables enforcement for that single request |
+
+This lets you assert both 200 and 429 paths deterministically without tearing the global limiter down.
+
 ## Security Notes
 
 - **Two-layer protection**: Auth endpoints use an IP-only layer (caps total attempts from one IP regardless of email) and a compound `IP:emailHash` layer (caps attempts per account). The email is SHA-256 hashed — raw emails never appear in rate limit storage keys.

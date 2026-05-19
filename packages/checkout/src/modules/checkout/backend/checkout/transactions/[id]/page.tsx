@@ -68,7 +68,7 @@ type SectionDefinition = {
 
 function DetailRow({ label, value }: { label: string; value: React.ReactNode }) {
   return (
-    <div className="grid gap-1 border-b border-border/50 pb-3 last:border-b-0 last:pb-0 md:grid-cols-[180px_1fr]">
+    <div className="grid gap-1 border-b border-border/70 pb-3 last:border-b-0 last:pb-0 md:grid-cols-[180px_1fr]">
       <div className="text-sm font-medium text-muted-foreground">{label}</div>
       <div className="min-w-0 text-sm">{value}</div>
     </div>
@@ -306,7 +306,7 @@ export default function CheckoutTransactionDetailPage({ params }: { params: Prom
           plainValue: stringifyPlainValue(value),
           value: typeof value === 'string'
             ? value
-            : <pre className="whitespace-pre-wrap break-words rounded-lg bg-muted/40 p-2 font-mono text-xs">{stringifyPlainValue(value)}</pre>,
+            : <pre className="whitespace-pre-wrap break-words rounded-lg bg-muted/50 p-2 font-mono text-xs">{stringifyPlainValue(value)}</pre>,
         }))
       : []
 
@@ -428,11 +428,11 @@ export default function CheckoutTransactionDetailPage({ params }: { params: Prom
         {payload ? sections.map((section) => {
           const Icon = section.icon
           return (
-            <Card key={section.id} className="overflow-hidden rounded-[24px] border-border/70 shadow-sm">
-              <CardHeader className="border-b border-border/50 bg-muted/20">
+            <Card key={section.id} className="overflow-hidden rounded-xl border-border/70 shadow-sm">
+              <CardHeader className="border-b border-border/70 bg-muted/30">
                 <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
                   <CardTitle className="flex items-center gap-3 text-lg">
-                    <span className="flex size-10 items-center justify-center rounded-2xl bg-background shadow-sm">
+                    <span className="flex size-10 items-center justify-center rounded-xl bg-background shadow-sm">
                       <Icon className="size-5 text-muted-foreground" />
                     </span>
                     <span>{section.title}</span>

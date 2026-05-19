@@ -2,6 +2,13 @@
 
 import * as React from 'react'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '../../primitives/select'
 import { DATE_RANGE_OPTIONS, type DateRangePreset } from './dateRanges'
 
 export type InlineDateRangeSelectProps = {
@@ -23,29 +30,18 @@ export function InlineDateRangeSelect({
     : value.replace(/_/g, ' ')
 
   return (
-    <div className={`relative inline-flex items-center ${className}`}>
-      <select
-        className="appearance-none rounded-md border border-border bg-background px-2 py-0.5 pr-6 text-xs text-foreground hover:border-primary/50 focus:border-primary focus:outline-none focus:ring-1 focus:ring-primary cursor-pointer"
-        value={value}
-        onChange={(e) => onChange(e.target.value as DateRangePreset)}
-        title={displayLabel}
-      >
+    <Select value={value} onValueChange={(next) => onChange(next as DateRangePreset)}>
+      <SelectTrigger size="sm" className={className} title={displayLabel}>
+        <SelectValue />
+      </SelectTrigger>
+      <SelectContent>
         {DATE_RANGE_OPTIONS.map((option) => (
-          <option key={option.value} value={option.value}>
+          <SelectItem key={option.value} value={option.value}>
             {t(option.labelKey, option.value.replace(/_/g, ' '))}
-          </option>
+          </SelectItem>
         ))}
-      </select>
-      <svg
-        className="pointer-events-none absolute right-1.5 h-3 w-3 text-muted-foreground"
-        fill="none"
-        viewBox="0 0 24 24"
-        stroke="currentColor"
-        strokeWidth={2}
-      >
-        <path strokeLinecap="round" strokeLinejoin="round" d="M19 9l-7 7-7-7" />
-      </svg>
-    </div>
+      </SelectContent>
+    </Select>
   )
 }
 

@@ -1,8 +1,9 @@
 'use client'
 import * as React from 'react'
-import { Phone, Mail, Users, StickyNote, User } from 'lucide-react'
+import { Check, ListTodo, Phone, Mail, Users, StickyNote, User } from 'lucide-react'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 import type { TranslateFn } from '@open-mercato/shared/lib/i18n/context'
+import { Button } from '@open-mercato/ui/primitives/button'
 import { AiActionChips } from './AiActionChips'
 import type { InteractionSummary } from './types'
 
@@ -11,14 +12,16 @@ const TYPE_ICONS: Record<string, React.ComponentType<{ className?: string }>> = 
   email: Mail,
   meeting: Users,
   note: StickyNote,
+  task: ListTodo,
 }
 
 interface ActivityTimelineProps {
   activities: InteractionSummary[]
   onEdit?: (activity: InteractionSummary) => void
+  onMarkDone?: (activityId: string) => void | Promise<void>
 }
 
-export function ActivityTimeline({ activities, onEdit }: ActivityTimelineProps) {
+export function ActivityTimeline({ activities, onEdit, onMarkDone }: ActivityTimelineProps) {
   const t = useT()
 
   if (activities.length === 0) {
@@ -54,6 +57,7 @@ export function ActivityTimeline({ activities, onEdit }: ActivityTimelineProps) 
               t={t}
               withBorder={index < activities.length - 1}
               onEdit={onEdit}
+              onMarkDone={onMarkDone}
             />
           </React.Fragment>
         )
@@ -67,65 +71,91 @@ function TimelineEntry({
   t,
   withBorder,
   onEdit,
+  onMarkDone,
 }: {
   activity: InteractionSummary
   t: TranslateFn
   withBorder: boolean
   onEdit?: (activity: InteractionSummary) => void
+  onMarkDone?: (activityId: string) => void | Promise<void>
 }) {
   const dateStr = activity.scheduledAt ?? activity.occurredAt ?? activity.createdAt
   const TypeIcon = TYPE_ICONS[activity.interactionType]
   const title = activity.title ?? activity.body ?? activity.interactionType
   const duration = activity.duration ? ` (${activity.duration} min)` : ''
+  const isPlanned = activity.status === 'planned'
+  const [markingDone, setMarkingDone] = React.useState(false)
+
+  const handleMarkDone = React.useCallback(async (event: React.MouseEvent | React.KeyboardEvent) => {
+    event.stopPropagation()
+    if (!onMarkDone || markingDone) return
+    setMarkingDone(true)
+    try {
+      await onMarkDone(activity.id)
+    } finally {
+      setMarkingDone(false)
+    }
+  }, [activity.id, markingDone, onMarkDone])
 
   return (
     <div
-      className={`px-5 py-4 ${withBorder ? 'border-b border-border/60' : ''} ${onEdit ? 'cursor-pointer hover:bg-accent/50 transition-colors' : ''}`}
+      className={`py-2.5 ${withBorder ? 'border-b border-border/60' : ''} ${onEdit ? 'cursor-pointer hover:bg-accent/40 transition-colors' : ''}`}
       onClick={() => onEdit?.(activity)}
       role={onEdit ? 'button' : undefined}
       tabIndex={onEdit ? 0 : undefined}
       onKeyDown={onEdit ? (e) => { if (e.key === 'Enter') onEdit(activity) } : undefined}
     >
-      <div className="grid items-start gap-3" style={{ gridTemplateColumns: '72px 40px 1fr' }}>
+      <div className="grid items-start gap-3" style={{ gridTemplateColumns: '75px 32px 1fr' }}>
         {/* Column 1: Date */}
-        <div className="shrink-0 pt-0.5">
-          <span className="block text-xs font-bold leading-tight">
+        <div className="shrink-0">
+          <span className="block text-[11px] font-semibold leading-tight text-foreground">
             {formatRelativeDate(dateStr, t)}
           </span>
-          <span className="block text-xs leading-tight text-muted-foreground">
+          <span className="block text-[10px] leading-tight text-muted-foreground">
             {formatTime(dateStr)}
           </span>
         </div>
 
         {/* Column 2: Type icon */}
-        <div className="flex size-10 items-center justify-center rounded-lg bg-muted shrink-0">
-          {TypeIcon ? <TypeIcon className="size-4 text-muted-foreground" /> : null}
+        <div className="flex size-8 items-center justify-center rounded-md bg-muted shrink-0">
+          {TypeIcon ? <TypeIcon className="size-3.5 text-muted-foreground" /> : null}
         </div>
 
         {/* Column 3: Content */}
-        <div className="min-w-0">
-          <div className="flex items-center gap-1.5">
-            <span className="text-sm font-semibold leading-5">
+        <div className="min-w-0 space-y-1.5">
+          <div className="flex items-start justify-between gap-2">
+            <span className="block text-[12px] font-semibold leading-tight text-foreground">
               {title}{duration}
             </span>
+            {isPlanned && onMarkDone ? (
+              <Button
+                type="button"
+                variant="default"
+                size="sm"
+                disabled={markingDone}
+                onClick={handleMarkDone}
+                className="shrink-0"
+              >
+                <Check className="size-3.5" />
+                {t('customers.activities.actions.markDone', 'Mark done')}
+              </Button>
+            ) : null}
           </div>
 
           {activity.body && activity.title && (
-            <p className="mt-1 text-sm text-muted-foreground">
+            <p className="text-[11px] leading-snug text-muted-foreground">
               {activity.body}
             </p>
           )}
 
           {activity.authorName && (
-            <div className="mt-1.5 flex items-center gap-1 text-xs text-muted-foreground">
-              <User className="size-3 shrink-0" />
+            <div className="flex items-center gap-1 text-[10px] text-muted-foreground">
+              <User className="size-2.5 shrink-0" />
               <span>{t('customers.timeline.author', 'by {{name}}', { name: activity.authorName })}</span>
             </div>
           )}
 
-          <div className="mt-2">
-            <AiActionChips activityType={activity.interactionType} />
-          </div>
+          <AiActionChips activityType={activity.interactionType} />
         </div>
       </div>
     </div>

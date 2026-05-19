@@ -11,7 +11,9 @@ import {
   Clock,
   History,
   Paperclip,
+  Plus,
 } from 'lucide-react'
+import type { SectionAction } from '@open-mercato/ui/backend/detail'
 
 export type CompanyTabId =
   | 'people'
@@ -36,6 +38,7 @@ type CompanyDetailTabsProps = {
   dealsCount?: number
   activitiesCount?: number
   filesCount?: number
+  sectionAction?: SectionAction | null
   children: React.ReactNode
 }
 
@@ -80,6 +83,7 @@ export function CompanyDetailTabs({
   dealsCount = 0,
   activitiesCount = 0,
   filesCount = 0,
+  sectionAction = null,
   children,
 }: CompanyDetailTabsProps) {
   const t = useT()
@@ -134,8 +138,8 @@ export function CompanyDetailTabs({
   return (
     <div>
       {/* Tab navigation */}
-      <div className="border-b" role="tablist" aria-label={t('customers.companies.detail.tabs.label', 'Company detail sections')}>
-        <nav className="-mb-px flex gap-1 overflow-x-auto px-1">
+      <div className="flex items-end justify-between gap-2 border-b" role="tablist" aria-label={t('customers.companies.detail.tabs.label', 'Company detail sections')}>
+        <nav className="-mb-px flex flex-1 gap-1 overflow-x-auto px-1">
           {allTabs.map((tab) => {
             const isActive = activeTab === tab.id
             return (
@@ -161,6 +165,18 @@ export function CompanyDetailTabs({
             )
           })}
         </nav>
+        {sectionAction ? (
+          <Button
+            type="button"
+            size="sm"
+            onClick={sectionAction.onClick}
+            disabled={sectionAction.disabled}
+            className="mb-1.5 mr-1 shrink-0"
+          >
+            <Plus className="mr-1.5 h-4 w-4" />
+            {sectionAction.label}
+          </Button>
+        ) : null}
       </div>
 
       {/* Tab content */}

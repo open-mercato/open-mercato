@@ -4,6 +4,7 @@ import { ChevronsLeft, ChevronsRight } from 'lucide-react'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { cn } from '@open-mercato/shared/lib/utils'
 import { Button } from '../../primitives/button'
+import { IconButton } from '../../primitives/icon-button'
 import { useZoneCollapse } from './useZoneCollapse'
 import type { LucideIcon } from 'lucide-react'
 
@@ -13,6 +14,8 @@ export interface ZoneSectionDescriptor {
   id: string
   icon: LucideIcon
   label: string
+  targetId?: string
+  ariaLabel?: string
   errorCount?: number
 }
 
@@ -53,7 +56,7 @@ export function CollapsibleZoneLayout({
   sections,
 }: CollapsibleZoneLayoutProps) {
   const t = useT()
-  const { collapsed, setCollapsed } = useZoneCollapse(pageType)
+  const { collapsed, setCollapsed, isHydrated } = useZoneCollapse(pageType)
   const canCollapse = React.useSyncExternalStore(
     subscribeViewport,
     getViewportSnapshot,
@@ -114,6 +117,45 @@ export function CollapsibleZoneLayout({
     setExpandedWhileConstrained(!canShowSideBySide)
   }, [canCollapse, canShowSideBySide, setCollapsed])
 
+  const handleSectionActivate = React.useCallback((section: ZoneSectionDescriptor) => {
+    if (!canCollapse) return
+    setCollapsed(false)
+    setExpandedWhileConstrained(!canShowSideBySide)
+    requestAnimationFrame(() => {
+      const target =
+        document.getElementById(section.targetId ?? `collapsible-group-wrapper-${section.id}`)
+        ?? document.getElementById(`collapsible-group-${section.id}`)
+      if (!target) return
+      const headingButton = target.querySelector<HTMLButtonElement>('button[aria-controls]')
+      // If the inner CollapsibleGroup is currently collapsed, expand it so its
+      // contents become visible and tabbable for the user who just navigated here.
+      if (headingButton?.getAttribute('aria-expanded') === 'false') {
+        headingButton.click()
+      }
+      target.scrollIntoView({ behavior: 'smooth', block: 'start' })
+      // Prefer focusing the first focusable input/textarea/select inside the
+      // section so the user can start typing immediately. Skip hidden, disabled,
+      // or non-interactive controls. Fall back to the section heading.
+      requestAnimationFrame(() => {
+        const focusables = Array.from(
+          target.querySelectorAll<HTMLElement>(
+            'input:not([type="hidden"]), textarea, select, [contenteditable="true"]',
+          ),
+        )
+        const firstInput = focusables.find((el) => {
+          if (el.hasAttribute('disabled') || el.getAttribute('aria-hidden') === 'true') return false
+          if (el instanceof HTMLInputElement && el.readOnly) return false
+          return true
+        })
+        if (firstInput) {
+          firstInput.focus({ preventScroll: true })
+          return
+        }
+        headingButton?.focus({ preventScroll: true })
+      })
+    })
+  }, [canCollapse, canShowSideBySide, setCollapsed])
+
   const handleCollapse = React.useCallback(() => {
     if (!canCollapse) return
     setExpandedWhileConstrained(false)
@@ -127,8 +169,11 @@ export function CollapsibleZoneLayout({
     <div
       ref={layoutRef}
       data-zone-layout-mode={layoutMode}
+      data-persistence-hydrated={isHydrated ? 'true' : 'false'}
+      aria-hidden={isHydrated ? undefined : true}
       className={cn(
         'flex gap-4',
+        !isHydrated && 'invisible',
         showStackedExpanded ? 'flex-col' : 'flex-col lg:flex-row',
       )}
     >
@@ -152,16 +197,21 @@ export function CollapsibleZoneLayout({
                   const SectionIcon = section.icon
                   const hasErrors = Boolean(section.errorCount && section.errorCount > 0)
                   return (
-                    <div
+                    <IconButton
                       key={section.id}
-                      className="relative flex size-9 items-center justify-center rounded-[10px] border border-transparent bg-muted/70 text-muted-foreground"
+                      type="button"
+                      variant="ghost"
+                      size="default"
+                      onClick={() => handleSectionActivate(section)}
+                      className="relative size-9 rounded-[10px] border border-transparent bg-muted/70 text-muted-foreground hover:border-border hover:bg-accent hover:text-accent-foreground"
                       title={section.label}
+                      aria-label={section.ariaLabel ?? section.label}
                     >
                       <SectionIcon className="size-4" />
                       {hasErrors ? (
                         <span className="absolute right-1.5 top-1.5 size-1.5 rounded-full bg-destructive" />
                       ) : null}
-                    </div>
+                    </IconButton>
                   )
                 })}
               </div>

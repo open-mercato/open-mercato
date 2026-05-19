@@ -5,6 +5,13 @@ import type { InjectionWidgetComponentProps } from '@open-mercato/shared/modules
 import { readApiResultOrThrow } from '@open-mercato/ui/backend/utils/apiCall'
 import { useGuardedMutation } from '@open-mercato/ui/backend/injection/useGuardedMutation'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@open-mercato/ui/primitives/select'
 
 type PriorityValue = 'low' | 'normal' | 'high' | 'critical'
 type PriorityItem = { id?: string; priority?: string }
@@ -117,17 +124,21 @@ export default function CustomerPriorityDetailWidget({ context, data, disabled }
     <div className="rounded-md border border-border p-3">
       <div className="mb-1 text-sm font-medium text-foreground">{t('example.priority.detail.label')}</div>
       <div className="text-xs text-muted-foreground mb-2">{t('example.priority.detail.description')}</div>
-      <select
-        className="h-9 w-full rounded border border-input bg-background px-3 text-sm"
+      <Select
         value={value}
-        onChange={(event) => { void handleChange(event) }}
+        onValueChange={(next) => { void handleChange({ target: { value: next } } as React.ChangeEvent<HTMLSelectElement>) }}
         disabled={disabled || loading || saving}
       >
-        <option value="low">{t('example.priority.low')}</option>
-        <option value="normal">{t('example.priority.normal')}</option>
-        <option value="high">{t('example.priority.high')}</option>
-        <option value="critical">{t('example.priority.critical')}</option>
-      </select>
+        <SelectTrigger>
+          <SelectValue />
+        </SelectTrigger>
+        <SelectContent>
+          <SelectItem value="low">{t('example.priority.low')}</SelectItem>
+          <SelectItem value="normal">{t('example.priority.normal')}</SelectItem>
+          <SelectItem value="high">{t('example.priority.high')}</SelectItem>
+          <SelectItem value="critical">{t('example.priority.critical')}</SelectItem>
+        </SelectContent>
+      </Select>
       {loading ? <div className="mt-2 text-xs text-muted-foreground">{t('example.priority.detail.loading')}</div> : null}
       {saving ? <div className="mt-2 text-xs text-muted-foreground">{t('example.priority.detail.saving')}</div> : null}
       {error ? <div className="mt-2 text-xs text-destructive">{error}</div> : null}
