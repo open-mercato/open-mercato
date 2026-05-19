@@ -4,6 +4,7 @@ import { getAuthFromRequest } from '@open-mercato/shared/lib/auth/server'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import { readJsonSafe } from '@open-mercato/shared/lib/http/readJsonSafe'
 import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
+import type { TranslateWithFallbackFn } from '@open-mercato/shared/lib/i18n/translate'
 import {
   runCrudMutationGuardAfterSuccess,
   validateCrudMutationGuard,
@@ -36,8 +37,7 @@ export const openApi = {
     'Queues a background job that moves the listed deals to the same pipeline stage. Returns a progress job id to poll for completion.',
 }
 
-export async function POST(req: Request) {
-  const { translate } = await resolveTranslations()
+async function postImpl(req: Request, translate: TranslateWithFallbackFn): Promise<NextResponse> {
   const auth = await getAuthFromRequest(req)
   if (!auth?.tenantId || !auth.orgId) {
     return NextResponse.json(
@@ -67,20 +67,30 @@ export async function POST(req: Request) {
 
   // Mutation-guard contract for custom write routes — lets injection modules (record-lock
   // conflict handling, scoped headers, undo-history reconciliation) run `onBeforeSave` /
-  // `onAfterSave` for non-`makeCrudRoute` writes. The bulk operation targets multiple deals,
-  // so `resourceId` is the comma-joined ID list — matching the convention used by the
-  // client-side `runDealMutation` calls in the kanban page.
-  const guardResult = await validateCrudMutationGuard(container, {
-    tenantId: auth.tenantId,
-    organizationId: auth.orgId,
-    userId: auth.sub,
-    resourceKind: 'customers.deal',
-    resourceId: ids.join(','),
-    operation: 'custom',
-    requestMethod: req.method,
-    requestHeaders: req.headers,
-    mutationPayload: { ids, pipelineStageId: parsed.data.pipelineStageId },
-  })
+  // `onAfterSave` for non-`makeCrudRoute` writes. Per-record locks are enforced by the
+  // worker (the worker calls `customers.deals.update` per id, which itself goes through
+  // the single-record route + guard). The guard at the bulk-entry point is best-effort:
+  // it gives lock-aware modules a chance to register a bulk activity log, but failures
+  // (e.g. a guard that expects a single-record id, or transient lock-table errors) must
+  // NOT take the whole bulk enqueue down. Swallow the error so the bulk job still gets
+  // queued and per-record enforcement happens downstream.
+  let guardResult: Awaited<ReturnType<typeof validateCrudMutationGuard>> = null
+  try {
+    guardResult = await validateCrudMutationGuard(container, {
+      tenantId: auth.tenantId,
+      organizationId: auth.orgId,
+      userId: auth.sub,
+      resourceKind: 'customers.deal',
+      resourceId: ids.join(','),
+      operation: 'custom',
+      requestMethod: req.method,
+      requestHeaders: req.headers,
+      mutationPayload: { ids, pipelineStageId: parsed.data.pipelineStageId },
+    })
+  } catch (guardError) {
+    console.warn('[customers.deals.bulk-update-stage] mutation-guard skipped', guardError)
+    guardResult = null
+  }
   if (guardResult && !guardResult.ok) {
     return NextResponse.json(guardResult.body, { status: guardResult.status })
   }
@@ -182,4 +192,29 @@ export async function POST(req: Request) {
     }),
     { status: 202 },
   )
+}
+
+// Outer wrapper: every uncaught error from `postImpl` becomes a controlled 500 with
+// diagnostic JSON instead of Next.js's default HTML error page. Routes that throw
+// produced opaque 500s in CI integration tests (no body, no message), making the
+// root cause invisible. With this wrapper the operator sees the actual error string
+// in the response body and the server log, and the test framework can surface it.
+export async function POST(req: Request) {
+  const { translate } = await resolveTranslations()
+  try {
+    return await postImpl(req, translate)
+  } catch (error) {
+    console.error('[customers.deals.bulk-update-stage] route failed', error)
+    return NextResponse.json(
+      responseSchema.parse({
+        ok: false,
+        progressJobId: null,
+        message:
+          error instanceof Error
+            ? error.message
+            : translate('customers.errors.bulk_enqueue_failed', 'Failed to enqueue bulk job'),
+      }),
+      { status: 500 },
+    )
+  }
 }

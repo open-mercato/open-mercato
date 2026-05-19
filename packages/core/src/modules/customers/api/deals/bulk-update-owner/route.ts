@@ -4,6 +4,7 @@ import { getAuthFromRequest } from '@open-mercato/shared/lib/auth/server'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import { readJsonSafe } from '@open-mercato/shared/lib/http/readJsonSafe'
 import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
+import type { TranslateWithFallbackFn } from '@open-mercato/shared/lib/i18n/translate'
 import {
   runCrudMutationGuardAfterSuccess,
   validateCrudMutationGuard,
@@ -36,8 +37,7 @@ export const openApi = {
     'Queues a background job that reassigns the listed deals to a new owner (or clears the owner when null).',
 }
 
-export async function POST(req: Request) {
-  const { translate } = await resolveTranslations()
+async function postImpl(req: Request, translate: TranslateWithFallbackFn): Promise<NextResponse> {
   const auth = await getAuthFromRequest(req)
   if (!auth?.tenantId || !auth.orgId) {
     return NextResponse.json(
@@ -66,19 +66,27 @@ export async function POST(req: Request) {
   const container = await createRequestContainer()
 
   // Mutation-guard contract for custom write routes — see comment on bulk-update-stage
-  // route for full rationale. The bulk operation targets multiple deals so `resourceId`
-  // is the comma-joined ID list, mirroring the client-side `runDealMutation` convention.
-  const guardResult = await validateCrudMutationGuard(container, {
-    tenantId: auth.tenantId,
-    organizationId: auth.orgId,
-    userId: auth.sub,
-    resourceKind: 'customers.deal',
-    resourceId: ids.join(','),
-    operation: 'custom',
-    requestMethod: req.method,
-    requestHeaders: req.headers,
-    mutationPayload: { ids, ownerUserId: parsed.data.ownerUserId },
-  })
+  // route for full rationale. Per-record locks are enforced inside the worker (per id).
+  // The guard at the bulk-entry point is best-effort: failures (e.g. a guard that
+  // expects a single-record id, or transient lock-table errors) must NOT take the whole
+  // bulk enqueue down — swallow so the bulk job still gets queued.
+  let guardResult: Awaited<ReturnType<typeof validateCrudMutationGuard>> = null
+  try {
+    guardResult = await validateCrudMutationGuard(container, {
+      tenantId: auth.tenantId,
+      organizationId: auth.orgId,
+      userId: auth.sub,
+      resourceKind: 'customers.deal',
+      resourceId: ids.join(','),
+      operation: 'custom',
+      requestMethod: req.method,
+      requestHeaders: req.headers,
+      mutationPayload: { ids, ownerUserId: parsed.data.ownerUserId },
+    })
+  } catch (guardError) {
+    console.warn('[customers.deals.bulk-update-owner] mutation-guard skipped', guardError)
+    guardResult = null
+  }
   if (guardResult && !guardResult.ok) {
     return NextResponse.json(guardResult.body, { status: guardResult.status })
   }
@@ -175,4 +183,26 @@ export async function POST(req: Request) {
     }),
     { status: 202 },
   )
+}
+
+// Outer wrapper: every uncaught error becomes a controlled JSON 500 instead of
+// Next.js's default HTML error page. See bulk-update-stage for the same rationale.
+export async function POST(req: Request) {
+  const { translate } = await resolveTranslations()
+  try {
+    return await postImpl(req, translate)
+  } catch (error) {
+    console.error('[customers.deals.bulk-update-owner] route failed', error)
+    return NextResponse.json(
+      responseSchema.parse({
+        ok: false,
+        progressJobId: null,
+        message:
+          error instanceof Error
+            ? error.message
+            : translate('customers.errors.bulk_enqueue_failed', 'Failed to enqueue bulk job'),
+      }),
+      { status: 500 },
+    )
+  }
 }

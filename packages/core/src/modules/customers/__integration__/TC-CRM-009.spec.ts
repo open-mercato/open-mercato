@@ -55,11 +55,12 @@ test.describe('TC-CRM-009: Update Deal Pipeline Stage', () => {
       const pipelineChip = page.getByRole('button', { name: /^Pipeline:/ });
       await expect(pipelineChip).toBeVisible({ timeout: 10_000 });
       await pipelineChip.click();
-      // Inside the popover dialog, each pipeline row is a <button> with the pipeline name as
-      // its accessible name. Scope by the popover's role="dialog" so the chip button (also
-      // visible at this point) doesn't collide with the row label.
+      // Inside the popover dialog, each pipeline row is a `<button role="radio">` —
+      // the `role` override means Playwright's accessibility tree exposes them as radios,
+      // NOT buttons. Use `getByRole('radio', ...)` so the test matches the actual ARIA role
+      // (see PipelineFilterPopover.tsx). The Apply button keeps its native button role.
       const pipelinePopover = page.getByRole('dialog').last();
-      await pipelinePopover.getByRole('button', { name: pipelineName, exact: true }).click();
+      await pipelinePopover.getByRole('radio', { name: pipelineName, exact: true }).click();
       await pipelinePopover.getByRole('button', { name: 'Apply', exact: true }).click();
       // After filtering to the test pipeline, the deal (already moved to Win via API) should
       // render inside the Win lane. Lane wrapper is an unlabelled flex container — we locate

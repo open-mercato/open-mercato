@@ -47,19 +47,20 @@ test.describe('TC-CRM-013: Pipeline View Navigation', () => {
       const pipelineChip = page.getByRole('button', { name: /^Pipeline:/ });
       await expect(pipelineChip).toBeVisible({ timeout: 10_000 });
       await pipelineChip.click();
+      // Pipeline rows are `<Button role="radio">` (PipelineFilterPopover.tsx). Use radio
+      // role, not button — Playwright reads the explicit `role` attribute over the native one.
       const pipelinePopover = page.getByRole('dialog').last();
-      await pipelinePopover.getByRole('button', { name: pipelineName, exact: true }).click();
+      await pipelinePopover.getByRole('radio', { name: pipelineName, exact: true }).click();
       await pipelinePopover.getByRole('button', { name: 'Apply', exact: true }).click();
 
       await expect(page.getByText('Opportunity', { exact: true })).toBeVisible();
       await expect(page.getByText('Win', { exact: true })).toBeVisible();
 
-      // Each deal card is rendered as <div role="article" aria-label="Deal: {title}"> by
-      // DealCard.tsx; navigation to the detail page is via router.push from the kebab
-      // menu's "Open deal" item (the card body is also draggable via dnd-kit, so a raw
-      // .click() on the article competes with the PointerSensor's pointer-capture and
-      // doesn't reliably fire the navigation handler under Playwright).
-      const dealCard = page.getByRole('article', { name: `Deal: ${dealTitle}` });
+      // SPEC-049 (UX review item 1) removed `role="article"` from DealCard so dnd-kit's
+      // own `role="button"` can win and the card stays operable via keyboard. The card
+      // now identifies itself via `aria-label="Deal: {title}"` + `aria-roledescription`.
+      // Locate it by aria-label so the test doesn't depend on the (variable) role.
+      const dealCard = page.locator(`[aria-label="Deal: ${dealTitle}"]`);
       await expect(dealCard).toBeVisible();
       // SPEC-048: DealCard.tsx renders value as decimal-formatted amount + separate
       // currency-code span (e.g. "5,000  USD") — no '$' glyph appears on the kanban card.

@@ -139,23 +139,59 @@ const dealPipelineEnricher: ResponseEnricher<DealRecord> = {
 
   async enrichMany(records, context: EnricherContext) {
     if (records.length === 0) return records
+
+    const now = new Date()
+    const today = new Date(now.getFullYear(), now.getMonth(), now.getDate())
+
+    // `buildPipelineState` is pure on top of (record + maps + threshold). The record alone
+    // is enough to compute `isOverdue` (status + expected_close_at) and a conservative
+    // `daysInCurrentStage` (created_at fallback). When Kysely isn't available on this
+    // EntityManager — test stubs, unusual driver wrappers, or a transient DB issue —
+    // we still ship the correct overdue flag and a zeroed activities count rather than
+    // silently dropping `_pipeline`, which previously made the kanban think every deal
+    // had no stuck/overdue state.
+    const emptyCounts: Map<string, number> = new Map()
+    const emptyTransitions: Map<string, Date> = new Map()
+    const FALLBACK_THRESHOLD = 14
+
     const db = resolveKyselyClient(context.em)
-    if (!db) return records
+    if (!db) {
+      return records.map((record) => ({
+        ...record,
+        _pipeline: buildPipelineState(
+          record,
+          emptyCounts,
+          emptyTransitions,
+          FALLBACK_THRESHOLD,
+          now,
+          today,
+        ),
+      }))
+    }
 
     const dealIds = new Set<string>()
     for (const record of records) {
       if (typeof record.id === 'string') dealIds.add(record.id)
     }
-    if (dealIds.size === 0) return records
+    if (dealIds.size === 0) {
+      return records.map((record) => ({
+        ...record,
+        _pipeline: buildPipelineState(
+          record,
+          emptyCounts,
+          emptyTransitions,
+          FALLBACK_THRESHOLD,
+          now,
+          today,
+        ),
+      }))
+    }
 
     const [openInteractionCounts, latestTransitions, threshold] = await Promise.all([
       fetchOpenInteractionCounts(db, dealIds, context.organizationId, context.tenantId),
       fetchLatestStageTransitions(db, dealIds, context.organizationId, context.tenantId),
       fetchStuckThresholdDays(db, context.organizationId, context.tenantId),
     ])
-
-    const now = new Date()
-    const today = new Date(now.getFullYear(), now.getMonth(), now.getDate())
 
     return records.map((record) => ({
       ...record,
