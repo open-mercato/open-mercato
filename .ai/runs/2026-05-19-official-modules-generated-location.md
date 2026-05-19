@@ -96,6 +96,6 @@ None. No `--skill-url` flags supplied.
 
 - [ ] 4.1 Open PR against develop
 - [ ] 4.2 Apply review, skip-qa, documentation labels with comments
-- [ ] 4.3 auto-review-pr autofix pass to clean verdict
+- [x] 4.3 auto-review-pr autofix pass to clean verdict — APPROVED (no findings); review submitted as COMMENTED (self-approval blocked); pipeline label flipped review→merge-queue
 - [ ] 4.4 Post comprehensive summary comment
 - [ ] 4.5 Flip plan Status to complete, push
