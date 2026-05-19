@@ -5,6 +5,7 @@ import Link from 'next/link'
 import * as React from 'react'
 import { MoreHorizontal, PlugZap, Settings, Mail } from 'lucide-react'
 import { hasFeature } from '@open-mercato/shared/security/features'
+import { AuthSessionGuard } from '@open-mercato/ui/backend/AuthSessionGuard'
 import { IconButton } from '@open-mercato/ui/primitives/icon-button'
 import { Popover, PopoverContent, PopoverTrigger } from '@open-mercato/ui/primitives/popover'
 import { IntegrationsButton } from '@open-mercato/ui/backend/IntegrationsButton'
@@ -37,6 +38,7 @@ const LazyMessagesIcon = dynamic(
 
 type BackendHeaderChromeProps = {
   email?: string
+  userId: string | null
   embeddingConfigured: boolean
   missingConfigMessage: string
   tenantId: string | null
@@ -102,6 +104,7 @@ function MobileMoreMenu({ items }: { items: MobileMoreItem[] }) {
 
 export function BackendHeaderChrome({
   email,
+  userId,
   embeddingConfigured,
   missingConfigMessage,
   tenantId,
@@ -160,6 +163,7 @@ export function BackendHeaderChrome({
 
   return (
     <>
+      <AuthSessionGuard serverUserId={userId} />
       {isReady && showAiAssistant ? (
         <AiAssistantShellIntegration tenantId={tenantId} organizationId={organizationId}>
           <LazyAiChatHeaderButton />
