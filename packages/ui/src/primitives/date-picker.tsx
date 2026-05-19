@@ -233,7 +233,7 @@ export function DatePicker({
           onSelect={handleDaySelect}
           locale={locale}
           disabled={disabledMatcher}
-          initialFocus
+          autoFocus
         />
         {withTime && (
           <div className="flex items-center gap-2 border-t px-3 py-2">
