@@ -78,14 +78,14 @@ None. No `--skill-url` flags supplied.
 
 ### Phase 1: Document the convention
 
-- [ ] 1.1 Add generated-files convention callout to root AGENTS.md
-- [ ] 1.2 Add clarifying note to official-modules-development.mdx
-- [ ] 1.3 Write decision spec at .ai/specs/2026-05-19-official-modules-generated-location-decision.md
+- [x] 1.1 Add generated-files convention callout to root AGENTS.md — f088a07b7
+- [x] 1.2 Add clarifying note to official-modules-development.mdx — db3cbc218
+- [x] 1.3 Write decision spec at .ai/specs/2026-05-19-official-modules-generated-location-decision.md — caaead715
 
 ### Phase 2: Reinforce at the point of confusion
 
-- [ ] 2.1 Extend renderGenerated banner in scripts/lib/official-modules.mjs
-- [ ] 2.2 Re-run generator and commit refreshed apps/mercato/src/official-modules.generated.ts
+- [x] 2.1 Extend renderGenerated banner in scripts/lib/official-modules.mjs — captured in autosave 04b60fee4
+- [x] 2.2 Re-run generator and commit refreshed apps/mercato/src/official-modules.generated.ts — captured in autosave 04b60fee4
 
 ### Phase 3: Validation gate
 
