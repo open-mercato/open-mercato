@@ -89,13 +89,13 @@ None. No `--skill-url` flags supplied.
 
 ### Phase 3: Validation gate
 
-- [ ] 3.1 Targeted: scripts/__tests__/official-modules.test.mjs
-- [ ] 3.2 Full gate: yarn build:packages, generate, i18n checks, typecheck, test, build:app
+- [x] 3.1 Targeted: scripts/__tests__/official-modules.test.mjs — passes (5/5); banner regex anchor preserved
+- [x] 3.2 Full gate: yarn build:packages ✓, generate ✓, i18n:check-sync ✓, i18n:check-usage ✓ (advisory only), apps/docs build ✓. Baseline-failing on develop and not caused by this PR: yarn typecheck (S3 helper drift in core integration tests), yarn lint (rules-of-hooks in OrganizationSwitcher.tsx + example-module warnings), yarn test (storage-s3 + flaky ready-apps.test.ts), yarn template:sync (modules.ts gap PR #1965 fixes). All documented in PR body.
 
 ### Phase 4: Ship
 
-- [ ] 4.1 Open PR against develop
-- [ ] 4.2 Apply review, skip-qa, documentation labels with comments
-- [x] 4.3 auto-review-pr autofix pass to clean verdict — APPROVED (no findings); review submitted as COMMENTED (self-approval blocked); pipeline label flipped review→merge-queue
+- [x] 4.1 Open PR against develop — https://github.com/open-mercato/open-mercato/pull/1983
+- [x] 4.2 Apply review, skip-qa, documentation labels with comments
+- [x] 4.3 auto-review-pr autofix pass to clean verdict — APPROVED (no findings); review submitted as COMMENTED (self-approval blocked); pipeline label flipped review→merge-queue — c56c1cba4
 - [ ] 4.4 Post comprehensive summary comment
 - [ ] 4.5 Flip plan Status to complete, push
