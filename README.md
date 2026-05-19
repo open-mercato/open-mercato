@@ -32,6 +32,15 @@ Built for CTOs who have already deployed Cursor/Copilot and noticed it isn't eno
 
 [![Watch: What “Start with 80% done” means](https://img.youtube.com/vi/53jsDjAXXhQ/maxresdefault.jpg)](https://www.youtube.com/watch?v=53jsDjAXXhQ)
 
+## Quick Links
+
+<p align="center">
+  <a href="#getting-started">⚡ Getting Started</a>
+  ·
+  <a href="#developing-your-first-open-mercato-app">🎬 Building your First Open Mercato App</a>
+  ·
+  <a href="https://docs.openmercato.com/">📚 Documentation</a>
+</p>
 
 ## Core Use Cases
 
@@ -57,68 +66,30 @@ Built for CTOs who have already deployed Cursor/Copilot and noticed it isn't eno
 - ⚙️ **Modern stack** – Next.js App Router, TypeScript, zod, Awilix DI, MikroORM, and bcryptjs out of the box.
 
 
+## Live demo
+
+[![Explore the Open Mercato live demo](./apps/docs/static/screenshots/open-mercato-onboarding-showoff.png)](https://demo.openmercato.com)
+
 ## Screenshots
 
 <table>
   <tr>
-    <td><a href="./apps/docs/static/screenshots/open-mercato-orders-order-shipments.png"><img src="./apps/docs/static/screenshots/open-mercato-orders-order-shipments.png" alt="Order shipments timeline" width="260"/></a></td>
-    <td><a href="./apps/docs/static/screenshots/open-mercato-edit-organization.png"><img src="./apps/docs/static/screenshots/open-mercato-edit-organization.png" alt="Editing an organization" width="260"/></a></td>
-    <td><a href="./apps/docs/static/screenshots/open-mercato-users-management.png"><img src="./apps/docs/static/screenshots/open-mercato-users-management.png" alt="Users management view" width="260"/></a></td>
-  </tr>
-  <tr>
-    <td style="text-align:center;">Order Shipments</td>
-    <td style="text-align:center;">Organizations</td>
-    <td style="text-align:center;">Users</td>
-  </tr>
-  <tr>
-    <td><a href="./apps/docs/static/screenshots/open-mercato-managing-roles.png"><img src="./apps/docs/static/screenshots/open-mercato-managing-roles.png" alt="Managing roles and permissions" width="260"/></a></td>
-    <td><a href="./apps/docs/static/screenshots/open-mercato-define-custom-fields.png"><img src="./apps/docs/static/screenshots/open-mercato-define-custom-fields.png" alt="Defining custom fields" width="260"/></a></td>
-    <td><a href="./apps/docs/static/screenshots/open-mercato-custom-entity-records.png"><img src="./apps/docs/static/screenshots/open-mercato-custom-entity-records.png" alt="Managing custom entity records" width="260"/></a></td>
-  </tr>
-  <tr>
-    <td style="text-align:center;">Roles &amp; ACL</td>
-    <td style="text-align:center;">Custom Fields</td>
-    <td style="text-align:center;">Custom Entity Records</td>
-  </tr>
-  <tr>
-    <td><a href="./apps/docs/static/screenshots/open-mercato-people-add-new.png"><img src="./apps/docs/static/screenshots/open-mercato-people-add-new.png" alt="Add new customer form" width="260"/></a></td>
-    <td><a href="./apps/docs/static/screenshots/open-mercato-deals-listing.png"><img src="./apps/docs/static/screenshots/open-mercato-deals-listing.png" alt="Deals pipeline board" width="260"/></a></td>
-    <td><a href="./apps/docs/static/screenshots/open-mercato-people-notes.png"><img src="./apps/docs/static/screenshots/open-mercato-people-notes.png" alt="Customer notes timeline" width="260"/></a></td>
-  </tr>
-  <tr>
-    <td style="text-align:center;">Add New Customer</td>
-    <td style="text-align:center;">Deals Pipeline</td>
-    <td style="text-align:center;">Customer Notes</td>
-  </tr>
-  <tr>
-    <td><a href="./apps/docs/static/screenshots/open-mercato-sales-pipeline.png"><img src="./apps/docs/static/screenshots/open-mercato-sales-pipeline.png" alt="Sales pipeline board view" width="260"/></a></td>
-    <td><a href="./apps/docs/static/screenshots/open-mercato-orders-order-shipments.png"><img src="./apps/docs/static/screenshots/open-mercato-orders-order-shipments.png" alt="Order shipments timeline" width="260"/></a></td>
-    <td><a href="./apps/docs/static/screenshots/open-mercato-orders-order-totals.png"><img src="./apps/docs/static/screenshots/open-mercato-orders-order-totals.png" alt="Order totals breakdown" width="260"/></a></td>
-  </tr>
-  <tr>
-    <td style="text-align:center;">Sales Pipeline</td>
-    <td style="text-align:center;">Order Shipments</td>
-    <td style="text-align:center;">Order Totals</td>
-  </tr>
-  <tr>
-    <td><a href="./apps/docs/static/screenshots/open-mercato-catalog-products.png"><img src="./apps/docs/static/screenshots/open-mercato-catalog-products.png" alt="Catalog products list" width="260"/></a></td>
-    <td><a href="./apps/docs/static/screenshots/open-mercato-sales-channels.png"><img src="./apps/docs/static/screenshots/open-mercato-sales-channels.png" alt="Sales channels overview" width="260"/></a></td>
-    <td><a href="./apps/docs/static/screenshots/open-mercato-all-sales-channels-offers.png"><img src="./apps/docs/static/screenshots/open-mercato-all-sales-channels-offers.png" alt="Sales channel offers listing" width="260"/></a></td>
-  </tr>
-  <tr>
-    <td style="text-align:center;">Catalog Products</td>
-    <td style="text-align:center;">Sales Channels</td>
-    <td style="text-align:center;">Channel Offers</td>
-  </tr>
-  <tr>
-    <td colspan="3" style="text-align:center;" halign="center">
-      <a href="./apps/docs/static/screenshots/open-mercato-homepage.png"><img src="./apps/docs/static/screenshots/open-mercato-homepage.png" alt="Home page showing enabled modules" width="520"/></a>
+    <td align="center" width="33%">
+      <a href="./apps/docs/static/screenshots/open-mercato-dashboard.png"><img src="./apps/docs/static/screenshots/open-mercato-dashboard.png" alt="Open Mercato dashboard" height="170"/></a><br/>
+      <strong>Dashboard</strong>
+    </td>
+    <td align="center" width="33%">
+      <a href="./apps/docs/static/screenshots/open-mercato-orders-order-details.png"><img src="./apps/docs/static/screenshots/open-mercato-orders-order-details.png" alt="Order details view" height="170"/></a><br/>
+      <strong>Order Details</strong>
+    </td>
+    <td align="center" width="33%">
+      <a href="./apps/docs/static/screenshots/open-mercato-ai-assistant-chat.png"><img src="./apps/docs/static/screenshots/open-mercato-ai-assistant-chat.png" alt="AI Assistant chat" height="170"/></a><br/>
+      <strong>AI Assistant</strong>
     </td>
   </tr>
-  <tr>
-    <td colspan="3" style="text-align:center;">Home overview with enabled modules list</td>
-  </tr>
 </table>
+
+[Browse the full screenshot gallery.](SCREENSHOTS.md)
 
 
 ## Architecture Overview
@@ -130,48 +101,6 @@ Built for CTOs who have already deployed Cursor/Copilot and noticed it isn't eno
 - 🔐 Security: RBAC roles, zod validation, bcryptjs hashing, JWT sessions, role‑based access in routes and APIs.
 
 Read more on the [Open Mercato Architecture](https://docs.openmercato.com/architecture/system-overview)
-
-## Official Modules
-
-Open Mercato ships with a module system that lets you add features to your app without forking or modifying the platform. The **[Official Modules](https://github.com/open-mercato/official-modules)** repo is where the community publishes those features.
-
-Every module there:
-
-- 🔌 **Installs in one command** — no manual wiring, no config files to edit
-- 🔒 **Stays isolated** — each module is its own npm package that hooks into the platform through declared extension points, never by patching core code
-- 🧬 **Is ejectable** — run `--eject` to copy the module into your app and own it fully
-- 🤝 **Gets reviewed** — every submission goes through core team review before reaching npm
-
-Whether you're adding a small UI widget or shipping a full vertical feature with its own entities, API routes, and admin pages — if it runs on Open Mercato, it belongs there.
-
-## AI Assistant
-
-Open Mercato ships with focused AI assistants that open inside the admin pages where your team already works. Agents are scoped by module, permissions, and tool allowlists, and any write is staged behind an explicit approval card before data changes.
-
-<table>
-  <tr>
-    <td><a href="apps/docs/static/screenshots/open-mercato-ai-assistant-available-assistants.png"><img src="apps/docs/static/screenshots/open-mercato-ai-assistant-available-assistants.png" alt="AI Assistant global launcher listing available assistants" width="390"/></a></td>
-    <td><a href="apps/docs/static/screenshots/open-mercato-ai-assistant-mutations-approvals.png"><img src="apps/docs/static/screenshots/open-mercato-ai-assistant-mutations-approvals.png" alt="AI Assistant mutation approval flow" width="390"/></a></td>
-  </tr>
-  <tr>
-    <td style="text-align:center;">Global launcher</td>
-    <td style="text-align:center;">Mutation approvals</td>
-  </tr>
-</table>
-
-Use the global launcher to find every assistant you can access, or embed `<AiChat>` directly in module pages for contextual workflows such as customer account exploration and catalog merchandising. Operators can tune prompts, downgrade mutation policies, and disable individual tools per tenant without redeploying.
-
-- [Getting started](https://docs.openmercato.com/framework/ai-assistant/overview)
-- [How to configure it](https://docs.openmercato.com/framework/ai-assistant/settings)
-- [User guide](https://docs.openmercato.com/user-guide/ai-assistant)
-- [Legacy MCP assistant docs](.ai/specs/SPEC-012-2026-01-27-ai-assistant-schema-discovery.md)
-
-## Data Encryption
-
-Open Mercato ships with tenant-scoped, field-level data encryption so PII and sensitive business data stay protected while you keep the flexibility of custom entities and fields. Encryption maps live in the admin UI/database, letting you pick which system and custom columns are encrypted; MikroORM hooks automatically encrypt on write and decrypt on read while keeping deterministic hashes (e.g., `email_hash`) for lookups.
-
-Architecture in two lines: Vault/KMS (or a derived-key fallback) issues per-tenant DEKs and caches them so performance stays snappy; AES-GCM wrappers sit in the ORM lifecycle, storing ciphertext at rest while CRUD and APIs keep working with plaintext. Read the docs to dive deeper: [docs.openmercato.com/user-guide/encryption](https://docs.openmercato.com/user-guide/encryption).
-
 
 ## Getting Started
 
@@ -298,6 +227,72 @@ Each guide below is self-contained and covers all prerequisites, infrastructure 
   </tr>
 </table>
 
+### Developing your first Open Mercato app
+
+<table>
+  <tr>
+    <td align="center" width="50%">
+      <strong>Build your first Open Mercato app</strong><br/><br/>
+      <a href="https://www.youtube.com/watch?v=y-lxRrAzbYc&t=1s"><img src="https://img.youtube.com/vi/y-lxRrAzbYc/maxresdefault.jpg" alt="Build your first Open Mercato app" width="400"/></a>
+    </td>
+    <td align="center" width="50%">
+      <strong>Extend Open Mercato in practice</strong><br/><br/>
+      <a href="https://www.youtube.com/watch?v=fb47pmH6ojE&t=854s"><img src="https://img.youtube.com/vi/fb47pmH6ojE/maxresdefault.jpg" alt="Extend Open Mercato in practice" width="400"/></a>
+    </td>
+  </tr>
+</table>
+
+### Get started without devops hassle
+
+<a href="https://sandboxes.openmercato.com"><img align="right" src="https://img.youtube.com/vi/dGdacjG4Ul0/maxresdefault.jpg" alt="Open Mercato Sandbox preview" width="300"/></a>
+
+Start your own Sandbox instance with Claude Code, Codex, Visual Studio Code, and Open Mercato in under 30 seconds.
+
+[Launch a Sandbox instance](https://sandboxes.openmercato.com)
+
+<br clear="right"/>
+
+## Official Modules
+
+Open Mercato ships with a module system that lets you add features to your app without forking or modifying the platform. The **[Official Modules](https://github.com/open-mercato/official-modules)** repo is where the community publishes those features.
+
+Every module there:
+
+- 🔌 **Installs in one command** — no manual wiring, no config files to edit
+- 🔒 **Stays isolated** — each module is its own npm package that hooks into the platform through declared extension points, never by patching core code
+- 🧬 **Is ejectable** — run `--eject` to copy the module into your app and own it fully
+- 🤝 **Gets reviewed** — every submission goes through core team review before reaching npm
+
+Whether you're adding a small UI widget or shipping a full vertical feature with its own entities, API routes, and admin pages — if it runs on Open Mercato, it belongs there.
+
+## AI Assistant
+
+Open Mercato ships with focused AI assistants that open inside the admin pages where your team already works. Agents are scoped by module, permissions, and tool allowlists, and any write is staged behind an explicit approval card before data changes.
+
+<table>
+  <tr>
+    <td><a href="apps/docs/static/screenshots/open-mercato-ai-assistant-available-assistants.png"><img src="apps/docs/static/screenshots/open-mercato-ai-assistant-available-assistants.png" alt="AI Assistant global launcher listing available assistants" width="390"/></a></td>
+    <td><a href="apps/docs/static/screenshots/open-mercato-ai-assistant-mutations-approvals.png"><img src="apps/docs/static/screenshots/open-mercato-ai-assistant-mutations-approvals.png" alt="AI Assistant mutation approval flow" width="390"/></a></td>
+  </tr>
+  <tr>
+    <td style="text-align:center;">Global launcher</td>
+    <td style="text-align:center;">Mutation approvals</td>
+  </tr>
+</table>
+
+Use the global launcher to find every assistant you can access, or embed `<AiChat>` directly in module pages for contextual workflows such as customer account exploration and catalog merchandising. Operators can tune prompts, downgrade mutation policies, and disable individual tools per tenant without redeploying.
+
+- [Getting started](https://docs.openmercato.com/framework/ai-assistant/overview)
+- [How to configure it](https://docs.openmercato.com/framework/ai-assistant/settings)
+- [User guide](https://docs.openmercato.com/user-guide/ai-assistant)
+- [Legacy MCP assistant docs](.ai/specs/SPEC-012-2026-01-27-ai-assistant-schema-discovery.md)
+
+## Data Encryption
+
+Open Mercato ships with tenant-scoped, field-level data encryption so PII and sensitive business data stay protected while you keep the flexibility of custom entities and fields. Encryption maps live in the admin UI/database, letting you pick which system and custom columns are encrypted; MikroORM hooks automatically encrypt on write and decrypt on read while keeping deterministic hashes (e.g., `email_hash`) for lookups.
+
+Architecture in two lines: Vault/KMS (or a derived-key fallback) issues per-tenant DEKs and caches them so performance stays snappy; AES-GCM wrappers sit in the ORM lifecycle, storing ciphertext at rest while CRUD and APIs keep working with plaintext. Read the docs to dive deeper: [docs.openmercato.com/user-guide/encryption](https://docs.openmercato.com/user-guide/encryption).
+
 
 ## Release Channels
 
@@ -320,10 +315,6 @@ Open Mercato ships two Docker Compose configurations — one for hot-reload deve
 - 🚀 [VPS / production deployment](https://docs.openmercato.com/installation/vps) — full production stack with security guidance and backup instructions
 - 🛠️ [Dev Container](https://docs.openmercato.com/installation/devcontainer) — zero-install VS Code environment (12 GB RAM recommended)
 - ☁️ [Deploy on Railway](https://docs.openmercato.com/installation/railway) — one-click cloud deployment
-
-## Live demo
-
-[![Explore the Open Mercato live demo](./apps/docs/static/screenshots/open-mercato-onboarding-showoff.png)](https://demo.openmercato.com)
 
 ## Documentation
 
