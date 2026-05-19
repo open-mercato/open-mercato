@@ -293,6 +293,19 @@ All paths use `src/modules/<module>/` as shorthand. See `packages/core/AGENTS.md
 - AI-driven mutations MUST go through `prepareMutation(...)` + pending-action approval; never write directly inside a mutation tool handler — the runtime fails closed if the approval contract is bypassed.
 - AI provider keys: at least one of `ANTHROPIC_API_KEY` / `OPENAI_API_KEY` / `GOOGLE_GENERATIVE_AI_API_KEY` must be set. Per-module model overrides use `OM_AI_<MODULE>_MODEL` (uppercased module id).
 
+### Generated Files: versioned vs ephemeral
+
+The codebase has two categories of generated files. Both are auto-written by tooling and MUST NOT be hand-edited, but they live in different places for different reasons.
+
+| Category | Where it lives | Tracked in git? | Survives `yarn clean-generated`? | Use it for |
+|---|---|---|---|---|
+| **Ephemeral** | `apps/mercato/.mercato/generated/`, `packages/*/generated/`, `src/generated/` (all matched by `.gitignore`) | No | No — wiped by `find -name generated -exec rm -rf` in `scripts/clean-generated.sh` | Per-build artifacts that `yarn generate` re-emits deterministically from in-repo source (module registries, indexer barrels, OpenAPI types, etc.). Safe to delete; safe to re-run. |
+| **Versioned** | Next to source as `<name>.generated.ts` / `<name>.generated.tsx` / `<name>-generated.d.ts` — e.g. `apps/mercato/src/official-modules.generated.ts`, `packages/core/src/generated-shims/entities.ids.generated.ts`, `packages/ui/src/backend/fields/registry.generated.ts`, `packages/ui/src/backend/icons/lucideRegistry.generated.tsx`, `packages/ai-assistant/src/modules/ai_assistant/lib/ai-{tools,agents}-generated.d.ts` | Yes | Yes — they are NOT inside any `generated/` folder and NOT inside `.mercato`, so the find-and-delete pattern doesn't match them | Source-of-truth state that must travel with the repo: module-activation config (`official-modules.json` → `official-modules.generated.ts`), frozen entity-id maps that protect against typos at type-check time, and registry shapes that other typed code imports. |
+
+**Why we don't collapse both into one folder:** a `generated/` folder is the existing convention for *throwaway* output of `yarn generate`. The `clean-generated.sh` script enforces that by wiping every `generated/` folder under the repo. Putting source-of-truth state in there would silently destroy it on a clean — and the rest of the team would never know their activation set was lost. The `*.generated.ts`-in-`src` pattern keeps the "do not edit by hand" signal in the filename while opting out of the wipe pattern.
+
+**If you're tempted to move a versioned generated file into a `generated/` folder:** read `.ai/specs/2026-05-19-official-modules-generated-location-decision.md` first — that decision was made deliberately and rebutting it requires updating both `.gitignore` and `scripts/clean-generated.sh` to carve out a new "committed generated" folder, then migrating all four-plus existing files together. Don't do it piecemeal.
+
 ## Backward Compatibility Contract
 
 > **Full specification**: [`BACKWARD_COMPATIBILITY.md`](BACKWARD_COMPATIBILITY.md) — MUST be read before modifying any contract surface. It enumerates the 13 contract-surface categories (auto-discovery files, types, signatures, import paths, event IDs, widget spot IDs, API routes, DB schema, DI keys, ACL features, notification IDs, CLI commands, generated files) and their FROZEN / STABLE / ADDITIVE-ONLY classifications.
