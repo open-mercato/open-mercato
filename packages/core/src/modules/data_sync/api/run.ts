@@ -50,6 +50,15 @@ export async function POST(req: Request) {
   if (!adapter) {
     return NextResponse.json({ error: 'No registered sync adapter for provider' }, { status: 404 })
   }
+  if (adapter.runMode === 'provider') {
+    return NextResponse.json(
+      {
+        error: 'This integration must be started from its provider-specific import flow.',
+        settingsPath: `/backend/integrations/${encodeURIComponent(parsed.data.integrationId)}`,
+      },
+      { status: 422 },
+    )
+  }
 
   if (!adapter.supportedEntities.includes(parsed.data.entityType)) {
     return NextResponse.json({ error: 'Unsupported entity type for this integration' }, { status: 422 })

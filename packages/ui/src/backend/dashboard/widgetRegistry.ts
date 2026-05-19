@@ -1,5 +1,6 @@
 import type { ModuleDashboardWidgetEntry } from '@open-mercato/shared/modules/registry'
 import type { DashboardWidgetModule } from '@open-mercato/shared/modules/dashboard/widgets'
+import { applyDashboardWidgetOverridesToEntries } from '@open-mercato/shared/modules/overrides'
 
 type Entry = ModuleDashboardWidgetEntry
 
@@ -10,7 +11,7 @@ export function registerDashboardWidgets(entries: Entry[]) {
   if (_dashboardWidgetEntries !== null && process.env.NODE_ENV === 'development') {
     console.debug('[Bootstrap] Dashboard widgets re-registered (this may occur during HMR)')
   }
-  _dashboardWidgetEntries = entries
+  _dashboardWidgetEntries = applyDashboardWidgetOverridesToEntries(entries)
 }
 
 export function getDashboardWidgets(): Entry[] {

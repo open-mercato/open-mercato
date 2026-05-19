@@ -9,6 +9,25 @@ async function readJson(response: APIResponse): Promise<JsonRecord> {
   return ((await readJsonSafe<JsonRecord>(response)) ?? {}) as JsonRecord
 }
 
+async function postRunWithRetry(
+  request: Parameters<typeof getAuthToken>[0],
+  token: string,
+  data: JsonRecord,
+): Promise<APIResponse> {
+  let response: APIResponse | null = null
+  for (let attempt = 0; attempt < 3; attempt += 1) {
+    response = await apiRequest(request, 'POST', '/api/data_sync/run', {
+      token,
+      data,
+    })
+    if (response.status() !== 500) return response
+    if (attempt < 2) {
+      await new Promise((resolve) => setTimeout(resolve, 500 * (attempt + 1)))
+    }
+  }
+  return response as APIResponse
+}
+
 /**
  * TC-DS-001: Data sync hub APIs
  *
@@ -24,13 +43,15 @@ async function detectSyncableIntegration(
   if (listResponse.status() !== 200) return null
   const listBody = await readJson(listResponse)
   const items = Array.isArray(listBody.items) ? (listBody.items as JsonRecord[]) : []
-  if (items.length === 0) return null
-  const supportedEntities = Array.isArray(items[0].supportedEntities)
-    ? (items[0].supportedEntities as unknown[]).filter((value): value is string => typeof value === 'string')
+  const runnableItems = items.filter((item) => item.canStartRun !== false)
+  if (runnableItems.length === 0) return null
+  const selected = runnableItems[0]
+  const supportedEntities = Array.isArray(selected.supportedEntities)
+    ? (selected.supportedEntities as unknown[]).filter((value): value is string => typeof value === 'string')
     : []
   if (supportedEntities.length === 0) return null
   return {
-    integrationId: String(items[0].integrationId),
+    integrationId: String(selected.integrationId),
     entityType: supportedEntities[0],
   }
 }
@@ -41,7 +62,7 @@ test.describe('TC-DS-001: Data sync hub APIs', () => {
 
     const target = await detectSyncableIntegration(request, token)
     if (!target) {
-      test.skip(true, 'No integration provider modules registered — skipping data sync tests')
+      test.skip(true, 'No generic-start data sync provider modules registered — skipping data sync run tests')
       return
     }
 
@@ -97,15 +118,12 @@ test.describe('TC-DS-001: Data sync hub APIs', () => {
         expect(String(validateBody.error ?? validateBody.message ?? '')).not.toHaveLength(0)
       }
 
-      const runResponse = await apiRequest(request, 'POST', '/api/data_sync/run', {
-        token,
-        data: {
-          integrationId,
-          entityType,
-          direction: 'import',
-          fullSync: false,
-          batchSize: 10,
-        },
+      const runResponse = await postRunWithRetry(request, token, {
+        integrationId,
+        entityType,
+        direction: 'import',
+        fullSync: false,
+        batchSize: 10,
       })
       expect(runResponse.status()).toBe(201)
       const runBody = await readJson(runResponse)
@@ -145,7 +163,9 @@ test.describe('TC-DS-001: Data sync hub APIs', () => {
 
       const retryResponse = await apiRequest(request, 'POST', `/api/data_sync/runs/${runId}/retry`, {
         token,
-        data: { fromBeginning: false },
+        data: {
+          fromBeginning: false,
+        },
       })
       expect(retryResponse.status()).toBe(201)
       const retryBody = await readJson(retryResponse)

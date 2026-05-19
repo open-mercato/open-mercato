@@ -24,6 +24,7 @@ When the picked agent declares `executionMode: 'chat'` (the default), the playgr
 - The four mutation-approval cards (`mutation-preview-card`, `field-diff-card`, `confirmation-card`, `mutation-result-card`) pre-registered.
 - A stable per-session `conversationId` so idempotency dedupes repeated turns.
 - An inline attachment uploader when `agent.acceptedMediaTypes` is non-empty.
+- The live visible task plan rendered above raw tool-call rows when the runtime streams `data-agent-task-plan` / `data-agent-task-update`.
 
 ## Object mode
 
@@ -38,6 +39,8 @@ The panel shows the resolution the dispatcher used for the current session:
 - **Prompt section map** — each section's source (`default` \| `override` \| `placeholder`).
 - **Tool call + tool result log** streamed live from the dispatcher.
 - **Loop trace** — per-step breakdown of the last completed turn: which model each step used (`prepareStep` swaps are visible here), tool calls and `repairToolCall` attempts per step, total tokens, and the **stop reason** (`stepCountIs` / `hasToolCall` / `loop_budget_exceeded` / `finish-reason:stop|tool-calls|length` / `aborted`). Populated from the dispatcher SSE `loop-finish` event; the same trace renders inside any host `<AiChat>` whose `debug` prop is truthy.
+
+The visible task plan and `LoopTrace` serve different audiences. The task plan is live operator-facing progress copy; it appears during a turn and must never contain private reasoning. `LoopTrace` is a debug-only, post-turn execution trace for developers and admins.
 
 When a tenant has flipped the **Disable agentic loop** kill switch from [Settings](./settings#loop-policy-overrides), the playground (and any `<AiChat>` instance for that agent) renders a `LoopDisabledBanner` above the composer and the dispatcher collapses the agent to a single model call.
 
@@ -57,3 +60,12 @@ The playground reuses the shared `<AiChat>` shortcut set:
 
 - Use the **playground** for agent authoring, prompt-override iteration, and QA of tool whitelists.
 - Use **`<AiChat>`** embedded in a backend page for the real user flow — the playground does not pass a `pageContext`, so agents that depend on `resolvePageContext` see a blank hydration.
+
+## Manual QA route
+
+Use this route after changing task plans, tool streaming, or prompt guidance:
+
+1. Open `/backend/config/ai-assistant/playground` and pick `customers.account_assistant` or `customers.deal_analyzer`.
+2. Ask: `Find deals assigned to Joe and summarize the useful matches.`
+3. Verify the visible plan appears before the CRM tool result finishes, the matching step advances from `pending` or `running` to `done`, and the raw `meta.update_task_plan` tool row is not shown as an operator task. Catalog agents stay quiet by default unless you opt them in with `taskPlan: { enabled: true }`.
+4. To cover the error path, temporarily remove a required CRM tool from the picked agent via a local prompt/tool override or use a test provider stub that returns a tool error. Send the same prompt and verify the matching plan row becomes `failed` while the final assistant text still renders.

@@ -280,6 +280,7 @@
   "staff.messageObjects.notFound": "Nie znaleziono",
   "staff.messageObjects.team.title": "Zespół",
   "staff.messageObjects.teamMember.title": "Członek zespołu",
+  "staff.messages.leaveRequestApproval": "Wniosek urlopowy – zatwierdzenie",
   "staff.myAvailability.empty.profileRequired": "Utwórz profil pracownika, aby zarządzać dostępnością.",
   "staff.myAvailability.errors.load": "Nie udało się załadować dostępności.",
   "staff.myAvailability.loading": "Ładowanie dostępności...",

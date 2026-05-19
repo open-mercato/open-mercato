@@ -6,6 +6,7 @@
  */
 
 import type { EnricherRegistryEntry, EnricherQueryEngineConfig, ResponseEnricher } from './response-enricher'
+import { applyResponseEnricherOverridesToEntries } from '../../modules/overrides'
 
 /**
  * Selector for filtering enrichers by execution surface.
@@ -47,8 +48,9 @@ function writeGlobalEnrichers(entries: EnricherRegistryEntry[]) {
 export function registerResponseEnrichers(
   entries: Array<{ moduleId: string; enrichers: ResponseEnricher[] }>,
 ) {
+  const finalEntries = applyResponseEnricherOverridesToEntries(entries)
   const flat: EnricherRegistryEntry[] = []
-  for (const entry of entries) {
+  for (const entry of finalEntries) {
     for (const enricher of entry.enrichers) {
       flat.push({ moduleId: entry.moduleId, enricher })
     }

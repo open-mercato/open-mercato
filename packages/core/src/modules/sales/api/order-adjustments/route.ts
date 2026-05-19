@@ -1,4 +1,5 @@
 import { z } from 'zod'
+import type { EntityManager } from '@mikro-orm/core'
 import { makeCrudRoute } from '@open-mercato/shared/lib/crud/factory'
 import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
 import { CrudHttpError } from '@open-mercato/shared/lib/crud/errors'
@@ -85,7 +86,7 @@ const crud = makeCrudRoute({
       const filters: Record<string, unknown> = {}
       if (query.orderId) filters.order_id = { $eq: query.orderId }
       try {
-        const em = ctx.container.resolve('em')
+        const em = ctx.container.resolve<EntityManager>('em')
         const cfFilters = await buildCustomFieldFiltersFromQuery({
           entityId: E.sales.sales_order_adjustment,
           query,

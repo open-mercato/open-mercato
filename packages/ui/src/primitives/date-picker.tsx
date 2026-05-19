@@ -1,8 +1,7 @@
 "use client"
 
 import * as React from 'react'
-import { format } from 'date-fns'
-import type { Locale } from 'date-fns'
+import type { Locale } from 'date-fns/locale'
 import { CalendarIcon } from 'lucide-react'
 import { cn } from '@open-mercato/shared/lib/utils'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
@@ -11,6 +10,7 @@ import { Calendar } from './calendar'
 import { Button } from './button'
 import { LinkButton } from './link-button'
 import { TimeInput } from '../backend/inputs/TimeInput'
+import { formatWithPublicDateFormat, resolvePublicDateFormat, resolvePublicDateTimeFormat } from './date-format'
 
 export type DatePickerFooter = 'apply-cancel' | 'today-clear' | 'none'
 
@@ -60,16 +60,6 @@ export type DatePickerProps = {
   required?: boolean
   'aria-label'?: string
   'aria-describedby'?: string
-}
-
-const DAY_FIRST_LOCALE_CODES = new Set([
-  'pl', 'de', 'fr', 'es', 'it', 'pt', 'nl', 'ru', 'cs', 'sk', 'hu', 'ro',
-])
-
-function deriveDisplayFormat(locale: Locale | undefined, withTime: boolean): string {
-  const code = locale?.code?.split('-')[0]?.toLowerCase() ?? ''
-  const dateFmt = code && DAY_FIRST_LOCALE_CODES.has(code) ? 'd MMM yyyy' : 'MMM d, yyyy'
-  return withTime ? `${dateFmt} HH:mm` : dateFmt
 }
 
 function extractTime(date: Date): string {
@@ -129,7 +119,9 @@ export function DatePicker({
     if (open) setDraft(value ?? null)
   }, [open, value])
 
-  const resolvedFormat = displayFormat ?? deriveDisplayFormat(locale, withTime)
+  const resolvedFormat = withTime
+    ? resolvePublicDateTimeFormat(locale, displayFormat)
+    : resolvePublicDateFormat(locale, displayFormat)
   const placeholderText = placeholder ?? (
     withTime
       ? t('ui.dateTimePicker.placeholder', 'Pick date and time')
@@ -138,11 +130,7 @@ export function DatePicker({
 
   const formattedValue = React.useMemo(() => {
     if (!value) return null
-    try {
-      return format(value, resolvedFormat, locale ? { locale } : undefined)
-    } catch {
-      return null
-    }
+    return formatWithPublicDateFormat(value, resolvedFormat, locale)
   }, [value, resolvedFormat, locale])
 
   const handleDaySelect = React.useCallback(
@@ -245,7 +233,7 @@ export function DatePicker({
           onSelect={handleDaySelect}
           locale={locale}
           disabled={disabledMatcher}
-          initialFocus
+          autoFocus
         />
         {withTime && (
           <div className="flex items-center gap-2 border-t px-3 py-2">

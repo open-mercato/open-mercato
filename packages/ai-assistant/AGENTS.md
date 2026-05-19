@@ -105,7 +105,7 @@ Typed AI agents live in each module's root `ai-agents.ts`. The generator auto-di
 1. Create `<module>/ai-agents.ts` and export `aiAgents: AiAgentDefinition[]` (default export optional).
 2. Declare the agent with `defineAiAgent({ ... })` from `@open-mercato/ai-assistant`. Required fields: `id`, `moduleId`, `label`, `description`, `systemPrompt`, `allowedTools`. Useful optional fields: `executionMode` (`'chat'` — default — or `'object'`), `executionEngine` (`'stream-text'` — default — or `'tool-loop-agent'`; see §"Loop controls and execution engines" below), `defaultProvider` (registered provider id the agent prefers; when paired with `defaultModel`, the pair fails closed if the provider is unconfigured; Phase 1 of `2026-04-27-ai-agents-provider-model-baseurl-overrides`), `defaultModel` (plain model id or slash-qualified `<provider>/<model>` shorthand, e.g. `openai/gpt-5-mini`), `acceptedMediaTypes`, `requiredFeatures`, `uiParts`, `readOnly`, `mutationPolicy` (`'read-only'` | `'confirm-required'` | `'destructive-confirm-required'`), `maxSteps`, `loop` (Phase 0–5 of spec `2026-04-28-ai-agents-agentic-loop-controls`), `output` (Zod schema for `'object'` mode), `resolvePageContext`, `keywords`, `suggestions`, `domain`, `dataCapabilities`.
 3. Add the feature(s) you list in `requiredFeatures` to the module's `acl.ts` and grant them in `setup.ts` `defaultRoleFeatures`.
-4. Put the agent's tool allowlist behind the narrowest set possible. Start from the general-purpose packs (`search.hybrid_search`, `search.get_record_context`, `attachments.list_record_attachments`, `attachments.read_attachment`, `meta.describe_agent`) and add your module's own `defineAiTool`-registered tools.
+4. Put the agent's tool allowlist behind the narrowest set possible. Start from the general-purpose packs (`search.hybrid_search`, `search.get_record_context`, `attachments.list_record_attachments`, `attachments.read_attachment`, `meta.describe_agent`) and add your module's own `defineAiTool`-registered tools. Do not list `meta.update_task_plan` manually; set `taskPlan: { enabled: true }` when the agent should expose the visible planning helper.
 5. For mutation-capable agents, keep `readOnly: true` + `mutationPolicy: 'read-only'` on the agent and light up writes only via the per-tenant mutation-policy override table (spec Phase 3 WS-C §5.4). The runtime filters out any `isMutation: true` tool when the override is still read-only.
 6. Run `yarn generate` so the agent shows up in the registry. Smoke-test via `/backend/config/ai-assistant/playground` (see `/framework/ai-assistant/playground`), then embed `<AiChat agent="<module>.<agent>" />` in the page where you want the operator UI.
 
@@ -138,9 +138,16 @@ MUST rules:
 - MUST use Zod for `inputSchema` — never raw JSON Schema.
 - MUST set `isMutation: true` on write tools. The policy gate strips these from read-only agents and from read-only tenant overrides.
 - MUST route every mutation tool through `prepareMutation(...)` (see the Mutation Approvals guide at `/framework/ai-assistant/mutation-approvals`). Writing directly inside the handler bypasses the approval gate — the runtime fails closed and refuses to return a result to the operator.
+- Mutation preview resolvers SHOULD return a normalized `after` snapshot and display hints when tool inputs contain dictionary IDs or other opaque values. Use `display.fieldLabels`, `display.before`, and `display.after` so `field-diff-card` shows operator-friendly names while `field`, `before`, and `after` keep the raw execution values.
 - MUST expose tools to an agent by listing the tool name in the agent's `allowedTools`. Tools not on the whitelist never reach the model.
 
 Run `yarn generate` after adding/changing tool definitions so the typed tool registry picks them up.
+
+### Visible Task Plans
+
+Operator-facing chat agents can enable visible plans with `taskPlan: { enabled: true }`. CRM/customer agents enable it by default; other agents stay quiet unless their definition or an `AiAgentExtension` opts in. When enabled, the registry exposes the read-only `meta.update_task_plan` helper and the runtime injects prompt guidance to call it before domain tools on tool-using turns. Labels are user-visible progress copy: keep them short, include `toolName` when a step maps to a known tool, and never include private reasoning, chain-of-thought, scratchpad notes, or XML thinking tags. The runtime sanitizes and rejects unsafe labels before streaming `data-agent-task-plan` / `data-agent-task-update` chunks.
+
+`<AiChat>` renders runtime tool lifecycle rows under **Tool calls**, not as Plan rows. When a task-plan chunk carries a label for a `toolCallId`, the Tool calls row uses it as a friendly caption while still showing the raw tool id in parentheses.
 
 ### How to Add a UI Part (record cards / custom inline widgets)
 
@@ -240,7 +247,7 @@ export const aiToolOverrides: AiToolOverridesMap = {
 }
 ```
 
-**Path B — `modules.ts` inline (app-level static, unified `entry.overrides`).** Declare overrides under the umbrella `overrides.ai` key on a `ModuleEntry` inside `apps/<app>/src/modules.ts`. Other contracts a module presents (routes, events, workers, widgets, …) reuse the same `entry.overrides` shape per spec `.ai/specs/2026-05-04-modules-ts-unified-overrides.md` (AI is Phase 1; other domains roll out as separate PRs). The app's `bootstrap.ts` calls `applyModuleOverridesFromEnabledModules(enabledModules)` from `@open-mercato/shared/modules/overrides` once at boot — both `apps/mercato` and the `create-mercato-app` template ship that wiring.
+**Path B — `modules.ts` inline (app-level static, unified `entry.overrides`).** Declare overrides under the umbrella `overrides.ai` key on a `ModuleEntry` inside `apps/<app>/src/modules.ts`. Other contracts a module presents (routes, events, workers, widgets, notifications, interceptors, setup, ACL, DI, encryption, …) reuse the same `entry.overrides` shape per spec `.ai/specs/2026-05-04-modules-ts-unified-overrides.md`; phases 1-18 are wired. The app's `bootstrap.ts` calls `applyModuleOverridesFromEnabledModules(enabledModules)` from `@open-mercato/shared/modules/overrides` once at boot — both `apps/mercato` and the `create-mercato-app` template ship that wiring.
 
 ```ts
 // apps/<app>/src/modules.ts
@@ -284,7 +291,7 @@ MUST rules:
 Resolution order (highest precedence first):
 
 1. Programmatic `applyAiAgentOverrides` / `applyAiToolOverrides` calls (last call per id wins).
-2. `modules.ts` inline (`aiAgentOverrides` / `aiToolOverrides` on `ModuleEntry`; last entry per id wins).
+2. `modules.ts` inline (`entry.overrides.ai.agents` / `entry.overrides.ai.tools`; last entry per id wins).
 3. File-based `<module>/ai-agents.ts` / `<module>/ai-tools.ts` overrides (last module load order wins).
 4. The base `<module>/ai-agents.ts` / `<module>/ai-tools.ts` registrations.
 

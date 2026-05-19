@@ -1,4 +1,5 @@
 import { z } from 'zod'
+import { parseBooleanFlag } from '@open-mercato/shared/lib/boolean'
 
 function collectDuplicateRecipientIds(
   recipients: Array<{ userId: string }>,
@@ -178,14 +179,15 @@ export const updateDraftSchema = z.object({
   externalEmail: z.string().email().optional(),
   externalName: z.string().min(1).max(255).optional(),
   recipients: z.array(messageRecipientSchema).optional(),
-  subject: z.string().min(1).max(500).optional(),
-  body: z.string().min(1).max(50000).optional(),
+  subject: z.string().max(500).optional(),
+  body: z.string().max(50000).optional(),
   bodyFormat: z.enum(['text', 'markdown']).optional(),
   priority: z.enum(['low', 'normal', 'high', 'urgent']).optional(),
   objects: z.array(messageObjectSchema).optional(),
   attachmentIds: z.array(z.string().uuid()).optional(),
   actionData: messageActionDataSchema.optional(),
   sendViaEmail: z.boolean().optional(),
+  isDraft: z.literal(false).optional(),
 }).superRefine((value, ctx) => {
   if (value.recipients) {
     const duplicateRecipientIds = collectDuplicateRecipientIds(value.recipients)
@@ -209,9 +211,9 @@ export const listMessagesSchema = z.object({
   sourceEntityType: z.string().optional(),
   sourceEntityId: z.string().uuid().optional(),
   externalEmail: z.string().email().optional(),
-  hasObjects: z.coerce.boolean().optional(),
-  hasAttachments: z.coerce.boolean().optional(),
-  hasActions: z.coerce.boolean().optional(),
+  hasObjects: z.string().transform(parseBooleanFlag).optional(),
+  hasAttachments: z.string().transform(parseBooleanFlag).optional(),
+  hasActions: z.string().transform(parseBooleanFlag).optional(),
   senderId: z.string().uuid().optional(),
   search: z.string().max(200).optional(),
   since: z.string().datetime().optional(),

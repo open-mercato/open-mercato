@@ -31,6 +31,8 @@ module.exports = {
       {
         tsconfig: {
           jsx: 'react-jsx',
+          rootDir: '.',
+          ignoreDeprecations: '6.0',
         },
       },
     ],
@@ -38,12 +40,9 @@ module.exports = {
   setupFiles: ['<rootDir>/../../jest.setup.ts'],
   setupFilesAfterEnv: ['<rootDir>/../../jest.dom.setup.ts'],
   transformIgnorePatterns: [
-    'node_modules/(?!(@mikro-orm)/)',
-  ],
-  testMatch: ['<rootDir>/src/**/__tests__/**/*.test.(ts|tsx)'],
-  transformIgnorePatterns: [
-    '/node_modules/(?!meilisearch)/',
+    '/node_modules/(?!(@mikro-orm|kysely|meilisearch)/)',
     '\\.pnp\\.[^\\/]+$',
   ],
+  testMatch: ['<rootDir>/src/**/__tests__/**/*.test.(ts|tsx)'],
   passWithNoTests: true,
 }

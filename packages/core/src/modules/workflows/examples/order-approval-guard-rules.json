@@ -4,7 +4,7 @@
     "ruleName": "Check Decision is Approve",
     "description": "Validates that the approval task decision is 'approve'",
     "ruleType": "GUARD",
-    "entityType": "workflow:sales_order_approval_v1:transition",
+    "entityType": "workflow:sales.order-approval:transition",
     "eventType": "pre_transition",
     "conditionExpression": {
       "field": "workflowContext.decision",
@@ -19,7 +19,7 @@
     "ruleName": "Check Decision is Reject",
     "description": "Validates that the approval task decision is 'reject'",
     "ruleType": "GUARD",
-    "entityType": "workflow:sales_order_approval_v1:transition",
+    "entityType": "workflow:sales.order-approval:transition",
     "eventType": "pre_transition",
     "conditionExpression": {
       "field": "workflowContext.decision",
