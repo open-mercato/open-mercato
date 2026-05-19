@@ -106,10 +106,7 @@ test.describe('TC-AI-TOKEN-USAGE-001–005: token usage stats page', () => {
   test('TC-AI-TOKEN-USAGE-002: apply filter triggers re-fetch with new date params', async ({ page }) => {
     await login(page, 'superadmin');
 
-    const fetchedUrls: string[] = [];
-
     await page.route('**/api/ai_assistant/usage/daily**', async (route) => {
-      fetchedUrls.push(route.request().url());
       await route.fulfill({
         status: 200,
         contentType: 'application/json',
@@ -125,7 +122,16 @@ test.describe('TC-AI-TOKEN-USAGE-001–005: token usage stats page', () => {
       });
     });
 
+    const initialDailyRequest = page.waitForResponse(
+      (response) => response.url().includes('/api/ai_assistant/usage/daily') && response.status() === 200,
+      { timeout: 15_000 },
+    );
+    const initialSessionsRequest = page.waitForResponse(
+      (response) => response.url().includes('/api/ai_assistant/usage/sessions') && response.status() === 200,
+      { timeout: 15_000 },
+    );
     await page.goto(USAGE_PAGE, { waitUntil: 'domcontentloaded' });
+    await Promise.all([initialDailyRequest, initialSessionsRequest]);
 
     const fromInput = page.locator('#usage-from');
     const toInput = page.locator('#usage-to');
@@ -135,12 +141,18 @@ test.describe('TC-AI-TOKEN-USAGE-001–005: token usage stats page', () => {
 
     await fromInput.fill('2026-04-01');
     await toInput.fill('2026-04-30');
+    await expect(fromInput).toHaveValue('2026-04-01');
+    await expect(toInput).toHaveValue('2026-04-30');
+    const updatedDailyRequest = page.waitForResponse(
+      (response) =>
+        response.url().includes('/api/ai_assistant/usage/daily') &&
+        response.url().includes('from=2026-04-01') &&
+        response.url().includes('to=2026-04-30') &&
+        response.status() === 200,
+      { timeout: 10_000 },
+    );
     await applyButton.click();
-
-    await page.waitForTimeout(500);
-
-    const hasNewDates = fetchedUrls.some((url) => url.includes('from=2026-04-01'));
-    expect(hasNewDates).toBe(true);
+    await updatedDailyRequest;
   });
 
   test('TC-AI-TOKEN-USAGE-003: sessions list renders rows when API returns sessions', async ({ page }) => {

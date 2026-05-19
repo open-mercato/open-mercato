@@ -14,13 +14,18 @@ test.describe('TC-CAT-001: Create New Product', () => {
     await login(page, 'admin');
     await page.goto('/backend/catalog/products/create');
 
-    await page.getByRole('textbox', { name: 'e.g., Summer sneaker' }).fill(productName);
-    await page
-      .getByRole('textbox', { name: 'Describe the product...' })
-      .fill('This is a catalog QA description long enough to satisfy SEO validation checks in create flow.');
-
+    await expect(page.getByRole('button', { name: 'Create product' }).last()).toBeVisible();
     await page.getByRole('button', { name: 'Variants' }).click();
     await page.getByRole('textbox', { name: 'e.g., SKU-001' }).fill(sku);
+    await page.getByRole('button', { name: 'General data' }).click();
+
+    const titleInput = page.getByRole('textbox', { name: 'e.g., Summer sneaker' });
+    await titleInput.fill(productName);
+    await expect(titleInput).toHaveValue(productName);
+
+    const descriptionInput = page.getByRole('textbox', { name: 'Describe the product...' });
+    await descriptionInput.fill('This is a catalog QA description long enough to satisfy SEO validation checks in create flow.');
+    await expect(descriptionInput).toHaveValue('This is a catalog QA description long enough to satisfy SEO validation checks in create flow.');
 
     const createProductButton = page
       .locator('button[type="submit"]')

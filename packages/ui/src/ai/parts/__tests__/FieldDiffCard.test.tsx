@@ -37,6 +37,30 @@ describe('FieldDiffCard', () => {
     expect(after?.className).toContain('text-status-success-text')
   })
 
+  it('prefers display labels while preserving raw diff fields for the row contract', () => {
+    renderWithProviders(
+      <FieldDiffCard
+        fieldDiff={[
+          {
+            field: 'pipelineStageId',
+            fieldLabel: 'Pipeline stage',
+            before: '11111111-1111-4111-8111-111111111111',
+            after: '22222222-2222-4222-8222-222222222222',
+            beforeDisplay: 'Offering',
+            afterDisplay: 'Lost',
+          },
+        ]}
+      />,
+      { dict },
+    )
+
+    expect(screen.getByText('Pipeline stage')).toBeInTheDocument()
+    expect(screen.getByText('Offering')).toBeInTheDocument()
+    expect(screen.getByText('Lost')).toBeInTheDocument()
+    expect(screen.queryByText('11111111-1111-4111-8111-111111111111')).not.toBeInTheDocument()
+    expect(screen.queryByText('22222222-2222-4222-8222-222222222222')).not.toBeInTheDocument()
+  })
+
   it('renders an info placeholder when fieldDiff is empty (single-record mode)', () => {
     renderWithProviders(<FieldDiffCard fieldDiff={[]} />, { dict })
     expect(

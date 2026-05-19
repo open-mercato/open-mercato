@@ -24,9 +24,10 @@
 import * as React from 'react'
 import {
   AlertTriangle,
-  Bot,
+  BadgeQuestionMark,
+  Database,
   ExternalLink,
-  HelpCircle,
+  FileQuestion,
   Lightbulb,
   Loader2,
   PanelRightOpen,
@@ -407,24 +408,24 @@ export function AiAssistantLauncher({
         {
           label: t('ai_assistant.launcher.welcome.suggestion1', 'What can you help me with?'),
           prompt: 'What can you help me with on this tenant?',
-          icon: <AiIcon className="size-4" />,
+          icon: <BadgeQuestionMark className="size-4 text-foreground" />,
         },
         {
           label: t('ai_assistant.launcher.welcome.suggestion2', 'Show what data you can access'),
           prompt: 'Describe the data you can read for this tenant — entities, fields, and limits.',
-          icon: <Bot className="size-4" />,
+          icon: <Database className="size-4 text-foreground" />,
         },
         {
           label: t('ai_assistant.launcher.welcome.suggestion3', 'Suggest things to try'),
           prompt:
             'Suggest five concrete questions I could ask you that would surface useful insights for this tenant.',
-          icon: <Lightbulb className="size-4" />,
+          icon: <Lightbulb className="size-4 text-foreground" />,
         },
         {
           label: t('ai_assistant.launcher.welcome.suggestion4', 'How do I use this assistant?'),
           prompt:
             'Walk me through how to use this assistant: when to ask, what tools you call, and how confirmations work.',
-          icon: <HelpCircle className="size-4" />,
+          icon: <FileQuestion className="size-4 text-foreground" />,
         },
       ]
       return [...(activeAgent?.suggestions ?? []), ...generic]
@@ -462,12 +463,12 @@ export function AiAssistantLauncher({
         variant="ghost"
         size="sm"
         onClick={openPicker}
-        className={cn('hidden sm:inline-flex items-center gap-2', className)}
+        className={cn('hidden sm:inline-flex items-center gap-2 text-foreground [&_svg]:text-foreground', className)}
         data-ai-launcher-trigger=""
         aria-label={triggerLabel}
         title={triggerLabel}
       >
-        <AiIcon className="size-4" />
+        <AiIcon className="size-4 text-foreground" />
         <span>{shortLabel}</span>
         <span className="ml-2 rounded border px-1 text-xs text-muted-foreground">
           ⌘L
@@ -478,12 +479,12 @@ export function AiAssistantLauncher({
         type="button"
         variant="ghost"
         size="sm"
-        className="sm:hidden"
+        className="sm:hidden text-foreground [&_svg]:text-foreground"
         onClick={openPicker}
         aria-label={triggerLabel}
         data-ai-launcher-trigger-mobile=""
       >
-        <AiIcon className="size-4" />
+        <AiIcon className="size-4 text-foreground" />
       </IconButton>
       <Dialog open={pickerOpen} onOpenChange={setPickerOpen}>
         <DialogContent

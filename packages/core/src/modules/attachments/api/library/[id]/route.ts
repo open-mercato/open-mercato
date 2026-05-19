@@ -11,7 +11,7 @@ import {
   normalizeAttachmentTags,
   readAttachmentMetadata,
 } from '../../../lib/metadata'
-import { deletePartitionFile } from '../../../lib/storage'
+import type { StorageDriverFactory } from '../../../lib/drivers'
 import { splitCustomFieldPayload, loadCustomFieldValues } from '@open-mercato/shared/lib/crud/custom-fields'
 import { emitCrudSideEffects, setCustomFieldsIfAny } from '@open-mercato/shared/lib/commands/helpers'
 import { normalizeCustomFieldResponse } from '@open-mercato/shared/lib/custom-fields/normalize'
@@ -228,6 +228,7 @@ export async function DELETE(req: NextRequest, ctx: RouteContext) {
   const { resolve } = await createRequestContainer()
   const em = resolve('em') as EntityManager
   const dataEngine = resolve('dataEngine') as DataEngine
+  const storageDriverFactory = resolve('storageDriverFactory') as StorageDriverFactory
   const deleteFilter: Record<string, unknown> = {
     id: attachmentId,
     tenantId: auth.tenantId,
@@ -237,8 +238,11 @@ export async function DELETE(req: NextRequest, ctx: RouteContext) {
   if (!record) {
     return NextResponse.json({ error: 'Attachment not found' }, { status: 404 })
   }
-
-  await deletePartitionFile(record.partitionCode, record.storagePath, record.storageDriver)
+  const deleteDriver = await storageDriverFactory.resolveForPartition(record.partitionCode, {
+    tenantId: record.tenantId ?? auth.tenantId,
+    organizationId: record.organizationId ?? auth.orgId,
+  })
+  await deleteDriver.delete(record.partitionCode, record.storagePath)
   await em.remove(record).flush()
 
   if (dataEngine) {
