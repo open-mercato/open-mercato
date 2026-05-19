@@ -1187,6 +1187,7 @@
   "customers.errors.assign_failed": "Failed to assign tag",
   "customers.errors.assignable_staff_load_failed": "Failed to load assignable staff",
   "customers.errors.authentication_required": "Authentication required",
+  "customers.errors.bulk_enqueue_failed": "Failed to enqueue bulk job",
   "customers.errors.comment_required": "Comment id is required",
   "customers.errors.company_not_found": "Company not found",
   "customers.errors.company_people_load_failed": "Failed to load linked people",

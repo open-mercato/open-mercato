@@ -252,10 +252,18 @@ const dictionaryKindEnum = z.string().trim().refine(
 
 const dictionaryValueSchema = z.string().trim().min(1).max(150)
 const dictionaryLabelSchema = z.string().trim().max(150)
+// Pipeline-stage rows migrated to semantic tone identifiers in
+// Migration20260519120000_pipeline_stage_color_tones; AddStageDialog now writes those
+// directly. Other dictionary kinds still store hex. Accept either format so round-tripping
+// a migrated pipeline-stage entry through the dictionary edit UI doesn't fail validation.
+const DICTIONARY_COLOR_TONES = ['success', 'warning', 'info', 'error', 'neutral', 'brand', 'pink'] as const
 const dictionaryColorSchema = z
   .string()
   .trim()
-  .regex(/^#([0-9a-fA-F]{6})$/, 'Color must be a valid six-digit hex code like #3366ff')
+  .regex(
+    new RegExp(`^(#[0-9a-fA-F]{6}|${DICTIONARY_COLOR_TONES.join('|')})$`),
+    'Color must be a six-digit hex code (e.g. #3366ff) or a semantic tone identifier',
+  )
 const dictionaryIconSchema = z.string().trim().max(48)
 
 export const customerDictionaryEntryCreateSchema = scopedSchema.extend({

@@ -1187,6 +1187,7 @@
   "customers.errors.assign_failed": "Nie udało się przypisać tagu",
   "customers.errors.assignable_staff_load_failed": "Nie udało się załadować dostępnych pracowników",
   "customers.errors.authentication_required": "Wymagane uwierzytelnienie",
+  "customers.errors.bulk_enqueue_failed": "Nie udało się zakolejkować operacji masowej",
   "customers.errors.comment_required": "Wymagany identyfikator notatki",
   "customers.errors.company_not_found": "Nie znaleziono firmy",
   "customers.errors.company_people_load_failed": "Nie udało się załadować powiązanych osób",

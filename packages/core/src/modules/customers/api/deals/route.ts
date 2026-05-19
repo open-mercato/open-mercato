@@ -469,11 +469,9 @@ const crud = makeCrudRoute<unknown, unknown, DealListQuery>({
       if (!items.length) return
       const scopeSource = (items[0] ?? {}) as Record<string, unknown>
       const tenantIdRaw = scopeSource.tenantId ?? scopeSource.tenant_id
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const fallbackTenantId = (typeof tenantIdRaw === 'string' && tenantIdRaw.trim().length ? tenantIdRaw : null) ?? (ctx as any)?.auth?.tenantId ?? null
+      const fallbackTenantId = (typeof tenantIdRaw === 'string' && tenantIdRaw.trim().length ? tenantIdRaw : null) ?? ctx.auth?.tenantId ?? null
       const orgIdRaw = scopeSource.organizationId ?? scopeSource.organization_id
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const fallbackOrganizationId = (typeof orgIdRaw === 'string' && orgIdRaw.trim().length ? orgIdRaw : null) ?? (ctx as any)?.auth?.orgId ?? null
+      const fallbackOrganizationId = (typeof orgIdRaw === 'string' && orgIdRaw.trim().length ? orgIdRaw : null) ?? ctx.auth?.orgId ?? null
       const ids = items
         .map((item: unknown) => {
           if (!item || typeof item !== 'object') return null

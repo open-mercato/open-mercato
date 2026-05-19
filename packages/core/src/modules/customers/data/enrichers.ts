@@ -1,6 +1,7 @@
 import type { ResponseEnricher, EnricherContext } from '@open-mercato/shared/lib/crud/response-enricher'
 import type { CustomerKysely } from '../lib/kysely'
 import { resolveKyselyClient } from '../lib/kysely'
+import { fetchStuckThresholdDays } from '../lib/stuckDeals'
 
 type DealRecord = Record<string, unknown> & {
   id: string
@@ -16,7 +17,6 @@ type PipelineState = {
   isOverdue: boolean
 }
 
-const DEFAULT_STUCK_THRESHOLD_DAYS = 14
 const ENRICHER_TIMEOUT_MS = 2000
 const DAY_MS = 24 * 60 * 60 * 1000
 // Mirror the canonical statuses defined in validators.ts (`interactionStatusValues`). The
@@ -92,23 +92,6 @@ async function fetchLatestStageTransitions(
   return map
 }
 
-async function fetchStuckThreshold(
-  db: CustomerKysely,
-  organizationId: string,
-  tenantId: string,
-): Promise<number> {
-  const row = await db
-    .selectFrom('customer_settings')
-    .select(['stuck_threshold_days'])
-    .where('organization_id', '=', organizationId)
-    .where('tenant_id', '=', tenantId)
-    .executeTakeFirst()
-  const raw = row?.stuck_threshold_days
-  const value = typeof raw === 'number' ? raw : typeof raw === 'string' ? Number(raw) : null
-  if (value !== null && Number.isFinite(value) && value > 0) return value
-  return DEFAULT_STUCK_THRESHOLD_DAYS
-}
-
 export function buildPipelineState(
   record: DealRecord,
   openInteractionCounts: Map<string, number>,
@@ -168,7 +151,7 @@ const dealPipelineEnricher: ResponseEnricher<DealRecord> = {
     const [openInteractionCounts, latestTransitions, threshold] = await Promise.all([
       fetchOpenInteractionCounts(db, dealIds, context.organizationId, context.tenantId),
       fetchLatestStageTransitions(db, dealIds, context.organizationId, context.tenantId),
-      fetchStuckThreshold(db, context.organizationId, context.tenantId),
+      fetchStuckThresholdDays(db, context.organizationId, context.tenantId),
     ])
 
     const now = new Date()

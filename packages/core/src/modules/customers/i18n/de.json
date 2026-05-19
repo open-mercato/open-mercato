@@ -1187,6 +1187,7 @@
   "customers.errors.assign_failed": "Tag konnte nicht zugewiesen werden",
   "customers.errors.assignable_staff_load_failed": "Verfügbare Mitarbeitende konnten nicht geladen werden",
   "customers.errors.authentication_required": "Authentifizierung erforderlich",
+  "customers.errors.bulk_enqueue_failed": "Massenauftrag konnte nicht in die Warteschlange gestellt werden",
   "customers.errors.comment_required": "Notiz-ID ist erforderlich",
   "customers.errors.company_not_found": "Unternehmen nicht gefunden",
   "customers.errors.company_people_load_failed": "Verknüpfte Personen konnten nicht geladen werden",

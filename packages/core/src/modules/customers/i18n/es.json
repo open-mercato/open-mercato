@@ -1187,6 +1187,7 @@
   "customers.errors.assign_failed": "No se pudo asignar la etiqueta",
   "customers.errors.assignable_staff_load_failed": "No se pudo cargar el personal asignable",
   "customers.errors.authentication_required": "Se requiere autenticación",
+  "customers.errors.bulk_enqueue_failed": "No se pudo encolar el trabajo masivo",
   "customers.errors.comment_required": "Se requiere el ID de la nota",
   "customers.errors.company_not_found": "Empresa no encontrada",
   "customers.errors.company_people_load_failed": "No se pudieron cargar las personas vinculadas",
