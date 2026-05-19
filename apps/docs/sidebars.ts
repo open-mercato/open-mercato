@@ -366,6 +366,7 @@ const sidebars: SidebarsConfig = {
             "framework/modules/official-modules",
             "framework/modules/official-modules-development",
             "framework/modules/routes-and-pages",
+            "framework/modules/overrides",
             "framework/modules/notifications",
             "framework/modules/messages",
             "framework/modules/currencies",
