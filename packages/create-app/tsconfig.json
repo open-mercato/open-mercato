@@ -2,6 +2,7 @@
   "extends": "../../tsconfig.base.json",
   "compilerOptions": {
     "noEmit": true,
+    "types": ["node"],
     "verbatimModuleSyntax": false
   },
   "include": ["src/**/*.ts"],
