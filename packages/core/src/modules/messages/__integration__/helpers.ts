@@ -183,17 +183,25 @@ export async function searchMessages(page: Page, searchValue: string): Promise<v
   const input = page.getByPlaceholder('Search messages');
   const currentValue = await input.inputValue().catch(() => '');
   const expectedSearch = searchValue.trim();
-  await input.fill(searchValue);
-  if (currentValue.trim() !== expectedSearch) {
-    await page.waitForResponse(
-      (response) => {
-        if (response.request().method() !== 'GET' || !response.ok()) return false;
-        const url = new URL(response.url());
-        return url.pathname === '/api/messages' && (url.searchParams.get('search') ?? '') === expectedSearch;
-      },
-      { timeout: 10_000 },
-    ).catch(() => null);
+  if (currentValue.trim() === expectedSearch) {
+    await page.waitForTimeout(200);
+    return;
   }
+  // Register the response listener BEFORE filling so a fast network response is
+  // not missed. Accept any /api/messages OK GET — the initial unfiltered load
+  // or the debounced search-filtered response — either signals that the table
+  // has fresh data. Search tokens are populated by an ephemeral subscriber, so
+  // waiting strictly for `search=expected` can resolve against an empty index.
+  const listResponsePromise = page.waitForResponse(
+    (response) => {
+      if (response.request().method() !== 'GET' || !response.ok()) return false;
+      const url = new URL(response.url());
+      return url.pathname === '/api/messages';
+    },
+    { timeout: 10_000 },
+  ).catch(() => null);
+  await input.fill(searchValue);
+  await listResponsePromise;
   await page.waitForTimeout(200);
 }
 
