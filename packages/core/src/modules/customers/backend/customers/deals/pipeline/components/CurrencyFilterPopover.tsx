@@ -236,11 +236,13 @@ function CurrencyRow({
   const currencyColor = selected ? 'text-brand-violet/80' : 'text-muted-foreground'
   const countColor = selected ? 'text-brand-violet font-semibold' : 'text-foreground/80 font-normal'
   return (
-    <button
+    <Button
       type="button"
+      variant="ghost"
+      role="radio"
+      aria-checked={selected}
       onClick={onClick}
-      aria-pressed={selected}
-      className={`flex w-full items-center gap-3 px-6 py-2.5 text-left transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 ${rowBg}`}
+      className={`h-auto w-full justify-start gap-3 rounded-none px-6 py-2.5 text-left font-normal ${rowBg}`}
     >
       <RadioDot selected={selected} />
       <span className="flex items-center gap-1.5">
@@ -263,7 +265,7 @@ function CurrencyRow({
         ) : null}
       </span>
       <span className={`pl-5 text-xs leading-normal tabular-nums ${countColor}`}>{count}</span>
-    </button>
+    </Button>
   )
 }
 

@@ -1,5 +1,5 @@
 import type { EntityManager } from '@mikro-orm/postgresql'
-import type { Kysely } from 'kysely'
+import type { CustomerKysely } from './kysely'
 import { resolveKyselyClient } from './kysely'
 
 /**
@@ -14,16 +14,16 @@ const DAY_MS = 24 * 60 * 60 * 1000
  * `STUCK_DEFAULT_THRESHOLD_DAYS` when no setting row is present or the value is invalid.
  */
 export async function fetchStuckThresholdDays(
-  db: Kysely<any>,
+  db: CustomerKysely,
   organizationId: string,
   tenantId: string,
 ): Promise<number> {
-  const row = (await db
+  const row = await db
     .selectFrom('customer_settings')
     .select(['stuck_threshold_days'])
     .where('organization_id', '=', organizationId)
     .where('tenant_id', '=', tenantId)
-    .executeTakeFirst()) as { stuck_threshold_days: number | string | null } | undefined
+    .executeTakeFirst()
   const raw = row?.stuck_threshold_days
   const value = typeof raw === 'number' ? raw : typeof raw === 'string' ? Number(raw) : null
   if (value !== null && Number.isFinite(value) && value > 0) return value
@@ -49,37 +49,35 @@ export async function fetchStuckDealIds(
   const threshold = await fetchStuckThresholdDays(db, organizationId, tenantId)
   const cutoff = new Date(Date.now() - threshold * DAY_MS)
 
-  const oldTransitionRows = (await db
+  const oldTransitionRows = await db
     .selectFrom('customer_deal_stage_transitions')
     .select(['deal_id'])
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    .select((eb: any) => eb.fn.max('transitioned_at').as('last_transition'))
+    .select((eb) => eb.fn.max('transitioned_at').as('last_transition'))
     .where('organization_id', '=', organizationId)
     .where('tenant_id', '=', tenantId)
     .where('deleted_at', 'is', null)
     .groupBy('deal_id')
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    .having((eb: any) => eb(eb.fn.max('transitioned_at'), '<', cutoff))
-    .execute()) as Array<{ deal_id: string; last_transition: Date | string }>
+    .having((eb) => eb(eb.fn.max('transitioned_at'), '<', cutoff))
+    .execute()
 
-  const transitionedDealIds = (await db
+  const transitionedDealIds = await db
     .selectFrom('customer_deal_stage_transitions')
     .select(['deal_id'])
     .distinct()
     .where('organization_id', '=', organizationId)
     .where('tenant_id', '=', tenantId)
     .where('deleted_at', 'is', null)
-    .execute()) as Array<{ deal_id: string }>
+    .execute()
   const transitionedSet = new Set(transitionedDealIds.map((r) => r.deal_id))
 
-  const oldUntransitionedDeals = (await db
+  const oldUntransitionedDeals = await db
     .selectFrom('customer_deals')
     .select(['id'])
     .where('organization_id', '=', organizationId)
     .where('tenant_id', '=', tenantId)
     .where('deleted_at', 'is', null)
     .where('created_at', '<', cutoff)
-    .execute()) as Array<{ id: string }>
+    .execute()
 
   const result = new Set<string>()
   oldTransitionRows.forEach((row) => result.add(row.deal_id))

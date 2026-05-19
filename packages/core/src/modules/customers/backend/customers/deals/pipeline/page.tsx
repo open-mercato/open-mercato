@@ -1231,18 +1231,6 @@ export default function DealsKanbanPage(): React.ReactElement {
       if (!el) return false
       const sl = el.scrollLeft
       const maxScroll = Math.max(0, el.scrollWidth - el.clientWidth)
-      // Opt-in console diagnostics: enable by running `localStorage.setItem('kanban-debug-scroll', '1')`
-      if (typeof window !== 'undefined' && window.localStorage?.getItem('kanban-debug-scroll') === '1') {
-        // eslint-disable-next-line no-console
-        console.log('[kanban-scroll]', {
-          direction,
-          scrollLeft: sl,
-          scrollWidth: el.scrollWidth,
-          clientWidth: el.clientWidth,
-          maxScroll,
-          laneOffsets,
-        })
-      }
       if (maxScroll <= EDGE_TOLERANCE) return false
       if (direction < 0 && sl <= EDGE_TOLERANCE) return false
       if (direction > 0 && sl >= maxScroll - EDGE_TOLERANCE) return false

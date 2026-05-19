@@ -39,6 +39,16 @@ jest.mock('@open-mercato/shared/lib/crud/mutation-guard', () => ({
     runCrudMutationGuardAfterSuccessMock(...args),
 }))
 
+jest.mock('@open-mercato/shared/lib/i18n/server', () => ({
+  resolveTranslations: jest.fn(async () => ({
+    locale: 'en',
+    translate: (_key: string, fallback: string, replacements?: Record<string, unknown>) => {
+      if (!replacements) return fallback
+      return fallback.replace(/\{(\w+)\}/g, (_, key) => String(replacements[key] ?? `{${key}}`))
+    },
+  })),
+}))
+
 jest.mock('../../../../lib/bulkDeals', () => ({
   CUSTOMERS_DEALS_BULK_UPDATE_OWNER_QUEUE: 'customers-deals-bulk-update-owner',
   getCustomersQueue: jest.fn(() => ({ enqueue: enqueueMock })),

@@ -2,6 +2,7 @@
 
 import * as React from 'react'
 import { X } from 'lucide-react'
+import { Button } from '@open-mercato/ui/primitives/button'
 import {
   Popover,
   PopoverContent,
@@ -136,12 +137,14 @@ export function StatusFilterPopover({ values, onApply }: StatusFilterPopoverProp
               const isSelected = draft.includes(option.value)
               const label = translateWithFallback(t, option.labelKey, option.labelFallback)
               return (
-                <button
+                <Button
                   key={option.value}
                   type="button"
+                  variant="ghost"
+                  size="2xs"
                   onClick={() => toggleDraft(option.value)}
                   aria-pressed={isSelected}
-                  className={`inline-flex items-center gap-1.5 rounded-full px-2.5 py-1.5 text-xs leading-normal transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 ${
+                  className={`gap-1.5 rounded-full px-2.5 py-1.5 text-xs leading-normal ${
                     isSelected
                       ? 'bg-muted font-semibold text-foreground'
                       : 'border border-border bg-card font-normal text-muted-foreground hover:bg-muted'
@@ -155,7 +158,7 @@ export function StatusFilterPopover({ values, onApply }: StatusFilterPopoverProp
                   {isSelected ? (
                     <X className="size-2.5 shrink-0 text-muted-foreground" aria-hidden="true" />
                   ) : null}
-                </button>
+                </Button>
               )
             })}
           </div>

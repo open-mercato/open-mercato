@@ -155,13 +155,15 @@ export function EntityFilterPopover({
             )}
       </span>
       {draft.length > 0 ? (
-        <button
+        <Button
           type="button"
+          variant="link"
+          size="2xs"
           onClick={handleClear}
-          className="text-xs font-medium leading-normal text-muted-foreground underline-offset-2 transition-colors hover:text-foreground hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
+          className="h-auto px-0 text-xs font-medium leading-normal text-muted-foreground hover:text-foreground"
         >
           {translateWithFallback(t, 'customers.deals.kanban.filter.clear', 'Clear')}
-        </button>
+        </Button>
       ) : null}
     </div>
   )
@@ -212,10 +214,13 @@ export function EntityFilterPopover({
                   const checked = draft.includes(option.value)
                   return (
                     <li key={option.value}>
-                      <button
+                      <Button
                         type="button"
+                        variant="ghost"
+                        role="checkbox"
+                        aria-checked={checked}
                         onClick={() => toggleDraft(option.value)}
-                        className={`flex w-full items-center gap-3 px-4 py-2.5 text-left transition-colors hover:bg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 ${
+                        className={`h-auto w-full justify-start gap-3 rounded-none px-4 py-2.5 text-left font-normal ${
                           checked ? 'bg-muted/60' : 'bg-card'
                         }`}
                       >
@@ -236,7 +241,7 @@ export function EntityFilterPopover({
                         >
                           {option.label}
                         </span>
-                      </button>
+                      </Button>
                     </li>
                   )
                 })}
