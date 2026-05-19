@@ -212,45 +212,71 @@ Each guide below is self-contained and covers all prerequisites, infrastructure 
 
 <table>
   <tr>
-    <td align="center">
+    <td align="center" valign="top">
       <strong>Getting Started for Core Contributions</strong><br/><br/>
       <a href="https://youtu.be/-ba8Bmc56EQ"><img src="https://img.youtube.com/vi/-ba8Bmc56EQ/hqdefault.jpg" alt="Getting Started for Core Contributions" width="400"/></a>
     </td>
-    <td align="center">
+    <td align="center" valign="top">
       <strong>Building Standalone App on Linux/Mac</strong><br/><br/>
       <a href="https://www.youtube.com/watch?v=uJn42SLVyI0"><img src="https://img.youtube.com/vi/uJn42SLVyI0/hqdefault.jpg" alt="Building Standalone App on Linux/Mac" width="400"/></a>
     </td>
-    <td align="center">
+    <td align="center" valign="top">
       <strong>How to install Open Mercato on Windows</strong><br/><br/>
       <a href="https://www.youtube.com/watch?v=eX1SqfDPhkU"><img src="https://img.youtube.com/vi/eX1SqfDPhkU/maxresdefault.jpg" alt="How to Install" width="400"/></a>
     </td>
   </tr>
 </table>
 
+## Spec Driven Development
+
+Open Mercato follows a **spec-first development approach**. Before implementing new features or making significant changes, we document the design in the `.ai/specs/` folder.
+
+### Why Specs?
+
+- **Clarity**: Specs ensure everyone understands the feature before coding starts
+- **Consistency**: Design decisions are documented and can be referenced by humans and AI agents
+- **Traceability**: Each spec maintains a changelog tracking the evolution of the feature
+
+### How It Works
+
+1. **Before coding**: Check if a spec exists in `.ai/specs/` (named `{YYYY-MM-DD}-{title}.md`)
+2. **New features**: Create or update the spec with your design before implementation
+3. **After changes**: Update the spec's changelog with a dated summary
+
+**Naming convention**: Specs use the format `{YYYY-MM-DD}-{title}.md` (e.g., `2026-01-26-sidebar-reorganization.md`)
+
+See [`.ai/specs/README.md`](.ai/specs/README.md) for the full specification directory and [`.ai/specs/AGENTS.md`](.ai/specs/AGENTS.md) for detailed guidelines on maintaining specs.
+
 ### Developing your first Open Mercato app
 
 <table>
   <tr>
-    <td align="center" width="50%">
-      <strong>Build your first Open Mercato app</strong><br/><br/>
-      <a href="https://www.youtube.com/watch?v=y-lxRrAzbYc&t=1s"><img src="https://img.youtube.com/vi/y-lxRrAzbYc/maxresdefault.jpg" alt="Build your first Open Mercato app" width="400"/></a>
+    <td align="center" width="50%" valign="top">
+      <strong>How to use Open Mercato CRM as a backend for the custom app</strong><br/><br/>
+      <a href="https://www.youtube.com/watch?v=y-lxRrAzbYc&t=1s"><img src="https://img.youtube.com/vi/y-lxRrAzbYc/maxresdefault.jpg" alt="How to use Open Mercato CRM as a backend for the custom app" width="400"/></a>
     </td>
-    <td align="center" width="50%">
-      <strong>Extend Open Mercato in practice</strong><br/><br/>
-      <a href="https://www.youtube.com/watch?v=fb47pmH6ojE&t=854s"><img src="https://img.youtube.com/vi/fb47pmH6ojE/maxresdefault.jpg" alt="Extend Open Mercato in practice" width="400"/></a>
+    <td align="center" width="50%" valign="top">
+      <strong>How to build custom landing page with Open Mercato as a backend</strong><br/><br/>
+      <a href="https://www.youtube.com/watch?v=fb47pmH6ojE&t=854s"><img src="https://img.youtube.com/vi/fb47pmH6ojE/maxresdefault.jpg" alt="How to build custom landing page with Open Mercato as a backend" width="400"/></a>
     </td>
   </tr>
 </table>
 
+These walkthroughs show how to treat Open Mercato as a ready-made business backend while keeping the frontend fully custom. You can start from the built-in CRM data model, expose it through the generated APIs, and then build the customer-facing experience around your product's own design. They are a practical path from the default admin setup to a tailored app or landing page powered by Open Mercato.
+
 ### Get started without devops hassle
 
-<a href="https://sandboxes.openmercato.com"><img align="right" src="https://img.youtube.com/vi/dGdacjG4Ul0/maxresdefault.jpg" alt="Open Mercato Sandbox preview" width="300"/></a>
-
-Start your own Sandbox instance with Claude Code, Codex, Visual Studio Code, and Open Mercato in under 30 seconds.
-
-[Launch a Sandbox instance](https://sandboxes.openmercato.com)
-
-<br clear="right"/>
+<table>
+  <tr>
+    <td width="50%" valign="top">
+      Start your own Sandbox instance with Claude Code, Codex, Visual Studio Code, and Open Mercato in under 30 seconds.<br/><br/>
+      <a href="https://sandboxes.openmercato.com">Launch a Sandbox instance</a>
+    </td>
+    <td align="center" width="50%" valign="top">
+      <a href="https://sandboxes.openmercato.com"><img src="https://img.youtube.com/vi/dGdacjG4Ul0/maxresdefault.jpg" alt="Open Mercato Sandbox preview" width="400"/></a>
+    </td>
+  </tr>
+</table>
 
 ## Official Modules
 
@@ -330,26 +356,6 @@ Browse the full documentation at [docs.openmercato.com](https://docs.openmercato
 - [API Reference](https://docs.openmercato.com/api/overview)
 - [CLI Reference](https://docs.openmercato.com/cli/overview)
 - [Appendix](https://docs.openmercato.com/appendix/troubleshooting)
-
-## Spec Driven Development
-
-Open Mercato follows a **spec-first development approach**. Before implementing new features or making significant changes, we document the design in the `.ai/specs/` folder.
-
-### Why Specs?
-
-- **Clarity**: Specs ensure everyone understands the feature before coding starts
-- **Consistency**: Design decisions are documented and can be referenced by humans and AI agents
-- **Traceability**: Each spec maintains a changelog tracking the evolution of the feature
-
-### How It Works
-
-1. **Before coding**: Check if a spec exists in `.ai/specs/` (named `{YYYY-MM-DD}-{title}.md`)
-2. **New features**: Create or update the spec with your design before implementation
-3. **After changes**: Update the spec's changelog with a dated summary
-
-**Naming convention**: Specs use the format `{YYYY-MM-DD}-{title}.md` (e.g., `2026-01-26-sidebar-reorganization.md`)
-
-See [`.ai/specs/README.md`](.ai/specs/README.md) for the full specification directory and [`.ai/specs/AGENTS.md`](.ai/specs/AGENTS.md) for detailed guidelines on maintaining specs.
 
 ## Join us on Discord
 
