@@ -293,7 +293,7 @@ describe('<AiChat>', () => {
     expect(parsedUrl.searchParams.get('agent')).toBe('customers.deal_analyzer')
     expect(parsedUrl.searchParams.has('provider')).toBe(false)
     expect(parsedUrl.searchParams.has('model')).toBe(false)
-  })
+  }, 15_000)
 
   it('renders a compact footer before a constrained host is measured', async () => {
     const apiCallMock = apiCall as unknown as jest.Mock

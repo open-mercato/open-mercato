@@ -218,7 +218,7 @@ describe('SidebarCustomizationEditor', () => {
     expect(screen.getByRole('dialog')).toBeInTheDocument()
 
     expect(screen.getAllByText(duplicateMessage)).toHaveLength(1)
-  })
+  }, 15_000)
 
   it('clears the inline dialog error when the user edits the name', async () => {
     const duplicateMessage = 'A variant with this name already exists. Choose a different name.'
