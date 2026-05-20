@@ -24,6 +24,19 @@ const APP_READY_TIMEOUT_ENV_VAR = 'OM_INTEGRATION_APP_READY_TIMEOUT_SECONDS'
 const CHECKOUT_TEST_INJECTION_FLAG = 'NEXT_PUBLIC_OM_EXAMPLE_CHECKOUT_TEST_INJECTIONS_ENABLED'
 const resolver = createResolver()
 const projectRootDirectory = resolver.getRootDir()
+const TEST_DATABASE_URL = 'postgres://mercato:secret@127.0.0.1:55001/mercato_test'
+const TEST_QUEUE_BASE_DIR = path.join(projectRootDirectory, '.ai', 'qa', 'tmp-queue')
+
+const writeTestEphemeralEnvironmentState = (input: {
+  baseUrl: string
+  port: number
+  logPrefix: string
+  captureScreenshots: boolean
+}) => writeEphemeralEnvironmentState({
+  ...input,
+  databaseUrl: TEST_DATABASE_URL,
+  queueBaseDir: TEST_QUEUE_BASE_DIR,
+})
 
 const mockHealthyReadinessFetch = (
   overrides: {
@@ -127,7 +140,7 @@ describe('integration cache and options', () => {
     const fetchSpy = mockHealthyReadinessFetch()
 
     try {
-      await writeEphemeralEnvironmentState({
+      await writeTestEphemeralEnvironmentState({
         baseUrl,
         port: 5001,
         logPrefix: 'integration',
@@ -135,7 +148,13 @@ describe('integration cache and options', () => {
       })
 
       const state = await readEphemeralEnvironmentState()
-      expect(state).toMatchObject({ baseUrl, port: 5001, captureScreenshots: true })
+      expect(state).toMatchObject({
+        baseUrl,
+        port: 5001,
+        databaseUrl: TEST_DATABASE_URL,
+        queueBaseDir: TEST_QUEUE_BASE_DIR,
+        captureScreenshots: true,
+      })
 
       const environment = await tryReuseExistingEnvironment({
         verbose: false,
@@ -151,6 +170,8 @@ describe('integration cache and options', () => {
         ownedByCurrentProcess: false,
       })
       expect(environment?.commandEnvironment.OM_INTEGRATION_TEST).toBe('true')
+      expect(environment?.commandEnvironment.DATABASE_URL).toBe(TEST_DATABASE_URL)
+      expect(environment?.commandEnvironment.QUEUE_BASE_DIR).toBe(TEST_QUEUE_BASE_DIR)
       expect(environment?.commandEnvironment.PW_CAPTURE_SCREENSHOTS).toBe('1')
       expect(environment?.commandEnvironment.NEXT_PUBLIC_OM_EXAMPLE_CHECKOUT_TEST_INJECTIONS_ENABLED).toBeUndefined()
     } finally {
@@ -164,7 +185,7 @@ describe('integration cache and options', () => {
     const fetchSpy = mockHealthyReadinessFetch()
 
     try {
-      await writeEphemeralEnvironmentState({
+      await writeTestEphemeralEnvironmentState({
         baseUrl,
         port: 5001,
         logPrefix: 'integration',
@@ -193,7 +214,7 @@ describe('integration cache and options', () => {
     })
 
     try {
-      await writeEphemeralEnvironmentState({
+      await writeTestEphemeralEnvironmentState({
         baseUrl,
         port: 5001,
         logPrefix: 'integration',
@@ -228,7 +249,7 @@ describe('integration cache and options', () => {
     })
 
     try {
-      await writeEphemeralEnvironmentState({
+      await writeTestEphemeralEnvironmentState({
         baseUrl,
         port: 5001,
         logPrefix: 'integration',
@@ -258,7 +279,7 @@ describe('integration cache and options', () => {
     const fetchSpy = jest.spyOn(global, 'fetch').mockResolvedValue({ status: 500 } as unknown as Response)
 
     try {
-      await writeEphemeralEnvironmentState({
+      await writeTestEphemeralEnvironmentState({
         baseUrl,
         port: 5001,
         logPrefix: 'integration',
@@ -281,12 +302,40 @@ describe('integration cache and options', () => {
     }
   })
 
+  it('does not reuse legacy ephemeral state without runtime database and queue settings', async () => {
+    const baseUrl = 'http://127.0.0.1:5001'
+    const fetchSpy = mockHealthyReadinessFetch()
+
+    try {
+      await writeFile(ephemeralEnvFilePath, `${JSON.stringify({
+        status: 'running',
+        baseUrl,
+        port: 5001,
+        source: 'integration',
+        captureScreenshots: true,
+        startedAt: new Date().toISOString(),
+      }, null, 2)}\n`, 'utf8')
+
+      const environment = await tryReuseExistingEnvironment({
+        verbose: false,
+        captureScreenshots: true,
+        logPrefix: 'integration',
+        forceRebuild: false,
+      })
+
+      expect(environment).toBeNull()
+      await expect(readEphemeralEnvironmentState()).resolves.toBeNull()
+    } finally {
+      fetchSpy.mockRestore()
+    }
+  }, 20000)
+
   it('does not reuse an existing ephemeral environment when source requirement does not match', async () => {
     const baseUrl = 'http://127.0.0.1:5001'
     const fetchSpy = jest.spyOn(global, 'fetch').mockResolvedValue({ status: 200 } as unknown as Response)
 
     try {
-      await writeEphemeralEnvironmentState({
+      await writeTestEphemeralEnvironmentState({
         baseUrl,
         port: 5001,
         logPrefix: 'integration',
@@ -322,6 +371,8 @@ describe('integration cache and options', () => {
       status: 'running' as const,
       baseUrl: 'http://127.0.0.1:5001',
       port: 5001,
+      databaseUrl: TEST_DATABASE_URL,
+      queueBaseDir: TEST_QUEUE_BASE_DIR,
       source: 'integration',
       captureScreenshots: true,
       startedAt: new Date().toISOString(),

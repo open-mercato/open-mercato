@@ -138,6 +138,8 @@ type EphemeralEnvironmentState = {
   status: 'running'
   baseUrl: string
   port: number
+  databaseUrl: string
+  queueBaseDir: string
   source: string
   captureScreenshots: boolean
   startedAt: string
@@ -1168,6 +1170,8 @@ async function getPreferredPort(preferredPort: number): Promise<number> {
 export async function writeEphemeralEnvironmentState(input: {
   baseUrl: string
   port: number
+  databaseUrl: string
+  queueBaseDir: string
   logPrefix: string
   captureScreenshots: boolean
 }): Promise<void> {
@@ -1175,6 +1179,8 @@ export async function writeEphemeralEnvironmentState(input: {
     status: 'running',
     baseUrl: input.baseUrl,
     port: input.port,
+    databaseUrl: input.databaseUrl,
+    queueBaseDir: input.queueBaseDir,
     source: input.logPrefix,
     captureScreenshots: input.captureScreenshots,
     startedAt: new Date().toISOString(),
@@ -1219,6 +1225,12 @@ export async function readEphemeralEnvironmentState(): Promise<EphemeralEnvironm
   if (typeof record.port !== 'number' || !Number.isFinite(record.port) || record.port < 1) {
     return null
   }
+  if (typeof record.databaseUrl !== 'string' || record.databaseUrl.length === 0) {
+    return null
+  }
+  if (typeof record.queueBaseDir !== 'string' || record.queueBaseDir.length === 0) {
+    return null
+  }
   if (typeof record.source !== 'string' || record.source.length === 0) {
     return null
   }
@@ -1233,6 +1245,8 @@ export async function readEphemeralEnvironmentState(): Promise<EphemeralEnvironm
     status: 'running',
     baseUrl: record.baseUrl,
     port: record.port,
+    databaseUrl: record.databaseUrl,
+    queueBaseDir: record.queueBaseDir,
     source: record.source,
     captureScreenshots: record.captureScreenshots,
     startedAt: record.startedAt,
@@ -1614,12 +1628,19 @@ export async function acquireEphemeralRuntimeLock(
   }
 }
 
-function buildReusableEnvironment(baseUrl: string, captureScreenshots: boolean): NodeJS.ProcessEnv {
+function buildReusableEnvironment(input: {
+  baseUrl: string
+  databaseUrl: string
+  queueBaseDir: string
+  captureScreenshots: boolean
+}): NodeJS.ProcessEnv {
   const enterpriseModulesFlag = process.env.OM_ENABLE_ENTERPRISE_MODULES ?? 'false'
   return buildEnvironment({
-    BASE_URL: baseUrl,
-    APP_URL: baseUrl,
-    NEXT_PUBLIC_APP_URL: baseUrl,
+    DATABASE_URL: input.databaseUrl,
+    QUEUE_BASE_DIR: input.queueBaseDir,
+    BASE_URL: input.baseUrl,
+    APP_URL: input.baseUrl,
+    NEXT_PUBLIC_APP_URL: input.baseUrl,
     NODE_ENV: 'production',
     JWT_SECRET: process.env.JWT_SECRET ?? 'om-ephemeral-integration-jwt-secret',
     OM_SECURITY_MFA_SETUP_SECRET: process.env.OM_SECURITY_MFA_SETUP_SECRET ?? 'om-ephemeral-integration-mfa-setup-secret',
@@ -1640,13 +1661,19 @@ function buildReusableEnvironment(baseUrl: string, captureScreenshots: boolean):
     OM_CLI_QUIET: '1',
     MERCATO_QUIET: '1',
     NODE_NO_WARNINGS: '1',
-    PW_CAPTURE_SCREENSHOTS: captureScreenshots ? '1' : '0',
+    PW_CAPTURE_SCREENSHOTS: input.captureScreenshots ? '1' : '0',
   })
 }
 
 export async function tryReuseExistingEnvironment(options: EphemeralRuntimeOptions): Promise<EphemeralEnvironmentHandle | null> {
   const state = await readEphemeralEnvironmentState()
   if (!state) {
+    return null
+  }
+
+  if (!state.databaseUrl || !state.queueBaseDir) {
+    console.log(`[${options.logPrefix}] Existing ephemeral environment state is missing runtime database or queue settings. Clearing ${EPHEMERAL_ENV_FILE_PATH}.`)
+    await clearEphemeralEnvironmentState()
     return null
   }
 
@@ -1695,8 +1722,13 @@ export async function tryReuseExistingEnvironment(options: EphemeralRuntimeOptio
   return {
     baseUrl: state.baseUrl,
     port: state.port,
-    databaseUrl: '',
-    commandEnvironment: buildReusableEnvironment(state.baseUrl, state.captureScreenshots),
+    databaseUrl: state.databaseUrl,
+    commandEnvironment: buildReusableEnvironment({
+      baseUrl: state.baseUrl,
+      databaseUrl: state.databaseUrl,
+      queueBaseDir: state.queueBaseDir,
+      captureScreenshots: state.captureScreenshots,
+    }),
     ownedByCurrentProcess: false,
     stop: async () => {},
   }
@@ -3030,6 +3062,8 @@ export async function startEphemeralEnvironment(options: EphemeralRuntimeOptions
       await writeEphemeralEnvironmentState({
         baseUrl: applicationBaseUrl,
         port: applicationPort,
+        databaseUrl,
+        queueBaseDir: EPHEMERAL_QUEUE_BASE_DIR,
         logPrefix: options.logPrefix,
         captureScreenshots: options.captureScreenshots,
       })
