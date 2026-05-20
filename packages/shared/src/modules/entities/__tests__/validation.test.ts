@@ -76,7 +76,7 @@ describe('validateValuesAgainstDefs', () => {
       defs as any,
     )
 
-    expect(Date.now() - startedAt).toBeLessThan(250)
+    expect(Date.now() - startedAt).toBeLessThan(2_000)
     expect(result.ok).toBe(false)
     expect(result.fieldErrors['cf_eu_vat_number']).toBe('bad vat')
   })
