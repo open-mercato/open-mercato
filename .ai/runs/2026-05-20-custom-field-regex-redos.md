@@ -66,15 +66,15 @@ Audit findings from `rg "new RegExp\\(|operator.*regex|rule.*regex"`:
 
 ### Phase 1: Central Regex Hardening
 
-- [ ] 1.1 Add RE2JS dependency to shared package
-- [ ] 1.2 Replace custom-field RegExp execution with linear-time matching
-- [ ] 1.3 Enforce fail-closed regex input and pattern handling
+- [x] 1.1 Add RE2JS dependency to shared package — 0e3a6b745
+- [x] 1.2 Replace custom-field RegExp execution with linear-time matching — 0e3a6b745
+- [x] 1.3 Enforce fail-closed regex input and pattern handling — 0e3a6b745
 
 ### Phase 2: Regression Coverage
 
-- [ ] 2.1 Add regression tests for the reported ReDoS payload
-- [ ] 2.2 Add tests for unsupported regex syntax and oversized input
-- [ ] 2.3 Run focused shared validation checks
+- [x] 2.1 Add regression tests for the reported ReDoS payload — 0e3a6b745
+- [x] 2.2 Add tests for unsupported regex syntax and oversized input — 0e3a6b745
+- [x] 2.3 Run focused shared validation checks — 0e3a6b745
 
 ### Phase 3: Verification And Review
 
