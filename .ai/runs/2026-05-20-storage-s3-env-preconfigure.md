@@ -103,11 +103,11 @@ Bring `packages/storage-s3` up to the bar set by `gateway_stripe` / `sync_akeneo
 
 ### Phase 4: Validation gate
 
-- [ ] 4.1 Run full validation gate
+- [x] 4.1 Run full validation gate — typecheck, tests, generate, build:packages, build:app green; lint blocked by a pre-existing eslint-plugin-react/`next.config.ts` incompatibility (also reproduces on `origin/develop`); i18n usage check is advisory (no new keys added).
 
 ### Phase 5: Manual smoke verification
 
-- [ ] 5.1 Exercise CLI in running app, confirm logs in Integration UI
+- [x] 5.1 Exercise CLI in running app, confirm logs in Integration UI — verified five scenarios (missing env / full env / existing creds no-force / `--force` / incomplete env), info log persisted in `integration_logs`. Incomplete env exits 1 via the dispatcher's catch path (post-04753e982 fix).
 
 ### Phase 6: Pull request
 
