@@ -65,5 +65,5 @@ Source PRs:
 
 ### Phase 3: Publish Replacement PR and Close Originals
 
-- [ ] 3.1 Open a replacement PR against `develop` with dependency labels
-- [ ] 3.2 Close the original Dependabot PRs with supersession comments
+- [x] 3.1 Open a replacement PR against `develop` with dependency labels — PR #2005
+- [x] 3.2 Close the original Dependabot PRs with supersession comments — PR #2005
