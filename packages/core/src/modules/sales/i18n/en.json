@@ -3,6 +3,7 @@
   "audit_logs.resource_kind.sales.note": "Note",
   "audit_logs.resource_kind.sales.payment": "Payment",
   "audit_logs.resource_kind.sales.shipment": "Shipment",
+  "common.error": "An error occurred",
   "customers~sales.nav.group": "Sales",
   "sales.adjustments.error.returnExceedsRemainingGrandTotalGross": "Return adjustment amountGross exceeds the remaining grand total. Reduce the amount or remove existing returns first.",
   "sales.adjustments.error.returnExceedsRemainingGrandTotalNet": "Return adjustment amountNet exceeds the remaining grand total. Reduce the amount or remove existing returns first.",

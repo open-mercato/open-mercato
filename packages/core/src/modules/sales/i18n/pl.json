@@ -3,6 +3,7 @@
   "audit_logs.resource_kind.sales.note": "Notatka",
   "audit_logs.resource_kind.sales.payment": "Płatność",
   "audit_logs.resource_kind.sales.shipment": "Wysyłka",
+  "common.error": "Wystąpił błąd",
   "customers~sales.nav.group": "Sprzedaż",
   "sales.adjustments.error.returnExceedsRemainingGrandTotalGross": "Kwota brutto korekty zwrotu przekracza pozostałą wartość zamówienia. Zmniejsz kwotę lub usuń istniejące zwroty.",
   "sales.adjustments.error.returnExceedsRemainingGrandTotalNet": "Kwota netto korekty zwrotu przekracza pozostałą wartość zamówienia. Zmniejsz kwotę lub usuń istniejące zwroty.",

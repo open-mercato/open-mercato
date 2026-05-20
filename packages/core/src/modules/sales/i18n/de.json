@@ -3,6 +3,7 @@
   "audit_logs.resource_kind.sales.note": "Notiz",
   "audit_logs.resource_kind.sales.payment": "Zahlung",
   "audit_logs.resource_kind.sales.shipment": "Versand",
+  "common.error": "Ein Fehler ist aufgetreten",
   "customers~sales.nav.group": "Vertrieb",
   "sales.adjustments.error.returnExceedsRemainingGrandTotalGross": "Der Bruttobetrag der Rücksendeanpassung überschreitet den verbleibenden Gesamtbetrag. Bitte verringern Sie den Betrag oder entfernen Sie bestehende Rücksendungen.",
   "sales.adjustments.error.returnExceedsRemainingGrandTotalNet": "Der Nettobetrag der Rücksendeanpassung überschreitet den verbleibenden Gesamtbetrag. Bitte verringern Sie den Betrag oder entfernen Sie bestehende Rücksendungen.",
