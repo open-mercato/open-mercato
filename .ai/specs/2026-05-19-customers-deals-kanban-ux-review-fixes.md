@@ -15,6 +15,7 @@
 | Version | Date | Summary |
 |---------|------|---------|
 | 1.0 | 2026-05-19 | Initial spec: 27-item UX review punch list grouped into six commit phases (A11y / Navigation / Dialog shells / DS compliance / UX polish / PR body). Includes one SQL migration for stage colors and one new markdown TC-CRM scenario. |
+| 1.1 | 2026-05-20 | Round-2 review fixes (items 29–33): two P1 blockers (#32 multi-card drag, #33 currency popover opacity), two P2 (#29 duplicate Reset CTA, #30 off-screen Add stage CTA), one P3 (#31 lane-rail elevation). Adds Phase G with one new markdown scenario (TC-CRM-066) for bulk-drag. |
 
 ---
 
@@ -151,6 +152,18 @@ Six commit-level phases, each independently reviewable. Implementation order mat
 | 24 | `DealCard.tsx:230-234` | Replace stage-state coloring with probability-tier coloring (see §"Figma decisions" — three tiers using exact Figma hex; expressed via DS tokens when they match). Add `aria-label={\`Probability: \${value}%\`}`. |
 | 25 | `AddStageDialog.tsx:26-33`, `Lane.tsx:55-74`, new SQL migration | Replace the 6-hex chip picker with a 7-tone chip picker (`success`, `warning`, `info`, `error`, `neutral`, `brand`, `pink`). Lane's existing hex→tone mapping becomes the canonical mapping table. Persist the tone identifier in the `color` column. Migration: see §"Data Models / Migration" below. |
 | 26 | `DealCard.tsx:186-199` | When `bulkSelectionActive`, switch `cursor-grab` (and `cursor-grabbing` while dragging) → `cursor-pointer`. Add `aria-pressed={isSelected}` if not already present. |
+
+### Phase G — Round-2 review fixes (items 29–33)
+
+UX reviewer's round-2 punch list, layered on top of Phases A–F. All items below are net-new — no item from Phases A–F changes.
+
+| # | Component | Change |
+|---|-----------|--------|
+| 29 | `pipeline/page.tsx:2466-2484` | Remove the header `<Button>` "Reset column widths" — the same `handleResetAllLaneWidths` handler is already passed to `CustomizeViewDialog` (`onResetColumnWidths`). One entry point only; Customize view owns it. |
+| 30 | `pipeline/page.tsx` toolbar + lane row | Add an always-visible "Add stage" `<Button variant="outline">` in the page-header CTA cluster (next to "Customize view" / "New deal"). Remove the trailing `<AddStageLane onClick={handleAddStage} />` from the lane scroller so the CTA is no longer hidden behind a horizontal scroll. The DashedTileButton primitive stays (used by Lane quick-add / show-more); only the lane-shaped tail variant goes. **Decision:** option 1 from the reviewer's two suggestions (toolbar action vs. sticky tail lane); matches the placement pattern of every other backoffice "primary create" CTA in the app. |
+| 31 | `pipeline/page.tsx:2573` + `:2638` left/right lane rails | Elevate both rails to read as "the kanban tucks under a sidebar": rail wrapper becomes `relative z-10 flex w-11 [-mr-2|/-ml-2] shrink-0 items-center justify-center bg-card shadow-lg`. The chevron button retains its `absolute left-0|right-0 top-28` placement — only the surrounding rail picks up the surface treatment. All Tailwind values on DS scale (`w-11`, `-mr-2`, `-ml-2`, `shadow-lg`, `bg-card`); no arbitrary values. |
+| 32 | `pipeline/page.tsx:1413-1431` + DragOverlay | **Blocker.** `handleDragEnd` currently routes through `moveDealToStage` for the single `event.active.id`, ignoring `selectedDealIds`. Rewrite the dispatcher: if `selectedDealIds.has(dealId) && selectedDealIds.size > 1`, route through a new `bulkMoveDealsToStage(ids, targetStageId)` that performs an optimistic-update pass over every selected card and POSTs `/api/customers/deals/bulk-update-stage` (existing endpoint — already used by BulkActionsBar "Change stage" menu). Update the `DragOverlay` to render a `+N` badge on the dragged card when bulk-drag is active. Selection-after behavior: follow Asana — selection persists after a successful bulk drag; on POST failure, optimistic state rolls back AND selection is preserved so the operator can retry. |
+| 33 | `LaneCurrencyBreakdown.tsx:108`, `CurrencyFilterPopover.tsx:113`, `CurrencyFilterPopover.tsx:195` | Same opacity-on-floating-overlay bug as item 6 / FilterPopoverShell, but in two popovers that hand-roll their own chrome instead of using the shared shell. Outer `rounded-2xl bg-muted/30` → `rounded-2xl bg-card`; footer `bg-muted/30` → `bg-muted`. Drop the opacity modifier everywhere on the floating surface so card content underneath cannot bleed through. Migrating these two popovers to `FilterPopoverShell` is filed as a follow-up — the chrome is similar but not identical (LaneCurrencyBreakdown's body has a custom overline + headline-total block; CurrencyFilterPopover's footer has only "Apply filter", no Cancel). Inline patch is the safer, smaller change for this round. |
 
 ### Phase F — PR body (item 27)
 
@@ -375,6 +388,20 @@ Test: write `TC-CRM-018-deal-stage-color-migration.md` and run it manually again
 
 Update PR description with the deferred-scope section described in Phase F above.
 
+### Phase G — Round-2 review fixes (one commit + one TC scenario)
+
+1. Remove the header "Reset column widths" `<Button>` from `pipeline/page.tsx`. Customize view dialog already owns the action — confirmed by the existing `onResetColumnWidths={handleResetAllLaneWidths}` wiring at the `CustomizeViewDialog` call site.
+2. Add an "Add stage" `<Button variant="outline">` to the header CTA cluster (between "Customize view" and "New deal"). Wire it to the existing `handleAddStage` callback so the same `AddStageDialog` opens regardless of entry point. Remove the `<AddStageLane onClick={handleAddStage} />` tile from the lane scroller — the toolbar button replaces it.
+3. Elevate both lane rails by replacing `relative flex w-9 shrink-0` with `relative z-10 flex w-11 -mr-2 shrink-0 items-center justify-center bg-card shadow-lg` on the left rail, and the mirrored `relative z-10 flex w-11 -ml-2 shrink-0 items-center justify-center bg-card shadow-lg` on the right rail. Confirm in the browser that the chevron buttons remain visually positioned where they were.
+4. Patch `LaneCurrencyBreakdown.tsx:108` (outer wrapper) — `bg-muted/30` → `bg-card`. Patch `CurrencyFilterPopover.tsx:113` (outer) — `bg-muted/30` → `bg-card`. Patch `CurrencyFilterPopover.tsx:195` (footer) — `bg-muted/30` → `bg-muted`.
+5. **Bulk-drag wiring** (item 32, the blocker):
+   - Add a new `bulkMoveDealsToStage(dealIds: string[], targetStageId: string)` callback. It performs an optimistic move on all `dealIds` against the per-lane react-query caches (same shape as `moveDealToStage` but loops over each id), then POSTs to `/api/customers/deals/bulk-update-stage` (same endpoint already used by the BulkActionsBar "Change stage" menu). Wraps the POST in `runDealMutation` for guarded-mutation parity with the menu path. On failure, rolls back the optimistic update via the snapshot; selection is preserved so the operator can retry.
+   - Rewrite `handleDragEnd`: extract `dealId` + `targetStageId` as today, then dispatch on `selectedDealIds.has(dealId) && selectedDealIds.size > 1` → `bulkMoveDealsToStage`, else `moveDealToStage`.
+   - Update the `DragOverlay` render to attach a `+N` indicator pill in the upper-right corner of the dragged card when `bulkDragActive` (where `bulkDragActive = activeDragDealId ? selectedDealIds.has(activeDragDealId) && selectedDealIds.size > 1 : false`). N = `selectedDealIds.size - 1` (the dragged card itself is implicit).
+6. Add markdown scenario `TC-CRM-066-deal-kanban-bulk-drag.md` covering: pre-select 3 deals, drag one of them into another stage → all 3 move; pre-select 3 deals, drag a deal that is NOT in the selection → only the dragged one moves (selection unchanged); POST 500 → optimistic update rolls back, selection preserved.
+
+Manual QA per item: (1) widths control only exists inside Customize view; (2) "Add stage" CTA visible without scrolling, AddStageDialog opens, lane row no longer carries a trailing dashed tile; (3) rails render as elevated tabs over the scroller — no flicker behind chevron buttons; (4) currency popovers render solid (no bleed-through onto card content underneath); (5) bulk-drag UX as described in the TC-CRM-066 scenario.
+
 ---
 
 ## Progress Checklist
@@ -385,6 +412,7 @@ Update PR description with the deferred-scope section described in Phase F above
 - [ ] Phase D — DS compliance (items 15–20)
 - [ ] Phase E — UX polish (items 21–26) + SQL migration + TC-CRM-018
 - [ ] Phase F — PR description (item 27)
+- [ ] Phase G — Round-2 review fixes (items 29–33) + TC-CRM-066
 - [ ] Manual QA pass per phase (see Implementation Plan)
 - [ ] Build green: `yarn build`
 - [ ] Lint green: `yarn lint`
@@ -413,3 +441,4 @@ Update PR description with the deferred-scope section described in Phase F above
 | Date | Change |
 |------|--------|
 | 2026-05-19 | Spec drafted. |
+| 2026-05-20 | Round-2 review fixes (items 29–33) added as Phase G with companion TC-CRM-066 markdown scenario. |

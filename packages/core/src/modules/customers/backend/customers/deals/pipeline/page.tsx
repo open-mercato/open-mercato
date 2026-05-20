@@ -18,7 +18,7 @@ import {
   type DragStartEvent,
 } from '@dnd-kit/core'
 import { sortableKeyboardCoordinates } from '@dnd-kit/sortable'
-import { ChevronLeft, ChevronRight, Layers, Plus, RotateCcw, SlidersHorizontal, Workflow } from 'lucide-react'
+import { ChevronLeft, ChevronRight, Layers, Plus, SlidersHorizontal, Workflow } from 'lucide-react'
 import { Page, PageBody } from '@open-mercato/ui/backend/Page'
 import {
   Breadcrumb,
@@ -59,7 +59,6 @@ import { FilterBarRow, type KanbanFilterChip } from './components/FilterBarRow'
 import { Lane, type LaneStage } from './components/Lane'
 import { LaneCurrencyBreakdown } from './components/LaneCurrencyBreakdown'
 import { CurrencyFilterPopover } from './components/CurrencyFilterPopover'
-import { AddStageLane } from './components/AddStageLane'
 import type { DealCardData } from './components/DealCard'
 import {
   QuickDealDialog,
@@ -1030,6 +1029,25 @@ export default function DealsKanbanPage(): React.ReactElement {
     ),
   })
 
+  // Deal mutation context is declared here (not next to the dialog/bulk handlers further
+  // down) because `bulkMoveDealsToStage` — declared right after `moveDealToStage` so
+  // `handleDragEnd` can dispatch to it — depends on `runDealMutation`/`retryDealMutation`.
+  // Hoisting the hook keeps the lexical ordering valid for `useCallback` dependency arrays.
+  const dealMutationContextId = 'customers-deals-kanban:deal-mutation'
+  const { runMutation: runDealMutation, retryLastMutation: retryDealMutation } = useGuardedMutation<{
+    formId: string
+    resourceKind: string
+    resourceId: string
+    retryLastMutation: () => Promise<boolean>
+  }>({
+    contextId: dealMutationContextId,
+    blockedMessage: translateWithFallback(
+      t,
+      'ui.forms.flash.saveBlocked',
+      'Save blocked by validation',
+    ),
+  })
+
   const moveDealToStage = React.useCallback(
     (dealId: string, targetStageId: string) => {
       if (!targetStageId || targetStageId === '__unassigned') return
@@ -1142,6 +1160,162 @@ export default function DealsKanbanPage(): React.ReactElement {
         })
     },
     [invalidateKanbanData, queryClient, retryLastMutation, runMoveMutation, stageIdByDealId, t],
+  )
+
+  // Round-2 UX review item 32: when the operator drags a card that is part of a multi-card
+  // selection, every selected card must travel with it. We mirror `moveDealToStage`'s
+  // optimistic-update pattern but apply it across every id in `dealIds`, capture a single
+  // pre-batch snapshot of every lane cache (so rollback restores the full pre-batch state
+  // atomically on failure), and dispatch the same `/api/customers/deals/bulk-update-stage`
+  // endpoint that powers the `BulkActionsBar` "Change stage" menu. The worker is async, so
+  // we intentionally do NOT call `invalidateKanbanData()` after a successful POST — that
+  // would refetch the pre-move server state and flicker the optimistic UI back. The
+  // `progress.job.completed` listener already triggers an invalidate when the worker is
+  // actually done, which is what we want.
+  const bulkMoveDealsToStage = React.useCallback(
+    async (dealIds: string[], targetStageId: string) => {
+      if (!targetStageId || targetStageId === '__unassigned' || dealIds.length === 0) return
+      const uniqueIds = Array.from(new Set(dealIds))
+      const idsToMove = uniqueIds.filter((id) => stageIdByDealId.get(id) !== targetStageId)
+      if (idsToMove.length === 0) return
+
+      const laneCachePredicate = { queryKey: ['customers', 'deals', 'kanban-lane'] as const }
+      const snapshot = queryClient.getQueriesData<{ items: DealApiRecord[]; total: number }>(laneCachePredicate)
+      const extraSnapshot = extraCardsByStage
+      const newExtras: Record<string, DealApiRecord[]> = { ...extraCardsByStage }
+
+      for (const dealId of idsToMove) {
+        const currentStageId = stageIdByDealId.get(dealId)
+        if (!currentStageId) continue
+        let movingItem: DealApiRecord | null = null
+        for (const [key, data] of snapshot) {
+          if (!data) continue
+          const stageKey = (key as readonly unknown[]).find(
+            (part) => typeof part === 'string' && (part as string).startsWith('stage:'),
+          )
+          if (typeof stageKey !== 'string') continue
+          const stageId = stageKey.slice('stage:'.length)
+          if (stageId !== currentStageId) continue
+          const current = queryClient.getQueryData<{ items: DealApiRecord[]; total: number }>(
+            key as readonly unknown[],
+          )
+          if (!current) continue
+          const idx = current.items.findIndex((it) => it.id === dealId)
+          if (idx < 0) continue
+          movingItem = { ...current.items[idx], pipeline_stage_id: targetStageId }
+          queryClient.setQueryData(key, {
+            ...current,
+            items: current.items.filter((it) => it.id !== dealId),
+            total: Math.max(0, current.total - 1),
+          })
+          break
+        }
+        if (!movingItem) {
+          const extras = newExtras[currentStageId] ?? []
+          const found = extras.find((it) => it.id === dealId)
+          if (found) {
+            movingItem = { ...found, pipeline_stage_id: targetStageId }
+            newExtras[currentStageId] = extras.filter((it) => it.id !== dealId)
+          }
+        } else if (newExtras[currentStageId]?.some((it) => it.id === dealId)) {
+          newExtras[currentStageId] = (newExtras[currentStageId] ?? []).filter((it) => it.id !== dealId)
+        }
+        if (!movingItem) continue
+        for (const [key, data] of snapshot) {
+          if (!data) continue
+          const stageKey = (key as readonly unknown[]).find(
+            (part) => typeof part === 'string' && (part as string).startsWith('stage:'),
+          )
+          if (typeof stageKey !== 'string') continue
+          const stageId = stageKey.slice('stage:'.length)
+          if (stageId !== targetStageId) continue
+          const current = queryClient.getQueryData<{ items: DealApiRecord[]; total: number }>(
+            key as readonly unknown[],
+          )
+          if (!current) continue
+          queryClient.setQueryData(key, {
+            ...current,
+            items: [movingItem, ...current.items],
+            total: current.total + 1,
+          })
+        }
+      }
+      setExtraCardsByStage(newExtras)
+
+      setIsBulkMutating(true)
+      let progressJobId: string | null = null
+      try {
+        await runDealMutation({
+          operation: async () => {
+            const call = await apiCallOrThrow<BulkJobResponse>(
+              '/api/customers/deals/bulk-update-stage',
+              {
+                method: 'POST',
+                headers: { 'content-type': 'application/json' },
+                body: JSON.stringify({
+                  ids: idsToMove,
+                  pipelineStageId: targetStageId,
+                }),
+              },
+              {
+                errorMessage: translateWithFallback(
+                  t,
+                  'customers.deals.kanban.bulk.changeStage.error',
+                  'Failed to start bulk stage update.',
+                ),
+              },
+            )
+            progressJobId = call.result?.progressJobId ?? null
+          },
+          context: {
+            formId: dealMutationContextId,
+            resourceKind: 'customers.deals.bulk_stage',
+            resourceId: idsToMove.join(','),
+            retryLastMutation: retryDealMutation,
+          },
+        })
+        flash(
+          translateWithFallback(
+            t,
+            'customers.deals.kanban.bulk.changeStage.queued',
+            'Bulk stage update started ({count} deals).',
+            { count: idsToMove.length },
+          ),
+          'success',
+        )
+        if (progressJobId) {
+          trackBulkProgressJob(progressJobId)
+        }
+        // Selection persists after a successful bulk drag — Asana convention; lets the
+        // operator drag the same set into another stage without re-selecting.
+      } catch (error) {
+        for (const [key, data] of snapshot) {
+          queryClient.setQueryData(key, data)
+        }
+        setExtraCardsByStage(extraSnapshot)
+        const message =
+          error instanceof Error && error.message
+            ? error.message
+            : translateWithFallback(
+                t,
+                'customers.deals.kanban.bulk.changeStage.error',
+                'Failed to start bulk stage update.',
+              )
+        flash(message, 'error')
+      } finally {
+        setIsBulkMutating(false)
+      }
+    },
+    [
+      dealMutationContextId,
+      extraCardsByStage,
+      queryClient,
+      retryDealMutation,
+      runDealMutation,
+      stageIdByDealId,
+      t,
+      trackBulkProgressJob,
+    ],
   )
 
   // Horizontal scroll arrows — let the user step lane-by-lane instead of using only the bottom slider.
@@ -1425,9 +1599,25 @@ export default function DealsKanbanPage(): React.ReactElement {
         targetStageId = stageIdByDealId.get(overId) ?? null
       }
       if (!targetStageId) return
-      moveDealToStage(dealId, targetStageId)
+
+      // Round-2 UX review item 32: bulk-drag dispatch. If the dragged card is part of a
+      // multi-card selection, route through `bulkMoveDealsToStage` so every selected card
+      // travels with it. Dragging a NON-selected card is treated as a single-card move
+      // and leaves the existing selection intact (the operator may have selected cards
+      // intentionally and just be moving an unrelated one).
+      const isBulkDrag = selectedDealIds.has(dealId) && selectedDealIds.size > 1
+      if (isBulkDrag) {
+        void bulkMoveDealsToStage(Array.from(selectedDealIds), targetStageId)
+      } else {
+        moveDealToStage(dealId, targetStageId)
+      }
     },
-    [moveDealToStage, stageIdByDealId],
+    [bulkMoveDealsToStage, moveDealToStage, selectedDealIds, stageIdByDealId],
+  )
+
+  const bulkDragActive = React.useMemo(
+    () => activeDragDealId !== null && selectedDealIds.has(activeDragDealId) && selectedDealIds.size > 1,
+    [activeDragDealId, selectedDealIds],
   )
 
   const handleToggleSelect = React.useCallback((dealId: string) => {
@@ -1546,21 +1736,6 @@ export default function DealsKanbanPage(): React.ReactElement {
       })
       .catch(() => {})
   }, [invalidateKanbanData, scopeVersion, selectedPipelineId])
-
-  const dealMutationContextId = 'customers-deals-kanban:deal-mutation'
-  const { runMutation: runDealMutation, retryLastMutation: retryDealMutation } = useGuardedMutation<{
-    formId: string
-    resourceKind: string
-    resourceId: string
-    retryLastMutation: () => Promise<boolean>
-  }>({
-    contextId: dealMutationContextId,
-    blockedMessage: translateWithFallback(
-      t,
-      'ui.forms.flash.saveBlocked',
-      'Save blocked by validation',
-    ),
-  })
 
   const updateDealStatus = React.useCallback(
     async (dealId: string, status: 'win' | 'loose') => {
@@ -2463,28 +2638,18 @@ export default function DealsKanbanPage(): React.ReactElement {
                 )}
                 className="w-64"
               />
-              {Object.keys(laneWidths).length > 0 ? (
-                <Button
-                  variant="outline"
-                  type="button"
-                  onClick={handleResetAllLaneWidths}
-                  title={translateWithFallback(
-                    t,
-                    'customers.deals.kanban.cta.resetWidths.help',
-                    'Restore all kanban columns to their default width',
-                  )}
-                >
-                  <RotateCcw className="size-4" aria-hidden="true" />
-                  {translateWithFallback(
-                    t,
-                    'customers.deals.kanban.cta.resetWidths',
-                    'Reset column widths',
-                  )}
-                </Button>
-              ) : null}
               <Button variant="outline" type="button" onClick={handleCustomizeView}>
                 <SlidersHorizontal className="size-4" aria-hidden="true" />
                 {translateWithFallback(t, 'customers.deals.kanban.cta.customize', 'Customize view')}
+              </Button>
+              <Button
+                variant="outline"
+                type="button"
+                onClick={handleAddStage}
+                disabled={!selectedPipelineId}
+              >
+                <Plus className="size-4" aria-hidden="true" />
+                {translateWithFallback(t, 'customers.deals.kanban.cta.newStage', 'New stage')}
               </Button>
               <Button asChild>
                 <Link href="/backend/customers/deals/create?returnTo=/backend/customers/deals/pipeline">
@@ -2570,7 +2735,13 @@ export default function DealsKanbanPage(): React.ReactElement {
               scroller keeps as much horizontal room as possible (= more lanes fit). The buttons
               are absolute inside the gutter so they never overlap card content. */}
           <div className="flex items-stretch">
-            <div className="relative flex w-9 shrink-0">
+            {/*
+              Lane rail reads as an elevated tab over the kanban scroller (round-2 UX item 31):
+              `bg-card shadow-lg` gives it a real surface and a soft drop-shadow; `-mr-2` pulls
+              the scroller 8px to the left so its first lane visibly tucks under the rail's
+              right edge; `z-10` keeps the rail above the scroller for the tuck-under effect.
+            */}
+            <div className="relative z-10 flex w-11 -mr-2 shrink-0 items-center justify-center bg-card shadow-lg">
               <IconButton
                 variant="outline"
                 size="lg"
@@ -2631,11 +2802,11 @@ export default function DealsKanbanPage(): React.ReactElement {
                       />
                     )
                   })}
-                  <AddStageLane onClick={handleAddStage} />
                 </>
               )}
             </div>
-            <div className="relative flex w-9 shrink-0">
+            {/* Mirror of the left rail; `-ml-2` pulls the last lane visibly under the rail's left edge. */}
+            <div className="relative z-10 flex w-11 -ml-2 shrink-0 items-center justify-center bg-card shadow-lg">
               <IconButton
                 variant="outline"
                 size="lg"
@@ -2657,33 +2828,51 @@ export default function DealsKanbanPage(): React.ReactElement {
           </div>
             <DragOverlay dropAnimation={null}>
               {activeDragDeal ? (
-                <div className={`pointer-events-none ${LANE_WIDTH_CLASS} rotate-2 cursor-grabbing select-none rounded-lg border border-border bg-card px-4 py-3.5 shadow-xl ring-2 ring-accent-indigo/40`}>
-                  <div className="flex flex-col gap-2">
-                    <h3 className="line-clamp-2 text-base font-semibold leading-normal text-foreground">
-                      {activeDragDeal.title}
-                    </h3>
-                    {typeof activeDragDeal.valueAmount === 'number' ? (
-                      <div className="flex items-baseline gap-1.5">
-                        <span className="text-lg font-bold leading-normal text-foreground">
-                          {new Intl.NumberFormat(undefined, {
-                            style: 'decimal',
-                            maximumFractionDigits: 0,
-                            useGrouping: true,
-                          }).format(activeDragDeal.valueAmount)}
-                        </span>
-                        {activeDragDeal.valueCurrency ? (
-                          <span className="text-sm font-semibold leading-normal text-muted-foreground">
-                            {activeDragDeal.valueCurrency.toUpperCase()}
+                <div className="relative">
+                  <div className={`pointer-events-none ${LANE_WIDTH_CLASS} rotate-2 cursor-grabbing select-none rounded-lg border border-border bg-card px-4 py-3.5 shadow-xl ring-2 ring-accent-indigo/40`}>
+                    <div className="flex flex-col gap-2">
+                      <h3 className="line-clamp-2 text-base font-semibold leading-normal text-foreground">
+                        {activeDragDeal.title}
+                      </h3>
+                      {typeof activeDragDeal.valueAmount === 'number' ? (
+                        <div className="flex items-baseline gap-1.5">
+                          <span className="text-lg font-bold leading-normal text-foreground">
+                            {new Intl.NumberFormat(undefined, {
+                              style: 'decimal',
+                              maximumFractionDigits: 0,
+                              useGrouping: true,
+                            }).format(activeDragDeal.valueAmount)}
                           </span>
-                        ) : null}
-                      </div>
-                    ) : null}
-                    {activeDragDeal.primaryCompany ? (
-                      <span className="inline-flex w-fit max-w-full items-center gap-1.5 overflow-hidden rounded-md bg-muted px-2.5 py-1 text-sm font-semibold leading-normal text-foreground">
-                        <span className="truncate">{activeDragDeal.primaryCompany.label}</span>
-                      </span>
-                    ) : null}
+                          {activeDragDeal.valueCurrency ? (
+                            <span className="text-sm font-semibold leading-normal text-muted-foreground">
+                              {activeDragDeal.valueCurrency.toUpperCase()}
+                            </span>
+                          ) : null}
+                        </div>
+                      ) : null}
+                      {activeDragDeal.primaryCompany ? (
+                        <span className="inline-flex w-fit max-w-full items-center gap-1.5 overflow-hidden rounded-md bg-muted px-2.5 py-1 text-sm font-semibold leading-normal text-foreground">
+                          <span className="truncate">{activeDragDeal.primaryCompany.label}</span>
+                        </span>
+                      ) : null}
+                    </div>
                   </div>
+                  {bulkDragActive ? (
+                    // +N badge tells the operator how many cards are travelling with the dragged
+                    // one — round-2 UX review item 32. N excludes the dragged card itself, so a
+                    // selection of 5 shows "+4" floating above the dragged surface.
+                    <span
+                      aria-label={translateWithFallback(
+                        t,
+                        'customers.deals.kanban.bulk.dragOverlayBadge',
+                        '{count} more selected',
+                        { count: selectedDealIds.size - 1 },
+                      )}
+                      className="pointer-events-none absolute -right-3 -top-3 inline-flex h-7 min-w-7 rotate-2 items-center justify-center rounded-full border-2 border-card bg-foreground px-2 text-xs font-bold tabular-nums text-background shadow-lg"
+                    >
+                      +{selectedDealIds.size - 1}
+                    </span>
+                  ) : null}
                 </div>
               ) : null}
             </DragOverlay>

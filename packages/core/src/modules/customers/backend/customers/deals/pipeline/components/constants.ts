@@ -3,9 +3,9 @@
  * override per-lane via the drag-resize handle; this constant is the fallback used when no
  * override is recorded.
  *
- * Centralised here so the value can't drift between the Lane wrapper, the AddStageLane CTA,
- * and the page-level DragOverlay — three places that previously hand-wrote `w-[308px]` and
- * `style={{ width: '308px' }}` independently.
+ * Centralised here so the value can't drift between the Lane wrapper and the page-level
+ * DragOverlay — places that previously hand-wrote `w-[308px]` and `style={{ width: '308px' }}`
+ * independently.
  */
 export const LANE_WIDTH_PX = 308
 

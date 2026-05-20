@@ -105,7 +105,13 @@ export function LaneCurrencyBreakdown({
         className="w-80 rounded-2xl border-border bg-transparent p-0 shadow-xl"
         onCloseAutoFocus={(event) => event.preventDefault()}
       >
-        <div className="flex flex-col overflow-hidden rounded-2xl bg-muted/30">
+        {/*
+          Solid `bg-card` (no opacity modifier) on the outer wrapper: floating overlays must not
+          let underlying card content bleed through. Round-2 UX review item 33 — same class of
+          bug as item 6 in the shared FilterPopoverShell, but in popovers that hand-roll their
+          chrome instead of using the shell.
+        */}
+        <div className="flex flex-col overflow-hidden rounded-2xl bg-card">
           <div className="flex items-center justify-between border-b border-border bg-card px-5 py-4">
             <span className="text-base font-bold leading-normal text-foreground">{titleLabel}</span>
             <IconButton

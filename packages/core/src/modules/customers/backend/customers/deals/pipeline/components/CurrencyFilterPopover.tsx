@@ -110,7 +110,12 @@ export function CurrencyFilterPopover({
         className="w-96 rounded-2xl border-border bg-transparent p-0 shadow-xl"
         onKeyDown={handleKeyDown}
       >
-        <div className="flex flex-col overflow-hidden rounded-2xl bg-muted/30">
+        {/*
+          Solid `bg-card` (no opacity modifier) on the outer wrapper — round-2 UX review item 33.
+          Floating overlays must not let underlying card content bleed through; the previous
+          `bg-muted/30` allowed card titles/badges to show through this popover.
+        */}
+        <div className="flex flex-col overflow-hidden rounded-2xl bg-card">
           <div className="flex items-center justify-between border-b border-border bg-card px-5 py-4">
             <span className="text-base font-bold leading-normal text-foreground">
               {translateWithFallback(
@@ -192,7 +197,8 @@ export function CurrencyFilterPopover({
             </div>
           </div>
 
-          <div className="flex items-center justify-end border-t border-border bg-muted/30 px-5 py-3.5">
+          {/* Footer uses solid `bg-muted` (no opacity modifier) — round-2 UX review item 33. */}
+          <div className="flex items-center justify-end border-t border-border bg-muted px-5 py-3.5">
             <Button
               type="button"
               onClick={handleApply}
