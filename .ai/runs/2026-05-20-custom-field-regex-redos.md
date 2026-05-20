@@ -66,7 +66,7 @@ Audit findings from `rg "new RegExp\\(|operator.*regex|rule.*regex"`:
 > Convention: `- [ ]` pending, `- [x]` done. Append ` — <commit sha>` when a step lands. Do not rename step titles.
 
 Current PR: https://github.com/open-mercato/open-mercato/pull/1996
-Current status: in-progress. Resume with `/auto-continue-pr 1996`; start from the remaining Phase 3 validation/review gate and Phase 4 follow-up ReDoS surface plan.
+Current status: in-progress. Resume with `/auto-continue-pr 1996`; start from the remaining Phase 3 validation/review gate.
 
 ### Phase 1: Central Regex Hardening
 
@@ -90,7 +90,7 @@ Current status: in-progress. Resume with `/auto-continue-pr 1996`; start from th
 
 ### Phase 4: Follow-up ReDoS Surface Plan
 
-- [ ] 4.1 Harden business_rules MATCHES with the shared linear regex helper
-- [ ] 4.2 Migrate workflow trigger regex filters to the shared linear regex helper
-- [ ] 4.3 Replace escaped wildcard RegExp matchers with non-regex matching or strict caps
-- [ ] 4.4 Add focused regression tests for each migrated regex surface
+- [x] 4.1 Harden business_rules MATCHES with the shared linear regex helper — 9279e36e1
+- [x] 4.2 Migrate workflow trigger regex filters to the shared linear regex helper — 9279e36e1
+- [x] 4.3 Replace escaped wildcard RegExp matchers with non-regex matching or strict caps — 9279e36e1
+- [x] 4.4 Add focused regression tests for each migrated regex surface — 9279e36e1
