@@ -59,14 +59,14 @@ Audit findings from `rg "new RegExp\\(|operator.*regex|rule.*regex"`:
 - Existing saved custom-field definitions with unsupported regex constructs may reject values until an administrator updates the pattern.
 - RE2JS adds a browser-consumable dependency because `CrudForm` imports the shared validator for client-side validation.
 - Phase 4 is implemented in this PR: the remaining production regex surfaces now use linear regex helpers or non-regex wildcard matching.
-- Full validation now passes on this branch. `yarn template:sync` still reports unrelated pre-existing drift in `scripts/dev.mjs`; this PR does not change template-synced app sources or dev scripts.
+- Full validation now passes on this branch after merging the current `origin/develop`.
 
 ## Progress
 
 > Convention: `- [ ]` pending, `- [x]` done. Append ` — <commit sha>` when a step lands. Do not rename step titles.
 
 Current PR: https://github.com/open-mercato/open-mercato/pull/1996
-Current status: ready for review after final PR label handoff.
+Current status: ready for review.
 
 ### Phase 1: Central Regex Hardening
 
@@ -86,7 +86,7 @@ Current status: ready for review after final PR label handoff.
 
 - [x] 3.1 Run full validation gate — d6612378a
 - [x] 3.2 Complete code-review and BC self-review — d6612378a
-- [ ] 3.3 Open PR, label it, run auto-review-pr, and post summary
+- [x] 3.3 Open PR, label it, run auto-review-pr, and post summary — PR label/comment handoff completed; `auto-review-pr` was not run because this continuation was asked to make the PR ready for review, not to submit the review.
 
 ### Phase 4: Follow-up ReDoS Surface Plan
 
@@ -103,9 +103,9 @@ Current status: ready for review after final PR label handoff.
 - `yarn i18n:check-sync` — PASS
 - `yarn i18n:check-usage` — PASS after adding missing data sync translations; advisory unused-key output remains non-blocking
 - `yarn typecheck` — PASS
-- `yarn test --concurrency=4` — PASS
+- `yarn test --concurrency=3` — PASS
 - `yarn build:app` — PASS
-- `yarn template:sync` — WARN: unrelated `scripts/dev.mjs` template drift, not introduced by this PR
+- `yarn template:sync` — PASS
 
 ## Self-review Notes
 
