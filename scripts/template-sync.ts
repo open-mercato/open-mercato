@@ -47,6 +47,11 @@ const EXPLICIT_TEMPLATE_FILE_MAPPINGS = [
     rel: 'scripts/dev-splash-helpers.mjs',
   },
   {
+    sourceFile: path.join(ROOT, 'scripts', 'dev-cache-purge.mjs'),
+    templateFile: path.join(ROOT, 'packages', 'create-app', 'template', 'scripts', 'dev-cache-purge.mjs'),
+    rel: 'scripts/dev-cache-purge.mjs',
+  },
+  {
     sourceFile: path.join(ROOT, 'scripts', 'dev-splash-state.mjs'),
     templateFile: path.join(ROOT, 'packages', 'create-app', 'template', 'scripts', 'dev-splash-state.mjs'),
     rel: 'scripts/dev-splash-state.mjs',
@@ -75,11 +80,6 @@ const EXPLICIT_TEMPLATE_FILE_MAPPINGS = [
     sourceFile: path.join(ROOT, 'scripts', 'dev-database-url.mjs'),
     templateFile: path.join(ROOT, 'packages', 'create-app', 'template', 'scripts', 'dev-database-url.mjs'),
     rel: 'scripts/dev-database-url.mjs',
-  },
-  {
-    sourceFile: path.join(ROOT, 'scripts', 'dev-cache-purge.mjs'),
-    templateFile: path.join(ROOT, 'packages', 'create-app', 'template', 'scripts', 'dev-cache-purge.mjs'),
-    rel: 'scripts/dev-cache-purge.mjs',
   },
   {
     sourceFile: path.join(ROOT, 'apps', 'mercato', 'scripts', 'dev.mjs'),
@@ -111,6 +111,11 @@ const SYNC_INTERNAL_PACKAGE_KEYS = [
 const TEMPLATE_CONTENT_TRANSFORMS: Record<string, (content: string) => string> = {
   // Standalone template has shallower node_modules path than monorepo app.
   'app/globals.css': (content) => content.replaceAll('../../../../node_modules/', '../../node_modules/'),
+  'scripts/dev-cache-purge.mjs': (content) =>
+    content
+      .replace('configured Next.js distDir (`apps/mercato/.mercato/next`) plus the legacy\n// `apps/mercato/.next` location', 'configured Next.js distDir (`.mercato/next`) plus the legacy `.next` location')
+      .replace('// and middleware manifest from scratch on the next launch. See issue #1950.', '// and middleware manifest from scratch on the next launch.')
+      .replace("  Object.freeze(['apps', 'mercato', '.mercato', 'next']),\n  Object.freeze(['apps', 'mercato', '.next']),", "  Object.freeze(['.mercato', 'next']),\n  Object.freeze(['.next']),"),
 }
 const MAX_DIFFS_TO_SHOW = 20
 

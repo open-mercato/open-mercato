@@ -2,12 +2,11 @@ import fs from 'node:fs'
 import path from 'node:path'
 
 // Greenfield must not inherit the prior run's compiler state. Wiping the
-// configured Next.js distDir (`apps/mercato/.mercato/next`) plus the legacy
-// `apps/mercato/.next` location guarantees Turbopack rebuilds the route table
-// and middleware manifest from scratch on the next launch. See issue #1950.
+// configured Next.js distDir (`.mercato/next`) plus the legacy `.next` location guarantees Turbopack rebuilds the route table
+// and middleware manifest from scratch on the next launch.
 export const GREENFIELD_PURGE_TARGETS = Object.freeze([
-  Object.freeze(['apps', 'mercato', '.mercato', 'next']),
-  Object.freeze(['apps', 'mercato', '.next']),
+  Object.freeze(['.mercato', 'next']),
+  Object.freeze(['.next']),
 ])
 
 export function purgeAppBuildCaches({
