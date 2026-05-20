@@ -112,3 +112,12 @@ Bring `packages/storage-s3` up to the bar set by `gateway_stripe` / `sync_akeneo
 ### Phase 6: Pull request
 
 - [x] 6.1 Open PR + labels + summary comment — PR #1999, labels `review` / `feature` / `documentation` / `needs-qa`.
+
+### Phase 7: Deploy-hook ergonomics (`--all-tenants`)
+
+> Added after initial PR opened. User asked whether the preset auto-applies on Dokploy redeploy; the honest answer was no, so we extended the CLI with a single command that iterates every active scope so a single deploy hook applies the preset without baking UUIDs into the deploy config.
+
+- [x] 7.1 Add `--all-tenants` flag, lib helper `runConfigureFromEnvForScopes`, per-scope summary + exit semantics — 2a92f84db
+- [x] 7.2 Unit-test coverage for the multi-scope flow (mixed configured+skipped, one-tenant-errors, all-skip, `--force` per scope) — 2a92f84db
+- [x] 7.3 Document `--all-tenants` in storage-hub.mdx and both `.env.example` files — 2a92f84db
+- [x] 7.4 Manual smoke verified against three real tenants: skip-all (creds present), configure-all (after wipe), incomplete-env → exit 1, mode-conflict → exit 1.
