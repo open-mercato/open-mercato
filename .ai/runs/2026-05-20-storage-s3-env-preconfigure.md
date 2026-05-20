@@ -87,19 +87,19 @@ Bring `packages/storage-s3` up to the bar set by `gateway_stripe` / `sync_akeneo
 
 ### Phase 1: Provider CLI + setup hardening
 
-- [ ] 1.1 Add storage_s3 configure-from-env CLI
-- [ ] 1.2 Surface tenant-setup preset failures via IntegrationLogService
+- [x] 1.1 Add storage_s3 configure-from-env CLI — 44827dd6d
+- [x] 1.2 Surface tenant-setup preset failures via IntegrationLogService — 44827dd6d
 
 ### Phase 2: Documentation
 
-- [ ] 2.1 Document env block in apps/mercato/.env
-- [ ] 2.2 Document env block in packages/create-app/template/.env.example
-- [ ] 2.3 Expand storage-hub.mdx with rerunnable CLI + force semantics
+- [x] 2.1 Document env block in apps/mercato/.env — dd9bb63c5
+- [x] 2.2 Document env block in packages/create-app/template/.env.example — dd9bb63c5
+- [x] 2.3 Expand storage-hub.mdx with rerunnable CLI + force semantics — dd9bb63c5
 
 ### Phase 3: Tests
 
-- [ ] 3.1 Add preset.test.ts
-- [ ] 3.2 Add cli.test.ts
+- [x] 3.1 Add preset.test.ts — 44827dd6d
+- [x] 3.2 Add cli.test.ts — 44827dd6d
 
 ### Phase 4: Validation gate
 
