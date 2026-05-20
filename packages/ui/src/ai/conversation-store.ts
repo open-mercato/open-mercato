@@ -77,6 +77,8 @@ async function requestJson<T>(
       ...init,
       headers: {
         Accept: 'application/json',
+        'x-om-forbidden-redirect': '0',
+        'x-om-unauthorized-redirect': '0',
         ...(init?.body ? { 'Content-Type': 'application/json' } : {}),
         ...(init?.headers ?? {}),
       },

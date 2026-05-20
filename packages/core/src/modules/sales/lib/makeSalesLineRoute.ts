@@ -1,4 +1,5 @@
 import { z } from 'zod'
+import type { EntityManager } from '@mikro-orm/core'
 import { makeCrudRoute, type CrudCtx } from '@open-mercato/shared/lib/crud/factory'
 import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
 import { CrudHttpError } from '@open-mercato/shared/lib/crud/errors'
@@ -210,7 +211,7 @@ export function makeSalesLineRoute(config: SalesLineRouteConfig) {
         if (query.id) filters.id = { $eq: query.id }
         if (query[parentFkParam]) filters[parentFkColumn] = { $eq: query[parentFkParam] }
         try {
-          const em = ctx.container.resolve('em')
+          const em = ctx.container.resolve<EntityManager>('em')
           const cfFilters = await buildCustomFieldFiltersFromQuery({
             entityId,
             query,

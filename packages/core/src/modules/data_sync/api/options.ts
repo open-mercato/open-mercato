@@ -44,6 +44,8 @@ export async function GET(req: Request) {
           description: integration.description ?? null,
           providerKey: integration.providerKey ?? null,
           direction: adapter.direction,
+          runMode: adapter.runMode ?? 'generic',
+          canStartRun: adapter.runMode !== 'provider',
           supportedEntities: adapter.supportedEntities,
           hasCredentials: Boolean(credentials),
           isEnabled: state.isEnabled,
