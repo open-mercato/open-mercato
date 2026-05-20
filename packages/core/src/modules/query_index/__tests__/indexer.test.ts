@@ -178,6 +178,37 @@ describe('Indexer', () => {
     expect(lastInsert.merge.index_version).toBe(1)
   })
 
+  test('upsertIndexRow uses an explicit search token doc when provided', async () => {
+    const fake = createFakeKysely({
+      baseTable: 'todos',
+      baseRows: [{ id: '1', title: 'x' }],
+      cfValues: [],
+    })
+    const em: any = { getKysely: () => fake.db }
+
+    await upsertIndexRow(em, {
+      entityType: 'example:todo',
+      recordId: '1',
+      organizationId: 'org1',
+      tenantId: 't1',
+      searchTokenDoc: { title: 'Plain Title' },
+    })
+
+    const tokenInserts = fake.inserts.filter((entry) => entry.table === 'search_tokens')
+    expect(tokenInserts.length).toBeGreaterThan(0)
+    const tokenPayloads = tokenInserts.flatMap((entry) => {
+      if (Array.isArray(entry.payload)) return entry.payload
+      return entry.payload ? [entry.payload] : []
+    })
+    expect(tokenPayloads).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        entity_type: 'example:todo',
+        entity_id: '1',
+        field: 'title',
+      }),
+    ]))
+  })
+
   test('upsertIndexRow removes index row when base row missing', async () => {
     const fake = createFakeKysely({
       baseTable: 'todos',
