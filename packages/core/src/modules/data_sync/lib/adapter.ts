@@ -93,6 +93,15 @@ export interface DataSyncAdapter {
   readonly providerKey: string
   readonly direction: 'import' | 'export' | 'bidirectional'
   readonly supportedEntities: string[]
+  /**
+   * How a run may be started.
+   *
+   * - `generic` (default): `/api/data_sync/run` has enough information to
+   *   create and enqueue the run.
+   * - `provider`: the provider owns a prerequisite flow before a run can be
+   *   enqueued, such as uploading a CSV and linking that upload to the run.
+   */
+  readonly runMode?: 'generic' | 'provider'
   readonly operationalTelemetry?: boolean
 
   streamImport?(input: StreamImportInput): AsyncIterable<ImportBatch>

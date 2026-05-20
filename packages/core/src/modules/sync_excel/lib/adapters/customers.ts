@@ -993,6 +993,7 @@ async function processRow(params: {
 
 export const syncExcelCustomersAdapter: DataSyncAdapter = {
   providerKey: 'excel',
+  runMode: 'provider',
   operationalTelemetry: true,
   direction: 'import',
   supportedEntities: ['customers.person'],
