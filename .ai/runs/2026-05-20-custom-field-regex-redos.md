@@ -77,6 +77,7 @@ Audit findings from `rg "new RegExp\\(|operator.*regex|rule.*regex"`:
 - [x] 2.2 Add tests for unsupported regex syntax and oversized input — 0e3a6b745
 - [x] 2.3 Run focused shared validation checks — 0e3a6b745
 - [x] 2.4 Stabilize timing-sensitive ReDoS regression assertion — a5d31041d
+- [x] 2.5 Keep exported regex rule schema backward-compatible while enforcing runtime caps — 1c6190c5a
 
 ### Phase 3: Verification And Review
 
