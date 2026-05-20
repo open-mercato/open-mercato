@@ -89,7 +89,7 @@ const ActivityFeed = React.forwardRef<HTMLOListElement, ActivityFeedProps>(
 )
 ActivityFeed.displayName = 'ActivityFeed'
 
-export type ActivityFeedItemProps = React.HTMLAttributes<HTMLLIElement> & {
+export type ActivityFeedItemProps = Omit<React.HTMLAttributes<HTMLLIElement>, 'title'> & {
   /** Left slot — typically an `Avatar` at `size="sm"` (28px). */
   avatar?: React.ReactNode
   /** Headline row — actor + verb + inline object. Pass a ReactNode so

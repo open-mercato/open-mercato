@@ -101,7 +101,7 @@ function renderIcon(
   return <StarFull className={className} />
 }
 
-export type RatingProps = React.HTMLAttributes<HTMLSpanElement> &
+export type RatingProps = Omit<React.HTMLAttributes<HTMLSpanElement>, 'onChange'> &
   VariantProps<typeof ratingRootVariants> & {
     /** Current rating value (0..max). Floats allowed when `allowHalf` is `true`. */
     value: number

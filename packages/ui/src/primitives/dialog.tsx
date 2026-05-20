@@ -281,12 +281,16 @@ const DialogFooter = ({
         data-layout="equal"
         data-bordered={bordered ? 'true' : undefined}
         className={cn(
-          // Per Figma: the border-t separator runs edge-to-edge across
-      // the modal card (terminates at the rounded corners), NOT
-      // inset inside the DialogContent's `p-6` padding. We escape
-      // the parent's horizontal padding with `-mx-6` and re-apply
-      // `px-6` so the button row keeps its inset position.
-      bordered ? '-mx-6 border-t border-input px-6 pt-4' : '',
+          // Per Figma: thin border-t separator above the footer in
+          // every Modal Footer [1.1] variant. Rule is inset inside
+          // the DialogContent's `p-6` padding — true edge-to-edge
+          // ran the footer's layout box past the parent's
+          // overflow-y-auto scrollbar gutter, pushing the scrollbar
+          // outside the rounded card (caught in QuickDeal modal
+          // testing). Edge-to-edge polish deferred to a v6 dialog
+          // restructure that splits scrolling body from sticky
+          // header/footer.
+          bordered ? 'border-t border-input pt-4' : '',
           'flex flex-row gap-2 [&>*]:flex-1',
           className,
         )}
@@ -304,12 +308,16 @@ const DialogFooter = ({
         data-layout="default"
         data-bordered={bordered ? 'true' : undefined}
         className={cn(
-          // Per Figma: the border-t separator runs edge-to-edge across
-      // the modal card (terminates at the rounded corners), NOT
-      // inset inside the DialogContent's `p-6` padding. We escape
-      // the parent's horizontal padding with `-mx-6` and re-apply
-      // `px-6` so the button row keeps its inset position.
-      bordered ? '-mx-6 border-t border-input px-6 pt-4' : '',
+          // Per Figma: thin border-t separator above the footer in
+          // every Modal Footer [1.1] variant. Rule is inset inside
+          // the DialogContent's `p-6` padding — true edge-to-edge
+          // ran the footer's layout box past the parent's
+          // overflow-y-auto scrollbar gutter, pushing the scrollbar
+          // outside the rounded card (caught in QuickDeal modal
+          // testing). Edge-to-edge polish deferred to a v6 dialog
+          // restructure that splits scrolling body from sticky
+          // header/footer.
+          bordered ? 'border-t border-input pt-4' : '',
           'flex flex-col gap-3 sm:flex-row sm:items-center',
           className,
         )}
