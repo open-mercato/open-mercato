@@ -55,6 +55,13 @@ jest.mock('../injection/mutationEvents', () => ({
   dispatchBackendMutationError: jest.fn(),
 }))
 
+jest.mock('../injection/useGuardedMutation', () => ({
+  useGuardedMutation: () => ({
+    runMutation: async ({ operation }: { operation: () => Promise<unknown> }) => operation(),
+    retryLastMutation: jest.fn(async () => false),
+  }),
+}))
+
 const fakeGroups = [
   {
     id: 'core',
