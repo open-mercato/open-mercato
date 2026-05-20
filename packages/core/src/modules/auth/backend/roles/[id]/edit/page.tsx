@@ -9,6 +9,7 @@ import { AclEditor, type AclData } from '@open-mercato/core/modules/auth/compone
 import { WidgetVisibilityEditor, type WidgetVisibilityEditorHandle } from '@open-mercato/core/modules/dashboards/components/WidgetVisibilityEditor'
 import { E } from '#generated/entities.ids.generated'
 import { TenantSelect } from '@open-mercato/core/modules/directory/components/TenantSelect'
+import { Alert } from '@open-mercato/ui/primitives/alert'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { extractCustomFieldEntries } from '@open-mercato/shared/lib/crud/custom-fields-client'
 
@@ -144,12 +145,12 @@ export default function EditRolePage({ params }: { params?: { id?: string } }) {
         return (
           <div className="space-y-3">
             {tenantReassigned ? (
-              <div className="rounded border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-900">
+              <Alert status="warning" style="lighter">
                 {t(
                   'auth.roles.form.tenantReassignWarning',
                   'This role is being reassigned to a different tenant. The permissions selected here will be saved under the new tenant when you submit.',
                 )}
-              </div>
+              </Alert>
             ) : null}
             <AclEditor
               kind="role"
