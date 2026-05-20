@@ -65,6 +65,9 @@ Audit findings from `rg "new RegExp\\(|operator.*regex|rule.*regex"`:
 
 > Convention: `- [ ]` pending, `- [x]` done. Append ` — <commit sha>` when a step lands. Do not rename step titles.
 
+Current PR: https://github.com/open-mercato/open-mercato/pull/1996
+Current status: in-progress. Resume with `/auto-continue-pr 1996`; start from the remaining Phase 3 validation/review gate and Phase 4 follow-up ReDoS surface plan.
+
 ### Phase 1: Central Regex Hardening
 
 - [x] 1.1 Add RE2JS dependency to shared package — 0e3a6b745
