@@ -1,5 +1,6 @@
 import type { CredentialsService } from '@open-mercato/core/modules/integrations/lib/credentials-service'
 import type { IntegrationLogService } from '@open-mercato/core/modules/integrations/lib/log-service'
+import type { IntegrationScope } from '@open-mercato/shared/modules/integrations/types'
 import { applyS3EnvPreset, readS3EnvPreset } from './preset'
 
 export type ConfigureFromEnvDeps = {
@@ -49,4 +50,43 @@ export async function runConfigureFromEnv(
     const message = error instanceof Error ? error.message : 'Unknown S3 preset error'
     return { code: 1, status: 'error', message }
   }
+}
+
+export type ConfigureFromEnvScopeOutcome = {
+  scope: IntegrationScope
+  outcome: ConfigureFromEnvOutcome
+}
+
+export type ConfigureFromEnvAllOutcome = {
+  code: 0 | 1
+  configured: number
+  skipped: number
+  errored: number
+  perScope: ConfigureFromEnvScopeOutcome[]
+}
+
+export async function runConfigureFromEnvForScopes(
+  deps: ConfigureFromEnvDeps,
+  scopes: IntegrationScope[],
+  options: { force?: boolean } = {},
+): Promise<ConfigureFromEnvAllOutcome> {
+  const perScope: ConfigureFromEnvScopeOutcome[] = []
+  let configured = 0
+  let skipped = 0
+  let errored = 0
+
+  for (const scope of scopes) {
+    const outcome = await runConfigureFromEnv(deps, {
+      tenantId: scope.tenantId,
+      organizationId: scope.organizationId,
+      force: options.force,
+    })
+    perScope.push({ scope, outcome })
+    if (outcome.code === 1) errored += 1
+    else if (outcome.status === 'configured') configured += 1
+    else skipped += 1
+  }
+
+  const code: 0 | 1 = errored > 0 ? 1 : 0
+  return { code, configured, skipped, errored, perScope }
 }
