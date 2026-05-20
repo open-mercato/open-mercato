@@ -414,6 +414,11 @@ describe('MessageComposer draft flow', () => {
     await waitFor(() => {
       expect(apiCall).toHaveBeenCalledWith(
         expect.stringMatching(/^\/api\/auth\/users\?/),
+        expect.objectContaining({
+          headers: expect.objectContaining({
+            'x-om-forbidden-redirect': '0',
+          }),
+        }),
       )
     })
   })

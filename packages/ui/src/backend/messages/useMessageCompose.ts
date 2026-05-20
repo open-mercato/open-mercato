@@ -412,7 +412,17 @@ export function useMessageCompose({
     params.set('pageSize', '100')
     // Recipient lookup is filtered in TagsInput because incremental auth user search is unreliable.
 
-    const call = await apiCall<{ items?: UserListItem[] }>(`/api/auth/users?${params.toString()}`)
+    const call = await apiCall<{ items?: UserListItem[] }>(
+      `/api/auth/users?${params.toString()}`,
+      {
+        headers: {
+          'x-om-forbidden-redirect': '0',
+        },
+      },
+    ).catch(() => null)
+    if (!call) {
+      return []
+    }
     if (!call.ok) {
       return []
     }
@@ -479,6 +489,7 @@ export function useMessageCompose({
 
   const composeDraftOperation = useComposeDraftOperation({
     t,
+    messageId,
     messageType,
     priority,
     visibility,
@@ -604,7 +615,7 @@ export function useMessageCompose({
         const { endpoint, method, payload } = operation.buildRequest({ attachmentIds: nextAttachmentIds })
 
         const call = await apiCall<{ id?: string }>(endpoint, {
-          method: method ?? 'POST',
+          method,
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify(payload),
         })

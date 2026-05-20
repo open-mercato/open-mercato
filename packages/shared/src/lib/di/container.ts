@@ -1,4 +1,4 @@
-import { createContainer, asValue, AwilixContainer, InjectionMode, type NameAndRegistrationPair, type Resolver } from 'awilix'
+import { createContainer, asValue, AwilixContainer, InjectionMode, type Resolver } from 'awilix'
 import { RequestContext } from '@mikro-orm/core'
 import { getOrm } from '@open-mercato/shared/lib/db/mikro'
 import { EntityManager } from '@mikro-orm/postgresql'
@@ -7,8 +7,10 @@ import { DefaultDataEngine } from '@open-mercato/shared/lib/data/engine'
 import { commandRegistry, CommandBus } from '@open-mercato/shared/lib/commands'
 import { applyDiOverridesToContainer } from '@open-mercato/shared/modules/overrides'
 
-export type AppContainer = AwilixContainer
-export type DiRegistrar = (container: AwilixContainer) => void
+type DynamicCradle = Record<string, any>
+
+export type AppContainer = AwilixContainer<DynamicCradle>
+export type DiRegistrar = (container: AppContainer) => void
 
 // Registration pattern for publishable packages
 // Use globalThis to survive tsx/esbuild module duplication issue where the same
@@ -43,7 +45,7 @@ function isAwilixResolver(value: unknown): value is Resolver<unknown> {
   return Boolean(value && typeof value === 'object' && typeof (value as { resolve?: unknown }).resolve === 'function')
 }
 
-function toAwilixRegistrations(registrations: Record<string, unknown>): NameAndRegistrationPair<Record<string, unknown>> {
+function toAwilixRegistrations(registrations: Record<string, unknown>): Record<string, Resolver<any>> {
   return Object.fromEntries(
     Object.entries(registrations).map(([key, value]) => [
       key,
@@ -58,7 +60,7 @@ export async function createRequestContainer(): Promise<AppContainer> {
   // Use a fresh event manager so request-level subscribers (e.g., encryption) don't pile up globally
   const baseEm = (RequestContext.getEntityManager() as any) ?? orm.em
   const em = baseEm.fork({ clear: true, freshEventManager: true, useContext: true }) as unknown as EntityManager
-  const container = createContainer({ injectionMode: InjectionMode.CLASSIC })
+  const container = createContainer<DynamicCradle>({ injectionMode: InjectionMode.CLASSIC })
   // Core registrations
   container.register({
     em: asValue(em),

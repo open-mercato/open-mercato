@@ -13,4 +13,8 @@ describe('integrations validators', () => {
     expect(listIntegrationsQuerySchema.parse({ isEnabled: 'true' }).isEnabled).toBe(true)
     expect(listIntegrationsQuerySchema.parse({ isEnabled: 'false' }).isEnabled).toBe(false)
   })
+
+  test('listIntegrationsQuerySchema treats blank optional boolean query tokens as omitted', () => {
+    expect(listIntegrationsQuerySchema.parse({ isEnabled: '' }).isEnabled).toBeUndefined()
+  })
 })

@@ -29,4 +29,19 @@ describe('checkout validators', () => {
     expect(result.slug).toBeUndefined()
     expect(result.password).toBeUndefined()
   })
+
+  test('createLinkSchema normalizes blank optional strings after zod preprocessing', () => {
+    const result = createLinkSchema.parse({
+      name: 'QA link',
+      pricingMode: 'fixed',
+      fixedPriceAmount: 49.99,
+      fixedPriceCurrencyCode: 'USD',
+      gatewayProviderKey: 'mock',
+      slug: '   ',
+      password: '',
+    })
+
+    expect(result.slug).toBeNull()
+    expect(result.password).toBeNull()
+  })
 })

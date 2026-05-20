@@ -122,35 +122,23 @@ export function MutationResultCard(props: MutationResultCardProps) {
         </AlertTitle>
         <div className="text-sm leading-relaxed">
           <p>
-            {result?.commandName
-              ? t(
-                  'ai_assistant.chat.mutation_cards.result.successWithCommand',
-                  'Completed',
-                ) + `: ${result.commandName}`
-              : t(
-                  'ai_assistant.chat.mutation_cards.result.successBody',
-                  'The mutation completed successfully.',
-                )}
+            {t(
+              'ai_assistant.chat.mutation_cards.result.successBody',
+              'The requested change was saved successfully.',
+            )}
           </p>
-          {recordId ? (
+          {recordId && href ? (
             <p className="mt-1 text-xs">
-              {href ? (
-                <a
-                  className="font-mono text-primary underline"
-                  href={href}
-                  data-ai-mutation-result-link
-                >
-                  {t(
-                    'ai_assistant.chat.mutation_cards.result.viewRecord',
-                    'View record',
-                  )}
-                  : {recordId}
-                </a>
-              ) : (
-                <span className="font-mono" data-ai-mutation-result-record-id>
-                  {recordId}
-                </span>
-              )}
+              <a
+                className="text-primary underline"
+                href={href}
+                data-ai-mutation-result-link
+              >
+                {t(
+                  'ai_assistant.chat.mutation_cards.result.viewRecord',
+                  'View record',
+                )}
+              </a>
             </p>
           ) : null}
         </div>

@@ -43,13 +43,15 @@ async function detectSyncableIntegration(
   if (listResponse.status() !== 200) return null
   const listBody = await readJson(listResponse)
   const items = Array.isArray(listBody.items) ? (listBody.items as JsonRecord[]) : []
-  if (items.length === 0) return null
-  const supportedEntities = Array.isArray(items[0].supportedEntities)
-    ? (items[0].supportedEntities as unknown[]).filter((value): value is string => typeof value === 'string')
+  const runnableItems = items.filter((item) => item.canStartRun !== false)
+  if (runnableItems.length === 0) return null
+  const selected = runnableItems[0]
+  const supportedEntities = Array.isArray(selected.supportedEntities)
+    ? (selected.supportedEntities as unknown[]).filter((value): value is string => typeof value === 'string')
     : []
   if (supportedEntities.length === 0) return null
   return {
-    integrationId: String(items[0].integrationId),
+    integrationId: String(selected.integrationId),
     entityType: supportedEntities[0],
   }
 }
@@ -60,7 +62,7 @@ test.describe('TC-DS-001: Data sync hub APIs', () => {
 
     const target = await detectSyncableIntegration(request, token)
     if (!target) {
-      test.skip(true, 'No integration provider modules registered — skipping data sync tests')
+      test.skip(true, 'No generic-start data sync provider modules registered — skipping data sync run tests')
       return
     }
 
