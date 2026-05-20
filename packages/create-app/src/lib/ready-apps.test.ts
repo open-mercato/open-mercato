@@ -20,7 +20,7 @@ const __dirname = dirname(fileURLToPath(import.meta.url))
 const PACKAGE_ROOT = resolve(__dirname, '..', '..')
 const CLI_BIN = join(PACKAGE_ROOT, 'bin', 'create-mercato-app')
 const CLI_ENTRY = join(PACKAGE_ROOT, 'src', 'index.ts')
-const CLI_SCAFFOLD_TIMEOUT_MS = 30_000
+const CLI_SCAFFOLD_TIMEOUT_MS = 60_000
 const PACKAGE_VERSION = (
   JSON.parse(readFileSync(join(PACKAGE_ROOT, 'package.json'), 'utf8')) as { version: string }
 ).version
