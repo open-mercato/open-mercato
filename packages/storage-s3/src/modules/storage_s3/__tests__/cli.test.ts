@@ -1,6 +1,9 @@
 import type { CredentialsService } from '@open-mercato/core/modules/integrations/lib/credentials-service'
 import type { IntegrationLogService } from '@open-mercato/core/modules/integrations/lib/log-service'
 import {
+  mapOrganizationsToScopes,
+  parseCliArgs,
+  resolveCliMode,
   runConfigureFromEnv,
   runConfigureFromEnvForScopes,
 } from '../lib/configure-from-env'
@@ -258,5 +261,158 @@ describe('storage_s3 configure-from-env --all-tenants helper', () => {
     expect(summary.code).toBe(0)
     expect(summary.configured).toBe(2)
     expect(saveCalls).toHaveLength(2)
+  })
+})
+
+describe('storage_s3 parseCliArgs', () => {
+  it('parses standalone flags as boolean true', () => {
+    expect(parseCliArgs(['--all-tenants'])).toEqual({ 'all-tenants': true })
+    expect(parseCliArgs(['--force'])).toEqual({ force: true })
+  })
+
+  it('parses --key value pairs', () => {
+    expect(parseCliArgs(['--tenant', 'abc', '--org', 'def'])).toEqual({
+      tenant: 'abc',
+      org: 'def',
+    })
+  })
+
+  it('parses --key=value form', () => {
+    expect(parseCliArgs(['--tenant=abc', '--org=def'])).toEqual({
+      tenant: 'abc',
+      org: 'def',
+    })
+  })
+
+  it('treats the next --flag as a separate flag, not a value', () => {
+    expect(parseCliArgs(['--all-tenants', '--force'])).toEqual({
+      'all-tenants': true,
+      force: true,
+    })
+  })
+
+  it('ignores positional arguments without a leading --', () => {
+    expect(parseCliArgs(['ignored', '--tenant', 'abc', 'also-ignored'])).toEqual({
+      tenant: 'abc',
+    })
+  })
+})
+
+describe('storage_s3 resolveCliMode', () => {
+  it('returns help when no tenant/org and no --all-tenants is provided', () => {
+    expect(resolveCliMode({})).toEqual({ kind: 'help' })
+    expect(resolveCliMode({ force: true })).toEqual({ kind: 'help' })
+  })
+
+  it('returns help when only --tenant is provided without --org', () => {
+    expect(resolveCliMode({ tenant: 'abc' })).toEqual({ kind: 'help' })
+  })
+
+  it('returns help when only --org is provided without --tenant', () => {
+    expect(resolveCliMode({ org: 'def' })).toEqual({ kind: 'help' })
+  })
+
+  it('returns single mode when both --tenant and --org are provided', () => {
+    expect(resolveCliMode({ tenant: 'abc', org: 'def' })).toEqual({
+      kind: 'single',
+      tenantId: 'abc',
+      organizationId: 'def',
+      force: undefined,
+    })
+  })
+
+  it('accepts the alias forms --tenantId / --organizationId / --orgId', () => {
+    expect(resolveCliMode({ tenantId: 'abc', organizationId: 'def' })).toEqual({
+      kind: 'single',
+      tenantId: 'abc',
+      organizationId: 'def',
+      force: undefined,
+    })
+    expect(resolveCliMode({ tenant: 'abc', orgId: 'def' })).toEqual({
+      kind: 'single',
+      tenantId: 'abc',
+      organizationId: 'def',
+      force: undefined,
+    })
+  })
+
+  it('propagates --force to single mode', () => {
+    expect(resolveCliMode({ tenant: 'abc', org: 'def', force: true })).toEqual({
+      kind: 'single',
+      tenantId: 'abc',
+      organizationId: 'def',
+      force: true,
+    })
+  })
+
+  it('returns all mode when --all-tenants is provided alone', () => {
+    expect(resolveCliMode({ 'all-tenants': true })).toEqual({
+      kind: 'all',
+      force: undefined,
+    })
+  })
+
+  it('accepts --allTenants as a camelCase alias for --all-tenants', () => {
+    expect(resolveCliMode({ allTenants: true })).toEqual({
+      kind: 'all',
+      force: undefined,
+    })
+  })
+
+  it('propagates --force to all mode', () => {
+    expect(resolveCliMode({ 'all-tenants': true, force: true })).toEqual({
+      kind: 'all',
+      force: true,
+    })
+  })
+
+  it('returns conflict when --all-tenants is combined with --tenant', () => {
+    const mode = resolveCliMode({ 'all-tenants': true, tenant: 'abc' })
+    expect(mode.kind).toBe('conflict')
+    if (mode.kind === 'conflict') {
+      expect(mode.message).toMatch(/cannot be combined/i)
+    }
+  })
+
+  it('returns conflict when --all-tenants is combined with --org', () => {
+    const mode = resolveCliMode({ 'all-tenants': true, org: 'def' })
+    expect(mode.kind).toBe('conflict')
+  })
+
+  it('returns conflict when --all-tenants is combined with both --tenant and --org', () => {
+    expect(resolveCliMode({ 'all-tenants': true, tenant: 'abc', org: 'def' }).kind).toBe('conflict')
+  })
+})
+
+describe('storage_s3 mapOrganizationsToScopes', () => {
+  it('returns an empty array when there are no organizations', () => {
+    expect(mapOrganizationsToScopes([])).toEqual([])
+  })
+
+  it('returns a scope per organization with its tenant id', () => {
+    const orgs = [
+      { id: 'org-1', tenant: { id: 'tenant-1' } },
+      { id: 'org-2', tenant: { id: 'tenant-1' } },
+      { id: 'org-3', tenant: { id: 'tenant-2' } },
+    ]
+    expect(mapOrganizationsToScopes(orgs)).toEqual([
+      { tenantId: 'tenant-1', organizationId: 'org-1' },
+      { tenantId: 'tenant-1', organizationId: 'org-2' },
+      { tenantId: 'tenant-2', organizationId: 'org-3' },
+    ])
+  })
+
+  it('skips organizations without a populated tenant (defensive guard)', () => {
+    const orgs = [
+      { id: 'org-1', tenant: { id: 'tenant-1' } },
+      { id: 'org-2', tenant: null },
+      { id: 'org-3' },
+      { id: 'org-4', tenant: { id: null } },
+      { id: 'org-5', tenant: { id: 'tenant-2' } },
+    ]
+    expect(mapOrganizationsToScopes(orgs)).toEqual([
+      { tenantId: 'tenant-1', organizationId: 'org-1' },
+      { tenantId: 'tenant-2', organizationId: 'org-5' },
+    ])
   })
 })

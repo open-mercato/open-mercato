@@ -90,3 +90,75 @@ export async function runConfigureFromEnvForScopes(
   const code: 0 | 1 = errored > 0 ? 1 : 0
   return { code, configured, skipped, errored, perScope }
 }
+
+export function parseCliArgs(args: string[]): Record<string, string | boolean> {
+  const result: Record<string, string | boolean> = {}
+
+  for (let i = 0; i < args.length; i++) {
+    const arg = args[i]
+    if (!arg.startsWith('--')) continue
+
+    const key = arg.slice(2)
+    if (key.includes('=')) {
+      const [name, value] = key.split('=')
+      result[name] = value
+      continue
+    }
+
+    const next = args[i + 1]
+    if (next && !next.startsWith('--')) {
+      result[key] = next
+      i += 1
+      continue
+    }
+
+    result[key] = true
+  }
+
+  return result
+}
+
+export type ConfigureFromEnvCliMode =
+  | { kind: 'help' }
+  | { kind: 'conflict'; message: string }
+  | { kind: 'all'; force?: boolean }
+  | { kind: 'single'; tenantId: string; organizationId: string; force?: boolean }
+
+export function resolveCliMode(args: Record<string, string | boolean>): ConfigureFromEnvCliMode {
+  const allTenants = args['all-tenants'] === true || args.allTenants === true
+  const tenantId = String(args.tenantId ?? args.tenant ?? '')
+  const organizationId = String(args.organizationId ?? args.orgId ?? args.org ?? '')
+  const force = args.force === true ? true : undefined
+
+  if (allTenants && (tenantId || organizationId)) {
+    return {
+      kind: 'conflict',
+      message: '--all-tenants cannot be combined with --tenant or --org. Pick one mode.',
+    }
+  }
+
+  if (allTenants) {
+    return { kind: 'all', force }
+  }
+
+  if (!tenantId || !organizationId) {
+    return { kind: 'help' }
+  }
+
+  return { kind: 'single', tenantId, organizationId, force }
+}
+
+type OrganizationRow = {
+  id: string
+  tenant?: { id?: string | null } | null
+}
+
+export function mapOrganizationsToScopes(organizations: OrganizationRow[]): IntegrationScope[] {
+  const scopes: IntegrationScope[] = []
+  for (const organization of organizations) {
+    const tenantId = organization.tenant?.id
+    if (!tenantId) continue
+    scopes.push({ tenantId, organizationId: organization.id })
+  }
+  return scopes
+}

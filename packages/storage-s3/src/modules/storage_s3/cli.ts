@@ -6,36 +6,12 @@ import type { IntegrationLogService } from '@open-mercato/core/modules/integrati
 import { Organization } from '@open-mercato/core/modules/directory/data/entities'
 import type { IntegrationScope } from '@open-mercato/shared/modules/integrations/types'
 import {
+  mapOrganizationsToScopes,
+  parseCliArgs,
+  resolveCliMode,
   runConfigureFromEnv,
   runConfigureFromEnvForScopes,
 } from './lib/configure-from-env'
-
-function parseArgs(args: string[]): Record<string, string | boolean> {
-  const result: Record<string, string | boolean> = {}
-
-  for (let i = 0; i < args.length; i++) {
-    const arg = args[i]
-    if (!arg.startsWith('--')) continue
-
-    const key = arg.slice(2)
-    if (key.includes('=')) {
-      const [name, value] = key.split('=')
-      result[name] = value
-      continue
-    }
-
-    const next = args[i + 1]
-    if (next && !next.startsWith('--')) {
-      result[key] = next
-      i += 1
-      continue
-    }
-
-    result[key] = true
-  }
-
-  return result
-}
 
 function printHelp(): void {
   console.log('Usage: yarn mercato storage_s3 configure-from-env [--tenant <tenantId> --org <organizationId> | --all-tenants] [--force]')
@@ -64,33 +40,22 @@ async function listActiveScopes(em: EntityManager): Promise<IntegrationScope[]> 
     { deletedAt: null, isActive: true },
     { populate: ['tenant'] },
   )
-
-  const scopes: IntegrationScope[] = []
-  for (const organization of organizations) {
-    const tenantId = organization.tenant?.id
-    if (!tenantId) continue
-    scopes.push({ tenantId, organizationId: organization.id })
-  }
-  return scopes
+  return mapOrganizationsToScopes(organizations)
 }
 
 const configureFromEnvCommand: ModuleCli = {
   command: 'configure-from-env',
   async run(rest) {
-    const args = parseArgs(rest)
-    const allTenants = args['all-tenants'] === true || args.allTenants === true
-    const tenantId = String(args.tenantId ?? args.tenant ?? '')
-    const organizationId = String(args.organizationId ?? args.orgId ?? args.org ?? '')
-    const force = args.force === true ? true : undefined
+    const mode = resolveCliMode(parseCliArgs(rest))
 
-    if (!allTenants && (!tenantId || !organizationId)) {
+    if (mode.kind === 'help') {
       printHelp()
       return
     }
 
-    if (allTenants && (tenantId || organizationId)) {
-      console.error('[storage_s3] --all-tenants cannot be combined with --tenant or --org. Pick one mode.')
-      throw new Error('Conflicting CLI arguments: --all-tenants vs --tenant/--org')
+    if (mode.kind === 'conflict') {
+      console.error(`[storage_s3] ${mode.message}`)
+      throw new Error(`Conflicting CLI arguments: ${mode.message}`)
     }
 
     const container = await createRequestContainer()
@@ -98,7 +63,7 @@ const configureFromEnvCommand: ModuleCli = {
       const credentialsService = container.resolve('integrationCredentialsService') as CredentialsService
       const integrationLogService = container.resolve('integrationLogService') as IntegrationLogService
 
-      if (allTenants) {
+      if (mode.kind === 'all') {
         const em = container.resolve('em') as EntityManager
         const scopes = await listActiveScopes(em)
 
@@ -110,7 +75,7 @@ const configureFromEnvCommand: ModuleCli = {
         const summary = await runConfigureFromEnvForScopes(
           { credentialsService, integrationLogService },
           scopes,
-          { force },
+          { force: mode.force },
         )
 
         for (const entry of summary.perScope) {
@@ -139,7 +104,11 @@ const configureFromEnvCommand: ModuleCli = {
 
       const outcome = await runConfigureFromEnv(
         { credentialsService, integrationLogService },
-        { tenantId, organizationId, force },
+        {
+          tenantId: mode.tenantId,
+          organizationId: mode.organizationId,
+          force: mode.force,
+        },
       )
 
       if (outcome.code === 0) {
