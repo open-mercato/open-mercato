@@ -68,7 +68,7 @@ Non-goals:
 
 - Backward compatibility: no public API route, event ID, widget spot, ACL feature, DI service, database schema, or public import path was removed or renamed.
 - Security/tenant isolation: no production database queries or auth/tenant-scoped data paths were changed.
-- Scope: the production behavior change is limited to integration test runtime state reuse; data_sync locale additions are additive keys required by the i18n gate.
+- Scope: the production behavior change is limited to integration test runtime state reuse; the data_sync locale gate drift was resolved by rebasing onto `develop`, which already contained the missing localized keys.
 
 ## Progress
 
@@ -76,18 +76,18 @@ Non-goals:
 
 ### Phase 1: Diagnose Import Start Failure
 
-- [x] 1.1 Reproduce or capture the import route failure locally — 5ab04ab30
-- [x] 1.2 Inspect the sync_excel import/data_sync bootstrap path — 5ab04ab30
-- [x] 1.3 Identify the root cause layer — 5ab04ab30
+- [x] 1.1 Reproduce or capture the import route failure locally — 62fead5f9
+- [x] 1.2 Inspect the sync_excel import/data_sync bootstrap path — 62fead5f9
+- [x] 1.3 Identify the root cause layer — 62fead5f9
 
 ### Phase 2: Apply Minimal Stabilization
 
-- [x] 2.1 Implement the minimal root-cause fix — 5ab04ab30
-- [x] 2.2 Add or update regression coverage — 5ab04ab30
-- [x] 2.3 Re-run targeted unit and integration tests — 5ab04ab30
+- [x] 2.1 Implement the minimal root-cause fix — 62fead5f9
+- [x] 2.2 Add or update regression coverage — 62fead5f9
+- [x] 2.3 Re-run targeted unit and integration tests — 62fead5f9
 
 ### Phase 3: Validate and Ship
 
-- [x] 3.1 Run affected package and required validation gates — 5188e0d26
-- [x] 3.2 Complete code-review and backward-compatibility self-review — 5188e0d26
+- [x] 3.1 Run affected package and required validation gates — a531b0211
+- [x] 3.2 Complete code-review and backward-compatibility self-review — a531b0211
 - [ ] 3.3 Open PR, label it, and complete auto-review pass
