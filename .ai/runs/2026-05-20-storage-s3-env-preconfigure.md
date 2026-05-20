@@ -4,7 +4,7 @@
 >
 > Source spec: `.ai/specs/implemented/SPEC-045i-storage-hub.md` (this run is a follow-up addendum, not a new spec)
 >
-> Status: in-progress
+> Status: complete — PR #1999
 
 ## Goal
 
@@ -111,4 +111,4 @@ Bring `packages/storage-s3` up to the bar set by `gateway_stripe` / `sync_akeneo
 
 ### Phase 6: Pull request
 
-- [ ] 6.1 Open PR + labels + summary comment
+- [x] 6.1 Open PR + labels + summary comment — PR #1999, labels `review` / `feature` / `documentation` / `needs-qa`.
