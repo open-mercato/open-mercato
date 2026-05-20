@@ -9,6 +9,8 @@ import type { EntityManager } from '@mikro-orm/core'
 import type { AwilixContainer } from 'awilix'
 import type { CacheService } from '@open-mercato/cache'
 import { matchEventPattern } from '@open-mercato/shared/lib/events/patterns'
+import { findWithDecryption } from '@open-mercato/shared/lib/encryption/find'
+import { testLinearRegex } from '@open-mercato/shared/lib/regex/linear'
 import {
   WorkflowEventTrigger,
   WorkflowDefinition,
@@ -257,11 +259,12 @@ function evaluateCondition(condition: TriggerFilterCondition, payload: Record<st
       if (typeof value !== 'string' || typeof expected !== 'string') return false
       if (value.length > MAX_WORKFLOW_REGEX_INPUT_LENGTH) return false
       if (!isSafeWorkflowRegexPattern(expected)) return false
-      try {
-        const regex = new RegExp(expected)
-        return regex.test(value)
-      } catch {
-        return false
+      {
+        const result = testLinearRegex(expected, value, {
+          maxPatternLength: MAX_WORKFLOW_REGEX_PATTERN_LENGTH,
+          maxInputLength: MAX_WORKFLOW_REGEX_INPUT_LENGTH,
+        })
+        return result.ok ? result.matched : false
       }
 
     default:
@@ -325,7 +328,8 @@ async function loadLegacyTriggers(
   tenantId: string,
   organizationId: string
 ): Promise<UnifiedTrigger[]> {
-  const legacyTriggers = await em.find(
+  const legacyTriggers = await findWithDecryption(
+    em,
     WorkflowEventTrigger,
     {
       tenantId,
@@ -335,16 +339,19 @@ async function loadLegacyTriggers(
     },
     {
       orderBy: { priority: 'DESC', createdAt: 'ASC' },
-    }
+    },
+    { tenantId, organizationId },
   )
 
   // Get definitions for these triggers to get workflowId
   const definitionIds = [...new Set(legacyTriggers.map(t => t.workflowDefinitionId))]
-  const definitions = definitionIds.length > 0 ? await em.find(WorkflowDefinition, {
+  const definitions = definitionIds.length > 0 ? await findWithDecryption(em, WorkflowDefinition, {
     id: { $in: definitionIds },
+    tenantId,
+    organizationId,
     enabled: true,
     deletedAt: null,
-  }) : []
+  }, {}, { tenantId, organizationId }) : []
   const definitionMap = new Map(definitions.map(d => [d.id, d]))
 
   return legacyTriggers
@@ -380,14 +387,17 @@ async function loadEmbeddedTriggers(
   organizationId: string
 ): Promise<UnifiedTrigger[]> {
   // Load all enabled definitions that may have triggers
-  const definitions = await em.find(
+  const definitions = await findWithDecryption(
+    em,
     WorkflowDefinition,
     {
       tenantId,
       organizationId,
       enabled: true,
       deletedAt: null,
-    }
+    },
+    {},
+    { tenantId, organizationId },
   )
 
   const triggers: UnifiedTrigger[] = []
