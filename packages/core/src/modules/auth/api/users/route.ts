@@ -86,6 +86,7 @@ const okResponseSchema = z.object({ ok: z.literal(true) })
 const errorResponseSchema = z.object({ error: z.string() })
 
 type CrudInput = Record<string, unknown>
+type UserListFilter = Record<string, unknown>
 
 const routeMetadata = {
   GET: { requireAuth: true, requireFeatures: ['auth.users.list'] },
@@ -181,11 +182,11 @@ export async function GET(req: Request) {
   const trimmedName = typeof name === 'string' ? name.trim() : ''
   if (trimmedName) {
     const searchPattern = `%${escapeLikePattern(trimmedName)}%`
-    const displayNameFilters: any[] = [{ name: { $ilike: searchPattern } }]
+    const displayNameFilters: UserListFilter[] = [{ name: { $ilike: searchPattern } }]
     const nameTokenScope: string | null | undefined = isSuperAdmin ? undefined : auth.tenantId ?? null
     const matchedDisplayNameIds = await findUserIdsBySearchTokens(em, E.auth.user, trimmedName, nameTokenScope, 'name')
     if (matchedDisplayNameIds && matchedDisplayNameIds.length) {
-      displayNameFilters.push({ id: { $in: matchedDisplayNameIds as any } })
+      displayNameFilters.push({ id: { $in: matchedDisplayNameIds } })
     }
     filters.push(displayNameFilters.length > 1 ? { $or: displayNameFilters } : displayNameFilters[0])
   }

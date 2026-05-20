@@ -11,7 +11,6 @@ type BuildDocParams = {
   recordId: string
   organizationId?: string | null
   tenantId?: string | null
-  searchTokenDoc?: Record<string, unknown> | null
 }
 
 export async function buildIndexDoc(em: EntityManager, params: BuildDocParams): Promise<Record<string, any> | null> {

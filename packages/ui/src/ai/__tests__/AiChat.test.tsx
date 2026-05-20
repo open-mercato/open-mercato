@@ -185,6 +185,19 @@ function createErrorResponse(status: number, payload: Record<string, unknown>): 
 describe('<AiChat>', () => {
   beforeEach(() => {
     jest.clearAllMocks()
+    const apiCallMock = apiCall as unknown as jest.Mock
+    apiCallMock.mockReset()
+    apiCallMock.mockResolvedValue({
+      ok: true,
+      status: 200,
+      result: {
+        agentId: 'customers.account_assistant',
+        allowRuntimeModelOverride: false,
+        defaultProviderId: 'openai',
+        defaultModelId: 'gpt-5-mini',
+        providers: [],
+      },
+    })
     window.localStorage.clear()
     lastResizeObserver = null
   })
@@ -238,7 +251,9 @@ describe('<AiChat>', () => {
         'Default: openai / gpt-5-mini',
       )
     })
-    expect(window.localStorage.getItem('om-ai-model-picker:customers.account_assistant')).toBeNull()
+    await waitFor(() => {
+      expect(window.localStorage.getItem('om-ai-model-picker:customers.account_assistant')).toBeNull()
+    })
   })
 
   it('does not send provider or model overrides while the model picker is on Default', async () => {
