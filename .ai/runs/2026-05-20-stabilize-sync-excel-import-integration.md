@@ -57,15 +57,15 @@ Non-goals:
 
 ### Phase 1: Diagnose Import Start Failure
 
-- [ ] 1.1 Reproduce or capture the import route failure locally
-- [ ] 1.2 Inspect the sync_excel import/data_sync bootstrap path
-- [ ] 1.3 Identify the root cause layer
+- [x] 1.1 Reproduce or capture the import route failure locally — 5ab04ab30
+- [x] 1.2 Inspect the sync_excel import/data_sync bootstrap path — 5ab04ab30
+- [x] 1.3 Identify the root cause layer — 5ab04ab30
 
 ### Phase 2: Apply Minimal Stabilization
 
-- [ ] 2.1 Implement the minimal root-cause fix
-- [ ] 2.2 Add or update regression coverage
-- [ ] 2.3 Re-run targeted unit and integration tests
+- [x] 2.1 Implement the minimal root-cause fix — 5ab04ab30
+- [x] 2.2 Add or update regression coverage — 5ab04ab30
+- [x] 2.3 Re-run targeted unit and integration tests — 5ab04ab30
 
 ### Phase 3: Validate and Ship
 
