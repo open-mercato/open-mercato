@@ -1100,7 +1100,8 @@ export function NodeEditDialog({ node, isOpen, onClose, onSave, onDelete }: Node
                                       <label className="block text-xs font-medium text-gray-700 mb-1">
                                         {t('workflows.activities.waitDuration')}
                                       </label>
-                                      <input
+                                      <Input
+                                        size="sm"
                                         type="text"
                                         value={activity.config?.duration || ''}
                                         onChange={(e) => {
@@ -1109,17 +1110,17 @@ export function NodeEditDialog({ node, isOpen, onClose, onSave, onDelete }: Node
                                           setStepActivities(updated)
                                         }}
                                         disabled={!!activity.config?.until}
-                                        className="w-full px-2 py-1.5 border border-gray-300 rounded text-xs focus:ring-1 focus:ring-blue-500"
                                         placeholder={t('workflows.activities.waitDurationPlaceholder')}
                                       />
-                                      <p className="text-xs text-gray-500 mt-1">{t('workflows.activities.waitDurationDescription')}</p>
+                                      <p className="text-xs text-muted-foreground mt-1">{t('workflows.activities.waitDurationDescription')}</p>
                                     </div>
-                                    <div className="text-xs text-center text-gray-400">{t('workflows.activities.waitOr')}</div>
+                                    <div className="text-xs text-center text-muted-foreground">{t('workflows.activities.waitOr')}</div>
                                     <div>
                                       <label className="block text-xs font-medium text-gray-700 mb-1">
                                         {t('workflows.activities.waitUntil')}
                                       </label>
-                                      <input
+                                      <Input
+                                        size="sm"
                                         type="datetime-local"
                                         value={activity.config?.until ? activity.config.until.slice(0, 16) : ''}
                                         onChange={(e) => {
@@ -1128,9 +1129,8 @@ export function NodeEditDialog({ node, isOpen, onClose, onSave, onDelete }: Node
                                           setStepActivities(updated)
                                         }}
                                         disabled={!!activity.config?.duration}
-                                        className="w-full px-2 py-1.5 border border-gray-300 rounded text-xs focus:ring-1 focus:ring-blue-500"
                                       />
-                                      <p className="text-xs text-gray-500 mt-1">{t('workflows.activities.waitUntilDescription')}</p>
+                                      <p className="text-xs text-muted-foreground mt-1">{t('workflows.activities.waitUntilDescription')}</p>
                                     </div>
                                   </div>
                                 )}

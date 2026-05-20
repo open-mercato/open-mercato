@@ -6,12 +6,14 @@
  */
 
 import { EntityManager } from '@mikro-orm/core'
+import type { EntityManager as PostgreSqlEntityManager } from '@mikro-orm/postgresql'
 import type { AwilixContainer } from 'awilix'
+import { findOneWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import { WorkflowInstance, WorkflowDefinition, StepInstance } from '../data/entities'
-import { logWorkflowEvent } from './event-logger'
-import { executeWorkflow } from './workflow-executor'
-import * as stepHandler from './step-handler'
-import * as transitionHandler from './transition-handler'
+import type * as eventLoggerModule from './event-logger'
+import type * as stepHandlerModule from './step-handler'
+import type * as transitionHandlerModule from './transition-handler'
+import type * as workflowExecutorModule from './workflow-executor'
 
 export interface FireTimerOptions {
   instanceId: string
@@ -46,11 +48,22 @@ export async function fireTimer(
 ): Promise<void> {
   const { instanceId, stepInstanceId, userId, tenantId, organizationId } = options
 
-  const instance = await em.findOne(WorkflowInstance, {
-    id: instanceId,
-    tenantId,
-    organizationId,
-  })
+  const eventLogger = container.resolve<typeof eventLoggerModule>('eventLogger')
+  const stepHandler = container.resolve<typeof stepHandlerModule>('stepHandler')
+  const transitionHandler = container.resolve<typeof transitionHandlerModule>('transitionHandler')
+  const workflowExecutor = container.resolve<typeof workflowExecutorModule>('workflowExecutor')
+
+  const instance = await findOneWithDecryption(
+    em as PostgreSqlEntityManager,
+    WorkflowInstance,
+    {
+      id: instanceId,
+      tenantId,
+      organizationId,
+    },
+    undefined,
+    { tenantId, organizationId },
+  )
 
   if (!instance) {
     throw new TimerError(
@@ -68,7 +81,18 @@ export async function fireTimer(
     )
   }
 
-  const definition = await em.findOne(WorkflowDefinition, instance.definitionId)
+  const definition = await findOneWithDecryption(
+    em as PostgreSqlEntityManager,
+    WorkflowDefinition,
+    {
+      id: instance.definitionId,
+      tenantId: instance.tenantId,
+      organizationId: instance.organizationId,
+      deletedAt: null,
+    },
+    undefined,
+    { tenantId: instance.tenantId, organizationId: instance.organizationId },
+  )
   if (!definition) {
     throw new TimerError(
       'Workflow definition not found',
@@ -92,7 +116,7 @@ export async function fireTimer(
   const now = new Date()
   instance.updatedAt = now
 
-  await logWorkflowEvent(em, {
+  await eventLogger.logWorkflowEvent(em, {
     workflowInstanceId: instance.id,
     stepInstanceId,
     eventType: 'TIMER_FIRED',
@@ -105,17 +129,32 @@ export async function fireTimer(
     organizationId: instance.organizationId,
   })
 
-  // Find active step instance and exit it
   const stepInstance = stepInstanceId
-    ? await em.findOne(StepInstance, {
-        id: stepInstanceId,
-        workflowInstanceId: instance.id,
-      })
-    : await em.findOne(StepInstance, {
-        workflowInstanceId: instance.id,
-        stepId: instance.currentStepId,
-        status: 'ACTIVE',
-      })
+    ? await findOneWithDecryption(
+        em as PostgreSqlEntityManager,
+        StepInstance,
+        {
+          id: stepInstanceId,
+          workflowInstanceId: instance.id,
+          tenantId: instance.tenantId,
+          organizationId: instance.organizationId,
+        },
+        undefined,
+        { tenantId: instance.tenantId, organizationId: instance.organizationId },
+      )
+    : await findOneWithDecryption(
+        em as PostgreSqlEntityManager,
+        StepInstance,
+        {
+          workflowInstanceId: instance.id,
+          stepId: instance.currentStepId,
+          status: 'ACTIVE',
+          tenantId: instance.tenantId,
+          organizationId: instance.organizationId,
+        },
+        undefined,
+        { tenantId: instance.tenantId, organizationId: instance.organizationId },
+      )
 
   if (stepInstance) {
     await stepHandler.exitStep(em, stepInstance, {
@@ -170,5 +209,5 @@ export async function fireTimer(
     )
   }
 
-  await executeWorkflow(em, container, instance.id, { userId })
+  await workflowExecutor.executeWorkflow(em, container, instance.id, { userId })
 }

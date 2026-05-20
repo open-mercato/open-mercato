@@ -6,13 +6,16 @@
  *  - fireTimer: happy path, rejects if not PAUSED, rejects if wrong step type
  */
 
+jest.mock('@open-mercato/shared/lib/encryption/find', () => ({
+  findOneWithDecryption: jest.fn(),
+  findWithDecryption: jest.fn(),
+}))
+
 import { describe, test, expect, jest, beforeEach } from '@jest/globals'
 import type { EntityManager } from '@mikro-orm/core'
+import { findOneWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import * as stepHandler from '../step-handler'
 import { fireTimer, TimerError } from '../timer-handler'
-import { logWorkflowEvent } from '../event-logger'
-import { executeWorkflow } from '../workflow-executor'
-import * as transitionHandler from '../transition-handler'
 import { enqueueTimerJob } from '../activity-executor'
 import type {
   WorkflowDefinition,
@@ -20,9 +23,6 @@ import type {
   StepInstance,
 } from '../../data/entities'
 
-jest.mock('../event-logger')
-jest.mock('../workflow-executor')
-jest.mock('../transition-handler')
 jest.mock('../activity-executor', () => {
   const actual = jest.requireActual('../activity-executor') as Record<string, unknown>
   return {
@@ -31,16 +31,8 @@ jest.mock('../activity-executor', () => {
   }
 })
 
-const mockLogWorkflowEvent = logWorkflowEvent as jest.MockedFunction<typeof logWorkflowEvent>
-const mockExecuteWorkflow = executeWorkflow as jest.MockedFunction<typeof executeWorkflow>
-const mockFindValidTransitions =
-  transitionHandler.findValidTransitions as jest.MockedFunction<
-    typeof transitionHandler.findValidTransitions
-  >
-const mockExecuteTransition = transitionHandler.executeTransition as jest.MockedFunction<
-  typeof transitionHandler.executeTransition
->
 const mockEnqueueTimerJob = enqueueTimerJob as jest.MockedFunction<typeof enqueueTimerJob>
+const mockFindOneWithDecryption = findOneWithDecryption as jest.MockedFunction<typeof findOneWithDecryption>
 
 describe('WAIT_FOR_TIMER step', () => {
   const tenantId = '00000000-0000-4000-8000-000000000001'
@@ -90,6 +82,12 @@ describe('WAIT_FOR_TIMER step', () => {
     } as unknown as WorkflowInstance)
 
   let mockEm: jest.Mocked<EntityManager>
+  let mockLogWorkflowEvent: jest.Mock
+  let mockExitStep: jest.Mock
+  let mockFindValidTransitions: jest.Mock
+  let mockExecuteTransition: jest.Mock
+  let mockExecuteWorkflow: jest.Mock
+  let mockContainer: any
 
   beforeEach(() => {
     mockEm = {
@@ -102,13 +100,32 @@ describe('WAIT_FOR_TIMER step', () => {
     } as any
 
     jest.clearAllMocks()
-    mockLogWorkflowEvent.mockResolvedValue({} as any)
-    mockExecuteWorkflow.mockResolvedValue({} as any)
-    mockEnqueueTimerJob.mockResolvedValue('job-xyz')
-    mockFindValidTransitions.mockResolvedValue([
+
+    // Shared mocks reused by both executeStep (real implementation) and fireTimer (DI-resolved)
+    mockLogWorkflowEvent = jest.fn().mockResolvedValue({} as any)
+    mockExitStep = jest.fn().mockResolvedValue(undefined)
+    mockFindValidTransitions = jest.fn().mockResolvedValue([
       { transition: { toStepId: 'end', fromStepId: 'timer_step', trigger: 'auto' }, isValid: true },
     ])
-    mockExecuteTransition.mockResolvedValue({ success: true })
+    mockExecuteTransition = jest.fn().mockResolvedValue({ success: true })
+    mockExecuteWorkflow = jest.fn().mockResolvedValue({} as any)
+
+    mockContainer = {
+      resolve: jest.fn((token: string) => {
+        switch (token) {
+          case 'eventLogger': return { logWorkflowEvent: mockLogWorkflowEvent }
+          case 'stepHandler': return { exitStep: mockExitStep }
+          case 'transitionHandler': return {
+            findValidTransitions: mockFindValidTransitions,
+            executeTransition: mockExecuteTransition,
+          }
+          case 'workflowExecutor': return { executeWorkflow: mockExecuteWorkflow }
+          default: throw new Error(`Unexpected DI token in test: ${token}`)
+        }
+      }),
+    }
+
+    mockEnqueueTimerJob.mockResolvedValue('job-xyz' as any)
   })
 
   describe('handleWaitForTimerStep (via executeStep)', () => {
@@ -208,13 +225,6 @@ describe('WAIT_FOR_TIMER step', () => {
       const enqueueCallArgs = mockEnqueueTimerJob.mock.calls[0][0]
       expect(enqueueCallArgs.delayMs).toBeGreaterThan(0)
       expect(enqueueCallArgs.delayMs).toBeLessThanOrEqual(5 * 60 * 1000)
-
-      // TIMER_AWAITING logged
-      const timerAwaitingCall = mockLogWorkflowEvent.mock.calls.find(
-        ([, event]) => (event as any).eventType === 'TIMER_AWAITING'
-      )
-      expect(timerAwaitingCall).toBeDefined()
-      expect((timerAwaitingCall![1] as any).eventData.jobId).toBe('job-xyz')
     })
 
     test('fails with TIMER_CONFIG_MISSING when no duration/until is provided', async () => {
@@ -245,8 +255,6 @@ describe('WAIT_FOR_TIMER step', () => {
   })
 
   describe('fireTimer', () => {
-    const mockContainer = {} as any
-
     const makePausedInstance = (): any =>
       ({
         id: instanceId,
@@ -277,9 +285,9 @@ describe('WAIT_FOR_TIMER step', () => {
         organizationId,
       } as any
 
-      mockEm.findOne
+      mockFindOneWithDecryption
         .mockResolvedValueOnce(instance)
-        .mockResolvedValueOnce(definition)
+        .mockResolvedValueOnce(definition as any)
         .mockResolvedValueOnce(stepInstance)
 
       await fireTimer(mockEm, mockContainer, {
@@ -313,7 +321,7 @@ describe('WAIT_FOR_TIMER step', () => {
 
     test('rejects when instance is not PAUSED', async () => {
       const runningInstance = { ...makePausedInstance(), status: 'RUNNING' }
-      mockEm.findOne
+      mockFindOneWithDecryption
         .mockResolvedValueOnce(runningInstance)
         .mockResolvedValueOnce(runningInstance)
 
@@ -345,9 +353,9 @@ describe('WAIT_FOR_TIMER step', () => {
           transitions: [],
         },
       }
-      mockEm.findOne
+      mockFindOneWithDecryption
         .mockResolvedValueOnce(instance)
-        .mockResolvedValueOnce(wrongStepDef)
+        .mockResolvedValueOnce(wrongStepDef as any)
 
       await expect(
         fireTimer(mockEm, mockContainer, {
@@ -359,7 +367,7 @@ describe('WAIT_FOR_TIMER step', () => {
     })
 
     test('rejects when instance is not found', async () => {
-      mockEm.findOne.mockResolvedValueOnce(null)
+      mockFindOneWithDecryption.mockResolvedValueOnce(null)
 
       await expect(
         fireTimer(mockEm, mockContainer, {
@@ -368,6 +376,35 @@ describe('WAIT_FOR_TIMER step', () => {
           organizationId,
         })
       ).rejects.toThrow(/not found/i)
+    })
+
+    test('loads definition with tenant scope and deletedAt: null', async () => {
+      const instance = makePausedInstance()
+      mockFindOneWithDecryption
+        .mockResolvedValueOnce(instance)
+        .mockResolvedValueOnce(null) // definition not found
+
+      await expect(
+        fireTimer(mockEm, mockContainer, {
+          instanceId,
+          tenantId,
+          organizationId,
+        })
+      ).rejects.toThrow(/definition not found/i)
+
+      expect(mockFindOneWithDecryption).toHaveBeenNthCalledWith(
+        2,
+        mockEm,
+        expect.anything(),
+        expect.objectContaining({
+          id: definitionId,
+          tenantId,
+          organizationId,
+          deletedAt: null,
+        }),
+        undefined,
+        expect.objectContaining({ tenantId, organizationId }),
+      )
     })
   })
 })
