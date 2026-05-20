@@ -79,8 +79,7 @@ const configureFromEnvCommand: ModuleCli = {
         return
       }
 
-      console.error(`[storage_s3] ${outcome.message}`)
-      process.exitCode = 1
+      throw new Error(outcome.message)
     } finally {
       const disposable = container as unknown as { dispose?: () => Promise<void> }
       if (typeof disposable.dispose === 'function') {
