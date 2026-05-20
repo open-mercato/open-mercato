@@ -51,6 +51,25 @@ Non-goals:
 - The import route touches data sync, integrations, attachments, custom fields, customers, and queue-driven workers, so root-cause fixes must preserve tenant/organization scoping.
 - Full integration and full CI gates are expensive; if they cannot complete in one turn, the PR must remain resumable through this plan.
 
+## Validation Notes
+
+- `yarn workspace @open-mercato/cli test packages/cli/src/lib/testing/__tests__/integration.test.ts --runInBand` passed.
+- `yarn workspace @open-mercato/cli typecheck` passed.
+- `yarn workspace @open-mercato/core test packages/core/src/modules/sync_excel/api/import/__tests__/route.test.ts --runInBand` passed.
+- `BASE_URL=http://127.0.0.1:5001 DATABASE_URL=postgres://mercato:secret@localhost:55004/mercato_test npx playwright test --config .ai/qa/tests/playwright.config.ts packages/core/src/modules/sync_excel/__integration__/TC-SX-001.spec.ts --retries=0` passed against ephemeral.
+- `yarn build:packages`, `yarn generate`, and post-generate `yarn build:packages` passed.
+- `yarn i18n:check-sync` passed.
+- `yarn i18n:check-usage` passed with unused-key advisory output only.
+- `yarn build:app` passed with existing Turbopack dynamic import/NFT warnings.
+- `yarn typecheck` was stopped after 19m16s because `@open-mercato/core#typecheck` stayed CPU-bound with no diagnostics; 18/19 tasks completed.
+- `yarn test` failed in `create-mercato-app#test` due three CLI scaffold subprocess `ETIMEDOUT` failures while unrelated package tests were still passing; targeted changed-package tests passed.
+
+## Self-Review Notes
+
+- Backward compatibility: no public API route, event ID, widget spot, ACL feature, DI service, database schema, or public import path was removed or renamed.
+- Security/tenant isolation: no production database queries or auth/tenant-scoped data paths were changed.
+- Scope: the production behavior change is limited to integration test runtime state reuse; data_sync locale additions are additive keys required by the i18n gate.
+
 ## Progress
 
 > Convention: `- [ ]` pending, `- [x]` done. Append ` — <commit sha>` when a step lands. Do not rename step titles.
@@ -69,6 +88,6 @@ Non-goals:
 
 ### Phase 3: Validate and Ship
 
-- [ ] 3.1 Run affected package and required validation gates
-- [ ] 3.2 Complete code-review and backward-compatibility self-review
+- [x] 3.1 Run affected package and required validation gates — 5188e0d26
+- [x] 3.2 Complete code-review and backward-compatibility self-review — 5188e0d26
 - [ ] 3.3 Open PR, label it, and complete auto-review pass
