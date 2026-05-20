@@ -58,15 +58,15 @@ Audit findings from `rg "new RegExp\\(|operator.*regex|rule.*regex"`:
 - RE2-compatible regex syntax is intentionally narrower than JavaScript `RegExp`; unsupported regex validation rules will now fail closed instead of executing with a backtracking engine.
 - Existing saved custom-field definitions with unsupported regex constructs may reject values until an administrator updates the pattern.
 - RE2JS adds a browser-consumable dependency because `CrudForm` imports the shared validator for client-side validation.
-- Follow-up Phase 4 is intentionally left pending so a later `auto-continue-pr` run can harden the remaining regex surfaces without expanding this first remediation too far.
-- Validation blockers observed on this branch and left for follow-up/global cleanup: `yarn i18n:check-usage` reports three missing `data_sync` keys unrelated to this change; full `yarn test` also hit existing timeout failures in `packages/cli/src/lib/testing/__tests__/integration.test.ts` and `packages/ui/src/ai/__tests__/AiChat.test.tsx`.
+- Phase 4 is implemented in this PR: the remaining production regex surfaces now use linear regex helpers or non-regex wildcard matching.
+- Full validation now passes on this branch. `yarn template:sync` still reports unrelated pre-existing drift in `scripts/dev.mjs`; this PR does not change template-synced app sources or dev scripts.
 
 ## Progress
 
 > Convention: `- [ ]` pending, `- [x]` done. Append ` — <commit sha>` when a step lands. Do not rename step titles.
 
 Current PR: https://github.com/open-mercato/open-mercato/pull/1996
-Current status: in-progress. Resume with `/auto-continue-pr 1996`; start from the remaining Phase 3 validation/review gate.
+Current status: ready for review after final PR label handoff.
 
 ### Phase 1: Central Regex Hardening
 
@@ -84,8 +84,8 @@ Current status: in-progress. Resume with `/auto-continue-pr 1996`; start from th
 
 ### Phase 3: Verification And Review
 
-- [ ] 3.1 Run full validation gate
-- [ ] 3.2 Complete code-review and BC self-review
+- [x] 3.1 Run full validation gate — d6612378a
+- [x] 3.2 Complete code-review and BC self-review — d6612378a
 - [ ] 3.3 Open PR, label it, run auto-review-pr, and post summary
 
 ### Phase 4: Follow-up ReDoS Surface Plan
@@ -94,3 +94,21 @@ Current status: in-progress. Resume with `/auto-continue-pr 1996`; start from th
 - [x] 4.2 Migrate workflow trigger regex filters to the shared linear regex helper — 9279e36e1
 - [x] 4.3 Replace escaped wildcard RegExp matchers with non-regex matching or strict caps — 9279e36e1
 - [x] 4.4 Add focused regression tests for each migrated regex surface — 9279e36e1
+
+## Final Validation Notes
+
+- `yarn build:packages` — PASS
+- `yarn generate` — PASS (structural cache purge warning is non-fatal and unrelated to this change)
+- `yarn build:packages` after generation — PASS
+- `yarn i18n:check-sync` — PASS
+- `yarn i18n:check-usage` — PASS after adding missing data sync translations; advisory unused-key output remains non-blocking
+- `yarn typecheck` — PASS
+- `yarn test --concurrency=4` — PASS
+- `yarn build:app` — PASS
+- `yarn template:sync` — WARN: unrelated `scripts/dev.mjs` template drift, not introduced by this PR
+
+## Self-review Notes
+
+- Backward compatibility: no public function signatures, event IDs, widget spot IDs, API URLs, database schema, DI names, ACL feature IDs, or public import paths were removed or renamed.
+- Security: the PR removes native `RegExp` execution from attacker-influenced custom-field validation, business-rule `MATCHES`, workflow regex filters, wildcard event/widget matching, and cache wildcard matching. Added diff grep confirms no new production `em.find(` / `em.findOne(` calls.
+- Coverage: focused regression tests cover custom-field ReDoS payloads, unsupported regex syntax, oversized inputs, business-rule matching, workflow trigger matching, wildcard helpers, event/sync/widget matching, UI app-event matching, and cache wildcard behavior.
