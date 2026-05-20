@@ -90,4 +90,4 @@ Non-goals:
 
 - [x] 3.1 Run affected package and required validation gates — a531b0211
 - [x] 3.2 Complete code-review and backward-compatibility self-review — a531b0211
-- [ ] 3.3 Open PR, label it, and complete auto-review pass
+- [x] 3.3 Open PR, label it, and complete auto-review pass — 247421c8b
