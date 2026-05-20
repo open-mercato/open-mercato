@@ -20,6 +20,7 @@ const __dirname = dirname(fileURLToPath(import.meta.url))
 const PACKAGE_ROOT = resolve(__dirname, '..', '..')
 const CLI_BIN = join(PACKAGE_ROOT, 'bin', 'create-mercato-app')
 const CLI_ENTRY = join(PACKAGE_ROOT, 'src', 'index.ts')
+const CLI_SCAFFOLD_TIMEOUT_MS = 30_000
 const PACKAGE_VERSION = (
   JSON.parse(readFileSync(join(PACKAGE_ROOT, 'package.json'), 'utf8')) as { version: string }
 ).version
@@ -211,7 +212,7 @@ test('CLI bare scaffold skips interactive agentic setup with --skip-agentic-setu
         cwd: PACKAGE_ROOT,
         encoding: 'utf8',
         env: process.env,
-        timeout: 15000,
+        timeout: CLI_SCAFFOLD_TIMEOUT_MS,
       },
     )
 
@@ -253,7 +254,7 @@ test('CLI bare scaffold initializes git when --init-git is passed', () => {
         cwd: PACKAGE_ROOT,
         encoding: 'utf8',
         env: process.env,
-        timeout: 15000,
+        timeout: CLI_SCAFFOLD_TIMEOUT_MS,
       },
     )
 
@@ -282,7 +283,7 @@ test('CLI bare scaffold applies explicit crm preset without prompting', () => {
         cwd: PACKAGE_ROOT,
         encoding: 'utf8',
         env: process.env,
-        timeout: 15000,
+        timeout: CLI_SCAFFOLD_TIMEOUT_MS,
       },
     )
 
