@@ -5,6 +5,7 @@ import type { CredentialsService } from '@open-mercato/core/modules/integrations
 import type { IntegrationLogService } from '@open-mercato/core/modules/integrations/lib/log-service'
 import { Organization } from '@open-mercato/core/modules/directory/data/entities'
 import type { IntegrationScope } from '@open-mercato/shared/modules/integrations/types'
+import { findWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import {
   mapOrganizationsToScopes,
   parseCliArgs,
@@ -35,7 +36,8 @@ function printHelp(): void {
 }
 
 async function listActiveScopes(em: EntityManager): Promise<IntegrationScope[]> {
-  const organizations = await em.find(
+  const organizations = await findWithDecryption(
+    em,
     Organization,
     { deletedAt: null, isActive: true },
     { populate: ['tenant'] },
