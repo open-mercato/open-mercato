@@ -140,20 +140,28 @@ export function ChangeOwnerDialog({
                 return (
                   <Button
                     variant="ghost"
+                    size="default"
                     key={member.teamMemberId}
                     type="button"
                     onClick={() => setSelectedUserId(member.userId)}
-                    className={`flex items-center gap-3 rounded-md px-3 py-2 text-left transition-colors hover:bg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 ${
+                    // Overrides on the Button base class:
+                    //  - `flex w-full` → row spans the dialog width (default Button is `inline-flex` and content-sized)
+                    //  - `h-auto` → fit avatar + two stacked text lines (default `h-9` clips and leaves the background only covering the first line — that's the "uneven" symptom)
+                    //  - `justify-start` → left-align contents (default Button is `justify-center`, which pushes the avatar+name toward the middle)
+                    //  - `whitespace-normal` → allow long emails to wrap instead of overflowing the button box (default Button is `whitespace-nowrap`)
+                    className={`flex h-auto w-full items-center justify-start gap-3 whitespace-normal rounded-md px-3 py-2 text-left transition-colors hover:bg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 ${
                       isSelected ? 'bg-muted' : ''
                     }`}
                   >
                     <Avatar label={member.displayName} size="sm" />
-                    <span className="flex flex-col">
-                      <span className="text-sm font-medium text-foreground">
+                    <span className="flex min-w-0 flex-1 flex-col items-start">
+                      <span className="truncate text-sm font-medium text-foreground">
                         {member.displayName}
                       </span>
                       {member.email ? (
-                        <span className="text-xs text-muted-foreground">{member.email}</span>
+                        <span className="truncate text-xs text-muted-foreground">
+                          {member.email}
+                        </span>
                       ) : null}
                     </span>
                   </Button>

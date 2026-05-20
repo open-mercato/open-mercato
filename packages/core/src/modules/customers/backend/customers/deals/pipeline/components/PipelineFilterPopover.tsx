@@ -55,8 +55,8 @@ export function PipelineFilterPopover({
     if (open) setDraft(selectedPipelineId)
   }, [open, selectedPipelineId])
 
-  const activePipeline = pipelines.find((p) => p.id === selectedPipelineId)
-  const totalCount = pipelines.reduce((sum, p) => sum + (p.dealCount ?? 0), 0)
+  const activePipeline = pipelines.find((pipeline) => pipeline.id === selectedPipelineId)
+  const totalCount = pipelines.reduce((sum, pipeline) => sum + (pipeline.dealCount ?? 0), 0)
   const chipLabel = translateWithFallback(t, 'customers.deals.kanban.filter.pipeline', 'Pipeline')
   const chipValue = activePipeline
     ? activePipeline.name
@@ -87,7 +87,7 @@ export function PipelineFilterPopover({
         t,
         'customers.deals.kanban.filter.pipeline.selectedOne',
         '1 selected · {name}',
-        { name: pipelines.find((p) => p.id === draft)?.name ?? '' },
+        { name: pipelines.find((pipeline) => pipeline.id === draft)?.name ?? '' },
       )}
     </span>
   ) : (

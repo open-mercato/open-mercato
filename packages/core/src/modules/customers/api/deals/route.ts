@@ -49,8 +49,16 @@ export const dealListQuerySchema = z
     valueCurrency: stringOrStringArray.optional(),
     sortField: z.string().optional(),
     sortDir: z.enum(['asc', 'desc']).optional(),
-    personEntityId: z.string().uuid().optional(),
-    companyEntityId: z.string().uuid().optional(),
+    /**
+     * @deprecated Use `personId` instead. The `personEntityId` alias is kept for backward
+     * compatibility with older clients and will be removed in a future minor release.
+     */
+    personEntityId: z.string().uuid().optional().describe('Deprecated; use personId'),
+    /**
+     * @deprecated Use `companyId` instead. The `companyEntityId` alias is kept for backward
+     * compatibility with older clients and will be removed in a future minor release.
+     */
+    companyEntityId: z.string().uuid().optional().describe('Deprecated; use companyId'),
     personId: stringOrStringArray.optional(),
     companyId: stringOrStringArray.optional(),
   })

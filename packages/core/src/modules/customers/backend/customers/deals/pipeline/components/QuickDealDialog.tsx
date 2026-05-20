@@ -101,7 +101,7 @@ export function QuickDealDialog({
   // reuse stale field values (the page passes a fresh stage in `context` each time).
   const [formInstanceKey, setFormInstanceKey] = React.useState(0)
   React.useEffect(() => {
-    if (open) setFormInstanceKey((c) => c + 1)
+    if (open) setFormInstanceKey((current) => current + 1)
   }, [open])
 
   const { runMutation, retryLastMutation } = useGuardedMutation<{
@@ -127,7 +127,7 @@ export function QuickDealDialog({
     [currencies],
   )
   const defaultCurrencyCode = React.useMemo(() => {
-    const base = resolvedCurrencies.find((c) => c.isBase)
+    const base = resolvedCurrencies.find((currency) => currency.isBase)
     return base?.code ?? resolvedCurrencies[0]?.code ?? 'USD'
   }, [resolvedCurrencies])
 
@@ -192,9 +192,11 @@ export function QuickDealDialog({
           label: translateWithFallback(t, 'customers.deals.kanban.quickDeal.currency', 'Currency'),
           type: 'select',
           layout: 'half',
-          options: resolvedCurrencies.map((c) => ({
-            value: c.code,
-            label: c.label && c.label !== c.code ? `${c.code} — ${c.label}` : c.code,
+          options: resolvedCurrencies.map((currency) => ({
+            value: currency.code,
+            label: currency.label && currency.label !== currency.code
+              ? `${currency.code} — ${currency.label}`
+              : currency.code,
           })),
         },
         {
@@ -209,7 +211,7 @@ export function QuickDealDialog({
             <ComboboxInput
               value={typeof value === 'string' ? value : ''}
               onChange={(next) => setValue(next)}
-              seedOptions={companies.map((c) => ({ value: c.id, label: c.label }))}
+              seedOptions={companies.map((company) => ({ value: company.id, label: company.label }))}
               placeholder={translateWithFallback(
                 t,
                 'customers.deals.kanban.quickDeal.companyPh',
@@ -246,9 +248,13 @@ export function QuickDealDialog({
           type: 'select',
           // Storage value is preserved (`loose` etc.) — only the displayed label is
           // translated, so we never write a localised string back to the DB.
-          options: STATUS_OPTIONS.map((v) => ({
-            value: v,
-            label: translateWithFallback(t, `customers.deals.kanban.quickDeal.status.${v}`, v),
+          options: STATUS_OPTIONS.map((statusValue) => ({
+            value: statusValue,
+            label: translateWithFallback(
+              t,
+              `customers.deals.kanban.quickDeal.status.${statusValue}`,
+              statusValue,
+            ),
           })),
         },
         {

@@ -205,7 +205,9 @@ export function CloseDateFilterPopover({ value, onApply }: CloseDateFilterPopove
               <input
                 type="date"
                 value={draft.from ?? ''}
-                onChange={(e) => setDraft((p) => ({ ...p, from: e.target.value || null }))}
+                onChange={(event) =>
+                  setDraft((previous) => ({ ...previous, from: event.target.value || null }))
+                }
                 className="rounded-md border border-input bg-card px-2.5 py-1.5 text-sm font-normal leading-normal text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
               />
             </label>
@@ -214,7 +216,9 @@ export function CloseDateFilterPopover({ value, onApply }: CloseDateFilterPopove
               <input
                 type="date"
                 value={draft.to ?? ''}
-                onChange={(e) => setDraft((p) => ({ ...p, to: e.target.value || null }))}
+                onChange={(event) =>
+                  setDraft((previous) => ({ ...previous, to: event.target.value || null }))
+                }
                 className="rounded-md border border-input bg-card px-2.5 py-1.5 text-sm font-normal leading-normal text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
               />
             </label>

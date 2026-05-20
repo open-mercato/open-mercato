@@ -1,4 +1,5 @@
 import type { AwilixContainer } from 'awilix'
+import type { EntityManager as CoreEntityManager } from '@mikro-orm/core'
 import type { CommandBus, CommandRuntimeContext } from '@open-mercato/shared/lib/commands'
 import { invalidateCrudCache } from '@open-mercato/shared/lib/crud/cache'
 import { runWithCacheTenant } from '@open-mercato/cache'
@@ -42,9 +43,49 @@ export type CustomersDealsBulkUpdateOwnerJobPayload = {
   scope: CustomersDealsBulkScope
 }
 
+export type CustomersDealsBulkFailedItem = {
+  id: string
+  message: string
+}
+
 export type CustomersDealsBulkSummary = {
   affectedCount: number
   failedCount: number
+  failedItems: CustomersDealsBulkFailedItem[]
+}
+
+export class BulkDealsPreflightError extends Error {
+  readonly code: string
+  constructor(code: string, message: string) {
+    super(message)
+    this.name = 'BulkDealsPreflightError'
+    this.code = code
+  }
+}
+
+async function verifyPipelineStageExists(
+  em: CoreEntityManager,
+  stageId: string,
+  scope: CustomersDealsBulkScope,
+): Promise<void> {
+  // The `pipelineStageId` posted from the kanban is a `customer_pipeline_stages.id`
+  // (the per-pipeline stage definition that `commands/deals.ts:loadPipelineStageSnapshot`
+  // also reads). It is NOT a `customer_dictionary_entries.id` — those entries are a
+  // per-tenant dictionary used to centralize stage colours/icons by normalized label.
+  const rows = await em.getConnection().execute<Array<{ id: string }>>(
+    `SELECT id FROM customer_pipeline_stages
+       WHERE id = ?
+         AND tenant_id = ?
+         AND organization_id = ?
+       LIMIT 1`,
+    [stageId, scope.tenantId, scope.organizationId],
+  )
+  if (rows.length === 0) {
+    throw new BulkDealsPreflightError(
+      'pipeline_stage_not_found',
+      `Pipeline stage ${stageId} does not exist in this tenant`,
+    )
+  }
 }
 
 const BULK_CACHE_ALIASES = ['customers.deals']
@@ -94,8 +135,8 @@ async function runBulkDealUpdate(params: {
 
   const commandContext = buildCommandContext(scope, container)
   const updatedIds = new Set<string>()
+  const failedItems: CustomersDealsBulkFailedItem[] = []
   let affectedCount = 0
-  let failedCount = 0
 
   for (const [index, id] of ids.entries()) {
     try {
@@ -114,8 +155,9 @@ async function runBulkDealUpdate(params: {
       affectedCount += 1
       updatedIds.add(id)
     } catch (error) {
-      failedCount += 1
-      console.warn(`[${logTag}] failed to update deal`, { id, error })
+      const message = error instanceof Error ? error.message : String(error)
+      failedItems.push({ id, message })
+      console.warn(`[${logTag}] failed to update deal`, { jobId: progressJobId, id, error })
     }
 
     await progressService.updateProgress(
@@ -138,7 +180,11 @@ async function runBulkDealUpdate(params: {
     }
   })
 
-  const summary: CustomersDealsBulkSummary = { affectedCount, failedCount }
+  const summary: CustomersDealsBulkSummary = {
+    affectedCount,
+    failedCount: failedItems.length,
+    failedItems,
+  }
   await progressService.completeJob(progressJobId, { resultSummary: summary }, progressContext)
   return summary
 }
@@ -150,6 +196,11 @@ export async function bulkUpdateDealStageWithProgress(params: {
   pipelineStageId: string
   scope: CustomersDealsBulkScope
 }): Promise<CustomersDealsBulkSummary> {
+  // Pre-flight check: verify the target stage exists in the caller's tenant scope before
+  // doing N per-deal command calls. An invalid stage would otherwise produce N identical
+  // failures in `runBulkDealUpdate` and a noisy `failedItems` list.
+  const em = params.container.resolve('em') as CoreEntityManager
+  await verifyPipelineStageExists(em, params.pipelineStageId, params.scope)
   return runBulkDealUpdate({
     container: params.container,
     progressJobId: params.progressJobId,

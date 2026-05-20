@@ -157,7 +157,7 @@ export function DealCardMenu({ items, ariaLabel }: DealCardMenuProps): React.Rea
         aria-label={ariaLabel}
         onClick={(event) => {
           event.stopPropagation()
-          setOpen((v) => !v)
+          setOpen((previous) => !previous)
           requestAnimationFrame(updatePosition)
         }}
         className="inline-flex size-4 items-center justify-center rounded-sm text-muted-foreground transition-colors hover:bg-muted hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"

@@ -129,7 +129,7 @@ function resolveInsertOrder(
   if (position === POSITION_START) return 0
   if (position.startsWith(POSITION_AFTER_PREFIX)) {
     const afterId = position.slice(POSITION_AFTER_PREFIX.length)
-    const idx = existingStages.findIndex((s) => s.id === afterId)
+    const idx = existingStages.findIndex((stage) => stage.id === afterId)
     if (idx < 0) return undefined
     // Insert position is the existing stage's order + 1; the backend will shift the
     // remainder of the stages by +1 to keep ordering dense and unique.
@@ -149,7 +149,7 @@ export function AddStageDialog({
   // any stale field errors from a previous open don't carry over.
   const [formInstanceKey, setFormInstanceKey] = React.useState(0)
   React.useEffect(() => {
-    if (open) setFormInstanceKey((c) => c + 1)
+    if (open) setFormInstanceKey((current) => current + 1)
   }, [open])
 
   const { runMutation, retryLastMutation } = useGuardedMutation<{

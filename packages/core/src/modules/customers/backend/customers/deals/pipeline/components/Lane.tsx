@@ -205,7 +205,7 @@ function LaneImpl({
     data: { type: 'lane', stageId: stage.id },
   })
   const isDragActive = !!activeDragDealId
-  const sourceLane = isDragActive && deals.some((d) => d.id === activeDragDealId)
+  const sourceLane = isDragActive && deals.some((deal) => deal.id === activeDragDealId)
   // Highlight drop zone when:
   //  - the lane has the pointer over it during a drag, OR
   //  - any drag is active and this lane is not the source (so all candidate targets are clearly tagged)

@@ -4,11 +4,13 @@ import type { EntityManager as CoreEntityManager } from '@mikro-orm/core'
 import type { EntityManager as PgEntityManager } from '@mikro-orm/postgresql'
 import { getAuthFromRequest } from '@open-mercato/shared/lib/auth/server'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
+import { resolveOrganizationScopeForRequest } from '@open-mercato/core/modules/directory/utils/organizationScope'
 import type { ExchangeRateService } from '@open-mercato/core/modules/currencies/services/exchangeRateService'
 import { parseBooleanFromUnknown } from '@open-mercato/shared/lib/boolean'
 import { escapeLikePattern } from '@open-mercato/shared/lib/db/escapeLikePattern'
 import type { CrudCtx } from '@open-mercato/shared/lib/crud/factory'
 import { isTenantDataEncryptionEnabled } from '@open-mercato/shared/lib/encryption/toggles'
+import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
 import { fetchStuckDealIds } from '../../../lib/stuckDeals'
 import { findMatchingEntityIdsBySearchTokensAcrossSources } from '../../utils'
 import { E } from '#generated/entities.ids.generated'
@@ -68,11 +70,49 @@ type AggregateResponse = {
   perStage: StageAggregate[]
 }
 
-export const openApi = {
-  tags: ['Customers'],
+const stageBreakdownByCurrencySchema = z.object({
+  currency: z.string(),
+  total: z.number(),
+  count: z.number(),
+})
+
+const stageAggregateSchema = z.object({
+  stageId: z.string(),
+  count: z.number(),
+  openCount: z.number(),
+  totalInBaseCurrency: z.number(),
+  byCurrency: z.array(stageBreakdownByCurrencySchema),
+  convertedAll: z.boolean(),
+  missingRateCurrencies: z.array(z.string()),
+})
+
+const aggregateResponseSchema = z.object({
+  baseCurrencyCode: z.string().nullable(),
+  perStage: z.array(stageAggregateSchema),
+})
+
+const aggregateErrorSchema = z.object({
+  error: z.string(),
+})
+
+export const openApi: OpenApiRouteDoc = {
+  tag: 'Customers',
   summary: 'Deals aggregate per pipeline stage',
-  description:
-    'Returns per-stage counts and totals for deals, with values converted to the tenant base currency where rates are available. Used to power kanban lane headers without loading every deal.',
+  methods: {
+    GET: {
+      summary: 'Per-stage counts and currency totals for kanban lane headers',
+      description:
+        'Returns per-stage counts and totals for deals, with values converted to the tenant base currency where rates are available. Used to power kanban lane headers without loading every deal.',
+      query: querySchema,
+      responses: [
+        { status: 200, description: 'Per-stage aggregate payload', schema: aggregateResponseSchema },
+      ],
+      errors: [
+        { status: 400, description: 'Invalid query parameters', schema: aggregateErrorSchema },
+        { status: 401, description: 'Unauthorized', schema: aggregateErrorSchema },
+      ],
+    },
+  },
 }
 
 function readArrayParam(searchParams: URLSearchParams, key: string): string[] | null {
@@ -121,20 +161,40 @@ export async function GET(req: Request) {
   const container = await createRequestContainer()
   const em = container.resolve<CoreEntityManager>('em')
 
-  // Find the tenant's base currency. Falls back to `null` if none flagged.
+  // Resolve organization scope from the request so multi-org operators can aggregate
+  // deals for any org their RBAC scope permits (matching the deal detail route at
+  // [id]/route.ts:360). Falls back to `auth.orgId` when no scope cookie is set or
+  // when rbacService cannot be resolved (e.g. in unit tests with a minimal container).
+  const scope = await resolveOrganizationScopeForRequest({ container, auth, request: req })
+  const effectiveTenantId = scope.tenantId ?? auth.tenantId
+  const orgFilterIds = Array.isArray(scope.filterIds) && scope.filterIds.length > 0
+    ? scope.filterIds.filter((id) => typeof id === 'string' && id.length > 0)
+    : auth.orgId
+      ? [auth.orgId]
+      : []
+  if (!effectiveTenantId || orgFilterIds.length === 0) {
+    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+  }
+
+  // Raw SQL is used here intentionally — the route only projects non-encrypted columns
+  // (`pipeline_stage_id`, `value_amount`, `value_currency`, `status`, plus filters). It
+  // avoids the per-row decryption cost that would be paid by `findWithDecryption` for an
+  // aggregate that never reads `title`/`description`. The search path still relies on
+  // the token index above to find matching deals when encrypted columns are involved.
   const baseCurrency = await em.getConnection().execute<Array<{ code: string }>>(
     `SELECT code FROM currencies WHERE tenant_id = ? AND organization_id = ? AND is_base = true AND deleted_at IS NULL LIMIT 1`,
-    [auth.tenantId, auth.orgId],
+    [effectiveTenantId, orgFilterIds[0]],
   )
   const baseCurrencyCode = baseCurrency[0]?.code ?? null
 
   // Build WHERE clause shared between count + sum queries
+  const orgPlaceholders = orgFilterIds.map(() => '?').join(',')
   const where: string[] = [
     'tenant_id = ?',
-    'organization_id = ?',
+    `organization_id IN (${orgPlaceholders})`,
     'deleted_at IS NULL',
   ]
-  const values: Array<string | number | null> = [auth.tenantId, auth.orgId]
+  const values: Array<string | number | null> = [effectiveTenantId, ...orgFilterIds]
 
   if (parsed.data.pipelineId) {
     where.push('pipeline_id = ?')
@@ -145,9 +205,9 @@ export async function GET(req: Request) {
     const searchCtx: CrudCtx = {
       container,
       auth,
-      organizationScope: null,
-      selectedOrganizationId: auth.orgId,
-      organizationIds: [auth.orgId],
+      organizationScope: scope,
+      selectedOrganizationId: orgFilterIds[0],
+      organizationIds: orgFilterIds,
       request: req,
     }
     const matchingIds = await findMatchingEntityIdsBySearchTokensAcrossSources({
@@ -210,7 +270,7 @@ export async function GET(req: Request) {
     // Reuse the list endpoint's stuck-deal lookup so kanban headers, lane counts, and the
     // cards rendered inside each lane agree on the same definition of "stuck". Empty result
     // → narrow to a sentinel UUID so the WHERE clause collapses to zero rows.
-    const stuckIds = await fetchStuckDealIds(em as unknown as PgEntityManager, auth.orgId, auth.tenantId)
+    const stuckIds = await fetchStuckDealIds(em as unknown as PgEntityManager, orgFilterIds[0], effectiveTenantId)
     restrictToIds(where, values, stuckIds)
   }
   if (parsed.data.personId && parsed.data.personId.length) {
@@ -303,7 +363,7 @@ export async function GET(req: Request) {
         const results = await exchange.getRates({
           pairs,
           date: today,
-          scope: { tenantId: auth.tenantId, organizationId: auth.orgId },
+          scope: { tenantId: effectiveTenantId, organizationId: orgFilterIds[0] },
           options: { maxDaysBack: 60, autoFetch: false },
         })
         for (const [key, rateResult] of results) {

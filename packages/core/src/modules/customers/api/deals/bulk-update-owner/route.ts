@@ -1,5 +1,4 @@
 import { NextResponse } from 'next/server'
-import { z } from 'zod'
 import { getAuthFromRequest } from '@open-mercato/shared/lib/auth/server'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import { readJsonSafe } from '@open-mercato/shared/lib/http/readJsonSafe'
@@ -14,17 +13,10 @@ import {
   CUSTOMERS_DEALS_BULK_UPDATE_OWNER_QUEUE,
   getCustomersQueue,
 } from '../../../lib/bulkDeals'
-
-const requestSchema = z.object({
-  ids: z.array(z.string().uuid()).min(1).max(10000),
-  ownerUserId: z.string().uuid().nullable(),
-})
-
-const responseSchema = z.object({
-  ok: z.boolean(),
-  progressJobId: z.string().uuid().nullable(),
-  message: z.string(),
-})
+import {
+  dealsBulkUpdateOwnerSchema as requestSchema,
+  dealsBulkUpdateResponseSchema as responseSchema,
+} from '../../../data/validators'
 
 export const metadata = {
   POST: { requireAuth: true, requireFeatures: ['customers.deals.manage'] },

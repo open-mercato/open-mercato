@@ -469,7 +469,7 @@ export default function DealsKanbanPage(): React.ReactElement {
     if (selectedPipelineId) return
     const pipelines = pipelinesQuery.data
     if (!pipelines || !pipelines.length) return
-    const defaultPipeline = pipelines.find((p) => p.isDefault) ?? pipelines[0]
+    const defaultPipeline = pipelines.find((pipeline) => pipeline.isDefault) ?? pipelines[0]
     if (defaultPipeline) setSelectedPipelineId(defaultPipeline.id)
   }, [pipelinesQuery.data, selectedPipelineId])
 
@@ -927,8 +927,8 @@ export default function DealsKanbanPage(): React.ReactElement {
   const isInitialLoading =
     !!selectedPipelineId && lanes.length === 0
       ? stagesQuery.isLoading
-      : laneQueries.some((q) => q.isLoading && !q.data)
-  const firstError: unknown = laneQueries.find((q) => q.isError)?.error ?? null
+      : laneQueries.some((laneQuery) => laneQuery.isLoading && !laneQuery.data)
+  const firstError: unknown = laneQueries.find((laneQuery) => laneQuery.isError)?.error ?? null
 
   // Centralized invalidation so writes refresh per-lane card queries, the aggregate, and drop stale extras
   const invalidateKanbanData = React.useCallback(() => {
@@ -992,7 +992,7 @@ export default function DealsKanbanPage(): React.ReactElement {
 
   const [activeDragDealId, setActiveDragDealId] = React.useState<string | null>(null)
   const activeDragDeal = React.useMemo(
-    () => (activeDragDealId ? deals.find((d) => d.id === activeDragDealId) ?? null : null),
+    () => (activeDragDealId ? deals.find((deal) => deal.id === activeDragDealId) ?? null : null),
     [activeDragDealId, deals],
   )
 
@@ -1686,7 +1686,7 @@ export default function DealsKanbanPage(): React.ReactElement {
 
   const activePipelineName = React.useMemo(() => {
     if (!selectedPipelineId) return ''
-    return pipelinesQuery.data?.find((p) => p.id === selectedPipelineId)?.name ?? ''
+    return pipelinesQuery.data?.find((pipeline) => pipeline.id === selectedPipelineId)?.name ?? ''
   }, [pipelinesQuery.data, selectedPipelineId])
 
   const stageLabelById = React.useMemo(() => {
@@ -2356,9 +2356,9 @@ export default function DealsKanbanPage(): React.ReactElement {
 
   const pipelineFilterOptions = React.useMemo(
     () =>
-      (pipelinesQuery.data ?? []).map((p) => ({
-        id: p.id,
-        name: p.name,
+      (pipelinesQuery.data ?? []).map((pipeline) => ({
+        id: pipeline.id,
+        name: pipeline.name,
       })),
     [pipelinesQuery.data],
   )
@@ -2368,12 +2368,12 @@ export default function DealsKanbanPage(): React.ReactElement {
     async (query: string, _signal: AbortSignal): Promise<EntityFilterOption[]> => {
       const items = await fetchAssignableStaffMembers(query ?? '', { pageSize: 100 })
       const opts: EntityFilterOption[] = items
-        .filter((u) => !!u.userId && !!u.displayName)
-        .map((u) => ({ value: u.userId!, label: u.displayName! }))
+        .filter((user) => !!user.userId && !!user.displayName)
+        .map((user) => ({ value: user.userId!, label: user.displayName! }))
       // Cache labels so chip can display readable text for already-selected ids
       setOwnerLabels((prev) => {
         const next: Record<string, string> = { ...prev }
-        for (const o of opts) next[o.value] = o.label
+        for (const option of opts) next[option.value] = option.label
         return next
       })
       return opts
@@ -2494,7 +2494,7 @@ export default function DealsKanbanPage(): React.ReactElement {
 
   const activePipeline = React.useMemo(() => {
     if (!selectedPipelineId) return null
-    return pipelinesQuery.data?.find((p) => p.id === selectedPipelineId) ?? null
+    return pipelinesQuery.data?.find((pipeline) => pipeline.id === selectedPipelineId) ?? null
   }, [pipelinesQuery.data, selectedPipelineId])
 
   const dragHint = translateWithFallback(

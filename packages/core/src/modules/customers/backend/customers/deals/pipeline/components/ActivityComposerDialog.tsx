@@ -83,7 +83,7 @@ export function ActivityComposerDialog({
   // identify what we're logging activity FOR, and CrudForm's internal state must reset.
   const [formInstanceKey, setFormInstanceKey] = React.useState(0)
   React.useEffect(() => {
-    if (open) setFormInstanceKey((c) => c + 1)
+    if (open) setFormInstanceKey((current) => current + 1)
   }, [open])
 
   const { runMutation, retryLastMutation } = useGuardedMutation<{
@@ -125,10 +125,13 @@ export function ActivityComposerDialog({
         })
         // Activity must carry at least a title OR a body — purely empty saves are
         // useless and they previously surfaced as a confusing inline error.
-        .refine((v) => (v.title?.trim().length || v.body?.trim().length) ? true : false, {
-          message: eitherRequiredMessage,
-          path: ['title'],
-        }),
+        .refine(
+          (values) => (values.title?.trim().length || values.body?.trim().length) ? true : false,
+          {
+            message: eitherRequiredMessage,
+            path: ['title'],
+          },
+        ),
     [eitherRequiredMessage],
   ) as unknown as z.ZodType<ActivityComposerFormValues>
 

@@ -101,7 +101,7 @@ export function EntityFilterPopover({
       const id = values[0]
       const fromLabels = labelById?.[id]
       if (fromLabels) return fromLabels
-      const fromOptions = options.find((o) => o.value === id)?.label
+      const fromOptions = options.find((option) => option.value === id)?.label
       if (fromOptions) return fromOptions
       return id.slice(0, 8)
     }
@@ -114,7 +114,7 @@ export function EntityFilterPopover({
   }, [values, anyLabel, labelById, options, t])
 
   const toggleDraft = (id: string) => {
-    setDraft((prev) => (prev.includes(id) ? prev.filter((v) => v !== id) : [...prev, id]))
+    setDraft((prev) => (prev.includes(id) ? prev.filter((value) => value !== id) : [...prev, id]))
   }
 
   const handleApply = () => {

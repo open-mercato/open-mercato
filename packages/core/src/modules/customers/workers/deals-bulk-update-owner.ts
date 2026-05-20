@@ -7,10 +7,6 @@ import {
   type CustomersDealsBulkUpdateOwnerJobPayload,
 } from '../lib/bulkDeals'
 
-type HandlerContext = JobContext & {
-  resolve: <T = unknown>(name: string) => T
-}
-
 export const metadata: WorkerMeta = {
   queue: CUSTOMERS_DEALS_BULK_UPDATE_OWNER_QUEUE,
   id: 'customers:deals-bulk-update-owner',
@@ -19,7 +15,7 @@ export const metadata: WorkerMeta = {
 
 export default async function handle(
   job: QueuedJob<CustomersDealsBulkUpdateOwnerJobPayload>,
-  _ctx: HandlerContext,
+  _ctx: JobContext,
 ): Promise<void> {
   const container = await createRequestContainer()
 

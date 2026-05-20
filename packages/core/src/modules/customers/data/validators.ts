@@ -144,6 +144,24 @@ export const dealUpdateSchema = z
   })
   .merge(dealCreateSchema.partial())
 
+// Bulk update schemas — used by `api/deals/bulk-update-{owner,stage}/route.ts`. Kept here
+// so all deal-write contracts live next to `dealCreateSchema` / `dealUpdateSchema`.
+export const dealsBulkUpdateOwnerSchema = z.object({
+  ids: z.array(uuid()).min(1).max(10000),
+  ownerUserId: uuid().nullable(),
+})
+
+export const dealsBulkUpdateStageSchema = z.object({
+  ids: z.array(uuid()).min(1).max(10000),
+  pipelineStageId: uuid(),
+})
+
+export const dealsBulkUpdateResponseSchema = z.object({
+  ok: z.boolean(),
+  progressJobId: uuid().nullable(),
+  message: z.string(),
+})
+
 export const activityCreateSchema = scopedSchema.extend({
   entityId: uuid(),
   activityType: z.string().min(1).max(100),
