@@ -59,6 +59,7 @@ Audit findings from `rg "new RegExp\\(|operator.*regex|rule.*regex"`:
 - Existing saved custom-field definitions with unsupported regex constructs may reject values until an administrator updates the pattern.
 - RE2JS adds a browser-consumable dependency because `CrudForm` imports the shared validator for client-side validation.
 - Follow-up Phase 4 is intentionally left pending so a later `auto-continue-pr` run can harden the remaining regex surfaces without expanding this first remediation too far.
+- Validation blockers observed on this branch and left for follow-up/global cleanup: `yarn i18n:check-usage` reports three missing `data_sync` keys unrelated to this change; full `yarn test` also hit existing timeout failures in `packages/cli/src/lib/testing/__tests__/integration.test.ts` and `packages/ui/src/ai/__tests__/AiChat.test.tsx`.
 
 ## Progress
 
@@ -75,6 +76,7 @@ Audit findings from `rg "new RegExp\\(|operator.*regex|rule.*regex"`:
 - [x] 2.1 Add regression tests for the reported ReDoS payload — 0e3a6b745
 - [x] 2.2 Add tests for unsupported regex syntax and oversized input — 0e3a6b745
 - [x] 2.3 Run focused shared validation checks — 0e3a6b745
+- [x] 2.4 Stabilize timing-sensitive ReDoS regression assertion — a5d31041d
 
 ### Phase 3: Verification And Review
 
