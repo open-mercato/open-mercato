@@ -1,8 +1,8 @@
 /** @jest-environment node */
 import {
+  MAX_CUSTOM_FIELD_REGEX_PATTERN_LENGTH,
   MAX_CUSTOM_FIELD_REGEX_INPUT_LENGTH,
   validateValuesAgainstDefs,
-  validationRuleSchema,
 } from '../validation'
 
 describe('validateValuesAgainstDefs', () => {
@@ -122,13 +122,26 @@ describe('validateValuesAgainstDefs', () => {
     expect(result.fieldErrors['cf_body']).toBe('body too large')
   })
 
-  it('rejects oversized regex rule definitions', () => {
-    const result = validationRuleSchema.safeParse({
-      rule: 'regex',
-      param: 'a'.repeat(501),
-      message: 'too long',
-    })
+  it('fails closed before testing oversized regex patterns', () => {
+    const defs = [
+      {
+        key: 'code',
+        kind: 'text',
+        configJson: {
+          validation: [
+            {
+              rule: 'regex',
+              param: `^${'a'.repeat(MAX_CUSTOM_FIELD_REGEX_PATTERN_LENGTH)}$`,
+              message: 'pattern too large',
+            },
+          ],
+        },
+      },
+    ]
 
-    expect(result.success).toBe(false)
+    const result = validateValuesAgainstDefs({ code: 'a' }, defs as any)
+
+    expect(result.ok).toBe(false)
+    expect(result.fieldErrors['cf_code']).toBe('pattern too large')
   })
 })

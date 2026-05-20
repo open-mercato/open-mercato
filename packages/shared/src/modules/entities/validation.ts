@@ -34,7 +34,7 @@ export const validationRuleSchema = z.discriminatedUnion('rule', [
   z.object({ rule: z.literal('ne'), param: z.any(), message: z.string().min(1) }),
   z.object({
     rule: z.literal('regex'),
-    param: z.string().min(1).max(MAX_CUSTOM_FIELD_REGEX_PATTERN_LENGTH),
+    param: z.string().min(1),
     message: z.string().min(1),
   }),
 ])
