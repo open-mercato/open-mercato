@@ -6,6 +6,7 @@
  */
 
 import type { EntityManager } from '@mikro-orm/core'
+import type { EntityManager as PostgreSqlEntityManager } from '@mikro-orm/postgresql'
 import type { AwilixContainer } from 'awilix'
 import type { CacheService } from '@open-mercato/cache'
 import { matchEventPattern } from '@open-mercato/shared/lib/events/patterns'
@@ -328,8 +329,9 @@ async function loadLegacyTriggers(
   tenantId: string,
   organizationId: string
 ): Promise<UnifiedTrigger[]> {
+  const postgresEm = em as unknown as PostgreSqlEntityManager
   const legacyTriggers = await findWithDecryption(
-    em,
+    postgresEm,
     WorkflowEventTrigger,
     {
       tenantId,
@@ -345,7 +347,7 @@ async function loadLegacyTriggers(
 
   // Get definitions for these triggers to get workflowId
   const definitionIds = [...new Set(legacyTriggers.map(t => t.workflowDefinitionId))]
-  const definitions = definitionIds.length > 0 ? await findWithDecryption(em, WorkflowDefinition, {
+  const definitions = definitionIds.length > 0 ? await findWithDecryption(postgresEm, WorkflowDefinition, {
     id: { $in: definitionIds },
     tenantId,
     organizationId,
@@ -386,9 +388,10 @@ async function loadEmbeddedTriggers(
   tenantId: string,
   organizationId: string
 ): Promise<UnifiedTrigger[]> {
+  const postgresEm = em as unknown as PostgreSqlEntityManager
   // Load all enabled definitions that may have triggers
   const definitions = await findWithDecryption(
-    em,
+    postgresEm,
     WorkflowDefinition,
     {
       tenantId,
