@@ -97,12 +97,64 @@ OM_INTEGRATION_STORAGE_S3_ACCESS_KEY_ID=AKIAIOSFODNN7EXAMPLE
 OM_INTEGRATION_STORAGE_S3_SECRET_ACCESS_KEY=wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY
 OM_INTEGRATION_STORAGE_S3_REGION=us-east-1
 OM_INTEGRATION_STORAGE_S3_BUCKET=my-mercato-bucket
-# Optional for MinIO / DO Spaces / R2:
+# Optional:
+# OM_INTEGRATION_STORAGE_S3_SESSION_TOKEN=
 # OM_INTEGRATION_STORAGE_S3_ENDPOINT=https://nyc3.digitaloceanspaces.com
 # OM_INTEGRATION_STORAGE_S3_FORCE_PATH_STYLE=true
+# OM_INTEGRATION_STORAGE_S3_FORCE_PRECONFIGURE=false
 ```
 
-On first startup the module reads these vars and pre-populates the Integration Marketplace credentials so no manual configuration step is needed.
+`OM_ENABLE_STORAGE_S3=true` is the module-enablement gate: without it the `storage_s3` module is not registered in `enabledModules` and the rest of the `OM_INTEGRATION_STORAGE_S3_*` block is ignored. The two layers are intentionally separate so you can preview the integration card in the UI without preconfiguring credentials.
+
+On new tenant setup the module reads `OM_INTEGRATION_STORAGE_S3_*` and pre-populates the Integration Marketplace credentials so no manual configuration step is needed. Setup failures (for example a partial env block) are surfaced through the **Integrations → Logs** UI under the `storage_s3` filter, so operators can see them alongside other integration activity.
+
+### Preconfigure existing tenants from the CLI
+
+`onTenantCreated` only runs once per tenant. If you upgrade an existing deployment after setting the `OM_INTEGRATION_STORAGE_S3_*` block, rerun the provider CLI to apply the preset to a tenant that was provisioned before the variables were available:
+
+```bash
+yarn mercato storage_s3 configure-from-env --tenant <tenantId> --org <organizationId>
+```
+
+Behavior:
+
+- No env vars set → the command prints `Skipped: No S3 env preset was found.` and exits `0`. Safe to call from a startup hook.
+- Required vars partially set → exits `1` with `Incomplete S3 env preset` so CI/automation can detect misconfiguration.
+- Tenant already has stored credentials → prints `Skipped: S3 credentials already exist.` and exits `0` unless you pass `--force` or set `OM_INTEGRATION_STORAGE_S3_FORCE_PRECONFIGURE=true`.
+- Full env + (no existing creds OR `--force`) → writes the credentials and adds an entry to the integration logs.
+
+Use `--force` when you want to roll keys without going through the Integrations UI:
+
+```bash
+yarn mercato storage_s3 configure-from-env \
+  --tenant <tenantId> \
+  --org <organizationId> \
+  --force
+```
+
+### Apply to every tenant from a deploy hook (`--all-tenants`)
+
+For unattended deploys — Dokploy, Coolify, Kamal, plain `docker run`, etc. — you usually do not want to track tenant and organization UUIDs in your deploy configuration. Use `--all-tenants` instead: the CLI iterates every active organization in the database and applies the preset to each `(tenantId, organizationId)` pair.
+
+```bash
+yarn mercato storage_s3 configure-from-env --all-tenants
+```
+
+Use it as a post-deploy / release hook in your platform (e.g. a Dokploy "deploy command", a Kamal `accessory` post-deploy, a Coolify "after deployment" step). On every redeploy, the command:
+
+- Reads the `OM_INTEGRATION_STORAGE_S3_*` block from the process environment once.
+- Enumerates every active organization (excludes soft-deleted ones).
+- Calls the same `applyS3EnvPreset` per-scope, with the same per-tenant skip / `--force` semantics — already-configured tenants are skipped automatically, fresh tenants get the preset.
+- Prints a summary line at the end (configured / skipped / errored counts).
+
+Exit code semantics:
+
+- All scopes succeed or skip → exit `0`. Safe to wire into every release hook.
+- Env preset is incomplete (a required `OM_INTEGRATION_STORAGE_S3_*` var is missing) → every scope errors → exit `1`. CI/automation can detect misconfiguration without parsing stdout.
+- At least one scope errors while others succeed → exit `1`. The summary line reports the breakdown.
+- No active organizations exist yet (fresh DB, before `mercato init`) → exit `0` with a "Nothing to do" message.
+
+`--all-tenants` cannot be combined with `--tenant` / `--org`. Pick one mode per invocation.
 
 ## Local development with LocalStack
 
