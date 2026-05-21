@@ -9,11 +9,24 @@ export type QueueDrainRunnerOptions = {
   jobLimit: number
 }
 
+type BootstrapData = Awaited<ReturnType<typeof bootstrapFromAppRoot>>
+
+const bootstrapCache = new Map<string, Promise<BootstrapData>>()
+
+function getBootstrapData(appRoot: string): Promise<BootstrapData> {
+  const resolvedAppRoot = path.resolve(appRoot)
+  const cached = bootstrapCache.get(resolvedAppRoot)
+  if (cached) return cached
+  const promise = bootstrapFromAppRoot(resolvedAppRoot)
+  bootstrapCache.set(resolvedAppRoot, promise)
+  return promise
+}
+
 export async function drainQueueFromAppRoot(
   queueName: string,
   options: QueueDrainRunnerOptions,
 ): Promise<number> {
-  const data = await bootstrapFromAppRoot(options.appRoot)
+  const data = await getBootstrapData(options.appRoot)
   const worker = data.modules
     .flatMap((module) => module.workers ?? [])
     .find((entry) => entry.queue === queueName)
