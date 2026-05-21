@@ -2740,8 +2740,16 @@ export default function DealsKanbanPage(): React.ReactElement {
               `bg-card shadow-lg` gives it a real surface and a soft drop-shadow; `-mr-2` pulls
               the scroller 8px to the left so its first lane visibly tucks under the rail's
               right edge; `z-10` keeps the rail above the scroller for the tuck-under effect.
+
+              `shadow-lg` glows in all four directions by default, but the LEFT side of the
+              rail sits flush with the page chrome — without clipping, that shadow half spills
+              onto the page background and reads as a halo (UX-designer feedback from Zielivia).
+              `clip-path:inset(-40px -40px -40px 0)` extends the visible region 40px beyond
+              top/right/bottom (so the soft drop-shadow can render in full on those three sides)
+              and clips flush at the LEFT edge (the page-chrome side). Right rail mirrors with
+              `inset(-40px 0 -40px -40px)`.
             */}
-            <div className="relative z-10 flex w-11 -mr-2 shrink-0 items-center justify-center bg-card shadow-lg">
+            <div className="relative z-10 flex w-11 -mr-2 shrink-0 items-center justify-center bg-card shadow-lg [clip-path:inset(-40px_-40px_-40px_0)]">
               <IconButton
                 variant="outline"
                 size="lg"
@@ -2805,8 +2813,11 @@ export default function DealsKanbanPage(): React.ReactElement {
                 </>
               )}
             </div>
-            {/* Mirror of the left rail; `-ml-2` pulls the last lane visibly under the rail's left edge. */}
-            <div className="relative z-10 flex w-11 -ml-2 shrink-0 items-center justify-center bg-card shadow-lg">
+            {/* Mirror of the left rail; `-ml-2` pulls the last lane visibly under the rail's left edge.
+              `clip-path:inset(-40px 0 -40px -40px)` is the right-rail mirror of the left rail's clip —
+              keeps the shadow on top/left/bottom (40px extend) and clips flush at the RIGHT edge
+              so it doesn't spill onto the page background past the page chrome. */}
+            <div className="relative z-10 flex w-11 -ml-2 shrink-0 items-center justify-center bg-card shadow-lg [clip-path:inset(-40px_0_-40px_-40px)]">
               <IconButton
                 variant="outline"
                 size="lg"
