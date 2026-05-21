@@ -222,7 +222,7 @@ export async function GET(req: Request) {
   if (trimmedName) {
     const searchPattern = `%${escapeLikePattern(trimmedName)}%`
     const displayNameFilters: UserListFilter[] = [{ name: { $ilike: searchPattern } }]
-    const nameTokenScope: string | null | undefined = isSuperAdmin ? undefined : auth.tenantId ?? null
+    const nameTokenScope: string | null | undefined = isSuperAdmin ? (effectiveTenantId ?? undefined) : auth.tenantId ?? null
     const matchedDisplayNameIds = await findUserIdsBySearchTokens(em, E.auth.user, trimmedName, nameTokenScope, 'name')
     if (matchedDisplayNameIds && matchedDisplayNameIds.length) {
       displayNameFilters.push({ id: { $in: matchedDisplayNameIds } })
