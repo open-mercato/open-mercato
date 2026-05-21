@@ -7,8 +7,16 @@
  *
  * Distributions that require customer auth do NOT mint anonymous tokens — the
  * caller is told to fall back to the portal login (409). An optional CAPTCHA
- * hook (gated by `distribution.settings.captcha`) returns 422 when no token is
- * supplied. Rate-limited per client IP (R-2d-1).
+ * hook (gated by `distribution.settings.captcha`) returns 422 when the token is
+ * missing (`CAPTCHA_REQUIRED`) or fails provider verification (`CAPTCHA_FAILED`).
+ * Rate-limited per client IP (R-2d-1).
+ *
+ * Real verification requires a configured provider:
+ *   - `FORMS_CAPTCHA_PROVIDER` — `turnstile` (Cloudflare) | `recaptcha` (Google)
+ *   - `FORMS_CAPTCHA_SECRET`   — the provider's secret key
+ * When no provider is configured the verifier is a no-op: token *presence* is
+ * still required (backward-compat for envs that toggled `settings.captcha`), but
+ * the token is accepted without remote verification.
  */
 
 import { NextResponse, type NextRequest } from 'next/server'
@@ -17,6 +25,10 @@ import type { OpenApiRouteDoc, OpenApiMethodDoc } from '@open-mercato/shared/lib
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import type { DistributionService } from '../../../services/distribution-service'
 import type { FormInvitation, FormDistribution } from '../../../data/entities'
+import {
+  isCaptchaProviderConfigured,
+  type CaptchaVerifier,
+} from '../../../services/captcha-verifier'
 import { publicStartInputSchema } from '../../../data/validators'
 import {
   mapDistributionError,
@@ -30,21 +42,35 @@ export const metadata = {
   POST: { requireAuth: false },
 }
 
-/**
- * TODO(forms-2d): wire a real CAPTCHA verification provider. Until then the
- * presence of a token is treated as success — the verification surface is in
- * place so the public page can pass a token without changing this contract.
- */
-function verifyCaptcha(captchaToken: string | undefined): boolean {
-  return Boolean(captchaToken)
-}
-
 function captchaRequired(distribution: FormDistribution): boolean {
   return Boolean(distribution.settings?.captcha)
 }
 
+type CaptchaGateResult = { ok: true } | { ok: false; error: 'CAPTCHA_REQUIRED' | 'CAPTCHA_FAILED' }
+
+/**
+ * Enforces the CAPTCHA gate for a distribution:
+ *  - Not enabled ⇒ pass.
+ *  - Enabled + provider configured ⇒ require a token, then verify it remotely.
+ *    A missing token is `CAPTCHA_REQUIRED`; a failed verification is `CAPTCHA_FAILED`.
+ *  - Enabled + no provider ⇒ require token presence only (backward-compat).
+ */
+async function enforceCaptcha(args: {
+  distribution: FormDistribution
+  token: string | undefined
+  remoteIp: string
+  verifier: CaptchaVerifier
+}): Promise<CaptchaGateResult> {
+  if (!captchaRequired(args.distribution)) return { ok: true }
+  if (!args.token) return { ok: false, error: 'CAPTCHA_REQUIRED' }
+  if (!isCaptchaProviderConfigured(process.env)) return { ok: true }
+  const result = await args.verifier.verify({ token: args.token, remoteIp: args.remoteIp })
+  return result.success ? { ok: true } : { ok: false, error: 'CAPTCHA_FAILED' }
+}
+
 export async function POST(req: NextRequest) {
-  const limited = await enforcePublicRateLimit(`forms:public:start:${getClientIp(req)}`)
+  const clientIp = getClientIp(req)
+  const limited = await enforcePublicRateLimit(`forms:public:start:${clientIp}`)
   if (limited) return limited
 
   let raw: unknown
@@ -63,6 +89,7 @@ export async function POST(req: NextRequest) {
 
   const container = await createRequestContainer()
   const service = container.resolve('formsDistributionService') as DistributionService
+  const captchaVerifier = container.resolve('formsCaptchaVerifier') as CaptchaVerifier
 
   try {
     let distribution: FormDistribution
@@ -83,11 +110,18 @@ export async function POST(req: NextRequest) {
       )
     }
 
-    if (captchaRequired(distribution) && !verifyCaptcha(parsed.data.captchaToken)) {
-      return NextResponse.json(
-        { error: 'CAPTCHA_REQUIRED', message: 'A CAPTCHA token is required to start this form.' },
-        { status: 422 },
-      )
+    const captchaGate = await enforceCaptcha({
+      distribution,
+      token: parsed.data.captchaToken,
+      remoteIp: clientIp,
+      verifier: captchaVerifier,
+    })
+    if (!captchaGate.ok) {
+      const message =
+        captchaGate.error === 'CAPTCHA_FAILED'
+          ? 'CAPTCHA verification failed.'
+          : 'A CAPTCHA token is required to start this form.'
+      return NextResponse.json({ error: captchaGate.error, message }, { status: 422 })
     }
 
     const result = await service.beginAnonymous({
@@ -135,7 +169,7 @@ const postMethodDoc: OpenApiMethodDoc = {
     { status: 404, description: 'Distribution, invitation, or form not found', schema: errorSchema },
     { status: 409, description: 'Distribution requires customer authentication', schema: errorSchema },
     { status: 410, description: 'Distribution / invitation unavailable', schema: errorSchema },
-    { status: 422, description: 'Validation failed or CAPTCHA required', schema: errorSchema },
+    { status: 422, description: 'Validation failed, CAPTCHA required, or CAPTCHA verification failed', schema: errorSchema },
     { status: 429, description: 'Rate limit exceeded', schema: errorSchema },
   ],
 }

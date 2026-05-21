@@ -512,6 +512,82 @@ export class FormDistribution {
   deletedAt?: Date | null
 }
 
+export type FormConsentRecordStatus = 'active' | 'superseded' | 'revoked'
+
+/**
+ * Form consent record — Phase 3 Track D.
+ *
+ * A per-subject, per-clause projection of signed consent from
+ * `signature`-typed fields. Materialized by the `forms-consent-projector`
+ * subscriber on `forms.submission.submitted`: each signature answer becomes
+ * one `active` record, and any prior `active` record for the same
+ * `(organization_id, subject_type, subject_id, form_id, consent_field_key)`
+ * is marked `superseded`.
+ *
+ * Deliberately PII-free: it stores only the consent-clause SHA + `signed_at`
+ * timestamp + ids — never the signature image, typed name, or any answer
+ * value. This is non-sensitive audit data that survives anonymization, so the
+ * projection is a safe queryable surface for "did subject X sign clause Y, and
+ * when". Cross-module identifiers (`form_id`, `subject_id`, `submission_id`)
+ * are plain uuid columns — no ORM relations.
+ */
+@Entity({ tableName: 'forms_consent_record' })
+@Index({ name: 'forms_consent_record_org_subject_idx', properties: ['organizationId', 'subjectType', 'subjectId'] })
+@Index({ name: 'forms_consent_record_org_form_status_idx', properties: ['organizationId', 'formId', 'status'] })
+@Index({ name: 'forms_consent_record_submission_idx', properties: ['submissionId'] })
+export class FormConsentRecord {
+  @PrimaryKey({ type: 'uuid', defaultRaw: 'gen_random_uuid()' })
+  id!: string
+
+  @Property({ name: 'organization_id', type: 'uuid' })
+  organizationId!: string
+
+  @Property({ name: 'tenant_id', type: 'uuid' })
+  tenantId!: string
+
+  @Property({ name: 'subject_type', type: 'text' })
+  subjectType!: string
+
+  @Property({ name: 'subject_id', type: 'uuid' })
+  subjectId!: string
+
+  @Property({ name: 'form_id', type: 'uuid' })
+  formId!: string
+
+  @Property({ name: 'form_version_id', type: 'uuid' })
+  formVersionId!: string
+
+  @Property({ name: 'version_number', type: 'int' })
+  versionNumber!: number
+
+  @Property({ name: 'submission_id', type: 'uuid' })
+  submissionId!: string
+
+  @Property({ name: 'consent_field_key', type: 'text' })
+  consentFieldKey!: string
+
+  @Property({ name: 'clause_sha256', type: 'text' })
+  clauseSha256!: string
+
+  @Property({ name: 'signed_at', type: Date })
+  signedAt!: Date
+
+  @Property({ name: 'status', type: 'text', default: 'active' })
+  status: FormConsentRecordStatus = 'active'
+
+  @Property({ name: 'superseded_by_record_id', type: 'uuid', nullable: true })
+  supersededByRecordId?: string | null
+
+  @Property({ name: 'superseded_at', type: Date, nullable: true })
+  supersededAt?: Date | null
+
+  @Property({ name: 'created_at', type: Date, onCreate: () => new Date() })
+  createdAt: Date = new Date()
+
+  @Property({ name: 'updated_at', type: Date, onUpdate: () => new Date() })
+  updatedAt: Date = new Date()
+}
+
 export type FormInvitationStatus =
   | 'pending'
   | 'sent'

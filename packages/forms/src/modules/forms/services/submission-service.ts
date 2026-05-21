@@ -33,6 +33,11 @@ import {
 } from './form-version-compiler'
 import type { EncryptionService } from './encryption-service'
 import { RolePolicyService } from './role-policy-service'
+import {
+  resolveVisibleFieldKeys,
+  sliceByVisibility,
+  type VisibilitySchemaNode,
+} from './visibility-resolver'
 import { buildTamperingMarker, type StructuredLogger } from '../lib/log-redaction'
 import { formsEventPayloadSchemas } from '../events-payloads'
 
@@ -858,9 +863,26 @@ export class SubmissionService {
       uiSchema: formVersion.uiSchema,
     })
     const decodedFull = await this.decodeRevision(args.organizationId, revision)
-    const decodedData = args.viewerRole
-      ? this.rolePolicy.resolve(compiled, args.viewerRole).sliceReadPayload(decodedFull)
-      : decodedFull
+    let decodedData = decodedFull
+    if (args.viewerRole) {
+      // Role read-slicing first (drops fields the role may not read at all).
+      const viewerRole = args.viewerRole
+      const roleSliced = this.rolePolicy.resolve(compiled, viewerRole).sliceReadPayload(decodedFull)
+      // Defense-in-depth: also hide values for fields whose `x-om-visibility-if`
+      // condition is currently false. Visibility is evaluated against the FULL
+      // decoded payload (`decodedFull`) — predicates may reference fields the
+      // role-sliced subset omits, and they must see the real answers. The
+      // resulting visible set then narrows the role-sliced payload. Forms
+      // without any `x-om-visibility-if` resolve to all readable keys, so this
+      // is a no-op for them.
+      const visible = resolveVisibleFieldKeys({
+        compiled,
+        schema: formVersion.schema as { properties?: Record<string, VisibilitySchemaNode> },
+        role: viewerRole,
+        data: decodedFull,
+      })
+      decodedData = sliceByVisibility(roleSliced, visible)
+    }
 
     // TODO(forms-2b): write form_access_audit row via auditAccess hook.
     await this.auditAccess({

@@ -35,6 +35,7 @@ const events = [
   { id: 'forms.invitation.opened', label: 'Invitation Opened', entity: 'invitation', category: 'lifecycle' as const },
   { id: 'forms.invitation.submitted', label: 'Invitation Submitted', entity: 'invitation', category: 'lifecycle' as const },
   { id: 'forms.invitation.revoked', label: 'Invitation Revoked', entity: 'invitation', category: 'lifecycle' as const },
+  { id: 'forms.consent.recorded', label: 'Consent Recorded', entity: 'consent', category: 'lifecycle' as const },
 ] as const
 
 export const eventsConfig = createModuleEvents({

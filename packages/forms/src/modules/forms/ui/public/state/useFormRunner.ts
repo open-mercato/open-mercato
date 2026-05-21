@@ -16,6 +16,8 @@ import type {
 } from '../types'
 import { mergeOnConflict, useAutosave } from './useAutosave'
 import { createAuthRuntimeClient, type RuntimeClient } from './runtime-client'
+import { collectMissingRequired, deriveLogicState } from './logic-derivation'
+import type { LogicState } from '../../../services/form-logic-evaluator'
 
 const DEFAULT_AUTOSAVE_MS = (() => {
   const raw =
@@ -70,6 +72,14 @@ export type UseFormRunnerResult = {
   sections: RunnerSection[]
   fieldOrder: string[]
   visibleFieldIndex: Record<string, RunnerFieldDescriptor>
+  /**
+   * Live reactive logic state derived from the current answers — conditional
+   * visibility (`x-om-visibility-if`), computed variables (`x-om-variables`),
+   * recall-token resolution, and section jumps (`x-om-jumps`). `null` until a
+   * schema is loaded. Mirrors the reactive runner's `evaluateFormLogic` so the
+   * public runner converges on the same behaviour (R-6).
+   */
+  logicState: LogicState | null
   submission: RunnerSubmission | null
   submissionRevision: RunnerRevision | null
   submissionActors: RunnerActor[]
@@ -91,16 +101,6 @@ export type UseFormRunnerResult = {
   flushAutosave: () => Promise<void>
   /** Active transport client — exposed so file fields can build an uploader. */
   client: RuntimeClient
-}
-
-const FALLBACK_FIELD: RunnerFieldDescriptor = {
-  key: '',
-  type: 'text',
-  sectionKey: null,
-  sensitive: false,
-  editableBy: [],
-  visibleTo: [],
-  required: false,
 }
 
 export function useFormRunner(args: UseFormRunnerArgs): UseFormRunnerResult {
@@ -174,6 +174,15 @@ export function useFormRunner(args: UseFormRunnerArgs): UseFormRunnerResult {
     if (!schemaResponse) return {}
     return schemaResponse.fieldIndex
   }, [schemaResponse])
+
+  // Reactive logic state — recomputed whenever answers change so conditional
+  // visibility, variables, recall, and jumps stay live (matches the reactive
+  // runner). The public transport carries no hidden values, so we pass `{}`;
+  // `evaluateFormLogic` still applies declared hidden-field defaults.
+  const logicState = useMemo<LogicState | null>(
+    () => deriveLogicState({ schema, values, hidden: {}, locale }),
+    [schema, values, locale],
+  )
 
   const setLocale = useCallback((next: string) => {
     setLocaleState(next)
@@ -400,33 +409,21 @@ export function useFormRunner(args: UseFormRunnerArgs): UseFormRunnerResult {
   )
 
   // ---------- Validation per section ----------
+  // Required-field gating ignores fields hidden by `x-om-visibility-if`: a
+  // hidden required field must not block Next / submit (converges with the
+  // reactive runner and aligns the client with T1's server-side slicing).
   const validateSection = useCallback((sectionIndex: number): string[] => {
     if (!schemaResponse || !schema) return []
     const section = sections[sectionIndex]
     if (!section) return []
-    const required = Array.isArray(schema.required) ? schema.required : []
-    const requiredSet = new Set(required)
-    const missing: string[] = []
-    for (const fieldKey of section.fieldKeys) {
-      if (!requiredSet.has(fieldKey)) continue
-      const descriptor = schemaResponse.fieldIndex[fieldKey] ?? FALLBACK_FIELD
-      if (descriptor.type === 'info_block') continue
-      const value = values[fieldKey]
-      if (value === undefined || value === null) {
-        missing.push(fieldKey)
-        continue
-      }
-      if (typeof value === 'string' && value.trim().length === 0) {
-        missing.push(fieldKey)
-        continue
-      }
-      if (Array.isArray(value) && value.length === 0) {
-        missing.push(fieldKey)
-        continue
-      }
-    }
-    return missing
-  }, [schema, schemaResponse, sections, values])
+    return collectMissingRequired({
+      schema,
+      fieldIndex: schemaResponse.fieldIndex,
+      sectionFieldKeys: section.fieldKeys,
+      values,
+      visibleFieldKeys: logicState ? logicState.visibleFieldKeys : null,
+    })
+  }, [schema, schemaResponse, sections, values, logicState])
 
   const enterReview = useCallback(() => {
     setStage('review')
@@ -481,6 +478,7 @@ export function useFormRunner(args: UseFormRunnerArgs): UseFormRunnerResult {
     sections,
     fieldOrder,
     visibleFieldIndex,
+    logicState,
     submission,
     submissionRevision,
     submissionActors,

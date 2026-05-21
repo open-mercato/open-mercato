@@ -46,6 +46,25 @@ the dev fallback is available, it throws `INSECURE_KMS_IN_PRODUCTION` (W1 / R-1)
 Cloud KMS (AWS/GCP/Vault) integrates by implementing `KmsAdapter` and registering
 it via `setKmsAdapterFactory(...)` — no cloud SDK ships with this module.
 
+## CAPTCHA Env Vars
+
+The public start route (`api/public/start/route.ts`) gates anonymous submissions
+behind an optional CAPTCHA when `distribution.settings.captcha` is truthy. The
+verifier is resolved from DI (`formsCaptchaVerifier`) — see
+`services/captcha-verifier.ts`.
+
+| Env var | Purpose |
+|---------|---------|
+| `FORMS_CAPTCHA_PROVIDER` | `turnstile` (Cloudflare) or `recaptcha` (Google). When set together with `FORMS_CAPTCHA_SECRET`, tokens are verified against the provider's siteverify endpoint (fail-closed: any transport/parse error rejects). |
+| `FORMS_CAPTCHA_SECRET` | The provider's secret key. Never logged. |
+
+When no provider is configured the verifier is a no-op: a non-empty
+`captchaToken` is still *required* on CAPTCHA-enabled distributions
+(`422 CAPTCHA_REQUIRED` if missing) for backward-compat, but the token is
+accepted without remote verification. With a provider configured, a failed
+verification returns `422 CAPTCHA_FAILED`. Operators inject a custom verifier by
+overriding `formsCaptchaVerifier`.
+
 ## Schema Format (v1) — Locked In
 
 Every form definition is a JSON Schema 7-shaped object decorated with `x-om-*` extension keywords. The full keyword catalog lives in `src/modules/forms/schema/jsonschema-extensions.ts`. v1 keywords are FROZEN; new keywords are additive.

@@ -7,6 +7,7 @@ import { Spinner } from '@open-mercato/ui/primitives/spinner'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { useFormRunner } from './state/useFormRunner'
 import type { RuntimeClient } from './state/runtime-client'
+import type { LogicState } from '../../services/form-logic-evaluator'
 import { CompletionScreen } from './components/CompletionScreen'
 import { LocaleSwitch } from './components/LocaleSwitch'
 import { ResumeGate } from './components/ResumeGate'
@@ -71,6 +72,7 @@ export function FormRunner(props: FormRunnerProps) {
     sections,
     fieldOrder,
     visibleFieldIndex,
+    logicState,
     submission,
     submissionRevision,
     values,
@@ -259,6 +261,31 @@ export function FormRunner(props: FormRunnerProps) {
 
   const advance = () => {
     if (sectionMissing.length > 0) return
+    // Jumps (`x-om-jumps`): when the current section declares jump rules, the
+    // live logic state resolves the next target against current answers +
+    // variables (matches the reactive runner). `next` falls through to the
+    // default sequential flow; `submit` / `ending` route to the review/submit
+    // step (the public completion screen is generic — see report).
+    if (logicState && currentSection) {
+      const target = logicState.nextTarget(currentSection.key)
+      if (target.type === 'page') {
+        const idx = sections.findIndex((section) => section.key === target.pageKey)
+        if (idx >= 0) {
+          setCurrentSectionIndex(idx)
+          return
+        }
+      } else if (target.type === 'ending') {
+        const idx = sections.findIndex((section) => section.key === target.endingKey)
+        if (idx >= 0) {
+          setCurrentSectionIndex(idx)
+        }
+        enterReview()
+        return
+      } else if (target.type === 'submit') {
+        enterReview()
+        return
+      }
+    }
     if (isLastSection) {
       enterReview()
       return
@@ -307,8 +334,15 @@ export function FormRunner(props: FormRunnerProps) {
 
       <section className="flex flex-col gap-4">
         {sectionFieldKeys.map((fieldKey) => {
-          const node = (schema.properties ?? {})[fieldKey] as RunnerFieldNode | undefined
-          if (!node) return null
+          // Conditional visibility (`x-om-visibility-if`): skip fields the
+          // live logic state hides for the current answers. Matches the
+          // reactive runner and aligns with T1's server-side slicing.
+          if (logicState && !logicState.visibleFieldKeys.has(fieldKey)) return null
+          const rawNode = (schema.properties ?? {})[fieldKey] as RunnerFieldNode | undefined
+          if (!rawNode) return null
+          // Recall (`@{...}` tokens) in label/help — resolved against current
+          // answers + variables. Sensitive fields resolve to '' (rule 13).
+          const node = logicState ? resolveNodeRecall(rawNode, logicState, locale) : rawNode
           const descriptor: RunnerFieldDescriptor =
             visibleFieldIndex[fieldKey] ?? {
               key: fieldKey,
@@ -369,4 +403,41 @@ export function FormRunner(props: FormRunnerProps) {
       </footer>
     </article>
   )
+}
+
+/**
+ * Returns a field node whose `x-om-label` / `x-om-help` are recall-resolved for
+ * the active locale. Recall tokens (`@{...}`) substitute current answers,
+ * hidden values, and computed variables; sensitive-field tokens resolve to ''
+ * (rule 13) because `LogicState.resolveRecall` enforces redaction. The
+ * resolved string is stored under the active `locale` key so the renderers'
+ * `resolveLocaleString(..., locale, ...)` picks it up unchanged. Nodes without
+ * recall-bearing label/help are returned untouched to avoid churn.
+ */
+function resolveNodeRecall(
+  node: RunnerFieldNode,
+  logicState: LogicState,
+  locale: string,
+): RunnerFieldNode {
+  const rawLabel = node['x-om-label']
+  const rawHelp = node['x-om-help']
+  const hasLabelRecall = mapHasRecall(rawLabel)
+  const hasHelpRecall = mapHasRecall(rawHelp)
+  if (!hasLabelRecall && !hasHelpRecall) return node
+  const next: RunnerFieldNode = { ...node }
+  if (hasLabelRecall) {
+    next['x-om-label'] = { ...(rawLabel ?? {}), [locale]: logicState.resolveRecall(rawLabel, locale) }
+  }
+  if (hasHelpRecall) {
+    next['x-om-help'] = { ...(rawHelp ?? {}), [locale]: logicState.resolveRecall(rawHelp, locale) }
+  }
+  return next
+}
+
+function mapHasRecall(map: Record<string, string> | undefined): boolean {
+  if (!map) return false
+  for (const value of Object.values(map)) {
+    if (typeof value === 'string' && value.includes('@{')) return true
+  }
+  return false
 }

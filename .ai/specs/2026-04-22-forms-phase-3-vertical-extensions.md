@@ -213,7 +213,7 @@ No new events. Phase 3 only *consumes* `forms.submission.submitted` and `forms.s
 
 | Phase | Status | Date | Notes |
 |-------|--------|------|-------|
-| Phase 3 — Vertical Extensions | Partial — Tracks A + C shipped; Tracks B + D deferred | 2026-05-08 | 106/106 forms tests passing across 14 suites. |
+| Phase 3 — Vertical Extensions | Done — Tracks A + B + C + D shipped | 2026-05-21 | 649/649 forms tests passing across 52 suites. |
 
 #### Track A — Vertical type registry pattern (Done)
 
@@ -232,13 +232,73 @@ Shipped:
 
 Both subscribers resolve `webhookDispatcher` from the DI container at handler time. If no dispatcher is registered (the webhooks module is not enabled in this app), the subscriber returns silently — zero impact on the emitting transaction. When the webhooks module IS enabled, the subscriber forwards an id-only payload (`{ submissionId, emittedAt }`) — guaranteed safe per phase 1c R1 posture.
 
-#### Track B — Analytics (Deferred)
+#### Track B — Analytics (Done — 2026-05-21)
 
-Not shipped this run. The architecture is straightforward — query `form_submission_revision` filtered by `(form_version.form_id, savedAt window)` to compute completion rate / drop-off / time-to-submit, mount via cache tag `forms.analytics:{form_id}` (5-min TTL). Following spec's documented surface; deferred only because it would push this PR over its scope envelope.
+Shipped aggregate, PII-safe analytics:
 
-#### Track D — Consent record aggregate (Deferred — explicitly optional in spec)
+- `packages/forms/src/modules/forms/services/analytics-service.ts` — `AnalyticsService.computeFormAnalytics({ formId, scope, from?, to?, limit? })` aggregates across **all** versions of a form, tenant-scoped on every query. Computes: funnel (started / submitted / completion rate / counts by status incl. anonymized), daily volume (started + submitted per UTC day), time-to-complete (median/avg `firstSavedAt → submittedAt`, submitted only), per-field response stats (answered vs blank for every non-`info_block` field; value distributions ONLY for non-sensitive enumerable types `select_one`/`select_many`/`boolean`/`scale`), and best-effort draft drop-off (furthest section reached). The scan is capped at the most-recent N submissions (`limit`, default 1000, max 5000); `scan.{limit,scanned,capped}` is echoed.
+- DI: `formsAnalyticsService` registered (Awilix CLASSIC, `.proxy()`).
+- API: `GET /api/forms/:id/analytics` — `requireAuth` + `requireFeatures: ['forms.view']`, Zod query (`from`/`to`/`limit`), `openApi`-documented. Returns counts-only JSON.
+- Admin surface: a form sub-page (`backend/forms/[id]/analytics/page.tsx` + `page.meta.ts`, `navHidden`, breadcrumb) over the existing chart primitives (`@open-mercato/ui/backend/charts`: KpiCard, LineChart, BarChart) plus an answered-vs-blank table.
+- i18n: `forms.analytics.*` keys in `i18n/en.json`.
 
-Spec lists this as optional (Q10 from source draft). Not shipped. The signature field type that this projects from is itself a phase 2c follow-up.
+**PII-safety:** decryption happens server-side only to tally; decrypted values never leave the service or appear in logs. Sensitive (`x-om-sensitive: true`) and free-text/non-enumerable fields are excluded from value distributions (only answered/blank counts). Aggregates are per-form/per-window — never per-subject (R-3-5).
+
+Tests: `packages/forms/src/modules/forms/__tests__/analytics-service.test.ts` (8 cases) — funnel math, completion rate, sensitive/free-text exclusion from choice tally, time-to-complete median/avg, volume bucketing, drop-off, and tenant isolation.
+
+**Deviation from the spec's documented surface:** delivered as a feature-gated **form sub-page** rather than a dashboard widget (`forms-analytics:form`), and metrics are computed live from the current revision + submission timestamps (capped scan) rather than read off `changed_field_keys` with a 5-min cache tag. The sub-page is self-contained and the more useful admin surface; per-field value distributions require decrypting answers (which `changed_field_keys` alone cannot provide). Caching can be layered later behind the same service without an API change.
+
+#### Track D — Consent record aggregate (Done — 2026-05-21)
+
+Shipped a per-subject, per-clause consent projection from signed `signature`
+fields with supersession tracking. PII-free by construction (clause SHA-256 +
+`signed_at` + status timestamps + ids only — never the signature image, typed
+name, or any answer value), so the projection survives anonymization.
+
+- Entity `FormConsentRecord` → table `forms_consent_record`
+  (`packages/forms/src/modules/forms/data/entities.ts`). Columns: `id`,
+  `organization_id`, `tenant_id`, `subject_type`, `subject_id`, `form_id`,
+  `form_version_id`, `version_number`, `submission_id`, `consent_field_key`,
+  `clause_sha256`, `signed_at`, `status` (`active`|`superseded`|`revoked`),
+  `superseded_by_record_id`, `superseded_at`, `created_at`, `updated_at`.
+  Indexes: `(organization_id, subject_type, subject_id)`,
+  `(organization_id, form_id, status)`, `(submission_id)`, and a unique
+  `(submission_id, consent_field_key)` idempotency anchor. Additive migration
+  `Migration20260521120000_forms.ts` + snapshot update.
+- `ConsentRecordService` (`services/consent-record-service.ts`) +
+  `forms-consent-projector` subscriber (`subscribers/forms-consent-projector.ts`)
+  on `forms.submission.submitted`. Detects `signature`-typed fields off the
+  compiled `fieldIndex`, creates one `active` record per signed clause, and
+  supersedes any prior `active` record for the same
+  `(org, subject_type, subject_id, form_id, consent_field_key)`. Idempotent
+  (no-op when a record already exists for the submission + field) and
+  fail-soft (subscriber logs + swallows so the submit pipeline never breaks).
+  DI key `formsConsentRecordService` (Awilix CLASSIC, `.proxy()`).
+- API: `GET /api/forms/subjects/:subjectType/:subjectId/consents` —
+  `requireAuth` + `requireFeatures: ['forms.view']`, Zod-validated, tenant-scoped,
+  `openApi`-documented, optional `?status=` / `?formId=` filters. Returns
+  `{ items: [{ id, formId, formName, formVersionId, versionNumber, submissionId,
+  consentFieldKey, clauseSha256, signedAt, status, supersededAt,
+  supersededByRecordId }] }`.
+- Event: additive `forms.consent.recorded` (id-only — `recordId`/`submissionId`)
+  declared in `events.ts` + `events-payloads.ts`, emitted best-effort by the
+  projector.
+
+Test: `packages/forms/src/modules/forms/__tests__/consent-record-service.test.ts`
+(6 cases) — creates an active record from a signed submission, supersedes the
+prior active for the same subject+form+field, idempotent on re-delivery, no-op
+when no signature field / unsigned / non-submitted status.
+
+**Deviation from the spec's documented surface:** the entity is richer than the
+draft table (which keyed on a logical `form_key` + `clause_key` + `revision_id`).
+The shipped shape pins `form_id`/`form_version_id`/`version_number`/`submission_id`
++ a `consent_field_key` (the signature field key) and adds explicit supersession
+columns (`status`/`superseded_by_record_id`/`superseded_at`), giving a queryable
+consent *history* rather than a flat latest-only projection. The endpoint path is
+`/api/forms/subjects/:subjectType/:subjectId/consents` (matching the existing
+subject-scoped export route) rather than the draft's `/consent-records/by-subject/...`.
+The idempotent backfill job (spec step 3) is not yet shipped; the projector itself
+is re-delivery-safe, so a backfill can replay `forms.submission.submitted` later.
 
 #### Verification
 
@@ -251,6 +311,10 @@ Spec lists this as optional (Q10 from source draft). Not shipped. The signature 
 2. **Webhook bridge subscribers are resilient to a missing dispatcher** — subscribers don't fail if the webhooks module is unenabled; this is intentional so the forms module remains self-contained when run in apps without webhooks support.
 
 ## Changelog
+
+### 2026-05-21
+- Track D (consent-record aggregate) shipped — `FormConsentRecord` entity + `forms_consent_record` table (additive migration + snapshot), `ConsentRecordService` + `forms-consent-projector` subscriber on `forms.submission.submitted` (signature detection, supersession, idempotent, fail-soft), `GET /api/forms/subjects/:subjectType/:subjectId/consents`, DI `formsConsentRecordService`, additive `forms.consent.recorded` event, and 6 projector unit tests. Phase 3 now complete (Tracks A+B+C+D). Needs `yarn generate` (subscriber + route discovery) and `yarn db:migrate`.
+- Track B (analytics) shipped — `AnalyticsService`, `GET /api/forms/:id/analytics`, form analytics sub-page, DI `formsAnalyticsService`, i18n, and unit tests. Aggregate/counts-only; sensitive + free-text fields excluded from value distributions.
 
 ### 2026-05-08
 - Phase 3 partial — Tracks A + C shipped; B + D documented and deferred.

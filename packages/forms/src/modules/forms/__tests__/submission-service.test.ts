@@ -165,7 +165,34 @@ function match(row: Row, where: Record<string, unknown>): boolean {
   return true
 }
 
-function createTestSetup(options?: { autosaveIntervalMs?: number; revisionCap?: number; nowSequence?: number[] }) {
+const visibilitySchema = () => ({
+  type: 'object',
+  'x-om-roles': ['admin', 'patient', 'clinician'],
+  'x-om-default-actor-role': 'patient',
+  properties: {
+    has_condition: {
+      type: 'boolean',
+      'x-om-type': 'boolean',
+      'x-om-editable-by': ['patient'],
+      'x-om-visible-to': ['patient', 'clinician', 'admin'],
+    },
+    details: {
+      type: 'string',
+      'x-om-type': 'textarea',
+      'x-om-editable-by': ['patient'],
+      'x-om-visible-to': ['patient', 'clinician', 'admin'],
+      'x-om-visibility-if': { '==': [{ var: 'has_condition' }, true] },
+    },
+  },
+  additionalProperties: false,
+})
+
+function createTestSetup(options?: {
+  autosaveIntervalMs?: number
+  revisionCap?: number
+  nowSequence?: number[]
+  schema?: Record<string, unknown>
+}) {
   process.env.FORMS_ENCRYPTION_KMS_KEY_ID = 'test-kms'
   const em = new FakeEntityManager()
 
@@ -196,7 +223,7 @@ function createTestSetup(options?: { autosaveIntervalMs?: number; revisionCap?: 
     tenantId: TENANT_ID,
     versionNumber: 1,
     status: 'published',
-    schema: baseSchema(),
+    schema: options?.schema ?? baseSchema(),
     uiSchema: {},
     roles: ['admin', 'patient', 'clinician'],
     schemaHash: 'hash',
@@ -642,6 +669,140 @@ describe('SubmissionService', () => {
     const captured = JSON.stringify(warnLogs[0])
     // Tampering marker MUST not include the offending value (the diagnosis text).
     expect(captured).not.toContain('peanut')
+  })
+
+  it('omits a visibility-gated field value from getCurrent when its condition is false', async () => {
+    const { service } = createTestSetup({ autosaveIntervalMs: 0, schema: visibilitySchema() })
+    const patient = randomUUID()
+    const view = await service.start({
+      organizationId: ORG_ID,
+      tenantId: TENANT_ID,
+      formKey: FORM_KEY,
+      subjectType: 'patient',
+      subjectId: randomUUID(),
+      startedBy: patient,
+    })
+
+    // Persist both the gating answer (false) and a value for the gated field.
+    await service.save({
+      submissionId: view.submission.id,
+      organizationId: ORG_ID,
+      tenantId: TENANT_ID,
+      baseRevisionId: view.revision.id,
+      patch: { has_condition: false, details: 'hidden secret' },
+      savedBy: patient,
+    })
+
+    const current = await service.getCurrent({
+      submissionId: view.submission.id,
+      organizationId: ORG_ID,
+      tenantId: TENANT_ID,
+      viewerRole: 'patient',
+    })
+
+    // The gated field is hidden by its condition → its value is omitted.
+    expect(current.decodedData).toEqual({ has_condition: false })
+    expect('details' in current.decodedData).toBe(false)
+  })
+
+  it('includes a visibility-gated field value from getCurrent when its condition is true', async () => {
+    const { service } = createTestSetup({ autosaveIntervalMs: 0, schema: visibilitySchema() })
+    const patient = randomUUID()
+    const view = await service.start({
+      organizationId: ORG_ID,
+      tenantId: TENANT_ID,
+      formKey: FORM_KEY,
+      subjectType: 'patient',
+      subjectId: randomUUID(),
+      startedBy: patient,
+    })
+
+    await service.save({
+      submissionId: view.submission.id,
+      organizationId: ORG_ID,
+      tenantId: TENANT_ID,
+      baseRevisionId: view.revision.id,
+      patch: { has_condition: true, details: 'now visible' },
+      savedBy: patient,
+    })
+
+    const current = await service.getCurrent({
+      submissionId: view.submission.id,
+      organizationId: ORG_ID,
+      tenantId: TENANT_ID,
+      viewerRole: 'patient',
+    })
+
+    expect(current.decodedData).toEqual({ has_condition: true, details: 'now visible' })
+  })
+
+  it('persists hidden-field values on write even when the gating condition is false (read-only slicing)', async () => {
+    const { service, encryptionService } = createTestSetup({ autosaveIntervalMs: 0, schema: visibilitySchema() })
+    const patient = randomUUID()
+    const view = await service.start({
+      organizationId: ORG_ID,
+      tenantId: TENANT_ID,
+      formKey: FORM_KEY,
+      subjectType: 'patient',
+      subjectId: randomUUID(),
+      startedBy: patient,
+    })
+
+    const after = await service.save({
+      submissionId: view.submission.id,
+      organizationId: ORG_ID,
+      tenantId: TENANT_ID,
+      baseRevisionId: view.revision.id,
+      patch: { has_condition: false, details: 'hidden secret' },
+      savedBy: patient,
+    })
+
+    // The stored revision keeps the hidden value verbatim — slicing is READ-only.
+    const decoded = JSON.parse(
+      (await encryptionService.decrypt(ORG_ID, after.revision.data as Buffer)).toString('utf8'),
+    )
+    expect(decoded).toEqual({ has_condition: false, details: 'hidden secret' })
+
+    // An unsliced read (no viewerRole) still returns the full persisted payload.
+    const adminView = await service.getCurrent({
+      submissionId: view.submission.id,
+      organizationId: ORG_ID,
+      tenantId: TENANT_ID,
+    })
+    expect(adminView.decodedData).toEqual({ has_condition: false, details: 'hidden secret' })
+  })
+
+  it('leaves forms without any x-om-visibility-if unchanged under getCurrent slicing', async () => {
+    const { service } = createTestSetup({ autosaveIntervalMs: 0 })
+    const patient = randomUUID()
+    const view = await service.start({
+      organizationId: ORG_ID,
+      tenantId: TENANT_ID,
+      formKey: FORM_KEY,
+      subjectType: 'patient',
+      subjectId: randomUUID(),
+      startedBy: patient,
+    })
+
+    await service.save({
+      submissionId: view.submission.id,
+      organizationId: ORG_ID,
+      tenantId: TENANT_ID,
+      baseRevisionId: view.revision.id,
+      patch: { full_name: 'Jane' },
+      savedBy: patient,
+    })
+
+    const current = await service.getCurrent({
+      submissionId: view.submission.id,
+      organizationId: ORG_ID,
+      tenantId: TENANT_ID,
+      viewerRole: 'patient',
+    })
+
+    // patient may read full_name (visible) but not diagnosis (role-sliced); no
+    // visibility predicates exist, so role-slicing is the only narrowing.
+    expect(current.decodedData).toEqual({ full_name: 'Jane' })
   })
 })
 

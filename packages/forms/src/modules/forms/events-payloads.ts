@@ -92,6 +92,10 @@ export const formsEventPayloadSchemas = {
   'forms.invitation.revoked': z.object({
     invitationId: z.string().uuid(),
   }),
+  'forms.consent.recorded': z.object({
+    recordId: z.string().uuid(),
+    submissionId: z.string().uuid(),
+  }),
 } as const
 
 export type FormsEventPayload = {

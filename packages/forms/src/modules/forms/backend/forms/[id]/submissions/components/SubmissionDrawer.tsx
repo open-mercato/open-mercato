@@ -23,6 +23,8 @@ import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { InjectionSpot } from '@open-mercato/ui/backend/injection/InjectionSpot'
 import { colorForSavedByRole } from './RowBadges'
 
+export const FORMS_DRAWER_REFRESH_EVENT = 'forms:submission-drawer:refresh'
+
 export const SUBMISSION_DRAWER_HEADER_ACTIONS_SPOT = 'submission-drawer:header-actions'
 export const SUBMISSION_DRAWER_ACCESS_AUDIT_SPOT = 'submission-drawer:access-audit'
 export const SUBMISSION_DRAWER_FOOTER_SPOT = 'submission-drawer:footer'
@@ -135,6 +137,15 @@ export function SubmissionDrawer({
     window.addEventListener('keydown', handleKey)
     return () => window.removeEventListener('keydown', handleKey)
   }, [onClose])
+
+  React.useEffect(() => {
+    function handleRefresh() {
+      onMutated?.()
+      void reload()
+    }
+    window.addEventListener(FORMS_DRAWER_REFRESH_EVENT, handleRefresh)
+    return () => window.removeEventListener(FORMS_DRAWER_REFRESH_EVENT, handleRefresh)
+  }, [onMutated, reload])
 
   const handleReopen = React.useCallback(async () => {
     if (!detail) return

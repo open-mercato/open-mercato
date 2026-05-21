@@ -1,6 +1,7 @@
 import { asValue, asFunction } from 'awilix'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import type { AppContainer } from '@open-mercato/shared/lib/di/container'
+import { getOrm } from '@open-mercato/shared/lib/db/mikro'
 import { defaultFieldTypeRegistry } from './schema/field-type-registry'
 import { FormVersionCompiler } from './services/form-version-compiler'
 import { FormVersionDiffer } from './services/form-version-differ'
@@ -14,14 +15,19 @@ import { SubmissionService } from './services/submission-service'
 import { DistributionService } from './services/distribution-service'
 import {
   AccessAuditLogger,
+  BatchingAccessAuditLogger,
   FormsAccessAuditLogger,
+  resolveAccessAuditBatchMs,
   type AccessAuditEvent,
 } from './services/access-audit-logger'
 import { AnonymizeService } from './services/anonymize-service'
+import { AnalyticsService } from './services/analytics-service'
+import { ConsentRecordService } from './services/consent-record-service'
 import { ExportService } from './services/export-service'
 import { AttachmentService } from './services/attachment-service'
 import { PdfSnapshotService } from './services/pdf-snapshot-service'
 import { NoopUploadScanner, type UploadScanner } from './services/upload-scanner'
+import { resolveCaptchaVerifier, type CaptchaVerifier } from './services/captcha-verifier'
 import { DefaultPrefillResolver, type PrefillResolver } from './services/prefill-resolver'
 import { emitFormsEvent } from './events'
 import { formsEventPayloadSchemas } from './events-payloads'
@@ -51,7 +57,22 @@ export function register(container: AppContainer): void {
   const formVersionDiffer = new FormVersionDiffer()
   const rolePolicyService = new RolePolicyService()
 
-  const accessAuditLogger: AccessAuditLogger = new FormsAccessAuditLogger()
+  // T7 — async-batched access audit. `FORMS_ACCESS_AUDIT_BATCH_MS=0` (default)
+  // keeps the synchronous insert-per-read posture on the request's own EM
+  // (deterministic for tests). A positive value buffers events and flushes them
+  // as a bulk insert on a fresh forked EM, off the read hot path.
+  const accessAuditBatchMs = resolveAccessAuditBatchMs(process.env)
+  const accessAuditLogger: AccessAuditLogger =
+    accessAuditBatchMs > 0
+      ? new BatchingAccessAuditLogger({
+          batchMs: accessAuditBatchMs,
+          // Fork a fresh EM at flush time — the request EM is long gone.
+          emFactory: async (): Promise<EntityManager> => {
+            const orm = await getOrm()
+            return orm.em.fork() as unknown as EntityManager
+          },
+        })
+      : new FormsAccessAuditLogger()
 
   container.register({
     fieldTypeRegistry: asValue(defaultFieldTypeRegistry),
@@ -116,6 +137,41 @@ export function register(container: AppContainer): void {
         encryption: formsEncryptionService,
       })
     }).proxy().singleton(),
+    // Phase 3 Track B — aggregate, PII-safe form analytics. Decrypts revision
+    // payloads only to tally enumerable answers; never returns decrypted
+    // values. Lazy-resolves `em` per request so EM request scoping is honoured.
+    formsAnalyticsService: asFunction(({ em, formsEncryptionService }: { em: EntityManager; formsEncryptionService: EncryptionService }): AnalyticsService => {
+      return new AnalyticsService({
+        emFactory: () => em,
+        compiler: formVersionCompiler,
+        encryption: formsEncryptionService,
+      })
+    }).proxy().singleton(),
+    // Phase 3 Track D — projects signed `signature` answers into the
+    // `forms_consent_record` per-subject consent aggregate. Loads the
+    // submission via the submission service (admin/full read, no role slice)
+    // so signature answers are present, then upserts + supersedes. PII-free.
+    // Lazy-resolves `em` per request so EM request scoping is honoured.
+    formsConsentRecordService: asFunction(
+      ({ em, formsSubmissionService }: { em: EntityManager; formsSubmissionService: SubmissionService }): ConsentRecordService => {
+        return new ConsentRecordService({
+          emFactory: () => em,
+          compiler: formVersionCompiler,
+          loadSubmission: async ({ submissionId, organizationId, tenantId }) => {
+            const view = await formsSubmissionService.getCurrent({
+              submissionId,
+              organizationId,
+              tenantId,
+            })
+            return {
+              submission: view.submission,
+              formVersion: view.formVersion,
+              decodedData: view.decodedData,
+            }
+          },
+        })
+      },
+    ).proxy().singleton(),
     // W5 (DP-5) — builds the structured GDPR data-subject export document.
     // Lazy-resolves `em` per request so EM request scoping is honoured.
     formsExportService: asFunction(({ em, formsEncryptionService }: { em: EntityManager; formsEncryptionService: EncryptionService }): ExportService => {
@@ -133,6 +189,13 @@ export function register(container: AppContainer): void {
     // and pure, so `asValue` is correct. Operators inject a richer resolver
     // (e.g. dental-os providing `dob`) by overriding `formsPrefillResolver`.
     formsPrefillResolver: asValue<PrefillResolver>(new DefaultPrefillResolver()),
+    // T5 — pluggable CAPTCHA verifier for the public start route. Selects a
+    // provider verifier (Cloudflare Turnstile / Google reCAPTCHA) when
+    // `FORMS_CAPTCHA_PROVIDER` + `FORMS_CAPTCHA_SECRET` are set; otherwise a
+    // no-op verifier (token presence is still enforced by the route for
+    // backward-compat). Stateless, so `asValue` is correct. Operators inject a
+    // custom verifier by overriding `formsCaptchaVerifier`.
+    formsCaptchaVerifier: asValue<CaptchaVerifier>(resolveCaptchaVerifier(process.env)),
     // W4 — encrypts + persists participant uploads as `forms_form_attachment`
     // rows. Lazy-resolves `em` per request so EM request scoping is honoured.
     formsAttachmentService: asFunction(

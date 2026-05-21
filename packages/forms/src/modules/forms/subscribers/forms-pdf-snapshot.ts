@@ -1,24 +1,28 @@
 /**
- * W3 — signed-PDF snapshot generation on submit.
+ * W3 (T7) — signed-PDF snapshot dispatch on submit.
  *
- * Reacts to `forms.submission.submitted` and renders the immutable PDF
- * snapshot, storing it as an encrypted `forms_form_attachment`
- * (`kind = 'snapshot'`) linked via `pdf_snapshot_attachment_id`. The
- * `PdfSnapshotService` is idempotent (skips when the link is already set), so
- * at-least-once delivery is safe.
+ * Reacts to `forms.submission.submitted` and ENQUEUES a job on the
+ * `forms-pdf-snapshot` queue so the (CPU-heavy, pdf-lib) render runs off the
+ * submit request path in a dedicated worker (`workers/pdf-snapshot.ts`). The
+ * `PdfSnapshotService` is idempotent (skips when `pdf_snapshot_attachment_id`
+ * is set), so at-least-once delivery is safe.
  *
- * Fail-soft: a render/store failure is logged and swallowed — the snapshot is
- * also generated lazily on first download (admin/public PDF endpoints call
- * `ensureSnapshot`), so a transient failure here never blocks the submission
- * lifecycle. `persistent: true` lets the queue retry.
+ * Fail-soft + degradation ladder:
+ *   1. Enqueue on the queue (preferred — off the request path).
+ *   2. If enqueueing throws (queue misconfigured / unavailable), fall back to
+ *      inline generation so a snapshot is still produced.
+ *   3. If inline generation also fails, log + swallow — the snapshot is also
+ *      generated lazily on first download, so submit never breaks.
  *
  * Org/tenant scope is re-derived from the persisted submission row (never from
  * the event payload, which is id-only by catalog construction).
  */
 
 import type { EntityManager } from '@mikro-orm/postgresql'
+import { createQueue, resolveQueueStrategy } from '@open-mercato/queue'
 import { FormSubmission } from '../data/entities'
 import type { PdfSnapshotService } from '../services/pdf-snapshot-service'
+import { PDF_SNAPSHOT_QUEUE_NAME, type PdfSnapshotJob } from '../workers/pdf-snapshot'
 
 export const metadata = {
   event: 'forms.submission.submitted',
@@ -54,6 +58,28 @@ export default async function handleSubmissionSubmitted(
   if (!submission || submission.status !== 'submitted') return
   if (submission.pdfSnapshotAttachmentId) return
 
+  const job: PdfSnapshotJob = {
+    submissionId: submission.id,
+    organizationId: submission.organizationId,
+    tenantId: submission.tenantId,
+  }
+
+  try {
+    const queue = createQueue<PdfSnapshotJob>(PDF_SNAPSHOT_QUEUE_NAME, resolveQueueStrategy())
+    await queue.enqueue(job)
+    return
+  } catch (error) {
+    tryResolveLogger(ctx.container)?.warn(
+      {
+        event: 'forms.pdf_snapshot.enqueue_failed',
+        submissionId: payload.submissionId,
+        message: error instanceof Error ? error.message : 'Unknown enqueue error',
+      },
+      'forms PDF snapshot enqueue failed (falling back to inline generation)',
+    )
+  }
+
+  // Fallback: queue unavailable — generate inline so a snapshot is still made.
   try {
     const service = ctx.container.resolve('formsPdfSnapshotService') as PdfSnapshotService
     await service.ensureSnapshot({
@@ -62,14 +88,13 @@ export default async function handleSubmissionSubmitted(
       submissionId: submission.id,
     })
   } catch (error) {
-    const logger = tryResolveLogger(ctx.container)
-    logger?.warn(
+    tryResolveLogger(ctx.container)?.warn(
       {
         event: 'forms.pdf_snapshot.generation_failed',
         submissionId: payload.submissionId,
         message: error instanceof Error ? error.message : 'Unknown snapshot error',
       },
-      'forms PDF snapshot generation failed (will retry on download)',
+      'forms PDF snapshot inline fallback failed (will retry on download)',
     )
   }
 }
