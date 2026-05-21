@@ -6,6 +6,7 @@ import { Alert, AlertDescription, AlertTitle } from '@open-mercato/ui/primitives
 import { Spinner } from '@open-mercato/ui/primitives/spinner'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { useFormRunner } from './state/useFormRunner'
+import type { RuntimeClient } from './state/runtime-client'
 import { CompletionScreen } from './components/CompletionScreen'
 import { LocaleSwitch } from './components/LocaleSwitch'
 import { ResumeGate } from './components/ResumeGate'
@@ -32,6 +33,11 @@ export type FormRunnerProps = {
   subjectType: string
   subjectId: string
   initialSubmissionId?: string
+  /**
+   * Optional transport client. Omitted ⇒ the default authenticated client
+   * (portal flow). The public runner pages inject an anonymous token client.
+   */
+  client?: RuntimeClient
   pdfDownloadEnabled?: boolean
   onDownloadPdf?: (submissionId: string) => void
   onReturnHome?: () => void
@@ -45,6 +51,7 @@ export function FormRunner(props: FormRunnerProps) {
     subjectType: props.subjectType,
     subjectId: props.subjectId,
     initialSubmissionId: props.initialSubmissionId,
+    client: props.client,
   })
   const {
     stage,

@@ -28,6 +28,13 @@ const events = [
   { id: 'forms.submission.actor_assigned', label: 'Submission Actor Assigned', entity: 'submission', category: 'lifecycle' as const },
   { id: 'forms.submission.anonymized', label: 'Submission Anonymized', entity: 'submission', category: 'lifecycle' as const },
   { id: 'forms.attachment.uploaded', label: 'Attachment Uploaded', entity: 'attachment', category: 'crud' as const },
+  { id: 'forms.distribution.created', label: 'Distribution Created', entity: 'distribution', category: 'crud' as const },
+  { id: 'forms.distribution.closed', label: 'Distribution Closed', entity: 'distribution', category: 'lifecycle' as const },
+  { id: 'forms.invitation.created', label: 'Invitation Created', entity: 'invitation', category: 'crud' as const },
+  { id: 'forms.invitation.sent', label: 'Invitation Sent', entity: 'invitation', category: 'lifecycle' as const },
+  { id: 'forms.invitation.opened', label: 'Invitation Opened', entity: 'invitation', category: 'lifecycle' as const },
+  { id: 'forms.invitation.submitted', label: 'Invitation Submitted', entity: 'invitation', category: 'lifecycle' as const },
+  { id: 'forms.invitation.revoked', label: 'Invitation Revoked', entity: 'invitation', category: 'lifecycle' as const },
 ] as const
 
 export const eventsConfig = createModuleEvents({

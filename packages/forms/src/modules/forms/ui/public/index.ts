@@ -1,5 +1,7 @@
 export { FormRunner } from './FormRunner'
 export type { FormRunnerProps } from './FormRunner'
+export { PublicFormRunnerPage } from './PublicFormRunnerPage'
+export type { PublicFormRunnerPageProps } from './PublicFormRunnerPage'
 export { registerCoreRenderers, CORE_RENDERER_MAP } from './renderers'
 export { SaveIndicator } from './components/SaveIndicator'
 export { SectionStepper } from './components/SectionStepper'
@@ -9,6 +11,20 @@ export { ReviewStep } from './components/ReviewStep'
 export { CompletionScreen } from './components/CompletionScreen'
 export { useFormRunner } from './state/useFormRunner'
 export { mergeOnConflict, useAutosave } from './state/useAutosave'
+export {
+  createAuthRuntimeClient,
+  createAnonymousRuntimeClient,
+} from './state/runtime-client'
+export type {
+  RuntimeClient,
+  RuntimeSaveBody,
+  RuntimeSubmitBody,
+  RuntimeStartedState,
+  PublicFormContext,
+  PublicStartResponse,
+  CreateAuthRuntimeClientArgs,
+  CreateAnonymousRuntimeClientArgs,
+} from './state/runtime-client'
 export type {
   RunnerActor,
   RunnerActiveFormResponse,

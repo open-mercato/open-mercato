@@ -90,6 +90,7 @@ Future phases append `commands/`, `api/`, `ui/`, `subscribers/`, more entities u
 | 2a Admin Inbox | Submission list, drawer, revision replay, reopen, actor assign/revoke. |
 | 2b Compliance | Access audit, PDF snapshot, anonymize command + UI. |
 | 2c Advanced Fields | Conditional visibility (jsonlogic), version history + diff viewer, signature field, file field. |
+| 2d Distribution | `FormDistribution` + `FormInvitation` entities, public anonymous runtime (token-authenticated `/api/forms/public/*` + `/f/:slug`, `/i/:token` runner pages), admin distribution UI (`DistributionsPanel`, `CreateDistributionDialog`, `RecipientsTable`), `forms.distribute` feature. |
 | 3 Vertical Extensions | Tooth chart, body diagram, analytics, webhook wiring, consent aggregate. |
 
 ## ACL Features
@@ -100,6 +101,7 @@ Future phases append `commands/`, `api/`, `ui/`, `subscribers/`, more entities u
 | `forms.design` | `admin` | Create / edit / publish forms (1b consumer) |
 | `forms.submissions.manage` | `admin` | Reopen, assign actors, export PDF (2a consumer) |
 | `forms.submissions.anonymize` | `admin` | Trigger GDPR erasure (2b consumer) |
+| `forms.distribute` | `admin` | Create / manage distributions and invitations (2d consumer) |
 
 When a medical or other vertical introduces a `clinician` (or similar) role, extend `setup.ts` `defaultRoleFeatures` to grant `forms.view + forms.submissions.manage` and run `yarn mercato auth sync-role-acls`.
 

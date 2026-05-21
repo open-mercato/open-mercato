@@ -86,6 +86,14 @@ export type StartArgs = Scope & {
   startedBy: string
   /** Optional initial role override — when present, MUST be in form_version.roles. */
   initialRole?: string | null
+  /**
+   * Optional published version to pin this submission to. When present, the
+   * form is still resolved by key (for scope + status checks) but the
+   * specified version is compiled instead of the form's current published
+   * version. Used by distribution flows (phase 2d) to lock a campaign to a
+   * particular version. When absent, behavior is unchanged.
+   */
+  pinnedVersionId?: string | null
 }
 
 export type SaveArgs = Scope & {
@@ -256,16 +264,72 @@ export class SubmissionService {
     return { form, formVersion, compiled }
   }
 
+  /**
+   * Resolve a specific published form version pinned to a key. The form is
+   * resolved by key (so org/tenant scope and active status are validated) but
+   * the supplied version is compiled instead of the form's current published
+   * version. Asserts the version is published and belongs to the resolved
+   * form. Used by phase 2d distribution flows.
+   */
+  async getPinnedFormVersionByKey(args: Scope & { formKey: string; pinnedVersionId: string }): Promise<{
+    form: Form
+    formVersion: FormVersion
+    compiled: CompiledFormVersion
+  }> {
+    const em = this.emFactory()
+    const form = await em.findOne(Form, {
+      organizationId: args.organizationId,
+      tenantId: args.tenantId,
+      key: args.formKey,
+      deletedAt: null,
+    })
+    if (!form) {
+      throw new SubmissionServiceError('NOT_FOUND', `Form "${args.formKey}" not found.`, 404)
+    }
+    if (form.status !== 'active') {
+      throw new SubmissionServiceError('FORM_INACTIVE', `Form "${args.formKey}" is not active.`, 422)
+    }
+    const formVersion = await em.findOne(FormVersion, {
+      id: args.pinnedVersionId,
+      organizationId: args.organizationId,
+      tenantId: args.tenantId,
+    })
+    if (!formVersion || formVersion.formId !== form.id) {
+      throw new SubmissionServiceError('NOT_FOUND', 'Pinned form version not found.', 404)
+    }
+    if (formVersion.status !== 'published') {
+      throw new SubmissionServiceError(
+        'FORM_VERSION_NOT_PUBLISHED',
+        'Pinned form version is not published.',
+        422,
+      )
+    }
+    const compiled = this.compiler.compile({
+      id: formVersion.id,
+      updatedAt: formVersion.updatedAt,
+      schema: formVersion.schema,
+      uiSchema: formVersion.uiSchema,
+    })
+    return { form, formVersion, compiled }
+  }
+
   // --------------------------------------------------------------------------
   // Lifecycle: start
   // --------------------------------------------------------------------------
 
   async start(args: StartArgs): Promise<SubmissionViewModel> {
-    const { form, formVersion, compiled } = await this.getActiveFormVersionByKey({
-      tenantId: args.tenantId,
-      organizationId: args.organizationId,
-      formKey: args.formKey,
-    })
+    const { form, formVersion, compiled } = args.pinnedVersionId
+      ? await this.getPinnedFormVersionByKey({
+          tenantId: args.tenantId,
+          organizationId: args.organizationId,
+          formKey: args.formKey,
+          pinnedVersionId: args.pinnedVersionId,
+        })
+      : await this.getActiveFormVersionByKey({
+          tenantId: args.tenantId,
+          organizationId: args.organizationId,
+          formKey: args.formKey,
+        })
     const declaredRoles = readDeclaredRoles(formVersion)
     const role = args.initialRole
       ?? readDefaultActorRole(formVersion)

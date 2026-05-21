@@ -410,3 +410,189 @@ export class FormAttachment {
   @Property({ name: 'removed_at', type: Date, nullable: true })
   removedAt?: Date | null
 }
+
+export type FormDistributionMode = 'open' | 'personal'
+export type FormDistributionStatus = 'active' | 'paused' | 'closed'
+
+/**
+ * Form distribution — a publishable channel that exposes a form to external
+ * participants. `mode = 'open'` opens an anonymous public link keyed by
+ * `public_slug`; `mode = 'personal'` issues per-recipient invitations
+ * (`forms_invitation`). `pinned_version_id` optionally locks the served
+ * version; when null the distribution serves the form's current published
+ * version. Cross-module identifiers (`form_id`, `pinned_version_id`) are plain
+ * uuid columns — no ORM relations.
+ *
+ * The `forms_distribution_org_public_slug_idx` index backs the partial unique
+ * index on (organization_id, public_slug) WHERE public_slug IS NOT NULL —
+ * declared in the migration SQL because the partial predicate cannot be
+ * expressed via the @Unique decorator.
+ */
+@Entity({ tableName: 'forms_distribution' })
+@Index({ name: 'forms_distribution_org_public_slug_idx', properties: ['organizationId', 'publicSlug'] })
+@Index({ name: 'forms_distribution_org_form_idx', properties: ['organizationId', 'formId'] })
+@Index({ name: 'forms_distribution_org_status_idx', properties: ['organizationId', 'status'] })
+export class FormDistribution {
+  @PrimaryKey({ type: 'uuid', defaultRaw: 'gen_random_uuid()' })
+  id!: string
+
+  @Property({ name: 'organization_id', type: 'uuid' })
+  organizationId!: string
+
+  @Property({ name: 'tenant_id', type: 'uuid' })
+  tenantId!: string
+
+  @Property({ name: 'form_id', type: 'uuid' })
+  formId!: string
+
+  @Property({ name: 'pinned_version_id', type: 'uuid', nullable: true })
+  pinnedVersionId?: string | null
+
+  @Property({ name: 'mode', type: 'text' })
+  mode!: FormDistributionMode
+
+  @Property({ name: 'public_slug', type: 'text', nullable: true })
+  publicSlug?: string | null
+
+  @Property({ name: 'status', type: 'text', default: 'active' })
+  status: FormDistributionStatus = 'active'
+
+  @Property({ name: 'title', type: 'text', nullable: true })
+  title?: string | null
+
+  @Property({ name: 'default_locale', type: 'text' })
+  defaultLocale!: string
+
+  @Property({ name: 'require_customer_auth', type: 'boolean', default: false })
+  requireCustomerAuth: boolean = false
+
+  @Property({ name: 'allow_multiple_submissions', type: 'boolean', default: false })
+  allowMultipleSubmissions: boolean = false
+
+  @Property({ name: 'max_responses', type: 'int', nullable: true })
+  maxResponses?: number | null
+
+  @Property({ name: 'response_count', type: 'int', default: 0 })
+  responseCount: number = 0
+
+  @Property({ name: 'opens_at', type: Date, nullable: true })
+  opensAt?: Date | null
+
+  @Property({ name: 'closes_at', type: Date, nullable: true })
+  closesAt?: Date | null
+
+  @Property({ name: 'redirect_url', type: 'text', nullable: true })
+  redirectUrl?: string | null
+
+  @Property({ name: 'settings', type: 'json', nullable: true })
+  settings?: Record<string, unknown> | null
+
+  @Property({ name: 'created_by', type: 'uuid' })
+  createdBy!: string
+
+  @Property({ name: 'created_at', type: Date, onCreate: () => new Date() })
+  createdAt: Date = new Date()
+
+  @Property({ name: 'updated_at', type: Date, onUpdate: () => new Date() })
+  updatedAt: Date = new Date()
+
+  @Property({ name: 'deleted_at', type: Date, nullable: true })
+  deletedAt?: Date | null
+}
+
+export type FormInvitationStatus =
+  | 'pending'
+  | 'sent'
+  | 'opened'
+  | 'started'
+  | 'submitted'
+  | 'expired'
+  | 'revoked'
+
+/**
+ * Form invitation — a per-recipient handle for a `personal`-mode
+ * distribution. The row `id` doubles as the anonymous participant principal
+ * (the subject identifier on the resulting submission), so the invitation
+ * itself is the identity anchor for an unauthenticated respondent.
+ *
+ * `recipient_email` / `recipient_name` are PII routed through the global
+ * `findWithDecryption` pipeline (declared in `encryption.ts`). `token_hash`
+ * stores a one-way hash of the bearer token — never the raw token; its
+ * partial unique index (WHERE token_hash IS NOT NULL) is declared in the
+ * migration SQL. Cross-module identifiers (`distribution_id`,
+ * `submission_id`, `recipient_ref`) are plain columns — no ORM relations.
+ */
+@Entity({ tableName: 'forms_invitation' })
+@Index({ name: 'forms_invitation_distribution_status_idx', properties: ['distributionId', 'status'] })
+@Index({ name: 'forms_invitation_org_submission_idx', properties: ['organizationId', 'submissionId'] })
+@Index({ name: 'forms_invitation_token_hash_idx', properties: ['tokenHash'] })
+export class FormInvitation {
+  @PrimaryKey({ type: 'uuid', defaultRaw: 'gen_random_uuid()' })
+  id!: string
+
+  @Property({ name: 'distribution_id', type: 'uuid' })
+  distributionId!: string
+
+  @Property({ name: 'organization_id', type: 'uuid' })
+  organizationId!: string
+
+  @Property({ name: 'tenant_id', type: 'uuid' })
+  tenantId!: string
+
+  @Property({ name: 'recipient_email', type: 'text', nullable: true })
+  recipientEmail?: string | null
+
+  @Property({ name: 'recipient_name', type: 'text', nullable: true })
+  recipientName?: string | null
+
+  @Property({ name: 'recipient_ref', type: 'text', nullable: true })
+  recipientRef?: string | null
+
+  @Property({ name: 'role', type: 'text', nullable: true })
+  role?: string | null
+
+  @Property({ name: 'token_hash', type: 'text', nullable: true })
+  tokenHash?: string | null
+
+  @Property({ name: 'status', type: 'text', default: 'pending' })
+  status: FormInvitationStatus = 'pending'
+
+  @Property({ name: 'submission_id', type: 'uuid', nullable: true })
+  submissionId?: string | null
+
+  @Property({ name: 'locale', type: 'text', nullable: true })
+  locale?: string | null
+
+  @Property({ name: 'expires_at', type: Date, nullable: true })
+  expiresAt?: Date | null
+
+  @Property({ name: 'sent_at', type: Date, nullable: true })
+  sentAt?: Date | null
+
+  @Property({ name: 'opened_at', type: Date, nullable: true })
+  openedAt?: Date | null
+
+  @Property({ name: 'started_at', type: Date, nullable: true })
+  startedAt?: Date | null
+
+  @Property({ name: 'submitted_at', type: Date, nullable: true })
+  submittedAt?: Date | null
+
+  @Property({ name: 'send_count', type: 'int', default: 0 })
+  sendCount: number = 0
+
+  @Property({ name: 'last_error', type: 'text', nullable: true })
+  lastError?: string | null
+
+  @Property({ name: 'created_by', type: 'uuid', nullable: true })
+  createdBy?: string | null
+
+  @Property({ name: 'created_at', type: Date, onCreate: () => new Date() })
+  createdAt: Date = new Date()
+
+  @Property({ name: 'updated_at', type: Date, onUpdate: () => new Date() })
+  updatedAt: Date = new Date()
+
+  @Property({ name: 'deleted_at', type: Date, nullable: true })
+  deletedAt?: Date | null
+}

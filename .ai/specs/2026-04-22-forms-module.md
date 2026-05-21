@@ -113,6 +113,7 @@ Each phase below is an independently-implementable spec — it can be scoped int
 | 2a | [`2026-04-22-forms-phase-2a-admin-inbox.md`](./2026-04-22-forms-phase-2a-admin-inbox.md) | 1c | Submission inbox, drawer with revision replay, reopen, actor assign/revoke UI. |
 | 2b | [`2026-04-22-forms-phase-2b-compliance.md`](./2026-04-22-forms-phase-2b-compliance.md) | 1c, 2a | Access audit writes + panel, PDF snapshot renderer on submit, anonymize command + UI. |
 | 2c | [`2026-04-22-forms-phase-2c-advanced-fields.md`](./2026-04-22-forms-phase-2c-advanced-fields.md) | 1b, 1d | Conditional visibility (jsonlogic), version history + diff viewer UI, signature field, file field. |
+| 2d | [`2026-05-20-forms-distribution-and-anonymous-submission.md`](./2026-05-20-forms-distribution-and-anonymous-submission.md) (**implemented**) | 1c, 1d | Distribution layer (open links + personal invitations), anonymous token-authenticated public runtime, admin distribution UI, `forms.distribute` feature. |
 | 3 | [`2026-04-22-forms-phase-3-vertical-extensions.md`](./2026-04-22-forms-phase-3-vertical-extensions.md) | 2a, 2b, 2c | Vertical custom types (tooth chart, body diagram), analytics, webhook wiring, consent aggregate. |
 
 ### Dependency graph
@@ -127,6 +128,8 @@ Each phase below is an independently-implementable spec — it can be scoped int
             │        ┌────────┼──────────┐
             │        ▼        ▼          ▼
             │   1d Renderer  2a Inbox   (unblocks 2b/2c)
+            │        │        │
+            │        ├──────► 2d Distribution (1c + 1d)
             │        │        │
             │        └────┬───┘
             │             ▼

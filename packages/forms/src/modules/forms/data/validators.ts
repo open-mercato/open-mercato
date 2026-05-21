@@ -282,3 +282,115 @@ export type FormVersionDiffQueryInput = z.infer<typeof formVersionDiffQuerySchem
 
 export type FormStatus = z.infer<typeof formStatusSchema>
 export type FormVersionStatus = z.infer<typeof formVersionStatusSchema>
+
+// ============================================================================
+// Phase 2d — Distribution & Anonymous Submission command/API schemas
+// ============================================================================
+
+export const distributionModeSchema = z.enum(['open', 'personal'])
+export const distributionStatusSchema = z.enum(['active', 'paused', 'closed'])
+
+export type FormDistributionMode = z.infer<typeof distributionModeSchema>
+export type FormDistributionStatus = z.infer<typeof distributionStatusSchema>
+
+const isoDateTimeSchema = z.string().datetime({ offset: true })
+
+const optionalRedirectUrl = z.string().url().max(2000).optional().nullable()
+
+/** Command input for `forms.distribution.create`. */
+export const distributionCreateCommandSchema = z.object({
+  ...scopedFields,
+  formId: z.string().uuid(),
+  mode: distributionModeSchema,
+  pinnedVersionId: z.string().uuid().optional().nullable(),
+  title: z.string().trim().min(1).max(200).optional().nullable(),
+  defaultLocale: localeSchema,
+  requireCustomerAuth: z.boolean().optional(),
+  allowMultipleSubmissions: z.boolean().optional(),
+  maxResponses: z.number().int().positive().optional().nullable(),
+  opensAt: isoDateTimeSchema.optional().nullable(),
+  closesAt: isoDateTimeSchema.optional().nullable(),
+  redirectUrl: optionalRedirectUrl,
+  settings: jsonObjectSchema.optional().nullable(),
+})
+
+export type FormDistributionCreateCommandInput = z.infer<typeof distributionCreateCommandSchema>
+
+/** Command input for `forms.distribution.update`. */
+export const distributionUpdateCommandSchema = z.object({
+  ...scopedFields,
+  distributionId: z.string().uuid(),
+  status: distributionStatusSchema.optional(),
+  title: z.string().trim().min(1).max(200).optional().nullable(),
+  maxResponses: z.number().int().positive().optional().nullable(),
+  opensAt: isoDateTimeSchema.optional().nullable(),
+  closesAt: isoDateTimeSchema.optional().nullable(),
+  redirectUrl: optionalRedirectUrl,
+  allowMultipleSubmissions: z.boolean().optional(),
+  requireCustomerAuth: z.boolean().optional(),
+  settings: jsonObjectSchema.optional().nullable(),
+})
+
+export type FormDistributionUpdateCommandInput = z.infer<typeof distributionUpdateCommandSchema>
+
+/** Command input for `forms.distribution.close`. */
+export const distributionCloseCommandSchema = z.object({
+  ...scopedFields,
+  distributionId: z.string().uuid(),
+})
+
+export type FormDistributionCloseCommandInput = z.infer<typeof distributionCloseCommandSchema>
+
+const invitationRecipientSchema = z.object({
+  email: z.string().email().max(320).optional(),
+  name: z.string().trim().min(1).max(200).optional(),
+  ref: z.string().trim().min(1).max(200).optional(),
+  role: roleIdentifierSchema.optional(),
+  locale: localeSchema.optional(),
+  expiresAt: isoDateTimeSchema.optional(),
+})
+
+export type FormInvitationRecipientInput = z.infer<typeof invitationRecipientSchema>
+
+/** Command input for `forms.invitation.create` — bulk recipient creation. */
+export const invitationCreateCommandSchema = z.object({
+  ...scopedFields,
+  distributionId: z.string().uuid(),
+  recipients: z.array(invitationRecipientSchema).min(1).max(1000),
+})
+
+export type FormInvitationCreateCommandInput = z.infer<typeof invitationCreateCommandSchema>
+
+/** Command input for `forms.invitation.send`. */
+export const invitationSendCommandSchema = z.object({
+  ...scopedFields,
+  invitationId: z.string().uuid(),
+})
+
+export type FormInvitationSendCommandInput = z.infer<typeof invitationSendCommandSchema>
+
+/** Command input for `forms.invitation.revoke`. */
+export const invitationRevokeCommandSchema = z.object({
+  ...scopedFields,
+  invitationId: z.string().uuid(),
+})
+
+export type FormInvitationRevokeCommandInput = z.infer<typeof invitationRevokeCommandSchema>
+
+/**
+ * Body for the public anonymous start endpoint. Exactly one of `slug`
+ * (open-mode public link) or `token` (personal-mode invitation) MUST be
+ * present; the refine below enforces the disjunction.
+ */
+export const publicStartInputSchema = z
+  .object({
+    slug: z.string().min(1).max(200).optional(),
+    token: z.string().min(1).max(512).optional(),
+    locale: localeSchema.optional(),
+    captchaToken: z.string().min(1).max(4000).optional(),
+  })
+  .refine((value) => Boolean(value.slug) !== Boolean(value.token), {
+    message: 'Exactly one of "slug" or "token" must be provided.',
+  })
+
+export type PublicStartInput = z.infer<typeof publicStartInputSchema>

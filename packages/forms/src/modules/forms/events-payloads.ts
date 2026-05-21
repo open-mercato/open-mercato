@@ -66,6 +66,32 @@ export const formsEventPayloadSchemas = {
     attachmentId: z.string().uuid(),
     submissionId: z.string().uuid(),
   }),
+  'forms.distribution.created': z.object({
+    distributionId: z.string().uuid(),
+    organizationId: z.string().uuid(),
+    formId: z.string().uuid(),
+  }),
+  'forms.distribution.closed': z.object({
+    distributionId: z.string().uuid(),
+  }),
+  'forms.invitation.created': z.object({
+    invitationId: z.string().uuid(),
+    distributionId: z.string().uuid(),
+  }),
+  'forms.invitation.sent': z.object({
+    invitationId: z.string().uuid(),
+    distributionId: z.string().uuid(),
+  }),
+  'forms.invitation.opened': z.object({
+    invitationId: z.string().uuid(),
+  }),
+  'forms.invitation.submitted': z.object({
+    invitationId: z.string().uuid(),
+    submissionId: z.string().uuid(),
+  }),
+  'forms.invitation.revoked': z.object({
+    invitationId: z.string().uuid(),
+  }),
 } as const
 
 export type FormsEventPayload = {

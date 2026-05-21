@@ -1,7 +1,6 @@
 "use client"
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { apiCall } from '@open-mercato/ui/backend/utils/apiCall'
 import { usePortalAppEvent } from '@open-mercato/ui/portal/hooks/usePortalAppEvent'
 import type {
   RunnerActiveFormResponse,
@@ -10,14 +9,13 @@ import type {
   RunnerFieldDescriptor,
   RunnerLoadError,
   RunnerRevision,
-  RunnerSaveResult,
   RunnerSaveState,
   RunnerSchema,
   RunnerSection,
   RunnerSubmission,
-  RunnerSubmissionView,
 } from '../types'
 import { mergeOnConflict, useAutosave } from './useAutosave'
+import { createAuthRuntimeClient, type RuntimeClient } from './runtime-client'
 
 const DEFAULT_AUTOSAVE_MS = (() => {
   const raw =
@@ -48,6 +46,12 @@ export type UseFormRunnerArgs = {
   initialSubmissionId?: string
   /** Override the autosave debounce (ms). Defaults to FORMS_AUTOSAVE_INTERVAL_MS or 10s. */
   autosaveIntervalMs?: number
+  /**
+   * Transport client backing the six runtime operations. Omitted ⇒ the default
+   * authenticated client that calls `/api/forms/form-submissions` and the
+   * by-key active-schema endpoint (the shipped portal flow, unchanged).
+   */
+  client?: RuntimeClient
 }
 
 type StartedState = {
@@ -105,6 +109,11 @@ export function useFormRunner(args: UseFormRunnerArgs): UseFormRunnerResult {
     initialSubmissionId,
     autosaveIntervalMs = DEFAULT_AUTOSAVE_MS,
   } = args
+
+  const client = useMemo<RuntimeClient>(
+    () => args.client ?? createAuthRuntimeClient({ formKey, subjectType, subjectId }),
+    [args.client, formKey, subjectType, subjectId],
+  )
 
   const [stage, setStage] = useState<RunnerStage>('loading')
   const [loadError, setLoadError] = useState<RunnerLoadError | null>(null)
@@ -185,69 +194,24 @@ export function useFormRunner(args: UseFormRunnerArgs): UseFormRunnerResult {
   }, [])
 
   const loadActiveSchema = useCallback(async () => {
-    const response = await apiCall<RunnerActiveFormResponse>(
-      `/api/forms/by-key/${encodeURIComponent(formKey)}/active`,
-    )
-    if (response.status === 401) {
-      throw makeError('UNAUTHORIZED', 'You need to be signed in to fill this form.')
-    }
-    if (response.status === 404) {
-      throw makeError('NOT_FOUND', 'We couldn\'t find that form.')
-    }
-    if (response.status === 422) {
-      throw makeError('NO_PUBLISHED_VERSION', 'This form has no published version yet.')
-    }
-    if (!response.ok || !response.result) {
-      throw makeError('UNKNOWN', `Failed to load form (status ${response.status}).`)
-    }
-    return response.result
-  }, [formKey])
+    return client.loadActiveSchema()
+  }, [client])
 
   const loadSubmissionsBySubject = useCallback(async () => {
-    const response = await apiCall<{ items: RunnerSubmission[] }>(
-      `/api/forms/form-submissions/by-subject/${encodeURIComponent(subjectType)}/${encodeURIComponent(subjectId)}`,
-    )
-    if (!response.ok || !response.result) return []
-    return response.result.items.filter((entry) => entry.status === 'draft' || entry.status === 'reopened')
-  }, [subjectType, subjectId])
+    return client.loadResumeCandidates()
+  }, [client])
 
   const loadSubmissionDetail = useCallback(async (submissionId: string): Promise<StartedState> => {
-    const response = await apiCall<RunnerSubmissionView>(
-      `/api/forms/form-submissions/${encodeURIComponent(submissionId)}`,
-    )
-    if (response.status === 404) {
-      throw makeError('NOT_FOUND', 'Submission not found.')
-    }
-    if (!response.ok || !response.result) {
-      throw makeError('UNKNOWN', `Failed to load submission (status ${response.status}).`)
-    }
-    return {
-      submission: response.result.submission,
-      revision: response.result.revision,
-      decodedData: response.result.decoded_data ?? {},
-      actors: response.result.actors ?? [],
-    }
-  }, [])
+    return client.loadSubmissionDetail(submissionId)
+  }, [client])
 
   const startNewSubmission = useCallback(async () => {
     setSaveState({ status: 'idle' })
-    const startResp = await apiCall<RunnerSubmissionView>('/api/forms/form-submissions', {
-      method: 'POST',
-      headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ form_key: formKey, subject_type: subjectType, subject_id: subjectId }),
-    })
-    if (!startResp.ok || !startResp.result) {
-      throw makeError('UNKNOWN', `Failed to start submission (status ${startResp.status}).`)
-    }
-    captureStarted({
-      submission: startResp.result.submission,
-      revision: startResp.result.revision,
-      decodedData: startResp.result.decoded_data ?? {},
-      actors: startResp.result.actors ?? [],
-    })
+    const started = await client.startSubmission()
+    captureStarted(started)
     setStage('ready')
     setCurrentSectionIndex(0)
-  }, [formKey, subjectType, subjectId, captureStarted])
+  }, [client, captureStarted])
 
   const resumeExistingSubmission = useCallback(async (submissionId: string) => {
     setSaveState({ status: 'idle' })
@@ -306,21 +270,9 @@ export function useFormRunner(args: UseFormRunnerArgs): UseFormRunnerResult {
     }
 
     async function startNewSubmissionInternal(_schemaResp: RunnerActiveFormResponse) {
-      const startResp = await apiCall<RunnerSubmissionView>('/api/forms/form-submissions', {
-        method: 'POST',
-        headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({ form_key: formKey, subject_type: subjectType, subject_id: subjectId }),
-      })
+      const started = await client.startSubmission()
       if (cancelled) return
-      if (!startResp.ok || !startResp.result) {
-        throw makeError('UNKNOWN', `Failed to start submission (status ${startResp.status}).`)
-      }
-      captureStarted({
-        submission: startResp.result.submission,
-        revision: startResp.result.revision,
-        decodedData: startResp.result.decoded_data ?? {},
-        actors: startResp.result.actors ?? [],
-      })
+      captureStarted(started)
     }
 
     load()
@@ -328,9 +280,7 @@ export function useFormRunner(args: UseFormRunnerArgs): UseFormRunnerResult {
       cancelled = true
     }
   }, [
-    formKey,
-    subjectType,
-    subjectId,
+    client,
     initialSubmissionId,
     loadActiveSchema,
     loadSubmissionDetail,
@@ -356,22 +306,15 @@ export function useFormRunner(args: UseFormRunnerArgs): UseFormRunnerResult {
     setSaveState({ status: 'saving' })
     const dirtySnapshot = { ...dirtyFieldsRef.current }
     try {
-      const response = await apiCall<RunnerSaveResult>(
-        `/api/forms/form-submissions/${encodeURIComponent(submission.id)}`,
-        {
-          method: 'PATCH',
-          headers: { 'content-type': 'application/json' },
-          body: JSON.stringify({
-            base_revision_id: submissionRevision.id,
-            patch: dirtySnapshot,
-          }),
-        },
-      )
+      const response = await client.save(submission.id, {
+        base_revision_id: submissionRevision.id,
+        patch: dirtySnapshot,
+      })
       if (response.status === 409) {
         await handleConflict()
         return
       }
-      if (!response.ok || !response.result) {
+      if (response.status < 200 || response.status >= 300 || !response.result) {
         throw new Error(`Failed to save (status ${response.status}).`)
       }
       const nextRevision = response.result.revision
@@ -395,7 +338,7 @@ export function useFormRunner(args: UseFormRunnerArgs): UseFormRunnerResult {
     } finally {
       flushingRef.current = false
     }
-  }, [submission, submissionRevision])
+  }, [client, submission, submissionRevision])
 
   const handleConflict = useCallback(async () => {
     if (!submission) return
@@ -500,23 +443,16 @@ export function useFormRunner(args: UseFormRunnerArgs): UseFormRunnerResult {
       if (Object.keys(dirtyFieldsRef.current).length > 0) {
         await flushAutosave()
       }
-      const response = await apiCall<{ submission: RunnerSubmission }>(
-        `/api/forms/form-submissions/${encodeURIComponent(submission.id)}/submit`,
-        {
-          method: 'POST',
-          headers: { 'content-type': 'application/json' },
-          body: JSON.stringify({
-            base_revision_id: submissionRevisionRef.current?.id ?? submissionRevision.id,
-            submit_metadata: { locale },
-          }),
-        },
-      )
+      const response = await client.submit(submission.id, {
+        base_revision_id: submissionRevisionRef.current?.id ?? submissionRevision.id,
+        submit_metadata: { locale },
+      })
       if (response.status === 409) {
         await handleConflict()
         setStage('review')
         return
       }
-      if (!response.ok || !response.result) {
+      if (response.status < 200 || response.status >= 300 || !response.result) {
         throw new Error(`Failed to submit (status ${response.status}).`)
       }
       setSubmission(response.result.submission)
@@ -525,7 +461,7 @@ export function useFormRunner(args: UseFormRunnerArgs): UseFormRunnerResult {
       setSaveState({ status: 'error', message: extractErrorMessage(error) })
       setStage('review')
     }
-  }, [submission, submissionRevision, flushAutosave, locale, handleConflict])
+  }, [client, submission, submissionRevision, flushAutosave, locale, handleConflict])
 
   // Keep a ref to the latest submission revision so `submit` can read the
   // post-flush id without re-binding the callback.

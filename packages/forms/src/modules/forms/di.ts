@@ -10,6 +10,7 @@ import {
 } from './services/encryption-service'
 import { RolePolicyService } from './services/role-policy-service'
 import { SubmissionService } from './services/submission-service'
+import { DistributionService } from './services/distribution-service'
 import {
   AccessAuditLogger,
   FormsAccessAuditLogger,
@@ -84,6 +85,18 @@ export function register(container: AppContainer): void {
             accessPurpose: 'view',
           }
           await accessAuditLogger.log(em, event)
+        },
+      })
+    }).singleton(),
+    formsDistributionService: asFunction((deps: Record<string, unknown>): DistributionService => {
+      const em = deps.em as EntityManager
+      return new DistributionService({
+        emFactory: () => em,
+        submissionService: deps.formsSubmissionService as SubmissionService,
+        emitEvent: async (eventId, payload) => {
+          const schema = formsEventPayloadSchemas[eventId as keyof typeof formsEventPayloadSchemas]
+          const validated = schema ? schema.parse(payload) : payload
+          await emitFormsEvent(eventId, validated as never)
         },
       })
     }).singleton(),

@@ -1,13 +1,19 @@
 /**
  * Public runner — POST /api/forms/:id/run/submissions.
  *
+ * @deprecated Phase 2d superseded this validation-only stub with the
+ * persisting public runtime flow under `/api/forms/public/*`
+ * (`POST /api/forms/public/start` → `PATCH /api/forms/public/submissions/:id`
+ * → `POST /api/forms/public/submissions/:id/submit`). This route is retained as
+ * a one-version backward-compatibility bridge per the root deprecation protocol
+ * — it STILL only re-runs the tamper evaluator and returns
+ * `{ accepted, reachedEndingKey }` without persisting — and will be removed in a
+ * later release. New clients MUST use the `/api/forms/public/*` flow.
+ *
  * Accepts the runner's `{ formVersionId, answers, hidden, endingKey, locale }`
  * payload, re-runs the evaluator against `(answers, hidden)` server-side,
  * and asserts that the claimed ending is the one the evaluator reaches
- * (R-3 tamper-resistance). Persistence is deferred to phase 1d's
- * authenticated submission flow — this minimal route is currently
- * validation-only and returns `{ accepted: true, reachedEndingKey }`
- * so 1d can wire the persistence path without breaking the runner.
+ * (R-3 tamper-resistance).
  */
 
 import { NextResponse, type NextRequest } from 'next/server'

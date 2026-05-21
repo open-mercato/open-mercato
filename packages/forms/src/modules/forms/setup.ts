@@ -7,6 +7,7 @@ export const setup: ModuleSetupConfig = {
       'forms.design',
       'forms.submissions.manage',
       'forms.submissions.anonymize',
+      'forms.distribute',
     ],
   },
 }
