@@ -131,12 +131,20 @@ describe('integration cache and options', () => {
       await writeEphemeralEnvironmentState({
         baseUrl,
         port: 5001,
+        databaseUrl: 'postgres://integration:integration@127.0.0.1:5432/open_mercato',
+        queueBaseDir: '/tmp/open-mercato-queue',
         logPrefix: 'integration',
         captureScreenshots: true,
       })
 
       const state = await readEphemeralEnvironmentState()
-      expect(state).toMatchObject({ baseUrl, port: 5001, captureScreenshots: true })
+      expect(state).toMatchObject({
+        baseUrl,
+        port: 5001,
+        databaseUrl: 'postgres://integration:integration@127.0.0.1:5432/open_mercato',
+        queueBaseDir: '/tmp/open-mercato-queue',
+        captureScreenshots: true,
+      })
 
       const environment = await tryReuseExistingEnvironment({
         verbose: false,
@@ -152,6 +160,10 @@ describe('integration cache and options', () => {
         ownedByCurrentProcess: false,
       })
       expect(environment?.commandEnvironment.OM_INTEGRATION_TEST).toBe('true')
+      expect(environment?.commandEnvironment.DATABASE_URL).toBe(
+        'postgres://integration:integration@127.0.0.1:5432/open_mercato',
+      )
+      expect(environment?.commandEnvironment.QUEUE_BASE_DIR).toBe('/tmp/open-mercato-queue')
       expect(environment?.commandEnvironment.PW_CAPTURE_SCREENSHOTS).toBe('1')
       expect(environment?.commandEnvironment.NEXT_PUBLIC_OM_EXAMPLE_CHECKOUT_TEST_INJECTIONS_ENABLED).toBeUndefined()
     } finally {
@@ -168,6 +180,8 @@ describe('integration cache and options', () => {
       await writeEphemeralEnvironmentState({
         baseUrl,
         port: 5001,
+        databaseUrl: 'postgres://integration:integration@127.0.0.1:5432/open_mercato',
+        queueBaseDir: '/tmp/open-mercato-queue',
         logPrefix: 'integration',
         captureScreenshots: true,
       })
@@ -197,6 +211,8 @@ describe('integration cache and options', () => {
       await writeEphemeralEnvironmentState({
         baseUrl,
         port: 5001,
+        databaseUrl: 'postgres://integration:integration@127.0.0.1:5432/open_mercato',
+        queueBaseDir: '/tmp/open-mercato-queue',
         logPrefix: 'integration',
         captureScreenshots: true,
       })
@@ -232,6 +248,8 @@ describe('integration cache and options', () => {
       await writeEphemeralEnvironmentState({
         baseUrl,
         port: 5001,
+        databaseUrl: 'postgres://integration:integration@127.0.0.1:5432/open_mercato',
+        queueBaseDir: '/tmp/open-mercato-queue',
         logPrefix: 'integration',
         captureScreenshots: false,
       })
@@ -262,6 +280,8 @@ describe('integration cache and options', () => {
       await writeEphemeralEnvironmentState({
         baseUrl,
         port: 5001,
+        databaseUrl: 'postgres://integration:integration@127.0.0.1:5432/open_mercato',
+        queueBaseDir: '/tmp/open-mercato-queue',
         logPrefix: 'integration',
         captureScreenshots: false,
       })
@@ -290,6 +310,8 @@ describe('integration cache and options', () => {
       await writeEphemeralEnvironmentState({
         baseUrl,
         port: 5001,
+        databaseUrl: 'postgres://integration:integration@127.0.0.1:5432/open_mercato',
+        queueBaseDir: '/tmp/open-mercato-queue',
         logPrefix: 'integration',
         captureScreenshots: true,
       })

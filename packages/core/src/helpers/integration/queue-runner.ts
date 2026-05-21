@@ -7,6 +7,7 @@ import { createQueue } from '@open-mercato/queue'
 export type QueueDrainRunnerOptions = {
   appRoot: string
   jobLimit: number
+  queueBaseDir?: string
 }
 
 export async function drainQueueFromAppRoot(
@@ -21,7 +22,11 @@ export async function drainQueueFromAppRoot(
 
   const container = await createRequestContainer()
   const queue = createQueue(queueName, 'local', {
-    baseDir: path.resolve(options.appRoot, '.mercato/queue'),
+    baseDir: path.resolve(
+      options.queueBaseDir?.trim()
+      || process.env.QUEUE_BASE_DIR?.trim()
+      || path.resolve(options.appRoot, '.mercato/queue'),
+    ),
     concurrency: 1,
   })
   const resolve = <T = unknown>(name: string): T => container.resolve(name) as T
@@ -53,6 +58,7 @@ export async function runQueueDrainFromEnv(): Promise<void> {
   const processed = await drainQueueFromAppRoot(queueName, {
     appRoot: path.resolve(appRoot),
     jobLimit,
+    queueBaseDir: process.env.QUEUE_BASE_DIR,
   })
   console.log(JSON.stringify({ processed }))
 }

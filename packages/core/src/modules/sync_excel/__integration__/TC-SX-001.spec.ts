@@ -198,6 +198,25 @@ async function findPersonIdByExternalId(
   return result.rows[0]?.internal_entity_id ?? null
 }
 
+async function cancelActiveSyncExcelRuns(scope: { tenantId: string; orgId: string }): Promise<void> {
+  const client = await getDbClient()
+  await client.query(
+    `
+      update sync_runs
+      set status = 'cancelled',
+          updated_at = now()
+      where integration_id = $1
+        and entity_type = $2
+        and direction = 'import'
+        and status in ('pending', 'running')
+        and organization_id = $3
+        and tenant_id = $4
+        and deleted_at is null
+    `,
+    [INTEGRATION_ID, ENTITY_TYPE, scope.orgId, scope.tenantId],
+  )
+}
+
 function syncExcelHeaders(token: string, selectedOrgId?: string): Record<string, string> {
   const scope = decodeTokenScope(token)
   return {
@@ -528,6 +547,7 @@ test.describe('TC-SX-001: sync_excel upload preview and import APIs', () => {
     test.setTimeout(60_000)
 
     const token = await getAuthToken(request, 'admin')
+    const scope = decodeTokenScope(token)
     const timestamp = Date.now()
     const email = `sync-excel-${timestamp}@example.com`
     const externalId = `sync-excel-${timestamp}`
@@ -557,6 +577,7 @@ test.describe('TC-SX-001: sync_excel upload preview and import APIs', () => {
     ].join('\n')
 
     try {
+      await cancelActiveSyncExcelRuns(scope)
       await createCustomFieldDefinition(request, token, {
         entityId: PERSON_PROFILE_ENTITY_ID,
         key: customFieldKey,
@@ -808,6 +829,7 @@ test.describe('TC-SX-001: sync_excel upload preview and import APIs', () => {
         key: customFieldKey,
       })
       await restoreSyncExcelMapping(request, token, previousMapping)
+      await cancelActiveSyncExcelRuns(scope).catch(() => undefined)
       await closeDbClient()
     }
   })

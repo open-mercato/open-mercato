@@ -32,7 +32,7 @@ function drainQueueInAppProcess(queueName: string, options: Required<DrainQueueO
         OM_INTEGRATION_APP_ROOT: options.appRoot,
         OM_INTEGRATION_QUEUE_NAME: queueName,
         OM_INTEGRATION_QUEUE_JOB_LIMIT: String(options.jobLimit),
-        QUEUE_BASE_DIR: path.resolve(options.appRoot, '.mercato/queue'),
+        QUEUE_BASE_DIR: process.env.QUEUE_BASE_DIR?.trim() || path.resolve(options.appRoot, '.mercato/queue'),
       },
       stdio: ['ignore', 'pipe', 'pipe'],
     })
