@@ -12,6 +12,7 @@ import {
 } from '@open-mercato/ui/primitives/dialog'
 import { Button } from '@open-mercato/ui/primitives/button'
 import { Input } from '@open-mercato/ui/primitives/input'
+import { Textarea } from '@open-mercato/ui/primitives/textarea'
 import { Switch } from '@open-mercato/ui/primitives/switch'
 import { FormField } from '@open-mercato/ui/primitives/form-field'
 import { Kbd, KbdShortcut } from '@open-mercato/ui/primitives/kbd'
@@ -71,6 +72,8 @@ export function CreateDistributionDialog({
   const [opensAt, setOpensAt] = React.useState('')
   const [closesAt, setClosesAt] = React.useState('')
   const [redirectUrl, setRedirectUrl] = React.useState('')
+  const [completionTitle, setCompletionTitle] = React.useState('')
+  const [completionMessage, setCompletionMessage] = React.useState('')
   const [submitting, setSubmitting] = React.useState(false)
   const [createdLink, setCreatedLink] = React.useState<string | null>(null)
 
@@ -86,6 +89,12 @@ export function CreateDistributionDialog({
       flash('forms.distribution.errors.max_invalid', 'error')
       return
     }
+    const completionTitleValue = completionTitle.trim() ? completionTitle.trim() : null
+    const completionMessageValue = completionMessage.trim() ? completionMessage.trim() : null
+    const settings =
+      completionTitleValue || completionMessageValue
+        ? { completion: { title: completionTitleValue, message: completionMessageValue } }
+        : null
     const body = {
       mode,
       title: title.trim() ? title.trim() : null,
@@ -96,6 +105,7 @@ export function CreateDistributionDialog({
       opensAt: toIsoOrNull(opensAt),
       closesAt: toIsoOrNull(closesAt),
       redirectUrl: redirectUrl.trim() ? redirectUrl.trim() : null,
+      settings,
     }
 
     setSubmitting(true)
@@ -139,6 +149,8 @@ export function CreateDistributionDialog({
   }, [
     allowMultipleSubmissions,
     closesAt,
+    completionMessage,
+    completionTitle,
     defaultLocale,
     formId,
     maxResponses,
@@ -293,6 +305,47 @@ export function CreateDistributionDialog({
                 placeholder="https://"
               />
             </FormField>
+
+            <div className="flex flex-col gap-3 rounded-md border border-border p-3">
+              <p className="text-sm font-medium text-foreground">
+                {t('forms.distribution.fields.completion_group', {
+                  fallback: 'Thank-you page',
+                })}
+              </p>
+              <p className="text-xs text-muted-foreground">
+                {t('forms.distribution.fields.completion_help', {
+                  fallback:
+                    'Shown after a respondent submits. Leave empty to use the default thank-you screen. Ignored when a redirect URL is set.',
+                })}
+              </p>
+              <FormField
+                label={t('forms.distribution.fields.completion_title', {
+                  fallback: 'Completion title',
+                })}
+              >
+                <Input
+                  value={completionTitle}
+                  onChange={(event) => setCompletionTitle(event.target.value)}
+                  placeholder={t('forms.distribution.fields.completion_title_placeholder', {
+                    fallback: 'Thank you!',
+                  })}
+                />
+              </FormField>
+              <FormField
+                label={t('forms.distribution.fields.completion_message', {
+                  fallback: 'Completion message',
+                })}
+              >
+                <Textarea
+                  rows={3}
+                  value={completionMessage}
+                  onChange={(event) => setCompletionMessage(event.target.value)}
+                  placeholder={t('forms.distribution.fields.completion_message_placeholder', {
+                    fallback: 'Your submission has been recorded.',
+                  })}
+                />
+              </FormField>
+            </div>
 
             <FormField
               label={t('forms.distribution.fields.require_customer_auth', {

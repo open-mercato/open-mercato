@@ -57,6 +57,9 @@ import {
   addRoleToSchema,
   adoptUngroupedAsSection,
   deleteField,
+  disableGuestSubmissions,
+  enableGuestSubmissions,
+  isGuestSubmissionEnabled,
   removeRoleFromSchema,
   renameRoleInSchema,
   deleteSection,
@@ -827,6 +830,12 @@ export function FormStudio({ formId }: { formId: string }) {
     updateSchema((current) => removeRoleFromSchema(current, role))
   }, [updateSchema])
 
+  const handleToggleGuest = React.useCallback((enabled: boolean) => {
+    updateSchema((current) =>
+      enabled ? enableGuestSubmissions(current) : disableGuestSubmissions(current),
+    )
+  }, [updateSchema])
+
   const sensors = useSensors(
     useSensor(PointerSensor, { activationConstraint: { distance: 6 } }),
     useSensor(KeyboardSensor, { coordinateGetter: gridKeyboardCoordinates }),
@@ -1253,6 +1262,7 @@ export function FormStudio({ formId }: { formId: string }) {
     () => (schema['x-om-roles'] ?? []).filter((entry): entry is string => typeof entry === 'string'),
     [schema],
   )
+  const guestEnabled = React.useMemo(() => isGuestSubmissionEnabled(schema), [schema])
   const previewRoles = React.useMemo(() => {
     const all = new Set<string>(['admin'])
     declaredRoles.forEach((entry) => all.add(entry))
@@ -1360,6 +1370,7 @@ export function FormStudio({ formId }: { formId: string }) {
     supportedLocales: form.supportedLocales,
     defaultActorRole: schema['x-om-default-actor-role'] ?? 'admin',
     declaredRoles,
+    guestEnabled,
     density,
     labelPosition: persistedLabelPosition,
     pageMode,
@@ -1370,6 +1381,7 @@ export function FormStudio({ formId }: { formId: string }) {
     schema,
     onNameChange: handleNameChange,
     onDescriptionChange: handleDescriptionChange,
+    onToggleGuest: handleToggleGuest,
     onAddRole: handleAddRole,
     onRenameRole: handleRenameRole,
     onRemoveRole: handleRemoveRole,

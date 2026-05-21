@@ -36,7 +36,7 @@ export async function GET(
     const formContext = await service.getFormContext({ distribution })
     return NextResponse.json({
       distribution_id: distribution.id,
-      ...serializeFormContext(formContext),
+      ...serializeFormContext({ ...formContext, distribution }),
       requires_customer_auth: distribution.requireCustomerAuth,
       default_locale: distribution.defaultLocale,
       invitation: {
@@ -67,6 +67,11 @@ const responseSchema = z.object({
   schema: z.record(z.string(), z.unknown()),
   ui_schema: z.record(z.string(), z.unknown()),
   fieldIndex: z.record(z.string(), z.unknown()),
+  completion: z.object({
+    title: z.string().nullable(),
+    message: z.string().nullable(),
+  }),
+  redirect_url: z.string().nullable(),
   requires_customer_auth: z.boolean(),
   default_locale: z.string(),
   invitation: z.object({

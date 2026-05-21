@@ -211,6 +211,9 @@ export function PublicFormRunnerPage(props: PublicFormRunnerPageProps) {
         subjectType="forms_invitation"
         subjectId={state.subjectId}
         client={state.client}
+        completionTitle={state.context.completion?.title}
+        completionMessage={state.context.completion?.message}
+        redirectUrl={state.context.redirect_url}
       />
     </PublicLayout>
   )

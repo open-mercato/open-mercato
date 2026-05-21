@@ -41,6 +41,16 @@ export type FormRunnerProps = {
   pdfDownloadEnabled?: boolean
   onDownloadPdf?: (submissionId: string) => void
   onReturnHome?: () => void
+  /** Per-distribution custom completion heading. */
+  completionTitle?: string | null
+  /** Per-distribution custom completion body. */
+  completionMessage?: string | null
+  /**
+   * Per-distribution redirect target. When set, reaching the `completed`
+   * stage navigates the browser there instead of rendering the completion
+   * screen.
+   */
+  redirectUrl?: string | null
 }
 
 export function FormRunner(props: FormRunnerProps) {
@@ -90,6 +100,13 @@ export function FormRunner(props: FormRunnerProps) {
     return set
   }, [sections, validateSection])
 
+  const redirectTarget = props.redirectUrl?.trim() ? props.redirectUrl.trim() : null
+  React.useEffect(() => {
+    if (stage === 'completed' && redirectTarget && typeof window !== 'undefined') {
+      window.location.href = redirectTarget
+    }
+  }, [stage, redirectTarget])
+
   if (stage === 'loading') {
     return (
       <div className="flex items-center justify-center py-12 text-muted-foreground">
@@ -136,6 +153,16 @@ export function FormRunner(props: FormRunnerProps) {
   }
 
   if (stage === 'completed' && submission && schemaResponse) {
+    if (redirectTarget) {
+      return (
+        <div className="flex items-center justify-center py-12 text-muted-foreground">
+          <Spinner className="h-5 w-5" />
+          <span className="ml-2 text-sm">
+            {t('forms.runner.completion.redirecting', { fallback: 'Redirecting…' })}
+          </span>
+        </div>
+      )
+    }
     return (
       <CompletionScreen
         submission={submission}
@@ -145,6 +172,8 @@ export function FormRunner(props: FormRunnerProps) {
           props.onDownloadPdf ? () => props.onDownloadPdf?.(submission.id) : undefined
         }
         onReturnHome={props.onReturnHome}
+        completionTitle={props.completionTitle}
+        completionMessage={props.completionMessage}
       />
     )
   }

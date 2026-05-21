@@ -26,6 +26,7 @@ export type InputParametersTabProps = {
   supportedLocales: string[]
   defaultActorRole: string
   declaredRoles: string[]
+  guestEnabled: boolean
   density: 'default' | 'compact' | 'spacious'
   labelPosition: 'top' | 'left'
   pageMode: 'stacked' | 'paginated'
@@ -37,6 +38,7 @@ export type InputParametersTabProps = {
   pagesCount: number
   onNameChange: (next: string) => void
   onDescriptionChange: (next: string) => void
+  onToggleGuest: (enabled: boolean) => void
   onAddRole: (role: string) => void
   onRenameRole: (oldRole: string, newRole: string) => void
   onRemoveRole: (role: string) => void
@@ -59,6 +61,7 @@ export function InputParametersTab(props: InputParametersTabProps) {
     supportedLocales,
     defaultActorRole,
     declaredRoles,
+    guestEnabled,
     density,
     labelPosition,
     pageMode,
@@ -69,6 +72,7 @@ export function InputParametersTab(props: InputParametersTabProps) {
     schema,
     onNameChange,
     onDescriptionChange,
+    onToggleGuest,
     onAddRole,
     onRenameRole,
     onRemoveRole,
@@ -159,6 +163,8 @@ export function InputParametersTab(props: InputParametersTabProps) {
         </p>
         <RolesEditor
           roles={roleOptions}
+          guestEnabled={guestEnabled}
+          onToggleGuest={onToggleGuest}
           onAdd={onAddRole}
           onRename={onRenameRole}
           onRemove={onRemoveRole}

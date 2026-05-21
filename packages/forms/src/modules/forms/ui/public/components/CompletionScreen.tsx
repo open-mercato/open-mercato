@@ -12,6 +12,10 @@ export type CompletionScreenProps = {
   pdfDownloadEnabled?: boolean
   onDownloadPdf?: () => void
   onReturnHome?: () => void
+  /** Per-distribution custom heading; falls back to the default "Thank you!". */
+  completionTitle?: string | null
+  /** Per-distribution custom body; falls back to the default subtitle. */
+  completionMessage?: string | null
 }
 
 function formatTime(iso: string | null): string {
@@ -27,61 +31,57 @@ export function CompletionScreen({
   pdfDownloadEnabled = false,
   onDownloadPdf,
   onReturnHome,
+  completionTitle,
+  completionMessage,
 }: CompletionScreenProps) {
   const t = useT()
   const submittedAt = submission.submittedAt ?? submission.updatedAt ?? null
-  const versionNumber = schemaResponse.formVersion.versionNumber
+  const submittedLabel = formatTime(submittedAt)
+
+  const title = completionTitle?.trim()
+    ? completionTitle
+    : t('forms.runner.completion.title', { fallback: 'Thank you!' })
+  const message = completionMessage?.trim()
+    ? completionMessage
+    : t('forms.runner.completion.subtitle', { fallback: 'Your submission has been recorded.' })
+
   return (
-    <section className="mx-auto flex w-full max-w-xl flex-col items-center gap-4 py-8 text-center">
+    <section className="mx-auto flex w-full max-w-md flex-col items-center gap-5 py-12 text-center">
       <span
         aria-hidden="true"
-        className="flex h-16 w-16 animate-pulse items-center justify-center rounded-full bg-status-success text-status-success-foreground"
+        className="flex h-14 w-14 items-center justify-center rounded-full bg-status-success-bg text-status-success-icon"
       >
-        <Check className="h-8 w-8" />
+        <Check className="h-7 w-7" />
       </span>
-      <h2 className="text-2xl font-semibold text-foreground">
-        {t('forms.runner.completion.title', { fallback: 'Thank you!' })}
-      </h2>
-      <p className="text-sm text-muted-foreground">
-        {t('forms.runner.completion.subtitle', { fallback: 'Your submission has been recorded.' })}
-      </p>
-      <dl className="grid grid-cols-2 gap-2 rounded-md border border-border bg-card px-4 py-3 text-sm">
-        <dt className="text-muted-foreground">
-          {t('forms.runner.completion.version', {
-            fallback: 'Version {version}',
-            version: String(versionNumber),
-          })}
-        </dt>
-        <dd className="text-right text-foreground">{schemaResponse.form.name}</dd>
-        <dt className="text-muted-foreground">
-          {t('forms.runner.completion.submitted_at', {
-            fallback: 'Submitted at {time}',
-            time: formatTime(submittedAt),
-          })}
-        </dt>
-        <dd className="text-right text-foreground">{formatTime(submittedAt) || '—'}</dd>
-      </dl>
-      <div className="flex flex-col gap-2 sm:flex-row">
-        <Button
-          type="button"
-          onClick={onDownloadPdf}
-          disabled={!pdfDownloadEnabled}
-          title={
-            !pdfDownloadEnabled
-              ? t('forms.runner.completion.download_pdf_unavailable', {
-                  fallback: 'Available after PDF snapshot feature ships.',
-                })
-              : undefined
-          }
-        >
-          {t('forms.runner.completion.download_pdf', { fallback: 'Download PDF copy' })}
-        </Button>
-        {onReturnHome ? (
-          <Button type="button" variant="outline" onClick={onReturnHome}>
-            {t('forms.runner.completion.return_home', { fallback: 'Back to portal home' })}
-          </Button>
-        ) : null}
+
+      <div className="flex flex-col gap-2">
+        <h2 className="text-2xl font-semibold text-foreground">{title}</h2>
+        <p className="text-base text-muted-foreground whitespace-pre-line">{message}</p>
       </div>
+
+      {submittedLabel ? (
+        <p className="text-xs text-muted-foreground">
+          {t('forms.runner.completion.submitted_at', {
+            fallback: 'Submitted {time}',
+            time: submittedLabel,
+          })}
+        </p>
+      ) : null}
+
+      {(pdfDownloadEnabled || onReturnHome) ? (
+        <div className="mt-2 flex flex-col gap-2 sm:flex-row">
+          {pdfDownloadEnabled ? (
+            <Button type="button" onClick={onDownloadPdf}>
+              {t('forms.runner.completion.download_pdf', { fallback: 'Download PDF copy' })}
+            </Button>
+          ) : null}
+          {onReturnHome ? (
+            <Button type="button" variant="outline" onClick={onReturnHome}>
+              {t('forms.runner.completion.return_home', { fallback: 'Back to home' })}
+            </Button>
+          ) : null}
+        </div>
+      ) : null}
     </section>
   )
 }

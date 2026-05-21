@@ -188,6 +188,8 @@ export type PublicFormContext = {
   fieldIndex: Record<string, RunnerFieldDescriptor>
   requires_customer_auth: boolean
   default_locale: string
+  completion?: { title: string | null; message: string | null }
+  redirect_url?: string | null
   invitation?: {
     id: string
     status: string

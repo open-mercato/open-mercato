@@ -8,6 +8,7 @@ import { DistributionServiceError } from '../services/distribution-service'
 import type { CompiledFormVersion } from '../services/form-version-compiler'
 import type {
   Form,
+  FormDistribution,
   FormSubmission,
   FormSubmissionActor,
   FormSubmissionRevision,
@@ -46,12 +47,35 @@ export function mapDistributionError(error: unknown): NextResponse {
  * flattened field index. Anonymous participants are never sliced by caller
  * role here — the distribution carries the default actor role.
  */
+/**
+ * Reads the optional `settings.completion.{title,message}` from a distribution
+ * `settings` json bag, guarding for the untyped shape. Empty / whitespace-only
+ * strings collapse to `null` so the renderer falls back to its default copy.
+ */
+function readCompletionCopy(
+  settings: Record<string, unknown> | null | undefined,
+): { title: string | null; message: string | null } {
+  const completion =
+    settings && typeof settings === 'object' && !Array.isArray(settings)
+      ? (settings as Record<string, unknown>).completion
+      : undefined
+  if (!completion || typeof completion !== 'object' || Array.isArray(completion)) {
+    return { title: null, message: null }
+  }
+  const record = completion as Record<string, unknown>
+  const title = typeof record.title === 'string' && record.title.trim() ? record.title : null
+  const message =
+    typeof record.message === 'string' && record.message.trim() ? record.message : null
+  return { title, message }
+}
+
 export function serializeFormContext(args: {
   form: Form
   formVersion: FormVersion
   compiled: CompiledFormVersion
+  distribution?: FormDistribution
 }) {
-  const { form, formVersion, compiled } = args
+  const { form, formVersion, compiled, distribution } = args
   const fieldIndex: Record<string, unknown> = {}
   for (const [fieldKey, descriptor] of Object.entries(compiled.fieldIndex)) {
     fieldIndex[fieldKey] = {
@@ -74,6 +98,8 @@ export function serializeFormContext(args: {
     schema: formVersion.schema,
     ui_schema: formVersion.uiSchema,
     fieldIndex,
+    completion: readCompletionCopy(distribution?.settings),
+    redirect_url: distribution?.redirectUrl ?? null,
   }
 }
 

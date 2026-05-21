@@ -367,11 +367,13 @@ export function addFieldFromPalette(input: {
   }
   const newKey = nextFieldKey(next.properties)
   const jsonType = FIELD_TYPE_TO_JSON_TYPE[typeKey] ?? 'string'
+  const defaultActorRole =
+    (next[OM_ROOT_KEYWORDS.defaultActorRole] as string | undefined) ?? 'admin'
   const fieldNode: FieldNode = {
     type: jsonType,
     'x-om-type': typeKey,
     'x-om-label': { en: 'New field' },
-    'x-om-editable-by': ['admin'],
+    'x-om-editable-by': dedupePreservingOrder([defaultActorRole, 'admin']),
   }
   const initializer = FIELD_TYPE_NODE_INITIALIZER[typeKey]
   if (initializer) initializer(fieldNode)
@@ -1951,6 +1953,51 @@ export function removeRoleFromSchema(schema: FormSchema, role: string): FormSche
     }
   }
   return next
+}
+
+/** Reserved role identifier for non-logged-in (anonymous) participants. */
+export const GUEST_ROLE = 'guest'
+
+/**
+ * True when the form is configured for anonymous submissions: the `guest`
+ * role is declared AND it is the default actor role.
+ */
+export function isGuestSubmissionEnabled(schema: FormSchema): boolean {
+  const roles = (schema[OM_ROOT_KEYWORDS.roles] ?? []) as string[]
+  return (
+    roles.includes(GUEST_ROLE) &&
+    schema[OM_ROOT_KEYWORDS.defaultActorRole] === GUEST_ROLE
+  )
+}
+
+/**
+ * Enables anonymous submissions: declares the `guest` role, makes it the
+ * default actor role, and grants every field `x-om-editable-by` access to
+ * `guest` (deduped, `admin` preserved). `x-om-visible-to` is left untouched —
+ * its empty semantics already mean "editable ∪ admin", so guest can read any
+ * field it can edit.
+ */
+export function enableGuestSubmissions(schema: FormSchema): FormSchema {
+  const next = addRoleToSchema(schema, GUEST_ROLE)
+  next[OM_ROOT_KEYWORDS.defaultActorRole] = GUEST_ROLE
+  for (const field of Object.values(next.properties)) {
+    const editableBy = (field[OM_FIELD_KEYWORDS.editableBy] ?? []) as string[]
+    field[OM_FIELD_KEYWORDS.editableBy] = dedupePreservingOrder([
+      ...editableBy,
+      GUEST_ROLE,
+      'admin',
+    ])
+  }
+  return next
+}
+
+/**
+ * Disables anonymous submissions by removing the `guest` role. Delegates to
+ * `removeRoleFromSchema`, which resets the default actor role to `admin` and
+ * strips `guest` from every field reference.
+ */
+export function disableGuestSubmissions(schema: FormSchema): FormSchema {
+  return removeRoleFromSchema(schema, GUEST_ROLE)
 }
 
 /**
