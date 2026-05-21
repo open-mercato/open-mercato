@@ -271,6 +271,7 @@ describe('GET /api/auth/users', () => {
 
   test('filters users by display name', async () => {
     const matchedUserId = '623e4567-e89b-12d3-a456-426614174001'
+    mockSearchTokenExecute.mockResolvedValueOnce([{ entity_id: matchedUserId }])
     mockEm.findAndCount.mockResolvedValueOnce([
       [
         {
@@ -288,12 +289,105 @@ describe('GET /api/auth/users', () => {
     const body = await response.json()
 
     expect(response.status).toBe(200)
+    expect(mockSelectFrom).toHaveBeenCalledWith('search_tokens')
+    const displayNameFieldCall = mockSearchTokenWhere.mock.calls.find((call: unknown[]) => {
+      return call[0] === 'field' && call[1] === '=' && call[2] === 'name'
+    })
+    expect(displayNameFieldCall).toBeDefined()
     const where = mockEm.findAndCount.mock.calls[0][1] as { $and: Array<Record<string, unknown>> }
     expect(where.$and).toEqual(expect.arrayContaining([
       { deletedAt: null },
       { tenantId },
-      { name: { $ilike: '%Named%' } },
+      {
+        $or: [
+          { name: { $ilike: '%Named%' } },
+          { id: { $in: [matchedUserId] } },
+        ],
+      },
     ]))
+    expect(body.items).toHaveLength(1)
+    expect(body.items[0]).toMatchObject({
+      id: matchedUserId,
+      name: 'Named User',
+    })
+  })
+
+  test('scopes display-name token lookups to the current tenant for non-superadmins', async () => {
+    const matchedUserId = '623e4567-e89b-12d3-a456-426614174002'
+    mockSearchTokenExecute.mockResolvedValueOnce([{ entity_id: matchedUserId }])
+    mockEm.findAndCount.mockResolvedValueOnce([
+      [
+        {
+          id: matchedUserId,
+          email: 'named@acme.com',
+          name: 'Named User',
+          tenantId,
+          organizationId,
+        },
+      ],
+      1,
+    ])
+
+    const response = await GET(makeRequest('/api/auth/users?name=Named&page=1&pageSize=50'))
+    const body = await response.json()
+
+    expect(response.status).toBe(200)
+    const tenantScopeCall = mockSearchTokenWhere.mock.calls.find((call: unknown[]) => {
+      const clause = call[0] as { toOperationNode?: () => { sqlFragments?: string[]; parameters?: Array<{ value?: unknown }> } } | undefined
+      const node = clause && typeof clause === 'object' && typeof clause.toOperationNode === 'function'
+        ? clause.toOperationNode()
+        : null
+      if (!node || !Array.isArray(node.sqlFragments)) return false
+      const joined = node.sqlFragments.join('?')
+      if (!joined.includes('tenant_id is not distinct from')) return false
+      const params = Array.isArray(node.parameters) ? node.parameters : []
+      return params.some((p) => p && typeof p === 'object' && 'value' in p && p.value === tenantId)
+    })
+    expect(tenantScopeCall).toBeDefined()
+    expect(body.items).toHaveLength(1)
+    expect(body.items[0]).toMatchObject({
+      id: matchedUserId,
+      name: 'Named User',
+    })
+  })
+
+  test('superadmin display-name token lookups do not apply tenant scope', async () => {
+    mockGetAuthFromRequest.mockResolvedValueOnce({
+      sub: 'user-1',
+      tenantId: null,
+      orgId: organizationId,
+      roles: ['admin'],
+    })
+    mockLoadAcl.mockResolvedValueOnce({ isSuperAdmin: true })
+    const matchedUserId = '623e4567-e89b-12d3-a456-426614174003'
+    mockSearchTokenExecute.mockResolvedValueOnce([{ entity_id: matchedUserId }])
+    mockEm.findAndCount.mockResolvedValueOnce([
+      [
+        {
+          id: matchedUserId,
+          email: 'named@cross-tenant.com',
+          name: 'Named User',
+          tenantId: null,
+          organizationId: null,
+        },
+      ],
+      1,
+    ])
+
+    const response = await GET(makeRequest('/api/auth/users?name=Named&page=1&pageSize=50'))
+    const body = await response.json()
+
+    expect(response.status).toBe(200)
+    const tenantScopeCalled = mockSearchTokenWhere.mock.calls.some((call: unknown[]) => {
+      const clause = call[0] as { toOperationNode?: () => { sqlFragments?: string[] } } | undefined
+      const node = clause && typeof clause === 'object' && typeof clause.toOperationNode === 'function'
+        ? clause.toOperationNode()
+        : null
+      if (!node || !Array.isArray(node.sqlFragments)) return false
+      return node.sqlFragments.join('?').includes('tenant_id is not distinct from')
+    })
+    expect(tenantScopeCalled).toBe(false)
+    expect(body.isSuperAdmin).toBe(true)
     expect(body.items).toHaveLength(1)
     expect(body.items[0]).toMatchObject({
       id: matchedUserId,

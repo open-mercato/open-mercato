@@ -94,6 +94,7 @@ const okResponseSchema = z.object({ ok: z.literal(true) })
 const errorResponseSchema = z.object({ error: z.string() })
 
 type CrudInput = Record<string, unknown>
+type UserListFilter = Record<string, unknown>
 
 const routeMetadata = {
   GET: { requireAuth: true, requireFeatures: ['auth.users.list'] },
@@ -230,7 +231,14 @@ export async function GET(req: Request) {
   if (organizationId) filters.push({ organizationId })
   const trimmedName = typeof name === 'string' ? name.trim() : ''
   if (trimmedName) {
-    filters.push({ name: { $ilike: `%${escapeLikePattern(trimmedName)}%` } })
+    const searchPattern = `%${escapeLikePattern(trimmedName)}%`
+    const displayNameFilters: UserListFilter[] = [{ name: { $ilike: searchPattern } }]
+    const nameTokenScope: string | null | undefined = isSuperAdmin ? (effectiveTenantId ?? undefined) : auth.tenantId ?? null
+    const matchedDisplayNameIds = await findUserIdsBySearchTokens(em, E.auth.user, trimmedName, nameTokenScope, 'name')
+    if (matchedDisplayNameIds && matchedDisplayNameIds.length) {
+      displayNameFilters.push({ id: { $in: matchedDisplayNameIds } })
+    }
+    filters.push(displayNameFilters.length > 1 ? { $or: displayNameFilters } : displayNameFilters[0])
   }
   let idFilter: Set<string> | null = id ? new Set([id]) : null
   if (Array.isArray(roleIds) && roleIds.length > 0) {
@@ -468,6 +476,7 @@ async function findUserIdsBySearchTokens(
   entityType: string,
   search: string,
   tenantScope: string | null | undefined,
+  field?: string,
 ): Promise<string[] | null> {
   const trimmed = search.trim()
   if (!trimmed) return null
@@ -484,6 +493,9 @@ async function findUserIdsBySearchTokens(
     .where('token_hash', 'in', hashes)
     .groupBy('entity_id')
     .having(sql<boolean>`count(distinct token_hash) >= ${hashes.length}`)
+  if (field) {
+    query = query.where('field', '=', field)
+  }
   if (tenantScope !== undefined) {
     query = query.where(sql<boolean>`tenant_id is not distinct from ${tenantScope}`)
   }
