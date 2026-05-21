@@ -120,6 +120,7 @@
   "messages.errors.loadObjectOptionsFailed": "No se pudieron cargar las opciones de objeto.",
   "messages.errors.loadObjectTypesFailed": "No se pudieron cargar los tipos de objeto.",
   "messages.errors.loadTypesFailed": "No se pudieron cargar los tipos de mensaje.",
+  "messages.errors.messageDeleted": "Este mensaje ya no está disponible.",
   "messages.errors.noBody": "Introduce el contenido del mensaje.",
   "messages.errors.noExternalEmail": "Introduce un correo externo válido.",
   "messages.errors.noRecipients": "Añade al menos un destinatario.",

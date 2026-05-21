@@ -120,6 +120,7 @@
   "messages.errors.loadObjectOptionsFailed": "Failed to load object options.",
   "messages.errors.loadObjectTypesFailed": "Failed to load object types.",
   "messages.errors.loadTypesFailed": "Failed to load message types.",
+  "messages.errors.messageDeleted": "This message is no longer available.",
   "messages.errors.noBody": "Please enter a message.",
   "messages.errors.noExternalEmail": "Please enter a valid external email.",
   "messages.errors.noRecipients": "Please add at least one recipient.",
