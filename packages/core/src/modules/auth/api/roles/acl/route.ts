@@ -9,7 +9,11 @@ import { RoleAcl, Role } from '@open-mercato/core/modules/auth/data/entities'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import { resolveIsSuperAdmin } from '@open-mercato/core/modules/auth/lib/tenantAccess'
 import { RbacService } from '@open-mercato/core/modules/auth/services/rbacService'
-import { assertActorCanGrantAcl, normalizeGrantFeatureList } from '@open-mercato/core/modules/auth/lib/grantChecks'
+import {
+  assertActorCanGrantAcl,
+  assertActorCanModifySuperAdminRoleTarget,
+  normalizeGrantFeatureList,
+} from '@open-mercato/core/modules/auth/lib/grantChecks'
 
 type TaggableCache = { deleteByTags?: (tags: string[]) => Promise<void> | void }
 
@@ -71,6 +75,23 @@ export async function GET(req: Request) {
   }
   if (!tenantScope && !isSuperAdmin) tenantScope = authTenantId ?? null
 
+  if (!isSuperAdmin && auth.sub) {
+    try {
+      await assertActorCanModifySuperAdminRoleTarget({
+        em,
+        rbacService: container.resolve('rbacService') as RbacService,
+        actorUserId: auth.sub,
+        tenantId: tenantScope,
+        organizationId: auth.orgId ?? null,
+        targetRoleId: parsed.data.roleId,
+        actorIsSuperAdmin: false,
+      })
+    } catch (err) {
+      if (isCrudHttpError(err)) return NextResponse.json(err.body, { status: err.status })
+      throw err
+    }
+  }
+
   const acl = tenantScope
     ? await em.findOne(RoleAcl, { role, tenantId: tenantScope })
     : null
@@ -131,6 +152,23 @@ export async function PUT(req: Request) {
 
   if (!isSuperAdmin && targetTenantId !== authTenantId) {
     return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
+  }
+
+  if (!isSuperAdmin && auth.sub) {
+    try {
+      await assertActorCanModifySuperAdminRoleTarget({
+        em,
+        rbacService,
+        actorUserId: auth.sub,
+        tenantId: targetTenantId,
+        organizationId: auth.orgId ?? null,
+        targetRoleId: parsed.data.roleId,
+        actorIsSuperAdmin: false,
+      })
+    } catch (err) {
+      if (isCrudHttpError(err)) return NextResponse.json(err.body, { status: err.status })
+      throw err
+    }
   }
 
   let acl = await em.findOne(RoleAcl, { role, tenantId: targetTenantId })

@@ -3,7 +3,7 @@
 
 ## Highlights
 
-Open Mercato `0.6.2` is a maturity pass on top of `0.6.1`. The AI agents framework picks up real production guardrails — agentic-loop controls (`loop.stopWhen` / `loop.prepareStep` / `loop.budget`), a per-tenant loop kill switch, the `LoopTrace` debug panel, durable server-side conversation storage, and a visible agent task plan that lets operators see what the model is about to do before it does it. On the platform side, the `modules.ts` unified overrides umbrella is now wired for every contract surface — routes, pages, subscribers, workers, widgets, notifications, interceptors, enrichers, CLI, setup, ACL, DI, encryption — so app authors can replace or disable any module contract without forking upstream. The new optional `external/official-modules/` git submodule lets official modules be developed against full platform context (core source, AGENTS.md, skills, the running dev app) without bloating a vanilla clone — fresh clones, `yarn install`, and CI stay untouched until you opt in. Round it out with code-based workflow definitions finally landing (carrying @jtomaszewski's `defineWorkflow()` work forward), a polished backend topbar plus DS `Breadcrumb` + `Sheet` primitives, a Messages module bug-fix sweep (drafts, bulk actions, inbox filters, sender dropdown), a new storage hub for module-owned files, and a CSV import foundation for the `customers.person` entity via the `sync_excel` data-sync provider. Enjoy!
+Open Mercato `0.6.2` is a maturity pass on top of `0.6.1`. The AI agents framework picks up real production guardrails — agentic-loop controls (`loop.stopWhen` / `loop.prepareStep` / `loop.budget`), a per-tenant loop kill switch, the `LoopTrace` debug panel, durable server-side conversation storage, and a visible agent task plan that lets operators see what the model is about to do before it does it. On the platform side, the `modules.ts` unified overrides umbrella is now wired for every contract surface — routes, pages, subscribers, workers, widgets, notifications, interceptors, enrichers, CLI, setup, ACL, DI, encryption — so app authors can replace or disable any module contract without forking upstream. The new optional `external/official-modules/` git submodule lets official modules be developed against full platform context (core source, AGENTS.md, skills, the running dev app) without bloating a vanilla clone — fresh clones, `yarn install`, and CI stay untouched until you opt in. Round it out with code-based workflow definitions finally landing (carrying @jtomaszewski's `defineWorkflow()` work forward), a polished backend topbar plus DS `Breadcrumb` + `Sheet` primitives, a Messages module bug-fix sweep (drafts, bulk actions, inbox filters, sender dropdown), a new storage hub for module-owned files, and a CSV import foundation for the `customers.person` entity via the `sync_excel` data-sync provider. The final unreleased pass also tightens Super Admin scoping, hardens regex-backed validation paths, and fixes auth display-name filtering plus sales return-adjustment bounds. Enjoy!
 
 ## ✨ Features
 - ✨ Code-based workflow definitions with customize/reset (supersedes #1935). (#1959) *(@jtomaszewski, @KubaBir, via @pkarw)*
@@ -18,9 +18,16 @@ Open Mercato `0.6.2` is a maturity pass on top of `0.6.1`. The AI agents framewo
 - ✨ Register the remaining 14 sales entities in the Awilix DI container. (#1953) *(@kriss145)*
 
 ## 🔒 Security
+- 🔒 Harden custom-field regex validation and related wildcard matching paths. (#1996) *(@pkarw)*
+- 🔒 Restrict Super Admin user and role editing to Super Admin actors (fixes #1973). (#1988) *(@pkarw)*
 - 🔒 Reload backend tabs on cookie identity change (fixes #1947). (#1956) *(@pkarw)*
 
 ## 🐛 Fixes
+- 🔐 Preserve auth user display-name filtering through search tokens for encrypted user data (supersedes #2002). (#2008) *(@PawelSydorow, via @pkarw)*
+- 🔐 Display role labels instead of UUIDs for Super Admin users (fixes #1993). (#1997) *(@pkarw)*
+- 🔐 Scope auth user audit logs to the target user's organization so undo tokens work for Super Admin mutations (fixes #1978). (#1986) *(@pkarw)*
+- 💰 Reject return adjustments that exceed the remaining grand total (fixes #1904). (#1987) *(@pkarw)*
+- 🔐 Guard role tenant moves and preserve ACL/widget selections while editing roles (fixes #688). (#1994) *(@marcinwadon)*
 - 🔧 Purge Turbopack `.mercato/next` cache before greenfield rebuilds (fixes #1950). (#1984) *(@pkarw)*
 - 🐛 Update existing message drafts from composer instead of creating duplicates (fixes #1939). (#1966) *(@pkarw)*
 - 🐛 Expand Messages list bulk actions and add `(No subject)` / `(No recipient)` placeholders (fixes #1941). (#1967) *(@pkarw)*
@@ -31,9 +38,13 @@ Open Mercato `0.6.2` is a maturity pass on top of `0.6.1`. The AI agents framewo
 - 🐳 Make bundled Traefik an opt-in compose overlay so base files run cleanly behind external reverse proxies. (#1928) *(@pat-lewczuk)*
 
 ## 🛠️ Improvements
+- 🛠️ Scope the Super Admin users list to the selected tenant and organization context. (#1995) *(@PawelSydorow)*
+- 🛠️ Migrate Dependabot bumps for `postcss` and `webpack-dev-server` onto `develop`. (#2005) *(@pkarw)*
+- 🛠️ Update the Railway deployment link. (#1992) *(@freakone)*
 - 🛠️ Consolidate Dependabot bumps. (#1982) *(@pkarw)*
 
 ## 📝 Specs & Documentation
+- 📝 Specify runtime i18n enrichment for search presenters used by global search. (#2000) *(@marcinwadon)*
 - 📝 Document the module dependency graph (fixes #1831). (#1954) *(@pkarw)*
 - 📝 Specify frontend client-boundary RAM guardrails for Next.js pages. (#1931) *(@daweed2701)*
 - 📝 Explain why `*.generated.ts` lives in `src/`, not `generated/` (official-modules decision record). (#1983) *(@pkarw)*
@@ -51,6 +62,8 @@ Open Mercato `0.6.2` is a maturity pass on top of `0.6.1`. The AI agents framewo
 - @PawelSydorow
 - @daweed2701
 - @KubaBir
+- @marcinwadon
+- @freakone
 
 ---
 

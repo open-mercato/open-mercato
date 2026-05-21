@@ -286,6 +286,7 @@ const createUserCommand: CommandHandler<Record<string, unknown>, CreateUserResul
       resourceKind: 'auth.user',
       resourceId: String(user.id),
       tenantId: user.tenantId ? String(user.tenantId) : null,
+      organizationId: user.organizationId ? String(user.organizationId) : null,
       snapshotAfter: snapshot.view,
       payload: {
         undo: {
@@ -559,6 +560,7 @@ const updateUserCommand: CommandHandler<Record<string, unknown>, User> = {
       resourceKind: 'auth.user',
       resourceId: String(result.id),
       tenantId: result.tenantId ? String(result.tenantId) : null,
+      organizationId: result.organizationId ? String(result.organizationId) : null,
       changes,
       snapshotBefore: before ?? null,
       snapshotAfter: after,
@@ -689,6 +691,7 @@ const deleteUserCommand: CommandHandler<{ body?: Record<string, unknown>; query?
       resourceId: id,
       snapshotBefore: before ?? null,
       tenantId: before?.tenantId ?? null,
+      organizationId: before?.organizationId ?? null,
       payload: {
         undo: {
           before: beforeUndo,

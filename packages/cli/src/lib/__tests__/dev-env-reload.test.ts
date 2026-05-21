@@ -2,6 +2,7 @@ import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 import { createDevEnvReloader, resolveDevEnvFilePaths } from '../dev-env-reload'
+import { normalizeTestPath } from './path-helpers'
 
 describe('dev env reload helpers', () => {
   let appDir: string
@@ -15,7 +16,7 @@ describe('dev env reload helpers', () => {
   })
 
   it('resolves app env files in low-to-high dev precedence order', () => {
-    expect(resolveDevEnvFilePaths('/tmp/app')).toEqual([
+    expect(resolveDevEnvFilePaths('/tmp/app').map(normalizeTestPath)).toEqual([
       '/tmp/app/.env',
       '/tmp/app/.env.development',
       '/tmp/app/.env.local',

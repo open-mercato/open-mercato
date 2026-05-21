@@ -1,4 +1,5 @@
 import type { ModuleInjectionWidgetEntry } from '../registry'
+import { matchWildcardPattern } from '@open-mercato/shared/lib/patterns/wildcard'
 import type {
   InjectionAnyWidgetModule,
   InjectionDataWidgetModule,
@@ -452,8 +453,7 @@ async function getResolvedEntriesForSpot(spotId: InjectionSpotId): Promise<Table
   for (const [candidateSpotId, candidateEntries] of table.entries()) {
     if (candidateSpotId === spotId) continue
     if (!candidateSpotId.includes('*')) continue
-    const pattern = new RegExp(`^${candidateSpotId.replace(/[.+?^${}()|[\]\\]/g, '\\$&').replace(/\*/g, '.*')}$`)
-    if (!pattern.test(spotId)) continue
+    if (!matchWildcardPattern(spotId, candidateSpotId)) continue
     wildcardEntries.push(...candidateEntries)
   }
 

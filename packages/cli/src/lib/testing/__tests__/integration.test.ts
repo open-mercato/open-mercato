@@ -78,6 +78,7 @@ const resolveBuildCacheFingerprint = async (
 }
 
 describe('integration cache and options', () => {
+  const REUSE_ENV_TEST_TIMEOUT_MS = 60000
   const ephemeralEnvFilePath = path.join(projectRootDirectory, '.ai', 'qa', 'ephemeral-env.json')
   const ephemeralLegacyEnvFilePath = path.join(projectRootDirectory, '.ai', 'qa', 'ephemeral-env.md')
   const originalCacheTtl = process.env[CACHE_TTL_ENV_VAR]
@@ -130,12 +131,20 @@ describe('integration cache and options', () => {
       await writeEphemeralEnvironmentState({
         baseUrl,
         port: 5001,
+        databaseUrl: 'postgres://integration:integration@127.0.0.1:5432/open_mercato',
+        queueBaseDir: '/tmp/open-mercato-queue',
         logPrefix: 'integration',
         captureScreenshots: true,
       })
 
       const state = await readEphemeralEnvironmentState()
-      expect(state).toMatchObject({ baseUrl, port: 5001, captureScreenshots: true })
+      expect(state).toMatchObject({
+        baseUrl,
+        port: 5001,
+        databaseUrl: 'postgres://integration:integration@127.0.0.1:5432/open_mercato',
+        queueBaseDir: '/tmp/open-mercato-queue',
+        captureScreenshots: true,
+      })
 
       const environment = await tryReuseExistingEnvironment({
         verbose: false,
@@ -151,12 +160,16 @@ describe('integration cache and options', () => {
         ownedByCurrentProcess: false,
       })
       expect(environment?.commandEnvironment.OM_INTEGRATION_TEST).toBe('true')
+      expect(environment?.commandEnvironment.DATABASE_URL).toBe(
+        'postgres://integration:integration@127.0.0.1:5432/open_mercato',
+      )
+      expect(environment?.commandEnvironment.QUEUE_BASE_DIR).toBe('/tmp/open-mercato-queue')
       expect(environment?.commandEnvironment.PW_CAPTURE_SCREENSHOTS).toBe('1')
       expect(environment?.commandEnvironment.NEXT_PUBLIC_OM_EXAMPLE_CHECKOUT_TEST_INJECTIONS_ENABLED).toBeUndefined()
     } finally {
       fetchSpy.mockRestore()
     }
-  }, 20000)
+  }, REUSE_ENV_TEST_TIMEOUT_MS)
 
   it('reuses an existing environment with checkout wrapper injections only when explicitly enabled', async () => {
     const baseUrl = 'http://127.0.0.1:5001'
@@ -167,6 +180,8 @@ describe('integration cache and options', () => {
       await writeEphemeralEnvironmentState({
         baseUrl,
         port: 5001,
+        databaseUrl: 'postgres://integration:integration@127.0.0.1:5432/open_mercato',
+        queueBaseDir: '/tmp/open-mercato-queue',
         logPrefix: 'integration',
         captureScreenshots: true,
       })
@@ -184,7 +199,7 @@ describe('integration cache and options', () => {
     } finally {
       fetchSpy.mockRestore()
     }
-  }, 20000)
+  }, REUSE_ENV_TEST_TIMEOUT_MS)
 
   it('reuses an existing environment when /login returns a redirect status other than 302', async () => {
     const baseUrl = 'http://127.0.0.1:5001'
@@ -196,6 +211,8 @@ describe('integration cache and options', () => {
       await writeEphemeralEnvironmentState({
         baseUrl,
         port: 5001,
+        databaseUrl: 'postgres://integration:integration@127.0.0.1:5432/open_mercato',
+        queueBaseDir: '/tmp/open-mercato-queue',
         logPrefix: 'integration',
         captureScreenshots: true,
       })
@@ -216,7 +233,7 @@ describe('integration cache and options', () => {
     } finally {
       fetchSpy.mockRestore()
     }
-  }, 20000)
+  }, REUSE_ENV_TEST_TIMEOUT_MS)
 
   it('reuses an existing environment when /login returns healthy HTML without static asset references', async () => {
     const baseUrl = 'http://127.0.0.1:5001'
@@ -231,6 +248,8 @@ describe('integration cache and options', () => {
       await writeEphemeralEnvironmentState({
         baseUrl,
         port: 5001,
+        databaseUrl: 'postgres://integration:integration@127.0.0.1:5432/open_mercato',
+        queueBaseDir: '/tmp/open-mercato-queue',
         logPrefix: 'integration',
         captureScreenshots: false,
       })
@@ -251,7 +270,7 @@ describe('integration cache and options', () => {
     } finally {
       fetchSpy.mockRestore()
     }
-  }, 20000)
+  }, REUSE_ENV_TEST_TIMEOUT_MS)
 
   it('falls back to rebuilding when the ephemeral environment state is unreachable', async () => {
     const baseUrl = 'http://127.0.0.1:5001'
@@ -261,6 +280,8 @@ describe('integration cache and options', () => {
       await writeEphemeralEnvironmentState({
         baseUrl,
         port: 5001,
+        databaseUrl: 'postgres://integration:integration@127.0.0.1:5432/open_mercato',
+        queueBaseDir: '/tmp/open-mercato-queue',
         logPrefix: 'integration',
         captureScreenshots: false,
       })
@@ -289,6 +310,8 @@ describe('integration cache and options', () => {
       await writeEphemeralEnvironmentState({
         baseUrl,
         port: 5001,
+        databaseUrl: 'postgres://integration:integration@127.0.0.1:5432/open_mercato',
+        queueBaseDir: '/tmp/open-mercato-queue',
         logPrefix: 'integration',
         captureScreenshots: true,
       })

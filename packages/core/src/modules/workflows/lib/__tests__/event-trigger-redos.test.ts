@@ -49,6 +49,15 @@ describe('evaluateFilterConditions — ReDoS prevention', () => {
     expect(matchesRegex('^a+$', 'a'.repeat(10_001))).toBe(false)
   })
 
+  it('evaluates the reported nested-quantifier payload in bounded time', () => {
+    const pattern = '^(GB|FR|DE|IT|ES|PL|NL|BE|SE|AT|DK|FI|PT|IE|GR|CZ|RO|HU|SK|BG|HR|SI|LT|LV|EE|LU|MT|CY)?([0-9A-Za-z]+)*$'
+    const payload = `${'A'.repeat(64)}!`
+    const startedAt = Date.now()
+
+    expect(matchesRegex(pattern, payload)).toBe(false)
+    expect(Date.now() - startedAt).toBeLessThan(2_000)
+  })
+
   it('allows safe regex patterns', () => {
     expect(matchesRegex('hello', 'hello world')).toBe(true)
     expect(matchesRegex('^order-\\d+$', 'order-123')).toBe(true)

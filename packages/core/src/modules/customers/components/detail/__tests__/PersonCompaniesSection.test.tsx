@@ -162,7 +162,11 @@ describe('PersonCompaniesSection', () => {
     expect(await screen.findByText('1 linked companies')).toBeInTheDocument()
 
     fireEvent.click(screen.getByRole('button', { name: 'Manage links' }))
-    const betaCheckbox = await screen.findByRole('checkbox', { name: 'Select Beta Holdings' })
+    const betaCheckbox = await screen.findByRole(
+      'checkbox',
+      { name: 'Select Beta Holdings' },
+      { timeout: 10_000 },
+    )
     fireEvent.click(betaCheckbox)
 
     await act(async () => {

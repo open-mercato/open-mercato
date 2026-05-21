@@ -1,5 +1,9 @@
 /** @jest-environment node */
-import { validateValuesAgainstDefs } from '../validation'
+import {
+  MAX_CUSTOM_FIELD_REGEX_PATTERN_LENGTH,
+  MAX_CUSTOM_FIELD_REGEX_INPUT_LENGTH,
+  validateValuesAgainstDefs,
+} from '../validation'
 
 describe('validateValuesAgainstDefs', () => {
   it('validates required and integer/float comparisons', () => {
@@ -48,5 +52,96 @@ describe('validateValuesAgainstDefs', () => {
     r = validateValuesAgainstDefs({ code: 'ok', status: 'open' }, defs as any)
     expect(r.ok).toBe(true)
   })
-})
 
+  it('evaluates dangerous backtracking regex rules in bounded time', () => {
+    const defs = [
+      {
+        key: 'eu_vat_number',
+        kind: 'text',
+        configJson: {
+          validation: [
+            {
+              rule: 'regex',
+              param: '^(GB|FR|DE|IT|ES|PL|NL|BE|SE|AT|DK|FI|PT|IE|GR|CZ|RO|HU|SK|BG|HR|SI|LT|LV|EE|LU|MT|CY)?([0-9A-Za-z]+)*$',
+              message: 'bad vat',
+            },
+          ],
+        },
+      },
+    ]
+
+    const startedAt = Date.now()
+    const result = validateValuesAgainstDefs(
+      { eu_vat_number: `${'A'.repeat(64)}!` },
+      defs as any,
+    )
+
+    expect(Date.now() - startedAt).toBeLessThan(2_000)
+    expect(result.ok).toBe(false)
+    expect(result.fieldErrors['cf_eu_vat_number']).toBe('bad vat')
+  })
+
+  it('fails closed for unsupported regex syntax', () => {
+    const defs = [
+      {
+        key: 'code',
+        kind: 'text',
+        configJson: {
+          validation: [
+            { rule: 'regex', param: '(?=safe)safe', message: 'unsupported regex' },
+          ],
+        },
+      },
+    ]
+
+    const result = validateValuesAgainstDefs({ code: 'safe' }, defs as any)
+
+    expect(result.ok).toBe(false)
+    expect(result.fieldErrors['cf_code']).toBe('unsupported regex')
+  })
+
+  it('fails closed before testing oversized regex input values', () => {
+    const defs = [
+      {
+        key: 'body',
+        kind: 'multiline',
+        configJson: {
+          validation: [
+            { rule: 'regex', param: '^a+$', message: 'body too large' },
+          ],
+        },
+      },
+    ]
+
+    const result = validateValuesAgainstDefs(
+      { body: 'a'.repeat(MAX_CUSTOM_FIELD_REGEX_INPUT_LENGTH + 1) },
+      defs as any,
+    )
+
+    expect(result.ok).toBe(false)
+    expect(result.fieldErrors['cf_body']).toBe('body too large')
+  })
+
+  it('fails closed before testing oversized regex patterns', () => {
+    const defs = [
+      {
+        key: 'code',
+        kind: 'text',
+        configJson: {
+          validation: [
+            {
+              rule: 'regex',
+              param: `^${'a'.repeat(MAX_CUSTOM_FIELD_REGEX_PATTERN_LENGTH)}$`,
+              message: 'pattern too large',
+            },
+          ],
+        },
+      },
+    ]
+
+    const result = validateValuesAgainstDefs({ code: 'a' }, defs as any)
+
+    expect(result.ok).toBe(false)
+    expect(result.fieldErrors['cf_code']).toBe('pattern too large')
+  })
+})
