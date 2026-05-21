@@ -79,7 +79,6 @@ test.describe('TC-AI-MERCHANDISING-008: catalog.merchandising_assistant sheet', 
     await login(page, 'superadmin');
     await page.goto('/backend/catalog/products', { waitUntil: 'domcontentloaded' });
     await expect(page.getByTestId('backend-chrome-ready')).toHaveAttribute('data-ready', 'true', { timeout: 30_000 });
-    await page.waitForLoadState('networkidle', { timeout: 30_000 }).catch(() => {});
 
     const trigger = page.locator('[data-ai-merchandising-trigger]');
     await expect(trigger).toBeVisible({ timeout: 60_000 });
@@ -104,7 +103,6 @@ test.describe('TC-AI-MERCHANDISING-008: catalog.merchandising_assistant sheet', 
     await login(page, 'superadmin');
     await page.goto('/backend/catalog/products', { waitUntil: 'domcontentloaded' });
     await expect(page.getByTestId('backend-chrome-ready')).toHaveAttribute('data-ready', 'true', { timeout: 30_000 });
-    await page.waitForLoadState('networkidle', { timeout: 30_000 }).catch(() => {});
 
     const trigger = page.locator('[data-ai-merchandising-trigger]');
     await expect(trigger).toBeVisible({ timeout: 60_000 });
@@ -152,7 +150,6 @@ test.describe('TC-AI-MERCHANDISING-008: catalog.merchandising_assistant sheet', 
     await login(page, 'superadmin');
     await page.goto('/backend/catalog/products', { waitUntil: 'domcontentloaded' });
     await expect(page.getByTestId('backend-chrome-ready')).toHaveAttribute('data-ready', 'true', { timeout: 30_000 });
-    await page.waitForLoadState('networkidle', { timeout: 30_000 }).catch(() => {});
 
     const trigger = page.locator('[data-ai-merchandising-trigger]');
     await expect(trigger).toBeVisible({ timeout: 60_000 });

@@ -40,7 +40,6 @@ test.describe('TC-AI-INJECT-013: catalog merchandising via injection', () => {
     await login(page, 'superadmin');
     await page.goto('/backend/catalog/products', { waitUntil: 'domcontentloaded' });
     await expect(page.getByTestId('backend-chrome-ready')).toHaveAttribute('data-ready', 'true', { timeout: 30_000 });
-    await page.waitForLoadState('networkidle', { timeout: 30_000 }).catch(() => {});
 
     const trigger = page.locator('[data-ai-merchandising-trigger]').first();
     await expect(trigger).toBeVisible({ timeout: 60_000 });
