@@ -10,22 +10,23 @@ export type DashedTileButtonProps = {
   title?: string
   /**
    * Extra utility classes appended after the shared dashed-tile chrome. Use this for
-   * width/height/orientation tweaks that vary per consumer (quick-add needs `h-11`,
-   * show-more needs `px-3 py-2.5`).
+   * width/height/orientation tweaks that vary per consumer (e.g. AddStageLane needs
+   * `min-h-[60vh]` + `flex-col`, quick-add needs `h-11`, show-more needs `px-3 py-2.5`).
    */
   className?: string
   children: React.ReactNode
 }
 
 /**
- * Shared chrome for the dashed-outline CTAs on the kanban board:
+ * Shared chrome for the three dashed-outline CTAs on the kanban board:
  *   - quick-add per lane (Lane.tsx)
  *   - show-more per lane (Lane.tsx)
+ *   - new-stage lane (AddStageLane.tsx)
  *
  * Before extraction each consumer hand-rolled the same 8–10 utility classes plus its own
- * focus-ring + dashed-border styling; drift between them was a Figma compliance risk
+ * focus-ring + dashed-border styling; drift between the three was a Figma compliance risk
  * (and was flagged in the SPEC-048 UX review as item 19). Centralising the styles here
- * keeps the pair in sync.
+ * keeps the trio in sync.
  */
 export function DashedTileButton({
   onClick,
