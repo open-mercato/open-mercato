@@ -15,6 +15,7 @@ import {
 } from '@open-mercato/ui/primitives/select'
 import { HiddenFieldsPanel } from '../logic/HiddenFieldsPanel'
 import { VariablesPanel } from '../logic/VariablesPanel'
+import { RolesEditor } from './RolesEditor'
 import type { FormSchema, HiddenFieldEntry, VariableEntry } from '../schema-helpers'
 
 export type InputParametersTabProps = {
@@ -36,6 +37,9 @@ export type InputParametersTabProps = {
   pagesCount: number
   onNameChange: (next: string) => void
   onDescriptionChange: (next: string) => void
+  onAddRole: (role: string) => void
+  onRenameRole: (oldRole: string, newRole: string) => void
+  onRemoveRole: (role: string) => void
   onDefaultActorRoleChange: (next: string) => void
   onDensityChange: (next: 'default' | 'compact' | 'spacious') => void
   onLabelPositionChange: (next: 'top' | 'left') => void
@@ -65,6 +69,9 @@ export function InputParametersTab(props: InputParametersTabProps) {
     schema,
     onNameChange,
     onDescriptionChange,
+    onAddRole,
+    onRenameRole,
+    onRemoveRole,
     onDefaultActorRoleChange,
     onDensityChange,
     onLabelPositionChange,
@@ -142,6 +149,20 @@ export function InputParametersTab(props: InputParametersTabProps) {
             ))
           )}
         </div>
+      </div>
+      <div className="space-y-1">
+        <span className="block text-sm font-medium text-foreground">
+          {t('forms.studio.parameters.roles.label')}
+        </span>
+        <p className="text-xs text-muted-foreground">
+          {t('forms.studio.parameters.roles.helper')}
+        </p>
+        <RolesEditor
+          roles={roleOptions}
+          onAdd={onAddRole}
+          onRename={onRenameRole}
+          onRemove={onRemoveRole}
+        />
       </div>
       <div className="space-y-1">
         <label

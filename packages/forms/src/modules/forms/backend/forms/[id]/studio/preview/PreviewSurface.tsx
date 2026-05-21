@@ -4,7 +4,7 @@ import * as React from 'react'
 import type { TranslateFn } from '@open-mercato/shared/lib/i18n/context'
 import { Alert } from '@open-mercato/ui/primitives/alert'
 import { Button } from '@open-mercato/ui/primitives/button'
-import { Checkbox } from '@open-mercato/ui/primitives/checkbox'
+import { CheckboxField } from '@open-mercato/ui/primitives/checkbox-field'
 import { Input } from '@open-mercato/ui/primitives/input'
 import {
   Select,
@@ -14,12 +14,15 @@ import {
   SelectValue,
 } from '@open-mercato/ui/primitives/select'
 import { Separator } from '@open-mercato/ui/primitives/separator'
-import { Switch } from '@open-mercato/ui/primitives/switch'
+import { SwitchField } from '@open-mercato/ui/primitives/switch-field'
 import { Tag } from '@open-mercato/ui/primitives/tag'
 import { Textarea } from '@open-mercato/ui/primitives/textarea'
+import { DatePicker } from '@open-mercato/ui/backend/inputs/DatePicker'
+import { DateTimePicker } from '@open-mercato/ui/backend/inputs/DateTimePicker'
 import { resolveLucideIcon } from '../lucide-icons'
 import { RankingField } from '../../../../../runner/RankingField'
 import { MatrixField, type MatrixFieldColumn, type MatrixFieldRow } from '../../../../../runner/MatrixField'
+import { ScaleField } from '../../../../../runner/ScaleField'
 import {
   COUNTRY_OPTIONS,
   resolveCountryName,
@@ -100,6 +103,43 @@ function readPersistedSpan(value: unknown): 1 | 2 | 3 | 4 {
 
 function readAlign(value: unknown): 'start' | 'center' | 'end' {
   return value === 'center' || value === 'end' ? value : 'start'
+}
+
+const padPreview2 = (input: number): string => String(input).padStart(2, '0')
+
+// Date pickers exchange `Date`; persisted answers keep the native
+// `YYYY-MM-DD` / `YYYY-MM-DDTHH:mm` strings, so adapt without altering bytes.
+function parsePreviewDateOnly(value: string): Date | null {
+  const match = /^(\d{4})-(\d{2})-(\d{2})/.exec(value)
+  if (!match) return null
+  const date = new Date(Number(match[1]), Number(match[2]) - 1, Number(match[3]))
+  return Number.isNaN(date.getTime()) ? null : date
+}
+
+function formatPreviewDateOnly(date: Date | null): string {
+  if (!date) return ''
+  return `${date.getFullYear()}-${padPreview2(date.getMonth() + 1)}-${padPreview2(date.getDate())}`
+}
+
+function parsePreviewDateTimeLocal(value: string): Date | null {
+  const match = /^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2})/.exec(value)
+  if (!match) return null
+  const date = new Date(
+    Number(match[1]),
+    Number(match[2]) - 1,
+    Number(match[3]),
+    Number(match[4]),
+    Number(match[5]),
+  )
+  return Number.isNaN(date.getTime()) ? null : date
+}
+
+function formatPreviewDateTimeLocal(date: Date | null): string {
+  if (!date) return ''
+  return (
+    `${date.getFullYear()}-${padPreview2(date.getMonth() + 1)}-${padPreview2(date.getDate())}` +
+    `T${padPreview2(date.getHours())}:${padPreview2(date.getMinutes())}`
+  )
 }
 
 /**
@@ -509,6 +549,37 @@ function FieldPreviewRow({
       </div>
     )
   }
+  // boolean / yes_no carry their own inline label (label beside the control),
+  // so they bypass the label-above layout used by every other field type.
+  if (omType === 'boolean' || omType === 'yes_no') {
+    const requiredMark = required ? (
+      <span className="ml-0.5 text-status-error-text" aria-hidden="true">*</span>
+    ) : null
+    const fieldLabel = <>{label}{requiredMark}</>
+    return (
+      <div className={`${SPAN_TO_CLASS[renderSpan]} ${ALIGN_TO_CLASS[align]}`}>
+        {omType === 'boolean' ? (
+          <CheckboxField
+            id={`preview-${fieldKey}`}
+            disabled={!canEdit}
+            checked={value === true}
+            onCheckedChange={(next) => onChange(next === true)}
+            label={fieldLabel}
+            description={help || undefined}
+          />
+        ) : (
+          <SwitchField
+            id={`preview-${fieldKey}`}
+            disabled={!canEdit}
+            checked={value === true}
+            onCheckedChange={(next) => onChange(Boolean(next))}
+            label={fieldLabel}
+            description={help || undefined}
+          />
+        )}
+      </div>
+    )
+  }
   const labelNode = (
     <label className="block text-sm font-medium text-foreground" htmlFor={`preview-${fieldKey}`}>
       {label}
@@ -629,51 +700,20 @@ function FieldPreviewInput({
           }}
         />
       )
-    case 'boolean':
-      return (
-        <label className="flex items-center gap-2 text-sm text-muted-foreground">
-          <Checkbox
-            disabled={!canEdit}
-            aria-label={label}
-            checked={value === true}
-            onCheckedChange={(next) => onChange(Boolean(next))}
-          />
-          <span>{label}</span>
-        </label>
-      )
-    case 'yes_no':
-      return (
-        <div className="flex items-center gap-2 text-sm">
-          <span className="text-muted-foreground">No</span>
-          <Switch
-            disabled={!canEdit}
-            aria-label={label}
-            checked={value === true}
-            onCheckedChange={(next) => onChange(Boolean(next))}
-          />
-          <span className="text-muted-foreground">Yes</span>
-        </div>
-      )
     case 'date':
       return (
-        <Input
-          id={id}
+        <DatePicker
           readOnly={!canEdit}
-          type="date"
-          aria-label={label}
-          value={stringValue}
-          onChange={(event) => onChange(event.target.value)}
+          value={parsePreviewDateOnly(stringValue)}
+          onChange={(date) => onChange(formatPreviewDateOnly(date))}
         />
       )
     case 'datetime':
       return (
-        <Input
-          id={id}
+        <DateTimePicker
           readOnly={!canEdit}
-          type="datetime-local"
-          aria-label={label}
-          value={stringValue}
-          onChange={(event) => onChange(event.target.value)}
+          value={parsePreviewDateTimeLocal(stringValue)}
+          onChange={(date) => onChange(formatPreviewDateTimeLocal(date))}
         />
       )
     case 'select_one':
@@ -700,27 +740,26 @@ function FieldPreviewInput({
         return <p className="text-xs text-muted-foreground">— No options configured —</p>
       }
       return (
-        <div className="space-y-1">
+        <div className="space-y-2.5">
           {options.map((option) => {
             const selected = Array.isArray(value) && (value as unknown[]).includes(option.value)
             return (
-              <label key={option.value} className="flex items-center gap-2 text-sm">
-                <Checkbox
-                  disabled={!canEdit}
-                  checked={selected}
-                  onCheckedChange={(next) => {
-                    const current = Array.isArray(value) ? [...(value as string[])] : []
-                    if (next) {
-                      if (!current.includes(option.value)) current.push(option.value)
-                    } else {
-                      const idx = current.indexOf(option.value)
-                      if (idx >= 0) current.splice(idx, 1)
-                    }
-                    onChange(current)
-                  }}
-                />
-                <span>{optionLabel(option)}</span>
-              </label>
+              <CheckboxField
+                key={option.value}
+                label={optionLabel(option)}
+                disabled={!canEdit}
+                checked={selected}
+                onCheckedChange={(next) => {
+                  const current = Array.isArray(value) ? [...(value as string[])] : []
+                  if (next) {
+                    if (!current.includes(option.value)) current.push(option.value)
+                  } else {
+                    const idx = current.indexOf(option.value)
+                    if (idx >= 0) current.splice(idx, 1)
+                  }
+                  onChange(current)
+                }}
+              />
             )
           })}
         </div>
@@ -730,33 +769,17 @@ function FieldPreviewInput({
       const maxRaw = node['x-om-max']
       const min = typeof minRaw === 'number' ? minRaw : 0
       const max = typeof maxRaw === 'number' ? maxRaw : 10
-      const safeMax = max < min ? min : max
-      const buttons: number[] = []
-      for (let i = min; i <= safeMax; i += 1) buttons.push(i)
       const currentValue = typeof value === 'number' ? value : null
       return (
-        <div className="flex flex-wrap gap-1">
-          {buttons.map((entry) => {
-            const isSelected = currentValue === entry
-            return (
-              <button
-                key={entry}
-                type="button"
-                disabled={!canEdit}
-                onClick={() => onChange(entry)}
-                aria-pressed={isSelected}
-                className={
-                  'h-8 w-8 rounded-full border text-xs font-medium transition-colors disabled:cursor-not-allowed disabled:opacity-60 '
-                  + (isSelected
-                    ? 'border-primary bg-primary text-primary-foreground'
-                    : 'border-border text-muted-foreground hover:border-primary hover:text-primary')
-                }
-              >
-                {entry}
-              </button>
-            )
-          })}
-        </div>
+        <ScaleField
+          id={id}
+          min={min}
+          max={max}
+          value={currentValue}
+          onChange={(next) => onChange(next)}
+          disabled={!canEdit}
+          ariaLabel={label}
+        />
       )
     }
     case 'nps':
@@ -955,27 +978,21 @@ function FormatPreviewInput({
   }, [value, rules, format, node, t])
   return (
     <div className="space-y-1">
-      <div className="relative">
-        <Icon
-          aria-hidden="true"
-          className="pointer-events-none absolute left-2 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground"
-        />
-        <Input
-          id={id}
-          type={inputType}
-          inputMode={inputMode}
-          autoComplete={autoComplete}
-          autoCapitalize={autoCapitalize}
-          readOnly={readOnly}
-          aria-label={label}
-          aria-invalid={error ? true : undefined}
-          className="pl-8"
-          value={value}
-          onChange={(event) => onChange(event.target.value)}
-          onFocus={() => setError(null)}
-          onBlur={handleBlur}
-        />
-      </div>
+      <Input
+        id={id}
+        type={inputType}
+        inputMode={inputMode}
+        autoComplete={autoComplete}
+        autoCapitalize={autoCapitalize}
+        readOnly={readOnly}
+        aria-label={label}
+        aria-invalid={error ? true : undefined}
+        leftIcon={<Icon aria-hidden="true" />}
+        value={value}
+        onChange={(event) => onChange(event.target.value)}
+        onFocus={() => setError(null)}
+        onBlur={handleBlur}
+      />
       {error ? (
         <Alert variant="destructive" className="px-3 py-2 text-xs">
           {error}
@@ -1041,6 +1058,7 @@ function NpsPreviewInput({ node, canEdit, value, onChange }: NpsPreviewInputProp
               aria-pressed={selected}
               className={
                 'h-11 w-11 rounded-md border text-sm font-medium transition-colors disabled:cursor-not-allowed disabled:opacity-60 '
+                + 'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-indigo/50 '
                 + baseBand
                 + ringClass
               }
@@ -1110,6 +1128,7 @@ function OpinionScalePreviewInput({
               aria-pressed={filled}
               className={
                 'inline-flex h-11 w-11 items-center justify-center rounded-md border border-border bg-background transition-colors disabled:cursor-not-allowed disabled:opacity-60 '
+                + 'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-indigo/50 '
                 + (filled ? 'border-primary' : 'hover:border-primary')
               }
             >

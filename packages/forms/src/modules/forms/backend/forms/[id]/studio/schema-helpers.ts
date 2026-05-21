@@ -133,6 +133,15 @@ const FIELD_TYPE_TO_JSON_TYPE: Record<string, string> = {
  * property map per Decision 1 (single field key, value is the JSON object).
  */
 const FIELD_TYPE_NODE_INITIALIZER: Record<string, (node: FieldNode) => FieldNode> = {
+  select_one: (node) => {
+    node['x-om-options'] = []
+    return node
+  },
+  select_many: (node) => {
+    node.items = { type: 'string' }
+    node['x-om-options'] = []
+    return node
+  },
   address: (node) => {
     node.properties = {
       street1: { type: 'string' },
@@ -431,6 +440,36 @@ export function moveField(input: {
     fieldKey,
     ...targetSection.fieldKeys.slice(insertionIndex),
   ]
+  const orderedKeys = collectCanonicalOrder(next)
+  const result = rebuildPropertiesByOrder(next, orderedKeys)
+  validateSchemaExtensions(result)
+  return result
+}
+
+/**
+ * Removes a field node and every structural reference to it. Deleting only
+ * `properties[fieldKey]` leaves dangling `x-om-sections[*].fieldKeys`, which
+ * makes autosave fail validation and causes the field to reappear on reload.
+ */
+export function deleteField(input: {
+  schema: FormSchema
+  fieldKey: string
+}): FormSchema {
+  const { schema, fieldKey } = input
+  if (!schema.properties[fieldKey]) {
+    throw new SchemaHelperError(
+      `Field "${fieldKey}" not found.`,
+      'unknown_field',
+      [fieldKey],
+    )
+  }
+  const next = deepClone(schema)
+  delete next.properties[fieldKey]
+  next.required = (next.required ?? []).filter((entry) => entry !== fieldKey)
+  const sections = (next[OM_ROOT_KEYWORDS.sections] ?? []) as SectionNode[]
+  for (const section of sections) {
+    section.fieldKeys = section.fieldKeys.filter((entry) => entry !== fieldKey)
+  }
   const orderedKeys = collectCanonicalOrder(next)
   const result = rebuildPropertiesByOrder(next, orderedKeys)
   validateSchemaExtensions(result)
@@ -1818,6 +1857,99 @@ export function setShowProgress(input: {
     ;(next as Record<string, unknown>)[OM_ROOT_KEYWORDS.showProgress] = true
   }
   validateSchemaExtensions(next)
+  return next
+}
+
+function dedupePreservingOrder(values: ReadonlyArray<string>): string[] {
+  const seen = new Set<string>()
+  const ordered: string[] = []
+  for (const value of values) {
+    if (seen.has(value)) continue
+    seen.add(value)
+    ordered.push(value)
+  }
+  return ordered
+}
+
+/**
+ * Declares a role in `x-om-roles`. `admin` is always implicitly present.
+ * No-op (returns an equivalent clone) if the role is already declared.
+ */
+export function addRoleToSchema(schema: FormSchema, role: string): FormSchema {
+  const next = deepClone(schema)
+  const roles = dedupePreservingOrder([
+    'admin',
+    ...((next[OM_ROOT_KEYWORDS.roles] ?? []) as string[]),
+    role,
+  ])
+  next[OM_ROOT_KEYWORDS.roles] = roles
+  return next
+}
+
+/**
+ * Renames a declared role everywhere it is referenced: `x-om-roles`,
+ * `x-om-default-actor-role`, and every field's `x-om-editable-by` /
+ * `x-om-visible-to`. `admin` is never touched. Occurrences are deduped while
+ * preserving order.
+ */
+export function renameRoleInSchema(
+  schema: FormSchema,
+  oldRole: string,
+  newRole: string,
+): FormSchema {
+  const next = deepClone(schema)
+  if (oldRole === 'admin' || newRole === 'admin' || oldRole === newRole) return next
+  const roles = dedupePreservingOrder(
+    ((next[OM_ROOT_KEYWORDS.roles] ?? []) as string[]).map((entry) =>
+      entry === oldRole ? newRole : entry,
+    ),
+  )
+  next[OM_ROOT_KEYWORDS.roles] = roles
+  if (next[OM_ROOT_KEYWORDS.defaultActorRole] === oldRole) {
+    next[OM_ROOT_KEYWORDS.defaultActorRole] = newRole
+  }
+  for (const field of Object.values(next.properties)) {
+    for (const keyword of [OM_FIELD_KEYWORDS.editableBy, OM_FIELD_KEYWORDS.visibleTo]) {
+      const list = field[keyword]
+      if (!Array.isArray(list)) continue
+      field[keyword] = dedupePreservingOrder(
+        (list as string[]).map((entry) => (entry === oldRole ? newRole : entry)),
+      )
+    }
+  }
+  return next
+}
+
+/**
+ * Removes a declared role from `x-om-roles` and every field reference.
+ * `admin` is never removable. If the role was the default actor role, that
+ * resets to `admin`. A field whose `x-om-editable-by` would become empty is
+ * reset to `['admin']` (a field must always be editable by someone).
+ * `x-om-visible-to` may end up empty (its empty semantics already mean
+ * "editable ∪ admin").
+ */
+export function removeRoleFromSchema(schema: FormSchema, role: string): FormSchema {
+  const next = deepClone(schema)
+  if (role === 'admin') return next
+  next[OM_ROOT_KEYWORDS.roles] = (
+    (next[OM_ROOT_KEYWORDS.roles] ?? []) as string[]
+  ).filter((entry) => entry !== role)
+  if (next[OM_ROOT_KEYWORDS.defaultActorRole] === role) {
+    next[OM_ROOT_KEYWORDS.defaultActorRole] = 'admin'
+  }
+  for (const field of Object.values(next.properties)) {
+    const editableBy = field[OM_FIELD_KEYWORDS.editableBy]
+    if (Array.isArray(editableBy)) {
+      const filtered = (editableBy as string[]).filter((entry) => entry !== role)
+      field[OM_FIELD_KEYWORDS.editableBy] = filtered.length > 0 ? filtered : ['admin']
+    }
+    const visibleTo = field[OM_FIELD_KEYWORDS.visibleTo]
+    if (Array.isArray(visibleTo)) {
+      field[OM_FIELD_KEYWORDS.visibleTo] = (visibleTo as string[]).filter(
+        (entry) => entry !== role,
+      )
+    }
+  }
   return next
 }
 

@@ -1,5 +1,7 @@
 import {
   AlignLeft,
+  ArrowDown,
+  ArrowUp,
   AtSign,
   Calendar,
   CalendarClock,
@@ -19,6 +21,7 @@ import {
   Mail,
   MapPin,
   Phone,
+  Plus,
   Redo2,
   Rows,
   Sigma,
@@ -76,4 +79,4 @@ export function resolveLucideIcon(name: string | undefined): LucideIcon {
   return ICON_TABLE[name] ?? Square
 }
 
-export { AtSign, Flag, GripVertical, Sigma, Trash2, Undo2, Redo2 }
+export { ArrowDown, ArrowUp, AtSign, Flag, GripVertical, Plus, Sigma, Trash2, Undo2, Redo2 }

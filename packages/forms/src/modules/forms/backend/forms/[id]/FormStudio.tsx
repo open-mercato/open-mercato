@@ -54,8 +54,11 @@ import { SECTION_DRAGGABLE_PREFIX } from './studio/canvas/SectionContainer'
 import {
   addFieldFromPalette,
   addLayoutFromPalette,
+  addRoleToSchema,
   adoptUngroupedAsSection,
   deleteField,
+  removeRoleFromSchema,
+  renameRoleInSchema,
   deleteSection,
   findSectionOwning,
   indexOfFieldInSection,
@@ -151,6 +154,13 @@ type FieldOption = {
 }
 
 const DEFAULT_SECTION_KEY = 'default_section'
+
+/** Mirrors `roleIdentifierSchema` (validators.ts): `^[a-z][a-z0-9_-]*$`, 2-64 chars. */
+const ROLE_IDENTIFIER_PATTERN = /^[a-z][a-z0-9_-]*$/
+
+function isValidRoleIdentifier(value: string): boolean {
+  return value.length >= 2 && value.length <= 64 && ROLE_IDENTIFIER_PATTERN.test(value)
+}
 
 const DEFAULT_SCHEMA: FormSchema = {
   type: 'object',
@@ -801,6 +811,22 @@ export function FormStudio({ formId }: { formId: string }) {
     })
   }, [updateSchema])
 
+  const handleAddRole = React.useCallback((role: string) => {
+    if (!isValidRoleIdentifier(role) || role === 'admin') return
+    updateSchema((current) => addRoleToSchema(current, role))
+  }, [updateSchema])
+
+  const handleRenameRole = React.useCallback((oldRole: string, newRole: string) => {
+    if (oldRole === 'admin' || newRole === 'admin') return
+    if (!isValidRoleIdentifier(newRole)) return
+    updateSchema((current) => renameRoleInSchema(current, oldRole, newRole))
+  }, [updateSchema])
+
+  const handleRemoveRole = React.useCallback((role: string) => {
+    if (role === 'admin') return
+    updateSchema((current) => removeRoleFromSchema(current, role))
+  }, [updateSchema])
+
   const sensors = useSensors(
     useSensor(PointerSensor, { activationConstraint: { distance: 6 } }),
     useSensor(KeyboardSensor, { coordinateGetter: gridKeyboardCoordinates }),
@@ -1344,6 +1370,9 @@ export function FormStudio({ formId }: { formId: string }) {
     schema,
     onNameChange: handleNameChange,
     onDescriptionChange: handleDescriptionChange,
+    onAddRole: handleAddRole,
+    onRenameRole: handleRenameRole,
+    onRemoveRole: handleRemoveRole,
     onDefaultActorRoleChange: handleDefaultActorRoleChange,
     onDensityChange: handleDensityChange,
     onLabelPositionChange: handleLabelPositionChange,
