@@ -14,7 +14,7 @@ import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import { getCustomerAuthFromRequest } from '@open-mercato/core/modules/customer_accounts/lib/customerAuth'
 import { SubmissionService } from '../../../../services/submission-service'
 import { submissionSubmitInputSchema } from '../../../../data/validators'
-import { mapSubmissionError, readJsonBody, serializeSubmission } from '../../../runtime-helpers'
+import { buildSubmitMetadata, mapSubmissionError, readJsonBody, serializeSubmission } from '../../../runtime-helpers'
 
 export const metadata = {
   POST: { requireAuth: false },
@@ -55,7 +55,7 @@ export async function POST(
       tenantId: auth.tenantId,
       baseRevisionId: parsed.data.base_revision_id,
       submittedBy: auth.sub,
-      submitMetadata: parsed.data.submit_metadata ?? null,
+      submitMetadata: buildSubmitMetadata(req, parsed.data.submit_metadata),
     })
     return NextResponse.json({ submission: serializeSubmission(submission) })
   } catch (error) {

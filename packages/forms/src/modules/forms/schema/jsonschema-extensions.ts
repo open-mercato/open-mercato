@@ -42,6 +42,14 @@ export const OM_ROOT_KEYWORDS = {
   variables: 'x-om-variables',
   /** Declared hidden-field context names — populated from URL query params at runtime. Reactive-core spec. */
   hiddenFields: 'x-om-hidden-fields',
+  /**
+   * Answer→target mapping (W8 / INT-5). Maps a form field key to a
+   * consumer-side logical target path, e.g. `{ "allergies": "patient.allergies" }`.
+   * Config-only — never emitted in events (DP-8: events stay id-only). A
+   * consumer reads this from the version read API and applies the mapping
+   * against answers it fetches from the authed read/export API. Additive.
+   */
+  answerMappings: 'x-om-answer-mappings',
 } as const
 
 // ============================================================================
@@ -99,6 +107,27 @@ export const OM_FIELD_KEYWORDS = {
   matrixRows: 'x-om-matrix-rows',
   /** Column descriptors for a `matrix` field: `[{ value, label }]`. Tier-2 Phase F — additive. */
   matrixColumns: 'x-om-matrix-columns',
+  /** Accepted MIME types for a `file` field: `string[]` (empty/absent ⇒ any). W4 — additive. */
+  accept: 'x-om-accept',
+  /** Per-field maximum upload size in bytes for a `file` field. W4 — additive. */
+  maxSizeBytes: 'x-om-max-size-bytes',
+  /** Allow multiple files on a `file` field (default `false`). W4 — additive. */
+  multiple: 'x-om-multiple',
+  /** Consent clause shown above a `signature` field: `{ [locale]: string }`. W2 — additive. */
+  consentClause: 'x-om-consent-clause',
+  /** Allowed capture modes on a `signature` field: `('drawn'|'typed')[]` (default both). W2 — additive. */
+  signatureModes: 'x-om-signature-modes',
+  /** Minimum repeated-entry count for a `group` (repeatable) field. W6 — additive. */
+  minItems: 'x-om-min-items',
+  /** Maximum repeated-entry count for a `group` (repeatable) field. W6 — additive. */
+  maxItems: 'x-om-max-items',
+  /**
+   * Logical attribute key the `PrefillResolver` resolves at submission start
+   * (W8 / FD-1), e.g. `"name"`, `"email"`, `"dob"`. When set, the start route
+   * asks the injected resolver for this attribute and seeds the field's initial
+   * value (role-filtered + AJV-validated). Non-empty string. Additive.
+   */
+  prefill: 'x-om-prefill',
 } as const
 
 export type OmRootKeyword = (typeof OM_ROOT_KEYWORDS)[keyof typeof OM_ROOT_KEYWORDS]
@@ -182,7 +211,11 @@ export type OmRootExtensions = {
   [OM_ROOT_KEYWORDS.jumps]?: OmJumpRule[]
   [OM_ROOT_KEYWORDS.variables]?: OmFormVariable[]
   [OM_ROOT_KEYWORDS.hiddenFields]?: OmHiddenFieldDecl[]
+  [OM_ROOT_KEYWORDS.answerMappings]?: OmAnswerMappings
 }
+
+/** W8 / INT-5 — `{ [fieldKey]: targetPath }`. */
+export type OmAnswerMappings = Record<string, string>
 
 export type OmFieldOption = {
   value: string
@@ -216,7 +249,17 @@ export type OmFieldExtensions = {
   [OM_FIELD_KEYWORDS.rankingExhaustive]?: boolean
   [OM_FIELD_KEYWORDS.matrixRows]?: OmMatrixRow[]
   [OM_FIELD_KEYWORDS.matrixColumns]?: OmMatrixColumn[]
+  [OM_FIELD_KEYWORDS.accept]?: string[]
+  [OM_FIELD_KEYWORDS.maxSizeBytes]?: number
+  [OM_FIELD_KEYWORDS.multiple]?: boolean
+  [OM_FIELD_KEYWORDS.consentClause]?: LocalizedText
+  [OM_FIELD_KEYWORDS.signatureModes]?: OmSignatureMode[]
+  [OM_FIELD_KEYWORDS.minItems]?: number
+  [OM_FIELD_KEYWORDS.maxItems]?: number
+  [OM_FIELD_KEYWORDS.prefill]?: string
 }
+
+export type OmSignatureMode = 'drawn' | 'typed'
 
 export type OmMatrixRow = {
   key: string
@@ -233,6 +276,9 @@ export type OmMatrixColumn = {
 /** R-3 soft caps — matrix grows quadratically; cap the persisted bytes early. */
 export const MATRIX_ROWS_SOFT_CAP = 30
 export const MATRIX_COLUMNS_SOFT_CAP = 10
+
+/** R-3 soft cap — a group's `x-om-max-items` ceiling (repeatable entries). W6. */
+export const GROUP_MAX_ITEMS_SOFT_CAP = 50
 
 export type OmOpinionIcon = 'star' | 'dot' | 'thumb'
 
@@ -460,6 +506,20 @@ export const OM_ROOT_VALIDATORS: Record<OmRootKeyword, (value: unknown) => strin
     }
     return null
   },
+  [OM_ROOT_KEYWORDS.answerMappings]: (value) => {
+    if (!value || typeof value !== 'object' || Array.isArray(value)) {
+      return 'x-om-answer-mappings must be a `{ [fieldKey]: targetPath }` map.'
+    }
+    for (const [fieldKey, targetPath] of Object.entries(value as Record<string, unknown>)) {
+      if (fieldKey.length === 0) {
+        return 'x-om-answer-mappings field keys must be non-empty strings.'
+      }
+      if (typeof targetPath !== 'string' || targetPath.length === 0) {
+        return `x-om-answer-mappings["${fieldKey}"] must be a non-empty target-path string.`
+      }
+    }
+    return null
+  },
 }
 
 export const OM_FIELD_VALIDATORS: Record<OmFieldKeyword, (value: unknown) => string | null> = {
@@ -614,6 +674,53 @@ export const OM_FIELD_VALIDATORS: Record<OmFieldKeyword, (value: unknown) => str
     }
     return null
   },
+  [OM_FIELD_KEYWORDS.accept]: (value) => {
+    if (!Array.isArray(value)) return 'x-om-accept must be an array of MIME type strings.'
+    for (const entry of value) {
+      if (typeof entry !== 'string' || entry.length === 0) {
+        return 'Each x-om-accept entry must be a non-empty MIME type string.'
+      }
+    }
+    return null
+  },
+  [OM_FIELD_KEYWORDS.maxSizeBytes]: (value) =>
+    typeof value === 'number' && Number.isInteger(value) && value > 0
+      ? null
+      : 'x-om-max-size-bytes must be a positive integer.',
+  [OM_FIELD_KEYWORDS.multiple]: (value) =>
+    typeof value === 'boolean' ? null : 'x-om-multiple must be a boolean.',
+  [OM_FIELD_KEYWORDS.consentClause]: (value) =>
+    localizedTextValid(value)
+      ? null
+      : 'x-om-consent-clause must be a `{ [locale]: string }` map.',
+  [OM_FIELD_KEYWORDS.signatureModes]: (value) => {
+    if (!Array.isArray(value) || value.length === 0) {
+      return 'x-om-signature-modes must be a non-empty array of "drawn" / "typed".'
+    }
+    const seen = new Set<string>()
+    for (const entry of value) {
+      if (entry !== 'drawn' && entry !== 'typed') {
+        return 'Each x-om-signature-modes entry must be "drawn" or "typed".'
+      }
+      if (seen.has(entry)) {
+        return `Duplicate x-om-signature-modes entry "${entry}".`
+      }
+      seen.add(entry)
+    }
+    return null
+  },
+  [OM_FIELD_KEYWORDS.minItems]: (value) =>
+    typeof value === 'number' && Number.isInteger(value) && value >= 0
+      ? null
+      : 'x-om-min-items must be a non-negative integer.',
+  [OM_FIELD_KEYWORDS.maxItems]: (value) =>
+    typeof value === 'number' && Number.isInteger(value) && value >= 1
+      ? null
+      : 'x-om-max-items must be a positive integer.',
+  [OM_FIELD_KEYWORDS.prefill]: (value) =>
+    typeof value === 'string' && value.length > 0
+      ? null
+      : 'x-om-prefill must be a non-empty logical attribute key string.',
 }
 
 const MATRIX_ROW_KEY_PATTERN = /^[a-z][a-z0-9_]*$/
@@ -720,6 +827,35 @@ export function validateOmCrossKeyword(schema: Record<string, unknown>): string 
           return `Matrix has too many columns (max ${MATRIX_COLUMNS_SOFT_CAP}).`
         }
       }
+      const fileKeywords = [
+        OM_FIELD_KEYWORDS.accept,
+        OM_FIELD_KEYWORDS.maxSizeBytes,
+        OM_FIELD_KEYWORDS.multiple,
+      ]
+      for (const fileKeyword of fileKeywords) {
+        if (node[fileKeyword] !== undefined && node[OM_FIELD_KEYWORDS.type] !== 'file') {
+          return `Field "${fieldKey}" declares ${fileKeyword} but its x-om-type is not "file".`
+        }
+      }
+      const signatureKeywords = [
+        OM_FIELD_KEYWORDS.consentClause,
+        OM_FIELD_KEYWORDS.signatureModes,
+      ]
+      for (const signatureKeyword of signatureKeywords) {
+        if (node[signatureKeyword] !== undefined && node[OM_FIELD_KEYWORDS.type] !== 'signature') {
+          return `Field "${fieldKey}" declares ${signatureKeyword} but its x-om-type is not "signature".`
+        }
+      }
+      const groupKeywords = [OM_FIELD_KEYWORDS.minItems, OM_FIELD_KEYWORDS.maxItems]
+      for (const groupKeyword of groupKeywords) {
+        if (node[groupKeyword] !== undefined && node[OM_FIELD_KEYWORDS.type] !== 'group') {
+          return `Field "${fieldKey}" declares ${groupKeyword} but its x-om-type is not "group".`
+        }
+      }
+      if (node[OM_FIELD_KEYWORDS.type] === 'group') {
+        const groupViolation = validateGroupNode(fieldKey, node)
+        if (groupViolation) return groupViolation
+      }
     }
   }
   for (const section of sections) {
@@ -755,6 +891,16 @@ export function validateOmCrossKeyword(schema: Record<string, unknown>): string 
     }
   }
 
+  // Validate answer mappings reference real field keys (W8 / INT-5).
+  const answerMappings = schema[OM_ROOT_KEYWORDS.answerMappings]
+  if (answerMappings && typeof answerMappings === 'object' && !Array.isArray(answerMappings)) {
+    for (const fieldKey of Object.keys(answerMappings as Record<string, unknown>)) {
+      if (!propertyKeys.has(fieldKey)) {
+        return `x-om-answer-mappings references missing field "${fieldKey}".`
+      }
+    }
+  }
+
   // Validate variable formulas.
   for (const variable of variableDecls) {
     const formula = (variable as Record<string, unknown>).formula
@@ -777,6 +923,84 @@ function validateJumpTargetReference(
   }
   if (target.type === 'ending' && typeof target.endingKey === 'string' && !endingKeys.has(target.endingKey)) {
     return `Jump goto references missing ending "${target.endingKey}".`
+  }
+  return null
+}
+
+const GROUP_SUB_FIELD_KEY_PATTERN = /^[a-z][a-z0-9_]*$/
+
+/**
+ * Validates a repeatable `group` field node (W6). A group is a JSON-Schema
+ * `type: 'array'` whose `items` is `type: 'object'` with a `properties` map of
+ * sub-fields. Each sub-field uses the same `x-om-type` grammar as a top-level
+ * field. One level of nesting is supported — a sub-field whose `x-om-type` is
+ * `group` is rejected (nested groups are explicitly out of scope).
+ *
+ * Returns the first violation message or `null` when the group is consistent.
+ */
+function validateGroupNode(fieldKey: string, node: Record<string, unknown>): string | null {
+  if (node.type !== 'array') {
+    return `Group field "${fieldKey}" must declare JSON Schema type "array".`
+  }
+  const items = node.items
+  if (!items || typeof items !== 'object' || Array.isArray(items)) {
+    return `Group field "${fieldKey}" must declare an "items" object describing one entry.`
+  }
+  const itemsNode = items as Record<string, unknown>
+  if (itemsNode.type !== 'object') {
+    return `Group field "${fieldKey}" items must declare JSON Schema type "object".`
+  }
+  const properties = itemsNode.properties
+  if (!properties || typeof properties !== 'object' || Array.isArray(properties)) {
+    return `Group field "${fieldKey}" items must declare a "properties" object of sub-fields.`
+  }
+  const subEntries = Object.entries(properties as Record<string, unknown>)
+  if (subEntries.length === 0) {
+    return `Group field "${fieldKey}" must declare at least one sub-field.`
+  }
+  const requiredRaw = itemsNode.required
+  if (requiredRaw !== undefined && (!Array.isArray(requiredRaw) || !requiredRaw.every((entry) => typeof entry === 'string'))) {
+    return `Group field "${fieldKey}" items.required must be an array of sub-field keys.`
+  }
+  const subKeys = new Set<string>()
+  for (const [subKey, rawSubNode] of subEntries) {
+    if (!GROUP_SUB_FIELD_KEY_PATTERN.test(subKey)) {
+      return `Group field "${fieldKey}" sub-field key "${subKey}" must match /^[a-z][a-z0-9_]*$/.`
+    }
+    subKeys.add(subKey)
+    if (!rawSubNode || typeof rawSubNode !== 'object' || Array.isArray(rawSubNode)) {
+      return `Group field "${fieldKey}" sub-field "${subKey}" must be an object.`
+    }
+    const subNode = rawSubNode as Record<string, unknown>
+    const subType = subNode[OM_FIELD_KEYWORDS.type]
+    if (typeof subType !== 'string' || subType.length === 0) {
+      return `Group field "${fieldKey}" sub-field "${subKey}" must declare an x-om-type.`
+    }
+    if (subType === 'group') {
+      return `Group field "${fieldKey}" sub-field "${subKey}" cannot itself be a group — nested groups are not supported.`
+    }
+    for (const keyword of Object.values(OM_FIELD_KEYWORDS)) {
+      if (!(keyword in subNode)) continue
+      const message = OM_FIELD_VALIDATORS[keyword](subNode[keyword])
+      if (message) {
+        return `Group field "${fieldKey}" sub-field "${subKey}" ${keyword}: ${message}`
+      }
+    }
+  }
+  if (Array.isArray(requiredRaw)) {
+    for (const requiredKey of requiredRaw) {
+      if (typeof requiredKey === 'string' && !subKeys.has(requiredKey)) {
+        return `Group field "${fieldKey}" items.required references unknown sub-field "${requiredKey}".`
+      }
+    }
+  }
+  const minItems = node[OM_FIELD_KEYWORDS.minItems]
+  const maxItems = node[OM_FIELD_KEYWORDS.maxItems]
+  if (typeof minItems === 'number' && typeof maxItems === 'number' && minItems > maxItems) {
+    return `Group field "${fieldKey}" x-om-min-items (${minItems}) must be <= x-om-max-items (${maxItems}).`
+  }
+  if (typeof maxItems === 'number' && maxItems > GROUP_MAX_ITEMS_SOFT_CAP) {
+    return `Group field "${fieldKey}" has too many max items (max ${GROUP_MAX_ITEMS_SOFT_CAP}).`
   }
   return null
 }

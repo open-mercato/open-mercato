@@ -6,6 +6,7 @@ import type {
   RunnerActor,
   RunnerErrorCode,
   RunnerFieldDescriptor,
+  RunnerFileAttachmentRef,
   RunnerLoadError,
   RunnerRevision,
   RunnerSaveResult,
@@ -54,6 +55,56 @@ export interface RuntimeClient {
     submissionId: string,
     body: RuntimeSubmitBody,
   ): Promise<{ status: number; result: { submission: RunnerSubmission } | null }>
+  /**
+   * Uploads a file for a `file`-typed field. The client picks the correct
+   * endpoint + auth model (authenticated portal vs anonymous token). Throws a
+   * `RunnerLoadError` on failure.
+   */
+  uploadAttachment(
+    submissionId: string,
+    fieldKey: string,
+    file: File,
+  ): Promise<RunnerFileAttachmentRef>
+  /** Returns a URL the participant can open to download their own upload. */
+  attachmentDownloadUrl(submissionId: string, attachmentId: string): string
+  /**
+   * Triggers a browser download of the submission's signed-PDF snapshot. The
+   * client picks the correct endpoint + auth model (cookie-auth portal vs
+   * anonymous bearer token). Resolves once the download has been initiated;
+   * throws a `RunnerLoadError` when the snapshot cannot be fetched.
+   */
+  downloadPdf(submissionId: string): Promise<void>
+}
+
+/**
+ * Fetches the snapshot bytes (optionally with a bearer token), then triggers a
+ * client-side blob download. Shared by both runtime clients. No-ops outside the
+ * browser (SSR safety).
+ */
+async function triggerPdfDownload(url: string, headers?: Record<string, string>): Promise<void> {
+  if (typeof window === 'undefined') return
+  const response = await fetch(url, { headers, credentials: 'include' })
+  if (!response.ok) {
+    if (response.status === 401) throw makeError('UNAUTHORIZED', 'Your session for this form has expired.')
+    if (response.status === 404) throw makeError('NOT_FOUND', 'The PDF copy is not ready yet.')
+    throw makeError('UNKNOWN', `Could not download the PDF (status ${response.status}).`)
+  }
+  const blob = await response.blob()
+  const objectUrl = window.URL.createObjectURL(blob)
+  const anchor = window.document.createElement('a')
+  anchor.href = objectUrl
+  anchor.download = readFilename(response) ?? 'submission.pdf'
+  window.document.body.appendChild(anchor)
+  anchor.click()
+  anchor.remove()
+  window.URL.revokeObjectURL(objectUrl)
+}
+
+function readFilename(response: Response): string | null {
+  const disposition = response.headers.get('content-disposition')
+  if (!disposition) return null
+  const match = /filename="?([^"]+)"?/i.exec(disposition)
+  return match ? match[1] : null
 }
 
 function makeError(code: RunnerErrorCode, message: string): RunnerLoadError {
@@ -162,7 +213,43 @@ export function createAuthRuntimeClient(args: CreateAuthRuntimeClientArgs): Runt
       )
       return { status: response.status, result: response.ok ? response.result : null }
     },
+
+    async uploadAttachment(submissionId, fieldKey, file) {
+      const formData = buildUploadForm(fieldKey, file)
+      const response = await apiCall<RunnerFileAttachmentRef>(
+        `/api/forms/form-submissions/${encodeURIComponent(submissionId)}/attachments`,
+        { method: 'POST', body: formData },
+      )
+      if (!response.ok || !response.result) {
+        throw uploadError(response.status)
+      }
+      return response.result
+    },
+
+    attachmentDownloadUrl(submissionId, attachmentId) {
+      return `/api/forms/submissions/${encodeURIComponent(submissionId)}/attachments/${encodeURIComponent(attachmentId)}`
+    },
+
+    async downloadPdf(submissionId) {
+      await triggerPdfDownload(
+        `/api/forms/submissions/${encodeURIComponent(submissionId)}/pdf`,
+      )
+    },
   }
+}
+
+function buildUploadForm(fieldKey: string, file: File): FormData {
+  const formData = new FormData()
+  formData.append('field_key', fieldKey)
+  formData.append('file', file)
+  return formData
+}
+
+function uploadError(status: number): RunnerLoadError {
+  if (status === 401) return makeError('UNAUTHORIZED', 'Your session for this form has expired.')
+  if (status === 413) return makeError('VALIDATION', 'The file is too large.')
+  if (status === 422) return makeError('VALIDATION', 'The file type is not allowed.')
+  return makeError('UNKNOWN', `Upload failed (status ${status}).`)
 }
 
 // ============================================================================
@@ -373,6 +460,29 @@ export function createAnonymousRuntimeClient(
         return { status: response.status, result: { submission: response.result.submission } }
       }
       return { status: response.status, result: null }
+    },
+
+    async uploadAttachment(submissionId, fieldKey, file) {
+      const formData = buildUploadForm(fieldKey, file)
+      const response = await apiCall<RunnerFileAttachmentRef>(
+        `/api/forms/public/submissions/${encodeURIComponent(submissionId)}/attachments`,
+        { method: 'POST', headers: authHeaders(accessToken), body: formData },
+      )
+      if (!response.ok || !response.result) {
+        throw uploadError(response.status)
+      }
+      return response.result
+    },
+
+    attachmentDownloadUrl(submissionId, attachmentId) {
+      return `/api/forms/public/submissions/${encodeURIComponent(submissionId)}/attachments/${encodeURIComponent(attachmentId)}`
+    },
+
+    async downloadPdf(submissionId) {
+      await triggerPdfDownload(
+        `/api/forms/public/submissions/${encodeURIComponent(submissionId)}/pdf`,
+        authHeaders(accessToken),
+      )
     },
   }
 }

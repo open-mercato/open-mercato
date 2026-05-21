@@ -3,6 +3,7 @@
 import * as React from 'react'
 import { Check } from 'lucide-react'
 import { Button } from '@open-mercato/ui/primitives/button'
+import { Alert, AlertDescription } from '@open-mercato/ui/primitives/alert'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 import type { RunnerActiveFormResponse, RunnerSubmission } from '../types'
 
@@ -16,6 +17,8 @@ export type CompletionScreenProps = {
   completionTitle?: string | null
   /** Per-distribution custom body; falls back to the default subtitle. */
   completionMessage?: string | null
+  /** Surfaced when a PDF download attempt fails. */
+  pdfError?: string | null
 }
 
 function formatTime(iso: string | null): string {
@@ -33,6 +36,7 @@ export function CompletionScreen({
   onReturnHome,
   completionTitle,
   completionMessage,
+  pdfError,
 }: CompletionScreenProps) {
   const t = useT()
   const submittedAt = submission.submittedAt ?? submission.updatedAt ?? null
@@ -81,6 +85,12 @@ export function CompletionScreen({
             </Button>
           ) : null}
         </div>
+      ) : null}
+
+      {pdfError ? (
+        <Alert variant="destructive" className="text-left">
+          <AlertDescription>{pdfError}</AlertDescription>
+        </Alert>
       ) : null}
     </section>
   )

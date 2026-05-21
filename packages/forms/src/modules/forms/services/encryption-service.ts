@@ -16,14 +16,36 @@
  * Format version is `0x0001` for v1; if/when the format changes, bump and
  * dispatch on the leading two bytes.
  *
- * KMS integration:
- *   The master key is referenced by `FORMS_ENCRYPTION_KMS_KEY_ID` (env). In
- *   production, the wrap/unwrap of the per-tenant DEK SHOULD be delegated to
- *   the operator's KMS (AWS KMS, GCP KMS, HashiCorp Vault, etc.) via a
- *   provider plugin. This phase ships a DEV-ONLY deterministic AES-KW-style
- *   wrap derived from the kms-key-id string — adequate for local development,
- *   tests, and CI but NEVER for production. The production KMS adapter slot
- *   is `kmsAdapter`; default falls back to the dev fallback.
+ * KMS integration & env vars:
+ *   The per-tenant DEK is wrapped under a master key. Three postures exist,
+ *   selected by `resolveKmsAdapter(...)`:
+ *
+ *   1. `EnvMasterKeyKmsAdapter` (production-viable, default when configured) —
+ *      wraps/unwraps with a real 256-bit master key supplied via
+ *      `FORMS_ENCRYPTION_MASTER_KEY` (base64 or hex, must decode to exactly 32
+ *      bytes). This models the standard posture where a secret manager / cloud
+ *      KMS decrypts the master key into the environment at boot.
+ *   2. Operator-supplied cloud KMS adapter (AWS KMS, GCP KMS, HashiCorp Vault,
+ *      …) — injected via DI through the `kmsAdapter` constructor slot or the
+ *      `setKmsAdapterFactory(...)` hook. No cloud SDK ships with this module.
+ *   3. `DevDeterministicKmsAdapter` (DEV ONLY) — derives a deterministic wrap
+ *      key from `FORMS_ENCRYPTION_KMS_KEY_ID`. Adequate for local development,
+ *      tests, and CI but NEVER for production PHI.
+ *
+ *   Production guard: when `NODE_ENV === 'production'` and no real master key /
+ *   adapter is configured, `resolveKmsAdapter(...)` throws
+ *   `INSECURE_KMS_IN_PRODUCTION` rather than protecting PHI with the dev
+ *   adapter (spec `.ai/specs/2026-05-21-...gap-analysis.md` W1 / risk R-1).
+ *
+ *   Env vars:
+ *   - `FORMS_ENCRYPTION_MASTER_KEY` — 32-byte master key, base64 or hex. When
+ *     set and valid, the env master-key adapter is used.
+ *   - `FORMS_ENCRYPTION_KMS_KEY_ID` — dev-only wrap-key seed for the
+ *     deterministic fallback adapter.
+ *
+ *   All adapters emit the same wrapped-DEK envelope (iv | ciphertext | tag), so
+ *   wrapped keys are format-compatible: a DEK wrapped by the dev adapter still
+ *   unwraps with the dev adapter, and likewise for the env adapter.
  */
 
 import { createCipheriv, createDecipheriv, createHash, randomBytes } from 'node:crypto'
@@ -99,6 +121,152 @@ export class DevDeterministicKmsAdapter implements KmsAdapter {
   }
 }
 
+/**
+ * Production-viable KMS adapter — wraps/unwraps the per-tenant DEK with an
+ * externally-supplied 256-bit master key (NOT derived from an id string).
+ *
+ * The master key is read from `FORMS_ENCRYPTION_MASTER_KEY` and may be encoded
+ * as base64 or hex; it MUST decode to exactly 32 bytes. This models the
+ * standard posture where a secret manager / cloud KMS decrypts the master key
+ * into the environment at boot. Wrap uses AES-256-GCM and emits the same
+ * `iv | ciphertext | tag` envelope as the dev adapter, so stored wrapped-DEKs
+ * are format-compatible.
+ */
+export class EnvMasterKeyKmsAdapter implements KmsAdapter {
+  private readonly masterKey: Buffer
+
+  constructor(masterKey: Buffer) {
+    if (masterKey.length !== DEK_LENGTH) {
+      throw new FormsEncryptionError(
+        'MASTER_KEY_INVALID_LENGTH',
+        `Master key must be exactly ${DEK_LENGTH} bytes, received ${masterKey.length}.`,
+      )
+    }
+    this.masterKey = masterKey
+  }
+
+  /**
+   * Builds an adapter from a base64- or hex-encoded master key string.
+   * Throws `FormsEncryptionError('MASTER_KEY_INVALID', ...)` when the value is
+   * missing, undecodable, or does not yield exactly 32 bytes.
+   */
+  static fromEncoded(encoded: string | undefined | null): EnvMasterKeyKmsAdapter {
+    if (!encoded || typeof encoded !== 'string' || encoded.trim().length === 0) {
+      throw new FormsEncryptionError(
+        'MASTER_KEY_INVALID',
+        'FORMS_ENCRYPTION_MASTER_KEY is required and must be a base64- or hex-encoded 32-byte key.',
+      )
+    }
+    const decoded = decodeMasterKey(encoded.trim())
+    if (!decoded) {
+      throw new FormsEncryptionError(
+        'MASTER_KEY_INVALID',
+        'FORMS_ENCRYPTION_MASTER_KEY must be a valid base64 or hex string.',
+      )
+    }
+    if (decoded.length !== DEK_LENGTH) {
+      throw new FormsEncryptionError(
+        'MASTER_KEY_INVALID_LENGTH',
+        `FORMS_ENCRYPTION_MASTER_KEY must decode to exactly ${DEK_LENGTH} bytes, got ${decoded.length}.`,
+      )
+    }
+    return new EnvMasterKeyKmsAdapter(decoded)
+  }
+
+  async wrap(dek: Buffer): Promise<Buffer> {
+    if (dek.length !== DEK_LENGTH) {
+      throw new FormsEncryptionError('DEK_INVALID_LENGTH', 'DEK must be 32 bytes.')
+    }
+    const iv = randomBytes(IV_LENGTH)
+    const cipher = createCipheriv(ALGORITHM, this.masterKey, iv)
+    const ciphertext = Buffer.concat([cipher.update(dek), cipher.final()])
+    const tag = cipher.getAuthTag()
+    return Buffer.concat([iv, ciphertext, tag])
+  }
+
+  async unwrap(wrapped: Buffer): Promise<Buffer> {
+    if (wrapped.length !== IV_LENGTH + DEK_LENGTH + TAG_LENGTH) {
+      throw new FormsEncryptionError('WRAPPED_DEK_INVALID_LENGTH', 'Wrapped DEK has unexpected length.')
+    }
+    const iv = wrapped.subarray(0, IV_LENGTH)
+    const ciphertext = wrapped.subarray(IV_LENGTH, IV_LENGTH + DEK_LENGTH)
+    const tag = wrapped.subarray(IV_LENGTH + DEK_LENGTH)
+    const decipher = createDecipheriv(ALGORITHM, this.masterKey, iv)
+    decipher.setAuthTag(tag)
+    try {
+      return Buffer.concat([decipher.update(ciphertext), decipher.final()])
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Unknown unwrap error'
+      throw new FormsEncryptionError('DEK_UNWRAP_FAILED', `Failed to unwrap DEK: ${message}`)
+    }
+  }
+}
+
+/**
+ * Pluggable cloud-KMS hook.
+ *
+ * Operators integrating AWS KMS, GCP KMS, HashiCorp Vault, or any other key
+ * manager implement the `KmsAdapter` interface (`wrap`/`unwrap`) and register a
+ * factory here at boot — e.g. from the app's DI bootstrap — WITHOUT editing
+ * this module or adding cloud SDK dependencies to it. When a factory is
+ * registered it takes precedence over the env-var resolution below.
+ *
+ * Example (in app bootstrap):
+ *   import { setKmsAdapterFactory } from '@open-mercato/forms/.../encryption-service'
+ *   setKmsAdapterFactory(() => new MyAwsKmsAdapter({ keyId: process.env.AWS_KMS_KEY_ARN }))
+ */
+export type KmsAdapterFactory = (env: NodeJS.ProcessEnv) => KmsAdapter
+
+let registeredKmsAdapterFactory: KmsAdapterFactory | null = null
+
+/** Registers an operator-supplied cloud-KMS adapter factory (or clears it with `null`). */
+export function setKmsAdapterFactory(factory: KmsAdapterFactory | null): void {
+  registeredKmsAdapterFactory = factory
+}
+
+/**
+ * Selects the active KMS adapter and enforces the production safety guard.
+ *
+ * Resolution order:
+ *   1. operator-registered factory (`setKmsAdapterFactory`) — always wins;
+ *   2. `EnvMasterKeyKmsAdapter` when `FORMS_ENCRYPTION_MASTER_KEY` is set;
+ *   3. `DevDeterministicKmsAdapter` (dev fallback).
+ *
+ * Throws `INSECURE_KMS_IN_PRODUCTION` when running in production with only the
+ * dev fallback available — refusing to protect PHI with the dev adapter.
+ */
+export function resolveKmsAdapter(env: NodeJS.ProcessEnv = process.env): KmsAdapter {
+  if (registeredKmsAdapterFactory) {
+    return registeredKmsAdapterFactory(env)
+  }
+  const masterKey = env.FORMS_ENCRYPTION_MASTER_KEY
+  if (masterKey && masterKey.trim().length > 0) {
+    return EnvMasterKeyKmsAdapter.fromEncoded(masterKey)
+  }
+  if (env.NODE_ENV === 'production') {
+    throw new FormsEncryptionError(
+      'INSECURE_KMS_IN_PRODUCTION',
+      'Refusing to encrypt forms PHI with the DEV-ONLY deterministic KMS adapter in production. '
+        + 'Set FORMS_ENCRYPTION_MASTER_KEY to a 32-byte base64/hex master key, or inject a real '
+        + 'cloud-KMS adapter via setKmsAdapterFactory(...) / the kmsAdapter DI slot.',
+    )
+  }
+  const kmsKeyId = env.FORMS_ENCRYPTION_KMS_KEY_ID ?? ''
+  return new DevDeterministicKmsAdapter(kmsKeyId || 'forms-dev-fallback-key-id')
+}
+
+function decodeMasterKey(encoded: string): Buffer | null {
+  if (/^[0-9a-fA-F]+$/.test(encoded) && encoded.length % 2 === 0) {
+    const hex = Buffer.from(encoded, 'hex')
+    if (hex.length === encoded.length / 2) return hex
+  }
+  if (/^[A-Za-z0-9+/=_-]+$/.test(encoded)) {
+    const base64 = Buffer.from(encoded, 'base64')
+    if (base64.length > 0) return base64
+  }
+  return null
+}
+
 export type EncryptionServiceOptions = {
   emFactory: () => EntityManager
   kmsAdapter?: KmsAdapter
@@ -134,12 +302,10 @@ export class FormsEncryptionService implements EncryptionService {
     this.cacheMax = options.cacheMax ?? DEFAULT_DEK_CACHE_MAX
     this.cacheTtlMs = options.cacheTtlMs ?? DEFAULT_DEK_TTL_MS
     this.now = options.now ?? (() => Date.now())
-    if (options.kmsAdapter) {
-      this.kms = options.kmsAdapter
-    } else {
-      const kmsKeyId = process.env.FORMS_ENCRYPTION_KMS_KEY_ID ?? ''
-      this.kms = new DevDeterministicKmsAdapter(kmsKeyId || 'forms-dev-fallback-key-id')
-    }
+    // An explicitly injected adapter always wins over env resolution; otherwise
+    // resolveKmsAdapter selects the env master-key adapter or dev fallback and
+    // enforces the production guard (refuses the dev adapter in production).
+    this.kms = options.kmsAdapter ?? resolveKmsAdapter(process.env)
   }
 
   async encrypt(organizationId: string, plaintext: Buffer): Promise<Buffer> {

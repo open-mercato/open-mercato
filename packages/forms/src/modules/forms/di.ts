@@ -6,6 +6,7 @@ import { FormVersionCompiler } from './services/form-version-compiler'
 import { FormVersionDiffer } from './services/form-version-differ'
 import {
   FormsEncryptionService,
+  resolveKmsAdapter,
   type EncryptionService,
 } from './services/encryption-service'
 import { RolePolicyService } from './services/role-policy-service'
@@ -17,6 +18,11 @@ import {
   type AccessAuditEvent,
 } from './services/access-audit-logger'
 import { AnonymizeService } from './services/anonymize-service'
+import { ExportService } from './services/export-service'
+import { AttachmentService } from './services/attachment-service'
+import { PdfSnapshotService } from './services/pdf-snapshot-service'
+import { NoopUploadScanner, type UploadScanner } from './services/upload-scanner'
+import { DefaultPrefillResolver, type PrefillResolver } from './services/prefill-resolver'
 import { emitFormsEvent } from './events'
 import { formsEventPayloadSchemas } from './events-payloads'
 
@@ -54,8 +60,13 @@ export function register(container: AppContainer): void {
     formsRolePolicyService: asValue(rolePolicyService),
     formsAccessAuditLogger: asValue(accessAuditLogger),
     formsEncryptionService: asFunction(({ em }: { em: EntityManager }): EncryptionService => {
+      // resolveKmsAdapter picks the production env master-key adapter (or an
+      // operator-injected cloud-KMS adapter) and refuses the DEV-ONLY fallback
+      // when NODE_ENV=production (spec W1 / risk R-1). An operator may also
+      // inject a custom adapter via setKmsAdapterFactory(...).
       return new FormsEncryptionService({
         emFactory: () => em,
+        kmsAdapter: resolveKmsAdapter(process.env),
       })
     }).proxy().singleton(),
     formsSubmissionService: asFunction(({ em, formsEncryptionService }: { em: EntityManager; formsEncryptionService: EncryptionService }): SubmissionService => {
@@ -105,5 +116,63 @@ export function register(container: AppContainer): void {
         encryption: formsEncryptionService,
       })
     }).proxy().singleton(),
+    // W5 (DP-5) — builds the structured GDPR data-subject export document.
+    // Lazy-resolves `em` per request so EM request scoping is honoured.
+    formsExportService: asFunction(({ em, formsEncryptionService }: { em: EntityManager; formsEncryptionService: EncryptionService }): ExportService => {
+      return new ExportService({
+        emFactory: () => em,
+        compiler: formVersionCompiler,
+        encryption: formsEncryptionService,
+      })
+    }).proxy().singleton(),
+    // W4 — no-op virus/malware scanner. Operators inject a real scanner by
+    // overriding `formsUploadScanner` with their own `UploadScanner`.
+    formsUploadScanner: asValue<UploadScanner>(new NoopUploadScanner()),
+    // W8 / FD-1 — default patient prefill resolver. Maps `name`/`email` from
+    // the customer auth context; anonymous principals resolve to `{}`. Stateless
+    // and pure, so `asValue` is correct. Operators inject a richer resolver
+    // (e.g. dental-os providing `dob`) by overriding `formsPrefillResolver`.
+    formsPrefillResolver: asValue<PrefillResolver>(new DefaultPrefillResolver()),
+    // W4 — encrypts + persists participant uploads as `forms_form_attachment`
+    // rows. Lazy-resolves `em` per request so EM request scoping is honoured.
+    formsAttachmentService: asFunction(
+      ({
+        em,
+        formsEncryptionService,
+        formsUploadScanner,
+      }: {
+        em: EntityManager
+        formsEncryptionService: EncryptionService
+        formsUploadScanner: UploadScanner
+      }): AttachmentService => {
+        return new AttachmentService({
+          emFactory: () => em,
+          encryptionService: formsEncryptionService,
+          scanner: formsUploadScanner,
+        })
+      },
+    ).proxy().singleton(),
+    // W3 — renders + stores the immutable signed PDF snapshot as an encrypted
+    // `forms_form_attachment` (`kind = 'snapshot'`). Generated once (on-submit
+    // subscriber or lazily on first download) and idempotent thereafter.
+    formsPdfSnapshotService: asFunction(
+      ({
+        em,
+        formsEncryptionService,
+      }: {
+        em: EntityManager
+        formsEncryptionService: EncryptionService
+      }): PdfSnapshotService => {
+        return new PdfSnapshotService({
+          emFactory: () => em,
+          encryptionService: formsEncryptionService,
+          emitEvent: async (eventId, payload) => {
+            const schema = formsEventPayloadSchemas[eventId as keyof typeof formsEventPayloadSchemas]
+            const validated = schema ? schema.parse(payload) : payload
+            await emitFormsEvent(eventId, validated as never)
+          },
+        })
+      },
+    ).proxy().singleton(),
   })
 }

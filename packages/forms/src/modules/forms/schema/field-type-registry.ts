@@ -1,6 +1,9 @@
 import { createHash } from 'node:crypto'
 import type { ComponentType } from 'react'
 import { FIELD_TYPE_DEFAULT_PATTERNS } from './field-type-patterns'
+import { FILE_TYPE } from './file-field'
+import { SIGNATURE_TYPE } from './signature-field'
+import { GROUP_TYPE } from './group-field'
 
 /**
  * FieldTypeSpec — every field type the studio offers must register one entry.
@@ -713,6 +716,19 @@ export const V1_FIELD_TYPES = {
   // Tier-2 additive entry — Phase F (matrix / Likert grid).
   // Decision 5 — per-row `multiple: true` opt-in produces a string[] value.
   matrix: MATRIX_TYPE,
+  // W4 additive entry — file / photo upload (FA-4 file + SEC-4). Value is an
+  // attachment-reference array; bytes are stored encrypted in
+  // `forms_form_attachment` (`kind = 'user_upload'`).
+  file: FILE_TYPE,
+  // W2 additive entry — e-signature with tamper-evident audit data (CN-1,
+  // FD-4). Value travels in the encrypted revision answers (append-only +
+  // per-tenant encryption); no new storage path.
+  signature: SIGNATURE_TYPE,
+  // W6 additive entry — repeatable group (FA-8). Value is an array of objects
+  // each matching the sub-field shape declared under `items.properties`. The
+  // group is treated atomically by the role-policy service (sub-fields inherit
+  // the group's editable-by / visible-to). Nested groups are out of scope.
+  group: GROUP_TYPE,
 } as const
 
 export type V1FieldTypeKey = keyof typeof V1_FIELD_TYPES

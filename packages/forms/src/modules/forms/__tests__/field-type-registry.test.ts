@@ -27,6 +27,9 @@ describe('FieldTypeRegistry — v1 core types', () => {
     'opinion_scale',
     'ranking',
     'matrix',
+    'file',
+    'signature',
+    'group',
   ] as const
 
   it('preloads exactly the 12 v1 types plus Tier-2 additions', () => {

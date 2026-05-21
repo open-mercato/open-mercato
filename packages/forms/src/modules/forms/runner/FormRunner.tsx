@@ -5,8 +5,8 @@ import { Circle, Globe, Mail, Phone, Star, ThumbsUp, type LucideIcon } from 'luc
 import { Button } from '@open-mercato/ui/primitives/button'
 import { Input } from '@open-mercato/ui/primitives/input'
 import { Textarea } from '@open-mercato/ui/primitives/textarea'
-import { Checkbox } from '@open-mercato/ui/primitives/checkbox'
-import { Switch } from '@open-mercato/ui/primitives/switch'
+import { CheckboxField } from '@open-mercato/ui/primitives/checkbox-field'
+import { SwitchField } from '@open-mercato/ui/primitives/switch-field'
 import { Alert } from '@open-mercato/ui/primitives/alert'
 import { Tag } from '@open-mercato/ui/primitives/tag'
 import {
@@ -16,6 +16,8 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@open-mercato/ui/primitives/select'
+import { DatePicker } from '@open-mercato/ui/backend/inputs/DatePicker'
+import { DateTimePicker } from '@open-mercato/ui/backend/inputs/DateTimePicker'
 import { apiCall } from '@open-mercato/ui/backend/utils/apiCall'
 import { useT, type TranslateFn } from '@open-mercato/shared/lib/i18n/context'
 import { evaluateFormLogic, type LogicState, type JumpTarget } from '../services/form-logic-evaluator'
@@ -251,6 +253,43 @@ function readSections(schema: Record<string, unknown>): RunnerSection[] {
   return result
 }
 
+const padRunner2 = (input: number): string => String(input).padStart(2, '0')
+
+// Date pickers exchange `Date`; submissions persist the native
+// `YYYY-MM-DD` / `YYYY-MM-DDTHH:mm` strings, so adapt without altering bytes.
+function parseRunnerDateOnly(value: string): Date | null {
+  const match = /^(\d{4})-(\d{2})-(\d{2})/.exec(value)
+  if (!match) return null
+  const date = new Date(Number(match[1]), Number(match[2]) - 1, Number(match[3]))
+  return Number.isNaN(date.getTime()) ? null : date
+}
+
+function formatRunnerDateOnly(date: Date | null): string | undefined {
+  if (!date) return undefined
+  return `${date.getFullYear()}-${padRunner2(date.getMonth() + 1)}-${padRunner2(date.getDate())}`
+}
+
+function parseRunnerDateTimeLocal(value: string): Date | null {
+  const match = /^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2})/.exec(value)
+  if (!match) return null
+  const date = new Date(
+    Number(match[1]),
+    Number(match[2]) - 1,
+    Number(match[3]),
+    Number(match[4]),
+    Number(match[5]),
+  )
+  return Number.isNaN(date.getTime()) ? null : date
+}
+
+function formatRunnerDateTimeLocal(date: Date | null): string | undefined {
+  if (!date) return undefined
+  return (
+    `${date.getFullYear()}-${padRunner2(date.getMonth() + 1)}-${padRunner2(date.getDate())}` +
+    `T${padRunner2(date.getHours())}:${padRunner2(date.getMinutes())}`
+  )
+}
+
 type FieldRunnerRowProps = {
   fieldKey: string
   node: Record<string, unknown>
@@ -272,6 +311,31 @@ function FieldRunnerRow({ fieldKey, node, value, onChange, state, locale, requir
         {label ? <p className="text-sm font-medium text-foreground">{label}</p> : null}
         {help ? <p className="mt-1 whitespace-pre-line text-xs text-muted-foreground">{help}</p> : null}
       </div>
+    )
+  }
+  const requiredMark = required ? (
+    <span className="ml-0.5 text-status-error-text" aria-hidden="true">*</span>
+  ) : null
+  if (omType === 'boolean') {
+    return (
+      <CheckboxField
+        id={`runner-${fieldKey}`}
+        checked={value === true}
+        onCheckedChange={(next) => onChange(next === true)}
+        label={<>{label}{requiredMark}</>}
+        description={help || undefined}
+      />
+    )
+  }
+  if (omType === 'yes_no') {
+    return (
+      <SwitchField
+        id={`runner-${fieldKey}`}
+        checked={value === true}
+        onCheckedChange={(next) => onChange(Boolean(next))}
+        label={<>{label}{requiredMark}</>}
+        description={help || undefined}
+      />
     )
   }
   const stringValue = typeof value === 'string' ? value : value === undefined || value === null ? '' : String(value)
@@ -307,25 +371,20 @@ function FieldRunnerRow({ fieldKey, node, value, onChange, state, locale, requir
                 onChange={(event) => onChange(event.target.value === '' ? '' : Math.trunc(Number(event.target.value)))}
               />
             )
-          case 'boolean':
-            return (
-              <label className="flex items-center gap-2 text-sm">
-                <Checkbox checked={value === true} onCheckedChange={(next) => onChange(Boolean(next))} aria-label={label} />
-                <span>{label}</span>
-              </label>
-            )
-          case 'yes_no':
-            return (
-              <div className="flex items-center gap-2 text-sm">
-                <span className="text-muted-foreground">No</span>
-                <Switch checked={value === true} onCheckedChange={(next) => onChange(Boolean(next))} aria-label={label} />
-                <span className="text-muted-foreground">Yes</span>
-              </div>
-            )
           case 'date':
-            return <Input id={`runner-${fieldKey}`} type="date" value={stringValue} onChange={(event) => onChange(event.target.value)} />
+            return (
+              <DatePicker
+                value={parseRunnerDateOnly(stringValue)}
+                onChange={(date) => onChange(formatRunnerDateOnly(date) ?? '')}
+              />
+            )
           case 'datetime':
-            return <Input id={`runner-${fieldKey}`} type="datetime-local" value={stringValue} onChange={(event) => onChange(event.target.value)} />
+            return (
+              <DateTimePicker
+                value={parseRunnerDateTimeLocal(stringValue)}
+                onChange={(date) => onChange(formatRunnerDateTimeLocal(date) ?? '')}
+              />
+            )
           case 'select_one':
             return (
               <Select value={typeof value === 'string' ? value : undefined} onValueChange={(next) => onChange(next)}>
@@ -521,26 +580,20 @@ function FormatRunnerInput({
   }, [value, rules, format, node, t])
   return (
     <div className="space-y-1">
-      <div className="relative">
-        <Icon
-          aria-hidden="true"
-          className="pointer-events-none absolute left-2 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground"
-        />
-        <Input
-          id={id}
-          type={inputType}
-          inputMode={inputMode}
-          autoComplete={autoComplete}
-          autoCapitalize={autoCapitalize}
-          aria-label={label}
-          aria-invalid={error ? true : undefined}
-          className="pl-8"
-          value={value}
-          onChange={(event) => onChange(event.target.value)}
-          onFocus={() => setError(null)}
-          onBlur={handleBlur}
-        />
-      </div>
+      <Input
+        id={id}
+        type={inputType}
+        inputMode={inputMode}
+        autoComplete={autoComplete}
+        autoCapitalize={autoCapitalize}
+        aria-label={label}
+        aria-invalid={error ? true : undefined}
+        leftIcon={<Icon aria-hidden="true" />}
+        value={value}
+        onChange={(event) => onChange(event.target.value)}
+        onFocus={() => setError(null)}
+        onBlur={handleBlur}
+      />
       {error ? (
         <Alert variant="destructive" className="px-3 py-2 text-xs">
           {error}
@@ -607,6 +660,7 @@ function NpsRunnerInput({ node, value, onChange, locale }: NpsRunnerInputProps) 
               aria-pressed={selected}
               className={
                 'h-11 w-11 rounded-md border text-sm font-medium transition-colors '
+                + 'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-indigo/50 '
                 + npsRunnerBandClass(entry)
                 + ringClass
               }
@@ -665,6 +719,7 @@ function OpinionScaleRunnerInput({ node, value, onChange }: OpinionScaleRunnerIn
               aria-pressed={filled}
               className={
                 'inline-flex h-11 w-11 items-center justify-center rounded-md border border-border bg-background transition-colors '
+                + 'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-indigo/50 '
                 + (filled ? 'border-primary' : 'hover:border-primary')
               }
             >

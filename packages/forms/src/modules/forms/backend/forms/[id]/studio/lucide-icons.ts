@@ -20,6 +20,8 @@ import {
   ListOrdered,
   Mail,
   MapPin,
+  Paperclip,
+  PenTool,
   Phone,
   Plus,
   Redo2,
@@ -33,6 +35,7 @@ import {
   Trash2,
   Type,
   Undo2,
+  X,
   type LucideIcon,
 } from 'lucide-react'
 
@@ -64,6 +67,8 @@ const ICON_TABLE: Record<string, LucideIcon> = {
   'list-ordered': ListOrdered,
   mail: Mail,
   'map-pin': MapPin,
+  paperclip: Paperclip,
+  'pen-tool': PenTool,
   phone: Phone,
   rows: Rows,
   'sliders-horizontal': SlidersHorizontal,
@@ -79,4 +84,4 @@ export function resolveLucideIcon(name: string | undefined): LucideIcon {
   return ICON_TABLE[name] ?? Square
 }
 
-export { ArrowDown, ArrowUp, AtSign, Flag, GripVertical, Plus, Sigma, Trash2, Undo2, Redo2 }
+export { ArrowDown, ArrowUp, AtSign, Flag, Globe, GripVertical, Plus, Sigma, Trash2, Undo2, Redo2, X }

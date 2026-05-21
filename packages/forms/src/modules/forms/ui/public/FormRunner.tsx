@@ -15,6 +15,7 @@ import { SaveIndicator } from './components/SaveIndicator'
 import { SectionStepper } from './components/SectionStepper'
 import { CORE_RENDERER_MAP, registerCoreRenderers } from './renderers'
 import type {
+  RunnerAttachmentUploader,
   RunnerFieldDescriptor,
   RunnerFieldNode,
   RunnerFieldRendererProps,
@@ -88,9 +89,45 @@ export function FormRunner(props: FormRunnerProps) {
     exitReview,
     submit,
     validateSection,
+    client,
   } = runner
 
   const callerRoles = schemaResponse?.callerRoles ?? []
+
+  const [pdfError, setPdfError] = React.useState<string | null>(null)
+  const handleDownloadPdf = React.useCallback(
+    (submissionId: string) => {
+      setPdfError(null)
+      if (props.onDownloadPdf) {
+        props.onDownloadPdf(submissionId)
+        return
+      }
+      void client.downloadPdf(submissionId).catch((error) => {
+        const message =
+          error && typeof error === 'object' && 'message' in error
+            ? String((error as { message: unknown }).message)
+            : t('forms.runner.completion.download_pdf_failed', {
+                fallback: 'We could not download the PDF copy. Please try again.',
+              })
+        setPdfError(message)
+      })
+    },
+    [client, props, t],
+  )
+  // A submitted form always has a snapshot (generated on submit or lazily on
+  // first download), so the download is enabled by default. Callers may force
+  // it off (e.g. while a snapshot is still rendering) via `pdfDownloadEnabled`.
+  const pdfDownloadEnabled = props.pdfDownloadEnabled ?? true
+
+  const uploader = React.useMemo<RunnerAttachmentUploader>(
+    () => ({
+      upload: ({ submissionId, fieldKey, file }) =>
+        client.uploadAttachment(submissionId, fieldKey, file),
+      downloadUrl: (submissionId, attachmentId) =>
+        client.attachmentDownloadUrl(submissionId, attachmentId),
+    }),
+    [client],
+  )
 
   const completedSet = React.useMemo(() => {
     const set = new Set<number>()
@@ -167,13 +204,12 @@ export function FormRunner(props: FormRunnerProps) {
       <CompletionScreen
         submission={submission}
         schemaResponse={schemaResponse}
-        pdfDownloadEnabled={props.pdfDownloadEnabled ?? false}
-        onDownloadPdf={
-          props.onDownloadPdf ? () => props.onDownloadPdf?.(submission.id) : undefined
-        }
+        pdfDownloadEnabled={pdfDownloadEnabled}
+        onDownloadPdf={() => handleDownloadPdf(submission.id)}
         onReturnHome={props.onReturnHome}
         completionTitle={props.completionTitle}
         completionMessage={props.completionMessage}
+        pdfError={pdfError}
       />
     )
   }
@@ -301,6 +337,8 @@ export function FormRunner(props: FormRunnerProps) {
             locale,
             defaultLocale,
             disabled: !editable,
+            uploader: descriptor.type === 'file' ? uploader : undefined,
+            submissionId: submission.id,
           }
           return <Renderer key={fieldKey} {...rendererProps} />
         })}

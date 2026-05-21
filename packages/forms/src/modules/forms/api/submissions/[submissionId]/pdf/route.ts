@@ -1,21 +1,16 @@
 /**
  * Admin API — GET /api/forms/submissions/:submissionId/pdf
  *
- * Phase 2b — PDF snapshot download. The actual snapshot generation is
- * decoupled from this endpoint:
+ * W3 — PDF snapshot download. Streams the immutable signed-PDF snapshot of a
+ * submitted form, generating it on first request when the on-submit subscriber
+ * has not yet produced it (lazy fallback). Generation is idempotent — once
+ * `pdf_snapshot_attachment_id` is set the stored bytes are returned verbatim
+ * and never re-rendered (submissions are immutable post-submit).
  *
- *   - At submit time (phase 1c -> phase 2b's after-commit hook), a worker
- *     renders the PDF and stores it in `forms_form_attachment` with
- *     `kind = 'snapshot'` and `field_key = '__snapshot__'`. The submission
- *     row's `pdf_snapshot_attachment_id` is set after success.
- *   - This endpoint streams whatever bytes are stored. It NEVER re-renders.
- *     If the snapshot has not been generated yet, returns 404 with a typed
- *     error code so clients can show "PDF generation pending".
- *
- * The PDF generator itself (puppeteer/pdfkit/etc.) is intentionally a
- * pluggable concern — the entity supports both a `file_id` (for
- * files-module-backed deployments) and `payload_inline` (for self-contained
- * deployments). This minimal handler accepts either.
+ * Bytes are encrypted at rest with the per-tenant `EncryptionService` and
+ * decrypted here for streaming. Writes an audit row with
+ * `access_purpose = 'export'`. Strict tenant isolation: org/tenant come from
+ * the authenticated admin session and every query is scoped by them.
  */
 
 import { NextResponse, type NextRequest } from 'next/server'
@@ -23,13 +18,12 @@ import type { OpenApiRouteDoc, OpenApiMethodDoc } from '@open-mercato/shared/lib
 import type { EntityManager } from '@mikro-orm/postgresql'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import { getAuthFromRequest } from '@open-mercato/shared/lib/auth/server'
+import { FormSubmission } from '../../../../data/entities'
+import { type AccessAuditLogger } from '../../../../services/access-audit-logger'
 import {
-  FormAttachment,
-  FormSubmission,
-} from '../../../../data/entities'
-import {
-  type AccessAuditLogger,
-} from '../../../../services/access-audit-logger'
+  PdfSnapshotService,
+  PdfSnapshotServiceError,
+} from '../../../../services/pdf-snapshot-service'
 
 export const metadata = {
   GET: { requireAuth: true, requireFeatures: ['forms.view'] },
@@ -52,31 +46,39 @@ export async function GET(
   const container = await createRequestContainer()
   const em = container.resolve('em') as EntityManager
   const auditor = container.resolve('formsAccessAuditLogger') as AccessAuditLogger
+  const snapshots = container.resolve('formsPdfSnapshotService') as PdfSnapshotService
 
   const submission = await em.findOne(FormSubmission, {
     id: submissionId,
     organizationId: auth.orgId,
+    tenantId: auth.tenantId,
+    deletedAt: null,
   })
   if (!submission) {
     return NextResponse.json({ error: 'forms.errors.submission_not_found' }, { status: 404 })
   }
-  if (!submission.pdfSnapshotAttachmentId) {
+  if (submission.status !== 'submitted') {
     return NextResponse.json(
       {
         error: 'forms.errors.snapshot_pending',
-        message:
-          'PDF snapshot has not been generated yet. The post-submit job has not completed or is not configured.',
+        message: 'A PDF snapshot is only available once the form is submitted.',
       },
       { status: 404 },
     )
   }
 
-  const attachment = await em.findOne(FormAttachment, {
-    id: submission.pdfSnapshotAttachmentId,
-    organizationId: auth.orgId,
-  })
-  if (!attachment) {
-    return NextResponse.json({ error: 'forms.errors.snapshot_missing' }, { status: 404 })
+  let snapshot
+  try {
+    snapshot = await snapshots.ensureSnapshot({
+      organizationId: auth.orgId,
+      tenantId: auth.tenantId,
+      submissionId,
+    })
+  } catch (error) {
+    if (error instanceof PdfSnapshotServiceError) {
+      return NextResponse.json({ error: 'forms.errors.snapshot_pending', message: error.message }, { status: 404 })
+    }
+    throw error
   }
 
   await auditor.log(em, {
@@ -88,41 +90,26 @@ export async function GET(
     ua: req.headers.get('user-agent') ?? null,
   })
 
-  if (attachment.payloadInline) {
-    return new NextResponse(attachment.payloadInline as unknown as BodyInit, {
-      status: 200,
-      headers: {
-        'content-type': attachment.contentType ?? 'application/pdf',
-        'content-disposition': `attachment; filename="${attachment.filename ?? `submission-${submissionId}.pdf`}"`,
-      },
-    })
-  }
-
-  return NextResponse.json(
-    {
-      error: 'forms.errors.snapshot_storage_unconfigured',
-      message:
-        'Snapshot bytes are not inline. Configure a files-module integration to stream from external storage.',
-      attachmentId: attachment.id,
-      fileId: attachment.fileId,
+  return new NextResponse(snapshot.bytes as unknown as BodyInit, {
+    status: 200,
+    headers: {
+      'content-type': snapshot.contentType,
+      'content-disposition': `attachment; filename="${sanitizeFilename(snapshot.filename)}"`,
     },
-    { status: 501 },
-  )
+  })
+}
+
+function sanitizeFilename(name: string): string {
+  return name.replace(/["\\\r\n]/g, '_') || 'submission.pdf'
 }
 
 const pdfMethodDoc: OpenApiMethodDoc = {
   summary: 'Download the PDF snapshot of a submitted form',
   description:
-    'Streams the immutable PDF snapshot generated at submit time. Never re-renders. Writes an audit row with `access_purpose = "export"`.',
+    'Streams the immutable PDF snapshot, generating it on first request when the on-submit job has not produced it yet. Never re-renders an existing snapshot. Writes an audit row with `access_purpose = "export"`.',
   tags: ['Forms Compliance'],
   responses: [{ status: 200, description: 'PDF stream', mediaType: 'application/pdf' }],
-  errors: [
-    { status: 404, description: 'Submission not found or snapshot not yet generated' },
-    {
-      status: 501,
-      description: 'Snapshot is referenced by `file_id` and the deployment lacks a files-module storage adapter',
-    },
-  ],
+  errors: [{ status: 404, description: 'Submission not found or not yet submitted' }],
 }
 
 export const openApi: OpenApiRouteDoc = {

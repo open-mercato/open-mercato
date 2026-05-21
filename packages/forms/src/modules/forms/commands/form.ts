@@ -24,6 +24,7 @@ import {
   invalidateFormsCacheTags,
   resolveActorUserId,
   resolveEntityManager,
+  resolveFormLocaleUpdate,
   serializeFormSnapshot,
   type FormSnapshot,
 } from './shared'
@@ -86,6 +87,7 @@ const createFormCommand: CommandHandler<FormCreateCommandInput, { formId: string
       currentPublishedVersionId: null,
       defaultLocale: parsed.defaultLocale,
       supportedLocales,
+      retentionDays: parsed.retentionDays ?? null,
       createdBy: actorUserId,
       archivedAt: null,
       createdAt: now,
@@ -190,6 +192,33 @@ const renameFormCommand: CommandHandler<FormRenameCommandInput, { formId: string
       }
     }
 
+    if (parsed.retentionDays !== undefined) {
+      const next = parsed.retentionDays ?? null
+      if (next !== (form.retentionDays ?? null)) {
+        form.retentionDays = next
+        touched = true
+      }
+    }
+
+    if (parsed.supportedLocales !== undefined || parsed.defaultLocale !== undefined) {
+      const { defaultLocale: nextDefault, supportedLocales: nextSupported } = resolveFormLocaleUpdate({
+        current: { defaultLocale: form.defaultLocale, supportedLocales: [...form.supportedLocales] },
+        supportedLocales: parsed.supportedLocales,
+        defaultLocale: parsed.defaultLocale,
+      })
+      const supportedChanged =
+        nextSupported.length !== form.supportedLocales.length ||
+        nextSupported.some((locale, index) => locale !== form.supportedLocales[index])
+      if (supportedChanged) {
+        form.supportedLocales = nextSupported
+        touched = true
+      }
+      if (nextDefault !== form.defaultLocale) {
+        form.defaultLocale = nextDefault
+        touched = true
+      }
+    }
+
     if (touched) {
       form.updatedAt = new Date()
       await em.flush()
@@ -234,6 +263,9 @@ const renameFormCommand: CommandHandler<FormRenameCommandInput, { formId: string
     if (!form) return
     form.name = before.name
     form.description = before.description ?? null
+    form.defaultLocale = before.defaultLocale
+    form.supportedLocales = [...before.supportedLocales]
+    form.retentionDays = before.retentionDays ?? null
     form.updatedAt = new Date()
     await em.flush()
     await invalidateFormsCacheTags(ctx, [

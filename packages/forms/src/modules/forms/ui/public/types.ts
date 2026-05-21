@@ -160,6 +160,32 @@ export type RunnerLoadError = {
   message: string
 }
 
+/**
+ * Reference persisted in a `file`-field value. Mirrors
+ * `schema/file-field.ts#FileAttachmentRef`.
+ */
+export type RunnerFileAttachmentRef = {
+  id: string
+  filename: string
+  contentType: string
+  sizeBytes: number
+}
+
+/**
+ * Upload transport injected into the file renderer. Hides whether the active
+ * flow is authenticated (portal) or anonymous (access token) — the runtime
+ * client supplies the correct endpoint + auth header. `downloadUrl` returns a
+ * link the participant can open to preview their own upload.
+ */
+export type RunnerAttachmentUploader = {
+  upload(args: {
+    submissionId: string
+    fieldKey: string
+    file: File
+  }): Promise<RunnerFileAttachmentRef>
+  downloadUrl(submissionId: string, attachmentId: string): string
+}
+
 export type RunnerFieldRendererProps = {
   field: RunnerFieldDescriptor
   fieldNode: RunnerFieldNode
@@ -171,6 +197,10 @@ export type RunnerFieldRendererProps = {
   disabled?: boolean
   error?: string | null
   inputId?: string
+  /** Present when the field can upload (file type); supplied by the runtime. */
+  uploader?: RunnerAttachmentUploader
+  /** The current submission id — required for upload/download URLs. */
+  submissionId?: string
 }
 
 export function resolveLocaleString(

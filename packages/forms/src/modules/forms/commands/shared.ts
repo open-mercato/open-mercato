@@ -59,6 +59,32 @@ export async function findFormInScope(
 }
 
 /**
+ * Pure resolver for a form locale-set update (W7). Dedupes `supportedLocales`,
+ * falls back to the current values when a field is omitted, and enforces the
+ * two invariants: at least one locale, and `defaultLocale ∈ supportedLocales`.
+ * Throws a 422 `CrudHttpError` on violation so the route surfaces a stable key.
+ * Kept I/O-free so the command layer and unit tests share one source of truth.
+ */
+export function resolveFormLocaleUpdate(input: {
+  current: { defaultLocale: string; supportedLocales: string[] }
+  supportedLocales?: string[]
+  defaultLocale?: string
+}): { defaultLocale: string; supportedLocales: string[] } {
+  const nextSupported =
+    input.supportedLocales !== undefined
+      ? Array.from(new Set(input.supportedLocales))
+      : [...input.current.supportedLocales]
+  if (nextSupported.length === 0) {
+    throw new CrudHttpError(422, { error: 'forms.errors.locales_empty' })
+  }
+  const nextDefault = input.defaultLocale ?? input.current.defaultLocale
+  if (!nextSupported.includes(nextDefault)) {
+    throw new CrudHttpError(422, { error: 'forms.errors.default_locale_unsupported' })
+  }
+  return { defaultLocale: nextDefault, supportedLocales: nextSupported }
+}
+
+/**
  * Lookup a single form version by ID — scoped to (tenantId, organizationId).
  */
 export async function findFormVersionInScope(
@@ -102,6 +128,12 @@ export async function invalidateFormsCacheTags(
   tags: string[],
 ): Promise<void> {
   if (!tags.length) return
+  if (
+    typeof ctx.container.hasRegistration === 'function' &&
+    !ctx.container.hasRegistration('cacheService')
+  ) {
+    return
+  }
   try {
     const cacheService = ctx.container.resolve<{
       deleteByTags(tags: string[]): Promise<number>
@@ -151,6 +183,7 @@ export type FormSnapshot = {
   currentPublishedVersionId: string | null
   defaultLocale: string
   supportedLocales: string[]
+  retentionDays: number | null
   createdBy: string
   archivedAt: string | null
   createdAt: string
@@ -169,6 +202,7 @@ export function serializeFormSnapshot(form: Form): FormSnapshot {
     currentPublishedVersionId: form.currentPublishedVersionId ?? null,
     defaultLocale: form.defaultLocale,
     supportedLocales: [...form.supportedLocales],
+    retentionDays: form.retentionDays ?? null,
     createdBy: form.createdBy,
     archivedAt: form.archivedAt ? form.archivedAt.toISOString() : null,
     createdAt: form.createdAt.toISOString(),

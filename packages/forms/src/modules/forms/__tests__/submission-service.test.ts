@@ -325,6 +325,69 @@ describe('SubmissionService', () => {
     void em
   })
 
+  it('seeds prefill values into the initial revision, role-filtered + AJV-valid', async () => {
+    const { service, encryptionService } = createTestSetup()
+    const patient = randomUUID()
+    const subjectId = randomUUID()
+    const view = await service.start({
+      organizationId: ORG_ID,
+      tenantId: TENANT_ID,
+      formKey: FORM_KEY,
+      subjectType: 'patient',
+      subjectId,
+      startedBy: patient,
+      // `diagnosis` is editable only by clinician → dropped by the patient role
+      // filter; `full_name` is editable by patient → seeded.
+      prefill: { full_name: 'Jane Doe', diagnosis: 'should-be-dropped' },
+    })
+
+    expect(view.decodedData).toEqual({ full_name: 'Jane Doe' })
+
+    const decoded = JSON.parse(
+      (await encryptionService.decrypt(ORG_ID, view.revision.data as Buffer)).toString('utf8'),
+    )
+    expect(decoded).toEqual({ full_name: 'Jane Doe' })
+  })
+
+  it('starts with an empty payload when no prefill is provided (backward-compatible)', async () => {
+    const { service, encryptionService } = createTestSetup()
+    const patient = randomUUID()
+    const view = await service.start({
+      organizationId: ORG_ID,
+      tenantId: TENANT_ID,
+      formKey: FORM_KEY,
+      subjectType: 'patient',
+      subjectId: randomUUID(),
+      startedBy: patient,
+    })
+    expect(view.decodedData).toEqual({})
+    const decoded = JSON.parse(
+      (await encryptionService.decrypt(ORG_ID, view.revision.data as Buffer)).toString('utf8'),
+    )
+    expect(decoded).toEqual({})
+  })
+
+  it('drops a prefill seed that fails AJV validation and opens empty', async () => {
+    const { service, encryptionService } = createTestSetup()
+    const patient = randomUUID()
+    const view = await service.start({
+      organizationId: ORG_ID,
+      tenantId: TENANT_ID,
+      formKey: FORM_KEY,
+      subjectType: 'patient',
+      subjectId: randomUUID(),
+      startedBy: patient,
+      // full_name has minLength: 1 — an empty string violates AJV, so the whole
+      // seed is dropped and the submission opens with an empty payload.
+      prefill: { full_name: '' },
+    })
+    expect(view.decodedData).toEqual({})
+    const decoded = JSON.parse(
+      (await encryptionService.decrypt(ORG_ID, view.revision.data as Buffer)).toString('utf8'),
+    )
+    expect(decoded).toEqual({})
+  })
+
   it('rejects rapid PATCHes with 429 RATE_LIMITED', async () => {
     let counter = 0
     const sequence = [0, 1000, 2000, 3000] // saves at +1s and +2s — both inside autosave interval

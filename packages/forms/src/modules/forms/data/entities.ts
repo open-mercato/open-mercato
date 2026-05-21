@@ -43,6 +43,18 @@ export class Form {
   @Property({ name: 'created_by', type: 'uuid' })
   createdBy!: string
 
+  /**
+   * W5 (DP-6) — per-form retention window in days. `null` ⇒ keep forever.
+   * The retention-purge worker anonymizes submissions whose age (measured
+   * from `submitted_at`, or `updated_at` for drafts) exceeds this window.
+   * Consent / signature submissions honour the same window — the legal
+   * retention story is satisfied by the immutable version-pinned signed
+   * record surviving anonymization (only `x-om-sensitive` answers are
+   * tombstoned), not by skipping the purge.
+   */
+  @Property({ name: 'retention_days', type: 'int', nullable: true })
+  retentionDays?: number | null
+
   @Property({ name: 'archived_at', type: Date, nullable: true })
   archivedAt?: Date | null
 

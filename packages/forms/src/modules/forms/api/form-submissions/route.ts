@@ -13,6 +13,10 @@ import type { OpenApiRouteDoc, OpenApiMethodDoc } from '@open-mercato/shared/lib
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import { getCustomerAuthFromRequest } from '@open-mercato/core/modules/customer_accounts/lib/customerAuth'
 import { SubmissionService } from '../../services/submission-service'
+import {
+  resolvePrefillSeed,
+  type PrefillResolver,
+} from '../../services/prefill-resolver'
 import { submissionStartInputSchema } from '../../data/validators'
 import { mapSubmissionError, readJsonBody, serializeActor, serializeRevision, serializeSubmission } from '../runtime-helpers'
 
@@ -42,8 +46,38 @@ export async function POST(req: NextRequest) {
 
   const container = await createRequestContainer()
   const service = container.resolve('formsSubmissionService') as SubmissionService
+  const prefillResolver = container.resolve('formsPrefillResolver') as PrefillResolver
 
   try {
+    // Resolve prefill values (W8 / FD-1) for fields declaring `x-om-prefill`.
+    // No declarations ⇒ no resolver call. Seeds are role-filtered + AJV-validated
+    // inside `start`; resolution failures are non-fatal (submission opens empty).
+    let prefill: Record<string, unknown> | null = null
+    try {
+      const { compiled } = await service.getActiveFormVersionByKey({
+        organizationId: auth.orgId,
+        tenantId: auth.tenantId,
+        formKey: parsed.data.form_key,
+      })
+      const seed = await resolvePrefillSeed({
+        compiled,
+        resolver: prefillResolver,
+        principal: {
+          sub: auth.sub,
+          tenantId: auth.tenantId,
+          organizationId: auth.orgId,
+          email: auth.email,
+          displayName: auth.displayName,
+          customerEntityId: auth.customerEntityId ?? null,
+          personEntityId: auth.personEntityId ?? null,
+        },
+      })
+      if (Object.keys(seed).length > 0) prefill = seed
+    } catch {
+      // Prefill is best-effort — fall through to start with no seed.
+      prefill = null
+    }
+
     const view = await service.start({
       organizationId: auth.orgId,
       tenantId: auth.tenantId,
@@ -51,6 +85,7 @@ export async function POST(req: NextRequest) {
       subjectType: parsed.data.subject_type,
       subjectId: parsed.data.subject_id,
       startedBy: auth.sub,
+      prefill,
     })
     return NextResponse.json(
       {

@@ -71,7 +71,8 @@
   },
   "dependencies": {
     "ajv": "^8.17.1",
-    "ajv-formats": "^3.0.1"
+    "ajv-formats": "^3.0.1",
+    "pdf-lib": "^1.17.1"
   },
   "peerDependencies": {
     "@mikro-orm/core": "^7.0.14",

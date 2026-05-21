@@ -197,6 +197,7 @@ export function FormCanvas({
                       onResizeCommit={(key, finalSpan) =>
                         onFieldResizeCommit?.({ fieldKey: key, finalSpan })
                       }
+                      activeLocale={activeLocale}
                       t={t}
                     />
                   )
@@ -252,6 +253,7 @@ export function FormCanvas({
                 canMoveUp={index > 0}
                 canMoveDown={index < ungroupedFields.length - 1}
                 dropIndicator={null}
+                activeLocale={activeLocale}
                 t={t}
               />
             ))}

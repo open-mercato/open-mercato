@@ -2,7 +2,7 @@
  * Shared helpers for forms runtime API routes.
  */
 
-import { NextResponse } from 'next/server'
+import { NextResponse, type NextRequest } from 'next/server'
 import { SubmissionServiceError } from '../services/submission-service'
 import { DistributionServiceError } from '../services/distribution-service'
 import type { CompiledFormVersion } from '../services/form-version-compiler'
@@ -38,6 +38,34 @@ export function mapDistributionError(error: unknown): NextResponse {
   }
   const message = error instanceof Error ? error.message : 'Unknown error'
   return NextResponse.json({ error: 'INTERNAL_ERROR', message }, { status: 500 })
+}
+
+/**
+ * Builds the authoritative submit metadata recorded on `form_submission`.
+ *
+ * Signing audit (CN-3): the IP, user-agent, and UTC submit timestamp are
+ * derived SERVER-SIDE here — the client cannot forge them. Any client-supplied
+ * `submit_metadata` (e.g. locale, timezone hints) is preserved but the
+ * server-derived `ip` / `userAgent` / `serverSubmittedAt` always win.
+ *
+ * Together with the version-pinned (immutable) schema and the encrypted,
+ * append-only revision answers (which carry the signature payload incl. the
+ * consent clause SHA-256 and the signer's affirmation), this metadata forms
+ * the tamper-evident signed record. Full PDF reproduction of that bundle is W3.
+ */
+export function buildSubmitMetadata(
+  req: NextRequest,
+  clientMetadata: Record<string, unknown> | null | undefined,
+): Record<string, unknown> {
+  const forwardedFor = req.headers.get('x-forwarded-for')
+  const ip = forwardedFor?.split(',')[0]?.trim() || req.headers.get('x-real-ip') || null
+  const userAgent = req.headers.get('user-agent') || null
+  return {
+    ...(clientMetadata ?? {}),
+    ip,
+    userAgent,
+    serverSubmittedAt: new Date().toISOString(),
+  }
 }
 
 /**

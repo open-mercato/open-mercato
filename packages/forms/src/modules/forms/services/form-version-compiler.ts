@@ -55,6 +55,12 @@ export type FieldDescriptor = {
    * `field-validation-service`.
    */
   validationMessages?: OmValidationMessages
+  /**
+   * Logical prefill attribute key declared via `x-om-prefill` (W8 / FD-1).
+   * When present, the start route resolves this attribute through the
+   * `PrefillResolver` and seeds the field's initial value.
+   */
+  prefillAttribute?: string
 }
 
 /**
@@ -280,6 +286,9 @@ export class FormVersionCompiler {
 
       const validations = compileFieldValidationRules(fieldNode as unknown as FieldNode, omType)
       const validationMessages = readValidationMessages(fieldNode)
+      const prefillRaw = fieldNode[OM_FIELD_KEYWORDS.prefill]
+      const prefillAttribute =
+        typeof prefillRaw === 'string' && prefillRaw.length > 0 ? prefillRaw : undefined
 
       fieldIndex[fieldKey] = {
         key: fieldKey,
@@ -291,6 +300,7 @@ export class FormVersionCompiler {
         required: requiredFields.has(fieldKey),
         validations,
         ...(validationMessages ? { validationMessages } : {}),
+        ...(prefillAttribute ? { prefillAttribute } : {}),
       }
     }
 

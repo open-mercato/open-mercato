@@ -336,3 +336,106 @@ describe('FormVersionCompiler', () => {
     expect(compiled.registryVersion).toBe(version)
   })
 })
+
+describe('FormVersionCompiler — W6 repeatable group', () => {
+  const groupSchema = () => ({
+    type: 'object',
+    'x-om-roles': ['admin', 'patient'],
+    'x-om-default-actor-role': 'patient',
+    'x-om-sections': [{ key: 'history', title: { en: 'History' }, fieldKeys: ['meds'] }],
+    properties: {
+      meds: {
+        type: 'array',
+        'x-om-type': 'group',
+        'x-om-label': { en: 'Medications' },
+        'x-om-editable-by': ['patient'],
+        'x-om-min-items': 1,
+        'x-om-max-items': 5,
+        items: {
+          type: 'object',
+          additionalProperties: false,
+          required: ['name'],
+          properties: {
+            name: { type: 'string', minLength: 1, 'x-om-type': 'text', 'x-om-label': { en: 'Name' } },
+            dose: { type: 'string', 'x-om-type': 'text', 'x-om-label': { en: 'Dose' } },
+          },
+        },
+      },
+    },
+    required: ['meds'],
+  })
+
+  it('compiles a group schema and exposes it in the fieldIndex', () => {
+    const compiler = new FormVersionCompiler({ cacheMax: 4 })
+    const compiled = compiler.compile({
+      id: 'grp',
+      updatedAt: new Date('2026-05-21T00:00:00Z'),
+      schema: groupSchema(),
+      uiSchema: {},
+    })
+    expect(compiled.fieldIndex.meds).toMatchObject({
+      key: 'meds',
+      type: 'group',
+      sectionKey: 'history',
+      editableBy: ['patient'],
+      required: true,
+    })
+    // Role policy treats the group atomically — only the group key is sliced.
+    expect(compiled.rolePolicyLookup('patient', 'meds')).toEqual({ canRead: true, canWrite: true })
+    expect(compiled.rolePolicyLookup('patient', 'name')).toEqual({ canRead: false, canWrite: false })
+  })
+
+  it('AJV accepts a good array-of-objects payload', () => {
+    const compiler = new FormVersionCompiler({ cacheMax: 4 })
+    const compiled = compiler.compile({
+      id: 'grp',
+      updatedAt: new Date('2026-05-21T00:00:00Z'),
+      schema: groupSchema(),
+      uiSchema: {},
+    })
+    expect(
+      compiled.ajv({ meds: [{ name: 'Aspirin', dose: '100mg' }, { name: 'Ibuprofen' }] }),
+    ).toBe(true)
+  })
+
+  it('AJV rejects a bad payload (missing required sub-field, unknown sub-key, non-object entry)', () => {
+    const compiler = new FormVersionCompiler({ cacheMax: 4 })
+    const compiled = compiler.compile({
+      id: 'grp',
+      updatedAt: new Date('2026-05-21T00:00:00Z'),
+      schema: groupSchema(),
+      uiSchema: {},
+    })
+    expect(compiled.ajv({ meds: [{ dose: '100mg' }] })).toBe(false)
+    expect(compiled.ajv({ meds: [{ name: 'Aspirin', mystery: 'x' }] })).toBe(false)
+    expect(compiled.ajv({ meds: ['not-an-object'] })).toBe(false)
+  })
+
+  it('keeps persisted schema bytes verbatim (schemaHash stable across recompile)', () => {
+    const compiler = new FormVersionCompiler({ cacheMax: 4 })
+    const a = compiler.compile({
+      id: 'grp-a',
+      updatedAt: new Date('2026-05-21T00:00:00Z'),
+      schema: groupSchema(),
+      uiSchema: {},
+    })
+    const b = compiler.compile({
+      id: 'grp-b',
+      updatedAt: new Date('2026-05-21T00:00:00Z'),
+      schema: groupSchema(),
+      uiSchema: {},
+    })
+    expect(a.schemaHash).toBe(b.schemaHash)
+  })
+
+  it('rejects a nested-group schema at compile time', () => {
+    const schema = groupSchema()
+    ;(schema.properties.meds.items as Record<string, unknown>).properties = {
+      nested: { type: 'array', 'x-om-type': 'group' },
+    }
+    const compiler = new FormVersionCompiler({ cacheMax: 4 })
+    expect(() =>
+      compiler.compile({ id: 'grp-bad', updatedAt: new Date(), schema, uiSchema: {} }),
+    ).toThrow(FormCompilationError)
+  })
+})

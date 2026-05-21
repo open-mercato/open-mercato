@@ -5,6 +5,10 @@ import type { CommandBus } from '@open-mercato/shared/lib/commands'
 import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
 import { FormVersion } from '../../../../data/entities'
 import {
+  OM_ROOT_KEYWORDS,
+  type OmAnswerMappings,
+} from '../../../../schema/jsonschema-extensions'
+import {
   formVersionPatchRequestSchema,
   formVersionUpdateDraftCommandSchema,
   type FormVersionUpdateDraftCommandInput,
@@ -40,7 +44,33 @@ const versionResponseSchema = z.object({
   archivedAt: z.string().nullable(),
   createdAt: z.string(),
   updatedAt: z.string(),
+  /**
+   * Answer→target mapping (W8 / INT-5). Surfaced as config so consumers can
+   * drive entity binding without PII ever touching an event payload.
+   */
+  answerMappings: z.record(z.string(), z.string()),
 })
+
+/**
+ * Reads the `x-om-answer-mappings` config off a version schema (W8 / INT-5).
+ * The mapping is config — it carries no answers — so it is safe to expose on
+ * the authed read API. Consumer flow (e.g. dental-os): on the id-only
+ * `forms.submission.submitted` event, the subscriber loads the version via
+ * this API (or the runtime context) to read `answerMappings`, fetches the
+ * submission answers from the authed by-subject / GDPR export API, then applies
+ * the mapping to its own entities. The forms module never writes to any
+ * external entity and never emits answers in events (DP-8).
+ */
+function readAnswerMappings(schema: unknown): OmAnswerMappings {
+  if (!schema || typeof schema !== 'object' || Array.isArray(schema)) return {}
+  const raw = (schema as Record<string, unknown>)[OM_ROOT_KEYWORDS.answerMappings]
+  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return {}
+  const out: OmAnswerMappings = {}
+  for (const [fieldKey, targetPath] of Object.entries(raw as Record<string, unknown>)) {
+    if (typeof targetPath === 'string' && targetPath.length > 0) out[fieldKey] = targetPath
+  }
+  return out
+}
 
 const okSchema = z.object({ ok: z.literal(true) })
 const errorSchema = z.object({ error: z.string() })
@@ -89,6 +119,7 @@ export async function GET(req: Request) {
       archivedAt: version.archivedAt ? version.archivedAt.toISOString() : null,
       createdAt: version.createdAt.toISOString(),
       updatedAt: version.updatedAt.toISOString(),
+      answerMappings: readAnswerMappings(version.schema),
     })
   } catch (error) {
     return handleRouteError('forms.versions[versionId].GET', error)

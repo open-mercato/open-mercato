@@ -5,7 +5,8 @@ import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { Input } from '@open-mercato/ui/primitives/input'
 import { Textarea } from '@open-mercato/ui/primitives/textarea'
 import { Switch } from '@open-mercato/ui/primitives/switch'
-import { Tag } from '@open-mercato/ui/primitives/tag'
+import { Button } from '@open-mercato/ui/primitives/button'
+import { IconButton } from '@open-mercato/ui/primitives/icon-button'
 import {
   Select,
   SelectContent,
@@ -13,6 +14,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@open-mercato/ui/primitives/select'
+import { X } from '../lucide-icons'
 import { HiddenFieldsPanel } from '../logic/HiddenFieldsPanel'
 import { VariablesPanel } from '../logic/VariablesPanel'
 import { RolesEditor } from './RolesEditor'
@@ -24,6 +26,7 @@ export type InputParametersTabProps = {
   name: string
   description: string
   supportedLocales: string[]
+  defaultLocale: string
   defaultActorRole: string
   declaredRoles: string[]
   guestEnabled: boolean
@@ -49,6 +52,16 @@ export type InputParametersTabProps = {
   onShowProgressChange: (next: boolean) => void
   onHiddenFieldsChange: (entries: HiddenFieldEntry[]) => void
   onVariablesChange: (entries: VariableEntry[]) => void
+  onAddLocale: (locale: string) => void
+  onRemoveLocale: (locale: string) => void
+  onDefaultLocaleChange: (locale: string) => void
+}
+
+/** Mirrors `localeSchema` (validators.ts): BCP-47 shape like `en` or `en-US`. */
+const LOCALE_PATTERN = /^[a-z]{2,3}(?:-[A-Z]{2})?$/
+
+function isValidLocale(value: string): boolean {
+  return value.length >= 2 && value.length <= 10 && LOCALE_PATTERN.test(value)
 }
 
 export function InputParametersTab(props: InputParametersTabProps) {
@@ -59,6 +72,7 @@ export function InputParametersTab(props: InputParametersTabProps) {
     name,
     description,
     supportedLocales,
+    defaultLocale,
     defaultActorRole,
     declaredRoles,
     guestEnabled,
@@ -83,7 +97,21 @@ export function InputParametersTab(props: InputParametersTabProps) {
     onShowProgressChange,
     onHiddenFieldsChange,
     onVariablesChange,
+    onAddLocale,
+    onRemoveLocale,
+    onDefaultLocaleChange,
   } = props
+
+  const [localeDraft, setLocaleDraft] = React.useState('')
+  const localeList = supportedLocales.length === 0 ? ['en'] : supportedLocales
+  const trimmedDraft = localeDraft.trim()
+  const canAddLocale =
+    isValidLocale(trimmedDraft) && !localeList.includes(trimmedDraft)
+  const submitLocale = React.useCallback(() => {
+    if (!canAddLocale) return
+    onAddLocale(trimmedDraft)
+    setLocaleDraft('')
+  }, [canAddLocale, onAddLocale, trimmedDraft])
 
   const roleOptions = React.useMemo(() => {
     const set = new Set<string>(['admin'])
@@ -138,21 +166,85 @@ export function InputParametersTab(props: InputParametersTabProps) {
           onChange={(event) => onDescriptionChange(event.target.value)}
         />
       </div>
-      <div className="space-y-1">
+      <div className="space-y-2">
         <span className="block text-sm font-medium text-foreground">
           {t('forms.studio.parameters.locales.label')}
         </span>
-        <div className="flex flex-wrap gap-1">
-          {supportedLocales.length === 0 ? (
-            <Tag variant="neutral">en</Tag>
-          ) : (
-            supportedLocales.map((locale) => (
-              <Tag key={locale} variant="neutral">
-                {locale}
-              </Tag>
-            ))
-          )}
+        <div className="flex flex-wrap gap-1.5">
+          {localeList.map((locale) => {
+            const isDefault = locale === defaultLocale
+            const canRemove = !isDefault && localeList.length > 1
+            return (
+              <span
+                key={locale}
+                className="inline-flex items-center gap-1 rounded-md border border-border bg-muted/30 py-0.5 pl-2 pr-1 text-xs"
+              >
+                <span className="font-mono">{locale}</span>
+                {isDefault ? (
+                  <span className="text-[10px] uppercase tracking-wide text-muted-foreground">
+                    {t('forms.studio.parameters.locales.defaultBadge')}
+                  </span>
+                ) : null}
+                {canRemove ? (
+                  <IconButton
+                    type="button"
+                    variant="ghost"
+                    size="sm"
+                    className="size-5"
+                    aria-label={t('forms.studio.parameters.locales.remove', { locale })}
+                    onClick={() => onRemoveLocale(locale)}
+                  >
+                    <X className="size-3" aria-hidden="true" />
+                  </IconButton>
+                ) : null}
+              </span>
+            )
+          })}
         </div>
+        <div className="flex items-center gap-2">
+          <Input
+            value={localeDraft}
+            placeholder={t('forms.studio.parameters.locales.add_placeholder')}
+            aria-label={t('forms.studio.parameters.locales.add')}
+            className="h-8 font-mono text-xs"
+            onChange={(event) => setLocaleDraft(event.target.value)}
+            onKeyDown={(event) => {
+              if (event.key === 'Enter') {
+                event.preventDefault()
+                submitLocale()
+              }
+            }}
+          />
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            disabled={!canAddLocale}
+            onClick={submitLocale}
+          >
+            {t('forms.studio.parameters.locales.add')}
+          </Button>
+        </div>
+      </div>
+      <div className="space-y-1">
+        <label
+          htmlFor="forms-studio-form-default-locale"
+          className="block text-sm font-medium text-foreground"
+        >
+          {t('forms.studio.parameters.locales.default')}
+        </label>
+        <Select value={defaultLocale} onValueChange={onDefaultLocaleChange}>
+          <SelectTrigger id="forms-studio-form-default-locale">
+            <SelectValue />
+          </SelectTrigger>
+          <SelectContent>
+            {localeList.map((locale) => (
+              <SelectItem key={locale} value={locale}>
+                {locale}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
       </div>
       <div className="space-y-1">
         <span className="block text-sm font-medium text-foreground">

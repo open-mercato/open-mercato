@@ -46,6 +46,7 @@ export function FieldRow({
   onResizeStart,
   onResizePreview,
   onResizeCommit,
+  activeLocale,
   t,
 }: {
   fieldKey: string
@@ -64,6 +65,7 @@ export function FieldRow({
   onResizeStart?: (fieldKey: string, startSpan: 1 | 2 | 3 | 4) => void
   onResizePreview?: (fieldKey: string, previewSpan: 1 | 2 | 3 | 4) => void
   onResizeCommit?: (fieldKey: string, finalSpan: 1 | 2 | 3 | 4) => void
+  activeLocale: string
   t: TranslateFn
 }) {
   const {
@@ -80,8 +82,8 @@ export function FieldRow({
     (entry) => entry.fieldTypeKey === omType || entry.id === omType || entry.id === `layout:field:${omType}`,
   )
   const Icon = resolveLucideIcon(paletteEntry?.iconName)
-  const label = node['x-om-label']?.en || fieldKey
-  const help = node['x-om-help']?.en
+  const label = node['x-om-label']?.[activeLocale] || node['x-om-label']?.en || fieldKey
+  const help = node['x-om-help']?.[activeLocale] ?? node['x-om-help']?.en
   const span = readSpan(node['x-om-grid-span'])
   const indicatorOffset =
     dropIndicatorGap === 'sm'

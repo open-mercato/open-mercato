@@ -89,6 +89,8 @@ export type UseFormRunnerResult = {
   submit: () => Promise<void>
   validateSection: (sectionIndex: number) => string[]
   flushAutosave: () => Promise<void>
+  /** Active transport client — exposed so file fields can build an uploader. */
+  client: RuntimeClient
 }
 
 const FALLBACK_FIELD: RunnerFieldDescriptor = {
@@ -498,6 +500,7 @@ export function useFormRunner(args: UseFormRunnerArgs): UseFormRunnerResult {
     submit,
     validateSection,
     flushAutosave,
+    client,
   }
 }
 

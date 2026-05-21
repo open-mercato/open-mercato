@@ -1,8 +1,12 @@
+import { randomBytes } from 'node:crypto'
 import {
   DevDeterministicKmsAdapter,
+  EnvMasterKeyKmsAdapter,
   FormsEncryptionError,
   FormsEncryptionService,
   redactSensitive,
+  resolveKmsAdapter,
+  setKmsAdapterFactory,
 } from '../services/encryption-service'
 
 class FakeEntityManager {
@@ -152,6 +156,113 @@ describe('DevDeterministicKmsAdapter', () => {
   it('rejects non-32-byte DEK on wrap', async () => {
     const adapter = new DevDeterministicKmsAdapter('test-kms')
     await expect(adapter.wrap(Buffer.alloc(16))).rejects.toBeInstanceOf(FormsEncryptionError)
+  })
+})
+
+describe('EnvMasterKeyKmsAdapter', () => {
+  it('round-trips wrap/unwrap with a 32-byte master key', async () => {
+    const adapter = new EnvMasterKeyKmsAdapter(Buffer.alloc(32, 9))
+    const dek = randomBytes(32)
+    const wrapped = await adapter.wrap(dek)
+    const unwrapped = await adapter.unwrap(wrapped)
+    expect(unwrapped.equals(dek)).toBe(true)
+  })
+
+  it('produces the same envelope length as the dev adapter', async () => {
+    const env = new EnvMasterKeyKmsAdapter(Buffer.alloc(32, 1))
+    const dev = new DevDeterministicKmsAdapter('id')
+    const dek = randomBytes(32)
+    const a = await env.wrap(dek)
+    const b = await dev.wrap(dek)
+    expect(a.length).toBe(b.length)
+  })
+
+  it('fails to unwrap a tampered wrapped blob', async () => {
+    const adapter = new EnvMasterKeyKmsAdapter(Buffer.alloc(32, 5))
+    const wrapped = await adapter.wrap(randomBytes(32))
+    wrapped[wrapped.length - 1] ^= 0xff
+    await expect(adapter.unwrap(wrapped)).rejects.toBeInstanceOf(FormsEncryptionError)
+  })
+
+  it('accepts a base64-encoded 32-byte key', () => {
+    const encoded = randomBytes(32).toString('base64')
+    expect(EnvMasterKeyKmsAdapter.fromEncoded(encoded)).toBeInstanceOf(EnvMasterKeyKmsAdapter)
+  })
+
+  it('accepts a hex-encoded 32-byte key', () => {
+    const encoded = randomBytes(32).toString('hex')
+    expect(EnvMasterKeyKmsAdapter.fromEncoded(encoded)).toBeInstanceOf(EnvMasterKeyKmsAdapter)
+  })
+
+  it('throws on a missing master key', () => {
+    expect(() => EnvMasterKeyKmsAdapter.fromEncoded(undefined)).toThrow(FormsEncryptionError)
+  })
+
+  it('throws on a short (non-32-byte) master key', () => {
+    const tooShort = randomBytes(16).toString('hex')
+    expect(() => EnvMasterKeyKmsAdapter.fromEncoded(tooShort)).toThrow(FormsEncryptionError)
+  })
+
+  it('drives a full FormsEncryptionService encrypt/decrypt round-trip when injected', async () => {
+    const em = new FakeEntityManager()
+    const service = new FormsEncryptionService({
+      emFactory: () => em as unknown as never,
+      kmsAdapter: new EnvMasterKeyKmsAdapter(Buffer.alloc(32, 3)),
+    })
+    const plaintext = Buffer.from(JSON.stringify({ ssn: '111-22-3333' }), 'utf8')
+    const ciphertext = await service.encrypt('org-env', plaintext)
+    // Force a DEK cache miss so the wrapped DEK is unwrapped via the Env adapter.
+    service.resetCache()
+    const decrypted = await service.decrypt('org-env', ciphertext)
+    expect(decrypted.toString('utf8')).toBe(plaintext.toString('utf8'))
+  })
+})
+
+describe('resolveKmsAdapter', () => {
+  const originalNodeEnv = process.env.NODE_ENV
+  const originalMasterKey = process.env.FORMS_ENCRYPTION_MASTER_KEY
+
+  afterEach(() => {
+    setKmsAdapterFactory(null)
+    if (originalNodeEnv === undefined) delete (process.env as Record<string, string | undefined>).NODE_ENV
+    else process.env.NODE_ENV = originalNodeEnv
+    if (originalMasterKey === undefined) delete process.env.FORMS_ENCRYPTION_MASTER_KEY
+    else process.env.FORMS_ENCRYPTION_MASTER_KEY = originalMasterKey
+  })
+
+  it('selects the Env adapter when a valid master key is present', () => {
+    const env = { FORMS_ENCRYPTION_MASTER_KEY: randomBytes(32).toString('base64') } as NodeJS.ProcessEnv
+    expect(resolveKmsAdapter(env)).toBeInstanceOf(EnvMasterKeyKmsAdapter)
+  })
+
+  it('falls back to the Dev adapter when no master key is set (non-production)', () => {
+    const env = { FORMS_ENCRYPTION_KMS_KEY_ID: 'dev-id' } as NodeJS.ProcessEnv
+    expect(resolveKmsAdapter(env)).toBeInstanceOf(DevDeterministicKmsAdapter)
+  })
+
+  it('prefers an operator-registered factory over env resolution', () => {
+    const custom = new EnvMasterKeyKmsAdapter(Buffer.alloc(32, 2))
+    setKmsAdapterFactory(() => custom)
+    const env = {} as NodeJS.ProcessEnv
+    expect(resolveKmsAdapter(env)).toBe(custom)
+  })
+
+  it('throws INSECURE_KMS_IN_PRODUCTION when production has no master key', () => {
+    const env = { NODE_ENV: 'production' } as NodeJS.ProcessEnv
+    expect(() => resolveKmsAdapter(env)).toThrow(FormsEncryptionError)
+    try {
+      resolveKmsAdapter(env)
+    } catch (error) {
+      expect((error as FormsEncryptionError).code).toBe('INSECURE_KMS_IN_PRODUCTION')
+    }
+  })
+
+  it('does not throw in production when a valid master key is set', () => {
+    const env = {
+      NODE_ENV: 'production',
+      FORMS_ENCRYPTION_MASTER_KEY: randomBytes(32).toString('hex'),
+    } as NodeJS.ProcessEnv
+    expect(resolveKmsAdapter(env)).toBeInstanceOf(EnvMasterKeyKmsAdapter)
   })
 })
 

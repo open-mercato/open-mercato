@@ -41,7 +41,7 @@ import { useConfirmDialog } from '@open-mercato/ui/backend/confirm-dialog'
 import { FormPalettePanel } from './studio/palette/FormPalettePanel'
 import { PALETTE_DRAGGABLE_PREFIX } from './studio/palette/PaletteCard'
 import { buildPaletteEntries, resolvePaletteId } from './studio/palette/entries'
-import { ArrowDown, ArrowUp, Plus, resolveLucideIcon, Trash2, Undo2, Redo2 } from './studio/lucide-icons'
+import { ArrowDown, ArrowUp, Globe, Plus, resolveLucideIcon, Trash2, Undo2, Redo2 } from './studio/lucide-icons'
 import { resolveTypeLabel } from './studio/type-label'
 import { DragOverlayCard } from './studio/canvas/DragOverlayCard'
 import { FormCanvas, type FieldResizeState } from './studio/canvas/FormCanvas'
@@ -93,10 +93,14 @@ import {
   swapFieldType,
   SWAP_FAMILIES,
   validateSchemaExtensions,
+  groupNodeAddSubField,
+  groupNodeRemoveSubField,
+  groupNodeUpdateSubField,
   type FieldNode,
   type FormSchema,
   type SectionNode,
 } from './studio/schema-helpers'
+import { defaultFieldTypeRegistry } from '../../../schema/field-type-registry'
 import { createAutosaveGuard } from './studio/autosave-guard'
 import { ValidationPanel } from './studio/validation/ValidationPanel'
 import {
@@ -316,7 +320,7 @@ export function FormStudio({ formId }: { formId: string }) {
   // the polite live region scoped to a single source of truth.
   const [resizeAnnouncement, setResizeAnnouncement] = React.useState<string>('')
   const [focusSectionTitleKey, setFocusSectionTitleKey] = React.useState<string | null>(null)
-  const [activeLocale] = React.useState<string>('en')
+  const [activeLocale, setActiveLocale] = React.useState<string>('en')
   const [previewViewport, setPreviewViewport] = React.useState<PreviewViewport>('desktop')
   const dirtyFlagRef = React.useRef(false)
   const schemaRef = React.useRef<FormSchema>(DEFAULT_SCHEMA)
@@ -349,6 +353,9 @@ export function FormStudio({ formId }: { formId: string }) {
     }
     const detail = formCall.result
     setForm(detail)
+    setActiveLocale((current) =>
+      detail.supportedLocales.includes(current) ? current : detail.defaultLocale,
+    )
     let draft = detail.versions.find((entry) => entry.status === 'draft') ?? null
 
     if (!draft) {
@@ -1258,6 +1265,73 @@ export function FormStudio({ formId }: { formId: string }) {
     persistFormPatch({ description: nextDescription.length > 0 ? nextDescription : null })
   }, [persistFormPatch])
 
+  // Locale set edits persist immediately (no debounce): they change the studio's
+  // available authoring locales, so the switcher must reflect the server state
+  // right away. On success we optimistically update `form` and clamp the active
+  // locale into the new set; on failure we reload to undo the optimistic state.
+  const persistLocalePatch = React.useCallback(
+    async (payload: { supportedLocales: string[]; defaultLocale: string }) => {
+      setForm((current) =>
+        current
+          ? { ...current, supportedLocales: payload.supportedLocales, defaultLocale: payload.defaultLocale }
+          : current,
+      )
+      setActiveLocale((current) =>
+        payload.supportedLocales.includes(current) ? current : payload.defaultLocale,
+      )
+      const call = await apiCall(`/api/forms/${encodeURIComponent(formId)}`, {
+        method: 'PATCH',
+        body: JSON.stringify(payload),
+      })
+      if (!call.ok) {
+        const errPayload = call.result as { error?: string } | undefined
+        flash(errPayload?.error ?? 'forms.studio.autosave.error', 'error')
+        await reload()
+      }
+    },
+    [formId, reload],
+  )
+
+  const handleAddLocale = React.useCallback(
+    (locale: string) => {
+      const trimmed = locale.trim()
+      if (!trimmed) return
+      setForm((current) => {
+        if (!current || current.supportedLocales.includes(trimmed)) return current
+        const nextSupported = [...current.supportedLocales, trimmed]
+        void persistLocalePatch({ supportedLocales: nextSupported, defaultLocale: current.defaultLocale })
+        return current
+      })
+    },
+    [persistLocalePatch],
+  )
+
+  const handleRemoveLocale = React.useCallback(
+    (locale: string) => {
+      setForm((current) => {
+        if (!current) return current
+        if (locale === current.defaultLocale) return current
+        if (current.supportedLocales.length <= 1) return current
+        const nextSupported = current.supportedLocales.filter((entry) => entry !== locale)
+        void persistLocalePatch({ supportedLocales: nextSupported, defaultLocale: current.defaultLocale })
+        return current
+      })
+    },
+    [persistLocalePatch],
+  )
+
+  const handleDefaultLocaleChange = React.useCallback(
+    (locale: string) => {
+      setForm((current) => {
+        if (!current || locale === current.defaultLocale) return current
+        if (!current.supportedLocales.includes(locale)) return current
+        void persistLocalePatch({ supportedLocales: current.supportedLocales, defaultLocale: locale })
+        return current
+      })
+    },
+    [persistLocalePatch],
+  )
+
   const declaredRoles = React.useMemo(
     () => (schema['x-om-roles'] ?? []).filter((entry): entry is string => typeof entry === 'string'),
     [schema],
@@ -1368,6 +1442,7 @@ export function FormStudio({ formId }: { formId: string }) {
     name: form.name,
     description: form.description ?? '',
     supportedLocales: form.supportedLocales,
+    defaultLocale: form.defaultLocale,
     defaultActorRole: schema['x-om-default-actor-role'] ?? 'admin',
     declaredRoles,
     guestEnabled,
@@ -1392,6 +1467,9 @@ export function FormStudio({ formId }: { formId: string }) {
     onShowProgressChange: handleShowProgressChange,
     onHiddenFieldsChange: handleHiddenFieldsChange,
     onVariablesChange: handleVariablesChange,
+    onAddLocale: handleAddLocale,
+    onRemoveLocale: handleRemoveLocale,
+    onDefaultLocaleChange: handleDefaultLocaleChange,
   }
 
   return (
@@ -1415,6 +1493,26 @@ export function FormStudio({ formId }: { formId: string }) {
             </p>
           </div>
           <div className="flex items-center gap-3">
+            {form.supportedLocales.length > 1 ? (
+              <div className="flex items-center gap-1.5">
+                <Globe className="size-4 text-muted-foreground" aria-hidden="true" />
+                <Select value={activeLocale} onValueChange={setActiveLocale}>
+                  <SelectTrigger
+                    className="h-8 w-[88px]"
+                    aria-label={t('forms.studio.locale_switcher.label')}
+                  >
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {form.supportedLocales.map((locale) => (
+                      <SelectItem key={locale} value={locale}>
+                        {locale}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+            ) : null}
             <Tag variant={version?.status === 'published' ? 'success' : 'warning'} dot>
               {t(version?.status === 'published'
                 ? 'forms.studio.statusPublished'
@@ -1906,6 +2004,7 @@ function FieldPropertiesPanel({
           node={node}
           declaredRoles={declaredRoles}
           required={required}
+          activeLocale={activeLocale}
           onUpdate={onUpdate}
           onRequiredChange={onRequiredChange}
           onDelete={onDelete}
@@ -1994,6 +2093,7 @@ type FieldTabContentProps = {
   node: FieldNode
   declaredRoles: string[]
   required: boolean
+  activeLocale: string
   onUpdate: (updater: (node: FieldNode) => FieldNode) => void
   onRequiredChange: (value: boolean) => void
   onDelete: () => void
@@ -2037,6 +2137,7 @@ function FieldTabContent({
   node,
   declaredRoles,
   required,
+  activeLocale,
   onUpdate,
   onRequiredChange,
   onDelete,
@@ -2045,8 +2146,8 @@ function FieldTabContent({
   swapTargets,
   t,
 }: FieldTabContentProps) {
-  const label = (node['x-om-label']?.en as string) ?? ''
-  const help = (node['x-om-help']?.en as string) ?? ''
+  const label = (node['x-om-label']?.[activeLocale] as string) ?? ''
+  const help = (node['x-om-help']?.[activeLocale] as string) ?? ''
   const editableBy = (node['x-om-editable-by'] as string[] | undefined) ?? ['admin']
   const visibleTo = (node['x-om-visible-to'] as string[] | undefined) ?? []
   const sensitive = node['x-om-sensitive'] === true
@@ -2130,7 +2231,7 @@ function FieldTabContent({
                 ]),
               )
             : {}
-        const inner = cloned.en ? { ...cloned.en } : {}
+        const inner = cloned[activeLocale] ? { ...cloned[activeLocale] } : {}
         const trimmed = typeof patch.message === 'string' ? patch.message : ''
         if (!trimmed) {
           delete inner[patch.rule]
@@ -2138,9 +2239,9 @@ function FieldTabContent({
           inner[patch.rule] = trimmed
         }
         if (Object.keys(inner).length === 0) {
-          delete cloned.en
+          delete cloned[activeLocale]
         } else {
-          cloned.en = inner
+          cloned[activeLocale] = inner
         }
         if (Object.keys(cloned).length === 0) {
           delete updated['x-om-validation-messages']
@@ -2150,7 +2251,7 @@ function FieldTabContent({
         return updated
       })
     },
-    [onUpdate],
+    [onUpdate, activeLocale],
   )
   const handleRankingExhaustiveChange = React.useCallback(
     (next: boolean) => {
@@ -2204,9 +2305,9 @@ function FieldTabContent({
         const target = map[patch.anchor]
         const trimmed = typeof patch.label === 'string' ? patch.label : ''
         if (!trimmed) {
-          delete target['en']
+          delete target[activeLocale]
         } else {
-          target['en'] = trimmed
+          target[activeLocale] = trimmed
         }
         const hasLow = Object.keys(map.low).length > 0
         const hasHigh = Object.keys(map.high).length > 0
@@ -2218,7 +2319,7 @@ function FieldTabContent({
         return updated
       })
     },
-    [onUpdate],
+    [onUpdate, activeLocale],
   )
   const handleMatrixRowsChange = React.useCallback(
     (next: Array<{ key: string; label: Record<string, string>; multiple?: boolean; required?: boolean }>) => {
@@ -2256,6 +2357,83 @@ function FieldTabContent({
     },
     [onUpdate],
   )
+  const handleFileAcceptChange = React.useCallback(
+    (next: string[]) => {
+      onUpdate((current) => {
+        const updated: FieldNode = { ...current }
+        if (!next || next.length === 0) {
+          delete updated['x-om-accept']
+        } else {
+          updated['x-om-accept'] = next as FieldNode['x-om-accept']
+        }
+        return updated
+      })
+    },
+    [onUpdate],
+  )
+  const handleFileMaxSizeChange = React.useCallback(
+    (next: number | null) => {
+      onUpdate((current) => {
+        const updated: FieldNode = { ...current }
+        if (next === null) {
+          delete updated['x-om-max-size-bytes']
+        } else {
+          updated['x-om-max-size-bytes'] = next as FieldNode['x-om-max-size-bytes']
+        }
+        return updated
+      })
+    },
+    [onUpdate],
+  )
+  const handleFileMultipleChange = React.useCallback(
+    (next: boolean) => {
+      onUpdate((current) => {
+        const updated: FieldNode = { ...current }
+        if (next) {
+          updated['x-om-multiple'] = true as FieldNode['x-om-multiple']
+        } else {
+          delete updated['x-om-multiple']
+        }
+        return updated
+      })
+    },
+    [onUpdate],
+  )
+  const handleSignatureClauseChange = React.useCallback(
+    (next: string | null) => {
+      onUpdate((current) => {
+        const updated: FieldNode = { ...current }
+        const clause = { ...((updated['x-om-consent-clause'] as Record<string, string>) ?? {}) }
+        if (next === null) {
+          delete clause[activeLocale]
+        } else {
+          clause[activeLocale] = next
+        }
+        if (Object.keys(clause).length === 0) {
+          delete updated['x-om-consent-clause']
+        } else {
+          updated['x-om-consent-clause'] = clause as FieldNode['x-om-consent-clause']
+        }
+        return updated
+      })
+    },
+    [onUpdate, activeLocale],
+  )
+  const handleSignatureModesChange = React.useCallback(
+    (next: Array<'drawn' | 'typed'>) => {
+      onUpdate((current) => {
+        const updated: FieldNode = { ...current }
+        // Both modes is the default — persist nothing so the schema stays lean.
+        if (next.length === 0 || (next.includes('drawn') && next.includes('typed'))) {
+          delete updated['x-om-signature-modes']
+        } else {
+          updated['x-om-signature-modes'] = next as FieldNode['x-om-signature-modes']
+        }
+        return updated
+      })
+    },
+    [onUpdate],
+  )
   const handleOptionsChange = React.useCallback(
     (next: FieldOption[]) => {
       onUpdate((current) => {
@@ -2268,6 +2446,67 @@ function FieldTabContent({
       })
     },
     [onUpdate],
+  )
+  // W6 — repeatable group sub-field + item-count handlers. Sub-fields live in
+  // `node.items.properties`; min/max counts are `x-om-min-items` /
+  // `x-om-max-items`. The autosave guard validates the full schema after each
+  // patch (sub-field key uniqueness, no nested groups, soft cap).
+  const handleGroupAddSubField = React.useCallback(() => {
+    onUpdate((current) => groupNodeAddSubField(current, { [activeLocale]: 'New sub-field' }))
+  }, [onUpdate, activeLocale])
+  const handleGroupRemoveSubField = React.useCallback(
+    (subFieldKey: string) => {
+      onUpdate((current) => groupNodeRemoveSubField(current, subFieldKey))
+    },
+    [onUpdate],
+  )
+  const handleGroupUpdateSubField = React.useCallback(
+    (subFieldKey: string, patch: { label?: string; type?: string; required?: boolean }) => {
+      onUpdate((current) => {
+        const nodePatch: { label?: { [locale: string]: string }; type?: string; required?: boolean } = {}
+        if (patch.label !== undefined) {
+          const existingLabel =
+            (((current.items as Record<string, unknown> | undefined)?.properties as
+              | Record<string, FieldNode>
+              | undefined)?.[subFieldKey]?.['x-om-label'] as Record<string, string> | undefined) ?? {}
+          nodePatch.label = { ...existingLabel, [activeLocale]: patch.label }
+        }
+        if (patch.type !== undefined) nodePatch.type = patch.type
+        if (patch.required !== undefined) nodePatch.required = patch.required
+        return groupNodeUpdateSubField(current, subFieldKey, nodePatch)
+      })
+    },
+    [onUpdate, activeLocale],
+  )
+  const handleGroupMinItemsChange = React.useCallback(
+    (next: number | null) => {
+      onUpdate((current) => {
+        const updated: FieldNode = { ...current }
+        if (next === null) delete updated['x-om-min-items']
+        else updated['x-om-min-items'] = next
+        return updated
+      })
+    },
+    [onUpdate],
+  )
+  const handleGroupMaxItemsChange = React.useCallback(
+    (next: number | null) => {
+      onUpdate((current) => {
+        const updated: FieldNode = { ...current }
+        if (next === null || next < 1) delete updated['x-om-max-items']
+        else updated['x-om-max-items'] = next
+        return updated
+      })
+    },
+    [onUpdate],
+  )
+  const groupTypeOptions = React.useMemo(
+    () =>
+      defaultFieldTypeRegistry
+        .keys()
+        .filter((key) => key !== 'group' && key !== 'info_block')
+        .map((key) => ({ value: key, label: resolveTypeLabel(key, t) })),
+    [t],
   )
   const showOptionsEditor = omType === 'select_one' || omType === 'select_many' || omType === 'ranking'
   return (
@@ -2309,7 +2548,7 @@ function FieldTabContent({
           value={label}
           onChange={(event) => onUpdate((current) => ({
             ...current,
-            'x-om-label': { ...(current['x-om-label'] ?? {}), en: event.target.value },
+            'x-om-label': { ...(current['x-om-label'] ?? {}), [activeLocale]: event.target.value },
           }))}
         />
       </div>
@@ -2320,7 +2559,7 @@ function FieldTabContent({
           value={help}
           onChange={(event) => onUpdate((current) => ({
             ...current,
-            'x-om-help': { ...(current['x-om-help'] ?? {}), en: event.target.value },
+            'x-om-help': { ...(current['x-om-help'] ?? {}), [activeLocale]: event.target.value },
           }))}
         />
       </div>
@@ -2351,7 +2590,7 @@ function FieldTabContent({
         fieldKey={fieldKey}
         fieldType={omType}
         node={node}
-        locale="en"
+        locale={activeLocale}
         onPatternChange={handlePatternChange}
         onLengthRangeChange={handleLengthRangeChange}
         onNumberRangeChange={handleNumberRangeChange}
@@ -2361,10 +2600,22 @@ function FieldTabContent({
         onRankingExhaustiveChange={handleRankingExhaustiveChange}
         onMatrixRowsChange={handleMatrixRowsChange}
         onMatrixColumnsChange={handleMatrixColumnsChange}
+        onFileAcceptChange={handleFileAcceptChange}
+        onFileMaxSizeChange={handleFileMaxSizeChange}
+        onFileMultipleChange={handleFileMultipleChange}
+        onSignatureClauseChange={handleSignatureClauseChange}
+        onSignatureModesChange={handleSignatureModesChange}
+        groupTypeOptions={groupTypeOptions}
+        onGroupAddSubField={handleGroupAddSubField}
+        onGroupRemoveSubField={handleGroupRemoveSubField}
+        onGroupUpdateSubField={handleGroupUpdateSubField}
+        onGroupMinItemsChange={handleGroupMinItemsChange}
+        onGroupMaxItemsChange={handleGroupMaxItemsChange}
       />
       {showOptionsEditor ? (
         <OptionsEditor
           options={readFieldOptions(node)}
+          activeLocale={activeLocale}
           onChange={handleOptionsChange}
           t={t}
         />
@@ -2422,17 +2673,19 @@ function moveArrayItem<T>(items: T[], from: number, to: number): T[] {
 
 function OptionsEditor({
   options,
+  activeLocale,
   onChange,
   t,
 }: {
   options: FieldOption[]
+  activeLocale: string
   onChange: (options: FieldOption[]) => void
   t: ReturnType<typeof useT>
 }) {
   const addOption = React.useCallback(() => {
     const value = nextOptionValue(options)
-    onChange([...options, { value, label: { en: t('forms.studio.field.options.defaultLabel', { n: String(options.length + 1) }) } }])
-  }, [onChange, options, t])
+    onChange([...options, { value, label: { [activeLocale]: t('forms.studio.field.options.defaultLabel', { n: String(options.length + 1) }) } }])
+  }, [onChange, options, t, activeLocale])
 
   const updateOption = React.useCallback((index: number, patch: Partial<FieldOption>) => {
     onChange(options.map((option, optionIndex) => {
@@ -2461,7 +2714,7 @@ function OptionsEditor({
       ) : (
         <div className="space-y-2">
           {options.map((option, index) => {
-            const label = option.label.en ?? ''
+            const label = option.label[activeLocale] ?? ''
             return (
               <div key={`${option.value}:${index}`} className="rounded-md border border-border bg-background p-2">
                 <div className="grid gap-2 sm:grid-cols-[minmax(0,1fr)_minmax(0,1fr)_auto]">
@@ -2477,7 +2730,7 @@ function OptionsEditor({
                         const generatedValue = slugOptionValue(nextLabel, currentValue || `option_${index + 1}`)
                         updateOption(index, {
                           value: currentValue.startsWith('option_') ? generatedValue : currentValue,
-                          label: { ...option.label, en: nextLabel },
+                          label: { ...option.label, [activeLocale]: nextLabel },
                         })
                       }}
                     />

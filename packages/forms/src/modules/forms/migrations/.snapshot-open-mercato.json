@@ -718,6 +718,21 @@
           "enumItems": [],
           "mappedType": "uuid"
         },
+        "retention_days": {
+          "name": "retention_days",
+          "type": "int",
+          "unsigned": false,
+          "autoincrement": false,
+          "primary": false,
+          "nullable": true,
+          "length": null,
+          "precision": null,
+          "scale": null,
+          "default": null,
+          "comment": null,
+          "enumItems": [],
+          "mappedType": "integer"
+        },
         "status": {
           "name": "status",
           "type": "text",

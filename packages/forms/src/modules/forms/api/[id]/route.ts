@@ -208,8 +208,8 @@ export const openApi: OpenApiRouteDoc = {
       ],
     },
     PATCH: {
-      summary: 'Rename form',
-      description: 'Updates the form name and/or description.',
+      summary: 'Update form metadata',
+      description: 'Updates the form name, description, and/or locale set (supportedLocales + defaultLocale).',
       requestBody: { contentType: 'application/json', schema: formPatchRequestSchema },
       responses: [{ status: 200, description: 'Form updated', schema: okSchema }],
       errors: [

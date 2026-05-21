@@ -523,6 +523,69 @@ describe('validateOmCrossKeyword', () => {
   })
 })
 
+describe('W8 prefill + answer-mapping keywords', () => {
+  it('registers x-om-prefill in the field catalog + validators', () => {
+    expect(OM_FIELD_KEYWORDS.prefill).toBe('x-om-prefill')
+    expect(typeof OM_FIELD_VALIDATORS[OM_FIELD_KEYWORDS.prefill]).toBe('function')
+  })
+
+  it('validates x-om-prefill as a non-empty string', () => {
+    expect(OM_FIELD_VALIDATORS[OM_FIELD_KEYWORDS.prefill]('name')).toBeNull()
+    expect(OM_FIELD_VALIDATORS[OM_FIELD_KEYWORDS.prefill]('')).toMatch(/non-empty/)
+    expect(OM_FIELD_VALIDATORS[OM_FIELD_KEYWORDS.prefill](42)).toMatch(/non-empty/)
+    expect(OM_FIELD_VALIDATORS[OM_FIELD_KEYWORDS.prefill](null)).toMatch(/non-empty/)
+  })
+
+  it('registers x-om-answer-mappings in the root catalog + validators', () => {
+    expect(OM_ROOT_KEYWORDS.answerMappings).toBe('x-om-answer-mappings')
+    expect(typeof OM_ROOT_VALIDATORS[OM_ROOT_KEYWORDS.answerMappings]).toBe('function')
+  })
+
+  it('validates x-om-answer-mappings as a { fieldKey: targetPath } map', () => {
+    expect(
+      OM_ROOT_VALIDATORS[OM_ROOT_KEYWORDS.answerMappings]({ allergies: 'patient.allergies' }),
+    ).toBeNull()
+    expect(OM_ROOT_VALIDATORS[OM_ROOT_KEYWORDS.answerMappings]('nope')).toMatch(/map/)
+    expect(OM_ROOT_VALIDATORS[OM_ROOT_KEYWORDS.answerMappings]([])).toMatch(/map/)
+    expect(
+      OM_ROOT_VALIDATORS[OM_ROOT_KEYWORDS.answerMappings]({ allergies: '' }),
+    ).toMatch(/non-empty target-path/)
+    expect(
+      OM_ROOT_VALIDATORS[OM_ROOT_KEYWORDS.answerMappings]({ allergies: 7 }),
+    ).toMatch(/non-empty target-path/)
+  })
+
+  it('rejects answer-mappings referencing a missing field via cross-keyword check', () => {
+    expect(
+      validateOmCrossKeyword({
+        properties: { allergies: { type: 'string', 'x-om-type': 'text' } },
+        'x-om-answer-mappings': { allergies: 'patient.allergies' },
+      } as any),
+    ).toBeNull()
+    expect(
+      validateOmCrossKeyword({
+        properties: { allergies: { type: 'string', 'x-om-type': 'text' } },
+        'x-om-answer-mappings': { ghost: 'patient.ghost' },
+      } as any),
+    ).toMatch(/references missing field/)
+  })
+
+  it('lets AJV compile schemas decorated with the W8 keywords', () => {
+    const ajv = new Ajv({ strict: false })
+    addOmKeywords(ajv)
+    const schema = {
+      type: 'object',
+      'x-om-roles': ['admin', 'patient'],
+      'x-om-answer-mappings': { allergies: 'patient.allergies' },
+      properties: {
+        full_name: { type: 'string', 'x-om-type': 'text', 'x-om-prefill': 'name' },
+        allergies: { type: 'string', 'x-om-type': 'text' },
+      },
+    }
+    expect(() => ajv.compile(schema)).not.toThrow()
+  })
+})
+
 describe('addOmKeywords', () => {
   it('lets AJV compile schemas decorated with x-om-* keywords', () => {
     const ajv = new Ajv({ strict: false })
@@ -548,5 +611,93 @@ describe('addOmKeywords', () => {
     const ajv = new Ajv({ strict: false })
     addOmKeywords(ajv)
     expect(() => addOmKeywords(ajv)).not.toThrow()
+  })
+})
+
+describe('W6 group keywords + cross-keyword validation', () => {
+  const groupSchema = (overrides: Record<string, unknown> = {}) => ({
+    type: 'object',
+    properties: {
+      meds: {
+        type: 'array',
+        'x-om-type': 'group',
+        'x-om-label': { en: 'Medications' },
+        items: {
+          type: 'object',
+          additionalProperties: false,
+          required: ['name'],
+          properties: {
+            name: { type: 'string', 'x-om-type': 'text', 'x-om-label': { en: 'Name' } },
+            dose: { type: 'string', 'x-om-type': 'text', 'x-om-label': { en: 'Dose' } },
+          },
+        },
+        ...overrides,
+      },
+    },
+  })
+
+  it('validates x-om-min-items / x-om-max-items types', () => {
+    expect(OM_FIELD_VALIDATORS[OM_FIELD_KEYWORDS.minItems](-1)).toMatch(/non-negative integer/)
+    expect(OM_FIELD_VALIDATORS[OM_FIELD_KEYWORDS.minItems](1.5)).toMatch(/non-negative integer/)
+    expect(OM_FIELD_VALIDATORS[OM_FIELD_KEYWORDS.minItems](0)).toBeNull()
+    expect(OM_FIELD_VALIDATORS[OM_FIELD_KEYWORDS.maxItems](0)).toMatch(/positive integer/)
+    expect(OM_FIELD_VALIDATORS[OM_FIELD_KEYWORDS.maxItems](3)).toBeNull()
+  })
+
+  it('accepts a well-formed group node', () => {
+    expect(validateOmCrossKeyword(groupSchema())).toBeNull()
+    expect(validateOmCrossKeyword(groupSchema({ 'x-om-min-items': 1, 'x-om-max-items': 5 }))).toBeNull()
+  })
+
+  it('rejects min-items > max-items', () => {
+    expect(
+      validateOmCrossKeyword(groupSchema({ 'x-om-min-items': 5, 'x-om-max-items': 2 })),
+    ).toMatch(/must be <=/)
+  })
+
+  it('rejects max-items above the soft cap', () => {
+    expect(validateOmCrossKeyword(groupSchema({ 'x-om-max-items': 9999 }))).toMatch(/too many max items/)
+  })
+
+  it('rejects min/max-items on a non-group field', () => {
+    const schema = {
+      type: 'object',
+      properties: {
+        name: { type: 'string', 'x-om-type': 'text', 'x-om-min-items': 1 },
+      },
+    }
+    expect(validateOmCrossKeyword(schema)).toMatch(/is not "group"/)
+  })
+
+  it('rejects a group with no sub-fields', () => {
+    const schema = groupSchema()
+    ;(schema.properties.meds.items as Record<string, unknown>).properties = {}
+    expect(validateOmCrossKeyword(schema)).toMatch(/at least one sub-field/)
+  })
+
+  it('rejects nested groups (sub-field of type group)', () => {
+    const schema = groupSchema()
+    ;(schema.properties.meds.items as Record<string, unknown>).properties = {
+      nested: { type: 'array', 'x-om-type': 'group' },
+    }
+    expect(validateOmCrossKeyword(schema)).toMatch(/nested groups are not supported/)
+  })
+
+  it('rejects a group whose JSON type is not array', () => {
+    const schema = groupSchema()
+    ;(schema.properties.meds as Record<string, unknown>).type = 'object'
+    expect(validateOmCrossKeyword(schema)).toMatch(/type "array"/)
+  })
+
+  it('rejects items.required referencing an unknown sub-field', () => {
+    const schema = groupSchema()
+    ;(schema.properties.meds.items as Record<string, unknown>).required = ['missing']
+    expect(validateOmCrossKeyword(schema)).toMatch(/unknown sub-field/)
+  })
+
+  it('registers x-om-min-items / x-om-max-items as AJV no-op annotations', () => {
+    const ajv = new Ajv({ strict: false })
+    addOmKeywords(ajv)
+    expect(() => ajv.compile(groupSchema({ 'x-om-min-items': 1 }))).not.toThrow()
   })
 })

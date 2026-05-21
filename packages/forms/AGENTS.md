@@ -29,6 +29,23 @@ The module ships in phases — see `.ai/specs/2026-04-22-forms-module.md` and th
 | `formVersionCompiler` | `FormVersionCompiler` | Compiles `(schema, ui_schema)` into `{ ajv, zod, fieldIndex, rolePolicyLookup, schemaHash, registryVersion }` with LRU cache keyed on `${id}:${updatedAt.toISOString()}` |
 | `fieldTypeRegistry` | `FieldTypeRegistry` | Singleton lookup of registered field types — preloaded with the 11 v1 core types |
 
+## Encryption Env Vars
+
+Per-tenant envelope encryption (`services/encryption-service.ts`) wraps each
+tenant DEK under a master key. Select the wrap posture via env:
+
+| Env var | Purpose |
+|---------|---------|
+| `FORMS_ENCRYPTION_MASTER_KEY` | Production master key — base64- or hex-encoded, MUST decode to exactly 32 bytes. When set, `EnvMasterKeyKmsAdapter` is used. Deliver it from a secret manager / cloud KMS at boot. |
+| `FORMS_ENCRYPTION_KMS_KEY_ID` | DEV-ONLY seed for `DevDeterministicKmsAdapter` (deterministic wrap key). Never protects PHI in production. |
+
+`resolveKmsAdapter(env)` chooses: operator-registered factory
+(`setKmsAdapterFactory(...)`) → `EnvMasterKeyKmsAdapter` (master key set) →
+`DevDeterministicKmsAdapter` (dev fallback). When `NODE_ENV=production` and only
+the dev fallback is available, it throws `INSECURE_KMS_IN_PRODUCTION` (W1 / R-1).
+Cloud KMS (AWS/GCP/Vault) integrates by implementing `KmsAdapter` and registering
+it via `setKmsAdapterFactory(...)` — no cloud SDK ships with this module.
+
 ## Schema Format (v1) — Locked In
 
 Every form definition is a JSON Schema 7-shaped object decorated with `x-om-*` extension keywords. The full keyword catalog lives in `src/modules/forms/schema/jsonschema-extensions.ts`. v1 keywords are FROZEN; new keywords are additive.
@@ -48,6 +65,8 @@ Every form definition is a JSON Schema 7-shaped object decorated with `x-om-*` e
 | `x-om-options` | field | `{ value, label: { [locale]: string } }[]` |
 | `x-om-min` / `x-om-max` | field | `number` |
 | `x-om-widget` | field | `string` (uiSchema widget override) |
+| `x-om-prefill` | field | `string` (logical prefill attribute key — W8 / FD-1) |
+| `x-om-answer-mappings` | root | `{ [fieldKey]: targetPath }` (consumer answer→target map — W8 / INT-5) |
 
 ## v1 Field Types (FROZEN core list)
 
@@ -100,6 +119,7 @@ Future phases append `commands/`, `api/`, `ui/`, `subscribers/`, more entities u
 | `forms.view` | `admin` | Read forms, versions, and submissions from admin surfaces |
 | `forms.design` | `admin` | Create / edit / publish forms (1b consumer) |
 | `forms.submissions.manage` | `admin` | Reopen, assign actors, export PDF (2a consumer) |
+| `forms.submissions.export` | `admin` | GDPR data-subject export — Art. 15/20 structured JSON (W5 consumer) |
 | `forms.submissions.anonymize` | `admin` | Trigger GDPR erasure (2b consumer) |
 | `forms.distribute` | `admin` | Create / manage distributions and invitations (2d consumer) |
 

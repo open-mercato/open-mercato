@@ -901,6 +901,25 @@ function FieldPreviewInput({
         />
       )
     }
+    case 'group': {
+      const groupItems = node.items
+      const groupProps =
+        groupItems && typeof groupItems === 'object' && !Array.isArray(groupItems)
+          ? ((groupItems as Record<string, unknown>).properties as Record<string, FieldNode> | undefined)
+          : undefined
+      const subLabels = groupProps
+        ? Object.values(groupProps).map((subNode) => {
+            const subLabel = subNode['x-om-label'] as Record<string, string> | undefined
+            return subLabel?.en ?? (subNode['x-om-type'] as string | undefined) ?? '—'
+          })
+        : []
+      return (
+        <div className="rounded-md border border-dashed border-border bg-muted/30 p-3 text-sm text-muted-foreground">
+          <p>{subLabels.length > 0 ? subLabels.join(' · ') : t('forms.studio.field.group.empty')}</p>
+          <p className="mt-1 text-xs">+ {t('forms.studio.field.group.addSubField')}</p>
+        </div>
+      )
+    }
     case 'text':
     default:
       return (

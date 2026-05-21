@@ -147,6 +147,14 @@ const jsonObjectSchema = z.record(z.string(), z.unknown())
 
 const supportedLocalesSchema = z.array(localeSchema).min(1).max(20)
 
+/**
+ * Per-form retention window in days (W5 / DP-6). `null` keeps submissions
+ * forever; a positive integer drives the retention-purge worker. Capped at
+ * ~100 years so a typo cannot disable purge by accident while still allowing
+ * decade-long legal-retention windows.
+ */
+const retentionDaysSchema = z.number().int().min(1).max(36500).optional().nullable()
+
 /** Query schema for `GET /api/forms`. */
 export const formListQuerySchema = z.object({
   status: z
@@ -167,16 +175,24 @@ export const formCreateCommandSchema = z.object({
   description: optionalDescription,
   defaultLocale: localeSchema,
   supportedLocales: supportedLocalesSchema,
+  retentionDays: retentionDaysSchema,
 })
 
 export type FormCreateCommandInput = z.infer<typeof formCreateCommandSchema>
 
-/** Command input for `forms.form.rename`. */
+/**
+ * Command input for `forms.form.rename`. Despite the name, this command is the
+ * single form-metadata update path: name, description, and (W7) the locale set.
+ * `defaultLocale` must be one of `supportedLocales` — enforced at execute time.
+ */
 export const formRenameCommandSchema = z.object({
   ...scopedFields,
   id: z.string().uuid(),
   name: z.string().trim().min(1).max(200).optional(),
   description: optionalDescription,
+  defaultLocale: localeSchema.optional(),
+  supportedLocales: supportedLocalesSchema.optional(),
+  retentionDays: retentionDaysSchema,
 })
 
 export type FormRenameCommandInput = z.infer<typeof formRenameCommandSchema>
@@ -248,6 +264,9 @@ export const formCreateRequestSchema = formCreateCommandSchema.omit({
 export const formPatchRequestSchema = z.object({
   name: z.string().trim().min(1).max(200).optional(),
   description: optionalDescription,
+  defaultLocale: localeSchema.optional(),
+  supportedLocales: supportedLocalesSchema.optional(),
+  retentionDays: retentionDaysSchema,
 })
 
 /** POST /api/forms/:id/versions/fork request body. */

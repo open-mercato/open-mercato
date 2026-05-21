@@ -22,6 +22,7 @@ import { FormDistribution, FormInvitation } from '../../../../../data/entities'
 import { submissionSubmitInputSchema } from '../../../../../data/validators'
 import { resolveRuntimePrincipal } from '../../../../../lib/runtime-principal'
 import {
+  buildSubmitMetadata,
   mapDistributionError,
   readJsonBody,
   serializeSubmission,
@@ -99,7 +100,7 @@ export async function POST(
       submissionId,
       baseRevisionId: parsed.data.base_revision_id,
       submittedBy: principal.principal,
-      submitMetadata: parsed.data.submit_metadata ?? null,
+      submitMetadata: buildSubmitMetadata(req, parsed.data.submit_metadata),
     })
 
     if (principal.source === 'token') {

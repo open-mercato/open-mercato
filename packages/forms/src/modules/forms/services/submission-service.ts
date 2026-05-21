@@ -95,6 +95,15 @@ export type StartArgs = Scope & {
    * particular version. When absent, behavior is unchanged.
    */
   pinnedVersionId?: string | null
+  /**
+   * Optional initial values keyed by field key (W8 / FD-1 prefill). Resolved
+   * by the route from `x-om-prefill` declarations + the injected
+   * `PrefillResolver`. Applied to the initial revision after being filtered
+   * through the participant role's `filterWritePatch` (only fields the
+   * participant may edit are kept) and validated by AJV. Backward-compatible:
+   * absent / empty ⇒ the initial revision payload stays `{}` as before.
+   */
+  prefill?: Record<string, unknown> | null
 }
 
 export type SaveArgs = Scope & {
@@ -377,7 +386,10 @@ export class SubmissionService {
       })
       trx.persist(actor)
 
-      const initialPayload: Record<string, unknown> = {}
+      // Seed prefill values (W8 / FD-1) — only fields the participant role may
+      // write, then validate the seed against AJV. A failing seed is dropped
+      // (start must never fail because of prefill); the submission opens empty.
+      const initialPayload = this.buildInitialPayload(compiled, role, args.prefill ?? null)
       const ciphertext = await this.encryption.encrypt(
         args.organizationId,
         Buffer.from(JSON.stringify(initialPayload), 'utf8'),
@@ -402,7 +414,7 @@ export class SubmissionService {
       submission.currentRevisionId = revisionId
       await trx.flush()
 
-      return { submission, actor, revision }
+      return { submission, actor, revision, initialPayload }
     })
 
     await this.safeEmit('forms.submission.started', {
@@ -413,10 +425,41 @@ export class SubmissionService {
     return {
       submission: result.submission,
       revision: result.revision,
-      decodedData: this.rolePolicy.resolve(compiled, role).sliceReadPayload({}),
+      decodedData: this.rolePolicy.resolve(compiled, role).sliceReadPayload(result.initialPayload),
       actors: [result.actor],
       formVersion,
     }
+  }
+
+  /**
+   * Builds the initial revision payload from optional prefill values (W8).
+   * Filters through the participant role's write policy (only editable fields
+   * seed) and validates the result against AJV. Returns `{}` when there is no
+   * prefill or the seeded payload fails validation — start must stay
+   * backward-compatible and never fail because of prefill.
+   */
+  private buildInitialPayload(
+    compiled: CompiledFormVersion,
+    role: string,
+    prefill: Record<string, unknown> | null,
+  ): Record<string, unknown> {
+    if (!prefill || Object.keys(prefill).length === 0) return {}
+    const { accepted } = this.rolePolicy.resolve(compiled, role).filterWritePatch(prefill)
+    const seed: Record<string, unknown> = {}
+    for (const [key, value] of Object.entries(accepted)) {
+      if (value === null || value === undefined) continue
+      seed[key] = value
+    }
+    if (Object.keys(seed).length === 0) return {}
+    const valid = compiled.ajv(seed)
+    if (!valid) {
+      this.logger.warn(
+        { event: 'forms.submission.prefill_rejected', role, fieldKeys: Object.keys(seed) },
+        'Forms prefill seed failed validation — starting with an empty payload.',
+      )
+      return {}
+    }
+    return seed
   }
 
   // --------------------------------------------------------------------------

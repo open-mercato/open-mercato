@@ -8,3 +8,14 @@ export { eventsConfig as formsEventsConfig, emitFormsEvent } from './modules/for
 export type { FormsEventId } from './modules/forms/events'
 export { formsEventPayloadSchemas } from './modules/forms/events-payloads'
 export type { FormsEventPayload } from './modules/forms/events-payloads'
+// W8 / FD-1 + INT-5 — pluggable patient prefill + answer→target mapping config.
+export {
+  DefaultPrefillResolver,
+  resolvePrefillSeed,
+} from './modules/forms/services/prefill-resolver'
+export type {
+  PrefillResolver,
+  PrefillPrincipal,
+  PrefillRequest,
+} from './modules/forms/services/prefill-resolver'
+export type { OmAnswerMappings } from './modules/forms/schema/jsonschema-extensions'

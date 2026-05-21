@@ -51,6 +51,15 @@ export type FieldNode = {
     value: string
     label: { [locale: string]: string }
   }>
+  'x-om-accept'?: string[]
+  'x-om-max-size-bytes'?: number
+  'x-om-multiple'?: boolean
+  'x-om-consent-clause'?: { [locale: string]: string }
+  'x-om-signature-modes'?: Array<'drawn' | 'typed'>
+  'x-om-min-items'?: number
+  'x-om-max-items'?: number
+  /** W8 / FD-1 — logical prefill attribute key (e.g. `"name"`, `"email"`). */
+  'x-om-prefill'?: string
   [key: string]: unknown
 }
 
@@ -76,8 +85,11 @@ export type FormSchema = {
   'x-om-roles'?: string[]
   'x-om-default-actor-role'?: string
   'x-om-sections'?: SectionNode[]
+  /** W8 / INT-5 — answer→consumer-target mapping (`{ [fieldKey]: targetPath }`). */
+  'x-om-answer-mappings'?: { [fieldKey: string]: string }
   properties: Record<string, FieldNode>
   required?: string[]
+  [key: string]: unknown
 }
 
 export class SchemaHelperError extends Error {
@@ -119,6 +131,10 @@ const FIELD_TYPE_TO_JSON_TYPE: Record<string, string> = {
   ranking: 'array',
   // Tier-2 — Phase F: matrix persists as a Record<rowKey, string | string[]>.
   matrix: 'object',
+  // W4 — file persists as an array of attachment-reference objects.
+  file: 'array',
+  // W6 — group (repeatable) persists as an array of objects (one per entry).
+  group: 'array',
 }
 
 /**
@@ -169,6 +185,42 @@ const FIELD_TYPE_NODE_INITIALIZER: Record<string, (node: FieldNode) => FieldNode
     node.additionalProperties = false
     node['x-om-matrix-rows'] = []
     node['x-om-matrix-columns'] = []
+    return node
+  },
+  // W4 — file persists an array of attachment-reference objects; `items`
+  // pins each entry to an object so AJV rejects scalars in the array.
+  file: (node) => {
+    node.items = { type: 'object' }
+    node['x-om-accept'] = []
+    node['x-om-multiple'] = false
+    return node
+  },
+  // W2 — signature persists an object value (mode + image/typedName +
+  // affirmed + signedAt + clauseSha256). Seed an empty consent clause map so
+  // the author immediately sees the clause editor.
+  signature: (node) => {
+    node.additionalProperties = false
+    node['x-om-consent-clause'] = {}
+    return node
+  },
+  // W6 — group (repeatable) persists as an array of objects. Seed `items`
+  // with a JSON-Schema object fragment carrying one starter sub-field so the
+  // author immediately sees the sub-field editor. Native `items.properties` /
+  // `required` / `additionalProperties:false` let AJV enforce the sub-field
+  // shape server-side (the submission service validates via `compiled.ajv`).
+  group: (node) => {
+    node.items = {
+      type: 'object',
+      additionalProperties: false,
+      properties: {
+        field_1: {
+          type: 'string',
+          'x-om-type': 'text',
+          'x-om-label': { en: 'New sub-field' },
+        },
+      },
+      required: [],
+    }
     return node
   },
 }
@@ -1630,6 +1682,299 @@ export function moveMatrixColumn(input: {
   const [moved] = columns.splice(sourceIndex, 1)
   columns.splice(destIndex, 0, moved)
   return setMatrixColumns({ schema, fieldKey, columns })
+}
+
+// ============================================================================
+// W6 — repeatable group (FA-8) studio helpers.
+//
+// A group field is a JSON-Schema `type: 'array'` whose `items` is a
+// `type: 'object'` carrying a `properties` map of sub-fields plus `required`
+// and `additionalProperties: false`. Sub-field keys live under
+// `items.properties` — a namespace disjoint from top-level `properties`
+// (root AGENTS MUST 14). Native `items` constraints let AJV enforce the
+// sub-field shape server-side; `x-om-min-items` / `x-om-max-items` carry the
+// entry-count bounds for the renderer + the registry validator.
+// ============================================================================
+
+export type GroupSubFieldInput = {
+  key: string
+  type: string
+  label: { [locale: string]: string }
+  required?: boolean
+}
+
+const GROUP_SUB_FIELD_KEY_PATTERN = /^field_(\d+)$/
+
+type GroupItemsNode = {
+  type: 'object'
+  additionalProperties: false
+  properties: Record<string, FieldNode>
+  required: string[]
+}
+
+/** Builds a JSON-Schema-object `items` node from a sub-field map + required list. */
+function buildGroupItemsNode(properties: Record<string, FieldNode>, required: string[]): GroupItemsNode {
+  return { type: 'object', additionalProperties: false, properties, required }
+}
+
+/** Builds a fresh sub-field node for the given `x-om-type`, seeding type-specific keywords. */
+export function buildGroupSubFieldNode(typeKey: string, label: { [locale: string]: string }): FieldNode {
+  const jsonType = FIELD_TYPE_TO_JSON_TYPE[typeKey] ?? 'string'
+  const subNode: FieldNode = {
+    type: jsonType,
+    'x-om-type': typeKey,
+    'x-om-label': label,
+  }
+  const subInitializer = FIELD_TYPE_NODE_INITIALIZER[typeKey]
+  if (subInitializer) subInitializer(subNode)
+  return subNode
+}
+
+/**
+ * Node-level reducers for a group field's `items` — used by the studio
+ * inspector, which patches the selected node directly via `onUpdate`. They
+ * mirror the schema-level `addGroupSubField` / `removeGroupSubField` /
+ * `updateGroupSubField` helpers but operate on a single node and never run
+ * `validateSchemaExtensions` (the autosave guard validates the full schema).
+ */
+export function groupNodeAddSubField(node: FieldNode, label: { [locale: string]: string }): FieldNode {
+  const { properties, required } = readGroupItemsNode(node)
+  const key = nextGroupSubFieldKey(properties)
+  const subNode = buildGroupSubFieldNode('text', label)
+  const updated: FieldNode = { ...node }
+  updated.items = buildGroupItemsNode({ ...properties, [key]: subNode }, required)
+  return updated
+}
+
+export function groupNodeRemoveSubField(node: FieldNode, subFieldKey: string): FieldNode {
+  const { properties, required } = readGroupItemsNode(node)
+  const nextProperties: Record<string, FieldNode> = {}
+  for (const [key, subNode] of Object.entries(properties)) {
+    if (key === subFieldKey) continue
+    nextProperties[key] = subNode
+  }
+  const updated: FieldNode = { ...node }
+  updated.items = buildGroupItemsNode(nextProperties, required.filter((entry) => entry !== subFieldKey))
+  return updated
+}
+
+export function groupNodeUpdateSubField(
+  node: FieldNode,
+  subFieldKey: string,
+  patch: { label?: { [locale: string]: string }; type?: string; required?: boolean },
+): FieldNode {
+  const { properties, required } = readGroupItemsNode(node)
+  const existing = properties[subFieldKey]
+  if (!existing) return node
+  let nextSubNode: FieldNode = { ...existing }
+  if (patch.label !== undefined) {
+    nextSubNode['x-om-label'] = patch.label
+  }
+  if (patch.type !== undefined && patch.type.length > 0 && patch.type !== existing['x-om-type']) {
+    nextSubNode = buildGroupSubFieldNode(patch.type, nextSubNode['x-om-label'] ?? { en: 'New sub-field' })
+  }
+  let nextRequired = required
+  if (patch.required !== undefined) {
+    nextRequired = patch.required
+      ? Array.from(new Set([...required, subFieldKey]))
+      : required.filter((entry) => entry !== subFieldKey)
+  }
+  const updated: FieldNode = { ...node }
+  updated.items = buildGroupItemsNode({ ...properties, [subFieldKey]: nextSubNode }, nextRequired)
+  return updated
+}
+
+function readGroupItemsNode(node: FieldNode): {
+  properties: Record<string, FieldNode>
+  required: string[]
+} {
+  const items = node.items
+  const itemsNode = items && typeof items === 'object' && !Array.isArray(items)
+    ? (items as Record<string, unknown>)
+    : {}
+  const properties = itemsNode.properties && typeof itemsNode.properties === 'object' && !Array.isArray(itemsNode.properties)
+    ? (itemsNode.properties as Record<string, FieldNode>)
+    : {}
+  const required = Array.isArray(itemsNode.required)
+    ? (itemsNode.required as unknown[]).filter((entry): entry is string => typeof entry === 'string')
+    : []
+  return { properties, required }
+}
+
+function nextGroupSubFieldKey(properties: Record<string, unknown>): string {
+  let maxSuffix = 0
+  for (const key of Object.keys(properties)) {
+    const match = GROUP_SUB_FIELD_KEY_PATTERN.exec(key)
+    if (!match) continue
+    const value = Number.parseInt(match[1], 10)
+    if (Number.isFinite(value) && value > maxSuffix) maxSuffix = value
+  }
+  return `field_${maxSuffix + 1}`
+}
+
+/**
+ * Sets (or clears) a group field's `x-om-min-items` / `x-om-max-items`. Pass
+ * `null` for either bound to clear it. The cross-keyword validator enforces
+ * `min <= max` and the soft cap at save time.
+ */
+export function setGroupItemRange(input: {
+  schema: FormSchema
+  fieldKey: string
+  min?: number | null
+  max?: number | null
+}): FormSchema {
+  const { schema, fieldKey, min, max } = input
+  const next = deepClone(schema)
+  const node = next.properties[fieldKey]
+  if (!node) {
+    throw new SchemaHelperError(`Field "${fieldKey}" not found.`, 'unknown_field', [fieldKey])
+  }
+  if (min !== undefined) {
+    if (min === null) delete node[OM_FIELD_KEYWORDS.minItems]
+    else node[OM_FIELD_KEYWORDS.minItems] = min
+  }
+  if (max !== undefined) {
+    if (max === null) delete node[OM_FIELD_KEYWORDS.maxItems]
+    else node[OM_FIELD_KEYWORDS.maxItems] = max
+  }
+  validateSchemaExtensions(next)
+  return next
+}
+
+/**
+ * Appends a sub-field to a group's `items.properties`. Generates a fresh
+ * `field_<n>` key (scoped to the group's sub-field namespace) when the caller
+ * omits `subField.key`. The sub-field's JSON Schema `type` is derived from its
+ * `x-om-type` via the same `FIELD_TYPE_TO_JSON_TYPE` map used by top-level
+ * fields.
+ */
+export function addGroupSubField(input: {
+  schema: FormSchema
+  fieldKey: string
+  subField?: Partial<GroupSubFieldInput>
+}): FormSchema {
+  const { schema, fieldKey, subField } = input
+  const next = deepClone(schema)
+  const node = next.properties[fieldKey]
+  if (!node) {
+    throw new SchemaHelperError(`Field "${fieldKey}" not found.`, 'unknown_field', [fieldKey])
+  }
+  const { properties, required } = readGroupItemsNode(node)
+  const typeKey = subField?.type && subField.type.length > 0 ? subField.type : 'text'
+  const jsonType = FIELD_TYPE_TO_JSON_TYPE[typeKey] ?? 'string'
+  const key = subField?.key && subField.key.length > 0 ? subField.key : nextGroupSubFieldKey(properties)
+  const subNode: FieldNode = {
+    type: jsonType,
+    'x-om-type': typeKey,
+    'x-om-label': subField?.label ?? { en: 'New sub-field' },
+  }
+  const subInitializer = FIELD_TYPE_NODE_INITIALIZER[typeKey]
+  if (subInitializer) subInitializer(subNode)
+  const nextProperties = { ...properties, [key]: subNode }
+  const nextRequired = subField?.required === true ? [...required, key] : required
+  node.items = {
+    type: 'object',
+    additionalProperties: false,
+    properties: nextProperties,
+    required: nextRequired,
+  }
+  validateSchemaExtensions(next)
+  return next
+}
+
+/**
+ * Removes a sub-field from a group's `items.properties` and drops it from the
+ * `items.required` list.
+ */
+export function removeGroupSubField(input: {
+  schema: FormSchema
+  fieldKey: string
+  subFieldKey: string
+}): FormSchema {
+  const { schema, fieldKey, subFieldKey } = input
+  const next = deepClone(schema)
+  const node = next.properties[fieldKey]
+  if (!node) {
+    throw new SchemaHelperError(`Field "${fieldKey}" not found.`, 'unknown_field', [fieldKey])
+  }
+  const { properties, required } = readGroupItemsNode(node)
+  if (!properties[subFieldKey]) {
+    throw new SchemaHelperError(
+      `Sub-field "${subFieldKey}" not found in group "${fieldKey}".`,
+      'unknown_sub_field',
+      [fieldKey, subFieldKey],
+    )
+  }
+  const nextProperties: Record<string, FieldNode> = {}
+  for (const [key, subNode] of Object.entries(properties)) {
+    if (key === subFieldKey) continue
+    nextProperties[key] = subNode
+  }
+  node.items = {
+    type: 'object',
+    additionalProperties: false,
+    properties: nextProperties,
+    required: required.filter((entry) => entry !== subFieldKey),
+  }
+  validateSchemaExtensions(next)
+  return next
+}
+
+/**
+ * Updates a sub-field's label, type, and/or required flag. Switching the
+ * `x-om-type` re-derives the JSON Schema `type` and re-runs the type's node
+ * initializer so type-specific keywords (e.g. `x-om-options`) are seeded.
+ */
+export function updateGroupSubField(input: {
+  schema: FormSchema
+  fieldKey: string
+  subFieldKey: string
+  patch: { label?: { [locale: string]: string }; type?: string; required?: boolean }
+}): FormSchema {
+  const { schema, fieldKey, subFieldKey, patch } = input
+  const next = deepClone(schema)
+  const node = next.properties[fieldKey]
+  if (!node) {
+    throw new SchemaHelperError(`Field "${fieldKey}" not found.`, 'unknown_field', [fieldKey])
+  }
+  const { properties, required } = readGroupItemsNode(node)
+  const subNode = properties[subFieldKey]
+  if (!subNode) {
+    throw new SchemaHelperError(
+      `Sub-field "${subFieldKey}" not found in group "${fieldKey}".`,
+      'unknown_sub_field',
+      [fieldKey, subFieldKey],
+    )
+  }
+  let nextSubNode: FieldNode = { ...subNode }
+  if (patch.label !== undefined) {
+    nextSubNode['x-om-label'] = patch.label
+  }
+  if (patch.type !== undefined && patch.type.length > 0 && patch.type !== subNode['x-om-type']) {
+    const jsonType = FIELD_TYPE_TO_JSON_TYPE[patch.type] ?? 'string'
+    nextSubNode = {
+      type: jsonType,
+      'x-om-type': patch.type,
+      'x-om-label': nextSubNode['x-om-label'] ?? { en: 'New sub-field' },
+    }
+    const subInitializer = FIELD_TYPE_NODE_INITIALIZER[patch.type]
+    if (subInitializer) subInitializer(nextSubNode)
+  }
+  const nextProperties = { ...properties, [subFieldKey]: nextSubNode }
+  let nextRequired = required
+  if (patch.required !== undefined) {
+    nextRequired = patch.required
+      ? Array.from(new Set([...required, subFieldKey]))
+      : required.filter((entry) => entry !== subFieldKey)
+  }
+  node.items = {
+    type: 'object',
+    additionalProperties: false,
+    properties: nextProperties,
+    required: nextRequired,
+  }
+  validateSchemaExtensions(next)
+  return next
 }
 
 /**
