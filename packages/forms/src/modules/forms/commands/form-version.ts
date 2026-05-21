@@ -77,6 +77,17 @@ function arraysEqual<T>(a: T[], b: T[]): boolean {
 }
 
 /**
+ * The `roles` column mirrors the schema's `x-om-roles` (the studio edits the
+ * latter). Keeping them in sync prevents the runtime declared-role check from
+ * drifting from what the form actually declares. `admin` is always present.
+ */
+function deriveRolesFromSchema(schema: Record<string, unknown>): string[] {
+  const raw = schema['x-om-roles']
+  const roles = Array.isArray(raw) ? raw.filter((entry): entry is string => typeof entry === 'string') : []
+  return Array.from(new Set([...roles, 'admin']))
+}
+
+/**
  * Best-effort check for whether any submission references the given version.
  * Phase 1b runs before submission entities exist (1c), so the table may be
  * absent entirely. In that case there are clearly no submissions and we
@@ -311,12 +322,17 @@ const updateDraftCommand: CommandHandler<FormVersionUpdateDraftCommandInput, { v
     if (parsed.schema !== undefined) {
       version.schema = deepClone(parsed.schema)
       touched = true
+      // Keep the roles column in sync with the schema's x-om-roles.
+      const derivedRoles = deriveRolesFromSchema(version.schema)
+      if (!arraysEqual(derivedRoles, version.roles)) {
+        version.roles = derivedRoles
+      }
     }
     if (parsed.uiSchema !== undefined) {
       version.uiSchema = deepClone(parsed.uiSchema)
       touched = true
     }
-    if (parsed.roles !== undefined) {
+    if (parsed.roles !== undefined && parsed.schema === undefined) {
       const next = Array.from(new Set(parsed.roles))
       if (!arraysEqual(next, version.roles)) {
         version.roles = next
@@ -525,6 +541,9 @@ const publishVersionCommand: CommandHandler<FormVersionPublishCommandInput, {
       version.registryVersion = registry.getRegistryVersion()
       version.publishedAt = now
       version.publishedBy = actorUserId
+      // Re-derive the roles column from the schema so a stale draft column
+      // cannot ship a published version that under-declares its roles.
+      version.roles = deriveRolesFromSchema(version.schema)
       if (parsed.changelog !== undefined && parsed.changelog !== null) {
         version.changelog = parsed.changelog.trim() || null
       }

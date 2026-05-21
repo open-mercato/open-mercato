@@ -16,6 +16,7 @@
  * (`auditAccess`) so phase 2b can replace it without rewriting the service.
  */
 
+import { randomUUID } from 'node:crypto'
 import { LockMode } from '@mikro-orm/core'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import { z } from 'zod'
@@ -345,7 +346,13 @@ export class SubmissionService {
     const em = this.emFactory()
     const result = await em.transactional(async (trx) => {
       const now = this.now()
+      // Assign UUID PKs in app code so cross-row FKs (actor/revision →
+      // submission, submission → revision) are known before flush. The DB
+      // `defaultRaw` only fills them on insert, which is too late here.
+      const submissionId = randomUUID()
+      const revisionId = randomUUID()
       const submission = trx.create(FormSubmission, {
+        id: submissionId,
         organizationId: args.organizationId,
         tenantId: args.tenantId,
         formVersionId: formVersion.id,
@@ -360,7 +367,7 @@ export class SubmissionService {
       trx.persist(submission)
 
       const actor = trx.create(FormSubmissionActor, {
-        submissionId: submission.id,
+        submissionId,
         organizationId: args.organizationId,
         userId: args.startedBy,
         role,
@@ -377,7 +384,8 @@ export class SubmissionService {
       )
       const keyVersion = await this.encryption.currentKeyVersion(args.organizationId)
       const revision = trx.create(FormSubmissionRevision, {
-        submissionId: submission.id,
+        id: revisionId,
+        submissionId,
         organizationId: args.organizationId,
         revisionNumber: 1,
         data: ciphertext,
@@ -391,7 +399,7 @@ export class SubmissionService {
       })
       trx.persist(revision)
 
-      submission.currentRevisionId = revision.id
+      submission.currentRevisionId = revisionId
       await trx.flush()
 
       return { submission, actor, revision }
@@ -566,7 +574,12 @@ export class SubmissionService {
         outcome = { revision: currentRevision, coalesced: true }
       } else {
         const savedAt = this.now()
+        // Assign the PK in app code so currentRevisionId points at it before
+        // flush — the DB `defaultRaw` only fills the id on insert, which would
+        // make `submission.currentRevisionId = revision.id` persist as NULL.
+        const revisionId = randomUUID()
         const revision = trx.create(FormSubmissionRevision, {
+          id: revisionId,
           submissionId: submission.id,
           organizationId: args.organizationId,
           revisionNumber: nextRevisionNumber,
@@ -580,7 +593,7 @@ export class SubmissionService {
           changeSummary: args.changeSummary ?? null,
         })
         trx.persist(revision)
-        submission.currentRevisionId = revision.id
+        submission.currentRevisionId = revisionId
         submission.updatedAt = this.now()
         await trx.flush()
         outcome = { revision, coalesced: false }
@@ -956,16 +969,20 @@ function ensureBuffer(value: Buffer | Uint8Array | string): Buffer {
 }
 
 function readDeclaredRoles(formVersion: FormVersion): string[] {
+  // Union the persisted `roles` column with the schema's `x-om-roles`. Both are
+  // authoritative declarations; the column can lag the schema if a publish
+  // predates the roles-sync, so a role declared in the published schema must
+  // never be rejected at runtime.
+  const declared = new Set<string>()
   const roles = formVersion.roles
   if (Array.isArray(roles)) {
-    return roles.filter((entry): entry is string => typeof entry === 'string')
+    for (const entry of roles) if (typeof entry === 'string') declared.add(entry)
   }
-  // Fallback: read from schema
   const fromSchema = (formVersion.schema as Record<string, unknown> | null | undefined)?.['x-om-roles']
   if (Array.isArray(fromSchema)) {
-    return fromSchema.filter((entry): entry is string => typeof entry === 'string')
+    for (const entry of fromSchema) if (typeof entry === 'string') declared.add(entry)
   }
-  return []
+  return Array.from(declared)
 }
 
 function readDefaultActorRole(formVersion: FormVersion): string | null {
