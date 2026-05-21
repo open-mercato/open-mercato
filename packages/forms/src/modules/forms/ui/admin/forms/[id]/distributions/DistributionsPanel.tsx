@@ -46,10 +46,8 @@ type DistributionListResponse = {
 }
 
 type FormSummaryResponse = {
-  form: {
-    id: string
-    name: string
-  }
+  id: string
+  name: string
 }
 
 const STATUS_VARIANT: Record<DistributionStatus, StatusBadgeVariant> = {
@@ -118,7 +116,7 @@ export function DistributionsPanel({ formId }: { formId: string }) {
         setRows(listResp.result.items)
         setTotal(listResp.result.total)
         if (summaryResp.ok && summaryResp.result) {
-          setFormName(summaryResp.result.form.name)
+          setFormName(summaryResp.result.name)
         }
       } catch (error) {
         if (!cancelled) {

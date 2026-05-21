@@ -53,17 +53,16 @@ export function register(container: AppContainer): void {
     formVersionDiffer: asValue(formVersionDiffer),
     formsRolePolicyService: asValue(rolePolicyService),
     formsAccessAuditLogger: asValue(accessAuditLogger),
-    formsEncryptionService: asFunction((deps: Record<string, unknown>): EncryptionService => {
+    formsEncryptionService: asFunction(({ em }: { em: EntityManager }): EncryptionService => {
       return new FormsEncryptionService({
-        emFactory: () => deps.em as EntityManager,
+        emFactory: () => em,
       })
-    }).singleton(),
-    formsSubmissionService: asFunction((deps: Record<string, unknown>): SubmissionService => {
-      const em = deps.em as EntityManager
+    }).proxy().singleton(),
+    formsSubmissionService: asFunction(({ em, formsEncryptionService }: { em: EntityManager; formsEncryptionService: EncryptionService }): SubmissionService => {
       return new SubmissionService({
         emFactory: () => em,
         formVersionCompiler,
-        encryptionService: deps.formsEncryptionService as EncryptionService,
+        encryptionService: formsEncryptionService,
         rolePolicyService,
         emitEvent: async (eventId, payload) => {
           // Validate against catalogued payload schema before forwarding to the
@@ -87,25 +86,24 @@ export function register(container: AppContainer): void {
           await accessAuditLogger.log(em, event)
         },
       })
-    }).singleton(),
-    formsDistributionService: asFunction((deps: Record<string, unknown>): DistributionService => {
-      const em = deps.em as EntityManager
+    }).proxy().singleton(),
+    formsDistributionService: asFunction(({ em, formsSubmissionService }: { em: EntityManager; formsSubmissionService: SubmissionService }): DistributionService => {
       return new DistributionService({
         emFactory: () => em,
-        submissionService: deps.formsSubmissionService as SubmissionService,
+        submissionService: formsSubmissionService,
         emitEvent: async (eventId, payload) => {
           const schema = formsEventPayloadSchemas[eventId as keyof typeof formsEventPayloadSchemas]
           const validated = schema ? schema.parse(payload) : payload
           await emitFormsEvent(eventId, validated as never)
         },
       })
-    }).singleton(),
-    formsAnonymizeService: asFunction((deps: Record<string, unknown>): AnonymizeService => {
+    }).proxy().singleton(),
+    formsAnonymizeService: asFunction(({ em, formsEncryptionService }: { em: EntityManager; formsEncryptionService: EncryptionService }): AnonymizeService => {
       return new AnonymizeService({
-        em: deps.em as EntityManager,
+        em,
         compiler: formVersionCompiler,
-        encryption: deps.formsEncryptionService as EncryptionService,
+        encryption: formsEncryptionService,
       })
-    }).singleton(),
+    }).proxy().singleton(),
   })
 }
