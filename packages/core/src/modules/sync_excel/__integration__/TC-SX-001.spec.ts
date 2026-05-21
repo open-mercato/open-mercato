@@ -641,7 +641,17 @@ test.describe('TC-SX-001: sync_excel upload preview and import APIs', () => {
 
       const firstRunResponse = await apiRequest(request, 'GET', `/api/data_sync/runs/${encodeURIComponent(firstRunId)}`, { token })
       expect(firstRunResponse.status()).toBe(200)
-      expect(asRunSummary(await readJson(firstRunResponse))).toMatchObject({
+      const firstRunBody = await readJson(firstRunResponse)
+      const firstSummary = asRunSummary(firstRunBody)
+      if (firstSummary.failedCount > 0 || firstSummary.createdCount !== 1) {
+        const diagnosticLogs = await listIntegrationLogs(request, token, { runId: firstRunId })
+        // eslint-disable-next-line no-console
+        console.error(
+          '[TC-SX-001] First import run did not produce expected counts. Diagnostic dump:',
+          JSON.stringify({ summary: firstSummary, runBody: firstRunBody, logs: diagnosticLogs }, null, 2),
+        )
+      }
+      expect(firstSummary).toMatchObject({
         status: 'completed',
         createdCount: 1,
         updatedCount: 0,
