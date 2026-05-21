@@ -49,11 +49,13 @@ test.describe('TC-CUR-004: Set Base Currency from UI', () => {
       await login(page, 'admin');
       await page.goto('/backend/currencies');
 
-      // Wait for the table to load and find our fixture row.
-      // Word boundaries avoid matching the code as a substring of a seeded
-      // currency name (e.g. random code "BRI" inside "British Pound").
-      const codePattern = new RegExp(`\\b${code}\\b`);
-      const row = page.getByRole('row').filter({ hasText: codePattern });
+      // Wait for the table to load and find our fixture row. Match the
+      // code cell exactly — substring matching on the whole row collides
+      // when a random code (e.g. "BRI") appears inside a seeded currency
+      // name (e.g. "British Pound").
+      const row = page.getByRole('row').filter({
+        has: page.getByRole('cell', { name: code, exact: true }),
+      });
       await expect(row).toBeVisible({ timeout: 10_000 });
 
       // Open row actions menu (focus + Enter, same pattern as TC-ADMIN-002)
