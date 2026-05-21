@@ -523,6 +523,44 @@ export const enforceAdjustmentSign = (
  */
 export const enforceReturnAdjustmentSign = enforceAdjustmentSign
 
+export const RETURN_ADJUSTMENT_EXCEEDS_REMAINING_NET_MESSAGE =
+  'Return adjustment amountNet exceeds the remaining grand total. Reduce the amount or remove existing returns first.'
+export const RETURN_ADJUSTMENT_EXCEEDS_REMAINING_GROSS_MESSAGE =
+  'Return adjustment amountGross exceeds the remaining grand total. Reduce the amount or remove existing returns first.'
+
+export type ReturnAdjustmentRemainingCheck = {
+  kind?: string | null
+  amountNet?: number | null
+  amountGross?: number | null
+  remainingNet: number
+  remainingGross: number
+}
+
+export type ReturnAdjustmentRemainingIssue = {
+  path: 'amountNet' | 'amountGross'
+  message: string
+}
+
+// Inclusive: abs(amount) === remaining is allowed. Tiny epsilon absorbs
+// floating-point rounding from upstream tax/rate adjustments.
+const RETURN_REMAINING_EPSILON = 0.005
+
+export const validateReturnAdjustmentWithinRemaining = (
+  value: ReturnAdjustmentRemainingCheck
+): ReturnAdjustmentRemainingIssue[] => {
+  if (value.kind !== 'return') return []
+  const absNet = typeof value.amountNet === 'number' ? Math.abs(value.amountNet) : 0
+  const absGross = typeof value.amountGross === 'number' ? Math.abs(value.amountGross) : 0
+  const issues: ReturnAdjustmentRemainingIssue[] = []
+  if (absGross > value.remainingGross + RETURN_REMAINING_EPSILON) {
+    issues.push({ path: 'amountGross', message: RETURN_ADJUSTMENT_EXCEEDS_REMAINING_GROSS_MESSAGE })
+  }
+  if (absNet > value.remainingNet + RETURN_REMAINING_EPSILON) {
+    issues.push({ path: 'amountNet', message: RETURN_ADJUSTMENT_EXCEEDS_REMAINING_NET_MESSAGE })
+  }
+  return issues
+}
+
 export const orderAdjustmentCreateSchema = scoped.extend({
   orderId: uuid(),
   orderLineId: uuid().optional(),
