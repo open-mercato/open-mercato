@@ -6,6 +6,7 @@ import {
   padByCodePointWidth,
   run,
 } from '../mercato'
+import { pathIncludes } from '../lib/__tests__/path-helpers'
 
 type MockChildAutoExit = { code: number | null; signal?: NodeJS.Signals | null } | undefined
 type MockChildSpawnRouter = (args: string[]) => MockChildAutoExit
@@ -674,7 +675,7 @@ describe('server dev managed process exits', () => {
       return {
         ...actual,
         existsSync: jest.fn((candidate: string) =>
-          candidate.includes('next/dist/bin/next') || candidate.includes('@open-mercato/cli/bin/mercato'),
+          pathIncludes(candidate, 'next/dist/bin/next') || pathIncludes(candidate, '@open-mercato/cli/bin/mercato'),
         ),
         unlinkSync: jest.fn(),
       }
@@ -691,7 +692,7 @@ describe('server dev managed process exits', () => {
     }))
     jest.doMock('child_process', () =>
       buildMockChildProcessModule((args) =>
-        args[0]?.includes('next/dist/bin/next') ? { code: null, signal: 'SIGTERM' } : undefined,
+        pathIncludes(args[0] ?? '', 'next/dist/bin/next') ? { code: null, signal: 'SIGTERM' } : undefined,
       ),
     )
 
@@ -715,7 +716,7 @@ describe('server dev managed process exits', () => {
       return {
         ...actual,
         existsSync: jest.fn((candidate: string) =>
-          candidate.includes('next/dist/bin/next') || candidate.includes('@open-mercato/cli/bin/mercato'),
+          pathIncludes(candidate, 'next/dist/bin/next') || pathIncludes(candidate, '@open-mercato/cli/bin/mercato'),
         ),
         unlinkSync: jest.fn(),
       }
@@ -763,7 +764,7 @@ describe('server dev managed process exits', () => {
       return {
         ...actual,
         existsSync: jest.fn((candidate: string) =>
-          candidate.includes('next/dist/bin/next') || candidate.includes('@open-mercato/cli/bin/mercato'),
+          pathIncludes(candidate, 'next/dist/bin/next') || pathIncludes(candidate, '@open-mercato/cli/bin/mercato'),
         ),
         unlinkSync: jest.fn(),
       }
@@ -792,7 +793,7 @@ describe('server dev managed process exits', () => {
 
     jest.doMock('child_process', () =>
       buildMockChildProcessModule((args) =>
-        args[0]?.includes('next/dist/bin/next') ? { code: null, signal: 'SIGTERM' } : undefined,
+        pathIncludes(args[0] ?? '', 'next/dist/bin/next') ? { code: null, signal: 'SIGTERM' } : undefined,
       ),
     )
 
@@ -830,7 +831,7 @@ describe('server dev managed process exits', () => {
       return {
         ...actual,
         existsSync: jest.fn((candidate: string) =>
-          candidate.includes('next/dist/bin/next') || candidate.includes('@open-mercato/cli/bin/mercato'),
+          pathIncludes(candidate, 'next/dist/bin/next') || pathIncludes(candidate, '@open-mercato/cli/bin/mercato'),
         ),
         unlinkSync: jest.fn(),
       }
@@ -859,7 +860,7 @@ describe('server dev managed process exits', () => {
 
     jest.doMock('child_process', () =>
       buildMockChildProcessModule((args) =>
-        args[0]?.includes('next/dist/bin/next') ? { code: null, signal: 'SIGTERM' } : undefined,
+        pathIncludes(args[0] ?? '', 'next/dist/bin/next') ? { code: null, signal: 'SIGTERM' } : undefined,
       ),
     )
 
@@ -932,7 +933,7 @@ describe('server start managed process exits', () => {
       return {
         ...actual,
         existsSync: jest.fn((candidate: string) =>
-          candidate.includes('next/dist/bin/next') || candidate.includes('@open-mercato/cli/bin/mercato'),
+          pathIncludes(candidate, 'next/dist/bin/next') || pathIncludes(candidate, '@open-mercato/cli/bin/mercato'),
         ),
       }
     })
@@ -949,7 +950,7 @@ describe('server start managed process exits', () => {
     }))
     jest.doMock('child_process', () =>
       buildMockChildProcessModule((args) =>
-        args[0]?.includes('next/dist/bin/next') ? { code: null, signal: 'SIGTERM' } : undefined,
+        pathIncludes(args[0] ?? '', 'next/dist/bin/next') ? { code: null, signal: 'SIGTERM' } : undefined,
       ),
     )
 
@@ -973,7 +974,7 @@ describe('server start managed process exits', () => {
       return {
         ...actual,
         existsSync: jest.fn((candidate: string) =>
-          candidate.includes('next/dist/bin/next') || candidate.includes('@open-mercato/cli/bin/mercato'),
+          pathIncludes(candidate, 'next/dist/bin/next') || pathIncludes(candidate, '@open-mercato/cli/bin/mercato'),
         ),
       }
     })
@@ -1022,7 +1023,7 @@ describe('server start managed process exits', () => {
       return {
         ...actual,
         existsSync: jest.fn((candidate: string) =>
-          candidate.includes('next/dist/bin/next') || candidate.includes('@open-mercato/cli/bin/mercato'),
+          pathIncludes(candidate, 'next/dist/bin/next') || pathIncludes(candidate, '@open-mercato/cli/bin/mercato'),
         ),
         unlinkSync: jest.fn(),
       }
@@ -1089,7 +1090,7 @@ describe('server start managed process exits', () => {
 
       return {
         spawn: jest.fn((_command: string, args: string[]) => {
-          if (args[0]?.includes('next/dist/bin/next')) {
+          if (pathIncludes(args[0] ?? '', 'next/dist/bin/next')) {
             nextSpawnCount += 1
             if (nextSpawnCount === 1) {
               queueMicrotask(() => envChangeCallback?.('/tmp/test-app/.env'))
@@ -1106,7 +1107,7 @@ describe('server start managed process exits', () => {
     const exitCode = await mercado.run(['node', 'mercato', 'server', 'dev'])
     const { spawn } = await import('child_process')
     const nextSpawns = (spawn as jest.Mock).mock.calls.filter((call) =>
-      call[1]?.[0]?.includes('next/dist/bin/next'),
+      pathIncludes(call[1]?.[0] ?? '', 'next/dist/bin/next'),
     )
 
     expect(exitCode).toBe(0)
@@ -1132,7 +1133,7 @@ describe('server start managed process exits', () => {
       return {
         ...actual,
         existsSync: jest.fn((candidate: string) =>
-          candidate.includes('next/dist/bin/next') || candidate.includes('@open-mercato/cli/bin/mercato'),
+          pathIncludes(candidate, 'next/dist/bin/next') || pathIncludes(candidate, '@open-mercato/cli/bin/mercato'),
         ),
       }
     })
@@ -1159,7 +1160,7 @@ describe('server start managed process exits', () => {
 
     jest.doMock('child_process', () =>
       buildMockChildProcessModule((args) =>
-        args[0]?.includes('next/dist/bin/next') ? { code: null, signal: 'SIGTERM' } : undefined,
+        pathIncludes(args[0] ?? '', 'next/dist/bin/next') ? { code: null, signal: 'SIGTERM' } : undefined,
       ),
     )
 

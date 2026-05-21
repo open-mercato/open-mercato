@@ -10,6 +10,7 @@ const mockFindWithDecryption = jest.fn()
 const mockFindOneWithDecryption = jest.fn()
 const mockLoadCustomFieldValues = jest.fn()
 const mockLogCrudAccess = jest.fn()
+const mockResolveOrganizationScopeForRequest = jest.fn()
 
 const mockSearchTokenExecute = jest.fn()
 const mockSearchTokenWhere = jest.fn().mockImplementation(() => searchTokenQueryBuilder)
@@ -102,13 +103,23 @@ jest.mock('@open-mercato/shared/lib/crud/custom-fields', () => ({
   loadCustomFieldValues: jest.fn((args: unknown) => mockLoadCustomFieldValues(args)),
 }))
 
+jest.mock('@open-mercato/core/modules/directory/utils/organizationScope', () => ({
+  getSelectedTenantFromRequest: jest.fn((request: Request) => {
+    const header = request.headers.get('cookie') || ''
+    const match = header.match(/(?:^|;\s*)om_selected_tenant=([^;]+)/)
+    return match ? decodeURIComponent(match[1]) : null
+  }),
+  resolveOrganizationScopeForRequest: jest.fn((args: unknown) => mockResolveOrganizationScopeForRequest(args)),
+}))
+
 const tenantId = '123e4567-e89b-12d3-a456-426614174001'
 const organizationId = '223e4567-e89b-12d3-a456-426614174001'
 const secondaryOrganizationId = '223e4567-e89b-12d3-a456-426614174002'
+const descendantOrganizationId = '223e4567-e89b-12d3-a456-426614174003'
 const roleId = '323e4567-e89b-12d3-a456-426614174001'
 
-function makeRequest(path = '/api/auth/users') {
-  return new Request(`http://localhost${path}`, { method: 'GET' })
+function makeRequest(path = '/api/auth/users', headers?: HeadersInit) {
+  return new Request(`http://localhost${path}`, { method: 'GET', headers })
 }
 
 describe('GET /api/auth/users', () => {
@@ -123,6 +134,7 @@ describe('GET /api/auth/users', () => {
     mockFindOneWithDecryption.mockReset()
     mockLoadCustomFieldValues.mockReset()
     mockLogCrudAccess.mockReset()
+    mockResolveOrganizationScopeForRequest.mockReset()
     mockContainer.resolve.mockClear()
     mockSelectFrom.mockClear()
     mockSearchTokenSelect.mockClear()
@@ -146,6 +158,12 @@ describe('GET /api/auth/users', () => {
     mockFindOneWithDecryption.mockResolvedValue(null)
     mockLoadCustomFieldValues.mockResolvedValue({})
     mockLogCrudAccess.mockResolvedValue(undefined)
+    mockResolveOrganizationScopeForRequest.mockResolvedValue({
+      selectedId: null,
+      filterIds: null,
+      allowedIds: null,
+      tenantId,
+    })
   })
 
   test('returns an empty collection when unauthenticated', async () => {
@@ -436,6 +454,222 @@ describe('GET /api/auth/users', () => {
     })
     expect(tenantScopeCalled).toBe(false)
     expect(body.isSuperAdmin).toBe(true)
+    expect(body.items).toHaveLength(1)
+  })
+
+  test('superadmin selected tenant scopes the users list by tenant', async () => {
+    mockGetAuthFromRequest.mockResolvedValueOnce({
+      sub: 'user-1',
+      tenantId: null,
+      orgId: null,
+      roles: ['superadmin'],
+      isSuperAdmin: true,
+    })
+    mockLoadAcl.mockResolvedValueOnce({ isSuperAdmin: true })
+    mockResolveOrganizationScopeForRequest.mockResolvedValueOnce({
+      selectedId: null,
+      filterIds: null,
+      allowedIds: null,
+      tenantId,
+    })
+    mockEm.findAndCount.mockResolvedValueOnce([[], 0])
+
+    const response = await GET(makeRequest('/api/auth/users?page=1&pageSize=10', {
+      cookie: `om_selected_tenant=${encodeURIComponent(tenantId)}`,
+    }))
+    const body = await response.json()
+
+    expect(response.status).toBe(200)
+    expect(mockResolveOrganizationScopeForRequest).toHaveBeenCalledWith(expect.objectContaining({
+      tenantId,
+    }))
+    const where = mockEm.findAndCount.mock.calls[0][1] as { $and: Array<Record<string, unknown>> }
+    expect(where.$and).toEqual(expect.arrayContaining([
+      { deletedAt: null },
+      { tenantId },
+    ]))
+    expect(where.$and).not.toEqual(expect.arrayContaining([
+      { organizationId: expect.anything() },
+    ]))
+    expect(body.isSuperAdmin).toBe(true)
+  })
+
+  test('superadmin selected organization scopes the users list by organization descendants', async () => {
+    mockGetAuthFromRequest.mockResolvedValueOnce({
+      sub: 'user-1',
+      tenantId: tenantId,
+      orgId: secondaryOrganizationId,
+      roles: ['superadmin'],
+      isSuperAdmin: true,
+    })
+    mockLoadAcl.mockResolvedValueOnce({ isSuperAdmin: true })
+    mockResolveOrganizationScopeForRequest.mockResolvedValueOnce({
+      selectedId: secondaryOrganizationId,
+      filterIds: [secondaryOrganizationId, descendantOrganizationId],
+      allowedIds: null,
+      tenantId,
+    })
+    const selectedOrgUserId = '423e4567-e89b-12d3-a456-426614174004'
+    mockEm.findAndCount.mockResolvedValueOnce([
+      [{ id: selectedOrgUserId, email: 'selected-org@example.com', tenantId, organizationId: secondaryOrganizationId }],
+      1,
+    ])
+
+    const response = await GET(makeRequest('/api/auth/users?page=1&pageSize=10', {
+      cookie: [
+        `om_selected_tenant=${encodeURIComponent(tenantId)}`,
+        `om_selected_org=${encodeURIComponent(secondaryOrganizationId)}`,
+      ].join('; '),
+    }))
+    const body = await response.json()
+
+    expect(response.status).toBe(200)
+    const where = mockEm.findAndCount.mock.calls[0][1] as { $and: Array<Record<string, unknown>> }
+    expect(where.$and).toEqual(expect.arrayContaining([
+      { tenantId },
+      { organizationId: { $in: [secondaryOrganizationId, descendantOrganizationId] } },
+    ]))
+    expect(mockLogCrudAccess).toHaveBeenCalledWith(expect.objectContaining({
+      tenantId,
+      organizationId: secondaryOrganizationId,
+    }))
+    expect(mockFindWithDecryption).toHaveBeenCalledWith(
+      mockEm,
+      expect.anything(),
+      expect.anything(),
+      expect.anything(),
+      expect.objectContaining({
+        tenantId,
+        organizationId: secondaryOrganizationId,
+      }),
+    )
+    expect(body.isSuperAdmin).toBe(true)
+  })
+
+  test('superadmin all-organizations selection scopes to the selected tenant only', async () => {
+    mockGetAuthFromRequest.mockResolvedValueOnce({
+      sub: 'user-1',
+      tenantId: tenantId,
+      orgId: organizationId,
+      roles: ['superadmin'],
+      isSuperAdmin: true,
+    })
+    mockLoadAcl.mockResolvedValueOnce({ isSuperAdmin: true })
+    mockResolveOrganizationScopeForRequest.mockResolvedValueOnce({
+      selectedId: null,
+      filterIds: null,
+      allowedIds: null,
+      tenantId,
+    })
+    const allOrgUserId = '423e4567-e89b-12d3-a456-426614174005'
+    mockEm.findAndCount.mockResolvedValueOnce([
+      [{ id: allOrgUserId, email: 'all-orgs@example.com', tenantId, organizationId: secondaryOrganizationId }],
+      1,
+    ])
+
+    const response = await GET(makeRequest('/api/auth/users?page=1&pageSize=10', {
+      cookie: `om_selected_tenant=${encodeURIComponent(tenantId)}; om_selected_org=__all__`,
+    }))
+
+    expect(response.status).toBe(200)
+    const where = mockEm.findAndCount.mock.calls[0][1] as { $and: Array<Record<string, unknown>> }
+    expect(where.$and).toEqual(expect.arrayContaining([
+      { tenantId },
+    ]))
+    expect(where.$and).not.toEqual(expect.arrayContaining([
+      { organizationId: { $in: expect.any(Array) } },
+    ]))
+    expect(mockFindWithDecryption).toHaveBeenCalledWith(
+      mockEm,
+      expect.anything(),
+      expect.anything(),
+      expect.anything(),
+      expect.objectContaining({
+        tenantId,
+        organizationId: null,
+      }),
+    )
+    expect(mockLogCrudAccess).toHaveBeenCalledWith(expect.objectContaining({
+      tenantId,
+      organizationId: null,
+    }))
+  })
+
+  test('explicit organization filter narrows inside selected superadmin tenant scope', async () => {
+    mockGetAuthFromRequest.mockResolvedValueOnce({
+      sub: 'user-1',
+      tenantId: tenantId,
+      orgId: null,
+      roles: ['superadmin'],
+      isSuperAdmin: true,
+    })
+    mockLoadAcl.mockResolvedValueOnce({ isSuperAdmin: true })
+    mockResolveOrganizationScopeForRequest.mockResolvedValueOnce({
+      selectedId: null,
+      filterIds: null,
+      allowedIds: null,
+      tenantId,
+    })
+    mockEm.findAndCount.mockResolvedValueOnce([[], 0])
+
+    const response = await GET(makeRequest(
+      `/api/auth/users?organizationId=${secondaryOrganizationId}&page=1&pageSize=10`,
+      { cookie: `om_selected_tenant=${encodeURIComponent(tenantId)}` },
+    ))
+
+    expect(response.status).toBe(200)
+    const where = mockEm.findAndCount.mock.calls[0][1] as { $and: Array<Record<string, unknown>> }
+    expect(where.$and).toEqual(expect.arrayContaining([
+      { tenantId },
+      { organizationId: secondaryOrganizationId },
+    ]))
+  })
+
+  test('superadmin selected tenant scopes search tokens by tenant', async () => {
+    mockGetAuthFromRequest.mockResolvedValueOnce({
+      sub: 'user-1',
+      tenantId: tenantId,
+      orgId: null,
+      roles: ['superadmin'],
+      isSuperAdmin: true,
+    })
+    mockLoadAcl.mockResolvedValueOnce({ isSuperAdmin: true })
+    mockResolveOrganizationScopeForRequest.mockResolvedValueOnce({
+      selectedId: null,
+      filterIds: null,
+      allowedIds: null,
+      tenantId,
+    })
+    const matchedUserId = '423e4567-e89b-12d3-a456-426614174003'
+    mockSearchTokenExecute.mockResolvedValueOnce([{ entity_id: matchedUserId }])
+    mockEm.findAndCount.mockResolvedValueOnce([
+      [{ id: matchedUserId, email: 'selected-tenant@example.com', name: 'Selected Tenant', tenantId, organizationId }],
+      1,
+    ])
+
+    const response = await GET(makeRequest('/api/auth/users?search=selected', {
+      cookie: `om_selected_tenant=${encodeURIComponent(tenantId)}`,
+    }))
+    const body = await response.json()
+
+    expect(response.status).toBe(200)
+    const tenantScopeCall = mockSearchTokenWhere.mock.calls.find((call: unknown[]) => {
+      const clause = call[0] as { toOperationNode?: () => { sqlFragments?: string[]; parameters?: Array<{ value?: unknown }> } } | undefined
+      const node = clause && typeof clause === 'object' && typeof clause.toOperationNode === 'function'
+        ? clause.toOperationNode()
+        : null
+      if (!node || !Array.isArray(node.sqlFragments)) return false
+      const joined = node.sqlFragments.join('?')
+      if (!joined.includes('tenant_id is not distinct from')) return false
+      const params = Array.isArray(node.parameters) ? node.parameters : []
+      return params.some((p) => p && typeof p === 'object' && 'value' in p && p.value === tenantId)
+    })
+    expect(tenantScopeCall).toBeDefined()
+    const where = mockEm.findAndCount.mock.calls[0][1] as { $and: Array<Record<string, unknown>> }
+    expect(where.$and).toEqual(expect.arrayContaining([
+      { tenantId },
+      { id: { $in: [matchedUserId] } },
+    ]))
     expect(body.items).toHaveLength(1)
   })
 

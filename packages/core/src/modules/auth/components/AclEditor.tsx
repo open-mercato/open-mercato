@@ -100,6 +100,7 @@ export function AclEditor({
   userRoles,
   currentUserIsSuperAdmin,
   tenantId,
+  preserveOnTenantChange = false,
 }: {
   kind: 'user' | 'role'
   targetId: string
@@ -109,6 +110,7 @@ export function AclEditor({
   userRoles?: string[]
   currentUserIsSuperAdmin?: boolean
   tenantId?: string | null
+  preserveOnTenantChange?: boolean
 }) {
   const actorIsSuperAdmin = !!currentUserIsSuperAdmin
   const [loading, setLoading] = React.useState(true)
@@ -142,8 +144,33 @@ export function AclEditor({
     [actorSanitizeFeatures],
   )
 
+  const tenantIdRef = React.useRef(tenantId)
+  React.useEffect(() => { tenantIdRef.current = tenantId }, [tenantId])
+  const hasMountedRef = React.useRef(false)
+
+  const fetchAclState = React.useCallback(async (forTenantId: string | null | undefined, cancelledRef: { current: boolean }) => {
+    try {
+      const aclQuery = new URLSearchParams()
+      aclQuery.set(kind === 'user' ? 'userId' : 'roleId', targetId)
+      if (forTenantId) aclQuery.set('tenantId', forTenantId)
+      const aclQueryString = aclQuery.toString()
+      const aclJson = await readJsonOr<AclPayload>(
+        `/api/auth/${kind === 'user' ? 'users' : 'roles'}/acl${aclQueryString ? `?${aclQueryString}` : ''}`,
+        undefined,
+        { hasCustomAcl: true, isSuperAdmin: false, features: [], organizations: null },
+      )
+      if (cancelledRef.current) return
+      const customAclExists = aclJson.hasCustomAcl !== false
+      setHasCustomAcl(customAclExists)
+      setOverrideEnabled(customAclExists)
+      setIsSuperAdmin(!!aclJson.isSuperAdmin)
+      setGranted(actorSanitizeFeatures(aclJson.features))
+      setOrganizations(aclJson.organizations == null ? null : Array.isArray(aclJson.organizations) ? aclJson.organizations : [])
+    } catch {}
+  }, [kind, targetId, actorSanitizeFeatures])
+
   React.useEffect(() => {
-    let cancelled = false
+    const cancelled = { current: false }
     async function load() {
       setLoading(true)
       try {
@@ -152,30 +179,30 @@ export function AclEditor({
           undefined,
           { items: [], modules: [] },
         )
-        if (!cancelled) {
+        if (!cancelled.current) {
           setFeatures(fJson.items || [])
           setModules(fJson.modules || [])
         }
       } catch {}
-      try {
-        const aclQuery = new URLSearchParams()
-        aclQuery.set(kind === 'user' ? 'userId' : 'roleId', targetId)
-        if (tenantId) aclQuery.set('tenantId', tenantId)
-        const aclQueryString = aclQuery.toString()
-        const aclJson = await readJsonOr<AclPayload>(
-          `/api/auth/${kind === 'user' ? 'users' : 'roles'}/acl${aclQueryString ? `?${aclQueryString}` : ''}`,
-          undefined,
-          { hasCustomAcl: true, isSuperAdmin: false, features: [], organizations: null },
-        )
-        if (!cancelled) {
-          const customAclExists = aclJson.hasCustomAcl !== false
-          setHasCustomAcl(customAclExists)
-          setOverrideEnabled(customAclExists)
-          setIsSuperAdmin(!!aclJson.isSuperAdmin)
-          setGranted(actorSanitizeFeatures(aclJson.features))
-          setOrganizations(aclJson.organizations == null ? null : Array.isArray(aclJson.organizations) ? aclJson.organizations : [])
-        }
-      } catch {}
+      await fetchAclState(tenantIdRef.current, cancelled)
+      hasMountedRef.current = true
+      if (!cancelled.current) setLoading(false)
+    }
+    load()
+    return () => { cancelled.current = true }
+  }, [kind, targetId, fetchAclState])
+
+  React.useEffect(() => {
+    if (!hasMountedRef.current) return
+    if (preserveOnTenantChange) return
+    const cancelled = { current: false }
+    fetchAclState(tenantId, cancelled)
+    return () => { cancelled.current = true }
+  }, [tenantId, preserveOnTenantChange, fetchAclState])
+
+  React.useEffect(() => {
+    let cancelled = false
+    async function loadTenantScoped() {
       if (canEditOrganizations) {
         try {
           const orgQuery = new URLSearchParams()
@@ -206,11 +233,10 @@ export function AclEditor({
           }
         } catch {}
       }
-      if (!cancelled) setLoading(false)
     }
-    load()
+    loadTenantScoped()
     return () => { cancelled = true }
-  }, [kind, targetId, canEditOrganizations, userRoles, actorSanitizeFeatures, tenantId])
+  }, [kind, canEditOrganizations, userRoles, tenantId])
 
   // Notify parent of changes
   React.useEffect(() => {

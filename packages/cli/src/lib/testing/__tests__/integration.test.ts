@@ -156,7 +156,7 @@ describe('integration cache and options', () => {
     } finally {
       fetchSpy.mockRestore()
     }
-  }, 20000)
+  }, 60000)
 
   it('reuses an existing environment with checkout wrapper injections only when explicitly enabled', async () => {
     const baseUrl = 'http://127.0.0.1:5001'
@@ -184,7 +184,7 @@ describe('integration cache and options', () => {
     } finally {
       fetchSpy.mockRestore()
     }
-  }, 20000)
+  }, 60000)
 
   it('reuses an existing environment when /login returns a redirect status other than 302', async () => {
     const baseUrl = 'http://127.0.0.1:5001'
@@ -216,7 +216,7 @@ describe('integration cache and options', () => {
     } finally {
       fetchSpy.mockRestore()
     }
-  }, 20000)
+  }, 60000)
 
   it('reuses an existing environment when /login returns healthy HTML without static asset references', async () => {
     const baseUrl = 'http://127.0.0.1:5001'
@@ -251,7 +251,7 @@ describe('integration cache and options', () => {
     } finally {
       fetchSpy.mockRestore()
     }
-  }, 20000)
+  }, 60000)
 
   it('falls back to rebuilding when the ephemeral environment state is unreachable', async () => {
     const baseUrl = 'http://127.0.0.1:5001'

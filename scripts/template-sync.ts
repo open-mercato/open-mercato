@@ -148,6 +148,10 @@ function relFromRoot(absPath: string): string {
   return path.relative(ROOT, absPath).split(path.sep).join('/')
 }
 
+function relFromBase(baseDir: string, absPath: string): string {
+  return path.relative(baseDir, absPath).split(path.sep).join('/')
+}
+
 function collectSourceFiles(): string[] {
   const folderFiles = SYNC_FOLDERS.flatMap((folder) =>
     globSync(`${folder}/**/*`, {
@@ -189,10 +193,10 @@ function computeDrift(): Drift[] {
   const sourceFiles = collectSourceFiles()
   const templateFiles = collectTemplateFiles()
   const drifts: Drift[] = []
-  const sourceRelSet = new Set(sourceFiles.map((file) => path.relative(APP_SRC_ROOT, file)))
+  const sourceRelSet = new Set(sourceFiles.map((file) => relFromBase(APP_SRC_ROOT, file)))
 
   for (const sourceFile of sourceFiles) {
-    const rel = path.relative(APP_SRC_ROOT, sourceFile)
+    const rel = relFromBase(APP_SRC_ROOT, sourceFile)
     const templateFile = path.join(TEMPLATE_SRC_ROOT, rel)
     if (!fs.existsSync(templateFile)) {
       drifts.push({
@@ -218,7 +222,7 @@ function computeDrift(): Drift[] {
   }
 
   for (const templateFile of templateFiles) {
-    const rel = path.relative(TEMPLATE_SRC_ROOT, templateFile)
+    const rel = relFromBase(TEMPLATE_SRC_ROOT, templateFile)
     if (TEMPLATE_ONLY_RELATIVE_FILES.has(rel)) continue
     if (sourceRelSet.has(rel)) continue
     drifts.push({
@@ -359,12 +363,12 @@ function printPackageDrift(drifts: PackageDrift[]): void {
 function applyFullSync(): number {
   const sourceFiles = collectSourceFiles()
   const templateFiles = collectTemplateFiles()
-  const sourceRelSet = new Set(sourceFiles.map((file) => path.relative(APP_SRC_ROOT, file)))
+  const sourceRelSet = new Set(sourceFiles.map((file) => relFromBase(APP_SRC_ROOT, file)))
   let updated = 0
 
   // Always rewrite template targets from source of truth.
   for (const sourceFile of sourceFiles) {
-    const rel = path.relative(APP_SRC_ROOT, sourceFile)
+    const rel = relFromBase(APP_SRC_ROOT, sourceFile)
     const templateFile = path.join(TEMPLATE_SRC_ROOT, rel)
     const source = fs.readFileSync(sourceFile)
     const expectedTemplate = getExpectedTemplateContent(rel, source)
@@ -377,7 +381,7 @@ function applyFullSync(): number {
 
   // Remove template files that are not in source (except explicit template-only files).
   for (const templateFile of templateFiles) {
-    const rel = path.relative(TEMPLATE_SRC_ROOT, templateFile)
+    const rel = relFromBase(TEMPLATE_SRC_ROOT, templateFile)
     if (TEMPLATE_ONLY_RELATIVE_FILES.has(rel)) continue
     if (sourceRelSet.has(rel)) continue
     fs.rmSync(templateFile, { force: true })
