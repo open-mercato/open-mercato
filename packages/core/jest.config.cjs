@@ -3,8 +3,6 @@ module.exports = {
   testEnvironment: 'node',
   watchman: false,
   rootDir: '.',
-  maxWorkers: 2,
-  testTimeout: 60000,
   moduleFileExtensions: ['ts', 'tsx', 'js', 'jsx', 'json'],
   moduleNameMapper: {
     '^#generated/(.*)$': '<rootDir>/generated/$1',

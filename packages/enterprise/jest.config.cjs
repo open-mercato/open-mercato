@@ -3,7 +3,6 @@ module.exports = {
   testEnvironment: 'node',
   watchman: false,
   rootDir: '.',
-  maxWorkers: 2,
   moduleFileExtensions: ['ts', 'tsx', 'js', 'jsx', 'json'],
   moduleNameMapper: {
     '^@open-mercato/enterprise/(.*)$': '<rootDir>/src/$1',
