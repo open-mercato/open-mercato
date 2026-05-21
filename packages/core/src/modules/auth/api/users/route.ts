@@ -13,7 +13,11 @@ import { E } from '#generated/entities.ids.generated'
 import { loadCustomFieldValues } from '@open-mercato/shared/lib/crud/custom-fields'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import { userCrudEvents, userCrudIndexer } from '@open-mercato/core/modules/auth/commands/users'
-import { assertActorCanGrantRoleTokens } from '@open-mercato/core/modules/auth/lib/grantChecks'
+import {
+  assertActorCanGrantRoleTokens,
+  assertActorCanModifySuperAdminUserTarget,
+  listSuperAdminUserIds,
+} from '@open-mercato/core/modules/auth/lib/grantChecks'
 import { findOneWithDecryption, findWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import { buildPasswordSchema } from '@open-mercato/shared/lib/auth/passwordPolicy'
 import { escapeLikePattern } from '@open-mercato/shared/lib/db/escapeLikePattern'
@@ -132,6 +136,9 @@ const crud = makeCrudRoute<CrudInput, CrudInput, Record<string, unknown>>({
       schema: rawBodySchema,
       mapInput: async ({ parsed, ctx }) => {
         if (ctx.request) {
+          if (typeof parsed.id === 'string' && parsed.id.length) {
+            await assertCanModifySuperAdminTarget(ctx.request, parsed.id)
+          }
           await assertCanAssignRoles(ctx.request, parsed.roles, parsed)
         }
         return parsed
@@ -184,6 +191,10 @@ export async function GET(req: Request) {
       return NextResponse.json({ items: [], total: 0, totalPages: 1, isSuperAdmin })
     }
     effectiveTenantId = actorTenantId
+    const superAdminUserIds = await listSuperAdminUserIds(em, actorTenantId)
+    if (superAdminUserIds.size) {
+      filters.push({ id: { $nin: Array.from(superAdminUserIds) as any } })
+    }
   } else {
     const selectedTenantId = getSelectedTenantFromRequest(req)
     if (typeof selectedTenantId === 'string' && selectedTenantId.trim().length > 0) {
@@ -437,7 +448,20 @@ export const PUT = async (req: Request) => {
   return crud.PUT(req)
 }
 
-export const DELETE = crud.DELETE
+export const DELETE = async (req: Request) => {
+  const targetId = new URL(req.url).searchParams.get('id')
+  if (targetId) {
+    try {
+      await assertCanModifySuperAdminTarget(req, targetId)
+    } catch (err) {
+      if (err instanceof CrudHttpError) {
+        return NextResponse.json(err.body, { status: err.status })
+      }
+      throw err
+    }
+  }
+  return crud.DELETE(req)
+}
 
 async function findUserIdsBySearchTokens(
   em: EntityManager,
@@ -467,6 +491,21 @@ async function findUserIdsBySearchTokens(
   return rows
     .map((row) => (typeof row.entity_id === 'string' ? row.entity_id : null))
     .filter((id): id is string => typeof id === 'string' && id.length > 0)
+}
+
+async function assertCanModifySuperAdminTarget(req: Request, targetUserId: string) {
+  const auth = await getAuthFromRequest(req)
+  if (!auth?.sub) throw new CrudHttpError(401, { error: 'Unauthorized' })
+  const container = await createRequestContainer()
+  const em = container.resolve('em') as EntityManager
+  await assertActorCanModifySuperAdminUserTarget({
+    em,
+    rbacService: container.resolve('rbacService') as RbacService,
+    actorUserId: auth.sub,
+    tenantId: auth.tenantId ?? null,
+    organizationId: auth.orgId ?? null,
+    targetUserId,
+  })
 }
 
 async function assertCanAssignRoles(req: Request, roles: unknown, payload: Record<string, unknown>) {

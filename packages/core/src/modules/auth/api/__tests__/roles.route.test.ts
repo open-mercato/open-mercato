@@ -1,6 +1,7 @@
 /** @jest-environment node */
 
-import { GET } from '@open-mercato/core/modules/auth/api/roles/route'
+import { DELETE, GET } from '@open-mercato/core/modules/auth/api/roles/route'
+import { RoleAcl } from '@open-mercato/core/modules/auth/data/entities'
 
 const mockGetAuthFromRequest = jest.fn()
 const mockLoadAcl = jest.fn()
@@ -9,6 +10,7 @@ const mockLogCrudAccess = jest.fn()
 
 const mockEm = {
   find: jest.fn(),
+  findOne: jest.fn(),
   findAndCount: jest.fn(),
 }
 
@@ -54,7 +56,9 @@ describe('GET /api/auth/roles', () => {
     mockGetAuthFromRequest.mockReset()
     mockLoadAcl.mockReset()
     mockEm.find.mockReset()
+    mockEm.findOne.mockReset()
     mockEm.findAndCount.mockReset()
+    mockEm.findOne.mockResolvedValue(null)
     mockLoadCustomFieldValues.mockReset()
     mockLogCrudAccess.mockReset()
     mockContainer.resolve.mockClear()
@@ -133,6 +137,23 @@ describe('GET /api/auth/roles', () => {
     ]))
     expect(where.$and).not.toEqual(expect.arrayContaining([{ name: { $ne: 'superadmin' } }]))
     expect(body.isSuperAdmin).toBe(true)
+  })
+
+  test('DELETE rejects non-super admin actors deleting a super admin role', async () => {
+    const superAdminRoleId = '323e4567-e89b-12d3-a456-426614174999'
+    mockLoadAcl.mockResolvedValueOnce({ isSuperAdmin: false })
+    mockEm.findOne.mockImplementation(async (entity: unknown) => {
+      if (entity === RoleAcl) return { isSuperAdmin: true }
+      return null
+    })
+
+    const response = await DELETE(new Request(`http://localhost/api/auth/roles?id=${superAdminRoleId}`, {
+      method: 'DELETE',
+    }))
+    const body = await response.json()
+
+    expect(response.status).toBe(403)
+    expect(body.error).toContain('super administrator')
   })
 
   test('returns roles with usersCount and tenant visibility fields', async () => {

@@ -1,7 +1,7 @@
 /** @jest-environment node */
 
-import { GET, POST, PUT } from '@open-mercato/core/modules/auth/api/users/route'
-import { Role, RoleAcl, User } from '@open-mercato/core/modules/auth/data/entities'
+import { DELETE, GET, POST, PUT } from '@open-mercato/core/modules/auth/api/users/route'
+import { Role, RoleAcl, User, UserAcl } from '@open-mercato/core/modules/auth/data/entities'
 import { Organization } from '@open-mercato/core/modules/directory/data/entities'
 
 const mockGetAuthFromRequest = jest.fn()
@@ -250,6 +250,8 @@ describe('GET /api/auth/users', () => {
 
   test('includes matching organization names in the unified search clause', async () => {
     mockEm.find
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([])
       .mockResolvedValueOnce([{ id: organizationId }])
       .mockResolvedValueOnce([])
     mockEm.findAndCount.mockResolvedValueOnce([[], 0])
@@ -302,6 +304,8 @@ describe('GET /api/auth/users', () => {
   test('includes users whose role names match the unified search term', async () => {
     const matchedUserId = '523e4567-e89b-12d3-a456-426614174055'
     mockEm.find
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([])
       .mockResolvedValueOnce([])
       .mockResolvedValueOnce([{ id: roleId, name: 'admin', tenantId }])
       .mockResolvedValueOnce([{ user: { id: matchedUserId }, role: { id: roleId } }])
@@ -582,10 +586,13 @@ describe('GET /api/auth/users', () => {
   test('intersects search matches with an existing role-based id filter', async () => {
     const firstUserId = '523e4567-e89b-12d3-a456-426614174101'
     const secondUserId = '523e4567-e89b-12d3-a456-426614174102'
-    mockEm.find.mockResolvedValueOnce([
-      { user: { id: firstUserId }, role: { id: roleId } },
-      { user: { id: secondUserId }, role: { id: roleId } },
-    ])
+    mockEm.find
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([
+        { user: { id: firstUserId }, role: { id: roleId } },
+        { user: { id: secondUserId }, role: { id: roleId } },
+      ])
     mockSearchTokenExecute.mockResolvedValueOnce([{ entity_id: secondUserId }])
     mockEm.findAndCount.mockResolvedValueOnce([
       [{ id: secondUserId, email: 'match@example.com', tenantId, organizationId }],
@@ -617,7 +624,10 @@ describe('GET /api/auth/users', () => {
 
   test('applies roleId filter for a single role when users are found', async () => {
     const matchedUserId = '523e4567-e89b-12d3-a456-426614174001'
-    mockEm.find.mockResolvedValueOnce([{ user: { id: matchedUserId }, role: { id: roleId } }])
+    mockEm.find
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([{ user: { id: matchedUserId }, role: { id: roleId } }])
     mockEm.findAndCount.mockResolvedValueOnce([
       [{ id: matchedUserId, email: 'role-filtered@example.com', tenantId, organizationId }],
       1,
@@ -639,11 +649,14 @@ describe('GET /api/auth/users', () => {
     const secondRoleId = '323e4567-e89b-12d3-a456-426614174002'
     const firstUserId = '523e4567-e89b-12d3-a456-426614174011'
     const secondUserId = '523e4567-e89b-12d3-a456-426614174012'
-    mockEm.find.mockResolvedValueOnce([
-      { user: { id: firstUserId }, role: { id: roleId } },
-      { user: secondUserId, role: { id: secondRoleId } },
-      { user: { id: firstUserId }, role: { id: secondRoleId } },
-    ])
+    mockEm.find
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([
+        { user: { id: firstUserId }, role: { id: roleId } },
+        { user: secondUserId, role: { id: secondRoleId } },
+        { user: { id: firstUserId }, role: { id: secondRoleId } },
+      ])
     mockEm.findAndCount.mockResolvedValueOnce([
       [
         { id: firstUserId, email: 'first@example.com', tenantId, organizationId },
@@ -657,7 +670,7 @@ describe('GET /api/auth/users', () => {
     )
     const body = await response.json()
 
-    const roleFilter = mockEm.find.mock.calls[0][1] as { role?: { $in?: string[] } }
+    const roleFilter = mockEm.find.mock.calls[2][1] as { role?: { $in?: string[] } }
     expect(roleFilter.role?.$in).toEqual(expect.arrayContaining([roleId, secondRoleId]))
     expect(roleFilter.role?.$in).toHaveLength(2)
 
@@ -803,5 +816,72 @@ describe('GET /api/auth/users', () => {
 
     expect(response.status).toBe(403)
     expect(body.error).toContain('Cannot grant feature api_keys.create')
+  })
+
+  test('rejects non-super admin actors editing a super admin target user', async () => {
+    const superAdminUserId = '523e4567-e89b-12d3-a456-426614174777'
+    mockLoadAcl.mockResolvedValueOnce({
+      isSuperAdmin: false,
+      features: ['auth.users.edit'],
+      organizations: null,
+    })
+    mockEm.findOne.mockImplementation(async (entity: unknown) => {
+      if (entity === UserAcl) return { isSuperAdmin: true }
+      return null
+    })
+
+    const response = await PUT(new Request('http://localhost/api/auth/users', {
+      method: 'PUT',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({
+        id: superAdminUserId,
+        name: 'Renamed Super Admin',
+      }),
+    }))
+    const body = await response.json()
+
+    expect(response.status).toBe(403)
+    expect(body.error).toContain('super administrator')
+  })
+
+  test('rejects non-super admin actors deleting a super admin target user', async () => {
+    const superAdminUserId = '523e4567-e89b-12d3-a456-426614174888'
+    mockLoadAcl.mockResolvedValueOnce({
+      isSuperAdmin: false,
+      features: ['auth.users.delete'],
+      organizations: null,
+    })
+    mockEm.findOne.mockImplementation(async (entity: unknown) => {
+      if (entity === UserAcl) return { isSuperAdmin: true }
+      return null
+    })
+
+    const response = await DELETE(new Request(`http://localhost/api/auth/users?id=${superAdminUserId}`, {
+      method: 'DELETE',
+    }))
+    const body = await response.json()
+
+    expect(response.status).toBe(403)
+    expect(body.error).toContain('super administrator')
+  })
+
+  test('allows super admin actors to edit a super admin target user', async () => {
+    const superAdminUserId = '523e4567-e89b-12d3-a456-426614174999'
+    mockLoadAcl.mockResolvedValueOnce({
+      isSuperAdmin: true,
+      features: ['*'],
+      organizations: null,
+    })
+
+    const response = await PUT(new Request('http://localhost/api/auth/users', {
+      method: 'PUT',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({
+        id: superAdminUserId,
+        name: 'Renamed by super admin',
+      }),
+    }))
+
+    expect(response.status).toBe(200)
   })
 })
