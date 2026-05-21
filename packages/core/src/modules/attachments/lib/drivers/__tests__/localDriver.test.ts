@@ -1,5 +1,6 @@
 /** @jest-environment node */
 import path from 'path'
+import { pathIncludes } from './path-helpers'
 
 const mockMkdir = jest.fn().mockResolvedValue(undefined)
 const mockWriteFile = jest.fn().mockResolvedValue(undefined)
@@ -88,7 +89,7 @@ describe('LocalStorageDriver', () => {
 
       expect(mockResolvePartitionRoot).toHaveBeenCalledWith('docs')
       const [[dirArg]] = mockMkdir.mock.calls
-      expect(String(dirArg)).toContain('/storage/docs')
+      expect(pathIncludes(String(dirArg), '/storage/docs')).toBe(true)
     })
   })
 
@@ -148,7 +149,7 @@ describe('LocalStorageDriver', () => {
 
       const calledPath = String(mockReadFile.mock.calls[0][0])
       expect(calledPath).not.toContain('..')
-      expect(calledPath).toContain('/storage/main')
+      expect(pathIncludes(calledPath, '/storage/main')).toBe(true)
     })
 
     it('removes nested ../ traversal', async () => {
