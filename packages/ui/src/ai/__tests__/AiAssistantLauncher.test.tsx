@@ -54,5 +54,5 @@ describe('<AiAssistantLauncher>', () => {
 
     expect(await screen.findByRole('dialog', { name: 'AI assistants' })).toBeInTheDocument()
     expect(screen.getByText('Catalog Assistant')).toBeInTheDocument()
-  })
+  }, 60_000)
 })

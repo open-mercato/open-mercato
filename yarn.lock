@@ -7445,6 +7445,7 @@ __metadata:
     dotenv: "npm:^17.4.2"
     jest: "npm:^30.4.2"
     rate-limiter-flexible: "npm:^11.1.0"
+    re2js: "npm:2.8.2"
     reflect-metadata: "npm:^0.2.2"
     sanitize-html: "npm:^2.17.4"
     ts-jest: "npm:^29.4.9"
@@ -25608,6 +25609,13 @@ __metadata:
   bin:
     rc: ./cli.js
   checksum: 10/5c4d72ae7eec44357171585938c85ce066da8ca79146b5635baf3d55d74584c92575fa4e2c9eac03efbed3b46a0b2e7c30634c012b4b4fa40d654353d3c163eb
+  languageName: node
+  linkType: hard
+
+"re2js@npm:2.8.2":
+  version: 2.8.2
+  resolution: "re2js@npm:2.8.2"
+  checksum: 10/44114da9e878013bfb3b7b006dbe4964032ca4890a42efb49601838cec211dc252c23b769895697bdafd33f7058b12f783e3ace21b1f279a70b07b61bf1c7d7f
   languageName: node
   linkType: hard
 

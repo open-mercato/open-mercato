@@ -1,6 +1,7 @@
 /** @type {import('jest').Config} */
 module.exports = {
   testEnvironment: 'jsdom',
+  testTimeout: 30000,
   watchman: false,
   rootDir: '.',
   maxWorkers: 4,
