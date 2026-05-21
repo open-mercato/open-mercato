@@ -2906,10 +2906,19 @@ export async function startEphemeralEnvironment(options: EphemeralRuntimeOptions
       JWT_SECRET: process.env.JWT_SECRET ?? 'om-ephemeral-integration-jwt-secret',
       OM_SECURITY_MFA_SETUP_SECRET: process.env.OM_SECURITY_MFA_SETUP_SECRET ?? 'om-ephemeral-integration-mfa-setup-secret',
       NODE_ENV: 'production',
-      DB_POOL_MIN: '0',
-      DB_POOL_MAX: '5',
-      DB_POOL_IDLE_TIMEOUT: '1000',
-      DB_POOL_ACQUIRE_TIMEOUT: '10000',
+      // Pool sizing for the ephemeral integration runtime. Defaults were once
+      // very aggressive (max=5, idle=1000) which exposed flaky 'timeout exceeded
+      // when trying to connect' errors on `progressService.createJob`-backed
+      // endpoints (sync_excel.import, data_sync.run, progress.jobs) — each
+      // request acquires a transaction connection plus a separate connection
+      // for the encryption subscriber's fetchMap probe, and with 1s idle close
+      // the pool thrashes faster than pg-pool can repopulate. These values
+      // still keep the pool tighter than production but give enough headroom
+      // for the legitimate query bursts.
+      DB_POOL_MIN: '2',
+      DB_POOL_MAX: '20',
+      DB_POOL_IDLE_TIMEOUT: '10000',
+      DB_POOL_ACQUIRE_TIMEOUT: '15000',
       DB_IDLE_SESSION_TIMEOUT_MS: '30000',
       DB_IDLE_IN_TRANSACTION_TIMEOUT_MS: '30000',
       OM_INTEGRATION_TEST: 'true',
