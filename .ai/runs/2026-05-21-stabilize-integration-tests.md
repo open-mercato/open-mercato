@@ -132,10 +132,10 @@ This phase requires a host with Docker access. It is the half of the brief this 
 
 ### Phase 1: Remove `networkidle` generic-readiness antipattern from catalog merchandising specs
 
-- [ ] 1.1 Remove three `networkidle` waits from `TC-AI-MERCHANDISING-008-products-sheet.spec.ts`
-- [ ] 1.2 Remove one `networkidle` wait from `TC-AI-INJECT-013-merchandising-injection.spec.ts`
-- [ ] 1.3 Confirm grep shows only the intentional `salesUi.ts` retention
-- [ ] 1.4 Typecheck + Jest unit run for `packages/core`
+- [x] 1.1 Remove three `networkidle` waits from `TC-AI-MERCHANDISING-008-products-sheet.spec.ts` — 1f8482a6c
+- [x] 1.2 Remove one `networkidle` wait from `TC-AI-INJECT-013-merchandising-injection.spec.ts` — 1f8482a6c
+- [x] 1.3 Confirm grep shows only the intentional `salesUi.ts` retention — 1f8482a6c
+- [x] 1.4 Typecheck + Jest unit run for `packages/core` — 1f8482a6c (TS parser sanity-check passed; pre-existing `TS5103` baseline error unrelated to edits; Jest config only matches `__tests__/**/*.test.(ts|tsx)`, so spec edits are not in scope)
 
 ### Phase 2: Empirical full-suite stabilization
 
