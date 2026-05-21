@@ -13,7 +13,7 @@
   ],
   "scripts": {
     "build": "node build.mjs",
-    "test": "node --import tsx --test src/**/*.test.ts",
+    "test": "node --import tsx --test --test-timeout=120000 src/**/*.test.ts",
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {

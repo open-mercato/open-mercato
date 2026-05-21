@@ -3,6 +3,21 @@ import { createCompanyFixture, createPipelineFixture, createPipelineStageFixture
 import { getAuthToken } from '@open-mercato/core/modules/core/__integration__/helpers/api';
 import { login } from '@open-mercato/core/modules/core/__integration__/helpers/auth';
 
+function findStringByKeys(value: unknown, keys: readonly string[]): string | null {
+  if (!value || typeof value !== 'object') return null;
+  const record = value as Record<string, unknown>;
+  for (const key of keys) {
+    const candidate = record[key];
+    if (typeof candidate === 'string' && candidate.trim()) return candidate.trim();
+  }
+  for (const nested of Object.values(record)) {
+    if (Array.isArray(nested)) continue;
+    const found = findStringByKeys(nested, keys);
+    if (found) return found;
+  }
+  return null;
+}
+
 /**
  * TC-CRM-007: Create Deal
  * Source: .ai/qa/scenarios/TC-CRM-007-deal-creation.md
@@ -87,7 +102,15 @@ test.describe('TC-CRM-007: Create Deal', () => {
         await expect(titleInput).toHaveValue(dealTitle, { timeout: 10_000 });
       }
 
+      const createDealResponsePromise = page.waitForResponse((response) => {
+        const url = new URL(response.url());
+        return response.request().method() === 'POST' && url.pathname === '/api/customers/deals';
+      });
       await page.getByRole('button', { name: 'Create deal' }).first().click();
+      const createDealResponse = await createDealResponsePromise;
+      expect(createDealResponse.status(), `POST /api/customers/deals returned ${createDealResponse.status()}`).toBe(201);
+      dealId = findStringByKeys(await createDealResponse.json(), ['id', 'dealId', 'entityId']);
+      expect(dealId, 'Expected created deal id in create response').toBeTruthy();
 
       await expect(page).toHaveURL(/\/backend\/customers\/deals$/i, { timeout: 30_000 });
       await page.getByPlaceholder(/Search by title/i).fill(dealTitle);

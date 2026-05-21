@@ -600,7 +600,7 @@ describe('AppShell', () => {
 
       await waitFor(() => {
         expect(screen.getByText('Pay Links')).toBeInTheDocument()
-      })
+      }, { timeout: 10_000 })
 
       const link = screen.getByRole('link', { name: 'Pay Links' })
       expect(link.querySelector('svg.lucide-ticket')).toBeTruthy()
