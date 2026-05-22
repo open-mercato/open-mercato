@@ -22,6 +22,12 @@ export const stripeWebhookSetupGuide: IntegrationCredentialWebhookHelp = {
     'charge.refund.updated',
     'charge.dispute.created',
     'charge.dispute.closed',
+    'customer.subscription.created',
+    'customer.subscription.updated',
+    'customer.subscription.deleted',
+    'customer.subscription.trial_will_end',
+    'invoice.paid',
+    'invoice.payment_failed',
   ],
   localDevelopment: {
     note: 'For local development, expose your app through a public HTTPS tunnel and use that public URL in Stripe.',

@@ -134,6 +134,18 @@ charge.dispute.created
 charge.dispute.closed
 ```
 
+If your app also enables the subscriptions module, extend the same Stripe endpoint with:
+
+```text
+customer.subscription.created
+customer.subscription.updated
+customer.subscription.deleted
+customer.subscription.trial_will_end
+invoice.paid
+invoice.payment_failed
+charge.refunded
+```
+
 5. After creating the endpoint, reveal the **Signing secret** (starts with `whsec_`).
 6. Paste it into the **Webhook Signing Secret** field in Open Mercato's Stripe credentials (see [Step 1](#step-1--enter-stripe-credentials)) and save.
 
@@ -174,6 +186,7 @@ For building custom checkout flows, headless storefronts, or server-to-server in
 ## Next steps
 
 - [Payment Transactions](./payment-transactions) — inspect all transactions, webhook activity, and gateway logs in one place.
+- [Subscriptions for external apps](./subscriptions) — recurring billing, plan sync, access snapshots, and Stripe Customer Portal handoff.
 - [Integration Marketplace](./integrations) — manage all external service connections.
 - [Payment Gateways REST API](/api/payment-gateways) — full API reference with curl and TypeScript examples.
 - [Building a Gateway Provider](/framework/modules/building-gateway-provider) — create your own payment gateway adapter.

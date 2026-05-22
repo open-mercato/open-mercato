@@ -5,19 +5,34 @@ import {
   registerPaymentGatewayDescriptor,
   registerWebhookHandler,
 } from '@open-mercato/shared/modules/payment_gateways/types'
+import { registerPaymentRecurringRuntime } from '@open-mercato/shared/modules/subscriptions/runtime'
 import { stripeHealthCheck } from './lib/health'
 import { stripeAdapterV20250224Acacia } from './lib/adapters/v2025-02-24.acacia'
 import { stripeAdapterV20241218 } from './lib/adapters/v2024-12-18'
 import { stripeAdapterV20231016 } from './lib/adapters/v2023-10-16'
-import { readStripeSessionIdHint, verifyStripeWebhook } from './lib/webhook-handler'
+import {
+  classifyStripeEvent,
+  readStripeSessionIdHint,
+  readStripeSubscriptionRef,
+  verifyStripeWebhook,
+} from './lib/webhook-handler'
+import { stripeRecurringRuntime } from './lib/subscriptions-runtime'
+import { stripeIntegrationTestRecurringRuntime } from './lib/testing-recurring-runtime'
 
 export function register(container: AppContainer) {
   registerGatewayAdapter(stripeAdapterV20250224Acacia, { version: '2025-02-24.acacia' })
   registerGatewayAdapter(stripeAdapterV20241218, { version: '2024-12-18' })
   registerGatewayAdapter(stripeAdapterV20231016, { version: '2023-10-16' })
+  const recurringRuntime = process.env.OM_INTEGRATION_TEST === 'true' && process.env.OM_SUBSCRIPTIONS_USE_REAL_STRIPE !== '1'
+    ? stripeIntegrationTestRecurringRuntime
+    : stripeRecurringRuntime
+  registerPaymentRecurringRuntime(recurringRuntime)
   registerWebhookHandler('stripe', verifyStripeWebhook, {
     queue: 'stripe-webhook',
     readSessionIdHint: readStripeSessionIdHint,
+    classifyEvent: classifyStripeEvent,
+    readSubscriptionRef: readStripeSubscriptionRef,
+    subscriptionQueue: 'payment-gateways-subscription-webhook',
   })
   registerPaymentGatewayDescriptor({
     providerKey: 'stripe',

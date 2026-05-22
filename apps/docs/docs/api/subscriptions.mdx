@@ -1,0 +1,351 @@
+---
+title: Subscriptions
+description: REST endpoints for plan catalogs, subscription checkout, access snapshots, operator diagnostics, and recovery actions.
+---
+
+import OpenApiExplorerBanner from '@site/src/components/OpenApiExplorerBanner';
+
+<OpenApiExplorerBanner />
+
+All examples assume:
+
+```bash
+export BASE_URL="http://localhost:3000/api"
+export API_KEY="<paste your API key secret here>"
+```
+
+## Shared conventions
+
+- Send `X-Api-Key: $API_KEY` on every request.
+- `Authorization: ApiKey $API_KEY` is also accepted.
+- Requests are tenant and organization scoped from the authenticated context.
+- `externalAccountId` must match `^[A-Za-z0-9_-]{1,128}$`.
+- `subjectEntityType` must be in the form `<module>:<entity>` and must resolve to a real entity in the current tenant.
+- `productCode` defaults to `external-app` on the access endpoint.
+
+## Feature map
+
+| Route | Feature |
+|---|---|
+| `GET /subscriptions/plans` | `subscriptions.view` |
+| `POST /subscriptions/checkout` | `subscriptions.manage` |
+| `GET /subscriptions/access` | `subscriptions.access` |
+| `POST /subscriptions/portal` | `subscriptions.manage` |
+| `POST /subscriptions/[id]/cancel` | `subscriptions.manage` |
+| `GET /subscriptions/list` | `subscriptions.admin` |
+| `GET /subscriptions/detail/[id]` | `subscriptions.admin` |
+| `POST /subscriptions/[id]/refresh` | `subscriptions.admin` |
+| `POST /subscriptions/plans/sync` | `subscriptions.admin` |
+
+## Typical external-app flow
+
+1. Read available plans from `GET /subscriptions/plans`.
+2. Start Stripe Checkout through `POST /subscriptions/checkout`.
+3. Wait for Stripe webhooks to materialize the subscription locally.
+4. Read `GET /subscriptions/access` whenever your app needs to decide whether access should be granted.
+5. Create a portal link through `POST /subscriptions/portal` if the customer wants to manage billing details.
+
+## List active plans — `GET /subscriptions/plans`
+
+Returns active local plans and prices only.
+
+```bash
+curl -X GET "$BASE_URL/subscriptions/plans" \
+  -H "X-Api-Key: $API_KEY"
+```
+
+Example response:
+
+```json
+{
+  "items": [
+    {
+      "code": "starter",
+      "productCode": "external-app",
+      "title": "Starter",
+      "description": "Basic plan for small teams getting started.",
+      "entitlements": {
+        "projectsLimit": 5,
+        "aiEnabled": false
+      },
+      "prices": [
+        {
+          "code": "starter-monthly-v1",
+          "currencyCode": "USD",
+          "interval": "month",
+          "intervalCount": 1,
+          "unitAmountMinor": 1900,
+          "trialDays": 14,
+          "isDefault": true
+        }
+      ]
+    }
+  ]
+}
+```
+
+## Create checkout session — `POST /subscriptions/checkout`
+
+Creates a hosted Stripe Checkout session for a versioned price code.
+
+```bash
+curl -X POST "$BASE_URL/subscriptions/checkout" \
+  -H "X-Api-Key: $API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "externalAccountId": "acct_123",
+    "subjectEntityType": "customers:customer_company_profile",
+    "subjectEntityId": "11111111-1111-1111-1111-111111111111",
+    "priceCode": "starter-monthly-v1",
+    "successUrl": "https://app.example.com/billing/success",
+    "cancelUrl": "https://app.example.com/billing/cancel",
+    "allowPromotionCodes": true
+  }'
+```
+
+Example response:
+
+```json
+{
+  "checkoutUrl": "https://checkout.stripe.com/c/pay/cs_test_...",
+  "provider": "stripe",
+  "subscriptionRequestId": "22222222-2222-2222-2222-222222222222"
+}
+```
+
+Important behavior:
+
+- the subject entity must exist
+- the price must be active locally
+- the price must already have a synced Stripe price reference
+- the module pre-creates a `GatewaySubscriptionMapping` before redirecting to Stripe
+
+## Read access snapshot — `GET /subscriptions/access`
+
+This is the main product-gating endpoint for the external application.
+
+```bash
+curl -X GET "$BASE_URL/subscriptions/access?externalAccountId=acct_123&productCode=external-app" \
+  -H "X-Api-Key: $API_KEY"
+```
+
+Example active response:
+
+```json
+{
+  "subscriptionId": "33333333-3333-3333-3333-333333333333",
+  "externalAccountId": "acct_123",
+  "productCode": "external-app",
+  "planCode": "starter",
+  "priceCode": "starter-monthly-v1",
+  "provider": "stripe",
+  "providerStatus": "active",
+  "accessState": "granted",
+  "currentPeriodStart": "2026-05-22T10:00:00.000Z",
+  "currentPeriodEnd": "2026-06-22T10:00:00.000Z",
+  "trialEndsAt": null,
+  "cancelAtPeriodEnd": false,
+  "entitlements": {
+    "projectsLimit": 5,
+    "aiEnabled": false
+  },
+  "updatedAt": "2026-05-22T10:30:00.000Z"
+}
+```
+
+Example no-subscription response:
+
+```json
+{
+  "subscriptionId": null,
+  "externalAccountId": "acct_123",
+  "productCode": "external-app",
+  "planCode": null,
+  "priceCode": null,
+  "provider": null,
+  "providerStatus": null,
+  "accessState": "blocked",
+  "currentPeriodStart": null,
+  "currentPeriodEnd": null,
+  "trialEndsAt": null,
+  "cancelAtPeriodEnd": false,
+  "entitlements": null,
+  "updatedAt": null
+}
+```
+
+## Create billing portal session — `POST /subscriptions/portal`
+
+Creates a Stripe Customer Portal URL for an external account that already has a provider customer mapping.
+
+```bash
+curl -X POST "$BASE_URL/subscriptions/portal" \
+  -H "X-Api-Key: $API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "externalAccountId": "acct_123",
+    "returnUrl": "https://app.example.com/settings/billing"
+  }'
+```
+
+Example response:
+
+```json
+{
+  "portalUrl": "https://billing.stripe.com/p/session/..."
+}
+```
+
+Portal restrictions enforced by the managed configuration:
+
+- payment method update enabled
+- invoice history enabled
+- cancellation at period end enabled
+- subscription update disabled
+
+## Cancel subscription — `POST /subscriptions/[id]/cancel`
+
+Cancels a subscription at period end by default.
+
+```bash
+curl -X POST "$BASE_URL/subscriptions/33333333-3333-3333-3333-333333333333/cancel" \
+  -H "X-Api-Key: $API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "atPeriodEnd": true
+  }'
+```
+
+Example response:
+
+```json
+{
+  "ok": true,
+  "subscriptionId": "33333333-3333-3333-3333-333333333333",
+  "providerStatus": "active",
+  "accessState": "granted",
+  "cancelAtPeriodEnd": true,
+  "cancelledAt": null
+}
+```
+
+To cancel immediately, send `"atPeriodEnd": false`.
+
+## Admin list — `GET /subscriptions/list`
+
+Returns a paged operator view over local subscriptions.
+
+Available query parameters:
+
+- `page`
+- `pageSize`
+- `externalAccountId`
+- `productCode`
+- `accessState`
+
+```bash
+curl -X GET "$BASE_URL/subscriptions/list?page=1&pageSize=50&accessState=grace" \
+  -H "X-Api-Key: $API_KEY"
+```
+
+Example response:
+
+```json
+{
+  "items": [
+    {
+      "id": "33333333-3333-3333-3333-333333333333",
+      "externalAccountId": "acct_123",
+      "planCode": "growth",
+      "priceCode": "growth-monthly-v1",
+      "productCode": "external-app",
+      "provider": "stripe",
+      "providerStatus": "past_due",
+      "providerSubscriptionId": "sub_123",
+      "accessState": "grace",
+      "cancelAtPeriodEnd": false,
+      "currentPeriodEnd": "2026-06-22T10:00:00.000Z",
+      "updatedAt": "2026-05-22T10:30:00.000Z"
+    }
+  ],
+  "page": 1,
+  "pageSize": 50,
+  "total": 1,
+  "totalPages": 1
+}
+```
+
+## Admin detail — `GET /subscriptions/detail/[id]`
+
+Returns the local subscription snapshot plus the most recent billing records.
+
+```bash
+curl -X GET "$BASE_URL/subscriptions/detail/33333333-3333-3333-3333-333333333333" \
+  -H "X-Api-Key: $API_KEY"
+```
+
+The response contains:
+
+- `subscription` with plan, provider, period, and cancellation fields
+- `billingRecords` with recent invoice or refund events
+
+## Force refresh from provider — `POST /subscriptions/[id]/refresh`
+
+Fetches a fresh provider snapshot and applies it locally.
+
+```bash
+curl -X POST "$BASE_URL/subscriptions/33333333-3333-3333-3333-333333333333/refresh" \
+  -H "X-Api-Key: $API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{}'
+```
+
+Example response:
+
+```json
+{
+  "ok": true,
+  "subscriptionId": "33333333-3333-3333-3333-333333333333",
+  "changed": true,
+  "accessState": "granted",
+  "providerStatus": "active"
+}
+```
+
+## Sync plans — `POST /subscriptions/plans/sync`
+
+Triggers the catalog sync command for the current tenant and organization.
+
+```bash
+curl -X POST "$BASE_URL/subscriptions/plans/sync" \
+  -H "X-Api-Key: $API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{}'
+```
+
+Example response:
+
+```json
+{
+  "ok": true,
+  "plansUpserted": 2,
+  "pricesUpserted": 2,
+  "pricesDeactivated": 0,
+  "providerEnsured": 2,
+  "runId": "44444444-4444-4444-4444-444444444444",
+  "manifestSource": "builtin",
+  "manifestPath": null
+}
+```
+
+Note: the HTTP route always syncs the resolved default manifest. To point at a custom manifest file, use the CLI command instead.
+
+## Related inbound webhook
+
+The subscriptions lifecycle is updated through the Stripe webhook endpoint exposed by `payment_gateways`:
+
+```text
+POST /payment_gateways/webhook/stripe
+```
+
+That route is documented in the [Payment Gateways API guide](/api/payment-gateways). The subscriptions module extends it with recurring event classification and mapping-based scope resolution.

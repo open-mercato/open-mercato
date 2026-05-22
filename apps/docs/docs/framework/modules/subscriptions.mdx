@@ -1,0 +1,256 @@
+---
+title: Subscriptions
+description: External-app billing built on repo-backed plans, Stripe recurring billing, normalized access snapshots, and operator tooling.
+---
+
+# Subscriptions
+
+The `subscriptions` module makes Open Mercato the billing source of truth for an external product application. It owns the plan catalog, local subscription state, billing history, normalized access snapshots, and operator tooling, while Stripe continues to execute recurring billing.
+
+This module sits on top of:
+
+- `payment_gateways` for webhook verification, queueing, and unified gateway events
+- `gateway-stripe` for the recurring runtime implementation
+- `integrations` for encrypted Stripe credentials
+- `api_keys` and `auth` for machine-to-machine access control
+
+## What the module owns
+
+- Repo-backed plan manifests in `packages/core/src/modules/subscriptions/plans.ts`
+- Optional app-owned manifests resolved through `OM_SUBSCRIPTIONS_PLANS_FILE` or CLI `--manifest`
+- Local entities for plans, prices, subscriptions, and billing records
+- Checkout orchestration for external accounts
+- Normalized `accessState` snapshots for product gating
+- Backoffice pages for plans, subscriptions, and billing history
+- Reconcile tooling: API refresh, background worker, and CLI commands
+- Trial-ending notifications for operators
+
+## What it does not own
+
+- Sales invoices or ERP-style billing documents
+- Generic multi-provider recurring billing abstractions beyond the narrow runtime seam
+- In-app plan switching through Stripe Customer Portal
+- A local coupon engine
+
+Stripe promotion codes entered directly in hosted Stripe Checkout are supported. Open Mercato does not model coupon lifecycle locally.
+
+## Main flow
+
+1. An operator syncs the plan catalog from the manifest into local tables and Stripe Product/Price references.
+2. The external app calls `POST /api/subscriptions/checkout` with `externalAccountId`, `subjectEntityType`, `subjectEntityId`, and `priceCode`.
+3. The module validates the subject entity through the query engine, ensures a Stripe customer, and pre-creates a `GatewaySubscriptionMapping`.
+4. Stripe Checkout creates the subscription.
+5. Stripe sends webhook events to `/api/payment_gateways/webhook/stripe`.
+6. `payment_gateways` classifies the event as `transaction` or `subscription`, resolves tenant scope from `GatewaySubscriptionMapping`, verifies the signature, and emits typed events.
+7. `subscriptions` subscribers materialize or update the local `Subscription`, append `SubscriptionBillingRecord` rows, emit `subscriptions.access.changed`, and invalidate access cache tags.
+8. The external app reads `GET /api/subscriptions/access` and uses `accessState` as the product-gating signal.
+
+## Data model
+
+### `SubscriptionPlan`
+
+- Stable business identifier: `code`
+- Product grouping: `productCode`
+- Human text: `title`, `description`
+- Entitlements payload: `entitlementsJson`
+- Lifecycle flag: `isActive`
+
+### `SubscriptionPrice`
+
+- Stable versioned identifier: `code`
+- Provider: currently `stripe`
+- Billing interval: `interval`, `intervalCount`
+- Amount in minor units: `unitAmountMinor`
+- Optional trial: `trialDays`
+- Remote references: `providerProductRef`, `providerPriceRef`
+- Stripe lookup keys: `productLookupKey`, `priceLookupKey`
+
+### `Subscription`
+
+- External account anchor: `externalAccountId`
+- Linked business subject: `subjectEntityType`, `subjectEntityId`
+- Selected local catalog entries: `plan`, `price`
+- Provider identifiers: `providerCustomerId`, `providerSubscriptionId`
+- Raw provider status plus normalized `accessState`
+- Billing window fields and cancellation flags
+- `lastProviderEventAt` ordering guard
+
+### `SubscriptionBillingRecord`
+
+- Append-only billing history for paid, failed, refunded, and unknown outcomes
+- References to provider invoice, payment intent, and charge IDs when present
+- Amount, currency, event type, and processed timestamp
+
+### `GatewaySubscriptionMapping`
+
+This table lives in `payment_gateways`, not in `subscriptions`.
+
+It links:
+
+- `providerCustomerId`
+- optional `providerSubscriptionId`
+- tenant and organization scope
+- `externalAccountId`
+- optional `subjectEntityType`, `subjectEntityId`
+- optional local `subscriptionId`
+
+It exists so a single Stripe webhook endpoint can resolve scope safely before any subscription row exists locally.
+
+## Plan catalog and sync rules
+
+The built-in manifest lives in `plans.ts`:
+
+```ts
+export const subscriptionPlans = [
+  {
+    code: 'starter',
+    productCode: 'external-app',
+    title: 'Starter',
+    prices: [
+      {
+        code: 'starter-monthly-v1',
+        providerKey: 'stripe',
+        currencyCode: 'USD',
+        interval: 'month',
+        intervalCount: 1,
+        unitAmountMinor: 1900,
+        stripe: {
+          productLookupKey: 'external-app-starter',
+          priceLookupKey: 'external-app-starter-monthly-v1',
+        },
+      },
+    ],
+  },
+]
+```
+
+Sync rules:
+
+- `SubscriptionPlan.code` and `SubscriptionPrice.code` are stable identifiers.
+- Economic changes on an existing price code are rejected.
+- To change amount, currency, or interval, create a new versioned price code.
+- Missing manifest entries are soft-deactivated locally, not hard-deleted.
+- Stripe refs are created only for active prices.
+
+Resolution order for a sync run:
+
+1. explicit CLI `--manifest`
+2. `OM_SUBSCRIPTIONS_PLANS_FILE`
+3. built-in `plans.ts`
+
+## Access model
+
+The external app should not interpret Stripe statuses directly. It should read the normalized access snapshot.
+
+Provider status mapping:
+
+| Provider status | `accessState` |
+|---|---|
+| `trialing`, `active` | `granted` |
+| `past_due` | `grace` |
+| `incomplete` | `pending` |
+| `canceled`, `cancelled`, `unpaid`, `incomplete_expired` | `blocked` |
+| unknown / empty | `pending` |
+
+The access service:
+
+- selects subscriptions by `externalAccountId`
+- filters them by `plan.productCode`
+- sorts by access priority (`granted` > `grace` > `pending` > `blocked`)
+- breaks ties by `updatedAt`
+- caches the final snapshot for 60 seconds
+
+Cache tags include:
+
+- `subscription:<subscriptionId>`
+- `external_account:<externalAccountId>`
+- `subscriptions:account:<tenantId>:<externalAccountId>`
+
+## Webhook processing
+
+Stripe recurring events are classified in `gateway-stripe/lib/webhook-handler.ts`:
+
+- `customer.subscription.*` => `subscription`
+- `invoice.paid`, `invoice.payment_succeeded`, `invoice.payment_failed` => `subscription`
+- `charge.refunded` => `subscription` only when the charge is invoice-linked
+
+The unified route stays the same:
+
+```text
+/api/payment_gateways/webhook/stripe
+```
+
+The flow is:
+
+1. Read raw body.
+2. Classify the event.
+3. Resolve candidate mappings by `providerSubscriptionId` or `providerCustomerId`.
+4. Verify the Stripe signature against credentials resolved for each candidate scope.
+5. Claim idempotency through `WebhookProcessedEvent`.
+6. Emit one of the typed gateway events:
+
+| Stripe event | Emitted event |
+|---|---|
+| `customer.subscription.created` | `payment_gateways.subscription.created` |
+| `customer.subscription.updated` | `payment_gateways.subscription.updated` |
+| `customer.subscription.deleted` | `payment_gateways.subscription.cancelled` |
+| `customer.subscription.trial_will_end` | `payment_gateways.subscription.trial_will_end` |
+| `invoice.paid`, `invoice.payment_succeeded` | `payment_gateways.invoice.paid` |
+| `invoice.payment_failed` | `payment_gateways.invoice.payment_failed` |
+| `charge.refunded` | `payment_gateways.charge.refunded` |
+
+`subscriptions` then reacts through persistent subscribers instead of embedding domain logic inside the webhook route.
+
+## Ordering and reconciliation
+
+Stripe does not guarantee ordering. The module uses two safeguards:
+
+- `lastProviderEventAt` prevents stale status events from overwriting fresher subscription state
+- `subscriptions-reconcile` periodically refreshes stale subscriptions from the provider
+
+The reconcile worker also deletes abandoned `GatewaySubscriptionMapping` rows that never received a final provider subscription ID.
+
+## Operator surfaces
+
+Backoffice pages:
+
+- `/backend/subscriptions` — paged subscription list with filters
+- `/backend/subscriptions/[id]` — current state, provider refs, billing history, force reconcile, cancel
+- `/backend/subscriptions/plans` — synced plan catalog and manual sync action
+
+Notification surface:
+
+- `subscriptions.subscription.trial_will_end` warns operators before a trial ends and links to the detail page
+
+## ACL and machine-to-machine access
+
+Features declared by the module:
+
+- `subscriptions.view`
+- `subscriptions.manage`
+- `subscriptions.access`
+- `subscriptions.admin`
+
+Default role grants include `admin`, `superadmin`, and `external-app-billing`.
+
+Typical split:
+
+- external app key: `subscriptions.access`, `subscriptions.manage`, `subscriptions.view`
+- operator role: `subscriptions.admin`
+
+## CLI and operational tooling
+
+Module CLI commands:
+
+- `yarn mercato subscriptions sync-plans --tenant <tenantId> --org <organizationId> [--manifest <path>]`
+- `yarn mercato subscriptions reconcile --tenant <tenantId> --org <organizationId> [--id <subscriptionId> | --all]`
+- `yarn mercato subscriptions cancel --tenant <tenantId> --org <organizationId> --id <subscriptionId> [--immediately]`
+- `yarn mercato subscriptions list-stale --tenant <tenantId> --org <organizationId> [--olderThanMinutes <n>]`
+
+## Related docs
+
+- [Subscriptions user guide](/user-guide/subscriptions)
+- [Subscriptions REST API](/api/subscriptions)
+- [Subscriptions CLI](/cli/subscriptions)
+- [Payment Gateways](/framework/modules/payment-gateways)
+- [Stripe Payments](/user-guide/stripe-payments)

@@ -1,0 +1,121 @@
+---
+title: Subscriptions CLI
+sidebar_label: subscriptions
+description: Sync the plan catalog, reconcile provider state, cancel subscriptions, and find stale subscription rows.
+---
+
+# Subscriptions CLI
+
+The subscriptions module exposes operational commands for catalog sync, provider reconciliation, cancellation, and stale-row inspection.
+
+All commands are scoped. Pass both:
+
+- `--tenant <tenantId>`
+- `--org <organizationId>`
+
+## sync-plans
+
+Synchronizes the local plan catalog and, when Stripe credentials are configured, ensures remote Stripe Product and Price references.
+
+```bash
+yarn mercato subscriptions sync-plans \
+  --tenant <tenantId> \
+  --org <organizationId> \
+  [--manifest /absolute/path/to/subscriptions.manifest.ts]
+```
+
+Use `--manifest` when your app owns the plan file outside the built-in fallback manifest.
+
+Typical output:
+
+```text
+subscriptions: plans synced {
+  plansUpserted: 2,
+  pricesUpserted: 2,
+  pricesDeactivated: 0,
+  providerEnsured: 2,
+  runId: '...'
+}
+```
+
+## reconcile
+
+Fetches fresh provider snapshots and applies them to local subscriptions.
+
+```bash
+yarn mercato subscriptions reconcile \
+  --tenant <tenantId> \
+  --org <organizationId> \
+  [--id <subscriptionId> | --all]
+```
+
+Examples:
+
+```bash
+# Reconcile one subscription
+yarn mercato subscriptions reconcile \
+  --tenant 11111111-1111-1111-1111-111111111111 \
+  --org 22222222-2222-2222-2222-222222222222 \
+  --id 33333333-3333-3333-3333-333333333333
+
+# Reconcile up to 500 subscriptions in scope
+yarn mercato subscriptions reconcile \
+  --tenant 11111111-1111-1111-1111-111111111111 \
+  --org 22222222-2222-2222-2222-222222222222 \
+  --all
+```
+
+## cancel
+
+Cancels a provider subscription by local subscription ID.
+
+```bash
+yarn mercato subscriptions cancel \
+  --tenant <tenantId> \
+  --org <organizationId> \
+  --id <subscriptionId> \
+  [--immediately]
+```
+
+Behavior:
+
+- without `--immediately`, the module requests cancellation at period end
+- with `--immediately`, it calls the provider's immediate cancellation path
+
+## list-stale
+
+Shows subscriptions whose `updatedAt` is older than the chosen threshold.
+
+```bash
+yarn mercato subscriptions list-stale \
+  --tenant <tenantId> \
+  --org <organizationId> \
+  [--olderThanMinutes 60]
+```
+
+Example output:
+
+```text
+subscriptions: 3 stale entries (older than 60m)
+  33333333-3333-3333-3333-333333333333 acct_123 granted updatedAt=2026-05-22T08:30:00.000Z
+  44444444-4444-4444-4444-444444444444 acct_456 grace updatedAt=2026-05-22T07:55:00.000Z
+```
+
+Use this when:
+
+- webhook delivery was delayed
+- Stripe status seems newer than local status
+- you want a quick operator audit before bulk reconcile
+
+## Operational notes
+
+- Commands run through the same command handlers as the HTTP API.
+- Catalog sync can run without Stripe credentials unless `OM_SUBSCRIPTIONS_REQUIRE_STRIPE=1`.
+- Reconcile skips rows without `providerSubscriptionId` and rows already in terminal provider states such as `canceled` or `incomplete_expired`.
+- A scheduled worker also runs reconciliation automatically every 30 minutes when the scheduler service is enabled.
+
+## Related docs
+
+- [Subscriptions user guide](/user-guide/subscriptions)
+- [Subscriptions REST API](/api/subscriptions)
+- [Subscriptions module architecture](/framework/modules/subscriptions)

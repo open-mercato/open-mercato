@@ -1,0 +1,44 @@
+{
+  "subscriptions": {
+    "nav": {
+      "title": "Subscriptions",
+      "plans": "Plans"
+    },
+    "list": {
+      "title": "Subscriptions",
+      "empty": "No subscriptions yet",
+      "syncPlansButton": "Sync plans",
+      "filter": {
+        "accessState": "Access state",
+        "productCode": "Product code",
+        "externalAccountId": "External account"
+      }
+    },
+    "detail": {
+      "title": "Subscription",
+      "forceReconcileButton": "Force reconcile",
+      "cancelButton": "Cancel subscription",
+      "billingRecords": "Billing history"
+    },
+    "plans": {
+      "title": "Plans",
+      "empty": "No plans synced yet",
+      "syncButton": "Sync plans now"
+    },
+    "notifications": {
+      "trialWillEnd": {
+        "title": "Subscription trial ends soon",
+        "body": "The trial for external account {externalAccountId} ends on {trialEndsAt}."
+      }
+    },
+    "accessState": {
+      "pending": "Pending",
+      "granted": "Granted",
+      "grace": "Grace period",
+      "blocked": "Blocked"
+    },
+    "errors": {
+      "syncFailed": "Could not sync plans"
+    }
+  }
+}
