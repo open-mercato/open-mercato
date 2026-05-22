@@ -3732,6 +3732,7 @@ const FieldControl = React.memo(function FieldControlImpl({
               : undefined
           }
           allowCustomValues={builtin?.allowCustomValues ?? true}
+          clearable={!field.required}
           disabled={disabled}
         />
       )}

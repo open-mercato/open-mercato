@@ -1,7 +1,9 @@
 "use client"
 
 import * as React from 'react'
+import { X } from 'lucide-react'
 import { Button } from '../../primitives/button'
+import { IconButton } from '../../primitives/icon-button'
 
 export type ComboboxOption = {
   value: string
@@ -20,6 +22,8 @@ export type ComboboxInputProps = {
   autoFocus?: boolean
   disabled?: boolean
   allowCustomValues?: boolean
+  clearable?: boolean
+  clearLabel?: string
 }
 
 function normalizeOptions(input?: Array<string | ComboboxOption>): ComboboxOption[] {
@@ -53,6 +57,8 @@ export function ComboboxInput({
   autoFocus,
   disabled = false,
   allowCustomValues = true,
+  clearable = false,
+  clearLabel = 'Clear value',
 }: ComboboxInputProps) {
   const [input, setInput] = React.useState('')
   const [asyncOptions, setAsyncOptions] = React.useState<ComboboxOption[]>([])
@@ -158,6 +164,10 @@ export function ComboboxInput({
   const confirmSelection = React.useCallback(
     (raw: string) => {
       if (disabled) return
+      if (clearable && raw.trim() === '') {
+        selectValue('')
+        return
+      }
       const option = findOptionForInput(raw)
       if (option) {
         selectValue(option.value)
@@ -172,8 +182,14 @@ export function ComboboxInput({
       }
       selectValue(raw)
     },
-    [allowCustomValues, disabled, findOptionForInput, optionMap, selectValue, value]
+    [allowCustomValues, clearable, disabled, findOptionForInput, optionMap, selectValue, value]
   )
+
+  const handleClear = React.useCallback(() => {
+    if (disabled) return
+    selectValue('')
+    inputRef.current?.focus()
+  }, [disabled, selectValue])
 
   const handleKeyDown = React.useCallback(
     (event: React.KeyboardEvent<HTMLInputElement>) => {
@@ -206,12 +222,19 @@ export function ComboboxInput({
     [confirmSelection, disabled, filteredSuggestions, input, selectValue, selectedIndex, showSuggestions]
   )
 
+  const showClearButton = clearable && !disabled && (value !== '' || input !== '')
+
   return (
     <div className="relative w-full">
       <input
         ref={inputRef}
         type="text"
-        className="w-full h-9 rounded border px-2 text-sm disabled:bg-muted disabled:text-muted-foreground disabled:cursor-not-allowed"
+        className={[
+          'w-full h-9 rounded border px-2 text-sm disabled:bg-muted disabled:text-muted-foreground disabled:cursor-not-allowed',
+          showClearButton ? 'pr-8' : '',
+        ]
+          .filter(Boolean)
+          .join(' ')}
         value={input}
         placeholder={placeholder || 'Type to search...'}
         autoFocus={autoFocus}
@@ -236,6 +259,20 @@ export function ComboboxInput({
           }, 200)
         }}
       />
+
+      {showClearButton ? (
+        <IconButton
+          type="button"
+          variant="ghost"
+          size="xs"
+          aria-label={clearLabel}
+          className="absolute right-1 top-1/2 -translate-y-1/2"
+          onMouseDown={(event) => event.preventDefault()}
+          onClick={handleClear}
+        >
+          <X className="size-3" />
+        </IconButton>
+      ) : null}
 
       {showSuggestions && !disabled && (loading || filteredSuggestions.length > 0) && (
         <div className="absolute z-50 w-full mt-1 rounded border bg-popover shadow-lg max-h-48 sm:max-h-60 overflow-auto">
