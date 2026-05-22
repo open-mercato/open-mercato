@@ -39,10 +39,20 @@ Ensure the `customers.deal_analyzer` agent can create a pending deal stage-chang
 
 ### Phase 1: Root Cause And Patch
 
-- [ ] 1.1 Update deal analyzer first-step active tools
-- [ ] 1.2 Update unit coverage
+- [x] 1.1 Update deal analyzer first-step active tools — da26125f5
+- [x] 1.2 Update unit coverage — da26125f5
 
 ### Phase 2: Validation And PR
 
-- [ ] 2.1 Run targeted validation
+- [x] 2.1 Run targeted validation — da26125f5
 - [ ] 2.2 Open PR
+
+## Validation
+
+- `yarn workspace @open-mercato/core test src/modules/customers/__tests__/ai-agents.test.ts --runInBand`
+- `yarn workspace @open-mercato/core test src/modules/customers/__tests__/ai-tools/deals-pack.mutation.test.ts --runInBand`
+
+## Notes
+
+- `yarn workspace @open-mercato/core typecheck` could not run in this fresh worktree because the workspace script could not find `tsc`.
+- `yarn exec tsc -p packages/core/tsconfig.json --noEmit` was blocked by missing generated `#generated/entities...` shims in the fresh worktree.
