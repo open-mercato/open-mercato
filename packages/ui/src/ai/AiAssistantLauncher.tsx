@@ -215,6 +215,39 @@ export function AiAssistantLauncher({
   const [chatOpen, setChatOpen] = React.useState(false)
   const [query, setQuery] = React.useState('')
   const [highlight, setHighlight] = React.useState(0)
+  const [deepLinkConversationId, setDeepLinkConversationId] = React.useState<string | null>(null)
+  const deepLinkHandledRef = React.useRef(false)
+
+  // Deep-link: read ?openAiConversation on mount and auto-open the conversation.
+  React.useEffect(() => {
+    if (typeof window === 'undefined') return
+    const params = new URLSearchParams(window.location.search)
+    const convId = params.get('openAiConversation')
+    if (convId) setDeepLinkConversationId(convId)
+  }, [])
+
+  React.useEffect(() => {
+    if (!deepLinkConversationId || !agentsLoaded || agents.length === 0) return
+    if (deepLinkHandledRef.current) return
+    deepLinkHandledRef.current = true
+    let cancelled = false
+    apiCall<{ conversation: { agentId: string } }>(
+      `/api/ai_assistant/ai/conversations/${deepLinkConversationId}`,
+      { headers: { 'x-om-forbidden-redirect': '0', 'x-om-unauthorized-redirect': '0' } },
+    )
+      .then((res) => {
+        if (cancelled || !res.ok || !res.result) return
+        const { agentId } = res.result.conversation
+        const matched = agents.find((a) => a.id === agentId) ?? agents[0]
+        if (!matched) return
+        setActiveAgent(matched)
+        setChatOpen(true)
+      })
+      .catch(() => undefined)
+    return () => {
+      cancelled = true
+    }
+  }, [deepLinkConversationId, agentsLoaded, agents])
 
   // Health check — best-effort signal only. We do NOT gate the launcher
   // behind it any more: a flaky / slow / transiently-401 health endpoint on
@@ -702,6 +735,7 @@ export function AiAssistantLauncher({
                 'ai_assistant.launcher.composerPlaceholder',
                 'Ask anything…',
               )}
+              sharedConversationId={deepLinkConversationId ?? undefined}
             />
           ) : null}
         </DialogContent>
@@ -716,6 +750,8 @@ interface LauncherChatBodyProps {
   contextItems: AiChatContextItem[]
   welcomeFallback: string
   placeholder: string
+  /** When set, bypass session management and load this conversation directly (e.g. from a notification deep-link). */
+  sharedConversationId?: string
 }
 
 function LauncherChatBody({
@@ -724,24 +760,29 @@ function LauncherChatBody({
   contextItems,
   welcomeFallback,
   placeholder,
+  sharedConversationId,
 }: LauncherChatBodyProps) {
   const sessions = useAiChatSessions()
-  const session = sessions.getActiveSession(activeAgent.id)
+  const session = sharedConversationId ? null : sessions.getActiveSession(activeAgent.id)
 
   React.useEffect(() => {
+    if (sharedConversationId) return
     if (!session) sessions.ensureSession(activeAgent.id)
-  }, [activeAgent.id, session, sessions])
+  }, [activeAgent.id, session, sessions, sharedConversationId])
+
+  const conversationId = sharedConversationId ?? session?.conversationId
+  const chatKey = sharedConversationId ?? session?.id
 
   return (
     <>
-      <ChatPaneTabs agentId={activeAgent.id} className="border-b" />
+      {!sharedConversationId && <ChatPaneTabs agentId={activeAgent.id} className="border-b" />}
       <div className="min-h-0 flex-1" data-ai-launcher-chat-container="">
-        {session ? (
+        {conversationId ? (
           <React.Suspense fallback={null}>
             <LazyAiChat
-              key={session.id}
+              key={chatKey}
               agent={activeAgent.id}
-              conversationId={session.conversationId}
+              conversationId={conversationId}
               pageContext={{}}
               className="h-full"
               placeholder={placeholder}
@@ -749,7 +790,7 @@ function LauncherChatBody({
               contextItems={contextItems}
               welcomeTitle={activeAgent.label}
               welcomeDescription={activeAgent.description ?? welcomeFallback}
-              headerActions={<ConversationShareButton conversationId={session.conversationId} />}
+              headerActions={<ConversationShareButton conversationId={conversationId} />}
             />
           </React.Suspense>
         ) : null}
