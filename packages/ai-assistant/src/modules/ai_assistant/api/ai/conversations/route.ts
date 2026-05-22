@@ -167,7 +167,7 @@ export async function GET(req: NextRequest): Promise<Response> {
       },
     )
     return NextResponse.json({
-      items: result.items.map(serializeAiChatConversation),
+      items: result.items.map((row) => serializeAiChatConversation(row)),
       nextCursor: result.nextCursor,
     })
   } catch (error) {
