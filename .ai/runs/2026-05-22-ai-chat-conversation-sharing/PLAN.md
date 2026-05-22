@@ -21,7 +21,7 @@ Source spec: .ai/specs/2026-05-22-ai-chat-conversation-sharing.md
 | 1 | 1.11 | Add conversation.shared + conversation.unshared events; emit from routes | done | 5945a3cce |
 | 2 | 2.1 | Create notifications.ts with ai_assistant.conversation_shared type | done | — |
 | 2 | 2.2 | Create subscribers/conversation-shared-notify.ts | done | — |
-| 2 | 2.3 | Create notifications.client.ts renderer | todo | — |
+| 2 | 2.3 | Create notifications.client.ts renderer | done | — |
 | 2 | 2.4 | Add i18n keys to ai_assistant locale file | todo | — |
 | 2 | 2.5 | Implement ConversationShareDialog.tsx component | todo | — |
 | 2 | 2.6 | Wire share button in conversation tab header | todo | — |
