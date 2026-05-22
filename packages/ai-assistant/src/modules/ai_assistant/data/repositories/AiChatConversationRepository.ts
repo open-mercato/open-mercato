@@ -189,7 +189,7 @@ export class AiChatConversationRepository {
     return row
   }
 
-  /** Owner-scoped list unless the caller has tenant/org manage access. */
+  /** Owner-scoped list unless the caller has tenant/org manage access. Participants also see shared conversations. */
   async list(
     ctx: AiChatConversationContext,
     options: AiChatConversationListOptions = {},
@@ -201,7 +201,27 @@ export class AiChatConversationRepository {
       organizationId: ctx.organizationId ?? null,
       deletedAt: null,
     }
-    if (!canManageConversations(ctx)) where.ownerUserId = ctx.userId
+    if (!canManageConversations(ctx)) {
+      const participantFilter: Record<string, unknown> = {
+        tenantId: ctx.tenantId,
+        userId: ctx.userId,
+        deletedAt: null,
+      }
+      if (ctx.organizationId) participantFilter.organizationId = ctx.organizationId
+      const participantRows = await this.em.find(
+        AiChatConversationParticipant,
+        participantFilter as any,
+      )
+      const participantConvIds = participantRows.map((p) => p.conversationId)
+      if (participantConvIds.length > 0) {
+        where.$or = [
+          { ownerUserId: ctx.userId },
+          { conversationId: { $in: participantConvIds } },
+        ]
+      } else {
+        where.ownerUserId = ctx.userId
+      }
+    }
     if (options.agentId) where.agentId = options.agentId
     if (options.status) where.status = options.status
     if (options.cursor) {
