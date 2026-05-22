@@ -5,7 +5,10 @@ import { getAuthFromRequest } from '@open-mercato/shared/lib/auth/server'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import type { RbacService } from '@open-mercato/core/modules/auth/services/rbacService'
 import { hasRequiredFeatures } from '../../../../../lib/auth'
-import { createConversationStorage } from '../../../../../lib/conversation-storage'
+import {
+  createConversationStorage,
+  AiChatConversationAccessError,
+} from '../../../../../lib/conversation-storage'
 import { emitAiAssistantEvent } from '../../../../../events'
 
 const REQUIRED_FEATURE = 'ai_assistant.view'
@@ -256,10 +259,10 @@ export async function POST(req: NextRequest, context: RouteContext): Promise<Res
       { status: 201 },
     )
   } catch (err) {
-    if (err instanceof Error && err.message.includes('not found')) {
+    if (err instanceof AiChatConversationAccessError) {
       return jsonError(404, 'Conversation not found.', 'conversation_not_found')
     }
-    if (err instanceof Error && err.message.includes('owner')) {
+    if (err instanceof Error && err.message.toLowerCase().includes('owner')) {
       return jsonError(403, err.message, 'forbidden')
     }
     return jsonError(500, 'Internal server error.', 'internal_error')

@@ -29,8 +29,6 @@ import type {
  * outside that boundary. The participant row is written transactionally
  * alongside conversation create/import.
  *
- * TODO(ai-chat-sharing): widen the non-manage read predicate to include
- * explicit undeleted participants once shared conversations are implemented.
  */
 
 export interface AiChatConversationContext {
@@ -211,6 +209,7 @@ export class AiChatConversationRepository {
       const participantRows = await this.em.find(
         AiChatConversationParticipant,
         participantFilter as any,
+        { fields: ['conversationId'] as any },
       )
       const participantConvIds = participantRows.map((p) => p.conversationId)
       if (participantConvIds.length > 0) {
@@ -681,14 +680,14 @@ export class AiChatConversationRepository {
     conversationId: string,
     userId: string,
   ): Promise<boolean> {
-    const count = await em.count(AiChatConversationParticipant, {
+    const row = await em.findOne(AiChatConversationParticipant, {
       tenantId,
       conversationId,
       userId,
       deletedAt: null,
       ...(organizationId ? { organizationId } : {}),
     } as any)
-    return count > 0
+    return row !== null
   }
 }
 

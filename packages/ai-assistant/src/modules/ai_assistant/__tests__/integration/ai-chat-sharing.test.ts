@@ -1,18 +1,3 @@
-/**
- * TC-AI-sharing-01 through TC-AI-sharing-05
- *
- * Integration tests for the participant-based sharing access control layer
- * added by spec 2026-05-22-ai-chat-conversation-sharing. Tests run against
- * an in-memory ORM mock — no live DB, no real event bus, no LLM.
- *
- * Coverage:
- *   01 — owner can access their conversation
- *   02 — participant (viewer) can access a shared conversation
- *   03 — non-participant user is denied access
- *   04 — manager (canManageConversations=true) can access any conversation
- *   05 — cross-tenant access is denied even for a participant row
- */
-
 import {
   AiChatConversation,
   AiChatConversationParticipant,

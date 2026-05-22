@@ -43,8 +43,9 @@ export function ConversationSharedRenderer({
         'group relative flex gap-4 items-start rounded-xl p-3 transition-colors hover:bg-muted/40 cursor-pointer',
         isUnread && 'bg-muted/20',
       )}
-      onClick={handleView}
+      onClick={executing ? undefined : handleView}
       onKeyDown={(e) => {
+        if (executing) return
         if (e.key === 'Enter' || e.key === ' ') {
           e.preventDefault()
           handleView()

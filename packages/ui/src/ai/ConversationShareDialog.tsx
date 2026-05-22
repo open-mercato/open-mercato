@@ -45,7 +45,7 @@ export function ConversationShareDialog({ open, onOpenChange, conversationId }: 
   const t = useT()
   const [participants, setParticipants] = React.useState<Participant[]>([])
   const [users, setUsers] = React.useState<UserOption[]>([])
-  const [canListUsers, setCanListUsers] = React.useState<boolean | null>(null)
+  const [canListUsers, setCanListUsers] = React.useState(true)
   const [loading, setLoading] = React.useState(false)
   const [loadingUsers, setLoadingUsers] = React.useState(false)
   const [selectedUserId, setSelectedUserId] = React.useState('')
@@ -68,7 +68,7 @@ export function ConversationShareDialog({ open, onOpenChange, conversationId }: 
     } finally {
       setLoading(false)
     }
-  }, [conversationId, baseUrl, t])
+  }, [conversationId, t])
 
   const fetchUsers = React.useCallback(async () => {
     setLoadingUsers(true)
@@ -92,8 +92,7 @@ export function ConversationShareDialog({ open, onOpenChange, conversationId }: 
       setSelectedUserId('')
       setTextUserId('')
       setError(null)
-      fetchParticipants()
-      fetchUsers()
+      void Promise.all([fetchParticipants(), fetchUsers()])
     }
   }, [open, fetchParticipants, fetchUsers])
 
@@ -147,10 +146,11 @@ export function ConversationShareDialog({ open, onOpenChange, conversationId }: 
     }
   }
 
+  const formatUserLabel = (u: UserOption) => (u.name ? `${u.name} — ${u.email}` : u.email)
+
   const getUserLabel = (userId: string) => {
     const u = users.find((u) => u.id === userId)
-    if (!u) return userId
-    return u.name ? `${u.name} (${u.email})` : u.email
+    return u ? formatUserLabel(u) : userId
   }
 
   return (
@@ -200,7 +200,7 @@ export function ConversationShareDialog({ open, onOpenChange, conversationId }: 
                 <SelectContent>
                   {availableUsers.map((u) => (
                     <SelectItem key={u.id} value={u.id}>
-                      {u.name ? `${u.name} — ${u.email}` : u.email}
+                      {formatUserLabel(u)}
                     </SelectItem>
                   ))}
                 </SelectContent>
