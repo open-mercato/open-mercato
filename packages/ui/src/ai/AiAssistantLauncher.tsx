@@ -781,19 +781,34 @@ function LauncherChatBody({
   sharedConversationId,
 }: LauncherChatBodyProps) {
   const sessions = useAiChatSessions()
-  const session = sharedConversationId ? null : sessions.getActiveSession(activeAgent.id)
+
+  // When a shared conversation is opened via deep-link, find its session from
+  // the server-synced list so it shows as a named tab rather than being hidden.
+  const sharedSession = React.useMemo(
+    () =>
+      sharedConversationId
+        ? (sessions.state.sessions.find((s) => s.conversationId === sharedConversationId) ?? null)
+        : null,
+    [sharedConversationId, sessions.state.sessions],
+  )
+
+  const session = sessions.getActiveSession(activeAgent.id)
 
   React.useEffect(() => {
+    if (sharedSession) {
+      sessions.setActiveSession(sharedSession.id)
+      return
+    }
     if (sharedConversationId) return
     if (!session) sessions.ensureSession(activeAgent.id)
-  }, [activeAgent.id, session, sessions, sharedConversationId])
+  }, [activeAgent.id, session, sessions, sharedConversationId, sharedSession])
 
-  const conversationId = sharedConversationId ?? session?.conversationId
-  const chatKey = sharedConversationId ?? session?.id
+  const conversationId = session?.conversationId ?? sharedConversationId
+  const chatKey = session?.id ?? sharedConversationId
 
   return (
     <>
-      {!sharedConversationId && <ChatPaneTabs agentId={activeAgent.id} className="border-b" />}
+      <ChatPaneTabs agentId={activeAgent.id} className="border-b" />
       <div className="min-h-0 flex-1" data-ai-launcher-chat-container="">
         {conversationId ? (
           <React.Suspense fallback={null}>

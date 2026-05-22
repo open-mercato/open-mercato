@@ -35,6 +35,7 @@ Source spec: .ai/specs/2026-05-22-ai-chat-conversation-sharing.md
 | 4 | 4.3 | Expose `createdByUserId` in serialized messages; render owner messages distinctly for viewers | done | 821c0ab35 |
 | 4 | 4.4 | Fix notification "View Conversation" action — navigates to `/backend` instead of deep-link | done | c13b830ec |
 | 4 | 4.5 | Fix `deepLinkHandledRef` not reset on chat close — second open of same conversation silently blocked | done | e82b4a902 |
+| 4 | 4.6 | Fix shared conversation opens without tab strip — activate session from server sync so normal tabs show | todo | — |
 
 ---
 
