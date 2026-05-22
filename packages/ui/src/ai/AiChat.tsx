@@ -305,6 +305,8 @@ export interface AiChatProps {
   welcomeDescription?: string
   /** Initial compact composer state used before the footer has been measured. */
   defaultCompactFooter?: boolean
+  /** Optional extra action nodes rendered in the conversation header bar. */
+  headerActions?: React.ReactNode
 }
 
 interface ServerEmittedUiPartRef {
@@ -1135,6 +1137,7 @@ export function AiChat({
   welcomeTitle,
   welcomeDescription,
   defaultCompactFooter = false,
+  headerActions,
 }: AiChatProps) {
   const t = useT()
   const textareaRef = React.useRef<HTMLTextAreaElement | null>(null)
@@ -1569,6 +1572,7 @@ export function AiChat({
             </span>
           )}
         </div>
+        {headerActions ?? null}
         <IconButton
           type="button"
           variant="ghost"

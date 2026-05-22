@@ -15,6 +15,7 @@ import { EmptyState } from '@open-mercato/ui/backend/EmptyState'
 import { apiCall, apiCallOrThrow } from '@open-mercato/ui/backend/utils/apiCall'
 import { AiChat, createAiUiPartRegistry, LoopDisabledBanner, useAiShortcuts } from '@open-mercato/ui/ai'
 import type { AiChatDebugPromptSection, AiChatDebugTool } from '@open-mercato/ui/ai'
+import { ConversationShareButton } from '../../../../components/ConversationShareButton'
 
 type PlaygroundAgentTool = {
   name: string
@@ -345,6 +346,7 @@ function ChatLane({ agent, debug }: { agent: PlaygroundAgent; debug: boolean }) 
         debugTools={debugTools}
         debugPromptSections={debugPromptSections}
         uiParts={uiParts}
+        headerActions={<ConversationShareButton agentId={agent.id} />}
       />
     </div>
   )
