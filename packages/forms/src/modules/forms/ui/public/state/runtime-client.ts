@@ -277,6 +277,11 @@ export type PublicFormContext = {
   default_locale: string
   completion?: { title: string | null; message: string | null }
   redirect_url?: string | null
+  /**
+   * Public-safe embed display hints (spec D6). Present only for embeddable open
+   * distributions; never carries the framing allowlist (`allowedDomains`).
+   */
+  embed?: { theme: 'light' | 'dark' | 'auto' | null; autoResize: boolean } | null
   invitation?: {
     id: string
     status: string

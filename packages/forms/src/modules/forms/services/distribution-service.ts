@@ -30,6 +30,7 @@ import {
 import type { CompiledFormVersion } from './form-version-compiler'
 import type { SubmissionService, SubmissionViewModel } from './submission-service'
 import type { StructuredLogger } from '../lib/log-redaction'
+import { buildFrameAncestorsCsp, isEmbedEnabled, readEmbedSettings } from '../lib/embed-frame-policy'
 import { formsEventPayloadSchemas } from '../events-payloads'
 import {
   getAccessTokenTtlSeconds,
@@ -115,6 +116,48 @@ export class DistributionService {
     this.emitEvent = options.emitEvent
     this.now = options.now ?? (() => new Date())
     this.logger = options.logger ?? noopLogger
+  }
+
+  // --------------------------------------------------------------------------
+  // Embed eligibility (spec D5 / R-RS-2)
+  // --------------------------------------------------------------------------
+
+  /**
+   * True only when a distribution may be framed on a third-party website:
+   * an active OPEN distribution that does not require customer auth and has
+   * opted in via a valid, non-empty `settings.embed` allowlist. There is no
+   * session inside a third-party iframe, so personal / auth-required / disabled
+   * distributions are never embeddable.
+   */
+  isEmbeddable(distribution: FormDistribution): boolean {
+    if (distribution.mode !== 'open') return false
+    if (distribution.status !== 'active') return false
+    if (distribution.requireCustomerAuth) return false
+    return isEmbedEnabled(readEmbedSettings(distribution.settings))
+  }
+
+  /**
+   * Resolves the `frame-ancestors` CSP directive for the `/embed/:slug` host
+   * page WITHOUT enforcing the runtime availability window — framing is
+   * permitted for any config-embeddable distribution (open + active + !auth +
+   * opted-in allowlist) so the iframe can still load and render a graceful
+   * "unavailable" state for a capped / out-of-window form. Fails closed
+   * (`frame-ancestors 'none'`) for unknown or non-embeddable slugs.
+   */
+  async getEmbedPolicyBySlug(
+    slug: string,
+  ): Promise<{ frameAncestors: string; embeddable: boolean }> {
+    const em = this.emFactory()
+    const distribution = await em.findOne(FormDistribution, {
+      publicSlug: slug,
+      deletedAt: null,
+    })
+    if (!distribution) return { frameAncestors: "frame-ancestors 'none'", embeddable: false }
+    const embeddable = this.isEmbeddable(distribution)
+    const frameAncestors = embeddable
+      ? buildFrameAncestorsCsp(readEmbedSettings(distribution.settings))
+      : "frame-ancestors 'none'"
+    return { frameAncestors, embeddable }
   }
 
   // --------------------------------------------------------------------------

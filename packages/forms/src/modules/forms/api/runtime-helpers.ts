@@ -5,6 +5,7 @@
 import { NextResponse, type NextRequest } from 'next/server'
 import { SubmissionServiceError } from '../services/submission-service'
 import { DistributionServiceError } from '../services/distribution-service'
+import { readEmbedSettings } from '../lib/embed-frame-policy'
 import type { CompiledFormVersion } from '../services/form-version-compiler'
 import type {
   Form,
@@ -97,6 +98,23 @@ function readCompletionCopy(
   return { title, message }
 }
 
+/**
+ * Reads the PUBLIC-SAFE embed display hints from a distribution's `settings`
+ * bag — `theme` and `autoResize` only, and only when embedding is enabled. The
+ * framing allowlist (`allowedDomains`) is NEVER echoed to a public context
+ * payload (R-RS-1); it is consumed exclusively server-side by the CSP builder.
+ */
+function readEmbedContext(
+  distribution: FormDistribution | undefined,
+): { theme: 'light' | 'dark' | 'auto' | null; autoResize: boolean } | null {
+  const embed = readEmbedSettings(distribution?.settings)
+  if (!embed || embed.enabled !== true) return null
+  return {
+    theme: embed.theme ?? null,
+    autoResize: embed.autoResize !== false,
+  }
+}
+
 export function serializeFormContext(args: {
   form: Form
   formVersion: FormVersion
@@ -128,6 +146,7 @@ export function serializeFormContext(args: {
     fieldIndex,
     completion: readCompletionCopy(distribution?.settings),
     redirect_url: distribution?.redirectUrl ?? null,
+    embed: readEmbedContext(distribution),
   }
 }
 

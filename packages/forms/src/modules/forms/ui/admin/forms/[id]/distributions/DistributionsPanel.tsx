@@ -15,6 +15,7 @@ import { useGuardedMutation } from '@open-mercato/ui/backend/injection/useGuarde
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { useOrganizationScopeVersion } from '@open-mercato/shared/lib/frontend/useOrganizationScope'
 import { CreateDistributionDialog } from './CreateDistributionDialog'
+import { EmbedSettingsDialog } from './EmbedSettingsDialog'
 import { RecipientsTable } from './RecipientsTable'
 
 export type DistributionMode = 'open' | 'personal'
@@ -94,6 +95,7 @@ export function DistributionsPanel({ formId }: { formId: string }) {
   const [formName, setFormName] = React.useState<string | null>(null)
   const [createOpen, setCreateOpen] = React.useState(false)
   const [recipientsFor, setRecipientsFor] = React.useState<DistributionRow | null>(null)
+  const [embedFor, setEmbedFor] = React.useState<DistributionRow | null>(null)
 
   const reload = React.useCallback(() => setReloadToken((token) => token + 1), [])
 
@@ -279,6 +281,11 @@ export function DistributionsPanel({ formId }: { formId: string }) {
           label: t('forms.distribution.copy.action', { fallback: 'Copy link' }),
           onSelect: () => void handleCopyLink(row),
         })
+        list.push({
+          id: 'embed',
+          label: t('forms.distribution.actions.embed', { fallback: 'Website embed' }),
+          onSelect: () => setEmbedFor(row),
+        })
       }
       if (row.status !== 'closed') {
         list.push({
@@ -347,6 +354,18 @@ export function DistributionsPanel({ formId }: { formId: string }) {
             distributionTitle={recipientsFor.title}
             onClose={() => setRecipientsFor(null)}
             onMutated={reload}
+          />
+        ) : null}
+
+        {embedFor ? (
+          <EmbedSettingsDialog
+            distributionId={embedFor.id}
+            publicSlug={embedFor.publicSlug}
+            onClose={() => setEmbedFor(null)}
+            onSaved={() => {
+              setEmbedFor(null)
+              reload()
+            }}
           />
         ) : null}
 

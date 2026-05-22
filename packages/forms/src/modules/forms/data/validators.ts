@@ -1,4 +1,5 @@
 import { z } from 'zod'
+import { normalizeEmbedOrigin } from '../lib/embed-frame-policy'
 
 /**
  * Forms module shared Zod primitives + Phase 1b/1c command/API schemas.
@@ -316,6 +317,57 @@ const isoDateTimeSchema = z.string().datetime({ offset: true })
 
 const optionalRedirectUrl = z.string().url().max(2000).optional().nullable()
 
+/**
+ * A single embed allowlist origin. Validated to the strict origin shape
+ * (scheme + host + optional port, https-only except localhost) via the shared
+ * `normalizeEmbedOrigin` policy helper so the Zod layer and the runtime CSP
+ * builder agree byte-for-byte (R-RS-1).
+ */
+const embedAllowedDomainSchema = z
+  .string()
+  .trim()
+  .min(1)
+  .max(253)
+  .refine((value) => normalizeEmbedOrigin(value) !== null, {
+    message:
+      'Allowed domain must be an https origin like "https://www.acme.com" (http is permitted only for localhost). No path, query, or fragment.',
+  })
+
+/**
+ * `settings.embed` — opt-in external-website framing config (spec D6). Rides on
+ * the existing `forms_distribution.settings` JSON column; no migration. Enabling
+ * embedding REQUIRES a non-empty allowlist — an enabled bag with zero allowed
+ * domains is rejected at save time (R-RS-1). `allowedDomains` is NEVER echoed to
+ * any public context payload.
+ */
+export const embedSettingsSchema = z
+  .object({
+    enabled: z.boolean().default(false),
+    allowedDomains: z.array(embedAllowedDomainSchema).max(50).default([]),
+    theme: z.enum(['light', 'dark', 'auto']).optional(),
+    autoResize: z.boolean().default(true),
+  })
+  .strict()
+  .refine((value) => !value.enabled || value.allowedDomains.length > 0, {
+    message: 'Embedding cannot be enabled without at least one allowed domain.',
+    path: ['allowedDomains'],
+  })
+
+export type EmbedSettingsInput = z.infer<typeof embedSettingsSchema>
+
+/**
+ * Distribution `settings` JSON bag. Additive, backward-compatible: known keys
+ * (`embed`) are validated; every other key (`captcha`, `completion`, …) passes
+ * through untouched so existing settings shapes keep working.
+ */
+export const distributionSettingsSchema = z
+  .object({
+    embed: embedSettingsSchema.optional(),
+  })
+  .passthrough()
+
+export type DistributionSettingsInput = z.infer<typeof distributionSettingsSchema>
+
 /** Command input for `forms.distribution.create`. */
 export const distributionCreateCommandSchema = z.object({
   ...scopedFields,
@@ -330,7 +382,7 @@ export const distributionCreateCommandSchema = z.object({
   opensAt: isoDateTimeSchema.optional().nullable(),
   closesAt: isoDateTimeSchema.optional().nullable(),
   redirectUrl: optionalRedirectUrl,
-  settings: jsonObjectSchema.optional().nullable(),
+  settings: distributionSettingsSchema.optional().nullable(),
 })
 
 export type FormDistributionCreateCommandInput = z.infer<typeof distributionCreateCommandSchema>
@@ -347,7 +399,7 @@ export const distributionUpdateCommandSchema = z.object({
   redirectUrl: optionalRedirectUrl,
   allowMultipleSubmissions: z.boolean().optional(),
   requireCustomerAuth: z.boolean().optional(),
-  settings: jsonObjectSchema.optional().nullable(),
+  settings: distributionSettingsSchema.optional().nullable(),
 })
 
 export type FormDistributionUpdateCommandInput = z.infer<typeof distributionUpdateCommandSchema>

@@ -130,6 +130,32 @@ Future phases append `commands/`, `api/`, `ui/`, `subscribers/`, more entities u
 | 2c Advanced Fields | Conditional visibility (jsonlogic), version history + diff viewer, signature field, file field. |
 | 2d Distribution | `FormDistribution` + `FormInvitation` entities, public anonymous runtime (token-authenticated `/api/forms/public/*` + `/f/:slug`, `/i/:token` runner pages), admin distribution UI (`DistributionsPanel`, `CreateDistributionDialog`, `RecipientsTable`), `forms.distribute` feature. |
 | 3 Vertical Extensions | Tooth chart, body diagram, analytics, webhook wiring, consent aggregate. |
+| Render Surfaces | Single `<EmbeddedForm>` primitive over `FormRunner`; surface taxonomy S1–S6 — portal page (S1), hosted link (S2), injectable widget `forms.injection.embedded-form` on `forms:embed` (S3), external iframe embed via embed-loader script + `/embed/:slug` (S4), `<FormTrigger>`/`useFormDialog()` dialog (S5), documented headless `/run/context` (S6). See the Render Surfaces section above and `.ai/specs/2026-05-21-forms-render-surfaces.md`. |
+
+## Render Surfaces
+
+A published form is rendered through **one** primitive — `<EmbeddedForm>` (`ui/public/EmbeddedForm.tsx`, exported from `ui/public/index.ts`). It runs the shared bootstrap (resolve context → start/load submission → build the right `RuntimeClient` → mount `<FormRunner>`) and picks the client from a `source` discriminator. `FormRunner` is never forked; every surface below is a thin wrapper around `<EmbeddedForm>`. See `.ai/specs/2026-05-21-forms-render-surfaces.md`.
+
+`source` (`EmbeddedFormSource`) union:
+
+| `source.kind` | Fields | Client |
+|---|---|---|
+| `portal` | `formKey`, `subjectType`, `subjectId` | `createAuthRuntimeClient` |
+| `distribution` | `slug` | `createAnonymousRuntimeClient` |
+| `invitation` | `token` | `createAnonymousRuntimeClient` |
+
+| # | Surface | How to mount / route | Client | Auth | Status |
+|---|---------|----------------------|--------|------|--------|
+| S1 | Customer portal page | `frontend/[orgSlug]/portal/forms/[key]/page.tsx` mounts `<EmbeddedForm source={{ kind:'portal', … }} />` | auth | portal customer | Done |
+| S2 | Standalone hosted link | `/f/:slug`, `/i/:token` → `ui/public/PublicFormRunnerPage.tsx` delegates to `<EmbeddedForm>` | anonymous | none / token | Done |
+| S3 | Injectable widget | widget `forms.injection.embedded-form` (`widgets/injection/embedded-form/widget.tsx`) on the `forms:embed` spot | auth or anonymous | host-dependent | Done |
+| S4 | External website embed | `<script src=".../api/forms/public/embed-loader">` + `<div data-om-form="SLUG">` → iframe `frontend/embed/[slug]/page.tsx` (framing via `apps/mercato/src/proxy.ts`) | anonymous | none | Done |
+| S5 | Trigger / dialog | `<FormTrigger source … />` / `useFormDialog()` (`ui/public/FormTrigger.tsx`) mount `<EmbeddedForm>` in a DS `Dialog` | any | source-dependent | Done |
+| S6 | Headless API render | `GET /api/forms/:id/run/context` (compiled schema + field descriptors) + the public/auth save/submit routes | caller-built | caller-defined | Done — documented |
+
+**S3 widget prop contract.** The host module places `forms.injection.embedded-form` on a spot and passes `context.source` (an `EmbeddedFormSource`) plus optional `onReturnHome` and `className`. The widget itself adds no ACL feature — gating is the host page's own guard (admin renders typically also require `forms.view`).
+
+**S4 external-framing wiring.** Third-party framing is enabled end-to-end. Per-request `frame-ancestors` for `/embed/:slug` is applied by the app proxy/middleware (`apps/mercato/src/proxy.ts`, Next 16's `proxy` convention), which resolves the allowlist from `GET /api/forms/public/distributions/:slug/embed-policy` (→ `DistributionService.getEmbedPolicyBySlug` → `buildFrameAncestorsCsp(readEmbedSettings(distribution.settings))` in `lib/embed-frame-policy.ts`). The global app CSP rule in `apps/mercato/next.config.ts` EXCLUDES `/embed/` (`source: '/((?!embed/).*)'`) so the proxy is the sole authority there and omits `X-Frame-Options`; it fails closed (`frame-ancestors 'none'`) for non-embeddable / unknown slugs. The shared CSP body lives in `apps/mercato/src/lib/security-headers.ts` so config and proxy stay identical apart from the framing directive. Per-distribution `theme` (`light`/`dark`/`auto`) is applied inside the iframe by `frontend/embed/[slug]/page.tsx` (toggles `.dark` on the document root); `autoResize: false` disables the resize `postMessage`.
 
 ## ACL Features
 

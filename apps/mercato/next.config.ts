@@ -2,6 +2,7 @@ import type { NextConfig } from "next";
 import fs from "node:fs";
 import path from "node:path";
 import { resolveAllowedDevOrigins } from './src/lib/dev-origins'
+import { buildContentSecurityPolicy, DEFAULT_FRAME_ANCESTORS } from './src/lib/security-headers'
 
 const isDevelopment = process.env.NODE_ENV !== 'production'
 const appPackageJsonPath = new URL('./package.json', import.meta.url)
@@ -13,19 +14,10 @@ const transpiledWorkspacePackages = Object.keys(appPackageJson.dependencies ?? {
 )
 const allowedDevOrigins = isDevelopment ? resolveAllowedDevOrigins() : []
 
-const contentSecurityPolicy = [
-  "default-src 'self'",
-  "base-uri 'self'",
-  "font-src 'self' data: https:",
-  "form-action 'self'",
-  "frame-ancestors 'self'",
-  "frame-src 'self' https://js.stripe.com https://hooks.stripe.com",
-  "img-src 'self' data: blob: https:",
-  "object-src 'none'",
-  "script-src 'self' 'unsafe-inline' 'unsafe-eval' https://js.stripe.com",
-  "style-src 'self' 'unsafe-inline'",
-  "connect-src 'self' https: ws: wss:",
-].join('; ')
+// Default app CSP. The `/embed/:slug` forms-embed host page is EXCLUDED from
+// this global rule (see the `headers()` source below) and gets a dynamic,
+// per-distribution `frame-ancestors` from `src/proxy.ts` instead.
+const contentSecurityPolicy = buildContentSecurityPolicy(DEFAULT_FRAME_ANCESTORS)
 
 const nextConfig: NextConfig = {
   distDir: '.mercato/next',
@@ -58,7 +50,11 @@ const nextConfig: NextConfig = {
   async headers() {
     return [
       {
-        source: '/:path*',
+        // Excludes `/embed/*` — the forms external-embed host page needs a
+        // dynamic per-distribution `frame-ancestors` and NO `X-Frame-Options`,
+        // both applied by `src/proxy.ts`. Every other route keeps the
+        // default same-origin frame protection.
+        source: '/((?!embed/).*)',
         headers: [
           { key: 'Content-Security-Policy', value: contentSecurityPolicy },
           { key: 'Referrer-Policy', value: 'strict-origin-when-cross-origin' },

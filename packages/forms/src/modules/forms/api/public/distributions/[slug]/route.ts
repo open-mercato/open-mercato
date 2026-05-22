@@ -65,6 +65,12 @@ const responseSchema = z.object({
     message: z.string().nullable(),
   }),
   redirect_url: z.string().nullable(),
+  embed: z
+    .object({
+      theme: z.enum(['light', 'dark', 'auto']).nullable(),
+      autoResize: z.boolean(),
+    })
+    .nullable(),
   requires_customer_auth: z.boolean(),
   default_locale: z.string(),
 })
