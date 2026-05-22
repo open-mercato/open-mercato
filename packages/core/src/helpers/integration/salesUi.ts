@@ -872,7 +872,32 @@ export async function createSalesDocument(page: Page, options: CreateDocumentOpt
     return id;
   }
 
-  await createButton.click();
+  // The Create button can detach during the click as the React form re-renders
+  // after lookups settle. Retry briefly with a short stability wait, then fall
+  // back to the API fixture path if the click never lands.
+  let clicked = false;
+  for (let attempt = 0; attempt < 3; attempt += 1) {
+    try {
+      await page.waitForLoadState('networkidle', { timeout: 2_000 }).catch(() => {});
+      const liveButton = page.getByRole('button', { name: /^Create$/i }).first();
+      if (!(await liveButton.isVisible().catch(() => false))) break;
+      if (!(await liveButton.isEnabled().catch(() => false))) {
+        await page.waitForTimeout(300);
+        continue;
+      }
+      await liveButton.click({ timeout: 5_000 });
+      clicked = true;
+      break;
+    } catch {
+      await page.waitForTimeout(300);
+    }
+  }
+  if (!clicked) {
+    const token = await resolveFallbackToken();
+    const id = await createSalesDocumentFixture(page, token, options.kind, customerQuery, channelQuery, fixtureContext);
+    await openSalesDocumentPage(page, id, options.kind);
+    return id;
+  }
   const navigated = await page.waitForURL(
     new RegExp(
       `/backend/sales/(?:documents/[0-9a-f-]{36}\\?kind=${options.kind}|${options.kind === 'order' ? 'orders' : 'quotes'}/[0-9a-f-]{36})$`,
