@@ -777,16 +777,22 @@ function MessageRow({
   message,
   registry,
   onMutationRequested,
+  isOwner,
 }: {
   message: AiChatMessage
   registry?: AiUiPartRegistry
   onMutationRequested?: (pendingActionId: string) => void
+  /** Whether the current viewer owns the conversation. Used to label foreign user messages. */
+  isOwner?: boolean | null
 }) {
   const t = useT()
   const isAssistant = message.role === 'assistant'
+  const isOtherUsersMessage = !isAssistant && isOwner === false && message.senderUserId != null
   const label = isAssistant
     ? t('ai_assistant.chat.assistantRoleLabel', 'Assistant')
-    : t('ai_assistant.chat.userRoleLabel', 'You')
+    : isOtherUsersMessage
+      ? t('ai_assistant.chat.ownerRoleLabel', 'Owner')
+      : t('ai_assistant.chat.userRoleLabel', 'You')
   const Icon = isAssistant ? Bot : User
   const [copied, setCopied] = React.useState(false)
   const copyTimerRef = React.useRef<ReturnType<typeof setTimeout> | null>(null)
@@ -1143,6 +1149,10 @@ export function AiChat({
   onConversationIdChange,
 }: AiChatProps) {
   const t = useT()
+  const onConversationIdChangeRef = React.useRef(onConversationIdChange)
+  React.useLayoutEffect(() => {
+    onConversationIdChangeRef.current = onConversationIdChange
+  })
   const textareaRef = React.useRef<HTMLTextAreaElement | null>(null)
   const transcriptRef = React.useRef<HTMLDivElement | null>(null)
   const fileInputRef = React.useRef<HTMLInputElement | null>(null)
@@ -1274,10 +1284,8 @@ export function AiChat({
   const isBusy = isStreaming || isSubmitting
 
   React.useEffect(() => {
-    if (onConversationIdChange) {
-      onConversationIdChange(chat.conversationId)
-    }
-  }, [chat.conversationId, onConversationIdChange])
+    onConversationIdChangeRef.current?.(chat.conversationId)
+  }, [chat.conversationId])
 
   // Surface a "Thinking..." placeholder so the chat does not look frozen.
   // Visible whenever ANY of the following is true while a turn is in flight:
@@ -1616,6 +1624,7 @@ export function AiChat({
               message={message}
               registry={activeRegistry}
               onMutationRequested={onMutationRequested}
+              isOwner={chat.isOwner}
             />
           ))
         )}
@@ -1652,8 +1661,16 @@ export function AiChat({
         </Alert>
       ) : null}
 
+      {chat.isOwner === false ? (
+        <div
+          className="flex items-center justify-center rounded-md border border-border bg-muted/30 px-3 py-3 text-xs text-muted-foreground"
+          data-ai-chat-read-only-notice=""
+        >
+          {t('ai_assistant.chat.readOnlyNotice', 'This is a shared conversation. You can read but not reply.')}
+        </div>
+      ) : null}
       <form
-        className="flex min-w-0 flex-col gap-2"
+        className={cn('flex min-w-0 flex-col gap-2', chat.isOwner === false && 'hidden')}
         onSubmit={(event) => {
           event.preventDefault()
           handleSubmit()

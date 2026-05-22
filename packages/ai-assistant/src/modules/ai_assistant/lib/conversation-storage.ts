@@ -63,6 +63,7 @@ export interface SerializedAiChatMessage {
   model: string | null
   metadata: Record<string, unknown> | null
   createdAt: string
+  senderUserId: string | null
 }
 
 export function serializeAiChatConversation(
@@ -100,5 +101,6 @@ export function serializeAiChatMessage(row: AiChatMessage): SerializedAiChatMess
     model: row.model ?? null,
     metadata: row.metadata ?? null,
     createdAt: row.createdAt.toISOString(),
+    senderUserId: row.createdByUserId ?? null,
   }
 }
