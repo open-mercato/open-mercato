@@ -25,11 +25,11 @@ Source spec: .ai/specs/2026-05-22-ai-chat-conversation-sharing.md
 | 2 | 2.4 | Add i18n keys to ai_assistant locale file | done | — |
 | 2 | 2.5 | Implement ConversationShareDialog.tsx component | done | — |
 | 2 | 2.6 | Wire share button in conversation tab header | done | 568fbfdd2 |
-| 3 | 3.1 | TC-AI-sharing-01: owner access baseline integration test | done | — |
-| 3 | 3.2 | TC-AI-sharing-02: shared participant access integration test | done | — |
-| 3 | 3.3 | TC-AI-sharing-03: non-participant denial integration test | done | — |
-| 3 | 3.4 | TC-AI-sharing-04: manager override integration test | done | — |
-| 3 | 3.5 | TC-AI-sharing-05: cross-tenant denial integration test | done | — |
+| 3 | 3.1 | TC-AI-sharing-01: owner access baseline integration test | done | e09edb32d |
+| 3 | 3.2 | TC-AI-sharing-02: shared participant access integration test | done | e09edb32d |
+| 3 | 3.3 | TC-AI-sharing-03: non-participant denial integration test | done | e09edb32d |
+| 3 | 3.4 | TC-AI-sharing-04: manager override integration test | done | e09edb32d |
+| 3 | 3.5 | TC-AI-sharing-05: cross-tenant denial integration test | done | e09edb32d |
 
 ---
 
