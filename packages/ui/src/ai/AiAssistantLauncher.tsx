@@ -22,6 +22,7 @@
  */
 
 import * as React from 'react'
+import { usePathname, useRouter, useSearchParams } from 'next/navigation'
 import {
   AlertTriangle,
   BadgeQuestionMark,
@@ -202,6 +203,10 @@ export function AiAssistantLauncher({
 }: AiAssistantLauncherProps) {
   const t = useT()
   const dock = useAiDock()
+  const router = useRouter()
+  const pathname = usePathname()
+  const searchParams = useSearchParams()
+  const deepLinkParam = searchParams.get('openAiConversation')
   const [healthy, setHealthy] = React.useState<boolean | null>(skipHealthCheck ? true : null)
   const [agents, setAgents] = React.useState<AiAssistantLauncherAgent[]>([])
   const [agentsLoaded, setAgentsLoaded] = React.useState(false)
@@ -216,20 +221,21 @@ export function AiAssistantLauncher({
   const [query, setQuery] = React.useState('')
   const [highlight, setHighlight] = React.useState(0)
   const [deepLinkConversationId, setDeepLinkConversationId] = React.useState<string | null>(null)
-  const deepLinkHandledRef = React.useRef(false)
+  // Tracks the last conversation ID whose deep-link fetch was dispatched, so we never
+  // double-handle the same ID (guards against re-renders and URL staying unchanged).
+  const deepLinkHandledRef = React.useRef<string | null>(null)
 
-  // Deep-link: read ?openAiConversation on mount and auto-open the conversation.
+  // Reactively update deepLinkConversationId from the URL so client-side navigation
+  // (e.g. clicking a notification while already on the app) is also handled — a
+  // mount-only useEffect would miss those transitions since AppShell never remounts.
   React.useEffect(() => {
-    if (typeof window === 'undefined') return
-    const params = new URLSearchParams(window.location.search)
-    const convId = params.get('openAiConversation')
-    if (convId) setDeepLinkConversationId(convId)
-  }, [])
+    if (deepLinkParam) setDeepLinkConversationId(deepLinkParam)
+  }, [deepLinkParam])
 
   React.useEffect(() => {
     if (!deepLinkConversationId || !agentsLoaded || agents.length === 0) return
-    if (deepLinkHandledRef.current) return
-    deepLinkHandledRef.current = true
+    if (deepLinkHandledRef.current === deepLinkConversationId) return
+    deepLinkHandledRef.current = deepLinkConversationId
     let cancelled = false
     apiCall<{ conversation: { agentId: string } }>(
       `/api/ai_assistant/ai/conversations/${deepLinkConversationId}`,
@@ -242,12 +248,15 @@ export function AiAssistantLauncher({
         if (!matched) return
         setActiveAgent(matched)
         setChatOpen(true)
+        // Strip the deep-link param from the URL so future normal chat opens
+        // don't accidentally inherit the shared conversation ID.
+        router.replace(pathname, { scroll: false })
       })
       .catch(() => undefined)
     return () => {
       cancelled = true
     }
-  }, [deepLinkConversationId, agentsLoaded, agents])
+  }, [deepLinkConversationId, agentsLoaded, agents, router, pathname])
 
   // Health check — best-effort signal only. We do NOT gate the launcher
   // behind it any more: a flaky / slow / transiently-401 health endpoint on
@@ -363,6 +372,9 @@ export function AiAssistantLauncher({
   }, [openPicker])
 
   const handleSelectAgent = React.useCallback((agent: AiAssistantLauncherAgent) => {
+    // Manual agent selection → discard any pending deep-link so the user gets
+    // a fresh session instead of the shared conversation.
+    setDeepLinkConversationId(null)
     if (dock.state.assistant?.agent === agent.id) {
       dock.dock(dock.state.assistant)
       setPickerOpen(false)
@@ -647,7 +659,10 @@ export function AiAssistantLauncher({
           ) : null}
         </DialogContent>
       </Dialog>
-      <Dialog open={chatOpen} onOpenChange={setChatOpen}>
+      <Dialog open={chatOpen} onOpenChange={(open) => {
+        setChatOpen(open)
+        if (!open) setDeepLinkConversationId(null)
+      }}>
         <DialogContent
           className={cn(
             // Mobile: full-screen sheet (matches per-page assistant

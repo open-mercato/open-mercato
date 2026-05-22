@@ -787,7 +787,7 @@ function MessageRow({
 }) {
   const t = useT()
   const isAssistant = message.role === 'assistant'
-  const isOtherUsersMessage = !isAssistant && isOwner === false && message.senderUserId != null
+  const isOtherUsersMessage = !isAssistant && isOwner === false
   const label = isAssistant
     ? t('ai_assistant.chat.assistantRoleLabel', 'Assistant')
     : isOtherUsersMessage
