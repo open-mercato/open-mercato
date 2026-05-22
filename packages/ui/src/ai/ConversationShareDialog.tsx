@@ -11,6 +11,7 @@ import {
   DialogTitle,
 } from '../primitives/dialog'
 import { Button } from '../primitives/button'
+import { Input } from '../primitives/input'
 import {
   Select,
   SelectContent,
@@ -44,9 +45,11 @@ export function ConversationShareDialog({ open, onOpenChange, conversationId }: 
   const t = useT()
   const [participants, setParticipants] = React.useState<Participant[]>([])
   const [users, setUsers] = React.useState<UserOption[]>([])
+  const [canListUsers, setCanListUsers] = React.useState<boolean | null>(null)
   const [loading, setLoading] = React.useState(false)
   const [loadingUsers, setLoadingUsers] = React.useState(false)
   const [selectedUserId, setSelectedUserId] = React.useState('')
+  const [textUserId, setTextUserId] = React.useState('')
   const [adding, setAdding] = React.useState(false)
   const [removingId, setRemovingId] = React.useState<string | null>(null)
   const [error, setError] = React.useState<string | null>(null)
@@ -71,7 +74,14 @@ export function ConversationShareDialog({ open, onOpenChange, conversationId }: 
     setLoadingUsers(true)
     try {
       const res = await apiCall<{ items: UserOption[] }>('/api/auth/users?limit=200')
-      if (res.ok && res.result) setUsers(res.result.items)
+      if (res.ok && res.result) {
+        setUsers(res.result.items)
+        setCanListUsers(true)
+      } else {
+        setCanListUsers(false)
+      }
+    } catch {
+      setCanListUsers(false)
     } finally {
       setLoadingUsers(false)
     }
@@ -80,6 +90,7 @@ export function ConversationShareDialog({ open, onOpenChange, conversationId }: 
   React.useEffect(() => {
     if (open) {
       setSelectedUserId('')
+      setTextUserId('')
       setError(null)
       fetchParticipants()
       fetchUsers()
@@ -96,22 +107,26 @@ export function ConversationShareDialog({ open, onOpenChange, conversationId }: 
     [users, participantIds],
   )
 
+  const activeUserId = canListUsers ? selectedUserId : textUserId.trim()
+
   const handleAdd = async () => {
-    if (!selectedUserId) return
+    if (!activeUserId) return
     setAdding(true)
     setError(null)
     try {
       const res = await apiCall<{ participant: Participant }>(baseUrl, {
         method: 'POST',
-        body: JSON.stringify({ userId: selectedUserId, role: 'viewer' }),
+        body: JSON.stringify({ userId: activeUserId, role: 'viewer' }),
       })
       if (!res.ok || !res.result) throw new Error('fetch failed')
       setParticipants((prev) => {
-        const exists = prev.find((p) => p.userId === res.result!.participant.userId)
-        if (exists) return prev.map((p) => (p.userId === res.result!.participant.userId ? res.result!.participant : p))
-        return [...prev, res.result!.participant]
+        const next = res.result!.participant
+        const exists = prev.find((p) => p.userId === next.userId)
+        if (exists) return prev.map((p) => (p.userId === next.userId ? next : p))
+        return [...prev, next]
       })
       setSelectedUserId('')
+      setTextUserId('')
     } catch {
       setError(t('common.error', 'Something went wrong.'))
     } finally {
@@ -155,34 +170,46 @@ export function ConversationShareDialog({ open, onOpenChange, conversationId }: 
 
         <div className="space-y-4">
           <div className="flex gap-2">
-            <Select
-              value={selectedUserId}
-              onValueChange={setSelectedUserId}
-              disabled={loadingUsers || availableUsers.length === 0}
-            >
-              <SelectTrigger className="flex-1">
-                <SelectValue
-                  placeholder={
-                    loadingUsers
-                      ? t('common.loading', 'Loading...')
-                      : availableUsers.length === 0
-                        ? t('ai_assistant.share.allUsersAdded', 'All users already added')
-                        : t('ai_assistant.share.selectUser', 'Select a user...')
-                  }
-                />
-              </SelectTrigger>
-              <SelectContent>
-                {availableUsers.map((u) => (
-                  <SelectItem key={u.id} value={u.id}>
-                    {u.name ? `${u.name} — ${u.email}` : u.email}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
+            {canListUsers === false ? (
+              <Input
+                placeholder={t('ai_assistant.share.participantPlaceholder', 'User ID...')}
+                value={textUserId}
+                onChange={(e) => setTextUserId(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter') { e.preventDefault(); void handleAdd() }
+                }}
+                className="flex-1"
+              />
+            ) : (
+              <Select
+                value={selectedUserId}
+                onValueChange={setSelectedUserId}
+                disabled={loadingUsers || availableUsers.length === 0}
+              >
+                <SelectTrigger className="flex-1">
+                  <SelectValue
+                    placeholder={
+                      loadingUsers
+                        ? t('common.loading', 'Loading...')
+                        : availableUsers.length === 0
+                          ? t('ai_assistant.share.allUsersAdded', 'All users already added')
+                          : t('ai_assistant.share.selectUser', 'Select a user...')
+                    }
+                  />
+                </SelectTrigger>
+                <SelectContent>
+                  {availableUsers.map((u) => (
+                    <SelectItem key={u.id} value={u.id}>
+                      {u.name ? `${u.name} — ${u.email}` : u.email}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            )}
             <Button
               type="button"
-              onClick={handleAdd}
-              disabled={!selectedUserId || adding}
+              onClick={() => void handleAdd()}
+              disabled={!activeUserId || adding}
               size="default"
             >
               {adding ? (
@@ -224,7 +251,7 @@ export function ConversationShareDialog({ open, onOpenChange, conversationId }: 
                     type="button"
                     variant="ghost"
                     size="icon"
-                    onClick={() => handleRemove(p.userId)}
+                    onClick={() => void handleRemove(p.userId)}
                     disabled={removingId === p.userId}
                     aria-label={t('ai_assistant.share.removeParticipant', 'Remove')}
                   >

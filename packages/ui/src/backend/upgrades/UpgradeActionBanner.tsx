@@ -40,7 +40,9 @@ export function UpgradeActionBanner() {
   const loadNextAction = React.useCallback(async () => {
     if (!upgradeActionsEnabled) return
     if (typeof window === 'undefined' || typeof fetch === 'undefined') return
-    const call = await apiCall<UpgradeActionResponse>('/api/configs/upgrade-actions')
+    const call = await apiCall<UpgradeActionResponse>('/api/configs/upgrade-actions', {
+      headers: { 'x-om-forbidden-redirect': '0', 'x-om-unauthorized-redirect': '0' },
+    })
     if (cancelledRef.current) return
     if (!call.ok || !call.result || !Array.isArray(call.result.actions) || !call.result.actions.length) {
       setAction(null)
