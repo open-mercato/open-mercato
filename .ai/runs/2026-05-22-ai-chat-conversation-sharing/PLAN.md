@@ -33,6 +33,8 @@ Source spec: .ai/specs/2026-05-22-ai-chat-conversation-sharing.md
 | 4 | 4.1 | Sync i18n keys to de/es/pl locale files | done | 85b804419 |
 | 4 | 4.2 | Fix notification linkHref — open AI dock with shared conversation instead of playground | done | 0b311d73a |
 | 4 | 4.3 | Expose `createdByUserId` in serialized messages; render owner messages distinctly for viewers | done | 821c0ab35 |
+| 4 | 4.4 | Fix notification "View Conversation" action — navigates to `/backend` instead of deep-link | done | c13b830ec |
+| 4 | 4.5 | Fix `deepLinkHandledRef` not reset on chat close — second open of same conversation silently blocked | done | e82b4a902 |
 
 ---
 
@@ -231,3 +233,37 @@ All tests in `packages/ai-assistant/src/modules/ai_assistant/__integration__/`.
   1. The `AiChat` component loads a shared (read-only) conversation via `initialMessages`. For each loaded message, if `role === 'user'` AND `senderUserId !== currentUserId` (i.e. the owner's message being viewed by a participant), render the message as a read-only "other user" bubble — left-aligned, muted styling, prefixed with a label such as the owner's name or a generic "Owner" label.
   2. The `AiChatMessage` type in `useAiChat.ts` should accept the optional `senderUserId` field so the renderer can access it.
   3. Ensure that viewer-loaded messages do NOT get submitted to the chat dispatcher — the conversation is read-only for participants (no `appendMessage` access); the textarea should be hidden or disabled when `isOwner === false`.
+
+**Step 4.4** — Fix notification "View Conversation" action — navigates to `/backend` instead of deep-link
+
+Root cause (two contributing issues):
+
+**Issue A — `notifications.ts` action `href` is static `/backend`:**
+- `notifications.ts:16` defines `href: '/backend'` on the "view" action. The backend action route returns this static URL, so `NotificationItem.handleAction()` calls `router.push('/backend')` — no `openAiConversation` param, chat never opens.
+- Fix: change `href` to `'/backend?openAiConversation={sourceEntityId}'`. The backend action route already performs `.replace('{sourceEntityId}', notification.sourceEntityId)`, so this is the established template pattern.
+
+**Issue B — `ConversationSharedRenderer.handleView()` ignores `notification.linkHref` when a viewAction exists:**
+- Current code navigates to `notification.linkHref` only in the `!viewAction` branch. When `viewAction` is present, it delegates entirely to `onAction()` and relies on the action result's `href`. This means that even if Issue A is fixed, the renderer itself never falls back to `linkHref`.
+- Fix: after `await onAction(viewAction.id)`, also navigate to `notification.linkHref` if the action result did not provide its own `href`. More simply: always call `router.push(notification.linkHref)` after a successful `onAction()` call (the backend already handles marking the notification as actioned independently of where the user ends up).
+
+Files to change:
+- `packages/ai-assistant/src/modules/ai_assistant/notifications.ts` — `actions[0].href`
+- `packages/ai-assistant/src/modules/ai_assistant/widgets/notifications/ConversationSharedRenderer.tsx` — `handleView()`
+
+**Step 4.5** — Fix `deepLinkHandledRef` not reset on chat close — second open of same conversation silently blocked
+
+Root cause:
+- `AiAssistantLauncher.tsx` uses `deepLinkHandledRef` (a `React.useRef<string | null>`) to guard against double-handling the same deep-link conversation ID. When the chat closes, `setDeepLinkConversationId(null)` is called (line 664) but `deepLinkHandledRef.current` is **not** reset.
+- Consequence: the next time the user navigates to `/backend?openAiConversation=<same-id>`, the second effect sees `deepLinkHandledRef.current === deepLinkConversationId` → `true` → returns early without fetching or opening the chat.
+- This bites on every "re-open same shared conversation" interaction: close the chat, click the notification again — nothing happens.
+
+Fix: in the `onOpenChange` handler in `AiAssistantLauncher.tsx` (around line 664), reset the ref alongside clearing state:
+```typescript
+if (!open) {
+  setDeepLinkConversationId(null)
+  deepLinkHandledRef.current = null  // ← add this line
+}
+```
+
+File to change:
+- `packages/ui/src/ai/AiAssistantLauncher.tsx`
