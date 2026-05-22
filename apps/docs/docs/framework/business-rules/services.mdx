@@ -621,7 +621,7 @@ const rule = em.create(BusinessRule, {
   organizationId: 'org-1'
 })
 
-await em.persistAndFlush(rule)
+await em.persist(rule).flush()
 ```
 
 ## Performance Considerations

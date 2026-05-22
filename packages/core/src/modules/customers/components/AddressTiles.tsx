@@ -422,7 +422,7 @@ export function CustomerAddressTiles({
     (key: string) => (
       <div
         key={key}
-        className="rounded-lg border-2 border-dashed border-muted-foreground/50 bg-muted/20 p-4 text-sm"
+        className="rounded-lg border-2 border-dashed border-muted-foreground/50 bg-muted/30 p-4 text-sm"
         onKeyDown={(event) => {
           if (!(event.metaKey || event.ctrlKey)) return
           if (event.key !== 'Enter') return

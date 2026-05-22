@@ -167,6 +167,7 @@ Test workflows from start to completion:
 import { WorkflowService } from '../lib/workflow-service'
 import { createTestContainer } from '@/test/test-container'
 import { EntityManager } from '@mikro-orm/core'
+import { UserTask } from '@open-mercato/core/modules/workflows/data/entities'
 
 describe('Approval Workflow Integration', () => {
   let workflowService: WorkflowService
@@ -207,7 +208,7 @@ describe('Approval Workflow Integration', () => {
     expect(updated.currentStepId).toBe('approve-request')
 
     // Find created task
-    const tasks = await em.find('UserTask', {
+    const tasks = await em.find(UserTask, {
       workflowInstanceId: instance.id,
       status: 'PENDING'
     })
@@ -236,6 +237,8 @@ describe('Approval Workflow Integration', () => {
 Test user task flows:
 
 ```typescript
+import { UserTask } from '@open-mercato/core/modules/workflows/data/entities'
+
 it('should handle task rejection', async () => {
   const instance = await workflowService.startWorkflow({
     workflowId: 'simple-approval-v1',
@@ -246,7 +249,7 @@ it('should handle task rejection', async () => {
   await waitForStep(instance.id, 'approve-request')
 
   // Get task
-  const tasks = await em.find('UserTask', {
+  const tasks = await em.find(UserTask, {
     workflowInstanceId: instance.id,
     status: 'PENDING'
   })
@@ -372,6 +375,8 @@ describe('Async Activities', () => {
 Test saga pattern and rollback:
 
 ```typescript
+import { WorkflowEvent } from '@open-mercato/core/modules/workflows/data/entities'
+
 it('should trigger compensation on failure', async () => {
   const instance = await workflowService.startWorkflow({
     workflowId: 'saga-workflow-v1',
@@ -394,7 +399,7 @@ it('should trigger compensation on failure', async () => {
   expect(final.status).toBe('FAILED')
 
   // Verify compensation activity was executed
-  const events = await em.find('WorkflowEvent', {
+  const events = await em.find(WorkflowEvent, {
     workflowInstanceId: instance.id,
     eventType: 'ACTIVITY_COMPENSATED'
   })
@@ -413,6 +418,7 @@ Complete test suite for an approval workflow:
 import { WorkflowService } from '../lib/workflow-service'
 import { createTestContainer } from '@/test/test-container'
 import { EntityManager } from '@mikro-orm/core'
+import { UserTask } from '@open-mercato/core/modules/workflows/data/entities'
 
 describe('Purchase Approval Workflow', () => {
   let workflowService: WorkflowService
@@ -454,7 +460,7 @@ describe('Purchase Approval Workflow', () => {
 
       await waitForStep(instance.id, 'manager-approval')
 
-      const tasks = await em.find('UserTask', {
+      const tasks = await em.find(UserTask, {
         workflowInstanceId: instance.id
       })
 
@@ -483,7 +489,7 @@ describe('Purchase Approval Workflow', () => {
 
       await waitForStep(instance.id, 'director-approval')
 
-      const tasks = await em.find('UserTask', {
+      const tasks = await em.find(UserTask, {
         workflowInstanceId: instance.id
       })
 

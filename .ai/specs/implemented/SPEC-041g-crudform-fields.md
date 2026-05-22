@@ -1,5 +1,7 @@
 # SPEC-041g — CrudForm Field Injection
 
+> **Note (2026-04-15)**: Code snippets updated for MikroORM v7 — `em.find` / `em.findOne` now require entity classes instead of string refs.
+
 | Field | Value |
 |-------|-------|
 | **Parent** | [SPEC-041 — UMES](../SPEC-041-2026-02-24-universal-module-extension-system.md) |
@@ -218,8 +220,11 @@ Run `yarn db:generate` to create migration.
 Add priority to the existing enricher (from Phase D):
 
 ```typescript
+// MikroORM v7: pass the entity class to em.find / em.findOne — string refs are no longer supported.
+import { ExampleCustomerPriority } from '@open-mercato/core/modules/example/data/entities'
+
 // Add to enrichOne:
-const priority = await ctx.em.findOne('ExampleCustomerPriority', {
+const priority = await ctx.em.findOne(ExampleCustomerPriority, {
   customerId: record.id,
   organizationId: ctx.organizationId,
 })
@@ -233,7 +238,7 @@ return {
 }
 
 // Add to enrichMany (batch fetch):
-const allPriorities = await ctx.em.find('ExampleCustomerPriority', {
+const allPriorities = await ctx.em.find(ExampleCustomerPriority, {
   customerId: { $in: personIds },
   organizationId: ctx.organizationId,
 })

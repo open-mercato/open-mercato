@@ -1,4 +1,5 @@
 import type { ApiInterceptor, ApiInterceptorMethod, ApiInterceptorRegistryEntry } from './api-interceptor'
+import { applyApiInterceptorOverridesToEntries } from '../../modules/overrides'
 
 let _interceptorEntries: ApiInterceptorRegistryEntry[] | null = null
 const GLOBAL_INTERCEPTOR_KEY = '__openMercatoApiInterceptors__'
@@ -21,8 +22,9 @@ function writeGlobalInterceptors(entries: ApiInterceptorRegistryEntry[]) {
 }
 
 export function registerApiInterceptors(entries: Array<{ moduleId: string; interceptors: ApiInterceptor[] }>) {
+  const finalEntries = applyApiInterceptorOverridesToEntries(entries)
   const flat: ApiInterceptorRegistryEntry[] = []
-  entries.forEach((entry, moduleOrder) => {
+  finalEntries.forEach((entry, moduleOrder) => {
     entry.interceptors.forEach((interceptor, interceptorOrder) => {
       flat.push({
         moduleId: entry.moduleId,

@@ -160,7 +160,8 @@ test('isShellSafePathString rejects non-strings, empty strings, and control char
   assert.equal(isShellSafePathString('relative/path/with spaces and-dashes_and.dots'), true)
   assert.equal(isShellSafePathString("/path/with'single-quote"), true)
   assert.equal(isShellSafePathString('/path/with"double-quote'), true)
-  assert.equal(isShellSafePathString('/path/with$variable'), true)
+  assert.equal(isShellSafePathString('/path/with`subshell'), false)
+  assert.equal(isShellSafePathString('/path/with$variable'), false)
   // Non-strings
   assert.equal(isShellSafePathString(undefined), false)
   assert.equal(isShellSafePathString(null), false)

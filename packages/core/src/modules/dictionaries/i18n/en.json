@@ -88,6 +88,8 @@
   "dictionaries.customFields.selector.placeholder": "Select an entry",
   "dictionaries.entries.audit.create": "Add dictionary entry",
   "dictionaries.entries.audit.delete": "Delete dictionary entry",
+  "dictionaries.entries.audit.reorder": "Reorder dictionary entries",
+  "dictionaries.entries.audit.set_default": "Set default dictionary entry",
   "dictionaries.entries.audit.update": "Update dictionary entry",
   "dictionaries.entries.create": "Add dictionary entry",
   "dictionaries.entries.delete": "Delete dictionary entry",

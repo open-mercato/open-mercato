@@ -2,6 +2,7 @@
 
 import * as React from 'react'
 import { Spinner } from '@open-mercato/ui/primitives/spinner'
+import { RadioGroup, Radio } from '@open-mercato/ui/primitives/radio'
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
 import { apiCall } from '@open-mercato/ui/backend/utils/apiCall'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
@@ -139,24 +140,29 @@ export function AddressFormatSettings() {
           {t('customers.config.addressFormat.loading', 'Loading current preference…')}
         </div>
       ) : (
-        <div className="space-y-3">
-          {options.map((option) => (
-            <label key={option.id} className="flex cursor-pointer items-start gap-3 rounded border p-3">
-              <input
-                type="radio"
-                name="address-format"
-                className="mt-1"
-                value={option.id}
-                checked={format === option.id}
-                disabled={pending !== null && pending !== option.id}
-                onChange={() => handleChange(option.id)}
-              />
-              <span className="space-y-1">
-                <span className="block text-sm font-medium">{option.title}</span>
-                <span className="block text-xs text-muted-foreground">{option.description}</span>
-              </span>
-            </label>
-          ))}
+        <RadioGroup
+          className="space-y-3"
+          value={format}
+          onValueChange={(next) => handleChange(next as AddressFormatStrategy)}
+          name="address-format"
+        >
+          {options.map((option) => {
+            const inputId = `address-format-${option.id}`
+            return (
+              <label key={option.id} htmlFor={inputId} className="flex cursor-pointer items-start gap-3 rounded border p-3">
+                <Radio
+                  id={inputId}
+                  className="mt-1"
+                  value={option.id}
+                  disabled={pending !== null && pending !== option.id}
+                />
+                <span className="space-y-1">
+                  <span className="block text-sm font-medium">{option.title}</span>
+                  <span className="block text-xs text-muted-foreground">{option.description}</span>
+                </span>
+              </label>
+            )
+          })}
           {error ? <p className="text-sm text-status-error-text">{error}</p> : null}
           {pending ? (
             <div className="inline-flex items-center gap-2 rounded border border-dashed px-3 py-1 text-xs text-muted-foreground">
@@ -164,7 +170,7 @@ export function AddressFormatSettings() {
               {t('customers.config.addressFormat.updating', 'Saving preference…')}
             </div>
           ) : null}
-        </div>
+        </RadioGroup>
       )}
     </section>
   )

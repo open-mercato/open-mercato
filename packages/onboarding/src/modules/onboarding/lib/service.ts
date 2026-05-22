@@ -66,7 +66,7 @@ export class OnboardingService {
       createdAt: now,
       updatedAt: now,
     })
-    await this.em.persistAndFlush(request)
+    await this.em.persist(request).flush()
     return { request, token }
   }
 

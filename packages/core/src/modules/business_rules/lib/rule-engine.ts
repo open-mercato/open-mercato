@@ -865,7 +865,7 @@ export async function logRuleExecution(
     executedBy: context.executedBy || null,
   })
 
-  await em.persistAndFlush(log)
+  await em.persist(log).flush()
 
   return String(log.id)
 }

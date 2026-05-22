@@ -1,0 +1,78 @@
+---
+title: Events
+description: All events emitted by the Sales module.
+---
+
+# Sales — Events
+
+Subscribe to sales events in your module's `subscribers/` directory:
+
+```typescript
+// src/modules/<your_module>/subscribers/order-created.ts
+export const metadata = {
+  event: 'sales.order.created',
+  persistent: true,
+  id: 'your-module-order-created',
+}
+
+export default async function handler(payload, ctx) {
+  // React to new orders
+}
+```
+
+## CRUD events
+
+| Event | Description |
+|---|---|
+| `sales.order.created` | A new order was created |
+| `sales.order.updated` | An order was updated |
+| `sales.order.deleted` | An order was deleted |
+| `sales.quote.created` | A new quote was created |
+| `sales.quote.updated` | A quote was updated |
+| `sales.quote.deleted` | A quote was deleted |
+| `sales.invoice.created` | An invoice was created |
+| `sales.invoice.updated` | An invoice was updated |
+| `sales.invoice.deleted` | An invoice was deleted |
+| `sales.credit_memo.created` | A credit memo was created |
+| `sales.credit_memo.updated` | A credit memo was updated |
+| `sales.credit_memo.deleted` | A credit memo was deleted |
+| `sales.line.created` | An order line was created |
+| `sales.line.updated` | An order line was updated |
+| `sales.line.deleted` | An order line was deleted |
+| `sales.payment.created` | A payment was recorded |
+| `sales.payment.updated` | A payment was updated |
+| `sales.payment.deleted` | A payment was deleted |
+| `sales.shipment.created` | A shipment was created |
+| `sales.shipment.updated` | A shipment was updated |
+| `sales.shipment.deleted` | A shipment was deleted |
+| `sales.return.created` | A return was created |
+| `sales.return.updated` | A return was updated |
+| `sales.return.deleted` | A return was deleted |
+| `sales.note.created` | A note was created |
+| `sales.note.updated` | A note was updated |
+| `sales.note.deleted` | A note was deleted |
+| `sales.channel.created` | A sales channel was created |
+| `sales.channel.updated` | A sales channel was updated |
+| `sales.channel.deleted` | A sales channel was deleted |
+
+## Lifecycle events
+
+These events fire during internal calculation pipelines. They are excluded from business rule triggers but can be subscribed to for custom pricing or tax logic.
+
+| Event | Description |
+|---|---|
+| `sales.document.totals.calculated` | Document totals were recalculated |
+| `sales.document.calculate.before` | Before document calculation pipeline |
+| `sales.document.calculate.after` | After document calculation pipeline |
+| `sales.line.calculate.before` | Before line calculation |
+| `sales.line.calculate.after` | After line calculation |
+| `sales.tax.calculate.before` | Before tax calculation |
+| `sales.tax.calculate.after` | After tax calculation |
+| `sales.shipping.adjustments.apply.before` | Before shipping adjustments are applied |
+| `sales.shipping.adjustments.apply.after` | After shipping adjustments are applied |
+| `sales.payment.adjustments.apply.before` | Before payment adjustments are applied |
+| `sales.payment.adjustments.apply.after` | After payment adjustments are applied |
+
+## See also
+
+- [Events overview](/framework/events/overview)

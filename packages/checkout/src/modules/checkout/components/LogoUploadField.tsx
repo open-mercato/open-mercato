@@ -7,7 +7,7 @@ import { apiCall } from '@open-mercato/ui/backend/utils/apiCall'
 import { Button } from '@open-mercato/ui/primitives/button'
 import { Input } from '@open-mercato/ui/primitives/input'
 import { Label } from '@open-mercato/ui/primitives/label'
-import { Notice } from '@open-mercato/ui/primitives/Notice'
+import { Alert, AlertDescription } from '@open-mercato/ui/primitives/alert'
 import { buildCheckoutAttachmentPreviewUrl } from '../lib/client-utils'
 
 type UploadResponse = {
@@ -101,7 +101,7 @@ export function LogoUploadField({ entityId, recordId, attachmentId, logoUrl, err
   }, [attachmentId, deleteAttachment, logoUrl, onChange])
 
   return (
-    <div className="space-y-3 rounded-xl border border-border/70 bg-muted/20 p-4">
+    <div className="space-y-3 rounded-xl border border-border/70 bg-muted/30 p-4">
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div className="space-y-1">
           <div className="flex items-center gap-2 text-sm font-medium">
@@ -175,9 +175,11 @@ export function LogoUploadField({ entityId, recordId, attachmentId, logoUrl, err
       </div>
 
       {attachmentId ? (
-        <Notice compact>
-          {t('checkout.logoUpload.notices.attachmentWins')}
-        </Notice>
+        <Alert variant="info">
+          <AlertDescription>
+            {t('checkout.logoUpload.notices.attachmentWins')}
+          </AlertDescription>
+        </Alert>
       ) : null}
       {externalError ? <p className="text-xs text-destructive">{externalError}</p> : null}
       {error ? <p className="text-xs text-destructive">{error}</p> : null}

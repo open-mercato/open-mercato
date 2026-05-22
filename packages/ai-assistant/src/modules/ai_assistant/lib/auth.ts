@@ -89,7 +89,7 @@ export async function authenticateMcpRequest(
 
     try {
       apiKey.lastUsedAt = new Date()
-      await em.persistAndFlush(apiKey)
+      await em.persist(apiKey).flush()
     } catch {
       // Best-effort update; ignore write failures
     }

@@ -52,14 +52,13 @@ function buildTestContext() {
     name: null,
   } as unknown as User
 
-  const em = {
+  const em: any = {
     findOne: jest.fn(async () => null),
     find: jest.fn(async () => []),
     create: jest.fn((_entity: unknown, data: unknown) => data),
-    persistAndFlush: jest.fn(async () => undefined),
     flush: jest.fn(async () => undefined),
-    remove: jest.fn(),
-    persist: jest.fn(),
+    remove: jest.fn(function remove(this: any) { return this }),
+    persist: jest.fn(function persist(this: any) { return this }),
     nativeDelete: jest.fn(async () => 0),
     fork: jest.fn(() => em),
   }
@@ -119,6 +118,7 @@ describe('auth.users.create — invite flow', () => {
 
     const result = await handler.execute({
       email: 'invited@example.com',
+      name: 'Invited User',
       sendInviteEmail: true,
       organizationId: orgId,
     }, ctx) as CreateUserResult
@@ -127,7 +127,7 @@ describe('auth.users.create — invite flow', () => {
     expect(result.user.passwordHash).toBeNull()
     expect(dataEngine.createOrmEntity).toHaveBeenCalledWith(
       expect.objectContaining({
-        data: expect.objectContaining({ passwordHash: null }),
+        data: expect.objectContaining({ passwordHash: null, name: 'Invited User' }),
       }),
     )
   })
@@ -142,7 +142,7 @@ describe('auth.users.create — invite flow', () => {
     }, ctx)
 
     expect(em.create).toHaveBeenCalled()
-    expect(em.persistAndFlush).toHaveBeenCalled()
+    expect(em.flush).toHaveBeenCalled()
     expect(mockSendEmail).toHaveBeenCalledTimes(1)
   })
 

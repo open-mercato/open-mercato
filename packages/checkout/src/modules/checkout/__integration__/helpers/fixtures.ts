@@ -194,7 +194,10 @@ export async function createTemplateFixture(
     data: input,
   })
   const body = await readJsonSafe<{ id?: string }>(response)
-  expect(response.ok(), `Failed to create template: ${response.status()}`).toBeTruthy()
+  expect(
+    response.ok(),
+    `Failed to create template: ${response.status()} ${JSON.stringify(body)}`,
+  ).toBeTruthy()
   expect(typeof body?.id === 'string' && body.id.length > 0, 'Template id is required').toBeTruthy()
   return body!.id!
 }
@@ -209,7 +212,10 @@ export async function createLinkFixture(
     data: input,
   })
   const body = await readJsonSafe<{ id?: string; slug?: string }>(response)
-  expect(response.ok(), `Failed to create link: ${response.status()}`).toBeTruthy()
+  expect(
+    response.ok(),
+    `Failed to create link: ${response.status()} ${JSON.stringify(body)}`,
+  ).toBeTruthy()
   expect(typeof body?.id === 'string' && body.id.length > 0, 'Link id is required').toBeTruthy()
   expect(typeof body?.slug === 'string' && body.slug.length > 0, 'Link slug is required').toBeTruthy()
   return { id: body!.id!, slug: body!.slug! }
@@ -480,7 +486,7 @@ export async function deleteCheckoutEntityIfExists(
 export async function loginToBackendAndOpen(page: Page, path: string): Promise<void> {
   await page.goto('/login')
   await page.getByLabel('Email').fill('admin@acme.com')
-  await page.getByLabel('Password').fill('secret')
+  await page.getByLabel('Password', { exact: true }).fill('secret')
   await page.getByRole('button', { name: /sign in/i }).click()
   await page.waitForURL(/\/backend(?:\/.*)?$/)
   await page.goto(path)

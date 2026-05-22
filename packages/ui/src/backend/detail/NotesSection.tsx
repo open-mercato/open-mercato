@@ -1,7 +1,6 @@
 "use client"
 
 import * as React from 'react'
-import dynamic from 'next/dynamic'
 import type { PluggableList } from 'unified'
 import type { AppearanceSelectorLabels } from '@open-mercato/core/modules/dictionaries/components/AppearanceSelector'
 import { AppearanceDialog } from '@open-mercato/core/modules/customers/components/detail/AppearanceDialog'
@@ -9,6 +8,13 @@ import type { IconOption } from '@open-mercato/core/modules/dictionaries/compone
 import { ArrowUpRightSquare, FileCode, Loader2, Palette, Pencil, Plus, Trash2 } from 'lucide-react'
 import { formatRelativeTime } from '@open-mercato/shared/lib/time'
 import { Button } from '@open-mercato/ui/primitives/button'
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@open-mercato/ui/primitives/select'
 import { flash } from '../FlashMessages'
 import { SwitchableMarkdownInput } from '../inputs/SwitchableMarkdownInput'
 import { ErrorMessage } from './ErrorMessage'
@@ -17,8 +23,13 @@ import { TabEmptyState } from './TabEmptyState'
 import { useConfirmDialog } from '../confirm-dialog'
 import { formatDateTime } from '@open-mercato/shared/lib/time'
 import { ComponentReplacementHandles } from '@open-mercato/shared/modules/widgets/component-registry'
+import { MarkdownPreview } from '../markdown'
 import { useRegisteredComponent } from '../injection/useRegisteredComponent'
 type Translator = (key: string, fallback?: string, params?: Record<string, string | number>) => string
+
+const isTestEnv =
+  typeof process !== 'undefined' &&
+  (process.env.NODE_ENV === 'test' || typeof process.env.JEST_WORKER_ID !== 'undefined')
 
 export type SectionAction = {
   label: React.ReactNode
@@ -62,6 +73,19 @@ export type NotesUpdatePayload = {
 
 export type NotesDataAdapter<C = unknown> = {
   list: (params: { entityId: string | null; dealId: string | null; context?: C }) => Promise<CommentSummary[]>
+  listPage?: (params: {
+    entityId: string | null
+    dealId: string | null
+    page: number
+    pageSize: number
+    context?: C
+  }) => Promise<{
+    items: CommentSummary[]
+    total: number
+    page: number
+    pageSize: number
+    totalPages: number
+  }>
   create: (params: NotesCreatePayload & { context?: C }) => Promise<Partial<CommentSummary> | void>
   update: (params: { id: string; patch: NotesUpdatePayload; context?: C }) => Promise<void>
   delete: (params: { id: string; context?: C }) => Promise<void>
@@ -69,17 +93,6 @@ export type NotesDataAdapter<C = unknown> = {
 
 type RenderIconFn = (icon: string, className?: string) => React.ReactNode
 type RenderColorFn = (color: string, className?: string) => React.ReactNode
-
-type MarkdownPreviewProps = { children: string; className?: string; remarkPlugins?: PluggableList }
-
-const isTestEnv = typeof process !== 'undefined' && process.env.NODE_ENV === 'test'
-
-const MarkdownPreviewComponent: React.ComponentType<MarkdownPreviewProps> = isTestEnv
-  ? ({ children, className }) => <div className={className}>{children}</div>
-  : (dynamic(() => import('react-markdown').then((mod) => mod.default as React.ComponentType<MarkdownPreviewProps>), {
-      ssr: false,
-      loading: () => null,
-    }) as unknown as React.ComponentType<MarkdownPreviewProps>)
 
 let markdownPluginsPromise: Promise<PluggableList> | null = null
 
@@ -151,7 +164,7 @@ function TimelineItemHeader({
   return (
     <div className={['flex items-start gap-3', className].filter(Boolean).join(' ')}>
       {icon && renderIcon ? (
-        <span className={['inline-flex items-center justify-center rounded border border-border bg-muted/40', wrapperSize].join(' ')}>
+        <span className={['inline-flex items-center justify-center rounded border border-border bg-muted/50', wrapperSize].join(' ')}>
           {renderIcon(icon, iconSizeClass)}
         </span>
       ) : null}
@@ -455,7 +468,10 @@ function NotesSectionImpl<C = unknown>({
   const [contentError, setContentError] = React.useState<string | null>(null)
   const contentTextareaRef = React.useRef<HTMLTextAreaElement | null>(null)
   const [visibleCount, setVisibleCount] = React.useState(0)
+  const [currentPage, setCurrentPage] = React.useState(1)
+  const [totalPages, setTotalPages] = React.useState(1)
   const [deletingNoteId, setDeletingNoteId] = React.useState<string | null>(null)
+  const pagedMode = typeof dataAdapter.listPage === 'function'
 
   React.useEffect(() => {
     const queryEntityId = typeof entityId === 'string' ? entityId : ''
@@ -464,6 +480,8 @@ function NotesSectionImpl<C = unknown>({
       setNotes([])
       setLoadError(null)
       setIsLoading(false)
+      setCurrentPage(1)
+      setTotalPages(1)
       return
     }
     let cancelled = false
@@ -472,6 +490,20 @@ function NotesSectionImpl<C = unknown>({
     pushLoading()
     async function loadNotes() {
       try {
+        if (dataAdapter.listPage) {
+          const pageResult = await dataAdapter.listPage({
+            entityId: queryEntityId || null,
+            dealId: queryDealId || null,
+            page: 1,
+            pageSize: 20,
+            context: dataContext,
+          })
+          if (cancelled) return
+          setNotes(pageResult.items)
+          setCurrentPage(pageResult.page)
+          setTotalPages(pageResult.totalPages)
+          return
+        }
         const mapped = await dataAdapter.list({
           entityId: queryEntityId || null,
           dealId: queryDealId || null,
@@ -479,12 +511,16 @@ function NotesSectionImpl<C = unknown>({
         })
         if (cancelled) return
         setNotes(mapped)
+        setCurrentPage(1)
+        setTotalPages(1)
       } catch (err) {
         if (cancelled) return
         const message =
           err instanceof Error ? err.message : label('loadError', 'Failed to load notes.')
         setNotes([])
         setLoadError(message)
+        setCurrentPage(1)
+        setTotalPages(1)
         flash(message, 'error')
       } finally {
         if (!cancelled) setIsLoading(false)
@@ -495,7 +531,7 @@ function NotesSectionImpl<C = unknown>({
     return () => {
       cancelled = true
     }
-  }, [dataAdapter, dataContext, dealId, entityId, popLoading, pushLoading, t])
+  }, [dataAdapter, dataContext, dealId, entityId, label, popLoading, pushLoading])
 
   const youLabel = label('you', 'You')
   const viewerLabel = React.useMemo(() => viewerName ?? viewerEmail ?? null, [viewerEmail, viewerName])
@@ -543,6 +579,10 @@ function NotesSectionImpl<C = unknown>({
   }, [readMarkdownPreference])
 
   React.useEffect(() => {
+    if (pagedMode) {
+      setVisibleCount(notes.length)
+      return
+    }
     if (!notes.length) {
       setVisibleCount(0)
       return
@@ -552,7 +592,7 @@ function NotesSectionImpl<C = unknown>({
       if (prev >= notes.length) return prev
       return Math.min(Math.max(prev, baseline), notes.length)
     })
-  }, [notes.length])
+  }, [notes.length, pagedMode])
 
   React.useEffect(() => {
     if (hasEntity) return
@@ -562,8 +602,14 @@ function NotesSectionImpl<C = unknown>({
     setDraftColor(null)
   }, [hasEntity])
 
-  const visibleNotes = React.useMemo(() => notes.slice(0, visibleCount), [notes, visibleCount])
-  const hasVisibleNotes = React.useMemo(() => visibleCount > 0, [visibleCount])
+  const visibleNotes = React.useMemo(
+    () => (pagedMode ? notes : notes.slice(0, visibleCount)),
+    [notes, pagedMode, visibleCount],
+  )
+  const hasVisibleNotes = React.useMemo(
+    () => (pagedMode ? notes.length > 0 : visibleCount > 0),
+    [notes.length, pagedMode, visibleCount],
+  )
 
   const loadMoreLabel = label('loadMore')
 
@@ -627,6 +673,7 @@ function NotesSectionImpl<C = unknown>({
           }
           return [newNote, ...prev]
         })
+        setVisibleCount((prev) => Math.max(prev, 1))
         flash(label('success'), 'success')
         return true
       } catch (err) {
@@ -695,6 +742,9 @@ function NotesSectionImpl<C = unknown>({
       try {
         await dataAdapter.delete({ id: note.id, context: dataContext })
         setNotes((prev) => prev.filter((existing) => existing.id !== note.id))
+        if (pagedMode) {
+          setVisibleCount((prev) => Math.max(0, prev - 1))
+        }
         flash(label('deleteSuccess', 'Note deleted'), 'success')
       } catch (err) {
         const message = err instanceof Error ? err.message : label('deleteError', 'Failed to delete note')
@@ -725,11 +775,40 @@ function NotesSectionImpl<C = unknown>({
   )
 
   const handleLoadMore = React.useCallback(() => {
+    if (pagedMode && dataAdapter.listPage) {
+      if (currentPage >= totalPages || isLoading) return
+      const queryEntityId = typeof entityId === 'string' ? entityId : ''
+      const queryDealId = typeof dealId === 'string' ? dealId : ''
+      setIsLoading(true)
+      pushLoading()
+      void dataAdapter.listPage({
+        entityId: queryEntityId || null,
+        dealId: queryDealId || null,
+        page: currentPage + 1,
+        pageSize: 20,
+        context: dataContext,
+      })
+        .then((pageResult) => {
+          setNotes((prev) => [...prev, ...pageResult.items])
+          setCurrentPage(pageResult.page)
+          setTotalPages(pageResult.totalPages)
+        })
+        .catch((error) => {
+          const message =
+            error instanceof Error ? error.message : label('loadError', 'Failed to load notes.')
+          flash(message, 'error')
+        })
+        .finally(() => {
+          setIsLoading(false)
+          popLoading()
+        })
+      return
+    }
     setVisibleCount((prev) => {
       if (prev >= notes.length) return prev
       return Math.min(prev + 5, notes.length)
     })
-  }, [notes.length])
+  }, [currentPage, dataAdapter, dataContext, dealId, entityId, flash, isLoading, label, notes.length, pagedMode, popLoading, pushLoading, totalPages])
 
   const handleAppearanceDialogSubmit = React.useCallback(async () => {
     if (!appearanceDialogState) return
@@ -876,7 +955,7 @@ function NotesSectionImpl<C = unknown>({
       <div
         className={[
           'overflow-hidden rounded-xl transition-all duration-300 ease-out',
-          composerOpen ? 'max-h-[1200px] bg-muted/10 p-4 opacity-100' : 'pointer-events-none max-h-0 p-0 opacity-0',
+          composerOpen ? 'max-h-[1200px] bg-muted/30 p-4 opacity-100' : 'pointer-events-none max-h-0 p-0 opacity-0',
         ].join(' ')}
         aria-hidden={!composerOpen}
       >
@@ -941,19 +1020,22 @@ function NotesSectionImpl<C = unknown>({
                     >
                       {label('fields.entity', 'Assign to customer')}
                     </label>
-                    <select
-                      id="note-entity-select"
-                      className="h-9 rounded border border-muted-foreground/40 bg-background px-2 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
-                      value={selectedEntityId}
-                      onChange={(event) => setSelectedEntityId(event.target.value)}
+                    <Select
+                      value={selectedEntityId || undefined}
+                      onValueChange={(next) => setSelectedEntityId(next ?? '')}
                       disabled={isSubmitting || isLoading || !normalizedEntityOptions.length}
                     >
-                      {normalizedEntityOptions.map((option) => (
-                        <option key={option.id} value={option.id}>
-                          {option.label}
-                        </option>
-                      ))}
-                    </select>
+                      <SelectTrigger id="note-entity-select">
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {normalizedEntityOptions.map((option) => (
+                          <SelectItem key={option.id} value={option.id}>
+                            {option.label}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
                   </div>
                 ) : null}
                 {normalizedDealOptions.length ? (
@@ -964,22 +1046,22 @@ function NotesSectionImpl<C = unknown>({
                     >
                       {label('fields.deal', 'Link to deal (optional)')}
                     </label>
-                    <select
-                      id="note-deal-select"
-                      className="h-9 rounded border border-muted-foreground/40 bg-background px-2 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
-                      value={selectedDealId}
-                      onChange={(event) => setSelectedDealId(event.target.value)}
+                    <Select
+                      value={selectedDealId || undefined}
+                      onValueChange={(next) => setSelectedDealId(next ?? '')}
                       disabled={isSubmitting || isLoading}
                     >
-                      <option value="">
-                        {label('fields.dealPlaceholder', 'No linked deal')}
-                      </option>
-                      {normalizedDealOptions.map((option) => (
-                        <option key={option.id} value={option.id}>
-                          {option.label}
-                        </option>
-                      ))}
-                    </select>
+                      <SelectTrigger id="note-deal-select">
+                        <SelectValue placeholder={label('fields.dealPlaceholder', 'No linked deal')} />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {normalizedDealOptions.map((option) => (
+                          <SelectItem key={option.id} value={option.id}>
+                            {option.label}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
                   </div>
                 ) : null}
               </div>
@@ -1000,7 +1082,7 @@ function NotesSectionImpl<C = unknown>({
               <div className="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-dashed border-muted-foreground/40 px-3 py-2">
                 <div className="flex flex-wrap items-center gap-3 text-sm">
                   {draftIcon && renderIcon ? (
-                    <span className="inline-flex h-7 w-7 items-center justify-center rounded border border-border bg-muted/40">
+                    <span className="inline-flex h-7 w-7 items-center justify-center rounded border border-border bg-muted/50">
                       {renderIcon(draftIcon, 'h-4 w-4')}
                     </span>
                   ) : null}
@@ -1043,6 +1125,20 @@ function NotesSectionImpl<C = unknown>({
       {loadError ? <ErrorMessage label={loadError} className="mt-3" /> : null}
 
       <div className="space-y-3">
+        {!composerOpen && hasVisibleNotes && !onActionChange ? (
+          <div className="flex justify-end">
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              onClick={focusComposer}
+              disabled={isSubmitting || isLoading || !hasEntity}
+            >
+              <Plus className="size-4" />
+              {addActionLabel}
+            </Button>
+          </div>
+        ) : null}
         {isLoading ? (
           <LoadingMessage
             label={label('loading', 'Loading notes…')}
@@ -1145,7 +1241,7 @@ function NotesSectionImpl<C = unknown>({
                       rows={3}
                       textareaRef={contentTextareaRef}
                       onTextareaInput={(event) => adjustTextareaSize(event.currentTarget)}
-                      textareaClassName="w-full resize-none overflow-hidden rounded-md border border-border px-3 py-2 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
+                      textareaClassName="w-full resize-none overflow-hidden rounded-md border border-border px-3 py-2 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
                       editorWrapperClassName="w-full rounded-md border border-muted-foreground/20 bg-background p-2"
                       remarkPlugins={markdownPlugins}
                     />
@@ -1193,12 +1289,12 @@ function NotesSectionImpl<C = unknown>({
                     onClick={() => setContentEditor({ id: note.id, value: note.body })}
                     onKeyDown={(event) => handleContentKeyDown(event, note)}
                   >
-                    <MarkdownPreviewComponent
+                    <MarkdownPreview
                       remarkPlugins={markdownPlugins}
                       className="break-words text-foreground [&>*]:mb-2 [&>*:last-child]:mb-0 [&_ul]:ml-4 [&_ul]:list-disc [&_ol]:ml-4 [&_ol]:list-decimal [&_code]:rounded [&_code]:bg-muted [&_code]:px-1 [&_code]:py-0.5 [&_pre]:rounded-md [&_pre]:bg-muted [&_pre]:p-3 [&_pre]:text-xs"
                     >
                       {note.body}
-                    </MarkdownPreviewComponent>
+                    </MarkdownPreview>
                   </div>
                 )}
               </div>
@@ -1215,7 +1311,7 @@ function NotesSectionImpl<C = unknown>({
             }}
           />
         )}
-        {isLoading || visibleCount >= notes.length ? null : (
+        {isLoading || (pagedMode ? currentPage >= totalPages : visibleCount >= notes.length) ? null : (
           <div className="flex justify-center">
             <Button variant="outline" size="sm" onClick={handleLoadMore}>
               {loadMoreLabel}

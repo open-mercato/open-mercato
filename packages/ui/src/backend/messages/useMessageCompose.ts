@@ -16,6 +16,8 @@ import {
   useComposeSendOperation,
   useForwardSubmitOperation,
   useReplySubmitOperation,
+  useSendDraftOperation,
+  useUpdateDraftOperation,
 } from './useMessageComposeOperations'
 
 function toErrorMessage(payload: unknown): string | null {
@@ -154,6 +156,18 @@ export function useMessageCompose({
   const [submitting, setSubmitting] = React.useState(false)
   const [submitMode, setSubmitMode] = React.useState<'send' | 'draft'>('send')
   const [submitError, setSubmitError] = React.useState<string | null>(null)
+  // Tracks whether the composer is currently in the "open" lifecycle so the init
+  // effect below only runs on the closed → open transition, not on every parent
+  // re-render that produces a new `defaultValues` / `contextObject` reference
+  // while the user is typing. Without this guard, an inline literal
+  // `defaultValues={{...}}` in a re-rendering parent (e.g. message detail page
+  // with live notification badges or queue progress) would clear the body /
+  // subject mid-keystroke. CI shard 9 surfaced this as TC-MSG-009 timing out
+  // because `keyboard.type` characters appeared to "type nowhere" — they were
+  // typed correctly, then immediately wiped by the next effect run.
+  const isOpenRef = React.useRef(false)
+  const wasOpenRef = React.useRef(false)
+  const submitLockReleaseRef = React.useRef<(() => void) | null>(null)
 
   const messageTypesQuery = useQuery({
     queryKey: ['messages', 'types'],
@@ -219,7 +233,16 @@ export function useMessageCompose({
   }, [attachmentEntityId, attachmentRecordId, t])
 
   React.useEffect(() => {
-    if (!isOpen) return
+    if (!isOpen) {
+      isOpenRef.current = false
+      return
+    }
+    // Only initialize on the closed → open transition. Subsequent parent
+    // re-renders that change `defaultValues` / `contextObject` references
+    // (inline object literals are a new reference on every render) MUST NOT
+    // overwrite state the user has typed in.
+    if (isOpenRef.current) return
+    isOpenRef.current = true
 
     const nextRecipients = defaultValues?.recipients?.filter((value) => typeof value === 'string' && value.trim().length > 0) ?? []
     const dedupedRecipients = Array.from(new Set(nextRecipients))
@@ -269,6 +292,28 @@ export function useMessageCompose({
     normalizedRequiredActionMode,
     requiredActionConfig?.defaultActionType,
   ])
+
+  React.useEffect(() => {
+    if (!isOpen) {
+      submitLockReleaseRef.current?.()
+      submitLockReleaseRef.current = null
+      wasOpenRef.current = false
+      return
+    }
+
+    const justOpened = isOpen && !wasOpenRef.current
+    wasOpenRef.current = isOpen
+    if (!justOpened) return
+    submitLockReleaseRef.current?.()
+    submitLockReleaseRef.current = null
+    setSubmitting(false)
+    setSubmitMode('send')
+  }, [isOpen])
+
+  React.useEffect(() => () => {
+    submitLockReleaseRef.current?.()
+    submitLockReleaseRef.current = null
+  }, [])
 
   React.useEffect(() => {
     if (!isOpen) return
@@ -367,7 +412,17 @@ export function useMessageCompose({
     params.set('pageSize', '100')
     // Recipient lookup is filtered in TagsInput because incremental auth user search is unreliable.
 
-    const call = await apiCall<{ items?: UserListItem[] }>(`/api/auth/users?${params.toString()}`)
+    const call = await apiCall<{ items?: UserListItem[] }>(
+      `/api/auth/users?${params.toString()}`,
+      {
+        headers: {
+          'x-om-forbidden-redirect': '0',
+        },
+      },
+    ).catch(() => null)
+    if (!call) {
+      return []
+    }
     if (!call.ok) {
       return []
     }
@@ -434,6 +489,7 @@ export function useMessageCompose({
 
   const composeDraftOperation = useComposeDraftOperation({
     t,
+    messageId,
     messageType,
     priority,
     visibility,
@@ -471,16 +527,59 @@ export function useMessageCompose({
     sendViaEmail,
   })
 
+  const sendDraftOperation = useSendDraftOperation({
+    t,
+    messageId: messageId ?? '',
+    messageType,
+    priority,
+    visibility,
+    externalEmail,
+    recipientIds,
+    subject,
+    body,
+    bodyFormat,
+    sendViaEmail,
+    contextObject,
+    defaultValues,
+    contextActionOptions,
+    normalizedRequiredActionMode,
+    shouldShowContextActions,
+    contextActionRequired,
+    contextActionType,
+  })
+
+  const updateDraftOperation = useUpdateDraftOperation({
+    t,
+    messageId: messageId ?? '',
+    messageType,
+    priority,
+    visibility,
+    externalEmail,
+    recipientIds,
+    subject,
+    body,
+    bodyFormat,
+    sendViaEmail,
+    contextObject,
+    defaultValues,
+    contextActionOptions,
+    normalizedRequiredActionMode,
+    shouldShowContextActions,
+    contextActionRequired,
+    contextActionType,
+  })
+
   const handleSubmit = React.useCallback(async ({ saveAsDraft = false }: { saveAsDraft?: boolean } = {}) => {
     if (submitting) return false
 
     setSubmitError(null)
 
+    const isEditingExistingDraft = variant === 'compose' && Boolean(messageId)
     const isComposeDraftSubmit = saveAsDraft && variant === 'compose'
     const operation = isComposeDraftSubmit
-      ? composeDraftOperation
+      ? (isEditingExistingDraft ? updateDraftOperation : composeDraftOperation)
       : variant === 'compose'
-        ? composeSendOperation
+        ? (isEditingExistingDraft ? sendDraftOperation : composeSendOperation)
         : variant === 'reply'
           ? replyOperation
           : forwardOperation
@@ -494,6 +593,8 @@ export function useMessageCompose({
 
     setSubmitMode(isComposeDraftSubmit ? 'draft' : 'send')
     setSubmitting(true)
+    let keepSubmitLock = false
+    let shouldReturnFalse = false
 
     try {
       let nextAttachmentIds = attachmentIds
@@ -506,44 +607,60 @@ export function useMessageCompose({
             : t('messages.errors.loadAttachmentOptionsFailed', 'Failed to load attachments.')
           setSubmitError(message)
           flash(message, 'error')
-          return false
+          shouldReturnFalse = true
         }
       }
 
-      const { endpoint, payload } = operation.buildRequest({ attachmentIds: nextAttachmentIds })
+      if (!shouldReturnFalse) {
+        const { endpoint, method, payload } = operation.buildRequest({ attachmentIds: nextAttachmentIds })
 
-      const call = await apiCall<{ id?: string }>(endpoint, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(payload),
-      })
+        const call = await apiCall<{ id?: string }>(endpoint, {
+          method,
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(payload),
+        })
 
-      if (!call.ok) {
-        const message = toErrorMessage(call.result) ?? t('messages.errors.sendFailed', 'Failed to send message.')
-        setSubmitError(message)
-        flash(message, 'error')
-        return false
+        if (!call.ok) {
+          const message = toErrorMessage(call.result) ?? t('messages.errors.sendFailed', 'Failed to send message.')
+          setSubmitError(message)
+          flash(message, 'error')
+          shouldReturnFalse = true
+        } else {
+          flash(operation.successMessage, 'success')
+          keepSubmitLock = true
+
+          onSuccess?.({ id: call.result?.id })
+
+          if (!inline) {
+            onOpenChange?.(false)
+          }
+        }
       }
-
-      flash(operation.successMessage, 'success')
-
-      onSuccess?.({ id: call.result?.id })
-
-      if (!inline) {
-        onOpenChange?.(false)
-      }
-      return true
     } catch (error) {
       const message = error instanceof Error
         ? error.message
         : t('messages.errors.sendFailed', 'Failed to send message.')
       setSubmitError(message)
       flash(message, 'error')
-      return false
+      shouldReturnFalse = true
     } finally {
-      setSubmitting(false)
+      if (!keepSubmitLock) {
+        setSubmitting(false)
+      }
       setSubmitMode('send')
     }
+
+    if (shouldReturnFalse) {
+      return false
+    }
+
+    if (keepSubmitLock) {
+      return await new Promise<boolean>((resolve) => {
+        submitLockReleaseRef.current = () => resolve(true)
+      })
+    }
+
+    return true
   }, [
     attachmentIds,
     composeDraftOperation,
@@ -551,11 +668,14 @@ export function useMessageCompose({
     forwardOperation,
     inline,
     loadAttachmentIds,
+    messageId,
     onOpenChange,
     onSuccess,
     replyOperation,
+    sendDraftOperation,
     submitting,
     t,
+    updateDraftOperation,
     variant,
   ])
 

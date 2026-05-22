@@ -6,7 +6,7 @@ import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { readApiResultOrThrow } from '@open-mercato/ui/backend/utils/apiCall'
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '@open-mercato/ui/primitives/dialog'
 import { Button } from '@open-mercato/ui/primitives/button'
-import { Input } from '@open-mercato/ui/primitives/input'
+import { PasswordInput } from '@open-mercato/ui/primitives/password-input'
 import { useProviderChallengeComponent } from './mfa-ui-registry'
 
 export type SudoChallengeMethod = {
@@ -211,7 +211,7 @@ export default function SudoChallengeModal({
   return (
     <Dialog open={open} onOpenChange={(nextOpen) => { if (!nextOpen) handleClose() }}>
       <DialogContent
-        className="sm:max-w-lg [&_[data-dialog-close]]:rounded-full [&_[data-dialog-close]]:border [&_[data-dialog-close]]:border-white/20 [&_[data-dialog-close]]:bg-white/5 [&_[data-dialog-close]]:opacity-100 [&_[data-dialog-close]]:transition-none [&_[data-dialog-close]]:hover:bg-white/10 [&_[data-dialog-close]]:hover:opacity-100 [&_[data-dialog-close]]:focus:ring-0 [&_[data-dialog-close]]:focus:ring-offset-0"
+        className="sm:max-w-lg [&_[data-dialog-close]]:rounded-full [&_[data-dialog-close]]:border [&_[data-dialog-close]]:border-white/20 [&_[data-dialog-close]]:bg-white/5 [&_[data-dialog-close]]:opacity-100 [&_[data-dialog-close]]:transition-none [&_[data-dialog-close]]:hover:bg-white/10 [&_[data-dialog-close]]:hover:opacity-100 [&_[data-dialog-close]]:focus-visible:ring-0 [&_[data-dialog-close]]:focus-visible:ring-offset-0"
         onKeyDown={(event) => {
         if ((event.metaKey || event.ctrlKey) && event.key === 'Enter' && challenge?.method === 'password') {
           event.preventDefault()
@@ -235,13 +235,13 @@ export default function SudoChallengeModal({
               <label className="text-sm font-medium" htmlFor="sudo-password">
                 {t('security.admin.sudo.challenge.password.label', 'Password')}
               </label>
-              <Input
+              <PasswordInput
                 id="sudo-password"
-                type="password"
                 value={password}
                 autoFocus
                 onChange={(event) => setPassword(event.target.value)}
                 placeholder={t('security.admin.sudo.challenge.password.placeholder', 'Enter your password')}
+                autoComplete="current-password"
               />
             </div>
 

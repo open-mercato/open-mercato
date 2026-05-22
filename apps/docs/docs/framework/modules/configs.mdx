@@ -46,10 +46,9 @@ Every call automatically resolves the request-scoped `EntityManager` and the con
 ## Default seeding & automation
 
 - `yarn mercato configs restore-defaults` seeds module defaults. The command runs automatically during `mercato init` after database migrations complete.
-- Environment flags can override values. Example: `DISABLE_VECTOR_SEARCH_AUTOINDEXING=1` forces the `vector.auto_index_enabled` toggle off and prevents the API/UI from re-enabling it.
+- Environment flags can override values. Example: `OM_DISABLE_VECTOR_SEARCH_AUTOINDEXING=true` forces the `vector.auto_index_enabled` toggle off and prevents the API/UI from re-enabling it. The legacy alias `DISABLE_VECTOR_SEARCH_AUTOINDEXING=1` still works for older deployments.
 - Additional defaults can be registered by other modules via `restoreDefaults` (e.g., inside their CLI bootstrap or migrations).
 
 ## Usage example: vector search auto-indexing
 
 The vector module reads `moduleConfigService.getValue('vector', 'auto_index_enabled', { defaultValue: true })` inside its subscribers before running expensive embedding work. A backend settings page at `/backend/vector-search` exposes the toggle through `/api/vector/settings`, so operators can pause real-time indexing without redeploying the app.
-

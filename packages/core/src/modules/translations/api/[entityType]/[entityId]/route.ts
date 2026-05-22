@@ -1,8 +1,9 @@
 import { NextResponse } from 'next/server'
 import { z } from 'zod'
+import { sql } from 'kysely'
 import { resolveTranslationsRouteContext, requireTranslationFeatures } from '@open-mercato/core/modules/translations/api/context'
 import { translationBodySchema, entityTypeParamSchema, entityIdParamSchema } from '@open-mercato/core/modules/translations/data/validators'
-import { CrudHttpError } from '@open-mercato/shared/lib/crud/errors'
+import { CrudHttpError, isCrudHttpError } from '@open-mercato/shared/lib/crud/errors'
 import { CommandBus } from '@open-mercato/shared/lib/commands'
 import { serializeOperationMetadata } from '@open-mercato/shared/lib/commands/operationMetadata'
 import type { OpenApiMethodDoc, OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
@@ -27,14 +28,14 @@ export async function GET(req: Request, ctx: { params?: { entityType?: string; e
       entityId: ctx.params?.entityId,
     })
 
-    const row = await context.knex('entity_translations')
-      .where({
-        entity_type: entityType,
-        entity_id: entityId,
-      })
-      .andWhereRaw('tenant_id is not distinct from ?', [context.tenantId])
-      .andWhereRaw('organization_id is not distinct from ?', [context.organizationId])
-      .first()
+    const row = await (context.db as any)
+      .selectFrom('entity_translations')
+      .selectAll()
+      .where('entity_type', '=', entityType)
+      .where('entity_id', '=', entityId)
+      .where(sql<boolean>`tenant_id is not distinct from ${context.tenantId}`)
+      .where(sql<boolean>`organization_id is not distinct from ${context.organizationId}`)
+      .executeTakeFirst() as Record<string, any> | undefined
 
     if (!row) {
       return NextResponse.json({ error: 'Not found' }, { status: 404 })
@@ -48,7 +49,7 @@ export async function GET(req: Request, ctx: { params?: { entityType?: string; e
       updatedAt: row.updated_at,
     })
   } catch (err) {
-    if (err instanceof CrudHttpError) {
+    if (isCrudHttpError(err)) {
       return NextResponse.json(err.body, { status: err.status })
     }
     if (err instanceof z.ZodError) {
@@ -86,9 +87,11 @@ export async function PUT(req: Request, ctx: { params?: { entityType?: string; e
       ctx: context.commandCtx,
     })
 
-    const row = await context.knex('entity_translations')
-      .where({ id: result.rowId })
-      .first()
+    const row = await (context.db as any)
+      .selectFrom('entity_translations')
+      .selectAll()
+      .where('id', '=', result.rowId)
+      .executeTakeFirst() as Record<string, any>
 
     const response = NextResponse.json({
       entityType: row.entity_type,
@@ -119,7 +122,7 @@ export async function PUT(req: Request, ctx: { params?: { entityType?: string; e
 
     return response
   } catch (err) {
-    if (err instanceof CrudHttpError) {
+    if (isCrudHttpError(err)) {
       return NextResponse.json(err.body, { status: err.status })
     }
     if (err instanceof z.ZodError) {
@@ -176,7 +179,7 @@ export async function DELETE(req: Request, ctx: { params?: { entityType?: string
 
     return response
   } catch (err) {
-    if (err instanceof CrudHttpError) {
+    if (isCrudHttpError(err)) {
       return NextResponse.json(err.body, { status: err.status })
     }
     if (err instanceof z.ZodError) {

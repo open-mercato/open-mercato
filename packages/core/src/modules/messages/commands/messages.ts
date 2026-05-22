@@ -2,7 +2,7 @@ import type { EntityManager } from '@mikro-orm/postgresql'
 import { z } from 'zod'
 import { registerCommand, type CommandHandler } from '@open-mercato/shared/lib/commands'
 import { extractUndoPayload, type UndoPayload } from '@open-mercato/shared/lib/commands/undo'
-import { findOneWithDecryption } from '@open-mercato/shared/lib/encryption/find'
+import { findOneWithDecryption, findWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import { Message, MessageObject, MessageRecipient, type MessageActionData } from '../data/entities'
 import { emitMessagesEvent } from '../events'
 import {
@@ -235,7 +235,7 @@ const composeMessageCommand: CommandHandler<unknown, { id: string; threadId: str
         organizationId: input.organizationId,
       })
 
-      await trx.persistAndFlush(message)
+      await trx.persist(message).flush()
       if (!threadId && !input.isDraft && !message.threadId) {
         message.threadId = message.id
         await trx.flush()
@@ -368,6 +368,20 @@ const updateDraftCommand: CommandHandler<unknown, { ok: true; id: string }> = {
     if (message.senderUserId !== input.userId) throw new Error('Access denied')
     if (!message.isDraft) throw new Error('Only draft messages can be edited')
 
+    const isSending = input.isDraft === false
+    const preloadedRecipients = isSending && !input.recipients
+      ? await findWithDecryption(
+        em,
+        MessageRecipient,
+        { messageId: message.id, deletedAt: null },
+        undefined,
+        {
+          tenantId: input.tenantId,
+          organizationId: input.organizationId,
+        },
+      )
+      : null
+
     const nextMessageType = input.type ?? message.type
     if (input.objects) {
       const objectValidationError = validateMessageObjectsForType(nextMessageType, input.objects)
@@ -454,12 +468,50 @@ const updateDraftCommand: CommandHandler<unknown, { ok: true; id: string }> = {
       )
     }
 
+    if (isSending) {
+      const finalVisibility = input.visibility ?? message.visibility
+      const finalSubject = input.subject ?? message.subject
+      const finalBody = input.body ?? message.body
+      const finalRecipientCount = input.recipients
+        ? input.recipients.length
+        : (preloadedRecipients?.length ?? 0)
+
+      if (finalVisibility !== 'public' && finalRecipientCount === 0) {
+        throw new Error('at least one recipient is required')
+      }
+      if (!finalSubject?.trim()) throw new Error('subject is required')
+      if (!finalBody?.trim()) throw new Error('body is required')
+
+      message.isDraft = false
+      message.status = 'sent'
+      message.sentAt = new Date()
+      if (!message.threadId) message.threadId = message.id
+    }
+
     await em.flush()
     await emitMessageIndexUpsert(ctx.container, {
       messageId: message.id,
       tenantId: input.tenantId,
       organizationId: input.organizationId,
     })
+
+    if (isSending) {
+      const recipientUserIds = input.recipients
+        ? input.recipients.map((r) => r.userId)
+        : (preloadedRecipients ?? []).map((r) => r.recipientUserId)
+      const resolvedVisibility = input.visibility ?? message.visibility
+      const resolvedSendViaEmail = input.sendViaEmail ?? message.sendViaEmail
+      await emitMessageSentEvent(ctx.container, {
+        messageId: message.id,
+        senderUserId: input.userId,
+        recipientUserIds,
+        sendViaEmail: resolvedVisibility === 'public' ? true : resolvedSendViaEmail,
+        externalEmail: message.externalEmail ?? null,
+        tenantId: input.tenantId,
+        organizationId: input.organizationId,
+      })
+    }
+
     return { ok: true, id: message.id }
   },
   async captureAfter(rawInput, _result, ctx) {
@@ -473,7 +525,7 @@ const updateDraftCommand: CommandHandler<unknown, { ok: true; id: string }> = {
   buildLog: async ({ input, snapshots }) => {
     const parsed = updateDraftCommandSchema.parse(input)
     return {
-      actionLabel: 'Update draft message',
+      actionLabel: parsed.isDraft === false ? 'Send draft message' : 'Update draft message',
       resourceKind: 'messages.message',
       resourceId: parsed.messageId,
       tenantId: parsed.tenantId,
@@ -567,7 +619,7 @@ const replyMessageCommand: CommandHandler<unknown, { id: string; externalEmail: 
         tenantId: input.tenantId,
         organizationId: input.organizationId,
       })
-      await trx.persistAndFlush(message)
+      await trx.persist(message).flush()
       for (const recipientUserId of recipientIds) {
         trx.persist(trx.create(MessageRecipient, {
           messageId: message.id,
@@ -709,7 +761,7 @@ const forwardMessageCommand: CommandHandler<unknown, { id: string; externalEmail
         tenantId: input.tenantId,
         organizationId: input.organizationId,
       })
-      await trx.persistAndFlush(newMessage)
+      await trx.persist(newMessage).flush()
       for (const recipient of input.recipients) {
         trx.persist(trx.create(MessageRecipient, {
           messageId: newMessage.id,

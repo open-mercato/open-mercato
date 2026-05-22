@@ -6,10 +6,13 @@ import { createModuleEvents } from '@open-mercato/shared/modules/events'
  * Declares all events that can be emitted by the catalog module.
  */
 const events = [
-  // Products
-  { id: 'catalog.product.created', label: 'Product Created', entity: 'product', category: 'crud' },
-  { id: 'catalog.product.updated', label: 'Product Updated', entity: 'product', category: 'crud' },
-  { id: 'catalog.product.deleted', label: 'Product Deleted', entity: 'product', category: 'crud' },
+  // Products — Step 5.18 (spec §10 line 836, §9.8): catalog CRUD events
+  // bridge to the DataTable on /backend/catalog/catalog/products via the
+  // DOM event bridge so confirmed mutations (AI or otherwise) auto-refresh
+  // the list without a round-trip.
+  { id: 'catalog.product.created', label: 'Product Created', entity: 'product', category: 'crud', clientBroadcast: true },
+  { id: 'catalog.product.updated', label: 'Product Updated', entity: 'product', category: 'crud', clientBroadcast: true },
+  { id: 'catalog.product.deleted', label: 'Product Deleted', entity: 'product', category: 'crud', clientBroadcast: true },
   { id: 'catalog.product_unit_conversion.created', label: 'Product Unit Conversion Created', entity: 'product_unit_conversion', category: 'crud' },
   { id: 'catalog.product_unit_conversion.updated', label: 'Product Unit Conversion Updated', entity: 'product_unit_conversion', category: 'crud' },
   { id: 'catalog.product_unit_conversion.deleted', label: 'Product Unit Conversion Deleted', entity: 'product_unit_conversion', category: 'crud' },

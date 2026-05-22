@@ -26,7 +26,7 @@ export function EnricherTiming({ entries }: { entries: EnricherTimingEntry[] }) 
       {recent.map((entry, idx) => {
         const classes = getTimingClasses(entry.durationMs)
         return (
-          <div key={idx} className="border-b border-border/50 py-1 text-xs">
+          <div key={idx} className="border-b border-border/70 py-1 text-xs">
             <div className="mb-0.5 flex justify-between">
               <span className="font-medium">{entry.enricherId}</span>
               <span className={`font-mono font-semibold ${classes.text}`}>
@@ -39,7 +39,7 @@ export function EnricherTiming({ entries }: { entries: EnricherTimingEntry[] }) 
                 style={{ width: getTimingBarWidth(entry.durationMs, maxMs) }}
               />
             </div>
-            <div className="mt-px text-[11px] text-muted-foreground">
+            <div className="mt-px text-overline text-muted-foreground">
               {entry.targetEntity} | {entry.moduleId}
             </div>
           </div>

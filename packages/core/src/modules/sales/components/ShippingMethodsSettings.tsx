@@ -13,8 +13,15 @@ import {
   DialogTitle,
 } from '@open-mercato/ui/primitives/dialog'
 import { Input } from '@open-mercato/ui/primitives/input'
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@open-mercato/ui/primitives/select'
 import { Label } from '@open-mercato/ui/primitives/label'
-import { Switch } from '@open-mercato/ui/primitives/switch'
+import { SwitchField } from '@open-mercato/ui/primitives/switch-field'
 import { CrudForm, type CrudCustomFieldRenderProps, type CrudField } from '@open-mercato/ui/backend/CrudForm'
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
 import { apiCall, readApiResultOrThrow } from '@open-mercato/ui/backend/utils/apiCall'
@@ -171,17 +178,21 @@ function FlatRateSettingsEditor(props: {
               <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
                 <div className="space-y-1">
                   <Label className="text-xs uppercase text-muted-foreground">{translations.metric}</Label>
-                  <select
-                    className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
+                  <Select
                     value={rate.metric ?? 'item_count'}
-                    onChange={(evt) => updateRate(index, 'metric', evt.target.value)}
+                    onValueChange={(value) => updateRate(index, 'metric', value)}
                   >
-                    {metrics.map((opt) => (
-                      <option key={opt.value} value={opt.value}>
-                        {opt.label}
-                      </option>
-                    ))}
-                  </select>
+                    <SelectTrigger>
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {metrics.map((opt) => (
+                        <SelectItem key={opt.value} value={opt.value}>
+                          {opt.label}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
                 </div>
                 <div className="space-y-1">
                   <Label className="text-xs uppercase text-muted-foreground">{translations.min}</Label>
@@ -239,16 +250,13 @@ function FlatRateSettingsEditor(props: {
           ))
         )}
       </div>
-      <div className="flex items-center gap-2">
-        <Switch
-          id="apply-base-rate"
-          checked={applyBaseRate}
-          onCheckedChange={(checked) => onChange({ ...value, applyBaseRate: checked })}
-        />
-        <Label htmlFor="apply-base-rate" className="text-sm">
-          {translations.applyBaseRate}
-        </Label>
-      </div>
+      <SwitchField
+        id="apply-base-rate"
+        label={translations.applyBaseRate}
+        flip
+        checked={applyBaseRate}
+        onCheckedChange={(checked) => onChange({ ...value, applyBaseRate: checked })}
+      />
     </div>
   )
 }

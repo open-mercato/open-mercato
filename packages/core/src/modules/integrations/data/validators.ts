@@ -40,12 +40,15 @@ export const listIntegrationLogsQuerySchema = z.object({
 
 export type ListIntegrationLogsQuery = z.infer<typeof listIntegrationLogsQuerySchema>
 
-const optionalBooleanQuery = z.preprocess((value) => {
-  if (value === undefined || value === '' || value === null) return undefined
-  if (value === true || value === 'true' || value === '1') return true
-  if (value === false || value === 'false' || value === '0') return false
-  return value
-}, z.boolean().optional())
+const optionalBooleanQuery = z.preprocess(
+  (value) => {
+    if (value === undefined || value === '' || value === null) return undefined
+    if (value === true || value === 'true' || value === '1') return true
+    if (value === false || value === 'false' || value === '0') return false
+    return value
+  },
+  z.boolean().optional(),
+)
 
 export const integrationMarketplaceHealthStatusSchema = z.enum(['healthy', 'degraded', 'unhealthy', 'unconfigured'])
 

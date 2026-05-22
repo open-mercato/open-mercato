@@ -18,12 +18,81 @@ jest.mock('@open-mercato/shared/lib/i18n/server', () => ({
 
 import '@open-mercato/core/modules/auth/commands/roles'
 import { commandRegistry } from '@open-mercato/shared/lib/commands/registry'
+import { CrudHttpError } from '@open-mercato/shared/lib/crud/errors'
 import type { Role } from '../../data/entities'
 import type { CommandHandler, CommandRuntimeContext } from '@open-mercato/shared/lib/commands'
 import type { DataEngine } from '@open-mercato/shared/lib/data/engine'
 import type { EntityManager } from '@mikro-orm/postgresql'
 
-describe('auth.roles.update undo custom fields', () => {
+const roleId = '11111111-1111-4111-8111-111111111111'
+const tenantId = '22222222-2222-4222-8222-222222222222'
+
+describe('auth.roles.update', () => {
+  it('allows updating the built-in admin role when the name is unchanged', async () => {
+    const handler = commandRegistry.get<Record<string, unknown>, unknown>('auth.roles.update') as CommandHandler<Record<string, unknown>, Role>
+    expect(handler).toBeDefined()
+
+    const existingRole = {
+      id: roleId,
+      name: 'admin',
+      tenantId,
+      deletedAt: null,
+    } as unknown as Role
+    const updateOrmEntity = jest.fn(async (opts: Parameters<DataEngine['updateOrmEntity']>[0]) => {
+      const entity = { ...existingRole } as Role
+      await (opts.apply as (current: Role) => Promise<void> | void)(entity)
+      return entity
+    }) as jest.MockedFunction<DataEngine['updateOrmEntity']>
+    const markOrmEntityChange = jest.fn()
+    const dataEngine = {
+      updateOrmEntity,
+      markOrmEntityChange,
+    }
+    const em = {
+      findOne: jest.fn(async () => existingRole),
+      count: jest.fn(async () => 0),
+    }
+    const ctx = makeExecuteCtx(dataEngine, em)
+
+    const result = await handler.execute({ id: roleId, name: 'admin' }, ctx)
+
+    expect(result).toMatchObject({ id: roleId, name: 'admin', tenantId })
+    expect(em.count).not.toHaveBeenCalled()
+    expect(updateOrmEntity).toHaveBeenCalled()
+    expect(markOrmEntityChange).toHaveBeenCalledWith(expect.objectContaining({
+      action: 'updated',
+      identifiers: expect.objectContaining({ id: roleId, tenantId }),
+    }))
+  })
+
+  it('rejects renaming a custom role to a reserved role name', async () => {
+    const handler = commandRegistry.get<Record<string, unknown>, unknown>('auth.roles.update') as CommandHandler<Record<string, unknown>, Role>
+    expect(handler).toBeDefined()
+
+    const existingRole = {
+      id: roleId,
+      name: 'Manager',
+      tenantId,
+      deletedAt: null,
+    } as unknown as Role
+    const dataEngine = {
+      updateOrmEntity: jest.fn(),
+      markOrmEntityChange: jest.fn(),
+    }
+    const em = {
+      findOne: jest.fn(async () => existingRole),
+      count: jest.fn(async () => 0),
+    }
+    const ctx = makeExecuteCtx(dataEngine, em)
+
+    await expect(handler.execute({ id: roleId, name: 'admin' }, ctx))
+      .rejects.toMatchObject<Partial<CrudHttpError>>({
+        status: 400,
+        body: { error: 'Role name is reserved' },
+      })
+    expect(dataEngine.updateOrmEntity).not.toHaveBeenCalled()
+  })
+
   it('restores custom field diff', async () => {
     const handler = commandRegistry.get<Record<string, unknown>, unknown>('auth.roles.update') as CommandHandler
     expect(handler).toBeDefined()
@@ -124,3 +193,27 @@ describe('auth.roles.update undo custom fields', () => {
     }))
   })
 })
+
+function makeExecuteCtx(dataEngine: object, em: object): CommandRuntimeContext {
+  const container = {
+    resolve: (token: string) => {
+      switch (token) {
+        case 'dataEngine':
+          return dataEngine
+        case 'em':
+          return em
+        default:
+          throw new Error(`Unexpected dependency: ${token}`)
+      }
+    },
+  }
+
+  return {
+    container: container as any,
+    auth: { sub: 'actor-1', tenantId, orgId: null } as any,
+    organizationScope: null,
+    selectedOrganizationId: null,
+    organizationIds: null,
+    request: undefined as any,
+  }
+}

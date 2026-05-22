@@ -11,6 +11,7 @@ export type SalesDictionaryKind =
   | 'order-line-status'
   | 'shipment-status'
   | 'payment-status'
+  | 'deal-loss-reasons'
   | 'adjustment-kind'
 
 type SalesDictionaryDefinition = {
@@ -54,6 +55,14 @@ const DEFINITIONS: Record<SalesDictionaryKind, SalesDictionaryDefinition> = {
     description: 'Configurable set of statuses used by payments.',
     resourceKind: 'sales.payment-status',
     commandPrefix: 'sales.payment-statuses',
+  },
+  'deal-loss-reasons': {
+    key: 'sales.deal_loss_reason',
+    name: 'Deal loss reasons',
+    singular: 'Deal loss reason',
+    description: 'Reusable reasons used when closing deals as lost.',
+    resourceKind: 'sales.deal-loss-reason',
+    commandPrefix: 'sales.deal-loss-reasons',
   },
   'adjustment-kind': {
     key: 'sales.adjustment_kind',
@@ -244,6 +253,14 @@ async function seedSalesDictionary(
   }
 }
 
+const DEAL_LOSS_REASON_DEFAULTS: SalesDictionarySeed[] = [
+  { value: 'lost_to_competitor', label: 'Lost to competitor', color: '#ef4444', icon: 'lucide:users' },
+  { value: 'no_budget', label: 'No budget', color: '#f59e0b', icon: 'lucide:wallet' },
+  { value: 'no_decision', label: 'No decision made', color: '#94a3b8', icon: 'lucide:help-circle' },
+  { value: 'timing', label: 'Bad timing', color: '#6366f1', icon: 'lucide:clock' },
+  { value: 'other', label: 'Other', color: '#71717a', icon: 'lucide:minus-circle' },
+]
+
 export async function seedSalesStatusDictionaries(
   em: EntityManager,
   scope: SeedScope
@@ -252,6 +269,7 @@ export async function seedSalesStatusDictionaries(
   await seedSalesDictionary(em, scope, 'order-line-status', ORDER_LINE_STATUS_DEFAULTS)
   await seedSalesDictionary(em, scope, 'shipment-status', SHIPMENT_STATUS_DEFAULTS)
   await seedSalesDictionary(em, scope, 'payment-status', PAYMENT_STATUS_DEFAULTS)
+  await seedSalesDictionary(em, scope, 'deal-loss-reasons', DEAL_LOSS_REASON_DEFAULTS)
 }
 
 export async function seedSalesAdjustmentKinds(

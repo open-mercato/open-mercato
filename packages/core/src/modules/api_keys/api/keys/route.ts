@@ -12,6 +12,7 @@ import { generateApiKeySecret, hashApiKey } from '../../services/apiKeyService'
 import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
 import { enforceTenantSelection, resolveIsSuperAdmin } from '@open-mercato/core/modules/auth/lib/tenantAccess'
 import { escapeLikePattern } from '@open-mercato/shared/lib/db/escapeLikePattern'
+import { assertActorCanGrantRoles } from '@open-mercato/core/modules/auth/lib/grantChecks'
 
 type ApiKeyCrudCtx = CrudCtx & {
   __apiKeySecret?: { secret: string; prefix: string }
@@ -283,6 +284,14 @@ const crud = makeCrudRoute<
         roleEntities.push(role)
         roleIds.push(String(role.id))
       }
+      await assertActorCanGrantRoles({
+        em,
+        rbacService: ctx.container.resolve('rbacService') as RbacService,
+        actorUserId: auth.sub,
+        tenantId: targetTenantId,
+        organizationId: auth.orgId ?? null,
+        roles: roleEntities,
+      })
       scopedCtx.__apiKeyRoles = roleEntities
       scopedCtx.__apiKeyRoleIds = roleIds
 

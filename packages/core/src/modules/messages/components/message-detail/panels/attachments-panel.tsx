@@ -70,7 +70,7 @@ export function MessageDetailAttachmentsSection(props: AttachmentsPanelProps) {
               }
               className="h-11 w-11 shrink-0 overflow-hidden rounded"
               iconClassName="mb-0 h-4 w-4"
-              labelClassName="text-[10px]"
+              labelClassName="text-overline"
             />
             <div className="min-w-0 flex-1">
               <p className="truncate">{attachment.fileName}</p>

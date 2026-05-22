@@ -109,7 +109,7 @@ export async function createApiKey(
     expiresAt: input.expiresAt ?? null,
     createdAt: new Date(),
   })
-  await em.persistAndFlush(record)
+  await em.persist(record).flush()
   if (opts.rbac) {
     await opts.rbac.invalidateUserCache(`api_key:${record.id}`)
   }
@@ -124,7 +124,7 @@ export async function deleteApiKey(
   const record = await em.findOne(ApiKey, { id })
   if (!record) return
   record.deletedAt = new Date()
-  await em.persistAndFlush(record)
+  await em.persist(record).flush()
   getSharedApiKeyAuthCache().invalidateByKeyId(record.id)
   if (opts.rbac) {
     await opts.rbac.invalidateUserCache(`api_key:${record.id}`)
@@ -200,7 +200,7 @@ export async function createSessionApiKey(
     createdAt: new Date(),
   })
 
-  await em.persistAndFlush(record)
+  await em.persist(record).flush()
 
   return {
     keyId: record.id,
@@ -270,7 +270,7 @@ export async function deleteSessionApiKey(
   if (!record) return
 
   record.deletedAt = new Date()
-  await em.persistAndFlush(record)
+  await em.persist(record).flush()
   getSharedApiKeyAuthCache().invalidateByKeyId(record.id)
 }
 
@@ -311,7 +311,7 @@ export async function withOnetimeApiKey<T>(
   } finally {
     try {
       record.deletedAt = new Date()
-      await em.persistAndFlush(record)
+      await em.persist(record).flush()
       getSharedApiKeyAuthCache().invalidateByKeyId(record.id)
     } catch (error) {
       console.error('[withOnetimeApiKey] Failed to soft-delete one-time API key:', error)

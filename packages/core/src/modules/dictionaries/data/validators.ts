@@ -29,6 +29,7 @@ export const createDictionaryEntrySchema = z.object({
   label: z.string().trim().min(1).max(150).optional(),
   color: hexColorSchema.nullable().optional(),
   icon: iconSchema.nullable().optional(),
+  position: z.number().int().min(0).optional(),
 })
 
 export type CreateDictionaryEntryInput = z.infer<typeof createDictionaryEntrySchema>
@@ -38,6 +39,8 @@ const dictionaryEntryUpdateFieldsSchema = z.object({
   label: z.string().trim().min(1).max(150).optional(),
   color: hexColorSchema.nullable().optional(),
   icon: iconSchema.nullable().optional(),
+  position: z.number().int().min(0).optional(),
+  isDefault: z.boolean().optional(),
 })
 
 const validateDictionaryEntryUpdate = (payload: z.infer<typeof dictionaryEntryUpdateFieldsSchema>) =>
@@ -68,3 +71,34 @@ export const dictionaryEntryCommandUpdateSchema = z
   })
 
 export type DictionaryEntryCommandUpdateInput = z.infer<typeof dictionaryEntryCommandUpdateSchema>
+
+export const reorderDictionaryEntriesSchema = z.object({
+  entries: z.array(z.object({
+    id: z.string().uuid(),
+    position: z.number().int().min(0),
+  })).min(1),
+})
+
+export type ReorderDictionaryEntriesInput = z.infer<typeof reorderDictionaryEntriesSchema>
+
+export const reorderDictionaryEntriesCommandSchema = reorderDictionaryEntriesSchema.extend({
+  dictionaryId: z.string().uuid(),
+  tenantId: z.string().uuid(),
+  organizationId: z.string().uuid(),
+})
+
+export type ReorderDictionaryEntriesCommandInput = z.infer<typeof reorderDictionaryEntriesCommandSchema>
+
+export const setDefaultDictionaryEntrySchema = z.object({
+  entryId: z.string().uuid(),
+})
+
+export type SetDefaultDictionaryEntryInput = z.infer<typeof setDefaultDictionaryEntrySchema>
+
+export const setDefaultDictionaryEntryCommandSchema = setDefaultDictionaryEntrySchema.extend({
+  dictionaryId: z.string().uuid(),
+  tenantId: z.string().uuid(),
+  organizationId: z.string().uuid(),
+})
+
+export type SetDefaultDictionaryEntryCommandInput = z.infer<typeof setDefaultDictionaryEntryCommandSchema>

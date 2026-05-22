@@ -3,6 +3,7 @@
 import * as React from 'react'
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@open-mercato/ui/primitives/dialog'
 import { Input } from '@open-mercato/ui/primitives/input'
+import { CounterInput } from '@open-mercato/ui/primitives/counter-input'
 import { Textarea } from '@open-mercato/ui/primitives/textarea'
 import { Label } from '@open-mercato/ui/primitives/label'
 import { Button } from '@open-mercato/ui/primitives/button'
@@ -173,19 +174,21 @@ export function ReturnDialog({ open, orderId, lines, onClose, onSaved }: ReturnD
                           <Label className="sr-only" htmlFor={`return-qty-${line.id}`}>
                             {t('sales.returns.quantity', 'Quantity')}
                           </Label>
-                          <Input
+                          <CounterInput
                             id={`return-qty-${line.id}`}
-                            type="number"
-                            inputMode="numeric"
                             min={1}
                             max={line.available}
                             step={1}
                             placeholder="0"
-                            value={value}
-                            onChange={(e) => {
-                              const next = e.target.value.replace(/[^0-9]/g, '')
-                              setQuantities((prev) => ({ ...prev, [line.id]: next }))
+                            value={value === '' ? null : Number(value)}
+                            onChange={(next) => {
+                              setQuantities((prev) => ({
+                                ...prev,
+                                [line.id]: next === null ? '' : String(next),
+                              }))
                             }}
+                            decrementAriaLabel={t('sales.returns.qty.decrease', 'Decrease quantity')}
+                            incrementAriaLabel={t('sales.returns.qty.increase', 'Increase quantity')}
                           />
                         </div>
                       </div>

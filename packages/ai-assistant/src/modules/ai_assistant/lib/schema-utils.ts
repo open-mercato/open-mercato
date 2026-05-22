@@ -44,8 +44,13 @@ export function jsonSchemaToZod(jsonSchema: Record<string, unknown>): ZodType {
     const required = (jsonSchema.required as string[]) || []
     const additionalProperties = jsonSchema.additionalProperties
 
-    // Handle z.record() - objects with additionalProperties but no fixed properties
-    if (additionalProperties && (!properties || Object.keys(properties).length === 0)) {
+    // Handle z.record() - objects with additionalProperties but no fixed properties.
+    // Skip the record path when properties is present but empty — that is a
+    // no-arg object schema, not a dictionary. OpenAI requires `properties: {}`
+    // in the JSON Schema, and `z.object({})` produces that, whereas
+    // `z.record()` does not.
+    const hasFixedProperties = properties && Object.keys(properties).length > 0
+    if (additionalProperties && !hasFixedProperties && properties === undefined) {
       // This is a record/dictionary type - allow any properties
       if (typeof additionalProperties === 'object') {
         return z.record(z.string(), jsonSchemaToZod(additionalProperties as Record<string, unknown>))
@@ -126,6 +131,13 @@ export function toSafeZodSchema(schema: ZodType): ZodType {
   try {
     // Use Zod 4's toJSONSchema with unrepresentable: 'any' to handle Date types
     const jsonSchema = z.toJSONSchema(schema, { unrepresentable: 'any' }) as Record<string, unknown>
+
+    // OpenAI requires `properties` on object schemas. Empty passthrough objects
+    // (tools that take no args) roundtrip as `{ type: "object", additionalProperties: true }`
+    // without `properties`, which OpenAI rejects. Ensure `properties` is present.
+    if (jsonSchema.type === 'object' && !jsonSchema.properties) {
+      jsonSchema.properties = {}
+    }
 
     // Convert back to a simple Zod schema without Date types
     const safeSchema = jsonSchemaToZod(jsonSchema)

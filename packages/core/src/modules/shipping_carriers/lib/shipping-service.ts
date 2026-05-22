@@ -120,7 +120,7 @@ export function createShippingCarrierService(deps: {
         organizationId: input.organizationId,
         tenantId: input.tenantId,
       })
-      await em.persistAndFlush(shipment)
+      await em.persist(shipment).flush()
       await emitShippingEvent('shipping_carriers.shipment.created', {
         shipmentId: shipment.id,
         orderId: input.orderId,

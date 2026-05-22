@@ -200,7 +200,7 @@ function StripeEmbeddedPaymentRenderer(props: EmbeddedPaymentGatewayRendererProp
   }
 
   return (
-    <div className="space-y-3 rounded-[24px] border border-border/70 bg-white/80 p-4 shadow-sm backdrop-blur">
+    <div className="space-y-3 rounded-xl border border-border/70 bg-white/80 p-4 shadow-sm backdrop-blur">
       <div className="space-y-1">
         <p className="text-sm font-semibold">{t('gateway_stripe.payments.title', 'Secure Stripe payment')}</p>
         <p className="text-sm text-muted-foreground">
@@ -215,7 +215,7 @@ function StripeEmbeddedPaymentRenderer(props: EmbeddedPaymentGatewayRendererProp
         }}
       >
         <div className="space-y-4">
-          <div className="rounded-2xl border bg-background px-4 py-4 shadow-sm">
+          <div className="rounded-xl border bg-background px-4 py-4 shadow-sm">
             <PaymentElement options={paymentElementOptions} />
           </div>
           <StripeEmbeddedPaymentForm

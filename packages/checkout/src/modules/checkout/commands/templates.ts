@@ -119,7 +119,7 @@ const createTemplateCommand: CommandHandler<Record<string, unknown>, { id: strin
       customAmountMin: toMoneyString(parsed.customAmountMin),
       customAmountMax: toMoneyString(parsed.customAmountMax),
       passwordHash: await hashCheckoutPassword(parsed.password),
-    })
+    } as any)
     em.persist(template)
     await em.flush()
     await setCustomFieldsIfAny({

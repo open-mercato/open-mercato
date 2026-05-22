@@ -1,5 +1,7 @@
 # SPEC-041l — Integration Extensions
 
+> **Note (2026-04-15)**: Code snippets updated for MikroORM v7 — `em.find` now requires entity classes instead of string refs.
+
 | Field | Value |
 |-------|-------|
 | **Parent** | [SPEC-041 — UMES](./SPEC-041-2026-02-24-universal-module-extension-system.md) |
@@ -328,6 +330,8 @@ The `integrations` core module provides a generic enricher that reads from `Sync
 
 ```typescript
 // packages/core/src/modules/integrations/data/enrichers.ts
+// MikroORM v7: pass the entity class to em.find — string refs are no longer supported.
+import { SyncExternalIdMapping } from '@open-mercato/core/modules/integrations/data/entities'
 
 export const enrichers: ResponseEnricher[] = [
   {
@@ -340,7 +344,7 @@ export const enrichers: ResponseEnricher[] = [
     fallback: {},
 
     async enrichOne(record, ctx) {
-      const mappings = await ctx.em.find('SyncExternalIdMapping', {
+      const mappings = await ctx.em.find(SyncExternalIdMapping, {
         internalEntityType: ctx.targetEntity,
         internalEntityId: record.id,
         organizationId: ctx.organizationId,
@@ -363,7 +367,7 @@ export const enrichers: ResponseEnricher[] = [
 
     async enrichMany(records, ctx) {
       const recordIds = records.map(r => r.id)
-      const allMappings = await ctx.em.find('SyncExternalIdMapping', {
+      const allMappings = await ctx.em.find(SyncExternalIdMapping, {
         internalEntityType: ctx.targetEntity,
         internalEntityId: { $in: recordIds },
         organizationId: ctx.organizationId,

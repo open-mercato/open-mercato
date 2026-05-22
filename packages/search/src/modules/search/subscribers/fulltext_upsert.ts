@@ -37,9 +37,13 @@ export default async function handle(payload: Payload, ctx: HandlerContext) {
   // Resolve missing scope from DB if needed (same pattern as vector_upsert.ts)
   if ((organizationId == null || tenantId == null) && em) {
     try {
-      const knex = em.getConnection().getKnex()
+      const db = em.getKysely()
       const table = resolveEntityTableName(em, entityType)
-      const row = await knex(table).select(['organization_id', 'tenant_id']).where({ id: recordId }).first()
+      const row = await db
+        .selectFrom(table as any)
+        .select(['organization_id' as any, 'tenant_id' as any])
+        .where('id' as any, '=', recordId)
+        .executeTakeFirst() as { organization_id?: string | null; tenant_id?: string | null } | undefined
       if (organizationId == null) organizationId = row?.organization_id ?? organizationId
       if (tenantId == null) tenantId = row?.tenant_id ?? tenantId
     } catch {

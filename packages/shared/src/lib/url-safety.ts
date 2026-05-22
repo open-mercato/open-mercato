@@ -1,5 +1,6 @@
 import { lookup } from 'node:dns/promises'
 import { isIP } from 'node:net'
+import { Agent, type Dispatcher } from 'undici'
 import { isBlockedHostname, isPrivateIpAddress } from './network'
 
 export type UrlSafetyReason =
@@ -107,10 +108,35 @@ export async function assertSafeOutboundUrl(
   rawUrl: string,
   options: AssertSafeOutboundUrlOptions = {},
 ): Promise<void> {
+  await resolveSafeOutboundUrl(rawUrl, options)
+}
+
+export type ResolvedHostAddress = { address: string; family: number }
+
+export type ResolveSafeOutboundUrlResult = {
+  url: URL
+  hostname: string
+  /**
+   * The validated DNS records, in lookup order. `null` when the hostname is an IP literal
+   * (no DNS lookup performed) or when `allowPrivate` short-circuited validation.
+   */
+  addresses: ReadonlyArray<ResolvedHostAddress> | null
+}
+
+/**
+ * Validates an outbound URL exactly like `assertSafeOutboundUrl()` and additionally returns
+ * the resolved DNS records so the caller can pin the subsequent connection to the same
+ * address. This is what `safeOutboundFetch()` uses internally to defeat DNS rebinding —
+ * call it directly only if you need to drive the fetch yourself.
+ */
+export async function resolveSafeOutboundUrl(
+  rawUrl: string,
+  options: AssertSafeOutboundUrlOptions = {},
+): Promise<ResolveSafeOutboundUrlResult> {
   const subject = options.subject ?? 'URL'
   const factory = options.errorFactory ?? defaultErrorFactory
-  const { hostname } = parseOutboundUrl(rawUrl, options)
-  if (options.allowPrivate) return
+  const { url, hostname } = parseOutboundUrl(rawUrl, options)
+  if (options.allowPrivate) return { url, hostname, addresses: null }
 
   if (isBlockedHostname(hostname)) {
     throw factory('blocked_hostname', `${subject} host "${hostname}" is not allowed`)
@@ -123,7 +149,7 @@ export async function assertSafeOutboundUrl(
         `${subject} host "${hostname}" resolves to a private or reserved IP range`,
       )
     }
-    return
+    return { url, hostname, addresses: null }
   }
 
   const resolver: HostLookup =
@@ -133,7 +159,7 @@ export async function assertSafeOutboundUrl(
       return records
     })
 
-  let addresses: ReadonlyArray<{ address: string; family: number }>
+  let addresses: ReadonlyArray<ResolvedHostAddress>
   try {
     addresses = await resolver(hostname)
   } catch (error) {
@@ -159,5 +185,91 @@ export async function assertSafeOutboundUrl(
         `${subject} host "${hostname}" resolves to a private or reserved IP address (${record.address})`,
       )
     }
+  }
+
+  return { url, hostname, addresses }
+}
+
+export type SafeOutboundFetchOptions = AssertSafeOutboundUrlOptions & {
+  /**
+   * Test/seam injection. When provided, `safeOutboundFetch` calls `fetchImpl(url, init)` after
+   * URL validation instead of using the global `fetch` with a DNS-pinned dispatcher. Tests do
+   * not actually open sockets, so DNS pinning is unnecessary and would just complicate mocking.
+   */
+  fetchImpl?: typeof fetch
+}
+
+/**
+ * Validates an outbound URL and performs `fetch()` with the connection pinned to a
+ * pre-validated IP address, so DNS cannot be re-resolved between validation and connect
+ * (DNS rebinding). Always defaults to `redirect: 'manual'` — callers MUST decide what to
+ * do with 3xx responses (re-validate the redirect target before following).
+ *
+ * For IP literal hosts and `allowPrivate=true`, no DNS pinning is performed because there
+ * is no DNS lookup to defeat.
+ */
+export async function safeOutboundFetch(
+  rawUrl: string,
+  init: RequestInit = {},
+  options: SafeOutboundFetchOptions = {},
+): Promise<Response> {
+  const { url, hostname, addresses } = await resolveSafeOutboundUrl(rawUrl, options)
+  void url
+
+  const mergedInit: RequestInit = {
+    redirect: 'manual',
+    ...init,
+  }
+
+  const fetchImpl = options.fetchImpl
+  if (fetchImpl) {
+    return fetchImpl(rawUrl, mergedInit)
+  }
+
+  if (!addresses || addresses.length === 0) {
+    return globalThis.fetch(rawUrl, mergedInit)
+  }
+
+  const dispatcher: Dispatcher = new Agent({
+    connect: {
+      lookup: createPinnedDnsLookup(hostname, addresses[0]),
+    },
+  })
+
+  try {
+    return await globalThis.fetch(rawUrl, { ...mergedInit, dispatcher } as RequestInit & {
+      dispatcher: Dispatcher
+    })
+  } finally {
+    dispatcher.close().catch(() => {})
+  }
+}
+
+export type PinnedDnsLookup = (
+  host: string,
+  opts: unknown,
+  cb: (err: NodeJS.ErrnoException | null, address: string, family: number) => void,
+) => void
+
+/**
+ * Builds a `dns.lookup`-shaped callback that always returns the supplied pre-validated
+ * address for the expected hostname, and refuses to resolve any other hostname. Used as
+ * `Agent.connect.lookup` to bind an outbound TCP connect to an IP that has already been
+ * validated, so attacker-controlled DNS cannot rebind between validation and connect.
+ */
+export function createPinnedDnsLookup(
+  expectedHostname: string,
+  pinned: ResolvedHostAddress,
+): PinnedDnsLookup {
+  return (host, _opts, cb) => {
+    if (host !== expectedHostname) {
+      const err: NodeJS.ErrnoException = new Error(
+        `Refusing DNS lookup for unexpected host "${host}" (expected "${expectedHostname}")`,
+      )
+      err.code = 'EREFUSED'
+      cb(err, '', 0)
+      return
+    }
+    cb(null, pinned.address, pinned.family)
   }
 }

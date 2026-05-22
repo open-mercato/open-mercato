@@ -92,7 +92,7 @@ export class ScimService {
         createdAt: now,
         updatedAt: now,
       } as RequiredEntityData<SsoIdentity>)
-      await this.em.persistAndFlush(identity)
+      await this.em.persist(identity).flush()
 
       const deactivation = parsed.active === false
         ? await this.createDeactivation(existingUser.id, scope)
@@ -117,7 +117,7 @@ export class ScimService {
         isConfirmed: true,
         createdAt: new Date(),
       })
-      await txEm.persistAndFlush(user)
+      await txEm.persist(user).flush()
 
       const now = new Date()
       const identity = txEm.create(SsoIdentity, {
@@ -134,7 +134,7 @@ export class ScimService {
         createdAt: now,
         updatedAt: now,
       } as RequiredEntityData<SsoIdentity>)
-      await txEm.persistAndFlush(identity)
+      await txEm.persist(identity).flush()
 
       const deactivation = parsed.active === false
         ? await this.createDeactivationTx(txEm, user.id, scope)
@@ -384,7 +384,7 @@ export class ScimService {
       ssoConfigId: scope.ssoConfigId,
       deactivatedAt: new Date(),
     } as RequiredEntityData<SsoUserDeactivation>)
-    await this.em.persistAndFlush(deactivation)
+    await this.em.persist(deactivation).flush()
     return deactivation
   }
 
@@ -396,7 +396,7 @@ export class ScimService {
       ssoConfigId: scope.ssoConfigId,
       deactivatedAt: new Date(),
     } as RequiredEntityData<SsoUserDeactivation>)
-    await txEm.persistAndFlush(deactivation)
+    await txEm.persist(deactivation).flush()
     return deactivation
   }
 
@@ -419,7 +419,7 @@ export class ScimService {
       responseStatus,
       errorMessage: errorMessage ?? null,
     } as RequiredEntityData<ScimProvisioningLog>)
-    await this.em.persistAndFlush(entry)
+    await this.em.persist(entry).flush()
   }
 
   private async logTx(
@@ -440,7 +440,7 @@ export class ScimService {
       scimExternalId: externalId ?? null,
       responseStatus,
     } as RequiredEntityData<ScimProvisioningLog>)
-    await txEm.persistAndFlush(entry)
+    await txEm.persist(entry).flush()
   }
 }
 

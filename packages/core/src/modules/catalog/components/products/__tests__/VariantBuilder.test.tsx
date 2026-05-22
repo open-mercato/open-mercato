@@ -3,6 +3,13 @@
  */
 import * as React from 'react'
 import { render, screen, fireEvent } from '@testing-library/react'
+
+// Radix Select uses pointer capture / scrollIntoView APIs that jsdom doesn't implement.
+if (typeof window !== 'undefined') {
+  if (!Element.prototype.hasPointerCapture) Element.prototype.hasPointerCapture = () => false
+  if (!Element.prototype.releasePointerCapture) Element.prototype.releasePointerCapture = () => undefined
+  if (!Element.prototype.scrollIntoView) Element.prototype.scrollIntoView = () => undefined
+}
 import {
   VariantBuilder,
   VariantBasicsSection,
@@ -206,8 +213,13 @@ describe('VariantOptionValuesSection', () => {
         optionDefinitions={createOptionDefinitions()}
       />,
     )
-    const selects = document.querySelectorAll('select')
-    fireEvent.change(selects[0], { target: { value: 'Red' } })
+    // Radix Select: click trigger, then click option from portal
+    const triggers = document.querySelectorAll('[role="combobox"]')
+    fireEvent.pointerDown(triggers[0]!, { button: 0 })
+    fireEvent.click(triggers[0]!)
+    const option = screen.getByRole('option', { name: 'Red' })
+    fireEvent.pointerDown(option)
+    fireEvent.click(option)
     expect(setValue).toHaveBeenCalledWith('optionValues', { color: 'Red' })
   })
 })
@@ -277,8 +289,9 @@ describe('VariantPricesSection', () => {
         taxRates={createTaxRates()}
       />,
     )
-    const selects = document.querySelectorAll('select')
-    expect(selects.length).toBeGreaterThanOrEqual(1)
+    // Radix Select renders triggers as <button role="combobox">
+    const triggers = document.querySelectorAll('[role="combobox"]')
+    expect(triggers.length).toBeGreaterThanOrEqual(1)
     expect(screen.getByText('No tax override')).toBeInTheDocument()
   })
 

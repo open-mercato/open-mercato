@@ -211,7 +211,7 @@ export async function POST(req: Request) {
   const rule = em.create(BusinessRule, data)
 
   try {
-    await em.persistAndFlush(rule)
+    await em.persist(rule).flush()
   } catch (error) {
     console.error('[business_rules.rules] Failed to persist new rule:', error)
     return NextResponse.json(
@@ -273,7 +273,7 @@ export async function PUT(req: Request) {
   em.assign(rule, parsed.data)
 
   try {
-    await em.persistAndFlush(rule)
+    await em.persist(rule).flush()
   } catch (error) {
     console.error('[business_rules.rules] Failed to persist rule update:', error)
     return NextResponse.json(
@@ -313,7 +313,7 @@ export async function DELETE(req: Request) {
   }
 
   rule.deletedAt = new Date()
-  await em.persistAndFlush(rule)
+  await em.persist(rule).flush()
 
   return NextResponse.json({ ok: true })
 }

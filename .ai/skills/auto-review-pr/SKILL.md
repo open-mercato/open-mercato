@@ -1,6 +1,6 @@
 ---
 name: auto-review-pr
-description: Review or re-review a GitHub pull request by number in an isolated git worktree. Fetch the specific PR from GitHub, run the full code-review skill, submit approve or request-changes, manage labels, and if blockers remain offer an optional autofix and fix-forward flow that iterates through conflict resolution, code fixes, unit tests, typecheck, and re-review until the PR is merge-ready or a real blocker remains. Usage - /auto-review-pr <PR-number>
+description: Review or re-review a GitHub PR by number in an isolated worktree. Runs the `code-review` skill, submits approve/request-changes, manages labels. Optional autofix iterates conflict resolution/fixes/tests/typecheck/re-review until merge-ready. Usage - /auto-review-pr <PR-number>
 ---
 
 # Auto Review PR
@@ -280,8 +280,8 @@ Record findings from the patterns below. These are mandatory findings, not optio
 | Hardcoded user-facing string in API errors or UI labels | Medium: must use i18n |
 | New `any` type annotation outside tests | Medium: use zod plus `z.infer` |
 | `alert(` or custom toast instead of `flash()` | Medium: use `flash()` |
-| Hand-written migration SQL file | Medium: never hand-write migrations |
-| Entity schema changed but no migration file in the diff | Medium: run `yarn db:generate` |
+| Hand-written migration SQL file without snapshot update or scope rationale | Medium: prefer generated migrations; manual SQL must be scoped and update `.snapshot-open-mercato.json` |
+| Entity schema changed but no migration file or no-op rationale in the diff | Medium: create a scoped migration and update the snapshot |
 | Missing explicit tenant scoping in sub-entity queries | Medium: defense in depth |
 | New or modified i18n locale JSON keys not in alphabetical order | Medium: CI i18n-check-sync requires sorted keys — run `yarn i18n:check-sync --fix` or sort manually |
 
@@ -364,6 +364,28 @@ Suggested label comments:
 - `merge-queue`: `Label set to \`merge-queue\` because the required review gates passed.`
 - `blocked`: `Label set to \`blocked\` because progress depends on an external blocker.`
 - `do-not-merge`: `Label set to \`do-not-merge\` because this PR should not merge yet.`
+
+#### Author handoff on `changes-requested`
+
+When the verdict is `changes-requested`, reassign the PR back to the original PR author after the review and pipeline label are posted, unless the author is the current reviewer, a bot account, or otherwise unavailable.
+
+Suggested flow:
+
+```bash
+PR_AUTHOR=$(gh pr view {prNumber} --json author --jq '.author.login')
+
+if [ -n "$PR_AUTHOR" ] && [ "$PR_AUTHOR" != "$CURRENT_USER" ]; then
+  gh pr edit {prNumber} --remove-assignee "$CURRENT_USER"
+  gh pr edit {prNumber} --add-assignee "$PR_AUTHOR"
+  gh pr comment {prNumber} --body "Thanks @${PR_AUTHOR} — review found actionable items, so I’m handing this PR back to you for the next pass. When the updates are pushed, re-request review and the automation can pick it up from the latest head."
+fi
+```
+
+Rules:
+
+- Do this for every `changes-requested` outcome, including early exits for conflicts, failing required checks, or duplicate/already-merged work.
+- If the author cannot be assigned (bot/deleted account/permission issue), keep the current assignee and leave the same handoff comment without the reassignment claim.
+- The handoff comment is separate from the short pipeline-label comment; keep both.
 
 ### 9. Autonomous autofix flow
 
@@ -455,6 +477,7 @@ Replacement PR requirements:
 - Credit the original PR author explicitly
 - State that the new PR carries forward the original work plus the requested fixes
 - Mention that the branch was re-reviewed after autofix and is intended to be merge-ready
+- Reassign the replacement PR to the original PR author when possible, and leave a handoff comment inviting them to do the next recheck from the carried-forward branch
 
 Suggested replacement PR body:
 
@@ -466,6 +489,12 @@ Credit: original implementation by @{originalAuthor}. This follow-up PR carries 
 ## Included work
 - Original changes from #{prNumber}
 - Follow-up fixes applied during re-review
+```
+
+Suggested replacement PR handoff comment:
+
+```markdown
+Thanks @{originalAuthor} — this replacement PR carries your original work forward with the requested fixes applied. Reassigning it to you so you can do the next recheck from the merge-ready branch.
 ```
 
 Suggested original PR closing comment:
@@ -488,7 +517,8 @@ gh pr comment {prNumber} --body "🤖 \`auto-review-pr\` completed: ${VERDICT}. 
 
 Rules:
 
-- Keep the assignee — it shows the human who is responsible for next steps
+- For `changes-requested` outcomes, the assignee should already be handed back to the original PR author before the lock is released
+- For approved outcomes, keep the current assignee unless a later handoff explicitly changed it
 - Remove the `in-progress` label
 - Post a completion comment with the verdict (`APPROVED` or `CHANGES REQUESTED`) and a short summary
 - If autofix mode ran, mention how many fix iterations completed
@@ -532,6 +562,7 @@ If a critical blocker remains that requires human judgment, the summary must des
 - The review body must contain the full structured report
 - Always add the chosen pipeline label and remove every other pipeline label
 - Always add a short PR comment explaining why the chosen pipeline label was applied
+- Always hand `changes-requested` PRs back to the original author with an explicit reassignment/comment handoff when possible
 - Approved PRs with `needs-qa` and without `skip-qa` must land in `qa`, not `merge-queue`
 - Approved PRs without a QA requirement must land in `merge-queue`
 - When a review starts on an unlabeled PR, apply `review` before continuing

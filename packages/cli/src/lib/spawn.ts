@@ -2,16 +2,27 @@ export function isWindowsCmdScript(command: string, platform = process.platform)
   return platform === 'win32' && /\.(cmd|bat)$/i.test(String(command))
 }
 
-function quoteWindowsShellArgument(value: string): string {
-  if (value.length === 0) {
-    return '""'
+const PROCESS_VALUE_UNSAFE_CHAR_PATTERN = /[\u0000-\u001f\u007f]/
+const WINDOWS_CMD_UNSAFE_CHAR_PATTERN = /[\u0000-\u001f\u007f%!]/
+
+function assertProcessSafeValue(value: string, label: string): string {
+  const stringValue = String(value)
+
+  if (PROCESS_VALUE_UNSAFE_CHAR_PATTERN.test(stringValue)) {
+    throw new Error(`${label} contains unsupported control characters.`)
   }
 
-  if (!/[\s"&()<>^|]/.test(value)) {
-    return value
+  return stringValue
+}
+
+function assertWindowsCmdSafeValue(value: string, label: string): string {
+  const stringValue = assertProcessSafeValue(value, label)
+
+  if (WINDOWS_CMD_UNSAFE_CHAR_PATTERN.test(stringValue)) {
+    throw new Error(`${label} contains unsupported characters for Windows command execution.`)
   }
 
-  return `"${value.replace(/"/g, '""')}"`
+  return stringValue
 }
 
 export function resolveSpawnCommand(
@@ -21,21 +32,25 @@ export function resolveSpawnCommand(
 ): {
   command: string
   args: string[]
-  spawnOptions: { shell?: boolean }
+  spawnOptions: { shell?: boolean; windowsVerbatimArguments?: boolean }
 } {
   const platform = options.platform ?? process.platform
+  const safeCommand = assertProcessSafeValue(command, 'Process command')
+  const safeArgs = commandArgs.map((arg, index) => assertProcessSafeValue(arg, `Process argument #${index + 1}`))
 
-  if (!isWindowsCmdScript(command, platform)) {
+  if (!isWindowsCmdScript(safeCommand, platform)) {
     return {
-      command,
-      args: commandArgs,
+      command: safeCommand,
+      args: safeArgs,
       spawnOptions: {},
     }
   }
 
   return {
-    command: [quoteWindowsShellArgument(command), ...commandArgs.map((arg) => quoteWindowsShellArgument(String(arg)))].join(' '),
-    args: [],
-    spawnOptions: { shell: true },
+    command: assertWindowsCmdSafeValue(safeCommand, 'Windows command path'),
+    args: safeArgs.map((arg, index) =>
+      assertWindowsCmdSafeValue(arg, `Windows command argument #${index + 1}`),
+    ),
+    spawnOptions: {},
   }
 }

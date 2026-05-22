@@ -51,13 +51,14 @@ Dockerfile
 docker-compose*.yml
 
 # Test files and testing utilities (not used in production builds)
+# Keep runtime helper sources under src/**/testing/ in the context.
+# The file-level patterns and __tests__/ exclusion below are sufficient for actual test code.
 **/*.test.ts
 **/*.test.tsx
 **/*.spec.ts
 **/*.spec.tsx
 **/__tests__
 **/tests
-**/testing/
 
 # CI-only scripts (not used during Docker builds)
 scripts/merge-coverage.mjs

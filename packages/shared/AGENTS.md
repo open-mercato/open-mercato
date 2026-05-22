@@ -18,6 +18,7 @@ Use `@open-mercato/shared` for cross-cutting utilities, types, DSL helpers, and 
 | `auth/` | When you need wildcard-aware feature matching or shared auth helpers | `@open-mercato/shared/lib/auth/featureMatch` |
 | `boolean/` | When parsing boolean strings from env/query params | `@open-mercato/shared/lib/boolean` |
 | `commands/` | When implementing undo/redo command pattern | `@open-mercato/shared/lib/commands` |
+| `commands/flush` | When a command mutates entities across multiple phases (scalar + relation syncs) — wraps phases in a single atomic flush | `@open-mercato/shared/lib/commands/flush` — `withAtomicFlush(em, phases, { transaction? })` |
 | `crud/` | When building CRUD routes | `@open-mercato/shared/lib/crud` |
 | `custom-fields/` | When handling custom field payloads | `@open-mercato/shared/lib/custom-fields` |
 | `data/` | When you need `DataEngine` or `QueryEngine` types | `@open-mercato/shared/lib/data/engine` |
@@ -42,6 +43,7 @@ When you need shared type definitions, import from these:
 | Search config types (`SearchModuleConfig`) | `@open-mercato/shared/modules/search` |
 | Module setup types (`ModuleSetupConfig`) | `@open-mercato/shared/modules/setup` |
 | Module registry types (`Module`) | `@open-mercato/shared/modules/registry` |
+| Module-level overrides (`ModuleOverrides`, dispatcher, per-domain compose helpers) | `@open-mercato/shared/modules/overrides` |
 
 ## Key Patterns
 
@@ -92,6 +94,29 @@ import { hasFeature, hasAllFeatures } from '@open-mercato/shared/security/featur
 
 - Use `parseIdsParam()` and `mergeIdFilter()` from `@open-mercato/shared/lib/crud/ids` for factory-level `ids` query support.
 - Keep `ids` format as comma-separated UUIDs (`?ids=uuid1,uuid2`) and intersect with existing `id` filters.
+
+### Module-Level Overrides (`@open-mercato/shared/modules/overrides`)
+
+Downstream apps replace or disable any contract a module presents through a single `entry.overrides` field on a `ModuleEntry`. The umbrella spec is `.ai/specs/2026-05-04-modules-ts-unified-overrides.md`; phases 1-18 are wired.
+
+| Use case | Helper |
+|----------|--------|
+| Walk `enabledModules` and dispatch every `overrides.<domain>` shape to wired appliers | `applyModuleOverridesFromEnabledModules(enabledModules)` |
+| Register a per-domain runtime hook (used by each wired phase) | `registerModuleOverrideApplier('<domain>', applier)` |
+| API routes | `applyApiRouteOverrides()`, `composeApiRouteOverrides()`, `applyApiOverridesToManifests()` |
+| Page routes | `applyPageRouteOverrides()`, `composePageRouteOverrides()`, `applyPageOverridesToManifests()` |
+| Subscribers / workers / CLI / ACL / encryption / setup | `applyModuleOverridesToModules()` plus `applySubscriberOverrides()`, `applyWorkerOverrides()`, `applyCliOverrides()`, `applyAclFeatureOverrides()`, `applyEncryptionMapOverrides()` |
+| Widgets | `applyInjectionWidgetOverridesToEntries()`, `applyInjectionWidgetOverridesToTables()`, `applyDashboardWidgetOverridesToEntries()`, `applyComponentOverridesToEntries()` |
+| Notifications / interceptors / enrichers / guards | `applyNotificationTypeOverridesToEntries()`, `applyNotificationHandlerOverridesToEntries()`, `applyApiInterceptorOverridesToEntries()`, `applyCommandInterceptorOverridesToEntries()`, `applyResponseEnricherOverridesToEntries()`, `applyPageGuardOverridesToEntries()` |
+| DI | `applyDiOverridesToContainer()` |
+
+MUST rules:
+- `entry.overrides` is the ONLY canonical override surface — never patch upstream module source.
+- API-route override keys are `'METHOD /api/path'` (method case-insensitive, path leading slash optional). Trailing slashes are stripped.
+- Page-route override keys are `'/backend/path'` or `'/frontend/path'`.
+- `null` disables the matching method; `{ handler, metadata? }` replaces it. Disabling every method on an entry drops the entry.
+- The dispatcher SHOULD run from `bootstrap.ts` BEFORE any registry first-loads (`registerApiRouteManifests`, widget registries, notification registries, etc.) so the overrides take effect when the registry stores entries.
+- Adding a new override domain MUST follow the umbrella spec: typed sub-shape + composer + runtime hook + tests + AGENTS.md/docs update + status-table tick.
 
 ### Query Engine Extensibility (UMES)
 

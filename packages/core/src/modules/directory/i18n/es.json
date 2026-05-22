@@ -27,6 +27,8 @@
   "directory.organizations.form.field.isActive": "Activo",
   "directory.organizations.form.field.name": "Nombre",
   "directory.organizations.form.field.parent": "Padre",
+  "directory.organizations.form.field.slug": "Slug",
+  "directory.organizations.form.field.slug.description": "Identificador seguro para URL usado en el portal de clientes (minúsculas, números, guiones, guiones bajos).",
   "directory.organizations.form.field.tenant": "Inquilino",
   "directory.organizations.form.group.customFields": "Datos personalizados",
   "directory.organizations.form.group.details": "Detalles",

@@ -2,7 +2,7 @@
 
 import * as React from 'react'
 import { Clock } from 'lucide-react'
-import { Button } from '../../primitives/button'
+import { IconButton } from '../../primitives/icon-button'
 import { cn } from '@open-mercato/shared/lib/utils'
 import type { TranslateFn } from '@open-mercato/shared/lib/i18n/context'
 import type { VersionHistoryConfig } from './types'
@@ -48,17 +48,17 @@ export function VersionHistoryAction({
 
   return (
     <>
-      <Button
+      <IconButton
         type="button"
         variant="ghost"
-        size="icon"
+        size="default"
         onClick={() => setOpen(true)}
         aria-label={t('audit_logs.version_history.title')}
         title={t('audit_logs.version_history.title')}
         className={buttonClassName}
       >
         <Clock className={cn('size-4', iconClassName)} />
-      </Button>
+      </IconButton>
       <VersionHistoryPanel
         open={open}
         onOpenChange={setOpen}

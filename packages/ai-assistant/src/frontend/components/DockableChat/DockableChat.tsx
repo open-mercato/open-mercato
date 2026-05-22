@@ -244,7 +244,7 @@ export function DockableChat() {
       <>
         <div
           className={cn(
-            'fixed z-50',
+            'fixed z-modal',
             'rounded-xl border bg-background shadow-2xl',
             'flex flex-col',
             'transition-all duration-200 ease-out'
@@ -315,7 +315,7 @@ export function DockableChat() {
                     placeholder={t('ai_assistant.chat.describePlaceholder')}
                     className={cn(
                       'flex-1 bg-muted rounded-lg px-4 py-2 text-sm outline-none',
-                      'focus:ring-2 focus:ring-ring',
+                      'focus-visible:ring-2 focus-visible:ring-ring',
                       'disabled:opacity-50'
                     )}
                     disabled={isStreaming}
@@ -350,7 +350,7 @@ export function DockableChat() {
         {showDebug && (
           <div
             data-debug-panel
-            className="fixed z-[9999] bg-gray-900 rounded-xl border border-gray-700 shadow-2xl flex flex-col overflow-hidden"
+            className="fixed z-top bg-gray-900 rounded-xl border border-gray-700 shadow-2xl flex flex-col overflow-hidden"
             style={{
               top: '24px',
               left: '24px',
@@ -474,7 +474,7 @@ export function DockableChat() {
                     placeholder={t('ai_assistant.chat.describePlaceholder')}
                     className={cn(
                       'flex-1 bg-muted rounded-lg px-4 py-2 text-sm outline-none',
-                      'focus:ring-2 focus:ring-ring',
+                      'focus-visible:ring-2 focus-visible:ring-ring',
                       'disabled:opacity-50'
                     )}
                     disabled={isStreaming}

@@ -5,7 +5,11 @@ import { WebhookDeliveryEntity, WebhookEntity } from '../data/entities'
 import { emitWebhooksEvent } from '../events'
 import { enqueueWebhookDelivery } from './queue'
 import { isWebhookIntegrationEnabled, WEBHOOK_INTEGRATION_DISABLED_MESSAGE } from './integration-state'
-import { assertSafeWebhookDeliveryUrl, UnsafeWebhookUrlError } from './url-safety'
+import {
+  assertSafeWebhookDeliveryUrl,
+  safeWebhookFetch,
+  UnsafeWebhookUrlError,
+} from './url-safety'
 
 export interface WebhookDeliveryJob {
   deliveryId: string
@@ -123,28 +127,12 @@ export async function processWebhookDeliveryJob(
   try {
     await assertSafeWebhookDeliveryUrl(webhook.url)
   } catch (error) {
-    const message = error instanceof UnsafeWebhookUrlError
-      ? error.message
-      : 'Webhook URL rejected by safety check'
-    delivery.status = 'failed'
-    delivery.errorMessage = message
-    delivery.nextRetryAt = null
-    delivery.lastAttemptAt = new Date()
-    delivery.attemptNumber += 1
-    webhook.consecutiveFailures += 1
-    webhook.lastFailureAt = new Date()
-    await em.flush()
-    await emitWebhooksEvent('webhooks.delivery.failed', {
-      deliveryId: delivery.id,
-      webhookId: webhook.id,
-      eventType: delivery.eventType,
-      errorMessage: message,
-      durationMs: 0,
-      organizationId: delivery.organizationId,
-      tenantId: delivery.tenantId,
-      willRetry: false,
+    return await recordWebhookSafetyFailure({
+      em,
+      delivery,
+      webhook,
+      error,
     })
-    return { status: delivery.status, deliveryId: delivery.id }
   }
 
   const bodyPayload = normalizeWebhookBody(delivery.eventType, delivery.payload)
@@ -170,19 +158,22 @@ export async function processWebhookDeliveryJob(
     const controller = new AbortController()
     const timeoutId = setTimeout(() => controller.abort(), webhook.timeoutMs)
 
-    const response = await fetch(webhook.url, {
-      method: webhook.httpMethod,
-      redirect: 'manual',
-      headers: {
-        'content-type': 'application/json',
-        ...headers,
-        ...(webhook.customHeaders ?? {}),
-      },
-      body,
-      signal: controller.signal,
-    })
-
-    clearTimeout(timeoutId)
+    let response: Response
+    try {
+      response = await safeWebhookFetch(webhook.url, {
+        method: webhook.httpMethod,
+        redirect: 'manual',
+        headers: {
+          'content-type': 'application/json',
+          ...headers,
+          ...(webhook.customHeaders ?? {}),
+        },
+        body,
+        signal: controller.signal,
+      })
+    } finally {
+      clearTimeout(timeoutId)
+    }
 
     delivery.attemptNumber += 1
     delivery.responseStatus = response.status
@@ -234,6 +225,20 @@ export async function processWebhookDeliveryJob(
 
     return { status: delivery.status, deliveryId: delivery.id }
   } catch (error) {
+    if (error instanceof UnsafeWebhookUrlError) {
+      // DNS rebinding caught between the upfront safety check and the pinned connect:
+      // the same attacker-controlled DNS would defeat retries too, so fail terminally.
+      const durationMs = Date.now() - delivery.enqueuedAt.getTime()
+      delivery.durationMs = durationMs
+      return await recordWebhookSafetyFailure({
+        em,
+        delivery,
+        webhook,
+        error,
+        durationMs,
+      })
+    }
+
     delivery.attemptNumber += 1
     delivery.durationMs = Date.now() - delivery.enqueuedAt.getTime()
     delivery.lastAttemptAt = new Date()
@@ -264,6 +269,45 @@ export async function processWebhookDeliveryJob(
 
     return { status: delivery.status, deliveryId: delivery.id }
   }
+}
+
+type RecordWebhookSafetyFailureInput = {
+  em: EntityManager
+  delivery: WebhookDeliveryEntity
+  webhook: WebhookEntity
+  error: unknown
+  durationMs?: number | null
+}
+
+async function recordWebhookSafetyFailure(
+  input: RecordWebhookSafetyFailureInput,
+): Promise<{ status: string; deliveryId: string }> {
+  const { em, delivery, webhook, error } = input
+  const message = error instanceof UnsafeWebhookUrlError
+    ? error.message
+    : 'Webhook URL rejected by safety check'
+
+  delivery.status = 'failed'
+  delivery.errorMessage = message
+  delivery.nextRetryAt = null
+  delivery.lastAttemptAt = new Date()
+  delivery.attemptNumber += 1
+  webhook.consecutiveFailures += 1
+  webhook.lastFailureAt = new Date()
+  await em.flush()
+
+  await emitWebhooksEvent('webhooks.delivery.failed', {
+    deliveryId: delivery.id,
+    webhookId: webhook.id,
+    eventType: delivery.eventType,
+    errorMessage: message,
+    durationMs: input.durationMs ?? 0,
+    organizationId: delivery.organizationId,
+    tenantId: delivery.tenantId,
+    willRetry: false,
+  })
+
+  return { status: delivery.status, deliveryId: delivery.id }
 }
 
 type HandleFailedDeliveryInput = {

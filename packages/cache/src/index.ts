@@ -1,5 +1,6 @@
 export * from './types'
 export * from './service'
+export * from './defaults'
 export { createMemoryStrategy } from './strategies/memory'
 export { createRedisStrategy } from './strategies/redis'
 export { createSqliteStrategy } from './strategies/sqlite'

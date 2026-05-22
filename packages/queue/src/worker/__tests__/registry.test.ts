@@ -1,5 +1,9 @@
 import type { WorkerDescriptor } from '../../types'
 import {
+  applyWorkerOverrides,
+  resetModuleContractOverridesForTests,
+} from '@open-mercato/shared/modules/overrides'
+import {
   registerWorker,
   registerModuleWorkers,
   getWorkers,
@@ -12,10 +16,12 @@ import {
 describe('Worker Registry', () => {
   beforeEach(() => {
     clearWorkers()
+    resetModuleContractOverridesForTests()
   })
 
   afterEach(() => {
     clearWorkers()
+    resetModuleContractOverridesForTests()
   })
 
   describe('registerWorker', () => {
@@ -80,6 +86,27 @@ describe('Worker Registry', () => {
     it('should handle empty array', () => {
       registerModuleWorkers([])
       expect(getWorkers().length).toBe(0)
+    })
+
+    it('applies unified worker overrides before registration', () => {
+      const replacement: WorkerDescriptor = {
+        id: 'module:worker1',
+        queue: 'override-queue',
+        concurrency: 8,
+        handler: async () => {},
+      }
+
+      applyWorkerOverrides({
+        'module:worker1': replacement,
+        'module:worker2': null,
+      })
+
+      registerModuleWorkers([
+        { id: 'module:worker1', queue: 'queue-a', concurrency: 1, handler: async () => {} },
+        { id: 'module:worker2', queue: 'queue-b', concurrency: 2, handler: async () => {} },
+      ])
+
+      expect(getWorkers()).toEqual([replacement])
     })
   })
 

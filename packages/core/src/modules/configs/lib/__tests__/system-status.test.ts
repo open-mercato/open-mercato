@@ -8,6 +8,14 @@ function findItemValue(snapshot: ReturnType<typeof buildSystemStatusSnapshot>, k
   return null
 }
 
+function findItem(snapshot: ReturnType<typeof buildSystemStatusSnapshot>, key: string) {
+  for (const category of snapshot.categories) {
+    const item = category.items.find((entry) => entry.key === key)
+    if (item) return item
+  }
+  return null
+}
+
 describe('buildSystemStatusSnapshot', () => {
   it('masks credentials for DATABASE_URL', () => {
     const snapshot = buildSystemStatusSnapshot({
@@ -51,5 +59,11 @@ describe('buildSystemStatusSnapshot', () => {
       expect(value).not.toContain('app_user')
       expect(value).not.toContain('secret')
     }
+  })
+
+  it('surfaces the sqlite cache default under .mercato', () => {
+    const snapshot = buildSystemStatusSnapshot({})
+
+    expect(findItem(snapshot, 'CACHE_SQLITE_PATH')?.defaultValue).toBe('./.mercato/cache/cache.db')
   })
 })

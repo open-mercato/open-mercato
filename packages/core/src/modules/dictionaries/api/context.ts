@@ -19,6 +19,15 @@ export type DictionariesRouteContext = {
   translate: (key: string, fallback?: string) => string
 }
 
+export function resolveDictionaryActorId(
+  auth: Awaited<ReturnType<typeof getAuthFromRequest>>,
+): string {
+  if (auth && typeof auth.sub === 'string' && auth.sub.trim().length > 0) return auth.sub
+  if (auth && typeof auth.userId === 'string' && auth.userId.trim().length > 0) return auth.userId
+  if (auth && typeof auth.keyId === 'string' && auth.keyId.trim().length > 0) return auth.keyId
+  return 'system'
+}
+
 export async function resolveDictionariesRouteContext(req: Request): Promise<DictionariesRouteContext> {
   const container = await createRequestContainer()
   const auth = await getAuthFromRequest(req)

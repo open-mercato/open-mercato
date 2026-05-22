@@ -124,12 +124,19 @@ export function normalizeCrudServerError(err: unknown): NormalizedCrudServerErro
 
     if (typeof current !== 'object') continue
 
+    const errorField = (current as any).error
+    const nestedErrorMessage =
+      errorField && typeof errorField === 'object' &&
+      typeof (errorField as any).message === 'string' &&
+      (errorField as any).message.trim()
+        ? ((errorField as any).message as string)
+        : undefined
     const candidateMessage =
-      typeof (current as any).error === 'string'
-        ? (current as any).error
+      typeof errorField === 'string'
+        ? errorField
         : typeof (current as any).message === 'string'
           ? (current as any).message
-          : undefined
+          : nestedErrorMessage
     if (candidateMessage && !message) message = candidateMessage
 
     for (const key of JSON_FIELD_KEYS) {
@@ -266,12 +273,12 @@ export async function raiseCrudError(res: Response, fallbackMessage?: string): P
 
   if (parsed && typeof parsed === 'object') {
     const data = parsed as Record<string, unknown>
+    const normalized = normalizeCrudServerError(data)
+    const normalizedMessage = normalized.message?.trim()
     const rawMessage =
-      typeof data.error === 'string' && data.error.trim()
-        ? data.error.trim()
-        : typeof data.message === 'string' && data.message.trim()
-          ? data.message.trim()
-          : fallbackMessage ?? `Request failed (${res.status})`
+      normalizedMessage && normalizedMessage.length > 0
+        ? normalizedMessage
+        : fallbackMessage ?? `Request failed (${res.status})`
     const message = parseServerMessage(rawMessage)
     throw buildHttpError(message, {
       ...data,

@@ -36,7 +36,9 @@ describe('Transition Handler (Unit Tests)', () => {
       findOne: jest.fn(),
       find: jest.fn(),
       create: jest.fn(),
-      persistAndFlush: jest.fn(),
+      persist: jest.fn(function persist(this: any) { return this }),
+      flush: jest.fn(),
+      persist: jest.fn(function persist(this: any) { return this }),
       flush: jest.fn(),
     } as any
 
@@ -509,7 +511,7 @@ describe('Transition Handler (Unit Tests)', () => {
       expect(result.success).toBe(false)
       expect(result.error).toContain('Pre-conditions failed')
       expect(result.conditionsEvaluated?.preConditions).toBe(false)
-      expect(mockEm.persistAndFlush).toHaveBeenCalled() // Rejection event logged
+      expect(mockEm.flush).toHaveBeenCalled() // Rejection event logged
     })
 
     test('should log transition rejection event', async () => {

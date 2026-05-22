@@ -27,6 +27,8 @@
   "directory.organizations.form.field.isActive": "Aktiv",
   "directory.organizations.form.field.name": "Name",
   "directory.organizations.form.field.parent": "Übergeordnete Organisation",
+  "directory.organizations.form.field.slug": "Slug",
+  "directory.organizations.form.field.slug.description": "URL-sicherer Bezeichner für das Kundenportal (Kleinbuchstaben, Zahlen, Bindestriche, Unterstriche).",
   "directory.organizations.form.field.tenant": "Mandant",
   "directory.organizations.form.group.customFields": "Benutzerdefinierte Daten",
   "directory.organizations.form.group.details": "Details",

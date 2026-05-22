@@ -88,6 +88,8 @@
   "dictionaries.customFields.selector.placeholder": "Selecciona una entrada",
   "dictionaries.entries.audit.create": "Agregar entrada de diccionario",
   "dictionaries.entries.audit.delete": "Eliminar entrada de diccionario",
+  "dictionaries.entries.audit.reorder": "Reordenar entradas del diccionario",
+  "dictionaries.entries.audit.set_default": "Establecer entrada predeterminada",
   "dictionaries.entries.audit.update": "Actualizar entrada de diccionario",
   "dictionaries.entries.create": "Agregar entrada de diccionario",
   "dictionaries.entries.delete": "Eliminar entrada de diccionario",

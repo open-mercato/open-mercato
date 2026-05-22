@@ -20,7 +20,7 @@ type ContentLayoutProps = {
 export function ContentLayout({ title, intro, breadcrumb, children }: ContentLayoutProps) {
   return (
     <div className="flex min-h-svh flex-col bg-muted/30">
-      <header className="border-b bg-background/80 backdrop-blur supports-[backdrop-filter]:bg-background/60">
+      <header className="border-b bg-background/80 backdrop-blur supports-[backdrop-filter]:bg-background/80">
         <div className="mx-auto flex w-full max-w-screen-lg items-center justify-between px-6 py-4">
           <Link href="/" className="flex items-center gap-3 text-foreground transition hover:text-primary" aria-label="Go to the Open Mercato home page">
             <Image
@@ -64,8 +64,8 @@ export function ContentLayout({ title, intro, breadcrumb, children }: ContentLay
             </nav>
           ) : null}
 
-          <section className="overflow-hidden rounded-2xl border bg-card shadow-sm">
-            <header className="border-b bg-background/70 px-6 py-8 sm:px-10">
+          <section className="overflow-hidden rounded-xl border bg-card shadow-sm">
+            <header className="border-b bg-background/80 px-6 py-8 sm:px-10">
               <div className="flex flex-col gap-2">
                 <h1 className="text-3xl font-semibold tracking-tight text-foreground sm:text-4xl">{title}</h1>
                 {intro ? (
@@ -97,7 +97,7 @@ export function ContentLayout({ title, intro, breadcrumb, children }: ContentLay
         </div>
       </main>
 
-      <footer className="border-t bg-background/80 backdrop-blur supports-[backdrop-filter]:bg-background/60">
+      <footer className="border-t bg-background/80 backdrop-blur supports-[backdrop-filter]:bg-background/80">
         <div className="mx-auto flex w-full max-w-screen-lg flex-col gap-4 px-6 py-8 text-sm text-muted-foreground sm:flex-row sm:items-center sm:justify-between">
           <Link
             href="/"

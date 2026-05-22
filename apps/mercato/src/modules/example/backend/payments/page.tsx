@@ -180,7 +180,7 @@ function StripePaymentForm({
   }, [clientSecret, elements, onError, onSuccess, stripe, t])
 
   return (
-    <div className="space-y-4 rounded-lg border bg-muted/20 p-4">
+    <div className="space-y-4 rounded-lg border bg-muted/30 p-4">
       <div className="space-y-1">
         <p className="text-sm font-semibold">{t('example.payments.stripe.form.title', 'Complete Stripe payment')}</p>
         <p className="text-sm text-muted-foreground">

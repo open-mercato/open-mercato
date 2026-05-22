@@ -25,13 +25,13 @@ export function AiDot({ onClick, isActive, hasMessages, position, className }: A
       type="button"
       onClick={onClick}
       className={cn(
-        'fixed z-50 group',
+        'fixed z-sticky group',
         'w-14 h-14 rounded-full',
         'flex items-center justify-center',
         'cursor-pointer',
         'transition-transform duration-200 ease-out',
         'hover:scale-110 active:scale-95',
-        'focus:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2',
+        'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2',
         className
       )}
       style={floatingPositionStyles[position]}

@@ -4,8 +4,11 @@ import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
 import { getAuthFromRequest } from '@open-mercato/shared/lib/auth/server'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import { logCrudAccess } from '@open-mercato/shared/lib/crud/factory'
-import { forbidden } from '@open-mercato/shared/lib/crud/errors'
+import { forbidden, isCrudHttpError } from '@open-mercato/shared/lib/crud/errors'
 import { UserAcl } from '@open-mercato/core/modules/auth/data/entities'
+import { assertActorCanModifySuperAdminUserTarget } from '@open-mercato/core/modules/auth/lib/grantChecks'
+import type { RbacService } from '@open-mercato/core/modules/auth/services/rbacService'
+import type { EntityManager } from '@mikro-orm/postgresql'
 
 const getSchema = z.object({ userId: z.string().uuid() })
 const putSchema = z.object({
@@ -42,6 +45,26 @@ export async function GET(req: Request) {
   if (!parsed.success) return NextResponse.json({ error: 'Invalid input' }, { status: 400 })
   const container = await createRequestContainer()
   const em = container.resolve('em') as any
+  const rbacService = container.resolve('rbacService') as any
+  const actorAcl = auth.sub
+    ? await rbacService.loadAcl(auth.sub, { tenantId: auth.tenantId ?? null, organizationId: auth.orgId ?? null })
+    : null
+  if (!actorAcl?.isSuperAdmin && auth.sub) {
+    try {
+      await assertActorCanModifySuperAdminUserTarget({
+        em: em as EntityManager,
+        rbacService: rbacService as RbacService,
+        actorUserId: auth.sub,
+        tenantId: auth.tenantId ?? null,
+        organizationId: auth.orgId ?? null,
+        targetUserId: parsed.data.userId,
+        actorIsSuperAdmin: false,
+      })
+    } catch (err) {
+      if (isCrudHttpError(err)) return NextResponse.json(err.body, { status: err.status })
+      throw err
+    }
+  }
   const acl = await em.findOne(UserAcl, { user: parsed.data.userId as any, tenantId: auth.tenantId as any })
   const response = acl
     ? {
@@ -83,6 +106,23 @@ export async function PUT(req: Request) {
     : null
   const actorIsSuperAdmin = !!actorAcl?.isSuperAdmin
 
+  if (!actorIsSuperAdmin && auth.sub) {
+    try {
+      await assertActorCanModifySuperAdminUserTarget({
+        em: em as EntityManager,
+        rbacService: rbacService as RbacService,
+        actorUserId: auth.sub,
+        tenantId: auth.tenantId ?? null,
+        organizationId: auth.orgId ?? null,
+        targetUserId: parsed.data.userId,
+        actorIsSuperAdmin: false,
+      })
+    } catch (err) {
+      if (isCrudHttpError(err)) return NextResponse.json(err.body, { status: err.status })
+      throw err
+    }
+  }
+
   const requestedFeatures = normalizeFeatureList(parsed.data.features)
   const organizations = Array.isArray(parsed.data.organizations) ? parsed.data.organizations : null
 
@@ -111,7 +151,7 @@ export async function PUT(req: Request) {
   const hasCustomAcl = effectiveIsSuperAdmin || effectiveFeatures.length > 0
 
   if (!hasCustomAcl) {
-    if (acl) await em.removeAndFlush(acl)
+    if (acl) await em.remove(acl).flush()
   } else {
     if (!acl) {
       acl = em.create(UserAcl, { user: parsed.data.userId as any, tenantId: auth.tenantId as any })
@@ -120,7 +160,7 @@ export async function PUT(req: Request) {
     aclRecord.isSuperAdmin = effectiveIsSuperAdmin
     aclRecord.featuresJson = effectiveFeatures
     aclRecord.organizationsJson = organizations
-    await em.persistAndFlush(acl)
+    await em.persist(acl).flush()
   }
 
   // Invalidate cache for this user

@@ -1,4 +1,4 @@
-import { MeiliSearch } from 'meilisearch'
+import { Meilisearch } from 'meilisearch'
 import type { EntityId } from '@open-mercato/shared/modules/entities'
 import type { SearchFieldPolicy } from '@open-mercato/shared/modules/search'
 import { resolveTimeoutMs } from '@open-mercato/shared/lib/http/fetchWithTimeout'
@@ -43,13 +43,13 @@ export function createMeilisearchDriver(
   const encryptionMapResolver = options?.encryptionMapResolver
   const fieldPolicyResolver = options?.fieldPolicyResolver
 
-  let client: MeiliSearch | null = null
+  let client: Meilisearch | null = null
   const initializedIndexes = new Set<string>()
   const initializingIndexes = new Map<string, Promise<void>>()
 
-  function getClient(): MeiliSearch {
+  function getClient(): Meilisearch {
     if (!client) {
-      client = new MeiliSearch({ host, apiKey, timeout: requestTimeoutMs })
+      client = new Meilisearch({ host, apiKey, timeout: requestTimeoutMs })
     }
     return client
   }

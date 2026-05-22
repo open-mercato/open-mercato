@@ -1,5 +1,7 @@
 # SPEC-041d — Response Enrichers (Data Federation)
 
+> **Note (2026-04-15)**: Code snippets updated for MikroORM v7 — `em.find` now requires entity classes instead of string refs.
+
 | Field | Value |
 |-------|-------|
 | **Parent** | [SPEC-041 — UMES](../SPEC-041-2026-02-24-universal-module-extension-system.md) |
@@ -179,7 +181,9 @@ Enricher that adds `_example.todoCount` and `_example.latestTodo` to customer pe
 
 ```typescript
 // packages/core/src/modules/example/data/enrichers.ts
+// MikroORM v7: pass the entity class to em.find — string entity refs are no longer supported.
 import type { ResponseEnricher } from '@open-mercato/shared/lib/crud/response-enricher'
+import { ExampleTodo } from '@open-mercato/core/modules/example/data/entities'
 
 export const enrichers: ResponseEnricher[] = [
   {
@@ -189,7 +193,7 @@ export const enrichers: ResponseEnricher[] = [
     priority: 50,
 
     async enrichOne(record, ctx) {
-      const todos = await ctx.em.find('ExampleTodo', {
+      const todos = await ctx.em.find(ExampleTodo, {
         assignedToId: record.id,
         organizationId: ctx.organizationId,
       })
@@ -207,7 +211,7 @@ export const enrichers: ResponseEnricher[] = [
 
     async enrichMany(records, ctx) {
       const personIds = records.map(r => r.id)
-      const allTodos = await ctx.em.find('ExampleTodo', {
+      const allTodos = await ctx.em.find(ExampleTodo, {
         assignedToId: { $in: personIds },
         organizationId: ctx.organizationId,
       })

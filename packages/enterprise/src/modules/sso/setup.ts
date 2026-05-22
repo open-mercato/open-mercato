@@ -49,7 +49,7 @@ export const setup: ModuleSetupConfig = {
       isActive: true,
       ssoRequired: false,
     } as RequiredEntityData<SsoConfig>)
-    await em.persistAndFlush(config)
+    await em.persist(config).flush()
   },
 }
 

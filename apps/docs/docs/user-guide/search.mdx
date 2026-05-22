@@ -53,7 +53,7 @@ docker run -d --name meilisearch \
 
 ### Vector Search (Optional)
 
-Vector search enables semantic understanding of queries. Configure at least one embedding provider:
+Vector search enables semantic understanding of queries. The shipped example env keeps vector auto-indexing disabled by default, so configure at least one embedding provider and then opt in to automatic indexing if you want live embedding updates:
 
 | Provider | Environment Variable |
 |----------|---------------------|
@@ -64,7 +64,7 @@ Vector search enables semantic understanding of queries. Configure at least one 
 | Amazon Bedrock | `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY`, `AWS_REGION` |
 | Ollama (local) | `OLLAMA_BASE_URL=http://localhost:11434` |
 
-Without a configured provider, semantic search is disabled but other strategies continue working.
+Without a configured provider, semantic search is disabled but other strategies continue working. With a provider configured and `OM_DISABLE_VECTOR_SEARCH_AUTOINDEXING=true`, you can still run manual vector reindex jobs; automatic indexing just stays off.
 
 ### Token Search (Built-in)
 
@@ -87,8 +87,10 @@ Navigate to **Settings > Module Configuration > Search Settings** to manage:
 |----------|--------|
 | `MEILISEARCH_HOST` | Enables Meilisearch (Fuzzy) strategy |
 | `MEILISEARCH_API_KEY` | Authentication key for Meilisearch |
-| `OPENAI_API_KEY` (or other provider key) | Enables Vector (Semantic) strategy |
-| `DISABLE_VECTOR_SEARCH_AUTOINDEXING=1` | Disables automatic vector indexing |
+| `OPENAI_API_KEY` (or other provider key) | Configures a vector embedding provider |
+| `OM_DISABLE_VECTOR_SEARCH_AUTOINDEXING=true` | Keeps automatic vector indexing disabled (default in shipped example envs) |
+| `OM_DISABLE_VECTOR_SEARCH_AUTOINDEXING=false` | Enables automatic vector indexing |
+| `DISABLE_VECTOR_SEARCH_AUTOINDEXING=1` | Legacy alias for keeping automatic vector indexing disabled |
 
 ## What Gets Indexed
 

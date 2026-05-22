@@ -439,7 +439,7 @@ async function upsertSyncMapping(
     organizationId: scope.organizationId,
     tenantId: scope.tenantId,
   })
-  await em.persistAndFlush(created)
+  await em.persist(created).flush()
 }
 
 async function hasExistingAkeneoConfiguration(

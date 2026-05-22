@@ -121,6 +121,161 @@ describe('CrudForm custom field loading', () => {
     expect(fetchCustomFieldFormStructureMock).toHaveBeenCalledTimes(1)
   })
 
+  it('hydrates bare-key custom field initialValues after definitions load and after remount', async () => {
+    const loadOptions = jest.fn().mockResolvedValue([
+      { value: 'CNY', label: 'CNY - Chinese Yuan' },
+    ])
+
+    buildFormFieldFromCustomFieldDefMock.mockImplementation((definition: any) => ({
+      id: `cf_${definition.key}`,
+      label: definition.label ?? definition.key,
+      type: 'select',
+      loadOptions,
+    }))
+    fetchCustomFieldFormStructureMock.mockResolvedValue({
+      fields: [],
+      definitions: [
+        {
+          entityId: 'customers:customer_company_profile',
+          key: 'preferred_currency',
+          label: 'Preferred currency',
+          kind: 'currency',
+        },
+      ],
+      metadata: {
+        items: [],
+        fieldsetsByEntity: {},
+        entitySettings: {},
+      },
+    })
+
+    function Host({ visible }: { visible: boolean }) {
+      if (!visible) return null
+      return (
+        <CrudForm
+          embedded
+          title="Form"
+          entityId="customers:customer_company_profile"
+          fields={fields}
+          groups={groups}
+          initialValues={{ name: 'Acme', preferred_currency: 'CNY' }}
+          onSubmit={() => {}}
+        />
+      )
+    }
+
+    const { container, rerender } = renderWithProviders(
+      <Host visible />,
+      {
+        dict: {
+          'ui.forms.actions.save': 'Save',
+          'entities.customFields.manageFieldset': 'Manage fields',
+        },
+      },
+    )
+
+    const getCurrencySelect = () =>
+      container.querySelector('[data-crud-field-id="cf_preferred_currency"] select') as HTMLSelectElement | null
+
+    await waitFor(() => {
+      expect(fetchCustomFieldFormStructureMock).toHaveBeenCalledTimes(1)
+    })
+    await waitFor(() => {
+      expect(getCurrencySelect()).not.toBeNull()
+    })
+    await waitFor(() => {
+      expect(getCurrencySelect()?.value).toBe('CNY')
+    })
+
+    await act(async () => {
+      rerender(<Host visible={false} />)
+    })
+
+    await act(async () => {
+      rerender(<Host visible />)
+    })
+
+    await waitFor(() => {
+      expect(getCurrencySelect()).not.toBeNull()
+    })
+    await waitFor(() => {
+      expect(getCurrencySelect()?.value).toBe('CNY')
+    })
+    expect(loadOptions).toHaveBeenCalled()
+  })
+
+  it('renders custom select values from bare-key initialValues', async () => {
+    buildFormFieldFromCustomFieldDefMock.mockImplementation((definition: any) => ({
+      id: `cf_${definition.key}`,
+      label: definition.label ?? definition.key,
+      type: 'select',
+      options: definition.options,
+    }))
+    fetchCustomFieldFormStructureMock.mockResolvedValue({
+      fields: [],
+      definitions: [
+        {
+          entityId: 'customers:customer_company_profile',
+          key: 'relationship_health',
+          label: 'Relationship health',
+          kind: 'select',
+          options: [
+            { value: 'healthy', label: 'Healthy' },
+            { value: 'monitor', label: 'Monitor' },
+            { value: 'at_risk', label: 'At risk' },
+          ],
+        },
+        {
+          entityId: 'customers:customer_company_profile',
+          key: 'renewal_quarter',
+          label: 'Renewal quarter',
+          kind: 'select',
+          options: [
+            { value: 'Q1', label: 'Q1' },
+            { value: 'Q2', label: 'Q2' },
+            { value: 'Q3', label: 'Q3' },
+            { value: 'Q4', label: 'Q4' },
+          ],
+        },
+      ],
+      metadata: {
+        items: [],
+        fieldsetsByEntity: {},
+        entitySettings: {},
+      },
+    })
+
+    const { container } = renderWithProviders(
+      <CrudForm
+        embedded
+        title="Form"
+        entityId="customers:customer_company_profile"
+        fields={fields}
+        groups={groups}
+        initialValues={{ name: 'Acme', relationship_health: 'healthy', renewal_quarter: 'Q3' }}
+        onSubmit={() => {}}
+      />,
+      {
+        dict: {
+          'ui.forms.actions.save': 'Save',
+          'entities.customFields.manageFieldset': 'Manage fields',
+        },
+      },
+    )
+
+    const getSelectValue = (fieldId: string) =>
+      (container.querySelector(`[data-crud-field-id="${fieldId}"] select`) as HTMLSelectElement | null)?.value
+
+    await waitFor(() => {
+      expect(getSelectValue('cf_relationship_health')).toBe('healthy')
+    })
+    await waitFor(() => {
+      expect(getSelectValue('cf_renewal_quarter')).toBe('Q3')
+    })
+    expect(container.querySelector('[data-crud-field-id="cf_relationship_health"]')?.textContent).toContain('Healthy')
+    expect(container.querySelector('[data-crud-field-id="cf_renewal_quarter"]')?.textContent).toContain('Q3')
+  })
+
   it('opens the field manager without submitting the parent form', async () => {
     const handleSubmit = jest.fn().mockResolvedValue(undefined)
 

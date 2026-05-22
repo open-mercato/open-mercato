@@ -19,8 +19,10 @@ test.describe('TC-CRM-017: Company Delete And Undo', () => {
       await login(page, 'admin');
       await page.goto(`/backend/customers/companies-v2/${companyId}`, { waitUntil: 'domcontentloaded' });
 
-      await page.getByRole('button', { name: /^Delete$/ }).first().click();
-      await page.getByRole('button', { name: 'Confirm' }).click();
+      await page.getByRole('button', { name: /^Delete(?: company)?$/ }).first().click();
+      const confirmDialog = page.getByRole('alertdialog', { name: /delete company\??/i });
+      await expect(confirmDialog).toBeVisible({ timeout: 10_000 });
+      await confirmDialog.getByRole('button', { name: /^Delete(?: company)?$|^Confirm$/i }).click();
 
       await expect(page).toHaveURL(/\/backend\/customers\/companies$/);
       const undoButton = page.getByRole('button', { name: /^Undo(?: last action)?$/ });

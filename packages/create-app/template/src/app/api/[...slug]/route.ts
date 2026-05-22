@@ -1,14 +1,9 @@
 import { NextResponse, type NextRequest } from 'next/server'
-import { findApiRouteManifestMatch, registerBackendRouteManifests, type HttpMethod } from '@open-mercato/shared/modules/registry'
+import { findApiRouteManifestMatch, getApiRouteManifests, registerApiRouteManifests, type HttpMethod } from '@open-mercato/shared/modules/registry'
 import { isCrudHttpError } from '@open-mercato/shared/lib/crud/errors'
 import { apiRoutes } from '@/.mercato/generated/api-routes.generated'
-import { backendRoutes } from '@/.mercato/generated/backend-routes.generated'
 import { resolveAuthFromRequestDetailed } from '@open-mercato/shared/lib/auth/server'
 import { bootstrap } from '@/bootstrap'
-
-// Ensure all package registrations are initialized for API routes
-bootstrap()
-registerBackendRouteManifests(backendRoutes)
 import type { AuthContext } from '@open-mercato/shared/lib/auth/server'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import { RbacService } from '@open-mercato/core/modules/auth/services/rbacService'
@@ -21,6 +16,10 @@ import { getCachedRateLimiterService } from '@open-mercato/core/bootstrap'
 import { checkRateLimit, getClientIp, RATE_LIMIT_ERROR_KEY, RATE_LIMIT_ERROR_FALLBACK } from '@open-mercato/shared/lib/ratelimit/helpers'
 import { getGlobalEventBus } from '@open-mercato/shared/modules/events'
 import { applicationLifecycleEvents, type ApplicationLifecycleEventId } from '@open-mercato/shared/lib/runtime/events'
+
+// Ensure all package registrations are initialized for API routes.
+bootstrap()
+registerApiRouteManifests(apiRoutes)
 
 type MethodMetadata = {
   requireAuth?: boolean
@@ -134,7 +133,7 @@ async function checkAuthorization(
   req: NextRequest
 ): Promise<NextResponse | null> {
   const { t } = await resolveTranslations()
-  const requiresAuthentication = methodMetadata !== null && methodMetadata?.requireAuth !== false
+  const requiresAuthentication = methodMetadata?.requireAuth !== false
   if (requiresAuthentication && !auth) {
     return NextResponse.json({ error: t('api.errors.unauthorized', 'Unauthorized') }, { status: 401 })
   }
@@ -290,7 +289,7 @@ async function handleRequest(
     receivedAt: new Date().toISOString(),
   }
   await emitLifecycleEvent(applicationLifecycleEvents.requestReceived, receivedPayload)
-  const match = findApiRouteManifestMatch(apiRoutes, method, pathname)
+  const match = findApiRouteManifestMatch(getApiRouteManifests(), method, pathname)
   if (!match) {
     const response = NextResponse.json({ error: t('api.errors.notFound', 'Not Found') }, { status: 404 })
     await emitLifecycleEvent(applicationLifecycleEvents.requestNotFound, {

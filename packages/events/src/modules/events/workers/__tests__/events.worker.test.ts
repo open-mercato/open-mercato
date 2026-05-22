@@ -374,15 +374,19 @@ describe('Events Worker', () => {
       const job = createMockJob('test.parallel', {})
       const ctx = createMockContext()
 
-      const startTime = Date.now()
       await handle(job, ctx)
-      const totalTime = Date.now() - startTime
 
-      expect(executionLog.filter((e) => e.phase === 'start')).toHaveLength(3)
-      expect(executionLog.filter((e) => e.phase === 'end')).toHaveLength(3)
+      const starts = executionLog.filter((e) => e.phase === 'start')
+      const ends = executionLog.filter((e) => e.phase === 'end')
+      expect(starts).toHaveLength(3)
+      expect(ends).toHaveLength(3)
 
-      // Sequential would take ~300ms; parallel should complete in ~100-150ms
-      expect(totalTime).toBeLessThan(250)
+      const lastStart = Math.max(...starts.map((e) => e.time))
+      const firstEnd = Math.min(...ends.map((e) => e.time))
+      // Parallel dispatch: every subscriber must have started before any finished.
+      // Sequential would produce firstEnd < lastStart. This structural check is
+      // robust to CI timing jitter, unlike a wall-clock total-duration assertion.
+      expect(lastStart).toBeLessThanOrEqual(firstEnd)
     })
 
     it('should throw when all subscribers fail', async () => {

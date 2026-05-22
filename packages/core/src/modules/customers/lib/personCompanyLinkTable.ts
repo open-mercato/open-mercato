@@ -1,0 +1,59 @@
+import type { EntityManager } from '@mikro-orm/postgresql'
+
+// The previous implementation probed `information_schema.columns` on every
+// first call via `em.getKysely()` to decide whether to add a `deletedAt: null`
+// filter. When that probe ran inside an already-active MikroORM transaction it
+// shared the transaction's connection — and any failure (including transient
+// connection-pool state, an aborted TX from a sibling query, or pg returning
+// 25P02) propagated back into the host transaction, poisoning every following
+// query with `current transaction is aborted, commands ignored until end of
+// transaction block`. That is what produced the standalone-CI failure burst
+// (loadPersonCompanyLinks → 25P02 → customers.people.create → 500) and the
+// sync_excel worker `failedCount: 1` regression.
+//
+// The `deleted_at` column on `customer_person_company_links` has been part of
+// the committed module snapshot since `Migration20260415095203` (April 2026)
+// and is referenced by `Migration20260417140000` (partial unique index uses
+// `where deleted_at is null`). Any environment running these migrations
+// already has the column. So the probe is no longer load-bearing — it only
+// adds risk. We now unconditionally include `deletedAt: null` in the filter.
+// If a downstream DB is genuinely un-migrated, the underlying `em.find` will
+// surface the authentic `column "deleted_at" of relation
+// "customer_person_company_links" does not exist` (pg 42703) pointing the
+// operator at the real fix (`yarn db:migrate`).
+//
+// `customerPersonCompanyLinksSupportDeletedAt` and
+// `warnMissingCustomerPersonCompanyLinksDeletedAt` are kept as exported
+// no-op-equivalents so external callers (and the published @open-mercato/core
+// API surface) don't break.
+
+export async function customerPersonCompanyLinksSupportDeletedAt(_em: EntityManager): Promise<boolean> {
+  return true
+}
+
+export function warnMissingCustomerPersonCompanyLinksDeletedAt(_source: string): void {
+  // No-op: column is guaranteed present by Migration20260415095203 and the
+  // module snapshot. Kept for backward-compatible exports.
+}
+
+export async function withActiveCustomerPersonCompanyLinkFilter<T extends Record<string, unknown>>(
+  _em: EntityManager,
+  where: T,
+  _source: string,
+): Promise<T & { deletedAt?: null }> {
+  return { ...where, deletedAt: null }
+}
+
+/**
+ * Drop soft-deleted link rows from a result set as a defense-in-depth fallback.
+ * MikroORM has historically dropped `deletedAt: null` from the WHERE clause for
+ * nullable date columns under certain configurations, so callers SHOULD apply this
+ * after `findWithDecryption(...)` until the upstream query filter is verified to
+ * fully cover all callers.
+ */
+export function filterActivePersonCompanyLinks<T extends { deletedAt?: Date | string | null | undefined }>(
+  links: T[] | null | undefined,
+): T[] {
+  if (!Array.isArray(links)) return []
+  return links.filter((entry) => entry?.deletedAt == null)
+}

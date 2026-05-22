@@ -22,7 +22,12 @@ jest.mock('../TaskDialog', () => ({
 
 jest.mock('@open-mercato/ui/backend/detail', () => ({
   LoadingMessage: () => null,
-  TabEmptyState: ({ title }: { title: string }) => <div>{title}</div>,
+  TabEmptyState: ({ title, children }: { title: string; children?: React.ReactNode }) => (
+    <div>
+      <div>{title}</div>
+      {children}
+    </div>
+  ),
 }))
 
 jest.mock('../../../lib/interactionCompatibility', () => ({
@@ -79,5 +84,39 @@ describe('TasksSection', () => {
     )
 
     expect(screen.getByRole('link', { name: 'View all tasks' })).toHaveAttribute('href', '/backend/customer-tasks')
+  })
+
+  it('emits the persistent section action when entityId is provided', () => {
+    const onActionChange = jest.fn()
+    renderWithProviders(
+      <TasksSection
+        entityId="customer-1"
+        initialTasks={[]}
+        emptyLabel="No date"
+        addActionLabel="Create task"
+        emptyState={{ title: 'No tasks yet', actionLabel: 'Create task' }}
+        onActionChange={onActionChange}
+      />,
+    )
+    const lastNonNull = [...onActionChange.mock.calls]
+      .map((call) => call[0])
+      .reverse()
+      .find((value) => value !== null)
+    expect(lastNonNull).not.toBeUndefined()
+    expect(lastNonNull.label).toBe('Create task')
+  })
+
+  it('omits the inline empty-state CTA so the section header owns the action', () => {
+    renderWithProviders(
+      <TasksSection
+        entityId="customer-1"
+        initialTasks={[]}
+        emptyLabel="No date"
+        addActionLabel="Create task"
+        emptyState={{ title: 'No tasks yet', actionLabel: 'Create task' }}
+      />,
+    )
+    expect(screen.queryByRole('button', { name: 'Create task' })).toBeNull()
+    expect(screen.getByText('No tasks yet')).toBeInTheDocument()
   })
 })

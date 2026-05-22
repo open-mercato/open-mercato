@@ -13,6 +13,7 @@
   "translations.manager.description": "Zarządzaj tłumaczeniami rekordów encji w obsługiwanych językach.",
   "translations.manager.errors.loadEntities": "Nie udało się załadować encji",
   "translations.manager.errors.loadTranslation": "Nie udało się załadować tłumaczeń",
+  "translations.manager.errors.nothingToSave": "Nic do zapisania — najpierw wprowadź tłumaczenie",
   "translations.manager.errors.save": "Nie udało się zapisać tłumaczeń",
   "translations.manager.errors.selectRecord": "Wybierz encję i rekord przed zapisaniem",
   "translations.manager.fields.baseValue": "Wartość bazowa",

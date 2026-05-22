@@ -37,7 +37,7 @@ export const PackageEditor = (props: PackageEditorProps) => {
   return (
     <div className="space-y-3">
       {packages.map((pkg, index) => (
-        <div key={index} className="rounded-lg border bg-muted/20 p-3">
+        <div key={index} className="rounded-lg border bg-muted/30 p-3">
           <div className="mb-2 flex items-center justify-between">
             <span className="text-xs font-medium text-muted-foreground">
               {t('shipping_carriers.create.package.label', 'Package')} {index + 1}

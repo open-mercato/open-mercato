@@ -1,5 +1,5 @@
 "use client"
-import { type ReactNode, useState, useCallback, useMemo, useContext } from 'react'
+import { type ReactNode, useEffect, useState, useCallback, useMemo, useContext } from 'react'
 import Image from 'next/image'
 import Link from 'next/link'
 import { usePathname } from 'next/navigation'
@@ -12,6 +12,8 @@ import { mergeMenuItems } from '../backend/injection/mergeMenuItems'
 import type { MergedMenuItem } from '../backend/injection/mergeMenuItems'
 import { PortalNotificationBell } from './components/PortalNotificationBell'
 import { usePortalContext } from './PortalContext'
+import { apiCall } from '../backend/utils/apiCall'
+import type { PortalNavGroup } from './utils/nav'
 
 // Component replacement handle IDs (FROZEN once shipped)
 export const PORTAL_SHELL_HANDLE = 'page:portal:layout'
@@ -20,12 +22,19 @@ export const PORTAL_FOOTER_HANDLE = 'section:portal:footer'
 export const PORTAL_SIDEBAR_HANDLE = 'section:portal:sidebar'
 export const PORTAL_USER_MENU_HANDLE = 'section:portal:user-menu'
 
+export type ShellLogo = {
+  src: string
+  alt?: string
+}
+
 export type PortalShellProps = {
   children: ReactNode
   /** Override orgSlug (used on public pages without context) */
   orgSlug?: string
   /** Override organization name (used on public pages without context) */
   organizationName?: string
+  /** Override the brand logo rendered in the header, footer, and sidebar. */
+  logo?: ShellLogo
   /** Whether to show authenticated layout. Auto-detected from context when omitted. */
   authenticated?: boolean
   /** Logout handler. Auto-provided from context when omitted. */
@@ -85,7 +94,7 @@ function SidebarNavItem({
   if (!label) return null
 
   const cls = [
-    'flex items-center gap-2.5 rounded-lg px-3 py-2 text-[13px] font-medium transition-colors',
+    'flex items-center gap-2.5 rounded-lg px-3 py-2 text-sm font-medium transition-colors',
     active
       ? 'bg-foreground text-background'
       : 'text-muted-foreground hover:bg-muted hover:text-foreground',
@@ -115,7 +124,7 @@ function UserAvatar({ name, className }: { name?: string; className?: string }) 
     ? name.split(' ').map((w) => w[0]).slice(0, 2).join('').toUpperCase()
     : '?'
   return (
-    <div className={`flex items-center justify-center rounded-full bg-foreground text-[11px] font-semibold text-background ${className ?? 'size-8'}`}>
+    <div className={`flex items-center justify-center rounded-full bg-foreground text-overline font-semibold text-background ${className ?? 'size-8'}`}>
       {initials}
     </div>
   )
@@ -146,6 +155,7 @@ export function PortalShell({
   children,
   orgSlug: orgSlugProp,
   organizationName: orgNameProp,
+  logo,
   authenticated: authenticatedProp,
   onLogout: onLogoutProp,
   enableEventBridge = false,
@@ -174,45 +184,75 @@ export function PortalShell({
   const portalHome = orgSlug ? `/${orgSlug}/portal` : '/portal'
   const loginHref = orgSlug ? `/${orgSlug}/portal/login` : '/portal/login'
   const signupHref = orgSlug ? `/${orgSlug}/portal/signup` : '/portal/signup'
-  const dashboardHref = orgSlug ? `/${orgSlug}/portal/dashboard` : '/portal/dashboard'
-  const profileHref = orgSlug ? `/${orgSlug}/portal/profile` : '/portal/profile'
   // Always use the resolved organization name from the database.
   // Fall back to the generic portal title — never display the raw slug.
   const headerTitle = orgName || t('portal.title', 'Customer Portal')
 
   const closeMobile = useCallback(() => setMobileOpen(false), [])
 
+  const [autoNavGroups, setAutoNavGroups] = useState<PortalNavGroup[]>([])
+  useEffect(() => {
+    if (!authenticated) {
+      setAutoNavGroups([])
+      return
+    }
+    let cancelled = false
+    const load = async () => {
+      try {
+        const { ok, result } = await apiCall<{ ok: boolean; groups?: PortalNavGroup[] }>(
+          '/api/customer_accounts/portal/nav',
+        )
+        if (cancelled || !ok || !result?.ok) return
+        setAutoNavGroups(Array.isArray(result.groups) ? result.groups : [])
+      } catch {
+        if (!cancelled) setAutoNavGroups([])
+      }
+    }
+    void load()
+    return () => {
+      cancelled = true
+    }
+  }, [authenticated])
+
   const mergedNavItems = useMemo(() => {
     if (!authenticated) return []
-    const builtIn = [
-      { id: 'portal-dashboard', labelKey: 'portal.nav.dashboard', href: dashboardHref },
-    ]
+    const discovered = autoNavGroups.find((g) => g.id === 'main')?.items ?? []
+    const builtIn = discovered.map((item) => ({
+      id: item.id,
+      labelKey: item.labelKey,
+      label: item.label,
+      href: item.href,
+    }))
     return mergeMenuItems(builtIn, injectedMainItems)
-  }, [authenticated, dashboardHref, injectedMainItems])
+  }, [authenticated, autoNavGroups, injectedMainItems])
 
   const mergedAccountItems = useMemo(() => {
     if (!authenticated) return []
-    const builtIn = [
-      { id: 'portal-profile', labelKey: 'portal.nav.profile', href: profileHref },
-    ]
+    const discovered = autoNavGroups.find((g) => g.id === 'account')?.items ?? []
+    const builtIn = discovered.map((item) => ({
+      id: item.id,
+      labelKey: item.labelKey,
+      label: item.label,
+      href: item.href,
+    }))
     return mergeMenuItems(builtIn, injectedAccountItems)
-  }, [authenticated, profileHref, injectedAccountItems])
+  }, [authenticated, autoNavGroups, injectedAccountItems])
 
   /* ---- PUBLIC LAYOUT ---- */
   if (!authenticated) {
     return (
       <div className="flex min-h-svh flex-col bg-background" data-portal-handle={PORTAL_SHELL_HANDLE}>
-        <header className="sticky top-0 z-40 border-b bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/80" data-portal-handle={PORTAL_HEADER_HANDLE}>
+        <header className="sticky top-0 z-sticky border-b bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/80" data-portal-handle={PORTAL_HEADER_HANDLE}>
           <div className="mx-auto flex h-16 w-full max-w-screen-lg items-center justify-between px-6">
             <Link href={portalHome} className="flex items-center gap-2.5 text-foreground transition hover:opacity-80" aria-label={headerTitle}>
-              <Image src="/open-mercato.svg" alt="" width={28} height={28} className="" priority />
-              <span className="text-[15px] font-semibold tracking-tight">{headerTitle}</span>
+              <Image src={logo?.src ?? "/open-mercato.svg"} alt={logo?.alt ?? ""} width={28} height={28} className="" priority />
+              <span className="text-base font-semibold tracking-tight">{headerTitle}</span>
             </Link>
             <nav aria-label="Primary" className="flex items-center gap-1">
-              <Button asChild variant="ghost" size="sm" className="text-[13px]">
+              <Button asChild variant="ghost" size="sm" className="text-sm">
                 <Link href={loginHref}>{t('portal.nav.login', 'Log In')}</Link>
               </Button>
-              <Button asChild size="sm" className="rounded-lg text-[13px]">
+              <Button asChild size="sm" className="rounded-lg text-sm">
                 <Link href={signupHref}>{t('portal.nav.signup', 'Sign Up')}</Link>
               </Button>
             </nav>
@@ -228,7 +268,7 @@ export function PortalShell({
         <footer className="border-t" data-portal-handle={PORTAL_FOOTER_HANDLE}>
           <div className="mx-auto flex w-full max-w-screen-lg items-center justify-between px-6 py-6">
             <Link href={portalHome} className="flex items-center gap-2 text-muted-foreground transition hover:text-foreground">
-              <Image src="/open-mercato.svg" alt="" width={20} height={20} className="" />
+              <Image src={logo?.src ?? "/open-mercato.svg"} alt={logo?.alt ?? ""} width={20} height={20} className="" />
               <span className="text-sm font-medium text-foreground">{headerTitle}</span>
             </Link>
             <p className="text-xs text-muted-foreground/60">
@@ -246,13 +286,13 @@ export function PortalShell({
     <div className="flex h-full flex-col" data-portal-handle={PORTAL_SIDEBAR_HANDLE}>
       <div className="flex h-16 items-center gap-2.5 border-b px-5">
         <Link href={portalHome} className="flex items-center gap-2.5 text-foreground transition hover:opacity-80" aria-label={headerTitle}>
-          <Image src="/open-mercato.svg" alt="" width={22} height={22} className="" />
-          <span className="text-[14px] font-semibold tracking-tight truncate">{headerTitle}</span>
+          <Image src={logo?.src ?? "/open-mercato.svg"} alt={logo?.alt ?? ""} width={22} height={22} className="" />
+          <span className="text-sm font-semibold tracking-tight truncate">{headerTitle}</span>
         </Link>
       </div>
 
       <nav aria-label="Portal navigation" className="flex-1 overflow-y-auto px-3 py-5">
-        <p className="mb-2 px-3 text-[10px] font-semibold uppercase tracking-[0.12em] text-muted-foreground/50">
+        <p className="mb-2 px-3 text-overline font-semibold uppercase tracking-widest text-muted-foreground/50">
           {t('portal.nav.home', 'Portal')}
         </p>
         <div className="flex flex-col gap-0.5">
@@ -269,7 +309,7 @@ export function PortalShell({
 
         {mergedAccountItems.length > 0 ? (
           <div className="mt-8">
-            <p className="mb-2 px-3 text-[10px] font-semibold uppercase tracking-[0.12em] text-muted-foreground/50">
+            <p className="mb-2 px-3 text-overline font-semibold uppercase tracking-widest text-muted-foreground/50">
               {t('portal.nav.account', 'Account')}
             </p>
             <div className="flex flex-col gap-0.5">
@@ -292,12 +332,12 @@ export function PortalShell({
           <UserAvatar name={userName} className="size-8" />
           <div className="min-w-0 flex-1">
             {userName ? (
-              <p className="truncate text-[13px] font-medium leading-tight">{userName}</p>
+              <p className="truncate text-sm font-medium leading-tight">{userName}</p>
             ) : (
               <div className="h-4 w-24 animate-pulse rounded bg-muted" />
             )}
             {userEmail ? (
-              <p className="truncate text-[11px] text-muted-foreground">{userEmail}</p>
+              <p className="truncate text-overline text-muted-foreground">{userEmail}</p>
             ) : (
               <div className="mt-1 h-3 w-32 animate-pulse rounded bg-muted" />
             )}
@@ -306,7 +346,7 @@ export function PortalShell({
         <button
           type="button"
           onClick={onLogout}
-          className="mt-0.5 flex w-full items-center gap-2.5 rounded-lg px-3 py-2 text-[13px] text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
+          className="mt-0.5 flex w-full items-center gap-2.5 rounded-lg px-3 py-2 text-sm text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
           data-portal-handle={PORTAL_USER_MENU_HANDLE}
           data-menu-item-id="portal-logout"
         >
@@ -326,8 +366,8 @@ export function PortalShell({
       </aside>
 
       {mobileOpen ? (
-        <div className="fixed inset-0 z-50 lg:hidden">
-          <div className="absolute inset-0 bg-black/30 backdrop-blur-sm" onClick={closeMobile} />
+        <div className="fixed inset-0 z-modal lg:hidden">
+          <div className="absolute inset-0 bg-black/20 backdrop-blur-sm" onClick={closeMobile} />
           <aside className="relative z-10 h-full w-[280px] bg-background shadow-2xl">
             <div className="absolute right-3 top-4 z-20">
               <IconButton variant="ghost" size="sm" type="button" onClick={closeMobile} aria-label="Close menu">
@@ -358,7 +398,7 @@ export function PortalShell({
         </main>
 
         <footer className="border-t px-4 py-4 lg:px-8" data-portal-handle={PORTAL_FOOTER_HANDLE}>
-          <p className="text-[11px] text-muted-foreground/50">
+          <p className="text-overline text-muted-foreground/50">
             {t('portal.footer.copyright', '\u00A9 {year} All rights reserved.', { year: new Date().getFullYear() })}
           </p>
         </footer>

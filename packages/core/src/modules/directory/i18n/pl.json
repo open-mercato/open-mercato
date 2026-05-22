@@ -27,6 +27,8 @@
   "directory.organizations.form.field.isActive": "Aktywna",
   "directory.organizations.form.field.name": "Nazwa",
   "directory.organizations.form.field.parent": "Organizacja nadrzędna",
+  "directory.organizations.form.field.slug": "Identyfikator URL",
+  "directory.organizations.form.field.slug.description": "Identyfikator używany w adresie portalu klienta (małe litery, cyfry, myślniki, podkreślenia).",
   "directory.organizations.form.field.tenant": "Najemca",
   "directory.organizations.form.group.customFields": "Dane niestandardowe",
   "directory.organizations.form.group.details": "Szczegóły",

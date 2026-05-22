@@ -1,5 +1,7 @@
 # SPEC-041m4 — Command Interceptors
 
+> **Note (2026-04-15)**: Code snippets updated for MikroORM v7 — `em.find` / `em.findOne` now require entity classes instead of string refs.
+
 | Field | Value |
 |-------|-------|
 | **Parent** | [SPEC-041m — Mutation Lifecycle](./SPEC-041m-mutation-lifecycle.md) |
@@ -587,8 +589,10 @@ export const interceptors: CommandInterceptor[] = [
         const newTier = computeLoyaltyTier(loyaltyScore)
 
         if (newTier !== 'platinum') {
+          // MikroORM v7: pass the entity class to em.findOne — string refs are no longer supported.
           const em = ctx.container.resolve('em') as DataEngine
-          const existing = await em.findOne('CustomerEntity', {
+          const { CustomerEntity } = await import('@open-mercato/core/modules/customers/data/entities')
+          const existing = await em.findOne(CustomerEntity, {
             id: record.id,
             deletedAt: null,
           })

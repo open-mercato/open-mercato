@@ -1,4 +1,5 @@
 import { NextResponse } from 'next/server'
+import { sql } from 'kysely'
 import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
 import { runWithCacheTenant } from '@open-mercato/cache'
 import { InboxProposal } from '../../../data/entities'
@@ -45,17 +46,16 @@ export async function GET(req: Request) {
     ])
 
     // Single GROUP BY query for category counts — O(1) queries
-    const knex = ctx.em.getKnex()
-    const categoryRows = await knex('inbox_proposals')
-      .select('category')
-      .count('* as count')
-      .where({
-        organization_id: ctx.organizationId,
-        tenant_id: ctx.tenantId,
-        is_active: true,
-      })
-      .whereNull('deleted_at')
+    const db = ctx.em.getKysely<any>() as any
+    const categoryRows = await db
+      .selectFrom('inbox_proposals')
+      .select(['category', sql<string>`count(*)`.as('count')])
+      .where('organization_id', '=', ctx.organizationId)
+      .where('tenant_id', '=', ctx.tenantId)
+      .where('is_active', '=', true)
+      .where('deleted_at', 'is', null)
       .groupBy('category')
+      .execute() as Array<{ category: string | null; count: string | number }>
 
     const byCategory: Record<string, number> = {}
     for (const cat of ALL_CATEGORIES) {

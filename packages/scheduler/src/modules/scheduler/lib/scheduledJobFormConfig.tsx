@@ -106,7 +106,7 @@ export function createTargetOptionsLoader(
 
 export async function loadTimezoneOptions(query?: string): Promise<ComboboxOption[]> {
   try {
-    const allTz = Intl.supportedValuesOf('timeZone')
+    const allTz = Array.from(new Set(['UTC', ...Intl.supportedValuesOf('timeZone')]))
     const filtered = query
       ? allTz.filter((tz) => tz.toLowerCase().includes(query.toLowerCase()))
       : allTz

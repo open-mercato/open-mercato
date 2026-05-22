@@ -57,8 +57,7 @@ describe('messages.messages.forward command', () => {
         if (entity === Message) return { id: forwardedMessageId, ...data }
         return { ...data }
       }),
-      persistAndFlush: jest.fn(async () => {}),
-      persist: jest.fn(() => {}),
+      persist: jest.fn(function persist(this: any) { return this }),
       flush: jest.fn(async () => {}),
     }
 
@@ -162,8 +161,7 @@ describe('messages.messages.forward command', () => {
         if (entity === Message) return { id: forwardedMessageId, ...data }
         return { ...data }
       }),
-      persistAndFlush: jest.fn(async () => {}),
-      persist: jest.fn(() => {}),
+      persist: jest.fn(function persist(this: any) { return this }),
       flush: jest.fn(async () => {}),
     }
 
@@ -274,8 +272,7 @@ describe('messages.messages.forward command', () => {
         if (entity === Message) return { id: forwardedMessageId, ...data }
         return { ...data }
       }),
-      persistAndFlush: jest.fn(async () => {}),
-      persist: jest.fn(() => {}),
+      persist: jest.fn(function persist(this: any) { return this }),
       flush: jest.fn(async () => {}),
     }
 

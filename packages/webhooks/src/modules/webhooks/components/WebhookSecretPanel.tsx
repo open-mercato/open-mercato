@@ -3,7 +3,7 @@
 import * as React from 'react'
 import { Check, Copy } from 'lucide-react'
 import { Button } from '@open-mercato/ui/primitives/button'
-import { Notice } from '@open-mercato/ui/primitives/Notice'
+import { Alert, AlertDescription } from '@open-mercato/ui/primitives/alert'
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 
@@ -37,9 +37,9 @@ export function WebhookSecretPanel({ secret, onClose }: WebhookSecretPanelProps)
         <p className="mt-2 text-sm text-muted-foreground">{t('webhooks.form.secretVisibleOnce')}</p>
       </div>
       <div className="space-y-4 p-6">
-        <Notice variant="warning" compact>
-          {t('webhooks.form.secretUsageTip')}
-        </Notice>
+        <Alert variant="warning">
+          <AlertDescription>{t('webhooks.form.secretUsageTip')}</AlertDescription>
+        </Alert>
         <div className="flex items-start gap-3 rounded-md border bg-muted/40 p-4">
           <div className="min-w-0 flex-1 font-mono text-sm break-all">
             {secret}
@@ -57,8 +57,12 @@ export function WebhookSecretPanel({ secret, onClose }: WebhookSecretPanelProps)
           </Button>
         </div>
         <div className="grid gap-3 md:grid-cols-2">
-          <Notice compact>{t('webhooks.form.secretVerificationTip')}</Notice>
-          <Notice compact>{t('webhooks.form.secretRotationTip')}</Notice>
+          <Alert variant="info">
+            <AlertDescription>{t('webhooks.form.secretVerificationTip')}</AlertDescription>
+          </Alert>
+          <Alert variant="info">
+            <AlertDescription>{t('webhooks.form.secretRotationTip')}</AlertDescription>
+          </Alert>
         </div>
         <div className="flex flex-wrap justify-end gap-2">
           <Button type="button" variant="outline" onClick={() => { void handleCopySecret() }}>

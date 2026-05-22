@@ -178,7 +178,7 @@ export default function StaffTeamMemberDetailPage({ params }: { params?: { id?: 
           return (
             <div
               key={`activity-${activity.id ?? 'row'}-custom-${index}`}
-              className="rounded-md border border-border/60 bg-muted/10 px-3 py-2"
+              className="rounded-md border border-border/70 bg-muted/30 px-3 py-2"
             >
               <div className="text-xs font-medium text-muted-foreground">{label}</div>
               <div className="mt-1 text-sm text-foreground">{content}</div>

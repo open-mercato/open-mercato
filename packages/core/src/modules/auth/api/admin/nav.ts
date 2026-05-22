@@ -20,6 +20,7 @@ const sidebarNavItemSchema: z.ZodType<{
   enabled?: boolean
   hidden?: boolean
   pageContext?: 'main' | 'admin' | 'settings' | 'profile'
+  iconName?: string
   iconMarkup?: string
   children?: any[]
 }> = z.lazy(() =>
@@ -31,6 +32,7 @@ const sidebarNavItemSchema: z.ZodType<{
     enabled: z.boolean().optional(),
     hidden: z.boolean().optional(),
     pageContext: z.enum(['main', 'admin', 'settings', 'profile']).optional(),
+    iconName: z.string().optional(),
     iconMarkup: z.string().optional(),
     children: z.array(sidebarNavItemSchema).optional(),
   }),
@@ -42,6 +44,7 @@ const sectionItemSchema: z.ZodType<{
   labelKey?: string
   href: string
   order?: number
+  iconName?: string
   iconMarkup?: string
   children?: any[]
 }> = z.lazy(() =>
@@ -51,6 +54,7 @@ const sectionItemSchema: z.ZodType<{
     labelKey: z.string().optional(),
     href: z.string(),
     order: z.number().optional(),
+    iconName: z.string().optional(),
     iconMarkup: z.string().optional(),
     children: z.array(sectionItemSchema).optional(),
   }),
@@ -127,7 +131,8 @@ export async function GET(req: Request) {
     selectedTenantId = auth.tenantId ?? null
   }
 
-  const cacheKey = `nav:sidebar:${locale}:${auth.sub}:${cacheScopeTenantId || 'null'}:${cacheScopeOrganizationId || 'null'}`
+  const cacheVersion = 'v2'
+  const cacheKey = `nav:sidebar:${cacheVersion}:${locale}:${auth.sub}:${cacheScopeTenantId || 'null'}:${cacheScopeOrganizationId || 'null'}`
   try {
     if (cache?.get) {
       const cached = await cache.get(cacheKey)

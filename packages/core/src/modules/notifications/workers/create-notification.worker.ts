@@ -1,12 +1,13 @@
 import type { EntityManager } from '@mikro-orm/core'
-import type { Knex } from 'knex'
+import type { EntityManager as PgEntityManager } from '@mikro-orm/postgresql'
+import { type Kysely, sql } from 'kysely'
 import { Notification } from '../data/entities'
 import type { CreateNotificationInput, CreateRoleNotificationInput, CreateFeatureNotificationInput } from '../data/validators'
 import { buildNotificationEntity, emitNotificationCreated, emitNotificationCreatedBatch } from '../lib/notificationFactory'
 import { getRecipientUserIdsForFeature, getRecipientUserIdsForRole } from '../lib/notificationRecipients'
 
-function getKnex(em: EntityManager): Knex {
-  return (em.getConnection() as unknown as { getKnex: () => Knex }).getKnex()
+function getDb(em: EntityManager): Kysely<any> {
+  return (em as unknown as PgEntityManager).getKysely<any>()
 }
 
 export const NOTIFICATIONS_QUEUE_NAME = 'notifications'
@@ -61,7 +62,7 @@ export default async function handle(
     const { recipientUserId, ...content } = input
     const notification = buildNotificationEntity(em, content, recipientUserId, { tenantId, organizationId })
 
-    await em.persistAndFlush(notification)
+    await em.persist(notification).flush()
 
     await emitNotificationCreated(eventBus, notification, { tenantId, organizationId })
   } else if (payload.type === 'create-role') {
@@ -69,8 +70,8 @@ export default async function handle(
     const eventBus = ctx.resolve('eventBus') as { emit: (event: string, payload: unknown) => Promise<void> }
     const { input, tenantId, organizationId } = payload
 
-    const knex = getKnex(em)
-    const recipientUserIds = await getRecipientUserIdsForRole(knex, tenantId, input.roleId)
+    const db = getDb(em)
+    const recipientUserIds = await getRecipientUserIdsForRole(db, tenantId, input.roleId)
     if (recipientUserIds.length === 0) {
       return
     }
@@ -82,7 +83,7 @@ export default async function handle(
       notifications.push(notification)
     }
 
-    await em.persistAndFlush(notifications)
+    await em.persist(notifications).flush()
 
     await emitNotificationCreatedBatch(eventBus, notifications, { tenantId, organizationId })
   } else if (payload.type === 'create-feature') {
@@ -90,8 +91,8 @@ export default async function handle(
     const eventBus = ctx.resolve('eventBus') as { emit: (event: string, payload: unknown) => Promise<void> }
     const { input, tenantId, organizationId } = payload
 
-    const knex = getKnex(em)
-    const recipientUserIds = await getRecipientUserIdsForFeature(knex, tenantId, input.requiredFeature)
+    const db = getDb(em)
+    const recipientUserIds = await getRecipientUserIdsForFeature(db, tenantId, input.requiredFeature)
 
     if (recipientUserIds.length === 0) {
       return
@@ -104,19 +105,21 @@ export default async function handle(
       notifications.push(notification)
     }
 
-    await em.persistAndFlush(notifications)
+    await em.persist(notifications).flush()
 
     await emitNotificationCreatedBatch(eventBus, notifications, { tenantId, organizationId })
   } else if (payload.type === 'cleanup-expired') {
     const em = (ctx.resolve('em') as EntityManager).fork()
-    const knex = getKnex(em)
+    const db = getDb(em)
 
-    await knex('notifications')
-      .where('expires_at', '<', knex.fn.now())
-      .whereNotIn('status', ['actioned', 'dismissed'])
-      .update({
+    await db
+      .updateTable('notifications' as any)
+      .set({
         status: 'dismissed',
-        dismissed_at: knex.fn.now(),
-      })
+        dismissed_at: sql`now()`,
+      } as any)
+      .where('expires_at' as any, '<', sql`now()`)
+      .where('status' as any, 'not in', ['actioned', 'dismissed'])
+      .execute()
   }
 }

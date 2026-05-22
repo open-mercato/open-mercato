@@ -110,7 +110,7 @@ export function createIntegrationStateService(em: EntityManager) {
         organizationId: scope.organizationId,
         tenantId: scope.tenantId,
       })
-      await em.persistAndFlush(created)
+      await em.persist(created).flush()
       return created
     },
 

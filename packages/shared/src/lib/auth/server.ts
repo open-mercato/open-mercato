@@ -29,6 +29,35 @@ type AuthResolution = {
   status: AuthResolutionStatus
 }
 
+// Symbol-keyed trusted auth context. Set on synthetic Request objects by
+// callers that have already authenticated (e.g. the AI in-process operation
+// runner) so downstream auth resolution short-circuits without re-running
+// cookie/JWT/API-key parsing. The hook is fail-open: if absent the normal
+// resolution path runs unchanged.
+export const TRUSTED_AUTH_CONTEXT_SYMBOL = Symbol.for('open-mercato.auth.trustedContext')
+
+export type TrustedAuthContextEnvelope = {
+  auth: AuthContext
+  status?: AuthResolutionStatus
+}
+
+export function attachTrustedAuthContext(
+  request: Request,
+  envelope: TrustedAuthContextEnvelope
+): Request {
+  ;(request as unknown as Record<symbol, TrustedAuthContextEnvelope>)[TRUSTED_AUTH_CONTEXT_SYMBOL] = envelope
+  return request
+}
+
+function readTrustedAuthContext(request: Request): TrustedAuthContextEnvelope | null {
+  const carrier = request as unknown as Record<symbol, unknown>
+  const envelope = carrier[TRUSTED_AUTH_CONTEXT_SYMBOL]
+  if (!envelope || typeof envelope !== 'object') return null
+  const candidate = envelope as TrustedAuthContextEnvelope
+  if (!('auth' in candidate)) return null
+  return candidate
+}
+
 function decodeCookieValue(raw: string | undefined): string | null {
   if (raw === undefined) return null
   try {
@@ -150,7 +179,7 @@ async function resolveApiKeyAuth(secret: string): Promise<AuthContext> {
     if (cache.shouldWriteLastUsed(record.id)) {
       try {
         record.lastUsedAt = new Date()
-        await em.persistAndFlush(record)
+        await em.persist(record).flush()
       } catch {
         // best-effort update; ignore write failures
       }
@@ -265,6 +294,13 @@ export async function getAuthFromCookies(): Promise<AuthContext> {
 }
 
 export async function resolveAuthFromRequestDetailed(req: Request): Promise<AuthResolution> {
+  const trusted = readTrustedAuthContext(req)
+  if (trusted) {
+    return {
+      auth: trusted.auth,
+      status: trusted.status ?? (trusted.auth ? 'authenticated' : 'missing'),
+    }
+  }
   const cookieHeader = req.headers.get('cookie') || ''
   const tenantCookie = readCookieFromHeader(cookieHeader, TENANT_COOKIE_NAME)
   const orgCookie = readCookieFromHeader(cookieHeader, ORGANIZATION_COOKIE_NAME)

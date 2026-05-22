@@ -7,6 +7,13 @@ import { Plus, Settings } from 'lucide-react'
 import { Button } from '@open-mercato/ui/primitives/button'
 import { Input } from '@open-mercato/ui/primitives/input'
 import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@open-mercato/ui/primitives/select'
+import {
   Dialog,
   DialogContent,
   DialogDescription,
@@ -153,7 +160,7 @@ export function AddressEditor({
   const inputClass = (field: AddressEditorField) =>
     [
       'w-full rounded-md border px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-ring',
-      errors[field] ? 'border-red-500 focus:ring-red-500' : 'border-input bg-background',
+      errors[field] ? 'border-status-error-border focus:ring-status-error-border' : 'border-input bg-background',
     ].join(' ')
 
   return (
@@ -168,24 +175,31 @@ export function AddressEditor({
           aria-invalid={errors.name ? 'true' : undefined}
         />
         <div className="flex gap-2">
-          <select
-            className={inputClass('purpose')}
-            value={current.purpose}
-            onChange={(evt) => update('purpose', evt.target.value)}
+          <Select
+            value={current.purpose || undefined}
+            onValueChange={(next) => update('purpose', next ?? '')}
             disabled={disabled}
-            aria-invalid={errors.purpose ? 'true' : undefined}
           >
-            <option value="">
-              {addressTypesLoading
-                ? t('customers.people.detail.addresses.types.loading', 'Loading…')
-                : t('customers.people.detail.addresses.types.placeholder', 'Address type')}
-            </option>
-            {addressTypes.map((entry) => (
-              <option key={entry.value} value={entry.value}>
-                {entry.label}
-              </option>
-            ))}
-          </select>
+            <SelectTrigger
+              className={errors.purpose ? 'border-destructive' : undefined}
+              aria-invalid={errors.purpose ? 'true' : undefined}
+            >
+              <SelectValue
+                placeholder={
+                  addressTypesLoading
+                    ? t('customers.people.detail.addresses.types.loading', 'Loading…')
+                    : t('customers.people.detail.addresses.types.placeholder', 'Address type')
+                }
+              />
+            </SelectTrigger>
+            <SelectContent>
+              {addressTypes.map((entry) => (
+                <SelectItem key={entry.value} value={entry.value}>
+                  {entry.label}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
           <Dialog open={typeDialogOpen} onOpenChange={setTypeDialogOpen}>
             <DialogTrigger asChild>
               <Button type="button" variant="outline" size="icon" className="shrink-0" disabled={disabled}>

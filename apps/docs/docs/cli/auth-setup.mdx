@@ -9,10 +9,10 @@ description: Creates a tenant, organization, and seed users with optional derive
 ## Usage
 
 ```bash
-yarn mercato auth setup --orgName "<organization>" --email "<superadmin@email>" --password "<password>" [--roles superadmin,admin,employee] [--skip-password-policy]
+yarn mercato auth setup --orgName "<organization>" --email "<superadmin@email>" --password "<password>" [--orgSlug <slug>] [--roles superadmin,admin,employee] [--skip-password-policy] [--with-examples] [--json]
 ```
 
-Aliases: `--name` for `--orgName`.
+Aliases: `--name` for `--orgName`. `--slug` for `--orgSlug`.
 
 ## Options
 
@@ -21,8 +21,11 @@ Aliases: `--name` for `--orgName`.
 | `--orgName`, `--name` | Organization display name. A tenant named `<orgName> Tenant` is created alongside it. | _(required)_ |
 | `--email` | Primary superadmin email. If the local part is exactly `superadmin`, additional `admin@…` and `employee@…` users are derived automatically. | _(required)_ |
 | `--password` | Password applied to all seeded users. | _(required)_ |
+| `--orgSlug`, `--slug` | Optional slug persisted on the new organization. Triggers a best-effort uniqueness pre-check via `findOneWithDecryption(Organization, { slug })`: the DB unique constraint is per-tenant (`(tenant_id, slug)`), so the pre-check is race-safe within a tenant and advisory across tenants — two concurrent invocations could both pass and yield two organizations sharing the slug in different tenants. Also forces a fresh-tenant signal: an existing user with `--email` aborts with a clear error rather than silently reusing the foreign tenant. Format: lowercase, digits, dashes (1–63 chars; cannot start or end with a dash). | _(unset)_ |
 | `--roles` | Comma-separated list of roles to ensure exist before assignment. | `superadmin,admin,employee` |
 | `--skip-password-policy` | Skip password policy validation (useful for demo defaults like `secret`). | off |
+| `--with-examples` | After tenant creation, run every enabled module's `seedExamples` lifecycle hook (mirrors `mercato init`'s opt-out example data, but opt-in here so production callers don't accidentally seed demo data). | off |
+| `--json` | Suppress banners/progress on stdout and emit a single JSON line at the end with `tenantId`, `organizationId`, `adminUserId`, `adminEmail`, and `reusedExistingUser`. Sets `OM_CLI_QUIET=1` automatically and silences `console.log`/`console.info` for the duration so consumers can pipe directly into `jq`. | off |
 
 ## Behavior
 
@@ -59,6 +62,35 @@ Created user admin@acme.dev password: ChangeMe123
 Created user employee@acme.dev password: ChangeMe123
 Setup complete: { tenantId: '...', organizationId: '...' }
 ```
+
+### Scriptable provisioning (`--orgSlug` + `--json`)
+
+For staging seeding loops, sales-engineering demo provisioning, customer onboarding, or DR restores, combine `--orgSlug` with `--json` to get a single-line JSON contract on stdout:
+
+```bash
+TENANT=$(yarn mercato auth setup \
+  --orgName "Acme HQ" \
+  --orgSlug acme-staging-42 \
+  --email admin@acme.test \
+  --password ChangeMe123 \
+  --skip-password-policy \
+  --with-examples \
+  --json)
+
+echo "$TENANT" | jq -r .tenantId
+```
+
+Output:
+
+```json
+{"tenantId":"...","organizationId":"...","adminUserId":"...","adminEmail":"admin@acme.test","reusedExistingUser":false}
+```
+
+When `--orgSlug` collides with an existing organization slug, the command exits 1 and writes `ORG_SLUG_EXISTS: an organization with slug "<slug>" already exists` to stderr instead of clobbering the existing org. When `--orgSlug` is set and `--email` matches an existing user, the command exits 1 with `Setup aborted: user already exists with the provided email.` rather than silently reusing the foreign tenant.
+
+:::caution Slug uniqueness scope
+The pre-check is a best-effort guard, not a global uniqueness contract. The underlying DB constraint on `organizations` is `(tenant_id, slug)` (per-tenant), so two concurrent `mercato auth setup --orgSlug=foo` invocations creating new tenants can both pass the application-level check and both succeed — the end state is two organizations sharing the slug in different tenants. For a one-time bootstrap this race is unlikely, but downstream tooling that depends on the slug as a stable cross-tenant handle should either (a) serialize provisioning or (b) add a partial unique index on `slug` alone in a follow-up migration.
+:::
 
 ## Troubleshooting
 

@@ -12,6 +12,7 @@ const testModules: Module[] = [
   { id: 'query_index', setup: { defaultRoleFeatures: { admin: ['query_index.*'] } } },
   { id: 'configs', setup: { defaultRoleFeatures: { admin: ['configs.system_status.view', 'configs.cache.view', 'configs.cache.manage', 'configs.manage'] } } },
   { id: 'directory', setup: { defaultRoleFeatures: { superadmin: ['directory.tenants.*'], admin: ['directory.organizations.view', 'directory.organizations.manage'] } } },
+  { id: 'notifications', setup: { defaultRoleFeatures: { superadmin: ['notifications.*'], admin: ['notifications.*'], employee: ['notifications.view'] } } },
   { id: 'customers', setup: { defaultRoleFeatures: { admin: ['customers.*', 'customers.people.view', 'customers.people.manage', 'customers.companies.view', 'customers.companies.manage', 'customers.deals.view', 'customers.deals.manage'], employee: ['customers.*', 'customers.people.view', 'customers.people.manage', 'customers.companies.view', 'customers.companies.manage'] } } },
   { id: 'catalog', setup: { defaultRoleFeatures: { admin: ['catalog.*', 'catalog.variants.manage', 'catalog.pricing.manage'], employee: ['catalog.*', 'catalog.variants.manage', 'catalog.pricing.manage'] } } },
   { id: 'sales', setup: { defaultRoleFeatures: { admin: ['sales.*'], employee: ['sales.*'] } } },
@@ -34,8 +35,10 @@ const testModules: Module[] = [
 registerModules(testModules)
 registerCliModules(testModules)
 
-// Mock DI container and EM
-const persistAndFlush = jest.fn()
+// Mock DI container and EM.
+// persistedEntities mirrors every entity passed through em.persist(x).flush()
+// so tests can assert against persisted payloads.
+const persistedEntities: any[] = []
 const findOne = jest.fn()
 const findOneOrFail = jest.fn()
 const create = jest.fn((entity: any, data: any) => {
@@ -44,12 +47,15 @@ const create = jest.fn((entity: any, data: any) => {
   return { ...data }
 })
 const find = jest.fn(async () => [])
-const persist = jest.fn()
-const flush = jest.fn()
+const persist = jest.fn(function persist(this: any, entity: any) {
+  persistedEntities.push(entity)
+  return this
+})
+const flush = jest.fn(async () => {})
 
 jest.mock('@open-mercato/shared/lib/di/container', () => ({
   createRequestContainer: async () => ({ resolve: (_: string) => {
-    const baseEm = { persistAndFlush, findOne, findOneOrFail, create, find, persist, flush }
+    const baseEm = { findOne, findOneOrFail, create, find, persist, flush }
     return {
       ...baseEm,
       transactional: async (cb: (tem: any) => any) => {
@@ -81,8 +87,8 @@ describe('auth CLI setup seeds ACLs', () => {
     // Act
     await setup.run(['--orgName', 'Acme', '--email', 'root@acme.com', '--password', 'secret', '--skip-password-policy'])
 
-    // Assert: persistAndFlush was called to create three RoleAcl rows with expected flags/features
-    const calls = persistAndFlush.mock.calls.map((c) => c[0])
+    // Assert: persist() was called to create three RoleAcl rows with expected flags/features
+    const calls = persistedEntities.slice()
     const roleAclCreates = calls.filter((row) => 'tenantId' in row && ('isSuperAdmin' in row || Array.isArray(row.featuresJson)))
     const superadminAcl = roleAclCreates.find((row) => row.isSuperAdmin === true)
     expect(superadminAcl).toBeDefined()
@@ -105,6 +111,7 @@ describe('auth CLI setup seeds ACLs', () => {
       'configs.manage',
       'directory.organizations.manage',
       'directory.organizations.view',
+      'notifications.*',
       'customers.*',
       'customers.people.view',
       'customers.people.manage',
@@ -140,6 +147,7 @@ describe('auth CLI setup seeds ACLs', () => {
       'dashboards.view',
       'dashboards.configure',
       'audit_logs.undo_self',
+      'notifications.view',
       'perspectives.use',
       'translations.view',
       'translations.manage',

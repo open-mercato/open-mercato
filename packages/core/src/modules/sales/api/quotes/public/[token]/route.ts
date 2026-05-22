@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 import { z } from "zod";
 import { createRequestContainer } from "@open-mercato/shared/lib/di/container";
 import { resolveTranslations } from "@open-mercato/shared/lib/i18n/server";
-import { CrudHttpError } from "@open-mercato/shared/lib/crud/errors";
+import { CrudHttpError, isCrudHttpError } from "@open-mercato/shared/lib/crud/errors";
 import type { OpenApiRouteDoc } from "@open-mercato/shared/lib/openapi";
 import type { EntityManager } from "@mikro-orm/postgresql";
 import { findOneWithDecryption, findWithDecryption } from "@open-mercato/shared/lib/encryption/find";
@@ -138,7 +138,7 @@ export async function GET(req: Request, ctx: { params: { token: string } }) {
       isExpired,
     });
   } catch (err) {
-    if (err instanceof CrudHttpError) {
+    if (isCrudHttpError(err)) {
       return NextResponse.json(err.body, { status: err.status });
     }
     const { translate } = await resolveTranslations();

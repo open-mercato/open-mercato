@@ -3,6 +3,7 @@ import { User, UserRole, RoleAcl, UserAcl, Role } from '@open-mercato/core/modul
 import { ApiKey } from '@open-mercato/core/modules/api_keys/data/entities'
 import { createMemoryStrategy } from '@open-mercato/cache'
 import type { CacheStrategy } from '@open-mercato/cache'
+import * as enabledModulesRegistry from '@open-mercato/shared/security/enabledModulesRegistry'
 
 // Minimal mock of MikroORM EntityManager surface used by RbacService
 type MockEm = {
@@ -41,6 +42,10 @@ describe('RbacService', () => {
     cache = createMemoryStrategy()
     service = new RbacService(em as any, cache)
     jest.clearAllMocks()
+  })
+
+  afterEach(() => {
+    jest.restoreAllMocks()
   })
 
   describe('loadAcl', () => {
@@ -171,6 +176,42 @@ describe('RbacService', () => {
       expect(ok).toBe(true)
     })
 
+    it('returns false for super admin when the required feature belongs to a disabled module', async () => {
+      jest.spyOn(enabledModulesRegistry, 'getEnabledModuleIds').mockReturnValue(['auth'])
+
+      em.findOne.mockImplementation(async (entity: any, where: any) => {
+        if (entity === User && where?.id === baseUser.id) return baseUser
+        if (entity === UserAcl && where?.user === baseUser.id && where?.tenantId === baseUser.tenantId) {
+          const uacl: Partial<UserAcl> = { isSuperAdmin: true, featuresJson: [] }
+          return uacl
+        }
+        return null
+      })
+
+      const ok = await service.userHasAllFeatures(baseUser.id!, ['search.global'], { tenantId: null, organizationId: null })
+      expect(ok).toBe(false)
+    })
+
+    it('keeps the super admin organization bypass while still enforcing enabled modules', async () => {
+      jest.spyOn(enabledModulesRegistry, 'getEnabledModuleIds').mockReturnValue(['auth'])
+
+      em.findOne.mockImplementation(async (entity: any, where: any) => {
+        if (entity === User && where?.id === baseUser.id) return baseUser
+        if (entity === UserAcl && where?.user === baseUser.id && where?.tenantId === baseUser.tenantId) {
+          const uacl: Partial<UserAcl> = {
+            isSuperAdmin: true,
+            featuresJson: [],
+            organizationsJson: ['org-2'],
+          }
+          return uacl
+        }
+        return null
+      })
+
+      const ok = await service.userHasAllFeatures(baseUser.id!, ['auth.users.list'], { tenantId: null, organizationId: 'org-1' })
+      expect(ok).toBe(true)
+    })
+
     it('checks wildcard "*" grants all', async () => {
       em.findOne.mockImplementation(async (entity: any, where: any) => {
         if (entity === User && where?.id === baseUser.id) return baseUser
@@ -222,6 +263,32 @@ describe('RbacService', () => {
 
       const ok = await service.userHasAllFeatures(baseUser.id!, ['entities.records.view'], { tenantId: null, organizationId: 'org-2' })
       expect(ok).toBe(false)
+    })
+
+    it('drops grants from disabled modules before evaluating non-superadmin permissions', async () => {
+      jest
+        .spyOn(enabledModulesRegistry, 'filterGrantsByEnabledModules')
+        .mockImplementation((granted) => granted.filter((feature) => !feature.startsWith('search.')))
+
+      em.findOne.mockImplementation(async (entity: any, where: any) => {
+        if (entity === User && where?.id === baseUser.id) return baseUser
+        if (entity === UserAcl && where?.user === baseUser.id && where?.tenantId === baseUser.tenantId) {
+          const uacl: Partial<UserAcl> = {
+            isSuperAdmin: false,
+            featuresJson: ['auth.*', 'search.global'],
+            organizationsJson: null,
+          }
+          return uacl
+        }
+        return null
+      })
+
+      const canUseAuth = await service.userHasAllFeatures(baseUser.id!, ['auth.users.list'], { tenantId: null, organizationId: null })
+      const canUseSearch = await service.userHasAllFeatures(baseUser.id!, ['search.global'], { tenantId: null, organizationId: null })
+
+      expect(canUseAuth).toBe(true)
+      expect(canUseSearch).toBe(false)
+      expect(enabledModulesRegistry.filterGrantsByEnabledModules).toHaveBeenCalledWith(['auth.*', 'search.global'])
     })
 
     it('ignores organization restriction when any role grants all-org visibility (organizations=null)', async () => {

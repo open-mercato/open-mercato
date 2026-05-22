@@ -48,7 +48,7 @@ export function GlobalSearchSection({
               checked={strategies.has('fulltext')}
               onChange={() => onToggleStrategy('fulltext')}
               disabled={saving || (strategies.has('fulltext') && strategies.size === 1)}
-              className="mt-1 h-4 w-4 rounded border-gray-300 text-primary focus:ring-primary"
+              className="mt-1 h-4 w-4 rounded border-gray-300 text-primary focus-visible:ring-ring"
             />
             <div className="flex-1">
               <div className="flex items-center gap-2">
@@ -76,7 +76,7 @@ export function GlobalSearchSection({
               checked={strategies.has('vector')}
               onChange={() => onToggleStrategy('vector')}
               disabled={saving || (strategies.has('vector') && strategies.size === 1)}
-              className="mt-1 h-4 w-4 rounded border-gray-300 text-primary focus:ring-primary"
+              className="mt-1 h-4 w-4 rounded border-gray-300 text-primary focus-visible:ring-ring"
             />
             <div className="flex-1">
               <div className="flex items-center gap-2">
@@ -104,7 +104,7 @@ export function GlobalSearchSection({
               checked={strategies.has('tokens')}
               onChange={() => onToggleStrategy('tokens')}
               disabled={saving || (strategies.has('tokens') && strategies.size === 1)}
-              className="mt-1 h-4 w-4 rounded border-gray-300 text-primary focus:ring-primary"
+              className="mt-1 h-4 w-4 rounded border-gray-300 text-primary focus-visible:ring-ring"
             />
             <div className="flex-1">
               <span className="font-medium">

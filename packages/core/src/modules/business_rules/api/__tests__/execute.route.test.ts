@@ -112,7 +112,7 @@ describe('Business Rules API - Execute Endpoint', () => {
 
       mockEm.find.mockResolvedValue([mockRule])
       mockEm.create.mockReturnValue({})
-      mockEm.persistAndFlush.mockResolvedValue(undefined)
+      mockEm.flush.mockResolvedValue(undefined)
 
       const request = new Request('http://localhost:3000/api/business_rules/execute', {
         method: 'POST',
@@ -169,7 +169,7 @@ describe('Business Rules API - Execute Endpoint', () => {
       const body = await response.json()
       expect(body.allowed).toBeDefined()
       expect(body.executedRules).toBeDefined()
-      expect(mockEm.persistAndFlush).not.toHaveBeenCalled()
+      expect(mockEm.flush).not.toHaveBeenCalled()
     })
 
     test('should handle execution with multiple rules', async () => {
@@ -212,7 +212,7 @@ describe('Business Rules API - Execute Endpoint', () => {
 
       mockEm.find.mockResolvedValue(mockRules)
       mockEm.create.mockReturnValue({})
-      mockEm.persistAndFlush.mockResolvedValue(undefined)
+      mockEm.flush.mockResolvedValue(undefined)
 
       const request = new Request('http://localhost:3000/api/business_rules/execute', {
         method: 'POST',
@@ -286,7 +286,7 @@ describe('Business Rules API - Execute Endpoint', () => {
 
       mockEm.find.mockResolvedValue([mockRule])
       mockEm.create.mockReturnValue({})
-      mockEm.persistAndFlush.mockResolvedValue(undefined)
+      mockEm.flush.mockResolvedValue(undefined)
 
       const request = new Request('http://localhost:3000/api/business_rules/execute', {
         method: 'POST',

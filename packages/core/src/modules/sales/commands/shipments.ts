@@ -629,6 +629,24 @@ const updateShipmentCommand: CommandHandler<ShipmentUpdateInput, { shipmentId: s
       if (input.orderId && input.orderId !== order.id) {
         throw new CrudHttpError(400, { error: 'sales.shipments.invalid_order' })
       }
+
+      // Check if order is financially closed - prevent modifications to shipments
+      const paidAmount = parseFloat(order.paidTotalAmount || '0')
+      const refundedAmount = parseFloat(order.refundedTotalAmount || '0')
+      const grandTotal = parseFloat(order.grandTotalGrossAmount || '0')
+      const tolerance = 1e-4 // Tolerance for floating-point comparisons
+
+      // Check for full refund first (higher priority than payment)
+      const isFullyRefunded = refundedAmount >= grandTotal - tolerance
+      if (isFullyRefunded) {
+        throw new CrudHttpError(422, { error: translate('sales.shipments.fully_returned', 'Cannot modify shipment: order is fully returned') })
+      }
+
+      // Check for completed payment
+      const isFullyPaid = paidAmount >= grandTotal - tolerance
+      if (isFullyPaid) {
+        throw new CrudHttpError(422, { error: translate('sales.shipments.payment_completed', 'Cannot modify shipment: order payment is completed') })
+      }
       const validatedItems = input.items
         ? await validateShipmentItems({
             em: tx,

@@ -1,4 +1,4 @@
-import { Entity, PrimaryKey, Property, Unique } from '@mikro-orm/core'
+import { Entity, PrimaryKey, Property, Unique } from '@mikro-orm/decorators/legacy'
 
 type OnboardingStatus = 'pending' | 'processing' | 'completed' | 'expired'
 

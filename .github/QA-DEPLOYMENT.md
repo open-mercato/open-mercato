@@ -9,7 +9,7 @@ This guide explains how to deploy a branch to a QA environment and what to expec
 There are two ways to get a QA environment:
 
 1. **Dynamic preview deployments** — automatic, per-PR environments for core contributors (described below).
-2. **Slot-based deployments** — manual, shared `qa1`/`qa2` environments available to anyone (described further down).
+2. **Slot-based deployments** — manual, shared `qa1`/`qa2`/`qa3`/`qa4` environments available to anyone (described further down).
 
 ---
 
@@ -45,12 +45,14 @@ The URL is posted as a comment on the PR once the environment is ready.
 
 ## Slot-Based Deployments
 
-There are two named QA slots: **qa1** and **qa2**. Each slot is a long-lived environment with a fixed URL. A slot runs one deployment at a time — deploying to a slot replaces whatever was there before.
+There are four named QA slots: **qa1**, **qa2**, **qa3**, and **qa4**. Each slot is a long-lived environment with a fixed URL. A slot runs one deployment at a time — deploying to a slot replaces whatever was there before.
 
 | Slot | URL |
 |------|-----|
 | qa1 | https://qa1.openmercato.com/backend |
 | qa2 | https://qa2.openmercato.com/backend |
+| qa3 | https://qa3.openmercato.com/backend |
+| qa4 | https://qa4.openmercato.com/backend |
 
 Each deployment spins up a **fresh database** seeded with demo data. There is no persistent state between deployments.
 
@@ -65,7 +67,7 @@ Each deployment spins up a **fresh database** seeded with demo data. There is no
 
    | Field | Required | What to enter |
    |-------|----------|---------------|
-   | **QA slot** | Yes | `qa1` or `qa2` |
+   | **QA slot** | Yes | `qa1`, `qa2`, `qa3`, or `qa4` |
    | **Branch** | Yes | The branch name you want to test (e.g. `feat/my-feature`) |
    | **PR number** | No | The PR number associated with this branch (e.g. `123`). If provided, the workflow will label the PR and post a comment with the deployment details. |
 
@@ -121,13 +123,13 @@ Do not use a QA slot to store test data you need to keep — it will be gone on 
 
 When a PR that was deployed to a slot is **closed** (merged or abandoned), a workflow runs automatically to stop the slot:
 
-1. It detects the `qa:qa1` or `qa:qa2` label on the closed PR.
+1. It detects the `qa:qa1`, `qa:qa2`, `qa:qa3`, or `qa:qa4` label on the closed PR.
 2. It checks whether the slot is still running the image that was deployed for this PR.
 3. If yes — it stops the slot.
 4. If the slot has since been redeployed for a different PR — it skips the stop to avoid interrupting an active session.
 
 **The slot is not stopped automatically if:**
-- The PR was not associated with a deployment (no PR number was entered when triggering the workflow, so no `qa:qa1`/`qa:qa2` label was added).
+- The PR was not associated with a deployment (no PR number was entered when triggering the workflow, so no `qa:qa1`/`qa:qa2`/`qa:qa3`/`qa:qa4` label was added).
 
 In that case, contact a developer or DevOps to stop the slot manually.
 
@@ -202,4 +204,4 @@ For detailed deployment logs, ask a developer with Dokploy access.
 | Workflow succeeds but URL does not load after 20 min | Startup error inside the container | Ask a developer to check Dokploy logs |
 | "Slot queued" — workflow does not start immediately | Another deployment to the same slot is in progress | Wait for the current run to finish; yours starts automatically |
 | URL loads stale content after deployment | Browser cache | Hard-refresh (`Cmd+Shift+R` / `Ctrl+Shift+R`) or open in a private window |
-| PR has no `qa:qa1` label after deployment | PR number was not entered when triggering | The slot is deployed but not linked to the PR; auto-stop on merge will not fire |
+| PR has no `qa:qa*` label after deployment | PR number was not entered when triggering | The slot is deployed but not linked to the PR; auto-stop on merge will not fire |

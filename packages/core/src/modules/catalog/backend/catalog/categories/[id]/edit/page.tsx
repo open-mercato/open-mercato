@@ -8,6 +8,7 @@ import { updateCrud, deleteCrud } from '@open-mercato/ui/backend/utils/crud'
 import { createCrudFormError } from '@open-mercato/ui/backend/utils/serverErrors'
 import { collectCustomFieldValues } from '@open-mercato/ui/backend/utils/customFieldValues'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
+import { extractCustomFieldEntries } from '@open-mercato/shared/lib/crud/custom-fields-client'
 import { E } from '#generated/entities.ids.generated'
 import { CategorySelect } from '../../../../../components/categories/CategorySelect'
 import { CategorySlugFieldSync } from '../../../../../components/categories/CategorySlugFieldSync'
@@ -95,11 +96,7 @@ export default function EditCatalogCategoryPage({ params }: { params?: { id?: st
         const record = Array.isArray(result?.items) ? result.items?.[0] : null
         if (!record) throw new Error(t('catalog.categories.form.errors.notFound', 'Category not found'))
         if (cancelled) return
-        const customValues: Record<string, unknown> = {}
-        for (const [key, value] of Object.entries(record as Record<string, unknown>)) {
-          if (key.startsWith('cf_')) customValues[key] = value
-          else if (key.startsWith('cf:')) customValues[`cf_${key.slice(3)}`] = value
-        }
+        const customValues = extractCustomFieldEntries(record as Record<string, unknown>)
         setInitialValues({
           id: record.id,
           name: record.name,

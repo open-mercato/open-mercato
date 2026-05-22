@@ -2,9 +2,7 @@ import Link from 'next/link'
 import { Page, PageBody } from '@open-mercato/ui/backend/Page'
 import { Button } from '@open-mercato/ui/primitives/button'
 import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
-import DictionarySettings from '../../../components/DictionarySettings'
-import AddressFormatSettings from '../../../components/AddressFormatSettings'
-import PipelineSettings from '../../../components/PipelineSettings'
+import CustomersConfigurationSections from '../../../components/CustomersConfigurationSections'
 
 export default async function CustomersConfigurationPage({
   searchParams,
@@ -27,9 +25,7 @@ export default async function CustomersConfigurationPage({
               </Link>
             </Button>
           ) : null}
-          <AddressFormatSettings />
-          <PipelineSettings />
-          <DictionarySettings />
+          <CustomersConfigurationSections />
         </div>
       </PageBody>
     </Page>

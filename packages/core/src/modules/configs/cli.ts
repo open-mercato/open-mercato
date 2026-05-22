@@ -12,6 +12,7 @@ import {
   previewCachePurge,
   type CachePurgeRequest,
 } from './lib/cache-cli'
+import { touchGeneratedBarrels } from './lib/touchGeneratedBarrels'
 
 type ParsedArgs = Record<string, string | boolean>
 
@@ -256,10 +257,22 @@ async function runStructuralCachePurge(args: ParsedArgs) {
     pattern: 'nav:*',
   }
   await runCachePurge(nextArgs)
+  const quiet = flagEnabled(args, 'quiet')
+  try {
+    touchGeneratedBarrels({ quiet })
+  } catch (err) {
+    if (!quiet) {
+      console.warn(
+        `[structural] failed to touch generated barrels: ${(err as Error).message ?? err}`,
+      )
+    }
+  }
 }
 
 function envDisablesAutoIndexing(): boolean {
-  const raw = process.env.DISABLE_VECTOR_SEARCH_AUTOINDEXING
+  const raw =
+    process.env.OM_DISABLE_VECTOR_SEARCH_AUTOINDEXING ??
+    process.env.DISABLE_VECTOR_SEARCH_AUTOINDEXING
   if (!raw) return false
   return parseBooleanToken(raw) === true
 }
@@ -296,7 +309,9 @@ const restoreDefaults: ModuleCli = {
       )
       console.log(
         `[configs] Vector auto-indexing default set to ${defaultEnabled ? 'enabled' : 'disabled'}${
-          disabledByEnv ? ' (forced by DISABLE_VECTOR_SEARCH_AUTOINDEXING)' : ''
+          disabledByEnv
+            ? ' (forced by OM_DISABLE_VECTOR_SEARCH_AUTOINDEXING or legacy DISABLE_VECTOR_SEARCH_AUTOINDEXING)'
+            : ''
         }.`,
       )
     } finally {

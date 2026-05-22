@@ -65,10 +65,9 @@ export function FormActionButtons({
       {showDelete ? (
         <Button
           type="button"
-          variant="outline"
+          variant="destructive-outline"
           onClick={onDelete}
           disabled={isDeleting}
-          className="text-red-600 border-red-200 hover:bg-red-50 rounded"
         >
           {isDeleting ? (
             <Loader2 className="size-4 mr-2 animate-spin" />
@@ -79,9 +78,9 @@ export function FormActionButtons({
         </Button>
       ) : null}
       {cancelHref ? (
-        <Link href={cancelHref} className="h-9 inline-flex items-center rounded border px-3 text-sm">
-          {resolvedCancelLabel}
-        </Link>
+        <Button asChild variant="outline">
+          <Link href={cancelHref}>{resolvedCancelLabel}</Link>
+        </Button>
       ) : null}
       {submit ? (
         <Button

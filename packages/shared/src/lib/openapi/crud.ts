@@ -1,5 +1,5 @@
 import { z, type ZodTypeAny } from 'zod'
-import type { OpenApiRouteDoc } from './types'
+import type { OpenApiResponseDoc, OpenApiRouteDoc } from './types'
 
 export const defaultCreateResponseSchema = z.object({ id: z.string().uuid().nullable() })
 export const defaultOkResponseSchema = z.object({ ok: z.literal(true) })
@@ -34,6 +34,7 @@ type CrudDeleteConfig = {
   schema?: ZodTypeAny
   description?: string
   responseSchema?: ZodTypeAny
+  errors?: OpenApiResponseDoc[]
 }
 
 export type CrudOpenApiOptions = {
@@ -217,6 +218,7 @@ export function createCrudOpenApiFactory(config: CrudOpenApiFactoryConfig) {
             schema: del.responseSchema ?? fallbackOkResponseSchema,
           },
         ],
+        ...(del.errors && del.errors.length > 0 ? { errors: del.errors } : {}),
       }
     }
 

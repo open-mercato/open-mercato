@@ -4,6 +4,14 @@ import * as React from 'react'
 import Link from 'next/link'
 import type { DashboardWidgetComponentProps } from '@open-mercato/shared/modules/dashboard/widgets'
 import { apiCall } from '@open-mercato/ui/backend/utils/apiCall'
+import { Input } from '@open-mercato/ui/primitives/input'
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@open-mercato/ui/primitives/select'
 import { Spinner } from '@open-mercato/ui/primitives/spinner'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 import {
@@ -121,12 +129,12 @@ const CustomerNewCustomersWidget: React.FC<DashboardWidgetComponentProps<Custome
           <label htmlFor="customer-new-customers-page-size" className="text-xs font-semibold uppercase text-muted-foreground">
             {t('customers.widgets.newCustomers.settings.pageSize')}
           </label>
-          <input
+          <Input
             id="customer-new-customers-page-size"
             type="number"
             min={1}
             max={20}
-            className="w-24 rounded-md border px-2 py-1 text-sm focus:border-primary focus:outline-none focus:ring-1 focus:ring-primary"
+            className="w-24"
             value={hydrated.pageSize}
             onChange={(event) => {
               const next = Number(event.target.value)
@@ -138,21 +146,23 @@ const CustomerNewCustomersWidget: React.FC<DashboardWidgetComponentProps<Custome
           <label htmlFor="customer-new-customers-kind" className="text-xs font-semibold uppercase text-muted-foreground">
             {t('customers.widgets.newCustomers.settings.kind')}
           </label>
-          <select
-            id="customer-new-customers-kind"
-            className="w-full rounded-md border px-2 py-1 text-sm focus:border-primary focus:outline-none focus:ring-1 focus:ring-primary"
+          <Select
             value={hydrated.kind}
-            onChange={(event) => {
-              const value = event.target.value
+            onValueChange={(value) => {
               if (value === 'person' || value === 'company' || value === 'all') {
                 onSettingsChange({ ...hydrated, kind: value })
               }
             }}
           >
-            <option value="all">{t('customers.widgets.newCustomers.filters.all')}</option>
-            <option value="person">{t('customers.widgets.newCustomers.filters.person')}</option>
-            <option value="company">{t('customers.widgets.newCustomers.filters.company')}</option>
-          </select>
+            <SelectTrigger id="customer-new-customers-kind" size="sm">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="all">{t('customers.widgets.newCustomers.filters.all')}</SelectItem>
+              <SelectItem value="person">{t('customers.widgets.newCustomers.filters.person')}</SelectItem>
+              <SelectItem value="company">{t('customers.widgets.newCustomers.filters.company')}</SelectItem>
+            </SelectContent>
+          </Select>
         </div>
       </div>
     )

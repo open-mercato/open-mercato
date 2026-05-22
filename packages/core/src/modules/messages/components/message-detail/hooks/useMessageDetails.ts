@@ -23,8 +23,9 @@ export function useMessageDetails(id: string) {
     queryClient,
   })
 
-  const invalidateDetailQueries = React.useCallback(
+  const invalidateMessageQueries = React.useCallback(
     (payload: Record<string, unknown>) => {
+      void queryClient.invalidateQueries({ queryKey: ['messages', 'list'] })
       void queryClient.invalidateQueries({ queryKey: ['messages', 'detail', id] })
       const messageId = typeof payload.messageId === 'string' ? payload.messageId : null
       if (messageId && messageId !== id) {
@@ -37,9 +38,9 @@ export function useMessageDetails(id: string) {
   useAppEvent(
     'messages.message.*',
     (evt) => {
-      invalidateDetailQueries((evt.payload ?? {}) as Record<string, unknown>)
+      invalidateMessageQueries((evt.payload ?? {}) as Record<string, unknown>)
     },
-    [invalidateDetailQueries],
+    [invalidateMessageQueries],
   )
 
   useAppEvent(

@@ -4,7 +4,7 @@ import type { CrudCustomFieldRenderProps, CrudField, CrudFieldOption, CrudFormGr
 import { JsonBuilder } from '@open-mercato/ui/backend/JsonBuilder'
 import { createCrudFormError } from '@open-mercato/ui/backend/utils/serverErrors'
 import { apiCall } from '@open-mercato/ui/backend/utils/apiCall'
-import { Notice } from '@open-mercato/ui/primitives/Notice'
+import { Alert, AlertDescription, AlertTitle } from '@open-mercato/ui/primitives/alert'
 import { useT, type TranslateFn } from '@open-mercato/shared/lib/i18n/context'
 
 export type WebhookFormValues = {
@@ -136,21 +136,33 @@ export function buildWebhookFormGroups(t: TranslateFn): CrudFormGroup[] {
       id: 'events',
       title: t('webhooks.form.group.events'),
       column: 1,
-      component: () => <Notice compact>{t('webhooks.form.eventsPatternTip')}</Notice>,
+      component: () => (
+        <Alert variant="info">
+          <AlertDescription>{t('webhooks.form.eventsPatternTip')}</AlertDescription>
+        </Alert>
+      ),
       fields: ['subscribedEvents'],
     },
     {
       id: 'delivery',
       title: t('webhooks.form.group.delivery'),
       column: 2,
-      component: () => <Notice compact>{t('webhooks.form.deliveryDefaultsTip')}</Notice>,
+      component: () => (
+        <Alert variant="info">
+          <AlertDescription>{t('webhooks.form.deliveryDefaultsTip')}</AlertDescription>
+        </Alert>
+      ),
       fields: ['maxRetries', 'timeoutMs', 'rateLimitPerMinute', 'autoDisableThreshold'],
     },
     {
       id: 'advanced',
       title: t('webhooks.form.group.advanced'),
       column: 2,
-      component: () => <Notice compact>{t('webhooks.form.advancedStrategyTip')}</Notice>,
+      component: () => (
+        <Alert variant="info">
+          <AlertDescription>{t('webhooks.form.advancedStrategyTip')}</AlertDescription>
+        </Alert>
+      ),
       fields: ['customHeaders'],
     },
   ]
@@ -215,8 +227,14 @@ export function normalizeWebhookFormPayload(values: WebhookFormValues, t: Transl
 export function buildWebhookFormContentHeader(t: TranslateFn) {
   return (
     <div className="grid gap-3 lg:grid-cols-2">
-      <Notice title={t('webhooks.form.guidanceTitle')} message={t('webhooks.form.guidanceBody')} />
-      <Notice variant="warning" title={t('webhooks.form.guidanceSecurityTitle')} message={t('webhooks.form.guidanceSecurityBody')} />
+      <Alert variant="info">
+        <AlertTitle>{t('webhooks.form.guidanceTitle')}</AlertTitle>
+        <AlertDescription>{t('webhooks.form.guidanceBody')}</AlertDescription>
+      </Alert>
+      <Alert variant="warning">
+        <AlertTitle>{t('webhooks.form.guidanceSecurityTitle')}</AlertTitle>
+        <AlertDescription>{t('webhooks.form.guidanceSecurityBody')}</AlertDescription>
+      </Alert>
     </div>
   )
 }
@@ -227,7 +245,9 @@ function WebhookCustomHeadersField(props: CrudCustomFieldRenderProps) {
 
   return (
     <div className="space-y-3">
-      <Notice compact>{t('webhooks.form.customHeadersTip')}</Notice>
+      <Alert variant="info">
+        <AlertDescription>{t('webhooks.form.customHeadersTip')}</AlertDescription>
+      </Alert>
       <JsonBuilder
         value={value}
         onChange={(nextValue) => {

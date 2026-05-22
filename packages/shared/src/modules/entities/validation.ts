@@ -1,4 +1,8 @@
 import { z } from 'zod'
+import { testLinearRegex } from '../../lib/regex/linear'
+
+export const MAX_CUSTOM_FIELD_REGEX_PATTERN_LENGTH = 500
+export const MAX_CUSTOM_FIELD_REGEX_INPUT_LENGTH = 10_000
 
 // Supported rule types for custom fields validation
 export const VALIDATION_RULES = [
@@ -28,7 +32,11 @@ export const validationRuleSchema = z.discriminatedUnion('rule', [
   z.object({ rule: z.literal('gte'), param: z.number(), message: z.string().min(1) }),
   z.object({ rule: z.literal('eq'), param: z.any(), message: z.string().min(1) }),
   z.object({ rule: z.literal('ne'), param: z.any(), message: z.string().min(1) }),
-  z.object({ rule: z.literal('regex'), param: z.string().min(1), message: z.string().min(1) }),
+  z.object({
+    rule: z.literal('regex'),
+    param: z.string().min(1),
+    message: z.string().min(1),
+  }),
 ])
 
 export type ValidationRule = z.infer<typeof validationRuleSchema>
@@ -83,13 +91,11 @@ function evalRule(rule: ValidationRule, value: any, kind: string): string | null
       return value !== (rule as any).param ? null : rule.message
     case 'regex':
       if (isEmpty(value)) return null
-      try {
-        const re = new RegExp((rule as any).param)
-        return re.test(String(value)) ? null : rule.message
-      } catch {
-        // Invalid regex in definition: consider it failed safe and return message
-        return rule.message
-      }
+      const regexResult = testLinearRegex(String((rule as any).param), String(value), {
+        maxPatternLength: MAX_CUSTOM_FIELD_REGEX_PATTERN_LENGTH,
+        maxInputLength: MAX_CUSTOM_FIELD_REGEX_INPUT_LENGTH,
+      })
+      return regexResult.ok && regexResult.matched ? null : rule.message
     default:
       return null
   }
@@ -115,4 +121,3 @@ export function validateValuesAgainstDefs(
   }
   return { ok: Object.keys(errors).length === 0, fieldErrors: errors }
 }
-

@@ -16,7 +16,7 @@ import {
 } from '../../data/validators'
 import { withScopedPayload } from '../utils'
 import { ensureDictionaryEntry } from '../../commands/shared'
-import { CrudHttpError } from '@open-mercato/shared/lib/crud/errors'
+import { CrudHttpError, isCrudHttpError } from '@open-mercato/shared/lib/crud/errors'
 import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
 import { serializeOperationMetadata } from '@open-mercato/shared/lib/commands/operationMetadata'
 import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
@@ -106,7 +106,7 @@ export async function GET(req: Request) {
     })
     return NextResponse.json({ items, total: items.length })
   } catch (err) {
-    if (err instanceof CrudHttpError) {
+    if (isCrudHttpError(err)) {
       return NextResponse.json(err.body, { status: err.status })
     }
     console.error('customers.pipeline-stages GET failed', err)
@@ -143,7 +143,7 @@ export async function POST(req: Request) {
     }
     return response
   } catch (err) {
-    if (err instanceof CrudHttpError) {
+    if (isCrudHttpError(err)) {
       return NextResponse.json(err.body, { status: err.status })
     }
     console.error('customers.pipeline-stages POST failed', err)
@@ -180,7 +180,7 @@ export async function PUT(req: Request) {
     }
     return response
   } catch (err) {
-    if (err instanceof CrudHttpError) {
+    if (isCrudHttpError(err)) {
       return NextResponse.json(err.body, { status: err.status })
     }
     console.error('customers.pipeline-stages PUT failed', err)
@@ -202,7 +202,7 @@ export async function DELETE(req: Request) {
     )
     return NextResponse.json({ ok: true })
   } catch (err) {
-    if (err instanceof CrudHttpError) {
+    if (isCrudHttpError(err)) {
       return NextResponse.json(err.body, { status: err.status })
     }
     console.error('customers.pipeline-stages DELETE failed', err)

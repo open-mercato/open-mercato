@@ -27,6 +27,8 @@
   "record_locks.conflict.record_deleted_description": "Ten rekord został usunięty przez innego użytkownika, gdy go edytowałeś. Zapis jest zablokowany, aby uniknąć nieoczekiwanych rezultatów.",
   "record_locks.conflict.record_deleted_title": "Rekord został usunięty",
   "record_locks.conflict.refresh_page": "Odśwież stronę",
+  "record_locks.conflict.refresh_required": "Could not confirm conflict details. Save again to refresh conflict data.",
+  "record_locks.conflict.retry_save_after_accept_mine": "Click save again to apply your changes.",
   "record_locks.conflict.title": "Wykryto konflikt",
   "record_locks.errors.acquire_failed": "Nie udało się pobrać statusu blokady rekordu.",
   "record_locks.errors.force_release_failed": "Nie udało się przejąć edycji rekordu.",

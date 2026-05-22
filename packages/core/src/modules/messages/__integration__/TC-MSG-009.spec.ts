@@ -1,4 +1,4 @@
-import { expect, test, type Page } from '@playwright/test';
+import { expect, test, type Locator, type Page } from '@playwright/test';
 import { login } from '@open-mercato/core/modules/core/__integration__/helpers/auth';
 import { apiRequest } from '@open-mercato/core/modules/core/__integration__/helpers/api';
 import {
@@ -6,6 +6,42 @@ import {
   deleteMessageIfExists,
   selectRecipientFromComposer,
 } from './helpers';
+
+/**
+ * Workaround for the DS v2 Input/Textarea primitive focus race that breaks Playwright
+ * `.fill()` on controlled CrudForm fields. Click forces focus, an explicit clear handles
+ * existing values, and `locator.fill` provides an atomic native value set plus dispatched
+ * input event so the controlled state commits deterministically.
+ *
+ * Extra safety against CI shard load (TC-MSG-009 retry trace, shard 9): explicitly wait
+ * for the input to be visible and enabled before interacting (slow renders / state-syncing
+ * mounts can leave the input temporarily blocked), follow with a hard `toHaveValue` gate
+ * extended to 60s so a busy parallel shard does not time out before React commits.
+ */
+async function safeFill(page: Page, locator: Locator, value: string): Promise<void> {
+  await expect(locator).toBeVisible({ timeout: 10_000 });
+  await expect(locator).toBeEnabled({ timeout: 10_000 });
+  await locator.fill(value);
+  if ((await locator.inputValue()) !== value) {
+    await locator.evaluate((element, nextValue) => {
+      const input = element as HTMLInputElement | HTMLTextAreaElement;
+      const prototype = input instanceof HTMLTextAreaElement
+        ? HTMLTextAreaElement.prototype
+        : HTMLInputElement.prototype;
+      const valueSetter = Object.getOwnPropertyDescriptor(prototype, 'value')?.set;
+
+      if (!valueSetter) {
+        input.value = nextValue;
+      } else {
+        valueSetter.call(input, nextValue);
+      }
+
+      input.dispatchEvent(new InputEvent('input', { bubbles: true, inputType: 'insertText', data: nextValue }));
+      input.dispatchEvent(new Event('change', { bubbles: true }));
+    }, value);
+  }
+  await expect(locator).toHaveValue(value, { timeout: 60_000 });
+}
 
 async function waitForMessageDetailReady(page: Page, subject: string): Promise<void> {
   await expect(page.getByText(/Loading message\.\.\./i)).toHaveCount(0);
@@ -35,6 +71,10 @@ async function openReplyFromHeader(page: Page): Promise<void> {
  */
 test.describe('TC-MSG-009: Message Detail Inline Reply And Forward Composer', () => {
   test('should compose inline below conversation, switch modes, close with escape, and submit forward/reply', async ({ page, request }) => {
+    // Multiple safeFill chains plus waitForResponse on submit; under CI shard 9
+    // parallel load each chain may consume ~10–80s of the default 20s budget.
+    test.setTimeout(180_000);
+
     let rootMessageId: string | null = null;
     let threadReplyMessageId: string | null = null;
     let forwardedMessageId: string | null = null;
@@ -98,7 +138,7 @@ test.describe('TC-MSG-009: Message Detail Inline Reply And Forward Composer', ()
       expect(secondForwardPreview.ok()).toBeTruthy();
 
       await selectRecipientFromComposer(page, 'employee@acme.com');
-      await page.getByPlaceholder('Review and edit forwarded content...').fill(forwardedBody);
+      await safeFill(page, page.getByPlaceholder('Review and edit forwarded content...'), forwardedBody);
 
       const forwardResponsePromise = page.waitForResponse((response) => (
         response.request().method() === 'POST'
@@ -120,7 +160,7 @@ test.describe('TC-MSG-009: Message Detail Inline Reply And Forward Composer', ()
       const inlineReplyInput = page.getByPlaceholder('Write your reply...');
       await expect(inlineReplyInput).toBeVisible();
       await expect(inlineReplyInput).toBeEnabled();
-      await inlineReplyInput.fill(inlineReplyBody);
+      await safeFill(page, inlineReplyInput, inlineReplyBody);
 
       const inlineReplyResponsePromise = page.waitForResponse((response) => {
         if (response.request().method() !== 'POST') return false;
@@ -134,7 +174,17 @@ test.describe('TC-MSG-009: Message Detail Inline Reply And Forward Composer', ()
         const requestBody = response.request().postData() ?? '';
         return requestBody.includes(inlineReplyBody);
       });
-      await inlineReplyInput.press('Control+Enter');
+      // Click the composer submit button instead of pressing Ctrl+Enter — the
+      // SwitchableMarkdownInput textarea (text mode) has no keyboard submit
+      // handler, so Ctrl+Enter just inserts a newline. The composer header
+      // renders a "Reply" submit button via FormHeader; .last() picks it
+      // (the dropdown menu item is gone after openReplyFromHeader).
+      // Re-assert the textarea still holds the body. CI shard 9 trace shows
+      // the inline composer occasionally drops controlled state between fill
+      // and click — refilling here makes the failure mode loud (assertion
+      // error pointing at the resync) instead of a silent empty-body POST.
+      await expect(inlineReplyInput).toHaveValue(inlineReplyBody);
+      await page.getByRole('button', { name: /^Reply$/i }).last().click();
       const inlineReplyResponse = await inlineReplyResponsePromise;
 
       expect(inlineReplyResponse.ok()).toBeTruthy();

@@ -1,6 +1,14 @@
 "use client"
 import { CrudFormGroup, CrudCustomFieldRenderProps, CrudField } from "@open-mercato/ui/backend/CrudForm";
 import { JsonBuilder } from "@open-mercato/ui/backend/JsonBuilder";
+import { Input } from "@open-mercato/ui/primitives/input";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@open-mercato/ui/primitives/select";
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 
 export function renderOverrideValueComponent(props: CrudCustomFieldRenderProps) {
@@ -10,7 +18,7 @@ export function renderOverrideValueComponent(props: CrudCustomFieldRenderProps) 
 
     if (!isOverride) {
         return (
-            <div className="text-sm text-muted-foreground p-4 text-center bg-muted/20 rounded border border-dashed">
+            <div className="text-sm text-muted-foreground p-4 text-center bg-muted/30 rounded border border-dashed">
                 {t('feature_toggles.override.disabled', 'Override is disabled. Values will be inherited from the default configuration.')}
             </div>
         );
@@ -21,15 +29,19 @@ export function renderOverrideValueComponent(props: CrudCustomFieldRenderProps) 
             return (
                 <div>
                     <label className="block text-sm font-medium mb-2">{t('feature_toggles.override.fields.value.boolean.label', 'Override Value (Boolean)')}</label>
-                    <select
+                    <Select
                         value={props.value as string || 'false'}
-                        onChange={(e) => props.setValue(e.target.value === 'true')}
-                        className="w-full h-9 rounded border px-2 text-sm"
+                        onValueChange={(value) => props.setValue(value === 'true')}
                         disabled={props.disabled}
                     >
-                        <option value="true">{t('feature_toggles.values.true', 'True')}</option>
-                        <option value="false">{t('feature_toggles.values.false', 'False')}</option>
-                    </select>
+                        <SelectTrigger>
+                            <SelectValue />
+                        </SelectTrigger>
+                        <SelectContent>
+                            <SelectItem value="true">{t('feature_toggles.values.true', 'True')}</SelectItem>
+                            <SelectItem value="false">{t('feature_toggles.values.false', 'False')}</SelectItem>
+                        </SelectContent>
+                    </Select>
                 </div>
             );
 
@@ -37,12 +49,11 @@ export function renderOverrideValueComponent(props: CrudCustomFieldRenderProps) 
             return (
                 <div>
                     <label className="block text-sm font-medium mb-2">{t('feature_toggles.override.fields.value.string.label', 'Override Value (String)')}</label>
-                    <input
+                    <Input
                         type="text"
                         value={props.value as string || ''}
                         onChange={(e) => props.setValue(e.target.value)}
                         placeholder={t('feature_toggles.override.fields.value.string.placeholder', 'Enter override string value')}
-                        className="w-full h-9 rounded border px-2 text-sm"
                         disabled={props.disabled}
                         autoFocus={props.autoFocus}
                     />
@@ -53,11 +64,10 @@ export function renderOverrideValueComponent(props: CrudCustomFieldRenderProps) 
             return (
                 <div>
                     <label className="block text-sm font-medium mb-2">{t('feature_toggles.override.fields.value.number.label', 'Override Value (Number)')}</label>
-                    <input
+                    <Input
                         type="number"
                         value={props.value as number || 0}
                         onChange={(e) => props.setValue(Number(e.target.value) || 0)}
-                        className="w-full h-9 rounded border px-2 text-sm"
                         disabled={props.disabled}
                         autoFocus={props.autoFocus}
                     />
@@ -78,7 +88,7 @@ export function renderOverrideValueComponent(props: CrudCustomFieldRenderProps) 
 
         default:
             return (
-                <div className="text-sm text-muted-foreground p-4 text-center bg-muted/20 rounded border border-dashed">
+                <div className="text-sm text-muted-foreground p-4 text-center bg-muted/30 rounded border border-dashed">
                     {t('feature_toggles.override.unknownType', 'Unknown toggle type. Cannot configure override value.')}
                 </div>
             );

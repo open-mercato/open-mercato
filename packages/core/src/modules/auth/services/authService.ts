@@ -78,7 +78,7 @@ export class AuthService {
     const rawToken = generateAuthToken()
     const tokenHash = hashAuthToken(rawToken)
     const sess = this.em.create(Session as any, { user, token: tokenHash, expiresAt, createdAt: new Date() } as any)
-    await this.em.persistAndFlush(sess)
+    await this.em.persist(sess).flush()
     return { session: sess as Session, token: rawToken }
   }
 
@@ -126,7 +126,7 @@ export class AuthService {
     const tokenHash = hashAuthToken(rawToken)
     const expiresAt = new Date(Date.now() + 60 * 60 * 1000)
     const row = this.em.create(PasswordReset as any, { user, token: tokenHash, expiresAt, createdAt: new Date() } as any)
-    await this.em.persistAndFlush(row)
+    await this.em.persist(row).flush()
     return { user, token: rawToken }
   }
 

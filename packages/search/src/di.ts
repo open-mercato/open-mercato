@@ -1,5 +1,5 @@
 import { asValue } from 'awilix'
-import type { Knex } from 'knex'
+import type { Kysely } from 'kysely'
 import { SearchService } from './service'
 import { TokenSearchStrategy } from './strategies/token.strategy'
 import { VectorSearchStrategy, type EmbeddingService } from './strategies/vector.strategy'
@@ -40,7 +40,7 @@ function shouldExcludeEncryptedFields(): boolean {
  * Falls back to empty array if query fails.
  */
 function createEncryptionMapResolver(
-  knex: Knex,
+  db: Kysely<any>,
 ): (entityId: EntityId) => Promise<EncryptionMapEntry[]> {
   // Cache encryption maps per entity to avoid repeated queries
   const cache = new Map<string, { entries: EncryptionMapEntry[]; expiresAt: number }>()
@@ -53,14 +53,15 @@ function createEncryptionMapResolver(
     }
 
     try {
-      const rows = await knex('encryption_maps')
-        .select('fields_json')
-        .where('entity_id', entityId)
-        .where('is_active', true)
-        .whereNull('deleted_at')
-        .first()
+      const row = await db
+        .selectFrom('encryption_maps' as any)
+        .select(['fields_json' as any])
+        .where('entity_id' as any, '=', entityId)
+        .where('is_active' as any, '=', true)
+        .where('deleted_at' as any, 'is', null)
+        .executeTakeFirst() as { fields_json?: unknown } | undefined
 
-      const fieldsJson = rows?.fields_json
+      const fieldsJson = row?.fields_json
       const entries: EncryptionMapEntry[] = Array.isArray(fieldsJson)
         ? fieldsJson.map((f: { field: string; hashField?: string | null }) => ({
             field: f.field,
@@ -122,11 +123,11 @@ export function registerSearchModule(
   // Token strategy (always available unless explicitly skipped)
   if (!options?.skipTokens) {
     try {
-      const em = container.resolve<{ getConnection: () => { getKnex: () => Knex } }>('em')
-      const knex = em.getConnection().getKnex()
-      strategies.push(new TokenSearchStrategy(knex))
+      const em = container.resolve<any>('em')
+      const db = em.getKysely() as Kysely<any>
+      strategies.push(new TokenSearchStrategy(db))
     } catch {
-      // knex not available via em, skipping TokenSearchStrategy
+      // Kysely not available via em, skipping TokenSearchStrategy
     }
   }
 
@@ -163,11 +164,11 @@ export function registerSearchModule(
     let encryptionMapResolver: ((entityId: EntityId) => Promise<EncryptionMapEntry[]>) | undefined
     if (shouldExcludeEncryptedFields()) {
       try {
-        const em = container.resolve<{ getConnection: () => { getKnex: () => Knex } }>('em')
-        const knex = em.getConnection().getKnex()
-        encryptionMapResolver = createEncryptionMapResolver(knex)
+        const em = container.resolve<any>('em')
+        const db = em.getKysely() as Kysely<any>
+        encryptionMapResolver = createEncryptionMapResolver(db)
       } catch {
-        // Knex not available, encrypted field filtering disabled
+        // Kysely not available, encrypted field filtering disabled
       }
     }
 
@@ -206,11 +207,11 @@ export function registerSearchModule(
   // Create presenter enricher for database-based presenter resolution
   let presenterEnricher: PresenterEnricherFn | undefined
   try {
-    const em = container.resolve<{ getConnection: () => { getKnex: () => Knex } }>('em')
-    const knex = em.getConnection().getKnex()
-    presenterEnricher = createPresenterEnricher(knex, entityConfigMap, queryEngine, encryptionService)
+    const em = container.resolve<any>('em')
+    const db = em.getKysely() as Kysely<any>
+    presenterEnricher = createPresenterEnricher(db, entityConfigMap, queryEngine, encryptionService)
   } catch {
-    // knex not available, presenter enrichment disabled
+    // Kysely not available, presenter enrichment disabled
   }
 
   // Create search service

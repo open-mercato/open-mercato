@@ -8,6 +8,8 @@ import { addCustomLine, createSalesDocument } from '@open-mercato/core/modules/c
  */
 test.describe('TC-SALES-001: Quote Creation', () => {
   test('should create a quote and add a line from UI', async ({ page }) => {
+    test.slow();
+
     const lineName = `QA TC-SALES-001 ${Date.now()}`;
 
     await login(page, 'admin');

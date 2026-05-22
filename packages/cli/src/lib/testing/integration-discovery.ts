@@ -6,6 +6,8 @@ export type IntegrationSpecDiscoveryItem = {
   moduleName: string | null
   isOverlay: boolean
   requiredModules: string[]
+  requiredEnvVars: string[]
+  requiredAnyEnvVars: string[]
 }
 
 const MODULE_INTEGRATION_DIRECTORY_NAME = '__integration__'
@@ -26,6 +28,8 @@ const DISCOVERY_IGNORED_DIRS = new Set([
 ])
 const INTEGRATION_META_FILE_NAMES = ['meta.ts', 'index.ts'] as const
 const INTEGRATION_META_DEPENDENCY_KEYS = ['dependsOnModules', 'requiredModules', 'requiresModules'] as const
+const INTEGRATION_META_REQUIRED_ENV_KEYS = ['requiredEnvVars', 'requiresEnvVars'] as const
+const INTEGRATION_META_REQUIRED_ANY_ENV_KEYS = ['requiredAnyEnvVars', 'requiresAnyEnvVars'] as const
 const DEFAULT_OVERLAY_ROOT = 'packages/enterprise'
 
 export function normalizePath(filePath: string): string {
@@ -160,15 +164,15 @@ function isOverlayIntegrationPath(relativePath: string, overlayRoot: string): bo
   return normalizePath(relativePath).startsWith(`${normalizePath(overlayRoot)}/`)
 }
 
-function extractDependencyListFromSource(source: string): string[] {
+function extractStringArrayFromSource(source: string, keys: readonly string[]): string[] {
   const collected = new Set<string>()
-  for (const key of INTEGRATION_META_DEPENDENCY_KEYS) {
+  for (const key of keys) {
     const keyPattern = new RegExp(`${key}\\s*:\\s*\\[([\\s\\S]*?)\\]`, 'm')
     const keyMatch = source.match(keyPattern)
     if (!keyMatch?.[1]) continue
     const valuesPattern = /['"`]([a-zA-Z0-9_.-]+)['"`]/g
     for (const valueMatch of keyMatch[1].matchAll(valuesPattern)) {
-      const value = normalizeModuleId(valueMatch[1] ?? '')
+      const value = String(valueMatch[1] ?? '').trim()
       if (value) {
         collected.add(value)
       }
@@ -177,9 +181,37 @@ function extractDependencyListFromSource(source: string): string[] {
   return Array.from(collected)
 }
 
+function extractDependencyListFromSource(source: string): string[] {
+  return extractStringArrayFromSource(source, INTEGRATION_META_DEPENDENCY_KEYS).map(normalizeModuleId)
+}
+
+function extractRequiredEnvVarsFromSource(source: string): string[] {
+  return extractStringArrayFromSource(source, INTEGRATION_META_REQUIRED_ENV_KEYS)
+}
+
+function extractRequiredAnyEnvVarsFromSource(source: string): string[] {
+  return extractStringArrayFromSource(source, INTEGRATION_META_REQUIRED_ANY_ENV_KEYS)
+}
+
 function readDependenciesFromMetadataFile(absolutePath: string): string[] {
   try {
     return extractDependencyListFromSource(readFileSync(absolutePath, 'utf8'))
+  } catch {
+    return []
+  }
+}
+
+function readRequiredEnvVarsFromMetadataFile(absolutePath: string): string[] {
+  try {
+    return extractRequiredEnvVarsFromSource(readFileSync(absolutePath, 'utf8'))
+  } catch {
+    return []
+  }
+}
+
+function readRequiredAnyEnvVarsFromMetadataFile(absolutePath: string): string[] {
+  try {
+    return extractRequiredAnyEnvVarsFromSource(readFileSync(absolutePath, 'utf8'))
   } catch {
     return []
   }
@@ -231,6 +263,85 @@ function resolveRequiredModulesForSpec(projectRoot: string, relativeSpecPath: st
   return Array.from(requiredModules)
 }
 
+function resolveRequiredEnvVarsForSpec(projectRoot: string, relativeSpecPath: string): string[] {
+  const requiredEnvVars = new Set<string>()
+  const normalizedSpecPath = normalizePath(relativeSpecPath)
+  const absoluteSpecPath = path.join(projectRoot, normalizedSpecPath)
+  const integrationRoot = resolveIntegrationRootDirectory(normalizedSpecPath)
+
+  if (integrationRoot) {
+    const relativeDirectory = normalizePath(path.dirname(normalizedSpecPath))
+    const integrationRootAbsolute = path.join(projectRoot, integrationRoot)
+    const directoryAbsolute = path.join(projectRoot, relativeDirectory)
+    const relativeFromIntegrationRoot = normalizePath(path.relative(integrationRootAbsolute, directoryAbsolute))
+    const pathSegments = relativeFromIntegrationRoot === '.'
+      ? []
+      : relativeFromIntegrationRoot.split('/').filter(Boolean)
+
+    let currentDirectory = integrationRootAbsolute
+    const traversal = [currentDirectory, ...pathSegments.map((segment) => {
+      currentDirectory = path.join(currentDirectory, segment)
+      return currentDirectory
+    })]
+
+    for (const directoryPath of traversal) {
+      for (const metadataFileName of INTEGRATION_META_FILE_NAMES) {
+        const metadataPath = path.join(directoryPath, metadataFileName)
+        readRequiredEnvVarsFromMetadataFile(metadataPath).forEach((envVar) => requiredEnvVars.add(envVar))
+      }
+    }
+  }
+
+  readRequiredEnvVarsFromMetadataFile(absoluteSpecPath).forEach((envVar) => requiredEnvVars.add(envVar))
+  const specFileName = path.basename(normalizedSpecPath, '.spec.ts')
+  const perTestMetadataPath = path.join(path.dirname(absoluteSpecPath), `${specFileName}.meta.ts`)
+  readRequiredEnvVarsFromMetadataFile(perTestMetadataPath).forEach((envVar) => requiredEnvVars.add(envVar))
+
+  return Array.from(requiredEnvVars)
+}
+
+function resolveRequiredAnyEnvVarsForSpec(projectRoot: string, relativeSpecPath: string): string[] {
+  const requiredAnyEnvVars = new Set<string>()
+  const normalizedSpecPath = normalizePath(relativeSpecPath)
+  const absoluteSpecPath = path.join(projectRoot, normalizedSpecPath)
+  const integrationRoot = resolveIntegrationRootDirectory(normalizedSpecPath)
+
+  if (integrationRoot) {
+    const relativeDirectory = normalizePath(path.dirname(normalizedSpecPath))
+    const integrationRootAbsolute = path.join(projectRoot, integrationRoot)
+    const directoryAbsolute = path.join(projectRoot, relativeDirectory)
+    const relativeFromIntegrationRoot = normalizePath(path.relative(integrationRootAbsolute, directoryAbsolute))
+    const pathSegments = relativeFromIntegrationRoot === '.'
+      ? []
+      : relativeFromIntegrationRoot.split('/').filter(Boolean)
+
+    let currentDirectory = integrationRootAbsolute
+    const traversal = [currentDirectory, ...pathSegments.map((segment) => {
+      currentDirectory = path.join(currentDirectory, segment)
+      return currentDirectory
+    })]
+
+    for (const directoryPath of traversal) {
+      for (const metadataFileName of INTEGRATION_META_FILE_NAMES) {
+        const metadataPath = path.join(directoryPath, metadataFileName)
+        readRequiredAnyEnvVarsFromMetadataFile(metadataPath).forEach((envVar) => requiredAnyEnvVars.add(envVar))
+      }
+    }
+  }
+
+  readRequiredAnyEnvVarsFromMetadataFile(absoluteSpecPath).forEach((envVar) => requiredAnyEnvVars.add(envVar))
+  const specFileName = path.basename(normalizedSpecPath, '.spec.ts')
+  const perTestMetadataPath = path.join(path.dirname(absoluteSpecPath), `${specFileName}.meta.ts`)
+  readRequiredAnyEnvVarsFromMetadataFile(perTestMetadataPath).forEach((envVar) => requiredAnyEnvVars.add(envVar))
+
+  return Array.from(requiredAnyEnvVars)
+}
+
+function isEnvironmentVariableConfigured(name: string): boolean {
+  const value = process.env[name]
+  return typeof value === 'string' && value.trim().length > 0
+}
+
 export function discoverIntegrationSpecFiles(projectRoot: string, legacyIntegrationRoot: string): IntegrationSpecDiscoveryItem[] {
   const discoveredByPath = new Map<string, IntegrationSpecDiscoveryItem>()
   const overlayRoot = resolveOverlayRootPath()
@@ -249,6 +360,8 @@ export function discoverIntegrationSpecFiles(projectRoot: string, legacyIntegrat
       moduleName: extractModuleNameFromIntegrationPath(relativePath),
       isOverlay: isOverlayIntegrationPath(relativePath, overlayRoot),
       requiredModules: resolveRequiredModulesForSpec(projectRoot, relativePath),
+      requiredEnvVars: resolveRequiredEnvVarsForSpec(projectRoot, relativePath),
+      requiredAnyEnvVars: resolveRequiredAnyEnvVarsForSpec(projectRoot, relativePath),
     })
   }
 
@@ -261,6 +374,8 @@ export function discoverIntegrationSpecFiles(projectRoot: string, legacyIntegrat
           moduleName: extractModuleNameFromIntegrationPath(relativePath),
           isOverlay: isOverlayIntegrationPath(relativePath, overlayRoot),
           requiredModules: resolveRequiredModulesForSpec(projectRoot, relativePath),
+          requiredEnvVars: resolveRequiredEnvVarsForSpec(projectRoot, relativePath),
+          requiredAnyEnvVars: resolveRequiredAnyEnvVarsForSpec(projectRoot, relativePath),
         })
       }
     }
@@ -278,6 +393,15 @@ export function discoverIntegrationSpecFiles(projectRoot: string, legacyIntegrat
   return discovered
     .filter((file) => {
       if (file.requiredModules.some((moduleId) => !enabledModules.has(normalizeModuleId(moduleId)))) {
+        return false
+      }
+      if (file.requiredEnvVars.some((envVar) => !isEnvironmentVariableConfigured(envVar))) {
+        return false
+      }
+      if (
+        file.requiredAnyEnvVars.length > 0 &&
+        !file.requiredAnyEnvVars.some((envVar) => isEnvironmentVariableConfigured(envVar))
+      ) {
         return false
       }
       if (!file.isOverlay) {

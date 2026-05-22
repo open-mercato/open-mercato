@@ -5,18 +5,21 @@ const mockLoadAcl = jest.fn()
 const mockSendEmail = jest.fn()
 const mockFindOne = jest.fn()
 const mockCreate = jest.fn()
-const mockPersistAndFlush = jest.fn()
+const mockPersist = jest.fn()
+const mockFlush = jest.fn()
 const mockNativeUpdate = jest.fn()
 const mockValidateCrudMutationGuard = jest.fn()
 const mockRunCrudMutationGuardAfterSuccess = jest.fn()
 const mockCheckAuthRateLimit = jest.fn()
 
-const mockEm = {
+const mockEm: any = {
   findOne: mockFindOne,
   create: mockCreate,
-  persistAndFlush: mockPersistAndFlush,
+  persist: mockPersist,
+  flush: mockFlush,
   nativeUpdate: mockNativeUpdate,
 }
+mockPersist.mockImplementation(function persist(this: any) { return mockEm })
 
 const mockContainer = {
   resolve: jest.fn((token: string) => {
@@ -122,7 +125,8 @@ describe('POST /api/auth/users/resend-invite', () => {
     mockValidateCrudMutationGuard.mockResolvedValue(null)
     mockFindOne.mockResolvedValue(makeUser())
     mockCreate.mockReturnValue({ id: 'new-token-row' })
-    mockPersistAndFlush.mockResolvedValue(undefined)
+    mockPersist.mockImplementation(function persist(this: any) { return mockEm })
+    mockFlush.mockResolvedValue(undefined)
     mockNativeUpdate.mockResolvedValue(undefined)
     mockSendEmail.mockResolvedValue(undefined)
   })
@@ -186,7 +190,7 @@ describe('POST /api/auth/users/resend-invite', () => {
     const [, where] = mockNativeUpdate.mock.calls[0]
     expect(where).toMatchObject({ user: userId, usedAt: null })
 
-    expect(mockPersistAndFlush).toHaveBeenCalledTimes(1)
+    expect(mockFlush).toHaveBeenCalledTimes(1)
   })
 
   test('creates token and sends email on success', async () => {
@@ -222,7 +226,7 @@ describe('POST /api/auth/users/resend-invite', () => {
     expect(res.status).toBe(423)
     const body = await res.json()
     expect(body.error).toBe('Record locked')
-    expect(mockPersistAndFlush).not.toHaveBeenCalled()
+    expect(mockFlush).not.toHaveBeenCalled()
   })
 
   test('rejects a poisoned host before rotating invite tokens', async () => {
@@ -237,7 +241,7 @@ describe('POST /api/auth/users/resend-invite', () => {
     expect(res.status).toBe(400)
     expect(body.error).toBe('Invalid request origin')
     expect(mockNativeUpdate).not.toHaveBeenCalled()
-    expect(mockPersistAndFlush).not.toHaveBeenCalled()
+    expect(mockFlush).not.toHaveBeenCalled()
     expect(mockSendEmail).not.toHaveBeenCalled()
   })
 
@@ -252,7 +256,7 @@ describe('POST /api/auth/users/resend-invite', () => {
 
     expect(res.status).toBe(200)
     expect(mockNativeUpdate).toHaveBeenCalledTimes(1)
-    expect(mockPersistAndFlush).toHaveBeenCalledTimes(1)
+    expect(mockFlush).toHaveBeenCalledTimes(1)
     expect(mockSendEmail).toHaveBeenCalledTimes(1)
   })
 
@@ -276,7 +280,7 @@ describe('POST /api/auth/users/resend-invite', () => {
 
     expect(res.status).toBe(200)
     expect(mockNativeUpdate).toHaveBeenCalledTimes(1)
-    expect(mockPersistAndFlush).toHaveBeenCalledTimes(1)
+    expect(mockFlush).toHaveBeenCalledTimes(1)
     expect(mockSendEmail).toHaveBeenCalledTimes(1)
   })
 })
