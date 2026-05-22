@@ -62,11 +62,21 @@ let idCounter = 0
 function matchesWhere(row: Record<string, any>, where: any): boolean {
   if (!where) return true
   for (const key of Object.keys(where)) {
+    if (key === '$or') {
+      const conditions = where[key] as any[]
+      if (!conditions.some((cond) => matchesWhere(row, cond))) return false
+      continue
+    }
     const expected = where[key]
     const actual = row[key] ?? null
     if (expected && typeof expected === 'object' && '$lt' in expected) {
       const lt = expected.$lt as Date
       if (!(actual instanceof Date) || !(actual.getTime() < lt.getTime())) return false
+      continue
+    }
+    if (expected && typeof expected === 'object' && '$in' in expected) {
+      const inList = expected.$in as unknown[]
+      if (!inList.includes(actual)) return false
       continue
     }
     if (expected === null) {
