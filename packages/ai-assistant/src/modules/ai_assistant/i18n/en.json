@@ -464,5 +464,16 @@
   "ai_assistant.usage.sessionsList": "Sessions",
   "ai_assistant.usage.steps": "Steps",
   "ai_assistant.usage.title": "Token Usage Statistics",
-  "ai_assistant.usage.to": "To"
+  "ai_assistant.usage.to": "To",
+  "ai_assistant.notifications.conversation_shared.title": "Conversation shared with you",
+  "ai_assistant.notifications.conversation_shared.body": "An AI conversation has been shared with you.",
+  "ai_assistant.notifications.conversation_shared.view_button": "View Conversation",
+  "ai_assistant.share.dialogTitle": "Share Conversation",
+  "ai_assistant.share.addParticipant": "Add participant",
+  "ai_assistant.share.participantPlaceholder": "Search by user...",
+  "ai_assistant.share.removeParticipant": "Remove",
+  "ai_assistant.share.noParticipants": "No participants yet. Add someone to share this conversation.",
+  "ai_assistant.share.shareButton": "Share",
+  "ai_assistant.share.saving": "Saving...",
+  "ai_assistant.share.saved": "Saved"
 }

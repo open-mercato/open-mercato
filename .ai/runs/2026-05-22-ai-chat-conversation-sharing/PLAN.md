@@ -22,7 +22,7 @@ Source spec: .ai/specs/2026-05-22-ai-chat-conversation-sharing.md
 | 2 | 2.1 | Create notifications.ts with ai_assistant.conversation_shared type | done | — |
 | 2 | 2.2 | Create subscribers/conversation-shared-notify.ts | done | — |
 | 2 | 2.3 | Create notifications.client.ts renderer | done | — |
-| 2 | 2.4 | Add i18n keys to ai_assistant locale file | todo | — |
+| 2 | 2.4 | Add i18n keys to ai_assistant locale file | done | — |
 | 2 | 2.5 | Implement ConversationShareDialog.tsx component | todo | — |
 | 2 | 2.6 | Wire share button in conversation tab header | todo | — |
 | 3 | 3.1 | TC-AI-sharing-01: owner access baseline integration test | todo | — |
