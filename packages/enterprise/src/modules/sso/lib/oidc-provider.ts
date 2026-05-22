@@ -74,7 +74,9 @@ export class OidcProvider implements SsoProtocolProvider {
       throw new Error('IdP did not return an email claim (checked: email, upn, unique_name)')
     }
 
-    const emailVerified = mergedClaims.email_verified === true
+    const emailVerified = typeof mergedClaims.email_verified === 'boolean'
+      ? mergedClaims.email_verified
+      : undefined
     const groups = extractIdentityGroups(mergedClaims)
 
   
