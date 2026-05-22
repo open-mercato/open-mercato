@@ -517,6 +517,23 @@ export class AiChatConversationRepository {
       skippedMessageCount: skipped,
     }
   }
+
+  private async loadParticipantFlag(
+    em: EntityManager,
+    tenantId: string,
+    organizationId: string | null | undefined,
+    conversationId: string,
+    userId: string,
+  ): Promise<boolean> {
+    const count = await em.count(AiChatConversationParticipant, {
+      tenantId,
+      conversationId,
+      userId,
+      deletedAt: null,
+      ...(organizationId ? { organizationId } : {}),
+    } as any)
+    return count > 0
+  }
 }
 
 function assertContext(ctx: AiChatConversationContext | undefined, method: string): void {
