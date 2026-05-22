@@ -6,6 +6,7 @@ import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import type { RbacService } from '@open-mercato/core/modules/auth/services/rbacService'
 import { hasRequiredFeatures } from '../../../../../lib/auth'
 import { createConversationStorage } from '../../../../../lib/conversation-storage'
+import { emitAiAssistantEvent } from '../../../../../events'
 
 const REQUIRED_FEATURE = 'ai_assistant.view'
 const MANAGE_CONVERSATIONS_FEATURE = 'ai_assistant.conversations.manage'
@@ -227,6 +228,22 @@ export async function POST(req: NextRequest, context: RouteContext): Promise<Res
         canManageConversations: callerCtx.canManageConversations,
       },
     )
+    try {
+      await emitAiAssistantEvent(
+        'ai_assistant.conversation.shared',
+        {
+          conversationId: callerCtx.conversationId,
+          tenantId: callerCtx.tenantId,
+          organizationId: callerCtx.organizationId,
+          ownerUserId: callerCtx.userId,
+          participantUserId: participant.userId,
+          role: participant.role,
+        },
+        { persistent: false },
+      )
+    } catch {
+      // non-fatal
+    }
     return NextResponse.json(
       {
         participant: {

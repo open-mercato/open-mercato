@@ -9,6 +9,7 @@ import {
   AiChatConversationAccessError,
   createConversationStorage,
 } from '../../../../../../lib/conversation-storage'
+import { emitAiAssistantEvent } from '../../../../../../events'
 
 const REQUIRED_FEATURE = 'ai_assistant.view'
 const MANAGE_CONVERSATIONS_FEATURE = 'ai_assistant.conversations.manage'
@@ -119,6 +120,21 @@ export async function DELETE(req: NextRequest, context: RouteContext): Promise<R
         ),
       },
     )
+    try {
+      await emitAiAssistantEvent(
+        'ai_assistant.conversation.unshared',
+        {
+          conversationId: parseResult.data.conversationId,
+          tenantId: auth.tenantId,
+          organizationId: auth.orgId ?? null,
+          ownerUserId: auth.sub,
+          participantUserId: parseResult.data.userId,
+        },
+        { persistent: false },
+      )
+    } catch {
+      // non-fatal
+    }
     return new NextResponse(null, { status: 204 })
   } catch (err) {
     if (err instanceof AiChatConversationAccessError) {
