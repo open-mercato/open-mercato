@@ -175,7 +175,17 @@ export class AiChatConversationRepository {
     if (!conversationId) return null
     const row = await findOneAccessibleConversation(this.em, conversationId, ctx)
     if (!row) return null
-    if (!canAccessConversation(row, ctx)) return null
+    const isParticipant =
+      !canManageConversations(ctx) && row.ownerUserId !== ctx.userId
+        ? await this.loadParticipantFlag(
+            this.em,
+            ctx.tenantId!,
+            ctx.organizationId,
+            row.conversationId,
+            ctx.userId!,
+          )
+        : false
+    if (!canAccessConversation(row, ctx, isParticipant)) return null
     return row
   }
 
@@ -552,8 +562,9 @@ function canManageConversations(ctx: AiChatConversationContext): boolean {
 function canAccessConversation(
   row: AiChatConversation,
   ctx: AiChatConversationContext,
+  isParticipant = false,
 ): boolean {
-  return canManageConversations(ctx) || row.ownerUserId === ctx.userId
+  return canManageConversations(ctx) || row.ownerUserId === ctx.userId || isParticipant
 }
 
 async function findOneAccessibleConversation(

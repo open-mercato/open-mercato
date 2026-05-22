@@ -12,7 +12,7 @@ Source spec: .ai/specs/2026-05-22-ai-chat-conversation-sharing.md
 | 1 | 1.2 | Generate migration for `deleted_at` + partial index | done | 74e1dd645 |
 | 1 | 1.3 | Add `ai_assistant.conversations.share` ACL feature + setup.ts grants | done | c511be5f4 |
 | 1 | 1.4 | Implement `loadParticipantFlag` in AiChatConversationRepository | done | d312a07a0 |
-| 1 | 1.5 | Widen `canAccessConversation` + update callsites (getById, update, softDelete) | todo | — |
+| 1 | 1.5 | Widen `canAccessConversation` + update callsites (getById, update, softDelete) | done | — |
 | 1 | 1.6 | Widen `list` query to include participant-accessible conversations | todo | — |
 | 1 | 1.7 | Add `visibility`, `participantCount`, `isOwner` to serializeAiChatConversation | todo | — |
 | 1 | 1.8 | Implement GET /conversations/:id/participants route | todo | — |
