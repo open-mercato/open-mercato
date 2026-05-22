@@ -36,7 +36,7 @@ export default async function handleConversationShared(
     bodyVariables: {},
     sourceEntityType: 'ai_assistant:ai_chat_conversation',
     sourceEntityId: payload.conversationId,
-    linkHref: '/backend/ai-assistant',
+    linkHref: '/backend/config/ai-assistant/playground',
   })
 
   try {

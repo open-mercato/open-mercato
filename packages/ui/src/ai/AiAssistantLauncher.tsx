@@ -49,6 +49,7 @@ import { Kbd, KbdShortcut } from '../primitives/kbd'
 import { useAiDock } from './AiDock'
 import { useAiChatSessions } from './AiChatSessions'
 import { ChatPaneTabs } from './ChatPaneTabs'
+import { ConversationShareButton } from './ConversationShareButton'
 import { AiIcon } from './AiIcon'
 import type { AiChatContextItem, AiChatSuggestion } from './AiChat'
 
@@ -748,6 +749,7 @@ function LauncherChatBody({
               contextItems={contextItems}
               welcomeTitle={activeAgent.label}
               welcomeDescription={activeAgent.description ?? welcomeFallback}
+              headerActions={<ConversationShareButton conversationId={session.conversationId} />}
             />
           </React.Suspense>
         ) : null}

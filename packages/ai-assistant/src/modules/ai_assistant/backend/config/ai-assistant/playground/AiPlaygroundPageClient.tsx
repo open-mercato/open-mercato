@@ -302,6 +302,7 @@ function ChatLane({ agent, debug }: { agent: PlaygroundAgent; debug: boolean }) 
     [agent],
   )
   const [uiParts, setUiParts] = React.useState<PlaygroundUiPartSeed[]>([])
+  const [conversationId, setConversationId] = React.useState<string | null>(null)
 
   // Step 5.10: the dispatcher does not yet surface `AiUiPart` entries through
   // the plain-text stream consumed by `useAiChat`. For now the playground
@@ -346,7 +347,8 @@ function ChatLane({ agent, debug }: { agent: PlaygroundAgent; debug: boolean }) 
         debugTools={debugTools}
         debugPromptSections={debugPromptSections}
         uiParts={uiParts}
-        headerActions={<ConversationShareButton agentId={agent.id} />}
+        onConversationIdChange={setConversationId}
+        headerActions={conversationId ? <ConversationShareButton conversationId={conversationId} /> : null}
       />
     </div>
   )

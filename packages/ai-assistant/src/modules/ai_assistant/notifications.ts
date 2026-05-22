@@ -13,11 +13,11 @@ export const notificationTypes: NotificationTypeDefinition[] = [
         id: 'view',
         labelKey: 'common.view',
         variant: 'outline',
-        href: '/backend/ai-assistant',
+        href: '/backend/config/ai-assistant/playground',
         icon: 'external-link',
       },
     ],
-    linkHref: '/backend/ai-assistant',
+    linkHref: '/backend/config/ai-assistant/playground',
     expiresAfterHours: 168,
   },
 ]

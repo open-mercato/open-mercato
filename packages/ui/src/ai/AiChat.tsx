@@ -307,6 +307,8 @@ export interface AiChatProps {
   defaultCompactFooter?: boolean
   /** Optional extra action nodes rendered in the conversation header bar. */
   headerActions?: React.ReactNode
+  /** Called once on mount (and on reset) with the effective conversation id. */
+  onConversationIdChange?: (conversationId: string) => void
 }
 
 interface ServerEmittedUiPartRef {
@@ -1138,6 +1140,7 @@ export function AiChat({
   welcomeDescription,
   defaultCompactFooter = false,
   headerActions,
+  onConversationIdChange,
 }: AiChatProps) {
   const t = useT()
   const textareaRef = React.useRef<HTMLTextAreaElement | null>(null)
@@ -1269,6 +1272,12 @@ export function AiChat({
   const isStreaming = chat.status === 'streaming'
   const isSubmitting = chat.status === 'submitting'
   const isBusy = isStreaming || isSubmitting
+
+  React.useEffect(() => {
+    if (onConversationIdChange) {
+      onConversationIdChange(chat.conversationId)
+    }
+  }, [chat.conversationId, onConversationIdChange])
 
   // Surface a "Thinking..." placeholder so the chat does not look frozen.
   // Visible whenever ANY of the following is true while a turn is in flight:
