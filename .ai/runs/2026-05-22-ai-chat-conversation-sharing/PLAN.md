@@ -9,7 +9,7 @@ Source spec: .ai/specs/2026-05-22-ai-chat-conversation-sharing.md
 | Phase | Step | Title | Status | Commit |
 |-------|------|-------|--------|--------|
 | 1 | 1.1 | Add `deleted_at` to AiChatConversationParticipant entity | done | 898e7b241 |
-| 1 | 1.2 | Generate migration for `deleted_at` + partial index | done | placeholder |
+| 1 | 1.2 | Generate migration for `deleted_at` + partial index | done | 74e1dd645 |
 | 1 | 1.3 | Add `ai_assistant.conversations.share` ACL feature + setup.ts grants | todo | — |
 | 1 | 1.4 | Implement `loadParticipantFlag` in AiChatConversationRepository | todo | — |
 | 1 | 1.5 | Widen `canAccessConversation` + update callsites (getById, update, softDelete) | todo | — |
