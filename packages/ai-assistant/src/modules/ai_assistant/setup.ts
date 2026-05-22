@@ -98,7 +98,6 @@ async function ensureTokenUsagePruneSchedule(
 }
 
 export const setup: ModuleSetupConfig = {
-  // Run: yarn mercato auth sync-role-acls — to propagate to existing tenants
   defaultRoleFeatures: {
     admin: [
       'ai_assistant.view',

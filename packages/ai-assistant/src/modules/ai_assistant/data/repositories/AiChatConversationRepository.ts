@@ -1,4 +1,4 @@
-import type { EntityManager } from '@mikro-orm/postgresql'
+import type { EntityManager, FilterQuery } from '@mikro-orm/postgresql'
 import {
   findOneWithDecryption,
   findWithDecryption,
@@ -200,16 +200,18 @@ export class AiChatConversationRepository {
       deletedAt: null,
     }
     if (!canManageConversations(ctx)) {
-      const participantFilter: Record<string, unknown> = {
+      const participantFilter: FilterQuery<AiChatConversationParticipant> = {
         tenantId: ctx.tenantId,
         userId: ctx.userId,
         deletedAt: null,
+        ...(ctx.organizationId ? { organizationId: ctx.organizationId } : {}),
       }
-      if (ctx.organizationId) participantFilter.organizationId = ctx.organizationId
-      const participantRows = await this.em.find(
+      const participantRows = await findWithDecryption<AiChatConversationParticipant>(
+        this.em,
         AiChatConversationParticipant,
-        participantFilter as any,
+        participantFilter,
         { fields: ['conversationId'] as any },
+        { tenantId: ctx.tenantId ?? null, organizationId: ctx.organizationId ?? null },
       )
       const participantConvIds = participantRows.map((p) => p.conversationId)
       if (participantConvIds.length > 0) {
@@ -555,15 +557,19 @@ export class AiChatConversationRepository {
     const conv = await findOneAccessibleConversation(this.em, conversationId, ctx)
     if (!conv) return []
     if (!canAccessConversation(conv, ctx)) return []
-    const filter: Record<string, unknown> = {
+    const filter: FilterQuery<AiChatConversationParticipant> = {
       tenantId: ctx.tenantId,
       conversationId,
       deletedAt: null,
+      ...(ctx.organizationId ? { organizationId: ctx.organizationId } : {}),
     }
-    if (ctx.organizationId) filter.organizationId = ctx.organizationId
-    return this.em.find(AiChatConversationParticipant, filter as any, {
-      orderBy: { createdAt: 'asc' } as any,
-    })
+    return findWithDecryption<AiChatConversationParticipant>(
+      this.em,
+      AiChatConversationParticipant,
+      filter,
+      { orderBy: { createdAt: 'asc' } as any },
+      { tenantId: ctx.tenantId ?? null, organizationId: ctx.organizationId ?? null },
+    )
   }
 
   async addParticipant(
@@ -589,15 +595,16 @@ export class AiChatConversationRepository {
           'Only the conversation owner can add participants.',
         )
       }
-      const existingFilter: Record<string, unknown> = {
+      const existingFilter: FilterQuery<AiChatConversationParticipant> = {
         tenantId: ctx.tenantId,
         conversationId,
         userId,
+        ...(ctx.organizationId ? { organizationId: ctx.organizationId } : {}),
       }
-      if (ctx.organizationId) existingFilter.organizationId = ctx.organizationId
-      const existing = await tx.findOne(
+      const existing = await findOneWithDecryption<AiChatConversationParticipant>(
+        tx as unknown as EntityManager,
         AiChatConversationParticipant,
-        existingFilter as any,
+        existingFilter,
       )
       if (existing) {
         existing.deletedAt = null
@@ -646,16 +653,17 @@ export class AiChatConversationRepository {
           'Only the conversation owner can revoke participants.',
         )
       }
-      const participantFilter: Record<string, unknown> = {
+      const participantFilter: FilterQuery<AiChatConversationParticipant> = {
         tenantId: ctx.tenantId,
         conversationId,
         userId: targetUserId,
         deletedAt: null,
+        ...(ctx.organizationId ? { organizationId: ctx.organizationId } : {}),
       }
-      if (ctx.organizationId) participantFilter.organizationId = ctx.organizationId
-      const participant = await tx.findOne(
+      const participant = await findOneWithDecryption<AiChatConversationParticipant>(
+        tx as unknown as EntityManager,
         AiChatConversationParticipant,
-        participantFilter as any,
+        participantFilter,
       )
       if (!participant) return
       participant.deletedAt = new Date()
@@ -664,7 +672,7 @@ export class AiChatConversationRepository {
         conversationId,
         deletedAt: null,
         role: { $ne: 'owner' },
-      } as any)
+      } as FilterQuery<AiChatConversationParticipant>)
       if (remainingCount <= 1) {
         conv.visibility = 'private'
         await tx.persist(conv)
@@ -680,13 +688,17 @@ export class AiChatConversationRepository {
     conversationId: string,
     userId: string,
   ): Promise<boolean> {
-    const row = await em.findOne(AiChatConversationParticipant, {
-      tenantId,
-      conversationId,
-      userId,
-      deletedAt: null,
-      ...(organizationId ? { organizationId } : {}),
-    } as any)
+    const row = await findOneWithDecryption<AiChatConversationParticipant>(
+      em,
+      AiChatConversationParticipant,
+      {
+        tenantId,
+        conversationId,
+        userId,
+        deletedAt: null,
+        ...(organizationId ? { organizationId } : {}),
+      } as FilterQuery<AiChatConversationParticipant>,
+    )
     return row !== null
   }
 }
