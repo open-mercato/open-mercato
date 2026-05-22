@@ -279,7 +279,7 @@ export const openApi = {
 
 ## 6. Create Backend Pages
 
-Use `CrudForm` and `DataTable` from `@open-mercato/ui`. See the `backend-ui-design` skill for full component reference.
+Use `CrudForm` and `DataTable` from `@open-mercato/ui`. See the `om-backend-ui-design` skill for full component reference.
 
 ### Page Metadata & Sidebar Navigation
 

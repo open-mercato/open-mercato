@@ -30,7 +30,7 @@ Standalone app developers using AI coding tools get no framework-aware guidance 
 
 ### Monorepo `.ai/` folder is wrong for standalone apps
 
-The monorepo's `.ai/` folder (295 files: 56+ specs, core skills like `code-review`, `implement-spec`, `pre-implement-spec`, integration test infrastructure) is designed for core contributors working on `packages/`. It references `packages/core/src/`, overlay contracts, backward compatibility surfaces, and changeset publishing — none of which apply to standalone app developers who work in `src/modules/` and consume `@open-mercato/*` from npm.
+The monorepo's `.ai/` folder (295 files: 56+ specs, core skills like `om-code-review`, `om-implement-spec`, `om-pre-implement-spec`, integration test infrastructure) is designed for core contributors working on `packages/`. It references `packages/core/src/`, overlay contracts, backward compatibility surfaces, and changeset publishing — none of which apply to standalone app developers who work in `src/modules/` and consume `@open-mercato/*` from npm.
 
 Copying or adapting the monorepo's `.ai/` into standalone apps would create:
 - **Wrong paths**: Skills reference `packages/core/`, `packages/ui/` — paths that don't exist in standalone apps
@@ -178,7 +178,7 @@ packages/create-app/agentic/
 | Aspect | Monorepo `.ai/` (295 files) | `agentic/shared/ai/` (~3 files) |
 |--------|----------------------------|----------------------------------|
 | Specs | 56+ specs about core architecture | Empty `specs/` with README + template for business features |
-| Skills | `code-review`, `implement-spec`, `pre-implement-spec`, etc. | None — standalone apps use AGENTS.md + tool-specific rules |
+| Skills | `om-code-review`, `om-implement-spec`, `om-pre-implement-spec`, etc. | None — standalone apps use AGENTS.md + tool-specific rules |
 | QA | Playwright tests, 80+ scenarios, helpers | None — standalone apps manage their own test infra |
 | Lessons | Core contributor lessons | Empty file for app developer lessons |
 | Path references | `packages/core/`, `packages/ui/` | `src/modules/`, `node_modules/@open-mercato/` |

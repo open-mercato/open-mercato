@@ -41,11 +41,11 @@ IMPORTANT: Before any research or coding, match the task to the root `AGENTS.md`
 | Adding DOM Event Bridge (SSE-based real-time events to browser), `useAppEvent`, `useOperationProgress` | `packages/events/AGENTS.md` → DOM Event Bridge |
 | Building customer portal pages, portal auth, portal nav injection, portal event bridge | `packages/ui/AGENTS.md` → Portal Extension |
 | Adding new widget event handlers (`onFieldChange`, `onBeforeNavigate`, transformers) | `packages/ui/AGENTS.md` |
-| Building a typed AI agent for a module (chat or structured-object mode), declaring `ai-agents.ts`, wiring tool packs, requiring user approval for mutations — works in **monorepo** and **standalone** apps | `.ai/skills/create-ai-agent/SKILL.md` + `packages/ai-assistant/AGENTS.md` + `apps/docs/docs/framework/ai-assistant/agents.mdx` |
-| Registering typed AI tools via `defineAiTool` in `ai-tools.ts`, building tool packs (`search`, `attachments`, `meta`, domain packs) | `.ai/skills/create-ai-agent/SKILL.md` + `packages/ai-assistant/AGENTS.md` + `apps/docs/docs/framework/ai-assistant/agents.mdx` |
-| Gating AI-mutation writes behind the approval flow (`prepareMutation`, `ai_pending_actions`, approval cards, cleanup worker) | `.ai/skills/create-ai-agent/SKILL.md` + `packages/ai-assistant/AGENTS.md` + `apps/docs/docs/framework/ai-assistant/mutation-approvals.mdx` |
+| Building a typed AI agent for a module (chat or structured-object mode), declaring `ai-agents.ts`, wiring tool packs, requiring user approval for mutations — works in **monorepo** and **standalone** apps | `.ai/skills/om-create-ai-agent/SKILL.md` + `packages/ai-assistant/AGENTS.md` + `apps/docs/docs/framework/ai-assistant/agents.mdx` |
+| Registering typed AI tools via `defineAiTool` in `ai-tools.ts`, building tool packs (`search`, `attachments`, `meta`, domain packs) | `.ai/skills/om-create-ai-agent/SKILL.md` + `packages/ai-assistant/AGENTS.md` + `apps/docs/docs/framework/ai-assistant/agents.mdx` |
+| Gating AI-mutation writes behind the approval flow (`prepareMutation`, `ai_pending_actions`, approval cards, cleanup worker) | `.ai/skills/om-create-ai-agent/SKILL.md` + `packages/ai-assistant/AGENTS.md` + `apps/docs/docs/framework/ai-assistant/mutation-approvals.mdx` |
 | Overriding AI agent prompts, mutation policies, or model per tenant via the settings UI | `packages/ai-assistant/AGENTS.md` + `apps/docs/docs/framework/ai-assistant/settings.mdx` |
-| Wiring agentic-loop controls on an AI agent (`loop.stopWhen` / `loop.prepareStep` / `loop.budget`), per-tenant loop kill switch + budgets, `executionEngine: 'tool-loop-agent'`, and the `<AiChat>` LoopTrace debug panel | `.ai/specs/2026-04-28-ai-agents-agentic-loop-controls.md` + `packages/ai-assistant/AGENTS.md` → Loop controls and execution engines + `apps/docs/docs/framework/ai-assistant/agents.mdx` → Agentic loop controls + `apps/docs/docs/framework/ai-assistant/settings.mdx` → Loop policy overrides + `.ai/skills/create-ai-agent/SKILL.md` §4.4 |
+| Wiring agentic-loop controls on an AI agent (`loop.stopWhen` / `loop.prepareStep` / `loop.budget`), per-tenant loop kill switch + budgets, `executionEngine: 'tool-loop-agent'`, and the `<AiChat>` LoopTrace debug panel | `.ai/specs/2026-04-28-ai-agents-agentic-loop-controls.md` + `packages/ai-assistant/AGENTS.md` → Loop controls and execution engines + `apps/docs/docs/framework/ai-assistant/agents.mdx` → Agentic loop controls + `apps/docs/docs/framework/ai-assistant/settings.mdx` → Loop policy overrides + `.ai/skills/om-create-ai-agent/SKILL.md` §4.4 |
 | Replacing or disabling another module's AI agent / AI tool (per-module, modules.ts, or programmatic) | `apps/docs/docs/framework/ai-assistant/overrides.mdx` + `packages/ai-assistant/AGENTS.md` → How to Override + `.ai/specs/2026-04-30-ai-overrides-and-module-disable.md` |
 | Replacing/disabling any module contract at the app level (unified `entry.overrides` umbrella — phases 1-18 wired) | `.ai/specs/2026-05-04-modules-ts-unified-overrides.md` + `packages/shared/src/modules/overrides.ts` + `packages/shared/AGENTS.md` → Module-Level Overrides + `apps/docs/docs/framework/modules/overrides.mdx` |
 | Configuring AI providers (Anthropic / OpenAI / Google) and per-module model overrides (`OM_AI_<MODULE>_MODEL`) | `packages/ai-assistant/AGENTS.md` → Model Resolution + `apps/docs/docs/framework/ai-assistant/overview.mdx` |
@@ -61,7 +61,7 @@ IMPORTANT: Before any research or coding, match the task to the root `AGENTS.md`
 | Integration Marketplace foundation (registry/bundles, credentials, state, health checks, logs, admin UI, integration manifests) | `packages/core/src/modules/integrations/AGENTS.md` |
 | Data Sync hub (adapters, run lifecycle, workers, mapping APIs, scheduled sync, progress linkage, admin UI) | `packages/core/src/modules/data_sync/AGENTS.md` |
 | Building outbound/inbound webhooks, Standard Webhooks signing, delivery queues, webhook admin UI, marketplace webhook settings | `packages/webhooks/AGENTS.md` + `packages/queue/AGENTS.md` + `packages/events/AGENTS.md` + `packages/core/src/modules/integrations/AGENTS.md` + `packages/ui/AGENTS.md` |
-| Building a new integration provider module (adapter, health check, credentials, bundle wiring) | `packages/core/src/modules/integrations/AGENTS.md` + `packages/core/src/modules/data_sync/AGENTS.md` + `.ai/skills/integration-builder/SKILL.md` (specs: SPEC-041, SPEC-045, SPEC-045c; SPEC-044 for payment) |
+| Building a new integration provider module (adapter, health check, credentials, bundle wiring) | `packages/core/src/modules/integrations/AGENTS.md` + `packages/core/src/modules/data_sync/AGENTS.md` + `.ai/skills/om-integration-builder/SKILL.md` (specs: SPEC-041, SPEC-045, SPEC-045c; SPEC-044 for payment) |
 | Wiring progress UX for long-running sync operations (top bar polling, job lifecycle, future SSE bridge) | `packages/core/src/modules/data_sync/AGENTS.md` + `packages/events/AGENTS.md` |
 | **Packages** | |
 | Adding reusable utilities, encryption helpers, i18n translations (`useT`/`resolveTranslations`), boolean parsing, data engine types, request scoping | `packages/shared/AGENTS.md` |
@@ -78,24 +78,24 @@ IMPORTANT: Before any research or coding, match the task to the root `AGENTS.md`
 | Adding static content pages (privacy policies, terms, legal pages) | `packages/content/AGENTS.md` |
 | Testing standalone apps with Verdaccio, publishing packages, canary releases, template scaffolding | `packages/create-app/AGENTS.md` |
 | **Migration** | |
-| Migrating custom module code from MikroORM v6 to v7 (decorators, persist/flush, Knex→Kysely, type fixes, ORM config, Jest setup) | `.ai/skills/migrate-mikro-orm/SKILL.md` |
+| Migrating custom module code from MikroORM v6 to v7 (decorators, persist/flush, Knex→Kysely, type fixes, ORM config, Jest setup) | `.ai/skills/om-migrate-mikro-orm/SKILL.md` |
 | **Testing** | |
-| Integration testing, creating/running Playwright tests, converting markdown test cases to TypeScript, CI test pipeline | `.ai/qa/AGENTS.md` + `.ai/skills/integration-tests/SKILL.md` |
+| Integration testing, creating/running Playwright tests, converting markdown test cases to TypeScript, CI test pipeline | `.ai/qa/AGENTS.md` + `.ai/skills/om-integration-tests/SKILL.md` |
 | **Spec Lifecycle** | |
-| Analyzing a spec before implementation: BC impact, risk assessment, gap analysis, readiness report | `.ai/skills/pre-implement-spec/SKILL.md` |
-| Implementing a spec (or specific phases) with coordinated agents, unit tests, docs, progress tracking | `.ai/skills/implement-spec/SKILL.md` |
+| Analyzing a spec before implementation: BC impact, risk assessment, gap analysis, readiness report | `.ai/skills/om-pre-implement-spec/SKILL.md` |
+| Implementing a spec (or specific phases) with coordinated agents, unit tests, docs, progress tracking | `.ai/skills/om-implement-spec/SKILL.md` |
 | Writing new specs, updating existing specs after implementation, documenting architectural decisions, maintaining changelogs | `.ai/specs/AGENTS.md` |
-| Reviewing code changes for architecture, security, conventions, and quality compliance | `.ai/skills/code-review/SKILL.md` |
-| Migrating hardcoded colors/typography to semantic tokens, analyzing DS violations, scaffolding DS-compliant pages, reviewing DS compliance | `.ai/skills/ds-guardian/SKILL.md` + `.ai/ds-rules.md` |
-| Reviewing a GitHub PR by number (checkout, code-review, submit review, apply label) | `.ai/skills/auto-review-pr/SKILL.md` |
-| Scanning open PRs for merge readiness, listing what can be merged now, triaging blockers | `.ai/skills/merge-buddy/SKILL.md` |
-| Day-start review triage: reviewing all unreviewed PRs (newest first) in one session | `.ai/skills/review-prs/SKILL.md` |
-| Running an arbitrary autonomous task end-to-end and delivering it as a PR against `develop` (dated spec, phased commits, validation gate, normalized pipeline labels). **Default** for one-off bug fixes and small features | `.ai/skills/auto-create-pr/SKILL.md` |
-| Resuming an in-progress PR created by `auto-create-pr`: claims the PR, re-enters an isolated worktree, reads the linked spec's Progress checklist, and continues from the first unchecked step | `.ai/skills/auto-continue-pr/SKILL.md` |
-| Running a long multi-step spec implementation with checkpoint discipline (per-spec run folder, 1:1 step-to-commit, executor-dispatch, in-progress lock). Use when work spans >5 commits and needs resumability | `.ai/skills/auto-create-pr-loop/SKILL.md` |
-| Resuming an in-progress PR created by `auto-create-pr-loop`: same contract, same run-folder discipline, driven by the top-of-file `## Tasks` table in `PLAN.md` as the authoritative step-status source | `.ai/skills/auto-continue-pr-loop/SKILL.md` |
-| Post-merge housekeeping: reconcile recently merged/closed PRs with the GitHub issue tracker (auto-close on `fixes`/`closes`/`resolves` keywords, supersede detection) | `.ai/skills/sync-merged-pr-issues/SKILL.md` |
-| Drafting a CHANGELOG.md release entry (emoji-driven format) for every PR since last release; honors the Supersede Credit Rule for carry-forward PRs | `.ai/skills/auto-update-changelog/SKILL.md` |
+| Reviewing code changes for architecture, security, conventions, and quality compliance | `.ai/skills/om-code-review/SKILL.md` |
+| Migrating hardcoded colors/typography to semantic tokens, analyzing DS violations, scaffolding DS-compliant pages, reviewing DS compliance | `.ai/skills/om-ds-guardian/SKILL.md` + `.ai/ds-rules.md` |
+| Reviewing a GitHub PR by number (checkout, code-review, submit review, apply label) | `.ai/skills/om-auto-review-pr/SKILL.md` |
+| Scanning open PRs for merge readiness, listing what can be merged now, triaging blockers | `.ai/skills/om-merge-buddy/SKILL.md` |
+| Day-start review triage: reviewing all unreviewed PRs (newest first) in one session | `.ai/skills/om-review-prs/SKILL.md` |
+| Running an arbitrary autonomous task end-to-end and delivering it as a PR against `develop` (dated spec, phased commits, validation gate, normalized pipeline labels). **Default** for one-off bug fixes and small features | `.ai/skills/om-auto-create-pr/SKILL.md` |
+| Resuming an in-progress PR created by `om-auto-create-pr`: claims the PR, re-enters an isolated worktree, reads the linked spec's Progress checklist, and continues from the first unchecked step | `.ai/skills/om-auto-continue-pr/SKILL.md` |
+| Running a long multi-step spec implementation with checkpoint discipline (per-spec run folder, 1:1 step-to-commit, executor-dispatch, in-progress lock). Use when work spans >5 commits and needs resumability | `.ai/skills/om-auto-create-pr-loop/SKILL.md` |
+| Resuming an in-progress PR created by `om-auto-create-pr-loop`: same contract, same run-folder discipline, driven by the top-of-file `## Tasks` table in `PLAN.md` as the authoritative step-status source | `.ai/skills/om-auto-continue-pr-loop/SKILL.md` |
+| Post-merge housekeeping: reconcile recently merged/closed PRs with the GitHub issue tracker (auto-close on `fixes`/`closes`/`resolves` keywords, supersede detection) | `.ai/skills/om-sync-merged-pr-issues/SKILL.md` |
+| Drafting a CHANGELOG.md release entry (emoji-driven format) for every PR since last release; honors the Supersede Credit Rule for carry-forward PRs | `.ai/skills/om-auto-update-changelog/SKILL.md` |
 
 ## Core Principles
 
@@ -106,9 +106,9 @@ IMPORTANT: Before any research or coding, match the task to the root `AGENTS.md`
 ## Workflow Orchestration
 
 1.  **Spec-first**: Enter plan mode for non-trivial tasks (3+ steps or architectural decisions). Check `.ai/specs/` and `.ai/specs/enterprise/` before coding; create spec files using scope-appropriate naming (`{date}-{title}.md` for OSS and enterprise, with `date` as `YYYY-MM-DD` and `title` as kebab-case). Skip for small fixes.
-    -   **Detailed Workflow**: Refer to the **`spec-writing` skill** for research, phasing, and architectural review standards (`.ai/skills/spec-writing/SKILL.md`).
-    -   **Pre-implementation analysis**: Before implementing a complex spec, run the **`pre-implement-spec` skill** to audit backward compatibility, identify gaps, and produce a readiness report.
-    -   **Implementation**: Use the **`implement-spec` skill** to execute spec phases with coordinated subagents, unit tests, progress tracking, and code-review compliance gates.
+    -   **Detailed Workflow**: Refer to the **`om-spec-writing` skill** for research, phasing, and architectural review standards (`.ai/skills/om-spec-writing/SKILL.md`).
+    -   **Pre-implementation analysis**: Before implementing a complex spec, run the **`om-pre-implement-spec` skill** to audit backward compatibility, identify gaps, and produce a readiness report.
+    -   **Implementation**: Use the **`om-implement-spec` skill** to execute spec phases with coordinated subagents, unit tests, progress tracking, and code-review compliance gates.
 2.  **Subagent strategy**: Use subagents liberally to keep main context clean. Offload research and parallel analysis. One task per subagent.
 3.  **Self-improvement**: After corrections, update `.ai/lessons.md` or relevant AGENTS.md. Write rules that prevent the same mistake.
 4.  **Verification**: Run tests, check build, suggest user verification. Ask: "Would a staff engineer approve this?"
@@ -122,8 +122,8 @@ IMPORTANT: Before any research or coding, match the task to the root `AGENTS.md`
 - Meta labels are additive: `needs-qa`, `skip-qa`, `in-progress`.
 - Priority labels are mutually exclusive within their group (only one at a time): `priority-low`, `priority-medium`, `priority-high`, `priority-extreme`. They are applied to issues and PRs to communicate urgency, are additive with respect to category and meta labels, and default to **unset** (treated as `priority-medium`) when no priority label is present. Use `priority-extreme` for production outages or security incidents that require immediate action; `priority-high` for release-blocking issues; `priority-low` for cosmetic, opportunistic, or follow-up cleanup work.
 - A ready non-draft PR should carry `review` unless it is already in another pipeline state.
-- `auto-review-pr` MUST move approved PRs to `qa` when `needs-qa` is present and `skip-qa` is absent; otherwise it MUST move them to `merge-queue`.
-- `auto-review-pr` MUST move review failures to `changes-requested`.
+- `om-auto-review-pr` MUST move approved PRs to `qa` when `needs-qa` is present and `skip-qa` is absent; otherwise it MUST move them to `merge-queue`.
+- `om-auto-review-pr` MUST move review failures to `changes-requested`.
 - `needs-qa` is for UI changes, new features, sales or order flows, and other customer-facing behavior that needs manual exercise.
 - `skip-qa` is for docs-only, dependency-only, CI-only, test-only, typo-only, or similarly low-risk non-customer-facing changes.
 - Auto-skills that mutate PRs or issues MUST claim them first with all three signals: assignee, `in-progress` label, and a claim comment. They MUST release the `in-progress` label when finished, even on failure.

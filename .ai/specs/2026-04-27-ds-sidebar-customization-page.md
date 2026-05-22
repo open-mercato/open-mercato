@@ -226,7 +226,7 @@ No new primitive. `SidebarCustomizationEditor` is a composite that uses existing
 
 See [Migration & Backward Compatibility](#migration--backward-compatibility). All 13 contract surfaces unaffected; the only changes are additive (new page + new export) and removals of unreleased internals.
 
-### Code review compliance ([`.ai/skills/code-review/SKILL.md`](../skills/code-review/SKILL.md))
+### Code review compliance ([`.ai/skills/om-code-review/SKILL.md`](../skills/code-review/SKILL.md))
 
 - [x] No new modules without `setup.ts` (no new modules — page lives inside `auth`).
 - [x] No new entities (no DB changes).

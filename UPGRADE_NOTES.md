@@ -51,7 +51,7 @@ v7 is ESM-only, dropped Knex for [Kysely](https://github.com/kysely-org/kysely),
 decorators out of `@mikro-orm/core`, and removed the default `ReflectMetadataProvider`.
 Every downstream module with entities, raw SQL, or a standalone ORM bootstrap needs
 changes. The full mechanical recipe (incl. tests/Jest setup) lives in the companion skill
-[`.ai/skills/migrate-mikro-orm/SKILL.md`](.ai/skills/migrate-mikro-orm/SKILL.md); the
+[`.ai/skills/om-migrate-mikro-orm/SKILL.md`](.ai/skills/om-migrate-mikro-orm/SKILL.md); the
 highlights are:
 
 Decorators moved — import decorators from `@mikro-orm/decorators/legacy`; keep
@@ -143,7 +143,7 @@ Three major bumps with deep platform surface impact were **deliberately reverted
 **NOT** part of 0.5.0 — they remain on their 0.4.10 versions and are tracked as separate
 dedicated upgrades. See [Deferred majors](#deferred-majors) below.
 
-Companion skill: [`auto-upgrade-0.4.10-to-0.5.0`](.ai/skills/auto-upgrade-0.4.10-to-0.5.0/SKILL.md).
+Companion skill: [`om-auto-upgrade-0.4.10-to-0.5.0`](.ai/skills/om-auto-upgrade-0.4.10-to-0.5.0/SKILL.md).
 
 ### Breaking dependency changes that may affect user code
 

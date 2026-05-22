@@ -228,7 +228,7 @@ Per iteration:
 5. Re-read the diff and remove any accidental scope creep.
 6. Grep changed non-test files for raw `em.findOne(`/`em.find(` — replace with `findOneWithDecryption`/`findWithDecryption`. This is a hard rule from AGENTS.md.
 
-Before publishing, run the full CI/CD verification gate from the `code-review` skill:
+Before publishing, run the full CI/CD verification gate from the `om-code-review` skill:
 
 - `yarn build:packages`
 - `yarn generate`
@@ -245,7 +245,7 @@ If the full gate is too expensive to run immediately while debugging, do targete
 
 Before publishing, run the change through the same review discipline as an incoming PR.
 
-Use `.ai/skills/code-review/SKILL.md` and `BACKWARD_COMPATIBILITY.md`.
+Use `.ai/skills/om-code-review/SKILL.md` and `BACKWARD_COMPATIBILITY.md`.
 
 You must explicitly verify:
 

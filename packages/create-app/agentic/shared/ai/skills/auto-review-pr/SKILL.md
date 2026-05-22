@@ -297,7 +297,7 @@ Record findings from the patterns below. These are mandatory findings, not optio
 
 ### 6. Run the full code-review skill inside the worktree
 
-Execute `.ai/skills/code-review/SKILL.md` in the isolated worktree.
+Execute `.ai/skills/om-code-review/SKILL.md` in the isolated worktree.
 
 Mandatory scope and gates:
 
@@ -313,7 +313,7 @@ Merge findings from step 5 into the final review report. Do not duplicate the sa
 
 ### 7. Classify the result
 
-Use the same severity rules as the `code-review` skill:
+Use the same severity rules as the `om-code-review` skill:
 
 | Condition | Decision |
 |-----------|----------|
@@ -558,8 +558,8 @@ If a critical blocker remains that requires human judgment, the summary must des
 - In autofix mode, always rerun code review after each fix batch instead of assuming the previous findings list is complete
 - In autofix mode, always run unit tests and typecheck for the changed scope on every iteration and again on the final branch state
 - In autofix mode, continue iterating until the PR is ready or a real blocker is reported explicitly
-- Must run the full CI/CD verification gate from the `code-review` skill
-- Must use the `code-review` skill severity model
+- Must run the full CI/CD verification gate from the `om-code-review` skill
+- Must use the `om-code-review` skill severity model
 - Must run the diff-level automated checks in step 5
 - The review body must contain the full structured report
 - Always add the chosen pipeline label and remove every other pipeline label

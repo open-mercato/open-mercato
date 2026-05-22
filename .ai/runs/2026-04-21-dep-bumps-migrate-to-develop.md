@@ -93,7 +93,7 @@ Run the full validation gate (`yarn build:packages`, `yarn generate`,
 
 ### Phase 5: Open PR and reviews
 
-Open the PR against `develop`, apply labels, run `auto-review-pr`, post the
+Open the PR against `develop`, apply labels, run `om-auto-review-pr`, post the
 summary comment.
 
 ## Progress
@@ -137,7 +137,7 @@ summary comment.
 - [x] 5.1 Push final commits to `origin/feat/dep-bumps-migrate-to-develop`
 - [x] 5.2 Open PR against `develop` with `Status: in-progress` (initial open) → flipped to `complete` after resume
 - [x] 5.3 Apply `review` + `dependencies` labels with explainer comments
-- [x] 5.4 Resume via `auto-continue-pr` — revert BC-breaking majors, adapt to remaining majors
+- [x] 5.4 Resume via `om-auto-continue-pr` — revert BC-breaking majors, adapt to remaining majors
 - [x] 5.5 Post comprehensive summary comment
 
 ## Phase 6 (resume): Skip BC-breaking majors, adapt to remaining majors
@@ -185,7 +185,7 @@ summary comment.
   expected MikroORM 7 / TypeScript 6 / Stripe 22 / Meilisearch 1 breakage that is
   out of scope for the initial run. PR opened against `develop` with
   `Status: in-progress`.
-- 2026-04-21 — Resumed via `auto-continue-pr`. Per user directive ("skip the mikro-orm
+- 2026-04-21 — Resumed via `om-auto-continue-pr`. Per user directive ("skip the mikro-orm
   migration as its not backward compatible"), reverted the three highest-impact BC
   breakers (MikroORM 7, TypeScript 6, awilix 13) and adapted to the remaining
   majors (Meilisearch 1, Stripe 22, lucide-react 1, react-markdown 10, cron-parser 5,

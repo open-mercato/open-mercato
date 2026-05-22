@@ -1,6 +1,6 @@
 # Standalone portability overrides — auto-* skills
 
-The four auto-* skills (`auto-create-pr`, `auto-continue-pr`, `auto-review-pr`, `auto-fix-github`) were originally authored inside the Open Mercato monorepo. When they run inside a standalone app scaffolded via `create-mercato-app`, the following overrides apply **before** any rule in `SKILL.md`.
+The four auto-* skills (`om-auto-create-pr`, `om-auto-continue-pr`, `om-auto-review-pr`, `om-auto-fix-github`) were originally authored inside the Open Mercato monorepo. When they run inside a standalone app scaffolded via `create-mercato-app`, the following overrides apply **before** any rule in `SKILL.md`.
 
 ## 1. Base branch is discovered, not hard-coded
 

@@ -11,7 +11,7 @@ Implements a specification (or selected phases) end-to-end using a team of coord
 
 1. **Identify the spec**: Locate the target spec file in `.ai/specs/`.
 2. **Load context**: Read spec fully. Match affected tasks to the **Task → Context Map** in `AGENTS.md` and read all listed files (guides and skills).
-3. **Load code-review checklist**: Read `.ai/skills/code-review/references/review-checklist.md` — this is the acceptance gate for every phase.
+3. **Load code-review checklist**: Read `.ai/skills/om-code-review/references/review-checklist.md` — this is the acceptance gate for every phase.
 4. **Load lessons**: Read `.ai/lessons.md` for known pitfalls.
 5. **Scope phases**: If the user specifies phases (e.g. "phases c-e"), filter to only those. Otherwise implement all phases sequentially.
 
@@ -46,7 +46,7 @@ For every piece of code, enforce these code-review rules inline:
 | Security | `findWithDecryption`, tenant scoping, zod validation |
 | **Encryption maps** | **For every PII / GDPR-relevant column the phase touches, declare in `<module>/encryption.ts` exporting `defaultEncryptionMaps` (type from `@open-mercato/shared/modules/encryption`). Reads via `findWithDecryption` / `findOneWithDecryption` (5-arg `(em, entity, where, options?, scope?)`). Equality-lookup columns declare a sibling `hashField`. NEVER hand-rolled AES/KMS, `crypto.subtle`, or "encrypt later" stubs. See `AGENTS.md` → CRITICAL Rule #11 (Encryption maps) + the "Encryption maps" row of the Mandatory Module Mechanisms table; `.ai/skills/data-model-design/SKILL.md` § Sensitive Data and Encryption Maps; `.ai/skills/module-scaffold/SKILL.md` § Encryption maps.** |
 | UI | `<CrudForm>`/`<DataTable>` (with stable `entityId` + `extensionTableId`), `apiCall` (never raw `fetch`), `flash()`, `<LoadingMessage>`/`<ErrorMessage>` |
-| **Design System** | **Semantic status tokens (no `text-red-*` / `bg-green-*`); Tailwind text scale (no `text-[13px]` / `text-[11px]`); shared primitives `StatusBadge` / `Alert` / `FormField` / `SectionHeader` / `CollapsibleSection` / `LoadingMessage` / `Spinner` / `DataLoader` / `EmptyState`; lucide-react icons in PAGE BODY (never inline `<svg>`); `aria-label` on every icon-only button; Boy Scout rule on touched lines. See `AGENTS.md` → CRITICAL Rule #10 (Strict Design System alignment) + `.ai/skills/backend-ui-design/SKILL.md`.** |
+| **Design System** | **Semantic status tokens (no `text-red-*` / `bg-green-*`); Tailwind text scale (no `text-[13px]` / `text-[11px]`); shared primitives `StatusBadge` / `Alert` / `FormField` / `SectionHeader` / `CollapsibleSection` / `LoadingMessage` / `Spinner` / `DataLoader` / `EmptyState`; lucide-react icons in PAGE BODY (never inline `<svg>`); `aria-label` on every icon-only button; Boy Scout rule on touched lines. See `AGENTS.md` → CRITICAL Rule #10 (Strict Design System alignment) + `.ai/skills/om-backend-ui-design/SKILL.md`.** |
 | **Cache** | **Resolve via DI (`container.resolve('cache')`); tag with `tenant:<id>` / `org:<id>`; declare invalidation per write path. NEVER `new Redis(...)` or raw SQLite.** |
 | Events | `createModuleEvents()` with `as const`, subscribers export `metadata`; cross-module side effects via subscribers, never direct imports |
 | i18n | `useT()` client, `resolveTranslations()` server, no hardcoded strings |
@@ -67,7 +67,7 @@ For every new feature/function implemented in the phase:
 ### Step 4 — Integration Tests
 
 If the spec defines integration test scenarios (or the phase adds API endpoints / UI flows):
-- Follow the `integration-tests` skill workflow (`.ai/skills/integration-tests/SKILL.md`)
+- Follow the `om-integration-tests` skill workflow (`.ai/skills/om-integration-tests/SKILL.md`)
 - Place tests in `src/modules/<module>/__integration__/TC-{CATEGORY}-{XXX}.spec.ts`
 - Tests MUST be self-contained: create fixtures in setup, clean up in teardown
 - Tests MUST NOT rely on seeded/demo data
@@ -85,7 +85,7 @@ For each new feature:
 
 ### Step 6 — Self-Review (Code-Review Gate)
 
-Before marking a phase complete, run a self-review against the checklist (`.ai/skills/code-review/references/review-checklist.md`):
+Before marking a phase complete, run a self-review against the checklist (`.ai/skills/om-code-review/references/review-checklist.md`):
 
 1. **Architecture & Module Independence** (section 1)
 2. **Security** (section 2)
