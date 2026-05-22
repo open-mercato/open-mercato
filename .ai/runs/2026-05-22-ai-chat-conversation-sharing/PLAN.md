@@ -14,10 +14,10 @@ Source spec: .ai/specs/2026-05-22-ai-chat-conversation-sharing.md
 | 1 | 1.4 | Implement `loadParticipantFlag` in AiChatConversationRepository | done | d312a07a0 |
 | 1 | 1.5 | Widen `canAccessConversation` + update callsites (getById, update, softDelete) | done | d7ca29b89 |
 | 1 | 1.6 | Widen `list` query to include participant-accessible conversations | done | 01f93e521 |
-| 1 | 1.7 | Add `visibility`, `participantCount`, `isOwner` to serializeAiChatConversation | done | — |
-| 1 | 1.8 | Implement GET /conversations/:id/participants route | todo | — |
-| 1 | 1.9 | Implement POST /conversations/:id/participants route | todo | — |
-| 1 | 1.10 | Implement DELETE /conversations/:id/participants/:userId route | todo | — |
+| 1 | 1.7 | Add `visibility`, `participantCount`, `isOwner` to serializeAiChatConversation | done | 8eb57aa50 |
+| 1 | 1.8 | Implement GET /conversations/:id/participants route | done | — |
+| 1 | 1.9 | Implement POST /conversations/:id/participants route | done | — |
+| 1 | 1.10 | Implement DELETE /conversations/:id/participants/:userId route | done | — |
 | 1 | 1.11 | Add conversation.shared + conversation.unshared events; emit from routes | todo | — |
 | 2 | 2.1 | Create notifications.ts with ai_assistant.conversation_shared type | todo | — |
 | 2 | 2.2 | Create subscribers/conversation-shared-notify.ts | todo | — |

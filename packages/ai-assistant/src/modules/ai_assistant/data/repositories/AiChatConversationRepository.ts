@@ -548,6 +548,132 @@ export class AiChatConversationRepository {
     }
   }
 
+  async listParticipants(
+    conversationId: string,
+    ctx: AiChatConversationContext,
+  ): Promise<AiChatConversationParticipant[]> {
+    assertContext(ctx, 'listParticipants')
+    const conv = await findOneAccessibleConversation(this.em, conversationId, ctx)
+    if (!conv) return []
+    if (!canAccessConversation(conv, ctx)) return []
+    const filter: Record<string, unknown> = {
+      tenantId: ctx.tenantId,
+      conversationId,
+      deletedAt: null,
+    }
+    if (ctx.organizationId) filter.organizationId = ctx.organizationId
+    return this.em.find(AiChatConversationParticipant, filter as any, {
+      orderBy: { createdAt: 'asc' } as any,
+    })
+  }
+
+  async addParticipant(
+    conversationId: string,
+    userId: string,
+    role: 'viewer' | 'commenter',
+    ctx: AiChatConversationContext,
+  ): Promise<AiChatConversationParticipant> {
+    assertContext(ctx, 'addParticipant')
+    return this.em.transactional(async (tx) => {
+      const conv = await findOneAccessibleConversation(
+        tx as unknown as EntityManager,
+        conversationId,
+        ctx,
+      )
+      if (!conv) {
+        throw new AiChatConversationAccessError(
+          `Conversation "${conversationId}" was not found for the caller.`,
+        )
+      }
+      if (conv.ownerUserId !== ctx.userId && !canManageConversations(ctx)) {
+        throw new AiChatConversationAccessError(
+          'Only the conversation owner can add participants.',
+        )
+      }
+      const existingFilter: Record<string, unknown> = {
+        tenantId: ctx.tenantId,
+        conversationId,
+        userId,
+      }
+      if (ctx.organizationId) existingFilter.organizationId = ctx.organizationId
+      const existing = await tx.findOne(
+        AiChatConversationParticipant,
+        existingFilter as any,
+      )
+      if (existing) {
+        existing.deletedAt = null
+        existing.role = role
+        await tx.persist(existing).flush()
+        if (conv.visibility === 'private') {
+          conv.visibility = 'shared'
+          await tx.persist(conv).flush()
+        }
+        return existing
+      }
+      const participant = tx.create(AiChatConversationParticipant, {
+        tenantId: ctx.tenantId!,
+        organizationId: ctx.organizationId ?? null,
+        conversationId,
+        userId,
+        role,
+      } as unknown as AiChatConversationParticipant)
+      if (conv.visibility === 'private') {
+        conv.visibility = 'shared'
+      }
+      await tx.persist(participant).persist(conv).flush()
+      return participant
+    })
+  }
+
+  async revokeParticipant(
+    conversationId: string,
+    targetUserId: string,
+    ctx: AiChatConversationContext,
+  ): Promise<void> {
+    assertContext(ctx, 'revokeParticipant')
+    await this.em.transactional(async (tx) => {
+      const conv = await findOneAccessibleConversation(
+        tx as unknown as EntityManager,
+        conversationId,
+        ctx,
+      )
+      if (!conv) {
+        throw new AiChatConversationAccessError(
+          `Conversation "${conversationId}" was not found for the caller.`,
+        )
+      }
+      if (conv.ownerUserId !== ctx.userId && !canManageConversations(ctx)) {
+        throw new AiChatConversationAccessError(
+          'Only the conversation owner can revoke participants.',
+        )
+      }
+      const participantFilter: Record<string, unknown> = {
+        tenantId: ctx.tenantId,
+        conversationId,
+        userId: targetUserId,
+        deletedAt: null,
+      }
+      if (ctx.organizationId) participantFilter.organizationId = ctx.organizationId
+      const participant = await tx.findOne(
+        AiChatConversationParticipant,
+        participantFilter as any,
+      )
+      if (!participant) return
+      participant.deletedAt = new Date()
+      const remainingCount = await tx.count(AiChatConversationParticipant, {
+        tenantId: ctx.tenantId,
+        conversationId,
+        deletedAt: null,
+        role: { $ne: 'owner' },
+      } as any)
+      if (remainingCount <= 1) {
+        conv.visibility = 'private'
+        await tx.persist(conv)
+      }
+      await tx.persist(participant).flush()
+    })
+  }
+
   private async loadParticipantFlag(
     em: EntityManager,
     tenantId: string,
