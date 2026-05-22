@@ -661,7 +661,10 @@ export function AiAssistantLauncher({
       </Dialog>
       <Dialog open={chatOpen} onOpenChange={(open) => {
         setChatOpen(open)
-        if (!open) setDeepLinkConversationId(null)
+        if (!open) {
+          setDeepLinkConversationId(null)
+          deepLinkHandledRef.current = null
+        }
       }}>
         <DialogContent
           className={cn(
