@@ -13,7 +13,7 @@ import { collectCustomFieldValues } from '@open-mercato/ui/backend/utils/customF
 import { mapCrudServerErrorToFormErrors } from '@open-mercato/ui/backend/utils/serverErrors'
 import { E } from '#generated/entities.ids.generated'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
-import { RecordNotFoundState } from '@open-mercato/ui/backend/detail'
+import { RecordNotFoundState, ErrorMessage } from '@open-mercato/ui/backend/detail'
 import { useConfirmDialog } from '@open-mercato/ui/backend/confirm-dialog'
 import { DetailFieldsSection, type DetailFieldConfig } from '@open-mercato/ui/backend/detail'
 import {
