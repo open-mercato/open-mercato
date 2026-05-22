@@ -30,6 +30,9 @@ Source spec: .ai/specs/2026-05-22-ai-chat-conversation-sharing.md
 | 3 | 3.3 | TC-AI-sharing-03: non-participant denial integration test | done | e09edb32d |
 | 3 | 3.4 | TC-AI-sharing-04: manager override integration test | done | e09edb32d |
 | 3 | 3.5 | TC-AI-sharing-05: cross-tenant denial integration test | done | e09edb32d |
+| 4 | 4.1 | Sync i18n keys to de/es/pl locale files | done | 85b804419 |
+| 4 | 4.2 | Fix notification linkHref — open AI dock with shared conversation instead of playground | done | 0b311d73a |
+| 4 | 4.3 | Expose `createdByUserId` in serialized messages; render owner messages distinctly for viewers | done | 821c0ab35 |
 
 ---
 
@@ -182,3 +185,49 @@ All tests in `packages/ai-assistant/src/modules/ai_assistant/__integration__/`.
 
 **Step 3.5** — TC-AI-sharing-05: cross-tenant denial
 - Create conversation in tenant X. User in tenant Y guesses the `conversationId`. GET /:id as tenant-Y user → 403/null.
+
+---
+
+### Phase 4 — Missing i18n, notification link fix, and viewer message rendering
+
+**Step 4.1** — Sync i18n keys to de/es/pl locale files
+- Step 2.4 added all `ai_assistant.share.*` and `ai_assistant.notifications.conversation_shared.*` keys **only to `en.json`**.
+- Files `de.json`, `es.json`, `pl.json` have none of these keys — the notification title renders as the raw i18n key (`ai_assistant.notifications.conversation_shared.title`) for users in non-English locales.
+- Add all missing keys to `de.json`, `es.json`, `pl.json` with the same English text as fallback (proper translations are a follow-up; this unblocks rendering).
+- Keys to sync (source: `packages/ai-assistant/src/modules/ai_assistant/i18n/en.json`):
+  - `ai_assistant.notifications.conversation_shared.title`
+  - `ai_assistant.notifications.conversation_shared.body`
+  - `ai_assistant.notifications.conversation_shared.view_button`
+  - `ai_assistant.share.dialogTitle`
+  - `ai_assistant.share.addParticipant`
+  - `ai_assistant.share.participantPlaceholder`
+  - `ai_assistant.share.removeParticipant`
+  - `ai_assistant.share.noParticipants`
+  - `ai_assistant.share.shareButton`
+  - `ai_assistant.share.saving`
+  - `ai_assistant.share.saved`
+  - `ai_assistant.share.dialogDescription` (in JSX fallback, may be missing from en.json too — add if so)
+  - `ai_assistant.share.selectUser`
+  - `ai_assistant.share.allUsersAdded`
+- Run `yarn i18n:check-sync` after to confirm all locales are in sync.
+
+**Step 4.2** — Fix notification `linkHref` — open AI dock with shared conversation instead of playground
+- Current state: `notifications.ts` and `conversation-shared-notify.ts` hardcode `linkHref: '/backend/config/ai-assistant/playground'`. The playground requires `ai_assistant.settings.manage` — a regular user (viewer) does not have this feature, so the page returns 403.
+- Fix in `notifications.ts`: the `actions[0].href` and `linkHref` must be accessible to any user with `ai_assistant.view`.
+- The AI chat opens via the topbar dock/launcher — there is no dedicated per-conversation URL. The correct deep-link pattern is to append `?openAiConversation=<conversationId>` to `/backend`. The `AiAssistantLauncher` (in `packages/ui/src/ai/AiAssistantLauncher.tsx`) should read this query param on mount and auto-open the conversation in the dock.
+- Implementation steps:
+  1. In `AiAssistantLauncher.tsx`, on mount read `searchParams.get('openAiConversation')`. If set, call the existing `openConversation(conversationId)` mechanism (or session resume) to pre-load the conversation in the dock and open it.
+  2. In `notifications.ts`, change `actions[0].href` to `/backend?openAiConversation=CONVERSATION_ID`. Since the type definition cannot know the conversationId at definition time, set `href` to `/backend` as a static fallback in the type def.
+  3. In `conversation-shared-notify.ts`, override `linkHref` with `/backend?openAiConversation=${payload.conversationId}` so the subscriber passes the full dynamic URL. This already overrides `typeDef.linkHref` via the `options.linkHref` argument to `buildNotificationFromType`.
+  4. The notification action in `notifications.ts` should also be changed from `href` (static) to use the dynamic `linkHref` from the notification row — check if `NotificationTypeDefinition.actions[].href` supports a `linkHref` passthrough; if not, keep the static `/backend` and rely solely on the notification-level `linkHref`.
+
+**Step 4.3** — Expose `createdByUserId` in serialized messages; render owner messages distinctly for viewers
+- Current state: `serializeAiChatMessage` in `conversation-storage.ts` does NOT include `createdByUserId`. `SerializedAiChatMessage` has no `senderUserId` field. The conversation GET route returns messages where every `role: 'user'` message appears to belong to the caller, so a viewer sees the owner's messages rendered as their own (right-aligned "my" bubbles, etc.).
+- Fix — backend:
+  1. Add `senderUserId: string | null` to `SerializedAiChatMessage` interface (mapped from `row.createdByUserId`).
+  2. Update `serializeAiChatMessage` to include `senderUserId: row.createdByUserId ?? null`.
+  3. In the conversation detail GET route (`[conversationId]/route.ts`), pass the caller's `userId` alongside the transcript so the response can include `callerUserId` at the conversation level (already partly done via `serializeAiChatConversation` `enrich.callerUserId`).
+- Fix — frontend:
+  1. The `AiChat` component loads a shared (read-only) conversation via `initialMessages`. For each loaded message, if `role === 'user'` AND `senderUserId !== currentUserId` (i.e. the owner's message being viewed by a participant), render the message as a read-only "other user" bubble — left-aligned, muted styling, prefixed with a label such as the owner's name or a generic "Owner" label.
+  2. The `AiChatMessage` type in `useAiChat.ts` should accept the optional `senderUserId` field so the renderer can access it.
+  3. Ensure that viewer-loaded messages do NOT get submitted to the chat dispatcher — the conversation is read-only for participants (no `appendMessage` access); the textarea should be hidden or disabled when `isOwner === false`.
