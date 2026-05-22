@@ -1,6 +1,6 @@
 "use client"
 import * as React from 'react'
-import { format } from 'date-fns'
+import { format } from 'date-fns/format'
 import { Button } from '../primitives/button'
 import { Checkbox } from '../primitives/checkbox'
 import { DateRangePicker } from '../primitives/date-range-picker'

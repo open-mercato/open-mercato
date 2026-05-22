@@ -1,8 +1,9 @@
 import { notFound, redirect } from 'next/navigation'
 import { cookies } from 'next/headers'
 import Link from 'next/link'
-import { findRouteManifestMatch } from '@open-mercato/shared/modules/registry'
+import { findRouteManifestMatch, getBackendRouteManifests, registerBackendRouteManifests } from '@open-mercato/shared/modules/registry'
 import { backendRoutes } from '@/.mercato/generated/backend-routes.generated'
+import { bootstrap } from '@/bootstrap'
 import { getAuthFromCookies } from '@open-mercato/shared/lib/auth/server'
 import type { AuthContext } from '@open-mercato/shared/lib/auth/server'
 import { ApplyBreadcrumb } from '@open-mercato/ui/backend/AppShell'
@@ -16,6 +17,9 @@ import type { Metadata } from 'next'
 import { resolveLocalizedTitleMetadata } from '@/lib/metadata'
 import { resolvePageMiddlewareRedirect } from '@open-mercato/shared/lib/middleware/page-executor'
 import { backendMiddlewareEntries } from '@/.mercato/generated/backend-middleware.generated'
+
+bootstrap()
+registerBackendRouteManifests(backendRoutes)
 
 type Awaitable<T> = T | Promise<T>
 
@@ -39,7 +43,7 @@ async function renderAccessDenied() {
 export async function generateMetadata(props: BackendParams): Promise<Metadata> {
   const params = await props.params
   const pathname = '/backend/' + (params.slug?.join('/') ?? '')
-  const match = findRouteManifestMatch(backendRoutes, pathname)
+  const match = findRouteManifestMatch(getBackendRouteManifests(), pathname)
   if (!match) {
     return {}
   }
@@ -53,7 +57,7 @@ export async function generateMetadata(props: BackendParams): Promise<Metadata> 
 export default async function BackendCatchAll(props: BackendParams) {
   const params = await props.params
   const pathname = '/backend/' + (params.slug?.join('/') ?? '')
-  const match = findRouteManifestMatch(backendRoutes, pathname)
+  const match = findRouteManifestMatch(getBackendRouteManifests(), pathname)
   if (!match) return notFound()
   let auth: AuthContext = null
   let container: Awaited<ReturnType<typeof createRequestContainer>> | null = null

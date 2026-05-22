@@ -14,7 +14,7 @@
  * the spec's residual N+1 budget; deeper aggregation can earn a first-class
  * API later without touching the AI surface.
  */
-import type { EntityManager } from '@mikro-orm/postgresql'
+import type { EntityManager, FilterQuery } from '@mikro-orm/postgresql'
 import { z } from 'zod'
 import { defineApiBackedAiTool } from '@open-mercato/ai-assistant/modules/ai_assistant/lib/api-backed-tool'
 import {
@@ -390,6 +390,15 @@ function recordVersionFromUpdatedAt(updatedAt: Date | null | undefined): string 
   return value.toISOString()
 }
 
+function titleStatus(value: string | null | undefined): string | undefined {
+  if (!value) return undefined
+  return value
+    .split(/[_\s-]+/)
+    .filter(Boolean)
+    .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
+    .join(' ')
+}
+
 async function loadDealWithStage(
   em: EntityManager,
   ctx: CustomersToolContext,
@@ -401,13 +410,33 @@ async function loadDealWithStage(
   const deal = await findOneWithDecryption<CustomerDeal>(
     em,
     CustomerDeal,
-    where as any,
+    where as FilterQuery<CustomerDeal>,
     undefined,
     buildScope(ctx, tenantId),
   )
   if (!deal || deal.tenantId !== tenantId) return null
   if (ctx.organizationId && deal.organizationId !== ctx.organizationId) return null
   return deal
+}
+
+async function loadPipelineStage(
+  em: EntityManager,
+  ctx: CustomersToolContext,
+  tenantId: string,
+  stageId: string,
+  organizationId: string,
+): Promise<CustomerPipelineStage | null> {
+  return findOneWithDecryption<CustomerPipelineStage>(
+    em,
+    CustomerPipelineStage,
+    {
+      id: stageId,
+      tenantId,
+      organizationId,
+    },
+    undefined,
+    buildScope(ctx, tenantId),
+  )
 }
 
 const updateDealStageTool: CustomersAiToolDefinition = {
@@ -425,14 +454,47 @@ const updateDealStageTool: CustomersAiToolDefinition = {
     const em = resolveEm(ctx)
     const deal = await loadDealWithStage(em, ctx, tenantId, input.dealId)
     if (!deal) return null
+    let afterStatus = deal.status ?? null
+    let afterPipelineStageId = deal.pipelineStageId ?? null
+    let afterPipelineStageLabel = deal.pipelineStage ?? null
+    if (input.toPipelineStageId) {
+      const organizationId = deal.organizationId ?? ctx.organizationId ?? null
+      const stage = organizationId
+        ? await loadPipelineStage(em, ctx, tenantId, input.toPipelineStageId, organizationId)
+        : null
+      afterPipelineStageId = input.toPipelineStageId
+      afterPipelineStageLabel = stage?.label ?? input.toPipelineStageId
+    } else if (input.toStage) {
+      afterStatus = input.toStage
+    }
+    const beforeStatus = deal.status ?? null
+    const beforePipelineStageId = deal.pipelineStageId ?? null
+    const beforePipelineStageLabel = deal.pipelineStage ?? beforePipelineStageId
     return {
       recordId: deal.id,
       entityType: 'customers.deal',
       recordVersion: recordVersionFromUpdatedAt(deal.updatedAt),
       before: {
-        status: deal.status ?? null,
-        pipelineStage: deal.pipelineStage ?? null,
-        pipelineStageId: deal.pipelineStageId ?? null,
+        status: beforeStatus,
+        pipelineStageId: beforePipelineStageId,
+      },
+      after: {
+        status: afterStatus,
+        pipelineStageId: afterPipelineStageId,
+      },
+      display: {
+        fieldLabels: {
+          status: 'Status',
+          pipelineStageId: 'Pipeline stage',
+        },
+        before: {
+          ...(beforeStatus ? { status: titleStatus(beforeStatus) } : {}),
+          ...(beforePipelineStageLabel ? { pipelineStageId: beforePipelineStageLabel } : {}),
+        },
+        after: {
+          ...(afterStatus ? { status: titleStatus(afterStatus) } : {}),
+          ...(afterPipelineStageLabel ? { pipelineStageId: afterPipelineStageLabel } : {}),
+        },
       },
     }
   },
@@ -461,11 +523,7 @@ const updateDealStageTool: CustomersAiToolDefinition = {
       organizationId,
     }
     if (input.toPipelineStageId) {
-      const stage = await em.findOne(CustomerPipelineStage, {
-        id: input.toPipelineStageId,
-        tenantId,
-        organizationId,
-      })
+      const stage = await loadPipelineStage(em, ctx, tenantId, input.toPipelineStageId, organizationId)
       if (!stage) {
         throw new Error('Pipeline stage not found.')
       }

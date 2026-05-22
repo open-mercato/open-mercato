@@ -75,6 +75,7 @@ type AgentSettings = {
   mutationPolicy: string
   readOnly: boolean
   maxSteps: number | null
+  taskPlan?: { enabled?: boolean }
   allowedTools: string[]
   tools: AgentTool[]
   requiredFeatures: string[]

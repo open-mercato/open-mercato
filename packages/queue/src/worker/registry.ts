@@ -6,6 +6,7 @@
  */
 
 import type { WorkerDescriptor } from '../types'
+import { applyWorkerOverridesToDescriptors } from '@open-mercato/shared/modules/overrides'
 
 const workers: Map<string, WorkerDescriptor> = new Map()
 
@@ -25,7 +26,7 @@ export function registerWorker(worker: WorkerDescriptor): void {
  * @param list - Array of worker descriptors to register
  */
 export function registerModuleWorkers(list: WorkerDescriptor[]): void {
-  for (const worker of list) {
+  for (const worker of applyWorkerOverridesToDescriptors(list)) {
     registerWorker(worker)
   }
 }

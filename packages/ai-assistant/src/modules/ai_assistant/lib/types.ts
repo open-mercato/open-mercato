@@ -54,6 +54,8 @@ export interface AiToolLoadBeforeRecord {
   label: string
   recordVersion: string | null
   before: Record<string, unknown>
+  after?: Record<string, unknown>
+  display?: AiToolFieldDiffDisplayHints
 }
 
 /**
@@ -67,6 +69,20 @@ export interface AiToolLoadBeforeSingleRecord {
   entityType: string
   recordVersion: string | null
   before: Record<string, unknown>
+  after?: Record<string, unknown>
+  display?: AiToolFieldDiffDisplayHints
+}
+
+/**
+ * Optional display hints for mutation-preview diffs. Raw `before` / `after`
+ * values remain persisted for execution and stale checks; these labels are
+ * only for operator-facing cards, e.g. showing a pipeline stage name instead
+ * of its UUID.
+ */
+export interface AiToolFieldDiffDisplayHints {
+  fieldLabels?: Record<string, string>
+  before?: Record<string, unknown>
+  after?: Record<string, unknown>
 }
 
 /**

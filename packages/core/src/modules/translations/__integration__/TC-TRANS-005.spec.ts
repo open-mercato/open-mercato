@@ -67,14 +67,10 @@ async function selectEntityForRecordPicker(
 async function fillTranslationInput(locator: import('@playwright/test').Locator, value: string) {
   await expect(locator).toBeEditable({ timeout: 10_000 })
   await locator.fill(value)
-  await locator.evaluate((element, nextValue) => {
-    const input = element as HTMLInputElement | HTMLTextAreaElement
-    const prototype = input instanceof HTMLTextAreaElement ? HTMLTextAreaElement.prototype : HTMLInputElement.prototype
-    const valueSetter = Object.getOwnPropertyDescriptor(prototype, 'value')?.set
-    valueSetter?.call(input, nextValue)
-    input.dispatchEvent(new InputEvent('input', { bubbles: true, inputType: 'insertText', data: nextValue }))
-    input.dispatchEvent(new Event('change', { bubbles: true }))
-  }, value)
+  if ((await locator.inputValue()) !== value) {
+    await locator.fill('')
+    await locator.fill(value)
+  }
   await expect(locator).toHaveValue(value)
   await locator.press('Tab')
   await expect(locator).toHaveValue(value)

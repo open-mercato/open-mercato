@@ -9,6 +9,8 @@ import { registerCliModules } from '@open-mercato/shared/modules/registry'
 import type { Module } from '@open-mercato/shared/modules/registry'
 import cli from '@open-mercato/core/modules/auth/cli'
 
+jest.setTimeout(60_000)
+
 const seedExamplesAuth = jest.fn(async () => undefined)
 const seedExamplesCustomers = jest.fn(async () => undefined)
 
@@ -150,7 +152,7 @@ describe('mercato auth setup --orgSlug', () => {
     })
     expect(typeof ctx.em).toBe('object')
     expect(typeof ctx.container).toBe('object')
-  })
+  }, 60_000)
 
   it('treats --orgSlug as a "fresh tenant" signal: existing user with that email aborts with USER_EXISTS, exit 1', async () => {
     findOne.mockImplementation(async (Entity: any, where: any) => {

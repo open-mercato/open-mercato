@@ -1,4 +1,5 @@
 import type { CacheStrategy, CacheEntry, CacheGetOptions, CacheSetOptions, CacheValue } from '../types'
+import { matchCacheKeyPattern } from '../patterns'
 
 /**
  * In-memory cache strategy with tag support
@@ -47,15 +48,6 @@ export function createMemoryStrategy(options?: { defaultTtl?: number }): CacheSt
         }
       }
     }
-  }
-
-  function matchPattern(key: string, pattern: string): boolean {
-    const regexPattern = pattern
-      .replace(/[.+^${}()|[\]\\]/g, '\\$&') // Escape special regex chars
-      .replace(/\*/g, '.*') // * matches any characters
-      .replace(/\?/g, '.') // ? matches single character
-    const regex = new RegExp(`^${regexPattern}$`)
-    return regex.test(key)
   }
 
   const get = async (key: string, options?: CacheGetOptions): Promise<CacheValue | null> => {
@@ -147,7 +139,7 @@ export function createMemoryStrategy(options?: { defaultTtl?: number }): CacheSt
   const keys = async (pattern?: string): Promise<string[]> => {
     const allKeys = Array.from(store.keys())
     if (!pattern) return allKeys
-    return allKeys.filter((key) => matchPattern(key, pattern))
+    return allKeys.filter((key) => matchCacheKeyPattern(key, pattern))
   }
 
   const stats = async (): Promise<{ size: number; expired: number }> => {

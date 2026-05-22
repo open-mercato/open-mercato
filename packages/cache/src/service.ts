@@ -6,6 +6,7 @@ import { createJsonFileStrategy } from './strategies/jsonfile'
 import { getCurrentCacheTenant } from './tenantContext'
 import { createHash } from 'node:crypto'
 import { CacheDependencyUnavailableError } from './errors'
+import { matchCacheKeyPattern } from './patterns'
 
 function normalizeTenantKey(raw: string | null | undefined): string {
   const value = typeof raw === 'string' ? raw.trim() : ''
@@ -83,15 +84,6 @@ function buildTagSet(tags: string[] | undefined, prefixes: TenantPrefixes, inclu
   return Array.from(scoped)
 }
 
-function matchPattern(value: string, pattern: string): boolean {
-  const regexPattern = pattern
-    .replace(/[.+^${}()|[\]\\]/g, '\\$&')
-    .replace(/\*/g, '.*')
-    .replace(/\?/g, '.')
-  const regex = new RegExp(`^${regexPattern}$`)
-  return regex.test(value)
-}
-
 function createTenantAwareWrapper(base: CacheStrategy): CacheStrategy {
   function normalizeDeletionCount(raw: number): number {
     if (!raw) return raw
@@ -156,7 +148,7 @@ function createTenantAwareWrapper(base: CacheStrategy): CacheStrategy {
       const metadata = typeof metaValue === 'string' ? null : (isCacheMetadata(metaValue) ? metaValue : null)
       const original = typeof metaValue === 'string' ? metaValue : metadata?.key
       if (!original) continue
-      if (pattern && !matchPattern(original, pattern)) continue
+      if (pattern && !matchCacheKeyPattern(original, pattern)) continue
       originals.push(original)
     }
     return originals

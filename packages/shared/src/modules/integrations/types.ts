@@ -191,56 +191,79 @@ export interface ExternalIdMapping {
   syncStatus: 'synced' | 'pending' | 'error' | 'not_synced'
 }
 
-const integrationRegistry = new Map<string, IntegrationDefinition>()
-const integrationBundleRegistry = new Map<string, IntegrationBundle>()
+type IntegrationRegistryState = {
+  integrations: Map<string, IntegrationDefinition>
+  bundles: Map<string, IntegrationBundle>
+}
+
+const GLOBAL_INTEGRATION_REGISTRY_KEY = '__openMercatoIntegrationRegistry__' as const
+
+type GlobalIntegrationRegistry = typeof globalThis & {
+  [GLOBAL_INTEGRATION_REGISTRY_KEY]?: IntegrationRegistryState
+}
+
+function getIntegrationRegistryState(): IntegrationRegistryState {
+  const globalRegistry = globalThis as GlobalIntegrationRegistry
+  if (!globalRegistry[GLOBAL_INTEGRATION_REGISTRY_KEY]) {
+    globalRegistry[GLOBAL_INTEGRATION_REGISTRY_KEY] = {
+      integrations: new Map<string, IntegrationDefinition>(),
+      bundles: new Map<string, IntegrationBundle>(),
+    }
+  }
+  return globalRegistry[GLOBAL_INTEGRATION_REGISTRY_KEY]
+}
 
 export function registerIntegration(definition: IntegrationDefinition): void {
-  integrationRegistry.set(definition.id, definition)
+  getIntegrationRegistryState().integrations.set(definition.id, definition)
 }
 
 export function registerIntegrations(definitions: IntegrationDefinition[]): void {
+  const registry = getIntegrationRegistryState().integrations
   for (const definition of definitions) {
-    integrationRegistry.set(definition.id, definition)
+    registry.set(definition.id, definition)
   }
 }
 
 export function registerBundle(bundle: IntegrationBundle): void {
-  integrationBundleRegistry.set(bundle.id, bundle)
+  getIntegrationRegistryState().bundles.set(bundle.id, bundle)
 }
 
 export function registerBundles(bundles: IntegrationBundle[]): void {
+  const registry = getIntegrationRegistryState().bundles
   for (const bundle of bundles) {
-    integrationBundleRegistry.set(bundle.id, bundle)
+    registry.set(bundle.id, bundle)
   }
 }
 
 export function clearRegisteredIntegrations(): void {
-  integrationRegistry.clear()
-  integrationBundleRegistry.clear()
+  const registry = getIntegrationRegistryState()
+  registry.integrations.clear()
+  registry.bundles.clear()
 }
 
 export function getIntegration(integrationId: string): IntegrationDefinition | undefined {
-  return integrationRegistry.get(integrationId)
+  return getIntegrationRegistryState().integrations.get(integrationId)
 }
 
 export function getAllIntegrations(): IntegrationDefinition[] {
-  return Array.from(integrationRegistry.values())
+  return Array.from(getIntegrationRegistryState().integrations.values())
 }
 
 export function getBundle(bundleId: string): IntegrationBundle | undefined {
-  return integrationBundleRegistry.get(bundleId)
+  return getIntegrationRegistryState().bundles.get(bundleId)
 }
 
 export function getAllBundles(): IntegrationBundle[] {
-  return Array.from(integrationBundleRegistry.values())
+  return Array.from(getIntegrationRegistryState().bundles.values())
 }
 
 export function getBundleIntegrations(bundleId: string): IntegrationDefinition[] {
-  return Array.from(integrationRegistry.values()).filter((integration) => integration.bundleId === bundleId)
+  return Array.from(getIntegrationRegistryState().integrations.values()).filter((integration) => integration.bundleId === bundleId)
 }
 
 export function resolveIntegrationCredentialsSchema(integrationId: string): IntegrationCredentialsSchema | undefined {
-  const definition = integrationRegistry.get(integrationId)
+  const registry = getIntegrationRegistryState()
+  const definition = registry.integrations.get(integrationId)
   if (!definition) return undefined
 
   if (definition.credentials && definition.credentials.fields.length > 0) {
@@ -248,11 +271,11 @@ export function resolveIntegrationCredentialsSchema(integrationId: string): Inte
   }
 
   if (!definition.bundleId) return definition.credentials
-  return integrationBundleRegistry.get(definition.bundleId)?.credentials
+  return registry.bundles.get(definition.bundleId)?.credentials
 }
 
 export function getIntegrationTitle(integrationId: string): string {
-  return integrationRegistry.get(integrationId)?.title ?? integrationId
+  return getIntegrationRegistryState().integrations.get(integrationId)?.title ?? integrationId
 }
 
 export const LEGACY_INTEGRATION_DETAIL_TABS_SPOT_ID = 'integrations.detail:tabs'

@@ -179,14 +179,15 @@ export const updateDraftSchema = z.object({
   externalEmail: z.string().email().optional(),
   externalName: z.string().min(1).max(255).optional(),
   recipients: z.array(messageRecipientSchema).optional(),
-  subject: z.string().min(1).max(500).optional(),
-  body: z.string().min(1).max(50000).optional(),
+  subject: z.string().max(500).optional(),
+  body: z.string().max(50000).optional(),
   bodyFormat: z.enum(['text', 'markdown']).optional(),
   priority: z.enum(['low', 'normal', 'high', 'urgent']).optional(),
   objects: z.array(messageObjectSchema).optional(),
   attachmentIds: z.array(z.string().uuid()).optional(),
   actionData: messageActionDataSchema.optional(),
   sendViaEmail: z.boolean().optional(),
+  isDraft: z.literal(false).optional(),
 }).superRefine((value, ctx) => {
   if (value.recipients) {
     const duplicateRecipientIds = collectDuplicateRecipientIds(value.recipients)

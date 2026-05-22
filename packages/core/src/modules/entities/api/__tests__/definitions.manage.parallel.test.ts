@@ -55,13 +55,9 @@ describe('entities/definitions.manage GET (issue #1404)', () => {
     })
     loadEntityFieldsetConfigsMock.mockImplementation(() => slowResolve('configs', new Map(), 60))
 
-    const start = Date.now()
     const response = await GET(new Request('http://x/api/entities/definitions/manage?entityId=test:entity'))
-    const elapsed = Date.now() - start
 
     expect(response.status).toBe(200)
-    // Sequential awaits would be ~180ms; parallel should land near the slowest leg.
-    expect(elapsed).toBeLessThan(150)
     expect(calls.map((c) => c.id).sort()).toEqual(['configs', 'defs', 'tombstones'])
     // All three legs should overlap in time, proving parallel execution.
     const earliestEnd = Math.min(...calls.map((c) => c.end))

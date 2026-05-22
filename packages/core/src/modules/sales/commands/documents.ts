@@ -66,7 +66,10 @@ import {
   CustomerPersonProfile,
 } from "../../customers/data/entities";
 import {
-  enforceReturnAdjustmentSign,
+  enforceAdjustmentSign,
+  validateReturnAdjustmentWithinRemaining,
+  RETURN_ADJUSTMENT_EXCEEDS_REMAINING_GROSS_MESSAGE,
+  RETURN_ADJUSTMENT_EXCEEDS_REMAINING_NET_MESSAGE,
   quoteCreateSchema,
   quoteLineCreateSchema,
   quoteAdjustmentCreateSchema,
@@ -6304,7 +6307,7 @@ const orderAdjustmentUpsertSchema = orderAdjustmentCreateSchema
   .extend({
     id: z.string().uuid().optional(),
   })
-  .superRefine(enforceReturnAdjustmentSign);
+  .superRefine(enforceAdjustmentSign);
 
 const orderAdjustmentDeleteSchema = z.object({
   id: z.string().uuid(),
@@ -6315,7 +6318,7 @@ const quoteAdjustmentUpsertSchema = quoteAdjustmentCreateSchema
   .extend({
     id: z.string().uuid().optional(),
   })
-  .superRefine(enforceReturnAdjustmentSign);
+  .superRefine(enforceAdjustmentSign);
 
 const quoteAdjustmentDeleteSchema = z.object({
   id: z.string().uuid(),
@@ -7384,6 +7387,63 @@ const orderAdjustmentUpsertCommand: CommandHandler<
       shippingMethodCode: order.shippingMethodCode ?? null,
       paymentMethodCode: order.paymentMethodCode ?? null,
     });
+    const effectiveAdjustment = nextAdjustments.find(
+      (adj) => adj.id === adjustmentId,
+    );
+    if (effectiveAdjustment?.kind === "return") {
+      const baselineAdjustments = nextAdjustments.filter(
+        (adj) => adj.id !== adjustmentId,
+      );
+      const baselineCalculation =
+        await salesCalculationService.calculateDocumentTotals({
+          documentKind: "order",
+          lines: calcLines,
+          adjustments: baselineAdjustments,
+          context: calculationContext,
+          existingTotals: resolveExistingPaymentTotals(order),
+        });
+      const issues = validateReturnAdjustmentWithinRemaining({
+        kind: "return",
+        amountNet:
+          effectiveAdjustment.amountNet ?? effectiveAdjustment.amountGross ?? 0,
+        amountGross:
+          effectiveAdjustment.amountGross ?? effectiveAdjustment.amountNet ?? 0,
+        remainingNet: Number(
+          baselineCalculation.totals?.grandTotalNetAmount ?? 0,
+        ),
+        remainingGross: Number(
+          baselineCalculation.totals?.grandTotalGrossAmount ?? 0,
+        ),
+      });
+      if (issues.length > 0) {
+        const { translate } = await resolveTranslations();
+        const grossIssue = issues.find((issue) => issue.path === "amountGross");
+        const netIssue = issues.find((issue) => issue.path === "amountNet");
+        const fieldErrors: Record<string, string> = {};
+        if (grossIssue) {
+          fieldErrors.amountGross = translate(
+            "sales.adjustments.error.returnExceedsRemainingGrandTotalGross",
+            RETURN_ADJUSTMENT_EXCEEDS_REMAINING_GROSS_MESSAGE,
+          );
+        }
+        if (netIssue) {
+          fieldErrors.amountNet = translate(
+            "sales.adjustments.error.returnExceedsRemainingGrandTotalNet",
+            RETURN_ADJUSTMENT_EXCEEDS_REMAINING_NET_MESSAGE,
+          );
+        }
+        throw new CrudHttpError(400, {
+          error:
+            fieldErrors.amountGross ??
+            fieldErrors.amountNet ??
+            translate(
+              "sales.adjustments.error.returnExceedsRemainingGrandTotalGross",
+              RETURN_ADJUSTMENT_EXCEEDS_REMAINING_GROSS_MESSAGE,
+            ),
+          fieldErrors,
+        });
+      }
+    }
     const calculation = await salesCalculationService.calculateDocumentTotals({
       documentKind: "order",
       lines: calcLines,
@@ -7766,6 +7826,62 @@ const quoteAdjustmentUpsertCommand: CommandHandler<
       shippingMethodCode: quote.shippingMethodCode ?? null,
       paymentMethodCode: quote.paymentMethodCode ?? null,
     });
+    const effectiveAdjustment = nextAdjustments.find(
+      (adj) => adj.id === adjustmentId,
+    );
+    if (effectiveAdjustment?.kind === "return") {
+      const baselineAdjustments = nextAdjustments.filter(
+        (adj) => adj.id !== adjustmentId,
+      );
+      const baselineCalculation =
+        await salesCalculationService.calculateDocumentTotals({
+          documentKind: "quote",
+          lines: calcLines,
+          adjustments: baselineAdjustments,
+          context: calculationContext,
+        });
+      const issues = validateReturnAdjustmentWithinRemaining({
+        kind: "return",
+        amountNet:
+          effectiveAdjustment.amountNet ?? effectiveAdjustment.amountGross ?? 0,
+        amountGross:
+          effectiveAdjustment.amountGross ?? effectiveAdjustment.amountNet ?? 0,
+        remainingNet: Number(
+          baselineCalculation.totals?.grandTotalNetAmount ?? 0,
+        ),
+        remainingGross: Number(
+          baselineCalculation.totals?.grandTotalGrossAmount ?? 0,
+        ),
+      });
+      if (issues.length > 0) {
+        const { translate } = await resolveTranslations();
+        const grossIssue = issues.find((issue) => issue.path === "amountGross");
+        const netIssue = issues.find((issue) => issue.path === "amountNet");
+        const fieldErrors: Record<string, string> = {};
+        if (grossIssue) {
+          fieldErrors.amountGross = translate(
+            "sales.adjustments.error.returnExceedsRemainingGrandTotalGross",
+            RETURN_ADJUSTMENT_EXCEEDS_REMAINING_GROSS_MESSAGE,
+          );
+        }
+        if (netIssue) {
+          fieldErrors.amountNet = translate(
+            "sales.adjustments.error.returnExceedsRemainingGrandTotalNet",
+            RETURN_ADJUSTMENT_EXCEEDS_REMAINING_NET_MESSAGE,
+          );
+        }
+        throw new CrudHttpError(400, {
+          error:
+            fieldErrors.amountGross ??
+            fieldErrors.amountNet ??
+            translate(
+              "sales.adjustments.error.returnExceedsRemainingGrandTotalGross",
+              RETURN_ADJUSTMENT_EXCEEDS_REMAINING_GROSS_MESSAGE,
+            ),
+          fieldErrors,
+        });
+      }
+    }
     const calculation = await salesCalculationService.calculateDocumentTotals({
       documentKind: "quote",
       lines: calcLines,

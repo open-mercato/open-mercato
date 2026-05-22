@@ -13,13 +13,22 @@ import { E } from '#generated/entities.ids.generated'
 import { loadCustomFieldValues } from '@open-mercato/shared/lib/crud/custom-fields'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import { userCrudEvents, userCrudIndexer } from '@open-mercato/core/modules/auth/commands/users'
-import { assertActorCanGrantRoleTokens } from '@open-mercato/core/modules/auth/lib/grantChecks'
+import {
+  assertActorCanGrantRoleTokens,
+  assertActorCanModifySuperAdminUserTarget,
+  listSuperAdminUserIds,
+} from '@open-mercato/core/modules/auth/lib/grantChecks'
 import { findOneWithDecryption, findWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import { buildPasswordSchema } from '@open-mercato/shared/lib/auth/passwordPolicy'
 import { escapeLikePattern } from '@open-mercato/shared/lib/db/escapeLikePattern'
 import { resolveSearchConfig } from '@open-mercato/shared/lib/search/config'
 import { tokenizeText } from '@open-mercato/shared/lib/search/tokenize'
 import { sql } from 'kysely'
+import { normalizeDisplayNameInput } from '@open-mercato/core/modules/auth/lib/displayName'
+import {
+  getSelectedTenantFromRequest,
+  resolveOrganizationScopeForRequest,
+} from '@open-mercato/core/modules/directory/utils/organizationScope'
 
 const querySchema = z.object({
   id: z.string().uuid().optional(),
@@ -36,12 +45,8 @@ const rawBodySchema = z.object({}).passthrough()
 const passwordSchema = buildPasswordSchema()
 
 const displayNameSchema = z.preprocess(
-  (value) => {
-    if (typeof value !== 'string') return value
-    const trimmed = value.trim()
-    return trimmed.length ? trimmed : undefined
-  },
-  z.string().trim().min(1).max(120).optional(),
+  normalizeDisplayNameInput,
+  z.string().trim().min(1).max(120).nullable().optional(),
 )
 
 const userCreateSchema = z.object({
@@ -89,6 +94,7 @@ const okResponseSchema = z.object({ ok: z.literal(true) })
 const errorResponseSchema = z.object({ error: z.string() })
 
 type CrudInput = Record<string, unknown>
+type UserListFilter = Record<string, unknown>
 
 const routeMetadata = {
   GET: { requireAuth: true, requireFeatures: ['auth.users.list'] },
@@ -131,6 +137,9 @@ const crud = makeCrudRoute<CrudInput, CrudInput, Record<string, unknown>>({
       schema: rawBodySchema,
       mapInput: async ({ parsed, ctx }) => {
         if (ctx.request) {
+          if (typeof parsed.id === 'string' && parsed.id.length) {
+            await assertCanModifySuperAdminTarget(ctx.request, parsed.id)
+          }
           await assertCanAssignRoles(ctx.request, parsed.roles, parsed)
         }
         return parsed
@@ -161,12 +170,12 @@ export async function GET(req: Request) {
   if (!parsed.success) return NextResponse.json({ items: [], total: 0, totalPages: 1 })
   const container = await createRequestContainer()
   const em = (container.resolve('em') as EntityManager)
-  let isSuperAdmin = false
+  let isSuperAdmin = auth.isSuperAdmin === true
   try {
     if (auth.sub) {
       const rbacService = container.resolve('rbacService') as any
       const acl = await rbacService.loadAcl(auth.sub, { tenantId: auth.tenantId ?? null, organizationId: auth.orgId ?? null })
-      isSuperAdmin = !!acl?.isSuperAdmin
+      isSuperAdmin = isSuperAdmin || !!acl?.isSuperAdmin
     }
   } catch (err) {
     console.error('users: failed to resolve rbac', err)
@@ -174,16 +183,62 @@ export async function GET(req: Request) {
   const { id, page, pageSize, search, name, organizationId, roleIds } = parsed.data
   const filters: any[] = [{ deletedAt: null }]
   const actorTenantId = auth.tenantId ? String(auth.tenantId) : null
+  let effectiveTenantId: string | null = null
+  let effectiveOrganizationIds: string[] | null = null
+  let effectiveSelectedOrganizationId: string | null = null
+  let usesSelectedTenantScope = false
   if (!isSuperAdmin) {
     if (!actorTenantId) {
       return NextResponse.json({ items: [], total: 0, totalPages: 1, isSuperAdmin })
     }
-    filters.push({ tenantId: actorTenantId })
+    effectiveTenantId = actorTenantId
+    const superAdminUserIds = await listSuperAdminUserIds(em, actorTenantId)
+    if (superAdminUserIds.size) {
+      filters.push({ id: { $nin: Array.from(superAdminUserIds) as any } })
+    }
+  } else {
+    const selectedTenantId = getSelectedTenantFromRequest(req)
+    if (typeof selectedTenantId === 'string' && selectedTenantId.trim().length > 0) {
+      const scope = await resolveOrganizationScopeForRequest({
+        container,
+        auth,
+        request: req,
+        tenantId: selectedTenantId.trim(),
+      })
+      if (!scope.tenantId) {
+        return NextResponse.json({ items: [], total: 0, totalPages: 1, isSuperAdmin })
+      }
+      effectiveTenantId = scope.tenantId
+      effectiveSelectedOrganizationId = scope.selectedId
+      usesSelectedTenantScope = true
+      if (Array.isArray(scope.filterIds)) {
+        if (scope.filterIds.length === 0) {
+          return NextResponse.json({ items: [], total: 0, totalPages: 1, isSuperAdmin })
+        }
+        effectiveOrganizationIds = scope.filterIds
+      }
+    }
   }
+  if (effectiveTenantId) {
+    filters.push({ tenantId: effectiveTenantId })
+  }
+  if (effectiveOrganizationIds) {
+    filters.push({ organizationId: { $in: effectiveOrganizationIds as any } })
+  }
+  const scopeOrganizationId = usesSelectedTenantScope
+    ? effectiveSelectedOrganizationId
+    : auth.orgId ?? null
   if (organizationId) filters.push({ organizationId })
   const trimmedName = typeof name === 'string' ? name.trim() : ''
   if (trimmedName) {
-    filters.push({ name: { $ilike: `%${escapeLikePattern(trimmedName)}%` } })
+    const searchPattern = `%${escapeLikePattern(trimmedName)}%`
+    const displayNameFilters: UserListFilter[] = [{ name: { $ilike: searchPattern } }]
+    const nameTokenScope: string | null | undefined = isSuperAdmin ? (effectiveTenantId ?? undefined) : auth.tenantId ?? null
+    const matchedDisplayNameIds = await findUserIdsBySearchTokens(em, E.auth.user, trimmedName, nameTokenScope, 'name')
+    if (matchedDisplayNameIds && matchedDisplayNameIds.length) {
+      displayNameFilters.push({ id: { $in: matchedDisplayNameIds } })
+    }
+    filters.push(displayNameFilters.length > 1 ? { $or: displayNameFilters } : displayNameFilters[0])
   }
   let idFilter: Set<string> | null = id ? new Set([id]) : null
   if (Array.isArray(roleIds) && roleIds.length > 0) {
@@ -207,7 +262,7 @@ export async function GET(req: Request) {
   const trimmedSearch = typeof search === 'string' ? search.trim() : ''
   if (trimmedSearch) {
     // Email is encrypted at rest, so plaintext search must go through search_tokens.
-    const tenantScope: string | null | undefined = isSuperAdmin ? undefined : auth.tenantId ?? null
+    const tenantScope: string | null | undefined = isSuperAdmin ? (effectiveTenantId ?? undefined) : auth.tenantId ?? null
     const searchFilters: any[] = []
 
     const matchedIds = await findUserIdsBySearchTokens(em, E.auth.user, trimmedSearch, tenantScope)
@@ -287,7 +342,10 @@ export async function GET(req: Request) {
         UserRole,
         { user: { $in: userIds as any } } as any,
         { populate: ['role'] },
-        { tenantId: auth.tenantId ?? null, organizationId: auth.orgId ?? null },
+        {
+          tenantId: effectiveTenantId ?? auth.tenantId ?? null,
+          organizationId: scopeOrganizationId,
+        },
       )
     : []
   const roleMap: Record<string, string[]> = {}
@@ -353,7 +411,7 @@ export async function GET(req: Request) {
         recordIds: userIds.map(String),
         tenantIdByRecord: tenantByUser,
         organizationIdByRecord: organizationByUser,
-        tenantFallbacks: auth.tenantId ? [auth.tenantId] : [],
+        tenantFallbacks: effectiveTenantId ? [effectiveTenantId] : auth.tenantId ? [auth.tenantId] : [],
       })
     : {}
 
@@ -382,8 +440,8 @@ export async function GET(req: Request) {
     items,
     idField: 'id',
     resourceKind: 'auth.user',
-    organizationId: null,
-    tenantId: auth.tenantId ?? null,
+    organizationId: effectiveSelectedOrganizationId,
+    tenantId: effectiveTenantId ?? auth.tenantId ?? null,
     query: parsed.data,
     accessType: id ? 'read:item' : undefined,
   })
@@ -398,13 +456,27 @@ export const PUT = async (req: Request) => {
   return crud.PUT(req)
 }
 
-export const DELETE = crud.DELETE
+export const DELETE = async (req: Request) => {
+  const targetId = new URL(req.url).searchParams.get('id')
+  if (targetId) {
+    try {
+      await assertCanModifySuperAdminTarget(req, targetId)
+    } catch (err) {
+      if (err instanceof CrudHttpError) {
+        return NextResponse.json(err.body, { status: err.status })
+      }
+      throw err
+    }
+  }
+  return crud.DELETE(req)
+}
 
 async function findUserIdsBySearchTokens(
   em: EntityManager,
   entityType: string,
   search: string,
   tenantScope: string | null | undefined,
+  field?: string,
 ): Promise<string[] | null> {
   const trimmed = search.trim()
   if (!trimmed) return null
@@ -421,6 +493,9 @@ async function findUserIdsBySearchTokens(
     .where('token_hash', 'in', hashes)
     .groupBy('entity_id')
     .having(sql<boolean>`count(distinct token_hash) >= ${hashes.length}`)
+  if (field) {
+    query = query.where('field', '=', field)
+  }
   if (tenantScope !== undefined) {
     query = query.where(sql<boolean>`tenant_id is not distinct from ${tenantScope}`)
   }
@@ -428,6 +503,21 @@ async function findUserIdsBySearchTokens(
   return rows
     .map((row) => (typeof row.entity_id === 'string' ? row.entity_id : null))
     .filter((id): id is string => typeof id === 'string' && id.length > 0)
+}
+
+async function assertCanModifySuperAdminTarget(req: Request, targetUserId: string) {
+  const auth = await getAuthFromRequest(req)
+  if (!auth?.sub) throw new CrudHttpError(401, { error: 'Unauthorized' })
+  const container = await createRequestContainer()
+  const em = container.resolve('em') as EntityManager
+  await assertActorCanModifySuperAdminUserTarget({
+    em,
+    rbacService: container.resolve('rbacService') as RbacService,
+    actorUserId: auth.sub,
+    tenantId: auth.tenantId ?? null,
+    organizationId: auth.orgId ?? null,
+    targetUserId,
+  })
 }
 
 async function assertCanAssignRoles(req: Request, roles: unknown, payload: Record<string, unknown>) {
@@ -486,7 +576,7 @@ export const openApi: OpenApiRouteDoc = {
     GET: {
       summary: 'List users',
       description:
-        'Returns users for the current tenant. Search matches email, organization name, and role name. Super administrators may scope the response via organization or role filters.',
+        'Returns users for the effective selected tenant and organization scope. Search matches email, organization name, and role name. Super administrators may scope the response via the topbar context, organization filters, or role filters.',
       query: querySchema,
       responses: [
         { status: 200, description: 'User collection', schema: userListResponseSchema },

@@ -70,6 +70,18 @@ export async function getOrm() {
 
   const sslConfig = getSslConfig()
 
+  if (process.env.OM_DB_POOL_DEBUG === '1' || process.env.OM_INTEGRATION_TEST === 'true') {
+    console.log('[orm] pool config', {
+      poolMin,
+      poolMax,
+      poolIdleTimeout,
+      poolAcquireTimeout,
+      idleSessionTimeoutMs,
+      idleInTransactionTimeoutMs,
+      nodeEnv: process.env.NODE_ENV,
+    })
+  }
+
   ormInstance = await MikroORM.init<PostgreSqlDriver, PostgreSqlEntityManager<PostgreSqlDriver>>({
     driver: PostgreSqlDriver,
     clientUrl,
@@ -82,18 +94,31 @@ export async function getOrm() {
     metadataProvider: ReflectMetadataProvider,
     // MikroORM v7 pool shape (min/max/idleTimeoutMillis). Knex-era `acquireTimeoutMillis` /
     // `destroyTimeoutMillis` were removed; acquire wait maps to pg `connectionTimeoutMillis`
-    // below under `driverOptions`.
+    // below under `driverOptions`. Mirror `connectionTimeoutMillis` here too — older Mikro
+    // versions read it from `pool`; v7 reads from `driverOptions` but accepting both
+    // costs nothing and protects us from upstream config-merge regressions.
     pool: {
       min: poolMin,
       max: poolMax,
       idleTimeoutMillis: poolIdleTimeout,
-    },
+      acquireTimeoutMillis: poolAcquireTimeout,
+    } as any,
     // Driver options are merged into pg.PoolConfig (ClientConfig + pg-pool).
     driverOptions: {
       connectionTimeoutMillis: poolAcquireTimeout,
       idle_in_transaction_session_timeout: idleInTransactionTimeoutMs,
       options: connectionOptions,
       ssl: sslConfig,
+      onPoolCreated: (pool: any) => {
+        if (process.env.OM_DB_POOL_DEBUG === '1' || process.env.OM_INTEGRATION_TEST === 'true') {
+          console.log('[orm] pg pool created with options', {
+            max: pool.options?.max,
+            min: pool.options?.min,
+            idleTimeoutMillis: pool.options?.idleTimeoutMillis,
+            connectionTimeoutMillis: pool.options?.connectionTimeoutMillis,
+          })
+        }
+      },
     },
   })
 

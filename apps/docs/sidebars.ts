@@ -169,7 +169,7 @@ const sidebars: SidebarsConfig = {
     {
       type: "category",
       label: "Architecture",
-      items: ["architecture/system-overview", "architecture/generators", "architecture/cache-cli", "architecture/data-encryption"],
+      items: ["architecture/system-overview", "architecture/module-dependencies", "architecture/generators", "architecture/cache-cli", "architecture/data-encryption"],
     },
     {
       type: "category",
@@ -364,7 +364,9 @@ const sidebars: SidebarsConfig = {
               ],
             },
             "framework/modules/official-modules",
+            "framework/modules/official-modules-development",
             "framework/modules/routes-and-pages",
+            "framework/modules/overrides",
             "framework/modules/notifications",
             "framework/modules/messages",
             "framework/modules/currencies",
