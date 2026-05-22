@@ -13,7 +13,7 @@ export const notificationTypes: NotificationTypeDefinition[] = [
         id: 'view',
         labelKey: 'common.view',
         variant: 'outline',
-        href: '/backend',
+        href: '/backend?openAiConversation={sourceEntityId}',
         icon: 'external-link',
       },
     ],

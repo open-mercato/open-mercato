@@ -23,13 +23,12 @@ export function ConversationSharedRenderer({
   const viewAction = actions.find((a) => a.id === 'view') ?? actions[0] ?? null
 
   const handleView = async () => {
-    if (!viewAction) {
-      if (notification.linkHref) router.push(notification.linkHref)
-      return
-    }
     setExecuting(true)
     try {
-      await onAction(viewAction.id)
+      if (viewAction) {
+        await onAction(viewAction.id)
+      }
+      if (notification.linkHref) router.push(notification.linkHref)
     } finally {
       setExecuting(false)
     }
