@@ -1,0 +1,46 @@
+"use client";
+
+import * as React from "react";
+import Link from "next/link";
+import { Button } from "@open-mercato/ui/primitives/button";
+import { ErrorMessage } from "./ErrorMessage";
+import { cn } from "@open-mercato/shared/lib/utils";
+
+export type RecordNotFoundStateProps = {
+  label: string;
+  description?: string;
+  backHref?: string;
+  backLabel?: string;
+  action?: React.ReactNode;
+  className?: string;
+};
+
+export function RecordNotFoundState({
+  label,
+  description,
+  backHref,
+  backLabel,
+  action,
+  className,
+}: RecordNotFoundStateProps) {
+  const defaultAction = backHref ? (
+    <Button asChild variant="outline" size="sm">
+      <Link href={backHref}>{backLabel ?? 'Back to list'}</Link>
+    </Button>
+  ) : null;
+
+  return (
+    <div
+      className={cn(
+        "flex flex-col items-center justify-center py-16 px-4",
+        className,
+      )}
+    >
+      <ErrorMessage
+        label={label}
+        description={description}
+        action={action ?? defaultAction}
+      />
+    </div>
+  );
+}
