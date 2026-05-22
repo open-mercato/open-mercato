@@ -533,7 +533,7 @@ export function AttachmentMetadataDialog({ open, onOpenChange, item, availableTa
                   {item.fileName}
                 </div>
                 <div className="text-xs text-muted-foreground">
-                  {formatFileSize(item.fileSize)} \u2022 {item.partitionTitle ?? item.partitionCode}
+                  {formatFileSize(item.fileSize)} {'\u2022'} {item.partitionTitle ?? item.partitionCode}
                 </div>
               </div>
               {downloadUrl ? (

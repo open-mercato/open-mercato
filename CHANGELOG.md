@@ -3,9 +3,10 @@
 
 ## Highlights
 
-Open Mercato `0.6.2` is a maturity pass on top of `0.6.1`. The AI agents framework picks up real production guardrails — agentic-loop controls (`loop.stopWhen` / `loop.prepareStep` / `loop.budget`), a per-tenant loop kill switch, the `LoopTrace` debug panel, durable server-side conversation storage, and a visible agent task plan that lets operators see what the model is about to do before it does it. On the platform side, the `modules.ts` unified overrides umbrella is now wired for every contract surface — routes, pages, subscribers, workers, widgets, notifications, interceptors, enrichers, CLI, setup, ACL, DI, encryption — so app authors can replace or disable any module contract without forking upstream. The new optional `external/official-modules/` git submodule lets official modules be developed against full platform context (core source, AGENTS.md, skills, the running dev app) without bloating a vanilla clone — fresh clones, `yarn install`, and CI stay untouched until you opt in. Round it out with code-based workflow definitions finally landing (carrying @jtomaszewski's `defineWorkflow()` work forward), a polished backend topbar plus DS `Breadcrumb` + `Sheet` primitives, a Messages module bug-fix sweep (drafts, bulk actions, inbox filters, sender dropdown), a new storage hub for module-owned files, and a CSV import foundation for the `customers.person` entity via the `sync_excel` data-sync provider. The final unreleased pass also tightens Super Admin scoping, hardens regex-backed validation paths, and fixes auth display-name filtering plus sales return-adjustment bounds. Enjoy!
+Open Mercato `0.6.2` is a maturity pass on top of `0.6.1`. The AI agents framework picks up real production guardrails — agentic-loop controls (`loop.stopWhen` / `loop.prepareStep` / `loop.budget`), a per-tenant loop kill switch, the `LoopTrace` debug panel, durable server-side conversation storage, and a visible agent task plan that lets operators see what the model is about to do before it does it. On the platform side, the `modules.ts` unified overrides umbrella is now wired for every contract surface — routes, pages, subscribers, workers, widgets, notifications, interceptors, enrichers, CLI, setup, ACL, DI, encryption — so app authors can replace or disable any module contract without forking upstream. The new optional `external/official-modules/` git submodule lets official modules be developed against full platform context (core source, AGENTS.md, skills, the running dev app) without bloating a vanilla clone — fresh clones, `yarn install`, and CI stay untouched until you opt in. Round it out with code-based workflow definitions finally landing (carrying @jtomaszewski's `defineWorkflow()` work forward), a polished backend topbar plus DS `Breadcrumb` + `Sheet` primitives, a Messages module bug-fix sweep (drafts, bulk actions, inbox filters, sender dropdown), a new storage hub for module-owned files, env-based `storage_s3` preconfiguration, and a CSV import foundation for the `customers.person` entity via the `sync_excel` data-sync provider. The final unreleased pass also tightens Super Admin scoping, hardens regex-backed validation paths, accepts third-party module package specifiers in the generator, and fixes auth display-name filtering plus sales return-adjustment bounds. Enjoy!
 
 ## ✨ Features
+- ✨ Env-based `storage_s3` preconfiguration CLI, setup logging, `.env.example` blocks, and docs (fixes #1968). (#1999) *(@MStaniaszek1998)*
 - ✨ Code-based workflow definitions with customize/reset (supersedes #1935). (#1959) *(@jtomaszewski, @KubaBir, via @pkarw)*
 - ✨ DS Breadcrumb + Sheet primitives and backend topbar redesign. (#1933) *(@zielivia)*
 - ✨ Server-side AI chat conversation storage (fixes #1797). (#1961) *(@pkarw)*
@@ -23,6 +24,7 @@ Open Mercato `0.6.2` is a maturity pass on top of `0.6.1`. The AI agents framewo
 - 🔒 Reload backend tabs on cookie identity change (fixes #1947). (#1956) *(@pkarw)*
 
 ## 🐛 Fixes
+- 📦 Accept third-party npm package specifiers in the module-registry generator (fixes #1998). (#2011) *(@pkarw)*
 - 🔐 Preserve auth user display-name filtering through search tokens for encrypted user data (supersedes #2002). (#2008) *(@PawelSydorow, via @pkarw)*
 - 🔐 Display role labels instead of UUIDs for Super Admin users (fixes #1993). (#1997) *(@pkarw)*
 - 🔐 Scope auth user audit logs to the target user's organization so undo tokens work for Super Admin mutations (fixes #1978). (#1986) *(@pkarw)*
@@ -60,6 +62,7 @@ Open Mercato `0.6.2` is a maturity pass on top of `0.6.1`. The AI agents framewo
 - @kriss145
 - @adeptofvoltron
 - @PawelSydorow
+- @MStaniaszek1998
 - @daweed2701
 - @KubaBir
 - @marcinwadon
