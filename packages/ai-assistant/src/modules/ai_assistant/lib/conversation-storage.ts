@@ -43,6 +43,13 @@ export interface SerializedAiChatConversation {
   updatedAt: string
   lastMessageAt: string | null
   importedFromLocalAt: string | null
+  participantCount: number
+  isOwner: boolean | null
+}
+
+export interface AiChatConversationSerializeEnrich {
+  callerUserId?: string | null
+  participantCount?: number
 }
 
 export interface SerializedAiChatMessage {
@@ -60,6 +67,7 @@ export interface SerializedAiChatMessage {
 
 export function serializeAiChatConversation(
   row: AiChatConversation,
+  enrich: AiChatConversationSerializeEnrich = {},
 ): SerializedAiChatConversation {
   return {
     conversationId: row.conversationId,
@@ -74,6 +82,9 @@ export function serializeAiChatConversation(
     importedFromLocalAt: row.importedFromLocalAt
       ? row.importedFromLocalAt.toISOString()
       : null,
+    participantCount: enrich.participantCount ?? 0,
+    isOwner:
+      enrich.callerUserId != null ? row.ownerUserId === enrich.callerUserId : null,
   }
 }
 
