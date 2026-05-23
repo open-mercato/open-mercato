@@ -36,6 +36,8 @@ Source spec: .ai/specs/2026-05-22-ai-chat-conversation-sharing.md
 | 4 | 4.4 | Fix notification "View Conversation" action — navigates to `/backend` instead of deep-link | done | c13b830ec |
 | 4 | 4.5 | Fix `deepLinkHandledRef` not reset on chat close — second open of same conversation silently blocked | done | e82b4a902 |
 | 4 | 4.6 | Fix shared conversation opens without tab strip — activate session from server sync so normal tabs show | done | f58fd19f3 |
+| 4 | 4.7-review-fix-1 | Fix Cmd/Ctrl+Enter shortcut + Content-Type headers in ConversationShareDialog | done | aff440e33 |
+| 4 | 4.7-review-fix-2 | Scrub absolute filesystem path from HANDOFF.md | todo | — |
 
 ---
 

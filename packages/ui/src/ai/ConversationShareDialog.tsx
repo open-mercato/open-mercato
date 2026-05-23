@@ -108,13 +108,14 @@ export function ConversationShareDialog({ open, onOpenChange, conversationId }: 
 
   const activeUserId = canListUsers ? selectedUserId : textUserId.trim()
 
-  const handleAdd = async () => {
+  const handleAdd = React.useCallback(async () => {
     if (!activeUserId) return
     setAdding(true)
     setError(null)
     try {
       const res = await apiCall<{ participant: Participant }>(baseUrl, {
         method: 'POST',
+        headers: { 'content-type': 'application/json' },
         body: JSON.stringify({ userId: activeUserId, role: 'viewer' }),
       })
       if (!res.ok || !res.result) throw new Error('fetch failed')
@@ -131,13 +132,24 @@ export function ConversationShareDialog({ open, onOpenChange, conversationId }: 
     } finally {
       setAdding(false)
     }
-  }
+  }, [activeUserId, baseUrl, t])
+
+  React.useEffect(() => {
+    const handler = (e: KeyboardEvent) => {
+      if ((e.metaKey || e.ctrlKey) && e.key === 'Enter') {
+        e.preventDefault()
+        if (activeUserId && !adding) void handleAdd()
+      }
+    }
+    if (open) document.addEventListener('keydown', handler)
+    return () => document.removeEventListener('keydown', handler)
+  }, [open, activeUserId, adding, handleAdd])
 
   const handleRemove = async (userId: string) => {
     setRemovingId(userId)
     setError(null)
     try {
-      await apiCall(`${baseUrl}/${userId}`, { method: 'DELETE' })
+      await apiCall(`${baseUrl}/${userId}`, { method: 'DELETE', headers: { 'content-type': 'application/json' } })
       setParticipants((prev) => prev.filter((p) => p.userId !== userId))
     } catch {
       setError(t('common.error', 'Something went wrong.'))
