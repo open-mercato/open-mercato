@@ -52,6 +52,19 @@ describe('ComboboxInput — eager label resolution', () => {
     await waitFor(() => expect(getInput(container).value).toBe('Sync Label'))
   })
 
+  it('swallows synchronous throws from resolveLabel', async () => {
+    const resolveLabel = jest.fn(() => {
+      throw new Error('boom')
+    })
+
+    const { container } = render(
+      <ComboboxInput value="uuid-123" onChange={() => {}} resolveLabel={resolveLabel} />,
+    )
+
+    await waitFor(() => expect(resolveLabel).toHaveBeenCalledWith('uuid-123'))
+    expect(getInput(container).value).toBe('uuid-123')
+  })
+
   it('does not call resolveLabel when the value is already covered by suggestions', () => {
     const resolveLabel = jest.fn(() => 'should-not-be-used')
     render(
@@ -74,6 +87,34 @@ describe('ComboboxInput — eager label resolution', () => {
     expect(loadSuggestions).toHaveBeenCalledWith()
   })
 
+  it('swallows synchronous throws from loadSuggestions', async () => {
+    jest.useFakeTimers()
+    const loadSuggestions = jest.fn(() => {
+      throw new Error('boom')
+    })
+
+    try {
+      const { container } = render(
+        <ComboboxInput value="" onChange={() => {}} loadSuggestions={loadSuggestions} />,
+      )
+      const input = getInput(container)
+
+      act(() => {
+        fireEvent.focus(input)
+        fireEvent.change(input, { target: { value: 'a' } })
+      })
+
+      await act(async () => {
+        jest.advanceTimersByTime(200)
+      })
+
+      await waitFor(() => expect(loadSuggestions).toHaveBeenCalledWith('a'))
+      expect(getInput(container).value).toBe('a')
+    } finally {
+      jest.useRealTimers()
+    }
+  })
+
   it('does not reload suggestions after a self-labeled value is covered', async () => {
     const loadSuggestions = jest.fn(async () => [{ value: 'UTC', label: 'UTC' }])
     const { container } = render(
@@ -81,9 +122,9 @@ describe('ComboboxInput — eager label resolution', () => {
     )
 
     await waitFor(() => expect(loadSuggestions).toHaveBeenCalledTimes(1))
-    await act(async () => {
-      await new Promise((resolve) => setTimeout(resolve, 25))
-    })
+    // flush microtask queue to let any pending effects settle
+    await act(async () => { await Promise.resolve() })
+    await act(async () => { await Promise.resolve() })
 
     expect(loadSuggestions).toHaveBeenCalledTimes(1)
     expect(getInput(container).value).toBe('UTC')
@@ -96,12 +137,85 @@ describe('ComboboxInput — eager label resolution', () => {
     )
 
     await waitFor(() => expect(loadSuggestions).toHaveBeenCalledTimes(1))
-    await act(async () => {
-      await new Promise((resolve) => setTimeout(resolve, 25))
-    })
+    await act(async () => { await Promise.resolve() })
+    await act(async () => { await Promise.resolve() })
 
     expect(loadSuggestions).toHaveBeenCalledTimes(1)
     expect(getInput(container).value).toBe('UTC')
+  })
+
+  it('keeps the popup open when blur happens while async suggestions are still loading', async () => {
+    let resolveSuggestions: (items: Array<string | { value: string; label: string }>) => void = () => {}
+    const loadSuggestions = jest.fn(
+      () =>
+        new Promise<Array<string | { value: string; label: string }>>((resolve) => {
+          resolveSuggestions = resolve
+        }),
+    )
+
+    const { container, queryByText } = render(
+      <div>
+        <ComboboxInput value="" onChange={() => {}} loadSuggestions={loadSuggestions} />
+      </div>,
+    )
+    const input = getInput(container)
+
+    act(() => {
+      fireEvent.focus(input)
+      fireEvent.change(input, { target: { value: 'a' } })
+      fireEvent.blur(input)
+    })
+
+    await act(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 225))
+    })
+
+    expect(loadSuggestions).toHaveBeenCalledWith('a')
+    await waitFor(() => expect(queryByText(/Loading suggestions/i)).toBeTruthy())
+
+    await act(async () => {
+      resolveSuggestions([{ value: 'acme', label: 'Acme Corp' }])
+      await Promise.resolve()
+      await new Promise((resolve) => setTimeout(resolve, 25))
+    })
+
+    await waitFor(() => expect(queryByText(/Loading suggestions/i)).toBeNull())
+    await waitFor(() => expect(queryByText('Acme Corp')).toBeNull())
+  })
+
+  it('closes the popup after a bounded delay when async suggestions never finish', async () => {
+    jest.useFakeTimers()
+    const loadSuggestions = jest.fn(
+      () => new Promise<Array<string | { value: string; label: string }>>(() => {}),
+    )
+
+    try {
+      const { container, queryByText } = render(
+        <ComboboxInput value="" onChange={() => {}} loadSuggestions={loadSuggestions} />,
+      )
+      const input = getInput(container)
+
+      act(() => {
+        fireEvent.focus(input)
+        fireEvent.change(input, { target: { value: 'a' } })
+        fireEvent.blur(input)
+      })
+
+      await act(async () => {
+        jest.advanceTimersByTime(450)
+      })
+
+      expect(loadSuggestions).toHaveBeenCalledWith('a')
+      expect(queryByText(/Loading suggestions/i)).toBeTruthy()
+
+      await act(async () => {
+        jest.advanceTimersByTime(1001)
+      })
+
+      expect(queryByText(/Loading suggestions/i)).toBeNull()
+    } finally {
+      jest.useRealTimers()
+    }
   })
 
   it('keeps the resolved label after a blur revert when custom values are disallowed', async () => {
