@@ -83,6 +83,8 @@ export function ComboboxInput({
   const resolvedPlaceholder = placeholder ?? t('ui.inputs.comboboxInput.placeholder', 'Type to search...')
   const loadingLabel = t('ui.inputs.comboboxInput.loading', 'Loading suggestions…')
   const resolvedClearLabel = clearLabel ?? t('ui.inputs.comboboxInput.clear', 'Clear value')
+  const blurCloseDelayMs = 250
+  const blurCloseMaxDelayMs = 1000
   const [input, setInput] = React.useState('')
   const [asyncOptions, setAsyncOptions] = React.useState<ComboboxOption[]>([])
   const [resolvedOptions, setResolvedOptions] = React.useState<ComboboxOption[]>([])
@@ -91,6 +93,9 @@ export function ComboboxInput({
   const [showSuggestions, setShowSuggestions] = React.useState(false)
   const [selectedIndex, setSelectedIndex] = React.useState(-1)
   const inputRef = React.useRef<HTMLInputElement>(null)
+  const loadingRef = React.useRef(false)
+  const blurCloseTimerRef = React.useRef<number | null>(null)
+  const blurClosePendingRef = React.useRef(false)
   const suppressOpenOnFocusRef = React.useRef(Boolean(autoFocus && !disabled))
   const eagerFallbackLoadedValueRef = React.useRef<string | null>(null)
 
@@ -99,22 +104,18 @@ export function ComboboxInput({
     [seedOptions, suggestions]
   )
 
-  // Options whose label is genuinely known (not a self-mapping `value === label`
-  // placeholder). Used to decide whether eager resolution still needs to run.
-  const knownLabelValues = React.useMemo(() => {
-    const set = new Set<string>()
-    for (const option of [...staticOptions, ...asyncOptions, ...resolvedOptions]) {
-      if (option.label && option.label !== option.value) set.add(option.value)
+  // Single pass over all option sources to build both coverage sets at once.
+  // knownLabelValues: values with a genuine label (not a self-mapping placeholder) —
+  //   used to decide whether eager resolution still needs to run.
+  // coveredOptionValues: all values present in any source (even self-mapped).
+  const { knownLabelValues, coveredOptionValues } = React.useMemo(() => {
+    const known = new Set<string>()
+    const covered = new Set<string>()
+    for (const opt of [...staticOptions, ...asyncOptions, ...resolvedOptions]) {
+      covered.add(opt.value)
+      if (opt.label && opt.label !== opt.value) known.add(opt.value)
     }
-    return set
-  }, [staticOptions, asyncOptions, resolvedOptions])
-
-  const coveredOptionValues = React.useMemo(() => {
-    const set = new Set<string>()
-    for (const option of [...staticOptions, ...asyncOptions, ...resolvedOptions]) {
-      set.add(option.value)
-    }
-    return set
+    return { knownLabelValues: known, coveredOptionValues: covered }
   }, [staticOptions, asyncOptions, resolvedOptions])
 
   const optionMap = React.useMemo(() => {
@@ -146,6 +147,23 @@ export function ComboboxInput({
     return Array.from(optionMap.values())
   }, [optionMap])
 
+  React.useEffect(() => {
+    loadingRef.current = loading
+  }, [loading])
+
+  const clearBlurCloseTimer = React.useCallback(() => {
+    if (blurCloseTimerRef.current === null) return
+    window.clearTimeout(blurCloseTimerRef.current)
+    blurCloseTimerRef.current = null
+  }, [])
+
+  const resetBlurCloseState = React.useCallback(() => {
+    blurClosePendingRef.current = false
+    clearBlurCloseTimer()
+  }, [clearBlurCloseTimer])
+
+  React.useEffect(() => resetBlurCloseState, [resetBlurCloseState])
+
   const filteredSuggestions = React.useMemo(() => {
     const query = input.toLowerCase().trim()
     if (!query) return availableOptions
@@ -160,17 +178,20 @@ export function ComboboxInput({
     if (!loadSuggestions || !touched || disabled) return
     const query = input.trim()
     let cancelled = false
-    const handle = window.setTimeout(async () => {
+    const handle = window.setTimeout(() => {
       setLoading(true)
-      try {
-        const items = await loadSuggestions(query)
-        if (!cancelled) {
-          const normalized = normalizeOptions(items)
-          setAsyncOptions((prev) => areOptionsEqual(prev, normalized) ? prev : normalized)
-        }
-      } finally {
-        if (!cancelled) setLoading(false)
-      }
+      Promise.resolve()
+        .then(() => loadSuggestions(query))
+        .then((items) => {
+          if (!cancelled) {
+            const normalized = normalizeOptions(items)
+            setAsyncOptions((prev) => areOptionsEqual(prev, normalized) ? prev : normalized)
+          }
+        })
+        .catch(() => {})
+        .finally(() => {
+          if (!cancelled) setLoading(false)
+        })
     }, 200)
     return () => {
       cancelled = true
@@ -205,6 +226,8 @@ export function ComboboxInput({
     eagerFallbackLoadedValueRef.current = value
     // Fallback: pull the first page of async suggestions so a remount that lost
     // its option cache can still recover the label without user interaction.
+    // Note: if the loader is paginated and the value falls outside the first page,
+    // the fallback silently fails and the raw value remains visible.
     if (loadSuggestions) {
       setLoading(true)
       Promise.resolve()
@@ -218,7 +241,8 @@ export function ComboboxInput({
         .finally(() => { if (!cancelled) setLoading(false) })
     }
     return () => { cancelled = true }
-  // eslint-disable-next-line react-hooks/exhaustive-deps
+  // eslint-disable-next-line react-hooks/exhaustive-deps — resolveDescription intentionally excluded:
+  // including it would re-run the effect on every render when the prop is an inline function
   }, [value, disabled, knownLabelValues, coveredOptionValues, eagerResolveLabel, loadSuggestions])
 
   // Sync input with value when value changes externally and input is not focused.
@@ -232,6 +256,7 @@ export function ComboboxInput({
   const selectValue = React.useCallback(
     (nextValue: string) => {
       if (disabled) return
+      resetBlurCloseState()
       const trimmed = nextValue.trim()
       onChange(trimmed)
       const option = optionMap.get(trimmed)
@@ -239,7 +264,7 @@ export function ComboboxInput({
       setShowSuggestions(false)
       setSelectedIndex(-1)
     },
-    [disabled, onChange, optionMap]
+    [disabled, onChange, optionMap, resetBlurCloseState]
   )
 
   const findOptionForInput = React.useCallback(
@@ -290,6 +315,32 @@ export function ComboboxInput({
     selectValue('')
     inputRef.current?.focus()
   }, [disabled, selectValue])
+
+  const closeAfterBlur = React.useCallback(() => {
+    blurCloseTimerRef.current = null
+    if (disabled) return
+    blurClosePendingRef.current = false
+    confirmSelection(input)
+    setShowSuggestions(false)
+    setSelectedIndex(-1)
+  }, [confirmSelection, disabled, input])
+
+  const attemptBlurClose = React.useCallback(() => {
+    blurCloseTimerRef.current = null
+    if (disabled) return
+    if (loadingRef.current) {
+      blurCloseTimerRef.current = window.setTimeout(closeAfterBlur, blurCloseMaxDelayMs)
+      return
+    }
+    closeAfterBlur()
+  }, [blurCloseMaxDelayMs, closeAfterBlur, disabled])
+
+  React.useEffect(() => {
+    if (!blurClosePendingRef.current) return
+    if (loading) return
+    clearBlurCloseTimer()
+    closeAfterBlur()
+  }, [clearBlurCloseTimer, closeAfterBlur, loading])
 
   const handleKeyDown = React.useCallback(
     (event: React.KeyboardEvent<HTMLInputElement>) => {
@@ -350,6 +401,10 @@ export function ComboboxInput({
             suppressOpenOnFocusRef.current = false
             return
           }
+          resetBlurCloseState()
+          if (loadSuggestions && availableOptions.length === 0) {
+            setLoading(true)
+          }
           setShowSuggestions(true)
         }}
         onChange={(event) => {
@@ -360,11 +415,16 @@ export function ComboboxInput({
         }}
         onKeyDown={handleKeyDown}
         onBlur={() => {
-          // Delay to allow click on suggestions
-          setTimeout(() => {
-            if (disabled) return
-            confirmSelection(input)
-          }, 200)
+          // Delay closing so clicks on the popup can resolve first. If async
+          // suggestions are still loading, keep the dropdown open instead of
+          // closing before the first payload arrives.
+          blurClosePendingRef.current = true
+          clearBlurCloseTimer()
+          if (loadingRef.current) {
+            blurCloseTimerRef.current = window.setTimeout(closeAfterBlur, blurCloseMaxDelayMs)
+            return
+          }
+          blurCloseTimerRef.current = window.setTimeout(attemptBlurClose, blurCloseDelayMs)
         }}
       />
 
@@ -401,7 +461,10 @@ export function ComboboxInput({
                     .filter(Boolean)
                     .join(' ')}
                   onMouseDown={(event) => event.preventDefault()}
-                  onClick={() => selectValue(option.value)}
+                  onClick={() => {
+                    resetBlurCloseState()
+                    selectValue(option.value)
+                  }}
                   onMouseEnter={() => setSelectedIndex(index)}
                 >
                   <span className="font-medium text-foreground">{option.label}</span>
