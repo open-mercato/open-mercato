@@ -8,7 +8,7 @@
 
 ## What just happened
 - Run folder created; PLAN.md, HANDOFF.md, NOTIFY.md written.
-- Worktree at: /home/bernard/workspace/OpenMercatoTest/.ai/tmp/auto-create-pr/ai-chat-conversation-sharing-20260522-101358
+- Worktree at: .ai/tmp/auto-create-pr/ai-chat-conversation-sharing-20260522-101358
 
 ## Next concrete action
 - Step 1.1: Add `deleted_at` to `AiChatConversationParticipant` entity in `packages/ai-assistant/src/modules/ai_assistant/data/entities.ts`
@@ -22,5 +22,5 @@
 - Database/migration state: clean — no migration applied yet
 
 ## Worktree
-- Path: /home/bernard/workspace/OpenMercatoTest/.ai/tmp/auto-create-pr/ai-chat-conversation-sharing-20260522-101358
+- Path: .ai/tmp/auto-create-pr/ai-chat-conversation-sharing-20260522-101358
 - Created this run: yes
