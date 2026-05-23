@@ -5,6 +5,7 @@ import Link from "next/link";
 import { Button } from "@open-mercato/ui/primitives/button";
 import { ErrorMessage } from "./ErrorMessage";
 import { cn } from "@open-mercato/shared/lib/utils";
+import { useT } from "@open-mercato/shared/lib/i18n/context";
 
 export type RecordNotFoundStateProps = {
   label: string;
@@ -23,9 +24,10 @@ export function RecordNotFoundState({
   action,
   className,
 }: RecordNotFoundStateProps) {
+  const t = useT();
   const defaultAction = backHref ? (
     <Button asChild variant="outline" size="sm">
-      <Link href={backHref}>{backLabel ?? 'Back to list'}</Link>
+      <Link href={backHref}>{backLabel ?? t('ui.recordNotFound.backToList','Back to list')}</Link>
     </Button>
   ) : null;
 

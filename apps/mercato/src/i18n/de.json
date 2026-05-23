@@ -889,6 +889,7 @@
   "ui.forms.flash.saveBlocked": "Bitte beheben Sie die Fehler vor dem Speichern.",
   "ui.forms.flash.saveError": "Speichern fehlgeschlagen",
   "ui.forms.flash.saveSuccess": "Erfolgreich gespeichert.",
+  "ui.recordNotFound.backToList": "Zurück zur Liste",
   "ui.forms.listbox.noMatches": "Keine Treffer",
   "ui.forms.listbox.searchPlaceholder": "Suchen...",
   "ui.forms.loading": "Daten werden geladen…",

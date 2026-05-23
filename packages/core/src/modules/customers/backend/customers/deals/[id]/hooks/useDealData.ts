@@ -38,11 +38,15 @@ export function useDealData(id: string): UseDealDataResult {
       )
       setData(payload)
     } catch (loadError) {
-      const message =
-        loadError instanceof Error
-          ? loadError.message
-          : t('customers.deals.detail.error.load', 'Failed to load deal.')
-      setError(message)
+      if ((loadError as { status?: number }).status === 404) {
+        setIsNotFound(true)
+      } else {
+        const message =
+          loadError instanceof Error
+            ? loadError.message
+            : t('customers.deals.detail.error.load', 'Failed to load deal.')
+        setError(message)
+      }
       if (!initialLoadDoneRef.current) setData(null)
     } finally {
       setIsLoading(false)

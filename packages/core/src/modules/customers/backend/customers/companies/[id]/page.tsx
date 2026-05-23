@@ -303,8 +303,12 @@ export default function CustomerCompanyDetailPage({ params }: { params?: { id?: 
         setData(payload as CompanyOverview)
       } catch (err) {
         if (cancelled) return
-        const message = err instanceof Error ? err.message : t('customers.companies.detail.error.load', 'Failed to load company.')
-        setError(message)
+        if ((err as { status?: number }).status === 404) {
+          setIsNotFound(true)
+        } else {
+          const message = err instanceof Error ? err.message : t('customers.companies.detail.error.load', 'Failed to load company.')
+          setError(message)
+        }
         setData(null)
       } finally {
         if (!cancelled) setIsLoading(false)
