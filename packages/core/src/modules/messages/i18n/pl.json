@@ -120,6 +120,7 @@
   "messages.errors.loadObjectOptionsFailed": "Nie udało się załadować opcji obiektów.",
   "messages.errors.loadObjectTypesFailed": "Nie udało się załadować typów obiektów.",
   "messages.errors.loadTypesFailed": "Nie udało się załadować typów wiadomości.",
+  "messages.errors.messageDeleted": "Ta wiadomość nie jest już dostępna.",
   "messages.errors.noBody": "Wpisz treść wiadomości.",
   "messages.errors.noExternalEmail": "Wpisz poprawny zewnętrzny adres e-mail.",
   "messages.errors.noRecipients": "Dodaj przynajmniej jednego odbiorcę.",
