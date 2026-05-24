@@ -14,7 +14,7 @@ Status legend: `⬜ todo` · `🟡 in-progress` · `✅ fixed` · `🟢 verified
 | 5 | ✅ fixed | Demo deactivation only handles superadmin@acme.com, leaves admin/employee active | `packages/core/src/modules/auth/lib/setup-app.ts` |
 | 6 | ✅ fixed | Privilege escalation: writes gated by view-only feature | `packages/core/src/modules/currencies/api/fetch-configs/route.ts` |
 | 7 | ✅ fixed | Hardcoded production fallback secret used to derive credential encryption keys | `packages/core/src/modules/integrations/lib/credentials-service.ts` |
-| 8 | ⬜ todo | resetUserMfa allows tenant admin to reset MFA for users in any tenant | `packages/enterprise/src/modules/security/services/MfaAdminService.ts` |
+| 8 | ✅ fixed | resetUserMfa allows tenant admin to reset MFA for users in any tenant | `packages/enterprise/src/modules/security/services/MfaAdminService.ts` |
 | 9 | ⬜ todo | bulkComplianceCheck enumerates user emails from any tenant | `packages/enterprise/src/modules/security/services/MfaAdminService.ts` |
 | 10 | ⬜ todo | createPolicy lets any admin create platform-wide or other-tenant MFA policies | `packages/enterprise/src/modules/security/services/MfaEnforcementService.ts` |
 | 11 | ⬜ todo | updatePolicy allows tenant admin to take over or escalate any policy by id | `packages/enterprise/src/modules/security/services/MfaEnforcementService.ts` |
@@ -144,9 +144,9 @@ When all of TENANT_DATA_ENCRYPTION_FALLBACK_KEY, TENANT_DATA_ENCRYPTION_KEY, AUT
 
 ## 8. resetUserMfa allows tenant admin to reset MFA for users in any tenant
 
-- **Status:** ⬜ todo
-- **PR / commit:** _TBD_
-- **Notes:** _TBD_
+- **Status:** ✅ fixed
+- **PR / commit:** `a28d66ebd`
+- **Notes:** Added `MfaAdminAuthScope` type (`{ tenantId, organizationId?, isSuperAdmin? }`) on `MfaAdminService`. Introduced overloaded `resetUserMfa(adminId, userId, reason, scope?)` plus private `loadUserForScope` that uses `findOneWithDecryption` to load the target user filtered by `scope.tenantId` for non-superadmins (plus an additional cross-org reject when `scope.organizationId` is set and the target's org is non-null). Mismatched scope returns null which maps to a unified 404 `MfaAdminServiceError` ('User not found') — prevents existence enumeration. Preserved the 3-arg overload with `@deprecated` JSDoc; it now fails closed (treated as non-superadmin with `tenantId=null`, rejecting every load as 404). Command `resetUserMfa` builds the scope from `ctx.auth.tenantId/orgId/isSuperAdmin` and forwards it; existing `buildLog` is unchanged (only runs on success, so cross-tenant rejections cannot write a 'successful reset' audit row). Tests: `MfaAdminService.test.ts` (5 new cases — same-tenant success, cross-tenant 404 + no mutations + no event, superadmin success across tenants, cross-org 404, deprecated no-scope 404) + `mfa-reset.route.test.ts` (1 new case — 404 propagation through the command bus). Local typecheck/test/build:app blocked by the same pre-existing `re2js` module-not-found + `TS5103` jest `--ignoreDeprecations` issues as #1–#7; `build:packages` + `generate` + `i18n:check-sync` pass; targeted MfaAdminService + route tests pass 12/12 via root `yarn jest`. CI must validate typecheck + test + build:app legs. Code-review: 0 Medium+, 5 Low (deferred — separate tracker entries: (a) `getUserMfaStatus` still uses unscoped `findUserById` — cross-tenant enrollment-status probe; (b) sibling unscoped `findUserById` patterns in `PasswordService`, `MfaService`, `MfaEnforcementService`; (c) dead `findUserById` private after L1 fix lands; (d) RELEASE_NOTES.md entry for the deprecated 3-arg overload behavior change; (e) test-mock `any` on the `findOneWithDecryption` factory). BC: additive only (`MfaAdminAuthScope` is a new named export; new 4-arg overload). Runtime behavior change on the deprecated 3-arg path (now 404 instead of silent cross-tenant load) is the security fix itself.
 
 - **File:** `packages/enterprise/src/modules/security/services/MfaAdminService.ts`
 - **Lines:** 46–96, 189–191
