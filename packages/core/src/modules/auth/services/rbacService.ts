@@ -352,41 +352,6 @@ export class RbacService {
   }
 
   /**
-   * Checks if a user has all required features within a given scope.
-   * 
-   * This is the primary authorization check method used throughout the application.
-   * It combines feature checking with organization visibility validation.
-   * 
-   * Authorization logic:
-   * 1. No features required → always returns true
-   * 2. User is super admin → always returns true
-   * 3. Organization restriction check: If the user's ACL has a restricted organization list
-   *    and the requested organization is not in that list → returns false
-   * 4. Feature matching: User must have all required features (supports wildcards)
-   * 
-   * @param userId - The ID of the user
-   * @param required - Array of feature strings to check (e.g., ['users.view', 'users.edit'])
-   * @param scope - The tenant and organization context for authorization
-   * @returns true if the user has all required features and organization access, false otherwise
-   * 
-   * @example
-   * // Check if user can view and edit users
-   * const canManageUsers = await rbacService.userHasAllFeatures(
-   *   'user-123',
-   *   ['users.view', 'users.edit'],
-   *   { tenantId: 'tenant-1', organizationId: 'org-1' }
-   * )
-   * 
-   * @example
-   * // Check with wildcard features
-   * const canAccessEntities = await rbacService.userHasAllFeatures(
-   *   'user-123',
-   *   ['entities.records.view'],
-   *   { tenantId: 'tenant-1', organizationId: 'org-1' }
-   * )
-   * // Returns true if user has 'entities.*', '*', or 'entities.records.view'
-   */
-  /**
    * Returns the user's granted feature strings for a given scope.
    *
    * Used by infrastructure that needs the raw grant list rather than a yes/no
@@ -407,6 +372,41 @@ export class RbacService {
     return Array.isArray(acl.features) ? acl.features : []
   }
 
+  /**
+   * Checks if a user has all required features within a given scope.
+   *
+   * This is the primary authorization check method used throughout the application.
+   * It combines feature checking with organization visibility validation.
+   *
+   * Authorization logic:
+   * 1. No features required → always returns true
+   * 2. User is super admin → always returns true
+   * 3. Organization restriction check: If the user's ACL has a restricted organization list
+   *    and the requested organization is not in that list → returns false
+   * 4. Feature matching: User must have all required features (supports wildcards)
+   *
+   * @param userId - The ID of the user
+   * @param required - Array of feature strings to check (e.g., ['users.view', 'users.edit'])
+   * @param scope - The tenant and organization context for authorization
+   * @returns true if the user has all required features and organization access, false otherwise
+   *
+   * @example
+   * // Check if user can view and edit users
+   * const canManageUsers = await rbacService.userHasAllFeatures(
+   *   'user-123',
+   *   ['users.view', 'users.edit'],
+   *   { tenantId: 'tenant-1', organizationId: 'org-1' }
+   * )
+   *
+   * @example
+   * // Check with wildcard features
+   * const canAccessEntities = await rbacService.userHasAllFeatures(
+   *   'user-123',
+   *   ['entities.records.view'],
+   *   { tenantId: 'tenant-1', organizationId: 'org-1' }
+   * )
+   * // Returns true if user has 'entities.*', '*', or 'entities.records.view'
+   */
   async userHasAllFeatures(userId: string, required: string[], scope: { tenantId: string | null; organizationId: string | null }): Promise<boolean> {
     if (!required.length) return true
     const acl = await this.loadAcl(userId, scope)
