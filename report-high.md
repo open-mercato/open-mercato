@@ -29,7 +29,7 @@ Status legend: `⬜ todo` · `🟡 in-progress` · `✅ fixed` · `🟢 verified
 ## 1. Cross-user OpenCode session continuation enables privilege escalation
 
 - **Status:** ✅ fixed
-- **PR / commit:** `d6465ef97`
+- **PR / commit:** `dba38484d`
 - **Notes:** Added `api_keys.opencode_session_id` (additive migration + partial unique index), bound to caller on `done` event, asserted owner `(userId, tenantId, organizationId)` on every resume in `handleOpenCodeMessage` / `handleOpenCodeMessageStreaming` / `handleOpenCodeAnswer`. Opaque error `'Session not available'` everywhere. Replaced unscoped `getPendingQuestions()` with owner-scoped `getOwnedPendingQuestions(em, auth)`; deprecated overload now throws to fail loudly. Tests: `apiKeyService.opencodeBinding.test.ts` (5 cases) + `opencode-handler-ownership.test.ts` (10 cases) + `chat-route-ownership.test.ts` (8 cases) + Playwright `TC-AI-CHAT-OWNERSHIP-001` (4 cases). Spec: `.ai/specs/2026-05-24-fix-opencode-session-ownership.md`. Local test runner blocked by pre-existing `TS5103` (jest `ignoreDeprecations: '6.0'` vs TS 5.9.3) — `build:packages` passes; CI must validate the test+typecheck legs. Deferred Low follow-ups: L1 uniform opaque message in `handleOpenCodeMessage`, L2 `as any` cast in `findApiKeyByOpencodeSessionId`, L4 separate finding: pre-existing `findApiKeyBySessionToken` uses raw `em.findOne` (file a new tracker entry).
 
 - **File:** `packages/ai-assistant/src/modules/ai_assistant/lib/opencode-handlers.ts`
