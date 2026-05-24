@@ -12,7 +12,7 @@ Status legend: `⬜ todo` · `🟡 in-progress` · `✅ fixed` · `🟢 verified
 | 3 | ✅ fixed | Cross-tenant role create/update/delete via body-supplied tenantId | `packages/core/src/modules/auth/api/roles/route.ts` |
 | 4 | ✅ fixed | Hardcoded default password 'secret' for derived admin/employee users | `packages/core/src/modules/auth/lib/setup-app.ts` |
 | 5 | ✅ fixed | Demo deactivation only handles superadmin@acme.com, leaves admin/employee active | `packages/core/src/modules/auth/lib/setup-app.ts` |
-| 6 | ⬜ todo | Privilege escalation: writes gated by view-only feature | `packages/core/src/modules/currencies/api/fetch-configs/route.ts` |
+| 6 | ✅ fixed | Privilege escalation: writes gated by view-only feature | `packages/core/src/modules/currencies/api/fetch-configs/route.ts` |
 | 7 | ⬜ todo | Hardcoded production fallback secret used to derive credential encryption keys | `packages/core/src/modules/integrations/lib/credentials-service.ts` |
 | 8 | ⬜ todo | resetUserMfa allows tenant admin to reset MFA for users in any tenant | `packages/enterprise/src/modules/security/services/MfaAdminService.ts` |
 | 9 | ⬜ todo | bulkComplianceCheck enumerates user emails from any tenant | `packages/enterprise/src/modules/security/services/MfaAdminService.ts` |
@@ -112,9 +112,9 @@ When `setupInitialTenant` runs with `includeDerivedUsers: true` (the default and
 
 ## 6. Privilege escalation: writes gated by view-only feature
 
-- **Status:** ⬜ todo
-- **PR / commit:** _TBD_
-- **Notes:** _TBD_
+- **Status:** ✅ fixed
+- **PR / commit:** `d5438879d`
+- **Notes:** Switched `fetch-configs/route.ts` `metadata` from flat (`requireFeatures: ['currencies.fetch.view']`) to method-keyed: GET keeps `currencies.fetch.view`; POST/PUT/DELETE now require the existing `currencies.fetch.manage` feature (same shape as sister `fetch-rates/route.ts`). No setup.ts / sync-role-acls work needed — `currencies.fetch.manage` was already declared in `acl.ts` and is covered by the standing `admin: ['currencies.*']` wildcard grant. Tests: new `currencies/api/fetch-configs/__tests__/metadata.test.ts` (5 cases: rejects flat shape, asserts per-verb `requireFeatures` for GET/POST/PUT/DELETE). `build:packages` + `generate` + `i18n:check-sync` pass; pre-existing `re2js` missing module and `TS5103` (jest `ignoreDeprecations: '6.0'` vs TS 5.9.3) bring down `typecheck` / `test` / `build:app` for unrelated packages — same blockers as #1–5; CI must validate those legs. Code-review: 0 Medium+. Sibling vulnerabilities flagged but out-of-scope (separate tracker entries): `workflows/api/instances/route.ts` POST gated by `workflows.instances.view`; `workflows/api/definitions/route.ts` POST gated by `workflows.definitions.view`; `workflows/api/definitions/[id]/route.ts` PUT/DELETE gated by `workflows.definitions.view`; `workflows/api/instances/validate-start/route.ts` flat `*.view` but pre-flight only (product confirmation needed).
 
 - **File:** `packages/core/src/modules/currencies/api/fetch-configs/route.ts`
 - **Lines:** 15, 16, 17, 18, 52, 84, 122
