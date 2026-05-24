@@ -76,7 +76,7 @@ export async function GET(req: Request) {
 
     // Search encrypted fields via search_tokens
     const matchedIds = await findCustomerUserIdsBySearchTokens(em, 'customer_accounts:customer_user', trimmedSearch, auth.tenantId)
-    if (matchedIds && matchedIds.length) {
+    if (matchedIds && matchedIds.length > 0) {
       searchFilter.push({ id: { $in: matchedIds } })
     }
 
