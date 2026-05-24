@@ -50,6 +50,17 @@ export function mapSubscriptionEvent(eventType: string): Parameters<typeof emitP
   return SUBSCRIPTION_EVENT_MAP[eventType] ?? null
 }
 
+function normalizeWebhookTimestamp(value: unknown): Date {
+  if (value instanceof Date) return value
+
+  if (typeof value === 'string' || typeof value === 'number') {
+    const parsed = new Date(value)
+    if (!Number.isNaN(parsed.getTime())) return parsed
+  }
+
+  return new Date()
+}
+
 async function writeLog(
   service: IntegrationLogService | undefined,
   providerKey: string,
@@ -110,7 +121,7 @@ export async function processSubscriptionWebhookJob(
       providerChargeId: ref.providerChargeId ?? null,
       providerEventType: event.eventType,
       providerEventId: event.eventId,
-      providerEventCreatedAt: event.timestamp.toISOString(),
+      providerEventCreatedAt: normalizeWebhookTimestamp(event.timestamp).toISOString(),
       data: event.data,
     }
 
