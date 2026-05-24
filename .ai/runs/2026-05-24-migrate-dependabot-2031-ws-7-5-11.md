@@ -55,13 +55,13 @@ None (no `--skill-url` arguments supplied).
 
 ### Phase 1: Bring the dependabot change onto a develop-based branch
 
-- [ ] 1.1 Cherry-pick the yarn.lock diff from PR #2031
-- [ ] 1.2 Run `yarn install` to confirm reconciliation
+- [x] 1.1 Cherry-pick the yarn.lock diff from PR #2031 — 0da1aa1fc
+- [x] 1.2 Run `yarn install` to confirm reconciliation — verified `yarn install --immutable` succeeds with zero lockfile mutations; only pre-existing peer-dep warnings remain
 
 ### Phase 2: Validate
 
-- [ ] 2.1 Re-read diff for scope creep
-- [ ] 2.2 Optional typecheck smoke
+- [x] 2.1 Re-read diff for scope creep — confirmed: only `ws@npm:^7.3.1` `version`/`resolution`/`checksum` lines change; no other lockfile entries touched
+- [x] 2.2 Skipped full build/test gate — patch-level transitive dep bump, no source consumes the new API; `--immutable` reconciliation is sufficient. Documented in PR body.
 
 ### Phase 3: Open PR and close source
 
