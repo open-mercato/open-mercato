@@ -5,6 +5,12 @@ import { MfaRecoveryCode, UserMfaMethod } from '../data/entities'
 import { emitSecurityEvent } from '../events'
 import type { MfaEnforcementService } from './MfaEnforcementService'
 
+export type MfaAdminAuthScope = {
+  tenantId: string | null
+  organizationId?: string | null
+  isSuperAdmin?: boolean
+}
+
 type MfaMethodStatus = {
   type: string
   label?: string
@@ -48,7 +54,25 @@ export class MfaAdminService {
     private readonly mfaEnforcementService: MfaEnforcementService,
   ) {}
 
-  async resetUserMfa(adminId: string, userId: string, reason: string, actor?: ActorContext): Promise<void> {
+  /**
+   * @deprecated Since 0.6 — pass an {@link MfaAdminAuthScope} so the target user is
+   *   loaded with tenant/organization scoping. The no-scope overload now treats the
+   *   caller as a non-superadmin with unknown tenant and rejects every load with 404;
+   *   it will be removed in a future release.
+   */
+  async resetUserMfa(adminId: string, userId: string, reason: string): Promise<void>
+  async resetUserMfa(
+    adminId: string,
+    userId: string,
+    reason: string,
+    scope: MfaAdminAuthScope,
+  ): Promise<void>
+  async resetUserMfa(
+    adminId: string,
+    userId: string,
+    reason: string,
+    scope?: MfaAdminAuthScope,
+  ): Promise<void> {
     if (!adminId.trim()) {
       throw new MfaAdminServiceError('Admin ID is required', 400)
     }
@@ -61,11 +85,12 @@ export class MfaAdminService {
       throw new MfaAdminServiceError('Reset reason is required', 400)
     }
 
-    const user = await this.findUserById(userId)
+    const effectiveScope: MfaAdminAuthScope = scope ?? { tenantId: null, isSuperAdmin: false }
+    const user = await this.loadUserForScope(userId, effectiveScope)
     if (!user) {
+      // Unified 404 for both "missing" and "out of scope" — prevents existence enumeration.
       throw new MfaAdminServiceError('User not found', 404)
     }
-    this.assertActorOwnsUser(user, actor)
 
     const activeMethods = await this.em.find(UserMfaMethod, {
       userId,
@@ -211,6 +236,42 @@ export class MfaAdminService {
       {},
       { tenantId: null, organizationId: null },
     )
+  }
+
+  private async loadUserForScope(
+    userId: string,
+    scope: MfaAdminAuthScope,
+  ): Promise<User | null> {
+    if (scope.isSuperAdmin) {
+      return findOneWithDecryption(
+        this.em,
+        User,
+        { id: userId, deletedAt: null },
+        undefined,
+        { tenantId: null, organizationId: null },
+      )
+    }
+
+    if (!scope.tenantId) return null
+
+    const user = await findOneWithDecryption(
+      this.em,
+      User,
+      { id: userId, tenantId: scope.tenantId, deletedAt: null },
+      undefined,
+      { tenantId: scope.tenantId, organizationId: scope.organizationId ?? null },
+    )
+    if (!user) return null
+
+    if (
+      scope.organizationId !== undefined
+      && scope.organizationId !== null
+      && user.organizationId !== null
+      && user.organizationId !== scope.organizationId
+    ) {
+      return null
+    }
+    return user
   }
 }
 
