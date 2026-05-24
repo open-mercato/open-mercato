@@ -3,8 +3,6 @@ import { randomBytes } from 'node:crypto'
 
 type EnvReader = (key: string) => string | undefined
 
-const DEFAULT_DERIVED_PASSWORD = 'secret'
-
 function readEnvValue(env: NodeJS.ProcessEnv, key: string): string | undefined {
   const value = env[key]
   if (typeof value !== 'string') return undefined
@@ -24,6 +22,8 @@ export type InitDerivedSecrets = {
   employeePassword: string | null
 }
 
+let warnedAboutDeprecatedRandomToggle = false
+
 export function resolveInitDerivedSecrets(options: {
   email: string
   env?: NodeJS.ProcessEnv
@@ -34,14 +34,23 @@ export function resolveInitDerivedSecrets(options: {
   const [, domain] = String(options.email ?? '').split('@')
   const adminEmail = envRead('OM_INIT_ADMIN_EMAIL') ?? resolveEmailFromDomain(domain, 'admin')
   const employeeEmail = envRead('OM_INIT_EMPLOYEE_EMAIL') ?? resolveEmailFromDomain(domain, 'employee')
-  const randomEnabled = parseBooleanToken(envRead('OM_INIT_GENERATE_RANDOM_PASSWORD') ?? '') === true
+  // OM_INIT_GENERATE_RANDOM_PASSWORD used to be an opt-in toggle for random
+  // derived secrets; that is now the unconditional behaviour when no override
+  // is set. Surface a one-time deprecation warning so existing operators
+  // notice their config is no longer required.
+  if (parseBooleanToken(envRead('OM_INIT_GENERATE_RANDOM_PASSWORD') ?? '') === true && !warnedAboutDeprecatedRandomToggle) {
+    warnedAboutDeprecatedRandomToggle = true
+    console.warn(
+      '⚠️  OM_INIT_GENERATE_RANDOM_PASSWORD is deprecated and no longer required: derived admin/employee passwords are always randomly generated when overrides are unset.',
+    )
+  }
   const randomize = options.randomSource ?? randomBytes
-  const randomSecret = () => randomize(9).toString('base64url')
+  const randomSecret = () => randomize(12).toString('base64url')
   const resolvePassword = (key: string, emailValue: string | null) => {
     if (!emailValue) return null
     const envValue = envRead(key)
     if (envValue) return envValue
-    return randomEnabled ? randomSecret() : DEFAULT_DERIVED_PASSWORD
+    return randomSecret()
   }
 
   return {
@@ -51,4 +60,3 @@ export function resolveInitDerivedSecrets(options: {
     employeePassword: resolvePassword('OM_INIT_EMPLOYEE_PASSWORD', employeeEmail),
   }
 }
-

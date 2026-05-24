@@ -10,7 +10,7 @@ Status legend: `⬜ todo` · `🟡 in-progress` · `✅ fixed` · `🟢 verified
 | 1 | ✅ fixed | Cross-user OpenCode session continuation enables privilege escalation | `packages/ai-assistant/src/modules/ai_assistant/lib/opencode-handlers.ts` |
 | 2 | ✅ fixed | Cross-tenant write/delete on global `AttachmentPartition` via tenant-admin feature | `packages/core/src/modules/attachments/api/partitions/route.ts` |
 | 3 | ✅ fixed | Cross-tenant role create/update/delete via body-supplied tenantId | `packages/core/src/modules/auth/api/roles/route.ts` |
-| 4 | ⬜ todo | Hardcoded default password 'secret' for derived admin/employee users | `packages/core/src/modules/auth/lib/setup-app.ts` |
+| 4 | ✅ fixed | Hardcoded default password 'secret' for derived admin/employee users | `packages/core/src/modules/auth/lib/setup-app.ts` |
 | 5 | ⬜ todo | Demo deactivation only handles superadmin@acme.com, leaves admin/employee active | `packages/core/src/modules/auth/lib/setup-app.ts` |
 | 6 | ⬜ todo | Privilege escalation: writes gated by view-only feature | `packages/core/src/modules/currencies/api/fetch-configs/route.ts` |
 | 7 | ⬜ todo | Hardcoded production fallback secret used to derive credential encryption keys | `packages/core/src/modules/integrations/lib/credentials-service.ts` |
@@ -80,9 +80,9 @@ The POST/PUT/DELETE handlers are wired through makeCrudRoute with `rawBodySchema
 
 ## 4. Hardcoded default password 'secret' for derived admin/employee users
 
-- **Status:** ⬜ todo
-- **PR / commit:** _TBD_
-- **Notes:** _TBD_
+- **Status:** ✅ fixed
+- **PR / commit:** `6110223a8`
+- **Notes:** Removed literal `'secret'` fallback from `setup-app.ts` derived-user block; random `randomBytes(12).toString('base64url')` (96 bits entropy) password generated when env overrides are unset, surfaced via new optional `users[].generatedPassword` snapshot. Added `DerivedUserPasswordRequiredError` + production safeguard (`NODE_ENV=production` + missing env vars + no `allowDemoDerivedPasswords` opt-in → throw before any DB writes). New `--include-demo-users` CLI flag flips `mercato auth setup` to default-deny (derived `admin@`/`employee@` accounts are no longer silently seeded); `mercato init` passes the flag explicitly so the dev/demo bootstrap path is unchanged. CLI output now prints generated passwords with a "GENERATED — copy now" warning. `OM_INIT_GENERATE_RANDOM_PASSWORD` becomes a deprecated no-op with a one-time warning. Tests: new `cli-setup-demo-users.test.ts` (4 cases: default no-seed, opt-in random, opt-in env-supplied, production safeguard throw) + rewritten `init-secrets.test.ts` (no `'secret'` default, base64url randomization, deprecated toggle is no-op). Local jest/typecheck blocked by the pre-existing `TS5103` and `re2js` issues (same as #1, #2, #3); `build:packages` + `generate` + `i18n:check-sync` + `i18n:check-usage` pass. Code-review: 0 Medium+, 2 Low (deferred — top-level vs dynamic import in the new test; `RELEASE_NOTES.md` entry for the CLI default flip). Sibling finding #5 (`deactivateDemoSuperAdminIfSelfOnboardingEnabled` only neutralizes `superadmin@acme.com`) is out of scope here and tracked separately. BC: additive type changes only (`allowDemoDerivedPasswords?`, `generatedPassword?`); CLI default flip is the security fix itself — must be documented in release notes.
 
 - **File:** `packages/core/src/modules/auth/lib/setup-app.ts`
 - **Lines:** 184, 185, 186, 187, 188, 189, 190, 191, 192, 193

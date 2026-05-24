@@ -1032,6 +1032,11 @@ export async function run(argv = process.argv) {
         '--email', email,
         '--password', password,
         '--roles', roles,
+        // `mercato init` is the dev/demo bootstrap flow — it explicitly wants
+        // the derived admin@/employee@ demo accounts. Standalone callers of
+        // `mercato auth setup` must opt in themselves; without this flag the
+        // setup command no longer seeds those accounts by default.
+        '--include-demo-users',
       ]
       if (skipPasswordPolicy) {
         setupArgs.push('--skip-password-policy')
