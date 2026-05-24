@@ -115,9 +115,9 @@ Run the full ephemeral integration suite from the run host. If Docker is unavail
 
 ### Phase 1: Standalone failures — modules registry globalThis fix
 
-- [ ] 1.1 Refactor `packages/shared/src/lib/modules/registry.ts` to use `globalThis` state, mirroring DI registrars
-- [ ] 1.2 Add regression unit test at `packages/shared/src/lib/modules/__tests__/registry.test.ts`
-- [ ] 1.3 Run targeted validation (shared unit tests + typecheck)
+- [x] 1.1 Refactor `packages/shared/src/lib/modules/registry.ts` to use `globalThis` state, mirroring DI registrars — 870c93eb0
+- [x] 1.2 Add regression unit test at `packages/shared/src/lib/modules/__tests__/registry.test.ts` — 870c93eb0
+- [x] 1.3 Run targeted validation (shared unit tests + typecheck) — 870c93eb0 (52/52 passing; OLD-registry sanity run confirmed two of the new tests fail without the fix)
 
 ### Phase 2: Ephemeral UI test budget — TC-SALES-005 / TC-SALES-019
 
