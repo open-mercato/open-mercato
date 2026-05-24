@@ -65,7 +65,7 @@ None (no `--skill-url` arguments supplied).
 
 ### Phase 3: Open PR and close source
 
-- [ ] 3.1 Push branch and open PR against `develop`
-- [ ] 3.2 Apply labels with explanatory comments
-- [ ] 3.3 Close PR #2031 with link to the migration PR
-- [ ] 3.4 Post comprehensive summary comment
+- [x] 3.1 Push branch and open PR against `develop` — PR #2038
+- [x] 3.2 Apply labels with explanatory comments — `review` + `dependencies` + `skip-qa`
+- [x] 3.3 Close PR #2031 with link to the migration PR
+- [x] 3.4 Post comprehensive summary comment
