@@ -8,7 +8,7 @@ Status legend: `⬜ todo` · `🟡 in-progress` · `✅ fixed` · `🟢 verified
 | # | Status | Title | File |
 |---|--------|-------|------|
 | 1 | ✅ fixed | Cross-user OpenCode session continuation enables privilege escalation | `packages/ai-assistant/src/modules/ai_assistant/lib/opencode-handlers.ts` |
-| 2 | ⬜ todo | Cross-tenant write/delete on global `AttachmentPartition` via tenant-admin feature | `packages/core/src/modules/attachments/api/partitions/route.ts` |
+| 2 | ✅ fixed | Cross-tenant write/delete on global `AttachmentPartition` via tenant-admin feature | `packages/core/src/modules/attachments/api/partitions/route.ts` |
 | 3 | ⬜ todo | Cross-tenant role create/update/delete via body-supplied tenantId | `packages/core/src/modules/auth/api/roles/route.ts` |
 | 4 | ⬜ todo | Hardcoded default password 'secret' for derived admin/employee users | `packages/core/src/modules/auth/lib/setup-app.ts` |
 | 5 | ⬜ todo | Demo deactivation only handles superadmin@acme.com, leaves admin/employee active | `packages/core/src/modules/auth/lib/setup-app.ts` |
@@ -48,9 +48,9 @@ The `getPendingQuestions()` export at L719 also returns ALL pending questions ac
 
 ## 2. Cross-tenant write/delete on global `AttachmentPartition` via tenant-admin feature
 
-- **Status:** ⬜ todo
-- **PR / commit:** _TBD_
-- **Notes:** _TBD_
+- **Status:** ✅ fixed
+- **PR / commit:** `21986a961`
+- **Notes:** Added nullable `attachment_partitions.tenant_id`/`organization_id` (additive migration + btree index, snapshot updated). POST stamps caller's tenant/org; GET filters to platform defaults (tenant_id IS NULL) OR own-tenant; PUT/DELETE gate on `(own-tenant) OR (platform-default AND superadmin)` and mask cross-tenant attempts as 404; DELETE in-use count is tenant-scoped. Every verb now also requires `auth.tenantId`. Migrated the four touched `em.findOne`/`em.find` calls on `AttachmentPartition` to `findOneWithDecryption`/`findWithDecryption`. Tests: `partitions.route.test.ts` (10 cases: cross-tenant PUT/DELETE blocked, own-tenant allowed, platform-default mutation gated by superadmin, GET visibility filter for tenant + superadmin, POST tenant stamping, DELETE in-use tenant scoping, unauth rejection on every verb, missing-tenantId rejection). Local test runner blocked by pre-existing `TS5103` (jest `ignoreDeprecations: '6.0'` vs TS 5.9.3) — same blocker as #1; `build:packages` passes, CI must validate the test+typecheck legs.
 
 - **File:** `packages/core/src/modules/attachments/api/partitions/route.ts`
 - **Lines:** 42, 43, 44, 45, 111, 133, 142, 143, 153, 171, 175, 178, 182
