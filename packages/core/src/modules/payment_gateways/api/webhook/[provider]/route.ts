@@ -123,10 +123,7 @@ export async function POST(req: Request, { params }: { params: Promise<{ provide
       }
 
       if (process.env.QUEUE_STRATEGY === 'async') {
-        await subscriptionQueue.enqueue({
-          name: 'payment-gateway-subscription-webhook',
-          payload: jobPayload,
-        })
+        await subscriptionQueue.enqueue(jobPayload)
       } else {
         let integrationLogService: IntegrationLogService | undefined
         try {
@@ -197,10 +194,7 @@ export async function POST(req: Request, { params }: { params: Promise<{ provide
     }
 
     if (process.env.QUEUE_STRATEGY === 'async') {
-      await queue.enqueue({
-        name: 'payment-gateway-webhook',
-        payload: jobPayload,
-      })
+      await queue.enqueue(jobPayload)
     } else {
       await processPaymentGatewayWebhookJob(
         {
