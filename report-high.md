@@ -15,7 +15,7 @@ Status legend: `⬜ todo` · `🟡 in-progress` · `✅ fixed` · `🟢 verified
 | 6 | ✅ fixed | Privilege escalation: writes gated by view-only feature | `packages/core/src/modules/currencies/api/fetch-configs/route.ts` |
 | 7 | ✅ fixed | Hardcoded production fallback secret used to derive credential encryption keys | `packages/core/src/modules/integrations/lib/credentials-service.ts` |
 | 8 | ✅ fixed | resetUserMfa allows tenant admin to reset MFA for users in any tenant | `packages/enterprise/src/modules/security/services/MfaAdminService.ts` |
-| 9 | ⬜ todo | bulkComplianceCheck enumerates user emails from any tenant | `packages/enterprise/src/modules/security/services/MfaAdminService.ts` |
+| 9 | ✅ fixed | bulkComplianceCheck enumerates user emails from any tenant | `packages/enterprise/src/modules/security/services/MfaAdminService.ts` |
 | 10 | ⬜ todo | createPolicy lets any admin create platform-wide or other-tenant MFA policies | `packages/enterprise/src/modules/security/services/MfaEnforcementService.ts` |
 | 11 | ⬜ todo | updatePolicy allows tenant admin to take over or escalate any policy by id | `packages/enterprise/src/modules/security/services/MfaEnforcementService.ts` |
 | 12 | ⬜ todo | deletePolicy soft-deletes any policy by id without tenant scope checks | `packages/enterprise/src/modules/security/services/MfaEnforcementService.ts` |
@@ -160,9 +160,9 @@ resetUserMfa(adminId, userId, reason) (lines 46-96) loads the target user via fi
 
 ## 9. bulkComplianceCheck enumerates user emails from any tenant
 
-- **Status:** ⬜ todo
-- **PR / commit:** _TBD_
-- **Notes:** _TBD_
+- **Status:** ✅ fixed
+- **PR / commit:** `479a2fd95`
+- **Notes:** Added scope-aware overload `bulkComplianceCheck(tenantId, scope: MfaAdminAuthScope)` mirroring the #8 `resetUserMfa` pattern; deprecated 1-arg overload is preserved and fails closed (404 'Tenant not found'). New private `resolveTenantForScope` enforces tenant match for non-superadmins. Route `api/users/mfa/compliance/route.ts` now rejects non-superadmin cross-tenant `?tenantId=` overrides with 403 ('Cross-tenant access denied.') and forwards the built scope to the service as defense-in-depth. New i18n keys `security.api.errors.crossTenantAccessDenied` + `security.api.errors.tenantNotFound` in all 4 locales. Tests: `MfaAdminService.test.ts` (5 new: cross-tenant 404 with no decryption, superadmin success, deprecated 1-arg 404, scope-without-tenantId 404, same-tenant happy path; 1 existing updated to pass scope) + new `mfa-compliance.route.test.ts` (5 cases: 403 cross-tenant override + no service call, 200 session-tenant fallback, 200 superadmin override, 200 same-tenant idempotent, 400 missing tenant context). Targeted `yarn jest` passes 21/21. Local `typecheck` / full `test` / `build:app` blocked by pre-existing `re2js` missing module + TS5103 jest `ignoreDeprecations: '6.0'` vs TS 5.9.3 — same blockers as #1–#8; CI must validate those legs. Code-review: 0 Medium+, 3 Low (deferred — separate tracker entries: (a) `getUserMfaStatus` still uses unscoped `findUserById` — cross-tenant enrollment-status probe; (b) `RELEASE_NOTES.md` entry for the deprecated overload behavior change, combine with #8; (c) inline comments documenting fail-closed semantics retained as a tripwire). BC: additive only (new overload signature; deprecated 1-arg signature preserved). Runtime behavior change on the deprecated 1-arg path (now 404 instead of silent cross-tenant load) is the security fix itself.
 
 - **File:** `packages/enterprise/src/modules/security/services/MfaAdminService.ts`
 - **Lines:** 139–187

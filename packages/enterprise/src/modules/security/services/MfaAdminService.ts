@@ -168,25 +168,45 @@ export class MfaAdminService {
     }
   }
 
-  async bulkComplianceCheck(tenantId: string, actor?: ActorContext): Promise<BulkComplianceStatus[]> {
+  /**
+   * @deprecated Since 0.6 — pass an {@link MfaAdminAuthScope} so the tenant list is
+   *   enforced against the caller's actual scope rather than the caller-supplied
+   *   tenantId. The no-scope overload now treats the caller as a non-superadmin
+   *   with unknown tenant and rejects every request with 404; it will be removed
+   *   in a future release.
+   */
+  async bulkComplianceCheck(tenantId: string): Promise<BulkComplianceStatus[]>
+  async bulkComplianceCheck(
+    tenantId: string,
+    scope: MfaAdminAuthScope,
+  ): Promise<BulkComplianceStatus[]>
+  async bulkComplianceCheck(
+    tenantId: string,
+    scope?: MfaAdminAuthScope,
+  ): Promise<BulkComplianceStatus[]> {
     if (!tenantId.trim()) {
       throw new MfaAdminServiceError('Tenant ID is required', 400)
     }
-    if (actor && !actor.isSuperAdmin && tenantId !== actor.tenantId) {
-      throw new MfaAdminServiceError('Not authorized for the requested tenant scope.', 403)
+
+    const effectiveScope: MfaAdminAuthScope = scope ?? { tenantId: null, isSuperAdmin: false }
+    const effectiveTenantId = this.resolveTenantForScope(tenantId, effectiveScope)
+    if (!effectiveTenantId) {
+      // Unified 404 for missing-scope, cross-tenant mismatch, and unknown tenant —
+      // prevents existence enumeration and matches the resetUserMfa contract.
+      throw new MfaAdminServiceError('Tenant not found', 404)
     }
 
     const users = await findWithDecryption(
       this.em,
       User,
       {
-        tenantId,
+        tenantId: effectiveTenantId,
         deletedAt: null,
       },
       {
         orderBy: { createdAt: 'asc' },
       },
-      { tenantId, organizationId: null },
+      { tenantId: effectiveTenantId, organizationId: null },
     )
 
     const userIds = users.map((user) => user.id)
@@ -236,6 +256,18 @@ export class MfaAdminService {
       {},
       { tenantId: null, organizationId: null },
     )
+  }
+
+  private resolveTenantForScope(
+    requestedTenantId: string,
+    scope: MfaAdminAuthScope,
+  ): string | null {
+    if (scope.isSuperAdmin) {
+      return requestedTenantId
+    }
+    if (!scope.tenantId) return null
+    if (scope.tenantId !== requestedTenantId) return null
+    return scope.tenantId
   }
 
   private async loadUserForScope(

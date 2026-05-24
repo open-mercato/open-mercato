@@ -22,6 +22,8 @@ const exactMessageMap = new Map<string, MessageDescriptor>([
   ['Sudo config not found', { key: 'security.api.errors.sudoConfigurationNotFound', fallback: 'Sudo configuration not found.' }],
   ['Sudo configuration not found', { key: 'security.api.errors.sudoConfigurationNotFound', fallback: 'Sudo configuration not found.' }],
   ['Tenant context is required.', { key: 'security.api.errors.tenantContextRequired', fallback: 'Tenant context is required.' }],
+  ['Cross-tenant access denied.', { key: 'security.api.errors.crossTenantAccessDenied', fallback: 'Cross-tenant access denied.' }],
+  ['Tenant not found', { key: 'security.api.errors.tenantNotFound', fallback: 'Tenant not found.' }],
   ['MFA pending token is required.', { key: 'security.api.errors.mfaPendingTokenRequired', fallback: 'MFA pending token is required.' }],
   ['challengeId and methodType are required.', { key: 'security.api.errors.challengeIdAndMethodTypeRequired', fallback: 'challengeId and methodType are required.' }],
   ['setupId is required.', { key: 'security.api.errors.setupIdRequired', fallback: 'setupId is required.' }],

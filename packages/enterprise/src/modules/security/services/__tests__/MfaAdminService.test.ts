@@ -289,7 +289,7 @@ describe('MfaAdminService', () => {
     expect(status.methods[0].label).toBe('Phone')
   })
 
-  test('bulkComplianceCheck returns compliance data for all tenant users', async () => {
+  test('bulkComplianceCheck returns compliance data for all tenant users (same-tenant non-superadmin)', async () => {
     const { service, methods, users, mfaEnforcementService } = createContext()
     users.set('user-2', {
       id: 'user-2',
@@ -327,8 +327,20 @@ describe('MfaAdminService', () => {
     mfaEnforcementService.checkUserCompliance.mockResolvedValueOnce({ compliant: true, enforced: true })
     mfaEnforcementService.checkUserCompliance.mockResolvedValueOnce({ compliant: false, enforced: true })
 
-    const result = await service.bulkComplianceCheck('tenant-1')
+    const result = await service.bulkComplianceCheck('tenant-1', {
+      tenantId: 'tenant-1',
+      organizationId: 'org-1',
+      isSuperAdmin: false,
+    })
 
+    expect(mockedFindWithDecryption).toHaveBeenCalledTimes(1)
+    expect(mockedFindWithDecryption).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.anything(),
+      expect.objectContaining({ tenantId: 'tenant-1', deletedAt: null }),
+      expect.anything(),
+      expect.objectContaining({ tenantId: 'tenant-1', organizationId: null }),
+    )
     expect(result).toEqual([
       {
         userId: 'user-1',
@@ -346,6 +358,87 @@ describe('MfaAdminService', () => {
         compliant: false,
       },
     ])
+  })
+
+  test('bulkComplianceCheck rejects cross-tenant non-superadmin with 404 and never decrypts', async () => {
+    const { service, mfaEnforcementService } = createContext()
+
+    await expect(
+      service.bulkComplianceCheck('tenant-2', {
+        tenantId: 'tenant-1',
+        organizationId: 'org-1',
+        isSuperAdmin: false,
+      }),
+    ).rejects.toMatchObject({
+      name: 'MfaAdminServiceError',
+      statusCode: 404,
+      message: 'Tenant not found',
+    } satisfies Partial<MfaAdminServiceError>)
+
+    expect(mockedFindWithDecryption).not.toHaveBeenCalled()
+    expect(mfaEnforcementService.checkUserCompliance).not.toHaveBeenCalled()
+  })
+
+  test('bulkComplianceCheck allows a superadmin to query any tenant', async () => {
+    const { service, mfaEnforcementService } = createContext()
+    mockedFindWithDecryption.mockResolvedValue([
+      {
+        id: 'user-x',
+        email: 'x@example.com',
+        tenantId: 'tenant-other',
+        organizationId: null,
+      },
+    ] as never)
+    mfaEnforcementService.checkUserCompliance.mockResolvedValueOnce({ compliant: true, enforced: false })
+
+    const result = await service.bulkComplianceCheck('tenant-other', {
+      tenantId: 'tenant-root',
+      organizationId: null,
+      isSuperAdmin: true,
+    })
+
+    expect(mockedFindWithDecryption).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.anything(),
+      expect.objectContaining({ tenantId: 'tenant-other', deletedAt: null }),
+      expect.anything(),
+      expect.objectContaining({ tenantId: 'tenant-other', organizationId: null }),
+    )
+    expect(result).toHaveLength(1)
+    expect(result[0].userId).toBe('user-x')
+    expect(result[0].email).toBe('x@example.com')
+  })
+
+  test('bulkComplianceCheck deprecated no-scope call is treated as non-superadmin and rejects with 404', async () => {
+    const { service, mfaEnforcementService } = createContext()
+
+    await expect(service.bulkComplianceCheck('tenant-1')).rejects.toMatchObject({
+      name: 'MfaAdminServiceError',
+      statusCode: 404,
+      message: 'Tenant not found',
+    } satisfies Partial<MfaAdminServiceError>)
+
+    expect(mockedFindWithDecryption).not.toHaveBeenCalled()
+    expect(mfaEnforcementService.checkUserCompliance).not.toHaveBeenCalled()
+  })
+
+  test('bulkComplianceCheck rejects scope without tenantId for non-superadmin with 404', async () => {
+    const { service, mfaEnforcementService } = createContext()
+
+    await expect(
+      service.bulkComplianceCheck('tenant-1', {
+        tenantId: null,
+        organizationId: null,
+        isSuperAdmin: false,
+      }),
+    ).rejects.toMatchObject({
+      name: 'MfaAdminServiceError',
+      statusCode: 404,
+      message: 'Tenant not found',
+    } satisfies Partial<MfaAdminServiceError>)
+
+    expect(mockedFindWithDecryption).not.toHaveBeenCalled()
+    expect(mfaEnforcementService.checkUserCompliance).not.toHaveBeenCalled()
   })
 
   test('resetUserMfa requires a non-empty reason', async () => {
