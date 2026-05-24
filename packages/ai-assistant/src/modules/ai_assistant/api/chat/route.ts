@@ -3,6 +3,8 @@ import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
 import { getAuthFromRequest } from '@open-mercato/shared/lib/auth/server'
 import {
   handleOpenCodeMessageStreaming,
+  OpenCodeSessionOwnershipError,
+  type OpenCodeAuthContext,
   type OpenCodeStreamEvent,
 } from '../../lib/opencode-handlers'
 import { createOpenCodeClient } from '../../lib/opencode-client'
@@ -11,6 +13,8 @@ import type { EntityManager } from '@mikro-orm/postgresql'
 import {
   generateSessionToken,
   createSessionApiKey,
+  bindOpencodeSessionToApiKey,
+  findApiKeyByOpencodeSessionId,
 } from '@open-mercato/core/modules/api_keys/services/apiKeyService'
 import { UserRole } from '@open-mercato/core/modules/auth/data/entities'
 import { findWithDecryption } from '@open-mercato/shared/lib/encryption/find'
@@ -216,14 +220,53 @@ export async function POST(req: NextRequest) {
       }
     }
 
+    // Resolve a request-scoped EntityManager once — needed both by the
+    // answerQuestion short-circuit (for ownership re-check) and by the
+    // streaming branch (for session-token mint + post-`done` binding).
+    const container = await createRequestContainer()
+    const em = container.resolve<EntityManager>('em')
+
+    const opencodeAuth: OpenCodeAuthContext = {
+      userId: auth.sub,
+      tenantId: auth.tenantId ?? null,
+      organizationId: auth.orgId ?? null,
+    }
+
     // Handle question answer - simple JSON response, not SSE
     // The original SSE stream continues and will receive the follow-up response
     if (answerQuestion) {
       try {
         const client = createOpenCodeClient()
+        // Resolve the question's actual sessionID from OpenCode — never
+        // trust the caller-supplied `answerQuestion.sessionId` blindly.
+        const pending = await client.getPendingQuestions()
+        const matching = pending.find((q) => q.id === answerQuestion.questionId)
+        if (!matching) {
+          // Unknown / stale question id — same opaque response as a
+          // foreign-owner mismatch to avoid leaking which case occurred.
+          return NextResponse.json({ error: 'Session not available' }, { status: 403 })
+        }
+        if (matching.sessionID !== answerQuestion.sessionId) {
+          return NextResponse.json({ error: 'Session not available' }, { status: 403 })
+        }
+        // Look up the api_key row bound to this OpenCode session and
+        // assert ownership matches the authenticated caller.
+        const ownerRow = await findApiKeyByOpencodeSessionId(em, matching.sessionID)
+        if (
+          !ownerRow ||
+          ownerRow.sessionUserId !== opencodeAuth.userId ||
+          (ownerRow.tenantId ?? null) !== opencodeAuth.tenantId ||
+          (ownerRow.organizationId ?? null) !== opencodeAuth.organizationId
+        ) {
+          return NextResponse.json({ error: 'Session not available' }, { status: 403 })
+        }
+
         await client.answerQuestion(answerQuestion.questionId, answerQuestion.answer)
         return NextResponse.json({ success: true })
       } catch (error) {
+        if (error instanceof OpenCodeSessionOwnershipError) {
+          return NextResponse.json({ error: 'Session not available' }, { status: 403 })
+        }
         console.error('[AI Chat] Answer error:', error)
         return NextResponse.json(
           { error: error instanceof Error ? error.message : 'Failed to answer question' },
@@ -253,9 +296,6 @@ export async function POST(req: NextRequest) {
     let sessionToken: string | null = null
     if (!sessionId) {
       try {
-        const container = await createRequestContainer()
-        const em = container.resolve<EntityManager>('em')
-
         // Get user's role IDs from database
         const userRoleIds = await getUserRoleIds(em, auth.sub, auth.tenantId)
 
@@ -317,12 +357,33 @@ export async function POST(req: NextRequest) {
           {
             message: messageToSend,
             sessionId,
+            auth: opencodeAuth,
+            em,
           },
           async (event) => {
             // Track usage from stream events
             if (event.type === 'tool-call') toolCallCount++
             if (event.type === 'metadata' && 'tokens' in event) lastTokens = event.tokens
-            if (event.type === 'done' && 'sessionId' in event) resultSessionId = event.sessionId
+            if (event.type === 'done' && 'sessionId' in event) {
+              resultSessionId = event.sessionId
+              // First-time binding: when the caller did NOT supply a
+              // sessionId (i.e., this is a freshly minted chat) and we
+              // successfully created a session token earlier, bind the
+              // newly-resolved OpenCode session id to that api_key row so
+              // subsequent resumes can be authorized.
+              if (!sessionId && sessionToken && event.sessionId) {
+                try {
+                  await bindOpencodeSessionToApiKey(em, sessionToken, event.sessionId)
+                } catch (bindErr) {
+                  // The response stream is already in-flight — surface the
+                  // failure to logs without disturbing the SSE pipeline.
+                  console.error(
+                    '[AI Chat] Failed to bind OpenCode session to api_key:',
+                    bindErr
+                  )
+                }
+              }
+            }
 
             await writeSSE(event)
           }
