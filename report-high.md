@@ -49,7 +49,7 @@ The `getPendingQuestions()` export at L719 also returns ALL pending questions ac
 ## 2. Cross-tenant write/delete on global `AttachmentPartition` via tenant-admin feature
 
 - **Status:** ✅ fixed
-- **PR / commit:** `21986a961`
+- **PR / commit:** `654528e02`
 - **Notes:** Added nullable `attachment_partitions.tenant_id`/`organization_id` (additive migration + btree index, snapshot updated). POST stamps caller's tenant/org; GET filters to platform defaults (tenant_id IS NULL) OR own-tenant; PUT/DELETE gate on `(own-tenant) OR (platform-default AND superadmin)` and mask cross-tenant attempts as 404; DELETE in-use count is tenant-scoped. Every verb now also requires `auth.tenantId`. Migrated the four touched `em.findOne`/`em.find` calls on `AttachmentPartition` to `findOneWithDecryption`/`findWithDecryption`. Tests: `partitions.route.test.ts` (10 cases: cross-tenant PUT/DELETE blocked, own-tenant allowed, platform-default mutation gated by superadmin, GET visibility filter for tenant + superadmin, POST tenant stamping, DELETE in-use tenant scoping, unauth rejection on every verb, missing-tenantId rejection). Local test runner blocked by pre-existing `TS5103` (jest `ignoreDeprecations: '6.0'` vs TS 5.9.3) — same blocker as #1; `build:packages` passes, CI must validate the test+typecheck legs.
 
 - **File:** `packages/core/src/modules/attachments/api/partitions/route.ts`
