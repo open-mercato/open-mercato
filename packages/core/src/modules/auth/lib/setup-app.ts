@@ -81,6 +81,29 @@ const DERIVED_EMAIL_ENV = {
   employee: 'OM_INIT_EMPLOYEE_EMAIL',
 } as const
 
+export type DemoUserRole = 'superadmin' | 'admin' | 'employee'
+export type DemoUserEmail = { role: DemoUserRole; email: string }
+
+/**
+ * Returns the canonical list of demo user emails the setup path may have
+ * seeded. Honors OM_INIT_ADMIN_EMAIL / OM_INIT_EMPLOYEE_EMAIL exactly the
+ * same way the derived-user seeding branch does, so the deactivation loop
+ * never drifts from the seeding loop.
+ *
+ * Pure function — no side effects, safe to unit-test in isolation.
+ *
+ * @internal Exported for tests; not part of the public auth API.
+ */
+export function resolveDemoUserEmails(): DemoUserEmail[] {
+  const adminEmail = readEnvValue(DERIVED_EMAIL_ENV.admin) ?? `admin@${DEFAULT_DERIVED_EMAIL_DOMAIN}`
+  const employeeEmail = readEnvValue(DERIVED_EMAIL_ENV.employee) ?? `employee@${DEFAULT_DERIVED_EMAIL_DOMAIN}`
+  return [
+    { role: 'superadmin', email: DEMO_SUPERADMIN_EMAIL },
+    { role: 'admin', email: adminEmail },
+    { role: 'employee', email: employeeEmail },
+  ]
+}
+
 export type SetupInitialTenantOptions = {
   orgName: string
   primaryUser: PrimaryUserInput
@@ -401,7 +424,7 @@ export async function setupInitialTenant(
   }
 
   await ensureDefaultRoleAcls(em, tenantId, resolvedModules, { includeSuperadminRole })
-  await deactivateDemoSuperAdminIfSelfOnboardingEnabled(em)
+  await deactivateDemoUsersIfSelfOnboardingEnabled(em)
 
   // Call module onTenantCreated hooks
   for (const mod of resolvedModules) {
@@ -611,28 +634,59 @@ async function ensureRoleAclFor(
   }
 }
 
-async function deactivateDemoSuperAdminIfSelfOnboardingEnabled(em: EntityManager) {
+/**
+ * Neutralizes every demo account the setup path may have seeded
+ * (superadmin, admin, employee — honoring OM_INIT_*_EMAIL overrides)
+ * when SELF_SERVICE_ONBOARDING_ENABLED is on and the operator did not
+ * opt in to keeping demo credentials via shouldKeepDemoSuperadminDuringInit.
+ *
+ * Each user is processed in its own try/catch so a single failure (e.g.
+ * decryption error on a legacy row) does not skip the remaining accounts.
+ *
+ * @internal Exported for tests; not part of the public auth API.
+ */
+export async function deactivateDemoUsersIfSelfOnboardingEnabled(em: EntityManager) {
   if (process.env.SELF_SERVICE_ONBOARDING_ENABLED !== 'true') return
   if (shouldKeepDemoSuperadminDuringInit()) return
-  try {
-    const user = await findOneWithDecryption(em, User, { email: DEMO_SUPERADMIN_EMAIL }, {}, { tenantId: null, organizationId: null })
-    if (!user) return
-    let dirty = false
-    if (user.passwordHash) {
-      user.passwordHash = null
-      dirty = true
+  for (const { role, email } of resolveDemoUserEmails()) {
+    try {
+      const user = await findOneWithDecryption(
+        em,
+        User,
+        { email },
+        {},
+        { tenantId: null, organizationId: null },
+      )
+      if (!user) continue
+      let dirty = false
+      if (user.passwordHash) {
+        user.passwordHash = null
+        dirty = true
+      }
+      if (user.isConfirmed !== false) {
+        user.isConfirmed = false
+        dirty = true
+      }
+      if (dirty) {
+        await em.persist(user).flush()
+      }
+    } catch (error) {
+      console.error(
+        `[auth.setup] failed to deactivate demo ${role} user (${email})`,
+        error,
+      )
     }
-    if (user.isConfirmed !== false) {
-      user.isConfirmed = false
-      dirty = true
-    }
-    if (dirty) {
-      await em.persist(user).flush()
-    }
-  } catch (error) {
-    console.error('[auth.setup] failed to deactivate demo superadmin user', error)
   }
 }
+
+/**
+ * @deprecated Renamed to {@link deactivateDemoUsersIfSelfOnboardingEnabled}
+ * because the helper now neutralizes admin/employee demo accounts in addition
+ * to superadmin (security tracker finding #5). Kept as an internal alias to
+ * avoid breaking any out-of-tree caller that imported the old name; will be
+ * removed in a future major.
+ */
+const deactivateDemoSuperAdminIfSelfOnboardingEnabled = deactivateDemoUsersIfSelfOnboardingEnabled
 
 /** Try to get modules from runtime registry; returns empty array if not yet registered. */
 function tryGetModules(): Module[] {
