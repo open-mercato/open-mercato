@@ -13,7 +13,7 @@ Status legend: `⬜ todo` · `🟡 in-progress` · `✅ fixed` · `🟢 verified
 | 4 | ✅ fixed | Hardcoded default password 'secret' for derived admin/employee users | `packages/core/src/modules/auth/lib/setup-app.ts` |
 | 5 | ✅ fixed | Demo deactivation only handles superadmin@acme.com, leaves admin/employee active | `packages/core/src/modules/auth/lib/setup-app.ts` |
 | 6 | ✅ fixed | Privilege escalation: writes gated by view-only feature | `packages/core/src/modules/currencies/api/fetch-configs/route.ts` |
-| 7 | ⬜ todo | Hardcoded production fallback secret used to derive credential encryption keys | `packages/core/src/modules/integrations/lib/credentials-service.ts` |
+| 7 | ✅ fixed | Hardcoded production fallback secret used to derive credential encryption keys | `packages/core/src/modules/integrations/lib/credentials-service.ts` |
 | 8 | ⬜ todo | resetUserMfa allows tenant admin to reset MFA for users in any tenant | `packages/enterprise/src/modules/security/services/MfaAdminService.ts` |
 | 9 | ⬜ todo | bulkComplianceCheck enumerates user emails from any tenant | `packages/enterprise/src/modules/security/services/MfaAdminService.ts` |
 | 10 | ⬜ todo | createPolicy lets any admin create platform-wide or other-tenant MFA policies | `packages/enterprise/src/modules/security/services/MfaEnforcementService.ts` |
@@ -128,9 +128,9 @@ The route exports `metadata = { requireAuth: true, requireFeatures: ['currencies
 
 ## 7. Hardcoded production fallback secret used to derive credential encryption keys
 
-- **Status:** ⬜ todo
-- **PR / commit:** _TBD_
-- **Notes:** _TBD_
+- **Status:** ✅ fixed
+- **PR / commit:** `415eeb154`
+- **Notes:** Deleted the duplicate env-chain resolver `resolveFallbackEncryptionSecret()` and its companion `deriveDekFromSecret()` from `credentials-service.ts`; removed the hardcoded `'om-emergency-fallback-rotate-me'` literal entirely. `resolveCredentialsDek()` now throws a new typed `CredentialsEncryptionUnavailableError` (code `CREDENTIALS_ENCRYPTION_UNAVAILABLE`) when the shared KMS returns null, restoring the fail-closed contract that `packages/shared/src/lib/encryption/kms.ts` already enforces. Dev ergonomics preserved via the shared `DerivedKmsService('om-dev-tenant-encryption')` path (unchanged). HTTP boundaries: `api/[id]/credentials/route.ts` GET/PUT return 503 with an admin-facing message; `api/route.ts` (list) and `api/[id]/route.ts` (detail) degrade per-row to `hasCredentials: false` so admins can still navigate and remediate. Worker callers (sync_engine, shipping_service, sync_excel, health-service) were intentionally not wrapped — a thrown error correctly fails the job and surfaces in logs. Tests: new `credentials-service.test.ts` (8 cases — KMS-backed save, round-trip, fail-closed on save/read when KMS null, unencrypted-row passthrough when KMS null, no-row returns null without invoking KMS, error-code stability, source-grep regression that asserts the hardcoded literal is gone). Full integrations module test suite: 24/24 pass via root `yarn jest`. `build:packages` + `generate` + `i18n:check-sync` pass; pre-existing `re2js` missing module and `TS5103` (jest `ignoreDeprecations: '6.0'` vs TS 5.9.3) bring down `typecheck` / `test` / `build:app` for unrelated packages (queue, webhooks, onboarding, app) — same blockers as #1–6; CI must validate those legs. Code-review: 0 Medium+, 3 Low (deferred follow-ups — separate tracker entries: (a) `packages/cli/src/lib/testing/integration.ts` test-only `'om-ephemeral-integration-fallback-key'` defense-in-depth `NODE_ENV==='test'` guard; (b) `auth/lib/tokenHash.ts` + `consentIntegrity.ts` analogous weak-secret HMAC fallbacks for tokens; (c) `api/route.ts:104` N+1 credential resolves for `hasCredentials` boolean — pure perf). BC: additive only (`CredentialsEncryptionUnavailableError` is a new named export; all existing exports keep identical signatures). Runtime behavior change is the security fix itself — deployments that silently relied on the public hardcoded fallback in production will now receive a clear 503 instead of derivable ciphertext.
 
 - **File:** `packages/core/src/modules/integrations/lib/credentials-service.ts`
 - **Lines:** 33, 34, 35, 36, 90
