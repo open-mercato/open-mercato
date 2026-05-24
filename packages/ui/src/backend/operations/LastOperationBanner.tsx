@@ -5,7 +5,7 @@ import { useRouter } from 'next/navigation'
 import { Button } from '../../primitives/button'
 import { apiCall } from '../utils/apiCall'
 import { flash } from '../FlashMessages'
-import { useLastOperation, markUndoSuccess } from './store'
+import { useLastOperation, markUndoSuccess, dismissOperation, operationStackConstants } from './store'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 
 export function LastOperationBanner() {
@@ -14,12 +14,22 @@ export function LastOperationBanner() {
   const [pendingToken, setPendingToken] = React.useState<string | null>(null)
   const router = useRouter()
 
+  const undoToken = operation?.undoToken ?? null
+  const isPending = undoToken !== null && pendingToken === undoToken
+
+  React.useEffect(() => {
+    if (!undoToken || isPending) return
+    const timer = setTimeout(() => {
+      dismissOperation(undoToken)
+    }, operationStackConstants.LAST_OPERATION_AUTO_DISMISS_MS)
+    return () => clearTimeout(timer)
+  }, [undoToken, isPending])
+
   if (!operation) return null
 
   const rawLabel = operation.actionLabel ?? operation.commandId
   const translatedLabel = t(rawLabel)
   const label = translatedLabel === rawLabel ? rawLabel : translatedLabel
-  const isPending = pendingToken === operation.undoToken
 
   async function handleUndo() {
     const undoToken = operation?.undoToken

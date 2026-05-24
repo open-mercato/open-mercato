@@ -22,6 +22,7 @@ const DEFAULT_STATE: OperationStoreState = { stack: [], undone: [] }
 const STORAGE_KEY = 'om:last-operations:v1'
 const STACK_LIMIT = 20
 const LAST_OPERATION_TTL_MS = 60_000
+const LAST_OPERATION_AUTO_DISMISS_MS = 5_000
 const STACK_RETENTION_MS = 10 * 60_000
 
 let internalState: OperationStoreState = DEFAULT_STATE
@@ -200,6 +201,30 @@ export function markUndoSuccess(undoTokens: string | string[]) {
   })
 }
 
+export function dismissOperation(undoTokens: string | string[]) {
+  if (typeof window === 'undefined') return
+  const tokenSet = new Set(Array.isArray(undoTokens) ? undoTokens : [undoTokens])
+  if (tokenSet.size === 0) return
+  updateState((prev) => {
+    const nextStack: OperationEntry[] = []
+    for (const entry of prev.stack) {
+      if (tokenSet.has(entry.undoToken)) continue
+      const bulk = entry.bulkUndoTokens && entry.bulkUndoTokens.length > 0 ? entry.bulkUndoTokens : null
+      if (!bulk) {
+        nextStack.push(entry)
+        continue
+      }
+      const remaining = bulk.filter((token) => !tokenSet.has(token))
+      if (remaining.length === bulk.length) {
+        nextStack.push(entry)
+      } else if (remaining.length > 0) {
+        nextStack.push({ ...entry, bulkUndoTokens: remaining, bulkCount: remaining.length })
+      }
+    }
+    return { stack: nextStack, undone: prev.undone }
+  })
+}
+
 export type CoalesceOptions = {
   commandId?: string
   actionLabel?: string | null
@@ -296,4 +321,5 @@ export function clearAllOperations() {
 
 export const operationStackConstants = {
   LAST_OPERATION_TTL_MS,
+  LAST_OPERATION_AUTO_DISMISS_MS,
 }
