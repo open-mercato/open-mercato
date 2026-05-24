@@ -11,7 +11,7 @@ Status legend: `⬜ todo` · `🟡 in-progress` · `✅ fixed` · `🟢 verified
 | 2 | ✅ fixed | Cross-tenant write/delete on global `AttachmentPartition` via tenant-admin feature | `packages/core/src/modules/attachments/api/partitions/route.ts` |
 | 3 | ✅ fixed | Cross-tenant role create/update/delete via body-supplied tenantId | `packages/core/src/modules/auth/api/roles/route.ts` |
 | 4 | ✅ fixed | Hardcoded default password 'secret' for derived admin/employee users | `packages/core/src/modules/auth/lib/setup-app.ts` |
-| 5 | ⬜ todo | Demo deactivation only handles superadmin@acme.com, leaves admin/employee active | `packages/core/src/modules/auth/lib/setup-app.ts` |
+| 5 | ✅ fixed | Demo deactivation only handles superadmin@acme.com, leaves admin/employee active | `packages/core/src/modules/auth/lib/setup-app.ts` |
 | 6 | ⬜ todo | Privilege escalation: writes gated by view-only feature | `packages/core/src/modules/currencies/api/fetch-configs/route.ts` |
 | 7 | ⬜ todo | Hardcoded production fallback secret used to derive credential encryption keys | `packages/core/src/modules/integrations/lib/credentials-service.ts` |
 | 8 | ⬜ todo | resetUserMfa allows tenant admin to reset MFA for users in any tenant | `packages/enterprise/src/modules/security/services/MfaAdminService.ts` |
@@ -96,9 +96,9 @@ When `setupInitialTenant` runs with `includeDerivedUsers: true` (the default and
 
 ## 5. Demo deactivation only handles superadmin@acme.com, leaves admin/employee active
 
-- **Status:** ⬜ todo
-- **PR / commit:** _TBD_
-- **Notes:** _TBD_
+- **Status:** ✅ fixed
+- **PR / commit:** `1e61a03d1`
+- **Notes:** Introduced pure `resolveDemoUserEmails()` helper that returns the canonical `[{superadmin, admin, employee}]` list honoring the same `OM_INIT_ADMIN_EMAIL`/`OM_INIT_EMPLOYEE_EMAIL` env overrides as the seeding path; rewrote `deactivateDemoSuperAdminIfSelfOnboardingEnabled` → `deactivateDemoUsersIfSelfOnboardingEnabled` as a per-user `try/catch` loop so one failed lookup never skips the other accounts; kept old name as a private `@deprecated` `const` alias (helper was never exported — verified by `grep`, BC-safe). `shouldKeepDemoSuperadminDuringInit()` semantics preserved as-is (gates the whole loop, not just superadmin). Tests: new `cli-deactivate-demo-users.test.ts` (11 cases — all-three neutralization, env-override resolution, onboarding-off no-op, keep-demo-init gate honored for all three, per-user error isolation, missing-row skip, idempotence, resolver edge cases including whitespace-only env values). All 34 auth tests pass via repo-root `yarn jest`. `build:packages` + `generate` + `i18n:check-sync` pass; pre-existing `TS5103` and missing-`re2js` blockers (same as #1–4) bring down `typecheck` / `test` / `build:app` for unrelated packages — CI must validate those legs. Code-review: 0 Medium+, 2 Low (deferred — vestigial private alias documents the rename; `any` on test EM mock matches the established auth-test pattern).
 
 - **File:** `packages/core/src/modules/auth/lib/setup-app.ts`
 - **Lines:** 537–558
