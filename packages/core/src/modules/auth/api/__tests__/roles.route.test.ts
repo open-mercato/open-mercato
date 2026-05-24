@@ -30,13 +30,19 @@ jest.mock('@open-mercato/shared/lib/di/container', () => ({
   createRequestContainer: jest.fn(async () => mockContainer),
 }))
 
+type CapturedCrudOpts = { metadata: unknown; actions?: Record<string, any> } | null
+let capturedCrudOpts: CapturedCrudOpts = null
+
 jest.mock('@open-mercato/shared/lib/crud/factory', () => ({
-  makeCrudRoute: jest.fn((opts: { metadata: unknown }) => ({
-    metadata: opts.metadata,
-    POST: jest.fn(),
-    PUT: jest.fn(),
-    DELETE: jest.fn(),
-  })),
+  makeCrudRoute: jest.fn((opts: { metadata: unknown; actions?: Record<string, any> }) => {
+    capturedCrudOpts = opts as CapturedCrudOpts
+    return {
+      metadata: opts.metadata,
+      POST: jest.fn(),
+      PUT: jest.fn(),
+      DELETE: jest.fn(),
+    }
+  }),
   logCrudAccess: jest.fn((args: unknown) => mockLogCrudAccess(args)),
 }))
 
@@ -180,5 +186,132 @@ describe('GET /api/auth/roles', () => {
       tenantIds: [actorTenantId],
       tenantName: 'Main Tenant',
     })
+  })
+})
+
+// Regression coverage for finding #3 in report-high.md: cross-tenant role
+// create/update/delete via body-supplied tenantId. The route's mapInput
+// callbacks must reject foreign tenantIds before the command bus ever runs.
+describe('roles route — cross-tenant tenant guard wiring (finding #3)', () => {
+  const roleIdOwn = '323e4567-e89b-12d3-a456-426614174001'
+  const roleIdForeign = '323e4567-e89b-12d3-a456-426614174002'
+
+  function makeMapInputCtx({
+    isSuperAdmin = false,
+    tenantId = actorTenantId as string | null,
+    existingRole = null as { id: string; tenantId: string | null } | null,
+  } = {}) {
+    mockEm.findOne.mockReset()
+    mockEm.findOne.mockResolvedValue(existingRole)
+    return {
+      auth: { sub: 'user-1', tenantId, orgId: null, isSuperAdmin },
+      container: {
+        resolve: (token: string) => {
+          if (token === 'em') return mockEm
+          if (token === 'rbacService') return { loadAcl: async () => ({ isSuperAdmin }) }
+          throw new Error(`Unexpected service: ${token}`)
+        },
+      },
+      request: undefined,
+    } as any
+  }
+
+  beforeAll(() => {
+    expect(capturedCrudOpts).not.toBeNull()
+    expect(capturedCrudOpts?.actions).toBeDefined()
+  })
+
+  test('create.mapInput rejects body.tenantId when it differs from auth.tenantId for non-superadmin', async () => {
+    const action = capturedCrudOpts?.actions?.create
+    expect(typeof action?.mapInput).toBe('function')
+    const ctx = makeMapInputCtx({ tenantId: actorTenantId })
+
+    await expect(
+      action!.mapInput({ parsed: { name: 'Owner', tenantId: requestedTenantId }, raw: {}, ctx }),
+    ).rejects.toMatchObject({ status: 403 })
+  })
+
+  test('create.mapInput accepts own-tenant payload', async () => {
+    const action = capturedCrudOpts?.actions?.create
+    const ctx = makeMapInputCtx({ tenantId: actorTenantId })
+
+    await expect(
+      action!.mapInput({ parsed: { name: 'Owner', tenantId: actorTenantId }, raw: {}, ctx }),
+    ).resolves.toMatchObject({ name: 'Owner', tenantId: actorTenantId })
+  })
+
+  test('create.mapInput defaults non-superadmin to auth.tenantId when body tenantId is omitted', async () => {
+    const action = capturedCrudOpts?.actions?.create
+    const ctx = makeMapInputCtx({ tenantId: actorTenantId })
+
+    await expect(
+      action!.mapInput({ parsed: { name: 'Owner' }, raw: {}, ctx }),
+    ).resolves.toMatchObject({ name: 'Owner', tenantId: actorTenantId })
+  })
+
+  test('update.mapInput rejects cross-tenant role lookup for non-superadmin', async () => {
+    const action = capturedCrudOpts?.actions?.update
+    expect(typeof action?.mapInput).toBe('function')
+    const ctx = makeMapInputCtx({
+      tenantId: actorTenantId,
+      existingRole: { id: roleIdForeign, tenantId: requestedTenantId },
+    })
+
+    await expect(
+      action!.mapInput({ parsed: { id: roleIdForeign, name: 'Renamed' }, raw: {}, ctx }),
+    ).rejects.toMatchObject({ status: 403 })
+  })
+
+  test('update.mapInput allows own-tenant role update for non-superadmin', async () => {
+    const action = capturedCrudOpts?.actions?.update
+    const ctx = makeMapInputCtx({
+      tenantId: actorTenantId,
+      existingRole: { id: roleIdOwn, tenantId: actorTenantId },
+    })
+
+    await expect(
+      action!.mapInput({ parsed: { id: roleIdOwn, name: 'Renamed' }, raw: {}, ctx }),
+    ).resolves.toMatchObject({ id: roleIdOwn, name: 'Renamed' })
+  })
+
+  test('update.mapInput allows superadmin to update any-tenant role', async () => {
+    const action = capturedCrudOpts?.actions?.update
+    const ctx = makeMapInputCtx({
+      isSuperAdmin: true,
+      tenantId: actorTenantId,
+      existingRole: { id: roleIdForeign, tenantId: requestedTenantId },
+    })
+
+    await expect(
+      action!.mapInput({ parsed: { id: roleIdForeign, name: 'Renamed' }, raw: {}, ctx }),
+    ).resolves.toMatchObject({ id: roleIdForeign, name: 'Renamed' })
+  })
+
+  test('delete.mapInput rejects cross-tenant role for non-superadmin', async () => {
+    const action = capturedCrudOpts?.actions?.delete
+    expect(typeof action?.mapInput).toBe('function')
+    const ctx = makeMapInputCtx({
+      tenantId: actorTenantId,
+      existingRole: { id: roleIdForeign, tenantId: requestedTenantId },
+    })
+
+    await expect(
+      action!.mapInput({
+        parsed: { body: {}, query: { id: roleIdForeign } },
+        raw: { body: {}, query: { id: roleIdForeign } },
+        ctx,
+      }),
+    ).rejects.toMatchObject({ status: 403 })
+  })
+
+  test('delete.mapInput allows own-tenant role for non-superadmin', async () => {
+    const action = capturedCrudOpts?.actions?.delete
+    const ctx = makeMapInputCtx({
+      tenantId: actorTenantId,
+      existingRole: { id: roleIdOwn, tenantId: actorTenantId },
+    })
+
+    const parsed = { body: {}, query: { id: roleIdOwn } }
+    await expect(action!.mapInput({ parsed, raw: parsed, ctx })).resolves.toBe(parsed)
   })
 })

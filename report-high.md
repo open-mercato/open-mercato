@@ -9,7 +9,7 @@ Status legend: `⬜ todo` · `🟡 in-progress` · `✅ fixed` · `🟢 verified
 |---|--------|-------|------|
 | 1 | ✅ fixed | Cross-user OpenCode session continuation enables privilege escalation | `packages/ai-assistant/src/modules/ai_assistant/lib/opencode-handlers.ts` |
 | 2 | ✅ fixed | Cross-tenant write/delete on global `AttachmentPartition` via tenant-admin feature | `packages/core/src/modules/attachments/api/partitions/route.ts` |
-| 3 | ⬜ todo | Cross-tenant role create/update/delete via body-supplied tenantId | `packages/core/src/modules/auth/api/roles/route.ts` |
+| 3 | ✅ fixed | Cross-tenant role create/update/delete via body-supplied tenantId | `packages/core/src/modules/auth/api/roles/route.ts` |
 | 4 | ⬜ todo | Hardcoded default password 'secret' for derived admin/employee users | `packages/core/src/modules/auth/lib/setup-app.ts` |
 | 5 | ⬜ todo | Demo deactivation only handles superadmin@acme.com, leaves admin/employee active | `packages/core/src/modules/auth/lib/setup-app.ts` |
 | 6 | ⬜ todo | Privilege escalation: writes gated by view-only feature | `packages/core/src/modules/currencies/api/fetch-configs/route.ts` |
@@ -64,9 +64,9 @@ The `getPendingQuestions()` export at L719 also returns ALL pending questions ac
 
 ## 3. Cross-tenant role create/update/delete via body-supplied tenantId
 
-- **Status:** ⬜ todo
-- **PR / commit:** _TBD_
-- **Notes:** _TBD_
+- **Status:** ✅ fixed
+- **PR / commit:** `0cbb2b52d`
+- **Notes:** Extended `enforceRoleTenantAccess` (in `packages/core/src/modules/auth/lib/roleTenantGuard.ts`) with a `'delete'` mode (additive union widening) and wired the helper into POST/PUT/DELETE `mapInput` callbacks on the roles route — rejects body.tenantId != auth.tenantId for non-superadmins with 403. Added command-layer defense-in-depth via `resolveActorScope` + `buildScopedRoleFilter` in `commands/roles.ts`: `auth.roles.update`/`auth.roles.delete` lookups now tenant-scope the existence filter for non-superadmins (404 on cross-tenant), `auth.roles.update` rejects tenant reassignment for non-superadmins (403), `auth.roles.create` anchors to `auth.tenantId`. Migrated the touched `em.findOne` to `findOneWithDecryption`. Tests: `roleTenantGuard.test.ts` (7 new delete-mode cases) + `roles.tenant-move.test.ts` (updated non-superadmin 403 contract + new create/delete tenant-scoping cases) + `roles.route.test.ts` (8 new mapInput-wiring tests). Local typecheck/jest blocked by pre-existing TS5103 (same as #1, #2); `build:packages` + `generate` + `i18n:check-sync` pass. Code-review: 0 Medium+, 2 Low (deferred — passthrough schema hardening; align delete 403→404 with command-layer 404). Deferred sibling finding: `packages/core/src/modules/auth/api/users/route.ts` uses the same passthrough+mapInput pattern and likely has an analogous cross-tenant `User.tenantId` vulnerability — file a new tracker entry.
 
 - **File:** `packages/core/src/modules/auth/api/roles/route.ts`
 - **Lines:** 65, 68, 83, 90, 237, 238, 239
