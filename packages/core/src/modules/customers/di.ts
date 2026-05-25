@@ -10,6 +10,7 @@ import { OPTIMISTIC_LOCK_ENV_VAR } from '@open-mercato/shared/lib/crud/optimisti
 import { CustomerEntity, CustomerAddress, CustomerInteraction } from './data/entities'
 
 const RESOURCE_KIND_COMPANY = 'customers.company'
+const RESOURCE_KIND_PERSON = 'customers.person'
 
 const readCustomerCompanyUpdatedAt: OptimisticLockCurrentReader = async (
   em: EntityManager,
@@ -29,11 +30,33 @@ const readCustomerCompanyUpdatedAt: OptimisticLockCurrentReader = async (
   return row?.updatedAt instanceof Date ? row.updatedAt.toISOString() : null
 }
 
-function shouldRegisterOptimisticLockGuard(): boolean {
+const readCustomerPersonUpdatedAt: OptimisticLockCurrentReader = async (
+  em: EntityManager,
+  { resourceId, tenantId, organizationId },
+) => {
+  const row = await em.findOne(
+    CustomerEntity,
+    {
+      id: resourceId,
+      tenantId,
+      ...(organizationId ? { organizationId } : {}),
+      kind: 'person',
+      deletedAt: null,
+    },
+    { fields: ['updatedAt'] as const },
+  )
+  return row?.updatedAt instanceof Date ? row.updatedAt.toISOString() : null
+}
+
+function buildOptimisticLockReaders(): Record<string, OptimisticLockCurrentReader> {
   const config = parseOptimisticLockEnv(process.env[OPTIMISTIC_LOCK_ENV_VAR])
-  if (config.mode === 'off') return false
-  if (config.mode === 'all') return true
-  return config.entities.has(RESOURCE_KIND_COMPANY)
+  if (config.mode === 'off') return {}
+  const includes = (kind: string) =>
+    config.mode === 'all' || config.entities.has(kind)
+  const readers: Record<string, OptimisticLockCurrentReader> = {}
+  if (includes(RESOURCE_KIND_COMPANY)) readers[RESOURCE_KIND_COMPANY] = readCustomerCompanyUpdatedAt
+  if (includes(RESOURCE_KIND_PERSON)) readers[RESOURCE_KIND_PERSON] = readCustomerPersonUpdatedAt
+  return readers
 }
 
 export function register(container: AppContainer) {
@@ -43,14 +66,13 @@ export function register(container: AppContainer) {
     CustomerInteraction: asValue(CustomerInteraction),
   })
 
-  if (shouldRegisterOptimisticLockGuard()) {
+  const optimisticLockReaders = buildOptimisticLockReaders()
+  if (Object.keys(optimisticLockReaders).length > 0) {
     container.register({
       crudMutationGuardService: asFunction(({ em }: { em: EntityManager }) =>
         createOptimisticLockGuardService({
           getEm: () => em,
-          readers: {
-            [RESOURCE_KIND_COMPANY]: readCustomerCompanyUpdatedAt,
-          },
+          readers: optimisticLockReaders,
         }),
       ).scoped(),
     })

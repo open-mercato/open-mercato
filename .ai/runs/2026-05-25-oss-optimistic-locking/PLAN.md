@@ -35,7 +35,7 @@
 | 6 | 6.2 | Targeted validation gate | done | f3a07a67c |
 | 6 | 6.3 | PR opened with feature + review + needs-qa labels | done | 7f98bfe47 |
 | 6 | 6.4 | Decision-matrix comment posted | done | 7f98bfe47 |
-| 7 | 7.1 | customers/di.ts reader for customers.person | todo | — |
+| 7 | 7.1 | customers/di.ts reader for customers.person | done | 360a99fc7 |
 | 7 | 7.2 | Integration test TC-LOCK-OSS-002.spec.ts (race → 409 on person) | todo | — |
 | 8 | 8.1 | sales/di.ts reader for sales.order + ensure responses expose updatedAt | todo | — |
 | 8 | 8.2 | Integration test TC-LOCK-OSS-003.spec.ts (race → 409 on order) | todo | — |
