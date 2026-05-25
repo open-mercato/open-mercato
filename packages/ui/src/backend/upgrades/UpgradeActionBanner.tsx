@@ -5,6 +5,8 @@ import { Button } from '../../primitives/button'
 import { apiCall } from '../utils/apiCall'
 import { flash } from '../FlashMessages'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
+import { useBackendChrome } from '../BackendChromeProvider'
+import { hasFeature } from '@open-mercato/shared/security/features'
 
 const upgradeActionsEnabled =
   process.env.NEXT_PUBLIC_UPGRADE_ACTIONS_ENABLED === 'true' ||
@@ -33,11 +35,14 @@ type RunActionResponse = {
 
 export function UpgradeActionBanner() {
   const t = useT()
+  const { payload, isReady } = useBackendChrome()
+  const canManageConfigs = isReady && hasFeature(payload?.grantedFeatures, 'configs.manage')
   const [action, setAction] = React.useState<UpgradeActionPayload | null>(null)
   const [loading, setLoading] = React.useState(false)
   const cancelledRef = React.useRef(false)
 
   const loadNextAction = React.useCallback(async () => {
+    if (!canManageConfigs) return
     if (!upgradeActionsEnabled) return
     if (typeof window === 'undefined' || typeof fetch === 'undefined') return
     const call = await apiCall<UpgradeActionResponse>('/api/configs/upgrade-actions')
@@ -47,7 +52,7 @@ export function UpgradeActionBanner() {
       return
     }
     setAction(call.result.actions[0]!)
-  }, [])
+  }, [canManageConfigs])
 
   React.useEffect(() => {
     cancelledRef.current = false
@@ -57,7 +62,7 @@ export function UpgradeActionBanner() {
     }
   }, [loadNextAction])
 
-  if (!upgradeActionsEnabled || !action) return null
+  if (!upgradeActionsEnabled || !canManageConfigs || !action) return null
 
   async function handleRun() {
     if (!upgradeActionsEnabled || !action || loading) return
