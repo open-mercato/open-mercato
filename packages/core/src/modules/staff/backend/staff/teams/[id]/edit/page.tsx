@@ -282,18 +282,10 @@ export default function StaffTeamEditPage({ params }: { params?: { id?: string }
 
   const handleDelete = React.useCallback(async () => {
     if (!teamId) return
-    try {
-      await deleteCrud('staff/teams', teamId, {
-        errorMessage: t('staff.teams.errors.delete', 'Failed to delete team.'),
-      })
-      flash(t('staff.teams.messages.deleted', 'Team deleted.'), 'success')
-      router.push('/backend/staff/teams')
-    } catch (error) {
-      const message = error instanceof Error
-        ? error.message
-        : t('staff.teams.errors.delete', 'Failed to delete team.')
-      flash(message, 'error')
-    }
+    await deleteCrud('staff/teams', teamId, {
+      errorMessage: t('staff.teams.errors.delete', 'Failed to delete team.'),
+    })
+    router.push('/backend/staff/teams')
   }, [teamId, router, t])
 
   return (
