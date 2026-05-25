@@ -7,6 +7,10 @@ import {
   type OptimisticLockCurrentReader,
 } from '@open-mercato/shared/lib/crud/optimistic-lock'
 import { OPTIMISTIC_LOCK_ENV_VAR } from '@open-mercato/shared/lib/crud/optimistic-lock-headers'
+import {
+  getAllOptimisticLockReaders,
+  registerOptimisticLockReaders,
+} from '@open-mercato/shared/lib/crud/optimistic-lock-store'
 import { CustomerEntity, CustomerAddress, CustomerInteraction } from './data/entities'
 
 const RESOURCE_KIND_COMPANY = 'customers.company'
@@ -48,7 +52,7 @@ const readCustomerPersonUpdatedAt: OptimisticLockCurrentReader = async (
   return row?.updatedAt instanceof Date ? row.updatedAt.toISOString() : null
 }
 
-function buildOptimisticLockReaders(): Record<string, OptimisticLockCurrentReader> {
+function collectEnabledReaders(): Record<string, OptimisticLockCurrentReader> {
   const config = parseOptimisticLockEnv(process.env[OPTIMISTIC_LOCK_ENV_VAR])
   if (config.mode === 'off') return {}
   const includes = (kind: string) =>
@@ -66,13 +70,14 @@ export function register(container: AppContainer) {
     CustomerInteraction: asValue(CustomerInteraction),
   })
 
-  const optimisticLockReaders = buildOptimisticLockReaders()
-  if (Object.keys(optimisticLockReaders).length > 0) {
+  const enabledReaders = collectEnabledReaders()
+  if (Object.keys(enabledReaders).length > 0) {
+    registerOptimisticLockReaders(enabledReaders)
     container.register({
       crudMutationGuardService: asFunction(({ em }: { em: EntityManager }) =>
         createOptimisticLockGuardService({
           getEm: () => em,
-          readers: optimisticLockReaders,
+          readers: getAllOptimisticLockReaders(),
         }),
       ).scoped(),
     })

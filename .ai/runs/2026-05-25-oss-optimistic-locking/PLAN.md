@@ -37,8 +37,8 @@
 | 6 | 6.4 | Decision-matrix comment posted | done | 7f98bfe47 |
 | 7 | 7.1 | customers/di.ts reader for customers.person | done | 360a99fc7 |
 | 7 | 7.2 | Integration test TC-LOCK-OSS-002.spec.ts (race → 409 on person) | done | 7374b65ea |
-| 8 | 8.1 | sales/di.ts reader for sales.order + ensure responses expose updatedAt | todo | — |
-| 8 | 8.2 | Integration test TC-LOCK-OSS-003.spec.ts (race → 409 on order) | todo | — |
+| 8 | 8.1 | Shared optimistic-lock-store.ts (registerOptimisticLockReaders / getAllOptimisticLockReaders) + factory pulls readers from store when none passed; customers/di.ts migrates to store | done | 31d4c3a1d |
+| 8 | 8.2 | sales/di.ts adds sales.order reader via store; integration test TC-LOCK-OSS-003.spec.ts (race → 409 on order) | todo | — |
 | 9 | 9.1 | CrudForm: `optimisticLockUpdatedAt` prop auto-injects extension header on PUT/PATCH/DELETE | todo | — |
 | 9 | 9.2 | CrudForm unit test for header injection (UI touch → UI test) | todo | — |
 | 10 | 10.1 | useGuardedMutation: detect 409 `optimistic_lock_conflict`, surface `ui.forms.flash.recordModified` flash | todo | — |

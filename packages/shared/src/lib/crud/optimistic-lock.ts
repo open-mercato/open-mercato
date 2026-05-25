@@ -32,6 +32,7 @@ import {
   OPTIMISTIC_LOCK_HEADER_NAME,
   type OptimisticLockConflictBody,
 } from './optimistic-lock-headers'
+import { getAllOptimisticLockReaders } from './optimistic-lock-store'
 
 export type OptimisticLockConfig =
   | { mode: 'off' }
@@ -95,8 +96,13 @@ export type OptimisticLockGuardOptions = {
    * right `findOne` shape for their entity (`findOneWithDecryption`
    * when sensitive, plain `findOne` otherwise — but only requesting
    * `updated_at` so no PII materializes).
+   *
+   * When omitted, the service pulls readers from the shared
+   * `optimistic-lock-store` (the recommended pattern for multi-module
+   * deployments — each module registers its own readers via
+   * `registerOptimisticLockReaders(...)` at module-load time).
    */
-  readers: Record<string, OptimisticLockCurrentReader>
+  readers?: Record<string, OptimisticLockCurrentReader>
   /** Override env source (mostly for tests). Defaults to `process.env`. */
   envValue?: string | null
   /** Override the token resolver. Defaults to "use the header value". */
@@ -178,7 +184,8 @@ export function createOptimisticLockGuardService(
     if (!isEntityEnabled(input.resourceKind)) {
       return { ok: true, shouldRunAfterSuccess: false }
     }
-    const reader = opts.readers[input.resourceKind]
+    const readers = opts.readers ?? getAllOptimisticLockReaders()
+    const reader = readers[input.resourceKind]
     if (!reader) {
       return { ok: true, shouldRunAfterSuccess: false }
     }
