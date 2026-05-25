@@ -80,14 +80,6 @@ jest.mock('../devtools', () => ({
   UmesDevToolsPanel: () => null,
 }))
 
-jest.mock('../../ai/AiAssistantLauncher', () => ({
-  AiAssistantLauncher: () => null,
-}))
-
-jest.mock('../../ai/AiDock', () => ({
-  AiDockProvider: ({ children }: { children: React.ReactNode }) => <>{children}</>,
-}))
-
 const dict = {
   'appShell.productName': 'Mercato',
   'appShell.menu': 'Menu',
