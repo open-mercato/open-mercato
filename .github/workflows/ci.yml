@@ -9,7 +9,10 @@ env:
   # optimistic-lock guard to be active, and if the env disagrees between
   # build-time bundling and run-time execution the guard can silently
   # short-circuit.
-  OM_OPTIMISTIC_LOCK: 'customers.company,customers.person,sales.order'
+  # Include both `customers.person` (canonical, per spec) and `customers.people`
+  # (what the CRUD factory derives at runtime — the singularizer doesn't handle
+  # the irregular plural). The reader is registered under both keys.
+  OM_OPTIMISTIC_LOCK: 'customers.company,customers.person,customers.people,sales.order'
   OM_OPTIMISTIC_LOCK_DEBUG: '1'
 
 on:

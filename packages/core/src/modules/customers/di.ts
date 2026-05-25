@@ -14,7 +14,15 @@ import {
 import { CustomerEntity, CustomerAddress, CustomerInteraction } from './data/entities'
 
 const RESOURCE_KIND_COMPANY = 'customers.company'
+// The CRUD factory derives resourceKind via singularize-the-second-segment of
+// the commandId. For `customers.companies.update` it produces 'customers.company'.
+// For `customers.people.update` it does NOT singularize 'people' → 'person' (the
+// irregular plural is preserved), so the runtime resourceKind is
+// 'customers.people'. We register the reader under BOTH names so the
+// env opt-in entry can use either form (`customers.person` per spec or
+// `customers.people` matching the factory's derivation).
 const RESOURCE_KIND_PERSON = 'customers.person'
+const RESOURCE_KIND_PEOPLE = 'customers.people'
 
 const readCustomerCompanyUpdatedAt: OptimisticLockCurrentReader = async (
   em: EntityManager,
@@ -59,7 +67,13 @@ function collectEnabledReaders(): Record<string, OptimisticLockCurrentReader> {
     config.mode === 'all' || config.entities.has(kind)
   const readers: Record<string, OptimisticLockCurrentReader> = {}
   if (includes(RESOURCE_KIND_COMPANY)) readers[RESOURCE_KIND_COMPANY] = readCustomerCompanyUpdatedAt
-  if (includes(RESOURCE_KIND_PERSON)) readers[RESOURCE_KIND_PERSON] = readCustomerPersonUpdatedAt
+  // Register the person reader under both the canonical singular form and the
+  // plural form the CRUD factory derives at runtime — whichever the env opts
+  // in for, the reader is available.
+  if (includes(RESOURCE_KIND_PERSON) || includes(RESOURCE_KIND_PEOPLE)) {
+    readers[RESOURCE_KIND_PERSON] = readCustomerPersonUpdatedAt
+    readers[RESOURCE_KIND_PEOPLE] = readCustomerPersonUpdatedAt
+  }
   return readers
 }
 
