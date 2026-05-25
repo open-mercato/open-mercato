@@ -1,5 +1,6 @@
 import type { MessageObjectTypeDefinition } from '@open-mercato/shared/modules/messages/types'
-import { MessageObjectDetail, MessageObjectPreview } from '@open-mercato/ui/backend/messages'
+import { MessageObjectDetail } from '@open-mercato/ui/backend/messages/MessageObjectDetail'
+import { MessageObjectPreview } from '@open-mercato/ui/backend/messages/MessageObjectPreview'
 import { LeaveRequestDetail } from './components/LeaveRequestDetail'
 import { LeaveRequestPreview } from './components/LeaveRequestPreview'
 

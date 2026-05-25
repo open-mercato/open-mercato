@@ -1,0 +1,530 @@
+{
+  "createdAt": "2026-05-13T21:43:54.449Z",
+  "repo": "/Users/daweed/.openclaw/workspace/.ai/audits/open-mercato-frontend-benchmark-2026-05-13/repo",
+  "routePath": "/backend/sales/documents/benchmark-document-id?kind=order",
+  "iterations": 2,
+  "results": [
+    {
+      "variant": "baseline",
+      "iteration": 1,
+      "routePath": "/backend/sales/documents/benchmark-document-id?kind=order",
+      "port": 49510,
+      "readyMs": 1045,
+      "firstRequest": {
+        "ok": true,
+        "status": 500,
+        "location": null,
+        "ttfbMs": 26396,
+        "totalMs": 26398,
+        "bytes": 4519
+      },
+      "secondRequest": {
+        "ok": true,
+        "status": 500,
+        "location": null,
+        "ttfbMs": 3166,
+        "totalMs": 3167,
+        "bytes": 4519
+      },
+      "rssBeforeRouteKb": 444976,
+      "rssAfterFirstKb": 5661152,
+      "rssAfterSecondKb": 6375184,
+      "peakRssKb": 6368544,
+      "peakMembers": [
+        {
+          "pid": 85907,
+          "ppid": 85889,
+          "rssKb": 196800,
+          "comm": "/opt/homebrew/opt/node/bin/node"
+        },
+        {
+          "pid": 85912,
+          "ppid": 85907,
+          "rssKb": 73920,
+          "comm": "/opt/homebrew/Cellar/node/25.9.0_3/bin/node"
+        },
+        {
+          "pid": 85917,
+          "ppid": 85912,
+          "rssKb": 6097824,
+          "comm": "next-server (v16.2.6)"
+        }
+      ],
+      "sampleCount": 62,
+      "interestingLogs": [
+        {
+          "atMs": 743,
+          "line": "- Local:         http://localhost:49510"
+        },
+        {
+          "atMs": 743,
+          "line": "✓ Ready in 167ms"
+        },
+        {
+          "atMs": 4761,
+          "line": "○ Compiling /backend/[...slug] ..."
+        },
+        {
+          "atMs": 20287,
+          "line": "Module not found: Can't resolve 'child_process'"
+        },
+        {
+          "atMs": 21909,
+          "line": "Module not found: Can't resolve 'child_process'"
+        },
+        {
+          "atMs": 23604,
+          "line": "Module not found: Can't resolve 'child_process'"
+        },
+        {
+          "atMs": 27394,
+          "line": "Module not found: Can't resolve 'child_process'"
+        },
+        {
+          "atMs": 27473,
+          "line": " GET /backend/sales/documents/benchmark-document-id?kind=order 500 in 25.8s (next.js: 25.7s, proxy.ts: 71ms, application-code: 56ms)"
+        },
+        {
+          "atMs": 31662,
+          "line": " GET /backend/sales/documents/benchmark-document-id?kind=order 500 in 22ms (next.js: 4ms, proxy.ts: 6ms, application-code: 11ms)"
+        }
+      ],
+      "logFile": "/Users/daweed/.openclaw/workspace/.ai/audits/open-mercato-frontend-benchmark-2026-05-13/runtime-results/baseline-1.log"
+    },
+    {
+      "variant": "baseline",
+      "iteration": 2,
+      "routePath": "/backend/sales/documents/benchmark-document-id?kind=order",
+      "port": 49420,
+      "readyMs": 1044,
+      "firstRequest": {
+        "ok": true,
+        "status": 500,
+        "location": null,
+        "ttfbMs": 26836,
+        "totalMs": 26840,
+        "bytes": 4519
+      },
+      "secondRequest": {
+        "ok": true,
+        "status": 500,
+        "location": null,
+        "ttfbMs": 3057,
+        "totalMs": 3058,
+        "bytes": 4519
+      },
+      "rssBeforeRouteKb": 442768,
+      "rssAfterFirstKb": 5599072,
+      "rssAfterSecondKb": 6270192,
+      "peakRssKb": 6166944,
+      "peakMembers": [
+        {
+          "pid": 86195,
+          "ppid": 85889,
+          "rssKb": 196464,
+          "comm": "/opt/homebrew/opt/node/bin/node"
+        },
+        {
+          "pid": 86200,
+          "ppid": 86195,
+          "rssKb": 74256,
+          "comm": "/opt/homebrew/Cellar/node/25.9.0_3/bin/node"
+        },
+        {
+          "pid": 86205,
+          "ppid": 86200,
+          "rssKb": 5896224,
+          "comm": "next-server (v16.2.6)"
+        }
+      ],
+      "sampleCount": 62,
+      "interestingLogs": [
+        {
+          "atMs": 735,
+          "line": "- Local:         http://localhost:49420"
+        },
+        {
+          "atMs": 735,
+          "line": "✓ Ready in 173ms"
+        },
+        {
+          "atMs": 4781,
+          "line": "○ Compiling /backend/[...slug] ..."
+        },
+        {
+          "atMs": 20527,
+          "line": "Module not found: Can't resolve 'child_process'"
+        },
+        {
+          "atMs": 22176,
+          "line": "Module not found: Can't resolve 'child_process'"
+        },
+        {
+          "atMs": 23934,
+          "line": "Module not found: Can't resolve 'child_process'"
+        },
+        {
+          "atMs": 27836,
+          "line": "Module not found: Can't resolve 'child_process'"
+        },
+        {
+          "atMs": 27919,
+          "line": " GET /backend/sales/documents/benchmark-document-id?kind=order 500 in 26.2s (next.js: 26.1s, proxy.ts: 71ms, application-code: 62ms)"
+        },
+        {
+          "atMs": 31997,
+          "line": " GET /backend/sales/documents/benchmark-document-id?kind=order 500 in 18ms (next.js: 4ms, proxy.ts: 6ms, application-code: 8ms)"
+        }
+      ],
+      "logFile": "/Users/daweed/.openclaw/workspace/.ai/audits/open-mercato-frontend-benchmark-2026-05-13/runtime-results/baseline-2.log"
+    },
+    {
+      "variant": "no-global-bootstrap",
+      "iteration": 1,
+      "routePath": "/backend/sales/documents/benchmark-document-id?kind=order",
+      "port": 49576,
+      "readyMs": 1049,
+      "firstRequest": {
+        "ok": true,
+        "status": 500,
+        "location": null,
+        "ttfbMs": 23672,
+        "totalMs": 23673,
+        "bytes": 3077
+      },
+      "secondRequest": {
+        "ok": true,
+        "status": 500,
+        "location": null,
+        "ttfbMs": 3028,
+        "totalMs": 3029,
+        "bytes": 3077
+      },
+      "rssBeforeRouteKb": 446784,
+      "rssAfterFirstKb": 5115776,
+      "rssAfterSecondKb": 5913776,
+      "peakRssKb": 5844208,
+      "peakMembers": [
+        {
+          "pid": 86484,
+          "ppid": 85889,
+          "rssKb": 199280,
+          "comm": "/opt/homebrew/opt/node/bin/node"
+        },
+        {
+          "pid": 86489,
+          "ppid": 86484,
+          "rssKb": 74432,
+          "comm": "/opt/homebrew/Cellar/node/25.9.0_3/bin/node"
+        },
+        {
+          "pid": 86497,
+          "ppid": 86489,
+          "rssKb": 5570496,
+          "comm": "next-server (v16.2.6)"
+        }
+      ],
+      "sampleCount": 56,
+      "interestingLogs": [
+        {
+          "atMs": 762,
+          "line": "- Local:         http://localhost:49576"
+        },
+        {
+          "atMs": 762,
+          "line": "✓ Ready in 173ms"
+        },
+        {
+          "atMs": 4794,
+          "line": "○ Compiling /backend/[...slug] ..."
+        },
+        {
+          "atMs": 18476,
+          "line": "Module not found: Can't resolve '../generated/entities.ids.generated.js'"
+        },
+        {
+          "atMs": 19936,
+          "line": "Module not found: Can't resolve '../generated/entities.ids.generated.js'"
+        },
+        {
+          "atMs": 21421,
+          "line": "Module not found: Can't resolve '../generated/entities.ids.generated.js'"
+        },
+        {
+          "atMs": 24675,
+          "line": "Module not found: Can't resolve '../generated/entities.ids.generated.js'"
+        },
+        {
+          "atMs": 24751,
+          "line": " GET /backend/sales/documents/benchmark-document-id?kind=order 500 in 23.0s (next.js: 22.9s, proxy.ts: 72ms, application-code: 56ms)"
+        },
+        {
+          "atMs": 28810,
+          "line": " GET /backend/sales/documents/benchmark-document-id?kind=order 500 in 20ms (next.js: 5ms, proxy.ts: 6ms, application-code: 9ms)"
+        }
+      ],
+      "logFile": "/Users/daweed/.openclaw/workspace/.ai/audits/open-mercato-frontend-benchmark-2026-05-13/runtime-results/no-global-bootstrap-1.log"
+    },
+    {
+      "variant": "no-global-bootstrap",
+      "iteration": 2,
+      "routePath": "/backend/sales/documents/benchmark-document-id?kind=order",
+      "port": 49994,
+      "readyMs": 1063,
+      "firstRequest": {
+        "ok": true,
+        "status": 500,
+        "location": null,
+        "ttfbMs": 24162,
+        "totalMs": 24166,
+        "bytes": 3077
+      },
+      "secondRequest": {
+        "ok": true,
+        "status": 500,
+        "location": null,
+        "ttfbMs": 2905,
+        "totalMs": 2906,
+        "bytes": 3077
+      },
+      "rssBeforeRouteKb": 445344,
+      "rssAfterFirstKb": 5165264,
+      "rssAfterSecondKb": 5919824,
+      "peakRssKb": 5881488,
+      "peakMembers": [
+        {
+          "pid": 86757,
+          "ppid": 85889,
+          "rssKb": 198656,
+          "comm": "/opt/homebrew/opt/node/bin/node"
+        },
+        {
+          "pid": 86762,
+          "ppid": 86757,
+          "rssKb": 74256,
+          "comm": "/opt/homebrew/Cellar/node/25.9.0_3/bin/node"
+        },
+        {
+          "pid": 86767,
+          "ppid": 86762,
+          "rssKb": 5608576,
+          "comm": "next-server (v16.2.6)"
+        }
+      ],
+      "sampleCount": 57,
+      "interestingLogs": [
+        {
+          "atMs": 667,
+          "line": "- Local:         http://localhost:49994"
+        },
+        {
+          "atMs": 667,
+          "line": "✓ Ready in 174ms"
+        },
+        {
+          "atMs": 4734,
+          "line": "○ Compiling /backend/[...slug] ..."
+        },
+        {
+          "atMs": 18899,
+          "line": "Module not found: Can't resolve '../generated/entities.ids.generated.js'"
+        },
+        {
+          "atMs": 20383,
+          "line": "Module not found: Can't resolve '../generated/entities.ids.generated.js'"
+        },
+        {
+          "atMs": 21878,
+          "line": "Module not found: Can't resolve '../generated/entities.ids.generated.js'"
+        },
+        {
+          "atMs": 25183,
+          "line": "Module not found: Can't resolve '../generated/entities.ids.generated.js'"
+        },
+        {
+          "atMs": 25266,
+          "line": " GET /backend/sales/documents/benchmark-document-id?kind=order 500 in 23.6s (next.js: 23.5s, proxy.ts: 81ms, application-code: 62ms)"
+        },
+        {
+          "atMs": 29187,
+          "line": " GET /backend/sales/documents/benchmark-document-id?kind=order 500 in 20ms (next.js: 6ms, proxy.ts: 6ms, application-code: 8ms)"
+        }
+      ],
+      "logFile": "/Users/daweed/.openclaw/workspace/.ai/audits/open-mercato-frontend-benchmark-2026-05-13/runtime-results/no-global-bootstrap-2.log"
+    },
+    {
+      "variant": "no-global-bootstrap-route-shell",
+      "iteration": 1,
+      "routePath": "/backend/sales/documents/benchmark-document-id?kind=order",
+      "port": 49707,
+      "readyMs": 1042,
+      "firstRequest": {
+        "ok": true,
+        "status": 500,
+        "location": null,
+        "ttfbMs": 23821,
+        "totalMs": 23821,
+        "bytes": 3077
+      },
+      "secondRequest": {
+        "ok": true,
+        "status": 500,
+        "location": null,
+        "ttfbMs": 2954,
+        "totalMs": 2955,
+        "bytes": 3077
+      },
+      "rssBeforeRouteKb": 444208,
+      "rssAfterFirstKb": 5174672,
+      "rssAfterSecondKb": 5953200,
+      "peakRssKb": 5853360,
+      "peakMembers": [
+        {
+          "pid": 87026,
+          "ppid": 85889,
+          "rssKb": 197184,
+          "comm": "/opt/homebrew/opt/node/bin/node"
+        },
+        {
+          "pid": 87031,
+          "ppid": 87026,
+          "rssKb": 74080,
+          "comm": "/opt/homebrew/Cellar/node/25.9.0_3/bin/node"
+        },
+        {
+          "pid": 87036,
+          "ppid": 87031,
+          "rssKb": 5582096,
+          "comm": "next-server (v16.2.6)"
+        }
+      ],
+      "sampleCount": 56,
+      "interestingLogs": [
+        {
+          "atMs": 732,
+          "line": "- Local:         http://localhost:49707"
+        },
+        {
+          "atMs": 732,
+          "line": "✓ Ready in 176ms"
+        },
+        {
+          "atMs": 4755,
+          "line": "○ Compiling /backend/[...slug] ..."
+        },
+        {
+          "atMs": 18596,
+          "line": "Module not found: Can't resolve '../generated/entities.ids.generated.js'"
+        },
+        {
+          "atMs": 20058,
+          "line": "Module not found: Can't resolve '../generated/entities.ids.generated.js'"
+        },
+        {
+          "atMs": 21515,
+          "line": "Module not found: Can't resolve '../generated/entities.ids.generated.js'"
+        },
+        {
+          "atMs": 24811,
+          "line": "Module not found: Can't resolve '../generated/entities.ids.generated.js'"
+        },
+        {
+          "atMs": 24893,
+          "line": " GET /backend/sales/documents/benchmark-document-id?kind=order 500 in 23.2s (next.js: 23.1s, proxy.ts: 73ms, application-code: 61ms)"
+        },
+        {
+          "atMs": 28863,
+          "line": " GET /backend/sales/documents/benchmark-document-id?kind=order 500 in 23ms (next.js: 7ms, proxy.ts: 9ms, application-code: 7ms)"
+        }
+      ],
+      "logFile": "/Users/daweed/.openclaw/workspace/.ai/audits/open-mercato-frontend-benchmark-2026-05-13/runtime-results/no-global-bootstrap-route-shell-1.log"
+    },
+    {
+      "variant": "no-global-bootstrap-route-shell",
+      "iteration": 2,
+      "routePath": "/backend/sales/documents/benchmark-document-id?kind=order",
+      "port": 49761,
+      "readyMs": 1059,
+      "firstRequest": {
+        "ok": true,
+        "status": 500,
+        "location": null,
+        "ttfbMs": 24373,
+        "totalMs": 24378,
+        "bytes": 3077
+      },
+      "secondRequest": {
+        "ok": true,
+        "status": 500,
+        "location": null,
+        "ttfbMs": 2375,
+        "totalMs": 2376,
+        "bytes": 3077
+      },
+      "rssBeforeRouteKb": 445344,
+      "rssAfterFirstKb": 5281504,
+      "rssAfterSecondKb": 5907088,
+      "peakRssKb": 5833840,
+      "peakMembers": [
+        {
+          "pid": 87290,
+          "ppid": 85889,
+          "rssKb": 199408,
+          "comm": "/opt/homebrew/opt/node/bin/node"
+        },
+        {
+          "pid": 87295,
+          "ppid": 87290,
+          "rssKb": 73952,
+          "comm": "/opt/homebrew/Cellar/node/25.9.0_3/bin/node"
+        },
+        {
+          "pid": 87300,
+          "ppid": 87295,
+          "rssKb": 5560480,
+          "comm": "next-server (v16.2.6)"
+        }
+      ],
+      "sampleCount": 56,
+      "interestingLogs": [
+        {
+          "atMs": 798,
+          "line": "- Local:         http://localhost:49761"
+        },
+        {
+          "atMs": 798,
+          "line": "✓ Ready in 177ms"
+        },
+        {
+          "atMs": 4827,
+          "line": "○ Compiling /backend/[...slug] ..."
+        },
+        {
+          "atMs": 19143,
+          "line": "Module not found: Can't resolve '../generated/entities.ids.generated.js'"
+        },
+        {
+          "atMs": 20618,
+          "line": "Module not found: Can't resolve '../generated/entities.ids.generated.js'"
+        },
+        {
+          "atMs": 22084,
+          "line": "Module not found: Can't resolve '../generated/entities.ids.generated.js'"
+        },
+        {
+          "atMs": 25377,
+          "line": "Module not found: Can't resolve '../generated/entities.ids.generated.js'"
+        },
+        {
+          "atMs": 25465,
+          "line": " GET /backend/sales/documents/benchmark-document-id?kind=order 500 in 23.7s (next.js: 23.6s, proxy.ts: 79ms, application-code: 62ms)"
+        },
+        {
+          "atMs": 28860,
+          "line": " GET /backend/sales/documents/benchmark-document-id?kind=order 500 in 19ms (next.js: 4ms, proxy.ts: 7ms, application-code: 8ms)"
+        }
+      ],
+      "logFile": "/Users/daweed/.openclaw/workspace/.ai/audits/open-mercato-frontend-benchmark-2026-05-13/runtime-results/no-global-bootstrap-route-shell-2.log"
+    }
+  ]
+}

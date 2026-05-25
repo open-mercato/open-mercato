@@ -1,0 +1,328 @@
+{
+  "packages/core/src/modules/customers/message-objects.ts": {
+    "loc": 91,
+    "imports": 2,
+    "rows": [
+      {
+        "spec": "@open-mercato/shared/modules/messages/types",
+        "target": "packages/shared/src/modules/messages/types.ts",
+        "files": 1,
+        "loc": 171,
+        "useClientFiles": 0,
+        "heavyHits": 0,
+        "dynamicImports": 0,
+        "top": [
+          {
+            "file": "packages/shared/src/modules/messages/types.ts",
+            "loc": 171
+          }
+        ]
+      },
+      {
+        "spec": "@open-mercato/ui",
+        "target": null,
+        "external": true
+      }
+    ]
+  },
+  "packages/core/src/modules/sales/message-objects.ts": {
+    "loc": 99,
+    "imports": 4,
+    "rows": [
+      {
+        "spec": "./widgets/messages/SalesDocumentMessageDetail",
+        "target": "packages/core/src/modules/sales/widgets/messages/SalesDocumentMessageDetail.tsx",
+        "files": 8,
+        "loc": 515,
+        "useClientFiles": 3,
+        "heavyHits": 0,
+        "dynamicImports": 0,
+        "top": [
+          {
+            "file": "packages/shared/src/modules/messages/types.ts",
+            "loc": 171
+          },
+          {
+            "file": "packages/core/src/modules/sales/widgets/messages/SalesDocumentMessageDetail.tsx",
+            "loc": 96
+          },
+          {
+            "file": "packages/shared/src/lib/i18n/context.tsx",
+            "loc": 81
+          },
+          {
+            "file": "packages/ui/src/primitives/button.tsx",
+            "loc": 56
+          },
+          {
+            "file": "packages/core/src/modules/sales/widgets/messages/SalesDocumentMessagePreview.tsx",
+            "loc": 47
+          }
+        ]
+      },
+      {
+        "spec": "./widgets/messages/SalesDocumentMessagePreview",
+        "target": "packages/core/src/modules/sales/widgets/messages/SalesDocumentMessagePreview.tsx",
+        "files": 6,
+        "loc": 363,
+        "useClientFiles": 2,
+        "heavyHits": 0,
+        "dynamicImports": 0,
+        "top": [
+          {
+            "file": "packages/shared/src/modules/messages/types.ts",
+            "loc": 171
+          },
+          {
+            "file": "packages/shared/src/lib/i18n/context.tsx",
+            "loc": 81
+          },
+          {
+            "file": "packages/core/src/modules/sales/widgets/messages/SalesDocumentMessagePreview.tsx",
+            "loc": 47
+          },
+          {
+            "file": "packages/ui/src/primitives/badge.tsx",
+            "loc": 37
+          },
+          {
+            "file": "packages/shared/src/lib/utils.ts",
+            "loc": 22
+          }
+        ]
+      },
+      {
+        "spec": "@open-mercato/shared/modules/messages/types",
+        "target": "packages/shared/src/modules/messages/types.ts",
+        "files": 1,
+        "loc": 171,
+        "useClientFiles": 0,
+        "heavyHits": 0,
+        "dynamicImports": 0,
+        "top": [
+          {
+            "file": "packages/shared/src/modules/messages/types.ts",
+            "loc": 171
+          }
+        ]
+      },
+      {
+        "spec": "@open-mercato/ui/backend/messages",
+        "target": "packages/ui/src/backend/messages",
+        "files": 1,
+        "loc": 1,
+        "useClientFiles": 0,
+        "heavyHits": 0,
+        "dynamicImports": 0,
+        "top": [
+          {
+            "file": "packages/ui/src/backend/messages",
+            "loc": 1
+          }
+        ]
+      }
+    ]
+  },
+  "packages/core/src/modules/catalog/message-objects.ts": {
+    "loc": 103,
+    "imports": 2,
+    "rows": [
+      {
+        "spec": "@open-mercato/shared/modules/messages/types",
+        "target": "packages/shared/src/modules/messages/types.ts",
+        "files": 1,
+        "loc": 171,
+        "useClientFiles": 0,
+        "heavyHits": 0,
+        "dynamicImports": 0,
+        "top": [
+          {
+            "file": "packages/shared/src/modules/messages/types.ts",
+            "loc": 171
+          }
+        ]
+      },
+      {
+        "spec": "@open-mercato/ui/backend/messages",
+        "target": "packages/ui/src/backend/messages",
+        "files": 1,
+        "loc": 1,
+        "useClientFiles": 0,
+        "heavyHits": 0,
+        "dynamicImports": 0,
+        "top": [
+          {
+            "file": "packages/ui/src/backend/messages",
+            "loc": 1
+          }
+        ]
+      }
+    ]
+  },
+  "packages/core/src/modules/staff/message-objects.ts": {
+    "loc": 174,
+    "imports": 4,
+    "rows": [
+      {
+        "spec": "./components/LeaveRequestDetail",
+        "target": "packages/core/src/modules/staff/components/LeaveRequestDetail.tsx",
+        "files": 18,
+        "loc": 2205,
+        "useClientFiles": 10,
+        "heavyHits": 0,
+        "dynamicImports": 0,
+        "top": [
+          {
+            "file": "packages/ui/src/backend/utils/serverErrors.ts",
+            "loc": 321
+          },
+          {
+            "file": "packages/ui/src/backend/operations/store.ts",
+            "loc": 300
+          },
+          {
+            "file": "packages/ui/src/primitives/alert.tsx",
+            "loc": 263
+          },
+          {
+            "file": "packages/ui/src/backend/utils/api.ts",
+            "loc": 240
+          },
+          {
+            "file": "packages/ui/src/backend/FlashMessages.tsx",
+            "loc": 181
+          }
+        ]
+      },
+      {
+        "spec": "./components/LeaveRequestPreview",
+        "target": "packages/core/src/modules/staff/components/LeaveRequestPreview.tsx",
+        "files": 4,
+        "loc": 304,
+        "useClientFiles": 1,
+        "heavyHits": 0,
+        "dynamicImports": 0,
+        "top": [
+          {
+            "file": "packages/shared/src/modules/messages/types.ts",
+            "loc": 171
+          },
+          {
+            "file": "packages/core/src/modules/staff/components/LeaveRequestPreview.tsx",
+            "loc": 74
+          },
+          {
+            "file": "packages/ui/src/primitives/badge.tsx",
+            "loc": 37
+          },
+          {
+            "file": "packages/shared/src/lib/utils.ts",
+            "loc": 22
+          }
+        ]
+      },
+      {
+        "spec": "@open-mercato/shared/modules/messages/types",
+        "target": "packages/shared/src/modules/messages/types.ts",
+        "files": 1,
+        "loc": 171,
+        "useClientFiles": 0,
+        "heavyHits": 0,
+        "dynamicImports": 0,
+        "top": [
+          {
+            "file": "packages/shared/src/modules/messages/types.ts",
+            "loc": 171
+          }
+        ]
+      },
+      {
+        "spec": "@open-mercato/ui/backend/messages",
+        "target": "packages/ui/src/backend/messages",
+        "files": 1,
+        "loc": 1,
+        "useClientFiles": 0,
+        "heavyHits": 0,
+        "dynamicImports": 0,
+        "top": [
+          {
+            "file": "packages/ui/src/backend/messages",
+            "loc": 1
+          }
+        ]
+      }
+    ]
+  },
+  "packages/core/src/modules/resources/message-objects.ts": {
+    "loc": 37,
+    "imports": 2,
+    "rows": [
+      {
+        "spec": "@open-mercato/shared/modules/messages/types",
+        "target": "packages/shared/src/modules/messages/types.ts",
+        "files": 1,
+        "loc": 171,
+        "useClientFiles": 0,
+        "heavyHits": 0,
+        "dynamicImports": 0,
+        "top": [
+          {
+            "file": "packages/shared/src/modules/messages/types.ts",
+            "loc": 171
+          }
+        ]
+      },
+      {
+        "spec": "@open-mercato/ui/backend/messages",
+        "target": "packages/ui/src/backend/messages",
+        "files": 1,
+        "loc": 1,
+        "useClientFiles": 0,
+        "heavyHits": 0,
+        "dynamicImports": 0,
+        "top": [
+          {
+            "file": "packages/ui/src/backend/messages",
+            "loc": 1
+          }
+        ]
+      }
+    ]
+  },
+  "packages/core/src/modules/currencies/message-objects.ts": {
+    "loc": 41,
+    "imports": 2,
+    "rows": [
+      {
+        "spec": "@open-mercato/shared/modules/messages/types",
+        "target": "packages/shared/src/modules/messages/types.ts",
+        "files": 1,
+        "loc": 171,
+        "useClientFiles": 0,
+        "heavyHits": 0,
+        "dynamicImports": 0,
+        "top": [
+          {
+            "file": "packages/shared/src/modules/messages/types.ts",
+            "loc": 171
+          }
+        ]
+      },
+      {
+        "spec": "@open-mercato/ui/backend/messages",
+        "target": "packages/ui/src/backend/messages",
+        "files": 1,
+        "loc": 1,
+        "useClientFiles": 0,
+        "heavyHits": 0,
+        "dynamicImports": 0,
+        "top": [
+          {
+            "file": "packages/ui/src/backend/messages",
+            "loc": 1
+          }
+        ]
+      }
+    ]
+  }
+}
