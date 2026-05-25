@@ -7,6 +7,7 @@
 | 1 | 1.1 | Add feature guard to UpgradeActionBanner + unit tests | done | 70e3196cc |
 | 2 | 2.1 | Fix UpgradeActionBanner tests (renderWithProviders + isReady=false) | done | fe0046a48 |
 | 2 | 2.2 | Revert speculative AppShell AI mocks (wrong approach) | done | 02da6ca97 |
+| 3 | 3.1 | Rewrite tests to mock useBackendChrome directly (fix CI failures) | done | dd0dd4bb4 |
 
 ## Goal
 
