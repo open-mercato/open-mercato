@@ -79,7 +79,7 @@ test.describe('TC-LOCK-OSS-003: sales.order optimistic-lock guard', () => {
       token = await getAuthToken(request, 'admin')
       orderId = await createSalesOrderFixture(request, token, 'USD')
 
-      const res = await putOrder(request, token, orderId, { comments: `QA OSS-003 nohdr ${Date.now()}` })
+      const res = await putOrder(request, token, orderId, { comment: `QA OSS-003 nohdr ${Date.now()}` })
       expect(res.status(), 'PUT without header should succeed (200/204)').toBeLessThan(300)
     } finally {
       if (orderId && token) {
@@ -102,7 +102,7 @@ test.describe('TC-LOCK-OSS-003: sales.order optimistic-lock guard', () => {
         request,
         token,
         orderId,
-        { comments: `QA OSS-003 v1 ${Date.now()}` },
+        { comment: `QA OSS-003 v1 ${Date.now()}` },
         t0,
       )
       expect(ok.status(), 'PUT with fresh updatedAt header should succeed').toBeLessThan(300)
@@ -114,7 +114,7 @@ test.describe('TC-LOCK-OSS-003: sales.order optimistic-lock guard', () => {
         request,
         token,
         orderId,
-        { comments: `QA OSS-003 v2 ${Date.now()}` },
+        { comment: `QA OSS-003 v2 ${Date.now()}` },
         t0,
       )
       expect(
