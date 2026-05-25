@@ -172,86 +172,36 @@ export function createOptimisticLockGuardService(
     return config.entities.has(resourceKind.toLowerCase())
   }
 
-  const debug = process.env.OM_OPTIMISTIC_LOCK_DEBUG === '1'
-  const log = (...args: unknown[]): void => {
-    if (debug) console.log('[optimistic-lock]', ...args)
-  }
-
   async function validateMutation(
     input: CrudMutationGuardValidateInput,
   ): Promise<CrudMutationGuardValidationResult> {
-    // ============ DIAGNOSTIC MODE (gated by OM_OPTIMISTIC_LOCK_DEBUG=1) ============
-    // Only fires when the request CARRIES the lock header but the guard would
-    // have otherwise returned ok — surfaces the skip reason in the response
-    // body so the test failure carries diagnostic info. The no-header path
-    // (test 1 'writes without the header always succeed') still returns ok
-    // and PUTs go through normally.
-    const headerForDebug = readHeader(input.requestHeaders, OPTIMISTIC_LOCK_HEADER_NAME)
-    // iter 13: unconditional debug return on every validateMutation call.
-    // Previous gated `if (!headerForDebug) return null` short-circuit may
-    // have been hiding the fact that the header isn't reaching the guard.
-    // Now BOTH tests (no-header + with-header) will get 422, body shows what
-    // validateMutation actually saw.
-    const debugIfHeader = (reason: string, extra?: Record<string, unknown>): CrudMutationGuardValidationResult | null => {
-      if (!debug) return null
-      return {
-        ok: false,
-        status: 422,
-        body: {
-          error: 'optimistic_lock_DEBUG',
-          reason,
-          resourceKind: input.resourceKind,
-          resourceId: input.resourceId,
-          operation: input.operation,
-          configMode: config.mode,
-          headerName: OPTIMISTIC_LOCK_HEADER_NAME,
-          headerValueReceived: headerForDebug,
-          allHeaderNames: Array.from(input.requestHeaders.keys()),
-          ...(extra ?? {}),
-        },
-      }
-    }
-    log('validateMutation', { resourceKind: input.resourceKind, resourceId: input.resourceId, operation: input.operation, configMode: config.mode })
     if (config.mode === 'off') {
-      log('skip: config off')
-      const dbg = debugIfHeader('config_off'); if (dbg) return dbg
       return { ok: true, shouldRunAfterSuccess: false }
     }
     if (input.operation !== 'update' && input.operation !== 'delete') {
-      log('skip: not update/delete')
-      const dbg = debugIfHeader('not_update_or_delete'); if (dbg) return dbg
       return { ok: true, shouldRunAfterSuccess: false }
     }
     if (!isEntityEnabled(input.resourceKind)) {
-      log('skip: entity not enabled', input.resourceKind, config)
-      const dbg = debugIfHeader('entity_not_enabled', { config: JSON.stringify(config) }); if (dbg) return dbg
       return { ok: true, shouldRunAfterSuccess: false }
     }
     const readers = opts.readers ?? getAllOptimisticLockReaders()
     const reader = readers[input.resourceKind]
     if (!reader) {
-      log('skip: no reader for', input.resourceKind, 'available keys:', Object.keys(readers))
-      const dbg = debugIfHeader('no_reader', { availableReaderKeys: Object.keys(readers) }); if (dbg) return dbg
       return { ok: true, shouldRunAfterSuccess: false }
     }
 
     const expectedRaw = readHeader(input.requestHeaders, OPTIMISTIC_LOCK_HEADER_NAME)
-    log('expectedRaw from header', { headerName: OPTIMISTIC_LOCK_HEADER_NAME, value: expectedRaw, allHeaderNames: Array.from(input.requestHeaders.keys()) })
     const resolvedExpected = await resolveExpected({
       expectedFromHeader: expectedRaw,
       resourceKind: input.resourceKind,
       resourceId: input.resourceId,
     })
     if (resolvedExpected == null) {
-      log('skip: resolvedExpected null')
-      const dbg = debugIfHeader('resolved_expected_null', { expectedRaw }); if (dbg) return dbg
       return { ok: true, shouldRunAfterSuccess: false }
     }
 
     const expectedIso = normalizeIsoToken(resolvedExpected)
     if (expectedIso == null) {
-      log('skip: expectedIso null', resolvedExpected)
-      const dbg = debugIfHeader('expected_iso_null', { resolvedExpected }); if (dbg) return dbg
       return { ok: true, shouldRunAfterSuccess: false }
     }
 
@@ -262,25 +212,15 @@ export function createOptimisticLockGuardService(
       tenantId: input.tenantId,
       organizationId: input.organizationId ?? null,
     })
-    log('reader returned currentRaw', currentRaw)
     if (currentRaw == null) {
-      log('skip: currentRaw null')
-      const dbg = debugIfHeader('current_raw_null', { expectedIso, tenantId: input.tenantId, organizationId: input.organizationId }); if (dbg) return dbg
       return { ok: true, shouldRunAfterSuccess: false }
     }
     const currentIso = normalizeIsoToken(currentRaw)
     if (currentIso == null) {
-      log('skip: currentIso null')
-      const dbg = debugIfHeader('current_iso_null', { currentRaw, expectedIso }); if (dbg) return dbg
       return { ok: true, shouldRunAfterSuccess: false }
     }
 
-    log('compare', { expectedIso, currentIso, match: currentIso === expectedIso })
     if (currentIso === expectedIso) {
-      // Note: this path IS expected to succeed for the first fresh PUT in test 2.
-      // We surface it as 422 in debug mode only if the test was sending a STALE token —
-      // can't distinguish that here, so we surface ALL matches and let the test help diagnose.
-      const dbg = debugIfHeader('compare_match_ok', { expectedIso, currentIso }); if (dbg) return dbg
       return { ok: true, shouldRunAfterSuccess: false }
     }
 

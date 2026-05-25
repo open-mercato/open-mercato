@@ -4,16 +4,16 @@ permissions:
 
 env:
   FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: 'true'
-  # Global so both the `prepare` build step and the `ephemeral-integration`
-  # shards see the same value — the integration tests require the OSS
-  # optimistic-lock guard to be active, and if the env disagrees between
-  # build-time bundling and run-time execution the guard can silently
-  # short-circuit.
-  # Include both `customers.person` (canonical, per spec) and `customers.people`
-  # (what the CRUD factory derives at runtime — the singularizer doesn't handle
-  # the irregular plural). The reader is registered under both keys.
+  # Required by the OSS optimistic-locking integration tests (#1981 /
+  # TC-LOCK-OSS-001/002/003). Set workflow-wide so both `prepare`
+  # (`yarn build:app`) and `ephemeral-integration` see the same value —
+  # divergence between build-time and run-time env can silently
+  # short-circuit the guard. Includes both `customers.person` (the
+  # spec-canonical singular id) and `customers.people` (what the CRUD
+  # factory derives at runtime; the singularizer doesn't handle the
+  # irregular plural). The customers reader is registered under both
+  # keys.
   OM_OPTIMISTIC_LOCK: 'customers.company,customers.person,customers.people,sales.order'
-  OM_OPTIMISTIC_LOCK_DEBUG: '1'
 
 on:
   push:

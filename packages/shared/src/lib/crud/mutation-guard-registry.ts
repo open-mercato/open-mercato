@@ -151,25 +151,13 @@ type LegacyCrudMutationGuardService = {
 }
 
 function resolveLegacyGuardService(container: AwilixContainer): LegacyCrudMutationGuardService | null {
-  const debug = process.env.OM_OPTIMISTIC_LOCK_DEBUG === '1'
   try {
     const service = container.resolve<LegacyCrudMutationGuardService>('crudMutationGuardService')
-    if (!service) {
-      if (debug) console.log('[bridgeLegacyGuard] resolve returned falsy')
-      return null
-    }
-    if (typeof service.validateMutation !== 'function') {
-      if (debug) console.log('[bridgeLegacyGuard] no validateMutation')
-      return null
-    }
-    if (typeof service.afterMutationSuccess !== 'function') {
-      if (debug) console.log('[bridgeLegacyGuard] no afterMutationSuccess')
-      return null
-    }
-    if (debug) console.log('[bridgeLegacyGuard] resolved crudMutationGuardService')
+    if (!service) return null
+    if (typeof service.validateMutation !== 'function') return null
+    if (typeof service.afterMutationSuccess !== 'function') return null
     return service
-  } catch (err) {
-    if (debug) console.log('[bridgeLegacyGuard] resolve threw:', err instanceof Error ? err.message : String(err))
+  } catch {
     return null
   }
 }
@@ -185,9 +173,6 @@ export function bridgeLegacyGuard(container: AwilixContainer): MutationGuard | n
     priority: 0,
 
     async validate(input) {
-      if (process.env.OM_OPTIMISTIC_LOCK_DEBUG === '1') {
-        console.log('[bridgeLegacyGuard] validate called', { resourceKind: input.resourceKind, operation: input.operation })
-      }
       const result = await legacyService.validateMutation({
         tenantId: input.tenantId,
         organizationId: input.organizationId,

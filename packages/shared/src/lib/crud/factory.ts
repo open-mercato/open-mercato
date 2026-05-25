@@ -583,13 +583,9 @@ function buildSyncPayload(
 function collectAndRunGuards(
   container: AwilixContainer,
 ): { allGuards: MutationGuard[] } {
-  console.log('[collectAndRunGuards] CALLED-UNCONDITIONAL')
   const allGuards = [...getAllMutationGuardInstances()]
-  console.log('[collectAndRunGuards] getAllMutationGuardInstances returned', allGuards.length)
   const legacyGuard = bridgeLegacyGuard(container)
-  console.log('[collectAndRunGuards] bridgeLegacyGuard returned', legacyGuard ? 'a guard' : 'null')
   if (legacyGuard) allGuards.push(legacyGuard)
-  console.log('[collectAndRunGuards] total allGuards', allGuards.length)
   return { allGuards }
 }
 
@@ -2096,16 +2092,8 @@ export function makeCrudRoute<TCreate = any, TUpdate = any, TList = any>(opts: C
   }
 
   async function PUT(request: Request) {
-    // iter 14: probe at PUT entry to settle whether factory's PUT is called
-    // at all for failing TC-LOCK-OSS requests. Using console.error in case
-    // stdout is filtered/dropped at some point. Also a response header
-    // (x-om-debug-factory-put) so the test can see it directly in the
-    // response, independent of CI log capture.
-    console.error('[FACTORY-PUT-ENTRY]', { url: request.url, resourceKind, method: request.method })
-    process.stderr.write(`[FACTORY-PUT-ENTRY-STDERR] ${request.url} resourceKind=${resourceKind}\n`)
     try {
       const useCommand = !!opts.actions?.update
-      console.error('[FACTORY-PUT-USECOMMAND]', { useCommand, hasActionsUpdate: !!opts.actions?.update, hasUpdate: !!opts.update })
       if (!opts.update && !useCommand) return json({ error: 'Not implemented' }, { status: 501 })
       const ctx = await withCtx(request)
       if (!ctx.auth) return json({ error: 'Unauthorized' }, { status: 401 })
@@ -2171,18 +2159,6 @@ export function makeCrudRoute<TCreate = any, TUpdate = any, TList = any>(opts: C
 
         const updateUserFeatures = await resolveUserFeatures(ctx)
         const { allGuards: updateAllGuards } = collectAndRunGuards(ctx.container)
-        // iter 17: stash debug info in globalThis to be attached as response header.
-        // factory.ts console.log doesn't reach CI; response headers do (test logs them).
-        if (process.env.OM_OPTIMISTIC_LOCK_DEBUG === '1') {
-          ;(globalThis as Record<string, unknown>).__lastGuardDebug = {
-            collectedCount: updateAllGuards.length,
-            guardIds: updateAllGuards.map((g) => g.id),
-            tenantId: ctx.auth.tenantId,
-            candidateId,
-            resourceKind,
-            willRunGuards: !!(updateAllGuards.length && ctx.auth.tenantId && candidateId),
-          }
-        }
         let cmdUpdateGuardAfterCallbacks: Array<{ guard: MutationGuard; metadata: Record<string, unknown> | null }> = []
         if (updateAllGuards.length && ctx.auth.tenantId && candidateId) {
           const guardResult = await runMutationGuards(updateAllGuards, {
@@ -2235,13 +2211,6 @@ export function makeCrudRoute<TCreate = any, TUpdate = any, TList = any>(opts: C
         const status = action.status ?? 200
         const response = json(resolvedPayload, { status })
         attachOperationHeader(response, logEntry)
-        // iter 17: emit guard debug as response header
-        if (process.env.OM_OPTIMISTIC_LOCK_DEBUG === '1') {
-          const dbg = (globalThis as Record<string, unknown>).__lastGuardDebug
-          if (dbg) {
-            try { response.headers.set('x-om-debug-guards', JSON.stringify(dbg)) } catch {}
-          }
-        }
         if (cmdUpdateGuardAfterCallbacks.length && ctx.auth.tenantId && candidateId) {
           await runGuardAfterSuccessCallbacks(cmdUpdateGuardAfterCallbacks, {
             tenantId: ctx.auth.tenantId,
