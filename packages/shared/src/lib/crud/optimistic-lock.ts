@@ -1,0 +1,240 @@
+/**
+ * OSS opt-in optimistic-locking guard service.
+ *
+ * Registered as `crudMutationGuardService` in a module's `di.ts`. Compares
+ * the client-sent expected `updated_at` (carried via the extension header
+ * defined in `optimistic-lock-headers.ts`) against the current DB
+ * `updated_at` for the target entity; on mismatch returns HTTP 409 with the
+ * structured `OptimisticLockConflictBody`.
+ *
+ * Default OFF. Activate via `OM_OPTIMISTIC_LOCK`:
+ *   - unset / empty                 → OFF (no behavior change)
+ *   - `all`                         → all entities
+ *   - `customers.company,sales.order` → allow-list (lowercased, trimmed, deduped)
+ *
+ * Cannot be registered as a static `data/guards.ts` `MutationGuard` because
+ * the static `validate(input)` receives only `MutationGuardInput` — no
+ * container / em access. Stateful checks that need to read current DB state
+ * MUST go through the DI service path (this file).
+ *
+ * Spec: .ai/specs/2026-05-25-oss-optimistic-locking.md
+ */
+import type { EntityManager } from '@mikro-orm/postgresql'
+import type {
+  CrudMutationGuardValidateInput,
+  CrudMutationGuardValidationResult,
+  CrudMutationGuardAfterSuccessInput,
+} from './mutation-guard'
+import {
+  OPTIMISTIC_LOCK_CONFLICT_CODE,
+  OPTIMISTIC_LOCK_CONFLICT_ERROR,
+  OPTIMISTIC_LOCK_ENV_VAR,
+  OPTIMISTIC_LOCK_HEADER_NAME,
+  type OptimisticLockConflictBody,
+} from './optimistic-lock-headers'
+
+export type OptimisticLockConfig =
+  | { mode: 'off' }
+  | { mode: 'all' }
+  | { mode: 'allowlist'; entities: ReadonlySet<string> }
+
+/**
+ * Pure parser for `OM_OPTIMISTIC_LOCK`. Exported separately so tests can
+ * exercise the grammar without spinning up the full service.
+ */
+export function parseOptimisticLockEnv(raw: string | undefined | null): OptimisticLockConfig {
+  if (raw == null) return { mode: 'off' }
+  const trimmed = String(raw).trim()
+  if (trimmed === '') return { mode: 'off' }
+
+  const tokens = trimmed
+    .split(',')
+    .map((token) => token.trim().toLowerCase())
+    .filter((token) => token.length > 0)
+
+  if (tokens.length === 0) return { mode: 'off' }
+  if (tokens.includes('all')) return { mode: 'all' }
+
+  return { mode: 'allowlist', entities: new Set(tokens) }
+}
+
+export type OptimisticLockResolverInput = {
+  expectedFromHeader: string | null
+  resourceKind: string
+  resourceId: string
+}
+
+/**
+ * Hook reserved for the enterprise `record_locks` module to override token
+ * resolution (e.g. read the expected token from a lock record instead of
+ * the request header). OSS keeps the default = "what the client sent".
+ *
+ * Documented as part of the enterprise extension contract; not used in OSS
+ * itself.
+ */
+export type ResolveExpectedUpdatedAt = (
+  input: OptimisticLockResolverInput,
+) => Promise<string | null> | string | null
+
+const defaultResolveExpectedUpdatedAt: ResolveExpectedUpdatedAt = ({ expectedFromHeader }) =>
+  expectedFromHeader
+
+export type OptimisticLockCurrentReader = (
+  em: EntityManager,
+  input: { resourceKind: string; resourceId: string; tenantId: string; organizationId: string | null },
+) => Promise<string | null>
+
+export type OptimisticLockGuardOptions = {
+  /** EntityManager resolver. Container-bound via DI in real usage. */
+  getEm: () => EntityManager
+  /**
+   * Maps `resourceKind` → reader that returns the current
+   * `updated_at` as an ISO string (or null when not found).
+   *
+   * The reader receives the EM so module authors can choose the
+   * right `findOne` shape for their entity (`findOneWithDecryption`
+   * when sensitive, plain `findOne` otherwise — but only requesting
+   * `updated_at` so no PII materializes).
+   */
+  readers: Record<string, OptimisticLockCurrentReader>
+  /** Override env source (mostly for tests). Defaults to `process.env`. */
+  envValue?: string | null
+  /** Override the token resolver. Defaults to "use the header value". */
+  resolveExpected?: ResolveExpectedUpdatedAt
+}
+
+export type OptimisticLockGuardService = {
+  validateMutation: (input: CrudMutationGuardValidateInput) => Promise<CrudMutationGuardValidationResult>
+  afterMutationSuccess: (input: CrudMutationGuardAfterSuccessInput) => Promise<void>
+  /** Exposed for tests / introspection. */
+  getConfig: () => OptimisticLockConfig
+}
+
+function readHeader(headers: Headers, name: string): string | null {
+  const direct = headers.get(name)
+  if (typeof direct === 'string' && direct.trim().length > 0) return direct.trim()
+  return null
+}
+
+function normalizeIsoToken(raw: string): string | null {
+  const ms = Date.parse(raw)
+  if (!Number.isFinite(ms)) return null
+  return new Date(ms).toISOString()
+}
+
+function buildConflictBody(currentIso: string, expectedIso: string): OptimisticLockConflictBody {
+  return {
+    error: OPTIMISTIC_LOCK_CONFLICT_ERROR,
+    code: OPTIMISTIC_LOCK_CONFLICT_CODE,
+    currentUpdatedAt: currentIso,
+    expectedUpdatedAt: expectedIso,
+  }
+}
+
+/**
+ * Factory for the optimistic-lock guard service.
+ *
+ * Usage from a module's `di.ts`:
+ *
+ * ```ts
+ * import { asFunction } from 'awilix'
+ * import { createOptimisticLockGuardService } from '@open-mercato/shared/lib/crud/optimistic-lock'
+ *
+ * container.register({
+ *   crudMutationGuardService: asFunction((cradle) => createOptimisticLockGuardService({
+ *     getEm: () => cradle.em,
+ *     readers: {
+ *       'customers.company': async (em, { resourceId, tenantId }) => {
+ *         const row = await em.findOne(Company, { id: resourceId, tenantId }, { fields: ['updatedAt'] })
+ *         return row?.updatedAt ? row.updatedAt.toISOString() : null
+ *       },
+ *     },
+ *   })).singleton(),
+ * })
+ * ```
+ */
+export function createOptimisticLockGuardService(
+  opts: OptimisticLockGuardOptions,
+): OptimisticLockGuardService {
+  const envValue = opts.envValue !== undefined ? opts.envValue : process.env[OPTIMISTIC_LOCK_ENV_VAR]
+  const config = parseOptimisticLockEnv(envValue)
+  const resolveExpected = opts.resolveExpected ?? defaultResolveExpectedUpdatedAt
+
+  function isEntityEnabled(resourceKind: string): boolean {
+    if (config.mode === 'off') return false
+    if (config.mode === 'all') return true
+    return config.entities.has(resourceKind.toLowerCase())
+  }
+
+  async function validateMutation(
+    input: CrudMutationGuardValidateInput,
+  ): Promise<CrudMutationGuardValidationResult> {
+    if (config.mode === 'off') {
+      return { ok: true, shouldRunAfterSuccess: false }
+    }
+    if (input.operation !== 'update' && input.operation !== 'delete') {
+      return { ok: true, shouldRunAfterSuccess: false }
+    }
+    if (!isEntityEnabled(input.resourceKind)) {
+      return { ok: true, shouldRunAfterSuccess: false }
+    }
+    const reader = opts.readers[input.resourceKind]
+    if (!reader) {
+      return { ok: true, shouldRunAfterSuccess: false }
+    }
+
+    const expectedRaw = readHeader(input.requestHeaders, OPTIMISTIC_LOCK_HEADER_NAME)
+    const resolvedExpected = await resolveExpected({
+      expectedFromHeader: expectedRaw,
+      resourceKind: input.resourceKind,
+      resourceId: input.resourceId,
+    })
+    if (resolvedExpected == null) {
+      return { ok: true, shouldRunAfterSuccess: false }
+    }
+
+    const expectedIso = normalizeIsoToken(resolvedExpected)
+    if (expectedIso == null) {
+      return { ok: true, shouldRunAfterSuccess: false }
+    }
+
+    const em = opts.getEm()
+    const currentRaw = await reader(em, {
+      resourceKind: input.resourceKind,
+      resourceId: input.resourceId,
+      tenantId: input.tenantId,
+      organizationId: input.organizationId ?? null,
+    })
+    if (currentRaw == null) {
+      return { ok: true, shouldRunAfterSuccess: false }
+    }
+    const currentIso = normalizeIsoToken(currentRaw)
+    if (currentIso == null) {
+      return { ok: true, shouldRunAfterSuccess: false }
+    }
+
+    if (currentIso === expectedIso) {
+      return { ok: true, shouldRunAfterSuccess: false }
+    }
+
+    return {
+      ok: false,
+      status: 409,
+      body: buildConflictBody(currentIso, expectedIso),
+    }
+  }
+
+  async function afterMutationSuccess(_input: CrudMutationGuardAfterSuccessInput): Promise<void> {
+    // no-op: optimistic check has no post-success cleanup
+  }
+
+  function getConfig(): OptimisticLockConfig {
+    return config
+  }
+
+  return {
+    validateMutation,
+    afterMutationSuccess,
+    getConfig,
+  }
+}
