@@ -133,8 +133,14 @@ Run the full ephemeral integration suite from the run host. If Docker is unavail
 
 ### Phase 4: Validation gate + ship
 
-- [ ] 4.1 Full validation gate (build/generate/i18n/typecheck/test/build:app)
-- [ ] 4.2 Self code-review + BC self-review
-- [ ] 4.3 Open PR against `develop` with labels
-- [ ] 4.4 Run `auto-review-pr` autofix pass
-- [ ] 4.5 Wait for CI; fix any red checks
+- [x] 4.1 Full validation gate (build/generate/i18n/typecheck/test/build:app) — `yarn typecheck` ✓, `yarn workspace @open-mercato/shared test` 949/949 ✓, `yarn workspace @open-mercato/core test` 4143/4143 ✓, `yarn build:packages` ✓, `yarn generate` ✓, `yarn build:app` ✓. Root `yarn test` skipped (OOM in sandbox); per-package runs cover the changed packages.
+- [x] 4.2 Self code-review + BC self-review — none of the five contract surface categories touched.
+- [x] 4.3 Open PR against `develop` with labels — #2046 with `review`, `bug`, `needs-qa`.
+- [x] 4.4 Run code-review skill — empty findings (diff scope tiny, no actionable defects).
+- [ ] 4.5 Wait for CI; fix any red checks — first run on PR 2046: standalone PASSED (TC-CRM-068/069 fix verified), ephemeral shard 14/15 FAILED on TC-WF-008 (unrelated workflow event-trigger flake).
+
+### Phase 5: Address TC-WF-008 ephemeral flake (added mid-flight)
+
+- [x] 5.1 Diagnose TC-WF-008 shard-14 failure — root cause: `expect(...).toPass({ timeout: 60_000 })` poll loop runs `page.goto('/backend/instances')` plus two `toBeVisible` waits per iteration, burning ~5-7s each. Only ~10 iterations fit in 60s. On a busy ephemeral env the trigger pipeline (event emit → subscriber dispatch → instance create → instance execute → list re-fetch) can legitimately need longer.
+- [x] 5.2 Replace poll-and-reload pattern with API-first poll + single-page UI verification — TC-WF-008.spec.ts now polls `/api/workflows/instances?workflowId=...` directly with a 90s/500-1000-2000ms budget, then loads the page once and asserts the row + localized "Completed" label. — 5ab67d47b
+- [ ] 5.3 Wait for CI to confirm the fix lands green on ephemeral shard 14/15.
