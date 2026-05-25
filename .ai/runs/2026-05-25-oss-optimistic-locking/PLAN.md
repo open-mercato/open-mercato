@@ -44,7 +44,7 @@
 | 10 | 10.1 | useGuardedMutation: detect 409 `optimistic_lock_conflict`, surface `ui.forms.flash.recordModified` flash | done | ca507bad5 |
 | 10 | 10.2 | useGuardedMutation unit test for the flash (UI touch → UI test) | done | ca507bad5 |
 | 11 | 11.1 | Wire customers.company edit page to pass `optimisticLockUpdatedAt={record.updatedAt}` (UI touch → integration test extension) | done | 4e4438ad6 |
-| 12 | 12.1 | Final gate (build / typecheck / test / build:app / ds-guardian / auto-review-pr) + PR body flip to `complete` | done | a3e3fecb0 |
+| 12 | 12.1 | Final gate (build / typecheck / test / build:app / ds-guardian / auto-review-pr) + PR body flip to `complete` | done | 65bab423d |
 
 ## Goal (resume)
 
