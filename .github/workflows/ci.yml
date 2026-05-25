@@ -431,6 +431,7 @@ jobs:
       # tests are unaffected because the guard SKIPS when the request
       # omits the `x-om-ext-optimistic_lock-expected-updated-at` header.
       OM_OPTIMISTIC_LOCK: 'customers.company,customers.person,sales.order'
+      OM_OPTIMISTIC_LOCK_DEBUG: '1'
     steps:
       - name: Compute shard metadata
         id: shard-meta

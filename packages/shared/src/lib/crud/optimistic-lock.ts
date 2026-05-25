@@ -172,36 +172,49 @@ export function createOptimisticLockGuardService(
     return config.entities.has(resourceKind.toLowerCase())
   }
 
+  const debug = process.env.OM_OPTIMISTIC_LOCK_DEBUG === '1'
+  const log = (...args: unknown[]): void => {
+    if (debug) console.log('[optimistic-lock]', ...args)
+  }
+
   async function validateMutation(
     input: CrudMutationGuardValidateInput,
   ): Promise<CrudMutationGuardValidationResult> {
+    log('validateMutation', { resourceKind: input.resourceKind, resourceId: input.resourceId, operation: input.operation, configMode: config.mode })
     if (config.mode === 'off') {
+      log('skip: config off')
       return { ok: true, shouldRunAfterSuccess: false }
     }
     if (input.operation !== 'update' && input.operation !== 'delete') {
+      log('skip: not update/delete')
       return { ok: true, shouldRunAfterSuccess: false }
     }
     if (!isEntityEnabled(input.resourceKind)) {
+      log('skip: entity not enabled', input.resourceKind, config)
       return { ok: true, shouldRunAfterSuccess: false }
     }
     const readers = opts.readers ?? getAllOptimisticLockReaders()
     const reader = readers[input.resourceKind]
     if (!reader) {
+      log('skip: no reader for', input.resourceKind, 'available keys:', Object.keys(readers))
       return { ok: true, shouldRunAfterSuccess: false }
     }
 
     const expectedRaw = readHeader(input.requestHeaders, OPTIMISTIC_LOCK_HEADER_NAME)
+    log('expectedRaw from header', { headerName: OPTIMISTIC_LOCK_HEADER_NAME, value: expectedRaw, allHeaderNames: Array.from(input.requestHeaders.keys()) })
     const resolvedExpected = await resolveExpected({
       expectedFromHeader: expectedRaw,
       resourceKind: input.resourceKind,
       resourceId: input.resourceId,
     })
     if (resolvedExpected == null) {
+      log('skip: resolvedExpected null')
       return { ok: true, shouldRunAfterSuccess: false }
     }
 
     const expectedIso = normalizeIsoToken(resolvedExpected)
     if (expectedIso == null) {
+      log('skip: expectedIso null', resolvedExpected)
       return { ok: true, shouldRunAfterSuccess: false }
     }
 
@@ -212,14 +225,18 @@ export function createOptimisticLockGuardService(
       tenantId: input.tenantId,
       organizationId: input.organizationId ?? null,
     })
+    log('reader returned currentRaw', currentRaw)
     if (currentRaw == null) {
+      log('skip: currentRaw null')
       return { ok: true, shouldRunAfterSuccess: false }
     }
     const currentIso = normalizeIsoToken(currentRaw)
     if (currentIso == null) {
+      log('skip: currentIso null')
       return { ok: true, shouldRunAfterSuccess: false }
     }
 
+    log('compare', { expectedIso, currentIso, match: currentIso === expectedIso })
     if (currentIso === expectedIso) {
       return { ok: true, shouldRunAfterSuccess: false }
     }
