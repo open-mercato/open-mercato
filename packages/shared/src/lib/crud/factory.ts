@@ -2096,8 +2096,10 @@ export function makeCrudRoute<TCreate = any, TUpdate = any, TList = any>(opts: C
   }
 
   async function PUT(request: Request) {
+    console.log('[crud-factory.PUT] entry', { url: request.url, resourceKind })
     try {
       const useCommand = !!opts.actions?.update
+      console.log('[crud-factory.PUT] useCommand', useCommand, { hasActionsUpdate: !!opts.actions?.update, hasUpdate: !!opts.update })
       if (!opts.update && !useCommand) return json({ error: 'Not implemented' }, { status: 501 })
       const ctx = await withCtx(request)
       if (!ctx.auth) return json({ error: 'Unauthorized' }, { status: 401 })
