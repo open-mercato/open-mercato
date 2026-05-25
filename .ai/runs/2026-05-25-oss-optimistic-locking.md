@@ -204,5 +204,5 @@ request, for the architectural decision log.
 
 - [x] 6.1 Per-package unit tests pass (shared optimistic-lock 20/20; ui optimisticLock 10/10; full shared suite 935/935; 6 pre-existing `@open-mercato/cache` resolution failures exist on develop too)
 - [x] 6.2 Targeted validation gate: i18n:check-sync ✓; i18n:check-usage ✓ (only advisory unused keys); shared+ui builds ✓; typecheck shared 0 errors, ui 2 errors (pre-existing `#generated/entities.ids.generated` only), core 192 errors (all pre-existing `#generated` resolution); no new errors from this PR.
-- [ ] 6.3 PR opened with feature + review labels
-- [ ] 6.4 Decision-matrix comment posted
+- [x] 6.3 PR opened with feature + review + needs-qa labels — PR #2055
+- [x] 6.4 Decision-matrix comment posted to PR #2055
