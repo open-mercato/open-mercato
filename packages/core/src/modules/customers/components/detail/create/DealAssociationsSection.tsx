@@ -47,7 +47,7 @@ export function DealAssociationsSection({
       title={tr('customers.deals.create.sections.associations.title', 'Associations')}
       subtitle={tr('customers.deals.create.sections.associations.subtitle', 'Link people and companies to this deal')}
     >
-      <DealFormField label={tr('customers.people.detail.deals.fields.people', 'People')}>
+      <DealFormField fieldId="personIds" label={tr('customers.people.detail.deals.fields.people', 'People')}>
         <DealAssociationsField
           kind="people"
           value={personIds}
@@ -56,7 +56,7 @@ export function DealAssociationsSection({
           labels={peopleLabels}
         />
       </DealFormField>
-      <DealFormField label={tr('customers.people.detail.deals.fields.companies', 'Companies')}>
+      <DealFormField fieldId="companyIds" label={tr('customers.people.detail.deals.fields.companies', 'Companies')}>
         <DealAssociationsField
           kind="companies"
           value={companyIds}

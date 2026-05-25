@@ -51,6 +51,7 @@ export function DealDetailsFields({
   return (
     <>
       <DealFormField
+        fieldId="title"
         label={tr('customers.deals.create.fields.title', 'Deal title')}
         required
         hint={tr('customers.deals.create.hints.title', 'Short, descriptive name shown on pipeline cards')}
@@ -65,7 +66,7 @@ export function DealDetailsFields({
       </DealFormField>
 
       <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
-        <DealFormField label={tr('customers.people.detail.deals.fields.status', 'Status')}>
+        <DealFormField fieldId="status" label={tr('customers.people.detail.deals.fields.status', 'Status')}>
           <DictionarySelectField
             kind="deal-statuses"
             value={values.status || undefined}
@@ -75,7 +76,7 @@ export function DealDetailsFields({
             showActiveAppearance={false}
           />
         </DealFormField>
-        <DealFormField label={tr('customers.people.detail.deals.fields.pipeline', 'Pipeline')}>
+        <DealFormField fieldId="pipelineId" label={tr('customers.people.detail.deals.fields.pipeline', 'Pipeline')}>
           <PipelineSelect
             pipelines={pipelines}
             value={values.pipelineId}
@@ -87,6 +88,7 @@ export function DealDetailsFields({
       </div>
 
       <DealFormField
+        fieldId="pipelineStageId"
         label={tr('customers.people.detail.deals.fields.pipelineStage', 'Pipeline stage')}
         hint={tr('customers.deals.create.hints.pipelineStage', 'Stages depend on the selected pipeline')}
       >
@@ -104,6 +106,7 @@ export function DealDetailsFields({
 
       <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
         <DealFormField
+          fieldId="valueAmount"
           label={tr('customers.deals.create.fields.valueAmount', 'Deal value')}
           hint={tr('customers.deals.create.hints.valueAmount', 'Potential revenue from this opportunity')}
           error={errors.valueAmount}
@@ -118,7 +121,7 @@ export function DealDetailsFields({
             disabled={isSubmitting}
           />
         </DealFormField>
-        <DealFormField label={tr('customers.people.detail.deals.fields.valueCurrency', 'Currency')}>
+        <DealFormField fieldId="valueCurrency" label={tr('customers.people.detail.deals.fields.valueCurrency', 'Currency')}>
           <DealCurrencyField
             value={values.valueCurrency}
             onChange={(code) => patch({ valueCurrency: code })}
@@ -129,6 +132,7 @@ export function DealDetailsFields({
 
       <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
         <DealFormField
+          fieldId="probability"
           label={tr('customers.deals.create.fields.probability', 'Probability')}
           hint={tr('customers.deals.create.hints.probability', '0 – 100%, used for weighted pipeline value')}
           error={errors.probability}
@@ -143,7 +147,7 @@ export function DealDetailsFields({
             disabled={isSubmitting}
           />
         </DealFormField>
-        <DealFormField label={tr('customers.deals.create.fields.expectedCloseAt', 'Expected close date')}>
+        <DealFormField fieldId="expectedCloseAt" label={tr('customers.deals.create.fields.expectedCloseAt', 'Expected close date')}>
           <DatePicker
             value={toDate(values.expectedCloseAt)}
             onChange={(date) => patch({ expectedCloseAt: date ? format(date, 'yyyy-MM-dd') : '' })}
@@ -153,7 +157,7 @@ export function DealDetailsFields({
         </DealFormField>
       </div>
 
-      <DealFormField label={tr('customers.people.detail.deals.fields.description', 'Description')}>
+      <DealFormField fieldId="description" label={tr('customers.people.detail.deals.fields.description', 'Description')}>
         <Textarea
           value={values.description}
           onChange={(event) => patch({ description: event.target.value })}

@@ -134,11 +134,19 @@ test.describe('TC-CRM-071: Create deal (UX redesign)', () => {
       await expect(page.getByRole('button', { name: `Remove ${companyName}` })).toBeVisible();
 
       // Submit via the primary "Create deal" action. The header and footer both render one,
-      // so target the first (header) button explicitly.
+      // so target the first (header) button explicitly. Wait for the POST to confirm the
+      // mutation landed before asserting navigation — under CI load the client redirect can
+      // lag behind the click, which made a bare URL assertion flaky.
+      const createDealResponsePromise = page.waitForResponse((response) => {
+        const url = new URL(response.url());
+        return response.request().method() === 'POST' && url.pathname === '/api/customers/deals';
+      });
       await page.getByRole('button', { name: 'Create deal', exact: true }).first().click();
+      const createDealResponse = await createDealResponsePromise;
+      expect(createDealResponse.status(), `POST /api/customers/deals returned ${createDealResponse.status()}`).toBe(201);
 
       // Success → navigate back to the deals list (the list heading renders at level 2).
-      await expect(page).toHaveURL(/\/backend\/customers\/deals$/, { timeout: 15_000 });
+      await expect(page).toHaveURL(/\/backend\/customers\/deals$/, { timeout: 30_000 });
       await expect(page.getByRole('heading', { name: 'Deals' })).toBeVisible();
 
       // Verify the new deal is listed (search by its unique title).
