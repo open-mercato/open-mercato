@@ -3,7 +3,7 @@
  */
 
 import * as React from 'react'
-import { render, screen, waitFor } from '@testing-library/react'
+import { act, render, screen, waitFor } from '@testing-library/react'
 import { UpgradeActionBanner } from '../upgrades/UpgradeActionBanner'
 import { BackendChromeProvider } from '../BackendChromeProvider'
 import { apiCall } from '../utils/apiCall'
@@ -73,7 +73,9 @@ describe('UpgradeActionBanner — feature guard', () => {
 
     render(<UpgradeActionBanner />)
 
-    await new Promise((r) => setTimeout(r, 50))
+    await act(async () => {
+      await new Promise((r) => setTimeout(r, 50))
+    })
 
     expect(screen.queryByText('Install now')).toBeNull()
     expect(apiCall).not.toHaveBeenCalledWith('/api/configs/upgrade-actions')
