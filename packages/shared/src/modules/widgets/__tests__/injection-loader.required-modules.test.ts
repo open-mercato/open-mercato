@@ -173,4 +173,25 @@ describe('Injection loader — requiredModules gating (#1849)', () => {
     expect(ids).toContain(ALWAYS_AVAILABLE_WIDGET_ID)
     expect(ids).not.toContain(REQUIRES_AI_WIDGET_ID)
   })
+
+  it('loads wildcard spot entries without regex pattern execution', async () => {
+    invalidateInjectionWidgetCache()
+    registerCoreInjectionWidgets([
+      makeWidgetEntry('host', 'host/widgets/injection/always-available/widget.ts', async () => alwaysAvailableWidget),
+    ])
+    registerCoreInjectionTables([
+      {
+        moduleId: 'host',
+        table: {
+          'data-table:host.*:search-trailing': [
+            { widgetId: ALWAYS_AVAILABLE_WIDGET_ID, priority: 50 },
+          ],
+        },
+      },
+    ])
+    registerEnabledModuleIds(['host'])
+
+    const loaded = await loadInjectionWidgetsForSpot(HOST_SPOT_ID)
+    expect(loaded.map((widget) => widget.metadata.id)).toEqual([ALWAYS_AVAILABLE_WIDGET_ID])
+  })
 })

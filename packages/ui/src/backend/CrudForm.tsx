@@ -77,8 +77,9 @@ import { buildFormFieldsFromCustomFields, buildFormFieldFromCustomFieldDef } fro
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { TagsInput } from './inputs/TagsInput'
 import { ComboboxInput } from './inputs/ComboboxInput'
-import { format, parseISO } from 'date-fns'
-import type { Locale } from 'date-fns'
+import { format } from 'date-fns/format'
+import { parseISO } from 'date-fns/parseISO'
+import type { Locale } from 'date-fns/locale'
 import { DateTimePicker } from './inputs/DateTimePicker'
 import { TimePicker } from './inputs/TimePicker'
 import { DatePicker } from './inputs/DatePicker'
@@ -116,6 +117,14 @@ const CRUDFORM_EXTENDED_EVENTS_ENABLED = parseBooleanWithDefault(
   process.env.NEXT_PUBLIC_OM_CRUDFORM_EXTENDED_EVENTS_ENABLED,
   true,
 )
+
+function evaluateFieldVisibility(
+  visibleWhen: { field: string; equals: string | number | boolean } | undefined,
+  values: Record<string, unknown>,
+): boolean {
+  if (!visibleWhen) return true
+  return values[visibleWhen.field] === visibleWhen.equals
+}
 
 function isFormControlTarget(target: EventTarget | null): boolean {
   if (!target || typeof (target as Element).tagName !== 'string') return false
@@ -180,6 +189,11 @@ export type CrudFieldBase = {
   placeholder?: string
   description?: React.ReactNode // inline field-level help
   required?: boolean
+  /**
+   * Simple conditional visibility for base fields.
+   * When not satisfied, the field is not rendered and is excluded from blur validation.
+   */
+  visibleWhen?: { field: string; equals: string | number | boolean }
   layout?: 'full' | 'half' | 'third'
   disabled?: boolean
   readOnly?: boolean
@@ -1082,7 +1096,13 @@ export function CrudForm<TValues extends Record<string, unknown>>({
   const dialogFooterClass = isInDialog
     ? 'sticky bottom-0 left-0 right-0 z-20 -mx-6 px-6 bg-card border-t border-border/70 py-2 sm:-mx-6 sm:px-6'
     : ''
-  const dialogFormPadding = isInDialog ? 'pb-4' : ''
+  // No bottom padding on the dialog form. The previous `pb-20` left an 80px gap below
+  // the sticky footer in every dialog whose content fit the viewport (the form sized to
+  // content + 80px with the footer as its last child) — visible as empty white space at
+  // the bottom of Quick deal, Add stage, Activity composer, etc. The sticky footer
+  // handles the overflow case on its own: when content scrolls, the footer stays pinned
+  // to the dialog's bottom and the user can scroll fields above it.
+  const dialogFormPadding = ''
 
   const buildCustomFieldsManageHref = React.useCallback(
     (targetEntityId: string | null) => {
@@ -1545,6 +1565,17 @@ export function CrudForm<TValues extends Record<string, unknown>>({
     }
   }, [values])
 
+  const hiddenBaseFieldIds = React.useMemo(() => {
+    const hidden = new Set<string>()
+    const recordValues = values as Record<string, unknown>
+    for (const field of fields) {
+      if (!evaluateFieldVisibility(field.visibleWhen, recordValues)) {
+        hidden.add(field.id)
+      }
+    }
+    return hidden
+  }, [fields, values])
+
   const hiddenInjectedFieldIds = React.useMemo(() => {
     const hidden = new Set<string>()
     for (const definition of injectedFieldDefinitions) {
@@ -1610,7 +1641,7 @@ export function CrudForm<TValues extends Record<string, unknown>>({
     if (formReadOnly) return
     const field = fieldById.get(fieldId)
     if (!field || field.disabled) return
-    if (hiddenInjectedFieldIds.has(fieldId)) return
+    if (hiddenBaseFieldIds.has(fieldId) || hiddenInjectedFieldIds.has(fieldId)) return
 
     const nextValues = sourceValues ?? valuesRef.current
     const nextFieldErrors: Record<string, string> = {}
@@ -1717,6 +1748,7 @@ export function CrudForm<TValues extends Record<string, unknown>>({
     customEntity,
     fieldById,
     formReadOnly,
+    hiddenBaseFieldIds,
     hiddenInjectedFieldIds,
     injectedFieldIdSet,
     mapDefsForValidation,
@@ -2291,7 +2323,7 @@ export function CrudForm<TValues extends Record<string, unknown>>({
     for (const field of allFields) {
       if (!field.required) continue
       if (field.disabled) continue
-      if (hiddenInjectedFieldIds.has(field.id)) continue
+      if (hiddenBaseFieldIds.has(field.id) || hiddenInjectedFieldIds.has(field.id)) continue
       const v = values[field.id]
       const isArray = Array.isArray(v)
       const isString = typeof v === 'string'
@@ -3257,6 +3289,7 @@ export function CrudForm<TValues extends Record<string, unknown>>({
             ) : null}
             <div className={grid}>
               {allFields.map((f) => {
+                if (hiddenBaseFieldIds.has(f.id) || hiddenInjectedFieldIds.has(f.id)) return null
                 const layout = f.layout ?? 'full'
                 const wrapperClassName = usesResponsiveLayout ? resolveLayoutClass(layout) : undefined
                 return (

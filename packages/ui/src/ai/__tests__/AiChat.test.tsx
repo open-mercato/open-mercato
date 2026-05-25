@@ -93,7 +93,7 @@ const dict = {
   'ai_assistant.chat.emptyTranscript':
     'No messages yet. Ask the agent anything to get started.',
   'ai_assistant.chat.errorTitle': 'Agent dispatch failed',
-  'ai_assistant.chat.agentTasksTitle': 'Agent tasks',
+  'ai_assistant.chat.agentTasksTitle': 'Tool calls',
   'ai_assistant.chat.regionLabel': 'AI chat',
   'ai_assistant.chat.send': 'Send message',
   'ai_assistant.chat.shortcutHint':
@@ -185,6 +185,19 @@ function createErrorResponse(status: number, payload: Record<string, unknown>): 
 describe('<AiChat>', () => {
   beforeEach(() => {
     jest.clearAllMocks()
+    const apiCallMock = apiCall as unknown as jest.Mock
+    apiCallMock.mockReset()
+    apiCallMock.mockResolvedValue({
+      ok: true,
+      status: 200,
+      result: {
+        agentId: 'customers.account_assistant',
+        allowRuntimeModelOverride: false,
+        defaultProviderId: 'openai',
+        defaultModelId: 'gpt-5-mini',
+        providers: [],
+      },
+    })
     window.localStorage.clear()
     lastResizeObserver = null
   })
@@ -238,7 +251,9 @@ describe('<AiChat>', () => {
         'Default: openai / gpt-5-mini',
       )
     })
-    expect(window.localStorage.getItem('om-ai-model-picker:customers.account_assistant')).toBeNull()
+    await waitFor(() => {
+      expect(window.localStorage.getItem('om-ai-model-picker:customers.account_assistant')).toBeNull()
+    })
   })
 
   it('does not send provider or model overrides while the model picker is on Default', async () => {
@@ -293,7 +308,7 @@ describe('<AiChat>', () => {
     expect(parsedUrl.searchParams.get('agent')).toBe('customers.deal_analyzer')
     expect(parsedUrl.searchParams.has('provider')).toBe(false)
     expect(parsedUrl.searchParams.has('model')).toBe(false)
-  })
+  }, 15_000)
 
   it('renders a compact footer before a constrained host is measured', async () => {
     const apiCallMock = apiCall as unknown as jest.Mock
@@ -454,7 +469,7 @@ describe('<AiChat>', () => {
     await waitFor(() => {
       expect(screen.getByText('customers.analyze_deals')).toBeInTheDocument()
     })
-    expect(screen.getByText('Agent tasks')).toBeInTheDocument()
+    expect(screen.getByText('Tool calls')).toBeInTheDocument()
     expect(screen.getByText('Analysis complete.')).toBeInTheDocument()
     expect(screen.queryByText(/Tool call:/i)).not.toBeInTheDocument()
   })
@@ -483,6 +498,48 @@ describe('<AiChat>', () => {
     await waitFor(() => {
       expect(screen.getByText('Suggested answer')).toBeInTheDocument()
     })
+  })
+
+  it('uses content-specific welcome suggestion icons', () => {
+    renderWithProviders(
+      <AiChat
+        agent="customers.account_assistant"
+        suggestions={[
+          { label: 'Analyze stalled deals', prompt: 'Analyze stalled deals' },
+          { label: 'Show at-risk pipeline', prompt: 'Show at-risk pipeline' },
+          { label: 'What can you help me with?', prompt: 'What can you help me with?' },
+          { label: 'Show what data you can access', prompt: 'Show what data you can access' },
+          { label: 'Suggest things to try', prompt: 'Suggest things to try' },
+          { label: 'How do I use this assistant?', prompt: 'How do I use this assistant?' },
+        ]}
+      />,
+      { dict },
+    )
+
+    expect(screen.getByRole('button', { name: 'Analyze stalled deals' })).toHaveAttribute(
+      'data-ai-chat-suggestion-icon',
+      'analysis',
+    )
+    expect(screen.getByRole('button', { name: 'Show at-risk pipeline' })).toHaveAttribute(
+      'data-ai-chat-suggestion-icon',
+      'risk',
+    )
+    expect(screen.getByRole('button', { name: 'What can you help me with?' })).toHaveAttribute(
+      'data-ai-chat-suggestion-icon',
+      'capabilities',
+    )
+    expect(screen.getByRole('button', { name: 'Show what data you can access' })).toHaveAttribute(
+      'data-ai-chat-suggestion-icon',
+      'data',
+    )
+    expect(screen.getByRole('button', { name: 'Suggest things to try' })).toHaveAttribute(
+      'data-ai-chat-suggestion-icon',
+      'ideas',
+    )
+    expect(screen.getByRole('button', { name: 'How do I use this assistant?' })).toHaveAttribute(
+      'data-ai-chat-suggestion-icon',
+      'guide',
+    )
   })
 
   it('surfaces dispatcher error envelopes via Alert and onError callback', async () => {

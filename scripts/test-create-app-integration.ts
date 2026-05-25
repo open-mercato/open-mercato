@@ -1,6 +1,8 @@
 import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
+import { spawn, type ChildProcessWithoutNullStreams } from 'node:child_process'
+import { setTimeout as delay } from 'node:timers/promises'
 import { fileURLToPath } from 'node:url'
 
 import { createAppBin, createStandaloneInstallEnv, ensureVerdaccioPublished, VERDACCIO_URL, runCommand } from './lib/verdaccio'
@@ -14,6 +16,13 @@ const green = (value: string) => `\x1b[32m${value}\x1b[0m`
 const cyan = (value: string) => `\x1b[36m${value}\x1b[0m`
 const yellow = (value: string) => `\x1b[33m${value}\x1b[0m`
 const red = (value: string) => `\x1b[31m${value}\x1b[0m`
+
+type EphemeralEnvState = {
+  status?: string
+  baseUrl?: string
+  port?: number
+}
+
 function assertExists(filePath: string, label: string): void {
   if (!fs.existsSync(filePath)) {
     throw new Error(`${label} is missing: ${filePath}`)
@@ -72,11 +81,97 @@ function writeStandaloneEnv(appDir: string): void {
   fs.writeFileSync(envPath, `${envLines.join('\n')}\n`)
 }
 
+function rootIntegrationArgs(): string[] {
+  const separator = process.argv.indexOf('--')
+  const rawArgs = separator === -1 ? process.argv.slice(2) : process.argv.slice(separator + 1)
+  return rawArgs.filter((arg) => arg !== '--cleanup')
+}
+
+async function waitForStandaloneEphemeralApp(params: {
+  appDir: string
+  env: NodeJS.ProcessEnv
+}): Promise<{
+  process: ChildProcessWithoutNullStreams
+  baseUrl: string
+  databaseUrl: string
+}> {
+  const statePath = path.join(params.appDir, '.ai', 'qa', 'ephemeral-env.json')
+  try {
+    fs.rmSync(statePath, { force: true })
+  } catch {}
+
+  let databaseUrl: string | null = null
+  let exited: { code: number | null; signal: NodeJS.Signals | null } | null = null
+  let outputBuffer = ''
+  const child = spawn('yarn', ['mercato', 'test:ephemeral', '--no-reuse-env', '--no-screenshots'], {
+    cwd: params.appDir,
+    env: { ...process.env, ...params.env },
+    stdio: ['ignore', 'pipe', 'pipe'],
+  })
+
+  const handleOutput = (chunk: Buffer): void => {
+    const text = chunk.toString()
+    process.stdout.write(text)
+    outputBuffer = `${outputBuffer}${text}`.slice(-2_000)
+    const match = outputBuffer.match(/Ephemeral database ready at ([^\s:]+):(\d+)/)
+    if (match) {
+      databaseUrl = `postgres://mercato:secret@${match[1]}:${match[2]}/mercato_test`
+    }
+  }
+  child.stdout.on('data', handleOutput)
+  child.stderr.on('data', handleOutput)
+  child.on('exit', (code, signal) => {
+    exited = { code, signal }
+  })
+
+  const deadline = Date.now() + 240_000
+  while (Date.now() < deadline) {
+    if (exited) {
+      throw new Error(`Standalone ephemeral app exited before readiness (code ${exited.code ?? 'unknown'}, signal ${exited.signal ?? 'none'})`)
+    }
+
+    if (fs.existsSync(statePath)) {
+      try {
+        const state = readJson<EphemeralEnvState>(statePath)
+        if (state.status === 'running' && state.baseUrl && databaseUrl) {
+          return {
+            process: child,
+            baseUrl: state.baseUrl,
+            databaseUrl,
+          }
+        }
+      } catch {}
+    }
+    await delay(500)
+  }
+
+  throw new Error('Timed out waiting for standalone ephemeral app readiness and database URL')
+}
+
+async function stopStandaloneEphemeralApp(child: ChildProcessWithoutNullStreams | null): Promise<void> {
+  if (!child || child.killed || child.exitCode !== null) return
+
+  const closed = new Promise<void>((resolve) => {
+    child.once('close', () => resolve())
+  })
+  child.kill('SIGTERM')
+  await Promise.race([
+    closed,
+    delay(30_000).then(() => {
+      if (!child.killed && child.exitCode === null) {
+        child.kill('SIGKILL')
+      }
+    }),
+  ])
+}
+
 async function main(): Promise<void> {
   const cleanup = process.argv.includes('--cleanup')
+  const testArgs = rootIntegrationArgs()
   const tempRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'create-mercato-app-integration-'))
   const appDir = path.join(tempRoot, 'standalone-app')
   const standaloneInstallEnv = createStandaloneInstallEnv(tempRoot)
+  let standaloneProcess: ChildProcessWithoutNullStreams | null = null
 
   const integrationEnv: NodeJS.ProcessEnv = {
     APP_URL: 'http://localhost:3000',
@@ -120,14 +215,32 @@ async function main(): Promise<void> {
       cwd: appDir,
       env: standaloneInstallEnv,
     })
-    runCommand('yarn', ['test:integration:ephemeral', '--no-reuse-env'], {
-      cwd: appDir,
+
+    const standalone = await waitForStandaloneEphemeralApp({
+      appDir,
       env: integrationEnv,
+    })
+    standaloneProcess = standalone.process
+
+    console.log(cyan(`Running monorepo integration tests against standalone app at ${standalone.baseUrl}`))
+    if (testArgs.length > 0) {
+      console.log(cyan(`Playwright args: ${testArgs.join(' ')}`))
+    }
+    runCommand('yarn', ['test:integration', ...testArgs], {
+      cwd: ROOT,
+      env: {
+        ...integrationEnv,
+        BASE_URL: standalone.baseUrl,
+        APP_URL: standalone.baseUrl,
+        NEXT_PUBLIC_APP_URL: standalone.baseUrl,
+        DATABASE_URL: standalone.databaseUrl,
+        OM_TEST_APP_ROOT: appDir,
+      },
     })
 
     assertExists(
-      path.join(appDir, '.ai', 'qa', 'test-results', 'results.json'),
-      'Standalone integration results written',
+      path.join(ROOT, '.ai', 'qa', 'test-results', 'results.json'),
+      'Monorepo integration results written',
     )
 
     console.log(green('\ncreate-mercato-app standalone integration test passed'))
@@ -135,6 +248,8 @@ async function main(): Promise<void> {
     console.log(yellow(`Standalone app dependencies were installed from Verdaccio at ${VERDACCIO_URL}.`))
 
     if (cleanup) {
+      await stopStandaloneEphemeralApp(standaloneProcess)
+      standaloneProcess = null
       fs.rmSync(tempRoot, { recursive: true, force: true })
       console.log(yellow(`Cleaned up ${tempRoot}`))
     } else {
@@ -144,7 +259,9 @@ async function main(): Promise<void> {
     console.error(red('\ncreate-mercato-app standalone integration test failed'))
     console.error(error instanceof Error ? error.message : String(error))
     console.error(yellow(`Temporary app preserved at: ${appDir}`))
-    process.exit(1)
+    process.exitCode = 1
+  } finally {
+    await stopStandaloneEphemeralApp(standaloneProcess)
   }
 }
 

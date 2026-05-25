@@ -1,7 +1,7 @@
 "use client"
 
 import * as React from 'react'
-import { useRouter } from 'next/navigation'
+import { useRouter, useSearchParams } from 'next/navigation'
 import { Page, PageBody } from '@open-mercato/ui/backend/Page'
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
 import { createCrud } from '@open-mercato/ui/backend/utils/crud'
@@ -9,15 +9,34 @@ import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { DealForm, type DealFormSubmitPayload } from '../../../../components/detail/DealForm'
 import { useCurrencyDictionary } from '../../../../components/detail/hooks/useCurrencyDictionary'
 
+const DEFAULT_RETURN_TO = '/backend/customers/deals'
+
+/**
+ * Only honor `returnTo` when it points back into the deals area of the backoffice.
+ * Without the prefix guard, this would be a textbook open-redirect: an attacker could
+ * craft `/backend/customers/deals/create?returnTo=https://evil.example.com` and the
+ * page would happily navigate the operator off-product after a successful save.
+ */
+function resolveReturnTo(value: string | null | undefined): string {
+  if (!value) return DEFAULT_RETURN_TO
+  if (!value.startsWith('/backend/customers/deals')) return DEFAULT_RETURN_TO
+  return value
+}
+
 export default function CreateDealPage() {
   const t = useT()
   const router = useRouter()
+  const searchParams = useSearchParams()
+  const returnTo = React.useMemo(
+    () => resolveReturnTo(searchParams?.get('returnTo') ?? null),
+    [searchParams],
+  )
   const [isSubmitting, setIsSubmitting] = React.useState(false)
   useCurrencyDictionary()
 
   const handleCancel = React.useCallback(() => {
-    router.push('/backend/customers/deals')
-  }, [router])
+    router.push(returnTo)
+  }, [router, returnTo])
 
   const handleSubmit = React.useCallback(
     async ({ base, custom }: DealFormSubmitPayload) => {
@@ -44,7 +63,7 @@ export default function CreateDealPage() {
           errorMessage: t('customers.deals.create.error', 'Failed to create deal.'),
         })
         flash(t('customers.people.detail.deals.success', 'Deal created.'), 'success')
-        router.push('/backend/customers/deals')
+        router.push(returnTo)
       } catch (err) {
         const message =
           err instanceof Error
@@ -56,7 +75,7 @@ export default function CreateDealPage() {
         setIsSubmitting(false)
       }
     },
-    [isSubmitting, router, t],
+    [isSubmitting, returnTo, router, t],
   )
 
   return (
@@ -70,7 +89,7 @@ export default function CreateDealPage() {
           submitLabel={t('customers.deals.create.submit', 'Create deal')}
           embedded={false}
           title={t('customers.deals.create.title', 'Create deal')}
-          backHref="/backend/customers/deals"
+          backHref={returnTo}
         />
       </PageBody>
     </Page>

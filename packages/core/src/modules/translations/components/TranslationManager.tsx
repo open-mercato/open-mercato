@@ -69,6 +69,7 @@ export function TranslationManager({
   const [editedTranslations, setEditedTranslations] = React.useState<Record<string, Record<string, string>>>({})
   const editedTranslationsRef = React.useRef<Record<string, Record<string, string>>>({})
   const [hasUserEdited, setHasUserEdited] = React.useState(false)
+  const hasUserEditedRef = React.useRef(false)
 
   const entityType = isEmbedded ? (propEntityType ?? '') : selectedEntityType
   const recordId = isEmbedded ? (propRecordId ?? '') : selectedRecordId
@@ -191,11 +192,11 @@ export function TranslationManager({
 
   React.useEffect(() => {
     const sig = translationSignature
-    if (sig === lastTranslationSignatureRef.current && hasUserEdited) return
+    if (sig === lastTranslationSignatureRef.current && hasUserEditedRef.current) return
     lastTranslationSignatureRef.current = sig
 
     if (!translationData?.translations) {
-      if (!hasUserEdited) {
+      if (!hasUserEditedRef.current) {
         editedTranslationsRef.current = {}
         setEditedTranslations({})
       }
@@ -210,11 +211,11 @@ export function TranslationManager({
         parsed[locale][key] = typeof val === 'string' ? val : ''
       }
     }
-    if (!hasUserEdited) {
+    if (!hasUserEditedRef.current) {
       editedTranslationsRef.current = parsed
       setEditedTranslations(parsed)
     }
-  }, [translationSignature, translationData, hasUserEdited])
+  }, [translationSignature, translationData])
 
   const mutation = useMutation({
     mutationFn: async () => {
@@ -252,6 +253,7 @@ export function TranslationManager({
     },
     onSuccess: () => {
       flash(t('translations.manager.flash.saved', 'Translations saved'), 'success')
+      hasUserEditedRef.current = false
       setHasUserEdited(false)
       void refetchTranslation()
     },
@@ -262,6 +264,7 @@ export function TranslationManager({
   })
 
   const updateFieldValue = (locale: string, fieldKey: string, value: string) => {
+    hasUserEditedRef.current = true
     setHasUserEdited(true)
     const next = {
       ...editedTranslationsRef.current,
@@ -288,6 +291,7 @@ export function TranslationManager({
           value={selectedRecordId}
           onChange={(next) => {
             setSelectedRecordId(next)
+            hasUserEditedRef.current = false
             setHasUserEdited(false)
           }}
           placeholder={t('translations.manager.searchRecords', 'Search records...')}
@@ -482,6 +486,7 @@ export function TranslationManager({
                     onChange={(next) => {
                       setSelectedEntityType(next)
                       setSelectedRecordId('')
+                      hasUserEditedRef.current = false
                       setHasUserEdited(false)
                     }}
                     placeholder={t('translations.manager.placeholder', 'Select an entity')}

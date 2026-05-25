@@ -979,7 +979,7 @@ export function makeCrudRoute<TCreate = any, TUpdate = any, TList = any>(opts: C
       organizationId: ctx.selectedOrganizationId ?? ctx.auth.orgId ?? '',
       tenantId: ctx.auth.tenantId ?? '',
       userId: ctx.auth.sub,
-      em: ctx.container.resolve('em'),
+      em: ctx.container.resolve('em') as EntityManager,
       container: ctx.container,
       userFeatures,
     }
@@ -1009,7 +1009,7 @@ export function makeCrudRoute<TCreate = any, TUpdate = any, TList = any>(opts: C
       userId: ctx.auth.sub,
       organizationId: ctx.selectedOrganizationId ?? ctx.auth.orgId ?? '',
       tenantId: ctx.auth.tenantId ?? '',
-      em: ctx.container.resolve('em'),
+      em: ctx.container.resolve('em') as EntityManager,
       container: ctx.container,
       userFeatures: await resolveUserFeatures(ctx),
     }

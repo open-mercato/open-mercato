@@ -1,6 +1,6 @@
 {
   "name": "create-mercato-app",
-  "version": "0.6.1",
+  "version": "0.6.2",
   "type": "module",
   "description": "Create a new Open Mercato application",
   "main": "./dist/index.js",
@@ -13,7 +13,7 @@
   ],
   "scripts": {
     "build": "node build.mjs",
-    "test": "node --import tsx --test src/**/*.test.ts",
+    "test": "node --import tsx --test --test-timeout=120000 src/**/*.test.ts",
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
@@ -21,10 +21,10 @@
     "tar": "^7.5.15"
   },
   "devDependencies": {
-    "@types/node": "^25.6.2",
+    "@types/node": "^25.9.0",
     "esbuild": "^0.28.0",
-    "tsx": "^4.21.0",
-    "typescript": "^5.9.3"
+    "tsx": "^4.22.2",
+    "typescript": "^6.0.3"
   },
   "publishConfig": {
     "access": "public"

@@ -19,7 +19,7 @@ export class User {
   emailHash?: string | null
 
   @Property({ type: 'text', nullable: true })
-  name?: string
+  name?: string | null
 
   @Property({ name: 'password_hash', type: 'text', nullable: true })
   passwordHash?: string | null

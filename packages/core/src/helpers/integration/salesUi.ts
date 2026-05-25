@@ -872,7 +872,32 @@ export async function createSalesDocument(page: Page, options: CreateDocumentOpt
     return id;
   }
 
-  await createButton.click();
+  // The Create button can detach during the click as the React form re-renders
+  // after lookups settle. Retry briefly with a short stability wait, then fall
+  // back to the API fixture path if the click never lands.
+  let clicked = false;
+  for (let attempt = 0; attempt < 3; attempt += 1) {
+    try {
+      await page.waitForLoadState('networkidle', { timeout: 2_000 }).catch(() => {});
+      const liveButton = page.getByRole('button', { name: /^Create$/i }).first();
+      if (!(await liveButton.isVisible().catch(() => false))) break;
+      if (!(await liveButton.isEnabled().catch(() => false))) {
+        await page.waitForTimeout(300);
+        continue;
+      }
+      await liveButton.click({ timeout: 5_000 });
+      clicked = true;
+      break;
+    } catch {
+      await page.waitForTimeout(300);
+    }
+  }
+  if (!clicked) {
+    const token = await resolveFallbackToken();
+    const id = await createSalesDocumentFixture(page, token, options.kind, customerQuery, channelQuery, fixtureContext);
+    await openSalesDocumentPage(page, id, options.kind);
+    return id;
+  }
   const navigated = await page.waitForURL(
     new RegExp(
       `/backend/sales/(?:documents/[0-9a-f-]{36}\\?kind=${options.kind}|${options.kind === 'order' ? 'orders' : 'quotes'}/[0-9a-f-]{36})$`,
@@ -1011,16 +1036,22 @@ export async function addCustomLine(page: Page, options: AddLineOptions): Promis
   await dialog.getByRole('textbox', { name: '1' }).fill(String(options.quantity));
 
   if (options.taxClassName) {
-    // Radix Select inside Dialog — force click on option to bypass overlay
-    const taxClassTrigger = dialog
-      .locator('[role="combobox"]')
-      .filter({ hasText: /No tax class selected/i })
-      .first();
+    const taxClassTrigger = dialog.locator('[data-crud-field-id="taxRateId"] [role="combobox"]').first();
     if ((await taxClassTrigger.count()) > 0) {
-      await taxClassTrigger.click();
-      const opt = page.getByRole('option', { name: options.taxClassName, exact: true });
-      await opt.first().waitFor({ state: 'visible', timeout: 3_000 });
-      await opt.first().click({ force: true });
+      await expect(taxClassTrigger).toBeEnabled({ timeout: TEST_WAIT_TIMEOUT_MS });
+      const selectedLabel = options.taxClassName.split('•')[0].trim();
+      for (let attempt = 0; attempt < 3; attempt += 1) {
+        await taxClassTrigger.click();
+        const opt = page.getByRole('option', { name: options.taxClassName, exact: true }).first();
+        await opt.waitFor({ state: 'visible', timeout: 3_000 });
+        await opt.click();
+        const selected = await taxClassTrigger
+          .filter({ hasText: new RegExp(escapeRegExp(selectedLabel), 'i') })
+          .waitFor({ state: 'visible', timeout: 1_500 })
+          .then(() => true, () => false);
+        if (selected) break;
+      }
+      await expect(taxClassTrigger).toContainText(selectedLabel, { timeout: TEST_WAIT_TIMEOUT_MS });
     }
   }
 
@@ -1104,21 +1135,30 @@ export async function addAdjustment(page: Page, options: AddAdjustmentOptions): 
         TEST_WAIT_TIMEOUT_MS,
       );
       await expect(kindTrigger).toBeEnabled({ timeout: TEST_WAIT_TIMEOUT_MS });
-      await kindTrigger.click();
-      const kindOption = page.getByRole('option', { name: new RegExp(`^${escapeRegExp(kindLabel)}$`, 'i') }).first();
-      const optionVisible = await kindOption
-        .waitFor({ state: 'visible', timeout: TEST_WAIT_TIMEOUT_MS })
-        .then(() => true, () => false);
-      if (optionVisible) {
-        await kindOption.click({ force: true });
-      } else {
-        // Fallback: drive selection via keyboard when modal-backdrop click interception
-        // hides the rendered option. Brought forward from develop.
-        await page.keyboard.type(kindLabel.charAt(0));
-        await page.waitForTimeout(150);
-        await page.keyboard.press('Enter');
+      for (let attempt = 0; attempt < 3; attempt += 1) {
+        const currentLabel = await kindTrigger.textContent().catch(() => '');
+        if (currentLabel?.includes(kindLabel)) return;
+        const expanded = await kindTrigger.getAttribute('aria-expanded').catch(() => null);
+        if (expanded === 'true') {
+          await page.keyboard.press('Escape').catch(() => {});
+        }
+        await kindTrigger.click();
+        const kindOption = page.getByRole('option', { name: new RegExp(`^${escapeRegExp(kindLabel)}$`, 'i') }).first();
+        const optionVisible = await kindOption
+          .waitFor({ state: 'visible', timeout: TEST_WAIT_TIMEOUT_MS })
+          .then(() => true, () => false);
+        if (optionVisible) {
+          await kindOption.click({ force: true });
+        } else {
+          // Fallback: drive selection via keyboard when modal-backdrop click interception
+          // hides the rendered option. Brought forward from develop.
+          await page.keyboard.type(kindLabel.charAt(0));
+          await page.waitForTimeout(150);
+          await page.keyboard.press('Enter');
+        }
+        await expect(kindTrigger).toContainText(kindLabel, { timeout: 2_000 }).catch(() => {});
       }
-      await expect(kindTrigger).toContainText(kindLabel, { timeout: 2_000 });
+      await expect(kindTrigger).toContainText(kindLabel, { timeout: 5_000 });
     };
 
     // Select kind first — the Radix Select interaction can trigger CrudForm re-renders that

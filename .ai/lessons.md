@@ -168,6 +168,16 @@ Centralize shared command utilities like undo extraction in `packages/shared/src
 
 **Applies to**: `packages/shared/src/modules/events/factory.ts` and any shared runtime singleton relied on by module auto-discovery/subscriber pipelines.
 
+## Store integration registry state in `globalThis` for standalone workers
+
+**Context**: Standalone snapshot integration tests bootstrapped `sync_excel` metadata, but the test-side queue drain loaded worker/sync-engine code through a second package module instance.
+
+**Problem**: The integration registry used module-local Maps, so `data_sync` could not resolve `sync_excel` to provider key `excel` in the worker path and fell back to the raw integration id.
+
+**Rule**: Shared runtime registries that translate module metadata for workers, CLI, or standalone parity must keep canonical mutable state in `globalThis`. Add isolated-module regression tests when fixing these paths.
+
+**Applies to**: `packages/shared/src/modules/integrations/types.ts` and similar shared registries consumed after dynamic app bootstrap.
+
 ## Feature-gated runtime helpers must use wildcard-aware permission matching
 
 **Context**: ACL wildcard grants like `customer_accounts.*` correctly passed server-side checks, but several shared UI/runtime helpers still gated behavior with exact `includes` or `Set.has` checks.
@@ -879,3 +889,13 @@ Centralize shared command utilities like undo extraction in `packages/shared/src
 **Rule**: Shared custom-field detail components must resolve values by exact field ID first, then `cf:` and bare-key fallbacks for prefixed fields. Apply the same resolver to relation-display loading and read-only rendering so select, relation, text, and boolean fields use one response-shape contract.
 
 **Applies to**: `packages/ui/src/backend/detail/CustomDataSection.tsx`, customer/company/person detail custom-data sections, and any new detail renderer consuming normalized `customFields`.
+
+## Optional chrome fetches must suppress auth redirects
+
+**Context**: Backend pages for limited roles loaded unrelated optional shell data, such as message sender options, recipient suggestions, and AI conversation history. Those auxiliary requests hit feature-gated endpoints the current user was not meant to access.
+
+**Problem**: `apiCall` redirects the whole browser to `/login?requireFeature=...` on 403 by default. Optional header/sidebar/widget fetches can therefore break an otherwise authorized page when they call APIs for another module's feature, even if the caller handles `ok: false`.
+
+**Rule**: Any optional chrome, widget, dropdown-options, background sync, or feature-discovery request that is not required to render the current page must opt out of auth redirects with `x-om-forbidden-redirect: 0` and usually `x-om-unauthorized-redirect: 0`, then degrade to an empty/hidden state on non-OK responses.
+
+**Applies to**: `packages/ui/src/backend/**`, `packages/ui/src/ai/**`, topbar/sidebar providers, notification/message/AI shell hooks, and module widgets that fetch feature-gated data opportunistically.

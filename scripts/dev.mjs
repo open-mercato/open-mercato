@@ -22,6 +22,8 @@ import {
   resolveProgressPercent,
   stripAnsi,
 } from './dev-splash-helpers.mjs'
+import { purgeAppBuildCaches } from './dev-cache-purge.mjs'
+import { killProcessTree } from './dev-shutdown-utils.mjs'
 import { resolveSpawnCommand } from './dev-spawn-utils.mjs'
 import { createDevSplashCodingFlow } from './dev-splash-coding-flow.mjs'
 import { createDevSplashGitRepoFlow } from './dev-splash-git-repo-flow.mjs'
@@ -1022,13 +1024,13 @@ function shutdown(exitCode = 0) {
   }
 
   for (const child of alive) {
-    child.kill('SIGTERM')
+    killProcessTree(child, 'SIGTERM')
   }
 
   setTimeout(() => {
     for (const child of children) {
       if (!child.killed) {
-        child.kill('SIGKILL')
+        killProcessTree(child, 'SIGKILL')
       }
     }
     closeDevLogSession()
@@ -1647,6 +1649,7 @@ async function runClassicStandardDev() {
 }
 
 async function runGreenfieldDev() {
+  purgeAppBuildCaches()
   await runStage('🧱 Greenfield build packages', ['build:packages'], { stageCurrent: 1, stageTotal: 5 })
   await runStage('🧬 Greenfield generate artifacts', ['generate'], { stageCurrent: 2, stageTotal: 5 })
   await runStage('🧱 Greenfield rebuild packages', ['build:packages'], { stageCurrent: 3, stageTotal: 5 })
@@ -1657,6 +1660,7 @@ async function runGreenfieldDev() {
 }
 
 async function runClassicGreenfieldDev() {
+  purgeAppBuildCaches()
   await runRawYarnCommand(['build:packages'])
   await runRawYarnCommand(['generate'])
   await runRawYarnCommand(['build:packages'])

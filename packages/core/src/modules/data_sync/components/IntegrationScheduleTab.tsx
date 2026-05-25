@@ -32,6 +32,8 @@ type SyncOption = {
   integrationId: string
   title: string
   direction: 'import' | 'export' | 'bidirectional'
+  runMode?: 'generic' | 'provider'
+  canStartRun?: boolean
   supportedEntities: string[]
   hasCredentials: boolean
   isEnabled: boolean
@@ -204,6 +206,10 @@ export function IntegrationScheduleTab(props: IntegrationScheduleTabProps) {
       flash(t('data_sync.integrationTab.credentialsMissing', 'Configure credentials before starting a sync.'), 'error')
       return
     }
+    if (option?.canStartRun === false) {
+      flash(t('data_sync.integrationTab.providerManaged', 'Start this integration from its provider-specific setup flow.'), 'error')
+      return
+    }
 
     setRunningKey(scheduleKey)
     try {
@@ -231,7 +237,7 @@ export function IntegrationScheduleTab(props: IntegrationScheduleTabProps) {
     } finally {
       setRunningKey(null)
     }
-  }, [props.hasCredentials, props.integrationId, props.isEnabled, schedules, t])
+  }, [option?.canStartRun, props.hasCredentials, props.integrationId, props.isEnabled, schedules, t])
 
   const handleSaveSchedule = React.useCallback(async (entityType: string, direction: 'import' | 'export', scheduleKey: string) => {
     const scheduleState = schedules[scheduleKey] ?? buildDefaultScheduleState(entityType)
@@ -369,6 +375,14 @@ export function IntegrationScheduleTab(props: IntegrationScheduleTabProps) {
         </Alert>
       ) : null}
 
+      {option.canStartRun === false ? (
+        <Alert variant="info">
+          <AlertDescription>
+            {t('data_sync.integrationTab.providerManagedNotice', 'This provider needs its own setup flow before a run can start. Use the provider tab on this page instead of generic schedules.')}
+          </AlertDescription>
+        </Alert>
+      ) : null}
+
       {rows.length === 0 ? (
         <Alert variant="info">
           <AlertDescription>
@@ -469,7 +483,7 @@ export function IntegrationScheduleTab(props: IntegrationScheduleTabProps) {
                           type="button"
                           size="sm"
                           onClick={() => void handleStartSync(row.entityType, row.direction, row.key)}
-                          disabled={controlsDisabled || !props.isEnabled || !props.hasCredentials}
+                          disabled={controlsDisabled || !props.isEnabled || !props.hasCredentials || option.canStartRun === false}
                         >
                           {isRunning ? <Spinner className="mr-2 h-4 w-4" /> : <Play className="mr-2 h-4 w-4" />}
                           {isRunning
@@ -481,7 +495,7 @@ export function IntegrationScheduleTab(props: IntegrationScheduleTabProps) {
                           size="sm"
                           variant="outline"
                           onClick={() => void handleSaveSchedule(row.entityType, row.direction, row.key)}
-                          disabled={controlsDisabled}
+                          disabled={controlsDisabled || option.canStartRun === false}
                         >
                           {isSaving ? <Spinner className="mr-2 h-4 w-4" /> : <Save className="mr-2 h-4 w-4" />}
                           {isSaving

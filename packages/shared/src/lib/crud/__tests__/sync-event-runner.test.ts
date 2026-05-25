@@ -22,6 +22,11 @@ describe('matchesEventPattern', () => {
     expect(matchesEventPattern('example.*', 'example.todo.created')).toBe(true)
     expect(matchesEventPattern('example.*', 'example.item.updated')).toBe(true)
   })
+
+  it('treats regex metacharacters as literals', () => {
+    expect(matchesEventPattern('example.(todo).*', 'example.(todo).created')).toBe(true)
+    expect(matchesEventPattern('example.+.*', 'example.todo.created')).toBe(false)
+  })
 })
 
 describe('collectSyncSubscribers', () => {

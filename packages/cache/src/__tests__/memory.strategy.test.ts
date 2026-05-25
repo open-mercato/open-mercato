@@ -234,6 +234,15 @@ describe('Memory Cache Strategy', () => {
   })
 
   describe('Statistics', () => {
+    beforeEach(() => {
+      jest.useFakeTimers()
+      jest.setSystemTime(new Date('2025-01-01T00:00:00.000Z'))
+    })
+
+    afterEach(() => {
+      jest.useRealTimers()
+    })
+
     it('should return correct statistics', async () => {
       await cache.set('key1', 'value1')
       await cache.set('key2', 'value2')
@@ -243,7 +252,7 @@ describe('Memory Cache Strategy', () => {
       expect(stats.size).toBe(3)
       expect(stats.expired).toBe(0)
 
-      await new Promise((resolve) => setTimeout(resolve, 100))
+      await jest.advanceTimersByTimeAsync(100)
 
       stats = await cache.stats()
       expect(stats.size).toBe(3)

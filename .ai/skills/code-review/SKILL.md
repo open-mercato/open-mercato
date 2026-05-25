@@ -45,6 +45,20 @@ Run these commands and verify each one exits successfully (exit code 0):
 - **No excuses**: "Pre-existing on develop", "flaky test", "not our code" are not valid reasons to skip. If it fails on your branch, it will fail on CI. Fix it or flag it as a blocker.
 - **Evidence required**: The review output MUST include the actual pass/fail result of each gate step. Do not assume — run the commands and report what happened.
 
+
+## Frontend Performance Blocking Gate
+
+For PRs touching Next.js routes, generated frontend, shared providers, backend shell UI, or heavy interactive widgets, the reviewer has blocking power for performance regressions. Request changes when any of these are true:
+
+- a Server Component was converted to a Client Component without an accepted Frontend Architecture Contract / `"use client"` ledger entry,
+- `page.tsx`, `layout.tsx`, or a route shell became a large client-side blob instead of server root + small client islands,
+- global providers/bootstrap import route-specific dashboards, injections, notifications, messages, payments, editors, calendars, graphs, or browser SDKs,
+- bundle/runtime footprint grows without measurement, explanation, and explicit acceptance,
+- changed interactions lack tests for hydration, accessibility, loading state, or error state,
+- `yarn check:client-boundaries` output is missing for generated frontend/app-shell changes.
+
+Add the client-boundary report and any bundle/RAM/per-route evidence to the review summary.
+
 ## Output Format
 
 Use this structure for every review:

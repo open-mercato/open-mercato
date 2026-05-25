@@ -1,4 +1,5 @@
 import type { ModuleInjectionWidgetEntry } from '../registry'
+import { matchWildcardPattern } from '@open-mercato/shared/lib/patterns/wildcard'
 import type {
   InjectionAnyWidgetModule,
   InjectionDataWidgetModule,
@@ -9,6 +10,10 @@ import type {
   ModuleInjectionTable,
   InjectionWidgetPlacement,
 } from './injection'
+import {
+  applyInjectionWidgetOverridesToEntries,
+  applyInjectionWidgetOverridesToTables,
+} from '../overrides'
 
 type LoadedWidgetModule = InjectionWidgetModule<any, any> & { metadata: InjectionWidgetMetadata }
 type LoadedDataWidgetModule = InjectionDataWidgetModule & { metadata: InjectionWidgetMetadata }
@@ -137,8 +142,9 @@ export function registerCoreInjectionWidgets(entries: ModuleInjectionWidgetEntry
   if (_coreInjectionWidgetEntries !== null && process.env.NODE_ENV === 'development') {
     console.debug('[Bootstrap] Core injection widgets re-registered (this may occur during HMR)')
   }
-  _coreInjectionWidgetEntries = entries
-  writeGlobalInjectionWidgets(entries)
+  const finalEntries = applyInjectionWidgetOverridesToEntries(entries)
+  _coreInjectionWidgetEntries = finalEntries
+  writeGlobalInjectionWidgets(finalEntries)
   notifyInjectionRegistryChanged()
 }
 
@@ -159,8 +165,9 @@ export function registerCoreInjectionTables(tables: Array<{ moduleId: string; ta
   if (_coreInjectionTables !== null && process.env.NODE_ENV === 'development') {
     console.debug('[Bootstrap] Core injection tables re-registered (this may occur during HMR)')
   }
-  _coreInjectionTables = tables
-  writeGlobalInjectionTables(tables)
+  const finalTables = applyInjectionWidgetOverridesToTables(tables)
+  _coreInjectionTables = finalTables
+  writeGlobalInjectionTables(finalTables)
   notifyInjectionRegistryChanged()
 }
 
@@ -446,8 +453,7 @@ async function getResolvedEntriesForSpot(spotId: InjectionSpotId): Promise<Table
   for (const [candidateSpotId, candidateEntries] of table.entries()) {
     if (candidateSpotId === spotId) continue
     if (!candidateSpotId.includes('*')) continue
-    const pattern = new RegExp(`^${candidateSpotId.replace(/[.+?^${}()|[\]\\]/g, '\\$&').replace(/\*/g, '.*')}$`)
-    if (!pattern.test(spotId)) continue
+    if (!matchWildcardPattern(spotId, candidateSpotId)) continue
     wildcardEntries.push(...candidateEntries)
   }
 

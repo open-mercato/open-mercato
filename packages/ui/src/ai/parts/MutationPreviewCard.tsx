@@ -180,6 +180,7 @@ export function MutationPreviewCard(props: MutationPreviewCardProps) {
 
   const batch = Array.isArray(action?.records) && action!.records!.length > 0 ? action!.records! : null
   const summary = batch ? summarizeBatch(batch) : null
+  const hasReviewDetails = Boolean(batch)
 
   return (
     <section
@@ -242,7 +243,7 @@ export function MutationPreviewCard(props: MutationPreviewCardProps) {
         )}
       </div>
 
-      {expanded ? (
+      {expanded && hasReviewDetails ? (
         <div className="mt-3 rounded-md border border-border bg-muted/20 p-3" data-ai-mutation-preview-details>
           <FieldDiffCard
             fieldDiff={action?.fieldDiff ?? null}
@@ -252,25 +253,29 @@ export function MutationPreviewCard(props: MutationPreviewCardProps) {
       ) : null}
 
       <div className="mt-3 flex items-center justify-between gap-2">
-        <Button
-          type="button"
-          variant="ghost"
-          size="sm"
-          onClick={() => setExpanded((value) => !value)}
-          data-ai-mutation-preview-review
-        >
-          <Eye className="size-4" aria-hidden />
-          <span>
-            {t(
-              'ai_assistant.chat.mutation_cards.preview.reviewDetails',
-              'Review details',
-            )}
-          </span>
-          <ChevronDown
-            className={`size-4 transition-transform ${expanded ? 'rotate-180' : ''}`}
-            aria-hidden
-          />
-        </Button>
+        {hasReviewDetails ? (
+          <Button
+            type="button"
+            variant="ghost"
+            size="sm"
+            onClick={() => setExpanded((value) => !value)}
+            data-ai-mutation-preview-review
+          >
+            <Eye className="size-4" aria-hidden />
+            <span>
+              {t(
+                'ai_assistant.chat.mutation_cards.preview.reviewDetails',
+                'Review details',
+              )}
+            </span>
+            <ChevronDown
+              className={`size-4 transition-transform ${expanded ? 'rotate-180' : ''}`}
+              aria-hidden
+            />
+          </Button>
+        ) : (
+          <span aria-hidden />
+        )}
         <div className="flex items-center gap-2">
           <Button
             type="button"

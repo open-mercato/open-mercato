@@ -22,7 +22,7 @@ most of the patterns listed below in a user's codebase.
 
 ---
 
-## 0.6.0 → 0.7.0 (unreleased)
+## 0.6.2 → 0.7.0 (unreleased)
 
 ### Deprecations
 
@@ -42,12 +42,28 @@ The legacy URL will stay around for at least one minor version and be removed no
 
 See [`.ai/specs/2026-05-08-staff-decouple-from-core.md`](.ai/specs/2026-05-08-staff-decouple-from-core.md) for the full migration plan.
 
-## 0.5.0 → 0.5.1 (unreleased)
+---
+
+## 0.6.1 → 0.6.2 (2026-05-19)
+
+No actionable dependency upgrades for downstream user code. See
+[`CHANGELOG.md`](CHANGELOG.md) for release highlights.
+
+---
+
+## 0.6.0 → 0.6.1 (2026-05-13)
+
+No actionable dependency upgrades for downstream user code. See
+[`CHANGELOG.md`](CHANGELOG.md) for release highlights.
+
+---
+
+## 0.5.0 → 0.6.0 (2026-05-06)
 
 This window carries the MikroORM v6 → v7 migration
 ([#1513](https://github.com/open-mercato/open-mercato/pull/1513)), the last of the three
-majors that were deferred out of the 0.5.0 consolidation. No other dependency majors are
-planned for this window.
+majors that were deferred out of the 0.5.0 consolidation. No other dependency majors
+shipped in this window.
 
 ### Breaking dependency changes that may affect user code
 

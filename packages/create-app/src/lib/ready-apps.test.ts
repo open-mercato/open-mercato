@@ -4,7 +4,7 @@ import { existsSync, mkdtempSync, mkdirSync, readFileSync, rmSync, writeFileSync
 import { tmpdir } from 'node:os'
 import { dirname, join, resolve } from 'node:path'
 import test from 'node:test'
-import { fileURLToPath } from 'node:url'
+import { fileURLToPath, pathToFileURL } from 'node:url'
 import * as tar from 'tar'
 import {
   downloadReadyAppSnapshot,
@@ -20,6 +20,7 @@ const __dirname = dirname(fileURLToPath(import.meta.url))
 const PACKAGE_ROOT = resolve(__dirname, '..', '..')
 const CLI_BIN = join(PACKAGE_ROOT, 'bin', 'create-mercato-app')
 const CLI_ENTRY = join(PACKAGE_ROOT, 'src', 'index.ts')
+const CLI_SCAFFOLD_TIMEOUT_MS = 120_000
 const PACKAGE_VERSION = (
   JSON.parse(readFileSync(join(PACKAGE_ROOT, 'package.json'), 'utf8')) as { version: string }
 ).version
@@ -211,7 +212,7 @@ test('CLI bare scaffold skips interactive agentic setup with --skip-agentic-setu
         cwd: PACKAGE_ROOT,
         encoding: 'utf8',
         env: process.env,
-        timeout: 15000,
+        timeout: CLI_SCAFFOLD_TIMEOUT_MS,
       },
     )
 
@@ -253,7 +254,7 @@ test('CLI bare scaffold initializes git when --init-git is passed', () => {
         cwd: PACKAGE_ROOT,
         encoding: 'utf8',
         env: process.env,
-        timeout: 15000,
+        timeout: CLI_SCAFFOLD_TIMEOUT_MS,
       },
     )
 
@@ -282,7 +283,7 @@ test('CLI bare scaffold applies explicit crm preset without prompting', () => {
         cwd: PACKAGE_ROOT,
         encoding: 'utf8',
         env: process.env,
-        timeout: 15000,
+        timeout: CLI_SCAFFOLD_TIMEOUT_MS,
       },
     )
 
@@ -345,7 +346,7 @@ globalThis.fetch = async (input) => {
   try {
     const result = spawnSync(
       process.execPath,
-      ['--import', 'tsx', '--import', mockFetchModulePath, CLI_ENTRY, targetDir, '--app', 'prm'],
+      ['--import', 'tsx', '--import', pathToFileURL(mockFetchModulePath).href, CLI_ENTRY, targetDir, '--app', 'prm'],
       {
         cwd: PACKAGE_ROOT,
         encoding: 'utf8',

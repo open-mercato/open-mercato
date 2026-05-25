@@ -18,6 +18,11 @@ jest.mock('next/dynamic', () => (loader: () => Promise<unknown>) => {
   return Lazy
 })
 
+jest.mock('@open-mercato/shared/lib/i18n/context', () => ({
+  useT: () => (_key: string, fallback?: string) => fallback ?? _key,
+  useLocale: () => 'en',
+}))
+
 jest.mock('@open-mercato/ui/backend/BackendChromeProvider', () => ({
   useBackendChrome: () => ({ payload: { groups: [], grantedFeatures: [] }, isReady: true }),
 }))
@@ -34,6 +39,10 @@ jest.mock('@open-mercato/ui/backend/SettingsButton', () => ({
   SettingsButton: () => <div data-testid="settings-button" />,
 }))
 
+jest.mock('@open-mercato/ui/backend/AuthSessionGuard', () => ({
+  AuthSessionGuard: () => <div data-testid="auth-session-guard" />,
+}))
+
 jest.mock('@/components/AiAssistantShellIntegration', () => ({
   AiAssistantShellIntegration: ({ children }: { children: React.ReactNode }) => <>{children}</>,
 }))
@@ -43,6 +52,7 @@ describe('BackendHeaderChrome', () => {
     const { container } = render(
       <BackendHeaderChrome
         email="demo@example.com"
+        userId="user-1"
         embeddingConfigured={false}
         missingConfigMessage=""
         tenantId={null}
