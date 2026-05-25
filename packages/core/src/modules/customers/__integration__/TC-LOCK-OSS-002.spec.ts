@@ -36,9 +36,11 @@ async function fetchPersonUpdatedAt(
   const body = (await response.json()) as { items?: Array<Record<string, unknown>> }
   const item = body.items?.[0]
   expect(item, 'response should include the requested person').toBeTruthy()
-  const updatedAt = item?.updated_at ?? item?.updatedAt
-  expect(typeof updatedAt, 'person response should expose updated_at as ISO string').toBe('string')
-  return updatedAt as string
+  const raw = item?.updated_at ?? item?.updatedAt
+  expect(typeof raw, 'person response should expose updated_at as a string').toBe('string')
+  const ms = Date.parse(raw as string)
+  expect(Number.isFinite(ms), `updated_at should parse as a date, got: ${raw as string}`).toBe(true)
+  return new Date(ms).toISOString()
 }
 
 async function putPerson(
