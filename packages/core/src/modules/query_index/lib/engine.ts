@@ -865,13 +865,16 @@ export class HybridQueryEngine implements QueryEngine {
         const decrypt = encSvc.decryptEntityPayload.bind(encSvc) as (
           entityId: EntityId, payload: Record<string, unknown>, tenantId: string | null, organizationId: string | null,
         ) => Promise<Record<string, unknown>>
+        const fallbackOrgId =
+          opts.organizationId
+          ?? (Array.isArray(opts.organizationIds) && opts.organizationIds.length === 1 ? opts.organizationIds[0] : null)
         items = await Promise.all(
           items.map(async (item) => {
             try {
               const decrypted = await decrypt(
                 entity, item,
                 item?.tenant_id ?? item?.tenantId ?? opts.tenantId ?? null,
-                item?.organization_id ?? item?.organizationId ?? null,
+                item?.organization_id ?? item?.organizationId ?? fallbackOrgId ?? null,
               )
               return { ...item, ...decrypted }
             } catch (err) {
