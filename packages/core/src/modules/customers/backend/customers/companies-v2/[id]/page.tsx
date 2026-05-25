@@ -437,6 +437,7 @@ export default function CompanyDetailV2Page({ params }: { params?: { id?: string
                   initialValues={initialValues}
                   onSubmit={handleFormSubmit}
                   onDelete={handleDelete}
+                  optimisticLockUpdatedAt={(data?.company as { updatedAt?: string } | undefined)?.updatedAt}
                   hideFooterActions
                   collapsibleGroups={{ pageType: 'company-v2', chevronPosition: 'right' }}
                   sortableGroups={{ pageType: 'company-v2' }}

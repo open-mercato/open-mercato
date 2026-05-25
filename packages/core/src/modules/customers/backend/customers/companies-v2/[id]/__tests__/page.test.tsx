@@ -73,8 +73,12 @@ jest.mock('@open-mercato/shared/lib/i18n/translate', () => ({
   createTranslatorWithFallback: () => (_key: string, fallback?: string) => fallback ?? '',
 }))
 
+const crudFormPropsCapture: { current: Record<string, unknown> | null } = { current: null }
 jest.mock('@open-mercato/ui/backend/CrudForm', () => ({
-  CrudForm: () => <div>form</div>,
+  CrudForm: (props: Record<string, unknown>) => {
+    crudFormPropsCapture.current = props
+    return <div>form</div>
+  },
 }))
 
 jest.mock('@open-mercato/ui/backend/crud/CollapsibleZoneLayout', () => ({
@@ -236,5 +240,60 @@ describe('CompanyDetailV2Page schedule dialog state', () => {
         'e1:company-123:Files:Upload and manage files linked to this company.',
       )
     })
+  })
+
+  it('passes company.updatedAt to CrudForm as optimisticLockUpdatedAt (PR #1981)', async () => {
+    activeTabParam = 'activity-log'
+    crudFormPropsCapture.current = null
+    readApiResultOrThrowMock.mockResolvedValue({
+      company: {
+        id: 'company-123',
+        displayName: 'Acme Corp',
+        updatedAt: '2026-05-25T11:00:00.000Z',
+        nextInteractionAt: null,
+        nextInteractionName: null,
+      },
+      interactionMode: 'legacy',
+      tags: [],
+      todos: [],
+      people: [],
+      deals: [],
+      interactions: [],
+    })
+
+    renderWithProviders(<CompanyDetailV2Page params={{ id: 'company-123' }} />)
+
+    await waitFor(() => {
+      expect(crudFormPropsCapture.current).not.toBeNull()
+    })
+    expect(crudFormPropsCapture.current?.optimisticLockUpdatedAt).toBe(
+      '2026-05-25T11:00:00.000Z',
+    )
+  })
+
+  it('passes undefined when the loaded company has no updatedAt (graceful fallback)', async () => {
+    activeTabParam = 'activity-log'
+    crudFormPropsCapture.current = null
+    readApiResultOrThrowMock.mockResolvedValue({
+      company: {
+        id: 'company-456',
+        displayName: 'Without Timestamp',
+        nextInteractionAt: null,
+        nextInteractionName: null,
+      },
+      interactionMode: 'legacy',
+      tags: [],
+      todos: [],
+      people: [],
+      deals: [],
+      interactions: [],
+    })
+
+    renderWithProviders(<CompanyDetailV2Page params={{ id: 'company-456' }} />)
+
+    await waitFor(() => {
+      expect(crudFormPropsCapture.current).not.toBeNull()
+    })
+    expect(crudFormPropsCapture.current?.optimisticLockUpdatedAt).toBeUndefined()
   })
 })
