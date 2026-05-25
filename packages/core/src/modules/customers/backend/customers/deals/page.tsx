@@ -19,6 +19,7 @@ import { coalesceLastOperations } from '@open-mercato/ui/backend/operations/stor
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
 import { RowActions } from '@open-mercato/ui/backend/RowActions'
 import { Button } from '@open-mercato/ui/primitives/button'
+import { ViewTabsRow } from './pipeline/components/ViewTabsRow'
 import { E } from '#generated/entities.ids.generated'
 import { useOrganizationScopeVersion } from '@open-mercato/shared/lib/frontend/useOrganizationScope'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
@@ -905,6 +906,7 @@ export default function CustomersDealsPage() {
   return (
     <Page>
       <PageBody>
+        <ViewTabsRow active="list" className="mb-4" />
         <DataTable<DealRow>
           stickyFirstColumn
           stickyActionsColumn
