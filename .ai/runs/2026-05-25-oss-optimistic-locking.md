@@ -170,8 +170,8 @@ request, for the architectural decision log.
 
 ### Phase 1: Spec + run scaffolding
 
-- [ ] 1.1 Run-folder plan committed
-- [ ] 1.2 Full spec at .ai/specs/2026-05-25-oss-optimistic-locking.md
+- [x] 1.1 Run-folder plan committed — 686f9d172
+- [x] 1.2 Full spec at .ai/specs/2026-05-25-oss-optimistic-locking.md — 3fe3eb526
 
 ### Phase 2: Core guard service
 
