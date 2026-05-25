@@ -71,6 +71,14 @@ export function register(container: AppContainer) {
   })
 
   const enabledReaders = collectEnabledReaders()
+  if (process.env.OM_OPTIMISTIC_LOCK_DEBUG === '1') {
+    console.log('[optimistic-lock/customers] register()', {
+      envVar: OPTIMISTIC_LOCK_ENV_VAR,
+      envRaw: process.env[OPTIMISTIC_LOCK_ENV_VAR] ?? null,
+      envFromLiteralKey: process.env.OM_OPTIMISTIC_LOCK ?? null,
+      enabledReaderKeys: Object.keys(enabledReaders),
+    })
+  }
   if (Object.keys(enabledReaders).length > 0) {
     registerOptimisticLockReaders(enabledReaders)
     container.register({
@@ -81,5 +89,10 @@ export function register(container: AppContainer) {
         }),
       ).scoped(),
     })
+    if (process.env.OM_OPTIMISTIC_LOCK_DEBUG === '1') {
+      console.log('[optimistic-lock/customers] registered crudMutationGuardService', {
+        storeKeys: Object.keys(getAllOptimisticLockReaders()),
+      })
+    }
   }
 }

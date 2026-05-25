@@ -4,6 +4,13 @@ permissions:
 
 env:
   FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: 'true'
+  # Global so both the `prepare` build step and the `ephemeral-integration`
+  # shards see the same value — the integration tests require the OSS
+  # optimistic-lock guard to be active, and if the env disagrees between
+  # build-time bundling and run-time execution the guard can silently
+  # short-circuit.
+  OM_OPTIMISTIC_LOCK: 'customers.company,customers.person,sales.order'
+  OM_OPTIMISTIC_LOCK_DEBUG: '1'
 
 on:
   push:
@@ -430,8 +437,8 @@ jobs:
       # impls from PR #1981. Required by TC-LOCK-OSS-001..003. Other
       # tests are unaffected because the guard SKIPS when the request
       # omits the `x-om-ext-optimistic_lock-expected-updated-at` header.
-      OM_OPTIMISTIC_LOCK: 'customers.company,customers.person,sales.order'
-      OM_OPTIMISTIC_LOCK_DEBUG: '1'
+      # OM_OPTIMISTIC_LOCK and OM_OPTIMISTIC_LOCK_DEBUG are set at the
+      # workflow level so both the build and the run-time stack agree.
     steps:
       - name: Compute shard metadata
         id: shard-meta
