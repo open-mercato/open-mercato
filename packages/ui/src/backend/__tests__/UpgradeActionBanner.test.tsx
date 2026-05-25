@@ -5,7 +5,7 @@
 import * as React from 'react'
 import { act, screen, waitFor } from '@testing-library/react'
 import { UpgradeActionBanner } from '../upgrades/UpgradeActionBanner'
-import { BackendChromeProvider } from '../BackendChromeProvider'
+import { useBackendChrome } from '../BackendChromeProvider'
 import { apiCall } from '../utils/apiCall'
 import { renderWithProviders } from '@open-mercato/shared/lib/testing/renderWithProviders'
 
@@ -15,6 +15,11 @@ jest.mock('../utils/apiCall', () => ({
 
 jest.mock('../FlashMessages', () => ({
   flash: jest.fn(),
+}))
+
+jest.mock('../BackendChromeProvider', () => ({
+  BackendChromeProvider: ({ children }: { children: React.ReactNode }) => <>{children}</>,
+  useBackendChrome: jest.fn(),
 }))
 
 const UPGRADE_ACTIONS_RESPONSE = {
@@ -29,9 +34,26 @@ const UPGRADE_ACTIONS_RESPONSE = {
   ],
 }
 
+function mockChrome(opts: { isReady?: boolean; grantedFeatures?: string[] } = {}) {
+  const isReady = opts.isReady ?? true
+  ;(useBackendChrome as jest.Mock).mockReturnValue({
+    payload: opts.grantedFeatures !== undefined ? { grantedFeatures: opts.grantedFeatures } : null,
+    isReady,
+    isLoading: !isReady,
+    refresh: jest.fn(),
+  })
+}
+
+beforeAll(() => {
+  if (typeof globalThis.fetch === 'undefined') {
+    Object.defineProperty(globalThis, 'fetch', { value: jest.fn(), writable: true, configurable: true })
+  }
+})
+
 beforeEach(() => {
   jest.clearAllMocks()
   process.env.NEXT_PUBLIC_UPGRADE_ACTIONS_ENABLED = 'true'
+  mockChrome()
 })
 
 afterEach(() => {
@@ -39,7 +61,7 @@ afterEach(() => {
 })
 
 describe('UpgradeActionBanner — feature guard', () => {
-  it('renders null and does not call apiCall when rendered outside BackendChromeProvider (no adminNavApi, isReady=true, payload=null)', async () => {
+  it('renders null and does not call apiCall when payload is null (no configs.manage)', async () => {
     ;(apiCall as jest.Mock).mockResolvedValue({ ok: true, result: UPGRADE_ACTIONS_RESPONSE })
 
     renderWithProviders(<UpgradeActionBanner />)
@@ -53,67 +75,24 @@ describe('UpgradeActionBanner — feature guard', () => {
   })
 
   it('renders null and does not call apiCall when grantedFeatures is empty (no configs.manage)', async () => {
-    ;(apiCall as jest.Mock).mockImplementation(async (url: string) => {
-      if (url === '/api/auth/admin/nav') {
-        return {
-          ok: true,
-          result: {
-            groups: [],
-            settingsSections: [],
-            settingsPathPrefixes: [],
-            profileSections: [],
-            profilePathPrefixes: [],
-            grantedFeatures: [],
-            roles: [],
-          },
-        }
-      }
-      return { ok: true, result: UPGRADE_ACTIONS_RESPONSE }
+    mockChrome({ isReady: true, grantedFeatures: [] })
+    ;(apiCall as jest.Mock).mockResolvedValue({ ok: true, result: UPGRADE_ACTIONS_RESPONSE })
+
+    renderWithProviders(<UpgradeActionBanner />)
+
+    await act(async () => {
+      await new Promise((r) => setTimeout(r, 50))
     })
-
-    renderWithProviders(
-      <BackendChromeProvider adminNavApi="/api/auth/admin/nav">
-        <UpgradeActionBanner />
-      </BackendChromeProvider>,
-    )
-
-    await waitFor(() => {
-      expect(apiCall).toHaveBeenCalledWith('/api/auth/admin/nav', expect.anything())
-    })
-
-    await new Promise((r) => setTimeout(r, 50))
 
     expect(screen.queryByText('Install now')).toBeNull()
     expect(apiCall).not.toHaveBeenCalledWith('/api/configs/upgrade-actions')
   })
 
   it('calls apiCall and renders banner when grantedFeatures includes configs.manage', async () => {
-    ;(apiCall as jest.Mock).mockImplementation(async (url: string) => {
-      if (url === '/api/auth/admin/nav') {
-        return {
-          ok: true,
-          result: {
-            groups: [],
-            settingsSections: [],
-            settingsPathPrefixes: [],
-            profileSections: [],
-            profilePathPrefixes: [],
-            grantedFeatures: ['configs.manage'],
-            roles: ['admin'],
-          },
-        }
-      }
-      if (url === '/api/configs/upgrade-actions') {
-        return { ok: true, result: UPGRADE_ACTIONS_RESPONSE }
-      }
-      return { ok: false, result: null }
-    })
+    mockChrome({ isReady: true, grantedFeatures: ['configs.manage'] })
+    ;(apiCall as jest.Mock).mockResolvedValue({ ok: true, result: UPGRADE_ACTIONS_RESPONSE })
 
-    renderWithProviders(
-      <BackendChromeProvider adminNavApi="/api/auth/admin/nav">
-        <UpgradeActionBanner />
-      </BackendChromeProvider>,
-    )
+    renderWithProviders(<UpgradeActionBanner />)
 
     await waitFor(() => {
       expect(apiCall).toHaveBeenCalledWith('/api/configs/upgrade-actions')
@@ -125,54 +104,21 @@ describe('UpgradeActionBanner — feature guard', () => {
   })
 
   it('calls apiCall when grantedFeatures includes configs.* wildcard', async () => {
-    ;(apiCall as jest.Mock).mockImplementation(async (url: string) => {
-      if (url === '/api/auth/admin/nav') {
-        return {
-          ok: true,
-          result: {
-            groups: [],
-            settingsSections: [],
-            settingsPathPrefixes: [],
-            profileSections: [],
-            profilePathPrefixes: [],
-            grantedFeatures: ['configs.*'],
-            roles: ['admin'],
-          },
-        }
-      }
-      if (url === '/api/configs/upgrade-actions') {
-        return { ok: true, result: UPGRADE_ACTIONS_RESPONSE }
-      }
-      return { ok: false, result: null }
-    })
+    mockChrome({ isReady: true, grantedFeatures: ['configs.*'] })
+    ;(apiCall as jest.Mock).mockResolvedValue({ ok: true, result: UPGRADE_ACTIONS_RESPONSE })
 
-    renderWithProviders(
-      <BackendChromeProvider adminNavApi="/api/auth/admin/nav">
-        <UpgradeActionBanner />
-      </BackendChromeProvider>,
-    )
+    renderWithProviders(<UpgradeActionBanner />)
 
     await waitFor(() => {
       expect(apiCall).toHaveBeenCalledWith('/api/configs/upgrade-actions')
     })
   })
 
-  it('does not call apiCall while chrome is still loading (isReady=false)', async () => {
-    let resolveNav!: (value: unknown) => void
-    ;(apiCall as jest.Mock).mockImplementation(async (url: string) => {
-      if (url === '/api/auth/admin/nav') {
-        return new Promise((resolve) => {
-          resolveNav = resolve
-        })
-      }
-      return { ok: true, result: UPGRADE_ACTIONS_RESPONSE }
-    })
+  it('does not call apiCall while chrome is still loading (isReady=false), then fires after ready', async () => {
+    mockChrome({ isReady: false })
+    ;(apiCall as jest.Mock).mockResolvedValue({ ok: true, result: UPGRADE_ACTIONS_RESPONSE })
 
-    renderWithProviders(
-      <BackendChromeProvider adminNavApi="/api/auth/admin/nav">
-        <UpgradeActionBanner />
-      </BackendChromeProvider>,
-    )
+    const { rerender } = renderWithProviders(<UpgradeActionBanner />)
 
     await act(async () => {
       await new Promise((r) => setTimeout(r, 50))
@@ -181,21 +127,8 @@ describe('UpgradeActionBanner — feature guard', () => {
     expect(screen.queryByText('Install now')).toBeNull()
     expect(apiCall).not.toHaveBeenCalledWith('/api/configs/upgrade-actions')
 
-    await act(async () => {
-      resolveNav({
-        ok: true,
-        result: {
-          groups: [],
-          settingsSections: [],
-          settingsPathPrefixes: [],
-          profileSections: [],
-          profilePathPrefixes: [],
-          grantedFeatures: ['configs.manage'],
-          roles: ['admin'],
-        },
-      })
-      await new Promise((r) => setTimeout(r, 50))
-    })
+    mockChrome({ isReady: true, grantedFeatures: ['configs.manage'] })
+    rerender(<UpgradeActionBanner />)
 
     await waitFor(() => {
       expect(apiCall).toHaveBeenCalledWith('/api/configs/upgrade-actions')
