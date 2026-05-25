@@ -82,12 +82,37 @@ export function register(container: AppContainer) {
   if (Object.keys(enabledReaders).length > 0) {
     registerOptimisticLockReaders(enabledReaders)
     container.register({
-      crudMutationGuardService: asFunction(({ em }: { em: EntityManager }) =>
-        createOptimisticLockGuardService({
+      crudMutationGuardService: asFunction(({ em }: { em: EntityManager }) => {
+        if (process.env.OM_OPTIMISTIC_LOCK_DEBUG === '1') {
+          console.log('[optimistic-lock/customers] factory invoked — service resolved', {
+            storeKeysAtResolve: Object.keys(getAllOptimisticLockReaders()),
+          })
+        }
+        const svc = createOptimisticLockGuardService({
           getEm: () => em,
           readers: getAllOptimisticLockReaders(),
-        }),
-      ).scoped(),
+        })
+        if (process.env.OM_OPTIMISTIC_LOCK_DEBUG === '1') {
+          const original = svc.validateMutation.bind(svc)
+          svc.validateMutation = async (input) => {
+            console.log('[optimistic-lock/customers] validateMutation CALLED', {
+              resourceKind: input.resourceKind,
+              resourceId: input.resourceId,
+              operation: input.operation,
+              hasHeader: !!input.requestHeaders.get('x-om-ext-optimistic-lock-expected-updated-at'),
+              headerValue: input.requestHeaders.get('x-om-ext-optimistic-lock-expected-updated-at'),
+              allHeaderKeys: Array.from(input.requestHeaders.keys()),
+            })
+            const result = await original(input)
+            console.log('[optimistic-lock/customers] validateMutation RETURNED', {
+              ok: result.ok,
+              ...(result.ok ? {} : { status: result.status, body: result.body }),
+            })
+            return result
+          }
+        }
+        return svc
+      }).scoped(),
     })
     if (process.env.OM_OPTIMISTIC_LOCK_DEBUG === '1') {
       console.log('[optimistic-lock/customers] registered crudMutationGuardService', {

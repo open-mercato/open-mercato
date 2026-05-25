@@ -122,11 +122,15 @@ test.describe('TC-LOCK-OSS-002: customers.person optimistic-lock guard', () => {
         { displayName: `QA OSS-002 v2 ${Date.now()}` },
         t0,
       )
+      const debugBody = await conflict.text()
+      const debugHeaders: Record<string, string> = {}
+      conflict.headers && Object.entries(conflict.headers()).forEach(([k, v]) => { debugHeaders[k] = String(v) })
+      console.log('[TC-LOCK-OSS-002-DEBUG]', { status: conflict.status(), body: debugBody.slice(0, 4000), headers: debugHeaders })
       expect(
         conflict.status(),
         'PUT with stale updatedAt header should return 409',
       ).toBe(409)
-      const body = (await conflict.json()) as Record<string, unknown>
+      const body = JSON.parse(debugBody) as Record<string, unknown>
       expect(body).toMatchObject({
         error: 'record_modified',
         code: 'optimistic_lock_conflict',

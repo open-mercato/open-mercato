@@ -113,11 +113,18 @@ test.describe('TC-LOCK-OSS-001: customers.company optimistic-lock guard', () => 
         { displayName: `QA TC-LOCK-OSS-001 v2 ${Date.now()}` },
         t0,
       )
+      // iter 15: log the actual response body BEFORE the status assertion so
+      // CI surfaces what the server returned for the failing stale-PUT, since
+      // factory.ts console.log doesn't reach the CI shard log.
+      const debugBody = await conflict.text()
+      const debugHeaders: Record<string, string> = {}
+      conflict.headers && Object.entries(conflict.headers()).forEach(([k, v]) => { debugHeaders[k] = String(v) })
+      console.log('[TC-LOCK-OSS-001-DEBUG]', { status: conflict.status(), body: debugBody.slice(0, 4000), headers: debugHeaders })
       expect(
         conflict.status(),
         'PUT with stale updatedAt header should return 409',
       ).toBe(409)
-      const body = (await conflict.json()) as Record<string, unknown>
+      const body = JSON.parse(debugBody) as Record<string, unknown>
       expect(body).toMatchObject({
         error: 'record_modified',
         code: 'optimistic_lock_conflict',
