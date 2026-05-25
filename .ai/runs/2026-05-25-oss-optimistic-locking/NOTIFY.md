@@ -21,3 +21,19 @@ Append-only event log. Newest at the bottom.
 - UI files touched: `CrudForm.tsx`, `useGuardedMutation.ts`, `companies-v2/[id]/page.tsx`. Per the user's resume directive, each got a paired UI test in the same commit batch (4 + 4 + 2 = 10 new UI assertions across 3 test files).
 - UI verification approach: contract-pinning unit tests with prop-capture mocks. Playwright integration tests for the API path (TC-LOCK-OSS-001..003) will run in CI's ephemeral stack — local dev server not running.
 - All Tasks-table rows are now `done`. Next: final gate (step 5 of auto-continue-pr-loop) → auto-review-pr autofix → summary comment → flip PR body to `complete`.
+
+## 2026-05-25T11:15Z — auto-continue-pr-loop re-entry
+- Re-entered by: @pkarw
+- Reason: prior session checkpoint-2'd and stopped before the final gate. All Tasks-table rows already `done`; this re-entry runs step 5 (final gate) → step 6 (BC/code-review self-check) → step 7 (auto-review-pr autofix) → step 8 (summary comment) → step 9 (PR body flip + labels + lock release).
+- PR head SHA at re-entry: 24fb640ef (checkpoint 2 commit).
+- No new code Steps planned; only the final-gate ceremony and post-finalization commits (handoff + final-gate-checks).
+
+## 2026-05-25T11:25Z — spec complete
+- Final validation gate: all green — build:packages ✓, generate ✓, i18n×2 ✓, typecheck ✓ (standalone retry on apps/mercato after parallel SIGHUP), test ✓ (6132 tests across 677 suites), build:app ✓.
+- ds-guardian pass: clean.
+- Self code-review + BC review: clean (every change ADDITIVE; one documented behavior addition for useGuardedMutation default 409 flash).
+- `auto-review-pr` autofix subagent: APPROVE, zero blocking findings; one false-positive docs nit dismissed after verifying the referenced file exists.
+- Comprehensive PR summary comment posted: https://github.com/open-mercato/open-mercato/pull/2055#issuecomment-4533881146
+- PR body flipped: `Status: in-progress` → `Status: complete`, Phases 7–11 added to "What Changed", decision matrix markers updated to reflect all 3 reference entities landed, Tests section updated.
+- Labels kept: `feature`, `review`, `needs-qa`. `in-progress` will be released as the next action. PR stays in `review` pipeline state.
+- Resume run is finalized. PR #2055 awaits human review.

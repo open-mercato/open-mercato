@@ -1,28 +1,35 @@
 # Handoff — 2026-05-25-oss-optimistic-locking
 
-**Last updated:** 2026-05-25T11:10Z
+**Last updated:** 2026-05-25T11:25Z
 **Branch:** feat/oss-optimistic-locking
 **PR:** https://github.com/open-mercato/open-mercato/pull/2055
-**Current phase/step:** complete — all Tasks-table rows are `done`
-**Last commit:** 4e1f55cc5 (`feat(customers): wire CrudForm optimisticLockUpdatedAt on company edit page`)
+**Current phase/step:** complete — all 11 phases landed, full validation gate green
+**Last commit before this finalization batch:** 24fb640ef (`docs(runs): checkpoint 2 — steps 9.1..11.1 verified`)
 
 ## What just happened
-- Checkpoint 2 cleared: Steps 9.1..11.1 verified. 66/66 ui + 27/27 shared + 4/4 page tests pass; i18n in sync; no new typecheck errors. See `checkpoint-2-checks.md`.
-- Every UI-touching commit has a paired UI test per the user's resume directive:
-  - 9.1 CrudForm → 9.2 CrudForm.optimisticLock.test.tsx (4 cases)
-  - 10.1 useGuardedMutation → 10.2 useGuardedMutation.optimisticLock.test.tsx (4 cases)
-  - 11.1 company edit page → 2 new pass-through cases in page.test.tsx
-- All 11 phases (5 historical + 6 new) are now complete on the Tasks table.
+
+- Re-entered the PR at 2026-05-25T11:15Z; every Tasks-table row was already `done` from the prior session.
+- Ran the spec-completion final gate end-to-end (build:packages, generate, i18n×2, typecheck, full unit test suite — 6132 tests, build:app). Initial parallel `yarn typecheck` got SIGHUP on `@open-mercato/app#typecheck` (turbo OOM); standalone retry was clean.
+- ds-guardian pass: clean (no DS violations in the diff).
+- Self code-review + BC review: clean (every change ADDITIVE).
+- `auto-review-pr` autofix pass via subagent: APPROVE, zero blocking findings. The one docs nit raised was verified as a false positive (the referenced path `packages/shared/src/lib/umes/extension-headers.ts` exists on develop).
+- Posted comprehensive summary comment on the PR.
+- Updated the PR body: `Status: in-progress` → `Status: complete`, added Phases 7–11 to the "What Changed" section, flipped the deferred-row markers in the decision matrix to "all 3 landed", updated the Tests section.
+- Labels: kept `feature` + `review` + `needs-qa`; releasing `in-progress` next.
 
 ## Next concrete action
-- Run the resume's final gate per `auto-continue-pr-loop` step 5: full validation gate, integration suites (will run in CI), ds-guardian pass on touched UI files, then `auto-review-pr` autofix pass + summary comment + PR body status flip to `complete`.
+
+Nothing on this PR. Wait for human review on PR #2055. After approval, the PR moves to `qa` (because `needs-qa` is present); after QA, to `merge-queue`.
 
 ## Blockers / open questions
+
 None.
 
 ## Environment caveats
-- Worktree path: `.ai/tmp/auto-continue-pr/pr-2055-20260525-104412/`. Will be cleaned at resume end.
-- Dev server not running locally — Playwright integration tests will exercise the new UI/API paths in the ephemeral CI stack at the next workflow run.
+
+- The worktree at `.ai/tmp/auto-continue-pr/pr-2055-20260525-104412/` will be cleaned up by the parent session as the final step of the resume.
+- Integration tests (`TC-LOCK-OSS-001..003`) execute in CI's ephemeral stack with `OM_OPTIMISTIC_LOCK='customers.company,customers.person,sales.order'` set by `.github/workflows/ci.yml`.
 
 ## Worktree
-- Path: .ai/tmp/auto-continue-pr/pr-2055-20260525-104412 (created this resume, will clean up at end)
+
+- Path: `.ai/tmp/auto-continue-pr/pr-2055-20260525-104412` (will be removed by the parent session)
