@@ -6,7 +6,7 @@
 
 | Phase | Step | Title | Status | Commit |
 |-------|------|-------|--------|--------|
-| 1 | 1.1 | Add tooltip support to FilterDef and FilterOverlay | todo | — |
+| 1 | 1.1 | Add tooltip support to FilterDef and FilterOverlay | done | 75e1f6310 |
 | 2 | 2.1 | Update messages i18n locale files (all four locales) | todo | — |
 | 2 | 2.2 | Wire new labels and tooltips in inboxFilters.ts | todo | — |
 | 3 | 3.1 | Update TC-MSG-007 test scenario step text | todo | — |
