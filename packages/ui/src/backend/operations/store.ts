@@ -22,7 +22,20 @@ const DEFAULT_STATE: OperationStoreState = { stack: [], undone: [] }
 const STORAGE_KEY = 'om:last-operations:v1'
 const STACK_LIMIT = 20
 const LAST_OPERATION_TTL_MS = 60_000
-const LAST_OPERATION_AUTO_DISMISS_MS = 5_000
+const DEFAULT_LAST_OPERATION_AUTO_DISMISS_MS = 10_000
+
+function resolveAutoDismissMs(raw: string | undefined): number {
+  if (raw == null || raw === '') return DEFAULT_LAST_OPERATION_AUTO_DISMISS_MS
+  const parsed = Number(raw)
+  if (!Number.isFinite(parsed) || parsed <= 0) {
+    return DEFAULT_LAST_OPERATION_AUTO_DISMISS_MS
+  }
+  return Math.floor(parsed)
+}
+
+const LAST_OPERATION_AUTO_DISMISS_MS = resolveAutoDismissMs(
+  process.env.NEXT_PUBLIC_OM_UNDO_BANNER_TIMEOUT_MS,
+)
 const STACK_RETENTION_MS = 10 * 60_000
 
 let internalState: OperationStoreState = DEFAULT_STATE

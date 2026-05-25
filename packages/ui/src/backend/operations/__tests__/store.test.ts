@@ -213,3 +213,65 @@ describe('dismissOperation — auto-dismiss without redo pollution', () => {
       .toBeLessThan(operationStackConstants.LAST_OPERATION_TTL_MS)
   })
 })
+
+describe('LAST_OPERATION_AUTO_DISMISS_MS — env override (NEXT_PUBLIC_OM_UNDO_BANNER_TIMEOUT_MS)', () => {
+  const originalValue = process.env.NEXT_PUBLIC_OM_UNDO_BANNER_TIMEOUT_MS
+
+  afterEach(() => {
+    if (originalValue === undefined) {
+      delete process.env.NEXT_PUBLIC_OM_UNDO_BANNER_TIMEOUT_MS
+    } else {
+      process.env.NEXT_PUBLIC_OM_UNDO_BANNER_TIMEOUT_MS = originalValue
+    }
+    jest.resetModules()
+  })
+
+  function loadStoreWithEnv(envValue: string | undefined): typeof import('../store') {
+    if (envValue === undefined) {
+      delete process.env.NEXT_PUBLIC_OM_UNDO_BANNER_TIMEOUT_MS
+    } else {
+      process.env.NEXT_PUBLIC_OM_UNDO_BANNER_TIMEOUT_MS = envValue
+    }
+    let mod: typeof import('../store') | undefined
+    jest.isolateModules(() => {
+      mod = jest.requireActual('../store')
+    })
+    if (!mod) throw new Error('failed to load store module')
+    return mod
+  }
+
+  it('defaults to 10_000 ms when the env var is unset', () => {
+    const mod = loadStoreWithEnv(undefined)
+    expect(mod.operationStackConstants.LAST_OPERATION_AUTO_DISMISS_MS).toBe(10_000)
+  })
+
+  it('defaults to 10_000 ms when the env var is an empty string', () => {
+    const mod = loadStoreWithEnv('')
+    expect(mod.operationStackConstants.LAST_OPERATION_AUTO_DISMISS_MS).toBe(10_000)
+  })
+
+  it('uses the configured env value when it is a positive integer', () => {
+    const mod = loadStoreWithEnv('20000')
+    expect(mod.operationStackConstants.LAST_OPERATION_AUTO_DISMISS_MS).toBe(20_000)
+  })
+
+  it('floors a positive non-integer to an integer ms value', () => {
+    const mod = loadStoreWithEnv('7500.9')
+    expect(mod.operationStackConstants.LAST_OPERATION_AUTO_DISMISS_MS).toBe(7_500)
+  })
+
+  it('falls back to the default when the env value is non-numeric', () => {
+    const mod = loadStoreWithEnv('not-a-number')
+    expect(mod.operationStackConstants.LAST_OPERATION_AUTO_DISMISS_MS).toBe(10_000)
+  })
+
+  it('falls back to the default when the env value is zero', () => {
+    const mod = loadStoreWithEnv('0')
+    expect(mod.operationStackConstants.LAST_OPERATION_AUTO_DISMISS_MS).toBe(10_000)
+  })
+
+  it('falls back to the default when the env value is negative', () => {
+    const mod = loadStoreWithEnv('-1000')
+    expect(mod.operationStackConstants.LAST_OPERATION_AUTO_DISMISS_MS).toBe(10_000)
+  })
+})

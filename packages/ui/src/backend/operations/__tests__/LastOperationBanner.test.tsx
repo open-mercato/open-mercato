@@ -26,7 +26,7 @@ jest.mock('../store', () => ({
   dismissOperation: jest.fn(),
   operationStackConstants: {
     LAST_OPERATION_TTL_MS: 60_000,
-    LAST_OPERATION_AUTO_DISMISS_MS: 5_000,
+    LAST_OPERATION_AUTO_DISMISS_MS: 10_000,
   },
 }))
 
@@ -137,7 +137,7 @@ describe('LastOperationBanner', () => {
     try {
       renderWithProviders(<LastOperationBanner />, { dict })
       expect(dismissOperation).not.toHaveBeenCalled()
-      jest.advanceTimersByTime(4_999)
+      jest.advanceTimersByTime(9_999)
       expect(dismissOperation).not.toHaveBeenCalled()
       jest.advanceTimersByTime(1)
       expect(dismissOperation).toHaveBeenCalledTimes(1)
@@ -175,7 +175,7 @@ describe('LastOperationBanner', () => {
       ;(useLastOperation as jest.Mock).mockReturnValue({ ...mockOperation, undoToken: 'token-456' })
       rerender(<LastOperationBanner />)
 
-      jest.advanceTimersByTime(4_999)
+      jest.advanceTimersByTime(9_999)
       expect(dismissOperation).not.toHaveBeenCalled()
       jest.advanceTimersByTime(1)
       expect(dismissOperation).toHaveBeenCalledTimes(1)
