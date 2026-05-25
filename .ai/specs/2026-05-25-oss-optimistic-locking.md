@@ -124,7 +124,7 @@ Client → server: extension header per the existing convention in
 `packages/shared/src/lib/umes/extension-headers.ts`:
 
 ```
-x-om-ext-optimistic_lock-expected-updated-at: 2026-05-25T08:42:18.123Z
+x-om-ext-optimistic-lock-expected-updated-at: 2026-05-25T08:42:18.123Z
 ```
 
 - Header name follows `x-om-ext-<moduleId>-<key>`. ModuleId is
@@ -220,7 +220,7 @@ after the user refreshes, they can resave.
 **`CrudForm`** (`packages/ui/src/backend/CrudForm.tsx`):
 
 When `values.updatedAt` is present on the loaded record, automatically
-inject the `x-om-ext-optimistic_lock-expected-updated-at` header on every
+inject the `x-om-ext-optimistic-lock-expected-updated-at` header on every
 `PUT`/`PATCH`/`DELETE` request issued through the form. Implemented via
 `withScopedApiRequestHeaders(...)` so existing call sites do not change.
 
@@ -361,7 +361,7 @@ the first comment on the PR.
 
 | Q | Options | Selected |
 |---|---------|----------|
-| Q1 wire transport | A: `If-Unmodified-Since` (HTTP std, second-precision) / B: `x-om-ext-optimistic_lock-expected-updated-at` (ms-precision) / C: inline JSON field | **B** |
+| Q1 wire transport | A: `If-Unmodified-Since` (HTTP std, second-precision) / B: `x-om-ext-optimistic-lock-expected-updated-at` (ms-precision) / C: inline JSON field | **B** |
 | Q2 409 shape | A: generic `{ error }` / B: structured `{ error, code, currentUpdatedAt, expectedUpdatedAt }` / C: B + full current payload | **B** |
 | Q3 env syntax | A: keyword `all` only / B: allow-list only / C: both | **C** |
 | Q4 enterprise hook | A: priority composition / B: token-resolution hook / C: both | **C** |

@@ -313,7 +313,7 @@ export type CrudFormProps<TValues extends Record<string, unknown>> = {
    *
    * When set to a non-empty ISO-8601 string (typically `record.updatedAt`
    * from the API response), the form auto-injects the
-   * `x-om-ext-optimistic_lock-expected-updated-at` extension header on
+   * `x-om-ext-optimistic-lock-expected-updated-at` extension header on
    * every PUT / PATCH / DELETE issued through the underlying `onSubmit` /
    * `onDelete` callbacks (via `withScopedApiRequestHeaders`). When the
    * server-side guard is opted in for the resource and the timestamp is

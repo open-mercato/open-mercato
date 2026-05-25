@@ -13,7 +13,7 @@ import { getAuthToken } from '@open-mercato/core/modules/core/__integration__/he
  *   - A PUT with a fresh `updatedAt` header succeeds.
  *   - A PUT with a stale `updatedAt` header returns 409 with the structured body.
  */
-const OPTIMISTIC_LOCK_HEADER = 'x-om-ext-optimistic_lock-expected-updated-at'
+const OPTIMISTIC_LOCK_HEADER = 'x-om-ext-optimistic-lock-expected-updated-at'
 
 const BASE_URL = process.env.BASE_URL?.trim() || null
 function resolveUrl(path: string): string {
