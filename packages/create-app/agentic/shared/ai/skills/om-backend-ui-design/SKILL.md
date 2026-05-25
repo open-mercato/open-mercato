@@ -245,7 +245,7 @@ import { collectCustomFieldValues } from '@open-mercato/ui/backend/utils/customF
 ## Page Navigation Metadata
 
 Every backend page needs correct `page.meta.ts` for sidebar placement.
-See `.ai/skills/module-scaffold/references/navigation-patterns.md` for:
+See `.ai/skills/om-module-scaffold/references/navigation-patterns.md` for:
 - Complete field reference (`pageGroup`, `pageOrder`, `pageContext`, `navHidden`)
 - Settings page pattern (`pageContext: 'settings' as const` + `navHidden: true`)
 - Common anti-patterns (missing group, mismatched keys, broken icons)
