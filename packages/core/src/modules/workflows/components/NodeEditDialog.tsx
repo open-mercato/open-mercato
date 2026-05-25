@@ -623,7 +623,7 @@ export function NodeEditDialog({ node, isOpen, onClose, onSave, onDelete }: Node
               {node.type === 'userTask' && (
                 <>
                   <div className="border-t border-gray-200 pt-4 mt-4">
-                    <h3 className="text-sm font-semibold text-gray-900 mb-3">
+                    <h3 className="text-sm font-semibold text-foreground mb-3">
                       {t('workflows.nodeEditor.userTaskConfig')}
                     </h3>
                   </div>
@@ -677,7 +677,7 @@ export function NodeEditDialog({ node, isOpen, onClose, onSave, onDelete }: Node
                   <div className="border-t border-gray-200 pt-4 mt-4">
                     <div className="flex items-center justify-between mb-3">
                       <div>
-                        <h3 className="text-sm font-semibold text-gray-900">
+                        <h3 className="text-sm font-semibold text-foreground">
                           {t('workflows.form.formFields', { count: formFields.length })}
                         </h3>
                         <p className="text-xs text-gray-500 mt-0.5">
@@ -722,7 +722,7 @@ export function NodeEditDialog({ node, isOpen, onClose, onSave, onDelete }: Node
                             >
                               <div className="flex-1">
                                 <div className="flex items-center gap-2">
-                                  <span className="text-sm font-semibold text-gray-900">
+                                  <span className="text-sm font-semibold text-foreground">
                                     {field.label || field.name}
                                   </span>
                                   <Badge variant="secondary" className="text-xs">
@@ -878,7 +878,7 @@ export function NodeEditDialog({ node, isOpen, onClose, onSave, onDelete }: Node
                   <div className="border-t border-gray-200 pt-4 mt-4">
                     <div className="flex items-center justify-between mb-3">
                       <div>
-                        <h3 className="text-sm font-semibold text-gray-900">
+                        <h3 className="text-sm font-semibold text-foreground">
                           {t('workflows.form.stepActivities', { count: stepActivities.length })}
                         </h3>
                         <p className="text-xs text-gray-500 mt-0.5">
@@ -933,7 +933,7 @@ export function NodeEditDialog({ node, isOpen, onClose, onSave, onDelete }: Node
                             >
                               <div className="flex-1">
                                 <div className="flex items-center gap-2">
-                                  <span className="text-sm font-semibold text-gray-900">
+                                  <span className="text-sm font-semibold text-foreground">
                                     {activity.activityName || activity.activityId || `Activity ${index + 1}`}
                                   </span>
                                   <Badge variant="secondary" className="text-xs">
@@ -1218,7 +1218,7 @@ export function NodeEditDialog({ node, isOpen, onClose, onSave, onDelete }: Node
               {node.type === 'subWorkflow' && (
                 <>
                   <div className="border-t border-gray-200 pt-4 mt-4">
-                    <h3 className="text-sm font-semibold text-gray-900 mb-3">
+                    <h3 className="text-sm font-semibold text-foreground mb-3">
                       {t('workflows.form.subWorkflowConfig')}
                     </h3>
                   </div>
@@ -1268,7 +1268,7 @@ export function NodeEditDialog({ node, isOpen, onClose, onSave, onDelete }: Node
                   <div className="border-t border-gray-200 pt-4 mt-4">
                     <div className="flex items-center justify-between mb-3">
                       <div>
-                        <h4 className="text-sm font-semibold text-gray-900">
+                        <h4 className="text-sm font-semibold text-foreground">
                           {t('workflows.form.inputMapping', { count: inputMappings.length })}
                         </h4>
                         <p className="text-xs text-gray-500 mt-0.5">
@@ -1341,7 +1341,7 @@ export function NodeEditDialog({ node, isOpen, onClose, onSave, onDelete }: Node
                   <div className="border-t border-gray-200 pt-4 mt-4">
                     <div className="flex items-center justify-between mb-3">
                       <div>
-                        <h4 className="text-sm font-semibold text-gray-900">
+                        <h4 className="text-sm font-semibold text-foreground">
                           {t('workflows.form.outputMapping', { count: outputMappings.length })}
                         </h4>
                         <p className="text-xs text-gray-500 mt-0.5">
@@ -1416,7 +1416,7 @@ export function NodeEditDialog({ node, isOpen, onClose, onSave, onDelete }: Node
               {node.type === 'waitForSignal' && (
                 <>
                   <div className="border-t border-gray-200 pt-4 mt-4">
-                    <h3 className="text-sm font-semibold text-gray-900 mb-3">
+                    <h3 className="text-sm font-semibold text-foreground mb-3">
                       {t('workflows.form.signalConfig')}
                     </h3>
                   </div>
@@ -1471,7 +1471,7 @@ export function NodeEditDialog({ node, isOpen, onClose, onSave, onDelete }: Node
               {node.type === 'waitForTimer' && (
                 <>
                   <div className="border-t border-gray-200 pt-4 mt-4">
-                    <h3 className="text-sm font-semibold text-gray-900 mb-3">
+                    <h3 className="text-sm font-semibold text-foreground mb-3">
                       {t('workflows.steps.types.WAIT_FOR_TIMER')}
                     </h3>
                   </div>
@@ -1548,7 +1548,7 @@ export function NodeEditDialog({ node, isOpen, onClose, onSave, onDelete }: Node
                   onClick={() => setShowAdvanced(!showAdvanced)}
                   className="flex items-center justify-between w-full text-left"
                 >
-                  <h3 className="text-sm font-semibold text-gray-900">
+                  <h3 className="text-sm font-semibold text-foreground">
                     {t('workflows.form.advancedConfiguration')}
                   </h3>
                   <svg
