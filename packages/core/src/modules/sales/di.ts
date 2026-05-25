@@ -2,6 +2,16 @@ import { asFunction, asValue } from 'awilix'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import type { EventBus } from '@open-mercato/events'
 import type { AppContainer } from '@open-mercato/shared/lib/di/container'
+import {
+  createOptimisticLockGuardService,
+  parseOptimisticLockEnv,
+  type OptimisticLockCurrentReader,
+} from '@open-mercato/shared/lib/crud/optimistic-lock'
+import { OPTIMISTIC_LOCK_ENV_VAR } from '@open-mercato/shared/lib/crud/optimistic-lock-headers'
+import {
+  getAllOptimisticLockReaders,
+  registerOptimisticLockReaders,
+} from '@open-mercato/shared/lib/crud/optimistic-lock-store'
 import { DefaultSalesCalculationService } from './services/salesCalculationService'
 import { DefaultTaxCalculationService } from './services/taxCalculationService'
 import { SalesDocumentNumberGenerator } from './services/salesDocumentNumberGenerator'
@@ -36,6 +46,35 @@ import {
 type AppCradle = AppContainer['cradle'] & {
   em: EntityManager
   eventBus?: EventBus | null
+}
+
+const RESOURCE_KIND_ORDER = 'sales.order'
+
+const readSalesOrderUpdatedAt: OptimisticLockCurrentReader = async (
+  em: EntityManager,
+  { resourceId, tenantId, organizationId },
+) => {
+  const row = await em.findOne(
+    SalesOrder,
+    {
+      id: resourceId,
+      tenantId,
+      ...(organizationId ? { organizationId } : {}),
+      deletedAt: null,
+    },
+    { fields: ['updatedAt'] as const },
+  )
+  return row?.updatedAt instanceof Date ? row.updatedAt.toISOString() : null
+}
+
+function collectEnabledReaders(): Record<string, OptimisticLockCurrentReader> {
+  const config = parseOptimisticLockEnv(process.env[OPTIMISTIC_LOCK_ENV_VAR])
+  if (config.mode === 'off') return {}
+  const includes = (kind: string) =>
+    config.mode === 'all' || config.entities.has(kind)
+  const readers: Record<string, OptimisticLockCurrentReader> = {}
+  if (includes(RESOURCE_KIND_ORDER)) readers[RESOURCE_KIND_ORDER] = readSalesOrderUpdatedAt
+  return readers
 }
 
 export function register(container: AppContainer) {
@@ -81,4 +120,21 @@ export function register(container: AppContainer) {
     SalesPaymentMethod: asValue(SalesPaymentMethod),
     SalesTaxRate: asValue(SalesTaxRate),
   })
+
+  // OSS opt-in optimistic locking — see .ai/specs/2026-05-25-oss-optimistic-locking.md.
+  // Contributes a sales.order reader to the shared store. Multiple modules
+  // can register the same `crudMutationGuardService` Awilix key safely
+  // because every binding points to the same store-backed factory.
+  const enabledReaders = collectEnabledReaders()
+  if (Object.keys(enabledReaders).length > 0) {
+    registerOptimisticLockReaders(enabledReaders)
+    container.register({
+      crudMutationGuardService: asFunction(({ em }: AppCradle) =>
+        createOptimisticLockGuardService({
+          getEm: () => em,
+          readers: getAllOptimisticLockReaders(),
+        }),
+      ).scoped(),
+    })
+  }
 }
