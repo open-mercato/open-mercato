@@ -4,7 +4,7 @@
 
 | Phase | Step | Title | Status | Commit |
 |-------|------|-------|--------|--------|
-| 1 | 1.1 | Add feature guard to UpgradeActionBanner + unit tests | done | pending-sha |
+| 1 | 1.1 | Add feature guard to UpgradeActionBanner + unit tests | done | 70e3196cc |
 
 ## Goal
 

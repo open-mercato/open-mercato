@@ -1,14 +1,23 @@
 # Handoff: upgrade-action-banner-feature-guard
 
-## Status: in-progress
+## Status: complete
 
-## Run started: 2026-05-25
+## Run completed: 2026-05-25
 
-## What this run does
+## What was done
 
-Gates `UpgradeActionBanner` on the `configs.manage` RBAC feature to prevent an infinite redirect loop for users who lack the feature when `NEXT_PUBLIC_UPGRADE_ACTIONS_ENABLED=true`.
+Gated `UpgradeActionBanner` on the `configs.manage` RBAC feature via `useBackendChrome` to prevent an infinite redirect loop for users who lack the feature when `NEXT_PUBLIC_UPGRADE_ACTIONS_ENABLED=true`.
 
-## Current state
+## Files changed
 
-- Branch: fix/upgrade-action-banner-feature-guard
-- Step 1.1 in progress
+- `packages/ui/src/backend/upgrades/UpgradeActionBanner.tsx` — added `useBackendChrome` + `hasFeature` guard
+- `packages/ui/src/backend/__tests__/UpgradeActionBanner.test.tsx` — new unit tests (4 cases)
+
+## Branch
+
+fix/upgrade-action-banner-feature-guard
+
+## Commits
+
+1. `f5965e34f` — docs(runs): add execution plan for upgrade-action-banner-feature-guard
+2. `70e3196cc` — fix(ui): gate UpgradeActionBanner on configs.manage feature to prevent redirect loop
