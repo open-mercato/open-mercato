@@ -886,6 +886,7 @@
   "ui.forms.errors.unexpected": "Nieoczekiwany błąd",
   "ui.forms.flash.deleteError": "Nie udało się usunąć rekordu",
   "ui.forms.flash.deleteSuccess": "Rekord usunięty",
+  "ui.forms.flash.recordModified": "Ten rekord został zmodyfikowany przez kogoś innego. Odśwież i spróbuj ponownie.",
   "ui.forms.flash.saveBlocked": "Popraw błędy przed zapisaniem.",
   "ui.forms.flash.saveError": "Nie udało się zapisać",
   "ui.forms.flash.saveSuccess": "Zapisano pomyślnie.",

@@ -886,6 +886,7 @@
   "ui.forms.errors.unexpected": "Unexpected error",
   "ui.forms.flash.deleteError": "Failed to delete record",
   "ui.forms.flash.deleteSuccess": "Record deleted",
+  "ui.forms.flash.recordModified": "This record was modified by someone else. Refresh and try again.",
   "ui.forms.flash.saveBlocked": "Please fix errors before saving.",
   "ui.forms.flash.saveError": "Save failed",
   "ui.forms.flash.saveSuccess": "Saved successfully.",
