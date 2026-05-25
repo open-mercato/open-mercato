@@ -190,9 +190,9 @@ request, for the architectural decision log.
 
 ### Phase 4: Reference entity wiring (customers.company)
 
-- [ ] 4.1 packages/core customers/di.ts registers guard service
-- [ ] 4.2 Verify list/detail expose updatedAt; add regression if needed
-- [ ] 4.3 Integration test TC-LOCK-OSS-001.spec.ts (race → 409)
+- [x] 4.1 packages/core customers/di.ts registers guard service — a549a7be9
+- [x] 4.2 Verify list/detail expose updatedAt; integration test reads it from GET /api/customers/companies — a549a7be9 (no regression test added — TC-LOCK-OSS-001 covers this in-flight)
+- [x] 4.3 Integration test TC-LOCK-OSS-001.spec.ts (race → 409) + CI env OM_OPTIMISTIC_LOCK=customers.company — a549a7be9
 
 ### Phase 5: Docs + Task Router
 
