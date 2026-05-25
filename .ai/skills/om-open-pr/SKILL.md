@@ -39,7 +39,14 @@ Then release the lock (step 6 below) and finish. Do not emit `PR_URL=` markers i
 
 ### 2. Read the fix step's summary
 
-The previous step's text output is in this run's context. Pull out:
+The fix step's full output is included in your user prompt, in a block marked:
+
+```
+— PREVIOUS STEP (fix) said —
+<fix summary here>
+```
+
+Pull out:
 
 - the one-paragraph summary
 - the files changed
@@ -47,6 +54,8 @@ The previous step's text output is in this run's context. Pull out:
 - the BC statement
 
 You'll reuse these in the commit message and the PR body.
+
+If the block is empty or the fix step ended with `Status: blocked`, the previous step did not produce a fix. End your own output with `Status: blocked` immediately (do not commit empty changes), release any lock, and exit. The flow runner will mark the chain failed and skip the review step.
 
 ### 3. Commit
 
