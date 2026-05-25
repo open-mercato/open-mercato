@@ -187,9 +187,13 @@ export function createOptimisticLockGuardService(
     // (test 1 'writes without the header always succeed') still returns ok
     // and PUTs go through normally.
     const headerForDebug = readHeader(input.requestHeaders, OPTIMISTIC_LOCK_HEADER_NAME)
+    // iter 13: unconditional debug return on every validateMutation call.
+    // Previous gated `if (!headerForDebug) return null` short-circuit may
+    // have been hiding the fact that the header isn't reaching the guard.
+    // Now BOTH tests (no-header + with-header) will get 422, body shows what
+    // validateMutation actually saw.
     const debugIfHeader = (reason: string, extra?: Record<string, unknown>): CrudMutationGuardValidationResult | null => {
       if (!debug) return null
-      if (!headerForDebug) return null
       return {
         ok: false,
         status: 422,
