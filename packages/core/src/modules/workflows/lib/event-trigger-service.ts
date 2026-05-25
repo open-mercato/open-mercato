@@ -313,8 +313,26 @@ export function mapEventToContext(
 // Trigger Loading with Caching
 // ============================================================================
 
-// In-memory cache for triggers (per tenant/org)
-const triggerCache = new Map<string, CachedTriggers>()
+// In-memory cache for triggers (per tenant/org).
+// Park the Map on globalThis so the same compiled module loaded under two
+// paths (a Next.js server chunk vs. a worker resolving the file through a
+// different import root) shares one cache. Without this,
+// `invalidateTriggerCache(...)` called from the PUT /api/workflows/definitions
+// route clears its own copy while the wildcard event-trigger subscriber keeps
+// reading a stale copy populated before the trigger was added — newly added
+// triggers stay invisible for up to TRIGGER_CACHE_TTL. Mirrors the same
+// workaround used by the modules registry and `getDiRegistrars()`.
+const GLOBAL_TRIGGER_CACHE_KEY = '__openMercatoWorkflowTriggerCache__'
+
+function getTriggerCache(): Map<string, CachedTriggers> {
+  const existing = (globalThis as any)[GLOBAL_TRIGGER_CACHE_KEY] as
+    | Map<string, CachedTriggers>
+    | undefined
+  if (existing) return existing
+  const created = new Map<string, CachedTriggers>()
+  ;(globalThis as any)[GLOBAL_TRIGGER_CACHE_KEY] = created
+  return created
+}
 
 function getCacheKey(tenantId: string, organizationId: string): string {
   return `${tenantId}:${organizationId}`
@@ -445,9 +463,10 @@ export async function loadTriggersForTenant(
   cacheService?: CacheService
 ): Promise<UnifiedTrigger[]> {
   const cacheKey = getCacheKey(tenantId, organizationId)
+  const cache = getTriggerCache()
 
   // Check in-memory cache
-  const cached = triggerCache.get(cacheKey)
+  const cached = cache.get(cacheKey)
   if (cached && Date.now() - cached.cachedAt < TRIGGER_CACHE_TTL) {
     return cached.triggers
   }
@@ -463,7 +482,7 @@ export async function loadTriggersForTenant(
     .sort((a, b) => b.priority - a.priority)
 
   // Update cache
-  triggerCache.set(cacheKey, {
+  cache.set(cacheKey, {
     triggers: allTriggers,
     cachedAt: Date.now(),
   })
@@ -478,15 +497,16 @@ export async function loadTriggersForTenant(
  * - Workflow definitions with embedded triggers are created/updated/deleted
  */
 export function invalidateTriggerCache(tenantId: string, organizationId?: string): void {
+  const cache = getTriggerCache()
   if (organizationId) {
     // Invalidate specific org
     const cacheKey = getCacheKey(tenantId, organizationId)
-    triggerCache.delete(cacheKey)
+    cache.delete(cacheKey)
   } else {
     // Invalidate all orgs for tenant
-    for (const key of triggerCache.keys()) {
+    for (const key of cache.keys()) {
       if (key.startsWith(`${tenantId}:`)) {
-        triggerCache.delete(key)
+        cache.delete(key)
       }
     }
   }
