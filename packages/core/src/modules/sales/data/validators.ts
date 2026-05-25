@@ -454,6 +454,27 @@ export const enforceReturnAdjustmentSign = (
   }
 }
 
+export const enforceNonReturnAdjustmentSign = (
+  value: AdjustmentSignInput,
+  ctx: z.RefinementCtx
+) => {
+  if (value.kind === 'return') return
+  if (typeof value.amountNet === 'number' && value.amountNet < 0) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      message: 'Non-return adjustments must use non-negative amounts.',
+      path: ['amountNet'],
+    })
+  }
+  if (typeof value.amountGross === 'number' && value.amountGross < 0) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      message: 'Non-return adjustments must use non-negative amounts.',
+      path: ['amountGross'],
+    })
+  }
+}
+
 export const orderAdjustmentCreateSchema = scoped.extend({
   orderId: uuid(),
   orderLineId: uuid().optional(),

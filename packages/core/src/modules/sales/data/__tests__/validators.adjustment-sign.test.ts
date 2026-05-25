@@ -3,6 +3,7 @@ import {
   RETURN_ADJUSTMENT_POSITIVE_GROSS_MESSAGE,
   RETURN_ADJUSTMENT_POSITIVE_NET_MESSAGE,
   enforceReturnAdjustmentSign,
+  enforceNonReturnAdjustmentSign,
   orderAdjustmentCreateSchema,
   quoteAdjustmentCreateSchema,
 } from '../validators'
@@ -18,10 +19,12 @@ const QUOTE_ID = 'dddddddd-dddd-4ddd-8ddd-dddddddddddd'
 const orderUpsertSchema = orderAdjustmentCreateSchema
   .extend({ id: z.string().uuid().optional() })
   .superRefine(enforceReturnAdjustmentSign)
+  .superRefine(enforceNonReturnAdjustmentSign)
 
 const quoteUpsertSchema = quoteAdjustmentCreateSchema
   .extend({ id: z.string().uuid().optional() })
   .superRefine(enforceReturnAdjustmentSign)
+  .superRefine(enforceNonReturnAdjustmentSign)
 
 describe('enforceReturnAdjustmentSign — order adjustments', () => {
   const base = {
@@ -90,6 +93,20 @@ describe('enforceReturnAdjustmentSign — order adjustments', () => {
     })
     expect(result.success).toBe(true)
   })
+
+  it('rejects negative amounts for discount adjustments', () => {
+    const result = orderUpsertSchema.safeParse({
+      ...base,
+      kind: 'discount',
+      amountNet: -1,
+      amountGross: -1,
+    })
+    expect(result.success).toBe(false)
+    if (!result.success) {
+      const messages = result.error.issues.map((i) => i.message)
+      expect(messages.some(m => m.includes('Non-return adjustments must use non-negative amounts.'))).toBe(true)
+    }
+  })
 })
 
 describe('enforceReturnAdjustmentSign — quote adjustments', () => {
@@ -122,5 +139,19 @@ describe('enforceReturnAdjustmentSign — quote adjustments', () => {
       amountGross: -7.5,
     })
     expect(result.success).toBe(true)
+  })
+
+  it('rejects negative amounts for discount adjustments on quotes', () => {
+    const result = quoteUpsertSchema.safeParse({
+      ...base,
+      kind: 'discount',
+      amountNet: -2,
+      amountGross: -2,
+    })
+    expect(result.success).toBe(false)
+    if (!result.success) {
+      const messages = result.error.issues.map((i) => i.message)
+      expect(messages.some(m => m.includes('Non-return adjustments must use non-negative amounts.'))).toBe(true)
+    }
   })
 })
