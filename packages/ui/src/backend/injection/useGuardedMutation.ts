@@ -4,6 +4,9 @@ import * as React from 'react'
 import { useInjectionSpotEvents } from './InjectionSpot'
 import { GLOBAL_MUTATION_INJECTION_SPOT_ID, dispatchBackendMutationError } from './mutationEvents'
 import { withScopedApiRequestHeaders } from '../utils/apiCall'
+import { extractOptimisticLockConflict } from '../utils/optimisticLock'
+import { flash } from '../FlashMessages'
+import { useT } from '@open-mercato/shared/lib/i18n/context'
 
 type GuardedMutationContext = Record<string, unknown>
 
@@ -30,6 +33,7 @@ export function useGuardedMutation<TContext extends GuardedMutationContext>({
   blockedMessage = 'Save blocked by validation',
   spotId = GLOBAL_MUTATION_INJECTION_SPOT_ID,
 }: UseGuardedMutationOptions) {
+  const t = useT()
   const { triggerEvent } = useInjectionSpotEvents<TContext, Record<string, unknown>>(spotId)
   const lastMutationRef = React.useRef<StoredMutation<TContext> | null>(null)
 
@@ -39,7 +43,21 @@ export function useGuardedMutation<TContext extends GuardedMutationContext>({
       formId: contextId,
       error,
     })
-  }, [contextId])
+    // Default UX for OSS optimistic-lock conflicts (spec
+    // .ai/specs/2026-05-25-oss-optimistic-locking.md §3.6): when the
+    // server returns 409 with `code: 'optimistic_lock_conflict'`,
+    // surface the localized "record modified — refresh and try again"
+    // flash. Callers that have their own handler will still see the
+    // dispatched event above and can suppress/override the flash by
+    // catching the error first.
+    if (extractOptimisticLockConflict(error)) {
+      try {
+        flash(t('ui.forms.flash.recordModified'), 'error')
+      } catch {
+        // ignore flash dispatch failures
+      }
+    }
+  }, [contextId, t])
 
   const runMutation = React.useCallback(async <TResult,>({
     operation,

@@ -41,8 +41,8 @@
 | 8 | 8.2 | sales/di.ts adds sales.order reader via store; integration test TC-LOCK-OSS-003.spec.ts (race → 409 on order) | done | ff7841453 |
 | 9 | 9.1 | CrudForm: `optimisticLockUpdatedAt` prop auto-injects extension header on PUT/PATCH/DELETE | done | a3d13cc5b |
 | 9 | 9.2 | CrudForm unit test for header injection (UI touch → UI test) | done | a3d13cc5b |
-| 10 | 10.1 | useGuardedMutation: detect 409 `optimistic_lock_conflict`, surface `ui.forms.flash.recordModified` flash | todo | — |
-| 10 | 10.2 | useGuardedMutation unit test for the flash (UI touch → UI test) | todo | — |
+| 10 | 10.1 | useGuardedMutation: detect 409 `optimistic_lock_conflict`, surface `ui.forms.flash.recordModified` flash | done | ca507bad5 |
+| 10 | 10.2 | useGuardedMutation unit test for the flash (UI touch → UI test) | done | ca507bad5 |
 | 11 | 11.1 | Wire customers.company edit page to pass `optimisticLockUpdatedAt={record.updatedAt}` (UI touch → integration test extension) | todo | — |
 
 ## Goal (resume)
