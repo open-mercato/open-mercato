@@ -425,6 +425,11 @@ jobs:
       JWT_SECRET: 'ci-ephemeral-test-jwt-secret'
       OM_SECURITY_MFA_SETUP_SECRET: 'ci-ephemeral-test-mfa-setup-secret'
       OM_WEBHOOKS_ALLOW_PRIVATE_URLS: '1'
+      # Enables the OSS opt-in optimistic-locking guard for the customers.company
+      # reference impl from PR #1981. Required by TC-LOCK-OSS-001. Other tests are
+      # unaffected because the guard SKIPS when the request omits the
+      # `x-om-ext-optimistic_lock-expected-updated-at` header.
+      OM_OPTIMISTIC_LOCK: 'customers.company'
     steps:
       - name: Compute shard metadata
         id: shard-meta
