@@ -212,18 +212,37 @@ test.describe('TC-WF-008: Event-triggered workflow runs end-to-end via UI', () =
       const personEntityId = personIdMatch?.[1]
       expect(personEntityId).toBeTruthy()
 
-      // Look for the auto-started instance and wait for it to reach COMPLETED.
-      // Trigger evaluation is async (subscriber → queue), so poll the instances
-      // list until the row appears AND its status cell reads "Completed". The
-      // list renders status as title-case i18n ("Completed"); the detail page
-      // also contains COMPLETED uppercase inside hidden React Flow nodes,
-      // so asserting on the list row is more robust.
-      const instanceRow = page.getByRole('row').filter({ hasText: workflowId }).first()
+      // Wait for the auto-started instance to exist and complete via the API
+      // first. Polling `/backend/instances` directly in a `toPass` loop burns
+      // ~5–7s per attempt (full page navigation + two toBeVisible waits), so
+      // a 60s budget only buys ~10 iterations and the trigger pipeline
+      // (event emit → subscriber dispatch → instance create → instance
+      // execute → list re-fetch) can legitimately need longer on a busy CI
+      // ephemeral env. The API check is deterministic, has no UI churn, and
+      // makes the failure mode observable: if it times out, the instance
+      // genuinely was not created.
       await expect(async () => {
-        await page.goto('/backend/instances')
-        await expect(instanceRow).toBeVisible({ timeout: 2_000 })
-        await expect(instanceRow).toContainText('Completed', { timeout: 2_000 })
-      }).toPass({ timeout: 60_000, intervals: [1_000, 2_000, 3_000] })
+        const res = await apiRequest(
+          request,
+          'GET',
+          `/api/workflows/instances?workflowId=${encodeURIComponent(workflowId)}&limit=1`,
+          { token: token! },
+        )
+        expect(res.ok(), `GET /api/workflows/instances failed: ${res.status()}`).toBeTruthy()
+        const body = (await res.json().catch(() => null)) as { data?: Array<{ status?: string }> } | null
+        const status = body?.data?.[0]?.status
+        expect(status, `instance for ${workflowId} should be discoverable`).toBeTruthy()
+        expect(status, `instance status should reach COMPLETED (current: ${status})`).toBe('COMPLETED')
+      }).toPass({ timeout: 90_000, intervals: [500, 1_000, 2_000] })
+
+      // UI verification: load the instances list once and assert the row
+      // renders with the localized "Completed" status. Now that the
+      // server-side state is confirmed, this is a single page load instead
+      // of a retry storm.
+      await page.goto('/backend/instances')
+      const instanceRow = page.getByRole('row').filter({ hasText: workflowId }).first()
+      await expect(instanceRow).toBeVisible({ timeout: 15_000 })
+      await expect(instanceRow).toContainText('Completed', { timeout: 10_000 })
 
       await instanceRow.getByRole('link').first().click()
       await expect(page).toHaveURL(/\/backend\/instances\/[0-9a-f-]{36}/i, { timeout: 10_000 })
