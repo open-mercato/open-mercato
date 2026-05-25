@@ -583,14 +583,13 @@ function buildSyncPayload(
 function collectAndRunGuards(
   container: AwilixContainer,
 ): { allGuards: MutationGuard[] } {
-  const debug = process.env.OM_OPTIMISTIC_LOCK_DEBUG === '1'
-  if (debug) console.log('[collectAndRunGuards] called')
+  console.log('[collectAndRunGuards] CALLED-UNCONDITIONAL')
   const allGuards = [...getAllMutationGuardInstances()]
-  if (debug) console.log('[collectAndRunGuards] getAllMutationGuardInstances returned', allGuards.length)
+  console.log('[collectAndRunGuards] getAllMutationGuardInstances returned', allGuards.length)
   const legacyGuard = bridgeLegacyGuard(container)
-  if (debug) console.log('[collectAndRunGuards] bridgeLegacyGuard returned', legacyGuard ? 'a guard' : 'null')
+  console.log('[collectAndRunGuards] bridgeLegacyGuard returned', legacyGuard ? 'a guard' : 'null')
   if (legacyGuard) allGuards.push(legacyGuard)
-  if (debug) console.log('[collectAndRunGuards] total allGuards', allGuards.length)
+  console.log('[collectAndRunGuards] total allGuards', allGuards.length)
   return { allGuards }
 }
 
