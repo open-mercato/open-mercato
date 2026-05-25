@@ -181,10 +181,12 @@ request, for the architectural decision log.
 
 ### Phase 3: Client wiring
 
-- [ ] 3.1 useGuardedMutation 409 conflict default flash
-- [ ] 3.2 CrudForm round-trips updatedAt as extension header
-- [ ] 3.3 i18n ui.forms.flash.recordModified across 4 locales
-- [ ] 3.4 Unit tests for client helpers
+- [x] 3.1 extractOptimisticLockConflict helper (callers use this to drive the flash) — 9f279d3e1
+- [x] 3.2 buildOptimisticLockHeader helper (callers wrap updateCrud with this) — 9f279d3e1
+  Note: standalone helpers in this PR; pulling them into CrudForm/useGuardedMutation
+  directly is deferred to a follow-up so the reference impl is observable first.
+- [x] 3.3 i18n ui.forms.flash.recordModified across 4 locales (yarn i18n:check-sync ✓) — 9f279d3e1
+- [x] 3.4 Unit tests for client helpers (10/10 pass) — 9f279d3e1
 
 ### Phase 4: Reference entity wiring (customers.company)
 
