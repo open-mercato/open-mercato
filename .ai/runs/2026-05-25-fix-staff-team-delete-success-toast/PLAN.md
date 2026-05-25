@@ -8,7 +8,7 @@ Source spec: .ai/specs/2026-05-25-fix-staff-team-delete-success-toast.md
 
 | Phase | Step | Title | Status | Commit |
 |-------|------|-------|--------|--------|
-| 1 | 1.1 | Fix handleDelete — remove try/catch and redundant flash | todo | — |
+| 1 | 1.1 | Fix handleDelete — remove try/catch and redundant flash | done | 6ea19dc98 |
 | 2 | 2.1 | Add 409 integration test for delete-with-members | todo | — |
 
 ## Goal
