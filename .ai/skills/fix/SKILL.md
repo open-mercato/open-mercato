@@ -41,11 +41,20 @@ The lock release happens in `open-pr` (success path) or via an external janitor 
 
 ### 2. Read the analyzer's brief
 
-The previous step's text output is in this run's context. Identify:
+The analyzer's full output is included in your user prompt, in a block marked:
+
+```
+— PREVIOUS STEP (root-cause) said —
+<analyzer brief here>
+```
+
+Identify from that block:
 
 - the file(s) to change
 - the approach
 - the regression test to add
+
+**Do not invent your own root cause.** If the brief is missing, empty, contradicts the repo (e.g. names files that don't exist), or ended with `Status: blocked`, end your own output with `Status: blocked` and a one-line reason. The chain will stop cleanly — better than shipping a wrong fix.
 
 If the analyzer ended with `LOW_CONFIDENCE`, be extra careful — re-read the affected code yourself before editing.
 
