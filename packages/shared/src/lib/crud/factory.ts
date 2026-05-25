@@ -2096,8 +2096,16 @@ export function makeCrudRoute<TCreate = any, TUpdate = any, TList = any>(opts: C
   }
 
   async function PUT(request: Request) {
+    // iter 14: probe at PUT entry to settle whether factory's PUT is called
+    // at all for failing TC-LOCK-OSS requests. Using console.error in case
+    // stdout is filtered/dropped at some point. Also a response header
+    // (x-om-debug-factory-put) so the test can see it directly in the
+    // response, independent of CI log capture.
+    console.error('[FACTORY-PUT-ENTRY]', { url: request.url, resourceKind, method: request.method })
+    process.stderr.write(`[FACTORY-PUT-ENTRY-STDERR] ${request.url} resourceKind=${resourceKind}\n`)
     try {
       const useCommand = !!opts.actions?.update
+      console.error('[FACTORY-PUT-USECOMMAND]', { useCommand, hasActionsUpdate: !!opts.actions?.update, hasUpdate: !!opts.update })
       if (!opts.update && !useCommand) return json({ error: 'Not implemented' }, { status: 501 })
       const ctx = await withCtx(request)
       if (!ctx.auth) return json({ error: 'Unauthorized' }, { status: 401 })
