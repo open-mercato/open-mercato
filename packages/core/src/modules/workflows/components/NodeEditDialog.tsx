@@ -21,6 +21,7 @@ import {JsonBuilder} from '@open-mercato/ui/backend/JsonBuilder'
 import {StartPreConditionsEditor, type StartPreCondition} from './fields/StartPreConditionsEditor'
 import {useT} from '@open-mercato/shared/lib/i18n/context'
 import {useConfirmDialog} from '@open-mercato/ui/backend/confirm-dialog'
+import {isFutureIsoDateString, isValidDurationString} from '../data/validators'
 
 export interface NodeEditDialogProps {
   node: Node | null
@@ -91,6 +92,9 @@ export function NodeEditDialog({ node, isOpen, onClose, onSave, onDelete }: Node
 
   // Pre-conditions state (for START steps)
   const [preConditions, setPreConditions] = useState<StartPreCondition[]>([])
+
+  // Inline validation errors keyed by field name
+  const [fieldErrors, setFieldErrors] = useState<Record<string, string>>({})
 
   // Convert JSON Schema to our custom format
   const convertJsonSchemaToFields = (schema: any): FormField[] => {
@@ -270,6 +274,7 @@ export function NodeEditDialog({ node, isOpen, onClose, onSave, onDelete }: Node
       }
       setAdvancedConfig(advancedFields)
       setExpandedFields(new Set())
+      setFieldErrors({})
     }
   }, [node, isOpen])
 
@@ -325,6 +330,30 @@ export function NodeEditDialog({ node, isOpen, onClose, onSave, onDelete }: Node
 
   const handleSave = () => {
     if (!node) return
+
+    // Pre-save validation for wait-related fields. Surface inline errors instead
+    // of silently saving an invalid value that will only blow up later when the
+    // whole workflow is serialized through the API zod schema.
+    const errors: Record<string, string> = {}
+
+    if (node.type === 'waitForTimer') {
+      if (timerDuration && !isValidDurationString(timerDuration)) {
+        errors.timerDuration = t('workflows.validation.invalidDuration')
+      }
+      if (timerUntil && !isFutureIsoDateString(timerUntil)) {
+        errors.timerUntil = t('workflows.validation.untilMustBeFuture')
+      }
+    }
+
+    if (node.type === 'waitForSignal' && signalTimeout && !isValidDurationString(signalTimeout)) {
+      errors.signalTimeout = t('workflows.validation.invalidDuration')
+    }
+
+    if (Object.keys(errors).length > 0) {
+      setFieldErrors(errors)
+      return
+    }
+    setFieldErrors({})
 
     // Validate and sanitize step ID
     const sanitizedId = sanitizeId(node.id)
@@ -571,21 +600,24 @@ export function NodeEditDialog({ node, isOpen, onClose, onSave, onDelete }: Node
                 </p>
               </div>
 
-              {/* Timeout */}
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">
-                  {t('workflows.form.timeout')}
-                </label>
-                <Input
-                  type="text"
-                  value={timeout}
-                  onChange={(e) => setTimeout(e.target.value)}
-                  placeholder={t('workflows.form.placeholders.timeout')}
-                />
-                <p className="text-xs text-gray-500 mt-1">
-                  {t('workflows.form.descriptions.timeout')}
-                </p>
-              </div>
+              {/* Timeout — hidden for wait nodes that already expose their own time-bound config
+                  (waitForTimer uses duration/until, waitForSignal uses signalConfig.timeout). */}
+              {node.type !== 'waitForSignal' && node.type !== 'waitForTimer' && (
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">
+                    {t('workflows.form.timeout')}
+                  </label>
+                  <Input
+                    type="text"
+                    value={timeout}
+                    onChange={(e) => setTimeout(e.target.value)}
+                    placeholder={t('workflows.form.placeholders.timeout')}
+                  />
+                  <p className="text-xs text-gray-500 mt-1">
+                    {t('workflows.form.descriptions.timeout')}
+                  </p>
+                </div>
+              )}
 
               {/* User Task Configuration */}
               {node.type === 'userTask' && (
@@ -1411,12 +1443,26 @@ export function NodeEditDialog({ node, isOpen, onClose, onSave, onDelete }: Node
                     <Input
                       type="text"
                       value={signalTimeout}
-                      onChange={(e) => setSignalTimeout(e.target.value)}
+                      onChange={(e) => {
+                        setSignalTimeout(e.target.value)
+                        if (fieldErrors.signalTimeout) {
+                          const next = { ...fieldErrors }
+                          delete next.signalTimeout
+                          setFieldErrors(next)
+                        }
+                      }}
                       placeholder={t('workflows.form.placeholders.signalTimeout')}
+                      aria-invalid={fieldErrors.signalTimeout ? true : undefined}
                     />
-                    <p className="text-xs text-gray-500 mt-1">
-                      {t('workflows.form.descriptions.signalTimeout')}
-                    </p>
+                    {fieldErrors.signalTimeout ? (
+                      <p className="text-xs text-destructive mt-1">
+                        {fieldErrors.signalTimeout}
+                      </p>
+                    ) : (
+                      <p className="text-xs text-gray-500 mt-1">
+                        {t('workflows.form.descriptions.signalTimeout')}
+                      </p>
+                    )}
                   </div>
                 </>
               )}
@@ -1440,13 +1486,25 @@ export function NodeEditDialog({ node, isOpen, onClose, onSave, onDelete }: Node
                       onChange={(e) => {
                         setTimerDuration(e.target.value)
                         if (e.target.value) setTimerUntil('')
+                        if (fieldErrors.timerDuration) {
+                          const next = { ...fieldErrors }
+                          delete next.timerDuration
+                          setFieldErrors(next)
+                        }
                       }}
                       placeholder={t('workflows.activities.waitDurationPlaceholder')}
                       disabled={!!timerUntil}
+                      aria-invalid={fieldErrors.timerDuration ? true : undefined}
                     />
-                    <p className="text-xs text-gray-500 mt-1">
-                      {t('workflows.activities.waitDurationDescription')}
-                    </p>
+                    {fieldErrors.timerDuration ? (
+                      <p className="text-xs text-destructive mt-1">
+                        {fieldErrors.timerDuration}
+                      </p>
+                    ) : (
+                      <p className="text-xs text-gray-500 mt-1">
+                        {t('workflows.activities.waitDurationDescription')}
+                      </p>
+                    )}
                   </div>
 
                   <div>
@@ -1456,16 +1514,29 @@ export function NodeEditDialog({ node, isOpen, onClose, onSave, onDelete }: Node
                     <Input
                       type="datetime-local"
                       value={timerUntil ? timerUntil.slice(0, 16) : ''}
+                      min={new Date(Date.now() - new Date().getTimezoneOffset() * 60000).toISOString().slice(0, 16)}
                       onChange={(e) => {
                         const next = e.target.value ? new Date(e.target.value).toISOString() : ''
                         setTimerUntil(next)
                         if (next) setTimerDuration('')
+                        if (fieldErrors.timerUntil) {
+                          const nextErrors = { ...fieldErrors }
+                          delete nextErrors.timerUntil
+                          setFieldErrors(nextErrors)
+                        }
                       }}
                       disabled={!!timerDuration}
+                      aria-invalid={fieldErrors.timerUntil ? true : undefined}
                     />
-                    <p className="text-xs text-gray-500 mt-1">
-                      {t('workflows.activities.waitUntilDescription')}
-                    </p>
+                    {fieldErrors.timerUntil ? (
+                      <p className="text-xs text-destructive mt-1">
+                        {fieldErrors.timerUntil}
+                      </p>
+                    ) : (
+                      <p className="text-xs text-gray-500 mt-1">
+                        {t('workflows.activities.waitUntilDescription')}
+                      </p>
+                    )}
                   </div>
                 </>
               )}

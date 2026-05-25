@@ -220,6 +220,18 @@ describe('Workflows Validators', () => {
         ).toThrow(/Invalid.*until/i)
       })
 
+      test('rejects past datetime as "until"', () => {
+        expect(() =>
+          workflowStepSchema.parse({ ...baseTimerStep, config: { until: '2020-01-01T00:00:00.000Z' } })
+        ).toThrow(/future/i)
+      })
+
+      test('accepts templated past-looking until (resolved at runtime)', () => {
+        expect(() =>
+          workflowStepSchema.parse({ ...baseTimerStep, config: { until: '{{context.deadline}}' } })
+        ).not.toThrow()
+      })
+
       test('requires duration or until', () => {
         expect(() =>
           workflowStepSchema.parse({ ...baseTimerStep, config: {} })
@@ -398,6 +410,15 @@ describe('Workflows Validators', () => {
             config: { duration: 'PT5M', until: '2026-06-01T12:00:00.000Z' },
           })
         ).toThrow(/not both/i)
+      })
+
+      test('rejects past datetime as "until"', () => {
+        expect(() =>
+          activityDefinitionSchema.parse({
+            ...baseWait,
+            config: { until: '2020-01-01T00:00:00.000Z' },
+          })
+        ).toThrow(/future/i)
       })
 
       test('does not affect non-WAIT activities', () => {
