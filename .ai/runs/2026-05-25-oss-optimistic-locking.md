@@ -175,9 +175,9 @@ request, for the architectural decision log.
 
 ### Phase 2: Core guard service
 
-- [ ] 2.1 packages/shared optimistic-lock.ts + createOptimisticLockGuardService
-- [ ] 2.2 packages/shared optimistic-lock-headers.ts constants
-- [ ] 2.3 Unit tests under packages/shared/src/lib/crud/__tests__
+- [x] 2.1 packages/shared optimistic-lock.ts + createOptimisticLockGuardService — fb20f038e
+- [x] 2.2 packages/shared optimistic-lock-headers.ts constants — fb20f038e
+- [x] 2.3 Unit tests under packages/shared/src/lib/crud/__tests__ (20/20 pass) — fb20f038e
 
 ### Phase 3: Client wiring
 
