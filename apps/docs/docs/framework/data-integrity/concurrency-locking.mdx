@@ -1,0 +1,313 @@
+---
+id: concurrency-locking
+title: Concurrency & Record Locking
+sidebar_label: Concurrency & Locking
+---
+
+# Concurrency & Record Locking
+
+Open Mercato ships a two-tier locking story:
+
+1. **OSS — opt-in optimistic locking via `updated_at`.** Lightweight,
+   additive, no migration. Detects conflicts at write time and surfaces a
+   structured 409 to the client. Default OFF.
+2. **Enterprise — full pessimistic locking** via the
+   [`record_locks`](https://github.com/open-mercato/open-mercato/tree/develop/packages/enterprise/src/modules/record_locks)
+   module: acquire/release/heartbeat, presence widgets, force-release,
+   conflict-merge UX, ACL features (`record_locks.*`).
+
+This page documents the **OSS optimistic-lock layer**. The enterprise
+pessimistic layer composes on top of it.
+
+---
+
+## When to enable it
+
+Turn on the OSS optimistic-lock guard when any of these are true:
+
+- Two operators may edit the same record concurrently (CRM contacts,
+  product info, deals — anywhere the form sits open in someone's tab).
+- You have **not** licensed the enterprise `record_locks` module and want
+  to prevent silent last-write-wins.
+- You want the protection at zero migration cost — the guard reads the
+  existing `updated_at` column.
+
+When the enterprise `record_locks` module is also active it owns
+mutation guarding (it registers the same DI slot at a higher priority);
+the OSS check is documented here as the OSS-only fallback path.
+
+---
+
+## Architecture in one diagram
+
+```
+┌──────────────────────┐         ┌─────────────────────────────────────────┐
+│ Client (CrudForm /   │         │ Server                                  │
+│ raw apiCall caller)  │         │                                         │
+│                      │         │   makeCrudRoute (update/delete)         │
+│  Loads record.       │         │     └─ collectAndRunGuards(container)   │
+│  Holds updatedAt.    │ ──PUT─▶ │         └─ runMutationGuards([...])     │
+│  Sends extension     │         │             └─ OptimisticLockGuard      │
+│  header on next      │         │                  ├─ read OM_OPTIMISTIC_LOCK
+│  write.              │ ◀─409── │                  ├─ read header         │
+└──────────────────────┘         │                  ├─ em.findOne(.updatedAt)
+                                 │                  └─ compare → 409?      │
+                                 └─────────────────────────────────────────┘
+```
+
+---
+
+## Enable in your environment
+
+Set `OM_OPTIMISTIC_LOCK` in the server's environment:
+
+| Value | Behavior |
+|-------|----------|
+| _unset_ / empty / whitespace | **OFF** (default — zero behavior change). |
+| `all` (any case) | All registered entities. |
+| `customers.company,sales.order` | Allow-list — comma-separated entityTypes, lowercased & trimmed. |
+| `all,customers.company` | `all` wins. |
+
+```bash
+# .env or .env.local
+OM_OPTIMISTIC_LOCK=customers.company
+```
+
+Reading happens once at module-load time (process boot). Restart the
+app/dev server after changing the value.
+
+---
+
+## Wire format
+
+### Client → server
+
+The client echoes the `updatedAt` it last read back as an extension
+header on every `PUT`/`PATCH`/`DELETE`:
+
+```
+x-om-ext-optimistic_lock-expected-updated-at: 2026-05-25T08:42:18.123Z
+```
+
+- Header name follows the project's `x-om-ext-<moduleId>-<key>`
+  convention (see `packages/shared/src/lib/umes/extension-headers.ts`).
+- Value is an ISO-8601 timestamp with **millisecond** precision.
+- **Header absent → guard skips.** This is the opt-in lever for clients
+  that have not been updated to round-trip the token.
+
+### Server → client (409 conflict)
+
+```json
+{
+  "error": "record_modified",
+  "code": "optimistic_lock_conflict",
+  "currentUpdatedAt": "2026-05-25T08:42:18.500Z",
+  "expectedUpdatedAt": "2026-05-25T08:42:18.123Z"
+}
+```
+
+- `code` is the stable machine-readable identifier; pin against this in
+  client helpers (`extractOptimisticLockConflict()` does exactly this).
+- `currentUpdatedAt` is what the DB has right now — enough for a
+  future merge UI to fetch the canonical record without a second
+  round-trip.
+
+---
+
+## Which mechanism to use — DI service vs static guard
+
+> **Read this before adding any new server-side mutation check.** Picking
+> the wrong tool will silently no-op.
+
+The mutation-guard registry exposes two paths:
+
+| | Static `data/guards.ts` | DI `crudMutationGuardService` |
+|---|---|---|
+| Registration | Module exports `guards: MutationGuard[]` | Module's `di.ts` calls `container.register({ crudMutationGuardService: ... })` |
+| Receives `MutationGuardInput` | Yes | Yes |
+| Has access to `em` / container | **No** — pure function | **Yes** — service is container-bound |
+| Right for stateless checks | ✅ | ✅ (heavier) |
+| Right for checks that read DB | ❌ | ✅ |
+
+**Rule:** if your guard compares the request against current DB state —
+optimistic version, presence of a row, current status — register it via
+the DI service path. The optimistic-lock guard in this page does exactly
+that.
+
+---
+
+## Reference implementation (OSS)
+
+Two files. Copy this shape when adding more entities.
+
+### 1. Reader: how to fetch the current `updated_at`
+
+```ts
+// packages/core/src/modules/customers/di.ts
+import { asFunction } from 'awilix'
+import {
+  createOptimisticLockGuardService,
+  parseOptimisticLockEnv,
+  type OptimisticLockCurrentReader,
+} from '@open-mercato/shared/lib/crud/optimistic-lock'
+import { OPTIMISTIC_LOCK_ENV_VAR } from '@open-mercato/shared/lib/crud/optimistic-lock-headers'
+import { CustomerEntity } from './data/entities'
+
+const RESOURCE_KIND_COMPANY = 'customers.company'
+
+const readCustomerCompanyUpdatedAt: OptimisticLockCurrentReader = async (
+  em,
+  { resourceId, tenantId, organizationId },
+) => {
+  const row = await em.findOne(
+    CustomerEntity,
+    {
+      id: resourceId,
+      tenantId,
+      ...(organizationId ? { organizationId } : {}),
+      kind: 'company',
+      deletedAt: null,
+    },
+    { fields: ['updatedAt'] as const },
+  )
+  return row?.updatedAt instanceof Date ? row.updatedAt.toISOString() : null
+}
+
+function shouldRegisterOptimisticLockGuard(): boolean {
+  const config = parseOptimisticLockEnv(process.env[OPTIMISTIC_LOCK_ENV_VAR])
+  if (config.mode === 'off') return false
+  if (config.mode === 'all') return true
+  return config.entities.has(RESOURCE_KIND_COMPANY)
+}
+
+export function register(container) {
+  // ... existing registrations ...
+  if (shouldRegisterOptimisticLockGuard()) {
+    container.register({
+      crudMutationGuardService: asFunction(({ em }) =>
+        createOptimisticLockGuardService({
+          getEm: () => em,
+          readers: { [RESOURCE_KIND_COMPANY]: readCustomerCompanyUpdatedAt },
+        }),
+      ).scoped(),
+    })
+  }
+}
+```
+
+Notes:
+
+- The reader only requests `['updatedAt']` so no encrypted PII materializes.
+- The reader narrows by `kind: 'company'` because `customer_entities` is
+  the polymorphic table shared with `customers.person`.
+- `findOneWithDecryption` is **not** required here because no decrypted
+  column is read.
+
+### 2. Client: round-trip the token
+
+```ts
+// On the page that owns the form
+import { withScopedApiRequestHeaders } from '@open-mercato/ui/backend/utils/apiCall'
+import { buildOptimisticLockHeader } from '@open-mercato/ui/backend/utils/optimisticLock'
+import { updateCrud } from '@open-mercato/ui/backend/utils/crud'
+
+async function saveCompany(id: string, payload: CompanyUpdatePayload, record: { updatedAt: string }) {
+  return withScopedApiRequestHeaders(
+    buildOptimisticLockHeader(record.updatedAt),
+    () => updateCrud('customers/companies', id, payload),
+  )
+}
+```
+
+### 3. Client: surface the conflict
+
+```ts
+import { extractOptimisticLockConflict } from '@open-mercato/ui/backend/utils/optimisticLock'
+import { flash } from '@open-mercato/ui/backend/FlashMessages'
+import { useT } from '@open-mercato/shared/lib/i18n/context'
+
+try {
+  await saveCompany(/* ... */)
+} catch (err) {
+  const conflict = extractOptimisticLockConflict(err)
+  if (conflict) {
+    flash(t('ui.forms.flash.recordModified'), 'error')
+    // optional: refetch the record using conflict.currentUpdatedAt as a cache buster
+    return
+  }
+  throw err
+}
+```
+
+The i18n key `ui.forms.flash.recordModified` ships in all four locales
+(`en`/`de`/`es`/`pl`) with copy that asks the user to refresh and try
+again.
+
+---
+
+## Roll out to a new entity
+
+1. Add the entity's `resourceKind` to the `readers` map in the module's
+   `di.ts` (or create a `di.ts` if the module does not have one).
+2. Make sure detail/list responses expose `updatedAt` as an ISO string
+   (most `serializeEntity` helpers already do).
+3. Wire the client page(s) to use `buildOptimisticLockHeader(...)` and
+   `extractOptimisticLockConflict(...)`.
+4. Add `<entityType>` to `OM_OPTIMISTIC_LOCK` in your deployment (or
+   ship a default in the relevant environment file).
+5. Add an integration test that mirrors
+   [`TC-LOCK-OSS-001`](https://github.com/open-mercato/open-mercato/blob/develop/packages/core/src/modules/customers/__integration__/TC-LOCK-OSS-001.spec.ts):
+   create the record, snapshot its `updatedAt`, perform a fresh update,
+   then a stale update and assert the 409 body shape.
+
+---
+
+## Coexisting with the enterprise `record_locks` module
+
+When both layers are active, the enterprise pessimistic check runs first
+(its registration overrides the OSS slot, because Awilix's `register`
+replaces existing bindings). The enterprise module already handles:
+
+- Pessimistic acquire with heartbeat.
+- Presence widgets ("User X is editing now").
+- Force-release.
+- Merge UX on conflicts.
+
+The OSS optimistic check is not run alongside; it's a fallback for OSS-
+only deployments. A future improvement (tracked separately) will compose
+the two layers via priorities so the OSS optimistic check still runs as
+a second-line defense when the enterprise pessimistic check passes.
+
+---
+
+## Spec & FAQ
+
+- **Spec:** [`.ai/specs/2026-05-25-oss-optimistic-locking.md`](https://github.com/open-mercato/open-mercato/blob/develop/.ai/specs/2026-05-25-oss-optimistic-locking.md)
+- **Source files:**
+  - `packages/shared/src/lib/crud/optimistic-lock.ts`
+  - `packages/shared/src/lib/crud/optimistic-lock-headers.ts`
+  - `packages/ui/src/backend/utils/optimisticLock.ts`
+  - `packages/core/src/modules/customers/di.ts` (reference wiring)
+
+### FAQ
+
+**Q: Why not `If-Unmodified-Since`?**
+A: HTTP-date format is second-granular. A burst of writes within the
+same second would silently bypass the check. The extension header is
+millisecond-precise.
+
+**Q: What about clock skew?**
+A: The client echoes the server's `updatedAt`. Wall-clock skew is
+irrelevant — the server is the only timestamp authority.
+
+**Q: Will this break older API clients?**
+A: No. The guard SKIPS when the header is absent, which is exactly the
+behavior pre-PR. Opt-in is also gated server-side by `OM_OPTIMISTIC_LOCK`.
+
+**Q: Does the guard run on `create`?**
+A: No. Only `update` and `delete`. There is no "expected previous
+version" for a create.
+
+**Q: Can the enterprise module override the resolved token source?**
+A: Yes — `createOptimisticLockGuardService({ resolveExpected: … })` is
+the reserved extension point. The OSS default uses the header value.
