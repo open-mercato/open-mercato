@@ -2097,6 +2097,12 @@ export function makeCrudRoute<TCreate = any, TUpdate = any, TList = any>(opts: C
 
   async function PUT(request: Request) {
     console.log('[crud-factory.PUT] entry', { url: request.url, resourceKind })
+    // DELIBERATE FALSIFIABLE PROBE: if this 599 response surfaces in CI, the
+    // bundled factory.ts has iter 10's code; if PUT still returns 200, the
+    // ephemeral server is running an older factory.ts than we think.
+    if (request.url.includes('/customers/companies') || request.url.includes('/customers/people') || request.url.includes('/sales/orders')) {
+      return json({ error: 'iter10-probe-from-factory.ts-PUT', resourceKind, url: request.url }, { status: 599 })
+    }
     try {
       const useCommand = !!opts.actions?.update
       console.log('[crud-factory.PUT] useCommand', useCommand, { hasActionsUpdate: !!opts.actions?.update, hasUpdate: !!opts.update })
