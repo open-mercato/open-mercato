@@ -196,9 +196,9 @@ request, for the architectural decision log.
 
 ### Phase 5: Docs + Task Router
 
-- [ ] 5.1 Docs page concurrency-locking.mdx
-- [ ] 5.2 Task Router row in root AGENTS.md
-- [ ] 5.3 (Follow-up next PR) Wire customers.person + sales.order
+- [x] 5.1 Docs page concurrency-locking.mdx + sidebar entry — cc58b5ce0
+- [x] 5.2 Task Router row in root AGENTS.md — cc58b5ce0
+- [ ] 5.3 (Follow-up next PR) Wire customers.person + sales.order — deferred per Q5 scope
 
 ### Phase 6: Validation gate + PR
 
