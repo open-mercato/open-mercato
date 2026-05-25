@@ -33,8 +33,8 @@ async function fetchOrderUpdatedAt(
   const body = (await response.json()) as { items?: Array<Record<string, unknown>> }
   const item = body.items?.[0]
   expect(item, 'response should include the requested order').toBeTruthy()
-  const updatedAt = item?.updatedAt
-  expect(typeof updatedAt, 'order response should expose updatedAt as ISO string').toBe('string')
+  const updatedAt = item?.updated_at ?? item?.updatedAt
+  expect(typeof updatedAt, 'order response should expose updated_at as ISO string').toBe('string')
   return updatedAt as string
 }
 
