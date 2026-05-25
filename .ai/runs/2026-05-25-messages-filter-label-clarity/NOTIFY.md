@@ -11,3 +11,9 @@
 - All 4 steps done (1.1, 2.1, 2.2, 3.1)
 - PR opened: https://github.com/open-mercato/open-mercato/pull/2052
 - Intended labels: review, needs-qa, feature (requires maintainer to apply — fork contributor lacks write access)
+
+## 2026-05-25T13:30:00Z — auto-continue-pr-loop resume
+- Resumed by: @adeptofvoltron
+- Resume point: final gate (all original steps done; reconciling out-of-plan test commit 67febdbc7)
+- PR head SHA: 67febdbc7f91717d90cf3af3a2b6134d4e2475be
+- Reason: unit test step (added by auto-review-pr autofix) not recorded in Tasks table — adding as 3.2-test-fix

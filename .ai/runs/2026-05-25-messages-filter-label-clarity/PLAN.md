@@ -10,6 +10,8 @@
 | 2 | 2.1 | Update messages i18n locale files (all four locales) | done | f72639d02 |
 | 2 | 2.2 | Wire new labels and tooltips in inboxFilters.ts | done | 3f07726f1 |
 | 3 | 3.1 | Update TC-MSG-007 test scenario step text | done | f6d738882 |
+| 3 | 3.2-test-fix | Add FilterOverlay tooltip rendering unit tests | done | 67febdbc7 |
+| 3 | 3.3-test-repair | Fix inboxFilters.test.ts to use new label names and assert tooltip fields | done | 883b8d629 |
 
 ---
 
