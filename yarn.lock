@@ -5250,13 +5250,6 @@ __metadata:
   languageName: node
   linkType: hard
 
-"@isaacs/cliui@npm:^9.0.0":
-  version: 9.0.0
-  resolution: "@isaacs/cliui@npm:9.0.0"
-  checksum: 10/8ea3d1009fd29071419209bb91ede20cf27e6e2a1630c5e0702d8b3f47f9e1a3f1c5a587fa2cb96d22d18219790327df49db1bcced573346bbaf4577cf46b643
-  languageName: node
-  linkType: hard
-
 "@isaacs/fs-minipass@npm:^4.0.0":
   version: 4.0.1
   resolution: "@isaacs/fs-minipass@npm:4.0.1"
@@ -7214,7 +7207,7 @@ __metadata:
     jest: "npm:^30.4.2"
     pg: "npm:8.21.0"
     semver: "npm:^7.8.0"
-    testcontainers: "npm:^11.14.0"
+    testcontainers: "npm:^12.0.0"
     ts-jest: "npm:^29.4.9"
     ts-morph: "npm:^28.0.0"
     tsx: "npm:^4.22.2"
@@ -7463,7 +7456,7 @@ __metadata:
     "@open-mercato/shared": "workspace:*"
     "@types/jest": "npm:^30.0.0"
     esbuild: "npm:^0.25.2"
-    glob: "npm:^11.0.3"
+    glob: "npm:^13.0.6"
     jest: "npm:^30.2.0"
     ts-jest: "npm:^29.4.6"
   peerDependencies:
@@ -15610,9 +15603,9 @@ __metadata:
   languageName: node
   linkType: hard
 
-"dockerode@npm:^4.0.10":
-  version: 4.0.10
-  resolution: "dockerode@npm:4.0.10"
+"dockerode@npm:^5.0.0":
+  version: 5.0.0
+  resolution: "dockerode@npm:5.0.0"
   dependencies:
     "@balena/dockerignore": "npm:^1.0.2"
     "@grpc/grpc-js": "npm:^1.11.1"
@@ -15620,8 +15613,7 @@ __metadata:
     docker-modem: "npm:^5.0.7"
     protobufjs: "npm:^7.3.2"
     tar-fs: "npm:^2.1.4"
-    uuid: "npm:^10.0.0"
-  checksum: 10/283c418cab04ef36dae7776baf1088d0eca3d47241d7de92af3f70f7a56e26bc4a1c8e36313c6a91681bdace01b2142203a411aed8011d8d83ec2fcbab3f2145
+  checksum: 10/1480304e8300745c2606519f74d42ef1c1d804b8289023841e165031e70816909727f95ae7b2ce2cc3789168cb8f57b246c6f339c7f6551e574c1ad1f1307499
   languageName: node
   linkType: hard
 
@@ -17498,7 +17490,7 @@ __metadata:
   languageName: node
   linkType: hard
 
-"foreground-child@npm:^3.1.0, foreground-child@npm:^3.3.1":
+"foreground-child@npm:^3.1.0":
   version: 3.3.1
   resolution: "foreground-child@npm:3.3.1"
   dependencies:
@@ -17869,22 +17861,6 @@ __metadata:
   bin:
     glob: dist/esm/bin.mjs
   checksum: 10/ab3bccfefcc0afaedbd1f480cd0c4a2c0e322eb3f0aa7ceaa31b3f00b825069f17cf0f1fc8b6f256795074b903f37c0ade37ddda6a176aa57f1c2bbfe7240653
-  languageName: node
-  linkType: hard
-
-"glob@npm:^11.0.3":
-  version: 11.1.0
-  resolution: "glob@npm:11.1.0"
-  dependencies:
-    foreground-child: "npm:^3.3.1"
-    jackspeak: "npm:^4.1.1"
-    minimatch: "npm:^10.1.1"
-    minipass: "npm:^7.1.2"
-    package-json-from-dist: "npm:^1.0.0"
-    path-scurry: "npm:^2.0.0"
-  bin:
-    glob: dist/esm/bin.mjs
-  checksum: 10/da4501819633daff8822c007bb3f93d5c4d2cbc7b15a8e886660f4497dd251a1fb4f53a85fba1e760b31704eff7164aeb2c7a82db10f9f2c362d12c02fe52cf3
   languageName: node
   linkType: hard
 
@@ -19689,15 +19665,6 @@ __metadata:
     "@pkgjs/parseargs":
       optional: true
   checksum: 10/96f8786eaab98e4bf5b2a5d6d9588ea46c4d06bbc4f2eb861fdd7b6b182b16f71d8a70e79820f335d52653b16d4843b29dd9cdcf38ae80406756db9199497cf3
-  languageName: node
-  linkType: hard
-
-"jackspeak@npm:^4.1.1":
-  version: 4.2.3
-  resolution: "jackspeak@npm:4.2.3"
-  dependencies:
-    "@isaacs/cliui": "npm:^9.0.0"
-  checksum: 10/b88e3fe5fa04d34f0f939a15b7cef4a8589999b7a366ef89a3e0f2c45d2a7666066b67cbf46d57c3a4796a76d27b9d869b23d96a803dd834200d222c2a70de7e
   languageName: node
   linkType: hard
 
@@ -28399,9 +28366,9 @@ __metadata:
   languageName: node
   linkType: hard
 
-"testcontainers@npm:^11.14.0":
-  version: 11.14.0
-  resolution: "testcontainers@npm:11.14.0"
+"testcontainers@npm:^12.0.0":
+  version: 12.0.0
+  resolution: "testcontainers@npm:12.0.0"
   dependencies:
     "@balena/dockerignore": "npm:^1.0.2"
     "@types/dockerode": "npm:^4.0.1"
@@ -28410,15 +28377,15 @@ __metadata:
     byline: "npm:^5.0.0"
     debug: "npm:^4.4.3"
     docker-compose: "npm:^1.4.2"
-    dockerode: "npm:^4.0.10"
+    dockerode: "npm:^5.0.0"
     get-port: "npm:^7.2.0"
     proper-lockfile: "npm:^4.1.2"
     properties-reader: "npm:^3.0.1"
     ssh-remote-port-forward: "npm:^1.0.4"
     tar-fs: "npm:^3.1.2"
     tmp: "npm:^0.2.5"
-    undici: "npm:^7.24.5"
-  checksum: 10/f836b2908060efd041958da28412acb3456f759c44c468b72d81a8e86d1417e1c5bdac97c848ee074c203033eadcc8af6603f6afa9ab44af8a0b3b957d84281c
+    undici: "npm:^7.24.7"
+  checksum: 10/87be045544ddf672ddfe23349ebd37e7fbd4214bf721b97d2785fb757918156dde241c771b5abf5eb9baf2a903c8293a9bcdc3c7a3c749f67cfe5d1983bc9e1c
   languageName: node
   linkType: hard
 
@@ -29479,15 +29446,6 @@ __metadata:
   version: 1.0.1
   resolution: "utils-merge@npm:1.0.1"
   checksum: 10/5d6949693d58cb2e636a84f3ee1c6e7b2f9c16cb1d42d0ecb386d8c025c69e327205aa1c69e2868cc06a01e5e20681fbba55a4e0ed0cce913d60334024eae798
-  languageName: node
-  linkType: hard
-
-"uuid@npm:^10.0.0":
-  version: 10.0.0
-  resolution: "uuid@npm:10.0.0"
-  bin:
-    uuid: dist/bin/uuid
-  checksum: 10/35aa60614811a201ff90f8ca5e9ecb7076a75c3821e17f0f5ff72d44e36c2d35fcbc2ceee9c4ac7317f4cc41895da30e74f3885e30313bee48fda6338f250538
   languageName: node
   linkType: hard
 
