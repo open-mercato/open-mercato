@@ -8,9 +8,12 @@ import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { useBackendChrome } from '../BackendChromeProvider'
 import { hasFeature } from '@open-mercato/shared/security/features'
 
-const upgradeActionsEnabled =
-  process.env.NEXT_PUBLIC_UPGRADE_ACTIONS_ENABLED === 'true' ||
-  process.env.UPGRADE_ACTIONS_ENABLED === 'true'
+function upgradeActionsEnabled() {
+  return (
+    process.env.NEXT_PUBLIC_UPGRADE_ACTIONS_ENABLED === 'true' ||
+    process.env.UPGRADE_ACTIONS_ENABLED === 'true'
+  )
+}
 
 type UpgradeActionPayload = {
   id: string
@@ -43,7 +46,7 @@ export function UpgradeActionBanner() {
 
   const loadNextAction = React.useCallback(async () => {
     if (!canManageConfigs) return
-    if (!upgradeActionsEnabled) return
+    if (!upgradeActionsEnabled()) return
     if (typeof window === 'undefined' || typeof fetch === 'undefined') return
     const call = await apiCall<UpgradeActionResponse>('/api/configs/upgrade-actions')
     if (cancelledRef.current) return
@@ -62,10 +65,10 @@ export function UpgradeActionBanner() {
     }
   }, [loadNextAction])
 
-  if (!upgradeActionsEnabled || !canManageConfigs || !action) return null
+  if (!upgradeActionsEnabled() || !canManageConfigs || !action) return null
 
   async function handleRun() {
-    if (!upgradeActionsEnabled || !action || loading) return
+    if (!upgradeActionsEnabled() || !action || loading) return
     setLoading(true)
     try {
       const response = await apiCall<RunActionResponse>('/api/configs/upgrade-actions', {

@@ -99,7 +99,7 @@ describe('UpgradeActionBanner — feature guard', () => {
     })
 
     await waitFor(() => {
-      expect(screen.getByText('Install now')).toBeInTheDocument()
+      expect(screen.getByRole('button', { name: 'Install now' })).toBeInTheDocument()
     })
   })
 
