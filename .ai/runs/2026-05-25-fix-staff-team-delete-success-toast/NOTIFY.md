@@ -2,6 +2,12 @@
 
 > Append-only log. Every entry is UTC-timestamped. Never rewrite prior entries.
 
+## 2026-05-25T09:46:00Z — run complete
+- PR #2051 opened: https://github.com/open-mercato/open-mercato/pull/2051
+- Completion comment posted on PR
+- All tracking files finalized
+- Labels (bug, skip-qa, review) require maintainer to apply (no label-write access to upstream)
+
 ## 2026-05-25T09:36:00Z — checkpoint 1 complete
 - Steps covered: 1.1 (1aa45ad89) → 2.1 (42abcb811)
 - handleDelete structure verified (no try/catch, no flash in success path)

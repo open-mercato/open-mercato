@@ -1,10 +1,10 @@
 # Handoff — 2026-05-25-fix-staff-team-delete-success-toast
 
-**Last updated:** 2026-05-25T09:36:00Z
+**Last updated:** 2026-05-25T09:46:00Z
 **Branch:** fix/fix-staff-team-delete-success-toast
-**PR:** not yet opened
-**Current phase/step:** All steps complete (1.1 ✅, 2.1 ✅) — opening PR
-**Last commit:** 42abcb811 — test(staff): add 409 integration test for team delete with assigned members
+**PR:** https://github.com/open-mercato/open-mercato/pull/2051
+**Current phase/step:** DONE — PR opened, run complete
+**Last commit:** d38f687ad — docs(runs): checkpoint 1 — steps 1.1..2.1 verified
 
 ## What just happened
 - Step 1.1: Removed try/catch and success flash from `handleDelete` in `staff/teams/[id]/edit/page.tsx`. CrudForm now owns the error flow for 409 rejections.
@@ -12,7 +12,7 @@
 - Checkpoint 1 passed.
 
 ## Next concrete action
-- Open PR against develop, claim with three-signal in-progress lock
+- None — run is complete. PR #2051 is open and awaiting review.
 
 ## Blockers / open questions
 - None
