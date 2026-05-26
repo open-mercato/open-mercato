@@ -166,6 +166,30 @@ describe('LastOperationBanner', () => {
     }
   })
 
+  it('does not fire a spurious dismiss after a successful undo removes the operation', async () => {
+    jest.useFakeTimers()
+    try {
+      let resolveCall: ((value: unknown) => void) | null = null
+      ;(apiCall as jest.Mock).mockImplementation(() => new Promise((resolve) => { resolveCall = resolve }))
+
+      const { rerender } = renderWithProviders(<LastOperationBanner />, { dict })
+      fireEvent.click(screen.getByRole('button', { name: /undo/i }))
+
+      resolveCall?.({ ok: true, status: 200, result: {}, response: createMockResponse(200) })
+      await Promise.resolve()
+      await Promise.resolve()
+      await Promise.resolve()
+
+      ;(useLastOperation as jest.Mock).mockReturnValue(null)
+      rerender(<LastOperationBanner />)
+
+      jest.advanceTimersByTime(10_000)
+      expect(dismissOperation).not.toHaveBeenCalled()
+    } finally {
+      jest.useRealTimers()
+    }
+  })
+
   it('clears the auto-dismiss timer when the operation is replaced before timeout fires', () => {
     jest.useFakeTimers()
     try {
