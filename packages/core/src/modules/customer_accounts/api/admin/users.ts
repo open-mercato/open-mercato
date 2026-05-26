@@ -11,6 +11,10 @@ import { adminCreateUserSchema } from '@open-mercato/core/modules/customer_accou
 import { emitCustomerAccountsEvent } from '@open-mercato/core/modules/customer_accounts/events'
 import { findAndCountWithDecryption, findWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import { hashForLookup } from '@open-mercato/shared/lib/encryption/aes'
+import { E } from '#generated/entities.ids.generated'
+import { resolveSearchConfig } from '@open-mercato/shared/lib/search/config'
+import { tokenizeText } from '@open-mercato/shared/lib/search/tokenize'
+import { sql } from 'kysely'
 
 const EMAIL_LIKE_PATTERN = /^[^\s@]+@[^\s@]+\.[^\s@]+$/
 
@@ -64,23 +68,39 @@ export async function GET(req: Request) {
   }
 
   if (search) {
-    const escapedSearch = search.replace(/[%_\\]/g, '\\$&')
+    const trimmedSearch = search.trim()
     // email/displayName are stored encrypted, so SQL ILIKE on the ciphertext
-    // never matches a plaintext search term. Match the deterministic emailHash
-    // (used by CustomerUser as a blind index) when the query looks like an
-    // email so administrators can still look users up by exact address.
-    const searchFilter: Record<string, unknown>[] = [
-      { email: { $ilike: `%${escapedSearch}%` } },
-      { displayName: { $ilike: `%${escapedSearch}%` } },
-    ]
+    // never matches a plaintext search term. Use search_tokens table for partial
+    // matches and emailHash for exact email lookups.
+    const searchFilter: Record<string, unknown>[] = []
+
+    // Search encrypted fields via search_tokens
+    const matchedIds = await findCustomerUserIdsBySearchTokens(em, E.customer_accounts.customer_user, trimmedSearch, auth.tenantId)
+    if (matchedIds && matchedIds.length > 0) {
+      searchFilter.push({ id: { $in: matchedIds } })
+    }
+
+    // Also support exact email lookup via emailHash
     if (EMAIL_LIKE_PATTERN.test(search)) {
       searchFilter.push({ emailHash: hashForLookup(search) })
     }
-    if (where.$or) {
-      where.$and = [{ $or: where.$or }, { $or: searchFilter }]
-      delete where.$or
+
+    if (searchFilter.length > 0) {
+      if (where.$or) {
+        where.$and = [{ $or: where.$or }, { $or: searchFilter }]
+        delete where.$or
+      } else {
+        where.$or = searchFilter
+      }
     } else {
-      where.$or = searchFilter
+      // No search results found, return empty
+      return NextResponse.json({
+        ok: true,
+        items: [],
+        total: 0,
+        totalPages: 1,
+        page,
+      })
     }
   }
 
@@ -269,6 +289,40 @@ const successSchema = z.object({
   user: z.object({ id: z.string().uuid(), email: z.string(), displayName: z.string() }),
 })
 const errorSchema = z.object({ ok: z.literal(false), error: z.string() })
+
+async function findCustomerUserIdsBySearchTokens(
+  em: EntityManager,
+  entityType: string,
+  search: string,
+  tenantScope: string | null | undefined,
+  field?: string,
+): Promise<string[] | null> {
+  const trimmed = search.trim()
+  if (!trimmed) return null
+  const searchConfig = resolveSearchConfig()
+  if (!searchConfig.enabled) return []
+  const { hashes } = tokenizeText(trimmed, searchConfig)
+  if (!hashes.length) return []
+
+  const db = (em as any).getKysely() as any
+  let query = db
+    .selectFrom('search_tokens')
+    .select('entity_id')
+    .where('entity_type', '=', entityType)
+    .where('token_hash', 'in', hashes)
+    .groupBy('entity_id')
+    .having(sql<boolean>`count(distinct token_hash) >= ${hashes.length}`)
+  if (field) {
+    query = query.where('field', '=', field)
+  }
+  if (tenantScope !== undefined) {
+    query = query.where(sql<boolean>`tenant_id is not distinct from ${tenantScope}`)
+  }
+  const rows = (await query.execute()) as Array<{ entity_id?: unknown }>
+  return rows
+    .map((row) => (typeof row.entity_id === 'string' ? row.entity_id : null))
+    .filter((id): id is string => typeof id === 'string' && id.length > 0)
+}
 
 const getMethodDoc: OpenApiMethodDoc = {
   summary: 'List customer users (admin)',

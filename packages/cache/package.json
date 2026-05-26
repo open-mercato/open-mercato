@@ -58,9 +58,9 @@
   },
   "devDependencies": {
     "@types/jest": "^30.0.0",
-    "@types/node": "^25.9.0",
+    "@types/node": "^25.9.1",
     "jest": "^30.4.2",
-    "ts-jest": "^29.4.9"
+    "ts-jest": "^29.4.11"
   },
   "publishConfig": {
     "access": "public"

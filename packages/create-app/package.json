@@ -21,9 +21,9 @@
     "tar": "^7.5.15"
   },
   "devDependencies": {
-    "@types/node": "^25.9.0",
+    "@types/node": "^25.9.1",
     "esbuild": "^0.28.0",
-    "tsx": "^4.22.2",
+    "tsx": "^4.22.3",
     "typescript": "^6.0.3"
   },
   "publishConfig": {
