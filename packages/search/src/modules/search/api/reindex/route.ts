@@ -9,7 +9,7 @@ import { recordIndexerLog } from '@open-mercato/shared/lib/indexers/status-log'
 import { recordIndexerError } from '@open-mercato/shared/lib/indexers/error-log'
 import type { ProgressService } from '@open-mercato/core/modules/progress/lib/progressService'
 import type { EntityManager } from '@mikro-orm/postgresql'
-import type { Knex } from 'knex'
+import type { Kysely } from 'kysely'
 import { searchDebug, searchError } from '../../../../lib/debug'
 import {
   acquireReindexLock,
@@ -91,10 +91,10 @@ export async function POST(req: Request) {
   const container = await createRequestContainer()
   const em = container.resolve('em') as EntityManager
   const progressService = container.resolve('progressService') as ProgressService
-  const knex = (em.getConnection() as unknown as { getKnex: () => Knex }).getKnex()
+  const db = (em as unknown as { getKysely: () => Kysely<any> }).getKysely()
 
   // Check if another fulltext reindex operation is already in progress
-  const existingLock = await getReindexLockStatus(knex, tenantId, { type: 'fulltext' })
+  const existingLock = await getReindexLockStatus(db, tenantId, { type: 'fulltext' })
   if (existingLock) {
     const startedAt = new Date(existingLock.startedAt)
     return NextResponse.json(
@@ -114,7 +114,7 @@ export async function POST(req: Request) {
   }
 
   // Acquire lock before starting the operation
-  const { acquired: lockAcquired } = await acquireReindexLock(knex, {
+  const { acquired: lockAcquired } = await acquireReindexLock(db, {
     type: 'fulltext',
     action,
     tenantId: tenantId,
@@ -453,7 +453,7 @@ export async function POST(req: Request) {
     // Only clear lock immediately if NOT using queue mode
     // When using queue mode, workers update heartbeat and stale detection handles cleanup
     if (!useQueue) {
-      await clearReindexLock(knex, tenantId, 'fulltext', auth.orgId ?? null)
+      await clearReindexLock(db, tenantId, 'fulltext', auth.orgId ?? null)
     }
 
     const disposable = container as unknown as { dispose?: () => Promise<void> }

@@ -20,6 +20,13 @@ const DEFAULT_MERGE_CONFIG: ResultMergeConfig = {
 }
 
 /**
+ * Cache TTL for strategy availability checks.
+ * Short window so connectivity changes (Meilisearch up/down) propagate quickly,
+ * long enough to skip per-request RTT to remote backends on hot paths.
+ */
+const STRATEGY_AVAILABILITY_CACHE_TTL_MS = 2_000
+
+/**
  * SearchService orchestrates multiple search strategies, executing searches in parallel
  * and merging results using the RRF algorithm.
  *
@@ -49,6 +56,9 @@ export class SearchService {
   private readonly fallbackStrategy: SearchStrategyId | undefined
   private readonly mergeConfig: ResultMergeConfig
   private readonly presenterEnricher?: PresenterEnricherFn
+  private readonly availabilityCache = new Map<SearchStrategyId, { value: boolean; expiresAt: number }>()
+  private readonly availabilityInflight = new Map<SearchStrategyId, Promise<boolean>>()
+  private readonly availabilityCacheTtlMs: number
 
   constructor(options: SearchServiceOptions = {}) {
     this.strategies = new Map()
@@ -59,6 +69,7 @@ export class SearchService {
     this.fallbackStrategy = options.fallbackStrategy
     this.mergeConfig = options.mergeConfig ?? DEFAULT_MERGE_CONFIG
     this.presenterEnricher = options.presenterEnricher
+    this.availabilityCacheTtlMs = options.availabilityCacheTtlMs ?? STRATEGY_AVAILABILITY_CACHE_TTL_MS
   }
 
   /**
@@ -291,6 +302,8 @@ export class SearchService {
    */
   registerStrategy(strategy: SearchStrategy): void {
     this.strategies.set(strategy.id, strategy)
+    this.availabilityCache.delete(strategy.id)
+    this.availabilityInflight.delete(strategy.id)
   }
 
   /**
@@ -300,6 +313,23 @@ export class SearchService {
    */
   unregisterStrategy(strategyId: SearchStrategyId): void {
     this.strategies.delete(strategyId)
+    this.availabilityCache.delete(strategyId)
+    this.availabilityInflight.delete(strategyId)
+  }
+
+  /**
+   * Invalidate the strategy availability cache.
+   * Call after manual reconnects or env changes when callers must observe the
+   * current backend state immediately rather than waiting for TTL expiry.
+   */
+  invalidateAvailabilityCache(strategyId?: SearchStrategyId): void {
+    if (strategyId) {
+      this.availabilityCache.delete(strategyId)
+      this.availabilityInflight.delete(strategyId)
+      return
+    }
+    this.availabilityCache.clear()
+    this.availabilityInflight.clear()
   }
 
   /**
@@ -334,32 +364,71 @@ export class SearchService {
   async isStrategyAvailable(strategyId: SearchStrategyId): Promise<boolean> {
     const strategy = this.strategies.get(strategyId)
     if (!strategy) return false
-    return strategy.isAvailable()
+    return this.checkStrategyAvailability(strategy)
+  }
+
+  /**
+   * Resolve a strategy's availability via the short-lived TTL cache.
+   * Coalesces concurrent callers onto a single in-flight probe to avoid
+   * thundering-herd on remote backends.
+   */
+  private async checkStrategyAvailability(strategy: SearchStrategy): Promise<boolean> {
+    const now = Date.now()
+    const cached = this.availabilityCache.get(strategy.id)
+    if (cached && cached.expiresAt > now) return cached.value
+
+    const inflight = this.availabilityInflight.get(strategy.id)
+    if (inflight) return inflight
+
+    const probe = (async () => {
+      try {
+        const value = await strategy.isAvailable()
+        this.availabilityCache.set(strategy.id, {
+          value,
+          expiresAt: Date.now() + this.availabilityCacheTtlMs,
+        })
+        return value
+      } catch {
+        this.availabilityCache.set(strategy.id, {
+          value: false,
+          expiresAt: Date.now() + this.availabilityCacheTtlMs,
+        })
+        return false
+      } finally {
+        this.availabilityInflight.delete(strategy.id)
+      }
+    })()
+    this.availabilityInflight.set(strategy.id, probe)
+    return probe
   }
 
   /**
    * Get available strategies from the requested list.
    * Filters out strategies that are not registered or not available.
+   * Probes run in parallel and reuse a short-lived per-strategy availability
+   * cache, so hot paths pay the max latency of the slowest probe (or zero
+   * when cached) instead of the sum of all probes.
    */
   private async getAvailableStrategies(ids?: SearchStrategyId[]): Promise<SearchStrategy[]> {
     const targetIds = ids ?? Array.from(this.strategies.keys())
-    const available: SearchStrategy[] = []
-
+    const candidates: SearchStrategy[] = []
     for (const id of targetIds) {
       const strategy = this.strategies.get(id)
-      if (strategy) {
-        try {
-          const isAvailable = await strategy.isAvailable()
-          if (isAvailable) {
-            available.push(strategy)
-          }
-        } catch {
-          // Strategy availability check failed, skip it
-        }
+      if (strategy) candidates.push(strategy)
+    }
+
+    const probes = await Promise.allSettled(
+      candidates.map((strategy) => this.checkStrategyAvailability(strategy)),
+    )
+
+    const available: SearchStrategy[] = []
+    for (let i = 0; i < probes.length; i++) {
+      const probe = probes[i]
+      if (probe.status === 'fulfilled' && probe.value) {
+        available.push(candidates[i])
       }
     }
 
-    // Sort by priority (higher priority first)
     return available.sort((a, b) => b.priority - a.priority)
   }
 

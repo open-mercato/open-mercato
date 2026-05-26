@@ -18,6 +18,8 @@ import fs from 'node:fs'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { globSync } from 'glob'
+// @ts-expect-error — JS sibling module shared with the node:test suite.
+import { scanText } from './i18n-scanner.mjs'
 
 const __filename_ = typeof __filename !== 'undefined' ? __filename : fileURLToPath(import.meta.url)
 const ROOT = path.resolve(path.dirname(__filename_), '..')
@@ -80,44 +82,15 @@ function scanSourceFiles(allTranslationKeys: Set<string>): { refs: KeyReference[
     absolute: true,
   })
 
-  // Pattern 1: Direct t('key') or translate('key') calls
-  const directCallPattern = /(?<![a-zA-Z_])(?:t|translate)\(\s*(['"])([a-zA-Z0-9_.]+)\1/g
-
-  // Pattern 2: Indirect key properties — labelKey: 'key', titleKey: 'key', descriptionKey: 'key', etc.
-  const keyPropertyPattern = /[a-zA-Z]*[Kk]ey['"]?\s*[:=]\s*(['"])([a-zA-Z0-9_.]+)\1/g
-
-  // Pattern 3: Detect dynamic t() calls for counting
-  const dynamicCallPattern = /(?<![a-zA-Z_])(?:t|translate)\(\s*(?!['"])[a-zA-Z`{]/g
-
   const refs: KeyReference[] = []
   let dynamicCount = 0
 
   for (const filePath of sourceFiles) {
     const content = fs.readFileSync(filePath, 'utf-8')
-    const lines = content.split('\n')
     const relPath = path.relative(ROOT, filePath)
-
-    for (let i = 0; i < lines.length; i++) {
-      const line = lines[i]
-
-      // Direct t()/translate() calls
-      for (const match of line.matchAll(directCallPattern)) {
-        refs.push({ key: match[2], file: relPath, line: i + 1 })
-      }
-
-      // Indirect key properties (only count if the value is a known translation key)
-      for (const match of line.matchAll(keyPropertyPattern)) {
-        const candidate = match[2]
-        if (allTranslationKeys.has(candidate)) {
-          refs.push({ key: candidate, file: relPath, line: i + 1 })
-        }
-      }
-
-      // Dynamic calls
-      for (const _ of line.matchAll(dynamicCallPattern)) {
-        dynamicCount++
-      }
-    }
+    const result = scanText(content, allTranslationKeys, { file: relPath })
+    refs.push(...result.refs)
+    dynamicCount += result.dynamicCount
   }
 
   return { refs, dynamicCount }

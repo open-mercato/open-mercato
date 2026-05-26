@@ -6,7 +6,6 @@ import type { EntityManager } from '@mikro-orm/postgresql'
 import type { CredentialsService } from '../../../../integrations/lib/credentials-service'
 import { CarrierShipment } from '../../../data/entities'
 import { getShippingAdapter } from '../../../lib/adapter-registry'
-import type { ShippingCarrierService } from '../../../lib/shipping-service'
 import { getShippingCarrierQueue } from '../../../lib/queue'
 import { shippingCarriersTag } from '../../openapi'
 
@@ -42,7 +41,6 @@ export async function POST(req: Request, { params }: { params: Promise<{ provide
   })
 
   const container = await createRequestContainer()
-  const service = container.resolve('shippingCarrierService') as ShippingCarrierService
   const em = container.resolve('em') as EntityManager
   const integrationCredentialsService = container.resolve('integrationCredentialsService') as CredentialsService
   const queue = getShippingCarrierQueue('shipping-carriers-webhook')
@@ -50,6 +48,12 @@ export async function POST(req: Request, { params }: { params: Promise<{ provide
   const carrierShipmentId = readCarrierShipmentId(payload)
 
   try {
+    // The webhook endpoint is unauthenticated. Tenant/organization scope MUST come from a
+    // CarrierShipment whose per-tenant credentials successfully verify the inbound
+    // signature — NEVER from attacker-controlled payload metadata or an unsigned retry.
+    // If no candidate shipment can be located by the provider-reported carrierShipmentId,
+    // or no candidate's credentials can verify the signature, we fail closed with 401.
+    // This mirrors the fix landed for payment_gateways in PR #1311.
     const candidates = carrierShipmentId
       ? await findWithDecryption(
         em,
@@ -63,9 +67,9 @@ export async function POST(req: Request, { params }: { params: Promise<{ provide
       )
       : []
 
-    let shipment = null as CarrierShipment | null
-    let matchedScope = null as { organizationId: string; tenantId: string } | null
-    let event = null as Awaited<ReturnType<typeof adapter.verifyWebhook>> | null
+    let shipment: CarrierShipment | null = null
+    let matchedScope: { organizationId: string; tenantId: string } | null = null
+    let event: Awaited<ReturnType<typeof adapter.verifyWebhook>> | null = null
     let lastVerificationError: unknown = null
 
     for (const candidate of candidates) {
@@ -81,32 +85,17 @@ export async function POST(req: Request, { params }: { params: Promise<{ provide
       }
     }
 
-    if (!event) {
-      try {
-        event = await adapter.verifyWebhook({ rawBody, headers, credentials: {} })
-      } catch (error: unknown) {
-        throw lastVerificationError ?? error
-      }
+    if (!event || !shipment || !matchedScope) {
+      throw lastVerificationError ?? new Error('Webhook verification failed: no matching shipment')
     }
-    if (!event) {
-      throw new Error('Webhook verification failed')
-    }
-
-    if (!shipment && carrierShipmentId && matchedScope) {
-      shipment = await service.findShipmentByCarrierId(providerKey, carrierShipmentId, matchedScope)
-    }
-
-    const scope = shipment
-      ? { organizationId: shipment.organizationId, tenantId: shipment.tenantId }
-      : matchedScope
 
     await queue.enqueue({
       name: 'shipping-carrier-webhook',
       payload: {
         providerKey,
         event,
-        shipmentId: shipment?.id ?? null,
-        scope,
+        shipmentId: shipment.id,
+        scope: matchedScope,
       },
     })
 

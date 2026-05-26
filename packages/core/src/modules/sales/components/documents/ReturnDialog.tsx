@@ -3,6 +3,7 @@
 import * as React from 'react'
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@open-mercato/ui/primitives/dialog'
 import { Input } from '@open-mercato/ui/primitives/input'
+import { CounterInput } from '@open-mercato/ui/primitives/counter-input'
 import { Textarea } from '@open-mercato/ui/primitives/textarea'
 import { Label } from '@open-mercato/ui/primitives/label'
 import { Button } from '@open-mercato/ui/primitives/button'
@@ -10,6 +11,7 @@ import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { apiCallOrThrow } from '@open-mercato/ui/backend/utils/apiCall'
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
 import { useGuardedMutation } from '@open-mercato/ui/backend/injection/useGuardedMutation'
+import { computeAvailableReturnQuantity } from '@open-mercato/core/modules/sales/lib/returnQuantity'
 
 export type ReturnOrderLine = {
   id: string
@@ -48,7 +50,7 @@ export function ReturnDialog({ open, orderId, lines, onClose, onSaved }: ReturnD
   const availableLines = React.useMemo(() => {
     return lines
       .map((line) => {
-        const available = Math.max(0, line.quantity - line.returnedQuantity)
+        const available = computeAvailableReturnQuantity(line)
         return { ...line, available }
       })
       .filter((line) => line.available > 0)
@@ -64,17 +66,27 @@ export function ReturnDialog({ open, orderId, lines, onClose, onSaved }: ReturnD
   const submit = React.useCallback(async () => {
     if (saving) return
     let hasInvalidQuantity = false
+    let hasNonInteger = false
     const linesForRequest: Array<{ orderLineId: string; quantity: string }> = []
     availableLines.forEach((line) => {
       const raw = quantities[line.id]
       const qty = normalizeNumber(raw)
       if (!Number.isFinite(qty) || qty <= 0) return
-      if (qty - 1e-6 > line.available) {
+      if (!Number.isInteger(qty)) {
+        hasNonInteger = true
+        return
+      }
+      if (qty > line.available) {
         hasInvalidQuantity = true
         return
       }
       linesForRequest.push({ orderLineId: line.id, quantity: qty.toString() })
     })
+
+    if (hasNonInteger) {
+      flash(t('sales.returns.errors.quantityNotInteger', 'Return quantity must be a whole number.'), 'error')
+      return
+    }
 
     if (hasInvalidQuantity) {
       flash(t('sales.returns.errors.quantityExceeded', 'Cannot return more than available quantity.'), 'error')
@@ -162,12 +174,21 @@ export function ReturnDialog({ open, orderId, lines, onClose, onSaved }: ReturnD
                           <Label className="sr-only" htmlFor={`return-qty-${line.id}`}>
                             {t('sales.returns.quantity', 'Quantity')}
                           </Label>
-                          <Input
+                          <CounterInput
                             id={`return-qty-${line.id}`}
-                            inputMode="decimal"
+                            min={1}
+                            max={line.available}
+                            step={1}
                             placeholder="0"
-                            value={value}
-                            onChange={(e) => setQuantities((prev) => ({ ...prev, [line.id]: e.target.value }))}
+                            value={value === '' ? null : Number(value)}
+                            onChange={(next) => {
+                              setQuantities((prev) => ({
+                                ...prev,
+                                [line.id]: next === null ? '' : String(next),
+                              }))
+                            }}
+                            decrementAriaLabel={t('sales.returns.qty.decrease', 'Decrease quantity')}
+                            incrementAriaLabel={t('sales.returns.qty.increase', 'Increase quantity')}
                           />
                         </div>
                       </div>

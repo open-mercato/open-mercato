@@ -4,7 +4,7 @@ import type { CacheStrategy } from '@open-mercato/cache'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import { getAuthFromRequest } from '@open-mercato/shared/lib/auth/server'
 import type { RbacService } from '@open-mercato/core/modules/auth/services/rbacService'
-import { CustomFieldDef } from '@open-mercato/core/modules/entities/data/entities'
+import { CustomEntity, CustomFieldDef } from '@open-mercato/core/modules/entities/data/entities'
 import { upsertCustomFieldDefSchema, fieldsetCodeRegex } from '@open-mercato/core/modules/entities/data/validators'
 import {
   createDefinitionsCacheKey,
@@ -157,7 +157,7 @@ function parseEntityIds(url: URL): string[] {
 
 async function resolveEntityDefaultEditor(em: any, entityId: string, tenantId: string | null | undefined): Promise<string | undefined> {
   try {
-    const ent = await em.findOne('@open-mercato/core/modules/entities/data/entities:CustomEntity' as any, {
+    const ent = await em.findOne(CustomEntity, {
       entityId,
       $and: [
         { $or: [ { tenantId: tenantId ?? undefined as any }, { tenantId: null } ] },

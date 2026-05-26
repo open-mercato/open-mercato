@@ -90,6 +90,20 @@ export type SetupInitialTenantOptions = {
   includeSuperadminRole?: boolean
   /** Optional list of enabled modules. When provided, module setup hooks are called. */
   modules?: Module[]
+  /**
+   * Optional global slug to persist on the new Organization. When set, a
+   * pre-flight uniqueness check across all tenants throws OrgSlugExistsError
+   * on collision so scriptable callers can fail loudly instead of silently
+   * reusing or clobbering an existing organization.
+   */
+  orgSlug?: string
+}
+
+export class OrgSlugExistsError extends Error {
+  constructor(public readonly slug: string) {
+    super(`ORG_SLUG_EXISTS: an organization with slug "${slug}" already exists`)
+    this.name = 'OrgSlugExistsError'
+  }
 }
 
 export type SetupInitialTenantResult = {
@@ -129,6 +143,19 @@ export async function setupInitialTenant(
   const existingUser = await findOneWithDecryption(em, User, { email: mainEmail }, {}, { tenantId: null, organizationId: null })
   if (existingUser && failIfUserExists) {
     throw new Error('USER_EXISTS')
+  }
+
+  if (options.orgSlug) {
+    const slugConflict = await findOneWithDecryption(
+      em,
+      Organization,
+      { slug: options.orgSlug },
+      {},
+      { tenantId: null, organizationId: null },
+    )
+    if (slugConflict) {
+      throw new OrgSlugExistsError(options.orgSlug)
+    }
   }
 
   let tenantId: string | undefined
@@ -206,6 +233,7 @@ export async function setupInitialTenant(
 
       const organization = tem.create(Organization, {
         name: options.orgName,
+        slug: options.orgSlug ?? null,
         tenant,
         isActive: true,
         depth: 0,
@@ -392,7 +420,7 @@ async function resolvePasswordHash(input: PrimaryUserInput): Promise<string | nu
   return null
 }
 
-async function ensureDefaultRoleAcls(
+export async function ensureDefaultRoleAcls(
   em: EntityManager,
   tenantId: string,
   modules: Module[],
@@ -517,7 +545,7 @@ async function ensureRoleAclFor(
       isSuperAdmin: !!options.isSuperAdmin,
       createdAt: new Date(),
     })
-    await em.persistAndFlush(acl)
+    await em.persist(acl).flush()
     return
   }
   const currentFeatures = Array.isArray(existing.featuresJson) ? existing.featuresJson : []
@@ -530,7 +558,7 @@ async function ensureRoleAclFor(
     existing.isSuperAdmin = true
   }
   if (changed || options.isSuperAdmin) {
-    await em.persistAndFlush(existing)
+    await em.persist(existing).flush()
   }
 }
 
@@ -550,7 +578,7 @@ async function deactivateDemoSuperAdminIfSelfOnboardingEnabled(em: EntityManager
       dirty = true
     }
     if (dirty) {
-      await em.persistAndFlush(user)
+      await em.persist(user).flush()
     }
   } catch (error) {
     console.error('[auth.setup] failed to deactivate demo superadmin user', error)

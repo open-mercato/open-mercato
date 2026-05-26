@@ -42,7 +42,7 @@ export function createProgressService(em: EntityManager, eventBus: { emit: (even
         status: 'pending',
       })
 
-      await em.persistAndFlush(job)
+      await em.persist(job).flush()
 
       await eventBus.emit(PROGRESS_EVENTS.JOB_CREATED, {
         ...buildJobPayload(job),

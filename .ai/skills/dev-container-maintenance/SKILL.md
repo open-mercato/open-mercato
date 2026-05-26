@@ -1,18 +1,6 @@
 ---
 name: dev-container-maintenance
-description: >
-  Modify, audit, troubleshoot, and maintain the VS Code Dev Container setup for
-  Open Mercato. MUST use this skill for ANY change to .devcontainer/ files — it
-  contains the file map, update procedures, and mandatory documentation requirements.
-  Use when: (1) adding or changing anything in the dev container (new system packages,
-  new services, version bumps, Dockerfile edits, env var changes, port changes),
-  (2) the dev container fails to build or start, (3) services inside the container
-  misbehave (wrong versions, connection errors, missing env vars), (4) the regular
-  project setup changed and the dev container needs to match, (5) a user reports
-  "works locally but not in dev container", (6) periodic maintenance audit.
-  Triggers on any mention of "dev container", "devcontainer", ".devcontainer",
-  "container setup", "container Dockerfile", "add to container", "install in container",
-  "update dev container", "container broken", "container not working".
+description: Maintain the VS Code Dev Container setup for Open Mercato. MUST use for ANY change to `.devcontainer/` files. Also use when the container fails to build/start, services inside misbehave, or "works locally but not in dev container". Triggers on "dev container", "devcontainer", ".devcontainer".
 ---
 
 # Dev Container Maintenance

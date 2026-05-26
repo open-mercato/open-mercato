@@ -6,10 +6,13 @@ import Link from 'next/link'
 import { Page, PageBody } from '@open-mercato/ui/backend/Page'
 import { Button } from '@open-mercato/ui/primitives/button'
 import { useAppEvent } from '@open-mercato/ui/backend/injection/useAppEvent'
+import { useInjectionDataWidgets } from '@open-mercato/ui/backend/injection/useInjectionDataWidgets'
 import { useInjectedMenuItems } from '@open-mercato/ui/backend/injection/useInjectedMenuItems'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { apiCallOrThrow, readApiResultOrThrow } from '@open-mercato/ui/backend/utils/apiCall'
 import { CrudForm, type CrudField, type CrudFormGroup } from '@open-mercato/ui/backend/CrudForm'
+import type { InjectionMenuItem } from '@open-mercato/shared/modules/widgets/injection'
+import type { LoadedInjectionDataWidget } from '@open-mercato/shared/modules/widgets/injection-loader'
 
 function print(value: unknown) {
   return JSON.stringify(value ?? null)
@@ -56,6 +59,10 @@ function readCustomerItems(payload: CustomersResponse | null): CustomerRecord[] 
   return []
 }
 
+function collectMenuItems(widgets: LoadedInjectionDataWidget[]): InjectionMenuItem[] {
+  return widgets.flatMap((widget) => ('menuItems' in widget && Array.isArray(widget.menuItems)) ? widget.menuItems : [])
+}
+
 export default function UmesHandlersPage() {
   const t = useT()
   const schema = React.useMemo(
@@ -81,6 +88,8 @@ export default function UmesHandlersPage() {
   const [autoRunStatus, setAutoRunStatus] = React.useState<'idle' | 'pending' | 'ok' | 'error'>('idle')
   const [autoRunError, setAutoRunError] = React.useState<string | null>(null)
   const [phaseASpotWidgetDetected, setPhaseASpotWidgetDetected] = React.useState(false)
+  const { widgets: sidebarProbeWidgets, isLoading: sidebarProbeLoading } = useInjectionDataWidgets('menu:sidebar:main')
+  const { widgets: profileProbeWidgets, isLoading: profileProbeLoading } = useInjectionDataWidgets('menu:topbar:profile-dropdown')
   const { items: sidebarMenuItems, isLoading: sidebarMenuLoading } = useInjectedMenuItems('menu:sidebar:main')
   const { items: profileMenuItems, isLoading: profileMenuLoading } = useInjectedMenuItems('menu:topbar:profile-dropdown')
 
@@ -186,10 +195,24 @@ export default function UmesHandlersPage() {
     () => profileMenuItems.filter((item) => item.id.startsWith('example-')),
     [profileMenuItems],
   )
+  const phaseASidebarProbeItems = React.useMemo(
+    () =>
+      (sidebarMenuLoading
+        ? collectMenuItems(sidebarProbeWidgets)
+        : phaseASidebarItems).filter((item) => item.id.startsWith('example-')),
+    [phaseASidebarItems, sidebarMenuLoading, sidebarProbeWidgets],
+  )
+  const phaseBProfileProbeItems = React.useMemo(
+    () =>
+      (profileMenuLoading
+        ? collectMenuItems(profileProbeWidgets)
+        : phaseBProfileItems).filter((item) => item.id.startsWith('example-')),
+    [phaseBProfileItems, profileMenuLoading, profileProbeWidgets],
+  )
   const appEventId = React.useMemo(() => readEventId(appEventResult), [appEventResult])
   const phaseAOk = phaseASpotWidgetDetected
-  const phaseBOk = phaseASidebarItems.some((item) => item.id === 'example-todos-shortcut') &&
-    phaseBProfileItems.some((item) => item.id === 'example-quick-add-todo')
+  const phaseBOk = phaseASidebarProbeItems.some((item) => item.id === 'example-todos-shortcut') &&
+    phaseBProfileProbeItems.some((item) => item.id === 'example-quick-add-todo')
   const phaseCOk = submittedData != null && serverEmitStatus === 'ok' && appEventId === 'example.todo.created'
   const phaseDOk = enricherProbeStatus === 'ok' &&
     enricherProbeResult?.selectedRecord?._example != null &&
@@ -210,8 +233,8 @@ export default function UmesHandlersPage() {
         ok: phaseBOk,
         label: t('example.umes.handlers.phaseAD.phaseB'),
         signal: {
-          sidebarIds: phaseASidebarItems.map((item) => item.id),
-          profileIds: phaseBProfileItems.map((item) => item.id),
+          sidebarIds: phaseASidebarProbeItems.map((item) => item.id),
+          profileIds: phaseBProfileProbeItems.map((item) => item.id),
         },
       },
       {
@@ -241,9 +264,9 @@ export default function UmesHandlersPage() {
       enricherProbeStatus,
       phaseAOk,
       phaseASpotWidgetDetected,
-      phaseASidebarItems,
+      phaseASidebarProbeItems,
       phaseBOk,
-      phaseBProfileItems,
+      phaseBProfileProbeItems,
       phaseCOk,
       phaseDOk,
       serverEmitStatus,
@@ -452,13 +475,13 @@ export default function UmesHandlersPage() {
             <div className="space-y-2">
               <div className="text-sm font-medium">{t('example.umes.handlers.phaseAB.sidebar')}</div>
               <div data-testid="phase-ab-sidebar-items" className="text-xs text-muted-foreground">
-                {sidebarMenuLoading ? t('example.umes.handlers.phaseAB.loading') : print(phaseASidebarItems)}
+                {sidebarMenuLoading && sidebarProbeLoading ? t('example.umes.handlers.phaseAB.loading') : print(phaseASidebarProbeItems)}
               </div>
             </div>
             <div className="space-y-2">
               <div className="text-sm font-medium">{t('example.umes.handlers.phaseAB.profile')}</div>
               <div data-testid="phase-ab-profile-items" className="text-xs text-muted-foreground">
-                {profileMenuLoading ? t('example.umes.handlers.phaseAB.loading') : print(phaseBProfileItems)}
+                {profileMenuLoading && profileProbeLoading ? t('example.umes.handlers.phaseAB.loading') : print(phaseBProfileProbeItems)}
               </div>
             </div>
           </div>

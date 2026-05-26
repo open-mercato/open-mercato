@@ -1,7 +1,10 @@
 import {
   assertSafeOutboundUrl,
   assertStaticallySafeOutboundUrl,
+  createPinnedDnsLookup,
   parseOutboundUrl,
+  resolveSafeOutboundUrl,
+  safeOutboundFetch,
   UnsafeOutboundUrlError,
 } from '../url-safety'
 
@@ -172,5 +175,134 @@ describe('url-safety — assertSafeOutboundUrl (DNS rebinding guard)', () => {
     await expect(
       assertSafeOutboundUrl('file:///etc/passwd', { allowPrivate: true }),
     ).rejects.toMatchObject({ reason: 'forbidden_protocol' })
+  })
+})
+
+describe('url-safety — resolveSafeOutboundUrl', () => {
+  it('returns the validated DNS records for use as pinning input', async () => {
+    const records = [
+      { address: '93.184.216.34', family: 4 },
+      { address: '93.184.216.35', family: 4 },
+    ]
+    const lookupHost = jest.fn(async () => records)
+    const result = await resolveSafeOutboundUrl('https://good.example/', {
+      lookupHost,
+      allowPrivate: false,
+    })
+    expect(result.hostname).toBe('good.example')
+    expect(result.addresses).toEqual(records)
+    expect(lookupHost).toHaveBeenCalledTimes(1)
+  })
+
+  it('returns null addresses for IP literal hosts (no DNS to pin)', async () => {
+    const result = await resolveSafeOutboundUrl('https://1.1.1.1/x', { allowPrivate: false })
+    expect(result.addresses).toBeNull()
+  })
+
+  it('returns null addresses when allowPrivate short-circuits validation', async () => {
+    const lookupHost = jest.fn()
+    const result = await resolveSafeOutboundUrl('http://internal.example/', {
+      lookupHost,
+      allowPrivate: true,
+    })
+    expect(result.addresses).toBeNull()
+    expect(lookupHost).not.toHaveBeenCalled()
+  })
+
+  it('throws on private resolution before returning addresses', async () => {
+    const lookupHost = jest.fn(async () => [{ address: '10.0.0.5', family: 4 }])
+    await expect(
+      resolveSafeOutboundUrl('https://rebind.evil.example/', {
+        lookupHost,
+        allowPrivate: false,
+      }),
+    ).rejects.toMatchObject({ reason: 'private_ip_resolved' })
+  })
+})
+
+describe('url-safety — createPinnedDnsLookup', () => {
+  it('returns the pinned address only for the expected hostname', () => {
+    const lookup = createPinnedDnsLookup('good.example', { address: '93.184.216.34', family: 4 })
+    const cb = jest.fn()
+    lookup('good.example', {}, cb)
+    expect(cb).toHaveBeenCalledWith(null, '93.184.216.34', 4)
+  })
+
+  it('refuses to resolve a different hostname (defeats redirect to private host via Host header)', () => {
+    const lookup = createPinnedDnsLookup('good.example', { address: '93.184.216.34', family: 4 })
+    const cb = jest.fn()
+    lookup('attacker.example', {}, cb)
+    expect(cb).toHaveBeenCalledTimes(1)
+    const [err, address, family] = (cb as jest.Mock).mock.calls[0]
+    expect(err).toBeInstanceOf(Error)
+    expect((err as NodeJS.ErrnoException).code).toBe('EREFUSED')
+    expect(address).toBe('')
+    expect(family).toBe(0)
+  })
+})
+
+describe('url-safety — safeOutboundFetch', () => {
+  it('rejects unsafe URLs before invoking fetchImpl (no socket attempted)', async () => {
+    const fetchImpl = jest.fn() as unknown as typeof fetch
+    await expect(
+      safeOutboundFetch(
+        'http://169.254.169.254/latest/meta-data/',
+        {},
+        { fetchImpl, allowPrivate: false },
+      ),
+    ).rejects.toMatchObject({ reason: 'private_ip_literal' })
+    expect(fetchImpl).not.toHaveBeenCalled()
+  })
+
+  it('rejects DNS-rebinding hosts (lookup returns private) before fetch', async () => {
+    const fetchImpl = jest.fn() as unknown as typeof fetch
+    const lookupHost = jest.fn(async () => [{ address: '10.0.0.5', family: 4 }])
+    await expect(
+      safeOutboundFetch(
+        'https://rebind.evil.example/',
+        {},
+        { fetchImpl, lookupHost, allowPrivate: false },
+      ),
+    ).rejects.toMatchObject({ reason: 'private_ip_resolved' })
+    expect(fetchImpl).not.toHaveBeenCalled()
+  })
+
+  it('invokes fetchImpl with redirect:"manual" by default', async () => {
+    const fetchImpl = jest.fn(async () => new Response('ok', { status: 200 })) as unknown as typeof fetch
+    const lookupHost = jest.fn(async () => [{ address: '93.184.216.34', family: 4 }])
+    const response = await safeOutboundFetch(
+      'https://good.example/hook',
+      { method: 'POST' },
+      { fetchImpl, lookupHost, allowPrivate: false },
+    )
+    expect(response.status).toBe(200)
+    expect(fetchImpl).toHaveBeenCalledTimes(1)
+    const [calledUrl, calledInit] = (fetchImpl as unknown as jest.Mock).mock.calls[0]
+    expect(calledUrl).toBe('https://good.example/hook')
+    expect(calledInit).toEqual(
+      expect.objectContaining({ method: 'POST', redirect: 'manual' }),
+    )
+  })
+
+  it('preserves caller-provided redirect override', async () => {
+    const fetchImpl = jest.fn(async () => new Response('ok', { status: 200 })) as unknown as typeof fetch
+    await safeOutboundFetch(
+      'http://127.0.0.1:3000/dev',
+      { redirect: 'follow' },
+      { fetchImpl, allowPrivate: true },
+    )
+    const [, calledInit] = (fetchImpl as unknown as jest.Mock).mock.calls[0]
+    expect(calledInit.redirect).toBe('follow')
+  })
+
+  it('runs DNS validation exactly once (the same address is pinned for connect)', async () => {
+    const fetchImpl = jest.fn(async () => new Response('ok', { status: 200 })) as unknown as typeof fetch
+    const lookupHost = jest.fn(async () => [{ address: '93.184.216.34', family: 4 }])
+    await safeOutboundFetch(
+      'https://good.example/hook',
+      {},
+      { fetchImpl, lookupHost, allowPrivate: false },
+    )
+    expect(lookupHost).toHaveBeenCalledTimes(1)
   })
 })

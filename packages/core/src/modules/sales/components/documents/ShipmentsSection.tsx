@@ -567,9 +567,9 @@ export function SalesShipmentsSection({
         shippingAddressSnapshot={shippingAddressSnapshot}
         onClose={() => setDialogState(null)}
         onSaved={async () => {
+          setDialogState(null)
           await loadShipments()
           emitSalesDocumentTotalsRefresh({ documentId: orderId, kind: 'order' })
-          setDialogState(null)
         }}
         onAddComment={onAddComment}
       />

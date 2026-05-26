@@ -4,6 +4,7 @@ import React from 'react'
 import { useParams, useRouter, useSearchParams } from 'next/navigation'
 import { Page, PageBody } from '@open-mercato/ui/backend/Page'
 import { Button } from '@open-mercato/ui/primitives/button'
+import { PasswordInput } from '@open-mercato/ui/primitives/password-input'
 import { FormHeader } from '@open-mercato/ui/backend/forms'
 import { LoadingMessage, ErrorMessage } from '@open-mercato/ui/backend/detail'
 import { apiCall, apiCallOrThrow } from '@open-mercato/ui/backend/utils/apiCall'
@@ -407,9 +408,7 @@ export default function SsoConfigDetailPage() {
                       </Button>
                     </div>
                   ) : (
-                    <input
-                      type="password"
-                      className="w-full rounded-md border px-3 py-2 text-sm"
+                    <PasswordInput
                       value={newClientSecret}
                       onChange={(e) => setNewClientSecret(e.target.value)}
                       placeholder={config.hasClientSecret

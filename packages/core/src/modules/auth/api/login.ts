@@ -13,6 +13,8 @@ import { rateLimitErrorSchema } from '@open-mercato/shared/lib/ratelimit/helpers
 import { readEndpointRateLimitConfig } from '@open-mercato/shared/lib/ratelimit/config'
 import { checkAuthRateLimit, resetAuthRateLimit } from '@open-mercato/core/modules/auth/lib/rateLimitCheck'
 import { runCustomRouteAfterInterceptors } from '@open-mercato/shared/lib/crud/custom-route-interceptor'
+import { sanitizeRedirectPath } from '@open-mercato/core/modules/auth/lib/safeRedirect'
+import { getAppBaseUrl } from '@open-mercato/shared/lib/url'
 
 const loginRateLimitConfig = readEndpointRateLimitConfig('LOGIN', {
   points: 5, duration: 60, blockDuration: 60, keyPrefix: 'login',
@@ -32,18 +34,6 @@ type ParsedLoginForm = {
   tenantIdRaw: string
   requiredRoles: string[]
   redirectTo: string
-}
-
-function sanitizeRedirect(param: string, baseUrl: string): string {
-  if (!param) return '/backend'
-  try {
-    const base = new URL(baseUrl)
-    const resolved = new URL(param, baseUrl)
-    if (resolved.origin === base.origin && resolved.pathname.startsWith('/')) {
-      return resolved.pathname + resolved.search + resolved.hash
-    }
-  } catch {}
-  return '/backend'
 }
 
 function parseRequiredRoles(rawValue: string): string[] {
@@ -176,7 +166,7 @@ export async function POST(req: Request) {
   const responseData: { ok: true; token: string; redirect: string; refreshToken?: string } = {
     ok: true,
     token,
-    redirect: sanitizeRedirect(redirectTo, req.url),
+    redirect: sanitizeRedirectPath(redirectTo, getAppBaseUrl(req), '/backend'),
   }
   if (remember) {
     responseData.refreshToken = sessionRefreshToken

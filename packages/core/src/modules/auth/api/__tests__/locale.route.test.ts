@@ -55,6 +55,13 @@ describe('GET /api/auth/locale — open redirect fix (CWE-601)', () => {
       expect(res.headers.get('location')).toBe(`${BASE}/`)
     })
 
+    it('redirects to / when the decoded redirect path contains // (open redirect bypass)', async () => {
+      const res = await GET(makeGetRequest({ locale: 'en', redirect: '/backend//evil.com' }))
+
+      expect(res.status).toBe(307)
+      expect(res.headers.get('location')).toBe(`${BASE}/`)
+    })
+
     it('preserves query string on same-origin redirect', async () => {
       const res = await GET(makeGetRequest({ locale: 'en', redirect: '/orders?page=2&filter=open' }))
 

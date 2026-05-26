@@ -339,6 +339,56 @@ describe('Events Worker', () => {
       errorSpy.mockRestore()
     })
 
+    it('should dispatch subscribers in parallel, not sequentially', async () => {
+      const executionLog: Array<{ id: string; phase: 'start' | 'end'; time: number }> = []
+
+      const createDelayedHandler = (id: string, delayMs: number) => async () => {
+        executionLog.push({ id, phase: 'start', time: Date.now() })
+        await new Promise((resolve) => setTimeout(resolve, delayMs))
+        executionLog.push({ id, phase: 'end', time: Date.now() })
+      }
+
+      const mockModules: Module[] = [
+        {
+          id: 'module-a',
+          subscribers: [
+            { id: 'a:slow', event: 'test.parallel', handler: createDelayedHandler('a:slow', 100) },
+          ],
+        },
+        {
+          id: 'module-b',
+          subscribers: [
+            { id: 'b:slow', event: 'test.parallel', handler: createDelayedHandler('b:slow', 100) },
+          ],
+        },
+        {
+          id: 'module-c',
+          subscribers: [
+            { id: 'c:slow', event: 'test.parallel', handler: createDelayedHandler('c:slow', 100) },
+          ],
+        },
+      ]
+
+      registerCliModules(mockModules)
+
+      const job = createMockJob('test.parallel', {})
+      const ctx = createMockContext()
+
+      await handle(job, ctx)
+
+      const starts = executionLog.filter((e) => e.phase === 'start')
+      const ends = executionLog.filter((e) => e.phase === 'end')
+      expect(starts).toHaveLength(3)
+      expect(ends).toHaveLength(3)
+
+      const lastStart = Math.max(...starts.map((e) => e.time))
+      const firstEnd = Math.min(...ends.map((e) => e.time))
+      // Parallel dispatch: every subscriber must have started before any finished.
+      // Sequential would produce firstEnd < lastStart. This structural check is
+      // robust to CI timing jitter, unlike a wall-clock total-duration assertion.
+      expect(lastStart).toBeLessThanOrEqual(firstEnd)
+    })
+
     it('should throw when all subscribers fail', async () => {
       const mockModules: Module[] = [
         {

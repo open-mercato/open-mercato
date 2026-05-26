@@ -3,7 +3,17 @@
 import * as React from 'react'
 import { useMemo } from 'react'
 import { useQuery } from '@tanstack/react-query'
+import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { apiCall } from '../utils/apiCall'
+import {
+  Select,
+  SelectContent,
+  SelectGroup,
+  SelectItem,
+  SelectLabel,
+  SelectTrigger,
+  SelectValue,
+} from '../../primitives/select'
 
 /**
  * Event definition returned by the API
@@ -23,7 +33,7 @@ export interface EventSelectProps {
   value: string
   /** Called when event is selected */
   onChange: (eventId: string) => void
-  /** Placeholder text when no event selected */
+  /** Placeholder text when no event selected. Defaults to a translated string. */
   placeholder?: string
   /** Additional CSS classes */
   className?: string
@@ -35,6 +45,8 @@ export interface EventSelectProps {
   modules?: string[]
   /** Whether to exclude events marked as excludeFromTriggers (default: true) */
   excludeTriggerExcluded?: boolean
+  /** Trigger size — defaults to `'default'` (DS row-height contract). */
+  size?: 'sm' | 'default' | 'lg'
 }
 
 /**
@@ -45,13 +57,19 @@ export interface EventSelectProps {
 export function EventSelect({
   value,
   onChange,
-  placeholder = 'Select an event...',
+  placeholder,
   className,
   disabled,
   categories,
   modules,
   excludeTriggerExcluded = true,
+  size = 'default',
 }: EventSelectProps) {
+  const t = useT()
+  const resolvedPlaceholder = placeholder ?? t('ui.inputs.eventSelect.placeholder', 'Select an event...')
+  const loadingPlaceholder = t('ui.inputs.eventSelect.loading', 'Loading...')
+  const emptyPlaceholder = t('ui.inputs.eventSelect.empty', 'No events available')
+
   // Fetch events from the API
   const { data: allEvents = [], isLoading } = useQuery({
     queryKey: ['declared-events', excludeTriggerExcluded],
@@ -101,25 +119,29 @@ export function EventSelect({
   const isEmpty = !isLoading && filteredEvents.length === 0
 
   return (
-    <select
-      value={value}
-      onChange={(e) => onChange(e.target.value)}
-      className={`h-10 rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50 ${className || ''}`}
+    <Select
+      value={value || undefined}
+      onValueChange={(next) => onChange(next ?? '')}
       disabled={disabled || isLoading}
     >
-      <option value="" disabled>
-        {isLoading ? 'Loading...' : isEmpty ? 'No events available' : placeholder}
-      </option>
-      {Object.entries(eventsByModule).map(([module, moduleEvents]) => (
-        <optgroup key={module} label={formatModuleName(module)}>
-          {moduleEvents.map(event => (
-            <option key={event.id} value={event.id}>
-              {event.label}
-            </option>
-          ))}
-        </optgroup>
-      ))}
-    </select>
+      <SelectTrigger size={size} className={className}>
+        <SelectValue
+          placeholder={isLoading ? loadingPlaceholder : isEmpty ? emptyPlaceholder : resolvedPlaceholder}
+        />
+      </SelectTrigger>
+      <SelectContent>
+        {Object.entries(eventsByModule).map(([module, moduleEvents]) => (
+          <SelectGroup key={module}>
+            <SelectLabel>{formatModuleName(module)}</SelectLabel>
+            {moduleEvents.map(event => (
+              <SelectItem key={event.id} value={event.id}>
+                {event.label}
+              </SelectItem>
+            ))}
+          </SelectGroup>
+        ))}
+      </SelectContent>
+    </Select>
   )
 }
 

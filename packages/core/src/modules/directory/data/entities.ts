@@ -1,4 +1,5 @@
-import { Entity, PrimaryKey, Property, ManyToOne, OneToMany, Collection, Unique } from '@mikro-orm/core'
+import { Collection } from '@mikro-orm/core'
+import { Entity, ManyToOne, OneToMany, PrimaryKey, Property, Unique } from '@mikro-orm/decorators/legacy'
 
 @Entity({ tableName: 'tenants' })
 export class Tenant {

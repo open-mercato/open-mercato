@@ -2,10 +2,19 @@ import type { CommandHandler } from './types'
 
 class CommandRegistry {
   private handlers = new Map<string, CommandHandler>()
+  private didWarnAboutDevelopmentReregistration = false
 
   register(handler: CommandHandler) {
     if (!handler?.id) throw new Error('Command handler must define an id')
     if (this.handlers.has(handler.id)) {
+      if (process.env.NODE_ENV === 'development') {
+        if (!this.didWarnAboutDevelopmentReregistration) {
+          console.debug('[Bootstrap] Commands re-registered (this may occur during HMR)')
+          this.didWarnAboutDevelopmentReregistration = true
+        }
+        this.handlers.set(handler.id, handler)
+        return
+      }
       throw new Error(`Duplicate command registration for id ${handler.id}`)
     }
     this.handlers.set(handler.id, handler)
@@ -32,6 +41,7 @@ class CommandRegistry {
 
   clear() {
     this.handlers.clear()
+    this.didWarnAboutDevelopmentReregistration = false
   }
 }
 

@@ -89,7 +89,7 @@ export default async function handle(
     }
 
     // Execute activity by type
-    const executeActivityByType = async () => {
+    const executeActivityByType = async (signal?: AbortSignal) => {
       switch (payload.activityType) {
         case 'SEND_EMAIL':
           return await executeSendEmail(payload.activityConfig, activityContext, container)
@@ -98,7 +98,8 @@ export default async function handle(
             em,
             payload.activityConfig,
             activityContext,
-            container
+            container,
+            signal
           )
         case 'EMIT_EVENT':
           return await executeEmitEvent(payload.activityConfig, activityContext, container)
@@ -110,7 +111,7 @@ export default async function handle(
             container
           )
         case 'CALL_WEBHOOK':
-          return await executeCallWebhook(payload.activityConfig, activityContext)
+          return await executeCallWebhook(payload.activityConfig, activityContext, { signal })
         case 'EXECUTE_FUNCTION':
           return await executeFunction(payload.activityConfig, activityContext, container)
         default:
@@ -118,18 +119,28 @@ export default async function handle(
       }
     }
 
-    // Execute with optional timeout
+    // Execute with optional timeout. AbortController aborts in-flight fetches
+    // when the timeout wins the race, preventing phantom executions.
     let result: any
     if (payload.timeoutMs && payload.timeoutMs > 0) {
-      result = await Promise.race([
-        executeActivityByType(),
-        new Promise((_, reject) =>
-          setTimeout(
-            () => reject(new Error(`Activity timeout after ${payload.timeoutMs}ms`)),
-            payload.timeoutMs
-          )
-        ),
-      ])
+      const abortController = new AbortController()
+      const timeoutId = setTimeout(() => {
+        abortController.abort()
+      }, payload.timeoutMs)
+
+      try {
+        result = await Promise.race([
+          executeActivityByType(abortController.signal),
+          new Promise((_, reject) =>
+            setTimeout(
+              () => reject(new Error(`Activity timeout after ${payload.timeoutMs}ms`)),
+              payload.timeoutMs
+            )
+          ),
+        ])
+      } finally {
+        clearTimeout(timeoutId)
+      }
     } else {
       result = await executeActivityByType()
     }

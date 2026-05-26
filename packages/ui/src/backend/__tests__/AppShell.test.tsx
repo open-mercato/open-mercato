@@ -3,7 +3,7 @@
  */
 
 import * as React from 'react'
-import { screen, waitFor } from '@testing-library/react'
+import { screen, waitFor, within } from '@testing-library/react'
 import { AppShell, ApplyBreadcrumb } from '../AppShell'
 import { renderWithProviders } from '@open-mercato/shared/lib/testing/renderWithProviders'
 
@@ -173,6 +173,14 @@ describe('AppShell', () => {
     expect(screen.getByTestId('injection-spot:backend:sidebar:footer')).toBeInTheDocument()
     expect(screen.getByTestId('injection-spot:backend-mutation:global')).toBeInTheDocument()
     expect(screen.getByText('Child content')).toBeInTheDocument()
+
+    const breadcrumbNav = screen.getByRole('navigation', { name: 'Breadcrumb' })
+    expect(breadcrumbNav).toHaveAttribute('data-slot', 'breadcrumb')
+    expect(breadcrumbNav).toHaveAttribute('data-divider', 'arrow')
+    const dashboardHome = within(breadcrumbNav).getByRole('link', { name: 'Dashboard' })
+    expect(dashboardHome).toHaveAttribute('href', '/backend')
+    const activePage = within(breadcrumbNav).getByText((_, el) => el?.getAttribute('data-slot') === 'breadcrumb-page')
+    expect(activePage).toHaveAttribute('aria-current', 'page')
     expect(mockInjectionSpot).toHaveBeenCalledWith(
       expect.objectContaining({
         spotId: 'backend-mutation:global',
@@ -313,7 +321,7 @@ describe('AppShell', () => {
     )
 
     await waitFor(() => {
-      expect(screen.getByRole('link', { name: 'User Entities' })).toHaveClass('bg-background')
+      expect(screen.getByRole('link', { name: 'User Entities' })).toHaveClass('bg-muted')
       expect(screen.getByRole('link', { name: 'Calendar Entity' })).toBeInTheDocument()
     })
   })
@@ -377,6 +385,311 @@ describe('AppShell', () => {
         expect(screen.getByTestId('backend-chrome-ready')).toHaveAttribute('data-ready', 'true')
         expect(screen.getByText('Users List')).toBeInTheDocument()
       })
+    } finally {
+      global.fetch = previousFetch
+      window.fetch = previousWindowFetch
+      ;(window as Window & { __omOriginalFetch?: typeof fetch }).__omOriginalFetch = previousOriginalFetch
+    }
+  })
+
+  describe('two-level sidebar (settings/profile mode)', () => {
+    it('renders main + section sidebars side-by-side when on a settings path', async () => {
+      mockPathname = '/backend/entities/user'
+
+      const { container } = renderWithProviders(
+        <AppShell
+          email="demo@example.com"
+          groups={groups}
+          settingsPathPrefixes={['/backend/entities/user']}
+          settingsSections={[
+            {
+              id: 'data-designer',
+              label: 'Data Designer',
+              items: [
+                { id: 'user-entities', label: 'User Entities', href: '/backend/entities/user' },
+              ],
+            },
+          ]}
+        >
+          <div>Settings content</div>
+        </AppShell>,
+        { dict },
+      )
+
+      await waitFor(() => {
+        expect(screen.getByText('User Entities')).toBeInTheDocument()
+      })
+
+      const sectionAside = screen.getByTestId('appshell-section-sidebar')
+      expect(sectionAside).toBeInTheDocument()
+      expect(within(sectionAside).getByText('User Entities')).toBeInTheDocument()
+      // Main aside is auto-collapsed (icons only) when on a section path; the
+      // labels live in the `title` tooltip attribute, not as visible text.
+      expect(container.querySelector('a[href="/backend/users"]')).not.toBeNull()
+      expect(container.querySelector('a[href="/backend/roles"]')).not.toBeNull()
+    })
+
+    it('section header renders chevron + title as a single Back-to-Main link', async () => {
+      mockPathname = '/backend/entities/user'
+
+      renderWithProviders(
+        <AppShell
+          email="demo@example.com"
+          groups={groups}
+          settingsSectionTitle="Settings"
+          settingsPathPrefixes={['/backend/entities/user']}
+          settingsSections={[
+            {
+              id: 'data-designer',
+              label: 'Data Designer',
+              items: [
+                { id: 'user-entities', label: 'User Entities', href: '/backend/entities/user' },
+              ],
+            },
+          ]}
+        >
+          <div>Settings content</div>
+        </AppShell>,
+        { dict },
+      )
+
+      const backLink = await screen.findByTestId('appshell-section-back-to-main')
+      expect(backLink).toHaveAttribute('href', '/backend')
+      expect(backLink).toHaveAttribute('aria-label', 'Back to Main')
+      expect(backLink.textContent).toContain('Settings')
+    })
+
+    it('does not render a duplicate search input inside the section sidebar', async () => {
+      mockPathname = '/backend/entities/user'
+
+      renderWithProviders(
+        <AppShell
+          email="demo@example.com"
+          groups={groups}
+          settingsPathPrefixes={['/backend/entities/user']}
+          settingsSections={[
+            {
+              id: 'data-designer',
+              label: 'Data Designer',
+              items: [
+                { id: 'user-entities', label: 'User Entities', href: '/backend/entities/user' },
+              ],
+            },
+          ]}
+        >
+          <div>Settings content</div>
+        </AppShell>,
+        { dict },
+      )
+
+      const sectionAside = await screen.findByTestId('appshell-section-sidebar')
+      expect(within(sectionAside).queryByLabelText('Search navigation')).toBeNull()
+    })
+
+    it('auto-collapses the main sidebar to 80px when mounting directly on a settings path', async () => {
+      mockPathname = '/backend/entities/user'
+
+      const { container } = renderWithProviders(
+        <AppShell
+          email="demo@example.com"
+          groups={groups}
+          settingsPathPrefixes={['/backend/entities/user']}
+          settingsSections={[
+            {
+              id: 'data-designer',
+              label: 'Data Designer',
+              items: [
+                { id: 'user-entities', label: 'User Entities', href: '/backend/entities/user' },
+              ],
+            },
+          ]}
+        >
+          <div>Settings content</div>
+        </AppShell>,
+        { dict },
+      )
+
+      await waitFor(() => {
+        const mainAside = container.querySelector('aside') as HTMLElement | null
+        expect(mainAside).not.toBeNull()
+        expect(mainAside!.style.width).toBe('80px')
+      })
+    })
+
+    it('does not render the section sidebar when on a main route', async () => {
+      mockPathname = '/backend/users'
+
+      renderWithProviders(
+        <AppShell
+          email="demo@example.com"
+          groups={groups}
+          settingsPathPrefixes={['/backend/entities/user']}
+          settingsSections={[
+            {
+              id: 'data-designer',
+              label: 'Data Designer',
+              items: [
+                { id: 'user-entities', label: 'User Entities', href: '/backend/entities/user' },
+              ],
+            },
+          ]}
+        >
+          <div>Main content</div>
+        </AppShell>,
+        { dict },
+      )
+
+      expect(screen.queryByTestId('appshell-section-sidebar')).toBeNull()
+      expect(screen.queryByTestId('appshell-section-back-to-main')).toBeNull()
+    })
+  })
+
+  it('renders nav icons from iconName when iconMarkup is missing', async () => {
+    const previousFetch = global.fetch
+    const previousWindowFetch = window.fetch
+    const previousOriginalFetch = (window as Window & { __omOriginalFetch?: typeof fetch }).__omOriginalFetch
+    const fetchMock = jest.fn(async (input: RequestInfo | URL) => {
+      const url = typeof input === 'string'
+        ? input
+        : input instanceof Request
+          ? input.url
+          : input.toString()
+      if (url.includes('/api/auth/admin/nav-icon-fallback')) {
+        return new Response(JSON.stringify({
+          groups: [
+            {
+              id: 'checkout',
+              name: 'Checkout',
+              defaultName: 'Checkout',
+              items: [
+                {
+                  href: '/backend/checkout/pay-links',
+                  title: 'Pay Links',
+                  defaultTitle: 'Pay Links',
+                  enabled: true,
+                  iconName: 'ticket',
+                },
+              ],
+            },
+          ],
+          settingsSections: [],
+          settingsPathPrefixes: [],
+          profileSections: [],
+          profilePathPrefixes: ['/backend/profile/'],
+          grantedFeatures: ['checkout.view'],
+          roles: ['admin'],
+        }), { status: 200, headers: { 'content-type': 'application/json' } })
+      }
+      return new Response(JSON.stringify([]), { status: 200, headers: { 'content-type': 'application/json' } })
+    }) as unknown as typeof fetch
+    global.fetch = fetchMock
+    window.fetch = fetchMock
+    ;(window as Window & { __omOriginalFetch?: typeof fetch }).__omOriginalFetch = fetchMock
+
+    try {
+      renderWithProviders(
+        <AppShell
+          email="demo@example.com"
+          groups={[]}
+          adminNavApi="/api/auth/admin/nav-icon-fallback"
+        >
+          <div>Hydrated content</div>
+        </AppShell>,
+        { dict },
+      )
+
+      await waitFor(() => {
+        expect(screen.getByText('Pay Links')).toBeInTheDocument()
+      }, { timeout: 10_000 })
+
+      const link = screen.getByRole('link', { name: 'Pay Links' })
+      expect(link.querySelector('svg.lucide-ticket')).toBeTruthy()
+    } finally {
+      global.fetch = previousFetch
+      window.fetch = previousWindowFetch
+      ;(window as Window & { __omOriginalFetch?: typeof fetch }).__omOriginalFetch = previousOriginalFetch
+    }
+  })
+
+  // Regression: #1828 — skeleton must hide stale SSR groups until chrome resolves
+  it('shows skeleton (not stale SSR groups) while chrome API is loading', async () => {
+    const previousFetch = global.fetch
+    const previousWindowFetch = window.fetch
+    const previousOriginalFetch = (window as Window & { __omOriginalFetch?: typeof fetch }).__omOriginalFetch
+    let resolveFetch: ((response: Response) => void) | null = null
+    const fetchPromise = new Promise<Response>((resolve) => {
+      resolveFetch = resolve
+    })
+    const fetchMock = jest.fn(async (input: RequestInfo | URL) => {
+      const url = typeof input === 'string'
+        ? input
+        : input instanceof Request
+          ? input.url
+          : input.toString()
+      if (url.includes('/api/auth/admin/nav-flicker-regression')) {
+        return fetchPromise
+      }
+      return new Response(JSON.stringify([]), { status: 200, headers: { 'content-type': 'application/json' } })
+    }) as unknown as typeof fetch
+    global.fetch = fetchMock
+    window.fetch = fetchMock
+    ;(window as Window & { __omOriginalFetch?: typeof fetch }).__omOriginalFetch = fetchMock
+
+    const staleGroups = [
+      {
+        id: 'core',
+        name: 'Stale Core',
+        items: [{ href: '/backend/stale-link', title: 'Stale Link' }],
+      },
+    ]
+
+    try {
+      renderWithProviders(
+        <AppShell
+          email="demo@example.com"
+          groups={staleGroups}
+          adminNavApi="/api/auth/admin/nav-flicker-regression"
+        >
+          <div>Hydrated content</div>
+        </AppShell>,
+        { dict },
+      )
+
+      await waitFor(() => {
+        expect(screen.getAllByTestId('backend-chrome-loading').length).toBeGreaterThan(0)
+      })
+      expect(screen.queryByText('Stale Link')).toBeNull()
+      expect(screen.getByTestId('backend-chrome-ready')).toHaveAttribute('data-ready', 'false')
+
+      resolveFetch?.(new Response(JSON.stringify({
+        groups: [
+          {
+            id: 'core',
+            name: 'Core',
+            defaultName: 'Core',
+            items: [
+              {
+                href: '/backend/users',
+                title: 'Fresh Link',
+                defaultTitle: 'Fresh Link',
+                enabled: true,
+              },
+            ],
+          },
+        ],
+        settingsSections: [],
+        settingsPathPrefixes: [],
+        profileSections: [],
+        profilePathPrefixes: ['/backend/profile/'],
+        grantedFeatures: ['auth.*'],
+        roles: ['admin'],
+      }), { status: 200, headers: { 'content-type': 'application/json' } }))
+
+      await waitFor(() => {
+        expect(screen.getByText('Fresh Link')).toBeInTheDocument()
+      })
+      expect(screen.queryByTestId('backend-chrome-loading')).toBeNull()
+      expect(screen.queryByText('Stale Link')).toBeNull()
     } finally {
       global.fetch = previousFetch
       window.fetch = previousWindowFetch

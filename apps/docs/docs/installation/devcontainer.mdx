@@ -95,7 +95,10 @@ Create `apps/mercato/.env.local` inside the container (or on the host before ope
 ```env
 OPENAI_API_KEY=sk-...
 ANTHROPIC_API_KEY=sk-ant-...
+OM_DISABLE_VECTOR_SEARCH_AUTOINDEXING=false
 ```
+
+Use `OM_DISABLE_VECTOR_SEARCH_AUTOINDEXING=false` only if you want automatic vector embedding jobs inside the container. The default example env keeps auto-indexing disabled until you opt in.
 
 ---
 

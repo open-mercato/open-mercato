@@ -247,6 +247,6 @@ export async function deleteExampleCustomerInteractionMapping(
   mapping: ExampleCustomerInteractionMapping | null | undefined,
 ): Promise<boolean> {
   if (!mapping) return false
-  await em.removeAndFlush(mapping)
+  await em.remove(mapping).flush()
   return true
 }

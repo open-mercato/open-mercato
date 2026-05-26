@@ -2,6 +2,7 @@ import type { EntityManager } from '@mikro-orm/postgresql'
 import { z } from 'zod'
 import { registerCommand, type CommandHandler } from '@open-mercato/shared/lib/commands'
 import { extractUndoPayload, type UndoPayload } from '@open-mercato/shared/lib/commands/undo'
+import { findOneWithDecryption, findWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import { Message, MessageObject, MessageRecipient, type MessageActionData } from '../data/entities'
 import { emitMessagesEvent } from '../events'
 import {
@@ -11,7 +12,7 @@ import {
   updateDraftSchema,
 } from '../data/validators'
 import { linkAttachmentsToMessage, linkLibraryAttachmentsToMessage, copyAttachmentsForForwardMessages } from '../lib/attachments'
-import { MESSAGE_ATTACHMENT_ENTITY_ID } from '../lib/constants'
+import { MESSAGE_ATTACHMENT_ENTITY_ID, MESSAGE_ENTITY_ID } from '../lib/constants'
 import { getMessageTypeOrDefault } from '../lib/message-types-registry'
 import { validateMessageObjectsForType } from '../lib/object-validation'
 import { buildForwardBodyFromLegacyInput, buildForwardPreviewFromThreadSlice, buildForwardThreadSlice } from '../lib/forwarding'
@@ -50,7 +51,67 @@ async function emitMessageDeletedEvent(_container: ContainerWithResolve, payload
   tenantId: string
   organizationId: string | null
 }) {
-  await emitMessagesEvent('messages.message.deleted', payload, { persistent: true })
+  await emitMessagesEvent(
+    'messages.message.deleted',
+    { ...payload, recipientUserId: payload.actorUserId },
+    { persistent: true },
+  )
+}
+
+async function emitMessageGloballyDeletedEvent(_container: ContainerWithResolve, payload: {
+  messageId: string
+  actorUserId: string
+  recipientUserIds: string[]
+  tenantId: string
+  organizationId: string | null
+}) {
+  const audience = Array.from(new Set([payload.actorUserId, ...payload.recipientUserIds]))
+  await emitMessagesEvent(
+    'messages.message.deleted',
+    {
+      messageId: payload.messageId,
+      actorUserId: payload.actorUserId,
+      target: 'global',
+      recipientUserIds: audience,
+      tenantId: payload.tenantId,
+      organizationId: payload.organizationId,
+    },
+    { persistent: true },
+  )
+}
+
+async function emitMessageIndexUpsert(
+  container: ContainerWithResolve,
+  payload: {
+    messageId: string
+    tenantId: string
+    organizationId: string | null
+  },
+) {
+  let bus: { emitEvent: (name: string, body: unknown, options?: unknown) => Promise<void> } | null = null
+  try {
+    bus = container.resolve('eventBus') as { emitEvent: (name: string, body: unknown, options?: unknown) => Promise<void> }
+  } catch {
+    bus = null
+  }
+
+  if (!bus) return
+
+  await bus.emitEvent(
+    'query_index.upsert_one',
+    {
+      entityType: MESSAGE_ENTITY_ID,
+      recordId: payload.messageId,
+      tenantId: payload.tenantId,
+      organizationId: payload.organizationId,
+      crudAction: 'updated',
+      coverageBaseDelta: 1,
+    },
+    {
+      tenantId: payload.tenantId,
+      organizationId: payload.organizationId,
+    },
+  ).catch(() => undefined)
 }
 
 const scopeSchema = z.object({
@@ -126,11 +187,20 @@ async function requireMessageById(
   scope: MessageScopeInput,
   messageId: string,
 ) {
-  const message = await em.findOne(Message, {
-    id: messageId,
-    tenantId: scope.tenantId,
-    deletedAt: null,
-  })
+  const message = await findOneWithDecryption(
+    em,
+    Message,
+    {
+      id: messageId,
+      tenantId: scope.tenantId,
+      deletedAt: null,
+    },
+    undefined,
+    {
+      tenantId: scope.tenantId,
+      organizationId: scope.organizationId,
+    },
+  )
   if (!message) throw new Error('Message not found')
   assertOrganizationAccess(scope, message)
   return message
@@ -187,7 +257,7 @@ const composeMessageCommand: CommandHandler<unknown, { id: string; threadId: str
         organizationId: input.organizationId,
       })
 
-      await trx.persistAndFlush(message)
+      await trx.persist(message).flush()
       if (!threadId && !input.isDraft && !message.threadId) {
         message.threadId = message.id
         await trx.flush()
@@ -255,6 +325,12 @@ const composeMessageCommand: CommandHandler<unknown, { id: string; threadId: str
       })
     }
 
+    await emitMessageIndexUpsert(ctx.container, {
+      messageId,
+      tenantId: input.tenantId,
+      organizationId: input.organizationId,
+    })
+
     return {
       id: messageId,
       threadId: responseThreadId,
@@ -292,6 +368,15 @@ const composeMessageCommand: CommandHandler<unknown, { id: string; threadId: str
     if (!message) return
     message.deletedAt = new Date()
     await em.flush()
+    if (!after.message.isDraft) {
+      await emitMessageGloballyDeletedEvent(ctx.container, {
+        messageId: after.message.id,
+        actorUserId: after.message.senderUserId,
+        recipientUserIds: after.recipients.map((recipient) => recipient.recipientUserId),
+        tenantId: after.message.tenantId,
+        organizationId: after.message.organizationId,
+      })
+    }
   },
 }
 
@@ -313,6 +398,20 @@ const updateDraftCommand: CommandHandler<unknown, { ok: true; id: string }> = {
 
     if (message.senderUserId !== input.userId) throw new Error('Access denied')
     if (!message.isDraft) throw new Error('Only draft messages can be edited')
+
+    const isSending = input.isDraft === false
+    const preloadedRecipients = isSending && !input.recipients
+      ? await findWithDecryption(
+        em,
+        MessageRecipient,
+        { messageId: message.id, deletedAt: null },
+        undefined,
+        {
+          tenantId: input.tenantId,
+          organizationId: input.organizationId,
+        },
+      )
+      : null
 
     const nextMessageType = input.type ?? message.type
     if (input.objects) {
@@ -400,7 +499,50 @@ const updateDraftCommand: CommandHandler<unknown, { ok: true; id: string }> = {
       )
     }
 
+    if (isSending) {
+      const finalVisibility = input.visibility ?? message.visibility
+      const finalSubject = input.subject ?? message.subject
+      const finalBody = input.body ?? message.body
+      const finalRecipientCount = input.recipients
+        ? input.recipients.length
+        : (preloadedRecipients?.length ?? 0)
+
+      if (finalVisibility !== 'public' && finalRecipientCount === 0) {
+        throw new Error('at least one recipient is required')
+      }
+      if (!finalSubject?.trim()) throw new Error('subject is required')
+      if (!finalBody?.trim()) throw new Error('body is required')
+
+      message.isDraft = false
+      message.status = 'sent'
+      message.sentAt = new Date()
+      if (!message.threadId) message.threadId = message.id
+    }
+
     await em.flush()
+    await emitMessageIndexUpsert(ctx.container, {
+      messageId: message.id,
+      tenantId: input.tenantId,
+      organizationId: input.organizationId,
+    })
+
+    if (isSending) {
+      const recipientUserIds = input.recipients
+        ? input.recipients.map((r) => r.userId)
+        : (preloadedRecipients ?? []).map((r) => r.recipientUserId)
+      const resolvedVisibility = input.visibility ?? message.visibility
+      const resolvedSendViaEmail = input.sendViaEmail ?? message.sendViaEmail
+      await emitMessageSentEvent(ctx.container, {
+        messageId: message.id,
+        senderUserId: input.userId,
+        recipientUserIds,
+        sendViaEmail: resolvedVisibility === 'public' ? true : resolvedSendViaEmail,
+        externalEmail: message.externalEmail ?? null,
+        tenantId: input.tenantId,
+        organizationId: input.organizationId,
+      })
+    }
+
     return { ok: true, id: message.id }
   },
   async captureAfter(rawInput, _result, ctx) {
@@ -414,7 +556,7 @@ const updateDraftCommand: CommandHandler<unknown, { ok: true; id: string }> = {
   buildLog: async ({ input, snapshots }) => {
     const parsed = updateDraftCommandSchema.parse(input)
     return {
-      actionLabel: 'Update draft message',
+      actionLabel: parsed.isDraft === false ? 'Send draft message' : 'Update draft message',
       resourceKind: 'messages.message',
       resourceId: parsed.messageId,
       tenantId: parsed.tenantId,
@@ -508,7 +650,7 @@ const replyMessageCommand: CommandHandler<unknown, { id: string; externalEmail: 
         tenantId: input.tenantId,
         organizationId: input.organizationId,
       })
-      await trx.persistAndFlush(message)
+      await trx.persist(message).flush()
       for (const recipientUserId of recipientIds) {
         trx.persist(trx.create(MessageRecipient, {
           messageId: message.id,
@@ -550,6 +692,11 @@ const replyMessageCommand: CommandHandler<unknown, { id: string; externalEmail: 
       tenantId: input.tenantId,
       organizationId: input.organizationId,
     })
+    await emitMessageIndexUpsert(ctx.container, {
+      messageId,
+      tenantId: input.tenantId,
+      organizationId: input.organizationId,
+    })
 
     return {
       id: messageId,
@@ -588,6 +735,13 @@ const replyMessageCommand: CommandHandler<unknown, { id: string; externalEmail: 
     if (!message) return
     message.deletedAt = new Date()
     await em.flush()
+    await emitMessageGloballyDeletedEvent(ctx.container, {
+      messageId: after.message.id,
+      actorUserId: after.message.senderUserId,
+      recipientUserIds: after.recipients.map((recipient) => recipient.recipientUserId),
+      tenantId: after.message.tenantId,
+      organizationId: after.message.organizationId,
+    })
   },
 }
 
@@ -645,7 +799,7 @@ const forwardMessageCommand: CommandHandler<unknown, { id: string; externalEmail
         tenantId: input.tenantId,
         organizationId: input.organizationId,
       })
-      await trx.persistAndFlush(newMessage)
+      await trx.persist(newMessage).flush()
       for (const recipient of input.recipients) {
         trx.persist(trx.create(MessageRecipient, {
           messageId: newMessage.id,
@@ -690,6 +844,11 @@ const forwardMessageCommand: CommandHandler<unknown, { id: string; externalEmail
       tenantId: input.tenantId,
       organizationId: input.organizationId,
     })
+    await emitMessageIndexUpsert(ctx.container, {
+      messageId: newMessageId,
+      tenantId: input.tenantId,
+      organizationId: input.organizationId,
+    })
 
     return {
       id: newMessageId,
@@ -728,6 +887,13 @@ const forwardMessageCommand: CommandHandler<unknown, { id: string; externalEmail
     if (!message) return
     message.deletedAt = new Date()
     await em.flush()
+    await emitMessageGloballyDeletedEvent(ctx.container, {
+      messageId: after.message.id,
+      actorUserId: after.message.senderUserId,
+      recipientUserIds: after.recipients.map((recipient) => recipient.recipientUserId),
+      tenantId: after.message.tenantId,
+      organizationId: after.message.organizationId,
+    })
   },
 }
 
@@ -775,12 +941,16 @@ const deleteForActorCommand: CommandHandler<unknown, { ok: true }> = {
       return { ok: true }
     }
     if (message.senderUserId === input.userId) {
+      const recipientRows = await em.find(MessageRecipient, { messageId: input.messageId })
       message.deletedAt = new Date()
       await em.flush()
-      await emitMessageDeletedEvent(ctx.container, {
+      const recipientUserIds = recipientRows
+        .map((row) => row.recipientUserId)
+        .filter((value): value is string => typeof value === 'string' && value.length > 0)
+      await emitMessageGloballyDeletedEvent(ctx.container, {
         messageId: input.messageId,
         actorUserId: input.userId,
-        target: 'sender',
+        recipientUserIds,
         tenantId: input.tenantId,
         organizationId: input.organizationId,
       })

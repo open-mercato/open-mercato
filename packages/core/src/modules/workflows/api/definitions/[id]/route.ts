@@ -18,7 +18,9 @@ import {
   updateWorkflowDefinitionInputSchema,
   type UpdateWorkflowDefinitionApiInput,
 } from '../../../data/validators'
-import { serializeWorkflowDefinition } from '../serialize'
+import { serializeWorkflowDefinition, serializeCodeWorkflowDefinition } from '../serialize'
+import { invalidateTriggerCache } from '../../../lib/event-trigger-service'
+import { getCodeWorkflow } from '../../../lib/code-registry'
 
 export const metadata = {
   requireAuth: true,
@@ -53,6 +55,21 @@ export async function GET(
     const scope = await resolveOrganizationScopeForRequest({ container, auth, request })
     const tenantId = auth.tenantId
     const orgFilter = resolveOrganizationScopeFilter(scope, auth)
+
+    // Handle code-based workflow definitions (code:<workflowId>)
+    if (params.id.startsWith('code:')) {
+      const workflowId = params.id.slice(5)
+      const codeDef = getCodeWorkflow(workflowId)
+      if (!codeDef) {
+        return NextResponse.json(
+          { error: 'Workflow definition not found' },
+          { status: 404 }
+        )
+      }
+      return NextResponse.json({
+        data: serializeCodeWorkflowDefinition(codeDef, params.id),
+      })
+    }
 
     const definition = await em.findOne(WorkflowDefinition, {
       id: params.id,
@@ -135,6 +152,90 @@ export async function PUT(
 
     const input: UpdateWorkflowDefinitionApiInput = validation.data
 
+    // Handle customizing a code-based workflow definition
+    if (params.id.startsWith('code:')) {
+      const workflowId = params.id.slice(5)
+      const codeDef = getCodeWorkflow(workflowId)
+      if (!codeDef) {
+        return NextResponse.json(
+          { error: 'Workflow definition not found' },
+          { status: 404 }
+        )
+      }
+
+      // Check if an override already exists (including soft-deleted, due to unique constraint on workflowId+tenantId)
+      const existingOverride = await em.findOne(WorkflowDefinition, {
+        workflowId: codeDef.workflowId,
+        tenantId,
+      })
+
+      let savedOverride: WorkflowDefinition
+      if (existingOverride) {
+        // Revive if soft-deleted, then apply updates
+        existingOverride.deletedAt = null
+        existingOverride.workflowName = codeDef.workflowName
+        existingOverride.description = codeDef.description
+        existingOverride.version = codeDef.version
+        existingOverride.definition = input.definition ?? codeDef.definition
+        existingOverride.metadata = codeDef.metadata ?? null
+        existingOverride.enabled = input.enabled ?? codeDef.enabled
+        existingOverride.codeWorkflowId = codeDef.workflowId
+        existingOverride.updatedBy = auth.sub
+        existingOverride.updatedAt = new Date()
+        await em.flush()
+        savedOverride = existingOverride
+      } else {
+        // Create DB override row from code definition + user changes
+        const override = em.create(WorkflowDefinition, {
+          workflowId: codeDef.workflowId,
+          workflowName: codeDef.workflowName,
+          description: codeDef.description,
+          version: codeDef.version,
+          definition: input.definition ?? codeDef.definition,
+          metadata: codeDef.metadata,
+          enabled: input.enabled ?? codeDef.enabled,
+          codeWorkflowId: codeDef.workflowId,
+          tenantId,
+          organizationId,
+          createdBy: auth.sub,
+          updatedBy: auth.sub,
+          createdAt: new Date(),
+          updatedAt: new Date(),
+        })
+
+        em.persist(override)
+        await em.flush()
+        savedOverride = override
+      }
+
+      try {
+        const eventBus = container.resolve('eventBus') as
+          | { emitEvent(event: string, payload: unknown, options?: unknown): Promise<void> }
+          | undefined
+        if (eventBus && typeof eventBus.emitEvent === 'function') {
+          await eventBus.emitEvent(
+            'workflows.definition.customized',
+            {
+              id: savedOverride.id,
+              workflowId: savedOverride.workflowId,
+              codeWorkflowId: savedOverride.codeWorkflowId ?? null,
+              tenantId: savedOverride.tenantId,
+              organizationId: savedOverride.organizationId,
+              userId: auth.sub ?? null,
+            },
+            { tenantId: savedOverride.tenantId, organizationId: savedOverride.organizationId, persistent: true },
+          )
+        }
+      } catch (eventError) {
+        console.error('Failed to emit workflows.definition.customized event:', eventError)
+      }
+
+      return NextResponse.json({
+        data: serializeWorkflowDefinition(savedOverride),
+        message: 'Workflow definition customized successfully',
+      })
+    }
+
     // Find existing definition
     const definition = await em.findOne(WorkflowDefinition, {
       id: params.id,
@@ -150,18 +251,41 @@ export async function PUT(
       )
     }
 
-    // Update fields
+    // Update fields. workflowId is intentionally ignored — it identifies the
+    // row and renaming would break references. Version is user-managed and
+    // applied when supplied so the edit form can bump it explicitly.
+    if (input.workflowName !== undefined) {
+      definition.workflowName = input.workflowName
+    }
+    if (input.description !== undefined) {
+      definition.description = input.description
+    }
+    if (input.version !== undefined) {
+      definition.version = input.version
+    }
     if (input.definition !== undefined) {
       definition.definition = input.definition
     }
-
+    if (input.metadata !== undefined) {
+      definition.metadata = input.metadata
+    }
     if (input.enabled !== undefined) {
       definition.enabled = input.enabled
+    }
+    if (input.effectiveFrom !== undefined) {
+      definition.effectiveFrom = input.effectiveFrom
+    }
+    if (input.effectiveTo !== undefined) {
+      definition.effectiveTo = input.effectiveTo
     }
 
     definition.updatedAt = new Date()
 
     await em.flush()
+
+    // Embedded triggers may have changed; invalidate the in-memory cache so
+    // the wildcard event subscriber reloads them on the next event.
+    if (tenantId) invalidateTriggerCache(tenantId, organizationId ?? undefined)
 
     return NextResponse.json({
       data: serializeWorkflowDefinition(definition),
@@ -254,6 +378,8 @@ export async function DELETE(
 
     await em.flush()
 
+    if (tenantId) invalidateTriggerCache(tenantId, organizationId ?? undefined)
+
     return NextResponse.json({
       message: 'Workflow definition deleted successfully',
     })
@@ -273,7 +399,7 @@ export const openApi = {
       description: 'Get a single workflow definition by ID. Returns the complete workflow structure including steps and transitions (with embedded activities).',
       tags: ['Workflows'],
       pathParams: z.object({
-        id: z.string().uuid(),
+        id: z.string().describe('UUID for DB definitions, or "code:<workflowId>" for code-based definitions'),
       }),
       responses: [
         {

@@ -1,7 +1,7 @@
 import { NextResponse } from 'next/server'
 import { z } from 'zod'
 import { resolveTranslationsRouteContext } from '@open-mercato/core/modules/translations/api/context'
-import { CrudHttpError } from '@open-mercato/shared/lib/crud/errors'
+import { CrudHttpError, isCrudHttpError } from '@open-mercato/shared/lib/crud/errors'
 import { isValidIso639 } from '@open-mercato/shared/lib/i18n/iso639'
 import type { ModuleConfigService } from '@open-mercato/core/modules/configs/lib/module-config-service'
 import type { OpenApiMethodDoc, OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
@@ -28,7 +28,7 @@ async function PUT(req: Request) {
 
     return NextResponse.json({ locales: uniqueLocales })
   } catch (err) {
-    if (err instanceof CrudHttpError) {
+    if (isCrudHttpError(err)) {
       return NextResponse.json(err.body, { status: err.status })
     }
     if (err instanceof z.ZodError) {

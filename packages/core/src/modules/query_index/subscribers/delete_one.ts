@@ -1,5 +1,6 @@
 import { recordIndexerError } from '@open-mercato/shared/lib/indexers/error-log'
 import { resolveEntityTableName } from '@open-mercato/shared/lib/query/engine'
+import { sql } from 'kysely'
 import { markDeleted } from '../lib/indexer'
 import { applyCoverageAdjustments, createCoverageAdjustments } from '../lib/coverage'
 import { loadQueryIndexRowScope, resolveQueryIndexRecordScope } from '../lib/subscriber-scope'
@@ -33,13 +34,15 @@ export default async function handle(payload: any, ctx: { resolve: <T=any>(name:
     let baseDelta = 0
     let baseCheckSucceeded = false
     try {
-      const knex = (em as any).getConnection().getKnex()
+      const db = (em as any).getKysely()
       const table = resolveEntityTableName(em, entityType)
-      const row = await knex(table)
-        .select(['deleted_at'])
-        .where({ id: recordId, organization_id: organizationId })
-        .andWhereRaw('tenant_id is not distinct from ?', [tenantId])
-        .first()
+      const row = await db
+        .selectFrom(table as any)
+        .select(['deleted_at' as any])
+        .where('id' as any, '=', recordId)
+        .where('organization_id' as any, organizationId === null ? 'is' : '=', organizationId as any)
+        .where(sql`tenant_id is not distinct from ${tenantId}`)
+        .executeTakeFirst() as { deleted_at: Date | null } | undefined
       const baseMissing = !row
       const baseDeleted = baseMissing || (row && row.deleted_at != null)
       baseCheckSucceeded = true

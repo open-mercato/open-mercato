@@ -1,4 +1,5 @@
+import { resolveRequestOrigin } from '@open-mercato/shared/lib/url'
+
 export function buildRequestOriginUrl(req: Request, path: string): string {
-  const url = new URL(req.url)
-  return new URL(path, `${url.protocol}//${url.host}`).toString()
+  return new URL(path, resolveRequestOrigin(req)).toString()
 }

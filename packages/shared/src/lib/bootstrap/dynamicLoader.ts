@@ -1,6 +1,10 @@
 import type { BootstrapData } from './types'
 import { findAppRoot, type AppRoot } from './appResolver'
 import { registerEntityIds } from '../encryption/entityIds'
+import {
+  ensureMikroOrmV7GeneratedCacheCompatibility,
+  recoverMikroOrmV7GeneratedCacheFromImportError,
+} from './generatedCacheRecovery'
 import path from 'node:path'
 import fs from 'node:fs'
 import { pathToFileURL } from 'node:url'
@@ -10,8 +14,9 @@ import { pathToFileURL } from 'node:url'
  * This bundles the file and all its dependencies, handling JSON imports properly.
  * The compiled file is written next to the source file with a .mjs extension.
  */
-async function compileAndImport(tsPath: string): Promise<Record<string, unknown>> {
+async function compileAndImport(tsPath: string, allowRecovery: boolean = true): Promise<Record<string, unknown>> {
   const jsPath = tsPath.replace(/\.ts$/, '.mjs')
+  const appRoot = path.dirname(path.dirname(path.dirname(tsPath)))
 
   // Check if we need to recompile (source newer than compiled)
   const tsExists = fs.existsSync(tsPath)
@@ -27,9 +32,6 @@ async function compileAndImport(tsPath: string): Promise<Record<string, unknown>
   if (needsCompile) {
     // Dynamically import esbuild only when needed
     const esbuild = await import('esbuild')
-
-    // The app root is 2 levels up from .mercato/generated/
-    const appRoot = path.dirname(path.dirname(path.dirname(tsPath)))
 
     // Plugin to resolve @/ alias to app root (works for @app modules)
     const aliasPlugin: import('esbuild').Plugin = {
@@ -87,8 +89,21 @@ async function compileAndImport(tsPath: string): Promise<Record<string, unknown>
   }
 
   // Import the compiled JavaScript
-  const fileUrl = pathToFileURL(jsPath).href
-  return import(fileUrl)
+  try {
+    const fileUrl = `${pathToFileURL(jsPath).href}?mtime=${fs.statSync(jsPath).mtimeMs}`
+    return import(fileUrl)
+  } catch (error) {
+    if (!allowRecovery) {
+      throw error
+    }
+
+    const recovered = recoverMikroOrmV7GeneratedCacheFromImportError(appRoot, error)
+    if (!recovered.applied) {
+      throw error
+    }
+
+    return compileAndImport(tsPath, false)
+  }
 }
 
 
@@ -123,6 +138,8 @@ export async function loadBootstrapData(appRoot?: string): Promise<BootstrapData
   }
 
   const { generatedDir } = resolved
+
+  ensureMikroOrmV7GeneratedCacheCompatibility(resolved.appDir)
 
   // IMPORTANT: Load entity IDs FIRST and register them before loading modules.
   // This is because modules (e.g., ce.ts files) use E.xxx.xxx at module scope,

@@ -1,4 +1,4 @@
-import { Entity, Index, PrimaryKey, Property } from '@mikro-orm/core'
+import { Entity, Index, PrimaryKey, Property } from '@mikro-orm/decorators/legacy'
 import {
   ChallengeMethod,
   EnforcementScope,

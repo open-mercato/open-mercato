@@ -1,6 +1,7 @@
 "use client"
 import * as React from 'react'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
+import { extractCustomFieldEntries } from '@open-mercato/shared/lib/crud/custom-fields-client'
 import { E } from '#generated/entities.ids.generated'
 import { OrganizationSelect } from '@open-mercato/core/modules/directory/components/OrganizationSelect'
 import { TenantSelect } from '@open-mercato/core/modules/directory/components/TenantSelect'
@@ -24,6 +25,7 @@ type OrganizationResponse = {
   items: Array<{
     id: string
     name: string
+    slug?: string | null
     tenantId: string
     tenantName?: string | null
     parentId: string | null
@@ -123,14 +125,11 @@ export default function EditOrganizationPage({ params }: { params?: { id?: strin
         setChildSummary(childrenDetails)
         setOriginalChildIds(Array.isArray(record.childIds) ? record.childIds : [])
 
-        const customValues: Record<string, unknown> = {}
-        for (const [key, value] of Object.entries(record as Record<string, unknown>)) {
-          if (key.startsWith('cf_')) customValues[key] = value
-          else if (key.startsWith('cf:')) customValues[`cf_${key.slice(3)}`] = value
-        }
+        const customValues = extractCustomFieldEntries(record as Record<string, unknown>)
         setInitialValues({
           id: record.id,
           name: record.name,
+          slug: record.slug ?? '',
           parentId: record.parentId || '',
           isActive: record.isActive,
           tenantId: resolvedTenantId,
@@ -195,6 +194,12 @@ export default function EditOrganizationPage({ params }: { params?: { id?: strin
     ] : []),
     { id: 'name', label: t('directory.organizations.form.field.name', 'Name'), type: 'text', required: true },
     {
+      id: 'slug',
+      label: t('directory.organizations.form.field.slug', 'Slug'),
+      type: 'text',
+      description: t('directory.organizations.form.field.slug.description', 'URL-safe identifier used for the customer portal (lowercase letters, numbers, hyphens, underscores).'),
+    },
+    {
       id: 'parentId',
       label: t('directory.organizations.form.field.parent', 'Parent'),
       type: 'custom',
@@ -237,8 +242,8 @@ export default function EditOrganizationPage({ params }: { params?: { id?: strin
 
   const detailFields = React.useMemo(() => (
     actorIsSuperAdmin
-      ? ['tenantId', 'name', 'parentId', 'childrenInfo', 'isActive']
-      : ['name', 'parentId', 'childrenInfo', 'isActive']
+      ? ['tenantId', 'name', 'slug', 'parentId', 'childrenInfo', 'isActive']
+      : ['name', 'slug', 'parentId', 'childrenInfo', 'isActive']
   ), [actorIsSuperAdmin])
 
   const groups: CrudFormGroup[] = React.useMemo(() => ([
@@ -278,7 +283,7 @@ export default function EditOrganizationPage({ params }: { params?: { id?: strin
           fields={fields}
           groups={groups}
           entityId={E.directory.organization}
-          initialValues={initialValues ?? { id: orgId, tenantId: tenantId ?? null, name: '', parentId: '', isActive: true, childIds: [] }}
+          initialValues={initialValues ?? { id: orgId, tenantId: tenantId ?? null, name: '', slug: '', parentId: '', isActive: true, childIds: [] }}
           isLoading={loading}
           loadingMessage={t('directory.organizations.form.loading', 'Loading organization...')}
           submitLabel={t('directory.organizations.form.action.save', 'Save')}
@@ -315,6 +320,7 @@ export default function EditOrganizationPage({ params }: { params?: { id?: strin
 type UpdateOrganizationPayload = {
   id: string
   name: string
+  slug?: string | null
   isActive: boolean
   parentId: string | null
   childIds: string[]
@@ -369,6 +375,11 @@ export async function submitUpdateOrganization(options: {
         ? values.parentId
         : null,
     childIds: originalChildIds,
+  }
+
+  if (typeof values.slug === 'string') {
+    const trimmedSlug = values.slug.trim()
+    payload.slug = trimmedSlug.length ? trimmedSlug : null
   }
 
   if (submittedTenantId !== undefined && submittedTenantId !== null) {

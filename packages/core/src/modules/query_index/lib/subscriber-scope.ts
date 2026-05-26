@@ -32,12 +32,13 @@ export async function loadQueryIndexRowScope(
   entityType: string,
   recordId: string
 ): Promise<QueryIndexScope | null> {
-  const knex = (em as any).getConnection().getKnex()
+  const db = em.getKysely<any>()
   const table = resolveEntityTableName(em, entityType)
-  const row = await knex(table)
-    .select(['organization_id', 'tenant_id'])
-    .where({ id: recordId })
-    .first()
+  const row = await db
+    .selectFrom(table as any)
+    .select(['organization_id' as any, 'tenant_id' as any])
+    .where('id' as any, '=', recordId)
+    .executeTakeFirst() as { organization_id: string | null; tenant_id: string | null } | undefined
 
   if (!row) {
     return null

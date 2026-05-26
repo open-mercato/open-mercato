@@ -4,7 +4,9 @@ import { parseBooleanToken } from '@open-mercato/shared/lib/boolean'
 export const SEARCH_AUTO_INDEX_CONFIG_KEY = 'auto_index_enabled'
 
 export function envDisablesAutoIndexing(): boolean {
-  const raw = process.env.DISABLE_VECTOR_SEARCH_AUTOINDEXING
+  const raw =
+    process.env.OM_DISABLE_VECTOR_SEARCH_AUTOINDEXING ??
+    process.env.DISABLE_VECTOR_SEARCH_AUTOINDEXING
   if (!raw) return false
   return parseBooleanToken(raw) === true
 }

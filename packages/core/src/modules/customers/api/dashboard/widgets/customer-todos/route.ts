@@ -1,7 +1,7 @@
 import { NextResponse } from 'next/server'
 import { z } from 'zod'
 import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
-import { CrudHttpError } from '@open-mercato/shared/lib/crud/errors'
+import { CrudHttpError, isCrudHttpError } from '@open-mercato/shared/lib/crud/errors'
 import { resolveWidgetScope, type WidgetScopeContext } from '../utils'
 import { resolveCustomerInteractionFeatureFlags } from '../../../../lib/interactionFeatureFlags'
 import { CUSTOMER_INTERACTION_TODO_ADAPTER_SOURCE } from '../../../../lib/interactionCompatibility'
@@ -61,6 +61,7 @@ export async function GET(req: Request) {
       sub: 'customers.dashboard.todos',
     }
     const flags = await resolveCustomerInteractionFeatureFlags(container, tenantId)
+    const mergedWindow = Math.min(limit * 4, 50)
     const rows = flags.unified
       ? (await listCanonicalTodoRows(
           em,
@@ -68,6 +69,7 @@ export async function GET(req: Request) {
           auth,
           organizationIds?.[0] ?? null,
           organizationIds ?? null,
+          { pagination: { page: 1, pageSize: limit } },
         )).items
       : await Promise.all([
           listLegacyTodoRows(
@@ -76,6 +78,7 @@ export async function GET(req: Request) {
             tenantId,
             organizationIds ?? null,
             undefined,
+            { limit: mergedWindow },
           ),
           listCanonicalTodoRows(
             em,
@@ -86,6 +89,7 @@ export async function GET(req: Request) {
             {
               includeDeleted: true,
               source: CUSTOMER_INTERACTION_TODO_ADAPTER_SOURCE,
+              limit: mergedWindow,
             },
           ),
         ]).then(([legacyRows, canonicalRows]) =>
@@ -123,7 +127,7 @@ export async function GET(req: Request) {
 
     return NextResponse.json({ items })
   } catch (err) {
-    if (err instanceof CrudHttpError) {
+    if (isCrudHttpError(err)) {
       return NextResponse.json(err.body, { status: err.status })
     }
     console.error('customers.widgets.todos failed', err)

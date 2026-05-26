@@ -1,5 +1,7 @@
 import Stripe from 'stripe'
 
+type StripeConfig = NonNullable<ConstructorParameters<typeof Stripe>[1]>
+
 export function resolveStripeClient(
   credentials: Record<string, unknown>,
   apiVersion: string,
@@ -10,7 +12,7 @@ export function resolveStripeClient(
   }
 
   return new Stripe(secretKey, {
-    apiVersion: apiVersion as Stripe.LatestApiVersion,
+    apiVersion: apiVersion as StripeConfig['apiVersion'],
     maxNetworkRetries: 2,
     timeout: 10_000,
   })

@@ -36,7 +36,7 @@ export function SalesDocumentMessageDetail(props: ObjectDetailProps) {
       {viewAction?.href ? (
         <Link
           href={resolveActionHref(viewAction.href, props.entityId)}
-          className="block rounded-md transition-opacity hover:opacity-75"
+          className="block rounded-md transition-opacity hover:opacity-80"
         >
           {preview}
         </Link>

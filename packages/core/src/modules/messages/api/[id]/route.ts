@@ -18,7 +18,7 @@ import {
 } from '../openapi'
 
 export const metadata = {
-  GET: { requireAuth: true, requireFeatures: ['messages.view'] },
+  GET: { requireAuth: true },
   PATCH: { requireAuth: true, requireFeatures: ['messages.compose'] },
   DELETE: { requireAuth: true, requireFeatures: ['messages.view'] },
 }
@@ -38,11 +38,17 @@ export async function GET(req: Request, { params }: { params: { id: string } }) 
   const skipMarkReadParam = url.searchParams.get('skipMarkRead')
   const skipMarkRead = skipMarkReadParam === '1'
 
-  const message = await em.findOne(Message, {
-    id: params.id,
-    tenantId: scope.tenantId,
-    deletedAt: null,
-  })
+  const message = await findOneWithDecryption(
+    em,
+    Message,
+    {
+      id: params.id,
+      tenantId: scope.tenantId,
+      deletedAt: null,
+    },
+    undefined,
+    { tenantId: scope.tenantId, organizationId: scope.organizationId },
+  )
 
   if (!message) {
     return Response.json({ error: 'Message not found' }, { status: 404 })
@@ -89,7 +95,8 @@ export async function GET(req: Request, { params }: { params: { id: string } }) 
   )
   const allRecipients = await em.find(MessageRecipient, { messageId: params.id, deletedAt: null })
 
-  const threadMessages = await em.find(
+  const threadMessages = await findWithDecryption(
+    em,
     Message,
     {
       threadId: message.threadId ?? message.id,
@@ -98,7 +105,8 @@ export async function GET(req: Request, { params }: { params: { id: string } }) 
       deletedAt: null,
       isDraft: false,
     },
-    { orderBy: { sentAt: 'ASC' } }
+    { orderBy: { sentAt: 'ASC' } },
+    { tenantId: scope.tenantId, organizationId: scope.organizationId },
   )
   const threadMessageIds = threadMessages.map((item) => item.id)
   const visibleRecipientRows = threadMessageIds.length > 0

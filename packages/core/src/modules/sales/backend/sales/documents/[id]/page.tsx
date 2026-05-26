@@ -20,6 +20,7 @@ import { Button } from '@open-mercato/ui/primitives/button'
 import { Badge } from '@open-mercato/ui/primitives/badge'
 import { Spinner } from '@open-mercato/ui/primitives/spinner'
 import { Input } from '@open-mercato/ui/primitives/input'
+import { EmailInput } from '@open-mercato/ui/primitives/email-input'
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@open-mercato/ui/primitives/dialog'
 import { ArrowRightLeft, Building2, CreditCard, Mail, Pencil, Plus, Send, Store, Truck, UserRound, Wand2, X } from 'lucide-react'
 import { FormHeader, type ActionItem } from '@open-mercato/ui/backend/forms'
@@ -50,6 +51,7 @@ import { DictionaryValue, createDictionaryMap, renderDictionaryColor, renderDict
 import { DictionaryEntrySelect } from '@open-mercato/core/modules/dictionaries/components/DictionaryEntrySelect'
 import { useOrganizationScopeVersion } from '@open-mercato/shared/lib/frontend/useOrganizationScope'
 import { useEmailDuplicateCheck } from '@open-mercato/core/modules/customers/backend/hooks/useEmailDuplicateCheck'
+import { isValidPhoneNumber } from '@open-mercato/shared/lib/phone'
 import { NotesSection, mapCommentSummary, type NotesDataAdapter } from '@open-mercato/ui/backend/detail'
 import {
   emitSalesDocumentTotalsRefresh,
@@ -210,7 +212,7 @@ function CurrencyInlineEditor({
                 className="text-sm text-foreground"
                 iconWrapperClassName="inline-flex h-5 w-5 items-center justify-center rounded border border-border bg-background"
                 iconClassName="h-3.5 w-3.5"
-                colorClassName="h-2.5 w-2.5 rounded-full border border-border/60"
+                colorClassName="h-2.5 w-2.5 rounded-full border border-border/70"
               />
               {error ? <p className="text-xs text-destructive">{error}</p> : null}
               <div className="flex items-center gap-2">
@@ -241,7 +243,7 @@ function CurrencyInlineEditor({
               className="mt-1 inline-flex items-center gap-2 text-sm text-foreground"
               iconWrapperClassName="inline-flex h-5 w-5 items-center justify-center rounded border border-border bg-background"
               iconClassName="h-3.5 w-3.5"
-              colorClassName="h-2.5 w-2.5 rounded-full border border-border/60"
+              colorClassName="h-2.5 w-2.5 rounded-full border border-border/70"
             />
           )}
         </div>
@@ -464,7 +466,17 @@ function CustomerInlineEditor({
     }
   }, [draftEmail, draftId, onClearError, onSave])
 
+  const phoneIsValid = React.useMemo(
+    () => isValidPhoneNumber(snapshotDraft.primaryPhone),
+    [snapshotDraft.primaryPhone],
+  )
+  const phoneInvalidMessage = t(
+    'customers.people.form.primaryPhone.invalid',
+    'Enter a valid phone number with country code (e.g. +1 212 555 1234)',
+  )
+
   const handleSaveSnapshot = React.useCallback(async () => {
+    if (!phoneIsValid) return
     try {
       onClearError()
       const payload = buildSnapshotPayload()
@@ -473,7 +485,7 @@ function CustomerInlineEditor({
     } catch (err) {
       console.error('sales.documents.customer.snapshot.save', err)
     }
-  }, [buildSnapshotPayload, onClearError, onSaveSnapshot])
+  }, [buildSnapshotPayload, onClearError, onSaveSnapshot, phoneIsValid])
 
   if (mode === 'select') {
     return (
@@ -652,8 +664,7 @@ function CustomerInlineEditor({
               <label className="text-sm font-medium text-foreground">
                 {t('customers.people.detail.highlights.primaryEmail', 'Primary email')}
               </label>
-              <Input
-                type="email"
+              <EmailInput
                 value={snapshotDraft.primaryEmail}
                 onChange={(event) => setSnapshotDraft((prev) => ({ ...prev, primaryEmail: event.target.value }))}
                 placeholder={t('customers.people.form.primaryEmailPlaceholder', 'name@example.com')}
@@ -668,7 +679,11 @@ function CustomerInlineEditor({
                 value={snapshotDraft.primaryPhone}
                 onChange={(event) => setSnapshotDraft((prev) => ({ ...prev, primaryPhone: event.target.value }))}
                 placeholder={t('customers.people.form.primaryPhonePlaceholder', '+00 000 000 000')}
+                aria-invalid={!phoneIsValid || undefined}
               />
+              {!phoneIsValid ? (
+                <p className="text-xs text-status-error-text">{phoneInvalidMessage}</p>
+              ) : null}
             </div>
           </div>
 
@@ -711,7 +726,7 @@ function CustomerInlineEditor({
           {error ? <p className="text-xs text-destructive">{error}</p> : null}
 
           <div className="flex items-center gap-2">
-            <Button type="button" size="sm" onClick={() => void handleSaveSnapshot()} disabled={saving}>
+            <Button type="button" size="sm" onClick={() => void handleSaveSnapshot()} disabled={saving || !phoneIsValid}>
               {saving ? <Spinner className="mr-2 h-4 w-4 animate-spin" /> : null}
               {t('customers.people.detail.inline.saveShortcut')}
             </Button>
@@ -1124,21 +1139,16 @@ function ContactEmailInlineEditor({
                 }
               }}
             >
-              <div className="relative">
-                <Mail className="pointer-events-none absolute left-2 top-2.5 h-4 w-4 text-muted-foreground" />
-                <input
-                  className="w-full rounded-md border pl-8 pr-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-ring"
-                  value={draft}
-                  onChange={(event) => {
-                    if (error) setError(null)
-                    setDraft(event.target.value)
-                  }}
-                  placeholder={placeholder}
-                  type="email"
-                  autoFocus
-                  spellCheck={false}
-                />
-              </div>
+              <EmailInput
+                value={draft}
+                onChange={(event) => {
+                  if (error) setError(null)
+                  setDraft(event.target.value)
+                }}
+                placeholder={placeholder}
+                autoFocus
+                spellCheck={false}
+              />
               {error ? <p className="text-xs text-destructive">{error}</p> : null}
               {!error && duplicate ? (
                 <p className="text-xs text-muted-foreground">
@@ -4547,7 +4557,7 @@ export default function SalesDocumentDetailPage({
               {statusDisplay?.icon ? renderDictionaryIcon(statusDisplay.icon, 'h-4 w-4') : null}
               <span className="inline-flex items-center gap-1">
                 {statusDisplay?.color
-                  ? renderDictionaryColor(statusDisplay.color, 'h-2.5 w-2.5 rounded-full border border-border/60')
+                  ? renderDictionaryColor(statusDisplay.color, 'h-2.5 w-2.5 rounded-full border border-border/70')
                   : <span className="h-2.5 w-2.5 rounded-full bg-primary" />}
               </span>
               <span>{statusDisplay?.label ?? record.status}</span>

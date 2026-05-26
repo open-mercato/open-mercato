@@ -278,8 +278,8 @@ describe('generateModuleRegistry with module subsets', () => {
         {
             id: "orders",
             info: I0_orders.metadata,
-            frontendRoutes: [{ pattern: "/", requireAuth: ((CM2_orders_index as any).metadata)?.requireAuth, requireRoles: ((CM2_orders_index as any).metadata)?.requireRoles, requireFeatures: ((CM2_orders_index as any).metadata)?.requireFeatures, requireCustomerAuth: ((CM2_orders_index as any).metadata)?.requireCustomerAuth, requireCustomerFeatures: ((CM2_orders_index as any).metadata)?.requireCustomerFeatures, title: ((CM2_orders_index as any).metadata)?.pageTitle ?? ((CM2_orders_index as any).metadata)?.title, titleKey: ((CM2_orders_index as any).metadata)?.pageTitleKey ?? ((CM2_orders_index as any).metadata)?.titleKey, group: ((CM2_orders_index as any).metadata)?.pageGroup ?? ((CM2_orders_index as any).metadata)?.group, groupKey: ((CM2_orders_index as any).metadata)?.pageGroupKey ?? ((CM2_orders_index as any).metadata)?.groupKey, icon: ((CM2_orders_index as any).metadata)?.icon, order: ((CM2_orders_index as any).metadata)?.pageOrder ?? ((CM2_orders_index as any).metadata)?.order, priority: ((CM2_orders_index as any).metadata)?.pagePriority ?? ((CM2_orders_index as any).metadata)?.priority, navHidden: ((CM2_orders_index as any).metadata)?.navHidden, visible: ((CM2_orders_index as any).metadata)?.visible, enabled: ((CM2_orders_index as any).metadata)?.enabled, breadcrumb: ((CM2_orders_index as any).metadata)?.breadcrumb, pageContext: ((CM2_orders_index as any).metadata)?.pageContext, placement: ((CM2_orders_index as any).metadata)?.placement, Component: C1_orders_index }],
-            backendRoutes: [{ pattern: "/backend/orders", requireAuth: ((BM6_orders_index as any).metadata)?.requireAuth, requireRoles: ((BM6_orders_index as any).metadata)?.requireRoles, requireFeatures: ((BM6_orders_index as any).metadata)?.requireFeatures, requireCustomerAuth: ((BM6_orders_index as any).metadata)?.requireCustomerAuth, requireCustomerFeatures: ((BM6_orders_index as any).metadata)?.requireCustomerFeatures, title: ((BM6_orders_index as any).metadata)?.pageTitle ?? ((BM6_orders_index as any).metadata)?.title, titleKey: ((BM6_orders_index as any).metadata)?.pageTitleKey ?? ((BM6_orders_index as any).metadata)?.titleKey, group: ((BM6_orders_index as any).metadata)?.pageGroup ?? ((BM6_orders_index as any).metadata)?.group, groupKey: ((BM6_orders_index as any).metadata)?.pageGroupKey ?? ((BM6_orders_index as any).metadata)?.groupKey, icon: ((BM6_orders_index as any).metadata)?.icon, order: ((BM6_orders_index as any).metadata)?.pageOrder ?? ((BM6_orders_index as any).metadata)?.order, priority: ((BM6_orders_index as any).metadata)?.pagePriority ?? ((BM6_orders_index as any).metadata)?.priority, navHidden: ((BM6_orders_index as any).metadata)?.navHidden, visible: ((BM6_orders_index as any).metadata)?.visible, enabled: ((BM6_orders_index as any).metadata)?.enabled, breadcrumb: ((BM6_orders_index as any).metadata)?.breadcrumb, pageContext: ((BM6_orders_index as any).metadata)?.pageContext, placement: ((BM6_orders_index as any).metadata)?.placement, Component: B5_orders_index }],
+            frontendRoutes: [{ pattern: "/", requireAuth: ((CM2_orders_index as any).metadata)?.requireAuth, requireRoles: ((CM2_orders_index as any).metadata)?.requireRoles, requireFeatures: ((CM2_orders_index as any).metadata)?.requireFeatures, requireCustomerAuth: ((CM2_orders_index as any).metadata)?.requireCustomerAuth, requireCustomerFeatures: ((CM2_orders_index as any).metadata)?.requireCustomerFeatures, nav: ((CM2_orders_index as any).metadata)?.nav, title: ((CM2_orders_index as any).metadata)?.pageTitle ?? ((CM2_orders_index as any).metadata)?.title, titleKey: ((CM2_orders_index as any).metadata)?.pageTitleKey ?? ((CM2_orders_index as any).metadata)?.titleKey, group: ((CM2_orders_index as any).metadata)?.pageGroup ?? ((CM2_orders_index as any).metadata)?.group, groupKey: ((CM2_orders_index as any).metadata)?.pageGroupKey ?? ((CM2_orders_index as any).metadata)?.groupKey, icon: ((CM2_orders_index as any).metadata)?.icon, order: ((CM2_orders_index as any).metadata)?.pageOrder ?? ((CM2_orders_index as any).metadata)?.order, priority: ((CM2_orders_index as any).metadata)?.pagePriority ?? ((CM2_orders_index as any).metadata)?.priority, navHidden: ((CM2_orders_index as any).metadata)?.navHidden, visible: ((CM2_orders_index as any).metadata)?.visible, enabled: ((CM2_orders_index as any).metadata)?.enabled, breadcrumb: ((CM2_orders_index as any).metadata)?.breadcrumb, pageContext: ((CM2_orders_index as any).metadata)?.pageContext, placement: ((CM2_orders_index as any).metadata)?.placement, Component: C1_orders_index }],
+            backendRoutes: [{ pattern: "/backend/orders", requireAuth: ((BM6_orders_index as any).metadata)?.requireAuth, requireRoles: ((BM6_orders_index as any).metadata)?.requireRoles, requireFeatures: ((BM6_orders_index as any).metadata)?.requireFeatures, requireCustomerAuth: ((BM6_orders_index as any).metadata)?.requireCustomerAuth, requireCustomerFeatures: ((BM6_orders_index as any).metadata)?.requireCustomerFeatures, nav: ((BM6_orders_index as any).metadata)?.nav, title: ((BM6_orders_index as any).metadata)?.pageTitle ?? ((BM6_orders_index as any).metadata)?.title, titleKey: ((BM6_orders_index as any).metadata)?.pageTitleKey ?? ((BM6_orders_index as any).metadata)?.titleKey, group: ((BM6_orders_index as any).metadata)?.pageGroup ?? ((BM6_orders_index as any).metadata)?.group, groupKey: ((BM6_orders_index as any).metadata)?.pageGroupKey ?? ((BM6_orders_index as any).metadata)?.groupKey, icon: ((BM6_orders_index as any).metadata)?.icon, order: ((BM6_orders_index as any).metadata)?.pageOrder ?? ((BM6_orders_index as any).metadata)?.order, priority: ((BM6_orders_index as any).metadata)?.pagePriority ?? ((BM6_orders_index as any).metadata)?.priority, navHidden: ((BM6_orders_index as any).metadata)?.navHidden, visible: ((BM6_orders_index as any).metadata)?.visible, enabled: ((BM6_orders_index as any).metadata)?.enabled, breadcrumb: ((BM6_orders_index as any).metadata)?.breadcrumb, pageContext: ((BM6_orders_index as any).metadata)?.pageContext, placement: ((BM6_orders_index as any).metadata)?.placement, Component: B5_orders_index }],
             apis: [{ path: ((R9_orders_orders as any).metadata?.path ?? "/orders/orders"), metadata: (R9_orders_orders as any).metadata, handlers: R9_orders_orders as any }],
             
             
@@ -311,8 +311,8 @@ describe('generateModuleRegistry with module subsets', () => {
         {
             id: "orders",
             info: I0_orders.metadata,
-            frontendRoutes: [{ pattern: "/", requireAuth: ((((MRuntime3_orders_index as any).metadata) as any))?.requireAuth, requireRoles: ((((MRuntime3_orders_index as any).metadata) as any))?.requireRoles, requireFeatures: ((((MRuntime3_orders_index as any).metadata) as any))?.requireFeatures, requireCustomerAuth: ((((MRuntime3_orders_index as any).metadata) as any))?.requireCustomerAuth, requireCustomerFeatures: ((((MRuntime3_orders_index as any).metadata) as any))?.requireCustomerFeatures, title: ((((MRuntime3_orders_index as any).metadata) as any))?.pageTitle ?? ((((MRuntime3_orders_index as any).metadata) as any))?.title, titleKey: ((((MRuntime3_orders_index as any).metadata) as any))?.pageTitleKey ?? ((((MRuntime3_orders_index as any).metadata) as any))?.titleKey, group: ((((MRuntime3_orders_index as any).metadata) as any))?.pageGroup ?? ((((MRuntime3_orders_index as any).metadata) as any))?.group, groupKey: ((((MRuntime3_orders_index as any).metadata) as any))?.pageGroupKey ?? ((((MRuntime3_orders_index as any).metadata) as any))?.groupKey, icon: ((((MRuntime3_orders_index as any).metadata) as any))?.icon, order: ((((MRuntime3_orders_index as any).metadata) as any))?.pageOrder ?? ((((MRuntime3_orders_index as any).metadata) as any))?.order, priority: ((((MRuntime3_orders_index as any).metadata) as any))?.pagePriority ?? ((((MRuntime3_orders_index as any).metadata) as any))?.priority, navHidden: ((((MRuntime3_orders_index as any).metadata) as any))?.navHidden, visible: ((((MRuntime3_orders_index as any).metadata) as any))?.visible, enabled: ((((MRuntime3_orders_index as any).metadata) as any))?.enabled, breadcrumb: ((((MRuntime3_orders_index as any).metadata) as any))?.breadcrumb, pageContext: ((((MRuntime3_orders_index as any).metadata) as any))?.pageContext, placement: ((((MRuntime3_orders_index as any).metadata) as any))?.placement, Component: async (props: any) => { const mod = await import("@open-mercato/core/modules/orders/frontend/page"); const Component = (mod.default ?? mod) as any; return createElement(Component, props) } }],
-            backendRoutes: [{ pattern: "/backend/orders", requireAuth: ((((BMRuntime7_orders_index as any).metadata) as any))?.requireAuth, requireRoles: ((((BMRuntime7_orders_index as any).metadata) as any))?.requireRoles, requireFeatures: ((((BMRuntime7_orders_index as any).metadata) as any))?.requireFeatures, requireCustomerAuth: ((((BMRuntime7_orders_index as any).metadata) as any))?.requireCustomerAuth, requireCustomerFeatures: ((((BMRuntime7_orders_index as any).metadata) as any))?.requireCustomerFeatures, title: ((((BMRuntime7_orders_index as any).metadata) as any))?.pageTitle ?? ((((BMRuntime7_orders_index as any).metadata) as any))?.title, titleKey: ((((BMRuntime7_orders_index as any).metadata) as any))?.pageTitleKey ?? ((((BMRuntime7_orders_index as any).metadata) as any))?.titleKey, group: ((((BMRuntime7_orders_index as any).metadata) as any))?.pageGroup ?? ((((BMRuntime7_orders_index as any).metadata) as any))?.group, groupKey: ((((BMRuntime7_orders_index as any).metadata) as any))?.pageGroupKey ?? ((((BMRuntime7_orders_index as any).metadata) as any))?.groupKey, icon: ((((BMRuntime7_orders_index as any).metadata) as any))?.icon, order: ((((BMRuntime7_orders_index as any).metadata) as any))?.pageOrder ?? ((((BMRuntime7_orders_index as any).metadata) as any))?.order, priority: ((((BMRuntime7_orders_index as any).metadata) as any))?.pagePriority ?? ((((BMRuntime7_orders_index as any).metadata) as any))?.priority, navHidden: ((((BMRuntime7_orders_index as any).metadata) as any))?.navHidden, visible: ((((BMRuntime7_orders_index as any).metadata) as any))?.visible, enabled: ((((BMRuntime7_orders_index as any).metadata) as any))?.enabled, breadcrumb: ((((BMRuntime7_orders_index as any).metadata) as any))?.breadcrumb, pageContext: ((((BMRuntime7_orders_index as any).metadata) as any))?.pageContext, placement: ((((BMRuntime7_orders_index as any).metadata) as any))?.placement, Component: async (props: any) => { const mod = await import("@open-mercato/core/modules/orders/backend/page"); const Component = (mod.default ?? mod) as any; return createElement(Component, props) } }],
+            frontendRoutes: [{ pattern: "/", requireAuth: ((((MRuntime3_orders_index as any).metadata) as any))?.requireAuth, requireRoles: ((((MRuntime3_orders_index as any).metadata) as any))?.requireRoles, requireFeatures: ((((MRuntime3_orders_index as any).metadata) as any))?.requireFeatures, requireCustomerAuth: ((((MRuntime3_orders_index as any).metadata) as any))?.requireCustomerAuth, requireCustomerFeatures: ((((MRuntime3_orders_index as any).metadata) as any))?.requireCustomerFeatures, nav: ((((MRuntime3_orders_index as any).metadata) as any))?.nav, title: ((((MRuntime3_orders_index as any).metadata) as any))?.pageTitle ?? ((((MRuntime3_orders_index as any).metadata) as any))?.title, titleKey: ((((MRuntime3_orders_index as any).metadata) as any))?.pageTitleKey ?? ((((MRuntime3_orders_index as any).metadata) as any))?.titleKey, group: ((((MRuntime3_orders_index as any).metadata) as any))?.pageGroup ?? ((((MRuntime3_orders_index as any).metadata) as any))?.group, groupKey: ((((MRuntime3_orders_index as any).metadata) as any))?.pageGroupKey ?? ((((MRuntime3_orders_index as any).metadata) as any))?.groupKey, icon: ((((MRuntime3_orders_index as any).metadata) as any))?.icon, order: ((((MRuntime3_orders_index as any).metadata) as any))?.pageOrder ?? ((((MRuntime3_orders_index as any).metadata) as any))?.order, priority: ((((MRuntime3_orders_index as any).metadata) as any))?.pagePriority ?? ((((MRuntime3_orders_index as any).metadata) as any))?.priority, navHidden: ((((MRuntime3_orders_index as any).metadata) as any))?.navHidden, visible: ((((MRuntime3_orders_index as any).metadata) as any))?.visible, enabled: ((((MRuntime3_orders_index as any).metadata) as any))?.enabled, breadcrumb: ((((MRuntime3_orders_index as any).metadata) as any))?.breadcrumb, pageContext: ((((MRuntime3_orders_index as any).metadata) as any))?.pageContext, placement: ((((MRuntime3_orders_index as any).metadata) as any))?.placement, Component: async (props: any) => { const mod = await import("@open-mercato/core/modules/orders/frontend/page"); const Component = (mod.default ?? mod) as any; return createElement(Component, props) } }],
+            backendRoutes: [{ pattern: "/backend/orders", requireAuth: ((((BMRuntime7_orders_index as any).metadata) as any))?.requireAuth, requireRoles: ((((BMRuntime7_orders_index as any).metadata) as any))?.requireRoles, requireFeatures: ((((BMRuntime7_orders_index as any).metadata) as any))?.requireFeatures, requireCustomerAuth: ((((BMRuntime7_orders_index as any).metadata) as any))?.requireCustomerAuth, requireCustomerFeatures: ((((BMRuntime7_orders_index as any).metadata) as any))?.requireCustomerFeatures, nav: ((((BMRuntime7_orders_index as any).metadata) as any))?.nav, title: ((((BMRuntime7_orders_index as any).metadata) as any))?.pageTitle ?? ((((BMRuntime7_orders_index as any).metadata) as any))?.title, titleKey: ((((BMRuntime7_orders_index as any).metadata) as any))?.pageTitleKey ?? ((((BMRuntime7_orders_index as any).metadata) as any))?.titleKey, group: ((((BMRuntime7_orders_index as any).metadata) as any))?.pageGroup ?? ((((BMRuntime7_orders_index as any).metadata) as any))?.group, groupKey: ((((BMRuntime7_orders_index as any).metadata) as any))?.pageGroupKey ?? ((((BMRuntime7_orders_index as any).metadata) as any))?.groupKey, icon: ((((BMRuntime7_orders_index as any).metadata) as any))?.icon, order: ((((BMRuntime7_orders_index as any).metadata) as any))?.pageOrder ?? ((((BMRuntime7_orders_index as any).metadata) as any))?.order, priority: ((((BMRuntime7_orders_index as any).metadata) as any))?.pagePriority ?? ((((BMRuntime7_orders_index as any).metadata) as any))?.priority, navHidden: ((((BMRuntime7_orders_index as any).metadata) as any))?.navHidden, visible: ((((BMRuntime7_orders_index as any).metadata) as any))?.visible, enabled: ((((BMRuntime7_orders_index as any).metadata) as any))?.enabled, breadcrumb: ((((BMRuntime7_orders_index as any).metadata) as any))?.breadcrumb, pageContext: ((((BMRuntime7_orders_index as any).metadata) as any))?.pageContext, placement: ((((BMRuntime7_orders_index as any).metadata) as any))?.placement, Component: async (props: any) => { const mod = await import("@open-mercato/core/modules/orders/backend/page"); const Component = (mod.default ?? mod) as any; return createElement(Component, props) } }],
             apis: [{ path: "/orders/orders", metadata: undefined, handlers: { GET: async (req: Request, ctx?: any) => { const mod = await import("@open-mercato/core/modules/orders/api/orders/route"); return (mod as any).GET(req, ctx) } } }],
             
             
@@ -335,7 +335,7 @@ describe('generateModuleRegistry with module subsets', () => {
       import type { FrontendRouteManifestEntry } from '@open-mercato/shared/modules/registry'
 
       export const frontendRoutes: FrontendRouteManifestEntry[] = [
-        { moduleId: "orders", pattern: "/", requireAuth: ((undefined as any))?.requireAuth, requireRoles: ((undefined as any))?.requireRoles, requireFeatures: ((undefined as any))?.requireFeatures, requireCustomerAuth: ((undefined as any))?.requireCustomerAuth, requireCustomerFeatures: ((undefined as any))?.requireCustomerFeatures, title: ((undefined as any))?.pageTitle ?? ((undefined as any))?.title, titleKey: ((undefined as any))?.pageTitleKey ?? ((undefined as any))?.titleKey, group: ((undefined as any))?.pageGroup ?? ((undefined as any))?.group, groupKey: ((undefined as any))?.pageGroupKey ?? ((undefined as any))?.groupKey, icon: ((undefined as any))?.icon, order: ((undefined as any))?.pageOrder ?? ((undefined as any))?.order, priority: ((undefined as any))?.pagePriority ?? ((undefined as any))?.priority, navHidden: ((undefined as any))?.navHidden, visible: ((undefined as any))?.visible, enabled: ((undefined as any))?.enabled, breadcrumb: ((undefined as any))?.breadcrumb, pageContext: ((undefined as any))?.pageContext, placement: ((undefined as any))?.placement, load: async () => { const mod = await import("@open-mercato/core/modules/orders/frontend/page"); return (mod.default ?? mod) as any } }
+        { moduleId: "orders", pattern: "/", requireAuth: ((undefined as any))?.requireAuth, requireRoles: ((undefined as any))?.requireRoles, requireFeatures: ((undefined as any))?.requireFeatures, requireCustomerAuth: ((undefined as any))?.requireCustomerAuth, requireCustomerFeatures: ((undefined as any))?.requireCustomerFeatures, nav: ((undefined as any))?.nav, title: ((undefined as any))?.pageTitle ?? ((undefined as any))?.title, titleKey: ((undefined as any))?.pageTitleKey ?? ((undefined as any))?.titleKey, group: ((undefined as any))?.pageGroup ?? ((undefined as any))?.group, groupKey: ((undefined as any))?.pageGroupKey ?? ((undefined as any))?.groupKey, icon: ((undefined as any))?.icon, order: ((undefined as any))?.pageOrder ?? ((undefined as any))?.order, priority: ((undefined as any))?.pagePriority ?? ((undefined as any))?.priority, navHidden: ((undefined as any))?.navHidden, visible: ((undefined as any))?.visible, enabled: ((undefined as any))?.enabled, breadcrumb: ((undefined as any))?.breadcrumb, pageContext: ((undefined as any))?.pageContext, placement: ((undefined as any))?.placement, load: async () => { const mod = await import("@open-mercato/core/modules/orders/frontend/page"); return (mod.default ?? mod) as any } }
       ]
 
       export default frontendRoutes
@@ -345,7 +345,7 @@ describe('generateModuleRegistry with module subsets', () => {
       import type { BackendRouteManifestEntry } from '@open-mercato/shared/modules/registry'
 
       export const backendRoutes: BackendRouteManifestEntry[] = [
-        { moduleId: "orders", pattern: "/backend/orders", requireAuth: ((undefined as any))?.requireAuth, requireRoles: ((undefined as any))?.requireRoles, requireFeatures: ((undefined as any))?.requireFeatures, requireCustomerAuth: ((undefined as any))?.requireCustomerAuth, requireCustomerFeatures: ((undefined as any))?.requireCustomerFeatures, title: ((undefined as any))?.pageTitle ?? ((undefined as any))?.title, titleKey: ((undefined as any))?.pageTitleKey ?? ((undefined as any))?.titleKey, group: ((undefined as any))?.pageGroup ?? ((undefined as any))?.group, groupKey: ((undefined as any))?.pageGroupKey ?? ((undefined as any))?.groupKey, icon: ((undefined as any))?.icon, order: ((undefined as any))?.pageOrder ?? ((undefined as any))?.order, priority: ((undefined as any))?.pagePriority ?? ((undefined as any))?.priority, navHidden: ((undefined as any))?.navHidden, visible: ((undefined as any))?.visible, enabled: ((undefined as any))?.enabled, breadcrumb: ((undefined as any))?.breadcrumb, pageContext: ((undefined as any))?.pageContext, placement: ((undefined as any))?.placement, load: async () => { const mod = await import("@open-mercato/core/modules/orders/backend/page"); return (mod.default ?? mod) as any } }
+        { moduleId: "orders", pattern: "/backend/orders", requireAuth: ((undefined as any))?.requireAuth, requireRoles: ((undefined as any))?.requireRoles, requireFeatures: ((undefined as any))?.requireFeatures, requireCustomerAuth: ((undefined as any))?.requireCustomerAuth, requireCustomerFeatures: ((undefined as any))?.requireCustomerFeatures, nav: ((undefined as any))?.nav, title: ((undefined as any))?.pageTitle ?? ((undefined as any))?.title, titleKey: ((undefined as any))?.pageTitleKey ?? ((undefined as any))?.titleKey, group: ((undefined as any))?.pageGroup ?? ((undefined as any))?.group, groupKey: ((undefined as any))?.pageGroupKey ?? ((undefined as any))?.groupKey, icon: ((undefined as any))?.icon, order: ((undefined as any))?.pageOrder ?? ((undefined as any))?.order, priority: ((undefined as any))?.pagePriority ?? ((undefined as any))?.priority, navHidden: ((undefined as any))?.navHidden, visible: ((undefined as any))?.visible, enabled: ((undefined as any))?.enabled, breadcrumb: ((undefined as any))?.breadcrumb, pageContext: ((undefined as any))?.pageContext, placement: ((undefined as any))?.placement, load: async () => { const mod = await import("@open-mercato/core/modules/orders/backend/page"); return (mod.default ?? mod) as any } }
       ]
 
       export default backendRoutes
@@ -414,6 +414,76 @@ describe('generateModuleRegistry with module subsets', () => {
     const output = readGenerated(tmpDir, 'modules.generated.ts')!
     expect(output).toContain('subscriber.meta.created')
     expect(output).toContain('subscriber_meta:on-event')
+  })
+
+  it('extracts worker metadata from imported queue constants when runtime import fails', async () => {
+    touchFile(
+      path.join(tmpDir, 'packages', 'core', 'src', 'modules', 'worker_meta', 'lib', 'queue.ts'),
+      "export const IMPORTED_QUEUE = 'worker.meta.queue'\n",
+    )
+    touchFile(
+      path.join(tmpDir, 'packages', 'core', 'src', 'modules', 'worker_meta', 'workers', 'process-job.ts'),
+      [
+        "import { IMPORTED_QUEUE } from '../lib/queue'",
+        "import { helper } from '../lib/helper'",
+        "export const metadata = { queue: IMPORTED_QUEUE, id: 'worker_meta:process-job', concurrency: 4 }",
+        'export default async function handle() { return helper }',
+        '',
+      ].join('\n'),
+    )
+    touchFile(
+      path.join(tmpDir, 'packages', 'core', 'src', 'modules', 'worker_meta', 'lib', 'helper.ts'),
+      'export const helper = true\n',
+    )
+
+    const resolver = createMockResolver(tmpDir, [
+      { id: 'worker_meta', from: '@open-mercato/core' },
+    ])
+
+    const result = await generateModuleRegistry({ resolver, quiet: true })
+
+    expect(result.errors).toEqual([])
+    const output = readGenerated(tmpDir, 'modules.generated.ts')!
+    expect(output).toContain('queue: "worker.meta.queue"')
+    expect(output).toContain('id: "worker_meta:process-job"')
+    expect(output).toContain('concurrency: 4')
+  })
+
+  it('extracts subscriber metadata from imported event objects when runtime import fails', async () => {
+    touchFile(
+      path.join(tmpDir, 'packages', 'core', 'src', 'modules', 'subscriber_event_meta', 'lib', 'events.ts'),
+      [
+        'export const SUBSCRIBER_EVENTS = {',
+        "  CREATED: 'subscriber.event.created',",
+        "} as const",
+        '',
+      ].join('\n'),
+    )
+    touchFile(
+      path.join(tmpDir, 'packages', 'core', 'src', 'modules', 'subscriber_event_meta', 'lib', 'helper.ts'),
+      'export const helper = true\n',
+    )
+    touchFile(
+      path.join(tmpDir, 'packages', 'core', 'src', 'modules', 'subscriber_event_meta', 'subscribers', 'on-created.ts'),
+      [
+        "import { helper } from '../lib/helper'",
+        "import { SUBSCRIBER_EVENTS } from '../lib/events'",
+        "export const metadata = { event: SUBSCRIBER_EVENTS.CREATED, persistent: true, id: 'subscriber_event_meta:on-created' }",
+        'export default async function handle() { return helper }',
+        '',
+      ].join('\n'),
+    )
+
+    const resolver = createMockResolver(tmpDir, [
+      { id: 'subscriber_event_meta', from: '@open-mercato/core' },
+    ])
+
+    const result = await generateModuleRegistry({ resolver, quiet: true })
+
+    expect(result.errors).toEqual([])
+    const output = readGenerated(tmpDir, 'modules.generated.ts')!
+    expect(output).toContain('subscriber.event.created')
+    expect(output).toContain('subscriber_event_meta:on-created')
   })
 
   it('keeps backend route metadata runtime-backed when icons are non-serializable', async () => {
@@ -695,6 +765,148 @@ export function GET() {
 
     await expect(generateModuleRegistry({ resolver, quiet: true })).rejects.toThrow(
       'Unsafe generated module specifier'
+    )
+  })
+
+  it('emits imports for third-party scoped npm packages registered via src/modules.ts', async () => {
+    // Simulate a third-party module package published at @dainamite/cpq
+    // (see issue #1998). The generator must accept @<vendor>/<package> specifiers
+    // and emit imports that point at the package's modules/<id> subtree.
+    const pkgModuleBase = path.join(
+      tmpDir,
+      'packages',
+      'thirdparty',
+      'src',
+      'modules',
+      'cpq',
+    )
+    touchFile(
+      path.join(pkgModuleBase, 'subscribers', 'on-event.ts'),
+      `export const metadata = { event: 'cpq.quote.created' }\nexport default async function handler() {}\n`,
+    )
+
+    const baseResolver = createMockResolver(tmpDir, [
+      { id: 'cpq', from: '@dainamite/cpq' },
+    ])
+    const resolver: PackageResolver = {
+      ...baseResolver,
+      getModulePaths: (entry: ModuleEntry) => ({
+        appBase: path.join(tmpDir, 'app', 'src', 'modules', entry.id),
+        pkgBase: pkgModuleBase,
+      }),
+      getModuleImportBase: (entry: ModuleEntry) => ({
+        appBase: `@/modules/${entry.id}`,
+        pkgBase: `@dainamite/cpq/modules/${entry.id}`,
+      }),
+    }
+
+    const result = await generateModuleRegistry({ resolver, quiet: true })
+    expect(result.errors).toEqual([])
+
+    const output = readGenerated(tmpDir, 'modules.generated.ts')!
+    expect(output).toContain('id: "cpq"')
+    expect(output).toContain('@dainamite/cpq/modules/cpq/subscribers/on-event')
+  })
+
+  it('emits imports for bare (unscoped) third-party npm packages', async () => {
+    const pkgModuleBase = path.join(
+      tmpDir,
+      'packages',
+      'thirdparty-bare',
+      'src',
+      'modules',
+      'foo',
+    )
+    touchFile(
+      path.join(pkgModuleBase, 'subscribers', 'on-event.ts'),
+      `export const metadata = { event: 'foo.thing.created' }\nexport default async function handler() {}\n`,
+    )
+
+    const baseResolver = createMockResolver(tmpDir, [
+      { id: 'foo', from: 'acme-modules' },
+    ])
+    const resolver: PackageResolver = {
+      ...baseResolver,
+      getModulePaths: (entry: ModuleEntry) => ({
+        appBase: path.join(tmpDir, 'app', 'src', 'modules', entry.id),
+        pkgBase: pkgModuleBase,
+      }),
+      getModuleImportBase: (entry: ModuleEntry) => ({
+        appBase: `@/modules/${entry.id}`,
+        pkgBase: `acme-modules/modules/${entry.id}`,
+      }),
+    }
+
+    const result = await generateModuleRegistry({ resolver, quiet: true })
+    expect(result.errors).toEqual([])
+
+    const output = readGenerated(tmpDir, 'modules.generated.ts')!
+    expect(output).toContain('id: "foo"')
+    expect(output).toContain('acme-modules/modules/foo/subscribers/on-event')
+  })
+
+  it('fails fast when a third-party module entry points at a package without the expected OM module shape', async () => {
+    // No files scaffolded — the package directory does not exist, so the
+    // entry is almost certainly not an Open Mercato module.
+    const enabled: ModuleEntry[] = [{ id: 'cpq', from: '@dainamite/cpq' }]
+    const baseResolver = createMockResolver(tmpDir, enabled)
+    const resolver: PackageResolver = {
+      ...baseResolver,
+      getModulePaths: (entry: ModuleEntry) => ({
+        appBase: path.join(tmpDir, 'app', 'src', 'modules', entry.id),
+        pkgBase: path.join(
+          tmpDir,
+          'node_modules',
+          '@dainamite',
+          'cpq',
+          'dist',
+          'modules',
+          entry.id,
+        ),
+      }),
+      getModuleImportBase: (entry: ModuleEntry) => ({
+        appBase: `@/modules/${entry.id}`,
+        pkgBase: `@dainamite/cpq/modules/${entry.id}`,
+      }),
+    }
+
+    await expect(generateModuleRegistry({ resolver, quiet: true })).rejects.toThrow(
+      /no Open Mercato module shape was found/,
+    )
+  })
+
+  it('rejects third-party specifiers with path-traversal segments', async () => {
+    const pkgModuleBase = path.join(
+      tmpDir,
+      'packages',
+      'thirdparty-traversal',
+      'src',
+      'modules',
+      'evil',
+    )
+    touchFile(
+      path.join(pkgModuleBase, 'subscribers', 'on-event.ts'),
+      `export const metadata = { event: 'evil.x' }\nexport default async function handler() {}\n`,
+    )
+
+    const baseResolver = createMockResolver(tmpDir, [
+      { id: 'evil', from: '@vendor/pkg' },
+    ])
+    const resolver: PackageResolver = {
+      ...baseResolver,
+      getModulePaths: (entry: ModuleEntry) => ({
+        appBase: path.join(tmpDir, 'app', 'src', 'modules', entry.id),
+        pkgBase: pkgModuleBase,
+      }),
+      // Inject a malicious specifier with a ".." segment.
+      getModuleImportBase: (entry: ModuleEntry) => ({
+        appBase: `@/modules/${entry.id}`,
+        pkgBase: `@vendor/pkg/../escape/modules/${entry.id}`,
+      }),
+    }
+
+    await expect(generateModuleRegistry({ resolver, quiet: true })).rejects.toThrow(
+      /Unsafe generated module specifier/,
     )
   })
 
@@ -1313,6 +1525,7 @@ describe('all generated files are valid with varying subsets', () => {
       'search.generated.ts',
       'notifications.generated.ts',
       'ai-tools.generated.ts',
+      'ai-agents.generated.ts',
       'events.generated.ts',
       'analytics.generated.ts',
       'translations-fields.generated.ts',
@@ -1369,6 +1582,19 @@ describe('all generated files are valid with varying subsets', () => {
     const aiTools = readGenerated(tmpDir, 'ai-tools.generated.ts')!
     expect(aiTools).toContain('export const aiToolConfigEntries')
     expect(aiTools).not.toContain('no_ai')
+  })
+
+  it('ai-agents.generated.ts is empty when no module provides ai-agents.ts', async () => {
+    scaffoldModule(tmpDir, 'no_ai_agents', 'pkg', ['setup.ts'])
+    const resolver = createMockResolver(tmpDir, [
+      { id: 'no_ai_agents', from: '@open-mercato/core' },
+    ])
+    await generateModuleRegistry({ resolver, quiet: true })
+
+    const aiAgents = readGenerated(tmpDir, 'ai-agents.generated.ts')!
+    expect(aiAgents).toContain('export const aiAgentConfigEntries')
+    expect(aiAgents).toContain('export const allAiAgents')
+    expect(aiAgents).not.toContain('no_ai_agents')
   })
 
   it('security generated registries are empty when no module provides security convention files', async () => {

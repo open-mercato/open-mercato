@@ -16,8 +16,10 @@ test.describe('TC-CRM-014: Delete Customer', () => {
     await login(page, 'admin');
     await page.goto(`/backend/customers/companies-v2/${companyId}`, { waitUntil: 'domcontentloaded' });
 
-    await page.getByRole('button', { name: /^Delete$/ }).first().click();
-    await page.getByRole('button', { name: 'Confirm' }).click();
+    await page.getByRole('button', { name: /^Delete(?: company)?$/ }).first().click();
+    const confirmDialog = page.getByRole('alertdialog', { name: /delete company\??/i });
+    await expect(confirmDialog).toBeVisible({ timeout: 10_000 });
+    await confirmDialog.getByRole('button', { name: /^Delete(?: company)?$|^Confirm$/i }).click();
 
     await expect(page).toHaveURL(/\/backend\/customers\/companies$/);
     await page.getByPlaceholder(/Search by name/i).fill(companyName);

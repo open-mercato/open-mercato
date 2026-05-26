@@ -1,4 +1,5 @@
 import { NextResponse } from 'next/server'
+import { compare as bcryptCompare } from 'bcryptjs'
 import { z } from 'zod'
 import type { OpenApiRouteDoc, OpenApiMethodDoc } from '@open-mercato/shared/lib/openapi'
 import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
@@ -18,18 +19,20 @@ import {
   customerSignupIpRateLimitConfig,
 } from '@open-mercato/core/modules/customer_accounts/lib/rateLimiter'
 import { readNormalizedEmailFromJsonRequest } from '@open-mercato/core/modules/customer_accounts/lib/rateLimitIdentifier'
+import { findOrganizationInTenant } from '@open-mercato/core/modules/customer_accounts/lib/organizationLookup'
+import { getSecurityEmailBaseUrl, mapSecurityEmailUrlError } from '@open-mercato/shared/lib/url'
+import {
+  resolveTenantContext,
+  TenantResolutionError,
+} from '@open-mercato/core/modules/customer_accounts/lib/resolveTenantContext'
+import { urlForCustomerOrg } from '@open-mercato/core/modules/customer_accounts/lib/customerUrl'
 
 export const metadata: { path?: string; requireAuth?: boolean } = { requireAuth: false }
 
-type OrganizationLookupRow = {
-  slug?: string | null
-}
-
-function resolveBaseUrl(req: Request): string {
-  const url = new URL(req.url)
-  return process.env.APP_URL || `${url.protocol}//${url.host}`
-}
-
+// Precomputed bcrypt cost-10 hash of an unknowable random 32-byte input; used to equalize
+// response latency between the existing-user and new-user signup branches so the endpoint's
+// 202-for-both contract is not undone by a timing side channel.
+const TIMING_EQUALIZATION_HASH = '$2b$10$.F2A6UHFzk.d8trNdfqt4OLz05Nf3IOuMmN6VJKflhD4.rz.prR8i'
 function resolvePortalLoginUrl(baseUrl: string, organizationSlug?: string | null): string {
   return organizationSlug
     ? `${baseUrl}/${organizationSlug}/portal/login`
@@ -65,9 +68,33 @@ export async function POST(req: Request) {
     return NextResponse.json({ ok: false, error: 'Validation failed', details: parsed.error.flatten().fieldErrors }, { status: 400 })
   }
 
-  const { email, password, displayName, tenantId, organizationId } = parsed.data
-  if (!tenantId || !organizationId) {
-    return NextResponse.json({ ok: false, error: 'tenantId and organizationId are required' }, { status: 400 })
+  const { email, password, displayName } = parsed.data
+  let tenantId: string
+  let organizationId: string | null
+  try {
+    const context = await resolveTenantContext(req, parsed.data.tenantId)
+    tenantId = context.tenantId
+    organizationId = context.organizationId ?? parsed.data.organizationId ?? null
+  } catch (err) {
+    if (err instanceof TenantResolutionError) {
+      return NextResponse.json({ ok: false, error: err.message }, { status: err.status })
+    }
+    throw err
+  }
+  if (!organizationId) {
+    return NextResponse.json({ ok: false, error: 'organizationId is required' }, { status: 400 })
+  }
+
+  let baseUrl: string
+  try {
+    baseUrl = getSecurityEmailBaseUrl(req)
+  } catch (error) {
+    const mapped = mapSecurityEmailUrlError(error, {
+      scope: 'customer_accounts.signup',
+      configMessage: 'Customer signup is not configured',
+    })
+    if (mapped) return NextResponse.json(mapped.body, { status: mapped.status })
+    throw error
   }
 
   const container = await createRequestContainer()
@@ -75,19 +102,24 @@ export async function POST(req: Request) {
   const customerTokenService = container.resolve('customerTokenService') as CustomerTokenService
   const em = container.resolve('em') as import('@mikro-orm/postgresql').EntityManager
   const { translate } = await resolveTranslations()
-  const baseUrl = resolveBaseUrl(req)
 
-  const [orgRow] = await em.getConnection().execute<OrganizationLookupRow[]>(
-    `SELECT slug FROM organizations WHERE id = ? AND deleted_at IS NULL LIMIT 1`,
-    [organizationId],
-  )
+  const orgRow = await findOrganizationInTenant(em, organizationId, tenantId)
   if (!orgRow) {
     return NextResponse.json({ ok: false, error: 'Registration could not be completed' }, { status: 400 })
   }
 
   const existing = await customerUserService.findByEmail(email, tenantId)
   if (existing) {
-    const loginUrl = resolvePortalLoginUrl(baseUrl, orgRow.slug)
+    await bcryptCompare(password, TIMING_EQUALIZATION_HASH)
+    const existingOrg = await findOrganizationInTenant(em, existing.organizationId, tenantId)
+    // Prefer the org's active custom domain when available; fall back to the
+    // platform login URL preserved by `resolvePortalLoginUrl`.
+    let loginUrl = resolvePortalLoginUrl(baseUrl, existingOrg?.slug ?? null)
+    try {
+      loginUrl = await urlForCustomerOrg(existing.organizationId, '/login', { container })
+    } catch {
+      // Fall back to platform URL on any resolution issue.
+    }
     const subject = translate('customer_accounts.signup.existing.subject', 'You already have a portal account')
     const copy = {
       preview: translate('customer_accounts.signup.existing.preview', 'A sign-up attempt was made for an email that already has a portal account.'),
@@ -130,10 +162,17 @@ export async function POST(req: Request) {
     em.persist(userRole)
   }
 
-  await em.persistAndFlush(user)
+  await em.persist(user).flush()
 
   const verificationToken = await customerTokenService.createEmailVerification(user.id, tenantId)
-  const verifyUrl = resolvePortalVerifyUrl(baseUrl, verificationToken, orgRow.slug)
+  let verifyUrl = resolvePortalVerifyUrl(baseUrl, verificationToken, orgRow.slug)
+  try {
+    verifyUrl = await urlForCustomerOrg(organizationId, `/verify?token=${encodeURIComponent(verificationToken)}`, {
+      container,
+    })
+  } catch {
+    // Fall back to the platform-derived URL on any resolution issue.
+  }
   const subject = translate('customer_accounts.signup.created.subject', 'Verify your portal account')
   const copy = {
     preview: translate('customer_accounts.signup.created.preview', 'Verify your portal account to finish sign-up.'),
@@ -186,8 +225,9 @@ const methodDoc: OpenApiMethodDoc = {
     { status: 202, description: 'Signup accepted', schema: signupAcceptedSchema },
   ],
   errors: [
-    { status: 400, description: 'Validation failed', schema: errorSchema },
+    { status: 400, description: 'Validation failed or invalid request origin', schema: errorSchema },
     { status: 429, description: 'Too many signup attempts', schema: rateLimitErrorSchema },
+    { status: 500, description: 'Signup email origin is not configured', schema: errorSchema },
   ],
 }
 

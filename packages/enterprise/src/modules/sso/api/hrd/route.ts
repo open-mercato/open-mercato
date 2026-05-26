@@ -4,6 +4,10 @@ import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import { HrdService } from '../../services/hrdService'
 import { hrdRequestSchema } from '../../data/validators'
 
+export const metadata = {
+  POST: { requireAuth: false },
+}
+
 export async function POST(req: Request) {
   try {
     const body = await req.json()

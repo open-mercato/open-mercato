@@ -1,4 +1,4 @@
-import { Entity, PrimaryKey, Property, Index, Enum } from '@mikro-orm/core'
+import { Entity, Enum, Index, PrimaryKey, Property } from '@mikro-orm/decorators/legacy'
 
 export type PlannerAvailabilitySubjectType = 'member' | 'resource' | 'ruleset'
 export type PlannerAvailabilityKind = 'availability' | 'unavailability'

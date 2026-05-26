@@ -1,0 +1,28 @@
+version: 2
+
+updates:
+  # npm / yarn — monorepo root
+  - package-ecosystem: npm
+    directory: /
+    schedule:
+      interval: weekly
+      day: monday
+    open-pull-requests-limit: 10
+    groups:
+      # Batch minor/patch updates for non-security deps to reduce noise
+      minor-and-patch:
+        update-types:
+          - minor
+          - patch
+      # Surface major version bumps as a separate grouped PR for manual review
+      major:
+        update-types:
+          - major
+
+  # GitHub Actions — pin digests and keep versions current
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+      day: monday
+    open-pull-requests-limit: 5

@@ -14,6 +14,10 @@ import {
 } from '../packages/cli/src/lib/testing/runtime-utils'
 import { createDevSplashCodingFlow } from './dev-splash-coding-flow.mjs'
 import { normalizeSplashDisplayState } from './dev-splash-state.mjs'
+import {
+  resolveDevBaseUrl,
+  resolveSplashUrl as resolveSplashAccessUrl,
+} from './dev-splash-url.mjs'
 
 type DevEphemeralInstance = {
   id: string
@@ -421,7 +425,7 @@ async function startSplashServer(): Promise<void> {
 
   const address = splashServer.address()
   if (!address || typeof address === 'string') return
-  const splashUrl = `http://localhost:${address.port}`
+  const splashUrl = resolveSplashAccessUrl(process.env, address.port)
   if (splashPortConfig.port !== null && splashPortConfig.port !== 0 && address.port !== splashPortConfig.port) {
     console.log(`🪟 Dev splash moved to ${splashUrl}`)
   }
@@ -949,14 +953,19 @@ async function waitForDevServerReady(baseUrl: string): Promise<boolean> {
 }
 
 async function startDevServer(port: number, postgres: EphemeralPostgresHandle): Promise<number> {
-  const baseUrl = `http://127.0.0.1:${port}`
+  const loopbackUrl = `http://127.0.0.1:${port}`
+  const publicBaseUrl = resolveDevBaseUrl(process.env, {
+    actualPort: port,
+    defaultHostname: '127.0.0.1',
+  }).url
+  const baseUrl = publicBaseUrl
   const backendUrl = `${baseUrl}/backend`
   const devEnvironment = {
     ...process.env,
     PORT: String(port),
     DATABASE_URL: postgres.databaseUrl,
-    APP_URL: baseUrl,
-    NEXT_PUBLIC_APP_URL: baseUrl,
+    APP_URL: publicBaseUrl,
+    NEXT_PUBLIC_APP_URL: publicBaseUrl,
     ...(autoOpenSplash
       ? {
           OM_DEV_SPLASH_CHILD_STATE_FILE: splashChildStateFilePath,
@@ -1007,7 +1016,7 @@ async function startDevServer(port: number, postgres: EphemeralPostgresHandle): 
     activity: `Starting ephemeral app runtime on ${backendUrl}`,
   })
 
-  const serverReady = await waitForDevServerReady(baseUrl)
+  const serverReady = await waitForDevServerReady(loopbackUrl)
   if (serverReady) {
     console.log(`[dev:ephemeral] Runtime became reachable at ${backendUrl}`)
     updateSplashState({
@@ -1128,7 +1137,10 @@ async function main(): Promise<void> {
     })
     const postgres = await startEphemeralPostgres()
     activePostgresContainerId = postgres.containerId
-    const baseUrl = `http://127.0.0.1:${port}`
+    const baseUrl = resolveDevBaseUrl(process.env, {
+      actualPort: port,
+      defaultHostname: '127.0.0.1',
+    }).url
 
     const initEnvironment = {
       ...process.env,
@@ -1157,7 +1169,7 @@ async function main(): Promise<void> {
       return
     }
 
-    console.log(`[dev:ephemeral] Starting development runtime on http://127.0.0.1:${port}/backend`)
+    console.log(`[dev:ephemeral] Starting development runtime on ${baseUrl}/backend`)
     const exitCode = await startDevServer(port, postgres)
     shutdown(exitCode)
   } catch (error) {

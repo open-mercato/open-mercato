@@ -35,7 +35,8 @@ packages/core/src/modules/integrations/
 │       ├── version/route.ts     # PUT — change API version
 │       └── health/route.ts      # POST — trigger health check
 ├── workers/
-│   └── log-pruner.ts            # Scheduled log retention cleanup
+│   ├── log-pruner.ts            # Scheduled log retention cleanup
+│   └── health-probe.ts          # Periodic health checks (queue: integration-health-probe)
 ├── backend/
 │   └── integrations/
 │       ├── page.tsx             # Marketplace listing page
@@ -62,7 +63,9 @@ packages/core/src/modules/integrations/
 | `integrationCredentialsService` | `createCredentialsService(em)` | Encrypted credential CRUD with bundle fallthrough |
 | `integrationStateService` | `createIntegrationStateService(em)` | Upsert integration state (enabled, version, health, reauth) |
 | `integrationLogService` | `createIntegrationLogService(em)` | Structured logging: write, query, prune, scoped logger |
-| `integrationHealthService` | `createHealthService(container, stateService, logService)` | Resolves named health check service from DI, runs check, updates state |
+| `integrationHealthService` | `createHealthService(container, stateService, logService)` | Resolves named health check service from DI, runs check with **10s timeout**, returns `unconfigured` when no checker/credentials, persists latency, updates state |
+
+Scheduled **integration-health-probe** jobs (15m interval) are registered from `setup.seedDefaults` when `schedulerService` is available; target payload is `{ scope: { organizationId, tenantId } }`.
 
 ## Adding a New Integration Provider
 

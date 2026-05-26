@@ -74,7 +74,7 @@ export type DetailFieldsSectionProps = {
   className?: string
 }
 
-const DEFAULT_CONTAINER_CLASS = 'rounded border bg-muted/20 p-3'
+const DEFAULT_CONTAINER_CLASS = 'rounded border bg-muted/30 p-3'
 const DEFAULT_TRIGGER_CLASS =
   'h-8 w-8 opacity-0 transition-opacity duration-150 group-hover:opacity-100 group-focus-within:opacity-100 focus-visible:opacity-100'
 

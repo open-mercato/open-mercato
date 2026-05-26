@@ -4,9 +4,9 @@
 
 **Key Points:**
 - Two GitHub Actions workflows manage the full QA slot lifecycle: `qa-deploy.yml` (manual deploy) and `qa-stop-on-merge.yml` (automatic stop on PR close).
-- `qa-deploy.yml` builds the preview Docker image, pushes it to GHCR, updates the Dokploy slot via REST API, and optionally labels the PR (`qa:qa1` / `qa:qa2`) and posts a machine-readable marker comment used later for safe slot cleanup.
+- `qa-deploy.yml` builds the preview Docker image, pushes it to GHCR, updates the Dokploy slot via REST API, and optionally labels the PR (`qa:qa1` / `qa:qa2` / `qa:qa3` / `qa:qa4`) and posts a machine-readable marker comment used later for safe slot cleanup.
 - `qa-stop-on-merge.yml` triggers automatically when a labelled PR is closed (merged or abandoned), reads the marker comment to identify the expected image, verifies the slot still runs that image (safety check against concurrent redeployment), and stops the Dokploy application.
-- Each QA slot (`qa1`, `qa2`) maps to a pre-configured long-lived Dokploy application running as a Docker-provider app.
+- Each QA slot (`qa1`, `qa2`, `qa3`, `qa4`) maps to a pre-configured long-lived Dokploy application running as a Docker-provider app.
 
 **Scope:**
 - `.github/workflows/qa-deploy.yml` — manual build-and-deploy workflow
@@ -31,9 +31,9 @@
 
 Open Mercato has no automated QA preview environment. Developers must run the full stack locally or share a single staging server. This spec introduces named QA slot deployments spanning two workflows:
 
-1. **Deploy** (`qa-deploy.yml`): A developer manually triggers the workflow, selects a slot (`qa1`/`qa2`), specifies the branch to build, and optionally associates a PR number. The workflow builds the preview image, pushes it to GHCR, updates the Dokploy application's Docker image via REST API, triggers a redeploy, and — if a PR number was supplied — labels the PR and posts a marker comment encoding the deployed slot and image tag.
+1. **Deploy** (`qa-deploy.yml`): A developer manually triggers the workflow, selects a slot (`qa1`/`qa2`/`qa3`/`qa4`), specifies the branch to build, and optionally associates a PR number. The workflow builds the preview image, pushes it to GHCR, updates the Dokploy application's Docker image via REST API, triggers a redeploy, and — if a PR number was supplied — labels the PR and posts a marker comment encoding the deployed slot and image tag.
 
-2. **Stop on close** (`qa-stop-on-merge.yml`): When a PR that carries a `qa:qa1` or `qa:qa2` label is closed (merged or abandoned), this workflow automatically detects the slot, reads the most recent marker comment to identify the expected image, fetches the current Dokploy application config to verify the image has not since been replaced by another deployment, and stops the slot only if the image matches.
+2. **Stop on close** (`qa-stop-on-merge.yml`): When a PR that carries a `qa:qa1`, `qa:qa2`, `qa:qa3`, or `qa:qa4` label is closed (merged or abandoned), this workflow automatically detects the slot, reads the most recent marker comment to identify the expected image, fetches the current Dokploy application config to verify the image has not since been replaced by another deployment, and stops the slot only if the image matches.
 
 The environment uses an ephemeral PostgreSQL container (docker.sock) and resets on every deployment.
 
@@ -56,7 +56,7 @@ Triggered manually via `workflow_dispatch` with inputs:
 
 | Input | Required | Description |
 |-------|----------|-------------|
-| `slot` | Yes | QA slot to deploy to (`qa1` or `qa2`) |
+| `slot` | Yes | QA slot to deploy to (`qa1`, `qa2`, `qa3`, or `qa4`) |
 | `branch` | Yes | Branch to checkout and build |
 | `pr_number` | No | PR number to label and comment on; omit for slot-only deploys |
 
@@ -64,8 +64,8 @@ Steps:
 1. Checkout the specified branch.
 2. Build `docker/preview/Dockerfile` via `docker/build-push-action` with GHA cache (`type=gha`).
 3. Push image to GHCR as `ghcr.io/<org>/<repo>:<slot>-<sha7>`.
-4. Resolve Dokploy `applicationId` from repository variables (`DOKPLOY_APP_ID_QA1` / `DOKPLOY_APP_ID_QA2`).
-5. Call `POST /api/application.saveDockerProvider` to update the slot's Docker image reference.
+4. Resolve Dokploy `applicationId` from repository variables (`DOKPLOY_APP_ID_QA1` / `DOKPLOY_APP_ID_QA2` / `DOKPLOY_APP_ID_QA3` / `DOKPLOY_APP_ID_QA4`).
+5. Call `POST /api/application.saveDockerProvider` to update the slot's Docker image reference and GHCR pull credentials.
 6. Call `POST /api/application.deploy` to trigger a redeploy.
 7. *(If `pr_number` provided)* Add label `qa:<slot>` to the PR.
 8. *(If `pr_number` provided)* Post a PR comment containing a machine-readable HTML marker: `<!-- dokploy-qa slot=<slot> image=<image_full> -->`, followed by a human-readable deployment summary.
@@ -75,7 +75,7 @@ Steps:
 Triggered automatically on `pull_request` closed events (both merged and abandoned; gate: `action == 'closed'`).
 
 Steps:
-1. List labels on the merged PR; detect `qa:qa1` or `qa:qa2`.
+1. List labels on the merged PR; detect `qa:qa1`, `qa:qa2`, `qa:qa3`, or `qa:qa4`.
 2. Skip silently if no QA label is present.
 3. Resolve Dokploy `applicationId` from repository variables.
 4. Paginate PR comments in reverse order; find the most recent comment containing `<!-- dokploy-qa slot=<slot> image=<image> -->` and extract the expected image tag.
@@ -94,7 +94,7 @@ Steps:
 | Image comparison safety check in stop workflow | A slot may have been redeployed for a different PR since this one last deployed. Comparing the live Dokploy image prevents stopping a slot that another team member is actively using. |
 | `action == 'closed'` gate in stop workflow | Fires on any PR close — merged or abandoned. Ensures slots are reclaimed regardless of how the PR was resolved. |
 | Pre-build image in CI, push to GHCR, then tell Dokploy | Decouples build from deployment. CI has build cache (`type=gha`); Dokploy does not need GitHub App access. Cleaner separation of concerns. |
-| Named slots (`qa1`, `qa2`) instead of per-PR ephemeral URLs | Predictable URLs, predictable resource usage, easier to share with stakeholders. |
+| Named slots (`qa1`, `qa2`, `qa3`, `qa4`) instead of per-PR ephemeral URLs | Predictable URLs, predictable resource usage, easier to share with stakeholders. |
 | `cancel-in-progress: false` concurrency per slot | Queues concurrent deploys to the same slot rather than cancelling in-flight builds; prevents partial deployments. |
 | Standalone `docker/preview/Dockerfile` | Keeps preview tooling (docker-cli, jest config) isolated from the main production `Dockerfile`. |
 
@@ -143,7 +143,7 @@ Developer triggers workflow_dispatch
     ├── Resolve DOKPLOY_APP_ID_QA1 → applicationId
     │
     ├── POST /api/application.saveDockerProvider
-    │       { applicationId, dockerImage: "ghcr.io/...:<tag>" }
+    │       { applicationId, dockerImage: "ghcr.io/...:<tag>", registryUrl: "ghcr.io", username, password }
     │
     ├── POST /api/application.deploy
     │       { applicationId }
@@ -208,6 +208,8 @@ PR #123 closed (carries label "qa:qa1") — merged or abandoned
 |------|----------------|-------|
 | `qa1` | `vars.DOKPLOY_APP_ID_QA1` | `qa:qa1` |
 | `qa2` | `vars.DOKPLOY_APP_ID_QA2` | `qa:qa2` |
+| `qa3` | `vars.DOKPLOY_APP_ID_QA3` | `qa:qa3` |
+| `qa4` | `vars.DOKPLOY_APP_ID_QA4` | `qa:qa4` |
 
 ---
 
@@ -223,7 +225,13 @@ No new database entities. Deployment state is encoded in PR comments (marker for
 
 **`POST /api/application.saveDockerProvider`** — update slot image
 ```json
-{ "applicationId": "<string>", "dockerImage": "ghcr.io/<org>/<repo>:<tag>" }
+{
+  "applicationId": "<string>",
+  "dockerImage": "ghcr.io/<org>/<repo>:<tag>",
+  "registryUrl": "ghcr.io",
+  "username": "<ghcr-username>",
+  "password": "<ghcr-token>"
+}
 ```
 
 **`POST /api/application.deploy`** — trigger redeploy
@@ -263,6 +271,8 @@ The stop workflow scans comments in reverse chronological order and uses the **m
 |--------|-------------|
 | `DOKPLOY_URL` | Base URL of the Dokploy server (e.g. `https://dokploy.example.com`) |
 | `DOKPLOY_API_KEY` | Dokploy API key with deploy + stop permissions |
+| `GHCR_USERNAME` | GitHub username Dokploy uses when authenticating to GHCR |
+| `GHCR_TOKEN` | GHCR token Dokploy uses to pull the private QA image (`read:packages` required) |
 
 ### GitHub Repository Variables
 
@@ -270,6 +280,8 @@ The stop workflow scans comments in reverse chronological order and uses the **m
 |----------|-------------|
 | `DOKPLOY_APP_ID_QA1` | Dokploy `applicationId` for the `qa1` slot |
 | `DOKPLOY_APP_ID_QA2` | Dokploy `applicationId` for the `qa2` slot |
+| `DOKPLOY_APP_ID_QA3` | Dokploy `applicationId` for the `qa3` slot |
+| `DOKPLOY_APP_ID_QA4` | Dokploy `applicationId` for the `qa4` slot |
 
 ### GitHub Actions Permissions
 
@@ -370,11 +382,11 @@ permissions:
 
 2. **Create `.github/workflows/qa-stop-on-merge.yml`** with:
    - Trigger: `pull_request` `closed`, gate: `action == 'closed'` (fires on merge and abandon)
-   - Steps: detect `qa:qa1`/`qa:qa2` label → resolve app ID → find marker comment → fetch current Dokploy image → compare → stop if match
+   - Steps: detect `qa:qa1`/`qa:qa2`/`qa:qa3`/`qa:qa4` label → resolve app ID → find marker comment → fetch current Dokploy image → compare → stop if match
 
-3. **Add required secrets** to the GitHub repository: `DOKPLOY_URL`, `DOKPLOY_API_KEY`.
+3. **Add required secrets** to the GitHub repository: `DOKPLOY_URL`, `DOKPLOY_API_KEY`, `GHCR_USERNAME`, `GHCR_TOKEN`.
 
-4. **Add required variables** to the GitHub repository: `DOKPLOY_APP_ID_QA1`, `DOKPLOY_APP_ID_QA2`.
+4. **Add required variables** to the GitHub repository: `DOKPLOY_APP_ID_QA1`, `DOKPLOY_APP_ID_QA2`, `DOKPLOY_APP_ID_QA3`, `DOKPLOY_APP_ID_QA4`.
 
 #### File Manifest
 
@@ -393,7 +405,7 @@ permissions:
 
 #### Steps
 
-1. **Create a new Application** in Dokploy for each slot (`qa1`, `qa2`):
+1. **Create a new Application** in Dokploy for each slot (`qa1`, `qa2`, `qa3`, `qa4`):
    - Name: `open-mercato-qa1`
    - Source type: Docker
    - Docker image: any valid placeholder; the workflow overwrites it on first run
@@ -405,7 +417,7 @@ permissions:
 
 3. **Set environment variables** from the Configuration table above via Application → Environment.
 
-4. **Copy the `applicationId`** from Dokploy (Application → Settings → General) and set it as `DOKPLOY_APP_ID_QA1` / `DOKPLOY_APP_ID_QA2` in GitHub repository variables.
+4. **Copy the `applicationId`** from Dokploy (Application → Settings → General) and set it as `DOKPLOY_APP_ID_QA1` / `DOKPLOY_APP_ID_QA2` / `DOKPLOY_APP_ID_QA3` / `DOKPLOY_APP_ID_QA4` in GitHub repository variables.
 
 5. **Configure domain** for each slot (e.g. `qa1.openmercato.com`) in Dokploy → Domains. Requires a DNS A record pointing to the Dokploy server IP.
 

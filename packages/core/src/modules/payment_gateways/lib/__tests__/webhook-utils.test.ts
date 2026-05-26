@@ -24,11 +24,13 @@ describe('payment gateway webhook utils', () => {
 
   it('claims a webhook only once when the unique constraint is hit', async () => {
     const record = { id: 'evt_1' }
+    const flush = jest.fn()
+      .mockResolvedValueOnce(undefined)
+      .mockRejectedValueOnce(makeUniqueConstraintError())
+    const persist = jest.fn(() => ({ flush }))
     const em = {
       create: jest.fn().mockReturnValue(record),
-      persistAndFlush: jest.fn()
-        .mockResolvedValueOnce(undefined)
-        .mockRejectedValueOnce(makeUniqueConstraintError()),
+      persist,
     }
 
     await expect(
@@ -50,15 +52,18 @@ describe('payment gateway webhook utils', () => {
         'payment_intent.succeeded',
       ),
     ).resolves.toBe(false)
+
+    expect(persist).toHaveBeenCalledWith(record)
+    expect(flush).toHaveBeenCalledTimes(2)
   })
 
   it('releases a webhook claim when processing fails', async () => {
     const record = { id: 'evt_1' }
     findOneWithDecryption.mockResolvedValue(record)
 
-    const em = {
-      removeAndFlush: jest.fn().mockResolvedValue(undefined),
-    }
+    const flush = jest.fn().mockResolvedValue(undefined)
+    const remove = jest.fn(() => ({ flush }))
+    const em = { remove }
 
     await releaseWebhookClaim(
       em as never,
@@ -79,6 +84,7 @@ describe('payment gateway webhook utils', () => {
       undefined,
       { organizationId: 'org_1', tenantId: 'tenant_1' },
     )
-    expect(em.removeAndFlush).toHaveBeenCalledWith(record)
+    expect(remove).toHaveBeenCalledWith(record)
+    expect(flush).toHaveBeenCalled()
   })
 })

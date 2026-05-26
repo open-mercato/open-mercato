@@ -14,6 +14,8 @@ type AiAssistantShellIntegrationProps = {
   children: React.ReactNode
 }
 
+const AiAssistantIntegrationFallback: AiAssistantIntegrationComponent = ({ children }) => <>{children}</>
+
 export function AiAssistantShellIntegration({
   tenantId,
   organizationId,
@@ -23,10 +25,16 @@ export function AiAssistantShellIntegration({
 
   React.useEffect(() => {
     let cancelled = false
-    void import('@open-mercato/ai-assistant/frontend').then((module) => {
-      if (cancelled) return
-      setIntegrationComponent(() => module.AiAssistantIntegration)
-    })
+    void import('@open-mercato/ai-assistant/frontend')
+      .then((module) => {
+        if (cancelled) return
+        setIntegrationComponent(() => module.AiAssistantIntegration)
+      })
+      .catch((error) => {
+        if (cancelled) return
+        console.error('Failed to load AI assistant integration', error)
+        setIntegrationComponent(() => AiAssistantIntegrationFallback)
+      })
     return () => {
       cancelled = true
     }

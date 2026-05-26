@@ -125,6 +125,8 @@ function mapTodoCreateInput(
 ): InteractionCreateInput & { customValues?: Record<string, unknown> } {
   const customValues = collectTodoCustomValues(input)
   return {
+    tenantId: input.tenantId,
+    organizationId: input.organizationId,
     entityId: input.entityId,
     interactionType: 'task',
     title: input.title,
@@ -170,7 +172,8 @@ async function loadLegacyTodoDetail(
   let queryEngine: QueryEngine | null = null
   try {
     queryEngine = ctx.container.resolve('queryEngine') as QueryEngine
-  } catch {
+  } catch (err) {
+    console.warn('[customers.commands.todos] queryEngine resolve failed; returning null legacy detail', err)
     queryEngine = null
   }
   if (!queryEngine) return null
@@ -251,6 +254,8 @@ function mapLegacyLinkToInteractionCreateInput(
   }
   return {
     id: link.todoId,
+    tenantId: link.tenantId,
+    organizationId: link.organizationId,
     entityId,
     interactionType: 'task',
     title: detail?.title ?? null,
@@ -401,6 +406,9 @@ const createTodoCommand: CommandHandler<TodoLinkWithTodoCreateInput, { linkId: s
     if (!canonicalCreate.captureAfter) return null
     return canonicalCreate.captureAfter(
       {
+        tenantId: ctx.auth?.tenantId ?? '00000000-0000-0000-0000-000000000000',
+        organizationId:
+          ctx.selectedOrganizationId ?? ctx.auth?.orgId ?? '00000000-0000-0000-0000-000000000000',
         entityId: '00000000-0000-0000-0000-000000000000',
         interactionType: 'task',
         status: 'planned',
@@ -440,6 +448,14 @@ const createTodoCommand: CommandHandler<TodoLinkWithTodoCreateInput, { linkId: s
     if (!canonicalCreate.undo) return
     await canonicalCreate.undo({
       input: {
+        tenantId:
+          payload?.after?.interaction.tenantId ??
+          (typeof logEntry.tenantId === 'string' ? logEntry.tenantId : '00000000-0000-0000-0000-000000000000'),
+        organizationId:
+          payload?.after?.interaction.organizationId ??
+          (typeof logEntry.organizationId === 'string'
+            ? logEntry.organizationId
+            : '00000000-0000-0000-0000-000000000000'),
         entityId: payload?.after?.interaction.entityId ?? '00000000-0000-0000-0000-000000000000',
         interactionType: 'task',
         status: 'planned',

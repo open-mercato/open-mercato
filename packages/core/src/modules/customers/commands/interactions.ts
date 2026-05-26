@@ -38,6 +38,7 @@ import {
   buildCustomFieldResetMap,
 } from '@open-mercato/shared/lib/commands/customFieldSnapshots'
 import { CrudHttpError } from '@open-mercato/shared/lib/crud/errors'
+import { findOneWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import type { CrudIndexerConfig, CrudEventsConfig } from '@open-mercato/shared/lib/crud/types'
 import { recomputeNextInteraction } from '../lib/interactionProjection'
 
@@ -97,6 +98,16 @@ type InteractionSnapshot = {
     appearanceIcon: string | null
     appearanceColor: string | null
     source: string | null
+    durationMinutes: number | null
+    location: string | null
+    allDay: boolean | null
+    recurrenceRule: string | null
+    recurrenceEnd: Date | null
+    participants: Array<{ userId: string; name?: string; email?: string; status?: string }> | null
+    reminderMinutes: number | null
+    visibility: string | null
+    linkedEntities: Array<{ id: string; type: string; label: string }> | null
+    guestPermissions: { canInviteOthers?: boolean; canModify?: boolean; canSeeList?: boolean } | null
   }
   custom?: Record<string, unknown>
 }
@@ -107,7 +118,7 @@ type InteractionUndoPayload = {
 }
 
 async function loadInteractionSnapshot(em: EntityManager, id: string): Promise<InteractionSnapshot | null> {
-  const interaction = await em.findOne(CustomerInteraction, { id }, { populate: ['entity'] })
+  const interaction = await findOneWithDecryption(em, CustomerInteraction, { id }, { populate: ['entity'] })
   if (!interaction) return null
   const custom = await loadCustomFieldSnapshot(em, {
     entityId: INTERACTION_ENTITY_ID,
@@ -139,6 +150,16 @@ async function loadInteractionSnapshot(em: EntityManager, id: string): Promise<I
       appearanceIcon: interaction.appearanceIcon ?? null,
       appearanceColor: interaction.appearanceColor ?? null,
       source: interaction.source ?? null,
+      durationMinutes: interaction.durationMinutes ?? null,
+      location: interaction.location ?? null,
+      allDay: interaction.allDay ?? null,
+      recurrenceRule: interaction.recurrenceRule ?? null,
+      recurrenceEnd: interaction.recurrenceEnd ?? null,
+      participants: interaction.participants ?? null,
+      reminderMinutes: interaction.reminderMinutes ?? null,
+      visibility: interaction.visibility ?? null,
+      linkedEntities: interaction.linkedEntities ?? null,
+      guestPermissions: interaction.guestPermissions ?? null,
     },
     custom,
   }
@@ -171,13 +192,17 @@ async function emitLifecycleEvent(
   let bus: { emitEvent(event: string, payload: unknown, options?: unknown): Promise<void> } | null = null
   try {
     bus = ctx.container.resolve('eventBus')
-  } catch {
+  } catch (err) {
+    console.warn('[customers.commands.interactions] eventBus resolve failed; skipping emit', eventId, err)
     bus = null
   }
   if (!bus) return
   await bus
     .emitEvent(eventId, payload, { persistent: true })
-    .catch(() => undefined)
+    .catch((err) => {
+      console.warn('[customers.commands.interactions] emit failed', eventId, err)
+      return undefined
+    })
 }
 
 async function emitInteractionRevertedEvent(
@@ -220,13 +245,31 @@ async function runInTransaction<TResult>(
   em: EntityManager,
   operation: (trx: EntityManager) => Promise<TResult>,
 ): Promise<TResult> {
-  const transactionalEm = em as EntityManager & {
-    transactional?: (callback: (trx: EntityManager) => Promise<TResult>) => Promise<TResult>
+  // Mirrors the SPEC-018 fix applied to withAtomicFlush: use explicit begin/commit/rollback
+  // so the outer EntityManager stays bound to the transaction, and closures over `em` inside
+  // `operation` participate in the same transaction. This avoids the em.transactional(cb)
+  // hazard where the callback receives a child EM whose flushes can silently race against
+  // subsequent queries on the original `em`.
+  const supportsBegin =
+    typeof (em as unknown as { begin?: () => Promise<void> }).begin === 'function' &&
+    typeof (em as unknown as { commit?: () => Promise<void> }).commit === 'function' &&
+    typeof (em as unknown as { rollback?: () => Promise<void> }).rollback === 'function'
+  if (!supportsBegin) {
+    return operation(em)
   }
-  if (typeof transactionalEm.transactional === 'function') {
-    return transactionalEm.transactional((trx) => operation(trx))
+  await em.begin()
+  try {
+    const result = await operation(em)
+    await em.commit()
+    return result
+  } catch (err) {
+    try {
+      await em.rollback()
+    } catch {
+      // rollback failure should not mask the original error; intentionally swallowed
+    }
+    throw err
   }
-  return operation(em)
 }
 
 async function emitNextInteractionUpdatedEvent(
@@ -285,6 +328,16 @@ const createInteractionCommand: CommandHandler<InteractionCreateInput, { interac
         source: parsed.source ?? null,
         appearanceIcon: parsed.appearanceIcon ?? null,
         appearanceColor: parsed.appearanceColor ?? null,
+        durationMinutes: parsed.durationMinutes ?? null,
+        location: parsed.location ?? null,
+        allDay: parsed.allDay ?? null,
+        recurrenceRule: parsed.recurrenceRule ?? null,
+        recurrenceEnd: parsed.recurrenceEnd ?? null,
+        participants: parsed.participants ?? null,
+        reminderMinutes: parsed.reminderMinutes ?? null,
+        visibility: parsed.visibility ?? null,
+        linkedEntities: parsed.linkedEntities ?? null,
+        guestPermissions: parsed.guestPermissions ?? null,
         createdAt: new Date(),
         updatedAt: new Date(),
       })
@@ -358,7 +411,7 @@ const createInteractionCommand: CommandHandler<InteractionCreateInput, { interac
     if (!interactionId) return
     const em = (ctx.container.resolve('em') as EntityManager).fork()
     const result = await runInTransaction(em, async (trx) => {
-      const record = await trx.findOne(CustomerInteraction, { id: interactionId })
+      const record = await findOneWithDecryption(trx, CustomerInteraction, { id: interactionId })
       if (!record) return null
       const entityId = typeof record.entity === 'string' ? record.entity : record.entity.id
       trx.remove(record)
@@ -387,7 +440,7 @@ const updateInteractionCommand: CommandHandler<InteractionUpdateInput, { interac
   id: 'customers.interactions.update',
   async prepare(rawInput, ctx) {
     const { parsed } = parseWithCustomFields(interactionUpdateSchema, rawInput)
-    const em = (ctx.container.resolve('em') as EntityManager)
+    const em = (ctx.container.resolve('em') as EntityManager).fork()
     const snapshot = await loadInteractionSnapshot(em, parsed.id)
     return snapshot ? { before: snapshot } : {}
   },
@@ -395,7 +448,7 @@ const updateInteractionCommand: CommandHandler<InteractionUpdateInput, { interac
     const { parsed, custom } = parseWithCustomFields(interactionUpdateSchema, rawInput)
     const em = (ctx.container.resolve('em') as EntityManager).fork()
     const { interaction, entityId } = await runInTransaction(em, async (trx) => {
-      const interaction = await trx.findOne(CustomerInteraction, { id: parsed.id, deletedAt: null })
+      const interaction = await findOneWithDecryption(trx, CustomerInteraction, { id: parsed.id, deletedAt: null })
       if (!interaction) throw new CrudHttpError(404, { error: 'Interaction not found' })
       ensureTenantScope(ctx, interaction.tenantId)
       ensureOrganizationScope(ctx, interaction.organizationId)
@@ -417,6 +470,17 @@ const updateInteractionCommand: CommandHandler<InteractionUpdateInput, { interac
       if (parsed.ownerUserId !== undefined) interaction.ownerUserId = parsed.ownerUserId ?? null
       if (parsed.appearanceIcon !== undefined) interaction.appearanceIcon = parsed.appearanceIcon ?? null
       if (parsed.appearanceColor !== undefined) interaction.appearanceColor = parsed.appearanceColor ?? null
+      if (parsed.pinned !== undefined) interaction.pinned = parsed.pinned
+      if (parsed.durationMinutes !== undefined) interaction.durationMinutes = parsed.durationMinutes ?? null
+      if (parsed.location !== undefined) interaction.location = parsed.location ?? null
+      if (parsed.allDay !== undefined) interaction.allDay = parsed.allDay ?? null
+      if (parsed.recurrenceRule !== undefined) interaction.recurrenceRule = parsed.recurrenceRule ?? null
+      if (parsed.recurrenceEnd !== undefined) interaction.recurrenceEnd = parsed.recurrenceEnd ?? null
+      if (parsed.participants !== undefined) interaction.participants = parsed.participants ?? null
+      if (parsed.reminderMinutes !== undefined) interaction.reminderMinutes = parsed.reminderMinutes ?? null
+      if (parsed.visibility !== undefined) interaction.visibility = parsed.visibility ?? null
+      if (parsed.linkedEntities !== undefined) interaction.linkedEntities = parsed.linkedEntities ?? null
+      if (parsed.guestPermissions !== undefined) interaction.guestPermissions = parsed.guestPermissions ?? null
 
       await trx.flush()
 
@@ -490,7 +554,7 @@ const updateInteractionCommand: CommandHandler<InteractionUpdateInput, { interac
     if (!before) return
     const em = (ctx.container.resolve('em') as EntityManager).fork()
     const { interaction, nextInteractionId } = await runInTransaction(em, async (trx) => {
-      let interaction = await trx.findOne(CustomerInteraction, { id: before.interaction.id })
+      let interaction = await findOneWithDecryption(trx, CustomerInteraction, { id: before.interaction.id })
       const entity = await requireTimelineParentEntity(trx, before.interaction.entityId)
 
       if (!interaction) {
@@ -512,6 +576,16 @@ const updateInteractionCommand: CommandHandler<InteractionUpdateInput, { interac
           source: before.interaction.source,
           appearanceIcon: before.interaction.appearanceIcon,
           appearanceColor: before.interaction.appearanceColor,
+          durationMinutes: before.interaction.durationMinutes,
+          location: before.interaction.location,
+          allDay: before.interaction.allDay,
+          recurrenceRule: before.interaction.recurrenceRule,
+          recurrenceEnd: before.interaction.recurrenceEnd,
+          participants: before.interaction.participants,
+          reminderMinutes: before.interaction.reminderMinutes,
+          visibility: before.interaction.visibility,
+          linkedEntities: before.interaction.linkedEntities,
+          guestPermissions: before.interaction.guestPermissions,
           createdAt: new Date(),
           updatedAt: new Date(),
         })
@@ -531,6 +605,16 @@ const updateInteractionCommand: CommandHandler<InteractionUpdateInput, { interac
         interaction.source = before.interaction.source
         interaction.appearanceIcon = before.interaction.appearanceIcon
         interaction.appearanceColor = before.interaction.appearanceColor
+        interaction.durationMinutes = before.interaction.durationMinutes
+        interaction.location = before.interaction.location
+        interaction.allDay = before.interaction.allDay
+        interaction.recurrenceRule = before.interaction.recurrenceRule
+        interaction.recurrenceEnd = before.interaction.recurrenceEnd
+        interaction.participants = before.interaction.participants
+        interaction.reminderMinutes = before.interaction.reminderMinutes
+        interaction.visibility = before.interaction.visibility
+        interaction.linkedEntities = before.interaction.linkedEntities
+        interaction.guestPermissions = before.interaction.guestPermissions
       }
 
       await trx.flush()
@@ -586,7 +670,7 @@ const completeInteractionCommand: CommandHandler<InteractionCompleteInput, { int
   id: 'customers.interactions.complete',
   async prepare(rawInput, ctx) {
     const parsed = interactionCompleteSchema.parse(rawInput)
-    const em = (ctx.container.resolve('em') as EntityManager)
+    const em = (ctx.container.resolve('em') as EntityManager).fork()
     const snapshot = await loadInteractionSnapshot(em, parsed.id)
     return snapshot ? { before: snapshot } : {}
   },
@@ -594,7 +678,7 @@ const completeInteractionCommand: CommandHandler<InteractionCompleteInput, { int
     const parsed = interactionCompleteSchema.parse(rawInput)
     const em = (ctx.container.resolve('em') as EntityManager).fork()
     const { interaction, entityId } = await runInTransaction(em, async (trx) => {
-      const interaction = await trx.findOne(CustomerInteraction, { id: parsed.id, deletedAt: null })
+      const interaction = await findOneWithDecryption(trx, CustomerInteraction, { id: parsed.id, deletedAt: null })
       if (!interaction) throw new CrudHttpError(404, { error: 'Interaction not found' })
       ensureTenantScope(ctx, interaction.tenantId)
       ensureOrganizationScope(ctx, interaction.organizationId)
@@ -671,7 +755,7 @@ const completeInteractionCommand: CommandHandler<InteractionCompleteInput, { int
     if (!before) return
     const em = (ctx.container.resolve('em') as EntityManager).fork()
     const result = await runInTransaction(em, async (trx) => {
-      const interaction = await trx.findOne(CustomerInteraction, { id: before.interaction.id })
+      const interaction = await findOneWithDecryption(trx, CustomerInteraction, { id: before.interaction.id })
       if (!interaction) return null
 
       interaction.status = before.interaction.status
@@ -718,7 +802,7 @@ const cancelInteractionCommand: CommandHandler<InteractionCancelInput, { interac
   id: 'customers.interactions.cancel',
   async prepare(rawInput, ctx) {
     const parsed = interactionCancelSchema.parse(rawInput)
-    const em = (ctx.container.resolve('em') as EntityManager)
+    const em = (ctx.container.resolve('em') as EntityManager).fork()
     const snapshot = await loadInteractionSnapshot(em, parsed.id)
     return snapshot ? { before: snapshot } : {}
   },
@@ -726,7 +810,7 @@ const cancelInteractionCommand: CommandHandler<InteractionCancelInput, { interac
     const parsed = interactionCancelSchema.parse(rawInput)
     const em = (ctx.container.resolve('em') as EntityManager).fork()
     const { interaction, entityId } = await runInTransaction(em, async (trx) => {
-      const interaction = await trx.findOne(CustomerInteraction, { id: parsed.id, deletedAt: null })
+      const interaction = await findOneWithDecryption(trx, CustomerInteraction, { id: parsed.id, deletedAt: null })
       if (!interaction) throw new CrudHttpError(404, { error: 'Interaction not found' })
       ensureTenantScope(ctx, interaction.tenantId)
       ensureOrganizationScope(ctx, interaction.organizationId)
@@ -801,7 +885,7 @@ const cancelInteractionCommand: CommandHandler<InteractionCancelInput, { interac
     if (!before) return
     const em = (ctx.container.resolve('em') as EntityManager).fork()
     const result = await runInTransaction(em, async (trx) => {
-      const interaction = await trx.findOne(CustomerInteraction, { id: before.interaction.id })
+      const interaction = await findOneWithDecryption(trx, CustomerInteraction, { id: before.interaction.id })
       if (!interaction) return null
 
       interaction.status = before.interaction.status
@@ -848,7 +932,7 @@ const deleteInteractionCommand: CommandHandler<{ body?: Record<string, unknown>;
     id: 'customers.interactions.delete',
     async prepare(input, ctx) {
       const id = requireId(input, 'Interaction id required')
-      const em = (ctx.container.resolve('em') as EntityManager)
+      const em = (ctx.container.resolve('em') as EntityManager).fork()
       const snapshot = await loadInteractionSnapshot(em, id)
       return snapshot ? { before: snapshot } : {}
     },
@@ -856,7 +940,7 @@ const deleteInteractionCommand: CommandHandler<{ body?: Record<string, unknown>;
       const id = requireId(input, 'Interaction id required')
       const em = (ctx.container.resolve('em') as EntityManager).fork()
       const { interaction, entityId } = await runInTransaction(em, async (trx) => {
-        const interaction = await trx.findOne(CustomerInteraction, { id, deletedAt: null })
+        const interaction = await findOneWithDecryption(trx, CustomerInteraction, { id, deletedAt: null })
         if (!interaction) throw new CrudHttpError(404, { error: 'Interaction not found' })
         ensureTenantScope(ctx, interaction.tenantId)
         ensureOrganizationScope(ctx, interaction.organizationId)
@@ -919,7 +1003,7 @@ const deleteInteractionCommand: CommandHandler<{ body?: Record<string, unknown>;
       const em = (ctx.container.resolve('em') as EntityManager).fork()
       const { interaction, nextInteractionId } = await runInTransaction(em, async (trx) => {
         const entity = await requireTimelineParentEntity(trx, before.interaction.entityId)
-        let interaction = await trx.findOne(CustomerInteraction, { id: before.interaction.id })
+        let interaction = await findOneWithDecryption(trx, CustomerInteraction, { id: before.interaction.id })
         if (!interaction) {
           interaction = trx.create(CustomerInteraction, {
             id: before.interaction.id,
@@ -939,6 +1023,16 @@ const deleteInteractionCommand: CommandHandler<{ body?: Record<string, unknown>;
             source: before.interaction.source,
             appearanceIcon: before.interaction.appearanceIcon,
             appearanceColor: before.interaction.appearanceColor,
+            durationMinutes: before.interaction.durationMinutes,
+            location: before.interaction.location,
+            allDay: before.interaction.allDay,
+            recurrenceRule: before.interaction.recurrenceRule,
+            recurrenceEnd: before.interaction.recurrenceEnd,
+            participants: before.interaction.participants,
+            reminderMinutes: before.interaction.reminderMinutes,
+            visibility: before.interaction.visibility,
+            linkedEntities: before.interaction.linkedEntities,
+            guestPermissions: before.interaction.guestPermissions,
             createdAt: new Date(),
             updatedAt: new Date(),
           })
@@ -959,6 +1053,16 @@ const deleteInteractionCommand: CommandHandler<{ body?: Record<string, unknown>;
           interaction.source = before.interaction.source
           interaction.appearanceIcon = before.interaction.appearanceIcon
           interaction.appearanceColor = before.interaction.appearanceColor
+          interaction.durationMinutes = before.interaction.durationMinutes
+          interaction.location = before.interaction.location
+          interaction.allDay = before.interaction.allDay
+          interaction.recurrenceRule = before.interaction.recurrenceRule
+          interaction.recurrenceEnd = before.interaction.recurrenceEnd
+          interaction.participants = before.interaction.participants
+          interaction.reminderMinutes = before.interaction.reminderMinutes
+          interaction.visibility = before.interaction.visibility
+          interaction.linkedEntities = before.interaction.linkedEntities
+          interaction.guestPermissions = before.interaction.guestPermissions
         }
         await trx.flush()
 

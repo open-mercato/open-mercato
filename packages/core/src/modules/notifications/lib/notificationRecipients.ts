@@ -1,4 +1,4 @@
-import type { Knex } from 'knex'
+import type { Kysely } from 'kysely'
 import { hasFeature } from '@open-mercato/shared/security/features'
 
 interface AclRow {
@@ -35,47 +35,63 @@ function collectUsersWithFeature(
 }
 
 export async function getRecipientUserIdsForRole(
-  knex: Knex,
+  db: Kysely<any>,
   tenantId: string,
   roleId: string
 ): Promise<string[]> {
-  const userRoles = await knex('user_roles')
-    .join('users', 'user_roles.user_id', 'users.id')
-    .where('user_roles.role_id', roleId)
-    .whereNull('user_roles.deleted_at')
-    .whereNull('users.deleted_at')
-    .where('users.tenant_id', tenantId)
+  const builder: any = db
+  const userRoles = await builder
+    .selectFrom('user_roles')
+    .innerJoin('users', 'user_roles.user_id', 'users.id')
+    .where('user_roles.role_id', '=', roleId)
+    .where('user_roles.deleted_at', 'is', null)
+    .where('users.deleted_at', 'is', null)
+    .where('users.tenant_id', '=', tenantId)
     .select('users.id as user_id')
+    .execute() as Array<{ user_id: string }>
 
-  return userRoles.map((row: { user_id: string }) => row.user_id)
+  return userRoles.map((row) => row.user_id)
 }
 
 export async function getRecipientUserIdsForFeature(
-  knex: Knex,
+  db: Kysely<any>,
   tenantId: string,
   requiredFeature: string
 ): Promise<string[]> {
   const userIdsSet = new Set<string>()
+  const builder: any = db
 
-  const userAcls = await knex('user_acls')
-    .join('users', 'user_acls.user_id', 'users.id')
-    .where('user_acls.tenant_id', tenantId)
-    .whereNull('user_acls.deleted_at')
-    .whereNull('users.deleted_at')
-    .where('users.tenant_id', tenantId)
-    .select('users.id as user_id', 'user_acls.features_json', 'user_acls.is_super_admin')
+  const userAcls = await builder
+    .selectFrom('user_acls')
+    .innerJoin('users', 'user_acls.user_id', 'users.id')
+    .where('user_acls.tenant_id', '=', tenantId)
+    .where('user_acls.deleted_at', 'is', null)
+    .where('users.deleted_at', 'is', null)
+    .where('users.tenant_id', '=', tenantId)
+    .select([
+      'users.id as user_id',
+      'user_acls.features_json',
+      'user_acls.is_super_admin',
+    ])
+    .execute() as AclRow[]
 
   collectUsersWithFeature(userIdsSet, userAcls, requiredFeature)
 
-  const roleAcls = await knex('role_acls')
-    .join('user_roles', 'role_acls.role_id', 'user_roles.role_id')
-    .join('users', 'user_roles.user_id', 'users.id')
-    .where('role_acls.tenant_id', tenantId)
-    .whereNull('role_acls.deleted_at')
-    .whereNull('user_roles.deleted_at')
-    .whereNull('users.deleted_at')
-    .where('users.tenant_id', tenantId)
-    .select('users.id as user_id', 'role_acls.features_json', 'role_acls.is_super_admin')
+  const roleAcls = await builder
+    .selectFrom('role_acls')
+    .innerJoin('user_roles', 'role_acls.role_id', 'user_roles.role_id')
+    .innerJoin('users', 'user_roles.user_id', 'users.id')
+    .where('role_acls.tenant_id', '=', tenantId)
+    .where('role_acls.deleted_at', 'is', null)
+    .where('user_roles.deleted_at', 'is', null)
+    .where('users.deleted_at', 'is', null)
+    .where('users.tenant_id', '=', tenantId)
+    .select([
+      'users.id as user_id',
+      'role_acls.features_json',
+      'role_acls.is_super_admin',
+    ])
+    .execute() as AclRow[]
 
   collectUsersWithFeature(userIdsSet, roleAcls, requiredFeature)
 

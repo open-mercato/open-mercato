@@ -3,7 +3,7 @@
 import * as React from 'react'
 import Link from 'next/link'
 import { useRouter } from 'next/navigation'
-import { useQuery } from '@tanstack/react-query'
+import { useQuery, useQueryClient } from '@tanstack/react-query'
 import type { ColumnDef } from '@tanstack/react-table'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { useOrganizationScopeVersion } from '@open-mercato/shared/lib/frontend/useOrganizationScope'
@@ -12,11 +12,18 @@ import type { FilterDef, FilterValues } from '@open-mercato/ui/backend/FilterBar
 import { Button } from '@open-mercato/ui/primitives/button'
 import { apiCall } from '@open-mercato/ui/backend/utils/apiCall'
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
+import { useAppEvent } from '@open-mercato/ui/backend/injection/useAppEvent'
 import { Archive, ChevronDown, FilePenLine, Inbox, Layers, Send } from 'lucide-react'
 import { getMessageUiComponentRegistry } from './utils/typeUiRegistry'
 import { DefaultMessageListItem } from './defaults/DefaultMessageListItem'
-
-type MessageFolder = 'inbox' | 'sent' | 'drafts' | 'archived' | 'all'
+import { getMessageListParticipantLabel } from './messageListLabels'
+import { toErrorMessage } from './message-detail/utils'
+import { useMessagesInboxBulkActions, type MessageFolder } from './useMessagesInboxBulkActions'
+import {
+  buildMessagesInboxFilters,
+  buildMessagesListParams,
+  type SenderOption,
+} from './inboxFilters'
 
 type MessageListItem = {
   id: string
@@ -32,6 +39,7 @@ type MessageListItem = {
   objectCount: number
   hasAttachments: boolean
   attachmentCount: number
+  recipientCount?: number
   hasActions: boolean
   actionTaken?: string | null
   sentAt?: string | null
@@ -62,33 +70,19 @@ type UserListItem = {
   name?: string | null
 }
 
-function toErrorMessage(payload: unknown): string | null {
-  if (!payload) return null
-  if (typeof payload === 'string') return payload
-  if (Array.isArray(payload)) {
-    for (const item of payload) {
-      const nested = toErrorMessage(item)
-      if (nested) return nested
-    }
-    return null
-  }
-  if (typeof payload === 'object') {
-    const record = payload as Record<string, unknown>
-    return (
-      toErrorMessage(record.error)
-      ?? toErrorMessage(record.message)
-      ?? toErrorMessage(record.detail)
-      ?? toErrorMessage(record.details)
-      ?? null
-    )
-  }
-  return null
-}
-
 export function MessagesInboxPageClient() {
   const router = useRouter()
   const t = useT()
+  const queryClient = useQueryClient()
   const scopeVersion = useOrganizationScopeVersion()
+
+  const invalidateMessageListQueries = React.useCallback(() => {
+    void queryClient.invalidateQueries({ queryKey: ['messages', 'list'] })
+  }, [queryClient])
+
+  useAppEvent('messages.message.*', invalidateMessageListQueries, [invalidateMessageListQueries])
+
+  useAppEvent('om:bridge:reconnected', invalidateMessageListQueries, [invalidateMessageListQueries])
 
   const [folder, setFolder] = React.useState<MessageFolder>('inbox')
   const [folderMenuOpen, setFolderMenuOpen] = React.useState(false)
@@ -98,6 +92,12 @@ export function MessagesInboxPageClient() {
   const pageSize = 20
   const folderMenuRef = React.useRef<HTMLDivElement | null>(null)
   const messageUiRegistry = React.useMemo(() => getMessageUiComponentRegistry(), [])
+  const { bulkActions, selectionScopeKey, injectionContext, ConfirmDialogElement } = useMessagesInboxBulkActions<MessageListItem>({
+    folder,
+    page,
+    search,
+    filterValues,
+  })
 
   const listQuery = useQuery({
     queryKey: [
@@ -111,30 +111,13 @@ export function MessagesInboxPageClient() {
       scopeVersion,
     ],
     queryFn: async () => {
-      const params = new URLSearchParams()
-      params.set('folder', folder)
-      params.set('page', String(page))
-      params.set('pageSize', String(pageSize))
-
-      if (search.trim()) {
-        params.set('search', search.trim())
-      }
-
-      const status = typeof filterValues.status === 'string' ? filterValues.status.trim() : ''
-      const type = typeof filterValues.type === 'string' ? filterValues.type.trim() : ''
-      const hasObjects = typeof filterValues.hasObjects === 'string' ? filterValues.hasObjects.trim() : ''
-      const hasAttachments = typeof filterValues.hasAttachments === 'string' ? filterValues.hasAttachments.trim() : ''
-      const hasActions = typeof filterValues.hasActions === 'string' ? filterValues.hasActions.trim() : ''
-      const senderId = typeof filterValues.senderId === 'string' ? filterValues.senderId.trim() : ''
-      const since = typeof filterValues.since === 'string' ? filterValues.since.trim() : ''
-
-      if (status) params.set('status', status)
-      if (type) params.set('type', type)
-      if (hasObjects) params.set('hasObjects', hasObjects)
-      if (hasAttachments) params.set('hasAttachments', hasAttachments)
-      if (hasActions) params.set('hasActions', hasActions)
-      if (senderId) params.set('senderId', senderId)
-      if (since) params.set('since', since)
+      const params = buildMessagesListParams({
+        folder,
+        page,
+        pageSize,
+        search,
+        filterValues,
+      })
 
       const call = await apiCall<MessageListResponse>(`/api/messages?${params.toString()}`)
       if (!call.ok) {
@@ -196,6 +179,19 @@ export function MessagesInboxPageClient() {
     return map
   }, [messageTypesQuery.data, t])
 
+  const [senderOptions, setSenderOptions] = React.useState<SenderOption[]>([])
+  const senderOptionsScopeRef = React.useRef(scopeVersion)
+
+  const mergeSenderOptions = React.useCallback((incoming: SenderOption[]) => {
+    if (incoming.length === 0) return
+    setSenderOptions((prev) => {
+      const map = new Map<string, SenderOption>()
+      for (const opt of prev) map.set(opt.value, opt)
+      for (const opt of incoming) map.set(opt.value, opt)
+      return Array.from(map.values())
+    })
+  }, [])
+
   const loadSenderOptions = React.useCallback(async (query?: string) => {
     const params = new URLSearchParams()
     params.set('page', '1')
@@ -204,11 +200,19 @@ export function MessagesInboxPageClient() {
       params.set('search', query.trim())
     }
 
-    const call = await apiCall<{ items?: UserListItem[] }>(`/api/auth/users?${params.toString()}`)
+    const call = await apiCall<{ items?: UserListItem[] }>(
+      `/api/auth/users?${params.toString()}`,
+      {
+        headers: {
+          'x-om-forbidden-redirect': '0',
+        },
+      },
+    ).catch(() => null)
+    if (!call) return []
     if (!call.ok) return []
 
     const items = Array.isArray(call.result?.items) ? call.result?.items ?? [] : []
-    return items.flatMap((item) => {
+    const next: SenderOption[] = items.flatMap((item) => {
       if (!item || typeof item.id !== 'string' || item.id.trim().length === 0) return []
       const name = typeof item.name === 'string' && item.name.trim().length > 0 ? item.name.trim() : null
       const email = typeof item.email === 'string' && item.email.trim().length > 0 ? item.email.trim() : null
@@ -219,7 +223,39 @@ export function MessagesInboxPageClient() {
         description: email && email !== label ? email : null,
       }]
     })
-  }, [])
+    if (senderOptionsScopeRef.current === scopeVersion) {
+      mergeSenderOptions(next)
+    }
+    return next
+  }, [mergeSenderOptions, scopeVersion])
+
+  React.useEffect(() => {
+    const items = listQuery.data?.items ?? []
+    const next = items.flatMap((item): SenderOption[] => {
+      if (typeof item.senderUserId !== 'string' || item.senderUserId.trim().length === 0) return []
+      const name = typeof item.senderName === 'string' && item.senderName.trim().length > 0
+        ? item.senderName.trim()
+        : null
+      const email = typeof item.senderEmail === 'string' && item.senderEmail.trim().length > 0
+        ? item.senderEmail.trim()
+        : null
+      const label = name ?? email ?? item.senderUserId
+      return [{
+        value: item.senderUserId,
+        label,
+        description: email && email !== label ? email : null,
+      }]
+    })
+    mergeSenderOptions(next)
+  }, [listQuery.data?.items, mergeSenderOptions])
+
+  React.useEffect(() => {
+    senderOptionsScopeRef.current = scopeVersion
+    setSenderOptions([])
+    loadSenderOptions().catch((error: unknown) => {
+      console.warn('[messages] Failed to load sender filter options', error)
+    })
+  }, [loadSenderOptions, scopeVersion])
 
   const listItemComponentKeyByType = React.useMemo(() => {
     const map: Record<string, string | null> = {}
@@ -235,69 +271,13 @@ export function MessagesInboxPageClient() {
       label: t(item.labelKey, item.type),
     }))
 
-    return [
-      {
-        id: 'status',
-        label: t('messages.filters.status', 'Status'),
-        type: 'select',
-        options: [
-          { value: '', label: t('messages.filters.all', 'All') },
-          { value: 'unread', label: t('messages.status.unread', 'Unread') },
-          { value: 'read', label: t('messages.status.read', 'Read') },
-          { value: 'archived', label: t('messages.status.archived', 'Archived') },
-        ],
-      },
-      {
-        id: 'type',
-        label: t('messages.filters.type', 'Type'),
-        type: 'select',
-        options: [{ value: '', label: t('messages.filters.all', 'All') }, ...typeOptions],
-      },
-      {
-        id: 'hasObjects',
-        label: t('messages.filters.hasObjects', 'Objects'),
-        type: 'select',
-        options: [
-          { value: '', label: t('messages.filters.all', 'All') },
-          { value: 'true', label: t('common.yes', 'Yes') },
-          { value: 'false', label: t('common.no', 'No') },
-        ],
-      },
-      {
-        id: 'hasAttachments',
-        label: t('messages.filters.hasAttachments', 'Attachments'),
-        type: 'select',
-        options: [
-          { value: '', label: t('messages.filters.all', 'All') },
-          { value: 'true', label: t('common.yes', 'Yes') },
-          { value: 'false', label: t('common.no', 'No') },
-        ],
-      },
-      {
-        id: 'hasActions',
-        label: t('messages.filters.hasActions', 'Actions'),
-        type: 'select',
-        options: [
-          { value: '', label: t('messages.filters.all', 'All') },
-          { value: 'true', label: t('common.yes', 'Yes') },
-          { value: 'false', label: t('common.no', 'No') },
-        ],
-      },
-      {
-        id: 'senderId',
-        label: t('messages.filters.sender', 'Sender'),
-        type: 'select',
-        options: [{ value: '', label: t('messages.filters.all', 'All') }],
-        loadOptions: loadSenderOptions,
-      },
-      {
-        id: 'since',
-        label: t('messages.filters.since', 'Sent after'),
-        type: 'text',
-        placeholder: t('messages.filters.sincePlaceholder', 'YYYY-MM-DDTHH:mm:ssZ'),
-      },
-    ]
-  }, [loadSenderOptions, messageTypesQuery.data, t])
+    return buildMessagesInboxFilters({
+      t,
+      typeOptions,
+      senderOptions,
+      loadSenderOptions,
+    })
+  }, [loadSenderOptions, messageTypesQuery.data, senderOptions, t])
 
   const columns = React.useMemo<ColumnDef<MessageListItem>[]>(() => [
     {
@@ -326,11 +306,12 @@ export function MessagesInboxPageClient() {
               bodyFormat: 'text' as const,
               priority: (item.priority as 'low' | 'normal' | 'high' | 'urgent') ?? 'normal',
               sentAt: item.sentAt ? new Date(item.sentAt) : null,
-              senderName: item.senderName || item.senderEmail || item.senderUserId,
+              senderName: getMessageListParticipantLabel(item, folder, t),
               hasObjects: item.hasObjects,
               objectCount: item.objectCount,
               hasAttachments: item.hasAttachments,
               attachmentCount: item.attachmentCount,
+              recipientCount: item.recipientCount ?? 0,
               hasActions: item.hasActions,
               actionTaken: item.actionTaken ?? null,
               unread: item.status === 'unread',
@@ -340,7 +321,7 @@ export function MessagesInboxPageClient() {
         )
       },
     },
-  ], [listItemComponentKeyByType, messageTypeLabelMap, messageUiRegistry, router, t])
+  ], [folder, listItemComponentKeyByType, messageTypeLabelMap, messageUiRegistry, router, t])
 
   const folderOptions = React.useMemo(() => [
     { id: 'inbox' as const, label: t('messages.folder.inbox', 'Inbox'), icon: Inbox },
@@ -383,6 +364,8 @@ export function MessagesInboxPageClient() {
         title={t('messages.title', 'Messages')}
         columns={columns}
         data={rows}
+        bulkActions={bulkActions}
+        selectionScopeKey={selectionScopeKey}
         searchValue={search}
         onSearchChange={(value) => {
           setSearch(value)
@@ -399,6 +382,7 @@ export function MessagesInboxPageClient() {
           setFilterValues({})
           setPage(1)
         }}
+        injectionContext={injectionContext}
         isLoading={listQuery.isLoading || listQuery.isFetching}
         pagination={{
           page,
@@ -426,19 +410,21 @@ export function MessagesInboxPageClient() {
               </Button>
               {folderMenuOpen ? (
                 <div
-                  className="absolute right-0 z-20 mt-1 min-w-52 rounded-md border bg-background p-1 shadow"
+                  className="absolute right-0 z-dropdown mt-1 min-w-52 rounded-md border bg-background p-1 shadow"
                   role="menu"
                 >
                   {folderOptions.map((option) => {
                     const Icon = option.icon
                     const isActive = option.id === folder
                     return (
-                      <button
+                      <Button
                         key={option.id}
                         type="button"
+                        variant="ghost"
+                        size="sm"
                         role="menuitemradio"
                         aria-checked={isActive}
-                        className={`flex w-full items-center gap-2 rounded px-2 py-1.5 text-left text-sm hover:bg-accent ${isActive ? 'bg-accent/60' : ''}`}
+                        className={`w-full justify-start h-auto px-2 py-1.5 text-sm font-normal ${isActive ? 'bg-accent/60' : ''}`}
                         onClick={() => {
                           setFolder(option.id)
                           setPage(1)
@@ -447,7 +433,7 @@ export function MessagesInboxPageClient() {
                       >
                         <Icon className="h-4 w-4" aria-hidden />
                         <span>{option.label}</span>
-                      </button>
+                      </Button>
                     )
                   })}
                 </div>
@@ -461,9 +447,9 @@ export function MessagesInboxPageClient() {
         onRowClick={(row) => {
           router.push(`/backend/messages/${row.id}`)
         }}
-        perspective={{ tableId: 'messages.inbox' }}
         embedded
       />
+      {ConfirmDialogElement}
     </div>
   )
 }

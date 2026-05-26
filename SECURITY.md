@@ -58,6 +58,14 @@ We consider security research conducted in good faith to be authorized. We will 
 
 Security fixes are applied to the latest release. We do not backport fixes to older versions unless the vulnerability is critical and the version is widely deployed.
 
+## Supply Chain Security
+
+Release packages are published to npm with provenance attestation (`--provenance`), cryptographically binding each published package to the specific GitHub Actions run that produced it. You can verify a package's provenance at `https://www.npmjs.com/package/@open-mercato/<package>`.
+
+Production releases require explicit approval from a named reviewer in the `production` GitHub Environment before the publish job runs — a single compromised maintainer account cannot unilaterally push a release.
+
+Sensitive paths (CI/CD workflows, release scripts, auth modules) are protected by CODEOWNERS and require `@open-mercato/maintainers` team sign-off on every PR.
+
 ## Security-Related Resources
 
 - [Security Review & Hardening Challenge (Issue #546)](https://github.com/open-mercato/open-mercato/issues/546)

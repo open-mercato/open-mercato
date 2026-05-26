@@ -1,6 +1,6 @@
 {
   "name": "@open-mercato/enterprise",
-  "version": "0.4.10",
+  "version": "0.6.2",
   "type": "module",
   "main": "./dist/index.js",
   "scripts": {
@@ -66,24 +66,35 @@
   "dependencies": {
     "@open-mercato/core": "workspace:*",
     "@open-mercato/ui": "workspace:*",
-    "@simplewebauthn/browser": "^11.0.0",
-    "@simplewebauthn/server": "^11.0.0",
-    "@simplewebauthn/types": "^11.0.0",
+    "@simplewebauthn/browser": "^13.3.0",
+    "@simplewebauthn/server": "^13.3.0",
+    "@simplewebauthn/types": "^12.0.0",
     "@types/qrcode": "^1.5.5",
-    "openid-client": "^6.3.3",
-    "otpauth": "9.4.1",
+    "openid-client": "^6.8.4",
+    "otpauth": "9.5.1",
     "qrcode": "^1.5.4"
   },
   "peerDependencies": {
-    "@open-mercato/shared": "workspace:*"
+    "@open-mercato/shared": "workspace:*",
+    "react": "^19.0.0",
+    "react-dom": "^19.0.0"
   },
   "devDependencies": {
     "@open-mercato/shared": "workspace:*",
     "@types/jest": "^30.0.0",
-    "jest": "^30.2.0",
-    "ts-jest": "^29.4.6"
+    "@types/react": "^19.2.15",
+    "@types/react-dom": "^19.2.3",
+    "jest": "^30.4.2",
+    "react": "19.2.6",
+    "react-dom": "19.2.6",
+    "ts-jest": "^29.4.11"
   },
   "publishConfig": {
     "access": "restricted"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/open-mercato/open-mercato",
+    "directory": "packages/enterprise"
   }
 }

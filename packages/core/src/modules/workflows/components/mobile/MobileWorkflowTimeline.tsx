@@ -18,39 +18,39 @@ interface MobileWorkflowTimelineProps {
 
 const STATUS_CONFIG = {
   completed: {
-    borderColor: 'border-l-emerald-500',
-    bgColor: 'bg-emerald-50 dark:bg-emerald-950/30',
+    borderColor: 'border-l-status-success-border',
+    bgColor: 'bg-status-success-bg',
     icon: CheckCircle2,
-    iconColor: 'text-emerald-600',
-    dotColor: 'bg-emerald-500',
+    iconColor: 'text-status-success-icon',
+    dotColor: 'bg-status-success-icon',
   },
   active: {
-    borderColor: 'border-l-blue-500',
-    bgColor: 'bg-blue-50 dark:bg-blue-950/30',
+    borderColor: 'border-l-status-info-border',
+    bgColor: 'bg-status-info-bg',
     icon: Loader2,
-    iconColor: 'text-blue-600',
-    dotColor: 'bg-blue-500',
+    iconColor: 'text-status-info-icon',
+    dotColor: 'bg-status-info-icon',
   },
   pending: {
-    borderColor: 'border-l-gray-300 dark:border-l-gray-600',
-    bgColor: 'bg-gray-50 dark:bg-gray-900/30',
+    borderColor: 'border-l-status-neutral-border',
+    bgColor: 'bg-status-neutral-bg',
     icon: Circle,
-    iconColor: 'text-gray-400',
-    dotColor: 'bg-gray-300 dark:bg-gray-600',
+    iconColor: 'text-status-neutral-icon',
+    dotColor: 'bg-status-neutral-icon',
   },
   failed: {
-    borderColor: 'border-l-red-500',
-    bgColor: 'bg-red-50 dark:bg-red-950/30',
+    borderColor: 'border-l-status-error-border',
+    bgColor: 'bg-status-error-bg',
     icon: AlertCircle,
-    iconColor: 'text-red-600',
-    dotColor: 'bg-red-500',
+    iconColor: 'text-status-error-icon',
+    dotColor: 'bg-status-error-icon',
   },
   skipped: {
-    borderColor: 'border-l-yellow-400',
-    bgColor: 'bg-yellow-50 dark:bg-yellow-950/30',
+    borderColor: 'border-l-status-warning-border',
+    bgColor: 'bg-status-warning-bg',
     icon: Circle,
-    iconColor: 'text-yellow-500',
-    dotColor: 'bg-yellow-400',
+    iconColor: 'text-status-warning-icon',
+    dotColor: 'bg-status-warning-icon',
   },
 } as const
 
@@ -77,7 +77,7 @@ export function MobileWorkflowTimeline({ steps }: MobileWorkflowTimelineProps) {
           <div key={step.id} className="relative flex gap-3">
             <div className="flex flex-col items-center">
               <div className={`h-3 w-3 shrink-0 rounded-full ${config.dotColor} mt-3 ring-2 ring-background`} />
-              {!isLast && <div className="w-0.5 flex-1 bg-gray-200 dark:bg-gray-700" />}
+              {!isLast && <div className="w-0.5 flex-1 bg-border" />}
             </div>
 
             <div className={`mb-2 flex-1 rounded-lg border-l-4 ${config.borderColor} ${config.bgColor} p-3`}>
@@ -88,11 +88,11 @@ export function MobileWorkflowTimeline({ steps }: MobileWorkflowTimelineProps) {
                     <span className="truncate text-sm font-medium text-foreground">{step.label}</span>
                   </div>
                   <div className="mt-1 flex flex-wrap items-center gap-2">
-                    <span className="inline-flex items-center rounded bg-background/60 px-1.5 py-0.5 text-[10px] font-medium uppercase text-muted-foreground">
+                    <span className="inline-flex items-center rounded bg-background/80 px-1.5 py-0.5 text-overline font-medium uppercase text-muted-foreground">
                       {step.type}
                     </span>
                     {step.duration && (
-                      <span className="text-[10px] text-muted-foreground">{step.duration}</span>
+                      <span className="text-overline text-muted-foreground">{step.duration}</span>
                     )}
                   </div>
                 </div>

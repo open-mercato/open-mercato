@@ -321,13 +321,13 @@ async function ensureLink(
     completionCount: 0,
     activeReservationCount: 0,
     isLocked: false,
-    ...values,
     slug: uniqueSlug,
     fixedPriceAmount: toMoneyString(values.fixedPriceAmount ?? null),
     fixedPriceOriginalAmount: toMoneyString(values.fixedPriceOriginalAmount ?? null),
     customAmountMin: toMoneyString(values.customAmountMin ?? null),
     customAmountMax: toMoneyString(values.customAmountMax ?? null),
-  })
+    ...values,
+  } as any)
   em.persist(link)
   return { link, created: true }
 }

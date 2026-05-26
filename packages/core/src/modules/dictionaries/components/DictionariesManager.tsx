@@ -2,7 +2,8 @@
 
 import * as React from 'react'
 import { useSearchParams } from 'next/navigation'
-import { Plus, Pencil, Trash2 } from 'lucide-react'
+import { Book, Plus, Pencil, Trash2 } from 'lucide-react'
+import { EmptyState } from '@open-mercato/ui/primitives/empty-state'
 import { Button } from '@open-mercato/ui/primitives/button'
 import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from '@open-mercato/ui/primitives/dialog'
 import { Spinner } from '@open-mercato/ui/primitives/spinner'
@@ -274,7 +275,7 @@ export function DictionariesManager() {
                       <div className="flex items-center gap-2 font-medium">
                         <span>{dictionary.name}</span>
                         {dictionary.isInherited ? (
-                          <span className="rounded-full border border-border px-2 py-0.5 text-[11px] font-normal uppercase tracking-wide text-muted-foreground">
+                          <span className="rounded-full border border-border px-2 py-0.5 text-overline font-normal uppercase tracking-wide text-muted-foreground">
                             {t('dictionaries.config.list.inherited', 'Inherited')}
                           </span>
                         ) : null}
@@ -324,9 +325,11 @@ export function DictionariesManager() {
             readOnly={selectedDictionary.isInherited}
           />
         ) : (
-          <div className="flex h-full flex-col items-center justify-center rounded border border-dashed p-10 text-center text-sm text-muted-foreground">
-            {t('dictionaries.config.entries.placeholder', 'Select a dictionary to manage its entries.')}
-          </div>
+          <EmptyState
+            icon={<Book className="h-8 w-8" aria-hidden="true" />}
+            title={t('dictionaries.config.entries.placeholder', 'Select a dictionary to manage its entries.')}
+            className="h-full"
+          />
         )}
       </div>
 
@@ -351,7 +354,7 @@ export function DictionariesManager() {
                 }}
                 placeholder={t('dictionaries.config.dialog.keyPlaceholder', 'slug_name')}
                 disabled={dialog?.mode === 'edit'}
-                className={`w-full rounded border px-3 py-2 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary disabled:cursor-not-allowed disabled:bg-muted ${errors.key ? 'border-destructive focus-visible:ring-destructive' : ''}`}
+                className={`w-full rounded border px-3 py-2 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:cursor-not-allowed disabled:bg-muted ${errors.key ? 'border-destructive focus-visible:ring-destructive' : ''}`}
                 aria-invalid={errors.key ? 'true' : 'false'}
                 aria-describedby="dictionary-key-hint"
               />
@@ -372,7 +375,7 @@ export function DictionariesManager() {
                   if (errors.name) setErrors((prev) => ({ ...prev, name: undefined }))
                 }}
                 placeholder={t('dictionaries.config.dialog.namePlaceholder', 'Display name')}
-                className={`w-full rounded border px-3 py-2 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary ${errors.name ? 'border-destructive focus-visible:ring-destructive' : ''}`}
+                className={`w-full rounded border px-3 py-2 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring ${errors.name ? 'border-destructive focus-visible:ring-destructive' : ''}`}
                 aria-invalid={errors.name ? 'true' : 'false'}
               />
               {errors.name ? (
@@ -384,7 +387,7 @@ export function DictionariesManager() {
               <textarea
                 value={form.description}
                 onChange={(event) => setForm((prev) => ({ ...prev, description: event.target.value }))}
-                className="min-h-[120px] w-full rounded border px-3 py-2 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
+                className="min-h-[120px] w-full rounded border px-3 py-2 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
                 placeholder={t('dictionaries.config.dialog.descriptionPlaceholder', 'Explain how this dictionary is used (optional).')}
               />
             </div>

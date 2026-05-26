@@ -8,6 +8,8 @@ export type SidebarPreferencesSettings = {
   groupLabels?: Record<string, string>
   itemLabels?: Record<string, string>
   hiddenItems?: string[]
+  /** Per-group ordered list of item keys. Missing items keep their natural position. */
+  itemOrder?: Record<string, string[]>
 }
 
 export type SidebarPreferencesPayload = {
@@ -17,19 +19,21 @@ export type SidebarPreferencesPayload = {
 
 export function normalizeSidebarSettings(settings?: SidebarPreferencesSettings | null): SidebarPreferencesSettings {
   if (!settings || typeof settings !== 'object') {
-    return { version: SIDEBAR_PREFERENCES_VERSION, groupOrder: [], groupLabels: {}, itemLabels: {}, hiddenItems: [] }
+    return { version: SIDEBAR_PREFERENCES_VERSION, groupOrder: [], groupLabels: {}, itemLabels: {}, hiddenItems: [], itemOrder: {} }
   }
   const version = typeof settings.version === 'number' ? settings.version : SIDEBAR_PREFERENCES_VERSION
   const groupOrder = Array.isArray(settings.groupOrder) ? settings.groupOrder.filter((v): v is string => typeof v === 'string') : []
   const groupLabels = normalizeRecord(settings.groupLabels)
   const itemLabels = normalizeRecord(settings.itemLabels)
   const hiddenItems = normalizeStringArray(settings.hiddenItems)
+  const itemOrder = normalizeStringArrayRecord(settings.itemOrder)
   return {
     version,
     groupOrder,
     groupLabels,
     itemLabels,
     hiddenItems,
+    itemOrder,
   }
 }
 
@@ -39,6 +43,16 @@ function normalizeRecord(record: Record<string, unknown> | undefined): Record<st
   for (const [key, value] of Object.entries(record)) {
     if (typeof value !== 'string') continue
     out[key] = value
+  }
+  return out
+}
+
+function normalizeStringArrayRecord(record: Record<string, unknown> | undefined): Record<string, string[]> {
+  if (!record || typeof record !== 'object') return {}
+  const out: Record<string, string[]> = {}
+  for (const [key, value] of Object.entries(record)) {
+    const arr = normalizeStringArray(value)
+    if (arr.length > 0) out[key] = arr
   }
   return out
 }

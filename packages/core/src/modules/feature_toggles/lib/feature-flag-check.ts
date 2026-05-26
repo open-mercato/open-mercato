@@ -1,6 +1,6 @@
 import { FeatureToggle, FeatureToggleOverride } from "../data/entities"
 import { EntityManager } from "@mikro-orm/core"
-import { CacheService } from "@open-mercato/cache"
+import { CacheService, runWithCacheTenant } from "@open-mercato/cache"
 
 type ToggleValueType = "boolean" | "string" | "number" | "json"
 
@@ -73,13 +73,16 @@ export class FeatureTogglesService {
     result: ToggleResolutionResult,
   ) {
     const key = getIsEnabledCacheKey(identifier, tenantId)
-    await this.cache.set(key, result, { ttl: this.cacheTtlMs, tags: getCacheTags(identifier, tenantId) })
+    await runWithCacheTenant(
+      tenantId,
+      () => this.cache.set(key, result, { ttl: this.cacheTtlMs, tags: getCacheTags(identifier, tenantId) }),
+    )
   }
 
   private async resolveToggle(identifier: string, tenantId: string): Promise<ToggleResolutionResult> {
     const key = getIsEnabledCacheKey(identifier, tenantId)
 
-    const cached = await this.cache.get(key)
+    const cached = await runWithCacheTenant(tenantId, () => this.cache.get(key))
     if (cached) {
       const parsed = toCachedResolution(cached)
       if (parsed) return parsed
@@ -122,7 +125,7 @@ export class FeatureTogglesService {
   }
 
   public async invalidateIsEnabledCacheByKey(identifier: string, tenantId: string) {
-    await this.cache.delete(getIsEnabledCacheKey(identifier, tenantId))
+    await runWithCacheTenant(tenantId, () => this.cache.delete(getIsEnabledCacheKey(identifier, tenantId)))
   }
 
   public async getFeatureToggleValue<T>(

@@ -30,6 +30,32 @@ const ACTIVE_CONTENT_MIME_TYPES = new Set([
 
 const ACTIVE_CONTENT_EXTENSIONS = new Set(['htm', 'html', 'svg', 'xhtml', 'xml'])
 
+const DANGEROUS_EXECUTABLE_EXTENSIONS = new Set([
+  'app',
+  'apk',
+  'bat',
+  'cmd',
+  'com',
+  'dll',
+  'exe',
+  'hta',
+  'jar',
+  'js',
+  'jse',
+  'lnk',
+  'msi',
+  'pif',
+  'ps1',
+  'psm1',
+  'reg',
+  'scr',
+  'sh',
+  'vbe',
+  'vbs',
+  'wsf',
+  'wsh',
+])
+
 const SAFE_INLINE_MIME_TYPES = new Set([
   'image/avif',
   'image/bmp',
@@ -44,6 +70,18 @@ export function getAttachmentExtension(fileName: string | null | undefined): str
   const parts = trimmed.split('.').filter(Boolean)
   if (parts.length < 2) return ''
   return parts[parts.length - 1]!.toLowerCase()
+}
+
+export function hasDangerousExecutableExtension(fileName: string | null | undefined): boolean {
+  const trimmed = String(fileName ?? '').trim()
+  if (!trimmed) return false
+  const parts = trimmed.split('.').filter(Boolean)
+  if (parts.length < 2) return false
+  for (let i = 1; i < parts.length; i += 1) {
+    const segment = parts[i]!.toLowerCase()
+    if (DANGEROUS_EXECUTABLE_EXTENSIONS.has(segment)) return true
+  }
+  return false
 }
 
 export function sanitizeUploadedFileName(input: string | null | undefined): string {

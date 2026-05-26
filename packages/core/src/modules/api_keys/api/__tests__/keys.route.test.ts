@@ -1,6 +1,7 @@
 /** @jest-environment node */
 
 import { features } from '../../acl'
+import { RoleAcl } from '@open-mercato/core/modules/auth/data/entities'
 
 const secretFixture = { secret: 'omk_test.secret', prefix: 'omk_testpref' }
 
@@ -21,9 +22,11 @@ interface MockDataEngine {
   flushOrmEntityChanges: jest.Mock<Promise<void>, []>
 }
 
+type MockAcl = { isSuperAdmin: boolean; features?: string[]; organizations?: string[] | null }
+
 interface MockRbacService {
   invalidateUserCache: jest.Mock<Promise<void>, [string]>
-  loadAcl: jest.Mock<Promise<{ isSuperAdmin: boolean } | null>, [string, { tenantId: string | null; organizationId: string | null }]>
+  loadAcl: jest.Mock<Promise<MockAcl | null>, [string, { tenantId: string | null; organizationId: string | null }]>
 }
 
 interface MockContainer {
@@ -47,9 +50,10 @@ const mockDataEngine: MockDataEngine = {
   markOrmEntityChange: jest.fn<void, [QueueEntry | undefined]>(),
   flushOrmEntityChanges: jest.fn<Promise<void>, []>(),
 }
+const mockFindOneWithDecryption = jest.fn()
 const mockRbac: MockRbacService = {
   invalidateUserCache: jest.fn<Promise<void>, [string]>(),
-  loadAcl: jest.fn<Promise<{ isSuperAdmin: boolean } | null>, [string, { tenantId: string | null; organizationId: string | null }]>(),
+  loadAcl: jest.fn<Promise<MockAcl | null>, [string, { tenantId: string | null; organizationId: string | null }]>(),
 }
 const mockContainer: MockContainer = {
   resolve: jest.fn((token: string) => {
@@ -80,6 +84,10 @@ jest.mock('@open-mercato/shared/lib/i18n/server', () => ({
   })),
 }))
 
+jest.mock('@open-mercato/shared/lib/encryption/find', () => ({
+  findOneWithDecryption: jest.fn((...args: unknown[]) => mockFindOneWithDecryption(...args)),
+}))
+
 jest.mock('../../services/apiKeyService', () => {
   const actual = jest.requireActual('../../services/apiKeyService')
   return {
@@ -103,6 +111,8 @@ describe('API Keys route', () => {
   beforeEach(() => {
     jest.clearAllMocks()
     mockDataEngine.__queue.length = 0
+    mockFindOneWithDecryption.mockReset()
+    mockFindOneWithDecryption.mockResolvedValue(null)
     mockEm.fork.mockReturnValue(mockEm)
     mockGetAuthFromCookies.mockResolvedValue({
       sub: 'user-1',
@@ -218,6 +228,40 @@ describe('API Keys route', () => {
     })
     expect(mockHashApiKey).toHaveBeenCalledWith(secretFixture.secret)
     expect(mockRbac.invalidateUserCache).toHaveBeenCalledWith('api_key:key-1')
+  })
+
+  it('rejects role-backed API keys when the requested role grants features outside the actor ACL', async () => {
+    mockRbac.loadAcl.mockResolvedValueOnce({
+      isSuperAdmin: false,
+      features: ['api_keys.create'],
+    })
+    mockFindOneWithDecryption.mockImplementation(async (_em: unknown, entity: unknown) => {
+      if (entity === RoleAcl) {
+        return {
+          isSuperAdmin: false,
+          featuresJson: ['auth.*'],
+          organizationsJson: null,
+          tenantId: '123e4567-e89b-12d3-a456-426614174000',
+        }
+      }
+      return null
+    })
+
+    const res = await postHandler(
+      new Request('http://localhost/api/api_keys/keys', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({
+          name: 'Escalating key',
+          roles: ['manager'],
+        }),
+      }),
+    )
+    const payload = await res.json()
+
+    expect(res.status).toBe(403)
+    expect(payload.error).toContain('Cannot grant feature wildcard auth.*')
+    expect(mockDataEngine.createOrmEntity).not.toHaveBeenCalled()
   })
 
   it('rejects creation when organization is outside the allowed scope', async () => {

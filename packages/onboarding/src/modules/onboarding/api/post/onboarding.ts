@@ -2,6 +2,7 @@ import { NextResponse } from 'next/server'
 import { z } from 'zod'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
+import { getAppBaseUrl } from '@open-mercato/shared/lib/url'
 import { loadDictionary } from '@open-mercato/shared/lib/i18n/server'
 import { defaultLocale, locales, type Locale } from '@open-mercato/shared/lib/i18n/config'
 import { createFallbackTranslator } from '@open-mercato/shared/lib/i18n/translate'
@@ -124,8 +125,7 @@ export async function POST(req: Request) {
       throw err
     }
 
-    const url = new URL(req.url)
-    const baseUrl = process.env.APP_URL || `${url.protocol}//${url.host}`
+    const baseUrl = getAppBaseUrl(req)
     const verifyUrl = `${baseUrl}/api/onboarding/onboarding/verify?token=${token}`
 
     const firstName = request.firstName || parsed.data.firstName

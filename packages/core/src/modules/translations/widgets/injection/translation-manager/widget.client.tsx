@@ -81,12 +81,12 @@ export default function TranslationWidget({ context, data }: InjectionWidgetComp
       {open ? (
         <>
           <div
-            className="fixed inset-0 z-40 bg-black/20"
+            className="fixed inset-0 z-overlay bg-black/20"
             onClick={() => setOpen(false)}
             aria-hidden="true"
           />
           <div
-            className="fixed right-0 top-0 z-50 h-full w-full max-w-4xl border-l bg-background shadow-lg"
+            className="fixed right-0 top-0 z-modal h-full w-full max-w-4xl border-l bg-background shadow-lg"
             role="dialog"
             aria-modal="true"
             aria-label={t('translations.widgets.translationManager.groupLabel', 'Translations')}

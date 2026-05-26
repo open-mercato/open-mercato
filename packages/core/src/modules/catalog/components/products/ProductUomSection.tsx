@@ -7,6 +7,13 @@ import { Button } from "@open-mercato/ui/primitives/button";
 import { Checkbox } from "@open-mercato/ui/primitives/checkbox";
 import { Input } from "@open-mercato/ui/primitives/input";
 import { Label } from "@open-mercato/ui/primitives/label";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@open-mercato/ui/primitives/select";
 import { Spinner } from "@open-mercato/ui/primitives/spinner";
 import { ArrowDown, ArrowUp, Plus, Trash2 } from "lucide-react";
 import type {
@@ -318,24 +325,22 @@ export function ProductUomSection({
       <div className="grid gap-4 md:grid-cols-2">
         <div className="space-y-2">
           <Label htmlFor="catalog-product-uom-base-unit">{t("catalog.products.uom.baseUnit", "Base unit")}</Label>
-          <select
-            id="catalog-product-uom-base-unit"
-            className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
-            value={defaultUnit}
-            onChange={(event) =>
-              setValue("defaultUnit", event.target.value || null)
-            }
+          <Select
+            value={defaultUnit || undefined}
+            onValueChange={(value) => setValue("defaultUnit", value || null)}
             disabled={loadingUnits}
           >
-            <option value="">
-              {t("catalog.products.uom.selectUnit", "Select unit")}
-            </option>
-            {unitOptions.map((option) => (
-              <option key={option.value} value={option.value}>
-                {option.label}
-              </option>
-            ))}
-          </select>
+            <SelectTrigger id="catalog-product-uom-base-unit">
+              <SelectValue placeholder={t("catalog.products.uom.selectUnit", "Select unit")} />
+            </SelectTrigger>
+            <SelectContent>
+              {unitOptions.map((option) => (
+                <SelectItem key={option.value} value={option.value}>
+                  {option.label}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
           {errors.defaultUnit ? (
             <p className="text-xs text-destructive">{errors.defaultUnit}</p>
           ) : null}
@@ -345,24 +350,22 @@ export function ProductUomSection({
           <Label htmlFor="catalog-product-uom-sales-unit">
             {t("catalog.products.uom.defaultSalesUnit", "Default sales unit")}
           </Label>
-          <select
-            id="catalog-product-uom-sales-unit"
-            className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
-            value={defaultSalesUnit}
-            onChange={(event) =>
-              setValue("defaultSalesUnit", event.target.value || null)
-            }
+          <Select
+            value={defaultSalesUnit || undefined}
+            onValueChange={(value) => setValue("defaultSalesUnit", value || null)}
             disabled={loadingUnits}
           >
-            <option value="">
-              {t("catalog.products.uom.selectUnit", "Select unit")}
-            </option>
-            {unitOptions.map((option) => (
-              <option key={option.value} value={option.value}>
-                {option.label}
-              </option>
-            ))}
-          </select>
+            <SelectTrigger id="catalog-product-uom-sales-unit">
+              <SelectValue placeholder={t("catalog.products.uom.selectUnit", "Select unit")} />
+            </SelectTrigger>
+            <SelectContent>
+              {unitOptions.map((option) => (
+                <SelectItem key={option.value} value={option.value}>
+                  {option.label}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
           {errors.defaultSalesUnit ? (
             <p className="text-xs text-destructive">{errors.defaultSalesUnit}</p>
           ) : null}
@@ -432,24 +435,25 @@ export function ProductUomSection({
           <Label htmlFor="catalog-product-uom-rounding-mode">
             {t("catalog.products.uom.roundingMode", "Rounding mode")}
           </Label>
-          <select
-            id="catalog-product-uom-rounding-mode"
-            className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
+          <Select
             value={values.uomRoundingMode ?? "half_up"}
-            onChange={(event) =>
-              setValue("uomRoundingMode", event.target.value)
-            }
+            onValueChange={(value) => setValue("uomRoundingMode", value)}
           >
-            <option value="half_up">
-              {t("catalog.products.uom.roundingModeHalfUp", "Half up (default)")}
-            </option>
-            <option value="down">
-              {t("catalog.products.uom.roundingModeDown", "Round down")}
-            </option>
-            <option value="up">
-              {t("catalog.products.uom.roundingModeUp", "Round up")}
-            </option>
-          </select>
+            <SelectTrigger id="catalog-product-uom-rounding-mode">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="half_up">
+                {t("catalog.products.uom.roundingModeHalfUp", "Half up (default)")}
+              </SelectItem>
+              <SelectItem value="down">
+                {t("catalog.products.uom.roundingModeDown", "Round down")}
+              </SelectItem>
+              <SelectItem value="up">
+                {t("catalog.products.uom.roundingModeUp", "Round up")}
+              </SelectItem>
+            </SelectContent>
+          </Select>
         </div>
         <div className="space-y-2">
           <Label htmlFor="catalog-product-uom-rounding-scale">
@@ -498,26 +502,26 @@ export function ProductUomSection({
                   "Reference unit",
                 )}
               </Label>
-              <select
-                id="catalog-product-uom-reference-unit"
-                className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
-                value={unitPriceReferenceUnit}
-                onChange={(event) =>
-                  setValue("unitPriceReferenceUnit", event.target.value || null)
-                }
+              <Select
+                value={unitPriceReferenceUnit || undefined}
+                onValueChange={(value) => setValue("unitPriceReferenceUnit", value || null)}
               >
-                <option value="">
-                  {t(
-                    "catalog.products.unitPrice.selectReferenceUnit",
-                    "Select reference unit",
-                  )}
-                </option>
-                {REFERENCE_UNIT_OPTIONS.map((option) => (
-                  <option key={option.value} value={option.value}>
-                    {t(option.i18nKey, option.fallback)}
-                  </option>
-                ))}
-              </select>
+                <SelectTrigger id="catalog-product-uom-reference-unit">
+                  <SelectValue
+                    placeholder={t(
+                      "catalog.products.unitPrice.selectReferenceUnit",
+                      "Select reference unit",
+                    )}
+                  />
+                </SelectTrigger>
+                <SelectContent>
+                  {REFERENCE_UNIT_OPTIONS.map((option) => (
+                    <SelectItem key={option.value} value={option.value}>
+                      {t(option.i18nKey, option.fallback)}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
             </div>
             <div className="space-y-2">
               <Label htmlFor="catalog-product-uom-unit-price-base-quantity">
@@ -613,24 +617,22 @@ export function ProductUomSection({
                   <Label htmlFor={`catalog-product-uom-conversion-unit-${index}`} className="text-xs text-muted-foreground">
                     {t("catalog.products.uom.conversionUnit", "Sales unit")}
                   </Label>
-                  <select
-                    id={`catalog-product-uom-conversion-unit-${index}`}
-                    className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
-                    value={entry.unitCode}
-                    onChange={(event) =>
-                      updateConversion(index, { unitCode: event.target.value })
-                    }
+                  <Select
+                    value={entry.unitCode || undefined}
+                    onValueChange={(value) => updateConversion(index, { unitCode: value ?? '' })}
                     disabled={loadingUnits}
                   >
-                    <option value="">
-                      {t("catalog.products.uom.selectUnit", "Select unit")}
-                    </option>
-                    {unitOptions.map((option) => (
-                      <option key={option.value} value={option.value}>
-                        {option.label}
-                      </option>
-                    ))}
-                  </select>
+                    <SelectTrigger id={`catalog-product-uom-conversion-unit-${index}`}>
+                      <SelectValue placeholder={t("catalog.products.uom.selectUnit", "Select unit")} />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {unitOptions.map((option) => (
+                        <SelectItem key={option.value} value={option.value}>
+                          {option.label}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
                 </div>
 
                 <div className="space-y-1 md:col-span-3">

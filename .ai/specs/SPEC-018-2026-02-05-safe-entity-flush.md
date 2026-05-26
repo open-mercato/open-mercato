@@ -1,5 +1,7 @@
 # SPEC-018: Atomic Phased Flush — Preventing Silent UoW Data Loss & Ensuring Transactional Integrity
 
+> **Note (2026-04-15)**: Historical references to `em.persistAndFlush()` in the audit tables below describe pre-migration code; the current codebase uses MikroORM v7 APIs (`em.persist(x).flush()`).
+
 ## Overview
 
 MikroORM's identity-map and subscriber infrastructure can silently discard pending scalar changes when a query (`em.find`, `em.findOne`, etc.) runs on the same `EntityManager` before an explicit `em.flush()`. Additionally, many command handlers execute multiple `em.flush()` calls without transaction wrapping, creating partial-commit risks when a later flush fails.
@@ -610,6 +612,9 @@ await emitCrudSideEffects({ ... })
 ```
 
 ## Changelog
+
+### 2026-04-15
+- Added v7 migration note at top; audit tables still reference the pre-migration `persistAndFlush` API as historical context.
 
 ### 2026-02-07
 - **Major revision**: Renamed from `withEntityFlush` to `withAtomicFlush`

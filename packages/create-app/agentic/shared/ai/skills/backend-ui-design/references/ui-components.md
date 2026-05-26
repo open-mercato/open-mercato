@@ -47,7 +47,7 @@ Complete reference of all available UI components in `@open-mercato/ui`.
 
 | Component | Import Path | Purpose | Key Props |
 |-----------|-------------|---------|-----------|
-| **DataTable** | `@open-mercato/ui/backend/DataTable` | Feature-rich table with sorting, filtering, pagination, export, perspectives | `columns`, `data`, `filters`, `pagination`, `perspective`, `onRowClick` |
+| **DataTable** | `@open-mercato/ui/backend/DataTable` | Feature-rich table with sorting, filtering, pagination, export, perspectives | `entityId`, `apiPath`, `extensionTableId`, `columns`, `data`, `page`, `pageSize`, `totalCount`, `onPageChange`, `onRowClick` |
 | **TruncatedCell** | `@open-mercato/ui/backend/TruncatedCell` | Table cell with text truncation and tooltip | `value`, `maxWidth` |
 | **EmptyState** | `@open-mercato/ui/backend/EmptyState` | Empty state placeholder | `title`, `description`, `action`, `icon` |
 | **RowActions** | `@open-mercato/ui/backend/RowActions` | Context menu for row actions | `items: {label, href?, onSelect?, destructive?}[]` |
@@ -68,13 +68,35 @@ Complete reference of all available UI components in `@open-mercato/ui`.
 
 ### Input Components (`@open-mercato/ui/backend/inputs/*`)
 
+Specialized inputs that ship with the framework. For each, the full props table, MUST rules, and anti-patterns live in `.ai/ui-components.md` under the section linked from the component name.
+
 | Component | Import Path | Purpose | Key Props |
 |-----------|-------------|---------|-----------|
-| **TagsInput** | `@open-mercato/ui/backend/inputs/TagsInput` | Multi-tag input with suggestions | `value`, `onChange`, `placeholder`, `suggestions` |
-| **ComboboxInput** | `@open-mercato/ui/backend/inputs/ComboboxInput` | Searchable dropdown (single value) | `value`, `onChange`, `options`, `placeholder` |
-| **PhoneNumberField** | `@open-mercato/ui/backend/inputs/PhoneNumberField` | Phone input with formatting | `value`, `onChange`, `checkDuplicate` |
-| **LookupSelect** | `@open-mercato/ui/backend/inputs/LookupSelect` | Async lookup/search select | `value`, `onChange`, `onSearch`, `renderItem` |
-| **SwitchableMarkdownInput** | `@open-mercato/ui/backend/inputs/SwitchableMarkdownInput` | Text/markdown toggle input | `value`, `onChange`, `placeholder` |
+| **ComboboxInput** | `@open-mercato/ui/backend/inputs/ComboboxInput` | Single-value typeahead with sync/async suggestions; allows free-form custom values by default | `value`, `onChange`, `suggestions`, `loadSuggestions`, `resolveLabel`, `allowCustomValues` |
+| **TagsInput** | `@open-mercato/ui/backend/inputs/TagsInput` | Multi-value (`string[]`) version of `ComboboxInput` with rich `{ value, label, description }` triples | `value`, `onChange`, `suggestions`, `loadSuggestions`, `selectedOptions`, `resolveLabel` |
+| **LookupSelect** | `@open-mercato/ui/backend/inputs/LookupSelect` | Rich card-list search/select with title/subtitle/icon/badge per row; returns selected id | `value`, `onChange`, `fetchItems`, `options`, `minQuery`, `actionSlot` |
+| **PhoneNumberField** | `@open-mercato/ui/backend/inputs/PhoneNumberField` | Compound country-picker + national-number input matching Figma `Text Input [1.1]` Phone variant. Validates + normalizes on blur, optional duplicate lookup | `value`, `onValueChange`, `onDigitsChange`, `countries`, `defaultCountryIso2`, `onDuplicateLookup` |
+| **EventSelect** | `@open-mercato/ui/backend/inputs/EventSelect` | Strict select for declared platform events, grouped by module. **Mandated by `packages/ui/AGENTS.md`** for event selection | `value`, `onChange`, `categories`, `modules`, `excludeTriggerExcluded`, `size` |
+| **EventPatternInput** | `@open-mercato/ui/backend/inputs/EventPatternInput` | `ComboboxInput` preloaded with declared events that allows wildcard patterns (e.g. `sales.orders.*`) | `value`, `onChange`, `categories`, `modules` |
+| **TimeInput** | `@open-mercato/ui/backend/inputs/TimeInput` | Bare `HH:MM` editor (two `<input type="number">` cells, no popover). Low-level atom — most flows want `TimePicker` | `value`, `onChange`, `minuteStep`, `hourLabel`, `minuteLabel` |
+| **DatePicker** *(@deprecated shim — import from `primitives/date-picker`)* | `@open-mercato/ui/backend/inputs/DatePicker` | Backward-compat re-export of the `DatePicker` primitive. New code MUST import from `@open-mercato/ui/primitives/date-picker`. | — |
+| **DateTimePicker** *(@deprecated shim — use `DatePicker withTime`)* | `@open-mercato/ui/backend/inputs/DateTimePicker` | Thin wrapper that always sets `withTime` on the primitive. New code: `<DatePicker withTime />` | — |
+| **TimePicker** *(@deprecated shim — import from `primitives/time-picker`)* | `@open-mercato/ui/backend/inputs/TimePicker` | Legacy popover-anchored time picker wrapping the new `TimePicker` primitive. New code: `@open-mercato/ui/primitives/time-picker`. | — |
+| **SwitchableMarkdownInput** *(@deprecated — use `RichEditor`)* | `@open-mercato/ui/backend/inputs/SwitchableMarkdownInput` | Markdown ⇄ plain textarea toggle. Kept only for backward compatibility with Markdown-backed surfaces. New rich-text fields MUST use `RichEditor` from `@open-mercato/ui/primitives/rich-editor` (sanitized HTML). | `value`, `onChange`, `isMarkdownEnabled` |
+
+### Input Variants (Figma `Text Input [1.1]` — `@open-mercato/ui/primitives/*`)
+
+Foundation-level input variants matching Figma type-specific designs. Use these instead of raw `<Input type="email">`, `<Input type="password">`, etc. — they ship correct visual chrome (leading icons, prefix boxes, trailing buttons, brand badges) and i18n-resolved labels.
+
+| Component | Import Path | Purpose | Key Props |
+|-----------|-------------|---------|-----------|
+| **EmailInput** | `@open-mercato/ui/primitives/email-input` | `Input` wrapper with leading Mail icon, `type="email"`, `autoComplete="email"` | `value`, `onChange`, `showIcon` |
+| **SearchInput** | `@open-mercato/ui/primitives/search-input` | Leading Search icon + trailing × clear button (when value non-empty). Use for DataTable global filter, command palette, list-view live filter | `value`, `onChange`, `onClear`, `clearable` |
+| **PasswordInput** | `@open-mercato/ui/primitives/password-input` | Leading Lock icon + trailing Eye/EyeOff reveal toggle. Controlled or uncontrolled reveal state | `value`, `onChange`, `revealable`, `revealed`, `onRevealedChange`, `showLockIcon` |
+| **WebsiteInput** | `@open-mercato/ui/primitives/website-input` | Left "https://" prefix box + divider + URL input. `type="url"` | `value`, `onChange`, `prefix`, `showPrefix` |
+| **AmountInput** | `@open-mercato/ui/primitives/amount-input` | Leading currency symbol + numeric input + trailing ISO currency picker (10 markets default) | `value: { amount, currency }`, `onChange`, `currencies`, `showCurrency` |
+| **ButtonInput** | `@open-mercato/ui/primitives/button-input` | Input with optional `leftIcon` + divider + required `trailingAction` slot for interactive button (copy URL, send, regenerate) | `leftIcon`, `trailingAction` (required) |
+| **CardInput** | `@open-mercato/ui/primitives/card-input` | Credit-card-number input with regex-based brand auto-detection (Visa/MC/Amex/Discover/Diners/JCB/UnionPay), format masking, brand badge | `value` (digits-only), `onChange`, `onBrandChange`, `brands` |
 
 ### Detail Page Components (`@open-mercato/ui/backend/detail/*`)
 
@@ -127,14 +149,18 @@ const filters: FilterDef[] = [
 ]
 
 <DataTable
-  title="Items"
+  entityId="inventory.item"
+  apiPath="inventory/items"
+  extensionTableId="inventory.item"
   columns={columns}
-  data={data}
   filters={filters}
   filterValues={filterValues}
   onFiltersApply={handleFiltersApply}
   onFiltersClear={handleFiltersClear}
-  pagination={{ page, pageSize, total, totalPages, onPageChange }}
+  page={page}
+  pageSize={pageSize}
+  totalCount={totalCount}
+  onPageChange={setPage}
   onRowClick={(row) => router.push(`/items/${row.id}`)}
 />
 ```
@@ -228,6 +254,7 @@ const deleted = await deleteCrud('module/items', id)
 1. **Always use `flash()` for notifications** - Don't use `alert()` or custom toast implementations
 2. **Use `CrudForm` for forms** - Provides consistent validation, field rendering, and keyboard shortcuts
 3. **Use `DataTable` for lists** - Includes filtering, sorting, pagination, export, and perspectives
-4. **Use `JsonBuilder` for JSON editing** - Provides both raw JSON and visual builder modes
-5. **Dialog forms need `embedded={true}`** - And add `[&_.grid]:!grid-cols-1` to DialogContent for single-column layout
-6. **Support Cmd/Ctrl+Enter and Escape** - All dialogs should support these keyboard shortcuts
+4. **Keep `extensionTableId` stable** - Injection spots must remain backward-compatible
+5. **Use `JsonBuilder` for JSON editing** - Provides both raw JSON and visual builder modes
+6. **Dialog forms need `embedded={true}`** - And add `[&_.grid]:!grid-cols-1` to DialogContent for single-column layout
+7. **Support Cmd/Ctrl+Enter and Escape** - All dialogs should support these keyboard shortcuts

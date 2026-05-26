@@ -1,25 +1,27 @@
 "use client"
 
 import * as React from 'react'
-import { useRouter } from 'next/navigation'
-import { Users, Trash2, Loader2, ArrowUpRightSquare, Link2, Plus } from 'lucide-react'
+import { Users, Link2, Plus, Filter } from 'lucide-react'
 import { EmptyState } from '@open-mercato/ui/backend/EmptyState'
 import { Button } from '@open-mercato/ui/primitives/button'
-import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
-} from '@open-mercato/ui/primitives/dialog'
-import { LookupSelect, type LookupSelectItem } from '@open-mercato/ui/backend/inputs'
+import { Badge } from '@open-mercato/ui/primitives/badge'
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
 import { apiCallOrThrow, readApiResultOrThrow } from '@open-mercato/ui/backend/utils/apiCall'
-import type { SectionAction, TabEmptyStateConfig, Translator } from './types'
+import {
+  readJsonFromLocalStorage,
+  writeJsonToLocalStorage,
+} from '@open-mercato/shared/lib/browser/safeLocalStorage'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { createTranslatorWithFallback } from '@open-mercato/shared/lib/i18n/translate'
-import { formatDate } from './utils'
+import { useAppEvent } from '@open-mercato/ui/backend/injection/useAppEvent'
+import type { SectionAction, TabEmptyStateConfig, Translator } from './types'
+import { CreatePersonDialog } from './CreatePersonDialog'
+import { PersonCard } from './PersonCard'
+import { coerceDisplayName } from '../../lib/displayName'
+import { DecisionMakersFooter } from './DecisionMakersFooter'
+import { RolesSection } from './RolesSection'
+import { LinkEntityDialog, type LinkEntityOption } from '../linking/LinkEntityDialog'
+import { createPersonLinkAdapter } from '../linking/adapters/personAdapter'
 
 type GuardedMutationRunner = <T>(
   operation: () => Promise<T>,
@@ -37,10 +39,14 @@ export type CompanyPersonSummary = {
   department?: string | null
   createdAt?: string | null
   organizationId?: string | null
+  temperature?: string | null
+  source?: string | null
+  linkedAt?: string | null
 }
 
 export type CompanyPeopleSectionProps = {
   companyId: string
+  companyName?: string
   initialPeople: CompanyPersonSummary[]
   addActionLabel: string
   emptyLabel: string
@@ -53,10 +59,7 @@ export type CompanyPeopleSectionProps = {
   runGuardedMutation?: GuardedMutationRunner
 }
 
-function buildCompanyPersonCreateHref(companyId: string): string {
-  const returnTo = `/backend/customers/companies-v2/${encodeURIComponent(companyId)}?tab=people`
-  return `/backend/customers/people/create?companyId=${encodeURIComponent(companyId)}&returnTo=${encodeURIComponent(returnTo)}`
-}
+const COMPANY_PEOPLE_PAGE_SIZE = 20
 
 function normalizeCompanyPerson(record: Record<string, unknown>): CompanyPersonSummary | null {
   const id = typeof record.id === 'string' ? record.id : null
@@ -115,23 +118,64 @@ function normalizeCompanyPerson(record: Record<string, unknown>): CompanyPersonS
         : typeof record.organization_id === 'string'
           ? record.organization_id
           : null,
+    temperature:
+      typeof record.temperature === 'string'
+        ? record.temperature
+        : null,
+    source:
+      typeof record.source === 'string'
+        ? record.source
+        : null,
+    linkedAt:
+      typeof record.linkedAt === 'string'
+        ? record.linkedAt
+        : typeof record.linked_at === 'string'
+          ? record.linked_at
+          : null,
   }
 }
 
-function toLookupItem(person: CompanyPersonSummary): LookupSelectItem {
-  const subtitle = person.primaryEmail || person.primaryPhone || null
-  const description = person.lifecycleStage || person.jobTitle || null
-  return {
-    id: person.id,
-    title: person.displayName,
-    subtitle,
-    description,
-    rightLabel: person.status || null,
-  }
+function mergeCompanyPeople(items: CompanyPersonSummary[]): CompanyPersonSummary[] {
+  const merged = new Map<string, CompanyPersonSummary>()
+  items.forEach((item) => merged.set(item.id, item))
+  return Array.from(merged.values())
+}
+
+function matchesCompanyPersonSearch(person: CompanyPersonSummary, query: string): boolean {
+  const normalizedQuery = query.trim().toLowerCase()
+  if (!normalizedQuery.length) return true
+  const haystack = [
+    person.displayName,
+    person.jobTitle ?? '',
+    person.primaryEmail ?? '',
+    person.primaryPhone ?? '',
+    person.department ?? '',
+  ]
+    .join(' ')
+    .toLowerCase()
+  return haystack.includes(normalizedQuery)
+}
+
+function sortCompanyPeople(
+  items: CompanyPersonSummary[],
+  sortMode: 'name-asc' | 'name-desc' | 'recent',
+): CompanyPersonSummary[] {
+  return [...items].sort((left, right) => {
+    if (sortMode === 'recent') {
+      const leftTimestamp = Date.parse(left.linkedAt ?? left.createdAt ?? '') || 0
+      const rightTimestamp = Date.parse(right.linkedAt ?? right.createdAt ?? '') || 0
+      return rightTimestamp - leftTimestamp
+    }
+    const leftLabel = coerceDisplayName(left.displayName).trim().toLowerCase()
+    const rightLabel = coerceDisplayName(right.displayName).trim().toLowerCase()
+    if (sortMode === 'name-desc') return rightLabel.localeCompare(leftLabel)
+    return leftLabel.localeCompare(rightLabel)
+  })
 }
 
 export function CompanyPeopleSection({
   companyId,
+  companyName,
   initialPeople,
   addActionLabel,
   emptyLabel,
@@ -143,21 +187,34 @@ export function CompanyPeopleSection({
   onDataRefresh,
   runGuardedMutation,
 }: CompanyPeopleSectionProps) {
-  const router = useRouter()
   const tHook = useT()
-  const fallbackTranslator = React.useMemo<Translator>(() => createTranslatorWithFallback(tHook), [tHook])
+  const fallbackTranslator = React.useMemo<Translator>(
+    () => createTranslatorWithFallback(tHook),
+    [tHook],
+  )
   const translate: Translator = translator ?? fallbackTranslator
   const [people, setPeople] = React.useState<CompanyPersonSummary[]>(initialPeople)
   const [removingId, setRemovingId] = React.useState<string | null>(null)
   const [linkDialogOpen, setLinkDialogOpen] = React.useState(false)
-  const [selectedPersonId, setSelectedPersonId] = React.useState<string | null>(null)
-  const [linking, setLinking] = React.useState(false)
-  const candidatePeopleRef = React.useRef<Map<string, CompanyPersonSummary>>(new Map())
+  const [createDialogOpen, setCreateDialogOpen] = React.useState(false)
+  const [searchQuery, setSearchQuery] = React.useState('')
+  const [sortMode, setSortMode] = React.useState<'name-asc' | 'name-desc' | 'recent'>('name-asc')
+  const [filtersOpen, setFiltersOpen] = React.useState(true)
+  const [visiblePeople, setVisiblePeople] = React.useState<CompanyPersonSummary[]>([])
+  const [listPage, setListPage] = React.useState(1)
+  const [listTotalPages, setListTotalPages] = React.useState(1)
+  const [listTotalCount, setListTotalCount] = React.useState(initialPeople.length)
+  const [listLoading, setListLoading] = React.useState(true)
+  const [starredIds, setStarredIds] = React.useState<Set<string>>(
+    () => new Set(readJsonFromLocalStorage<string[]>(`om:starred-people:${companyId}`, [])),
+  )
   const pendingPeopleChangeRef = React.useRef(false)
-  const createPersonHref = React.useMemo(() => buildCompanyPersonCreateHref(companyId), [companyId])
 
   const runWriteMutation = React.useCallback(
-    async <T,>(operation: () => Promise<T>, mutationPayload?: Record<string, unknown>): Promise<T> => {
+    async <T,>(
+      operation: () => Promise<T>,
+      mutationPayload?: Record<string, unknown>,
+    ): Promise<T> => {
       if (!runGuardedMutation) {
         return operation()
       }
@@ -166,18 +223,44 @@ export function CompanyPeopleSection({
     [runGuardedMutation],
   )
 
+  const toggleStar = React.useCallback(
+    (personId: string) => {
+      setStarredIds((prev) => {
+        const next = new Set(prev)
+        if (next.has(personId)) next.delete(personId)
+        else next.add(personId)
+        writeJsonToLocalStorage(`om:starred-people:${companyId}`, [...next])
+        return next
+      })
+    },
+    [companyId],
+  )
+
+  const displayedPeople = React.useMemo(
+    () => (visiblePeople.length > 0 ? visiblePeople : people),
+    [people, visiblePeople],
+  )
+  const totalLinkedPeople = listTotalCount > 0 ? listTotalCount : displayedPeople.length
+  const decisionMakerNames = React.useMemo(
+    () =>
+      displayedPeople
+        .filter((person) => starredIds.has(person.id))
+        .map((person) => person.displayName),
+    [displayedPeople, starredIds],
+  )
+
   React.useEffect(() => {
     const action: SectionAction = {
       label: addActionLabel,
       onClick: () => {
-        router.push(createPersonHref)
+        setCreateDialogOpen(true)
       },
     }
     onActionChange?.(action)
     return () => {
       onActionChange?.(null)
     }
-  }, [addActionLabel, createPersonHref, onActionChange, router])
+  }, [addActionLabel, onActionChange])
 
   React.useEffect(() => {
     pendingPeopleChangeRef.current = false
@@ -190,38 +273,64 @@ export function CompanyPeopleSection({
     onPeopleChange?.(people)
   }, [onPeopleChange, people])
 
-  const linkedIds = React.useMemo(() => new Set(people.map((person) => person.id)), [people])
-
-  const fetchCandidatePeople = React.useCallback(
-    async (query?: string): Promise<LookupSelectItem[]> => {
+  const loadVisiblePeople = React.useCallback(async () => {
+    setListLoading(true)
+    try {
       const params = new URLSearchParams({
-        pageSize: '20',
-        sortField: 'name',
-        sortDir: 'asc',
+        page: String(listPage),
+        pageSize: String(COMPANY_PEOPLE_PAGE_SIZE),
+        sort: sortMode,
       })
-      if (typeof query === 'string' && query.trim().length > 0) {
-        params.set('search', query.trim())
+      if (searchQuery.trim().length > 0) {
+        params.set('search', searchQuery.trim())
       }
-      const payload = await readApiResultOrThrow<Record<string, unknown>>(
-        `/api/customers/people?${params.toString()}`,
+      const payload = await readApiResultOrThrow<{
+        items?: CompanyPersonSummary[]
+        page?: number
+        total?: number
+        totalPages?: number
+      }>(
+        `/api/customers/companies/${encodeURIComponent(companyId)}/people?${params.toString()}`,
         undefined,
-        { errorMessage: translate('customers.companies.detail.people.linkLoadError', 'Failed to load people.') },
+        {
+          errorMessage: translate(
+            'customers.companies.detail.people.loadError',
+            'Failed to load people.',
+          ),
+        },
       )
-      const items = Array.isArray(payload.items) ? payload.items : []
-      const nextMap = new Map<string, CompanyPersonSummary>()
-      const options = items
-        .map((item) => (item && typeof item === 'object' ? normalizeCompanyPerson(item as Record<string, unknown>) : null))
-        .filter((entry): entry is CompanyPersonSummary => entry !== null)
-        .filter((entry) => !linkedIds.has(entry.id))
-        .map((entry) => {
-          nextMap.set(entry.id, entry)
-          return toLookupItem(entry)
-        })
-      candidatePeopleRef.current = nextMap
-      return options
-    },
-    [linkedIds, translate],
-  )
+      const nextTotalCount = typeof payload.total === 'number' ? payload.total : 0
+      setVisiblePeople(Array.isArray(payload.items) ? payload.items : [])
+      setListPage(typeof payload.page === 'number' ? payload.page : listPage)
+      setListTotalCount((current) =>
+        searchQuery.trim().length > 0 ? Math.max(current, nextTotalCount) : nextTotalCount,
+      )
+      setListTotalPages(typeof payload.totalPages === 'number' ? payload.totalPages : 1)
+    } catch {
+      setVisiblePeople([])
+      if (searchQuery.trim().length === 0) {
+        setListTotalCount(0)
+      }
+      setListTotalPages(1)
+    } finally {
+      setListLoading(false)
+    }
+  }, [companyId, listPage, searchQuery, sortMode, translate])
+
+  React.useEffect(() => {
+    void loadVisiblePeople()
+  }, [loadVisiblePeople])
+
+  useAppEvent('customers.person_company_link.deleted', (event) => {
+    const payload = event.payload as { companyEntityId?: string | null } | null | undefined
+    if (payload && payload.companyEntityId === companyId) {
+      void loadVisiblePeople()
+    }
+  }, [companyId, loadVisiblePeople])
+
+  React.useEffect(() => {
+    setListPage(1)
+  }, [searchQuery, sortMode])
 
   const applyPeopleChange = React.useCallback(
     (updater: (current: CompanyPersonSummary[]) => CompanyPersonSummary[]) => {
@@ -236,61 +345,165 @@ export function CompanyPeopleSection({
     [],
   )
 
-  const handleLink = React.useCallback(async () => {
-    if (!selectedPersonId || linking) return
-    setLinking(true)
-    onLoadingChange?.(true)
-    try {
-      await runWriteMutation(
-        () =>
-          apiCallOrThrow(
-            '/api/customers/people',
+  const handleLinkConfirm = React.useCallback(
+    async ({
+      addedIds,
+      optionsById,
+    }: {
+      addedIds: string[]
+      removedIds: string[]
+      optionsById: Record<string, LinkEntityOption>
+    }) => {
+      if (!addedIds.length) return
+      onLoadingChange?.(true)
+      try {
+        for (const personId of addedIds) {
+          await runWriteMutation(
+            () =>
+              apiCallOrThrow(
+                `/api/customers/people/${encodeURIComponent(personId)}/companies`,
+                {
+                  method: 'POST',
+                  headers: { 'content-type': 'application/json' },
+                  body: JSON.stringify({ companyId }),
+                },
+                {
+                  errorMessage: translate(
+                    'customers.companies.detail.people.linkError',
+                    'Failed to link person to company.',
+                  ),
+                },
+              ),
             {
-              method: 'PUT',
-              headers: { 'content-type': 'application/json' },
-              body: JSON.stringify({ id: selectedPersonId, companyEntityId: companyId }),
+              personId,
+              companyId,
             },
-            { errorMessage: translate('customers.companies.detail.people.linkError', 'Failed to link person to company.') },
-          ),
-        {
-          id: selectedPersonId,
-          companyEntityId: companyId,
-        },
-      )
-
-      const candidate = candidatePeopleRef.current.get(selectedPersonId)
-      if (candidate) {
-        applyPeopleChange((current) => {
-          const withoutSelected = current.filter((entry) => entry.id !== selectedPersonId)
-          return [...withoutSelected, candidate]
-        })
-      }
-
-      flash(translate('customers.companies.detail.people.linkSuccess', 'Person linked to company.'), 'success')
-      setSelectedPersonId(null)
-      setLinkDialogOpen(false)
-      await onDataRefresh?.()
-    } catch (err) {
-      const message =
-        err instanceof Error
-          ? err.message
-          : translate('customers.companies.detail.people.linkError', 'Failed to link person to company.')
-      flash(message, 'error')
-    } finally {
-      setLinking(false)
-      onLoadingChange?.(false)
-    }
-  }, [applyPeopleChange, companyId, linking, onDataRefresh, onLoadingChange, runWriteMutation, selectedPersonId, translate])
-
-  const handleLinkDialogKeyDown = React.useCallback(
-    (event: React.KeyboardEvent<HTMLDivElement>) => {
-      if ((event.metaKey || event.ctrlKey) && event.key === 'Enter') {
-        event.preventDefault()
-        if (!selectedPersonId || linking) return
-        void handleLink()
+          )
+        }
+        const optimisticPeople: CompanyPersonSummary[] = addedIds
+          .map((personId): CompanyPersonSummary | null => {
+            const option = optionsById[personId]
+            if (!option) return null
+            return {
+              id: option.id,
+              displayName: option.label,
+              primaryEmail: null,
+              primaryPhone: null,
+              jobTitle: option.subtitle ?? null,
+            }
+          })
+          .filter((entry): entry is CompanyPersonSummary => entry !== null)
+        if (optimisticPeople.length > 0) {
+          applyPeopleChange((current) => mergeCompanyPeople([...current, ...optimisticPeople]))
+          setListTotalCount((current) => current + optimisticPeople.length)
+        }
+        await loadVisiblePeople()
+        flash(
+          addedIds.length === 1
+            ? translate(
+                'customers.companies.detail.people.linkSuccess',
+                'Person linked to company.',
+              )
+            : translate(
+                'customers.companies.detail.people.linkSuccessMultiple',
+                '{{count}} people linked to company.',
+                { count: String(addedIds.length) },
+              ),
+          'success',
+        )
+      } catch (err) {
+        try {
+          await onDataRefresh?.()
+        } catch {
+          // preserve original linking error for the user
+        }
+        const message =
+          err instanceof Error
+            ? err.message
+            : translate(
+                'customers.companies.detail.people.linkError',
+                'Failed to link person to company.',
+              )
+        flash(message, 'error')
+        throw err
+      } finally {
+        onLoadingChange?.(false)
       }
     },
-    [handleLink, linking, selectedPersonId],
+    [
+      applyPeopleChange,
+      companyId,
+      loadVisiblePeople,
+      onDataRefresh,
+      onLoadingChange,
+      runWriteMutation,
+      translate,
+    ],
+  )
+
+  const personLinkAdapter = React.useMemo(
+    () =>
+      createPersonLinkAdapter({
+        dialogTitle: translate('customers.linking.person.dialogTitle', 'Link person'),
+        dialogSubtitle: companyName
+          ? translate(
+              'customers.linking.person.dialogSubtitleFor',
+              'Link an existing contact to {{name}}',
+              { name: companyName },
+            )
+          : translate(
+              'customers.linking.person.dialogSubtitle',
+              'Link an existing contact to this company',
+            ),
+        sectionLabel: translate('customers.linking.person.sectionLabel', 'MATCHING CONTACTS'),
+        searchPlaceholder: translate(
+          'customers.linking.person.searchPlaceholder',
+          'Search all people…',
+        ),
+        searchEmptyHint: translate(
+          'customers.linking.person.searchEmpty',
+          'No matching people found.',
+        ),
+        selectedEmptyHint: translate(
+          'customers.linking.person.selectedEmpty',
+          'No people selected.',
+        ),
+        confirmButtonLabel: translate('customers.linking.person.confirmButton', 'Link person'),
+        showLinkSettings: true,
+        roleOptions: [
+          { id: 'decision_maker', label: 'Decision maker' },
+          { id: 'budget_holder', label: 'Budget holder' },
+          { id: 'stakeholder', label: 'Stakeholder' },
+          { id: 'contact', label: 'Contact' },
+        ],
+        excludeLinkedCompanyId: companyId,
+        addNew: {
+          title: translate('customers.linking.person.addNew', 'Add new contact'),
+          subtitle: translate(
+            'customers.linking.person.addNewSubtitle',
+            'Company will be filled in automatically',
+          ),
+          render: ({ onCancel }) => (
+            <CreatePersonDialog
+              open
+              onClose={onCancel}
+              companyId={companyId}
+              companyName={companyName ?? companyId}
+              runGuardedMutation={runWriteMutation}
+              onPersonCreated={() => {
+                // CreatePersonDialog already created and linked the person to this company
+                // via the companyEntityId payload field. Refresh the on-page list and close
+                // both the nested and outer dialogs so the user can see the new entry.
+                void loadVisiblePeople()
+                void onDataRefresh?.()
+                setLinkDialogOpen(false)
+                onCancel()
+              }}
+            />
+          ),
+        },
+      }),
+    [companyId, companyName, loadVisiblePeople, onDataRefresh, runWriteMutation, translate],
   )
 
   const handleRemove = React.useCallback(
@@ -302,233 +515,319 @@ export function CompanyPeopleSection({
         await runWriteMutation(
           () =>
             apiCallOrThrow(
-              '/api/customers/people',
+              `/api/customers/people/${encodeURIComponent(personId)}/companies/${encodeURIComponent(companyId)}`,
+              { method: 'DELETE' },
               {
-                method: 'PUT',
-                headers: { 'content-type': 'application/json' },
-                body: JSON.stringify({ id: personId, companyEntityId: null }),
+                errorMessage: translate(
+                  'customers.companies.detail.people.removeError',
+                  'Failed to unlink person from company.',
+                ),
               },
-              { errorMessage: translate('customers.companies.detail.people.removeError', 'Failed to unlink person from company.') },
             ),
           {
-            id: personId,
-            companyEntityId: null,
+            personId,
+            companyId,
           },
         )
-        applyPeopleChange((current) => current.filter((entry) => entry.id !== personId))
-        flash(translate('customers.companies.detail.people.removeSuccess', 'Person unlinked from company.'), 'success')
-        await onDataRefresh?.()
+        await loadVisiblePeople()
+        flash(
+          translate(
+            'customers.companies.detail.people.removeSuccess',
+            'Person unlinked from company.',
+          ),
+          'success',
+        )
       } catch (err) {
         const message =
           err instanceof Error
             ? err.message
-            : translate('customers.companies.detail.people.removeError', 'Failed to unlink person from company.')
+            : translate(
+                'customers.companies.detail.people.removeError',
+                'Failed to unlink person from company.',
+              )
         flash(message, 'error')
       } finally {
         setRemovingId(null)
         onLoadingChange?.(false)
       }
     },
-    [applyPeopleChange, onDataRefresh, onLoadingChange, removingId, runWriteMutation, translate],
+    [
+      companyId,
+      loadVisiblePeople,
+      onLoadingChange,
+      removingId,
+      runWriteMutation,
+      translate,
+    ],
   )
 
   const linkAction = (
-    <Button type="button" variant="outline" size="sm" onClick={() => setLinkDialogOpen(true)} disabled={linking}>
+    <Button
+      type="button"
+      variant="outline"
+      size="sm"
+      onClick={() => setLinkDialogOpen(true)}
+    >
       <Link2 className="mr-1.5 h-4 w-4" />
-      {translate('customers.companies.detail.people.linkAction', 'Link existing person')}
+      {translate(
+        'customers.companies.detail.people.linkAction',
+        'Link existing person',
+      )}
     </Button>
   )
   const addPersonAction = (
-    <Button type="button" size="sm" onClick={() => router.push(createPersonHref)}>
+    <Button type="button" size="sm" onClick={() => setCreateDialogOpen(true)}>
       <Plus className="mr-1.5 h-4 w-4" />
       {addActionLabel}
     </Button>
   )
 
-  if (!people.length) {
+  if (!listLoading && totalLinkedPeople === 0) {
     return (
       <>
         <EmptyState
           icon={<Users className="h-10 w-10 text-muted-foreground" />}
           title={emptyState.title}
           actionLabel={emptyState.actionLabel}
-          onAction={() => router.push(createPersonHref)}
+          onAction={() => setCreateDialogOpen(true)}
         >
           <p className="text-sm text-muted-foreground">{emptyLabel}</p>
           <div className="mt-4">{linkAction}</div>
         </EmptyState>
-        <Dialog open={linkDialogOpen} onOpenChange={setLinkDialogOpen}>
-          <DialogContent className="sm:max-w-2xl" onKeyDown={handleLinkDialogKeyDown}>
-            <DialogHeader>
-              <DialogTitle>{translate('customers.companies.detail.people.linkDialog.title', 'Link existing person')}</DialogTitle>
-              <DialogDescription>
-                {translate(
-                  'customers.companies.detail.people.linkDialog.description',
-                  'Search for an existing person and attach them to this company without leaving the page.',
-                )}
-              </DialogDescription>
-            </DialogHeader>
-            <div className="space-y-3">
-              <LookupSelect
-                value={selectedPersonId}
-                onChange={setSelectedPersonId}
-                fetchOptions={fetchCandidatePeople}
-                defaultOpen
-                searchPlaceholder={translate('customers.companies.detail.people.linkSearchPlaceholder', 'Search people by name or email')}
-                emptyLabel={translate('customers.companies.detail.people.linkEmpty', 'No matching people found.')}
-                loadingLabel={translate('customers.companies.detail.people.linkLoading', 'Searching people…')}
-                selectLabel={translate('customers.companies.detail.people.linkSelect', 'Link')}
-                selectedLabel={translate('customers.companies.detail.people.linkSelected', 'Selected')}
-                clearLabel={translate('customers.companies.detail.people.linkClear', 'Clear selection')}
-                startTypingLabel={translate('customers.companies.detail.people.linkStartTyping', 'Start typing to search for an existing person.')}
-              />
-            </div>
-            <DialogFooter>
-              <Button type="button" variant="outline" onClick={() => setLinkDialogOpen(false)} disabled={linking}>
-                {translate('customers.companies.detail.people.linkCancel', 'Cancel')}
-              </Button>
-              <Button type="button" onClick={() => void handleLink()} disabled={!selectedPersonId || linking}>
-                {linking ? (
-                  <>
-                    <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                    {translate('customers.companies.detail.people.linkSubmitting', 'Linking…')}
-                  </>
-                ) : (
-                  translate('customers.companies.detail.people.linkConfirm', 'Link person')
-                )}
-              </Button>
-            </DialogFooter>
-          </DialogContent>
-        </Dialog>
+        <LinkEntityDialog
+          open={linkDialogOpen}
+          onOpenChange={setLinkDialogOpen}
+          adapter={personLinkAdapter}
+          initialSelectedIds={[]}
+          onConfirm={handleLinkConfirm}
+          runGuardedMutation={runWriteMutation}
+        />
+        <CreatePersonDialog
+          open={createDialogOpen}
+          onClose={() => setCreateDialogOpen(false)}
+          companyId={companyId}
+          companyName={companyName ?? companyId}
+          runGuardedMutation={runWriteMutation}
+          onPersonCreated={() => {
+            setCreateDialogOpen(false)
+            void loadVisiblePeople()
+            void onDataRefresh?.()
+          }}
+        />
       </>
     )
   }
 
   return (
     <>
-      <div className="space-y-3">
-        <div className="flex flex-wrap justify-end gap-2">
-          {linkAction}
-        </div>
-        <div className="rounded border bg-muted/20">
-          {people.map((person) => (
-            <div
-              key={person.id}
-              className="flex flex-col gap-3 border-b px-4 py-3 last:border-b-0 md:flex-row md:items-center md:justify-between"
-            >
+      <div className="space-y-4">
+        <RolesSection
+          entityType="company"
+          entityId={companyId}
+          entityName={companyName ?? null}
+        />
+
+        <section className="rounded-lg border bg-card px-4 py-4 sm:px-5">
+          <div className="flex flex-col gap-4">
+            <div className="flex flex-col gap-3 xl:flex-row xl:items-start xl:justify-between">
               <div className="space-y-1">
-                <div className="flex flex-wrap items-center gap-2">
-                  <p className="font-medium text-foreground">{person.displayName}</p>
-                  {person.jobTitle ? (
-                    <span className="rounded-full bg-muted px-2 py-0.5 text-xs text-muted-foreground">
-                      {person.jobTitle}
-                    </span>
-                  ) : null}
-                  {person.status ? (
-                    <span className="rounded-full border px-2 py-0.5 text-xs text-muted-foreground">
-                      {person.status}
-                    </span>
-                  ) : null}
+                <div className="flex items-center gap-2">
+                  <h3 className="text-base font-semibold">
+                    {translate(
+                      'customers.companies.detail.people.sectionTitle',
+                      'People',
+                    )}
+                  </h3>
+                  <Badge
+                    variant="secondary"
+                    className="rounded-full px-2 py-0 text-xs font-semibold"
+                  >
+                    {totalLinkedPeople}
+                  </Badge>
                 </div>
-                <div className="flex flex-wrap gap-x-4 gap-y-1 text-xs text-muted-foreground">
-                  {person.primaryEmail ? <span>{person.primaryEmail}</span> : null}
-                  {person.primaryPhone ? <span>{person.primaryPhone}</span> : null}
-                  {person.lifecycleStage ? <span>{person.lifecycleStage}</span> : null}
-                  {(() => {
-                    const linkedDate = formatDate(person.createdAt ?? null)
-                    return linkedDate
-                      ? (
-                        <span>
-                          {translate('customers.companies.detail.people.linkedOn', 'Linked on {{date}}', {
-                            date: linkedDate,
-                          })}
-                        </span>
-                      )
-                      : null
-                  })()}
-                </div>
-              </div>
-              <div className="flex flex-wrap items-center gap-2">
-                <Button
-                  type="button"
-                  variant="outline"
-                  size="sm"
-                  onClick={() => router.push(`/backend/customers/people-v2/${encodeURIComponent(person.id)}`)}
-                >
-                  <ArrowUpRightSquare className="mr-1.5 h-4 w-4" />
-                  {translate('customers.companies.detail.people.open', 'Open person')}
-                </Button>
-                <Button
-                  type="button"
-                  variant="ghost"
-                  size="sm"
-                  onClick={() => handleRemove(person.id)}
-                  disabled={removingId === person.id}
-                  className="text-destructive hover:bg-destructive/10 hover:text-destructive"
-                >
-                  {removingId === person.id ? (
-                    <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                  ) : (
-                    <Trash2 className="mr-2 h-4 w-4" />
+                <p className="text-xs text-muted-foreground">
+                  {translate(
+                    'customers.companies.detail.people.sectionSubtitle',
+                    'Employees and decision makers on the client side',
                   )}
-                  {translate('customers.companies.detail.people.remove', 'Unlink')}
-                </Button>
+                </p>
+              </div>
+              <div className="flex flex-wrap items-center gap-2 xl:justify-end">
+                {linkAction}
+                {addPersonAction}
               </div>
             </div>
-          ))}
-        </div>
-        <p className="text-xs text-muted-foreground">
-          {translate(
-            'customers.companies.detail.people.helper',
-            'People linked to this company appear here and can be created, linked, opened, or unlinked without leaving the page.',
-          )}
-        </p>
-      </div>
-      <Dialog open={linkDialogOpen} onOpenChange={setLinkDialogOpen}>
-        <DialogContent className="sm:max-w-2xl" onKeyDown={handleLinkDialogKeyDown}>
-          <DialogHeader>
-            <DialogTitle>{translate('customers.companies.detail.people.linkDialog.title', 'Link existing person')}</DialogTitle>
-            <DialogDescription>
-              {translate(
-                'customers.companies.detail.people.linkDialog.description',
-                'Search for an existing person and attach them to this company without leaving the page.',
-              )}
-            </DialogDescription>
-          </DialogHeader>
-          <div className="space-y-3">
-            <LookupSelect
-              value={selectedPersonId}
-              onChange={setSelectedPersonId}
-              fetchOptions={fetchCandidatePeople}
-              defaultOpen
-              searchPlaceholder={translate('customers.companies.detail.people.linkSearchPlaceholder', 'Search people by name or email')}
-              emptyLabel={translate('customers.companies.detail.people.linkEmpty', 'No matching people found.')}
-              loadingLabel={translate('customers.companies.detail.people.linkLoading', 'Searching people…')}
-              selectLabel={translate('customers.companies.detail.people.linkSelect', 'Link')}
-              selectedLabel={translate('customers.companies.detail.people.linkSelected', 'Selected')}
-              clearLabel={translate('customers.companies.detail.people.linkClear', 'Clear selection')}
-              startTypingLabel={translate('customers.companies.detail.people.linkStartTyping', 'Start typing to search for an existing person.')}
-            />
+
+            {totalLinkedPeople > 0 ? (
+              <div className="flex flex-col gap-3 lg:flex-row lg:items-center">
+                {filtersOpen ? (
+                  <div className="min-w-0 flex-1">
+                    <input
+                      type="text"
+                      value={searchQuery}
+                      onChange={(event) => setSearchQuery(event.target.value)}
+                      placeholder={translate(
+                        'customers.companies.detail.people.searchPlaceholder',
+                        'Search by name, role, email...',
+                      )}
+                      className="h-10 w-full rounded-md border bg-background px-3 text-sm placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-ring"
+                    />
+                  </div>
+                ) : null}
+                <div className="flex flex-wrap items-center gap-2 lg:justify-end">
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    onClick={() => setFiltersOpen((current) => !current)}
+                    className="h-10"
+                  >
+                    <Filter className="mr-1.5 h-4 w-4" />
+                    {translate(
+                      'customers.companies.detail.people.filter',
+                      'Filters',
+                    )}
+                  </Button>
+                  {filtersOpen ? (
+                    <select
+                      value={sortMode}
+                      onChange={(event) =>
+                        setSortMode(event.target.value as 'name-asc' | 'name-desc' | 'recent')
+                      }
+                      className="h-10 min-w-[11rem] rounded-md border bg-background px-3 text-sm focus:outline-none focus:ring-1 focus:ring-ring"
+                    >
+                      <option value="name-asc">
+                        {translate(
+                          'customers.companies.detail.people.sortNameAsc',
+                          'Sort: Name A-Z',
+                        )}
+                      </option>
+                      <option value="name-desc">
+                        {translate(
+                          'customers.companies.detail.people.sortNameDesc',
+                          'Sort: Name Z-A',
+                        )}
+                      </option>
+                      <option value="recent">
+                        {translate(
+                          'customers.companies.detail.people.sortRecent',
+                          'Sort: Recently linked',
+                        )}
+                      </option>
+                    </select>
+                  ) : null}
+                </div>
+              </div>
+            ) : null}
+
+            {listLoading ? (
+              <p className="py-6 text-center text-sm text-muted-foreground">
+                {translate('customers.companies.detail.people.loading', 'Loading people…')}
+              </p>
+            ) : visiblePeople.length > 0 ? (
+              <>
+                <div
+                  className="grid items-start gap-4"
+                  style={{
+                    gridTemplateColumns: 'repeat(auto-fit, minmax(min(100%, 19.5rem), 1fr))',
+                  }}
+                >
+                  {visiblePeople.map((person) => (
+                    <PersonCard
+                      key={person.id}
+                      person={person}
+                      isStarred={starredIds.has(person.id)}
+                      onToggleStar={toggleStar}
+                      onUnlink={handleRemove}
+                    />
+                  ))}
+                </div>
+                {listTotalPages > 1 ? (
+                  <div className="flex items-center justify-between border-t border-border/60 pt-3 text-sm text-muted-foreground">
+                    <span>
+                      {translate(
+                        'customers.companies.detail.people.pageSummary',
+                        'Page {{page}} of {{total}}',
+                        {
+                          page: listPage,
+                          total: listTotalPages,
+                        },
+                      )}
+                    </span>
+                    <div className="flex items-center gap-2">
+                      <Button
+                        type="button"
+                        variant="outline"
+                        size="sm"
+                        onClick={() => setListPage((current) => Math.max(1, current - 1))}
+                        disabled={listPage <= 1}
+                      >
+                        {translate('customers.companies.detail.people.previous', 'Previous')}
+                      </Button>
+                      <Button
+                        type="button"
+                        variant="outline"
+                        size="sm"
+                        onClick={() =>
+                          setListPage((current) => Math.min(listTotalPages, current + 1))
+                        }
+                        disabled={listPage >= listTotalPages}
+                      >
+                        {translate('customers.companies.detail.people.next', 'Next')}
+                      </Button>
+                    </div>
+                  </div>
+                ) : null}
+              </>
+            ) : totalLinkedPeople > 0 ? (
+              <p className="py-6 text-center text-sm text-muted-foreground">
+                {translate(
+                  'customers.companies.detail.people.noSearchResults',
+                  'No people match your search.',
+                )}
+              </p>
+            ) : null}
           </div>
-          <DialogFooter>
-            <Button type="button" variant="outline" onClick={() => setLinkDialogOpen(false)} disabled={linking}>
-              {translate('customers.companies.detail.people.linkCancel', 'Cancel')}
-            </Button>
-            <Button type="button" onClick={() => void handleLink()} disabled={!selectedPersonId || linking}>
-              {linking ? (
-                <>
-                  <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                  {translate('customers.companies.detail.people.linkSubmitting', 'Linking…')}
-                </>
-              ) : (
-                translate('customers.companies.detail.people.linkConfirm', 'Link person')
-              )}
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
+        </section>
+
+        <DecisionMakersFooter
+          names={decisionMakerNames}
+          onSendInvitation={() => {
+            const starredEmails = displayedPeople
+              .filter((person) => starredIds.has(person.id) && person.primaryEmail)
+              .map((person) => person.primaryEmail!)
+            if (starredEmails.length > 0) {
+              window.open(`mailto:${starredEmails.join(',')}`, '_blank')
+            }
+          }}
+        />
+      </div>
+
+      <LinkEntityDialog
+        open={linkDialogOpen}
+        onOpenChange={setLinkDialogOpen}
+        adapter={personLinkAdapter}
+        initialSelectedIds={[]}
+        onConfirm={handleLinkConfirm}
+        runGuardedMutation={runWriteMutation}
+      />
+
+      <CreatePersonDialog
+        open={createDialogOpen}
+        onClose={() => setCreateDialogOpen(false)}
+        companyId={companyId}
+        companyName={companyName ?? companyId}
+        runGuardedMutation={runWriteMutation}
+        onPersonCreated={() => {
+          setCreateDialogOpen(false)
+          void loadVisiblePeople()
+          void onDataRefresh?.()
+        }}
+      />
     </>
   )
 }
 
 export default CompanyPeopleSection
+
+export { mergeCompanyPeople, matchesCompanyPersonSearch, sortCompanyPeople, normalizeCompanyPerson }

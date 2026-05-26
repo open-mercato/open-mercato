@@ -20,6 +20,12 @@ await esbuild.build({
 // Make the output executable
 chmodSync('dist/index.js', 0o755)
 
+// Copy lib template assets to dist/ so they can be read at runtime
+if (existsSync('src/lib/templates')) {
+  cpSync('src/lib/templates', 'dist/templates', { recursive: true })
+  console.log('Copied src/lib/templates/ → dist/templates/')
+}
+
 // Copy agentic source content to dist/ so generators can read it at runtime
 if (existsSync('agentic')) {
   cpSync('agentic', 'dist/agentic', { recursive: true })

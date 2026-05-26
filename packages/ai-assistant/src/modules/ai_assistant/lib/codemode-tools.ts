@@ -28,6 +28,15 @@ import {
   buildSearchLabel,
   incrementToolCallCount,
 } from './session-memory'
+import { fetchWithTimeout, resolveTimeoutMs } from '@open-mercato/shared/lib/http/fetchWithTimeout'
+
+const DEFAULT_AI_API_REQUEST_TIMEOUT_MS = 30_000
+
+function resolveAiApiRequestTimeoutMs(): number {
+  const raw = process.env.AI_API_REQUEST_TIMEOUT_MS
+  const parsed = raw ? Number.parseInt(raw, 10) : undefined
+  return resolveTimeoutMs(parsed, DEFAULT_AI_API_REQUEST_TIMEOUT_MS)
+}
 
 /**
  * Cached spec object combining OpenAPI paths + entity schemas.
@@ -519,7 +528,6 @@ function formatValidationError(data: unknown): string {
 
 /**
  * Build entity schema array from the entity graph.
- * Same structure as buildEntityResult in entity-graph-tools.ts.
  */
 function buildEntitySchemas(graph: EntityGraph) {
   return graph.nodes.map((node) => {
@@ -752,7 +760,6 @@ RULES: For FIND/LIST → GET only (1 call). For UPDATE → PUT to collection pat
 
 /**
  * Create the api.request() function for the execute sandbox.
- * Replicates the authenticated API call logic from api-discovery-tools.ts.
  */
 function createApiRequestFn(
   ctx: McpToolContext,
@@ -823,10 +830,11 @@ function createApiRequestFn(
     if (ctx.organizationId) headers['X-Organization-Id'] = ctx.organizationId
 
     // Execute request using host fetch (not sandbox)
-    const response = await globalThis.fetch(url, {
+    const response = await fetchWithTimeout(url, {
       method: normalizedMethod,
       headers,
       body: requestBody ? JSON.stringify(requestBody) : undefined,
+      timeoutMs: resolveAiApiRequestTimeoutMs(),
     })
 
     const responseText = await response.text()

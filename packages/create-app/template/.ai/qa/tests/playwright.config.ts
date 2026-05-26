@@ -13,7 +13,10 @@ const STATIC_TEST_IGNORES = [
   `${normalizePath(path.join(projectRoot, '.claude'))}/**`,
   `${normalizePath(path.join(projectRoot, '.codex'))}/**`,
 ];
-const discoveredSpecs = discoverIntegrationSpecFiles(projectRoot, path.join(projectRoot, '.ai', 'qa', 'tests'));
+// `.ai/qa/tests` is retained for the shared Playwright config only.
+// Executable specs must live in module-local `__integration__` folders.
+const disabledLegacyIntegrationRoot = path.join(projectRoot, '.ai', 'qa', 'tests', '__legacy_disabled__');
+const discoveredSpecs = discoverIntegrationSpecFiles(projectRoot, disabledLegacyIntegrationRoot);
 const discoveredSpecPaths = discoveredSpecs.map((entry) => entry.path);
 
 export default defineConfig({

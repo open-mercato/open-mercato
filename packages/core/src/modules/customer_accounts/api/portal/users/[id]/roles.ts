@@ -6,7 +6,7 @@ import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import { CustomerUser, CustomerUserRole, CustomerRole } from '@open-mercato/core/modules/customer_accounts/data/entities'
 import { CustomerRbacService } from '@open-mercato/core/modules/customer_accounts/services/customerRbacService'
 import { assignRolesSchema } from '@open-mercato/core/modules/customer_accounts/data/validators'
-import { findOneWithDecryption } from '@open-mercato/shared/lib/encryption/find'
+import { findOneWithDecryption, findWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 
 export const metadata: { path?: string; requireAuth?: boolean } = { requireAuth: false }
 
@@ -55,9 +55,20 @@ export async function PUT(req: Request, { params }: { params: { id: string } }) 
   }
 
   // Validate all roles are customer_assignable and collect for assignment
+  const requestedRoleIds = parsed.data.roleIds
+  const fetchedRoles = requestedRoleIds.length > 0
+    ? await findWithDecryption(
+        em,
+        CustomerRole,
+        { id: { $in: requestedRoleIds }, tenantId: auth.tenantId, deletedAt: null } as any,
+        undefined,
+        { tenantId: auth.tenantId, organizationId: auth.orgId },
+      )
+    : []
+  const fetchedRolesById = new Map(fetchedRoles.map((role) => [role.id, role]))
   const validatedRoles: InstanceType<typeof CustomerRole>[] = []
-  for (const roleId of parsed.data.roleIds) {
-    const role = await findOneWithDecryption(em, CustomerRole, { id: roleId, tenantId: auth.tenantId, deletedAt: null }, undefined, { tenantId: auth.tenantId, organizationId: auth.orgId })
+  for (const roleId of requestedRoleIds) {
+    const role = fetchedRolesById.get(roleId)
     if (!role || !role.customerAssignable) {
       return NextResponse.json({ ok: false, error: 'Role not found or not assignable' }, { status: 400 })
     }

@@ -82,9 +82,9 @@ export class CustomerUserService {
     user.lockedUntil = null
   }
 
-  async updatePassword(user: CustomerUser, newPassword: string): Promise<void> {
+  async updatePassword(user: CustomerUser, newPassword: string, em?: EntityManager): Promise<void> {
     const passwordHash = await hash(newPassword, BCRYPT_COST)
-    await this.em.nativeUpdate(CustomerUser, { id: user.id }, { passwordHash })
+    await (em ?? this.em).nativeUpdate(CustomerUser, { id: user.id }, { passwordHash })
     user.passwordHash = passwordHash
   }
 

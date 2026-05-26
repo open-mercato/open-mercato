@@ -10,11 +10,15 @@ import { OrganizationSelect } from '@open-mercato/core/modules/directory/compone
 import { TenantSelect } from '@open-mercato/core/modules/directory/components/TenantSelect'
 import { fetchRoleOptions } from '@open-mercato/core/modules/auth/backend/users/roleOptions'
 import { Spinner } from '@open-mercato/ui/primitives/spinner'
+import { RadioGroup } from '@open-mercato/ui/primitives/radio'
+import { RadioField } from '@open-mercato/ui/primitives/radio-field'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { formatPasswordRequirements, getPasswordPolicy } from '@open-mercato/shared/lib/auth/passwordPolicy'
+import { normalizeDisplayNameInput } from '@open-mercato/core/modules/auth/lib/displayName'
 
 type CreateUserFormValues = {
   email: string
+  name: string
   password: string
   tenantId: string | null
   organizationId: string | null
@@ -85,6 +89,7 @@ export default function CreateUserPage() {
   const [selectedWidgets, setSelectedWidgets] = React.useState<string[]>([])
   const [selectedTenantId, setSelectedTenantId] = React.useState<string | null>(null)
   const [actorIsSuperAdmin, setActorIsSuperAdmin] = React.useState(false)
+  const [actorResolved, setActorResolved] = React.useState(false)
   const [sendInviteEmail, setSendInviteEmail] = React.useState(false)
   const passwordPolicy = React.useMemo(() => getPasswordPolicy(), [])
   const passwordRequirements = React.useMemo(
@@ -147,6 +152,8 @@ export default function CreateUserPage() {
         if (!cancelled && ok) setActorIsSuperAdmin(Boolean(result?.isSuperAdmin))
       } catch (err) {
         console.error('Failed to resolve actor super admin flag', err)
+      } finally {
+        if (!cancelled) setActorResolved(true)
       }
     }
     loadActor()
@@ -157,17 +164,22 @@ export default function CreateUserPage() {
     setSelectedWidgets((prev) => (prev.includes(id) ? prev.filter((value) => value !== id) : [...prev, id]))
   }, [])
 
+  // Block role loading until we know whether the actor is a super admin. Without this guard the
+  // initial (non-super-admin) branch fires before the flag resolves and the server returns roles
+  // from other tenants because the real caller is a super admin without tenantId scoping.
   const loadRoleOptions = React.useCallback(async (query?: string): Promise<CrudFieldOption[]> => {
+    if (!actorResolved) return []
     if (actorIsSuperAdmin) {
       if (!selectedTenantId) return []
-      return fetchRoleOptions(query, { tenantId: selectedTenantId })
+      return fetchRoleOptions(query, { tenantId: selectedTenantId, includeSuperAdmin: true })
     }
     return fetchRoleOptions(query)
-  }, [actorIsSuperAdmin, selectedTenantId])
+  }, [actorIsSuperAdmin, actorResolved, selectedTenantId])
 
   const fields: CrudField[] = React.useMemo(() => {
     const items: CrudField[] = [
       { id: 'email', label: t('auth.users.form.field.email', 'Email'), type: 'text', required: true },
+      { id: 'name', label: t('auth.users.form.field.name', 'Display name'), type: 'text' },
       {
         id: 'sendInviteEmail',
         label: t('auth.users.form.field.sendInviteEmail', 'Send password setup link via email'),
@@ -242,8 +254,8 @@ export default function CreateUserPage() {
 
   const detailFieldIds = React.useMemo(() => {
     const base: string[] = sendInviteEmail
-      ? ['email', 'sendInviteEmail', 'organizationId', 'roles']
-      : ['email', 'sendInviteEmail', 'password', 'organizationId', 'roles']
+      ? ['email', 'name', 'sendInviteEmail', 'organizationId', 'roles']
+      : ['email', 'name', 'sendInviteEmail', 'password', 'organizationId', 'roles']
     if (actorIsSuperAdmin) {
       const orgIdx = base.indexOf('organizationId')
       base.splice(orgIdx, 0, 'tenantId')
@@ -285,6 +297,7 @@ export default function CreateUserPage() {
   const initialValues = React.useMemo<Partial<CreateUserFormValues>>(
     () => ({
       email: '',
+      name: '',
       password: '',
       tenantId: null,
       organizationId: null,
@@ -314,6 +327,7 @@ export default function CreateUserPage() {
             const customFields = collectCustomFieldValues(values)
             const payload: Record<string, unknown> = {
               email: values.email,
+              name: normalizeDisplayNameInput(values.name),
               organizationId: values.organizationId ? values.organizationId : null,
               roles: Array.isArray(values.roles) ? values.roles : [],
               ...(Object.keys(customFields).length ? { customFields } : {}),
@@ -388,26 +402,20 @@ function DashboardWidgetSelector({
       )}
       {!error && (
         <>
-          <div className="flex items-center gap-3 rounded-md border bg-muted/30 px-3 py-2">
-            <label className="flex items-center gap-2 text-sm">
-              <input
-                type="radio"
-                value="inherit"
-                checked={mode === 'inherit'}
-                onChange={() => onModeChange('inherit')}
-              />
-              {t('auth.users.widgets.mode.inherit', 'Inherit from roles')}
-            </label>
-            <label className="flex items-center gap-2 text-sm">
-              <input
-                type="radio"
-                value="override"
-                checked={mode === 'override'}
-                onChange={() => onModeChange('override')}
-              />
-              {t('auth.users.widgets.mode.override', 'Override for this user')}
-            </label>
-          </div>
+          <RadioGroup
+            className="flex flex-row items-center gap-3 rounded-md border bg-muted/30 px-3 py-2"
+            value={mode}
+            onValueChange={(next) => onModeChange(next as 'inherit' | 'override')}
+          >
+            <RadioField
+              value="inherit"
+              label={t('auth.users.widgets.mode.inherit', 'Inherit from roles')}
+            />
+            <RadioField
+              value="override"
+              label={t('auth.users.widgets.mode.override', 'Override for this user')}
+            />
+          </RadioGroup>
           {mode === 'override' && (
             <div className="space-y-2">
               {catalog.map((widget) => (
@@ -427,7 +435,7 @@ function DashboardWidgetSelector({
             </div>
           )}
           {mode === 'inherit' && (
-            <div className="rounded-md border bg-muted/20 px-3 py-2 text-xs text-muted-foreground">
+            <div className="rounded-md border bg-muted/30 px-3 py-2 text-xs text-muted-foreground">
               {t('auth.users.widgets.mode.hint', 'New users inherit widgets from their assigned roles. Override to pick a custom set.')}
             </div>
           )}

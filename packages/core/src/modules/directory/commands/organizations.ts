@@ -199,7 +199,7 @@ async function restoreChildParents(em: EntityManager, tenantId: string, snapshot
       toPersist.push(child)
     }
   }
-  if (toPersist.length) await em.persistAndFlush(toPersist)
+  if (toPersist.length) await em.persist(toPersist).flush()
 }
 
 function normalizeChildIds(ids: readonly string[], exclude: string[]): string[] {
@@ -239,7 +239,7 @@ async function assignChildren(
       toPersist.push(child)
     }
   }
-  if (toPersist.length) await em.persistAndFlush(toPersist)
+  if (toPersist.length) await em.persist(toPersist).flush()
 }
 
 async function clearRemovedChildren(em: EntityManager, tenantId: string, recordId: string, desiredChildIds: Set<string>): Promise<void> {
@@ -248,7 +248,7 @@ async function clearRemovedChildren(em: EntityManager, tenantId: string, recordI
   const toPersist = current.filter((child) => !desiredChildIds.has(String(child.id)))
   if (!toPersist.length) return
   for (const child of toPersist) child.parentId = null
-  await em.persistAndFlush(toPersist)
+  await em.persist(toPersist).flush()
 }
 
 async function resolveUniqueSlug(em: EntityManager, tenantId: string, baseSlug: string, excludeId?: string): Promise<string> {
@@ -669,7 +669,7 @@ const deleteOrganizationCommand: CommandHandler<{ body: any; query: Record<strin
       toPersist.push(child)
     }
     toPersist.push(deleted)
-    if (toPersist.length) await em.persistAndFlush(toPersist)
+    if (toPersist.length) await em.persist(toPersist).flush()
     setUndoMeta(deleted, { childParentsBefore: childSnapshotsBefore })
 
     await rebuildHierarchyForTenant(em, tenantId)

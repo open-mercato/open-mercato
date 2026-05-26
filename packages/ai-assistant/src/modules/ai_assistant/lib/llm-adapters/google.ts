@@ -73,7 +73,10 @@ export function createGoogleAdapter(): LlmProvider {
     },
 
     createModel(options: LlmCreateModelOptions): unknown {
-      const google = createGoogleGenerativeAI({ apiKey: options.apiKey })
+      const google = createGoogleGenerativeAI({
+        apiKey: options.apiKey,
+        ...(options.baseURL ? { baseURL: options.baseURL } : {}),
+      })
       return google(options.modelId)
     },
   }

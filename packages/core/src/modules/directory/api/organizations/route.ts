@@ -319,6 +319,11 @@ export async function GET(req: Request) {
       byTenant.get(tid)!.push(org)
     }
 
+    const slugByOrgId = new Map<string, string | null>()
+    for (const org of allOrgs) {
+      slugByOrgId.set(String(org.id), org.slug ?? null)
+    }
+
     const tenantIds = Array.from(byTenant.keys())
     const tenants = tenantIds.length
       ? await em.find(Tenant, { id: { $in: tenantIds as unknown as string[] } })
@@ -399,6 +404,7 @@ export async function GET(req: Request) {
       return {
         id: node.id,
         name: node.name,
+        slug: slugByOrgId.get(recordId) ?? null,
         tenantId: tid,
         tenantName: tenantNameMap[tid] ?? tid,
         parentId: node.parentId,
@@ -439,6 +445,10 @@ export async function GET(req: Request) {
   const orgListFilter: FilterQuery<Organization> = { tenant: tenantId, deletedAt: null }
   const orgs = await em.find(Organization, orgListFilter, { orderBy: { name: 'ASC' } })
   const hierarchy = computeHierarchyForOrganizations(orgs, tenantId)
+  const slugByOrgId = new Map<string, string | null>()
+  for (const org of orgs) {
+    slugByOrgId.set(String(org.id), org.slug ?? null)
+  }
 
   // Manage view: paginated flat list for a single tenant
   const search = (query.search || '').trim().toLowerCase()
@@ -499,6 +509,7 @@ export async function GET(req: Request) {
     return {
       id: node.id,
       name: node.name,
+      slug: slugByOrgId.get(recordId) ?? null,
       tenantId: node.tenantId,
       tenantName,
       parentId: node.parentId,

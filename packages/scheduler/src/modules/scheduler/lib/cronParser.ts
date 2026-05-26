@@ -1,6 +1,6 @@
-import parser from 'cron-parser'
+import { CronExpressionParser } from 'cron-parser'
 
-const { parseExpression } = parser
+const parseExpression = CronExpressionParser.parse.bind(CronExpressionParser)
 
 export interface CronParseResult {
   isValid: boolean

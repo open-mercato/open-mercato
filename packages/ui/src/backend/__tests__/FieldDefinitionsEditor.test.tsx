@@ -5,6 +5,20 @@ import { fireEvent, screen } from '@testing-library/react'
 import { renderWithProviders } from '@open-mercato/shared/lib/testing/renderWithProviders'
 import { FieldDefinitionsEditor, type FieldDefinition } from '../custom-fields/FieldDefinitionsEditor'
 
+// Radix Select uses pointer capture / scrollIntoView APIs that jsdom doesn't implement.
+// Polyfill them so tests can interact with Radix-based comboboxes.
+if (typeof window !== 'undefined') {
+  if (!Element.prototype.hasPointerCapture) {
+    Element.prototype.hasPointerCapture = () => false
+  }
+  if (!Element.prototype.releasePointerCapture) {
+    Element.prototype.releasePointerCapture = () => undefined
+  }
+  if (!Element.prototype.scrollIntoView) {
+    Element.prototype.scrollIntoView = () => undefined
+  }
+}
+
 describe('FieldDefinitionsEditor', () => {
   it('assigns a field to a fieldset without triggering a render-time parent update warning', () => {
     const consoleErrorSpy = jest.spyOn(console, 'error').mockImplementation(() => {})
@@ -36,15 +50,18 @@ describe('FieldDefinitionsEditor', () => {
         />,
       )
 
-      const assignFieldsetSelect = screen.getAllByRole('combobox').find((element) => {
-        if (!(element instanceof HTMLSelectElement)) return false
-        const optionLabels = Array.from(element.options).map((option) => option.text)
-        return optionLabels.includes('Unassigned') && optionLabels.includes('New fieldset')
+      const assignFieldsetTrigger = screen.getAllByRole('combobox').find((element) => {
+        return element.textContent?.trim() === 'Unassigned'
       })
 
-      expect(assignFieldsetSelect).toBeDefined()
+      expect(assignFieldsetTrigger).toBeDefined()
 
-      fireEvent.change(assignFieldsetSelect as HTMLSelectElement, { target: { value: 'fieldset_1' } })
+      fireEvent.pointerDown(assignFieldsetTrigger!, { button: 0, ctrlKey: false })
+      fireEvent.click(assignFieldsetTrigger!)
+
+      const option = screen.getByRole('option', { name: 'New fieldset' })
+      fireEvent.pointerDown(option)
+      fireEvent.click(option)
 
       expect(handleDefinitionChange).toHaveBeenCalledWith(0, expect.objectContaining({
         key: 'buying_role',

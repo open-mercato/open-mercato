@@ -7,7 +7,7 @@ import { screen, waitFor } from '@testing-library/react'
 import { renderWithProviders } from '@open-mercato/shared/lib/testing/renderWithProviders'
 import { DashboardScreen } from '../DashboardScreen'
 import { apiCall } from '@open-mercato/ui/backend/utils/apiCall'
-import { loadDashboardWidgetModule } from '../widgetRegistry'
+import { getDashboardWidgets, loadDashboardWidgetModule } from '../widgetRegistry'
 
 jest.setTimeout(20000)
 
@@ -16,6 +16,7 @@ jest.mock('@open-mercato/ui/backend/utils/apiCall', () => ({
 }))
 
 jest.mock('../widgetRegistry', () => ({
+  getDashboardWidgets: jest.fn(),
   loadDashboardWidgetModule: jest.fn(),
 }))
 
@@ -31,6 +32,8 @@ const createMockResponse = (status: number): Response => ({ status } as Response
 
 const dict = {
   'dashboard.loadError': 'Failed to load dashboard',
+  'dashboard.empty.noWidgets.title': 'No dashboard widgets yet',
+  'dashboard.empty.noWidgets.description': 'Dashboard widgets will appear here after you add a module.',
   'dashboard.widgets.foo.title': 'Widget Foo',
   'dashboard.widgets.foo.description': 'Widget description',
 }
@@ -71,6 +74,7 @@ function MockWidget() {
 describe('DashboardScreen', () => {
   beforeEach(() => {
     jest.resetAllMocks()
+    ;(getDashboardWidgets as jest.Mock).mockReturnValue([{ key: 'foo.loader', loader: jest.fn() }])
     ;(loadDashboardWidgetModule as jest.Mock).mockResolvedValue({
       Widget: MockWidget,
       hydrateSettings: (value: unknown) => value,
@@ -108,6 +112,25 @@ describe('DashboardScreen', () => {
     await waitFor(() => {
       expect(screen.getByText('Failed to load dashboard')).toBeInTheDocument()
     })
+
+    errorSpy.mockRestore()
+  })
+
+  it('shows an informational empty state when no dashboard widgets are registered', async () => {
+    const errorSpy = jest.spyOn(console, 'error').mockImplementation(() => {})
+    ;(getDashboardWidgets as jest.Mock).mockReturnValue([])
+    ;(apiCall as jest.Mock).mockResolvedValue({
+      ok: false,
+      status: 500,
+      result: null,
+      response: createMockResponse(500),
+    })
+
+    renderWithProviders(<DashboardScreen />, { dict })
+
+    expect(await screen.findByText('No dashboard widgets yet')).toBeInTheDocument()
+    expect(screen.getByText('Dashboard widgets will appear here after you add a module.')).toBeInTheDocument()
+    expect(screen.queryByText('Failed to load dashboard')).not.toBeInTheDocument()
 
     errorSpy.mockRestore()
   })

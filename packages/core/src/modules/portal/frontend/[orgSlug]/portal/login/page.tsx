@@ -2,10 +2,11 @@
 import { useCallback, useMemo, useState } from 'react'
 import Link from 'next/link'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
-import { Input } from '@open-mercato/ui/primitives/input'
+import { EmailInput } from '@open-mercato/ui/primitives/email-input'
+import { PasswordInput } from '@open-mercato/ui/primitives/password-input'
 import { Label } from '@open-mercato/ui/primitives/label'
 import { Button } from '@open-mercato/ui/primitives/button'
-import { Notice } from '@open-mercato/ui/primitives/Notice'
+import { Alert, AlertDescription } from '@open-mercato/ui/primitives/alert'
 import { Spinner } from '@open-mercato/ui/primitives/spinner'
 import { apiCall } from '@open-mercato/ui/backend/utils/apiCall'
 import { usePortalContext } from '@open-mercato/ui/portal/PortalContext'
@@ -39,6 +40,7 @@ export default function PortalLoginPage({ params }: Props) {
         const result = await apiCall<{ ok: boolean; error?: string }>('/api/customer_accounts/login', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
+          credentials: 'include',
           body: JSON.stringify({ email, password, tenantId: tenant.tenantId }),
         })
 
@@ -49,6 +51,13 @@ export default function PortalLoginPage({ params }: Props) {
 
         if (result.status === 423) {
           setError(t('portal.login.error.locked', 'Account locked. Try again later.'))
+        } else if (result.status === 401 && result.result?.error === 'Account is deactivated') {
+          setError(
+            t(
+              'portal.login.error.inactive',
+              'Your account is not active yet. An administrator must activate it before you can log in.',
+            ),
+          )
         } else if (result.status === 401) {
           setError(t('portal.login.error.invalidCredentials', 'Invalid email or password.'))
         } else {
@@ -75,7 +84,9 @@ export default function PortalLoginPage({ params }: Props) {
   if (tenant.error) {
     return (
       <div className="mx-auto w-full max-w-md py-12">
-        <Notice variant="error">{t('portal.org.invalid', 'Organization not found.')}</Notice>
+        <Alert variant="destructive">
+          <AlertDescription>{t('portal.org.invalid', 'Organization not found.')}</AlertDescription>
+        </Alert>
       </div>
     )
   }
@@ -90,23 +101,27 @@ export default function PortalLoginPage({ params }: Props) {
       <InjectionSpot spotId={PortalInjectionSpots.pageBefore('login')} context={injectionContext} />
 
       <form onSubmit={handleSubmit} className="flex flex-col gap-4">
-        {error ? <Notice variant="error">{error}</Notice> : null}
+        {error ? (
+          <Alert variant="destructive">
+            <AlertDescription>{error}</AlertDescription>
+          </Alert>
+        ) : null}
 
         <div className="flex flex-col gap-1.5">
-          <Label htmlFor="login-email" className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground/70">{t('portal.login.email', 'Email')}</Label>
-          <Input id="login-email" type="email" autoComplete="email" required placeholder={t('portal.login.email.placeholder', 'you@example.com')} value={email} onChange={(e) => setEmail(e.target.value)} disabled={submitting} className="rounded-lg" />
+          <Label htmlFor="login-email" className="text-overline font-semibold uppercase tracking-wider text-muted-foreground/70">{t('portal.login.email', 'Email')}</Label>
+          <EmailInput id="login-email" required placeholder={t('portal.login.email.placeholder', 'you@example.com')} value={email} onChange={(e) => setEmail(e.target.value)} disabled={submitting} className="rounded-lg" />
         </div>
 
         <div className="flex flex-col gap-1.5">
-          <Label htmlFor="login-password" className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground/70">{t('portal.login.password', 'Password')}</Label>
-          <Input id="login-password" type="password" autoComplete="current-password" required placeholder={t('portal.login.password.placeholder', '\u2022\u2022\u2022\u2022\u2022\u2022\u2022\u2022')} value={password} onChange={(e) => setPassword(e.target.value)} disabled={submitting} className="rounded-lg" />
+          <Label htmlFor="login-password" className="text-overline font-semibold uppercase tracking-wider text-muted-foreground/70">{t('portal.login.password', 'Password')}</Label>
+          <PasswordInput id="login-password" autoComplete="current-password" required placeholder={t('portal.login.password.placeholder', '\u2022\u2022\u2022\u2022\u2022\u2022\u2022\u2022')} value={password} onChange={(e) => setPassword(e.target.value)} disabled={submitting} className="rounded-lg" />
         </div>
 
         <Button type="submit" disabled={submitting} className="mt-1 w-full rounded-lg">
           {submitting ? t('portal.login.submitting', 'Signing in...') : t('portal.login.submit', 'Sign In')}
         </Button>
 
-        <p className="text-center text-[13px] text-muted-foreground">
+        <p className="text-center text-sm text-muted-foreground">
           {t('portal.login.noAccount', "Don't have an account?")}{' '}
           <Link href={`/${orgSlug}/portal/signup`} className="font-medium text-foreground underline underline-offset-4 hover:opacity-80">
             {t('portal.login.signupLink', 'Sign up')}

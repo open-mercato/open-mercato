@@ -56,11 +56,16 @@ export async function GET(req: Request) {
     labelField = (cfg?.labelField as string | undefined) || ''
   }
   if (!labelField) {
-    const candidates = ['name','title','code','email']
+    const candidates = ['name', 'title', 'code', 'email']
     const table = tableNameFromEntityId(entityId)
-    const knex = (em as any).getConnection().getKnex()
+    const db = (em as any).getKysely() as any
     for (const c of candidates) {
-      const exists = await knex('information_schema.columns').where({ table_name: table, column_name: c }).first()
+      const exists = await db
+        .selectFrom('information_schema.columns')
+        .select('column_name')
+        .where('table_name', '=', table)
+        .where('column_name', '=', c)
+        .executeTakeFirst()
       if (exists) { labelField = c; break }
     }
     if (!labelField) labelField = 'id'

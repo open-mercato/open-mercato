@@ -3,6 +3,7 @@
 import * as React from 'react'
 import { cn } from '@open-mercato/shared/lib/utils'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
+import { Input } from '../../primitives/input'
 
 export type TimeInputProps = {
   value?: string | null
@@ -107,16 +108,13 @@ export function TimeInput({
     [disabled, emitChange, hour, minuteStep]
   )
 
-  const inputClass = cn(
-    'w-14 h-9 rounded border text-center text-sm tabular-nums',
-    'focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-1',
-    disabled && 'bg-muted text-muted-foreground cursor-not-allowed',
-    'disabled:bg-muted disabled:text-muted-foreground disabled:cursor-not-allowed'
-  )
+  const wrapperClass = 'w-14'
+  const innerInputClass =
+    'text-center tabular-nums leading-none [appearance:textfield] [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:m-0 [&::-webkit-outer-spin-button]:m-0'
 
   return (
     <div className={cn('flex items-center gap-1', className)}>
-      <input
+      <Input
         type="number"
         min={0}
         max={23}
@@ -126,10 +124,11 @@ export function TimeInput({
         disabled={disabled}
         aria-label={hourLabel}
         data-crud-focus-target=""
-        className={inputClass}
+        className={wrapperClass}
+        inputClassName={innerInputClass}
       />
       <span className="text-sm font-medium select-none">:</span>
-      <input
+      <Input
         type="number"
         min={0}
         max={59}
@@ -139,7 +138,8 @@ export function TimeInput({
         onKeyDown={handleMinuteKeyDown}
         disabled={disabled}
         aria-label={minuteLabel}
-        className={inputClass}
+        className={wrapperClass}
+        inputClassName={innerInputClass}
       />
     </div>
   )

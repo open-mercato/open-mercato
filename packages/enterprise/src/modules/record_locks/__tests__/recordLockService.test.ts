@@ -749,6 +749,53 @@ describe('RecordLockService.emitIncomingChangesNotificationAfterMutation', () =>
     )
   })
 
+  test('emits incoming-changes event from decrypted stringified action log changes', async () => {
+    const { service, em } = createService(DEFAULT_SETTINGS)
+    const serviceAny = service as any
+    em.find.mockResolvedValue([
+      buildLock({
+        lockedByUserId: '40000000-0000-4000-8000-000000000001',
+        lockedAt: new Date('2026-02-17T10:00:00.000Z'),
+        baseActionLogId: '50000000-0000-4000-8000-000000000001',
+        expiresAt: new Date('2099-02-17T10:05:00.000Z'),
+      }),
+    ])
+    serviceAny.findLatestActionLog = jest.fn().mockResolvedValue({
+      id: '80000000-0000-4000-8000-000000000099',
+      actorUserId: '90000000-0000-4000-8000-000000000099',
+      changesJson: null,
+      createdAt: new Date('2026-02-17T10:02:00.000Z'),
+    })
+    serviceAny.findLatestActionLogByActor = jest.fn().mockResolvedValue({
+      id: '80000000-0000-4000-8000-000000000001',
+      actorUserId: '90000000-0000-4000-8000-000000000001',
+      changesJson: JSON.stringify({
+        'entity.displayName': { from: 'Acme Before', to: 'Acme Incoming' },
+      }),
+      createdAt: new Date('2026-02-17T10:01:00.000Z'),
+    })
+
+    await service.emitIncomingChangesNotificationAfterMutation({
+      tenantId: '60000000-0000-4000-8000-000000000001',
+      organizationId: '70000000-0000-4000-8000-000000000001',
+      userId: '90000000-0000-4000-8000-000000000001',
+      resourceKind: 'sales.quote',
+      resourceId: '20000000-0000-4000-8000-000000000001',
+      method: 'PUT',
+    })
+
+    expect(emitRecordLocksEvent).toHaveBeenCalledWith(
+      'record_locks.incoming_changes.available',
+      expect.objectContaining({
+        incomingActorUserId: '90000000-0000-4000-8000-000000000001',
+        incomingActionLogId: '80000000-0000-4000-8000-000000000001',
+        recipientUserIds: ['40000000-0000-4000-8000-000000000001'],
+        changedFields: expect.stringContaining('Display Name'),
+        changedRowsJson: expect.stringContaining('Acme Incoming'),
+      }),
+    )
+  })
+
   test('emits incoming-changes event using latest log when actor lookup is unavailable', async () => {
     const { service, em } = createService(DEFAULT_SETTINGS)
     const serviceAny = service as any

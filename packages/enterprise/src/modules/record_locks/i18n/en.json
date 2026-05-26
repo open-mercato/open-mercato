@@ -27,6 +27,8 @@
   "record_locks.conflict.record_deleted_description": "This record was deleted by another user while you were editing. Saving is blocked to avoid unexpected results.",
   "record_locks.conflict.record_deleted_title": "Record was deleted",
   "record_locks.conflict.refresh_page": "Refresh page",
+  "record_locks.conflict.refresh_required": "Could not confirm conflict details. Save again to refresh conflict data.",
+  "record_locks.conflict.retry_save_after_accept_mine": "Click save again to apply your changes.",
   "record_locks.conflict.title": "Conflict detected",
   "record_locks.errors.acquire_failed": "Failed to load record lock status.",
   "record_locks.errors.force_release_failed": "Failed to take over editing.",

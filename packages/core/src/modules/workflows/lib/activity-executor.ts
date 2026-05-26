@@ -11,12 +11,13 @@
  */
 
 import { EntityManager } from '@mikro-orm/core'
+import type { EntityManager as PostgreSqlEntityManager } from '@mikro-orm/postgresql'
 import type { AwilixContainer } from 'awilix'
 import { WorkflowInstance } from '../data/entities'
 import { createModuleQueue, Queue } from '@open-mercato/queue'
 import { getRedisUrl } from '@open-mercato/shared/lib/redis/connection'
 import {
-  assertSafeOutboundUrl,
+  safeOutboundFetch,
   UnsafeOutboundUrlError,
   type HostLookup,
 } from '@open-mercato/shared/lib/url-safety'
@@ -25,8 +26,21 @@ import { callWebhookConfigSchema } from '../data/validators'
 import { WorkflowActivityJob, WORKFLOW_ACTIVITIES_QUEUE_NAME } from './activity-queue-types'
 import { logWorkflowEvent } from './event-logger'
 
+export { isPrivateUrl } from '@open-mercato/shared/lib/network'
+
 function isAllowPrivateWorkflowWebhookUrlsEnabled(): boolean {
-  return parseBooleanWithDefault(process.env.OM_WORKFLOWS_ALLOW_PRIVATE_URLS, false)
+  if (parseBooleanWithDefault(process.env.OM_WORKFLOWS_ALLOW_PRIVATE_URLS, false)) {
+    return true
+  }
+
+  if (parseBooleanWithDefault(process.env.WORKFLOW_WEBHOOK_ALLOW_PRIVATE_URLS, false)) {
+    console.warn(
+      '[CALL_WEBHOOK] WORKFLOW_WEBHOOK_ALLOW_PRIVATE_URLS is deprecated. Use OM_WORKFLOWS_ALLOW_PRIVATE_URLS instead. SSRF protection is bypassed.'
+    )
+    return true
+  }
+
+  return false
 }
 
 // ============================================================================
@@ -393,7 +407,7 @@ export async function executeSendEmail(
 
   // Check if email service is available in container
   try {
-    const emailService = container.resolve('emailService')
+    const emailService = container.resolve<{ send: (input: unknown) => Promise<unknown> | unknown }>('emailService')
     if (emailService && typeof emailService.send === 'function') {
       await emailService.send({
         to,
@@ -428,7 +442,7 @@ export async function executeEmitEvent(
   }
 
   // Get event bus from container
-  const eventBus = container.resolve('eventBus')
+  const eventBus = container.resolve<{ emitEvent: (event: string, payload: unknown, options?: unknown) => Promise<unknown> | unknown }>('eventBus')
 
   if (!eventBus || typeof eventBus.emitEvent !== 'function') {
     throw new Error('Event bus not available in container')
@@ -613,6 +627,7 @@ export type CallWebhookDeps = {
   lookupHost?: HostLookup
   allowPrivate?: boolean
   fetchImpl?: typeof fetch
+  signal?: AbortSignal
 }
 
 export async function executeCallWebhook(
@@ -632,12 +647,27 @@ export async function executeCallWebhook(
 
   const allowPrivate = deps.allowPrivate ?? isAllowPrivateWorkflowWebhookUrlsEnabled()
 
+  let response: Response
   try {
-    await assertSafeOutboundUrl(url, {
-      subject: 'Workflow webhook URL',
-      allowPrivate,
-      lookupHost: deps.lookupHost,
-    })
+    response = await safeOutboundFetch(
+      url,
+      {
+        method,
+        headers: {
+          'Content-Type': 'application/json',
+          ...headers,
+        },
+        body: body !== undefined && body !== null ? JSON.stringify(body) : undefined,
+        redirect: 'manual',
+        signal: deps.signal,
+      },
+      {
+        subject: 'Workflow webhook URL',
+        allowPrivate,
+        lookupHost: deps.lookupHost,
+        fetchImpl: deps.fetchImpl,
+      },
+    )
   } catch (error) {
     if (error instanceof UnsafeOutboundUrlError) {
       throw new Error(
@@ -646,17 +676,6 @@ export async function executeCallWebhook(
     }
     throw error
   }
-
-  const fetchImpl = deps.fetchImpl ?? fetch
-  const response = await fetchImpl(url, {
-    method,
-    headers: {
-      'Content-Type': 'application/json',
-      ...headers,
-    },
-    body: body !== undefined && body !== null ? JSON.stringify(body) : undefined,
-    redirect: 'manual',
-  })
 
   if (response.status >= 300 && response.status < 400) {
     const location = response.headers.get('location')
@@ -745,7 +764,8 @@ export async function executeCallApi(
   em: EntityManager,
   config: any,
   context: ActivityContext,
-  container: AwilixContainer
+  container: AwilixContainer,
+  signal?: AbortSignal
 ): Promise<any> {
   // 1. Interpolate variables in config (including {{workflow.*}}, {{context.*}}, {{env.*}}, {{now}})
   const interpolatedConfig = interpolateVariables(config, context.workflowContext, context.workflowInstance)
@@ -770,7 +790,7 @@ export async function executeCallApi(
   const { withOnetimeApiKey } = await import('../../api_keys/services/apiKeyService')
 
   // 4. Get EntityManager from container (for correct type)
-  const apiKeyEm = container.resolve('em')
+  const apiKeyEm = container.resolve<PostgreSqlEntityManager>('em')
 
   // 5. Resolve the roles that the one-time API key will inherit.
   //
@@ -783,10 +803,13 @@ export async function executeCallApi(
   //   SECURITY.md changelog entry for this fix.
   //
   //   The resolution strategy is:
-  //     1. Use the workflow instance's `createdBy` user (whoever manually
-  //        started the instance), when available.
-  //     2. Fall back to the workflow definition's `createdBy` (author) when
-  //        the instance was started by an event trigger with no user.
+  //     1. Use the workflow instance's `metadata.initiatedBy` user (whoever
+  //        manually started the instance), when available. Only this user's
+  //        current active roles are used — we never fall back to the author
+  //        when the initiator is known, because that would escalate the
+  //        initiator's privileges.
+  //     2. Fall back to the workflow definition's `createdBy` (author) only
+  //        when the instance was started by an event trigger with no user.
   //     3. If no traceable principal exists, the activity refuses to run —
   //        there is no "system" fallback that bypasses RBAC.
   const resolvedRoleIds = await resolveCallApiRoleIds(apiKeyEm, context.workflowInstance)
@@ -826,6 +849,7 @@ export async function executeCallApi(
         method,
         headers: requestHeaders,
         body: body ? JSON.stringify(body) : undefined,
+        signal,
       })
 
       // Parse response body (JSON-safe)
@@ -879,38 +903,28 @@ export type CallApiInstanceLike = {
   tenantId: string
   organizationId: string
   definitionId: string
+  metadata?: { initiatedBy?: string | null } | null
 }
 
-export async function resolveCallApiRoleIds(
+async function resolveActiveRoleIdsForUser(
   em: any,
-  instance: CallApiInstanceLike
+  userId: string,
+  scope: { tenantId: string; organizationId: string },
 ): Promise<string[]> {
-  if (!instance.definitionId) return []
-
   const { findOneWithDecryption, findWithDecryption } = await import('@open-mercato/shared/lib/encryption/find')
   const { User, UserRole, Role } = await import('../../auth/data/entities')
-  const { WorkflowDefinition } = await import('../data/entities')
 
-  const scope = { tenantId: instance.tenantId, organizationId: instance.organizationId }
-
-  const definition = await findOneWithDecryption(em, WorkflowDefinition, {
-    id: instance.definitionId,
-    tenantId: instance.tenantId,
-  }, {}, scope)
-  const authorUserId = definition?.createdBy
-  if (!authorUserId) return []
-
-  const author = await findOneWithDecryption(em, User, {
-    id: authorUserId,
-    tenantId: instance.tenantId,
+  const user = await findOneWithDecryption(em, User, {
+    id: userId,
+    tenantId: scope.tenantId,
     deletedAt: null,
   }, {}, scope)
-  if (!author) return []
+  if (!user) return []
 
   const userRoles = await findWithDecryption(
     em,
     UserRole,
-    { user: author.id, deletedAt: null },
+    { user: user.id, deletedAt: null },
     { populate: ['role'] },
     scope,
   )
@@ -922,10 +936,45 @@ export async function resolveCallApiRoleIds(
 
   const scopedRoles = await findWithDecryption(em, Role, {
     id: { $in: roleIds },
-    tenantId: instance.tenantId,
+    tenantId: scope.tenantId,
     deletedAt: null,
   }, {}, scope)
   return scopedRoles.map((r: any) => r.id as string)
+}
+
+export async function resolveCallApiRoleIds(
+  em: any,
+  instance: CallApiInstanceLike
+): Promise<string[]> {
+  if (!instance.definitionId) return []
+
+  const { findOneWithDecryption } = await import('@open-mercato/shared/lib/encryption/find')
+  const { WorkflowDefinition } = await import('../data/entities')
+
+  const scope = { tenantId: instance.tenantId, organizationId: instance.organizationId }
+
+  // 1. Prefer the triggering user (whoever manually started this instance).
+  //    WorkflowInstance.metadata.initiatedBy is the canonical record of that
+  //    principal for user-started instances; use their current role set so
+  //    CALL_API never exceeds the initiator's permissions. Refuse if the
+  //    initiator has no active scoped roles — do not fall back to the
+  //    definition author, which would escalate the initiator's privileges.
+  const initiatorUserId = instance.metadata?.initiatedBy ?? null
+  if (initiatorUserId) {
+    return resolveActiveRoleIdsForUser(em, initiatorUserId, scope)
+  }
+
+  // 2. Event-triggered instance with no human initiator: fall back to the
+  //    definition author. Soft-deleted definitions must not mint keys.
+  const definition = await findOneWithDecryption(em, WorkflowDefinition, {
+    id: instance.definitionId,
+    tenantId: instance.tenantId,
+    deletedAt: null,
+  }, {}, scope)
+  const authorUserId = definition?.createdBy
+  if (!authorUserId) return []
+
+  return resolveActiveRoleIdsForUser(em, authorUserId, scope)
 }
 
 /**

@@ -43,6 +43,13 @@ const DEFAULT_MODELS: readonly LlmModelInfo[] = [
 /**
  * Factory returning a fresh `AnthropicAdapter` instance. The adapter is
  * stateless — caller is free to reuse the returned object.
+ *
+ * `createModel` accepts an optional `baseURL` from {@link LlmCreateModelOptions}
+ * and forwards it to `createAnthropic({ apiKey, baseURL })`.
+ *
+ * baseURL only works for Anthropic Messages-protocol relays (Cloudflare AI
+ * Gateway in Anthropic mode, Helicone proxy). For OpenAI-format gateways,
+ * use the OpenAI / OpenRouter presets.
  */
 export function createAnthropicAdapter(): LlmProvider {
   const envKeys = ['ANTHROPIC_API_KEY', 'OPENCODE_ANTHROPIC_API_KEY'] as const
@@ -84,7 +91,10 @@ export function createAnthropicAdapter(): LlmProvider {
     },
 
     createModel(options: LlmCreateModelOptions): unknown {
-      const anthropic = createAnthropic({ apiKey: options.apiKey })
+      const anthropic = createAnthropic({
+        apiKey: options.apiKey,
+        ...(options.baseURL ? { baseURL: options.baseURL } : {}),
+      })
       return anthropic(options.modelId)
     },
   }

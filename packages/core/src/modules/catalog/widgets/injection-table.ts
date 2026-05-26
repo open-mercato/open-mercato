@@ -26,6 +26,18 @@ export const injectionTable: ModuleInjectionTable = {
     widgetId: 'catalog.injection.product-bulk-delete',
     priority: 40,
   },
+  // Step 5.15 — Phase 3 WS-D.
+  // Merchandising assistant trigger moved behind the injection system so the
+  // products list page no longer imports `MerchandisingAssistantSheet`
+  // directly. The DataTable's `injectionSpotId="data-table:catalog.products"`
+  // exposes the `:search-trailing` variant that this widget targets — the
+  // round icon-only trigger lives next to the products list search input.
+  'data-table:catalog.products:search-trailing': [
+    {
+      widgetId: 'catalog.injection.merchandising-assistant-trigger',
+      priority: 100,
+    },
+  ],
 }
 
 export default injectionTable

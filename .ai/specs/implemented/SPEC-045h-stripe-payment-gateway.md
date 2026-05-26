@@ -1,5 +1,7 @@
 # SPEC-045h — Stripe Payment Gateway: Reference Provider Implementation
 
+> **Note (2026-04-15)**: Code snippets updated for MikroORM v7 — `em.findOne` now requires an entity class instead of a string ref.
+
 **Parent**: [SPEC-045 — Integration Marketplace](./SPEC-045-2026-02-24-integration-marketplace.md)
 **Hub**: [SPEC-045c — Payment & Shipping Hubs](./SPEC-045c-payment-shipping-hubs.md)
 **Foundation**: [SPEC-045a — Foundation](./SPEC-045a-foundation.md) (credentials, logs, widget injection)
@@ -357,8 +359,10 @@ export default async function handler(job: Job, ctx: WorkerContext) {
 
   try {
     // Find the local GatewayTransaction by Stripe PaymentIntent ID
+    // MikroORM v7: pass the entity class to em.findOne — string refs are no longer supported.
+    const { GatewayTransaction } = await import('@open-mercato/core/modules/integrations/data/entities')
     const paymentIntentId = event.data.id ?? event.data.payment_intent
-    const transaction = await ctx.em.findOne('GatewayTransaction', {
+    const transaction = await ctx.em.findOne(GatewayTransaction, {
       providerSessionId: paymentIntentId,
       organizationId: scope.organizationId,
     })
@@ -692,3 +696,4 @@ When Stripe-specific tests are added in the future, they should:
 | 2026-03-10 | Added §13 Testing Strategy noting deferred Stripe-specific integration tests. Mock adapter tests validate the GatewayAdapter contract. Added `company` field to integration metadata. |
 | 2026-03-19 | Added provider-owned embedded payment renderer support: `stripe.payment_element` and `clientSession` returned from `createSession()`. |
 | 2026-03-20 | Extended Stripe to the generalized renderer-catalog contract and aligned renderer bootstrap with module widgets: descriptor `renderers[]`, default renderer key, `PaymentElement` renderer settings, and `widgets/payments/client.tsx`. |
+| 2026-04-15 | Updated code snippets for MikroORM v7 (persist().flush(), getKysely(), class-based entity refs). |

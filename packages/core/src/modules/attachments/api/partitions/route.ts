@@ -32,6 +32,8 @@ function serializePartition(entry: AttachmentPartition) {
     isPublic: entry.isPublic ?? false,
     requiresOcr: entry.requiresOcr ?? resolveDefaultAttachmentOcrEnabled(),
     ocrModel: entry.ocrModel ?? null,
+    storageDriver: entry.storageDriver ?? 'local',
+    configJson: entry.configJson ?? null,
     createdAt: entry.createdAt instanceof Date ? entry.createdAt.toISOString() : null,
     updatedAt: entry.updatedAt instanceof Date ? entry.updatedAt.toISOString() : null,
     envKey: resolvePartitionEnvKey(entry.code),
@@ -96,7 +98,8 @@ export async function POST(req: Request) {
     code,
     title: parsed.data.title.trim(),
     description: parsed.data.description?.trim() ?? null,
-    storageDriver: 'local',
+    storageDriver: parsed.data.storageDriver ?? 'local',
+    configJson: parsed.data.configJson ?? null,
     isPublic: parsed.data.isPublic ?? false,
     requiresOcr:
       typeof parsed.data.requiresOcr === 'boolean'
@@ -104,7 +107,7 @@ export async function POST(req: Request) {
         : resolveDefaultAttachmentOcrEnabled(),
     ocrModel: parsed.data.ocrModel?.trim() || null,
   })
-  await em.persistAndFlush(entry)
+  await em.persist(entry).flush()
   return NextResponse.json({ item: serializePartition(entry) }, { status: 201 })
 }
 
@@ -146,7 +149,13 @@ export async function PUT(req: Request) {
   if (parsed.data.ocrModel !== undefined) {
     entry.ocrModel = parsed.data.ocrModel?.trim() || null
   }
-  await em.persistAndFlush(entry)
+  if (parsed.data.storageDriver !== undefined) {
+    entry.storageDriver = parsed.data.storageDriver
+  }
+  if (parsed.data.configJson !== undefined) {
+    entry.configJson = parsed.data.configJson ?? null
+  }
+  await em.persist(entry).flush()
   return NextResponse.json({ item: serializePartition(entry) })
 }
 
@@ -179,7 +188,7 @@ export async function DELETE(req: Request) {
   if (usage > 0) {
     return NextResponse.json({ error: 'Partition is in use and cannot be removed.' }, { status: 409 })
   }
-  await em.removeAndFlush(entry)
+  await em.remove(entry).flush()
   return NextResponse.json({ ok: true })
 }
 

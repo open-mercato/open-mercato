@@ -29,6 +29,11 @@ type SectionDefinition = {
   description: string
 }
 
+type DictionaryDeleteError = Error & {
+  code?: string
+  usageCount?: number
+}
+
 type DialogState =
   | { mode: 'create' }
   | { mode: 'edit'; entry: DictionaryTableEntry }
@@ -44,6 +49,11 @@ export default function DictionarySettings() {
   const t = useT()
 
   const sections = React.useMemo<SectionDefinition[]>(() => [
+    {
+      kind: 'person-company-roles',
+      title: t('customers.config.dictionaries.sections.personCompanyRoles.title', 'Role types'),
+      description: t('customers.config.dictionaries.sections.personCompanyRoles.description', 'Manage the ownership roles available in People tab assignments.'),
+    },
     {
       kind: 'statuses',
       title: t('customers.config.dictionaries.sections.statuses.title', 'Statuses'),
@@ -126,7 +136,17 @@ function CustomerDictionarySection({ kind, title, description }: CustomerDiction
   const successSave = t('customers.config.dictionaries.success.save', 'Dictionary entry saved.')
   const successDelete = t('customers.config.dictionaries.success.delete', 'Dictionary entry deleted.')
   const deleteConfirmTemplate = t('customers.config.dictionaries.deleteConfirm', 'Delete "{{value}}"?')
+  const roleTypeDeleteBlockedTitle = t('customers.config.dictionaries.roleTypes.deleteBlocked.title', 'Role type is in use')
+  const roleTypeDeleteBlockedText = t(
+    'customers.config.dictionaries.roleTypes.deleteBlocked.text',
+    'This role type is assigned to {{count}} records. Remove or replace those assignments before deleting it.',
+  )
+  const usageCountLabel = t('customers.config.dictionaries.roleTypes.usageCount', 'In use on {{count}} records')
   const searchPlaceholder = t('customers.config.dictionaries.searchPlaceholder', 'Search entries…')
+
+  const formatCountMessage = React.useCallback((template: string, count: number) => {
+    return template.replace('{{count}}', String(count))
+  }, [])
 
   const loadEntries = React.useCallback(async () => {
     setLoading(true)
@@ -143,6 +163,7 @@ function CustomerDictionarySection({ kind, title, description }: CustomerDiction
         label: typeof item.label === 'string' ? item.label : '',
         color: typeof item.color === 'string' ? item.color : null,
         icon: typeof item.icon === 'string' ? item.icon : null,
+        usageCount: typeof item.usageCount === 'number' ? item.usageCount : undefined,
         organizationId: typeof item.organizationId === 'string' ? item.organizationId : null,
         tenantId: typeof item.tenantId === 'string' ? item.tenantId : null,
         isInherited: item.isInherited === true,
@@ -183,6 +204,15 @@ function CustomerDictionarySection({ kind, title, description }: CustomerDiction
       flash(inheritedActionBlocked, 'info')
       return
     }
+    if (kind === 'person-company-roles' && (entry.usageCount ?? 0) > 0) {
+      await confirm({
+        title: roleTypeDeleteBlockedTitle,
+        description: formatCountMessage(roleTypeDeleteBlockedText, entry.usageCount ?? 0),
+        confirmText: false,
+        cancelText: t('customers.config.dictionaries.dialog.cancel', 'Cancel'),
+      })
+      return
+    }
     const message = deleteConfirmTemplate.replace('{{value}}', entry.label || entry.value)
     const confirmed = await confirm({
       title: message,
@@ -199,10 +229,20 @@ function CustomerDictionarySection({ kind, title, description }: CustomerDiction
       await loadEntries()
     } catch (err) {
       console.error('customers.dictionaries.delete failed', err)
+      if (kind === 'person-company-roles' && (err as DictionaryDeleteError)?.code === 'role_type_in_use') {
+        const usageCount = Number((err as DictionaryDeleteError).usageCount ?? 0)
+        await confirm({
+          title: roleTypeDeleteBlockedTitle,
+          description: formatCountMessage(roleTypeDeleteBlockedText, usageCount),
+          confirmText: false,
+          cancelText: t('customers.config.dictionaries.dialog.cancel', 'Cancel'),
+        })
+        return
+      }
       const messageValue = err instanceof Error ? err.message : errorDelete
       flash(messageValue, 'error')
     }
-  }, [confirm, deleteConfirmTemplate, errorDelete, inheritedActionBlocked, kind, loadEntries, successDelete])
+  }, [confirm, deleteConfirmTemplate, errorDelete, formatCountMessage, inheritedActionBlocked, kind, loadEntries, roleTypeDeleteBlockedText, roleTypeDeleteBlockedTitle, successDelete, t])
 
   const submitForm = React.useCallback(async (values: DictionaryFormValues) => {
     const payload = {
@@ -286,8 +326,9 @@ function CustomerDictionarySection({ kind, title, description }: CustomerDiction
     inheritedLabel,
     inheritedTooltip,
     emptyLabel: t('customers.config.dictionaries.empty', 'No entries yet.'),
+    usageCountLabel: kind === 'person-company-roles' ? usageCountLabel : undefined,
     searchPlaceholder,
-  }), [inheritedLabel, inheritedTooltip, searchPlaceholder, t, title])
+  }), [inheritedLabel, inheritedTooltip, kind, searchPlaceholder, t, title, usageCountLabel])
 
   const formTranslations = React.useMemo(() => ({
     title: dialog?.mode === 'edit'

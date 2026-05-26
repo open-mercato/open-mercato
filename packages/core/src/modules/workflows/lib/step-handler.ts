@@ -109,7 +109,7 @@ export async function enterStep(
     updatedAt: now,
   })
 
-  await em.persistAndFlush(stepInstance)
+  await em.persist(stepInstance).flush()
 
   // Log STEP_ENTERED event
   await logStepEvent(em, {
@@ -534,7 +534,7 @@ async function handleUserTaskStep(
     updatedAt: now,
   })
 
-  await em.persistAndFlush(userTask)
+  await em.persist(userTask).flush()
 
   // Log USER_TASK_CREATED event
   await logStepEvent(em, {
@@ -836,7 +836,7 @@ async function logStepEvent(
     occurredAt: new Date(),
   })
 
-  await em.persistAndFlush(workflowEvent)
+  await em.persist(workflowEvent).flush()
   return workflowEvent
 }
 

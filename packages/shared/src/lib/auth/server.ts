@@ -1,6 +1,7 @@
 import { cookies } from 'next/headers.js'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import { verifyJwt } from './jwt'
+import { getSharedApiKeyAuthCache } from './apiKeyAuthCache'
 
 const TENANT_COOKIE_NAME = 'om_selected_tenant'
 const ORGANIZATION_COOKIE_NAME = 'om_selected_org'
@@ -26,6 +27,35 @@ type AuthResolutionStatus = 'authenticated' | 'missing' | 'invalid'
 type AuthResolution = {
   auth: AuthContext
   status: AuthResolutionStatus
+}
+
+// Symbol-keyed trusted auth context. Set on synthetic Request objects by
+// callers that have already authenticated (e.g. the AI in-process operation
+// runner) so downstream auth resolution short-circuits without re-running
+// cookie/JWT/API-key parsing. The hook is fail-open: if absent the normal
+// resolution path runs unchanged.
+export const TRUSTED_AUTH_CONTEXT_SYMBOL = Symbol.for('open-mercato.auth.trustedContext')
+
+export type TrustedAuthContextEnvelope = {
+  auth: AuthContext
+  status?: AuthResolutionStatus
+}
+
+export function attachTrustedAuthContext(
+  request: Request,
+  envelope: TrustedAuthContextEnvelope
+): Request {
+  ;(request as unknown as Record<symbol, TrustedAuthContextEnvelope>)[TRUSTED_AUTH_CONTEXT_SYMBOL] = envelope
+  return request
+}
+
+function readTrustedAuthContext(request: Request): TrustedAuthContextEnvelope | null {
+  const carrier = request as unknown as Record<symbol, unknown>
+  const envelope = carrier[TRUSTED_AUTH_CONTEXT_SYMBOL]
+  if (!envelope || typeof envelope !== 'object') return null
+  const candidate = envelope as TrustedAuthContextEnvelope
+  if (!('auth' in candidate)) return null
+  return candidate
 }
 
 function decodeCookieValue(raw: string | undefined): string | null {
@@ -112,6 +142,9 @@ function applySuperAdminScope(
 
 async function resolveApiKeyAuth(secret: string): Promise<AuthContext> {
   if (!secret) return null
+  const cache = getSharedApiKeyAuthCache()
+  const cached = cache.get(secret)
+  if (cached !== undefined) return cached as AuthContext
   try {
     const { createRequestContainer } = await import('@open-mercato/shared/lib/di/container')
     const container = await createRequestContainer()
@@ -121,7 +154,10 @@ async function resolveApiKeyAuth(secret: string): Promise<AuthContext> {
     const { Organization, Tenant } = await import('@open-mercato/core/modules/directory/data/entities')
 
     const record = await findApiKeyBySecret(em, secret)
-    if (!record) return null
+    if (!record) {
+      cache.setMiss(secret)
+      return null
+    }
 
     const roleIds = Array.isArray(record.rolesJson)
       ? record.rolesJson.filter((value): value is string => typeof value === 'string' && value.length > 0)
@@ -140,11 +176,13 @@ async function resolveApiKeyAuth(secret: string): Promise<AuthContext> {
       keyIsSuperAdmin = !!(superAcl && (superAcl as { isSuperAdmin?: boolean }).isSuperAdmin)
     }
 
-    try {
-      record.lastUsedAt = new Date()
-      await em.persistAndFlush(record)
-    } catch {
-      // best-effort update; ignore write failures
+    if (cache.shouldWriteLastUsed(record.id)) {
+      try {
+        record.lastUsedAt = new Date()
+        await em.persist(record).flush()
+      } catch {
+        // best-effort update; ignore write failures
+      }
     }
 
     // For session keys, use sessionUserId; for regular keys, use createdBy
@@ -152,22 +190,40 @@ async function resolveApiKeyAuth(secret: string): Promise<AuthContext> {
 
     if (actualUserId) {
       const user = await em.findOne(User, { id: actualUserId, deletedAt: null })
-      if (!user) return null
-      if ((user.tenantId ?? null) !== (record.tenantId ?? null)) return null
-      if ((user.organizationId ?? null) !== (record.organizationId ?? null)) return null
+      if (!user) {
+        cache.setMiss(secret)
+        return null
+      }
+      if ((user.tenantId ?? null) !== (record.tenantId ?? null)) {
+        cache.setMiss(secret)
+        return null
+      }
+      if ((user.organizationId ?? null) !== (record.organizationId ?? null)) {
+        cache.setMiss(secret)
+        return null
+      }
     } else {
       if (record.tenantId) {
         const tenant = await em.findOne(Tenant, { id: record.tenantId, deletedAt: null, isActive: true })
-        if (!tenant) return null
+        if (!tenant) {
+          cache.setMiss(secret)
+          return null
+        }
       }
       if (record.organizationId) {
         const organization = await em.findOne(Organization, { id: record.organizationId, deletedAt: null, isActive: true })
-        if (!organization) return null
-        if (record.tenantId && String(organization.tenant.id) !== record.tenantId) return null
+        if (!organization) {
+          cache.setMiss(secret)
+          return null
+        }
+        if (record.tenantId && String(organization.tenant.id) !== record.tenantId) {
+          cache.setMiss(secret)
+          return null
+        }
       }
     }
 
-    return {
+    const auth: Exclude<AuthContext, null> = {
       sub: `api_key:${record.id}`,
       tenantId: record.tenantId ?? null,
       orgId: record.organizationId ?? null,
@@ -178,6 +234,8 @@ async function resolveApiKeyAuth(secret: string): Promise<AuthContext> {
       keyName: record.name,
       ...(actualUserId ? { userId: actualUserId } : {}),
     }
+    cache.setSuccess(secret, auth, record.expiresAt ? record.expiresAt.getTime() : null)
+    return auth
   } catch {
     return null
   }
@@ -236,6 +294,13 @@ export async function getAuthFromCookies(): Promise<AuthContext> {
 }
 
 export async function resolveAuthFromRequestDetailed(req: Request): Promise<AuthResolution> {
+  const trusted = readTrustedAuthContext(req)
+  if (trusted) {
+    return {
+      auth: trusted.auth,
+      status: trusted.status ?? (trusted.auth ? 'authenticated' : 'missing'),
+    }
+  }
   const cookieHeader = req.headers.get('cookie') || ''
   const tenantCookie = readCookieFromHeader(cookieHeader, TENANT_COOKIE_NAME)
   const orgCookie = readCookieFromHeader(cookieHeader, ORGANIZATION_COOKIE_NAME)

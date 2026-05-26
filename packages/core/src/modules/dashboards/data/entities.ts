@@ -1,4 +1,4 @@
-import { Entity, PrimaryKey, Property, Unique } from '@mikro-orm/core'
+import { Entity, PrimaryKey, Property, Unique } from '@mikro-orm/decorators/legacy'
 import type { DashboardLayoutItem } from '@open-mercato/shared/modules/dashboard/widgets'
 
 @Entity({ tableName: 'dashboard_layouts' })

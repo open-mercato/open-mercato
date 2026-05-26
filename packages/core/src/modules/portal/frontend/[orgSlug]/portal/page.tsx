@@ -5,7 +5,7 @@ import { useRouter } from 'next/navigation'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { Button } from '@open-mercato/ui/primitives/button'
 import { Spinner } from '@open-mercato/ui/primitives/spinner'
-import { Notice } from '@open-mercato/ui/primitives/Notice'
+import { Alert, AlertDescription } from '@open-mercato/ui/primitives/alert'
 import { usePortalContext } from '@open-mercato/ui/portal/PortalContext'
 import { PortalFeatureCard } from '@open-mercato/ui/portal/components/PortalFeatureCard'
 import { InjectionSpot } from '@open-mercato/ui/backend/injection/InjectionSpot'
@@ -62,7 +62,9 @@ export default function PortalLandingPage({ params }: Props) {
   if (tenant.error) {
     return (
       <div className="mx-auto w-full max-w-md py-12">
-        <Notice variant="error">{t('portal.org.invalid', 'Organization not found.')}</Notice>
+        <Alert variant="destructive">
+          <AlertDescription>{t('portal.org.invalid', 'Organization not found.')}</AlertDescription>
+        </Alert>
       </div>
     )
   }
@@ -75,7 +77,7 @@ export default function PortalLandingPage({ params }: Props) {
       <InjectionSpot spotId={PortalInjectionSpots.pageBefore('home')} context={injectionContext} />
 
       <section className="flex flex-col items-center gap-5 py-8 text-center sm:py-16">
-        <p className="text-[11px] font-semibold uppercase tracking-[0.15em] text-muted-foreground/60">
+        <p className="text-overline font-semibold uppercase tracking-widest text-muted-foreground/60">
           {t('portal.nav.home', 'Customer Portal')}
         </p>
         <h1 className="max-w-2xl text-4xl font-bold tracking-tight text-foreground sm:text-5xl lg:text-6xl">
@@ -85,10 +87,10 @@ export default function PortalLandingPage({ params }: Props) {
           {t('portal.landing.hero.description', 'Access your account, manage orders, and stay up to date.')}
         </p>
         <div className="mt-2 flex items-center gap-3">
-          <Button asChild size="lg" className="rounded-lg px-6 text-[14px]">
+          <Button asChild size="lg" className="rounded-lg px-6 text-sm">
             <Link href={`/${orgSlug}/portal/login`}>{t('portal.landing.cta.login', 'Sign In')}</Link>
           </Button>
-          <Button asChild variant="outline" size="lg" className="rounded-lg px-6 text-[14px]">
+          <Button asChild variant="outline" size="lg" className="rounded-lg px-6 text-sm">
             <Link href={`/${orgSlug}/portal/signup`}>{t('portal.landing.cta.signup', 'Create Account')}</Link>
           </Button>
         </div>

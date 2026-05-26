@@ -3,7 +3,7 @@ import { z } from 'zod'
 import { Dictionary, DictionaryEntry } from '@open-mercato/core/modules/dictionaries/data/entities'
 import { resolveDictionariesRouteContext } from '@open-mercato/core/modules/dictionaries/api/context'
 import { createDictionaryEntrySchema } from '@open-mercato/core/modules/dictionaries/data/validators'
-import { CrudHttpError } from '@open-mercato/shared/lib/crud/errors'
+import { CrudHttpError, isCrudHttpError } from '@open-mercato/shared/lib/crud/errors'
 import type { CommandBus } from '@open-mercato/shared/lib/commands'
 import { serializeOperationMetadata } from '@open-mercato/shared/lib/commands/operationMetadata'
 import type { OpenApiMethodDoc, OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
@@ -71,7 +71,7 @@ export async function GET(req: Request, ctx: { params?: { dictionaryId?: string 
         organizationId: dictionary.organizationId,
         tenantId: dictionary.tenantId,
       },
-      { orderBy: { label: 'asc' } },
+      { orderBy: { position: 'asc', label: 'asc' } },
     )
 
     return NextResponse.json({
@@ -81,12 +81,14 @@ export async function GET(req: Request, ctx: { params?: { dictionaryId?: string 
         label: entry.label,
         color: entry.color,
         icon: entry.icon,
+        position: entry.position ?? 0,
+        isDefault: entry.isDefault ?? false,
         createdAt: entry.createdAt,
         updatedAt: entry.updatedAt,
       })),
     })
   } catch (err) {
-    if (err instanceof CrudHttpError) {
+    if (isCrudHttpError(err)) {
       return NextResponse.json(err.body, { status: err.status })
     }
     console.error('[dictionaries/:id/entries.GET] Unexpected error', err)
@@ -129,6 +131,8 @@ export async function POST(req: Request, ctx: { params?: { dictionaryId?: string
       label: entry.label,
       color: entry.color,
       icon: entry.icon,
+      position: entry.position ?? 0,
+      isDefault: entry.isDefault ?? false,
       createdAt: entry.createdAt,
       updatedAt: entry.updatedAt,
     }, { status: 201 })
@@ -148,7 +152,7 @@ export async function POST(req: Request, ctx: { params?: { dictionaryId?: string
     }
     return response
   } catch (err) {
-    if (err instanceof CrudHttpError) {
+    if (isCrudHttpError(err)) {
       return NextResponse.json(err.body, { status: err.status })
     }
     console.error('[dictionaries/:id/entries.POST] Unexpected error', err)
@@ -158,7 +162,7 @@ export async function POST(req: Request, ctx: { params?: { dictionaryId?: string
 
 const dictionaryEntriesGetDoc: OpenApiMethodDoc = {
   summary: 'List dictionary entries',
-  description: 'Returns entries for the specified dictionary ordered alphabetically.',
+  description: 'Returns entries for the specified dictionary ordered by position.',
   tags: [dictionariesTag],
   responses: [
     { status: 200, description: 'Dictionary entries.', schema: dictionaryEntryListResponseSchema },

@@ -1,6 +1,7 @@
 import { registerCommand } from '@open-mercato/shared/lib/commands'
 import type { CommandHandler } from '@open-mercato/shared/lib/commands'
 import type { EntityManager } from '@mikro-orm/postgresql'
+import { findOneWithDecryption, findWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import { CustomerPipelineStage, CustomerDeal } from '../data/entities'
 import {
   pipelineStageCreateSchema,
@@ -24,18 +25,49 @@ const createPipelineStageCommand: CommandHandler<PipelineStageCreateInput, { sta
 
     const em = (ctx.container.resolve('em') as EntityManager).fork()
 
-    const existingCount = await em.count(CustomerPipelineStage, {
-      organizationId: parsed.organizationId,
-      tenantId: parsed.tenantId,
-      pipelineId: parsed.pipelineId,
-    })
+    // Load the full ordered list once. We need it both to know where "end" is and to
+    // shift any stages that occupy positions at or after the chosen insert point.
+    const existingStages = await findWithDecryption(
+      em,
+      CustomerPipelineStage,
+      {
+        organizationId: parsed.organizationId,
+        tenantId: parsed.tenantId,
+        pipelineId: parsed.pipelineId,
+      },
+      { orderBy: { order: 'ASC' } },
+      { tenantId: parsed.tenantId, organizationId: parsed.organizationId },
+    )
+
+    // Clamp the requested insert position into the legal range [0, length]. Anything
+    // outside that range (negative, way past the end) collapses to "append" so we never
+    // create stages that hop the visible board boundary.
+    const requestedOrder = parsed.order
+    const insertOrder =
+      requestedOrder === undefined
+        ? existingStages.length
+        : Math.max(0, Math.min(requestedOrder, existingStages.length))
+
+    // Shift the order of every stage at or after the insert position. We use the
+    // already-forked EM so the shifts and the new INSERT land in a single `flush()`
+    // (one transaction by default with MikroORM's `forceTransactions` config). Skipping
+    // this step would either duplicate `order` values (silently corrupting kanban
+    // ordering) or push the new stage to the wrong spot when re-sorting.
+    if (requestedOrder !== undefined) {
+      for (const stage of existingStages) {
+        if (stage.order >= insertOrder) {
+          stage.order += 1
+          stage.updatedAt = new Date()
+        }
+      }
+    }
 
     const stage = em.create(CustomerPipelineStage, {
       organizationId: parsed.organizationId,
       tenantId: parsed.tenantId,
       pipelineId: parsed.pipelineId,
       label: parsed.label,
-      order: parsed.order ?? existingCount,
+      order: insertOrder,
       createdAt: new Date(),
       updatedAt: new Date(),
     })
@@ -61,8 +93,17 @@ const updatePipelineStageCommand: CommandHandler<PipelineStageUpdateInput, void>
   async execute(rawInput, ctx) {
     const parsed = pipelineStageUpdateSchema.parse(rawInput)
 
+    // Restrict the lookup to the caller's tenant/organization scope so a
+    // wrong-tenant id returns 404 (same as a missing row), not 403 — avoids
+    // leaking existence of stages outside the caller's scope.
+    const callerTenantId = ctx.auth?.tenantId ?? null
+    const callerOrganizationId = ctx.selectedOrganizationId ?? ctx.auth?.orgId ?? null
     const em = (ctx.container.resolve('em') as EntityManager).fork()
-    const stage = await em.findOne(CustomerPipelineStage, { id: parsed.id })
+    const stage = await findOneWithDecryption(em, CustomerPipelineStage, {
+      id: parsed.id,
+      ...(callerTenantId ? { tenantId: callerTenantId } : {}),
+      ...(callerOrganizationId ? { organizationId: callerOrganizationId } : {}),
+    })
     if (!stage) throw new CrudHttpError(404, { error: 'Pipeline stage not found' })
 
     ensureTenantScope(ctx, stage.tenantId)
@@ -93,8 +134,16 @@ const deletePipelineStageCommand: CommandHandler<PipelineStageDeleteInput, void>
   async execute(rawInput, ctx) {
     const parsed = pipelineStageDeleteSchema.parse(rawInput)
 
+    // See update command above — scope the lookup to the caller's tenant/org so a
+    // cross-tenant id returns 404, not 403.
+    const callerTenantId = ctx.auth?.tenantId ?? null
+    const callerOrganizationId = ctx.selectedOrganizationId ?? ctx.auth?.orgId ?? null
     const em = (ctx.container.resolve('em') as EntityManager).fork()
-    const stage = await em.findOne(CustomerPipelineStage, { id: parsed.id })
+    const stage = await findOneWithDecryption(em, CustomerPipelineStage, {
+      id: parsed.id,
+      ...(callerTenantId ? { tenantId: callerTenantId } : {}),
+      ...(callerOrganizationId ? { organizationId: callerOrganizationId } : {}),
+    })
     if (!stage) throw new CrudHttpError(404, { error: 'Pipeline stage not found' })
 
     ensureTenantScope(ctx, stage.tenantId)
@@ -123,11 +172,17 @@ const reorderPipelineStagesCommand: CommandHandler<PipelineStageReorderInput, vo
     const em = (ctx.container.resolve('em') as EntityManager).fork()
 
     const ids = parsed.stages.map((s) => s.id)
-    const stages = await em.find(CustomerPipelineStage, {
-      id: { $in: ids },
-      organizationId: parsed.organizationId,
-      tenantId: parsed.tenantId,
-    })
+    const stages = await findWithDecryption(
+      em,
+      CustomerPipelineStage,
+      {
+        id: { $in: ids },
+        organizationId: parsed.organizationId,
+        tenantId: parsed.tenantId,
+      },
+      undefined,
+      { tenantId: parsed.tenantId, organizationId: parsed.organizationId },
+    )
 
     const stageMap = new Map<string, CustomerPipelineStage>()
     stages.forEach((stage) => stageMap.set(stage.id, stage))

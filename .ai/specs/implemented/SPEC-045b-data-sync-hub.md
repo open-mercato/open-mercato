@@ -1,5 +1,7 @@
 # SPEC-045b — Data Sync Hub: Import/Export with Delta Streaming
 
+> **Note (2026-04-15)**: Code snippets updated for MikroORM v7 — `em.remove(x).flush()` replaces `em.removeAndFlush(x)`.
+
 **Parent**: [SPEC-045 — Integration Marketplace](./SPEC-045-2026-02-24-integration-marketplace.md)
 **Phase**: 2 of 6
 **Depends on**: [SPEC-004 — Progress Module](./SPEC-004-2026-01-23-progress-module.md), `packages/scheduler` (SchedulerService)
@@ -1715,7 +1717,7 @@ export function createSyncScheduleService({
         await schedulerService.remove(schedule.scheduledJobId)
       }
 
-      await em.removeAndFlush(schedule)
+      await em.remove(schedule).flush()
     },
 
     /**
@@ -2547,6 +2549,7 @@ export function createRateLimiter(requestsPerSecond: number) {
 | 2026-02-24 | Added scheduler and progress integration details |
 | 2026-02-24 | Added `sync_excel` reference implementation |
 | 2026-03-04 | Clarified canonical ownership of `sync_external_id_mappings` and added migration/BC + compliance sections |
+| 2026-04-15 | Updated code snippets for MikroORM v7 (persist().flush(), getKysely(), class-based entity refs). |
 
 ## Implementation Status
 

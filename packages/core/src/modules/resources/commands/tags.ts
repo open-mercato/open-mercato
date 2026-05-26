@@ -40,7 +40,7 @@ const createTagCommand: CommandHandler<ResourcesResourceTagCreateInput, { tagId:
       createdAt: new Date(),
       updatedAt: new Date(),
     })
-    await em.persistAndFlush(tag)
+    await em.persist(tag).flush()
     return { tagId: tag.id }
   },
   buildLog: async ({ input, result, ctx }) => {

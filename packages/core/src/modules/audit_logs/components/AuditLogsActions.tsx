@@ -2,7 +2,7 @@
 
 import * as React from 'react'
 import type { ColumnDef } from '@tanstack/react-table'
-import { DataTable } from '@open-mercato/ui/backend/DataTable'
+import { DataTable, type PaginationProps } from '@open-mercato/ui/backend/DataTable'
 import { Button } from '@open-mercato/ui/primitives/button'
 import { apiCallOrThrow } from '@open-mercato/ui/backend/utils/apiCall'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
@@ -10,7 +10,7 @@ import { ActionLogDetailsDialog } from './ActionLogDetailsDialog'
 import { Undo2, RotateCcw } from 'lucide-react'
 import { markRedoConsumed, markUndoSuccess } from '@open-mercato/ui/backend/operations/store'
 import { useAuditPermissions, canUndoEntry, canRedoEntry } from '@open-mercato/ui/backend/version-history'
-import { Notice } from '@open-mercato/ui/primitives/Notice'
+import { Alert, AlertDescription } from '@open-mercato/ui/primitives/alert'
 
 export type ActionLogItem = {
   id: string
@@ -41,6 +41,7 @@ export function AuditLogsActions({
   headerExtras,
   onUndoError,
   onRedoError,
+  pagination,
 }: {
   items: ActionLogItem[] | undefined
   onRefresh: () => Promise<void>
@@ -48,6 +49,7 @@ export function AuditLogsActions({
   headerExtras?: React.ReactNode
   onUndoError?: () => void
   onRedoError?: () => void
+  pagination?: PaginationProps
 }) {
   const t = useT()
   const permissions = useAuditPermissions(true)
@@ -229,9 +231,11 @@ export function AuditLogsActions({
   return (
     <>
       {showSelfOnlyHint ? (
-        <Notice compact className="mb-4">
-          {t('audit_logs.hint.view_self_only', 'Showing only your own changes. Contact an administrator for broader access.')}
-        </Notice>
+        <Alert variant="info" className="mb-4">
+          <AlertDescription>
+            {t('audit_logs.hint.view_self_only', 'Showing only your own changes. Contact an administrator for broader access.')}
+          </AlertDescription>
+        </Alert>
       ) : null}
       <DataTable<ActionLogItem>
         title={t('audit_logs.actions.title')}
@@ -241,6 +245,7 @@ export function AuditLogsActions({
         perspective={{ tableId: 'audit_logs.actions.list' }}
         isLoading={Boolean(isLoading) || Boolean(undoingToken) || Boolean(redoingId)}
         onRowClick={(item) => setSelected(item)}
+        pagination={pagination}
       />
       {selected ? (
         <ActionLogDetailsDialog

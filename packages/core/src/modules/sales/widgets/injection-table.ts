@@ -29,6 +29,10 @@ export const injectionTable: ModuleInjectionTable = {
     widgetId: 'sales.injection.payment-gateway-config-field',
     priority: 40,
   },
+  'detail:sales.order:stage-bar': [],
+  'detail:sales.order:closure': [],
+  'detail:sales.quote:stage-bar': [],
+  'detail:sales.quote:closure': [],
 }
 
 export default injectionTable

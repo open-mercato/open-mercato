@@ -14,11 +14,14 @@ import { WidgetVisibilityEditor, type WidgetVisibilityEditorHandle } from '@open
 import { Button } from '@open-mercato/ui/primitives/button'
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
+import { extractCustomFieldEntries } from '@open-mercato/shared/lib/crud/custom-fields-client'
 import { formatPasswordRequirements, getPasswordPolicy } from '@open-mercato/shared/lib/auth/passwordPolicy'
 import { UserConsentsPanel } from '@open-mercato/core/modules/auth/components/UserConsentsPanel'
+import { normalizeDisplayNameInput } from '@open-mercato/core/modules/auth/lib/displayName'
 
 type EditUserFormValues = {
   email: string
+  name: string
   password: string
   tenantId: string | null
   organizationId: string | null
@@ -28,6 +31,7 @@ type EditUserFormValues = {
 type LoadedUser = {
   id: string
   email: string
+  name: string | null
   organizationId: string | null
   tenantId: string | null
   tenantName: string | null
@@ -40,6 +44,7 @@ type LoadedUser = {
 type UserApiItem = {
   id?: string | null
   email?: string | null
+  name?: string | null
   organizationId?: string | null
   tenantId?: string | null
   tenantName?: string | null
@@ -118,6 +123,7 @@ export default function EditUserPage({ params }: { params?: { id?: string } }) {
   const [aclData, setAclData] = React.useState<AclData>({ isSuperAdmin: false, features: [], organizations: null })
   const [customFieldValues, setCustomFieldValues] = React.useState<Record<string, unknown>>({})
   const [actorIsSuperAdmin, setActorIsSuperAdmin] = React.useState(false)
+  const [actorResolved, setActorResolved] = React.useState(false)
   const widgetEditorRef = React.useRef<WidgetVisibilityEditorHandle | null>(null)
   const [resendingInvite, setResendingInvite] = React.useState(false)
 
@@ -174,6 +180,7 @@ export default function EditUserPage({ params }: { params?: { id?: string } }) {
         const item = Array.isArray(result?.items) ? result?.items?.[0] : undefined
         if (!cancelled) {
           setActorIsSuperAdmin(Boolean(result?.isSuperAdmin))
+          setActorResolved(true)
           if (!item) {
             setError(tRef.current('auth.users.form.errors.notFound', 'User not found'))
             setCustomFieldValues({})
@@ -191,6 +198,7 @@ export default function EditUserPage({ params }: { params?: { id?: string } }) {
             setInitialUser({
               id: item.id ? String(item.id) : String(id),
               email: item.email ? String(item.email) : '',
+              name: item.name ? String(item.name) : null,
               organizationId: item.organizationId ? String(item.organizationId) : null,
               tenantId: item.tenantId ? String(item.tenantId) : null,
               tenantName: item.tenantName ? String(item.tenantName) : null,
@@ -200,11 +208,7 @@ export default function EditUserPage({ params }: { params?: { id?: string } }) {
               hasPassword: item.hasPassword !== false,
             })
             setSelectedTenantId(item.tenantId ? String(item.tenantId) : null)
-            const custom: Record<string, unknown> = {}
-            for (const [key, value] of Object.entries(item)) {
-              if (key.startsWith('cf_')) custom[key] = value as unknown
-              else if (key.startsWith('cf:')) custom[`cf_${key.slice(3)}`] = value as unknown
-            }
+            const custom = extractCustomFieldEntries(item as Record<string, unknown>)
             setCustomFieldValues(custom)
           }
         }
@@ -212,6 +216,7 @@ export default function EditUserPage({ params }: { params?: { id?: string } }) {
         console.error('Failed to load user:', err)
         if (!cancelled) setError(tRef.current('auth.users.form.errors.load', 'Failed to load user data'))
         if (!cancelled) setCustomFieldValues({})
+        if (!cancelled) setActorResolved(true)
       }
       if (!cancelled) setLoading(false)
       try {
@@ -242,18 +247,23 @@ export default function EditUserPage({ params }: { params?: { id?: string } }) {
     return [{ id: selectedTenantId, name, isActive: true }]
   }, [initialUser, selectedTenantId])
 
+  // Block role loading until we know whether the actor is a super admin. Without this guard the
+  // initial (non-super-admin) branch fires before the flag resolves and the server returns roles
+  // from other tenants because the real caller is a super admin without tenantId scoping.
   const loadRoleOptions = React.useCallback(async (query?: string): Promise<CrudFieldOption[]> => {
+    if (!actorResolved) return []
     if (actorIsSuperAdmin) {
       if (!selectedTenantId) return []
-      return fetchRoleOptions(query, { tenantId: selectedTenantId })
+      return fetchRoleOptions(query, { tenantId: selectedTenantId, includeSuperAdmin: true })
     }
     return fetchRoleOptions(query)
-  }, [actorIsSuperAdmin, selectedTenantId])
+  }, [actorIsSuperAdmin, actorResolved, selectedTenantId])
 
   const userHasPassword = initialUser?.hasPassword !== false
   const fields: CrudField[] = React.useMemo(() => {
     const items: CrudField[] = [
       { id: 'email', label: t('auth.users.form.field.email', 'Email'), type: 'text', required: true },
+      { id: 'name', label: t('auth.users.form.field.name', 'Display name'), type: 'text' },
       {
         id: 'password',
         label: userHasPassword
@@ -320,7 +330,7 @@ export default function EditUserPage({ params }: { params?: { id?: string } }) {
   }, [actorIsSuperAdmin, loadRoleOptions, passwordDescription, preloadedTenants, selectedOrgId, selectedTenantId, t, userHasPassword])
 
   const detailFieldIds = React.useMemo(() => {
-    const base: string[] = ['email', 'password', 'organizationId', 'roles']
+    const base: string[] = ['email', 'name', 'password', 'organizationId', 'roles']
     if (actorIsSuperAdmin) base.splice(2, 0, 'tenantId')
     return base
   }, [actorIsSuperAdmin])
@@ -375,6 +385,7 @@ export default function EditUserPage({ params }: { params?: { id?: string } }) {
     if (initialUser) {
       return {
         email: initialUser.email,
+        name: initialUser.name ?? '',
         password: '',
         tenantId: initialUser.tenantId,
         organizationId: initialUser.organizationId,
@@ -384,6 +395,7 @@ export default function EditUserPage({ params }: { params?: { id?: string } }) {
     }
     return {
       email: '',
+      name: '',
       password: '',
       tenantId: selectedTenantId ?? null,
       organizationId: null,
@@ -431,6 +443,7 @@ export default function EditUserPage({ params }: { params?: { id?: string } }) {
             const payload = {
               id: id ? String(id) : '',
               email: values.email,
+              name: normalizeDisplayNameInput(values.name),
               password: values.password && values.password.trim() ? values.password : undefined,
               organizationId: values.organizationId ? values.organizationId : undefined,
               roles: Array.isArray(values.roles) ? values.roles : [],

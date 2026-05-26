@@ -2,7 +2,11 @@
 
 import * as React from 'react'
 import { Elements, PaymentElement, useElements, useStripe } from '@stripe/react-stripe-js'
-import { loadStripe } from '@stripe/stripe-js'
+// Use the `/pure` entry so that Stripe.js is only fetched when `loadStripe`
+// is actually called (i.e., when the embedded payment form renders on a
+// checkout page), instead of as an import side effect that leaks onto every
+// admin route that bootstraps payment renderer registrations.
+import { loadStripe } from '@stripe/stripe-js/pure'
 import type { StripePaymentElementOptions } from '@stripe/stripe-js'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 import {
@@ -196,7 +200,7 @@ function StripeEmbeddedPaymentRenderer(props: EmbeddedPaymentGatewayRendererProp
   }
 
   return (
-    <div className="space-y-3 rounded-[24px] border border-border/70 bg-white/80 p-4 shadow-sm backdrop-blur">
+    <div className="space-y-3 rounded-xl border border-border/70 bg-white/80 p-4 shadow-sm backdrop-blur">
       <div className="space-y-1">
         <p className="text-sm font-semibold">{t('gateway_stripe.payments.title', 'Secure Stripe payment')}</p>
         <p className="text-sm text-muted-foreground">
@@ -211,7 +215,7 @@ function StripeEmbeddedPaymentRenderer(props: EmbeddedPaymentGatewayRendererProp
         }}
       >
         <div className="space-y-4">
-          <div className="rounded-2xl border bg-background px-4 py-4 shadow-sm">
+          <div className="rounded-xl border bg-background px-4 py-4 shadow-sm">
             <PaymentElement options={paymentElementOptions} />
           </div>
           <StripeEmbeddedPaymentForm

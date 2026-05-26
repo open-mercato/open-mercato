@@ -133,7 +133,7 @@ export async function POST(req: Request) {
     organizationId: scope.organizationId,
     tenantId: scope.tenantId,
   })
-  await em.persistAndFlush(created)
+  await em.persist(created).flush()
 
   return NextResponse.json({
     id: created.id,

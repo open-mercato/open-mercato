@@ -25,10 +25,11 @@ describe('createExternalIdMappingService', () => {
       .mockResolvedValueOnce(null)
       .mockResolvedValueOnce(existingByExternalId)
 
+    const persist = jest.fn((_entity: unknown) => ({ flush: jest.fn().mockResolvedValue(undefined) }))
     const em = {
       flush: jest.fn().mockResolvedValue(undefined),
       create: jest.fn(),
-      persistAndFlush: jest.fn(),
+      persist,
     }
 
     const service = createExternalIdMappingService(em as never)
@@ -49,7 +50,8 @@ describe('createExternalIdMappingService', () => {
     expect(existingByExternalId.syncStatus).toBe('synced')
     expect(existingByExternalId.lastSyncedAt).toBeInstanceOf(Date)
     expect(em.flush).toHaveBeenCalledTimes(1)
-    expect(em.persistAndFlush).not.toHaveBeenCalled()
+    // Update path must not call em.persist(created).flush() — it should use em.flush() only.
+    expect(persist).not.toHaveBeenCalled()
   })
 
   it('retires duplicate active rows when both local and external lookups resolve different mappings', async () => {
@@ -77,10 +79,11 @@ describe('createExternalIdMappingService', () => {
       .mockResolvedValueOnce(existingByLocalId)
       .mockResolvedValueOnce(existingByExternalId)
 
+    const persist = jest.fn((_entity: unknown) => ({ flush: jest.fn().mockResolvedValue(undefined) }))
     const em = {
       flush: jest.fn().mockResolvedValue(undefined),
       create: jest.fn(),
-      persistAndFlush: jest.fn(),
+      persist,
     }
 
     const service = createExternalIdMappingService(em as never)
@@ -99,5 +102,6 @@ describe('createExternalIdMappingService', () => {
     expect(existingByExternalId.syncStatus).toBe('synced')
     expect(existingByLocalId.deletedAt).toBeInstanceOf(Date)
     expect(em.flush).toHaveBeenCalledTimes(1)
+    expect(persist).not.toHaveBeenCalled()
   })
 })

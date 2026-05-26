@@ -36,4 +36,11 @@ describe('resolveInjectedIcon', () => {
   it('returns null for an empty string', () => {
     expect(resolveInjectedIcon('')).toBeNull()
   })
+
+  it('resolves lucide-prefixed icon names', () => {
+    const node = resolveInjectedIcon('lucide:bell')
+    expect(node).not.toBeNull()
+    const { container } = render(<>{node}</>)
+    expect(container.querySelector('svg')).toBeTruthy()
+  })
 })

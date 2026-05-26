@@ -100,6 +100,20 @@ export type QueryOptions = {
   tenantId?: string // enforce tenant scope
   // Optional list of organization ids to scope results. Takes precedence over organizationId.
   organizationIds?: string[]
+  /**
+   * When true, the engine does not apply default `organization_id` / `tenant_id` equality guards.
+   *
+   * Callers MUST encode full visibility in `filters` (for example with `$or` of scoped branches)
+   * and MUST fail closed when the authenticated principal lacks a resolvable tenant/org, otherwise
+   * queries return cross-tenant rows.
+   *
+   * When this flag is set, the hybrid query engine delegates to the basic engine, which means
+   * custom-field (`cf:*`) filters/sorts, `search_tokens` fulltext filtering, and vector-search
+   * branches are BYPASSED. Only use this on entities whose scoping does not match the standard
+   * `organization_id = X AND tenant_id = Y` shape and which do not rely on custom-field/search
+   * features.
+   */
+  omitAutomaticTenantOrgScope?: boolean
   // Soft-delete behavior: when false (default), rows with non-null deleted_at
   // are excluded if the base table has that column. Set true to include them.
   withDeleted?: boolean

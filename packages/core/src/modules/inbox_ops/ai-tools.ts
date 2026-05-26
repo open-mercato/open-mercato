@@ -6,7 +6,7 @@ import { findOneWithDecryption, findWithDecryption } from '@open-mercato/shared/
 import { hasFeature } from '@open-mercato/shared/security/features'
 import {
   resolveOpenCodeModel,
-  resolveOpenCodeProviderApiKey,
+  requireOpenCodeProviderApiKey,
 } from '@open-mercato/shared/lib/ai/opencode-provider'
 import { InboxProposal, InboxProposalAction, InboxDiscrepancy } from './data/entities'
 import { inboxProposalCategoryEnum } from './data/validators'
@@ -278,6 +278,10 @@ Returns on error: error message with appropriate detail.`,
     actionId: z.string().uuid().describe('The UUID of the action to accept'),
   }),
   requiredFeatures: ['inbox_ops.proposals.manage'],
+  // Accepting an inbox action creates downstream entities (orders, contacts,
+  // etc.) in target modules — must surface as a write so any agent that
+  // whitelists it routes through the approval card.
+  isMutation: true,
   handler: async (input: { proposalId: string; actionId: string }, ctx: ToolContext) => {
     const scope = requireTenantContext(ctx)
     if (!ctx.userId) {
@@ -391,10 +395,7 @@ Input text is limited to 10,000 characters for cost control.`,
     requireTenantContext(ctx)
 
     const providerId = resolveExtractionProviderId()
-    const apiKey = resolveOpenCodeProviderApiKey(providerId)
-    if (!apiKey) {
-      throw new Error(`Missing API key for provider "${providerId}"`)
-    }
+    const apiKey = requireOpenCodeProviderApiKey(providerId)
 
     const modelConfig = resolveOpenCodeModel(providerId, {})
     const model = await createStructuredModel(providerId, apiKey, modelConfig.modelId)

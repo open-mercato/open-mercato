@@ -5,7 +5,7 @@ import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import { getAuthFromRequest } from '@open-mercato/shared/lib/auth/server'
 import { resolveOrganizationScopeForRequest } from '@open-mercato/core/modules/directory/utils/organizationScope'
 import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
-import { CrudHttpError } from '@open-mercato/shared/lib/crud/errors'
+import { CrudHttpError, isCrudHttpError } from '@open-mercato/shared/lib/crud/errors'
 import { NextResponse } from 'next/server'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import type { ActionLog } from '@open-mercato/core/modules/audit_logs/data/entities'
@@ -75,7 +75,7 @@ export async function GET(req: Request) {
     const actionLogService = container.resolve('actionLogService') as ActionLogService
     const em = (container.resolve('em') as EntityManager).fork()
 
-    const [logs, notes] = await Promise.all([
+    const [actionLogList, notes] = await Promise.all([
       actionLogService.list({
         tenantId: auth.tenantId,
         organizationId,
@@ -85,7 +85,7 @@ export async function GET(req: Request) {
         limit: query.limit,
         before: query.before ? new Date(query.before) : undefined,
         after: query.after ? new Date(query.after) : undefined,
-      }) as Promise<ActionLog[]>,
+      }),
       findWithDecryption(
         em,
         SalesNote,
@@ -100,6 +100,7 @@ export async function GET(req: Request) {
         { tenantId: auth.tenantId, organizationId },
       ),
     ])
+    const logs = actionLogList.items as ActionLog[]
 
     const allUserIds = [
       ...logs.map((l) => l.actorUserId).filter((v): v is string => !!v),
@@ -126,7 +127,7 @@ export async function GET(req: Request) {
 
     return NextResponse.json({ items, nextCursor })
   } catch (err) {
-    if (err instanceof CrudHttpError) {
+    if (isCrudHttpError(err)) {
       return NextResponse.json(err.body, { status: err.status })
     }
     console.error('sales.document-history.get failed', err)

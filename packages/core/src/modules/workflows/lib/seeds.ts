@@ -160,8 +160,23 @@ async function seedGuardRules(
       continue
     }
     const entry = em.create(BusinessRule, {
-      ...rule,
       ruleId,
+      ruleName: rule.ruleName,
+      ruleType: rule.ruleType,
+      entityType: rule.entityType,
+      conditionExpression: rule.conditionExpression,
+      eventType: rule.eventType,
+      ruleCategory: rule.ruleCategory,
+      description: rule.description,
+      successActions: rule.successActions,
+      failureActions: rule.failureActions,
+      enabled: rule.enabled,
+      priority: rule.priority,
+      version: rule.version,
+      effectiveFrom: rule.effectiveFrom,
+      effectiveTo: rule.effectiveTo,
+      createdBy: rule.createdBy,
+      updatedBy: rule.updatedBy,
       tenantId: scope.tenantId,
       organizationId: scope.organizationId,
     })
@@ -175,10 +190,11 @@ async function seedGuardRules(
 }
 
 export async function seedExampleWorkflows(em: EntityManager, scope: WorkflowSeedScope): Promise<void> {
-  await seedWorkflowDefinition(em, scope, 'checkout-demo-definition.json')
+  // workflows.checkout-demo and workflows.simple-approval are now code-defined
+  // (see packages/core/src/modules/workflows/workflows.ts). Seeding DB rows for
+  // them would shadow the code definitions in the merge layer, so they are no
+  // longer seeded here. Existing tenants are migrated via Migration20260428102318.
   await seedGuardRules(em, scope, 'guard-rules-example.json')
   await seedWorkflowDefinition(em, scope, 'sales-pipeline-definition.json')
-  await seedWorkflowDefinition(em, scope, 'simple-approval-definition.json')
   await seedGuardRules(em, scope, 'order-approval-guard-rules.json')
-  await seedWorkflowDefinition(em, scope, 'order-approval-definition.json')
 }

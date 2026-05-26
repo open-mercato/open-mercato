@@ -14,6 +14,10 @@ import { useRegisteredComponent } from '../injection/useRegisteredComponent'
 
 type AttachmentsResponse = {
   items?: AttachmentItem[]
+  total?: number
+  page?: number
+  pageSize?: number
+  totalPages?: number
   error?: string
 }
 
@@ -40,6 +44,8 @@ function AttachmentsSectionImpl({
 }: Props) {
   const t = useT()
   const [items, setItems] = React.useState<AttachmentItem[]>([])
+  const [page, setPage] = React.useState(1)
+  const [totalPages, setTotalPages] = React.useState(1)
   const [loading, setLoading] = React.useState(false)
   const [error, setError] = React.useState<string | null>(null)
   const [isUploading, setIsUploading] = React.useState(false)
@@ -50,13 +56,19 @@ function AttachmentsSectionImpl({
   const [deleteTarget, setDeleteTarget] = React.useState<AttachmentItem | null>(null)
   const fileInputRef = React.useRef<HTMLInputElement | null>(null)
 
-  const load = React.useCallback(async () => {
+  const load = React.useCallback(async (targetPage = 1, replace = true) => {
     if (!recordId) return
     setLoading(true)
     setError(null)
     try {
+      const params = new URLSearchParams({
+        entityId,
+        recordId,
+        page: String(targetPage),
+        pageSize: '24',
+      })
       const call = await apiCall<AttachmentsResponse>(
-        `/api/attachments?entityId=${encodeURIComponent(entityId)}&recordId=${encodeURIComponent(recordId)}`,
+        `/api/attachments?${params.toString()}`,
         undefined,
         { fallback: { items: [] } },
       )
@@ -65,7 +77,10 @@ function AttachmentsSectionImpl({
         throw new Error(message)
       }
       const payload = call.result ?? { items: [] }
-      setItems(Array.isArray(payload.items) ? payload.items : [])
+      const nextItems = Array.isArray(payload.items) ? payload.items : []
+      setItems((current) => (replace ? nextItems : [...current, ...nextItems]))
+      setPage(typeof payload.page === 'number' ? payload.page : targetPage)
+      setTotalPages(typeof payload.totalPages === 'number' ? payload.totalPages : 1)
     } catch (err: any) {
       setError(err?.message || t('attachments.library.errors.load', 'Failed to load attachments.'))
     } finally {
@@ -78,6 +93,8 @@ function AttachmentsSectionImpl({
       void load()
     } else {
       setItems([])
+      setPage(1)
+      setTotalPages(1)
       setError(null)
     }
   }, [load, recordId])
@@ -103,7 +120,7 @@ function AttachmentsSectionImpl({
             throw new Error(message)
           }
         }
-        await load()
+        await load(1, true)
         onChanged?.()
       } catch (err: any) {
         setError(err?.message || t('attachments.library.upload.failed', 'Upload failed.'))
@@ -162,7 +179,7 @@ function AttachmentsSectionImpl({
       }
       setDeleteOpen(false)
       setDeleteTarget(null)
-      await load()
+      await load(1, true)
       onChanged?.()
     } catch (err: any) {
       setError(err?.message || t('attachments.library.errors.delete', 'Failed to delete attachment.'))
@@ -188,7 +205,7 @@ function AttachmentsSectionImpl({
         throw new Error(message)
       }
       setMetadataOpen(false)
-      await load()
+      await load(1, true)
       onChanged?.()
     },
     [load, onChanged, t],
@@ -250,41 +267,53 @@ function AttachmentsSectionImpl({
         )}>
           {items.map((item) => {
             return (
-              <button
+              <div
                 key={item.id}
-                type="button"
-                onClick={() => openMetadataDialog(item)}
-                className="group flex flex-col overflow-hidden rounded-lg border bg-card text-left cursor-pointer transition-shadow hover:shadow-sm"
+                role="group"
+                className="group relative flex flex-col overflow-hidden rounded-lg border bg-card text-left transition-shadow hover:shadow-sm focus-within:ring-2 focus-within:ring-ring focus-within:ring-offset-2"
               >
-                <AttachmentVisualPreview
-                  fileName={item.fileName}
-                  mimeType={item.mimeType}
-                  thumbnailUrl={item.thumbnailUrl}
-                  className={compact ? 'aspect-[2/1]' : 'aspect-[4/3]'}
-                  overlay={(
-                    <Button
-                      type="button"
-                      variant="ghost"
-                      size="icon"
-                      className="absolute right-2 top-2 opacity-100 transition-opacity md:opacity-0 md:group-hover:opacity-100"
-                      onClick={(event) => {
-                        event.stopPropagation()
-                        openDeleteDialog(item)
-                      }}
-                    >
-                      <Trash2 className="h-4 w-4 text-destructive" />
-                    </Button>
-                  )}
-                />
-                <div className={cn('space-y-1', compact ? 'p-2' : 'p-3')}>
-                  <div className={cn('truncate font-medium', compact ? 'text-xs' : 'text-sm')} title={item.fileName}>
-                    {item.fileName}
+                <Button
+                  type="button"
+                  variant="ghost"
+                  aria-label={item.fileName}
+                  onClick={() => openMetadataDialog(item)}
+                  onKeyDown={(event) => {
+                    if (event.key === 'Enter' || event.key === ' ') {
+                      event.preventDefault()
+                      openMetadataDialog(item)
+                    }
+                  }}
+                  className="flex h-auto w-full flex-col items-stretch rounded-lg p-0 text-left hover:bg-transparent focus-visible:outline-none focus-visible:ring-0"
+                >
+                  <AttachmentVisualPreview
+                    fileName={item.fileName}
+                    mimeType={item.mimeType}
+                    thumbnailUrl={item.thumbnailUrl}
+                    className={compact ? 'aspect-[2/1] w-full' : 'aspect-[4/3] w-full'}
+                  />
+                  <div className={cn('space-y-1 w-full', compact ? 'p-2' : 'p-3')}>
+                    <div className={cn('truncate font-medium', compact ? 'text-xs' : 'text-sm')} title={item.fileName}>
+                      {item.fileName}
+                    </div>
+                    <div className="text-xs text-muted-foreground">
+                      {formatAttachmentFileSize(item.fileSize)}
+                    </div>
                   </div>
-                  <div className="text-xs text-muted-foreground">
-                    {formatAttachmentFileSize(item.fileSize)}
-                  </div>
-                </div>
-              </button>
+                </Button>
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="icon"
+                  className="absolute right-2 top-2 z-10 opacity-100 transition-opacity md:opacity-0 md:group-hover:opacity-100"
+                  onClick={(event) => {
+                    event.stopPropagation()
+                    openDeleteDialog(item)
+                  }}
+                  aria-label={t('attachments.library.delete', 'Delete attachment')}
+                >
+                  <Trash2 className="h-4 w-4 text-destructive" />
+                </Button>
+              </div>
             )
           })}
         </div>
@@ -293,6 +322,20 @@ function AttachmentsSectionImpl({
           {t('attachments.library.table.empty', 'No attachments found.')}
         </div>
       )}
+
+      {items.length > 0 && page < totalPages ? (
+        <div className="flex justify-center">
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            onClick={() => { void load(page + 1, false) }}
+            disabled={loading}
+          >
+            {t('attachments.library.loadMore', 'Load more')}
+          </Button>
+        </div>
+      ) : null}
 
       <AttachmentMetadataDialog
         open={metadataOpen}

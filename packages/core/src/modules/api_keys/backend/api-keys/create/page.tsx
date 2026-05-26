@@ -24,6 +24,7 @@ type FormValues = {
 export default function CreateApiKeyPage() {
   const [createdSecret, setCreatedSecret] = React.useState<{ secret: string; keyPrefix: string } | null>(null)
   const [actorIsSuperAdmin, setActorIsSuperAdmin] = React.useState(false)
+  const [actorResolved, setActorResolved] = React.useState(false)
   const [selectedTenantId, setSelectedTenantId] = React.useState<string | null>(null)
   const router = useRouter()
   const scopeDetail = useOrganizationScopeDetail()
@@ -47,6 +48,8 @@ export default function CreateApiKeyPage() {
         setActorIsSuperAdmin(Boolean(result?.isSuperAdmin))
       } catch {
         if (!cancelled) setActorIsSuperAdmin(false)
+      } finally {
+        if (!cancelled) setActorResolved(true)
       }
     }
     loadInitialScope()
@@ -63,14 +66,18 @@ export default function CreateApiKeyPage() {
     })
   }, [scopeDetail.tenantId, scopeVersion])
 
+  // Block role loading until we know whether the actor is a super admin. Without this guard the
+  // initial (non-super-admin) branch fires before the flag resolves and the server returns roles
+  // from other tenants because the real caller is a super admin without tenantId scoping.
   const loadRoleOptions = React.useCallback(async (query?: string) => {
+    if (!actorResolved) return []
     if (actorIsSuperAdmin) {
       const tenant = typeof selectedTenantId === 'string' && selectedTenantId.trim().length > 0 ? selectedTenantId.trim() : null
       if (!tenant) return []
       return fetchRoleOptions(query, { tenantId: tenant })
     }
     return fetchRoleOptions(query)
-  }, [actorIsSuperAdmin, selectedTenantId])
+  }, [actorIsSuperAdmin, actorResolved, selectedTenantId])
 
   const fields = React.useMemo<CrudField[]>(() => [
     { id: 'name', label: t('api_keys.form.name'), type: 'text', required: true },
@@ -118,7 +125,7 @@ export default function CreateApiKeyPage() {
                 </p>
               </div>
               <div className="space-y-4 p-6">
-                <div className="rounded-md border bg-muted/40 p-4 font-mono text-sm break-all">
+                <div className="rounded-md border bg-muted/50 p-4 font-mono text-sm break-all">
                   {createdSecret.secret}
                 </div>
                 <div className="flex items-center justify-between text-xs text-muted-foreground">

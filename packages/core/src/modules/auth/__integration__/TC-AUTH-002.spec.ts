@@ -14,15 +14,15 @@ test.describe('TC-AUTH-002: Login Failure with Invalid Credentials', () => {
 
     await page.goto('/login');
     await page.getByLabel('Email').fill('admin@acme.com');
-    await page.getByLabel('Password').fill('wrong-password');
-    await page.getByLabel('Password').press('Enter');
+    await page.getByLabel('Password', { exact: true }).fill('wrong-password');
+    await page.getByLabel('Password', { exact: true }).press('Enter');
 
     await expect(page).toHaveURL(/\/login$/);
     await expect(page.getByText(/invalid email or password|invalid credentials/i).first()).toBeVisible();
 
     await page.getByLabel('Email').fill(`not-found-${Date.now()}@acme.com`);
-    await page.getByLabel('Password').fill('wrong-password');
-    await page.getByLabel('Password').press('Enter');
+    await page.getByLabel('Password', { exact: true }).fill('wrong-password');
+    await page.getByLabel('Password', { exact: true }).press('Enter');
 
     await expect(page).toHaveURL(/\/login$/);
     await expect(page.getByText(/invalid email or password|invalid credentials/i).first()).toBeVisible();

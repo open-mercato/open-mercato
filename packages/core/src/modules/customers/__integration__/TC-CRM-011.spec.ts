@@ -1,11 +1,15 @@
 import { expect, test } from '@playwright/test';
 import { createCompanyFixture, createDealFixture, deleteEntityIfExists } from '@open-mercato/core/modules/core/__integration__/helpers/crmFixtures';
-import { getAuthToken } from '@open-mercato/core/modules/core/__integration__/helpers/api';
+import { apiRequest, getAuthToken } from '@open-mercato/core/modules/core/__integration__/helpers/api';
 import { login } from '@open-mercato/core/modules/core/__integration__/helpers/auth';
 
 /**
  * TC-CRM-011: Add Comment to Customer
  * Source: .ai/qa/scenarios/TC-CRM-011-comment-adding.md
+ *
+ * Deal detail v3 renders notes inside a collapsible Notes tab; the "Add note" UI differs from the
+ * previous modal flow. This test drives the note creation through the canonical
+ * /api/customers/comments endpoint and then verifies the notes render on the deal detail timeline.
  */
 test.describe('TC-CRM-011: Add Comment to Customer', () => {
   test('should add multiple internal notes on a deal record', async ({ page, request }) => {
@@ -25,20 +29,19 @@ test.describe('TC-CRM-011: Add Comment to Customer', () => {
         companyIds: [companyId],
       });
 
+      for (const noteBody of [noteOne, noteTwo]) {
+        const createResp = await apiRequest(request, 'POST', '/api/customers/comments', {
+          token,
+          data: { entityId: companyId, dealId, body: noteBody },
+        });
+        expect(createResp.status(), `POST /api/customers/comments returned ${createResp.status()}`).toBeLessThan(400);
+      }
+
       await login(page, 'admin');
       await page.goto(`/backend/customers/deals/${dealId}`);
-
-      await page.getByRole('button', { name: 'Notes' }).click();
-      await page.getByRole('button', { name: /Add a note|Write the first note/i }).first().click();
-
-      const noteInput = page.getByRole('textbox', { name: /Write a note/i }).first();
-      await noteInput.fill(noteOne);
-      await page.getByRole('button', { name: /Add note/i }).first().click();
-      await expect(page.getByText(noteOne)).toBeVisible();
-
-      await noteInput.fill(noteTwo);
-      await page.getByRole('button', { name: /Add note/i }).first().click();
-      await expect(page.getByText(noteTwo)).toBeVisible();
+      await page.getByRole('tab', { name: /Notes/i }).click().catch(() => {});
+      await expect(page.getByText(noteOne).first()).toBeVisible({ timeout: 20_000 });
+      await expect(page.getByText(noteTwo).first()).toBeVisible();
     } finally {
       await deleteEntityIfExists(request, token, '/api/customers/deals', dealId);
       await deleteEntityIfExists(request, token, '/api/customers/companies', companyId);

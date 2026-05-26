@@ -154,7 +154,7 @@ export function ActionBuilder({
               {t('business_rules.components.actionBuilder.addAction')}
             </Button>
             {actions.length > 1 && (
-              <Button type="button" onClick={handleClearAll} variant="outline" size="sm" className="text-red-600">
+              <Button type="button" onClick={handleClearAll} variant="outline" size="sm" className="text-status-error-text">
                 {t('business_rules.components.actionBuilder.clearAll')}
               </Button>
             )}
@@ -164,13 +164,13 @@ export function ActionBuilder({
 
       {/* Validation Errors */}
       {!validation.valid && (
-        <div className="p-3 bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded">
-          <p className="text-sm font-medium text-red-800 dark:text-red-300 mb-1">
+        <div className="p-3 bg-status-error-bg border border-status-error-border rounded">
+          <p className="text-sm font-medium text-status-error-text mb-1">
             {t('business_rules.components.actionBuilder.validationErrors')}
           </p>
           <ul className="list-disc list-inside space-y-0.5">
             {validation.errors.map((err, index) => (
-              <li key={index} className="text-xs text-red-700 dark:text-red-400">
+              <li key={index} className="text-xs text-status-error-text">
                 {err}
               </li>
             ))}
@@ -180,8 +180,8 @@ export function ActionBuilder({
 
       {/* External Error */}
       {error && (
-        <div className="p-3 bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded">
-          <p className="text-sm text-red-700 dark:text-red-400">{error}</p>
+        <div className="p-3 bg-status-error-bg border border-status-error-border rounded">
+          <p className="text-sm text-status-error-text">{error}</p>
         </div>
       )}
 

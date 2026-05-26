@@ -1195,7 +1195,7 @@ export function ShipmentDialog({
                 <div className="space-y-1">
                   <Input
                     type="number"
-                    step="0.01"
+                    step="1"
                     min="0"
                     value={valueString}
                     disabled={disabled}

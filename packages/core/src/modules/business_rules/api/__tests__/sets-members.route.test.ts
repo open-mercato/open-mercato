@@ -95,7 +95,7 @@ describe('Business Rules API - Rule Set Members', () => {
       mockEm.findOne.mockResolvedValueOnce(mockRule)
       mockEm.findOne.mockResolvedValueOnce(null) // No existing member
       mockEm.create.mockReturnValue(mockMember)
-      mockEm.persistAndFlush.mockResolvedValue(undefined)
+      mockEm.flush.mockResolvedValue(undefined)
 
       const request = new Request(`http://localhost:3000/api/business_rules/sets/${validSetId}/members`, {
         method: 'POST',
@@ -107,7 +107,7 @@ describe('Business Rules API - Rule Set Members', () => {
       const body = await response.json()
       expect(body.id).toBe(validMemberId)
       expect(mockEm.create).toHaveBeenCalled()
-      expect(mockEm.persistAndFlush).toHaveBeenCalled()
+      expect(mockEm.flush).toHaveBeenCalled()
     })
 
     test('should return 404 if set not found', async () => {
@@ -199,7 +199,7 @@ describe('Business Rules API - Rule Set Members', () => {
       mockEm.findOne.mockResolvedValueOnce(mockRule)
       mockEm.findOne.mockResolvedValueOnce(null)
       mockEm.create.mockReturnValue({ id: validMemberId })
-      mockEm.persistAndFlush.mockResolvedValue(undefined)
+      mockEm.flush.mockResolvedValue(undefined)
 
       const request = new Request(`http://localhost:3000/api/business_rules/sets/${validSetId}/members`, {
         method: 'POST',
@@ -246,7 +246,7 @@ describe('Business Rules API - Rule Set Members', () => {
       }
 
       mockEm.findOne.mockResolvedValue(mockMember)
-      mockEm.persistAndFlush.mockResolvedValue(undefined)
+      mockEm.flush.mockResolvedValue(undefined)
 
       const request = new Request(`http://localhost:3000/api/business_rules/sets/${validSetId}/members`, {
         method: 'PUT',
@@ -258,7 +258,7 @@ describe('Business Rules API - Rule Set Members', () => {
       const body = await response.json()
       expect(body.ok).toBe(true)
       expect(mockMember.sequence).toBe(10)
-      expect(mockEm.persistAndFlush).toHaveBeenCalled()
+      expect(mockEm.flush).toHaveBeenCalled()
     })
 
     test('should update member enabled state', async () => {
@@ -269,7 +269,7 @@ describe('Business Rules API - Rule Set Members', () => {
       }
 
       mockEm.findOne.mockResolvedValue(mockMember)
-      mockEm.persistAndFlush.mockResolvedValue(undefined)
+      mockEm.flush.mockResolvedValue(undefined)
 
       const request = new Request(`http://localhost:3000/api/business_rules/sets/${validSetId}/members`, {
         method: 'PUT',
@@ -316,7 +316,7 @@ describe('Business Rules API - Rule Set Members', () => {
       }
 
       mockEm.findOne.mockResolvedValue(mockMember)
-      mockEm.removeAndFlush.mockResolvedValue(undefined)
+      mockEm.flush.mockResolvedValue(undefined)
 
       const request = new Request(`http://localhost:3000/api/business_rules/sets/${validSetId}/members?memberId=${validMemberId}`, {
         method: 'DELETE',
@@ -326,7 +326,8 @@ describe('Business Rules API - Rule Set Members', () => {
       expect(response.status).toBe(200)
       const body = await response.json()
       expect(body.ok).toBe(true)
-      expect(mockEm.removeAndFlush).toHaveBeenCalledWith(mockMember)
+      expect(mockEm.remove).toHaveBeenCalledWith(mockMember)
+      expect(mockEm.flush).toHaveBeenCalled()
     })
 
     test('should return 404 if member not found', async () => {

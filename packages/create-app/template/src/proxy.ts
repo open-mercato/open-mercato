@@ -1,17 +1,18 @@
 import type { NextRequest } from 'next/server'
 import { NextResponse } from 'next/server'
 
-// Note: Do NOT import bootstrap here - middleware runs in Edge runtime
-// which cannot use Node.js modules like MikroORM. Bootstrap is called
-// in layout.tsx which runs in Node.js runtime.
-
+// Do NOT import bootstrap here — proxy runs in the Edge runtime and
+// cannot use Node.js-only modules like MikroORM. Bootstrap runs in layouts.
 export function proxy(req: NextRequest) {
   const requestHeaders = new Headers(req.headers)
-  // Expose current URL path (no query) to server components via request headers
   requestHeaders.set('x-next-url', req.nextUrl.pathname)
   return NextResponse.next({ request: { headers: requestHeaders } })
 }
 
+// Match app routes while skipping Next internals, API routes, and static assets.
+// The x-next-url header lets server layouts above dynamic segments resolve the
+// request pathname without receiving params, preventing full client-tree
+// remounts on navigation (see issue #1083).
 export const config = {
-  matcher: ['/backend/:path*'],
+  matcher: ['/((?!api/|_next/|favicon.ico|.*\\.(?:png|jpg|jpeg|gif|svg|webp|ico|css|js|map|txt|xml|json|woff|woff2|ttf|eot)$).*)'],
 }

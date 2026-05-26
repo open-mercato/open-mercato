@@ -1,6 +1,8 @@
 import type { NextConfig } from "next";
+import { resolveAllowedDevOrigins } from './src/lib/dev-origins'
 
 const isDevelopment = process.env.NODE_ENV !== 'production'
+const allowedDevOrigins = isDevelopment ? resolveAllowedDevOrigins() : []
 
 const nextConfig: NextConfig = {
   distDir: '.mercato/next',
@@ -13,6 +15,7 @@ const nextConfig: NextConfig = {
         }
       : {}),
   },
+  allowedDevOrigins: allowedDevOrigins.length > 0 ? allowedDevOrigins : undefined,
   // Transpile @open-mercato packages that have TypeScript in src/
   // Note: @open-mercato/shared is excluded as it has pre-built dist/ files
   transpilePackages: [
@@ -31,6 +34,11 @@ const nextConfig: NextConfig = {
     '@esbuild/darwin-arm64',
     '@open-mercato/cli',
   ],
+  // Mirror server-only env vars that client components must observe. Keep this
+  // list minimal — anything added here is inlined into the client bundle.
+  env: {
+    OM_SEARCH_MIN_LEN: process.env.OM_SEARCH_MIN_LEN,
+  },
 }
 
 export default nextConfig

@@ -72,7 +72,9 @@ describe('Workflow Instances API', () => {
       findAndCount: jest.fn(),
       count: jest.fn(),
       create: jest.fn(),
-      persistAndFlush: jest.fn(),
+      persist: jest.fn(function persist(this: any) { return this }),
+      flush: jest.fn(),
+      persist: jest.fn(function persist(this: any) { return this }),
       flush: jest.fn(),
       refresh: jest.fn(),
     }

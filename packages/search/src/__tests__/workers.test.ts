@@ -159,17 +159,26 @@ describe('Fulltext Index Worker', () => {
     purge: jest.fn().mockResolvedValue(undefined),
   }
 
-  // Mock knex query builder for batch-index tests
-  const mockKnexQuery = {
-    select: jest.fn().mockReturnThis(),
-    where: jest.fn().mockReturnThis(),
-    whereIn: jest.fn().mockReturnThis(),
-    whereNull: jest.fn().mockResolvedValue([
-      { entity_id: 'rec-1', doc: { name: 'Test 1' } },
-      { entity_id: 'rec-2', doc: { name: 'Test 2' } },
-    ]),
+  // Mock Kysely query builder for batch-index tests
+  const createKyselyChain = () => {
+    const chain: any = {
+      set: jest.fn(() => chain),
+      where: jest.fn(() => chain),
+      values: jest.fn(() => chain),
+      select: jest.fn(() => chain),
+      selectAll: jest.fn(() => chain),
+      from: jest.fn(() => chain),
+      execute: jest.fn().mockResolvedValue([]),
+      executeTakeFirst: jest.fn().mockResolvedValue(undefined),
+    }
+    return chain
   }
-  const mockKnex = jest.fn(() => mockKnexQuery)
+  const mockDb = {
+    selectFrom: jest.fn(() => createKyselyChain()),
+    updateTable: jest.fn(() => createKyselyChain()),
+    insertInto: jest.fn(() => createKyselyChain()),
+    deleteFrom: jest.fn(() => createKyselyChain()),
+  }
 
   const mockSearchIndexer = {
     getEntityConfig: jest.fn().mockReturnValue(null),
@@ -177,9 +186,7 @@ describe('Fulltext Index Worker', () => {
   }
 
   const mockEm = {
-    getConnection: jest.fn().mockReturnValue({
-      getKnex: jest.fn().mockReturnValue(mockKnex),
-    }),
+    getKysely: jest.fn().mockReturnValue(mockDb),
   }
 
   const mockContainer: HandlerContext = {
@@ -193,14 +200,6 @@ describe('Fulltext Index Worker', () => {
 
   beforeEach(() => {
     jest.clearAllMocks()
-    // Reset knex mock chain
-    mockKnexQuery.select.mockReturnThis()
-    mockKnexQuery.where.mockReturnThis()
-    mockKnexQuery.whereIn.mockReturnThis()
-    mockKnexQuery.whereNull.mockResolvedValue([
-      { entity_id: 'rec-1', doc: { name: 'Test 1' } },
-      { entity_id: 'rec-2', doc: { name: 'Test 2' } },
-    ])
   })
 
   it('should skip job with missing tenantId', async () => {

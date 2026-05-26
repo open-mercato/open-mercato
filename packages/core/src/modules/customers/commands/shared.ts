@@ -4,6 +4,7 @@ import { CrudHttpError } from '@open-mercato/shared/lib/crud/errors'
 import type { CommandRuntimeContext } from '@open-mercato/shared/lib/commands'
 import { ensureOrganizationScope, ensureSameScope } from '@open-mercato/shared/lib/commands/scope'
 import { findWithDecryption } from '@open-mercato/shared/lib/encryption/find'
+import type { EventBus } from '@open-mercato/events'
 export { ensureOrganizationScope, ensureSameScope, ensureTenantScope } from '@open-mercato/shared/lib/commands/scope'
 export { extractUndoPayload } from '@open-mercato/shared/lib/commands/undo'
 
@@ -126,23 +127,19 @@ const DICTIONARY_KINDS = new Set([
   'pipeline_stage',
   'job_title',
   'industry',
+  'temperature',
+  'renewal_quarter',
+  'person_company_role',
 ])
+
+const CUSTOM_DICTIONARY_KIND_PATTERN = /^[a-z0-9]+(?:[-_][a-z0-9]+)*$/
 
 export async function ensureDictionaryEntry(
   em: EntityManager,
   params: {
     tenantId: string
     organizationId: string
-    kind:
-      | 'status'
-      | 'source'
-      | 'lifecycle_stage'
-      | 'address_type'
-      | 'activity_type'
-      | 'deal_status'
-      | 'pipeline_stage'
-      | 'job_title'
-      | 'industry'
+    kind: string
     value: string
     label?: string | null
     color?: string | null | undefined
@@ -151,7 +148,7 @@ export async function ensureDictionaryEntry(
 ): Promise<CustomerDictionaryEntry | null> {
   const trimmed = params.value?.trim()
   if (!trimmed) return null
-  if (!DICTIONARY_KINDS.has(params.kind)) {
+  if (!DICTIONARY_KINDS.has(params.kind) && !CUSTOM_DICTIONARY_KIND_PATTERN.test(params.kind)) {
     throw new CrudHttpError(400, { error: 'Unsupported dictionary kind' })
   }
   const normalized = trimmed.toLowerCase()
@@ -245,10 +242,11 @@ async function emitQueryIndexEvents(
   const normalized = normalizeEventEntries(entries)
   if (!normalized.length) return
 
-  let bus: { emitEvent(event: string, payload: any, options?: any): Promise<void> } | null = null
+  let bus: EventBus | null = null
   try {
-    bus = ctx.container.resolve('eventBus')
-  } catch {
+    bus = ctx.container.resolve<EventBus>('eventBus')
+  } catch (err) {
+    console.warn('[customers.commands.shared] eventBus resolve failed; skipping query index events', err)
     bus = null
   }
   if (!bus) return
@@ -273,7 +271,10 @@ async function emitQueryIndexEvents(
             organizationId: entry.organizationId ?? null,
           },
         )
-        .catch(() => undefined),
+        .catch((err) => {
+          console.warn('[customers.commands.shared] query index emitEvent failed', entry, err)
+          return undefined
+        }),
     ),
   )
 }

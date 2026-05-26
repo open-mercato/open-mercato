@@ -46,7 +46,7 @@ export function WebhookSetupGuide({
       </Button>
 
       {isOpen ? (
-        <div className="space-y-4 rounded-lg border bg-muted/20 p-4">
+        <div className="space-y-4 rounded-lg border bg-muted/30 p-4">
           <div className="space-y-1">
             <div className="flex items-center gap-2">
               <Webhook className="h-4 w-4 text-muted-foreground" />
@@ -56,16 +56,16 @@ export function WebhookSetupGuide({
           </div>
 
           <div className="space-y-2">
-            <p className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
+            <p className="text-overline font-medium uppercase tracking-wide text-muted-foreground">
               {t('ui.webhookGuide.dashboardPath', 'Dashboard path')}
             </p>
-            <div className="rounded-md border bg-background/70 px-3 py-2 text-sm">
+            <div className="rounded-md border bg-background/80 px-3 py-2 text-sm">
               {guide.dashboardPathLabel}
             </div>
           </div>
 
           <div className="space-y-2">
-            <p className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
+            <p className="text-overline font-medium uppercase tracking-wide text-muted-foreground">
               {t('ui.webhookGuide.steps', 'Setup steps')}
             </p>
             <ol className="list-decimal space-y-2 pl-5 text-sm text-muted-foreground">
@@ -76,22 +76,22 @@ export function WebhookSetupGuide({
           </div>
 
           <div className="space-y-2">
-            <p className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
+            <p className="text-overline font-medium uppercase tracking-wide text-muted-foreground">
               {t('ui.webhookGuide.endpointUrl', 'Webhook endpoint URL')}
             </p>
-            <div className="rounded-md border bg-background/70 px-3 py-2 font-mono text-xs break-all">
+            <div className="rounded-md border bg-background/80 px-3 py-2 font-mono text-xs break-all">
               {endpointUrl}
             </div>
           </div>
 
           {guide.events && guide.events.length > 0 ? (
             <div className="space-y-2">
-              <p className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
+              <p className="text-overline font-medium uppercase tracking-wide text-muted-foreground">
                 {t('ui.webhookGuide.recommendedEvents', 'Recommended events')}
               </p>
               <div className="flex flex-wrap gap-2">
                 {guide.events.map((eventName) => (
-                  <Badge key={eventName} variant="outline" className="font-mono text-[11px]">
+                  <Badge key={eventName} variant="outline" className="font-mono text-overline">
                     {eventName}
                   </Badge>
                 ))}
@@ -101,16 +101,16 @@ export function WebhookSetupGuide({
 
           {guide.localDevelopment ? (
             <div className="space-y-3">
-              <p className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
+              <p className="text-overline font-medium uppercase tracking-wide text-muted-foreground">
                 {t('ui.webhookGuide.localDevelopment', 'Local development')}
               </p>
               {guide.localDevelopment.note ? (
                 <p className="text-sm text-muted-foreground">{guide.localDevelopment.note}</p>
               ) : null}
-              <div className="rounded-md border bg-background/70 px-3 py-2 font-mono text-xs">
+              <div className="rounded-md border bg-background/80 px-3 py-2 font-mono text-xs">
                 {guide.localDevelopment.tunnelCommand}
               </div>
-              <div className="rounded-md border bg-background/70 px-3 py-2 font-mono text-xs break-all">
+              <div className="rounded-md border bg-background/80 px-3 py-2 font-mono text-xs break-all">
                 {guide.localDevelopment.publicUrlExample}
               </div>
             </div>

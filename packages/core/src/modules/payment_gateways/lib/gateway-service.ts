@@ -168,7 +168,7 @@ export function createPaymentGatewayService(deps: PaymentGatewayServiceDeps) {
         organizationId: input.organizationId,
         tenantId: input.tenantId,
       })
-      await em.persistAndFlush(transaction)
+      await em.persist(transaction).flush()
       await emitPaymentGatewayEvent('payment_gateways.session.created', {
         transactionId: transaction.id,
         paymentId: transaction.paymentId,

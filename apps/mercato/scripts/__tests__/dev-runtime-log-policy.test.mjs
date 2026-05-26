@@ -61,6 +61,21 @@ test('suppresses full multi-line search warning blocks', () => {
   assert.equal(ignoreMatcher('Error: database unavailable', { startupReady: true }), false)
 })
 
+test('suppresses full multi-line derived-key warning blocks', () => {
+  const ignoreMatcher = createSplashPassthroughIgnoreMatcher()
+
+  assert.equal(ignoreMatcher('⚠️ [encryption][kms] Vault read error {', { startupReady: true }), true)
+  assert.equal(
+    ignoreMatcher("error: 'Request to http://localhost:8200/v1/secret/data/tenant_key_123 timed out after 5000ms',", { startupReady: true }),
+    true,
+  )
+  assert.equal(ignoreMatcher("path: 'secret/data/tenant_key_123',", { startupReady: true }), true)
+  assert.equal(ignoreMatcher('details: {', { startupReady: true }), true)
+  assert.equal(ignoreMatcher('}', { startupReady: true }), true)
+  assert.equal(ignoreMatcher('}', { startupReady: true }), true)
+  assert.equal(ignoreMatcher('Error: database unavailable', { startupReady: true }), false)
+})
+
 test('isIgnorableQueueLogLine matches queue worker log prefix only', () => {
   assert.equal(isIgnorableQueueLogLine('[queue:default] processing job 42'), true)
   assert.equal(isIgnorableQueueLogLine('  [queue:webhooks] heartbeat'), true)
@@ -125,6 +140,7 @@ test('createRuntimeNoiseFilter ignores empty, stateless noise, and multi-line se
   assert.equal(ignoreLine('Press Ctrl+C to stop.'), true)
   assert.equal(ignoreLine('Warning: Ignoring extra certs from /tmp/extra.pem'), true)
   assert.equal(ignoreLine('⚠️ [encryption][kms] Vault read error {'), true)
+  assert.equal(ignoreLine('}', { startupReady: true }), true)
 
   // Real error lines should NOT be ignored
   assert.equal(ignoreLine('Error: database unavailable'), false)
@@ -144,6 +160,21 @@ test('createRuntimeNoiseFilter tracks multi-line search warning blocks across ca
   assert.equal(ignoreLine('}', { startupReady: true }), true)
   assert.equal(ignoreLine('}', { startupReady: true }), true)
   // Once the block is fully closed, real errors are surfaced again
+  assert.equal(ignoreLine('Error: database unavailable', { startupReady: true }), false)
+})
+
+test('createRuntimeNoiseFilter tracks multi-line derived-key warning blocks across calls', () => {
+  const ignoreLine = createRuntimeNoiseFilter()
+
+  assert.equal(ignoreLine('⚠️ [encryption][kms] Vault read error {', { startupReady: true }), true)
+  assert.equal(
+    ignoreLine("error: 'Request to http://localhost:8200/v1/secret/data/tenant_key_123 timed out after 5000ms',", { startupReady: true }),
+    true,
+  )
+  assert.equal(ignoreLine("path: 'secret/data/tenant_key_123',", { startupReady: true }), true)
+  assert.equal(ignoreLine('details: {', { startupReady: true }), true)
+  assert.equal(ignoreLine('}', { startupReady: true }), true)
+  assert.equal(ignoreLine('}', { startupReady: true }), true)
   assert.equal(ignoreLine('Error: database unavailable', { startupReady: true }), false)
 })
 

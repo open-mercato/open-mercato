@@ -7,6 +7,7 @@ import { RowActions } from '@open-mercato/ui/backend/RowActions'
 import { Button } from '@open-mercato/ui/primitives/button'
 import { Input } from '@open-mercato/ui/primitives/input'
 import { Label } from '@open-mercato/ui/primitives/label'
+import { RadioGroup, Radio } from '@open-mercato/ui/primitives/radio'
 import {
   Dialog,
   DialogContent,
@@ -480,7 +481,12 @@ export function PriceKindSettings() {
               </div>
               <div className="space-y-2">
                 <Label>{t('catalog.priceKinds.form.displayModeLabel', 'Display mode')}</Label>
-                <div className="grid gap-2 md:grid-cols-2">
+                <RadioGroup
+                  className="grid gap-2 md:grid-cols-2"
+                  name="displayMode"
+                  value={form.displayMode}
+                  onValueChange={(next) => setForm((prev) => ({ ...prev, displayMode: next as CatalogPriceDisplayMode }))}
+                >
                   {displayModeOptions.map((mode) => (
                     <label
                       key={mode.value}
@@ -488,17 +494,11 @@ export function PriceKindSettings() {
                         form.displayMode === mode.value ? 'border-primary bg-primary/5' : 'border-border'
                       }`}
                     >
-                      <input
-                        type="radio"
-                        name="displayMode"
-                        value={mode.value}
-                        checked={form.displayMode === mode.value}
-                        onChange={() => setForm((prev) => ({ ...prev, displayMode: mode.value }))}
-                      />
+                      <Radio value={mode.value} />
                       <span>{mode.label}</span>
                     </label>
                   ))}
-                </div>
+                </RadioGroup>
               </div>
               <div className="space-y-2">
                 <Label>{t('catalog.priceKinds.form.currencyLabel', 'Currency (optional)')}</Label>

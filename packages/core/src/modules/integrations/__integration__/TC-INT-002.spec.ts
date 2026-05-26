@@ -194,4 +194,29 @@ test.describe('TC-INT-002: Integrations foundation APIs', () => {
     const detailResponse = await apiRequest(request, 'GET', '/api/integrations/non_existent_xyz', { token })
     expect(detailResponse.status()).toBe(404)
   })
+
+  test('list rejects invalid marketplace query parameters', async ({ request }) => {
+    const token = await getAuthToken(request, 'admin')
+    const response = await apiRequest(request, 'GET', '/api/integrations?healthStatus=not-a-status', { token })
+    expect(response.status()).toBe(400)
+  })
+
+  test('list supports search and returns analytics fields', async ({ request }) => {
+    const token = await getAuthToken(request, 'admin')
+    const response = await apiRequest(request, 'GET', '/api/integrations?q=a&sort=title&order=asc', { token })
+    expect(response.status()).toBe(200)
+    const body = await readJson(response)
+    const items = Array.isArray(body.items) ? (body.items as JsonRecord[]) : []
+    if (items.length === 0) {
+      test.skip(true, 'No integrations registered — skipping analytics shape check')
+      return
+    }
+    const first = items[0]
+    expect(first).toHaveProperty('healthStatus')
+    expect(first).toHaveProperty('analytics')
+    const analytics = first.analytics as JsonRecord
+    expect(analytics).toHaveProperty('dailyCounts')
+    expect(Array.isArray(analytics.dailyCounts)).toBe(true)
+    expect((analytics.dailyCounts as unknown[]).length).toBe(30)
+  })
 })

@@ -533,7 +533,7 @@ export function AttachmentMetadataDialog({ open, onOpenChange, item, availableTa
                   {item.fileName}
                 </div>
                 <div className="text-xs text-muted-foreground">
-                  {formatFileSize(item.fileSize)} \u2022 {item.partitionTitle ?? item.partitionCode}
+                  {formatFileSize(item.fileSize)} {'\u2022'} {item.partitionTitle ?? item.partitionCode}
                 </div>
               </div>
               {downloadUrl ? (
@@ -634,7 +634,7 @@ export function AttachmentMetadataDialog({ open, onOpenChange, item, availableTa
                 {loadError}
               </div>
             ) : null}
-            <div className="rounded border border-border/60 bg-muted/30 px-3 py-2">
+            <div className="rounded border border-border/70 bg-muted/30 px-3 py-2">
               <div className="text-xs font-semibold text-muted-foreground">
                 {t('attachments.library.metadata.extractedTitle', 'Extracted text')}
               </div>

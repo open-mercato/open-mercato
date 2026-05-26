@@ -1,6 +1,14 @@
 import { createCacheService, CacheService } from '../service'
+import fs from 'node:fs'
+import path from 'node:path'
+import { DEFAULT_JSON_FILE_CACHE_PATH, DEFAULT_SQLITE_CACHE_PATH } from '../defaults'
 
 describe('Cache Service', () => {
+  afterEach(() => {
+    delete process.env.CACHE_SQLITE_PATH
+    fs.rmSync(path.resolve('.mercato/cache'), { recursive: true, force: true })
+  })
+
   describe('Strategy selection', () => {
     it('should default to memory strategy', async () => {
       const cache = createCacheService()
@@ -40,6 +48,11 @@ describe('Cache Service', () => {
       
       await new Promise((resolve) => setTimeout(resolve, 150))
       expect(await cache.get('test')).toBeNull()
+    })
+
+    it('should keep file-backed cache defaults under .mercato', async () => {
+      expect(DEFAULT_SQLITE_CACHE_PATH).toBe('.mercato/cache/cache.db')
+      expect(DEFAULT_JSON_FILE_CACHE_PATH).toBe('.mercato/cache/cache.json')
     })
   })
 

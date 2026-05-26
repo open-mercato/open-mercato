@@ -5,7 +5,7 @@ export const metadata = {
   pageTitleKey: 'customer_accounts.nav.role_create',
   navHidden: true,
   breadcrumb: [
-    { label: 'Roles', labelKey: 'customer_accounts.nav.roles', href: '/backend/customer_accounts/roles' },
+    { label: 'Customer Roles', labelKey: 'customer_accounts.nav.roles', href: '/backend/customer_accounts/roles' },
     { label: 'Create Role', labelKey: 'customer_accounts.nav.role_create' },
   ],
 } as const

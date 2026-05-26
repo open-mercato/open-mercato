@@ -9,6 +9,7 @@ import { test, expect } from '@playwright/test'
 import { login } from '@open-mercato/core/helpers/integration/auth'
 import { getAuthToken, apiRequest } from '@open-mercato/core/helpers/integration/api'
 import { createPersonFixture, deleteEntityIfExists } from '@open-mercato/core/helpers/integration/crmFixtures'
+import { fillControlledInput } from '@open-mercato/core/helpers/integration/ui'
 
 test.describe('TC-UMES-008: SPEC-042 + SPEC-043', () => {
   let adminToken = ''
@@ -39,8 +40,7 @@ test.describe('TC-UMES-008: SPEC-042 + SPEC-043', () => {
 
       const idsInput = page.getByTestId('phase-next-ids-input')
       const idsValue = `${personIdA},${personIdB}`
-      await idsInput.fill(idsValue)
-      await expect(idsInput).toHaveValue(idsValue)
+      await fillControlledInput(idsInput, idsValue)
       await page.getByTestId('phase-next-run-probe').click()
 
       await expect(page.getByTestId('phase-next-probe-status')).toContainText('probeStatus=ok', { timeout: 15_000 })

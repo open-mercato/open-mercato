@@ -2,6 +2,14 @@
 
 import * as React from 'react'
 import { Button } from '@open-mercato/ui/primitives/button'
+import { Input } from '@open-mercato/ui/primitives/input'
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@open-mercato/ui/primitives/select'
 import { Plus, ChevronUp, ChevronDown, X } from 'lucide-react'
 import { useQuery } from '@tanstack/react-query'
 import { apiCall } from '@open-mercato/ui/backend/utils/apiCall'
@@ -103,7 +111,7 @@ export function RuleSetMembers({ members, onAdd, onUpdate, onRemove }: RuleSetMe
                 <button
                   onClick={() => handleMoveUp(member, index)}
                   disabled={index === 0}
-                  className="p-1 text-muted-foreground hover:text-foreground hover:bg-muted rounded transition-colors disabled:opacity-30 disabled:cursor-not-allowed"
+                  className="p-1 text-muted-foreground hover:text-foreground hover:bg-muted rounded transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
                   title={t('common.moveUp')}
                 >
                   <ChevronUp className="w-4 h-4" />
@@ -111,7 +119,7 @@ export function RuleSetMembers({ members, onAdd, onUpdate, onRemove }: RuleSetMe
                 <button
                   onClick={() => handleMoveDown(member, index)}
                   disabled={index === members.length - 1}
-                  className="p-1 text-muted-foreground hover:text-foreground hover:bg-muted rounded transition-colors disabled:opacity-30 disabled:cursor-not-allowed"
+                  className="p-1 text-muted-foreground hover:text-foreground hover:bg-muted rounded transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
                   title={t('common.moveDown')}
                 >
                   <ChevronDown className="w-4 h-4" />
@@ -119,7 +127,7 @@ export function RuleSetMembers({ members, onAdd, onUpdate, onRemove }: RuleSetMe
               </div>
 
               {/* Sequence Number */}
-              <div className="flex items-center justify-center w-8 h-8 bg-blue-100 text-blue-700 rounded font-mono text-sm font-medium dark:bg-blue-900 dark:text-blue-300">
+              <div className="flex items-center justify-center w-8 h-8 bg-status-info-bg text-status-info-text rounded font-mono text-sm font-medium">
                 {member.sequence}
               </div>
 
@@ -139,8 +147,8 @@ export function RuleSetMembers({ members, onAdd, onUpdate, onRemove }: RuleSetMe
                 onClick={() => handleToggleEnabled(member)}
                 className={`px-2 py-1 rounded text-xs font-medium cursor-pointer ${
                   member.enabled
-                    ? 'bg-green-100 text-green-800 hover:bg-green-200 dark:bg-green-900 dark:text-green-300 dark:hover:bg-green-800'
-                    : 'bg-muted text-muted-foreground hover:bg-muted/80'
+                    ? 'bg-status-success-bg text-status-success-text hover:bg-status-success-bg/80'
+                    : 'bg-muted text-muted-foreground hover:bg-muted/50'
                 }`}
                 title={t('business_rules.sets.members.actions.toggleEnabled')}
               >
@@ -150,7 +158,7 @@ export function RuleSetMembers({ members, onAdd, onUpdate, onRemove }: RuleSetMe
               {/* Remove Button */}
               <button
                 onClick={() => onRemove(member.id, member.ruleName)}
-                className="p-1.5 text-muted-foreground hover:text-red-600 hover:bg-red-50 dark:hover:bg-red-900/20 rounded transition-colors"
+                className="p-1.5 text-muted-foreground hover:text-status-error-text hover:bg-status-error-bg rounded transition-colors"
                 title={t('common.remove')}
               >
                 <X className="w-4 h-4" />
@@ -162,36 +170,38 @@ export function RuleSetMembers({ members, onAdd, onUpdate, onRemove }: RuleSetMe
 
       {/* Add Rule Form */}
       {showAddForm ? (
-        <div className="p-4 bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800 rounded space-y-3">
+        <div className="p-4 bg-status-info-bg border border-status-info-border rounded space-y-3">
           <div className="flex items-end gap-3">
             <div className="flex-1">
               <label className="block text-sm font-medium text-foreground mb-1">
                 {t('business_rules.sets.members.form.selectRule')}
               </label>
-              <select
-                value={selectedRuleId}
-                onChange={(e) => setSelectedRuleId(e.target.value)}
-                className="w-full px-3 py-2 border border-border rounded bg-background focus:outline-none focus:ring-2 focus:ring-blue-500"
+              <Select
+                value={selectedRuleId || undefined}
+                onValueChange={(value) => setSelectedRuleId(value ?? '')}
               >
-                <option value="">{t('business_rules.sets.members.form.selectRulePlaceholder')}</option>
-                {rulesNotInSet.map((rule) => (
-                  <option key={rule.id} value={rule.id}>
-                    {rule.ruleName} ({rule.ruleId})
-                  </option>
-                ))}
-              </select>
+                <SelectTrigger>
+                  <SelectValue placeholder={t('business_rules.sets.members.form.selectRulePlaceholder')} />
+                </SelectTrigger>
+                <SelectContent>
+                  {rulesNotInSet.map((rule) => (
+                    <SelectItem key={rule.id} value={rule.id}>
+                      {rule.ruleName} ({rule.ruleId})
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
             </div>
 
             <div className="w-32">
               <label className="block text-sm font-medium text-foreground mb-1">
                 {t('business_rules.sets.members.form.sequence')}
               </label>
-              <input
+              <Input
                 type="number"
                 value={sequence}
                 onChange={(e) => setSequence(parseInt(e.target.value) || 0)}
                 min={0}
-                className="w-full px-3 py-2 border border-border rounded bg-background focus:outline-none focus:ring-2 focus:ring-blue-500"
               />
             </div>
           </div>

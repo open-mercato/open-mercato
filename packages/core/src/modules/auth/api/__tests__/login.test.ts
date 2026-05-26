@@ -125,6 +125,38 @@ describe('POST /api/auth/login with custom route interceptors', () => {
     expect(setCookie).toContain('session_token=session-token')
   })
 
+  test('rejects raw // bypass in the redirect parameter (issue #1560)', async () => {
+    const req = new Request('http://localhost/api/auth/login', {
+      method: 'POST',
+      body: makeFormData({
+        email: 'user@example.com',
+        password: 'secret',
+        redirect: '/backend//evil.com',
+      }),
+    })
+
+    const res = await POST(req)
+    expect(res.status).toBe(200)
+
+    const body = await res.json()
+    expect(body.redirect).toBe('/backend')
+  })
+
+  test('rejects URL-encoded // bypass once the body parser decodes the value (issue #1560)', async () => {
+    // Raw body uses %2F%2Fevil.com → URLSearchParams decodes to //evil.com before sanitization.
+    const req = new Request('http://localhost/api/auth/login', {
+      method: 'POST',
+      headers: { 'content-type': 'application/x-www-form-urlencoded' },
+      body: 'email=user%40example.com&password=secret&redirect=%2F%2Fevil.com',
+    })
+
+    const res = await POST(req)
+    expect(res.status).toBe(200)
+
+    const body = await res.json()
+    expect(body.redirect).toBe('/backend')
+  })
+
   test('rotates the browser session cookie even when remember me is disabled', async () => {
     const req = new Request('http://localhost/api/auth/login', {
       method: 'POST',

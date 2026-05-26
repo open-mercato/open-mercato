@@ -319,7 +319,7 @@ async function logWorkflowEvent(
     occurredAt: new Date(),
   })
 
-  await em.persistAndFlush(workflowEvent)
+  await em.persist(workflowEvent).flush()
   return workflowEvent
 }
 

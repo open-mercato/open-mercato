@@ -3,7 +3,9 @@
 import * as React from 'react'
 import type { PluggableList } from 'unified'
 
-const isTestEnv = typeof process !== 'undefined' && process.env.NODE_ENV === 'test'
+const isTestEnv =
+  typeof process !== 'undefined' &&
+  (process.env.NODE_ENV === 'test' || typeof process.env.JEST_WORKER_ID !== 'undefined')
 
 let markdownPluginsPromise: Promise<PluggableList> | null = null
 

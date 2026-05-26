@@ -416,4 +416,173 @@ describe('SearchService', () => {
       expect(strategyWithPurge.purge).toHaveBeenCalledWith('test:entity', 'tenant-123')
     })
   })
+
+  describe('availability checks (issue #1404)', () => {
+    it('runs strategy availability probes in parallel, not sequentially', async () => {
+      const probeTimings: Record<string, { start: number; end: number }> = {}
+      const makeSlowStrategy = (id: string, delayMs: number) =>
+        createMockStrategy({
+          id,
+          isAvailable: jest.fn().mockImplementation(async () => {
+            const start = Date.now()
+            await new Promise((resolve) => setTimeout(resolve, delayMs))
+            probeTimings[id] = { start, end: Date.now() }
+            return true
+          }),
+          search: jest.fn().mockResolvedValue([]),
+        })
+
+      const slowA = makeSlowStrategy('slow-a', 60)
+      const slowB = makeSlowStrategy('slow-b', 60)
+      const slowC = makeSlowStrategy('slow-c', 60)
+      const service = new SearchService({
+        strategies: [slowA, slowB, slowC],
+        defaultStrategies: ['slow-a', 'slow-b', 'slow-c'],
+        availabilityCacheTtlMs: 0,
+      })
+
+      const start = Date.now()
+      await service.search('q', { tenantId: 't-1' })
+      const elapsed = Date.now() - start
+      const timings = Object.values(probeTimings)
+      const latestStart = Math.max(...timings.map((timing) => timing.start))
+      const earliestEnd = Math.min(...timings.map((timing) => timing.end))
+
+      // Sequential probes would not overlap. Parallel probes must overlap in time,
+      // and total elapsed time should stay well below a fully sequential run.
+      expect(timings).toHaveLength(3)
+      expect(latestStart).toBeLessThan(earliestEnd)
+      expect(elapsed).toBeLessThan(450)
+      expect(slowA.isAvailable).toHaveBeenCalledTimes(1)
+      expect(slowB.isAvailable).toHaveBeenCalledTimes(1)
+      expect(slowC.isAvailable).toHaveBeenCalledTimes(1)
+    })
+
+    it('caches positive availability checks within the TTL window', async () => {
+      const strategy = createMockStrategy({
+        id: 'cached',
+        isAvailable: jest.fn().mockResolvedValue(true),
+        search: jest.fn().mockResolvedValue([]),
+      })
+      const service = new SearchService({
+        strategies: [strategy],
+        defaultStrategies: ['cached'],
+        availabilityCacheTtlMs: 60_000,
+      })
+
+      await service.search('q', { tenantId: 't-1' })
+      await service.search('q', { tenantId: 't-1' })
+      await service.search('q', { tenantId: 't-1' })
+
+      expect(strategy.isAvailable).toHaveBeenCalledTimes(1)
+    })
+
+    it('caches negative availability checks within the TTL window', async () => {
+      const strategy = createMockStrategy({
+        id: 'down',
+        isAvailable: jest.fn().mockResolvedValue(false),
+        search: jest.fn().mockResolvedValue([]),
+      })
+      const service = new SearchService({
+        strategies: [strategy],
+        defaultStrategies: ['down'],
+        availabilityCacheTtlMs: 60_000,
+      })
+
+      await service.search('q', { tenantId: 't-1' })
+      await service.search('q', { tenantId: 't-1' })
+
+      expect(strategy.isAvailable).toHaveBeenCalledTimes(1)
+    })
+
+    it('caches thrown availability errors as unavailable within the TTL window', async () => {
+      const strategy = createMockStrategy({
+        id: 'flaky',
+        isAvailable: jest.fn().mockRejectedValue(new Error('boom')),
+        search: jest.fn().mockResolvedValue([]),
+      })
+      const service = new SearchService({
+        strategies: [strategy],
+        defaultStrategies: ['flaky'],
+        availabilityCacheTtlMs: 60_000,
+      })
+
+      const r1 = await service.search('q', { tenantId: 't-1' })
+      const r2 = await service.search('q', { tenantId: 't-1' })
+
+      expect(r1).toEqual([])
+      expect(r2).toEqual([])
+      expect(strategy.isAvailable).toHaveBeenCalledTimes(1)
+      expect(strategy.search).not.toHaveBeenCalled()
+    })
+
+    it('coalesces concurrent probes of the same strategy onto a single in-flight call', async () => {
+      let resolveProbe: ((value: boolean) => void) | undefined
+      const strategy = createMockStrategy({
+        id: 'coalesced',
+        isAvailable: jest.fn().mockImplementation(
+          () =>
+            new Promise<boolean>((resolve) => {
+              resolveProbe = resolve
+            }),
+        ),
+        search: jest.fn().mockResolvedValue([]),
+      })
+      const service = new SearchService({
+        strategies: [strategy],
+        defaultStrategies: ['coalesced'],
+        availabilityCacheTtlMs: 0,
+      })
+
+      const p1 = service.search('q', { tenantId: 't-1' })
+      const p2 = service.search('q', { tenantId: 't-1' })
+      const p3 = service.isStrategyAvailable('coalesced')
+
+      // Wait a tick so all three callers register their probes.
+      await new Promise((resolve) => setTimeout(resolve, 5))
+      resolveProbe?.(true)
+      await Promise.all([p1, p2, p3])
+
+      expect(strategy.isAvailable).toHaveBeenCalledTimes(1)
+    })
+
+    it('invalidates the availability cache on demand', async () => {
+      const strategy = createMockStrategy({
+        id: 'invalidated',
+        isAvailable: jest.fn().mockResolvedValue(true),
+        search: jest.fn().mockResolvedValue([]),
+      })
+      const service = new SearchService({
+        strategies: [strategy],
+        defaultStrategies: ['invalidated'],
+        availabilityCacheTtlMs: 60_000,
+      })
+
+      await service.search('q', { tenantId: 't-1' })
+      service.invalidateAvailabilityCache('invalidated')
+      await service.search('q', { tenantId: 't-1' })
+
+      expect(strategy.isAvailable).toHaveBeenCalledTimes(2)
+    })
+
+    it('invalidates cached availability when a strategy is unregistered and re-registered', async () => {
+      const strategy = createMockStrategy({
+        id: 'reregistered',
+        isAvailable: jest.fn().mockResolvedValue(true),
+        search: jest.fn().mockResolvedValue([]),
+      })
+      const service = new SearchService({
+        strategies: [strategy],
+        defaultStrategies: ['reregistered'],
+        availabilityCacheTtlMs: 60_000,
+      })
+
+      await service.search('q', { tenantId: 't-1' })
+      service.unregisterStrategy('reregistered')
+      service.registerStrategy(strategy)
+      await service.search('q', { tenantId: 't-1' })
+
+      expect(strategy.isAvailable).toHaveBeenCalledTimes(2)
+    })
+  })
 })

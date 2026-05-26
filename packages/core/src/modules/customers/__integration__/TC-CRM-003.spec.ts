@@ -37,11 +37,9 @@ test.describe('TC-CRM-003: Edit Company Details', () => {
       await expect(page.getByRole('button', { name: new RegExp(`Website\\s+${escapeRegex(updatedWebsite)}`) })).toBeVisible();
 
       await page.getByRole('button', { name: /Lifecycle stage/i }).click();
-      await page
-        .locator('select')
-        .filter({ has: page.locator('option', { hasText: 'Prospect' }) })
-        .first()
-        .selectOption({ label: 'Prospect' });
+      // Radix Select: click trigger then click option from portal
+      await page.locator('[role="combobox"][aria-expanded="false"]').first().click();
+      await page.getByRole('option', { name: 'Prospect', exact: true }).click();
       await page.getByRole('button', { name: /Save .*Ctrl\+Enter/i }).first().click();
       await expect(page.getByRole('button', { name: /Lifecycle stage\s+Prospect/i })).toBeVisible();
 

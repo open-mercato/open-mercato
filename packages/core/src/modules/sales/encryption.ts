@@ -55,6 +55,19 @@ export const defaultEncryptionMaps: ModuleEncryptionMap[] = [
     entityId: 'sales:sales_note',
     fields: [{ field: 'body' }],
   },
+  {
+    entityId: 'sales:sales_channel',
+    fields: [
+      { field: 'contact_email' },
+      { field: 'contact_phone' },
+      { field: 'address_line1' },
+      { field: 'address_line2' },
+      { field: 'city' },
+      { field: 'region' },
+      { field: 'postal_code' },
+      { field: 'country' },
+    ],
+  },
 ]
 
 export default defaultEncryptionMaps

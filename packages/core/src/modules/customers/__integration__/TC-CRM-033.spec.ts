@@ -17,12 +17,11 @@ test.describe('TC-CRM-033: DataTable Page Size Selector', () => {
       .poll(async () => page.locator('tbody tr').count(), { timeout: 15000 })
       .toBeGreaterThan(0);
 
-    const pageSizeSelect = page.locator('select').filter({ hasText: /per page/i }).or(
-      page.locator('select').filter({ has: page.locator('option[value="25"]') })
-    ).first();
-    await expect(pageSizeSelect).toBeVisible({ timeout: 5000 });
-
-    await pageSizeSelect.selectOption('10');
+    // Radix Select for page-size: trigger sits next to "per page" label
+    const pageSizeTrigger = page.locator('[role="combobox"]').filter({ hasText: /^\d+$/ }).first()
+    await expect(pageSizeTrigger).toBeVisible({ timeout: 5000 });
+    await pageSizeTrigger.click();
+    await page.getByRole('option', { name: '10', exact: true }).click();
     await page.getByText('Loading table', { exact: false }).waitFor({ state: 'hidden', timeout: 10000 }).catch(() => {});
 
     const rowCount = await page.locator('tbody tr').count();

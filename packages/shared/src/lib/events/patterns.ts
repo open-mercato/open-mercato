@@ -1,22 +1,9 @@
+import { matchWildcardPattern } from '@open-mercato/shared/lib/patterns/wildcard'
+
 export type EventPatternMode = 'single-segment' | 'prefix'
 
 type MatchEventPatternOptions = {
   mode?: EventPatternMode
-}
-
-const singleSegmentPatternCache = new Map<string, RegExp>()
-
-function getSingleSegmentPatternRegex(pattern: string): RegExp {
-  const existing = singleSegmentPatternCache.get(pattern)
-  if (existing) return existing
-
-  const regexPattern = pattern
-    .replace(/[.+^${}()|[\]\\]/g, '\\$&')
-    .replace(/\*/g, '[^.]+')
-
-  const compiled = new RegExp(`^${regexPattern}$`)
-  singleSegmentPatternCache.set(pattern, compiled)
-  return compiled
 }
 
 export function matchEventPattern(
@@ -44,7 +31,7 @@ export function matchEventPattern(
     return false
   }
 
-  return getSingleSegmentPatternRegex(pattern).test(eventName)
+  return matchWildcardPattern(eventName, pattern, { singleSegmentWildcard: true })
 }
 
 export function matchAnyEventPattern(

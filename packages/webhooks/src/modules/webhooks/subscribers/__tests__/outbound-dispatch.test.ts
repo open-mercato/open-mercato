@@ -5,6 +5,9 @@ jest.mock('@open-mercato/shared/lib/encryption/find', () => ({
   findWithDecryption: jest.fn(),
   findOneWithDecryption: jest.fn(),
 }))
+jest.mock('@open-mercato/shared/modules/events', () => ({
+  getDeclaredEvents: jest.fn(),
+}))
 
 jest.mock('../../lib/delivery', () => ({
   createWebhookDelivery: jest.fn(),
@@ -18,6 +21,7 @@ jest.mock('../../lib/integration-state', () => ({
 }))
 
 import { findWithDecryption, findOneWithDecryption } from '@open-mercato/shared/lib/encryption/find'
+import { getDeclaredEvents } from '@open-mercato/shared/modules/events'
 import { createWebhookDelivery } from '../../lib/delivery'
 import { enqueueWebhookDelivery } from '../../lib/queue'
 import { isWebhookIntegrationEnabled } from '../../lib/integration-state'
@@ -25,6 +29,10 @@ import { isWebhookIntegrationEnabled } from '../../lib/integration-state'
 describe('webhooks outbound dispatch subscriber', () => {
   afterEach(() => {
     jest.clearAllMocks()
+  })
+
+  beforeEach(() => {
+    ;(getDeclaredEvents as jest.Mock).mockReturnValue([])
   })
 
   it('uses the event bus eventName for wildcard subscribers and schedules matching webhook deliveries', async () => {
@@ -158,6 +166,50 @@ describe('webhooks outbound dispatch subscriber', () => {
     )).resolves.toBeUndefined()
 
     expect(findWithDecryption).toHaveBeenCalled()
+  })
+
+  it('skips application lifecycle events before resolving the entity manager', async () => {
+    const resolve = jest.fn()
+
+    await expect(handler(
+      {
+        tenantId: 'tenant-1',
+        organizationId: 'org-1',
+      },
+      {
+        eventName: 'application.request.auth_resolved',
+        resolve,
+      },
+    )).resolves.toBeUndefined()
+
+    expect(resolve).not.toHaveBeenCalled()
+    expect(findWithDecryption).not.toHaveBeenCalled()
+  })
+
+  it('skips declared events that are excluded from triggers before hitting the database', async () => {
+    ;(getDeclaredEvents as jest.Mock).mockReturnValue([
+      {
+        id: 'sales.document.calculate.before',
+        label: 'Before document calculate',
+        excludeFromTriggers: true,
+      },
+    ])
+
+    const resolve = jest.fn()
+
+    await expect(handler(
+      {
+        tenantId: 'tenant-1',
+        organizationId: 'org-1',
+      },
+      {
+        eventName: 'sales.document.calculate.before',
+        resolve,
+      },
+    )).resolves.toBeUndefined()
+
+    expect(resolve).not.toHaveBeenCalled()
+    expect(findWithDecryption).not.toHaveBeenCalled()
   })
 
   it('skips processing for internal query_index events', async () => {

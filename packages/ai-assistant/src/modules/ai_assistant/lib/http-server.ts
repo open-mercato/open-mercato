@@ -435,21 +435,14 @@ export async function runMcpHttpServer(options: McpHttpServerOptions): Promise<v
     console.error('[MCP HTTP] OpenAPI spec caching skipped:', error instanceof Error ? error.message : error)
   }
 
-  // Index tools, API endpoints, and entity schemas for hybrid search discovery (if search service available)
+  // Index tools and entity schemas for hybrid search discovery (if search service available)
   try {
     const searchService = container.resolve('searchService') as SearchService
 
     // Index MCP tools
     await indexToolsForSearch(searchService)
 
-    // Index API endpoints for find_api
-    const { indexApiEndpoints } = await import('./api-endpoint-index')
-    const endpointCount = await indexApiEndpoints(searchService)
-    if (endpointCount > 0) {
-      console.error(`[MCP HTTP] Indexed ${endpointCount} API endpoints for hybrid search`)
-    }
-
-    // Index entity schemas for discover_schema
+    // Index entity schemas for hybrid search
     try {
       const { getCachedEntityGraph } = await import('./entity-graph')
       const { indexEntitiesForSearch } = await import('./entity-index')

@@ -7,7 +7,7 @@ import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { cn } from '@open-mercato/shared/lib/utils'
 import { IconButton } from '../../primitives/icon-button'
 import { NotificationCountBadge } from '../notifications/NotificationCountBadge'
-import { useMessagesPoll } from './useMessagesPoll'
+import { useMessages } from './useMessages'
 
 export type MessagesIconProps = {
   className?: string
@@ -15,7 +15,7 @@ export type MessagesIconProps = {
 
 export function MessagesIcon({ className }: MessagesIconProps) {
   const t = useT()
-  const { unreadCount, hasNew } = useMessagesPoll()
+  const { unreadCount, hasNew } = useMessages()
 
   const ariaLabel = unreadCount > 0
     ? t('messages.badge.unread', '{count} unread messages', { count: unreadCount })

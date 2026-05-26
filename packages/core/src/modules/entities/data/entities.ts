@@ -1,4 +1,4 @@
-import { Entity, PrimaryKey, Property, Index } from '@mikro-orm/core'
+import { Entity, Index, PrimaryKey, Property } from '@mikro-orm/decorators/legacy'
 
 // Definitions of custom fields scoped to an entity type and organization
 @Entity({ tableName: 'custom_field_defs' })

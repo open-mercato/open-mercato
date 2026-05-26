@@ -9,6 +9,14 @@ import { CustomerUser, CustomerUserRole, CustomerRole } from '@open-mercato/core
 import type { EntityManager } from '@mikro-orm/postgresql'
 import { adminCreateUserSchema } from '@open-mercato/core/modules/customer_accounts/data/validators'
 import { emitCustomerAccountsEvent } from '@open-mercato/core/modules/customer_accounts/events'
+import { findAndCountWithDecryption, findWithDecryption } from '@open-mercato/shared/lib/encryption/find'
+import { hashForLookup } from '@open-mercato/shared/lib/encryption/aes'
+import { E } from '#generated/entities.ids.generated'
+import { resolveSearchConfig } from '@open-mercato/shared/lib/search/config'
+import { tokenizeText } from '@open-mercato/shared/lib/search/tokenize'
+import { sql } from 'kysely'
+
+const EMAIL_LIKE_PATTERN = /^[^\s@]+@[^\s@]+\.[^\s@]+$/
 
 export const metadata = {}
 
@@ -60,25 +68,51 @@ export async function GET(req: Request) {
   }
 
   if (search) {
-    const escapedSearch = search.replace(/[%_\\]/g, '\\$&')
-    const searchFilter = [
-      { email: { $ilike: `%${escapedSearch}%` } },
-      { displayName: { $ilike: `%${escapedSearch}%` } },
-    ]
-    if (where.$or) {
-      where.$and = [{ $or: where.$or }, { $or: searchFilter }]
-      delete where.$or
+    const trimmedSearch = search.trim()
+    // email/displayName are stored encrypted, so SQL ILIKE on the ciphertext
+    // never matches a plaintext search term. Use search_tokens table for partial
+    // matches and emailHash for exact email lookups.
+    const searchFilter: Record<string, unknown>[] = []
+
+    // Search encrypted fields via search_tokens
+    const matchedIds = await findCustomerUserIdsBySearchTokens(em, E.customer_accounts.customer_user, trimmedSearch, auth.tenantId)
+    if (matchedIds && matchedIds.length > 0) {
+      searchFilter.push({ id: { $in: matchedIds } })
+    }
+
+    // Also support exact email lookup via emailHash
+    if (EMAIL_LIKE_PATTERN.test(search)) {
+      searchFilter.push({ emailHash: hashForLookup(search) })
+    }
+
+    if (searchFilter.length > 0) {
+      if (where.$or) {
+        where.$and = [{ $or: where.$or }, { $or: searchFilter }]
+        delete where.$or
+      } else {
+        where.$or = searchFilter
+      }
     } else {
-      where.$or = searchFilter
+      // No search results found, return empty
+      return NextResponse.json({
+        ok: true,
+        items: [],
+        total: 0,
+        totalPages: 1,
+        page,
+      })
     }
   }
 
   let userIds: string[] | null = null
   if (roleId) {
-    const roleLinks = await em.find(CustomerUserRole, {
-      role: roleId as any,
-      deletedAt: null,
-    })
+    const roleLinks = await findWithDecryption(
+      em,
+      CustomerUserRole,
+      { role: roleId as any, deletedAt: null } as any,
+      undefined,
+      { tenantId: auth.tenantId, organizationId: auth.orgId },
+    )
     userIds = roleLinks.map((link) => (link.user as any)?.id || (link.user as unknown as string))
     if (userIds.length === 0) {
       return NextResponse.json({
@@ -93,36 +127,51 @@ export async function GET(req: Request) {
   }
 
   const offset = (page - 1) * pageSize
-  const [users, total] = await em.findAndCount(CustomerUser, where as any, {
-    orderBy: { createdAt: 'DESC' },
-    limit: pageSize,
-    offset,
-  })
+  const [users, total] = await findAndCountWithDecryption(
+    em,
+    CustomerUser,
+    where as any,
+    {
+      orderBy: { createdAt: 'DESC' },
+      limit: pageSize,
+      offset,
+    },
+    { tenantId: auth.tenantId, organizationId: auth.orgId },
+  )
 
-  const items = await Promise.all(users.map(async (user) => {
-    const userRoles = await em.find(CustomerUserRole, {
-      user: user.id as any,
-      deletedAt: null,
-    }, { populate: ['role'] })
-    const roles = userRoles.map((ur) => ({
-      id: (ur.role as any).id,
-      name: (ur.role as any).name,
-      slug: (ur.role as any).slug,
-    }))
+  const pageUserIds = users.map((user) => user.id)
+  const userRoleLinks = pageUserIds.length > 0
+    ? await findWithDecryption(
+        em,
+        CustomerUserRole,
+        { user: { $in: pageUserIds } as any, deletedAt: null } as any,
+        { populate: ['role'] },
+        { tenantId: auth.tenantId, organizationId: auth.orgId },
+      )
+    : []
 
-    return {
-      id: user.id,
-      email: user.email,
-      displayName: user.displayName,
-      emailVerified: !!user.emailVerifiedAt,
-      isActive: user.isActive,
-      lockedUntil: user.lockedUntil || null,
-      lastLoginAt: user.lastLoginAt || null,
-      customerEntityId: user.customerEntityId || null,
-      personEntityId: user.personEntityId || null,
-      createdAt: user.createdAt,
-      roles,
-    }
+  const rolesByUserId = new Map<string, Array<{ id: string; name: string; slug: string }>>()
+  for (const link of userRoleLinks) {
+    const linkUserId = (link.user as any)?.id ?? (link.user as unknown as string)
+    const role = link.role as any
+    const bucket = rolesByUserId.get(linkUserId)
+    const entry = { id: role.id, name: role.name, slug: role.slug }
+    if (bucket) bucket.push(entry)
+    else rolesByUserId.set(linkUserId, [entry])
+  }
+
+  const items = users.map((user) => ({
+    id: user.id,
+    email: user.email,
+    displayName: user.displayName,
+    emailVerified: !!user.emailVerifiedAt,
+    isActive: user.isActive,
+    lockedUntil: user.lockedUntil || null,
+    lastLoginAt: user.lastLoginAt || null,
+    customerEntityId: user.customerEntityId || null,
+    personEntityId: user.personEntityId || null,
+    createdAt: user.createdAt,
+    roles: rolesByUserId.get(user.id) ?? [],
   }))
 
   const totalPages = Math.max(1, Math.ceil(total / pageSize))
@@ -175,6 +224,7 @@ export async function POST(req: Request) {
     parsed.data.displayName,
     { tenantId: auth.tenantId!, organizationId: auth.orgId! },
   )
+  user.emailVerifiedAt = new Date()
   em.persist(user)
   await em.flush()
 
@@ -183,11 +233,17 @@ export async function POST(req: Request) {
   }
 
   if (parsed.data.roleIds && parsed.data.roleIds.length > 0) {
-    const validRoles: InstanceType<typeof CustomerRole>[] = []
-    for (const roleId of parsed.data.roleIds) {
-      const role = await em.findOne(CustomerRole, { id: roleId, tenantId: auth.tenantId, deletedAt: null })
-      if (role) validRoles.push(role)
-    }
+    const validRoles = await findWithDecryption(
+      em,
+      CustomerRole,
+      {
+        id: { $in: parsed.data.roleIds } as any,
+        tenantId: auth.tenantId,
+        deletedAt: null,
+      } as any,
+      undefined,
+      { tenantId: auth.tenantId, organizationId: auth.orgId },
+    )
     for (const role of validRoles) {
       const userRole = em.create(CustomerUserRole, {
         user,
@@ -233,6 +289,40 @@ const successSchema = z.object({
   user: z.object({ id: z.string().uuid(), email: z.string(), displayName: z.string() }),
 })
 const errorSchema = z.object({ ok: z.literal(false), error: z.string() })
+
+async function findCustomerUserIdsBySearchTokens(
+  em: EntityManager,
+  entityType: string,
+  search: string,
+  tenantScope: string | null | undefined,
+  field?: string,
+): Promise<string[] | null> {
+  const trimmed = search.trim()
+  if (!trimmed) return null
+  const searchConfig = resolveSearchConfig()
+  if (!searchConfig.enabled) return []
+  const { hashes } = tokenizeText(trimmed, searchConfig)
+  if (!hashes.length) return []
+
+  const db = (em as any).getKysely() as any
+  let query = db
+    .selectFrom('search_tokens')
+    .select('entity_id')
+    .where('entity_type', '=', entityType)
+    .where('token_hash', 'in', hashes)
+    .groupBy('entity_id')
+    .having(sql<boolean>`count(distinct token_hash) >= ${hashes.length}`)
+  if (field) {
+    query = query.where('field', '=', field)
+  }
+  if (tenantScope !== undefined) {
+    query = query.where(sql<boolean>`tenant_id is not distinct from ${tenantScope}`)
+  }
+  const rows = (await query.execute()) as Array<{ entity_id?: unknown }>
+  return rows
+    .map((row) => (typeof row.entity_id === 'string' ? row.entity_id : null))
+    .filter((id): id is string => typeof id === 'string' && id.length > 0)
+}
 
 const getMethodDoc: OpenApiMethodDoc = {
   summary: 'List customer users (admin)',

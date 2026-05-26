@@ -1,6 +1,11 @@
 import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
 import { securityApiError } from '../i18n'
 
+export const metadata = {
+  GET: { requireAuth: true },
+  POST: { requireAuth: true },
+}
+
 export async function GET() {
   return securityApiError(501, 'Not implemented')
 }

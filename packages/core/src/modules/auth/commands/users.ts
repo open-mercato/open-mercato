@@ -34,8 +34,10 @@ import notificationTypes from '@open-mercato/core/modules/auth/notifications'
 import { buildPasswordSchema } from '@open-mercato/shared/lib/auth/passwordPolicy'
 import { sendEmail } from '@open-mercato/shared/lib/email/send'
 import InviteUserEmail from '@open-mercato/core/modules/auth/emails/InviteUserEmail'
-import { INVITE_TOKEN_TTL_MS, resolveInviteBaseUrl } from '@open-mercato/core/modules/auth/lib/inviteToken'
+import { INVITE_TOKEN_TTL_MS } from '@open-mercato/core/modules/auth/lib/inviteToken'
+import { getSecurityEmailBaseUrl } from '@open-mercato/shared/lib/url'
 import { generateAuthToken, hashAuthToken } from '@open-mercato/core/modules/auth/lib/tokenHash'
+import { normalizeDisplayNameInput } from '@open-mercato/core/modules/auth/lib/displayName'
 
 type SerializedUser = {
   email: string
@@ -74,8 +76,14 @@ type UserSnapshots = {
 
 const passwordSchema = buildPasswordSchema()
 
+const displayNameSchema = z.preprocess(
+  normalizeDisplayNameInput,
+  z.string().trim().min(1).max(120).nullable().optional(),
+)
+
 const createSchema = z.object({
   email: z.string().email(),
+  name: displayNameSchema,
   password: passwordSchema.optional(),
   sendInviteEmail: z.boolean().optional(),
   organizationId: z.string().uuid(),
@@ -88,6 +96,7 @@ const createSchema = z.object({
 const updateSchema = z.object({
   id: z.string().uuid(),
   email: z.string().email().optional(),
+  name: displayNameSchema,
   password: passwordSchema.optional(),
   organizationId: z.string().uuid().optional(),
   roles: z.array(z.string()).optional(),
@@ -195,6 +204,7 @@ const createUserCommand: CommandHandler<Record<string, unknown>, CreateUserResul
         entity: User,
         data: {
           email: parsed.email,
+          name: parsed.name,
           emailHash,
           passwordHash,
           isConfirmed: true,
@@ -276,6 +286,7 @@ const createUserCommand: CommandHandler<Record<string, unknown>, CreateUserResul
       resourceKind: 'auth.user',
       resourceId: String(user.id),
       tenantId: user.tenantId ? String(user.tenantId) : null,
+      organizationId: user.organizationId ? String(user.organizationId) : null,
       snapshotAfter: snapshot.view,
       payload: {
         undo: {
@@ -340,9 +351,9 @@ async function sendInviteToUser(
   const tokenHash = hashAuthToken(rawToken)
   const expiresAt = new Date(Date.now() + INVITE_TOKEN_TTL_MS)
   const row = em.create(PasswordReset, { user, token: tokenHash, expiresAt, createdAt: new Date() })
-  await em.persistAndFlush(row)
+  await em.persist(row).flush()
 
-  const base = resolveInviteBaseUrl()
+  const base = getSecurityEmailBaseUrl()
   const inviteUrl = `${base}/reset/${rawToken}`
 
   const { translate } = await resolveTranslations()
@@ -450,6 +461,9 @@ const updateUserCommand: CommandHandler<Record<string, unknown>, User> = {
             entity.email = parsed.email
             entity.emailHash = emailHash
           }
+          if (parsed.name !== undefined) {
+            entity.name = parsed.name
+          }
           if (parsed.organizationId !== undefined) {
             entity.organizationId = parsed.organizationId
             entity.tenantId = tenantId ?? null
@@ -546,6 +560,7 @@ const updateUserCommand: CommandHandler<Record<string, unknown>, User> = {
       resourceKind: 'auth.user',
       resourceId: String(result.id),
       tenantId: result.tenantId ? String(result.tenantId) : null,
+      organizationId: result.organizationId ? String(result.organizationId) : null,
       changes,
       snapshotBefore: before ?? null,
       snapshotAfter: after,
@@ -573,7 +588,7 @@ const updateUserCommand: CommandHandler<Record<string, unknown>, User> = {
         entity.organizationId = before.organizationId ?? null
         entity.tenantId = before.tenantId ?? null
         entity.passwordHash = before.passwordHash ?? null
-        entity.name = before.name ?? undefined
+        entity.name = before.name ?? null
         entity.isConfirmed = before.isConfirmed
       },
     })
@@ -676,6 +691,7 @@ const deleteUserCommand: CommandHandler<{ body?: Record<string, unknown>; query?
       resourceId: id,
       snapshotBefore: before ?? null,
       tenantId: before?.tenantId ?? null,
+      organizationId: before?.organizationId ?? null,
       payload: {
         undo: {
           before: beforeUndo,
@@ -699,7 +715,7 @@ const deleteUserCommand: CommandHandler<{ body?: Record<string, unknown>; query?
       user.organizationId = before.organizationId ?? null
       user.tenantId = before.tenantId ?? null
       user.passwordHash = before.passwordHash ?? null
-      user.name = before.name ?? undefined
+      user.name = before.name ?? null
       user.isConfirmed = before.isConfirmed
       await em.flush()
     } else {

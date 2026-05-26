@@ -1,14 +1,5 @@
-import {
-  Collection,
-  Entity,
-  Index,
-  ManyToOne,
-  OneToMany,
-  OptionalProps,
-  PrimaryKey,
-  Property,
-  Unique,
-} from '@mikro-orm/core'
+import { Collection, OptionalProps } from '@mikro-orm/core'
+import { Entity, Index, ManyToOne, OneToMany, PrimaryKey, Property, Unique } from '@mikro-orm/decorators/legacy'
 import { DEFAULT_ORDER_NUMBER_FORMAT, DEFAULT_QUOTE_NUMBER_FORMAT, type SalesDocumentNumberKind } from '../lib/documentNumberTokens'
 import type { ShipmentItemSnapshot } from '../lib/shipments/types'
 import type { SalesLineUomSnapshot } from '../lib/types'

@@ -261,6 +261,15 @@
           "nullable": true,
           "mappedType": "text"
         },
+        "external_email_hash": {
+          "name": "external_email_hash",
+          "type": "text",
+          "unsigned": false,
+          "autoincrement": false,
+          "primary": false,
+          "nullable": true,
+          "mappedType": "text"
+        },
         "external_name": {
           "name": "external_name",
           "type": "text",
@@ -342,6 +351,16 @@
             "sent_at"
           ],
           "composite": true,
+          "constraint": false,
+          "primary": false,
+          "unique": false
+        },
+        {
+          "keyName": "messages_external_email_hash_idx",
+          "columnNames": [
+            "external_email_hash"
+          ],
+          "composite": false,
           "constraint": false,
           "primary": false,
           "unique": false

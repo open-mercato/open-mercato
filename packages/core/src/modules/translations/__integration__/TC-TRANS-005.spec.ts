@@ -37,13 +37,87 @@ async function fillCombobox(
   } else {
     await input.press('Enter')
   }
-  // Move focus away so the ComboboxInput's onBlur handler fires and settles
-  // (onBlur has a 200ms timeout that calls confirmSelection, which may reset hasUserEdited)
   await input.press('Tab')
-  await page.waitForTimeout(300)
   if (options?.waitForEnabledPlaceholder) {
     await expect(page.getByPlaceholder(options.waitForEnabledPlaceholder)).toBeEnabled({ timeout: 10_000 })
   }
+}
+
+async function selectEntityForRecordPicker(
+  page: import('@playwright/test').Page,
+  entityType: string,
+) {
+  const recordInput = page.getByPlaceholder('Search records...')
+
+  for (let attempt = 0; attempt < 3; attempt += 1) {
+    await fillCombobox(page, 'Select an entity', entityType)
+    const enabled = await expect
+      .poll(async () => !(await recordInput.isDisabled()), { timeout: 4_000 })
+      .toBe(true)
+      .then(() => true)
+      .catch(() => false)
+    if (enabled) {
+      return
+    }
+  }
+
+  await expect(recordInput).toBeEnabled({ timeout: 10_000 })
+}
+
+async function fillTranslationInput(locator: import('@playwright/test').Locator, value: string) {
+  await expect(locator).toBeEditable({ timeout: 10_000 })
+  await locator.fill(value)
+  if ((await locator.inputValue()) !== value) {
+    await locator.fill('')
+    await locator.fill(value)
+  }
+  await expect(locator).toHaveValue(value)
+  await locator.press('Tab')
+  await expect(locator).toHaveValue(value)
+}
+
+async function getTranslationField(
+  managerCard: import('@playwright/test').Locator,
+  preferredPlaceholder?: string,
+) {
+  const normalizedPlaceholder = preferredPlaceholder?.trim()
+  if (normalizedPlaceholder) {
+    const preferredField = managerCard.getByPlaceholder(normalizedPlaceholder).first()
+    if (await preferredField.count()) {
+      await expect(preferredField).toBeEditable({ timeout: 10_000 })
+      return preferredField
+    }
+  }
+
+  const firstField = managerCard.locator('table').locator('input, textarea').first()
+  await expect(firstField).toBeEditable({ timeout: 10_000 })
+  return firstField
+}
+
+async function saveTranslations(
+  page: import('@playwright/test').Page,
+  managerCard: import('@playwright/test').Locator,
+  entityType: string,
+  entityId: string,
+) {
+  const encodedEntityType = encodeURIComponent(entityType)
+  const encodedEntityId = encodeURIComponent(entityId)
+  const isSaveResponse = (response: import('@playwright/test').Response) => {
+    const request = response.request()
+    const url = response.url()
+    return (
+      request.method() === 'PUT' &&
+      url.includes('/api/translations/') &&
+      (url.includes(encodedEntityType) || url.includes(entityType)) &&
+      (url.includes(encodedEntityId) || url.includes(entityId))
+    )
+  }
+  const saveButton = managerCard.getByRole('button', { name: 'Save translations' })
+  await expect(saveButton).toBeEnabled({ timeout: 10_000 })
+  const responsePromise = page.waitForResponse((response) => isSaveResponse(response), { timeout: 10_000 })
+  await saveButton.click()
+  const response = await responsePromise
+  expect(response.ok()).toBeTruthy()
 }
 
 /**
@@ -67,7 +141,7 @@ test.describe('TC-TRANS-005: Translation Manager Standalone', () => {
       await page.goto('/backend/config/translations')
       await expect(page.getByRole('heading', { name: 'Translations' })).toBeVisible()
 
-      await fillCombobox(page, 'Select an entity', ENTITY_TYPE, { waitForEnabledPlaceholder: 'Search records...' })
+      await selectEntityForRecordPicker(page, ENTITY_TYPE)
       await fillCombobox(page, 'Search records...', productId!)
 
       await expect(page.getByText('Base value')).toBeVisible()
@@ -93,7 +167,7 @@ test.describe('TC-TRANS-005: Translation Manager Standalone', () => {
       await login(page, 'superadmin')
       await page.goto('/backend/config/translations')
 
-      await fillCombobox(page, 'Select an entity', ENTITY_TYPE, { waitForEnabledPlaceholder: 'Search records...' })
+      await selectEntityForRecordPicker(page, ENTITY_TYPE)
       await fillCombobox(page, 'Search records...', productId!)
 
       const managerCard = page.locator('.bg-card').filter({
@@ -101,12 +175,19 @@ test.describe('TC-TRANS-005: Translation Manager Standalone', () => {
       })
       const deTab = managerCard.getByRole('button', { name: 'DE' })
       await deTab.click()
+      await expect(deTab).toHaveAttribute('data-state', 'active')
 
-      const titleInput = page.locator('table input').first()
-      await titleInput.fill('Deutscher Titel QA')
+      const titleInput = await getTranslationField(managerCard, productTitle)
+      await fillTranslationInput(titleInput, 'Deutscher Titel QA')
 
-      await page.getByRole('button', { name: 'Save translations' }).click()
+      await saveTranslations(page, managerCard, ENTITY_TYPE, productId!)
       await expect(page.getByText('Translations saved').first()).toBeVisible()
+      await expect.poll(async () => {
+        const response = await apiRequest(request, 'GET', `/api/translations/${ENTITY_TYPE}/${productId}`, { token: saToken })
+        if (!response.ok()) return null
+        const body = (await response.json()) as { translations: Record<string, Record<string, string>> }
+        return body.translations?.de?.title ?? null
+      }).toBe('Deutscher Titel QA')
 
       const getResponse = await apiRequest(request, 'GET', `/api/translations/${ENTITY_TYPE}/${productId}`, { token: saToken })
       expect(getResponse.ok()).toBeTruthy()
@@ -139,7 +220,7 @@ test.describe('TC-TRANS-005: Translation Manager Standalone', () => {
       await login(page, 'superadmin')
       await page.goto('/backend/config/translations')
 
-      await fillCombobox(page, 'Select an entity', ENTITY_TYPE, { waitForEnabledPlaceholder: 'Search records...' })
+      await selectEntityForRecordPicker(page, ENTITY_TYPE)
       await fillCombobox(page, 'Search records...', productId!)
 
       const managerCard = page.locator('.bg-card').filter({
@@ -147,8 +228,9 @@ test.describe('TC-TRANS-005: Translation Manager Standalone', () => {
       })
       const deTab = managerCard.getByRole('button', { name: 'DE' })
       await deTab.click()
+      await expect(deTab).toHaveAttribute('data-state', 'active')
 
-      await expect(page.locator('table input').first()).toHaveValue('Persistenter Titel')
+      await expect(await getTranslationField(managerCard, productTitle)).toHaveValue('Persistenter Titel')
     } finally {
       await deleteTranslationIfExists(request, saToken, ENTITY_TYPE, productId)
       await deleteCatalogProductIfExists(request, adminToken, productId)

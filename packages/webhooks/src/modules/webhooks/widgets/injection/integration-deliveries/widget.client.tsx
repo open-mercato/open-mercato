@@ -289,7 +289,7 @@ export default function IntegrationDeliveriesWidget(_props: InjectionWidgetCompo
                 className="p-4"
               />
 
-              <div className="rounded-lg border bg-muted/20 p-4">
+              <div className="rounded-lg border bg-muted/30 p-4">
                 <div className="mb-2 text-sm font-medium">{t('webhooks.deliveries.responseBody')}</div>
                 <pre className="overflow-auto whitespace-pre-wrap break-words text-xs">
                   {selectedDelivery.responseBody ?? '—'}

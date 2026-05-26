@@ -132,7 +132,7 @@ export class SsoConfigService {
       appRoleMappings: input.appRoleMappings ?? {},
     } as RequiredEntityData<SsoConfig>)
 
-    await this.em.persistAndFlush(config)
+    await this.em.persist(config).flush()
 
     void emitSsoEvent('sso.config.created', {
       id: config.id,

@@ -1,7 +1,7 @@
 import { randomUUID } from 'node:crypto'
-import { spawn } from 'node:child_process'
 import fs from 'node:fs'
 import path from 'node:path'
+import spawn from 'cross-spawn'
 import { resolveSpawnCommand } from './dev-spawn-utils.mjs'
 
 const FALSE_TOKENS = new Set(['0', 'false', 'no', 'off', 'disabled'])
@@ -10,6 +10,8 @@ const GITHUB_REMOTE_PATTERNS = [
   /^git@github\.com:([^/]+)\/([^/]+?)(?:\.git)?$/i,
   /^ssh:\/\/git@github\.com\/([^/]+)\/([^/]+?)(?:\.git)?$/i,
 ]
+const GITHUB_OWNER_PATTERN = /^[A-Za-z0-9](?:[A-Za-z0-9-]{0,38})$/
+const GITHUB_REPO_PATTERN = /^[a-z0-9](?:[a-z0-9._-]{0,99})$/i
 
 export function isGitRepoFlowEnabled(value) {
   if (typeof value !== 'string' || value.trim().length === 0) return true
@@ -156,6 +158,28 @@ function normalizeSuggestedRepoName(value) {
     .replace(/-{2,}/g, '-')
 
   return normalized || 'open-mercato-app'
+}
+
+function assertGitHubOwner(value, allowedOwners = []) {
+  const owner = trimOutput(value)
+  if (!GITHUB_OWNER_PATTERN.test(owner)) {
+    throw new Error('Select a valid GitHub owner before publishing this repository.')
+  }
+
+  if (Array.isArray(allowedOwners) && allowedOwners.length > 0 && !allowedOwners.includes(owner)) {
+    throw new Error('Select one of the authenticated GitHub owners before publishing this repository.')
+  }
+
+  return owner
+}
+
+function assertGitHubRepoName(value) {
+  const repoName = normalizeSuggestedRepoName(value)
+  if (!GITHUB_REPO_PATTERN.test(repoName)) {
+    throw new Error('Choose a valid GitHub repository name before publishing this repository.')
+  }
+
+  return repoName
 }
 
 function resolveDefaultRepoName(launchDir, readTextFile = (filePath) => fs.readFileSync(filePath, 'utf8')) {
@@ -437,7 +461,7 @@ export async function runGitRepoPublishAction(options = {}) {
     throw new Error(buildGhInstallMessage(platform))
   }
 
-  const repoName = normalizeSuggestedRepoName(options.repoName || detected.defaultRepoName)
+  const repoName = assertGitHubRepoName(options.repoName || detected.defaultRepoName)
   const visibility = options.visibility === 'public' ? 'public' : 'private'
 
   if (detected.authStatus !== 'authenticated') {
@@ -461,7 +485,7 @@ export async function runGitRepoPublishAction(options = {}) {
     })
   }
 
-  const owner = String(options.owner || detected.defaultOwner || '').trim()
+  const owner = assertGitHubOwner(options.owner || detected.defaultOwner || '', detected.ownerOptions)
   if (!owner) {
     throw new Error('No GitHub owner is available. Authenticate with GitHub and try again.')
   }

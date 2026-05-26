@@ -75,7 +75,7 @@ export async function GET(req: Request) {
 
   const [items, total] = await Promise.all([
     qb.getResultList(),
-    countQb.count('gt.id', true),
+    countQb.getCount('gt.id', true),
   ])
 
   return NextResponse.json({
@@ -99,7 +99,7 @@ export async function GET(req: Request) {
     total,
     page,
     pageSize,
-    totalPages: Math.max(1, Math.ceil(total / pageSize)),
+    totalPages: Math.max(1, Math.ceil(Number(total) / pageSize)),
   })
 }
 

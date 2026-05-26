@@ -23,6 +23,17 @@ Undo support is currently available for directory tenants/organizations, auth us
 
 ![Operation drawer highlighting changed fields and snapshots](/screenshots/open-mercato-operation-details.png)
 
+### Banner auto-dismiss timeout
+
+The Undo banner auto-dismisses **10 seconds** after the action is recorded. The timer pauses while an undo request is in flight so a slow API does not collapse the banner mid-click. Override the default by setting `NEXT_PUBLIC_OM_UNDO_BANNER_TIMEOUT_MS` (in milliseconds) at build time:
+
+```env
+# .env (or .env.local)
+NEXT_PUBLIC_OM_UNDO_BANNER_TIMEOUT_MS=15000
+```
+
+Non-numeric, zero, or negative values fall back to the 10s default. The variable is read at build time because it is a `NEXT_PUBLIC_*` env, so you must rebuild the app after changing it.
+
 ## Retention
 
 Access log retention is automatic and environment-configurable:

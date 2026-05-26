@@ -40,10 +40,16 @@ import { AuthService } from '@open-mercato/core/modules/auth/services/authServic
 
 describe('AuthService', () => {
   it('hashes password on create', async () => {
-    const em: any = { calls: [], persistAndFlush: async (e: any) => em.calls.push(['persistAndFlush', e]) }
+    const em: any = {
+      calls: [],
+      persist: (e: any) => {
+        em.calls.push(['persist', e])
+        return { flush: async () => em.calls.push(['flush']) }
+      },
+    }
     const svc = new AuthService(em)
     await svc.createUser({ email: 'a@b.c', password: 'secret' } as any)
-    expect(em.calls[0][0]).toBe('persistAndFlush')
+    expect(em.calls[0][0]).toBe('persist')
   })
 })
 ```

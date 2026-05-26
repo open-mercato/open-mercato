@@ -230,7 +230,7 @@ export function DocumentNumberSettings() {
             </p>
           </label>
         </div>
-        <div className="space-y-2 rounded-lg border bg-muted/40 p-3">
+        <div className="space-y-2 rounded-lg border bg-muted/50 p-3">
           <div className="flex items-center gap-2 text-sm font-medium">
             {translations.tokensTitle}
             <span className="text-xs font-normal text-muted-foreground">{translations.tokensHint}</span>

@@ -17,7 +17,10 @@ import {
   TenantDataEncryptionError,
   TenantDataEncryptionErrorCode,
 } from '@open-mercato/shared/lib/encryption/aes'
-import { TenantDataEncryptionService } from '@open-mercato/shared/lib/encryption/tenantDataEncryptionService'
+import {
+  TenantDataEncryptionService,
+  parseDecryptedFieldValue,
+} from '@open-mercato/shared/lib/encryption/tenantDataEncryptionService'
 import { resolveEntityIdFromMetadata } from '@open-mercato/shared/lib/encryption/entityIds'
 import { Organization } from '../directory/data/entities'
 import crypto from 'node:crypto'
@@ -223,7 +226,7 @@ const addField: ModuleCli = {
       if (description !== undefined) configJson.description = description
 
       if (!existing) {
-        await em.persistAndFlush(em.create(CustomFieldDef, {
+        await em.persist(em.create(CustomFieldDef, {
           entityId,
           organizationId: orgId,
           tenantId: tenantId,
@@ -231,7 +234,7 @@ const addField: ModuleCli = {
           kind,
           configJson,
           isActive: true,
-        }))
+        })).flush()
         console.log(`Created custom field: ${entityId}.${key} (${kind})${orgId == null ? ' [global]' : ` [org=${orgId}, tenant=${tenantId}]`}`)
       } else {
         existing.kind = kind as any
@@ -272,7 +275,7 @@ async function upsertEncryptionMaps(em: any, tenantId: string, organizationId: s
       existing.isActive = true
       existing.updatedAt = new Date()
       logger(`🔒 Updated encryption map for ${spec.entityId} ✨`)
-      await em.persistAndFlush(existing)
+      await em.persist(existing).flush()
       continue
     }
     const map = em.create(EncryptionMap, {
@@ -282,7 +285,7 @@ async function upsertEncryptionMaps(em: any, tenantId: string, organizationId: s
       fieldsJson: spec.fields,
       isActive: true,
     })
-    await em.persistAndFlush(map)
+    await em.persist(map).flush()
     logger(`Created encryption map for ${spec.entityId}`)
   }
 }
@@ -563,11 +566,7 @@ const rotateEncryptionKey: ModuleCli = {
             if (typeof value !== 'string' || !isEncryptedPayload(value)) continue
             const decrypted = decryptWithOldKey(value, oldDek)
             if (decrypted === null) continue
-            try {
-              payload[rule.field] = JSON.parse(decrypted)
-            } catch {
-              payload[rule.field] = decrypted
-            }
+            payload[rule.field] = parseDecryptedFieldValue(decrypted)
           }
         }
         const encrypted = await encryptionService.encryptEntityPayload(

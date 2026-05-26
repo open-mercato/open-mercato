@@ -26,7 +26,7 @@ jest.mock('../injection/useInjectionDataWidgets', () => ({
 
 import * as React from 'react'
 import { renderToString } from 'react-dom/server'
-import { act, fireEvent } from '@testing-library/react'
+import { act, fireEvent, waitFor } from '@testing-library/react'
 import { renderWithProviders } from '@open-mercato/shared/lib/testing/renderWithProviders'
 import { CrudForm, type CrudField } from '../CrudForm'
 import { I18nProvider } from '@open-mercato/shared/lib/i18n/context'
@@ -102,6 +102,35 @@ describe('CrudForm initialValues', () => {
     expect(loader.mock.calls.length).toBeLessThanOrEqual(callsAfterMount + 1)
   })
 
+  it('re-invokes loadOptions and refreshes cached options when the loader identity changes (#1538)', async () => {
+    const firstLoader = jest.fn().mockResolvedValue([{ label: 'Alpha', value: 'alpha' }])
+    const secondLoader = jest.fn().mockResolvedValue([{ label: 'Beta', value: 'beta' }])
+    const makeFields = (loader: (q?: string) => Promise<{ label: string; value: string }[]>): CrudField[] => [
+      { id: 'pick', label: 'Pick', type: 'combobox', loadOptions: loader },
+    ]
+
+    const { rerender, container } = renderWithProviders(
+      <CrudForm title="Form" fields={makeFields(firstLoader)} onSubmit={() => {}} />
+    )
+    await act(() => Promise.resolve())
+    expect(firstLoader).toHaveBeenCalled()
+    expect(secondLoader).not.toHaveBeenCalled()
+
+    await act(async () => {
+      rerender(
+        <CrudForm title="Form" fields={makeFields(secondLoader)} onSubmit={() => {}} />
+      )
+    })
+    await act(() => Promise.resolve())
+
+    // The new loader MUST run because it captures different parent state
+    // (e.g. tenant scope). Reusing cached options from the old loader would
+    // leak cross-scope values such as roles from another tenant.
+    expect(secondLoader).toHaveBeenCalled()
+    const fieldNode = container.querySelector('[data-crud-field-id="pick"]')
+    expect(fieldNode).not.toBeNull()
+  })
+
   it('does not reset fields on initialValues reference churn', async () => {
     const { container, rerender } = renderWithProviders(
       <CrudForm title="Form" fields={fields} initialValues={{ name: 'Alice' }} onSubmit={() => {}} />
@@ -142,5 +171,126 @@ describe('CrudForm initialValues', () => {
     expect(getByText('Locked overlay')).toBeInTheDocument()
     expect(queryByRole('button', { name: 'Save' })).not.toBeInTheDocument()
     expect(queryByRole('button', { name: 'Delete' })).not.toBeInTheDocument()
+  })
+
+  it('autofocuses the first combobox without opening suggestions on mount', async () => {
+    jest.useFakeTimers()
+
+    const loadOptions = jest.fn().mockResolvedValue([{ label: 'Alpha', value: 'alpha' }])
+    const fields: CrudField[] = [
+      { id: 'primary_choice', label: 'Primary choice', type: 'combobox', loadOptions },
+      { id: 'secondary_title', label: 'Secondary title', type: 'text' },
+    ]
+
+    const { container, queryByRole } = renderWithProviders(
+      <CrudForm title="Form" fields={fields} onSubmit={() => {}} />,
+      {
+        dict: {
+          'ui.forms.actions.save': 'Save',
+        },
+      },
+    )
+
+    const comboboxInput = container.querySelector('[data-crud-field-id="primary_choice"] input[type="text"]') as HTMLInputElement | null
+    expect(comboboxInput).not.toBeNull()
+
+    await waitFor(() => {
+      expect(document.activeElement).toBe(comboboxInput)
+    })
+
+    await act(async () => {
+      jest.advanceTimersByTime(250)
+      await Promise.resolve()
+    })
+
+    expect(queryByRole('button', { name: 'Alpha' })).toBeNull()
+    jest.useRealTimers()
+  })
+
+  it('autofocuses the first relation field on mount', async () => {
+    const loadOptions = jest.fn().mockResolvedValue([{ label: 'Alpha', value: 'alpha' }])
+    const fields: CrudField[] = [
+      { id: 'primary_choice', label: 'Primary choice', type: 'relation', loadOptions },
+      { id: 'secondary_title', label: 'Secondary title', type: 'text' },
+    ]
+
+    const { container } = renderWithProviders(
+      <CrudForm title="Form" fields={fields} onSubmit={() => {}} />,
+      {
+        dict: {
+          'ui.forms.actions.save': 'Save',
+        },
+      },
+    )
+
+    const relationInput = container.querySelector('[data-crud-field-id="primary_choice"] input[type="text"]') as HTMLInputElement | null
+    expect(relationInput).not.toBeNull()
+
+    await waitFor(() => {
+      expect(document.activeElement).toBe(relationInput)
+    })
+  })
+
+  it('respects disableInitialFocus', async () => {
+    const fields: CrudField[] = [
+      { id: 'title', label: 'Title', type: 'text' },
+      { id: 'summary', label: 'Summary', type: 'text' },
+    ]
+
+    const { container } = renderWithProviders(
+      <CrudForm title="Form" fields={fields} disableInitialFocus onSubmit={() => {}} />,
+      {
+        dict: {
+          'ui.forms.actions.save': 'Save',
+        },
+      },
+    )
+
+    const titleInput = container.querySelector('[data-crud-field-id="title"] input[type="text"]') as HTMLInputElement | null
+    expect(titleInput).not.toBeNull()
+
+    await waitFor(() => {
+      expect(document.activeElement).not.toBe(titleInput)
+    })
+  })
+
+  it('can autofocus the first combobox after initial loading is finished', async () => {
+    jest.useFakeTimers()
+
+    const loadOptions = jest.fn().mockResolvedValue([{ label: 'Alpha', value: 'alpha' }])
+    const fields: CrudField[] = [
+      { id: 'primary_choice', label: 'Primary choice', type: 'combobox', loadOptions },
+      { id: 'secondary_title', label: 'Secondary title', type: 'text' },
+    ]
+
+    const { container, rerender, queryByRole } = renderWithProviders(
+      <CrudForm title="Form" fields={fields} disableInitialFocus onSubmit={() => {}} />,
+      {
+        dict: {
+          'ui.forms.actions.save': 'Save',
+        },
+      },
+    )
+
+    const comboboxInput = container.querySelector('[data-crud-field-id="primary_choice"] input[type="text"]') as HTMLInputElement | null
+    expect(comboboxInput).not.toBeNull()
+    expect(document.activeElement).not.toBe(comboboxInput)
+
+    await act(async () => {
+      rerender(<CrudForm title="Form" fields={fields} onSubmit={() => {}} />)
+      jest.advanceTimersByTime(250)
+      await Promise.resolve()
+      await Promise.resolve()
+    })
+
+    await waitFor(() => {
+      expect(document.activeElement).toBe(comboboxInput)
+    })
+
+    await waitFor(() => {
+      expect(queryByRole('button', { name: 'Alpha' })).toBeInTheDocument()
+    })
+
+    jest.useRealTimers()
   })
 })

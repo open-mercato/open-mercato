@@ -3,6 +3,7 @@ import type { SubscriberContext } from '@open-mercato/events/types'
 import { WebhookDeliveryEntity, WebhookEntity } from '../data/entities'
 import { findWithDecryption, findOneWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import { matchAnyWebhookEventPattern } from '@open-mercato/shared/lib/events/patterns'
+import { getDeclaredEvents } from '@open-mercato/shared/modules/events'
 import { createWebhookDelivery } from '../lib/delivery'
 import { enqueueWebhookDelivery } from '../lib/queue'
 import { isWebhookIntegrationEnabled } from '../lib/integration-state'
@@ -13,12 +14,20 @@ export const metadata = {
   id: 'webhooks:outbound-dispatch',
 }
 
+function shouldSkipOutboundDispatch(eventId: string): boolean {
+  if (eventId.startsWith('webhooks.') || eventId.startsWith('application.')) return true
+
+  const declaredEvent = getDeclaredEvents().find((event) => event.id === eventId)
+  return declaredEvent?.excludeFromTriggers === true
+}
+
 export default async function handler(
   payload: Record<string, unknown>,
   ctx: (SubscriberContext & { eventId?: string }) | { container?: { resolve: <T = unknown>(name: string) => T }; eventId?: string; eventName?: string; resolve?: <T = unknown>(name: string) => T },
 ) {
   const eventId = ctx.eventId ?? ctx.eventName ?? (payload.eventId as string) ?? (payload.type as string)
   if (!eventId) return
+  if (shouldSkipOutboundDispatch(eventId)) return
 
   const tenantId = payload.tenantId as string | undefined
   const organizationId = payload.organizationId as string | undefined
@@ -26,6 +35,7 @@ export default async function handler(
 
   if (eventId.startsWith('webhooks.')) return
   if (eventId.startsWith('query_index.')) return
+
 
   const resolve = ('resolve' in ctx && typeof ctx.resolve === 'function')
     ? ctx.resolve

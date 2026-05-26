@@ -46,11 +46,12 @@ test.describe('TC-MSG-007: Search And Filter Inbox', () => {
       const overlay = page.locator('div.fixed.inset-0').last();
       await expect(overlay).toBeVisible();
 
-      // Use exact text match — /Actions/i would also match "Attachments" as substring
       const actionsFilterBlock = overlay.locator('div.space-y-2').filter({
-        has: page.locator('div.text-sm.font-medium', { hasText: /^Actions$/i }),
+        has: page.locator('div.text-sm.font-medium', { hasText: /^Has action requests$/i }),
       }).first();
-      await actionsFilterBlock.locator('select').first().selectOption('true');
+      // Radix Select: click trigger, then click option from portal
+      await actionsFilterBlock.locator('[role="combobox"]').first().click();
+      await page.getByRole('option', { name: 'Yes', exact: true }).first().click();
       await overlay.getByRole('button', { name: 'Apply' }).first().click();
 
       await expect(messageRowBySubject(page, actionSubject)).toBeVisible();

@@ -2349,7 +2349,7 @@ export async function createAkeneoImporter(client: AkeneoClient, scope: ImportSc
         : params.reconciliation.deleteMissingAttachments
       if (!shouldDelete || desiredExternalIds.has(externalId)) continue
       await deletePartitionFile(attachment.partitionCode, attachment.storagePath, attachment.storageDriver)
-      await em.removeAndFlush(attachment)
+      await em.remove(attachment).flush()
       await emitAttachmentCrudChange('deleted', attachment)
     }
 
@@ -2470,7 +2470,7 @@ export async function createAkeneoImporter(client: AkeneoClient, scope: ImportSc
       const childProductId = typeof relation.childProduct === 'string' ? relation.childProduct : relation.childProduct?.id ?? null
       const key = `${relation.relationType}:${childVariantId ?? childProductId}`
       if (!desiredKeys.has(key)) {
-        await em.removeAndFlush(relation)
+        await em.remove(relation).flush()
       }
     }
   }

@@ -1,11 +1,11 @@
 ---
 name: review-prs
-description: Review all currently unreviewed open pull requests, newest first, using the review-pr skill and respecting in-progress locks.
+description: Review all currently unreviewed open pull requests, newest first, using the auto-review-pr skill and respecting in-progress locks.
 ---
 
 # Review PRs
 
-Use this as a day-start review queue. It finds unreviewed open PRs, shows the queue, then runs the full `review-pr` workflow one PR at a time.
+Use this as a day-start review queue. It finds unreviewed open PRs, shows the queue, then runs the full `auto-review-pr` workflow one PR at a time.
 
 ## Workflow
 
@@ -48,7 +48,7 @@ Found {count} unreviewed PRs (newest first):
 For each PR:
 
 1. Print `Reviewing PR #{number}: {title} ({index} of {total})`
-2. Run the full `.ai/skills/review-pr/SKILL.md` workflow
+2. Run the full `.ai/skills/auto-review-pr/SKILL.md` workflow
 3. Record the verdict
 4. Continue to the next PR
 
@@ -76,5 +76,5 @@ If the queue is empty, say so and suggest running `merge-buddy` instead.
 - Never silently skip an eligible PR.
 - If a PR cannot be reviewed right now, include the reason in the session summary and move on.
 - Respect existing `in-progress` locks; never auto-force in batch mode.
-- Reuse the full `review-pr` skill rather than inventing a lighter review path.
+- Reuse the full `auto-review-pr` skill rather than inventing a lighter review path.
 - Optionally suggest `merge-buddy` after the session so the user can see what is now merge-ready.

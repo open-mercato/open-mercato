@@ -13,6 +13,16 @@ export function isIgnorableDerivedKeyWarningLine(line) {
     || line.startsWith('Persist this secret securely.')
 }
 
+function isIgnorableStructuredWarningBlockStartLine(line) {
+  if (typeof line !== 'string') return false
+
+  const normalized = line.trim()
+  if (!normalized.endsWith('{')) return false
+
+  return isIgnorableSearchWarningLine(normalized)
+    || isIgnorableDerivedKeyWarningLine(normalized)
+}
+
 export function isIgnorableSearchWarningLine(line) {
   if (typeof line !== 'string') return false
 
@@ -66,6 +76,10 @@ export function isIgnorableBootstrapNoiseLine(line) {
   return normalized.startsWith('[Bootstrap] Entity IDs re-registered')
     || normalized.startsWith('🚀 Starting scheduler')
     || normalized.startsWith('✓ Local scheduler started')
+    || normalized.startsWith('[lazy-scheduler] Watching for enabled schedules')
+    || normalized.startsWith('[lazy-scheduler] Schedule probe failed')
+    || normalized.startsWith('[lazy-scheduler] Poll cycle failed')
+    || normalized.startsWith('[lazy-scheduler] Initial poll failed')
     || normalized.startsWith('💡 Tip:')
 }
 
@@ -89,13 +103,11 @@ export function createSplashPassthroughIgnoreMatcher() {
       return true
     }
 
-    if (!isIgnorableSearchWarningLine(normalized)) {
+    if (!isIgnorableStructuredWarningBlockStartLine(normalized)) {
       return false
     }
 
-    if (normalized.endsWith('{')) {
-      warningBlockDepth = 1
-    }
+    warningBlockDepth = 1
 
     return true
   }

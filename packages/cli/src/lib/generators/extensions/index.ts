@@ -1,4 +1,5 @@
 import type { GeneratorExtension } from '../extension'
+import { createAiAgentsExtension } from './ai-agents'
 import { createAiToolsExtension } from './ai-tools'
 import { createAnalyticsExtension } from './analytics'
 import { createCommandInterceptorsExtension } from './command-interceptors'
@@ -15,6 +16,7 @@ import { createNotificationsExtension } from './notifications'
 import { createPageMiddlewareExtension } from './page-middleware'
 import { createSearchExtension } from './search'
 import { createTranslatableFieldsExtension } from './translatable-fields'
+import { createWorkflowsExtension } from './workflows'
 
 export function loadGeneratorExtensions(): GeneratorExtension[] {
   return [
@@ -22,6 +24,7 @@ export function loadGeneratorExtensions(): GeneratorExtension[] {
     createNotificationsExtension(),
     createMessagesExtension(),
     createAiToolsExtension(),
+    createAiAgentsExtension(),
     createEventsExtension(),
     createAnalyticsExtension(),
     createTranslatableFieldsExtension(),
@@ -34,5 +37,6 @@ export function loadGeneratorExtensions(): GeneratorExtension[] {
     createPageMiddlewareExtension(),
     createDashboardWidgetsExtension(),
     createInjectionWidgetsExtension(),
+    createWorkflowsExtension(),
   ]
 }

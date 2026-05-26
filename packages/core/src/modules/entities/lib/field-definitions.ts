@@ -91,7 +91,7 @@ export async function ensureCustomFieldDefinitions(
 
       if (!existing) {
         if (!scope.dryRun) {
-          await em.persistAndFlush(
+          await em.persist(
             em.create(CustomFieldDef, {
               entityId: set.entity,
               organizationId: scope.organizationId,
@@ -103,7 +103,7 @@ export async function ensureCustomFieldDefinitions(
               createdAt: new Date(),
               updatedAt: new Date(),
             })
-          )
+          ).flush()
         }
         created++
         continue

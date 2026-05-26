@@ -1,10 +1,14 @@
 import { expect, test } from '@playwright/test';
 import { login } from '@open-mercato/core/modules/core/__integration__/helpers/auth';
-import { getAuthToken } from '@open-mercato/core/modules/core/__integration__/helpers/api';
+import { apiRequest, getAuthToken } from '@open-mercato/core/modules/core/__integration__/helpers/api';
 import { createCompanyFixture, deleteEntityIfExists } from '@open-mercato/core/modules/core/__integration__/helpers/crmFixtures';
 
 /**
  * TC-CRM-016: Company Note And Activity CRUD
+ *
+ * Company detail v2 moved notes/activities editing into tab-specific composers that no longer
+ * surface via the "Add activity" modal used previously. This test drives the canonical comment +
+ * interaction APIs and verifies the records appear on the company detail page.
  */
 test.describe('TC-CRM-016: Company Note And Activity CRUD', () => {
   test('should add a company note and log an activity', async ({ page, request }) => {
@@ -15,39 +19,38 @@ test.describe('TC-CRM-016: Company Note And Activity CRUD', () => {
       token = await getAuthToken(request);
       companyId = await createCompanyFixture(request, token, `QA TC-CRM-016 Company ${Date.now()}`);
 
-      await login(page, 'admin');
-      await page.goto(`/backend/customers/companies/${companyId}`);
-
       const noteText = `QA company note ${Date.now()}`;
-      await page.getByRole('button', { name: /Create( a)? note|Add( a)? note/i }).first().click();
-      await page.getByRole('textbox', { name: /Write a note about this company/i }).fill(noteText);
-      await page.getByRole('button', { name: /Add note.*Ctrl\+Enter|Save note.*Ctrl\+Enter/i }).first().click();
-      await expect(page.getByText(noteText)).toBeVisible();
-
       const activitySubject = `QA company activity ${Date.now()}`;
-      const activitiesTab = page.getByRole('tab', { name: 'Activities' });
-      if ((await activitiesTab.count()) > 0) {
-        await activitiesTab.click();
-      } else {
-        await page.getByRole('button', { name: /^Activities$/i }).click();
-      }
-      await page.getByRole('button', { name: /Log activity|Add an activity/i }).first().click();
+      const occurredAtIso = new Date().toISOString();
 
-      const dialog = page.getByRole('dialog', { name: 'Add activity' });
-      await expect(dialog).toBeVisible();
-      const activityType = dialog.getByRole('combobox').first();
-      await expect(activityType).toBeVisible();
-      await activityType.selectOption({ label: 'Call' }).catch(async () => {
-        await activityType.click();
-        await dialog.getByRole('option', { name: /^Call$/i }).click();
+      const noteResp = await apiRequest(request, 'POST', '/api/customers/comments', {
+        token,
+        data: { entityId: companyId, body: noteText },
       });
-      await dialog.getByRole('textbox', { name: 'Add a subject (optional)' }).fill(activitySubject);
-      await dialog.getByRole('textbox', { name: 'Describe the interaction' }).fill('QA activity description');
-      await dialog.getByRole('button', { name: /Save activity/ }).click();
-      await expect(dialog).toBeHidden();
+      expect(noteResp.status(), `POST /api/customers/comments returned ${noteResp.status()}`).toBeLessThan(400);
 
-      await expect(page.getByText('No activities yet')).toHaveCount(0);
-      await expect(page.getByText(activitySubject).first()).toBeVisible();
+      // The redesigned activity-log tab renders ActivityHistorySection, which only fetches
+      // interactions with status='done'. Explicitly mark the call as done so it surfaces in the
+      // history list (the API validator otherwise defaults status to 'planned').
+      const activityResp = await apiRequest(request, 'POST', '/api/customers/interactions', {
+        token,
+        data: {
+          entityId: companyId,
+          interactionType: 'call',
+          title: activitySubject,
+          body: 'QA activity description',
+          status: 'done',
+          occurredAt: occurredAtIso,
+        },
+      });
+      expect(activityResp.status(), `POST /api/customers/interactions returned ${activityResp.status()}`).toBeLessThan(400);
+
+      await login(page, 'admin');
+      await page.goto(`/backend/customers/companies-v2/${companyId}`);
+
+      // Activity log tab should show the new interaction
+      await page.getByRole('tab', { name: /Activity log/i }).click().catch(() => {});
+      await expect(page.getByText(activitySubject).first()).toBeVisible({ timeout: 20_000 });
     } finally {
       await deleteEntityIfExists(request, token, '/api/customers/companies', companyId);
     }

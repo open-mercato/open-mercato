@@ -12,10 +12,6 @@ import {
   DELETE as deleteDefinition,
 } from '../definitions/[id]/route'
 import { WorkflowDefinition, WorkflowInstance } from '../../data/entities'
-import {
-  expectListHandlerOmitsOrganizationForWildcardScope,
-  expectListHandlerScopesToFilterIds,
-} from './helpers/orgScopeAssertions'
 
 // Mock dependencies
 jest.mock('@open-mercato/shared/lib/di/container', () => ({
@@ -58,7 +54,7 @@ describe('Workflow Definitions API', () => {
       findAndCount: jest.fn(),
       count: jest.fn(),
       create: jest.fn(),
-      persistAndFlush: jest.fn(),
+      persist: jest.fn(function persist(this: any) { return this }),
       flush: jest.fn(),
     }
 
@@ -99,6 +95,7 @@ describe('Workflow Definitions API', () => {
         {
           id: 'def-1',
           workflowId: 'approval-workflow',
+          workflowName: 'Approval Workflow',
           version: 1,
           definition: {},
           enabled: true,
@@ -108,6 +105,7 @@ describe('Workflow Definitions API', () => {
         {
           id: 'def-2',
           workflowId: 'checkout-workflow',
+          workflowName: 'Checkout Workflow',
           version: 1,
           definition: {},
           enabled: true,
@@ -116,7 +114,8 @@ describe('Workflow Definitions API', () => {
         },
       ]
 
-      mockEm.findAndCount.mockResolvedValue([mockDefinitions, 2])
+      mockEm.find.mockResolvedValue(mockDefinitions)
+      mockEm.count.mockResolvedValue(2)
 
       const request = new NextRequest('http://localhost/api/workflows/definitions')
       const response = await listDefinitions(request)
@@ -124,74 +123,67 @@ describe('Workflow Definitions API', () => {
 
       expect(response.status).toBe(200)
       expect(data.data).toHaveLength(2)
-      expect(data.pagination).toEqual({
-        total: 2,
-        limit: 50,
-        offset: 0,
-        hasMore: false,
-      })
-      expect(mockEm.findAndCount).toHaveBeenCalledWith(
+      expect(data.pagination.total).toBeGreaterThanOrEqual(2)
+      expect(data.pagination.limit).toBe(50)
+      expect(data.pagination.offset).toBe(0)
+      expect(mockEm.count).toHaveBeenCalledWith(
         WorkflowDefinition,
         expect.objectContaining({
           tenantId: testTenantId,
           organizationId: { $in: [testOrgId] },
           deletedAt: null,
         }),
-        expect.any(Object)
       )
     })
 
     test('should filter by enabled status', async () => {
-      mockEm.findAndCount.mockResolvedValue([[], 0])
+      mockEm.find.mockResolvedValue([])
+      mockEm.count.mockResolvedValue(0)
 
       const request = new NextRequest('http://localhost/api/workflows/definitions?enabled=true')
       await listDefinitions(request)
 
-      expect(mockEm.findAndCount).toHaveBeenCalledWith(
+      expect(mockEm.count).toHaveBeenCalledWith(
         WorkflowDefinition,
-        expect.objectContaining({
-          enabled: true,
-        }),
-        expect.any(Object)
+        expect.objectContaining({ enabled: true }),
       )
     })
 
     test('should filter by workflowId', async () => {
-      mockEm.findAndCount.mockResolvedValue([[], 0])
+      mockEm.find.mockResolvedValue([])
+      mockEm.count.mockResolvedValue(0)
 
       const request = new NextRequest(
         'http://localhost/api/workflows/definitions?workflowId=approval-workflow'
       )
       await listDefinitions(request)
 
-      expect(mockEm.findAndCount).toHaveBeenCalledWith(
+      expect(mockEm.count).toHaveBeenCalledWith(
         WorkflowDefinition,
-        expect.objectContaining({
-          workflowId: 'approval-workflow',
-        }),
-        expect.any(Object)
+        expect.objectContaining({ workflowId: 'approval-workflow' }),
       )
     })
 
     test('should search in workflowId and name', async () => {
-      mockEm.findAndCount.mockResolvedValue([[], 0])
+      mockEm.find.mockResolvedValue([])
+      mockEm.count.mockResolvedValue(0)
 
       const request = new NextRequest('http://localhost/api/workflows/definitions?search=approval')
       await listDefinitions(request)
 
-      expect(mockEm.findAndCount).toHaveBeenCalledWith(
+      expect(mockEm.count).toHaveBeenCalledWith(
         WorkflowDefinition,
         expect.objectContaining({
           $or: expect.arrayContaining([
             expect.objectContaining({ workflowId: { $ilike: '%approval%' } }),
           ]),
         }),
-        expect.any(Object)
       )
     })
 
     test('should support custom pagination', async () => {
-      mockEm.findAndCount.mockResolvedValue([[], 100])
+      mockEm.find.mockResolvedValue([])
+      mockEm.count.mockResolvedValue(100)
 
       const request = new NextRequest(
         'http://localhost/api/workflows/definitions?limit=20&offset=40'
@@ -199,24 +191,21 @@ describe('Workflow Definitions API', () => {
       const response = await listDefinitions(request)
       const data = await response.json()
 
-      expect(data.pagination).toEqual({
-        total: 100,
-        limit: 20,
-        offset: 40,
-        hasMore: true,
-      })
-      expect(mockEm.findAndCount).toHaveBeenCalledWith(
+      expect(data.pagination.total).toBeGreaterThanOrEqual(100)
+      expect(data.pagination.limit).toBe(20)
+      expect(data.pagination.offset).toBe(40)
+      expect(data.pagination.hasMore).toBe(true)
+      // Window fetch limits to offset + limit so we can slice client-side after merging code workflows.
+      expect(mockEm.find).toHaveBeenCalledWith(
         WorkflowDefinition,
-        expect.any(Object),
-        expect.objectContaining({
-          limit: 20,
-          offset: 40,
-        })
+        expect.objectContaining({ tenantId: testTenantId, deletedAt: null }),
+        expect.objectContaining({ limit: 60 }),
       )
     })
 
     test('should handle errors gracefully', async () => {
-      mockEm.findAndCount.mockRejectedValue(new Error('Database error'))
+      mockEm.find.mockRejectedValue(new Error('Database error'))
+      mockEm.count.mockRejectedValue(new Error('Database error'))
 
       const request = new NextRequest('http://localhost/api/workflows/definitions')
       const response = await listDefinitions(request)
@@ -227,27 +216,35 @@ describe('Workflow Definitions API', () => {
     })
 
     test('should scope across all permitted orgs when filterIds has multiple entries', async () => {
+      const filterIds = ['org-a', 'org-b']
       const { resolveOrganizationScopeForRequest } = require('@open-mercato/core/modules/directory/utils/organizationScope')
-      await expectListHandlerScopesToFilterIds({
-        Entity: WorkflowDefinition,
-        findAndCount: mockEm.findAndCount,
-        resolveScope: resolveOrganizationScopeForRequest,
-        runHandler: () => listDefinitions(new NextRequest('http://localhost/api/workflows/definitions')),
-        tenantId: testTenantId,
-        extraWhere: { deletedAt: null },
-      })
+      resolveOrganizationScopeForRequest.mockResolvedValue({ selectedId: null, filterIds })
+      mockEm.find.mockResolvedValue([])
+      mockEm.count.mockResolvedValue(0)
+
+      await listDefinitions(new NextRequest('http://localhost/api/workflows/definitions'))
+
+      expect(mockEm.count).toHaveBeenCalledWith(
+        WorkflowDefinition,
+        expect.objectContaining({
+          tenantId: testTenantId,
+          organizationId: { $in: filterIds },
+          deletedAt: null,
+        }),
+      )
     })
 
     test('should omit organization filter when scope resolves to wildcard (filterIds null)', async () => {
       const { resolveOrganizationScopeForRequest } = require('@open-mercato/core/modules/directory/utils/organizationScope')
-      await expectListHandlerOmitsOrganizationForWildcardScope({
-        Entity: WorkflowDefinition,
-        findAndCount: mockEm.findAndCount,
-        resolveScope: resolveOrganizationScopeForRequest,
-        runHandler: () => listDefinitions(new NextRequest('http://localhost/api/workflows/definitions')),
-        tenantId: testTenantId,
-        extraWhere: { deletedAt: null },
-      })
+      resolveOrganizationScopeForRequest.mockResolvedValue({ selectedId: null, filterIds: null })
+      mockEm.find.mockResolvedValue([])
+      mockEm.count.mockResolvedValue(0)
+
+      await listDefinitions(new NextRequest('http://localhost/api/workflows/definitions'))
+
+      const countWhere = mockEm.count.mock.calls[0]?.[1] ?? {}
+      expect(countWhere).not.toHaveProperty('organizationId')
+      expect(countWhere).toMatchObject({ tenantId: testTenantId, deletedAt: null })
     })
   })
 
@@ -307,7 +304,7 @@ describe('Workflow Definitions API', () => {
           organizationId: testOrgId,
         })
       )
-      expect(mockEm.persistAndFlush).toHaveBeenCalled()
+      expect(mockEm.flush).toHaveBeenCalled()
     })
 
     test('should prevent duplicate workflowId even with a different version', async () => {
@@ -415,7 +412,7 @@ describe('Workflow Definitions API', () => {
         tenantId: testTenantId,
         organizationId: testOrgId,
       })
-      mockEm.persistAndFlush.mockRejectedValue({
+      mockEm.flush.mockRejectedValue({
         code: '23505',
         constraint: 'workflow_definitions_workflow_id_tenant_id_unique',
         detail: 'Key (workflow_id, tenant_id) already exists.',
@@ -482,6 +479,9 @@ describe('Workflow Definitions API', () => {
         createdBy: null,
         updatedBy: null,
         deletedAt: null,
+        source: 'user',
+        isCodeBased: false,
+        codeModuleId: null,
       })
       expect(mockEm.findOne).toHaveBeenCalledWith(
         WorkflowDefinition,
@@ -669,6 +669,102 @@ describe('Workflow Definitions API', () => {
       expect(response.status).toBe(200)
       expect(mockDefinition.enabled).toBe(false)
     })
+
+    // Regression for issue #1586: the Edit form previously sent the same shape
+    // as the Create form (workflowId, workflowName, description, version,
+    // metadata, effectiveFrom, effectiveTo, definition with embedded triggers)
+    // but the PUT validator was strict and only accepted { definition, enabled },
+    // returning 400 "Unrecognized keys" errors.
+    test('should accept and apply create-form-shaped payload from edit form', async () => {
+      mockEm.findOne.mockResolvedValue(mockDefinition)
+
+      const fullPayload = {
+        workflowId: 'test-workflow',
+        workflowName: 'Renamed Workflow',
+        description: 'Updated description',
+        version: 1,
+        enabled: false,
+        effectiveFrom: null,
+        effectiveTo: null,
+        metadata: { tags: ['updated'], category: 'ops', icon: 'bolt' },
+        definition: {
+          steps: [
+            { stepId: 'start', stepName: 'Start', stepType: 'START' },
+            { stepId: 'end', stepName: 'End', stepType: 'END' },
+          ],
+          transitions: [
+            {
+              transitionId: 'start-to-end',
+              fromStepId: 'start',
+              toStepId: 'end',
+              trigger: 'auto',
+            },
+          ],
+          triggers: [
+            {
+              triggerId: 'on-customer-update',
+              name: 'On Customer Update',
+              eventPattern: 'customers.person.updated',
+              enabled: true,
+              priority: 0,
+            },
+          ],
+        },
+      }
+
+      const request = new NextRequest('http://localhost/api/workflows/definitions/def-1', {
+        method: 'PUT',
+        body: JSON.stringify(fullPayload),
+      })
+
+      const response = await updateDefinition(request, { params: Promise.resolve({ id: 'def-1' }) })
+
+      expect(response.status).toBe(200)
+      expect(mockDefinition.workflowName).toBe('Renamed Workflow')
+      expect(mockDefinition.description).toBe('Updated description')
+      expect(mockDefinition.enabled).toBe(false)
+      expect(mockDefinition.metadata).toEqual({ tags: ['updated'], category: 'ops', icon: 'bolt' })
+      expect(mockDefinition.definition.triggers).toHaveLength(1)
+      expect(mockDefinition.definition.triggers[0].triggerId).toBe('on-customer-update')
+      expect(mockEm.flush).toHaveBeenCalled()
+    })
+
+    test('should ignore workflowId on update but apply user-supplied version', async () => {
+      mockEm.findOne.mockResolvedValue(mockDefinition)
+      const originalWorkflowId = mockDefinition.workflowId
+
+      const request = new NextRequest('http://localhost/api/workflows/definitions/def-1', {
+        method: 'PUT',
+        body: JSON.stringify({
+          workflowId: 'attempted-rename',
+          version: 999,
+          enabled: false,
+        }),
+      })
+
+      const response = await updateDefinition(request, { params: Promise.resolve({ id: 'def-1' }) })
+
+      expect(response.status).toBe(200)
+      expect(mockDefinition.workflowId).toBe(originalWorkflowId)
+      expect(mockDefinition.version).toBe(999)
+      expect(mockDefinition.enabled).toBe(false)
+    })
+
+    test('should reject unknown payload keys (strict schema)', async () => {
+      mockEm.findOne.mockResolvedValue(mockDefinition)
+
+      const request = new NextRequest('http://localhost/api/workflows/definitions/def-1', {
+        method: 'PUT',
+        body: JSON.stringify({
+          enabled: false,
+          unknownField: 'should-be-rejected',
+        }),
+      })
+
+      const response = await updateDefinition(request, { params: Promise.resolve({ id: 'def-1' }) })
+
+      expect(response.status).toBe(400)
+    })
   })
 
   // ============================================================================
@@ -802,18 +898,18 @@ describe('Workflow Definitions API', () => {
 
   describe('Multi-tenant isolation', () => {
     test('should only return definitions for current tenant in list', async () => {
-      mockEm.findAndCount.mockResolvedValue([[], 0])
+      mockEm.find.mockResolvedValue([])
+      mockEm.count.mockResolvedValue(0)
 
       const request = new NextRequest('http://localhost/api/workflows/definitions')
       await listDefinitions(request)
 
-      expect(mockEm.findAndCount).toHaveBeenCalledWith(
+      expect(mockEm.count).toHaveBeenCalledWith(
         WorkflowDefinition,
         expect.objectContaining({
           tenantId: testTenantId,
           organizationId: { $in: [testOrgId] },
         }),
-        expect.any(Object)
       )
     })
 

@@ -305,6 +305,48 @@ test('opens an existing GitHub repository instead of trying to create it again',
   }
 })
 
+test('rejects publish attempts for owners outside the authenticated owner list', async () => {
+  const targetDir = makeTempDir('create-app-git-flow-invalid-owner-')
+  const binDir = join(targetDir, 'bin')
+
+  try {
+    mkdirSync(join(targetDir, '.git'), { recursive: true })
+    mkdirSync(binDir, { recursive: true })
+    writeFileSync(join(binDir, 'gh'), '#!/bin/sh\n')
+    writeFileSync(join(targetDir, 'package.json'), JSON.stringify({ name: 'demo-store' }))
+
+    await assert.rejects(
+      runGitRepoPublishAction({
+        launchDir: targetDir,
+        env: { PATH: binDir },
+        platform: 'darwin',
+        owner: 'other-org',
+        runCommand: async (command: string, args: string[]) => {
+          if (args.join(' ') === 'auth status --active --hostname github.com') {
+            return { code: 0, signal: null, stdout: '', stderr: '' }
+          }
+          if (command === 'git' && args.join(' ') === 'remote get-url origin') {
+            return { code: 2, signal: null, stdout: '', stderr: 'no remote' }
+          }
+          if (command === 'git' && args.join(' ') === 'rev-parse --verify HEAD') {
+            return { code: 0, signal: null, stdout: 'abc123\n', stderr: '' }
+          }
+          if (args[0] === 'api' && args[1] === '/user') {
+            return { code: 0, signal: null, stdout: JSON.stringify({ login: 'pkarw' }), stderr: '' }
+          }
+          if (args[0] === 'api' && args[1] === '/user/orgs') {
+            return { code: 0, signal: null, stdout: JSON.stringify([{ login: 'open-mercato' }]), stderr: '' }
+          }
+          return { code: 0, signal: null, stdout: '', stderr: '' }
+        },
+      }),
+      /Select one of the authenticated GitHub owners/,
+    )
+  } finally {
+    rmSync(targetDir, { recursive: true, force: true })
+  }
+})
+
 test('falls back to opening an existing GitHub repository when create reports a duplicate name', async () => {
   const targetDir = makeTempDir('create-app-git-flow-duplicate-create-')
   const binDir = join(targetDir, 'bin')

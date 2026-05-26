@@ -8,6 +8,7 @@ import { updateCrud } from '@open-mercato/ui/backend/utils/crud'
 import { raiseCrudError } from '@open-mercato/ui/backend/utils/serverErrors'
 import { readApiResultOrThrow, apiCall } from '@open-mercato/ui/backend/utils/apiCall'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
+import { extractCustomFieldEntries } from '@open-mercato/shared/lib/crud/custom-fields-client'
 
 type TenantFormValues = {
   id: string
@@ -45,11 +46,7 @@ export default function EditTenantPage({ params }: { params?: { id?: string } })
         const rows = Array.isArray(data?.items) ? data.items : []
         const row = rows[0]
         if (!row) throw new Error(t('directory.tenants.form.errors.notFound', 'Tenant not found'))
-        const cfValues: Record<string, unknown> = {}
-        for (const [key, value] of Object.entries(row as Record<string, unknown>)) {
-          if (key.startsWith('cf_')) cfValues[key] = value
-          else if (key.startsWith('cf:')) cfValues[`cf_${key.slice(3)}`] = value
-        }
+        const cfValues = extractCustomFieldEntries(row as Record<string, unknown>)
         const values: TenantFormValues = {
           id: String(row.id),
           name: String(row.name),

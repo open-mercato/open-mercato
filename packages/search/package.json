@@ -1,6 +1,6 @@
 {
   "name": "@open-mercato/search",
-  "version": "0.4.10",
+  "version": "0.6.2",
   "type": "module",
   "main": "./dist/index.js",
   "exports": {
@@ -114,16 +114,16 @@
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
-    "@ai-sdk/amazon-bedrock": "^4.0.8",
-    "@ai-sdk/cohere": "^3.0.4",
-    "@ai-sdk/google": "^2.0.0",
-    "@ai-sdk/mistral": "^3.0.5",
-    "@ai-sdk/openai": "^3.0.5",
-    "ai": "^6.0.0",
-    "ai-sdk-ollama": "3.0.0",
-    "meilisearch": "^0.55.0",
-    "pg": "8.20.0",
-    "zod": "^4.0.0"
+    "@ai-sdk/amazon-bedrock": "^4.0.108",
+    "@ai-sdk/cohere": "^3.0.36",
+    "@ai-sdk/google": "^3.0.79",
+    "@ai-sdk/mistral": "^3.0.37",
+    "@ai-sdk/openai": "^3.0.65",
+    "ai": "^6.0.191",
+    "ai-sdk-ollama": "3.8.4",
+    "meilisearch": "^0.58.0",
+    "pg": "8.21.0",
+    "zod": "^4.4.3"
   },
   "peerDependencies": {
     "@open-mercato/core": "workspace:*",
@@ -132,10 +132,15 @@
   },
   "devDependencies": {
     "@types/jest": "^30.0.0",
-    "jest": "^30.2.0",
-    "ts-jest": "^29.4.6"
+    "jest": "^30.4.2",
+    "ts-jest": "^29.4.11"
   },
   "publishConfig": {
     "access": "public"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/open-mercato/open-mercato",
+    "directory": "packages/search"
   }
 }

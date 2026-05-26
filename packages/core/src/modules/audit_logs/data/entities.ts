@@ -1,4 +1,5 @@
-import { Entity, Index, PrimaryKey, Property } from '@mikro-orm/core'
+import { Entity, Index, PrimaryKey, Property } from '@mikro-orm/decorators/legacy'
+import type { ActionLogProjectionType, ActionLogSourceKey } from '@open-mercato/core/modules/audit_logs/lib/projections'
 
 export type ActionLogExecutionState = 'done' | 'undone' | 'failed' | 'redone'
 
@@ -7,6 +8,11 @@ export type ActionLogExecutionState = 'done' | 'undone' | 'failed' | 'redone'
 @Index({ name: 'action_logs_actor_idx', properties: ['actorUserId', 'createdAt'] })
 @Index({ name: 'action_logs_resource_idx', properties: ['tenantId', 'resourceKind', 'resourceId', 'createdAt'] })
 @Index({ name: 'action_logs_parent_resource_idx', properties: ['tenantId', 'parentResourceKind', 'parentResourceId', 'createdAt'] })
+@Index({ name: 'action_logs_action_type_idx', properties: ['tenantId', 'organizationId', 'actionType', 'createdAt'] })
+@Index({ name: 'action_logs_source_key_idx', properties: ['tenantId', 'organizationId', 'sourceKey', 'createdAt'] })
+@Index({ name: 'action_logs_primary_changed_field_idx', properties: ['tenantId', 'organizationId', 'primaryChangedField', 'createdAt'] })
+@Index({ name: 'action_logs_changed_fields_idx', properties: ['changedFields'], type: 'gin' })
+@Index({ name: 'action_logs_related_resource_idx', properties: ['tenantId', 'relatedResourceKind', 'relatedResourceId', 'createdAt'] })
 export class ActionLog {
   @PrimaryKey({ type: 'uuid', defaultRaw: 'gen_random_uuid()' })
   id!: string
@@ -25,6 +31,9 @@ export class ActionLog {
 
   @Property({ name: 'action_label', type: 'text', nullable: true })
   actionLabel: string | null = null
+
+  @Property({ name: 'action_type', type: 'text', nullable: true })
+  actionType: ActionLogProjectionType | null = null
 
   @Property({ name: 'resource_kind', type: 'text', nullable: true })
   resourceKind: string | null = null
@@ -56,8 +65,23 @@ export class ActionLog {
   @Property({ name: 'changes_json', type: 'jsonb', nullable: true })
   changesJson: Record<string, unknown> | null = null
 
+  @Property({ name: 'changed_fields', type: 'text[]', nullable: true })
+  changedFields: string[] | null = null
+
+  @Property({ name: 'primary_changed_field', type: 'text', nullable: true })
+  primaryChangedField: string | null = null
+
   @Property({ name: 'context_json', type: 'jsonb', nullable: true })
   contextJson: Record<string, unknown> | null = null
+
+  @Property({ name: 'source_key', type: 'text', nullable: true })
+  sourceKey: ActionLogSourceKey | null = null
+
+  @Property({ name: 'related_resource_kind', type: 'text', nullable: true })
+  relatedResourceKind: string | null = null
+
+  @Property({ name: 'related_resource_id', type: 'text', nullable: true })
+  relatedResourceId: string | null = null
 
   @Property({ name: 'created_at', type: Date, onCreate: () => new Date() })
   createdAt: Date = new Date()

@@ -91,7 +91,7 @@ describe('ensureCustomerDictionary', () => {
     expect(scopeOne.entries[0]?.value).toBe('scope-1')
 
     const cachedKeys = queryClient.getQueryCache().findAll().map((query) => query.queryKey)
-    expect(cachedKeys).toContainEqual(['customers', 'dictionaries', 'sources', 'scope:0'])
-    expect(cachedKeys).toContainEqual(['customers', 'dictionaries', 'sources', 'scope:1'])
+    expect(cachedKeys).toContainEqual(['customers', 'dictionaries', 'sources', 'scope:0', 'org:default'])
+    expect(cachedKeys).toContainEqual(['customers', 'dictionaries', 'sources', 'scope:1', 'org:default'])
   })
 })

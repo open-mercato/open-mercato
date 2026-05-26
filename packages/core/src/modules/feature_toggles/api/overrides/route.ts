@@ -5,7 +5,7 @@ import { Tenant } from '@open-mercato/core/modules/directory/data/entities'
 import type { CommandBus } from '@open-mercato/shared/lib/commands'
 import { serializeOperationMetadata } from '@open-mercato/shared/lib/commands/operationMetadata'
 import { getOverrides } from '../../lib/queries'
-import { CrudHttpError } from '@open-mercato/shared/lib/crud/errors'
+import { CrudHttpError, isCrudHttpError } from '@open-mercato/shared/lib/crud/errors'
 import { logCrudAccess } from '@open-mercato/shared/lib/crud/factory'
 import { buildContext } from '../../lib/utils'
 import { resolveFeatureCheckContext } from "@open-mercato/core/modules/directory/utils/organizationScope"
@@ -120,7 +120,7 @@ export async function PUT(req: Request) {
 
     return response
   } catch (error) {
-    if (error instanceof CrudHttpError) {
+    if (isCrudHttpError(error)) {
       return NextResponse.json(error.body, { status: error.status })
     }
     const message = error instanceof Error ? error.message : 'Unknown error'

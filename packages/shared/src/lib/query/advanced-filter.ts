@@ -10,9 +10,12 @@ export type FilterOperator =
 
 export type FilterFieldType = 'text' | 'number' | 'date' | 'select' | 'boolean' | 'tags'
 
+export type FilterOptionTone = 'success' | 'error' | 'warning' | 'info' | 'neutral' | 'brand' | 'pink'
+
 export type FilterOption = {
   value: string
   label: string
+  tone?: FilterOptionTone
 }
 
 export type FilterFieldDef = {
@@ -20,6 +23,7 @@ export type FilterFieldDef = {
   label: string
   type: FilterFieldType
   group?: string
+  iconName?: string
   loadOptions?: (query?: string) => Promise<FilterOption[]>
   options?: FilterOption[]
 }
@@ -301,4 +305,217 @@ export function convertAdvancedFilterToWhere(state: AdvancedFilterState): Record
   }
 
   return clauses.length > 1 ? { $or: clauses } : clauses[0]
+}
+
+// -----------------------------------------------------------------------------
+// v2 tree serialization (advanced-filter-tree)
+// -----------------------------------------------------------------------------
+
+import type {
+  AdvancedFilterTree,
+  FilterRule as TreeFilterRule,
+  FilterGroup as TreeFilterGroup,
+  FilterCombinator as TreeFilterCombinator,
+} from './advanced-filter-tree'
+
+export function serializeTree(tree: AdvancedFilterTree): Record<string, string> {
+  if (!treeHasRules(tree.root)) return {}
+  const out: Record<string, string> = { 'filter[v]': '2' }
+  serializeTreeGroup(tree.root, 'filter[root]', out)
+  return out
+}
+
+function treeHasRules(group: TreeFilterGroup): boolean {
+  return group.children.some((child) => child.type === 'rule' || treeHasRules(child))
+}
+
+function serializeTreeGroup(group: TreeFilterGroup, prefix: string, out: Record<string, string>): void {
+  out[`${prefix}[combinator]`] = group.combinator
+  group.children.forEach((child, idx) => {
+    const childPrefix = `${prefix}[children][${idx}]`
+    if (child.type === 'rule') serializeTreeRule(child, childPrefix, out)
+    else { out[`${childPrefix}[type]`] = 'group'; serializeTreeGroup(child, childPrefix, out) }
+  })
+}
+
+function serializeTreeRule(rule: TreeFilterRule, prefix: string, out: Record<string, string>): void {
+  out[`${prefix}[type]`] = 'rule'
+  out[`${prefix}[field]`] = rule.field
+  out[`${prefix}[op]`] = rule.operator
+  if (!isValuelessOperator(rule.operator) && rule.value != null) {
+    out[`${prefix}[value]`] = typeof rule.value === 'object'
+      ? JSON.stringify(rule.value)
+      : String(rule.value)
+  }
+}
+
+export function deserializeTree(query: Record<string, unknown>): AdvancedFilterTree | null {
+  if (query['filter[v]'] !== '2') return null
+  const root = readTreeGroup('filter[root]', query)
+  if (!root) return null
+  return { root }
+}
+
+function readTreeGroup(prefix: string, query: Record<string, unknown>): TreeFilterGroup | null {
+  const combRaw = query[`${prefix}[combinator]`]
+  if (combRaw !== 'and' && combRaw !== 'or') return null
+  const children: Array<TreeFilterRule | TreeFilterGroup> = []
+  for (let i = 0; i < 64; i++) {
+    const childPrefix = `${prefix}[children][${i}]`
+    const type = query[`${childPrefix}[type]`]
+    if (type === 'rule') {
+      const field = query[`${childPrefix}[field]`]
+      const op = query[`${childPrefix}[op]`]
+      if (typeof field !== 'string' || typeof op !== 'string' || !isValidOperator(op)) continue
+      const rawVal = query[`${childPrefix}[value]`]
+      children.push({
+        id: crypto.randomUUID(),
+        type: 'rule',
+        field,
+        operator: op as FilterOperator,
+        value: parseSerializedFilterValue(rawVal),
+      })
+    } else if (type === 'group') {
+      const sub = readTreeGroup(childPrefix, query)
+      if (sub) children.push(sub)
+    } else {
+      break
+    }
+  }
+  return {
+    id: crypto.randomUUID(),
+    type: 'group',
+    combinator: combRaw as TreeFilterCombinator,
+    children,
+  }
+}
+
+/**
+ * Runtime discriminator: is this value an `AdvancedFilterState` (legacy flat
+ * shape with `logic` + `conditions`) rather than an `AdvancedFilterTree`
+ * (`{root: FilterGroup}`)?
+ *
+ * Used at the DataTable boundary to bridge legacy callers onto the new tree
+ * model without forcing third-party module developers to migrate immediately.
+ * See `BACKWARD_COMPATIBILITY.md` §3 and the spec's "Migration & Backward
+ * Compatibility" section.
+ */
+export function isAdvancedFilterState(value: unknown): value is AdvancedFilterState {
+  if (!value || typeof value !== 'object') return false
+  const record = value as Record<string, unknown>
+  return Array.isArray(record.conditions) && (record.logic === 'and' || record.logic === 'or')
+}
+
+/**
+ * Convert legacy flat AdvancedFilterState into a tree under standard SQL precedence
+ * (AND binds tighter than OR). Runs of consecutive AND-joined conditions become
+ * AND-subgroups, and the OR connectors join those subgroups in a root OR-group.
+ */
+export function flatToTree(flat: AdvancedFilterState): AdvancedFilterTree {
+  if (flat.conditions.length === 0) {
+    return { root: { id: crypto.randomUUID(), type: 'group', combinator: 'and', children: [] } }
+  }
+
+  // Step A: split into AND-runs separated by OR connectors. The first row's `join`
+  // is logically "and" (no left neighbor); we never use it as a separator.
+  const andRuns: FilterCondition[][] = [[flat.conditions[0]]]
+  for (let i = 1; i < flat.conditions.length; i++) {
+    const c = flat.conditions[i]
+    if (c.join === 'or') andRuns.push([c])
+    else andRuns[andRuns.length - 1].push(c)
+  }
+
+  const ruleFromCondition = (c: FilterCondition): TreeFilterRule => ({
+    id: crypto.randomUUID(),
+    type: 'rule',
+    field: c.field,
+    operator: c.operator,
+    value: c.value,
+  })
+
+  // Step B: each AND-run becomes either a rule (length 1) or an AND-group.
+  const orChildren: Array<TreeFilterRule | TreeFilterGroup> = andRuns.map((run) => {
+    if (run.length === 1) return ruleFromCondition(run[0])
+    return {
+      id: crypto.randomUUID(),
+      type: 'group',
+      combinator: 'and',
+      children: run.map(ruleFromCondition),
+    }
+  })
+
+  // Step C: zero or one OR-disjunct -> root combinator stays "and"; otherwise OR.
+  if (orChildren.length === 1) {
+    const only = orChildren[0]
+    if (only.type === 'group') return { root: only }
+    return { root: { id: crypto.randomUUID(), type: 'group', combinator: 'and', children: [only] } }
+  }
+  return {
+    root: { id: crypto.randomUUID(), type: 'group', combinator: 'or', children: orChildren },
+  }
+}
+
+/**
+ * Map a dictionary entry's display color (named like 'red'/'green' or a hex like '#ef4444')
+ * to a `FilterOptionTone`, so dictionary-backed select options can render with the
+ * correct status dot in chips and value pills. Unknown / undefined inputs return
+ * `undefined` so the consumer falls back to plain (no tone) rendering.
+ */
+export function mapDictionaryColorToTone(color: string | null | undefined): FilterOptionTone | undefined {
+  if (!color || typeof color !== 'string') return undefined
+  const trimmed = color.trim().toLowerCase()
+  if (!trimmed) return undefined
+  const named: Record<string, FilterOptionTone> = {
+    red: 'error',
+    crimson: 'error',
+    pink: 'pink',
+    rose: 'pink',
+    fuchsia: 'pink',
+    magenta: 'pink',
+    green: 'success',
+    emerald: 'success',
+    lime: 'success',
+    teal: 'success',
+    amber: 'warning',
+    yellow: 'warning',
+    orange: 'warning',
+    blue: 'info',
+    cyan: 'info',
+    sky: 'info',
+    indigo: 'info',
+    gray: 'neutral',
+    grey: 'neutral',
+    slate: 'neutral',
+    zinc: 'neutral',
+    stone: 'neutral',
+    violet: 'brand',
+    purple: 'brand',
+  }
+  if (named[trimmed]) return named[trimmed]
+  const hexMatch = /^#?([0-9a-f]{6})$/i.exec(trimmed)
+  if (!hexMatch) return undefined
+  const hex = hexMatch[1]
+  const r = parseInt(hex.slice(0, 2), 16)
+  const g = parseInt(hex.slice(2, 4), 16)
+  const b = parseInt(hex.slice(4, 6), 16)
+  const max = Math.max(r, g, b)
+  const min = Math.min(r, g, b)
+  const delta = max - min
+  if (delta < 24) return 'neutral'
+  let hue = 0
+  if (max === r) hue = ((g - b) / delta) % 6
+  else if (max === g) hue = (b - r) / delta + 2
+  else hue = (r - g) / delta + 4
+  hue = (hue * 60 + 360) % 360
+  // Hue ranges (degrees): 0-20 red(error), 20-50 orange(warning), 50-80 yellow(warning),
+  // 80-170 green(success), 170-260 blue/indigo(info), 260-320 violet/purple(brand),
+  // 320-340 pink/magenta(pink), 340-360 red(error).
+  if (hue < 20) return 'error'
+  if (hue < 50) return 'warning'
+  if (hue < 80) return 'warning'
+  if (hue < 170) return 'success'
+  if (hue < 260) return 'info'
+  if (hue < 320) return 'brand'
+  if (hue < 340) return 'pink'
+  return 'error'
 }

@@ -203,14 +203,16 @@ describe('findOneScoped', () => {
 describe('softDelete', () => {
   it('sets deletedAt and persists the updated entity', async () => {
     const entity = new ExampleEntity()
-    const persistAndFlush = jest.fn(async () => undefined)
-    const em = { persistAndFlush } as unknown as EntityManager
+    const flush = jest.fn(async () => undefined)
+    const persist = jest.fn((_entity: ExampleEntity) => ({ flush }))
+    const em = { persist } as unknown as EntityManager
     const before = Date.now()
 
     await softDelete(em, entity)
 
     expect(entity.deletedAt).toBeInstanceOf(Date)
     expect((entity.deletedAt as Date).getTime()).toBeGreaterThanOrEqual(before)
-    expect(persistAndFlush).toHaveBeenCalledWith(entity)
+    expect(persist).toHaveBeenCalledWith(entity)
+    expect(flush).toHaveBeenCalled()
   })
 })

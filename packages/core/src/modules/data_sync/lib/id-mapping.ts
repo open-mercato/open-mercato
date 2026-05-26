@@ -116,7 +116,7 @@ export function createExternalIdMappingService(em: EntityManager) {
         tenantId: scope.tenantId,
       })
 
-      await em.persistAndFlush(created)
+      await em.persist(created).flush()
       return created
     },
   }

@@ -74,7 +74,13 @@ MEILISEARCH_MASTER_KEY=your-strong-meilisearch-key
 
 # AI features (optional)
 OPENAI_API_KEY=sk-...
+
+# Vector search auto-indexing is disabled by default in the shipped example env.
+# Enable it explicitly when you want automatic embedding jobs.
+OM_DISABLE_VECTOR_SEARCH_AUTOINDEXING=false
 ```
+
+If you leave `OM_DISABLE_VECTOR_SEARCH_AUTOINDEXING=true`, vector search can still be configured and reindexed manually. The legacy alias `DISABLE_VECTOR_SEARCH_AUTOINDEXING=1` remains supported for existing deployments.
 
 Generate strong secrets:
 

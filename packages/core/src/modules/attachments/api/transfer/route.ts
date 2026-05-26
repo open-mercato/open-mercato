@@ -72,7 +72,7 @@ export async function POST(req: Request) {
       }) ?? []
     record.storageMetadata = mergeAttachmentMetadata(record.storageMetadata, { assignments: nextAssignments })
   }
-  await em.persistAndFlush(records)
+  await em.persist(records).flush()
   return NextResponse.json({ ok: true, updated: records.length })
 }
 

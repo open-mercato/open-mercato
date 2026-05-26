@@ -168,6 +168,16 @@ Centralize shared command utilities like undo extraction in `packages/shared/src
 
 **Applies to**: `packages/shared/src/modules/events/factory.ts` and any shared runtime singleton relied on by module auto-discovery/subscriber pipelines.
 
+## Store integration registry state in `globalThis` for standalone workers
+
+**Context**: Standalone snapshot integration tests bootstrapped `sync_excel` metadata, but the test-side queue drain loaded worker/sync-engine code through a second package module instance.
+
+**Problem**: The integration registry used module-local Maps, so `data_sync` could not resolve `sync_excel` to provider key `excel` in the worker path and fell back to the raw integration id.
+
+**Rule**: Shared runtime registries that translate module metadata for workers, CLI, or standalone parity must keep canonical mutable state in `globalThis`. Add isolated-module regression tests when fixing these paths.
+
+**Applies to**: `packages/shared/src/modules/integrations/types.ts` and similar shared registries consumed after dynamic app bootstrap.
+
 ## Feature-gated runtime helpers must use wildcard-aware permission matching
 
 **Context**: ACL wildcard grants like `customer_accounts.*` correctly passed server-side checks, but several shared UI/runtime helpers still gated behavior with exact `includes` or `Set.has` checks.
@@ -809,3 +819,83 @@ Centralize shared command utilities like undo extraction in `packages/shared/src
 **Rule**: When a feature adds a new app-level env var required for local, test, or non-production behavior, update both `apps/mercato/.env.example` and `packages/create-app/template/.env.example` in the same change. If standalone CI/bootstrap scripts synthesize `.env`, set the same var there explicitly too.
 
 **Applies to**: `apps/mercato/.env.example`, `packages/create-app/template/.env.example`, create-app smoke/parity scripts, and any new env-backed local/testing security feature.
+
+## Keep raw SQL out of API route handlers
+
+**Context**: The customer portal signup route (`packages/core/src/modules/customer_accounts/api/signup.ts`) inlined a tenant-bound organization lookup as a raw `em.getConnection().execute(...)` call. The SQL was only a handful of lines, but it put persistence knowledge into a route file and made regression tests reach into route internals to pin the `WHERE id = ? AND tenant_id = ?` predicate.
+
+**Problem**: Raw SQL in route handlers blurs the layering between HTTP plumbing and persistence. It is easy to drift: the same SQL gets copy-pasted into other routes, each copy is re-audited separately, and security-critical predicates (tenant binding, soft-delete filters) can silently diverge between callers. API routes should read as orchestration — parse, validate, authorize, delegate, respond — not as SQL authors.
+
+**Rule**: API route handlers must not contain raw SQL. Extract DB reads/writes into a named helper in the module's `lib/` (for simple lookups) or a service in `services/` (for stateful or multi-step logic), and import the helper from the route. The helper is the single place where the predicate is defined, audited, and regression-tested. MikroORM entity calls (`findOneWithDecryption`, repository methods) are acceptable in routes when they are single-liner lookups by stable primary keys; anything with a custom `WHERE`, `JOIN`, or raw `execute(...)` belongs in a helper.
+
+**Applies to**: All API route files under `packages/**/api/**` and `apps/**/api/**`. When moving existing inline SQL out of a route, keep the regression test pointed at the helper source so the predicate stays pinned even after the relocation.
+
+## Keep executable integration tests module-local
+
+**Context**: Legacy Playwright specs were still stored under `.ai/qa/tests/`, including AI-tool and UX regression specs that belonged to concrete modules.
+
+**Problem**: Tests under `.ai` are detached from the module that owns the behavior, so affected-test discovery, module gating, package ownership, and review context all become weaker.
+
+**Rule**: Do not add executable `.spec.ts` files under `.ai/qa/tests/`. Place Playwright integration specs under the owning module's `__integration__/` directory, and keep `.ai/qa/tests/` reserved for shared Playwright configuration only.
+
+**Applies to**: All Playwright integration tests, QA scenario conversions, and any task using `.ai/skills/integration-tests/SKILL.md`.
+
+## Component-scoped notification effects must not depend on header chrome
+
+**Context**: `TC-UMES-008` emitted a notification from a backend page and expected `useNotificationEffect` on that same page to react, but the effect stayed empty when notification dispatch only happened through the optional notification bell runtime.
+
+**Problem**: Component-scoped reactive notification hooks become flaky when delivery depends on header actions such as notification bell visibility, feature-gated chrome, or lazy-loaded header components. The page-level hook contract should be tied to notification arrival, not to whether another UI surface happens to mount.
+
+**Rule**: When building or changing `useNotificationEffect`-style APIs, subscribe directly to the DOM Event Bridge notification-created event where possible and dedupe with dispatcher delivery. Keep notification panel/bell state hooks as UI consumers, not the sole delivery path for component-scoped side effects.
+
+**Applies to**: `packages/ui/src/backend/notifications/useNotificationEffect.ts`, notification dispatcher hooks, backend pages that use `useNotificationEffect`, and integration tests covering reactive notification behavior.
+
+## Header-gated module features need setup grants
+
+**Context**: The empty starter preset enabled the `notifications` module, but the notification bell stayed hidden because the module declared `notifications.view` in `acl.ts` without a matching `setup.ts` grant for default roles.
+
+**Problem**: Enabling a module is not enough for feature-gated header chrome. `BackendHeaderChrome` and similar runtime surfaces check effective ACL grants, so a missing `defaultRoleFeatures` entry makes enabled module UI look absent after tenant initialization.
+
+**Rule**: Any module with header, sidebar, page, API, or runtime UI gated by `requireFeatures` / `hasFeature` must declare those feature grants in `setup.ts` for the default roles that should see the surface. Add ACL setup tests for visible shell features such as topbar icons.
+
+**Applies to**: Module `acl.ts` / `setup.ts` pairs, starter presets, `BackendHeaderChrome`, notification/message/search/AI shell buttons, and tenant initialization ACL tests.
+
+## PostgreSQL partial unique indexes are not constraints
+
+**Context**: AI token usage rollups created partial unique indexes for nullable `organization_id`, then the raw UPSERT tried `ON CONFLICT ON CONSTRAINT ai_token_usage_daily_tenant_day_agent_model_org_uq`.
+
+**Problem**: PostgreSQL `ON CONFLICT ON CONSTRAINT` can only target named table constraints. A partial unique index is only inferable through `ON CONFLICT (...) WHERE ...`, so the recorder logged a non-fatal failure on every token-usage write.
+
+**Rule**: When a nullable scope needs separate partial unique indexes (`organization_id IS NULL` / `IS NOT NULL`), raw UPSERTs must use conflict inference with the exact indexed columns and predicate. Add repository-level SQL-shape tests for every raw UPSERT against partial indexes.
+
+**Applies to**: `packages/**/data/repositories/**`, MikroORM migrations with partial unique indexes, and any raw `INSERT ... ON CONFLICT` SQL.
+
+## Normalize raw SQL result types before JSON responses
+
+**Context**: AI usage stats routes read PostgreSQL aggregate rows where `bigint` counters can arrive as JavaScript `bigint` values and timestamp/date expressions can arrive as strings instead of `Date` instances.
+
+**Problem**: `NextResponse.json` cannot serialize `bigint`, and calling `toISOString()` directly on raw SQL timestamp fields crashes when the driver returns a string. These failures surface only with real database result shapes, not with entity-shaped mocks.
+
+**Rule**: API routes that serialize raw SQL aggregate results must normalize every numeric and date field at the route boundary or in a shared serializer before returning JSON. Add route tests using driver-like `bigint` counters and string timestamps for every aggregate endpoint.
+
+**Applies to**: Raw SQL report/stat endpoints, especially `count(*)::bigint`, `sum(...)::bigint`, `min(created_at)`, `max(created_at)`, and any route returning database aggregate rows through `NextResponse.json`.
+
+## Custom-field detail UIs must accept canonical bare keys
+
+**Context**: Customer detail APIs normalize custom-field responses to bare keys such as `relationship_health`, while generated form fields use prefixed IDs such as `cf_relationship_health`.
+
+**Problem**: Read-only detail renderers that index only by the generated prefixed ID show empty select/relation values after a fresh fetch, even though editing and saving may work because form initialization has fallback key resolution.
+
+**Rule**: Shared custom-field detail components must resolve values by exact field ID first, then `cf:` and bare-key fallbacks for prefixed fields. Apply the same resolver to relation-display loading and read-only rendering so select, relation, text, and boolean fields use one response-shape contract.
+
+**Applies to**: `packages/ui/src/backend/detail/CustomDataSection.tsx`, customer/company/person detail custom-data sections, and any new detail renderer consuming normalized `customFields`.
+
+## Optional chrome fetches must suppress auth redirects
+
+**Context**: Backend pages for limited roles loaded unrelated optional shell data, such as message sender options, recipient suggestions, and AI conversation history. Those auxiliary requests hit feature-gated endpoints the current user was not meant to access.
+
+**Problem**: `apiCall` redirects the whole browser to `/login?requireFeature=...` on 403 by default. Optional header/sidebar/widget fetches can therefore break an otherwise authorized page when they call APIs for another module's feature, even if the caller handles `ok: false`.
+
+**Rule**: Any optional chrome, widget, dropdown-options, background sync, or feature-discovery request that is not required to render the current page must opt out of auth redirects with `x-om-forbidden-redirect: 0` and usually `x-om-unauthorized-redirect: 0`, then degrade to an empty/hidden state on non-OK responses.
+
+**Applies to**: `packages/ui/src/backend/**`, `packages/ui/src/ai/**`, topbar/sidebar providers, notification/message/AI shell hooks, and module widgets that fetch feature-gated data opportunistically.

@@ -1,6 +1,7 @@
 import type { AwilixContainer } from 'awilix'
 import type { CommandBus, CommandRuntimeContext } from '@open-mercato/shared/lib/commands'
 import { invalidateCrudCache } from '@open-mercato/shared/lib/crud/cache'
+import { runWithCacheTenant } from '@open-mercato/cache'
 import { createModuleQueue, type Queue } from '@open-mercato/queue'
 import type { ProgressService, ProgressServiceContext } from '../../progress/lib/progressService'
 
@@ -101,20 +102,22 @@ export async function deleteCatalogProductsWithProgress(params: {
   }
 
   const summary: CatalogProductBulkDeleteSummary = { affectedCount }
-  for (const id of deletedIds) {
-    await invalidateCrudCache(
-      container,
-      'catalog.product',
-      {
-        id,
-        organizationId: scope.organizationId,
-        tenantId: scope.tenantId,
-      },
-      scope.tenantId,
-      'bulk-delete:catalog.products',
-      BULK_DELETE_CACHE_ALIASES,
-    )
-  }
+  await runWithCacheTenant(scope.tenantId, async () => {
+    for (const id of deletedIds) {
+      await invalidateCrudCache(
+        container,
+        'catalog.product',
+        {
+          id,
+          organizationId: scope.organizationId,
+          tenantId: scope.tenantId,
+        },
+        scope.tenantId,
+        'bulk-delete:catalog.products',
+        BULK_DELETE_CACHE_ALIASES,
+      )
+    }
+  })
   await progressService.completeJob(progressJobId, { resultSummary: summary }, progressContext)
 
   return summary

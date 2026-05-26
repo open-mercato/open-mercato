@@ -21,27 +21,29 @@ const defaultFindOneImpl = async (entity: any, where: any) => {
   return null
 }
 
+function buildUsageKysely(totalSize: number) {
+  const selectChain: any = {
+    select: jest.fn(() => selectChain),
+    where: jest.fn(() => selectChain),
+    executeTakeFirst: jest.fn(async () => ({ total_size: totalSize })),
+    execute: jest.fn(async () => []),
+  }
+  return {
+    selectFrom: jest.fn(() => selectChain),
+  }
+}
+
 const mockEm = {
   findOne: jest.fn(defaultFindOneImpl),
   create: jest.fn((_cls: any, data: any) => ({ ...data })),
-  persistAndFlush: jest.fn(async () => {}),
   getRepository: jest.fn(() => ({
     findAll: jest.fn(async () => partitions),
     create: jest.fn((data: any) => data),
   })),
-  persist: jest.fn(),
-  flush: jest.fn(),
+  persist: jest.fn(function persist(this: any) { return this }),
+  flush: jest.fn(async () => {}),
   find: jest.fn(),
-  getConnection: jest.fn(() => ({
-    getKnex: () => {
-      const query = {
-        where: jest.fn(() => query),
-        sum: jest.fn(() => query),
-        first: jest.fn(async () => ({ totalSize: 0 })),
-      }
-      return jest.fn(() => query)
-    },
-  })),
+  getKysely: jest.fn(() => buildUsageKysely(0)),
 }
 
 const defaultFindOneImplementation = mockEm.findOne.getMockImplementation()
@@ -122,16 +124,7 @@ describe('attachments API', () => {
     delete process.env.OPENMERCATO_DEFAULT_ATTACHMENT_OCR_ENABLED
     delete process.env.OPENMERCATO_ATTACHMENT_MAX_UPLOAD_MB
     delete process.env.OPENMERCATO_ATTACHMENT_TENANT_QUOTA_MB
-    mockEm.getConnection.mockReturnValue({
-      getKnex: () => {
-        const query = {
-          where: jest.fn(() => query),
-          sum: jest.fn(() => query),
-          first: jest.fn(async () => ({ totalSize: 0 })),
-        }
-        return jest.fn(() => query)
-      },
-    })
+    mockEm.getKysely.mockReturnValue(buildUsageKysely(0))
     mockRequestOcrProcessing.mockReset()
     mockRequestOcrProcessing.mockImplementation(async () => {})
     delete process.env.OPENMERCATO_DEFAULT_ATTACHMENT_OCR_ENABLED
@@ -146,6 +139,26 @@ describe('attachments API', () => {
     expect(res.status).toBe(400)
     const j = await res.json()
     expect(j.error).toMatch(/not allowed/i)
+  })
+
+  it('rejects uploads whose filename has a dangerous double extension like .pdf.exe', async () => {
+    const { POST: upload } = await loadHandlers()
+    const file = new File([new Uint8Array([1, 2, 3])], 'faktura.pdf.exe', { type: 'application/pdf' })
+    const req = new Request('http://x/api/attachments', { method: 'POST', body: fdWith(file, { fieldKey: '' }) as any })
+    const res = await upload(req)
+    expect(res.status).toBe(400)
+    const payload = await res.json()
+    expect(payload.error).toMatch(/executable/i)
+  })
+
+  it('rejects uploads whose final extension is a known executable type', async () => {
+    const { POST: upload } = await loadHandlers()
+    const file = new File([new Uint8Array([1, 2, 3])], 'installer.msi', { type: 'application/octet-stream' })
+    const req = new Request('http://x/api/attachments', { method: 'POST', body: fdWith(file, { fieldKey: '' }) as any })
+    const res = await upload(req)
+    expect(res.status).toBe(400)
+    const payload = await res.json()
+    expect(payload.error).toMatch(/executable/i)
   })
 
   it('rejects active content uploads even when the client claims a safe image mime type', async () => {
@@ -214,16 +227,7 @@ describe('attachments API', () => {
   it('rejects uploads that exceed the tenant storage quota', async () => {
     const { POST: upload } = await loadHandlers()
     process.env.OM_ATTACHMENT_TENANT_QUOTA_MB = '0.001'
-    mockEm.getConnection.mockReturnValue({
-      getKnex: () => {
-        const query = {
-          where: jest.fn(() => query),
-          sum: jest.fn(() => query),
-          first: jest.fn(async () => ({ totalSize: 1000 })),
-        }
-        return jest.fn(() => query)
-      },
-    })
+    mockEm.getKysely.mockReturnValue(buildUsageKysely(1000))
     const file = new File([new Uint8Array(200)], 'doc.pdf', { type: 'application/pdf' })
     const req = new Request('http://x/api/attachments', { method: 'POST', body: fdWith(file) as any })
     const res = await upload(req)

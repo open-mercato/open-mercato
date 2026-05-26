@@ -1,8 +1,16 @@
 import * as React from 'react'
 import { cn } from '@open-mercato/shared/lib/utils'
 
-export function Page({ children, className }: { children: React.ReactNode; className?: string }) {
-  return <div className={cn('space-y-6', className)}>{children}</div>
+export function Page({
+  children,
+  className,
+  ...props
+}: React.HTMLAttributes<HTMLDivElement>) {
+  return (
+    <div className={cn('space-y-6', className)} {...props}>
+      {children}
+    </div>
+  )
 }
 
 export function PageHeader({
@@ -25,6 +33,14 @@ export function PageHeader({
   )
 }
 
-export function PageBody({ children, className }: { children: React.ReactNode; className?: string }) {
-  return <div className={cn('space-y-4', className)}>{children}</div>
+export function PageBody({
+  children,
+  className,
+  ...props
+}: React.HTMLAttributes<HTMLDivElement>) {
+  return (
+    <div className={cn('space-y-4', className)} {...props}>
+      {children}
+    </div>
+  )
 }

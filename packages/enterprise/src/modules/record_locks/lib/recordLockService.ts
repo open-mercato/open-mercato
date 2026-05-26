@@ -1,11 +1,13 @@
 import { randomUUID } from 'crypto'
 import { UniqueConstraintViolationException, type FilterQuery } from '@mikro-orm/core'
 import type { EntityManager } from '@mikro-orm/postgresql'
-import type { Knex } from 'knex'
+import { type Kysely, sql } from 'kysely'
 import type { ModuleConfigService } from '@open-mercato/core/modules/configs/lib/module-config-service'
 import { ActionLog } from '@open-mercato/core/modules/audit_logs/data/entities'
 import type { ActionLogService } from '@open-mercato/core/modules/audit_logs/services/actionLogService'
 import type { RbacService } from '@open-mercato/core/modules/auth/services/rbacService'
+import { findOneWithDecryption } from '@open-mercato/shared/lib/encryption/find'
+import { parseDecryptedFieldValue } from '@open-mercato/shared/lib/encryption/tenantDataEncryptionService'
 import { emitRecordLocksEvent } from '../events'
 import {
   RecordLock,
@@ -268,8 +270,8 @@ function isActiveLockScopeUniqueViolation(error: unknown): boolean {
   return false
 }
 
-function getKnex(em: EntityManager): Knex {
-  return (em.getConnection() as unknown as { getKnex: () => Knex }).getKnex()
+function getKysely(em: EntityManager): Kysely<any> {
+  return (em as unknown as { getKysely: () => Kysely<any> }).getKysely()
 }
 
 const SKIPPED_CONFLICT_FIELDS = new Set([
@@ -293,6 +295,29 @@ const MISSING_CONFLICT_VALUE = Symbol('record_lock_conflict_missing_value')
 
 function isRecordValue(value: unknown): value is Record<string, unknown> {
   return Boolean(value && typeof value === 'object' && !Array.isArray(value))
+}
+
+function parseDecryptedJsonLike(value: unknown): unknown {
+  return typeof value === 'string' ? parseDecryptedFieldValue(value) : value
+}
+
+function readJsonRecordValue(value: unknown): Record<string, unknown> | null {
+  const parsed = parseDecryptedJsonLike(value)
+  return isRecordValue(parsed) ? parsed : null
+}
+
+function readActionLogChangesJson(log: ActionLog | null): Record<string, unknown> | null {
+  return readJsonRecordValue(log?.changesJson ?? null)
+}
+
+function normalizeActionLogPayload(log: ActionLog | null): ActionLog | null {
+  if (!log) return null
+  log.changesJson = readJsonRecordValue(log.changesJson)
+  log.snapshotBefore = parseDecryptedJsonLike(log.snapshotBefore)
+  log.snapshotAfter = parseDecryptedJsonLike(log.snapshotAfter)
+  log.contextJson = readJsonRecordValue(log.contextJson)
+  log.commandPayload = parseDecryptedJsonLike(log.commandPayload)
+  return log
 }
 
 function toIsoDate(value: unknown): string | null {
@@ -1260,39 +1285,44 @@ export class RecordLockService {
 
   private async cleanupHistoricalRecords(tenantId: string): Promise<void> {
     try {
-      const knex = getKnex(this.em)
+      const db = getKysely(this.em)
       const now = Date.now()
       const lockCutoff = new Date(now - LOCK_RETENTION_MS)
       const resolvedConflictCutoff = new Date(now - RESOLVED_CONFLICT_RETENTION_MS)
       const pendingConflictCutoff = new Date(now - PENDING_CONFLICT_RETENTION_MS)
       const deletedAt = new Date(now)
 
-      await knex('record_locks')
-        .where({ tenant_id: tenantId })
-        .whereNull('deleted_at')
-        .whereNot('status', ACTIVE_LOCK_STATUS)
-        .andWhere('updated_at', '<', lockCutoff)
-        .update({
+      await db
+        .updateTable('record_locks' as any)
+        .set({
           deleted_at: deletedAt,
           updated_at: deletedAt,
-        })
+        } as any)
+        .where('tenant_id' as any, '=', tenantId)
+        .where('deleted_at' as any, 'is', null as any)
+        .where('status' as any, '!=', ACTIVE_LOCK_STATUS)
+        .where('updated_at' as any, '<', lockCutoff)
+        .execute()
 
-      await knex('record_lock_conflicts')
-        .where({ tenant_id: tenantId })
-        .whereNull('deleted_at')
-        .andWhere((query) => {
-          query
-            .where((pending) => {
-              pending.where('status', 'pending').andWhere('created_at', '<', pendingConflictCutoff)
-            })
-            .orWhere((resolved) => {
-              resolved.whereNot('status', 'pending').andWhere('updated_at', '<', resolvedConflictCutoff)
-            })
-        })
-        .update({
+      await db
+        .updateTable('record_lock_conflicts' as any)
+        .set({
           deleted_at: deletedAt,
           updated_at: deletedAt,
-        })
+        } as any)
+        .where('tenant_id' as any, '=', tenantId)
+        .where('deleted_at' as any, 'is', null as any)
+        .where((eb: any) => eb.or([
+          eb.and([
+            eb('status' as any, '=', 'pending'),
+            eb('created_at' as any, '<', pendingConflictCutoff),
+          ]),
+          eb.and([
+            eb('status' as any, '!=', 'pending'),
+            eb('updated_at' as any, '<', resolvedConflictCutoff),
+          ]),
+        ]))
+        .execute()
     } catch {
       // Best-effort cleanup must never fail lock workflows.
     }
@@ -1486,7 +1516,13 @@ export class RecordLockService {
       where.organizationId = normalizeScopeOrganization(input.organizationId)
     }
 
-    return this.em.findOne(ActionLog, where, { orderBy: { createdAt: 'desc' } })
+    return normalizeActionLogPayload(await findOneWithDecryption(
+      this.em,
+      ActionLog,
+      where,
+      { orderBy: { createdAt: 'desc' } },
+      { tenantId: input.tenantId, organizationId: normalizeScopeOrganization(input.organizationId) },
+    ))
   }
 
   private async findLatestActionLogWithScopeFallback(
@@ -1519,14 +1555,21 @@ export class RecordLockService {
       where.organizationId = normalizeScopeOrganization(input.organizationId)
     }
 
-    return this.em.findOne(ActionLog, where, { orderBy: { createdAt: 'desc' } })
+    return normalizeActionLogPayload(await findOneWithDecryption(
+      this.em,
+      ActionLog,
+      where,
+      { orderBy: { createdAt: 'desc' } },
+      { tenantId: input.tenantId, organizationId: normalizeScopeOrganization(input.organizationId) },
+    ))
   }
 
   private summarizeChangedFieldsFromActionLog(log: ActionLog | null): string {
     if (!log) return ''
 
-    if (isRecordValue(log.changesJson)) {
-      const fromChanges = Object.keys(log.changesJson)
+    const changesJson = readActionLogChangesJson(log)
+    if (changesJson) {
+      const fromChanges = Object.keys(changesJson)
         .filter((field) => !shouldSkipConflictField(field))
         .slice(0, 12)
         .map(formatChangedFieldLabel)
@@ -1534,8 +1577,8 @@ export class RecordLockService {
       if (fromChanges) return fromChanges
     }
 
-    const before = isRecordValue(log.snapshotBefore) ? log.snapshotBefore : null
-    const after = isRecordValue(log.snapshotAfter) ? log.snapshotAfter : null
+    const before = readJsonRecordValue(log.snapshotBefore)
+    const after = readJsonRecordValue(log.snapshotAfter)
     if (!before || !after) return ''
 
     const diffPaths = new Set<string>()
@@ -1554,10 +1597,11 @@ export class RecordLockService {
     incoming: string
     current: string
   }> {
-    if (!log || !isRecordValue(log.changesJson)) return []
+    const changesJson = readActionLogChangesJson(log)
+    if (!changesJson) return []
 
     const rows: Array<{ field: string; incoming: string; current: string }> = []
-    for (const [rawField, rawChange] of Object.entries(log.changesJson)) {
+    for (const [rawField, rawChange] of Object.entries(changesJson)) {
       if (rows.length >= 12) break
       if (shouldSkipConflictField(rawField)) continue
 
@@ -1644,8 +1688,8 @@ export class RecordLockService {
 
     const result = await this.em.transactional(async (tx) => {
       try {
-        const knex = getKnex(tx as EntityManager)
-        await knex.raw('select pg_advisory_xact_lock(hashtext(?))', [dedupeKey])
+        const db = getKysely(tx as EntityManager)
+        await sql`select pg_advisory_xact_lock(hashtext(${dedupeKey}))`.execute(db)
       } catch {
         // Best-effort lock; fallback to find-first behavior below.
       }
@@ -1787,8 +1831,15 @@ export class RecordLockService {
       ? await this.actionLogService.findById(logId)
       : null
     if (!resolved) {
-      resolved = await this.em.findOne(ActionLog, { id: logId, deletedAt: null })
+      resolved = await findOneWithDecryption(
+        this.em,
+        ActionLog,
+        { id: logId, deletedAt: null },
+        undefined,
+        { tenantId: scope.tenantId, organizationId: normalizeScopeOrganization(scope.organizationId) },
+      )
     }
+    resolved = normalizeActionLogPayload(resolved)
     if (!resolved || resolved.deletedAt) return null
 
     if (resolved.tenantId !== scope.tenantId) return null
@@ -1852,14 +1903,14 @@ export class RecordLockService {
     const baseLog = await this.findActionLogById(conflict.baseActionLogId, scope)
     const incomingLog = await this.findActionLogById(conflict.incomingActionLogId, scope)
 
-    const baseSnapshot = isRecordValue(baseLog?.snapshotAfter) ? baseLog.snapshotAfter : null
-    const incomingBeforeSnapshot = isRecordValue(incomingLog?.snapshotBefore) ? incomingLog.snapshotBefore : null
-    const incomingAfterSnapshot = isRecordValue(incomingLog?.snapshotAfter) ? incomingLog.snapshotAfter : null
+    const baseSnapshot = readJsonRecordValue(baseLog?.snapshotAfter ?? null)
+    const incomingBeforeSnapshot = readJsonRecordValue(incomingLog?.snapshotBefore ?? null)
+    const incomingAfterSnapshot = readJsonRecordValue(incomingLog?.snapshotAfter ?? null)
     const fallbackBaseSnapshot = baseSnapshot ?? incomingBeforeSnapshot
 
     const changeMap = new Map<string, { baseValue: unknown; incomingValue: unknown }>()
 
-    const incomingChanges = isRecordValue(incomingLog?.changesJson) ? incomingLog.changesJson : null
+    const incomingChanges = readActionLogChangesJson(incomingLog)
     if (incomingChanges) {
       for (const [fieldPathRaw, rawChange] of Object.entries(incomingChanges)) {
         const fieldPath = fieldPathRaw.trim()
