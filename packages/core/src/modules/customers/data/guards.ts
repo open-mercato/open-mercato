@@ -51,20 +51,6 @@ const optimisticLockGuard: MutationGuard = {
     const currentIso = normalizeIsoToken(currentRaw)
     if (currentIso == null) return { ok: true }
     if (currentIso === expectedIso) return { ok: true }
-    if (process.env.OM_OPTIMISTIC_LOCK_DEBUG === '1') {
-      // eslint-disable-next-line no-console
-      console.log('[optimistic-lock] static-guard CONFLICT', {
-        resourceKind: input.resourceKind,
-        resourceId: input.resourceId,
-        operation: input.operation,
-        tenantId: input.tenantId,
-        organizationId: input.organizationId ?? null,
-        expectedRaw: expectedRaw.trim(),
-        expectedIso,
-        currentRaw,
-        currentIso,
-      })
-    }
     return {
       ok: false,
       status: 409,

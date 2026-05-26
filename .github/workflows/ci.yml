@@ -18,11 +18,6 @@ env:
   # auto-registered reader handles every other entity, including
   # `customers.deal` exercised by TC-LOCK-OSS-004.
   OM_OPTIMISTIC_LOCK: 'all'
-  # Surface `[optimistic-lock] match` / `[optimistic-lock] CONFLICT` traces
-  # in CI logs so TC-LOCK-OSS-* failures show the exact `currentIso` vs
-  # `expectedIso` values the guard compared. Production paths stay quiet
-  # because the guard service only logs when this flag is exactly '1'.
-  OM_OPTIMISTIC_LOCK_DEBUG: '1'
 
 on:
   push:
