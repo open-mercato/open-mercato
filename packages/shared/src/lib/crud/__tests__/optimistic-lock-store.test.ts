@@ -1,6 +1,7 @@
 import {
   clearOptimisticLockReadersForTests,
   getAllOptimisticLockReaders,
+  registerOptimisticLockReaderIfAbsent,
   registerOptimisticLockReaders,
 } from '../optimistic-lock-store'
 import { createOptimisticLockGuardService } from '../optimistic-lock'
@@ -47,6 +48,69 @@ describe('optimistic-lock-store', () => {
     registerOptimisticLockReaders({ 'customers.company': v1 })
     registerOptimisticLockReaders({ 'customers.company': v2 })
     expect(getAllOptimisticLockReaders()['customers.company']).toBe(v2)
+  })
+})
+
+describe('registerOptimisticLockReaderIfAbsent', () => {
+  beforeEach(() => {
+    clearOptimisticLockReadersForTests()
+  })
+
+  afterAll(() => {
+    clearOptimisticLockReadersForTests()
+  })
+
+  it('writes readers for keys that have no entry yet', () => {
+    const reader = async () => '2026-05-26T07:00:00.000Z'
+    const written = registerOptimisticLockReaderIfAbsent({ 'customers.deal': reader })
+    expect(written).toEqual(['customers.deal'])
+    expect(getAllOptimisticLockReaders()['customers.deal']).toBe(reader)
+  })
+
+  it('skips keys that already have a reader (hand-wired wins)', () => {
+    const handWired = async () => 'hand-wired'
+    const generic = async () => 'generic'
+    registerOptimisticLockReaders({ 'customers.company': handWired })
+    const written = registerOptimisticLockReaderIfAbsent({ 'customers.company': generic })
+    expect(written).toEqual([])
+    expect(getAllOptimisticLockReaders()['customers.company']).toBe(handWired)
+  })
+
+  it('handles a mixed batch — keeps the hand-wired one, writes the new one', () => {
+    const handWired = async () => 'hand-wired'
+    const genericDeal = async () => 'deal'
+    const genericQuote = async () => 'quote'
+    registerOptimisticLockReaders({ 'customers.company': handWired })
+    const written = registerOptimisticLockReaderIfAbsent({
+      'customers.company': async () => 'no-op',
+      'customers.deal': genericDeal,
+      'sales.quote': genericQuote,
+    })
+    expect(written.sort()).toEqual(['customers.deal', 'sales.quote'])
+    const all = getAllOptimisticLockReaders()
+    expect(all['customers.company']).toBe(handWired)
+    expect(all['customers.deal']).toBe(genericDeal)
+    expect(all['sales.quote']).toBe(genericQuote)
+  })
+
+  it('does not touch global state when every key is already taken', () => {
+    const handWired = async () => 'hand-wired'
+    registerOptimisticLockReaders({ 'customers.company': handWired })
+    const before = getAllOptimisticLockReaders()
+    const written = registerOptimisticLockReaderIfAbsent({ 'customers.company': async () => 'x' })
+    expect(written).toEqual([])
+    const after = getAllOptimisticLockReaders()
+    expect(after['customers.company']).toBe(handWired)
+    expect(Object.keys(after)).toEqual(Object.keys(before))
+  })
+
+  it('repeated calls are idempotent — second invocation writes nothing', () => {
+    const generic = async () => 'generic'
+    expect(registerOptimisticLockReaderIfAbsent({ 'customers.deal': generic })).toEqual([
+      'customers.deal',
+    ])
+    expect(registerOptimisticLockReaderIfAbsent({ 'customers.deal': async () => 'x' })).toEqual([])
+    expect(getAllOptimisticLockReaders()['customers.deal']).toBe(generic)
   })
 })
 

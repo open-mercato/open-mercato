@@ -49,6 +49,31 @@ export function registerOptimisticLockReaders(
   writeGlobal({ ...existing, ...readers })
 }
 
+/**
+ * Register optimistic-lock readers only for keys that have no reader yet.
+ * Use this for fallback / generic registrations (e.g. the auto-registration
+ * driven by `makeCrudRoute`) so module-level hand-wired readers — which
+ * register first via `di.ts` — always win.
+ *
+ * Returns the set of keys that were actually written, which makes the helper
+ * easy to assert on in tests and useful for diagnostics in callers.
+ */
+export function registerOptimisticLockReaderIfAbsent(
+  readers: Record<string, OptimisticLockCurrentReader>,
+): string[] {
+  const existing = readGlobal()
+  const next: Record<string, OptimisticLockCurrentReader> = { ...existing }
+  const written: string[] = []
+  for (const [key, reader] of Object.entries(readers)) {
+    if (!(key in existing)) {
+      next[key] = reader
+      written.push(key)
+    }
+  }
+  if (written.length > 0) writeGlobal(next)
+  return written
+}
+
 export function getAllOptimisticLockReaders(): Record<string, OptimisticLockCurrentReader> {
   return readGlobal()
 }
