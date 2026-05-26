@@ -207,6 +207,23 @@ Implementation: `OptimisticLockGuardService.validateMutation(input)` returns
 the `CrudMutationGuardValidationResult` shape that the existing legacy
 bridge in `mutation-guard.ts` already understands.
 
+### 3.5.1 Reader registry — auto-coverage for every CRUD entity (Phase 13)
+
+The guard reads the current `updated_at` through a reader function keyed
+by `resourceKind`. There are two ways a reader gets into the registry:
+
+| Path | Where it lands | Use when |
+|------|----------------|----------|
+| **Auto-registered generic** | `makeCrudRoute` calls `registerOptimisticLockReaderIfAbsent({ [resourceKind]: createGenericOptimisticLockReader({ entity, idField, tenantField, orgField, softDeleteField }) })` at module-load time. | Default for every CRUD route. No per-module wiring needed. Covers all 64+ core routes the moment `OM_OPTIMISTIC_LOCK=all` is set. |
+| **Hand-wired specific** | Module's `di.ts` calls `registerOptimisticLockReaders({ … })` during DI bootstrap (before any route file is imported). | The entity needs a discriminator beyond `id` + tenant + org + soft-delete — e.g. a polymorphic table like `customer_entities` with a `kind` column. Hand-wired readers WIN because they register first and the auto-registration uses the `IfAbsent` helper. |
+
+The generic reader projects only `updatedAt` (no PII materializes) and
+**fails open** on schema mismatch: if `em.findOne` throws (the entity
+has no `updated_at` column, a migration is in flight), the reader
+returns `null`, which the guard treats as "entity already gone" and
+SKIPS the optimistic check. A request never 500s because of a missing
+column; the existing CRUD path runs unchanged.
+
 ### 3.6 Client wiring
 
 **`useGuardedMutation`** (`packages/ui/src/backend/injection/useGuardedMutation.ts`):
@@ -365,8 +382,8 @@ the first comment on the PR.
 | Q2 409 shape | A: generic `{ error }` / B: structured `{ error, code, currentUpdatedAt, expectedUpdatedAt }` / C: B + full current payload | **B** |
 | Q3 env syntax | A: keyword `all` only / B: allow-list only / C: both | **C** |
 | Q4 enterprise hook | A: priority composition / B: token-resolution hook / C: both | **C** |
-| Q5 reference entities | A: 1 (`customers.company`) / B: 3 (`customers.company` + `customers.person` + `sales.order`) / C: platform-wide reflective | **B** target; **A this PR**, B+ rolled out via auto-continue-pr |
-| Q6 integration test count | A: 1 pair / B: 1 pair per reference entity | **B** target; **A this PR**, B+ via auto-continue-pr |
+| Q5 reference entities | A: 1 (`customers.company`) / B: 3 (`customers.company` + `customers.person` + `sales.order`) / C: platform-wide via `makeCrudRoute` auto-registration | **C** — landed via Phase 13 of this spec; B-tier entities keep their hand-wired readers as polymorphic-table overrides. |
+| Q6 integration test count | A: 1 pair / B: 1 pair per reference entity / C: B + 1 spec on a non-reference entity (`customers.deal`) to prove the generic path | **C** — `TC-LOCK-OSS-001..003` cover the 3 hand-wired references, `TC-LOCK-OSS-004` covers `customers.deal` via the auto-registered generic reader. |
 
 ---
 

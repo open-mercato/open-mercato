@@ -64,7 +64,7 @@ Set `OM_OPTIMISTIC_LOCK` in the server's environment:
 | Value | Behavior |
 |-------|----------|
 | _unset_ / empty / whitespace | **OFF** (default — zero behavior change). |
-| `all` (any case) | All registered entities. |
+| `all` (any case) | Every CRUD entity. Auto-coverage via `makeCrudRoute`. |
 | `customers.company,sales.order` | Allow-list — comma-separated entityTypes, lowercased & trimmed. |
 | `all,customers.company` | `all` wins. |
 
@@ -75,6 +75,29 @@ OM_OPTIMISTIC_LOCK=customers.company
 
 Reading happens once at module-load time (process boot). Restart the
 app/dev server after changing the value.
+
+### What does `all` actually cover?
+
+Every CRUD route that goes through `makeCrudRoute` — every entity in
+`apps/mercato`-managed modules (customers, sales, catalog, attachments,
+audit_logs, etc.) — gets an auto-registered generic reader at module
+load time. That reader uses the route's own `orm` config (`idField` /
+`tenantField` / `orgField` / `softDeleteField`) so scope rules match the
+route exactly. There is no per-entity wiring step.
+
+When the auto-registered generic reader would not produce the right
+answer (e.g. a polymorphic table shared between two `resourceKind`s),
+register a more specific reader from the module's `di.ts` via
+`registerOptimisticLockReaders({ … })` BEFORE the factory runs. Hand-
+wired readers always win — the auto-registration uses
+`registerOptimisticLockReaderIfAbsent`, which is a no-op for keys that
+already have a reader.
+
+If a route's entity has no `updated_at` column (rare, but possible —
+legacy tables, virtual entities) the generic reader fails open: the
+`findOne` projection throws, the reader returns `null`, and the guard
+SKIPS the optimistic check for that mutation. The mutation still
+proceeds. The guard never 500s a request because of a schema mismatch.
 
 ---
 
@@ -247,18 +270,41 @@ again.
 
 ## Roll out to a new entity
 
-1. Add the entity's `resourceKind` to the `readers` map in the module's
-   `di.ts` (or create a `di.ts` if the module does not have one).
-2. Make sure detail/list responses expose `updatedAt` as an ISO string
+If the entity goes through `makeCrudRoute`, the server side is already
+done — the factory auto-registers a generic reader at module-load
+time. The remaining work is the client + env + tests:
+
+1. Make sure detail/list responses expose `updatedAt` as an ISO string
    (most `serializeEntity` helpers already do).
-3. Wire the client page(s) to use `buildOptimisticLockHeader(...)` and
-   `extractOptimisticLockConflict(...)`.
-4. Add `<entityType>` to `OM_OPTIMISTIC_LOCK` in your deployment (or
-   ship a default in the relevant environment file).
-5. Add an integration test that mirrors
+2. Wire the client page(s) to use `buildOptimisticLockHeader(...)` and
+   `extractOptimisticLockConflict(...)` — or pass
+   `optimisticLockUpdatedAt={record.updatedAt}` to `CrudForm`, which
+   merges the header into every PUT/PATCH/DELETE the form issues.
+3. Add `<entityType>` to `OM_OPTIMISTIC_LOCK` in your deployment, or
+   set `OM_OPTIMISTIC_LOCK=all` to opt in platform-wide.
+4. Add an integration test that mirrors
    [`TC-LOCK-OSS-001`](https://github.com/open-mercato/open-mercato/blob/develop/packages/core/src/modules/customers/__integration__/TC-LOCK-OSS-001.spec.ts):
    create the record, snapshot its `updatedAt`, perform a fresh update,
    then a stale update and assert the 409 body shape.
+
+### When to hand-wire a reader
+
+The auto-registered generic reader uses the route's `id` +
+`organizationId` + `tenantId` + soft-delete filter only. Register a
+specific reader from your module's `di.ts` via
+`registerOptimisticLockReaders({ … })` when:
+
+- Your entity sits in a **polymorphic table** shared with other
+  `resourceKind`s and you need a discriminator (`kind`, `type`,
+  `category`). See `customers.company` / `customers.person` for the
+  reference — both live in `customer_entities` with a `kind` discriminator.
+- The "live" check needs to ignore certain rows beyond the soft-delete
+  marker (e.g. an `archived_at` column with different semantics).
+- You want to decrypt and project a different timestamp source (e.g.
+  the entity stores `last_modified_at` instead of `updated_at`).
+
+Module-DI registrations always win because they land before any route
+file's first import, and the factory uses the `IfAbsent` variant.
 
 ---
 
