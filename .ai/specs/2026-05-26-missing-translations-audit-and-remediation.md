@@ -3,7 +3,7 @@
 **Status:** draft
 **Owner:** platform / i18n
 **Date:** 2026-05-26
-**Tracking issue:** _to be linked after issue is opened_
+**Tracking issue:** [open-mercato/open-mercato#2077](https://github.com/open-mercato/open-mercato/issues/2077)
 
 ## TLDR
 
