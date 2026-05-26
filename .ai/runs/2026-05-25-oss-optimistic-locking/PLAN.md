@@ -45,6 +45,11 @@
 | 10 | 10.2 | useGuardedMutation unit test for the flash (UI touch → UI test) | done | ca507bad5 |
 | 11 | 11.1 | Wire customers.company edit page to pass `optimisticLockUpdatedAt={record.updatedAt}` (UI touch → integration test extension) | done | 4e4438ad6 |
 | 12 | 12.1 | Final gate (build / typecheck / test / build:app / ds-guardian / auto-review-pr) + PR body flip to `complete` | done | 65bab423d |
+| 13 | 13.1 | Generic optimistic-lock reader factory (`createGenericOptimisticLockReader`) in `@open-mercato/shared` + unit tests | done | cdc4fbe13 |
+| 13 | 13.2 | `registerOptimisticLockReaderIfAbsent` store helper (hand-wired readers always win) + unit tests | todo | — |
+| 13 | 13.3 | Auto-register a generic reader from `makeCrudRoute` for every CRUD route's resourceKind + factory unit test | todo | — |
+| 13 | 13.4 | Spec + docs update: "all CRUD entities" auto-registered, decision matrix Q5 = C (platform-wide) | todo | — |
+| 13 | 13.5 | New integration spec `TC-LOCK-OSS-004` for `customers.deal` proving the generic path + CI env expands to `all` | todo | — |
 
 ## Goal (resume)
 
@@ -187,3 +192,44 @@ UI file gets a UI test**. The Steps reflect that — each `*.tsx` /
 - [x] 6.2 Targeted validation gate — f3a07a67c
 - [x] 6.3 PR opened with feature + review + needs-qa labels — PR #2055
 - [x] 6.4 Decision-matrix comment posted to PR #2055 — 7f98bfe47
+
+### Phase 13: Auto-coverage for all CRUD entities (resume — `add support for all other entities`)
+
+Goal: extend the guard from the 3 hand-wired reference entities to every
+entity managed by `makeCrudRoute` (64 routes today, more as modules
+ship). Hand-wired readers (`customers.company` with `kind: 'company'`,
+`customers.person` with `kind: 'person'`, `sales.order`) MUST keep
+winning — we add a generic reader as a per-route fallback that the
+CRUD factory installs at module load time. `OM_OPTIMISTIC_LOCK=all`
+finally means what it says.
+
+- 13.1 New `createGenericOptimisticLockReader({ entity, idField,
+  tenantField, orgField, softDeleteField, extraFilter? })` factory
+  exported from `packages/shared/src/lib/crud/optimistic-lock.ts`.
+  Reads only `updatedAt`, fails-open on schema mismatch / missing
+  column (returns `null` so the guard SKIPS rather than 500s).
+  Unit tests under `__tests__/optimistic-lock.test.ts`.
+- 13.2 New `registerOptimisticLockReaderIfAbsent(key, reader)` helper
+  in `optimistic-lock-store.ts`. Idempotent. Hand-wired readers (which
+  register first via `customers/di.ts` / `sales/di.ts`) always win.
+  Unit tests under `__tests__/optimistic-lock-store.test.ts`.
+- 13.3 `makeCrudRoute` (in `factory.ts`) auto-registers a generic
+  reader for each route's `resourceKind` + aliases using the factory's
+  own `orm` config (idField / tenantField / orgField / softDeleteField).
+  Strict-additive: no behavior change when env is OFF or the entity
+  is not in the allow-list. Add a `__tests__/crud-factory.test.ts`
+  case asserting registration happens at factory call time.
+- 13.4 Update `.ai/specs/2026-05-25-oss-optimistic-locking.md`
+  (flip decision-matrix Q5 from "B target, A this PR" to "C —
+  platform-wide via generic reader auto-registration") + extend
+  `apps/docs/docs/framework/data-integrity/concurrency-locking.mdx`
+  with a "Supported entities" section explaining the
+  auto-registration model and the hand-wired override path.
+- 13.5 New integration spec
+  `packages/core/src/modules/customers/__integration__/TC-LOCK-OSS-004.spec.ts`
+  for `customers.deal` (an entity NOT in the original 3-reference set).
+  CI env (`.github/workflows/ci.yml`) flips
+  `OM_OPTIMISTIC_LOCK='customers.company,customers.person,customers.people,sales.order'`
+  → `OM_OPTIMISTIC_LOCK='all'` so the generic-reader path runs in
+  ephemeral-integration. Keeps TC-LOCK-OSS-001..003 green
+  (`all` covers everything they need).

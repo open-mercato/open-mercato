@@ -1,4 +1,5 @@
 import {
+  createGenericOptimisticLockReader,
   createOptimisticLockGuardService,
   parseOptimisticLockEnv,
   type OptimisticLockCurrentReader,
@@ -236,5 +237,199 @@ describe('createOptimisticLockGuardService — match / mismatch', () => {
     expect(makeService({ envValue: 'all' }).getConfig()).toEqual({ mode: 'all' })
     const allow = makeService({ envValue: 'customers.company' }).getConfig()
     expect(allow.mode).toBe('allowlist')
+  })
+})
+
+describe('createGenericOptimisticLockReader', () => {
+  class FakeEntity {}
+
+  type FindOneCapture = {
+    entity: unknown
+    filter: Record<string, unknown>
+    options: Record<string, unknown> | undefined
+  }
+
+  function makeEm(rowToReturn: Record<string, unknown> | null, captureSink: FindOneCapture[]) {
+    return {
+      async findOne(entity: unknown, filter: Record<string, unknown>, options?: Record<string, unknown>) {
+        captureSink.push({ entity, filter, options })
+        return rowToReturn
+      },
+    } as never
+  }
+
+  it('returns the updatedAt ISO string when the row exists', async () => {
+    const captures: FindOneCapture[] = []
+    const reader = createGenericOptimisticLockReader({ entity: FakeEntity })
+    const em = makeEm({ updatedAt: new Date('2026-05-26T07:00:00.000Z') }, captures)
+    const result = await reader(em, {
+      resourceKind: 'customers.deal',
+      resourceId: 'deal-1',
+      tenantId: 'tenant-1',
+      organizationId: 'org-1',
+    })
+    expect(result).toBe('2026-05-26T07:00:00.000Z')
+    expect(captures).toHaveLength(1)
+    expect(captures[0].entity).toBe(FakeEntity)
+    expect(captures[0].filter).toEqual({
+      id: 'deal-1',
+      tenantId: 'tenant-1',
+      organizationId: 'org-1',
+      deletedAt: null,
+    })
+    expect(captures[0].options).toEqual({ fields: ['updatedAt'] })
+  })
+
+  it('accepts a string updatedAt as already-ISO', async () => {
+    const reader = createGenericOptimisticLockReader({ entity: FakeEntity })
+    const em = makeEm({ updatedAt: '2026-05-26T07:00:00.000Z' }, [])
+    const result = await reader(em, {
+      resourceKind: 'k',
+      resourceId: 'r',
+      tenantId: 't',
+      organizationId: null,
+    })
+    expect(result).toBe('2026-05-26T07:00:00.000Z')
+  })
+
+  it('returns null when the row is missing', async () => {
+    const reader = createGenericOptimisticLockReader({ entity: FakeEntity })
+    const em = makeEm(null, [])
+    const result = await reader(em, {
+      resourceKind: 'k',
+      resourceId: 'r',
+      tenantId: 't',
+      organizationId: 't',
+    })
+    expect(result).toBeNull()
+  })
+
+  it('omits the organizationId filter when none is provided', async () => {
+    const captures: FindOneCapture[] = []
+    const reader = createGenericOptimisticLockReader({ entity: FakeEntity })
+    const em = makeEm({ updatedAt: new Date('2026-05-26T07:00:00.000Z') }, captures)
+    await reader(em, {
+      resourceKind: 'k',
+      resourceId: 'r',
+      tenantId: 't',
+      organizationId: null,
+    })
+    expect(captures[0].filter).toEqual({ id: 'r', tenantId: 't', deletedAt: null })
+  })
+
+  it('skips tenant + org + softDelete filters when the caller disables them', async () => {
+    const captures: FindOneCapture[] = []
+    const reader = createGenericOptimisticLockReader({
+      entity: FakeEntity,
+      tenantField: null,
+      orgField: null,
+      softDeleteField: null,
+    })
+    const em = makeEm({ updatedAt: new Date('2026-05-26T07:00:00.000Z') }, captures)
+    await reader(em, {
+      resourceKind: 'k',
+      resourceId: 'r',
+      tenantId: 't',
+      organizationId: 'o',
+    })
+    expect(captures[0].filter).toEqual({ id: 'r' })
+  })
+
+  it('merges an extraFilter (discriminator on shared tables)', async () => {
+    const captures: FindOneCapture[] = []
+    const reader = createGenericOptimisticLockReader({
+      entity: FakeEntity,
+      extraFilter: { kind: 'company' },
+    })
+    const em = makeEm({ updatedAt: new Date('2026-05-26T07:00:00.000Z') }, captures)
+    await reader(em, {
+      resourceKind: 'customers.company',
+      resourceId: 'c',
+      tenantId: 't',
+      organizationId: 'o',
+    })
+    expect(captures[0].filter).toMatchObject({ kind: 'company' })
+  })
+
+  it('honours a custom idField / orgField / tenantField / updatedAtField', async () => {
+    const captures: FindOneCapture[] = []
+    const reader = createGenericOptimisticLockReader({
+      entity: FakeEntity,
+      idField: 'uuid',
+      tenantField: 'tenant',
+      orgField: 'org',
+      softDeleteField: 'archivedAt',
+      updatedAtField: 'modifiedAt',
+    })
+    const em = makeEm({ modifiedAt: new Date('2026-05-26T07:00:00.000Z') }, captures)
+    const result = await reader(em, {
+      resourceKind: 'k',
+      resourceId: 'abc',
+      tenantId: 'T',
+      organizationId: 'O',
+    })
+    expect(result).toBe('2026-05-26T07:00:00.000Z')
+    expect(captures[0].filter).toEqual({
+      uuid: 'abc',
+      tenant: 'T',
+      org: 'O',
+      archivedAt: null,
+    })
+    expect(captures[0].options).toEqual({ fields: ['modifiedAt'] })
+  })
+
+  it('fails open (returns null) when findOne throws — never 500s the mutation', async () => {
+    const reader = createGenericOptimisticLockReader({ entity: FakeEntity })
+    const em = {
+      async findOne() {
+        throw new Error('column "updated_at" does not exist')
+      },
+    } as never
+    const result = await reader(em, {
+      resourceKind: 'k',
+      resourceId: 'r',
+      tenantId: 't',
+      organizationId: 'o',
+    })
+    expect(result).toBeNull()
+  })
+
+  it('returns null when the projected updatedAt is missing / null / non-Date', async () => {
+    const reader = createGenericOptimisticLockReader({ entity: FakeEntity })
+    expect(
+      await reader(makeEm({}, []), { resourceKind: 'k', resourceId: 'r', tenantId: 't', organizationId: null }),
+    ).toBeNull()
+    expect(
+      await reader(makeEm({ updatedAt: null }, []), {
+        resourceKind: 'k',
+        resourceId: 'r',
+        tenantId: 't',
+        organizationId: null,
+      }),
+    ).toBeNull()
+    expect(
+      await reader(makeEm({ updatedAt: 12345 }, []), {
+        resourceKind: 'k',
+        resourceId: 'r',
+        tenantId: 't',
+        organizationId: null,
+      }),
+    ).toBeNull()
+  })
+
+  it('plugs into createOptimisticLockGuardService as a reader', async () => {
+    const reader = createGenericOptimisticLockReader({ entity: FakeEntity })
+    const em = makeEm({ updatedAt: new Date('2026-05-26T07:00:00.000Z') }, [])
+    const headers = new Headers()
+    headers.set(OPTIMISTIC_LOCK_HEADER_NAME, '2026-05-26T07:00:00.000Z')
+    const service = createOptimisticLockGuardService({
+      getEm: () => em,
+      envValue: 'all',
+      readers: { 'customers.deal': reader },
+    })
+    const result = await service.validateMutation(
+      makeInput({ resourceKind: 'customers.deal', requestHeaders: headers }),
+    )
+    expect(result).toEqual({ ok: true, shouldRunAfterSuccess: false })
   })
 })

@@ -28,6 +28,25 @@ Append-only event log. Newest at the bottom.
 - PR head SHA at re-entry: 24fb640ef (checkpoint 2 commit).
 - No new code Steps planned; only the final-gate ceremony and post-finalization commits (handoff + final-gate-checks).
 
+## 2026-05-26T07:55Z — auto-continue-pr-loop resume (scope extension)
+- Resumed by: @pkarw
+- Resume point: PLAN.md → new Phase 13.1 (resume scope: "add support for all other entities")
+- PR head SHA: 8d49a82f4
+- Trigger: user invocation `/auto-continue-pr-loop 2055 add support for all other entities`.
+- Approach (recommended option, user declined to disambiguate): hook
+  `makeCrudRoute` to auto-register a generic optimistic-lock reader
+  for every CRUD route's `resourceKind` using the factory's own ORM
+  config. Hand-wired readers (customers.company/person, sales.order)
+  always win because they register first via `customers/di.ts` /
+  `sales/di.ts` (Step 13.2 introduces an "if-absent" store helper).
+- Re-review expected: PR is currently in `qa` (non-terminal) — after
+  this scope extension lands it moves back to `review` with a comment
+  explaining why, then through `auto-review-pr` autofix and back to
+  `qa` / `merge-queue`.
+- 5 new Steps appended (13.1..13.5). One commit per Step per the
+  `auto-continue-pr-loop` lean contract; checkpoint pass after Step
+  13.5 batches verification.
+
 ## 2026-05-25T11:25Z — spec complete
 - Final validation gate: all green — build:packages ✓, generate ✓, i18n×2 ✓, typecheck ✓ (standalone retry on apps/mercato after parallel SIGHUP), test ✓ (6132 tests across 677 suites), build:app ✓.
 - ds-guardian pass: clean.

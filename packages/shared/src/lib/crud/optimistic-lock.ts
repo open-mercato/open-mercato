@@ -85,6 +85,73 @@ export type OptimisticLockCurrentReader = (
   input: { resourceKind: string; resourceId: string; tenantId: string; organizationId: string | null },
 ) => Promise<string | null>
 
+export type GenericOptimisticLockReaderOptions = {
+  /** MikroORM entity class. */
+  entity: unknown
+  /** Primary key field. Defaults to `id`. */
+  idField?: string
+  /** Tenant scope field. Defaults to `tenantId`. Pass `null` to skip tenant scoping (rare — only when the entity itself has no `tenantId` column). */
+  tenantField?: string | null
+  /** Organization scope field. Defaults to `organizationId`. Pass `null` to skip organization scoping. */
+  orgField?: string | null
+  /** Soft-delete column. Defaults to `deletedAt`. Pass `null` to skip the implicit not-deleted filter. */
+  softDeleteField?: string | null
+  /** Optional fixed filter merged into every query (e.g. `{ kind: 'company' }` for a discriminated table). */
+  extraFilter?: Record<string, unknown>
+  /** Optional ORM field name carrying the timestamp. Defaults to `updatedAt`. */
+  updatedAtField?: string
+}
+
+/**
+ * Build a generic optimistic-lock reader for any ORM entity that follows the
+ * platform conventions (`id` + `tenantId` + `organizationId` + `deletedAt` +
+ * `updatedAt`). The reader projects only the timestamp column so PII never
+ * materializes.
+ *
+ * Used by `makeCrudRoute` to auto-register one reader per CRUD route at
+ * module-load time (see Phase 13 of the OSS optimistic-locking spec).
+ * Module authors who need bespoke filtering (e.g. discriminator on a shared
+ * table) keep registering their own reader via `registerOptimisticLockReaders`
+ * — those hand-wired registrations win because they land first.
+ *
+ * Fail-open contract: if the underlying `findOne` throws (missing column,
+ * schema drift, mid-migration) the reader returns `null`, which the guard
+ * treats as "entity already gone" and lets the CRUD path's own 404 fire.
+ * We MUST NOT throw out of the reader — that would 500 every mutation on
+ * the affected entity instead of opting it out of the optimistic check.
+ */
+export function createGenericOptimisticLockReader(
+  opts: GenericOptimisticLockReaderOptions,
+): OptimisticLockCurrentReader {
+  const idField = opts.idField ?? 'id'
+  const tenantField = opts.tenantField === null ? null : opts.tenantField ?? 'tenantId'
+  const orgField = opts.orgField === null ? null : opts.orgField ?? 'organizationId'
+  const softDeleteField = opts.softDeleteField === null ? null : opts.softDeleteField ?? 'deletedAt'
+  const updatedAtField = opts.updatedAtField ?? 'updatedAt'
+  const extraFilter = opts.extraFilter ?? {}
+
+  return async (em, { resourceId, tenantId, organizationId }) => {
+    const filter: Record<string, unknown> = { [idField]: resourceId }
+    if (tenantField) filter[tenantField] = tenantId
+    if (orgField && organizationId) filter[orgField] = organizationId
+    if (softDeleteField) filter[softDeleteField] = null
+    for (const [key, value] of Object.entries(extraFilter)) filter[key] = value
+
+    try {
+      const row = await em.findOne(opts.entity as never, filter as never, {
+        fields: [updatedAtField] as never,
+      })
+      if (!row || typeof row !== 'object') return null
+      const value = (row as Record<string, unknown>)[updatedAtField]
+      if (value instanceof Date) return value.toISOString()
+      if (typeof value === 'string' && value.length > 0) return value
+      return null
+    } catch {
+      return null
+    }
+  }
+}
+
 export type OptimisticLockGuardOptions = {
   /** EntityManager resolver. Container-bound via DI in real usage. */
   getEm: () => EntityManager
