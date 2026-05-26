@@ -85,27 +85,39 @@ export function setAuthRedirectConfig(cfg: { defaultForbiddenRoles?: readonly st
   }
 }
 
+function formatForbiddenAccessMessage(options?: { requiredRoles?: string[] | null; requiredFeatures?: string[] | null }): string {
+  const features = options?.requiredFeatures?.filter(Boolean) ?? []
+  const roles = options?.requiredRoles?.filter(Boolean) ?? []
+  const effectiveRoles = roles.length ? roles : DEFAULT_FORBIDDEN_ROLES.filter(Boolean)
+  if (features.length) {
+    return `Access denied: you are missing the required permission "${features.join(', ')}". Contact your administrator.`
+  }
+  if (effectiveRoles.length) {
+    return `Access denied: this area requires the role "${effectiveRoles.join(', ')}". Contact your administrator.`
+  }
+  return 'Access denied: you do not have permission to perform this action.'
+}
+
+/**
+ * Signal a forbidden access attempt for an *authenticated* user.
+ *
+ * Authenticated 403 responses must never redirect to `/login` — that creates an
+ * infinite loop because the login page detects the active session and bounces
+ * the user back to the failing destination (see GH #2070). Instead, we surface
+ * a flash banner explaining the missing role/feature. Pages that need an inline
+ * banner should catch `ForbiddenError` and render `AccessDeniedMessage` from
+ * `@open-mercato/ui/backend/detail`.
+ *
+ * The legacy name is preserved to keep the public API stable; consumers that
+ * relied on the old redirect-to-login behavior get the equivalent warning UX
+ * without the navigation side effect.
+ */
 export function redirectToForbiddenLogin(options?: { requiredRoles?: string[] | null; requiredFeatures?: string[] | null }) {
   if (typeof window === 'undefined') return
-  if (window.location.pathname.startsWith('/login')) return
-  // Portal routes have their own customer auth — never redirect to staff login
+  // Portal routes have their own customer auth — keep the existing no-op contract.
   if (/\/[^/]+\/portal(\/|$)/.test(window.location.pathname)) return
   try {
-    const current = window.location.pathname + window.location.search
-    const features = options?.requiredFeatures?.filter(Boolean) ?? []
-    const roles = options?.requiredRoles?.filter(Boolean) ?? []
-    const fallbackRoles = DEFAULT_FORBIDDEN_ROLES.filter(Boolean)
-    const effectiveRoles = roles.length ? roles : fallbackRoles
-    const query = features.length
-      ? `requireFeature=${encodeURIComponent(features.join(','))}`
-      : effectiveRoles.length
-        ? `requireRole=${encodeURIComponent(effectiveRoles.map(String).join(','))}`
-        : ''
-    const url = query
-      ? `/login?${query}&redirect=${encodeURIComponent(current)}`
-      : `/login?redirect=${encodeURIComponent(current)}`
-    flash('Insufficient permissions. Redirecting to login…', 'warning')
-    setTimeout(() => { window.location.href = url }, 60)
+    flash(formatForbiddenAccessMessage(options), 'warning')
   } catch {
     // no-op
   }
