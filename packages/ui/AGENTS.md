@@ -154,7 +154,7 @@ import { Avatar, AvatarStack } from '@open-mercato/ui/primitives/avatar'
 // renders: JK · OZ · AN · +1
 ```
 
-### MUST rules
+### Usage Rules
 
 - NEVER render `<div className="rounded-full bg-muted ...">` for avatars — use `Avatar`
 - `size="sm"` uses `text-[9px]` — DS exception for tiny initials (same as notification badge count)
@@ -192,7 +192,7 @@ import { Kbd, KbdShortcut } from '@open-mercato/ui/primitives/kbd'
 </span>
 ```
 
-### MUST rules
+### Usage Rules
 
 - NEVER use raw `<span>` or `<code>` to display keyboard keys — use `Kbd`
 - Platform-specific keys (`⌘` vs `Ctrl`): detect with `navigator.platform` or use `Ctrl/⌘` text when cross-platform
@@ -255,7 +255,7 @@ const leadTagMap: TagMap<'customer' | 'hot' | 'inactive' | 'renewal'> = {
 <Tag variant={leadTagMap[tag.type]} dot>{tag.label}</Tag>
 ```
 
-### MUST rules
+### Usage Rules
 
 - NEVER hardcode colors on `Tag` — use variants only
 - Use `dot` for tags that represent a status-like category (Customer, Hot); omit for purely descriptive labels
