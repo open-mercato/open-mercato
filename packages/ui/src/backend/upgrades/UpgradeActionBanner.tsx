@@ -36,6 +36,8 @@ type RunActionResponse = {
   error?: string
 }
 
+const forbiddenRedirectOptOutHeader = { 'x-om-forbidden-redirect': '0' } as const
+
 export function UpgradeActionBanner() {
   const t = useT()
   const { payload, isReady } = useBackendChrome()
@@ -48,7 +50,9 @@ export function UpgradeActionBanner() {
     if (!canManageConfigs) return
     if (!upgradeActionsEnabled()) return
     if (typeof window === 'undefined' || typeof fetch === 'undefined') return
-    const call = await apiCall<UpgradeActionResponse>('/api/configs/upgrade-actions')
+    const call = await apiCall<UpgradeActionResponse>('/api/configs/upgrade-actions', {
+      headers: forbiddenRedirectOptOutHeader,
+    })
     if (cancelledRef.current) return
     if (!call.ok || !call.result || !Array.isArray(call.result.actions) || !call.result.actions.length) {
       setAction(null)
@@ -73,7 +77,7 @@ export function UpgradeActionBanner() {
     try {
       const response = await apiCall<RunActionResponse>('/api/configs/upgrade-actions', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { ...forbiddenRedirectOptOutHeader, 'Content-Type': 'application/json' },
         body: JSON.stringify({ actionId: action.id }),
       })
       if (!response.ok) {

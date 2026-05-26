@@ -71,7 +71,7 @@ describe('UpgradeActionBanner — feature guard', () => {
     })
 
     expect(screen.queryByText('Install now')).toBeNull()
-    expect(apiCall).not.toHaveBeenCalledWith('/api/configs/upgrade-actions')
+    expect(apiCall).not.toHaveBeenCalled()
   })
 
   it('renders null and does not call apiCall when grantedFeatures is empty (no configs.manage)', async () => {
@@ -85,7 +85,7 @@ describe('UpgradeActionBanner — feature guard', () => {
     })
 
     expect(screen.queryByText('Install now')).toBeNull()
-    expect(apiCall).not.toHaveBeenCalledWith('/api/configs/upgrade-actions')
+    expect(apiCall).not.toHaveBeenCalled()
   })
 
   it('calls apiCall and renders banner when grantedFeatures includes configs.manage', async () => {
@@ -95,7 +95,10 @@ describe('UpgradeActionBanner — feature guard', () => {
     renderWithProviders(<UpgradeActionBanner />)
 
     await waitFor(() => {
-      expect(apiCall).toHaveBeenCalledWith('/api/configs/upgrade-actions')
+      expect(apiCall).toHaveBeenCalledWith(
+        '/api/configs/upgrade-actions',
+        { headers: { 'x-om-forbidden-redirect': '0' } },
+      )
     })
 
     await waitFor(() => {
@@ -110,7 +113,10 @@ describe('UpgradeActionBanner — feature guard', () => {
     renderWithProviders(<UpgradeActionBanner />)
 
     await waitFor(() => {
-      expect(apiCall).toHaveBeenCalledWith('/api/configs/upgrade-actions')
+      expect(apiCall).toHaveBeenCalledWith(
+        '/api/configs/upgrade-actions',
+        { headers: { 'x-om-forbidden-redirect': '0' } },
+      )
     })
   })
 
@@ -125,13 +131,16 @@ describe('UpgradeActionBanner — feature guard', () => {
     })
 
     expect(screen.queryByText('Install now')).toBeNull()
-    expect(apiCall).not.toHaveBeenCalledWith('/api/configs/upgrade-actions')
+    expect(apiCall).not.toHaveBeenCalled()
 
     mockChrome({ isReady: true, grantedFeatures: ['configs.manage'] })
     rerender(<UpgradeActionBanner />)
 
     await waitFor(() => {
-      expect(apiCall).toHaveBeenCalledWith('/api/configs/upgrade-actions')
+      expect(apiCall).toHaveBeenCalledWith(
+        '/api/configs/upgrade-actions',
+        { headers: { 'x-om-forbidden-redirect': '0' } },
+      )
     })
   })
 })

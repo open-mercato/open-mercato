@@ -243,6 +243,33 @@ describe('AppShell', () => {
     })
   })
 
+  it('renders the upgrade action banner only for users who can manage upgrade actions', () => {
+    const { rerender } = renderWithProviders(
+      <AppShell
+        email="demo@example.com"
+        groups={groups}
+        canManageUpgradeActions={false}
+      >
+        <div>Child content</div>
+      </AppShell>,
+      { dict },
+    )
+
+    expect(screen.queryByTestId('upgrade-action-banner')).not.toBeInTheDocument()
+
+    rerender(
+      <AppShell
+        email="demo@example.com"
+        groups={groups}
+        canManageUpgradeActions
+      >
+        <div>Child content</div>
+      </AppShell>,
+    )
+
+    expect(screen.getByTestId('upgrade-action-banner')).toBeInTheDocument()
+  })
+
   it('resets breadcrumb to server-provided values when pathname changes', async () => {
     mockPathname = '/backend/users'
 
