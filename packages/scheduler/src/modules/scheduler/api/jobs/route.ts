@@ -36,6 +36,7 @@ const crud = makeCrudRoute({
     tenantField: 'tenantId',
     softDeleteField: 'deletedAt',
   },
+  indexer: { entityType: 'scheduler:scheduled_job' },
   list: {
     entityId: 'scheduler:scheduled_job',
     schema: scheduleListQuerySchema,

@@ -243,6 +243,7 @@ describe('CRUD Factory', () => {
     const routeWithIdFilter = makeCrudRoute({
       metadata: { GET: { requireAuth: true } },
       orm: { entity: Todo, idField: 'id', orgField: 'organizationId', tenantField: 'tenantId', softDeleteField: 'deletedAt' },
+      indexer: { entityType: 'example.todo' },
       list: {
         schema: querySchema.extend({ id: z.string().optional() }),
         entityId: 'example.todo',
