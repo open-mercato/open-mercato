@@ -1,0 +1,352 @@
+import { z } from 'zod'
+import type { EntityManager } from '@mikro-orm/postgresql'
+import type { CommandHandler } from '@open-mercato/shared/lib/commands'
+import { registerCommand } from '@open-mercato/shared/lib/commands'
+import { findOneWithDecryption, findWithDecryption } from '@open-mercato/shared/lib/encryption/find'
+import { emitCommunicationChannelsEvent } from '../events'
+import { Message } from '../../messages/data/entities'
+import {
+  CommunicationChannel,
+  ChannelThreadMapping,
+  MessageChannelLink,
+  MessageReaction,
+} from '../data/entities'
+import { COMMUNICATION_CHANNELS_QUEUES, getCommunicationChannelsQueue } from '../lib/queue'
+import type { ReactionProcessorPayload } from '../workers/reaction-processor-types'
+import {
+  allowsMultipleReactionsPerUser,
+} from '../lib/reaction-semantics'
+import type { ChannelCapabilities } from '../lib/adapter'
+
+const toggleOutboundReactionSchema = z.object({
+  messageId: z.string().uuid(),
+  emoji: z.string().min(1).max(64),
+  action: z.enum(['add', 'remove']),
+  /** Reaction id (required for remove only). */
+  reactionId: z.string().uuid().optional(),
+  reactedByUserId: z.string().uuid(),
+  scope: z.object({
+    tenantId: z.string().uuid(),
+    organizationId: z.string().uuid().nullable(),
+  }),
+})
+
+export type ToggleOutboundReactionInput = z.infer<typeof toggleOutboundReactionSchema>
+
+export type ToggleOutboundReactionResult =
+  | { status: 'no_channel_link'; reason: string }
+  | {
+      status: 'added'
+      reactionId: string
+      messageId: string
+      emoji: string
+      enqueued: boolean
+      replaced: number
+    }
+  | {
+      status: 'removed'
+      messageId: string
+      emoji: string
+      enqueued: boolean
+      deleted: number
+    }
+  | { status: 'noop'; reason: string }
+
+export const COMMUNICATION_CHANNELS_TOGGLE_OUTBOUND_REACTION_COMMAND_ID =
+  'communication_channels.toggle_outbound_reaction'
+
+/**
+ * Combined outbound add/remove command.
+ *
+ * For UX responsiveness, the local mutation (insert/delete `MessageReaction`)
+ * happens synchronously and is what the API handler returns. The provider-side
+ * effect (calling `adapter.sendReaction?` / `removeReaction?`) is enqueued to
+ * the reactions queue and processed asynchronously by the reaction worker.
+ *
+ * For `add`:
+ *   - Validates the message is channel-linked (otherwise returns `no_channel_link`).
+ *   - Applies single-vs-multi semantics:
+ *     - WhatsApp-style (multiReactionPerUser=false): deletes prior reactions
+ *       from the same internal user on the same message, then inserts the new one.
+ *     - Slack-style (multiReactionPerUser=true): inserts; duplicates blocked
+ *       by the unique constraint.
+ *   - Enqueues an `outbound_send` job carrying the new reaction id.
+ *   - Emits `communication_channels.reaction.added` synchronously (optimistic).
+ *
+ * For `remove`:
+ *   - Looks up the `MessageReaction` row (validates ownership: reactedByUserId
+ *     must match).
+ *   - Deletes the row locally.
+ *   - Enqueues an `outbound_remove` job carrying the emoji + (if known) the
+ *     external reaction id.
+ *   - Emits `communication_channels.reaction.removed`.
+ */
+const toggleOutboundReactionCommand: CommandHandler<
+  ToggleOutboundReactionInput,
+  ToggleOutboundReactionResult
+> = {
+  id: COMMUNICATION_CHANNELS_TOGGLE_OUTBOUND_REACTION_COMMAND_ID,
+  async execute(rawInput, ctx) {
+    const input = toggleOutboundReactionSchema.parse(rawInput) as ToggleOutboundReactionInput
+    const em = (ctx.container.resolve('em') as EntityManager).fork()
+    const dscope = {
+      tenantId: input.scope.tenantId,
+      organizationId: input.scope.organizationId ?? null,
+    }
+
+    // (a) Resolve the platform Message + channel link.
+    const message = await findOneWithDecryption(
+      em,
+      Message,
+      {
+        id: input.messageId,
+        tenantId: input.scope.tenantId,
+        organizationId: input.scope.organizationId ?? null,
+        deletedAt: null,
+      } as any,
+      undefined,
+      dscope,
+    )
+    if (!message) {
+      return { status: 'no_channel_link', reason: 'message not found' }
+    }
+    const channelLink = await findOneWithDecryption(
+      em,
+      MessageChannelLink,
+      {
+        messageId: message.id,
+        tenantId: input.scope.tenantId,
+        organizationId: input.scope.organizationId ?? null,
+      } as any,
+      undefined,
+      dscope,
+    )
+    if (!channelLink) {
+      return { status: 'no_channel_link', reason: 'message is not channel-linked' }
+    }
+    const channel = await findOneWithDecryption(
+      em,
+      CommunicationChannel,
+      {
+        id: { $exists: true } as any,
+        tenantId: input.scope.tenantId,
+        organizationId: input.scope.organizationId ?? null,
+        providerKey: channelLink.providerKey,
+        deletedAt: null,
+      } as any,
+      undefined,
+      dscope,
+    )
+    // The above is a fallback lookup; the cleaner path is via mapping.channelId
+    // when we have it, but mapping is not required for outbound react.
+    const mapping = await findOneWithDecryption(
+      em,
+      ChannelThreadMapping,
+      {
+        messageThreadId: message.threadId ?? message.id,
+        tenantId: input.scope.tenantId,
+        organizationId: input.scope.organizationId ?? null,
+      } as any,
+      undefined,
+      dscope,
+    )
+    const resolvedChannel = mapping
+      ? await findOneWithDecryption(
+          em,
+          CommunicationChannel,
+          {
+            id: mapping.channelId,
+            tenantId: input.scope.tenantId,
+            organizationId: input.scope.organizationId ?? null,
+            deletedAt: null,
+          } as any,
+          undefined,
+          dscope,
+        )
+      : channel
+    if (!resolvedChannel) {
+      return { status: 'no_channel_link', reason: 'channel not resolved' }
+    }
+    const capabilities = (resolvedChannel.capabilities as ChannelCapabilities | null) ?? null
+
+    if (input.action === 'add') {
+      let replaced = 0
+      if (!allowsMultipleReactionsPerUser(capabilities)) {
+        const prior = await findWithDecryption(
+          em,
+          MessageReaction,
+          {
+            messageId: message.id,
+            reactedByUserId: input.reactedByUserId,
+            tenantId: input.scope.tenantId,
+            organizationId: input.scope.organizationId ?? null,
+          } as any,
+          undefined,
+          dscope,
+        )
+        replaced = prior.length
+        for (const row of prior) em.remove(row)
+        if (replaced > 0) await em.flush()
+      }
+
+      let reaction: MessageReaction
+      try {
+        reaction = em.create(MessageReaction, {
+          messageId: message.id,
+          emoji: input.emoji,
+          reactedByUserId: input.reactedByUserId,
+          reactedByExternalId: null,
+          providerKey: channelLink.providerKey,
+          tenantId: input.scope.tenantId,
+          organizationId: input.scope.organizationId ?? null,
+        } as any)
+        em.persist(reaction)
+        await em.flush()
+      } catch (err) {
+        if (isUniqueViolation(err)) {
+          return { status: 'noop', reason: 'duplicate reaction from same user with same emoji' }
+        }
+        throw err
+      }
+
+      // Enqueue outbound job.
+      let enqueued = false
+      if (typeof resolvedChannel.id === 'string') {
+        const job: ReactionProcessorPayload = {
+          kind: 'outbound_send',
+          providerKey: channelLink.providerKey,
+          channelId: resolvedChannel.id,
+          messageId: message.id,
+          reactionId: reaction.id,
+          emoji: input.emoji,
+          conversationId:
+            (channelLink.channelMetadata as Record<string, unknown> | null)?.['thread_id'] as
+              | string
+              | undefined,
+          scope: {
+            tenantId: input.scope.tenantId,
+            organizationId: input.scope.organizationId,
+          },
+          attempt: 1,
+        }
+        const queue = getCommunicationChannelsQueue(COMMUNICATION_CHANNELS_QUEUES.reactions)
+        await queue.enqueue(job as unknown as Record<string, unknown>)
+        enqueued = true
+      }
+
+      await emitCommunicationChannelsEvent(
+        'communication_channels.reaction.added',
+        {
+          reactionId: reaction.id,
+          messageId: message.id,
+          channelLinkId: channelLink.id,
+          channelId: resolvedChannel.id,
+          providerKey: channelLink.providerKey,
+          channelType: channelLink.channelType,
+          emoji: input.emoji,
+          reactedByUserId: input.reactedByUserId,
+          allowsMultiplePerUser: allowsMultipleReactionsPerUser(capabilities),
+          tenantId: input.scope.tenantId,
+          organizationId: input.scope.organizationId ?? null,
+        },
+        { persistent: true },
+      )
+
+      return {
+        status: 'added',
+        reactionId: reaction.id,
+        messageId: message.id,
+        emoji: input.emoji,
+        enqueued,
+        replaced,
+      }
+    }
+
+    // input.action === 'remove'
+    if (!input.reactionId) {
+      return { status: 'noop', reason: 'reactionId required for remove' }
+    }
+    const reaction = await findOneWithDecryption(
+      em,
+      MessageReaction,
+      {
+        id: input.reactionId,
+        messageId: message.id,
+        tenantId: input.scope.tenantId,
+        organizationId: input.scope.organizationId ?? null,
+      } as any,
+      undefined,
+      dscope,
+    )
+    if (!reaction) {
+      return { status: 'noop', reason: 'reaction not found' }
+    }
+    if (reaction.reactedByUserId !== input.reactedByUserId) {
+      return { status: 'noop', reason: 'reaction not owned by current user' }
+    }
+    const externalReactionId = reaction.externalReactionId ?? null
+    em.remove(reaction)
+    await em.flush()
+
+    let enqueued = false
+    if (typeof resolvedChannel.id === 'string') {
+      const job: ReactionProcessorPayload = {
+        kind: 'outbound_remove',
+        providerKey: channelLink.providerKey,
+        channelId: resolvedChannel.id,
+        messageId: message.id,
+        emoji: input.emoji,
+        externalReactionId,
+        conversationId:
+          (channelLink.channelMetadata as Record<string, unknown> | null)?.['thread_id'] as
+            | string
+            | undefined,
+        scope: {
+          tenantId: input.scope.tenantId,
+          organizationId: input.scope.organizationId,
+        },
+        attempt: 1,
+      }
+      const queue = getCommunicationChannelsQueue(COMMUNICATION_CHANNELS_QUEUES.reactions)
+      await queue.enqueue(job as unknown as Record<string, unknown>)
+      enqueued = true
+    }
+
+    await emitCommunicationChannelsEvent(
+      'communication_channels.reaction.removed',
+      {
+        messageId: message.id,
+        channelLinkId: channelLink.id,
+        channelId: resolvedChannel.id,
+        providerKey: channelLink.providerKey,
+        channelType: channelLink.channelType,
+        emoji: input.emoji,
+        reactedByUserId: input.reactedByUserId,
+        deletedCount: 1,
+        tenantId: input.scope.tenantId,
+        organizationId: input.scope.organizationId ?? null,
+      },
+      { persistent: true },
+    )
+
+    return {
+      status: 'removed',
+      messageId: message.id,
+      emoji: input.emoji,
+      enqueued,
+      deleted: 1,
+    }
+  },
+}
+
+function isUniqueViolation(err: unknown): boolean {
+  if (!err || typeof err !== 'object') return false
+  const code = (err as { code?: string }).code
+  if (code === '23505') return true
+  const message = (err as { message?: string }).message
+  return typeof message === 'string' && /duplicate key value|unique constraint/i.test(message)
+}
+
+registerCommand(toggleOutboundReactionCommand as unknown as CommandHandler)
+
+export default toggleOutboundReactionCommand

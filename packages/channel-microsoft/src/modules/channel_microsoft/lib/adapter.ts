@@ -1,0 +1,354 @@
+import type {
+  ChannelAdapter,
+  ChannelNativeContent,
+  ConvertOutboundInput,
+  BuildOAuthAuthorizeUrlInput,
+  BuildOAuthAuthorizeUrlResult,
+  DeleteChannelMessageInput,
+  ExchangeOAuthCodeInput,
+  ExchangeOAuthCodeResult,
+  FetchHistoryInput,
+  GetMessageStatusInput,
+  HistoryPage,
+  InboundMessage,
+  MessageStatus,
+  NormalizedInboundMessage,
+  RefreshCredentialsInput,
+  RefreshedCredentials,
+  ResolveContactInput,
+  ContactHint,
+  SendMessageInput,
+  SendMessageResult,
+  VerifyWebhookInput,
+} from '@open-mercato/core/modules/communication_channels/lib/adapter'
+import { microsoftCapabilities } from './capabilities'
+import {
+  microsoftChannelStateSchema,
+  microsoftClientCredentialsSchema,
+  microsoftUserCredentialsSchema,
+  parseScopes,
+  type MicrosoftChannelState,
+  type MicrosoftClientCredentials,
+  type MicrosoftUserCredentials,
+} from './credentials'
+import {
+  getGraphApiClient,
+  GraphApiError,
+  type GraphMessage,
+} from './graph-client'
+import {
+  decodeIdTokenClaims,
+  generatePkcePair,
+  getMicrosoftOAuthClient,
+  tokenResponseToExpiresAt,
+} from './oauth'
+import {
+  convertOutboundForMicrosoft,
+  type MicrosoftEmailNativeMetadata,
+} from './convert-outbound'
+import { normalizeInboundMicrosoftMessage } from './normalize-inbound'
+
+/**
+ * Microsoft 365 / Outlook `ChannelAdapter`. OAuth2 + PKCE; polling via Graph delta query.
+ *
+ * Credential shape on `CommunicationChannel.credentials`:
+ *   - Per-user (this blob): `{ accessToken, refreshToken?, expiresAt?, scopes?, email?, oid? }`
+ *   - Tenant OAuth client config on `IntegrationCredentials.credentials` (provider `microsoft`):
+ *     `{ clientId, tenantId?, clientSecret?, scopes? }`. The hub looks this up by
+ *     `(tenantId, providerKey='microsoft')` and passes it through.
+ *
+ * Sync model:
+ *   - First poll: `GET /me/mailFolders/inbox/messages/delta` (no link). Persist the
+ *     returned `@odata.deltaLink`. We do NOT back-fill the entire inbox — Microsoft
+ *     Graph's delta endpoint returns the recent slice + a deltaLink for go-forward
+ *     incremental sync, matching Gmail's bootstrap behavior.
+ *   - Subsequent polls: re-call the persisted deltaLink verbatim.
+ *   - If Graph returns `410 Gone` (deltaLink invalidated), we drop the cursor and
+ *     do a fresh delta call.
+ */
+class MicrosoftChannelAdapter implements ChannelAdapter {
+  readonly providerKey = 'microsoft'
+  readonly channelType = 'email'
+  readonly capabilities = microsoftCapabilities
+
+  async sendMessage(input: SendMessageInput): Promise<SendMessageResult> {
+    const userCredentials = parseUserCredentialsOrThrow(input.credentials)
+    let native: ChannelNativeContent
+    try {
+      native = await convertOutboundForMicrosoft({
+        body: input.content.html ?? input.content.text ?? '',
+        bodyFormat: input.content.bodyFormat ?? (input.content.html ? 'html' : 'text'),
+        attachments: input.content.attachments,
+        channelMetadata: input.metadata,
+        fromAddress: userCredentials.email ?? 'me',
+      })
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Outbound conversion failed'
+      return { externalMessageId: '', status: 'failed', error: message }
+    }
+
+    const nativeMeta = native.metadata as unknown as MicrosoftEmailNativeMetadata
+
+    try {
+      await getGraphApiClient().sendMail({ accessToken: userCredentials.accessToken }, nativeMeta.sendMailBody)
+      // Graph's /me/sendMail returns 202 Accepted with no body. The hub's MessageId
+      // becomes the canonical id; downstream consumers can look up the actual Graph
+      // message id later via the next inbox poll if they need to.
+      return {
+        externalMessageId: nativeMeta.messageId ?? '',
+        conversationId: nativeMeta.conversationId,
+        status: 'sent',
+        metadata: { provider: 'microsoft' },
+      }
+    } catch (error) {
+      if (error instanceof GraphApiError && (error.status === 401 || error.status === 403)) {
+        return { externalMessageId: '', status: 'failed', error: 'requires_reauth' }
+      }
+      const message = error instanceof Error ? error.message : 'Microsoft Graph sendMail failed'
+      return { externalMessageId: '', status: 'failed', error: message }
+    }
+  }
+
+  async verifyWebhook(_input: VerifyWebhookInput): Promise<InboundMessage> {
+    // Graph change-notification webhooks are deferred to v2. Until then the
+    // generic webhook route returns 2xx via this no-op.
+    return { raw: {}, eventType: 'other', metadata: { reason: 'microsoft-uses-polling-not-push' } }
+  }
+
+  async getStatus(_input: GetMessageStatusInput): Promise<MessageStatus> {
+    return { status: 'sent' }
+  }
+
+  async convertOutbound(input: ConvertOutboundInput): Promise<ChannelNativeContent> {
+    return convertOutboundForMicrosoft({ ...input, fromAddress: 'me' })
+  }
+
+  async normalizeInbound(raw: InboundMessage): Promise<NormalizedInboundMessage> {
+    const payload = raw.raw as { message?: unknown; accountIdentifier?: unknown }
+    if (!payload?.message || typeof payload.message !== 'object') {
+      throw new Error('Microsoft normalizeInbound requires raw.message (Graph Message resource)')
+    }
+    return normalizeInboundMicrosoftMessage({
+      message: payload.message as GraphMessage,
+      accountIdentifier: typeof payload.accountIdentifier === 'string' ? payload.accountIdentifier : 'unknown@outlook',
+    })
+  }
+
+  async buildOAuthAuthorizeUrl(input: BuildOAuthAuthorizeUrlInput): Promise<BuildOAuthAuthorizeUrlResult> {
+    const client = parseClientCredentialsOrThrow(input.credentials)
+    const scopes = parseScopes(client.scopes)
+    const { codeVerifier, codeChallenge } = generatePkcePair()
+    const authorizeUrl = getMicrosoftOAuthClient().buildAuthorizeUrl({
+      clientId: client.clientId,
+      tenantId: client.tenantId,
+      redirectUri: input.redirectUri,
+      state: input.state,
+      scopes,
+      loginHint: input.loginHint,
+      codeChallenge,
+    })
+    return {
+      authorizeUrl,
+      // Persist the verifier + tenantId in the hub's state cookie so we can hand
+      // them back at exchange time.
+      extra: { codeVerifier, scopes, tenantId: client.tenantId },
+    }
+  }
+
+  async exchangeOAuthCode(input: ExchangeOAuthCodeInput): Promise<ExchangeOAuthCodeResult> {
+    const client = parseClientCredentialsOrThrow(input.credentials)
+    const stateExtra = (input.stateExtra ?? {}) as { codeVerifier?: unknown; tenantId?: unknown }
+    const codeVerifier = typeof stateExtra.codeVerifier === 'string' ? stateExtra.codeVerifier : undefined
+    if (!codeVerifier) {
+      throw new Error('Microsoft OAuth exchange requires the PKCE codeVerifier from state')
+    }
+    const tenantId = typeof stateExtra.tenantId === 'string' ? stateExtra.tenantId : client.tenantId
+    const token = await getMicrosoftOAuthClient().exchangeCode({
+      clientId: client.clientId,
+      tenantId,
+      clientSecret: client.clientSecret,
+      redirectUri: input.redirectUri,
+      code: input.code,
+      codeVerifier,
+    })
+    const claims = decodeIdTokenClaims(token.id_token)
+    const email = claims.email
+    const expiresAt = tokenResponseToExpiresAt(token)
+    const credentials: MicrosoftUserCredentials = {
+      accessToken: token.access_token,
+      refreshToken: token.refresh_token,
+      expiresAt: expiresAt?.toISOString(),
+      scopes: token.scope ? token.scope.split(' ').filter(Boolean) : undefined,
+      email,
+      oid: claims.oid,
+    }
+    return {
+      credentials: credentials as unknown as Record<string, unknown>,
+      externalIdentifier: email,
+      displayName: claims.name ?? email,
+      expiresAt,
+    }
+  }
+
+  async refreshCredentials(input: RefreshCredentialsInput): Promise<RefreshedCredentials> {
+    const current = parseUserCredentialsOrThrow(input.credentials)
+    if (!current.refreshToken) {
+      throw new Error('requires_reauth')
+    }
+    const clientFromState = parseClientCredentialsOrThrow(
+      (input.credentials as unknown as { _client?: unknown })._client ?? input.credentials,
+    )
+    const token = await getMicrosoftOAuthClient().refreshToken({
+      clientId: clientFromState.clientId,
+      tenantId: clientFromState.tenantId,
+      clientSecret: clientFromState.clientSecret,
+      refreshToken: current.refreshToken,
+    })
+    const expiresAt = tokenResponseToExpiresAt(token)
+    const refreshed: MicrosoftUserCredentials = {
+      accessToken: token.access_token,
+      // Microsoft rotates the refresh token on each refresh by default — adopt the new one.
+      refreshToken: token.refresh_token ?? current.refreshToken,
+      expiresAt: expiresAt?.toISOString(),
+      scopes: token.scope ? token.scope.split(' ').filter(Boolean) : current.scopes,
+      email: current.email,
+      oid: current.oid,
+    }
+    return {
+      credentials: refreshed as unknown as Record<string, unknown>,
+      expiresAt,
+    }
+  }
+
+  async fetchHistory(input: FetchHistoryInput): Promise<HistoryPage> {
+    const userCredentials = parseUserCredentialsOrThrow(input.credentials)
+    const channelState = microsoftChannelStateSchema.parse(
+      ((input as unknown) as { channelState?: unknown }).channelState ?? {},
+    )
+    const auth = { accessToken: userCredentials.accessToken }
+    const api = getGraphApiClient()
+    const limit = input.limit ?? 50
+    const accountId = userCredentials.email ?? 'me'
+
+    // Resolve the starting URL for this tick.
+    //   1. Mid-drain resumption (`pendingNextLink`) — keep going where we
+    //      stopped last tick; do NOT advance `deltaLink` until we reach a
+    //      response that carries `@odata.deltaLink` (full drain).
+    //   2. Otherwise fall through to the standard delta starting point
+    //      (resumed via stored `deltaLink` or fresh inbox-delta on first poll).
+    let firstLink: string | undefined = channelState.pendingNextLink ?? channelState.deltaLink
+
+    const messages: NormalizedInboundMessage[] = []
+    let nextLink: string | undefined
+    let terminalDeltaLink: string | undefined
+    let pageCount = 0
+    const PAGE_HARD_CAP = 25 // safety stop in case Graph returns very small pages
+
+    while (messages.length < limit && pageCount < PAGE_HARD_CAP) {
+      let response
+      try {
+        response = await api.inboxDelta(auth, firstLink)
+      } catch (error) {
+        if (error instanceof GraphApiError && (error.status === 410 || error.status === 404)) {
+          // Cursor invalidated. Drop both pendingNextLink and deltaLink and
+          // re-init from a fresh delta call. Any messages collected so far stay
+          // (idempotent on ingest).
+          firstLink = undefined
+          response = await api.inboxDelta(auth, undefined)
+        } else {
+          throw error
+        }
+      }
+      pageCount += 1
+
+      for (const m of response.value ?? []) {
+        if (!m.from && !m.subject && !m.body) continue
+        messages.push(await normalizeInboundMicrosoftMessage({ message: m, accountIdentifier: accountId }))
+        if (messages.length >= limit) break
+      }
+
+      if (response['@odata.deltaLink']) {
+        // Full drain complete — Graph emits @odata.deltaLink at the end of a
+        // delta-page-set, signalling "no more changes to walk right now". We
+        // can advance the terminal cursor.
+        terminalDeltaLink = response['@odata.deltaLink']
+        nextLink = undefined
+        break
+      }
+      if (!response['@odata.nextLink']) {
+        // No nextLink and no deltaLink — defensive. Keep the prior deltaLink
+        // and treat as "no more pages this tick".
+        nextLink = undefined
+        break
+      }
+      // More pages — either continue walking immediately (if budget allows) or
+      // bail with the next link recorded for the next tick.
+      nextLink = response['@odata.nextLink']
+      if (messages.length >= limit) break
+      firstLink = nextLink
+    }
+
+    const drained = !nextLink
+    const nextState: MicrosoftChannelState = {
+      // Only advance terminal deltaLink when fully drained. While mid-drain,
+      // pin the prior deltaLink so a recovery (e.g. operator clears
+      // pendingNextLink) resumes from the right place.
+      deltaLink: drained
+        ? terminalDeltaLink ?? channelState.deltaLink
+        : channelState.deltaLink,
+      pendingNextLink: drained ? undefined : nextLink,
+      lastSyncedAt: new Date().toISOString(),
+    }
+    return {
+      messages,
+      nextCursor: Buffer.from(JSON.stringify(nextState)).toString('base64'),
+      hasMore: !drained,
+    }
+  }
+
+  async deleteMessage(input: DeleteChannelMessageInput): Promise<void> {
+    const userCredentials = parseUserCredentialsOrThrow(input.credentials)
+    await getGraphApiClient().deleteMessage(
+      { accessToken: userCredentials.accessToken },
+      input.externalMessageId,
+    )
+  }
+
+  async resolveContact(input: ResolveContactInput): Promise<ContactHint | null> {
+    if (!input.senderIdentifier) return null
+    if (input.senderIdentifier.includes('@')) {
+      return {
+        email: input.senderIdentifier,
+        displayName: input.senderDisplayName,
+      }
+    }
+    return null
+  }
+}
+
+function parseUserCredentialsOrThrow(value: unknown): MicrosoftUserCredentials {
+  const parsed = microsoftUserCredentialsSchema.safeParse(value)
+  if (!parsed.success) {
+    const first = parsed.error.issues[0]
+    throw new Error(`Invalid Microsoft credentials: ${first?.message ?? 'unknown validation error'}`)
+  }
+  return parsed.data
+}
+
+function parseClientCredentialsOrThrow(value: unknown): MicrosoftClientCredentials {
+  const parsed = microsoftClientCredentialsSchema.safeParse(value)
+  if (!parsed.success) {
+    const first = parsed.error.issues[0]
+    throw new Error(`Invalid Microsoft OAuth client credentials: ${first?.message ?? 'unknown validation error'}`)
+  }
+  return parsed.data
+}
+
+let cachedAdapter: MicrosoftChannelAdapter | null = null
+
+export function getMicrosoftChannelAdapter(): MicrosoftChannelAdapter {
+  if (!cachedAdapter) cachedAdapter = new MicrosoftChannelAdapter()
+  return cachedAdapter
+}
+
+export { MicrosoftChannelAdapter }

@@ -1,6 +1,9 @@
 import { expect, type APIRequestContext } from '@playwright/test';
-import { apiRequest } from './api';
+import { apiRequest, getAuthToken } from './api';
 import { expectId, readJsonSafe } from './generalFixtures';
+
+// Re-exported so tests can import auth helpers from a single fixtures module.
+export { getAuthToken };
 
 export async function createRoleFixture(
   request: APIRequestContext,

@@ -57,6 +57,34 @@ function deriveDekFromSecret(secret: string, tenantId: string): string {
     .toString('base64')
 }
 
+/**
+ * Build the where-filter for credential lookups.
+ *
+ * Per-user scoping (added 2026-05-26): when `scope.userId` is set, the filter
+ * matches the row owned by that user — different users on the same tenant get
+ * their OWN row for the same provider. When `scope.userId` is `undefined` /
+ * `null`, the filter matches tenant-wide credentials (existing behaviour,
+ * e.g. shared Stripe/Akeneo API keys).
+ *
+ * The partial unique index `integration_credentials_user_lookup_idx` enforces
+ * uniqueness across `(integration_id, tenant_id, user_id)` when `user_id IS
+ * NOT NULL`.
+ */
+function buildCredentialsFilter(integrationId: string, scope: IntegrationScope) {
+  const base = {
+    integrationId,
+    organizationId: scope.organizationId,
+    tenantId: scope.tenantId,
+    deletedAt: null,
+  } as Record<string, unknown>
+  if (scope.userId) {
+    base.userId = scope.userId
+  } else {
+    base.userId = null
+  }
+  return base
+}
+
 export function createCredentialsService(em: EntityManager) {
   const credentialsEncryptionSpec = [{ field: 'credentials' }]
 
@@ -139,12 +167,7 @@ export function createCredentialsService(em: EntityManager) {
       const row = await findOneWithDecryption(
         em,
         IntegrationCredentials,
-        {
-          integrationId,
-          organizationId: scope.organizationId,
-          tenantId: scope.tenantId,
-          deletedAt: null,
-        },
+        buildCredentialsFilter(integrationId, scope),
         undefined,
         scope,
       )
@@ -168,12 +191,7 @@ export function createCredentialsService(em: EntityManager) {
       const row = await findOneWithDecryption(
         em,
         IntegrationCredentials,
-        {
-          integrationId,
-          organizationId: scope.organizationId,
-          tenantId: scope.tenantId,
-          deletedAt: null,
-        },
+        buildCredentialsFilter(integrationId, scope),
         undefined,
         scope,
       )
@@ -189,6 +207,7 @@ export function createCredentialsService(em: EntityManager) {
         credentials: encryptedCredentials,
         organizationId: scope.organizationId,
         tenantId: scope.tenantId,
+        ...(scope.userId ? { userId: scope.userId } : {}),
       })
       await em.persist(created).flush()
     },

@@ -1,0 +1,126 @@
+import type { EntityManager } from '@mikro-orm/postgresql'
+import { findOneWithDecryption } from '@open-mercato/shared/lib/encryption/find'
+import { ChannelThreadMapping, MessageChannelLink } from '../data/entities'
+import { Message } from '../../messages/data/entities'
+import { COMMUNICATION_CHANNELS_QUEUES, getCommunicationChannelsQueue } from '../lib/queue'
+import type { OutboundDeliveryPayload } from '../workers/outbound-delivery'
+
+/**
+ * Subscriber: outbound bridge.
+ *
+ * Listens to `messages.message.sent` and, when the Message lives in a channel-linked
+ * thread, enqueues a delivery job to the `communication-channels-outbound` queue.
+ *
+ * Per the pre-implementation analysis we **re-fetch the Message by ID** rather than
+ * trusting the event payload — this keeps the subscriber decoupled from the
+ * `messages.message.sent` payload shape, so any future addition/removal of fields
+ * in the messages module doesn't break this bridge.
+ *
+ * Idempotency: we check for an existing `MessageChannelLink` with `direction='outbound'`
+ * and `deliveryStatus IN ('sent','delivered','read')`. If found, we skip — the message
+ * was already delivered. The command-side check is the authoritative gate, but this
+ * cheap subscriber-level check avoids enqueueing redundant jobs.
+ *
+ * Internal-only messages (no `ChannelThreadMapping` for the threadId) are skipped
+ * silently — this is the expected steady-state for the majority of platform messages.
+ */
+export const metadata = {
+  event: 'messages.message.sent',
+  persistent: true,
+  id: 'communication_channels:outbound-bridge',
+}
+
+type MessageSentPayload = {
+  messageId: string
+  senderUserId?: string
+  recipientUserIds?: string[]
+  sendViaEmail?: boolean
+  externalEmail?: string | null
+  tenantId: string
+  organizationId?: string | null
+}
+
+type SubscriberContext = {
+  container: { resolve: <T = unknown>(name: string) => T }
+}
+
+export default async function handler(
+  payload: MessageSentPayload,
+  ctx: SubscriberContext,
+): Promise<void> {
+  if (!payload?.messageId || !payload.tenantId) {
+    return
+  }
+
+  const em = (ctx.container.resolve('em') as EntityManager).fork()
+  const dscope = {
+    tenantId: payload.tenantId,
+    organizationId: payload.organizationId ?? null,
+  }
+
+  // (a) Re-fetch the Message — no payload-shape coupling.
+  const message = await findOneWithDecryption(
+    em,
+    Message,
+    {
+      id: payload.messageId,
+      tenantId: payload.tenantId,
+      organizationId: payload.organizationId ?? null,
+      deletedAt: null,
+    } as any,
+    undefined,
+    dscope,
+  )
+  if (!message) return
+  if (message.sourceEntityType === 'communication_channels.send_as_user') {
+    return
+  }
+  if (!message.threadId) return // Internal-only; no channel routing.
+
+  // (b) Look up the channel mapping by threadId.
+  const mapping = await findOneWithDecryption(
+    em,
+    ChannelThreadMapping,
+    {
+      messageThreadId: message.threadId,
+      tenantId: payload.tenantId,
+      organizationId: payload.organizationId ?? null,
+    } as any,
+    undefined,
+    dscope,
+  )
+  if (!mapping) return // Internal-only thread; skip silently.
+
+  // (c) Idempotency — skip if already delivered.
+  const existingLink = await findOneWithDecryption(
+    em,
+    MessageChannelLink,
+    {
+      messageId: message.id,
+      tenantId: payload.tenantId,
+      organizationId: payload.organizationId ?? null,
+    } as any,
+    undefined,
+    dscope,
+  )
+  if (
+    existingLink &&
+    (existingLink.deliveryStatus === 'sent' ||
+      existingLink.deliveryStatus === 'delivered' ||
+      existingLink.deliveryStatus === 'read')
+  ) {
+    return
+  }
+
+  // (d) Enqueue the delivery worker.
+  const queue = getCommunicationChannelsQueue(COMMUNICATION_CHANNELS_QUEUES.outbound)
+  const job: OutboundDeliveryPayload = {
+    messageId: message.id,
+    scope: {
+      tenantId: payload.tenantId,
+      organizationId: payload.organizationId ?? null,
+    },
+    attempt: 1,
+  }
+  await queue.enqueue(job as unknown as Record<string, unknown>)
+}

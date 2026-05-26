@@ -1204,6 +1204,25 @@ None.
 
 ## Changelog
 
+### 2026-05-26 — Phase 5 — Docs + deploy runbook
+
+Final spec phase. No code changes; documentation only.
+
+- **New end-user doc** at `apps/docs/docs/user-guide/communication-channels.mdx` — connect / reconnect / disconnect / multi-account / primary swap flows for Gmail, Microsoft 365, and IMAP+SMTP. Troubleshooting section enumerates the five most common failure modes per provider (auth rejection, ECONNREFUSED, admin-consent gates, app-not-verified, etc.). Cross-linked with the inbox-ops user guide so users understand the per-user vs shared-mailbox split. Explicit "What Open Mercato never does" section documenting the scope: inbox-only sync, no DKIM mining, no cross-user mailbox sharing.
+- **New developer / admin doc** at `apps/docs/docs/framework/modules/communication-channels.mdx` — Hub architecture diagram + send/receive path diagrams; per-user channel column reference; OAuth setup walkthroughs for Google Cloud Console and Azure AD; env-var reference (`OM_HUB_OAUTH_STATE_KEY`, `OM_HUB_OAUTH_STATE_TTL_SECONDS`, `OM_HUB_POLL_DEFAULT_SECONDS`, `OM_HUB_POLL_CONCURRENCY`, `OM_HUB_OUTBOUND_RETRY_MAX`); deploy runbook covering initial deploy, routine ops (state-key rotation, OAuth secret rotation, force-poll), adding a new provider, security posture. Provider-package contract summary so future providers (Yahoo, ProtonMail Bridge, etc.) can be built from this doc plus the three shipping examples.
+- **No spec re-write** — the prior Implementation Plan / API Contracts / UI sections remain authoritative; Phase 5 just surfaces them in user-facing docs.
+
+#### Final Compliance Report — Phase 5 re-validation
+
+| Rule | Status | Notes |
+|---|---|---|
+| Documentation includes user-facing connection guide | Compliant | `user-guide/communication-channels.mdx` |
+| Documentation includes admin/deploy runbook | Compliant | `framework/modules/communication-channels.mdx` § Deploy runbook |
+| Documentation cross-links with `inbox-ops.mdx` for scope-separation clarity | Compliant | Bidirectional links in both docs |
+| Spec changelog updated for every phase | Compliant | 2026-05-21 (rewrite), 2026-05-22 (pre-impl fixes), 2026-05-26 (Phase 5) |
+| RELEASE_NOTES.md entry | N/A | The repo does not maintain a root `RELEASE_NOTES.md`; release notes flow through GitHub release pages tied to PR descriptions. The user-guide doc serves as the changelog surface end users see. |
+| All AGENTS.md rules listed in the original Final Compliance Report (lines 1149-1198 of this spec) still pass | Compliant | No code changes in Phase 5 → no surface drift |
+
 ### 2026-05-22 — Pre-implementation fixes (`/pre-implement-spec` analysis remediation)
 
 Applied the remediation plan from `.ai/specs/analysis/ANALYSIS-2026-05-21-email-integration-foundation.md`. No architectural changes; all updates are scope, hygiene, and contract-surface clarifications.
@@ -1234,3 +1253,86 @@ Complete rewrite of the email integration spec. The previous draft (`.ai/specs/2
 - Outbound via the hub's standard `messages.message.sent` → adapter chain, plus a thin `sendAsUser` facade for programmatic callers.
 
 The previous draft is superseded. This spec is the canonical email integration design.
+
+## Implementation Status
+
+| Slice | Phase | Status | Date | Notes |
+|---|---|---|---|---|
+| 3a | Phase 0 — Hub schema deltas | Done | 2026-05-26 | Per-user columns on `CommunicationChannel` (`user_id`, `is_primary`, `poll_interval_seconds`, `last_polled_at`, `status`, `last_error`) + `integration_credentials.user_id` + `communication_channels.connect_user_channel` ACL feature; entity extensions; migration `Migration20260526154135_communication_channels.ts` |
+| 3b | Phase 0 — Polling worker + scheduler | Done | 2026-05-26 | `lib/credential-refresh.ts` + per-channel poll worker + `@open-mercato/scheduler` cron entry registered in `setup.ts.seedDefaults`; access-control helpers `buildPerUserChannelFilter` / `assertCanAccessChannel` |
+| 3c | Phase 0 — OAuth state-cookie + callback router | Done | 2026-05-26 | `lib/oauth-state.ts` (AES-256-GCM, HKDF, 5min TTL, userId-bound; ported from enterprise SSO, NOT imported); `api/post/oauth/[provider]/initiate/route.ts`; `api/get/oauth/[provider]/callback/route.ts` |
+| 3d | Phase 0 — Per-user channel routes + profile page | Done | 2026-05-26 | `GET /me/channels`, `POST connect/credentials`, `POST [id]/set-primary`, `POST [id]/test-send`, `POST send-as-user`; `backend/profile/communication-channels/page.tsx`; `set-primary-channel` + `connect-credential-channel` commands |
+| 3e | Phase 1 — IMAP provider package | Done | 2026-05-26 | New `@open-mercato/channel-imap` workspace; ChannelAdapter implementation with `validateCredentials` (live IMAP+SMTP login), `fetchHistory` (UIDVALIDITY+UIDNEXT polling with full-resync on validity change), `sendMessage` (nodemailer SMTP + best-effort Sent-folder append via imapflow), `convertOutbound`, `normalizeInbound` (mailparser; RFC2822 In-Reply-To/References threading), `resolveContact`. 34 unit tests + 3 integration specs. Wired into `apps/mercato/src/modules.ts`. |
+| 3f | Phase 2 — Gmail provider package | Done | 2026-05-26 | New `@open-mercato/channel-gmail` workspace; ChannelAdapter with `buildOAuthAuthorizeUrl` / `exchangeOAuthCode` / `refreshCredentials` (Google OAuth2 via raw `fetch`), `fetchHistory` (Gmail History API incremental with `gmail.users.messages.list` fallback on `404`), `sendMessage` (`gmail.users.messages.send` with base64url-encoded RFC2822 + threadId), `deleteMessage` (`gmail.users.messages.trash`), `convertOutbound`, `normalizeInbound` (mailparser; Gmail threadId for conversation grouping). 47 unit tests + 3 integration specs. `googleapis` dep installed for downstream SDK consumers; adapter itself uses `fetch` to keep the test bundle hermetic. Wired into `apps/mercato/src/modules.ts`. |
+| 3g | Phase 3 — Microsoft 365 provider package | Done | 2026-05-26 | New `@open-mercato/channel-microsoft` workspace; ChannelAdapter with `buildOAuthAuthorizeUrl` (PKCE S256 via Node `crypto`) / `exchangeOAuthCode` (code+verifier exchange, id_token claim harvesting) / `refreshCredentials` (rotating refresh token), `fetchHistory` (Microsoft Graph delta query `/me/mailFolders/inbox/messages/delta` + 410 fallback), `sendMessage` (`/me/sendMail` with saveToSentItems), `deleteMessage` (`/me/messages/{id}` DELETE → Deleted Items), `convertOutbound`, `normalizeInbound` (Graph Message JSON; `conversationId` for grouping). 51 unit tests + 3 integration specs. No SDK dependency — uses raw `fetch`. Wired into `apps/mercato/src/modules.ts`. |
+
+### Phase 2 — Gmail Detailed Progress (Slice 3f)
+- [x] Workspace package scaffold (`packages/channel-gmail/`, `build.mjs`, `watch.mjs`, `jest.config.cjs`, `tsconfig.json`, `package.json`)
+- [x] `src/modules/channel_gmail/` skeleton (`index.ts`, `acl.ts`, `setup.ts`, `di.ts`, `integration.ts`)
+- [x] `lib/capabilities.ts` — `realtimePush: false` (Pub/Sub deferred), `threading: true`, `richText: true`, `deleteMessage: true`, `maxFileSize: 25 MB`
+- [x] `lib/credentials.ts` — Zod schemas for tenant OAuth client (clientId/clientSecret/scopes) + per-user tokens + channel state (historyId)
+- [x] `lib/oauth.ts` — Google OAuth2 transport (raw `fetch`; test-swappable via `setGoogleOAuthClient`)
+- [x] `lib/gmail-client.ts` — Gmail v1 REST wrapper (history.list, messages.list, messages.get?format=raw, messages.send, messages.trash, users.getProfile; test-swappable)
+- [x] `lib/normalize-inbound.ts` — mailparser → `NormalizedInboundMessage`; `externalConversationId = gmail-thread:<threadId>` for Gmail-native threading
+- [x] `lib/convert-outbound.ts` — hub-canonical input → RFC2822 + Gmail threadId; auto-generates Message-ID rooted in From address
+- [x] `lib/adapter.ts` — ChannelAdapter wiring + bootstrap historyId path + incremental history.list + 404-fallback to messages.list
+- [x] Unit tests: 47 passing across `credentials.test.ts`, `oauth.test.ts`, `convert-outbound.test.ts`, `normalize-inbound.test.ts`, `gmail-client.test.ts`, `adapter.test.ts`
+- [x] Module-local integration tests: `TC-CHANNEL-EMAIL-006` (OAuth initiate router), `TC-CHANNEL-EMAIL-007` (webhook no-op), `TC-CHANNEL-EMAIL-008` (profile page render)
+- [x] Wired into `apps/mercato/src/modules.ts`
+- [x] `yarn install` → 12 new packages (googleapis transitive deps)
+- [x] `yarn generate` succeeds; registry validator passes (`deleteMessage: true` ↔ `deleteMessage()` implemented); structural cache purged
+- [x] `yarn build:packages` succeeds (21/21 packages); `yarn test` succeeds (21/21 packages)
+- [ ] Live Gmail end-to-end test against a Google Workspace test account — manual; not part of CI
+- [ ] Pub/Sub push subscription (real-time inbound) — deferred to v2 per spec § Phase 2 acceptance
+
+### Phase 3 — Microsoft 365 Detailed Progress (Slice 3g)
+- [x] Workspace package scaffold (`packages/channel-microsoft/`, `build.mjs`, `watch.mjs`, `jest.config.cjs`, `tsconfig.json`, `package.json`)
+- [x] `src/modules/channel_microsoft/` skeleton (`index.ts`, `acl.ts`, `setup.ts`, `di.ts`, `integration.ts`)
+- [x] `lib/capabilities.ts` — `realtimePush: false` (Graph subscriptions deferred), `threading: true`, `richText: true`, `deleteMessage: true`, `maxFileSize: 25 MB`
+- [x] `lib/credentials.ts` — Zod schemas for tenant Azure AD app config (clientId/tenantId/clientSecret/scopes) + per-user tokens (with `oid` claim) + channel state (deltaLink)
+- [x] `lib/oauth.ts` — Microsoft Identity v2.0 transport with PKCE S256 (`crypto.randomBytes` + SHA-256 hash); `decodeIdTokenClaims` for email/oid harvesting; test-swappable via `setMicrosoftOAuthClient`
+- [x] `lib/graph-client.ts` — Microsoft Graph v1.0 REST wrapper (mail delta, /me/sendMail, /me/messages/{id}, /me; test-swappable)
+- [x] `lib/normalize-inbound.ts` — Graph Message JSON → `NormalizedInboundMessage`; `externalConversationId = microsoft-conversation:<conversationId>` for Outlook-native threading; harvests `categories` + `inferenceClassification`
+- [x] `lib/convert-outbound.ts` — hub-canonical input → Graph sendMail body (`saveToSentItems: true`); auto-generates Message-ID rooted in From address; threading hints via `internetMessageHeaders`
+- [x] `lib/adapter.ts` — ChannelAdapter wiring + PKCE bootstrap path + incremental deltaLink path + 410-fallback to fresh delta
+- [x] Unit tests: 51 passing across `credentials.test.ts`, `oauth.test.ts` (including PKCE pair generation + id_token claim decode), `convert-outbound.test.ts`, `normalize-inbound.test.ts`, `graph-client.test.ts`, `adapter.test.ts`
+- [x] Module-local integration tests: `TC-CHANNEL-EMAIL-011` (OAuth initiate router), `TC-CHANNEL-EMAIL-012` (webhook no-op), `TC-CHANNEL-EMAIL-013` (profile page render)
+- [x] Wired into `apps/mercato/src/modules.ts`
+- [x] `yarn install` — no new external deps (raw `fetch` + Node `crypto` for PKCE)
+- [x] `yarn generate` succeeds; registry validator passes (`deleteMessage: true` ↔ `deleteMessage()` implemented); structural cache purged
+- [x] `yarn build:packages` succeeds (22/22 packages); `yarn test` succeeds (22/22 packages)
+- [ ] Live Microsoft 365 end-to-end test against an Azure AD work/school account — manual; not part of CI
+- [ ] Graph change-notification subscriptions (real-time inbound) — deferred to v2 per spec § Phase 3 acceptance
+| 4 | Phase 4 — UMES polish + cross-provider tests | Done | 2026-05-26 | Hub-side `widgets/components.ts` override scaffold; `lib/mutation-guards.ts` (`guardChannelDelete` blocks delete with unread inbound; `guardOutboundCreate` maps `requires_reauth`/`disconnected` to 422); `subscribers/user-deleted-cascade.ts` on `auth.user.deleted`; `notifications.handlers.ts` for `channel.requires_reauth` + `message.received`; `commands/disconnect-channel.ts` (undoable) + `commands/interceptors.ts` (`beforeUndo` blocks primary-collision restore); wired `send-as-user` to use `guardOutboundCreate`. 30 new unit tests + 7 integration specs (TC-CHANNEL-EMAIL-014..020). |
+| 5 | Phase 5 — Docs + deploy runbook | Done | 2026-05-26 | `apps/docs/docs/user-guide/communication-channels.mdx` (end-user connect/reconnect/troubleshooting); `apps/docs/docs/framework/modules/communication-channels.mdx` (architecture, OAuth setup for Gmail + Microsoft, env-var reference, deploy runbook, provider-package contract). Cross-linked with `inbox-ops.mdx`. Spec changelog updated. Final Compliance Report re-validated. |
+
+### Phase 4 — UMES Polish Detailed Progress (Slice 4)
+- [x] **Deliverable 1**: `widgets/components.ts` exporting `componentOverrides: ComponentOverride[]` — scaffold with forward-compatible handle ids documented (`section:messages.detail.header`, `data-table:messages:row`). Empty array today because the Messages module's `MainMessageHeader` is not yet registered as a known component id; the override-mechanism contract is honoured (downstream apps can target hub-side handles). Email-specific affordances ship via the existing `detail:messages:message:body:after` injection-spot's `channel-payload-renderer` widget (slices 2a + 2e).
+- [x] **Deliverable 2**: `lib/mutation-guards.ts` exporting `guardChannelDelete` (blocks delete when unread inbound > 0; `force: true` bypass) and `guardOutboundCreate` (maps `status='requires_reauth'`/`'disconnected'` to a 422 with `fieldErrors.channelId`). `send-as-user` route imports `guardOutboundCreate` so the contract is exercised end-to-end. `countUnreadInboundForChannel` exposed for tests.
+- [x] **Deliverable 3**: `subscribers/user-deleted-cascade.ts` on `auth.user.deleted` — cascades `status='disconnected' / isActive=false / isPrimary=false / credentialsRef=null` across every channel the deleted user owned. Idempotent on replays.
+- [x] **Deliverable 4**: `notifications.handlers.ts` exporting two `NotificationHandler` entries — a warning toast + DOM event for `communication_channels.channel.requires_reauth` (with reconnect-CTA navigate), and a silent DOM event for `communication_channels.message.received` so the unified inbox refetches without toasting.
+- [x] **Deliverable 5**: `commands/disconnect-channel.ts` (undoable; captures `previousStatus / isActive / isPrimary / credentialsRef / lastError` snapshot) + `commands/interceptors.ts` (`beforeUndo` interceptor blocks restore when a different channel became primary for the user while this one was disconnected — avoids violating the partial-unique `communication_channels_one_primary_per_user_uq` index).
+- [x] Unit tests: 30 new tests across `mutation-guards.test.ts` (13), `user-deleted-cascade.test.ts` (4), `disconnect-channel.test.ts` (10), `interceptors.test.ts` (4). All passing.
+- [x] Module-local integration tests: `TC-CHANNEL-EMAIL-014..020` (7 specs) covering primary-swap contract, admin RBAC, tenant OAuth override, disconnect halts polling, send-as-user mutation guard, profile page after cascade, rich-content widget composition.
+- [x] `yarn generate` succeeds; `yarn build:packages` succeeds (22/22 packages); `yarn test` succeeds (22/22 packages, core: 4441 tests / 532 suites — +30 vs pre-Phase-4 baseline).
+- [ ] Manual QA: connect Gmail + IMAP for one user, flip primary, disconnect Gmail, undo while IMAP is primary — verify the interceptor blocks and the UX is acceptable. (Not part of CI.)
+
+### Phase 1 — IMAP Detailed Progress (Slice 3e)
+- [x] Workspace package scaffold (`packages/channel-imap/`, `build.mjs`, `watch.mjs`, `jest.config.cjs`, `tsconfig.json`, `package.json`)
+- [x] `src/modules/channel_imap/` skeleton (`index.ts`, `acl.ts`, `setup.ts`, `di.ts`, `integration.ts`)
+- [x] `lib/capabilities.ts` — `realtimePush: false`, `threading: true`, `richText: true`, `fileSharing: true`, `maxFileSize: 25_000_000`, no reactions, no edit/delete
+- [x] `lib/credentials.ts` — Zod schemas for IMAP+SMTP credentials + channel poll state
+- [x] `lib/imap-client.ts` — imapflow wrapper (lazy dynamic import; test-swappable client)
+- [x] `lib/smtp-client.ts` — nodemailer wrapper (lazy dynamic import; test-swappable client)
+- [x] `lib/normalize-inbound.ts` — mailparser-backed MIME → `NormalizedInboundMessage` with In-Reply-To/References threading
+- [x] `lib/convert-outbound.ts` — hub-canonical `ConvertOutboundInput` → email-shaped native content + threading headers
+- [x] `lib/validate-credentials.ts` — live IMAP login + SMTP `verify` with field-level error mapping
+- [x] `lib/adapter.ts` — ChannelAdapter implementation wiring all of the above
+- [x] Unit tests: 34 passing across `credentials.test.ts`, `convert-outbound.test.ts`, `normalize-inbound.test.ts`, `validate-credentials.test.ts`, `adapter.test.ts`
+- [x] Module-local integration tests: `TC-CHANNEL-EMAIL-001` (provider registration), `TC-CHANNEL-EMAIL-002` (webhook no-op), `TC-CHANNEL-EMAIL-003` (profile page render)
+- [x] Wired into `apps/mercato/src/modules.ts`
+- [x] `yarn install` → 31 new packages (imapflow + nodemailer + mailparser + types)
+- [x] `yarn generate` succeeds; structural cache purged
+- [x] `yarn build:packages` succeeds (20/20 packages); `yarn test` succeeds (21/21 packages)
+- [ ] Live IMAP/SMTP end-to-end test against a real server — covered manually by user when connecting a real account; not part of CI
+- [ ] Phase 4 widget injections (profile + integrations + data tables) — deferred to slice 3f when shared with the Gmail provider

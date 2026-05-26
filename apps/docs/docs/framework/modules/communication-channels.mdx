@@ -1,0 +1,297 @@
+---
+title: Communications Hub
+description: Architecture, OAuth setup, environment variables, deploy runbook, and provider package contract for the Communications Hub and the IMAP / Gmail / Microsoft 365 channel providers.
+---
+
+# Communications Hub
+
+The Communications Hub (`communication_channels`) bridges external chat and email channels (Slack, WhatsApp, Gmail, Microsoft 365, IMAP+SMTP) into the **Messages** module. Each provider ships as a separate workspace package implementing the `ChannelAdapter` contract; the hub itself stays adapter-agnostic.
+
+Three email providers ship today:
+
+- `@open-mercato/channel-imap` — credential-based IMAP polling + SMTP send
+- `@open-mercato/channel-gmail` — Gmail OAuth2 + History API polling + `gmail.users.messages.send`
+- `@open-mercato/channel-microsoft` — Azure AD OAuth2 + PKCE + Graph delta query + `/me/sendMail`
+
+For the end-user perspective see the [Communication Channels user guide](../../user-guide/communication-channels.mdx).
+
+## Overview
+
+- **Hub**: `packages/core/src/modules/communication_channels/`
+- **Providers**: `packages/channel-{imap,gmail,microsoft}/`
+- **Module entry**: enable with `{ id: 'communication_channels', from: '@open-mercato/core' }` plus one entry per provider you want active in `apps/mercato/src/modules.ts`.
+- **Specs**: [`.ai/specs/implemented/SPEC-045d-communication-notification-hubs.md`](#) (hub contract) and [`.ai/specs/2026-05-21-email-integration-foundation.md`](#) (email providers + per-user surfaces).
+
+## Architecture
+
+```
+              ┌──────────────────────────────────────────────┐
+              │  Communications Hub (communication_channels) │
+              │                                              │
+   ┌──────────┤  ChannelAdapter registry (process-wide)      │──────────┐
+   │          │  CommunicationChannel + ExternalConversation │          │
+   │          │  ExternalMessage + MessageChannelLink        │          │
+   │          │  ChannelThreadMapping + MessageReaction      │          │
+   │          └──────────────────────────────────────────────┘          │
+   ▼                                                                    ▼
+┌──────────┐  ┌──────────┐  ┌───────────┐                          ┌────────┐
+│ channel- │  │ channel- │  │ channel-  │  …  (future: channel-    │ Messages │
+│  imap    │  │  gmail   │  │ microsoft │     slack, channel-      │ module   │
+│  (basic  │  │  (OAuth) │  │  (OAuth + │     whatsapp, etc.)      └────────┘
+│   auth)  │  │          │  │   PKCE)   │
+└──────────┘  └──────────┘  └───────────┘
+```
+
+Each provider exports a `ChannelAdapter` from `@open-mercato/core/modules/communication_channels/lib/adapter`. The hub's registry validates capability/method consistency at registration time (so an adapter that declares `capabilities.deleteMessage: true` without implementing `deleteMessage()` throws on boot).
+
+### Per-user channels
+
+Phase 0 of the email integration spec added additive columns to `CommunicationChannel`:
+
+| Column | Purpose |
+|---|---|
+| `user_id` (uuid, nullable) | Owns this channel (NULL = tenant-shared) |
+| `is_primary` (boolean) | True for the user's default outbound channel; enforced by a partial unique index |
+| `poll_interval_seconds` (int, nullable) | Per-channel override of the platform default poll cadence |
+| `last_polled_at` (timestamptz, nullable) | Stamped by the poll worker on every tick |
+| `status` (text) | `connected` / `requires_reauth` / `disconnected` / `error` |
+| `last_error` (text, nullable) | Classified error string for diagnostics |
+
+Plus an additive column on `integration_credentials`:
+
+| Column | Purpose |
+|---|---|
+| `user_id` (uuid, nullable) | Identifies per-user credential rows so tenant-shared and per-user blobs can coexist |
+
+Cross-module references use `EntityExtension` declarations in `data/extensions.ts` (no direct ORM relationships across module boundaries).
+
+### Send path
+
+```
+Compose (Messages)
+     │
+     ▼
+messages.message.sent event
+     │
+     ▼
+subscribers/outbound-bridge.ts  (re-fetches the Message by ID — no payload coupling)
+     │
+     ▼
+deliver-outbound-message command
+     │
+     ▼
+ChannelAdapter.sendMessage   ── refreshCredentials() if access token near expiry
+     │
+     ▼
+ExternalMessage + MessageChannelLink rows written
+```
+
+### Receive path
+
+```
+@open-mercato/scheduler "poll-channel" cron (5 minutes by default)
+     │
+     ▼
+poll-channel worker (per channel)
+     │
+     ▼
+ChannelAdapter.fetchHistory   ── reads previous cursor from channelState
+     │
+     ▼
+ingest-inbound-message command
+     │
+     ▼
+ExternalMessage written + Message materialised into the unified inbox
+     │
+     ▼
+communication_channels.message.received event + notification
+```
+
+### Mutation guards
+
+Phase 4 of the email integration spec added two hub-side guards (`packages/core/src/modules/communication_channels/lib/mutation-guards.ts`):
+
+- `guardChannelDelete` — blocks delete when unread inbound messages remain on the channel. `force: true` bypasses, for admin offboarding workflows.
+- `guardOutboundCreate` — maps `status='requires_reauth'` / `'disconnected'` to a 422 with `fieldErrors.channelId`. Wired into `POST /api/communication_channels/send-as-user`.
+
+## OAuth setup
+
+### Gmail (`@open-mercato/channel-gmail`)
+
+#### 1. Create a Google Cloud project
+
+1. Go to [Google Cloud Console](https://console.cloud.google.com/), create or select a project for your tenant.
+2. Enable the **Gmail API** under APIs & Services → Library.
+3. Configure the **OAuth consent screen**:
+   - User type: *Internal* if your tenant is a Workspace org; *External* if you ship to consumers.
+   - Scopes: add `https://www.googleapis.com/auth/gmail.modify` (or the narrower `gmail.send` + `gmail.readonly` combo if you prefer), plus `userinfo.email` and `userinfo.profile`.
+   - Test users: while in *Testing* status add every user you intend to onboard.
+
+#### 2. Create the OAuth Client ID
+
+1. APIs & Services → **Credentials** → **Create credentials** → **OAuth client ID**.
+2. Application type: *Web application*.
+3. Authorized redirect URIs: add
+   `https://<your-host>/api/communication_channels/oauth/gmail/callback`
+   for every environment you run (production, staging, local dev).
+4. Copy the **Client ID** and **Client Secret**.
+
+#### 3. Register the client in Open Mercato
+
+In **Backend → Integrations → Gmail** add the client ID and secret. Scopes leave blank for defaults, or override with a comma-separated list matching what you configured in the consent screen.
+
+The credentials are stored encrypted on `IntegrationCredentials` and resolved at runtime when a user clicks **Connect Gmail**. Users never see the client secret.
+
+#### 4. Move to *In production*
+
+When you're ready to onboard more than 100 users, submit the OAuth app for verification. The hub keeps working without verification while you're under that limit and inside Workspace test-user lists.
+
+### Microsoft 365 / Outlook (`@open-mercato/channel-microsoft`)
+
+#### 1. Register an app in Azure AD
+
+1. Go to [Azure Portal](https://portal.azure.com/) → **Azure Active Directory** → **App registrations** → **New registration**.
+2. Supported account types:
+   - *Single tenant* — only users in your Azure AD tenant
+   - *Multitenant* — any work/school account
+   - *Multitenant + personal accounts* — also allow personal Microsoft accounts (consumer Outlook.com / Hotmail)
+3. Redirect URI: *Web* → `https://<your-host>/api/communication_channels/oauth/microsoft/callback`.
+
+#### 2. Configure API permissions
+
+Under **API permissions**, add the following Microsoft Graph **delegated** permissions:
+
+- `offline_access` (required for refresh tokens)
+- `Mail.Read`
+- `Mail.Send`
+- `Mail.ReadWrite`
+- `User.Read`
+
+If your tenant requires admin consent, click **Grant admin consent for &lt;tenant&gt;** in the same panel.
+
+#### 3. Client secret (optional)
+
+The Open Mercato Microsoft adapter is a public PKCE client by default — no secret needed. If your security policy requires a confidential client, generate a client secret under **Certificates & secrets** and provide it in the credentials form.
+
+#### 4. Register the client in Open Mercato
+
+In **Backend → Integrations → Microsoft 365** add:
+
+- **Client ID** (from the Overview tab)
+- **Tenant ID** — use `common` to allow any tenant + personal accounts, `organizations` for any work/school tenant, a specific GUID for a single tenant, or `consumers` for personal accounts only.
+- **Client Secret** — leave blank for PKCE, or paste the confidential-client secret if you generated one.
+- **Scopes** — leave blank for defaults, override with a space-separated list otherwise.
+
+### IMAP + SMTP (`@open-mercato/channel-imap`)
+
+No tenant setup required. The integrations admin page lets you toggle the provider on or off; individual users provide their own host/port/credentials when they connect.
+
+## Environment variables
+
+The hub reads a small set of env vars; sensible defaults exist for all of them.
+
+| Variable | Default | Purpose |
+|---|---|---|
+| `OM_HUB_OAUTH_STATE_KEY` | derived from `AUTH_SECRET` | AES-256-GCM key used to encrypt the OAuth state cookie. **Rotate this on a schedule** — see runbook below. |
+| `OM_HUB_OAUTH_STATE_TTL_SECONDS` | `300` (5 minutes) | TTL on the state cookie. OAuth callbacks older than this are rejected. |
+| `OM_HUB_POLL_DEFAULT_SECONDS` | `300` (5 minutes) | Default poll cadence applied to channels that don't set `poll_interval_seconds`. |
+| `OM_HUB_POLL_CONCURRENCY` | `10` | Max parallel poll-channel worker jobs per process. Bound by your DB connection pool. |
+| `OM_HUB_OUTBOUND_RETRY_MAX` | `5` | Outbound delivery retries before marking the Message `delivery_failed`. |
+
+## Deploy runbook
+
+### Initial deploy
+
+1. **Provision the Postgres schema** — `yarn db:migrate` runs the hub's migration plus the per-user-columns migration (`Migration20260526154135_communication_channels`).
+2. **Sync the ACL grants** — `yarn mercato auth sync-role-acls` so the new `communication_channels.*` features (including `communication_channels.connect_user_channel`) are granted to the appropriate roles.
+3. **Run the structural cache purge** — `yarn mercato configs cache structural --all-tenants`. Mandatory after any `modules.ts` change that adds a provider (slices 3e/3f/3g enable `channel_imap`, `channel_gmail`, `channel_microsoft`).
+4. **Configure the OAuth apps** — follow the per-provider setup sections above and register the client IDs/secrets via the **Integrations** admin UI.
+5. **Optional: set `OM_HUB_OAUTH_STATE_KEY`** — derived from `AUTH_SECRET` by default; set explicitly if you want to rotate independently.
+
+### Routine ops
+
+| Task | When | How |
+|---|---|---|
+| Rotate the OAuth state-cookie key | Every 90 days (recommended), or after any suspected compromise | Set `OM_HUB_OAUTH_STATE_KEY` to a new random 32-byte base64 value and roll the deploy. In-flight OAuth flows fail with `state expired` and the user retries — that's expected and safe. |
+| Bump a tenant's OAuth client secret | After a provider rotates its credentials | Update the secret in **Backend → Integrations → \<Provider\>** for the tenant. No restart required; the next refresh-token call picks it up. |
+| Force a poll outside the 5-minute cadence | User reports "I sent mail and don't see it" | Click **Refresh** on the channel row in the user's profile page, or call `POST /api/communication_channels/channels/<id>/test-send` for end-to-end. |
+| Purge a disconnected user's channels | When a user leaves the org | The `auth.user.deleted` cascade subscriber handles it automatically (see [Phase 4 implementation status](#) in the email integration spec). Manually: hit the disconnect command for each channel. |
+
+### Adding a new provider
+
+The hub deliberately stays adapter-agnostic. To add a fourth email provider (e.g. Yahoo, ProtonMail Bridge variant), follow the same shape as the three shipping packages:
+
+1. `mkdir packages/channel-<provider>` and copy the build/watch/jest/tsconfig templates from `packages/channel-imap`.
+2. Implement `ChannelAdapter` in `src/modules/channel_<provider>/lib/adapter.ts`.
+3. Register the adapter in `src/modules/channel_<provider>/setup.ts` via `registerChannelAdapter(getAdapter())`.
+4. Add `{ id: 'channel_<provider>', from: '@open-mercato/channel-<provider>' }` to `apps/mercato/src/modules.ts`.
+5. Run `yarn generate && yarn build:packages && yarn test`, then `yarn mercato configs cache structural --all-tenants`.
+
+The hub's webhook router, OAuth router, send-as-user route, and admin UI auto-discover the new provider by `providerKey`; no hub changes required.
+
+## Security posture
+
+- **Credentials at rest**: encrypted by the integrations module via `TenantDataEncryptionService` (AES-256-GCM, per-tenant DEKs). The adapter receives plaintext only inside the request scope; no SQL probe leaks plaintext.
+- **OAuth state cookie**: 5-minute TTL, AES-256-GCM, HKDF-derived from `OM_HUB_OAUTH_STATE_KEY`, bound to the initiating user's id. Catches replays + replay-across-users.
+- **Microsoft PKCE**: S256 challenge generated with `crypto.randomBytes(64)`. The verifier is persisted only in the state cookie — never logged or stored server-side.
+- **HTML sanitization**: every channel payload renders through `packages/core/src/modules/communication_channels/lib/sanitize-channel-html.ts` before `dangerouslySetInnerHTML`. Allowlist tuned for email + chat; strips `<script>`, `<iframe>`, event handlers, and `javascript:` / non-image `data:` URLs.
+- **Webhook auth**: provider webhook routes verify provider signatures via the adapter's `verifyWebhook`. Routes that find no adapter for the `providerKey` return 404, never 5xx.
+- **RBAC**: the hub declares `communication_channels.view` / `.manage` / `.react` / `.assign` / `.connect_user_channel` / `.admin`. Page metadata uses `requireFeatures` (never `requireRoles`).
+
+## Integration tests
+
+Each slice ships its own module-local integration specs under `__integration__/`:
+
+| Test | Location | What it covers |
+|---|---|---|
+| `TC-045D-001..006` | hub | Hub schema + adapter contract + entity extensions |
+| `TC-CHANNEL-EMAIL-HUB-001..003` | hub | Per-user channel API contract + profile page |
+| `TC-CHANNEL-EMAIL-001..003` | channel-imap | IMAP provider registration + webhook no-op + profile page |
+| `TC-CHANNEL-EMAIL-006..008` | channel-gmail | Gmail OAuth router + webhook no-op + profile page |
+| `TC-CHANNEL-EMAIL-011..013` | channel-microsoft | Microsoft OAuth router + webhook no-op + profile page |
+| `TC-CHANNEL-EMAIL-014..020` | hub | Phase 4 cross-provider scenarios: primary swap, admin RBAC, tenant OAuth override, disconnect, send-as-user guard, user-deleted cascade, rich-content widget |
+
+Run with:
+
+```bash
+yarn test:integration                        # full suite
+OM_INTEGRATION_MODULES=communication_channels,channel-imap,channel-gmail,channel-microsoft \
+  yarn test:integration                      # email-foundation slice only
+```
+
+## Provider package contract
+
+A `ChannelAdapter` is the only thing a provider package must expose. The complete contract lives at `packages/core/src/modules/communication_channels/lib/adapter.ts`. Methods are split into required core, optional extensions, and OAuth helpers — providers only implement the methods that match their declared capabilities (the registry validates consistency on registration).
+
+### Required (every adapter)
+
+- `sendMessage(input)` — outbound delivery, returns `{ externalMessageId, status, … }`
+- `verifyWebhook(input)` — signature verification on inbound POSTs; polling-only providers return `eventType: 'other'`
+- `getStatus(input)` — best-effort delivery status for a previously-sent message
+- `convertOutbound(input)` — hub-canonical body → provider-native shape
+- `normalizeInbound(raw)` — provider-native payload → `NormalizedInboundMessage`
+- `capabilities` — declares feature support; validated against implemented methods
+
+### Optional extensions
+
+- `fetchHistory(input)` — required for polling-based providers (`realtimePush: false`)
+- `validateCredentials(input)` — credential-based providers (IMAP)
+- `buildOAuthAuthorizeUrl(input)` / `exchangeOAuthCode(input)` / `refreshCredentials(input)` — OAuth providers
+- `deleteMessage(input)` — when `capabilities.deleteMessage: true`
+- `sendReaction(input)` / `removeReaction(input)` / `normalizeInboundReaction(raw)` — when `capabilities.reactions: true`
+- `editMessage(input)` — when `capabilities.editMessage: true`
+- `resolveContact(input)` — best-effort CRM contact resolution; returns `null` when no hint is available
+- `listSenders(input)` — adapter-driven sender enumeration (Slack channels, WhatsApp templates, etc.)
+
+See the three shipping providers for end-to-end examples:
+
+- IMAP: `packages/channel-imap/src/modules/channel_imap/lib/adapter.ts`
+- Gmail: `packages/channel-gmail/src/modules/channel_gmail/lib/adapter.ts`
+- Microsoft: `packages/channel-microsoft/src/modules/channel_microsoft/lib/adapter.ts`
+
+## Related
+
+- [Messages module](messages.mdx) — the unified inbox surface
+- [Integrations + Data Sync](integrations-data-sync.mdx) — the credentials + admin UI layer this hub builds on
+- [User guide: Communication Channels](../../user-guide/communication-channels.mdx)
+- [User guide: Inbox Ops](../../user-guide/inbox-ops.mdx) — the *other* email surface (shared mailbox, AI extraction)
