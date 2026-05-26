@@ -662,15 +662,15 @@ describe('CRUD Factory — optimistic-lock auto-registration', () => {
       events: { module: opts.eventsResource.split('.')[0], entity: opts.eventsResource.split('.')[1], persistent: false } as any,
       list: { schema: z.object({}).passthrough() as any },
       create: {
-        commandId: `${opts.eventsResource.replace('.', '.')}.create`,
+        commandId: `${opts.eventsResource}.create`,
         schema: z.object({}).passthrough() as any,
       },
       update: {
-        commandId: `${opts.eventsResource.replace('.', '.')}.update`,
+        commandId: `${opts.eventsResource}.update`,
         schema: z.object({ id: z.string() }).passthrough() as any,
       },
       del: {
-        commandId: `${opts.eventsResource.replace('.', '.')}.delete`,
+        commandId: `${opts.eventsResource}.delete`,
         schema: z.object({ id: z.string() }).passthrough() as any,
       },
     })

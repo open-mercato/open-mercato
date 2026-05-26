@@ -232,6 +232,7 @@ export function createOptimisticLockGuardService(
   const envValue = opts.envValue !== undefined ? opts.envValue : process.env[OPTIMISTIC_LOCK_ENV_VAR]
   const config = parseOptimisticLockEnv(envValue)
   const resolveExpected = opts.resolveExpected ?? defaultResolveExpectedUpdatedAt
+  const debugEnabled = process.env.OM_OPTIMISTIC_LOCK_DEBUG === '1'
 
   function isEntityEnabled(resourceKind: string): boolean {
     if (config.mode === 'off') return false
@@ -288,7 +289,32 @@ export function createOptimisticLockGuardService(
     }
 
     if (currentIso === expectedIso) {
+      if (debugEnabled) {
+        // eslint-disable-next-line no-console
+        console.log('[optimistic-lock] match', {
+          resourceKind: input.resourceKind,
+          resourceId: input.resourceId,
+          operation: input.operation,
+          currentIso,
+          expectedIso,
+        })
+      }
       return { ok: true, shouldRunAfterSuccess: false }
+    }
+
+    if (debugEnabled) {
+      // eslint-disable-next-line no-console
+      console.log('[optimistic-lock] CONFLICT', {
+        resourceKind: input.resourceKind,
+        resourceId: input.resourceId,
+        operation: input.operation,
+        tenantId: input.tenantId,
+        organizationId: input.organizationId ?? null,
+        expectedRaw: resolvedExpected,
+        expectedIso,
+        currentRaw,
+        currentIso,
+      })
     }
 
     return {
