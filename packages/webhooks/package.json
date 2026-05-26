@@ -71,7 +71,8 @@
   "dependencies": {
     "@open-mercato/core": "workspace:*",
     "@open-mercato/queue": "workspace:*",
-    "@open-mercato/ui": "workspace:*"
+    "@open-mercato/ui": "workspace:*",
+    "svix": "^1.92.2"
   },
   "peerDependencies": {
     "@mikro-orm/postgresql": "^7.0.14",
