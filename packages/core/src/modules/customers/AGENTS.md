@@ -11,6 +11,25 @@
 5. **MUST capture custom field snapshots** in command `before`/`after` payloads for undo support
 6. **MUST use `useGuardedMutation` for non-`CrudForm` backend writes** (`POST`/`PUT`/`PATCH`/`DELETE`) and pass `retryLastMutation` in injection context
 
+## Ask First
+
+- Ask before changing this module's reference patterns, standard module-file checklist, or AI mutation policies.
+- Ask before changing customer data model relationships that downstream modules may copy.
+
+## Never
+
+- Never bypass custom field normalization in CRUD create/update/read responses.
+- Never omit undo snapshots for custom field mutations.
+- Never write backend `POST`/`PUT`/`PATCH`/`DELETE` actions outside `CrudForm` without `useGuardedMutation`.
+
+## Validation Commands
+
+```bash
+yarn db:generate
+yarn generate
+yarn workspace @open-mercato/core build
+```
+
 ## Key Reference Files — Copy From Here
 
 | When you need | Copy from |

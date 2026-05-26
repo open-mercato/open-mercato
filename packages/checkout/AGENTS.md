@@ -10,6 +10,25 @@ Use `packages/checkout/src/modules/checkout/` for all checkout module work.
 4. MUST keep pay-page replacement handles and UMES spot IDs stable once released.
 5. MUST follow the pay-links Phase A spec and its companion wireframes before changing checkout UI or API behavior.
 
+## Ask First
+
+- Ask before changing checkout payment state transitions, public pay-page API contracts, password verification, or allowed-origin behavior.
+- Ask before adding a gateway-specific shortcut outside the provider or integration boundary.
+
+## Never
+
+- Never trust submitted amount, status, or consent state from the client.
+- Never expose gateway credentials, gateway settings, password hashes, or prior-customer data from public routes.
+- Never make checkout transaction status updates non-idempotent.
+
+## Validation Commands
+
+```bash
+yarn generate
+yarn workspace @open-mercato/checkout test
+yarn workspace @open-mercato/checkout build
+```
+
 ## Reference Files
 
 - Spec: `.ai/specs/implemented/2026-03-19-checkout-pay-links.md`

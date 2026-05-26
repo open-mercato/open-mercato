@@ -4,6 +4,41 @@ UI usage patterns based on customers, sales, and staff modules. Use these defaul
 
 > **DS reference:** [`.ai/ds-rules.md`](../../.ai/ds-rules.md) — color tokens, typography, spacing, decision trees. **Component reference (variants/sizes/props/examples/MUST rules):** [`.ai/ui-components.md`](../../.ai/ui-components.md).
 
+## Always
+
+- Use existing UI primitives and backend components before creating new ones.
+- Use `CrudForm` for create/edit flows and dialog forms unless the task explicitly needs a custom host.
+- Use `DataTable` as the default list view, including portal list pages.
+- Use `apiCall`/`apiCallOrThrow` for backend and portal data calls.
+- Use `useGuardedMutation` for every write that cannot use `CrudForm`.
+- Use i18n keys and `useT()` for user-facing copy.
+- Keep UMES spot IDs, replacement handles, field/group IDs, and portal page metadata stable.
+- Follow `.ai/ds-rules.md` and `.ai/ui-components.md` for tokens, primitives, and component contracts.
+
+## Ask First
+
+- Ask before changing primitive APIs, DataTable/CrudForm contracts, portal shell behavior, frozen portal spots, or replacement handles.
+- Ask before creating a new primitive or backend component when an existing component might fit.
+- Ask before changing default interaction patterns for dialogs, bulk actions, row clicks, or portal navigation.
+
+## Never
+
+- Never use raw `<button>`, raw checkbox inputs, or raw `<Link>` styled as a button.
+- Never use raw `fetch` in UI data flows where `apiCall` is available.
+- Never hard-code user-facing strings.
+- Never use `window.confirm`; use the shared confirmation dialog.
+- Never add custom per-page progress bars for DataTable bulk work.
+- Never omit `page.meta.ts` for guarded portal pages.
+- Never gate wildcard feature arrays with `includes(...)` or `Set.has(...)`.
+
+## Validation Commands
+
+```bash
+yarn workspace @open-mercato/ui test
+yarn workspace @open-mercato/ui build
+yarn i18n:check
+```
+
 ## Reference Modules
 
 - Customers: `packages/core/src/modules/customers/backend/customers/people/create/page.tsx`, `…/people/page.tsx`, `…/components/detail/TaskForm.tsx`
@@ -45,7 +80,7 @@ When you need… use this. Details (variants, sizes, props, MUST rules) live in 
 | Breadcrumb navigation (DS-aligned, slash/arrow/dot divider, ARIA correct) | `Breadcrumb` (with `BreadcrumbList` / `BreadcrumbItem` / `BreadcrumbLink` / `BreadcrumbPage` / `BreadcrumbStatic` / `BreadcrumbSeparator` / `BreadcrumbEllipsis`) | `@open-mercato/ui/primitives/breadcrumb` |
 | Wrap a `<Link>` as button | `Button asChild` / `IconButton asChild` | — |
 
-## Critical MUST rules (top of mind)
+## Critical Primitive Rules
 
 1. **NEVER use raw `<button>` or `<input type="checkbox">`** — always use the primitives. Native checkboxes get `accent-color: var(--accent-indigo)` as a safety net for legacy code, but new code MUST use `Checkbox`.
 2. **Always pass `type="button"` explicitly** on non-submit `Button`/`IconButton` — HTML defaults to `submit`.
