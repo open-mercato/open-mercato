@@ -1,10 +1,10 @@
 # Handoff — 2026-05-25-oss-optimistic-locking
 
-**Last updated:** 2026-05-26T08:30Z
+**Last updated:** 2026-05-26T08:45Z
 **Branch:** feat/oss-optimistic-locking
 **PR:** https://github.com/open-mercato/open-mercato/pull/2055
-**Current phase/step:** checkpoint 3 verified — Phase 13 lands "all CRUD entities" coverage on top of the previously-complete spec
-**Last commit:** 284b72b38 (`test(optimistic-lock): TC-LOCK-OSS-004 (customers.deal) + CI env=all`)
+**Current phase/step:** **complete** — Phase 13 ("all CRUD entities" scope extension) landed on top of the previously-complete Phases 1–12
+**Last commit:** b8550671e (`docs(runs): checkpoint 3 — steps 13.1..13.5 verified`)
 
 ## What just happened
 
@@ -21,14 +21,15 @@
 
 ## Next concrete action
 
-Run the final-gate ceremony (step 5 → step 7 of `auto-continue-pr-loop`):
+Nothing on this PR. Wait for human QA on PR #2055 (the `qa` + `needs-qa` labels remain). After QA passes, the PR moves to `merge-queue` by `auto-review-pr` / QA buddy.
 
-1. ds-guardian pass over `origin/develop..HEAD` (Phase 13 added no UI / no styles, expect clean).
-2. BC + self code-review sweep.
-3. `auto-review-pr` autofix loop on PR #2055.
-4. Post comprehensive summary comment for this resume.
-5. Update the PR body — extend "What Changed" with Phase 13 + flip pipeline label from `qa` back to `review` (scope extension on a `qa`-labelled PR warrants re-review).
-6. Release the `in-progress` lock.
+Phase 13 final-gate ceremony already ran:
+1. ds-guardian pass — clean (subagent verified, no commits required).
+2. BC + self code-review — additive across all 13 contract surfaces; documented in the comprehensive summary comment.
+3. `auto-review-pr` autofix loop — APPROVE on iteration 1, zero actionable findings (subagent report).
+4. Comprehensive summary comment posted: https://github.com/open-mercato/open-mercato/pull/2055#issuecomment-4540400311.
+5. PR body extended with Phase 13 section + decision-matrix Q5/Q6 flipped to C + Tests block expanded + checkpoint-3 validation summary appended.
+6. `in-progress` lock released.
 
 ## Blockers / open questions
 

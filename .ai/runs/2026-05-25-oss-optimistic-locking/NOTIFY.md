@@ -47,6 +47,15 @@ Append-only event log. Newest at the bottom.
   `auto-continue-pr-loop` lean contract; checkpoint pass after Step
   13.5 batches verification.
 
+## 2026-05-26T08:45Z — Phase 13 scope extension complete
+- ds-guardian pass: clean (subagent — no commits needed, no DS surface touched by Phase 13).
+- Self code-review + BC sweep: additive across all 13 contract surfaces. 2 new exports from `optimistic-lock.ts` + 1 from `optimistic-lock-store.ts` + 1 new internal side-effect inside `makeCrudRoute` (env-gated short-circuit precedes the registry write).
+- `auto-review-pr` subagent (autofix mode): APPROVE on iteration 1, zero actionable findings. Lock NOT released by the subagent — parent session owns it.
+- PR body extended with Phase 13 section, decision matrix Q5/Q6 flipped to **C**, Tests block expanded (+19 new unit cases + TC-LOCK-OSS-004), checkpoint-3 validation block appended.
+- Comprehensive summary comment posted: https://github.com/open-mercato/open-mercato/pull/2055#issuecomment-4540400311.
+- Pipeline labels stay at `feature` + `qa` + `needs-qa`. New auto-coverage surface needs QA's exercise; `auto-review-pr` verdict is APPROVE so `review` is not needed.
+- `in-progress` lock released next.
+
 ## 2026-05-26T08:30Z — checkpoint 3 (Phase 13: all CRUD entities)
 - Steps verified: 13.1, 13.2, 13.3, 13.4, 13.5 (SHA range 8932cd344..284b72b38).
 - Targeted validation: build:packages ✓, generate ✓, i18n-sync ✓ (4 locales, 47 modules), i18n-usage advisory baseline unchanged; shared 995/995, ui 1067/1067, core 4189/4189 unit tests green.
