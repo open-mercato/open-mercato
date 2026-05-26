@@ -405,14 +405,14 @@ describe('customers.deal_analyzer demo agents', () => {
     expect(dealAnalyzer.allowRuntimeOverride).toBe(true)
   })
 
-  it('declares loop budget without stopping immediately on the mutation tool call', () => {
+  it('declares loop budget and stops immediately after the mutation tool call', () => {
     const loop = dealAnalyzer.loop
     expect(loop).toBeDefined()
     expect(loop?.maxSteps).toBe(12)
     expect(loop?.budget?.maxToolCalls).toBe(12)
     expect(loop?.budget?.maxWallClockMs).toBe(60_000)
     expect(loop?.allowRuntimeOverride).toBe(true)
-    expect(loop?.stopWhen).toBeUndefined()
+    expect(loop?.stopWhen).toContainEqual({ kind: 'hasToolCall', toolName: 'customers.update_deal_stage' })
   })
 
   it('whitelists the analyze + update-stage tools and not others', () => {
