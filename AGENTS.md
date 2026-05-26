@@ -42,28 +42,12 @@ IMPORTANT: Before any research or coding, match the task to the root `AGENTS.md`
 | Adding DOM Event Bridge (SSE-based real-time events to browser), `useAppEvent`, `useOperationProgress` | `packages/events/AGENTS.md` → DOM Event Bridge |
 | Building customer portal pages, portal auth, portal nav injection, portal event bridge | `packages/ui/AGENTS.md` → Portal Extension |
 | Adding new widget event handlers (`onFieldChange`, `onBeforeNavigate`, transformers) | `packages/ui/AGENTS.md` |
-| Building a typed AI agent for a module (chat or structured-object mode), declaring `ai-agents.ts`, wiring tool packs, requiring user approval for mutations — works in **monorepo** and **standalone** apps | `.ai/skills/create-ai-agent/SKILL.md` + `packages/ai-assistant/AGENTS.md` + `apps/docs/docs/framework/ai-assistant/agents.mdx` |
-| Registering typed AI tools via `defineAiTool` in `ai-tools.ts`, building tool packs (`search`, `attachments`, `meta`, domain packs) | `.ai/skills/create-ai-agent/SKILL.md` + `packages/ai-assistant/AGENTS.md` + `apps/docs/docs/framework/ai-assistant/agents.mdx` |
-| Gating AI-mutation writes behind the approval flow (`prepareMutation`, `ai_pending_actions`, approval cards, cleanup worker) | `.ai/skills/create-ai-agent/SKILL.md` + `packages/ai-assistant/AGENTS.md` + `apps/docs/docs/framework/ai-assistant/mutation-approvals.mdx` |
-| Overriding AI agent prompts, mutation policies, or model per tenant via the settings UI | `packages/ai-assistant/AGENTS.md` + `apps/docs/docs/framework/ai-assistant/settings.mdx` |
-| Wiring agentic-loop controls on an AI agent (`loop.stopWhen` / `loop.prepareStep` / `loop.budget`), per-tenant loop kill switch + budgets, `executionEngine: 'tool-loop-agent'`, and the `<AiChat>` LoopTrace debug panel | `.ai/specs/2026-04-28-ai-agents-agentic-loop-controls.md` + `packages/ai-assistant/AGENTS.md` → Loop controls and execution engines + `apps/docs/docs/framework/ai-assistant/agents.mdx` → Agentic loop controls + `apps/docs/docs/framework/ai-assistant/settings.mdx` → Loop policy overrides + `.ai/skills/create-ai-agent/SKILL.md` §4.4 |
-| Replacing or disabling another module's AI agent / AI tool (per-module, modules.ts, or programmatic) | `apps/docs/docs/framework/ai-assistant/overrides.mdx` + `packages/ai-assistant/AGENTS.md` → How to Override + `.ai/specs/2026-04-30-ai-overrides-and-module-disable.md` |
-| Replacing/disabling any module contract at the app level (unified `entry.overrides` umbrella — phases 1-18 wired) | `.ai/specs/2026-05-04-modules-ts-unified-overrides.md` + `packages/shared/src/modules/overrides.ts` + `packages/shared/AGENTS.md` → Module-Level Overrides + `apps/docs/docs/framework/modules/overrides.mdx` |
-| Configuring AI providers (Anthropic / OpenAI / Google) and per-module model overrides (`OM_AI_<MODULE>_MODEL`) | `packages/ai-assistant/AGENTS.md` → Model Resolution + `apps/docs/docs/framework/ai-assistant/overview.mdx` |
-| Sending file/image/PDF attachments through `<AiChat>` and the chat dispatcher API (`attachmentIds`, base64 inline encoding, the 4 MB ceiling) | `apps/docs/docs/framework/ai-assistant/attachments.mdx` + `packages/ai-assistant/src/modules/ai_assistant/lib/attachment-parts.ts` + `packages/ui/src/ai/upload-adapter.ts` |
+| Building AI agents/tools (`ai-agents.ts`, `ai-tools.ts`, tool packs, mutation approval via `prepareMutation`, attachments, provider/model selection) | `.ai/skills/create-ai-agent/SKILL.md` + `packages/ai-assistant/AGENTS.md` + `apps/docs/docs/framework/ai-assistant/*.mdx` |
+| AI agent loop controls + overrides (`loop.stopWhen/prepareStep/budget`, per-tenant settings, replacing/disabling agents/tools, module-level `entry.overrides`) | `packages/ai-assistant/AGENTS.md` → Loop controls + How to Override + `.ai/specs/2026-04-28-ai-agents-agentic-loop-controls.md` + `.ai/specs/2026-04-30-ai-overrides-and-module-disable.md` + `.ai/specs/2026-05-04-modules-ts-unified-overrides.md` |
 | **Specific Modules** | |
-| Managing people/companies/deals/activities, **copying CRUD patterns for new modules** | `packages/core/src/modules/customers/AGENTS.md` |
-| Building orders/quotes/invoices, pricing calculations, document flow (Quote→Order→Invoice), shipments/payments, channel scoping | `packages/core/src/modules/sales/AGENTS.md` |
-| Managing products/categories/variants, pricing resolvers (`selectBestPrice`), offers, channel-scoped pricing, option schemas | `packages/core/src/modules/catalog/AGENTS.md` |
-| Users/roles/RBAC implementation, authentication flow, session management, feature-based access control | `packages/core/src/modules/auth/AGENTS.md` |
-| Customer identity, customer portal auth (login/signup/magic links), customer RBAC, sessions, CRM auto-linking, admin user management | `packages/core/src/modules/customer_accounts/AGENTS.md` |
-| Multi-currency support, exchange rates, dual currency recording, realized gains/losses | `packages/core/src/modules/currencies/AGENTS.md` |
-| Workflow automation, defining step-based workflows, executing instances, user tasks, async activities, event triggers, signals, compensation (saga pattern), visual editor | `packages/core/src/modules/workflows/AGENTS.md` |
-| Integration Marketplace foundation (registry/bundles, credentials, state, health checks, logs, admin UI, integration manifests) | `packages/core/src/modules/integrations/AGENTS.md` |
-| Data Sync hub (adapters, run lifecycle, workers, mapping APIs, scheduled sync, progress linkage, admin UI) | `packages/core/src/modules/data_sync/AGENTS.md` |
-| Building outbound/inbound webhooks, Standard Webhooks signing, delivery queues, webhook admin UI, marketplace webhook settings | `packages/webhooks/AGENTS.md` + `packages/queue/AGENTS.md` + `packages/events/AGENTS.md` + `packages/core/src/modules/integrations/AGENTS.md` + `packages/ui/AGENTS.md` |
-| Building a new integration provider module (adapter, health check, credentials, bundle wiring) | `packages/core/src/modules/integrations/AGENTS.md` + `packages/core/src/modules/data_sync/AGENTS.md` + `.ai/skills/integration-builder/SKILL.md` (specs: SPEC-041, SPEC-045, SPEC-045c; SPEC-044 for payment) |
-| Wiring progress UX for long-running sync operations (top bar polling, job lifecycle, future SSE bridge) | `packages/core/src/modules/data_sync/AGENTS.md` + `packages/events/AGENTS.md` |
+| Module-specific work (customers as reference for new CRUD modules, plus sales, catalog, auth, customer_accounts, currencies, workflows, integrations, data_sync, progress) | `packages/core/src/modules/<module>/AGENTS.md` |
+| Webhooks (outbound/inbound, Standard Webhooks signing, delivery queues, admin UI) | `packages/webhooks/AGENTS.md` (cross-refs `queue`, `events`, `integrations`, `ui`) |
+| Building a new integration provider (adapter, health check, credentials, bundle wiring) | `.ai/skills/integration-builder/SKILL.md` + `packages/core/src/modules/integrations/AGENTS.md` + `packages/core/src/modules/data_sync/AGENTS.md` |
 | **Packages** | |
 | Adding reusable utilities, encryption helpers, i18n translations (`useT`/`resolveTranslations`), boolean parsing, data engine types, request scoping | `packages/shared/AGENTS.md` |
 | Building forms (`CrudForm`), data tables (`DataTable`), loading/error states, flash messages, `FormHeader`/`FormFooter`, dialog UX (`Cmd+Enter`/`Escape`) | `packages/ui/AGENTS.md` |
@@ -82,21 +66,9 @@ IMPORTANT: Before any research or coding, match the task to the root `AGENTS.md`
 | Migrating custom module code from MikroORM v6 to v7 (decorators, persist/flush, Knex→Kysely, type fixes, ORM config, Jest setup) | `.ai/skills/migrate-mikro-orm/SKILL.md` |
 | **Testing** | |
 | Integration testing, creating/running Playwright tests, converting markdown test cases to TypeScript, CI test pipeline | `.ai/qa/AGENTS.md` + `.ai/skills/integration-tests/SKILL.md` |
-| **Spec Lifecycle** | |
-| Analyzing a spec before implementation: BC impact, risk assessment, gap analysis, readiness report | `.ai/skills/pre-implement-spec/SKILL.md` |
-| Implementing a spec (or specific phases) with coordinated agents, unit tests, docs, progress tracking | `.ai/skills/implement-spec/SKILL.md` |
-| Writing new specs, updating existing specs after implementation, documenting architectural decisions, maintaining changelogs | `.ai/specs/AGENTS.md` |
-| Reviewing code changes for architecture, security, conventions, and quality compliance | `.ai/skills/code-review/SKILL.md` |
-| Migrating hardcoded colors/typography to semantic tokens, analyzing DS violations, scaffolding DS-compliant pages, reviewing DS compliance | `.ai/skills/ds-guardian/SKILL.md` + `.ai/ds-rules.md` |
-| Reviewing a GitHub PR by number (checkout, code-review, submit review, apply label) | `.ai/skills/auto-review-pr/SKILL.md` |
-| Scanning open PRs for merge readiness, listing what can be merged now, triaging blockers | `.ai/skills/merge-buddy/SKILL.md` |
-| Day-start review triage: reviewing all unreviewed PRs (newest first) in one session | `.ai/skills/review-prs/SKILL.md` |
-| Running an arbitrary autonomous task end-to-end and delivering it as a PR against `develop` (dated spec, phased commits, validation gate, normalized pipeline labels). **Default** for one-off bug fixes and small features | `.ai/skills/auto-create-pr/SKILL.md` |
-| Resuming an in-progress PR created by `auto-create-pr`: claims the PR, re-enters an isolated worktree, reads the linked spec's Progress checklist, and continues from the first unchecked step | `.ai/skills/auto-continue-pr/SKILL.md` |
-| Running a long multi-step spec implementation with checkpoint discipline (per-spec run folder, 1:1 step-to-commit, executor-dispatch, in-progress lock). Use when work spans >5 commits and needs resumability | `.ai/skills/auto-create-pr-loop/SKILL.md` |
-| Resuming an in-progress PR created by `auto-create-pr-loop`: same contract, same run-folder discipline, driven by the top-of-file `## Tasks` table in `PLAN.md` as the authoritative step-status source | `.ai/skills/auto-continue-pr-loop/SKILL.md` |
-| Post-merge housekeeping: reconcile recently merged/closed PRs with the GitHub issue tracker (auto-close on `fixes`/`closes`/`resolves` keywords, supersede detection) | `.ai/skills/sync-merged-pr-issues/SKILL.md` |
-| Drafting a CHANGELOG.md release entry (emoji-driven format) for every PR since last release; honors the Supersede Credit Rule for carry-forward PRs | `.ai/skills/auto-update-changelog/SKILL.md` |
+| **Spec & PR Automation** | |
+| Spec lifecycle (pre-implement → implement → write/update), code review, DS review | Browse `.ai/skills/{pre-implement-spec,implement-spec,code-review,ds-guardian}/SKILL.md` + `.ai/specs/AGENTS.md` + `.ai/ds-rules.md` |
+| PR/issue automation (one-shot auto-PR, resumable loop variants, review/merge-buddy, post-merge sync, changelog). **Default for one-off bug fixes / small features:** `auto-create-pr` | Browse `.ai/skills/{auto-create-pr,auto-continue-pr,auto-create-pr-loop,auto-continue-pr-loop,auto-review-pr,merge-buddy,review-prs,sync-merged-pr-issues,auto-update-changelog}/SKILL.md` |
 
 ## Core Principles
 
@@ -129,18 +101,7 @@ IMPORTANT: Before any research or coding, match the task to the root `AGENTS.md`
 - `skip-qa` is for docs-only, dependency-only, CI-only, test-only, typo-only, or similarly low-risk non-customer-facing changes.
 - Auto-skills that mutate PRs or issues MUST claim them first with all three signals: assignee, `in-progress` label, and a claim comment. They MUST release the `in-progress` label when finished, even on failure.
 - When an auto-skill adds or changes a PR pipeline/meta label, it MUST also leave a short PR comment explaining why that label was applied.
-- Use `gh` for manual QA transitions:
-
-```bash
-# QA pass
-gh pr edit <number> --remove-label "qa" --add-label "merge-queue"
-
-# QA fail
-gh pr edit <number> --remove-label "qa" --add-label "qa-failed"
-
-# Re-request QA after a fix
-gh pr edit <number> --remove-label "qa-failed" --add-label "qa"
-```
+- Use `gh pr edit <number> --remove-label <from> --add-label <to>` for manual QA pipeline transitions (`qa` → `merge-queue` / `qa-failed`; `qa-failed` → `qa`).
 
 ### Documentation and Specifications
 
@@ -303,9 +264,7 @@ The codebase has two categories of generated files. Both are auto-written by too
 | **Ephemeral** | `apps/mercato/.mercato/generated/`, `packages/*/generated/`, `src/generated/` (all matched by `.gitignore`) | No | No — wiped by `find -name generated -exec rm -rf` in `scripts/clean-generated.sh` | Per-build artifacts that `yarn generate` re-emits deterministically from in-repo source (module registries, indexer barrels, OpenAPI types, etc.). Safe to delete; safe to re-run. |
 | **Versioned** | Next to source as `<name>.generated.ts` / `<name>.generated.tsx` / `<name>-generated.d.ts` — e.g. `apps/mercato/src/official-modules.generated.ts`, `packages/core/src/generated-shims/entities.ids.generated.ts`, `packages/ui/src/backend/fields/registry.generated.ts`, `packages/ui/src/backend/icons/lucideRegistry.generated.tsx`, `packages/ai-assistant/src/modules/ai_assistant/lib/ai-{tools,agents}-generated.d.ts` | Yes | Yes — they are NOT inside any `generated/` folder and NOT inside `.mercato`, so the find-and-delete pattern doesn't match them | Source-of-truth state that must travel with the repo: module-activation config (`official-modules.json` → `official-modules.generated.ts`), frozen entity-id maps that protect against typos at type-check time, and registry shapes that other typed code imports. |
 
-**Why we don't collapse both into one folder:** a `generated/` folder is the existing convention for *throwaway* output of `yarn generate`. The `clean-generated.sh` script enforces that by wiping every `generated/` folder under the repo. Putting source-of-truth state in there would silently destroy it on a clean — and the rest of the team would never know their activation set was lost. The `*.generated.ts`-in-`src` pattern keeps the "do not edit by hand" signal in the filename while opting out of the wipe pattern.
-
-**If you're tempted to move a versioned generated file into a `generated/` folder:** read `.ai/specs/2026-05-19-official-modules-generated-location-decision.md` first — that decision was made deliberately and rebutting it requires updating both `.gitignore` and `scripts/clean-generated.sh` to carve out a new "committed generated" folder, then migrating all four-plus existing files together. Don't do it piecemeal.
+**Before moving a versioned generated file into a `generated/` folder:** read `.ai/specs/2026-05-19-official-modules-generated-location-decision.md` — `scripts/clean-generated.sh` wipes every `generated/` folder, so a move requires coordinated changes to `.gitignore` and the clean script. Don't do it piecemeal.
 
 ## Backward Compatibility Contract
 
