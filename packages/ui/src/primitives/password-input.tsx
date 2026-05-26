@@ -74,7 +74,12 @@ export const PasswordInput = React.forwardRef<HTMLInputElement, PasswordInputPro
           ref={ref}
           type={revealed ? 'text' : 'password'}
           disabled={disabled}
-          className={cn(inputElementVariants({ size }), inputClassName)}
+          className={cn(
+            inputElementVariants({ size }),
+            // Suppress Edge/IE native password reveal + clear controls — we render our own toggle.
+            '[&::-ms-reveal]:hidden [&::-ms-clear]:hidden',
+            inputClassName,
+          )}
           {...props}
         />
         {revealable ? (
