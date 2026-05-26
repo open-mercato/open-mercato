@@ -101,6 +101,7 @@
     "resend": "^6.12.0",
     "sanitize-html": "^2.17.4",
     "semver": "^7.7.4",
+    "svix": "^1.92.0",
     "tailwind-merge": "^3.5.0",
     "zod": "4.3.6",
     "@stripe/react-stripe-js": "^6.4.0",
