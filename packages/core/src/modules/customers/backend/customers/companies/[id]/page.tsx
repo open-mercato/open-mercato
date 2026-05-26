@@ -574,6 +574,13 @@ export default function CustomerCompanyDetailPage({ params }: { params?: { id?: 
         <PageBody>
           <ErrorMessage
             label={error ?? t('customers.companies.detail.error.notFound', 'Company not found.')}
+            action={
+              <Button asChild variant="outline" size="sm">
+                <Link href="/backend/customers/companies">
+                  {t('customers.companies.detail.actions.backToList', 'Back to companies')}
+                </Link>
+              </Button>
+            }
           />
         </PageBody>
       </Page>

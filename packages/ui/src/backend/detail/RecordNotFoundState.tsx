@@ -34,7 +34,7 @@ export function RecordNotFoundState({
   return (
     <div
       className={cn(
-        "flex flex-col items-center justify-center py-16 px-4",
+        "flex flex-col items-center justify-center min-h-[50vh] px-4",
         className,
       )}
     >

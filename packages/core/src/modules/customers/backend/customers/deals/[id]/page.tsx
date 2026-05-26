@@ -323,6 +323,13 @@ export default function DealDetailPage({ params }: { params?: { id?: string } })
         <PageBody>
           <ErrorMessage
             label={error ?? t('customers.deals.detail.error.load', 'Failed to load deal.')}
+            action={
+              <Button asChild variant="outline" size="sm">
+                <Link href="/backend/customers/deals">
+                  {t('customers.deals.detail.actions.backToList', 'Back to deals')}
+                </Link>
+              </Button>
+            }
           />
         </PageBody>
       </Page>
