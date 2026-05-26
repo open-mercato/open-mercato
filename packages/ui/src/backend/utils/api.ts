@@ -99,20 +99,15 @@ function formatForbiddenAccessMessage(options?: { requiredRoles?: string[] | nul
 }
 
 /**
- * Signal a forbidden access attempt for an *authenticated* user.
+ * Signal a forbidden access attempt for an authenticated user via a flash banner.
  *
  * Authenticated 403 responses must never redirect to `/login` — that creates an
  * infinite loop because the login page detects the active session and bounces
- * the user back to the failing destination (see GH #2070). Instead, we surface
- * a flash banner explaining the missing role/feature. Pages that need an inline
- * banner should catch `ForbiddenError` and render `AccessDeniedMessage` from
- * `@open-mercato/ui/backend/detail`.
- *
- * The legacy name is preserved to keep the public API stable; consumers that
- * relied on the old redirect-to-login behavior get the equivalent warning UX
- * without the navigation side effect.
+ * the user back to the failing destination (see GH #2070). Pages that need an
+ * inline banner should catch `ForbiddenError` and render `AccessDeniedMessage`
+ * from `@open-mercato/ui/backend/detail`.
  */
-export function redirectToForbiddenLogin(options?: { requiredRoles?: string[] | null; requiredFeatures?: string[] | null }) {
+export function notifyForbiddenAccess(options?: { requiredRoles?: string[] | null; requiredFeatures?: string[] | null }) {
   if (typeof window === 'undefined') return
   // Portal routes have their own customer auth — keep the existing no-op contract.
   if (/\/[^/]+\/portal(\/|$)/.test(window.location.pathname)) return
@@ -122,6 +117,14 @@ export function redirectToForbiddenLogin(options?: { requiredRoles?: string[] | 
     // no-op
   }
 }
+
+/**
+ * @deprecated Renamed to {@link notifyForbiddenAccess}. The previous name
+ * implied a `/login` redirect that no longer happens (see GH #2070). Kept as an
+ * exported alias for one minor version so third-party module imports keep
+ * building; update imports to `notifyForbiddenAccess`.
+ */
+export const redirectToForbiddenLogin = notifyForbiddenAccess
 
 export async function apiFetch(input: RequestInfo | URL, init?: RequestInit): Promise<Response> {
   type FetchType = (input: RequestInfo | URL, init?: RequestInit) => Promise<Response>
@@ -203,7 +206,7 @@ export async function apiFetch(input: RequestInfo | URL, init?: RequestInit): Pr
       } catch {}
       const hasAclHints = Boolean((roles && roles.length) || (features && features.length))
       if (hasAclHints) {
-        redirectToForbiddenLogin({ requiredRoles: roles, requiredFeatures: features })
+        notifyForbiddenAccess({ requiredRoles: roles, requiredFeatures: features })
       }
       let msg = 'Forbidden'
       if (aclData && typeof aclData === 'object') {
