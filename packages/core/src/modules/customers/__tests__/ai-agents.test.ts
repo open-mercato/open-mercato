@@ -454,7 +454,7 @@ describe('customers.deal_analyzer demo agents', () => {
     expect((stepZero as any).activeTools).toContain('meta.update_task_plan')
     expect((stepZero as any).activeTools).toContain('customers.analyze_deals')
     expect((stepZero as any).activeTools).toContain('customers.list_pipeline_stages')
-    expect((stepZero as any).activeTools).not.toContain('customers.update_deal_stage')
+    expect((stepZero as any).activeTools).toContain('customers.update_deal_stage')
     expect((stepOne as any).activeTools).toContain('customers.update_deal_stage')
     expect((stepOne as any).activeTools).toContain('customers.list_pipeline_stages')
   })

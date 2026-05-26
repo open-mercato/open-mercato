@@ -352,23 +352,44 @@ export class RbacService {
   }
 
   /**
+   * Returns the user's granted feature strings for a given scope.
+   *
+   * Used by infrastructure that needs the raw grant list rather than a yes/no
+   * authorization check (for example response enrichers gating themselves with
+   * `features: [...]`). Callers MUST apply wildcard-aware matching against the
+   * returned array — grants like `module.*` or `*` are part of the ACL contract.
+   *
+   * @param userId - The ID of the user
+   * @param scope - The tenant and organization context for ACL evaluation
+   * @returns Array of feature strings (may include wildcards); empty array when
+   *          the user has no grants in scope
+   */
+  async getGrantedFeatures(
+    userId: string,
+    scope: { tenantId: string | null; organizationId: string | null },
+  ): Promise<string[]> {
+    const acl = await this.loadAcl(userId, scope)
+    return Array.isArray(acl.features) ? acl.features : []
+  }
+
+  /**
    * Checks if a user has all required features within a given scope.
-   * 
+   *
    * This is the primary authorization check method used throughout the application.
    * It combines feature checking with organization visibility validation.
-   * 
+   *
    * Authorization logic:
    * 1. No features required → always returns true
    * 2. User is super admin → always returns true
    * 3. Organization restriction check: If the user's ACL has a restricted organization list
    *    and the requested organization is not in that list → returns false
    * 4. Feature matching: User must have all required features (supports wildcards)
-   * 
+   *
    * @param userId - The ID of the user
    * @param required - Array of feature strings to check (e.g., ['users.view', 'users.edit'])
    * @param scope - The tenant and organization context for authorization
    * @returns true if the user has all required features and organization access, false otherwise
-   * 
+   *
    * @example
    * // Check if user can view and edit users
    * const canManageUsers = await rbacService.userHasAllFeatures(
@@ -376,7 +397,7 @@ export class RbacService {
    *   ['users.view', 'users.edit'],
    *   { tenantId: 'tenant-1', organizationId: 'org-1' }
    * )
-   * 
+   *
    * @example
    * // Check with wildcard features
    * const canAccessEntities = await rbacService.userHasAllFeatures(

@@ -555,6 +555,17 @@ const updateDealCommand: CommandHandler<DealUpdateInput, { dealId: string }> = {
         if (parsed.lossNotes !== undefined) record.lossNotes = parsed.lossNotes ?? null
       },
       async () => {
+        // CRITICAL: persist the scalar mutations above before any further `em.findOne` / sync
+        // helpers run inside this transaction. MikroORM v7's identity-map silently discards
+        // pending scalar changes on `record` if a query (such as the stage-transition lookup
+        // inside `upsertDealStageTransition`, or the linked-entity finds inside
+        // `syncDealPeople` / `syncDealCompanies`) executes on the same `EntityManager`
+        // before we explicitly flush. Without this flush, the entire kanban drag-and-drop
+        // returns 200 OK but never actually updates `customer_deals` rows — the card
+        // snaps back to its source lane on the next refetch (see SPEC-018).
+        await em.flush()
+      },
+      async () => {
         const snapshot = nextStageSnapshot
         if (!snapshot) return
         const shouldRecord =
@@ -714,6 +725,14 @@ const updateDealCommand: CommandHandler<DealUpdateInput, { dealId: string }> = {
         deal.closureOutcome = before.deal.closureOutcome
         deal.lossReasonId = before.deal.lossReasonId
         deal.lossNotes = before.deal.lossNotes
+      },
+      async () => {
+        // Mirror of the fix applied to the forward `execute` path: persist the scalar
+        // mutations on `deal` before any further `em.findOne` (the transition lookup
+        // inside `upsertDealStageTransition`) or sync-helper queries run on the same EM.
+        // MikroORM v7 silently discards the pending scalar changes if we don't flush here
+        // (see SPEC-018), which would make an undo of a kanban stage move silently no-op.
+        await em.flush()
       },
       async () => {
         if (!shouldRecordRevertTransition || !before.deal.pipelineStageId) return

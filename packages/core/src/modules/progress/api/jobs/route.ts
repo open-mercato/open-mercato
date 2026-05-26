@@ -138,27 +138,37 @@ export async function GET(req: Request) {
 }
 
 export async function POST(req: Request) {
-  const auth = await getAuthFromRequest(req)
-  if (!auth || !auth.tenantId) {
-    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+  try {
+    const auth = await getAuthFromRequest(req)
+    if (!auth || !auth.tenantId) {
+      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+    }
+
+    const body = await req.json()
+    const parsed = createProgressJobSchema.safeParse(body)
+    if (!parsed.success) {
+      return NextResponse.json({ error: 'Invalid input', details: parsed.error.flatten() }, { status: 400 })
+    }
+
+    const container = await createRequestContainer()
+    const progressService = container.resolve('progressService') as import('../../lib/progressService').ProgressService
+
+    const job = await progressService.createJob(parsed.data, {
+      tenantId: auth.tenantId,
+      organizationId: auth.orgId,
+      userId: auth.sub,
+    })
+
+    return NextResponse.json({ id: job.id }, { status: 201 })
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error)
+    const stack = error instanceof Error ? error.stack : undefined
+    console.error('[progress.jobs.create] unhandled error', { message, stack })
+    return NextResponse.json(
+      { error: 'Failed to create progress job.', message, stack },
+      { status: 500 },
+    )
   }
-
-  const body = await req.json()
-  const parsed = createProgressJobSchema.safeParse(body)
-  if (!parsed.success) {
-    return NextResponse.json({ error: 'Invalid input', details: parsed.error.flatten() }, { status: 400 })
-  }
-
-  const container = await createRequestContainer()
-  const progressService = container.resolve('progressService') as import('../../lib/progressService').ProgressService
-
-  const job = await progressService.createJob(parsed.data, {
-    tenantId: auth.tenantId,
-    organizationId: auth.orgId,
-    userId: auth.sub,
-  })
-
-  return NextResponse.json({ id: job.id }, { status: 201 })
 }
 
 const jobListItemSchema = z.object({
