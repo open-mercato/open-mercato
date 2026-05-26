@@ -46,8 +46,8 @@
 | 11 | 11.1 | Wire customers.company edit page to pass `optimisticLockUpdatedAt={record.updatedAt}` (UI touch → integration test extension) | done | 4e4438ad6 |
 | 12 | 12.1 | Final gate (build / typecheck / test / build:app / ds-guardian / auto-review-pr) + PR body flip to `complete` | done | 65bab423d |
 | 13 | 13.1 | Generic optimistic-lock reader factory (`createGenericOptimisticLockReader`) in `@open-mercato/shared` + unit tests | done | 8932cd344 |
-| 13 | 13.2 | `registerOptimisticLockReaderIfAbsent` store helper (hand-wired readers always win) + unit tests | done | PENDING |
-| 13 | 13.3 | Auto-register a generic reader from `makeCrudRoute` for every CRUD route's resourceKind + factory unit test | todo | — |
+| 13 | 13.2 | `registerOptimisticLockReaderIfAbsent` store helper (hand-wired readers always win) + unit tests | done | 7ef8c5e0f |
+| 13 | 13.3 | Auto-register a generic reader from `makeCrudRoute` for every CRUD route's resourceKind + factory unit test | done | PENDING |
 | 13 | 13.4 | Spec + docs update: "all CRUD entities" auto-registered, decision matrix Q5 = C (platform-wide) | todo | — |
 | 13 | 13.5 | New integration spec `TC-LOCK-OSS-004` for `customers.deal` proving the generic path + CI env expands to `all` | todo | — |
 
