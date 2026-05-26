@@ -41,6 +41,8 @@ export async function GET() {
   return NextResponse.json(body)
 }
 
+export default GET
+
 export const openApi: OpenApiRouteDoc = {
   tag: 'API Documentation',
   summary: 'Deployed Open Mercato version',
