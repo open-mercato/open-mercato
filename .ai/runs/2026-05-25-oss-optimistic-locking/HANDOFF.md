@@ -1,35 +1,44 @@
 # Handoff — 2026-05-25-oss-optimistic-locking
 
-**Last updated:** 2026-05-25T11:25Z
+**Last updated:** 2026-05-26T08:30Z
 **Branch:** feat/oss-optimistic-locking
 **PR:** https://github.com/open-mercato/open-mercato/pull/2055
-**Current phase/step:** complete — all 11 phases landed, full validation gate green
-**Last commit before this finalization batch:** 24fb640ef (`docs(runs): checkpoint 2 — steps 9.1..11.1 verified`)
+**Current phase/step:** checkpoint 3 verified — Phase 13 lands "all CRUD entities" coverage on top of the previously-complete spec
+**Last commit:** 284b72b38 (`test(optimistic-lock): TC-LOCK-OSS-004 (customers.deal) + CI env=all`)
 
 ## What just happened
 
-- Re-entered the PR at 2026-05-25T11:15Z; every Tasks-table row was already `done` from the prior session.
-- Ran the spec-completion final gate end-to-end (build:packages, generate, i18n×2, typecheck, full unit test suite — 6132 tests, build:app). Initial parallel `yarn typecheck` got SIGHUP on `@open-mercato/app#typecheck` (turbo OOM); standalone retry was clean.
-- ds-guardian pass: clean (no DS violations in the diff).
-- Self code-review + BC review: clean (every change ADDITIVE).
-- `auto-review-pr` autofix pass via subagent: APPROVE, zero blocking findings. The one docs nit raised was verified as a false positive (the referenced path `packages/shared/src/lib/umes/extension-headers.ts` exists on develop).
-- Posted comprehensive summary comment on the PR.
-- Updated the PR body: `Status: in-progress` → `Status: complete`, added Phases 7–11 to the "What Changed" section, flipped the deferred-row markers in the decision matrix to "all 3 landed", updated the Tests section.
-- Labels: kept `feature` + `review` + `needs-qa`; releasing `in-progress` next.
+- Resumed PR #2055 in response to `/auto-continue-pr-loop 2055 add support for all other entities`.
+- Added Phase 13 to PLAN.md (Tasks-table rows 13.1..13.5) — extends the guard from 3 hand-wired reference entities to every CRUD entity in the platform.
+- Implemented all 5 Steps as lean per-Step commits (one commit per Step, Tasks-table row flipped in the same commit):
+  - 13.1 `8932cd344` — `createGenericOptimisticLockReader` factory in `@open-mercato/shared`.
+  - 13.2 `7ef8c5e0f` — `registerOptimisticLockReaderIfAbsent` store helper (hand-wired wins).
+  - 13.3 `dda055339` — `makeCrudRoute` auto-registers a generic reader per route at module-load time.
+  - 13.4 `cddd2ce47` — Spec + docs page updated.
+  - 13.5 `284b72b38` — `TC-LOCK-OSS-004.spec.ts` for `customers.deal` + CI env flipped to `OM_OPTIMISTIC_LOCK=all`.
+- Checkpoint 3 ran the targeted validation gate: build:packages ✓, generate ✓, i18n-sync ✓, shared/ui/core full unit suites all green (995 + 1067 + 4189 tests). Core typecheck fails on `ignoreDeprecations` — pre-existing on develop, not in scope.
+- All commits pushed to `origin/feat/oss-optimistic-locking`.
 
 ## Next concrete action
 
-Nothing on this PR. Wait for human review on PR #2055. After approval, the PR moves to `qa` (because `needs-qa` is present); after QA, to `merge-queue`.
+Run the final-gate ceremony (step 5 → step 7 of `auto-continue-pr-loop`):
+
+1. ds-guardian pass over `origin/develop..HEAD` (Phase 13 added no UI / no styles, expect clean).
+2. BC + self code-review sweep.
+3. `auto-review-pr` autofix loop on PR #2055.
+4. Post comprehensive summary comment for this resume.
+5. Update the PR body — extend "What Changed" with Phase 13 + flip pipeline label from `qa` back to `review` (scope extension on a `qa`-labelled PR warrants re-review).
+6. Release the `in-progress` lock.
 
 ## Blockers / open questions
 
-None.
+None. Pre-existing typecheck failure on develop is documented in `checkpoint-3-checks.md` and explicitly out of scope.
 
 ## Environment caveats
 
-- The worktree at `.ai/tmp/auto-continue-pr/pr-2055-20260525-104412/` will be cleaned up by the parent session as the final step of the resume.
-- Integration tests (`TC-LOCK-OSS-001..003`) execute in CI's ephemeral stack with `OM_OPTIMISTIC_LOCK='customers.company,customers.person,sales.order'` set by `.github/workflows/ci.yml`.
+- The janitor worktree at `/home/pkarw/Projects/github-janitor/.janitor/repos/open-mercato__open-mercato/worktrees/bdaa81a3-890b-4de9-9a01-bd15f17a68aa/` is the active workspace. The branch was checked out via `git fetch origin feat/oss-optimistic-locking + git checkout -B feat/oss-optimistic-locking FETCH_HEAD`.
+- `OM_OPTIMISTIC_LOCK=all` in CI now activates the auto-registered generic reader for every CRUD route. Local testing should use the same value or an explicit allow-list including `customers.deal`.
 
 ## Worktree
 
-- Path: `.ai/tmp/auto-continue-pr/pr-2055-20260525-104412` (will be removed by the parent session)
+- Path: `/home/pkarw/Projects/github-janitor/.janitor/repos/open-mercato__open-mercato/worktrees/bdaa81a3-890b-4de9-9a01-bd15f17a68aa/` (janitor-managed; do NOT remove with `git worktree remove`)

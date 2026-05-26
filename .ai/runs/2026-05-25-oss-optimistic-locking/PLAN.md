@@ -49,7 +49,7 @@
 | 13 | 13.2 | `registerOptimisticLockReaderIfAbsent` store helper (hand-wired readers always win) + unit tests | done | 7ef8c5e0f |
 | 13 | 13.3 | Auto-register a generic reader from `makeCrudRoute` for every CRUD route's resourceKind + factory unit test | done | dda055339 |
 | 13 | 13.4 | Spec + docs update: "all CRUD entities" auto-registered, decision matrix Q5 = C (platform-wide) | done | cddd2ce47 |
-| 13 | 13.5 | New integration spec `TC-LOCK-OSS-004` for `customers.deal` proving the generic path + CI env expands to `all` | done | PENDING |
+| 13 | 13.5 | New integration spec `TC-LOCK-OSS-004` for `customers.deal` proving the generic path + CI env expands to `all` | done | 284b72b38 |
 
 ## Goal (resume)
 

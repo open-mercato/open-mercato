@@ -47,6 +47,13 @@ Append-only event log. Newest at the bottom.
   `auto-continue-pr-loop` lean contract; checkpoint pass after Step
   13.5 batches verification.
 
+## 2026-05-26T08:30Z — checkpoint 3 (Phase 13: all CRUD entities)
+- Steps verified: 13.1, 13.2, 13.3, 13.4, 13.5 (SHA range 8932cd344..284b72b38).
+- Targeted validation: build:packages ✓, generate ✓, i18n-sync ✓ (4 locales, 47 modules), i18n-usage advisory baseline unchanged; shared 995/995, ui 1067/1067, core 4189/4189 unit tests green.
+- Targeted optimistic-lock surface: shared 78/78, core 33/33, ui 66/66 across the suites that touch the new factory / store / docs / integration paths.
+- UI verification: **skipped** — Phase 13 is server-side only (factory.ts hook + shared library + docs + CI env). No `.tsx` / widget / page / portal file changed.
+- Known pre-existing failure (not introduced here): `yarn workspace @open-mercato/core typecheck` errors on `tsconfig.json(7,27): TS5103 Invalid value for '--ignoreDeprecations'`. Verified identical on `origin/develop`. Documented in `checkpoint-3-checks.md`; out of scope.
+
 ## 2026-05-25T11:25Z — spec complete
 - Final validation gate: all green — build:packages ✓, generate ✓, i18n×2 ✓, typecheck ✓ (standalone retry on apps/mercato after parallel SIGHUP), test ✓ (6132 tests across 677 suites), build:app ✓.
 - ds-guardian pass: clean.
