@@ -593,7 +593,7 @@ const crud = makeCrudRoute({
 })
 ```
 
-### Key Rules
+### Always
 
 - MUST implement `enrichMany()` for batch endpoints (prevents N+1 queries)
 - MUST namespace enriched fields with `_moduleName` prefix (e.g. `_example.todoCount`)

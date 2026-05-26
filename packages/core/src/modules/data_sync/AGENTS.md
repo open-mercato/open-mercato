@@ -153,7 +153,7 @@ Data sync providers can leverage the **Unified Module Extension System (UMES)** 
 - Tests must create prerequisites via API and clean up in `finally`
 - Avoid hard dependency on late-phase modules; keep tests scoped to implemented contracts
 
-## MUST Rules
+## Always
 
 - **Always scope by organizationId + tenantId** — every entity query
 - **Never import from provider adapter modules** — data_sync is generic

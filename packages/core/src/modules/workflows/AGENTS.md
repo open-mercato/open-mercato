@@ -2,7 +2,7 @@
 
 Use the workflows module for business process automation: defining step-based workflows, executing instances, handling user tasks, processing async activities, and triggering workflows from domain events.
 
-## MUST Rules
+## Always
 
 1. **MUST resolve services via DI** — use `container.resolve('workflowExecutor')`, never import and call lib functions directly
 2. **MUST NOT skip the execution loop** — always use `workflowExecutor.startWorkflow()` to create and run instances; never insert `WorkflowInstance` rows directly

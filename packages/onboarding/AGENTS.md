@@ -2,7 +2,7 @@
 
 Use `@open-mercato/onboarding` for setup wizards and guided flows during new tenant provisioning.
 
-## MUST Rules
+## Always
 
 1. **MUST keep wizard steps idempotent** — re-running a step MUST NOT create duplicate data
 2. **MUST persist state per tenant/organization** — use the ORM entities in `data/`

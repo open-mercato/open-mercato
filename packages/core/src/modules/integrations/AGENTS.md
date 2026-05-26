@@ -193,7 +193,7 @@ The integrations module itself uses UMES to inject external ID displays on any e
 - Use helpers from `@open-mercato/core/modules/core/__integration__/helpers/*`
 - Tests must create prerequisites via API and clean up in `finally`
 
-## MUST Rules
+## Always
 
 - **Never import from provider modules** — integrations module is generic; providers import from integrations, not vice versa
 - **Always scope by organizationId + tenantId** — every entity query and service call

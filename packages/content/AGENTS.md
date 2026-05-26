@@ -2,7 +2,7 @@
 
 Use `@open-mercato/content` for static content pages (privacy policies, terms, legal pages).
 
-## MUST Rules
+## Always
 
 1. **MUST keep content components stateless** — no business logic, no API calls from content pages
 2. **MUST use `useT()` for all user-facing text** — never hard-code strings in content components

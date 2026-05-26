@@ -2,7 +2,7 @@
 
 Use `packages/checkout/src/modules/checkout/` for all checkout module work.
 
-## MUST Rules
+## Always
 
 1. MUST keep checkout isolated from core business modules; use DI, events, and UMES surfaces instead of direct module internals.
 2. MUST treat public pay-page security as server-authoritative. Never trust submitted amount, status, or consent state from the client.

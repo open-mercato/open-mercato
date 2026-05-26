@@ -10,7 +10,7 @@ Use `@open-mercato/cache` for all caching needs. MUST NOT use raw Redis, SQLite,
 | SQLite | Use for single-server production deployments | `CACHE_STRATEGY=sqlite` |
 | Redis | Use for multi-server production with shared cache | `CACHE_STRATEGY=redis` |
 
-## MUST Rules
+## Always
 
 1. **MUST resolve via DI** — always use `container.resolve('cacheService')`, never instantiate cache directly
 2. **MUST scope to tenant** — include `tenantId` in cache keys or use `runWithCacheTenant()` for automatic scoping

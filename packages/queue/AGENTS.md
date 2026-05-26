@@ -9,7 +9,7 @@ Use `@open-mercato/queue` for all background job processing. MUST NOT implement 
 | Local | Use for development — jobs process from `.mercato/queue/` (or `QUEUE_BASE_DIR`) | `QUEUE_STRATEGY=local` |
 | BullMQ | Use for production — Redis-backed with retries and concurrency | `QUEUE_STRATEGY=async` |
 
-## MUST Rules
+## Always
 
 1. **MUST make workers idempotent** — jobs may be retried on failure; duplicate execution MUST NOT corrupt data
 2. **MUST export `metadata`** with `{ queue, id?, concurrency? }` from every worker file

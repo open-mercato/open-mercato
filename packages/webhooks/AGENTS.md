@@ -2,7 +2,7 @@
 
 Use `@open-mercato/webhooks` for Standard Webhooks delivery, inbound verification, and webhook marketplace/admin flows.
 
-## MUST Rules
+## Always
 
 1. **MUST use the shared webhook primitives** — import signing, verification, and secret helpers from `@open-mercato/shared/lib/webhooks`
 2. **MUST enqueue outbound deliveries** — never send webhook HTTP requests directly from subscribers or API routes unless the endpoint is the explicit synchronous test route

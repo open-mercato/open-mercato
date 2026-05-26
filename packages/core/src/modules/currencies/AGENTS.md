@@ -2,7 +2,7 @@
 
 Use the currencies module for multi-currency support, exchange rates, and currency conversion.
 
-## MUST Rules
+## Always
 
 1. **MUST store currency amounts with 4 decimal precision** — never truncate to 2 decimals internally
 2. **MUST use date-based exchange rates** — always resolve rates for the transaction date, not "current" rate

@@ -2,7 +2,7 @@
 
 Use the progress module for every user-visible bulk operation and every long-running operation. Keep `ProgressTopBar` the single shared progress surface.
 
-## MUST Rules
+## Always
 
 1. **MUST create `ProgressJob` for durable work** — imports, exports, bulk mutations, reindexing, external sync, and queued work must persist progress server-side.
 2. **MUST return `progressJobId` to the UI** — DataTable bulk actions and start-operation APIs must expose the job id so the top bar can track it.

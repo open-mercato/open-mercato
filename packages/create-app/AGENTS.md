@@ -2,7 +2,7 @@
 
 Use `packages/create-app` to scaffold standalone Open Mercato applications via `npx create-mercato-app my-app`.
 
-## MUST Rules
+## Always
 
 1. **MUST test both environments** — verify changes work in monorepo (`yarn dev` / `yarn dev:verbose` when relevant) AND standalone app (via Verdaccio)
 2. **MUST keep `@types/*` in `dependencies`** (not `devDependencies`) — standalone apps need type declarations at runtime

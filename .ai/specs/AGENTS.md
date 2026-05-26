@@ -61,7 +61,7 @@ Examples:
 - Update changelog with exact date and concise summary.
 - Re-run review checklist and final compliance gate before approval.
 
-## MUST Rules (Condensed)
+## Always (Condensed)
 
 - Every non-trivial spec includes: TLDR, Overview, Problem Statement, Proposed Solution, Architecture, Data Models, API Contracts, Risks & Impact Review, Final Compliance Report, Changelog.
 - Risks must document concrete failure scenarios, severity, affected area, mitigation, and residual risk.

@@ -2,7 +2,7 @@
 
 Use the sales module for orders, quotes, invoices, shipments, and payments. This module has the most complex business logic in the system.
 
-## MUST Rules
+## Always
 
 1. **MUST NOT reimplement document math inline** — use `salesCalculationService` from DI
 2. **MUST follow document flow**: Quote → Order → Invoice — no skipping steps

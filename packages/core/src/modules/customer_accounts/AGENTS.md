@@ -2,7 +2,7 @@
 
 Customer-facing identity and portal authentication with a two-tier RBAC model. This module manages customer user accounts, sessions, roles, invitations, and the authentication flow for the customer portal. It is separate from the internal `auth` module, which handles staff authentication.
 
-## MUST Rules
+## Always
 
 1. **MUST hash passwords with `bcryptjs` (cost >= 10)** — never store plaintext passwords
 2. **MUST return minimal error messages on auth endpoints** — never reveal whether an email exists (use generic "Invalid email or password")

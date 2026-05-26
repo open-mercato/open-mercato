@@ -2,7 +2,7 @@
 
 When working on search functionality, use this guide. It covers indexing, querying, and configuring search across all entity types.
 
-## MUST / MUST NOT Rules
+## Always / Never
 
 1. **MUST** create a `search.ts` file for every module with searchable entities.
 2. **MUST** define `fieldPolicy.excluded` for any sensitive fields (passwords, tokens, SSNs, bank accounts) -- never allow them into any index.

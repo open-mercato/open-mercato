@@ -2,7 +2,7 @@
 
 Use `@open-mercato/shared` for cross-cutting utilities, types, DSL helpers, and infrastructure. MUST NOT import from `@open-mercato/core` or any domain package — shared has zero domain dependencies.
 
-## MUST Rules
+## Always
 
 1. **MUST NOT add domain-specific logic** — this package is infrastructure only
 2. **MUST use precise types** — no `any`, use zod schemas + `z.infer`

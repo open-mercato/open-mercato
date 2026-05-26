@@ -2,7 +2,7 @@
 
 **This is the reference CRUD module.** When building new modules, copy patterns from here first.
 
-## MUST Rules
+## Always
 
 1. **MUST use this module as the template** for new CRUD modules — copy file structure and patterns
 2. **MUST include all standard module files** — use the list below as a checklist

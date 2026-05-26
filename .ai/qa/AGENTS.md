@@ -304,7 +304,7 @@ export const integrationMeta = {
 }
 ```
 
-### MUST Rules for Executable Tests
+### Always / Never for Executable Tests
 
 - Use Playwright locators: `getByRole`, `getByLabel`, `getByText`, `getByPlaceholder` — avoid CSS selectors
 - If a matching scenario exists, reference it in a comment (e.g., `Source: .ai/qa/scenarios/TC-AUTH-001-*.md`)

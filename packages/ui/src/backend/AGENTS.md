@@ -2,7 +2,7 @@
 
 Use `@open-mercato/ui/backend` for all admin/backend page components. See `packages/ui/AGENTS.md` for full UI patterns.
 
-## MUST Rules
+## Always
 
 1. **MUST set stable `id` values on `RowActions` items** — use `edit`, `open`, `delete`, etc. DataTable resolves default row-click behavior from these ids
 2. **MUST use `apiCall`/`apiCallOrThrow`** from `@open-mercato/ui/backend/utils/apiCall` — never use raw `fetch`

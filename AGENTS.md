@@ -227,7 +227,7 @@ All paths use `src/modules/<module>/` as shorthand. See `packages/core/AGENTS.md
 | `widgets/components.ts` | `componentOverrides` | Component replacement/wrapper/props override definitions |
 | `data/enrichers.ts` | `enrichers` | Response enrichers for data federation |
 
-### Key Rules
+### Always
 
 - API routes MUST export `openApi` for documentation generation
 - CRUD routes: use `makeCrudRoute` with `indexer: { entityType }` for query index coverage
@@ -273,7 +273,13 @@ Third-party module developers depend on stable platform APIs. Any change to a **
 
 **Deprecation protocol** (summary): (1) never remove in one release, (2) add `@deprecated` JSDoc, (3) provide a bridge (re-export/alias/dual-emit) for ≥1 minor version, (4) document in RELEASE_NOTES.md, (5) reference a spec with "Migration & Backward Compatibility" section.
 
-## Critical Rules
+## Always / Ask First / Never
+
+Use `Always`, `Ask First`, and `Never` headings when adding or reorganizing agent rules:
+
+- `Always` — required defaults and commands agents should apply without asking.
+- `Ask First` — decisions that need maintainer input before changing behavior, scope, dependencies, branch/deploy flow, or contract surfaces.
+- `Never` — prohibited actions and unsafe shortcuts.
 
 ### Architecture
 

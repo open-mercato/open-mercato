@@ -2,7 +2,7 @@
 
 Use `@open-mercato/events` for all event-driven communication between modules. MUST NOT use direct module-to-module function calls for side effects.
 
-## MUST Rules
+## Always
 
 1. **MUST declare events in the emitting module's `events.ts`** — use `createModuleEvents()` with `as const` for type safety
 2. **MUST run `yarn generate`** after creating or modifying `events.ts` files
@@ -136,7 +136,7 @@ useAppEvent('mymod.entity.created', (event) => {
 }, [])
 ```
 
-### Key Rules
+### Always
 
 - Events are server-filtered by audience before SSE send:
   - Tenant: `tenantId` must match

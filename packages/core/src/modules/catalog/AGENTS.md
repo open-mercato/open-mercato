@@ -2,7 +2,7 @@
 
 Use the catalog module for products, categories, pricing, variants, and offers.
 
-## MUST Rules
+## Always
 
 1. **MUST NOT reimplement pricing logic** — use `selectBestPrice` and the resolver pipeline from `lib/pricing.ts`
 2. **MUST use the DI token `catalogPricingService`** when resolving prices — ensures overrides take effect
