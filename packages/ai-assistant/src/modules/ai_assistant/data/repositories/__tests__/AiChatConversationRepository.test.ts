@@ -5,6 +5,7 @@ import {
 } from '../../entities'
 import {
   AiChatConversationAccessError,
+  AiChatConversationDuplicateParticipantError,
   AiChatConversationRepository,
 } from '../AiChatConversationRepository'
 
@@ -36,6 +37,7 @@ type ParticipantRow = {
   lastReadAt: Date | null
   createdAt: Date
   updatedAt: Date
+  deletedAt: Date | null
 }
 
 type MessageRow = {
@@ -140,6 +142,10 @@ function mockEm() {
       const rows = await find(entity, where, options)
       return rows[0] ?? null
     },
+    count: async (entity: unknown, where: any) => {
+      const rows = await find(entity, where)
+      return rows.length
+    },
     create: (entity: unknown, data: any) => {
       idCounter += 1
       const key = entityKey(entity)
@@ -175,6 +181,7 @@ function mockEm() {
           lastReadAt: data.lastReadAt ?? null,
           createdAt: data.createdAt instanceof Date ? data.createdAt : new Date(),
           updatedAt: data.updatedAt instanceof Date ? data.updatedAt : new Date(),
+          deletedAt: data.deletedAt ?? null,
         }
         return row
       }
@@ -598,5 +605,142 @@ describe('AiChatConversationRepository', () => {
     expect(
       em.__stores.conv.find((row: ConvRow) => row.conversationId === 'other-tenant')?.deletedAt,
     ).toBeNull()
+  })
+
+  it('addParticipant rejects an active duplicate with AiChatConversationDuplicateParticipantError (BUG-001)', async () => {
+    const em = mockEm()
+    const repo = new AiChatConversationRepository(em)
+    const ownerCtx = { tenantId: tenantAlpha, organizationId: null, userId: 'u-owner' }
+    await repo.createOrGet({ conversationId: 'c-dup', agentId: 'a' }, ownerCtx)
+    await repo.addParticipant('c-dup', 'u-viewer', 'viewer', ownerCtx)
+
+    await expect(
+      repo.addParticipant('c-dup', 'u-viewer', 'viewer', ownerCtx),
+    ).rejects.toBeInstanceOf(AiChatConversationDuplicateParticipantError)
+
+    const active = em.__stores.participant.filter(
+      (row: ParticipantRow) => row.userId === 'u-viewer',
+    )
+    expect(active).toHaveLength(1)
+  })
+
+  it('addParticipant restores a previously revoked participant without duplicating the row (BUG-001 boundary)', async () => {
+    const em = mockEm()
+    const repo = new AiChatConversationRepository(em)
+    const ownerCtx = { tenantId: tenantAlpha, organizationId: null, userId: 'u-owner' }
+    await repo.createOrGet({ conversationId: 'c-restore', agentId: 'a' }, ownerCtx)
+    await repo.addParticipant('c-restore', 'u-viewer', 'viewer', ownerCtx)
+    await repo.revokeParticipant('c-restore', 'u-viewer', ownerCtx)
+
+    const restored = await repo.addParticipant('c-restore', 'u-viewer', 'viewer', ownerCtx)
+    expect(restored.userId).toBe('u-viewer')
+    const allRows = em.__stores.participant.filter(
+      (row: ParticipantRow) => row.userId === 'u-viewer',
+    )
+    expect(allRows).toHaveLength(1)
+    expect((allRows[0] as any).deletedAt).toBeNull()
+  })
+
+  it('addParticipant refuses a non-owner caller even when canManageConversations=true (BUG-002)', async () => {
+    const em = mockEm()
+    const repo = new AiChatConversationRepository(em)
+    const ownerCtx = { tenantId: tenantAlpha, organizationId: null, userId: 'u-owner' }
+    await repo.createOrGet({ conversationId: 'c-bug-002', agentId: 'a' }, ownerCtx)
+
+    const managerCtx = {
+      tenantId: tenantAlpha,
+      organizationId: null,
+      userId: 'u-manager',
+      canManageConversations: true,
+    }
+    await expect(
+      repo.addParticipant('c-bug-002', 'u-victim', 'viewer', managerCtx),
+    ).rejects.toBeInstanceOf(AiChatConversationAccessError)
+  })
+
+  it('revokeParticipant refuses a non-owner caller even when canManageConversations=true (BUG-002)', async () => {
+    const em = mockEm()
+    const repo = new AiChatConversationRepository(em)
+    const ownerCtx = { tenantId: tenantAlpha, organizationId: null, userId: 'u-owner' }
+    await repo.createOrGet({ conversationId: 'c-bug-002-rev', agentId: 'a' }, ownerCtx)
+    await repo.addParticipant('c-bug-002-rev', 'u-viewer', 'viewer', ownerCtx)
+
+    const managerCtx = {
+      tenantId: tenantAlpha,
+      organizationId: null,
+      userId: 'u-manager',
+      canManageConversations: true,
+    }
+    await expect(
+      repo.revokeParticipant('c-bug-002-rev', 'u-viewer', managerCtx),
+    ).rejects.toBeInstanceOf(AiChatConversationAccessError)
+  })
+
+  it('revokeParticipant blocks revoking the conversation owner (BUG-002)', async () => {
+    const em = mockEm()
+    const repo = new AiChatConversationRepository(em)
+    const ownerCtx = { tenantId: tenantAlpha, organizationId: null, userId: 'u-owner' }
+    await repo.createOrGet({ conversationId: 'c-no-self-revoke', agentId: 'a' }, ownerCtx)
+
+    await expect(
+      repo.revokeParticipant('c-no-self-revoke', 'u-owner', ownerCtx),
+    ).rejects.toBeInstanceOf(AiChatConversationAccessError)
+  })
+
+  it('listParticipants throws AccessError for a non-owner / non-manager caller (BUG-006)', async () => {
+    const em = mockEm()
+    const repo = new AiChatConversationRepository(em)
+    const ownerCtx = { tenantId: tenantAlpha, organizationId: null, userId: 'u-owner' }
+    await repo.createOrGet({ conversationId: 'c-bug-006', agentId: 'a' }, ownerCtx)
+    await repo.addParticipant('c-bug-006', 'u-viewer', 'viewer', ownerCtx)
+
+    const viewerCtx = { tenantId: tenantAlpha, organizationId: null, userId: 'u-viewer' }
+    await expect(repo.listParticipants('c-bug-006', viewerCtx)).rejects.toBeInstanceOf(
+      AiChatConversationAccessError,
+    )
+  })
+
+  it('listParticipants returns the active participants for the owner', async () => {
+    const em = mockEm()
+    const repo = new AiChatConversationRepository(em)
+    const ownerCtx = { tenantId: tenantAlpha, organizationId: null, userId: 'u-owner' }
+    await repo.createOrGet({ conversationId: 'c-list-ok', agentId: 'a' }, ownerCtx)
+    await repo.addParticipant('c-list-ok', 'u-viewer-1', 'viewer', ownerCtx)
+    await repo.addParticipant('c-list-ok', 'u-viewer-2', 'viewer', ownerCtx)
+
+    const list = await repo.listParticipants('c-list-ok', ownerCtx)
+    expect(list.map((p) => p.userId).sort()).toEqual(
+      ['u-owner', 'u-viewer-1', 'u-viewer-2'].sort(),
+    )
+  })
+
+  it('listParticipants allows a conversation manager to enumerate participants (BUG-006 manager exception)', async () => {
+    const em = mockEm()
+    const repo = new AiChatConversationRepository(em)
+    const ownerCtx = { tenantId: tenantAlpha, organizationId: null, userId: 'u-owner' }
+    await repo.createOrGet({ conversationId: 'c-list-mgr', agentId: 'a' }, ownerCtx)
+    await repo.addParticipant('c-list-mgr', 'u-viewer', 'viewer', ownerCtx)
+
+    const managerCtx = {
+      tenantId: tenantAlpha,
+      organizationId: null,
+      userId: 'u-manager',
+      canManageConversations: true,
+    }
+    const list = await repo.listParticipants('c-list-mgr', managerCtx)
+    expect(list.find((p) => p.userId === 'u-viewer')).toBeDefined()
+  })
+
+  it('getParticipantCount returns the count of active (non-deleted) participants (BUG-003)', async () => {
+    const em = mockEm()
+    const repo = new AiChatConversationRepository(em)
+    const ownerCtx = { tenantId: tenantAlpha, organizationId: null, userId: 'u-owner' }
+    await repo.createOrGet({ conversationId: 'c-count', agentId: 'a' }, ownerCtx)
+    await repo.addParticipant('c-count', 'u-v1', 'viewer', ownerCtx)
+    await repo.addParticipant('c-count', 'u-v2', 'viewer', ownerCtx)
+    await repo.revokeParticipant('c-count', 'u-v1', ownerCtx)
+
+    const total = await repo.getParticipantCount(tenantAlpha, null, 'c-count')
+    expect(total).toBe(2)
   })
 })
