@@ -17,6 +17,12 @@
 //
 // Escape hatch: set `OM_WATCH_PACKAGES_MODE=legacy` to fall back to the
 // previous Turbo-based per-package watcher path (see `package.json`).
+//
+// Note: this var is distinct from `OM_PACKAGE_WATCH_MODE` (see
+// `scripts/watch.mjs`), which only takes effect under the legacy path and
+// toggles per-package `low-memory` vs `persistent` modes. The consolidated
+// watcher always runs in the low-memory equivalent. See
+// `apps/docs/docs/appendix/troubleshooting.mdx` for the public reference.
 
 import * as esbuild from 'esbuild'
 import { glob } from 'glob'
