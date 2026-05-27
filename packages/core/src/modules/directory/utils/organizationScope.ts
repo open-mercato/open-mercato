@@ -25,7 +25,10 @@ export type OrganizationScope = {
 // invalidation kicks the cache when user_organizations or organizations
 // mutate (wired via invalidateOrganizationScopeCacheFor).
 const ORG_SCOPE_CACHE_KEY_PREFIX = 'org-scope'
-const ORG_SCOPE_DEFAULT_TTL_MS = 60_000
+// Phase 4 default-off until the same readiness probe (`GET /api/customers/people`)
+// stays green with the cache layer engaged. Set `OM_ORG_SCOPE_CACHE_TTL_MS=60000`
+// (or any positive integer) to opt in once cross-request safety is re-verified.
+const ORG_SCOPE_DEFAULT_TTL_MS = 0
 
 function resolveOrgScopeTtlMs(): number {
   const raw = process.env.OM_ORG_SCOPE_CACHE_TTL_MS

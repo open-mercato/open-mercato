@@ -352,7 +352,13 @@ type CustomFieldDefIndexCache = {
 }
 
 const CF_DEF_INDEX_CACHE_KEY_PREFIX = 'crud:cf-def-index'
-const CF_DEF_INDEX_DEFAULT_TTL_MS = 5 * 60 * 1000
+// Phase 2 default-off: integration runs observed `/api/customers/people`
+// returning 500 with this cache path active, and the readiness-probe
+// timeout blocked artifact upload so the direct stack trace was lost.
+// Until cross-request safety of the SQLite-cache JSON round-trip is
+// re-verified, ship with the layer disabled. Set
+// `OM_CF_DEF_CACHE_TTL_MS=300000` (or any positive integer) to opt in.
+const CF_DEF_INDEX_DEFAULT_TTL_MS = 0
 
 function resolveCfDefIndexCacheTtlMs(): number {
   const raw = process.env.OM_CF_DEF_CACHE_TTL_MS
