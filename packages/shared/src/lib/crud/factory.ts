@@ -637,7 +637,11 @@ function isUuid(v: any): v is string {
   return typeof v === 'string' && /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(v)
 }
 
-type AccessLogServiceLike = { log: (input: any) => Promise<unknown> | unknown }
+type AccessLogServiceLike = {
+  log: (input: any) => Promise<unknown> | unknown
+  logMany?: (inputs: any[]) => Promise<unknown> | unknown
+  flush?: () => Promise<void> | void
+}
 
 function resolveAccessLogService(container: AwilixContainer): AccessLogServiceLike | null {
   const registrations = (container as { registrations?: Record<string, unknown> }).registrations
@@ -652,6 +656,33 @@ function resolveAccessLogService(container: AwilixContainer): AccessLogServiceLi
     return null
   }
   return null
+}
+
+function shouldBlockAccessLogWrites(): boolean {
+  return process.env.OM_CRUD_ACCESS_LOG_BLOCKING === '1'
+}
+
+// Module-level set of in-flight access-log writes started by the CRUD factory.
+// Sits alongside the same registry inside AccessLogService so callers without
+// the concrete service (or in tests with mocks) can still drain pending work
+// via `flushPendingCrudAccessLogs()`.
+const pendingCrudAccessLogPromises = new Set<Promise<unknown>>()
+
+function trackPendingCrudAccessLogPromise<T>(promise: Promise<T>): Promise<T> {
+  pendingCrudAccessLogPromises.add(promise as unknown as Promise<unknown>)
+  promise
+    .catch(() => undefined)
+    .finally(() => {
+      pendingCrudAccessLogPromises.delete(promise as unknown as Promise<unknown>)
+    })
+  return promise
+}
+
+export async function flushPendingCrudAccessLogs(): Promise<void> {
+  while (pendingCrudAccessLogPromises.size > 0) {
+    const snapshot = Array.from(pendingCrudAccessLogPromises)
+    await Promise.allSettled(snapshot)
+  }
 }
 
 function logForbidden(details: Record<string, unknown>) {
@@ -736,7 +767,7 @@ export async function logCrudAccess(options: LogCrudAccessOptions) {
   }
 
   const uniqueIds = new Set<string>()
-  const tasks: Promise<unknown>[] = []
+  const payloads: Record<string, unknown>[] = []
   for (const item of items) {
     if (!item || typeof item !== 'object') continue
     const rawId = (item as any)[idField]
@@ -753,16 +784,38 @@ export async function logCrudAccess(options: LogCrudAccessOptions) {
     }
     if (fields.length > 0) payload.fields = fields
     if (Object.keys(context).length > 0) payload.context = context
-      tasks.push(
-        Promise.resolve(service.log(payload)).catch((err) => {
-          try {
-            console.error('[crud] failed to record access log', { err, payload })
-          } catch {}
-          return undefined
-        })
-      )
+    payloads.push(payload)
   }
-  if (tasks.length > 0) await Promise.all(tasks)
+  if (!payloads.length) return
+
+  const blocking = shouldBlockAccessLogWrites()
+  const writePromise = (async () => {
+    try {
+      if (typeof service.logMany === 'function') {
+        await service.logMany(payloads)
+      } else {
+        // Legacy fallback for service mocks/implementations without logMany.
+        await Promise.all(
+          payloads.map((payload) =>
+            Promise.resolve(service.log(payload)).catch((err) => {
+              try {
+                console.error('[crud] failed to record access log', { err, payload })
+              } catch {}
+              return undefined
+            }),
+          ),
+        )
+      }
+    } catch (err) {
+      try {
+        console.error('[crud] failed to record access logs (batch)', { err, count: payloads.length })
+      } catch {}
+    }
+  })()
+  trackPendingCrudAccessLogPromise(writePromise)
+  if (blocking) {
+    await writePromise
+  }
 }
 
 type CrudCacheStoredValue = {
