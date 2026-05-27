@@ -129,4 +129,37 @@ describe('customers people route afterList hook', () => {
       company_entity_id: 'company-1',
     })
   })
+
+  it('fetches customer entities and person profiles concurrently in afterList', async () => {
+    let resolveEntities: ((value: unknown[]) => void) | null = null
+    let resolveProfiles: ((value: unknown[]) => void) | null = null
+    const entitiesPromise = new Promise<unknown[]>((resolve) => {
+      resolveEntities = resolve
+    })
+    const profilesPromise = new Promise<unknown[]>((resolve) => {
+      resolveProfiles = resolve
+    })
+    mockFindWithDecryption
+      .mockReturnValueOnce(entitiesPromise)
+      .mockReturnValueOnce(profilesPromise)
+
+    const payload = {
+      items: [{ id: 'person-1' }],
+    }
+    const em = {}
+    const ctx = {
+      auth: { tenantId: 'tenant-1', orgId: 'org-1' },
+      selectedOrganizationId: 'org-1',
+      container: { resolve: (token: string) => (token === 'em' ? em : null) },
+    }
+
+    const hookPromise = capturedCrudOptions?.hooks?.afterList?.(payload, ctx)
+    // Both findWithDecryption calls should have been initiated synchronously
+    // before either resolves — that's the proof of concurrent fetching.
+    expect(mockFindWithDecryption).toHaveBeenCalledTimes(2)
+
+    resolveProfiles?.([])
+    resolveEntities?.([])
+    await hookPromise
+  })
 })
