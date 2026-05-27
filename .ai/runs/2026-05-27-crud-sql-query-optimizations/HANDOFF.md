@@ -1,10 +1,10 @@
 # Handoff — 2026-05-27-crud-sql-query-optimizations
 
-**Last updated:** 2026-05-27T15:40:00Z
+**Last updated:** 2026-05-27T15:50:00Z
 **Branch:** feat/crud-sql-query-optimizations
-**PR:** not yet opened
-**Current phase/step:** Phase 4 Step 4.1 (final gate + PR open)
-**Last commit:** e4b809875 — perf(customers): fetch CustomerEntity and CustomerPersonProfile concurrently in people afterList
+**PR:** https://github.com/open-mercato/open-mercato/pull/2139 (Status: complete)
+**Current phase/step:** run complete — every Tasks-table row is `done`
+**Last commit:** 0c6e6fcc8 — docs(runs): record final gate checks for crud-sql-query-optimizations (Step 4.1)
 
 ## What just happened
 

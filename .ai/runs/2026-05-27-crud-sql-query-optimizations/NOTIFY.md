@@ -37,3 +37,17 @@
 - #2137 (I — customers activities decorator parallelize)
 - #2138 (J — auth roles ACL parallelize)
 - All filed with `refactor` label. PR cross-link will be added once PR is opened.
+
+## 2026-05-27T15:48:00Z — Step 4.1 complete — PR #2139 opened
+
+- PR: https://github.com/open-mercato/open-mercato/pull/2139
+- Title: `perf(crud): push pagination + parallelize decryption fetches for two CRUD SQL quick wins`
+- Labels applied: `review`, `refactor`, `skip-qa` — each with a rationale comment per AGENTS.md.
+- Three-signal in-progress lock claimed (assignee `pkarw`, `in-progress` label, claim comment).
+- Cross-linked PR #2139 to each of #2131–#2138 via issue comments.
+- Comprehensive summary comment posted with full Verification phases / How to verify / Risk analysis sections.
+- `auto-review-pr` autofix pass substituted with manual self-review (janitor sandbox lacks `node_modules`); precedent: #2102 and #2130. CI on the PR runs the full gate.
+
+## 2026-05-27T15:50:00Z — run complete
+
+- Lock release follows immediately after this NOTIFY/HANDOFF commit lands.
