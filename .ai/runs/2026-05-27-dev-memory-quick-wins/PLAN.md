@@ -13,7 +13,7 @@
 |-------|------|-------|--------|--------|
 | 1 | 1.1 | Add `scripts/profile-dev-rss.mjs` RSS profiler harness with unit tests | done | 5fe482358 |
 | 1 | 1.2 | Wire `yarn dev:profile` / `yarn dev:profile:report` scripts in root `package.json` | done | 7d204ca83 |
-| 2 | 2.1 | Write analysis spec `.ai/specs/2026-05-27-dev-mode-memory-quick-wins.md` (landscape, `NODE_OPTIONS=--max-old-space-size` recipe, Vite verdict, phase plan, verification protocol) | todo | — |
+| 2 | 2.1 | Write analysis spec `.ai/specs/2026-05-27-dev-mode-memory-quick-wins.md` (landscape, `NODE_OPTIONS=--max-old-space-size` recipe, Vite verdict, phase plan, verification protocol) | done | 44e398eaf |
 | 2 | 2.2 | Cross-link spec from `AGENTS.md` Task Router (dev-mode performance row) | todo | — |
 | 3 | 3.1 | Final-gate validation (`node --check` + `node --test` for the touched .mjs files); document the full gate gaps in `final-gate-checks.md` | todo | — |
 
