@@ -104,11 +104,12 @@ test('summarize copes with zero samples', () => {
   assert.deepEqual(summary.peakTopProcesses, [])
 })
 
-test('renderReportTable produces a markdown table and a delta line for two reports', () => {
+test('renderReportTable orders reports by startedAt and renders a chronological delta', () => {
   const reports = [
     {
       label: 'baseline',
       durationMs: 90_000,
+      startedAt: '2026-05-27T06:00:00.000Z',
       summary: {
         peakTotalMb: 3072.5,
         meanTotalMb: 2800.1,
@@ -119,6 +120,7 @@ test('renderReportTable produces a markdown table and a delta line for two repor
     {
       label: 'after-2102',
       durationMs: 90_000,
+      startedAt: '2026-05-27T06:30:00.000Z',
       summary: {
         peakTotalMb: 1900.0,
         meanTotalMb: 1750.0,
@@ -131,10 +133,19 @@ test('renderReportTable produces a markdown table and a delta line for two repor
   assert.match(table, /\| Label \|/)
   assert.match(table, /baseline/)
   assert.match(table, /after-2102/)
-  // Reports render in alphabetic label order; the delta line is `<last> − <first>`,
-  // so `baseline − after-2102 = +1172.5 MB`. The sign is the reviewer's cue that
-  // the alphabetically-last label is the heavier one.
-  assert.match(table, /Delta:.*`baseline`.*`after-2102`.*\+1172\.5 MB/)
+  // startedAt orders `baseline` (06:00) before `after-2102` (06:30).
+  // Delta = later − earlier = 1900 − 3072.5 = -1172.5 MB (memory went down: good).
+  assert.match(table, /Delta:.*`after-2102`.*`baseline`.*-1172\.5 MB/)
+})
+
+test('renderReportTable falls back to alphabetic order when startedAt is missing', () => {
+  const reports = [
+    { label: 'b-second', durationMs: 90_000, summary: { peakTotalMb: 200, meanTotalMb: 180, sampleCount: 1, peakTopProcesses: [] } },
+    { label: 'a-first', durationMs: 90_000, summary: { peakTotalMb: 100, meanTotalMb: 90, sampleCount: 1, peakTopProcesses: [] } },
+  ]
+  const table = renderReportTable(reports)
+  // `a-first` < `b-second`, so the delta line reads `b-second − a-first`.
+  assert.match(table, /Delta:.*`b-second`.*`a-first`.*\+100 MB/)
 })
 
 test('renderReportTable handles empty input', () => {

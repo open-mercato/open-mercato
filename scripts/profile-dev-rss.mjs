@@ -29,6 +29,11 @@ const DEFAULT_OUT_DIR = path.join('.mercato', 'dev-rss')
 const TOP_PROCESS_LIMIT = 20
 
 export function parsePsOutput(stdout) {
+  // Note: processes whose argv contains an embedded newline (rare; can occur
+  // under sandboxes or pathological argv[0]) split into a partial row that
+  // fails the leading-pid regex and is skipped. Acceptable for a dev-time
+  // profiler; do not "fix" by stitching rows back together — that would mask
+  // real malformed input.
   const processes = []
   const lines = stdout.split('\n')
   for (const line of lines) {
@@ -171,7 +176,18 @@ export function renderReportTable(reports) {
   if (reports.length === 0) {
     return '_No reports found._'
   }
-  const sorted = reports.slice().sort((a, b) => a.label.localeCompare(b.label))
+  // Order by `startedAt` so the Delta line at the bottom is chronological
+  // (later report − earlier report), matching the typical "did my change
+  // reduce memory?" mental model. Fall back to label sort when timestamps
+  // are missing or equal.
+  const sorted = reports.slice().sort((a, b) => {
+    const aStarted = typeof a.startedAt === 'string' ? Date.parse(a.startedAt) : NaN
+    const bStarted = typeof b.startedAt === 'string' ? Date.parse(b.startedAt) : NaN
+    if (Number.isFinite(aStarted) && Number.isFinite(bStarted) && aStarted !== bStarted) {
+      return aStarted - bStarted
+    }
+    return a.label.localeCompare(b.label)
+  })
   const lines = []
   lines.push('| Label | Peak total RSS (MB) | Mean total RSS (MB) | Samples | Duration | Top process |')
   lines.push('|-------|---------------------|---------------------|---------|----------|-------------|')
@@ -240,6 +256,12 @@ function parseArgs(argv) {
     // Positional (first non-flag) becomes the label when --spawn-dev is set.
     positional: [],
   }
+  const numericFlag = (raw, fallback) => {
+    const parsed = Number(raw)
+    if (Number.isFinite(parsed) && parsed > 0) return parsed
+    process.stderr.write(`[profile] ignoring non-positive numeric flag value '${raw}'; keeping default ${fallback}.\n`)
+    return fallback
+  }
   for (let i = 0; i < argv.length; i++) {
     const token = argv[i]
     switch (token) {
@@ -247,16 +269,16 @@ function parseArgs(argv) {
         args.spawnDev = true
         break
       case '--pid':
-        args.pid = Number(argv[++i])
+        args.pid = numericFlag(argv[++i], null)
         break
       case '--label':
         args.label = argv[++i]
         break
       case '--duration':
-        args.durationMs = Number(argv[++i])
+        args.durationMs = numericFlag(argv[++i], DEFAULT_DURATION_MS)
         break
       case '--interval':
-        args.intervalMs = Number(argv[++i])
+        args.intervalMs = numericFlag(argv[++i], DEFAULT_INTERVAL_MS)
         break
       case '--out-dir':
         args.outDir = argv[++i]
@@ -299,8 +321,13 @@ Options:
 }
 
 async function spawnDevAndProfile(args, log) {
+  // detached:true puts the child in its own process group so the SIGINT below
+  // reaches every grandchild (turbo, per-package watchers, mercato server, etc.)
+  // via the negative-pid signalling trick. Without it, only the immediate yarn
+  // child receives the signal and the watcher tree can survive past harness exit.
   const child = spawn('yarn', ['dev'], {
     stdio: ['ignore', 'inherit', 'inherit'],
+    detached: true,
     env: { ...process.env, OM_DEV_SUPPRESS_SPLASH: process.env.OM_DEV_SUPPRESS_SPLASH ?? '1' },
   })
   if (!child.pid) {
@@ -309,6 +336,17 @@ async function spawnDevAndProfile(args, log) {
   const childPid = child.pid
   log(`[profile] spawned \`yarn dev\` as pid=${childPid}; warming up 5s before sampling…`)
   await new Promise((resolve) => setTimeout(resolve, 5_000))
+  const signalGroup = (signal) => {
+    try {
+      process.kill(-childPid, signal)
+    } catch {
+      try {
+        child.kill(signal)
+      } catch {
+        // process already gone
+      }
+    }
+  }
   try {
     const result = await profile({
       rootPid: childPid,
@@ -320,18 +358,10 @@ async function spawnDevAndProfile(args, log) {
     })
     return result
   } finally {
-    log('[profile] sending SIGINT to dev tree…')
-    try {
-      child.kill('SIGINT')
-    } catch {
-      // process already gone
-    }
+    log('[profile] sending SIGINT to dev process group…')
+    signalGroup('SIGINT')
     await new Promise((resolve) => setTimeout(resolve, 2_000))
-    try {
-      child.kill('SIGKILL')
-    } catch {
-      // process already gone
-    }
+    signalGroup('SIGKILL')
   }
 }
 
