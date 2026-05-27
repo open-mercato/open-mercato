@@ -1,5 +1,5 @@
 ---
-name: auto-create-pr-loop
+name: om-auto-create-pr-loop
 description: Advanced `om-auto-create-pr` workflow for long, multi-step spec implementations that need resumability and strict step tracking. Creates a run folder under `.ai/runs/<date>-<slug>/` with `PLAN.md`, `HANDOFF.md`, and `NOTIFY.md`, executes one lean commit per task-table step, batches verification into `checkpoint-<N>-checks.md` every 5 steps (with focused integration tests + screenshots when UI was touched), runs the full validation gate plus full/standalone integration suites and ds-guardian at spec completion, and opens a PR with the correct labels. Use the original `om-auto-create-pr` for small fixes.
 ---
 

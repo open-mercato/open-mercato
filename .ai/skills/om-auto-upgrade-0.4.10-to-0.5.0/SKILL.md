@@ -1,5 +1,5 @@
 ---
-name: auto-upgrade-0.4.10-to-0.5.0
+name: om-auto-upgrade-0.4.10-to-0.5.0
 description: Migrate a downstream Open Mercato user codebase from 0.4.10 to 0.5.0. Executable companion to UPGRADE_NOTES.md — detects which codemod patterns are in use, applies them in place, typechecks, and reports what still needs human review. Triggers on "upgrade open-mercato to 0.5.0", "bump to 0.5.0", or "apply UPGRADE_NOTES migrations".
 ---
 

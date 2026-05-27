@@ -1,5 +1,5 @@
 ---
-name: merge-buddy
+name: om-merge-buddy
 description: Scan open GitHub pull requests, classify merge readiness from labels, reviews, CI, and mergeability, then report which PRs can merge now and which ones are close but blocked.
 ---
 

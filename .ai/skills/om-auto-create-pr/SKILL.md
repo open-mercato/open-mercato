@@ -1,5 +1,5 @@
 ---
-name: auto-create-pr
+name: om-auto-create-pr
 description: Run an arbitrary autonomous task end-to-end and ship it as a GitHub PR against `develop`. Drafts a Progress-tracked plan in `.ai/runs/`, commits on a fresh worktree branch, implements phase-by-phase, runs typecheck/tests/i18n/build, applies pipeline labels. Resumable via `om-auto-continue-pr`.
 ---
 

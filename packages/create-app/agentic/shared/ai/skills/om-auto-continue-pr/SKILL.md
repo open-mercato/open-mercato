@@ -1,5 +1,5 @@
 ---
-name: auto-continue-pr
+name: om-auto-continue-pr
 description: Resume an in-progress pull request that was started by the auto-create-pr skill. Given a PR number, claim the PR under the in-progress lock protocol, check its branch out into an isolated git worktree, locate the execution plan linked from the PR body, read its Progress checklist, and continue execution from the first unchecked step with incremental commits and progress updates until the PR is complete. Runs the same validation gate (typecheck, unit tests, i18n, build) and label discipline as auto-create-pr. Usage - /auto-continue-pr <PR-number>
 ---
 

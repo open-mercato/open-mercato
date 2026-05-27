@@ -1,5 +1,5 @@
 ---
-name: check-and-commit
+name: om-check-and-commit
 description: Verify that the Open Mercato app is ready to publish by running build, generation, i18n, typecheck, unit test, and app build checks; fix obvious i18n sync or usage issues; and if everything passes, commit and push the current branch. Use this skill when the user asks to check the branch, make CI-style verification pass, fix i18n drift, then commit and push.
 ---
 

@@ -1,5 +1,5 @@
 ---
-name: auto-update-changelog
+name: om-auto-update-changelog
 description: Draft a CHANGELOG.md release entry in the house emoji-driven format for every PR merged since the last release, then delegate to `om-auto-create-pr` so it lands as a docs PR against `develop`. Honors the Supersede Credit Rule for carried-forward fork PRs. Use at release time.
 ---
 

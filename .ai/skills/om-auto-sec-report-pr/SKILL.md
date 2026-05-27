@@ -1,5 +1,5 @@
 ---
-name: auto-sec-report-pr
+name: om-auto-sec-report-pr
 description: "Paranoid OWASP-oriented security analysis for a SINGLE unit of work — one PR, one spec under `.ai/specs/`, or one branch diff. Hunts non-obvious attack vectors beyond OWASP Top 10, flags same-pattern hotspots elsewhere, and emits \"Next steps — go deeper\" follow-ups. Writes markdown + HTML under `.ai/analysis/`; runs standalone or as a sub-unit of `om-auto-sec-report`."
 ---
 

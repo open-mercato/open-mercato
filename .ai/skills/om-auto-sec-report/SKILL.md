@@ -1,5 +1,5 @@
 ---
-name: auto-sec-report
+name: om-auto-sec-report
 description: "Driver that loops `om-auto-sec-report-pr` across a window (date, PR-number floor, branch, spec, or default last 7 days of merged PRs) and aggregates findings into one docs-only PR against `develop`. Writes markdown + HTML under `.ai/analysis/` with a top-level \"Next steps — go deeper\" list."
 ---
 

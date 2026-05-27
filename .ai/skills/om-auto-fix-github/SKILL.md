@@ -1,5 +1,5 @@
 ---
-name: auto-fix-github
+name: om-auto-fix-github
 description: Fix a GitHub issue by number. Checks whether it's already solved or has an open solution, then in an isolated worktree implements the minimal fix, adds tests, runs code-review/BC/typecheck/i18n, pushes a branch, opens a PR linked to the issue.
 ---
 

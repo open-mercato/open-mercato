@@ -1,5 +1,5 @@
 ---
-name: smart-test
+name: om-smart-test
 description: Run only the tests affected by changed code. Use when the user says "run affected tests", "run smart tests", "test only what changed", "run tests for this PR", "run tests for my changes", "selective tests", or asks to run tests without running the full suite.
 ---
 

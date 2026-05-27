@@ -1,5 +1,5 @@
 ---
-name: migrate-mikro-orm
+name: om-migrate-mikro-orm
 description: Migrate custom module code from MikroORM v6 to v7. Fixes v7 type errors (FilterQuery, RequiredEntityData), replaces Knex raw queries with Kysely, migrates persistAndFlush/removeAndFlush, updates decorator imports. Triggers on "mikro-orm v7", "persistAndFlush deprecated", "knex to kysely".
 ---
 

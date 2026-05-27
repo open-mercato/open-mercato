@@ -1,5 +1,5 @@
 ---
-name: auto-continue-pr-loop
+name: om-auto-continue-pr-loop
 description: Advanced `om-auto-continue-pr` workflow for PRs started by `om-auto-create-pr-loop`. Claims the PR, re-enters an isolated worktree, resumes from the first non-done row in `.ai/runs/<date>-<slug>/PLAN.md`, executes lean per-step commits, batches verification into `checkpoint-<N>-checks.md` every 5 resumed steps (with focused integration tests + screenshots when UI was touched), runs the full validation gate plus full/standalone integration suites and ds-guardian at spec completion, and preserves the run-folder and label contract. Use the original `om-auto-continue-pr` for simple `om-auto-create-pr` runs.
 ---
 

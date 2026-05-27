@@ -1,5 +1,5 @@
 ---
-name: auto-continue-pr
+name: om-auto-continue-pr
 description: Resume an in-progress PR started by `om-auto-create-pr`. Claims the PR, checks the branch into an isolated worktree, reads the linked plan's Progress checklist, continues from the first unchecked step. Usage - /auto-continue-pr <PR-number>
 ---
 

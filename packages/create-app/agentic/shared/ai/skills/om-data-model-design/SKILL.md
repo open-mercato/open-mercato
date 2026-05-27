@@ -1,5 +1,5 @@
 ---
-name: data-model-design
+name: om-data-model-design
 description: Design entities, relationships, and manage the migration lifecycle. Use when planning a data model, designing entities, choosing relationship patterns, adding cross-module references, or managing database migrations. Triggers on "design entity", "data model", "add entity", "database schema", "migration", "relationship", "many-to-many", "junction table", "foreign key", "jsonb", "add column".
 ---
 

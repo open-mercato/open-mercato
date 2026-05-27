@@ -1,5 +1,5 @@
 ---
-name: fix-specs
+name: om-fix-specs
 description: Normalize spec filenames in .ai/specs and .ai/specs/enterprise to the date+slug convention. Use this when legacy `SPEC-*` / `SPEC-ENT-*` names need to be cleaned up, when filename collisions appear after dropping numeric prefixes, or when links must be updated after normalization.
 ---
 

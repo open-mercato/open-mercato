@@ -1,5 +1,5 @@
 ---
-name: ds-guardian
+name: om-ds-guardian
 description: "Design System Guardian for Open Mercato. Use for frontend UI work, design-system compliance reviews, semantic token migration, hardcoded color or typography cleanup, DS-compliant page scaffolding, and common DS violations such as arbitrary text sizes, raw color classes, or missing shared states. Prefer this skill whenever you are building or reviewing Open Mercato UI."
 ---
 
