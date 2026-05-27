@@ -13,7 +13,7 @@
 |-------|------|-------|--------|--------|
 | 1 | 1.1 | Add run folder (plan + handoff + notify + POC) | done | 1cd2d885d |
 | 2 | 2.1 | Extract `startInProcessGenerateWatcher` helper, refactor `generate watch` CLI to use it, and wire it into `mercato server dev` (gated by `OM_DEV_GENERATE_WATCH_MODE`) | done | 4e3238a61 |
-| 2 | 2.2 | Drop the standalone `generate watch --skip-initial` spawn in `apps/mercato/scripts/dev.mjs` (and the standalone template) | todo | — |
+| 2 | 2.2 | Drop the standalone `generate watch --skip-initial` spawn in `apps/mercato/scripts/dev.mjs` (and the standalone template) | done | af568087c |
 | 3 | 3.1 | Add `scripts/profile-generate-watch-rss.mjs` (Linux `/proc/<pid>/status` walker) | todo | — |
 | 3 | 3.2 | Unit-test the new helper start/stop/poll behavior | todo | — |
 | 4 | 4.1 | Update spec changelog (Phase E note) + run-folder final-gate log | todo | — |
