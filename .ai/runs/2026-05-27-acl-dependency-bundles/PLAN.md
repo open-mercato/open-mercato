@@ -14,8 +14,8 @@
 |-------|------|-------|--------|--------|
 | 1 | 1.1 | Seed run folder (PLAN/HANDOFF/NOTIFY) | done | 50f2129a2 |
 | 1 | 1.2 | Write `.ai/specs/2026-05-27-acl-dependency-bundles.md` (audit + per-module dep tables + UI design) | done | b005936ab |
-| 2 | 2.1 | Extend `Feature` registry types to carry `dependsOn?: string[]` (no schema change — purely additive) | todo | — |
-| 2 | 2.2 | Add `resolveAclDependencyDiagnostics()` resolver + unit tests in `@open-mercato/shared` | todo | — |
+| 2 | 2.1 | Extend `Feature` registry types to carry `dependsOn?: string[]` (no schema change — purely additive) | merged | folded into 2.2 |
+| 2 | 2.2 | Add `resolveAclDependencyDiagnostics()` resolver + unit tests in `@open-mercato/shared` | done | ab3abb75e |
 | 2 | 2.3 | Forward `dependsOn` through `GET /api/auth/features` | todo | — |
 | 3 | 3.1 | Declare `dependsOn` for every `customers.*` feature | todo | — |
 | 4 | 4.1 | Surface dependency warnings in `AclEditor` (role + user editing both consume) + "auto-add missing" affordance | todo | — |
