@@ -1434,6 +1434,28 @@ function classifyWatchLine(line) {
       progressLabel: 'Watching structural module files',
     }
   }
+  if (line.startsWith('[generate:watch] Regenerating')) {
+    return {
+      type: 'status',
+      message: '♻️ Structural change detected; regenerating generated files',
+      splashPhase: startupSplashPhase,
+      splashDetail: 'Regenerating generated files',
+      activity: 'Regenerating generated files',
+      progressCurrent: 2,
+      progressLabel: 'Watching structural module files',
+    }
+  }
+  if (line === '[generate:watch] Generators completed.') {
+    return {
+      type: 'status',
+      message: '♻️ Generated files refreshed',
+      splashPhase: startupSplashPhase,
+      splashDetail: 'Generated files refreshed',
+      activity: 'Generated files refreshed',
+      progressCurrent: 2,
+      progressLabel: 'Watching structural module files',
+    }
+  }
   if (line.startsWith('[generate:watch]')) {
     return {
       type: 'status',
@@ -1473,6 +1495,9 @@ function classifyWatchLine(line) {
 }
 
 function classifyServerLine(line) {
+  if (line.startsWith('[generate:watch]')) {
+    return classifyWatchLine(line)
+  }
   if (line.startsWith('🚀 Running server:dev')) {
     return {
       type: 'status',
