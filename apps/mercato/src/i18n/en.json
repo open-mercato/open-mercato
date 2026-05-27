@@ -916,6 +916,7 @@
   "ui.inputs.amountInput.currencyLabel": "Currency",
   "ui.inputs.amountInput.placeholder": "0.00",
   "ui.inputs.cardInput.placeholder": "0000 0000 0000 0000",
+  "ui.inputs.comboboxInput.clear": "Clear value",
   "ui.inputs.comboboxInput.loading": "Loading suggestions…",
   "ui.inputs.comboboxInput.placeholder": "Type to search...",
   "ui.inputs.emailInput.placeholder": "name@example.com",
