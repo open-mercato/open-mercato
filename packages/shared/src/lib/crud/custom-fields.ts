@@ -504,54 +504,55 @@ export async function loadCustomFieldDefinitionIndex(opts: LoadCustomFieldDefini
         .map((id) => (typeof id === 'string' ? id.trim() : id))
         .filter((id): id is string => typeof id === 'string' && id.length > 0)
     : []
-  const scopeClauses: Record<string, unknown>[] = [
-    tenantId
-      ? { $or: [{ tenantId: tenantId as any }, { tenantId: null }] }
-      : { tenantId: null },
-  ]
-  if (orgCandidates.length) {
-    scopeClauses.push({
-      $or: [{ organizationId: { $in: orgCandidates as any } }, { organizationId: null }],
-    })
-  } else {
-    scopeClauses.push({ organizationId: null })
+
+  const fieldsetKey = normalizeFieldsetKey(opts.fieldset)
+  const ttlMs = resolveCfDefIndexCacheTtlMs()
+  const cacheKey = buildCfDefIndexCacheKey({
+    tenantId,
+    entityIds,
+    organizationIds: orgCandidates,
+    fieldsetKey,
+  })
+
+  const requestBucket = opts.requestScope
+    ? getRequestScopedCfDefIndexCache(opts.requestScope)
+    : null
+  if (requestBucket) {
+    const cached = requestBucket.get(cacheKey)
+    if (cached) return cached
   }
-  const where: Record<string, unknown> = {
-    entityId: { $in: entityIds as any },
-    deletedAt: null,
-    isActive: true,
-    $and: scopeClauses,
-  }
-  const defs = await opts.em.find(CustomFieldDef, where as any)
-  const fieldsetFilter = normalizeFieldsetFilter(opts.fieldset)
-  const index: CustomFieldDefinitionIndex = new Map()
-  defs.forEach((def) => {
-    if (fieldsetFilter) {
-      const config = normalizeDefinitionConfig((def as any).configJson)
-      const fieldsets = Array.isArray(config.fieldsets)
-        ? config.fieldsets
-            .filter((entry: unknown): entry is string => typeof entry === 'string')
-            .map((entry: string) => entry.trim())
-            .filter((entry: string) => entry.length > 0)
-        : []
-      const fieldset = typeof config.fieldset === 'string' && config.fieldset.trim().length > 0
-        ? config.fieldset.trim()
-        : null
-      const matches = fieldsets.length > 0
-        ? fieldsets.some((entry: string) => fieldsetFilter.has(entry))
-        : fieldsetFilter.has(fieldset)
-      if (!matches) return
+
+  const sharedCache = ttlMs > 0 ? opts.cache ?? null : null
+  if (sharedCache && typeof sharedCache.get === 'function') {
+    try {
+      const cached = await sharedCache.get(cacheKey)
+      const restored = indexMapFromSerializable(cached)
+      if (restored) {
+        if (requestBucket) requestBucket.set(cacheKey, restored)
+        return restored
+      }
+    } catch (err) {
+      console.warn('[crud:cf-def-cache] read failed', err)
     }
-    const summary = summarizeDefinition(def)
-    if (!summary) return
-    const normalizedKey = normalizeDefinitionKey(summary.key)
-    if (!normalizedKey) return
-    if (!index.has(normalizedKey)) index.set(normalizedKey, [])
-    index.get(normalizedKey)!.push(summary)
+  }
+
+  const index = await loadCustomFieldDefinitionIndexFresh({
+    ...opts,
+    entityIds,
+    orgCandidates,
   })
-  index.forEach((entries, key) => {
-    index.set(key, sortDefinitionSummaries(entries))
-  })
+
+  if (sharedCache && typeof sharedCache.set === 'function') {
+    try {
+      await sharedCache.set(cacheKey, serializableIndexFromMap(index), {
+        ttl: ttlMs,
+        tags: buildCfDefIndexCacheTags({ tenantId, entityIds }),
+      })
+    } catch (err) {
+      console.warn('[crud:cf-def-cache] write failed', err)
+    }
+  }
+  if (requestBucket) requestBucket.set(cacheKey, index)
   return index
 }
 

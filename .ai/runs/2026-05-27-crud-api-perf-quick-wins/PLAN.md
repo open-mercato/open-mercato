@@ -15,8 +15,8 @@ Base: `develop`
 | 1 | 1.1 | AccessLogService: add `logMany()` with batched INSERT + flushAccessLog hook | done | a7c8102c1 |
 | 1 | 1.2 | factory.ts: batch + fire-and-forget `logCrudAccess` + `OM_CRUD_ACCESS_LOG_BLOCKING` | done | 68ca78035 |
 | 1 | 1.3 | Unit tests for batch logging + blocking flag + flush hook | done | 3e993ba15 |
-| 2 | 2.1 | custom-fields.ts: tag-invalidated cache for `loadCustomFieldDefinitionIndex` + per-request micro-cache | todo | — |
-| 2 | 2.2 | CF def cache: wire tag invalidation in CustomFieldDef CRUD side-effects + tests | todo | — |
+| 2 | 2.1 | custom-fields.ts: tag-invalidated cache for `loadCustomFieldDefinitionIndex` + per-request micro-cache | done | 561485cb6 |
+| 2 | 2.2 | CF def cache: tags piggyback on existing `entities:definitions:*` invalidation; covered by unit tests | done | 561485cb6 |
 | 3 | 3.1 | factory.ts: per-request `userFeatures` memo + default in-process LRU cache for RbacService | todo | — |
 | 4 | 4.1 | organizationScope: short-TTL cache for `resolveOrganizationScopeForRequest` + invalidation hook + tests | todo | — |
 | 5 | 5.1 | container.ts: process-scoped bootstrap once-guard + cached `encryption.isEnabled` | todo | — |

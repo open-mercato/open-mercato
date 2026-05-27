@@ -961,11 +961,17 @@ export function makeCrudRoute<TCreate = any, TUpdate = any, TList = any>(opts: C
         Array.isArray(ctx.organizationIds) && ctx.organizationIds.length
           ? ctx.organizationIds
           : [ctx.selectedOrganizationId ?? null]
+      let cfDefCache: any = null
+      try {
+        cfDefCache = ctx.container.resolve('cache')
+      } catch {}
       const definitionIndex = await loadCustomFieldDefinitionIndex({
         em,
         entityIds,
         tenantId: ctx.auth?.tenantId ?? null,
         organizationIds,
+        cache: cfDefCache ?? null,
+        requestScope: ctx,
       })
       cfProfiler.mark('definitions_loaded', { definitionCount: definitionIndex.size })
       const decoratedItems = items.map((raw) => {
