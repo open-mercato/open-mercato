@@ -13,9 +13,22 @@
 |-------|------|-------|--------|--------|
 | 1 | 1.1 | Seed run folder (PLAN, HANDOFF, NOTIFY) | done | ac97a27c0 |
 | 2 | 2.1 | Push DB-level pagination to currencies + exchange-rates list routes | done | 4a8bb2b0b |
-| 2 | 2.2 | Parallelize entity + profile decryption fetch in customers people afterList | done | pending |
-| 3 | 3.1 | File GitHub issues for the remaining catalogued quick wins | todo | — |
+| 2 | 2.2 | Parallelize entity + profile decryption fetch in customers people afterList | done | e4b809875 |
+| 3 | 3.1 | File GitHub issues for the remaining catalogued quick wins | done | pending |
 | 4 | 4.1 | Final gate + PR summary | todo | — |
+
+## GitHub Issues filed (Step 3.1)
+
+| Finding | Issue | URL |
+|---------|-------|-----|
+| C — sales shipments DictionaryEntry parallelize | #2131 | https://github.com/open-mercato/open-mercato/issues/2131 |
+| D — QueryEngine gate cf:* joins | #2132 | https://github.com/open-mercato/open-mercato/issues/2132 |
+| E — thread CF def index through QueryEngine | #2133 | https://github.com/open-mercato/open-mercato/issues/2133 |
+| F — sales shipments orderLines batching | #2134 | https://github.com/open-mercato/open-mercato/issues/2134 |
+| G — makeCrudRoute cache-tag loop flatten | #2135 | https://github.com/open-mercato/open-mercato/issues/2135 |
+| H — audit em.findAndCount callers | #2136 | https://github.com/open-mercato/open-mercato/issues/2136 |
+| I — customers activities decorator parallelize | #2137 | https://github.com/open-mercato/open-mercato/issues/2137 |
+| J — auth roles ACL parallelize | #2138 | https://github.com/open-mercato/open-mercato/issues/2138 |
 
 ## Goal
 

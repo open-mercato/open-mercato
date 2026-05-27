@@ -1,23 +1,25 @@
 # Handoff — 2026-05-27-crud-sql-query-optimizations
 
-**Last updated:** 2026-05-27T15:30:00Z
+**Last updated:** 2026-05-27T15:40:00Z
 **Branch:** feat/crud-sql-query-optimizations
 **PR:** not yet opened
-**Current phase/step:** Phase 1 Step 1.1 (seeding run folder)
-**Last commit:** _none yet_
+**Current phase/step:** Phase 4 Step 4.1 (final gate + PR open)
+**Last commit:** e4b809875 — perf(customers): fetch CustomerEntity and CustomerPersonProfile concurrently in people afterList
 
 ## What just happened
 
-- Run scoped and planned. Two implementation steps (Step 2.1, Step 2.2) chosen as the two BC quick wins to land in this PR.
-- Remaining catalogued wins (C through J) will be filed as GitHub issues in Step 3.1.
+- Step 1.1 (seed) and Steps 2.1 + 2.2 (both quick wins) landed cleanly.
+- Step 3.1 filed 8 follow-up GitHub issues (#2131–#2138) covering findings C through J.
+- Step 4.1 — about to open the PR + run the final gate.
 
 ## Next concrete action
 
-- Commit `PLAN.md`, `HANDOFF.md`, `NOTIFY.md` (this Step 1.1) and push.
+- Commit this PLAN/HANDOFF/NOTIFY update for Step 3.1, push, then open the PR.
+- Run targeted validation, then full gate (constrained by janitor sandbox having no `node_modules` — CI will run the full gate).
 
 ## Blockers / open questions
 
-- None.
+- Janitor sandbox cannot run `yarn` commands (no `node_modules`). All validation will land via the PR's CI run rather than locally. Document this explicitly in `final-gate-checks.md` and in the PR summary.
 
 ## Environment caveats
 
