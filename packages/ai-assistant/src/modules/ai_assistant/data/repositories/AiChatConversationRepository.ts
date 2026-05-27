@@ -658,10 +658,13 @@ export class AiChatConversationRepository {
           `Conversation "${conversationId}" was not found for the caller.`,
         )
       }
-      if (conv.ownerUserId !== ctx.userId && !canManageConversations(ctx)) {
+      if (conv.ownerUserId !== ctx.userId) {
         throw new AiChatConversationAccessError(
           'Only the conversation owner can revoke participants.',
         )
+      }
+      if (targetUserId === conv.ownerUserId) {
+        throw new AiChatConversationAccessError('Cannot revoke the conversation owner.')
       }
       const participantFilter: FilterQuery<AiChatConversationParticipant> = {
         tenantId: ctx.tenantId,
