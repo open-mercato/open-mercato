@@ -15,7 +15,7 @@
 | 2 | 2.1 | Push DB-level pagination to currencies + exchange-rates list routes | done | 4a8bb2b0b |
 | 2 | 2.2 | Parallelize entity + profile decryption fetch in customers people afterList | done | e4b809875 |
 | 3 | 3.1 | File GitHub issues for the remaining catalogued quick wins | done | pending |
-| 4 | 4.1 | Final gate + PR summary | todo | — |
+| 4 | 4.1 | Final gate + PR summary | done | pending |
 
 ## GitHub Issues filed (Step 3.1)
 
