@@ -170,6 +170,12 @@ function defaultLog(line, level = 'info') {
   else console.log(line)
 }
 
+// When `signal` is supplied, the function resolves immediately after
+// registering watchers and abort cleanup; the caller is responsible for
+// keeping the event loop alive (e.g. its own `await new Promise(() => {})`
+// or a `setInterval` heartbeat). The standalone CLI invocation path below
+// pins the loop itself via `await new Promise(() => {})`, so external
+// programmatic callers do not need to.
 export async function runConsolidatedWatch({
   root = defaultRepoRoot,
   log = defaultLog,
