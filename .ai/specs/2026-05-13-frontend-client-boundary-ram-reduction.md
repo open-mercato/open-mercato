@@ -271,5 +271,5 @@ Also record static metrics:
 | Phase A — Guardrails and measurement | In Progress | 2026-05-13 | Spec and static check introduced. Runtime RSS profiling remains follow-up. |
 | Phase B — Provider/bootstrap split | Not Started | — | Requires code migration. |
 | Phase C — Generator template migration | Not Started | — | Requires generator/template updates. |
-| Phase D — Heavy dependency isolation | Not Started | — | Requires route-level refactors. |
+| Phase D — Heavy dependency isolation | In Progress | 2026-05-27 | `recharts`, `@xyflow/react`, and the `ClientBootstrap` registry barrels moved behind `next/dynamic`; `experimental.optimizePackageImports` enabled for `lucide-react` / `recharts` / `date-fns`. See `.ai/specs/2026-05-27-dev-mode-lazy-load-heavy-clients.md`. |
 | Phase E — Dev memory defaults | Not Started | — | Requires measured default tuning. |

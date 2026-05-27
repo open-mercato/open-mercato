@@ -21,8 +21,8 @@
 | 2 | 2.3 | Defer ClientBootstrap registry barrels to client-side mount | done | 660e71351 |
 | 3 | 3.1 | Enable Next.js optimizePackageImports for lucide-react, recharts, date-fns | done | 3808e42cc |
 | 3 | 3.2 | Remove dead transpiledWorkspacePackages computation | done | 58993412c |
-| 4 | 4.1 | Tests covering new lazy boundaries (recharts, xyflow) | done | pending |
-| 4 | 4.2 | Spec: dev-mode lazy-load heavy clients + measurement methodology | todo | — |
+| 4 | 4.1 | Tests covering new lazy boundaries (recharts, xyflow) | done | 6e9f623ab |
+| 4 | 4.2 | Spec: dev-mode lazy-load heavy clients + measurement methodology | done | pending |
 
 ## Goal
 
