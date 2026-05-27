@@ -1,30 +1,32 @@
 # Handoff — 2026-05-22-ai-chat-conversation-sharing
 
-**Last updated:** 2026-05-23T09:50:00Z
+**Last updated:** 2026-05-27T10:30:00Z
 **Branch:** feat/ai-chat-conversation-sharing
 **PR:** https://github.com/open-mercato/open-mercato/pull/2023
-**Current phase/step:** complete
-**Last commit:** 4a54fd563 (chore(runs): scrub absolute filesystem path from HANDOFF.md)
+**Current phase/step:** complete (QA fixes applied)
+**Last commit:** 767c8dbdb (docs(runs): mark all qa-fix steps done in PLAN.md)
 
 ## What just happened
-- Resumed from `changes-requested` state after `auto-review-pr` by pkarw found:
-  - Medium: missing Cmd/Ctrl+Enter in ConversationShareDialog
-  - Low: missing Content-Type headers on POST/DELETE apiCall invocations
-  - Low: absolute filesystem path in HANDOFF.md
-- Step 4.7-review-fix-1 (283fa390c): wrapped `handleAdd` in `useCallback`, added document-level keydown handler for Cmd/Ctrl+Enter, added `content-type: application/json` headers to POST and DELETE apiCall calls
-- Step 4.7-review-fix-2 (4a54fd563): scrubbed `/home/bernard/workspace/OpenMercatoTest/...` path from HANDOFF.md, replaced with relative path
-- Both commits pushed to fork `adeptofvoltron/open-mercato:feat/ai-chat-conversation-sharing`
-- All Tasks table rows are now `done`
+- Resumed from `qa-failed` state after QA tester Kapsik89 found 4 Blockers + 3 Major defects (2026-05-26)
+- Phase 5 (qa-fixes): 7 bug-fix steps implemented and committed
+  - qa-fix-1 (623b7cb96): enrich GET /conversations/:id with isOwner+participantCount (BUG-003)
+  - qa-fix-2 (dc48614ff): harden POST /participants (role, self-share, dup→409) (BUG-001/BUG-007)
+  - qa-fix-3 (4d5e421fd): remove canManageConversations bypass from revokeParticipant (BUG-002)
+  - qa-fix-4 (4eddb9333): GET /participants 403 for non-owner/non-manager (BUG-006)
+  - qa-fix-5 (cc05e44f1): make setActiveSession idempotent — fix infinite loop (BUG-008)
+  - qa-fix-6 (873d42f8c): BUG-009 resolved by qa-fix-1 (UI guard was already present)
+  - qa-fix-7 (1c245868a): exclude owner from ConversationShareDialog user picker (BUG-004)
+- Summary comment posted to PR #2023
 
 ## Next concrete action
-- None — run is complete. PR body should be updated to `Status: complete`.
-- Reviewer (pkarw) or maintainer should re-review and move to `qa` or `merge-queue`.
+- None — all QA defects resolved. PR ready for re-QA.
+- Reviewer or maintainer should move label from `qa-failed` → `qa`.
 
 ## Blockers / open questions
-- Out-of-scope changes still in the diff (noted as non-blocking by reviewer):
+- Out-of-scope changes still in the diff (noted as non-blocking by prior reviewer):
   - `.ai/qa/tests/playwright.config.ts`: PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH env-driven launchOptions
   - `packages/ui/src/backend/upgrades/UpgradeActionBanner.tsx`: x-om-forbidden-redirect/x-om-unauthorized-redirect headers
-  These are correct changes that ideally should be in separate PRs per the reviewer suggestion, but are not blockers.
+  These are correct changes that ideally should be in separate PRs but are not blockers.
 
 ## Environment caveats
 - Dev runtime runnable: unknown (worktree has no running dev stack)
