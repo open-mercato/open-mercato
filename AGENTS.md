@@ -96,6 +96,8 @@ IMPORTANT: Before any research or coding, match the task to the root `AGENTS.md`
 | Adding onboarding wizard steps, tenant setup hooks (`onTenantCreated`/`seedDefaults`), welcome/invitation emails | `packages/onboarding/AGENTS.md` |
 | Adding static content pages (privacy policies, terms, legal pages) | `packages/content/AGENTS.md` |
 | Testing standalone apps with Verdaccio, publishing packages, canary releases, template scaffolding | `packages/create-app/AGENTS.md` |
+| **Performance** | |
+| Profiling dev-mode memory (`yarn dev:profile`), ranking memory hogs, evaluating watcher / Vite-vs-Turbopack tradeoffs | `.ai/specs/2026-05-27-dev-mode-memory-quick-wins.md` + `scripts/profile-dev-rss.mjs` |
 | **Migration** | |
 | Migrating custom module code from MikroORM v6 to v7 (decorators, persist/flush, Knex→Kysely, type fixes, ORM config, Jest setup) | `.ai/skills/migrate-mikro-orm/SKILL.md` |
 | **Testing** | |

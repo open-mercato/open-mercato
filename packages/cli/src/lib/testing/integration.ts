@@ -1649,6 +1649,10 @@ function buildReusableEnvironment(
     OM_ENABLE_ENTERPRISE_MODULES_SECURITY: process.env.OM_ENABLE_ENTERPRISE_MODULES_SECURITY ?? enterpriseModulesFlag,
     OM_TEST_MODE: '1',
     OM_TEST_AUTH_RATE_LIMIT_MODE: 'opt-in',
+    // Tests assert on access_logs immediately after CRUD reads; keep the
+    // blocking write path on inside the integration runtime so tests do
+    // not have to call flushPendingCrudAccessLogs() explicitly.
+    OM_CRUD_ACCESS_LOG_BLOCKING: process.env.OM_CRUD_ACCESS_LOG_BLOCKING ?? '1',
     OM_WEBHOOKS_ALLOW_PRIVATE_URLS: process.env.OM_WEBHOOKS_ALLOW_PRIVATE_URLS ?? '1',
     ENABLE_CRUD_API_CACHE: 'true',
     MOCK_GATEWAY_WEBHOOK_SECRET: 'open-mercato-mock-dev-webhook-secret',
@@ -2936,7 +2940,7 @@ export async function startEphemeralEnvironment(options: EphemeralRuntimeOptions
       NEXT_PUBLIC_UMES_DEVTOOLS: 'true',
       CI: 'true',
       TENANT_DATA_ENCRYPTION_FALLBACK_KEY: process.env.TENANT_DATA_ENCRYPTION_FALLBACK_KEY ?? 'om-ephemeral-integration-fallback-key',
-      AUTO_SPAWN_WORKERS: 'false',
+      AUTO_SPAWN_WORKERS: process.env.AUTO_SPAWN_WORKERS ?? 'true',
       AUTO_SPAWN_SCHEDULER: 'false',
       OM_CLI_QUIET: '1',
       MERCATO_QUIET: '1',
