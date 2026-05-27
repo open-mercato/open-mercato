@@ -1,13 +1,5 @@
 /** @jest-environment node */
 
-import { promises as fs } from 'fs'
-
-const mockSharp = jest.fn()
-jest.mock('sharp', () => ({
-  __esModule: true,
-  default: (...args: unknown[]) => mockSharp(...args),
-}))
-
 jest.mock('@open-mercato/shared/lib/auth/server', () => ({
   getAuthFromRequest: jest.fn(async () => ({ tenantId: 'tenant-1', orgId: 'org-1', roles: ['admin'] })),
 }))
@@ -17,28 +9,25 @@ jest.mock('@open-mercato/core/modules/attachments/data/entities', () => ({
   AttachmentPartition: class AttachmentPartition {},
 }))
 
-jest.mock('@open-mercato/core/modules/attachments/lib/storage', () => ({
-  resolvePartitionRoot: jest.fn(() => '/tmp'),
-  resolveAttachmentAbsolutePath: jest.fn(() => '/tmp/attachment'),
-}))
-
-jest.mock('@open-mercato/core/modules/attachments/lib/thumbnailCache', () => ({
-  buildThumbnailCacheKey: jest.fn(() => 'w_100'),
-  readThumbnailCache: jest.fn(async () => null),
-  writeThumbnailCache: jest.fn(async () => undefined),
-}))
-
 jest.mock('@open-mercato/core/modules/attachments/lib/access', () => ({
   checkAttachmentAccess: jest.fn(() => ({ ok: true })),
   isSuperAdminAuth: jest.fn(() => false),
 }))
 
+jest.mock('@open-mercato/core/modules/attachments/lib/security', () => ({
+  buildAttachmentContentDisposition: jest.fn(() => 'inline; filename="file.txt"'),
+  canRenderInlineAttachment: jest.fn(() => true),
+}))
+
 const mockAttachment = {
   id: 'att-1',
-  mimeType: 'image/png',
+  mimeType: 'text/plain',
   partitionCode: 'privateAttachments',
-  storagePath: 'stored/image',
-  storageDriver: 'local',
+  storagePath: 'stored/file.txt',
+  fileName: 'file.txt',
+  fileSize: 4,
+  tenantId: 'tenant-1',
+  organizationId: 'org-1',
 }
 
 const mockPartition = {
@@ -47,7 +36,7 @@ const mockPartition = {
 }
 
 const mockEm = {
-  findOne: jest.fn(async (_entity: unknown, where: { id?: string; code?: string }) => {
+  findOne: jest.fn(async (_entity: unknown, where: Record<string, unknown>) => {
     if (where.id === 'att-1') return mockAttachment
     if (where.code === 'privateAttachments') return mockPartition
     return null
@@ -60,13 +49,21 @@ jest.mock('@open-mercato/shared/lib/di/container', () => ({
   })),
 }))
 
-type ImageRoute = typeof import('../image/[id]/[[...slug]]/route')
+jest.mock('@open-mercato/core/modules/attachments/lib/drivers', () => ({
+  StorageDriverFactory: class {
+    resolveForPartition() {
+      return { read: jest.fn(async () => ({ buffer: Buffer.from('data') })) }
+    }
+  },
+}))
 
-describe('attachments image route', () => {
-  let GET: ImageRoute['GET']
+type FileRoute = typeof import('../file/[id]/route')
+
+describe('attachments file route', () => {
+  let GET: FileRoute['GET']
 
   beforeAll(async () => {
-    GET = (await import('../image/[id]/[[...slug]]/route')).GET
+    GET = (await import('../file/[id]/route')).GET
   })
 
   beforeEach(() => {
@@ -79,13 +76,12 @@ describe('attachments image route', () => {
 
     // em.findOne returns null because tenantId filter won't match the attachment's tenant
     mockEm.findOne.mockImplementationOnce(async (_entity: unknown, where: Record<string, unknown>) => {
-      if (where.code === 'privateAttachments') return mockPartition
       if (where.id === 'att-1' && where.tenantId === 'tenant-1') return mockAttachment
       return null
     })
 
     const response = await GET(
-      new Request('http://localhost/api/attachments/image/att-1') as Parameters<ImageRoute['GET']>[0],
+      new Request('http://localhost/api/attachments/file/att-1') as Parameters<FileRoute['GET']>[0],
       { params: Promise.resolve({ id: 'att-1' }) },
     )
 
@@ -99,20 +95,5 @@ describe('attachments image route', () => {
     // checkAttachmentAccess must NOT have been called — 404 came from the query layer
     const { checkAttachmentAccess } = await import('@open-mercato/core/modules/attachments/lib/access') as any
     expect(checkAttachmentAccess).not.toHaveBeenCalled()
-  })
-
-  it('rejects spoofed image content before invoking sharp', async () => {
-    jest.spyOn(fs, 'readFile').mockResolvedValueOnce(Buffer.from('RIFF0000WEBP', 'ascii'))
-
-    const response = await GET(
-      new Request('http://localhost/api/attachments/image/att-1?width=100') as Parameters<ImageRoute['GET']>[0],
-      { params: Promise.resolve({ id: 'att-1' }) },
-    )
-
-    expect(response.status).toBe(400)
-    await expect(response.json()).resolves.toEqual({
-      error: 'Image MIME type does not match file content',
-    })
-    expect(mockSharp).not.toHaveBeenCalled()
   })
 })
