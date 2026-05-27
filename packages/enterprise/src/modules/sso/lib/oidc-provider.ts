@@ -74,15 +74,13 @@ export class OidcProvider implements SsoProtocolProvider {
       throw new Error('IdP did not return an email claim (checked: email, upn, unique_name)')
     }
 
-    const emailVerified = mergedClaims.email_verified === true
+    const emailVerified = normalizeEmailVerifiedClaim(mergedClaims.email_verified)
     const groups = extractIdentityGroups(mergedClaims)
-
-  
 
     return {
       subject,
       email,
-      emailVerified,
+      ...(emailVerified === undefined ? {} : { emailVerified }),
       name: (mergedClaims.name as string) ?? undefined,
       groups,
     }
@@ -140,6 +138,10 @@ async function mergeWithUserInfoClaims(
   } catch {
     return claims
   }
+}
+
+export function normalizeEmailVerifiedClaim(value: unknown): boolean | undefined {
+  return typeof value === 'boolean' ? value : undefined
 }
 
 export function extractIdentityGroups(claims: Record<string, unknown>): string[] | undefined {

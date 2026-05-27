@@ -2,15 +2,34 @@
 
 Use `@open-mercato/ui/backend` for all admin/backend page components. See `packages/ui/AGENTS.md` for full UI patterns.
 
-## MUST Rules
+## Always
 
 1. **MUST set stable `id` values on `RowActions` items** — use `edit`, `open`, `delete`, etc. DataTable resolves default row-click behavior from these ids
 2. **MUST use `apiCall`/`apiCallOrThrow`** from `@open-mercato/ui/backend/utils/apiCall` — never use raw `fetch`
 3. **MUST use `LoadingMessage`/`ErrorMessage`** from `@open-mercato/ui/backend/detail` for loading and error states
-4. **MUST NOT hard-code user-facing strings** — use `useT()` for all labels and messages
+4. **MUST use `useT()`** for all labels and messages
 5. **MUST use `useGuardedMutation` when not using `CrudForm`** — wrap every write operation (`POST`/`PUT`/`PATCH`/`DELETE`) in `runMutation({ operation, context, mutationPayload })` so global mutation injections (record locks, conflict UI, future guards) run consistently
-6. **MUST use `Button` or `IconButton`** for every interactive button — never use raw `<button>` elements. Use `IconButton` for icon-only buttons, `Button` for everything else. Always pass `type="button"` explicitly on non-submit buttons. See `packages/ui/AGENTS.md` → Button and IconButton Usage for full patterns and variant reference.
-7. **MUST treat missing records as a dedicated page-level state** — distinguish `notFound` from generic `error`, return early, and render a shared `ErrorMessage`-based state with a clear recovery action (for example, back to the owning list page). Do not render `CrudForm`, detail sections, tabs, or record actions when the record is missing.
+6. **MUST use `Button` or `IconButton`** for every interactive button. Use `IconButton` for icon-only buttons, `Button` for everything else. Always pass `type="button"` explicitly on non-submit buttons. See `packages/ui/AGENTS.md` → Button and IconButton Usage for full patterns and variant reference.
+7. **MUST treat missing records as a dedicated page-level state** — distinguish `notFound` from generic `error`, return early, and render a shared `ErrorMessage`-based state with a clear recovery action (for example, back to the owning list page).
+
+## Ask First
+
+- Ask before changing DataTable row-click defaults, UMES host surface IDs, CrudForm event behavior, or replacement handles.
+- Ask before introducing backend-page write flows that do not fit `CrudForm` or `useGuardedMutation`.
+
+## Never
+
+- Never use raw `fetch` from backend UI components.
+- Never hard-code user-facing strings.
+- Never use raw `<button>` elements.
+- Never render `CrudForm`, detail sections, tabs, or record actions when the record is missing.
+
+## Validation Commands
+
+```bash
+yarn workspace @open-mercato/ui test
+yarn workspace @open-mercato/ui build
+```
 
 ## DataTable Row-Click Behavior
 

@@ -70,3 +70,63 @@ describe('checkAttachmentAccess — cross-tenant public partition fix', () => {
     expect(checkAttachmentAccess(superAuth, attachment(), partition(true)).ok).toBe(true)
   })
 })
+
+describe('checkAttachmentAccess — partial-null scope fail-closed', () => {
+  it('blocks cross-org auth when attachment has tenantId set but organizationId null (private)', () => {
+    const result = checkAttachmentAccess(
+      auth({ tenantId: 'tenant-1', orgId: 'org-2' }),
+      attachment({ tenantId: 'tenant-1', organizationId: null }),
+      partition(false),
+    )
+    expect(result.ok).toBe(false)
+    if (!result.ok) expect(result.status).toBe(403)
+  })
+
+  it('blocks cross-tenant auth when attachment has organizationId set but tenantId null (private)', () => {
+    const result = checkAttachmentAccess(
+      auth({ tenantId: 'other-tenant', orgId: 'org-1' }),
+      attachment({ tenantId: null, organizationId: 'org-1' }),
+      partition(false),
+    )
+    expect(result.ok).toBe(false)
+    if (!result.ok) expect(result.status).toBe(403)
+  })
+
+  it('blocks cross-org auth when attachment has tenantId set but organizationId null (public)', () => {
+    const result = checkAttachmentAccess(
+      auth({ tenantId: 'tenant-1', orgId: 'org-2' }),
+      attachment({ tenantId: 'tenant-1', organizationId: null }),
+      partition(true),
+    )
+    expect(result.ok).toBe(false)
+    if (!result.ok) expect(result.status).toBe(403)
+  })
+
+  it('blocks any authenticated principal from a scoped attachment whose other column is null', () => {
+    const result = checkAttachmentAccess(
+      auth({ tenantId: 'tenant-1', orgId: 'org-1' }),
+      attachment({ tenantId: null, organizationId: 'org-2' }),
+      partition(false),
+    )
+    expect(result.ok).toBe(false)
+    if (!result.ok) expect(result.status).toBe(403)
+  })
+
+  it('preserves access for fully-unscoped (global) attachments to authenticated principals', () => {
+    const result = checkAttachmentAccess(
+      auth({ tenantId: 'tenant-1', orgId: 'org-1' }),
+      attachment({ tenantId: null, organizationId: null }),
+      partition(false),
+    )
+    expect(result.ok).toBe(true)
+  })
+
+  it('still allows same-scope auth when both attachment columns are set and match', () => {
+    const result = checkAttachmentAccess(
+      auth({ tenantId: 'tenant-1', orgId: 'org-1' }),
+      attachment({ tenantId: 'tenant-1', organizationId: 'org-1' }),
+      partition(false),
+    )
+    expect(result.ok).toBe(true)
+  })
+})

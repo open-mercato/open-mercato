@@ -2,6 +2,40 @@
 
 This is a **standalone application** that consumes Open Mercato packages from the npm registry. Unlike the monorepo development environment, packages here are pre-compiled and installed as dependencies.
 
+## Always
+
+- Treat this app as a package consumer: inspect `node_modules/@open-mercato/*/dist/` when framework behavior is unclear.
+- Put custom modules in `src/modules/<module>/` and add them to `src/modules.ts` with `from: '@app'`.
+- Run `yarn generate` after changing modules, overrides, pages, widgets, AI agents, AI tools, or structural navigation.
+- Declare API route `metadata` per HTTP method, including explicit unauthenticated public routes.
+- Keep generated files under `.mercato/generated/` as generated output only.
+
+## Ask First
+
+- Ask before applying migrations, resetting local databases, or changing `.env` database targets.
+- Ask before using manual SQL instead of the generated migration path.
+- Ask before adding a new framework primitive when a canonical mechanism is not listed below.
+- Ask before enabling live external services, secrets, or provider credentials in tests.
+
+## Never
+
+- Never use raw `fetch`, raw `<form>`, ad hoc crypto, ad hoc Redis, custom queues, or manual cross-module ORM joins when a framework primitive exists.
+- Never use `requireRoles`; use feature-based RBAC and grant features in module setup.
+- Never store sensitive data as plaintext "for now" or hand-roll encryption.
+- Never hardcode user-facing strings or Tailwind status colors in UI changes.
+- Never edit already-shipped historical migrations; add a new corrective migration.
+
+## Validation Commands
+
+```bash
+yarn generate
+yarn typecheck
+yarn lint
+yarn test
+yarn build
+yarn test:integration:ephemeral
+```
+
 ## Package Source Files
 
 To explore or understand the Open Mercato framework code:

@@ -36,7 +36,7 @@ export async function fetchAssignableStaffMembersPage(
   }
 
   const data = await readApiResultOrThrow<AssignableStaffResponse>(
-    `/api/customers/assignable-staff?${params.toString()}`,
+    `/api/staff/team-members/assignable?${params.toString()}`,
     options?.signal ? { signal: options.signal } : undefined,
   )
 
