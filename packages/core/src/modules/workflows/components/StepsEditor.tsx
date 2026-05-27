@@ -214,7 +214,6 @@ export function StepsEditor({ value = [], onChange, error }: StepsEditorProps) {
                       value={step.config?.duration || ''}
                       onChange={(e) => updateStep(index, 'config', { ...step.config, duration: e.target.value, until: undefined })}
                       placeholder={t('workflows.activities.waitDurationPlaceholder')}
-                      disabled={!!step.config?.until}
                       className="mt-1"
                     />
                     <p className="text-xs text-muted-foreground mt-1">
@@ -231,7 +230,6 @@ export function StepsEditor({ value = [], onChange, error }: StepsEditorProps) {
                       type="datetime-local"
                       value={step.config?.until ? step.config.until.slice(0, 16) : ''}
                       onChange={(e) => updateStep(index, 'config', { ...step.config, until: e.target.value ? new Date(e.target.value).toISOString() : undefined, duration: undefined })}
-                      disabled={!!step.config?.duration}
                       className="mt-1"
                     />
                     <p className="text-xs text-muted-foreground mt-1">

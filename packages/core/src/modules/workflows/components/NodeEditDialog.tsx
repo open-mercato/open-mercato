@@ -1141,7 +1141,6 @@ export function NodeEditDialog({ node, isOpen, onClose, onSave, onDelete }: Node
                                           updated[index].config = { ...updated[index].config, duration: e.target.value, until: undefined }
                                           setStepActivities(updated)
                                         }}
-                                        disabled={!!activity.config?.until}
                                         placeholder={t('workflows.activities.waitDurationPlaceholder')}
                                       />
                                       <p className="text-xs text-muted-foreground mt-1">{t('workflows.activities.waitDurationDescription')}</p>
@@ -1160,7 +1159,6 @@ export function NodeEditDialog({ node, isOpen, onClose, onSave, onDelete }: Node
                                           updated[index].config = { ...updated[index].config, until: e.target.value ? new Date(e.target.value).toISOString() : undefined, duration: undefined }
                                           setStepActivities(updated)
                                         }}
-                                        disabled={!!activity.config?.duration}
                                       />
                                       <p className="text-xs text-muted-foreground mt-1">{t('workflows.activities.waitUntilDescription')}</p>
                                     </div>
@@ -1493,7 +1491,6 @@ export function NodeEditDialog({ node, isOpen, onClose, onSave, onDelete }: Node
                         }
                       }}
                       placeholder={t('workflows.activities.waitDurationPlaceholder')}
-                      disabled={!!timerUntil}
                       aria-invalid={fieldErrors.timerDuration ? true : undefined}
                     />
                     {fieldErrors.timerDuration ? (
@@ -1525,7 +1522,6 @@ export function NodeEditDialog({ node, isOpen, onClose, onSave, onDelete }: Node
                           setFieldErrors(nextErrors)
                         }
                       }}
-                      disabled={!!timerDuration}
                       aria-invalid={fieldErrors.timerUntil ? true : undefined}
                     />
                     {fieldErrors.timerUntil ? (
