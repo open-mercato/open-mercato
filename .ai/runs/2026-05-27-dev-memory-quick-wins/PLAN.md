@@ -12,7 +12,7 @@
 | Phase | Step | Title | Status | Commit |
 |-------|------|-------|--------|--------|
 | 1 | 1.1 | Add `scripts/profile-dev-rss.mjs` RSS profiler harness with unit tests | done | 5fe482358 |
-| 1 | 1.2 | Wire `yarn dev:profile` / `yarn dev:profile:report` scripts in root `package.json` | todo | — |
+| 1 | 1.2 | Wire `yarn dev:profile` / `yarn dev:profile:report` scripts in root `package.json` | done | 7d204ca83 |
 | 2 | 2.1 | Add `OM_PACKAGE_WATCH_HEAP_MB` opt-in heap cap to `scripts/watch.mjs` (re-exec with `--max-old-space-size=N`) | todo | — |
 | 2 | 2.2 | Unit-test the env parsing + re-exec guard in `scripts/__tests__/watch.test.mjs` | todo | — |
 | 3 | 3.1 | Write analysis spec `.ai/specs/2026-05-27-dev-mode-memory-quick-wins.md` covering landscape, Vite verdict, phase plan, verification protocol | todo | — |
