@@ -25,6 +25,10 @@ export const injectionTable: ModuleInjectionTable = {
     widgetId: 'wms.injection.sales-order-stock-context',
     priority: 80,
   },
+  'data-table:sales.order.items:columns': {
+    widgetId: 'wms.injection.order-items-stock-column',
+    priority: 50,
+  },
 }
 
 export default injectionTable
