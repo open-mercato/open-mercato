@@ -3,7 +3,7 @@
 **Date:** 2026-05-27
 **Branch:** `feat/dev-mode-lazy-load-heavy-clients`
 **Base:** `origin/develop` (commit `25fdb35f2` at run start)
-**Status:** in-progress
+**Status:** complete
 **Related work:**
 - PR #2102 (merged) — workspace package watcher consolidation (~1 GB idle RSS win).
 - PR #2104 (open, `feat/dev-memory-quick-wins`) — `yarn dev:profile` harness + dev-mode memory landscape spec.
