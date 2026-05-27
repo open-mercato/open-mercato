@@ -74,11 +74,12 @@ Update `.ai/skills/create-agents-md/SKILL.md` so that agents who invoke this ski
 
 ### Phase 1: Update the skill
 
-- [ ] 1.1 Replace `## MUST Rules` with four boundary headings in the file-structure template
-- [ ] 1.2 Re-frame "MUST Rules Requirements" as boundary-rules requirements
-- [ ] 1.3 Refresh verification checklist for the four headings
-- [ ] 1.4 Refresh reference examples to point at post-#2082 canonical files
-- [ ] 1.5 Add pointer to root `AGENTS.md` → "Boundary Labels for Agent Rules"
+- [x] 1.1 Replace `## MUST Rules` with four boundary headings in the file-structure template — f29d9b4be
+- [x] 1.2 Re-frame "MUST Rules Requirements" as boundary-rules requirements — f29d9b4be
+- [x] 1.3 Refresh verification checklist for the four headings — f29d9b4be
+- [x] 1.4 Refresh reference examples to point at post-#2082 canonical files — f29d9b4be
+- [x] 1.5 Add pointer to root `AGENTS.md` → "Boundary Labels for Agent Rules" — f29d9b4be
+- [x] 1.6 Added new "Migrating an Existing AGENTS.md to the Boundary Convention" section — f29d9b4be
 
 ### Phase 2: Self-review and validation
 
