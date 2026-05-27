@@ -361,6 +361,7 @@
   "catalog.products.create.variantsBuilder.vatColumn": "Tax class",
   "catalog.products.create.variantsBuilder.vatOptionDefault": "Use product tax class ({{label}})",
   "catalog.products.create.variantsBuilder.vatOptionNone": "No tax class",
+  "catalog.products.edit.actions.backToList": "Back to products",
   "catalog.products.edit.custom.title": "Custom attributes",
   "catalog.products.edit.dimensions": "Dimensions & weight",
   "catalog.products.edit.dimensions.depth": "Depth",

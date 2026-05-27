@@ -164,6 +164,7 @@
   "auth.users.form.action.resendInvite": "Wyślij zaproszenie ponownie",
   "auth.users.form.action.resendingInvite": "Wysyłanie...",
   "auth.users.form.action.save": "Zapisz",
+  "auth.users.form.actions.backToList": "Powrót do listy użytkowników",
   "auth.users.form.errors.aclUpdate": "Nie udało się zaktualizować uprawnień użytkownika",
   "auth.users.form.errors.delete": "Nie udało się usunąć użytkownika",
   "auth.users.form.errors.inviteResend": "Nie udało się wysłać e-maila z zaproszeniem",
