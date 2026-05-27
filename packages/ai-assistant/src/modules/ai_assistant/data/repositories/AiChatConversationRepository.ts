@@ -101,6 +101,13 @@ export class AiChatConversationAccessError extends Error {
   }
 }
 
+export class AiChatConversationDuplicateParticipantError extends Error {
+  override readonly name = 'AiChatConversationDuplicateParticipantError'
+  constructor(message: string = 'User is already an active participant in this conversation.') {
+    super(message)
+  }
+}
+
 export class AiChatConversationRepository {
   constructor(private readonly em: EntityManager) {}
 
@@ -555,8 +562,16 @@ export class AiChatConversationRepository {
   ): Promise<AiChatConversationParticipant[]> {
     assertContext(ctx, 'listParticipants')
     const conv = await findOneAccessibleConversation(this.em, conversationId, ctx)
-    if (!conv) return []
-    if (!canAccessConversation(conv, ctx)) return []
+    if (!conv) {
+      throw new AiChatConversationAccessError(
+        `Conversation "${conversationId}" was not found for the caller.`,
+      )
+    }
+    if (conv.ownerUserId !== ctx.userId && !canManageConversations(ctx)) {
+      throw new AiChatConversationAccessError(
+        'Only the conversation owner or a manager can list participants.',
+      )
+    }
     const filter: FilterQuery<AiChatConversationParticipant> = {
       tenantId: ctx.tenantId,
       conversationId,
@@ -575,7 +590,7 @@ export class AiChatConversationRepository {
   async addParticipant(
     conversationId: string,
     userId: string,
-    role: 'viewer' | 'commenter',
+    role: 'viewer',
     ctx: AiChatConversationContext,
   ): Promise<AiChatConversationParticipant> {
     assertContext(ctx, 'addParticipant')
@@ -590,7 +605,7 @@ export class AiChatConversationRepository {
           `Conversation "${conversationId}" was not found for the caller.`,
         )
       }
-      if (conv.ownerUserId !== ctx.userId && !canManageConversations(ctx)) {
+      if (conv.ownerUserId !== ctx.userId) {
         throw new AiChatConversationAccessError(
           'Only the conversation owner can add participants.',
         )
@@ -607,6 +622,9 @@ export class AiChatConversationRepository {
         existingFilter,
       )
       if (existing) {
+        if (existing.deletedAt === null) {
+          throw new AiChatConversationDuplicateParticipantError()
+        }
         existing.deletedAt = null
         existing.role = role
         await tx.persist(existing).flush()
@@ -648,10 +666,13 @@ export class AiChatConversationRepository {
           `Conversation "${conversationId}" was not found for the caller.`,
         )
       }
-      if (conv.ownerUserId !== ctx.userId && !canManageConversations(ctx)) {
+      if (conv.ownerUserId !== ctx.userId) {
         throw new AiChatConversationAccessError(
           'Only the conversation owner can revoke participants.',
         )
+      }
+      if (targetUserId === conv.ownerUserId) {
+        throw new AiChatConversationAccessError('Cannot revoke the conversation owner.')
       }
       const participantFilter: FilterQuery<AiChatConversationParticipant> = {
         tenantId: ctx.tenantId,
@@ -679,6 +700,19 @@ export class AiChatConversationRepository {
       }
       await tx.persist(participant).flush()
     })
+  }
+
+  async getParticipantCount(
+    tenantId: string,
+    organizationId: string | null | undefined,
+    conversationId: string,
+  ): Promise<number> {
+    return this.em.count(AiChatConversationParticipant, {
+      tenantId,
+      conversationId,
+      deletedAt: null,
+      ...(organizationId ? { organizationId } : {}),
+    } as FilterQuery<AiChatConversationParticipant>)
   }
 
   private async loadParticipantFlag(

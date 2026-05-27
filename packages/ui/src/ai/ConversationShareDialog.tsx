@@ -20,6 +20,7 @@ import {
   SelectValue,
 } from '../primitives/select'
 import { apiCall } from '../backend/utils/apiCall'
+import { useCurrentUserId } from '../backend/utils/useCurrentUserId'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 
 interface Participant {
@@ -43,6 +44,7 @@ interface Props {
 
 export function ConversationShareDialog({ open, onOpenChange, conversationId }: Props) {
   const t = useT()
+  const currentUserId = useCurrentUserId()
   const [participants, setParticipants] = React.useState<Participant[]>([])
   const [users, setUsers] = React.useState<UserOption[]>([])
   const [canListUsers, setCanListUsers] = React.useState(true)
@@ -102,8 +104,8 @@ export function ConversationShareDialog({ open, onOpenChange, conversationId }: 
   )
 
   const availableUsers = React.useMemo(
-    () => users.filter((u) => !participantIds.has(u.id)),
-    [users, participantIds],
+    () => users.filter((u) => !participantIds.has(u.id) && u.id !== currentUserId),
+    [users, participantIds, currentUserId],
   )
 
   const activeUserId = canListUsers ? selectedUserId : textUserId.trim()

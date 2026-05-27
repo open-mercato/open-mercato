@@ -38,6 +38,13 @@ Source spec: .ai/specs/2026-05-22-ai-chat-conversation-sharing.md
 | 4 | 4.6 | Fix shared conversation opens without tab strip — activate session from server sync so normal tabs show | done | f58fd19f3 |
 | 4 | 4.7-review-fix-1 | Fix Cmd/Ctrl+Enter shortcut + Content-Type headers in ConversationShareDialog | done | 283fa390c |
 | 4 | 4.7-review-fix-2 | Scrub absolute filesystem path from HANDOFF.md | done | f5fe4a824 |
+| 5 | qa-fix-1 | Enrich GET /conversations/:id response with isOwner + participantCount (BUG-003) | done | 623b7cb96 |
+| 5 | qa-fix-2 | Harden POST /participants: role→viewer-only, userId scope, self-share→400, dup→409 (BUG-001/BUG-007) | done | dc48614ff |
+| 5 | qa-fix-3 | Remove canManageConversations bypass from addParticipant/revokeParticipant; block owner-revoke (BUG-002) | done | 4d5e421fd |
+| 5 | qa-fix-4 | Fix GET /participants: 403/404 for non-owner/non-manager instead of silent 200 [] (BUG-006) | done | 4eddb9333 |
+| 5 | qa-fix-5 | Make setActiveSession idempotent — fix infinite render loop for shared conversation viewers (BUG-008) | done | cc05e44f1 |
+| 5 | qa-fix-6 | Hide composer + show read-only banner for participant viewers in AiChat (BUG-009) | done | 873d42f8c |
+| 5 | qa-fix-7 | Exclude conversation owner from user picker in ConversationShareDialog (BUG-004) | done | 1c245868a |
 
 ---
 
@@ -270,3 +277,115 @@ if (!open) {
 
 File to change:
 - `packages/ui/src/ai/AiAssistantLauncher.tsx`
+
+---
+
+### Phase 5 — QA Bug Fixes
+
+**Step qa-fix-1** — Enrich GET /conversations/:id response with isOwner + participantCount (BUG-003)
+
+Root cause: `serializeAiChatConversation(transcript.conversation)` in `api/ai/conversations/[conversationId]/route.ts` is called without the `enrich` argument, so `isOwner` is always `null` and `participantCount` is always `0`.
+
+Fix:
+1. Add `getParticipantCount(em, tenantId, orgId, conversationId): Promise<number>` to `AiChatConversationRepository` — COUNT WHERE `conversation_id = :id AND tenant_id = :tenantId AND organization_id = :orgId AND deleted_at IS NULL`.
+2. In the GET handler (around line 215), after loading the transcript:
+   - Fetch `participantCount` via the new method.
+   - Pass `enrich: { callerUserId: callerCtx.userId, participantCount }` to `serializeAiChatConversation`.
+
+Files:
+- `packages/ai-assistant/src/modules/ai_assistant/data/repositories/AiChatConversationRepository.ts`
+- `packages/ai-assistant/src/modules/ai_assistant/api/ai/conversations/[conversationId]/route.ts`
+
+**Step qa-fix-2** — Harden POST /participants: role→viewer-only, userId scope, self-share→400, dup→409 (BUG-001/BUG-007)
+
+Root cause: `addParticipantBodySchema` allows `role: 'commenter'` (spec says viewer-only); no tenant/org scope check on `userId`; no self-share guard; no 409 for duplicate active participant.
+
+Fix in `api/ai/conversations/[conversationId]/participants/route.ts`:
+1. Change `role: z.enum(['viewer', 'commenter']).default('viewer')` → `role: z.literal('viewer').default('viewer')` (or `z.enum(['viewer'])`).
+2. Before calling `repo.addParticipant`, load the target user from the auth repository scoped to `(tenantId, organizationId)`. If not found → 400 `{ error: 'User not found in this organization' }`.
+3. If `userId === callerCtx.userId` → 400 `{ error: 'Cannot share a conversation with yourself' }`.
+4. In `AiChatConversationRepository.addParticipant`, if an active (non-deleted) participant row already exists → throw a new `AiChatConversationDuplicateParticipantError`; catch it in the route and return 409 `{ error: 'User is already a participant' }`.
+
+Files:
+- `packages/ai-assistant/src/modules/ai_assistant/api/ai/conversations/[conversationId]/participants/route.ts`
+- `packages/ai-assistant/src/modules/ai_assistant/data/repositories/AiChatConversationRepository.ts`
+
+**Step qa-fix-3** — Remove canManageConversations bypass from addParticipant/revokeParticipant; block owner-revoke (BUG-002)
+
+Root cause: `addParticipant` and `revokeParticipant` allow any user with `ai_assistant.conversations.manage` to mutate participants of conversations they don't own. The spec says only the conversation owner can share.
+
+Fix in `AiChatConversationRepository`:
+1. `addParticipant` (line ~575): change ownership guard from `if (conv.ownerUserId !== ctx.userId && !canManageConversations(ctx))` to `if (conv.ownerUserId !== ctx.userId)`.
+2. `revokeParticipant` (line ~634): same — remove `&& !canManageConversations(ctx)` from the guard.
+3. `revokeParticipant`: add guard that `targetUserId !== conv.ownerUserId` (cannot revoke the owner row if one exists).
+
+File:
+- `packages/ai-assistant/src/modules/ai_assistant/data/repositories/AiChatConversationRepository.ts`
+
+**Step qa-fix-4** — Fix GET /participants: 403/404 for non-owner/non-manager instead of silent 200 [] (BUG-006)
+
+Root cause: `AiChatConversationRepository.listParticipants` returns `[]` silently when `canAccessConversation` fails; the GET route surfaces this as `200 { participants: [] }` for any authenticated user who guesses a UUID.
+
+Fix in `AiChatConversationRepository.listParticipants`:
+- Change the early return from `return []` to throw `AiChatConversationNotFoundError` (or `AiChatConversationAccessError`) when the caller is neither the owner nor a manager.
+- In the GET route, catch the error and return 403 (access denied) or 404 (not found) accordingly — use the same pattern as other routes in the file.
+
+Files:
+- `packages/ai-assistant/src/modules/ai_assistant/data/repositories/AiChatConversationRepository.ts`
+- `packages/ai-assistant/src/modules/ai_assistant/api/ai/conversations/[conversationId]/participants/route.ts`
+
+**Step qa-fix-5** — Make setActiveSession idempotent — fix infinite render loop for shared conversation viewers (BUG-008)
+
+Root cause: `setActiveSession` in `AiChatSessions.tsx` always writes a new sessions array (via `lastUsedAt: Date.now()`), which invalidates the `api` `useMemo`, which creates a new `sessions` reference, which re-runs the `useEffect` in `AiAssistantLauncher.tsx` that calls `setActiveSession` again — infinite loop.
+
+Fix in `packages/ui/src/ai/AiChatSessions.tsx`, inside the `setActiveSession` callback:
+```typescript
+const setActiveSession = React.useCallback(
+  (sessionId: string) => {
+    update((prev) => {
+      const target = prev.sessions.find((s) => s.id === sessionId)
+      if (!target || target.status !== 'open') return prev
+      // ← ADD: skip update if this session is already active for its agent
+      if (prev.activeByAgent[target.agentId] === sessionId) return prev
+      const sessions = prev.sessions.map((s) =>
+        s.id === sessionId ? { ...s, lastUsedAt: Date.now() } : s,
+      )
+      return {
+        sessions,
+        activeByAgent: { ...prev.activeByAgent, [target.agentId]: sessionId },
+      }
+    })
+  },
+  [update],
+)
+```
+
+File:
+- `packages/ui/src/ai/AiChatSessions.tsx`
+
+**Step qa-fix-6** — Hide composer + show read-only banner for participant viewers in AiChat (BUG-009)
+
+Root cause: when a participant (non-owner) opens a shared conversation, `isOwner` is `false` (now fixed by qa-fix-1), but the `AiChat` component still renders the textarea/send button and allows message submission. Messages from non-owners go through `appendMessage` which throws an `AiChatConversationAccessError`, resulting in a silent error for the user.
+
+Fix in `packages/ui/src/ai/AiChat.tsx` (or the component that renders the input area):
+1. Accept `isReadOnly?: boolean` prop (or derive it from `isOwner === false`).
+2. When `isReadOnly` is true:
+   - Hide the message composer (textarea + send button).
+   - Render a read-only banner below the message list: e.g. `<p className="text-muted text-sm text-center py-2">You are viewing this conversation as a participant.</p>`.
+3. The `AiAssistantLauncher` or the component that renders `AiChat` for shared conversations should pass `isReadOnly={!session?.isOwner}` (once `isOwner` is correctly populated by qa-fix-1).
+
+Files:
+- `packages/ui/src/ai/AiChat.tsx`
+- `packages/ui/src/ai/AiAssistantLauncher.tsx` (pass the prop)
+
+**Step qa-fix-7** — Exclude conversation owner from user picker in ConversationShareDialog (BUG-004)
+
+Root cause: `availableUsers` in `ConversationShareDialog.tsx` filters out existing participants but NOT the conversation owner — so the owner appears in the "add" dropdown and selecting them results in a confusing 400 error from the backend self-share guard (added in qa-fix-2).
+
+Fix in `packages/ui/src/ai/ConversationShareDialog.tsx`:
+- Receive the `ownerUserId` (already available via `conversation.isOwner` or pass as prop).
+- In the `availableUsers` filter, also exclude the owner: `users.filter((u) => !participantIds.has(u.id) && u.id !== ownerUserId)`.
+- Also exclude `currentUserId` (self) from the picker for completeness.
+
+File:
+- `packages/ui/src/ai/ConversationShareDialog.tsx`
