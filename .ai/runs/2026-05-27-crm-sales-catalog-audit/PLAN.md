@@ -10,19 +10,19 @@
 
 > Authoritative status table. `Status` is one of `todo` or `done`. On landing a Step, flip `Status` to `done` and fill the `Commit` column with the short SHA. The first row whose `Status` is not `done` is the resume point for `auto-continue-pr`. Step ids are immutable once a Step has a commit.
 
-| Phase | Step | Title                                                                   | Status | Commit |
-|-------|------|-------------------------------------------------------------------------|--------|--------|
-| 0     | 0.1  | Seed run folder (PLAN, HANDOFF, NOTIFY)                                 | todo   | —      |
-| 1     | 1.1  | Audit `customers` (security / races / DRY / cross-module refs)          | todo   | —      |
-| 1     | 1.2  | Audit `sales` (security / races / DRY / cross-module refs)              | todo   | —      |
-| 1     | 1.3  | Audit `catalog` (security / races / DRY / cross-module refs)            | todo   | —      |
-| 1     | 1.4  | Cross-module reference & DRY sweep (imports, links, response shapes)    | todo   | —      |
-| 2     | 2.1  | Synthesize findings, score by severity × blast radius, write report     | todo   | —      |
-| 3     | 3.1  | Open one GitHub issue per actionable finding (security, bug, refactor)  | todo   | —      |
-| 4     | 4.1  | Implement fix for top-priority finding (smallest safe change)           | todo   | —      |
-| 4     | 4.2  | Add focused unit tests covering the fix                                 | todo   | —      |
-| 5     | 5.1  | Run targeted validation (typecheck + tests for the touched package)     | todo   | —      |
-| 6     | 6.1  | Final gate + open PR against `develop`                                  | todo   | —      |
+| Phase | Step | Title                                                                   | Status | Commit  |
+|-------|------|-------------------------------------------------------------------------|--------|---------|
+| 0     | 0.1  | Seed run folder (PLAN, HANDOFF, NOTIFY)                                 | done   | fa281544|
+| 1     | 1.1  | Audit `customers` (security / races / DRY / cross-module refs)          | done   | 4f4c7dcd|
+| 1     | 1.2  | Audit `sales` (security / races / DRY / cross-module refs)              | done   | 4f4c7dcd|
+| 1     | 1.3  | Audit `catalog` (security / races / DRY / cross-module refs)            | done   | 4f4c7dcd|
+| 1     | 1.4  | Cross-module reference & DRY sweep (imports, links, response shapes)    | done   | 4f4c7dcd|
+| 2     | 2.1  | Synthesize findings, score by severity × blast radius, write report     | done   | 4f4c7dcd|
+| 3     | 3.1  | Open one GitHub issue per actionable finding (security, bug, refactor)  | done   | 4f4c7dcd|
+| 4     | 4.1  | Implement fix for top-priority finding (smallest safe change)           | done   | 4f4c7dcd|
+| 4     | 4.2  | Add focused unit tests covering the fix                                 | done   | 4f4c7dcd|
+| 5     | 5.1  | Run targeted validation (typecheck + tests for the touched package)     | done   | 4f4c7dcd|
+| 6     | 6.1  | Final gate + open PR against `develop`                                  | todo   | —       |
 
 ## Goal
 

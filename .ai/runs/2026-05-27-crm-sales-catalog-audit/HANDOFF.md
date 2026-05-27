@@ -1,24 +1,28 @@
 # Handoff — 2026-05-27-crm-sales-catalog-audit
 
-**Last updated:** 2026-05-27T10:30:00Z
+**Last updated:** 2026-05-27T10:50:00Z
 **Branch:** task/4476d81e-7df9-4d2e-8173-bd7b60e9808b
-**PR:** not yet opened
-**Current phase/step:** Phase 0 Step 0.1
-**Last commit:** — (run folder not yet committed)
+**PR:** to be opened against `develop`
+**Current phase/step:** Phase 6 Step 6.1 (final gate + PR open)
+**Last commit:** (this commit) — security(sales): scope-validate payment allocation orderId/invoiceId (S-01)
 
 ## What just happened
-- Run folder drafted with PLAN / HANDOFF / NOTIFY templates.
+- Three parallel audits (customers, sales, catalog) produced 30 findings; report in `FINDINGS.md`.
+- Eleven GitHub issues filed: 10 individual highs (#2111-2120) + 1 medium/low tracker (#2121).
+- S-01 (critical: cross-tenant payment allocations) fixed in `commands/payments.ts` for both create and update paths. Pattern mirrors the in-file `findOneWithDecryption` + `ensureSameScope` on line 625-629.
+- 5 new unit tests added in `commands/__tests__/payments.test.ts`; all 15 tests in that file pass.
+- Targeted regressions on `payments|documents|shipments` test suites are clean (1 pre-existing component failure unrelated to this work).
 
 ## Next concrete action
-- Commit the run folder as the seed commit (Step 0.1), push the janitor branch upstream, then dispatch parallel audits for Steps 1.1–1.3.
+- Push the branch, open the PR against `develop`, normalize labels (`review` + `security` + `bug`), comment.
 
 ## Blockers / open questions
-- "CRM" assumed to be `customers` (reference CRUD module); confirm if maintainer meant `customer_accounts`.
+- Pre-existing test failures in `sales/api/__tests__/quotes.acceptance`, `sales/components/__tests__/{ShipmentsSection,timeline,salesDocumentFormCurrency,salesComponentsRender}` exist on `develop` head (`636677865`). Unrelated to this PR — flagged in NOTIFY.
 
 ## Environment caveats
-- Dev runtime runnable: unknown (audit-first run; will not start dev unless UI must be exercised).
-- Playwright / browser checks: skipped — no UI changes planned for the fix step until a finding is chosen.
-- Database/migration state: clean (working tree clean at session start).
+- Dev runtime runnable: not exercised (no UI changes in this PR — pure command-layer security fix with unit tests).
+- Playwright / browser checks: skipped — no UI touched.
+- Database/migration state: clean; no migration in this PR.
 
 ## Worktree
 - Path: /home/pkarw/Projects/github-janitor/.janitor/repos/open-mercato__open-mercato/worktrees/4476d81e-7df9-4d2e-8173-bd7b60e9808b

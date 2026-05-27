@@ -425,13 +425,49 @@ const createPaymentCommand: CommandHandler<
               metadata: null,
             },
           ]
-      allocations.forEach((allocation) => {
-        const orderRef = allocation.orderId ? tx.getReference(SalesOrder, allocation.orderId) : order
-        const invoiceRef = allocation.invoiceId ? tx.getReference(SalesInvoice, allocation.invoiceId) : null
+      const orderCache = new Map<string, SalesOrder>([[order.id, order]])
+      const invoiceCache = new Map<string, SalesInvoice>()
+      for (const allocation of allocations) {
+        let allocationOrder: SalesOrder | null = null
+        if (allocation.orderId) {
+          allocationOrder = orderCache.get(allocation.orderId) ?? null
+          if (!allocationOrder) {
+            allocationOrder = assertFound(
+              await findOneWithDecryption(
+                tx,
+                SalesOrder,
+                { id: allocation.orderId },
+                {},
+                { tenantId: input.tenantId, organizationId: input.organizationId },
+              ),
+              'sales.payments.order_not_found',
+            )
+            ensureSameScope(allocationOrder, input.organizationId, input.tenantId)
+            orderCache.set(allocation.orderId, allocationOrder)
+          }
+        }
+        let allocationInvoice: SalesInvoice | null = null
+        if (allocation.invoiceId) {
+          allocationInvoice = invoiceCache.get(allocation.invoiceId) ?? null
+          if (!allocationInvoice) {
+            allocationInvoice = assertFound(
+              await findOneWithDecryption(
+                tx,
+                SalesInvoice,
+                { id: allocation.invoiceId },
+                {},
+                { tenantId: input.tenantId, organizationId: input.organizationId },
+              ),
+              'sales.payments.invoice_not_found',
+            )
+            ensureSameScope(allocationInvoice, input.organizationId, input.tenantId)
+            invoiceCache.set(allocation.invoiceId, allocationInvoice)
+          }
+        }
         const entity = tx.create(SalesPaymentAllocation, {
           payment,
-          order: orderRef,
-          invoice: invoiceRef,
+          order: allocationOrder,
+          invoice: allocationInvoice,
           organizationId: input.organizationId,
           tenantId: input.tenantId,
           amount: toNumericString(allocation.amount) ?? '0',
@@ -439,7 +475,7 @@ const createPaymentCommand: CommandHandler<
           metadata: allocation.metadata ? cloneJson(allocation.metadata) : null,
         })
         tx.persist(entity)
-      })
+      }
       tx.persist(payment)
       if (input.customFields !== undefined) {
         if (!payment.id) {
@@ -722,16 +758,49 @@ const updatePaymentCommand: CommandHandler<
       const existingAllocations = await findWithDecryption(em, SalesPaymentAllocation, { payment }, {}, { tenantId: payment.tenantId, organizationId: payment.organizationId })
       existingAllocations.forEach((allocation) => em.remove(allocation))
       const allocationInputs = Array.isArray(input.allocations) ? input.allocations : []
-      allocationInputs.forEach((allocation) => {
-        const orderRef =
-          allocation.orderId ??
-          (typeof payment.order === 'string' ? payment.order : payment.order?.id) ??
-          null
-        const order =
-          orderRef && typeof orderRef === 'string' ? em.getReference(SalesOrder, orderRef) : null
-        const invoice = allocation.invoiceId
-          ? em.getReference(SalesInvoice, allocation.invoiceId)
-          : null
+      const paymentOrderId =
+        (typeof payment.order === 'string' ? payment.order : payment.order?.id) ?? null
+      const orderCache = new Map<string, SalesOrder>()
+      if (currentOrder) orderCache.set(currentOrder.id, currentOrder)
+      const invoiceCache = new Map<string, SalesInvoice>()
+      for (const allocation of allocationInputs) {
+        const orderId = allocation.orderId ?? paymentOrderId
+        let order: SalesOrder | null = null
+        if (orderId && typeof orderId === 'string') {
+          order = orderCache.get(orderId) ?? null
+          if (!order) {
+            order = assertFound(
+              await findOneWithDecryption(
+                em,
+                SalesOrder,
+                { id: orderId },
+                {},
+                { tenantId: payment.tenantId, organizationId: payment.organizationId },
+              ),
+              'sales.payments.order_not_found',
+            )
+            ensureSameScope(order, payment.organizationId, payment.tenantId)
+            orderCache.set(orderId, order)
+          }
+        }
+        let invoice: SalesInvoice | null = null
+        if (allocation.invoiceId) {
+          invoice = invoiceCache.get(allocation.invoiceId) ?? null
+          if (!invoice) {
+            invoice = assertFound(
+              await findOneWithDecryption(
+                em,
+                SalesInvoice,
+                { id: allocation.invoiceId },
+                {},
+                { tenantId: payment.tenantId, organizationId: payment.organizationId },
+              ),
+              'sales.payments.invoice_not_found',
+            )
+            ensureSameScope(invoice, payment.organizationId, payment.tenantId)
+            invoiceCache.set(allocation.invoiceId, invoice)
+          }
+        }
         const entity = em.create(SalesPaymentAllocation, {
           payment,
           order,
@@ -743,7 +812,7 @@ const updatePaymentCommand: CommandHandler<
           metadata: allocation.metadata ? cloneJson(allocation.metadata) : null,
         })
         em.persist(entity)
-      })
+      }
       await em.flush()
     }
 
