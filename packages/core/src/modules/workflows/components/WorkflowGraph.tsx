@@ -20,15 +20,19 @@ export interface WorkflowGraphProps {
 
 const WorkflowGraphImpl = dynamic(() => import('./WorkflowGraphImpl'), {
   ssr: false,
-  loading: () => (
+  loading: () => null,
+})
+
+function WorkflowGraphPlaceholder({ height }: { height: string }) {
+  return (
     <div
       className="workflow-graph-container flex items-center justify-center rounded-lg border border-border bg-muted/30"
-      style={{ height: '600px' }}
+      style={{ height }}
     >
       <Spinner className="h-6 w-6 text-muted-foreground" />
     </div>
-  ),
-})
+  )
+}
 
 /**
  * WorkflowGraph — lazy-loaded ReactFlow wrapper.
@@ -38,6 +42,22 @@ const WorkflowGraphImpl = dynamic(() => import('./WorkflowGraphImpl'), {
  * actually renders.
  */
 export function WorkflowGraph(props: WorkflowGraphProps) {
+  const { height = '600px' } = props
+  // Track impl-chunk readiness so the loading placeholder respects the
+  // caller's `height` prop (next/dynamic's `loading` cannot access props).
+  // The browser caches the module, so the duplicate `import()` is free.
+  const [isImplReady, setIsImplReady] = React.useState(false)
+  React.useEffect(() => {
+    let cancelled = false
+    void import('./WorkflowGraphImpl').then(() => {
+      if (!cancelled) setIsImplReady(true)
+    })
+    return () => {
+      cancelled = true
+    }
+  }, [])
+
+  if (!isImplReady) return <WorkflowGraphPlaceholder height={height} />
   return <WorkflowGraphImpl {...props} />
 }
 
