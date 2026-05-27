@@ -19,9 +19,12 @@ import {
 test.describe('TC-WF-013: WAIT_FOR_TIMER step fires and completes', () => {
   test('workflow paused at WAIT_FOR_TIMER resumes and completes once the timer fires', async ({ request }) => {
     // BullMQ delayed-job pickup + worker drain under heavy CI parallel load can
-    // run well past the 1s timer duration. Give the resume phase a generous
-    // budget so this spec measures correctness, not queue latency.
-    test.setTimeout(60_000)
+    // run well past the 1s timer duration. The lazy-worker supervisor polls the
+    // queue every 1s and spawns the workflow-activities child process on first
+    // job, so cold-start can add several seconds before the timer is actually
+    // picked up. Give the resume phase a generous budget so this spec measures
+    // correctness, not queue latency.
+    test.setTimeout(120_000)
     const token = await getAuthToken(request, 'admin')
     const timestamp = Date.now()
     const workflowId = `qa-wf-013-${timestamp}`
@@ -125,7 +128,7 @@ test.describe('TC-WF-013: WAIT_FOR_TIMER step fires and completes', () => {
       }
 
       // Phase 3: worker drains the delayed job, fireTimer resumes, instance completes.
-      const completeDeadline = Date.now() + 30_000
+      const completeDeadline = Date.now() + 90_000
       let finalStatus: string | undefined
       let finalBody: { data?: { status?: string } } | null = null
       while (Date.now() < completeDeadline) {

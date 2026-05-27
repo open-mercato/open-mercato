@@ -30,6 +30,7 @@ import {
 } from './mappings'
 import {
   buildExampleCustomersSyncCommandContext,
+  createScopedSyncContainer,
   EXAMPLE_CUSTOMERS_SYNC_INBOUND_ORIGIN,
   EXAMPLE_CUSTOMERS_SYNC_OUTBOUND_ORIGIN,
   type ExampleCustomersSyncScope,
@@ -461,14 +462,17 @@ async function ensureLegacyExampleMapping(
 }
 
 export async function syncCustomerInteractionToExampleTodo(
-  container: ContainerLike,
+  rawContainer: ContainerLike,
   payload: ExampleCustomersSyncOutboundJobPayload,
 ): Promise<void> {
   const scope = { tenantId: payload.tenantId, organizationId: payload.organizationId }
-  const flags = await resolveExampleCustomersSyncFlags(container, scope.tenantId)
+  const flags = await resolveExampleCustomersSyncFlags(rawContainer, scope.tenantId)
   if (!flags.enabled) return
 
-  const em = (container.resolve('em') as EntityManager).fork()
+  // Scope this invocation to its own EM + DataEngine to avoid identity-map
+  // pollution across concurrent or sequential sync jobs touching the same id.
+  const container = createScopedSyncContainer(rawContainer)
+  const em = container.resolve('em') as EntityManager
   let mapping = await findMappingByInteractionId(em, scope, payload.interactionId)
 
   try {
@@ -593,14 +597,15 @@ export async function syncCustomerInteractionToExampleTodo(
 }
 
 export async function syncExampleTodoToCanonicalInteraction(
-  container: ContainerLike,
+  rawContainer: ContainerLike,
   payload: ExampleCustomersSyncInboundJobPayload,
 ): Promise<void> {
   const scope = { tenantId: payload.tenantId, organizationId: payload.organizationId }
-  const flags = await resolveExampleCustomersSyncFlags(container, scope.tenantId)
+  const flags = await resolveExampleCustomersSyncFlags(rawContainer, scope.tenantId)
   if (!flags.enabled || !flags.bidirectional) return
 
-  const em = (container.resolve('em') as EntityManager).fork()
+  const container = createScopedSyncContainer(rawContainer)
+  const em = container.resolve('em') as EntityManager
   let mapping = await findMappingByTodoId(em, scope, payload.todoId)
   let todo: ExampleTodoSnapshot | null = null
   if (!mapping && payload.eventId !== 'example.todo.deleted') {
@@ -895,13 +900,14 @@ async function ensureMappingForLegacyExampleTodo(
 }
 
 export async function reconcileLegacyExampleTodoLinks(
-  container: ContainerLike,
+  rawContainer: ContainerLike,
   input: ExampleCustomersSyncScope & { limit?: number; cursor?: string },
 ): Promise<ExampleCustomersSyncReconcileResult> {
   const scope = { tenantId: input.tenantId, organizationId: input.organizationId }
   const limit = Math.min(Math.max(input.limit ?? 100, 1), 500)
+  const container = createScopedSyncContainer(rawContainer)
   const { rows, nextCursor } = await loadLegacyExampleTodoLinks(container, scope, limit, input.cursor)
-  const em = (container.resolve('em') as EntityManager).fork()
+  const em = container.resolve('em') as EntityManager
   const items: ExampleCustomersSyncReconcileItem[] = []
   let mapped = 0
   let createdInteractions = 0
