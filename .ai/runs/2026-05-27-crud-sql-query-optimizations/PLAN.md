@@ -12,7 +12,7 @@
 | Phase | Step | Title | Status | Commit |
 |-------|------|-------|--------|--------|
 | 1 | 1.1 | Seed run folder (PLAN, HANDOFF, NOTIFY) | done | ac97a27c0 |
-| 2 | 2.1 | Push DB-level pagination to currencies + exchange-rates list routes | todo | — |
+| 2 | 2.1 | Push DB-level pagination to currencies + exchange-rates list routes | done | pending |
 | 2 | 2.2 | Parallelize entity + profile decryption fetch in customers people afterList | todo | — |
 | 3 | 3.1 | File GitHub issues for the remaining catalogued quick wins | todo | — |
 | 4 | 4.1 | Final gate + PR summary | todo | — |
