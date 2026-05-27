@@ -1013,6 +1013,36 @@ export function makeCrudRoute<TCreate = any, TUpdate = any, TList = any>(opts: C
     }
   }
 
+  // Phase 3 — per-request userFeatures memo. CrudCtx is a plain object that
+  // lives only for the duration of one HTTP request, so a WeakMap keyed on
+  // ctx is the right scope: interceptor + enricher + any future call site
+  // share one Promise<string[] | undefined> per request. The cache lifetime
+  // is bounded by the request and cannot desync from mid-request grant
+  // changes because RBAC grants never change mid-request.
+  const userFeaturesPromiseCache = new WeakMap<object, Promise<string[] | undefined>>()
+
+  function resolveUserFeaturesOnce(ctx: CrudCtx): Promise<string[] | undefined> {
+    if (!ctx.auth) return Promise.resolve(undefined)
+    const cached = userFeaturesPromiseCache.get(ctx)
+    if (cached) return cached
+    const promise = (async () => {
+      try {
+        const rbac = ctx.container.resolve('rbacService') as RbacServiceLike | undefined
+        if (rbac?.getGrantedFeatures) {
+          return await rbac.getGrantedFeatures(ctx.auth!.sub, {
+            tenantId: ctx.auth!.tenantId,
+            organizationId: ctx.selectedOrganizationId ?? ctx.auth!.orgId,
+          })
+        }
+      } catch {
+        // rbacService not available — enrichers without feature requirements still run
+      }
+      return undefined
+    })()
+    userFeaturesPromiseCache.set(ctx, promise)
+    return promise
+  }
+
   /**
    * Build enricher context from CRUD context and resolve user features for ACL gating.
    * Returns null if enrichers are not configured or auth is missing.
@@ -1021,18 +1051,7 @@ export function makeCrudRoute<TCreate = any, TUpdate = any, TList = any>(opts: C
     if (!opts.enrichers?.entityId) return null
     if (!ctx.auth) return null
 
-    let userFeatures: string[] | undefined
-    try {
-      const rbac = ctx.container.resolve('rbacService') as RbacServiceLike | undefined
-      if (rbac?.getGrantedFeatures) {
-        userFeatures = await rbac.getGrantedFeatures(ctx.auth.sub, {
-          tenantId: ctx.auth.tenantId,
-          organizationId: ctx.selectedOrganizationId ?? ctx.auth.orgId,
-        })
-      }
-    } catch {
-      // rbacService not available — enrichers without feature requirements still run
-    }
+    const userFeatures = await resolveUserFeaturesOnce(ctx)
 
     return {
       organizationId: ctx.selectedOrganizationId ?? ctx.auth.orgId ?? '',
@@ -1045,19 +1064,7 @@ export function makeCrudRoute<TCreate = any, TUpdate = any, TList = any>(opts: C
   }
 
   async function resolveUserFeatures(ctx: CrudCtx): Promise<string[] | undefined> {
-    if (!ctx.auth) return undefined
-    try {
-      const rbac = ctx.container.resolve('rbacService') as RbacServiceLike | undefined
-      if (rbac?.getGrantedFeatures) {
-        return await rbac.getGrantedFeatures(ctx.auth.sub, {
-          tenantId: ctx.auth.tenantId,
-          organizationId: ctx.selectedOrganizationId ?? ctx.auth.orgId,
-        })
-      }
-    } catch {
-      // rbacService is optional in some contexts
-    }
-    return undefined
+    return resolveUserFeaturesOnce(ctx)
   }
 
   const interceptorContextCache = new WeakMap<object, ReturnType<typeof buildInterceptorContextInner>>()

@@ -17,7 +17,7 @@ Base: `develop`
 | 1 | 1.3 | Unit tests for batch logging + blocking flag + flush hook | done | 3e993ba15 |
 | 2 | 2.1 | custom-fields.ts: tag-invalidated cache for `loadCustomFieldDefinitionIndex` + per-request micro-cache | done | 561485cb6 |
 | 2 | 2.2 | CF def cache: tags piggyback on existing `entities:definitions:*` invalidation; covered by unit tests | done | 561485cb6 |
-| 3 | 3.1 | factory.ts: per-request `userFeatures` memo + default in-process LRU cache for RbacService | todo | — |
+| 3 | 3.1 | factory.ts: per-request `userFeatures` memo + default in-process LRU cache for RbacService | done | 1e441ff53 |
 | 4 | 4.1 | organizationScope: short-TTL cache for `resolveOrganizationScopeForRequest` + invalidation hook + tests | todo | — |
 | 5 | 5.1 | container.ts: process-scoped bootstrap once-guard + cached `encryption.isEnabled` | todo | — |
 | 6 | 6.1 | Benchmark harness: run before/after micro-benchmark on integration stack | todo | — |
