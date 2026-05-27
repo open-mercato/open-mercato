@@ -560,6 +560,12 @@ function DashboardWidgetCard({
     loadDashboardWidgetModule(meta.loaderKey)
       .then((loaded) => {
         if (cancelled) return
+        if (!loaded) {
+          setModule(null)
+          setLoadError(t('dashboard.widget.loadError'))
+          setLoading(false)
+          return
+        }
         setModule(loaded)
         setLoading(false)
       })
