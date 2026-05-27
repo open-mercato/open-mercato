@@ -1,5 +1,5 @@
 ---
-name: sync-merged-pr-issues
+name: om-sync-merged-pr-issues
 description: Reconcile recently merged (and recently closed-but-not-merged) PRs with the GitHub issue tracker — auto-close issues they authoritatively fix via `fixes`/`closes`/`resolves` keywords or `closingIssuesReferences`, and post informational comments on issues whose PRs were closed without merging. Use for post-merge housekeeping and release prep. Respects claim locks.
 ---
 

@@ -1,5 +1,5 @@
 ---
-name: open-pr
+name: om-open-pr
 description: Commits the worktree's changes, pushes the autofix branch, opens a draft PR against develop, normalizes PR labels, hands the issue back to the original author, and releases the in-progress lock. Emits PR_URL and PR_NUMBER markers so the next step (review) can reference the PR.
 ---
 

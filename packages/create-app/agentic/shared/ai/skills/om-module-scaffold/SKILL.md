@@ -1,5 +1,5 @@
 ---
-name: module-scaffold
+name: om-module-scaffold
 description: Scaffold a new module from scratch with all required files and conventions. Use when creating a new module, adding a new entity with CRUD, or bootstrapping module features (API routes, backend pages, DI, ACL, events, search). Triggers on "create module", "new module", "scaffold module", "add module", "bootstrap module", "generate module".
 ---
 

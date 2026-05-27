@@ -1,5 +1,5 @@
 ---
-name: integration-tests
+name: om-integration-tests
 description: Run and create QA integration tests (Playwright TypeScript), including executing the full suite, converting optional markdown scenarios, and generating new tests from specs or feature descriptions. Use when the user says "run integration tests", "test this feature", "create test for", "convert test case", "run QA tests", or "integration test".
 ---
 

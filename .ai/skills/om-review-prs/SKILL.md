@@ -1,5 +1,5 @@
 ---
-name: review-prs
+name: om-review-prs
 description: Review all currently unreviewed open pull requests, newest first, using the auto-review-pr skill and respecting in-progress locks.
 ---
 

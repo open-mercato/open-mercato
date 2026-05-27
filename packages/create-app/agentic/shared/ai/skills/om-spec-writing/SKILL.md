@@ -1,5 +1,5 @@
 ---
-name: spec-writing
+name: om-spec-writing
 description: Guide for creating high-quality specifications for {{PROJECT_NAME}}. Use when starting a new SPEC or reviewing specs against architectural standards.
 ---
 

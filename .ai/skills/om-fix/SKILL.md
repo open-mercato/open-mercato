@@ -1,5 +1,5 @@
 ---
-name: fix
+name: om-fix
 description: Implements the minimal code change identified by the root-cause step, adds regression tests, and runs the validation gate. Claims the GitHub issue at start (assignee + in-progress label + claim comment) so concurrent automation backs off. Does not commit, push, or open a PR — that is the open-pr step's job.
 ---
 

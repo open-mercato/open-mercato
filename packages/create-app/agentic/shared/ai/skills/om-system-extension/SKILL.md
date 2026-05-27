@@ -1,5 +1,5 @@
 ---
-name: system-extension
+name: om-system-extension
 description: Extend core modules using the Universal Module Extension System (UMES). Use when adding columns/fields/filters to existing tables/forms, enriching API responses, intercepting API routes, blocking/validating mutations, replacing UI components, injecting menu items, or reacting to domain events. Triggers on "extend", "add column to", "add field to", "inject into", "intercept", "enrich", "hook into", "customize", "override component", "add menu item", "react to event", "block mutation", "validate before save".
 ---
 

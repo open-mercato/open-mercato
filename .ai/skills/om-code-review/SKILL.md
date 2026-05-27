@@ -1,5 +1,5 @@
 ---
-name: code-review
+name: om-code-review
 description: Review code changes for Open Mercato compliance with architecture, security, conventions, and quality rules. Covers module structure, naming, data security, UI patterns, event/cache/queue rules, and anti-patterns. Use for reviewing PRs, diffs, or commits.
 ---
 

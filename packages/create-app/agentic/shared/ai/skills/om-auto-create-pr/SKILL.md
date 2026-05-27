@@ -1,5 +1,5 @@
 ---
-name: auto-create-pr
+name: om-auto-create-pr
 description: Execute an arbitrary autonomous agent task end-to-end and deliver it as a GitHub pull request against develop. Start by drafting an execution plan in .ai/runs/ that includes a Progress checklist, commit it on a fresh task branch in an isolated worktree, implement the work phase-by-phase with incremental commits, update the Progress checklist after every phase, optionally honor one or more external reference skills passed by URL, run the full validation gate (typecheck, unit tests, i18n, build) for any code changes, and open a PR with the correct pipeline labels. Resumable via the auto-continue-pr skill.
 ---
 

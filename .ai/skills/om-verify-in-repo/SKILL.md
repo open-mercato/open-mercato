@@ -1,5 +1,5 @@
 ---
-name: verify-in-repo
+name: om-verify-in-repo
 description: Read-only triage gate for an autofix chain. Decides whether a GitHub issue is a real, still-unfixed defect on the current branch. Stops the chain cleanly with NO_ACTION_NEEDED when the issue is already fixed, already in progress by someone else, already covered by an open PR, or not actually a bug.
 ---
 

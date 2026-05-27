@@ -1,5 +1,5 @@
 ---
-name: eject-and-customize
+name: om-eject-and-customize
 description: Guide for safely ejecting and customizing core modules. Use when a developer needs to modify a core module's behavior beyond what UMES extensions support, wants to eject a module, or is considering whether to eject vs extend. Triggers on "eject", "customize module", "modify core module", "override module", "fork module", "change built-in", "should I eject".
 ---
 

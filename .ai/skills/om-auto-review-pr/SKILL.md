@@ -1,5 +1,5 @@
 ---
-name: auto-review-pr
+name: om-auto-review-pr
 description: Review or re-review a GitHub PR by number in an isolated worktree. Runs the `om-code-review` skill, submits approve/request-changes, manages labels. Optional autofix iterates conflict resolution/fixes/tests/typecheck/re-review until merge-ready. Usage - /auto-review-pr <PR-number>
 ---
 

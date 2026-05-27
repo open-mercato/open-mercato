@@ -1,5 +1,5 @@
 ---
-name: auto-qa-scenarios
+name: om-auto-qa-scenarios
 description: Generate a human QA report for a window of merged PRs (date floor, PR-number floor, or default last 7 days) and ship it as a docs-only PR against `develop`. Groups work into P0/P1/P2 testing routes with click paths, verification points, and risk callouts. Writes markdown + HTML under `.ai/analysis/`. Hands off to `om-auto-continue-pr` if it cannot finish in one pass.
 ---
 

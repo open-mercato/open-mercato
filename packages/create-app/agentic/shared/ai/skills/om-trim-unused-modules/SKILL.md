@@ -1,5 +1,5 @@
 ---
-name: trim-unused-modules
+name: om-trim-unused-modules
 description: Propose disabling modules in src/modules.ts that the current standalone project does not actually use. Intended to be offered after the user adds a new custom module, because a fresh create-mercato-app scaffold enables every built-in module (classic mode) and that is rarely what the project actually needs in production.
 ---
 

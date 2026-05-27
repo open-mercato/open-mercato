@@ -1,5 +1,5 @@
 ---
-name: create-agents-md
+name: om-create-agents-md
 description: Create or rewrite AGENTS.md files for Open Mercato packages and modules. Use this skill when adding a new package, creating a new module, or when an existing AGENTS.md needs to be created or refactored. Ensures prescriptive tone, the Always/Ask First/Never/Validation Commands boundary structure, MUST-style rules, checklists, and consistent structure across all agent guidelines.
 ---
 

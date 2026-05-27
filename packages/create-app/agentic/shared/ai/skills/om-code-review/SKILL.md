@@ -1,5 +1,5 @@
 ---
-name: code-review
+name: om-code-review
 description: Review code changes for architecture, security, conventions, and quality compliance. Use when reviewing pull requests, code changes, or auditing code quality.
 ---
 

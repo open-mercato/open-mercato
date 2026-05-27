@@ -1,5 +1,5 @@
 ---
-name: implement-spec
+name: om-implement-spec
 description: Implement a specification (or specific phases) using coordinated subagents with unit tests, integration tests, docs, and code-review compliance. Tracks progress by updating the spec. Triggers on "implement spec", "implement phases", "build from spec", "code the spec".
 ---
 

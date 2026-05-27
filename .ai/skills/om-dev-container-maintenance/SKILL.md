@@ -1,5 +1,5 @@
 ---
-name: dev-container-maintenance
+name: om-dev-container-maintenance
 description: Maintain the VS Code Dev Container setup for Open Mercato. MUST use for ANY change to `.devcontainer/` files. Also use when the container fails to build/start, services inside misbehave, or "works locally but not in dev container". Triggers on "dev container", "devcontainer", ".devcontainer".
 ---
 

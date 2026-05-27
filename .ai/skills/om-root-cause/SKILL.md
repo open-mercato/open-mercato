@@ -1,5 +1,5 @@
 ---
-name: root-cause
+name: om-root-cause
 description: Read-only root-cause analysis for a GitHub issue. Identifies the bug's location and the minimal change surface so the next agent can implement the fix without re-exploring the repo. Outputs a short summary, the files that need to change, and the proposed approach.
 ---
 

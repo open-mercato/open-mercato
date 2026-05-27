@@ -1,5 +1,5 @@
 ---
-name: backend-ui-design
+name: om-backend-ui-design
 description: Design and implement consistent backend/backoffice interfaces using @open-mercato/ui. Use when building admin pages, CRUD interfaces, data tables, forms, detail pages, or any backoffice UI.
 ---
 

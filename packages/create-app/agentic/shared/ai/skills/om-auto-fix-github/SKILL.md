@@ -1,5 +1,5 @@
 ---
-name: auto-fix-github
+name: om-auto-fix-github
 description: Fix a GitHub issue by number from the current repository. First check whether the issue is already solved or already has an open solution, then use an isolated git worktree to implement the minimal fix, add unit tests, run code review and backward-compatibility checks, run validation including i18n, typecheck, unit tests, and other required checks, then push a branch and open a pull request with a full description linked to the original issue.
 ---
 

@@ -1,5 +1,5 @@
 ---
-name: create-ai-agent
+name: om-create-ai-agent
 description: Build, override, or extend a typed Open Mercato AI agent (chat or structured-object) using the unified AI framework — declare `ai-agents.ts`, register tool packs via `defineAiTool`, patch existing agents with `aiAgentExtensions`, configure agentic loop controls (`loop.stopWhen` / `loop.prepareStep` / `loop.budget` / `executionEngine`), gate mutations through the approval contract, wire ACL features, and embed `<AiChat>` into a backoffice or portal page. Works in both the monorepo (`packages/<x>/src/modules/<module>/`) and standalone projects (`apps/<app>/src/modules/<module>/` or `node_modules/@open-mercato/<package>` consumers). Triggers on "create AI agent", "add AI agent", "build AI assistant", "extend AI agent", "override AI agent", "add tool to existing agent", "wire ai-agents.ts", "add ai-tools.ts", "embed AiChat", "agent for module", "agentic loop", "configure loop budget", "tool-loop-agent".
 ---
 
