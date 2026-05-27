@@ -12,8 +12,8 @@
 
 | Phase | Step | Title | Status | Commit |
 |-------|------|-------|--------|--------|
-| 1 | 1.1 | Add run folder (PLAN/HANDOFF/NOTIFY) | done | pending |
-| 1 | 1.2 | Add `scripts/watch-packages.mjs` consolidated watcher | todo | — |
+| 1 | 1.1 | Add run folder (PLAN/HANDOFF/NOTIFY) | done | b2d2341 |
+| 1 | 1.2 | Add `scripts/watch-packages.mjs` consolidated watcher | done | pending |
 | 1 | 1.3 | Wire `yarn watch:packages` to the consolidated watcher with legacy escape hatch | todo | — |
 | 1 | 1.4 | Add `scripts/profile-dev-rss.mjs` profiling helper | todo | — |
 | 1 | 1.5 | Update measurement section of the source spec with Phase E status | todo | — |
