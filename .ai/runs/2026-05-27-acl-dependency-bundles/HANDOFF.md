@@ -1,27 +1,30 @@
 # Handoff — 2026-05-27-acl-dependency-bundles
 
-**Last updated:** 2026-05-27T17:26Z
+**Last updated:** 2026-05-27T17:45Z
 **Branch:** feat/acl-dependency-bundles
-**PR:** not yet opened
-**Current phase/step:** Phase 4 Step 4.1 (AclEditor diagnostics panel)
-**Last commit:** c7d7ac20d — feat(customers): declare ACL feature dependencies
+**PR:** https://github.com/open-mercato/open-mercato/pull/2141
+**Current phase/step:** **COMPLETE** — every row in the Tasks table is `done`.
+**Last commit:** be5d6af52 — i18n(auth): add auth.acl.deps.* translations for all 4 locales
 
 ## What just happened
-- Steps 1.1, 1.2, 2.2 (squashed 2.1+2.2), 2.3, 3.1 landed.
-- Phase-1 (spec) + Phase-2 (infra) + Phase-3 (customers acl) all done.
-- Checkpoint 1 ran: resolver 19/19 pass, features-endpoint 6/6 pass, typecheck clean. Pre-existing baseline failures (`@open-mercato/cache` not resolvable from this janitor worktree) confirmed unrelated by re-running against `origin/develop`.
+- All 9 Tasks landed across 7 clean commits on `feat/acl-dependency-bundles`.
+- PR #2141 opened against `develop`, claimed with three-signal in-progress lock (assignee + label + comment).
+- 43 follow-up issues filed (#2142–#2184), one per remaining module per spec §7.
+- Final-gate validation green (resolver 19/19, features-endpoint 6/6, i18n:check-sync 0 missing, typecheck clean for touched files).
 
 ## Next concrete action
-- Step 4.1: wire `resolveAclDependencyDiagnostics` into `AclEditor.tsx`. Add the diagnostics panel above the module feature grid. Wire the three apply helpers (`Add missing`, `Restore parent`, `Drop dependents`) as click handlers.
+- Run `auto-review-pr 2141` (autofix mode) for an independent second-opinion review pass. The user can trigger it later if needed.
+- After review: drop `in-progress`, flip pipeline label `review` → `qa` if approved (PR has `needs-qa`).
 
 ## Blockers / open questions
-- Server-side enforcement of declared deps is intentionally deferred to a follow-up spec; warnings only in this PR.
-- Workspace `@open-mercato/cache` link is broken in this janitor environment (reproduces on develop). Out of scope for this PR; noted as a follow-up task.
+- Server-side enforcement deferred (spec §11.1).
+- jsdom panel test cannot run on the janitor host (React 19 / @testing-library/react@16 install issue); CI will run it on a clean install.
+- Workspace `@open-mercato/cache` link broken in this janitor env (reproduces on `origin/develop`) — pre-existing, out of scope.
 
 ## Environment caveats
-- Dev runtime runnable: unknown (this is a janitor-managed worktree; no plans to boot dev for UI screenshots in this run unless required by the checkpoint).
-- Playwright / browser checks: skipped at Checkpoint 1; will attempt at Checkpoint 2 after AclEditor edits.
-- Database/migration state: clean — no migrations in this PR.
+- Dev runtime not booted this run — `yarn build:packages` was not run because the CLI dist is missing and the PR doesn't change auth contracts. Manual smoke test recommended on a clean checkout.
+- Playwright / browser checks: not captured. The PR notes recommend manual smoke per the QA test plan in the summary comment.
+- Database/migration state: clean — no migrations.
 
 ## Worktree
 - Path: /home/pkarw/Projects/github-janitor/.janitor/repos/open-mercato__open-mercato/worktrees/7976838e-008e-4537-b93d-ab4e3c1fd486

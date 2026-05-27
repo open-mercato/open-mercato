@@ -21,7 +21,7 @@
 | 4 | 4.1 | Surface dependency warnings in `AclEditor` (role + user editing both consume) + "auto-add missing" affordance | done | 966f906dc |
 | 4 | 4.2 | Unit tests for `AclEditor` warning rendering (jsdom) | merged | folded into 4.1 |
 | 5 | 5.1 | Final-gate validation (typecheck + scoped tests + i18n:check-sync) | done | 191ca37b4 |
-| 6 | 6.1 | Open PR; file one GitHub issue per remaining module referencing spec + customers reference | todo | — |
+| 6 | 6.1 | Open PR; file one GitHub issue per remaining module referencing spec + customers reference | done | pending |
 
 Per-module follow-up issues (Phase 6.1):
 
