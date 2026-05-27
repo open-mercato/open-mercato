@@ -6,11 +6,13 @@ import { Button } from '@open-mercato/ui/primitives/button'
 import { IconButton } from '@open-mercato/ui/primitives/icon-button'
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
 import { apiCallOrThrow } from '@open-mercato/ui/backend/utils/apiCall'
+import { InjectionSpot } from '@open-mercato/ui/backend/injection/InjectionSpot'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { cn } from '@open-mercato/shared/lib/utils'
 import type { InteractionSummary } from './types'
 import { ActivityAiActions } from './ActivityAiActions'
 import { getInitials } from './utils'
+import type { EmailCardWidgetData } from '../../widgets/injection/person-email-card-actions/widget'
 
 type GuardedMutationRunner = <T,>(
   operation: () => Promise<T>,
@@ -70,6 +72,38 @@ function resolveTarget(activity: InteractionSummary): string | null {
   if (participant?.email) return participant.email
   if (activity.customer?.displayName) return activity.customer.displayName
   return null
+}
+
+/**
+ * Build the `EmailCardWidgetData` shape to pass to the email-card-actions
+ * injection spot. Fields that are not currently exposed by the interactions
+ * API (rfcMessageId, fromAddress, toAddresses, ccAddresses, inReplyTo,
+ * references) default to null; a future enricher on `customers.interaction`
+ * can populate them via the `_integrations` passthrough field.
+ */
+function buildEmailCardWidgetData(activity: InteractionSummary): EmailCardWidgetData {
+  const integrations = activity._integrations as Record<string, unknown> | undefined
+  const emailMeta = (integrations?.email ?? {}) as Record<string, unknown>
+  return {
+    interactionId: activity.id,
+    // The MessageChannelLink UUID stored on the interaction row.
+    externalMessageId:
+      typeof emailMeta.externalMessageId === 'string' ? emailMeta.externalMessageId : null,
+    // RFC2822 Message-ID (e.g. "<abc@mail.gmail.com>") for In-Reply-To / References headers.
+    // Populated once a communication_channels interaction enricher is wired.
+    rfcMessageId:
+      typeof emailMeta.rfcMessageId === 'string' ? emailMeta.rfcMessageId : null,
+    // entityId is the CustomerEntity id — on a person detail page this IS the personId.
+    personId: activity.entityId ?? null,
+    fromAddress:
+      typeof emailMeta.fromAddress === 'string' ? emailMeta.fromAddress : null,
+    toAddresses: Array.isArray(emailMeta.toAddresses) ? (emailMeta.toAddresses as string[]) : null,
+    ccAddresses: Array.isArray(emailMeta.ccAddresses) ? (emailMeta.ccAddresses as string[]) : null,
+    subject: activity.title ?? null,
+    inReplyTo:
+      typeof emailMeta.inReplyTo === 'string' ? emailMeta.inReplyTo : null,
+    references: Array.isArray(emailMeta.references) ? (emailMeta.references as string[]) : null,
+  }
 }
 
 export function ActivityCard({ activity, onOpen, onChanged, runMutation }: ActivityCardProps) {
@@ -193,6 +227,21 @@ export function ActivityCard({ activity, onOpen, onChanged, runMutation }: Activ
         <div className="mt-2">
           <ActivityAiActions activityType={activity.interactionType} />
         </div>
+
+        {activity.interactionType === 'email' ? (
+          <div
+            className="mt-1"
+            onClick={(event) => event.stopPropagation()}
+            onKeyDown={(event) => event.stopPropagation()}
+            role="presentation"
+          >
+            <InjectionSpot<Record<string, unknown>, EmailCardWidgetData>
+              spotId="customers:person-email-card-actions"
+              context={{}}
+              data={buildEmailCardWidgetData(activity)}
+            />
+          </div>
+        ) : null}
 
         {snippet ? (
           <p className="mt-2 text-sm text-muted-foreground">{snippet}</p>

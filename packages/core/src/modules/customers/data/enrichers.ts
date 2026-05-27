@@ -207,4 +207,212 @@ const dealPipelineEnricher: ResponseEnricher<DealRecord> = {
   },
 }
 
-export const enrichers: ResponseEnricher[] = [dealPipelineEnricher]
+type PersonRecord = Record<string, unknown> & { id: string }
+
+export const privateEmailCountEnricher: ResponseEnricher<
+  PersonRecord,
+  { _privateEmailCount?: number }
+> = {
+  id: 'customers.private-email-count',
+  targetEntity: 'customers.person',
+  features: ['customers.people.view'],
+  priority: 30,
+  timeout: 1500,
+  fallback: { _privateEmailCount: 0 },
+  critical: false,
+
+  async enrichOne(record, context) {
+    const enriched = await this.enrichMany!([record], context)
+    return enriched[0]
+  },
+
+  async enrichMany(records, context: EnricherContext) {
+    if (records.length === 0) return records
+
+    const db = resolveKyselyClient(context.em)
+    if (!db) {
+      return records.map((record) => ({ ...record, _privateEmailCount: 0 }))
+    }
+
+    const userId = (context as unknown as { userId?: string | null }).userId ?? null
+    if (!userId) {
+      return records.map((record) => ({ ...record, _privateEmailCount: 0 }))
+    }
+
+    const personIds = records
+      .map((r) => r.id)
+      .filter((id): id is string => typeof id === 'string' && id.length > 0)
+
+    if (personIds.length === 0) {
+      return records.map((record) => ({ ...record, _privateEmailCount: 0 }))
+    }
+
+    const rows = await (db as CustomerKysely)
+      .selectFrom('customer_interactions')
+      .select(['entity_id'])
+      .select((eb) => eb.fn.countAll().as('count'))
+      .where('tenant_id', '=', context.tenantId)
+      .where('interaction_type', '=', 'email')
+      .where('visibility', '=', 'private')
+      .where('deleted_at', 'is', null)
+      .where('entity_id', 'in', personIds)
+      .where('author_user_id', '!=', userId)
+      .groupBy('entity_id')
+      .execute()
+
+    const countMap = new Map<string, number>()
+    for (const row of rows) {
+      const personId = typeof row.entity_id === 'string' ? row.entity_id : null
+      if (!personId) continue
+      const count = typeof row.count === 'number' ? row.count : Number(row.count)
+      if (Number.isFinite(count)) countMap.set(personId, count)
+    }
+
+    return records.map((record) => ({
+      ...record,
+      _privateEmailCount: countMap.get(record.id) ?? 0,
+    }))
+  },
+}
+
+type InteractionRecord = Record<string, unknown> & {
+  id: string
+  interactionType?: string | null
+  externalMessageId?: string | null
+}
+
+type EmailIntegrationFields = {
+  externalMessageId?: string | null
+  rfcMessageId?: string | null
+  fromAddress?: string | null
+  toAddresses?: string[] | null
+  ccAddresses?: string[] | null
+  bccAddresses?: string[] | null
+  subject?: string | null
+  inReplyTo?: string | null
+  references?: string[] | null
+}
+
+/**
+ * Enriches email-type customer interactions with MessageChannelLink metadata
+ * so the ActivityCard widget can render Reply/Forward/visibility-toggle actions.
+ *
+ * For each interaction row where `interactionType === 'email'` and
+ * `externalMessageId` is set (the MessageChannelLink UUID), the enricher fetches
+ * the corresponding `MessageChannelLink` row and populates
+ * `_integrations.email.*` from its `channel_metadata` column.
+ *
+ * Non-email rows and rows without an externalMessageId pass through unchanged.
+ * Fail-safe: if the Kysely client is unavailable or the lookup fails, the records
+ * are returned unmodified so the activity timeline still renders (without email
+ * card actions).
+ */
+export const interactionEmailCardEnricher: ResponseEnricher<
+  InteractionRecord,
+  { _integrations?: { email?: EmailIntegrationFields } }
+> = {
+  id: 'customers.interaction-email-card',
+  // Must match the entity ID passed to applyResponseEnrichers in the interactions
+  // GET route (api/interactions/route.ts line 539): 'customers.interaction'.
+  targetEntity: 'customers.interaction',
+  features: ['customers.interactions.view'],
+  priority: 25,
+  timeout: 1500,
+  fallback: {},
+  critical: false,
+
+  async enrichOne(record, ctx) {
+    const results = await this.enrichMany!([record], ctx)
+    return results[0]
+  },
+
+  async enrichMany(records, ctx) {
+    if (records.length === 0) return records
+
+    // Fast path: skip the DB round-trip when no email rows with a link are present.
+    const emailRecords = records.filter(
+      (r) =>
+        r.interactionType === 'email' &&
+        typeof r.externalMessageId === 'string' &&
+        r.externalMessageId.length > 0,
+    )
+    if (emailRecords.length === 0) return records
+
+    const linkIds = Array.from(
+      new Set(emailRecords.map((r) => r.externalMessageId as string)),
+    )
+
+    // Use the raw Kysely client with `as any` to avoid cross-module type coupling
+    // (message_channel_links is owned by communication_channels, not customers).
+    // This mirrors the existing pattern in privateEmailCountEnricher.
+    const kysely = resolveKyselyClient(ctx.em)
+    if (!kysely) {
+      // Fail-safe: Kysely unavailable (test stubs, unusual driver wrappers).
+      return records
+    }
+
+    let linkRows: Array<{ id: string; channel_metadata: unknown }>
+    try {
+      linkRows = (await (kysely as any)
+        .selectFrom('message_channel_links')
+        .select(['id', 'channel_metadata'])
+        .where('tenant_id', '=', ctx.tenantId)
+        .where('id', 'in', linkIds)
+        .execute()) as Array<{ id: string; channel_metadata: unknown }>
+    } catch {
+      // Fail-safe: unexpected DB error (missing table in test env, schema drift).
+      return records
+    }
+
+    const byLinkId = new Map<string, EmailIntegrationFields>()
+    for (const row of linkRows) {
+      const meta = (row.channel_metadata ?? {}) as Record<string, unknown>
+      const toAddresses = Array.isArray(meta.to)
+        ? (meta.to.filter((v) => typeof v === 'string') as string[])
+        : null
+      const ccAddresses = Array.isArray(meta.cc)
+        ? (meta.cc.filter((v) => typeof v === 'string') as string[])
+        : null
+      const bccAddresses = Array.isArray(meta.bcc)
+        ? (meta.bcc.filter((v) => typeof v === 'string') as string[])
+        : null
+      const references = Array.isArray(meta.references)
+        ? (meta.references.filter((v) => typeof v === 'string') as string[])
+        : null
+      const fields: EmailIntegrationFields = {
+        externalMessageId: row.id,
+        rfcMessageId: typeof meta.messageId === 'string' ? meta.messageId : null,
+        fromAddress: typeof meta.from === 'string' ? meta.from : null,
+        toAddresses: toAddresses && toAddresses.length > 0 ? toAddresses : null,
+        ccAddresses: ccAddresses && ccAddresses.length > 0 ? ccAddresses : null,
+        bccAddresses: bccAddresses && bccAddresses.length > 0 ? bccAddresses : null,
+        subject: typeof meta.subject === 'string' ? meta.subject : null,
+        inReplyTo: typeof meta.inReplyTo === 'string' ? meta.inReplyTo : null,
+        references: references && references.length > 0 ? references : null,
+      }
+      byLinkId.set(row.id, fields)
+    }
+
+    return records.map((r) => {
+      if (
+        r.interactionType !== 'email' ||
+        typeof r.externalMessageId !== 'string' ||
+        r.externalMessageId.length === 0
+      ) {
+        return r
+      }
+      const fields = byLinkId.get(r.externalMessageId)
+      if (!fields) return r
+      const existingIntegrations = (r._integrations ?? {}) as Record<string, unknown>
+      return {
+        ...r,
+        _integrations: {
+          ...existingIntegrations,
+          email: fields,
+        },
+      }
+    })
+  },
+}
+
+export const enrichers: ResponseEnricher[] = [dealPipelineEnricher, privateEmailCountEnricher, interactionEmailCardEnricher]

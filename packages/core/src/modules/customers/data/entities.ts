@@ -542,7 +542,7 @@ export class CustomerActivity {
   properties: ['tenantId', 'organizationId', 'interactionType'],
 })
 export class CustomerInteraction {
-  [OptionalProps]?: 'status' | 'pinned' | 'createdAt' | 'updatedAt' | 'deletedAt' | 'durationMinutes' | 'location' | 'allDay' | 'recurrenceRule' | 'recurrenceEnd' | 'participants' | 'reminderMinutes' | 'visibility' | 'linkedEntities' | 'guestPermissions'
+  [OptionalProps]?: 'status' | 'pinned' | 'createdAt' | 'updatedAt' | 'deletedAt' | 'durationMinutes' | 'location' | 'allDay' | 'recurrenceRule' | 'recurrenceEnd' | 'participants' | 'reminderMinutes' | 'visibility' | 'linkedEntities' | 'guestPermissions' | 'externalMessageId' | 'channelProviderKey'
 
   @PrimaryKey({ type: 'uuid', defaultRaw: 'gen_random_uuid()' })
   id!: string
@@ -561,6 +561,24 @@ export class CustomerInteraction {
 
   @Property({ name: 'body', type: 'text', nullable: true })
   body?: string | null
+
+  /**
+   * UUID pointing at `communication_channels.message_channel_link.id`.
+   * Set only for rows where `interactionType === 'email'`.
+   *
+   * The cross-module link is declared in `data/extensions.ts` rather than as
+   * a raw FK (root AGENTS.md: no direct ORM relationships between modules).
+   */
+  @Property({ name: 'external_message_id', type: 'uuid', nullable: true })
+  externalMessageId?: string | null
+
+  /**
+   * Denormalized provider key from `MessageChannelLink.providerKey`. Common
+   * values today: 'gmail', 'microsoft', 'imap'. Stored as open text so future
+   * providers (e.g. 'slack', 'whatsapp') can register without a schema change.
+   */
+  @Property({ name: 'channel_provider_key', type: 'text', nullable: true })
+  channelProviderKey?: string | null
 
   @Property({ name: 'status', type: 'text', default: 'planned' })
   status: string = 'planned'
@@ -613,6 +631,18 @@ export class CustomerInteraction {
   @Property({ name: 'reminder_minutes', type: 'int', nullable: true })
   reminderMinutes?: number | null
 
+  /**
+   * Visibility flag, shared across interaction types but with a per-type
+   * value space:
+   *   - Email rows (interactionType='email'): 'private' | 'shared'.
+   *     Filtered by `lib/visibilityFilter.ts` so private emails are only
+   *     visible to the channel-owner author + admins.
+   *   - Activity rows (call/meeting/task): 'team' | 'public'. Surfaced via
+   *     the ScheduleActivityDialog footer.
+   * Stored as plain text to keep the column reusable for future visibility
+   * vocabularies; the application enforces the per-type vocabulary at the
+   * boundary (API routes, subscribers).
+   */
   @Property({ name: 'visibility', type: 'text', nullable: true })
   visibility?: string | null
 

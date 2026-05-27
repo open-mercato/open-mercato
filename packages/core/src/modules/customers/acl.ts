@@ -18,6 +18,9 @@ export const features = [
   { id: 'customers.interactions.manage', title: 'Manage interactions', module: 'customers' },
   { id: 'customers.roles.view', title: 'View entity roles', module: 'customers' },
   { id: 'customers.roles.manage', title: 'Manage entity roles', module: 'customers' },
+  // Email integration (2026-05-27)
+  { id: 'customers.email.compose', title: 'Compose / send emails from CRM', module: 'customers' },
+  { id: 'customers.email.view_private', title: 'View other users\' private emails (admin)', module: 'customers' },
 ]
 
 export default features

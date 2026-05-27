@@ -36,6 +36,14 @@ const bodySchema = z.object({
   }),
   inReplyTo: z.string().min(1).max(500).optional(),
   references: z.array(z.string().min(1).max(500)).optional(),
+  /**
+   * Free-form metadata persisted on the resulting MessageChannelLink. Used by
+   * downstream subscribers (e.g. the customers module's link-channel-message
+   * subscriber) to anchor the sent message back to a CRM Person or honor a
+   * caller-specified visibility flag. Keys are caller-defined; the hub does
+   * not interpret them.
+   */
+  channelMetadata: z.record(z.string(), z.unknown()).optional(),
 })
 
 /**
@@ -243,6 +251,9 @@ export async function POST(req: Request): Promise<Response> {
       subject: body.subject,
       inReplyTo: body.inReplyTo ?? null,
       references: body.references ?? [],
+      // Caller-supplied pass-through metadata merged last so routing fields
+      // (to/cc/bcc/subject) are never overwritten by the caller.
+      ...(body.channelMetadata ?? {}),
     },
     tenantId: auth.tenantId as string,
     organizationId,

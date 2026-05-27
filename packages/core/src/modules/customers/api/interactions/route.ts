@@ -22,6 +22,7 @@ import {
   defaultOkResponseSchema,
 } from '../openapi'
 import { CUSTOMER_INTERACTION_ENTITY_ID } from '../../lib/interactionCompatibility'
+import { applyEmailVisibilityFilter } from '../../lib/visibilityFilter'
 import { resolveCanonicalActivityTargetId } from '../../lib/legacyActivityBridge'
 import type { CommandBus, CommandRuntimeContext } from '@open-mercato/shared/lib/commands'
 
@@ -437,6 +438,14 @@ export async function GET(req: Request) {
         ]),
       ]))
     }
+
+    // ── Email visibility filter (2026-05-27) ──────────────────────────────
+    // Non-email interactions pass through; email rows with visibility='private'
+    // are filtered out unless the caller is the author or has admin bypass.
+    rowsQuery = applyEmailVisibilityFilter(rowsQuery as any, {
+      currentUserId: auth.sub ?? null,
+      userFeatures: await resolveUserFeatures(container, auth.sub as string, auth.tenantId ?? null, selectedOrganizationId),
+    })
 
     rowsQuery = rowsQuery.orderBy(sql`${sql.raw(sortSql)} ${sql.raw(sortDir)}`).orderBy('id', sortDir)
 

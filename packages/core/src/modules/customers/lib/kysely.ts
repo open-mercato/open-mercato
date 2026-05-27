@@ -28,10 +28,14 @@ export interface CustomerKyselyDb {
   }
   customer_interactions: {
     deal_id: string | null
+    entity_id: string | null
     organization_id: string
     tenant_id: string
     deleted_at: Date | string | null
     status: string | null
+    interaction_type: string | null
+    visibility: string | null
+    author_user_id: string | null
   }
 }
 

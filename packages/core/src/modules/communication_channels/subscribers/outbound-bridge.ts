@@ -41,7 +41,18 @@ type MessageSentPayload = {
 }
 
 type SubscriberContext = {
-  container: { resolve: <T = unknown>(name: string) => T }
+  /** Canonical event-bus context: `resolve` is exposed directly (no `.container` wrapper). */
+  resolve: <T = unknown>(name: string) => T
+  /** Some callers wrap in a `container` — supported for forward-compat. */
+  container?: { resolve: <T = unknown>(name: string) => T }
+}
+
+function resolveFromCtx<T = unknown>(ctx: SubscriberContext, name: string): T {
+  if (typeof ctx?.resolve === 'function') return ctx.resolve<T>(name)
+  if (ctx?.container && typeof ctx.container.resolve === 'function') {
+    return ctx.container.resolve<T>(name)
+  }
+  throw new Error(`outbound-bridge: subscriber context has no resolver (looking for '${name}')`)
 }
 
 export default async function handler(
@@ -52,7 +63,7 @@ export default async function handler(
     return
   }
 
-  const em = (ctx.container.resolve('em') as EntityManager).fork()
+  const em = (resolveFromCtx<EntityManager>(ctx, 'em')).fork()
   const dscope = {
     tenantId: payload.tenantId,
     organizationId: payload.organizationId ?? null,
