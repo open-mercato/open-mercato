@@ -2,7 +2,8 @@
 import * as React from 'react'
 import { Page, PageBody } from '@open-mercato/ui/backend/Page'
 import { CrudForm, type CrudField, type CrudFormGroup } from '@open-mercato/ui/backend/CrudForm'
-import { apiCall } from '@open-mercato/ui/backend/utils/apiCall'
+import { apiCall, withScopedApiRequestHeaders } from '@open-mercato/ui/backend/utils/apiCall'
+import { buildOptimisticLockHeader } from '@open-mercato/ui/backend/utils/optimisticLock'
 import { deleteCrud, updateCrud } from '@open-mercato/ui/backend/utils/crud'
 import { collectCustomFieldValues } from '@open-mercato/ui/backend/utils/customFieldValues'
 import { AclEditor, type AclData } from '@open-mercato/core/modules/auth/components/AclEditor'
@@ -16,6 +17,7 @@ import { extractCustomFieldEntries } from '@open-mercato/shared/lib/crud/custom-
 type EditRoleFormValues = {
   name?: string
   tenantId?: string | null
+  updatedAt?: string | null
 } & Record<string, unknown>
 
 type RoleRecord = {
@@ -24,6 +26,7 @@ type RoleRecord = {
   tenantId: string | null
   tenantName?: string | null
   usersCount?: number | null
+  updatedAt?: string | null
 } & Record<string, unknown>
 
 type RoleListResponse = {
@@ -213,7 +216,12 @@ export default function EditRolePage({ params }: { params?: { id?: string } }) {
             if (Object.keys(customFields).length) {
               payload.customFields = customFields
             }
-            await updateCrud('auth/roles', payload)
+            const roleOptimisticLockHeader = buildOptimisticLockHeader(initial?.updatedAt)
+            if (Object.keys(roleOptimisticLockHeader).length > 0) {
+              await withScopedApiRequestHeaders(roleOptimisticLockHeader, () => updateCrud('auth/roles', payload))
+            } else {
+              await updateCrud('auth/roles', payload)
+            }
             await updateCrud('auth/roles/acl', { roleId: id, tenantId: effectiveTenantId, ...aclData }, {
               errorMessage: t('auth.roles.form.errors.aclUpdate', 'Failed to update role access control'),
             })
@@ -221,9 +229,15 @@ export default function EditRolePage({ params }: { params?: { id?: string } }) {
             try { window.dispatchEvent(new Event('om:refresh-sidebar')) } catch {}
           }}
           onDelete={async () => {
-            await deleteCrud('auth/roles', String(id), {
+            const roleOptimisticLockHeader = buildOptimisticLockHeader(initial?.updatedAt)
+            const deleteRole = () => deleteCrud('auth/roles', String(id), {
               errorMessage: t('auth.roles.form.errors.delete', 'Failed to delete role'),
             })
+            if (Object.keys(roleOptimisticLockHeader).length > 0) {
+              await withScopedApiRequestHeaders(roleOptimisticLockHeader, deleteRole)
+            } else {
+              await deleteRole()
+            }
           }}
           deleteRedirect={`/backend/roles?flash=${encodeURIComponent(t('auth.roles.flash.deleted', 'Role deleted'))}&type=success`}
         />

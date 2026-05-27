@@ -9,8 +9,9 @@ import { CrudForm } from '@open-mercato/ui/backend/CrudForm'
 import type { CrudField } from '@open-mercato/ui/backend/CrudForm'
 import { Spinner } from '@open-mercato/ui/primitives/spinner'
 import { Button } from '@open-mercato/ui/primitives/button'
-import { apiFetch } from '@open-mercato/ui/backend/utils/api'
+import { apiFetch, withScopedApiHeaders } from '@open-mercato/ui/backend/utils/api'
 import { apiCall } from '@open-mercato/ui/backend/utils/apiCall'
+import { buildOptimisticLockHeader } from '@open-mercato/ui/backend/utils/optimisticLock'
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { useOrganizationScopeDetail } from '@open-mercato/shared/lib/frontend/useOrganizationScope'
@@ -85,11 +86,15 @@ export default function EditRuleSetPage() {
       ...values,
     }
 
-    const response = await apiFetch('/api/business_rules/sets', {
+    const updateSet = () => apiFetch('/api/business_rules/sets', {
       method: 'PUT',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(payload),
     })
+    const headers = buildOptimisticLockHeader(ruleSet?.updatedAt ?? null)
+    const response = Object.keys(headers).length
+      ? await withScopedApiHeaders(headers, updateSet)
+      : await updateSet()
 
     if (!response.ok) {
       const error = await response.json()
@@ -265,6 +270,7 @@ export default function EditRuleSetPage() {
           schema={ruleSetFormSchema}
           fields={fields}
           initialValues={initialValues}
+          optimisticLockUpdatedAt={ruleSet.updatedAt}
           onSubmit={handleSubmit}
           cancelHref="/backend/sets"
           submitLabel={t('business_rules.sets.form.update')}

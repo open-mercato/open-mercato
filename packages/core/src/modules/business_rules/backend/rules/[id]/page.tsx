@@ -8,7 +8,8 @@ import { Page, PageBody } from '@open-mercato/ui/backend/Page'
 import { CrudForm } from '@open-mercato/ui/backend/CrudForm'
 import { Spinner } from '@open-mercato/ui/primitives/spinner'
 import { Button } from '@open-mercato/ui/primitives/button'
-import { apiFetch } from '@open-mercato/ui/backend/utils/api'
+import { apiFetch, withScopedApiHeaders } from '@open-mercato/ui/backend/utils/api'
+import { buildOptimisticLockHeader } from '@open-mercato/ui/backend/utils/optimisticLock'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { useOrganizationScopeDetail } from '@open-mercato/shared/lib/frontend/useOrganizationScope'
 import {
@@ -67,7 +68,7 @@ export default function EditBusinessRulePage() {
 
     const payload = buildRulePayload(values, effectiveTenantId, effectiveOrgId, undefined)
 
-    const response = await apiFetch('/api/business_rules/rules', {
+    const updateRule = () => apiFetch('/api/business_rules/rules', {
       method: 'PUT',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
@@ -75,6 +76,10 @@ export default function EditBusinessRulePage() {
         id: ruleId,
       }),
     })
+    const headers = buildOptimisticLockHeader(rule?.updatedAt ?? rule?.updated_at ?? null)
+    const response = Object.keys(headers).length
+      ? await withScopedApiHeaders(headers, updateRule)
+      : await updateRule()
 
     if (!response.ok) {
       const error = await response.json()
@@ -134,6 +139,7 @@ export default function EditBusinessRulePage() {
           schema={businessRuleFormSchema}
           fields={fields}
           initialValues={initialValues}
+          optimisticLockUpdatedAt={rule?.updatedAt ?? rule?.updated_at ?? null}
           onSubmit={handleSubmit}
           cancelHref="/backend/rules"
           groups={formGroups}

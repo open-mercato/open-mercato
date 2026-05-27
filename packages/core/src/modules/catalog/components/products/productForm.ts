@@ -116,6 +116,7 @@ export type ProductFormValues = {
   channelIds: string[];
   tags: string[];
   optionSchemaId?: string | null;
+  updatedAt?: string | null;
 };
 
 const optionalPositiveNumberInput = z.preprocess((value) => {

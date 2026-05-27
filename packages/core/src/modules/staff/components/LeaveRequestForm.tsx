@@ -32,6 +32,7 @@ export type LeaveRequestFormValues = {
   unavailabilityReasonEntryId?: string | null
   unavailabilityReasonValue?: string | null
   note?: string | null
+  updatedAt?: string | null
 }
 
 export type LeaveRequestFormProps = {
@@ -316,6 +317,7 @@ export function LeaveRequestForm(props: LeaveRequestFormProps) {
       title={title}
       fields={fields}
       initialValues={normalizedInitialValues}
+      optimisticLockUpdatedAt={normalizedInitialValues.updatedAt}
       submitLabel={submitLabel}
       backHref={backHref}
       cancelHref={cancelHref}

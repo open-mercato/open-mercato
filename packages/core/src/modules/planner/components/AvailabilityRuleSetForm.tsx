@@ -12,6 +12,7 @@ export type AvailabilityRuleSetFormValues = {
   name?: string
   description?: string | null
   timezone?: string
+  updatedAt?: string | null
 } & Record<string, unknown>
 
 export type AvailabilityRuleSetFormProps = {
@@ -92,6 +93,7 @@ export function AvailabilityRuleSetForm(props: AvailabilityRuleSetFormProps) {
       groups={groups}
       entityId={E.planner.planner_availability_rule_set}
       initialValues={initialValues}
+      optimisticLockUpdatedAt={initialValues.updatedAt}
       onSubmit={onSubmit}
       onDelete={onDelete}
       isLoading={isLoading}

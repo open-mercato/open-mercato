@@ -71,6 +71,7 @@ export default function StaffMyLeaveRequestDetailPage({ params }: { params?: { i
     unavailabilityReasonEntryId: record?.unavailabilityReasonEntryId ?? null,
     unavailabilityReasonValue: record?.unavailabilityReasonValue ?? null,
     note: record?.note ?? null,
+    updatedAt: record?.updatedAt ?? null,
   }), [record, memberLabel])
   const dateSummary = formatDateRange(record?.startDate, record?.endDate)
 const handleSubmit = React.useCallback(async (values: LeaveRequestFormValues) => {

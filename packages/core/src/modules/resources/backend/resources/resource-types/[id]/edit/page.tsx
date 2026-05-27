@@ -54,8 +54,13 @@ export default function ResourcesResourceTypeEditPage({ params }: { params?: { i
                 ? item.appearanceColor
                 : typeof item.appearance_color === 'string'
                   ? item.appearance_color
-                  : null,
+                : null,
             },
+            updatedAt: typeof item.updatedAt === 'string'
+              ? item.updatedAt
+              : typeof item.updated_at === 'string'
+                ? item.updated_at
+                : null,
             ...customValues,
           })
           setResourceCount(typeof item.resourceCount === 'number'

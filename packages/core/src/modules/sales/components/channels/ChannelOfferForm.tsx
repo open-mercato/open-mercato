@@ -51,6 +51,7 @@ export type OfferFormValues = {
   defaultMediaId?: string | null
   isActive: boolean
   priceOverrides: PriceOverrideDraft[]
+  updatedAt?: string | null
 } & Record<string, unknown>
 
 type ChannelOfferFormProps = {
@@ -669,6 +670,7 @@ export function ChannelOfferForm({ channelId: lockedChannelId, offerId, mode }: 
         fields={fields}
         groups={groups}
         initialValues={initialValues ?? undefined}
+        optimisticLockUpdatedAt={initialValues?.updatedAt}
         isLoading={loading}
         loadingMessage={t('sales.channels.offers.form.loading', 'Loading offer…')}
         submitLabel={mode === 'create'
@@ -706,6 +708,11 @@ function mapOfferToFormValues(item: Record<string, unknown>, lockedChannelId?: s
         : null,
     isActive: item.isActive === true || item.is_active === true,
     priceOverrides: [],
+    updatedAt: typeof item.updatedAt === 'string'
+      ? item.updatedAt
+      : typeof item.updated_at === 'string'
+        ? item.updated_at
+        : null,
   }
   mergeCustomFieldValues(values, item)
   return values

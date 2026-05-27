@@ -18,6 +18,8 @@ export type LeaveRequestRecord = {
   decision_comment?: string | null
   decidedAt?: string | null
   decided_at?: string | null
+  updatedAt?: string | null
+  updated_at?: string | null
 } & Record<string, unknown>
 
 export type NormalizedLeaveRequest = {
@@ -33,6 +35,7 @@ export type NormalizedLeaveRequest = {
   note: string | null
   decisionComment: string | null
   decidedAt: string | null
+  updatedAt: string | null
 } & Record<string, unknown>
 
 export function normalizeLeaveRequest(record: LeaveRequestRecord): NormalizedLeaveRequest {
@@ -50,6 +53,7 @@ export function normalizeLeaveRequest(record: LeaveRequestRecord): NormalizedLea
     note: record.note ?? null,
     decisionComment: record.decisionComment ?? record.decision_comment ?? null,
     decidedAt: record.decidedAt ?? record.decided_at ?? null,
+    updatedAt: record.updatedAt ?? record.updated_at ?? null,
   }
 }
 

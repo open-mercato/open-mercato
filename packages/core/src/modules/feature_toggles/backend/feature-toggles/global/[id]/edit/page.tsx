@@ -42,6 +42,7 @@ export default function EditFeatureTogglePage({ params }: { params?: { id?: stri
           fields={fields}
           entityId={E.feature_toggles.feature_toggle}
           initialValues={initialValues ?? {}}
+          optimisticLockUpdatedAt={featureToggleItem?.updatedAt ?? null}
           isLoading={isLoading}
           groups={formGroups}
           loadingMessage={t('feature_toggles.form.loading', 'Loading feature toggles')}

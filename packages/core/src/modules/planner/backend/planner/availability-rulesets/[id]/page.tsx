@@ -28,6 +28,7 @@ type RuleSetRecord = {
   description?: string | null
   timezone: string
   updatedAt?: string | null
+  updated_at?: string | null
   name_raw?: string | null
 } & Record<string, unknown>
 
@@ -63,6 +64,11 @@ export default function PlannerAvailabilityRuleSetDetailPage({ params }: { param
             name: record.name ?? record.name_raw ?? '',
             description: record.description ?? '',
             timezone: record.timezone ?? 'UTC',
+            updatedAt: typeof record.updatedAt === 'string'
+              ? record.updatedAt
+              : typeof record.updated_at === 'string'
+                ? record.updated_at
+                : null,
             ...customFields,
           })
         }

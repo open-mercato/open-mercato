@@ -37,7 +37,9 @@ import { Spinner } from "@open-mercato/ui/primitives/spinner";
 import {
   apiCall,
   readApiResultOrThrow,
+  withScopedApiRequestHeaders,
 } from "@open-mercato/ui/backend/utils/apiCall";
+import { buildOptimisticLockHeader } from "@open-mercato/ui/backend/utils/optimisticLock";
 import { useT } from "@open-mercato/shared/lib/i18n/context";
 import { useConfirmDialog } from "@open-mercato/ui/backend/confirm-dialog";
 import { E } from "#generated/entities.ids.generated";
@@ -703,6 +705,12 @@ export default function EditCatalogProductPage({
           categoryIds,
           channelIds,
           tags: tagValues,
+          updatedAt:
+            typeof record.updatedAt === "string"
+              ? record.updatedAt
+              : typeof record.updated_at === "string"
+                ? record.updated_at
+                : null,
         };
         if (!cancelled) {
           setInitialValues({ ...initial, ...customValues });
@@ -1233,7 +1241,16 @@ export default function EditCatalogProductPage({
           );
         }
       }
-      await updateCrud("catalog/products", payload);
+      const productOptimisticLockHeader = buildOptimisticLockHeader(
+        initialValues?.updatedAt,
+      );
+      if (Object.keys(productOptimisticLockHeader).length > 0) {
+        await withScopedApiRequestHeaders(productOptimisticLockHeader, () =>
+          updateCrud("catalog/products", payload),
+        );
+      } else {
+        await updateCrud("catalog/products", payload);
+      }
       const previousConversionIds = new Set(
         initialConversionsRef.current
           .map((entry) => toTrimmedOrNull(entry.id))
@@ -1316,7 +1333,7 @@ export default function EditCatalogProductPage({
         );
       }
     },
-    [productId, t, taxRates, variants],
+    [initialValues?.updatedAt, productId, t, taxRates, variants],
   );
 
   if (!productId) {

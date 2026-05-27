@@ -34,6 +34,7 @@ export type VariantFormValues = {
   prices: Record<string, VariantPriceDraft>
   taxRateId: string | null
   customFieldsetCode?: string | null
+  updatedAt?: string | null
 }
 
 export const VARIANT_BASE_VALUES: VariantFormValues = {

@@ -443,6 +443,7 @@ export default function PersonDetailV2Page({ params }: { params?: { id?: string 
                   fields={fields}
                   groups={groups}
                   initialValues={initialValues}
+                  optimisticLockUpdatedAt={data.person.updatedAt ?? data.person.updated_at ?? null}
                   onSubmit={handleFormSubmit}
                   onDelete={handleFormDelete}
                   hideFooterActions

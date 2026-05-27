@@ -3,7 +3,8 @@ import * as React from 'react'
 import { E } from '#generated/entities.ids.generated'
 import { Page, PageBody } from '@open-mercato/ui/backend/Page'
 import { CrudForm, type CrudField, type CrudFormGroup, type CrudFieldOption } from '@open-mercato/ui/backend/CrudForm'
-import { apiCall } from '@open-mercato/ui/backend/utils/apiCall'
+import { apiCall, withScopedApiRequestHeaders } from '@open-mercato/ui/backend/utils/apiCall'
+import { buildOptimisticLockHeader } from '@open-mercato/ui/backend/utils/optimisticLock'
 import { deleteCrud, updateCrud } from '@open-mercato/ui/backend/utils/crud'
 import { collectCustomFieldValues } from '@open-mercato/ui/backend/utils/customFieldValues'
 import { AclEditor, type AclData } from '@open-mercato/core/modules/auth/components/AclEditor'
@@ -26,6 +27,7 @@ type EditUserFormValues = {
   tenantId: string | null
   organizationId: string | null
   roles: string[]
+  updatedAt?: string | null
 } & Record<string, unknown>
 
 type LoadedUser = {
@@ -39,6 +41,7 @@ type LoadedUser = {
   roles: string[]
   roleIds: string[]
   hasPassword: boolean
+  updatedAt: string | null
 }
 
 type UserApiItem = {
@@ -52,6 +55,8 @@ type UserApiItem = {
   roles?: unknown
   roleIds?: unknown
   hasPassword?: boolean
+  updatedAt?: string | null
+  updated_at?: string | null
 }
 
 type UserListResponse = {
@@ -206,6 +211,11 @@ export default function EditUserPage({ params }: { params?: { id?: string } }) {
               roles: roleNames,
               roleIds: roleIds.length > 0 ? roleIds : roleNames,
               hasPassword: item.hasPassword !== false,
+              updatedAt: typeof item.updatedAt === 'string'
+                ? item.updatedAt
+                : typeof item.updated_at === 'string'
+                  ? item.updated_at
+                  : null,
             })
             setSelectedTenantId(item.tenantId ? String(item.tenantId) : null)
             const custom = extractCustomFieldEntries(item as Record<string, unknown>)
@@ -390,6 +400,7 @@ export default function EditUserPage({ params }: { params?: { id?: string } }) {
         tenantId: initialUser.tenantId,
         organizationId: initialUser.organizationId,
         roles: initialUser.roleIds,
+        updatedAt: initialUser.updatedAt,
         ...customFieldValues,
       }
     }
@@ -449,7 +460,12 @@ export default function EditUserPage({ params }: { params?: { id?: string } }) {
               roles: Array.isArray(values.roles) ? values.roles : [],
               ...(Object.keys(customFields).length ? { customFields } : {}),
             }
-            await updateCrud('auth/users', payload)
+            const userOptimisticLockHeader = buildOptimisticLockHeader(initialUser?.updatedAt)
+            if (Object.keys(userOptimisticLockHeader).length > 0) {
+              await withScopedApiRequestHeaders(userOptimisticLockHeader, () => updateCrud('auth/users', payload))
+            } else {
+              await updateCrud('auth/users', payload)
+            }
             await updateCrud('auth/users/acl', { userId: id, ...aclData }, {
               errorMessage: t('auth.users.form.errors.aclUpdate', 'Failed to update user access control'),
             })
@@ -457,9 +473,15 @@ export default function EditUserPage({ params }: { params?: { id?: string } }) {
             try { window.dispatchEvent(new Event('om:refresh-sidebar')) } catch {}
           }}
           onDelete={async () => {
-            await deleteCrud('auth/users', String(id), {
+            const userOptimisticLockHeader = buildOptimisticLockHeader(initialUser?.updatedAt)
+            const deleteUser = () => deleteCrud('auth/users', String(id), {
               errorMessage: t('auth.users.form.errors.delete', 'Failed to delete user'),
             })
+            if (Object.keys(userOptimisticLockHeader).length > 0) {
+              await withScopedApiRequestHeaders(userOptimisticLockHeader, deleteUser)
+            } else {
+              await deleteUser()
+            }
           }}
           deleteRedirect={`/backend/users?flash=${encodeURIComponent(t('auth.users.flash.deleted', 'User deleted'))}&type=success`}
         />

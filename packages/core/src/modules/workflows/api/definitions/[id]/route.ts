@@ -21,6 +21,19 @@ import {
 import { serializeWorkflowDefinition, serializeCodeWorkflowDefinition } from '../serialize'
 import { invalidateTriggerCache } from '../../../lib/event-trigger-service'
 import { getCodeWorkflow } from '../../../lib/code-registry'
+import { createGenericOptimisticLockReader } from '@open-mercato/shared/lib/crud/optimistic-lock'
+import { registerOptimisticLockReaderIfAbsent } from '@open-mercato/shared/lib/crud/optimistic-lock-store'
+import { validateCrudMutationGuard, runCrudMutationGuardAfterSuccess } from '@open-mercato/shared/lib/crud/mutation-guard'
+
+registerOptimisticLockReaderIfAbsent({
+  'workflows.definition': createGenericOptimisticLockReader({
+    entity: WorkflowDefinition,
+    idField: 'id',
+    tenantField: 'tenantId',
+    orgField: 'organizationId',
+    softDeleteField: 'deletedAt',
+  }),
+})
 
 export const metadata = {
   requireAuth: true,
@@ -151,6 +164,20 @@ export async function PUT(
     }
 
     const input: UpdateWorkflowDefinitionApiInput = validation.data
+    const guardResult = await validateCrudMutationGuard(container, {
+      tenantId: tenantId ?? '',
+      organizationId: organizationId ?? null,
+      userId: auth.sub ?? '',
+      resourceKind: 'workflows.definition',
+      resourceId: params.id,
+      operation: 'update',
+      requestMethod: 'PUT',
+      requestHeaders: request.headers,
+      mutationPayload: input as Record<string, unknown>,
+    })
+    if (guardResult && !guardResult.ok) {
+      return NextResponse.json(guardResult.body, { status: guardResult.status })
+    }
 
     // Handle customizing a code-based workflow definition
     if (params.id.startsWith('code:')) {
@@ -230,6 +257,20 @@ export async function PUT(
         console.error('Failed to emit workflows.definition.customized event:', eventError)
       }
 
+      if (guardResult?.shouldRunAfterSuccess) {
+        await runCrudMutationGuardAfterSuccess(container, {
+          tenantId: tenantId ?? '',
+          organizationId: organizationId ?? null,
+          userId: auth.sub ?? '',
+          resourceKind: 'workflows.definition',
+          resourceId: String(savedOverride.id),
+          operation: 'update',
+          requestMethod: 'PUT',
+          requestHeaders: request.headers,
+          metadata: guardResult.metadata,
+        })
+      }
+
       return NextResponse.json({
         data: serializeWorkflowDefinition(savedOverride),
         message: 'Workflow definition customized successfully',
@@ -282,6 +323,20 @@ export async function PUT(
     definition.updatedAt = new Date()
 
     await em.flush()
+
+    if (guardResult?.shouldRunAfterSuccess) {
+      await runCrudMutationGuardAfterSuccess(container, {
+        tenantId: tenantId ?? '',
+        organizationId: organizationId ?? null,
+        userId: auth.sub ?? '',
+        resourceKind: 'workflows.definition',
+        resourceId: String(definition.id),
+        operation: 'update',
+        requestMethod: 'PUT',
+        requestHeaders: request.headers,
+        metadata: guardResult.metadata,
+      })
+    }
 
     // Embedded triggers may have changed; invalidate the in-memory cache so
     // the wildcard event subscriber reloads them on the next event.
@@ -356,6 +411,20 @@ export async function DELETE(
       )
     }
 
+    const guardResult = await validateCrudMutationGuard(container, {
+      tenantId: tenantId ?? '',
+      organizationId: organizationId ?? null,
+      userId: auth.sub ?? '',
+      resourceKind: 'workflows.definition',
+      resourceId: params.id,
+      operation: 'delete',
+      requestMethod: 'DELETE',
+      requestHeaders: request.headers,
+    })
+    if (guardResult && !guardResult.ok) {
+      return NextResponse.json(guardResult.body, { status: guardResult.status })
+    }
+
     // Check if there are active workflow instances using this definition
     const { WorkflowInstance } = await import('../../../data/entities')
     const activeInstances = await em.count(WorkflowInstance, {
@@ -377,6 +446,20 @@ export async function DELETE(
     definition.updatedAt = new Date()
 
     await em.flush()
+
+    if (guardResult?.shouldRunAfterSuccess) {
+      await runCrudMutationGuardAfterSuccess(container, {
+        tenantId: tenantId ?? '',
+        organizationId: organizationId ?? null,
+        userId: auth.sub ?? '',
+        resourceKind: 'workflows.definition',
+        resourceId: String(definition.id),
+        operation: 'delete',
+        requestMethod: 'DELETE',
+        requestHeaders: request.headers,
+        metadata: guardResult.metadata,
+      })
+    }
 
     if (tenantId) invalidateTriggerCache(tenantId, organizationId ?? undefined)
 

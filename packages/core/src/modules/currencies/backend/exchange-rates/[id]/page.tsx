@@ -40,6 +40,8 @@ type ExchangeRateData = {
   isActive: boolean
   organizationId: string
   tenantId: string
+  updatedAt?: string | null
+  updated_at?: string | null
 }
 
 export default function EditExchangeRatePage({ params }: { params?: { id?: string } }) {
@@ -108,6 +110,7 @@ export default function EditExchangeRatePage({ params }: { params?: { id?: strin
           versionHistory={{ resourceKind: 'currencies.exchange_rate', resourceId: exchangeRate.id }}
           fields={[]}
           groups={groups}
+          optimisticLockUpdatedAt={exchangeRate.updatedAt ?? exchangeRate.updated_at ?? null}
           initialValues={{
             fromCurrencyCode: exchangeRate.fromCurrencyCode,
             toCurrencyCode: exchangeRate.toCurrencyCode,

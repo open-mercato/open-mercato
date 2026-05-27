@@ -6,7 +6,8 @@ import { Button } from '@open-mercato/ui/primitives/button'
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@open-mercato/ui/primitives/dialog'
 import { CrudForm, type CrudField } from '@open-mercato/ui/backend/CrudForm'
 import { LoadingMessage, ErrorMessage, TabEmptyState } from '@open-mercato/ui/backend/detail'
-import { readApiResultOrThrow } from '@open-mercato/ui/backend/utils/apiCall'
+import { readApiResultOrThrow, withScopedApiRequestHeaders } from '@open-mercato/ui/backend/utils/apiCall'
+import { buildOptimisticLockHeader } from '@open-mercato/ui/backend/utils/optimisticLock'
 import { createCrud, updateCrud, deleteCrud } from '@open-mercato/ui/backend/utils/crud'
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
@@ -19,6 +20,7 @@ type JobHistoryRecord = {
   description: string | null
   startDate: string | null
   endDate: string | null
+  updatedAt: string | null
 }
 
 type JobHistoryResponse = {
@@ -137,7 +139,10 @@ export function JobHistorySection({ memberId }: { memberId: string | null }) {
     if (!memberId) return
     const payload = buildJobHistoryPayload(values)
     if (dialogMode === 'edit' && activeRecord) {
-      await updateCrud('staff/job-histories', { id: activeRecord.id, ...payload }, { errorMessage: labels.errorSave })
+      const headers = buildOptimisticLockHeader(activeRecord.updatedAt)
+      await withScopedApiRequestHeaders(headers, () => (
+        updateCrud('staff/job-histories', { id: activeRecord.id, ...payload }, { errorMessage: labels.errorSave })
+      ))
       flash(labels.updated, 'success')
     } else {
       await createCrud('staff/job-histories', { entityId: memberId, ...payload }, { errorMessage: labels.errorSave })
@@ -153,7 +158,10 @@ export function JobHistorySection({ memberId }: { memberId: string | null }) {
       variant: 'destructive',
     })
     if (!confirmed) return
-    await deleteCrud('staff/job-histories', { id: record.id, errorMessage: labels.errorDelete })
+    const headers = buildOptimisticLockHeader(record.updatedAt)
+    await withScopedApiRequestHeaders(headers, () => (
+      deleteCrud('staff/job-histories', { id: record.id, errorMessage: labels.errorDelete })
+    ))
     flash(labels.deleted, 'success')
     setReloadToken((prev) => prev + 1)
   }, [labels.deleteConfirm, labels.deleted, labels.errorDelete, confirmDialog])
@@ -240,6 +248,7 @@ export function JobHistorySection({ memberId }: { memberId: string | null }) {
           <CrudForm<JobHistoryFormValues>
             fields={fields}
             initialValues={initialValues}
+            optimisticLockUpdatedAt={activeRecord?.updatedAt ?? null}
             onSubmit={handleSubmit}
             submitLabel={dialogMode === 'edit' ? labels.update : labels.save}
             extraActions={(
@@ -289,6 +298,11 @@ function normalizeJobHistoryItems(items?: Record<string, unknown>[]): JobHistory
           ? record.end_date
           : typeof record.endDate === 'string'
             ? record.endDate
+            : null,
+        updatedAt: typeof record.updatedAt === 'string'
+          ? record.updatedAt
+          : typeof record.updated_at === 'string'
+            ? record.updated_at
             : null,
       }
     })

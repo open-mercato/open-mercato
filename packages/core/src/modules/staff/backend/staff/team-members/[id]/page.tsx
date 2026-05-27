@@ -5,9 +5,10 @@ import Link from 'next/link'
 import { useRouter, useSearchParams } from 'next/navigation'
 import { Page, PageBody } from '@open-mercato/ui/backend/Page'
 import { Button } from '@open-mercato/ui/primitives/button'
-import { readApiResultOrThrow } from '@open-mercato/ui/backend/utils/apiCall'
+import { readApiResultOrThrow, withScopedApiRequestHeaders } from '@open-mercato/ui/backend/utils/apiCall'
 import { extractCustomFieldEntries } from '@open-mercato/shared/lib/crud/custom-fields-client'
 import { updateCrud, deleteCrud } from '@open-mercato/ui/backend/utils/crud'
+import { buildOptimisticLockHeader } from '@open-mercato/ui/backend/utils/optimisticLock'
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { createTranslatorWithFallback } from '@open-mercato/shared/lib/i18n/translate'
@@ -53,6 +54,8 @@ type TeamMemberRecord = {
   is_active?: boolean
   availabilityRuleSetId?: string | null
   availability_rule_set_id?: string | null
+  updatedAt?: string | null
+  updated_at?: string | null
   user?: { id?: string; email?: string | null } | null
   team?: { id?: string; name?: string | null } | null
   customFields?: Record<string, unknown> | null
@@ -216,6 +219,11 @@ export default function StaffTeamMemberDetailPage({ params }: { params?: { id?: 
             roleIds: normalizedRoleIds,
             tags: normalizeStringList(record.tags),
             isActive: record.isActive ?? record.is_active ?? true,
+            updatedAt: typeof record.updatedAt === 'string'
+              ? record.updatedAt
+              : typeof record.updated_at === 'string'
+                ? record.updated_at
+                : null,
             ...customFields,
           })
           setMemberRecord(record)
@@ -273,12 +281,15 @@ export default function StaffTeamMemberDetailPage({ params }: { params?: { id?: 
 
   const handleRulesetChange = React.useCallback(async (nextId: string | null) => {
     if (!memberId) return
-    await updateCrud('staff/team-members', { id: memberId, availabilityRuleSetId: nextId }, {
-      errorMessage: t('staff.teamMembers.availability.ruleset.updateError', 'Failed to update schedule.'),
-    })
+    const headers = buildOptimisticLockHeader(initialValues?.updatedAt)
+    await withScopedApiRequestHeaders(headers, () => (
+      updateCrud('staff/team-members', { id: memberId, availabilityRuleSetId: nextId }, {
+        errorMessage: t('staff.teamMembers.availability.ruleset.updateError', 'Failed to update schedule.'),
+      })
+    ))
     setAvailabilityRuleSetId(nextId)
     flash(t('staff.teamMembers.availability.ruleset.updateSuccess', 'Schedule updated.'), 'success')
-  }, [memberId, t])
+  }, [initialValues?.updatedAt, memberId, t])
 
   const panelTabs = React.useMemo(() => ([
     { id: 'details' as const, label: t('staff.teamMembers.detail.tabs.details', 'Details') },
