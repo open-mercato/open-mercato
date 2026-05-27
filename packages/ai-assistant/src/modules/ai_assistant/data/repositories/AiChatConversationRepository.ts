@@ -562,8 +562,16 @@ export class AiChatConversationRepository {
   ): Promise<AiChatConversationParticipant[]> {
     assertContext(ctx, 'listParticipants')
     const conv = await findOneAccessibleConversation(this.em, conversationId, ctx)
-    if (!conv) return []
-    if (!canAccessConversation(conv, ctx)) return []
+    if (!conv) {
+      throw new AiChatConversationAccessError(
+        `Conversation "${conversationId}" was not found for the caller.`,
+      )
+    }
+    if (conv.ownerUserId !== ctx.userId && !canManageConversations(ctx)) {
+      throw new AiChatConversationAccessError(
+        'Only the conversation owner or a manager can list participants.',
+      )
+    }
     const filter: FilterQuery<AiChatConversationParticipant> = {
       tenantId: ctx.tenantId,
       conversationId,

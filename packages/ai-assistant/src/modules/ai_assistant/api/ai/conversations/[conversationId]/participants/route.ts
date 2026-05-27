@@ -180,7 +180,10 @@ export async function GET(req: NextRequest, context: RouteContext): Promise<Resp
         addedAt: p.createdAt.toISOString(),
       })),
     })
-  } catch {
+  } catch (err) {
+    if (err instanceof AiChatConversationAccessError) {
+      return jsonError(403, 'Access denied.', 'forbidden')
+    }
     return jsonError(500, 'Internal server error.', 'internal_error')
   }
 }
