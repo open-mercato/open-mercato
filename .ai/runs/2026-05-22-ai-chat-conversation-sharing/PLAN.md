@@ -43,8 +43,8 @@ Source spec: .ai/specs/2026-05-22-ai-chat-conversation-sharing.md
 | 5 | qa-fix-3 | Remove canManageConversations bypass from addParticipant/revokeParticipant; block owner-revoke (BUG-002) | done | 4d5e421fd |
 | 5 | qa-fix-4 | Fix GET /participants: 403/404 for non-owner/non-manager instead of silent 200 [] (BUG-006) | done | 4eddb9333 |
 | 5 | qa-fix-5 | Make setActiveSession idempotent — fix infinite render loop for shared conversation viewers (BUG-008) | done | cc05e44f1 |
-| 5 | qa-fix-6 | Hide composer + show read-only banner for participant viewers in AiChat (BUG-009) | todo | — |
-| 5 | qa-fix-7 | Exclude conversation owner from user picker in ConversationShareDialog (BUG-004) | todo | — |
+| 5 | qa-fix-6 | Hide composer + show read-only banner for participant viewers in AiChat (BUG-009) | done | 873d42f8c |
+| 5 | qa-fix-7 | Exclude conversation owner from user picker in ConversationShareDialog (BUG-004) | done | 1c245868a |
 
 ---
 
