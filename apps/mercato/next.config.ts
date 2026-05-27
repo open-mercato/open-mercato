@@ -43,6 +43,15 @@ const nextConfig: NextConfig = {
   experimental: {
     serverMinification: false,
     turbopackMinify: false,
+    // Tell Turbopack/Webpack to treat these packages as having modularized
+    // exports — only the named exports actually used in source are
+    // evaluated. Big win in dev mode for barrel-heavy libraries.
+    //   - lucide-react: 398 import sites, full barrel ~1000 icons.
+    //   - recharts: 12 import sites; pairs with the next/dynamic split in
+    //     packages/ui/src/backend/charts/*Impl.tsx.
+    //   - date-fns: already uses deep imports everywhere; listing it here
+    //     is defense-in-depth and harmless.
+    optimizePackageImports: ['lucide-react', 'recharts', 'date-fns'],
     ...(isDevelopment
       ? {
           preloadEntriesOnStart: false,

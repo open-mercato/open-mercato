@@ -18,8 +18,8 @@
 | 1 | 1.1 | Seed run folder (PLAN, HANDOFF, NOTIFY) | done | (this commit) |
 | 2 | 2.1 | Lazy-load recharts chart primitives via next/dynamic | done | 75877478e |
 | 2 | 2.2 | Lazy-load @xyflow/react WorkflowGraph and scope its CSS | done | 33df9c787 |
-| 2 | 2.3 | Defer ClientBootstrap registry barrels to client-side mount | done | pending |
-| 3 | 3.1 | Enable Next.js optimizePackageImports for lucide-react, recharts, date-fns | todo | — |
+| 2 | 2.3 | Defer ClientBootstrap registry barrels to client-side mount | done | 660e71351 |
+| 3 | 3.1 | Enable Next.js optimizePackageImports for lucide-react, recharts, date-fns | done | pending |
 | 3 | 3.2 | Remove dead transpiledWorkspacePackages computation | todo | — |
 | 4 | 4.1 | Tests covering new lazy boundaries (recharts, xyflow) | todo | — |
 | 4 | 4.2 | Spec: dev-mode lazy-load heavy clients + measurement methodology | todo | — |
