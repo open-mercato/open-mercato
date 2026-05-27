@@ -31,7 +31,9 @@ These four headings are required. Additional sections (decision tables, checklis
 
 Every AGENTS.md follows this structure. Adapt sections based on file size (small: 40-80 lines, medium: 80-150 lines, large: 150+ lines).
 
-```markdown
+The template below is wrapped in a 4-backtick fence so the nested 3-backtick `Validation Commands` example renders correctly on GitHub.
+
+````markdown
 # {Name} — Agent Guidelines
 
 {One-line imperative directive: "Use X for Y." or "Use the Z module for A, B, and C."}
@@ -78,7 +80,7 @@ yarn workspace @open-mercato/{package} build
 ## {Cross-References} (if applicable)
 
 - **For X**: `path/to/AGENTS.md` → Section
-```
+````
 
 ## Prescriptive Tone Rules
 
