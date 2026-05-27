@@ -1,0 +1,72 @@
+"use client"
+
+import * as React from 'react'
+import { Button } from '@open-mercato/ui/primitives/button'
+import { useT } from '@open-mercato/shared/lib/i18n/context'
+import { ClipboardList, SlidersHorizontal } from 'lucide-react'
+import { AdjustInventoryDialog } from './AdjustInventoryDialog'
+import { CycleCountWizardDialog } from './CycleCountWizardDialog'
+import { useWmsInventoryMutationAccess } from './useWmsInventoryMutationAccess'
+
+function SectionCard({
+  title,
+  description,
+  children,
+}: {
+  title: string
+  description: string
+  children: React.ReactNode
+}) {
+  return (
+    <section className="rounded-lg border bg-card p-5 text-card-foreground shadow-sm">
+      <div className="mb-4 flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
+        <div className="space-y-1">
+          <h2 className="text-xl font-semibold">{title}</h2>
+          <p className="text-sm text-muted-foreground">{description}</p>
+        </div>
+        <div className="flex shrink-0 flex-wrap gap-2">{children}</div>
+      </div>
+    </section>
+  )
+}
+
+export function InventoryOperationsSection() {
+  const t = useT()
+  const access = useWmsInventoryMutationAccess()
+  const [adjustOpen, setAdjustOpen] = React.useState(false)
+  const [cycleOpen, setCycleOpen] = React.useState(false)
+
+  if (access.loading) return null
+  if (!access.canAdjust && !access.canCycleCount) return null
+
+  return (
+    <>
+      <SectionCard
+        title={t('wms.backend.inventory.operations.title', 'Inventory operations')}
+        description={t(
+          'wms.backend.inventory.operations.description',
+          'Post adjustments for opening balances and corrections, or run a simple cycle count.',
+        )}
+      >
+        {access.canAdjust ? (
+          <Button type="button" variant="default" onClick={() => setAdjustOpen(true)}>
+            <SlidersHorizontal className="size-4" />
+            {t('wms.backend.inventory.operations.adjust', 'Adjust inventory')}
+          </Button>
+        ) : null}
+        {access.canCycleCount ? (
+          <Button type="button" variant="outline" onClick={() => setCycleOpen(true)}>
+            <ClipboardList className="size-4" />
+            {t('wms.backend.inventory.operations.cycleCount', 'Cycle count')}
+          </Button>
+        ) : null}
+      </SectionCard>
+      {access.canAdjust ? (
+        <AdjustInventoryDialog open={adjustOpen} onOpenChange={setAdjustOpen} access={access} />
+      ) : null}
+      {access.canCycleCount ? (
+        <CycleCountWizardDialog open={cycleOpen} onOpenChange={setCycleOpen} access={access} />
+      ) : null}
+    </>
+  )
+}

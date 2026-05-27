@@ -514,6 +514,7 @@ UI patterns:
 | WMS-P1-INT-06 | API | Reject reservation when stock is insufficient | route returns `409 insufficient_stock` and balances remain unchanged |
 | WMS-P1-INT-07 | API | Enrich opted-in sales order response with `_wms.*` payload | additive namespace only, no sales-owned field mutation |
 | WMS-P1-INT-08 | UI | Manage warehouses and locations from backend | CRUD flow works via `CrudForm`/`DataTable`, validation and success states visible |
+| WMS-P1-INT-13 | UI | Adjust and cycle-count from inventory console (`/backend/wms/inventory`) | ACL-gated actions visible; adjust dialog posts `POST /api/wms/inventory/adjust`; 3-step cycle-count wizard posts `POST /api/wms/inventory/cycle-count`; balances/movements refresh after success |
 | WMS-P1-INT-09 | API/Concurrency | Competing reservations on the same hot SKU | only one reservation succeeds, no negative availability or duplicate bucket consumption |
 | WMS-P1-INT-10 | API/Auth | Deny inventory mutation without WMS feature grant | request is rejected and no side effects are persisted |
 | WMS-P1-INT-11 | API | Primary warehouse create/update enforces at-most-one invariant | sibling primaries demoted org-wide; undo restores demoted siblings; enricher falls back to primary when unreserved |
@@ -543,6 +544,7 @@ UI patterns:
 - API verification confirmed the phase-1 gaps materially covered by the new specs, including the allocation regression fixed during this pass (`reserve` now persists reserved quantity before `allocate` transitions it to allocated state).
 - Fresh-session Playwright verification now passes for the full WMS phase-1 subset: `TC-WMS-018`, `TC-WMS-019`, `TC-WMS-020`, and `TC-WMS-021` completed green in one run (`7 passed`, `35.6s`) after restarting the app runtime.
 - The only rerun-only fix needed during verification was stabilizing the warehouse CRUD dialog locators in `TC-WMS-020` to target the rendered textbox controls inside the modal instead of inaccessible label bindings.
+- **2026-05-27 — Inventory console mutation UI**: `WmsInventoryConsolePage` ships production adjust (dialog) and simple 3-step cycle-count (count → variance → post) flows gated by `wms.adjust_inventory` / `wms.cycle_count`. Playwright UI coverage for these flows remains a follow-up (`WMS-P1-INT-13`); API paths remain covered by `TC-WMS-019` and adjust-related specs.
 
 ## Risks & Impact Review
 
@@ -615,6 +617,7 @@ None.
 ## Changelog
 
 ### 2026-05-27
+- Inventory console (`/backend/wms/inventory`): production **Adjust** dialog and 3-step **cycle count** wizard (count → variance → post), ACL-gated via `wms.adjust_inventory` / `wms.cycle_count`; unit helpers in `inventoryMutationUi.ts`
 - Added `Warehouse.is_primary` with org-scoped partial unique index, warehouse CRUD/UI support, and primary-first reservation automation for sales order inventory subscribers
 - Warehouse create/update undo payloads now capture `demotedPrimariesBefore` so undo restores sibling primary flags after reassignment
 - Sales order enricher falls back `_wms.assignedWarehouseId` to the org primary warehouse when no active reservations exist

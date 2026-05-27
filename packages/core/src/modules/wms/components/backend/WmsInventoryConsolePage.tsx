@@ -11,6 +11,7 @@ import { raiseCrudError } from '@open-mercato/ui/backend/utils/serverErrors'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { Boxes, Route, ShieldCheck } from 'lucide-react'
 import { E } from '#generated/entities.ids.generated'
+import { InventoryOperationsSection } from './InventoryOperationsSection'
 
 type PagedResponse<T> = {
   items: T[]
@@ -507,6 +508,7 @@ export default function WmsInventoryConsolePage() {
     <Page>
       <PageBody>
         <div className="space-y-6">
+          <InventoryOperationsSection />
           <InventoryBalancesSection />
           <InventoryReservationsSection />
           <InventoryMovementsSection />

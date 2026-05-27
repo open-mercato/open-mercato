@@ -709,7 +709,13 @@ const createWarehouseCommand: CommandHandler<
     const after = payload?.after
     if (!after) return
     const em = resolveEm(ctx)
-    const record = await em.findOne(Warehouse, { id: after.id })
+    const record = await findOneWithDecryption(
+      em,
+      Warehouse,
+      { id: after.id },
+      undefined,
+      resolveScope(ctx, { tenantId: after.tenantId, organizationId: after.organizationId }),
+    )
     if (!record) return
     ensureTenantScope(ctx, record.tenantId)
     ensureOrganizationScope(ctx, record.organizationId)
@@ -800,7 +806,13 @@ const updateWarehouseCommand: CommandHandler<
     const before = payload?.before
     if (!before) return
     const em = resolveEm(ctx)
-    let record = await em.findOne(Warehouse, { id: before.id })
+    let record = await findOneWithDecryption(
+      em,
+      Warehouse,
+      { id: before.id },
+      undefined,
+      resolveScope(ctx, { tenantId: before.tenantId, organizationId: before.organizationId }),
+    )
     if (!record) {
       record = em.create(Warehouse, {
         id: before.id,
@@ -869,7 +881,13 @@ const deleteWarehouseCommand: CommandHandler<{ id?: string }, { warehouseId: str
     const before = payload?.before
     if (!before) return
     const em = resolveEm(ctx)
-    let record = await em.findOne(Warehouse, { id: before.id })
+    let record = await findOneWithDecryption(
+      em,
+      Warehouse,
+      { id: before.id },
+      undefined,
+      resolveScope(ctx, { tenantId: before.tenantId, organizationId: before.organizationId }),
+    )
     if (!record) {
       record = em.create(Warehouse, {
         id: before.id,

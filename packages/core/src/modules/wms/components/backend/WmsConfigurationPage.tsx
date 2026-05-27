@@ -19,6 +19,11 @@ import { RowActions } from '@open-mercato/ui/backend/RowActions'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { Boxes, Layers, MapPinned, Warehouse } from 'lucide-react'
 import { E } from '@open-mercato/core/generated/entities.ids.generated'
+import {
+  buildQuery,
+  loadCatalogVariantOptions,
+  loadWarehouseOptions,
+} from './wmsLookupLoaders'
 
 type PagedResponse<T> = {
   items: T[]
@@ -178,15 +183,6 @@ const STRATEGY_OPTIONS: CrudFieldOption[] = [
   { value: 'fefo', label: 'FEFO' },
 ]
 
-function buildQuery(params: Record<string, string | number | undefined>) {
-  const search = new URLSearchParams()
-  for (const [key, value] of Object.entries(params)) {
-    if (value === undefined || value === '') continue
-    search.set(key, String(value))
-  }
-  return search.toString()
-}
-
 /** Merge a newly created row into all cached warehouse list queries so the table updates immediately (refetch can lag or match stale HTTP cache). */
 function mergeCreatedWarehouseIntoWarehousesCaches(
   queryClient: QueryClient,
@@ -229,20 +225,6 @@ function mergeCreatedWarehouseIntoWarehousesCaches(
   }
 }
 
-async function loadWarehouseOptions(query?: string): Promise<CrudFieldOption[]> {
-  const params = buildQuery({ page: 1, pageSize: 50, search: query?.trim() || undefined })
-  const call = await apiCall<PagedResponse<{ id?: string | null; name?: string | null; code?: string | null }>>(`/api/wms/warehouses?${params}`)
-  if (!call.ok) return []
-  return (call.result?.items ?? [])
-    .map((item) => {
-      const value = typeof item.id === 'string' ? item.id : null
-      if (!value) return null
-      const label = item.name || item.code || value
-      return { value, label }
-    })
-    .filter((option): option is CrudFieldOption => option !== null)
-}
-
 async function loadCatalogProductOptions(query?: string): Promise<CrudFieldOption[]> {
   const params = buildQuery({ page: 1, pageSize: 25, search: query?.trim() || undefined })
   const call = await apiCall<PagedResponse<{ id?: string | null; title?: string | null; sku?: string | null }>>(`/api/catalog/products?${params}`)
@@ -252,20 +234,6 @@ async function loadCatalogProductOptions(query?: string): Promise<CrudFieldOptio
       const value = typeof item.id === 'string' ? item.id : null
       if (!value) return null
       const label = item.title || item.sku || value
-      return { value, label }
-    })
-    .filter((option): option is CrudFieldOption => option !== null)
-}
-
-async function loadCatalogVariantOptions(query?: string): Promise<CrudFieldOption[]> {
-  const params = buildQuery({ page: 1, pageSize: 25, search: query?.trim() || undefined })
-  const call = await apiCall<PagedResponse<{ id?: string | null; name?: string | null; sku?: string | null }>>(`/api/catalog/variants?${params}`)
-  if (!call.ok) return []
-  return (call.result?.items ?? [])
-    .map((item) => {
-      const value = typeof item.id === 'string' ? item.id : null
-      if (!value) return null
-      const label = item.name || item.sku || value
       return { value, label }
     })
     .filter((option): option is CrudFieldOption => option !== null)
