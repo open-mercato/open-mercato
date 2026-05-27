@@ -22,7 +22,8 @@
 | 3 | 3.1 | Enable Next.js optimizePackageImports for lucide-react, recharts, date-fns | done | 3808e42cc |
 | 3 | 3.2 | Remove dead transpiledWorkspacePackages computation | done | 58993412c |
 | 4 | 4.1 | Tests covering new lazy boundaries (recharts, xyflow) | done | 6e9f623ab |
-| 4 | 4.2 | Spec: dev-mode lazy-load heavy clients + measurement methodology | done | pending |
+| 4 | 4.2 | Spec: dev-mode lazy-load heavy clients + measurement methodology | done | 847208ed5 |
+| 5 | 5.1 | Add ambient *.css module declaration for packages/core | done | pending |
 
 ## Goal
 
