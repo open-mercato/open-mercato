@@ -1,5 +1,34 @@
 # QA Integration Testing Instructions
 
+## Always
+
+- Prefer executable Playwright TypeScript tests in module `__integration__` folders.
+- Reuse shared helpers from `@open-mercato/core/helpers/integration/*`.
+- Keep integration tests independent, data-independent, deterministic, and safe across retries.
+- Create required fixtures per test and clean up created data in `finally`/teardown.
+- Check `.ai/qa/ephemeral-env.json` before starting a new manual exploration environment.
+
+## Ask First
+
+- Ask before applying migrations or resetting a developer's local database.
+- Ask before adding tests that require live external services or secrets instead of using metadata gates.
+- Ask before placing executable specs outside the preferred module `__integration__` locations.
+
+## Never
+
+- Never put executable `.spec.ts` files under `.ai/qa/tests`; that directory is for shared Playwright config.
+- Never rely on seeded/demo data being present.
+- Never leave broken tests; fix them or use `test.skip()` with a clear reason.
+- Never use loose `testIgnore` globs that can match parent workspace paths.
+
+## Validation Commands
+
+```bash
+yarn test:integration
+yarn test:integration:ephemeral
+npx playwright test --config .ai/qa/tests/playwright.config.ts --list
+```
+
 ## Quick Start
 
 ```bash
@@ -304,7 +333,7 @@ export const integrationMeta = {
 }
 ```
 
-### MUST Rules for Executable Tests
+### Executable Test Rules
 
 - Use Playwright locators: `getByRole`, `getByLabel`, `getByText`, `getByPlaceholder` — avoid CSS selectors
 - If a matching scenario exists, reference it in a comment (e.g., `Source: .ai/qa/scenarios/TC-AUTH-001-*.md`)

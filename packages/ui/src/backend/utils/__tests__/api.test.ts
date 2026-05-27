@@ -55,17 +55,42 @@ describe('apiFetch', () => {
     jest.restoreAllMocks()
   })
 
-  it('throws ForbiddenError when backend returns ACL hints', async () => {
+  it('throws ForbiddenError and flashes a non-redirecting banner when backend returns ACL hints', async () => {
     ;(window as unknown as Record<string, unknown>).__omOriginalFetch = jest.fn(async () =>
       createMockResponse(403, {
         error: 'Forbidden',
         requiredRoles: ['Admin'],
       }),
     )
+    const initialPath = window.location.pathname
 
     await expect(apiFetch('/api/private')).rejects.toBeInstanceOf(ForbiddenError)
     expect(flash).toHaveBeenCalledWith(
-      'Insufficient permissions. Redirecting to login…',
+      expect.stringContaining('Access denied'),
+      'warning',
+    )
+    expect(flash).toHaveBeenCalledWith(
+      expect.stringContaining('Admin'),
+      'warning',
+    )
+
+    // Regression for GH #2070: authenticated 403 must not redirect to /login.
+    jest.advanceTimersByTime(1000)
+    expect(window.location.pathname).toBe(initialPath)
+    expect(window.location.pathname).not.toContain('/login')
+  })
+
+  it('includes the missing feature name in the flash so the user sees the actual permission required', async () => {
+    ;(window as unknown as Record<string, unknown>).__omOriginalFetch = jest.fn(async () =>
+      createMockResponse(403, {
+        error: 'Forbidden',
+        requiredFeatures: ['sales.channels.manage'],
+      }),
+    )
+
+    await expect(apiFetch('/api/sales/channels')).rejects.toBeInstanceOf(ForbiddenError)
+    expect(flash).toHaveBeenCalledWith(
+      expect.stringContaining('sales.channels.manage'),
       'warning',
     )
   })

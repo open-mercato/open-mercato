@@ -96,7 +96,7 @@ These do not break TypeScript compilation when staff is absent and are deferred:
 | `packages/create-app/template/src/app/(backend)/backend/layout.tsx` line 239 | same string |
 | `packages/core/src/__tests__/module-decoupling.test.ts` | test fixture features `staff.*` |
 | `packages/core/src/modules/auth/__tests__/cli-setup-acl.test.ts` | same |
-| `packages/core/src/modules/planner/__integration__/TC-PLAN-003.spec.ts` line 10 | imports staff fixture helper from `core/__integration__/helpers/staffFixtures.ts` (test-only) |
+| `packages/core/src/modules/planner/__integration__/TC-PLAN-003.spec.ts` line 10 | imports staff fixture helper from `packages/core/src/helpers/integration/staffFixtures.ts` (re-exported via `packages/core/src/modules/core/__integration__/helpers/staffFixtures.ts`; test-only) |
 
 ---
 
@@ -392,6 +392,10 @@ grep -rn 'customers/assignable-staff' packages/ apps/ \
   | grep -v node_modules | grep -v dist | grep -v '\.mercato/generated'
 ```
 
+Known callsites at the time of spec writing (re-run the grep on the rebased branch to refresh):
+- **Production**: `packages/core/src/modules/customers/components/detail/assignableStaff.ts:39` — UI fetcher. MUST be updated to `/api/staff/team-members/assignable`.
+- **Tests**: `packages/core/src/modules/customers/api/assignable-staff/__tests__/route.test.ts` (lines 81, 117), `packages/core/src/modules/customers/components/detail/__tests__/AssignRoleDialog.test.tsx:171`, `packages/core/src/modules/customers/__integration__/TC-CRM-038.spec.ts:50`.
+
 Split the matches into two groups in the PR description:
 - **Production callsites** (UI components, fetchers, server-side handlers, etc.) — update to call `/api/staff/team-members/assignable` directly. The redirect is a safety net for external consumers, not in-tree code.
 - **Test callsites** (`__tests__/`, `__integration__/`, `.spec.ts`) — leave on the legacy URL only when the test deliberately asserts redirect behavior. Otherwise update to the new URL.
@@ -416,7 +420,7 @@ Plus manual smoke: open Customers → Person/Deal → assignable-staff drawer; c
 
 **Step 1**: Create `packages/core/src/modules/staff/lib/availabilityAccess.ts` exporting `resolveAvailabilityWriteAccess` (logic byte-copied from current planner version) plus the two `SELF_*` feature constants. Imports `StaffTeamMember`, `findOneWithDecryption`, `RbacService` type relative to staff module. Exports `AvailabilityAccessContext` and `AvailabilityWriteAccess` types — the latter extended with a new optional `unregistered?: boolean` field per the Architecture section (additive, BC-safe under surface #2).
 
-**Step 2**: **Create** `packages/core/src/modules/staff/di.ts` (file does not exist on `upstream/develop`). Export `register(container: AppContainer)` that calls `container.register({ availabilityAccessResolver: asValue({ resolveAvailabilityWriteAccess }) })`. Type alias from `@open-mercato/shared/lib/di/container`. Run `yarn generate` after creation; verify the generated module index includes the new registrar. If it does not, update the bootstrap wiring under `apps/mercato/src/bootstrap.ts` (or the relevant generator plugin) so staff's `register()` runs during DI assembly. Add an explicit smoke test in `staff/__integration__/` that asserts `container.hasRegistration('availabilityAccessResolver') === true` when staff is enabled.
+**Step 2**: **Create** `packages/core/src/modules/staff/di.ts` (file does not exist on `upstream/develop`). Export `register(container: AppContainer)` that calls `container.register({ availabilityAccessResolver: asValue({ resolveAvailabilityWriteAccess }) })`. Type alias from `@open-mercato/shared/lib/di/container`. Before writing the planner wrapper, **verify the installed Awilix version supports `{ allowUnregistered: true }`** (the option exists since Awilix 4.x). Check the resolved version at the root `package.json` and `packages/core/package.json`; if the version is below 4.0, the planner wrapper MUST fall back to a `try/catch` around `container.resolve('availabilityAccessResolver')` returning `undefined` on `AwilixResolutionError`. Run `yarn generate` after creating `di.ts`; the existing `di.generated.ts` aggregator auto-discovers module `di.ts` files (verified at `apps/mercato/src/bootstrap.ts` import of `diRegistrars`), so no bootstrap edit is expected. Add an explicit smoke test in `staff/__integration__/` that asserts `container.hasRegistration('availabilityAccessResolver') === true` when staff is enabled.
 
 **Step 3**: Modify [`packages/core/src/modules/planner/api/access.ts`](../../packages/core/src/modules/planner/api/access.ts):
 - Delete `import { StaffTeamMember } from '@open-mercato/core/modules/staff/data/entities'`.
@@ -659,3 +663,39 @@ None.
   - **M5**: Added "Sequencing with PR #1111" subsection covering all three merge orderings.
   - **M6**: Verified `planner.manage_availability` exists at `planner/acl.ts:3` and added the explicit line reference.
   - **M7**: Replaced unanchored "≥0.5.x" lifespan with "removable no earlier than 0.6.0".
+
+### 2026-05-14
+
+- Pre-implementation analysis applied (see `.ai/specs/analysis/ANALYSIS-2026-05-08-staff-decouple-from-core.md`). Three doc fixes landed in this revision:
+  - **Test fixture path corrected** in the Out-of-Scope String References table: the staff fixture helper lives at `packages/core/src/helpers/integration/staffFixtures.ts` (with a re-export shim under `packages/core/src/modules/core/__integration__/helpers/staffFixtures.ts`), not the path quoted in the prior draft.
+  - **Awilix version verification step** added to Phase 1.B Step 2. The spec relies on `container.resolve(..., { allowUnregistered: true })` (the first in-tree use of that option); the new step pins the contract to Awilix ≥4.x and provides a `try/catch` fallback contract for older versions.
+  - **Phase 1.A Step 2 inventory pre-populated** with the four already-known callsites of `/api/customers/assignable-staff` (one production UI fetcher + three test files), so the implementer doesn't have to re-discover them. The bash grep stays as the authoritative source — the listed sites are a head-start, not a replacement.
+- Implementation completed in a single session against `upstream/develop`. Awilix `12.0.5` is installed (well above the 4.x floor), so `allowUnregistered: true` is used directly without the spec's documented `try/catch` fallback.
+- **Deprecation note placement deviation**: the spec's Phase 1.C Step 2 said "add `RELEASE_NOTES.md` entry under Deprecations". This repository does not have a `RELEASE_NOTES.md`; the equivalent file is [`UPGRADE_NOTES.md`](../../UPGRADE_NOTES.md) (downstream-facing breaking-change ledger). The deprecation entry was added there under a fresh `0.6.0 → 0.7.0 (unreleased)` section, alongside the existing `0.5.0 → 0.5.1 (unreleased)` window. `CHANGELOG.md` will pick up the entry at release time via the `auto-update-changelog` skill.
+- **`openApi.deprecated` field placement**: the spec's Architecture section (line 260) and Module-File Changes table (line 154) referenced `deprecated: true` as a top-level `OpenApiRouteDoc` field. The actual `OpenApiRouteDoc` shape in `packages/shared/src/lib/openapi/types.ts` only carries `deprecated?: boolean` on the per-method `OpenApiMethodDoc` (line 40). The redirect route therefore declares `methods.GET.deprecated: true` instead of a top-level `deprecated: true`. The OpenAPI generator already wires the method-level `deprecated` into the bundle, so the user-facing effect is identical.
+- **Final verification gate** (run from `upstream/develop` HEAD, Node 24.14.0, Awilix 12.0.5): `yarn generate` ✅, `yarn build:packages` ✅ (18/18 packages), `yarn typecheck` ✅ (18/18 packages), `yarn lint` ✅ (0 errors), full core jest suite ✅ (446/446 suites, 3736/3736 tests). Integration tests (`TC-STAFF-005`) not executed in this session — recommended to run before opening the PR.
+
+## Implementation Status
+
+| Phase | Status | Date | Notes |
+|-------|--------|------|-------|
+| Phase 1.A — Move assignable-staff route + 308 redirect | Done | 2026-05-14 | New staff route at `packages/core/src/modules/staff/api/team-members/assignable/route.ts`; legacy customers route returns `308`; UI fetcher migrated; 4 callsite tests updated; new `TC-STAFF-005` integration test added |
+| Phase 1.B — Move planner staff lookup to staff DI resolver | Done | 2026-05-14 | `staff/lib/availabilityAccess.ts` + `staff/di.ts` created; `planner/api/access.ts` reduced to a thin DI wrapper with `allowUnregistered: true`; `unregistered?` sentinel field on `AvailabilityWriteAccess`; `assertAvailabilityWriteAccess` throws `403 staff_module_not_loaded` on the unregistered branch |
+| Phase 1.C — Decouple proof + UPGRADE_NOTES.md + staff AGENTS.md | Done | 2026-05-14 | `grep` proof returns zero matches outside `/staff/` for production code; `staff/index.ts` still declares `requires: ['planner', 'resources']`; deprecation entry landed in `UPGRADE_NOTES.md` (spec deviation noted in changelog); new `staff/AGENTS.md` documents `availabilityAccessResolver` as a public DI contract surface and entity classes as internal-only |
+
+### Detailed Step Progress
+
+- [x] Phase 1.A Step 1 — Create staff route (byte-copy of customers handler, shared OpenAPI helper, OpenAPI tag = `Staff`)
+- [x] Phase 1.A Step 2 — Inventory + migrate in-tree consumers (UI fetcher at `customers/components/detail/assignableStaff.ts`, `AssignRoleDialog.test.tsx`, `TC-CRM-038.spec.ts`)
+- [x] Phase 1.A Step 3 — Replace customers handler body with `308` redirect, mark `openApi.deprecated: true`
+- [x] Phase 1.A Step 4 — Add `TC-STAFF-005-assignable.spec.ts` integration test (paging metadata + 308 redirect assertion via raw `request.fetch({ maxRedirects: 0 })`)
+- [x] Phase 1.A Step 5 — Update legacy route unit test to assert `308` + `Location` header + query-string preservation
+- [x] Phase 1.A Step 6 — Verification gate (jest passes for `assignable` + `AssignRoleDialog` — 11 tests)
+- [x] Phase 1.B Step 1 — Create `staff/lib/availabilityAccess.ts` with relocated function + constants + `unregistered?` field on `AvailabilityWriteAccess`
+- [x] Phase 1.B Step 2 — Create `staff/di.ts` registering `availabilityAccessResolver` (Awilix 12.0.5 verified; no fallback needed)
+- [x] Phase 1.B Step 3 — Modify `planner/api/access.ts` to consume via DI with `allowUnregistered: true`; one-branch update to `assertAvailabilityWriteAccess` for the unregistered case
+- [x] Phase 1.B Step 4 — Add `availabilityAccess.test.ts` (wrapper unit tests + assertAvailabilityWriteAccess branches) and `staff/__tests__/di.test.ts` (DI smoke test asserting `hasRegistration` works + `allowUnregistered` returns undefined on a bare container)
+- [x] Phase 1.B Step 5 — Verification gate (jest passes for `planner` — 17 tests, including the new 7 for availabilityAccess)
+- [x] Phase 1.C Step 1 — Decouple grep returns zero matches outside `/staff/` in production code; `staff/index.ts` requires line intact
+- [x] Phase 1.C Step 2 — Deprecation entry added to `UPGRADE_NOTES.md` (RELEASE_NOTES.md does not exist in this repo)
+- [x] Phase 1.C Step 3 — Create `packages/core/src/modules/staff/AGENTS.md` documenting public surfaces and deprecation protocol

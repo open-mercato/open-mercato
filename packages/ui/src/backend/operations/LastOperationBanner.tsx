@@ -5,7 +5,7 @@ import { useRouter } from 'next/navigation'
 import { Button } from '../../primitives/button'
 import { apiCall } from '../utils/apiCall'
 import { flash } from '../FlashMessages'
-import { useLastOperation, markUndoSuccess } from './store'
+import { useLastOperation, markUndoSuccess, dismissOperation, operationStackConstants } from './store'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 
 export function LastOperationBanner() {
@@ -14,12 +14,22 @@ export function LastOperationBanner() {
   const [pendingToken, setPendingToken] = React.useState<string | null>(null)
   const router = useRouter()
 
+  const undoToken = operation?.undoToken ?? null
+  const isPending = undoToken !== null && pendingToken === undoToken
+
+  React.useEffect(() => {
+    if (!undoToken || isPending) return
+    const timer = setTimeout(() => {
+      dismissOperation(undoToken)
+    }, operationStackConstants.LAST_OPERATION_AUTO_DISMISS_MS)
+    return () => clearTimeout(timer)
+  }, [undoToken, isPending])
+
   if (!operation) return null
 
   const rawLabel = operation.actionLabel ?? operation.commandId
   const translatedLabel = t(rawLabel)
   const label = translatedLabel === rawLabel ? rawLabel : translatedLabel
-  const isPending = pendingToken === operation.undoToken
 
   async function handleUndo() {
     const undoToken = operation?.undoToken
@@ -69,12 +79,12 @@ export function LastOperationBanner() {
   }
 
   return (
-    <div className="mb-4 flex items-center justify-between gap-3 rounded-md border border-amber-200/80 bg-amber-50/95 pl-3 pr-2 py-2 text-sm text-amber-900 shadow-xs sm:pr-3">
+    <div className="mb-4 flex items-center justify-between gap-3 rounded-md border border-status-warning-border bg-status-warning-bg pl-3 pr-2 py-2 text-sm text-status-warning-text shadow-xs sm:pr-3">
       <div className="min-w-0 truncate">
-        <span className="font-medium text-amber-950">
+        <span className="font-medium text-status-warning-text">
           {t('audit_logs.banner.last_operation')}
         </span>
-        <span className="ml-2 truncate text-amber-900">
+        <span className="ml-2 truncate text-status-warning-text">
           {label}
         </span>
       </div>
@@ -83,7 +93,7 @@ export function LastOperationBanner() {
         size="sm"
         onClick={() => { void handleUndo() }}
         disabled={isPending}
-        className="border-amber-200/80 bg-amber-50 text-amber-900 hover:bg-amber-100 hover:text-amber-900 px-2.5 sm:px-3"
+        className="border-status-warning-border bg-status-warning-bg text-status-warning-text hover:bg-status-warning-border hover:text-status-warning-text px-2.5 sm:px-3"
       >
         <Undo2 className="mr-1 size-4" aria-hidden="true" />
         {isPending ? t('audit_logs.actions.undoing') : t('audit_logs.banner.undo')}

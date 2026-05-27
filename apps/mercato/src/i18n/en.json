@@ -988,6 +988,7 @@
   "ui.perspectives.title": "Views",
   "ui.perspectives.untitled": "Untitled view",
   "ui.perspectives.updated": "Updated {date}",
+  "ui.recordNotFound.backToList": "Back to list",
   "ui.rowActions.openActions": "Open actions",
   "ui.sidebar.chevron.scrollBottom": "Scroll to bottom",
   "ui.sidebar.chevron.scrollTop": "Scroll to top",

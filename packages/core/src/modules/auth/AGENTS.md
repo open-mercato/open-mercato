@@ -2,6 +2,33 @@
 
 The auth module handles authentication, authorization, users, roles, and RBAC.
 
+## Always
+
+1. Hash passwords with `bcryptjs` using cost >= 10.
+2. Use `findWithDecryption` / `findOneWithDecryption` for user queries.
+3. Prefer `requireFeatures` in page/API metadata for access control.
+4. Declare every module feature in `acl.ts` and seed role grants through `setup.ts`.
+5. Use wildcard-aware helpers such as `matchFeature`, `hasFeature`, and `hasAllFeatures` when inspecting raw granted features.
+
+## Ask First
+
+- Ask before changing session token format, RBAC semantics, wildcard matching, super-admin behavior, or tenant provisioning outputs.
+- Ask before changing login/reset/invitation error messages because auth messages can leak account existence.
+
+## Never
+
+- Never log credentials, password reset tokens, session tokens, or decrypted user secrets.
+- Never reveal whether an email exists through auth error messages.
+- Never check raw ACL arrays with `includes(...)`, `Set.has(...)`, or ad hoc wildcard logic.
+
+## Validation Commands
+
+```bash
+yarn generate
+yarn workspace @open-mercato/core build
+yarn workspace @open-mercato/core test
+```
+
 ## Data Model
 
 - **Users** — system users with credentials, profile, preferences
