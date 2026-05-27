@@ -469,10 +469,17 @@ export async function syncCustomerInteractionToExampleTodo(
   const flags = await resolveExampleCustomersSyncFlags(rawContainer, scope.tenantId)
   if (!flags.enabled) return
 
-  // Scope this invocation to its own EM + DataEngine to avoid identity-map
-  // pollution across concurrent or sequential sync jobs touching the same id.
+  // Worker's own fork — used for reads (findMappingByInteractionId,
+  // loadExampleTodoSnapshot, ensureLegacyExampleMapping) and for the
+  // error-path mapping write (markMappingError). This preserves the
+  // pre-fix behavior of the local em so the catch path keeps working.
+  const em = (rawContainer.resolve('em') as EntityManager).fork()
+  // Separate scoped container — used ONLY for command-bus calls so each
+  // sync invocation gets its own DataEngine.em. This isolates the
+  // identity-map pollution that surfaced as a todos_pkey duplicate inside
+  // setRecordCustomFields when multiple jobs touched the same interaction.id
+  // through the shared request-container DataEngine.
   const container = createScopedSyncContainer(rawContainer)
-  const em = container.resolve('em') as EntityManager
   let mapping = await findMappingByInteractionId(em, scope, payload.interactionId)
 
   try {
@@ -604,8 +611,8 @@ export async function syncExampleTodoToCanonicalInteraction(
   const flags = await resolveExampleCustomersSyncFlags(rawContainer, scope.tenantId)
   if (!flags.enabled || !flags.bidirectional) return
 
+  const em = (rawContainer.resolve('em') as EntityManager).fork()
   const container = createScopedSyncContainer(rawContainer)
-  const em = container.resolve('em') as EntityManager
   let mapping = await findMappingByTodoId(em, scope, payload.todoId)
   let todo: ExampleTodoSnapshot | null = null
   if (!mapping && payload.eventId !== 'example.todo.deleted') {
@@ -905,9 +912,9 @@ export async function reconcileLegacyExampleTodoLinks(
 ): Promise<ExampleCustomersSyncReconcileResult> {
   const scope = { tenantId: input.tenantId, organizationId: input.organizationId }
   const limit = Math.min(Math.max(input.limit ?? 100, 1), 500)
+  const em = (rawContainer.resolve('em') as EntityManager).fork()
   const container = createScopedSyncContainer(rawContainer)
   const { rows, nextCursor } = await loadLegacyExampleTodoLinks(container, scope, limit, input.cursor)
-  const em = container.resolve('em') as EntityManager
   const items: ExampleCustomersSyncReconcileItem[] = []
   let mapped = 0
   let createdInteractions = 0
