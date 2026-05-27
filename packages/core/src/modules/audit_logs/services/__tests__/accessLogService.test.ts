@@ -103,6 +103,28 @@ describe('AccessLogService.logMany', () => {
     expect(await service.logMany([])).toBe(0)
     expect(executeCalls).toHaveLength(0)
   })
+
+  it('encrypts batch rows in parallel rather than sequentially', async () => {
+    const { em } = makeFakeEm()
+    const inflight = { count: 0, peak: 0 }
+    const encryptionMock = {
+      encryptEntityPayload: jest.fn(async (_entity: unknown, payloadIn: any) => {
+        inflight.count += 1
+        if (inflight.count > inflight.peak) inflight.peak = inflight.count
+        await new Promise((resolve) => setTimeout(resolve, 5))
+        inflight.count -= 1
+        return payloadIn
+      }),
+    }
+    ;(resolveTenantEncryptionService as jest.Mock).mockImplementation(() => encryptionMock)
+
+    const service = new AccessLogService(em as any)
+    const rows = Array.from({ length: 8 }, (_, idx) => payload(idx))
+    await service.logMany(rows)
+    expect(encryptionMock.encryptEntityPayload).toHaveBeenCalledTimes(8)
+    // Sequential awaits would peak at 1; parallel awaits must peak at the chunk size.
+    expect(inflight.peak).toBeGreaterThan(1)
+  })
 })
 
 describe('flushAccessLog', () => {

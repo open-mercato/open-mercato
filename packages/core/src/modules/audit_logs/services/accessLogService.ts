@@ -98,9 +98,13 @@ export class AccessLogService {
   }
 
   private async logManyInternal(inputs: AccessLogCreateInput[]): Promise<number> {
+    // Parsing in parallel matches the legacy fan-out `Promise.all(map(...service.log()))`
+    // path's wall-clock; the previous sequential loop made batched writes slower than
+    // un-batched on tenants with encryption enabled and pushed UI integration tests
+    // over their dialog-stability budget.
+    const parsedResults = await Promise.all(inputs.map((input) => this.parseInput(input)))
     const normalized: AccessLogCreateInput[] = []
-    for (const input of inputs) {
-      const parsed = await this.parseInput(input)
+    for (const parsed of parsedResults) {
       if (parsed) normalized.push(parsed)
     }
     if (!normalized.length) return 0
@@ -122,27 +126,49 @@ export class AccessLogService {
     const fork = this.em.fork({ useContext: true })
     const encryption = resolveTenantEncryptionService(fork as any)
     const createdAt = new Date()
+
+    // Encrypt every row in parallel so encryption-enabled tenants do not pay
+    // the N-rows × per-row latency penalty that the previous sequential
+    // for-of loop introduced. The legacy `service.log()` fan-out resolved
+    // its 50 encryption calls concurrently via `Promise.all`; preserve that
+    // characteristic here so the batched single-INSERT path is strictly
+    // faster than the legacy parallel-INSERTs path.
+    type PreparedRow = {
+      tenantId: string | null
+      organizationId: string | null
+      data: AccessLogCreateInput
+      fields: unknown[] | null
+      context: Record<string, unknown> | null
+      encrypted: RawEncryptedFields | null
+    }
+    const prepared: PreparedRow[] = await Promise.all(
+      chunk.map(async (data) => {
+        const fields = Array.isArray(data.fields) && data.fields.length ? data.fields : null
+        const context = data.context && Object.keys(data.context).length ? data.context : null
+        const tenantId = data.tenantId ?? null
+        const organizationId = data.organizationId ?? null
+        const encrypted = encryption
+          ? ((await encryption.encryptEntityPayload(
+              E.audit_logs.access_log,
+              {
+                resourceKind: data.resourceKind,
+                resourceId: data.resourceId,
+                accessType: data.accessType,
+                fieldsJson: fields,
+                contextJson: context,
+              },
+              tenantId,
+              organizationId,
+            )) as RawEncryptedFields)
+          : null
+        return { tenantId, organizationId, data, fields, context, encrypted }
+      }),
+    )
+
     const placeholders: string[] = []
     const params: unknown[] = []
-    for (const data of chunk) {
-      const fields = Array.isArray(data.fields) && data.fields.length ? data.fields : null
-      const context = data.context && Object.keys(data.context).length ? data.context : null
-      const tenantId = data.tenantId ?? null
-      const organizationId = data.organizationId ?? null
-      const encrypted = encryption
-        ? ((await encryption.encryptEntityPayload(
-            E.audit_logs.access_log,
-            {
-              resourceKind: data.resourceKind,
-              resourceId: data.resourceId,
-              accessType: data.accessType,
-              fieldsJson: fields,
-              contextJson: context,
-            },
-            tenantId,
-            organizationId,
-          )) as RawEncryptedFields)
-        : null
+    for (const row of prepared) {
+      const { tenantId, organizationId, data, fields, context, encrypted } = row
       const resourceKindOut = encrypted?.resourceKind ?? data.resourceKind
       const resourceIdOut = encrypted?.resourceId ?? data.resourceId
       const accessTypeOut = encrypted?.accessType ?? data.accessType

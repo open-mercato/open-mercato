@@ -27,6 +27,7 @@ Base: `develop`
 
 - [x] Post-review fix: add missing `indexer: { entityType: 'example.todo' }` to `packages/shared/src/lib/crud/__tests__/user-features-memo.test.ts` so the `crud-indexer-config.test.ts` scanner stays green. — 85e0df6d3
 - [x] Post-review fix: gate Phase 5 bootstrap once-guard behind `OM_BOOTSTRAP_CACHE=1` (default OFF) so per-request bootstrap is restored unless explicitly enabled — cached `tenantEncryptionService`/event-bus close over the first request's `em.fork`/container, which manifests as a 500 on `/api/customers/people` under `next start` in the ephemeral integration runtime. — 85e0df6d3
+- [x] Post-review fix: parallelize encryption + parse in `AccessLogService.logManyInternal` / `writeChunk`. The first batched implementation iterated rows sequentially, so encryption-enabled tenants paid `N × per-row-encryption` wall-clock on every CRUD list response — strictly slower than develop's parallel `Promise.all(map(... service.log()))` fan-out and slow enough to make `addCustomLine` dialogs detach mid-click in `ephemeral-integration` shards 7/15 (TC-INT-005) and 12/15 (TC-SALES-001..017). Restores parallel encryption while keeping the single multi-row INSERT, plus a unit test asserting `encryptEntityPayload` peak in-flight > 1. — (this commit)
 
 ## Goal
 
