@@ -85,6 +85,7 @@ describe('per-request userFeatures memo', () => {
     const route = makeCrudRoute({
       metadata: { GET: { requireAuth: true } },
       orm: { entity: Todo, idField: 'id', orgField: 'organizationId', tenantField: 'tenantId', softDeleteField: 'deletedAt' },
+      indexer: { entityType: 'example.todo' },
       list: {
         schema: z.object({
           page: z.coerce.number().default(1),

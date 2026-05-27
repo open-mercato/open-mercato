@@ -38,13 +38,31 @@ const BOOTSTRAP_CACHE_KEYS = [
 
 type BootstrapCacheEntry = Partial<Record<(typeof BOOTSTRAP_CACHE_KEYS)[number], unknown>>
 
+// Phase 5 is opt-in. Some bootstrap services close over per-request state
+// (e.g. tenantEncryptionService captures the first request's `em.fork`, the
+// event-bus's resolver closes over the first container) so naively replaying
+// them on later requests yields stale references — observed as a 500 from
+// CRUD list endpoints in `next start`. Default OFF preserves develop's
+// per-request bootstrap. Set `OM_BOOTSTRAP_CACHE=1` to opt in once each
+// cached service is verified safe for cross-request reuse.
+function isBootstrapCacheEnabled(): boolean {
+  const raw = process.env.OM_BOOTSTRAP_CACHE
+  if (raw === undefined) return false
+  const normalized = raw.trim().toLowerCase()
+  if (!normalized.length) return false
+  if (normalized === '0' || normalized === 'off' || normalized === 'false' || normalized === 'no') return false
+  return true
+}
+
 function getBootstrapCache(): BootstrapCacheEntry | null {
+  if (!isBootstrapCacheEnabled()) return null
   const existing = (globalThis as any)[BOOTSTRAP_CACHE_KEY]
   return existing && typeof existing === 'object' ? (existing as BootstrapCacheEntry) : null
 }
 
 function setBootstrapCache(entry: BootstrapCacheEntry): void {
-  (globalThis as any)[BOOTSTRAP_CACHE_KEY] = entry
+  if (!isBootstrapCacheEnabled()) return
+  ;(globalThis as any)[BOOTSTRAP_CACHE_KEY] = entry
 }
 
 function harvestBootstrapCache(container: AwilixContainer): BootstrapCacheEntry {
