@@ -32,3 +32,9 @@
   3. `renderReportTable` — now orders by `startedAt` with alphabetic fallback, so the delta line is chronological (matches "did my change reduce memory?" intent); test updated, second test added for fallback path.
   4. `spawnDevAndProfile` — child spawned with `detached: true`; SIGINT/SIGKILL go to the process group via `process.kill(-pid, sig)` so turbo/watcher grandchildren actually exit.
 - Tests: 12/12 pass (was 10/10).
+
+## 2026-05-27T07:00:00Z — run complete
+- PR #2104 opened: https://github.com/open-mercato/open-mercato/pull/2104
+- Labels normalized: `review` + `skip-qa` + `documentation`.
+- Comprehensive summary comment posted.
+- About to release the `in-progress` lock as the final action.

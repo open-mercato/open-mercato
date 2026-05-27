@@ -1,29 +1,31 @@
 # Handoff — 2026-05-27-dev-memory-quick-wins
 
-**Last updated:** 2026-05-27T06:51:00Z
+**Last updated:** 2026-05-27T07:00:00Z
 **Branch:** feat/dev-memory-quick-wins
-**PR:** not yet opened (pending)
-**Current phase/step:** Phase 3 Step 3.1 (just landed → final-gate complete)
-**Last commit:** 594c9f616 (`docs(agents): add Performance row to Task Router for dev-mode memory work`)
+**PR:** https://github.com/open-mercato/open-mercato/pull/2104
+**Current phase/step:** complete — all 6 Steps landed (5 implementation + 1 review-fix)
+**Last commit:** fd3134de3 (`fix(dev): apply code-review NITs to profile-dev-rss harness`)
 
 ## What just happened
-- 5/5 Steps from the Tasks table landed: profiling harness + tests, npm scripts, analysis spec, AGENTS.md Task Router cross-link, final-gate.
-- All sandbox checks pass (`node --check` on 2 files, `node --test` 10/10 pass, AGENTS.md size 36 805 / 42 000 byte budget).
-- CI-only checks (yarn typecheck/test/build/lint/integration) are deferred — sandbox has no `node_modules`. Documented in `final-gate-checks.md` with risk analysis.
-- Scope cut at 06:46Z: descoped the runtime heap-cap re-exec (would have broken turbo's process tree). Replaced by a documented `NODE_OPTIONS='--max-old-space-size=N'` recipe in the spec.
+- All 5 originally-planned Steps landed (1.1, 1.2, 2.1, 2.2, 3.1).
+- Code-review pass surfaced 4 NITs (no blockers); all 4 applied as `3.1-review-fix`. Tests grew 10 → 12, all green.
+- PR #2104 opened against `develop`, labeled `review` + `skip-qa` + `documentation`, three-signal `in-progress` lock claimed/released around the review subagent and comment-posting steps.
+- Comprehensive summary comment posted to the PR.
 
 ## Next concrete action
-- Open the PR against `develop` (Step 9 of the auto-create-pr-loop workflow): `gh pr create` with the standard body, claim the three-signal in-progress lock, normalize labels, invoke `auto-review-pr` autofix pass, post the comprehensive summary comment, release the lock.
+- Wait for CI to run the full validation gate (`yarn typecheck`, `yarn test`, `yarn build:*`, `yarn test:integration`) — janitor sandbox could not, all deferred items are low-risk per `final-gate-checks.md`.
+- Human reviewer runs the verification recipe (`yarn dev:profile baseline-develop` and against PR #2102) to reproduce the ~1 GB win claim.
+- After CI green + human review approval, merge.
 
 ## Blockers / open questions
 - None.
 
 ## Environment caveats
-- Dev runtime runnable: **no** — janitor sandbox has no `node_modules`. Full validation gate (typecheck/test/build/integration) is the CI's responsibility; ✅ documented in `final-gate-checks.md`.
-- Playwright / browser checks: **skipped** — no UI changes; UI verification clause does not apply.
-- Database/migration state: **clean** (no DB code touched).
-- AGENTS.md size: 36 805 / 42 000 byte budget (per #2048).
+- Dev runtime runnable: **no** — janitor sandbox has no `node_modules`. CI is the authoritative gate.
+- Playwright / browser checks: **N/A** — no UI changes.
+- Database/migration state: **clean** — no DB code touched.
+- AGENTS.md size: 36 805 / 42 000 byte budget (#2048).
 
 ## Worktree
 - Path: /home/pkarw/Projects/github-janitor/.janitor/repos/open-mercato__open-mercato/worktrees/822d3fe2-d42b-44fa-b9b1-2bceebf02001
-- Created this run: **no** — reused the existing janitor worktree per `auto-create-pr-loop` rules.
+- Created this run: **no** — reused the existing janitor worktree per `auto-create-pr-loop` rules. No cleanup needed.
