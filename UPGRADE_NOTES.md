@@ -17,7 +17,7 @@ For the platform's own contract-surface stability guarantees, see
 For user-facing release highlights see [`CHANGELOG.md`](CHANGELOG.md).
 
 Companion AI skills (one per upgrade window) live in
-[`.ai/skills/auto-upgrade-<from>-<to>/SKILL.md`](.ai/skills/) and can mechanically migrate
+[`.ai/skills/om-auto-upgrade-<from>-<to>/SKILL.md`](.ai/skills/) and can mechanically migrate
 most of the patterns listed below in a user's codebase.
 
 ---
@@ -442,7 +442,7 @@ will cover it.
 ```md
 ## X.Y.Z → X.Y.(Z+1) (unreleased)
 
-Companion skill: [`auto-upgrade-X.Y.Z-to-X.Y.(Z+1)`](.ai/skills/auto-upgrade-X.Y.Z-to-X.Y.(Z+1)/SKILL.md).
+Companion skill: [`om-auto-upgrade-X.Y.Z-to-X.Y.(Z+1)`](.ai/skills/om-auto-upgrade-X.Y.Z-to-X.Y.(Z+1)/SKILL.md).
 
 ### Breaking dependency changes that may affect user code
 

@@ -636,11 +636,11 @@ This project ships four auto-* Claude Code skills under `.ai/skills/` that let y
 
 | Skill | When to use | Invocation |
 |-------|-------------|------------|
-| `om-auto-create-pr` | Delegate an arbitrary task end-to-end and receive it as a PR against your default branch | `claude "/auto-create-pr <task description>"` |
-| `om-auto-continue-pr` | Resume an in-progress agent PR that wasn't finished in one run | `claude "/auto-continue-pr <PR#>"` |
-| `om-auto-review-pr` | Run a thorough automated code review on a PR (with optional autofix) | `claude "/auto-review-pr <PR#>"` |
-| `om-auto-fix-github` | Fix a GitHub issue by number and open a PR linked to it | `claude "/auto-fix-github <issue#>"` |
-| `trim-unused-modules` | Propose disabling built-in modules you don't use (classic-mode slimdown after adding your own module) | `claude "/trim-unused-modules"` |
+| `om-auto-create-pr` | Delegate an arbitrary task end-to-end and receive it as a PR against your default branch | `claude "/om-auto-create-pr <task description>"` |
+| `om-auto-continue-pr` | Resume an in-progress agent PR that wasn't finished in one run | `claude "/om-auto-continue-pr <PR#>"` |
+| `om-auto-review-pr` | Run a thorough automated code review on a PR (with optional autofix) | `claude "/om-auto-review-pr <PR#>"` |
+| `om-auto-fix-github` | Fix a GitHub issue by number and open a PR linked to it | `claude "/om-auto-fix-github <issue#>"` |
+| `om-trim-unused-modules` | Propose disabling built-in modules you don't use (classic-mode slimdown after adding your own module) | `claude "/om-trim-unused-modules"` |
 
 Notes:
 

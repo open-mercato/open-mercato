@@ -6,7 +6,7 @@
 - Developer repeats `/auto-implement-spec <spec-path>` until all phases are done. One command, no need to remember PR numbers or decide where to cut.
 
 **Scope:**
-- New skill file: `.ai/skills/auto-implement-spec/SKILL.md`
+- New skill file: `.ai/skills/om-auto-implement-spec/SKILL.md`
 - Registration in `.ai/skills/README.md` and root `AGENTS.md` Task Router
 
 **Concerns:**
@@ -212,7 +212,7 @@ N/A — CLI skill, no UI.
 ## Implementation Plan
 
 ### Phase 1: Skill file
-1. Create `.ai/skills/auto-implement-spec/SKILL.md` with full workflow
+1. Create `.ai/skills/om-auto-implement-spec/SKILL.md` with full workflow
 2. Register in `.ai/skills/README.md`
 3. Register in root `AGENTS.md` Task Router
 
