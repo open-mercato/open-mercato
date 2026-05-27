@@ -1,9 +1,11 @@
 import { NextResponse, type NextRequest } from 'next/server'
 import { z } from 'zod'
 import type { EntityManager } from '@mikro-orm/postgresql'
+import type { FilterQuery } from '@mikro-orm/core'
 import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
 import { getAuthFromRequest } from '@open-mercato/shared/lib/auth/server'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
+import { findOneWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import type { RbacService } from '@open-mercato/core/modules/auth/services/rbacService'
 import { User } from '@open-mercato/core/modules/auth/data/entities'
 import { hasRequiredFeatures } from '../../../../../lib/auth'
@@ -231,13 +233,25 @@ export async function POST(req: NextRequest, context: RouteContext): Promise<Res
   try {
     const container = await createRequestContainer()
     const em = container.resolve<EntityManager>('em')
-    const targetUser = await em.findOne(User, {
+    const targetUserFilter: FilterQuery<User> = {
       id: targetUserId,
       tenantId: callerCtx.tenantId,
       deletedAt: null,
-    })
+      ...(callerCtx.organizationId ? { organizationId: callerCtx.organizationId } : {}),
+    }
+    const targetUser = await findOneWithDecryption<User>(
+      em,
+      User,
+      targetUserFilter,
+      {},
+      { tenantId: callerCtx.tenantId, organizationId: callerCtx.organizationId },
+    )
     if (!targetUser) {
-      return jsonError(400, 'User not found in this organization.', 'user_not_found')
+      return jsonError(
+        400,
+        'Target user must be a staff user in the same tenant and organization.',
+        'user_not_found',
+      )
     }
 
     const repo = createConversationStorage(container)
