@@ -1,9 +1,11 @@
 ---
 name: create-agents-md
-description: Create or rewrite AGENTS.md files for Open Mercato packages and modules. Use this skill when adding a new package, creating a new module, or when an existing AGENTS.md needs to be created or refactored. Ensures prescriptive tone, MUST rules, checklists, and consistent structure across all agent guidelines.
+description: Create or rewrite AGENTS.md files for Open Mercato packages and modules. Use this skill when adding a new package, creating a new module, or when an existing AGENTS.md needs to be created or refactored. Ensures prescriptive tone, the Always/Ask First/Never/Validation Commands boundary structure, MUST-style rules, checklists, and consistent structure across all agent guidelines.
 ---
 
-Create prescriptive, action-oriented AGENTS.md files that tell agents **what to DO**, **what to REUSE**, and **what rules to FOLLOW**. Never write descriptive documentation — write instructions.
+Create prescriptive, action-oriented AGENTS.md files that tell agents **what to DO**, **what to ASK ABOUT**, **what NEVER to do**, and **how to VALIDATE** their work. Never write descriptive documentation — write instructions.
+
+> Authoritative source for the boundary convention: root `AGENTS.md` → `## Boundary Labels for Agent Rules`. This skill follows that convention.
 
 ## Core Philosophy
 
@@ -11,6 +13,19 @@ AGENTS.md files are **not documentation**. They are **instruction sets for codin
 - Tell the agent what to do ("Use X when...")
 - Constrain the agent's behavior ("MUST NOT...")
 - Give a step-by-step procedure ("1. Create... 2. Add... 3. Run...")
+
+## Boundary Section Convention
+
+Every AGENTS.md MUST use these four top-level boundary sections, in this order, with these exact headings:
+
+| Section | What goes in it |
+|---------|-----------------|
+| `## Always` | Required defaults, MUST/MUST NOT rules, and commands agents apply without asking. The bulk of constraint content lives here. |
+| `## Ask First` | Decisions that need maintainer input before changing behavior, scope, dependencies, branch/deploy flow, or contract surfaces. |
+| `## Never` | Prohibited actions and unsafe shortcuts. Phrased as "Never …" bullets (the section name does the rule-tagging). |
+| `## Validation Commands` | Short, real commands an agent can run to prove the relevant code path (lint/build/typecheck/test/grep). |
+
+These four headings are required. Additional sections (decision tables, checklists, structure tree, cross-references, etc.) live **alongside** them, never instead of them.
 
 ## File Structure Template
 
@@ -21,11 +36,32 @@ Every AGENTS.md follows this structure. Adapt sections based on file size (small
 
 {One-line imperative directive: "Use X for Y." or "Use the Z module for A, B, and C."}
 
-## MUST Rules
+## {Optional decision/selection table — e.g. "Strategy Selection", "When to Use"}
+
+{Table with "When to use" / "Configuration" columns}
+
+## Always
 
 1. **MUST ...** — {consequence or rationale}
 2. **MUST NOT ...** — {what to do instead}
 3. **MUST ...** — {consequence or rationale}
+
+## Ask First
+
+- Ask before {decision that needs maintainer input — scope, contract surface, dependency, infra}.
+- Ask before {second decision class — typically destructive or cross-module}.
+
+## Never
+
+- Never {prohibited action — bypassing tenant scoping, skipping hooks, raw fetch, etc.}.
+- Never {second prohibition}.
+
+## Validation Commands
+
+```bash
+yarn workspace @open-mercato/{package} test
+yarn workspace @open-mercato/{package} build
+```
 
 ## {Primary Task Section — "When You Need X" or "Adding a New Y"}
 
@@ -69,17 +105,21 @@ Every AGENTS.md follows this structure. Adapt sections based on file size (small
 | "The pricing system uses layered overrides" | "Price layers compose in order: base → channel → customer → promotional" |
 | Description column in tables | "When to use" or "When to modify" column |
 
-## MUST Rules Requirements
+## Boundary Section Requirements
 
-| File size | Minimum MUST rules |
-|-----------|-------------------|
-| Small (< 80 lines) | 3 |
-| Medium (80-150 lines) | 5 |
-| Large (150+ lines) | 8+ |
+The `Always`, `Ask First`, `Never`, and `Validation Commands` headings are mandatory in every AGENTS.md. The `Always` section is where MUST/MUST NOT rules live, and its minimum item count scales with file size:
 
-### Writing Effective MUST Rules
+| File size | Minimum `Always` items (MUST/MUST NOT rules) | `Ask First` items | `Never` items | `Validation Commands` |
+|-----------|---------------------------------------------|-------------------|---------------|------------------------|
+| Small (< 80 lines) | 3 | 1+ | 2+ | 1+ command |
+| Medium (80–150 lines) | 5 | 2+ | 3+ | 2+ commands |
+| Large (150+ lines) | 8+ | 2+ | 4+ | 2+ commands |
 
-Each MUST rule follows this pattern: `**MUST [verb]** — [rationale or consequence]`
+If a real prohibition only fits one of the boundaries, prefer the most restrictive: `Never` > `Ask First` > `Always`.
+
+### Writing Effective `Always` Rules
+
+Each `Always` rule follows this pattern: `**MUST [verb]** — [rationale or consequence]`
 
 Good examples:
 - `**MUST resolve via DI** — always use container.resolve('cacheService'), never instantiate directly`
@@ -91,6 +131,53 @@ Bad examples:
 - `**MUST** follow best practices` (too vague)
 - `**MUST** be careful with...` (not actionable)
 - `**MUST** use the correct approach` (says nothing)
+
+### Writing Effective `Ask First` Items
+
+Phrase as `Ask before {scope-changing action}.` Each item names a concrete decision that a maintainer (human) should approve.
+
+Good examples:
+- `Ask before adding a new cache backend, changing default strategy selection, or caching data whose sensitivity is unclear.`
+- `Ask before changing queue strategy defaults, retry semantics, or worker concurrency limits.`
+- `Ask before applying database migrations locally with yarn db:migrate.`
+
+Bad examples:
+- `Ask if unsure` (uselessly generic — every rule could say that)
+- `Ask before doing anything dangerous` (not actionable)
+
+### Writing Effective `Never` Items
+
+Phrase as `Never {prohibited action}.` Do NOT prefix with "MUST NOT" — the section heading already supplies that force.
+
+Good examples:
+- `Never expose cross-tenant data or skip tenant/organization scoping.`
+- `Never use raw fetch in backend pages — always go through apiCall.`
+- `Never edit generated files by hand.`
+
+Bad examples:
+- `Avoid X` (too soft for `Never`)
+- `Try not to Y` (not a rule)
+
+### Writing Effective `Validation Commands`
+
+List the smallest set of real commands an agent can copy-paste to prove the relevant path. Prefer package-scoped commands over repo-wide ones for module/package AGENTS.md files.
+
+Good examples:
+
+```bash
+yarn workspace @open-mercato/cache test
+yarn workspace @open-mercato/cache build
+```
+
+```bash
+yarn generate
+yarn typecheck
+yarn workspace @open-mercato/core test --testPathPattern=customers
+```
+
+Bad examples:
+- `Run the tests` (not a command)
+- `yarn test:everything --all-the-things` (invented or impractical)
 
 ## Table Column Conventions
 
