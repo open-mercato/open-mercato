@@ -352,6 +352,7 @@ These are critical project-wide rules. The top-level `Always`, `Ask First`, and 
 -   Use `LoadingMessage`/`ErrorMessage` from `@open-mercato/ui/backend/detail`
 -   i18n: `useT()` client-side, `resolveTranslations()` server-side
 -   Never hard-code user-facing strings — use locale files
+-   Prefix purely internal `throw new Error(...)` / `createCrudFormError(...)` / `toast.*(...)` messages with `[internal]` so the i18n hardcoded-string checker treats them as opted out; user-facing variants MUST route through `t('module.errors.<key>')`. Run `yarn i18n:check-hardcoded` (and `yarn i18n:check-values` for non-English coverage) to inspect the surface — both are advisory in Phase 1 of `.ai/specs/2026-05-26-missing-translations-audit-and-remediation.md`. Use `<module>/i18n/.hardcoded-allowlist.json` for module-scoped exceptions (legal copy, framework chrome).
 -   Every dialog: `Cmd/Ctrl+Enter` submit, `Escape` cancel
 -   Keep `pageSize` at or below 100
 

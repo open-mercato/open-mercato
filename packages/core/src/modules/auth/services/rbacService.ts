@@ -70,6 +70,13 @@ export class RbacService {
     return sharedHasAllFeatures(required, granted)
   }
 
+  private roleAclAllowsOrganization(acl: RoleAcl, organizationId: string | null | undefined): boolean {
+    if (!organizationId) return true
+    const organizations = Array.isArray(acl.organizationsJson) ? acl.organizationsJson : null
+    if (!organizations || !organizations.length || organizations.includes('__all__')) return true
+    return organizations.includes(organizationId)
+  }
+
   private getCacheKey(userId: string, scope: { tenantId: string | null; organizationId: string | null }): string {
     return `rbac:${userId}:${scope.tenantId || 'null'}:${scope.organizationId || 'null'}`
   }
@@ -370,6 +377,37 @@ export class RbacService {
   ): Promise<string[]> {
     const acl = await this.loadAcl(userId, scope)
     return Array.isArray(acl.features) ? acl.features : []
+  }
+
+  /**
+   * Checks whether any tenant role grants a feature.
+   *
+   * This supports non-user runtimes such as scheduler workers that execute with
+   * tenant scope but without an authenticated user.
+   */
+  async tenantHasFeature(
+    tenantId: string | null | undefined,
+    feature: string,
+    opts?: { organizationId?: string | null },
+  ): Promise<boolean> {
+    if (!tenantId || !feature) return false
+
+    const enabledIds = getEnabledModuleIds()
+    if (enabledIds.length && !enabledIds.includes(getOwningModuleId(feature))) return false
+
+    const em = this.em.fork()
+    const roleAcls = await em.find(RoleAcl, { tenantId, deletedAt: null } as any, {})
+    const list = Array.isArray(roleAcls) ? roleAcls : []
+    const organizationId = opts?.organizationId ?? null
+
+    for (const acl of list) {
+      if (!this.roleAclAllowsOrganization(acl, organizationId)) continue
+      if (acl.isSuperAdmin) return true
+      const grants = Array.isArray(acl.featuresJson) ? acl.featuresJson : []
+      if (this.hasAllFeatures([feature], filterGrantsByEnabledModules(grants))) return true
+    }
+
+    return false
   }
 
   /**

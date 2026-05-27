@@ -1493,10 +1493,21 @@ async function runPassthroughStage(label, commandArgs, options = {}) {
   console.log(`✅ ${formatProgressLine(label, stageCurrent, stageTotal, resolveProgressPercent(stageCurrent, stageTotal))} in ${formatDuration(Date.now() - startedAt)}`)
 }
 
+function resolveWatchPackagesScript() {
+  // `OM_WATCH_PACKAGES_MODE=legacy` falls back to the Turbo per-package
+  // fan-out for developers who need the old behavior (debugging, or pairing
+  // with `OM_PACKAGE_WATCH_MODE=persistent` for hot rebuilds at the cost of
+  // ~1 GB more idle RSS). Default is the consolidated single-process watcher.
+  const raw = String(process.env.OM_WATCH_PACKAGES_MODE ?? '').trim().toLowerCase()
+  return raw === 'legacy' ? 'watch:packages:legacy' : 'watch:packages'
+}
+
 function startPackageWatch() {
+  const watchScript = resolveWatchPackagesScript()
+
   if (classic) {
-    const child = spawnCommand(yarnCommand, ['watch:packages'], {
-      label: 'watch:packages',
+    const child = spawnCommand(yarnCommand, [watchScript], {
+      label: watchScript,
       logFile: getDevRunnerLog(),
       mirrorOutput: true,
     })
@@ -1530,16 +1541,7 @@ function startPackageWatch() {
     activity: 'Workspace package watch started',
   })
 
-  const child = spawnCommand(yarnCommand, [
-    'turbo',
-    'run',
-    'watch',
-    '--filter=./packages/*',
-    '--concurrency=32',
-    '--output-logs=errors-only',
-    '--log-order=grouped',
-    '--log-prefix=none',
-  ], {
+  const child = spawnCommand(yarnCommand, [watchScript], {
     label: 'Watching workspace packages',
     logFile: getDevRunnerLog(),
     mirrorOutput: verbose,
