@@ -99,15 +99,15 @@ Re-land the two post-merge follow-up commits from
 
 ### Phase 1: Carry the two follow-up commits
 
-- [ ] 1.1 Branch off latest develop
-- [ ] 1.2 Cherry-pick template-parity + env-var-docs commit
-- [ ] 1.3 Cherry-pick dev-shutdown-utils template-sync commit
+- [x] 1.1 Branch off latest develop — aa9fd46df
+- [x] 1.2 Cherry-pick template-parity + env-var-docs commit — d61698b6b
+- [x] 1.3 Cherry-pick dev-shutdown-utils template-sync commit — af3b6d71c
 
 ### Phase 2: Validation
 
-- [ ] 2.1 Diff parity vs upstream commits
-- [ ] 2.2 Template-sync mapping verification
-- [ ] 2.3 Targeted checks available in sandbox
+- [x] 2.1 Diff parity vs upstream commits — verified byte-identical for both cherry-picks
+- [x] 2.2 Template-sync mapping verification — `dev-shutdown-utils.mjs` registered in `scripts/template-sync.ts:80-82`; root/template diffs empty for all three files
+- [x] 2.3 Targeted checks available in sandbox — janitor worktree has no installed deps (same caveat as `2026-05-27-dev-mode-package-watch-consolidation`); full gate deferred to CI
 
 ### Phase 3: Ship
 
