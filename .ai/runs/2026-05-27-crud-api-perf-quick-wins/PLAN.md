@@ -12,9 +12,9 @@ Base: `develop`
 | Phase | Step | Title | Status | Commit |
 |-------|------|-------|--------|--------|
 | 0 | 0.1 | Seed run folder (plan, handoff, notify) | done | 0a347d6a0 |
-| 1 | 1.1 | AccessLogService: add `logMany()` with batched INSERT + flushAccessLog hook | todo | — |
-| 1 | 1.2 | factory.ts: batch + fire-and-forget `logCrudAccess` + `OM_CRUD_ACCESS_LOG_BLOCKING` | todo | — |
-| 1 | 1.3 | Unit tests for batch logging + blocking flag + flush hook | todo | — |
+| 1 | 1.1 | AccessLogService: add `logMany()` with batched INSERT + flushAccessLog hook | done | a7c8102c1 |
+| 1 | 1.2 | factory.ts: batch + fire-and-forget `logCrudAccess` + `OM_CRUD_ACCESS_LOG_BLOCKING` | done | 68ca78035 |
+| 1 | 1.3 | Unit tests for batch logging + blocking flag + flush hook | done | 3e993ba15 |
 | 2 | 2.1 | custom-fields.ts: tag-invalidated cache for `loadCustomFieldDefinitionIndex` + per-request micro-cache | todo | — |
 | 2 | 2.2 | CF def cache: wire tag invalidation in CustomFieldDef CRUD side-effects + tests | todo | — |
 | 3 | 3.1 | factory.ts: per-request `userFeatures` memo + default in-process LRU cache for RbacService | todo | — |
