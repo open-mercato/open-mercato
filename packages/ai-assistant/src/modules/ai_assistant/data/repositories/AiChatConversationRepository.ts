@@ -3,6 +3,7 @@ import {
   findOneWithDecryption,
   findWithDecryption,
 } from '@open-mercato/shared/lib/encryption/find'
+import { Organization } from '@open-mercato/core/modules/directory/data/entities'
 import {
   AiChatConversation,
   AiChatConversationParticipant,
@@ -108,6 +109,13 @@ export class AiChatConversationDuplicateParticipantError extends Error {
   }
 }
 
+export class AiChatConversationOrgNotFoundError extends Error {
+  override readonly name = 'AiChatConversationOrgNotFoundError'
+  constructor(message: string = 'Organization does not exist or is inactive for this tenant.') {
+    super(message)
+  }
+}
+
 export class AiChatConversationRepository {
   constructor(private readonly em: EntityManager) {}
 
@@ -140,6 +148,7 @@ export class AiChatConversationRepository {
         }
         return existing
       }
+      await assertOrganizationExists(tx as unknown as EntityManager, ctx)
       const conversation = tx.create(AiChatConversation, {
         tenantId: ctx.tenantId,
         organizationId: ctx.organizationId ?? null,
@@ -756,6 +765,33 @@ function canAccessConversation(
   isParticipant = false,
 ): boolean {
   return canManageConversations(ctx) || row.ownerUserId === ctx.userId || isParticipant
+}
+
+async function assertOrganizationExists(
+  em: EntityManager,
+  ctx: AiChatConversationContext,
+): Promise<void> {
+  if (!ctx.organizationId) return
+  const org = await findOneWithDecryption<Organization>(
+    em,
+    Organization,
+    {
+      id: ctx.organizationId,
+      tenant: ctx.tenantId,
+      deletedAt: null,
+      isActive: true,
+    } as any,
+    {},
+    {
+      tenantId: ctx.tenantId ?? null,
+      organizationId: ctx.organizationId ?? null,
+    },
+  )
+  if (!org) {
+    throw new AiChatConversationOrgNotFoundError(
+      `Organization "${ctx.organizationId}" does not exist or is inactive in tenant "${ctx.tenantId}".`,
+    )
+  }
 }
 
 async function findOneAccessibleConversation(
