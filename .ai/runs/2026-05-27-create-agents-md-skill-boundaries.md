@@ -83,9 +83,9 @@ Update `.ai/skills/create-agents-md/SKILL.md` so that agents who invoke this ski
 
 ### Phase 2: Self-review and validation
 
-- [ ] 2.1 Confirm per-rule MUST pattern is preserved in the new template
-- [ ] 2.2 Verify referenced AGENTS.md files exemplify the four boundary headings
-- [ ] 2.3 Run grep/sanity validation and record it
+- [x] 2.1 Confirm per-rule MUST pattern is preserved in the new template — verified `**MUST [verb]** — [rationale]` examples retained under `## Always` section guidance (f29d9b4be)
+- [x] 2.2 Verify referenced AGENTS.md files exemplify the four boundary headings — `grep -nE '^## (Always|Ask First|Never|Validation Commands)$'` confirmed all six referenced files (`packages/cache/AGENTS.md`, `packages/queue/AGENTS.md`, `packages/core/src/modules/sales/AGENTS.md`, `packages/core/src/modules/customers/AGENTS.md`, `packages/search/AGENTS.md`, `packages/ai-assistant/AGENTS.md`) carry all four headings
+- [x] 2.3 Run grep/sanity validation and record it — code fences balanced (14 = 7 pairs), no `## MUST Rules` heading remains in the skill (only the anti-pattern bullet that explicitly names it as prohibited), frontmatter intact, 339 lines total
 
 ### Phase 3: PR open + auto-review
 
