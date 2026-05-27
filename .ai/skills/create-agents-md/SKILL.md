@@ -277,15 +277,19 @@ Example:
 
 After writing an AGENTS.md, verify:
 
-1. **Tone**: Every section starts with imperative verb or "When you need..."
-2. **MUST audit**: File has required number of MUST rules (3+ small, 5+ medium, 8+ large)
-3. **No descriptive openers**: No section starts with "The module provides..." or similar
-4. **Tables**: All tables use "When to use" / "When to modify" columns, never "Description"
-5. **Checklists**: Common tasks have numbered step-by-step procedures
-6. **Data models**: Entity lists are constraint-framed with MUST rules
-7. **Cross-references**: No duplicated content between files; clear pointers instead
-8. **Structure section**: Directory tree is present and brief
-9. **Opening line**: File starts with one-line imperative directive, not a description
+1. **Boundary headings present**: File contains exactly one of each `## Always`, `## Ask First`, `## Never`, and `## Validation Commands`, in that order. Confirm with `grep -nE '^## (Always|Ask First|Never|Validation Commands)$' <file>`.
+2. **`Always` audit**: File has required number of MUST/MUST NOT rules in `## Always` (3+ small, 5+ medium, 8+ large).
+3. **`Ask First` populated**: At least one concrete "Ask before …" item that names a scope-changing decision.
+4. **`Never` populated**: At least one "Never …" prohibition; phrased as a "Never" bullet, not "MUST NOT".
+5. **`Validation Commands` runnable**: Commands are real and copy-pasteable; no placeholder or invented scripts.
+6. **Tone**: Every section starts with imperative verb or "When you need..."
+7. **No descriptive openers**: No section starts with "The module provides..." or similar.
+8. **Tables**: All tables use "When to use" / "When to modify" columns, never "Description".
+9. **Checklists**: Common tasks have numbered step-by-step procedures.
+10. **Data models**: Entity lists are constraint-framed with MUST rules.
+11. **Cross-references**: No duplicated content between files; clear pointers instead.
+12. **Structure section**: Directory tree is present and brief.
+13. **Opening line**: File starts with one-line imperative directive, not a description.
 
 ## Anti-Patterns
 
@@ -296,19 +300,22 @@ After writing an AGENTS.md, verify:
 5. **Adding changelog sections** to small/medium files (only for large files with complex history)
 6. **Over-documenting internals** — AGENTS.md guides usage, not implementation
 7. **Missing the "when" framing** — every table/section should answer "when do I use this?"
+8. **Skipping a boundary section** because "the file is small" — every AGENTS.md MUST carry all four (`Always`, `Ask First`, `Never`, `Validation Commands`). Tighten the content per file size; do not omit headings.
+9. **Reusing legacy headings** like `## MUST Rules`, `## Critical Rules`, `## Key Rules`, or `MUST Rules`/`MANDATORY:` as H2s. These predate the boundary convention and are not accepted.
+10. **Mixing forces** — putting `MUST NOT` rules under `Never`, or `Never …` bullets under `Always`. Each section's heading carries the force; phrase items to match.
 
 ## Reference Examples
 
-Study these files as reference implementations:
+Study these files as reference implementations — all updated to the boundary convention in PR #2082:
 
 | Size | File | Why it's good |
 |------|------|---------------|
-| Small | `packages/cache/AGENTS.md` | Clean structure, 5 MUST rules, decision table, checklist |
-| Small | `packages/queue/AGENTS.md` | Concurrency guidelines table, idempotency rule, worker contract |
-| Medium | `packages/core/src/modules/sales/AGENTS.md` | Data model constraints, document flow MUST rules, "MUST NOT modify directly" |
+| Small | `packages/cache/AGENTS.md` | All four boundary sections present, MUST rules under `Always`, concrete `Validation Commands`, decision table |
+| Small | `packages/queue/AGENTS.md` | Idempotency MUST rule under `Always`, concurrency guidelines table, worker contract |
+| Medium | `packages/core/src/modules/sales/AGENTS.md` | Data model constraints, document-flow MUST rules under `Always`, scope-tightening `Ask First` items |
 | Medium | `packages/core/src/modules/customers/AGENTS.md` | "Copy from here" directive, reference files table, module checklist |
-| Large | `packages/search/AGENTS.md` | Strategy decision guide, dual checklists, DI token reference |
-| Large | `packages/ai-assistant/AGENTS.md` | Common tasks up front, auth MUST rules, session debugging steps |
+| Large | `packages/search/AGENTS.md` | Strategy decision guide, dual checklists, DI token reference, populated `Validation Commands` |
+| Large | `packages/ai-assistant/AGENTS.md` | Common tasks up front, auth MUST rules under `Always`, dedicated `Ask First` for `AskUserQuestion` confirmation boundary |
 
 ## When Updating Root AGENTS.md Task Router
 
@@ -316,3 +323,17 @@ After creating a new AGENTS.md, update the Task Router table in root `AGENTS.md`
 1. Add a row with descriptive task keywords (not just the package name)
 2. Include specific function names, patterns, and task verbs an agent would search for
 3. Keep the root file under 230 lines
+
+## Migrating an Existing AGENTS.md to the Boundary Convention
+
+When refactoring an older AGENTS.md that predates PR #2082:
+
+1. Identify legacy headings — typically `## MUST Rules`, `## Critical Rules`, `## Key Rules`, or mixed `## Always / Never` blocks.
+2. Hoist each existing rule into the correct boundary:
+   - **MUST/MUST NOT defaults** → `## Always`, preserving the `**MUST [verb]** — [rationale]` pattern.
+   - **Scope/contract decisions that need maintainer approval** → `## Ask First`, phrased as `Ask before …`.
+   - **Hard prohibitions and unsafe shortcuts** → `## Never`, phrased as `Never …`.
+3. Add a `## Validation Commands` block with the smallest set of real, package-scoped commands that prove the affected path.
+4. Preserve any high-risk operational details (hard tool-call limits, `AskUserQuestion` confirmation boundaries, encryption defaults, etc.) — content reclassification is fine, content loss is not.
+5. Verify with `grep -nE '^## (Always|Ask First|Never|Validation Commands)$' <file>` that all four headings exist.
+6. Update any other docs that referenced the legacy section anchors (`#must-rules`, `#critical-rules`, etc.).
