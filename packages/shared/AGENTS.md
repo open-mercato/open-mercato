@@ -90,6 +90,14 @@ import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
 const { t } = await resolveTranslations()
 ```
 
+**User-facing vs internal errors.** When a `throw new Error(...)`, `createCrudFormError(...)`, `raiseCrudError(...)`, or `toast.*(...)` message will surface to a user, route it through `t('module.errors.<key>')`. When it's a developer-only assertion (programming bug, container/wiring issue, contract violation that should never be triggered at runtime), prefix the literal with `[internal]` so the i18n hardcoded-string checker treats it as opted out:
+
+```typescript
+throw new Error('[internal] Event bus not available in container')
+```
+
+The detection scripts (`yarn i18n:check-hardcoded`, `yarn i18n:check-values`) live in `scripts/`. See `.ai/specs/2026-05-26-missing-translations-audit-and-remediation.md` for the full convention and the per-module allowlist format (`<module>/i18n/.hardcoded-allowlist.json`).
+
 ### Request Scoping — use for scoped API payloads
 
 ```typescript
