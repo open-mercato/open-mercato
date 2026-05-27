@@ -322,6 +322,7 @@ export function AiChatSessionsProvider({ children }: { children: React.ReactNode
       update((prev) => {
         const target = prev.sessions.find((s) => s.id === sessionId)
         if (!target || target.status !== 'open') return prev
+        if (prev.activeByAgent[target.agentId] === sessionId) return prev
         const sessions = prev.sessions.map((s) =>
           s.id === sessionId ? { ...s, lastUsedAt: Date.now() } : s,
         )
