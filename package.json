@@ -170,6 +170,7 @@
   },
   "resolutions": {
     "@xmldom/xmldom": "0.8.13",
+    "tmp": "0.2.7",
     "@hono/node-server": "1.19.14",
     "hono": "4.12.14",
     "pg": "8.21.0",
