@@ -34,6 +34,31 @@ export function createActivityWorkerHandler(
     const { payload } = job
     const startTime = Date.now()
 
+    // Timer jobs (kind: 'timer') are a distinct flow — they resume a paused
+    // workflow instance rather than executing an activity. Handle them first.
+    if (payload.kind === 'timer') {
+      console.log(
+        `[ActivityWorker] Firing timer for instance ${payload.workflowInstanceId} (job ${ctx.jobId})`
+      )
+      try {
+        const { fireTimer } = await import('./timer-handler')
+        await fireTimer(em, container, {
+          instanceId: payload.workflowInstanceId,
+          stepInstanceId: payload.stepInstanceId,
+          tenantId: payload.tenantId,
+          organizationId: payload.organizationId,
+          userId: payload.userId,
+        })
+      } catch (error: any) {
+        console.error(
+          `[ActivityWorker] Failed to fire timer for instance ${payload.workflowInstanceId}:`,
+          error.message
+        )
+        throw error
+      }
+      return
+    }
+
     console.log(
       `[ActivityWorker] Processing activity ${payload.activityId} (job ${ctx.jobId})`
     )
@@ -79,6 +104,10 @@ export function createActivityWorkerHandler(
             return await executeCallWebhook(payload.activityConfig, activityContext)
           case 'EXECUTE_FUNCTION':
             return await executeFunction(payload.activityConfig, activityContext, container)
+          case 'WAIT':
+            // Delay already applied by the queue via delayMs; the worker
+            // only needs to record completion so the workflow can resume.
+            return { waited: true, async: true }
           default:
             throw new Error(`Unsupported activity type: ${payload.activityType}`)
         }

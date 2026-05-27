@@ -326,7 +326,17 @@ async function startSyncExcelImport(
       },
       data,
     })
-    if (response.status() !== 500) return response
+    if (response.status() < 500) return response
+    let diagnosticBody = ''
+    try {
+      diagnosticBody = await response.text()
+    } catch {
+      diagnosticBody = '<unable to read response body>'
+    }
+    // eslint-disable-next-line no-console
+    console.error(
+      `[TC-SX-001] sync_excel import POST returned ${response.status()} on attempt ${attempt + 1}/3. Body: ${diagnosticBody.slice(0, 2000)}`,
+    )
     if (attempt < 2) {
       await new Promise((resolve) => setTimeout(resolve, 500 * (attempt + 1)))
     }

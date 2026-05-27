@@ -2,6 +2,33 @@
 
 `@open-mercato/cli` provides CLI tooling, module generators, and database migration commands.
 
+## Always
+
+1. Keep generator output deterministic and derived from module source files.
+2. Run `yarn generate` after changing generator discovery or output.
+3. Keep `.snapshot-open-mercato.json` in sync with intended module entity changes.
+4. Keep standalone app generator contracts aligned across `packages/create-app`, template package scripts, and CLI testing paths.
+
+## Ask First
+
+- Ask before changing generated file locations, auto-discovery conventions, migration ordering, or CLI command contracts.
+- Ask before applying migrations locally with `yarn db:migrate`; PRs normally include migration files and snapshots, not local DB state.
+
+## Never
+
+- Never commit unrelated generated migrations caused by stale snapshots in other modules.
+- Never make generator post-steps fail generation when optional cache tooling is unavailable.
+- Never use runtime imports in `generators.ts` plugin files.
+
+## Validation Commands
+
+```bash
+yarn generate
+yarn db:generate
+yarn workspace @open-mercato/cli test
+yarn workspace @open-mercato/cli build
+```
+
 ## Structure
 
 ```

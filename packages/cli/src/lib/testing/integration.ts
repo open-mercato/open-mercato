@@ -1649,6 +1649,10 @@ function buildReusableEnvironment(
     OM_ENABLE_ENTERPRISE_MODULES_SECURITY: process.env.OM_ENABLE_ENTERPRISE_MODULES_SECURITY ?? enterpriseModulesFlag,
     OM_TEST_MODE: '1',
     OM_TEST_AUTH_RATE_LIMIT_MODE: 'opt-in',
+    // Tests assert on access_logs immediately after CRUD reads; keep the
+    // blocking write path on inside the integration runtime so tests do
+    // not have to call flushPendingCrudAccessLogs() explicitly.
+    OM_CRUD_ACCESS_LOG_BLOCKING: process.env.OM_CRUD_ACCESS_LOG_BLOCKING ?? '1',
     OM_WEBHOOKS_ALLOW_PRIVATE_URLS: process.env.OM_WEBHOOKS_ALLOW_PRIVATE_URLS ?? '1',
     ENABLE_CRUD_API_CACHE: 'true',
     MOCK_GATEWAY_WEBHOOK_SECRET: 'open-mercato-mock-dev-webhook-secret',
@@ -2906,10 +2910,19 @@ export async function startEphemeralEnvironment(options: EphemeralRuntimeOptions
       JWT_SECRET: process.env.JWT_SECRET ?? 'om-ephemeral-integration-jwt-secret',
       OM_SECURITY_MFA_SETUP_SECRET: process.env.OM_SECURITY_MFA_SETUP_SECRET ?? 'om-ephemeral-integration-mfa-setup-secret',
       NODE_ENV: 'production',
-      DB_POOL_MIN: '0',
-      DB_POOL_MAX: '5',
-      DB_POOL_IDLE_TIMEOUT: '1000',
-      DB_POOL_ACQUIRE_TIMEOUT: '10000',
+      // Pool sizing for the ephemeral integration runtime. Defaults were once
+      // very aggressive (max=5, idle=1000) which exposed flaky 'timeout exceeded
+      // when trying to connect' errors on `progressService.createJob`-backed
+      // endpoints (sync_excel.import, data_sync.run, progress.jobs) — each
+      // request acquires a transaction connection plus a separate connection
+      // for the encryption subscriber's fetchMap probe, and with 1s idle close
+      // the pool thrashes faster than pg-pool can repopulate. These values
+      // still keep the pool tighter than production but give enough headroom
+      // for the legitimate query bursts.
+      DB_POOL_MIN: '2',
+      DB_POOL_MAX: '20',
+      DB_POOL_IDLE_TIMEOUT: '10000',
+      DB_POOL_ACQUIRE_TIMEOUT: '15000',
       DB_IDLE_SESSION_TIMEOUT_MS: '30000',
       DB_IDLE_IN_TRANSACTION_TIMEOUT_MS: '30000',
       OM_INTEGRATION_TEST: 'true',
@@ -2927,7 +2940,7 @@ export async function startEphemeralEnvironment(options: EphemeralRuntimeOptions
       NEXT_PUBLIC_UMES_DEVTOOLS: 'true',
       CI: 'true',
       TENANT_DATA_ENCRYPTION_FALLBACK_KEY: process.env.TENANT_DATA_ENCRYPTION_FALLBACK_KEY ?? 'om-ephemeral-integration-fallback-key',
-      AUTO_SPAWN_WORKERS: 'false',
+      AUTO_SPAWN_WORKERS: process.env.AUTO_SPAWN_WORKERS ?? 'true',
       AUTO_SPAWN_SCHEDULER: 'false',
       OM_CLI_QUIET: '1',
       MERCATO_QUIET: '1',

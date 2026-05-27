@@ -442,15 +442,16 @@ export default function IntegrationDetailPage({ params }: IntegrationDetailPageP
     )
   }, [integrationId])
 
-  const loadDetail = React.useCallback(async () => {
+  const loadDetail = React.useCallback(async (options?: { showLoading?: boolean }) => {
+    const showLoading = options?.showLoading ?? true
     const currentIntegrationId = resolveCurrentIntegrationId()
     if (!currentIntegrationId) {
-      setIsLoading(false)
-      setError(t('integrations.detail.loadError', 'Failed to load integration'))
+      if (showLoading) setIsLoading(false)
+      if (showLoading) setError(t('integrations.detail.loadError', 'Failed to load integration'))
       return
     }
-    setError(null)
-    setIsLoading(true)
+    if (showLoading) setError(null)
+    if (showLoading) setIsLoading(true)
     try {
       const call = await apiCall<IntegrationDetail>(
         `/api/integrations/${encodeURIComponent(currentIntegrationId)}`,
@@ -458,15 +459,16 @@ export default function IntegrationDetailPage({ params }: IntegrationDetailPageP
         { fallback: null },
       )
       if (!call.ok || !call.result) {
-        setError(t('integrations.detail.loadError', 'Failed to load integration'))
-        setIsLoading(false)
+        if (showLoading) setError(t('integrations.detail.loadError', 'Failed to load integration'))
+        if (showLoading) setIsLoading(false)
         return
       }
       setDetail(call.result)
-      setIsLoading(false)
+      setError(null)
+      if (showLoading) setIsLoading(false)
     } catch {
-      setError(t('integrations.detail.loadError', 'Failed to load integration'))
-      setIsLoading(false)
+      if (showLoading) setError(t('integrations.detail.loadError', 'Failed to load integration'))
+      if (showLoading) setIsLoading(false)
     }
   }, [resolveCurrentIntegrationId, t])
 
@@ -522,14 +524,14 @@ export default function IntegrationDetailPage({ params }: IntegrationDetailPageP
     spotId: detailWidgetSpotId,
   })
   const refreshDetail = React.useCallback(async () => {
-    await loadDetail()
+    await loadDetail({ showLoading: false })
     await loadCredentials()
   }, [loadCredentials, loadDetail])
   const refreshLogs = React.useCallback(async () => {
     await loadLogs()
   }, [loadLogs])
   const refreshHealthSnapshot = React.useCallback(async () => {
-    await loadDetail()
+    await loadDetail({ showLoading: false })
   }, [loadDetail])
   const runIdFromUrl = searchParams?.get('runId') ?? null
   const refreshRunActivity = React.useCallback(async (options?: { showLoading?: boolean }) => {
@@ -546,7 +548,7 @@ export default function IntegrationDetailPage({ params }: IntegrationDetailPageP
         { fallback: null },
       )
       await loadLogs()
-      await loadDetail()
+      await loadDetail({ showLoading: false })
       if (call.ok && call.result) {
         setActiveRunDetail(call.result)
         setActiveRunRefreshedAt(new Date().toISOString())

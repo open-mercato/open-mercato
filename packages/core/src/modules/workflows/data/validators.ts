@@ -1,4 +1,5 @@
 import { z } from 'zod'
+import { parseDuration } from '../lib/duration'
 
 /**
  * Workflows Module - Zod Validators
@@ -7,6 +8,40 @@ import { z } from 'zod'
  */
 
 const uuid = z.uuid()
+
+// Variable interpolation tokens (e.g., {{context.timeout}}) are resolved at
+// run time, so we must skip strict syntax checks on them at save time.
+const containsTemplate = (value: string) => value.includes('{{')
+
+export function isValidDurationString(value: unknown): boolean {
+  if (typeof value !== 'string' || value.length === 0) return false
+  if (containsTemplate(value)) return true
+  try {
+    const ms = parseDuration(value)
+    return Number.isFinite(ms) && ms > 0
+  } catch {
+    return false
+  }
+}
+
+export function isValidIsoDateString(value: unknown): boolean {
+  if (typeof value !== 'string' || value.length === 0) return false
+  if (containsTemplate(value)) return true
+  const d = new Date(value)
+  return !Number.isNaN(d.getTime())
+}
+
+export function isFutureIsoDateString(value: unknown): boolean {
+  if (typeof value !== 'string' || value.length === 0) return false
+  if (containsTemplate(value)) return true
+  const d = new Date(value)
+  if (Number.isNaN(d.getTime())) return false
+  return d.getTime() > Date.now()
+}
+
+const DURATION_ERROR = 'Invalid duration. Use ISO 8601 (e.g., PT5M, PT1H, P1D) or simple format (5m, 1h, 3d)'
+const UNTIL_ERROR = 'Invalid "until". Provide an ISO 8601 datetime string'
+const UNTIL_PAST_ERROR = '"until" must be a future datetime'
 
 // ============================================================================
 // Enum Schemas - Workflow Types and Statuses
@@ -169,6 +204,49 @@ export const activityDefinitionSchema = z.object({
     activityId: z.string().min(1), // ID of compensation activity
     automatic: z.boolean().default(true).optional() // Auto-trigger on failure
   }).optional(), // Compensation configuration (Phase 8.2)
+}).superRefine((activity, ctx) => {
+  if (activity.activityType !== 'WAIT') return
+  const config = activity.config || {}
+  const hasDuration = config.duration != null && config.duration !== ''
+  const hasUntil = config.until != null && config.until !== ''
+  if (!hasDuration && !hasUntil) {
+    ctx.addIssue({
+      code: 'custom',
+      path: ['config'],
+      message: 'WAIT activity requires "duration" or "until"',
+    })
+    return
+  }
+  if (hasDuration && hasUntil) {
+    ctx.addIssue({
+      code: 'custom',
+      path: ['config'],
+      message: 'WAIT activity accepts "duration" OR "until", not both',
+    })
+    return
+  }
+  if (hasDuration && !isValidDurationString(config.duration)) {
+    ctx.addIssue({
+      code: 'custom',
+      path: ['config', 'duration'],
+      message: DURATION_ERROR,
+    })
+  }
+  if (hasUntil) {
+    if (!isValidIsoDateString(config.until)) {
+      ctx.addIssue({
+        code: 'custom',
+        path: ['config', 'until'],
+        message: UNTIL_ERROR,
+      })
+    } else if (!isFutureIsoDateString(config.until)) {
+      ctx.addIssue({
+        code: 'custom',
+        path: ['config', 'until'],
+        message: UNTIL_PAST_ERROR,
+      })
+    }
+  }
 })
 
 // Localized validation message schema (for START step pre-conditions)
@@ -201,6 +279,49 @@ export const workflowStepSchema = z.object({
   retryPolicy: retryPolicySchema.optional(),
   // Pre-conditions for START step (business rules to validate before workflow can be started)
   preConditions: z.array(startPreConditionSchema).optional(),
+}).superRefine((step, ctx) => {
+  if (step.stepType !== 'WAIT_FOR_TIMER') return
+  const config = step.config || {}
+  const hasDuration = config.duration != null && config.duration !== ''
+  const hasUntil = config.until != null && config.until !== ''
+  if (!hasDuration && !hasUntil) {
+    ctx.addIssue({
+      code: 'custom',
+      path: ['config'],
+      message: 'WAIT_FOR_TIMER step requires "duration" or "until"',
+    })
+    return
+  }
+  if (hasDuration && hasUntil) {
+    ctx.addIssue({
+      code: 'custom',
+      path: ['config'],
+      message: 'WAIT_FOR_TIMER step accepts "duration" OR "until", not both',
+    })
+    return
+  }
+  if (hasDuration && !isValidDurationString(config.duration)) {
+    ctx.addIssue({
+      code: 'custom',
+      path: ['config', 'duration'],
+      message: DURATION_ERROR,
+    })
+  }
+  if (hasUntil) {
+    if (!isValidIsoDateString(config.until)) {
+      ctx.addIssue({
+        code: 'custom',
+        path: ['config', 'until'],
+        message: UNTIL_ERROR,
+      })
+    } else if (!isFutureIsoDateString(config.until)) {
+      ctx.addIssue({
+        code: 'custom',
+        path: ['config', 'until'],
+        message: UNTIL_PAST_ERROR,
+      })
+    }
+  }
 })
 
 // Transition condition (reference to business rule)

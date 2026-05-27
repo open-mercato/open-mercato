@@ -15,3 +15,6 @@ export type { SubWorkflowNodeData } from './SubWorkflowNode'
 
 export { WaitForSignalNode } from './WaitForSignalNode'
 export type { WaitForSignalNodeData } from './WaitForSignalNode'
+
+export { WaitForTimerNode } from './WaitForTimerNode'
+export type { WaitForTimerNodeData } from './WaitForTimerNode'
