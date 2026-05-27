@@ -229,6 +229,7 @@
   "security.api.errors.emailOtpDestinationRequired": "Nie można skonfigurować OTP e-mail bez docelowego adresu e-mail.",
   "security.api.errors.emailOtpSetupSessionExpired": "Sesja konfiguracji OTP e-mail wygasła.",
   "security.api.errors.emailOtpSetupSessionNotFound": "Nie znaleziono sesji konfiguracji OTP e-mail.",
+  "security.api.errors.enforcementInsufficientScope": "Niewystarczające uprawnienia do tej polityki wymuszania.",
   "security.api.errors.enforcementOrganizationScopeFormat": "Pole scopeId dla organizacji musi mieć format '<tenantId>:<organizationId>'.",
   "security.api.errors.enforcementOrganizationScopeIdsRequired": "Pola tenantId i organizationId są wymagane dla zakresu organizacji.",
   "security.api.errors.enforcementPolicyAlreadyExistsForScope": "Polityka egzekwowania dla tego zakresu już istnieje.",

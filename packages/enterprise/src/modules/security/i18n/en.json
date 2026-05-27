@@ -229,6 +229,7 @@
   "security.api.errors.emailOtpDestinationRequired": "Unable to configure email OTP without a destination email address.",
   "security.api.errors.emailOtpSetupSessionExpired": "Email OTP setup session expired.",
   "security.api.errors.emailOtpSetupSessionNotFound": "Email OTP setup session not found.",
+  "security.api.errors.enforcementInsufficientScope": "Insufficient scope for enforcement policy.",
   "security.api.errors.enforcementOrganizationScopeFormat": "Organisation scopeId must use '<tenantId>:<organizationId>' format.",
   "security.api.errors.enforcementOrganizationScopeIdsRequired": "tenantId and organizationId are required for organisation scope.",
   "security.api.errors.enforcementPolicyAlreadyExistsForScope": "An enforcement policy already exists for this scope.",

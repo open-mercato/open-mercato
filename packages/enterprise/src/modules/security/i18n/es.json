@@ -229,6 +229,7 @@
   "security.api.errors.emailOtpDestinationRequired": "No se puede configurar OTP por correo electrónico sin una dirección de correo de destino.",
   "security.api.errors.emailOtpSetupSessionExpired": "La sesión de configuración de OTP por correo ha expirado.",
   "security.api.errors.emailOtpSetupSessionNotFound": "No se encontró la sesión de configuración de OTP por correo.",
+  "security.api.errors.enforcementInsufficientScope": "Permisos insuficientes para esta política de aplicación.",
   "security.api.errors.enforcementOrganizationScopeFormat": "El scopeId de organización debe usar el formato '<tenantId>:<organizationId>'.",
   "security.api.errors.enforcementOrganizationScopeIdsRequired": "tenantId y organizationId son obligatorios para el alcance de organización.",
   "security.api.errors.enforcementPolicyAlreadyExistsForScope": "Ya existe una política de cumplimiento para este alcance.",

@@ -48,6 +48,7 @@ const exactMessageMap = new Map<string, MessageDescriptor>([
   ['MFA challenge already verified', { key: 'security.api.errors.mfaChallengeAlreadyVerified', fallback: 'MFA challenge was already verified.' }],
   ['MFA challenge expired', { key: 'security.api.errors.mfaChallengeExpired', fallback: 'MFA challenge expired.' }],
   ['Enforcement policy not found', { key: 'security.api.errors.enforcementPolicyNotFound', fallback: 'Enforcement policy not found.' }],
+  ['Insufficient scope for enforcement policy', { key: 'security.api.errors.enforcementInsufficientScope', fallback: 'Insufficient scope for enforcement policy.' }],
   ['Enforcement policy already exists for this scope', { key: 'security.api.errors.enforcementPolicyAlreadyExistsForScope', fallback: 'An enforcement policy already exists for this scope.' }],
   ['scopeId is required for tenant and organisation scopes', { key: 'security.api.errors.enforcementScopeIdRequired', fallback: 'scopeId is required for tenant and organisation scopes.' }],
   ["organisation scopeId must use '<tenantId>:<organizationId>' format", { key: 'security.api.errors.enforcementOrganizationScopeFormat', fallback: "Organisation scopeId must use '<tenantId>:<organizationId>' format." }],

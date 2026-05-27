@@ -49,6 +49,12 @@ export function isEnforcementDeadlineOverdue(
   return deadlineTime <= now
 }
 
+export type MfaEnforcementAuthScope = {
+  tenantId: string | null
+  organizationId?: string | null
+  isSuperAdmin?: boolean
+}
+
 export class MfaEnforcementServiceError extends Error {
   constructor(
     message: string,
@@ -136,13 +142,32 @@ export class MfaEnforcementService {
     }
   }
 
+  /**
+   * @deprecated Since 0.6 — pass an {@link MfaEnforcementAuthScope} so the policy
+   *   write is enforced against the caller's actual tenant/organization scope
+   *   rather than caller-supplied body fields. The no-scope overload now treats
+   *   the caller as a non-superadmin with unknown tenant and rejects every write
+   *   with 403; it will be removed in a future release.
+   */
   async createPolicy(
     data: EnforcementPolicyInput,
     adminId: string,
-    actor?: EnforcementActorContext,
+  ): Promise<MfaEnforcementPolicy>
+  async createPolicy(
+    data: EnforcementPolicyInput,
+    adminId: string,
+    scope: MfaEnforcementAuthScope,
+  ): Promise<MfaEnforcementPolicy>
+  async createPolicy(
+    data: EnforcementPolicyInput,
+    adminId: string,
+    scope?: MfaEnforcementAuthScope,
   ): Promise<MfaEnforcementPolicy> {
     const normalized = this.normalizePolicyInput(data)
-    this.assertActorOwnsScopeFilters(actor, normalized.scope, normalized.tenantId)
+    const effectiveScope: MfaEnforcementAuthScope = scope ?? { tenantId: null, isSuperAdmin: false }
+    this.assertCreatePolicyScope(normalized, effectiveScope)
+
+
     const existing = await this.findPolicyByScope(
       normalized.scope,
       normalized.tenantId ?? undefined,
@@ -316,6 +341,41 @@ export class MfaEnforcementService {
     if (tenantPolicy) return tenantPolicy
 
     return this.findPolicyByScope(EnforcementScope.PLATFORM, undefined, undefined)
+  }
+
+  private assertCreatePolicyScope(
+    normalized: {
+      scope: EnforcementScope
+      tenantId: string | null
+      organizationId: string | null
+    },
+    scope: MfaEnforcementAuthScope,
+  ): void {
+    if (scope.isSuperAdmin) return
+
+    // Fail closed when the caller has no concrete tenant context. Mirrors the
+    // MfaAdminService.loadUserForScope precedent — a missing scope.tenantId for
+    // a non-superadmin means we cannot prove ownership of anything.
+    if (!scope.tenantId) {
+      throw new MfaEnforcementServiceError('Insufficient scope for enforcement policy', 403)
+    }
+
+    if (normalized.scope === EnforcementScope.PLATFORM) {
+      throw new MfaEnforcementServiceError('Insufficient scope for enforcement policy', 403)
+    }
+
+    if (normalized.tenantId !== scope.tenantId) {
+      throw new MfaEnforcementServiceError('Insufficient scope for enforcement policy', 403)
+    }
+
+    if (
+      normalized.scope === EnforcementScope.ORGANISATION
+      && scope.organizationId !== undefined
+      && scope.organizationId !== null
+      && normalized.organizationId !== scope.organizationId
+    ) {
+      throw new MfaEnforcementServiceError('Insufficient scope for enforcement policy', 403)
+    }
   }
 
   private async findPolicyByScope(
