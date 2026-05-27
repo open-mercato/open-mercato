@@ -57,8 +57,13 @@ abstract class WmsScopedEntity {
   expression:
     'create unique index "wms_warehouses_org_code_unique_idx" on "wms_warehouses" ("organization_id", "code") where deleted_at is null',
 })
+@Index({
+  name: 'wms_warehouses_org_primary_unique_idx',
+  expression:
+    'create unique index "wms_warehouses_org_primary_unique_idx" on "wms_warehouses" ("organization_id") where deleted_at is null and is_primary = true',
+})
 export class Warehouse extends WmsScopedEntity {
-  [OptionalProps]?: WmsOptionalProps | 'isActive' | 'addressLine1' | 'city' | 'postalCode' | 'country' | 'timezone'
+  [OptionalProps]?: WmsOptionalProps | 'isActive' | 'isPrimary' | 'addressLine1' | 'city' | 'postalCode' | 'country' | 'timezone'
 
   @Property({ type: 'text' })
   name!: string
@@ -68,6 +73,9 @@ export class Warehouse extends WmsScopedEntity {
 
   @Property({ name: 'is_active', type: 'boolean', default: true })
   isActive: boolean = true
+
+  @Property({ name: 'is_primary', type: 'boolean', default: false })
+  isPrimary: boolean = false
 
   @Property({ name: 'address_line1', type: 'text', nullable: true })
   addressLine1?: string | null

@@ -30,10 +30,24 @@ const inventoryMovementReferenceTypeSchema = z.enum(['po', 'so', 'transfer', 'ma
 
 const metadataSchema = z.record(z.string(), z.unknown()).optional()
 
-export const warehouseCreateSchema = scopedSchema.extend({
+const enforcePrimaryRequiresActiveWarehouse = (
+  payload: { isActive?: boolean; isPrimary?: boolean },
+  ctx: z.RefinementCtx,
+) => {
+  if (payload.isPrimary === true && payload.isActive === false) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      path: ['isPrimary'],
+      message: 'Inactive warehouses cannot be marked as primary.',
+    })
+  }
+}
+
+const warehouseFieldsSchema = scopedSchema.extend({
   name: z.string().trim().min(1).max(200),
   code: z.string().trim().min(1).max(80),
   isActive: z.boolean().optional(),
+  isPrimary: z.boolean().optional(),
   addressLine1: z.string().trim().max(255).optional(),
   city: z.string().trim().max(150).optional(),
   postalCode: z.string().trim().max(40).optional(),
@@ -42,7 +56,12 @@ export const warehouseCreateSchema = scopedSchema.extend({
   metadata: metadataSchema,
 })
 
-export const warehouseUpdateSchema = z.object({ id: uuid() }).merge(warehouseCreateSchema.partial())
+export const warehouseCreateSchema = warehouseFieldsSchema.superRefine(enforcePrimaryRequiresActiveWarehouse)
+
+export const warehouseUpdateSchema = z
+  .object({ id: uuid() })
+  .merge(warehouseFieldsSchema.partial())
+  .superRefine(enforcePrimaryRequiresActiveWarehouse)
 
 export const warehouseZoneCreateSchema = scopedSchema.extend({
   warehouseId: uuid(),

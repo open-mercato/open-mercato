@@ -4,7 +4,9 @@ import { z } from 'zod'
 import {
   inventoryAdjustSchema,
   productInventoryProfileCreateSchema,
+  warehouseCreateSchema,
   warehouseLocationCreateSchema,
+  warehouseUpdateSchema,
 } from '../validators'
 
 describe('wms validator rules', () => {
@@ -60,6 +62,26 @@ describe('wms validator rules', () => {
         capacityWeight: -0.01,
       }),
     ).toThrow(z.ZodError)
+  })
+
+  it('rejects inactive warehouses marked as primary', () => {
+    expect(() =>
+      warehouseCreateSchema.parse({
+        ...scoped,
+        name: 'Inactive Primary',
+        code: 'INACTIVE-PRIMARY',
+        isPrimary: true,
+        isActive: false,
+      }),
+    ).toThrow(/Inactive warehouses cannot be marked as primary/i)
+
+    expect(() =>
+      warehouseUpdateSchema.parse({
+        id: '33333333-3333-4333-8333-333333333333',
+        isPrimary: true,
+        isActive: false,
+      }),
+    ).toThrow(/Inactive warehouses cannot be marked as primary/i)
   })
 
   it('rejects zero-quantity inventory adjustments', () => {

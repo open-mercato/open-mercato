@@ -27,6 +27,7 @@ function warehouseSnapshot() {
     name: 'Main DC',
     code: 'MAIN',
     isActive: true,
+    isPrimary: false,
     addressLine1: '1 Loading Dock',
     city: 'Warsaw',
     postalCode: '00-001',
@@ -296,6 +297,7 @@ describe('WMS configuration commands — undoable contract', () => {
       name: 'AFTER NAME',
       code: 'AFTER',
       isActive: false,
+      isPrimary: true,
       addressLine1: 'after addr',
       city: 'after city',
       postalCode: 'after zip',
@@ -312,7 +314,18 @@ describe('WMS configuration commands — undoable contract', () => {
           if (name === 'em') {
             return {
               fork: () => ({
-                findOne: jest.fn(async (_entity: unknown, filters: any) => (filters?.id === record.id ? record : null)),
+                findOne: jest.fn(async (_entity: unknown, filters: any) => {
+                  if (filters?.id === record.id) return record
+                  if (filters?.id === 'wh-primary') {
+                    return {
+                      id: 'wh-primary',
+                      tenantId: TENANT,
+                      organizationId: ORG,
+                      isPrimary: false,
+                    }
+                  }
+                  return null
+                }),
                 flush: jest.fn(async () => { flushed.push('flush') }),
                 create: jest.fn(),
                 persist: jest.fn(),
@@ -325,17 +338,85 @@ describe('WMS configuration commands — undoable contract', () => {
     }
     await handler.undo!({
       input: {},
-      logEntry: { commandPayload: { undo: { before, after: { ...before, name: 'AFTER NAME' } } } } as any,
+      logEntry: {
+        commandPayload: {
+          undo: {
+            before,
+            after: { ...before, name: 'AFTER NAME', isPrimary: true },
+            demotedPrimariesBefore: [{ id: 'wh-primary', isPrimary: true }],
+          },
+        },
+      } as any,
       ctx,
       undoToken: 'token-3',
     } as any)
     expect(record.name).toBe(before.name)
     expect(record.code).toBe(before.code)
     expect(record.isActive).toBe(before.isActive)
+    expect(record.isPrimary).toBe(before.isPrimary)
     expect(record.addressLine1).toBe(before.addressLine1)
     expect(record.city).toBe(before.city)
     expect(record.country).toBe(before.country)
-    expect(flushed).toHaveLength(1)
+    expect(flushed).toHaveLength(2)
+  })
+
+  it('undo of primary swap restores demoted sibling primary flag', async () => {
+    const handler = commandRegistry.get('wms.warehouses.update')!
+    const before = { ...warehouseSnapshot(), id: 'wh-secondary', isPrimary: false }
+    const demotedPrimary: any = {
+      id: 'wh-primary',
+      tenantId: TENANT,
+      organizationId: ORG,
+      isPrimary: false,
+    }
+    const updatedSecondary: any = {
+      ...before,
+      isPrimary: true,
+      name: 'Promoted DC',
+    }
+    const flushed: Array<unknown> = []
+    const ctx: any = {
+      auth: { tenantId: TENANT, orgId: ORG },
+      container: {
+        resolve: (name: string) => {
+          if (name === 'em') {
+            return {
+              fork: () => ({
+                findOne: jest.fn(async (_entity: unknown, filters: any) => {
+                  if (filters?.id === updatedSecondary.id) return updatedSecondary
+                  if (filters?.id === demotedPrimary.id) return demotedPrimary
+                  return null
+                }),
+                flush: jest.fn(async () => { flushed.push('flush') }),
+                create: jest.fn(),
+                persist: jest.fn(),
+              }),
+            }
+          }
+          throw new Error(`unexpected resolve: ${name}`)
+        },
+      },
+    }
+
+    await handler.undo!({
+      input: {},
+      logEntry: {
+        commandPayload: {
+          undo: {
+            before,
+            after: { ...before, isPrimary: true, name: 'Promoted DC' },
+            demotedPrimariesBefore: [{ id: 'wh-primary', isPrimary: true }],
+          },
+        },
+      } as any,
+      ctx,
+      undoToken: 'token-primary-swap',
+    } as any)
+
+    expect(updatedSecondary.isPrimary).toBe(false)
+    expect(updatedSecondary.name).toBe(before.name)
+    expect(demotedPrimary.isPrimary).toBe(true)
+    expect(flushed).toHaveLength(2)
   })
 
   it('undo is a no-op when payload has neither before nor after', async () => {

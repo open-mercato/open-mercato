@@ -2,14 +2,16 @@
 
 jest.mock('@open-mercato/shared/lib/encryption/find', () => ({
   findWithDecryption: jest.fn(),
+  findOneWithDecryption: jest.fn(),
 }))
 
-import { findWithDecryption } from '@open-mercato/shared/lib/encryption/find'
+import { findOneWithDecryption, findWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import { E } from '#generated/entities.ids.generated'
-import { InventoryBalance, InventoryReservation, ProductInventoryProfile } from '../entities'
+import { InventoryBalance, InventoryReservation, ProductInventoryProfile, Warehouse } from '../entities'
 import { enrichers } from '../enrichers'
 
 const findWithDecryptionMock = jest.mocked(findWithDecryption)
+const findOneWithDecryptionMock = jest.mocked(findOneWithDecryption)
 
 type QueryStub = {
   query: jest.Mock<Promise<{ items: unknown[]; page: number; pageSize: number; total: number }>, [string, Record<string, unknown>]>
@@ -52,6 +54,8 @@ describe('wms sales order enrichers', () => {
 
   beforeEach(() => {
     findWithDecryptionMock.mockReset()
+    findOneWithDecryptionMock.mockReset()
+    findOneWithDecryptionMock.mockResolvedValue(null)
   })
 
   it('skips enrichment when the sales inventory integration toggle is disabled', async () => {
@@ -134,6 +138,10 @@ describe('wms sales order enrichers', () => {
         ]
       }
 
+      if (entity === Warehouse) {
+        return null
+      }
+
       return []
     })
 
@@ -159,6 +167,65 @@ describe('wms sales order enrichers', () => {
           reservationSummary: {
             status: 'partially_reserved',
             reservationIds: ['reservation-1', 'reservation-2'],
+          },
+        },
+      },
+    ])
+  })
+
+  it('falls back assignedWarehouseId to primary warehouse when no active reservations exist', async () => {
+    const queryEngine = createQueryEngine((entityId) => {
+      if (entityId === E.sales.sales_order_line) {
+        return [
+          {
+            id: 'line-1',
+            order_id: 'order-1',
+            product_variant_id: 'variant-1',
+            quantity: '2',
+            line_number: 1,
+          },
+        ]
+      }
+      return []
+    })
+
+    findWithDecryptionMock.mockImplementation(async (_em, entity) => {
+      if (entity === InventoryReservation) {
+        return []
+      }
+
+      if (entity === InventoryBalance) {
+        return [
+          {
+            catalogVariantId: 'variant-1',
+            quantityOnHand: '10',
+            quantityReserved: '0',
+            quantityAllocated: '0',
+          } as InventoryBalance,
+        ]
+      }
+
+      return []
+    })
+
+    findOneWithDecryptionMock.mockResolvedValue({ id: 'warehouse-primary' } as Warehouse)
+
+    const result = await salesOrderInventoryEnricher!.enrichMany!(
+      [{ id: 'order-1', orderNumber: 'SO-1' }],
+      createContext(true, queryEngine),
+    )
+
+    expect(findOneWithDecryptionMock).toHaveBeenCalled()
+    expect(result).toEqual([
+      {
+        id: 'order-1',
+        orderNumber: 'SO-1',
+        _wms: {
+          assignedWarehouseId: 'warehouse-primary',
+          stockSummary: [{ catalogVariantId: 'variant-1', available: '10', reserved: '0' }],
+          reservationSummary: {
+            status: 'unreserved',
+            reservationIds: [],
           },
         },
       },

@@ -5,6 +5,7 @@ import type { FeatureTogglesService } from '@open-mercato/core/modules/feature_t
 import type { QueryEngine } from '@open-mercato/shared/lib/query/types'
 import { E } from '#generated/entities.ids.generated'
 import { InventoryBalance, InventoryReservation, ProductInventoryProfile } from './entities'
+import { resolvePrimaryWarehouseId } from '../lib/primaryWarehousePolicy'
 
 type SalesOrderRecord = Record<string, unknown> & { id?: string }
 type CatalogProductRecord = Record<string, unknown> & { id?: string }
@@ -400,9 +401,10 @@ const salesOrderInventoryEnricher: ResponseEnricher<SalesOrderRecord, SalesOrder
       ),
     )
 
-    const [reservations, balances] = await Promise.all([
+    const [reservations, balances, primaryWarehouseId] = await Promise.all([
       loadReservations(em, orderIds, scope),
       loadBalances(em, variantIds, scope),
+      resolvePrimaryWarehouseId(em, scope),
     ])
 
     const variantAvailability = new Map<string, number>()
@@ -463,7 +465,12 @@ const salesOrderInventoryEnricher: ResponseEnricher<SalesOrderRecord, SalesOrder
       return {
         ...record,
         _wms: {
-          assignedWarehouseId: warehouseIds.length === 1 ? warehouseIds[0] : null,
+          assignedWarehouseId:
+            warehouseIds.length === 1
+              ? warehouseIds[0]
+              : warehouseIds.length === 0 && primaryWarehouseId
+                ? primaryWarehouseId
+                : null,
           stockSummary: variantIdsForOrder.map((catalogVariantId) => ({
             catalogVariantId,
             available: formatQuantity(variantAvailability.get(catalogVariantId) ?? 0),

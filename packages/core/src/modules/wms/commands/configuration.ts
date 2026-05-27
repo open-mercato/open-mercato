@@ -24,6 +24,9 @@
 //   - Cascading children (zones inside a warehouse, child locations inside a
 //     parent location) are NOT auto-undone; each affected record needs its own
 //     undo entry. The audit log preserves enough data per-entity for that.
+//   - Primary reassignment demotes sibling warehouses via `nativeUpdate`. Create
+//     and update undo payloads capture `demotedPrimariesBefore` so undo restores
+//     the previous primary flag on affected siblings.
 // =============================================================================
 import type { CommandHandler } from '@open-mercato/shared/lib/commands'
 import { registerCommand } from '@open-mercato/shared/lib/commands'
@@ -31,7 +34,7 @@ import type { CommandRuntimeContext } from '@open-mercato/shared/lib/commands'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import { CrudHttpError } from '@open-mercato/shared/lib/crud/errors'
 import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
-import { findOneWithDecryption } from '@open-mercato/shared/lib/encryption/find'
+import { findOneWithDecryption, findWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import { extractUndoPayload } from '@open-mercato/shared/lib/commands/undo'
 import type { JsonValue } from '@open-mercato/shared/lib/json'
 import {
@@ -161,6 +164,7 @@ type WarehouseSnapshot = {
   name: string
   code: string
   isActive: boolean
+  isPrimary: boolean
   addressLine1: string | null
   city: string | null
   postalCode: string | null
@@ -171,7 +175,16 @@ type WarehouseSnapshot = {
   updatedAt: string
 }
 
-type WarehouseUndoPayload = { before?: WarehouseSnapshot | null; after?: WarehouseSnapshot | null }
+type PrimaryDemotionSnapshot = {
+  id: string
+  isPrimary: boolean
+}
+
+type WarehouseUndoPayload = {
+  before?: WarehouseSnapshot | null
+  after?: WarehouseSnapshot | null
+  demotedPrimariesBefore?: PrimaryDemotionSnapshot[]
+}
 
 type WarehouseZoneSnapshot = {
   id: string
@@ -274,6 +287,7 @@ function snapshotWarehouse(record: Warehouse): WarehouseSnapshot {
     name: record.name,
     code: record.code,
     isActive: !!record.isActive,
+    isPrimary: !!record.isPrimary,
     addressLine1: record.addressLine1 ?? null,
     city: record.city ?? null,
     postalCode: record.postalCode ?? null,
@@ -428,6 +442,83 @@ async function ensureWarehouseCodeUnique(
   }
 }
 
+async function loadDemotedPrimarySnapshots(
+  em: EntityManager,
+  organizationId: string,
+  tenantId: string,
+  warehouseId: string,
+): Promise<PrimaryDemotionSnapshot[]> {
+  const siblings = await findWithDecryption(
+    em,
+    Warehouse,
+    {
+      organizationId,
+      id: { $ne: warehouseId },
+      isPrimary: true,
+      deletedAt: null,
+    },
+    undefined,
+    { tenantId, organizationId },
+  )
+  return siblings.map((record) => ({ id: record.id, isPrimary: true }))
+}
+
+async function enforcePrimaryWarehouse(
+  em: EntityManager,
+  organizationId: string,
+  tenantId: string,
+  warehouseId: string,
+): Promise<PrimaryDemotionSnapshot[]> {
+  const demotedPrimariesBefore = await loadDemotedPrimarySnapshots(em, organizationId, tenantId, warehouseId)
+  if (demotedPrimariesBefore.length === 0) return []
+  await em.nativeUpdate(
+    Warehouse,
+    {
+      organizationId,
+      id: { $ne: warehouseId },
+      isPrimary: true,
+      deletedAt: null,
+    },
+    { isPrimary: false },
+  )
+  return demotedPrimariesBefore
+}
+
+async function rejectInactivePrimaryWarehouse(ctx: CommandRuntimeContext): Promise<never> {
+  const { translate } = await resolveTranslations()
+  const message = translate(
+    'wms.validation.warehouse.inactivePrimary',
+    'Inactive warehouses cannot be marked as primary.',
+  )
+  throw new CrudHttpError(422, { error: message, fieldErrors: { isPrimary: message } })
+}
+
+function applyWarehouseActivePrimaryState(
+  warehouse: Warehouse,
+  parsed: { isActive?: boolean; isPrimary?: boolean },
+): void {
+  if (parsed.isActive !== undefined) warehouse.isActive = parsed.isActive
+  if (parsed.isPrimary !== undefined) warehouse.isPrimary = parsed.isPrimary
+  if (parsed.isActive === false && warehouse.isPrimary) {
+    warehouse.isPrimary = false
+  }
+}
+
+async function restoreDemotedPrimaryWarehouses(
+  em: EntityManager,
+  ctx: CommandRuntimeContext,
+  demotedPrimariesBefore: PrimaryDemotionSnapshot[] | undefined | null,
+): Promise<void> {
+  if (!demotedPrimariesBefore?.length) return
+  for (const snapshot of demotedPrimariesBefore) {
+    const record = await findOneWithDecryption(em, Warehouse, { id: snapshot.id }, undefined, resolveScope(ctx))
+    if (!record) continue
+    ensureTenantScope(ctx, record.tenantId)
+    ensureOrganizationScope(ctx, record.organizationId)
+    record.isPrimary = snapshot.isPrimary
+  }
+}
+
 async function ensureZoneCodeUnique(
   em: EntityManager,
   warehouseId: string,
@@ -542,7 +633,10 @@ async function resolveParentLocation(
   return parent
 }
 
-const createWarehouseCommand: CommandHandler<WarehouseCreateInput, { warehouseId: string }> = {
+const createWarehouseCommand: CommandHandler<
+  WarehouseCreateInput,
+  { warehouseId: string; demotedPrimariesBefore?: PrimaryDemotionSnapshot[] }
+> = {
   id: 'wms.warehouses.create',
   async execute(rawInput, ctx) {
     const parsed = warehouseCreateSchema.parse(rawInput ?? {})
@@ -550,12 +644,18 @@ const createWarehouseCommand: CommandHandler<WarehouseCreateInput, { warehouseId
     ensureOrganizationScope(ctx, parsed.organizationId)
     const em = resolveEm(ctx)
     await ensureWarehouseCodeUnique(em, parsed.tenantId, parsed.organizationId, parsed.code)
+    const isActive = parsed.isActive ?? true
+    const isPrimary = parsed.isPrimary ?? false
+    if (isPrimary && !isActive) {
+      await rejectInactivePrimaryWarehouse(ctx)
+    }
     const warehouse = em.create(Warehouse, {
       organizationId: parsed.organizationId,
       tenantId: parsed.tenantId,
       name: parsed.name,
       code: parsed.code,
-      isActive: parsed.isActive ?? true,
+      isActive,
+      isPrimary,
       addressLine1: normalizeOptionalString(parsed.addressLine1),
       city: normalizeOptionalString(parsed.city),
       postalCode: normalizeOptionalString(parsed.postalCode),
@@ -564,13 +664,26 @@ const createWarehouseCommand: CommandHandler<WarehouseCreateInput, { warehouseId
       metadata: toJsonValue(parsed.metadata),
     })
     await em.persist(warehouse).flush()
+    let demotedPrimariesBefore: PrimaryDemotionSnapshot[] = []
+    if (warehouse.isPrimary) {
+      demotedPrimariesBefore = await enforcePrimaryWarehouse(
+        em,
+        warehouse.organizationId,
+        warehouse.tenantId,
+        warehouse.id,
+      )
+      await em.flush()
+    }
     void emitWmsEvent('wms.warehouse.created', {
       id: warehouse.id,
       warehouseId: warehouse.id,
       tenantId: warehouse.tenantId,
       organizationId: warehouse.organizationId,
     }).catch(() => undefined)
-    return { warehouseId: warehouse.id }
+    return {
+      warehouseId: warehouse.id,
+      ...(demotedPrimariesBefore.length > 0 ? { demotedPrimariesBefore } : {}),
+    }
   },
   captureAfter: async (_input, result, ctx) => {
     const em = resolveEm(ctx)
@@ -579,7 +692,17 @@ const createWarehouseCommand: CommandHandler<WarehouseCreateInput, { warehouseId
   buildLog: async ({ input, result, ctx, snapshots }) => {
     const base = await buildCrudLog(ctx, input, result?.warehouseId ?? null, 'wms.audit.warehouse.create', 'Create warehouse', 'wms.warehouse')
     const after = snapshots?.after as WarehouseSnapshot | undefined
-    return { ...base, snapshotAfter: after, payload: { undo: { after } satisfies WarehouseUndoPayload } }
+    const demotedPrimariesBefore = result?.demotedPrimariesBefore
+    return {
+      ...base,
+      snapshotAfter: after,
+      payload: {
+        undo: {
+          after,
+          ...(demotedPrimariesBefore?.length ? { demotedPrimariesBefore } : {}),
+        } satisfies WarehouseUndoPayload,
+      },
+    }
   },
   undo: async ({ logEntry, ctx }) => {
     const payload = extractUndoPayload<WarehouseUndoPayload>(logEntry)
@@ -592,10 +715,17 @@ const createWarehouseCommand: CommandHandler<WarehouseCreateInput, { warehouseId
     ensureOrganizationScope(ctx, record.organizationId)
     record.deletedAt = new Date()
     await em.flush()
+    if (payload.demotedPrimariesBefore?.length) {
+      await restoreDemotedPrimaryWarehouses(em, ctx, payload.demotedPrimariesBefore)
+      await em.flush()
+    }
   },
 }
 
-const updateWarehouseCommand: CommandHandler<WarehouseUpdateInput, { warehouseId: string }> = {
+const updateWarehouseCommand: CommandHandler<
+  WarehouseUpdateInput,
+  { warehouseId: string; demotedPrimariesBefore?: PrimaryDemotionSnapshot[] }
+> = {
   id: 'wms.warehouses.update',
   prepare: async (input, ctx) => {
     const id = requireId(input?.id, 'Warehouse')
@@ -612,13 +742,25 @@ const updateWarehouseCommand: CommandHandler<WarehouseUpdateInput, { warehouseId
       warehouse.code = parsed.code
     }
     if (parsed.name !== undefined) warehouse.name = parsed.name
-    if (parsed.isActive !== undefined) warehouse.isActive = parsed.isActive
+    applyWarehouseActivePrimaryState(warehouse, parsed)
+    if (warehouse.isPrimary && !warehouse.isActive) {
+      await rejectInactivePrimaryWarehouse(ctx)
+    }
     if (parsed.addressLine1 !== undefined) warehouse.addressLine1 = normalizeOptionalString(parsed.addressLine1)
     if (parsed.city !== undefined) warehouse.city = normalizeOptionalString(parsed.city)
     if (parsed.postalCode !== undefined) warehouse.postalCode = normalizeOptionalString(parsed.postalCode)
     if (parsed.country !== undefined) warehouse.country = normalizeOptionalString(parsed.country)
     if (parsed.timezone !== undefined) warehouse.timezone = normalizeOptionalString(parsed.timezone)
     if (parsed.metadata !== undefined) warehouse.metadata = toJsonValue(parsed.metadata)
+    let demotedPrimariesBefore: PrimaryDemotionSnapshot[] = []
+    if (warehouse.isPrimary) {
+      demotedPrimariesBefore = await enforcePrimaryWarehouse(
+        em,
+        warehouse.organizationId,
+        warehouse.tenantId,
+        warehouse.id,
+      )
+    }
     await em.flush()
     void emitWmsEvent('wms.warehouse.updated', {
       id: warehouse.id,
@@ -626,7 +768,10 @@ const updateWarehouseCommand: CommandHandler<WarehouseUpdateInput, { warehouseId
       tenantId: warehouse.tenantId,
       organizationId: warehouse.organizationId,
     }).catch(() => undefined)
-    return { warehouseId: warehouse.id }
+    return {
+      warehouseId: warehouse.id,
+      ...(demotedPrimariesBefore.length > 0 ? { demotedPrimariesBefore } : {}),
+    }
   },
   captureAfter: async (_input, result, ctx) => {
     const em = resolveEm(ctx)
@@ -636,7 +781,19 @@ const updateWarehouseCommand: CommandHandler<WarehouseUpdateInput, { warehouseId
     const base = await buildCrudLog(ctx, input, result?.warehouseId ?? null, 'wms.audit.warehouse.update', 'Update warehouse', 'wms.warehouse')
     const before = snapshots?.before as WarehouseSnapshot | undefined
     const after = snapshots?.after as WarehouseSnapshot | undefined
-    return { ...base, snapshotBefore: before, snapshotAfter: after, payload: { undo: { before, after } satisfies WarehouseUndoPayload } }
+    const demotedPrimariesBefore = result?.demotedPrimariesBefore
+    return {
+      ...base,
+      snapshotBefore: before,
+      snapshotAfter: after,
+      payload: {
+        undo: {
+          before,
+          after,
+          ...(demotedPrimariesBefore?.length ? { demotedPrimariesBefore } : {}),
+        } satisfies WarehouseUndoPayload,
+      },
+    }
   },
   undo: async ({ logEntry, ctx }) => {
     const payload = extractUndoPayload<WarehouseUndoPayload>(logEntry)
@@ -652,6 +809,7 @@ const updateWarehouseCommand: CommandHandler<WarehouseUpdateInput, { warehouseId
         name: before.name,
         code: before.code,
         isActive: before.isActive,
+        isPrimary: before.isPrimary,
         addressLine1: before.addressLine1,
         city: before.city,
         postalCode: before.postalCode,
@@ -668,6 +826,7 @@ const updateWarehouseCommand: CommandHandler<WarehouseUpdateInput, { warehouseId
       record.name = before.name
       record.code = before.code
       record.isActive = before.isActive
+      record.isPrimary = before.isPrimary
       record.addressLine1 = before.addressLine1
       record.city = before.city
       record.postalCode = before.postalCode
@@ -677,6 +836,10 @@ const updateWarehouseCommand: CommandHandler<WarehouseUpdateInput, { warehouseId
       record.deletedAt = null
     }
     await em.flush()
+    if (payload.demotedPrimariesBefore?.length) {
+      await restoreDemotedPrimaryWarehouses(em, ctx, payload.demotedPrimariesBefore)
+      await em.flush()
+    }
   },
 }
 
@@ -715,6 +878,7 @@ const deleteWarehouseCommand: CommandHandler<{ id?: string }, { warehouseId: str
         name: before.name,
         code: before.code,
         isActive: before.isActive,
+        isPrimary: before.isPrimary,
         addressLine1: before.addressLine1,
         city: before.city,
         postalCode: before.postalCode,
@@ -732,6 +896,7 @@ const deleteWarehouseCommand: CommandHandler<{ id?: string }, { warehouseId: str
       record.name = before.name
       record.code = before.code
       record.isActive = before.isActive
+      record.isPrimary = before.isPrimary
       record.addressLine1 = before.addressLine1
       record.city = before.city
       record.postalCode = before.postalCode

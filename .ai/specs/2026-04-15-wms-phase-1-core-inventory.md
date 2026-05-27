@@ -163,6 +163,7 @@ Events consumed by WMS (subscribers):
 
 Undo expectations:
 - CRUD-style configuration commands are undoable by reverting fields or soft-deleting the created row.
+- Primary warehouse reassignment captures `demotedPrimariesBefore` in warehouse create/update undo payloads and restores sibling `isPrimary` flags on undo.
 - Inventory mutations must write inverse movement entries rather than mutating historical ledger rows.
 - Reconcile/adjust commands must preserve before/after bucket snapshots for reversal.
 
@@ -173,6 +174,7 @@ Undo expectations:
 - `name`: string
 - `code`: string, unique per organization
 - `is_active`: boolean
+- `is_primary`: boolean, at most one `true` per organization (partial unique index)
 - `address_line1`, `city`, `postal_code`, `country`, `timezone`
 - standard tenant/org/lifecycle columns
 
@@ -370,7 +372,7 @@ Respect `track_lot` / `track_serial` / `track_expiration` flags on the variant p
 
 All validators live in `data/validators.ts`:
 
-- `warehouseCreateSchema`: `name` required, `code` required and unique per organization
+- `warehouseCreateSchema`: `name` required, `code` required and unique per organization, `isPrimary` optional with at-most-one enforcement per organization in commands (sibling primaries demoted org-wide via `enforcePrimaryWarehouse`; undo restores demoted siblings from `demotedPrimariesBefore`); rejects `isPrimary=true` when `isActive=false`; deactivating a primary warehouse auto-clears `isPrimary`
 - `locationCreateSchema`: validate hierarchy (`parent_id` must belong to same warehouse), capacity constraints (`capacity_units` / `capacity_weight` non-negative when provided)
 - `inventoryAdjustSchema`: `reason` required, `delta` must be non-zero
 - `reservationCreateSchema`: `quantity` must be positive, must not exceed `quantity_available` in target buckets
@@ -402,7 +404,7 @@ Phase 1 is the first direct `sales` integration and uses the patterns described 
 
 Direct contracts:
 - `InventoryReservation.source_type = "order"` with `source_id = sales_order_id`
-- sales detail pages opt into WMS enrichers exposing `_wms.stockSummary`, `_wms.reservationSummary`, `_wms.assignedWarehouseId`
+- sales detail pages opt into WMS enrichers exposing `_wms.stockSummary`, `_wms.reservationSummary`, `_wms.assignedWarehouseId` (falls back to org primary warehouse when no active reservations exist)
 - sales items tables may receive an injected "Warehouse Stock" column using `data-table:sales.order.items:*`
 - optional warehouse assignment on sales documents is WMS-owned via an additive extension entity or WMS-specific command route, not a `sales` schema change
 
@@ -514,6 +516,8 @@ UI patterns:
 | WMS-P1-INT-08 | UI | Manage warehouses and locations from backend | CRUD flow works via `CrudForm`/`DataTable`, validation and success states visible |
 | WMS-P1-INT-09 | API/Concurrency | Competing reservations on the same hot SKU | only one reservation succeeds, no negative availability or duplicate bucket consumption |
 | WMS-P1-INT-10 | API/Auth | Deny inventory mutation without WMS feature grant | request is rejected and no side effects are persisted |
+| WMS-P1-INT-11 | API | Primary warehouse create/update enforces at-most-one invariant | sibling primaries demoted org-wide; undo restores demoted siblings; enricher falls back to primary when unreserved |
+| WMS-P1-INT-12 | API | Reject inactive warehouse as primary | create/update return `422` with `isPrimary` field error; deactivating primary auto-clears `isPrimary` |
 
 ### Unit Coverage
 
@@ -521,6 +525,9 @@ UI patterns:
 - availability math and over-reservation prevention
 - low-stock threshold evaluation from profile + balance state
 - serial bucket uniqueness enforcement
+- primary warehouse policy (`resolvePrimaryWarehouseId`, primary-first reservation ordering)
+- warehouse primary demotion undo round-trip (`demotedPrimariesBefore`)
+- inactive-primary validation and deactivation auto-clear behavior
 
 ### Integration Test Notes
 
@@ -532,7 +539,7 @@ UI patterns:
 
 - Implemented targeted Playwright specs `TC-WMS-018` through `TC-WMS-021` to cover hierarchy/profile validation, cycle-count and allocation, ACL denial plus backend UI CRUD, and competing reservation concurrency.
 - Implemented targeted Jest coverage for `fifo`/`lifo`/`fefo` ordering, low-stock threshold evaluation, and validator rules under `packages/core/src/modules/wms/lib/__tests__/inventoryPolicy.test.ts` and `packages/core/src/modules/wms/data/__tests__/validators.test.ts`.
-- Targeted Jest verification passes locally for the WMS unit subset (`inventoryPolicy`, `validators`, `enrichers`).
+- Targeted Jest verification passes locally for the WMS unit subset (`inventoryPolicy`, `validators`, `enrichers`, `primaryWarehousePolicy`, `configuration.primaryWarehouse`, `configuration.undo`).
 - API verification confirmed the phase-1 gaps materially covered by the new specs, including the allocation regression fixed during this pass (`reserve` now persists reserved quantity before `allocate` transitions it to allocated state).
 - Fresh-session Playwright verification now passes for the full WMS phase-1 subset: `TC-WMS-018`, `TC-WMS-019`, `TC-WMS-020`, and `TC-WMS-021` completed green in one run (`7 passed`, `35.6s`) after restarting the app runtime.
 - The only rerun-only fix needed during verification was stabilizing the warehouse CRUD dialog locators in `TC-WMS-020` to target the rendered textbox controls inside the modal instead of inaccessible label bindings.
@@ -606,6 +613,13 @@ None.
 - **Fully compliant**: Approved — ready for implementation
 
 ## Changelog
+
+### 2026-05-27
+- Added `Warehouse.is_primary` with org-scoped partial unique index, warehouse CRUD/UI support, and primary-first reservation automation for sales order inventory subscribers
+- Warehouse create/update undo payloads now capture `demotedPrimariesBefore` so undo restores sibling primary flags after reassignment
+- Sales order enricher falls back `_wms.assignedWarehouseId` to the org primary warehouse when no active reservations exist
+- Aligned `enforcePrimaryWarehouse` and `resolvePrimaryWarehouseId` with org-scoped primary uniqueness (demotion/resolution no longer tenant-filtered)
+- Reject `isPrimary=true` on inactive warehouses; deactivating a primary warehouse auto-clears `isPrimary`
 
 ### 2026-04-15 (rev 5)
 - Aligned stock-rotation semantics with issue #388: FIFO/LIFO now use `received_at` as the canonical receipt timestamp; `InventoryMovement` documents `received_at` explicitly

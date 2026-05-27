@@ -36,6 +36,7 @@ type WarehouseRow = {
   country?: string | null
   timezone?: string | null
   is_active?: boolean | null
+  is_primary?: boolean | null
 }
 
 type LocationRow = {
@@ -80,6 +81,7 @@ type WarehouseFormValues = {
   country?: string
   timezone?: string
   isActive: boolean
+  isPrimary: boolean
 }
 
 type LocationFormValues = {
@@ -121,6 +123,7 @@ const warehouseFormSchema = z.object({
   country: z.string().trim().optional(),
   timezone: z.string().trim().optional(),
   isActive: z.boolean().default(true),
+  isPrimary: z.boolean().default(false),
 })
 
 const locationFormSchema = z.object({
@@ -198,6 +201,7 @@ function mergeCreatedWarehouseIntoWarehousesCaches(
     country: values.country || null,
     timezone: values.timezone || null,
     is_active: values.isActive,
+    is_primary: values.isPrimary,
   }
   const haystack = `${values.name}\n${values.code}`.toLowerCase()
 
@@ -326,6 +330,7 @@ export function WarehouseSection() {
     { id: 'city', type: 'text', label: t('wms.backend.config.warehouses.form.city', 'City') },
     { id: 'country', type: 'text', label: t('wms.backend.config.warehouses.form.country', 'Country') },
     { id: 'timezone', type: 'text', label: t('wms.backend.config.warehouses.form.timezone', 'Timezone') },
+    { id: 'isPrimary', type: 'checkbox', label: t('wms.backend.config.warehouses.form.primary', 'Primary warehouse') },
     { id: 'isActive', type: 'checkbox', label: t('wms.backend.config.warehouses.form.active', 'Active') },
   ], [t])
 
@@ -338,6 +343,14 @@ export function WarehouseSection() {
     { accessorKey: 'code', header: t('wms.backend.config.warehouses.columns.code', 'Code') },
     { accessorKey: 'city', header: t('wms.backend.config.warehouses.columns.city', 'City'), cell: ({ row }) => row.original.city || '—' },
     { accessorKey: 'country', header: t('wms.backend.config.warehouses.columns.country', 'Country'), cell: ({ row }) => row.original.country || '—' },
+    {
+      accessorKey: 'is_primary',
+      header: t('wms.backend.config.warehouses.columns.primary', 'Primary'),
+      cell: ({ row }) =>
+        row.original.is_primary
+          ? t('wms.backend.config.warehouses.primary.yes', 'Primary')
+          : '—',
+    },
     {
       accessorKey: 'is_active',
       header: t('wms.backend.config.warehouses.columns.status', 'Status'),
@@ -357,6 +370,7 @@ export function WarehouseSection() {
         country: dialog.row.country || '',
         timezone: dialog.row.timezone || '',
         isActive: dialog.row.is_active !== false,
+        isPrimary: dialog.row.is_primary === true,
       }
     }
     return {
@@ -366,6 +380,7 @@ export function WarehouseSection() {
       country: '',
       timezone: '',
       isActive: true,
+      isPrimary: false,
     }
   }, [dialog])
 

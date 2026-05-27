@@ -5,6 +5,11 @@ import type { FeatureTogglesService } from '@open-mercato/core/modules/feature_t
 import type { QueryEngine } from '@open-mercato/shared/lib/query/types'
 import { E } from '#generated/entities.ids.generated'
 import { InventoryBalance, InventoryReservation } from '../data/entities'
+import {
+  resolvePrimaryWarehouseId,
+  sortWarehouseAvailabilityForReservation,
+  type WarehouseAvailability,
+} from './primaryWarehousePolicy'
 
 const SALES_ORDER_INVENTORY_TOGGLE = 'wms_integration_sales_order_inventory'
 
@@ -21,11 +26,6 @@ type SalesOrderLifecyclePayload = {
 type Scope = {
   tenantId: string
   organizationId: string
-}
-
-type WarehouseAvailability = {
-  warehouseId: string
-  available: number
 }
 
 type SalesOrderRow = {
@@ -206,9 +206,7 @@ function buildWarehouseAvailability(
   for (const [variantId, warehouseMap] of byVariant.entries()) {
     result.set(
       variantId,
-      Array.from(warehouseMap.entries())
-        .map(([warehouseId, available]) => ({ warehouseId, available }))
-        .sort((a, b) => b.available - a.available),
+      Array.from(warehouseMap.entries()).map(([warehouseId, available]) => ({ warehouseId, available })),
     )
   }
   return result
@@ -244,12 +242,16 @@ export async function reserveInventoryForConfirmedOrder(
   const reservedByVariant = buildReservedQuantityByVariant(activeReservations)
   const balances = await loadBalances(em, Array.from(requiredByVariant.keys()), scope)
   const availabilityByVariant = buildWarehouseAvailability(balances)
+  const primaryWarehouseId = await resolvePrimaryWarehouseId(em, scope)
 
   for (const [variantId, requiredQuantity] of requiredByVariant.entries()) {
     let remainingQuantity = requiredQuantity - (reservedByVariant.get(variantId) ?? 0)
     if (remainingQuantity <= 0) continue
 
-    const warehouseAvailability = availabilityByVariant.get(variantId) ?? []
+    const warehouseAvailability = sortWarehouseAvailabilityForReservation(
+      availabilityByVariant.get(variantId) ?? [],
+      primaryWarehouseId,
+    )
     for (const bucket of warehouseAvailability) {
       if (remainingQuantity <= 0) break
       const reserveQuantity = Math.min(remainingQuantity, bucket.available)
