@@ -1,5 +1,5 @@
 ---
-name: help
+name: om-help
 description: >
   Open Mercato app navigator. Use when a developer asks: "what should I do now?",
   "which skill should I use?", "where do I start?", "next steps?", "I'm lost",
