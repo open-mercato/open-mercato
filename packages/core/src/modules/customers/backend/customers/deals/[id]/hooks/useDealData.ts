@@ -8,6 +8,7 @@ type UseDealDataResult = {
   setData: React.Dispatch<React.SetStateAction<DealDetailPayload | null>>
   isLoading: boolean
   error: string | null
+  isNotFound: boolean
   loadData: () => Promise<void>
 }
 
@@ -16,11 +17,12 @@ export function useDealData(id: string): UseDealDataResult {
   const [data, setData] = React.useState<DealDetailPayload | null>(null)
   const [isLoading, setIsLoading] = React.useState(true)
   const [error, setError] = React.useState<string | null>(null)
+  const [isNotFound, setIsNotFound] = React.useState(false)
   const initialLoadDoneRef = React.useRef(false)
 
   const loadData = React.useCallback(async () => {
     if (!id) {
-      setError(t('customers.deals.detail.error.notFound', 'Deal not found.'))
+      setIsNotFound(true)
       setIsLoading(false)
       return
     }
@@ -36,11 +38,15 @@ export function useDealData(id: string): UseDealDataResult {
       )
       setData(payload)
     } catch (loadError) {
-      const message =
-        loadError instanceof Error
-          ? loadError.message
-          : t('customers.deals.detail.error.load', 'Failed to load deal.')
-      setError(message)
+      if ((loadError as { status?: number }).status === 404) {
+        setIsNotFound(true)
+      } else {
+        const message =
+          loadError instanceof Error
+            ? loadError.message
+            : t('customers.deals.detail.error.load', 'Failed to load deal.')
+        setError(message)
+      }
       if (!initialLoadDoneRef.current) setData(null)
     } finally {
       setIsLoading(false)
@@ -48,5 +54,5 @@ export function useDealData(id: string): UseDealDataResult {
     }
   }, [id, t])
 
-  return { data, setData, isLoading, error, loadData }
+  return { data, setData, isLoading, error, isNotFound, loadData }
 }

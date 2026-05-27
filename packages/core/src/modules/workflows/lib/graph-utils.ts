@@ -452,6 +452,7 @@ function mapNodeTypeToStepType(nodeType: string): string {
     automated: 'AUTOMATED',
     decision: 'DECISION',
     waitForSignal: 'WAIT_FOR_SIGNAL',
+    waitForTimer: 'WAIT_FOR_TIMER',
   }
   return mapping[nodeType] || 'AUTOMATED'
 }
@@ -467,6 +468,7 @@ function mapStepTypeToNodeType(stepType: string): string {
     AUTOMATED: 'automated',
     DECISION: 'decision',
     WAIT_FOR_SIGNAL: 'waitForSignal',
+    WAIT_FOR_TIMER: 'waitForTimer',
   }
   return mapping[stepType] || 'automated'
 }
@@ -482,6 +484,7 @@ function getBadgeForNodeType(nodeType: string): string {
     automated: 'Automated',
     decision: 'Decision',
     waitForSignal: 'Wait for Signal',
+    waitForTimer: 'Wait for Timer',
   }
   return badges[nodeType] || 'Task'
 }

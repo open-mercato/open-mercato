@@ -6,6 +6,37 @@ The `integrations` module is the foundation layer for all external connectors (p
 
 ---
 
+## Always
+
+- **Always scope by organizationId + tenantId** — every entity query and service call
+- **Use `findWithDecryption`/`findOneWithDecryption`** for credential reads
+- **New providers MUST support provider-owned env preconfiguration** when credentials/settings are deployment-managed; implement it in the provider package, not in core
+- **Health check services** must be registered in DI by the provider module, not by integrations
+- **API routes must export `openApi`** for documentation generation
+- **All user-facing strings** via i18n keys in `i18n/en.json`
+- **Keep ACL default export shape** consistent: `export const features = [...]; export default features`
+- **Registry/type contracts** live in `@open-mercato/shared/modules/integrations/types`
+
+## Ask First
+
+- Ask before changing credential resolution order, registry type contracts, canonical API routes, or compatibility surfaces.
+- Ask before moving provider-specific logic into this module.
+- Ask before changing health-check timeouts, log retention semantics, or credential redaction behavior.
+
+## Never
+
+- Never import from provider modules — integrations module is generic; providers import from integrations, not vice versa.
+- Never log credential values — log service strips secret fields from payload.
+- Never special-case provider env presets, credentials, mappings, or enabled state in core.
+- Never remove legacy `integrations.detail:tabs` fallback without a compatibility plan.
+
+## Validation Commands
+
+```bash
+yarn generate
+yarn workspace @open-mercato/core build
+```
+
 ## Module Structure
 
 ```
@@ -192,16 +223,3 @@ The integrations module itself uses UMES to inject external ID displays on any e
 - Module-local integration tests go under `__integration__/`
 - Use helpers from `@open-mercato/core/modules/core/__integration__/helpers/*`
 - Tests must create prerequisites via API and clean up in `finally`
-
-## MUST Rules
-
-- **Never import from provider modules** — integrations module is generic; providers import from integrations, not vice versa
-- **Always scope by organizationId + tenantId** — every entity query and service call
-- **Use `findWithDecryption`/`findOneWithDecryption`** for credential reads
-- **New providers MUST support provider-owned env preconfiguration** when credentials/settings are deployment-managed; implement it in the provider package, not in core
-- **Never log credential values** — log service strips secret fields from payload
-- **Health check services** must be registered in DI by the provider module, not by integrations
-- **API routes must export `openApi`** for documentation generation
-- **All user-facing strings** via i18n keys in `i18n/en.json`
-- **Keep ACL default export shape** consistent: `export const features = [...]; export default features`
-- **Registry/type contracts** live in `@open-mercato/shared/modules/integrations/types`

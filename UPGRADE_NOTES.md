@@ -22,7 +22,7 @@ most of the patterns listed below in a user's codebase.
 
 ---
 
-## Unreleased — OSS optimistic locking default-ON (2026-05-27)
+## 0.6.3 - 0.6.4 — OSS optimistic locking default-ON (2026-05-27)
 
 The `updated_at`-based optimistic-locking guard introduced in
 [`#1981`](https://github.com/open-mercato/open-mercato/pull/2055) is now
@@ -93,6 +93,26 @@ to short-circuit, that branch now returns `'all'`. Audit any
 `if (config.mode === 'off')` paths that fed off the parser default; the
 guard's own runtime check (`config.mode === 'off' → PASS`) is unchanged
 and still does the right thing.
+
+## 0.6.2 → 0.6.3
+
+### Deprecations
+
+#### `GET /api/customers/assignable-staff` → `GET /api/staff/team-members/assignable`
+
+The customer-flow assignable-staff endpoint now lives in the staff module under its canonical URL `/api/staff/team-members/assignable`. The legacy URL `/api/customers/assignable-staff` still works but returns `308 Permanent Redirect` to the new URL with the original query string preserved. RBAC is unchanged (`customers.roles.view` page guard + `customers.roles.manage`/`customers.activities.manage` handler check) so existing role assignments keep working.
+
+```ts
+// before
+const data = await readApiResultOrThrow('/api/customers/assignable-staff?pageSize=20')
+
+// after
+const data = await readApiResultOrThrow('/api/staff/team-members/assignable?pageSize=20')
+```
+
+The legacy URL will stay around for at least one minor version and be removed no earlier than the next major release. Update in-tree consumers now; external HTTP clients that follow `308` redirects do not need changes.
+
+See [`.ai/specs/2026-05-08-staff-decouple-from-core.md`](.ai/specs/2026-05-08-staff-decouple-from-core.md) for the full migration plan.
 
 ---
 
