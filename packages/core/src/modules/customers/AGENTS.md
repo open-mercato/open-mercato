@@ -2,7 +2,7 @@
 
 **This is the reference CRUD module.** When building new modules, copy patterns from here first.
 
-## MUST Rules
+## Always
 
 1. **MUST use this module as the template** for new CRUD modules — copy file structure and patterns
 2. **MUST include all standard module files** — use the list below as a checklist
@@ -10,6 +10,25 @@
 4. **MUST wire custom field helpers** for create/update/response normalization
 5. **MUST capture custom field snapshots** in command `before`/`after` payloads for undo support
 6. **MUST use `useGuardedMutation` for non-`CrudForm` backend writes** (`POST`/`PUT`/`PATCH`/`DELETE`) and pass `retryLastMutation` in injection context
+
+## Ask First
+
+- Ask before changing this module's reference patterns, standard module-file checklist, or AI mutation policies.
+- Ask before changing customer data model relationships that downstream modules may copy.
+
+## Never
+
+- Never bypass custom field normalization in CRUD create/update/read responses.
+- Never omit undo snapshots for custom field mutations.
+- Never write backend `POST`/`PUT`/`PATCH`/`DELETE` actions outside `CrudForm` without `useGuardedMutation`.
+
+## Validation Commands
+
+```bash
+yarn db:generate
+yarn generate
+yarn workspace @open-mercato/core build
+```
 
 ## Key Reference Files — Copy From Here
 

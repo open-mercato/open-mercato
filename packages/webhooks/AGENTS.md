@@ -2,7 +2,7 @@
 
 Use `@open-mercato/webhooks` for Standard Webhooks delivery, inbound verification, and webhook marketplace/admin flows.
 
-## MUST Rules
+## Always
 
 1. **MUST use the shared webhook primitives** — import signing, verification, and secret helpers from `@open-mercato/shared/lib/webhooks`
 2. **MUST enqueue outbound deliveries** — never send webhook HTTP requests directly from subscribers or API routes unless the endpoint is the explicit synchronous test route
@@ -12,6 +12,27 @@ Use `@open-mercato/webhooks` for Standard Webhooks delivery, inbound verificatio
 6. **MUST update both canonical and aliased API surfaces carefully** — `/api/webhooks/...` is the contract surface; compatibility aliases must keep working when present
 7. **MUST wire backend UI writes through shared CRUD helpers or guarded mutations** — do not add ad hoc fetch logic for create, update, retry, rotate, or test actions
 8. **MUST treat inbound adapters as provider-owned** — register `WebhookEndpointAdapter` in the provider module; do not hardcode provider behavior in the webhooks package
+
+## Ask First
+
+- Ask before changing webhook signing, verification, canonical route contracts, or compatibility aliases.
+- Ask before moving provider-specific inbound behavior into the shared webhooks package.
+- Ask before changing retry, deduplication, or delivery lifecycle event semantics.
+
+## Never
+
+- Never send webhook HTTP requests directly from subscribers or API routes unless the endpoint is the explicit synchronous test route.
+- Never read encrypted webhook secrets with raw ORM helpers.
+- Never add ad hoc backend `fetch` logic for create, update, retry, rotate, or test actions.
+- Never hardcode provider-specific inbound behavior in this package.
+
+## Validation Commands
+
+```bash
+yarn generate
+yarn workspace @open-mercato/webhooks test
+yarn workspace @open-mercato/webhooks build
+```
 
 ## When You Need Outbound Webhooks
 

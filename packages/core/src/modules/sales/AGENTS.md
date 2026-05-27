@@ -2,13 +2,32 @@
 
 Use the sales module for orders, quotes, invoices, shipments, and payments. This module has the most complex business logic in the system.
 
-## MUST Rules
+## Always
 
-1. **MUST NOT reimplement document math inline** — use `salesCalculationService` from DI
+1. **MUST use `salesCalculationService` from DI** for document math.
 2. **MUST follow document flow**: Quote → Order → Invoice — no skipping steps
-3. **MUST NOT modify configuration entities directly** (statuses, methods, channels) — use the admin UI or setup hooks
-4. **MUST use `selectBestPrice`** from catalog pricing helpers — never inline price calculations
-5. **MUST scope all documents to a channel** — channel selection affects pricing, numbering, and visibility
+3. **MUST use `selectBestPrice`** from catalog pricing helpers.
+4. **MUST scope all documents to a channel** — channel selection affects pricing, numbering, and visibility
+
+## Ask First
+
+- Ask before changing the Quote → Order → Invoice flow, workflow states, numbering rules, or channel scoping behavior.
+- Ask before changing configuration entity semantics for statuses, methods, channels, price kinds, adjustment kinds, or document numbers.
+
+## Never
+
+- Never reimplement document math inline.
+- Never skip configured document workflow states.
+- Never modify configuration entities directly; use the admin UI or setup hooks.
+- Never inline price calculations.
+
+## Validation Commands
+
+```bash
+yarn db:generate
+yarn generate
+yarn workspace @open-mercato/core build
+```
 
 ## Document Flow
 

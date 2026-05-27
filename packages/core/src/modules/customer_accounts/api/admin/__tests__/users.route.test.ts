@@ -16,6 +16,24 @@ const mockEmNativeUpdate = jest.fn()
 const mockFindByEmail = jest.fn()
 const mockCreateUser = jest.fn()
 
+const mockSearchTokenExecute = jest.fn()
+const mockSearchTokenWhere = jest.fn().mockImplementation(() => searchTokenQueryBuilder)
+const mockSearchTokenHaving = jest.fn().mockImplementation(() => searchTokenQueryBuilder)
+const mockSearchTokenGroupBy = jest.fn().mockImplementation(() => searchTokenQueryBuilder)
+const mockSearchTokenSelect = jest.fn().mockImplementation(() => searchTokenQueryBuilder)
+const searchTokenQueryBuilder: any = {
+  select: mockSearchTokenSelect,
+  where: mockSearchTokenWhere,
+  groupBy: mockSearchTokenGroupBy,
+  having: mockSearchTokenHaving,
+  execute: mockSearchTokenExecute,
+}
+const mockSelectFrom = jest.fn((table: string) => {
+  if (table === 'search_tokens') return searchTokenQueryBuilder
+  throw new Error(`Unexpected selectFrom ${table}`)
+})
+const mockKysely = { selectFrom: mockSelectFrom }
+
 const mockEm = {
   find: mockEmFind,
   findAndCount: mockEmFindAndCount,
@@ -24,6 +42,7 @@ const mockEm = {
   persist: mockEmPersist,
   flush: mockEmFlush,
   nativeUpdate: mockEmNativeUpdate,
+  getKysely: jest.fn(() => mockKysely),
 }
 
 const mockContainer = {
@@ -148,6 +167,92 @@ describe('admin /api/customer_accounts/admin/users — GET listing', () => {
       (call) => call[0] === CustomerUserRole,
     )
     expect(customerUserRoleCalls).toHaveLength(0)
+  })
+})
+
+describe('admin /api/customer_accounts/admin/users — GET search', () => {
+  beforeEach(() => {
+    jest.clearAllMocks()
+    mockGetAuth.mockResolvedValue({ sub: adminId, tenantId, orgId })
+    mockRbac.userHasAllFeatures.mockResolvedValue(true)
+    mockSearchTokenExecute.mockResolvedValue([])
+  })
+
+  it('queries search_tokens with the generated entity id (E.customer_accounts.customer_user) and scopes by tenant', async () => {
+    const matchedId = 'aaaaaaaa-1111-4111-8111-aaaaaaaaaaaa'
+    mockSearchTokenExecute.mockResolvedValueOnce([{ entity_id: matchedId }])
+    mockEmFindAndCount.mockResolvedValueOnce([[makeUser(matchedId)], 1])
+
+    const res = await GET(buildRequest('http://localhost/api/customer_accounts/admin/users?search=alice'))
+    const body = await res.json()
+
+    expect(res.status).toBe(200)
+    expect(mockSelectFrom).toHaveBeenCalledWith('search_tokens')
+    const entityTypeCall = mockSearchTokenWhere.mock.calls.find(
+      (call) => call[0] === 'entity_type' && call[1] === '=' && call[2] === 'customer_accounts:customer_user',
+    )
+    expect(entityTypeCall).toBeDefined()
+    const tenantScopeCall = mockSearchTokenWhere.mock.calls.find((call) => {
+      const clause = call[0] as { toOperationNode?: () => { sqlFragments?: string[]; parameters?: Array<{ value?: unknown }> } } | undefined
+      const node = clause && typeof clause === 'object' && typeof clause.toOperationNode === 'function'
+        ? clause.toOperationNode()
+        : null
+      if (!node || !Array.isArray(node.sqlFragments)) return false
+      const joined = node.sqlFragments.join('?')
+      if (!joined.includes('tenant_id is not distinct from')) return false
+      const params = Array.isArray(node.parameters) ? node.parameters : []
+      return params.some((p) => p && typeof p === 'object' && 'value' in p && p.value === tenantId)
+    })
+    expect(tenantScopeCall).toBeDefined()
+
+    const whereArg = mockEmFindAndCount.mock.calls[0][1] as Record<string, any>
+    expect(whereArg.$or).toEqual(expect.arrayContaining([
+      { id: { $in: [matchedId] } },
+    ]))
+    expect(body.total).toBe(1)
+    expect(body.items).toHaveLength(1)
+    expect(body.items[0]).toMatchObject({ id: matchedId })
+  })
+
+  it('combines emailHash lookup with search_tokens matches when the query looks like an email', async () => {
+    const tokenId = 'bbbbbbbb-2222-4222-8222-bbbbbbbbbbbb'
+    mockSearchTokenExecute.mockResolvedValueOnce([{ entity_id: tokenId }])
+    mockEmFindAndCount.mockResolvedValueOnce([[makeUser(tokenId)], 1])
+
+    const res = await GET(buildRequest('http://localhost/api/customer_accounts/admin/users?search=alice%40example.com'))
+
+    expect(res.status).toBe(200)
+    const whereArg = mockEmFindAndCount.mock.calls[0][1] as Record<string, any>
+    expect(Array.isArray(whereArg.$or)).toBe(true)
+    expect(whereArg.$or).toEqual(expect.arrayContaining([
+      { id: { $in: [tokenId] } },
+      expect.objectContaining({ emailHash: expect.any(String) }),
+    ]))
+  })
+
+  it('returns an empty page when neither search_tokens nor the email-hash fallback match', async () => {
+    mockSearchTokenExecute.mockResolvedValueOnce([])
+
+    const res = await GET(buildRequest('http://localhost/api/customer_accounts/admin/users?search=nobody'))
+    const body = await res.json()
+
+    expect(res.status).toBe(200)
+    expect(body).toEqual({ ok: true, items: [], total: 0, totalPages: 1, page: 1 })
+    expect(mockEmFindAndCount).not.toHaveBeenCalled()
+  })
+
+  it('falls back to emailHash-only search when search_tokens yield no match but the query is email-like', async () => {
+    mockSearchTokenExecute.mockResolvedValueOnce([])
+    mockEmFindAndCount.mockResolvedValueOnce([[], 0])
+
+    const res = await GET(buildRequest('http://localhost/api/customer_accounts/admin/users?search=ghost%40example.com'))
+    const body = await res.json()
+
+    expect(res.status).toBe(200)
+    expect(mockEmFindAndCount).toHaveBeenCalled()
+    const whereArg = mockEmFindAndCount.mock.calls[0][1] as Record<string, any>
+    expect(whereArg.$or).toEqual([expect.objectContaining({ emailHash: expect.any(String) })])
+    expect(body.total).toBe(0)
   })
 })
 

@@ -10,9 +10,21 @@ export function isSuperAdminAuth(auth: AuthContext | null | undefined): boolean 
 
 function isSameScope(auth: AuthContext | null | undefined, attachment: Attachment): boolean {
   if (!auth) return false
-  const sameTenant = attachment.tenantId ? attachment.tenantId === auth.tenantId : true
-  const sameOrg = attachment.organizationId ? attachment.organizationId === auth.orgId : true
-  return sameTenant && sameOrg
+  const attachmentTenant = attachment.tenantId ?? null
+  const attachmentOrg = attachment.organizationId ?? null
+  // Preserve the legacy "global attachment" semantics: a row with both scope
+  // columns null is treated as accessible to any authenticated principal.
+  // The unauthenticated branch in checkAttachmentAccess already gates this on
+  // partition.isPublic.
+  if (attachmentTenant === null && attachmentOrg === null) {
+    return true
+  }
+  // Fail-closed on partial-null scope. Previously a missing tenant_id or
+  // organization_id was treated as "matches any auth value", which allowed
+  // cross-tenant / cross-org access on private partitions when an attachment
+  // ended up with one scope column unset. Mirrors the fail-closed pattern
+  // from #2012 (mergeIdFilter).
+  return attachmentTenant === auth.tenantId && attachmentOrg === auth.orgId
 }
 
 export function checkAttachmentAccess(

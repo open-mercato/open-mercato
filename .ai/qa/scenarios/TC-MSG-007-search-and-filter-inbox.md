@@ -25,7 +25,7 @@ Validates inbox search and filter controls (`status`, `type`, `attachments`, `ac
 | 1 | Open `/backend/messages` and type a unique subject fragment in `Search messages` | Table narrows to matching rows |
 | 2 | Apply `Status` filter (for example `Unread`) | Only unread messages are listed |
 | 3 | Apply `Type` filter | Only selected message type records remain |
-| 4 | Apply `Attachments = Yes` and `Actions = Yes` filters | Rows without attachments/actions are excluded |
+| 4 | Apply `Has attachments = Yes` and `Has action requests = Yes` filters | Rows without attachments/action requests are excluded |
 | 5 | Clear filters | Full inbox result set returns |
 
 ## Expected Results
