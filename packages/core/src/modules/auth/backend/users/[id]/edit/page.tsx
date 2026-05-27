@@ -17,8 +17,8 @@ import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { extractCustomFieldEntries } from '@open-mercato/shared/lib/crud/custom-fields-client'
 import { formatPasswordRequirements, getPasswordPolicy } from '@open-mercato/shared/lib/auth/passwordPolicy'
 import { UserConsentsPanel } from '@open-mercato/core/modules/auth/components/UserConsentsPanel'
-import { normalizeDisplayNameInput } from '@open-mercato/core/modules/auth/lib/displayName'
 import { RecordNotFoundState, ErrorMessage } from '@open-mercato/ui/backend/detail'
+import { normalizeDisplayNameInput } from '@open-mercato/core/modules/auth/lib/displayName'
 
 type EditUserFormValues = {
   email: string
