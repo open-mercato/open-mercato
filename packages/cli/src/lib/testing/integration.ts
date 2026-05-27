@@ -2942,6 +2942,13 @@ export async function startEphemeralEnvironment(options: EphemeralRuntimeOptions
       TENANT_DATA_ENCRYPTION_FALLBACK_KEY: process.env.TENANT_DATA_ENCRYPTION_FALLBACK_KEY ?? 'om-ephemeral-integration-fallback-key',
       AUTO_SPAWN_WORKERS: process.env.AUTO_SPAWN_WORKERS ?? 'true',
       AUTO_SPAWN_SCHEDULER: 'false',
+      // Hide the demo feedback floating action button — it lives at
+      // `fixed bottom-6 right-6 z-banner` and consistently intercepts pointer
+      // events on row-action menus and other bottom-of-viewport UI elements
+      // (e.g. TC-WF-006 Delete menuitem click). The widget is already gated
+      // on `DEMO_MODE !== 'false'` in the backend layout, so opting out here
+      // only affects the integration test runtime — dev + prod stay unchanged.
+      DEMO_MODE: 'false',
       OM_CLI_QUIET: '1',
       MERCATO_QUIET: '1',
       QUEUE_BASE_DIR: EPHEMERAL_QUEUE_BASE_DIR,
