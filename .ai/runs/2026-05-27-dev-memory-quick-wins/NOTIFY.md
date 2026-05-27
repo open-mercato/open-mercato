@@ -15,3 +15,11 @@
 - Implementing the re-exec inside `scripts/watch.mjs` would either (a) require editing each of 16 per-package wrappers to dynamic-import the helper before esbuild loads, or (b) detach the actual watcher from turbo's process tree (turbo sees the proxy parent exit first → breaks lifecycle).
 - The pragmatic answer is `NODE_OPTIONS='--max-old-space-size=N' yarn dev` — propagates to every child Node process via env inheritance, zero code change. Will be documented in the spec.
 - Tasks table updated: Phase 2 collapsed into one analysis spec phase. Phase 3 is now the final gate. Total Steps: 5 (1.1, 1.2, 2.1, 2.2, 3.1). Below the 5-Step checkpoint threshold, so only the final-gate checkpoint will fire.
+
+## 2026-05-27T06:51:00Z — final gate complete
+- Steps 1.1, 1.2, 2.1, 2.2 all committed and pushed.
+- Sandbox checks all pass (node --check on 2 files; node --test 10/10; AGENTS.md size 36805 < 42000).
+- CI-only checks (yarn typecheck/test/build/lint/integration suites) deferred — janitor sandbox has no node_modules. Risk analysis in final-gate-checks.md notes each deferred check carries low risk because no TS code, no UI, no DB, no contract surface was touched.
+- ds-guardian: not applicable (no UI changes).
+- Self code-review + BC self-review: clean (logged in final-gate-checks.md).
+- Ready to open the PR.
