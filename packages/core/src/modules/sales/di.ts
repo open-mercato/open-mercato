@@ -2,16 +2,8 @@ import { asFunction, asValue } from 'awilix'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import type { EventBus } from '@open-mercato/events'
 import type { AppContainer } from '@open-mercato/shared/lib/di/container'
-import {
-  createOptimisticLockGuardService,
-  parseOptimisticLockEnv,
-  type OptimisticLockCurrentReader,
-} from '@open-mercato/shared/lib/crud/optimistic-lock'
-import { OPTIMISTIC_LOCK_ENV_VAR } from '@open-mercato/shared/lib/crud/optimistic-lock-headers'
-import {
-  getAllOptimisticLockReaders,
-  registerOptimisticLockReaders,
-} from '@open-mercato/shared/lib/crud/optimistic-lock-store'
+import type { OptimisticLockCurrentReader } from '@open-mercato/shared/lib/crud/optimistic-lock'
+import { registerOptimisticLockReaders } from '@open-mercato/shared/lib/crud/optimistic-lock-store'
 import { DefaultSalesCalculationService } from './services/salesCalculationService'
 import { DefaultTaxCalculationService } from './services/taxCalculationService'
 import { SalesDocumentNumberGenerator } from './services/salesDocumentNumberGenerator'
@@ -67,15 +59,14 @@ const readSalesOrderUpdatedAt: OptimisticLockCurrentReader = async (
   return row?.updatedAt instanceof Date ? row.updatedAt.toISOString() : null
 }
 
-function collectEnabledReaders(): Record<string, OptimisticLockCurrentReader> {
-  const config = parseOptimisticLockEnv(process.env[OPTIMISTIC_LOCK_ENV_VAR])
-  if (config.mode === 'off') return {}
-  const includes = (kind: string) =>
-    config.mode === 'all' || config.entities.has(kind)
-  const readers: Record<string, OptimisticLockCurrentReader> = {}
-  if (includes(RESOURCE_KIND_ORDER)) readers[RESOURCE_KIND_ORDER] = readSalesOrderUpdatedAt
-  return readers
-}
+// Hand-wired sales.order reader registered at module-load time so the
+// `customer_entities`-style polymorphic-table override pattern stays
+// observable for downstream modules. Functionally identical to the
+// auto-registered generic reader; kept here as a reference example. The
+// guard's mode check short-circuits when `OM_OPTIMISTIC_LOCK=off`.
+registerOptimisticLockReaders({
+  [RESOURCE_KIND_ORDER]: readSalesOrderUpdatedAt,
+})
 
 export function register(container: AppContainer) {
   container.register({
@@ -121,20 +112,8 @@ export function register(container: AppContainer) {
     SalesTaxRate: asValue(SalesTaxRate),
   })
 
-  // OSS opt-in optimistic locking — see .ai/specs/2026-05-25-oss-optimistic-locking.md.
-  // Contributes a sales.order reader to the shared store. Multiple modules
-  // can register the same `crudMutationGuardService` Awilix key safely
-  // because every binding points to the same store-backed factory.
-  const enabledReaders = collectEnabledReaders()
-  if (Object.keys(enabledReaders).length > 0) {
-    registerOptimisticLockReaders(enabledReaders)
-    container.register({
-      crudMutationGuardService: asFunction(({ em }: AppCradle) =>
-        createOptimisticLockGuardService({
-          getEm: () => em,
-          readers: getAllOptimisticLockReaders(),
-        }),
-      ).scoped(),
-    })
-  }
+  // `crudMutationGuardService` is registered platform-wide in the shared
+  // DI bootstrap (`packages/shared/src/lib/di/container.ts`). The
+  // hand-wired sales.order reader above already lives in the global store,
+  // so this module no longer needs its own DI binding.
 }

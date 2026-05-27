@@ -1,16 +1,8 @@
-import { asFunction, asValue } from 'awilix'
+import { asValue } from 'awilix'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import type { AppContainer } from '@open-mercato/shared/lib/di/container'
-import {
-  createOptimisticLockGuardService,
-  parseOptimisticLockEnv,
-  type OptimisticLockCurrentReader,
-} from '@open-mercato/shared/lib/crud/optimistic-lock'
-import { OPTIMISTIC_LOCK_ENV_VAR } from '@open-mercato/shared/lib/crud/optimistic-lock-headers'
-import {
-  getAllOptimisticLockReaders,
-  registerOptimisticLockReaders,
-} from '@open-mercato/shared/lib/crud/optimistic-lock-store'
+import type { OptimisticLockCurrentReader } from '@open-mercato/shared/lib/crud/optimistic-lock'
+import { registerOptimisticLockReaders } from '@open-mercato/shared/lib/crud/optimistic-lock-store'
 import { CustomerEntity, CustomerAddress, CustomerInteraction } from './data/entities'
 
 const RESOURCE_KIND_COMPANY = 'customers.company'
@@ -60,22 +52,17 @@ const readCustomerPersonUpdatedAt: OptimisticLockCurrentReader = async (
   return row?.updatedAt instanceof Date ? row.updatedAt.toISOString() : null
 }
 
-function collectEnabledReaders(): Record<string, OptimisticLockCurrentReader> {
-  const config = parseOptimisticLockEnv(process.env[OPTIMISTIC_LOCK_ENV_VAR])
-  if (config.mode === 'off') return {}
-  const includes = (kind: string) =>
-    config.mode === 'all' || config.entities.has(kind)
-  const readers: Record<string, OptimisticLockCurrentReader> = {}
-  if (includes(RESOURCE_KIND_COMPANY)) readers[RESOURCE_KIND_COMPANY] = readCustomerCompanyUpdatedAt
-  // Register the person reader under both the canonical singular form and the
-  // plural form the CRUD factory derives at runtime — whichever the env opts
-  // in for, the reader is available.
-  if (includes(RESOURCE_KIND_PERSON) || includes(RESOURCE_KIND_PEOPLE)) {
-    readers[RESOURCE_KIND_PERSON] = readCustomerPersonUpdatedAt
-    readers[RESOURCE_KIND_PEOPLE] = readCustomerPersonUpdatedAt
-  }
-  return readers
-}
+// Hand-wired readers must register at module-load time so they LAND BEFORE
+// the factory's `registerOptimisticLockReaderIfAbsent` calls in
+// `makeCrudRoute`. The discriminator (`kind: 'company' | 'person'`) cannot
+// be expressed by the generic auto-reader because both kinds share the
+// `customer_entities` polymorphic table. Registered unconditionally — the
+// guard's mode check short-circuits when `OM_OPTIMISTIC_LOCK=off`.
+registerOptimisticLockReaders({
+  [RESOURCE_KIND_COMPANY]: readCustomerCompanyUpdatedAt,
+  [RESOURCE_KIND_PERSON]: readCustomerPersonUpdatedAt,
+  [RESOURCE_KIND_PEOPLE]: readCustomerPersonUpdatedAt,
+})
 
 export function register(container: AppContainer) {
   container.register({
@@ -83,17 +70,8 @@ export function register(container: AppContainer) {
     CustomerAddress: asValue(CustomerAddress),
     CustomerInteraction: asValue(CustomerInteraction),
   })
-
-  const enabledReaders = collectEnabledReaders()
-  if (Object.keys(enabledReaders).length > 0) {
-    registerOptimisticLockReaders(enabledReaders)
-    container.register({
-      crudMutationGuardService: asFunction(({ em }: { em: EntityManager }) =>
-        createOptimisticLockGuardService({
-          getEm: () => em,
-          readers: getAllOptimisticLockReaders(),
-        }),
-      ).scoped(),
-    })
-  }
+  // `crudMutationGuardService` is registered platform-wide in the shared
+  // DI bootstrap (`packages/shared/src/lib/di/container.ts`). It already
+  // resolves the hand-wired readers above from the global store, so this
+  // module no longer needs its own DI binding.
 }

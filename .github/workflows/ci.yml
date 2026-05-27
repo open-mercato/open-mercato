@@ -17,6 +17,10 @@ env:
   # discriminated by `kind`) and the `sales.order` reference. The
   # auto-registered reader handles every other entity, including
   # `customers.deal` exercised by TC-LOCK-OSS-004.
+  #
+  # As of Phase 14 (2026-05-27) the guard is default ON — `all` is now
+  # the same as unset. Kept explicit here to match the snapshot env and
+  # to make the intent obvious in CI logs.
   OM_OPTIMISTIC_LOCK: 'all'
 
 on:

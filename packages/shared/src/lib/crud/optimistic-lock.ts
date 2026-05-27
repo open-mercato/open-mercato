@@ -1,16 +1,27 @@
 /**
- * OSS opt-in optimistic-locking guard service.
+ * OSS optimistic-locking guard service.
  *
- * Registered as `crudMutationGuardService` in a module's `di.ts`. Compares
- * the client-sent expected `updated_at` (carried via the extension header
+ * Registered as `crudMutationGuardService` (by the platform DI bootstrap and
+ * by hand-wiring modules that override the default reader). Compares the
+ * client-sent expected `updated_at` (carried via the extension header
  * defined in `optimistic-lock-headers.ts`) against the current DB
  * `updated_at` for the target entity; on mismatch returns HTTP 409 with the
  * structured `OptimisticLockConflictBody`.
  *
- * Default OFF. Activate via `OM_OPTIMISTIC_LOCK`:
- *   - unset / empty                 → OFF (no behavior change)
- *   - `all`                         → all entities
+ * **Default ON** (Phase 14, 2026-05-27). Activate / scope / disable via
+ * `OM_OPTIMISTIC_LOCK`:
+ *   - unset / empty / whitespace    → ON for every CRUD entity (`{ mode: 'all' }`)
+ *   - `all`                         → all entities (explicit form of the default)
  *   - `customers.company,sales.order` → allow-list (lowercased, trimmed, deduped)
+ *   - `off` / `false` / `0` / `no` / `disabled` / `none` → fully disabled
+ *
+ * The guard is still strictly additive at runtime: clients that do not send
+ * the `x-om-ext-optimistic-lock-expected-updated-at` header pass through
+ * unchanged, so flipping the default to ON cannot introduce new 409s on
+ * existing API consumers. Pages that opt into the round-trip (via
+ * `CrudForm`'s `optimisticLockUpdatedAt` prop or by calling
+ * `buildOptimisticLockHeader`) gain protection without any per-deployment
+ * env change.
  *
  * Cannot be registered as a static `data/guards.ts` `MutationGuard` because
  * the static `validate(input)` receives only `MutationGuardInput` — no
@@ -40,20 +51,41 @@ export type OptimisticLockConfig =
   | { mode: 'allowlist'; entities: ReadonlySet<string> }
 
 /**
+ * Tokens (case-insensitive, single-token-only) that explicitly disable the
+ * guard. Spelled out as a fixed set so tests can pin them; deliberately the
+ * same shape `parseBooleanToken` recognises so operators can mirror existing
+ * habit. Mixing an off-token with other entities is invalid input — we treat
+ * any presence of an off-token in the comma list as a request to disable.
+ */
+const OPTIMISTIC_LOCK_OFF_TOKENS: ReadonlySet<string> = new Set([
+  'off',
+  'false',
+  '0',
+  'no',
+  'disabled',
+  'none',
+])
+
+/**
  * Pure parser for `OM_OPTIMISTIC_LOCK`. Exported separately so tests can
  * exercise the grammar without spinning up the full service.
+ *
+ * Default is **ON** (`{ mode: 'all' }`) — unset / empty / whitespace input
+ * activates the guard for every CRUD entity. Operators opt out via
+ * `OM_OPTIMISTIC_LOCK=off` (or `false` / `0` / `no` / `disabled` / `none`).
  */
 export function parseOptimisticLockEnv(raw: string | undefined | null): OptimisticLockConfig {
-  if (raw == null) return { mode: 'off' }
+  if (raw == null) return { mode: 'all' }
   const trimmed = String(raw).trim()
-  if (trimmed === '') return { mode: 'off' }
+  if (trimmed === '') return { mode: 'all' }
 
   const tokens = trimmed
     .split(',')
     .map((token) => token.trim().toLowerCase())
     .filter((token) => token.length > 0)
 
-  if (tokens.length === 0) return { mode: 'off' }
+  if (tokens.length === 0) return { mode: 'all' }
+  if (tokens.some((token) => OPTIMISTIC_LOCK_OFF_TOKENS.has(token))) return { mode: 'off' }
   if (tokens.includes('all')) return { mode: 'all' }
 
   return { mode: 'allowlist', entities: new Set(tokens) }

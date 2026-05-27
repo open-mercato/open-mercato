@@ -10,8 +10,8 @@
 
 ## TLDR
 
-Ship an **opt-in, additive** optimistic-locking guard in OSS that prevents
-silent lost updates on concurrent CRUD edits. The guard:
+Ship an **additive, default-ON** optimistic-locking guard in OSS that
+prevents silent lost updates on concurrent CRUD edits. The guard:
 
 - Uses the existing `updated_at` common column as the version token — no new
   column, no migration, no entity fork.
@@ -20,8 +20,11 @@ silent lost updates on concurrent CRUD edits. The guard:
   because a stateful optimistic check needs DB access and the static
   `MutationGuard.validate(input)` only receives `MutationGuardInput`
   (no `em` / container).
-- Is **default OFF**. Enabled platform-wide or per-entity via
-  `OM_OPTIMISTIC_LOCK` env (zero behavior change unless explicitly set).
+- Is **default ON** as of Phase 14 (2026-05-27). Activated automatically
+  for every CRUD entity behind `makeCrudRoute`. Operators opt out via
+  `OM_OPTIMISTIC_LOCK=off` (or `false` / `0` / `no` / `disabled` /
+  `none`). Existing clients that do not send the expected-`updated_at`
+  header continue to pass through unchanged.
 - Returns **HTTP 409** with a structured body that the enterprise
   `record_locks` module can extend (today: optimistic check; tomorrow:
   full merge / pessimistic acquire).
@@ -167,17 +170,20 @@ four.
 ### 3.4 Env configuration
 
 ```
-OM_OPTIMISTIC_LOCK=all
-OM_OPTIMISTIC_LOCK=customers.company,sales.order
-OM_OPTIMISTIC_LOCK=
-# (unset) → default OFF
+# (unset)                              → default ON — every CRUD entity
+OM_OPTIMISTIC_LOCK=all                 → explicit ON (same as default)
+OM_OPTIMISTIC_LOCK=customers.company,sales.order → allow-list (narrow scope)
+OM_OPTIMISTIC_LOCK=off                 → opt out completely
+OM_OPTIMISTIC_LOCK=false / 0 / no / disabled / none → also opt out (mirrors parseBooleanToken)
 ```
 
 Parse rules (implemented in `parseOptimisticLockEnv(raw: string | undefined)`):
 
 | Input | Result |
 |---|---|
-| `undefined`, `null`, `''`, `'  '` | OFF — `{ mode: 'off' }` |
+| `undefined`, `null`, `''`, `'  '` | **All entities (default ON) — `{ mode: 'all' }`** |
+| `'off'`, `'false'`, `'0'`, `'no'`, `'disabled'`, `'none'` (single token, case-insensitive) | OFF — `{ mode: 'off' }` |
+| Any off-token mixed with other entries (e.g. `'off,customers.company'`) | OFF wins (invalid input, fail-safe) |
 | `'all'` (case-insensitive, trimmed) | All entities — `{ mode: 'all' }` |
 | `'customers.company,sales.order'` | Allow-list — `{ mode: 'allowlist', entities: Set(...) }` |
 | `'all,customers.company'` | All entities (`all` wins) |
@@ -186,6 +192,17 @@ Parse rules (implemented in `parseOptimisticLockEnv(raw: string | undefined)`):
 Reading the env happens **once at module load** (`process.env.OM_OPTIMISTIC_LOCK`)
 to keep the per-request hot path cheap. Tests use `jest.isolateModules` to
 reload with different values.
+
+> **Why default ON?** Phase 14 (2026-05-27) flipped the default. The
+> previous behavior — silent last-write-wins — caused real user pain
+> the moment two operators opened the same form, and the guard is
+> strictly additive at runtime: clients that do not send the
+> `x-om-ext-optimistic-lock-expected-updated-at` header continue to pass
+> through unchanged. The only client surface that automatically sends
+> the header is `CrudForm` with the `optimisticLockUpdatedAt` prop set,
+> which is explicit opt-in on every page that wires it. Default ON
+> therefore turns coverage on without forcing pages to start sending
+> 409s before they're ready.
 
 ### 3.5 Server algorithm
 
@@ -284,7 +301,7 @@ enterprise-side implementation of #2 is **not part of this PR**.
 | Widget spot IDs | None added. |
 | ACL features | None added in OSS. Enterprise `record_locks` module already owns `record_locks.*`. |
 | `i18n` keys | Additive: `ui.forms.flash.recordModified`. |
-| Env vars | New optional `OM_OPTIMISTIC_LOCK`. Absent / empty → OFF. |
+| Env vars | `OM_OPTIMISTIC_LOCK` is now **default ON** (Phase 14, 2026-05-27). Absent / empty → `{ mode: 'all' }`. Opt out with `OM_OPTIMISTIC_LOCK=off` (or `false` / `0` / `no` / `disabled` / `none`). The runtime stays strictly additive: requests that omit the `x-om-ext-optimistic-lock-expected-updated-at` header continue to pass through; only clients that opt into the header (e.g. `CrudForm` with `optimisticLockUpdatedAt`) can receive a 409. |
 | `CrudForm` behavior | Strictly additive: header injection only fires when `values.updatedAt` is present AND the guard is enabled server-side. |
 
 No deprecations. No removals. No renames. Full additive.
@@ -381,6 +398,7 @@ the first comment on the PR.
 | Q1 wire transport | A: `If-Unmodified-Since` (HTTP std, second-precision) / B: `x-om-ext-optimistic-lock-expected-updated-at` (ms-precision) / C: inline JSON field | **B** |
 | Q2 409 shape | A: generic `{ error }` / B: structured `{ error, code, currentUpdatedAt, expectedUpdatedAt }` / C: B + full current payload | **B** |
 | Q3 env syntax | A: keyword `all` only / B: allow-list only / C: both | **C** |
+| Q7 default state | A: opt-in (default OFF) / B: default ON for every CRUD entity / C: default ON with explicit `off` opt-out tokens | **C** — landed via Phase 14 (2026-05-27). Default flipped to ON; `off` / `false` / `0` / `no` / `disabled` / `none` opt out. Strict-additive runtime contract preserved (clients that do not send the header still pass). |
 | Q4 enterprise hook | A: priority composition / B: token-resolution hook / C: both | **C** |
 | Q5 reference entities | A: 1 (`customers.company`) / B: 3 (`customers.company` + `customers.person` + `sales.order`) / C: platform-wide via `makeCrudRoute` auto-registration | **C** — landed via Phase 13 of this spec; B-tier entities keep their hand-wired readers as polymorphic-table overrides. |
 | Q6 integration test count | A: 1 pair / B: 1 pair per reference entity / C: B + 1 spec on a non-reference entity (`customers.deal`) to prove the generic path | **C** — `TC-LOCK-OSS-001..003` cover the 3 hand-wired references, `TC-LOCK-OSS-004` covers `customers.deal` via the auto-registered generic reader. |

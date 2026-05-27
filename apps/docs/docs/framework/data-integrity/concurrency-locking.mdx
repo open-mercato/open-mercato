@@ -8,9 +8,10 @@ sidebar_label: Concurrency & Locking
 
 Open Mercato ships a two-tier locking story:
 
-1. **OSS — opt-in optimistic locking via `updated_at`.** Lightweight,
-   additive, no migration. Detects conflicts at write time and surfaces a
-   structured 409 to the client. Default OFF.
+1. **OSS — optimistic locking via `updated_at`.** Lightweight, additive,
+   no migration. Detects conflicts at write time and surfaces a
+   structured 409 to the client. **Default ON** for every CRUD entity
+   (since 2026-05-27). Operators opt out with `OM_OPTIMISTIC_LOCK=off`.
 2. **Enterprise — full pessimistic locking** via the
    [`record_locks`](https://github.com/open-mercato/open-mercato/tree/develop/packages/enterprise/src/modules/record_locks)
    module: acquire/release/heartbeat, presence widgets, force-release,
@@ -21,20 +22,37 @@ pessimistic layer composes on top of it.
 
 ---
 
-## When to enable it
+## Default state
 
-Turn on the OSS optimistic-lock guard when any of these are true:
+The OSS optimistic-lock guard is **ON by default** for every CRUD entity
+behind `makeCrudRoute`. There is no per-module wiring step: the platform
+DI bootstrap registers the guard service, and the CRUD factory
+auto-registers a generic `updated_at` reader for every route's
+`resourceKind` at module-load time.
 
-- Two operators may edit the same record concurrently (CRM contacts,
-  product info, deals — anywhere the form sits open in someone's tab).
-- You have **not** licensed the enterprise `record_locks` module and want
-  to prevent silent last-write-wins.
-- You want the protection at zero migration cost — the guard reads the
-  existing `updated_at` column.
+The guard is still strictly additive at runtime:
+
+- Requests that omit the `x-om-ext-optimistic-lock-expected-updated-at`
+  header continue to pass through unchanged (no 409, no behavior change).
+- The only client surface that automatically sends the header is
+  `CrudForm` with `optimisticLockUpdatedAt` set, plus any code that
+  explicitly calls `buildOptimisticLockHeader(...)`.
+
+That means default ON gives every page access to the protection without
+forcing pages to start receiving 409s before they have wired the round-
+trip.
+
+## Opting out
+
+Set `OM_OPTIMISTIC_LOCK=off` in the server environment (also accepted:
+`false` / `0` / `no` / `disabled` / `none`). The guard short-circuits at
+`config.mode === 'off'` before consulting the reader store, so the
+mutation path runs unchanged.
 
 When the enterprise `record_locks` module is also active it owns
-mutation guarding (it registers the same DI slot at a higher priority);
-the OSS check is documented here as the OSS-only fallback path.
+mutation guarding (its `di.ts` overrides the platform-default Awilix
+registration with the pessimistic lock service); the OSS check is
+documented here as the OSS-only path.
 
 ---
 
@@ -57,20 +75,25 @@ the OSS check is documented here as the OSS-only fallback path.
 
 ---
 
-## Enable in your environment
+## Scoping in your environment
 
-Set `OM_OPTIMISTIC_LOCK` in the server's environment:
+`OM_OPTIMISTIC_LOCK` lets you narrow or disable the default coverage:
 
 | Value | Behavior |
 |-------|----------|
-| _unset_ / empty / whitespace | **OFF** (default — zero behavior change). |
-| `all` (any case) | Every CRUD entity. Auto-coverage via `makeCrudRoute`. |
-| `customers.company,sales.order` | Allow-list — comma-separated entityTypes, lowercased & trimmed. |
+| _unset_ / empty / whitespace | **Default ON** — every CRUD entity. Auto-coverage via `makeCrudRoute`. |
+| `all` (any case) | Explicit ON (same as the default). |
+| `customers.company,sales.order` | Allow-list — narrow to these entityTypes (comma-separated, lowercased, trimmed). |
 | `all,customers.company` | `all` wins. |
+| `off` / `false` / `0` / `no` / `disabled` / `none` | OFF — guard short-circuits and the mutation path runs unchanged. |
+| Off-token mixed with entries (e.g. `off,customers.company`) | OFF wins (invalid input → fail safe). |
 
 ```bash
-# .env or .env.local
-OM_OPTIMISTIC_LOCK=customers.company
+# .env or .env.local — opt out completely
+OM_OPTIMISTIC_LOCK=off
+
+# Or narrow coverage to a specific allow-list
+OM_OPTIMISTIC_LOCK=customers.company,sales.order
 ```
 
 Reading happens once at module-load time (process boot). Restart the
@@ -161,19 +184,18 @@ that.
 
 ## Reference implementation (OSS)
 
-Two files. Copy this shape when adding more entities.
+For most entities **no module-level wiring is needed** — `makeCrudRoute`
+auto-registers a generic reader at module-load time and the platform DI
+bootstrap registers a default `crudMutationGuardService`. The reference
+below shows the pattern when you do need a hand-wired override (e.g. a
+polymorphic table with a `kind` discriminator).
 
-### 1. Reader: how to fetch the current `updated_at`
+### 1. Reader: how to fetch the current `updated_at` (polymorphic-table override)
 
 ```ts
 // packages/core/src/modules/customers/di.ts
-import { asFunction } from 'awilix'
-import {
-  createOptimisticLockGuardService,
-  parseOptimisticLockEnv,
-  type OptimisticLockCurrentReader,
-} from '@open-mercato/shared/lib/crud/optimistic-lock'
-import { OPTIMISTIC_LOCK_ENV_VAR } from '@open-mercato/shared/lib/crud/optimistic-lock-headers'
+import type { OptimisticLockCurrentReader } from '@open-mercato/shared/lib/crud/optimistic-lock'
+import { registerOptimisticLockReaders } from '@open-mercato/shared/lib/crud/optimistic-lock-store'
 import { CustomerEntity } from './data/entities'
 
 const RESOURCE_KIND_COMPANY = 'customers.company'
@@ -196,25 +218,18 @@ const readCustomerCompanyUpdatedAt: OptimisticLockCurrentReader = async (
   return row?.updatedAt instanceof Date ? row.updatedAt.toISOString() : null
 }
 
-function shouldRegisterOptimisticLockGuard(): boolean {
-  const config = parseOptimisticLockEnv(process.env[OPTIMISTIC_LOCK_ENV_VAR])
-  if (config.mode === 'off') return false
-  if (config.mode === 'all') return true
-  return config.entities.has(RESOURCE_KIND_COMPANY)
-}
+// Module-load-time registration — runs BEFORE makeCrudRoute's
+// IfAbsent auto-registration, so this hand-wired reader wins.
+registerOptimisticLockReaders({
+  [RESOURCE_KIND_COMPANY]: readCustomerCompanyUpdatedAt,
+})
 
 export function register(container) {
   // ... existing registrations ...
-  if (shouldRegisterOptimisticLockGuard()) {
-    container.register({
-      crudMutationGuardService: asFunction(({ em }) =>
-        createOptimisticLockGuardService({
-          getEm: () => em,
-          readers: { [RESOURCE_KIND_COMPANY]: readCustomerCompanyUpdatedAt },
-        }),
-      ).scoped(),
-    })
-  }
+  // No need to register `crudMutationGuardService` — the shared DI
+  // bootstrap already does it. The service consults the global reader
+  // store at request time, so the hand-wired reader above is picked up
+  // automatically.
 }
 ```
 
@@ -225,6 +240,9 @@ Notes:
   the polymorphic table shared with `customers.person`.
 - `findOneWithDecryption` is **not** required here because no decrypted
   column is read.
+- Registration is unconditional — the guard's mode check short-circuits
+  when `OM_OPTIMISTIC_LOCK=off`, so registering the reader at boot is
+  cheap and removes any risk of order-dependent gating.
 
 ### 2. Client: round-trip the token
 
@@ -347,8 +365,19 @@ A: The client echoes the server's `updatedAt`. Wall-clock skew is
 irrelevant — the server is the only timestamp authority.
 
 **Q: Will this break older API clients?**
-A: No. The guard SKIPS when the header is absent, which is exactly the
-behavior pre-PR. Opt-in is also gated server-side by `OM_OPTIMISTIC_LOCK`.
+A: No. The guard SKIPS when the header is absent — even with the guard
+default ON, requests that do not send
+`x-om-ext-optimistic-lock-expected-updated-at` pass through unchanged.
+Only clients that have explicitly opted into the round-trip (via
+`CrudForm`'s `optimisticLockUpdatedAt` prop or by calling
+`buildOptimisticLockHeader`) can receive a 409.
+
+**Q: Why was the default flipped to ON?**
+A: Silent last-write-wins is the failure mode users hit first; default
+OFF protected nobody by default. Because the guard is strictly additive
+at runtime (no header → pass), default ON costs zero behavior change for
+existing clients while making every page that opts into the header
+protected automatically.
 
 **Q: Does the guard run on `create`?**
 A: No. Only `update` and `delete`. There is no "expected previous

@@ -12,14 +12,32 @@ import {
 import type { CrudMutationGuardValidateInput } from '../mutation-guard'
 
 describe('parseOptimisticLockEnv', () => {
-  it('returns mode=off when unset', () => {
-    expect(parseOptimisticLockEnv(undefined)).toEqual({ mode: 'off' })
-    expect(parseOptimisticLockEnv(null)).toEqual({ mode: 'off' })
+  it('returns mode=all when unset (default ON)', () => {
+    expect(parseOptimisticLockEnv(undefined)).toEqual({ mode: 'all' })
+    expect(parseOptimisticLockEnv(null)).toEqual({ mode: 'all' })
   })
 
-  it('returns mode=off for empty / whitespace strings', () => {
-    expect(parseOptimisticLockEnv('')).toEqual({ mode: 'off' })
-    expect(parseOptimisticLockEnv('   ')).toEqual({ mode: 'off' })
+  it('returns mode=all for empty / whitespace strings (default ON)', () => {
+    expect(parseOptimisticLockEnv('')).toEqual({ mode: 'all' })
+    expect(parseOptimisticLockEnv('   ')).toEqual({ mode: 'all' })
+  })
+
+  it('returns mode=off for the explicit "off" token (case-insensitive)', () => {
+    expect(parseOptimisticLockEnv('off')).toEqual({ mode: 'off' })
+    expect(parseOptimisticLockEnv('OFF')).toEqual({ mode: 'off' })
+    expect(parseOptimisticLockEnv('  off  ')).toEqual({ mode: 'off' })
+  })
+
+  it.each(['false', '0', 'no', 'disabled', 'none'])(
+    'treats "%s" as an off-token (mirrors parseBooleanToken)',
+    (token) => {
+      expect(parseOptimisticLockEnv(token)).toEqual({ mode: 'off' })
+    },
+  )
+
+  it('disables the guard when any off-token appears alongside other entries (input is invalid; off wins)', () => {
+    expect(parseOptimisticLockEnv('off,customers.company')).toEqual({ mode: 'off' })
+    expect(parseOptimisticLockEnv('customers.company,false')).toEqual({ mode: 'off' })
   })
 
   it('returns mode=all for the "all" keyword (case-insensitive, trimmed)', () => {
@@ -79,8 +97,23 @@ function makeInput(overrides: Partial<CrudMutationGuardValidateInput> = {}): Cru
 }
 
 describe('createOptimisticLockGuardService — short-circuits', () => {
-  it('passes when mode is off (env unset)', async () => {
-    const service = makeService({ envValue: undefined })
+  it('passes when mode is off (explicit off-token)', async () => {
+    const service = makeService({ envValue: 'off' })
+    const result = await service.validateMutation(makeInput())
+    expect(result).toEqual({ ok: true, shouldRunAfterSuccess: false })
+  })
+
+  it('passes when env is unset (default mode=all) but no reader is registered (strict-additive opt-in)', async () => {
+    const service = makeService({ envValue: undefined, readers: {} })
+    const result = await service.validateMutation(makeInput())
+    expect(result).toEqual({ ok: true, shouldRunAfterSuccess: false })
+  })
+
+  it('passes when env is unset (default mode=all) but the client did not send the extension header', async () => {
+    const service = makeService({
+      envValue: undefined,
+      readers: { 'customers.company': async () => '2026-05-25T08:00:00.000Z' },
+    })
     const result = await service.validateMutation(makeInput())
     expect(result).toEqual({ ok: true, shouldRunAfterSuccess: false })
   })
@@ -146,6 +179,30 @@ describe('createOptimisticLockGuardService — match / mismatch', () => {
     })
     const result = await service.validateMutation(makeInput({ requestHeaders: headers }))
     expect(result).toEqual({ ok: true, shouldRunAfterSuccess: false })
+  })
+
+  it('detects mismatches end-to-end with env UNSET (proves default-ON behavior)', async () => {
+    const expected = '2026-05-25T08:00:00.000Z'
+    const current = '2026-05-25T08:00:05.000Z'
+    const headers = new Headers()
+    headers.set(OPTIMISTIC_LOCK_HEADER_NAME, expected)
+    // No envValue / readers passed via constructor — but we DO pass an
+    // inline readers map so the service has a reader to consult. The
+    // important assertion is that with envValue=undefined (default mode=all)
+    // the guard does NOT short-circuit and still fires the conflict.
+    const service = makeService({
+      envValue: undefined,
+      readers: { 'customers.company': async () => current },
+    })
+    const result = await service.validateMutation(makeInput({ requestHeaders: headers }))
+    expect(result.ok).toBe(false)
+    if (result.ok) throw new Error('expected failure')
+    expect(result.status).toBe(409)
+    expect(result.body).toMatchObject({
+      code: OPTIMISTIC_LOCK_CONFLICT_CODE,
+      currentUpdatedAt: current,
+      expectedUpdatedAt: expected,
+    })
   })
 
   it('returns 409 with structured body when current is newer than expected', async () => {
@@ -233,7 +290,8 @@ describe('createOptimisticLockGuardService — match / mismatch', () => {
   })
 
   it('exposes the resolved config via getConfig()', () => {
-    expect(makeService({ envValue: undefined }).getConfig()).toEqual({ mode: 'off' })
+    expect(makeService({ envValue: undefined }).getConfig()).toEqual({ mode: 'all' })
+    expect(makeService({ envValue: 'off' }).getConfig()).toEqual({ mode: 'off' })
     expect(makeService({ envValue: 'all' }).getConfig()).toEqual({ mode: 'all' })
     const allow = makeService({ envValue: 'customers.company' }).getConfig()
     expect(allow.mode).toBe('allowlist')
