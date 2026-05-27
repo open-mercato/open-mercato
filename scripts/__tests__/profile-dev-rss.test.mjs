@@ -167,6 +167,27 @@ test('parseArgs supports both positional label and --label, plus --report mode',
   assert.equal(reportArgs.outDir, '/tmp/dev-rss')
 })
 
+test('parseArgs rejects non-positive numeric flag values and keeps defaults', () => {
+  const { parseArgs, DEFAULT_DURATION_MS, DEFAULT_INTERVAL_MS } = __test__
+  // Capture stderr noise so the test output stays clean.
+  const originalWrite = process.stderr.write.bind(process.stderr)
+  const captured = []
+  process.stderr.write = (chunk) => {
+    captured.push(typeof chunk === 'string' ? chunk : chunk.toString())
+    return true
+  }
+  try {
+    const bogus = parseArgs(['--spawn-dev', '--duration', 'foo', '--interval', '0', '--pid', '-5'])
+    assert.equal(bogus.durationMs, DEFAULT_DURATION_MS, 'NaN duration keeps default')
+    assert.equal(bogus.intervalMs, DEFAULT_INTERVAL_MS, '0 interval keeps default')
+    assert.equal(bogus.pid, null, 'negative pid keeps null')
+    assert.ok(captured.some((line) => line.includes("ignoring non-positive numeric flag value 'foo'")))
+    assert.ok(captured.some((line) => line.includes("ignoring non-positive numeric flag value '0'")))
+  } finally {
+    process.stderr.write = originalWrite
+  }
+})
+
 test('readReports skips malformed JSON files and accepts well-formed reports', () => {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'dev-rss-test-'))
   try {

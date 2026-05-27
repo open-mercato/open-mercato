@@ -16,6 +16,7 @@
 | 2 | 2.1 | Write analysis spec `.ai/specs/2026-05-27-dev-mode-memory-quick-wins.md` (landscape, `NODE_OPTIONS=--max-old-space-size` recipe, Vite verdict, phase plan, verification protocol) | done | 44e398eaf |
 | 2 | 2.2 | Cross-link spec from `AGENTS.md` Task Router (dev-mode performance row) | done | f6e6e5e43 |
 | 3 | 3.1 | Final-gate validation (`node --check` + `node --test` for the touched .mjs files); document the full gate gaps in `final-gate-checks.md` | done | a977918c8 |
+| 3 | 3.1-review-fix | Apply code-review NITs: parsePsOutput newline doc, parseArgs numeric validation, renderReportTable chronological sort, spawnDevAndProfile process-group SIGINT | done | fd3134de3 |
 
 ## Goal
 

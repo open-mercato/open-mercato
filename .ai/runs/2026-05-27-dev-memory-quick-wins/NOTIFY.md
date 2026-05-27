@@ -23,3 +23,12 @@
 - ds-guardian: not applicable (no UI changes).
 - Self code-review + BC self-review: clean (logged in final-gate-checks.md).
 - Ready to open the PR.
+
+## 2026-05-27T06:55:00Z — code-review autofix pass complete
+- Lightweight code-review subagent dispatched (in lieu of full `auto-review-pr` worktree-based ceremony, which would be overkill for a docs+harness PR with no contract surface).
+- Verdict: NO BLOCKERS. 4 NITs surfaced; 4 applied:
+  1. `parsePsOutput` — added a "why" comment about embedded newlines.
+  2. `parseArgs` — added positive-integer validation for `--duration`, `--interval`, `--pid` (silently kept defaults when bogus); new test covers it.
+  3. `renderReportTable` — now orders by `startedAt` with alphabetic fallback, so the delta line is chronological (matches "did my change reduce memory?" intent); test updated, second test added for fallback path.
+  4. `spawnDevAndProfile` — child spawned with `detached: true`; SIGINT/SIGKILL go to the process group via `process.kill(-pid, sig)` so turbo/watcher grandchildren actually exit.
+- Tests: 12/12 pass (was 10/10).
