@@ -38,10 +38,10 @@ export async function GET(
     (resolve("storageDriverFactory") as StorageDriverFactory | null) ??
     new StorageDriverFactory(em);
 
-  const findFilter: Record<string, unknown> = { id }
+  const findFilter: Record<string, unknown> = { id };
   if (auth && !isSuperAdminAuth(auth)) {
-    if (auth.tenantId) findFilter.tenantId = auth.tenantId
-    if (auth.orgId) findFilter.organizationId = auth.orgId
+    if (auth.tenantId) findFilter.tenantId = auth.tenantId;
+    if (auth.orgId) findFilter.organizationId = auth.orgId;
   }
   const attachment = await em.findOne(Attachment, findFilter);
   if (!attachment) {
