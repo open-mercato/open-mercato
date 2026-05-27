@@ -18,8 +18,8 @@
 | 2 | 2.2 | Add `resolveAclDependencyDiagnostics()` resolver + unit tests in `@open-mercato/shared` | done | ab3abb75e |
 | 2 | 2.3 | Forward `dependsOn` through `GET /api/auth/features` | done | d19ad3537 |
 | 3 | 3.1 | Declare `dependsOn` for every `customers.*` feature | done | c7d7ac20d |
-| 4 | 4.1 | Surface dependency warnings in `AclEditor` (role + user editing both consume) + "auto-add missing" affordance | todo | — |
-| 4 | 4.2 | Unit tests for `AclEditor` warning rendering (jsdom) | todo | — |
+| 4 | 4.1 | Surface dependency warnings in `AclEditor` (role + user editing both consume) + "auto-add missing" affordance | done | 966f906dc |
+| 4 | 4.2 | Unit tests for `AclEditor` warning rendering (jsdom) | merged | folded into 4.1 |
 | 5 | 5.1 | Final-gate validation (typecheck + scoped tests + i18n:check-sync) | todo | — |
 | 6 | 6.1 | Open PR; file one GitHub issue per remaining module referencing spec + customers reference | todo | — |
 
