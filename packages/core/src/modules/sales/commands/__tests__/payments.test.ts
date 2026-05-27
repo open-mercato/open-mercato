@@ -566,7 +566,7 @@ describe('createPaymentCommand.execute — allocation orderId/invoiceId are tena
     expect(execute).toBeInstanceOf(Function)
 
     ;(findOneWithDecryption as jest.Mock).mockImplementation(
-      async (_em: unknown, entity: unknown, filter: Record<string, unknown>) => {
+      async (_em: unknown, _entity: unknown, filter: Record<string, unknown>) => {
         if (filter?.id === TEST_ORDER_ID) return buildScopedOrder()
         // Cross-tenant invoice id → repo returns null → assertFound throws 404
         return null
@@ -635,6 +635,49 @@ describe('createPaymentCommand.execute — allocation orderId/invoiceId are tena
     )
     // Exactly one lookup for the main order; the matching allocation reuses it from the cache.
     expect(orderLookups.length).toBe(1)
+  })
+
+  it('accepts a different in-scope allocation orderId and scope-validates it via findOneWithDecryption', async () => {
+    const execute = commandRegistry.get('sales.payments.create')?.execute
+    expect(execute).toBeInstanceOf(Function)
+
+    ;(findOneWithDecryption as jest.Mock).mockImplementation(
+      async (_em: unknown, _entity: unknown, filter: Record<string, unknown>) => {
+        if (filter?.id === TEST_ORDER_ID) return buildScopedOrder()
+        if (filter?.id === SECOND_ORDER_ID) {
+          return buildScopedOrder({ id: SECOND_ORDER_ID, orderNumber: 'ORD-002' })
+        }
+        return null
+      },
+    )
+
+    const { ctx } = buildCommandCtx()
+
+    await expect(
+      execute?.(
+        {
+          orderId: TEST_ORDER_ID,
+          tenantId: TEST_TENANT_ID,
+          organizationId: TEST_ORG_ID,
+          amount: 100,
+          currencyCode: 'USD',
+          allocations: [
+            { orderId: SECOND_ORDER_ID, amount: 100, currencyCode: 'USD' },
+          ],
+        },
+        ctx as any,
+      )
+    ).resolves.toBeDefined()
+
+    const secondOrderLookup = (findOneWithDecryption as jest.Mock).mock.calls.find(
+      ([_em, _entity, filter]: [unknown, unknown, Record<string, unknown>]) =>
+        filter?.id === SECOND_ORDER_ID
+    )
+    expect(secondOrderLookup).toBeDefined()
+    expect(secondOrderLookup[4]).toMatchObject({
+      tenantId: TEST_TENANT_ID,
+      organizationId: TEST_ORG_ID,
+    })
   })
 })
 
