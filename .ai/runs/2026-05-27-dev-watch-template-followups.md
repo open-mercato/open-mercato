@@ -111,6 +111,6 @@ Re-land the two post-merge follow-up commits from
 
 ### Phase 3: Ship
 
-- [ ] 3.1 Push branch + open PR
-- [ ] 3.2 Apply labels with explanatory comments
-- [ ] 3.3 Post comprehensive summary comment
+- [x] 3.1 Push branch + open PR — PR #2130
+- [x] 3.2 Apply labels with explanatory comments — review + skip-qa + documentation
+- [x] 3.3 Post comprehensive summary comment
