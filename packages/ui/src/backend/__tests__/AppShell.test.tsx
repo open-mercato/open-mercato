@@ -610,4 +610,90 @@ describe('AppShell', () => {
       ;(window as Window & { __omOriginalFetch?: typeof fetch }).__omOriginalFetch = previousOriginalFetch
     }
   })
+
+  // Regression: #1828 — skeleton must hide stale SSR groups until chrome resolves
+  it('shows skeleton (not stale SSR groups) while chrome API is loading', async () => {
+    const previousFetch = global.fetch
+    const previousWindowFetch = window.fetch
+    const previousOriginalFetch = (window as Window & { __omOriginalFetch?: typeof fetch }).__omOriginalFetch
+    let resolveFetch: ((response: Response) => void) | null = null
+    const fetchPromise = new Promise<Response>((resolve) => {
+      resolveFetch = resolve
+    })
+    const fetchMock = jest.fn(async (input: RequestInfo | URL) => {
+      const url = typeof input === 'string'
+        ? input
+        : input instanceof Request
+          ? input.url
+          : input.toString()
+      if (url.includes('/api/auth/admin/nav-flicker-regression')) {
+        return fetchPromise
+      }
+      return new Response(JSON.stringify([]), { status: 200, headers: { 'content-type': 'application/json' } })
+    }) as unknown as typeof fetch
+    global.fetch = fetchMock
+    window.fetch = fetchMock
+    ;(window as Window & { __omOriginalFetch?: typeof fetch }).__omOriginalFetch = fetchMock
+
+    const staleGroups = [
+      {
+        id: 'core',
+        name: 'Stale Core',
+        items: [{ href: '/backend/stale-link', title: 'Stale Link' }],
+      },
+    ]
+
+    try {
+      renderWithProviders(
+        <AppShell
+          email="demo@example.com"
+          groups={staleGroups}
+          adminNavApi="/api/auth/admin/nav-flicker-regression"
+        >
+          <div>Hydrated content</div>
+        </AppShell>,
+        { dict },
+      )
+
+      await waitFor(() => {
+        expect(screen.getAllByTestId('backend-chrome-loading').length).toBeGreaterThan(0)
+      })
+      expect(screen.queryByText('Stale Link')).toBeNull()
+      expect(screen.getByTestId('backend-chrome-ready')).toHaveAttribute('data-ready', 'false')
+
+      resolveFetch?.(new Response(JSON.stringify({
+        groups: [
+          {
+            id: 'core',
+            name: 'Core',
+            defaultName: 'Core',
+            items: [
+              {
+                href: '/backend/users',
+                title: 'Fresh Link',
+                defaultTitle: 'Fresh Link',
+                enabled: true,
+              },
+            ],
+          },
+        ],
+        settingsSections: [],
+        settingsPathPrefixes: [],
+        profileSections: [],
+        profilePathPrefixes: ['/backend/profile/'],
+        grantedFeatures: ['auth.*'],
+        roles: ['admin'],
+      }), { status: 200, headers: { 'content-type': 'application/json' } }))
+
+      await waitFor(() => {
+        expect(screen.getByText('Fresh Link')).toBeInTheDocument()
+      })
+      expect(screen.queryByTestId('backend-chrome-loading')).toBeNull()
+      expect(screen.queryByText('Stale Link')).toBeNull()
+    } finally {
+      global.fetch = previousFetch
+      window.fetch = previousWindowFetch
+      ;(window as Window & { __omOriginalFetch?: typeof fetch }).__omOriginalFetch = previousOriginalFetch
+    }
+  })
 })

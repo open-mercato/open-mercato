@@ -452,6 +452,7 @@ function buildDealAnalyzerPrepareStep() {
       return {
         activeTools: [
           'customers.analyze_deals',
+          'customers.update_deal_stage',
           'customers.list_deals',
           'customers.get_deal',
           'customers.list_activities',

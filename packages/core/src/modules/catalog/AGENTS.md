@@ -2,13 +2,32 @@
 
 Use the catalog module for products, categories, pricing, variants, and offers.
 
-## MUST Rules
+## Always
 
-1. **MUST NOT reimplement pricing logic** — use `selectBestPrice` and the resolver pipeline from `lib/pricing.ts`
+1. **MUST use `selectBestPrice` and the resolver pipeline from `lib/pricing.ts`** for pricing logic.
 2. **MUST use the DI token `catalogPricingService`** when resolving prices — ensures overrides take effect
 3. **MUST register custom pricing resolvers** with explicit priority (`registerCatalogPricingResolver(resolver, { priority })`)
 4. **MUST declare widget injections** in `widgets/injection/` and map via `injection-table.ts`
 5. **MUST follow the standard event pattern** in `events.ts` for all CRUD and lifecycle events
+
+## Ask First
+
+- Ask before changing price-layer precedence, resolver priority semantics, event IDs, or released widget spot IDs.
+- Ask before deleting or changing option schemas that existing variants may reference.
+
+## Never
+
+- Never reimplement catalog pricing inline.
+- Never delete option schemas while variants reference them.
+- Never bypass `prepareMutation` for catalog AI tools that mutate products, prices, or media.
+
+## Validation Commands
+
+```bash
+yarn db:generate
+yarn generate
+yarn workspace @open-mercato/core build
+```
 
 ## When You Need Pricing Logic
 

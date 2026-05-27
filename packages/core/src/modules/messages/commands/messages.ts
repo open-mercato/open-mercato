@@ -58,6 +58,28 @@ async function emitMessageDeletedEvent(_container: ContainerWithResolve, payload
   )
 }
 
+async function emitMessageGloballyDeletedEvent(_container: ContainerWithResolve, payload: {
+  messageId: string
+  actorUserId: string
+  recipientUserIds: string[]
+  tenantId: string
+  organizationId: string | null
+}) {
+  const audience = Array.from(new Set([payload.actorUserId, ...payload.recipientUserIds]))
+  await emitMessagesEvent(
+    'messages.message.deleted',
+    {
+      messageId: payload.messageId,
+      actorUserId: payload.actorUserId,
+      target: 'global',
+      recipientUserIds: audience,
+      tenantId: payload.tenantId,
+      organizationId: payload.organizationId,
+    },
+    { persistent: true },
+  )
+}
+
 async function emitMessageIndexUpsert(
   container: ContainerWithResolve,
   payload: {
@@ -346,6 +368,15 @@ const composeMessageCommand: CommandHandler<unknown, { id: string; threadId: str
     if (!message) return
     message.deletedAt = new Date()
     await em.flush()
+    if (!after.message.isDraft) {
+      await emitMessageGloballyDeletedEvent(ctx.container, {
+        messageId: after.message.id,
+        actorUserId: after.message.senderUserId,
+        recipientUserIds: after.recipients.map((recipient) => recipient.recipientUserId),
+        tenantId: after.message.tenantId,
+        organizationId: after.message.organizationId,
+      })
+    }
   },
 }
 
@@ -704,6 +735,13 @@ const replyMessageCommand: CommandHandler<unknown, { id: string; externalEmail: 
     if (!message) return
     message.deletedAt = new Date()
     await em.flush()
+    await emitMessageGloballyDeletedEvent(ctx.container, {
+      messageId: after.message.id,
+      actorUserId: after.message.senderUserId,
+      recipientUserIds: after.recipients.map((recipient) => recipient.recipientUserId),
+      tenantId: after.message.tenantId,
+      organizationId: after.message.organizationId,
+    })
   },
 }
 
@@ -849,6 +887,13 @@ const forwardMessageCommand: CommandHandler<unknown, { id: string; externalEmail
     if (!message) return
     message.deletedAt = new Date()
     await em.flush()
+    await emitMessageGloballyDeletedEvent(ctx.container, {
+      messageId: after.message.id,
+      actorUserId: after.message.senderUserId,
+      recipientUserIds: after.recipients.map((recipient) => recipient.recipientUserId),
+      tenantId: after.message.tenantId,
+      organizationId: after.message.organizationId,
+    })
   },
 }
 
@@ -896,12 +941,16 @@ const deleteForActorCommand: CommandHandler<unknown, { ok: true }> = {
       return { ok: true }
     }
     if (message.senderUserId === input.userId) {
+      const recipientRows = await em.find(MessageRecipient, { messageId: input.messageId })
       message.deletedAt = new Date()
       await em.flush()
-      await emitMessageDeletedEvent(ctx.container, {
+      const recipientUserIds = recipientRows
+        .map((row) => row.recipientUserId)
+        .filter((value): value is string => typeof value === 'string' && value.length > 0)
+      await emitMessageGloballyDeletedEvent(ctx.container, {
         messageId: input.messageId,
         actorUserId: input.userId,
-        target: 'sender',
+        recipientUserIds,
         tenantId: input.tenantId,
         organizationId: input.organizationId,
       })

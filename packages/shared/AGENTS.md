@@ -2,13 +2,31 @@
 
 Use `@open-mercato/shared` for cross-cutting utilities, types, DSL helpers, and infrastructure. MUST NOT import from `@open-mercato/core` or any domain package — shared has zero domain dependencies.
 
-## MUST Rules
+## Always
 
-1. **MUST NOT add domain-specific logic** — this package is infrastructure only
-2. **MUST use precise types** — no `any`, use zod schemas + `z.infer`
-3. **MUST check for existing utilities** before adding new helpers — avoid duplication
-4. **MUST export narrow interfaces** (e.g., `QueryEngine`) — never pass `any`/`unknown`
-5. **MUST centralize reusable types and constants here** to prevent drift across packages
+1. **MUST use precise types** — no `any`, use zod schemas + `z.infer`
+2. **MUST check for existing utilities** before adding new helpers — avoid duplication
+3. **MUST export narrow interfaces** (e.g., `QueryEngine`) — never pass `any`/`unknown`
+4. **MUST centralize reusable types and constants here** to prevent drift across packages
+
+## Ask First
+
+- Ask before adding a domain-specific helper, new override domain, or shared public type that becomes a cross-package contract.
+- Ask before changing import paths documented in this file.
+
+## Never
+
+- Never add domain-specific logic; this package is infrastructure only.
+- Never import from `@open-mercato/core` or any domain package; shared has zero domain dependencies.
+- Never gate raw feature arrays with `includes(...)`, `Set.has(...)`, or ad hoc wildcard matching.
+- Never use `any` for exported shared interfaces.
+
+## Validation Commands
+
+```bash
+yarn workspace @open-mercato/shared test
+yarn workspace @open-mercato/shared build
+```
 
 ## Library Directory (`src/lib/`)
 

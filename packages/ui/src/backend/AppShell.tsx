@@ -808,7 +808,7 @@ function AppShellBody({ productName, logo, email, groups, rightHeaderSlot, child
   }
 
   function renderSidebar(compact: boolean, hideHeader?: boolean, forceMainOnly?: boolean) {
-    if (!isChromeReady && isChromeLoading && resolvedGroups.length === 0) {
+    if (!isChromeReady && isChromeLoading) {
       return (
         <div className="flex flex-col min-h-full gap-3" data-testid="backend-chrome-loading">
           {!hideHeader ? (

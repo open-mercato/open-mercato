@@ -1471,7 +1471,7 @@ export function DataTable<T>({
       if (!hasInjectedBulkActions) return baseInjectionContext
       const selectedIds = Object.keys(rowSelection).filter((key) => rowSelection[key])
       if (selectedIds.length === 0) return baseInjectionContext
-      return { ...baseInjectionContext, _selectedRowIds: selectedIds, _selectedCount: selectedIds.length }
+      return { ...baseInjectionContext, selectedRowIds: selectedIds, selectedCount: selectedIds.length }
     },
     [baseInjectionContext, hasInjectedBulkActions, rowSelection],
   )
