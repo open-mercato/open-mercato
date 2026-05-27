@@ -21,7 +21,7 @@ Base: `develop`
 | 4 | 4.1 | organizationScope: short-TTL cache for `resolveOrganizationScopeForRequest` + invalidation hook + tests | done | e8ab1f38a |
 | 5 | 5.1 | container.ts: process-scoped bootstrap once-guard + cached `encryption.isEnabled` | done | b7f4ed22c |
 | 6 | 6.1 | Benchmark harness: run before/after micro-benchmark on integration stack | done | e17015b76 |
-| 6 | 6.2 | Open PR + post benchmark comment with before/after numbers | todo | — |
+| 6 | 6.2 | Open PR + post benchmark comment with before/after numbers | done | (PR #2100) |
 
 ## Goal
 
