@@ -89,8 +89,8 @@ Update `.ai/skills/create-agents-md/SKILL.md` so that agents who invoke this ski
 
 ### Phase 3: PR open + auto-review
 
-- [ ] 3.1 Commit phases with conventional-commit subjects
-- [ ] 3.2 Push and open PR against develop
-- [ ] 3.3 Apply `review`, `skip-qa`, `documentation` labels with comments
-- [ ] 3.4 Run `auto-review-pr` autofix pass and address findings
-- [ ] 3.5 Post the comprehensive summary comment
+- [x] 3.1 Commit phases with conventional-commit subjects — f29d9b4be (skill update), 10964303f (progress)
+- [x] 3.2 Push and open PR against develop — https://github.com/open-mercato/open-mercato/pull/2103
+- [x] 3.3 Apply `review`, `skip-qa`, `documentation` labels with comments — comment 4551882041
+- [x] 3.4 Run `auto-review-pr` autofix pass and address findings — Self-review pass per auto-create-pr step 11. Diff-level automated checks (auto-review-pr step 5) all N/A for this docs-only single-file change (no event IDs, widget spots, API/DB schema, import paths, tenant scoping, encryption helpers, raw fetch/em.find, behavior changes requiring tests, i18n keys, `any` types, alerts, migrations, one-letter vars, or inline comments). BC self-review against `BACKWARD_COMPATIBILITY.md`: skill files are not in the enumerated 13 contract surfaces. Internal consistency: re-read end-to-end, verified the grep recipe works, verified each of the 6 referenced AGENTS.md files actually carries the four boundary headings in order (including ai-assistant's intentional dual `Ask First` sections per PR #2082 reviewer note). Verdict: **APPROVED — no actionable findings**. Formal `gh pr review --approve` not submitted because GitHub blocks self-approval (PR author == reviewer in auto-create-pr context).
+- [x] 3.5 Post the comprehensive summary comment — pending (next step)
