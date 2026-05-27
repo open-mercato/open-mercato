@@ -13,11 +13,9 @@
 |-------|------|-------|--------|--------|
 | 1 | 1.1 | Add `scripts/profile-dev-rss.mjs` RSS profiler harness with unit tests | done | 5fe482358 |
 | 1 | 1.2 | Wire `yarn dev:profile` / `yarn dev:profile:report` scripts in root `package.json` | done | 7d204ca83 |
-| 2 | 2.1 | Add `OM_PACKAGE_WATCH_HEAP_MB` opt-in heap cap to `scripts/watch.mjs` (re-exec with `--max-old-space-size=N`) | todo | — |
-| 2 | 2.2 | Unit-test the env parsing + re-exec guard in `scripts/__tests__/watch.test.mjs` | todo | — |
-| 3 | 3.1 | Write analysis spec `.ai/specs/2026-05-27-dev-mode-memory-quick-wins.md` covering landscape, Vite verdict, phase plan, verification protocol | todo | — |
-| 3 | 3.2 | Cross-link spec from `AGENTS.md` Task Router (under a dev-mode performance row) | todo | — |
-| 4 | 4.1 | Final-gate validation (typecheck + unit tests + lint scoped) — full gate documented in `final-gate-checks.md` | todo | — |
+| 2 | 2.1 | Write analysis spec `.ai/specs/2026-05-27-dev-mode-memory-quick-wins.md` (landscape, `NODE_OPTIONS=--max-old-space-size` recipe, Vite verdict, phase plan, verification protocol) | todo | — |
+| 2 | 2.2 | Cross-link spec from `AGENTS.md` Task Router (dev-mode performance row) | todo | — |
+| 3 | 3.1 | Final-gate validation (`node --check` + `node --test` for the touched .mjs files); document the full gate gaps in `final-gate-checks.md` | todo | — |
 
 ## Goal
 
@@ -27,7 +25,7 @@ Ship the **measurement infrastructure** and **analysis spec** that turn future d
 
 - Add `scripts/profile-dev-rss.mjs` — a stand-alone Node script that snapshots the full `yarn dev` process tree's RSS over a fixed window (default 90s) and writes a JSON report to `.mercato/dev-rss/<label>.json`. Reads PIDs via `ps` (linux/darwin) and computes per-process and total-tree RSS deltas.
 - Add `yarn dev:profile <label>` script that boots `yarn dev` in a child subshell, runs the profiler against it, and exits cleanly after the window. Add `yarn dev:profile:report` to print a Markdown table comparing two labels.
-- Add an **opt-in** `OM_PACKAGE_WATCH_HEAP_MB` env knob to `scripts/watch.mjs`: when set to a positive integer, the watcher re-execs itself once with `--max-old-space-size=<value>` before doing any work. Default unset (no behavior change).
+- **(Descoped 2026-05-27T06:46Z.)** ~~Add an opt-in `OM_PACKAGE_WATCH_HEAP_MB` env knob to `scripts/watch.mjs`.~~ Replaced by a documented `NODE_OPTIONS='--max-old-space-size=N'` recipe in the spec — see Risks. Rationale: a re-exec inside `scripts/watch.mjs` either (a) needs to happen before esbuild loads (impossible without editing all 16 per-package wrappers), or (b) detaches the real watcher from turbo's process tree (breaks turbo lifecycle). `NODE_OPTIONS` propagates to all child Node processes via env inheritance and needs zero code change.
 - Write the analysis spec capturing: dev-mode memory landscape, why PR #2102 is the dominant intervention, the Vite-vs-Turbopack feasibility study (verdict: not viable for the Next.js app; viable only as a future Storybook-style sidecar), and a phase plan for follow-up memory PRs.
 - Add a Task Router row for dev-mode performance.
 

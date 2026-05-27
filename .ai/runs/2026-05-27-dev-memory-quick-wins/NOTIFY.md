@@ -10,3 +10,8 @@
 - Sandbox constraint surfaced via `AskUserQuestion`; user declined to answer — proceeded with default: harness + spec + opt-in heap cap in one PR, no Vite migration (spec-only).
 - Research subagents dispatched: (1) PR #2102 status, (2) memory hot-path map, (3) Vite feasibility. Findings synthesized into PLAN.md.
 - Branch `feat/dev-memory-quick-wins` created from `origin/develop` (25fdb35f2).
+
+## 2026-05-27T06:46:00Z — scope decision: descope `OM_PACKAGE_WATCH_HEAP_MB` runtime knob
+- Implementing the re-exec inside `scripts/watch.mjs` would either (a) require editing each of 16 per-package wrappers to dynamic-import the helper before esbuild loads, or (b) detach the actual watcher from turbo's process tree (turbo sees the proxy parent exit first → breaks lifecycle).
+- The pragmatic answer is `NODE_OPTIONS='--max-old-space-size=N' yarn dev` — propagates to every child Node process via env inheritance, zero code change. Will be documented in the spec.
+- Tasks table updated: Phase 2 collapsed into one analysis spec phase. Phase 3 is now the final gate. Total Steps: 5 (1.1, 1.2, 2.1, 2.2, 3.1). Below the 5-Step checkpoint threshold, so only the final-gate checkpoint will fire.
