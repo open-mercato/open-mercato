@@ -427,37 +427,39 @@ const crud = makeCrudRoute({
         tenantId: ctx.auth?.tenantId ?? null,
         organizationId: ctx.selectedOrganizationId ?? ctx.auth?.orgId ?? null,
       }
-      const entities = await findWithDecryption(
-        em,
-        CustomerEntity,
-        {
-          id: { $in: ids },
-          deletedAt: null,
-          kind: 'person',
-        } as FilterQuery<CustomerEntity>,
-        undefined,
-        decryptionScope,
-      )
-      const entitiesById = new Map<string, CustomerEntity>()
-      for (const entity of entities) {
-        entitiesById.set(entity.id, entity)
-      }
-
-      const where: Record<string, unknown> = {
+      const profileWhere: Record<string, unknown> = {
         entity: { $in: ids },
         tenantId: ctx.auth?.tenantId ?? null,
       }
       if (ctx.selectedOrganizationId) {
-        where.organizationId = ctx.selectedOrganizationId
+        profileWhere.organizationId = ctx.selectedOrganizationId
       }
 
-      const profiles = await findWithDecryption(
-        em,
-        CustomerPersonProfile,
-        where as FilterQuery<CustomerPersonProfile>,
-        { populate: ['entity', 'company'] },
-        decryptionScope,
-      )
+      const [entities, profiles] = await Promise.all([
+        findWithDecryption(
+          em,
+          CustomerEntity,
+          {
+            id: { $in: ids },
+            deletedAt: null,
+            kind: 'person',
+          } as FilterQuery<CustomerEntity>,
+          undefined,
+          decryptionScope,
+        ),
+        findWithDecryption(
+          em,
+          CustomerPersonProfile,
+          profileWhere as FilterQuery<CustomerPersonProfile>,
+          { populate: ['entity', 'company'] },
+          decryptionScope,
+        ),
+      ])
+
+      const entitiesById = new Map<string, CustomerEntity>()
+      for (const entity of entities) {
+        entitiesById.set(entity.id, entity)
+      }
 
       const profilesByEntityId = new Map<string, CustomerPersonProfile>()
       for (const profile of profiles) {
