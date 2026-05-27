@@ -2,12 +2,47 @@
 
 Leverage the module system and follow strict naming and coding conventions to keep the system consistent and safe to extend.
 
-## Before Writing Code
+## Always
 
-1. Check the Task Router below — a single task may match multiple rows; read **all** relevant guides.
-2. Check `.ai/specs/` and `.ai/specs/enterprise/` for existing specs on the module you're modifying
-3. Enter plan mode for non-trivial tasks (3+ steps or architectural decisions)
-4. Identify the reference module (customers) if building CRUD features
+- Check the Task Router below before research or coding; a single task may match multiple rows, and all relevant guides apply.
+- Check `.ai/specs/` and `.ai/specs/enterprise/` for existing specs before modifying a module.
+- Enter plan mode for non-trivial tasks with 3+ steps or architectural decisions.
+- Identify the reference module (`customers`) when building CRUD features.
+- Preserve behavior unless the user or a spec explicitly asks for a behavior change.
+- Keep changes minimal, focused, and integrated through real call sites.
+- Use the closest package/module `AGENTS.md` for local architecture, imports, and validation commands.
+- Follow `BACKWARD_COMPATIBILITY.md` before touching any contract surface.
+- Run `yarn generate` after adding or modifying module files that rely on auto-discovery.
+
+## Ask First
+
+- Ask before reducing scope, changing architecture, changing public contracts, adding production dependencies, or touching multiple modules in a way not covered by an existing spec.
+- Ask before changing branch/PR automation, pipeline labels, QA flow, release behavior, or external official-module submodule pointers.
+- Ask before applying database migrations locally with `yarn db:migrate`; normal PRs should include migration files and snapshots.
+- Ask before introducing provider-specific preconfiguration outside the provider package.
+
+## Never
+
+- Never expose cross-tenant data or skip tenant/organization scoping.
+- Never edit generated files by hand.
+- Never add code directly under `apps/mercato/src/` except committed, typed `*.generated.ts` registries described below.
+- Never create direct ORM relationships between modules.
+- Never bypass mutation guards, command side effects, encryption helpers, RBAC wildcard matching, or shared UI data-call helpers.
+- Never hard-code user-facing strings or design-system status colors.
+- Never commit credentials, raw tokens, private keys, local-only ops files, or fork-only infrastructure notes into upstream-friendly branches.
+
+## Validation Commands
+
+Choose the smallest relevant set for the change:
+
+```bash
+yarn generate
+yarn build:packages
+yarn typecheck
+yarn lint
+yarn test
+yarn build:app
+```
 
 ## Task Router — Where to Find Detailed Guidance
 
@@ -227,7 +262,7 @@ All paths use `src/modules/<module>/` as shorthand. See `packages/core/AGENTS.md
 | `widgets/components.ts` | `componentOverrides` | Component replacement/wrapper/props override definitions |
 | `data/enrichers.ts` | `enrichers` | Response enrichers for data federation |
 
-### Key Rules
+### Module Rules
 
 - API routes MUST export `openApi` for documentation generation
 - CRUD routes: use `makeCrudRoute` with `indexer: { entityType }` for query index coverage
@@ -273,7 +308,18 @@ Third-party module developers depend on stable platform APIs. Any change to a **
 
 **Deprecation protocol** (summary): (1) never remove in one release, (2) add `@deprecated` JSDoc, (3) provide a bridge (re-export/alias/dual-emit) for ≥1 minor version, (4) document in RELEASE_NOTES.md, (5) reference a spec with "Migration & Backward Compatibility" section.
 
-## Critical Rules
+## Boundary Labels for Agent Rules
+
+Use `Always`, `Ask First`, `Never`, and `Validation Commands` headings when adding or reorganizing agent rules:
+
+- `Always` — required defaults and commands agents should apply without asking.
+- `Ask First` — decisions that need maintainer input before changing behavior, scope, dependencies, branch/deploy flow, or contract surfaces.
+- `Never` — prohibited actions and unsafe shortcuts.
+- `Validation Commands` — short, real commands agents can run to prove the relevant path.
+
+## Architecture, Data, UI, and Code Rules
+
+These are critical project-wide rules. The top-level `Always`, `Ask First`, and `Never` sections summarize their boundaries; this section keeps the detailed requirements.
 
 ### Architecture
 

@@ -9,12 +9,30 @@ Use `@open-mercato/queue` for all background job processing. MUST NOT implement 
 | Local | Use for development — jobs process from `.mercato/queue/` (or `QUEUE_BASE_DIR`) | `QUEUE_STRATEGY=local` |
 | BullMQ | Use for production — Redis-backed with retries and concurrency | `QUEUE_STRATEGY=async` |
 
-## MUST Rules
+## Always
 
 1. **MUST make workers idempotent** — jobs may be retried on failure; duplicate execution MUST NOT corrupt data
 2. **MUST export `metadata`** with `{ queue, id?, concurrency? }` from every worker file
-3. **MUST NOT exceed concurrency 20** — keep concurrency appropriate for the task type
-4. **MUST test with both strategies** — verify workers process correctly with `local` and `async`
+3. **MUST test with both strategies** — verify workers process correctly with `local` and `async`
+
+## Ask First
+
+- Ask before changing queue strategy defaults, retry semantics, or worker concurrency limits.
+- Ask before adding a polling loop or long-running process outside the queue worker contract.
+
+## Never
+
+- Never implement custom job queues or polling loops.
+- Never exceed worker concurrency 20.
+- Never make a worker depend on single-run semantics.
+
+## Validation Commands
+
+```bash
+yarn generate
+yarn workspace @open-mercato/queue test
+yarn workspace @open-mercato/queue build
+```
 
 ## Concurrency Guidelines
 
