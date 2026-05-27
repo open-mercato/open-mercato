@@ -23,6 +23,11 @@ Base: `develop`
 | 6 | 6.1 | Benchmark harness: run before/after micro-benchmark on integration stack | done | e17015b76 |
 | 6 | 6.2 | Open PR + post benchmark comment with before/after numbers | done | (PR #2100) |
 
+### Post-review fixes (auto-continue-pr resume on 2026-05-27)
+
+- [x] Post-review fix: add missing `indexer: { entityType: 'example.todo' }` to `packages/shared/src/lib/crud/__tests__/user-features-memo.test.ts` so the `crud-indexer-config.test.ts` scanner stays green. — 85e0df6d3
+- [x] Post-review fix: gate Phase 5 bootstrap once-guard behind `OM_BOOTSTRAP_CACHE=1` (default OFF) so per-request bootstrap is restored unless explicitly enabled — cached `tenantEncryptionService`/event-bus close over the first request's `em.fork`/container, which manifests as a 500 on `/api/customers/people` under `next start` in the ephemeral integration runtime. — 85e0df6d3
+
 ## Goal
 
 Cut p50 latency for CRUD list/detail endpoints below 100 ms via five backward-compatible optimizations described in the spec. Measure the win with the existing `OM_PROFILE=*` profiler and publish before/after numbers on the PR.
