@@ -2,14 +2,32 @@
 
 Use `@open-mercato/events` for all event-driven communication between modules. MUST NOT use direct module-to-module function calls for side effects.
 
-## MUST Rules
+## Always
 
 1. **MUST declare events in the emitting module's `events.ts`** — use `createModuleEvents()` with `as const` for type safety
 2. **MUST run `yarn generate`** after creating or modifying `events.ts` files
-3. **MUST NOT emit undeclared events** — undeclared events trigger TypeScript errors and runtime warnings
-4. **MUST export `metadata`** from every subscriber with `{ event, persistent?, id? }`
-5. **MUST keep subscribers focused** — one side effect per subscriber file
-6. **MUST make persistent subscribers idempotent** — they may be retried on failure
+3. **MUST export `metadata`** from every subscriber with `{ event, persistent?, id? }`
+4. **MUST keep subscribers focused** — one side effect per subscriber file
+5. **MUST make persistent subscribers idempotent** — they may be retried on failure
+
+## Ask First
+
+- Ask before renaming event IDs, changing persistent delivery semantics, or altering SSE audience filtering.
+- Ask before increasing SSE payload size limits or heartbeat/deduplication behavior.
+
+## Never
+
+- Never use direct module-to-module function calls for side effects.
+- Never emit undeclared events — undeclared events trigger TypeScript errors and runtime warnings.
+- Never rely on payload-provided tenant or organization scope when trusted scope is available.
+
+## Validation Commands
+
+```bash
+yarn generate
+yarn workspace @open-mercato/events test
+yarn workspace @open-mercato/events build
+```
 
 ## Event Declaration
 
@@ -136,7 +154,7 @@ useAppEvent('mymod.entity.created', (event) => {
 }, [])
 ```
 
-### Key Rules
+### Browser Delivery Rules
 
 - Events are server-filtered by audience before SSE send:
   - Tenant: `tenantId` must match

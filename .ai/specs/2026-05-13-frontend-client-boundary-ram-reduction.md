@@ -272,4 +272,4 @@ Also record static metrics:
 | Phase B — Provider/bootstrap split | Not Started | — | Requires code migration. |
 | Phase C — Generator template migration | Not Started | — | Requires generator/template updates. |
 | Phase D — Heavy dependency isolation | In Progress | 2026-05-27 | `recharts`, `@xyflow/react`, and the `ClientBootstrap` registry barrels moved behind `next/dynamic`; `experimental.optimizePackageImports` enabled for `lucide-react` / `recharts` / `date-fns`. See `.ai/specs/2026-05-27-dev-mode-lazy-load-heavy-clients.md`. |
-| Phase E — Dev memory defaults | Not Started | — | Requires measured default tuning. |
+| Phase E — Dev memory defaults | In Progress | 2026-05-27 | Consolidated workspace package watcher (`scripts/watch-packages.mjs`) is now the default for `yarn watch:packages`. Idle process-tree RSS drops ~1.04 GB on this monorepo (1 129 MB → 91 MB, measured for the 16-package set Turbo runs `watch` on). `OM_WATCH_PACKAGES_MODE=legacy` preserves the prior Turbo per-package fan-out. RSS profiling helper added at `scripts/profile-dev-rss.mjs`. Run folder: `.ai/runs/2026-05-27-dev-mode-package-watch-consolidation/`. |
