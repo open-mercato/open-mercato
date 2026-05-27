@@ -51,6 +51,22 @@ describe('extractOptimisticLockConflict', () => {
     })
   })
 
+  it('returns the conflict body when raiseCrudError attached the response fields directly to the error', () => {
+    const err = {
+      status: 409,
+      error: 'record_modified',
+      code: OPTIMISTIC_LOCK_CONFLICT_CODE,
+      currentUpdatedAt: '2026-05-25T08:42:19.000Z',
+      expectedUpdatedAt: '2026-05-25T08:42:18.000Z',
+    }
+    expect(extractOptimisticLockConflict(err)).toEqual({
+      error: 'record_modified',
+      code: OPTIMISTIC_LOCK_CONFLICT_CODE,
+      currentUpdatedAt: '2026-05-25T08:42:19.000Z',
+      expectedUpdatedAt: '2026-05-25T08:42:18.000Z',
+    })
+  })
+
   it('returns null for non-409 errors', () => {
     expect(
       extractOptimisticLockConflict({

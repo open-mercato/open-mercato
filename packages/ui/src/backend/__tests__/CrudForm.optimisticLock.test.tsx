@@ -1,10 +1,14 @@
 /** @jest-environment jsdom */
 
-import { OPTIMISTIC_LOCK_HEADER_NAME } from '@open-mercato/shared/lib/crud/optimistic-lock-headers'
+import {
+  OPTIMISTIC_LOCK_CONFLICT_CODE,
+  OPTIMISTIC_LOCK_HEADER_NAME,
+} from '@open-mercato/shared/lib/crud/optimistic-lock-headers'
 
 const buildFormFieldFromCustomFieldDefMock = jest.fn()
 const fetchCustomFieldFormStructureMock = jest.fn()
 const withScopedApiRequestHeadersMock = jest.fn(async (_headers: Record<string, string>, fn: () => Promise<unknown>) => fn())
+const flashMock = jest.fn()
 
 jest.mock('next/navigation', () => ({
   useRouter: () => ({ push: jest.fn(), refresh: jest.fn() }),
@@ -43,6 +47,9 @@ jest.mock('../utils/apiCall', () => {
       ),
   }
 })
+jest.mock('../FlashMessages', () => ({
+  flash: (...args: unknown[]) => flashMock(...args),
+}))
 
 import * as React from 'react'
 import { act, fireEvent, waitFor } from '@testing-library/react'
@@ -51,6 +58,7 @@ import { CrudForm, type CrudField } from '../CrudForm'
 
 const dict = {
   'ui.forms.actions.save': 'Save',
+  'ui.forms.flash.recordModified': 'This record was modified by someone else. Refresh and try again.',
 }
 
 const fields: CrudField[] = [
@@ -74,6 +82,7 @@ function renderForm(opts: {
 
 describe('CrudForm — optimisticLockUpdatedAt prop wiring', () => {
   beforeEach(() => {
+    flashMock.mockClear()
     withScopedApiRequestHeadersMock.mockClear()
     fetchCustomFieldFormStructureMock.mockResolvedValue({
       fields: [],
@@ -129,5 +138,32 @@ describe('CrudForm — optimisticLockUpdatedAt prop wiring', () => {
     })
     await waitFor(() => expect(onSubmit).toHaveBeenCalledTimes(1))
     expect(withScopedApiRequestHeadersMock).not.toHaveBeenCalled()
+  })
+
+  it('shows the localized record-modified message instead of the raw server error token on stale saves', async () => {
+    const conflict = Object.assign(new Error('record_modified'), {
+      status: 409,
+      error: 'record_modified',
+      code: OPTIMISTIC_LOCK_CONFLICT_CODE,
+      currentUpdatedAt: '2026-05-25T08:42:19.000Z',
+      expectedUpdatedAt: '2026-05-25T08:42:18.000Z',
+    })
+    const onSubmit = jest.fn(async () => {
+      throw conflict
+    })
+    const { container } = renderForm({ optimisticLockUpdatedAt: '2026-05-25T08:42:18.000Z', onSubmit })
+    const form = container.querySelector('form') as HTMLFormElement
+
+    await act(async () => {
+      fireEvent.submit(form)
+    })
+
+    await waitFor(() => {
+      expect(flashMock).toHaveBeenCalledWith(
+        'This record was modified by someone else. Refresh and try again.',
+        'error',
+      )
+    })
+    expect(flashMock).not.toHaveBeenCalledWith('record_modified', 'error')
   })
 })

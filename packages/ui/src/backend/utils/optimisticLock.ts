@@ -50,7 +50,9 @@ export function extractOptimisticLockConflict(
   const candidate = err as Record<string, unknown>
   const status = candidate.status
   if (status !== 409) return null
-  const body = candidate.body
+  const body = candidate.body && typeof candidate.body === 'object'
+    ? candidate.body
+    : candidate
   if (!body || typeof body !== 'object') return null
   const bodyRecord = body as Record<string, unknown>
   if (bodyRecord.code !== OPTIMISTIC_LOCK_CONFLICT_CODE) return null

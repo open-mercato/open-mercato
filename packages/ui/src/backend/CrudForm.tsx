@@ -85,7 +85,7 @@ import { TimePicker } from './inputs/TimePicker'
 import { DatePicker } from './inputs/DatePicker'
 import { mapCrudServerErrorToFormErrors, parseServerMessage } from './utils/serverErrors'
 import { withScopedApiRequestHeaders } from './utils/apiCall'
-import { buildOptimisticLockHeader } from './utils/optimisticLock'
+import { buildOptimisticLockHeader, extractOptimisticLockConflict } from './utils/optimisticLock'
 import type { CustomFieldDefLike } from '@open-mercato/shared/modules/entities/validation'
 import type { MDEditorProps as UiWMDEditorProps } from '@uiw/react-md-editor'
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '../primitives/dialog'
@@ -1250,7 +1250,10 @@ export function CrudForm<TValues extends Record<string, unknown>>({
       } catch {
         // ignore event dispatch failures
       }
-      const message = err instanceof Error && err.message ? err.message : deleteErrorMessage
+      const optimisticLockConflict = extractOptimisticLockConflict(err)
+      const message = optimisticLockConflict
+        ? t('ui.forms.flash.recordModified', 'This record was modified by someone else. Refresh and try again.')
+        : err instanceof Error && err.message ? err.message : deleteErrorMessage
       try { flash(message, 'error') } catch {}
     } finally {
       deletingRef.current = false
@@ -2604,7 +2607,10 @@ export function CrudForm<TValues extends Record<string, unknown>>({
         }
       }
 
-      let displayMessage = typeof helperMessage === 'string' && helperMessage.trim() ? helperMessage.trim() : ''
+      const optimisticLockConflict = extractOptimisticLockConflict(err)
+      let displayMessage = optimisticLockConflict
+        ? t('ui.forms.flash.recordModified', 'This record was modified by someone else. Refresh and try again.')
+        : typeof helperMessage === 'string' && helperMessage.trim() ? helperMessage.trim() : ''
       if (hasFieldErrors) {
         const lowered = displayMessage.toLowerCase()
         const highlightedLower = highlightedMessage.toLowerCase()
