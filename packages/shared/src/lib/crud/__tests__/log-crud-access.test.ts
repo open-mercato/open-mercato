@@ -39,7 +39,7 @@ describe('logCrudAccess', () => {
       logMany: jest.fn(async (_payloads: unknown[]) => {}),
     }
     const items = makeItems(50)
-    await logCrudAccess({
+    const result = await logCrudAccess({
       container: makeContainer(service),
       auth,
       items,
@@ -51,13 +51,15 @@ describe('logCrudAccess', () => {
     expect(Array.isArray(batch)).toBe(true)
     expect(batch).toHaveLength(50)
     expect(service.log).not.toHaveBeenCalled()
+    expect(result.mode).toBe('blocking')
+    expect(result.count).toBe(50)
   })
 
   it('falls back to per-row log() when logMany is missing', async () => {
     process.env.OM_CRUD_ACCESS_LOG_BLOCKING = '1'
     const service = { log: jest.fn(async () => {}) }
     const items = makeItems(3)
-    await logCrudAccess({
+    const result = await logCrudAccess({
       container: makeContainer(service),
       auth,
       items,
@@ -65,6 +67,11 @@ describe('logCrudAccess', () => {
       resourceKind: 'example.todo',
     })
     expect(service.log).toHaveBeenCalledTimes(3)
+    // dispatchMode reflects the underlying service shape even when the outer
+    // call blocks — the profiler payload needs to distinguish "batched into
+    // one INSERT" from "fanned out N INSERTs in blocking mode".
+    expect(result.mode).toBe('blocking')
+    expect(result.count).toBe(3)
   })
 
   it('does not await writes when OM_CRUD_ACCESS_LOG_BLOCKING is unset', async () => {
@@ -81,7 +88,7 @@ describe('logCrudAccess', () => {
     }
     const items = makeItems(5)
     const start = process.hrtime.bigint()
-    await logCrudAccess({
+    const result = await logCrudAccess({
       container: makeContainer(service),
       auth,
       items,
@@ -93,6 +100,9 @@ describe('logCrudAccess', () => {
     // logMany has not resolved yet. Allow a generous 50 ms ceiling for CI noise.
     expect(elapsedMs).toBeLessThan(50)
     expect(service.logMany).toHaveBeenCalledTimes(1)
+    expect(result.mode).toBe('batch')
+    expect(result.count).toBe(5)
+    expect(result.pending).toBeGreaterThan(0)
     resolveLogMany()
     await flushPendingCrudAccessLogs()
   })

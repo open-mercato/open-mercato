@@ -31,7 +31,16 @@ const GLOBAL_KEY = '__openMercatoRbacFallbackCache__'
 const MAX_ENTRIES = 5000
 
 export function isRbacDefaultCacheEnabled(): boolean {
-  return process.env.OM_RBAC_DEFAULT_CACHE !== 'off'
+  // Default OFF — same gating posture as Phases 2/4/5 in this PR. The
+  // integration runtime stays on the bare `asClass(RbacService).scoped()`
+  // path (matching develop) unless an operator opts in explicitly.
+  // Set `OM_RBAC_DEFAULT_CACHE=on` (or `1`/`true`/`yes`) to enable the
+  // in-process LRU fallback.
+  const raw = process.env.OM_RBAC_DEFAULT_CACHE
+  if (raw === undefined) return false
+  const normalized = raw.trim().toLowerCase()
+  if (!normalized.length) return false
+  return normalized === 'on' || normalized === '1' || normalized === 'true' || normalized === 'yes'
 }
 
 function nowMs(): number {

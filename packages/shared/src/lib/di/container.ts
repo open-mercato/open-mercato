@@ -69,7 +69,7 @@ function harvestBootstrapCache(container: AwilixContainer): BootstrapCacheEntry 
   const entry: BootstrapCacheEntry = {}
   for (const key of BOOTSTRAP_CACHE_KEYS) {
     try {
-      const value = (container.resolve as any)(key)
+      const value: unknown = container.resolve(key as never)
       if (value !== undefined && value !== null) entry[key] = value
     } catch {
       // not registered — skip
@@ -78,13 +78,15 @@ function harvestBootstrapCache(container: AwilixContainer): BootstrapCacheEntry 
   return entry
 }
 
-function getCachedEncryptionEnabled(service: any): boolean | null {
+type EncryptionEnabledProbe = { isEnabled?: () => boolean } | null | undefined
+
+function getCachedEncryptionEnabled(service: EncryptionEnabledProbe): boolean | null {
   if (!service || typeof service.isEnabled !== 'function') return false
-  const cached = (globalThis as any)[ENCRYPTION_ENABLED_KEY]
+  const cached = (globalThis as Record<string, unknown>)[ENCRYPTION_ENABLED_KEY]
   if (typeof cached === 'boolean') return cached
   try {
     const result = !!service.isEnabled()
-    ;(globalThis as any)[ENCRYPTION_ENABLED_KEY] = result
+    ;(globalThis as Record<string, unknown>)[ENCRYPTION_ENABLED_KEY] = result
     return result
   } catch {
     return null

@@ -18,10 +18,17 @@ describe('rbacDefaultCache', () => {
     resetRbacFallbackCache()
   })
 
-  it('isRbacDefaultCacheEnabled honors OM_RBAC_DEFAULT_CACHE=off', () => {
-    expect(isRbacDefaultCacheEnabled()).toBe(true)
-    process.env.OM_RBAC_DEFAULT_CACHE = 'off'
+  it('isRbacDefaultCacheEnabled defaults to OFF and turns on for explicit opt-in tokens', () => {
+    // Default OFF — matches develop's posture so opting in is deliberate.
     expect(isRbacDefaultCacheEnabled()).toBe(false)
+    for (const token of ['on', '1', 'true', 'yes', 'ON', 'True']) {
+      process.env.OM_RBAC_DEFAULT_CACHE = token
+      expect(isRbacDefaultCacheEnabled()).toBe(true)
+    }
+    for (const token of ['off', '0', 'false', '', 'no', 'maybe']) {
+      process.env.OM_RBAC_DEFAULT_CACHE = token
+      expect(isRbacDefaultCacheEnabled()).toBe(false)
+    }
   })
 
   it('returns the same process-scoped instance across calls', () => {

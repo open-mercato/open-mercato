@@ -38,6 +38,7 @@ import { CrudHttpError, isCrudHttpError } from './errors'
 import type { CommandBus, CommandLogMetadata } from '@open-mercato/shared/lib/commands'
 import type { EntityId } from '@open-mercato/shared/modules/entities'
 import type { EntityManager } from '@mikro-orm/postgresql'
+import type { CacheStrategy } from '@open-mercato/cache'
 import {
   buildCollectionTags,
   buildRecordTag,
@@ -736,12 +737,18 @@ export type LogCrudAccessOptions = {
   fields?: string[]
 }
 
-export async function logCrudAccess(options: LogCrudAccessOptions) {
+export type LogCrudAccessResult = {
+  mode: 'batch' | 'fanout' | 'blocking' | 'skipped'
+  count: number
+  pending: number
+}
+
+export async function logCrudAccess(options: LogCrudAccessOptions): Promise<LogCrudAccessResult> {
   const { container, auth, request, items, resourceKind } = options
-  if (!auth) return
-  if (!Array.isArray(items) || items.length === 0) return
+  if (!auth) return { mode: 'skipped', count: 0, pending: pendingCrudAccessLogPromises.size }
+  if (!Array.isArray(items) || items.length === 0) return { mode: 'skipped', count: 0, pending: pendingCrudAccessLogPromises.size }
   const service = resolveAccessLogService(container)
-  if (!service) return
+  if (!service) return { mode: 'skipped', count: 0, pending: pendingCrudAccessLogPromises.size }
 
   const idField = options.idField || 'id'
   const tenantId = options.tenantId ?? auth.tenantId ?? null
@@ -786,9 +793,10 @@ export async function logCrudAccess(options: LogCrudAccessOptions) {
     if (Object.keys(context).length > 0) payload.context = context
     payloads.push(payload)
   }
-  if (!payloads.length) return
+  if (!payloads.length) return { mode: 'skipped', count: 0, pending: pendingCrudAccessLogPromises.size }
 
   const blocking = shouldBlockAccessLogWrites()
+  const dispatchMode: 'batch' | 'fanout' = typeof service.logMany === 'function' ? 'batch' : 'fanout'
   const writePromise = (async () => {
     try {
       if (typeof service.logMany === 'function') {
@@ -815,7 +823,9 @@ export async function logCrudAccess(options: LogCrudAccessOptions) {
   trackPendingCrudAccessLogPromise(writePromise)
   if (blocking) {
     await writePromise
+    return { mode: 'blocking', count: payloads.length, pending: pendingCrudAccessLogPromises.size }
   }
+  return { mode: dispatchMode, count: payloads.length, pending: pendingCrudAccessLogPromises.size }
 }
 
 type CrudCacheStoredValue = {
@@ -961,9 +971,9 @@ export function makeCrudRoute<TCreate = any, TUpdate = any, TList = any>(opts: C
         Array.isArray(ctx.organizationIds) && ctx.organizationIds.length
           ? ctx.organizationIds
           : [ctx.selectedOrganizationId ?? null]
-      let cfDefCache: any = null
+      let cfDefCache: CacheStrategy | null = null
       try {
-        cfDefCache = ctx.container.resolve('cache')
+        cfDefCache = ctx.container.resolve('cache') as CacheStrategy
       } catch {}
       const definitionIndex = await loadCustomFieldDefinitionIndex({
         em,
@@ -1580,7 +1590,7 @@ export function makeCrudRoute<TCreate = any, TUpdate = any, TList = any>(opts: C
           profiler.mark('translation_overlays_complete', { itemCount: transformedItems.length })
         }
 
-        await logCrudAccess({
+        const accessLogResult = await logCrudAccess({
           container: ctx.container,
           auth: ctx.auth,
           request,
@@ -1591,7 +1601,7 @@ export function makeCrudRoute<TCreate = any, TUpdate = any, TList = any>(opts: C
           tenantId: ctx.auth.tenantId ?? null,
           query: validated,
         })
-        profiler.mark('access_logged')
+        profiler.mark('access_logged', accessLogResult)
 
         if (exportRequested && requestedExport) {
           const total = typeof res.total === 'number' ? res.total : rawItems.length
@@ -1812,7 +1822,7 @@ export function makeCrudRoute<TCreate = any, TUpdate = any, TList = any>(opts: C
         profiler.mark('fallback_translation_overlays_complete', { itemCount: Array.isArray(list) ? list.length : 0 })
       }
 
-      await logCrudAccess({
+      const accessLogResult = await logCrudAccess({
         container: ctx.container,
         auth: ctx.auth,
         request,
@@ -1823,7 +1833,7 @@ export function makeCrudRoute<TCreate = any, TUpdate = any, TList = any>(opts: C
         tenantId: ctx.auth.tenantId ?? null,
         query: validated,
       })
-      profiler.mark('access_logged')
+      profiler.mark('access_logged', accessLogResult)
       if (exportRequested && requestedExport) {
         const exportItems = exportFullRequested ? list.map(normalizeFullRecordForExport) : list
         const prepared = exportFullRequested
