@@ -337,12 +337,161 @@ function selectDefinitionForRecord(
   return sortDefinitionSummaries(defs)[0] ?? null
 }
 
-export async function loadCustomFieldDefinitionIndex(opts: {
+type LoadCustomFieldDefinitionIndexOptions = {
   em: EntityManager
   entityIds: string | string[]
   tenantId?: string | null | undefined
   organizationIds?: Array<string | null | undefined> | null
   fieldset?: string | string[] | null
+}
+
+type CustomFieldDefIndexCache = {
+  get(key: string): Promise<unknown> | unknown
+  set(key: string, value: unknown, opts?: { ttl?: number; tags?: string[] }): Promise<unknown> | unknown
+  deleteByTags?(tags: string[]): Promise<number> | number
+}
+
+const CF_DEF_INDEX_CACHE_KEY_PREFIX = 'crud:cf-def-index'
+const CF_DEF_INDEX_DEFAULT_TTL_MS = 5 * 60 * 1000
+
+function resolveCfDefIndexCacheTtlMs(): number {
+  const raw = process.env.OM_CF_DEF_CACHE_TTL_MS
+  if (raw === undefined) return CF_DEF_INDEX_DEFAULT_TTL_MS
+  const parsed = Number(raw)
+  if (!Number.isFinite(parsed) || parsed < 0) return CF_DEF_INDEX_DEFAULT_TTL_MS
+  return parsed
+}
+
+function buildCfDefIndexCacheKey(opts: {
+  tenantId: string | null
+  entityIds: string[]
+  organizationIds: string[]
+  fieldsetKey: string | null
+}): string {
+  const tenant = opts.tenantId ?? 'global'
+  const entities = opts.entityIds.slice().sort().join('|')
+  const orgs = opts.organizationIds.length ? opts.organizationIds.slice().sort().join('|') : 'none'
+  const fieldset = opts.fieldsetKey ?? 'all'
+  return `${CF_DEF_INDEX_CACHE_KEY_PREFIX}:${tenant}:${entities}:${orgs}:${fieldset}`
+}
+
+function buildCfDefIndexCacheTags(opts: {
+  tenantId: string | null
+  entityIds: string[]
+}): string[] {
+  const tenant = opts.tenantId ?? 'global'
+  const tagBase = `entities:definitions:${tenant}`
+  const tags = new Set<string>([tagBase])
+  for (const entityId of opts.entityIds) {
+    tags.add(`${tagBase}:entity:${entityId}`)
+  }
+  return Array.from(tags)
+}
+
+function normalizeFieldsetKey(value: string | string[] | null | undefined): string | null {
+  if (!value) return null
+  if (Array.isArray(value)) {
+    const cleaned = value
+      .map((entry) => (typeof entry === 'string' ? entry.trim() : ''))
+      .filter((entry) => entry.length > 0)
+    if (!cleaned.length) return null
+    return cleaned.sort().join(',')
+  }
+  if (typeof value !== 'string') return null
+  const trimmed = value.trim()
+  return trimmed.length > 0 ? trimmed : null
+}
+
+function serializableIndexFromMap(index: CustomFieldDefinitionIndex): Array<[string, CustomFieldDefinitionSummary[]]> {
+  return Array.from(index.entries())
+}
+
+function indexMapFromSerializable(value: unknown): CustomFieldDefinitionIndex | null {
+  if (!Array.isArray(value)) return null
+  const map: CustomFieldDefinitionIndex = new Map()
+  for (const entry of value) {
+    if (!Array.isArray(entry) || entry.length !== 2) return null
+    const [key, summaries] = entry as [unknown, unknown]
+    if (typeof key !== 'string' || !Array.isArray(summaries)) return null
+    map.set(key, summaries as CustomFieldDefinitionSummary[])
+  }
+  return map
+}
+
+// Per-request micro-cache. Two CRUD calls within one HTTP request (rare but
+// possible via interceptors) share the same Map keyed by ctx-like objects.
+const requestScopedCfDefIndexCache = new WeakMap<object, Map<string, CustomFieldDefinitionIndex>>()
+
+export type CustomFieldDefinitionIndexCacheKey = string
+
+export function getRequestScopedCfDefIndexCache(scope: object): Map<string, CustomFieldDefinitionIndex> {
+  let bucket = requestScopedCfDefIndexCache.get(scope)
+  if (!bucket) {
+    bucket = new Map()
+    requestScopedCfDefIndexCache.set(scope, bucket)
+  }
+  return bucket
+}
+
+async function loadCustomFieldDefinitionIndexFresh(
+  opts: LoadCustomFieldDefinitionIndexOptions & { entityIds: string[]; orgCandidates: string[] }
+): Promise<CustomFieldDefinitionIndex> {
+  const { em, entityIds, orgCandidates } = opts
+  const tenantId = opts.tenantId ?? null
+  const scopeClauses: Record<string, unknown>[] = [
+    tenantId
+      ? { $or: [{ tenantId: tenantId as any }, { tenantId: null }] }
+      : { tenantId: null },
+  ]
+  if (orgCandidates.length) {
+    scopeClauses.push({
+      $or: [{ organizationId: { $in: orgCandidates as any } }, { organizationId: null }],
+    })
+  } else {
+    scopeClauses.push({ organizationId: null })
+  }
+  const where: Record<string, unknown> = {
+    entityId: { $in: entityIds as any },
+    deletedAt: null,
+    isActive: true,
+    $and: scopeClauses,
+  }
+  const defs = await em.find(CustomFieldDef, where as any)
+  const fieldsetFilter = normalizeFieldsetFilter(opts.fieldset)
+  const index: CustomFieldDefinitionIndex = new Map()
+  defs.forEach((def) => {
+    if (fieldsetFilter) {
+      const config = normalizeDefinitionConfig((def as any).configJson)
+      const fieldsets = Array.isArray(config.fieldsets)
+        ? config.fieldsets
+            .filter((entry: unknown): entry is string => typeof entry === 'string')
+            .map((entry: string) => entry.trim())
+            .filter((entry: string) => entry.length > 0)
+        : []
+      const fieldset = typeof config.fieldset === 'string' && config.fieldset.trim().length > 0
+        ? config.fieldset.trim()
+        : null
+      const matches = fieldsets.length > 0
+        ? fieldsets.some((entry: string) => fieldsetFilter.has(entry))
+        : fieldsetFilter.has(fieldset)
+      if (!matches) return
+    }
+    const summary = summarizeDefinition(def)
+    if (!summary) return
+    const normalizedKey = normalizeDefinitionKey(summary.key)
+    if (!normalizedKey) return
+    if (!index.has(normalizedKey)) index.set(normalizedKey, [])
+    index.get(normalizedKey)!.push(summary)
+  })
+  index.forEach((entries, key) => {
+    index.set(key, sortDefinitionSummaries(entries))
+  })
+  return index
+}
+
+export async function loadCustomFieldDefinitionIndex(opts: LoadCustomFieldDefinitionIndexOptions & {
+  cache?: CustomFieldDefIndexCache | null
+  requestScope?: object | null
 }): Promise<CustomFieldDefinitionIndex> {
   const list = Array.isArray(opts.entityIds) ? opts.entityIds : [opts.entityIds]
   const entityIds = list
