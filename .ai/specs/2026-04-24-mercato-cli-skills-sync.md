@@ -7,7 +7,7 @@
   - [SPEC-057](implemented/SPEC-057-2026-03-05-standalone-app-ai-folder.md)
   - [SPEC-058](implemented/SPEC-058-2026-03-10-agentic-tool-setup-standalone-app.md)
   - [SPEC-059](implemented/SPEC-059-2026-03-11-standalone-app-skills.md)
-  - [Develop Snapshot Release](2026-03-21-open-mercato-develop-snapshot-release.md)
+  - [Develop Snapshot Release](implemented/2026-03-21-open-mercato-develop-snapshot-release.md)
   - [packages/create-app/AGENTS.md](../../packages/create-app/AGENTS.md)
   - [packages/cli/AGENTS.md](../../packages/cli/AGENTS.md)
   - [BACKWARD_COMPATIBILITY.md](../../BACKWARD_COMPATIBILITY.md)
