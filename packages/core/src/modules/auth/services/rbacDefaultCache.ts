@@ -106,6 +106,14 @@ function createCache(): FallbackCache {
     async size(): Promise<number> {
       return store.size
     },
+    async stats(): Promise<{ size: number; expired: number }> {
+      const now = nowMs()
+      let expired = 0
+      for (const entry of store.values()) {
+        if (entry.expiresAt !== null && entry.expiresAt < now) expired += 1
+      }
+      return { size: store.size, expired }
+    },
     __reset() {
       store.clear()
     },
