@@ -71,7 +71,14 @@ type RawEncryptedFields = {
 
 function serializeJsonColumn(value: unknown): string | null {
   if (value === null || value === undefined) return null
-  if (typeof value === 'string') return value
+  if (typeof value === 'string') {
+    try {
+      JSON.parse(value)
+      return value
+    } catch {
+      return JSON.stringify(value)
+    }
+  }
   try {
     return JSON.stringify(value)
   } catch {

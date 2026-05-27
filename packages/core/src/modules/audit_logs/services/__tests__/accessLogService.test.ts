@@ -97,6 +97,46 @@ describe('AccessLogService.logMany', () => {
     expect(params[9]).toBeNull()
   })
 
+  it('stores encrypted JSON column strings as valid jsonb string values', async () => {
+    const { em, executeCalls } = makeFakeEm()
+    const encryptedFields = 'vjDNrr3ePbgk2Lt3:encrypted:payload:v1'
+    const encryptedContext = 'iJC0P9hNV5Zx:encrypted:context:v1'
+    const encryptionMock = {
+      encryptEntityPayload: jest.fn(async (_entity: unknown, payloadIn: any) => ({
+        ...payloadIn,
+        fieldsJson: encryptedFields,
+        contextJson: encryptedContext,
+      })),
+    }
+    ;(resolveTenantEncryptionService as jest.Mock).mockImplementation(() => encryptionMock)
+
+    const service = new AccessLogService(em as any)
+    await service.logMany([payload(0)])
+    const params = executeCalls[0]!.params
+    expect(params[6]).toBe(JSON.stringify(encryptedFields))
+    expect(params[7]).toBe(JSON.stringify(encryptedContext))
+  })
+
+  it('stores encrypted JSON column strings as valid jsonb string values for single writes', async () => {
+    const { em, executeCalls } = makeFakeEm()
+    const encryptedFields = 'vjDNrr3ePbgk2Lt3:encrypted:payload:v1'
+    const encryptedContext = 'iJC0P9hNV5Zx:encrypted:context:v1'
+    const encryptionMock = {
+      encryptEntityPayload: jest.fn(async (_entity: unknown, payloadIn: any) => ({
+        ...payloadIn,
+        fieldsJson: encryptedFields,
+        contextJson: encryptedContext,
+      })),
+    }
+    ;(resolveTenantEncryptionService as jest.Mock).mockImplementation(() => encryptionMock)
+
+    const service = new AccessLogService(em as any)
+    await service.log(payload(0))
+    const params = executeCalls[0]!.params
+    expect(params[6]).toBe(JSON.stringify(encryptedFields))
+    expect(params[7]).toBe(JSON.stringify(encryptedContext))
+  })
+
   it('returns 0 and skips DB calls for empty input', async () => {
     const { em, executeCalls } = makeFakeEm()
     const service = new AccessLogService(em as any)
