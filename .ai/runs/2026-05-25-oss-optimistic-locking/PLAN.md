@@ -50,11 +50,11 @@
 | 13 | 13.3 | Auto-register a generic reader from `makeCrudRoute` for every CRUD route's resourceKind + factory unit test | done | dda055339 |
 | 13 | 13.4 | Spec + docs update: "all CRUD entities" auto-registered, decision matrix Q5 = C (platform-wide) | done | cddd2ce47 |
 | 13 | 13.5 | New integration spec `TC-LOCK-OSS-004` for `customers.deal` proving the generic path + CI env expands to `all` | done | 284b72b38 |
-| 14 | 14.1 | Flip `parseOptimisticLockEnv` default from OFF → all; add explicit OFF tokens (`off` / `false` / `0` / `no` / `disabled` / `none`); update unit tests + add positive default-ON detection test | todo | |
-| 14 | 14.2 | Register a default `crudMutationGuardService` in the shared DI bootstrap (`packages/shared/src/lib/di/container.ts`) so coverage is universal even without `customers` / `sales` modules opting in | todo | |
-| 14 | 14.3 | Simplify `customers/di.ts` and `sales/di.ts`: register hand-wired readers unconditionally; drop redundant module-level `crudMutationGuardService` binding | todo | |
-| 14 | 14.4 | Update spec §3.4 + §4 + decision matrix Q7 = C; update `concurrency-locking.mdx` (default state, opting out, reference example); update root `AGENTS.md` Task Router row | todo | |
-| 14 | 14.5 | CHANGELOG `Unreleased` entry + `UPGRADE_NOTES.md` migration section + CI workflow comment refresh | todo | |
+| 14 | 14.1 | Flip `parseOptimisticLockEnv` default from OFF → all; add explicit OFF tokens (`off` / `false` / `0` / `no` / `disabled` / `none`); update unit tests + add positive default-ON detection test | done | e8bcf4287 |
+| 14 | 14.2 | Register a default `crudMutationGuardService` in the shared DI bootstrap (`packages/shared/src/lib/di/container.ts`) so coverage is universal even without `customers` / `sales` modules opting in | done | e8bcf4287 |
+| 14 | 14.3 | Simplify `customers/di.ts` and `sales/di.ts`: register hand-wired readers unconditionally; drop redundant module-level `crudMutationGuardService` binding | done | e8bcf4287 |
+| 14 | 14.4 | Update spec §3.4 + §4 + decision matrix Q7 = C; update `concurrency-locking.mdx` (default state, opting out, reference example); update root `AGENTS.md` Task Router row | done | e8bcf4287 |
+| 14 | 14.5 | CHANGELOG `Unreleased` entry + `UPGRADE_NOTES.md` migration section + CI workflow comment refresh | done | e8bcf4287 |
 
 ## Goal (resume)
 
