@@ -16,6 +16,62 @@ export type DiRegistrar = (container: AppContainer) => void
 // Use globalThis to survive tsx/esbuild module duplication issue where the same
 // file can be loaded as multiple module instances when mixing dynamic and static imports
 const GLOBAL_KEY = '__openMercatoDiRegistrars__'
+// Phase 5 — process-scoped bootstrap cache. The cache/event-bus/encryption
+// services bootstrap() creates are inherently process-scoped (they hold
+// state across requests). Caching them on globalThis after the first
+// successful bootstrap call lets every subsequent request skip the
+// `await bootstrap(container)` body and just re-register the cached
+// instances. Same globalThis pattern as registerDiRegistrars so HMR
+// keeps working.
+const BOOTSTRAP_CACHE_KEY = '__openMercatoBootstrapCache__'
+const ENCRYPTION_ENABLED_KEY = '__openMercatoEncryptionEnabledCache__'
+
+const BOOTSTRAP_CACHE_KEYS = [
+  'cache',
+  'eventBus',
+  'kmsService',
+  'tenantEncryptionService',
+  'rateLimiterService',
+  'searchModuleConfigs',
+  'searchIndexer',
+] as const
+
+type BootstrapCacheEntry = Partial<Record<(typeof BOOTSTRAP_CACHE_KEYS)[number], unknown>>
+
+function getBootstrapCache(): BootstrapCacheEntry | null {
+  const existing = (globalThis as any)[BOOTSTRAP_CACHE_KEY]
+  return existing && typeof existing === 'object' ? (existing as BootstrapCacheEntry) : null
+}
+
+function setBootstrapCache(entry: BootstrapCacheEntry): void {
+  (globalThis as any)[BOOTSTRAP_CACHE_KEY] = entry
+}
+
+function harvestBootstrapCache(container: AwilixContainer): BootstrapCacheEntry {
+  const entry: BootstrapCacheEntry = {}
+  for (const key of BOOTSTRAP_CACHE_KEYS) {
+    try {
+      const value = (container.resolve as any)(key)
+      if (value !== undefined && value !== null) entry[key] = value
+    } catch {
+      // not registered — skip
+    }
+  }
+  return entry
+}
+
+function getCachedEncryptionEnabled(service: any): boolean | null {
+  if (!service || typeof service.isEnabled !== 'function') return false
+  const cached = (globalThis as any)[ENCRYPTION_ENABLED_KEY]
+  if (typeof cached === 'boolean') return cached
+  try {
+    const result = !!service.isEnabled()
+    ;(globalThis as any)[ENCRYPTION_ENABLED_KEY] = result
+    return result
+  } catch {
+    return null
+  }
+}
 
 function getGlobalRegistrars(): DiRegistrar[] | null {
   return (globalThis as any)[GLOBAL_KEY] ?? null
@@ -31,6 +87,9 @@ export function registerDiRegistrars(registrars: DiRegistrar[]) {
     console.debug('[Bootstrap] DI registrars re-registered (this may occur during HMR)')
   }
   setGlobalRegistrars(registrars)
+  // Force re-bootstrap on HMR — module subscribers may have changed.
+  ;(globalThis as any)[BOOTSTRAP_CACHE_KEY] = null
+  ;(globalThis as any)[ENCRYPTION_ENABLED_KEY] = undefined
 }
 
 export function getDiRegistrars(): DiRegistrar[] {
@@ -39,6 +98,12 @@ export function getDiRegistrars(): DiRegistrar[] {
     throw new Error('[Bootstrap] DI registrars not registered. Call registerDiRegistrars() at bootstrap.')
   }
   return registrars
+}
+
+/** Test-only helper to drop the process-scoped bootstrap cache. */
+export function resetBootstrapCache(): void {
+  (globalThis as any)[BOOTSTRAP_CACHE_KEY] = null
+  ;(globalThis as any)[ENCRYPTION_ENABLED_KEY] = undefined
 }
 
 function isAwilixResolver(value: unknown): value is Resolver<unknown> {
@@ -76,16 +141,30 @@ export async function createRequestContainer(): Promise<AppContainer> {
     try { reg?.(container) } catch {}
   }
   // Core bootstrap (cache, event bus, encryption subscriber/KMS, module subscribers)
-  try {
-    const { bootstrap } = await import('@open-mercato/core/bootstrap') as any
-    if (bootstrap && typeof bootstrap === 'function') {
-      // Avoid double bootstrap if caller already wired it
-      const alreadyBootstrapped = !!container.registrations?.eventBus
-      if (!alreadyBootstrapped) {
-        await bootstrap(container)
+  // Phase 5 — process-scoped once-guard. The first request runs the full
+  // bootstrap() body; later requests re-register the cached services
+  // directly on this request's container without re-importing or
+  // re-initializing anything. HMR clears the cache (see
+  // registerDiRegistrars). Skippable if a caller already wired eventBus.
+  const alreadyBootstrappedOnThisContainer = !!container.registrations?.eventBus
+  if (!alreadyBootstrappedOnThisContainer) {
+    const cached = getBootstrapCache()
+    if (cached) {
+      const replay: Record<string, any> = {}
+      for (const [key, value] of Object.entries(cached)) {
+        if (value !== undefined && value !== null) replay[key] = asValue(value)
       }
+      if (Object.keys(replay).length > 0) container.register(replay)
+    } else {
+      try {
+        const { bootstrap } = await import('@open-mercato/core/bootstrap') as any
+        if (bootstrap && typeof bootstrap === 'function') {
+          await bootstrap(container)
+          setBootstrapCache(harvestBootstrapCache(container))
+        }
+      } catch { /* optional */ }
     }
-  } catch { /* optional */ }
+  }
   // App-level DI override (last chance)
   // This import path resolves only in the app context, not in packages
   try {
@@ -103,12 +182,15 @@ export async function createRequestContainer(): Promise<AppContainer> {
     unregister: (key) => container.register({ [key]: asValue(undefined) }),
   })
   // Ensure tenant encryption subscriber is always registered on the fresh request-scoped EM
+  // Phase 5 — cache `tenantEncryptionService.isEnabled()` for the process
+  // lifetime. The result depends only on config that does not change at
+  // runtime, so reading it once skips a config lookup per request.
   try {
     const emForEnc = container.resolve('em') as any
     const tenantEncryptionService = container.hasRegistration('tenantEncryptionService')
       ? (container.resolve('tenantEncryptionService') as any)
       : null
-    if (emForEnc && tenantEncryptionService?.isEnabled?.()) {
+    if (emForEnc && tenantEncryptionService && getCachedEncryptionEnabled(tenantEncryptionService) === true) {
       const { registerTenantEncryptionSubscriber } = await import('@open-mercato/shared/lib/encryption/subscriber')
       registerTenantEncryptionSubscriber(emForEnc, tenantEncryptionService)
     }
