@@ -15,8 +15,8 @@
 | 1 | 1.1 | Add run folder (PLAN/HANDOFF/NOTIFY) | done | b2d2341 |
 | 1 | 1.2 | Add `scripts/watch-packages.mjs` consolidated watcher | done | 598c407 |
 | 1 | 1.3 | Wire `yarn watch:packages` to the consolidated watcher with legacy escape hatch | done | 01d3b6e |
-| 1 | 1.4 | Add `scripts/profile-dev-rss.mjs` profiling helper | done | pending |
-| 1 | 1.5 | Update measurement section of the source spec with Phase E status | todo | — |
+| 1 | 1.4 | Add `scripts/profile-dev-rss.mjs` profiling helper | done | ead9667 |
+| 1 | 1.5 | Update measurement section of the source spec with Phase E status | done | pending |
 | 2 | 2.1 | Unit tests for `watch-packages.mjs` (discovery + debounce + rebuild trigger) | todo | — |
 
 ## Goal
