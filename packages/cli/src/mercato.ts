@@ -21,6 +21,14 @@ import {
   resolveLazySchedulerRestart,
 } from './lib/auto-spawn-scheduler'
 import { startLazySchedulerSupervisor } from './lib/scheduler-supervisor'
+import {
+  startInProcessGenerateWatcher,
+  type GenerateWatcherHandle,
+} from './lib/in-process-generate-watcher'
+import {
+  resolveGenerateWatcherMode,
+  type GenerateWatcherMode,
+} from './lib/in-process-generate-watcher-mode'
 import { parseModuleInstallArgs } from './lib/module-install-args'
 import { resolveNextBuildIdCandidate } from './lib/next-build-id'
 import { acquireServerStartLock } from './lib/server-start-lock'
@@ -553,6 +561,58 @@ async function runPostGenerateStructuralCachePurge(quiet: boolean): Promise<void
       const message = formatCliFailureMessage('configs', 'cache', error)
       console.log(`[generate] Skipping structural cache purge: ${message}`)
     }
+  }
+}
+
+/**
+ * Generator suite invoked by both `mercato generate all` and the in-process
+ * generate watcher embedded in `mercato server dev`. Hoisted to module scope
+ * so the watcher embedded in the server lifecycle can reuse the same closure
+ * without re-importing the closure-scoped version inside `buildBaseModules`.
+ */
+async function runGeneratorSuite(quiet: boolean): Promise<void> {
+  const { createResolver } = await import('./lib/resolver')
+  const {
+    generateEntityIds,
+    generateModuleRegistry,
+    generateModuleRegistryApp,
+    generateModuleRegistryCli,
+    generateModuleEntities,
+    generateModuleDi,
+    generateModulePackageSources,
+    generateOpenApi,
+  } = await import('./lib/generators')
+  const resolver = createResolver()
+  await generateEntityIds({ resolver, quiet })
+  await generateModuleRegistry({ resolver, quiet })
+  await generateModuleRegistryApp({ resolver, quiet })
+  await generateModuleRegistryCli({ resolver, quiet })
+  await generateModuleEntities({ resolver, quiet })
+  await generateModuleDi({ resolver, quiet })
+  await generateModulePackageSources({ resolver, quiet })
+  await generateOpenApi({ resolver, quiet })
+}
+
+/**
+ * Builds the structural-fingerprint function used by the in-process generate
+ * watcher. Walks the same module roots the legacy `mercato generate watch`
+ * CLI command tracked, so the polling semantics are byte-for-byte identical.
+ */
+function createGenerateWatchChecksumFn(): () => Promise<string> {
+  return async () => {
+    const { createResolver } = await import('./lib/resolver')
+    const { calculateStructureChecksum } = await import('./lib/utils')
+    const resolver = createResolver()
+    const tracked = new Set<string>([
+      path.join(resolver.getAppDir(), 'src', 'modules.ts'),
+      path.join(resolver.getAppDir(), 'src', 'modules'),
+    ])
+    for (const entry of resolver.loadEnabledModules()) {
+      const roots = resolver.getModulePaths(entry)
+      tracked.add(roots.appBase)
+      tracked.add(roots.pkgBase)
+    }
+    return calculateStructureChecksum(Array.from(tracked))
   }
 }
 
@@ -1475,30 +1535,6 @@ export async function run(argv = process.argv) {
       },
     ],
   } as any)
-  
-  const runGeneratorSuite = async (quiet: boolean) => {
-    const { createResolver } = await import('./lib/resolver')
-    const {
-      generateEntityIds,
-      generateModuleRegistry,
-      generateModuleRegistryApp,
-      generateModuleRegistryCli,
-      generateModuleEntities,
-      generateModuleDi,
-      generateModulePackageSources,
-      generateOpenApi,
-    } = await import('./lib/generators')
-    const resolver = createResolver()
-
-    await generateEntityIds({ resolver, quiet })
-    await generateModuleRegistry({ resolver, quiet })
-    await generateModuleRegistryApp({ resolver, quiet })
-    await generateModuleRegistryCli({ resolver, quiet })
-    await generateModuleEntities({ resolver, quiet })
-    await generateModuleDi({ resolver, quiet })
-    await generateModulePackageSources({ resolver, quiet })
-    await generateOpenApi({ resolver, quiet })
-  }
 
   // Built-in CLI module: generate
   all.push({
@@ -1518,75 +1554,46 @@ export async function run(argv = process.argv) {
       {
         command: 'watch',
         run: async (args: string[]) => {
-          const { createResolver } = await import('./lib/resolver')
-          const { calculateStructureChecksum } = await import('./lib/utils')
           const quiet = args.includes('--quiet') || args.includes('-q')
           const skipInitial = args.includes('--skip-initial')
           const intervalArg = args.find((arg) => arg.startsWith('--interval='))
           const parsedInterval = intervalArg ? Number.parseInt(intervalArg.split('=')[1] ?? '', 10) : NaN
           const intervalMs = Number.isFinite(parsedInterval) && parsedInterval >= 250 ? parsedInterval : 1000
-          let previousChecksum = ''
-          let running = false
-          let pending = false
 
-          const getTrackedPaths = () => {
-            const resolver = createResolver()
-            const tracked = new Set<string>([
-              path.join(resolver.getAppDir(), 'src', 'modules.ts'),
-              path.join(resolver.getAppDir(), 'src', 'modules'),
-            ])
-            for (const entry of resolver.loadEnabledModules()) {
-              const roots = resolver.getModulePaths(entry)
-              tracked.add(roots.appBase)
-              tracked.add(roots.pkgBase)
-            }
-            return Array.from(tracked)
-          }
-
-          const runWatchGeneration = async (reason: string) => {
-            if (running) {
-              pending = true
-              return
-            }
-            running = true
-            try {
-              if (!quiet) {
-                console.log(`[generate:watch] Regenerating (${reason})...`)
-              }
+          const watcher = startInProcessGenerateWatcher({
+            pollMs: intervalMs,
+            skipInitial,
+            quiet,
+            computeStructureChecksum: createGenerateWatchChecksumFn(),
+            runGenerators: async () => {
               await runGeneratorSuite(true)
               await runPostGenerateStructuralCachePurge(true)
-              if (!quiet) {
-                console.log('[generate:watch] Generators completed.')
-              }
-            } catch (error) {
-              console.error('[generate:watch] Generation failed:', error instanceof Error ? error.message : error)
-            } finally {
-              running = false
-              if (pending) {
-                pending = false
-                await runWatchGeneration('queued change')
-              }
-            }
+            },
+          })
+
+          const shutdownSignals: NodeJS.Signals[] = ['SIGINT', 'SIGTERM']
+          let shuttingDown = false
+          const handleSignal = () => {
+            if (shuttingDown) return
+            shuttingDown = true
+            void watcher.close()
+          }
+          for (const signal of shutdownSignals) {
+            process.once(signal, handleSignal)
           }
 
-          if (!skipInitial) {
-            await runWatchGeneration('initial')
-          }
-          previousChecksum = calculateStructureChecksum(getTrackedPaths())
-          if (!quiet) {
-            if (skipInitial) {
-              console.log('[generate:watch] Skipping initial regeneration and watching the current generated state.')
+          // The watcher's polling timer is `unref()`-ed so the event loop
+          // would otherwise exit immediately for a standalone CLI invocation.
+          // `keepAlive` holds the loop open until a shutdown signal calls
+          // `watcher.close()`, which resolves `watcher.done`.
+          const keepAlive = setInterval(() => {}, 1 << 30)
+          try {
+            await watcher.done
+          } finally {
+            clearInterval(keepAlive)
+            for (const signal of shutdownSignals) {
+              process.removeListener(signal, handleSignal)
             }
-            console.log(`[generate:watch] Watching structural module files every ${intervalMs}ms`)
-          }
-
-          // eslint-disable-next-line no-constant-condition
-          while (true) {
-            await new Promise((resolve) => setTimeout(resolve, intervalMs))
-            const nextChecksum = calculateStructureChecksum(getTrackedPaths())
-            if (nextChecksum === previousChecksum) continue
-            previousChecksum = nextChecksum
-            await runWatchGeneration('structure change')
           }
         },
       },
@@ -1686,6 +1693,8 @@ export async function run(argv = process.argv) {
           let envChangePromiseResolve: ((result: DevServerRestartResult) => void) | null = null
           let activeLazySupervisor: ReturnType<typeof startLazyWorkerSupervisor> | null = null
           let activeLazySchedulerSupervisor: ReturnType<typeof startLazySchedulerSupervisor> | null = null
+          let activeGenerateWatcher: GenerateWatcherHandle | null = null
+          const generateWatcherMode: GenerateWatcherMode = resolveGenerateWatcherMode(process.env)
           const envReloader = createDevEnvReloader(appDir, process.env, initialProcessEnvironmentEntries)
 
           function cleanup() {
@@ -1700,6 +1709,9 @@ export async function run(argv = process.argv) {
             }
             if (activeLazySchedulerSupervisor) {
               void activeLazySchedulerSupervisor.close().catch(() => undefined)
+            }
+            if (activeGenerateWatcher) {
+              void activeGenerateWatcher.close().catch(() => undefined)
             }
           }
 
@@ -1730,6 +1742,14 @@ export async function run(argv = process.argv) {
                 // Scheduler supervisor close errors should not block dev runtime cleanup.
               }
               activeLazySchedulerSupervisor = null
+            }
+            if (activeGenerateWatcher) {
+              try {
+                await activeGenerateWatcher.close()
+              } catch {
+                // In-process generate watcher close errors must never block dev shutdown.
+              }
+              activeGenerateWatcher = null
             }
             // Safety net: remove Next.js dev lock file in case the child didn't clean up
             const lockFile = path.join(appDir, '.mercato', 'next', 'dev', 'lock')
@@ -1879,6 +1899,31 @@ export async function run(argv = process.argv) {
                   processes.push(schedulerProcess)
                   managedExitPromises.push(waitForManagedProcessExit(schedulerProcess, 'Scheduler polling engine'))
                 }
+              }
+
+              if (generateWatcherMode === 'in-process') {
+                // Run the structural regeneration watcher inside this process
+                // instead of spawning a dedicated `mercato generate watch --skip-initial`
+                // sidecar. Saves ~190 MB of resident RSS on a typical dev box
+                // (measured against the legacy sidecar). Opt back into the
+                // sidecar with `OM_DEV_GENERATE_WATCH_MODE=legacy` if needed.
+                console.log('[server] In-process generate watcher enabled — structural changes will regenerate without a sidecar process.')
+                activeGenerateWatcher = startInProcessGenerateWatcher({
+                  // `--skip-initial` equivalent: `yarn dev` always runs an
+                  // initial `mercato generate` before reaching the server
+                  // command, so the watcher must not re-run generators at
+                  // boot time. Otherwise dev startup pays a generator pass
+                  // twice in a row.
+                  skipInitial: true,
+                  quiet: false,
+                  computeStructureChecksum: createGenerateWatchChecksumFn(),
+                  runGenerators: async () => {
+                    await runGeneratorSuite(true)
+                    await runPostGenerateStructuralCachePurge(true)
+                  },
+                })
+              } else {
+                console.log('[server] Legacy out-of-process generate watcher selected via OM_DEV_GENERATE_WATCH_MODE=legacy — expect the dev orchestrator to spawn `mercato generate watch --skip-initial`.')
               }
 
               const firstExit = await Promise.race(managedExitPromises)
