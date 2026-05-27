@@ -988,6 +988,7 @@
   "ui.perspectives.title": "Perspectivas",
   "ui.perspectives.untitled": "Perspectiva sin título",
   "ui.perspectives.updated": "Actualizado {date}",
+  "ui.recordNotFound.backToList": "Volver a la lista",
   "ui.rowActions.openActions": "Abrir acciones",
   "ui.sidebar.chevron.scrollBottom": "Desplazar hacia abajo",
   "ui.sidebar.chevron.scrollTop": "Desplazar hacia arriba",

@@ -13,6 +13,7 @@ import { collectCustomFieldValues } from '@open-mercato/ui/backend/utils/customF
 import { mapCrudServerErrorToFormErrors } from '@open-mercato/ui/backend/utils/serverErrors'
 import { E } from '#generated/entities.ids.generated'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
+import { RecordNotFoundState, ErrorMessage } from '@open-mercato/ui/backend/detail'
 import { useConfirmDialog } from '@open-mercato/ui/backend/confirm-dialog'
 import { DetailFieldsSection, type DetailFieldConfig } from '@open-mercato/ui/backend/detail'
 import {
@@ -114,6 +115,7 @@ export default function CustomerCompanyDetailPage({ params }: { params?: { id?: 
   const [data, setData] = React.useState<CompanyOverview | null>(null)
   const [isLoading, setIsLoading] = React.useState(true)
   const [error, setError] = React.useState<string | null>(null)
+  const [isNotFound, setIsNotFound] = React.useState(false)
   const [activeTab, setActiveTab] = React.useState<SectionKey>(initialTab)
   const [sectionAction, setSectionAction] = React.useState<SectionAction | null>(null)
   const [isDeleting, setIsDeleting] = React.useState(false)
@@ -279,7 +281,7 @@ export default function CustomerCompanyDetailPage({ params }: { params?: { id?: 
 
   React.useEffect(() => {
     if (!id) {
-      setError(t('customers.companies.detail.error.notFound', 'Company not found.'))
+      setIsNotFound(true)
       setIsLoading(false)
       return
     }
@@ -301,8 +303,12 @@ export default function CustomerCompanyDetailPage({ params }: { params?: { id?: 
         setData(payload as CompanyOverview)
       } catch (err) {
         if (cancelled) return
-        const message = err instanceof Error ? err.message : t('customers.companies.detail.error.load', 'Failed to load company.')
-        setError(message)
+        if ((err as { status?: number }).status === 404) {
+          setIsNotFound(true)
+        } else {
+          const message = err instanceof Error ? err.message : t('customers.companies.detail.error.load', 'Failed to load company.')
+          setError(message)
+        }
         setData(null)
       } finally {
         if (!cancelled) setIsLoading(false)
@@ -548,18 +554,34 @@ export default function CustomerCompanyDetailPage({ params }: { params?: { id?: 
     )
   }
 
+  if (isNotFound) {
+    return (
+      <Page>
+        <PageBody>
+          <RecordNotFoundState
+            label={t('customers.companies.detail.error.notFound', 'Company not found.')}
+            backHref="/backend/customers/companies"
+            backLabel={t('customers.companies.detail.actions.backToList', 'Back to companies')}
+          />
+        </PageBody>
+      </Page>
+    )
+  }
+
   if (error || !data?.company?.id) {
     return (
       <Page>
         <PageBody>
-            <div className="flex h-[50vh] flex-col items-center justify-center gap-2 text-muted-foreground">
-            <p>{error || t('customers.companies.detail.error.notFound', 'Company not found.')}</p>
-            <Button asChild variant="outline">
-              <Link href="/backend/customers/companies">
-                {t('customers.companies.detail.actions.backToList', 'Back to companies')}
-              </Link>
-            </Button>
-          </div>
+          <ErrorMessage
+            label={error ?? t('customers.companies.detail.error.notFound', 'Company not found.')}
+            action={
+              <Button asChild variant="outline" size="sm">
+                <Link href="/backend/customers/companies">
+                  {t('customers.companies.detail.actions.backToList', 'Back to companies')}
+                </Link>
+              </Button>
+            }
+          />
         </PageBody>
       </Page>
     )
