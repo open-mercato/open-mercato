@@ -1,13 +1,16 @@
 import { NextResponse, type NextRequest } from 'next/server'
 import { z } from 'zod'
+import type { EntityManager } from '@mikro-orm/postgresql'
 import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
 import { getAuthFromRequest } from '@open-mercato/shared/lib/auth/server'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import type { RbacService } from '@open-mercato/core/modules/auth/services/rbacService'
+import { User } from '@open-mercato/core/modules/auth/data/entities'
 import { hasRequiredFeatures } from '../../../../../lib/auth'
 import {
   createConversationStorage,
   AiChatConversationAccessError,
+  AiChatConversationDuplicateParticipantError,
 } from '../../../../../lib/conversation-storage'
 import { emitAiAssistantEvent } from '../../../../../events'
 
@@ -25,7 +28,7 @@ const conversationIdParamSchema = z.object({
 
 const addParticipantBodySchema = z.object({
   userId: z.string().uuid('userId must be a valid UUID'),
-  role: z.enum(['viewer', 'commenter']).default('viewer'),
+  role: z.enum(['viewer']).default('viewer'),
 })
 
 export const openApi: OpenApiRouteDoc = {
@@ -217,12 +220,27 @@ export async function POST(req: NextRequest, context: RouteContext): Promise<Res
     })
   }
 
+  const targetUserId = parseResult.data.userId
+  if (targetUserId === callerCtx.userId) {
+    return jsonError(400, 'Cannot share a conversation with yourself.', 'self_share_not_allowed')
+  }
+
   try {
     const container = await createRequestContainer()
+    const em = container.resolve<EntityManager>('em')
+    const targetUser = await em.findOne(User, {
+      id: targetUserId,
+      tenantId: callerCtx.tenantId,
+      deletedAt: null,
+    })
+    if (!targetUser) {
+      return jsonError(400, 'User not found in this organization.', 'user_not_found')
+    }
+
     const repo = createConversationStorage(container)
     const participant = await repo.addParticipant(
       callerCtx.conversationId,
-      parseResult.data.userId,
+      targetUserId,
       parseResult.data.role,
       {
         tenantId: callerCtx.tenantId,
@@ -259,6 +277,9 @@ export async function POST(req: NextRequest, context: RouteContext): Promise<Res
       { status: 201 },
     )
   } catch (err) {
+    if (err instanceof AiChatConversationDuplicateParticipantError) {
+      return jsonError(409, err.message, 'duplicate_participant')
+    }
     if (err instanceof AiChatConversationAccessError) {
       return jsonError(404, 'Conversation not found.', 'conversation_not_found')
     }

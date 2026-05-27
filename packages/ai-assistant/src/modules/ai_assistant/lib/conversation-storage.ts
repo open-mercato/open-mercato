@@ -6,6 +6,7 @@ import {
 } from '../data/entities'
 import {
   AiChatConversationAccessError,
+  AiChatConversationDuplicateParticipantError,
   AiChatConversationRepository,
   type AiChatConversationContext,
 } from '../data/repositories/AiChatConversationRepository'
@@ -22,7 +23,7 @@ import {
  * Re-exports the access error so route handlers can map it to a 404 without
  * importing the repository directly.
  */
-export { AiChatConversationAccessError }
+export { AiChatConversationAccessError, AiChatConversationDuplicateParticipantError }
 export type { AiChatConversationContext }
 
 export function createConversationStorage(

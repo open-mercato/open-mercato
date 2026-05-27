@@ -101,6 +101,13 @@ export class AiChatConversationAccessError extends Error {
   }
 }
 
+export class AiChatConversationDuplicateParticipantError extends Error {
+  override readonly name = 'AiChatConversationDuplicateParticipantError'
+  constructor(message: string = 'User is already an active participant in this conversation.') {
+    super(message)
+  }
+}
+
 export class AiChatConversationRepository {
   constructor(private readonly em: EntityManager) {}
 
@@ -575,7 +582,7 @@ export class AiChatConversationRepository {
   async addParticipant(
     conversationId: string,
     userId: string,
-    role: 'viewer' | 'commenter',
+    role: 'viewer',
     ctx: AiChatConversationContext,
   ): Promise<AiChatConversationParticipant> {
     assertContext(ctx, 'addParticipant')
@@ -590,7 +597,7 @@ export class AiChatConversationRepository {
           `Conversation "${conversationId}" was not found for the caller.`,
         )
       }
-      if (conv.ownerUserId !== ctx.userId && !canManageConversations(ctx)) {
+      if (conv.ownerUserId !== ctx.userId) {
         throw new AiChatConversationAccessError(
           'Only the conversation owner can add participants.',
         )
@@ -607,6 +614,9 @@ export class AiChatConversationRepository {
         existingFilter,
       )
       if (existing) {
+        if (existing.deletedAt === null) {
+          throw new AiChatConversationDuplicateParticipantError()
+        }
         existing.deletedAt = null
         existing.role = role
         await tx.persist(existing).flush()
