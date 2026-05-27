@@ -681,6 +681,19 @@ export class AiChatConversationRepository {
     })
   }
 
+  async getParticipantCount(
+    tenantId: string,
+    organizationId: string | null | undefined,
+    conversationId: string,
+  ): Promise<number> {
+    return this.em.count(AiChatConversationParticipant, {
+      tenantId,
+      conversationId,
+      deletedAt: null,
+      ...(organizationId ? { organizationId } : {}),
+    } as FilterQuery<AiChatConversationParticipant>)
+  }
+
   private async loadParticipantFlag(
     em: EntityManager,
     tenantId: string,
