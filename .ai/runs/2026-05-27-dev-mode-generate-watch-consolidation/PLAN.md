@@ -16,7 +16,7 @@
 | 2 | 2.2 | Drop the standalone `generate watch --skip-initial` spawn in `apps/mercato/scripts/dev.mjs` (and the standalone template) | done | af568087c |
 | 3 | 3.1 | Add `scripts/profile-generate-watch-rss.mjs` (Linux `/proc/<pid>/status` walker) | done | 315b04994 |
 | 3 | 3.2 | Unit-test the new helper start/stop/poll behavior | done | 816b8a2a9 |
-| 4 | 4.1 | Update spec changelog (Phase E note) + run-folder final-gate log | todo | — |
+| 4 | 4.1 | Update spec changelog (Phase E note) + run-folder final-gate log | done | c6a0fb82c |
 
 ## Goal
 

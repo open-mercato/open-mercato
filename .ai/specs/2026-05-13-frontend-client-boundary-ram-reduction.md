@@ -272,4 +272,4 @@ Also record static metrics:
 | Phase B — Provider/bootstrap split | Not Started | — | Requires code migration. |
 | Phase C — Generator template migration | Not Started | — | Requires generator/template updates. |
 | Phase D — Heavy dependency isolation | Not Started | — | Requires route-level refactors. |
-| Phase E — Dev memory defaults | Not Started | — | Requires measured default tuning. |
+| Phase E — Dev memory defaults | In Progress | 2026-05-27 | Two coordinated PRs landing the dev-mode RSS reductions: (1) **PR #2102** — consolidate `watch:packages` fan-out into one Node process (~1.1 GB saved); (2) **PR for `fix/dev-mode-generate-watch-consolidation`** — collapse `mercato generate watch --skip-initial` sidecar into the `mercato server dev` process via the in-process generate watcher (~190 MB saved, measured via `scripts/profile-generate-watch-rss.mjs`). Cumulative dev-mode RSS savings across both PRs: ~1.3 GB. Run folder: `.ai/runs/2026-05-27-dev-mode-generate-watch-consolidation/`. |
