@@ -1,45 +1,48 @@
 # Handoff — 2026-05-25-oss-optimistic-locking
 
-**Last updated:** 2026-05-28T16:05Z
+**Last updated:** 2026-05-28T18:55Z
 **Branch:** feat/oss-optimistic-locking
 **PR:** https://github.com/open-mercato/open-mercato/pull/2055
-**Current phase/step:** Phase 15 (QA #2055 fix increment) — all rows 15.1..15.5 `done`. PR head `5c9ceeeb0` (+ pending checkpoint-4 docs commit).
-**Last code commit:** 5c9ceeeb0 (`docs(specs): record optimistic-lock coverage implementation status`)
+**Current phase/step:** Phase 17 complete (command-level locking for sales). PR head pushed (`d835925db`). Next: Phase 18 (client wiring) → 19 (docs/spec) → 20 (follow-up issue + final gate).
+**Last code commit:** d6448082e (`feat(sales): document-aggregate optimistic locking for sub-resource commands`)
 
-## What just happened (this resume)
+## What this resume adds (Phases 16–20)
 
-Resumed PR #2055 to fix the issues @alinadivante reported in QA (PR comment 2026-05-27T22:11):
+New scope on top of the previously-`complete` PR, per the user's directive:
+a **generalist command-level** OSS optimistic-lock mechanism (not just
+CrudForm/makeCrudRoute), implemented for sales, plus docs/spec + a follow-up
+issue for other modules.
 
-- A prior session (commits `f79cc3e7c`, `6c5956367`, `99c9f851c`) had already (a) fixed the raw `record_modified` flash → now `ui.forms.flash.recordModified` with a human fallback in both `CrudForm` (CrudForm.tsx:2610) and `useGuardedMutation`, and (b) wired the `optimisticLockUpdatedAt` prop into ~40 CrudForm edit pages (covers company-v2 / people-v2 / catalog products **update**).
-- This resume closed the remaining gaps: the **custom (non-CrudForm) handlers** that issued `updateCrud`/`deleteCrud` without the lock header.
-  - 15.1 `8c35339d5` — deals update + delete (`useDealFormHandlers.ts`).
-  - 15.2 `49f25480b` — company-v2 + people-v2 custom **delete** handlers.
-  - 15.3 `32fb756f8` — sales channels list **delete** (+ 409 → conflict flash + refresh, fixing the broken-list scenario).
-  - 15.4 `ed4efbdd0` — TC-LOCK-OSS-004 stale-DELETE→409 integration coverage.
-  - 15.5 `5c9ceeeb0` — coverage-completion spec implementation-status table.
-- Validation: build:packages ✓, generate ✓, i18n:check-sync ✓, touched core unit tests 9/9 ✓, root-tsc 6.0.3 typecheck ✓ (workspace tsc 5.9.3 env-fails on `ignoreDeprecations` — pre-existing; lint env-crashes on eslint-plugin-react — pre-existing). See `checkpoint-4-checks.md`.
+- **Phase 16 (done, `7d30ee397`):** `packages/shared/src/lib/crud/optimistic-lock-command.ts` — `readOptimisticLockExpected`, `assertOptimisticLock`, `enforceCommandOptimisticLock`. Exported `normalizeIsoToken` from `optimistic-lock.ts` so command + CRUD paths normalize identically. 57 unit tests.
+- **Phase 17 (done, `d6448082e`):** sales-local `enforceSalesDocumentOptimisticLock` in `commands/shared.ts`; wired into order/quote line + adjustment upsert/delete, return create, and quote→order conversion (closes #2114 race). Parent order/quote version is the consistency boundary; its `updated_at` bumps automatically because these commands recalc document totals → dirty the parent. Payments/shipments left to their existing makeCrudRoute row-level guard.
 
-## The same-user-two-tabs mystery (QA issue #1) — resolution
+## Key architectural finding
 
-@alinadivante saw 409 for two **different** users but silent overwrite for the **same** user in two tabs on `customers.company`. That signature is the enterprise **pessimistic** record-lock (same user owns the lock in both tabs → no block). The OSS **version-compare** guard is per-record-version, not per-user, so once company-v2 sends the header (wired in `6c5956367`, after her test), same-user-two-tabs now 409s too. No additional code needed for this — it is covered by the company update wiring + TC-LOCK-OSS-001.
+The CRUD factory only runs the row-level optimistic guard when `candidateId`
+(`input.id`) is set. `makeSalesLineRoute` returns `{ body: payload }`, nulling
+`candidateId`, so lines/adjustments have NO row-level guard — the new
+command-level document-aggregate check is their sole guard (no double-409).
+Payments/shipments use flat mapInput (top-level `id`) → row-level guard fires →
+left as-is.
 
-## Next concrete action
+## Next concrete action (Phase 18)
 
-1. **Re-QA** by @alinadivante against PR head: deal/company/person/channel concurrent update + delete should now 409 with the localized "record modified" flash.
-2. CI `ephemeral-integration` (with `OM_OPTIMISTIC_LOCK=all`) runs TC-LOCK-OSS-004 incl. the new DELETE cases — confirm green.
-3. Optional follow-up (DEFERRED, not blocking this PR): `sales.order` document command-endpoint version checks (Phase 4) and nested panels (Phase 3) per `.ai/specs/2026-05-28-optimistic-locking-coverage-completion.md`.
+Wire the sales document UI sub-resource sections (ItemsSection, AdjustmentsSection,
+ReturnsSection, convert action) to send `buildOptimisticLockHeader(document.updatedAt)`
+via `withScopedApiRequestHeaders(...)` on their POST/PUT/DELETE, and surface the
+409 conflict flash (`ui.forms.flash.recordModified`) + refresh. The document
+detail page (`backend/sales/documents/[id]/page.tsx`) loads the document — confirm
+it exposes `updatedAt` to the sections. Then Phase 19 (docs/spec), Phase 20
+(follow-up issue + final gate + auto-review + summary).
 
-## Blockers / open questions
+## Blockers / env caveats
 
-- Local Playwright/integration could not run (no Postgres/Redis/.env in the janitor sandbox). CI is authoritative for integration.
-- `auto-review-pr` cloud pass not run as a separate step this resume — substituted a focused self code-review + a background code-review subagent on the Phase 15 diff (`99c9f851c..HEAD`).
-
-## Environment caveats
-
-- `gh` binary is at `~/.local/bin/gh` — `export PATH="$HOME/.local/bin:$PATH"` each fresh Bash.
-- Janitor **autosave race**: a periodic timer commits working-tree edits as `janitor: autosave (periodic)` commits. Recover with `git reset --soft <last-clean-sha>` then re-commit cleanly. Happened once this resume (recovered into 15.2 `49f25480b`).
-- Workspace tsc is 5.9.3 (env-fails `ignoreDeprecations:"6.0"`); use root `./node_modules/.bin/tsc` (6.0.3) for a real typecheck.
+- Command-level tests importing `../documents` need `yarn build:packages` + `yarn generate` first (transitive `@open-mercato/cache` + `#generated/*`). Both run green.
+- Real typecheck: `yarn turbo run typecheck --filter=@open-mercato/core` (root tsc 6.0.3, green). The workspace `yarn workspace … typecheck` fails on a pre-existing `ignoreDeprecations` env issue (tsc 5.9.3) — ignore it.
+- Playwright/integration not runnable locally (no PG/Redis). CI ephemeral is authoritative.
+- `gh` at `~/.local/bin` — `export PATH="$HOME/.local/bin:$PATH"` each fresh Bash.
+- Janitor autosave commits interleave; collapse with `git reset --soft <pushed-base>` then re-commit cleanly. Repo squash-merges so the noise is harmless; do NOT force-push the shared PR branch.
 
 ## Worktree
 
-- Path: `/home/pkarw/Projects/github-janitor/.janitor/repos/open-mercato__open-mercato/worktrees/a7d67a13-7d0c-436e-a4c0-b05b13114f36/` (janitor-managed; detached HEAD on the PR head; do NOT `git worktree remove`). The branch `feat/oss-optimistic-locking` itself is checked out in sibling worktree `bdaa81a3-…` at the stale `4259ee34b` — push via `git push origin HEAD:feat/oss-optimistic-locking`.
+Path: `/home/pkarw/Projects/github-janitor/.janitor/repos/open-mercato__open-mercato/worktrees/62b06a07-855f-4863-b5a7-264a44e95c5f/` (janitor task worktree, on branch `task/62b06a07-…` reset to the PR head). Push via `git push origin HEAD:feat/oss-optimistic-locking`.
