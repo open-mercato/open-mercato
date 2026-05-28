@@ -87,3 +87,11 @@ Append-only event log. Newest at the bottom.
 - UI/Playwright: skipped locally (no Postgres/Redis/.env). DELETE enforcement covered by TC-LOCK-OSS-004 in CI ephemeral-integration; server delete-guard path is entity-agnostic (`factory.ts` runMutationGuards op:'delete').
 - Deferred (documented in coverage-completion spec): sales.order document command endpoints (Phase 4) + nested panels (Phase 3).
 - Code review: focused self-review + background code-review subagent on diff `99c9f851c..HEAD`.
+
+## 2026-05-28T18:55Z — checkpoint 5 (Phases 16–17: command-level locking)
+- Steps verified: 16.0, 16.1, 17.1–17.6 (SHA range 20b4ba3ff..d6448082e).
+- New generalist helper `optimistic-lock-command.ts` (shared) + sales document-aggregate wiring (lines/adjustments/returns/convert). 57 shared + 5 sales-command unit tests green.
+- Targeted validation: build:packages ✓, generate ✓ (no committed drift), shared typecheck ✓, core typecheck via turbo (root tsc 6.0.3) ✓.
+- Design decision logged: payments/shipments keep their makeCrudRoute row-level guard (flat mapInput → candidateId set); lines/adjustments skip it (`{ body }` wrapping → candidateId null) so the doc-aggregate command check is their sole guard — no double-409. Quote convert closes the #2114 race.
+- UI/Playwright skipped (no UI touched in 16–17). Phase 18 = client wiring; TC-LOCK-OSS-005 integration proof runs in CI.
+- Merge conflict resolution (CHANGELOG + yarn.lock) landed `20b4ba3ff`; PR no longer DIRTY.
