@@ -143,6 +143,7 @@
   "common.delete": "Löschen",
   "common.edit": "Bearbeiten",
   "common.email": "E-Mail",
+  "common.error": "Etwas ist schiefgelaufen.",
   "common.expand": "Ausklappen",
   "common.export": "Exportieren",
   "common.inactive": "Inaktiv",

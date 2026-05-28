@@ -7,6 +7,7 @@ import type { RbacService } from '@open-mercato/core/modules/auth/services/rbacS
 import { hasRequiredFeatures } from '../../../../../../lib/auth'
 import {
   AiChatConversationAccessError,
+  AiChatParticipantNotFoundError,
   createConversationStorage,
 } from '../../../../../../lib/conversation-storage'
 import { emitAiAssistantEvent } from '../../../../../../events'
@@ -137,6 +138,9 @@ export async function DELETE(req: NextRequest, context: RouteContext): Promise<R
     }
     return new NextResponse(null, { status: 204 })
   } catch (err) {
+    if (err instanceof AiChatParticipantNotFoundError) {
+      return jsonError(404, err.message || 'Participant not found or already revoked.', 'participant_not_found')
+    }
     if (err instanceof AiChatConversationAccessError) {
       return jsonError(403, err.message || 'Access denied.', 'forbidden')
     }

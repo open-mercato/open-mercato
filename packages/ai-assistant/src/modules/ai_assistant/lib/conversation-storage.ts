@@ -8,6 +8,7 @@ import {
   AiChatConversationAccessError,
   AiChatConversationDuplicateParticipantError,
   AiChatConversationOrgNotFoundError,
+  AiChatParticipantNotFoundError,
   AiChatConversationRepository,
   type AiChatConversationContext,
 } from '../data/repositories/AiChatConversationRepository'
@@ -28,6 +29,7 @@ export {
   AiChatConversationAccessError,
   AiChatConversationDuplicateParticipantError,
   AiChatConversationOrgNotFoundError,
+  AiChatParticipantNotFoundError,
 }
 export type { AiChatConversationContext }
 

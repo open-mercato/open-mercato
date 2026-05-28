@@ -143,6 +143,7 @@
   "common.delete": "Delete",
   "common.edit": "Edit",
   "common.email": "Email",
+  "common.error": "Something went wrong.",
   "common.expand": "Expand",
   "common.export": "Export",
   "common.inactive": "Inactive",

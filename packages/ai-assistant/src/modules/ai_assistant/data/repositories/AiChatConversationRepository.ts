@@ -109,6 +109,13 @@ export class AiChatConversationDuplicateParticipantError extends Error {
   }
 }
 
+export class AiChatParticipantNotFoundError extends Error {
+  override readonly name = 'AiChatParticipantNotFoundError'
+  constructor(message: string = 'Participant not found or already revoked.') {
+    super(message)
+  }
+}
+
 export class AiChatConversationOrgNotFoundError extends Error {
   override readonly name = 'AiChatConversationOrgNotFoundError'
   constructor(message: string = 'Organization does not exist or is inactive for this tenant.') {
@@ -695,7 +702,7 @@ export class AiChatConversationRepository {
         AiChatConversationParticipant,
         participantFilter,
       )
-      if (!participant) return
+      if (!participant) throw new AiChatParticipantNotFoundError()
       participant.deletedAt = new Date()
       const remainingCount = await tx.count(AiChatConversationParticipant, {
         tenantId: ctx.tenantId,
@@ -720,6 +727,7 @@ export class AiChatConversationRepository {
       tenantId,
       conversationId,
       deletedAt: null,
+      role: { $ne: 'owner' },
       ...(organizationId ? { organizationId } : {}),
     } as FilterQuery<AiChatConversationParticipant>)
   }

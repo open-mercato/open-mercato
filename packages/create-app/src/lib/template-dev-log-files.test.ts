@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict'
+import { spawnSync } from 'node:child_process'
 import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
@@ -58,4 +59,31 @@ test('standalone template dev wrapper defaults background services to lazy mode'
   assert.match(source, /OM_AUTO_SPAWN_WORKERS_LAZY = 'true'/)
   assert.match(source, /OM_AUTO_SPAWN_SCHEDULER_LAZY = 'true'/)
   assert.match(source, /env: buildAppDevEnv\(\)/)
+})
+
+test('standalone template dev reset clears configured Next dev distDir cache', () => {
+  const sourceScriptPath = new URL('../../template/scripts/dev-reset.mjs', import.meta.url)
+  const tempDir = makeTempDir('template-dev-reset-')
+
+  try {
+    const scriptsDir = path.join(tempDir, 'scripts')
+    const distDevDir = path.join(tempDir, '.mercato', 'next', 'dev')
+    const legacyTurboDir = path.join(tempDir, '.next', 'cache', 'turbopack')
+    fs.mkdirSync(scriptsDir, { recursive: true })
+    fs.mkdirSync(distDevDir, { recursive: true })
+    fs.mkdirSync(legacyTurboDir, { recursive: true })
+    fs.copyFileSync(sourceScriptPath, path.join(scriptsDir, 'dev-reset.mjs'))
+
+    const result = spawnSync(process.execPath, [path.join(scriptsDir, 'dev-reset.mjs')], {
+      cwd: tempDir,
+      encoding: 'utf8',
+    })
+
+    assert.equal(result.status, 0, result.stderr)
+    assert.equal(fs.existsSync(distDevDir), false)
+    assert.equal(fs.existsSync(legacyTurboDir), false)
+    assert.match(result.stdout, /\.mercato\/next\/dev/)
+  } finally {
+    rmTempDir(tempDir)
+  }
 })
