@@ -427,6 +427,36 @@ function writeDevSplashRuntimeReady(reason?: string): void {
   })
 }
 
+function resolveDevWarmupReadyTimeoutMs(environment: NodeJS.ProcessEnv = process.env): number {
+  const parsed = Number.parseInt(environment.OM_DEV_WARMUP_READY_TIMEOUT_MS ?? '', 10)
+  if (Number.isFinite(parsed) && parsed >= 0) return parsed
+  return 300_000
+}
+
+async function waitForDevWarmupReadyFile(
+  filePath: string | undefined,
+  options: {
+    timeoutMs?: number
+    signal?: AbortSignal
+  } = {},
+): Promise<'ready' | 'timeout' | 'aborted'> {
+  const normalized = filePath?.trim()
+  if (!normalized) return 'ready'
+  const timeoutMs = options.timeoutMs ?? resolveDevWarmupReadyTimeoutMs()
+  const startedAt = Date.now()
+
+  while (true) {
+    if (options.signal?.aborted) return 'aborted'
+    try {
+      if (fs.existsSync(normalized)) return 'ready'
+    } catch {
+      // Keep polling; the runtime wrapper owns this best-effort marker.
+    }
+    if (timeoutMs >= 0 && Date.now() - startedAt >= timeoutMs) return 'timeout'
+    await new Promise((resolve) => setTimeout(resolve, 250))
+  }
+}
+
 type ModuleCommandLookupResult =
   | {
       status: 'ok'
@@ -1878,8 +1908,15 @@ export async function run(argv = process.argv) {
               devRestartPromiseResolve = resolve
             })
 
-          const startNextDev = (runtimeEnv: NodeJS.ProcessEnv): Promise<ManagedProcessExitResult> =>
-            new Promise((resolve) => {
+          const startNextDev = (runtimeEnv: NodeJS.ProcessEnv): {
+            exitPromise: Promise<ManagedProcessExitResult>
+            readyPromise: Promise<void>
+          } => {
+            let readyResolve: () => void = () => undefined
+            const readyPromise = new Promise<void>((resolve) => {
+              readyResolve = resolve
+            })
+            const exitPromise = new Promise<ManagedProcessExitResult>((resolve) => {
               writeDevSplashRuntimeStarting(
                 lastRestartReason
                   ? `Restarting Next.js dev server. Reason: ${lastRestartReason}`
@@ -1903,6 +1940,7 @@ export async function run(argv = process.argv) {
                   reportedReady = true
                   writeDevSplashRuntimeReady(lastRestartReason ?? undefined)
                   lastRestartReason = null
+                  readyResolve()
                 }
               }
 
@@ -1924,7 +1962,9 @@ export async function run(argv = process.argv) {
                   writeDevSplashRuntimeRestarting(lastRestartReason)
                   console.log('[server] Detected corrupted Turbopack dev cache. Clearing .mercato/next/dev and restarting Next.js once...')
                   removeTurbopackDevCache(appDir)
-                  return resolve(await startNextDev(runtimeEnv))
+                  const restarted = startNextDev(runtimeEnv)
+                  restarted.readyPromise.then(readyResolve)
+                  return resolve(await restarted.exitPromise)
                 }
                 resolve({
                   label: 'Next.js dev server',
@@ -1933,6 +1973,8 @@ export async function run(argv = process.argv) {
                 })
               })
             })
+            return { exitPromise, readyPromise }
+          }
 
           try {
             while (!stopping) {
@@ -1942,62 +1984,92 @@ export async function run(argv = process.argv) {
               const autoSpawnSchedulerMode = resolveAutoSpawnSchedulerMode(process.env)
               const queueStrategy = process.env.QUEUE_STRATEGY || 'local'
               const schedulerCommand = lookupModuleCommand(getCliModules(), 'scheduler', 'start')
+              const nextRuntime = startNextDev(runtimeEnv)
+              const restartPromise = waitForDevRestart()
+              const backgroundStartAbort = new AbortController()
+              const cancelBackgroundStart = () => backgroundStartAbort.abort()
+              nextRuntime.exitPromise.finally(cancelBackgroundStart)
+              restartPromise.then(cancelBackgroundStart)
+              let backgroundExitResolve: (result: ManagedProcessExitResult) => void = () => undefined
+              const backgroundExitPromise = new Promise<ManagedProcessExitResult>((resolve) => {
+                backgroundExitResolve = resolve
+              })
               const managedExitPromises: Promise<DevServerExitResult>[] = [
-                startNextDev(runtimeEnv),
-                waitForDevRestart(),
+                nextRuntime.exitPromise,
+                restartPromise,
+                backgroundExitPromise,
               ]
 
-              // Start workers if enabled
-              if (autoSpawnWorkersMode !== 'off') {
-                const discoveredWorkers = getRegisteredCliWorkers()
-                const discoveredWorkerQueues = [...new Set(discoveredWorkers.map((worker) => worker.queue))]
-                if (discoveredWorkerQueues.length === 0) {
-                  console.error('[server] AUTO_SPAWN_WORKERS is enabled, but no queues were discovered from CLI modules. Run `yarn generate` and verify `.mercato/generated/modules.cli.generated.ts` contains worker entries. Continuing without auto-spawned workers.')
-                } else if (autoSpawnWorkersMode === 'lazy') {
-                  console.log(`[server] Lazy worker auto-spawn enabled — workers will start on first job (${discoveredWorkerQueues.length} queue(s) watched).`)
-                  activeLazySupervisor = startLazyWorkerSupervisor({
-                    mercatoBin,
-                    appDir,
-                    runtimeEnv,
-                    workers: discoveredWorkers,
-                    pollMs: resolveLazyPollMs(process.env),
-                    restartOnUnexpectedExit: resolveLazyRestart(process.env),
-                  })
-                } else {
-                  console.log('[server] Eager worker auto-spawn enabled - starting workers for all queues...')
-                  const workerProcess = spawn('node', [mercatoBin, 'queue', 'worker', '--all'], {
-                    stdio: 'inherit',
-                    env: runtimeEnv,
-                    cwd: appDir,
-                  })
-                  processes.push(workerProcess)
-                  managedExitPromises.push(waitForManagedProcessExit(workerProcess, formatQueueWorkerLabel(discoveredWorkerQueues)))
-                }
-              }
+              const startBackgroundServices = async () => {
+                if (stopping || backgroundStartAbort.signal.aborted) return
 
-              if (autoSpawnSchedulerMode !== 'off' && queueStrategy === 'local') {
-                if (schedulerCommand.status !== 'ok') {
-                  console.log(`[server] Skipping scheduler auto-start — ${describeMissingModuleCommand(schedulerCommand)}`)
-                } else if (autoSpawnSchedulerMode === 'lazy') {
-                  console.log('[server] Lazy scheduler auto-spawn enabled - scheduler will start when an enabled schedule exists.')
-                  activeLazySchedulerSupervisor = startLazySchedulerSupervisor({
-                    mercatoBin,
-                    appDir,
-                    runtimeEnv,
-                    pollMs: resolveLazySchedulerPollMs(process.env),
-                    restartOnUnexpectedExit: resolveLazySchedulerRestart(process.env),
-                  })
-                } else {
-                  console.log('[server] Eager scheduler auto-spawn enabled - starting scheduler polling engine...')
-                  const schedulerProcess = spawn('node', [mercatoBin, 'scheduler', 'start'], {
-                    stdio: 'inherit',
-                    env: runtimeEnv,
-                    cwd: appDir,
-                  })
-                  processes.push(schedulerProcess)
-                  managedExitPromises.push(waitForManagedProcessExit(schedulerProcess, 'Scheduler polling engine'))
+                // Keep first-route compilation responsive: greenfield setup can
+                // leave vector/fulltext jobs ready. When the dev wrapper is
+                // active, wait for its /login + /backend warmup marker before
+                // workers and scheduler begin consuming CPU and database I/O.
+                const warmupReady = await waitForDevWarmupReadyFile(process.env.OM_DEV_WARMUP_READY_FILE, {
+                  timeoutMs: resolveDevWarmupReadyTimeoutMs(process.env),
+                  signal: backgroundStartAbort.signal,
+                })
+                if (warmupReady === 'aborted' || stopping || backgroundStartAbort.signal.aborted) return
+                if (warmupReady === 'timeout') {
+                  console.warn('[server] Timed out waiting for dev warmup marker; starting background services anyway.')
+                }
+
+                if (autoSpawnWorkersMode !== 'off') {
+                  const discoveredWorkers = getRegisteredCliWorkers()
+                  const discoveredWorkerQueues = [...new Set(discoveredWorkers.map((worker) => worker.queue))]
+                  if (discoveredWorkerQueues.length === 0) {
+                    console.error('[server] AUTO_SPAWN_WORKERS is enabled, but no queues were discovered from CLI modules. Run `yarn generate` and verify `.mercato/generated/modules.cli.generated.ts` contains worker entries. Continuing without auto-spawned workers.')
+                  } else if (autoSpawnWorkersMode === 'lazy') {
+                    console.log(`[server] Lazy worker auto-spawn enabled — workers will start on first job (${discoveredWorkerQueues.length} queue(s) watched).`)
+                    activeLazySupervisor = startLazyWorkerSupervisor({
+                      mercatoBin,
+                      appDir,
+                      runtimeEnv,
+                      workers: discoveredWorkers,
+                      pollMs: resolveLazyPollMs(process.env),
+                      restartOnUnexpectedExit: resolveLazyRestart(process.env),
+                    })
+                  } else {
+                    console.log('[server] Eager worker auto-spawn enabled - starting workers for all queues...')
+                    const workerProcess = spawn('node', [mercatoBin, 'queue', 'worker', '--all'], {
+                      stdio: 'inherit',
+                      env: runtimeEnv,
+                      cwd: appDir,
+                    })
+                    processes.push(workerProcess)
+                    waitForManagedProcessExit(workerProcess, formatQueueWorkerLabel(discoveredWorkerQueues)).then(backgroundExitResolve)
+                  }
+                }
+
+                if (autoSpawnSchedulerMode !== 'off' && queueStrategy === 'local') {
+                  if (schedulerCommand.status !== 'ok') {
+                    console.log(`[server] Skipping scheduler auto-start — ${describeMissingModuleCommand(schedulerCommand)}`)
+                  } else if (autoSpawnSchedulerMode === 'lazy') {
+                    console.log('[server] Lazy scheduler auto-spawn enabled - scheduler will start when an enabled schedule exists.')
+                    activeLazySchedulerSupervisor = startLazySchedulerSupervisor({
+                      mercatoBin,
+                      appDir,
+                      runtimeEnv,
+                      pollMs: resolveLazySchedulerPollMs(process.env),
+                      restartOnUnexpectedExit: resolveLazySchedulerRestart(process.env),
+                    })
+                  } else {
+                    console.log('[server] Eager scheduler auto-spawn enabled - starting scheduler polling engine...')
+                    const schedulerProcess = spawn('node', [mercatoBin, 'scheduler', 'start'], {
+                      stdio: 'inherit',
+                      env: runtimeEnv,
+                      cwd: appDir,
+                    })
+                    processes.push(schedulerProcess)
+                    waitForManagedProcessExit(schedulerProcess, 'Scheduler polling engine').then(backgroundExitResolve)
+                  }
                 }
               }
+              nextRuntime.readyPromise.then(() => {
+                void startBackgroundServices()
+              })
 
               if (generateWatcherMode === 'in-process') {
                 // Run the structural regeneration watcher inside this process

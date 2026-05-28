@@ -202,6 +202,10 @@ const splashEnabled = !classic && !appOnly && splashPortConfig.enabled
 const autoOpenSplash = splashEnabled && process.stdout.isTTY && process.env.CI !== 'true' && process.env.OM_DEV_AUTO_OPEN !== '0'
 const splashBindHost = isContainerRuntime() ? '0.0.0.0' : '127.0.0.1'
 const standaloneRuntimeScript = path.join(process.cwd(), 'scripts', 'dev-runtime.mjs')
+const warmupReadyFilePath = path.join(
+  process.cwd(),
+  isMonorepo ? 'apps/mercato/.mercato/dev-warmup-ready.json' : '.mercato/dev-warmup-ready.json',
+)
 const devLogTeeDisabled = process.env.OM_DEV_LOG_TEE === '0' || process.env.OM_DEV_LOG_TEE === 'false'
 
 let devLogSessionInstance = null
@@ -501,20 +505,31 @@ function buildSplashChildEnv(options = {}) {
       }
 
   if (!splashChildStateFile) {
-    return Object.keys(childEnv).length > 0 ? childEnv : undefined
+    const env = {
+      ...childEnv,
+      OM_DEV_SHUTDOWN_NOTICE_OWNER: 'parent',
+    }
+    return Object.keys(env).length > 0 ? env : undefined
   }
 
   return {
     ...childEnv,
     OM_DEV_SPLASH_CHILD_STATE_FILE: splashChildStateFile,
+    OM_DEV_WARMUP_READY_FILE: warmupReadyFilePath,
     OM_DEV_SPLASH_MODE: splashMode,
+    OM_DEV_SHUTDOWN_NOTICE_OWNER: 'parent',
     ...(Number.isFinite(options.stageCurrent) ? { OM_DEV_SPLASH_STAGE_CURRENT: String(options.stageCurrent) } : {}),
     ...(Number.isFinite(options.stageTotal) ? { OM_DEV_SPLASH_STAGE_TOTAL: String(options.stageTotal) } : {}),
   }
 }
 
 function applyLocalDevBackgroundServiceDefaults(childEnv) {
-  const env = childEnv ?? {}
+  const env = {
+    ...(childEnv ?? {}),
+    OM_DEV_WARMUP_READY_FILE: (childEnv && 'OM_DEV_WARMUP_READY_FILE' in childEnv)
+      ? childEnv.OM_DEV_WARMUP_READY_FILE
+      : warmupReadyFilePath,
+  }
   if (
     typeof process.env.OM_AUTO_SPAWN_WORKERS_LAZY !== 'string'
     || process.env.OM_AUTO_SPAWN_WORKERS_LAZY.trim() === ''
@@ -998,6 +1013,18 @@ function closeSplashServer() {
   writeSplashChildStateFileClear()
 }
 
+function announceShutdown() {
+  const message = 'Shutting down services...'
+  updateSplashState({
+    phase: message,
+    detail: 'Stopping app runtime, watchers, workers, and scheduler',
+    ready: false,
+    progressLabel: message,
+    activity: message,
+  })
+  console.log(message)
+}
+
 function openBrowser(url) {
   try {
     let child
@@ -1016,10 +1043,11 @@ function openBrowser(url) {
 function shutdown(exitCode = 0) {
   if (shuttingDown) return
   shuttingDown = true
-  closeSplashServer()
+  announceShutdown()
 
   const alive = Array.from(children).filter((child) => !child.killed)
   if (alive.length === 0) {
+    closeSplashServer()
     closeDevLogSession()
     process.exit(exitCode)
     return
@@ -1035,6 +1063,7 @@ function shutdown(exitCode = 0) {
         killProcessTree(child, 'SIGKILL')
       }
     }
+    closeSplashServer()
     closeDevLogSession()
     process.exit(exitCode)
   }, 3000)
