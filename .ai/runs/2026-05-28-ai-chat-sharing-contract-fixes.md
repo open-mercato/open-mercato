@@ -62,12 +62,12 @@ Fix two contract deviations in AI chat conversation sharing (issue #2189):
 
 ### Phase 1: Repository and error fixes
 
-- [ ] 1.1 Add `AiChatParticipantNotFoundError` class
-- [ ] 1.2 Fix `getParticipantCount` to exclude owner
-- [ ] 1.3 Fix `revokeParticipant` to throw on not-found
+- [x] 1.1 Add `AiChatParticipantNotFoundError` class — eb597c6bd
+- [x] 1.2 Fix `getParticipantCount` to exclude owner — eb597c6bd
+- [x] 1.3 Fix `revokeParticipant` to throw on not-found — eb597c6bd
 
 ### Phase 2: Route fix + tests
 
-- [ ] 2.1 Catch `AiChatParticipantNotFoundError` in DELETE route → 404
-- [ ] 2.2 Add unit tests
+- [x] 2.1 Catch `AiChatParticipantNotFoundError` in DELETE route → 404 — eb597c6bd
+- [x] 2.2 Add unit tests — eb597c6bd
 - [ ] 2.3 Full validation gate
