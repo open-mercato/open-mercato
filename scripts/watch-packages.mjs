@@ -26,18 +26,19 @@
 
 import * as esbuild from 'esbuild'
 import { glob } from 'glob'
-import { existsSync, readFileSync, readdirSync, watch as fsWatch } from 'node:fs'
+import { existsSync, readFileSync, readdirSync, watch as fsWatch, writeFileSync } from 'node:fs'
 import { basename, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { createAtomicWritePlugin } from './lib/add-js-extension.mjs'
 
 const REBUILD_DEBOUNCE_MS = 100
+const TOUCHABLE_GENERATED_PATTERN = /\.generated(?:\.[a-z0-9]+)?(?:\.ts|\.checksum)$/i
 const here = fileURLToPath(new URL('.', import.meta.url))
 const defaultRepoRoot = join(here, '..')
 
 export function isWatchedSourceFile(filename) {
   if (!filename) return false
-  if (!filename.endsWith('.ts') && !filename.endsWith('.tsx')) return false
+  if (!filename.endsWith('.ts') && !filename.endsWith('.tsx') && !filename.endsWith('.json')) return false
   if (filename.includes('__tests__') || filename.includes('.test.')) return false
   return true
 }
@@ -115,6 +116,63 @@ async function globEntryPoints(packageDir) {
   })
 }
 
+export function discoverAppGeneratedDirs(root) {
+  const candidates = []
+  const rootGenerated = join(root, '.mercato', 'generated')
+  if (existsSync(rootGenerated)) candidates.push(rootGenerated)
+
+  const appsDir = join(root, 'apps')
+  if (existsSync(appsDir)) {
+    let appEntries = []
+    try {
+      appEntries = readdirSync(appsDir, { withFileTypes: true })
+    } catch {
+      appEntries = []
+    }
+
+    for (const entry of appEntries) {
+      if (!entry.isDirectory()) continue
+      candidates.push(join(appsDir, entry.name, '.mercato', 'generated'))
+    }
+  }
+
+  return candidates.filter((dir) => {
+    try {
+      return existsSync(dir)
+    } catch {
+      return false
+    }
+  })
+}
+
+export function touchGeneratedBarrels(generatedDirs, { log = defaultLog } = {}) {
+  let touchedCount = 0
+  for (const generatedDir of generatedDirs) {
+    let entries = []
+    try {
+      entries = readdirSync(generatedDir, { withFileTypes: true })
+    } catch {
+      continue
+    }
+
+    for (const entry of entries) {
+      if (!entry.isFile()) continue
+      if (!TOUCHABLE_GENERATED_PATTERN.test(entry.name)) continue
+      const filePath = join(generatedDir, entry.name)
+      try {
+        writeFileSync(filePath, readFileSync(filePath))
+        touchedCount += 1
+      } catch (error) {
+        log(
+          `[watch] failed to touch generated barrel ${filePath}: ${error?.message ?? error}`,
+          'error',
+        )
+      }
+    }
+  }
+  return touchedCount
+}
+
 function makePackageState(pkg) {
   return {
     ...pkg,
@@ -125,7 +183,7 @@ function makePackageState(pkg) {
   }
 }
 
-async function rebuildPackage(state, { log, build = esbuild.build }) {
+async function rebuildPackage(state, { log, build = esbuild.build, generatedDirs = [] }) {
   if (state.isRebuilding) {
     state.rebuildQueued = true
     return
@@ -142,6 +200,7 @@ async function rebuildPackage(state, { log, build = esbuild.build }) {
       }
       log(`[watch] ${state.shortLabel}: rebuilding...`)
       await build(createBuildOptions(state.packageDir, points))
+      touchGeneratedBarrels(generatedDirs, { log })
       log(`[watch] ${state.shortLabel}: rebuild complete`)
     } catch (error) {
       log(`[watch] ${state.shortLabel}: rebuild failed: ${error?.message ?? error}`, 'error')
@@ -151,13 +210,13 @@ async function rebuildPackage(state, { log, build = esbuild.build }) {
   } while (state.rebuildQueued)
 }
 
-function startPackageWatcher(state, { log, build }) {
+function startPackageWatcher(state, { log, build, generatedDirs }) {
   const onChange = (_eventType, filename) => {
     if (!isWatchedSourceFile(filename)) return
     if (state.rebuildTimeout) clearTimeout(state.rebuildTimeout)
     state.rebuildTimeout = setTimeout(() => {
       state.rebuildTimeout = null
-      void rebuildPackage(state, { log, build })
+      void rebuildPackage(state, { log, build, generatedDirs })
     }, REBUILD_DEBOUNCE_MS)
   }
 
@@ -189,6 +248,7 @@ export async function runConsolidatedWatch({
   build,
 } = {}) {
   const packages = discoverWorkspacePackages(root)
+  const generatedDirs = discoverAppGeneratedDirs(root)
   if (packages.length === 0) {
     log(
       '[watch] no workspace packages with a `watch` script and `src/` directory were found',
@@ -205,7 +265,7 @@ export async function runConsolidatedWatch({
   )
 
   for (const state of states) {
-    startPackageWatcher(state, { log, build })
+    startPackageWatcher(state, { log, build, generatedDirs })
   }
 
   const cleanup = () => {
