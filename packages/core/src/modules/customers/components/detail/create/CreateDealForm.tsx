@@ -2,17 +2,18 @@
 
 import * as React from 'react'
 import { useRouter } from 'next/navigation'
-import { Briefcase } from 'lucide-react'
+import { Briefcase, Save } from 'lucide-react'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { translateWithFallback } from '@open-mercato/shared/lib/i18n/translate'
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
 import { createCrud } from '@open-mercato/ui/backend/utils/crud'
 import { useGuardedMutation } from '@open-mercato/ui/backend/injection/useGuardedMutation'
+import { FormHeader } from '@open-mercato/ui/backend/forms'
+import { Button } from '@open-mercato/ui/primitives/button'
+import { Spinner } from '@open-mercato/ui/primitives/spinner'
 import { dealFormSchema } from '../DealForm'
 import { createDictionarySelectLabels } from '../utils'
 import { DealSectionCard } from './DealSectionCard'
-import { DealFormHeader } from './DealFormHeader'
-import { DealFormFooter } from './DealFormFooter'
 import { DealDetailsFields } from './DealDetailsFields'
 import { DealAssociationsSection } from './DealAssociationsSection'
 import { DealCreateSidebar } from './DealCreateSidebar'
@@ -166,11 +167,19 @@ export function CreateDealForm({ returnTo }: CreateDealFormProps) {
   ])
 
   const onKeyDown = React.useCallback(
-    (event: React.KeyboardEvent<HTMLDivElement>) => {
+    (event: React.KeyboardEvent<HTMLFormElement>) => {
       if ((event.metaKey || event.ctrlKey) && event.key === 'Enter') {
         event.preventDefault()
         handleSubmit()
       }
+    },
+    [handleSubmit],
+  )
+
+  const onFormSubmit = React.useCallback(
+    (event: React.FormEvent<HTMLFormElement>) => {
+      event.preventDefault()
+      handleSubmit()
     },
     [handleSubmit],
   )
@@ -180,31 +189,29 @@ export function CreateDealForm({ returnTo }: CreateDealFormProps) {
   const submitDisabled = !customFieldsLoaded
 
   return (
-    <div className="mx-auto max-w-screen-2xl" onKeyDown={onKeyDown}>
-      <DealFormHeader
-        breadcrumb={[
-          { label: tr('customers.deals.create.breadcrumb.dashboard', 'Dashboard'), href: '/backend' },
-          { label: tr('customers.deals.create.breadcrumb.deals', 'Deals'), href: '/backend/customers/deals' },
-          { label: tr('customers.deals.create.breadcrumb.new', 'New deal') },
-        ]}
+    <form className="mx-auto max-w-screen-2xl" onKeyDown={onKeyDown} onSubmit={onFormSubmit} noValidate>
+      <FormHeader
         backHref={returnTo}
         backLabel={tr('customers.deals.create.back', 'Back to deals')}
-        title={tr('customers.deals.create.title', 'Create deal')}
-        subtitle={tr('customers.deals.create.subtitle', 'Add a new opportunity to a pipeline and link contacts')}
-        cancelLabel={cancelLabel}
-        submitLabel={submitLabel}
-        onCancel={handleCancel}
-        onSubmit={handleSubmit}
-        isSubmitting={isSubmitting}
-        submitDisabled={submitDisabled}
       />
 
-      <div className="grid grid-cols-1 gap-5 lg:grid-cols-[minmax(0,1fr)_330px]">
+      <div className="mt-6 grid grid-cols-1 gap-5 lg:grid-cols-[minmax(0,1fr)_330px]">
         <div className="space-y-4">
           <DealSectionCard
             icon={Briefcase}
-            title={tr('customers.deals.create.sections.details.title', 'Deal details')}
+            title={tr('customers.deals.create.title', 'Create deal')}
             subtitle={tr('customers.deals.create.sections.details.subtitle', 'Core opportunity info')}
+            actions={
+              <>
+                <Button type="button" variant="outline" onClick={handleCancel} disabled={isSubmitting}>
+                  {cancelLabel}
+                </Button>
+                <Button type="button" onClick={handleSubmit} disabled={isSubmitting || submitDisabled}>
+                  {isSubmitting ? <Spinner className="size-4" /> : <Save className="size-4" />}
+                  {submitLabel}
+                </Button>
+              </>
+            }
           >
             <DealDetailsFields
               values={values}
@@ -240,17 +247,7 @@ export function CreateDealForm({ returnTo }: CreateDealFormProps) {
           onCustomLoaded={handleCustomAttributesLoaded}
         />
       </div>
-
-      <DealFormFooter
-        info={tr('customers.deals.create.footer.info', 'All changes are saved when you click Create deal')}
-        cancelLabel={cancelLabel}
-        submitLabel={submitLabel}
-        onCancel={handleCancel}
-        onSubmit={handleSubmit}
-        isSubmitting={isSubmitting}
-        submitDisabled={submitDisabled}
-      />
-    </div>
+    </form>
   )
 }
 

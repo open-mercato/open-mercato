@@ -19,6 +19,8 @@ let mockCustomDefinitions: Array<{
 
 jest.mock('next/navigation', () => ({
   useRouter: () => ({ push: mockPush }),
+  usePathname: () => '/backend/customers/deals/create',
+  useSearchParams: () => new URLSearchParams(),
 }))
 
 jest.mock('next/link', () => {

@@ -92,9 +92,10 @@ test.describe('TC-CRM-071: Create deal (UX redesign)', () => {
       await login(page, 'admin');
       await page.goto('/backend/customers/deals/create', { waitUntil: 'domcontentloaded' });
 
-      // Readiness: the redesigned header renders the "Create deal" <h1> and the Deal details
-      // card renders the required title field. Wait for both before interacting.
-      await expect(page.getByRole('heading', { name: 'Create deal', level: 1 })).toBeVisible({ timeout: 15_000 });
+      // Readiness: the redesigned page renders the DS FormHeader back-link and the first
+      // section card uses "Create deal" as its title (rendered via DealSectionCard, not an <h1>).
+      // Wait for the section card title plus the required field before interacting.
+      await expect(page.getByRole('link', { name: /Back to deals/i })).toBeVisible({ timeout: 15_000 });
 
       // DealFormField associates each <Label> with its control via useId/htmlFor, so the required
       // title field exposes the accessible label "Deal title" (plus a "*" required marker) — target it
@@ -133,10 +134,11 @@ test.describe('TC-CRM-071: Create deal (UX redesign)', () => {
       await companySuggestion.click();
       await expect(page.getByRole('button', { name: `Remove ${companyName}` })).toBeVisible();
 
-      // Submit via the primary "Create deal" action. The header and footer both render one,
-      // so target the first (header) button explicitly. Wait for the POST to confirm the
-      // mutation landed before asserting navigation — under CI load the client redirect can
-      // lag behind the click, which made a bare URL assertion flaky.
+      // Submit via the primary "Create deal" action. Only one such button is rendered — in the
+      // first section card's actions slot. `.first()` is defensive (works even if a future
+      // injection adds another). Wait for the POST to confirm the mutation landed before
+      // asserting navigation — under CI load the client redirect can lag behind the click,
+      // which made a bare URL assertion flaky.
       const createDealResponsePromise = page.waitForResponse((response) => {
         const url = new URL(response.url());
         return response.request().method() === 'POST' && url.pathname === '/api/customers/deals';
