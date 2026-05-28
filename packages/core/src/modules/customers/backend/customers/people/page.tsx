@@ -846,6 +846,7 @@ export default function CustomersPeoplePage() {
       .map<ColumnDef<PersonRow>>((def) => ({
         accessorKey: `cf_${def.key}`,
         header: def.label || def.key,
+        enableSorting: true,
         meta: {
           columnChooserGroup: def.group?.title ?? 'Custom Fields',
           filterGroup: def.group?.title ?? 'Custom Fields',
