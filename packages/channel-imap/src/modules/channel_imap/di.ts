@@ -5,6 +5,7 @@ import {
   registerChannelAdapter,
 } from '@open-mercato/core/modules/communication_channels/lib/adapter-registry-singleton'
 import { getImapChannelAdapter } from './lib/adapter'
+import { channelImapHealthCheck } from './lib/health'
 
 /**
  * Re-register the adapter on container creation as a safety net for runtime
@@ -17,5 +18,9 @@ export function register(container: AppContainer): void {
   }
   container.register({
     channelImapAdapter: asValue(getImapChannelAdapter()),
+    // Registered under the exact service name declared in `integration.ts`
+    // (`healthCheck.service`). Without this, the hub's `container.resolve(...)`
+    // throws and the channel reports permanently 'unhealthy'.
+    channelImapHealthCheck: asValue(channelImapHealthCheck),
   })
 }

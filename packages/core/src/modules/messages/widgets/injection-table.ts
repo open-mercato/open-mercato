@@ -18,7 +18,7 @@ import type { ModuleInjectionTable } from '@open-mercato/shared/modules/widgets/
  *   - `data-table:messages:toolbar`              — auto-wired by `DataTable extensionTableId="messages"`
  *   - `detail:messages:message:body:after`       — placed in `MessageDetailPageClient.tsx`
  *   - `detail:messages:message:sidebar`          — placed in `MessageDetailPageClient.tsx`
- *   - `crud-form:messages:message:fields`        — placed in `ComposeMessagePageClient.tsx`
+ *   - `crud-form:messages:message:fields`        — placed in `ComposeMessagePageClient.tsx` as a standalone widget mount above the composer (NOT CrudForm field resolution; the compose page is not a CrudForm)
  *
  * The `communication_channels` hub (SPEC-045d) is the primary consumer of these spots,
  * injecting channel badges, channel payload renderers, reaction bars, channel info

@@ -67,8 +67,8 @@ function deriveDekFromSecret(secret: string, tenantId: string): string {
  * e.g. shared Stripe/Akeneo API keys).
  *
  * The partial unique index `integration_credentials_user_lookup_idx` enforces
- * uniqueness across `(integration_id, tenant_id, user_id)` when `user_id IS
- * NOT NULL`.
+ * uniqueness across `(integration_id, organization_id, tenant_id, user_id)`
+ * when `user_id IS NOT NULL`.
  */
 function buildCredentialsFilter(integrationId: string, scope: IntegrationScope) {
   const base = {

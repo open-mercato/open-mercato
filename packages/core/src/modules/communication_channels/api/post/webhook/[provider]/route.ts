@@ -83,7 +83,7 @@ export async function POST(req: Request, { params }: RouteContext): Promise<Resp
         providerKey,
         isActive: true,
         deletedAt: null,
-      } as any,
+      },
       { limit: 50, orderBy: { createdAt: 'desc' } },
     )
 

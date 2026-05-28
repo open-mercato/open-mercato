@@ -182,10 +182,17 @@ describe('MicrosoftChannelAdapter OAuth flow', () => {
         }),
       }),
     )
+    // Spec A: pass OAuth client via the new `oauthClient` field
+    // (resolved by the hub from `oauth_microsoft` integration credentials).
     const result = await getMicrosoftChannelAdapter().refreshCredentials!({
       channelId: 'channel-1',
-      credentials: { ...userCredentials, _client: clientCredentials },
+      credentials: userCredentials,
       scope: { tenantId: 't', organizationId: 'o' },
+      oauthClient: {
+        clientId: clientCredentials.clientId,
+        clientSecret: clientCredentials.clientSecret,
+        tenantId: clientCredentials.tenantId,
+      },
     })
     expect((result.credentials as { accessToken: string }).accessToken).toBe('refreshed-access')
     expect((result.credentials as { refreshToken: string }).refreshToken).toBe('rotated-refresh')
@@ -196,10 +203,80 @@ describe('MicrosoftChannelAdapter OAuth flow', () => {
     await expect(
       getMicrosoftChannelAdapter().refreshCredentials!({
         channelId: 'channel-1',
-        credentials: { accessToken: 'a', _client: clientCredentials },
+        credentials: { accessToken: 'a' },
         scope: { tenantId: 't', organizationId: 'o' },
+        oauthClient: {
+          clientId: clientCredentials.clientId,
+          clientSecret: clientCredentials.clientSecret,
+          tenantId: clientCredentials.tenantId,
+        },
       }),
     ).rejects.toThrow(/requires_reauth/)
+  })
+
+  // Spec A regression coverage — the new oauthClient path is the canonical
+  // production wiring; the legacy _client path remains for one minor
+  // release for backward compatibility.
+  describe('refreshCredentials — OAuth client wiring (Spec A)', () => {
+    it('refreshes successfully when oauthClient is provided (no _client on credentials)', async () => {
+      const refreshCalls: Array<{ clientId: string; clientSecret?: string; tenantId?: string; refreshToken: string }> = []
+      setMicrosoftOAuthClient(
+        stubOAuth({
+          refreshToken: async (input) => {
+            refreshCalls.push(input)
+            return { access_token: 'new-access', expires_in: 1800, token_type: 'Bearer' }
+          },
+        }),
+      )
+      await getMicrosoftChannelAdapter().refreshCredentials!({
+        channelId: 'channel-1',
+        credentials: userCredentials, // NO _client pre-packing
+        scope: { tenantId: 't', organizationId: 'o' },
+        oauthClient: {
+          clientId: 'oauth-cid',
+          clientSecret: 'oauth-secret',
+          tenantId: 'common',
+        },
+      })
+      expect(refreshCalls).toHaveLength(1)
+      expect(refreshCalls[0].clientId).toBe('oauth-cid')
+      expect(refreshCalls[0].clientSecret).toBe('oauth-secret')
+      expect(refreshCalls[0].tenantId).toBe('common')
+      expect(refreshCalls[0].refreshToken).toBe(userCredentials.refreshToken)
+    })
+
+    it('falls back to legacy _client path with a deprecation warning when oauthClient is absent', async () => {
+      const warn = jest.spyOn(console, 'warn').mockImplementation(() => {})
+      try {
+        setMicrosoftOAuthClient(
+          stubOAuth({
+            refreshToken: async () => ({ access_token: 'a', expires_in: 1800, token_type: 'Bearer' }),
+          }),
+        )
+        await getMicrosoftChannelAdapter().refreshCredentials!({
+          channelId: 'channel-1',
+          credentials: { ...userCredentials, _client: clientCredentials },
+          scope: { tenantId: 't', organizationId: 'o' },
+        })
+        // Legacy path emits a one-time deprecation warning per process.
+        expect(warn).toHaveBeenCalledWith(
+          expect.stringContaining('reading OAuth client config from credentials._client is deprecated'),
+        )
+      } finally {
+        warn.mockRestore()
+      }
+    })
+
+    it('throws a clear error when neither oauthClient nor _client carries client config', async () => {
+      setMicrosoftOAuthClient(stubOAuth({}))
+      await expect(
+        getMicrosoftChannelAdapter().refreshCredentials!({
+          channelId: 'channel-1',
+          credentials: userCredentials, // NO _client, NO oauthClient
+          scope: { tenantId: 't', organizationId: 'o' },
+        }),
+      ).rejects.toThrow(/Invalid Microsoft OAuth client credentials/)
+    })
   })
 })
 
@@ -328,6 +405,147 @@ describe('MicrosoftChannelAdapter.deleteMessage + verifyWebhook + resolveContact
   })
 })
 
+describe('MicrosoftChannelAdapter push methods (Spec C)', () => {
+  it('exposes registerPush, unregisterPush, applyPushNotification', () => {
+    const adapter = getMicrosoftChannelAdapter()
+    expect(typeof adapter.registerPush).toBe('function')
+    expect(typeof adapter.unregisterPush).toBe('function')
+    expect(typeof adapter.applyPushNotification).toBe('function')
+  })
+
+  it('registerPush creates a Graph subscription and returns active state', async () => {
+    const createCalls: Array<Record<string, unknown>> = []
+    setGraphApiClient({
+      ...emptyGraph(),
+      createSubscription: async (_auth, input) => {
+        createCalls.push(input as unknown as Record<string, unknown>)
+        return {
+          id: 'sub-42',
+          resource: input.resource,
+          changeType: input.changeType,
+          clientState: input.clientState,
+          notificationUrl: input.notificationUrl,
+          expirationDateTime: input.expirationDateTime,
+        }
+      },
+    })
+    const adapter = getMicrosoftChannelAdapter()
+    const result = await adapter.registerPush!({
+      channelId: 'c1',
+      credentials: userCredentials,
+      scope: { tenantId: 't', organizationId: 'o' },
+      notificationUrl: 'https://app.example.com/api/communication_channels/webhooks/microsoft/sub-42',
+      lifecycleNotificationUrl: 'https://app.example.com/api/communication_channels/webhooks/microsoft/sub-42/lifecycle',
+      providerConfig: { clientState: 'cs-nonce-32-bytes-base64url' },
+    })
+    expect(result.status).toBe('active')
+    expect(result.channelStatePatch.subscriptionId).toBe('sub-42')
+    expect(result.channelStatePatch.pushStatus).toBe('active')
+    expect(result.recommendedPollIntervalSeconds).toBe(1800)
+    expect(createCalls[0].resource).toBe("/me/mailFolders('inbox')/messages")
+    expect(createCalls[0].clientState).toBe('cs-nonce-32-bytes-base64url')
+  })
+
+  it('registerPush returns failed status when clientState is missing', async () => {
+    setGraphApiClient(emptyGraph())
+    const adapter = getMicrosoftChannelAdapter()
+    const result = await adapter.registerPush!({
+      channelId: 'c1',
+      credentials: userCredentials,
+      scope: { tenantId: 't', organizationId: 'o' },
+      notificationUrl: 'https://app.example.com/webhook',
+      providerConfig: {},
+    })
+    expect(result.status).toBe('failed')
+    expect(result.error?.code).toBe('missing_client_state')
+  })
+
+  it('registerPush reports failure for GraphApiError', async () => {
+    setGraphApiClient({
+      ...emptyGraph(),
+      createSubscription: async () => {
+        throw new GraphApiError('forbidden', 403, 'forbidden')
+      },
+    })
+    const adapter = getMicrosoftChannelAdapter()
+    const result = await adapter.registerPush!({
+      channelId: 'c1',
+      credentials: userCredentials,
+      scope: { tenantId: 't', organizationId: 'o' },
+      notificationUrl: 'https://app.example.com/webhook',
+      providerConfig: { clientState: 'cs' },
+    })
+    expect(result.status).toBe('failed')
+    expect(result.error?.code).toBe('graph_subscription_403')
+  })
+
+  it('unregisterPush calls deleteSubscription with the subscriptionId from channelState', async () => {
+    const deleted: string[] = []
+    setGraphApiClient({
+      ...emptyGraph(),
+      deleteSubscription: async (_auth, subId) => {
+        deleted.push(subId)
+      },
+    })
+    const adapter = getMicrosoftChannelAdapter()
+    await adapter.unregisterPush!({
+      channelId: 'c1',
+      credentials: userCredentials,
+      scope: { tenantId: 't', organizationId: 'o' },
+      channelState: { subscriptionId: 'sub-42' },
+    })
+    expect(deleted).toEqual(['sub-42'])
+  })
+
+  it('unregisterPush is a no-op when subscriptionId is absent', async () => {
+    const deleted: string[] = []
+    setGraphApiClient({
+      ...emptyGraph(),
+      deleteSubscription: async (_auth, subId) => {
+        deleted.push(subId)
+      },
+    })
+    const adapter = getMicrosoftChannelAdapter()
+    await adapter.unregisterPush!({
+      channelId: 'c1',
+      credentials: userCredentials,
+      scope: { tenantId: 't', organizationId: 'o' },
+      channelState: {},
+    })
+    expect(deleted).toEqual([])
+  })
+
+  it('unregisterPush swallows 404 from deleteSubscription', async () => {
+    setGraphApiClient({
+      ...emptyGraph(),
+      deleteSubscription: async () => {
+        throw new GraphApiError('not found', 404, 'not found')
+      },
+    })
+    const adapter = getMicrosoftChannelAdapter()
+    await expect(
+      adapter.unregisterPush!({
+        channelId: 'c1',
+        credentials: userCredentials,
+        scope: { tenantId: 't', organizationId: 'o' },
+        channelState: { subscriptionId: 'sub-x' },
+      }),
+    ).resolves.toBeUndefined()
+  })
+
+  it('applyPushNotification delegates to fetchHistory and returns a HistoryPage', async () => {
+    setGraphApiClient(emptyGraph())
+    const adapter = getMicrosoftChannelAdapter()
+    const page = await adapter.applyPushNotification!({
+      credentials: userCredentials,
+      scope: { tenantId: 't', organizationId: 'o' },
+      channelState: {},
+      notification: { subscriptionId: 'sub-1', changeType: 'created', resource: '/me/messages' },
+    })
+    expect(Array.isArray(page.messages)).toBe(true)
+  })
+})
+
 function emptyGraph(): GraphApiClient {
   return {
     inboxDelta: async () => ({ value: [] }),
@@ -335,6 +553,22 @@ function emptyGraph(): GraphApiClient {
     sendMail: async () => undefined,
     getProfile: async () => ({ id: 'p', mail: 'alice@outlook.com' }),
     deleteMessage: async () => undefined,
+    createSubscription: async (_auth, input) => ({
+      id: 'sub-1',
+      resource: input.resource,
+      changeType: input.changeType,
+      clientState: input.clientState,
+      notificationUrl: input.notificationUrl,
+      expirationDateTime: input.expirationDateTime,
+    }),
+    renewSubscription: async (_auth, subId, exp) => ({
+      id: subId,
+      resource: "/me/mailFolders('inbox')/messages",
+      changeType: 'created',
+      notificationUrl: 'https://app.example.com/webhook',
+      expirationDateTime: exp,
+    }),
+    deleteSubscription: async () => undefined,
   }
 }
 

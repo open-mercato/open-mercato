@@ -5,7 +5,9 @@ jest.mock('../../lib/findPeopleByAddresses', () => ({
   normalizeAddresses: jest.requireActual('../../lib/findPeopleByAddresses').normalizeAddresses,
 }))
 
-import handler, { metadata } from '../link-channel-message'
+import handler from '../../lib/link-channel-message-handler'
+import { metadata as receivedMetadata } from '../link-channel-message-received'
+import { metadata as sentMetadata } from '../link-channel-message-sent'
 import { findPeopleByAddresses } from '../../lib/findPeopleByAddresses'
 
 const mockFindPeople = findPeopleByAddresses as jest.MockedFunction<typeof findPeopleByAddresses>
@@ -18,12 +20,15 @@ const mockFindPeople = findPeopleByAddresses as jest.MockedFunction<typeof findP
 function makeEm(overrides: Partial<{
   findOneResults: unknown[]
   findResults: unknown[][]
+  executeResults: unknown[][]
   flushError: Error | null
 }> = {}) {
   let findOneIdx = 0
   let findIdx = 0
+  let executeIdx = 0
   const findOneResults = overrides.findOneResults ?? []
   const findResults = overrides.findResults ?? []
+  const executeResults = overrides.executeResults ?? []
   const flushError = overrides.flushError ?? null
 
   const em: any = {
@@ -39,6 +44,11 @@ function makeEm(overrides: Partial<{
     getReference: jest.fn().mockImplementation((_entity: unknown, id: string) => ({ id })),
     flush: jest.fn().mockImplementation(async () => {
       if (flushError) throw flushError
+    }),
+    // Raw connection for the bounded threading-inheritance query
+    // (`em.getConnection().execute(...)`). Returns executeResults rows in order.
+    getConnection: jest.fn().mockReturnValue({
+      execute: jest.fn().mockImplementation(async () => executeResults[executeIdx++] ?? []),
     }),
   }
   // Self-referential fork — both outer and inner fork() calls return the same mock.
@@ -64,13 +74,17 @@ beforeEach(() => {
 // ---------------------------------------------------------------------------
 
 describe('link-channel-message subscriber metadata', () => {
-  it('declares both events with stable id', () => {
-    expect(metadata.event).toEqual([
-      'communication_channels.message.received',
-      'communication_channels.message.sent',
-    ])
-    expect(metadata.persistent).toBe(true)
-    expect(metadata.id).toBe('customers:link-channel-message')
+  it('declares one event per auto-discovered subscriber file', () => {
+    expect(receivedMetadata).toMatchObject({
+      event: 'communication_channels.message.received',
+      persistent: true,
+      id: 'customers:link-channel-message-received',
+    })
+    expect(sentMetadata).toMatchObject({
+      event: 'communication_channels.message.sent',
+      persistent: true,
+      id: 'customers:link-channel-message-sent',
+    })
   })
 })
 
@@ -373,7 +387,8 @@ describe('link-channel-message subscriber — outbound', () => {
     }
     mockFindPeople.mockResolvedValueOnce([]) // address lookup empty
     const personRef = { id: 'person-target' }
-    const em = makeEm({ findOneResults: [linkRow, null] })
+    // findOne[2] satisfies the M4 crmPersonId tenant-ownership re-validation.
+    const em = makeEm({ findOneResults: [linkRow, null, { id: 'person-target' }] })
     em.getReference.mockReturnValue(personRef)
 
     await handler(
@@ -407,7 +422,7 @@ describe('link-channel-message subscriber — outbound', () => {
     mockFindPeople.mockResolvedValueOnce([])
     const personRef = { id: 'person-xyz' }
     const em = makeEm({
-      findOneResults: [linkRow, { id: 'ch-user', userId: 'user-abc' }],
+      findOneResults: [linkRow, { id: 'ch-user', userId: 'user-abc' }, { id: 'person-xyz' }],
     })
     em.getReference.mockReturnValue(personRef)
 
@@ -442,7 +457,7 @@ describe('link-channel-message subscriber — outbound', () => {
     mockFindPeople.mockResolvedValueOnce([])
     const personRef = { id: 'person-xyz' }
     const em = makeEm({
-      findOneResults: [linkRow, { id: 'ch-tenant', userId: null }],
+      findOneResults: [linkRow, { id: 'ch-tenant', userId: null }, { id: 'person-xyz' }],
     })
     em.getReference.mockReturnValue(personRef)
 
@@ -490,8 +505,9 @@ describe('link-channel-message subscriber — threading inheritance', () => {
 
     const em = makeEm({
       findOneResults: [newLinkRow, null], // link + channel
+      // Bounded threading query (getConnection().execute) returns the matching parent link id.
+      executeResults: [[{ id: parentLink.id }]],
       findResults: [
-        [parentLink],                     // threading: all MessageChannelLinks in tenant
         [{ entity: personRef }],           // threading: CustomerInteractions for parent
       ],
     })
@@ -532,10 +548,9 @@ describe('link-channel-message subscriber — threading inheritance', () => {
 
     const em = makeEm({
       findOneResults: [newLinkRow, null],
-      findResults: [
-        // parent link lookup → link with DIFFERENT messageId
-        [{ id: 'unrelated-link', channelMetadata: { messageId: 'unrelated@example.com' } }],
-      ],
+      // inReplyTo 'nonexistent@example.com' matches no parent link's messageId,
+      // so the bounded threading SQL query returns no rows.
+      executeResults: [[]],
     })
 
     await handler(

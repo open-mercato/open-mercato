@@ -252,6 +252,7 @@ export const privateEmailCountEnricher: ResponseEnricher<
       .select(['entity_id'])
       .select((eb) => eb.fn.countAll().as('count'))
       .where('tenant_id', '=', context.tenantId)
+      .where('organization_id', '=', context.organizationId)
       .where('interaction_type', '=', 'email')
       .where('visibility', '=', 'private')
       .where('deleted_at', 'is', null)
@@ -357,6 +358,15 @@ export const interactionEmailCardEnricher: ResponseEnricher<
         .selectFrom('message_channel_links')
         .select(['id', 'channel_metadata'])
         .where('tenant_id', '=', ctx.tenantId)
+        // Defense-in-depth org scope. `id IN linkIds` already binds the lookup
+        // to this org's interactions, and `message_channel_links.organization_id`
+        // is nullable, so we tolerate NULL to avoid dropping legitimate links.
+        .where((eb: any) =>
+          eb.or([
+            eb('organization_id', '=', ctx.organizationId),
+            eb('organization_id', 'is', null),
+          ]),
+        )
         .where('id', 'in', linkIds)
         .execute()) as Array<{ id: string; channel_metadata: unknown }>
     } catch {

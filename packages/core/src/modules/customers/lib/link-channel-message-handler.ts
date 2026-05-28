@@ -1,6 +1,7 @@
 import type { EntityManager } from '@mikro-orm/postgresql'
-import { CustomerEntity, CustomerInteraction } from '../../data/entities'
-import { findPeopleByAddresses, normalizeAddresses } from '../../lib/findPeopleByAddresses'
+import { findOneWithDecryption, findWithDecryption } from '@open-mercato/shared/lib/encryption/find'
+import { CustomerEntity, CustomerInteraction } from '../data/entities'
+import { findPeopleByAddresses, normalizeAddresses } from './findPeopleByAddresses'
 
 /**
  * Shared implementation for the link-channel-message subscribers.
@@ -56,6 +57,9 @@ export default async function handler(
 
   const tenantId = payload.tenantId
   const organizationId = payload.organizationId ?? null
+  // CustomerEntity and CustomerInteraction are organization-scoped. Without an
+  // organization id, fail closed instead of linking tenant-wide by email/thread.
+  if (!organizationId) return
   const dscope = { tenantId, organizationId }
 
   // em.fork() gives us an isolated identity map for this event.
@@ -67,10 +71,15 @@ export default async function handler(
   // communication_channels module (cross-module ORM boundary rule in AGENTS.md).
   // We use the entity class name as a string so MikroORM's identity map resolves
   // it at runtime — the generated entity registry includes the hub's entities.
-  const link = (await em.findOne('MessageChannelLink' as any, {
-    id: linkId,
-    tenantId,
-  } as any)) as Record<string, unknown> | null
+  // Read through findOneWithDecryption so any encrypted columns on the hub
+  // entity are transparently decrypted (per the Encryption section in AGENTS.md).
+  const link = (await findOneWithDecryption(
+    em,
+    'MessageChannelLink' as any,
+    { id: linkId, tenantId, organizationId } as any,
+    undefined,
+    dscope,
+  )) as Record<string, unknown> | null
 
   if (!link) return
 
@@ -86,10 +95,13 @@ export default async function handler(
   // We look up the channel only when channelId is provided in the event payload.
   let channelUserId: string | null = null
   if (typeof payload.channelId === 'string' && payload.channelId) {
-    const channel = (await em.findOne('CommunicationChannel' as any, {
-      id: payload.channelId,
-      tenantId,
-    } as any)) as { userId?: string | null } | null
+    const channel = (await findOneWithDecryption(
+      em,
+      'CommunicationChannel' as any,
+      { id: payload.channelId, tenantId, organizationId } as any,
+      undefined,
+      dscope,
+    )) as { userId?: string | null } | null
     channelUserId = channel?.userId ?? null
   }
 
@@ -105,21 +117,28 @@ export default async function handler(
   // writes addresses there), then fall back to channelPayload for inbound.
   const rawAddresses: unknown[] = []
 
-  // channelMetadata sources (outbound, some providers)
-  if (metaJson) {
-    collectAddressField(rawAddresses, metaJson.from)
-    collectAddressField(rawAddresses, metaJson.to)
-    collectAddressField(rawAddresses, metaJson.cc)
-    collectAddressField(rawAddresses, metaJson.bcc)
-  }
-
-  // channelPayload fallback (inbound Gmail / IMAP — addresses stored as
-  // { address, name } objects or arrays of objects)
-  if (rawAddresses.length === 0 && payloadJson) {
+  // For inbound IMAP messages we ALWAYS read addresses from `channelPayload`,
+  // not `channelMetadata`. The IMAP adapter stores raw provider headers in
+  // `channelMetadata` (where `from` is a JSON-stringified string that's
+  // useless for address matching), and the structured normalized addresses
+  // in `channelPayload.from` / `.to` / `.cc` / `.bcc`. Reading metadata
+  // first poisoned `rawAddresses` with stringified-JSON garbage so the
+  // payload-fallback never ran.
+  //
+  // Priority: payloadJson (canonical normalized shape) → metaJson fallback
+  // (for legacy/outbound providers that still write addresses there).
+  if (payloadJson) {
     collectAddressField(rawAddresses, payloadJson.from)
     collectAddressField(rawAddresses, payloadJson.to)
     collectAddressField(rawAddresses, payloadJson.cc)
     collectAddressField(rawAddresses, payloadJson.bcc)
+  }
+
+  if (rawAddresses.length === 0 && metaJson) {
+    collectAddressField(rawAddresses, metaJson.from)
+    collectAddressField(rawAddresses, metaJson.to)
+    collectAddressField(rawAddresses, metaJson.cc)
+    collectAddressField(rawAddresses, metaJson.bcc)
   }
 
   const normalized = normalizeAddresses(rawAddresses as string[])
@@ -129,8 +148,24 @@ export default async function handler(
   // The outbound compose route stores `crmPersonId` in channelMetadata so the
   // subscriber can link to the intended Person even if their address isn't in
   // the recipient list (e.g. typo in To: field).
-  const crmPersonId =
+  const crmPersonIdHint =
     typeof metaJson?.crmPersonId === 'string' ? (metaJson!.crmPersonId as string) : null
+
+  // Defense-in-depth: the crmPersonId hint is written by the compose route
+  // (which already verifies tenant ownership), but the subscriber MUST re-verify
+  // the hinted Person belongs to THIS tenant before linking. Otherwise a stale or
+  // forged hint could attach an interaction to a Person in another tenant.
+  let crmPersonId: string | null = null
+  if (crmPersonIdHint) {
+    const hintedPerson = await findOneWithDecryption(
+      em,
+      CustomerEntity,
+      { id: crmPersonIdHint, kind: 'person', tenantId, organizationId, deletedAt: null } as any,
+      undefined,
+      dscope,
+    )
+    if (hintedPerson) crmPersonId = crmPersonIdHint
+  }
 
   // Early exit: no addresses AND no hint → nothing to link.
   if (normalized.length === 0 && !crmPersonId) {
@@ -245,33 +280,44 @@ async function handleThreadingInheritance(
   if (refIds.length === 0) return
 
   // Find parent MessageChannelLinks whose channelMetadata.messageId is in refIds.
-  // NOTE: We can't do a JSON path filter portably in MikroORM without raw SQL,
-  // so we fetch candidates and filter in JS. In practice, refIds is 1-5 items.
-  //
-  // We use a string-name entity lookup here too to avoid cross-module imports.
-  const parentLinks = (await em.find('MessageChannelLink' as any, {
-    tenantId,
-  } as any)) as Array<{ id: string; channelMetadata?: Record<string, unknown> | null }>
+  // Bounded lookup: narrow to the candidate Message-IDs directly in SQL instead
+  // of loading every link in the tenant and filtering in JS (which does not scale
+  // on a busy mailbox — this path runs for every inbound reply that didn't match a
+  // Person by address). channel_metadata is NOT an encrypted column, so a
+  // parameterized raw query is safe; we match both bracketed (`<id>`) and
+  // unbracketed (`id`) Message-ID storage forms, capped to a sane page.
+  const dscope = { tenantId, organizationId }
+  const messageIdCandidates = Array.from(
+    new Set(refIds.flatMap((ref) => [ref, `<${ref}>`])),
+  )
+  const placeholders = messageIdCandidates.map(() => '?').join(', ')
+  const parentLinkRows = (await em.getConnection().execute(
+    `SELECT id FROM message_channel_links
+     WHERE tenant_id = ?
+       AND organization_id = ?
+       AND channel_metadata->>'messageId' IN (${placeholders})
+     LIMIT 200`,
+    [tenantId, organizationId, ...messageIdCandidates],
+  )) as Array<{ id: string }>
 
-  const matchedParentIds = parentLinks
-    .filter((pl) => {
-      const plMessageId =
-        typeof pl.channelMetadata?.messageId === 'string'
-          ? stripBrackets(pl.channelMetadata!.messageId as string)
-          : null
-      return plMessageId && refIds.includes(plMessageId)
-    })
-    .map((pl) => pl.id)
+  const matchedParentIds = parentLinkRows.map((parentLink) => parentLink.id)
 
   if (matchedParentIds.length === 0) return
 
   // Find existing email CustomerInteraction rows for those parent links.
-  const parentInteractions = (await em.find(CustomerInteraction, {
-    externalMessageId: { $in: matchedParentIds } as any,
-    tenantId,
-    interactionType: 'email',
-    deletedAt: null,
-  } as any)) as Array<{ entity: { id: string } }>
+  const parentInteractions = (await findWithDecryption(
+    em,
+    CustomerInteraction,
+    {
+      externalMessageId: { $in: matchedParentIds },
+      tenantId,
+      organizationId,
+      interactionType: 'email',
+      deletedAt: null,
+    } as any,
+    undefined,
+    dscope,
+  )) as Array<{ entity: { id: string } }>
 
   const inheritedPersonIdSet = new Set<string>(
     parentInteractions.map((pi) => pi.entity?.id).filter(Boolean) as string[],
@@ -342,6 +388,15 @@ async function persistInteractions(
       body: data.body,
       authorUserId: data.authorUserId,
       occurredAt: data.occurredAt,
+      // Emails are logged AFTER they're sent/received — they are not
+      // scheduled work. Without an explicit status the entity default
+      // ('planned') combined with a past `occurredAt` makes the activity
+      // timeline render the email as "overdue", which is the wrong UX.
+      // The canonical "completed" value is `'done'` per
+      // `validators.ts:interactionStatusValues = ['planned', 'done', 'canceled']`
+      // — `'completed'` is a legacy spelling that the enricher accepts
+      // defensively but the activity timeline `isOverdue` predicate does NOT.
+      status: 'done',
       externalMessageId: data.linkId,
       visibility: data.visibility,
       channelProviderKey: data.channelProviderKey,

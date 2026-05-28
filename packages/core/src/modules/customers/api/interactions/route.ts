@@ -469,7 +469,7 @@ export async function GET(req: Request) {
     )
     const interactionIds = pageRows.map((row) => row.id)
 
-    const [users, deals, customFieldValues] = await Promise.all([
+    const [users, deals, customFieldValues, interactionRecords] = await Promise.all([
       authorIds.length > 0 ? findWithDecryption(em, User, { id: { $in: authorIds } }, undefined, { tenantId: auth.tenantId, organizationId: selectedOrganizationId }) : Promise.resolve([]),
       dealIds.length > 0 ? findWithDecryption(em, CustomerDeal, { id: { $in: dealIds } }, undefined, { tenantId: auth.tenantId, organizationId: selectedOrganizationId }) : Promise.resolve([]),
       interactionIds.length > 0
@@ -482,6 +482,9 @@ export async function GET(req: Request) {
             tenantFallbacks: [auth.tenantId].filter((value): value is string => !!value),
           })
         : Promise.resolve<Record<string, Record<string, unknown>>>({}),
+      interactionIds.length > 0
+        ? findWithDecryption(em, CustomerInteraction, { id: { $in: interactionIds } } as any, undefined, { tenantId: auth.tenantId, organizationId: selectedOrganizationId })
+        : Promise.resolve([]),
     ])
 
     const userMap = new Map(
@@ -496,14 +499,22 @@ export async function GET(req: Request) {
     const dealMap = new Map(
       deals.map((deal) => [deal.id, deal.title]),
     )
+    // title/body are encrypted at rest (see encryption.ts). The kysely rows above
+    // carry ciphertext when tenant encryption is enabled, so override them with the
+    // decrypted values from findWithDecryption for the returned page.
+    const interactionContentMap = new Map(
+      (interactionRecords as Array<{ id: string; title?: string | null; body?: string | null }>).map(
+        (record) => [record.id, { title: record.title ?? null, body: record.body ?? null }],
+      ),
+    )
 
     const baseItems = pageRows.map((row) => ({
       id: row.id,
       entityId: row.entity_id,
       dealId: row.deal_id ?? null,
       interactionType: row.interaction_type,
-      title: row.title ?? null,
-      body: row.body ?? null,
+      title: (interactionContentMap.has(row.id) ? interactionContentMap.get(row.id)!.title : row.title) ?? null,
+      body: (interactionContentMap.has(row.id) ? interactionContentMap.get(row.id)!.body : row.body) ?? null,
       status: row.status,
       scheduledAt: toIsoString(row.scheduled_at),
       occurredAt: toIsoString(row.occurred_at),

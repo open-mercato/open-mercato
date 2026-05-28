@@ -138,6 +138,22 @@ export class CommunicationChannel {
   @Property({ name: 'channel_state', type: 'json', nullable: true })
   channelState?: Record<string, unknown> | null
 
+  /**
+   * Spec C — Microsoft Graph anti-tampering nonce, encrypted at rest.
+   *
+   * Microsoft echoes `clientState` back in every change notification; the
+   * webhook constant-time compares it against the stored value. Storing it
+   * inside `channelState` (JSONB) would require encrypting the whole blob
+   * and rewriting every reader. A dedicated column lets us declare a clean
+   * encryption-map entry while leaving `channelState` plaintext for the
+   * non-secret cursor/expiry fields.
+   *
+   * Other providers leave this null. See `.ai/specs/2026-05-27-email-integration-provider-push-delivery.md`
+   * § Data Models → encryption decision.
+   */
+  @Property({ name: 'client_state_encrypted', type: 'text', nullable: true })
+  clientStateEncrypted?: string | null
+
   @Property({ name: 'tenant_id', type: 'uuid' })
   tenantId!: string
 
@@ -387,6 +403,128 @@ export class MessageReaction {
 
   @Property({ name: 'organization_id', type: 'uuid', nullable: true })
   organizationId?: string | null
+
+  @Property({ name: 'created_at', type: Date, onCreate: () => new Date() })
+  createdAt: Date = new Date()
+}
+
+// ── ChannelThreadToken ────────────────────────────────────────
+
+/**
+ * Per-thread HMAC-signed opaque token used by the layered thread-matcher to
+ * reliably attach inbound replies to the originating Open Mercato message
+ * thread, even when the recipient's mail client strips RFC 5322 headers.
+ *
+ * Created lazily on the first outbound message in a thread by the
+ * `outbound-bridge` subscriber. The token is injected into:
+ *   1. The MIME `References:` header as `<om_TOKEN@open-mercato.invalid>` —
+ *      invisible to the recipient and survives most reply clients.
+ *   2. A hidden HTML body span `<span style="display:none">[OM:om_TOKEN]</span>` —
+ *      survives when References is stripped (e.g. Outlook mobile).
+ *   3. A plain-text trailer `[OM:om_TOKEN]` — survives plain-text-only replies.
+ *
+ * The unique constraint is `(tenantId, token)` — tenant isolation by
+ * construction. HMAC verification (via `lib/thread-token.ts`) defends against
+ * forged inbound messages: tokens that don't HMAC-verify never reach the DB
+ * lookup.
+ *
+ * See `.ai/specs/2026-05-27-email-integration-inbound-reliability-and-threading.md`.
+ */
+@Entity({ tableName: 'channel_thread_tokens' })
+@Index({ name: 'channel_thread_tokens_thread_idx', properties: ['messageThreadId', 'tenantId'] })
+@Unique({ name: 'channel_thread_tokens_token_uq', properties: ['tenantId', 'token'] })
+export class ChannelThreadToken {
+  [OptionalProps]?: 'createdAt' | 'lastSeenAt' | 'organizationId'
+
+  @PrimaryKey({ type: 'uuid', defaultRaw: 'gen_random_uuid()' })
+  id!: string
+
+  @Property({ name: 'tenant_id', type: 'uuid' })
+  tenantId!: string
+
+  @Property({ name: 'organization_id', type: 'uuid', nullable: true })
+  organizationId?: string | null
+
+  /** Logical link to messages.message.thread_id (no DB FK — cross-module). */
+  @Property({ name: 'message_thread_id', type: 'uuid' })
+  messageThreadId!: string
+
+  /**
+   * HMAC-signed opaque token, format: `om_<22b64url>_<11b64url>` (16 random
+   * bytes + 8 HMAC bytes, each base64url-encoded without padding), ~37 chars.
+   */
+  @Property({ name: 'token', type: 'text' })
+  token!: string
+
+  @Property({ name: 'created_at', type: Date, onCreate: () => new Date() })
+  createdAt: Date = new Date()
+
+  /**
+   * Updated whenever a thread-matcher token-based strategy resolves to this
+   * row. Used for future GC: tokens with `last_seen_at < now() - 90 days`
+   * are pruning candidates.
+   */
+  @Property({ name: 'last_seen_at', type: Date, nullable: true })
+  lastSeenAt?: Date | null
+}
+
+// ── ChannelIngestDeadLetter ───────────────────────────────────
+
+/**
+ * Inbound messages that fail permanently during ingest land here so an
+ * operator can replay them after fixing parsers / schemas. Transient
+ * failures (DB blip, network timeout) DO NOT write here — those abort the
+ * poll loop without advancing the cursor so the message is re-fetched on
+ * the next tick.
+ *
+ * `raw_body` is encrypted at rest via the module's `encryption.ts`
+ * `defaultEncryptionMaps` entry (MIME bodies may contain PII).
+ *
+ * See `.ai/specs/2026-05-27-email-integration-inbound-reliability-and-threading.md`
+ * (§ 3 Data Model).
+ */
+@Entity({ tableName: 'channel_ingest_dead_letters' })
+@Index({ name: 'channel_ingest_dead_letters_channel_idx', properties: ['channelId', 'tenantId'] })
+@Index({ name: 'channel_ingest_dead_letters_created_idx', properties: ['tenantId', 'createdAt'] })
+export class ChannelIngestDeadLetter {
+  [OptionalProps]?:
+    | 'createdAt'
+    | 'organizationId'
+    | 'externalMessageId'
+    | 'externalUid'
+    | 'rawBody'
+
+  @PrimaryKey({ type: 'uuid', defaultRaw: 'gen_random_uuid()' })
+  id!: string
+
+  @Property({ name: 'tenant_id', type: 'uuid' })
+  tenantId!: string
+
+  @Property({ name: 'organization_id', type: 'uuid', nullable: true })
+  organizationId?: string | null
+
+  @Property({ name: 'channel_id', type: 'uuid' })
+  channelId!: string
+
+  @Property({ name: 'provider_key', type: 'text' })
+  providerKey!: string
+
+  /** External UID / sequence-number for the provider (e.g. IMAP UID, Gmail messageId). */
+  @Property({ name: 'external_uid', type: 'text', nullable: true })
+  externalUid?: string | null
+
+  @Property({ name: 'external_message_id', type: 'text', nullable: true })
+  externalMessageId?: string | null
+
+  @Property({ name: 'error_class', type: 'text' })
+  errorClass!: string
+
+  @Property({ name: 'error_message', type: 'text' })
+  errorMessage!: string
+
+  /** Truncated source — first N bytes of the raw MIME / payload (encrypted at rest). */
+  @Property({ name: 'raw_body', type: 'text', nullable: true })
+  rawBody?: string | null
 
   @Property({ name: 'created_at', type: Date, onCreate: () => new Date() })
   createdAt: Date = new Date()

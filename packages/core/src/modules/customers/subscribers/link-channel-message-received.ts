@@ -6,11 +6,11 @@
  * Falls back to threading-inheritance (In-Reply-To chain) when no direct
  * address match is found.
  *
- * Logic lives in `_internal/link-channel-message-handler.ts`; both this file
+ * Logic lives in `../lib/link-channel-message-handler.ts`; both this file
  * and `link-channel-message-sent.ts` delegate there so the two subscriber
  * registrations can share a single implementation.
  */
-import linkChannelMessageHandler from './_internal/link-channel-message-handler'
+import linkChannelMessageHandler from '../lib/link-channel-message-handler'
 
 export const metadata = {
   event: 'communication_channels.message.received',

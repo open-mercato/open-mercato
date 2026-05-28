@@ -4,8 +4,13 @@ import type { EntityManager } from '@mikro-orm/postgresql'
 import { getAuthFromRequest } from '@open-mercato/shared/lib/auth/server'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import { findOneWithDecryption } from '@open-mercato/shared/lib/encryption/find'
+import {
+  validateCrudMutationGuard,
+  runCrudMutationGuardAfterSuccess,
+} from '@open-mercato/shared/lib/crud/mutation-guard'
 import { CustomerInteraction } from '../../../../data/entities'
 import { callerHasEmailViewPrivate } from '../../../../lib/visibilityFilter'
+import { resolveAuthActorId } from '../../../../lib/interactionRequestContext'
 import { emitCustomersEvent } from '../../../../events'
 
 export const metadata = {
@@ -52,6 +57,21 @@ export async function PATCH(req: Request, context: RouteContext): Promise<Respon
   const em = (container.resolve('em') as EntityManager).fork()
   const organizationId = (auth as { orgId?: string | null }).orgId ?? null
   const dscope = { tenantId: auth.tenantId as string, organizationId }
+  const userId = resolveAuthActorId(auth)
+
+  const guardResult = await validateCrudMutationGuard(container, {
+    tenantId: auth.tenantId,
+    organizationId,
+    userId,
+    resourceKind: 'customers.interaction',
+    resourceId: id,
+    operation: 'custom',
+    requestMethod: req.method,
+    requestHeaders: req.headers,
+  })
+  if (guardResult && !guardResult.ok) {
+    return NextResponse.json(guardResult.body, { status: guardResult.status })
+  }
 
   let userFeatures: string[] = []
   try {
@@ -73,6 +93,7 @@ export async function PATCH(req: Request, context: RouteContext): Promise<Respon
     {
       id,
       tenantId: auth.tenantId,
+      organizationId,
       deletedAt: null,
       interactionType: 'email',
     } as any,
@@ -104,12 +125,26 @@ export async function PATCH(req: Request, context: RouteContext): Promise<Respon
   }
 
   const previousVisibility = (interaction.visibility ?? 'private') as 'private' | 'shared'
-  ;(interaction as any).visibility = body.visibility
+  interaction.visibility = body.visibility
   await em.flush()
+
+  if (guardResult?.ok && guardResult.shouldRunAfterSuccess) {
+    await runCrudMutationGuardAfterSuccess(container, {
+      tenantId: auth.tenantId,
+      organizationId,
+      userId,
+      resourceKind: 'customers.interaction',
+      resourceId: id,
+      operation: 'custom',
+      requestMethod: req.method,
+      requestHeaders: req.headers,
+      metadata: guardResult.metadata ?? null,
+    })
+  }
 
   // Emit audit event best-effort — failure must NOT roll back the DB flush.
   try {
-    await emitCustomersEvent('customers.email.visibility_changed' as any, {
+    await emitCustomersEvent('customers.email.visibility_changed', {
       interactionId: interaction.id,
       previousVisibility,
       nextVisibility: body.visibility,
@@ -118,7 +153,7 @@ export async function PATCH(req: Request, context: RouteContext): Promise<Respon
       adminBypass: !isAuthor && isAdmin,
       tenantId: auth.tenantId,
       organizationId,
-    } as any)
+    })
   } catch {
     /* swallow — audit emission must not block the response */
   }

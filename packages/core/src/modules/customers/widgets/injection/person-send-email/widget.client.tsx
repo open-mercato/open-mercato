@@ -2,9 +2,11 @@
 
 import * as React from 'react'
 import Link from 'next/link'
-import { Mail } from 'lucide-react'
+import { useRouter } from 'next/navigation'
+import { Mail, RefreshCw } from 'lucide-react'
 import { Button } from '@open-mercato/ui/primitives/button'
 import { apiCall } from '@open-mercato/ui/backend/utils/apiCall'
+import { useGuardedMutation } from '@open-mercato/ui/backend/injection/useGuardedMutation'
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 import {
@@ -28,8 +30,20 @@ type PersonSendEmailProps = {
   data?: PersonSendEmailContext['data']
 }
 
+const PERSON_SEND_EMAIL_CONTEXT_ID = 'customers-person-send-email'
+
 export function PersonSendEmailWidget({ context, data: dataProp }: PersonSendEmailProps) {
   const t = useT()
+  const router = useRouter()
+  const { runMutation, retryLastMutation } = useGuardedMutation<{
+    formId: string
+    resourceKind: string
+    resourceId: string
+    retryLastMutation: () => Promise<boolean>
+  }>({
+    contextId: PERSON_SEND_EMAIL_CONTEXT_ID,
+    blockedMessage: t('ui.forms.flash.saveBlocked', 'Save blocked by validation'),
+  })
 
   const resolvedData = dataProp ?? context?.data ?? null
   const personId =
@@ -40,6 +54,7 @@ export function PersonSendEmailWidget({ context, data: dataProp }: PersonSendEma
 
   const [channels, setChannels] = React.useState<ComposeEmailChannel[] | null>(null)
   const [open, setOpen] = React.useState(false)
+  const [syncing, setSyncing] = React.useState(false)
 
   React.useEffect(() => {
     let cancelled = false
@@ -81,24 +96,117 @@ export function PersonSendEmailWidget({ context, data: dataProp }: PersonSendEma
   }
 
   const onSend = async (values: ComposeEmailValues) => {
-    const response = await apiCall<{ messageId?: string }>(
-      `/api/customers/people/${encodeURIComponent(personId)}/emails`,
-      {
-        method: 'POST',
-        headers: { 'content-type': 'application/json' },
-        body: JSON.stringify(values),
-      },
-    )
-    if (!response.ok) {
-      const err = response.result as { error?: string } | null
-      throw new Error(err?.error ?? t('customers.email.errors.sendFailed', 'Send failed'))
+    const operation = async () => {
+      const response = await apiCall<{ messageId?: string }>(
+        `/api/customers/people/${encodeURIComponent(personId)}/emails`,
+        {
+          method: 'POST',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify(values),
+        },
+      )
+      if (!response.ok) {
+        const err = response.result as { error?: string } | null
+        throw new Error(err?.error ?? t('customers.email.errors.sendFailed', 'Send failed'))
+      }
+      return response.result?.messageId ?? null
     }
+    const messageId = await runMutation({
+      operation,
+      context: {
+        formId: PERSON_SEND_EMAIL_CONTEXT_ID,
+        resourceKind: 'customers.person',
+        resourceId: personId,
+        retryLastMutation,
+      },
+      mutationPayload: values as unknown as Record<string, unknown>,
+    })
     flash(t('customers.email.compose.sent', 'Email sent'), 'success')
-    return { messageId: response.result?.messageId ?? null }
+    // Wait ~1.2 s for the outbound-delivery worker + link-channel-message
+    // subscriber to settle, then refresh server data so the new interaction
+    // appears on the activity timeline. `router.refresh()` re-fetches the
+    // current route's server components without a full page reload — keeps
+    // scroll position and avoids the flash that `window.location.reload()`
+    // produces. (The proper fix is wiring `useAppEvent` into the activity
+    // timeline component.)
+    setTimeout(() => {
+      router.refresh()
+    }, 1200)
+    return { messageId }
+  }
+
+  const onSync = async () => {
+    if (syncing) return
+    setSyncing(true)
+    try {
+      // Poll every connected channel the user owns. In practice this is one
+      // mailbox (Gmail / Microsoft / IMAP), but we iterate so users with
+      // multiple connected accounts get all inboxes refreshed at once.
+      const operation = async () => {
+        const results = await Promise.allSettled(
+          channels.map((channel) => {
+            const channelId = (channel as { id?: string }).id
+            if (!channelId) return Promise.resolve({ ok: false })
+            return apiCall(
+              `/api/communication_channels/channels/${encodeURIComponent(channelId)}/poll-now`,
+              { method: 'POST' },
+            )
+          }),
+        )
+        const anyOk = results.some(
+          (r) => r.status === 'fulfilled' && (r.value as { ok?: boolean })?.ok !== false,
+        )
+        if (!anyOk) {
+          throw new Error(t('customers.email.sync.failed', 'Failed to sync mailbox'))
+        }
+      }
+      await runMutation({
+        operation,
+        context: {
+          formId: PERSON_SEND_EMAIL_CONTEXT_ID,
+          resourceKind: 'customers.person',
+          resourceId: personId,
+          retryLastMutation,
+        },
+      })
+      flash(
+        t(
+          'customers.email.sync.success',
+          'Sync triggered — new replies will appear in a few seconds.',
+        ),
+        'success',
+      )
+      // Give the poll worker time to fetch + ingest + link, then refresh the
+      // server tree so the activity timeline picks up any new interactions.
+      // Same pragmatic-v1 pattern as the post-send refresh (see onSend above).
+      setTimeout(() => {
+        router.refresh()
+      }, 2500)
+    } catch (err) {
+      flash(
+        err instanceof Error ? err.message : t('customers.email.sync.failed', 'Failed to sync mailbox'),
+        'error',
+      )
+    } finally {
+      setSyncing(false)
+    }
   }
 
   return (
     <>
+      <Button
+        variant="outline"
+        size="sm"
+        className="gap-2"
+        onClick={onSync}
+        disabled={syncing}
+        title={t('customers.email.sync.tooltip', 'Check your mailbox for new replies')}
+      >
+        <RefreshCw className={`h-4 w-4${syncing ? ' animate-spin' : ''}`} />
+        {syncing
+          ? t('customers.email.sync.syncing', 'Syncing...')
+          : t('customers.email.sync.button', 'Sync')}
+      </Button>
       <Button variant="default" size="sm" className="gap-2" onClick={() => setOpen(true)}>
         <Mail className="h-4 w-4" />
         {t('customers.email.compose.button', 'Send email')}

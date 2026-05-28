@@ -43,6 +43,8 @@ export const setup: ModuleSetupConfig = {
       'communication_channels.assign',
       'communication_channels.connect_user_channel',
       'communication_channels.admin',
+      'communication_channels.channel.import_history',
+      'communication_channels.channel.push.manage',
     ],
     admin: [
       'communication_channels.view',
@@ -51,6 +53,8 @@ export const setup: ModuleSetupConfig = {
       'communication_channels.assign',
       'communication_channels.connect_user_channel',
       'communication_channels.admin',
+      'communication_channels.channel.import_history',
+      'communication_channels.channel.push.manage',
     ],
     manager: [
       'communication_channels.view',
@@ -101,6 +105,45 @@ export const setup: ModuleSetupConfig = {
       targetPayload: {
         scope: { tenantId, organizationId },
       },
+      sourceType: 'module',
+      sourceModule: 'communication_channels',
+      isEnabled: true,
+    })
+
+    // Spec C § Phase C4 — renewal crons. One per provider; both per-org so
+    // multi-tenant deploys schedule independently.
+    await schedulerService.register({
+      id: `communication_channels:gmail-renew-watch:${organizationId}`,
+      name: 'Gmail watch renewal',
+      description:
+        'Daily 04:00 UTC. Re-issues gmail.users.watch for channels within OM_PUSH_RENEWAL_GMAIL_LEAD_HOURS of expiry.',
+      scopeType: 'organization',
+      organizationId,
+      tenantId,
+      scheduleType: 'cron',
+      scheduleValue: '0 4 * * *',
+      timezone: 'UTC',
+      targetType: 'queue',
+      targetQueue: COMMUNICATION_CHANNELS_QUEUES.gmailRenewWatch,
+      targetPayload: { scope: { tenantId, organizationId } },
+      sourceType: 'module',
+      sourceModule: 'communication_channels',
+      isEnabled: true,
+    })
+    await schedulerService.register({
+      id: `communication_channels:microsoft-renew-subscriptions:${organizationId}`,
+      name: 'Microsoft Graph subscription renewal',
+      description:
+        'Every 2 hours. PATCH-renews Microsoft Graph subscriptions within OM_PUSH_RENEWAL_MICROSOFT_LEAD_HOURS of expiry.',
+      scopeType: 'organization',
+      organizationId,
+      tenantId,
+      scheduleType: 'cron',
+      scheduleValue: '0 */2 * * *',
+      timezone: 'UTC',
+      targetType: 'queue',
+      targetQueue: COMMUNICATION_CHANNELS_QUEUES.microsoftRenewSubscriptions,
+      targetPayload: { scope: { tenantId, organizationId } },
       sourceType: 'module',
       sourceModule: 'communication_channels',
       isEnabled: true,

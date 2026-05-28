@@ -4,6 +4,7 @@ import * as React from 'react'
 import type { InjectionWidgetComponentProps } from '@open-mercato/shared/modules/widgets/injection'
 import { Button } from '@open-mercato/ui/primitives/button'
 import { apiCall } from '@open-mercato/ui/backend/utils/apiCall'
+import { useGuardedMutation } from '@open-mercato/ui/backend/injection/useGuardedMutation'
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 
@@ -24,6 +25,15 @@ type MessageWithReactions = Record<string, unknown> & {
   _reactions?: ReactionGroup[]
 }
 
+const REACTION_BAR_MUTATION_CONTEXT_ID = 'communication-channels-reaction-bar'
+
+type ReactionMutationContext = {
+  formId: string
+  resourceKind: string
+  resourceId: string
+  retryLastMutation: () => Promise<boolean>
+}
+
 export default function ReactionBarWidget({
   data,
 }: InjectionWidgetComponentProps<Record<string, unknown>, MessageWithReactions>) {
@@ -32,6 +42,10 @@ export default function ReactionBarWidget({
   const initial = React.useMemo(() => data?._reactions ?? [], [data])
   const [groups, setGroups] = React.useState<ReactionGroup[]>(initial)
   const [busyEmoji, setBusyEmoji] = React.useState<string | null>(null)
+  const { runMutation, retryLastMutation } = useGuardedMutation<ReactionMutationContext>({
+    contextId: REACTION_BAR_MUTATION_CONTEXT_ID,
+    blockedMessage: t('ui.forms.flash.saveBlocked', 'Save blocked by validation'),
+  })
 
   // Keep local state in sync if the host page re-renders with fresh data.
   React.useEffect(() => setGroups(initial), [initial])
@@ -53,10 +67,19 @@ export default function ReactionBarWidget({
           )
           return
         }
-        const response = await apiCall<{ ok?: boolean; error?: string }>(
-          `/api/communication_channels/messages/${messageId}/reactions/${group.myReactionId}`,
-          { method: 'DELETE' },
-        )
+        const response = await runMutation({
+          operation: () => apiCall<{ ok?: boolean; error?: string }>(
+            `/api/communication_channels/messages/${messageId}/reactions/${group.myReactionId}`,
+            { method: 'DELETE' },
+          ),
+          context: {
+            formId: REACTION_BAR_MUTATION_CONTEXT_ID,
+            resourceKind: 'communication_channels.message',
+            resourceId: messageId,
+            retryLastMutation,
+          },
+          mutationPayload: { action: 'remove-reaction', reactionId: group.myReactionId, emoji: group.emoji },
+        })
         if (!response.ok) {
           const errBody = response.result as { error?: string } | null
           flash(
@@ -77,14 +100,23 @@ export default function ReactionBarWidget({
         )
         return
       }
-      const response = await apiCall<{ id: string; messageId: string; emoji: string }>(
-        `/api/communication_channels/messages/${messageId}/reactions`,
-        {
-          method: 'POST',
-          body: JSON.stringify({ emoji: group.emoji }),
-          headers: { 'content-type': 'application/json' },
+      const response = await runMutation({
+        operation: () => apiCall<{ id: string; messageId: string; emoji: string }>(
+          `/api/communication_channels/messages/${messageId}/reactions`,
+          {
+            method: 'POST',
+            body: JSON.stringify({ emoji: group.emoji }),
+            headers: { 'content-type': 'application/json' },
+          },
+        ),
+        context: {
+          formId: REACTION_BAR_MUTATION_CONTEXT_ID,
+          resourceKind: 'communication_channels.message',
+          resourceId: messageId,
+          retryLastMutation,
         },
-      )
+        mutationPayload: { action: 'add-reaction', emoji: group.emoji },
+      })
       if (!response.ok) {
         const errBody = response.result as { error?: string } | null
         flash(
@@ -106,6 +138,13 @@ export default function ReactionBarWidget({
               }
             : g,
         ),
+      )
+    } catch (err) {
+      flash(
+        err instanceof Error
+          ? err.message
+          : t('communication_channels.errors.reactionFailed', 'Reaction failed'),
+        'error',
       )
     } finally {
       setBusyEmoji(null)

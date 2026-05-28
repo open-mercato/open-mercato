@@ -180,14 +180,16 @@ export function ComposeEmailDialog({
                 {t('customers.email.compose.to', 'To')}
               </Label>
               {!showCc && (
-                <button
+                <Button
                   type="button"
-                  className="text-xs text-muted-foreground hover:text-foreground transition-colors"
+                  variant="link"
+                  size="2xs"
+                  className="text-muted-foreground hover:text-foreground"
                   onClick={() => setShowCc(true)}
                   aria-label={t('customers.email.compose.addCc.ariaLabel', 'Add Cc recipients')}
                 >
                   {t('customers.email.compose.addCc', '+ Cc')}
-                </button>
+                </Button>
               )}
             </div>
             <Input

@@ -259,9 +259,42 @@ export async function GET(req: Request, context: RouteContext): Promise<Response
     lastError: credentialsAvailable ? null : 'credentials_persist_failed',
     tenantId: statePayload.tenantId,
     organizationId: statePayload.organizationId ?? null,
-  } as any)
+  })
   em.persist(channel)
   await em.flush()
+
+  // Spec C § Phase C5 — best-effort push registration for OAuth providers
+  // that support it (Gmail, Microsoft). Same shape as the credential-connect
+  // path: failures persist as `pushStatus='failed'` on channelState and DO
+  // NOT fail the connect — polling fallback covers until the operator clicks
+  // "Re-register push" on the channels page.
+  const adapterSupportsPush =
+    typeof adapter.registerPush === 'function' && typeof adapter.unregisterPush === 'function'
+  if (
+    credentialsAvailable &&
+    adapterSupportsPush &&
+    statePayload.organizationId &&
+    (provider === 'gmail' || provider === 'microsoft')
+  ) {
+    try {
+      const { pushRegister } = await import('../../../../../commands/push-register')
+      await pushRegister({
+        container,
+        scope: {
+          tenantId: statePayload.tenantId,
+          organizationId: statePayload.organizationId,
+          userId: auth.sub as string,
+        },
+        input: { channelId: channel.id },
+      })
+    } catch (err) {
+      console.warn(
+        `[oauth-callback] best-effort pushRegister failed for ${channel.id}: ${
+          err instanceof Error ? err.message : String(err)
+        }`,
+      )
+    }
+  }
 
   return redirectWithFlash(req, returnUrl, {
     type: 'connected',

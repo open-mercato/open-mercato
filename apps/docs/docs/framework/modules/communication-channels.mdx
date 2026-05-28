@@ -114,6 +114,151 @@ Phase 4 of the email integration spec added two hub-side guards (`packages/core/
 - `guardChannelDelete` — blocks delete when unread inbound messages remain on the channel. `force: true` bypasses, for admin offboarding workflows.
 - `guardOutboundCreate` — maps `status='requires_reauth'` / `'disconnected'` to a 422 with `fieldErrors.channelId`. Wired into `POST /api/communication_channels/send-as-user`.
 
+## Credential refresh contract
+
+OAuth providers (Gmail, Microsoft) need their tenant-level OAuth client config — `clientId`, `clientSecret`, and (for Microsoft) `tenantId` — every time a per-user access token is refreshed. The hub resolves this once before delegating to the adapter via the **`RefreshCredentialsInput.oauthClient`** field:
+
+```ts
+export interface RefreshCredentialsInput {
+  channelId: string
+  /** Per-user credential blob (accessToken, refreshToken, expiresAt, …) */
+  credentials: Record<string, unknown>
+  scope: TenantScope
+  /**
+   * Tenant-level OAuth client config resolved by the hub from
+   * `integration_credentials.scope = oauth_<providerKey>`.
+   *
+   * - OAuth providers (Gmail, Microsoft): MUST read clientId / clientSecret
+   *   (+ tenantId for Microsoft) from this field.
+   * - Static-credential providers (IMAP, WhatsApp): ignore.
+   */
+  oauthClient?: OAuthClientConfig
+}
+
+export interface OAuthClientConfig {
+  clientId: string
+  clientSecret?: string
+  /** Microsoft tenant id (`common`, `consumers`, `organizations`, or a GUID). */
+  tenantId?: string
+  /** Optional pre-resolved scopes list. */
+  scopes?: string[]
+}
+```
+
+The hub's `refreshCredentialsIfNeeded` helper resolves `oauth_<providerKey>` via `IntegrationCredentialsService.resolve(...)` and passes the result through. Provider adapters that implement OAuth refresh MUST read `clientId` / `clientSecret` from `input.oauthClient` — see `packages/channel-gmail/.../lib/adapter.ts:refreshCredentials` and `packages/channel-microsoft/.../lib/adapter.ts:refreshCredentials` for reference implementations.
+
+:::warning Legacy `credentials._client` path is deprecated
+Prior to the wiring spec ([`.ai/specs/2026-05-27-oauth-refresh-credentials-client-wiring-fix.md`](#)), adapters read OAuth client config from `credentials._client` — a field no production code path ever populated, which caused token refresh to fail silently after ~1 hour. The Gmail and Microsoft adapters still recognize `_client` for one minor release with a one-time deprecation warning per process. Remove any test fixtures or callers that rely on `_client` and pass `oauthClient` instead.
+:::
+
+When the helper cannot resolve the OAuth client (missing `oauth_<provider>` integration credential row, or `credentialsService` not registered), `oauthClient` is left `undefined`. Adapters then fall through to the legacy `_client` path; if neither field is present, refresh fails with a clear error and the channel flips to `status='requires_reauth'` so the operator-visible notification fires.
+
+## Inbound reliability & threading (Spec B)
+
+Shipped 2026-05-27. See [`.ai/specs/2026-05-27-email-integration-inbound-reliability-and-threading.md`](#) for the full design rationale.
+
+### Layered thread matching
+
+Outbound delivery now injects a per-thread HMAC token (`om_<base64url>_<base64url>`) into both:
+1. The synthetic `<om_TOKEN@open-mercato.invalid>` Message-ID appended to the `References` header (RFC 6761 reserved TLD — guaranteed to round-trip through compliant MTAs).
+2. A hidden `<span>` (HTML emails) and a bracketed marker (plain-text) at the bottom of the body. Survives mail clients that strip `References` headers.
+
+Inbound ingestion runs a five-strategy matcher in priority order before falling back to a new thread:
+
+| Strategy | Confidence | When it fires |
+|---|---|---|
+| `token-references` | high | Reply preserves the `om_*` Message-ID in `References` / `In-Reply-To`. Most common. |
+| `token-body` | high | Reply quoted our outbound body; the hidden footer survived. |
+| `jwz-headers` | medium | Standard JWZ algorithm against `In-Reply-To` / `References` pointing at our outbound `Message-Id`. Pre-token outbounds. |
+| `subject-participants` | low | Normalized subject match (`Re:`, `Fwd:`, `[EXTERNAL]` stripped) + participant set overlap. Last-ditch. |
+| (none) | — | New thread. |
+
+`MessageChannelLink.channelMetadata.threadMatchStrategy` + `threadMatchConfidence` are persisted on every inbound for observability.
+
+### Zero-history IMAP bootstrap
+
+A freshly-connected IMAP channel fetches **zero** historical messages — `fetchHistory` records `UIDVALIDITY` + `UIDNEXT` and returns immediately. From the next tick onward, the worker does `UID FETCH previousUidNext:*` capped at `OM_CHANNEL_IMAP_HARD_CAP_PER_POLL` (default 200). When more remain, `hasMore: true` triggers immediate re-enqueue without waiting for the next scheduler tick. `UIDVALIDITY` mismatch (mailbox rename / recreate) re-bootstraps rather than re-syncing the whole inbox.
+
+This eliminates the "we can't scan a new user's 1M-message inbox on connect" failure mode by construction. Backlog import is opt-in via the operator-triggered flow below.
+
+### Per-message commit + dead-letter
+
+`poll-channel.ts` advances the channel cursor (`channel_state.uidNext`) per successfully-ingested message. A transient ingest failure (DB blip, network reset) aborts the loop without advancing — the next tick re-fetches the same UIDs and idempotency on `(channel_id, external_message_id)` skips already-ingested messages. A permanent failure (malformed MIME, schema violation) writes the raw payload to `channel_ingest_dead_letters` (encrypted) and advances the cursor anyway so the bad blob never re-stalls the channel.
+
+### Auto-recovery sweep
+
+`poll-tick.ts` enumerates two pools: (a) `status='connected'` channels due for normal polling, (b) `status='error'` channels whose `lastFailureAt` is older than `OM_CHANNEL_AUTO_RECOVER_MINUTES`. A successful poll in pool (b) flips `status` back to `connected` automatically — operators no longer have to manually reconnect after a transient outage.
+
+### Operator-triggered backlog import
+
+The `POST /api/communication_channels/channels/<id>/import-history` route (gated by the `communication_channels.channel.import_history` ACL feature) creates a `ProgressJob` and enqueues a `channel-import-history` worker job (concurrency 1) that calls `adapter.importHistory({ sinceDays, contactEmails?, maxMessages, cursor })` in a pagination loop:
+
+| Field | Range | Purpose |
+|---|---|---|
+| `sinceDays` | `1..365` | Server-side `SEARCH SINCE` window. |
+| `contactEmails` | optional, up to 1000 | Server-side `OR FROM …` filter, chunked to ≤30 senders per SEARCH to keep the IMAP tag buffer bounded. |
+| `maxMessages` | `1..5000` | Hard cap across all pages. Worker stops paging as soon as the cap is hit. |
+
+A 429 is returned if another import is in-flight for the same channel (active-jobs scan, plus the worker's `concurrency: 1` is the second line of defence). Progress streams to the existing `ProgressTopBar` via `ProgressService.updateProgress(...)`. Adapter contract is **additive optional** — adapters that don't implement `importHistory()` get a 400 envelope back from the route (Gmail / Microsoft gain support in Spec C).
+
+The UI lives on `/backend/profile/communication-channels` as a per-row "Import history" button → modal dialog (`Cmd/Ctrl+Enter` submits, `Escape` cancels). On success the dialog calls `router.refresh()` instead of `window.location.reload()` — preserves scroll position and avoids the flash that a full reload causes.
+
+## Provider push delivery (Spec C)
+
+Shipped 2026-05-27. See [`.ai/specs/2026-05-27-email-integration-provider-push-delivery.md`](#) for the full design rationale.
+
+Spec B established the polling foundation: 60-second cadence for IMAP, Gmail, and Microsoft alike. Spec C **replaces** the 60s polling cadence for Gmail and Microsoft with native push delivery, dropping inbound latency from ≤60s to 5–15s typical while leaving 30-minute polling as a belt-and-suspenders fallback.
+
+### Adapter contract (additive)
+
+Three optional methods on `ChannelAdapter`:
+
+- **`registerPush(input): Promise<PushRegistration>`** — Gmail: calls `users.watch` with the operator-configured Pub/Sub topic. Microsoft: creates a `/subscriptions` row with a freshly-minted 32-byte `clientState` nonce.
+- **`unregisterPush(input): Promise<void>`** — Counterpart for disconnect / reauth. Gmail: `users.stop`. Microsoft: `DELETE /subscriptions/{id}`. Idempotent on 404.
+- **`applyPushNotification(input): Promise<HistoryPage>`** — Turns a verified inbound notification into the same `HistoryPage` shape `fetchHistory` returns. Gmail: walks `history.list`. Microsoft: walks `/me/messages/delta`. Both delegate to `fetchHistory` so the pagination + cursor-recovery logic stays in one place.
+
+Adapters that don't implement these methods (IMAP, chat providers) stay on Spec B's polling.
+
+### Gmail Pub/Sub flow
+
+1. Operator one-time setup: create a Pub/Sub topic, grant `gmail-api-push@system.gserviceaccount.com` publisher, attach a push subscription to the topic pointing at `https://<your-host>/api/communication_channels/webhooks/gmail` with a service-account identity. Set `OM_GMAIL_PUBSUB_TOPIC`, `OM_GMAIL_PUBSUB_AUDIENCE`, `OM_GMAIL_PUBSUB_SERVICE_ACCOUNT_EMAIL`.
+2. On channel connect (or via the operator "Re-register push" route), the hub calls `adapter.registerPush(...)`, which invokes `gmail.users.watch`. The returned `historyId` + `watchExpirationMs` are persisted to `channelState`.
+3. Gmail publishes `{ emailAddress, historyId }` to the topic on every mailbox change (rate-capped at 1/s/user).
+4. Pub/Sub POSTs the envelope to the webhook with a Google-signed JWT. `lib/gmail-pubsub-jwt.ts` verifies the RS256 signature, `aud` claim, and `email` claim.
+5. The webhook enqueues a `communication-channels-gmail-history-sync` job per matching channel (we look up across all tenants by `emailAddress` and dispatch per-tenant — same `emailAddress` connected to multiple tenants is supported).
+6. `gmail-history-sync` worker calls `adapter.applyPushNotification(...)` (which walks `history.list` from the stored cursor) and feeds each new message through `ingest-inbound-message`. Cursor advances per-message commit (Spec B contract).
+
+### Microsoft Graph flow
+
+1. No tenant pre-setup beyond OAuth (which Spec A already requires). The hub-side env `OM_MICROSOFT_WEBHOOK_BASE_URL` is the only new operator config.
+2. `adapter.registerPush(...)` POSTs `/subscriptions` with `resource: "/me/mailFolders('inbox')/messages"`, a freshly-minted 32-byte `clientState`, and `expirationDateTime: now+60h`. Graph performs a synchronous validation handshake: it POSTs `?validationToken=…` to `notificationUrl`; our webhook echoes the token verbatim within 10s.
+3. The minted `clientState` is persisted **encrypted at rest** in `communication_channels.client_state_encrypted` (separate column, declared in `defaultEncryptionMaps`).
+4. Graph POSTs change notifications to `/api/communication_channels/webhooks/microsoft/[subscriptionId]`. The webhook looks up the channel by `channelState.subscriptionId`, decrypts `clientStateEncrypted` via `findOneWithDecryption`, and constant-time compares against every notification's `clientState`.
+5. `microsoft-delta-sync` worker calls `adapter.applyPushNotification(...)` (which walks `/me/messages/delta` from the stored `deltaLink`) and ingests each new message.
+
+### Microsoft lifecycle events
+
+Graph emits three lifecycle events to a separate URL (`/api/communication_channels/webhooks/microsoft/[subscriptionId]/lifecycle`):
+
+| Event | Reaction |
+|---|---|
+| `missed` | Hub enqueues a delta-sync to catch up — we lost notifications. |
+| `reauthorizationRequired` | Channel flips to `status='requires_reauth'`; the existing `communication_channels.channel.requires_reauth` notification fires, prompting the user to reconnect. |
+| `subscriptionRemoved` | `pushStatus` set to `inactive`; `pollIntervalSeconds` restored to 60. Polling fallback takes over until the next "Re-register push". |
+
+### Renewal cron
+
+- **Gmail watch** expires after ~7 days. Daily 04:00 UTC cron (`gmail-renew-watch` queue, registered per-org in `setup.ts`) finds channels within `OM_PUSH_RENEWAL_GMAIL_LEAD_HOURS` (default 24h) of expiry and triggers `pushRegister(...)` again.
+- **Microsoft subscriptions** expire after ~70 hours on `/me/messages` plain notifications. Every-2-hours cron (`microsoft-renew-subscriptions`) PATCHes `subscriptionId` to extend `expirationDateTime` for channels within `OM_PUSH_RENEWAL_MICROSOFT_LEAD_HOURS` (default 4h).
+
+### Polling fallback
+
+`pollIntervalSeconds` automatically flips from 60 to **1800** (30 min) when `pushStatus='active'` is persisted by `registerPush`. If push fails (Gmail Pub/Sub topic misconfigured, Microsoft subscription rejected) the channel keeps polling at 60s, so no message is ever lost. The `pushStatus='failed'` channel surfaces in the operator UI with a "Re-register push" button calling `POST /api/communication_channels/channels/<id>/push/register`.
+
+### Encryption decision
+
+Microsoft `clientState` is stored on a **dedicated `client_state_encrypted text NULL` column** (additive migration `Migration20260527230000_communication_channels.ts`) rather than inside the plaintext `channelState` JSONB. Rationale: encrypting a JSONB sub-key would require encrypting the whole blob and rewriting every reader. The separate-column approach mirrors `IntegrationCredentials.credentials` and lets `channelState` stay plaintext for Gmail's `historyId`, IMAP's UIDVALIDITY, and other non-secret cursor fields.
+
 ## OAuth setup
 
 ### Gmail (`@open-mercato/channel-gmail`)
@@ -197,6 +342,16 @@ The hub reads a small set of env vars; sensible defaults exist for all of them.
 | `OM_HUB_POLL_DEFAULT_SECONDS` | `300` (5 minutes) | Default poll cadence applied to channels that don't set `poll_interval_seconds`. |
 | `OM_HUB_POLL_CONCURRENCY` | `10` | Max parallel poll-channel worker jobs per process. Bound by your DB connection pool. |
 | `OM_HUB_OUTBOUND_RETRY_MAX` | `5` | Outbound delivery retries before marking the Message `delivery_failed`. |
+| `OM_HUB_POLL_SCHEDULER_TICK_SECONDS` | `60` | Interval between `poll-tick` scheduler runs that enumerate due channels and fan out to per-channel `poll` jobs. Lower-bounded at 10 s. |
+| `OM_CHANNEL_IMAP_HARD_CAP_PER_POLL` | `200` | Maximum number of IMAP UIDs fetched per `fetchHistory` page. When more remain, the adapter sets `hasMore: true` and the hub re-enqueues immediately. Tune lower if a single page's wall-clock budget is too tight; never set above ~500 (DB transaction size). |
+| `OM_CHANNEL_AUTO_RECOVER_MINUTES` | `30` | Spec B § B5 auto-recovery sweep window. `poll-tick` re-enqueues `status='error'` channels whose `lastFailureAt` is older than this. Set `0` in tests to force immediate retry. |
+| `OM_THREAD_TOKEN_SECRET` | derived from `KMS_MASTER_KEY` via HKDF | HMAC key used by Spec B's `lib/thread-token.ts` to mint per-thread `om_*` tokens injected into outbound `References` headers + a hidden body footer. Rotating invalidates all existing tokens (older threads fall back to JWZ + subject-participants strategies — no data loss). |
+| `OM_GMAIL_PUBSUB_TOPIC` | (none — required for Gmail push) | Fully-qualified Pub/Sub topic, e.g. `projects/openmercato-prod/topics/gmail-inbound`. Passed to `gmail.users.watch`. |
+| `OM_GMAIL_PUBSUB_AUDIENCE` | (none — required for Gmail push) | Expected `aud` claim in the Pub/Sub-signed JWT. Set this to the webhook URL or a stable identifier configured on the Pub/Sub push subscription. |
+| `OM_GMAIL_PUBSUB_SERVICE_ACCOUNT_EMAIL` | (none — required for Gmail push) | Expected `email` claim in the Pub/Sub JWT. Typically the service account configured on the push subscription (NOT `gmail-api-push@system.gserviceaccount.com` — that's the publisher into the topic). |
+| `OM_MICROSOFT_WEBHOOK_BASE_URL` | (none — required for Microsoft push) | Public base URL Graph posts notifications to, e.g. `https://app.example.com`. The hub appends the per-channel path. |
+| `OM_PUSH_RENEWAL_GMAIL_LEAD_HOURS` | `24` | Renewal lead time for `gmail.users.watch`. Lower means we renew earlier; higher means we cut closer to the 7-day expiration. |
+| `OM_PUSH_RENEWAL_MICROSOFT_LEAD_HOURS` | `4` | Renewal lead time for Microsoft Graph subscriptions (cron runs every 2 hours, so 4 gives one safety cycle). |
 
 ## Deploy runbook
 

@@ -79,7 +79,11 @@ export const imapCredentialsSchema = z
 
     fromAddress: z.string().email('From address must be a valid email'),
   })
-  .strict()
+  // `.passthrough()` (not `.strict()`) so the connect-credential-channel command
+  // can stash bookkeeping fields like `userId` alongside the user-entered
+  // credentials. Strict was rejecting any extra key with "Unrecognized key" and
+  // blocking outbound SMTP after a real user connected via the per-user flow.
+  .passthrough()
 
 export type ImapCredentials = z.infer<typeof imapCredentialsSchema>
 

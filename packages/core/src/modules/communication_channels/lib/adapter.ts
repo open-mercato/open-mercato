@@ -246,12 +246,131 @@ export interface FetchHistoryInput {
    * from the beginning / bootstrap the cursor".
    */
   channelState?: Record<string, unknown>
+  /**
+   * Optional contact-filter hint. When provided, the adapter SHOULD prefer
+   * server-side filtering (e.g. IMAP `SEARCH OR FROM …`, Gmail `q=from:…`) to
+   * narrow the fetch to messages whose sender matches one of the listed
+   * addresses, instead of pulling the whole mailbox and discarding non-matches.
+   *
+   * The hub passes the union of all CRM contact addresses for the channel's
+   * tenant/org — typically tens, occasionally hundreds. Adapters that don't
+   * support server-side sender filtering can ignore the hint (back-compat).
+   *
+   * `sinceDays` further narrows by message date (server-side `SINCE` for IMAP,
+   * `after:` for Gmail). Default 30 days when omitted by caller, capped at 365.
+   */
+  contactFilter?: {
+    addresses: string[]
+    sinceDays?: number
+  }
 }
 
 export interface HistoryPage {
   messages: NormalizedInboundMessage[]
   nextCursor?: string
   hasMore: boolean
+}
+
+// ── Provider push delivery (Spec C) ──────────────────────────
+
+/**
+ * Result of `adapter.registerPush(...)`. The adapter returns provider-specific
+ * cursor / expiry data; the hub persists the relevant fields onto
+ * `CommunicationChannel.channelState` (JSONB, additive shape per provider).
+ *
+ * Gmail: `historyId` + `watchExpirationMs` + `pubsubTopic`.
+ * Microsoft: `subscriptionId` + `subscriptionExpiresAt` + `clientState`.
+ */
+export interface PushRegistration {
+  providerKey: string
+  /** Whether registration succeeded enough to switch to push delivery. */
+  status: 'active' | 'failed'
+  /** Provider-specific state to merge into `channel.channelState`. */
+  channelStatePatch: Record<string, unknown>
+  /**
+   * When push registration succeeds and the channel can switch to longer poll
+   * cadence. The hub typically uses 1800 (30 min) as a belt-and-suspenders
+   * fallback. Undefined means "leave the existing cadence".
+   */
+  recommendedPollIntervalSeconds?: number
+  /** Operator-visible diagnostic, populated when `status='failed'`. */
+  error?: { code: string; message: string }
+}
+
+export interface RegisterPushInput {
+  channelId: string
+  credentials: Record<string, unknown>
+  scope: TenantScope
+  /** Public URL the provider should POST notifications to. */
+  notificationUrl: string
+  /** Microsoft only: lifecycle webhook URL. */
+  lifecycleNotificationUrl?: string
+  /** Provider-specific tenant configuration (e.g. Gmail Pub/Sub topic). */
+  providerConfig?: Record<string, unknown>
+}
+
+export interface UnregisterPushInput {
+  channelId: string
+  credentials: Record<string, unknown>
+  scope: TenantScope
+  /** Persisted channel state at the time of unregister (provider needs IDs). */
+  channelState: Record<string, unknown>
+}
+
+/**
+ * Verified inbound push notification (Gmail Pub/Sub envelope or Microsoft
+ * Graph change-notification). The hub's webhook routes do JWT / clientState
+ * verification BEFORE invoking the adapter; the adapter receives the
+ * verified payload only.
+ */
+export interface ApplyPushNotificationInput {
+  credentials: Record<string, unknown>
+  scope: TenantScope
+  channelState: Record<string, unknown>
+  /** Provider-shaped notification payload. */
+  notification: Record<string, unknown>
+}
+
+// ── Import history (operator-triggered backlog) ──────────────
+
+/**
+ * Operator-triggered historical import. Distinct from `fetchHistory`:
+ *   - `fetchHistory` runs every poll and ingests *new* mail since the cursor
+ *     (zero-history bootstrap by construction — Spec B § Phase B4).
+ *   - `importHistory` is invoked by the explicit `/import-history` endpoint
+ *     (Spec B § Phase B6) and reaches *backwards in time* into the mailbox
+ *     to pull older messages the channel never observed at bootstrap.
+ *
+ * Adapters that cannot perform historical imports (e.g. write-only providers)
+ * omit this method; the hub returns a 400 "feature not supported" envelope.
+ */
+export interface ImportHistoryInput {
+  credentials: Record<string, unknown>
+  scope: TenantScope
+  /** Look back at most this many days. Clamped 1..365 by the hub. */
+  sinceDays: number
+  /**
+   * Optional sender-filter hint. Adapters SHOULD use it for server-side
+   * filtering (IMAP `SEARCH OR FROM …`, Gmail `q=from:…`). When omitted the
+   * import scans the entire `SINCE` window.
+   */
+  contactEmails?: string[]
+  /** Total cap across all pages. Hub default 1000. Adapter MUST respect. */
+  maxMessages?: number
+  /** Opaque resumption cursor returned by the previous page. */
+  cursor?: string
+}
+
+export interface ImportHistoryPage {
+  messages: NormalizedInboundMessage[]
+  nextCursor?: string
+  hasMore: boolean
+  /**
+   * Optional total of candidate messages discovered server-side. When
+   * present, the hub uses it to populate the `ProgressJob.totalCount` on
+   * the first page so the operator sees an accurate progress bar.
+   */
+  totalCandidates?: number
 }
 
 // ── Contact resolution ───────────────────────────────────────
@@ -322,10 +441,41 @@ export interface ExchangeOAuthCodeResult {
 
 // ── Credential refresh + validation ──────────────────────────
 
+/**
+ * Tenant-level OAuth client configuration resolved by the hub from
+ * `integration_credentials.scope = oauth_<providerKey>`.
+ *
+ * OAuth providers (Gmail, Microsoft) MUST read clientId / clientSecret /
+ * tenantId from this field on `RefreshCredentialsInput`. Adapters without
+ * OAuth refresh (IMAP, WhatsApp Business API) ignore it.
+ *
+ * See `.ai/specs/2026-05-27-oauth-refresh-credentials-client-wiring-fix.md`.
+ */
+export interface OAuthClientConfig {
+  clientId: string
+  clientSecret?: string
+  /** Microsoft tenant id ("common" | "consumers" | "organizations" | GUID). */
+  tenantId?: string
+  /** Optional pre-resolved scopes list (some flows compute it once on initiate). */
+  scopes?: string[]
+}
+
 export interface RefreshCredentialsInput {
   channelId: string
   credentials: Record<string, unknown>
   scope: TenantScope
+  /**
+   * Tenant-level OAuth client configuration. Resolved by the hub's
+   * `refreshCredentialsIfNeeded` helper before delegating to the adapter.
+   *
+   * - For OAuth providers (Gmail, Microsoft): MUST be present; the adapter
+   *   uses `clientId` + `clientSecret` (+ `tenantId` for Microsoft) to call
+   *   the provider's token endpoint.
+   * - For static-credential providers (IMAP, WhatsApp): ignored.
+   * - When `undefined`: legacy `credentials._client` path is read by the
+   *   adapter (deprecated; will be removed in the next minor release).
+   */
+  oauthClient?: OAuthClientConfig
 }
 
 export interface RefreshedCredentials {
@@ -377,6 +527,42 @@ export interface ChannelAdapter {
   editMessage?(input: EditChannelMessageInput): Promise<void>
   deleteMessage?(input: DeleteChannelMessageInput): Promise<void>
   fetchHistory?(input: FetchHistoryInput): Promise<HistoryPage>
+
+  /**
+   * Operator-triggered historical import (Spec B § Phase B6). Returns a page
+   * of older messages older than (or alongside) the channel's normal incremental
+   * cursor. Pagination via `cursor` until `hasMore: false`. Adapters without
+   * historical import omit this method.
+   */
+  importHistory?(input: ImportHistoryInput): Promise<ImportHistoryPage>
+
+  /**
+   * Spec C — Register provider push delivery for this channel.
+   *
+   * Gmail: calls `users.watch` against the configured Pub/Sub topic.
+   * Microsoft: creates a `/subscriptions` row (handling the validation
+   * handshake at the webhook layer).
+   *
+   * Adapters that don't support push (IMAP, chat) omit this method; the hub
+   * keeps the channel in polling mode (Spec B baseline).
+   */
+  registerPush?(input: RegisterPushInput): Promise<PushRegistration>
+
+  /**
+   * Spec C — Tear down a previously-registered push registration. Called on
+   * channel disconnect, on re-auth, and during deactivation. Idempotent —
+   * absence of provider-side registration is not an error.
+   */
+  unregisterPush?(input: UnregisterPushInput): Promise<void>
+
+  /**
+   * Spec C — Convert a verified inbound push notification into the same
+   * `HistoryPage` shape `fetchHistory` returns. Gmail: calls `history.list`.
+   * Microsoft: calls `/me/messages/delta`. The hub's push workers feed each
+   * returned message through the existing `ingest-inbound-message` command,
+   * so threading and dedup behave identically to the polling path.
+   */
+  applyPushNotification?(input: ApplyPushNotificationInput): Promise<HistoryPage>
   resolveContact?(input: ResolveContactInput): Promise<ContactHint | null>
 
   /**

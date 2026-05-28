@@ -2,7 +2,7 @@ import type { EntityManager } from '@mikro-orm/postgresql'
 import type { JobContext, QueuedJob, WorkerMeta } from '@open-mercato/queue'
 import type { CommandBus } from '@open-mercato/shared/lib/commands'
 import { findOneWithDecryption } from '@open-mercato/shared/lib/encryption/find'
-import { CommunicationChannel } from '../data/entities'
+import { ChannelIngestDeadLetter, CommunicationChannel } from '../data/entities'
 import {
   COMMUNICATION_CHANNELS_INGEST_INBOUND_COMMAND_ID,
   type IngestInboundMessageInput,
@@ -88,7 +88,7 @@ export default async function handle(
       tenantId: scope.tenantId,
       organizationId: scope.organizationId ?? null,
       deletedAt: null,
-    } as any,
+    },
     undefined,
     scope,
   )
@@ -99,13 +99,11 @@ export default async function handle(
     return
   }
   if (!channel.isActive) return
-  if (channel.status !== 'connected') {
-    // Channel is in a non-connected lifecycle state (requires_reauth / error /
-    // disconnected). The reconnect/admin flow will set status back to
-    // 'connected' when ready — skipping ensures we don't hammer a known-bad
-    // mailbox.
-    return
-  }
+  // Allow `connected` (normal poll) and `error` (Spec B § B5 auto-recovery
+  // sweep enqueues these intentionally — on a successful poll below we
+  // flip them back to `connected`). `requires_reauth` and `disconnected`
+  // are owned by the credential-refresh and disconnect flows.
+  if (channel.status !== 'connected' && channel.status !== 'error') return
 
   const adapter = adapterRegistry?.get(channel.providerKey)
   if (!adapter) {
@@ -179,6 +177,11 @@ export default async function handle(
         tenantId: scope.tenantId,
         organizationId: scope.organizationId ?? scope.tenantId,
       },
+      // `contactFilter.sinceDays` is a hint to provider adapters about how far
+      // back to look on first-poll bootstrap. For UID-incremental polls (every
+      // tick after the first), adapters ignore this and just fetch new mail
+      // since the persisted cursor.
+      contactFilter: { addresses: [], sinceDays: 7 },
     })
     normalized = Array.isArray(result?.messages) ? result.messages : []
     nextCursor = result?.nextCursor
@@ -198,7 +201,16 @@ export default async function handle(
     selectedOrganizationId: scope.organizationId ?? null,
     organizationIds: scope.organizationId ? [scope.organizationId] : null,
   }
-  let anyIngestFailed = false
+  // Spec B § Per-message commit + dead-letter:
+  //   - Permanent failure (malformed MIME, schema, contract violation):
+  //     write to channel_ingest_dead_letter, log, advance cursor anyway so
+  //     the bad blob never stalls the channel again.
+  //   - Transient failure (DB drop, network blip): abort the loop without
+  //     advancing the cursor. The next tick re-fetches the same page;
+  //     idempotency via the (channel_id, external_message_id) unique
+  //     constraint means already-ingested messages no-op on the retry.
+  let transientIngestAbort = false
+  let permanentIngestCount = 0
   for (const message of normalized) {
     try {
       const input: IngestInboundMessageInput = {
@@ -216,25 +228,50 @@ export default async function handle(
         ctx: commandCtx as never,
       })
     } catch (err) {
-      anyIngestFailed = true
-      // Continue with the rest of the page even if one message fails — the
-      // failure is logged at the command level; we don't abort polling.
+      const classification = classifyOutboundError(err)
+      if (classification.transient) {
+        console.warn(
+          `[communication_channels:poll-channel] transient ingest failure for channel ${channel.id}; aborting page so cursor is NOT advanced. Reason: ${classification.message}`,
+        )
+        transientIngestAbort = true
+        break
+      }
+      // Permanent — write to dead-letter so an operator can replay later.
+      permanentIngestCount += 1
+      try {
+        const deadLetter = em.create(ChannelIngestDeadLetter, {
+          tenantId: scope.tenantId,
+          organizationId: scope.organizationId ?? null,
+          channelId: channel.id,
+          providerKey: channel.providerKey,
+          externalUid: extractExternalUid(message),
+          externalMessageId: message.externalMessageId ?? null,
+          errorClass: err instanceof Error ? err.name : 'Error',
+          errorMessage: classification.message,
+          rawBody: truncateRawBody(message),
+        })
+        em.persist(deadLetter)
+        await em.flush()
+      } catch (ddlErr) {
+        // Dead-letter write itself failing is bad but not fatal — log and
+        // continue. The poll cursor still advances so the bad message
+        // doesn't loop.
+        console.error(
+          `[communication_channels:poll-channel] failed to record dead-letter for channel ${channel.id}: ${
+            ddlErr instanceof Error ? ddlErr.message : String(ddlErr)
+          }`,
+        )
+      }
       console.warn(
-        `[communication_channels:poll-channel] ingest failed for channel ${channel.id}: ${
-          err instanceof Error ? err.message : String(err)
-        }`,
+        `[communication_channels:poll-channel] permanent ingest failure for channel ${channel.id}; recorded in dead-letter and advancing cursor past message ${message.externalMessageId}. Reason: ${classification.message}`,
       )
     }
   }
 
-  // Cursor advancement contract (review R2-H2 / F4, 2026-05-26): only persist
-  // the adapter's next-poll resumption state when EVERY message in this page
-  // ingested cleanly. If any ingest failed, keep the prior `channelState` and
-  // `lastPolledAt` so the next tick re-fetches the same page (idempotent at
-  // the database layer via the unique `(channel_id, external_message_id)`
-  // constraint, so successful messages no-op on the retry).
-  if (anyIngestFailed) {
-    channel.lastError = 'partial_ingest_failure'
+  // Transient abort: keep prior cursor + lastPolledAt so the next tick
+  // re-fetches the same page (idempotent at the DB layer).
+  if (transientIngestAbort) {
+    channel.lastError = 'transient_ingest_failure'
     await em.flush()
     return
   }
@@ -242,6 +279,17 @@ export default async function handle(
   // Update poll cursor + clear any stale error state.
   channel.lastPolledAt = new Date()
   if (channel.lastError) channel.lastError = null
+  // Recover the channel from any prior non-fatal error state. The previous
+  // poll(s) may have set status='error' after exhausting transient-retry
+  // attempts, but a fresh successful poll means the upstream is healthy
+  // again — flip it back to 'connected' so the scheduler keeps it in
+  // rotation and the user doesn't have to manually reconnect.
+  // We DON'T touch 'requires_reauth' here (that lifecycle state is owned
+  // by the credential-refresh / OAuth flow) or 'disconnected' (owned by
+  // the cascade-on-user-delete subscriber).
+  if (channel.status === 'error') {
+    channel.status = 'connected'
+  }
   // Providers encode their cursor as base64-encoded JSON in `nextCursor`; we
   // decode it back to an object so the next tick can pass it straight into
   // `fetchHistory` as `channelState`. Decode failures fall back to the prior
@@ -324,4 +372,21 @@ async function handlePollError(
   // Permanent or attempts exhausted — mark channel as error and stop the loop.
   channel.status = 'error'
   await em.flush()
+}
+
+const DEAD_LETTER_RAW_BODY_MAX_BYTES_DEFAULT = 32_768
+
+function extractExternalUid(message: NormalizedInboundMessage): string | null {
+  const meta = message.channelMetadata as Record<string, unknown> | undefined
+  if (meta && typeof meta.uid === 'string') return meta.uid
+  if (meta && typeof meta.uid === 'number') return String(meta.uid)
+  return null
+}
+
+function truncateRawBody(message: NormalizedInboundMessage): string | null {
+  const envCap = Number.parseInt(process.env.OM_CHANNEL_DEAD_LETTER_RAW_BODY_MAX_BYTES ?? '', 10)
+  const cap = Number.isFinite(envCap) && envCap > 0 ? envCap : DEAD_LETTER_RAW_BODY_MAX_BYTES_DEFAULT
+  const body = message.body ?? ''
+  if (body.length === 0) return null
+  return body.length > cap ? `${body.slice(0, cap)}…[truncated]` : body
 }

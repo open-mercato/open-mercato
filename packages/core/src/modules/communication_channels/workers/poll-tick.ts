@@ -53,13 +53,44 @@ export default async function handle(
   job: QueuedJob<PollTickPayload>,
   ctx: HandlerContext,
 ): Promise<void> {
-  const { scope } = job.payload
+  // The scheduler module (`@open-mercato/scheduler`) spreads the configured
+  // `targetPayload` and then adds `tenantId` / `organizationId` at the TOP
+  // level of the enqueued payload (see
+  // packages/scheduler/.../execute-schedule.worker.ts). Our setup.ts originally
+  // stored `{ scope: { tenantId, organizationId } }` under targetPayload, so
+  // at runtime the payload looks like:
+  //   { scope: { tenantId, organizationId }, tenantId, organizationId, _idempotencyKey }
+  // Accept either path so the handler is robust to both how operators originally
+  // configured the schedule (nested `scope`) and how the scheduler flattens it.
+  const raw = (job?.payload ?? {}) as Partial<PollTickPayload> & {
+    tenantId?: string | null
+    organizationId?: string | null
+  }
+  const tenantId = raw.scope?.tenantId ?? raw.tenantId ?? null
+  const organizationId =
+    raw.scope?.organizationId ?? raw.organizationId ?? null
+  if (!tenantId) {
+    console.warn(
+      '[communication_channels:poll-tick] skipping tick — payload has no tenantId',
+      { payload: raw },
+    )
+    return
+  }
+  const scope = { tenantId, organizationId }
   const em = (ctx.resolve('em') as EntityManager).fork()
 
   const now = new Date()
-  // Find candidate channels — we enumerate active+connected channels and filter
-  // due-ness in JS to avoid casting interval arithmetic in SQL across DB engines.
-  const candidates = await findWithDecryption(
+  // Find candidate channels — we enumerate two pools:
+  //   (1) status='connected' channels due for their normal poll cycle.
+  //   (2) Spec B § Auto-recovery sweep: status='error' channels whose
+  //       `lastFailureAt` is older than OM_CHANNEL_AUTO_RECOVER_MINUTES
+  //       (default 30 min). One retry tick per sweep; on success
+  //       `poll-channel` flips the status back to 'connected' so the
+  //       channel rejoins the normal pool.
+  //
+  // Due-ness for (1) is computed in JS to avoid cross-DB interval
+  // arithmetic; the (2) cutoff is a single timestamp compare.
+  const connectedCandidates = await findWithDecryption(
     em,
     CommunicationChannel,
     {
@@ -68,18 +99,49 @@ export default async function handle(
       isActive: true,
       deletedAt: null,
       status: 'connected',
-      pollIntervalSeconds: { $ne: null } as any,
-    } as any,
+      pollIntervalSeconds: { $ne: null },
+    },
     {
       limit: POLL_ENUMERATION_CAP,
-      orderBy: { lastPolledAt: 'asc' as any },
+      orderBy: { lastPolledAt: 'asc' },
+    },
+    scope,
+  )
+
+  const recoverMinutesRaw = Number.parseInt(
+    process.env.OM_CHANNEL_AUTO_RECOVER_MINUTES ?? '',
+    10,
+  )
+  const recoverMinutes =
+    Number.isFinite(recoverMinutesRaw) && recoverMinutesRaw > 0 ? recoverMinutesRaw : 30
+  const recoverCutoff = new Date(now.getTime() - recoverMinutes * 60 * 1000)
+  const errorCandidates = await findWithDecryption(
+    em,
+    CommunicationChannel,
+    {
+      tenantId: scope.tenantId,
+      organizationId: scope.organizationId ?? null,
+      isActive: true,
+      deletedAt: null,
+      status: 'error',
+      pollIntervalSeconds: { $ne: null },
+      // The entity captures the time of the last poll attempt (successful
+      // or failed) on `lastPolledAt`; a row in `status: 'error'` whose
+      // `lastPolledAt < recoverCutoff` is the "failed long enough ago to
+      // retry" set.
+      lastPolledAt: { $lt: recoverCutoff },
+    },
+    {
+      limit: POLL_ENUMERATION_CAP,
+      orderBy: { lastPolledAt: 'asc' },
     },
     scope,
   )
 
   const queue = getCommunicationChannelsQueue(COMMUNICATION_CHANNELS_QUEUES.poll)
   let enqueued = 0
-  for (const channel of candidates as CommunicationChannel[]) {
+  let recovered = 0
+  for (const channel of connectedCandidates as CommunicationChannel[]) {
     const intervalSeconds = channel.pollIntervalSeconds
     if (!intervalSeconds || intervalSeconds <= 0) continue
     if (!isDue(channel.lastPolledAt ?? null, intervalSeconds, now)) continue
@@ -94,10 +156,23 @@ export default async function handle(
     await queue.enqueue(payload as unknown as Record<string, unknown>)
     enqueued += 1
   }
+  // Auto-recovery: one retry per sweep cycle per error-state channel.
+  for (const channel of errorCandidates as CommunicationChannel[]) {
+    const payload: PollChannelJobPayload = {
+      channelId: channel.id,
+      scope: {
+        tenantId: channel.tenantId,
+        organizationId: channel.organizationId ?? scope.organizationId ?? null,
+      },
+      attempt: 1,
+    }
+    await queue.enqueue(payload as unknown as Record<string, unknown>)
+    recovered += 1
+  }
 
-  if (enqueued > 0) {
+  if (enqueued > 0 || recovered > 0) {
     console.log(
-      `[communication_channels:poll-tick] enqueued ${enqueued} channel poll job(s) for tenant ${scope.tenantId}`,
+      `[communication_channels:poll-tick] enqueued ${enqueued} normal + ${recovered} auto-recover poll job(s) for tenant ${scope.tenantId}`,
     )
   }
 }

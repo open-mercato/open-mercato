@@ -146,17 +146,48 @@ describe('ImapChannelAdapter.sendMessage', () => {
 })
 
 describe('ImapChannelAdapter.fetchHistory', () => {
-  it('does a full re-sync when UIDVALIDITY changes', async () => {
+  // Spec B § Bounded, cursor-driven IMAP inbound.
+  //
+  // The "30-min wall-clock window" approach was replaced with zero-history
+  // bootstrap + incremental UID FETCH. UIDVALIDITY mismatch now triggers a
+  // bootstrap (zero messages, cursor persisted) rather than a 1:* full
+  // resync — that path uses the explicit `/import-history` endpoint.
+
+  it('bootstrap: no prior cursor → persists UIDVALIDITY + UIDNEXT, fetches zero messages', async () => {
+    const fetchCalls: string[] = []
+    const imap: ImapClient = {
+      connectAndValidate: async () => ({ capabilities: [] }),
+      selectInbox: async () => ({ uidValidity: 1, uidNext: 60 }),
+      fetchUidRange: async (_options, range) => {
+        fetchCalls.push(range)
+        return []
+      },
+      appendSent: async () => undefined,
+    }
+    setImapClient(imap)
+    setSmtpClient({ verify: async () => undefined, send: async () => ({ messageId: 'x', raw: Buffer.alloc(0) }) })
+    const adapter = getImapChannelAdapter()
+    const page = await adapter.fetchHistory!({
+      conversationId: 'INBOX',
+      credentials,
+      scope: { tenantId: 't', organizationId: 'o' },
+    } as Parameters<NonNullable<ReturnType<typeof getImapChannelAdapter>['fetchHistory']>>[0])
+    expect(fetchCalls).toEqual([]) // ZERO fetches on bootstrap — by design
+    expect(page.messages).toHaveLength(0)
+    expect(page.hasMore).toBe(false)
+    const decoded = JSON.parse(Buffer.from(page.nextCursor!, 'base64').toString('utf-8'))
+    expect(decoded.uidValidity).toBe(1)
+    expect(decoded.uidNext).toBe(60)
+  })
+
+  it('UIDVALIDITY mismatch: discards cursor and re-bootstraps (no full resync)', async () => {
     const fetchCalls: string[] = []
     const imap: ImapClient = {
       connectAndValidate: async () => ({ capabilities: [] }),
       selectInbox: async () => ({ uidValidity: 999, uidNext: 50 }),
       fetchUidRange: async (_options, range) => {
         fetchCalls.push(range)
-        return [
-          { uid: 10, rawBody: buildSimpleMime('a@x', 'A'), internalDate: new Date('2026-05-01T00:00:00Z') },
-          { uid: 20, rawBody: buildSimpleMime('b@x', 'B'), internalDate: new Date('2026-05-02T00:00:00Z') },
-        ]
+        return []
       },
       appendSent: async () => undefined,
     }
@@ -169,10 +200,10 @@ describe('ImapChannelAdapter.fetchHistory', () => {
       scope: { tenantId: 't', organizationId: 'o' },
       ...({ channelState: { uidValidity: 1, uidNext: 40 } } as unknown as Record<string, unknown>),
     } as Parameters<NonNullable<ReturnType<typeof getImapChannelAdapter>['fetchHistory']>>[0])
-    expect(fetchCalls).toEqual(['1:*'])
-    expect(page.messages).toHaveLength(2)
+    // UIDVALIDITY mismatch triggers bootstrap — no fetch.
+    expect(fetchCalls).toEqual([])
+    expect(page.messages).toHaveLength(0)
     expect(page.hasMore).toBe(false)
-    expect(typeof page.nextCursor).toBe('string')
     const decoded = JSON.parse(Buffer.from(page.nextCursor!, 'base64').toString('utf-8'))
     expect(decoded.uidValidity).toBe(999)
     expect(decoded.uidNext).toBe(50)
@@ -202,6 +233,216 @@ describe('ImapChannelAdapter.fetchHistory', () => {
     } as Parameters<NonNullable<ReturnType<typeof getImapChannelAdapter>['fetchHistory']>>[0])
     expect(fetchCalls).toEqual(['50:*'])
     expect(page.messages).toHaveLength(1)
+    expect(page.hasMore).toBe(false)
+  })
+
+  it('signals hasMore=true when more UIDs remain than HARD_CAP', async () => {
+    // Force HARD_CAP to a small value via env override so the test is bounded.
+    const originalCap = process.env.OM_CHANNEL_IMAP_HARD_CAP_PER_POLL
+    process.env.OM_CHANNEL_IMAP_HARD_CAP_PER_POLL = '2'
+    try {
+      const fetchCalls: string[] = []
+      const imap: ImapClient = {
+        connectAndValidate: async () => ({ capabilities: [] }),
+        selectInbox: async () => ({ uidValidity: 1, uidNext: 100 }),
+        fetchUidRange: async (_options, range) => {
+          fetchCalls.push(range)
+          // Return 3 messages (HARD_CAP+1) so the probe detects "more remain".
+          return [
+            { uid: 50, rawBody: buildSimpleMime('a@x', 'A'), internalDate: new Date() },
+            { uid: 51, rawBody: buildSimpleMime('b@x', 'B'), internalDate: new Date() },
+            { uid: 52, rawBody: buildSimpleMime('c@x', 'C'), internalDate: new Date() },
+          ]
+        },
+        appendSent: async () => undefined,
+      }
+      setImapClient(imap)
+      setSmtpClient({ verify: async () => undefined, send: async () => ({ messageId: 'x', raw: Buffer.alloc(0) }) })
+      const adapter = getImapChannelAdapter()
+      const page = await adapter.fetchHistory!({
+        conversationId: 'INBOX',
+        credentials,
+        scope: { tenantId: 't', organizationId: 'o' },
+        ...({ channelState: { uidValidity: 1, uidNext: 50 } } as unknown as Record<string, unknown>),
+      } as Parameters<NonNullable<ReturnType<typeof getImapChannelAdapter>['fetchHistory']>>[0])
+      expect(page.messages).toHaveLength(2) // capped at HARD_CAP
+      expect(page.hasMore).toBe(true)
+      const decoded = JSON.parse(Buffer.from(page.nextCursor!, 'base64').toString('utf-8'))
+      // Cursor advances PAST the last fetched UID (so next poll picks up
+      // from highest+1), not all the way to server uidNext.
+      expect(decoded.uidNext).toBe(52)
+    } finally {
+      if (originalCap === undefined) delete process.env.OM_CHANNEL_IMAP_HARD_CAP_PER_POLL
+      else process.env.OM_CHANNEL_IMAP_HARD_CAP_PER_POLL = originalCap
+    }
+  })
+})
+
+describe('ImapChannelAdapter.importHistory', () => {
+  // Spec B § Phase B6 — operator-triggered backlog import. Distinct from
+  // fetchHistory's zero-history bootstrap: this reaches backward in time and
+  // pulls messages matching SEARCH SINCE + optional FROM list.
+
+  function makeImap(args: {
+    onSearch: (criteria: { fromAddresses?: string[]; sinceDate?: Date }) => number[]
+    onFetch: (range: string) => Array<{ uid: number; rawBody: Buffer; internalDate?: Date }>
+  }): ImapClient {
+    return {
+      connectAndValidate: async () => ({ capabilities: [] }),
+      selectInbox: async () => ({ uidValidity: 1, uidNext: 100 }),
+      fetchUidRange: async (_options, range) => args.onFetch(range),
+      searchUidsByFromAndSince: async (_options, criteria) => args.onSearch(criteria),
+      appendSent: async () => undefined,
+    } as ImapClient
+  }
+
+  it('queries SEARCH SINCE only when no contactEmails provided, then fetches the page', async () => {
+    const searchCalls: Array<{ fromAddresses?: string[]; sinceDate?: Date }> = []
+    const fetchCalls: string[] = []
+    setImapClient(makeImap({
+      onSearch: (c) => {
+        searchCalls.push(c)
+        return [101, 102, 103]
+      },
+      onFetch: (range) => {
+        fetchCalls.push(range)
+        return [
+          { uid: 103, rawBody: buildSimpleMime('a@x', 'A') },
+          { uid: 102, rawBody: buildSimpleMime('b@x', 'B') },
+          { uid: 101, rawBody: buildSimpleMime('c@x', 'C') },
+        ]
+      },
+    }))
+    const adapter = getImapChannelAdapter()
+    const page = await adapter.importHistory!({
+      credentials,
+      scope: { tenantId: 't', organizationId: 'o' },
+      sinceDays: 14,
+    })
+    expect(searchCalls).toHaveLength(1)
+    expect(searchCalls[0].fromAddresses).toBeUndefined()
+    expect(searchCalls[0].sinceDate).toBeInstanceOf(Date)
+    expect(fetchCalls[0]).toBe('103,102,101') // newest UIDs first
+    expect(page.messages).toHaveLength(3)
+    expect(page.hasMore).toBe(false)
+    expect(page.totalCandidates).toBe(3)
+    expect(page.nextCursor).toBeUndefined()
+  })
+
+  it('chunks contactEmails to ≤30 per SEARCH and unions results', async () => {
+    const searchCalls: Array<{ fromAddresses?: string[]; sinceDate?: Date }> = []
+    setImapClient(makeImap({
+      onSearch: (c) => {
+        searchCalls.push(c)
+        return (c.fromAddresses ?? []).map((_addr, i) => 1000 + searchCalls.length * 100 + i)
+      },
+      onFetch: () => [],
+    }))
+    const senders = Array.from({ length: 65 }, (_v, i) => `s${i}@example.com`)
+    const adapter = getImapChannelAdapter()
+    const page = await adapter.importHistory!({
+      credentials,
+      scope: { tenantId: 't', organizationId: 'o' },
+      sinceDays: 30,
+      contactEmails: senders,
+    })
+    expect(searchCalls).toHaveLength(3) // ceil(65/30) = 3 chunks
+    expect(searchCalls.every((c) => (c.fromAddresses ?? []).length <= 30)).toBe(true)
+    // Union of UIDs returned across chunks: 30 + 30 + 5 = 65
+    expect(page.totalCandidates).toBe(65)
+  })
+
+  it('paginates: PAGE_SIZE-bounded batches with cursor resumption', async () => {
+    const originalCap = process.env.OM_CHANNEL_IMAP_HARD_CAP_PER_POLL
+    process.env.OM_CHANNEL_IMAP_HARD_CAP_PER_POLL = '2'
+    try {
+      const fetchCalls: string[] = []
+      setImapClient(makeImap({
+        onSearch: () => [10, 20, 30, 40, 50],
+        onFetch: (range) => {
+          fetchCalls.push(range)
+          return range.split(',').map((u) => ({ uid: Number(u), rawBody: buildSimpleMime(`m${u}@x`, 'X') }))
+        },
+      }))
+      const adapter = getImapChannelAdapter()
+      const page1 = await adapter.importHistory!({
+        credentials,
+        scope: { tenantId: 't', organizationId: 'o' },
+        sinceDays: 30,
+      })
+      expect(page1.messages).toHaveLength(2)
+      expect(page1.hasMore).toBe(true)
+      expect(page1.nextCursor).toBeTruthy()
+      expect(fetchCalls[0]).toBe('50,40') // newest first, capped at 2
+
+      const page2 = await adapter.importHistory!({
+        credentials,
+        scope: { tenantId: 't', organizationId: 'o' },
+        sinceDays: 30,
+        cursor: page1.nextCursor,
+      })
+      expect(page2.messages).toHaveLength(2)
+      expect(page2.hasMore).toBe(true)
+      expect(fetchCalls[1]).toBe('30,20')
+
+      const page3 = await adapter.importHistory!({
+        credentials,
+        scope: { tenantId: 't', organizationId: 'o' },
+        sinceDays: 30,
+        cursor: page2.nextCursor,
+      })
+      expect(page3.messages).toHaveLength(1)
+      expect(page3.hasMore).toBe(false)
+      expect(fetchCalls[2]).toBe('10')
+    } finally {
+      if (originalCap === undefined) delete process.env.OM_CHANNEL_IMAP_HARD_CAP_PER_POLL
+      else process.env.OM_CHANNEL_IMAP_HARD_CAP_PER_POLL = originalCap
+    }
+  })
+
+  it('respects maxMessages cap', async () => {
+    setImapClient(makeImap({
+      onSearch: () => Array.from({ length: 50 }, (_v, i) => i + 1),
+      onFetch: () => [],
+    }))
+    const adapter = getImapChannelAdapter()
+    const page = await adapter.importHistory!({
+      credentials,
+      scope: { tenantId: 't', organizationId: 'o' },
+      sinceDays: 30,
+      maxMessages: 10,
+    })
+    expect(page.totalCandidates).toBe(10)
+  })
+
+  it('clamps sinceDays to [1, 365]', async () => {
+    const sinceDates: Date[] = []
+    setImapClient(makeImap({
+      onSearch: (c) => {
+        if (c.sinceDate) sinceDates.push(c.sinceDate)
+        return []
+      },
+      onFetch: () => [],
+    }))
+    const adapter = getImapChannelAdapter()
+    await adapter.importHistory!({
+      credentials,
+      scope: { tenantId: 't', organizationId: 'o' },
+      sinceDays: 9999,
+    })
+    await adapter.importHistory!({
+      credentials,
+      scope: { tenantId: 't', organizationId: 'o' },
+      sinceDays: 0,
+    })
+    expect(sinceDates).toHaveLength(2)
+    const now = Date.now()
+    const ms365 = 365 * 24 * 60 * 60 * 1000
+    const ms1 = 1 * 24 * 60 * 60 * 1000
+    expect(now - sinceDates[0].getTime()).toBeGreaterThan(ms365 - 5000)
+    expect(now - sinceDates[0].getTime()).toBeLessThan(ms365 + 5000)
+    expect(now - sinceDates[1].getTime()).toBeGreaterThan(ms1 - 5000)
+    expect(now - sinceDates[1].getTime()).toBeLessThan(ms1 + 5000)
   })
 })
 

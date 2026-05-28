@@ -33,6 +33,15 @@ const TRANSIENT_CODE_PATTERNS = [
   /too many requests/i,
   /temporarily unavailable/i,
   /try again later/i,
+  // imapflow surfaces these on TLS/socket-level drops that almost always
+  // recover on the next attempt. Treating them as permanent kills the
+  // channel after a single bad packet (regression observed during the demo:
+  // a network hiccup put a freshly-connected mailbox into a non-recoverable
+  // `error` state until the operator manually clicked "Retry").
+  /unexpected close/i,
+  /connection not available/i,
+  /connection closed/i,
+  /server closed connection/i,
 ]
 
 export function classifyOutboundError(error: unknown): ErrorClassification {

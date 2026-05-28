@@ -33,7 +33,8 @@ export interface MatchedPerson {
 
 /**
  * Batch lookup of CustomerEntity rows (kind='person') whose `primaryEmail`
- * matches any of the given addresses (case-insensitive), scoped to the tenant.
+ * matches any of the given addresses (case-insensitive), scoped to the tenant
+ * and organization.
  *
  * Why one query per address: `primary_email` is encrypted, so SQL `WHERE
  * primary_email IN (...)` against ciphertext can't match. Each call to
@@ -52,6 +53,7 @@ export async function findPeopleByAddresses(
 ): Promise<MatchedPerson[]> {
   const normalized = normalizeAddresses(addresses)
   if (normalized.length === 0) return []
+  if (!organizationId) return []
   const dscope = { tenantId, organizationId }
   const seen = new Set<string>()
   const out: MatchedPerson[] = []
@@ -63,6 +65,7 @@ export async function findPeopleByAddresses(
         primaryEmail: email,
         kind: 'person',
         tenantId,
+        organizationId,
         deletedAt: null,
       } as any,
       undefined,

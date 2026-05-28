@@ -1,4 +1,5 @@
 import type {
+  ApplyPushNotificationInput,
   ChannelAdapter,
   ChannelNativeContent,
   ConvertOutboundInput,
@@ -13,12 +14,15 @@ import type {
   InboundMessage,
   MessageStatus,
   NormalizedInboundMessage,
+  PushRegistration,
   RefreshCredentialsInput,
   RefreshedCredentials,
+  RegisterPushInput,
   ResolveContactInput,
   ContactHint,
   SendMessageInput,
   SendMessageResult,
+  UnregisterPushInput,
   VerifyWebhookInput,
 } from '@open-mercato/core/modules/communication_channels/lib/adapter'
 import { microsoftCapabilities } from './capabilities'
@@ -195,9 +199,11 @@ class MicrosoftChannelAdapter implements ChannelAdapter {
     if (!current.refreshToken) {
       throw new Error('requires_reauth')
     }
-    const clientFromState = parseClientCredentialsOrThrow(
-      (input.credentials as unknown as { _client?: unknown })._client ?? input.credentials,
-    )
+    // Spec A: prefer the new `input.oauthClient` slot (resolved by the hub
+    // from `oauth_microsoft` integration credentials). Fall back to the
+    // deprecated `credentials._client` path for one minor release so
+    // existing test fixtures keep working.
+    const clientFromState = resolveMicrosoftOAuthClient(input)
     const token = await getMicrosoftOAuthClient().refreshToken({
       clientId: clientFromState.clientId,
       tenantId: clientFromState.tenantId,
@@ -314,6 +320,115 @@ class MicrosoftChannelAdapter implements ChannelAdapter {
     )
   }
 
+  /**
+   * Spec C § Phase C3 — Create a Microsoft Graph change-notification
+   * subscription on the user's inbox. The hub generates a fresh per-channel
+   * `clientState` (cryptographically-random 32-byte b64url nonce) before
+   * invoking and persists it encrypted at rest in
+   * `CommunicationChannel.client_state_encrypted`.
+   *
+   * Microsoft Graph performs a validation handshake at creation time: it
+   * POSTs `?validationToken=…` to `notificationUrl`. Our webhook route
+   * handles that synchronously (echoes the token verbatim). Without a
+   * passing handshake `createSubscription` fails with 400/403.
+   */
+  async registerPush(input: RegisterPushInput): Promise<PushRegistration> {
+    const userCredentials = parseUserCredentialsOrThrow(input.credentials)
+    const auth = { accessToken: userCredentials.accessToken }
+    const api = getGraphApiClient()
+    const clientState = (input.providerConfig?.clientState as string | undefined) ?? ''
+    if (!clientState) {
+      return {
+        providerKey: this.providerKey,
+        status: 'failed',
+        channelStatePatch: {
+          pushStatus: 'failed',
+          lastPushError: {
+            code: 'missing_client_state',
+            message: 'Hub did not supply clientState',
+            at: new Date().toISOString(),
+          },
+        },
+        error: { code: 'missing_client_state', message: 'clientState required' },
+      }
+    }
+    // Microsoft caps expirationDateTime at +4230 minutes (~70.5h) for
+    // /me/messages plain notifications. Use +60h to leave headroom for
+    // renewal scheduling (cron runs every 2 h with OM_PUSH_RENEWAL_MICROSOFT_LEAD_HOURS=4).
+    const expiresAt = new Date(Date.now() + 60 * 60 * 60 * 1000)
+    try {
+      const subscription = await api.createSubscription(auth, {
+        changeType: 'created',
+        notificationUrl: input.notificationUrl,
+        lifecycleNotificationUrl: input.lifecycleNotificationUrl,
+        resource: "/me/mailFolders('inbox')/messages",
+        expirationDateTime: expiresAt.toISOString(),
+        clientState,
+      })
+      return {
+        providerKey: this.providerKey,
+        status: 'active',
+        channelStatePatch: {
+          subscriptionId: subscription.id,
+          subscriptionExpiresAt: subscription.expirationDateTime,
+          pushStatus: 'active',
+          lastPushError: null,
+        },
+        recommendedPollIntervalSeconds: 1800,
+      }
+    } catch (error) {
+      const status = error instanceof GraphApiError ? error.status : 0
+      const detail = error instanceof Error ? error.message : 'create subscription failed'
+      return {
+        providerKey: this.providerKey,
+        status: 'failed',
+        channelStatePatch: {
+          pushStatus: 'failed',
+          lastPushError: {
+            code: `graph_subscription_${status || 'error'}`,
+            message: detail.slice(0, 500),
+            at: new Date().toISOString(),
+          },
+        },
+        error: { code: `graph_subscription_${status || 'error'}`, message: detail },
+      }
+    }
+  }
+
+  /**
+   * Spec C § Phase C3 — Tear down the subscription. Idempotent on 404.
+   * Reads `subscriptionId` from the persisted `channelState`.
+   */
+  async unregisterPush(input: UnregisterPushInput): Promise<void> {
+    const subscriptionId = (input.channelState.subscriptionId as string | undefined) ?? ''
+    if (!subscriptionId) return
+    const userCredentials = parseUserCredentialsOrThrow(input.credentials)
+    const api = getGraphApiClient()
+    try {
+      await api.deleteSubscription({ accessToken: userCredentials.accessToken }, subscriptionId)
+    } catch (error) {
+      if (error instanceof GraphApiError && error.status === 404) return
+      throw error
+    }
+  }
+
+  /**
+   * Spec C § Phase C3 — Pull delta after a verified change notification.
+   * The notification body is just a pointer; the actual messages are read
+   * by walking `/me/mailFolders/inbox/messages/delta` from the stored
+   * `deltaLink`. We delegate to `fetchHistory` so the 410-recovery and
+   * pagination logic stays in one place.
+   */
+  async applyPushNotification(input: ApplyPushNotificationInput): Promise<HistoryPage> {
+    return this.fetchHistory({
+      conversationId: 'INBOX',
+      credentials: input.credentials,
+      channelState: input.channelState,
+      scope: input.scope,
+      limit: 50,
+    } as FetchHistoryInput)
+  }
+
   async resolveContact(input: ResolveContactInput): Promise<ContactHint | null> {
     if (!input.senderIdentifier) return null
     if (input.senderIdentifier.includes('@')) {
@@ -342,6 +457,43 @@ function parseClientCredentialsOrThrow(value: unknown): MicrosoftClientCredentia
     throw new Error(`Invalid Microsoft OAuth client credentials: ${first?.message ?? 'unknown validation error'}`)
   }
   return parsed.data
+}
+
+let warnedLegacyClientPath = false
+
+/**
+ * Resolve the OAuth client config for a Microsoft refresh, preferring the new
+ * `RefreshCredentialsInput.oauthClient` field (Spec A,
+ * .ai/specs/2026-05-27-oauth-refresh-credentials-client-wiring-fix.md).
+ *
+ * Falls back to the deprecated `credentials._client` read path for one
+ * minor release so existing tests keep working. The legacy path emits a
+ * one-time deprecation warning per process so production logs stay quiet.
+ */
+function resolveMicrosoftOAuthClient(input: RefreshCredentialsInput): MicrosoftClientCredentials {
+  if (input.oauthClient) {
+    const client = input.oauthClient
+    if (!client.clientId) {
+      throw new Error('Invalid Microsoft OAuth client credentials: OAuth Client ID required')
+    }
+    return {
+      clientId: client.clientId,
+      ...(client.tenantId !== undefined ? { tenantId: client.tenantId } : {}),
+      ...(client.clientSecret !== undefined ? { clientSecret: client.clientSecret } : {}),
+      ...(client.scopes !== undefined ? { scopes: client.scopes.join(' ') } : {}),
+    }
+  }
+  // Legacy path — DEPRECATED. Remove in the next minor release.
+  if (!warnedLegacyClientPath) {
+    warnedLegacyClientPath = true
+    console.warn(
+      '[channel-microsoft] reading OAuth client config from credentials._client is deprecated;' +
+        ' pass via RefreshCredentialsInput.oauthClient instead (Spec A).',
+    )
+  }
+  return parseClientCredentialsOrThrow(
+    (input.credentials as unknown as { _client?: unknown })._client ?? input.credentials,
+  )
 }
 
 let cachedAdapter: MicrosoftChannelAdapter | null = null

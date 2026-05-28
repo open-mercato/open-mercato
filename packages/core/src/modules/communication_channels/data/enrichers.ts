@@ -36,12 +36,12 @@ async function resolveChannelsByMessageId(
   const conversations = await findWithDecryption(
     em,
     ExternalConversation,
-    { id: { $in: conversationIds }, tenantId, organizationId } as any,
+    { id: { $in: conversationIds }, tenantId, organizationId },
     undefined,
     dscope,
   )
   const channelIdByConversation = new Map<string, string>()
-  for (const conv of conversations as Array<{ id: string; channelId: string }>) {
+  for (const conv of conversations) {
     channelIdByConversation.set(conv.id, conv.channelId)
   }
   const channelIds = Array.from(new Set(Array.from(channelIdByConversation.values())))
@@ -49,15 +49,15 @@ async function resolveChannelsByMessageId(
   const channels = await findWithDecryption(
     em,
     CommunicationChannel,
-    { id: { $in: channelIds }, tenantId, organizationId, deletedAt: null } as any,
+    { id: { $in: channelIds }, tenantId, organizationId, deletedAt: null },
     undefined,
     dscope,
   )
   const channelsById = new Map<string, CommunicationChannel>(
-    (channels as Array<CommunicationChannel & { id: string }>).map((c) => [c.id, c]),
+    channels.map((c) => [c.id, c]),
   )
   const result = new Map<string, CommunicationChannel>()
-  for (const link of links as Array<{ messageId: string; externalConversationId?: string }>) {
+  for (const link of links) {
     const channelId = link.externalConversationId
       ? channelIdByConversation.get(link.externalConversationId)
       : undefined
@@ -126,7 +126,7 @@ const messageChannelEnricher: ResponseEnricher<MessageRecord, { _channel?: Chann
         messageId: { $in: messageIds },
         tenantId: ctx.tenantId,
         organizationId: ctx.organizationId ?? null,
-      } as any,
+      },
       { limit: messageIds.length * 2 },
       dscope,
     )
@@ -135,23 +135,23 @@ const messageChannelEnricher: ResponseEnricher<MessageRecord, { _channel?: Chann
     // path. Keys are platform Message ids — direct mapping per row.
     const channelByMessageId = await resolveChannelsByMessageId(
       em,
-      links as MessageChannelLink[],
+      links,
       ctx.tenantId as string,
       ctx.organizationId ?? null,
     )
 
     const linksByMessage = new Map<string, MessageChannelLink>()
-    for (const link of links as any[]) linksByMessage.set(link.messageId, link)
+    for (const link of links) linksByMessage.set(link.messageId, link)
 
     return records.map((r) => {
       const link = linksByMessage.get(r.id)
       if (!link) return { ...r, _channel: null }
       const channel = channelByMessageId.get(r.id)
       const enrichment: ChannelEnrichment = {
-        providerKey: (link as any).providerKey,
-        channelType: (link as any).channelType,
-        direction: (link as any).direction,
-        deliveryStatus: (link as any).deliveryStatus ?? null,
+        providerKey: link.providerKey,
+        channelType: link.channelType,
+        direction: link.direction,
+        deliveryStatus: link.deliveryStatus ?? null,
         capabilities: (channel?.capabilities as Record<string, unknown> | null) ?? null,
       }
       return { ...r, _channel: enrichment }
@@ -198,15 +198,15 @@ const messageChannelPayloadEnricher: ResponseEnricher<
         messageId: { $in: messageIds },
         tenantId: ctx.tenantId,
         organizationId: ctx.organizationId ?? null,
-      } as any,
+      },
       undefined,
       dscope,
     )
     const byMessage = new Map<string, MessageChannelLink>()
-    for (const link of links as any[]) byMessage.set(link.messageId, link)
+    for (const link of links) byMessage.set(link.messageId, link)
 
     return records.map((r) => {
-      const link = byMessage.get(r.id) as any
+      const link = byMessage.get(r.id)
       if (!link) return { ...r, _channelPayload: null }
       const enrichment: ChannelPayloadEnrichment = {
         channelContentType: link.channelContentType ?? null,
@@ -257,13 +257,13 @@ const messageReactionsEnricher: ResponseEnricher<
         messageId: { $in: messageIds },
         tenantId: ctx.tenantId,
         organizationId: ctx.organizationId ?? null,
-      } as any,
+      },
       undefined,
       dscope,
     )
 
     const byMessage = new Map<string, MessageReaction[]>()
-    for (const reaction of reactions as any[]) {
+    for (const reaction of reactions) {
       const existing = byMessage.get(reaction.messageId) ?? []
       existing.push(reaction)
       byMessage.set(reaction.messageId, existing)
@@ -299,7 +299,7 @@ export type ReactionGroup = {
 
 function groupReactions(rows: MessageReaction[], currentUserId: string): ReactionGroup[] {
   const map = new Map<string, ReactionGroup>()
-  for (const row of rows as any[]) {
+  for (const row of rows) {
     const key = row.emoji
     if (!map.has(key)) {
       map.set(key, { emoji: key, count: 0, users: [], reactedByMe: false, myReactionId: null })
@@ -351,12 +351,12 @@ const conversationContactEnricher: ResponseEnricher<
         messageId: { $in: messageIds },
         tenantId: ctx.tenantId,
         organizationId: ctx.organizationId ?? null,
-      } as any,
+      },
       undefined,
       dscope,
     )
     const conversationIds = Array.from(
-      new Set(links.map((l: any) => l.externalConversationId).filter(Boolean)),
+      new Set(links.map((l) => l.externalConversationId).filter(Boolean)),
     )
     let conversationsById = new Map<string, ExternalConversation>()
     if (conversationIds.length > 0) {
@@ -367,20 +367,20 @@ const conversationContactEnricher: ResponseEnricher<
           id: { $in: conversationIds },
           tenantId: ctx.tenantId,
           organizationId: ctx.organizationId ?? null,
-        } as any,
+        },
         undefined,
         dscope,
       )
-      conversationsById = new Map(conversations.map((c: any) => [c.id, c]))
+      conversationsById = new Map(conversations.map((c) => [c.id, c]))
     }
 
     const linksByMessage = new Map<string, MessageChannelLink>()
-    for (const link of links as any[]) linksByMessage.set(link.messageId, link)
+    for (const link of links) linksByMessage.set(link.messageId, link)
 
     return records.map((r) => {
-      const link = linksByMessage.get(r.id) as any
+      const link = linksByMessage.get(r.id)
       if (!link) return { ...r, _channelContact: null }
-      const conversation = conversationsById.get(link.externalConversationId) as any
+      const conversation = conversationsById.get(link.externalConversationId)
       if (!conversation) return { ...r, _channelContact: null }
       const enrichment: ChannelContactEnrichment = {
         contactPersonId: conversation.contactPersonId ?? null,

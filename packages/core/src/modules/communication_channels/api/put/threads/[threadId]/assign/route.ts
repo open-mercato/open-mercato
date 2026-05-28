@@ -8,6 +8,7 @@ import {
   type ReassignConversationInput,
   type ReassignConversationResult,
 } from '../../../../../commands/reassign-conversation'
+import { validateRouteMutationGuard } from '../../../../../lib/route-mutation-guard'
 
 export const metadata = {
   path: '/communication_channels/threads/[threadId]/assign',
@@ -48,6 +49,19 @@ export async function PUT(req: Request, context: RouteContext): Promise<Response
   }
 
   const container = await createRequestContainer()
+  const guard = await validateRouteMutationGuard({
+    container,
+    req,
+    auth,
+    input: {
+      resourceKind: 'communication_channels.thread',
+      resourceId: threadId,
+      operation: 'custom',
+      mutationPayload: body,
+    },
+  })
+  if ('response' in guard) return guard.response
+
   const commandBus = container.resolve('commandBus') as CommandBus
 
   const input: ReassignConversationInput = {
@@ -83,6 +97,7 @@ export async function PUT(req: Request, context: RouteContext): Promise<Response
       { status: 200 },
     )
   }
+  await guard.afterSuccess()
   return NextResponse.json(
     {
       threadId: result.threadId,

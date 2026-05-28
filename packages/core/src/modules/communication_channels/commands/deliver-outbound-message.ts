@@ -6,6 +6,11 @@ import { findOneWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import { emitCommunicationChannelsEvent } from '../events'
 import { refreshCredentialsIfNeeded } from '../lib/credential-refresh'
 import { classifyOutboundError } from '../lib/error-classification'
+import {
+  buildBodyFooter,
+  buildReferencesId,
+  getOrCreateThreadToken,
+} from '../lib/thread-token'
 import type { ChannelAdapterRegistry } from '../lib/registry'
 import { Message } from '../../messages/data/entities'
 import {
@@ -119,7 +124,7 @@ const deliverOutboundMessageCommand: CommandHandler<
         tenantId: input.scope.tenantId,
         organizationId: input.scope.organizationId ?? null,
         deletedAt: null,
-      } as any,
+      },
       undefined,
       dscope,
     )
@@ -140,7 +145,7 @@ const deliverOutboundMessageCommand: CommandHandler<
         messageThreadId: message.threadId,
         tenantId: input.scope.tenantId,
         organizationId: input.scope.organizationId ?? null,
-      } as any,
+      },
       undefined,
       dscope,
     )
@@ -158,7 +163,7 @@ const deliverOutboundMessageCommand: CommandHandler<
         tenantId: input.scope.tenantId,
         organizationId: input.scope.organizationId ?? null,
         deletedAt: null,
-      } as any,
+      },
       undefined,
       dscope,
     )
@@ -188,7 +193,7 @@ const deliverOutboundMessageCommand: CommandHandler<
         messageId: message.id,
         tenantId: input.scope.tenantId,
         organizationId: input.scope.organizationId ?? null,
-      } as any,
+      },
       undefined,
       dscope,
     )
@@ -210,7 +215,7 @@ const deliverOutboundMessageCommand: CommandHandler<
         deliveryStatus: 'pending',
         tenantId: input.scope.tenantId,
         organizationId: input.scope.organizationId ?? null,
-      } as any)
+      })
       em.persist(link)
       await em.flush()
     }
@@ -264,21 +269,77 @@ const deliverOutboundMessageCommand: CommandHandler<
     )
     credentials = refreshResult.credentials
 
+    // (4b) Spec B — get-or-create the per-thread crypto token and inject it
+    // into the outbound payload BEFORE the adapter converts it. The token
+    // travels as both a `References` header (via channelMetadata.references)
+    // and a hidden body marker so inbound replies can be threaded back to
+    // this conversation even when the recipient's MUA strips RFC 5322
+    // headers. Idempotent on retry — same token reused per thread.
+    let threadToken: string | null = null
+    try {
+      const { token } = await getOrCreateThreadToken(em, {
+        tenantId: input.scope.tenantId,
+        organizationId: input.scope.organizationId ?? null,
+        messageThreadId: mapping.messageThreadId,
+      })
+      threadToken = token
+    } catch (tokenErr) {
+      // Token creation should never block a send — if it fails, the message
+      // still goes out, just without our thread-token attachment point.
+      // Threading falls back to the JWZ strategy via Message-Id headers.
+      console.warn(
+        '[communication_channels:deliver-outbound] thread token unavailable, proceeding without it:',
+        tokenErr instanceof Error ? tokenErr.message : tokenErr,
+      )
+    }
+
     // (5) + (6) Convert + send.
     try {
       const outboundPayload = (link.channelPayload as Record<string, unknown> | null) ?? {}
       const outboundHtml = typeof outboundPayload.html === 'string' ? outboundPayload.html : null
       const outboundText = typeof outboundPayload.text === 'string' ? outboundPayload.text : null
-      const outboundBody = outboundHtml ?? outboundText ?? message.body ?? ''
+      let outboundBody = outboundHtml ?? outboundText ?? message.body ?? ''
       const outboundBodyFormat = outboundHtml
         ? 'html'
         : ((message.bodyFormat as 'text' | 'markdown' | 'html') ?? 'text')
+
+      // Pre-existing channelMetadata.references (string[]) so we can extend
+      // it with the synthetic thread-token id without disturbing other refs
+      // (e.g. the recipient's own reply chain).
+      const baseMetadata = (link.channelMetadata as Record<string, unknown> | undefined) ?? {}
+      const existingRefs = Array.isArray(baseMetadata.references)
+        ? (baseMetadata.references as unknown[]).filter(
+            (value): value is string => typeof value === 'string',
+          )
+        : []
+      let mergedReferences = existingRefs
+      if (threadToken && !outboundBody.includes(`[OM:${threadToken}]`)) {
+        // Append the body footer for the corresponding format. The hidden
+        // HTML span is `display:none`; the plain-text trailer is a small
+        // bracketed marker on its own line. Both survive most reply clients.
+        const footer = buildBodyFooter(threadToken)
+        if (outboundBodyFormat === 'html') {
+          const closingBody = outboundBody.lastIndexOf('</body>')
+          outboundBody =
+            closingBody >= 0
+              ? `${outboundBody.slice(0, closingBody)}${footer.html}${outboundBody.slice(closingBody)}`
+              : `${outboundBody}${footer.html}`
+        } else {
+          outboundBody = `${outboundBody}${footer.plain}`
+        }
+        const refId = buildReferencesId(threadToken)
+        if (!mergedReferences.includes(refId)) {
+          mergedReferences = [...mergedReferences, refId]
+        }
+      }
       const converted = await adapter.convertOutbound({
         body: outboundBody,
         bodyFormat: outboundBodyFormat,
         channelMetadata: {
           thread_id: mapping.externalThreadRef,
-          ...((link.channelMetadata as Record<string, unknown> | undefined) ?? {}),
+          ...baseMetadata,
+          references: mergedReferences,
+          ...(threadToken ? { omThreadToken: threadToken } : {}),
         },
       })
 
@@ -308,7 +369,7 @@ const deliverOutboundMessageCommand: CommandHandler<
         providerTimestamp: new Date(),
         tenantId: input.scope.tenantId,
         organizationId: input.scope.organizationId ?? null,
-      } as any)
+      })
       em.persist(externalMessage)
 
       link.deliveryStatus = sendResult.status === 'sent' ? 'sent' : 'queued'

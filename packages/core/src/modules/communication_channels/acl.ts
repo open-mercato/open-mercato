@@ -18,6 +18,21 @@ export const features = [
    * information. Granted to `superadmin` + `admin` only.
    */
   { id: 'communication_channels.admin', title: 'Administer all communication channels (tenant-wide)', module: 'communication_channels' },
+  /**
+   * Trigger the "Import history" job for a channel — fetch older messages
+   * the channel never saw at bootstrap (Spec B § Phase B6). Separate from
+   * `manage` so policy can gate bulk historical imports during quiet hours
+   * or cost-controlled rollouts while leaving normal channel CRUD open.
+   */
+  { id: 'communication_channels.channel.import_history', title: 'Import channel history', module: 'communication_channels' },
+  /**
+   * Manage provider push delivery (Spec C — Gmail Pub/Sub / Microsoft Graph
+   * subscriptions). Gates the "Re-register push" operator button and any
+   * future push-status manipulation. Granted to admin + superadmin only —
+   * regular users don't need to think about whether mail arrives via
+   * push or polling, the system handles it.
+   */
+  { id: 'communication_channels.channel.push.manage', title: 'Manage push delivery', module: 'communication_channels' },
 ] as const
 
 export default features

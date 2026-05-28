@@ -34,9 +34,20 @@ describe('poll-tick worker enumeration', () => {
     }
   }
 
-  function makeCtx(channels: any[]) {
+  /**
+   * Build a ctx whose `em.find` returns `connectedChannels` on the first
+   * call (the status='connected' enumeration) and `errorChannels` on the
+   * second call (the Spec B § auto-recovery sweep for status='error').
+   * Defaults to empty for the error pool.
+   */
+  function makeCtx(connectedChannels: any[], errorChannels: any[] = []) {
+    let callCount = 0
     const em = {
-      find: jest.fn(async () => channels),
+      find: jest.fn(async () => {
+        const result = callCount === 0 ? connectedChannels : errorChannels
+        callCount += 1
+        return result
+      }),
     }
     return {
       jobId: 'tick-1',
@@ -95,6 +106,28 @@ describe('poll-tick worker enumeration', () => {
     ]
     await handler(makeJob(), makeCtx(channels))
     expect(enqueueMock).not.toHaveBeenCalled()
+  })
+
+  // Spec B § Auto-recovery sweep — channels in `status='error'` whose
+  // `lastFailureAt` is older than `OM_CHANNEL_AUTO_RECOVER_MINUTES` (default
+  // 30 min) get one retry per tick. On success, `poll-channel` flips them
+  // back to 'connected' so the operator doesn't have to manually reconnect.
+  it('auto-recovers status="error" channels whose lastFailureAt is past the cutoff', async () => {
+    const now = Date.now()
+    const errorChannels = [
+      {
+        id: 'c-err',
+        pollIntervalSeconds: 60,
+        lastPolledAt: new Date(now - 60 * 60 * 1000),
+        lastFailureAt: new Date(now - 45 * 60 * 1000), // 45 min ago > 30 min cutoff
+        status: 'error',
+        tenantId: 't',
+        organizationId: 'o',
+      },
+    ]
+    await handler(makeJob(), makeCtx([], errorChannels))
+    expect(enqueueMock).toHaveBeenCalledTimes(1)
+    expect(enqueueMock.mock.calls[0][0]).toMatchObject({ channelId: 'c-err' })
   })
 
   it('does not throw when no channels are due (no-op tick)', async () => {

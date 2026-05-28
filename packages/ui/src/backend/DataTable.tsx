@@ -1190,11 +1190,15 @@ export function DataTable<T>({
     () => {
       // R2-M2 / F9 (2026-05-26): the default injection context now derives
       // `tableId` from `extensionTableId ?? perspective?.tableId` (was
-      // `perspective?.tableId` only). When `extensionTableId` is set but
-      // `perspective` is not, toolbar/header/footer/search-trailing widgets
-      // used to receive `context.tableId = null`. Explicit `injectionContext`
-      // from the caller still wins as-is — preserves the existing public
-      // contract for callers that already pass their own context.
+      // `perspective?.tableId` only). Note `extensionTableId` itself now falls
+      // back to the `data-table:` suffix of `injectionSpotId` (see the memo
+      // above), so a caller passing only `injectionSpotId="data-table:foo"`
+      // (no `injectionContext`/`perspective`) now receives
+      // `context.tableId = "foo"` instead of the previous `null`. This only
+      // populates a field that was null before, so toolbar/header/footer/
+      // search-trailing widgets that read `tableId` get a value while widgets
+      // that ignore it are unaffected. Explicit `injectionContext` from the
+      // caller still wins as-is — preserves the existing public contract.
       if (injectionContext) return injectionContext
       const resolvedTableId = extensionTableId ?? perspective?.tableId ?? null
       const baseTitle = typeof title === 'string' ? title : undefined

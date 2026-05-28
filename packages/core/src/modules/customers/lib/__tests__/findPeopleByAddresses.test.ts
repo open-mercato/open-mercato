@@ -20,60 +20,79 @@ describe('findPeopleByAddresses', () => {
    * Build an EM mock that resolves `findOne` based on the WHERE clause.
    * Each row in `rows` represents an existing CustomerEntity (kind='person').
    */
-  function makeEm(rows: Array<{ id: string; primaryEmail: string | null; tenantId: string }>) {
+  function makeEm(rows: Array<{ id: string; primaryEmail: string | null; tenantId: string; organizationId: string }>) {
     const em: any = {
       findOne: jest.fn().mockImplementation(async (_entity: unknown, where: any) => {
         const target = String(where.primaryEmail ?? '')
         const tenant = String(where.tenantId ?? '')
+        const organization = String(where.organizationId ?? '')
         const kind = String(where.kind ?? '')
         if (kind !== 'person') return null
-        return rows.find((r) => r.primaryEmail === target && r.tenantId === tenant) ?? null
+        return rows.find((r) =>
+          r.primaryEmail === target &&
+          r.tenantId === tenant &&
+          r.organizationId === organization,
+        ) ?? null
       }),
     }
     return em
   }
 
   it('returns empty array when address list is empty', async () => {
-    const em = makeEm([{ id: 'p1', primaryEmail: 'alice@example.com', tenantId: 'tenant-1' }])
-    const out = await findPeopleByAddresses(em, [], 'tenant-1')
+    const em = makeEm([{ id: 'p1', primaryEmail: 'alice@example.com', tenantId: 'tenant-1', organizationId: 'org-1' }])
+    const out = await findPeopleByAddresses(em, [], 'tenant-1', 'org-1')
     expect(out).toEqual([])
     expect(em.findOne).not.toHaveBeenCalled()
   })
 
   it('matches one row when caller uses upper-case', async () => {
-    const em = makeEm([{ id: 'p1', primaryEmail: 'alice@example.com', tenantId: 'tenant-1' }])
-    const out = await findPeopleByAddresses(em, ['ALICE@EXAMPLE.COM'], 'tenant-1')
+    const em = makeEm([{ id: 'p1', primaryEmail: 'alice@example.com', tenantId: 'tenant-1', organizationId: 'org-1' }])
+    const out = await findPeopleByAddresses(em, ['ALICE@EXAMPLE.COM'], 'tenant-1', 'org-1')
     expect(out).toHaveLength(1)
     expect(out[0]).toEqual({ id: 'p1', email: 'alice@example.com' })
   })
 
   it('returns one row per matching person when multiple addresses match different people', async () => {
     const em = makeEm([
-      { id: 'p1', primaryEmail: 'alice@example.com', tenantId: 'tenant-1' },
-      { id: 'p2', primaryEmail: 'bob@example.com', tenantId: 'tenant-1' },
+      { id: 'p1', primaryEmail: 'alice@example.com', tenantId: 'tenant-1', organizationId: 'org-1' },
+      { id: 'p2', primaryEmail: 'bob@example.com', tenantId: 'tenant-1', organizationId: 'org-1' },
     ])
-    const out = await findPeopleByAddresses(em, ['alice@example.com', 'bob@example.com'], 'tenant-1')
+    const out = await findPeopleByAddresses(em, ['alice@example.com', 'bob@example.com'], 'tenant-1', 'org-1')
     expect(out.map((p) => p.id).sort()).toEqual(['p1', 'p2'])
   })
 
   it('dedupes when same Person matches via duplicate addresses (defensive)', async () => {
-    const em = makeEm([{ id: 'p1', primaryEmail: 'alice@example.com', tenantId: 'tenant-1' }])
-    const out = await findPeopleByAddresses(em, ['alice@example.com', 'Alice@Example.com'], 'tenant-1')
+    const em = makeEm([{ id: 'p1', primaryEmail: 'alice@example.com', tenantId: 'tenant-1', organizationId: 'org-1' }])
+    const out = await findPeopleByAddresses(em, ['alice@example.com', 'Alice@Example.com'], 'tenant-1', 'org-1')
     expect(out).toHaveLength(1)
     expect(out[0].id).toBe('p1')
   })
 
-  it('passes the tenantId through to the EM filter', async () => {
+  it('passes the tenantId and organizationId through to the EM filter', async () => {
     const em = makeEm([])
-    await findPeopleByAddresses(em, ['x@y.io'], 'tenant-42')
+    await findPeopleByAddresses(em, ['x@y.io'], 'tenant-42', 'org-42')
     const where = (em.findOne.mock.calls[0] as any[])[1]
     expect(where.tenantId).toBe('tenant-42')
+    expect(where.organizationId).toBe('org-42')
     expect(where.kind).toBe('person')
   })
 
   it('returns empty when no person matches in the given tenant', async () => {
-    const em = makeEm([{ id: 'p1', primaryEmail: 'alice@example.com', tenantId: 'tenant-other' }])
-    const out = await findPeopleByAddresses(em, ['alice@example.com'], 'tenant-1')
+    const em = makeEm([{ id: 'p1', primaryEmail: 'alice@example.com', tenantId: 'tenant-other', organizationId: 'org-1' }])
+    const out = await findPeopleByAddresses(em, ['alice@example.com'], 'tenant-1', 'org-1')
     expect(out).toEqual([])
+  })
+
+  it('returns empty when the email only matches another organization', async () => {
+    const em = makeEm([{ id: 'p1', primaryEmail: 'alice@example.com', tenantId: 'tenant-1', organizationId: 'org-other' }])
+    const out = await findPeopleByAddresses(em, ['alice@example.com'], 'tenant-1', 'org-1')
+    expect(out).toEqual([])
+  })
+
+  it('fails closed without an organization scope', async () => {
+    const em = makeEm([{ id: 'p1', primaryEmail: 'alice@example.com', tenantId: 'tenant-1', organizationId: 'org-1' }])
+    const out = await findPeopleByAddresses(em, ['alice@example.com'], 'tenant-1', null)
+    expect(out).toEqual([])
+    expect(em.findOne).not.toHaveBeenCalled()
   })
 })

@@ -60,7 +60,7 @@ export async function GET(req: Request, context: RouteContext): Promise<Response
   const channel = await findOneWithDecryption(
     em,
     CommunicationChannel,
-    { id, tenantId: auth.tenantId, organizationId: dscope.organizationId, deletedAt: null } as any,
+    { id, tenantId: auth.tenantId, organizationId: dscope.organizationId, deletedAt: null },
     undefined,
     dscope,
   )
@@ -94,38 +94,38 @@ export async function GET(req: Request, context: RouteContext): Promise<Response
   const conversations = await findWithDecryption(
     em,
     ExternalConversation,
-    { channelId: channel.id, tenantId: auth.tenantId } as any,
+    { channelId: channel.id, tenantId: auth.tenantId },
     undefined,
     dscope,
   )
-  const conversationIds = (conversations as any[]).map((c) => c.id).filter(Boolean) as string[]
+  const conversationIds = conversations.map((c) => c.id).filter(Boolean) as string[]
 
-  let links: any[] = []
-  let recentFailures: any[] = []
+  let links: MessageChannelLink[] = []
+  let recentFailures: MessageChannelLink[] = []
   if (conversationIds.length > 0) {
     const since = new Date(Date.now() - WINDOW_HOURS * 60 * 60 * 1000)
-    links = (await findWithDecryption(
+    links = await findWithDecryption(
       em,
       MessageChannelLink,
       {
-        externalConversationId: { $in: conversationIds } as any,
+        externalConversationId: { $in: conversationIds },
         tenantId: auth.tenantId,
-        createdAt: { $gte: since } as any,
-      } as any,
+        createdAt: { $gte: since },
+      },
       undefined,
       dscope,
-    )) as any[]
-    recentFailures = (await findWithDecryption(
+    )
+    recentFailures = await findWithDecryption(
       em,
       MessageChannelLink,
       {
-        externalConversationId: { $in: conversationIds } as any,
+        externalConversationId: { $in: conversationIds },
         tenantId: auth.tenantId,
         deliveryStatus: 'failed',
-      } as any,
-      { limit: RECENT_FAILURES_LIMIT, orderBy: { createdAt: 'desc' } as any },
+      },
+      { limit: RECENT_FAILURES_LIMIT, orderBy: { createdAt: 'desc' } },
       dscope,
-    )) as any[]
+    )
   }
 
   const counts = { sent: 0, delivered: 0, read: 0, failed: 0, pending: 0, queued: 0, other: 0 }

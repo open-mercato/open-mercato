@@ -133,7 +133,7 @@ async function callAdapterOutbound(
       tenantId: payload.scope.tenantId,
       organizationId: payload.scope.organizationId ?? null,
       deletedAt: null,
-    } as any,
+    },
     undefined,
     payload.scope,
   )

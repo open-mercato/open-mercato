@@ -1,6 +1,7 @@
 'use client'
 
 import * as React from 'react'
+import { useRouter } from 'next/navigation'
 import { Lock, Users } from 'lucide-react'
 import { EmailReplyForwardActions } from '../../../components/detail/EmailReplyForwardActions'
 import {
@@ -10,6 +11,7 @@ import {
 } from '../../../components/detail/ComposeEmailDialog'
 import { Button } from '@open-mercato/ui/primitives/button'
 import { apiCall } from '@open-mercato/ui/backend/utils/apiCall'
+import { useGuardedMutation } from '@open-mercato/ui/backend/injection/useGuardedMutation'
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 import type { EmailCardWidgetData } from './widget'
@@ -21,8 +23,20 @@ type WidgetProps = {
   context?: Record<string, unknown> & { data?: EmailCardWidgetData }
 }
 
+const PERSON_EMAIL_CARD_ACTIONS_CONTEXT_ID = 'customers-person-email-card-actions'
+
 export function PersonEmailCardActionsWidget({ data, context }: WidgetProps) {
   const t = useT()
+  const router = useRouter()
+  const { runMutation, retryLastMutation } = useGuardedMutation<{
+    formId: string
+    resourceKind: string
+    resourceId: string
+    retryLastMutation: () => Promise<boolean>
+  }>({
+    contextId: PERSON_EMAIL_CARD_ACTIONS_CONTEXT_ID,
+    blockedMessage: t('ui.forms.flash.saveBlocked', 'Save blocked by validation'),
+  })
 
   // Merge data from both the `data` prop (set by InjectionSpot) and `context.data`
   // following the same pattern as person-send-email widget.
@@ -84,20 +98,33 @@ export function PersonEmailCardActionsWidget({ data, context }: WidgetProps) {
         }
 
   const onSend = async (values: ComposeEmailValues): Promise<{ messageId: string | null }> => {
-    const response = await apiCall<{ messageId?: string }>(
-      `/api/customers/people/${encodeURIComponent(personId)}/emails`,
-      {
-        method: 'POST',
-        headers: { 'content-type': 'application/json' },
-        body: JSON.stringify(values),
-      },
-    )
-    if (!response.ok) {
-      const err = response.result as { error?: string } | null
-      throw new Error(err?.error ?? t('customers.email.errors.sendFailed', 'Send failed'))
+    const operation = async () => {
+      const response = await apiCall<{ messageId?: string }>(
+        `/api/customers/people/${encodeURIComponent(personId)}/emails`,
+        {
+          method: 'POST',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify(values),
+        },
+      )
+      if (!response.ok) {
+        const err = response.result as { error?: string } | null
+        throw new Error(err?.error ?? t('customers.email.errors.sendFailed', 'Send failed'))
+      }
+      return response.result?.messageId ?? null
     }
+    const messageId = await runMutation({
+      operation,
+      context: {
+        formId: PERSON_EMAIL_CARD_ACTIONS_CONTEXT_ID,
+        resourceKind: 'customers.person',
+        resourceId: personId,
+        retryLastMutation,
+      },
+      mutationPayload: values as unknown as Record<string, unknown>,
+    })
     flash(t('customers.email.compose.sent', 'Email sent'), 'success')
-    return { messageId: response.result?.messageId ?? null }
+    return { messageId }
   }
 
   const noChannels = channels.length === 0
@@ -112,6 +139,7 @@ export function PersonEmailCardActionsWidget({ data, context }: WidgetProps) {
       />
       {eff.isAuthor === true && eff.currentVisibility ? (
         <Button
+          type="button"
           variant="ghost"
           size="sm"
           aria-label={
@@ -126,20 +154,40 @@ export function PersonEmailCardActionsWidget({ data, context }: WidgetProps) {
           }
           onClick={async (e) => {
             e.stopPropagation()
-            if (!eff.interactionId) return
+            const interactionId = eff.interactionId
+            if (!interactionId) return
             const next = eff.currentVisibility === 'private' ? 'shared' : 'private'
-            const r = await apiCall<{ ok?: boolean }>(
-              `/api/customers/interactions/${eff.interactionId}/visibility`,
-              {
-                method: 'PATCH',
-                headers: { 'content-type': 'application/json' },
-                body: JSON.stringify({ visibility: next }),
-              },
-            )
-            if (!r.ok) {
-              const err = r.result as { error?: string } | null
+            try {
+              await runMutation({
+                operation: async () => {
+                  const r = await apiCall<{ ok?: boolean }>(
+                    `/api/customers/interactions/${interactionId}/visibility`,
+                    {
+                      method: 'PATCH',
+                      headers: { 'content-type': 'application/json' },
+                      body: JSON.stringify({ visibility: next }),
+                    },
+                  )
+                  if (!r.ok) {
+                    const err = r.result as { error?: string } | null
+                    throw new Error(
+                      err?.error ?? t('customers.email.errors.flipFailed', 'Visibility update failed'),
+                    )
+                  }
+                },
+                context: {
+                  formId: PERSON_EMAIL_CARD_ACTIONS_CONTEXT_ID,
+                  resourceKind: 'customers.interaction',
+                  resourceId: interactionId,
+                  retryLastMutation,
+                },
+                mutationPayload: { visibility: next },
+              })
+            } catch (err) {
               flash(
-                err?.error ?? t('customers.email.errors.flipFailed', 'Visibility update failed'),
+                err instanceof Error
+                  ? err.message
+                  : t('customers.email.errors.flipFailed', 'Visibility update failed'),
                 'error',
               )
               return
@@ -150,11 +198,9 @@ export function PersonEmailCardActionsWidget({ data, context }: WidgetProps) {
                 : t('customers.email.visibility.flipToPrivate.success', 'Email made private'),
               'success',
             )
-            // Hard reload to reflect the visibility change in the activity timeline.
-            // v1 pragmatic choice: plumbing a refresh callback from the host widget
-            // injection context would add significant scope. Revisit when the
-            // ActivityHistorySection exposes a refresh mechanism.
-            if (typeof window !== 'undefined') window.location.reload()
+            // Refresh the server tree so the activity timeline reflects the new
+            // visibility without a full page reload (keeps scroll position).
+            router.refresh()
           }}
         >
           {eff.currentVisibility === 'private' ? (

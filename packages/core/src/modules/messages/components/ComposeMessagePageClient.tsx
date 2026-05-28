@@ -12,6 +12,14 @@ export function ComposeMessagePageClient() {
 
   return (
     <div className="space-y-4">
+      {/*
+        Standalone widget mount above the composer — NOT CrudForm field
+        resolution. This page is not a CrudForm, so the `crud-form:*:fields`
+        field-event pipeline (onFieldChange, value transformers, etc.) does
+        not apply here. Provider packages render composer-capability widgets
+        (character-limit warnings, channel format selectors, attachment
+        scoping) into this spot purely as additional UI siblings.
+      */}
       <InjectionSpot
         spotId="crud-form:messages:message:fields"
         context={{ form: 'compose' }}

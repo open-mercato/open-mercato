@@ -49,6 +49,20 @@ export interface ImapClient {
     range: string,
     opts?: { limit?: number },
   ): Promise<ImapFetchedMessage[]>
+  /**
+   * Run an IMAP `SEARCH` (with `UID` flag) and return matching UIDs.
+   * Supports `OR FROM` chaining (server-side sender filter) and `SINCE` date
+   * narrowing. Used by the inbound poll path to avoid pulling the entire
+   * mailbox when the hub only cares about messages from known CRM contacts.
+   *
+   * `fromAddresses` is OR'd: `OR FROM "a@x.com" OR FROM "b@y.com" FROM "c@z.com"`.
+   * `sinceDate` is formatted as IMAP date (`DD-Mon-YYYY`) for the SINCE clause.
+   * Returns UIDs in mailbox order (typically ascending). Empty array = no match.
+   */
+  searchUidsByFromAndSince(
+    options: ImapConnectionOptions,
+    criteria: { fromAddresses?: string[]; sinceDate?: Date },
+  ): Promise<number[]>
   appendSent(
     options: ImapConnectionOptions,
     rawMessage: Buffer,
@@ -70,12 +84,18 @@ class ImapflowClient implements ImapClient {
       // Allow STARTTLS to advertise itself on plain connections.
       tls: options.transport === 'starttls' ? { rejectUnauthorized: true } : undefined,
       logger: false,
-      socketTimeout: options.timeoutMs ?? 10_000,
-      // Cap initial socket + greeting waits so a non-responsive host bails
-      // quickly during credential validation rather than the imapflow default
-      // (~90s) which would block the UI flow.
-      connectionTimeout: options.timeoutMs ?? 10_000,
-      greetingTimeout: 10_000,
+      // Gmail's IMAP can take 15-30s to respond to NAMESPACE under load even
+      // after a successful AUTHENTICATE — observed during demo with valid
+      // credentials and clean TLS. A 10s socket timeout aborts the command
+      // mid-stream and surfaces as "NoConnection"/"Unexpected close" to the
+      // worker, which then marks the channel as 'error'. 60s is enough for
+      // any reasonable IMAP server while still bailing on truly dead hosts.
+      socketTimeout: options.timeoutMs ?? 60_000,
+      // Initial TCP+TLS handshake is usually fast; cap at 15s so a non-responsive
+      // host bails before the UI flow stalls. Greeting can be slow on some
+      // providers (Gmail occasionally takes 5-10s), so allow 15s there too.
+      connectionTimeout: 15_000,
+      greetingTimeout: 15_000,
     } as Record<string, unknown>)
     // Attach a defensive 'error' listener so tcp-level errors emitted on the
     // EventEmitter (e.g. socket reset during an idle lock) don't crash the
@@ -167,6 +187,56 @@ class ImapflowClient implements ImapClient {
     return out
   }
 
+  async searchUidsByFromAndSince(
+    options: ImapConnectionOptions,
+    criteria: { fromAddresses?: string[]; sinceDate?: Date },
+  ): Promise<number[]> {
+    const client = await this.openConnection(options)
+    try {
+      const lock = await client.getMailboxLock('INBOX')
+      try {
+        // imapflow's search() takes a SearchQuery object. We construct one that
+        // mirrors `SEARCH (OR FROM ... FROM ...) SINCE DD-Mon-YYYY` using its
+        // documented shapes:
+        //   - `from` accepts a single string; for multiple we use `or: [{from}, {from}]`
+        //     (recursive — imapflow flattens to `OR (FROM a) (FROM b)` IMAP syntax).
+        //   - `since` accepts a Date and imapflow formats as `SINCE DD-Mon-YYYY`.
+        const query: Record<string, unknown> = {}
+        const addresses = (criteria.fromAddresses ?? [])
+          .map((s) => (typeof s === 'string' ? s.trim() : ''))
+          .filter((s) => s.length > 0)
+        if (addresses.length === 1) {
+          query.from = addresses[0]
+        } else if (addresses.length > 1) {
+          // Build nested OR: imapflow's `or` field expects an array of SearchQuery
+          // objects. With 2 entries: `OR (FROM a) (FROM b)`. With N > 2 entries
+          // we chain right-associatively: `OR (FROM a) (OR (FROM b) (FROM c) ...)`.
+          let acc: Record<string, unknown> = { from: addresses[addresses.length - 1] }
+          for (let i = addresses.length - 2; i >= 0; i--) {
+            acc = { or: [{ from: addresses[i] }, acc] }
+          }
+          Object.assign(query, acc)
+        }
+        if (criteria.sinceDate instanceof Date && !Number.isNaN(criteria.sinceDate.getTime())) {
+          query.since = criteria.sinceDate
+        }
+        if (Object.keys(query).length === 0) return []
+
+        const searchFn = (client as unknown as {
+          search?: (q: Record<string, unknown>, opts?: { uid?: boolean }) => Promise<Array<number | bigint> | false>
+        }).search
+        if (typeof searchFn !== 'function') return []
+        const raw = await searchFn.call(client, query, { uid: true })
+        if (raw === false || !Array.isArray(raw)) return []
+        return raw.map((u) => (typeof u === 'bigint' ? Number(u) : u)).filter((u) => Number.isFinite(u))
+      } finally {
+        lock.release()
+      }
+    } finally {
+      await client.logout().catch(() => undefined)
+    }
+  }
+
   async appendSent(options: ImapConnectionOptions, rawMessage: Buffer): Promise<void> {
     const client = await this.openConnection(options)
     try {
@@ -237,7 +307,7 @@ export function setImapClient(client: ImapClient | null): void {
   cachedClient = client
 }
 
-export function credentialsToConnection(credentials: ImapCredentials, role: 'imap'): ImapConnectionOptions {
+export function credentialsToConnection(credentials: ImapCredentials): ImapConnectionOptions {
   return {
     host: credentials.imapHost,
     port: Number(credentials.imapPort),

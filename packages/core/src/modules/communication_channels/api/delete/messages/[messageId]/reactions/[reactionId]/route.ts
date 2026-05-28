@@ -10,6 +10,7 @@ import {
   type ToggleOutboundReactionResult,
 } from '../../../../../../commands/toggle-outbound-reaction'
 import { MessageReaction } from '../../../../../../data/entities'
+import { validateRouteMutationGuard } from '../../../../../../lib/route-mutation-guard'
 
 export const metadata = {
   path: '/communication_channels/messages/[messageId]/reactions/[reactionId]',
@@ -58,13 +59,26 @@ export async function DELETE(_req: Request, context: RouteContext): Promise<Resp
       messageId,
       tenantId: auth.tenantId,
       organizationId: auth.orgId ?? null,
-    } as any,
+    },
     undefined,
     { tenantId: auth.tenantId, organizationId: auth.orgId ?? null },
   )
   if (!reaction) {
     return NextResponse.json({ error: 'Reaction not found' }, { status: 404 })
   }
+
+  const guard = await validateRouteMutationGuard({
+    container,
+    req: _req,
+    auth,
+    input: {
+      resourceKind: 'communication_channels.message',
+      resourceId: messageId,
+      operation: 'custom',
+      mutationPayload: { reactionId, emoji: reaction.emoji, action: 'remove' },
+    },
+  })
+  if ('response' in guard) return guard.response
 
   const commandBus = container.resolve('commandBus') as CommandBus
   const input: ToggleOutboundReactionInput = {
@@ -100,6 +114,7 @@ export async function DELETE(_req: Request, context: RouteContext): Promise<Resp
     return NextResponse.json({ error: result.reason }, { status: 409 })
   }
   // 'removed'
+  await guard.afterSuccess()
   return new NextResponse(null, { status: 204 })
 }
 

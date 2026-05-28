@@ -59,7 +59,7 @@ export const interceptors: CommandInterceptor[] = [
       const ownedChannel = await findOneWithDecryption(
         em,
         CommunicationChannel,
-        { id: snapshot.channelId } as any,
+        { id: snapshot.channelId },
       )
       if (!ownedChannel) return // command's undo() will silently no-op
 
@@ -72,7 +72,7 @@ export const interceptors: CommandInterceptor[] = [
           userId: ownedChannel.userId,
           isPrimary: true,
           deletedAt: null,
-        } as any,
+        },
         undefined,
         {
           tenantId: ownedChannel.tenantId,

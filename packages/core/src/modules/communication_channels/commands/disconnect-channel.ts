@@ -6,6 +6,7 @@ import { extractUndoPayload as extractSharedUndoPayload } from '@open-mercato/sh
 import { findOneWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import { CommunicationChannel } from '../data/entities'
 import { emitCommunicationChannelsEvent } from '../events'
+import { pushUnregister } from './push-unregister'
 
 const disconnectChannelSchema = z.object({
   channelId: z.string().uuid(),
@@ -29,6 +30,9 @@ export type DisconnectChannelResult =
 
 export interface DisconnectChannelUndoSnapshot {
   channelId: string
+  // Optional for backward compatibility with log entries written before tenant
+  // scoping was added to the undo lookup; new snapshots always set it.
+  tenantId?: string
   previousStatus: string
   previousIsActive: boolean
   previousIsPrimary: boolean
@@ -77,7 +81,7 @@ const disconnectChannelCommand: CommandHandler<
         tenantId: input.scope.tenantId,
         organizationId: input.scope.organizationId ?? null,
         deletedAt: null,
-      } as any,
+      },
       undefined,
       dscope,
     )
@@ -93,11 +97,37 @@ const disconnectChannelCommand: CommandHandler<
 
     const undo: DisconnectChannelUndoSnapshot = {
       channelId: channel.id,
+      tenantId: channel.tenantId,
       previousStatus: channel.status,
       previousIsActive: channel.isActive,
       previousIsPrimary: channel.isPrimary,
       previousCredentialsRef: channel.credentialsRef ?? null,
       previousLastError: channel.lastError ?? null,
+    }
+
+    // Spec C § Phase C5 — tear down provider-side push delivery BEFORE we
+    // clear `credentialsRef`. Best-effort: any failure (404, expired token,
+    // adapter error) is logged inside `pushUnregister` and never re-raised.
+    // The teardown needs valid credentials, which we still have at this
+    // point — clearing them below would make it impossible.
+    if (input.scope.organizationId) {
+      try {
+        await pushUnregister({
+          container: ctx.container,
+          scope: {
+            tenantId: input.scope.tenantId,
+            organizationId: input.scope.organizationId,
+            userId: input.userId,
+          },
+          input: { channelId: channel.id },
+        })
+      } catch (err) {
+        console.warn(
+          `[disconnect-channel] push unregister failed for ${channel.id}: ${
+            err instanceof Error ? err.message : String(err)
+          }`,
+        )
+      }
     }
 
     channel.status = 'disconnected'
@@ -132,7 +162,9 @@ const disconnectChannelCommand: CommandHandler<
     const channel = await findOneWithDecryption(
       em,
       CommunicationChannel,
-      { id: snapshot.channelId } as any,
+      snapshot.tenantId
+        ? { id: snapshot.channelId, tenantId: snapshot.tenantId }
+        : { id: snapshot.channelId },
     )
     if (!channel) return
 
@@ -161,6 +193,7 @@ export function extractUndoPayload(value: unknown): DisconnectChannelUndoSnapsho
   if (typeof obj.channelId !== 'string') return null
   return {
     channelId: obj.channelId,
+    tenantId: typeof obj.tenantId === 'string' ? obj.tenantId : undefined,
     previousStatus: typeof obj.previousStatus === 'string' ? obj.previousStatus : 'connected',
     previousIsActive: typeof obj.previousIsActive === 'boolean' ? obj.previousIsActive : true,
     previousIsPrimary: typeof obj.previousIsPrimary === 'boolean' ? obj.previousIsPrimary : false,

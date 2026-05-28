@@ -46,6 +46,15 @@ module.exports = {
   transformIgnorePatterns: [
     'node_modules/(?!(@mikro-orm)/)',
   ],
+  // Worktree clones and PR-review scratch dirs contain full copies of every workspace
+  // package. Jest's haste map refuses to start when it sees two `@open-mercato/cache`
+  // (or any other) package.json files for the same module name, so we mask those paths
+  // out of resolution. Anything under `.git`, `node_modules`, or `dist` is already
+  // ignored by jest's defaults.
+  modulePathIgnorePatterns: [
+    '<rootDir>/.claude/worktrees/',
+    '<rootDir>/.ai/tmp/',
+  ],
   testMatch: ['**/__tests__/**/*.test.(ts|tsx)'],
   setupFiles: ['<rootDir>/jest.setup.ts'],
   setupFilesAfterEnv: ['<rootDir>/jest.dom.setup.ts'],

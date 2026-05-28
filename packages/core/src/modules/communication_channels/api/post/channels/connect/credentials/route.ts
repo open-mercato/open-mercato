@@ -8,6 +8,7 @@ import {
   type ConnectCredentialChannelInput,
   type ConnectCredentialChannelResult,
 } from '../../../../../commands/connect-credential-channel'
+import { validateRouteMutationGuard } from '../../../../../lib/route-mutation-guard'
 
 export const metadata = {
   path: '/communication_channels/channels/connect/credentials',
@@ -42,6 +43,23 @@ export async function POST(req: Request): Promise<Response> {
   }
 
   const container = await createRequestContainer()
+  const guard = await validateRouteMutationGuard({
+    container,
+    req,
+    auth,
+    input: {
+      resourceKind: 'communication_channels.channel',
+      resourceId: `new:${body.providerKey}`,
+      operation: 'create',
+      mutationPayload: {
+        providerKey: body.providerKey,
+        displayName: body.displayName,
+        pollIntervalSeconds: body.pollIntervalSeconds,
+      },
+    },
+  })
+  if ('response' in guard) return guard.response
+
   const commandBus = container.resolve('commandBus') as CommandBus
 
   const input: ConnectCredentialChannelInput = {
@@ -77,6 +95,7 @@ export async function POST(req: Request): Promise<Response> {
   if (result.status === 'validation_failed') {
     return NextResponse.json({ error: 'Credential validation failed', fieldErrors: result.errors }, { status: 422 })
   }
+  await guard.afterSuccess()
   return NextResponse.json(
     {
       channelId: result.channelId,

@@ -165,4 +165,129 @@ describe('refreshCredentialsIfNeeded', () => {
       scope,
     )
   })
+
+  // Spec A regression coverage — the helper MUST resolve the tenant's
+  // OAuth client config from `oauth_<provider>` and pass it to the adapter
+  // via `RefreshCredentialsInput.oauthClient`. Without this wiring, Gmail
+  // and Microsoft adapters silently fail to refresh past the ~1h token
+  // mark in production while unit tests cheat by pre-packing `_client`.
+  describe('OAuth client resolution (Spec A)', () => {
+    it('resolves oauth_<provider> via credentialsService and passes oauthClient to the adapter', async () => {
+      const refresh = jest.fn(async () => ({ credentials: { accessToken: 'b' } }))
+      const adapter = makeAdapter(refresh)
+      const resolve = jest.fn(async (integrationId: string) => {
+        if (integrationId === 'oauth_test') {
+          return {
+            clientId: 'gmail-client-id',
+            clientSecret: 'gmail-secret',
+            scopes: ['https://www.googleapis.com/auth/gmail.modify'],
+          }
+        }
+        return null
+      })
+      await refreshCredentialsIfNeeded(
+        {
+          adapter,
+          channelId: 'ch-1',
+          credentials: {
+            accessToken: 'a',
+            expiresAt: new Date(Date.now() + 30_000).toISOString(),
+          },
+          scope,
+        },
+        { credentialsService: { resolve } },
+      )
+      expect(resolve).toHaveBeenCalledWith('oauth_test', scope)
+      expect(refresh).toHaveBeenCalledTimes(1)
+      const refreshArg = refresh.mock.calls[0][0]
+      expect(refreshArg.oauthClient).toEqual({
+        clientId: 'gmail-client-id',
+        clientSecret: 'gmail-secret',
+        scopes: ['https://www.googleapis.com/auth/gmail.modify'],
+      })
+    })
+
+    it('passes oauthClient=undefined when the oauth_<provider> row does not exist', async () => {
+      const refresh = jest.fn(async () => ({ credentials: { accessToken: 'b' } }))
+      const adapter = makeAdapter(refresh)
+      const resolve = jest.fn(async () => null)
+      await refreshCredentialsIfNeeded(
+        {
+          adapter,
+          channelId: 'ch-1',
+          credentials: {
+            accessToken: 'a',
+            expiresAt: new Date(Date.now() + 30_000).toISOString(),
+          },
+          scope,
+        },
+        { credentialsService: { resolve } },
+      )
+      expect(refresh).toHaveBeenCalledTimes(1)
+      expect(refresh.mock.calls[0][0].oauthClient).toBeUndefined()
+    })
+
+    it('passes oauthClient=undefined when no credentialsService is registered', async () => {
+      const refresh = jest.fn(async () => ({ credentials: { accessToken: 'b' } }))
+      const adapter = makeAdapter(refresh)
+      await refreshCredentialsIfNeeded({
+        adapter,
+        channelId: 'ch-1',
+        credentials: {
+          accessToken: 'a',
+          expiresAt: new Date(Date.now() + 30_000).toISOString(),
+        },
+        scope,
+      })
+      expect(refresh).toHaveBeenCalledTimes(1)
+      expect(refresh.mock.calls[0][0].oauthClient).toBeUndefined()
+    })
+
+    it('passes oauthClient=undefined when the oauth row is malformed (missing clientId)', async () => {
+      const refresh = jest.fn(async () => ({ credentials: { accessToken: 'b' } }))
+      const adapter = makeAdapter(refresh)
+      const resolve = jest.fn(async () => ({ clientSecret: 'lonely-secret' }))
+      await refreshCredentialsIfNeeded(
+        {
+          adapter,
+          channelId: 'ch-1',
+          credentials: {
+            accessToken: 'a',
+            expiresAt: new Date(Date.now() + 30_000).toISOString(),
+          },
+          scope,
+        },
+        { credentialsService: { resolve } },
+      )
+      expect(refresh).toHaveBeenCalledTimes(1)
+      expect(refresh.mock.calls[0][0].oauthClient).toBeUndefined()
+    })
+
+    it('swallows credentialsService.resolve errors and treats oauthClient as undefined', async () => {
+      const refresh = jest.fn(async () => ({ credentials: { accessToken: 'b' } }))
+      const adapter = makeAdapter(refresh)
+      const resolve = jest.fn(async () => {
+        throw new Error('integration store offline')
+      })
+      const result = await refreshCredentialsIfNeeded(
+        {
+          adapter,
+          channelId: 'ch-1',
+          credentials: {
+            accessToken: 'a',
+            expiresAt: new Date(Date.now() + 30_000).toISOString(),
+          },
+          scope,
+        },
+        { credentialsService: { resolve } },
+      )
+      // We should still attempt refresh (adapter may itself fall back to legacy
+      // _client path or throw a clear error); we MUST NOT crash the helper.
+      expect(refresh).toHaveBeenCalledTimes(1)
+      expect(refresh.mock.calls[0][0].oauthClient).toBeUndefined()
+      // result.refreshed reflects whatever the adapter did — in this happy mock,
+      // refresh succeeded.
+      expect(result.refreshed).toBe(true)
+    })
+  })
 })

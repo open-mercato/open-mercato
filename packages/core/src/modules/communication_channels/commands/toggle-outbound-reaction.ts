@@ -103,7 +103,7 @@ const toggleOutboundReactionCommand: CommandHandler<
         tenantId: input.scope.tenantId,
         organizationId: input.scope.organizationId ?? null,
         deletedAt: null,
-      } as any,
+      },
       undefined,
       dscope,
     )
@@ -117,7 +117,7 @@ const toggleOutboundReactionCommand: CommandHandler<
         messageId: message.id,
         tenantId: input.scope.tenantId,
         organizationId: input.scope.organizationId ?? null,
-      } as any,
+      },
       undefined,
       dscope,
     )
@@ -128,12 +128,12 @@ const toggleOutboundReactionCommand: CommandHandler<
       em,
       CommunicationChannel,
       {
-        id: { $exists: true } as any,
+        id: { $exists: true },
         tenantId: input.scope.tenantId,
         organizationId: input.scope.organizationId ?? null,
         providerKey: channelLink.providerKey,
         deletedAt: null,
-      } as any,
+      },
       undefined,
       dscope,
     )
@@ -146,7 +146,7 @@ const toggleOutboundReactionCommand: CommandHandler<
         messageThreadId: message.threadId ?? message.id,
         tenantId: input.scope.tenantId,
         organizationId: input.scope.organizationId ?? null,
-      } as any,
+      },
       undefined,
       dscope,
     )
@@ -159,7 +159,7 @@ const toggleOutboundReactionCommand: CommandHandler<
             tenantId: input.scope.tenantId,
             organizationId: input.scope.organizationId ?? null,
             deletedAt: null,
-          } as any,
+          },
           undefined,
           dscope,
         )
@@ -180,7 +180,7 @@ const toggleOutboundReactionCommand: CommandHandler<
             reactedByUserId: input.reactedByUserId,
             tenantId: input.scope.tenantId,
             organizationId: input.scope.organizationId ?? null,
-          } as any,
+          },
           undefined,
           dscope,
         )
@@ -199,7 +199,7 @@ const toggleOutboundReactionCommand: CommandHandler<
           providerKey: channelLink.providerKey,
           tenantId: input.scope.tenantId,
           organizationId: input.scope.organizationId ?? null,
-        } as any)
+        })
         em.persist(reaction)
         await em.flush()
       } catch (err) {
@@ -274,7 +274,7 @@ const toggleOutboundReactionCommand: CommandHandler<
         messageId: message.id,
         tenantId: input.scope.tenantId,
         organizationId: input.scope.organizationId ?? null,
-      } as any,
+      },
       undefined,
       dscope,
     )

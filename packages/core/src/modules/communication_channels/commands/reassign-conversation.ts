@@ -61,7 +61,7 @@ const reassignConversationCommand: CommandHandler<
         messageThreadId: input.threadId,
         tenantId: input.scope.tenantId,
         organizationId: input.scope.organizationId ?? null,
-      } as any,
+      },
       undefined,
       dscope,
     )
@@ -84,7 +84,7 @@ const reassignConversationCommand: CommandHandler<
         id: mapping.externalConversationId,
         tenantId: input.scope.tenantId,
         organizationId: input.scope.organizationId ?? null,
-      } as any,
+      },
       undefined,
       dscope,
     )

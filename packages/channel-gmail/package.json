@@ -62,9 +62,7 @@
   },
   "dependencies": {
     "@open-mercato/core": "workspace:*",
-    "@open-mercato/queue": "workspace:*",
     "@open-mercato/ui": "workspace:*",
-    "googleapis": "^144.0.0",
     "mailparser": "^3.7.1"
   },
   "peerDependencies": {

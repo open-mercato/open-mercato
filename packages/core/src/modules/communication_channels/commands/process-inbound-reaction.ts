@@ -92,7 +92,7 @@ const processInboundReactionCommand: CommandHandler<
         externalMessageId: input.event.externalMessageId,
         tenantId: input.scope.tenantId,
         organizationId: input.scope.organizationId ?? null,
-      } as any,
+      },
       undefined,
       dscope,
     )
@@ -109,7 +109,7 @@ const processInboundReactionCommand: CommandHandler<
         externalMessageId: externalMessage.id,
         tenantId: input.scope.tenantId,
         organizationId: input.scope.organizationId ?? null,
-      } as any,
+      },
       undefined,
       dscope,
     )
@@ -128,7 +128,7 @@ const processInboundReactionCommand: CommandHandler<
         tenantId: input.scope.tenantId,
         organizationId: input.scope.organizationId ?? null,
         deletedAt: null,
-      } as any,
+      },
       undefined,
       dscope,
     )
@@ -148,7 +148,7 @@ const processInboundReactionCommand: CommandHandler<
             reactedByExternalId: input.event.userIdentifier,
             tenantId: input.scope.tenantId,
             organizationId: input.scope.organizationId ?? null,
-          } as any,
+          },
           undefined,
           dscope,
         )
@@ -172,7 +172,7 @@ const processInboundReactionCommand: CommandHandler<
           externalReactionId: input.event.externalReactionId ?? null,
           tenantId: input.scope.tenantId,
           organizationId: input.scope.organizationId ?? null,
-        } as any)
+        })
         em.persist(reaction)
         await em.flush()
       } catch (err) {
@@ -225,7 +225,7 @@ const processInboundReactionCommand: CommandHandler<
     const toDelete = await findWithDecryption(
       em,
       MessageReaction,
-      filter as any,
+      filter,
       undefined,
       dscope,
     )

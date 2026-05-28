@@ -1,4 +1,9 @@
-import type { ChannelAdapter, RefreshedCredentials, TenantScope } from './adapter'
+import type {
+  ChannelAdapter,
+  OAuthClientConfig,
+  RefreshedCredentials,
+  TenantScope,
+} from './adapter'
 
 /**
  * Optional credentials-service shape — matches the integrations module's
@@ -67,12 +72,35 @@ export async function refreshCredentialsIfNeeded(
     return { refreshed: false, credentials: input.credentials }
   }
 
+  // Resolve the tenant's OAuth client config (clientId/clientSecret/tenantId)
+  // from `integration_credentials.scope = oauth_<providerKey>`. The adapter
+  // uses this for the token-endpoint call. Without it, OAuth providers
+  // (Gmail, Microsoft) fall back to the deprecated `credentials._client`
+  // path, which no production caller populates — see Spec A
+  // (.ai/specs/2026-05-27-oauth-refresh-credentials-client-wiring-fix.md).
+  let oauthClient: OAuthClientConfig | undefined
+  if (deps?.credentialsService) {
+    try {
+      const raw = await deps.credentialsService.resolve(
+        `oauth_${input.adapter.providerKey}`,
+        input.scope,
+      )
+      oauthClient = safeParseOAuthClient(raw)
+    } catch (resolveErr) {
+      log(
+        '[communication_channels] resolving OAuth client config failed:',
+        resolveErr instanceof Error ? resolveErr.message : resolveErr,
+      )
+    }
+  }
+
   let result: RefreshedCredentials
   try {
     result = await input.adapter.refreshCredentials({
       channelId: input.channelId,
       credentials: input.credentials,
       scope: input.scope,
+      oauthClient,
     })
   } catch (err) {
     log('[communication_channels] refreshCredentials failed:', err instanceof Error ? err.message : err)
@@ -111,4 +139,29 @@ function parseExpiresAt(raw: unknown): Date | null {
     return Number.isFinite(date.getTime()) ? date : null
   }
   return null
+}
+
+/**
+ * Parse a raw `oauth_<provider>` credential row into the `OAuthClientConfig`
+ * shape adapters expect. Returns `undefined` when the row is missing or
+ * malformed — adapters then fall back to the deprecated `credentials._client`
+ * read path (one minor-release deprecation per Spec A).
+ */
+function safeParseOAuthClient(raw: unknown): OAuthClientConfig | undefined {
+  if (!raw || typeof raw !== 'object') return undefined
+  const record = raw as Record<string, unknown>
+  const clientId = typeof record.clientId === 'string' ? record.clientId : undefined
+  if (!clientId) return undefined
+  const clientSecret =
+    typeof record.clientSecret === 'string' ? record.clientSecret : undefined
+  const tenantId = typeof record.tenantId === 'string' ? record.tenantId : undefined
+  const scopes = Array.isArray(record.scopes)
+    ? record.scopes.filter((value): value is string => typeof value === 'string')
+    : undefined
+  return {
+    clientId,
+    ...(clientSecret !== undefined ? { clientSecret } : {}),
+    ...(tenantId !== undefined ? { tenantId } : {}),
+    ...(scopes !== undefined ? { scopes } : {}),
+  }
 }

@@ -5,6 +5,8 @@ import type {
   FetchHistoryInput,
   GetMessageStatusInput,
   HistoryPage,
+  ImportHistoryInput,
+  ImportHistoryPage,
   InboundMessage,
   MessageStatus,
   NormalizedInboundMessage,
@@ -99,7 +101,7 @@ class ImapChannelAdapter implements ChannelAdapter {
     // Best-effort append to Sent — many servers auto-store via "Submission" but not all do.
     const imap = getImapClient()
     try {
-      await imap.appendSent(credentialsToConnection(credentials, 'imap'), result.raw)
+      await imap.appendSent(credentialsToConnection(credentials), result.raw)
     } catch {
       // Swallow — best effort.
     }
@@ -143,26 +145,68 @@ class ImapChannelAdapter implements ChannelAdapter {
     const credentials = parseCredentialsOrThrow(input.credentials)
     const channelState = imapChannelStateSchema.parse(((input as unknown) as { channelState?: unknown }).channelState ?? {}) satisfies ImapChannelState
     const imap = getImapClient()
-    const connection = credentialsToConnection(credentials, 'imap')
+    const connection = credentialsToConnection(credentials)
 
+    // Spec B § Bounded, cursor-driven IMAP inbound:
+    //   - Bootstrap (no cursor): SELECT INBOX, persist UIDVALIDITY + UIDNEXT,
+    //     return ZERO messages. Backlog import happens via the explicit
+    //     `/import-history` endpoint, not via the silent connect flow.
+    //   - Incremental (cursor exists): UID FETCH `previousUidNext:*`, capped
+    //     at HARD_CAP = 200. If more available, set `hasMore: true` so the
+    //     hub re-enqueues immediately and drains the backlog.
+    //   - UIDVALIDITY mismatch: discard cursor and treat as bootstrap (the
+    //     mailbox was recreated or renamed; we cannot trust the prior cursor).
     const folderState = await imap.selectInbox(connection)
     const previousUidValidity = toNumberOrUndefined(channelState.uidValidity)
     const previousUidNext = toNumberOrUndefined(channelState.uidNext)
     const serverUidNext = toNumberOrUndefined(folderState.uidNext)
+    const HARD_CAP = clampHardCap(input.limit)
 
-    const fullResync = previousUidValidity !== undefined && folderState.uidValidity !== previousUidValidity
-    const range = fullResync || previousUidNext === undefined
-      ? '1:*'
-      : `${previousUidNext}:*`
-    const limit = input.limit ?? 100
-    const fetched = await imap.fetchUidRange(connection, range, { limit })
+    const uidValidityMismatch =
+      previousUidValidity !== undefined &&
+      folderState.uidValidity !== undefined &&
+      folderState.uidValidity !== previousUidValidity
+    if (uidValidityMismatch) {
+      console.warn(
+        '[channel-imap] UIDVALIDITY changed for INBOX (was %s, now %s) — discarding cursor and re-bootstrapping',
+        previousUidValidity,
+        folderState.uidValidity,
+      )
+    }
+    const needsBootstrap =
+      uidValidityMismatch || previousUidNext === undefined || previousUidNext === null
+
+    let fetched: { uid: number; rawBody: Buffer; internalDate?: Date; flags?: string[] }[]
+    let hasMore = false
+    if (needsBootstrap) {
+      // ── Bootstrap: persist cursor only, fetch zero messages ─────────────
+      // Spec B § Bootstrap. The "1M inbox" failure mode is fixed by
+      // construction: a fresh user sees zero history until they explicitly
+      // request `/import-history`. Set `hasMore: false` so the poll worker
+      // does NOT immediately re-enqueue.
+      fetched = []
+      hasMore = false
+    } else {
+      // ── Incremental: UID FETCH previousUidNext:* up to HARD_CAP ─────────
+      // On a mature mailbox this is typically 0-N UIDs. The HARD_CAP bounds
+      // the per-poll wall-clock + DB transaction size; if more remain, the
+      // hub re-enqueues us immediately via `hasMore: true`.
+      const range = `${previousUidNext}:*`
+      // Fetch up to HARD_CAP + 1 so we can detect whether more remain
+      // without paying for an extra round-trip later.
+      const probeLimit = HARD_CAP + 1
+      const raw = await imap.fetchUidRange(connection, range, { limit: probeLimit })
+      if (raw.length > HARD_CAP) {
+        fetched = raw.slice(0, HARD_CAP)
+        hasMore = true
+      } else {
+        fetched = raw
+        hasMore = false
+      }
+    }
 
     const messages: NormalizedInboundMessage[] = []
-    let maxUidFetchedPlusOne = previousUidNext ?? 0
     for (const item of fetched) {
-      if (Number.isFinite(item.uid) && item.uid >= maxUidFetchedPlusOne) {
-        maxUidFetchedPlusOne = item.uid + 1
-      }
       const normalized = await normalizeInboundImapMessage({
         rawMessage: item.rawBody,
         uid: item.uid,
@@ -172,28 +216,28 @@ class ImapChannelAdapter implements ChannelAdapter {
       messages.push(normalized)
     }
 
-    // Pagination contract (review H1, 2026-05-26):
-    // The server's UIDNEXT marks the highest UID +1 in the mailbox right now.
-    // If we fetched `limit` messages and there are MORE messages between our
-    // highest fetched UID and the server's UIDNEXT, advancing the cursor to
-    // serverUidNext would skip them forever. Instead persist `min(fetchedTop, serverUidNext)`
-    // and surface `hasMore: true` so the hub worker re-enqueues the poll to
-    // continue draining.
-    const drained =
-      // empty page → nothing to drain
-      fetched.length === 0 ||
-      // fewer than `limit` returned → all unread mail drained
-      fetched.length < limit ||
-      // server UIDNEXT reached → fully caught up
-      (serverUidNext !== undefined && maxUidFetchedPlusOne >= serverUidNext)
-
-    const persistedUidNext = drained
-      ? serverUidNext ?? maxUidFetchedPlusOne
-      : maxUidFetchedPlusOne
-
+    // Cursor advancement contract:
+    //   - Bootstrap: persist the server's current UIDNEXT so the next poll
+    //     becomes incremental from this point onward.
+    //   - Incremental: persist `lastFetchedUid + 1` (which equals the
+    //     server's UIDNEXT when we drained everything, or the highest UID
+    //     fetched + 1 when `hasMore` is true). When `fetched` is empty we
+    //     retain `previousUidNext` so the next poll resumes from the same
+    //     point.
+    const advancedUidNext = (() => {
+      if (needsBootstrap) return serverUidNext
+      if (fetched.length === 0) return previousUidNext
+      const highest = fetched.reduce((max, item) => (item.uid > max ? item.uid : max), 0)
+      if (hasMore) {
+        // More remain — advance past what we fetched but not all the way to
+        // the server's UIDNEXT (the next batch starts at highest + 1).
+        return highest + 1
+      }
+      return serverUidNext ?? highest + 1
+    })()
     const nextChannelState: ImapChannelState = {
       uidValidity: folderState.uidValidity ?? previousUidValidity,
-      uidNext: persistedUidNext,
+      uidNext: advancedUidNext,
       lastFolder: 'INBOX',
     }
 
@@ -202,7 +246,87 @@ class ImapChannelAdapter implements ChannelAdapter {
     // it onto `CommunicationChannel.channelState` without depending on a hub-specific
     // contract beyond the existing `HistoryPage` shape.
     const nextCursor = Buffer.from(JSON.stringify(nextChannelState)).toString('base64')
-    return { messages, nextCursor, hasMore: !drained }
+    return { messages, nextCursor, hasMore }
+  }
+
+  async importHistory(input: ImportHistoryInput): Promise<ImportHistoryPage> {
+    const credentials = parseCredentialsOrThrow(input.credentials)
+    const connection = credentialsToConnection(credentials)
+    const imap = getImapClient()
+
+    const sinceDaysRaw = Number.isFinite(input.sinceDays) ? Math.trunc(input.sinceDays) : 30
+    const sinceDays = Math.max(1, Math.min(365, sinceDaysRaw))
+    const sinceDate = new Date(Date.now() - sinceDays * 24 * 60 * 60 * 1000)
+
+    const maxMessagesRaw = Number.isFinite(input.maxMessages) ? Math.trunc(input.maxMessages as number) : 1000
+    const maxMessages = Math.max(1, Math.min(5000, maxMessagesRaw))
+
+    const PAGE_SIZE = clampHardCap(undefined)
+
+    // Resume previous page or perform initial SEARCH on first call. The cursor
+    // encodes the full remaining UID list discovered server-side so subsequent
+    // pages don't re-issue SEARCH (which on large mailboxes is expensive).
+    let allUids: number[]
+    let remainingUids: number[]
+    let collectedSoFar: number
+    let totalCandidates: number | undefined
+    const cursor = decodeImportCursor(input.cursor)
+    if (cursor) {
+      remainingUids = cursor.remaining
+      collectedSoFar = cursor.collected
+      totalCandidates = cursor.total
+      allUids = cursor.remaining
+    } else {
+      // FROM-chunking: SEARCH with very long OR chains can blow imapflow's
+      // tag-buffer; chunk to ≤30 senders and union the results. When
+      // contactEmails is empty we issue a single SINCE-only search.
+      const senders = (input.contactEmails ?? []).filter((s): s is string => typeof s === 'string' && s.includes('@'))
+      const uidSet = new Set<number>()
+      if (senders.length === 0) {
+        const uids = await imap.searchUidsByFromAndSince(connection, { sinceDate })
+        for (const uid of uids) uidSet.add(uid)
+      } else {
+        const CHUNK_SIZE = 30
+        for (let i = 0; i < senders.length; i += CHUNK_SIZE) {
+          const chunk = senders.slice(i, i + CHUNK_SIZE)
+          const uids = await imap.searchUidsByFromAndSince(connection, { fromAddresses: chunk, sinceDate })
+          for (const uid of uids) uidSet.add(uid)
+        }
+      }
+      // Process newest first (highest UIDs ~= most recent on standard servers).
+      allUids = Array.from(uidSet).sort((a, b) => b - a).slice(0, maxMessages)
+      remainingUids = allUids
+      collectedSoFar = 0
+      totalCandidates = allUids.length
+    }
+
+    if (remainingUids.length === 0) {
+      return { messages: [], hasMore: false, totalCandidates }
+    }
+
+    const batchUids = remainingUids.slice(0, PAGE_SIZE)
+    const stillRemaining = remainingUids.slice(PAGE_SIZE)
+    const uidSetExpression = batchUids.join(',')
+    const fetched = await imap.fetchUidRange(connection, uidSetExpression, { limit: PAGE_SIZE })
+
+    const messages: NormalizedInboundMessage[] = []
+    for (const item of fetched) {
+      const normalized = await normalizeInboundImapMessage({
+        rawMessage: item.rawBody,
+        uid: item.uid,
+        accountIdentifier: credentials.fromAddress,
+        fallbackDate: item.internalDate,
+      })
+      messages.push(normalized)
+    }
+
+    const newCollected = collectedSoFar + messages.length
+    const hasMore = stillRemaining.length > 0 && newCollected < maxMessages
+    const nextCursor = hasMore
+      ? encodeImportCursor({ remaining: stillRemaining, collected: newCollected, total: totalCandidates })
+      : undefined
+
+    return { messages, nextCursor, hasMore, totalCandidates }
   }
 
   async resolveContact(input: ResolveContactInput): Promise<ContactHint | null> {
@@ -244,6 +368,50 @@ function pickAccountIdentifier(raw: InboundMessage): string {
 function pickUid(raw: InboundMessage): number | undefined {
   const candidate = raw.raw as { uid?: unknown }
   return typeof candidate?.uid === 'number' ? candidate.uid : undefined
+}
+
+/**
+ * Spec B § HARD_CAP. Bound each poll's wall-clock + DB transaction size.
+ * Honor the caller's `limit` hint but never exceed `HARD_CAP_MAX`. A
+ * single poll will fetch at most this many UIDs; if more remain we set
+ * `hasMore: true` and the hub re-enqueues immediately.
+ *
+ * Configurable via `OM_CHANNEL_IMAP_HARD_CAP_PER_POLL` (default 200).
+ */
+function clampHardCap(callerLimit: number | undefined): number {
+  const envOverride = Number.parseInt(process.env.OM_CHANNEL_IMAP_HARD_CAP_PER_POLL ?? '', 10)
+  const HARD_CAP_MAX = Number.isFinite(envOverride) && envOverride > 0 ? envOverride : 200
+  if (typeof callerLimit === 'number' && callerLimit > 0) {
+    return Math.min(callerLimit, HARD_CAP_MAX)
+  }
+  return HARD_CAP_MAX
+}
+
+interface ImportCursor {
+  remaining: number[]
+  collected: number
+  total?: number
+}
+
+function encodeImportCursor(cursor: ImportCursor): string {
+  return Buffer.from(JSON.stringify(cursor)).toString('base64')
+}
+
+function decodeImportCursor(value: string | undefined): ImportCursor | null {
+  if (!value) return null
+  try {
+    const parsed = JSON.parse(Buffer.from(value, 'base64').toString('utf-8')) as unknown
+    if (!parsed || typeof parsed !== 'object') return null
+    const obj = parsed as { remaining?: unknown; collected?: unknown; total?: unknown }
+    const remaining = Array.isArray(obj.remaining)
+      ? obj.remaining.filter((n): n is number => typeof n === 'number' && Number.isFinite(n))
+      : []
+    const collected = typeof obj.collected === 'number' ? obj.collected : 0
+    const total = typeof obj.total === 'number' ? obj.total : undefined
+    return { remaining, collected, total }
+  } catch {
+    return null
+  }
 }
 
 function toNumberOrUndefined(value: unknown): number | undefined {

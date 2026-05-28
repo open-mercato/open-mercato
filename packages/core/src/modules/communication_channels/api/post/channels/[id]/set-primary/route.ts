@@ -8,6 +8,7 @@ import {
   type SetPrimaryChannelInput,
   type SetPrimaryChannelResult,
 } from '../../../../../commands/set-primary-channel'
+import { validateRouteMutationGuard } from '../../../../../lib/route-mutation-guard'
 
 export const metadata = {
   path: '/communication_channels/channels/[id]/set-primary',
@@ -33,6 +34,19 @@ export async function POST(req: Request, context: RouteContext): Promise<Respons
   }
 
   const container = await createRequestContainer()
+  const guard = await validateRouteMutationGuard({
+    container,
+    req,
+    auth,
+    input: {
+      resourceKind: 'communication_channels.channel',
+      resourceId: id,
+      operation: 'custom',
+      mutationPayload: { isPrimary: true },
+    },
+  })
+  if ('response' in guard) return guard.response
+
   const commandBus = container.resolve('commandBus') as CommandBus
 
   const input: SetPrimaryChannelInput = {
@@ -65,6 +79,7 @@ export async function POST(req: Request, context: RouteContext): Promise<Respons
   if (result.status === 'noop') {
     return NextResponse.json({ channelId: id, isPrimary: true, unchanged: true }, { status: 200 })
   }
+  await guard.afterSuccess()
   return NextResponse.json(
     {
       channelId: result.channelId,

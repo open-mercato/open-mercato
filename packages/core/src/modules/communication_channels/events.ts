@@ -72,6 +72,34 @@ const events = [
     category: 'custom',
     clientBroadcast: true,
   },
+  // ── Push delivery lifecycle (Spec C) ─────────────────────
+  {
+    id: 'communication_channels.push.registered',
+    label: 'Push Delivery Registered',
+    entity: 'communication_channel',
+    category: 'lifecycle',
+    clientBroadcast: true,
+  },
+  {
+    id: 'communication_channels.push.failed',
+    label: 'Push Delivery Failed (Falling Back to Polling)',
+    entity: 'communication_channel',
+    category: 'lifecycle',
+    clientBroadcast: true,
+  },
+  {
+    id: 'communication_channels.push.renewed',
+    label: 'Push Delivery Renewed',
+    entity: 'communication_channel',
+    category: 'lifecycle',
+  },
+  {
+    id: 'communication_channels.push.deactivated',
+    label: 'Push Delivery Deactivated',
+    entity: 'communication_channel',
+    category: 'lifecycle',
+    clientBroadcast: true,
+  },
 ] as const
 
 export const eventsConfig = createModuleEvents({ moduleId: 'communication_channels', events })

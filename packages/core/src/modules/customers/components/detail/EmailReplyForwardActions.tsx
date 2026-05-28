@@ -17,6 +17,7 @@ export function EmailReplyForwardActions(props: EmailReplyForwardActionsProps) {
   return (
     <div className="flex gap-1" role="group" aria-label={t('customers.email.timeline.actionsAria', 'Email actions')}>
       <Button
+        type="button"
         variant="ghost"
         size="sm"
         onClick={props.onReply}
@@ -26,6 +27,7 @@ export function EmailReplyForwardActions(props: EmailReplyForwardActionsProps) {
         <Reply className="h-4 w-4" />
       </Button>
       <Button
+        type="button"
         variant="ghost"
         size="sm"
         onClick={props.onReplyAll}
@@ -35,6 +37,7 @@ export function EmailReplyForwardActions(props: EmailReplyForwardActionsProps) {
         <ReplyAll className="h-4 w-4" />
       </Button>
       <Button
+        type="button"
         variant="ghost"
         size="sm"
         onClick={props.onForward}

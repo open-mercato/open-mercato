@@ -187,8 +187,8 @@ export async function countInboundLinksForChannel(
       channelId,
       tenantId: scope.tenantId,
       organizationId: scope.organizationId ?? null,
-    } as any,
-    { fields: ['id'] as any },
+    },
+    { fields: ['id'] },
     scope,
   )
   if (conversations.length === 0) return 0
@@ -200,7 +200,7 @@ export async function countInboundLinksForChannel(
       direction: 'inbound',
       tenantId: scope.tenantId,
       organizationId: scope.organizationId ?? null,
-    } as any,
+    },
   )
   return typeof count === 'number' ? count : 0
 }

@@ -8,6 +8,7 @@ import { CommunicationChannel } from '../../../../../data/entities'
 import { getChannelAdapter } from '../../../../../lib/adapter-registry-singleton'
 import { ChannelAccessDeniedError, assertCanAccessChannel } from '../../../../../lib/access-control'
 import { refreshCredentialsIfNeeded } from '../../../../../lib/credential-refresh'
+import { validateRouteMutationGuard } from '../../../../../lib/route-mutation-guard'
 
 type RbacServiceLike = {
   loadAcl: (
@@ -87,7 +88,7 @@ export async function POST(req: Request, context: RouteContext): Promise<Respons
       tenantId: auth.tenantId as string,
       organizationId,
       deletedAt: null,
-    } as any,
+    },
     undefined,
     dscope,
   )
@@ -127,6 +128,19 @@ export async function POST(req: Request, context: RouteContext): Promise<Respons
       { status: 409 },
     )
   }
+
+  const guard = await validateRouteMutationGuard({
+    container,
+    req,
+    auth,
+    input: {
+      resourceKind: 'communication_channels.channel',
+      resourceId: channel.id,
+      operation: 'custom',
+      mutationPayload: body as unknown as Record<string, unknown>,
+    },
+  })
+  if ('response' in guard) return guard.response
 
   const adapter = getChannelAdapter(channel.providerKey)
   if (!adapter) {
@@ -184,6 +198,7 @@ export async function POST(req: Request, context: RouteContext): Promise<Respons
       },
       metadata: { to: body.to, subject: body.subject ?? 'Test send', testSend: true },
     })
+    await guard.afterSuccess()
     return NextResponse.json({
       status: result.status,
       externalMessageId: result.externalMessageId,

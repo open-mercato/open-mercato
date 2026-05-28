@@ -19,6 +19,7 @@ const validRaw = {
 afterEach(() => {
   setImapClient(null)
   setSmtpClient(null)
+  delete process.env.OM_CHANNEL_IMAP_ALLOW_INSECURE_TRANSPORT
 })
 
 describe('validateImapCredentials', () => {
@@ -102,6 +103,54 @@ describe('validateImapCredentials', () => {
       send: async () => ({ messageId: 'x', raw: Buffer.alloc(0) }),
     })
     const result = await validateImapCredentials(validRaw)
+    expect(result.ok).toBe(true)
+  })
+
+  it("rejects 'none' transport by default without touching the network", async () => {
+    let imapTouched = false
+    setImapClient({
+      connectAndValidate: async () => {
+        imapTouched = true
+        return { capabilities: [] }
+      },
+      selectInbox: async () => ({}),
+      fetchUidRange: async () => [],
+      appendSent: async () => undefined,
+    })
+    setSmtpClient({
+      verify: async () => undefined,
+      send: async () => ({ messageId: 'x', raw: Buffer.alloc(0) }),
+    })
+    const result = await validateImapCredentials({
+      ...validRaw,
+      imapTls: 'none',
+      smtpTls: 'none',
+    })
+    expect(result.ok).toBe(false)
+    if (!result.ok) {
+      expect(result.errors?.imapTls).toMatch(/cleartext/i)
+      expect(result.errors?.smtpTls).toMatch(/cleartext/i)
+    }
+    expect(imapTouched).toBe(false)
+  })
+
+  it("allows 'none' transport when OM_CHANNEL_IMAP_ALLOW_INSECURE_TRANSPORT is truthy", async () => {
+    process.env.OM_CHANNEL_IMAP_ALLOW_INSECURE_TRANSPORT = 'true'
+    setImapClient({
+      connectAndValidate: async () => ({ capabilities: ['IMAP4rev1'] }),
+      selectInbox: async () => ({}),
+      fetchUidRange: async () => [],
+      appendSent: async () => undefined,
+    })
+    setSmtpClient({
+      verify: async () => undefined,
+      send: async () => ({ messageId: 'x', raw: Buffer.alloc(0) }),
+    })
+    const result = await validateImapCredentials({
+      ...validRaw,
+      imapTls: 'none',
+      smtpTls: 'none',
+    })
     expect(result.ok).toBe(true)
   })
 })

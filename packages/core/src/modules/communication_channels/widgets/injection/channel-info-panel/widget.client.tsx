@@ -2,7 +2,9 @@
 
 import * as React from 'react'
 import type { InjectionWidgetComponentProps } from '@open-mercato/shared/modules/widgets/injection'
+import { hasFeature } from '@open-mercato/shared/security/features'
 import { apiCall } from '@open-mercato/ui/backend/utils/apiCall'
+import { useGuardedMutation } from '@open-mercato/ui/backend/injection/useGuardedMutation'
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 
@@ -39,6 +41,14 @@ type WidgetContext = Record<string, unknown> & {
 type UserOption = { id: string; label: string }
 
 const FEATURE_GATE = 'communication_channels.assign'
+const CHANNEL_INFO_MUTATION_CONTEXT_ID = 'communication-channels-info-panel'
+
+type ChannelInfoMutationContext = {
+  formId: string
+  resourceKind: string
+  resourceId: string
+  retryLastMutation: () => Promise<boolean>
+}
 
 export default function ChannelInfoPanelWidget({
   data,
@@ -47,13 +57,12 @@ export default function ChannelInfoPanelWidget({
   const t = useT()
   const channel = data?._channel ?? null
   const contact = data?._channelContact ?? null
+  const { runMutation, retryLastMutation } = useGuardedMutation<ChannelInfoMutationContext>({
+    contextId: CHANNEL_INFO_MUTATION_CONTEXT_ID,
+    blockedMessage: t('ui.forms.flash.saveBlocked', 'Save blocked by validation'),
+  })
 
-  const canReassign = Array.isArray(context?.userFeatures)
-    ? context!.userFeatures!.some(
-        (feature) =>
-          feature === FEATURE_GATE || feature === '*' || feature === 'communication_channels.*',
-      )
-    : false
+  const canReassign = hasFeature(context?.userFeatures ?? [], FEATURE_GATE)
 
   const [assignedUserId, setAssignedUserId] = React.useState<string | null>(
     contact?.assignedUserId ?? null,
@@ -103,14 +112,23 @@ export default function ChannelInfoPanelWidget({
       }
       setSavingAssignee(true)
       try {
-        const response = await apiCall<{ assignedUserId: string | null }>(
-          `/api/communication_channels/threads/${encodeURIComponent(threadId)}/assign`,
-          {
-            method: 'PUT',
-            headers: { 'content-type': 'application/json' },
-            body: JSON.stringify({ assignedUserId: nextAssignedUserId }),
+        const response = await runMutation({
+          operation: () => apiCall<{ assignedUserId: string | null }>(
+            `/api/communication_channels/threads/${encodeURIComponent(threadId)}/assign`,
+            {
+              method: 'PUT',
+              headers: { 'content-type': 'application/json' },
+              body: JSON.stringify({ assignedUserId: nextAssignedUserId }),
+            },
+          ),
+          context: {
+            formId: CHANNEL_INFO_MUTATION_CONTEXT_ID,
+            resourceKind: 'communication_channels.thread',
+            resourceId: threadId,
+            retryLastMutation,
           },
-        )
+          mutationPayload: { assignedUserId: nextAssignedUserId },
+        })
         if (!response.ok) {
           const body = response.result as { error?: string } | undefined
           flash(
@@ -125,11 +143,18 @@ export default function ChannelInfoPanelWidget({
           t('communication_channels.infoPanel.reassignSuccess', 'Conversation reassigned.'),
           'success',
         )
+      } catch (err) {
+        flash(
+          err instanceof Error
+            ? err.message
+            : t('communication_channels.infoPanel.reassignError', 'Reassignment failed'),
+          'error',
+        )
       } finally {
         setSavingAssignee(false)
       }
     },
-    [data?.threadId, t],
+    [data?.threadId, retryLastMutation, runMutation, t],
   )
 
   if (!channel) return null

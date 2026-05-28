@@ -70,6 +70,149 @@ describe('GmailChannelAdapter wiring', () => {
   })
 })
 
+describe('GmailChannelAdapter push methods (Spec C)', () => {
+  function makeApi(overrides: Partial<GmailApiClient>): GmailApiClient {
+    return {
+      listHistory: async () => ({ historyId: '0' }),
+      listMessages: async () => ({}),
+      getMessageRaw: async () => ({ id: 'x', threadId: 'x', raw: '' }) as GmailGetMessageRawResponse,
+      sendRawMessage: async () => ({ id: 'x', threadId: 'x' }),
+      getProfile: async () => ({ emailAddress: 'alice@gmail.com', historyId: '100' }),
+      trashMessage: async () => undefined,
+      watchInbox: async () => ({ historyId: '200', expiration: String(Date.now() + 6 * 24 * 3600 * 1000) }),
+      stopWatch: async () => undefined,
+      ...overrides,
+    }
+  }
+
+  it('exposes registerPush, unregisterPush, applyPushNotification', () => {
+    const adapter = getGmailChannelAdapter()
+    expect(typeof adapter.registerPush).toBe('function')
+    expect(typeof adapter.unregisterPush).toBe('function')
+    expect(typeof adapter.applyPushNotification).toBe('function')
+  })
+
+  it('registerPush returns active+state patch on success', async () => {
+    const watchCalls: Array<{ topicName: string; labelIds?: string[] }> = []
+    setGmailApiClient(
+      makeApi({
+        watchInbox: async (_auth, input) => {
+          watchCalls.push(input)
+          return { historyId: '999', expiration: String(Date.now() + 6 * 24 * 3600 * 1000) }
+        },
+      }),
+    )
+    const adapter = getGmailChannelAdapter()
+    const result = await adapter.registerPush!({
+      channelId: 'c1',
+      credentials: userCredentials,
+      scope: { tenantId: 't', organizationId: 'o' },
+      notificationUrl: 'https://app.example.com/api/communication_channels/webhooks/gmail',
+      providerConfig: { pubsubTopic: 'projects/p/topics/gmail-inbound' },
+    })
+    expect(result.status).toBe('active')
+    expect(result.channelStatePatch.historyId).toBe('999')
+    expect(result.channelStatePatch.pushStatus).toBe('active')
+    expect(result.channelStatePatch.pubsubTopic).toBe('projects/p/topics/gmail-inbound')
+    expect(result.recommendedPollIntervalSeconds).toBe(1800)
+    expect(watchCalls[0].topicName).toBe('projects/p/topics/gmail-inbound')
+    expect(watchCalls[0].labelIds).toEqual(['INBOX'])
+  })
+
+  it('registerPush returns failed status when topic missing', async () => {
+    setGmailApiClient(makeApi({}))
+    const adapter = getGmailChannelAdapter()
+    const result = await adapter.registerPush!({
+      channelId: 'c1',
+      credentials: userCredentials,
+      scope: { tenantId: 't', organizationId: 'o' },
+      notificationUrl: 'https://app.example.com/api/communication_channels/webhooks/gmail',
+      providerConfig: {},
+    })
+    expect(result.status).toBe('failed')
+    expect(result.channelStatePatch.pushStatus).toBe('failed')
+    expect(result.error?.code).toBe('missing_topic')
+  })
+
+  it('registerPush reports failed when watch throws GmailApiError', async () => {
+    setGmailApiClient(
+      makeApi({
+        watchInbox: async () => {
+          throw new GmailApiError('forbidden', 403, 'forbidden')
+        },
+      }),
+    )
+    const adapter = getGmailChannelAdapter()
+    const result = await adapter.registerPush!({
+      channelId: 'c1',
+      credentials: userCredentials,
+      scope: { tenantId: 't', organizationId: 'o' },
+      notificationUrl: 'https://app.example.com/api/communication_channels/webhooks/gmail',
+      providerConfig: { pubsubTopic: 'projects/p/topics/inbound' },
+    })
+    expect(result.status).toBe('failed')
+    expect(result.error?.code).toBe('gmail_watch_403')
+  })
+
+  it('unregisterPush calls stopWatch and swallows 404', async () => {
+    let stopCalls = 0
+    setGmailApiClient(
+      makeApi({
+        stopWatch: async () => {
+          stopCalls += 1
+          throw new GmailApiError('no watch', 404, 'not found')
+        },
+      }),
+    )
+    const adapter = getGmailChannelAdapter()
+    await adapter.unregisterPush!({
+      channelId: 'c1',
+      credentials: userCredentials,
+      scope: { tenantId: 't', organizationId: 'o' },
+      channelState: {},
+    })
+    expect(stopCalls).toBe(1)
+  })
+
+  it('unregisterPush rethrows non-404 errors', async () => {
+    setGmailApiClient(
+      makeApi({
+        stopWatch: async () => {
+          throw new GmailApiError('boom', 500, 'server')
+        },
+      }),
+    )
+    const adapter = getGmailChannelAdapter()
+    await expect(
+      adapter.unregisterPush!({
+        channelId: 'c1',
+        credentials: userCredentials,
+        scope: { tenantId: 't', organizationId: 'o' },
+        channelState: {},
+      }),
+    ).rejects.toThrow(/boom/)
+  })
+
+  it('applyPushNotification delegates to fetchHistory and returns its page', async () => {
+    setGmailApiClient(
+      makeApi({
+        // No historyId in channelState → bootstrap branch returns 0 messages
+        // (matches Spec B § Gmail bootstrap behavior).
+        getProfile: async () => ({ emailAddress: 'alice@gmail.com', historyId: '500' }),
+      }),
+    )
+    const adapter = getGmailChannelAdapter()
+    const page = await adapter.applyPushNotification!({
+      credentials: userCredentials,
+      scope: { tenantId: 't', organizationId: 'o' },
+      channelState: {},
+      notification: { emailAddress: 'alice@gmail.com', historyId: '500' },
+    })
+    expect(Array.isArray(page.messages)).toBe(true)
+    expect(page.hasMore).toBe(false)
+  })
+})
+
 describe('GmailChannelAdapter.deleteMessage', () => {
   it('moves a Gmail message to trash via gmail.users.messages.trash', async () => {
     const trashed: string[] = []
@@ -220,10 +363,16 @@ describe('GmailChannelAdapter OAuth flow', () => {
         }),
       }),
     )
+    // Spec A: pass OAuth client via the new `oauthClient` field
+    // (resolved by the hub from `oauth_gmail` integration credentials).
     const result = await getGmailChannelAdapter().refreshCredentials!({
       channelId: 'channel-1',
-      credentials: { ...userCredentials, _client: clientCredentials },
+      credentials: userCredentials,
       scope: { tenantId: 't', organizationId: 'o' },
+      oauthClient: {
+        clientId: clientCredentials.clientId,
+        clientSecret: clientCredentials.clientSecret,
+      },
     })
     expect((result.credentials as { accessToken: string }).accessToken).toBe('refreshed-access')
     expect((result.credentials as { refreshToken: string }).refreshToken).toBe('refresh')
@@ -234,10 +383,80 @@ describe('GmailChannelAdapter OAuth flow', () => {
     await expect(
       getGmailChannelAdapter().refreshCredentials!({
         channelId: 'channel-1',
-        credentials: { accessToken: 'a', _client: clientCredentials },
+        credentials: { accessToken: 'a' },
         scope: { tenantId: 't', organizationId: 'o' },
+        oauthClient: {
+          clientId: clientCredentials.clientId,
+          clientSecret: clientCredentials.clientSecret,
+        },
       }),
     ).rejects.toThrow(/requires_reauth/)
+  })
+
+  // Spec A regression coverage — the new oauthClient path is the canonical
+  // production wiring; the legacy _client path remains for one minor
+  // release for backward compatibility.
+  describe('refreshCredentials — OAuth client wiring (Spec A)', () => {
+    it('refreshes successfully when oauthClient is provided (no _client on credentials)', async () => {
+      const refreshCalls: Array<{ clientId: string; clientSecret: string; refreshToken: string }> = []
+      setGoogleOAuthClient(
+        stubOAuth({
+          refreshToken: async (input) => {
+            refreshCalls.push(input)
+            return { access_token: 'new-access', expires_in: 1800, token_type: 'Bearer' }
+          },
+        }),
+      )
+      await getGmailChannelAdapter().refreshCredentials!({
+        channelId: 'channel-1',
+        credentials: userCredentials, // NO _client pre-packing
+        scope: { tenantId: 't', organizationId: 'o' },
+        oauthClient: {
+          clientId: 'oauth-cid',
+          clientSecret: 'oauth-secret',
+        },
+      })
+      expect(refreshCalls).toEqual([
+        {
+          clientId: 'oauth-cid',
+          clientSecret: 'oauth-secret',
+          refreshToken: 'refresh',
+        },
+      ])
+    })
+
+    it('falls back to legacy _client path with a deprecation warning when oauthClient is absent', async () => {
+      const warn = jest.spyOn(console, 'warn').mockImplementation(() => {})
+      try {
+        setGoogleOAuthClient(
+          stubOAuth({
+            refreshToken: async () => ({ access_token: 'a', expires_in: 1800, token_type: 'Bearer' }),
+          }),
+        )
+        await getGmailChannelAdapter().refreshCredentials!({
+          channelId: 'channel-1',
+          credentials: { ...userCredentials, _client: clientCredentials },
+          scope: { tenantId: 't', organizationId: 'o' },
+        })
+        // Legacy path emits a one-time deprecation warning per process.
+        expect(warn).toHaveBeenCalledWith(
+          expect.stringContaining('reading OAuth client config from credentials._client is deprecated'),
+        )
+      } finally {
+        warn.mockRestore()
+      }
+    })
+
+    it('throws a clear error when neither oauthClient nor _client carries client config', async () => {
+      setGoogleOAuthClient(stubOAuth({}))
+      await expect(
+        getGmailChannelAdapter().refreshCredentials!({
+          channelId: 'channel-1',
+          credentials: userCredentials, // NO _client, NO oauthClient
+          scope: { tenantId: 't', organizationId: 'o' },
+        }),
+      ).rejects.toThrow(/Invalid Gmail OAuth client credentials/)
+    })
   })
 })
 
@@ -310,6 +529,44 @@ describe('GmailChannelAdapter.fetchHistory', () => {
     expect(page.messages).toHaveLength(2)
     const decoded = JSON.parse(Buffer.from(page.nextCursor!, 'base64').toString('utf-8'))
     expect(decoded.historyId).toBe('999')
+  })
+
+  it('L3: a transient getMessageRaw failure does not advance the cursor past unprocessed messages', async () => {
+    const api: GmailApiClient = {
+      ...emptyApi(),
+      listHistory: async () => ({
+        history: [
+          {
+            id: '200',
+            messagesAdded: [
+              { message: { id: 'gm-1', threadId: 'gm-t-1', labelIds: ['INBOX'] } },
+              { message: { id: 'gm-2', threadId: 'gm-t-2', labelIds: ['INBOX'] } },
+            ],
+          },
+        ],
+        historyId: '201',
+      }),
+      getMessageRaw: async (_auth, id) => {
+        if (id === 'gm-2') throw new GmailApiError('server boom', 500, 'server')
+        return buildRawResponse(id, 'gm-t-1')
+      },
+    }
+    setGmailApiClient(api)
+    const page = await getGmailChannelAdapter().fetchHistory!({
+      conversationId: 'inbox',
+      credentials: userCredentials,
+      scope: { tenantId: 't', organizationId: 'o' },
+      ...({ channelState: { historyId: '100' } } as unknown as Record<string, unknown>),
+    } as Parameters<NonNullable<ReturnType<typeof getGmailChannelAdapter>['fetchHistory']>>[0])
+    // Only the message normalized BEFORE the failure is returned.
+    expect(page.messages).toHaveLength(1)
+    expect(page.messages[0].externalConversationId).toBe('gmail-thread:gm-t-1')
+    const decoded = JSON.parse(Buffer.from(page.nextCursor!, 'base64').toString('utf-8'))
+    // Cursor stays pinned to the start historyId — it must NOT advance to 201
+    // and skip the failed message.
+    expect(decoded.historyId).toBe('100')
+    // hub re-enqueues immediately so the failed message is retried next tick.
+    expect(page.hasMore).toBe(true)
   })
 })
 

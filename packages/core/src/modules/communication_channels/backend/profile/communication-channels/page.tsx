@@ -2,14 +2,26 @@
 
 import * as React from 'react'
 import type { ColumnDef } from '@tanstack/react-table'
-import { useSearchParams } from 'next/navigation'
+import { useRouter, useSearchParams } from 'next/navigation'
 import { Page, PageBody } from '@open-mercato/ui/backend/Page'
 import { DataTable } from '@open-mercato/ui/backend/DataTable'
 import { Tag } from '@open-mercato/ui/primitives/tag'
 import { Button } from '@open-mercato/ui/primitives/button'
 import { Alert, AlertDescription } from '@open-mercato/ui/primitives/alert'
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from '@open-mercato/ui/primitives/dialog'
+import { Input } from '@open-mercato/ui/primitives/input'
+import { Textarea } from '@open-mercato/ui/primitives/textarea'
+import { KbdShortcut } from '@open-mercato/ui/primitives/kbd'
 import { InjectionSpot } from '@open-mercato/ui/backend/injection/InjectionSpot'
 import { apiCall } from '@open-mercato/ui/backend/utils/apiCall'
+import { useGuardedMutation } from '@open-mercato/ui/backend/injection/useGuardedMutation'
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 
@@ -25,11 +37,25 @@ type ChannelRow = {
   lastError: string | null
   pollIntervalSeconds: number | null
   lastPolledAt: string | null
+  /** Spec C — push delivery state (null when provider doesn't support push). */
+  pushStatus: 'active' | 'inactive' | 'failed' | null
+  lastPushError: { code: string | null; message: string | null; at: string | null } | null
   createdAt: string | null
+}
+
+const PROFILE_CHANNELS_MUTATION_CONTEXT_ID = 'communication-channels-profile'
+const IMPORT_HISTORY_MUTATION_CONTEXT_ID = 'communication-channels-import-history'
+
+type ChannelMutationContext = {
+  formId: string
+  resourceKind: string
+  resourceId: string
+  retryLastMutation: () => Promise<boolean>
 }
 
 export default function ProfileCommunicationChannelsPage() {
   const t = useT()
+  const router = useRouter()
   const searchParams = useSearchParams()
   const flashType = searchParams?.get('flash')
   const flashCode = searchParams?.get('code')
@@ -39,6 +65,11 @@ export default function ProfileCommunicationChannelsPage() {
   const [isLoading, setIsLoading] = React.useState(true)
   const [errorMessage, setErrorMessage] = React.useState<string | null>(null)
   const [reloadKey, setReloadKey] = React.useState(0)
+  const [importChannel, setImportChannel] = React.useState<ChannelRow | null>(null)
+  const { runMutation, retryLastMutation } = useGuardedMutation<ChannelMutationContext>({
+    contextId: PROFILE_CHANNELS_MUTATION_CONTEXT_ID,
+    blockedMessage: t('ui.forms.flash.saveBlocked', 'Save blocked by validation'),
+  })
 
   React.useEffect(() => {
     if (flashType === 'connected') {
@@ -94,10 +125,25 @@ export default function ProfileCommunicationChannelsPage() {
 
   const onSetPrimary = React.useCallback(
     async (channelId: string) => {
-      const response = await apiCall(
-        `/api/communication_channels/channels/${encodeURIComponent(channelId)}/set-primary`,
-        { method: 'POST' },
-      )
+      let response
+      try {
+        response = await runMutation({
+          operation: () => apiCall(
+            `/api/communication_channels/channels/${encodeURIComponent(channelId)}/set-primary`,
+            { method: 'POST' },
+          ),
+          context: {
+            formId: PROFILE_CHANNELS_MUTATION_CONTEXT_ID,
+            resourceKind: 'communication_channels.channel',
+            resourceId: channelId,
+            retryLastMutation,
+          },
+          mutationPayload: { isPrimary: true },
+        })
+      } catch (err) {
+        flash(err instanceof Error ? err.message : t('communication_channels.profile.actions.setPrimaryFailed', 'Failed to set as primary'), 'error')
+        return
+      }
       if (!response.ok) {
         const body = response.result as { error?: string } | undefined
         flash(
@@ -112,7 +158,93 @@ export default function ProfileCommunicationChannelsPage() {
       )
       setReloadKey((k) => k + 1)
     },
-    [t],
+    [retryLastMutation, runMutation, t],
+  )
+
+  const onRegisterPush = React.useCallback(
+    async (channelId: string) => {
+      let response
+      try {
+        response = await runMutation({
+          operation: () => apiCall<{ pushStatus?: string; error?: { code: string; message: string } }>(
+            `/api/communication_channels/channels/${encodeURIComponent(channelId)}/push/register`,
+            { method: 'POST' },
+          ),
+          context: {
+            formId: PROFILE_CHANNELS_MUTATION_CONTEXT_ID,
+            resourceKind: 'communication_channels.channel',
+            resourceId: channelId,
+            retryLastMutation,
+          },
+          mutationPayload: { action: 'push-register' },
+        })
+      } catch (err) {
+        flash(err instanceof Error ? err.message : t('communication_channels.push.button.reregister', 'Re-register push'), 'error')
+        return
+      }
+      if (!response.ok) {
+        const body = response.result as { error?: string } | undefined
+        flash(body?.error ?? t('communication_channels.push.flash.registerFailed', 'Failed to register push'), 'error')
+        return
+      }
+      const result = (response.result ?? {}) as { pushStatus?: string }
+      if (result.pushStatus === 'active') {
+        flash(t('communication_channels.push.status.active', 'Push active'), 'success')
+      } else {
+        flash(
+          t(
+            'communication_channels.push.status.failed',
+            'Push registration returned a non-active status — falling back to polling.',
+          ),
+          'error',
+        )
+      }
+      setReloadKey((k) => k + 1)
+    },
+    [retryLastMutation, runMutation, t],
+  )
+
+  const onPollNow = React.useCallback(
+    async (channelId: string) => {
+      let response
+      try {
+        response = await runMutation({
+          operation: () => apiCall(
+            `/api/communication_channels/channels/${encodeURIComponent(channelId)}/poll-now`,
+            { method: 'POST' },
+          ),
+          context: {
+            formId: PROFILE_CHANNELS_MUTATION_CONTEXT_ID,
+            resourceKind: 'communication_channels.channel',
+            resourceId: channelId,
+            retryLastMutation,
+          },
+          mutationPayload: { action: 'poll-now' },
+        })
+      } catch (err) {
+        flash(err instanceof Error ? err.message : t('communication_channels.profile.actions.pollNowFailed', 'Failed to trigger poll'), 'error')
+        return
+      }
+      if (!response.ok) {
+        const body = response.result as { error?: string } | undefined
+        flash(
+          body?.error ?? t('communication_channels.profile.actions.pollNowFailed', 'Failed to trigger poll'),
+          'error',
+        )
+        return
+      }
+      flash(
+        t(
+          'communication_channels.profile.actions.pollNowSuccess',
+          'Poll triggered — new messages will appear on linked Person timelines in a few seconds.',
+        ),
+        'success',
+      )
+      // Give the worker a moment to fetch + ingest, then refetch our channel list
+      // so `lastPolledAt` updates in the UI.
+      setTimeout(() => setReloadKey((k) => k + 1), 1500)
+    },
+    [retryLastMutation, runMutation, t],
   )
 
   const columns = React.useMemo<ColumnDef<ChannelRow>[]>(
@@ -165,6 +297,66 @@ export default function ProfileCommunicationChannelsPage() {
         cell: ({ row }) => statusTag(row.original.status, t),
       },
       {
+        id: 'pushStatus',
+        header: t('communication_channels.push.status.active', 'Push'),
+        cell: ({ row }) => {
+          const supportsPush =
+            row.original.providerKey === 'gmail' || row.original.providerKey === 'microsoft'
+          if (!supportsPush) {
+            return (
+              <span className="text-xs text-muted-foreground">
+                {t('communication_channels.push.status.inactive', 'Polling only')}
+              </span>
+            )
+          }
+          const ps = row.original.pushStatus
+          if (ps === 'active') {
+            return (
+              <Tag variant="success" dot>
+                {t('communication_channels.push.status.active', 'Push active')}
+              </Tag>
+            )
+          }
+          if (ps === 'failed') {
+            const errorMsg = row.original.lastPushError?.message ?? null
+            return (
+              <div className="flex items-center gap-2">
+                <Tag variant="error" dot>
+                  {t('communication_channels.push.status.failed', 'Push failed — using polling')}
+                </Tag>
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  onClick={() => void onRegisterPush(row.original.id)}
+                  aria-label={t('communication_channels.push.button.reregister', 'Re-register push')}
+                  title={errorMsg ?? undefined}
+                >
+                  {t('communication_channels.push.button.reregister', 'Re-register push')}
+                </Button>
+              </div>
+            )
+          }
+          // null or 'inactive' — provider supports push but not registered yet.
+          return (
+            <div className="flex items-center gap-2">
+              <span className="text-xs text-muted-foreground">
+                {t('communication_channels.push.status.inactive', 'Polling only')}
+              </span>
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                onClick={() => void onRegisterPush(row.original.id)}
+                aria-label={t('communication_channels.push.button.reregister', 'Re-register push')}
+              >
+                {t('communication_channels.push.button.reregister', 'Re-register push')}
+              </Button>
+            </div>
+          )
+        },
+      },
+      {
         header: t('communication_channels.profile.columns.lastPolled', 'Last synced'),
         accessorKey: 'lastPolledAt',
         cell: ({ row }) =>
@@ -172,8 +364,59 @@ export default function ProfileCommunicationChannelsPage() {
             ? new Date(row.original.lastPolledAt).toLocaleString()
             : '—',
       },
+      {
+        id: 'importHistory',
+        header: t('communication_channels.profile.columns.importHistory', 'History'),
+        cell: ({ row }) => {
+          const eligible =
+            row.original.isActive &&
+            row.original.status === 'connected' &&
+            row.original.channelType === 'email'
+          const label = t('communication_channels.profile.actions.importHistory', 'Import history')
+          return (
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              onClick={() => setImportChannel(row.original)}
+              disabled={!eligible}
+              aria-label={label}
+            >
+              {label}
+            </Button>
+          )
+        },
+      },
+      {
+        id: 'pollNow',
+        header: t('communication_channels.profile.columns.pollNow', 'Sync'),
+        cell: ({ row }) => {
+          // Allowed from 'connected' AND 'error' — the latter lets the user
+          // recover a stuck channel without disconnecting + reconnecting.
+          // 'requires_reauth' and 'disconnected' are owned by other flows.
+          const pollable =
+            row.original.isActive &&
+            (row.original.status === 'connected' || row.original.status === 'error')
+          const label =
+            row.original.status === 'error'
+              ? t('communication_channels.profile.actions.retryPoll', 'Retry')
+              : t('communication_channels.profile.actions.pollNow', 'Poll now')
+          return (
+            <Button
+              type="button"
+              variant={row.original.status === 'error' ? 'default' : 'outline'}
+              size="sm"
+              onClick={() => void onPollNow(row.original.id)}
+              disabled={!pollable}
+              aria-label={label}
+            >
+              {label}
+            </Button>
+          )
+        },
+      },
     ],
-    [onSetPrimary, t],
+    [onSetPrimary, onPollNow, onRegisterPush, t],
   )
 
   return (
@@ -223,8 +466,255 @@ export default function ProfileCommunicationChannelsPage() {
             'You have no connected channels yet. Use the "Connect channel" entry above to add Gmail, Microsoft 365 or IMAP.',
           )}
         />
+        <ImportHistoryDialog
+          channel={importChannel}
+          onClose={() => setImportChannel(null)}
+          onQueued={() => {
+            setImportChannel(null)
+            router.refresh()
+          }}
+        />
       </PageBody>
     </Page>
+  )
+}
+
+type ImportHistoryDialogProps = {
+  channel: ChannelRow | null
+  onClose: () => void
+  onQueued: () => void
+}
+
+function ImportHistoryDialog({ channel, onClose, onQueued }: ImportHistoryDialogProps): React.JSX.Element {
+  const t = useT()
+  const [sinceDays, setSinceDays] = React.useState('30')
+  const [contactEmails, setContactEmails] = React.useState('')
+  const [maxMessages, setMaxMessages] = React.useState('500')
+  const [fieldErrors, setFieldErrors] = React.useState<Record<string, string>>({})
+  const [submitting, setSubmitting] = React.useState(false)
+  const { runMutation, retryLastMutation } = useGuardedMutation<ChannelMutationContext>({
+    contextId: IMPORT_HISTORY_MUTATION_CONTEXT_ID,
+    blockedMessage: t('ui.forms.flash.saveBlocked', 'Save blocked by validation'),
+  })
+
+  React.useEffect(() => {
+    if (channel) {
+      setSinceDays('30')
+      setContactEmails('')
+      setMaxMessages('500')
+      setFieldErrors({})
+      setSubmitting(false)
+    }
+  }, [channel?.id])
+
+  const handleSubmit = React.useCallback(async () => {
+    if (!channel || submitting) return
+    const sinceNum = Number.parseInt(sinceDays, 10)
+    const maxNum = Number.parseInt(maxMessages, 10)
+    const errors: Record<string, string> = {}
+    if (!Number.isFinite(sinceNum) || sinceNum < 1 || sinceNum > 365) {
+      errors.sinceDays = t(
+        'communication_channels.profile.importHistory.errors.sinceDays',
+        'Choose a number between 1 and 365 days.',
+      )
+    }
+    if (!Number.isFinite(maxNum) || maxNum < 1 || maxNum > 5000) {
+      errors.maxMessages = t(
+        'communication_channels.profile.importHistory.errors.maxMessages',
+        'Choose a number between 1 and 5000 messages.',
+      )
+    }
+    const parsedEmails = contactEmails
+      .split(/[\s,;]+/)
+      .map((s) => s.trim())
+      .filter(Boolean)
+    if (parsedEmails.length > 0 && parsedEmails.some((s) => !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(s))) {
+      errors.contactEmails = t(
+        'communication_channels.profile.importHistory.errors.contactEmails',
+        'One or more entries is not a valid email address.',
+      )
+    }
+    if (Object.keys(errors).length > 0) {
+      setFieldErrors(errors)
+      return
+    }
+    setFieldErrors({})
+    setSubmitting(true)
+    const mutationPayload = {
+      sinceDays: sinceNum,
+      maxMessages: maxNum,
+      ...(parsedEmails.length > 0 ? { contactEmails: parsedEmails } : {}),
+    }
+    let response
+    try {
+      response = await runMutation({
+        operation: () => apiCall<{ progressJobId?: string }>(
+          `/api/communication_channels/channels/${encodeURIComponent(channel.id)}/import-history`,
+          {
+            method: 'POST',
+            headers: { 'content-type': 'application/json' },
+            body: JSON.stringify(mutationPayload),
+          },
+        ),
+        context: {
+          formId: IMPORT_HISTORY_MUTATION_CONTEXT_ID,
+          resourceKind: 'communication_channels.channel',
+          resourceId: channel.id,
+          retryLastMutation,
+        },
+        mutationPayload,
+      })
+    } catch (err) {
+      setSubmitting(false)
+      flash(
+        err instanceof Error
+          ? err.message
+          : t('communication_channels.profile.importHistory.flash.error', 'Failed to queue history import.'),
+        'error',
+      )
+      return
+    }
+    setSubmitting(false)
+    if (!response.ok) {
+      const body = response.result as { error?: string; fieldErrors?: Record<string, string> } | undefined
+      if (body?.fieldErrors && Object.keys(body.fieldErrors).length > 0) {
+        setFieldErrors(body.fieldErrors)
+        return
+      }
+      flash(
+        body?.error ??
+          t(
+            'communication_channels.profile.importHistory.flash.error',
+            'Failed to queue history import.',
+          ),
+        'error',
+      )
+      return
+    }
+    flash(
+      t(
+        'communication_channels.profile.importHistory.flash.success',
+        'History import queued — track progress in the top bar.',
+      ),
+      'success',
+    )
+    onQueued()
+  }, [channel, sinceDays, maxMessages, contactEmails, submitting, t, onQueued, retryLastMutation, runMutation])
+
+  const handleKeyDown = React.useCallback(
+    (event: React.KeyboardEvent) => {
+      if (event.key === 'Enter' && (event.metaKey || event.ctrlKey)) {
+        event.preventDefault()
+        void handleSubmit()
+      }
+    },
+    [handleSubmit],
+  )
+
+  return (
+    <Dialog open={channel !== null} onOpenChange={(open) => { if (!open) onClose() }}>
+      <DialogContent onKeyDown={handleKeyDown}>
+        <DialogHeader>
+          <DialogTitle>
+            {t('communication_channels.profile.importHistory.title', 'Import channel history')}
+          </DialogTitle>
+          <DialogDescription>
+            {t(
+              'communication_channels.profile.importHistory.description',
+              'Pull older messages this channel never observed at connect-time. Filters narrow the search server-side.',
+            )}
+          </DialogDescription>
+        </DialogHeader>
+
+        <div className="space-y-4">
+          <div className="space-y-1">
+            <label className="text-sm font-medium" htmlFor="import-history-since">
+              {t('communication_channels.profile.importHistory.fields.sinceDays', 'Look back (days)')}
+            </label>
+            <Input
+              id="import-history-since"
+              type="number"
+              min={1}
+              max={365}
+              value={sinceDays}
+              onChange={(e) => setSinceDays(e.target.value)}
+              aria-invalid={Boolean(fieldErrors.sinceDays)}
+            />
+            {fieldErrors.sinceDays ? (
+              <p className="text-xs text-status-error-foreground">{fieldErrors.sinceDays}</p>
+            ) : null}
+          </div>
+
+          <div className="space-y-1">
+            <label className="text-sm font-medium" htmlFor="import-history-emails">
+              {t(
+                'communication_channels.profile.importHistory.fields.contactEmails',
+                'Filter by sender (optional)',
+              )}
+            </label>
+            <Textarea
+              id="import-history-emails"
+              rows={3}
+              value={contactEmails}
+              onChange={(e) => setContactEmails(e.target.value)}
+              placeholder={t(
+                'communication_channels.profile.importHistory.fields.contactEmailsPlaceholder',
+                'alice@example.com, bob@example.com',
+              )}
+              aria-invalid={Boolean(fieldErrors.contactEmails)}
+            />
+            {fieldErrors.contactEmails ? (
+              <p className="text-xs text-status-error-foreground">{fieldErrors.contactEmails}</p>
+            ) : (
+              <p className="text-xs text-muted-foreground">
+                {t(
+                  'communication_channels.profile.importHistory.fields.contactEmailsHint',
+                  'Leave empty to scan all senders in the window.',
+                )}
+              </p>
+            )}
+          </div>
+
+          <div className="space-y-1">
+            <label className="text-sm font-medium" htmlFor="import-history-max">
+              {t('communication_channels.profile.importHistory.fields.maxMessages', 'Maximum messages')}
+            </label>
+            <Input
+              id="import-history-max"
+              type="number"
+              min={1}
+              max={5000}
+              value={maxMessages}
+              onChange={(e) => setMaxMessages(e.target.value)}
+              aria-invalid={Boolean(fieldErrors.maxMessages)}
+            />
+            {fieldErrors.maxMessages ? (
+              <p className="text-xs text-status-error-foreground">{fieldErrors.maxMessages}</p>
+            ) : null}
+          </div>
+
+          {fieldErrors.channelId ? (
+            <Alert variant="warning">
+              <AlertDescription>{fieldErrors.channelId}</AlertDescription>
+            </Alert>
+          ) : null}
+        </div>
+
+        <DialogFooter>
+          <span className="mr-auto text-xs text-muted-foreground">
+            <KbdShortcut keys={['⌘', 'Enter']} />
+          </span>
+          <Button type="button" variant="outline" onClick={onClose} disabled={submitting}>
+            {t('communication_channels.profile.importHistory.cancel', 'Cancel')}
+          </Button>
+          <Button type="button" onClick={() => void handleSubmit()} disabled={submitting}>
+            {submitting
+              ? t('communication_channels.profile.importHistory.submitting', 'Queueing…')
+              : t('communication_channels.profile.importHistory.submit', 'Start import')}
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
   )
 }
 

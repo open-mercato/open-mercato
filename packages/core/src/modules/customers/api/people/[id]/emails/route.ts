@@ -10,6 +10,7 @@ import {
 } from '@open-mercato/shared/lib/crud/mutation-guard'
 import { resolveAuthActorId } from '../../../../lib/interactionRequestContext'
 import { CustomerEntity } from '../../../../data/entities'
+import type { SendAsUserService } from '@open-mercato/core/modules/communication_channels/lib/send-as-user'
 
 export const metadata = {
   path: '/customers/people/[id]/emails',
@@ -86,7 +87,13 @@ export async function POST(req: Request, context: RouteContext): Promise<Respons
   const person = await findOneWithDecryption(
     em,
     CustomerEntity,
-    { id: personId, kind: 'person', tenantId: auth.tenantId, deletedAt: null } as any,
+    {
+      id: personId,
+      kind: 'person',
+      tenantId: auth.tenantId,
+      organizationId,
+      deletedAt: null,
+    } as any,
     undefined,
     dscope,
   )
@@ -94,52 +101,36 @@ export async function POST(req: Request, context: RouteContext): Promise<Respons
     return NextResponse.json({ error: 'Person not found' }, { status: 404 })
   }
 
-  // 2. Call the hub's send-as-user facade via internal HTTP so the customers
-  //    module never imports hub internals directly (no cross-module coupling).
-  //    Auth cookies + authorization header are forwarded so the hub sees the
-  //    same identity and can verify channel ownership.
-  //    `crmVisibility` and `crmPersonId` are injected as channelMetadata so the
-  //    link-channel-message subscriber can use them when anchoring the sent
-  //    message back to this Person on the `communication_channels.message.sent` event.
-  const hubBody = {
-    userChannelId: body.userChannelId,
-    to: body.to,
-    cc: body.cc,
-    bcc: body.bcc,
-    subject: body.subject,
-    body: body.bodyFormat === 'html' ? { html: body.body } : { plain: body.body },
-    inReplyTo: body.inReplyTo,
-    references: body.references,
-    channelMetadata: {
-      crmVisibility: body.visibility,
-      crmPersonId: personId,
-    },
-  }
+  // 2. Call the hub's send-as-user facade in-process (resolved via DI) so the
+  //    customers module makes no HTTP self-call. `crmVisibility` and `crmPersonId`
+  //    are injected as channelMetadata so the link-channel-message subscriber can
+  //    anchor the sent message back to this Person on the
+  //    `communication_channels.message.sent` event.
+  const sendAsUserService = container.resolve(
+    'communicationChannelsSendAsUser',
+  ) as SendAsUserService
 
-  const sendResponse = await fetch(
-    new URL('/api/communication_channels/send-as-user', req.url).toString(),
+  const sendResult = await sendAsUserService(
+    container,
+    { userId: auth.sub as string, tenantId: auth.tenantId as string, organizationId, auth },
     {
-      method: 'POST',
-      headers: {
-        'content-type': 'application/json',
-        cookie: req.headers.get('cookie') ?? '',
-        authorization: req.headers.get('authorization') ?? '',
+      userChannelId: body.userChannelId,
+      to: body.to,
+      cc: body.cc,
+      bcc: body.bcc,
+      subject: body.subject,
+      body: body.bodyFormat === 'html' ? { html: body.body } : { plain: body.body },
+      inReplyTo: body.inReplyTo,
+      references: body.references,
+      channelMetadata: {
+        crmVisibility: body.visibility,
+        crmPersonId: personId,
       },
-      body: JSON.stringify(hubBody),
     },
   )
 
-  if (!sendResponse.ok) {
-    const errorBody = (await sendResponse.json().catch(() => null)) as { error?: string } | null
-    const status =
-      sendResponse.status >= 400 && sendResponse.status < 600 ? sendResponse.status : 502
-    return NextResponse.json({ error: errorBody?.error ?? 'Send failed' }, { status })
-  }
-
-  const result = (await sendResponse.json().catch(() => ({}))) as {
-    messageId?: string
-    externalMessageId?: string
-    sentAt?: string
+  if (!sendResult.ok) {
+    return NextResponse.json({ error: sendResult.error }, { status: sendResult.status })
   }
 
   if (guardResult?.ok && guardResult.shouldRunAfterSuccess) {
@@ -157,9 +148,9 @@ export async function POST(req: Request, context: RouteContext): Promise<Respons
   }
 
   return NextResponse.json({
-    messageId: result.messageId ?? null,
-    externalMessageId: result.externalMessageId ?? null,
-    sentAt: result.sentAt ?? new Date().toISOString(),
+    messageId: sendResult.messageId,
+    externalMessageId: null,
+    sentAt: new Date().toISOString(),
   })
 }
 
@@ -174,9 +165,10 @@ export const openApi = {
         { status: 400, description: 'Invalid person id' },
         { status: 401, description: 'Unauthorized' },
         { status: 403, description: 'Missing customers.email.compose feature or mutation guard rejection' },
-        { status: 404, description: 'Person not found' },
+        { status: 404, description: 'Person or channel not found' },
+        { status: 409, description: 'Channel not connected' },
         { status: 422, description: 'Invalid request body' },
-        { status: 502, description: 'Hub returned an error' },
+        { status: 500, description: 'Send failed' },
       ],
     },
   },

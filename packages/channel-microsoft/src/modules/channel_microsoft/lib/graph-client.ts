@@ -59,12 +59,45 @@ export interface GraphProfile {
   userPrincipalName?: string
 }
 
+export interface GraphSubscriptionCreateInput {
+  changeType: 'created' | 'updated' | 'deleted' | string
+  notificationUrl: string
+  resource: string
+  expirationDateTime: string
+  clientState: string
+  lifecycleNotificationUrl?: string
+  /** Optional latestSupportedTlsVersion / encryption certs / etc. */
+  [extra: string]: unknown
+}
+
+export interface GraphSubscription {
+  id: string
+  resource: string
+  changeType: string
+  clientState?: string
+  notificationUrl: string
+  lifecycleNotificationUrl?: string
+  expirationDateTime: string
+  applicationId?: string
+  creatorId?: string
+}
+
 export interface GraphApiClient {
   inboxDelta(auth: GraphAuth, link?: string): Promise<GraphDeltaResponse>
   getMessageMime(auth: GraphAuth, messageId: string): Promise<Buffer>
   sendMail(auth: GraphAuth, input: GraphSendMailInput): Promise<void>
   getProfile(auth: GraphAuth): Promise<GraphProfile>
   deleteMessage(auth: GraphAuth, messageId: string): Promise<void>
+  /** Spec C — `POST /subscriptions` for push delivery. */
+  createSubscription(auth: GraphAuth, input: GraphSubscriptionCreateInput): Promise<GraphSubscription>
+  /** Spec C — `PATCH /subscriptions/{id}` to extend `expirationDateTime`. */
+  renewSubscription(
+    auth: GraphAuth,
+    subscriptionId: string,
+    expirationDateTime: string,
+  ): Promise<GraphSubscription>
+  /** Spec C — `DELETE /subscriptions/{id}`. */
+  deleteSubscription(auth: GraphAuth, subscriptionId: string): Promise<void>
 }
 
 export class GraphApiError extends Error {
@@ -132,7 +165,29 @@ class FetchGraphApiClient implements GraphApiClient {
     await this.requestJson<void>(auth, url, 'DELETE')
   }
 
-  private async requestJson<T>(auth: GraphAuth, url: string, method: 'GET' | 'POST' | 'DELETE', body?: unknown): Promise<T> {
+  async createSubscription(
+    auth: GraphAuth,
+    input: GraphSubscriptionCreateInput,
+  ): Promise<GraphSubscription> {
+    const url = `${MICROSOFT_GRAPH_BASE}/subscriptions`
+    return this.requestJson<GraphSubscription>(auth, url, 'POST', input)
+  }
+
+  async renewSubscription(
+    auth: GraphAuth,
+    subscriptionId: string,
+    expirationDateTime: string,
+  ): Promise<GraphSubscription> {
+    const url = `${MICROSOFT_GRAPH_BASE}/subscriptions/${encodeURIComponent(subscriptionId)}`
+    return this.requestJson<GraphSubscription>(auth, url, 'PATCH', { expirationDateTime })
+  }
+
+  async deleteSubscription(auth: GraphAuth, subscriptionId: string): Promise<void> {
+    const url = `${MICROSOFT_GRAPH_BASE}/subscriptions/${encodeURIComponent(subscriptionId)}`
+    await this.requestJson<void>(auth, url, 'DELETE')
+  }
+
+  private async requestJson<T>(auth: GraphAuth, url: string, method: 'GET' | 'POST' | 'PATCH' | 'DELETE', body?: unknown): Promise<T> {
     const headers: Record<string, string> = { Authorization: `Bearer ${auth.accessToken}` }
     let payload: BodyInit | undefined
     if (body !== undefined) {

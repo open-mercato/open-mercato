@@ -36,8 +36,8 @@ export async function GET(req: Request): Promise<Response> {
       organizationId: (auth as { orgId?: string | null }).orgId ?? null,
       userId: auth.sub as string,
       deletedAt: null,
-    } as any,
-    { orderBy: { createdAt: 'desc' } as any },
+    },
+    { orderBy: { createdAt: 'desc' } },
     { tenantId: auth.tenantId as string, organizationId: (auth as { orgId?: string | null }).orgId ?? null },
   )
 
@@ -48,6 +48,24 @@ export async function GET(req: Request): Promise<Response> {
 }
 
 function serialize(channel: CommunicationChannel) {
+  // Spec C — expose push status + last push error to the operator UI so
+  // the `PushStatusSection` can render the "Re-register push" affordance.
+  const channelState =
+    (channel.channelState as
+      | { pushStatus?: string; lastPushError?: { code?: string; message?: string; at?: string } | null }
+      | null) ?? null
+  const pushStatus =
+    typeof channelState?.pushStatus === 'string'
+      ? (channelState.pushStatus as 'active' | 'inactive' | 'failed')
+      : null
+  const lastPushError =
+    channelState?.lastPushError && typeof channelState.lastPushError === 'object'
+      ? {
+          code: channelState.lastPushError.code ?? null,
+          message: channelState.lastPushError.message ?? null,
+          at: channelState.lastPushError.at ?? null,
+        }
+      : null
   return {
     id: channel.id,
     providerKey: channel.providerKey,
@@ -60,6 +78,8 @@ function serialize(channel: CommunicationChannel) {
     lastError: channel.lastError ?? null,
     pollIntervalSeconds: channel.pollIntervalSeconds ?? null,
     lastPolledAt: channel.lastPolledAt?.toISOString?.() ?? null,
+    pushStatus,
+    lastPushError,
     createdAt: channel.createdAt?.toISOString?.() ?? null,
   }
 }

@@ -53,7 +53,7 @@ const setPrimaryChannelCommand: CommandHandler<
         tenantId: input.scope.tenantId,
         organizationId: input.scope.organizationId ?? null,
         deletedAt: null,
-      } as any,
+      },
       undefined,
       dscope,
     )
@@ -87,7 +87,7 @@ const setPrimaryChannelCommand: CommandHandler<
         userId: input.userId,
         isPrimary: true,
         deletedAt: null,
-      } as any,
+      },
       undefined,
       dscope,
     )

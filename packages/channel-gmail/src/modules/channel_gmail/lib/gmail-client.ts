@@ -85,6 +85,21 @@ export interface GmailProfileResponse {
   historyId: string
 }
 
+export interface GmailWatchInput {
+  /** Fully-qualified Pub/Sub topic, e.g. `projects/myproj/topics/gmail-inbound`. */
+  topicName: string
+  /** Defaults to `['INBOX']` so only inbox changes generate notifications. */
+  labelIds?: string[]
+  /** `include` (default) or `exclude`. */
+  labelFilterAction?: 'include' | 'exclude'
+}
+
+export interface GmailWatchResponse {
+  historyId: string
+  /** Watch expiration timestamp, ms since epoch. Gmail caps at ~7 days. */
+  expiration: string
+}
+
 export interface GmailApiClient {
   listHistory(auth: GmailApiAuth, input: GmailHistoryListInput): Promise<GmailHistoryListResponse>
   listMessages(auth: GmailApiAuth, input: GmailMessagesListInput): Promise<GmailMessagesListResponse>
@@ -92,6 +107,10 @@ export interface GmailApiClient {
   sendRawMessage(auth: GmailApiAuth, input: GmailSendRawInput): Promise<GmailSendResponse>
   getProfile(auth: GmailApiAuth): Promise<GmailProfileResponse>
   trashMessage(auth: GmailApiAuth, messageId: string): Promise<void>
+  /** Spec C — `gmail.users.watch` registers a Pub/Sub topic for push delivery. */
+  watchInbox(auth: GmailApiAuth, input: GmailWatchInput): Promise<GmailWatchResponse>
+  /** Spec C — `gmail.users.stop` tears down the Pub/Sub registration. */
+  stopWatch(auth: GmailApiAuth): Promise<void>
 }
 
 const GMAIL_MAX_RETRIES = 3
@@ -138,6 +157,20 @@ class FetchGmailApiClient implements GmailApiClient {
 
   async trashMessage(auth: GmailApiAuth, messageId: string): Promise<void> {
     const url = new URL(`${GMAIL_API_BASE}/users/me/messages/${encodeURIComponent(messageId)}/trash`)
+    await this.requestJson(auth, url, 'POST')
+  }
+
+  async watchInbox(auth: GmailApiAuth, input: GmailWatchInput): Promise<GmailWatchResponse> {
+    const url = new URL(`${GMAIL_API_BASE}/users/me/watch`)
+    return this.requestJson<GmailWatchResponse>(auth, url, 'POST', {
+      topicName: input.topicName,
+      labelIds: input.labelIds ?? ['INBOX'],
+      labelFilterAction: input.labelFilterAction ?? 'include',
+    })
+  }
+
+  async stopWatch(auth: GmailApiAuth): Promise<void> {
+    const url = new URL(`${GMAIL_API_BASE}/users/me/stop`)
     await this.requestJson(auth, url, 'POST')
   }
 

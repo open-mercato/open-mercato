@@ -1,0 +1,231 @@
+import {
+  _resetThreadTokenKeyCache,
+  applyOutboundThreadingToken,
+  buildBodyFooter,
+  buildReferencesId,
+  extractTokenFromBody,
+  extractTokenFromHeaders,
+  generateToken,
+  verifyToken,
+} from '../thread-token'
+
+const TEST_SECRET = 'test-secret-do-not-use-in-prod'
+
+describe('thread-token', () => {
+  beforeEach(() => {
+    process.env.OM_THREAD_TOKEN_SECRET = TEST_SECRET
+    delete process.env.KMS_MASTER_KEY
+    _resetThreadTokenKeyCache()
+  })
+
+  afterEach(() => {
+    delete process.env.OM_THREAD_TOKEN_SECRET
+    delete process.env.KMS_MASTER_KEY
+    _resetThreadTokenKeyCache()
+  })
+
+  describe('generateToken / verifyToken', () => {
+    it('generates tokens in the `om_<22>_<11>` shape (~37 chars)', () => {
+      const token = generateToken()
+      expect(token).toMatch(/^om_[A-Za-z0-9_-]{22}_[A-Za-z0-9_-]{11}$/)
+      expect(token.length).toBeGreaterThanOrEqual(35)
+      expect(token.length).toBeLessThanOrEqual(40)
+    })
+
+    it('generates unique tokens across calls (random component)', () => {
+      const tokens = new Set<string>()
+      for (let i = 0; i < 50; i += 1) tokens.add(generateToken())
+      expect(tokens.size).toBe(50)
+    })
+
+    it('verifyToken accepts a freshly generated token', () => {
+      const token = generateToken()
+      expect(verifyToken(token)).toBe(true)
+    })
+
+    it('verifyToken rejects a token tampered in the random portion', () => {
+      const token = generateToken()
+      // Mutate the random part by flipping one character.
+      const tampered = `${token.slice(0, 5)}A${token.slice(6)}`
+      expect(verifyToken(tampered)).toBe(false)
+    })
+
+    it('verifyToken rejects a token tampered in the HMAC portion', () => {
+      const token = generateToken()
+      const tampered = `${token.slice(0, -2)}AA`
+      expect(verifyToken(tampered)).toBe(false)
+    })
+
+    it('verifyToken rejects malformed tokens (missing prefix, wrong shape)', () => {
+      expect(verifyToken('')).toBe(false)
+      expect(verifyToken('omtoken')).toBe(false)
+      expect(verifyToken('om_too_short')).toBe(false)
+      expect(verifyToken('not_an_om_token_at_all')).toBe(false)
+      expect(verifyToken('om_AAAABBBB_____CCCCDDDD_EEEEEEEEEEE')).toBe(false)
+    })
+
+    it('verifyToken rejects tokens signed with a different key', () => {
+      const token = generateToken()
+      process.env.OM_THREAD_TOKEN_SECRET = 'a-different-secret'
+      _resetThreadTokenKeyCache()
+      expect(verifyToken(token)).toBe(false)
+    })
+
+    it('falls back to KMS_MASTER_KEY when OM_THREAD_TOKEN_SECRET is unset', () => {
+      delete process.env.OM_THREAD_TOKEN_SECRET
+      process.env.KMS_MASTER_KEY = 'master-key-fallback'
+      _resetThreadTokenKeyCache()
+      const token = generateToken()
+      expect(verifyToken(token)).toBe(true)
+    })
+  })
+
+  describe('buildReferencesId / buildBodyFooter', () => {
+    it('buildReferencesId returns `<om_TOKEN@open-mercato.invalid>` (RFC 6761 .invalid TLD)', () => {
+      const token = generateToken()
+      const id = buildReferencesId(token)
+      expect(id).toBe(`<${token}@open-mercato.invalid>`)
+    })
+
+    it('buildBodyFooter returns HTML hidden span + plain text marker', () => {
+      const token = generateToken()
+      const footer = buildBodyFooter(token)
+      expect(footer.html).toBe(`<span style="display:none">[OM:${token}]</span>`)
+      expect(footer.plain).toBe(`\n\n[OM:${token}]`)
+    })
+  })
+
+  describe('applyOutboundThreadingToken', () => {
+    it('appends the synthetic id to a brand-new References header', () => {
+      const token = generateToken()
+      const result = applyOutboundThreadingToken(
+        { headers: {}, bodyHtml: '<p>hi</p>', bodyText: 'hi' },
+        token,
+      )
+      expect(result.headers!.References).toBe(`<${token}@open-mercato.invalid>`)
+    })
+
+    it('extends an existing References header without duplicating', () => {
+      const token = generateToken()
+      const existing = '<existing-msg@example.com>'
+      const out1 = applyOutboundThreadingToken({ headers: { References: existing } }, token)
+      expect(out1.headers!.References).toBe(`${existing} <${token}@open-mercato.invalid>`)
+
+      const out2 = applyOutboundThreadingToken(out1, token)
+      expect(out2.headers!.References).toBe(`${existing} <${token}@open-mercato.invalid>`)
+    })
+
+    it('normalises lowercase `references` to canonical `References`', () => {
+      const token = generateToken()
+      const result = applyOutboundThreadingToken(
+        { headers: { references: '<existing@example.com>' } },
+        token,
+      )
+      expect(result.headers!.References).toBe(`<existing@example.com> <${token}@open-mercato.invalid>`)
+      expect(result.headers!.references).toBeUndefined()
+    })
+
+    it('injects the hidden span before `</body>` when present', () => {
+      const token = generateToken()
+      const html = '<html><body><p>Hello</p></body></html>'
+      const result = applyOutboundThreadingToken(
+        { bodyHtml: html, bodyText: '' },
+        token,
+      )
+      expect(result.bodyHtml).toBe(
+        `<html><body><p>Hello</p><span style="display:none">[OM:${token}]</span></body></html>`,
+      )
+    })
+
+    it('appends the hidden span when no `</body>` tag is present', () => {
+      const token = generateToken()
+      const html = '<p>Hello</p>'
+      const result = applyOutboundThreadingToken(
+        { bodyHtml: html, bodyText: '' },
+        token,
+      )
+      expect(result.bodyHtml).toBe(`<p>Hello</p><span style="display:none">[OM:${token}]</span>`)
+    })
+
+    it('appends the plain-text marker', () => {
+      const token = generateToken()
+      const result = applyOutboundThreadingToken(
+        { bodyText: 'Hello there.' },
+        token,
+      )
+      expect(result.bodyText).toBe(`Hello there.\n\n[OM:${token}]`)
+    })
+
+    it('is idempotent on retry (does not double-inject)', () => {
+      const token = generateToken()
+      const payload = {
+        headers: {},
+        bodyHtml: '<body><p>hi</p></body>',
+        bodyText: 'hi',
+      }
+      const once = applyOutboundThreadingToken(payload, token)
+      const twice = applyOutboundThreadingToken(once, token)
+      expect(twice).toEqual(once)
+    })
+
+    it('throws when given a malformed token', () => {
+      expect(() =>
+        applyOutboundThreadingToken({ headers: {} }, 'not-a-real-token'),
+      ).toThrow(/invalid token/i)
+    })
+  })
+
+  describe('extractTokenFromHeaders', () => {
+    it('finds a token in a single References string', () => {
+      const token = generateToken()
+      const refs = `<root@example.com> <${token}@open-mercato.invalid> <parent@example.com>`
+      expect(extractTokenFromHeaders(null, refs)).toBe(token)
+    })
+
+    it('finds a token in a References array', () => {
+      const token = generateToken()
+      const refs = ['<root@example.com>', `<${token}@open-mercato.invalid>`]
+      expect(extractTokenFromHeaders(null, refs)).toBe(token)
+    })
+
+    it('finds a token in In-Reply-To when References is empty', () => {
+      const token = generateToken()
+      expect(extractTokenFromHeaders(`<${token}@open-mercato.invalid>`, null)).toBe(token)
+    })
+
+    it('returns null when no token is present', () => {
+      expect(extractTokenFromHeaders(null, null)).toBeNull()
+      expect(extractTokenFromHeaders(null, '<not-a-token@example.com>')).toBeNull()
+      expect(extractTokenFromHeaders('<not-a-token@example.com>', [])).toBeNull()
+    })
+
+    it('returns null when the token format is right but HMAC is wrong (forgery defense)', () => {
+      const fake = 'om_AAAAAAAAAAAAAAAAAAAAAA_BBBBBBBBBBB'
+      expect(extractTokenFromHeaders(null, `<${fake}@open-mercato.invalid>`)).toBeNull()
+    })
+  })
+
+  describe('extractTokenFromBody', () => {
+    it('finds a token in HTML hidden span', () => {
+      const token = generateToken()
+      const html = `<html><body><p>hi</p><span style="display:none">[OM:${token}]</span></body></html>`
+      expect(extractTokenFromBody(html, null)).toBe(token)
+    })
+
+    it('finds a token in plain text trailer', () => {
+      const token = generateToken()
+      const plain = `Hello there.\n\n[OM:${token}]`
+      expect(extractTokenFromBody(null, plain)).toBe(token)
+    })
+
+    it('returns null when no token is present', () => {
+      expect(extractTokenFromBody('<p>nothing here</p>', null)).toBeNull()
+      expect(extractTokenFromBody(null, 'no token in plain text')).toBeNull()
+    })
+
+    it('ignores tokens with wrong HMAC even when the format matches', () => {
+      const fake = 'om_AAAAAAAAAAAAAAAAAAAAAA_BBBBBBBBBBB'
+      expect(extractTokenFromBody(`<span>[OM:${fake}]</span>`, null)).toBeNull()
+    })
+  })
+})

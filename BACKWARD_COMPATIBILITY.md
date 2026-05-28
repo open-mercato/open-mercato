@@ -80,6 +80,8 @@ These exported types are consumed by module developers. Required fields MUST NOT
 - `AiAgentOverridesMap` / `AiToolOverridesMap`: `Record<string, AiAgentDefinition | null>` and `Record<string, AiToolDefinition | null>` semantics are STABLE; `null` means disable
 - `ModuleOverrides`: `overrides.ai.agents`, `overrides.ai.tools`, and `overrides.ai.extensions` shapes are STABLE; other domain keys are reserved by the unified override contract and may be wired additively
 - `WorkerMeta`: `queue` — MUST NOT remove
+- `RefreshCredentialsInput` (communication_channels hub): `channelId`, `credentials`, `scope` — MUST NOT remove. `oauthClient?` was added 2026-05-27 as an additive optional field (see [Spec A](.ai/specs/2026-05-27-oauth-refresh-credentials-client-wiring-fix.md)). The legacy `credentials._client` read path in Gmail and Microsoft adapters is **deprecated and slated for removal in the next minor release** — pass OAuth client config via `RefreshCredentialsInput.oauthClient` instead.
+- `OAuthClientConfig` (communication_channels hub): added 2026-05-27 with `clientId` required; optional `clientSecret`, `tenantId`, `scopes`. New optional fields may be added; required `clientId` MUST NOT be removed.
 
 ### 3. Function Signatures (STABLE)
 
@@ -263,3 +265,23 @@ Files in `apps/mercato/.mercato/generated/` are produced by the CLI generators. 
 | Generated registry exports | OK | OK | BREAKING | BREAKING | BREAKING |
 
 \* Feature ID removal requires a data migration.
+
+---
+
+## Spec C — Provider Push Delivery (2026-05-27)
+
+`.ai/specs/2026-05-27-email-integration-provider-push-delivery.md` extends the communication-channels module with provider push delivery. **All changes are additive** and pass the contract-surface checks above:
+
+| Surface | Change | Classification |
+|---------|--------|----------------|
+| Adapter type interface (`ChannelAdapter`) | Three new **optional** methods: `registerPush?`, `unregisterPush?`, `applyPushNotification?` | ✓ ADDITIVE (Type interface, optional fields) |
+| Adapter input/output types | New exported types: `PushRegistration`, `RegisterPushInput`, `UnregisterPushInput`, `ApplyPushNotificationInput` | ✓ ADDITIVE (new types, no rename) |
+| Event IDs | Four new events: `communication_channels.push.{registered,failed,renewed,deactivated}` | ✓ ADDITIVE (new event IDs) |
+| ACL feature IDs | One new feature: `communication_channels.channel.push.manage` | ✓ ADDITIVE (new feature ID) |
+| API routes | Four new routes: `/webhooks/gmail`, `/webhooks/microsoft/[id]`, `/webhooks/microsoft/[id]/lifecycle`, `/channels/[id]/push/register` | ✓ ADDITIVE (new routes) |
+| Database schema | New nullable column `communication_channels.client_state_encrypted text` via additive migration `Migration20260527230000` | ✓ ADDITIVE (NULL default) |
+| Queue names | Four new queues: `…-gmail-history-sync`, `…-microsoft-delta-sync`, `…-gmail-renew-watch`, `…-microsoft-renew-subscriptions` | ✓ ADDITIVE |
+| Env vars | New optional: `OM_GMAIL_PUBSUB_TOPIC`, `OM_GMAIL_PUBSUB_AUDIENCE`, `OM_GMAIL_PUBSUB_SERVICE_ACCOUNT_EMAIL`, `OM_MICROSOFT_WEBHOOK_BASE_URL`, `OM_PUSH_RENEWAL_GMAIL_LEAD_HOURS`, `OM_PUSH_RENEWAL_MICROSOFT_LEAD_HOURS` | ✓ ADDITIVE |
+| Polling cadence | `pollIntervalSeconds` flips 60 → 1800 only when `pushStatus='active'` is persisted. Non-push channels unchanged. | ✓ Behavior-preserving for existing channels |
+
+**Migration path for existing tenants**: no action required. Push is opt-in per channel — until an operator explicitly registers (via connect flow or `POST /push/register`), Gmail / Microsoft channels keep polling on the Spec B baseline. The new ACL feature `communication_channels.channel.push.manage` must be granted via `yarn mercato auth sync-role-acls` post-deploy for the "Re-register push" button to appear.

@@ -1,4 +1,5 @@
 import type {
+  ApplyPushNotificationInput,
   ChannelAdapter,
   ChannelNativeContent,
   ConvertOutboundInput,
@@ -13,12 +14,15 @@ import type {
   InboundMessage,
   MessageStatus,
   NormalizedInboundMessage,
+  PushRegistration,
   RefreshCredentialsInput,
   RefreshedCredentials,
+  RegisterPushInput,
   ResolveContactInput,
   ContactHint,
   SendMessageInput,
   SendMessageResult,
+  UnregisterPushInput,
   VerifyWebhookInput,
 } from '@open-mercato/core/modules/communication_channels/lib/adapter'
 import { gmailCapabilities } from './capabilities'
@@ -201,9 +205,11 @@ class GmailChannelAdapter implements ChannelAdapter {
     if (!current.refreshToken) {
       throw new Error('requires_reauth')
     }
-    const clientFromState = parseClientCredentialsOrThrow(
-      (input.credentials as unknown as { _client?: unknown })._client ?? input.credentials,
-    )
+    // Spec A: prefer the new `input.oauthClient` slot (resolved by the hub
+    // from `oauth_gmail` integration credentials). Fall back to the
+    // deprecated `credentials._client` path for one minor release so
+    // existing test fixtures keep working.
+    const clientFromState = resolveGmailOAuthClient(input)
     const token = await getGoogleOAuthClient().refreshToken({
       clientId: clientFromState.clientId,
       clientSecret: clientFromState.clientSecret,
@@ -294,6 +300,112 @@ class GmailChannelAdapter implements ChannelAdapter {
     }
   }
 
+  /**
+   * Spec C § Phase C2 — Register Gmail Pub/Sub watch.
+   *
+   * Calls `gmail.users.watch` with the operator-configured Pub/Sub topic.
+   * Returns `historyId` (cursor for subsequent `history.list` calls) and
+   * `expiration` (ms since epoch — Gmail caps at ~7 days). Persists both
+   * onto `CommunicationChannel.channelState` via the hub's
+   * `push.register` command.
+   */
+  async registerPush(input: RegisterPushInput): Promise<PushRegistration> {
+    const userCredentials = parseUserCredentialsOrThrow(input.credentials)
+    const auth = { accessToken: userCredentials.accessToken }
+    const api = getGmailApiClient()
+    const topicName = (input.providerConfig?.pubsubTopic as string | undefined) ?? ''
+    if (!topicName) {
+      return {
+        providerKey: this.providerKey,
+        status: 'failed',
+        channelStatePatch: {
+          pushStatus: 'failed',
+          lastPushError: {
+            code: 'missing_topic',
+            message: 'Pub/Sub topic not configured',
+            at: new Date().toISOString(),
+          },
+        },
+        error: {
+          code: 'missing_topic',
+          message: 'OM_GMAIL_PUBSUB_TOPIC not configured for this tenant',
+        },
+      }
+    }
+    try {
+      const result = await api.watchInbox(auth, { topicName, labelIds: ['INBOX'] })
+      const expirationMs = Number(result.expiration)
+      return {
+        providerKey: this.providerKey,
+        status: 'active',
+        channelStatePatch: {
+          historyId: result.historyId,
+          watchExpirationMs: Number.isFinite(expirationMs) ? expirationMs : Date.now() + 6 * 24 * 3600 * 1000,
+          pubsubTopic: topicName,
+          pushStatus: 'active',
+          lastPushError: null,
+        },
+        recommendedPollIntervalSeconds: 1800,
+      }
+    } catch (error) {
+      const status = error instanceof GmailApiError ? error.status : 0
+      const detail = error instanceof Error ? error.message : 'watch failed'
+      return {
+        providerKey: this.providerKey,
+        status: 'failed',
+        channelStatePatch: {
+          pushStatus: 'failed',
+          lastPushError: {
+            code: `gmail_watch_${status || 'error'}`,
+            message: detail.slice(0, 500),
+            at: new Date().toISOString(),
+          },
+        },
+        error: { code: `gmail_watch_${status || 'error'}`, message: detail },
+      }
+    }
+  }
+
+  /**
+   * Spec C § Phase C2 — Tear down Gmail watch via `gmail.users.stop`.
+   * Idempotent: a 404 (no active watch) is swallowed.
+   */
+  async unregisterPush(input: UnregisterPushInput): Promise<void> {
+    const userCredentials = parseUserCredentialsOrThrow(input.credentials)
+    const auth = { accessToken: userCredentials.accessToken }
+    const api = getGmailApiClient()
+    try {
+      await api.stopWatch(auth)
+    } catch (error) {
+      if (error instanceof GmailApiError && error.status === 404) return
+      throw error
+    }
+  }
+
+  /**
+   * Spec C § Phase C2 — Convert a verified Pub/Sub notification into a
+   * `HistoryPage`. The notification body itself is just `{ emailAddress,
+   * historyId }`; the actual messages come from `history.list` against
+   * `channelState.historyId`. We delegate to `fetchHistory` so the
+   * pagination / 404-fallback logic stays in one place.
+   */
+  async applyPushNotification(input: ApplyPushNotificationInput): Promise<HistoryPage> {
+    // The notification's `historyId` is informational — Gmail guarantees
+    // it is `>= channelState.historyId`, but a multi-event batch may
+    // advance further than what `history.list` returns in a single page.
+    // Treat the call as "drain whatever is new since the stored cursor".
+    return this.fetchHistory({
+      conversationId: 'INBOX',
+      credentials: input.credentials,
+      channelState: input.channelState,
+      scope: input.scope,
+      // Push notifications are bursty (1/s max per Gmail user); use a
+      // smaller per-call limit so the worker drains quickly between
+      // notifications without holding the API quota.
+      limit: 50,
+    } as FetchHistoryInput)
+  }
+
   private async continueHistoryListDrain(
     api: ReturnType<typeof getGmailApiClient>,
     auth: { accessToken: string },
@@ -327,11 +439,18 @@ class GmailChannelAdapter implements ChannelAdapter {
       pageToken = history.nextPageToken
     }
 
-    const messages = await this.fetchAndNormalize(api, auth, collected, accountIdentifier)
+    const { messages, hardFailed } = await this.fetchAndNormalize(api, auth, collected, accountIdentifier)
     const nextState: GmailChannelState = {
       lastSyncedAt: new Date().toISOString(),
     }
-    if (drained) {
+    if (hardFailed) {
+      // L3: a message failed transiently. Keep the original startHistoryId
+      // pinned so the next tick re-enters the same window and re-fetches the
+      // unprocessed messages. Do NOT advance past them.
+      nextState.historyId = startHistoryId
+      nextState.pendingHistoryStartId = startHistoryId
+      if (pageToken) nextState.pendingHistoryPageToken = pageToken
+    } else if (drained) {
       // All pages drained — advance the terminal historyId.
       nextState.historyId = lastResponseHistoryId ?? startHistoryId
     } else {
@@ -343,7 +462,8 @@ class GmailChannelAdapter implements ChannelAdapter {
     return {
       messages,
       nextCursor: Buffer.from(JSON.stringify(nextState)).toString('base64'),
-      hasMore: !drained,
+      // Re-enqueue immediately when a transient failure left work behind.
+      hasMore: hardFailed || !drained,
     }
   }
 
@@ -363,12 +483,18 @@ class GmailChannelAdapter implements ChannelAdapter {
       threadId: m.threadId,
       labelIds: ['INBOX'],
     }))
-    const messages = await this.fetchAndNormalize(api, auth, refs, accountIdentifier)
+    const { messages, hardFailed } = await this.fetchAndNormalize(api, auth, refs, accountIdentifier)
     const drained = !list.nextPageToken
     const nextState: GmailChannelState = {
       lastSyncedAt: new Date().toISOString(),
     }
-    if (drained) {
+    if (hardFailed) {
+      // L3: this is the FIRST fallback page (no prior page token), so there is
+      // nothing to pin. Deliberately leave `historyId` unset so the cursor does
+      // NOT advance past the unprocessed messages — the next tick re-enters the
+      // same fallback scan and retries them.
+      nextState.pendingMessagesHistoryIdSnapshot = historyIdSnapshot
+    } else if (drained) {
       nextState.historyId = historyIdSnapshot
     } else {
       nextState.pendingMessagesPageToken = list.nextPageToken
@@ -377,7 +503,7 @@ class GmailChannelAdapter implements ChannelAdapter {
     return {
       messages,
       nextCursor: Buffer.from(JSON.stringify(nextState)).toString('base64'),
-      hasMore: !drained,
+      hasMore: hardFailed || !drained,
     }
   }
 
@@ -398,12 +524,17 @@ class GmailChannelAdapter implements ChannelAdapter {
       threadId: m.threadId,
       labelIds: ['INBOX'],
     }))
-    const messages = await this.fetchAndNormalize(api, auth, refs, accountIdentifier)
+    const { messages, hardFailed } = await this.fetchAndNormalize(api, auth, refs, accountIdentifier)
     const drained = !list.nextPageToken
     const nextState: GmailChannelState = {
       lastSyncedAt: new Date().toISOString(),
     }
-    if (drained) {
+    if (hardFailed) {
+      // L3: re-pin the SAME page token (not list.nextPageToken) so the next
+      // tick re-fetches this page and retries the unprocessed messages.
+      nextState.pendingMessagesPageToken = channelState.pendingMessagesPageToken
+      nextState.pendingMessagesHistoryIdSnapshot = channelState.pendingMessagesHistoryIdSnapshot
+    } else if (drained) {
       nextState.historyId = channelState.pendingMessagesHistoryIdSnapshot ?? channelState.historyId
     } else {
       nextState.pendingMessagesPageToken = list.nextPageToken
@@ -412,7 +543,7 @@ class GmailChannelAdapter implements ChannelAdapter {
     return {
       messages,
       nextCursor: Buffer.from(JSON.stringify(nextState)).toString('base64'),
-      hasMore: !drained,
+      hasMore: hardFailed || !drained,
     }
   }
 
@@ -436,21 +567,37 @@ class GmailChannelAdapter implements ChannelAdapter {
     return null
   }
 
+  /**
+   * Fetch + normalize each collected message ref.
+   *
+   * L3 fix: a non-404/410 error on `getMessageRaw` (e.g. a transient 500/403)
+   * used to re-throw and abort the whole tick, discarding messages that had
+   * already normalized in the same page. Worse, because the cursor could be
+   * advanced from a different source (a push notification carrying a higher
+   * historyId), the transiently-failed messages could be skipped permanently.
+   *
+   * We now treat a hard failure as a stop point: keep the messages normalized
+   * BEFORE the failure and signal `hardFailed: true` so the caller pins the
+   * persisted `historyId` (does NOT advance past the failure) and re-fetches on
+   * the next tick. 404/410 stay skipped (the message is genuinely gone).
+   */
   private async fetchAndNormalize(
     api: ReturnType<typeof getGmailApiClient>,
     auth: { accessToken: string },
     refs: Array<{ id: string; threadId: string; labelIds?: string[] }>,
     accountIdentifier: string,
-  ): Promise<NormalizedInboundMessage[]> {
+  ): Promise<{ messages: NormalizedInboundMessage[]; hardFailed: boolean }> {
     const out: NormalizedInboundMessage[] = []
     for (const ref of refs) {
       let raw: GmailGetMessageRawResponse
       try {
         raw = await api.getMessageRaw(auth, ref.id)
       } catch (error) {
-        // Skip individual fetch failures rather than aborting the whole batch.
+        // 404/410: the message is gone — skip it and keep draining.
         if (error instanceof GmailApiError && (error.status === 404 || error.status === 410)) continue
-        throw error
+        // Any other failure is potentially transient. Stop here without
+        // advancing past the unprocessed messages so the next tick retries them.
+        return { messages: out, hardFailed: true }
       }
       const rawBuffer = decodeBase64Url(raw.raw)
       const fallbackDate = raw.internalDate ? new Date(Number(raw.internalDate)) : undefined
@@ -464,7 +611,7 @@ class GmailChannelAdapter implements ChannelAdapter {
       })
       out.push(normalized)
     }
-    return out
+    return { messages: out, hardFailed: false }
   }
 }
 
@@ -501,6 +648,49 @@ function parseClientCredentialsOrThrow(value: unknown): GmailClientCredentials {
     throw new Error(`Invalid Gmail OAuth client credentials: ${first?.message ?? 'unknown validation error'}`)
   }
   return parsed.data
+}
+
+let warnedLegacyClientPath = false
+
+/**
+ * Resolve the OAuth client config for a Gmail refresh, preferring the new
+ * `RefreshCredentialsInput.oauthClient` field (Spec A,
+ * .ai/specs/2026-05-27-oauth-refresh-credentials-client-wiring-fix.md).
+ *
+ * Falls back to the deprecated `credentials._client` read path for one
+ * minor release so existing tests keep working. The legacy path emits a
+ * one-time deprecation warning per process so production logs stay quiet.
+ */
+function resolveGmailOAuthClient(input: RefreshCredentialsInput): GmailClientCredentials {
+  if (input.oauthClient) {
+    const client = input.oauthClient
+    if (!client.clientId) {
+      throw new Error('Invalid Gmail OAuth client credentials: OAuth Client ID required')
+    }
+    if (!client.clientSecret) {
+      throw new Error('Invalid Gmail OAuth client credentials: clientSecret required')
+    }
+    return {
+      clientId: client.clientId,
+      clientSecret: client.clientSecret,
+      // `GmailClientCredentials.scopes` is the wire format the legacy
+      // `credentials._client` blob carried — comma/space-separated string.
+      // Spec A's `OAuthClientConfig.scopes` is the canonical `string[]`.
+      // `parseScopes` accepts either separator, so join with a single space.
+      ...(client.scopes !== undefined ? { scopes: client.scopes.join(' ') } : {}),
+    }
+  }
+  // Legacy path — DEPRECATED. Remove in the next minor release.
+  if (!warnedLegacyClientPath) {
+    warnedLegacyClientPath = true
+    console.warn(
+      '[channel-gmail] reading OAuth client config from credentials._client is deprecated;' +
+        ' pass via RefreshCredentialsInput.oauthClient instead (Spec A).',
+    )
+  }
+  return parseClientCredentialsOrThrow(
+    (input.credentials as unknown as { _client?: unknown })._client ?? input.credentials,
+  )
 }
 
 function pickRawMimeBuffer(payload: { rawBase64Url?: unknown; rawBody?: unknown }): Buffer {

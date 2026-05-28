@@ -45,7 +45,7 @@ export async function GET(req: Request, context: RouteContext): Promise<Response
       tenantId: auth.tenantId,
       organizationId: (auth as { orgId?: string | null }).orgId ?? null,
       deletedAt: null,
-    } as any,
+    },
     undefined,
     { tenantId: auth.tenantId as string, organizationId: (auth as { orgId?: string | null }).orgId ?? null },
   )

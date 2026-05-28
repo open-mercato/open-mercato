@@ -73,7 +73,7 @@ export default async function handler(
         ? { organizationId: payload.organizationId ?? null }
         : {}),
       deletedAt: null,
-    } as any,
+    },
     undefined,
     {
       tenantId: payload.tenantId,

@@ -82,11 +82,11 @@ export async function GET(req: Request): Promise<Response> {
   const [items, total] = await findAndCountWithDecryption(
     em,
     CommunicationChannel,
-    where as any,
+    where,
     {
       limit: pageSize,
       offset: (page - 1) * pageSize,
-      orderBy: { createdAt: 'desc' } as any,
+      orderBy: { createdAt: 'desc' },
     },
     { tenantId: auth.tenantId as string, organizationId: (auth as { orgId?: string | null }).orgId ?? null },
   )

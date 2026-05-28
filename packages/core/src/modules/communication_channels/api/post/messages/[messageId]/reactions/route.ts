@@ -7,6 +7,7 @@ import {
   type ToggleOutboundReactionInput,
   type ToggleOutboundReactionResult,
 } from '../../../../../commands/toggle-outbound-reaction'
+import { validateRouteMutationGuard } from '../../../../../lib/route-mutation-guard'
 
 const bodySchema = z.object({
   emoji: z.string().min(1).max(64),
@@ -56,6 +57,19 @@ export async function POST(req: Request, context: RouteContext): Promise<Respons
   }
 
   const container = await createRequestContainer()
+  const guard = await validateRouteMutationGuard({
+    container,
+    req,
+    auth,
+    input: {
+      resourceKind: 'communication_channels.message',
+      resourceId: messageId,
+      operation: 'custom',
+      mutationPayload: body,
+    },
+  })
+  if ('response' in guard) return guard.response
+
   const commandBus = container.resolve('commandBus') as CommandBus
 
   const input: ToggleOutboundReactionInput = {
@@ -89,6 +103,7 @@ export async function POST(req: Request, context: RouteContext): Promise<Respons
     return NextResponse.json({ error: result.reason }, { status: 409 })
   }
   if (result.status === 'added') {
+    await guard.afterSuccess()
     return NextResponse.json(
       {
         id: result.reactionId,

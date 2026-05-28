@@ -78,12 +78,22 @@ export default async function handler(
       tenantId: payload.tenantId,
       organizationId: payload.organizationId ?? null,
       deletedAt: null,
-    } as any,
+    },
     undefined,
     dscope,
   )
   if (!message) return
   if (message.sourceEntityType === 'communication_channels.send_as_user') {
+    return
+  }
+  // Inbound ingest path: when `ingest-inbound-message` composes a new platform
+  // Message for an incoming email, the messages module also emits
+  // `messages.message.sent` (the Message row is fresh and marked sent). Without
+  // this guard, we'd treat it as outbound and queue a redundant SMTP delivery —
+  // which fails because inbound MCLs carry recipient info in `channelPayload`,
+  // not `channelMetadata`, and the failure marker then leaks back onto the
+  // inbound link itself.
+  if (message.sourceEntityType === 'communication_channels.external_conversation') {
     return
   }
   if (!message.threadId) return // Internal-only; no channel routing.
@@ -96,7 +106,7 @@ export default async function handler(
       messageThreadId: message.threadId,
       tenantId: payload.tenantId,
       organizationId: payload.organizationId ?? null,
-    } as any,
+    },
     undefined,
     dscope,
   )
@@ -110,7 +120,7 @@ export default async function handler(
       messageId: message.id,
       tenantId: payload.tenantId,
       organizationId: payload.organizationId ?? null,
-    } as any,
+    },
     undefined,
     dscope,
   )

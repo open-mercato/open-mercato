@@ -1,4 +1,5 @@
 import type { ValidateCredentialsResult } from '@open-mercato/core/modules/communication_channels/lib/adapter'
+import { parseBooleanWithDefault } from '@open-mercato/shared/lib/boolean'
 import { imapCredentialsSchema } from './credentials'
 import {
   credentialsToConnection,
@@ -38,11 +39,34 @@ export async function validateImapCredentials(
   }
 
   const credentials = parsed.data
+
+  // Reject cleartext transport by default. `'none'` disables TLS entirely and
+  // sends the password in the clear — unacceptable for an attacker-controlled
+  // host string. Operators who genuinely need it (a trusted private-network
+  // testing host) must explicitly opt in via
+  // `OM_CHANNEL_IMAP_ALLOW_INSECURE_TRANSPORT=true`. `'starttls'`/`'tls'` are
+  // always allowed.
+  const allowInsecureTransport = parseBooleanWithDefault(
+    process.env.OM_CHANNEL_IMAP_ALLOW_INSECURE_TRANSPORT,
+    false,
+  )
+  if (!allowInsecureTransport) {
+    const insecureTransportErrors: Record<string, string> = {}
+    const insecureMessage =
+      'Cleartext transport (None) is not allowed. Use STARTTLS or implicit TLS. ' +
+      'An operator must set OM_CHANNEL_IMAP_ALLOW_INSECURE_TRANSPORT=true to permit it.'
+    if (credentials.imapTls === 'none') insecureTransportErrors.imapTls = insecureMessage
+    if (credentials.smtpTls === 'none') insecureTransportErrors.smtpTls = insecureMessage
+    if (Object.keys(insecureTransportErrors).length > 0) {
+      return { ok: false, errors: insecureTransportErrors }
+    }
+  }
+
   const imap = getImapClient()
   const smtp = getSmtpClient()
 
   try {
-    await imap.connectAndValidate(credentialsToConnection(credentials, 'imap'))
+    await imap.connectAndValidate(credentialsToConnection(credentials))
   } catch (error) {
     return {
       ok: false,

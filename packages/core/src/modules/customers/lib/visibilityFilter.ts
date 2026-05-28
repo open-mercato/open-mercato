@@ -36,16 +36,21 @@ export function applyEmailVisibilityFilter<T extends { where: (...args: any[]) =
 ): T {
   if (callerHasEmailViewPrivate(opts.userFeatures)) return query
   const currentUserId = opts.currentUserId
+  // A row is hidden ONLY when it is an email explicitly marked `private` and the
+  // caller is not its author. Everything else stays visible, including:
+  //   - non-email interactions (calls, meetings, tasks),
+  //   - emails marked `shared`,
+  //   - legacy/unset rows where `visibility IS NULL` (e.g. email-log entries
+  //     created before per-email visibility shipped) — these must remain
+  //     visible to avoid silently hiding pre-existing CRM history.
   return query.where((eb: any) =>
     eb.or([
       eb('interaction_type', '!=', 'email'),
-      eb('visibility', '=', 'shared'),
-      eb.and([
-        eb('visibility', '=', 'private'),
-        currentUserId
-          ? eb('author_user_id', '=', currentUserId)
-          : eb.val(false),
-      ]),
+      eb('visibility', 'is', null),
+      eb('visibility', '!=', 'private'),
+      currentUserId
+        ? eb('author_user_id', '=', currentUserId)
+        : eb.val(false),
     ]),
   )
 }
