@@ -32,8 +32,8 @@ interface HostInjectionContext {
   total?: number | string
   totalMatching?: number | string
   /** Selected row IDs from DataTable (auto-enriched when bulk actions are present). */
-  _selectedRowIds?: string[]
-  _selectedCount?: number
+  selectedRowIds?: string[]
+  selectedCount?: number
 }
 
 interface MerchandisingAssistantTriggerProps {
@@ -83,8 +83,8 @@ export function computeCatalogMerchandisingPageContext(
   context: HostInjectionContext | undefined,
 ): MerchandisingPageContext {
   const totalMatching = readNumber(context?.totalMatching ?? context?.total)
-  const selectedRowIds = Array.isArray(context?._selectedRowIds) ? context._selectedRowIds : []
-  const selectedCount = selectedRowIds.length > 0 ? selectedRowIds.length : readNumber(context?._selectedCount)
+  const selectedRowIds = Array.isArray(context?.selectedRowIds) ? context.selectedRowIds : []
+  const selectedCount = selectedRowIds.length > 0 ? selectedRowIds.length : readNumber(context?.selectedCount)
   return {
     view: 'catalog.products.list',
     entityType: 'catalog.products.list',

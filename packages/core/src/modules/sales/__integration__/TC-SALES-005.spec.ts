@@ -8,6 +8,14 @@ import { addAdjustment, addCustomLine, createSalesDocument } from '@open-mercato
  */
 test.describe('TC-SALES-005: Order Discount Adjustment', () => {
   test('should add discount adjustment on order from UI', async ({ page }) => {
+    // Multi-hop UI orchestration (login + createSalesDocument + addCustomLine
+    // + addAdjustment) regularly exceeds Playwright's 20s default budget on
+    // a cold ephemeral DB. Each helper waits up to TEST_WAIT_TIMEOUT_MS=10s
+    // for stable visibility. Per-test opt-in is the documented escape hatch;
+    // raising the global timeout in playwright.config.ts is rejected by
+    // project policy.
+    test.slow();
+
     const adjustmentLabel = `QA Discount ${Date.now()}`;
 
     await login(page, 'admin');

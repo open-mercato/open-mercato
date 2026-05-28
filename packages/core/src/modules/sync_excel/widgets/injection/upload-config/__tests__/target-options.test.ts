@@ -116,6 +116,109 @@ describe('sync_excel target options helpers', () => {
     expect(nextSuggestedMapping.unmappedColumns).toEqual([])
   })
 
+  it('matches Zoho lead headers to external custom fields with cleaned labels', () => {
+    const nextSuggestedMapping = buildPeopleSuggestedMapping(
+      [
+        'Record Id',
+        'Lead Name',
+        'Company',
+        'Created Time',
+        'Service needed',
+        'Lead Source',
+        'Lead Status',
+        'Annual Revenue',
+        'Referred by',
+        'Industry',
+      ],
+      {
+        entityType: 'customers.person',
+        matchStrategy: 'externalId',
+        matchField: 'person.externalId',
+        fields: [
+          {
+            externalField: 'Record Id',
+            localField: 'person.externalId',
+            mappingKind: 'external_id',
+            dedupeRole: 'primary',
+          },
+          {
+            externalField: 'Lead Name',
+            localField: 'person.displayName',
+            mappingKind: 'core',
+          },
+          {
+            externalField: 'Lead Source',
+            localField: 'person.source',
+            mappingKind: 'core',
+          },
+          {
+            externalField: 'Lead Status',
+            localField: 'person.status',
+            mappingKind: 'core',
+          },
+        ],
+        unmappedColumns: [
+          'Company',
+          'Created Time',
+          'Service needed',
+          'Annual Revenue',
+          'Referred by',
+          'Industry',
+        ],
+      },
+      [
+        {
+          entityId: 'customers:customer_person_profile',
+          key: 'company_external',
+          kind: 'text',
+          label: 'Company (external)',
+        },
+        {
+          entityId: 'customers:customer_person_profile',
+          key: 'industry_external',
+          kind: 'dictionary',
+          label: 'Industry (external)',
+        },
+        {
+          entityId: 'customers:customer_person_profile',
+          key: 'service_needed',
+          kind: 'dictionary',
+          label: 'Service needed',
+        },
+        {
+          entityId: 'customers:customer_person_profile',
+          key: 'annual_revenue',
+          kind: 'currency',
+          label: 'Annual revenue (external)',
+        },
+      ],
+    )
+
+    expect(nextSuggestedMapping.fields).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        externalField: 'Company',
+        localField: 'cf:company_external',
+        mappingKind: 'custom_field',
+      }),
+      expect.objectContaining({
+        externalField: 'Industry',
+        localField: 'cf:industry_external',
+        mappingKind: 'custom_field',
+      }),
+      expect.objectContaining({
+        externalField: 'Service needed',
+        localField: 'cf:service_needed',
+        mappingKind: 'custom_field',
+      }),
+      expect.objectContaining({
+        externalField: 'Annual Revenue',
+        localField: 'cf:annual_revenue',
+        mappingKind: 'custom_field',
+      }),
+    ]))
+    expect(nextSuggestedMapping.unmappedColumns).toEqual(['Created Time', 'Referred by'])
+  })
+
   it('does not duplicate address target suggestions when the user already mapped a field manually', () => {
     const nextSuggestedMapping = buildPeopleSuggestedMapping(
       ['Address Line 1', 'Postal Code'],

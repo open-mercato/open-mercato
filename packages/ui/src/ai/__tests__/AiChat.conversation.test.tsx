@@ -158,6 +158,103 @@ describe('<AiChat> conversationId threading (Step 5.15)', () => {
     expect(parsedBody.conversationId).toBe('conv-body-xyz')
   })
 
+  it('invokes onConversationNotFound and does not import local messages when server returns 404', async () => {
+    const originalFetch = globalThis.fetch
+    const fetchMock = jest.fn((input: string | URL | Request) => {
+      const url = typeof input === 'string' ? input : input.toString()
+      if (url.includes('/api/ai_assistant/ai/conversations/conv-stale')) {
+        return Promise.resolve({
+          ok: false,
+          status: 404,
+          json: async () => ({ error: 'not found' }),
+        } as unknown as Response)
+      }
+      // Any /import call would be a regression we must catch:
+      if (url.includes('/import')) {
+        return Promise.resolve({
+          ok: true,
+          status: 200,
+          json: async () => ({}),
+        } as unknown as Response)
+      }
+      return Promise.resolve({
+        ok: true,
+        status: 200,
+        json: async () => ({}),
+      } as unknown as Response)
+    }) as unknown as typeof fetch
+    globalThis.fetch = fetchMock
+
+    const onConversationNotFound = jest.fn()
+
+    try {
+      renderWithProviders(
+        <AiChat
+          agent="customers.account_assistant"
+          conversationId="conv-stale"
+          onConversationNotFound={onConversationNotFound}
+        />,
+        { dict },
+      )
+
+      // hydrate effect is async — wait one tick for the 404 to land
+      await act(async () => {
+        await new Promise((resolve) => setTimeout(resolve, 0))
+      })
+
+      expect(onConversationNotFound).toHaveBeenCalledTimes(1)
+      // No /import call must happen on 404 — cross-tenant data write guard.
+      const importCalls = fetchMock.mock.calls.filter(([url]) => {
+        const u = typeof url === 'string' ? url : (url as { toString(): string }).toString()
+        return u.includes('/conversations/import')
+      })
+      expect(importCalls).toHaveLength(0)
+    } finally {
+      globalThis.fetch = originalFetch
+    }
+  })
+
+  it('does NOT invoke onConversationNotFound on transient transport failure (503)', async () => {
+    const originalFetch = globalThis.fetch
+    const fetchMock = jest.fn((input: string | URL | Request) => {
+      const url = typeof input === 'string' ? input : input.toString()
+      if (url.includes('/api/ai_assistant/ai/conversations/conv-503')) {
+        return Promise.resolve({
+          ok: false,
+          status: 503,
+          json: async () => ({ error: 'upstream' }),
+        } as unknown as Response)
+      }
+      return Promise.resolve({
+        ok: true,
+        status: 200,
+        json: async () => ({}),
+      } as unknown as Response)
+    }) as unknown as typeof fetch
+    globalThis.fetch = fetchMock
+
+    const onConversationNotFound = jest.fn()
+
+    try {
+      renderWithProviders(
+        <AiChat
+          agent="customers.account_assistant"
+          conversationId="conv-503"
+          onConversationNotFound={onConversationNotFound}
+        />,
+        { dict },
+      )
+
+      await act(async () => {
+        await new Promise((resolve) => setTimeout(resolve, 0))
+      })
+
+      expect(onConversationNotFound).not.toHaveBeenCalled()
+    } finally {
+      globalThis.fetch = originalFetch
+    }
+  })
+
   it('hydrates the transcript from server storage for an existing conversation', async () => {
     const originalFetch = globalThis.fetch
     const fetchMock = jest.fn(async () => ({

@@ -202,6 +202,45 @@ function normalizeMatchToken(value: string): string {
     .trim()
 }
 
+const TRAILING_IMPORT_QUALIFIERS = new Set(['external', 'imported', 'crm'])
+
+function addNormalizedMatchToken(tokens: Set<string>, value: string): void {
+  const normalized = normalizeMatchToken(value)
+  if (normalized.length > 0) {
+    tokens.add(normalized)
+  }
+}
+
+function stripParentheticalText(value: string): string {
+  return value.replace(/\s*\([^)]*\)\s*/g, ' ')
+}
+
+function stripTrailingImportQualifier(value: string): string {
+  const parts = normalizeMatchToken(value).split(' ').filter((part) => part.length > 0)
+  while (parts.length > 1 && TRAILING_IMPORT_QUALIFIERS.has(parts[parts.length - 1])) {
+    parts.pop()
+  }
+  return parts.join(' ')
+}
+
+function buildCustomFieldMatchTokens(def: CustomFieldDefDto, fallback: string): string[] {
+  const tokens = new Set<string>()
+  const candidates = [
+    def.key,
+    fallback,
+    stripParentheticalText(fallback),
+    stripTrailingImportQualifier(def.key),
+    stripTrailingImportQualifier(fallback),
+    stripTrailingImportQualifier(stripParentheticalText(fallback)),
+  ]
+
+  for (const candidate of candidates) {
+    addNormalizedMatchToken(tokens, candidate)
+  }
+
+  return Array.from(tokens)
+}
+
 function titleizeKey(key: string): string {
   return key
     .split('_')
@@ -248,16 +287,12 @@ function buildCustomFieldOption(def: CustomFieldDefDto): MappingTargetOption {
   const fallback = typeof def.label === 'string' && def.label.trim().length > 0
     ? def.label.trim()
     : titleizeKey(def.key)
-  const normalizedTokens = Array.from(new Set([
-    normalizeMatchToken(def.key),
-    normalizeMatchToken(fallback),
-  ].filter((value) => value.length > 0)))
 
   return {
     value: `cf:${def.key}`,
     fallback,
     mappingKind: 'custom_field',
-    matchTokens: normalizedTokens,
+    matchTokens: buildCustomFieldMatchTokens(def, fallback),
   }
 }
 

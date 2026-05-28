@@ -90,4 +90,18 @@ describe('PasswordInput primitive', () => {
     expect(ref.current).not.toBeNull()
     expect(ref.current?.tagName).toBe('INPUT')
   })
+
+  it('renders exactly one reveal toggle (suppresses Edge/IE native ::-ms-reveal duplicate)', () => {
+    // Regression for issue #2037: Microsoft Edge renders a native password reveal
+    // pseudo-element (::-ms-reveal) inside <input type="password">, which appeared
+    // alongside our custom toggle as a second eye icon. The fix is a Tailwind arbitrary
+    // variant on the inner input that hides ::-ms-reveal (and ::-ms-clear). JSDOM does
+    // not render UA pseudo-elements, so we verify the suppression class is present on
+    // the input and that our custom button is the sole reveal control.
+    const { container } = render(<PasswordInput defaultValue="secret" />)
+    const input = container.querySelector('input') as HTMLInputElement
+    expect(input.className).toContain('[&::-ms-reveal]:hidden')
+    expect(input.className).toContain('[&::-ms-clear]:hidden')
+    expect(screen.getAllByRole('button', { name: /show password|hide password/i })).toHaveLength(1)
+  })
 })

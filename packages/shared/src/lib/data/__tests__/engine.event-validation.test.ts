@@ -1,7 +1,7 @@
 import type { AwilixContainer } from 'awilix'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import { DefaultDataEngine, __resetUndeclaredEventWarningsForTests } from '../engine'
-import { createModuleEvents } from '../../../modules/events'
+import { createModuleEvents, registerEventModuleConfigs } from '../../../modules/events'
 
 const testEvents = [
   { id: 'issue1421_test.widget.created', label: 'Widget Created', entity: 'widget', category: 'crud' as const },
@@ -54,6 +54,43 @@ describe('DataEngine event contract validation (issue #1421)', () => {
 
       expect(emitted).toEqual([
         expect.objectContaining({ name: 'issue1421_test.widget.created' }),
+      ])
+      expect(warnSpy).not.toHaveBeenCalled()
+    } finally {
+      warnSpy.mockRestore()
+    }
+  })
+
+  it('accepts events declared through bootstrap-registered module configs', async () => {
+    registerEventModuleConfigs([
+      {
+        moduleId: 'issue1421_bootstrap',
+        events: [
+          {
+            id: 'issue1421_bootstrap.widget.deleted',
+            label: 'Widget Deleted',
+            module: 'issue1421_bootstrap',
+            entity: 'widget',
+            category: 'crud',
+          },
+        ],
+        emit: jest.fn(),
+      },
+    ])
+
+    const warnSpy = jest.spyOn(console, 'warn').mockImplementation(() => {})
+    try {
+      const { engine, emitted } = makeFixture()
+
+      await engine.emitOrmEntityEvent({
+        action: 'deleted',
+        entity: { id: identifiers.id },
+        identifiers,
+        events: { module: 'issue1421_bootstrap', entity: 'widget' },
+      })
+
+      expect(emitted).toEqual([
+        expect.objectContaining({ name: 'issue1421_bootstrap.widget.deleted' }),
       ])
       expect(warnSpy).not.toHaveBeenCalled()
     } finally {

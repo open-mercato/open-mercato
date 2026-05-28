@@ -30,6 +30,7 @@ jest.mock('@open-mercato/core/modules/attachments/lib/thumbnailCache', () => ({
 
 jest.mock('@open-mercato/core/modules/attachments/lib/access', () => ({
   checkAttachmentAccess: jest.fn(() => ({ ok: true })),
+  isSuperAdminAuth: jest.fn(() => false),
 }))
 
 const mockAttachment = {
@@ -70,6 +71,34 @@ describe('attachments image route', () => {
 
   beforeEach(() => {
     jest.clearAllMocks()
+  })
+
+  it('returns 404 when authenticated non-super-admin queries cross-tenant attachment (query layer blocks before access check)', async () => {
+    const { getAuthFromRequest } = await import('@open-mercato/shared/lib/auth/server') as any
+    getAuthFromRequest.mockResolvedValueOnce({ tenantId: 'other-tenant', orgId: 'other-org', roles: ['admin'] })
+
+    // em.findOne returns null because tenantId filter won't match the attachment's tenant
+    mockEm.findOne.mockImplementationOnce(async (_entity: unknown, where: Record<string, unknown>) => {
+      if (where.code === 'privateAttachments') return mockPartition
+      if (where.id === 'att-1' && where.tenantId === 'tenant-1') return mockAttachment
+      return null
+    })
+
+    const response = await GET(
+      new Request('http://localhost/api/attachments/image/att-1') as Parameters<ImageRoute['GET']>[0],
+      { params: Promise.resolve({ id: 'att-1' }) },
+    )
+
+    expect(response.status).toBe(404)
+    // Verify em.findOne was called WITH the caller's tenant scope — this is the defence-in-depth assertion
+    expect(mockEm.findOne.mock.calls[0][1]).toMatchObject({
+      id: 'att-1',
+      tenantId: 'other-tenant',
+      organizationId: 'other-org',
+    })
+    // checkAttachmentAccess must NOT have been called — 404 came from the query layer
+    const { checkAttachmentAccess } = await import('@open-mercato/core/modules/attachments/lib/access') as any
+    expect(checkAttachmentAccess).not.toHaveBeenCalled()
   })
 
   it('rejects spoofed image content before invoking sharp', async () => {

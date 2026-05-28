@@ -2,6 +2,40 @@
 
 This is a **standalone application** that consumes Open Mercato packages from the npm registry. Unlike the monorepo development environment, packages here are pre-compiled and installed as dependencies.
 
+## Always
+
+- Treat this app as a package consumer: inspect `node_modules/@open-mercato/*/dist/` when framework behavior is unclear.
+- Put custom modules in `src/modules/<module>/` and add them to `src/modules.ts` with `from: '@app'`.
+- Run `yarn generate` after changing modules, overrides, pages, widgets, AI agents, AI tools, or structural navigation.
+- Declare API route `metadata` per HTTP method, including explicit unauthenticated public routes.
+- Keep generated files under `.mercato/generated/` as generated output only.
+
+## Ask First
+
+- Ask before applying migrations, resetting local databases, or changing `.env` database targets.
+- Ask before using manual SQL instead of the generated migration path.
+- Ask before adding a new framework primitive when a canonical mechanism is not listed below.
+- Ask before enabling live external services, secrets, or provider credentials in tests.
+
+## Never
+
+- Never use raw `fetch`, raw `<form>`, ad hoc crypto, ad hoc Redis, custom queues, or manual cross-module ORM joins when a framework primitive exists.
+- Never use `requireRoles`; use feature-based RBAC and grant features in module setup.
+- Never store sensitive data as plaintext "for now" or hand-roll encryption.
+- Never hardcode user-facing strings or Tailwind status colors in UI changes.
+- Never edit already-shipped historical migrations; add a new corrective migration.
+
+## Validation Commands
+
+```bash
+yarn generate
+yarn typecheck
+yarn lint
+yarn test
+yarn build
+yarn test:integration:ephemeral
+```
+
 ## Package Source Files
 
 To explore or understand the Open Mercato framework code:
@@ -65,7 +99,7 @@ yarn generate
 # Manually purge structural caches when needed (Redis nav:* + Turbopack barrel mtimes)
 yarn mercato configs cache structural --all-tenants
 
-# Escape hatch: clear .next/cache/turbopack when Turbopack still serves a stale chunk
+# Escape hatch: clear .mercato/next/dev and legacy .next caches when Turbopack still serves a stale chunk
 yarn dev:reset
 
 # Database operations
@@ -616,7 +650,7 @@ Notes:
 
 The standalone template enables the `configs` module from `@open-mercato/core`, so `yarn mercato configs cache ...` is available here after installation. After structural changes such as enabling or disabling modules, adding or removing backend/frontend pages, or changing sidebar/navigation injections, run `yarn generate`. The generator now performs a best-effort structural cache purge automatically after successful generation; if the cache command is unavailable, generation still succeeds.
 
-The structural cache purge invalidates two layers: Redis `nav:*` cache keys and Turbopack's module-graph fingerprints (it bumps mtimes on every file in `.mercato/generated/` without changing content). When Turbopack still serves a stale compiled chunk after a structural change — typically because its own internal cache pinned a previous compile error — run `yarn dev:reset` to clear `.next/cache/turbopack` and restart `yarn dev`.
+The structural cache purge invalidates two layers: Redis `nav:*` cache keys and Turbopack's module-graph fingerprints (it bumps mtimes on every file in `.mercato/generated/` without changing content). When Turbopack still serves a stale compiled chunk after a structural change — typically because its own internal cache pinned a previous compile error — run `yarn dev:reset` to clear `.mercato/next/dev` plus legacy `.next` caches and restart `yarn dev`.
 
 Detail/read-model APIs that expose `customFields` must return bare field keys via `normalizeCustomFieldResponse()` (for example `{ priority: 3 }`). Keep `cf_` / `cf:` prefixes for request payloads, filters, and form field IDs only.
 

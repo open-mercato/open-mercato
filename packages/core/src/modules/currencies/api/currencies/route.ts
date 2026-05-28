@@ -172,10 +172,9 @@ export async function GET(req: Request) {
     orderBy.code = 'ASC'
   }
 
-  const [all, total] = await em.findAndCount(Currency, filter, { orderBy })
-  const start = (page - 1) * pageSize
-  const paged = all.slice(start, start + pageSize)
-  const items = paged.map(toRow)
+  const offset = (page - 1) * pageSize
+  const [rows, total] = await em.findAndCount(Currency, filter, { orderBy, limit: pageSize, offset })
+  const items = rows.map(toRow)
   const totalPages = Math.max(1, Math.ceil(total / pageSize))
 
   return NextResponse.json({ items, total, page, pageSize, totalPages })

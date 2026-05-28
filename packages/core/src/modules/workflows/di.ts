@@ -11,6 +11,8 @@ import * as stepHandler from './lib/step-handler'
 import * as transitionHandler from './lib/transition-handler'
 import * as activityExecutor from './lib/activity-executor'
 import * as eventLogger from './lib/event-logger'
+import * as signalHandler from './lib/signal-handler'
+import * as timerHandler from './lib/timer-handler'
 
 export function register(container: AwilixContainer): void {
   container.register({
@@ -19,5 +21,7 @@ export function register(container: AwilixContainer): void {
     transitionHandler: asFunction(() => transitionHandler).scoped(),
     activityExecutor: asFunction(() => activityExecutor).scoped(),
     eventLogger: asFunction(() => eventLogger).scoped(),
+    signalHandler: asFunction(() => signalHandler).scoped(),
+    timerHandler: asFunction(() => timerHandler).scoped(),
   })
 }

@@ -6,6 +6,7 @@ type KyselyMockConfig = {
   baseCount: number
   indexCount: number
   customFieldKeys?: Record<string, string[]>
+  rows?: Record<string, Array<Record<string, unknown>>>
   /** If provided, returned for information_schema.columns lookups. */
   columns?: Array<{ table_name: string; column_name: string }>
 }
@@ -192,6 +193,9 @@ function resolveRows(
       { column_name: 'organization_id', data_type: 'uuid' },
       { column_name: 'deleted_at', data_type: 'timestamp' },
     ]
+  }
+  if (config.rows?.[table]) {
+    return config.rows[table]
   }
   return []
 }
@@ -393,6 +397,47 @@ describe('HybridQueryEngine', () => {
     })
     expect(fallback.query).not.toHaveBeenCalled()
     expect(emitEvent).not.toHaveBeenCalled()
+  })
+
+  test('decrypts selected base fields with organization fallback when rows omit scope columns', async () => {
+    const db = createFakeKysely({
+      baseTable: 'users',
+      hasIndexAny: true,
+      baseCount: 1,
+      indexCount: 1,
+      rows: {
+        users: [{ id: 'user-1', name: 'encrypted-name', tenant_id: 't1' }],
+      },
+    })
+    const em = buildEm(db)
+    const fallback = { query: jest.fn() }
+    const emitEvent = jest.fn().mockResolvedValue(undefined)
+    const decryptEntityPayload = jest.fn(async () => ({ name: 'Alice Owner' }))
+    const engine = new HybridQueryEngine(
+      em,
+      fallback as any,
+      () => ({ emitEvent }),
+      undefined,
+      () => ({ decryptEntityPayload }),
+    )
+
+    const result = await engine.query('auth:user', {
+      fields: ['id', 'name'],
+      organizationId: 'org1',
+      tenantId: 't1',
+      page: { page: 1, pageSize: 50 },
+    })
+
+    expect(fallback.query).not.toHaveBeenCalled()
+    expect(decryptEntityPayload).toHaveBeenCalledWith(
+      'auth:user',
+      expect.objectContaining({ id: 'user-1', name: 'encrypted-name' }),
+      't1',
+      'org1',
+    )
+    expect(result.items).toEqual([
+      expect.objectContaining({ id: 'user-1', name: 'Alice Owner' }),
+    ])
   })
 
   test('joins entity index aliases for customFieldSources', async () => {

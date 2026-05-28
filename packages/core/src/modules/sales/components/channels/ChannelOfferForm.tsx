@@ -291,7 +291,7 @@ export function ChannelOfferForm({ channelId: lockedChannelId, offerId, mode }: 
           { errorMessage: t('sales.channels.offers.errors.loadOffer', 'Failed to load offer.') },
         )
         const offer = Array.isArray(payload.items) ? payload.items[0] : null
-        if (!offer) throw new Error('not_found')
+        if (!offer) throw new Error(t('sales.channels.offers.errors.notFound', 'Offer not found.'))
         const values = mapOfferToFormValues(offer, lockedChannelId)
         const pricePayload = await readApiResultOrThrow<PriceResponse>(
           `/api/catalog/prices?offerId=${encodeURIComponent(offer.id as string)}&pageSize=${MAX_LIST_PAGE_SIZE}`,
