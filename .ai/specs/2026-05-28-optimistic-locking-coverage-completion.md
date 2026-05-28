@@ -358,8 +358,35 @@ None for this spec draft.
 
 Approved as a phased follow-up draft for implementation planning.
 
+## Implementation Status
+
+| Write surface | Status | Where |
+|---|---|---|
+| `customers.company` update | Done | CrudForm `optimisticLockUpdatedAt` (companies-v2 `[id]/page.tsx`) |
+| `customers.company` delete | Done (QA #2055) | custom `handleDelete` wraps `deleteCrud` with the lock header |
+| `customers.person` update | Done | CrudForm `optimisticLockUpdatedAt` (people-v2 `[id]/page.tsx`) |
+| `customers.person` delete | Done (QA #2055) | custom `handleFormDelete` wraps `deleteCrud` with the lock header |
+| `customers.deal` update + delete | Done (QA #2055) | `useDealFormHandlers` wraps `updateCrud`/`deleteCrud` with the lock header |
+| `catalog.product` update | Done | CrudForm `optimisticLockUpdatedAt` |
+| `sales.channel` list delete | Done (QA #2055) | channels list `handleDelete` wraps `deleteCrud`; 409 → conflict flash + refresh |
+| `sales.order` document edit (lines/adjustments/shipments/payments, status transitions) | **Deferred** | command-style endpoints, not `makeCrudRoute` PUT; needs command-level expected-version checks (Phase 4) |
+| Nested panels (deal associations/pipeline/closure, channel offer prices, document lines) | **Deferred** | Phase 3 surface — large; not in the QA #2055 increment |
+
+Server-side enforcement on **both update and delete** is entity-agnostic in
+`makeCrudRoute` (`runMutationGuards` with `operation: 'update' | 'delete'`),
+proven by `TC-LOCK-OSS-004` (PUT + DELETE 409). Every CRUD route auto-registers
+a generic reader (Phase 13), so any single-record edit/delete UI path gains
+protection simply by sending the `updated_at` header.
+
 ## Changelog
 
 ### 2026-05-28
 
 - Initial phased follow-up spec for completing optimistic-locking coverage.
+- QA #2055 increment: wired the optimistic-lock header into the custom
+  (non-`CrudForm`) update/delete handlers for `customers.deal`,
+  `customers.company` delete, `customers.person` delete, and the
+  `sales.channel` list delete; added `TC-LOCK-OSS-004` DELETE coverage and
+  page-level delete-header unit tests. Recorded the implementation status
+  table above; sales document command endpoints and nested panels remain
+  deferred (Phases 3–4).
