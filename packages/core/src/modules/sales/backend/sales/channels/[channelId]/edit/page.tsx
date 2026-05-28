@@ -53,7 +53,7 @@ export default function EditChannelPage({ params }: { params?: { channelId?: str
         )
         const item = Array.isArray(payload.items) ? payload.items[0] : null
         if (!item) {
-          throw new Error('not_found')
+          throw new Error(t('sales.channels.form.errors.notFound', 'Channel not found.'))
         }
         if (!cancelled) {
           setInitialValues(mapChannelToFormValues(item))

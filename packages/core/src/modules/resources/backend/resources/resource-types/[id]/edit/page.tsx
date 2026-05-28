@@ -37,7 +37,7 @@ export default function ResourcesResourceTypeEditPage({ params }: { params?: { i
           { errorMessage: t('resources.resourceTypes.errors.load', 'Failed to load resource types.') },
         )
         const item = Array.isArray(payload.items) ? payload.items[0] : null
-        if (!item) throw new Error('not_found')
+        if (!item) throw new Error(t('resources.resourceTypes.errors.notFound', 'Resource type not found.'))
         if (!cancelled) {
           const customValues = extractCustomFieldValues(item)
           setInitialValues({

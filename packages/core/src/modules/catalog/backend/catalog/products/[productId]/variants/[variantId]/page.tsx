@@ -10,6 +10,7 @@ import { collectCustomFieldValues } from '@open-mercato/ui/backend/utils/customF
 import { apiCall, readApiResultOrThrow, withScopedApiRequestHeaders } from '@open-mercato/ui/backend/utils/apiCall'
 import { buildOptimisticLockHeader } from '@open-mercato/ui/backend/utils/optimisticLock'
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
+import { ErrorMessage } from '@open-mercato/ui/backend/detail'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { extractCustomFieldEntries } from '@open-mercato/shared/lib/crud/custom-fields-client'
 import { E } from '#generated/entities.ids.generated'
@@ -166,7 +167,7 @@ export default function EditVariantPage({ params }: { params?: { productId?: str
         const variantRes = await apiCall<VariantResponse>(
           `/api/catalog/variants?id=${encodeURIComponent(variantId!)}&page=1&pageSize=1`,
         )
-        if (!variantRes.ok) throw new Error('load_variant_failed')
+        if (!variantRes.ok) throw new Error(t('catalog.variants.form.errors.load', 'Failed to load variant.'))
         const record = Array.isArray(variantRes.result?.items) ? variantRes.result?.items?.[0] : undefined
         if (!record) throw new Error(t('catalog.variants.form.errors.notFound', 'Variant not found.'))
         const resolvedProductId =
@@ -428,7 +429,7 @@ export default function EditVariantPage({ params }: { params?: { productId?: str
     <Page>
       <PageBody>
         {error ? (
-          <div className="mb-4 rounded border border-destructive/40 bg-destructive/10 px-4 py-3 text-sm text-destructive">{error}</div>
+          <ErrorMessage label={error} className="mb-4" />
         ) : null}
         <CrudForm<VariantFormValues>
           title={formTitle}

@@ -558,7 +558,14 @@ export default function EditCatalogProductPage({
         const productRes = await apiCall<ProductResponse>(
           `/api/catalog/products?id=${encodeURIComponent(productId!)}&page=1&pageSize=1&withDeleted=false`,
         );
-        if (!productRes.ok) throw new Error("load_failed");
+        if (!productRes.ok) {
+          throw new Error(
+            t(
+              "catalog.products.edit.errors.load",
+              "Failed to load product details.",
+            ),
+          );
+        }
         const record = Array.isArray(productRes.result?.items)
           ? productRes.result?.items?.[0]
           : undefined;

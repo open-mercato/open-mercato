@@ -103,7 +103,12 @@ async function loadVariantSnapshot(
 ): Promise<VariantSnapshot | null> {
   const record = await em.findOne(CatalogProductVariant, { id, deletedAt: null })
   if (!record) return null
-  const prices = options.includePrices ? await loadVariantPriceSnapshots(em, record.id) : null
+  const prices = options.includePrices
+    ? await loadVariantPriceSnapshots(em, record.id, {
+        tenantId: record.tenantId,
+        organizationId: record.organizationId,
+      })
+    : null
   const custom = await loadCustomFieldSnapshot(em, {
     entityId: E.catalog.catalog_product_variant,
     recordId: record.id,
@@ -223,14 +228,15 @@ type VariantPriceSnapshot = {
 
 async function loadVariantPriceSnapshots(
   em: EntityManager,
-  variantId: string
+  variantId: string,
+  scope: { tenantId: string; organizationId: string }
 ): Promise<VariantPriceSnapshot[]> {
   const prices = await findWithDecryption(
     em,
     CatalogProductPrice,
-    { variant: variantId },
+    { variant: variantId, tenantId: scope.tenantId, organizationId: scope.organizationId },
     { populate: ['priceKind', 'product', 'offer'] },
-    { tenantId: null, organizationId: null },
+    { tenantId: scope.tenantId, organizationId: scope.organizationId },
   )
   const snapshots: VariantPriceSnapshot[] = []
   for (const price of prices) {
@@ -904,7 +910,10 @@ const deleteVariantCommand: CommandHandler<
     const priceSnapshots =
       snapshot?.prices && snapshot.prices.length
         ? snapshot.prices
-        : await loadVariantPriceSnapshots(baseEm, id)
+        : await loadVariantPriceSnapshots(baseEm, id, {
+            tenantId: record.tenantId,
+            organizationId: record.organizationId,
+          })
 
     if (priceSnapshots.length) {
       await em.nativeDelete(CatalogProductPrice, { id: { $in: priceSnapshots.map((price) => price.id) } })
