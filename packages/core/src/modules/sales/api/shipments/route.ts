@@ -72,7 +72,11 @@ export async function enrichShipmentListResponse(
     }
   })
   const shipmentIds = items
-    .map((item: unknown) => (item && typeof item === 'object' ? (item as Record<string, unknown>).id : null))
+    .map((item: unknown) => {
+      if (!item || typeof item !== 'object') return null
+      const raw = (item as Record<string, unknown>).id
+      return typeof raw === 'string' ? raw : null
+    })
     .filter((value: string | null): value is string => typeof value === 'string')
   if (!shipmentIds.length) return
   const em = ctx.container.resolve('em') as EntityManager
