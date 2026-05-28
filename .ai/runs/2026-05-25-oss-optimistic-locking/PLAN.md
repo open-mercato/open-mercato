@@ -61,7 +61,7 @@
 | 15 | 15.4 | Integration: stale + header-less DELETE for customers.deal (entity-agnostic delete-guard proof) | done | 7d083ad09 |
 | 15 | 15.5 | Coverage spec reconciliation (impl-status table) — docs already cover the pattern | done | b1dbcf79c |
 | 16 | 16.0 | Merge develop → resolve conflicts (CHANGELOG, yarn.lock) | done | 20b4ba3ff |
-| 16 | 16.1 | Generalist command-level helper `optimistic-lock-command.ts` (read/assert/enforce) + export `normalizeIsoToken` + unit tests | todo | — |
+| 16 | 16.1 | Generalist command-level helper `optimistic-lock-command.ts` (read/assert/enforce) + export `normalizeIsoToken` + unit tests | done | 40093fc0e |
 | 17 | 17.1 | Sales command helper `enforceSalesDocumentOptimisticLock` (parent order/quote version check + bump) in commands/shared.ts | todo | — |
 | 17 | 17.2 | Wire order/quote line upsert + delete commands to document-aggregate lock + tests | todo | — |
 | 17 | 17.3 | Wire order/quote adjustment upsert + delete commands + tests | todo | — |
@@ -255,3 +255,77 @@ finally means what it says.
   → `OM_OPTIMISTIC_LOCK='all'` so the generic-reader path runs in
   ephemeral-integration. Keeps TC-LOCK-OSS-001..003 green
   (`all` covers everything they need).
+
+## Resume — command-level optimistic locking (Phases 16–20)
+
+**Trigger:** `/auto-continue-pr-loop 2055 fix conflicts then continue the
+implementation for sales sub requests based on the commands — generalist way
+to support OSS optimistic locks for commands (not only CrudForms), implement
+for sales, update docs/specs, file a follow-up issue for other modules.`
+
+**Why this is new scope on a "complete" PR.** Phases 1–15 protect every
+`makeCrudRoute` mutation (incl. command-dispatched CRUD actions like sales
+lines, which already get a *row-level* guard via the factory). What was NOT
+covered: domain writes that mutate an aggregate's sub-resources through the
+Command pattern want to guard the **aggregate root** (the parent order/quote),
+not just the child row — and pure action endpoints (quote→order conversion)
+bypass the CRUD guard entirely. This resume adds a generalist command-level
+primitive and demonstrates it on sales.
+
+**Design decision (architectural).** Sub-resource commands enforce the
+**document-aggregate** version: read the expected parent order/quote
+`updated_at` (extension header, same wire contract), compare against the loaded
+parent, throw the identical structured 409 on mismatch, and **bump the parent
+`updated_at`** on a successful sub-resource mutation so concurrent sub-edits
+conflict. Row-level granularity is already provided by the existing factory
+guard, so the document-aggregate layer is the part that adds new value.
+Strictly additive: no header ⇒ no 409.
+
+### Phase 16: Generalist command-level helper (`@open-mercato/shared`)
+
+- 16.1 New `packages/shared/src/lib/crud/optimistic-lock-command.ts`:
+  `readOptimisticLockExpected(request|headers)`,
+  `assertOptimisticLock({ resourceKind, resourceId, expected, current })`
+  (pure; throws `CrudHttpError(409, OptimisticLockConflictBody)`; no-op when
+  env-disabled / no expected / no current), and
+  `enforceCommandOptimisticLock({ resourceKind, resourceId, current, expected?,
+  request? })` (resolves expected from explicit override or header, then
+  asserts). Reuses the exported `normalizeIsoToken` from `optimistic-lock.ts`
+  so command + CRUD paths normalize identically. Respects the same
+  `OM_OPTIMISTIC_LOCK` env contract. Unit tests.
+
+### Phase 17: Sales document-aggregate command wiring
+
+- 17.1 Sales-local helper `enforceSalesDocumentOptimisticLock(ctx, { order |
+  quote })` + `touchSalesDocument(order|quote)` in `commands/shared.ts`
+  (reads `ctx.request` headers, maps the document to `sales.order` /
+  `sales.quote` resourceKind, enforces + bumps `updatedAt`).
+- 17.2 Order/quote line upsert + delete commands enforce + bump the parent
+  document before flush + tests.
+- 17.3 Order/quote adjustment upsert + delete commands + tests.
+- 17.4 Shipment create/update/delete commands + tests.
+- 17.5 Payment create/update/delete commands + tests.
+- 17.6 Return create command + quote `convert_to_order` (closes the #2114
+  accept/convert race surface) + tests.
+
+### Phase 18: Client wiring
+
+- 18.1 Sales document UI sub-resource sections send
+  `buildOptimisticLockHeader(document.updatedAt)` via
+  `withScopedApiRequestHeaders(...)` on POST/PUT/DELETE; surface the 409
+  conflict flash (`ui.forms.flash.recordModified`) + refresh. Paired UI test.
+
+### Phase 19: Docs + specs
+
+- 19.1 Coverage-completion spec Phase 4 marked implemented (impl-status table)
+  + main spec gains a "Command-level checks" section.
+- 19.2 `concurrency-locking.mdx` "Protecting command/action endpoints" section
+  + root AGENTS.md note that command-dispatching routes mutating an aggregate
+  SHOULD call `enforceCommandOptimisticLock`.
+
+### Phase 20: Follow-up issue + finalize
+
+- 20.1 File a GitHub follow-up issue to extend command-level optimistic locking
+  to other modules (catalog nested resources, workflows action endpoints,
+  staff/resources adapters) + CHANGELOG `Unreleased` entry. Final gate +
+  auto-review + summary comment + label normalization.
