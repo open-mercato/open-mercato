@@ -604,15 +604,18 @@ export async function syncCustomerInteractionToExampleTodo(
 }
 
 export async function syncExampleTodoToCanonicalInteraction(
-  rawContainer: ContainerLike,
+  container: ContainerLike,
   payload: ExampleCustomersSyncInboundJobPayload,
 ): Promise<void> {
   const scope = { tenantId: payload.tenantId, organizationId: payload.organizationId }
-  const flags = await resolveExampleCustomersSyncFlags(rawContainer, scope.tenantId)
+  const flags = await resolveExampleCustomersSyncFlags(container, scope.tenantId)
   if (!flags.enabled || !flags.bidirectional) return
 
-  const em = (rawContainer.resolve('em') as EntityManager).fork()
-  const container = createScopedSyncContainer(rawContainer)
+  // Inbound sync never hit the outbound duplicate-key bug (it creates/updates
+  // canonical interactions, not same-id Todos), so it keeps the original
+  // shared-container behavior — scoping it was speculative and regressed the
+  // inbound field-clear propagation in TC-CRM-028.
+  const em = (container.resolve('em') as EntityManager).fork()
   let mapping = await findMappingByTodoId(em, scope, payload.todoId)
   let todo: ExampleTodoSnapshot | null = null
   if (!mapping && payload.eventId !== 'example.todo.deleted') {
@@ -907,13 +910,12 @@ async function ensureMappingForLegacyExampleTodo(
 }
 
 export async function reconcileLegacyExampleTodoLinks(
-  rawContainer: ContainerLike,
+  container: ContainerLike,
   input: ExampleCustomersSyncScope & { limit?: number; cursor?: string },
 ): Promise<ExampleCustomersSyncReconcileResult> {
   const scope = { tenantId: input.tenantId, organizationId: input.organizationId }
   const limit = Math.min(Math.max(input.limit ?? 100, 1), 500)
-  const em = (rawContainer.resolve('em') as EntityManager).fork()
-  const container = createScopedSyncContainer(rawContainer)
+  const em = (container.resolve('em') as EntityManager).fork()
   const { rows, nextCursor } = await loadLegacyExampleTodoLinks(container, scope, limit, input.cursor)
   const items: ExampleCustomersSyncReconcileItem[] = []
   let mapped = 0
