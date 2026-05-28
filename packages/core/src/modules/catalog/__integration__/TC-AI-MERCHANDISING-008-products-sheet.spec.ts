@@ -113,10 +113,16 @@ test.describe('TC-AI-MERCHANDISING-008: catalog.merchandising_assistant sheet', 
     // Ensure the React click handler has bound — wait for the button to be enabled and any
     // pending DataTable/widget mount work to settle before exercising it.
     await expect(trigger).toBeEnabled({ timeout: 30_000 });
-    await trigger.click();
 
+    // Re-click (only while closed) until the sheet + composer mount — guards
+    // against a pre-hydration no-op click under heavy CI load.
     const sheet = page.locator('[data-ai-merchandising-sheet]');
-    await expect(sheet).toBeVisible();
+    const composer = page.locator('#ai-chat-composer');
+    await expect(async () => {
+      if (!(await sheet.isVisible())) await trigger.click();
+      await expect(sheet).toBeVisible({ timeout: 3_000 });
+      await expect(composer).toBeVisible({ timeout: 3_000 });
+    }).toPass({ timeout: 60_000, intervals: [500, 1_000, 2_000] });
 
     // Phase 2 ships with selectedCount = 0 (DataTable's internal rowSelection
     // is not yet exposed to the host page; see MerchandisingAssistantSheet
