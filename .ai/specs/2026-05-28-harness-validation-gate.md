@@ -69,19 +69,41 @@ Exits non-zero if any step fails. Short-circuits steps 2–4 if `yarn generate` 
 
 **`yarn mercato harness post-scaffold --module <id>`**
 
-Same gate plus an HTTP `/login` smoke check (port read from `PORT`/`APP_PORT` env, defaulting to 3000). Prints actionable hints for the two most common root causes (`acl.ts` missing default export, `createModuleEvents` wrong shape).
+Runs a module-aware gate with two additional steps:
+
+1. `yarn generate`
+2. `configs cache structural --all-tenants`
+3. **acl/setup alignment check** — reads `mod.features` (from `acl.ts`) and `mod.setup.defaultRoleFeatures` (from `setup.ts`) via the already-loaded module registry; reports a `⚠️ warning` for any feature declared in `acl.ts` that is not granted to any role in `setup.ts`. `auth sync-role-acls` in the next step patches existing tenants, but `setup.ts` must also grant the features so new tenants receive them on fresh setup.
+4. `auth sync-role-acls` (all tenants) — patches any grants missing from existing tenants
+5. `yarn typecheck`
+6. `/login` HTTP smoke check (port from `PORT`/`APP_PORT` env, default 3000) — fails if the server returns 5xx
+
+Prints actionable hints for the three most common root causes when any step fails: missing `export default features` in `acl.ts`, wrong `createModuleEvents` shape in `events.ts`, and stale `makeCrudRoute` factory in `route.ts`.
 
 **Registration**: added `{ id: 'harness', from: '@open-mercato/core' }` to:
 - `apps/mercato/src/modules.ts`
 - `packages/create-app/template/src/modules.ts`
 
+## Design Decision: `/login` smoke check scope
+
+The `/login` HTTP smoke check is included in `post-scaffold` only, not in `verify`. This is a deliberate tradeoff:
+
+**Option A** — add to `verify` as `⚠️ warning` when server unreachable (not hard ❌ failure)
+**Option B** *(current)* — `post-scaffold` only; `verify` stays CI-safe with no server dependency
+**Option C** — add `--smoke` flag to `verify` to opt in
+
+Rationale for B: `verify` is designed to run in environments where no dev server is active (CI pipelines, pre-commit hooks, fresh checkouts). A smoke check that fails silently or only warns in those contexts adds noise without value. `post-scaffold` is explicitly a developer-context command where the dev server is expected to be running.
+
+Open question for community input: should `verify` include the smoke check as a non-blocking `⚠️` (Option A) for completeness, or does that dilute its CI utility?
+
 ## Gaps (acknowledged, out of scope)
 
 - **Dev DB migration guard**: detecting an existing table with a missing migration row and suggesting additive SQL. `yarn db:migrate` remains always user-confirmed per project conventions.
-- **Programmatic module shape validation**: static pre-check of exports without running the TS compiler. The `yarn typecheck` step in the gate catches these errors.
-- **Conditional ACL sync**: syncing only when new features are detected. The harness always syncs (safe and idempotent).
+- **Programmatic module shape validation**: static pre-check of exports without running the TS compiler. The `yarn typecheck` step in the gate catches these errors, and the `acl/setup alignment` check catches the most common setup.ts gap.
+- **Conditional ACL sync**: syncing only when new features are detected. The harness always syncs (safe and idempotent); the alignment check now surfaces the mismatch before syncing.
 - **Sidebar discoverability check**: the structural cache purge in step 2 handles stale nav state indirectly.
 
 ## Changelog
 
 - **2026-05-28** — Initial implementation (PR from `Kotmin/open-mercato`, fixes #2209)
+- **2026-05-28** — Added acl/setup alignment check to `post-scaffold`; documented `/login` smoke check scope as Option B with A/C alternatives open for community discussion
