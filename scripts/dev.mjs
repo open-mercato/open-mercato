@@ -492,7 +492,7 @@ function resolveSplashLocaleConfig() {
   return splashLocaleConfig
 }
 
-function buildSplashChildEnv() {
+function buildSplashChildEnv(options = {}) {
   const childEnv = devLogTeeDisabled
     ? {}
     : {
@@ -508,6 +508,8 @@ function buildSplashChildEnv() {
     ...childEnv,
     OM_DEV_SPLASH_CHILD_STATE_FILE: splashChildStateFile,
     OM_DEV_SPLASH_MODE: splashMode,
+    ...(Number.isFinite(options.stageCurrent) ? { OM_DEV_SPLASH_STAGE_CURRENT: String(options.stageCurrent) } : {}),
+    ...(Number.isFinite(options.stageTotal) ? { OM_DEV_SPLASH_STAGE_TOTAL: String(options.stageTotal) } : {}),
   }
 }
 
@@ -528,8 +530,8 @@ function applyLocalDevBackgroundServiceDefaults(childEnv) {
   return env
 }
 
-function buildAppDevEnv() {
-  return applyLocalDevBackgroundServiceDefaults(buildSplashChildEnv() ?? {})
+function buildAppDevEnv(options = {}) {
+  return applyLocalDevBackgroundServiceDefaults(buildSplashChildEnv(options) ?? {})
 }
 
 function launchStandaloneDev(options = {}) {
@@ -566,7 +568,7 @@ function launchStandaloneDev(options = {}) {
 
   const app = spawnCommand(process.execPath, runtimeArgs, {
     stdio: 'inherit',
-    env: buildAppDevEnv(),
+    env: buildAppDevEnv({ stageCurrent, stageTotal }),
   })
 
   app.on('close', (code) => {
@@ -1615,7 +1617,7 @@ function launchMonorepoAppDev() {
   })
   const app = spawnCommand(yarnCommand, appArgs, {
     stdio: 'inherit',
-    env: buildAppDevEnv(),
+    env: buildAppDevEnv({ stageCurrent, stageTotal }),
   })
 
   app.on('close', (code, signal) => {

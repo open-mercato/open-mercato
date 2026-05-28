@@ -32,7 +32,7 @@ import {
 import { parseModuleInstallArgs } from './lib/module-install-args'
 import { resolveNextBuildIdCandidate } from './lib/next-build-id'
 import { acquireServerStartLock } from './lib/server-start-lock'
-import { createDevEnvReloader, watchDevEnvFiles, watchDevRuntimeFiles } from './lib/dev-env-reload'
+import { createDevEnvReloader, watchDevEnvFiles } from './lib/dev-env-reload'
 // Lazy-imported to avoid pulling in `testcontainers` (devDependency) at startup
 const lazyIntegration = () => import('./lib/testing/integration')
 import type { ChildProcess } from 'node:child_process'
@@ -341,6 +341,92 @@ type DevServerRestartResult = {
 
 type DevServerExitResult = ManagedProcessExitResult | DevServerRestartResult
 
+function resolveDevRuntimeBaseUrl(environment: NodeJS.ProcessEnv = process.env): string {
+  const configured =
+    environment.APP_URL
+    ?? environment.NEXT_PUBLIC_APP_URL
+    ?? environment.NEXTAUTH_URL
+  if (configured?.trim()) {
+    return configured.trim().replace(/\/+$/, '')
+  }
+  return `http://localhost:${environment.PORT?.trim() || '3000'}`
+}
+
+function writeDevSplashChildState(state: Record<string, unknown>): void {
+  if (process.env.OM_DEV_SPLASH_RUNTIME_WRAPPER === '1') return
+  const stateFile = process.env.OM_DEV_SPLASH_CHILD_STATE_FILE
+  if (!stateFile?.trim()) return
+
+  try {
+    fs.mkdirSync(path.dirname(stateFile), { recursive: true })
+    fs.writeFileSync(stateFile, `${JSON.stringify({
+      mode: process.env.OM_DEV_SPLASH_MODE || 'dev',
+      failed: false,
+      failureLines: [],
+      failureCommand: null,
+      ...state,
+    }, null, 2)}\n`)
+  } catch {
+    // Splash state is best-effort; terminal logs remain authoritative.
+  }
+}
+
+function writeDevSplashRuntimeStarting(detail = 'Starting Next.js dev server'): void {
+  writeDevSplashChildState({
+    phase: 'Preparing app runtime',
+    detail,
+    ready: false,
+    readyUrl: null,
+    loginUrl: null,
+    progressLabel: 'Launching app runtime',
+    activity: detail,
+  })
+}
+
+function resolveSplashProgressFallback(): { current: number; total: number } {
+  const current = Number.parseInt(process.env.OM_DEV_SPLASH_STAGE_CURRENT ?? '', 10)
+  const total = Number.parseInt(process.env.OM_DEV_SPLASH_STAGE_TOTAL ?? '', 10)
+  if (Number.isFinite(current) && Number.isFinite(total) && total > 0) {
+    return { current, total }
+  }
+  if (process.env.OM_DEV_SPLASH_MODE === 'greenfield' || process.env.OM_DEV_SPLASH_MODE === 'setup') {
+    return { current: 5, total: 5 }
+  }
+  return { current: 3, total: 3 }
+}
+
+function writeDevSplashRuntimeRestarting(reason: string): void {
+  const progress = resolveSplashProgressFallback()
+  writeDevSplashChildState({
+    phase: 'App runtime is restarting',
+    detail: `Reason: ${reason}`,
+    ready: false,
+    readyUrl: null,
+    loginUrl: null,
+    progressCurrent: progress.current,
+    progressTotal: progress.total,
+    progressLabel: 'Restarting app runtime',
+    activity: `App runtime restart: ${reason}`,
+  })
+}
+
+function writeDevSplashRuntimeReady(reason?: string): void {
+  const readyUrl = resolveDevRuntimeBaseUrl()
+  const progress = resolveSplashProgressFallback()
+  writeDevSplashChildState({
+    phase: 'App is ready',
+    detail: reason ? `Restart completed after ${reason}` : 'Next.js dev server is ready',
+    ready: true,
+    readyUrl,
+    loginUrl: `${readyUrl}/login`,
+    progressCurrent: progress.current,
+    progressTotal: progress.total,
+    progressPercent: 100,
+    progressLabel: 'App is ready',
+    activity: reason ? `Restart completed after ${reason}` : 'App runtime is ready',
+  })
+}
+
 type ModuleCommandLookupResult =
   | {
       status: 'ok'
@@ -601,18 +687,17 @@ async function runGeneratorSuite(quiet: boolean): Promise<void> {
 function createGenerateWatchChecksumFn(): () => Promise<string> {
   return async () => {
     const { createResolver } = await import('./lib/resolver')
-    const { calculateStructureChecksum } = await import('./lib/utils')
+    const { calculateGenerateWatchStructureChecksum } = await import('./lib/generate-watch-structure')
     const resolver = createResolver()
-    const tracked = new Set<string>([
-      path.join(resolver.getAppDir(), 'src', 'modules.ts'),
-      path.join(resolver.getAppDir(), 'src', 'modules'),
-    ])
+    const moduleRoots = []
     for (const entry of resolver.loadEnabledModules()) {
       const roots = resolver.getModulePaths(entry)
-      tracked.add(roots.appBase)
-      tracked.add(roots.pkgBase)
+      moduleRoots.push({ appBase: roots.appBase, pkgBase: roots.pkgBase })
     }
-    return calculateStructureChecksum(Array.from(tracked))
+    return calculateGenerateWatchStructureChecksum({
+      modulesFile: path.join(resolver.getAppDir(), 'src', 'modules.ts'),
+      moduleRoots,
+    })
   }
 }
 
@@ -1694,6 +1779,7 @@ export async function run(argv = process.argv) {
           let activeLazySupervisor: ReturnType<typeof startLazyWorkerSupervisor> | null = null
           let activeLazySchedulerSupervisor: ReturnType<typeof startLazySchedulerSupervisor> | null = null
           let activeGenerateWatcher: GenerateWatcherHandle | null = null
+          let lastRestartReason: string | null = null
           const generateWatcherMode: GenerateWatcherMode = resolveGenerateWatcherMode(process.env)
           const envReloader = createDevEnvReloader(appDir, process.env, initialProcessEnvironmentEntries)
 
@@ -1787,14 +1873,6 @@ export async function run(argv = process.argv) {
               filePath,
             })
           })
-          const stopRuntimeWatcher = watchDevRuntimeFiles(appDir, (filePath) => {
-            devRestartPromiseResolve?.({
-              label: 'Runtime graph change',
-              restart: true,
-              filePath,
-            })
-          })
-
           const waitForDevRestart = (): Promise<DevServerRestartResult> =>
             new Promise((resolve) => {
               devRestartPromiseResolve = resolve
@@ -1802,6 +1880,11 @@ export async function run(argv = process.argv) {
 
           const startNextDev = (runtimeEnv: NodeJS.ProcessEnv): Promise<ManagedProcessExitResult> =>
             new Promise((resolve) => {
+              writeDevSplashRuntimeStarting(
+                lastRestartReason
+                  ? `Restarting Next.js dev server. Reason: ${lastRestartReason}`
+                  : 'Starting Next.js dev server',
+              )
               const nextProcess = spawn('node', [nextBin, 'dev', '--turbopack'], {
                 stdio: ['inherit', 'pipe', 'pipe'],
                 env: runtimeEnv,
@@ -1810,10 +1893,16 @@ export async function run(argv = process.argv) {
               processes.push(nextProcess)
 
               let combinedOutput = ''
+              let reportedReady = false
               const appendOutput = (chunk: string) => {
                 combinedOutput += chunk
                 if (combinedOutput.length > 32_768) {
                   combinedOutput = combinedOutput.slice(-32_768)
+                }
+                if (!reportedReady && /\bready in\b/i.test(chunk)) {
+                  reportedReady = true
+                  writeDevSplashRuntimeReady(lastRestartReason ?? undefined)
+                  lastRestartReason = null
                 }
               }
 
@@ -1831,6 +1920,8 @@ export async function run(argv = process.argv) {
               nextProcess.on('exit', async (code, signal) => {
                 if (!didRetryCorruptedTurbopackCache && isTurbopackCacheCorruption(combinedOutput)) {
                   didRetryCorruptedTurbopackCache = true
+                  lastRestartReason = 'corrupted Turbopack dev cache'
+                  writeDevSplashRuntimeRestarting(lastRestartReason)
                   console.log('[server] Detected corrupted Turbopack dev cache. Clearing .mercato/next/dev and restarting Next.js once...')
                   removeTurbopackDevCache(appDir)
                   return resolve(await startNextDev(runtimeEnv))
@@ -1934,6 +2025,10 @@ export async function run(argv = process.argv) {
               }
 
               const firstExit = await Promise.race(managedExitPromises)
+              if (isDevServerRestartResult(firstExit)) {
+                lastRestartReason = `${firstExit.label.toLowerCase()} (${path.basename(firstExit.filePath)})`
+                writeDevSplashRuntimeRestarting(lastRestartReason)
+              }
               await cleanupAndWait()
               devRestartPromiseResolve = null
 
@@ -1950,7 +2045,6 @@ export async function run(argv = process.argv) {
             }
           } finally {
             stopEnvWatcher()
-            stopRuntimeWatcher()
           }
         },
       },

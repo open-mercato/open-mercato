@@ -58,7 +58,7 @@ test('standalone template dev wrapper defaults background services to lazy mode'
   assert.match(source, /function applyLocalDevBackgroundServiceDefaults/)
   assert.match(source, /OM_AUTO_SPAWN_WORKERS_LAZY = 'true'/)
   assert.match(source, /OM_AUTO_SPAWN_SCHEDULER_LAZY = 'true'/)
-  assert.match(source, /env: buildAppDevEnv\(\)/)
+  assert.match(source, /env: buildAppDevEnv\(/)
 })
 
 test('standalone template dev reset clears configured Next dev distDir cache', () => {

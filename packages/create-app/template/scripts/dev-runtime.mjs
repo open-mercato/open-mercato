@@ -50,6 +50,12 @@ function parseEnvBooleanToken(value) {
   return null
 }
 
+function parsePositiveIntegerEnv(value) {
+  if (typeof value !== 'string') return null
+  const parsed = Number.parseInt(value.trim(), 10)
+  return Number.isFinite(parsed) && parsed >= 0 ? parsed : null
+}
+
 function resolveAutoSpawnEnabled(env, legacyName, aliasedName) {
   const legacy = parseEnvBooleanToken(env[legacyName])
   if (legacy !== null) return legacy
@@ -87,9 +93,11 @@ const splashChildStateFile = process.env.OM_DEV_SPLASH_CHILD_STATE_FILE?.trim() 
 const splashMode = process.env.OM_DEV_SPLASH_MODE?.trim() || 'dev'
 const setupSplashMode = splashMode === 'setup'
 const startupSplashPhase = setupSplashMode ? 'Project setup is in progress...' : 'Installation and first compilation is in progress...'
-const runtimeProgressTotal = setupSplashMode ? 5 : 4
-const runtimeProgressCurrent = setupSplashMode ? 4 : 0
-const runtimeReadyProgressCurrent = setupSplashMode ? 5 : 4
+const configuredRuntimeProgressTotal = parsePositiveIntegerEnv(process.env.OM_DEV_SPLASH_STAGE_TOTAL)
+const configuredRuntimeProgressCurrent = parsePositiveIntegerEnv(process.env.OM_DEV_SPLASH_STAGE_CURRENT)
+const runtimeProgressTotal = configuredRuntimeProgressTotal ?? (setupSplashMode ? 5 : 4)
+const runtimeProgressCurrent = configuredRuntimeProgressCurrent ?? (setupSplashMode ? 4 : 0)
+const runtimeReadyProgressCurrent = Math.max(runtimeProgressCurrent, runtimeProgressTotal)
 const children = new Set()
 let shuttingDown = false
 let logsVisible = false
@@ -489,6 +497,7 @@ function spawnMercato(args) {
       ...process.env,
       OM_CLI_QUIET: rawPassthrough ? process.env.OM_CLI_QUIET : '1',
       DOTENV_CONFIG_QUIET: rawPassthrough ? process.env.DOTENV_CONFIG_QUIET : 'true',
+      ...(!rawPassthrough ? { OM_DEV_SPLASH_RUNTIME_WRAPPER: '1' } : {}),
     },
     ...resolvedSpawn.spawnOptions,
   })
@@ -1582,6 +1591,35 @@ function classifyServerLine(line) {
     }
   }
 
+  const runtimeRestartMatch = line.match(/^\[server\] Detected (.+?)\. Restarting app runtime\.\.\.$/)
+  if (runtimeRestartMatch) {
+    const reason = runtimeRestartMatch[1]
+    return {
+      type: 'status',
+      message: `🔄 Restarting app runtime: ${reason}`,
+      splashPhase: 'App runtime is restarting',
+      splashDetail: `Reason: ${reason}`,
+      ready: false,
+      activity: `App runtime restart: ${reason}`,
+      progressCurrent: runtimeProgressCurrent,
+      progressLabel: 'Restarting app runtime',
+    }
+  }
+
+  if (line === '[server] Detected corrupted Turbopack dev cache. Clearing .mercato/next/dev and restarting Next.js once...') {
+    const reason = 'corrupted Turbopack dev cache'
+    return {
+      type: 'status',
+      message: `🔄 Restarting Next.js dev server: ${reason}`,
+      splashPhase: 'App runtime is restarting',
+      splashDetail: `Reason: ${reason}`,
+      ready: false,
+      activity: `Next.js restart: ${reason}`,
+      progressCurrent: runtimeProgressCurrent,
+      progressLabel: 'Restarting app runtime',
+    }
+  }
+
   const localMatch = line.match(/^- Local:\s*(.+)$/)
   if (localMatch) {
     return {
@@ -1721,9 +1759,10 @@ async function runClassicRuntime() {
     shutdown(initialGenerateExitCode)
   }
 
-  // Default ('in-process'): `mercato server dev` runs the structural
-  // regeneration watcher in-process. Set OM_DEV_GENERATE_WATCH_MODE=legacy
-  // to fall back to spawning the dedicated sidecar Node process.
+  // Default ('in-process'): `mercato server dev` owns the structural
+  // regeneration watcher in-process, so we no longer spawn the dedicated
+  // sidecar. Saves ~190 MB of resident RSS by collapsing one Node process.
+  // Opt back into the sidecar with OM_DEV_GENERATE_WATCH_MODE=legacy.
   const watchers = []
   if (generateWatchMode === 'legacy') {
     watchers.push(['Generator watch (legacy sidecar)', spawnMercato(['generate', 'watch', '--skip-initial'])])
@@ -1751,6 +1790,11 @@ installLogToggle()
 initializeRuntimeSummary()
 printRuntimePackagesSummary()
 
+// Default ('in-process'): `mercato server dev` runs the structural
+// regeneration watcher in-process — see packages/cli/src/lib/in-process-generate-watcher.ts
+// — so the orchestrator no longer spawns a dedicated `mercato generate watch`
+// sidecar. Saves ~190 MB of resident RSS by eliminating one Node process.
+// Set OM_DEV_GENERATE_WATCH_MODE=legacy to opt back into the sidecar.
 const sidecarWatch = generateWatchMode === 'legacy'
   ? startFilteredChild(['generate', 'watch', '--skip-initial'], 'Generator watch (legacy sidecar)', classifyWatchLine)
   : null

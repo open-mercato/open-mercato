@@ -61,7 +61,7 @@ describe('dev env reload helpers', () => {
     expect(environment.REMOVED_LATER).toBeUndefined()
   })
 
-  it('watches generated runtime files for dev restarts', async () => {
+  it('watches generated runtime files when explicitly requested', async () => {
     const generatedDir = path.join(appDir, '.mercato', 'generated')
     fs.mkdirSync(generatedDir, { recursive: true })
     const generatedFile = path.join(generatedDir, 'backend-routes.generated.ts')
