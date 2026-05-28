@@ -22,6 +22,6 @@ export function appendCustomerListSortParams(params: URLSearchParams, sorting: S
   if (!activeSort) return
   const sortField = resolveCustomerListSortField(activeSort.id)
   if (!sortField) return
-  params.set('sort', sortField)
-  params.set('order', activeSort.desc ? 'desc' : 'asc')
+  params.set('sortField', sortField)
+  params.set('sortDir', activeSort.desc ? 'desc' : 'asc')
 }

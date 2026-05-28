@@ -28,7 +28,7 @@ describe('customer list sorting', () => {
       { id: 'name', desc: false },
     ])
 
-    expect(params.get('sort')).toBe('cf:created_at_external')
-    expect(params.get('order')).toBe('desc')
+    expect(params.get('sortField')).toBe('cf:created_at_external')
+    expect(params.get('sortDir')).toBe('desc')
   })
 })
