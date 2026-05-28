@@ -92,6 +92,7 @@ Specs awaiting implementation or partially complete. Focus here for actionable w
 | [Not Found](2026-03-23-unified-record-not-found-ui-state.md) | 2026-03-23 | Unified Record Not-Found UI State | Consistent UI state for missing/deleted records |
 | [Sync Excel Customers Import Foundation](2026-03-29-sync-excel-customers-import-foundation.md) | 2026-03-29 | Sync Excel Customers Import Foundation | Partially implemented `sync_excel` CSV import provider for `customers.person`, including upload/preview/import flow, integration-detail UI, and an explicit pending DB migration blocker |
 | [API Key Error](2026-04-16-actionable-missing-api-key-error.md) | 2026-04-16 | Actionable Missing API Key Error | Include expected env var names in missing AI provider API key error (#1433) |
+| [Harness Validation Gate](2026-05-28-harness-validation-gate.md) | 2026-05-28 | Harness Validation Gate + Module Scaffold Template Fixes | Correct stale API patterns in module-scaffold skill template; add `yarn mercato harness verify` and `yarn mercato harness post-scaffold` CLI commands (#2209) |
 
 ### Implemented Specifications
 

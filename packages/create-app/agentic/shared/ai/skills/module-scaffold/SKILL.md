@@ -580,6 +580,41 @@ export default function registerCli(program: any) {
 }
 ```
 
+### Response Enrichers
+
+Use enrichers to add computed fields to another module's API responses without coupling the modules.
+
+**File**: `src/modules/<module_id>/data/enrichers.ts`
+
+```typescript
+import type { ResponseEnricher } from '@open-mercato/shared/lib/crud/response-enricher'
+
+const <entity>Enricher: ResponseEnricher = {
+  id: '<module_id>.<entity>-enricher',
+  targetEntity: '<other_module>.<entity>',
+  features: ['<module_id>.<entity>.view'],
+  timeout: 2000,
+  fallback: { _<module_id>: {} },
+  async enrichOne(record, context) {
+    return { ...record, _<module_id>: { /* computed fields */ } }
+  },
+  async enrichMany(records, context) {
+    return records.map(r => ({ ...r, _<module_id>: { /* computed fields */ } }))
+  },
+}
+
+export const enrichers: ResponseEnricher[] = [<entity>Enricher]
+```
+
+**Rules:**
+- MUST implement `enrichOne` (required by the `ResponseEnricher` interface)
+- MUST implement `enrichMany` for list endpoints to prevent N+1 queries
+- Namespace enriched fields with `_<module_id>` prefix
+- The target route must opt in: `makeCrudRoute({ ..., enrichers: { entityId: '<other_module>.<entity>' } })`
+- Run `yarn generate` after adding `data/enrichers.ts`
+
+---
+
 ### Encryption maps (sensitive / GDPR-relevant fields)
 
 **Mandatory** when the entity stores PII, contact info, addresses, free-text notes about people, integration credentials, secrets, or anything subject to a data-processing agreement. Do NOT hand-roll AES, KMS calls, or "TODO encrypt later" stubs — the framework provides per-tenant DEKs and a declarative field-level map.
