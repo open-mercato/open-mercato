@@ -157,14 +157,17 @@ export async function requirePriceKind(
   scope: RequireScope,
   message = 'Catalog price kind not found'
 ): Promise<CatalogPriceKind> {
+  // Price kinds are tenant-global: organization_id is always null and the unique key is
+  // (tenant_id, code). Scope by tenant only — applying a concrete org would never match the
+  // null row. Tenant scoping still closes the cross-tenant read hole this helper guards.
   const where: Record<string, unknown> = { id, deletedAt: null }
-  applyScopeToWhere(where, scope)
+  applyScopeToWhere(where, { tenantId: scope.tenantId, organizationId: null })
   const priceKind = await findOneWithDecryption(
     em,
     CatalogPriceKind,
     where as FilterQuery<CatalogPriceKind>,
     undefined,
-    { tenantId: scope.tenantId, organizationId: scope.organizationId },
+    { tenantId: scope.tenantId, organizationId: null },
   )
   if (!priceKind) throw new CrudHttpError(404, { error: message })
   return priceKind

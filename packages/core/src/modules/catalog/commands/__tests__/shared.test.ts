@@ -144,7 +144,6 @@ describe('catalog command shared helpers', () => {
     { label: 'requireProduct', call: (em, scope) => requireProduct(em, 'rec', scope) },
     { label: 'requireVariant', call: (em, scope) => requireVariant(em, 'rec', scope) },
     { label: 'requireOffer', call: (em, scope) => requireOffer(em, 'rec', scope) },
-    { label: 'requirePriceKind', call: (em, scope) => requirePriceKind(em, 'rec', scope) },
     { label: 'requireOptionSchemaTemplate', call: (em, scope) => requireOptionSchemaTemplate(em, 'rec', scope) },
   ]
 
@@ -173,4 +172,33 @@ describe('catalog command shared helpers', () => {
       })
     })
   }
+
+  // Price kinds are tenant-global (organization_id is always null, unique key (tenant_id, code)).
+  // requirePriceKind must scope by tenant only; applying a caller's concrete org would never match
+  // the null row — the regression that returned 404 on price create for an org-scoped product/variant.
+  describe('requirePriceKind', () => {
+    const tenantGlobalPriceKind = { id: 'pk', tenantId: 'tenant-1', organizationId: null as string | null }
+    const makePriceKindEm = () => {
+      const findOne = jest.fn(async (_entityName: unknown, where: Record<string, unknown>) => {
+        if (where.id !== tenantGlobalPriceKind.id) return null
+        if (where.tenantId !== undefined && where.tenantId !== tenantGlobalPriceKind.tenantId) return null
+        if (where.organizationId !== undefined && where.organizationId !== tenantGlobalPriceKind.organizationId) return null
+        return tenantGlobalPriceKind
+      })
+      return { em: { findOne } as unknown as EntityManager, findOne }
+    }
+
+    it('scopes by tenant only and ignores the caller org (finds the tenant-global row)', async () => {
+      const { em, findOne } = makePriceKindEm()
+      await expect(requirePriceKind(em, 'pk', sameScope)).resolves.toBe(tenantGlobalPriceKind)
+      const where = findOne.mock.calls[0][1] as Record<string, unknown>
+      expect(where.tenantId).toBe('tenant-1')
+      expect(where.organizationId).toBeUndefined()
+    })
+
+    it('throws 404 for a cross-tenant id', async () => {
+      const { em } = makePriceKindEm()
+      await expect(requirePriceKind(em, 'pk', foreignTenantScope)).rejects.toBeInstanceOf(CrudHttpError)
+    })
+  })
 })
