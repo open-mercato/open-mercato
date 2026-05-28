@@ -40,6 +40,13 @@ function diffDays(from: Date, to: Date): number {
   return Math.floor((to.getTime() - from.getTime()) / DAY_MS)
 }
 
+/** Coerce an unknown value to a non-empty string array, or null when absent/empty. */
+function stringArrayOrNull(value: unknown): string[] | null {
+  if (!Array.isArray(value)) return null
+  const strings = value.filter((entry): entry is string => typeof entry === 'string')
+  return strings.length > 0 ? strings : null
+}
+
 async function fetchOpenInteractionCounts(
   db: CustomerKysely,
   dealIds: Set<string>,
@@ -292,6 +299,10 @@ type EmailIntegrationFields = {
   subject?: string | null
   inReplyTo?: string | null
   references?: string[] | null
+  /** Current visibility of the interaction row, for the private/shared toggle. */
+  currentVisibility?: 'private' | 'shared' | null
+  /** True when the interaction's author is the requesting user — gates the toggle. */
+  isAuthor?: boolean
 }
 
 /**
@@ -377,31 +388,21 @@ export const interactionEmailCardEnricher: ResponseEnricher<
     const byLinkId = new Map<string, EmailIntegrationFields>()
     for (const row of linkRows) {
       const meta = (row.channel_metadata ?? {}) as Record<string, unknown>
-      const toAddresses = Array.isArray(meta.to)
-        ? (meta.to.filter((v) => typeof v === 'string') as string[])
-        : null
-      const ccAddresses = Array.isArray(meta.cc)
-        ? (meta.cc.filter((v) => typeof v === 'string') as string[])
-        : null
-      const bccAddresses = Array.isArray(meta.bcc)
-        ? (meta.bcc.filter((v) => typeof v === 'string') as string[])
-        : null
-      const references = Array.isArray(meta.references)
-        ? (meta.references.filter((v) => typeof v === 'string') as string[])
-        : null
       const fields: EmailIntegrationFields = {
         externalMessageId: row.id,
         rfcMessageId: typeof meta.messageId === 'string' ? meta.messageId : null,
         fromAddress: typeof meta.from === 'string' ? meta.from : null,
-        toAddresses: toAddresses && toAddresses.length > 0 ? toAddresses : null,
-        ccAddresses: ccAddresses && ccAddresses.length > 0 ? ccAddresses : null,
-        bccAddresses: bccAddresses && bccAddresses.length > 0 ? bccAddresses : null,
+        toAddresses: stringArrayOrNull(meta.to),
+        ccAddresses: stringArrayOrNull(meta.cc),
+        bccAddresses: stringArrayOrNull(meta.bcc),
         subject: typeof meta.subject === 'string' ? meta.subject : null,
         inReplyTo: typeof meta.inReplyTo === 'string' ? meta.inReplyTo : null,
-        references: references && references.length > 0 ? references : null,
+        references: stringArrayOrNull(meta.references),
       }
       byLinkId.set(row.id, fields)
     }
+
+    const currentUserId = ctx.userId
 
     return records.map((r) => {
       if (
@@ -413,12 +414,19 @@ export const interactionEmailCardEnricher: ResponseEnricher<
       }
       const fields = byLinkId.get(r.externalMessageId)
       if (!fields) return r
+      const visibility =
+        r.visibility === 'private' || r.visibility === 'shared' ? r.visibility : null
+      const authorUserId = typeof r.authorUserId === 'string' ? r.authorUserId : null
       const existingIntegrations = (r._integrations ?? {}) as Record<string, unknown>
       return {
         ...r,
         _integrations: {
           ...existingIntegrations,
-          email: fields,
+          email: {
+            ...fields,
+            currentVisibility: visibility,
+            isAuthor: Boolean(currentUserId && authorUserId && authorUserId === currentUserId),
+          },
         },
       }
     })

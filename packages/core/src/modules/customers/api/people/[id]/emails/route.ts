@@ -147,10 +147,13 @@ export async function POST(req: Request, context: RouteContext): Promise<Respons
     })
   }
 
+  // Delivery is async (handled by the outbound queue worker), so this is the
+  // enqueue time — not the provider send time — and the provider's external
+  // message id is not known yet (the worker assigns it on successful delivery).
   return NextResponse.json({
     messageId: sendResult.messageId,
-    externalMessageId: null,
-    sentAt: new Date().toISOString(),
+    threadId: sendResult.threadId,
+    queuedAt: new Date().toISOString(),
   })
 }
 

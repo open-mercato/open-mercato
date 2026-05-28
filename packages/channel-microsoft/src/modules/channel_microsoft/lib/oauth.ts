@@ -10,7 +10,14 @@
  */
 
 import crypto from 'node:crypto'
+import {
+  requestOAuthToken,
+  tokenResponseToExpiresAt,
+  type OAuthTokenResponse,
+} from '@open-mercato/core/modules/communication_channels/lib/oauth-token'
 import { MICROSOFT_DEFAULT_SCOPES, resolveAuthority } from './credentials'
+
+export { tokenResponseToExpiresAt }
 
 export const MICROSOFT_AUTHORITY_BASE = 'https://login.microsoftonline.com'
 export const MICROSOFT_GRAPH_BASE = 'https://graph.microsoft.com/v1.0'
@@ -41,16 +48,7 @@ export interface RefreshTokenInput {
   refreshToken: string
 }
 
-export interface TokenResponse {
-  access_token: string
-  refresh_token?: string
-  expires_in?: number
-  scope?: string
-  token_type?: string
-  id_token?: string
-  error?: string
-  error_description?: string
-}
+export type TokenResponse = OAuthTokenResponse
 
 export interface MicrosoftOAuthClient {
   buildAuthorizeUrl(input: BuildAuthorizeUrlInput): string
@@ -103,16 +101,7 @@ class RealMicrosoftOAuthClient implements MicrosoftOAuthClient {
 
   private async postTokenEndpoint(tenantId: string | undefined, body: URLSearchParams): Promise<TokenResponse> {
     const url = `${MICROSOFT_AUTHORITY_BASE}/${resolveAuthority(tenantId)}/oauth2/v2.0/token`
-    const res = await fetch(url, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-      body: body.toString(),
-    })
-    const data = (await res.json()) as TokenResponse
-    if (!res.ok || data.error) {
-      throw new Error(`Microsoft OAuth call failed: ${data.error_description ?? data.error ?? res.statusText}`)
-    }
-    return data
+    return requestOAuthToken(url, body, { errorLabel: 'Microsoft OAuth call failed' })
   }
 }
 
@@ -125,11 +114,6 @@ export function getMicrosoftOAuthClient(): MicrosoftOAuthClient {
 
 export function setMicrosoftOAuthClient(client: MicrosoftOAuthClient | null): void {
   cachedClient = client
-}
-
-export function tokenResponseToExpiresAt(token: TokenResponse, nowMs: number = Date.now()): Date | undefined {
-  if (typeof token.expires_in !== 'number') return undefined
-  return new Date(nowMs + token.expires_in * 1000)
 }
 
 /**

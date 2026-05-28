@@ -33,9 +33,11 @@ export class Migration20260526134719_communication_channels extends Migration {
     this.addSql(`alter table "message_channel_links" add constraint "message_channel_links_message_uq" unique ("message_id");`);
 
     this.addSql(`create table "message_reactions" ("id" uuid not null default gen_random_uuid(), "message_id" uuid not null, "emoji" text not null, "reacted_by_user_id" uuid null, "reacted_by_external_id" text null, "reacted_by_display_name" text null, "provider_key" text null, "external_reaction_id" text null, "tenant_id" uuid not null, "organization_id" uuid null, "created_at" timestamptz not null, primary key ("id"));`);
+    this.addSql(`alter table "message_reactions" add constraint "message_reactions_exactly_one_actor_chk" check (("reacted_by_user_id" is null) <> ("reacted_by_external_id" is null));`);
     this.addSql(`create index "message_reactions_message_emoji_idx" on "message_reactions" ("message_id", "emoji");`);
     this.addSql(`create index "message_reactions_message_idx" on "message_reactions" ("message_id");`);
-    this.addSql(`alter table "message_reactions" add constraint "message_reactions_unique_per_reactor_uq" unique ("message_id", "emoji", "reacted_by_user_id", "reacted_by_external_id");`);
+    this.addSql(`create unique index "message_reactions_external_actor_uq" on "message_reactions" ("tenant_id", "message_id", "emoji", "reacted_by_external_id") where "reacted_by_external_id" is not null;`);
+    this.addSql(`create unique index "message_reactions_internal_actor_uq" on "message_reactions" ("tenant_id", "message_id", "emoji", "reacted_by_user_id") where "reacted_by_user_id" is not null;`);
   }
 
   override down(): void | Promise<void> {

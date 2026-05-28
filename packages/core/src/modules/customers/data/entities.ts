@@ -541,6 +541,21 @@ export class CustomerActivity {
   name: 'customer_interactions_type_idx',
   properties: ['tenantId', 'organizationId', 'interactionType'],
 })
+@Index({
+  name: 'customer_interactions_external_msg_idx',
+  expression:
+    `create index "customer_interactions_external_msg_idx" on "customer_interactions" ("external_message_id") where "external_message_id" is not null`,
+})
+@Index({
+  name: 'customer_interactions_email_dedupe_uq',
+  expression:
+    `create unique index "customer_interactions_email_dedupe_uq" on "customer_interactions" ("entity_id", "external_message_id") where "external_message_id" is not null and "deleted_at" is null`,
+})
+@Index({
+  name: 'customer_interactions_email_visibility_idx',
+  expression:
+    `create index "customer_interactions_email_visibility_idx" on "customer_interactions" ("entity_id", "interaction_type", "visibility", "author_user_id") where "interaction_type" = 'email' and "deleted_at" is null`,
+})
 export class CustomerInteraction {
   [OptionalProps]?: 'status' | 'pinned' | 'createdAt' | 'updatedAt' | 'deletedAt' | 'durationMinutes' | 'location' | 'allDay' | 'recurrenceRule' | 'recurrenceEnd' | 'participants' | 'reminderMinutes' | 'visibility' | 'linkedEntities' | 'guestPermissions' | 'externalMessageId' | 'channelProviderKey'
 

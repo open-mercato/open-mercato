@@ -9,7 +9,14 @@
  *   - Userinfo   https://www.googleapis.com/oauth2/v3/userinfo
  */
 
+import {
+  requestOAuthToken,
+  tokenResponseToExpiresAt,
+  type OAuthTokenResponse,
+} from '@open-mercato/core/modules/communication_channels/lib/oauth-token'
 import { parseScopes } from './credentials'
+
+export { tokenResponseToExpiresAt }
 
 export const GMAIL_OAUTH_AUTHORIZE_URL = 'https://accounts.google.com/o/oauth2/v2/auth'
 export const GMAIL_OAUTH_TOKEN_URL = 'https://oauth2.googleapis.com/token'
@@ -36,16 +43,7 @@ export interface RefreshTokenInput {
   refreshToken: string
 }
 
-export interface TokenResponse {
-  access_token: string
-  refresh_token?: string
-  expires_in?: number
-  scope?: string
-  token_type?: string
-  id_token?: string
-  error?: string
-  error_description?: string
-}
+export type TokenResponse = OAuthTokenResponse
 
 export interface UserInfoResponse {
   sub?: string
@@ -84,16 +82,9 @@ class RealGoogleOAuthClient implements GoogleOAuthClient {
     params.set('redirect_uri', input.redirectUri)
     params.set('client_id', input.clientId)
     params.set('client_secret', input.clientSecret)
-    const res = await fetch(GMAIL_OAUTH_TOKEN_URL, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-      body: params.toString(),
+    return requestOAuthToken(GMAIL_OAUTH_TOKEN_URL, params, {
+      errorLabel: 'Gmail OAuth code exchange failed',
     })
-    const body = (await res.json()) as TokenResponse
-    if (!res.ok || body.error) {
-      throw new Error(`Gmail OAuth code exchange failed: ${body.error_description ?? body.error ?? res.statusText}`)
-    }
-    return body
   }
 
   async refreshToken(input: RefreshTokenInput): Promise<TokenResponse> {
@@ -102,16 +93,9 @@ class RealGoogleOAuthClient implements GoogleOAuthClient {
     params.set('refresh_token', input.refreshToken)
     params.set('client_id', input.clientId)
     params.set('client_secret', input.clientSecret)
-    const res = await fetch(GMAIL_OAUTH_TOKEN_URL, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-      body: params.toString(),
+    return requestOAuthToken(GMAIL_OAUTH_TOKEN_URL, params, {
+      errorLabel: 'Gmail OAuth refresh failed',
     })
-    const body = (await res.json()) as TokenResponse
-    if (!res.ok || body.error) {
-      throw new Error(`Gmail OAuth refresh failed: ${body.error_description ?? body.error ?? res.statusText}`)
-    }
-    return body
   }
 
   async fetchUserInfo(accessToken: string): Promise<UserInfoResponse> {
@@ -134,9 +118,4 @@ export function getGoogleOAuthClient(): GoogleOAuthClient {
 
 export function setGoogleOAuthClient(client: GoogleOAuthClient | null): void {
   cachedClient = client
-}
-
-export function tokenResponseToExpiresAt(token: TokenResponse, nowMs: number = Date.now()): Date | undefined {
-  if (typeof token.expires_in !== 'number') return undefined
-  return new Date(nowMs + token.expires_in * 1000)
 }

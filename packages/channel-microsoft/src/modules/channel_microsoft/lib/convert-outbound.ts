@@ -2,6 +2,14 @@ import type {
   ChannelNativeContent,
   ConvertOutboundInput,
 } from '@open-mercato/core/modules/communication_channels/lib/adapter'
+import {
+  ensureBrackets,
+  generateMessageId,
+  htmlToText,
+  referencesFromMeta,
+  stringOrUndefined,
+  toAddressList,
+} from '@open-mercato/core/modules/communication_channels/lib/email-mime'
 import type { GraphSendMailInput } from './graph-client'
 
 /**
@@ -46,10 +54,8 @@ export async function convertOutboundForMicrosoft(
   const cc = toAddressList(meta.cc)
   const bcc = toAddressList(meta.bcc)
   const inReplyTo = stringOrUndefined(meta.inReplyTo)
-  const references = Array.isArray(meta.references)
-    ? meta.references.filter((v): v is string => typeof v === 'string')
-    : undefined
-  const messageId = stringOrUndefined(meta.messageId) ?? generateMessageId(input.fromAddress)
+  const references = referencesFromMeta(meta.references)
+  const messageId = stringOrUndefined(meta.messageId) ?? generateMessageId(input.fromAddress, 'outlook.com')
   const conversationId = stringOrUndefined(meta.microsoftConversationId)
 
   const html = input.bodyFormat === 'html' ? input.body : undefined
@@ -122,47 +128,3 @@ export async function convertOutboundForMicrosoft(
   }
 }
 
-function stringOrUndefined(value: unknown): string | undefined {
-  if (typeof value !== 'string') return undefined
-  const trimmed = value.trim()
-  return trimmed.length > 0 ? trimmed : undefined
-}
-
-function toAddressList(value: unknown): string[] {
-  if (Array.isArray(value)) return value.map((v) => String(v).trim()).filter((v) => v.length > 0)
-  if (typeof value === 'string') {
-    return value
-      .split(/[,;]\s*/)
-      .map((v) => v.trim())
-      .filter((v) => v.length > 0)
-  }
-  return []
-}
-
-function htmlToText(html: string): string {
-  return html
-    .replace(/<style[^>]*>[\s\S]*?<\/style>/gi, ' ')
-    .replace(/<script[^>]*>[\s\S]*?<\/script>/gi, ' ')
-    .replace(/<br\s*\/?>(?=\s*)/gi, '\n')
-    .replace(/<\/p\s*>/gi, '\n\n')
-    .replace(/<[^>]+>/g, '')
-    .replace(/&nbsp;/gi, ' ')
-    .replace(/&amp;/gi, '&')
-    .replace(/&lt;/gi, '<')
-    .replace(/&gt;/gi, '>')
-    .replace(/&quot;/gi, '"')
-    .replace(/\n{3,}/g, '\n\n')
-    .trim()
-}
-
-function ensureBrackets(value: string): string {
-  const trimmed = value.trim()
-  if (trimmed.startsWith('<') && trimmed.endsWith('>')) return trimmed
-  return `<${trimmed}>`
-}
-
-function generateMessageId(fromAddress: string): string {
-  const domain = fromAddress.split('@')[1] ?? 'outlook.com'
-  const random = Math.random().toString(36).slice(2) + Date.now().toString(36)
-  return `<${random}@${domain}>`
-}

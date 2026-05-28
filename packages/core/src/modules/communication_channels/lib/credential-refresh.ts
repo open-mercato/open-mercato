@@ -81,9 +81,13 @@ export async function refreshCredentialsIfNeeded(
   let oauthClient: OAuthClientConfig | undefined
   if (deps?.credentialsService) {
     try {
+      const oauthClientScope: CredentialsScope = {
+        tenantId: input.scope.tenantId,
+        organizationId: input.scope.organizationId,
+      }
       const raw = await deps.credentialsService.resolve(
         `oauth_${input.adapter.providerKey}`,
-        input.scope,
+        oauthClientScope,
       )
       oauthClient = safeParseOAuthClient(raw)
     } catch (resolveErr) {

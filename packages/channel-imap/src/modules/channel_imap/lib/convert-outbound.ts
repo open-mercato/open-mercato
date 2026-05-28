@@ -2,6 +2,12 @@ import type {
   ChannelNativeContent,
   ConvertOutboundInput,
 } from '@open-mercato/core/modules/communication_channels/lib/adapter'
+import {
+  htmlToText,
+  referencesFromMeta,
+  stringOrUndefined,
+  toAddressList,
+} from '@open-mercato/core/modules/communication_channels/lib/email-mime'
 
 /**
  * Convert a hub-canonical outbound payload to an email-shaped `ChannelNativeContent`.
@@ -41,9 +47,7 @@ export async function convertOutboundForEmail(
   const cc = toAddressList(meta.cc)
   const bcc = toAddressList(meta.bcc)
   const inReplyTo = stringOrUndefined(meta.inReplyTo)
-  const references = Array.isArray(meta.references)
-    ? meta.references.filter((v): v is string => typeof v === 'string')
-    : undefined
+  const references = referencesFromMeta(meta.references)
   const messageId = stringOrUndefined(meta.messageId)
 
   const html = input.bodyFormat === 'html' ? input.body : undefined
@@ -76,37 +80,4 @@ export async function convertOutboundForEmail(
     },
   }
   return native
-}
-
-function stringOrUndefined(value: unknown): string | undefined {
-  if (typeof value !== 'string') return undefined
-  const trimmed = value.trim()
-  return trimmed.length > 0 ? trimmed : undefined
-}
-
-function toAddressList(value: unknown): string[] {
-  if (Array.isArray(value)) return value.map((v) => String(v).trim()).filter((v) => v.length > 0)
-  if (typeof value === 'string') {
-    return value
-      .split(/[,;]\s*/)
-      .map((v) => v.trim())
-      .filter((v) => v.length > 0)
-  }
-  return []
-}
-
-function htmlToText(html: string): string {
-  return html
-    .replace(/<style[^>]*>[\s\S]*?<\/style>/gi, ' ')
-    .replace(/<script[^>]*>[\s\S]*?<\/script>/gi, ' ')
-    .replace(/<br\s*\/?>(?=\s*)/gi, '\n')
-    .replace(/<\/p\s*>/gi, '\n\n')
-    .replace(/<[^>]+>/g, '')
-    .replace(/&nbsp;/gi, ' ')
-    .replace(/&amp;/gi, '&')
-    .replace(/&lt;/gi, '<')
-    .replace(/&gt;/gi, '>')
-    .replace(/&quot;/gi, '"')
-    .replace(/\n{3,}/g, '\n\n')
-    .trim()
 }

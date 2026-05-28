@@ -1,5 +1,5 @@
 import { OptionalProps } from '@mikro-orm/core'
-import { Entity, Index, PrimaryKey, Property, Unique } from '@mikro-orm/decorators/legacy'
+import { Check, Entity, Index, PrimaryKey, Property, Unique } from '@mikro-orm/decorators/legacy'
 
 /**
  * Hub entities for the Communication Channels module.
@@ -365,9 +365,19 @@ export class ChannelThreadMapping {
 @Entity({ tableName: 'message_reactions' })
 @Index({ name: 'message_reactions_message_idx', properties: ['messageId'] })
 @Index({ name: 'message_reactions_message_emoji_idx', properties: ['messageId', 'emoji'] })
-@Unique({
-  name: 'message_reactions_unique_per_reactor_uq',
-  properties: ['messageId', 'emoji', 'reactedByUserId', 'reactedByExternalId'],
+@Index({
+  name: 'message_reactions_internal_actor_uq',
+  expression:
+    `create unique index "message_reactions_internal_actor_uq" on "message_reactions" ("tenant_id", "message_id", "emoji", "reacted_by_user_id") where "reacted_by_user_id" is not null`,
+})
+@Index({
+  name: 'message_reactions_external_actor_uq',
+  expression:
+    `create unique index "message_reactions_external_actor_uq" on "message_reactions" ("tenant_id", "message_id", "emoji", "reacted_by_external_id") where "reacted_by_external_id" is not null`,
+})
+@Check({
+  name: 'message_reactions_exactly_one_actor_chk',
+  expression: `("reacted_by_user_id" is null) <> ("reacted_by_external_id" is null)`,
 })
 export class MessageReaction {
   [OptionalProps]?: 'createdAt' | 'reactedByUserId' | 'reactedByExternalId' | 'reactedByDisplayName' | 'providerKey' | 'externalReactionId' | 'organizationId'

@@ -66,6 +66,22 @@ function defaultChannelId(channels: ComposeEmailChannel[]): string {
   return primary?.id ?? channels[0]?.id ?? ''
 }
 
+/** Single source of truth for the dialog's seeded form values (reply prefill, default recipient, primary channel). */
+function deriveComposeInitialState(
+  replyTo: ComposeEmailDialogProps['replyTo'],
+  defaultRecipient: string | null | undefined,
+  channels: ComposeEmailChannel[],
+): { to: string; cc: string; showCc: boolean; subject: string; channelId: string } {
+  const cc = replyTo?.cc && replyTo.cc.length > 0 ? replyTo.cc.join(', ') : ''
+  return {
+    to: replyTo ? replyTo.to.join(', ') : (defaultRecipient ?? ''),
+    cc,
+    showCc: Boolean(cc),
+    subject: replyTo?.subject ?? '',
+    channelId: defaultChannelId(channels),
+  }
+}
+
 export function ComposeEmailDialog({
   open,
   onOpenChange,
@@ -76,43 +92,34 @@ export function ComposeEmailDialog({
 }: ComposeEmailDialogProps) {
   const t = useT()
 
-  const initialTo = React.useMemo(() => {
-    if (replyTo) return replyTo.to.join(', ')
-    if (defaultRecipient) return defaultRecipient
-    return ''
-  }, [replyTo, defaultRecipient])
+  const initial = React.useMemo(
+    () => deriveComposeInitialState(replyTo, defaultRecipient, channels),
+    [replyTo, defaultRecipient, channels],
+  )
 
-  const initialCc = React.useMemo(() => {
-    if (replyTo?.cc && replyTo.cc.length > 0) return replyTo.cc.join(', ')
-    return ''
-  }, [replyTo])
-
-  const initialSubject = replyTo?.subject ?? ''
-
-  const [to, setTo] = React.useState(initialTo)
-  const [showCc, setShowCc] = React.useState(Boolean(initialCc))
-  const [cc, setCc] = React.useState(initialCc)
-  const [subject, setSubject] = React.useState(initialSubject)
+  const [to, setTo] = React.useState(initial.to)
+  const [showCc, setShowCc] = React.useState(initial.showCc)
+  const [cc, setCc] = React.useState(initial.cc)
+  const [subject, setSubject] = React.useState(initial.subject)
   const [body, setBody] = React.useState('')
   const [visibility, setVisibility] = React.useState<'private' | 'shared'>('private')
-  const [channelId, setChannelId] = React.useState(() => defaultChannelId(channels))
+  const [channelId, setChannelId] = React.useState(initial.channelId)
   const [busy, setBusy] = React.useState(false)
   const [error, setError] = React.useState<string | null>(null)
 
-  // Reset form when dialog opens/closes or replyTo/defaultRecipient changes
+  // Reset the form whenever the dialog (re)opens or its seed inputs change.
   React.useEffect(() => {
-    if (open) {
-      setTo(replyTo ? replyTo.to.join(', ') : (defaultRecipient ?? ''))
-      const ccValue = replyTo?.cc && replyTo.cc.length > 0 ? replyTo.cc.join(', ') : ''
-      setCc(ccValue)
-      setShowCc(Boolean(ccValue))
-      setSubject(replyTo?.subject ?? '')
-      setBody('')
-      setVisibility('private')
-      setChannelId(defaultChannelId(channels))
-      setError(null)
-      setBusy(false)
-    }
+    if (!open) return
+    const next = deriveComposeInitialState(replyTo, defaultRecipient, channels)
+    setTo(next.to)
+    setCc(next.cc)
+    setShowCc(next.showCc)
+    setSubject(next.subject)
+    setBody('')
+    setVisibility('private')
+    setChannelId(next.channelId)
+    setError(null)
+    setBusy(false)
   }, [open, replyTo, defaultRecipient, channels])
 
   const toList = parseRecipients(to)

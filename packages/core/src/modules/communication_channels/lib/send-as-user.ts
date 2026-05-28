@@ -149,93 +149,102 @@ export async function sendAsUser(
   const messageId = result.result.id
   const messageThreadId = result.result.threadId ?? messageId
   const externalThreadRef = `outbound:${messageThreadId}`
-  let conversation = await findOneWithDecryption(
-    em,
-    ExternalConversation,
-    {
-      channelId: channel.id,
-      externalConversationId: externalThreadRef,
-      tenantId,
-      organizationId,
-    },
-    undefined,
-    dscope,
-  )
-  if (!conversation) {
-    conversation = em.create(ExternalConversation, {
-      channelId: channel.id,
-      externalConversationId: externalThreadRef,
-      subject: input.subject,
-      assignedUserId: actor.userId,
-      tenantId,
-      organizationId,
-      lastMessageAt: new Date(),
-    })
-    em.persist(conversation)
-    await em.flush()
-  } else {
-    conversation.subject = conversation.subject ?? input.subject
-    conversation.assignedUserId = conversation.assignedUserId ?? actor.userId
-    conversation.lastMessageAt = new Date()
-    // Flush the scalar updates BEFORE the ChannelThreadMapping lookup below: a
-    // find/findOne on the same EntityManager between a scalar mutation and flush
-    // can silently drop the pending UPDATE (core AGENTS.md → Entity Update Safety).
-    await em.flush()
-  }
 
-  const existingMapping = await findOneWithDecryption(
-    em,
-    ChannelThreadMapping,
-    {
+  // Persist the conversation, thread mapping, and channel link as one unit. The
+  // conversation's id is DB-generated (`gen_random_uuid()`), so it must be
+  // flushed before the mapping/link can reference it — hence the eager flushes
+  // rather than `withAtomicFlush` (single trailing flush). `em.transactional`
+  // wraps the whole sequence so a mid-way failure rolls back all three writes
+  // instead of leaving an orphaned conversation row.
+  await em.transactional(async () => {
+    let conversation = await findOneWithDecryption(
+      em,
+      ExternalConversation,
+      {
+        channelId: channel.id,
+        externalConversationId: externalThreadRef,
+        tenantId,
+        organizationId,
+      },
+      undefined,
+      dscope,
+    )
+    if (!conversation) {
+      conversation = em.create(ExternalConversation, {
+        channelId: channel.id,
+        externalConversationId: externalThreadRef,
+        subject: input.subject,
+        assignedUserId: actor.userId,
+        tenantId,
+        organizationId,
+        lastMessageAt: new Date(),
+      })
+      em.persist(conversation)
+      await em.flush()
+    } else {
+      conversation.subject = conversation.subject ?? input.subject
+      conversation.assignedUserId = conversation.assignedUserId ?? actor.userId
+      conversation.lastMessageAt = new Date()
+      // Flush the scalar updates BEFORE the ChannelThreadMapping lookup below: a
+      // find/findOne on the same EntityManager between a scalar mutation and flush
+      // can silently drop the pending UPDATE (core AGENTS.md → Entity Update Safety).
+      await em.flush()
+    }
+
+    const existingMapping = await findOneWithDecryption(
+      em,
+      ChannelThreadMapping,
+      {
+        externalConversationId: conversation.id,
+        tenantId,
+        organizationId,
+      },
+      undefined,
+      dscope,
+    )
+    if (!existingMapping) {
+      const mapping = em.create(ChannelThreadMapping, {
+        externalConversationId: conversation.id,
+        messageThreadId,
+        channelId: channel.id,
+        providerKey: channel.providerKey,
+        externalThreadRef,
+        assignedUserId: actor.userId,
+        tenantId,
+        organizationId,
+      })
+      em.persist(mapping)
+    }
+
+    const channelLink = em.create(MessageChannelLink, {
+      messageId,
       externalConversationId: conversation.id,
-      tenantId,
-      organizationId,
-    },
-    undefined,
-    dscope,
-  )
-  if (!existingMapping) {
-    const mapping = em.create(ChannelThreadMapping, {
-      externalConversationId: conversation.id,
-      messageThreadId,
-      channelId: channel.id,
       providerKey: channel.providerKey,
-      externalThreadRef,
-      assignedUserId: actor.userId,
+      channelType: channel.channelType,
+      direction: 'outbound',
+      deliveryStatus: 'pending',
+      channelPayload: {
+        text: input.body.plain ?? messageBody,
+        ...(input.body.html ? { html: input.body.html } : {}),
+      },
+      channelContentType: input.body.html ? 'text/html' : 'text/plain',
+      channelMetadata: {
+        to: input.to,
+        cc: input.cc ?? [],
+        bcc: input.bcc ?? [],
+        subject: input.subject,
+        inReplyTo: input.inReplyTo ?? null,
+        references: input.references ?? [],
+        // Caller-supplied pass-through metadata merged last so routing fields
+        // (to/cc/bcc/subject) are never overwritten by the caller.
+        ...(input.channelMetadata ?? {}),
+      },
       tenantId,
       organizationId,
     })
-    em.persist(mapping)
-  }
-
-  const channelLink = em.create(MessageChannelLink, {
-    messageId,
-    externalConversationId: conversation.id,
-    providerKey: channel.providerKey,
-    channelType: channel.channelType,
-    direction: 'outbound',
-    deliveryStatus: 'pending',
-    channelPayload: {
-      text: input.body.plain ?? messageBody,
-      ...(input.body.html ? { html: input.body.html } : {}),
-    },
-    channelContentType: input.body.html ? 'text/html' : 'text/plain',
-    channelMetadata: {
-      to: input.to,
-      cc: input.cc ?? [],
-      bcc: input.bcc ?? [],
-      subject: input.subject,
-      inReplyTo: input.inReplyTo ?? null,
-      references: input.references ?? [],
-      // Caller-supplied pass-through metadata merged last so routing fields
-      // (to/cc/bcc/subject) are never overwritten by the caller.
-      ...(input.channelMetadata ?? {}),
-    },
-    tenantId,
-    organizationId,
+    em.persist(channelLink)
+    await em.flush()
   })
-  em.persist(channelLink)
-  await em.flush()
 
   const queue = getCommunicationChannelsQueue(COMMUNICATION_CHANNELS_QUEUES.outbound)
   const deliveryJob: OutboundDeliveryPayload = {

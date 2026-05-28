@@ -41,6 +41,7 @@ function makeAdapter(refresh?: (input: any) => Promise<{ credentials: any; expir
 }
 
 const scope = { tenantId: '11111111-1111-1111-1111-111111111111', organizationId: '22222222-2222-2222-2222-222222222222' }
+const userScope = { ...scope, userId: '33333333-3333-3333-3333-333333333333' }
 
 describe('refreshCredentialsIfNeeded', () => {
   it('no-ops when adapter does not implement refreshCredentials', async () => {
@@ -172,7 +173,7 @@ describe('refreshCredentialsIfNeeded', () => {
   // and Microsoft adapters silently fail to refresh past the ~1h token
   // mark in production while unit tests cheat by pre-packing `_client`.
   describe('OAuth client resolution (Spec A)', () => {
-    it('resolves oauth_<provider> via credentialsService and passes oauthClient to the adapter', async () => {
+    it('resolves tenant oauth_<provider> credentials even when refreshing a per-user channel', async () => {
       const refresh = jest.fn(async () => ({ credentials: { accessToken: 'b' } }))
       const adapter = makeAdapter(refresh)
       const resolve = jest.fn(async (integrationId: string) => {
@@ -193,13 +194,14 @@ describe('refreshCredentialsIfNeeded', () => {
             accessToken: 'a',
             expiresAt: new Date(Date.now() + 30_000).toISOString(),
           },
-          scope,
+          scope: userScope,
         },
         { credentialsService: { resolve } },
       )
       expect(resolve).toHaveBeenCalledWith('oauth_test', scope)
       expect(refresh).toHaveBeenCalledTimes(1)
       const refreshArg = refresh.mock.calls[0][0]
+      expect(refreshArg.scope).toEqual(userScope)
       expect(refreshArg.oauthClient).toEqual({
         clientId: 'gmail-client-id',
         clientSecret: 'gmail-secret',

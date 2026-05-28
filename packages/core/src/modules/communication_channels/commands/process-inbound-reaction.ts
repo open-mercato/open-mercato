@@ -157,9 +157,8 @@ const processInboundReactionCommand: CommandHandler<
         await em.flush()
       }
 
-      // Insert the new reaction. On the unique constraint conflict (`messageId,
-      // emoji, reactedByUserId, reactedByExternalId`), treat as no-op — provider
-      // sent the same reaction twice.
+      // Insert the new reaction. On a partial actor unique-index conflict,
+      // treat as no-op — provider sent the same reaction twice.
       let reaction: MessageReaction
       try {
         reaction = em.create(MessageReaction, {

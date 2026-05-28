@@ -52,6 +52,8 @@ import {
   type GmailEmailNativeMetadata,
 } from './convert-outbound'
 import { normalizeInboundGmailMessage } from './normalize-inbound'
+import { emailResolveContact } from '@open-mercato/core/modules/communication_channels/lib/email-contact'
+import { encodeCursor } from '@open-mercato/core/modules/communication_channels/lib/email-mime'
 
 /**
  * Gmail `ChannelAdapter`. OAuth2-based, polling-driven (`realtimePush: false`).
@@ -248,7 +250,7 @@ class GmailChannelAdapter implements ChannelAdapter {
       }
       return {
         messages: [],
-        nextCursor: Buffer.from(JSON.stringify(nextState)).toString('base64'),
+        nextCursor: encodeCursor(nextState),
         hasMore: false,
       }
     }
@@ -461,7 +463,7 @@ class GmailChannelAdapter implements ChannelAdapter {
     }
     return {
       messages,
-      nextCursor: Buffer.from(JSON.stringify(nextState)).toString('base64'),
+      nextCursor: encodeCursor(nextState),
       // Re-enqueue immediately when a transient failure left work behind.
       hasMore: hardFailed || !drained,
     }
@@ -502,7 +504,7 @@ class GmailChannelAdapter implements ChannelAdapter {
     }
     return {
       messages,
-      nextCursor: Buffer.from(JSON.stringify(nextState)).toString('base64'),
+      nextCursor: encodeCursor(nextState),
       hasMore: hardFailed || !drained,
     }
   }
@@ -542,7 +544,7 @@ class GmailChannelAdapter implements ChannelAdapter {
     }
     return {
       messages,
-      nextCursor: Buffer.from(JSON.stringify(nextState)).toString('base64'),
+      nextCursor: encodeCursor(nextState),
       hasMore: hardFailed || !drained,
     }
   }
@@ -557,14 +559,7 @@ class GmailChannelAdapter implements ChannelAdapter {
   }
 
   async resolveContact(input: ResolveContactInput): Promise<ContactHint | null> {
-    if (!input.senderIdentifier) return null
-    if (input.senderIdentifier.includes('@')) {
-      return {
-        email: input.senderIdentifier,
-        displayName: input.senderDisplayName,
-      }
-    }
-    return null
+    return emailResolveContact(input)
   }
 
   /**

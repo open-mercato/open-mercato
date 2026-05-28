@@ -51,6 +51,8 @@ import {
   type MicrosoftEmailNativeMetadata,
 } from './convert-outbound'
 import { normalizeInboundMicrosoftMessage } from './normalize-inbound'
+import { emailResolveContact } from '@open-mercato/core/modules/communication_channels/lib/email-contact'
+import { encodeCursor } from '@open-mercato/core/modules/communication_channels/lib/email-mime'
 
 /**
  * Microsoft 365 / Outlook `ChannelAdapter`. OAuth2 + PKCE; polling via Graph delta query.
@@ -307,7 +309,7 @@ class MicrosoftChannelAdapter implements ChannelAdapter {
     }
     return {
       messages,
-      nextCursor: Buffer.from(JSON.stringify(nextState)).toString('base64'),
+      nextCursor: encodeCursor(nextState),
       hasMore: !drained,
     }
   }
@@ -430,14 +432,7 @@ class MicrosoftChannelAdapter implements ChannelAdapter {
   }
 
   async resolveContact(input: ResolveContactInput): Promise<ContactHint | null> {
-    if (!input.senderIdentifier) return null
-    if (input.senderIdentifier.includes('@')) {
-      return {
-        email: input.senderIdentifier,
-        displayName: input.senderDisplayName,
-      }
-    }
-    return null
+    return emailResolveContact(input)
   }
 }
 

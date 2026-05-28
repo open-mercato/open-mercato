@@ -75,11 +75,11 @@ function resolveTarget(activity: InteractionSummary): string | null {
 }
 
 /**
- * Build the `EmailCardWidgetData` shape to pass to the email-card-actions
- * injection spot. Fields that are not currently exposed by the interactions
- * API (rfcMessageId, fromAddress, toAddresses, ccAddresses, inReplyTo,
- * references) default to null; a future enricher on `customers.interaction`
- * can populate them via the `_integrations` passthrough field.
+ * Build the `EmailCardWidgetData` for the email-card-actions injection spot.
+ * Email metadata (rfcMessageId, addresses, threading headers, current visibility,
+ * and the author flag) is populated server-side by `interactionEmailCardEnricher`
+ * and surfaced via the `_integrations.email` passthrough; missing values fall
+ * back to null.
  */
 function buildEmailCardWidgetData(activity: InteractionSummary): EmailCardWidgetData {
   const integrations = activity._integrations as Record<string, unknown> | undefined
@@ -90,7 +90,6 @@ function buildEmailCardWidgetData(activity: InteractionSummary): EmailCardWidget
     externalMessageId:
       typeof emailMeta.externalMessageId === 'string' ? emailMeta.externalMessageId : null,
     // RFC2822 Message-ID (e.g. "<abc@mail.gmail.com>") for In-Reply-To / References headers.
-    // Populated once a communication_channels interaction enricher is wired.
     rfcMessageId:
       typeof emailMeta.rfcMessageId === 'string' ? emailMeta.rfcMessageId : null,
     // entityId is the CustomerEntity id — on a person detail page this IS the personId.
@@ -103,6 +102,11 @@ function buildEmailCardWidgetData(activity: InteractionSummary): EmailCardWidget
     inReplyTo:
       typeof emailMeta.inReplyTo === 'string' ? emailMeta.inReplyTo : null,
     references: Array.isArray(emailMeta.references) ? (emailMeta.references as string[]) : null,
+    currentVisibility:
+      emailMeta.currentVisibility === 'private' || emailMeta.currentVisibility === 'shared'
+        ? emailMeta.currentVisibility
+        : null,
+    isAuthor: typeof emailMeta.isAuthor === 'boolean' ? emailMeta.isAuthor : null,
   }
 }
 

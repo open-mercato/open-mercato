@@ -183,7 +183,7 @@ export default function ChannelDetailPage() {
                   <ul className="mt-2 space-y-1 text-xs">
                     {health.recentFailures.map((failure) => (
                       <li key={failure.id} className="rounded border bg-muted p-2">
-                        <div className="font-mono text-[11px] text-muted-foreground">
+                        <div className="font-mono text-xs text-muted-foreground">
                           {failure.messageId} · {failure.direction} ·{' '}
                           {failure.createdAt ?? '—'}
                         </div>

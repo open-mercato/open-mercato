@@ -1960,7 +1960,7 @@
           "autoincrement": false,
           "primary": false,
           "nullable": false,
-          "unique": true,
+          "unique": false,
           "length": null,
           "precision": null,
           "scale": null,
@@ -2106,20 +2106,31 @@
           "unique": true
         },
         {
-          "columnNames": [
-            "message_id",
-            "emoji",
-            "reacted_by_user_id",
-            "reacted_by_external_id"
-          ],
-          "composite": true,
-          "constraint": true,
-          "keyName": "message_reactions_unique_per_reactor_uq",
+          "columnNames": [],
+          "composite": false,
+          "constraint": false,
+          "keyName": "message_reactions_external_actor_uq",
           "primary": false,
-          "unique": true
+          "unique": false,
+          "expression": "create unique index \"message_reactions_external_actor_uq\" on \"message_reactions\" (\"tenant_id\", \"message_id\", \"emoji\", \"reacted_by_external_id\") where \"reacted_by_external_id\" is not null"
+        },
+        {
+          "columnNames": [],
+          "composite": false,
+          "constraint": false,
+          "keyName": "message_reactions_internal_actor_uq",
+          "primary": false,
+          "unique": false,
+          "expression": "create unique index \"message_reactions_internal_actor_uq\" on \"message_reactions\" (\"tenant_id\", \"message_id\", \"emoji\", \"reacted_by_user_id\") where \"reacted_by_user_id\" is not null"
         }
       ],
-      "checks": [],
+      "checks": [
+        {
+          "name": "message_reactions_exactly_one_actor_chk",
+          "expression": "(\"reacted_by_user_id\" is null) <> (\"reacted_by_external_id\" is null)",
+          "definition": "check ((\"reacted_by_user_id\" is null) <> (\"reacted_by_external_id\" is null))"
+        }
+      ],
       "triggers": [],
       "foreignKeys": {},
       "comment": null

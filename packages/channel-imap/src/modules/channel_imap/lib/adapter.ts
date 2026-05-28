@@ -31,6 +31,8 @@ import {
 import { convertOutboundForEmail } from './convert-outbound'
 import { normalizeInboundImapMessage } from './normalize-inbound'
 import { validateImapCredentials } from './validate-credentials'
+import { emailResolveContact } from '@open-mercato/core/modules/communication_channels/lib/email-contact'
+import { decodeCursor, encodeCursor } from '@open-mercato/core/modules/communication_channels/lib/email-mime'
 
 /**
  * IMAP+SMTP `ChannelAdapter`. Inbound is polling-driven (`realtimePush: false`),
@@ -245,7 +247,7 @@ class ImapChannelAdapter implements ChannelAdapter {
     // next-poll state in `nextCursor` (base64-encoded JSON) so workers can persist
     // it onto `CommunicationChannel.channelState` without depending on a hub-specific
     // contract beyond the existing `HistoryPage` shape.
-    const nextCursor = Buffer.from(JSON.stringify(nextChannelState)).toString('base64')
+    const nextCursor = encodeCursor(nextChannelState)
     return { messages, nextCursor, hasMore }
   }
 
@@ -330,14 +332,7 @@ class ImapChannelAdapter implements ChannelAdapter {
   }
 
   async resolveContact(input: ResolveContactInput): Promise<ContactHint | null> {
-    if (!input.senderIdentifier) return null
-    if (input.senderIdentifier.includes('@')) {
-      return {
-        email: input.senderIdentifier,
-        displayName: input.senderDisplayName,
-      }
-    }
-    return null
+    return emailResolveContact(input)
   }
 }
 
@@ -394,24 +389,19 @@ interface ImportCursor {
 }
 
 function encodeImportCursor(cursor: ImportCursor): string {
-  return Buffer.from(JSON.stringify(cursor)).toString('base64')
+  return encodeCursor(cursor)
 }
 
 function decodeImportCursor(value: string | undefined): ImportCursor | null {
-  if (!value) return null
-  try {
-    const parsed = JSON.parse(Buffer.from(value, 'base64').toString('utf-8')) as unknown
-    if (!parsed || typeof parsed !== 'object') return null
-    const obj = parsed as { remaining?: unknown; collected?: unknown; total?: unknown }
-    const remaining = Array.isArray(obj.remaining)
-      ? obj.remaining.filter((n): n is number => typeof n === 'number' && Number.isFinite(n))
-      : []
-    const collected = typeof obj.collected === 'number' ? obj.collected : 0
-    const total = typeof obj.total === 'number' ? obj.total : undefined
-    return { remaining, collected, total }
-  } catch {
-    return null
-  }
+  const parsed = decodeCursor(value)
+  if (!parsed || typeof parsed !== 'object') return null
+  const obj = parsed as { remaining?: unknown; collected?: unknown; total?: unknown }
+  const remaining = Array.isArray(obj.remaining)
+    ? obj.remaining.filter((n): n is number => typeof n === 'number' && Number.isFinite(n))
+    : []
+  const collected = typeof obj.collected === 'number' ? obj.collected : 0
+  const total = typeof obj.total === 'number' ? obj.total : undefined
+  return { remaining, collected, total }
 }
 
 function toNumberOrUndefined(value: unknown): number | undefined {

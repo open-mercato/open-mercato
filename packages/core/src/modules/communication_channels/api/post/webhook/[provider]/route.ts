@@ -84,7 +84,7 @@ export async function POST(req: Request, { params }: RouteContext): Promise<Resp
         isActive: true,
         deletedAt: null,
       },
-      { limit: 50, orderBy: { createdAt: 'desc' } },
+      { orderBy: { createdAt: 'desc' } },
     )
 
     let matchedChannel: CommunicationChannel | null = null
