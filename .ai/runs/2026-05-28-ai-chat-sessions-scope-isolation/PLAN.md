@@ -18,8 +18,8 @@
 | 2 | 2.2 | Unit tests: scoped key + scope-change reset | done | de1746a97 |
 | 3 | 3.1 | Self-healing 404 in useAiChat hydrateFromServer + onConversationNotFound | done | 783b2ee85 |
 | 3 | 3.2 | Forward onConversationNotFound through AiChat props | done | 026110d5f |
-| 3 | 3.3 | Wire onConversationNotFound to sessions.closeSession in AiDock | done | pending |
-| 3 | 3.4 | Unit tests: 404 self-healing + AiDock wiring | todo | — |
+| 3 | 3.3 | Wire onConversationNotFound to sessions.closeSession in AiDock | done | 9c364974a |
+| 3 | 3.4 | Unit tests: 404 self-healing + AiDock wiring | done | pending |
 
 ## Goal
 
