@@ -5,9 +5,11 @@ import os from 'node:os'
 import path from 'node:path'
 
 import {
+  discoverAppGeneratedDirs,
   discoverWorkspacePackages,
   isWatchedSourceFile,
   runConsolidatedWatch,
+  touchGeneratedBarrels,
 } from '../watch-packages.mjs'
 
 function makePackage(rootDir, parentSubdir, pkgName, options = {}) {
@@ -28,9 +30,10 @@ function makePackage(rootDir, parentSubdir, pkgName, options = {}) {
   return pkgDir
 }
 
-test('isWatchedSourceFile accepts .ts/.tsx but rejects tests and unrelated files', () => {
+test('isWatchedSourceFile accepts source files that affect runtime output but rejects tests and unrelated files', () => {
   assert.equal(isWatchedSourceFile('index.ts'), true)
   assert.equal(isWatchedSourceFile('lib/foo.tsx'), true)
+  assert.equal(isWatchedSourceFile('modules/customers/i18n/en.json'), true)
   assert.equal(isWatchedSourceFile('lib/__tests__/foo.ts'), false)
   assert.equal(isWatchedSourceFile('lib/foo.test.ts'), false)
   assert.equal(isWatchedSourceFile('lib/foo.test.tsx'), false)
@@ -38,6 +41,36 @@ test('isWatchedSourceFile accepts .ts/.tsx but rejects tests and unrelated files
   assert.equal(isWatchedSourceFile('README.md'), false)
   assert.equal(isWatchedSourceFile(''), false)
   assert.equal(isWatchedSourceFile(null), false)
+})
+
+test('discoverAppGeneratedDirs finds app generated directories and touchGeneratedBarrels bumps generated files', async () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'watch-packages-generated-'))
+  try {
+    const generatedDir = path.join(root, 'apps/mercato/.mercato/generated')
+    fs.mkdirSync(generatedDir, { recursive: true })
+    const generatedFile = path.join(generatedDir, 'backend-routes.generated.ts')
+    const checksumFile = path.join(generatedDir, 'backend-routes.generated.checksum')
+    const ignoredFile = path.join(generatedDir, 'plain.txt')
+    fs.writeFileSync(generatedFile, 'export const routes = []\n')
+    fs.writeFileSync(checksumFile, 'abc\n')
+    fs.writeFileSync(ignoredFile, 'ignore\n')
+
+    const oldTime = new Date('2020-01-01T00:00:00Z')
+    fs.utimesSync(generatedFile, oldTime, oldTime)
+    fs.utimesSync(checksumFile, oldTime, oldTime)
+    fs.utimesSync(ignoredFile, oldTime, oldTime)
+
+    const dirs = discoverAppGeneratedDirs(root)
+    assert.deepEqual(dirs, [generatedDir])
+
+    const touched = touchGeneratedBarrels(dirs, { log: () => {} })
+    assert.equal(touched, 2)
+    assert.ok(fs.statSync(generatedFile).mtimeMs > oldTime.getTime())
+    assert.ok(fs.statSync(checksumFile).mtimeMs > oldTime.getTime())
+    assert.equal(fs.statSync(ignoredFile).mtimeMs, oldTime.getTime())
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true })
+  }
 })
 
 test('discoverWorkspacePackages finds packages/* and external/official-modules/packages/*', () => {
@@ -159,6 +192,37 @@ test('runConsolidatedWatch wires one fs.watch per discovered package and trigger
     const builtPackages = new Set(buildCalls.map((c) => path.basename(c.cwd)))
     assert.ok(builtPackages.has('alpha'))
     assert.ok(builtPackages.has('bravo'))
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true })
+  }
+})
+
+test('runConsolidatedWatch touches app generated barrels after package rebuild', async () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'watch-packages-touch-'))
+  try {
+    makePackage(root, 'packages', 'alpha', { entryFile: 'index.ts' })
+    const generatedDir = path.join(root, 'apps/mercato/.mercato/generated')
+    fs.mkdirSync(generatedDir, { recursive: true })
+    const generatedFile = path.join(generatedDir, 'backend-routes.generated.ts')
+    fs.writeFileSync(generatedFile, 'export const routes = []\n')
+    const oldTime = new Date('2020-01-01T00:00:00Z')
+    fs.utimesSync(generatedFile, oldTime, oldTime)
+
+    const controller = new AbortController()
+    await runConsolidatedWatch({
+      root,
+      log: () => {},
+      build: async () => {},
+      signal: controller.signal,
+    })
+
+    for (let attempt = 0; attempt < 5 && fs.statSync(generatedFile).mtimeMs === oldTime.getTime(); attempt += 1) {
+      fs.writeFileSync(path.join(root, 'packages/alpha/src', `change-${attempt}.json`), '{}\n')
+      await new Promise((resolve) => setTimeout(resolve, 600))
+    }
+
+    controller.abort()
+    assert.ok(fs.statSync(generatedFile).mtimeMs > oldTime.getTime())
   } finally {
     fs.rmSync(root, { recursive: true, force: true })
   }

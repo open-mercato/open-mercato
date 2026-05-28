@@ -2,6 +2,8 @@ import dotenv from 'dotenv'
 import fs from 'node:fs'
 import path from 'node:path'
 
+const RUNTIME_GRAPH_FILE_PATTERN = /\.generated(?:\.[a-z0-9]+)?(?:\.tsx?|\.checksum)$/i
+
 const DEV_ENV_PRIORITY = [
   '.env',
   '.env.development',
@@ -106,5 +108,50 @@ export function watchDevEnvFiles(
     for (const watcher of watchers) {
       watcher.close()
     }
+  }
+}
+
+export function watchDevRuntimeFiles(
+  appDir: string,
+  onChange: (filePath: string) => void,
+  options: { debounceMs?: number } = {},
+): () => void {
+  const debounceMs = options.debounceMs ?? 250
+  const generatedDir = path.join(appDir, '.mercato', 'generated')
+  const timers = new Map<string, NodeJS.Timeout>()
+
+  if (!fs.existsSync(generatedDir)) {
+    return () => {}
+  }
+
+  let watcher: fs.FSWatcher | null = null
+  try {
+    watcher = fs.watch(generatedDir, (eventType, fileName) => {
+      if (eventType !== 'change' && eventType !== 'rename') return
+      const name = String(fileName ?? '')
+      if (!name) return
+      if (!RUNTIME_GRAPH_FILE_PATTERN.test(name)) return
+
+      const filePath = path.join(generatedDir, name)
+      const existingTimer = timers.get(filePath)
+      if (existingTimer) {
+        clearTimeout(existingTimer)
+      }
+
+      timers.set(filePath, setTimeout(() => {
+        timers.delete(filePath)
+        onChange(filePath)
+      }, debounceMs))
+    })
+  } catch {
+    return () => {}
+  }
+
+  return () => {
+    for (const timer of timers.values()) {
+      clearTimeout(timer)
+    }
+    timers.clear()
+    watcher?.close()
   }
 }

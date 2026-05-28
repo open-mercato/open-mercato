@@ -800,6 +800,7 @@ export class AiChatConversationParticipant {
     | 'organizationId'
     | 'role'
     | 'lastReadAt'
+    | 'deletedAt'
 
   @PrimaryKey({ type: 'uuid', defaultRaw: 'gen_random_uuid()' })
   id!: string
@@ -821,6 +822,9 @@ export class AiChatConversationParticipant {
 
   @Property({ name: 'last_read_at', type: Date, nullable: true })
   lastReadAt?: Date | null
+
+  @Property({ name: 'deleted_at', type: Date, nullable: true })
+  deletedAt?: Date | null
 
   @Property({ name: 'created_at', type: Date, onCreate: () => new Date() })
   createdAt: Date = new Date()

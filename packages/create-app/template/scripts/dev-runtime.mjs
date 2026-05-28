@@ -1434,6 +1434,28 @@ function classifyWatchLine(line) {
       progressLabel: 'Watching structural module files',
     }
   }
+  if (line.startsWith('[generate:watch] Regenerating')) {
+    return {
+      type: 'status',
+      message: '♻️ Structural change detected; regenerating generated files',
+      splashPhase: startupSplashPhase,
+      splashDetail: 'Regenerating generated files',
+      activity: 'Regenerating generated files',
+      progressCurrent: 2,
+      progressLabel: 'Watching structural module files',
+    }
+  }
+  if (line === '[generate:watch] Generators completed.') {
+    return {
+      type: 'status',
+      message: '♻️ Generated files refreshed',
+      splashPhase: startupSplashPhase,
+      splashDetail: 'Generated files refreshed',
+      activity: 'Generated files refreshed',
+      progressCurrent: 2,
+      progressLabel: 'Watching structural module files',
+    }
+  }
   if (line.startsWith('[generate:watch]')) {
     return {
       type: 'status',
@@ -1473,6 +1495,9 @@ function classifyWatchLine(line) {
 }
 
 function classifyServerLine(line) {
+  if (line.startsWith('[generate:watch]')) {
+    return classifyWatchLine(line)
+  }
   if (line.startsWith('🚀 Running server:dev')) {
     return {
       type: 'status',
@@ -1672,6 +1697,18 @@ function startFilteredChild(args, label, classifyLine) {
   return child
 }
 
+function resolveGenerateWatchMode(env) {
+  const raw = env.OM_DEV_GENERATE_WATCH_MODE
+  if (typeof raw !== 'string') return 'in-process'
+  const normalized = raw.trim().toLowerCase()
+  if (normalized === 'legacy' || normalized === 'sidecar' || normalized === 'out-of-process') {
+    return 'legacy'
+  }
+  return 'in-process'
+}
+
+const generateWatchMode = resolveGenerateWatchMode(process.env)
+
 async function runClassicRuntime() {
   const initialGenerate = spawnMercato(['generate'])
   const initialGenerateResult = await waitForExit(initialGenerate)
@@ -1684,12 +1721,19 @@ async function runClassicRuntime() {
     shutdown(initialGenerateExitCode)
   }
 
-  const watch = spawnMercato(['generate', 'watch', '--skip-initial'])
+  // Default ('in-process'): `mercato server dev` runs the structural
+  // regeneration watcher in-process. Set OM_DEV_GENERATE_WATCH_MODE=legacy
+  // to fall back to spawning the dedicated sidecar Node process.
+  const watchers = []
+  if (generateWatchMode === 'legacy') {
+    watchers.push(['Generator watch (legacy sidecar)', spawnMercato(['generate', 'watch', '--skip-initial'])])
+  }
   const server = spawnMercato(['server', 'dev'])
-  const result = await Promise.race([
-    waitForExit(watch, 'Generator watch'),
+  const waiters = [
     waitForExit(server, 'App runtime'),
-  ])
+    ...watchers.map(([label, child]) => waitForExit(child, label)),
+  ]
+  const result = await Promise.race(waiters)
   if (isGracefulShutdownResult(result)) {
     return
   }
@@ -1707,13 +1751,16 @@ installLogToggle()
 initializeRuntimeSummary()
 printRuntimePackagesSummary()
 
-const watch = startFilteredChild(['generate', 'watch', '--skip-initial'], 'Generator watch', classifyWatchLine)
+const sidecarWatch = generateWatchMode === 'legacy'
+  ? startFilteredChild(['generate', 'watch', '--skip-initial'], 'Generator watch (legacy sidecar)', classifyWatchLine)
+  : null
 const server = startFilteredChild(['server', 'dev'], 'App runtime', classifyServerLine)
 
-const result = await Promise.race([
-  waitForExit(watch, 'Generator watch'),
-  waitForExit(server, 'App runtime'),
-])
+const waiters = [waitForExit(server, 'App runtime')]
+if (sidecarWatch) {
+  waiters.push(waitForExit(sidecarWatch, 'Generator watch (legacy sidecar)'))
+}
+const result = await Promise.race(waiters)
 if (!isGracefulShutdownResult(result)) {
   reportUnexpectedChildExit(result)
   shutdown(resolveUnexpectedExitCode(result))

@@ -113,6 +113,7 @@ type DictionarySelectFieldProps = {
   allowAppearance?: boolean
   showManage?: boolean
   showLabelInput?: boolean
+  showActiveAppearance?: boolean
 }
 
 const emailValidationSchema = z.string().email()
@@ -141,6 +142,7 @@ export function DictionarySelectField({
   allowAppearance = false,
   showManage = false,
   showLabelInput = true,
+  showActiveAppearance = true,
 }: DictionarySelectFieldProps) {
   const t = useT()
   const queryClient = useQueryClient()
@@ -237,6 +239,7 @@ export function DictionarySelectField({
       allowAppearance={allowAppearance}
       showManage={showManage}
       showLabelInput={showLabelInput}
+      showActiveAppearance={showActiveAppearance}
     />
   )
 }

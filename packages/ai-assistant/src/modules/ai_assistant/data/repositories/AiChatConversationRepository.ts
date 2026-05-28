@@ -1,8 +1,9 @@
-import type { EntityManager } from '@mikro-orm/postgresql'
+import type { EntityManager, FilterQuery } from '@mikro-orm/postgresql'
 import {
   findOneWithDecryption,
   findWithDecryption,
 } from '@open-mercato/shared/lib/encryption/find'
+import { Organization } from '@open-mercato/core/modules/directory/data/entities'
 import {
   AiChatConversation,
   AiChatConversationParticipant,
@@ -29,8 +30,6 @@ import type {
  * outside that boundary. The participant row is written transactionally
  * alongside conversation create/import.
  *
- * TODO(ai-chat-sharing): widen the non-manage read predicate to include
- * explicit undeleted participants once shared conversations are implemented.
  */
 
 export interface AiChatConversationContext {
@@ -103,6 +102,27 @@ export class AiChatConversationAccessError extends Error {
   }
 }
 
+export class AiChatConversationDuplicateParticipantError extends Error {
+  override readonly name = 'AiChatConversationDuplicateParticipantError'
+  constructor(message: string = 'User is already an active participant in this conversation.') {
+    super(message)
+  }
+}
+
+export class AiChatParticipantNotFoundError extends Error {
+  override readonly name = 'AiChatParticipantNotFoundError'
+  constructor(message: string = 'Participant not found or already revoked.') {
+    super(message)
+  }
+}
+
+export class AiChatConversationOrgNotFoundError extends Error {
+  override readonly name = 'AiChatConversationOrgNotFoundError'
+  constructor(message: string = 'Organization does not exist or is inactive for this tenant.') {
+    super(message)
+  }
+}
+
 export class AiChatConversationRepository {
   constructor(private readonly em: EntityManager) {}
 
@@ -135,6 +155,7 @@ export class AiChatConversationRepository {
         }
         return existing
       }
+      await assertOrganizationExists(tx as unknown as EntityManager, ctx)
       const conversation = tx.create(AiChatConversation, {
         tenantId: ctx.tenantId,
         organizationId: ctx.organizationId ?? null,
@@ -175,11 +196,21 @@ export class AiChatConversationRepository {
     if (!conversationId) return null
     const row = await findOneAccessibleConversation(this.em, conversationId, ctx)
     if (!row) return null
-    if (!canAccessConversation(row, ctx)) return null
+    const isParticipant =
+      !canManageConversations(ctx) && row.ownerUserId !== ctx.userId
+        ? await this.loadParticipantFlag(
+            this.em,
+            ctx.tenantId!,
+            ctx.organizationId,
+            row.conversationId,
+            ctx.userId!,
+          )
+        : false
+    if (!canAccessConversation(row, ctx, isParticipant)) return null
     return row
   }
 
-  /** Owner-scoped list unless the caller has tenant/org manage access. */
+  /** Owner-scoped list unless the caller has tenant/org manage access. Participants also see shared conversations. */
   async list(
     ctx: AiChatConversationContext,
     options: AiChatConversationListOptions = {},
@@ -191,7 +222,30 @@ export class AiChatConversationRepository {
       organizationId: ctx.organizationId ?? null,
       deletedAt: null,
     }
-    if (!canManageConversations(ctx)) where.ownerUserId = ctx.userId
+    if (!canManageConversations(ctx)) {
+      const participantFilter: FilterQuery<AiChatConversationParticipant> = {
+        tenantId: ctx.tenantId,
+        userId: ctx.userId,
+        deletedAt: null,
+        ...(ctx.organizationId ? { organizationId: ctx.organizationId } : {}),
+      }
+      const participantRows = await findWithDecryption<AiChatConversationParticipant>(
+        this.em,
+        AiChatConversationParticipant,
+        participantFilter,
+        { fields: ['conversationId'] as any },
+        { tenantId: ctx.tenantId ?? null, organizationId: ctx.organizationId ?? null },
+      )
+      const participantConvIds = participantRows.map((p) => p.conversationId)
+      if (participantConvIds.length > 0) {
+        where.$or = [
+          { ownerUserId: ctx.userId },
+          { conversationId: { $in: participantConvIds } },
+        ]
+      } else {
+        where.ownerUserId = ctx.userId
+      }
+    }
     if (options.agentId) where.agentId = options.agentId
     if (options.status) where.status = options.status
     if (options.cursor) {
@@ -517,6 +571,187 @@ export class AiChatConversationRepository {
       skippedMessageCount: skipped,
     }
   }
+
+  async listParticipants(
+    conversationId: string,
+    ctx: AiChatConversationContext,
+  ): Promise<AiChatConversationParticipant[]> {
+    assertContext(ctx, 'listParticipants')
+    const conv = await findOneAccessibleConversation(this.em, conversationId, ctx)
+    if (!conv) {
+      throw new AiChatConversationAccessError(
+        `Conversation "${conversationId}" was not found for the caller.`,
+      )
+    }
+    if (conv.ownerUserId !== ctx.userId && !canManageConversations(ctx)) {
+      throw new AiChatConversationAccessError(
+        'Only the conversation owner or a manager can list participants.',
+      )
+    }
+    const filter: FilterQuery<AiChatConversationParticipant> = {
+      tenantId: ctx.tenantId,
+      conversationId,
+      deletedAt: null,
+      ...(ctx.organizationId ? { organizationId: ctx.organizationId } : {}),
+    }
+    return findWithDecryption<AiChatConversationParticipant>(
+      this.em,
+      AiChatConversationParticipant,
+      filter,
+      { orderBy: { createdAt: 'asc' } as any },
+      { tenantId: ctx.tenantId ?? null, organizationId: ctx.organizationId ?? null },
+    )
+  }
+
+  async addParticipant(
+    conversationId: string,
+    userId: string,
+    role: 'viewer',
+    ctx: AiChatConversationContext,
+  ): Promise<AiChatConversationParticipant> {
+    assertContext(ctx, 'addParticipant')
+    return this.em.transactional(async (tx) => {
+      const conv = await findOneAccessibleConversation(
+        tx as unknown as EntityManager,
+        conversationId,
+        ctx,
+      )
+      if (!conv) {
+        throw new AiChatConversationAccessError(
+          `Conversation "${conversationId}" was not found for the caller.`,
+        )
+      }
+      if (conv.ownerUserId !== ctx.userId) {
+        throw new AiChatConversationAccessError(
+          'Only the conversation owner can add participants.',
+        )
+      }
+      const existingFilter: FilterQuery<AiChatConversationParticipant> = {
+        tenantId: ctx.tenantId,
+        conversationId,
+        userId,
+        ...(ctx.organizationId ? { organizationId: ctx.organizationId } : {}),
+      }
+      const existing = await findOneWithDecryption<AiChatConversationParticipant>(
+        tx as unknown as EntityManager,
+        AiChatConversationParticipant,
+        existingFilter,
+      )
+      if (existing) {
+        if (existing.deletedAt === null) {
+          throw new AiChatConversationDuplicateParticipantError()
+        }
+        existing.deletedAt = null
+        existing.role = role
+        await tx.persist(existing).flush()
+        if (conv.visibility === 'private') {
+          conv.visibility = 'shared'
+          await tx.persist(conv).flush()
+        }
+        return existing
+      }
+      const participant = tx.create(AiChatConversationParticipant, {
+        tenantId: ctx.tenantId!,
+        organizationId: ctx.organizationId ?? null,
+        conversationId,
+        userId,
+        role,
+      } as unknown as AiChatConversationParticipant)
+      if (conv.visibility === 'private') {
+        conv.visibility = 'shared'
+      }
+      await tx.persist(participant).persist(conv).flush()
+      return participant
+    })
+  }
+
+  async revokeParticipant(
+    conversationId: string,
+    targetUserId: string,
+    ctx: AiChatConversationContext,
+  ): Promise<void> {
+    assertContext(ctx, 'revokeParticipant')
+    await this.em.transactional(async (tx) => {
+      const conv = await findOneAccessibleConversation(
+        tx as unknown as EntityManager,
+        conversationId,
+        ctx,
+      )
+      if (!conv) {
+        throw new AiChatConversationAccessError(
+          `Conversation "${conversationId}" was not found for the caller.`,
+        )
+      }
+      if (conv.ownerUserId !== ctx.userId) {
+        throw new AiChatConversationAccessError(
+          'Only the conversation owner can revoke participants.',
+        )
+      }
+      if (targetUserId === conv.ownerUserId) {
+        throw new AiChatConversationAccessError('Cannot revoke the conversation owner.')
+      }
+      const participantFilter: FilterQuery<AiChatConversationParticipant> = {
+        tenantId: ctx.tenantId,
+        conversationId,
+        userId: targetUserId,
+        deletedAt: null,
+        ...(ctx.organizationId ? { organizationId: ctx.organizationId } : {}),
+      }
+      const participant = await findOneWithDecryption<AiChatConversationParticipant>(
+        tx as unknown as EntityManager,
+        AiChatConversationParticipant,
+        participantFilter,
+      )
+      if (!participant) throw new AiChatParticipantNotFoundError()
+      participant.deletedAt = new Date()
+      const remainingCount = await tx.count(AiChatConversationParticipant, {
+        tenantId: ctx.tenantId,
+        conversationId,
+        deletedAt: null,
+        role: { $ne: 'owner' },
+      } as FilterQuery<AiChatConversationParticipant>)
+      if (remainingCount <= 1) {
+        conv.visibility = 'private'
+        await tx.persist(conv)
+      }
+      await tx.persist(participant).flush()
+    })
+  }
+
+  async getParticipantCount(
+    tenantId: string,
+    organizationId: string | null | undefined,
+    conversationId: string,
+  ): Promise<number> {
+    return this.em.count(AiChatConversationParticipant, {
+      tenantId,
+      conversationId,
+      deletedAt: null,
+      role: { $ne: 'owner' },
+      ...(organizationId ? { organizationId } : {}),
+    } as FilterQuery<AiChatConversationParticipant>)
+  }
+
+  private async loadParticipantFlag(
+    em: EntityManager,
+    tenantId: string,
+    organizationId: string | null | undefined,
+    conversationId: string,
+    userId: string,
+  ): Promise<boolean> {
+    const row = await findOneWithDecryption<AiChatConversationParticipant>(
+      em,
+      AiChatConversationParticipant,
+      {
+        tenantId,
+        conversationId,
+        userId,
+        deletedAt: null,
+        ...(organizationId ? { organizationId } : {}),
+      } as FilterQuery<AiChatConversationParticipant>,
+    )
+    return row !== null
+  }
 }
 
 function assertContext(ctx: AiChatConversationContext | undefined, method: string): void {
@@ -535,8 +770,36 @@ function canManageConversations(ctx: AiChatConversationContext): boolean {
 function canAccessConversation(
   row: AiChatConversation,
   ctx: AiChatConversationContext,
+  isParticipant = false,
 ): boolean {
-  return canManageConversations(ctx) || row.ownerUserId === ctx.userId
+  return canManageConversations(ctx) || row.ownerUserId === ctx.userId || isParticipant
+}
+
+async function assertOrganizationExists(
+  em: EntityManager,
+  ctx: AiChatConversationContext,
+): Promise<void> {
+  if (!ctx.organizationId) return
+  const org = await findOneWithDecryption<Organization>(
+    em,
+    Organization,
+    {
+      id: ctx.organizationId,
+      tenant: ctx.tenantId,
+      deletedAt: null,
+      isActive: true,
+    } as any,
+    {},
+    {
+      tenantId: ctx.tenantId ?? null,
+      organizationId: ctx.organizationId ?? null,
+    },
+  )
+  if (!org) {
+    throw new AiChatConversationOrgNotFoundError(
+      `Organization "${ctx.organizationId}" does not exist or is inactive in tenant "${ctx.tenantId}".`,
+    )
+  }
 }
 
 async function findOneAccessibleConversation(

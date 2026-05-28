@@ -632,6 +632,7 @@ describe('server dev managed process exits', () => {
   const originalAutoSpawnWorkers = process.env.AUTO_SPAWN_WORKERS
   const originalLazy = process.env.OM_AUTO_SPAWN_WORKERS_LAZY
   const originalLazyScheduler = process.env.OM_AUTO_SPAWN_SCHEDULER_LAZY
+  const originalGenerateWatchMode = process.env.OM_DEV_GENERATE_WATCH_MODE
 
   beforeEach(() => {
     jest.restoreAllMocks()
@@ -640,6 +641,12 @@ describe('server dev managed process exits', () => {
     process.env.AUTO_SPAWN_WORKERS = 'true'
     delete process.env.OM_AUTO_SPAWN_WORKERS_LAZY
     delete process.env.OM_AUTO_SPAWN_SCHEDULER_LAZY
+    // These tests stub the resolver to an empty object; the in-process
+    // generate watcher's default checksum function would error on the
+    // missing methods. Force the legacy out-of-process mode so the
+    // managed-exit assertions only exercise the worker/scheduler/Next
+    // spawn surface.
+    process.env.OM_DEV_GENERATE_WATCH_MODE = 'legacy'
   })
 
   afterEach(() => {
@@ -651,6 +658,8 @@ describe('server dev managed process exits', () => {
     jest.dontMock('../lib/queue-worker-supervisor')
     jest.dontMock('../lib/scheduler-supervisor')
     jest.resetModules()
+    if (originalGenerateWatchMode === undefined) delete process.env.OM_DEV_GENERATE_WATCH_MODE
+    else process.env.OM_DEV_GENERATE_WATCH_MODE = originalGenerateWatchMode
     delete process.env.OM_AUTO_SPAWN_WORKERS_LAZY
     delete process.env.OM_AUTO_SPAWN_SCHEDULER_LAZY
   })
@@ -1040,6 +1049,7 @@ describe('server start managed process exits', () => {
         envChangeCallback = onChange
         return jest.fn()
       }),
+      watchDevRuntimeFiles: jest.fn(() => jest.fn()),
     }))
     jest.doMock('../lib/generators', () => ({
       generateModulePackageSources: jest.fn().mockResolvedValue(undefined),
