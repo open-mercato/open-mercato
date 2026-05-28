@@ -95,6 +95,9 @@ import {
   ensureTenantScope,
   extractUndoPayload,
   toNumericString,
+  enforceSalesDocumentOptimisticLock,
+  SALES_RESOURCE_KIND_ORDER,
+  SALES_RESOURCE_KIND_QUOTE,
 } from "./shared";
 import {
   loadShipmentSnapshot,
@@ -5895,6 +5898,7 @@ const convertQuoteToOrderCommand: CommandHandler<
           ),
         });
       ensureQuoteScope(ctx, quote.organizationId, quote.tenantId);
+      enforceSalesDocumentOptimisticLock(ctx, quote, SALES_RESOURCE_KIND_QUOTE);
       const snapshot = await loadQuoteSnapshot(em, payload.quoteId);
       if (!snapshot)
         throw new CrudHttpError(404, {
@@ -6355,6 +6359,7 @@ const orderLineUpsertCommand: CommandHandler<
     if (!order)
       throw new CrudHttpError(404, { error: "Sales order not found" });
     ensureOrderScope(ctx, order.organizationId, order.tenantId);
+    enforceSalesDocumentOptimisticLock(ctx, order, SALES_RESOURCE_KIND_ORDER);
 
     const [existingLines, adjustments] = await Promise.all([
       em.find(SalesOrderLine, { order }, { orderBy: { lineNumber: "asc" } }),
@@ -6666,6 +6671,7 @@ const orderLineDeleteCommand: CommandHandler<
         ),
       });
     ensureOrderScope(ctx, order.organizationId, order.tenantId);
+    enforceSalesDocumentOptimisticLock(ctx, order, SALES_RESOURCE_KIND_ORDER);
     const shipmentCount = await em.count(SalesShipmentItem, {
       orderLine: parsed.id,
       shipment: { deletedAt: null },
@@ -6827,6 +6833,7 @@ const quoteLineUpsertCommand: CommandHandler<
     if (!quote)
       throw new CrudHttpError(404, { error: "Sales quote not found" });
     ensureQuoteScope(ctx, quote.organizationId, quote.tenantId);
+    enforceSalesDocumentOptimisticLock(ctx, quote, SALES_RESOURCE_KIND_QUOTE);
     const [existingLines, adjustments] = await Promise.all([
       em.find(SalesQuoteLine, { quote }, { orderBy: { lineNumber: "asc" } }),
       em.find(
@@ -7129,6 +7136,7 @@ const quoteLineDeleteCommand: CommandHandler<
     if (!quote)
       throw new CrudHttpError(404, { error: "Sales quote not found" });
     ensureQuoteScope(ctx, quote.organizationId, quote.tenantId);
+    enforceSalesDocumentOptimisticLock(ctx, quote, SALES_RESOURCE_KIND_QUOTE);
     const existingLines = await em.find(
       SalesQuoteLine,
       { quote },
@@ -7273,6 +7281,7 @@ const orderAdjustmentUpsertCommand: CommandHandler<
     if (!order)
       throw new CrudHttpError(404, { error: "Sales order not found" });
     ensureOrderScope(ctx, order.organizationId, order.tenantId);
+    enforceSalesDocumentOptimisticLock(ctx, order, SALES_RESOURCE_KIND_ORDER);
     if (parsed.scope === "line") {
       throw new CrudHttpError(400, {
         error: "Line-scoped adjustments are not supported yet.",
@@ -7557,6 +7566,7 @@ const orderAdjustmentDeleteCommand: CommandHandler<
     if (!order)
       throw new CrudHttpError(404, { error: "Sales order not found" });
     ensureOrderScope(ctx, order.organizationId, order.tenantId);
+    enforceSalesDocumentOptimisticLock(ctx, order, SALES_RESOURCE_KIND_ORDER);
 
     const [existingLines, adjustments] = await Promise.all([
       em.find(SalesOrderLine, { order }, { orderBy: { lineNumber: "asc" } }),
@@ -7712,6 +7722,7 @@ const quoteAdjustmentUpsertCommand: CommandHandler<
     if (!quote)
       throw new CrudHttpError(404, { error: "Sales quote not found" });
     ensureQuoteScope(ctx, quote.organizationId, quote.tenantId);
+    enforceSalesDocumentOptimisticLock(ctx, quote, SALES_RESOURCE_KIND_QUOTE);
     if (parsed.scope === "line") {
       throw new CrudHttpError(400, {
         error: "Line-scoped adjustments are not supported yet.",
@@ -7994,6 +8005,7 @@ const quoteAdjustmentDeleteCommand: CommandHandler<
     if (!quote)
       throw new CrudHttpError(404, { error: "Sales quote not found" });
     ensureQuoteScope(ctx, quote.organizationId, quote.tenantId);
+    enforceSalesDocumentOptimisticLock(ctx, quote, SALES_RESOURCE_KIND_QUOTE);
 
     const [existingLines, adjustments] = await Promise.all([
       em.find(SalesQuoteLine, { quote }, { orderBy: { lineNumber: "asc" } }),

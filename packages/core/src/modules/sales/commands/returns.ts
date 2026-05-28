@@ -11,7 +11,7 @@ import { findOneWithDecryption, findWithDecryption } from '@open-mercato/shared/
 import { SalesDocumentNumberGenerator } from '../services/salesDocumentNumberGenerator'
 import type { SalesCalculationService } from '../services/salesCalculationService'
 import type { SalesAdjustmentDraft, SalesLineSnapshot, SalesDocumentCalculationResult } from '../lib/types'
-import { cloneJson, ensureOrganizationScope, ensureSameScope, ensureTenantScope, extractUndoPayload, toNumericString } from './shared'
+import { cloneJson, ensureOrganizationScope, ensureSameScope, ensureTenantScope, extractUndoPayload, toNumericString, enforceSalesDocumentOptimisticLock, SALES_RESOURCE_KIND_ORDER } from './shared'
 import { SalesOrder, SalesOrderAdjustment, SalesOrderLine, SalesReturn, SalesReturnLine } from '../data/entities'
 import { returnCreateSchema, type ReturnCreateInput } from '../data/validators'
 import { E } from '#generated/entities.ids.generated'
@@ -285,6 +285,7 @@ const createReturnCommand: CommandHandler<ReturnCreateInput, { returnId: string 
         throw new CrudHttpError(404, { error: translate('sales.returns.orderMissing', 'Order not found.') })
       }
       ensureSameScope(order, input.organizationId, input.tenantId)
+      enforceSalesDocumentOptimisticLock(ctx, order, SALES_RESOURCE_KIND_ORDER)
 
       const orderLines = await findWithDecryption(
         tx,
