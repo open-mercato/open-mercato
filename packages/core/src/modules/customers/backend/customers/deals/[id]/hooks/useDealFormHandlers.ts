@@ -70,7 +70,10 @@ export function useDealFormHandlers({
     })
     if (!approved) return
     await runMutationWithContext(
-      () => deleteCrud('customers/deals', currentDealId),
+      () => withScopedApiRequestHeaders(
+        buildOptimisticLockHeader(data.deal.updatedAt),
+        () => deleteCrud('customers/deals', currentDealId),
+      ),
       { id: currentDealId, operation: 'deleteDeal' },
     )
     flash(t('customers.deals.detail.deleteSuccess', 'Deal deleted.'), 'success')
