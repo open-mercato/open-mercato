@@ -50,6 +50,21 @@ export interface AiServerImportResponse {
   skippedMessageCount: number
 }
 
+/**
+ * Discriminated result of {@link loadAiServerTranscript}. Callers must
+ * distinguish 404 (the conversation does not exist for the current scope —
+ * e.g. it belonged to a previous tenant/org) from other failures (network
+ * down, server error) because the recovery strategies are opposite:
+ *  - `notFound: true`  → drop the local cache, optionally surface a
+ *                         not-found callback. NEVER import local messages
+ *                         onto the new scope.
+ *  - `notFound: false` → preserve local state and retry later.
+ */
+export type LoadTranscriptResult =
+  | { ok: true; data: AiServerTranscriptResponse }
+  | { ok: false; notFound: true }
+  | { ok: false; notFound: false }
+
 function readString(value: unknown): string | null {
   return typeof value === 'string' && value.length > 0 ? value : null
 }
@@ -147,13 +162,14 @@ export async function updateAiServerConversation(
 export async function loadAiServerTranscript(
   conversationId: string,
   options: { limit?: number } = {},
-): Promise<AiServerTranscriptResponse | null> {
+): Promise<LoadTranscriptResult> {
   const params = new URLSearchParams()
   params.set('limit', String(options.limit ?? 100))
   const result = await requestJson<AiServerTranscriptResponse>(
     `${CONVERSATIONS_ENDPOINT}/${encodeURIComponent(conversationId)}?${params.toString()}`,
   )
-  return result.ok ? result.data : null
+  if (result.ok) return { ok: true, data: result.data }
+  return { ok: false, notFound: result.status === 404 }
 }
 
 export async function importAiLocalConversation(input: {
