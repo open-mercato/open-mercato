@@ -144,6 +144,11 @@ export class <Entity> {
 ```typescript
 import { z } from 'zod'
 
+export const list<Entity>Schema = z.object({
+  search: z.string().optional(),
+  id: z.string().uuid().optional(),
+})
+
 export const create<Entity>Schema = z.object({
   name: z.string().min(1).max(255),
   // Add domain fields matching entity
@@ -153,6 +158,7 @@ export const update<Entity>Schema = create<Entity>Schema.partial().extend({
   id: z.string().uuid(),
 })
 
+export type List<Entity>Query = z.infer<typeof list<Entity>Schema>
 export type Create<Entity>Input = z.infer<typeof create<Entity>Schema>
 export type Update<Entity>Input = z.infer<typeof update<Entity>Schema>
 ```
@@ -272,7 +278,7 @@ type <Entity>ListResponse = {
   pagination: { total: number; limit: number; offset: number; hasMore: boolean }
 }
 
-const columns: ColumnDef<<Entity>, any>[] = [
+const columns: ColumnDef<<Entity>, unknown>[] = [
   { id: 'name', header: '<Name>', accessorKey: 'name' },
 ]
 

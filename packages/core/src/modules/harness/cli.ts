@@ -22,7 +22,8 @@ async function runModuleCli(moduleId: string, command: string, rest: string[]): 
   try {
     await handler.run(rest)
     return true
-  } catch {
+  } catch (err) {
+    console.error(`  [harness] ${moduleId} ${command} threw:`, err instanceof Error ? err.message : err)
     return false
   }
 }
@@ -44,75 +45,50 @@ function printResults(results: StepResult[]): void {
   }
 }
 
-const verify: ModuleCli = {
-  command: 'verify',
-  async run() {
-    const cwd = process.cwd()
-    const results: StepResult[] = []
+async function runGate(cwd: string, withLoginCheck: boolean, moduleId: string | null): Promise<StepResult[]> {
+  const results: StepResult[] = []
+  const total = withLoginCheck ? 5 : 4
 
-    console.log('\n🔍 Running post-scaffold validation gate...\n')
+  console.log(`  [1/${total}] yarn generate`)
+  const generateOk = spawnYarn('generate', cwd)
+  results.push({ label: 'yarn generate', ok: generateOk })
 
-    console.log('  [1/4] yarn generate')
-    const generateOk = spawnYarn('generate', cwd)
-    results.push({ label: 'yarn generate', ok: generateOk })
-
-    console.log('  [2/4] configs cache structural --all-tenants')
-    const cacheOk = await runModuleCli('configs', 'cache', ['structural', '--all-tenants', '--quiet'])
-    results.push({ label: 'structural cache purge', ok: cacheOk, note: cacheOk ? undefined : 'configs module unavailable' })
-
-    console.log('  [3/4] auth sync-role-acls')
-    const aclOk = await runModuleCli('auth', 'sync-role-acls', [])
-    results.push({ label: 'ACL sync', ok: aclOk, note: aclOk ? undefined : 'auth module unavailable' })
-
-    console.log('  [4/4] yarn typecheck')
-    const typecheckOk = spawnYarn('typecheck', cwd)
-    results.push({ label: 'yarn typecheck', ok: typecheckOk, note: typecheckOk ? undefined : 'fix type errors before committing' })
-
-    printResults(results)
-  },
-}
-
-const postScaffold: ModuleCli = {
-  command: 'post-scaffold',
-  async run(rest) {
-    const moduleArg = rest.find((_, i) => rest[i - 1] === '--module') ?? rest[rest.indexOf('--module') + 1]
-    const moduleId = moduleArg ?? null
-
-    const cwd = process.cwd()
-    const results: StepResult[] = []
-
-    if (moduleId) {
-      console.log(`\n🔍 Post-scaffold validation for module: ${moduleId}\n`)
-    } else {
-      console.log('\n🔍 Post-scaffold validation gate\n')
+  if (!generateOk) {
+    const remaining = total - 1
+    for (let i = 2; i <= total; i++) {
+      results.push({ label: i === 2 ? 'structural cache purge' : i === 3 ? 'ACL sync' : i === 4 ? 'yarn typecheck' : '/login smoke check', ok: false, note: 'skipped — generate failed' })
     }
+    return results
+  }
 
-    console.log('  [1/5] yarn generate')
-    const generateOk = spawnYarn('generate', cwd)
-    results.push({ label: 'yarn generate', ok: generateOk })
+  console.log(`  [2/${total}] configs cache structural --all-tenants`)
+  const cacheOk = await runModuleCli('configs', 'cache', ['structural', '--all-tenants', '--quiet'])
+  results.push({ label: 'structural cache purge', ok: cacheOk, note: cacheOk ? undefined : 'configs module unavailable' })
 
-    console.log('  [2/5] configs cache structural --all-tenants')
-    const cacheOk = await runModuleCli('configs', 'cache', ['structural', '--all-tenants', '--quiet'])
-    results.push({ label: 'structural cache purge', ok: cacheOk, note: cacheOk ? undefined : 'configs module unavailable' })
+  console.log(`  [3/${total}] auth sync-role-acls`)
+  const aclOk = await runModuleCli('auth', 'sync-role-acls', [])
+  results.push({ label: 'ACL sync', ok: aclOk, note: aclOk ? undefined : 'auth module unavailable' })
 
-    console.log('  [3/5] auth sync-role-acls')
-    const aclOk = await runModuleCli('auth', 'sync-role-acls', [])
-    results.push({ label: 'ACL sync', ok: aclOk, note: aclOk ? undefined : 'auth module unavailable' })
+  console.log(`  [4/${total}] yarn typecheck`)
+  const typecheckOk = spawnYarn('typecheck', cwd)
+  results.push({
+    label: 'yarn typecheck',
+    ok: typecheckOk,
+    note: typecheckOk
+      ? undefined
+      : moduleId
+        ? `type errors — check ${moduleId}/events.ts, ${moduleId}/acl.ts, and ${moduleId}/api/*/route.ts`
+        : 'fix type errors before committing',
+  })
 
-    console.log('  [4/5] yarn typecheck')
-    const typecheckOk = spawnYarn('typecheck', cwd)
-    results.push({
-      label: 'yarn typecheck',
-      ok: typecheckOk,
-      note: typecheckOk ? undefined : 'type errors in generated files — check events.ts, acl.ts, and route.ts',
-    })
-
-    console.log('  [5/5] /login smoke check')
+  if (withLoginCheck) {
+    console.log(`  [5/${total}] /login smoke check`)
+    const port = process.env.PORT ?? process.env.APP_PORT ?? '3000'
     let loginOk = false
     try {
       const { default: http } = await import('node:http')
       loginOk = await new Promise<boolean>((resolve) => {
-        const req = http.get('http://localhost:3000/login', (res) => resolve((res.statusCode ?? 0) < 500))
+        const req = http.get(`http://localhost:${port}/login`, (res) => resolve((res.statusCode ?? 0) < 500))
         req.on('error', () => resolve(false))
         req.setTimeout(5000, () => { req.destroy(); resolve(false) })
       })
@@ -120,18 +96,47 @@ const postScaffold: ModuleCli = {
       loginOk = false
     }
     results.push({
-      label: '/login smoke check',
+      label: `/login smoke check (port ${port})`,
       ok: loginOk,
       note: loginOk ? undefined : 'dev server not running or /login returned 5xx — check events.ts and acl.ts exports',
     })
+  }
 
+  return results
+}
+
+const verify: ModuleCli = {
+  command: 'verify',
+  async run(_rest: string[]) {
+    console.log('\n🔍 Running post-scaffold validation gate...\n')
+    const results = await runGate(process.cwd(), false, null)
+    printResults(results)
+  },
+}
+
+const postScaffold: ModuleCli = {
+  command: 'post-scaffold',
+  async run(rest: string[]) {
+    const moduleIdx = rest.indexOf('--module')
+    const moduleId = moduleIdx !== -1 ? (rest[moduleIdx + 1] ?? null) : null
+
+    if (moduleId) {
+      console.log(`\n🔍 Post-scaffold validation for module: ${moduleId}\n`)
+    } else {
+      console.log('\n🔍 Post-scaffold validation gate\n')
+    }
+
+    const results = await runGate(process.cwd(), true, moduleId)
     printResults(results)
 
     if (moduleId) {
-      console.log(`\n💡 Tip: If type errors mention missing "default" export from acl.ts, add:`)
-      console.log(`   export default features`)
-      console.log(`\n   If events.ts crashes at runtime, ensure createModuleEvents uses the array shape:`)
-      console.log(`   createModuleEvents({ moduleId: '${moduleId}', events: [...] })`)
+      const anyFailed = results.some((r) => !r.ok)
+      if (anyFailed) {
+        console.log(`\n💡 Common fixes for module "${moduleId}":`)
+        console.log(`   acl.ts missing default export → add: export default features`)
+        console.log(`   events.ts wrong shape → use: createModuleEvents({ moduleId: '${moduleId}', events: [...] })`)
+        console.log(`   route.ts stale factory → use: makeCrudRoute({ metadata, orm, list, create, update, del })`)
+      }
     }
   },
 }
