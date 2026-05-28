@@ -337,24 +337,113 @@ function selectDefinitionForRecord(
   return sortDefinitionSummaries(defs)[0] ?? null
 }
 
-export async function loadCustomFieldDefinitionIndex(opts: {
+type LoadCustomFieldDefinitionIndexOptions = {
   em: EntityManager
   entityIds: string | string[]
   tenantId?: string | null | undefined
   organizationIds?: Array<string | null | undefined> | null
   fieldset?: string | string[] | null
-}): Promise<CustomFieldDefinitionIndex> {
-  const list = Array.isArray(opts.entityIds) ? opts.entityIds : [opts.entityIds]
-  const entityIds = list
-    .map((id) => (typeof id === 'string' ? id.trim() : String(id ?? '')))
-    .filter((id) => id.length > 0)
-  if (!entityIds.length) return new Map()
+}
+
+type CustomFieldDefIndexCache = {
+  get(key: string): Promise<unknown> | unknown
+  set(key: string, value: unknown, opts?: { ttl?: number; tags?: string[] }): Promise<unknown> | unknown
+  deleteByTags?(tags: string[]): Promise<number> | number
+}
+
+const CF_DEF_INDEX_CACHE_KEY_PREFIX = 'crud:cf-def-index'
+// Phase 2 default-off: integration runs observed `/api/customers/people`
+// returning 500 with this cache path active, and the readiness-probe
+// timeout blocked artifact upload so the direct stack trace was lost.
+// Until cross-request safety of the SQLite-cache JSON round-trip is
+// re-verified, ship with the layer disabled. Set
+// `OM_CF_DEF_CACHE_TTL_MS=300000` (or any positive integer) to opt in.
+const CF_DEF_INDEX_DEFAULT_TTL_MS = 0
+
+function resolveCfDefIndexCacheTtlMs(): number {
+  const raw = process.env.OM_CF_DEF_CACHE_TTL_MS
+  if (raw === undefined) return CF_DEF_INDEX_DEFAULT_TTL_MS
+  const parsed = Number(raw)
+  if (!Number.isFinite(parsed) || parsed < 0) return CF_DEF_INDEX_DEFAULT_TTL_MS
+  return parsed
+}
+
+function buildCfDefIndexCacheKey(opts: {
+  tenantId: string | null
+  entityIds: string[]
+  organizationIds: string[]
+  fieldsetKey: string | null
+}): string {
+  const tenant = opts.tenantId ?? 'global'
+  const entities = opts.entityIds.slice().sort().join('|')
+  const orgs = opts.organizationIds.length ? opts.organizationIds.slice().sort().join('|') : 'none'
+  const fieldset = opts.fieldsetKey ?? 'all'
+  return `${CF_DEF_INDEX_CACHE_KEY_PREFIX}:${tenant}:${entities}:${orgs}:${fieldset}`
+}
+
+function buildCfDefIndexCacheTags(opts: {
+  tenantId: string | null
+  entityIds: string[]
+}): string[] {
+  const tenant = opts.tenantId ?? 'global'
+  const tagBase = `entities:definitions:${tenant}`
+  const tags = new Set<string>([tagBase])
+  for (const entityId of opts.entityIds) {
+    tags.add(`${tagBase}:entity:${entityId}`)
+  }
+  return Array.from(tags)
+}
+
+function normalizeFieldsetKey(value: string | string[] | null | undefined): string | null {
+  if (!value) return null
+  if (Array.isArray(value)) {
+    const cleaned = value
+      .map((entry) => (typeof entry === 'string' ? entry.trim() : ''))
+      .filter((entry) => entry.length > 0)
+    if (!cleaned.length) return null
+    return cleaned.sort().join(',')
+  }
+  if (typeof value !== 'string') return null
+  const trimmed = value.trim()
+  return trimmed.length > 0 ? trimmed : null
+}
+
+function serializableIndexFromMap(index: CustomFieldDefinitionIndex): Array<[string, CustomFieldDefinitionSummary[]]> {
+  return Array.from(index.entries())
+}
+
+function indexMapFromSerializable(value: unknown): CustomFieldDefinitionIndex | null {
+  if (!Array.isArray(value)) return null
+  const map: CustomFieldDefinitionIndex = new Map()
+  for (const entry of value) {
+    if (!Array.isArray(entry) || entry.length !== 2) return null
+    const [key, summaries] = entry as [unknown, unknown]
+    if (typeof key !== 'string' || !Array.isArray(summaries)) return null
+    map.set(key, summaries as CustomFieldDefinitionSummary[])
+  }
+  return map
+}
+
+// Per-request micro-cache. Two CRUD calls within one HTTP request (rare but
+// possible via interceptors) share the same Map keyed by ctx-like objects.
+const requestScopedCfDefIndexCache = new WeakMap<object, Map<string, CustomFieldDefinitionIndex>>()
+
+export type CustomFieldDefinitionIndexCacheKey = string
+
+export function getRequestScopedCfDefIndexCache(scope: object): Map<string, CustomFieldDefinitionIndex> {
+  let bucket = requestScopedCfDefIndexCache.get(scope)
+  if (!bucket) {
+    bucket = new Map()
+    requestScopedCfDefIndexCache.set(scope, bucket)
+  }
+  return bucket
+}
+
+async function loadCustomFieldDefinitionIndexFresh(
+  opts: LoadCustomFieldDefinitionIndexOptions & { entityIds: string[]; orgCandidates: string[] }
+): Promise<CustomFieldDefinitionIndex> {
+  const { em, entityIds, orgCandidates } = opts
   const tenantId = opts.tenantId ?? null
-  const orgCandidates = Array.isArray(opts.organizationIds)
-    ? opts.organizationIds
-        .map((id) => (typeof id === 'string' ? id.trim() : id))
-        .filter((id): id is string => typeof id === 'string' && id.length > 0)
-    : []
   const scopeClauses: Record<string, unknown>[] = [
     tenantId
       ? { $or: [{ tenantId: tenantId as any }, { tenantId: null }] }
@@ -373,7 +462,7 @@ export async function loadCustomFieldDefinitionIndex(opts: {
     isActive: true,
     $and: scopeClauses,
   }
-  const defs = await opts.em.find(CustomFieldDef, where as any)
+  const defs = await em.find(CustomFieldDef, where as any)
   const fieldsetFilter = normalizeFieldsetFilter(opts.fieldset)
   const index: CustomFieldDefinitionIndex = new Map()
   defs.forEach((def) => {
@@ -403,6 +492,73 @@ export async function loadCustomFieldDefinitionIndex(opts: {
   index.forEach((entries, key) => {
     index.set(key, sortDefinitionSummaries(entries))
   })
+  return index
+}
+
+export async function loadCustomFieldDefinitionIndex(opts: LoadCustomFieldDefinitionIndexOptions & {
+  cache?: CustomFieldDefIndexCache | null
+  requestScope?: object | null
+}): Promise<CustomFieldDefinitionIndex> {
+  const list = Array.isArray(opts.entityIds) ? opts.entityIds : [opts.entityIds]
+  const entityIds = list
+    .map((id) => (typeof id === 'string' ? id.trim() : String(id ?? '')))
+    .filter((id) => id.length > 0)
+  if (!entityIds.length) return new Map()
+  const tenantId = opts.tenantId ?? null
+  const orgCandidates = Array.isArray(opts.organizationIds)
+    ? opts.organizationIds
+        .map((id) => (typeof id === 'string' ? id.trim() : id))
+        .filter((id): id is string => typeof id === 'string' && id.length > 0)
+    : []
+
+  const fieldsetKey = normalizeFieldsetKey(opts.fieldset)
+  const ttlMs = resolveCfDefIndexCacheTtlMs()
+  const cacheKey = buildCfDefIndexCacheKey({
+    tenantId,
+    entityIds,
+    organizationIds: orgCandidates,
+    fieldsetKey,
+  })
+
+  const requestBucket = opts.requestScope
+    ? getRequestScopedCfDefIndexCache(opts.requestScope)
+    : null
+  if (requestBucket) {
+    const cached = requestBucket.get(cacheKey)
+    if (cached) return cached
+  }
+
+  const sharedCache = ttlMs > 0 ? opts.cache ?? null : null
+  if (sharedCache && typeof sharedCache.get === 'function') {
+    try {
+      const cached = await sharedCache.get(cacheKey)
+      const restored = indexMapFromSerializable(cached)
+      if (restored) {
+        if (requestBucket) requestBucket.set(cacheKey, restored)
+        return restored
+      }
+    } catch (err) {
+      console.warn('[crud:cf-def-cache] read failed', err)
+    }
+  }
+
+  const index = await loadCustomFieldDefinitionIndexFresh({
+    ...opts,
+    entityIds,
+    orgCandidates,
+  })
+
+  if (sharedCache && typeof sharedCache.set === 'function') {
+    try {
+      await sharedCache.set(cacheKey, serializableIndexFromMap(index), {
+        ttl: ttlMs,
+        tags: buildCfDefIndexCacheTags({ tenantId, entityIds }),
+      })
+    } catch (err) {
+      console.warn('[crud:cf-def-cache] write failed', err)
+    }
+  }
+  if (requestBucket) requestBucket.set(cacheKey, index)
   return index
 }
 

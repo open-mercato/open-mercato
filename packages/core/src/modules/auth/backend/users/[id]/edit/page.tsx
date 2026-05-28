@@ -176,7 +176,7 @@ export default function EditUserPage({ params }: { params?: { id?: string } }) {
         const { ok, result } = await apiCall<UserListResponse>(
           `/api/auth/users?id=${encodeURIComponent(String(id))}&page=1&pageSize=1`,
         )
-        if (!ok) throw new Error('load_failed')
+        if (!ok) throw new Error(tRef.current('auth.users.form.errors.load', 'Failed to load user data'))
         const item = Array.isArray(result?.items) ? result?.items?.[0] : undefined
         if (!cancelled) {
           setActorIsSuperAdmin(Boolean(result?.isSuperAdmin))

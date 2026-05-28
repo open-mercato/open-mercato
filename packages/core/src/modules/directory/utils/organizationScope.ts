@@ -5,6 +5,7 @@ import { Organization } from '@open-mercato/core/modules/directory/data/entities
 import { isAllOrganizationsSelection } from '@open-mercato/core/modules/directory/constants'
 import type { RbacService } from '@open-mercato/core/modules/auth/services/rbacService'
 import type { AuthContext } from '@open-mercato/shared/lib/auth/server'
+import type { CacheStrategy } from '@open-mercato/cache'
 import { parseSelectedOrganizationCookie, parseSelectedTenantCookie } from './scopeCookies'
 
 export { parseSelectedOrganizationCookie, parseSelectedTenantCookie }
@@ -14,6 +15,90 @@ export type OrganizationScope = {
   filterIds: string[] | null
   allowedIds: string[] | null
   tenantId: string | null
+}
+
+// Phase 4 — short-TTL cache for resolveOrganizationScopeForRequest.
+// OrganizationScope is a pure function of (userId, tenantId, selectedOrgId,
+// requestedTenant) between membership changes; caching it bypasses 1
+// SELECT on `organizations` per CRUD request. TTL is short (60s default)
+// to keep staleness bounded for membership/visibility changes. Tag-based
+// invalidation kicks the cache when user_organizations or organizations
+// mutate (wired via invalidateOrganizationScopeCacheFor).
+const ORG_SCOPE_CACHE_KEY_PREFIX = 'org-scope'
+// Phase 4 default-off until the same readiness probe (`GET /api/customers/people`)
+// stays green with the cache layer engaged. Set `OM_ORG_SCOPE_CACHE_TTL_MS=60000`
+// (or any positive integer) to opt in once cross-request safety is re-verified.
+const ORG_SCOPE_DEFAULT_TTL_MS = 0
+
+function resolveOrgScopeTtlMs(): number {
+  const raw = process.env.OM_ORG_SCOPE_CACHE_TTL_MS
+  if (raw === undefined) return ORG_SCOPE_DEFAULT_TTL_MS
+  const parsed = Number(raw)
+  if (!Number.isFinite(parsed) || parsed < 0) return ORG_SCOPE_DEFAULT_TTL_MS
+  return parsed
+}
+
+function buildOrgScopeCacheKey(parts: {
+  userId: string
+  effectiveTenantId: string
+  selectedOrgId: string | null
+  requestedTenantId: string | null
+}): string {
+  const selected = parts.selectedOrgId ?? 'none'
+  const requested = parts.requestedTenantId ?? 'none'
+  return `${ORG_SCOPE_CACHE_KEY_PREFIX}:${parts.userId}:${parts.effectiveTenantId}:${selected}:${requested}`
+}
+
+function buildOrgScopeCacheTags(parts: { userId: string; effectiveTenantId: string }): string[] {
+  return [
+    `${ORG_SCOPE_CACHE_KEY_PREFIX}:user:${parts.userId}`,
+    `${ORG_SCOPE_CACHE_KEY_PREFIX}:tenant:${parts.effectiveTenantId}`,
+  ]
+}
+
+function isValidCachedScope(value: unknown): value is OrganizationScope {
+  if (typeof value !== 'object' || value === null) return false
+  const record = value as Partial<OrganizationScope>
+  const idOk = (v: unknown) => v === null || typeof v === 'string'
+  const arrOk = (v: unknown) => v === null || (Array.isArray(v) && v.every((entry) => typeof entry === 'string'))
+  return idOk(record.selectedId) && idOk(record.tenantId) && arrOk(record.filterIds) && arrOk(record.allowedIds)
+}
+
+function resolveCacheFromContainer(container: AwilixContainer | null | undefined): CacheStrategy | null {
+  if (!container) return null
+  try {
+    const c = container.resolve('cache') as CacheStrategy | undefined
+    if (c && typeof c.get === 'function' && typeof c.set === 'function') return c
+  } catch {
+    return null
+  }
+  return null
+}
+
+export async function invalidateOrganizationScopeCacheForUser(
+  container: AwilixContainer,
+  userId: string,
+): Promise<void> {
+  const cache = resolveCacheFromContainer(container)
+  if (!cache?.deleteByTags) return
+  try {
+    await cache.deleteByTags([`${ORG_SCOPE_CACHE_KEY_PREFIX}:user:${userId}`])
+  } catch (err) {
+    console.warn('[org-scope:cache] invalidate user failed', err)
+  }
+}
+
+export async function invalidateOrganizationScopeCacheForTenant(
+  container: AwilixContainer,
+  tenantId: string,
+): Promise<void> {
+  const cache = resolveCacheFromContainer(container)
+  if (!cache?.deleteByTags) return
+  try {
+    await cache.deleteByTags([`${ORG_SCOPE_CACHE_KEY_PREFIX}:tenant:${tenantId}`])
+  } catch (err) {
+    console.warn('[org-scope:cache] invalidate tenant failed', err)
+  }
 }
 
 function normalizeOrganizationId(value: unknown): string | null {
@@ -270,6 +355,31 @@ export async function resolveOrganizationScopeForRequest({
   }
 
   const rawSelected = selectedId !== undefined ? selectedId : (request ? getSelectedOrganizationFromRequest(request) : null)
+  const normalizedSelectedId = typeof rawSelected === 'string' && rawSelected.trim().length > 0
+    ? rawSelected.trim()
+    : null
+
+  const userId = typeof auth.sub === 'string' && auth.sub.length > 0 ? auth.sub : null
+  const ttlMs = resolveOrgScopeTtlMs()
+  const cache = ttlMs > 0 ? resolveCacheFromContainer(container) : null
+  const cacheKey = userId
+    ? buildOrgScopeCacheKey({
+        userId,
+        effectiveTenantId,
+        selectedOrgId: normalizedSelectedId,
+        requestedTenantId: requestedTenantId ?? null,
+      })
+    : null
+
+  if (cache && cacheKey && typeof cache.get === 'function') {
+    try {
+      const cached = await cache.get(cacheKey)
+      if (isValidCachedScope(cached)) return cached
+    } catch (err) {
+      console.warn('[org-scope:cache] read failed', err)
+    }
+  }
+
   const baseScope = await resolveOrganizationScope({
     em,
     rbac,
@@ -277,6 +387,17 @@ export async function resolveOrganizationScopeForRequest({
     selectedId: rawSelected,
     tenantId: effectiveTenantId,
   })
+
+  if (cache && cacheKey && userId && typeof cache.set === 'function') {
+    try {
+      await cache.set(cacheKey, baseScope, {
+        ttl: ttlMs,
+        tags: buildOrgScopeCacheTags({ userId, effectiveTenantId }),
+      })
+    } catch (err) {
+      console.warn('[org-scope:cache] write failed', err)
+    }
+  }
 
   return baseScope
 }

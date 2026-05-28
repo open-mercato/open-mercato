@@ -108,6 +108,16 @@ Centralize shared command utilities like undo extraction in `packages/shared/src
 
 **Applies to**: `scripts/dev.mjs`, `apps/mercato/scripts/dev.mjs`, `packages/create-app/template/scripts/dev.mjs`, and `packages/create-app/template/scripts/dev-runtime.mjs`.
 
+## Preserve Turbopack compiler cache during greenfield dev warmup
+
+**Context**: `yarn dev:greenfield` was changed to purge the whole configured Next.js distDir before booting the app.
+
+**Problem**: Removing all of `apps/mercato/.mercato/next` also deletes `.mercato/next/dev/cache/turbopack`. That turns `/login`, `POST /api/auth/login`, and especially `/backend` warmup into cold compiles, making greenfield startup much slower than regular `yarn dev` and slower than `main`.
+
+**Rule**: Greenfield cleanup may remove stale route/middleware manifests and lock files before startup, but must preserve `.mercato/next/dev/cache/turbopack`. Do not purge Next/Turbopack caches between warmup requests; cache reuse should make each subsequent warmup request faster. Only clear `.mercato/next/dev` for explicit `yarn dev:reset` or the one-shot corrupted Turbopack cache recovery path.
+
+**Applies to**: `scripts/dev-cache-purge.mjs`, `packages/create-app/template/scripts/dev-cache-purge.mjs`, `scripts/dev.mjs`, `packages/create-app/template/scripts/dev.mjs`, `apps/mercato/scripts/dev.mjs`, `packages/create-app/template/scripts/dev-runtime.mjs`, `scripts/dev-ephemeral.ts`, and related dev-server tests.
+
 ## Startup splash must distinguish blocking bootstrap failures from non-blocking runtime warnings
 
 **Context**: The compact splash runtime promoted any raw log line containing `failed` or `Error:` into a blocking startup failure.

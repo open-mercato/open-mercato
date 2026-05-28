@@ -79,7 +79,6 @@ test.describe('TC-AI-MERCHANDISING-008: catalog.merchandising_assistant sheet', 
     await login(page, 'superadmin');
     await page.goto('/backend/catalog/products', { waitUntil: 'domcontentloaded' });
     await expect(page.getByTestId('backend-chrome-ready')).toHaveAttribute('data-ready', 'true', { timeout: 30_000 });
-    await page.waitForLoadState('networkidle', { timeout: 30_000 }).catch(() => {});
 
     const trigger = page.locator('[data-ai-merchandising-trigger]');
     await expect(trigger).toBeVisible({ timeout: 60_000 });
@@ -87,16 +86,20 @@ test.describe('TC-AI-MERCHANDISING-008: catalog.merchandising_assistant sheet', 
     // pending DataTable/widget mount work to settle before exercising it.
     await expect(trigger).toBeEnabled({ timeout: 30_000 });
 
-    await trigger.click();
-
-    // Single-agent module → main click opens the sheet directly.
+    // Single-agent module → main click opens the sheet directly. The trigger
+    // can be visible+enabled before React binds its onClick under heavy CI
+    // load, making a single click a no-op; re-click (only while closed) until
+    // the sheet + composer mount.
     const sheet = page.locator('[data-ai-merchandising-sheet]');
-    await expect(sheet).toBeVisible();
+    const composer = page.locator('#ai-chat-composer');
+    await expect(async () => {
+      if (!(await sheet.isVisible())) await trigger.click();
+      await expect(sheet).toBeVisible({ timeout: 3_000 });
+      await expect(composer).toBeVisible({ timeout: 3_000 });
+    }).toPass({ timeout: 60_000, intervals: [500, 1_000, 2_000] });
 
     const chatRegion = page.locator(`[data-ai-chat-agent="${MERCHANDISING_AGENT_ID}"]`);
     await expect(chatRegion).toBeVisible();
-    const composer = page.locator('#ai-chat-composer');
-    await expect(composer).toBeVisible();
   });
 
   test('selection pill reflects the current selected count when selection changes', async ({ page }) => {
@@ -104,17 +107,22 @@ test.describe('TC-AI-MERCHANDISING-008: catalog.merchandising_assistant sheet', 
     await login(page, 'superadmin');
     await page.goto('/backend/catalog/products', { waitUntil: 'domcontentloaded' });
     await expect(page.getByTestId('backend-chrome-ready')).toHaveAttribute('data-ready', 'true', { timeout: 30_000 });
-    await page.waitForLoadState('networkidle', { timeout: 30_000 }).catch(() => {});
 
     const trigger = page.locator('[data-ai-merchandising-trigger]');
     await expect(trigger).toBeVisible({ timeout: 60_000 });
     // Ensure the React click handler has bound — wait for the button to be enabled and any
     // pending DataTable/widget mount work to settle before exercising it.
     await expect(trigger).toBeEnabled({ timeout: 30_000 });
-    await trigger.click();
 
+    // Re-click (only while closed) until the sheet + composer mount — guards
+    // against a pre-hydration no-op click under heavy CI load.
     const sheet = page.locator('[data-ai-merchandising-sheet]');
-    await expect(sheet).toBeVisible();
+    const composer = page.locator('#ai-chat-composer');
+    await expect(async () => {
+      if (!(await sheet.isVisible())) await trigger.click();
+      await expect(sheet).toBeVisible({ timeout: 3_000 });
+      await expect(composer).toBeVisible({ timeout: 3_000 });
+    }).toPass({ timeout: 60_000, intervals: [500, 1_000, 2_000] });
 
     // Phase 2 ships with selectedCount = 0 (DataTable's internal rowSelection
     // is not yet exposed to the host page; see MerchandisingAssistantSheet
@@ -152,17 +160,22 @@ test.describe('TC-AI-MERCHANDISING-008: catalog.merchandising_assistant sheet', 
     await login(page, 'superadmin');
     await page.goto('/backend/catalog/products', { waitUntil: 'domcontentloaded' });
     await expect(page.getByTestId('backend-chrome-ready')).toHaveAttribute('data-ready', 'true', { timeout: 30_000 });
-    await page.waitForLoadState('networkidle', { timeout: 30_000 }).catch(() => {});
 
     const trigger = page.locator('[data-ai-merchandising-trigger]');
     await expect(trigger).toBeVisible({ timeout: 60_000 });
     // Ensure the React click handler has bound — wait for the button to be enabled and any
     // pending DataTable/widget mount work to settle before exercising it.
     await expect(trigger).toBeEnabled({ timeout: 30_000 });
-    await trigger.click();
 
+    // Re-click (only while closed) until the sheet + composer mount — guards
+    // against a pre-hydration no-op click under heavy CI load.
     const sheet = page.locator('[data-ai-merchandising-sheet]');
-    await expect(sheet).toBeVisible();
+    const composer = page.locator('#ai-chat-composer');
+    await expect(async () => {
+      if (!(await sheet.isVisible())) await trigger.click();
+      await expect(sheet).toBeVisible({ timeout: 3_000 });
+      await expect(composer).toBeVisible({ timeout: 3_000 });
+    }).toPass({ timeout: 60_000, intervals: [500, 1_000, 2_000] });
 
     // The sheet header should carry a localized title (English default copy
     // starts with "Catalog"). Fall back to asserting the region `aria-label`
@@ -172,7 +185,5 @@ test.describe('TC-AI-MERCHANDISING-008: catalog.merchandising_assistant sheet', 
 
     const chatRegion = page.locator(`[data-ai-chat-agent="${MERCHANDISING_AGENT_ID}"]`);
     await expect(chatRegion).toBeVisible();
-    const composer = page.locator('#ai-chat-composer');
-    await expect(composer).toBeVisible();
   });
 });

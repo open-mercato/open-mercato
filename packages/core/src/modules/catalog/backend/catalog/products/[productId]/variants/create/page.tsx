@@ -9,6 +9,7 @@ import { createCrudFormError } from '@open-mercato/ui/backend/utils/serverErrors
 import { collectCustomFieldValues } from '@open-mercato/ui/backend/utils/customFieldValues'
 import { apiCall, readApiResultOrThrow } from '@open-mercato/ui/backend/utils/apiCall'
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
+import { ErrorMessage } from '@open-mercato/ui/backend/detail'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { E } from '#generated/entities.ids.generated'
 import {
@@ -136,7 +137,7 @@ export default function CreateVariantPage({ params }: { params?: { productId?: s
         const res = await apiCall<ProductResponse>(
           `/api/catalog/products?id=${encodeURIComponent(productId!)}&page=1&pageSize=1`,
         )
-        if (!res.ok) throw new Error('load_failed')
+        if (!res.ok) throw new Error(t('catalog.variants.form.errors.load', 'Failed to load product context.'))
         const record = Array.isArray(res.result?.items) ? res.result?.items?.[0] : undefined
         if (!record) throw new Error(t('catalog.products.edit.errors.notFound', 'Product not found.'))
         const metadata = (record.metadata ?? {}) as Record<string, unknown>
@@ -298,7 +299,7 @@ export default function CreateVariantPage({ params }: { params?: { productId?: s
     <Page>
       <PageBody>
         {error ? (
-          <div className="mb-4 rounded border border-destructive/40 bg-destructive/10 px-4 py-3 text-sm text-destructive">{error}</div>
+          <ErrorMessage label={error} className="mb-4" />
         ) : null}
         <CrudForm<VariantFormValues>
           title={formTitle}

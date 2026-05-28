@@ -199,6 +199,7 @@
   "resources.resourceTypes.errors.delete": "Nie udało się usunąć typu zasobu.",
   "resources.resourceTypes.errors.deleteAssigned": "Ten typ zasobu ma przypisane zasoby.",
   "resources.resourceTypes.errors.load": "Nie udało się wczytać typów zasobów.",
+  "resources.resourceTypes.errors.notFound": "Nie znaleziono typu zasobu.",
   "resources.resourceTypes.errors.save": "Nie udało się zapisać typu zasobu.",
   "resources.resourceTypes.form.appearance.colorClear": "Wyczyść kolor",
   "resources.resourceTypes.form.appearance.colorHelp": "Wybierz kolor dla tego typu zasobu.",

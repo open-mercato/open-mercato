@@ -70,6 +70,7 @@ export type DictionarySelectLabels = {
 }
 
 export type DictionaryEntrySelectProps = {
+  id?: string
   value?: string
   onChange: (value: string | undefined) => void
   fetchOptions: () => Promise<DictionaryOption[]>
@@ -83,9 +84,17 @@ export type DictionaryEntrySelectProps = {
   disabled?: boolean
   showLabelInput?: boolean
   showManage?: boolean
+  /**
+   * When false, hides the read-only appearance preview (color swatch + icon + hex)
+   * rendered below the trigger for the currently-selected entry. Defaults to true to
+   * preserve existing behavior; set false where the host only wants a plain select
+   * (e.g. a create form that shouldn't surface dictionary styling).
+   */
+  showActiveAppearance?: boolean
 }
 
 export function DictionaryEntrySelect({
+  id,
   value,
   onChange,
   fetchOptions,
@@ -99,6 +108,7 @@ export function DictionaryEntrySelect({
   disabled: disabledProp = false,
   showLabelInput = true,
   showManage = true,
+  showActiveAppearance = true,
 }: DictionaryEntrySelectProps) {
   const pathname = usePathname()
   const searchParams = useSearchParams()
@@ -247,6 +257,7 @@ export function DictionaryEntrySelect({
           disabled={disabled}
         >
           <SelectTrigger
+            id={id}
             className={selectClassName}
             title={activeOption?.label ?? undefined}
           >
@@ -345,7 +356,7 @@ export function DictionaryEntrySelect({
           ) : null}
         </div>
       </div>
-      {activeOption && (activeOption.icon || activeOption.color) ? (
+      {showActiveAppearance && activeOption && (activeOption.icon || activeOption.color) ? (
         <div className="flex items-center gap-2 text-xs text-muted-foreground">
           <span className="inline-flex items-center gap-2 rounded border border-dashed px-2 py-1">
             {activeOption.icon ? renderDictionaryIcon(activeOption.icon, 'h-4 w-4') : null}

@@ -1,5 +1,6 @@
 import { createCacheService, runWithCacheTenant, type CacheStrategy } from '@open-mercato/cache'
 import { collectCacheStats, executeCachePurge, previewCachePurge, type CachePurgeRequest } from '../cache-cli'
+import { STRUCTURAL_CACHE_REQUESTS } from '../../cli'
 
 describe('cache-cli helpers', () => {
   let cache: CacheStrategy
@@ -8,6 +9,7 @@ describe('cache-cli helpers', () => {
     await runWithCacheTenant('tenant-a', async () => {
       await cache.set('nav:sidebar:en:user-1:tenant-a:org-a', { ok: true }, { tags: ['nav:sidebar:user:user-1'] })
       await cache.set('crud|auth|GET|/api/auth/admin/nav|user-1', { ok: true }, { tags: ['auth'] })
+      await cache.set('crud|customer_accounts|GET|/api/customer_accounts/portal/nav|user-1', { ok: true }, { tags: ['customer_accounts'] })
       await cache.set('custom:key:alpha', { ok: true }, { tags: ['alpha-tag'] })
       await cache.set('custom:key:beta', { ok: true }, { tags: ['beta-tag'] })
     })
@@ -51,11 +53,12 @@ describe('cache-cli helpers', () => {
     const preview = await runWithCacheTenant('tenant-a', async () => previewCachePurge(cache, request))
     expect(preview.keys).toEqual([
       'crud|auth|GET|/api/auth/admin/nav|user-1',
+      'crud|customer_accounts|GET|/api/customer_accounts/portal/nav|user-1',
       'nav:sidebar:en:user-1:tenant-a:org-a',
     ])
 
     const result = await runWithCacheTenant('tenant-a', async () => executeCachePurge(cache, request))
-    expect(result.deleted).toBe(2)
+    expect(result.deleted).toBe(3)
     expect(await runWithCacheTenant('tenant-a', async () => cache.get('nav:sidebar:en:user-1:tenant-a:org-a'))).toBeNull()
   })
 
@@ -64,6 +67,20 @@ describe('cache-cli helpers', () => {
     const result = await runWithCacheTenant('tenant-a', async () => executeCachePurge(cache, request))
     expect(result.deleted).toBe(1)
     expect(await runWithCacheTenant('tenant-a', async () => cache.get('nav:sidebar:en:user-1:tenant-a:org-a'))).toBeNull()
+    expect(await runWithCacheTenant('tenant-b', async () => cache.get('nav:sidebar:en:user-2:tenant-b:org-b'))).not.toBeNull()
+  })
+
+  it('structural purge requests remove sidebar and nav API caches', async () => {
+    await runWithCacheTenant('tenant-a', async () => {
+      for (const request of STRUCTURAL_CACHE_REQUESTS) {
+        await executeCachePurge(cache, request)
+      }
+    })
+
+    expect(await runWithCacheTenant('tenant-a', async () => cache.get('nav:sidebar:en:user-1:tenant-a:org-a'))).toBeNull()
+    expect(await runWithCacheTenant('tenant-a', async () => cache.get('crud|auth|GET|/api/auth/admin/nav|user-1'))).toBeNull()
+    expect(await runWithCacheTenant('tenant-a', async () => cache.get('crud|customer_accounts|GET|/api/customer_accounts/portal/nav|user-1'))).toBeNull()
+    expect(await runWithCacheTenant('tenant-a', async () => cache.get('custom:key:alpha'))).not.toBeNull()
     expect(await runWithCacheTenant('tenant-b', async () => cache.get('nav:sidebar:en:user-2:tenant-b:org-b'))).not.toBeNull()
   })
 })

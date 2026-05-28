@@ -79,14 +79,21 @@ test.describe('TC-INT-002: Customer to Deal to Quote to Order Flow', () => {
       await selectByFieldId('status', 'Open')
       await selectByFieldId('pipelineId', pipelineName)
       // Opportunity stage isn't seeded for the freshly created pipeline; skip pipelineStageId
-      await page.getByRole('spinbutton').first().fill('10000');
+      // Deal value + Probability use SuffixInput (currency/% adornments) — both render as
+      // textbox with placeholder "0", not spinbutton. The only spinbutton on the page is the
+      // "Estimated seats/licenses" custom field, so getByRole('spinbutton') would target that
+      // instead. Match the TC-CRM-071 selector pattern.
+      await page.getByPlaceholder('0').first().fill('10000');
       await selectByFieldId('valueCurrency', /USD/i, false)
-      await page.getByRole('spinbutton').nth(1).fill('50');
+      await page.getByPlaceholder('0').nth(1).fill('50');
       // Expected close date: skipped — DS v3 migrated CrudForm type='date' to
       // a DatePicker button + Popover (no more native <input type="date">),
       // and expectedCloseAt is optional server-side, so the deal still saves
       // and the redirect / list assertions downstream still pass.
-      await page.getByRole('textbox', { name: /Search companies/i }).fill(companyName);
+      // DealAssociationsField pairs the Companies <Label> with a search input whose accessible
+      // name resolves to "Companies" (from the label) — not "Search companies" (which only
+      // lives in the placeholder). Target the placeholder directly, mirroring TC-CRM-071.
+      await page.getByPlaceholder('Search companies by name or domain…').fill(companyName);
       await page.getByRole('button', { name: companyName, exact: true }).click();
 
       // Final guard: re-assert title before submit. If a late dictionary load
