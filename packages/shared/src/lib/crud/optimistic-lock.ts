@@ -221,7 +221,14 @@ function readHeader(headers: Headers, name: string): string | null {
   return null
 }
 
-function normalizeIsoToken(raw: string): string | null {
+/**
+ * Normalize an `updated_at` token to a canonical ISO-8601 string, or `null`
+ * when the input cannot be parsed. Exported so the command-level helper
+ * (`optimistic-lock-command.ts`) compares timestamps with the EXACT same
+ * normalization as the CRUD guard — otherwise the same instant could compare
+ * unequal across the two paths.
+ */
+export function normalizeIsoToken(raw: string): string | null {
   const ms = Date.parse(raw)
   if (!Number.isFinite(ms)) return null
   return new Date(ms).toISOString()
