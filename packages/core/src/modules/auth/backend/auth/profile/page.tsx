@@ -55,7 +55,7 @@ export default function AuthProfilePage() {
       setError(null)
       try {
         const { ok, result } = await apiCall<ProfileResponse>('/api/auth/profile')
-        if (!ok) throw new Error('load_failed')
+        if (!ok) throw new Error(t('auth.profile.form.errors.load', 'Failed to load profile.'))
         const resolvedEmail = typeof result?.email === 'string' ? result.email : ''
         if (!cancelled) setEmail(resolvedEmail)
       } catch (err) {
