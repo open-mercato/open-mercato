@@ -17,7 +17,7 @@ import {
   ConnectionMode,
   MarkerType,
 } from '@xyflow/react'
-import {StartNode, EndNode, UserTaskNode, AutomatedNode, SubWorkflowNode, WaitForSignalNode} from './nodes'
+import {StartNode, EndNode, UserTaskNode, AutomatedNode, SubWorkflowNode, WaitForSignalNode, WaitForTimerNode} from './nodes'
 import { WorkflowTransitionEdge } from './WorkflowTransitionEdge'
 import { STATUS_COLORS } from '../lib/status-colors'
 import { Alert, AlertDescription } from '@open-mercato/ui/primitives/alert'
@@ -151,6 +151,7 @@ export function WorkflowGraph({
       automated: AutomatedNode,
       subWorkflow: SubWorkflowNode,
       waitForSignal: WaitForSignalNode,
+      waitForTimer: WaitForTimerNode,
     }),
     []
   )

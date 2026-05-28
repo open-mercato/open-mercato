@@ -10,13 +10,29 @@ Use `@open-mercato/cache` for all caching needs. MUST NOT use raw Redis, SQLite,
 | SQLite | Use for single-server production deployments | `CACHE_STRATEGY=sqlite` |
 | Redis | Use for multi-server production with shared cache | `CACHE_STRATEGY=redis` |
 
-## MUST Rules
+## Always
 
 1. **MUST resolve via DI** — always use `container.resolve('cacheService')`, never instantiate cache directly
 2. **MUST scope to tenant** — include `tenantId` in cache keys or use `runWithCacheTenant()` for automatic scoping
-3. **MUST NOT use raw Redis/SQLite clients** — all cache access goes through the cache service abstraction
-4. **MUST use tag-based invalidation** for CRUD side effects — tag entries so related data can be invalidated together
-5. **MUST NOT cache sensitive data** (passwords, tokens, PII) without encryption
+3. **MUST use tag-based invalidation** for CRUD side effects — tag entries so related data can be invalidated together
+
+## Ask First
+
+- Ask before adding a new cache backend, changing default strategy selection, or caching data whose sensitivity is unclear.
+- Ask before changing invalidation semantics that could affect multiple modules or tenants.
+
+## Never
+
+- Never instantiate cache clients directly; all cache access goes through the cache service abstraction.
+- Never use raw Redis or SQLite clients from module code.
+- Never cache sensitive data (passwords, tokens, PII) without encryption.
+
+## Validation Commands
+
+```bash
+yarn workspace @open-mercato/cache test
+yarn workspace @open-mercato/cache build
+```
 
 ## Tag-Based Invalidation
 

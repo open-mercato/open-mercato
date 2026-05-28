@@ -6,6 +6,8 @@ import {
 } from '../data/entities'
 import {
   AiChatConversationAccessError,
+  AiChatConversationDuplicateParticipantError,
+  AiChatConversationOrgNotFoundError,
   AiChatConversationRepository,
   type AiChatConversationContext,
 } from '../data/repositories/AiChatConversationRepository'
@@ -22,7 +24,11 @@ import {
  * Re-exports the access error so route handlers can map it to a 404 without
  * importing the repository directly.
  */
-export { AiChatConversationAccessError }
+export {
+  AiChatConversationAccessError,
+  AiChatConversationDuplicateParticipantError,
+  AiChatConversationOrgNotFoundError,
+}
 export type { AiChatConversationContext }
 
 export function createConversationStorage(
@@ -43,6 +49,13 @@ export interface SerializedAiChatConversation {
   updatedAt: string
   lastMessageAt: string | null
   importedFromLocalAt: string | null
+  participantCount: number
+  isOwner: boolean | null
+}
+
+export interface AiChatConversationSerializeEnrich {
+  callerUserId?: string | null
+  participantCount?: number
 }
 
 export interface SerializedAiChatMessage {
@@ -56,10 +69,12 @@ export interface SerializedAiChatMessage {
   model: string | null
   metadata: Record<string, unknown> | null
   createdAt: string
+  senderUserId: string | null
 }
 
 export function serializeAiChatConversation(
   row: AiChatConversation,
+  enrich: AiChatConversationSerializeEnrich = {},
 ): SerializedAiChatConversation {
   return {
     conversationId: row.conversationId,
@@ -74,6 +89,9 @@ export function serializeAiChatConversation(
     importedFromLocalAt: row.importedFromLocalAt
       ? row.importedFromLocalAt.toISOString()
       : null,
+    participantCount: enrich.participantCount ?? 0,
+    isOwner:
+      enrich.callerUserId != null ? row.ownerUserId === enrich.callerUserId : null,
   }
 }
 
@@ -89,5 +107,6 @@ export function serializeAiChatMessage(row: AiChatMessage): SerializedAiChatMess
     model: row.model ?? null,
     metadata: row.metadata ?? null,
     createdAt: row.createdAt.toISOString(),
+    senderUserId: row.createdByUserId ?? null,
   }
 }

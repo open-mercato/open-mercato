@@ -1616,4 +1616,218 @@ describe('Activity Executor (Unit Tests)', () => {
       expect(mockContext.workflowContext['Calculate Again']).toBeDefined()
     })
   })
+
+  // ============================================================================
+  // WAIT Activity Tests
+  // ============================================================================
+
+  describe('WAIT activity', () => {
+    beforeEach(() => {
+      jest.useFakeTimers()
+    })
+
+    afterEach(() => {
+      jest.useRealTimers()
+    })
+
+    test('should execute WAIT activity with ISO 8601 duration', async () => {
+      const activity: ActivityDefinition = {
+        activityId: 'wait-1',
+        activityName: 'Wait 5 seconds',
+        activityType: 'WAIT',
+        config: {
+          duration: 'PT5S',
+        },
+      }
+
+      const resultPromise = activityExecutor.executeActivity(
+        mockEm,
+        mockContainer,
+        activity,
+        mockContext
+      )
+
+      jest.runAllTimers()
+
+      const result = await resultPromise
+
+      expect(result.success).toBe(true)
+      expect(result.output.waited).toBe(true)
+      expect(result.output.durationMs).toBe(5000)
+    })
+
+    test('should execute WAIT activity with simple duration format', async () => {
+      const activity: ActivityDefinition = {
+        activityId: 'wait-2',
+        activityName: 'Wait 30 seconds',
+        activityType: 'WAIT',
+        config: {
+          duration: '30s',
+        },
+      }
+
+      const resultPromise = activityExecutor.executeActivity(
+        mockEm,
+        mockContainer,
+        activity,
+        mockContext
+      )
+
+      jest.runAllTimers()
+
+      const result = await resultPromise
+
+      expect(result.success).toBe(true)
+      expect(result.output.waited).toBe(true)
+      expect(result.output.durationMs).toBe(30000)
+    })
+
+    test('should fail WAIT activity if duration is missing', async () => {
+      const activity: ActivityDefinition = {
+        activityId: 'wait-3',
+        activityName: 'Invalid Wait',
+        activityType: 'WAIT',
+        config: {},
+      }
+
+      const result = await activityExecutor.executeActivity(
+        mockEm,
+        mockContainer,
+        activity,
+        mockContext
+      )
+
+      expect(result.success).toBe(false)
+      expect(result.error).toContain('requires "duration"')
+      expect(result.error).toContain('"until"')
+    })
+
+    test('should fail WAIT activity if duration format is invalid', async () => {
+      const activity: ActivityDefinition = {
+        activityId: 'wait-4',
+        activityName: 'Bad Duration',
+        activityType: 'WAIT',
+        config: {
+          duration: 'invalid',
+        },
+      }
+
+      const result = await activityExecutor.executeActivity(
+        mockEm,
+        mockContainer,
+        activity,
+        mockContext
+      )
+
+      expect(result.success).toBe(false)
+      expect(result.error).toContain('Invalid duration format')
+    })
+
+    test('should execute WAIT activity with "until" datetime', async () => {
+      // Set target 10 seconds in the future
+      const futureDate = new Date(Date.now() + 10000).toISOString()
+
+      const activity: ActivityDefinition = {
+        activityId: 'wait-until-1',
+        activityName: 'Wait Until',
+        activityType: 'WAIT',
+        config: {
+          until: futureDate,
+        },
+      }
+
+      const resultPromise = activityExecutor.executeActivity(
+        mockEm,
+        mockContainer,
+        activity,
+        mockContext
+      )
+
+      jest.runAllTimers()
+
+      const result = await resultPromise
+
+      expect(result.success).toBe(true)
+      expect(result.output.waited).toBe(true)
+      expect(result.output.durationMs).toBeGreaterThanOrEqual(0)
+      expect(result.output.durationMs).toBeLessThanOrEqual(10000)
+    })
+
+    test('should complete immediately if "until" datetime is in the past', async () => {
+      const pastDate = new Date(Date.now() - 60000).toISOString()
+
+      const activity: ActivityDefinition = {
+        activityId: 'wait-until-2',
+        activityName: 'Wait Until Past',
+        activityType: 'WAIT',
+        config: {
+          until: pastDate,
+        },
+      }
+
+      const resultPromise = activityExecutor.executeActivity(
+        mockEm,
+        mockContainer,
+        activity,
+        mockContext
+      )
+
+      jest.runAllTimers()
+
+      const result = await resultPromise
+
+      expect(result.success).toBe(true)
+      expect(result.output.waited).toBe(true)
+      expect(result.output.durationMs).toBe(0)
+    })
+
+    test('should fail if "until" datetime is invalid', async () => {
+      const activity: ActivityDefinition = {
+        activityId: 'wait-until-3',
+        activityName: 'Invalid Until',
+        activityType: 'WAIT',
+        config: {
+          until: 'not-a-date',
+        },
+      }
+
+      const result = await activityExecutor.executeActivity(
+        mockEm,
+        mockContainer,
+        activity,
+        mockContext
+      )
+
+      expect(result.success).toBe(false)
+      expect(result.error).toContain('invalid "until" datetime')
+    })
+
+    test('should interpolate variables in WAIT duration config', async () => {
+      mockContext.workflowContext.waitTime = 'PT10S'
+
+      const activity: ActivityDefinition = {
+        activityId: 'wait-5',
+        activityName: 'Dynamic Wait',
+        activityType: 'WAIT',
+        config: {
+          duration: '{{context.waitTime}}',
+        },
+      }
+
+      const resultPromise = activityExecutor.executeActivity(
+        mockEm,
+        mockContainer,
+        activity,
+        mockContext
+      )
+
+      jest.runAllTimers()
+
+      const result = await resultPromise
+
+      expect(result.success).toBe(true)
+      expect(result.output.waited).toBe(true)
+      expect(result.output.durationMs).toBe(10000)
+    })
+  })
 })

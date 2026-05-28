@@ -168,7 +168,7 @@ describe('AssignRoleDialog', () => {
     await waitFor(() => {
       expect(readApiResultOrThrowMock).toHaveBeenNthCalledWith(
         2,
-        '/api/customers/assignable-staff?page=2&pageSize=24',
+        '/api/staff/team-members/assignable?page=2&pageSize=24',
         undefined,
       )
     })

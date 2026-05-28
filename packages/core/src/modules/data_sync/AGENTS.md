@@ -6,6 +6,36 @@ The `data_sync` module provides a streaming data synchronization hub for import/
 
 ---
 
+## Always
+
+- **Always scope by organizationId + tenantId** — every entity query
+- **Use the queue system** — never run syncs inline in API handlers
+- **New sync providers MUST support provider-owned env preconfiguration** when fresh installs need credentials or default mappings/locales/channels from deployment env
+- **Persist cursor after each batch** — enables resume on failure
+- **Log item-level errors** — don't stop the sync for individual item failures
+- **Check for overlap** before starting a new run (same integration + entityType + direction)
+- **API routes must export `openApi`** for documentation generation
+
+## Ask First
+
+- Ask before changing adapter contracts, run lifecycle states, cursor semantics, queue names, or overlap detection.
+- Ask before adding provider-specific logic to this generic module.
+- Ask before changing progress delivery or cancellation behavior.
+
+## Never
+
+- Never import from provider adapter modules — `data_sync` is generic.
+- Never run syncs inline in API handlers.
+- Never add frontend polling loops for sync progress beyond initial hydration or reconnect recovery.
+- Never special-case provider credentials, mappings, or state in `data_sync`.
+
+## Validation Commands
+
+```bash
+yarn generate
+yarn workspace @open-mercato/core build
+```
+
 ## Module Structure
 
 ```
@@ -152,14 +182,3 @@ Data sync providers can leverage the **Unified Module Extension System (UMES)** 
 - Use helpers from `@open-mercato/core/modules/core/__integration__/helpers/*`
 - Tests must create prerequisites via API and clean up in `finally`
 - Avoid hard dependency on late-phase modules; keep tests scoped to implemented contracts
-
-## MUST Rules
-
-- **Always scope by organizationId + tenantId** — every entity query
-- **Never import from provider adapter modules** — data_sync is generic
-- **Use the queue system** — never run syncs inline in API handlers
-- **New sync providers MUST support provider-owned env preconfiguration** when fresh installs need credentials or default mappings/locales/channels from deployment env
-- **Persist cursor after each batch** — enables resume on failure
-- **Log item-level errors** — don't stop the sync for individual item failures
-- **Check for overlap** before starting a new run (same integration + entityType + direction)
-- **API routes must export `openApi`** for documentation generation

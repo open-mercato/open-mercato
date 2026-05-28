@@ -21,6 +21,7 @@ import {JsonBuilder} from '@open-mercato/ui/backend/JsonBuilder'
 import {StartPreConditionsEditor, type StartPreCondition} from './fields/StartPreConditionsEditor'
 import {useT} from '@open-mercato/shared/lib/i18n/context'
 import {useConfirmDialog} from '@open-mercato/ui/backend/confirm-dialog'
+import {isFutureIsoDateString, isValidDurationString} from '../data/validators'
 
 export interface NodeEditDialogProps {
   node: Node | null
@@ -81,12 +82,19 @@ export function NodeEditDialog({ node, isOpen, onClose, onSave, onDelete }: Node
   const [signalName, setSignalName] = useState('')
   const [signalTimeout, setSignalTimeout] = useState('')
 
+  // Wait for timer configuration fields
+  const [timerDuration, setTimerDuration] = useState('')
+  const [timerUntil, setTimerUntil] = useState('')
+
   // Step activities state (for AUTOMATED steps)
   const [stepActivities, setStepActivities] = useState<any[]>([])
   const [expandedStepActivities, setExpandedStepActivities] = useState<Set<number>>(new Set())
 
   // Pre-conditions state (for START steps)
   const [preConditions, setPreConditions] = useState<StartPreCondition[]>([])
+
+  // Inline validation errors keyed by field name
+  const [fieldErrors, setFieldErrors] = useState<Record<string, string>>({})
 
   // Convert JSON Schema to our custom format
   const convertJsonSchemaToFields = (schema: any): FormField[] => {
@@ -211,6 +219,15 @@ export function NodeEditDialog({ node, isOpen, onClose, onSave, onDelete }: Node
         setSignalTimeout('')
       }
 
+      // Load timer configuration
+      if (node.type === 'waitForTimer') {
+        setTimerDuration(nodeData?.config?.duration || '')
+        setTimerUntil(nodeData?.config?.until || '')
+      } else {
+        setTimerDuration('')
+        setTimerUntil('')
+      }
+
       // Load step activities (for AUTOMATED steps)
       if (node.type === 'automated' && nodeData?.activities) {
         setStepActivities(nodeData.activities)
@@ -257,6 +274,7 @@ export function NodeEditDialog({ node, isOpen, onClose, onSave, onDelete }: Node
       }
       setAdvancedConfig(advancedFields)
       setExpandedFields(new Set())
+      setFieldErrors({})
     }
   }, [node, isOpen])
 
@@ -312,6 +330,30 @@ export function NodeEditDialog({ node, isOpen, onClose, onSave, onDelete }: Node
 
   const handleSave = () => {
     if (!node) return
+
+    // Pre-save validation for wait-related fields. Surface inline errors instead
+    // of silently saving an invalid value that will only blow up later when the
+    // whole workflow is serialized through the API zod schema.
+    const errors: Record<string, string> = {}
+
+    if (node.type === 'waitForTimer') {
+      if (timerDuration && !isValidDurationString(timerDuration)) {
+        errors.timerDuration = t('workflows.validation.invalidDuration')
+      }
+      if (timerUntil && !isFutureIsoDateString(timerUntil)) {
+        errors.timerUntil = t('workflows.validation.untilMustBeFuture')
+      }
+    }
+
+    if (node.type === 'waitForSignal' && signalTimeout && !isValidDurationString(signalTimeout)) {
+      errors.signalTimeout = t('workflows.validation.invalidDuration')
+    }
+
+    if (Object.keys(errors).length > 0) {
+      setFieldErrors(errors)
+      return
+    }
+    setFieldErrors({})
 
     // Validate and sanitize step ID
     const sanitizedId = sanitizeId(node.id)
@@ -407,6 +449,17 @@ export function NodeEditDialog({ node, isOpen, onClose, onSave, onDelete }: Node
       }
     }
 
+    // Wait for timer specific fields (duration XOR until)
+    if (node.type === 'waitForTimer') {
+      const config: any = {}
+      if (timerDuration) {
+        config.duration = timerDuration
+      } else if (timerUntil) {
+        config.until = timerUntil
+      }
+      updates.config = Object.keys(config).length > 0 ? config : undefined
+    }
+
     // Step activities (for AUTOMATED steps)
     if (node.type === 'automated' && stepActivities.length > 0) {
       updates.activities = stepActivities
@@ -449,6 +502,9 @@ export function NodeEditDialog({ node, isOpen, onClose, onSave, onDelete }: Node
     userTask: t('workflows.nodeTypes.userTask'),
     automated: t('workflows.nodeTypes.automated'),
     decision: t('workflows.nodeTypes.decision'),
+    waitForSignal: t('workflows.nodeTypes.waitForSignal'),
+    waitForTimer: t('workflows.nodeTypes.waitForTimer'),
+    subWorkflow: t('workflows.nodeTypes.subWorkflow'),
   }[node.type || 'automated']
 
   // START nodes are partially editable (pre-conditions only), END nodes are not editable
@@ -544,27 +600,30 @@ export function NodeEditDialog({ node, isOpen, onClose, onSave, onDelete }: Node
                 </p>
               </div>
 
-              {/* Timeout */}
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">
-                  {t('workflows.form.timeout')}
-                </label>
-                <Input
-                  type="text"
-                  value={timeout}
-                  onChange={(e) => setTimeout(e.target.value)}
-                  placeholder={t('workflows.form.placeholders.timeout')}
-                />
-                <p className="text-xs text-gray-500 mt-1">
-                  {t('workflows.form.descriptions.timeout')}
-                </p>
-              </div>
+              {/* Timeout — hidden for wait nodes that already expose their own time-bound config
+                  (waitForTimer uses duration/until, waitForSignal uses signalConfig.timeout). */}
+              {node.type !== 'waitForSignal' && node.type !== 'waitForTimer' && (
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">
+                    {t('workflows.form.timeout')}
+                  </label>
+                  <Input
+                    type="text"
+                    value={timeout}
+                    onChange={(e) => setTimeout(e.target.value)}
+                    placeholder={t('workflows.form.placeholders.timeout')}
+                  />
+                  <p className="text-xs text-gray-500 mt-1">
+                    {t('workflows.form.descriptions.timeout')}
+                  </p>
+                </div>
+              )}
 
               {/* User Task Configuration */}
               {node.type === 'userTask' && (
                 <>
                   <div className="border-t border-gray-200 pt-4 mt-4">
-                    <h3 className="text-sm font-semibold text-gray-900 mb-3">
+                    <h3 className="text-sm font-semibold text-foreground mb-3">
                       {t('workflows.nodeEditor.userTaskConfig')}
                     </h3>
                   </div>
@@ -618,7 +677,7 @@ export function NodeEditDialog({ node, isOpen, onClose, onSave, onDelete }: Node
                   <div className="border-t border-gray-200 pt-4 mt-4">
                     <div className="flex items-center justify-between mb-3">
                       <div>
-                        <h3 className="text-sm font-semibold text-gray-900">
+                        <h3 className="text-sm font-semibold text-foreground">
                           {t('workflows.form.formFields', { count: formFields.length })}
                         </h3>
                         <p className="text-xs text-gray-500 mt-0.5">
@@ -663,7 +722,7 @@ export function NodeEditDialog({ node, isOpen, onClose, onSave, onDelete }: Node
                             >
                               <div className="flex-1">
                                 <div className="flex items-center gap-2">
-                                  <span className="text-sm font-semibold text-gray-900">
+                                  <span className="text-sm font-semibold text-foreground">
                                     {field.label || field.name}
                                   </span>
                                   <Badge variant="secondary" className="text-xs">
@@ -819,7 +878,7 @@ export function NodeEditDialog({ node, isOpen, onClose, onSave, onDelete }: Node
                   <div className="border-t border-gray-200 pt-4 mt-4">
                     <div className="flex items-center justify-between mb-3">
                       <div>
-                        <h3 className="text-sm font-semibold text-gray-900">
+                        <h3 className="text-sm font-semibold text-foreground">
                           {t('workflows.form.stepActivities', { count: stepActivities.length })}
                         </h3>
                         <p className="text-xs text-gray-500 mt-0.5">
@@ -874,7 +933,7 @@ export function NodeEditDialog({ node, isOpen, onClose, onSave, onDelete }: Node
                             >
                               <div className="flex-1">
                                 <div className="flex items-center gap-2">
-                                  <span className="text-sm font-semibold text-gray-900">
+                                  <span className="text-sm font-semibold text-foreground">
                                     {activity.activityName || activity.activityId || `Activity ${index + 1}`}
                                   </span>
                                   <Badge variant="secondary" className="text-xs">
@@ -957,6 +1016,7 @@ export function NodeEditDialog({ node, isOpen, onClose, onSave, onDelete }: Node
                                       <SelectItem value="EMIT_EVENT">{t('workflows.activities.types.EMIT_EVENT')}</SelectItem>
                                       <SelectItem value="CALL_WEBHOOK">{t('workflows.activities.types.CALL_WEBHOOK')}</SelectItem>
                                       <SelectItem value="EXECUTE_FUNCTION">{t('workflows.activities.types.EXECUTE_FUNCTION')}</SelectItem>
+                                      <SelectItem value="WAIT">{t('workflows.activities.types.WAIT')}</SelectItem>
                                     </SelectContent>
                                   </Select>
                                 </div>
@@ -1065,7 +1125,48 @@ export function NodeEditDialog({ node, isOpen, onClose, onSave, onDelete }: Node
                                   </label>
                                 </div>
 
-                                {/* Activity Config JSON */}
+                                {/* WAIT Activity: Duration / Until fields */}
+                                {activity.activityType === 'WAIT' && (
+                                  <div className="space-y-3">
+                                    <div>
+                                      <label className="block text-xs font-medium text-gray-700 mb-1">
+                                        {t('workflows.activities.waitDuration')}
+                                      </label>
+                                      <Input
+                                        size="sm"
+                                        type="text"
+                                        value={activity.config?.duration || ''}
+                                        onChange={(e) => {
+                                          const updated = [...stepActivities]
+                                          updated[index].config = { ...updated[index].config, duration: e.target.value, until: undefined }
+                                          setStepActivities(updated)
+                                        }}
+                                        placeholder={t('workflows.activities.waitDurationPlaceholder')}
+                                      />
+                                      <p className="text-xs text-muted-foreground mt-1">{t('workflows.activities.waitDurationDescription')}</p>
+                                    </div>
+                                    <div className="text-xs text-center text-muted-foreground">{t('workflows.activities.waitOr')}</div>
+                                    <div>
+                                      <label className="block text-xs font-medium text-gray-700 mb-1">
+                                        {t('workflows.activities.waitUntil')}
+                                      </label>
+                                      <Input
+                                        size="sm"
+                                        type="datetime-local"
+                                        value={activity.config?.until ? activity.config.until.slice(0, 16) : ''}
+                                        onChange={(e) => {
+                                          const updated = [...stepActivities]
+                                          updated[index].config = { ...updated[index].config, until: e.target.value ? new Date(e.target.value).toISOString() : undefined, duration: undefined }
+                                          setStepActivities(updated)
+                                        }}
+                                      />
+                                      <p className="text-xs text-muted-foreground mt-1">{t('workflows.activities.waitUntilDescription')}</p>
+                                    </div>
+                                  </div>
+                                )}
+
+                                {/* Activity Config JSON (hidden for WAIT) */}
+                                {activity.activityType !== 'WAIT' && (
                                 <div>
                                   <label className="block text-xs font-medium text-gray-700 mb-1">
                                     {t('workflows.form.configuration')}
@@ -1082,6 +1183,7 @@ export function NodeEditDialog({ node, isOpen, onClose, onSave, onDelete }: Node
                                     {t('workflows.form.descriptions.activityConfig')}
                                   </p>
                                 </div>
+                                )}
 
                                 {/* Delete Button */}
                                 <div className="pt-3 border-t border-gray-100">
@@ -1114,7 +1216,7 @@ export function NodeEditDialog({ node, isOpen, onClose, onSave, onDelete }: Node
               {node.type === 'subWorkflow' && (
                 <>
                   <div className="border-t border-gray-200 pt-4 mt-4">
-                    <h3 className="text-sm font-semibold text-gray-900 mb-3">
+                    <h3 className="text-sm font-semibold text-foreground mb-3">
                       {t('workflows.form.subWorkflowConfig')}
                     </h3>
                   </div>
@@ -1164,7 +1266,7 @@ export function NodeEditDialog({ node, isOpen, onClose, onSave, onDelete }: Node
                   <div className="border-t border-gray-200 pt-4 mt-4">
                     <div className="flex items-center justify-between mb-3">
                       <div>
-                        <h4 className="text-sm font-semibold text-gray-900">
+                        <h4 className="text-sm font-semibold text-foreground">
                           {t('workflows.form.inputMapping', { count: inputMappings.length })}
                         </h4>
                         <p className="text-xs text-gray-500 mt-0.5">
@@ -1237,7 +1339,7 @@ export function NodeEditDialog({ node, isOpen, onClose, onSave, onDelete }: Node
                   <div className="border-t border-gray-200 pt-4 mt-4">
                     <div className="flex items-center justify-between mb-3">
                       <div>
-                        <h4 className="text-sm font-semibold text-gray-900">
+                        <h4 className="text-sm font-semibold text-foreground">
                           {t('workflows.form.outputMapping', { count: outputMappings.length })}
                         </h4>
                         <p className="text-xs text-gray-500 mt-0.5">
@@ -1312,7 +1414,7 @@ export function NodeEditDialog({ node, isOpen, onClose, onSave, onDelete }: Node
               {node.type === 'waitForSignal' && (
                 <>
                   <div className="border-t border-gray-200 pt-4 mt-4">
-                    <h3 className="text-sm font-semibold text-gray-900 mb-3">
+                    <h3 className="text-sm font-semibold text-foreground mb-3">
                       {t('workflows.form.signalConfig')}
                     </h3>
                   </div>
@@ -1339,12 +1441,98 @@ export function NodeEditDialog({ node, isOpen, onClose, onSave, onDelete }: Node
                     <Input
                       type="text"
                       value={signalTimeout}
-                      onChange={(e) => setSignalTimeout(e.target.value)}
+                      onChange={(e) => {
+                        setSignalTimeout(e.target.value)
+                        if (fieldErrors.signalTimeout) {
+                          const next = { ...fieldErrors }
+                          delete next.signalTimeout
+                          setFieldErrors(next)
+                        }
+                      }}
                       placeholder={t('workflows.form.placeholders.signalTimeout')}
+                      aria-invalid={fieldErrors.signalTimeout ? true : undefined}
                     />
-                    <p className="text-xs text-gray-500 mt-1">
-                      {t('workflows.form.descriptions.signalTimeout')}
-                    </p>
+                    {fieldErrors.signalTimeout ? (
+                      <p className="text-xs text-destructive mt-1">
+                        {fieldErrors.signalTimeout}
+                      </p>
+                    ) : (
+                      <p className="text-xs text-gray-500 mt-1">
+                        {t('workflows.form.descriptions.signalTimeout')}
+                      </p>
+                    )}
+                  </div>
+                </>
+              )}
+
+              {/* Wait for Timer Configuration */}
+              {node.type === 'waitForTimer' && (
+                <>
+                  <div className="border-t border-gray-200 pt-4 mt-4">
+                    <h3 className="text-sm font-semibold text-foreground mb-3">
+                      {t('workflows.steps.types.WAIT_FOR_TIMER')}
+                    </h3>
+                  </div>
+
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">
+                      {t('workflows.activities.waitDuration')}
+                    </label>
+                    <Input
+                      type="text"
+                      value={timerDuration}
+                      onChange={(e) => {
+                        setTimerDuration(e.target.value)
+                        if (e.target.value) setTimerUntil('')
+                        if (fieldErrors.timerDuration) {
+                          const next = { ...fieldErrors }
+                          delete next.timerDuration
+                          setFieldErrors(next)
+                        }
+                      }}
+                      placeholder={t('workflows.activities.waitDurationPlaceholder')}
+                      aria-invalid={fieldErrors.timerDuration ? true : undefined}
+                    />
+                    {fieldErrors.timerDuration ? (
+                      <p className="text-xs text-destructive mt-1">
+                        {fieldErrors.timerDuration}
+                      </p>
+                    ) : (
+                      <p className="text-xs text-gray-500 mt-1">
+                        {t('workflows.activities.waitDurationDescription')}
+                      </p>
+                    )}
+                  </div>
+
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">
+                      {t('workflows.activities.waitUntil')}
+                    </label>
+                    <Input
+                      type="datetime-local"
+                      value={timerUntil ? timerUntil.slice(0, 16) : ''}
+                      min={new Date(Date.now() - new Date().getTimezoneOffset() * 60000).toISOString().slice(0, 16)}
+                      onChange={(e) => {
+                        const next = e.target.value ? new Date(e.target.value).toISOString() : ''
+                        setTimerUntil(next)
+                        if (next) setTimerDuration('')
+                        if (fieldErrors.timerUntil) {
+                          const nextErrors = { ...fieldErrors }
+                          delete nextErrors.timerUntil
+                          setFieldErrors(nextErrors)
+                        }
+                      }}
+                      aria-invalid={fieldErrors.timerUntil ? true : undefined}
+                    />
+                    {fieldErrors.timerUntil ? (
+                      <p className="text-xs text-destructive mt-1">
+                        {fieldErrors.timerUntil}
+                      </p>
+                    ) : (
+                      <p className="text-xs text-gray-500 mt-1">
+                        {t('workflows.activities.waitUntilDescription')}
+                      </p>
+                    )}
                   </div>
                 </>
               )}
@@ -1356,7 +1544,7 @@ export function NodeEditDialog({ node, isOpen, onClose, onSave, onDelete }: Node
                   onClick={() => setShowAdvanced(!showAdvanced)}
                   className="flex items-center justify-between w-full text-left"
                 >
-                  <h3 className="text-sm font-semibold text-gray-900">
+                  <h3 className="text-sm font-semibold text-foreground">
                     {t('workflows.form.advancedConfiguration')}
                   </h3>
                   <svg

@@ -1,4 +1,92 @@
 
+# 0.6.3 (2026-05-28)
+
+## Highlights
+
+<!-- TODO: Highlights — auto-update-changelog leaves this blank for the human author to fill in. -->
+
+## ✨ Features
+- ✨ Sales pipeline kanban — colored stage lanes, filter bar (Status / Pipeline / Owner / People / Companies / Close), sort + saved-view scaffolding, stuck/overdue indicators, inline quick-deal and add-stage lanes. (#1949) *(@haxiorz)*
+- ✨ Workflows: `WAIT` activity + `WAIT_FOR_TIMER` step (supersedes #1472). (#1991) *(@jtomaszewski, via @KubaBir)*
+- ✨ Decouple `staff` from `core` (Phase 1). (#1946) *(@migsilva89)*
+- ✨ AI chat conversation sharing — participant access, API, UI, notifications (fixes #1969). (#2023) *(@adeptofvoltron)*
+- ✨ CRUD API performance quick wins — list/detail p50 < 100 ms via internal optimizations (fixes #2044). (#2100) *(@pkarw)*
+- ✨ Expose deployed version via `GET /api/version` (fixes #1718). (#2075) *(@amtmich)*
+- ✨ `RecordNotFoundState` shared backend component. (#2014) *(@izqzmyli)*
+- ✨ Auto-dismiss Undo banner after timeout (fixes #2028). (#2041) *(@pkarw)*
+- ✨ Clarify Messages inbox filter labels and add tooltip help text. (#2052) *(@adeptofvoltron)*
+- ✨ i18n detection tooling — hardcoded strings + locale value coverage. (#2099) *(@pkarw)*
+
+## 🔒 Security
+- 🔒 Scope-validate payment allocation `orderId` / `invoiceId` in sales commands. (#2122) *(@pkarw)*
+- 🔒 Scope `em.findOne` by tenant/org for non-super-admin attachment image/file routes (fixes #2108). (#2124) *(@izqzmyli)*
+- 🔒 Fail closed when attachment scope columns are null. (#2107) *(@pkarw)*
+- 🔒 `mergeIdFilter` fails closed on unknown id filter shapes (fixes #1736). (#2012) *(@pkarw)*
+- 🔒 Bump `ws` to address transitive vulnerability. (#2018) *(@pkarw)*
+
+## 🐛 Fixes
+- 🔐 Implement `RbacService.getGrantedFeatures` so feature-gated enrichers run (fixes #2019). (#2039) *(@pkarw)*
+- 🔐 Search tokens for encrypted customer user search (fixes #2034). (#2040) *(@pat-lewczuk)*
+- 🔐 Preserve undefined `email_verified` claim to unblock Entra ID login (supersedes #2027). (#2042) *(@truongx, via @pkarw)*
+- 🔐 Gate `UpgradeActionBanner` on `configs.manage` feature to prevent redirect loop (supersedes #2058, folds #2068). (#2066) *(@adeptofvoltron, @rengare, via @pkarw)*
+- 🔐 Break 403 redirect loop on staff login (fixes #2070). (#2073) *(@pkarw)*
+- 🔐 Add tenant feature checks for scheduler. (#2086) *(@mat-kruk)*
+- 🐛 Keep deal analyzer stage approval tool available. (#2017) *(@pkarw)*
+- 🐛 Allow clearing `ComboboxInput` value (fixes #1832). (#2020) *(@pkarw)*
+- 🐛 Hide stale AppShell sidebar nav until chrome resolves (fixes #1828). (#2021) *(@pkarw)*
+- 🐛 React to deleted message in detail view (fixes #1936). (#2013) *(@pkarw)*
+- 🐛 Suppress Edge native `::-ms-reveal` duplicate eye icon on `PasswordInput` (fixes #2037). (#2043) *(@pkarw)*
+- 🐛 Team delete shows success toast despite 409 rejection (fixes #2049). (#2051) *(@adeptofvoltron)*
+- 🐛 Correct widget injection context keys for AI Deal Analyzer (fixes #2053). (#2059) *(@pat-lewczuk)*
+- 🐛 Stop `dealAnalyzer` loop after `update_deal_stage` tool call (fixes #2054). (#2098) *(@pat-lewczuk)*
+- 🔧 Kill the full child process tree on Windows shutdown (fixes #1826). (#2022) *(@pkarw)*
+- 🔧 `singularizeSegment` handles irregular plurals (fixes #2072). (#2076) *(@pkarw)*
+- 🔧 Add missing CRUD route indexers. (#2083) *(@WXYZx)*
+- 🔧 Decrypt selected relation labels in query index (fixes #2024). (#2065) *(@pmadajthey)*
+- 🔧 Use shared base URL resolver for `api-docs` routes (fixes #2089). (#2090) *(@truongx)*
+- 🔄 Add search indexing subscribers for customer users (fixes #2060). (#2079) *(@pat-lewczuk)*
+- 🔄 Match external custom-field labels in `sync_excel`. (#2087) *(@pmadajthey)*
+- 🧪 Stabilize flaky integration tests (TC-CRM-068/069, TC-SALES-005/019). (#2046) *(@pkarw)*
+
+## 🛠️ Improvements
+- 🛠️ Consolidate workspace package watchers — ~1 GB idle RSS win in `yarn dev`. (#2102) *(@pkarw)*
+- 🛠️ Consolidate `mercato generate watch` into `mercato server dev` — ~190 MB idle RSS win. (#2105) *(@pkarw)*
+- 🛠️ Push pagination + parallelize decryption fetches for two CRUD SQL quick wins. (#2139) *(@pkarw)*
+- 🛠️ Combine major + minor-and-patch Dependabot bumps (#2064, #2062). (#2067) *(@pkarw)*
+- 🛠️ Migrate `ws` 7.5.10 → 7.5.11 from #2031 to `develop`. (#2038) *(@pkarw)*
+- 🛠️ Register autofix-split skills in `tiers.json`. (#2047) *(@pat-lewczuk)*
+
+## 📝 Specs & Documentation
+- 📝 Plugin-based skill distribution for standalone apps. (#1562) *(@matgren)*
+- 📝 CRUD API performance quick wins (target p50 < 100 ms). (#2045) *(@pkarw)*
+- 📝 Trim AGENTS.md under the 42 KB harness ceiling. (#2048) *(@pat-lewczuk)*
+- 📝 Audit missing translations and propose phased remediation. (#2078) *(@pkarw)*
+- 📝 Organize AGENTS.md agent instructions. (#2082) *(@pmadajthey)*
+- 📝 Document `auth` locale API route. (#2084) *(@WXYZx)*
+- 📝 Teach `create-agents-md` the Always / Ask First / Never / Validation Commands convention. (#2103) *(@pkarw)*
+- 📝 Dev-mode memory profiling harness + analysis spec. (#2104) *(@pkarw)*
+- 📝 Template parity follow-ups for consolidated package watcher (#2102 follow-up). (#2130) *(@pkarw)*
+
+## 👥 Contributors
+
+- @pkarw
+- @haxiorz
+- @jtomaszewski
+- @KubaBir
+- @migsilva89
+- @adeptofvoltron
+- @izqzmyli
+- @amtmich
+- @truongx
+- @rengare
+- @mat-kruk
+- @pat-lewczuk
+- @WXYZx
+- @pmadajthey
+- @matgren
+
+---
+
 # 0.6.2 (2026-05-19)
 
 ## Highlights

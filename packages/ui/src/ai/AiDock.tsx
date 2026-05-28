@@ -19,6 +19,7 @@ import { Maximize2, Minimize2, X } from 'lucide-react'
 import type { AiChatContextItem, AiChatSuggestion } from './AiChat'
 import { ChatPaneTabs } from './ChatPaneTabs'
 import { useAiChatSessions } from './AiChatSessions'
+import { ConversationShareButton } from './ConversationShareButton'
 import { IconButton } from '../primitives/icon-button'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { cn } from '@open-mercato/shared/lib/utils'
@@ -497,6 +498,7 @@ function DockedChatBody({ assistant }: { assistant: AiDockedAssistant }) {
               contextItems={assistant.contextItems}
               welcomeTitle={assistant.welcomeTitle}
               welcomeDescription={assistant.welcomeDescription}
+              headerActions={<ConversationShareButton conversationId={session.conversationId} />}
             />
           </React.Suspense>
         ) : null}

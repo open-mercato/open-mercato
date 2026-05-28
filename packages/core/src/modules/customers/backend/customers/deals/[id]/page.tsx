@@ -7,7 +7,7 @@ import { EmptyState } from '@open-mercato/ui/primitives/empty-state'
 import { useRouter, useSearchParams } from 'next/navigation'
 import { Page, PageBody } from '@open-mercato/ui/backend/Page'
 import { Button } from '@open-mercato/ui/primitives/button'
-import { AttachmentsSection, ErrorMessage, LoadingMessage, NotesSection } from '@open-mercato/ui/backend/detail'
+import { AttachmentsSection, ErrorMessage, LoadingMessage, NotesSection, RecordNotFoundState } from '@open-mercato/ui/backend/detail'
 import { InjectionSpot } from '@open-mercato/ui/backend/injection/InjectionSpot'
 import { useConfirmDialog } from '@open-mercato/ui/backend/confirm-dialog'
 import { CollapsibleZoneLayout } from '@open-mercato/ui/backend/crud/CollapsibleZoneLayout'
@@ -55,7 +55,7 @@ export default function DealDetailPage({ params }: { params?: { id?: string } })
   const { confirm, ConfirmDialogElement } = useConfirmDialog()
   const detailTranslator = React.useMemo(() => createTranslatorWithFallback(t), [t])
 
-  const { data, setData, isLoading, error, loadData } = useDealData(id)
+  const { data, setData, isLoading, error, isNotFound, loadData } = useDealData(id)
   const [isDirty, setIsDirty] = React.useState(false)
   const {
     scheduleDialogOpen,
@@ -303,19 +303,33 @@ export default function DealDetailPage({ params }: { params?: { id?: string } })
     )
   }
 
+  if (isNotFound) {
+    return (
+      <Page>
+        <PageBody>
+          <RecordNotFoundState
+            label={t('customers.deals.detail.error.notFound', 'Deal not found.')}
+            backHref="/backend/customers/deals"
+            backLabel={t('customers.deals.detail.actions.backToList', 'Back to deals')}
+          />
+        </PageBody>
+      </Page>
+    )
+  }
+
   if (error || !data) {
     return (
       <Page>
         <PageBody>
           <ErrorMessage
-            label={error || t('customers.deals.detail.error.notFound', 'Deal not found.')}
-            action={(
-              <Button asChild variant="outline">
+            label={error ?? t('customers.deals.detail.error.load', 'Failed to load deal.')}
+            action={
+              <Button asChild variant="outline" size="sm">
                 <Link href="/backend/customers/deals">
                   {t('customers.deals.detail.actions.backToList', 'Back to deals')}
                 </Link>
               </Button>
-            )}
+            }
           />
         </PageBody>
       </Page>

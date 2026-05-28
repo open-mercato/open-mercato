@@ -2,6 +2,42 @@
 
 `@open-mercato/core` contains all core business modules (auth, catalog, customers, sales, etc.). This guide covers the full extensibility contract and module development patterns.
 
+## Always
+
+- Preserve auto-discovery contracts for module files, API routes, pages, subscribers, workers, widgets, and generated registries.
+- Export `openApi` from every API route file.
+- Use `makeCrudRoute` with `indexer: { entityType }` for CRUD routes that should participate in query indexing.
+- Wire custom write routes through the mutation guard contract.
+- Use declarative feature guards and add new `acl.ts` features to `setup.ts` `defaultRoleFeatures`.
+- Use `findWithDecryption` / `findOneWithDecryption` for encrypted entities.
+- Implement domain writes through commands so audit, undo, cache, events, and indexing stay consistent.
+- Run `yarn generate` after changing module files discovered by the generator.
+
+## Ask First
+
+- Ask before changing any contract surface from `BACKWARD_COMPATIBILITY.md`: auto-discovery, public types, import paths, event IDs, widget spot IDs, API URLs, DB schema, DI names, ACL features, notification IDs, CLI commands, or generated file contracts.
+- Ask before moving versioned generated files or changing where generated registries live.
+- Ask before applying migrations with `yarn db:migrate`; normal PRs should include migration files and snapshots.
+
+## Never
+
+- Never create direct ORM relationships between modules; use foreign key IDs and fetch separately.
+- Never expose cross-tenant data or omit tenant/organization scoping.
+- Never hand-edit generated files.
+- Never import generated app bootstrap files from packages.
+- Never run raw `em.find` / `em.findOne` between scalar mutations and `em.flush()` on the same `EntityManager` without `withAtomicFlush`.
+- Never hand-roll AES/KMS encryption or bypass `TenantDataEncryptionService`.
+- Never compare raw feature arrays with exact string checks when wildcard grants apply.
+
+## Validation Commands
+
+```bash
+yarn db:generate
+yarn generate
+yarn workspace @open-mercato/core build
+yarn workspace @open-mercato/core test
+```
+
 ## Core Modules
 
 | Module | Path | Description |
@@ -593,7 +629,7 @@ const crud = makeCrudRoute({
 })
 ```
 
-### Key Rules
+### Response Enricher Rules
 
 - MUST implement `enrichMany()` for batch endpoints (prevents N+1 queries)
 - MUST namespace enriched fields with `_moduleName` prefix (e.g. `_example.todoCount`)
