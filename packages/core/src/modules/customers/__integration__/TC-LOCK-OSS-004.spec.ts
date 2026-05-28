@@ -71,6 +71,25 @@ async function putDeal(
   })
 }
 
+async function deleteDeal(
+  request: import('@playwright/test').APIRequestContext,
+  token: string,
+  dealId: string,
+  headerValue?: string,
+) {
+  const headers: Record<string, string> = {
+    Authorization: `Bearer ${token}`,
+    'Content-Type': 'application/json',
+  }
+  if (headerValue !== undefined) {
+    headers[OPTIMISTIC_LOCK_HEADER] = headerValue
+  }
+  return request.fetch(resolveUrl(`/api/customers/deals?id=${encodeURIComponent(dealId)}`), {
+    method: 'DELETE',
+    headers,
+  })
+}
+
 test.describe('TC-LOCK-OSS-004: customers.deal optimistic-lock guard (auto-registered generic reader)', () => {
   test('writes without the header always succeed (opt-in semantics)', async ({ request }) => {
     let token: string | null = null
