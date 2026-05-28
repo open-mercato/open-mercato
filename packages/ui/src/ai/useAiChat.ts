@@ -118,6 +118,15 @@ export interface UseAiChatInput {
    * configured default (no override sent).
    */
   modelOverride?: string | null
+  /**
+   * Called when the server returns 404 for the active `conversationId`.
+   * Used by hosts to remove a stale session entry (e.g. the AI dock
+   * closes the session tab) when a conversation no longer exists for the
+   * current tenant/org scope. A 404 here distinguishes a missing
+   * conversation from a transient transport failure — the hook never
+   * imports local messages onto the new scope when this fires.
+   */
+  onConversationNotFound?: () => void
 }
 
 export interface AiChatErrorEnvelope {
@@ -779,7 +788,7 @@ async function readErrorEnvelope(response: Response): Promise<AiChatErrorEnvelop
 }
 
 export function useAiChat(input: UseAiChatInput): UseAiChatResult {
-  const { agent, apiPath, pageContext, attachmentIds, debug, initialMessages, onError, conversationId: conversationIdInput, providerOverride, modelOverride } = input
+  const { agent, apiPath, pageContext, attachmentIds, debug, initialMessages, onError, conversationId: conversationIdInput, providerOverride, modelOverride, onConversationNotFound } = input
 
   // Minted once on mount when the caller does not supply a conversationId.
   // The ref keeps the id stable across re-renders and is reused for every
@@ -943,8 +952,25 @@ export function useAiChat(input: UseAiChatInput): UseAiChatResult {
         }
       }
 
+      // 404 — the conversation does not exist for the current tenant/org
+      // scope (e.g. the user switched scope and the stale conversationId
+      // came from the previous bucket's localStorage). Self-heal: drop
+      // the local cache, signal the host so it can prune its session
+      // registry, and NEVER fall through to importAiLocalConversation —
+      // that would silently write the previous scope's messages onto the
+      // new scope's server.
+      if (!transcriptResult.ok && transcriptResult.notFound) {
+        updateMessages([])
+        clearPersistedSession(agent, persistKey)
+        onConversationNotFoundRef.current?.()
+        return
+      }
+
       if (!localCandidate || localCandidate.messages.length === 0) {
         if (!transcriptResult.ok) {
+          // Transient transport failure (network down, 5xx, …). Mint a
+          // new server-side record optimistically; the next idle hydrate
+          // will reconcile.
           void createAiServerConversation({
             agentId: agent,
             conversationId: effectiveConversationId,
@@ -992,6 +1018,10 @@ export function useAiChat(input: UseAiChatInput): UseAiChatResult {
   React.useEffect(() => {
     onErrorRef.current = onError
   }, [onError])
+  const onConversationNotFoundRef = React.useRef(onConversationNotFound)
+  React.useEffect(() => {
+    onConversationNotFoundRef.current = onConversationNotFound
+  }, [onConversationNotFound])
 
   const emitError = React.useCallback((envelope: AiChatErrorEnvelope) => {
     if (mountedRef.current) {
