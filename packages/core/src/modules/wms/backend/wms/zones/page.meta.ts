@@ -3,6 +3,9 @@ export const metadata = {
   requireFeatures: ['wms.view'],
   pageTitle: 'WMS Zones',
   pageTitleKey: 'wms.backend.zones.nav.title',
+  pageGroup: 'WMS',
+  pageGroupKey: 'wms.nav.group',
+  pageOrder: 130,
   breadcrumb: [
     { label: 'WMS', labelKey: 'wms.backend.nav.title', href: '/backend/wms' },
     { label: 'Zones', labelKey: 'wms.backend.zones.nav.title' },

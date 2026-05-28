@@ -145,6 +145,7 @@ function normalizeGroupWeights(groups: NavGroupWithWeight[]): NavGroupWithWeight
     'customers.nav.group',
     'catalog.nav.group',
     'customers~sales.nav.group',
+    'wms.nav.group',
     'resources.nav.group',
     'staff.nav.group',
     'entities.nav.group',

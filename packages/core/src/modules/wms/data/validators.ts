@@ -344,3 +344,44 @@ export const salesOrderWarehouseUnassignSchema = scopedSchema.extend({
 
 export type SalesOrderWarehouseAssignInput = z.infer<typeof salesOrderWarehouseAssignSchema>
 export type SalesOrderWarehouseUnassignInput = z.infer<typeof salesOrderWarehouseUnassignSchema>
+
+export const operationalDashboardQuerySchema = z.object({
+  warehouseId: z.string().uuid().optional(),
+})
+
+export const operationalDashboardKpiSchema = z.object({
+  id: z.enum(['lowStock', 'reorderCritical', 'expiringSoon', 'agingReservations', 'todaysMoves']),
+  count: z.number(),
+  deltaSinceYesterday: z.number().nullable(),
+  sparkline: z.array(z.number()),
+})
+
+export const operationalDashboardResponseSchema = z.object({
+  lastUpdatedAt: z.string(),
+  warehouseId: z.string().uuid().nullable(),
+  kpis: z.array(operationalDashboardKpiSchema),
+  monthlyTrends: z.array(
+    z.object({
+      month: z.string(),
+      receive: z.number(),
+      allocate: z.number(),
+    }),
+  ),
+  recentActivity: z.array(
+    z.object({
+      id: z.string().uuid(),
+      movementType: z.string(),
+      quantity: z.number(),
+      variantSku: z.string().nullable(),
+      variantId: z.string().uuid(),
+      referenceType: z.string().nullable(),
+      referenceId: z.string().nullable(),
+      reason: z.string().nullable(),
+      locationLabel: z.string(),
+      performedAt: z.string(),
+    }),
+  ),
+})
+
+export type OperationalDashboardQueryInput = z.infer<typeof operationalDashboardQuerySchema>
+export type OperationalDashboardResponse = z.infer<typeof operationalDashboardResponseSchema>

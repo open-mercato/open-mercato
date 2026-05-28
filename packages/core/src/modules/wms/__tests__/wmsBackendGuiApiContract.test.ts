@@ -239,4 +239,44 @@ describe('WMS backend GUI <-> list API contract (response shape)', () => {
   it('rejects list payloads missing pagination fields (regression guard)', () => {
     expect(() => assertPagedEnvelope({ items: [], total: 0 })).toThrow()
   })
+
+  it('accepts operational dashboard payloads used by WmsOperationalDashboardPage', () => {
+    const payload = {
+      lastUpdatedAt: '2026-05-28T12:00:00.000Z',
+      warehouseId: null,
+      kpis: [
+        {
+          id: 'lowStock',
+          count: 2,
+          deltaSinceYesterday: null,
+          sparkline: [0, 1, 2],
+        },
+        {
+          id: 'todaysMoves',
+          count: 5,
+          deltaSinceYesterday: 1,
+          sparkline: [1, 2, 5],
+        },
+      ],
+      monthlyTrends: [{ month: 'May', receive: 3, allocate: 2 }],
+      recentActivity: [
+        {
+          id: '99999999-9999-4999-8999-999999999999',
+          movementType: 'receipt',
+          quantity: 3,
+          variantSku: 'SKU-1',
+          variantId: '44444444-4444-4444-8444-444444444444',
+          referenceType: 'manual',
+          referenceId: '88888888-8888-4888-8888-888888888888',
+          reason: null,
+          locationLabel: 'MAIN · A-01',
+          performedAt: '2026-05-28T12:00:00.000Z',
+        },
+      ],
+    }
+
+    expect(payload.kpis).toHaveLength(2)
+    expect(payload.recentActivity[0]?.movementType).toBe('receipt')
+    expect(payload.kpis[0]?.deltaSinceYesterday).toBeNull()
+  })
 })

@@ -1,5 +1,5 @@
-import WmsOverviewPage from '../components/backend/WmsOverviewPage'
+import WmsOperationalDashboardPage from '../components/backend/WmsOperationalDashboardPage'
 
 export default function WmsBackendPage() {
-  return <WmsOverviewPage />
+  return <WmsOperationalDashboardPage />
 }
