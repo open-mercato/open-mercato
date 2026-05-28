@@ -1049,6 +1049,7 @@ describe('server start managed process exits', () => {
         envChangeCallback = onChange
         return jest.fn()
       }),
+      watchDevRuntimeFiles: jest.fn(() => jest.fn()),
     }))
     jest.doMock('../lib/generators', () => ({
       generateModulePackageSources: jest.fn().mockResolvedValue(undefined),

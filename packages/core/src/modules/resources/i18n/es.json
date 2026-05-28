@@ -199,6 +199,7 @@
   "resources.resourceTypes.errors.delete": "No se pudo eliminar el tipo de recurso.",
   "resources.resourceTypes.errors.deleteAssigned": "El tipo de recurso tiene recursos asignados.",
   "resources.resourceTypes.errors.load": "No se pudieron cargar los tipos de recurso.",
+  "resources.resourceTypes.errors.notFound": "Tipo de recurso no encontrado.",
   "resources.resourceTypes.errors.save": "No se pudo guardar el tipo de recurso.",
   "resources.resourceTypes.form.appearance.colorClear": "Quitar color",
   "resources.resourceTypes.form.appearance.colorHelp": "Elige un color para este tipo de recurso.",
