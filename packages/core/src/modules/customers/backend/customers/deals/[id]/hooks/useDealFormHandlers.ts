@@ -2,6 +2,8 @@ import * as React from 'react'
 import { useRouter } from 'next/navigation'
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
 import { deleteCrud, updateCrud } from '@open-mercato/ui/backend/utils/crud'
+import { withScopedApiRequestHeaders } from '@open-mercato/ui/backend/utils/apiCall'
+import { buildOptimisticLockHeader } from '@open-mercato/ui/backend/utils/optimisticLock'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { useConfirmDialog } from '@open-mercato/ui/backend/confirm-dialog'
 import type { DealFormSubmitPayload } from '../../../../../components/detail/DealForm'
@@ -40,11 +42,14 @@ export function useDealFormHandlers({
       if (!data) return
       setIsSaving(true)
       try {
-        await updateCrud('customers/deals', {
-          id: data.deal.id,
-          ...payload.base,
-          ...payload.custom,
-        })
+        await withScopedApiRequestHeaders(
+          buildOptimisticLockHeader(data.deal.updatedAt),
+          () => updateCrud('customers/deals', {
+            id: data.deal.id,
+            ...payload.base,
+            ...payload.custom,
+          }),
+        )
         flash(t('customers.deals.detail.updateSuccess', 'Deal updated.'), 'success')
         await loadData()
       } finally {
