@@ -61,7 +61,7 @@
 | 15 | 15.4 | Integration: stale + header-less DELETE for customers.deal (entity-agnostic delete-guard proof) | done | 7d083ad09 |
 | 15 | 15.5 | Coverage spec reconciliation (impl-status table) — docs already cover the pattern | done | b1dbcf79c |
 | 16 | 16.0 | Merge develop → resolve conflicts (CHANGELOG, yarn.lock) | done | 20b4ba3ff |
-| 16 | 16.1 | Generalist command-level helper `optimistic-lock-command.ts` (read/assert/enforce) + export `normalizeIsoToken` + unit tests | done | 40093fc0e |
+| 16 | 16.1 | Generalist command-level helper `optimistic-lock-command.ts` (read/assert/enforce) + export `normalizeIsoToken` + unit tests | done | 7d30ee397 |
 | 17 | 17.1 | Sales command helper `enforceSalesDocumentOptimisticLock` (parent order/quote version check + bump) in commands/shared.ts | todo | — |
 | 17 | 17.2 | Wire order/quote line upsert + delete commands to document-aggregate lock + tests | todo | — |
 | 17 | 17.3 | Wire order/quote adjustment upsert + delete commands + tests | todo | — |
