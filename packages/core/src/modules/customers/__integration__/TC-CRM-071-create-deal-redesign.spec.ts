@@ -36,14 +36,23 @@ async function deleteCustomFieldDefinition(
   key: string,
 ): Promise<void> {
   if (!token) return;
-  const response = await apiRequest(request, 'DELETE', '/api/entities/definitions', {
-    token,
-    data: {
-      entityId: DEAL_ENTITY_ID,
-      key,
-    },
-  });
-  expect([200, 404]).toContain(response.status());
+  // Best-effort cleanup: when the test times out, Playwright closes the page +
+  // APIRequestContext, and any further fetch from this helper raises
+  // "Target page, context or browser has been closed". Mirror the swallow-and-
+  // return contract used by `deleteEntityIfExists` so the fixture teardown does
+  // not turn a timeout into a second cascading failure (see issue #2207).
+  try {
+    const response = await apiRequest(request, 'DELETE', '/api/entities/definitions', {
+      token,
+      data: {
+        entityId: DEAL_ENTITY_ID,
+        key,
+      },
+    });
+    expect([200, 404]).toContain(response.status());
+  } catch {
+    return;
+  }
 }
 
 /**
@@ -60,9 +69,15 @@ async function deleteCustomFieldDefinition(
  * (deal + fixtures) is cleaned up in the finally block. No reliance on seeded/demo data.
  */
 test.describe('TC-CRM-071: Create deal (UX redesign)', () => {
-  test.skip('creates a deal with linked person and company from the redesigned create page', async ({ page, request }) => {
-    // Standalone create-app integration runs time out after the redesign while ephemeral tests pass.
-    // Keep this skipped until the standalone-specific regression is fixed.
+  // Standalone create-app integration runs are noticeably slower than ephemeral
+  // (cold app build + initial route compilation), so the 60s default budget
+  // exceeded in #2207. Sister test TC-CRM-007 already uses an explicit 180s
+  // budget for the same flow shape — match that here instead of relying on
+  // test.slow(), which only triples the *current* test timeout and didn't
+  // appear to apply in the failing standalone run.
+  test.setTimeout(180_000);
+
+  test('creates a deal with linked person and company from the redesigned create page', async ({ page, request }) => {
     test.slow();
 
     const stamp = Date.now();
