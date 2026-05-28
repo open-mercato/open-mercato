@@ -60,6 +60,18 @@
 | 15 | 15.3 | Sales channels list delete: send lock header (row updatedAt) + conflict refresh | done | 419670342 |
 | 15 | 15.4 | Integration: stale + header-less DELETE for customers.deal (entity-agnostic delete-guard proof) | done | 7d083ad09 |
 | 15 | 15.5 | Coverage spec reconciliation (impl-status table) — docs already cover the pattern | done | b1dbcf79c |
+| 16 | 16.0 | Merge develop → resolve conflicts (CHANGELOG, yarn.lock) | done | 20b4ba3ff |
+| 16 | 16.1 | Generalist command-level helper `optimistic-lock-command.ts` (read/assert/enforce) + export `normalizeIsoToken` + unit tests | todo | — |
+| 17 | 17.1 | Sales command helper `enforceSalesDocumentOptimisticLock` (parent order/quote version check + bump) in commands/shared.ts | todo | — |
+| 17 | 17.2 | Wire order/quote line upsert + delete commands to document-aggregate lock + tests | todo | — |
+| 17 | 17.3 | Wire order/quote adjustment upsert + delete commands + tests | todo | — |
+| 17 | 17.4 | Wire shipment create/update/delete commands + tests | todo | — |
+| 17 | 17.5 | Wire payment create/update/delete commands + tests | todo | — |
+| 17 | 17.6 | Wire return create command + quote convert_to_order (#2114 race) + tests | todo | — |
+| 18 | 18.1 | Client: sales document sub-resource sections send `buildOptimisticLockHeader(document.updatedAt)` + 409 conflict flash/refresh + tests | todo | — |
+| 19 | 19.1 | Update coverage-completion spec (Phase 4) + main optimistic-locking spec (command-level section) | todo | — |
+| 19 | 19.2 | Update `concurrency-locking.mdx` docs + root AGENTS.md command-level contract | todo | — |
+| 20 | 20.1 | File follow-up GitHub issue (extend command-level lock to other modules) + CHANGELOG entry | todo | — |
 
 ## Goal (resume)
 
