@@ -458,12 +458,16 @@ async function waitForMapping(
   token: string,
   query: { interactionId?: string; todoId?: string },
   scope?: { tenantId?: string | null; organizationId?: string | null },
-  options?: { expectedStatus?: string },
+  options?: { expectedStatus?: string; onAttempt?: () => Promise<void> },
 ): Promise<MappingItem> {
   let mapping: MappingItem | null = null;
   const expected = options?.expectedStatus;
   await expect
     .poll(async () => {
+      // Optional per-attempt hook — inbound tests use this to re-drain the
+      // inbound queue, since the job is enqueued by a persistent (async)
+      // subscriber that can lag a one-shot drain.
+      if (options?.onAttempt) await options.onAttempt();
       const items = await listMappings(request, token, query, scope);
       mapping = items[0] ?? null;
       if (!mapping) return null;
@@ -796,9 +800,10 @@ test.describe('TC-CRM-028: Example customer sync', () => {
         },
       });
       expect(createdTodoId).toBe(todoId);
-      await flushExampleCustomersSyncQueues({ inbound: true, outbound: false });
 
-      const mapping = await waitForMapping(request, superadminToken, { todoId });
+      const mapping = await waitForMapping(request, superadminToken, { todoId }, undefined, {
+        onAttempt: () => flushExampleCustomersSyncQueues({ inbound: true, outbound: false }),
+      });
       interactionId = mapping.interactionId;
       expect(interactionId).toBe(todoId);
 
@@ -863,10 +868,12 @@ test.describe('TC-CRM-028: Example customer sync', () => {
         },
       });
       expect(updateResponse.status()).toBe(200);
-      await flushExampleCustomersSyncQueues({ inbound: true, outbound: false });
 
       await expect
         .poll(async () => {
+          // Re-drain on each attempt — the inbound sync job is enqueued by a
+          // persistent (async) subscriber, so a one-shot drain can race ahead.
+          await flushExampleCustomersSyncQueues({ inbound: true, outbound: false });
           const rows = await listCanonicalInteractions(request, adminToken, companyId!);
           return rows.find((item) => item.id === interactionId)?.status ?? null;
         }, { timeout: 15_000, intervals: [250, 500, 1_000] })
@@ -994,10 +1001,13 @@ test.describe('TC-CRM-028: Example customer sync', () => {
         },
       });
       expect(updateResponse.status()).toBe(200);
-      await flushExampleCustomersSyncQueues({ inbound: true, outbound: false });
 
       await expect
         .poll(async () => {
+          // Re-drain on each attempt: the example.todo.updated subscriber that
+          // enqueues the inbound sync job is persistent (runs async via the
+          // event worker), so a single drain can race ahead of the enqueue.
+          await flushExampleCustomersSyncQueues({ inbound: true, outbound: false });
           const rows = await listCanonicalInteractions(request, adminToken, companyId!);
           const row = rows.find((item) => item.id === interactionId);
           return row
