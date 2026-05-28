@@ -58,7 +58,7 @@ test.describe('TC-ATTACH-XSS-005: Cross-tenant access to private attachment via 
         email: t2UserEmail,
         password: 'Valid1!Pass',
         organizationId: t2OrgId,
-        roles: ['employee'],
+        roles: [],
       })
 
       // Admin (T1) uploads a private attachment — stored with tenantId = T1.
