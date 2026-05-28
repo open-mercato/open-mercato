@@ -4,7 +4,7 @@ import { findWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import type { FeatureTogglesService } from '@open-mercato/core/modules/feature_toggles/lib/feature-flag-check'
 import type { QueryEngine } from '@open-mercato/shared/lib/query/types'
 import { E } from '#generated/entities.ids.generated'
-import { InventoryBalance, InventoryReservation, ProductInventoryProfile } from './entities'
+import { InventoryBalance, InventoryReservation, ProductInventoryProfile, SalesOrderWarehouseAssignment, Warehouse } from './entities'
 import { resolvePrimaryWarehouseId } from '../lib/primaryWarehousePolicy'
 
 type SalesOrderRecord = Record<string, unknown> & { id?: string }
@@ -58,6 +58,8 @@ type ReorderStatus = {
 type SalesOrderWmsEnrichment = {
   _wms: {
     assignedWarehouseId: string | null
+    assignedWarehouseName: string | null
+    isExplicitlyAssigned: boolean
     stockSummary: Array<{
       catalogVariantId: string
       available: string
@@ -86,6 +88,8 @@ const SALES_ORDER_INVENTORY_TOGGLE = 'wms_integration_sales_order_inventory'
 const EMPTY_ENRICHMENT: SalesOrderWmsEnrichment = {
   _wms: {
     assignedWarehouseId: null,
+    assignedWarehouseName: null,
+    isExplicitlyAssigned: false,
     stockSummary: [],
     reservationSummary: {
       status: 'unreserved',
@@ -238,6 +242,46 @@ async function isSalesOrderInventoryEnabled(context: EnricherContext): Promise<b
   } catch {
     return true
   }
+}
+
+async function loadExplicitAssignments(
+  em: EntityManager,
+  orderIds: string[],
+  scope: Scope,
+): Promise<SalesOrderWarehouseAssignment[]> {
+  if (orderIds.length === 0) return []
+  return findWithDecryption(
+    em,
+    SalesOrderWarehouseAssignment,
+    {
+      salesOrderId: { $in: orderIds },
+      organizationId: scope.organizationId,
+      tenantId: scope.tenantId,
+      deletedAt: null,
+    },
+    undefined,
+    scope,
+  )
+}
+
+async function loadWarehousesByIds(
+  em: EntityManager,
+  warehouseIds: string[],
+  scope: Scope,
+): Promise<Warehouse[]> {
+  if (warehouseIds.length === 0) return []
+  return findWithDecryption(
+    em,
+    Warehouse,
+    {
+      id: { $in: warehouseIds },
+      organizationId: scope.organizationId,
+      tenantId: scope.tenantId,
+      deletedAt: null,
+    },
+    undefined,
+    scope,
+  )
 }
 
 async function loadOrderLines(
@@ -401,11 +445,34 @@ const salesOrderInventoryEnricher: ResponseEnricher<SalesOrderRecord, SalesOrder
       ),
     )
 
-    const [reservations, balances, primaryWarehouseId] = await Promise.all([
+    const [reservations, balances, primaryWarehouseId, explicitAssignments] = await Promise.all([
       loadReservations(em, orderIds, scope),
       loadBalances(em, variantIds, scope),
       resolvePrimaryWarehouseId(em, scope),
+      loadExplicitAssignments(em, orderIds, scope),
     ])
+
+    const explicitWarehouseIdsByOrder = new Map<string, string>()
+    for (const assignment of explicitAssignments) {
+      const warehouseRel = assignment.warehouse as { id?: string } | undefined
+      const warehouseId = warehouseRel?.id
+      if (warehouseId) {
+        explicitWarehouseIdsByOrder.set(assignment.salesOrderId, warehouseId)
+      }
+    }
+
+    const reservationWarehouseIds = reservations
+      .map(extractWarehouseId)
+      .filter((value): value is string => typeof value === 'string' && value.length > 0)
+    const allRelevantWarehouseIds = Array.from(
+      new Set([
+        ...Array.from(explicitWarehouseIdsByOrder.values()),
+        ...reservationWarehouseIds,
+        ...(primaryWarehouseId ? [primaryWarehouseId] : []),
+      ]),
+    )
+    const warehouses = await loadWarehousesByIds(em, allRelevantWarehouseIds, scope)
+    const warehouseNamesById = new Map(warehouses.map((w) => [w.id, w.name]))
 
     const variantAvailability = new Map<string, number>()
     const variantReserved = new Map<string, number>()
@@ -462,15 +529,30 @@ const salesOrderInventoryEnricher: ResponseEnricher<SalesOrderRecord, SalesOrder
       )
       const variantIdsForOrder = variantOrderBySalesOrder.get(orderId) ?? []
 
+      const explicitWarehouseId = explicitWarehouseIdsByOrder.get(orderId) ?? null
+      const isExplicitlyAssigned = explicitWarehouseId !== null
+
+      let assignedWarehouseId: string | null
+      if (isExplicitlyAssigned) {
+        assignedWarehouseId = explicitWarehouseId
+      } else if (warehouseIds.length === 1) {
+        assignedWarehouseId = warehouseIds[0]
+      } else if (warehouseIds.length === 0 && primaryWarehouseId) {
+        assignedWarehouseId = primaryWarehouseId
+      } else {
+        assignedWarehouseId = null
+      }
+
+      const assignedWarehouseName = assignedWarehouseId
+        ? (warehouseNamesById.get(assignedWarehouseId) ?? null)
+        : null
+
       return {
         ...record,
         _wms: {
-          assignedWarehouseId:
-            warehouseIds.length === 1
-              ? warehouseIds[0]
-              : warehouseIds.length === 0 && primaryWarehouseId
-                ? primaryWarehouseId
-                : null,
+          assignedWarehouseId,
+          assignedWarehouseName,
+          isExplicitlyAssigned,
           stockSummary: variantIdsForOrder.map((catalogVariantId) => ({
             catalogVariantId,
             available: formatQuantity(variantAvailability.get(catalogVariantId) ?? 0),

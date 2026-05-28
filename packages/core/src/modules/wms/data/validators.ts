@@ -326,3 +326,21 @@ export type InventoryReservationAllocateInput = z.infer<typeof inventoryReservat
 export type InventoryAdjustInput = z.infer<typeof inventoryAdjustSchema>
 export type InventoryMoveInput = z.infer<typeof inventoryMoveSchema>
 export type InventoryCycleCountInput = z.infer<typeof inventoryCycleCountSchema>
+
+export const salesOrderWarehouseAssignBodySchema = scopedSchema.extend({
+  warehouseId: uuid(),
+  notes: z.string().trim().max(500).optional(),
+  metadata: metadataSchema,
+})
+
+export const salesOrderWarehouseAssignSchema = salesOrderWarehouseAssignBodySchema.extend({
+  salesOrderId: uuid(),
+})
+
+export const salesOrderWarehouseUnassignSchema = scopedSchema.extend({
+  salesOrderId: uuid(),
+  metadata: metadataSchema,
+})
+
+export type SalesOrderWarehouseAssignInput = z.infer<typeof salesOrderWarehouseAssignSchema>
+export type SalesOrderWarehouseUnassignInput = z.infer<typeof salesOrderWarehouseUnassignSchema>

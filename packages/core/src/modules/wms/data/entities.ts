@@ -323,6 +323,34 @@ export class InventoryReservation extends WmsScopedEntity {
   status: InventoryReservationStatus = 'active'
 }
 
+@Entity({ tableName: 'wms_sales_order_warehouse_assignments' })
+@Index({ name: 'wms_sowa_org_tenant_idx', properties: ['organizationId', 'tenantId'] })
+@Index({
+  name: 'wms_sowa_warehouse_idx',
+  expression:
+    'create index "wms_sowa_warehouse_idx" on "wms_sales_order_warehouse_assignments" ("warehouse_id")',
+})
+@Index({
+  name: 'wms_sowa_org_order_unique_idx',
+  expression:
+    'create unique index "wms_sowa_org_order_unique_idx" on "wms_sales_order_warehouse_assignments" ("organization_id", "sales_order_id") where deleted_at is null',
+})
+export class SalesOrderWarehouseAssignment extends WmsScopedEntity {
+  [OptionalProps]?: WmsOptionalProps | 'assignedBy' | 'notes'
+
+  @Property({ name: 'sales_order_id', type: 'uuid' })
+  salesOrderId!: string
+
+  @ManyToOne(() => Warehouse, { fieldName: 'warehouse_id' })
+  warehouse!: Warehouse
+
+  @Property({ name: 'assigned_by', type: 'uuid', nullable: true })
+  assignedBy?: string | null
+
+  @Property({ type: 'text', nullable: true })
+  notes?: string | null
+}
+
 @Entity({ tableName: 'wms_inventory_movements' })
 @Index({ name: 'wms_inventory_movements_org_tenant_idx', properties: ['organizationId', 'tenantId'] })
 @Index({

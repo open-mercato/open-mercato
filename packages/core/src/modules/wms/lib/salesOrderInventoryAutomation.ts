@@ -1,10 +1,11 @@
 import type { EntityManager } from '@mikro-orm/postgresql'
 import type { CommandBus, CommandRuntimeContext } from '@open-mercato/shared/lib/commands'
-import { findWithDecryption } from '@open-mercato/shared/lib/encryption/find'
+import { findWithDecryption, findOneWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import type { FeatureTogglesService } from '@open-mercato/core/modules/feature_toggles/lib/feature-flag-check'
 import type { QueryEngine } from '@open-mercato/shared/lib/query/types'
 import { E } from '#generated/entities.ids.generated'
 import { InventoryBalance, InventoryReservation } from '../data/entities'
+import { loadExplicitWarehouseIdForOrder } from './salesOrderWarehouseAssignment'
 import {
   resolvePrimaryWarehouseId,
   sortWarehouseAvailabilityForReservation,
@@ -242,15 +243,26 @@ export async function reserveInventoryForConfirmedOrder(
   const reservedByVariant = buildReservedQuantityByVariant(activeReservations)
   const balances = await loadBalances(em, Array.from(requiredByVariant.keys()), scope)
   const availabilityByVariant = buildWarehouseAvailability(balances)
-  const primaryWarehouseId = await resolvePrimaryWarehouseId(em, scope)
+  const [primaryWarehouseId, assignedWarehouseId] = await Promise.all([
+    resolvePrimaryWarehouseId(em, scope),
+    loadExplicitWarehouseIdForOrder(em, orderId, scope),
+  ])
+  const preferredWarehouseId = assignedWarehouseId ?? primaryWarehouseId
 
   for (const [variantId, requiredQuantity] of requiredByVariant.entries()) {
     let remainingQuantity = requiredQuantity - (reservedByVariant.get(variantId) ?? 0)
     if (remainingQuantity <= 0) continue
 
+    let variantBuckets = availabilityByVariant.get(variantId) ?? []
+    if (assignedWarehouseId) {
+      variantBuckets = variantBuckets.filter(
+        (bucket) => bucket.warehouseId === assignedWarehouseId,
+      )
+    }
+
     const warehouseAvailability = sortWarehouseAvailabilityForReservation(
-      availabilityByVariant.get(variantId) ?? [],
-      primaryWarehouseId,
+      variantBuckets,
+      preferredWarehouseId,
     )
     for (const bucket of warehouseAvailability) {
       if (remainingQuantity <= 0) break

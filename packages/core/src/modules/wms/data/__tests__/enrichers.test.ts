@@ -7,7 +7,13 @@ jest.mock('@open-mercato/shared/lib/encryption/find', () => ({
 
 import { findOneWithDecryption, findWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import { E } from '#generated/entities.ids.generated'
-import { InventoryBalance, InventoryReservation, ProductInventoryProfile, Warehouse } from '../entities'
+import {
+  InventoryBalance,
+  InventoryReservation,
+  ProductInventoryProfile,
+  SalesOrderWarehouseAssignment,
+  Warehouse,
+} from '../entities'
 import { enrichers } from '../enrichers'
 
 const findWithDecryptionMock = jest.mocked(findWithDecryption)
@@ -138,8 +144,12 @@ describe('wms sales order enrichers', () => {
         ]
       }
 
+      if (entity === SalesOrderWarehouseAssignment) {
+        return []
+      }
+
       if (entity === Warehouse) {
-        return null
+        return [{ id: 'warehouse-1', name: 'Main DC', code: 'MAIN' } as Warehouse]
       }
 
       return []
@@ -160,6 +170,8 @@ describe('wms sales order enrichers', () => {
         orderNumber: 'SO-1',
         _wms: {
           assignedWarehouseId: 'warehouse-1',
+          assignedWarehouseName: 'Main DC',
+          isExplicitlyAssigned: false,
           stockSummary: [
             { catalogVariantId: 'variant-1', available: '6', reserved: '3' },
             { catalogVariantId: 'variant-2', available: '5', reserved: '0' },
@@ -171,6 +183,87 @@ describe('wms sales order enrichers', () => {
         },
       },
     ])
+  })
+
+  it('prefers explicit warehouse assignment over reservation-derived warehouse', async () => {
+    const queryEngine = createQueryEngine((entityId) => {
+      if (entityId === E.sales.sales_order_line) {
+        return [
+          {
+            id: 'line-1',
+            order_id: 'order-1',
+            product_variant_id: 'variant-1',
+            quantity: '2',
+            line_number: 1,
+          },
+        ]
+      }
+      return []
+    })
+
+    findWithDecryptionMock.mockImplementation(async (_em, entity) => {
+      if (entity === SalesOrderWarehouseAssignment) {
+        return [
+          {
+            id: 'assignment-1',
+            salesOrderId: 'order-1',
+            warehouse: { id: 'warehouse-explicit' },
+          } as SalesOrderWarehouseAssignment,
+        ]
+      }
+
+      if (entity === InventoryReservation) {
+        return [
+          {
+            id: 'reservation-1',
+            sourceId: 'order-1',
+            catalogVariantId: 'variant-1',
+            quantity: '2',
+            status: 'active',
+            warehouse: { id: 'warehouse-reserved' },
+          } as InventoryReservation,
+        ]
+      }
+
+      if (entity === InventoryBalance) {
+        return [
+          {
+            catalogVariantId: 'variant-1',
+            quantityOnHand: '10',
+            quantityReserved: '2',
+            quantityAllocated: '0',
+          } as InventoryBalance,
+        ]
+      }
+
+      if (entity === Warehouse) {
+        return [
+          { id: 'warehouse-explicit', name: 'East DC', code: 'EAST' } as Warehouse,
+          { id: 'warehouse-reserved', name: 'West DC', code: 'WEST' } as Warehouse,
+        ]
+      }
+
+      return []
+    })
+
+    const result = await salesOrderInventoryEnricher!.enrichMany!(
+      [{ id: 'order-1' }],
+      createContext(true, queryEngine),
+    )
+
+    expect(result[0]).toEqual({
+      id: 'order-1',
+      _wms: {
+        assignedWarehouseId: 'warehouse-explicit',
+        assignedWarehouseName: 'East DC',
+        isExplicitlyAssigned: true,
+        stockSummary: [{ catalogVariantId: 'variant-1', available: '8', reserved: '2' }],
+        reservationSummary: {
+          status: 'fully_reserved',
+          reservationIds: ['reservation-1'],
+        },
+      },
+    })
   })
 
   it('falls back assignedWarehouseId to primary warehouse when no active reservations exist', async () => {
@@ -208,6 +301,33 @@ describe('wms sales order enrichers', () => {
       return []
     })
 
+    findWithDecryptionMock.mockImplementation(async (_em, entity) => {
+      if (entity === SalesOrderWarehouseAssignment) {
+        return []
+      }
+
+      if (entity === InventoryReservation) {
+        return []
+      }
+
+      if (entity === InventoryBalance) {
+        return [
+          {
+            catalogVariantId: 'variant-1',
+            quantityOnHand: '10',
+            quantityReserved: '0',
+            quantityAllocated: '0',
+          } as InventoryBalance,
+        ]
+      }
+
+      if (entity === Warehouse) {
+        return [{ id: 'warehouse-primary', name: 'Primary DC' } as Warehouse]
+      }
+
+      return []
+    })
+
     findOneWithDecryptionMock.mockResolvedValue({ id: 'warehouse-primary' } as Warehouse)
 
     const result = await salesOrderInventoryEnricher!.enrichMany!(
@@ -222,6 +342,8 @@ describe('wms sales order enrichers', () => {
         orderNumber: 'SO-1',
         _wms: {
           assignedWarehouseId: 'warehouse-primary',
+          assignedWarehouseName: 'Primary DC',
+          isExplicitlyAssigned: false,
           stockSummary: [{ catalogVariantId: 'variant-1', available: '10', reserved: '0' }],
           reservationSummary: {
             status: 'unreserved',

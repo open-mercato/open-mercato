@@ -1,5 +1,7 @@
 {
   "wms.audit.inventory.receive": "Przyjmij zapas",
+  "wms.audit.salesOrder.assignWarehouse": "Przypisz magazyn do zamówienia",
+  "wms.audit.salesOrder.unassignWarehouse": "Usuń przypisanie magazynu do zamówienia",
   "wms.backend.config.actions.addLocation": "Dodaj lokalizację",
   "wms.backend.config.actions.addProfile": "Dodaj profil",
   "wms.backend.config.actions.addWarehouse": "Dodaj magazyn",
@@ -272,10 +274,13 @@
   "wms.widgets.sales.orderItems.stockColumn.reserved": "zarezerwowane",
   "wms.widgets.sales.stockContext.actions.inventory": "Otworz konsole zapasow",
   "wms.widgets.sales.stockContext.actions.reservations": "Otworz rezerwacje",
+  "wms.widgets.sales.stockContext.assignError": "Nie udało się zaktualizować przypisania magazynu.",
+  "wms.widgets.sales.stockContext.assignSuccess": "Przypisanie magazynu zostało zapisane.",
   "wms.widgets.sales.stockContext.assignedWarehouse": "Przypisany magazyn",
   "wms.widgets.sales.stockContext.available": "Dostepne",
   "wms.widgets.sales.stockContext.description": "Biezace podsumowanie rezerwacji i dostepnosci dla tego zamowienia sprzedazy.",
   "wms.widgets.sales.stockContext.empty": "Brak podsumowania zapasu WMS dla tego zamowienia.",
+  "wms.widgets.sales.stockContext.explicitAssignmentHint": "Jawne przypisanie ma pierwszeństwo przed magazynem wyliczonym z rezerwacji.",
   "wms.widgets.sales.stockContext.linesTitle": "Dostepnosc wariantow",
   "wms.widgets.sales.stockContext.reservationCount": "Rekordy rezerwacji",
   "wms.widgets.sales.stockContext.reserved": "Zarezerwowane",
@@ -283,5 +288,7 @@
   "wms.widgets.sales.stockContext.status.partially_reserved": "Czesciowo zarezerwowane",
   "wms.widgets.sales.stockContext.status.unreserved": "Bez rezerwacji",
   "wms.widgets.sales.stockContext.title": "Kontekst zapasu WMS",
-  "wms.widgets.sales.stockContext.unassigned": "Brak przypisania"
+  "wms.widgets.sales.stockContext.unassignSuccess": "Przypisanie magazynu zostało usunięte.",
+  "wms.widgets.sales.stockContext.unassigned": "Brak przypisania",
+  "wms.widgets.sales.stockContext.warehousePlaceholder": "Wybierz magazyn"
 }

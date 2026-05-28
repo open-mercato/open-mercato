@@ -1,13 +1,23 @@
 'use client'
 
+import * as React from 'react'
 import Link from 'next/link'
+import { useQueryClient } from '@tanstack/react-query'
 import { Button } from '@open-mercato/ui/primitives/button'
 import {
   StatusBadge,
   type StatusMap,
 } from '@open-mercato/ui/primitives/status-badge'
+import { ComboboxInput } from '@open-mercato/ui/backend/inputs/ComboboxInput'
+import { flash } from '@open-mercato/ui/backend/FlashMessages'
+import { useGuardedMutation } from '@open-mercato/ui/backend/injection/useGuardedMutation'
+import { apiCall } from '@open-mercato/ui/backend/utils/apiCall'
+import { raiseCrudError } from '@open-mercato/ui/backend/utils/serverErrors'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
+import { useOrganizationScopeDetail } from '@open-mercato/shared/lib/frontend/useOrganizationScope'
+import { hasFeature } from '@open-mercato/shared/security/features'
 import type { InjectionWidgetComponentProps } from '@open-mercato/shared/modules/widgets/injection'
+import { loadWarehouseOptions } from '../../../components/backend/wmsLookupLoaders'
 
 type ReservationStatus =
   | 'unreserved'
@@ -16,6 +26,8 @@ type ReservationStatus =
 
 type SalesOrderWmsPayload = {
   assignedWarehouseId?: string | null
+  assignedWarehouseName?: string | null
+  isExplicitlyAssigned?: boolean
   stockSummary?: Array<{
     catalogVariantId?: string
     available?: string
@@ -28,6 +40,7 @@ type SalesOrderWmsPayload = {
 }
 
 export type SalesOrderRecord = Record<string, unknown> & {
+  id?: string
   _wms?: SalesOrderWmsPayload
 }
 
@@ -47,12 +60,136 @@ function formatQuantity(value: unknown): string {
   return '0'
 }
 
+function resolveOrderId(data: SalesOrderRecord | undefined): string | null {
+  return typeof data?.id === 'string' && data.id.length > 0 ? data.id : null
+}
+
 export default function SalesOrderStockContextWidget(
   props: InjectionWidgetComponentProps<unknown, SalesOrderRecord>,
 ) {
   const { data } = props
   const t = useT()
+  const queryClient = useQueryClient()
+  const { organizationId, tenantId } = useOrganizationScopeDetail()
+  const orderId = resolveOrderId(data)
   const wms = data?._wms
+  const [grantedFeatures, setGrantedFeatures] = React.useState<string[]>([])
+  const [selectedWarehouseId, setSelectedWarehouseId] = React.useState<string | null>(null)
+  const [saving, setSaving] = React.useState(false)
+
+  const { runMutation, retryLastMutation } = useGuardedMutation({
+    contextId: 'wms-sales-order-warehouse-assignment',
+  })
+  const mutationContext = React.useMemo(
+    () => ({ retryLastMutation }),
+    [retryLastMutation],
+  )
+
+  React.useEffect(() => {
+    let cancelled = false
+    async function loadFeatures() {
+      try {
+        const call = await apiCall<{ granted?: string[] }>('/api/auth/feature-check', {
+          method: 'POST',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({ features: ['wms.manage_reservations'] }),
+        })
+        if (!cancelled) {
+          setGrantedFeatures(Array.isArray(call.result?.granted) ? call.result.granted : [])
+        }
+      } catch {
+        if (!cancelled) setGrantedFeatures([])
+      }
+    }
+    void loadFeatures()
+    return () => {
+      cancelled = true
+    }
+  }, [organizationId, tenantId])
+
+  React.useEffect(() => {
+    if (wms?.isExplicitlyAssigned && wms.assignedWarehouseId) {
+      setSelectedWarehouseId(wms.assignedWarehouseId)
+      return
+    }
+    setSelectedWarehouseId(null)
+  }, [wms?.assignedWarehouseId, wms?.isExplicitlyAssigned])
+
+  const canManageAssignment = hasFeature(grantedFeatures, 'wms.manage_reservations')
+  const assignedLabel =
+    wms?.assignedWarehouseName ||
+    (wms?.isExplicitlyAssigned ? wms.assignedWarehouseId : null) ||
+    t('wms.widgets.sales.stockContext.unassigned', 'Not assigned')
+
+  const persistAssignment = React.useCallback(
+    async (warehouseId: string | null) => {
+      if (!orderId || !organizationId || !tenantId) return
+      setSaving(true)
+      try {
+        const mutationPayload = {
+          organizationId,
+          tenantId,
+          warehouseId,
+        }
+        await runMutation({
+          operation: async () => {
+            if (warehouseId) {
+              const response = await apiCall<{ ok?: boolean }>(
+                `/api/wms/sales-orders/${orderId}/warehouse-assignment`,
+                {
+                  method: 'PUT',
+                  headers: { 'content-type': 'application/json' },
+                  body: JSON.stringify(mutationPayload),
+                },
+              )
+              if (!response.ok) await raiseCrudError(response.response)
+            } else {
+              const response = await apiCall<{ ok?: boolean }>(
+                `/api/wms/sales-orders/${orderId}/warehouse-assignment`,
+                {
+                  method: 'DELETE',
+                  headers: { 'content-type': 'application/json' },
+                  body: JSON.stringify({
+                    organizationId,
+                    tenantId,
+                  }),
+                },
+              )
+              if (!response.ok) await raiseCrudError(response.response)
+            }
+          },
+          context: mutationContext,
+          mutationPayload,
+        })
+
+        await queryClient.invalidateQueries()
+        flash(
+          warehouseId
+            ? t(
+                'wms.widgets.sales.stockContext.assignSuccess',
+                'Warehouse assignment saved.',
+              )
+            : t(
+                'wms.widgets.sales.stockContext.unassignSuccess',
+                'Warehouse assignment cleared.',
+              ),
+          'success',
+        )
+      } catch {
+        flash(
+          t(
+            'wms.widgets.sales.stockContext.assignError',
+            'Could not update warehouse assignment.',
+          ),
+          'error',
+        )
+      } finally {
+        setSaving(false)
+      }
+    },
+    [mutationContext, orderId, organizationId, queryClient, runMutation, t, tenantId],
+  )
+
   if (!wms) return null
 
   const reservationStatus =
@@ -93,20 +230,48 @@ export default function SalesOrderStockContextWidget(
       </div>
 
       <dl className="grid gap-3 text-sm sm:grid-cols-2">
-        <div className="space-y-1">
+        <div className="space-y-2 sm:col-span-2">
           <dt className="text-xs text-muted-foreground">
             {t(
               'wms.widgets.sales.stockContext.assignedWarehouse',
               'Assigned warehouse',
             )}
           </dt>
-          <dd className="font-medium">
-            {wms.assignedWarehouseId ||
-              t(
-                'wms.widgets.sales.stockContext.unassigned',
-                'Not assigned',
-              )}
+          <dd>
+            {canManageAssignment && orderId ? (
+              <ComboboxInput
+                value={selectedWarehouseId ?? ''}
+                onChange={(value) => {
+                  const nextValue = value.trim().length > 0 ? value : null
+                  setSelectedWarehouseId(nextValue)
+                  void persistAssignment(nextValue)
+                }}
+                loadSuggestions={async (query) => {
+                  const options = await loadWarehouseOptions(query)
+                  return options.map((option) => ({
+                    value: option.value,
+                    label: option.label,
+                  }))
+                }}
+                placeholder={t(
+                  'wms.widgets.sales.stockContext.warehousePlaceholder',
+                  'Select a warehouse',
+                )}
+                allowCustomValues={false}
+                disabled={saving}
+              />
+            ) : (
+              <span className="font-medium">{assignedLabel}</span>
+            )}
           </dd>
+          {wms.isExplicitlyAssigned ? (
+            <p className="text-xs text-muted-foreground">
+              {t(
+                'wms.widgets.sales.stockContext.explicitAssignmentHint',
+                'Explicit assignment overrides reservation-derived warehouse context.',
+              )}
+            </p>
+          ) : null}
         </div>
         <div className="space-y-1">
           <dt className="text-xs text-muted-foreground">

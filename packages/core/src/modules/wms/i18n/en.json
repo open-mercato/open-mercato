@@ -1,5 +1,7 @@
 {
   "wms.audit.inventory.receive": "Receive inventory",
+  "wms.audit.salesOrder.assignWarehouse": "Assign warehouse to order",
+  "wms.audit.salesOrder.unassignWarehouse": "Remove warehouse assignment from order",
   "wms.backend.config.actions.addLocation": "Add location",
   "wms.backend.config.actions.addProfile": "Add profile",
   "wms.backend.config.actions.addWarehouse": "Add warehouse",
@@ -272,10 +274,13 @@
   "wms.widgets.sales.orderItems.stockColumn.reserved": "reserved",
   "wms.widgets.sales.stockContext.actions.inventory": "Open inventory console",
   "wms.widgets.sales.stockContext.actions.reservations": "Open reservations",
+  "wms.widgets.sales.stockContext.assignError": "Could not update warehouse assignment.",
+  "wms.widgets.sales.stockContext.assignSuccess": "Warehouse assignment saved.",
   "wms.widgets.sales.stockContext.assignedWarehouse": "Assigned warehouse",
   "wms.widgets.sales.stockContext.available": "Available",
   "wms.widgets.sales.stockContext.description": "Live reservation and availability summary for this sales order.",
   "wms.widgets.sales.stockContext.empty": "No WMS stock summary is available for this order yet.",
+  "wms.widgets.sales.stockContext.explicitAssignmentHint": "Explicit assignment overrides reservation-derived warehouse context.",
   "wms.widgets.sales.stockContext.linesTitle": "Variant availability",
   "wms.widgets.sales.stockContext.reservationCount": "Reservation records",
   "wms.widgets.sales.stockContext.reserved": "Reserved",
@@ -283,5 +288,7 @@
   "wms.widgets.sales.stockContext.status.partially_reserved": "Partially reserved",
   "wms.widgets.sales.stockContext.status.unreserved": "Unreserved",
   "wms.widgets.sales.stockContext.title": "WMS stock context",
-  "wms.widgets.sales.stockContext.unassigned": "Not assigned"
+  "wms.widgets.sales.stockContext.unassignSuccess": "Warehouse assignment cleared.",
+  "wms.widgets.sales.stockContext.unassigned": "Not assigned",
+  "wms.widgets.sales.stockContext.warehousePlaceholder": "Select a warehouse"
 }

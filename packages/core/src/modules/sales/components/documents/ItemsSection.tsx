@@ -803,13 +803,14 @@ export function SalesDocumentItemsSection({
                         item as unknown as Record<string, unknown>,
                         col.accessorKey,
                       );
+                      const Cell = col.cell;
                       return (
                         <td
                           key={col.id}
                           className="px-3 py-3"
                           onClick={(e) => e.stopPropagation()}
                         >
-                          {col.cell ? col.cell({ getValue: () => colValue }) : null}
+                          {Cell ? <Cell getValue={() => colValue} /> : null}
                         </td>
                       );
                     })}
