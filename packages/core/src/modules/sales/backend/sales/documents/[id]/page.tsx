@@ -29,6 +29,7 @@ import { SendObjectMessageDialog } from '@open-mercato/ui/backend/messages'
 import Link from 'next/link'
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
 import { apiCall, apiCallOrThrow, readApiResultOrThrow } from '@open-mercato/ui/backend/utils/apiCall'
+import { buildOptimisticLockHeader, extractOptimisticLockConflict } from '@open-mercato/ui/backend/utils/optimisticLock'
 import { collectCustomFieldValues } from '@open-mercato/ui/backend/utils/customFieldValues'
 import { mapCrudServerErrorToFormErrors } from '@open-mercato/ui/backend/utils/serverErrors'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
@@ -3642,7 +3643,10 @@ export default function SalesDocumentDetailPage({
           '/api/sales/quotes/convert',
           {
             method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
+            headers: {
+              'Content-Type': 'application/json',
+              ...buildOptimisticLockHeader(record.updatedAt),
+            },
             body: JSON.stringify({ quoteId: record.id }),
           },
           { errorMessage: t('sales.documents.detail.convertError', 'Failed to convert quote.') },
@@ -3653,7 +3657,12 @@ export default function SalesDocumentDetailPage({
       }, { quoteId: record.id })
     } catch (err) {
       console.error('sales.documents.convert', err)
-      flash(t('sales.documents.detail.convertError', 'Failed to convert quote.'), 'error')
+      if (extractOptimisticLockConflict(err)) {
+        flash(t('ui.forms.flash.recordModified', 'This record was modified by someone else. Refresh and try again.'), 'error')
+        setReloadKey((prev) => prev + 1)
+      } else {
+        flash(t('sales.documents.detail.convertError', 'Failed to convert quote.'), 'error')
+      }
     } finally {
       setConverting(false)
     }

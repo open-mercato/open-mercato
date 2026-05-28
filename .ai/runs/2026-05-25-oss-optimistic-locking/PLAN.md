@@ -68,7 +68,7 @@
 | 17 | 17.4 | Wire return create command + quote convert_to_order (#2114 race) | done | d6448082e |
 | 17 | 17.5 | Sales command-level optimistic-lock unit + command tests | done | d6448082e |
 | 17 | 17.6 | Decision: payments/shipments already row-level-guarded by makeCrudRoute (flat mapInput → candidateId set); a document-aggregate check would conflict with the single header, so no command check there — documented in spec + follow-up | done | d6448082e |
-| 18 | 18.1 | Client: sales document sub-resource sections send `buildOptimisticLockHeader(document.updatedAt)` + 409 conflict flash/refresh + tests | todo | — |
+| 18 | 18.1 | Client: wire quote convert action (`handleConvert`) to send `buildOptimisticLockHeader(record.updatedAt)` + 409 conflict flash + reload. Document-section (lines/adjustments/returns) header wiring deferred to the follow-up issue (browser-QA-gated; the totals-refresh flow already re-fetches `record.updatedAt`, so it is safe — see 20.1) | done | fbfd86f27 |
 | 19 | 19.1 | Update coverage-completion spec (Phase 4) + main optimistic-locking spec (command-level section) | todo | — |
 | 19 | 19.2 | Update `concurrency-locking.mdx` docs + root AGENTS.md command-level contract | todo | — |
 | 20 | 20.1 | File follow-up GitHub issue (extend command-level lock to other modules) + CHANGELOG entry | todo | — |
