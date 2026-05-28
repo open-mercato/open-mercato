@@ -16,8 +16,8 @@
 | 1 | 1.2 | Unit tests: conversation-store 200/404/503 paths | done | abde12fbb |
 | 2 | 2.1 | Scope AiChatSessions localStorage key by tenant+org + scope-change reset | done | 636b37d0e |
 | 2 | 2.2 | Unit tests: scoped key + scope-change reset | done | de1746a97 |
-| 3 | 3.1 | Self-healing 404 in useAiChat hydrateFromServer + onConversationNotFound | done | pending |
-| 3 | 3.2 | Forward onConversationNotFound through AiChat props | todo | — |
+| 3 | 3.1 | Self-healing 404 in useAiChat hydrateFromServer + onConversationNotFound | done | 783b2ee85 |
+| 3 | 3.2 | Forward onConversationNotFound through AiChat props | done | pending |
 | 3 | 3.3 | Wire onConversationNotFound to sessions.closeSession in AiDock | todo | — |
 | 3 | 3.4 | Unit tests: 404 self-healing + AiDock wiring | todo | — |
 
