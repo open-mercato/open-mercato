@@ -32,7 +32,7 @@ import {
 import { parseModuleInstallArgs } from './lib/module-install-args'
 import { resolveNextBuildIdCandidate } from './lib/next-build-id'
 import { acquireServerStartLock } from './lib/server-start-lock'
-import { createDevEnvReloader, watchDevEnvFiles } from './lib/dev-env-reload'
+import { createDevEnvReloader, watchDevEnvFiles, watchDevRuntimeFiles } from './lib/dev-env-reload'
 // Lazy-imported to avoid pulling in `testcontainers` (devDependency) at startup
 const lazyIntegration = () => import('./lib/testing/integration')
 import type { ChildProcess } from 'node:child_process'
@@ -1690,7 +1690,7 @@ export async function run(argv = process.argv) {
           let processes: ChildProcess[] = []
           let didRetryCorruptedTurbopackCache = false
           let stopping = false
-          let envChangePromiseResolve: ((result: DevServerRestartResult) => void) | null = null
+          let devRestartPromiseResolve: ((result: DevServerRestartResult) => void) | null = null
           let activeLazySupervisor: ReturnType<typeof startLazyWorkerSupervisor> | null = null
           let activeLazySchedulerSupervisor: ReturnType<typeof startLazySchedulerSupervisor> | null = null
           let activeGenerateWatcher: GenerateWatcherHandle | null = null
@@ -1781,16 +1781,23 @@ export async function run(argv = process.argv) {
           const mercatoBin = resolveInstalledBinary(nodeModulesBases, '@open-mercato/cli/bin/mercato')
 
           const stopEnvWatcher = watchDevEnvFiles(appDir, (filePath) => {
-            envChangePromiseResolve?.({
+            devRestartPromiseResolve?.({
               label: 'Environment file change',
               restart: true,
               filePath,
             })
           })
+          const stopRuntimeWatcher = watchDevRuntimeFiles(appDir, (filePath) => {
+            devRestartPromiseResolve?.({
+              label: 'Runtime graph change',
+              restart: true,
+              filePath,
+            })
+          })
 
-          const waitForEnvChange = (): Promise<DevServerRestartResult> =>
+          const waitForDevRestart = (): Promise<DevServerRestartResult> =>
             new Promise((resolve) => {
-              envChangePromiseResolve = resolve
+              devRestartPromiseResolve = resolve
             })
 
           const startNextDev = (runtimeEnv: NodeJS.ProcessEnv): Promise<ManagedProcessExitResult> =>
@@ -1846,7 +1853,7 @@ export async function run(argv = process.argv) {
               const schedulerCommand = lookupModuleCommand(getCliModules(), 'scheduler', 'start')
               const managedExitPromises: Promise<DevServerExitResult>[] = [
                 startNextDev(runtimeEnv),
-                waitForEnvChange(),
+                waitForDevRestart(),
               ]
 
               // Start workers if enabled
@@ -1928,10 +1935,10 @@ export async function run(argv = process.argv) {
 
               const firstExit = await Promise.race(managedExitPromises)
               await cleanupAndWait()
-              envChangePromiseResolve = null
+              devRestartPromiseResolve = null
 
               if (isDevServerRestartResult(firstExit)) {
-                console.log(`[server] Detected environment file change (${path.basename(firstExit.filePath)}). Restarting app runtime...`)
+                console.log(`[server] Detected ${firstExit.label.toLowerCase()} (${path.basename(firstExit.filePath)}). Restarting app runtime...`)
                 continue
               }
 
@@ -1943,6 +1950,7 @@ export async function run(argv = process.argv) {
             }
           } finally {
             stopEnvWatcher()
+            stopRuntimeWatcher()
           }
         },
       },
