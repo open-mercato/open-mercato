@@ -925,10 +925,11 @@ export function useAiChat(input: UseAiChatInput): UseAiChatResult {
     const localCandidate = readPersistedSession(agent, persistKey)
 
     async function hydrateFromServer(): Promise<void> {
-      const transcript = await loadAiServerTranscript(effectiveConversationId, { limit: 100 })
+      const transcriptResult = await loadAiServerTranscript(effectiveConversationId, { limit: 100 })
       if (cancelled || latestStatusRef.current !== 'idle') return
 
-      if (transcript) {
+      if (transcriptResult.ok) {
+        const transcript = transcriptResult.data
         if (typeof transcript.conversation.isOwner === 'boolean') {
           setIsOwner(transcript.conversation.isOwner)
         }
@@ -943,7 +944,7 @@ export function useAiChat(input: UseAiChatInput): UseAiChatResult {
       }
 
       if (!localCandidate || localCandidate.messages.length === 0) {
-        if (!transcript) {
+        if (!transcriptResult.ok) {
           void createAiServerConversation({
             agentId: agent,
             conversationId: effectiveConversationId,

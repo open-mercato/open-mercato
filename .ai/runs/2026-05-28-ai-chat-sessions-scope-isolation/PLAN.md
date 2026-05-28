@@ -12,9 +12,8 @@
 | Phase | Step | Title | Status | Commit |
 |-------|------|-------|--------|--------|
 | 0 | 0.1 | Seed run folder (PLAN/HANDOFF/NOTIFY) | done | a762bca68 |
-| 1 | 1.1 | Expose 404 vs network-error from loadAiServerTranscript | todo | — |
-| 1 | 1.2 | Update useAiChat caller to destructure new LoadTranscriptResult | todo | — |
-| 1 | 1.3 | Unit tests: conversation-store 200/404/503 paths | todo | — |
+| 1 | 1.1 | Expose 404 vs network-error from loadAiServerTranscript + update caller | done | 34c993095 |
+| 1 | 1.2 | Unit tests: conversation-store 200/404/503 paths | todo | — |
 | 2 | 2.1 | Scope AiChatSessions localStorage key by tenant+org + scope-change reset | todo | — |
 | 2 | 2.2 | Unit tests: scoped key + scope-change reset | todo | — |
 | 3 | 3.1 | Self-healing 404 in useAiChat hydrateFromServer + onConversationNotFound | todo | — |
@@ -62,16 +61,12 @@ None (no `--skill-url` provided).
 
 ### Phase 1 — Distinguish 404 from network errors
 
-**Step 1.1** — In `packages/ui/src/ai/conversation-store.ts`:
+**Step 1.1** — In `packages/ui/src/ai/conversation-store.ts` and `packages/ui/src/ai/useAiChat.ts`:
 - Add exported `LoadTranscriptResult` discriminated union type.
 - Update `loadAiServerTranscript` to return `{ ok: true, data }` | `{ ok: false, notFound: true }` | `{ ok: false, notFound: false }`.
-- Internal `requestJson` already exposes `status`, so the change is a single transformation at the return.
+- Update the single call site in `hydrateFromServer` to destructure the new shape. Behavior remains identical for now (both `notFound: true` and `notFound: false` map to the existing "no transcript" branch). The split-handling lands in Phase 3.
 
-**Step 1.2** — In `packages/ui/src/ai/useAiChat.ts`:
-- Update the single call site in `hydrateFromServer` to destructure the new shape.
-- Behavior remains identical for now (we treat both `notFound: true` and `notFound: false` as "no transcript" in this step). The split-handling lands in Step 3.1.
-
-**Step 1.3** — Add unit tests in `packages/ui/src/ai/__tests__/conversation-store.test.ts`:
+**Step 1.2** — Add unit tests in `packages/ui/src/ai/__tests__/conversation-store.test.ts`:
 - Mock fetch returning 200 → `{ ok: true, data: ... }`.
 - Mock fetch returning 404 → `{ ok: false, notFound: true }`.
 - Mock fetch returning 503 → `{ ok: false, notFound: false }`.
