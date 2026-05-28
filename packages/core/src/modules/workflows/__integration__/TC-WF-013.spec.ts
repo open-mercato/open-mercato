@@ -16,8 +16,20 @@ import {
  * delayed timer job once its availableAt is reached, calls `fireTimer`, and
  * the workflow transitions through to END.
  */
+
+// The standalone integration runtime (snapshot.yml) deliberately starts the
+// app with AUTO_SPAWN_WORKERS=false, so there is no `workflow-activities`
+// worker to drain the delayed timer job — the instance stays PAUSED forever
+// and this spec can only ever time out there. The timer-firing path is fully
+// exercised by the monorepo ephemeral runner (AUTO_SPAWN_WORKERS=true).
+const IS_STANDALONE_APP = Boolean(process.env.OM_TEST_APP_ROOT?.trim())
+
 test.describe('TC-WF-013: WAIT_FOR_TIMER step fires and completes', () => {
   test('workflow paused at WAIT_FOR_TIMER resumes and completes once the timer fires', async ({ request }) => {
+    test.skip(
+      IS_STANDALONE_APP,
+      'WAIT_FOR_TIMER resume needs the workflow-activities worker; standalone runs with AUTO_SPAWN_WORKERS=false',
+    )
     // BullMQ delayed-job pickup + worker drain under heavy CI parallel load can
     // run well past the 1s timer duration. The lazy-worker supervisor polls the
     // queue every 1s and spawns the workflow-activities child process on first
