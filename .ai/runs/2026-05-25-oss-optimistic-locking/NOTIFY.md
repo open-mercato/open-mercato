@@ -72,3 +72,18 @@ Append-only event log. Newest at the bottom.
 - PR body flipped: `Status: in-progress` → `Status: complete`, Phases 7–11 added to "What Changed", decision matrix markers updated to reflect all 3 reference entities landed, Tests section updated.
 - Labels kept: `feature`, `review`, `needs-qa`. `in-progress` will be released as the next action. PR stays in `review` pipeline state.
 - Resume run is finalized. PR #2055 awaits human review.
+
+## 2026-05-28T15:30Z — auto-continue-pr-loop resume (QA #2055 fix cycle)
+- Resumed by: @pkarw
+- Resume point: appended Phase 15 (QA-fix increment) on top of the prior `complete` state (PR head `99c9f851c`).
+- Trigger: `/auto-continue-pr-loop 2055 ... crm and sales fully + safely supported for OSS locks on delete and update ... fix alinadivante reported issues`.
+- @alinadivante QA verdict (2026-05-27T22:11): flash showed raw `record_modified`; same-user-two-tabs company silently overwrote; people-v2 / deals / catalog products / sales.orders / sales channel delete unprotected.
+- Diagnosis: flash already fixed (`f79cc3e7c`); CrudForm update paths already wired (`6c5956367`). Remaining real gaps = **custom non-CrudForm handlers** that omit the lock header on update/delete. Same-user-two-tabs = enterprise pessimistic lock artifact; OSS version-compare wiring (post-her-test) fixes it.
+
+## 2026-05-28T16:05Z — checkpoint 4 (Phase 15: QA #2055 CRM + sales update/delete)
+- Steps verified: 15.1..15.5 (SHA range 8c35339d5..5c9ceeeb0).
+- Targeted validation: build:packages ✓, generate ✓, i18n:check-sync ✓ (4 locales, no new keys), core touched unit tests 9/9 ✓, root-tsc 6.0.3 typecheck ✓.
+- Known env-only failures (pre-existing, not this change): workspace tsc 5.9.3 `ignoreDeprecations` TS5103; lint eslint-plugin-react `testReactVersion` crash. CI runs both clean.
+- UI/Playwright: skipped locally (no Postgres/Redis/.env). DELETE enforcement covered by TC-LOCK-OSS-004 in CI ephemeral-integration; server delete-guard path is entity-agnostic (`factory.ts` runMutationGuards op:'delete').
+- Deferred (documented in coverage-completion spec): sales.order document command endpoints (Phase 4) + nested panels (Phase 3).
+- Code review: focused self-review + background code-review subagent on diff `99c9f851c..HEAD`.
