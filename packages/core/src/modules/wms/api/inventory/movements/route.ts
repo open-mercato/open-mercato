@@ -60,6 +60,7 @@ const crud = makeCrudRoute({
       const filters: Record<string, unknown> = {}
       if (query.warehouseId) filters.warehouse_id = { $eq: query.warehouseId }
       if (query.catalogVariantId) filters.catalog_variant_id = { $eq: query.catalogVariantId }
+      if (query.lotId) filters.lot_id = { $eq: query.lotId }
       if (query.referenceType) filters.reference_type = { $eq: query.referenceType }
       if (query.referenceId) filters.reference_id = { $eq: query.referenceId }
       if (query.type) filters.type = { $eq: query.type }

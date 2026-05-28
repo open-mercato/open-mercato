@@ -35,15 +35,18 @@ import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { buildInventoryMutationReferenceId } from '../../lib/inventoryMutationUi'
 import {
   BalanceLookupError,
+  ensureLotIdForInventoryMutation,
   fetchBalanceOnHand,
   fetchVariantReorderPoint,
+  findLotIdByNumber,
+  InventoryLotMutationError,
   loadCatalogVariantOptions,
   loadLocationOptions,
-  loadLotOptions,
+  loadLotNumberOptions,
   loadWarehouseOptions,
   resolveCatalogVariantLabel,
   resolveLocationLabel,
-  resolveLotLabel,
+  resolveLotNumberFromId,
   resolveWarehouseLabel,
 } from './inventoryMutationLoaders'
 import type { useWmsInventoryMutationAccess } from './useWmsInventoryMutationAccess'
@@ -56,7 +59,7 @@ type AdjustFormValues = {
   catalogVariantId: string
   warehouseId: string
   locationId: string
-  lotId: string
+  lotNumber: string
   delta: number
   reasonCode: AdjustReasonCode | ''
   notes: string
@@ -67,13 +70,17 @@ type AdjustInventoryDialogProps = {
   open: boolean
   onOpenChange: (open: boolean) => void
   access: ReturnType<typeof useWmsInventoryMutationAccess>
+  initialCatalogVariantId?: string
+  initialWarehouseId?: string
+  initialLocationId?: string
+  initialLotId?: string
 }
 
 const EMPTY_FORM: AdjustFormValues = {
   catalogVariantId: '',
   warehouseId: '',
   locationId: '',
-  lotId: '',
+  lotNumber: '',
   delta: -1,
   reasonCode: '',
   notes: '',
@@ -91,6 +98,10 @@ export function AdjustInventoryDialog({
   open,
   onOpenChange,
   access,
+  initialCatalogVariantId,
+  initialWarehouseId,
+  initialLocationId,
+  initialLotId,
 }: AdjustInventoryDialogProps) {
   const t = useT()
   const queryClient = useQueryClient()
@@ -110,7 +121,7 @@ export function AdjustInventoryDialog({
         catalogVariantId: z.string().uuid(),
         warehouseId: z.string().uuid(),
         locationId: z.string().uuid(),
-        lotId: z.string().uuid().optional().or(z.literal('')),
+        lotNumber: z.string().trim().max(120).optional(),
         delta: z.coerce.number().refine((value) => value !== 0, {
           message: t(
             'wms.backend.inventory.adjust.errors.deltaZero',
@@ -194,6 +205,38 @@ export function AdjustInventoryDialog({
 
   React.useEffect(() => {
     if (!open) return
+    const catalogVariantId = initialCatalogVariantId?.trim()
+    const warehouseId = initialWarehouseId?.trim()
+    const locationId = initialLocationId?.trim()
+    const lotId = initialLotId?.trim()
+    if (!catalogVariantId && !warehouseId && !locationId && !lotId) return
+    setForm((current) => ({
+      ...current,
+      ...(catalogVariantId ? { catalogVariantId } : {}),
+      ...(warehouseId ? { warehouseId, locationId: locationId ?? '' } : {}),
+      ...(locationId ? { locationId } : {}),
+    }))
+    if (!lotId) return
+    let cancelled = false
+    void resolveLotNumberFromId(lotId).then((lotNumber) => {
+      if (cancelled || !lotNumber) return
+      setForm((current) => ({ ...current, lotNumber }))
+      registerOptionLabels([{ value: lotNumber, label: lotNumber }])
+    })
+    return () => {
+      cancelled = true
+    }
+  }, [
+    initialCatalogVariantId,
+    initialLocationId,
+    initialLotId,
+    initialWarehouseId,
+    open,
+    registerOptionLabels,
+  ])
+
+  React.useEffect(() => {
+    if (!open) return
     let cancelled = false
 
     const ensureLabel = async (value: string, resolve: (id: string) => Promise<string | null>) => {
@@ -208,7 +251,6 @@ export function AdjustInventoryDialog({
       ensureLabel(form.catalogVariantId, resolveCatalogVariantLabel),
       ensureLabel(form.warehouseId, resolveWarehouseLabel),
       ensureLabel(form.locationId, resolveLocationLabel),
-      ensureLabel(form.lotId, resolveLotLabel),
     ])
 
     return () => {
@@ -217,7 +259,6 @@ export function AdjustInventoryDialog({
   }, [
     form.catalogVariantId,
     form.locationId,
-    form.lotId,
     form.warehouseId,
     open,
     registerOptionLabels,
@@ -250,6 +291,7 @@ export function AdjustInventoryDialog({
     const warehouseId = form.warehouseId.trim()
     const locationId = form.locationId.trim()
     const catalogVariantId = form.catalogVariantId.trim()
+    const lotNumber = form.lotNumber.trim()
     if (!warehouseId || !locationId || !catalogVariantId) {
       setOnHand(null)
       setPreviewError(null)
@@ -259,19 +301,23 @@ export function AdjustInventoryDialog({
     let cancelled = false
     setLoadingPreview(true)
     setPreviewError(null)
-    void fetchBalanceOnHand({
-      warehouseId,
-      locationId,
-      catalogVariantId,
-      lotId: form.lotId.trim() || null,
-    })
-      .then((value) => {
+    void (async () => {
+      try {
+        const lotId = lotNumber
+          ? await findLotIdByNumber(catalogVariantId, lotNumber)
+          : null
+        if (cancelled) return
+        const value = await fetchBalanceOnHand({
+          warehouseId,
+          locationId,
+          catalogVariantId,
+          lotId,
+        })
         if (!cancelled) {
           setOnHand(value)
           setPreviewError(null)
         }
-      })
-      .catch((error: unknown) => {
+      } catch (error: unknown) {
         if (cancelled) return
         setOnHand(null)
         if (error instanceof BalanceLookupError) {
@@ -290,19 +336,20 @@ export function AdjustInventoryDialog({
             'Failed to load balance preview.',
           ),
         )
-      })
-      .finally(() => {
+      } finally {
         if (!cancelled) setLoadingPreview(false)
-      })
+      }
+    })()
     return () => {
       cancelled = true
     }
   }, [
     form.catalogVariantId,
     form.locationId,
-    form.lotId,
+    form.lotNumber,
     form.warehouseId,
     open,
+    t,
   ])
 
   const projectedOnHand =
@@ -315,7 +362,7 @@ export function AdjustInventoryDialog({
       event?.preventDefault()
       const parsed = adjustFormSchema.safeParse({
         ...form,
-        lotId: form.lotId.trim() || undefined,
+        lotNumber: form.lotNumber.trim() || undefined,
         notes: form.notes.trim() || undefined,
         serialNumber: form.serialNumber.trim() || undefined,
       })
@@ -344,6 +391,28 @@ export function AdjustInventoryDialog({
       try {
         const reason = reasonLabel(parsed.data.reasonCode)
         const notes = parsed.data.notes?.trim()
+        const lotNumber = parsed.data.lotNumber?.trim()
+        let lotId: string | undefined
+        if (lotNumber) {
+          try {
+            lotId = await ensureLotIdForInventoryMutation({
+              catalogVariantId: parsed.data.catalogVariantId,
+              lotNumber,
+              organizationId: access.organizationId,
+              tenantId: access.tenantId,
+            })
+          } catch (error: unknown) {
+            const message =
+              error instanceof InventoryLotMutationError
+                ? error.message
+                : t(
+                    'wms.backend.inventory.adjust.errors.lot',
+                    'Failed to resolve inventory lot.',
+                  )
+            setFieldErrors({ lotNumber: message })
+            return
+          }
+        }
         const payload: Record<string, unknown> = {
           organizationId: access.organizationId,
           tenantId: access.tenantId,
@@ -356,7 +425,7 @@ export function AdjustInventoryDialog({
           referenceId: buildInventoryMutationReferenceId(),
           performedBy: access.userId,
         }
-        if (parsed.data.lotId) payload.lotId = parsed.data.lotId
+        if (lotId) payload.lotId = lotId
         const serial = parsed.data.serialNumber?.trim()
         if (serial) payload.serialNumber = serial
         if (notes) payload.metadata = { notes }
@@ -385,6 +454,7 @@ export function AdjustInventoryDialog({
 
         flash(t('wms.backend.inventory.adjust.flash.success', 'Inventory adjusted'), 'success')
         await queryClient.invalidateQueries({ queryKey: ['wms-inventory-console'] })
+        await queryClient.invalidateQueries({ queryKey: ['wms-sku-detail'] })
         closeDialog()
       } finally {
         setSubmitting(false)
@@ -463,7 +533,7 @@ export function AdjustInventoryDialog({
                   onChange={(next) => {
                     patchForm({
                       catalogVariantId: next.trim(),
-                      lotId: '',
+                      lotNumber: '',
                     })
                   }}
                   loadSuggestions={async (query) => {
@@ -546,13 +616,13 @@ export function AdjustInventoryDialog({
 
             <FormField
               label={t('wms.backend.inventory.adjust.form.lot', 'Lot')}
-              error={fieldErrors.lotId}
+              error={fieldErrors.lotNumber}
             >
               <ComboboxInput
-                value={form.lotId}
-                onChange={(next) => patchForm({ lotId: next.trim() })}
+                value={form.lotNumber}
+                onChange={(next) => patchForm({ lotNumber: next.trim() })}
                 loadSuggestions={async (query) => {
-                  const options = await loadLotOptions(form.catalogVariantId, query)
+                  const options = await loadLotNumberOptions(form.catalogVariantId, query)
                   registerOptionLabels(options)
                   return options.map((option) => ({
                     value: option.value,
@@ -564,7 +634,7 @@ export function AdjustInventoryDialog({
                   'wms.backend.inventory.adjust.form.lotPlaceholder',
                   'Select lot (optional)',
                 )}
-                allowCustomValues={false}
+                allowCustomValues
                 disabled={submitting || !form.catalogVariantId}
               />
             </FormField>

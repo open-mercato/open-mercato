@@ -187,6 +187,7 @@ export const inventoryMovementListQuerySchema = z.object({
   pageSize: z.coerce.number().min(1).max(100).default(25),
   warehouseId: uuid().optional(),
   catalogVariantId: uuid().optional(),
+  lotId: uuid().optional(),
   referenceType: inventoryMovementReferenceTypeSchema.optional(),
   referenceId: uuid().optional(),
   type: inventoryMovementTypeSchema.optional(),

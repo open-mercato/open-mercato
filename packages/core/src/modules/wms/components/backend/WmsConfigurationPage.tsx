@@ -1,6 +1,7 @@
 "use client"
 
 import * as React from 'react'
+import Link from 'next/link'
 import { z } from 'zod'
 import type { ColumnDef } from '@tanstack/react-table'
 import { useQuery, useQueryClient, type QueryClient } from '@tanstack/react-query'
@@ -823,7 +824,23 @@ export function LocationSection() {
   ], [t])
 
   const columns = React.useMemo<ColumnDef<LocationRow>[]>(() => [
-    { accessorKey: 'code', header: t('wms.backend.config.locations.columns.code', 'Location') },
+    {
+      accessorKey: 'code',
+      header: t('wms.backend.config.locations.columns.code', 'Location'),
+      cell: ({ row }) => {
+        const locationId = row.original.id?.trim()
+        const code = row.original.code || '—'
+        if (!locationId) return code
+        return (
+          <Link
+            href={`/backend/wms/location/${encodeURIComponent(locationId)}`}
+            className="font-medium text-primary hover:underline"
+          >
+            {code}
+          </Link>
+        )
+      },
+    },
     { accessorKey: 'type', header: t('wms.backend.config.locations.columns.type', 'Type'), cell: ({ row }) => row.original.type || '—' },
     {
       accessorKey: 'warehouse_name',

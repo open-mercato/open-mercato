@@ -63,6 +63,7 @@ export type InventoryMovementListResponse = {
     location_from_id?: string | null
     location_to_id?: string | null
     catalog_variant_id?: string | null
+    lot_id?: string | null
     quantity?: string | number | null
     type?: string | null
     reference_type?: string | null
@@ -279,6 +280,7 @@ export async function fetchMovements(
   query: {
     warehouseId?: string
     catalogVariantId?: string
+    lotId?: string
     referenceId?: string
     type?: string
   },
@@ -288,6 +290,7 @@ export async function fetchMovements(
   if (query.catalogVariantId) {
     params.set('catalogVariantId', query.catalogVariantId)
   }
+  if (query.lotId) params.set('lotId', query.lotId)
   if (query.referenceId) params.set('referenceId', query.referenceId)
   if (query.type) params.set('type', query.type)
 
@@ -303,4 +306,107 @@ export async function fetchMovements(
   ).toBeTruthy()
   const body = await readJsonSafe<InventoryMovementListResponse>(response)
   return body?.items ?? []
+}
+
+export async function fetchBalancesAtLocation(
+  request: APIRequestContext,
+  token: string,
+  locationId: string,
+): Promise<NonNullable<InventoryBalanceListResponse['items']>> {
+  const params = new URLSearchParams({
+    locationId,
+    page: '1',
+    pageSize: '100',
+  })
+  const response = await apiRequest(
+    request,
+    'GET',
+    `/api/wms/inventory/balances?${params.toString()}`,
+    { token },
+  )
+  expect(
+    response.ok(),
+    `Failed GET /api/wms/inventory/balances: ${response.status()}`,
+  ).toBeTruthy()
+  const body = await readJsonSafe<InventoryBalanceListResponse>(response)
+  return body?.items ?? []
+}
+
+export function movementInvolvesLocation(
+  row: NonNullable<InventoryMovementListResponse['items']>[number],
+  locationId: string,
+): boolean {
+  return row.location_from_id === locationId || row.location_to_id === locationId
+}
+
+export async function setRoleFeaturesExact(
+  request: APIRequestContext,
+  token: string,
+  tenantId: string,
+  roleName: string,
+  features: string[],
+): Promise<() => Promise<void>> {
+  const rolesResponse = await apiRequest(
+    request,
+    'GET',
+    `/api/auth/roles?tenantId=${encodeURIComponent(tenantId)}&page=1&pageSize=100`,
+    { token },
+  )
+  expect(
+    rolesResponse.ok(),
+    `Failed GET /api/auth/roles: ${rolesResponse.status()}`,
+  ).toBeTruthy()
+  const rolesBody = await readJsonSafe<RolesResponse>(rolesResponse)
+  const role = rolesBody?.items?.find((item) => item.name === roleName) ?? null
+  const roleId = expectId(role?.id, `Missing ${roleName} role in tenant ${tenantId}`)
+
+  const aclPath = `/api/auth/roles/acl?roleId=${encodeURIComponent(roleId)}&tenantId=${encodeURIComponent(tenantId)}`
+  const aclResponse = await apiRequest(request, 'GET', aclPath, { token })
+  expect(
+    aclResponse.ok(),
+    `Failed GET ${aclPath}: ${aclResponse.status()}`,
+  ).toBeTruthy()
+  const aclBody = (await readJsonSafe<RoleAclResponse>(aclResponse)) ?? {}
+  const original = {
+    isSuperAdmin: Boolean(aclBody.isSuperAdmin),
+    features: Array.isArray(aclBody.features) ? aclBody.features : [],
+    organizations: Array.isArray(aclBody.organizations)
+      ? aclBody.organizations
+      : null,
+  }
+
+  const nextFeatures = [...features].sort()
+  const originalSorted = [...original.features].sort()
+  const changed = nextFeatures.join('|') !== originalSorted.join('|')
+
+  if (changed) {
+    const updateResponse = await apiRequest(request, 'PUT', '/api/auth/roles/acl', {
+      token,
+      data: {
+        roleId,
+        tenantId,
+        isSuperAdmin: original.isSuperAdmin,
+        features: nextFeatures,
+        organizations: original.organizations,
+      },
+    })
+    expect(
+      updateResponse.ok(),
+      `Failed PUT /api/auth/roles/acl: ${updateResponse.status()}`,
+    ).toBeTruthy()
+  }
+
+  return async () => {
+    if (!changed) return
+    await apiRequest(request, 'PUT', '/api/auth/roles/acl', {
+      token,
+      data: {
+        roleId,
+        tenantId,
+        isSuperAdmin: original.isSuperAdmin,
+        features: original.features,
+        organizations: original.organizations,
+      },
+    }).catch(() => undefined)
+  }
 }

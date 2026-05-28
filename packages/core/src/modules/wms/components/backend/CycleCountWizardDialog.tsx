@@ -59,6 +59,10 @@ type CycleCountWizardDialogProps = {
   open: boolean
   onOpenChange: (open: boolean) => void
   access: ReturnType<typeof useWmsInventoryMutationAccess>
+  initialCatalogVariantId?: string
+  initialWarehouseId?: string
+  initialLocationId?: string
+  initialLotId?: string
 }
 
 type WizardStep = 1 | 2 | 3
@@ -159,6 +163,10 @@ export function CycleCountWizardDialog({
   open,
   onOpenChange,
   access,
+  initialCatalogVariantId,
+  initialWarehouseId,
+  initialLocationId,
+  initialLotId,
 }: CycleCountWizardDialogProps) {
   const t = useT()
   const queryClient = useQueryClient()
@@ -298,12 +306,26 @@ export function CycleCountWizardDialog({
 
   React.useEffect(() => {
     if (!open) return
+    const catalogVariantId = initialCatalogVariantId?.trim()
+    const warehouseId = initialWarehouseId?.trim()
+    const locationId = initialLocationId?.trim()
+    const lotId = initialLotId?.trim()
     setForm((current) => ({
       ...current,
       scheduledAt: current.scheduledAt.trim() || new Date().toISOString(),
       assigneeId: current.assigneeId.trim() || access.userId?.trim() || '',
+      ...(catalogVariantId ? { catalogVariantId } : {}),
+      ...(warehouseId ? { warehouseId } : {}),
+      ...(lotId ? { lotId } : {}),
+      ...(locationId
+        ? {
+            locationId,
+            fromLocationId: locationId,
+            toLocationId: locationId,
+          }
+        : {}),
     }))
-  }, [access.userId, open])
+  }, [access.userId, initialCatalogVariantId, initialLocationId, initialLotId, initialWarehouseId, open])
 
   const assigneeFallback = React.useMemo(() => {
     const userId = access.userId?.trim()
@@ -743,6 +765,7 @@ export function CycleCountWizardDialog({
         'success',
       )
       await queryClient.invalidateQueries({ queryKey: ['wms-inventory-console'] })
+      await queryClient.invalidateQueries({ queryKey: ['wms-sku-detail'] })
       closeDialog()
     } finally {
       setSubmitting(false)

@@ -1,6 +1,7 @@
 "use client"
 
 import * as React from 'react'
+import Link from 'next/link'
 import type { ColumnDef } from '@tanstack/react-table'
 import { useQuery } from '@tanstack/react-query'
 import { Page, PageBody } from '@open-mercato/ui/backend/Page'
@@ -30,6 +31,7 @@ type InventoryBalanceRow = {
   catalog_variant_id?: string | null
   variant_name?: string | null
   variant_sku?: string | null
+  lot_id?: string | null
   quantity_on_hand?: string | number | null
   quantity_reserved?: string | number | null
   quantity_allocated?: string | number | null
@@ -254,7 +256,19 @@ export function InventoryBalancesSection() {
       {
         accessorKey: 'catalog_variant_id',
         header: t('wms.backend.inventory.balances.columns.variant', 'Variant'),
-        cell: ({ row }) => formatVariantLabel(row.original),
+        cell: ({ row }) => {
+          const variantId = row.original.catalog_variant_id?.trim()
+          const label = formatVariantLabel(row.original)
+          if (!variantId) return label
+          return (
+            <Link
+              href={`/backend/wms/sku/${encodeURIComponent(variantId)}`}
+              className="font-medium text-primary hover:underline"
+            >
+              {label}
+            </Link>
+          )
+        },
       },
       {
         accessorKey: 'warehouse_id',
@@ -270,8 +284,35 @@ export function InventoryBalancesSection() {
           'wms.backend.inventory.balances.columns.location',
           'Location',
         ),
-        cell: ({ row }) =>
-          formatLocationLabel(row.original as Record<string, unknown>, 'location'),
+        cell: ({ row }) => {
+          const locationId = row.original.location_id?.trim()
+          const label = formatLocationLabel(row.original as Record<string, unknown>, 'location')
+          if (!locationId || label === '—') return label
+          return (
+            <Link
+              href={`/backend/wms/location/${encodeURIComponent(locationId)}`}
+              className="font-medium text-primary hover:underline"
+            >
+              {label}
+            </Link>
+          )
+        },
+      },
+      {
+        accessorKey: 'lot_id',
+        header: t('wms.backend.inventory.balances.columns.lot', 'Lot'),
+        cell: ({ row }) => {
+          const lotId = row.original.lot_id?.trim()
+          if (!lotId) return '—'
+          return (
+            <Link
+              href={`/backend/wms/lot/${encodeURIComponent(lotId)}`}
+              className="font-medium text-primary hover:underline"
+            >
+              {t('wms.backend.inventory.balances.lotLink', 'View lot')}
+            </Link>
+          )
+        },
       },
       {
         accessorKey: 'quantity_available',

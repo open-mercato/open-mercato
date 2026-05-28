@@ -138,6 +138,19 @@ export default function WmsOverviewPage() {
     {
       accessorKey: 'code',
       header: t('wms.backend.overview.locations.columns.code', 'Location'),
+      cell: ({ row }) => {
+        const locationId = row.original.id?.trim()
+        const code = row.original.code || '—'
+        if (!locationId) return code
+        return (
+          <Link
+            href={`/backend/wms/location/${encodeURIComponent(locationId)}`}
+            className="font-medium text-primary hover:underline"
+          >
+            {code}
+          </Link>
+        )
+      },
     },
     {
       accessorKey: 'type',

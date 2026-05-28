@@ -94,6 +94,109 @@ export async function resolveLotLabel(lotId: string): Promise<string | null> {
   return option?.label ?? null
 }
 
+export async function resolveLotNumberFromId(lotId: string): Promise<string | null> {
+  const [option] = await loadCrudOptionsByIds<InventoryLotListRow>(
+    '/api/wms/lots',
+    [lotId],
+    (item) => {
+      const value = typeof item.id === 'string' ? item.id : null
+      const lotNumber = item.lot_number?.trim()
+      if (!value || !lotNumber) return null
+      return { value, label: lotNumber }
+    },
+  )
+  return option?.label ?? null
+}
+
+export async function resolveCatalogVariantSku(catalogVariantId: string): Promise<string | null> {
+  const id = catalogVariantId.trim()
+  if (!id) return null
+  const params = buildQuery({ page: 1, pageSize: 1, id })
+  const call = await apiCall<PagedResponse<{ id?: string | null; sku?: string | null }>>(
+    `/api/catalog/variants?${params}`,
+  )
+  if (!call.ok) return null
+  const sku = call.result?.items?.[0]?.sku?.trim()
+  return sku || null
+}
+
+export async function findLotIdByNumber(
+  catalogVariantId: string,
+  lotNumber: string,
+): Promise<string | null> {
+  const variantId = catalogVariantId.trim()
+  const normalizedLotNumber = lotNumber.trim()
+  if (!variantId || !normalizedLotNumber) return null
+
+  const params = buildQuery({
+    page: 1,
+    pageSize: 20,
+    catalogVariantId: variantId,
+    search: normalizedLotNumber,
+  })
+  const call = await apiCall<PagedResponse<InventoryLotListRow>>(`/api/wms/lots?${params}`)
+  if (!call.ok) return null
+
+  const match = (call.result?.items ?? []).find(
+    (item) => item.lot_number?.trim().toLowerCase() === normalizedLotNumber.toLowerCase(),
+  )
+  return typeof match?.id === 'string' ? match.id : null
+}
+
+export class InventoryLotMutationError extends Error {
+  constructor(message = 'Failed to resolve inventory lot.') {
+    super(message)
+    this.name = 'InventoryLotMutationError'
+  }
+}
+
+export async function ensureLotIdForInventoryMutation(input: {
+  catalogVariantId: string
+  lotNumber: string
+  organizationId: string
+  tenantId: string
+}): Promise<string> {
+  const lotNumber = input.lotNumber.trim()
+  if (!lotNumber) {
+    throw new InventoryLotMutationError('Lot number is required.')
+  }
+
+  const existingId = await findLotIdByNumber(input.catalogVariantId, lotNumber)
+  if (existingId) return existingId
+
+  const sku = await resolveCatalogVariantSku(input.catalogVariantId)
+  if (!sku) {
+    throw new InventoryLotMutationError('Could not resolve SKU for the selected variant.')
+  }
+
+  const call = await apiCall<{ id?: string | null }>('/api/wms/lots', {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({
+      organizationId: input.organizationId,
+      tenantId: input.tenantId,
+      catalogVariantId: input.catalogVariantId,
+      sku,
+      lotNumber,
+      status: 'available',
+    }),
+  })
+
+  if (!call.ok) {
+    const racedId = await findLotIdByNumber(input.catalogVariantId, lotNumber)
+    if (racedId) return racedId
+    throw new InventoryLotMutationError('Failed to create inventory lot.')
+  }
+
+  const createdId = call.result?.id?.trim()
+  if (createdId) return createdId
+
+  const resolvedId = await findLotIdByNumber(input.catalogVariantId, lotNumber)
+  if (resolvedId) return resolvedId
+
+  throw new InventoryLotMutationError('Failed to resolve created inventory lot.')
+}
+
 type LocationListRow = {
   id?: string | null
   code?: string | null
@@ -441,9 +544,27 @@ export type InventoryBalanceLookupRow = {
   quantity_on_hand?: string | number | null
 }
 
-export async function loadLotOptions(
+function mapInventoryLotListRowToOption(item: InventoryLotListRow): CrudFieldOption | null {
+  const value = typeof item.id === 'string' ? item.id : null
+  if (!value) return null
+  const lotNumber = item.lot_number?.trim() || value
+  const expiresAt = item.expires_at?.trim()
+  const label = expiresAt ? `${lotNumber} · exp ${expiresAt.slice(0, 10)}` : lotNumber
+  return { value, label }
+}
+
+function mapInventoryLotListRowToLotNumberOption(item: InventoryLotListRow): CrudFieldOption | null {
+  const lotNumber = item.lot_number?.trim()
+  if (!lotNumber) return null
+  const expiresAt = item.expires_at?.trim()
+  const label = expiresAt ? `${lotNumber} · exp ${expiresAt.slice(0, 10)}` : lotNumber
+  return { value: lotNumber, label }
+}
+
+async function loadInventoryLotListOptions(
   catalogVariantId: string,
-  query?: string,
+  query: string | undefined,
+  mapItem: (item: InventoryLotListRow) => CrudFieldOption | null,
 ): Promise<CrudFieldOption[]> {
   if (!catalogVariantId) return []
   const params = buildQuery({
@@ -456,15 +577,22 @@ export async function loadLotOptions(
   const call = await apiCall<PagedResponse<InventoryLotListRow>>(`/api/wms/lots?${params}`)
   if (!call.ok) return []
   return (call.result?.items ?? [])
-    .map((item) => {
-      const value = typeof item.id === 'string' ? item.id : null
-      if (!value) return null
-      const lotNumber = item.lot_number?.trim() || value
-      const expiresAt = item.expires_at?.trim()
-      const label = expiresAt ? `${lotNumber} · exp ${expiresAt.slice(0, 10)}` : lotNumber
-      return { value, label }
-    })
+    .map(mapItem)
     .filter((option): option is CrudFieldOption => option !== null)
+}
+
+export async function loadLotOptions(
+  catalogVariantId: string,
+  query?: string,
+): Promise<CrudFieldOption[]> {
+  return loadInventoryLotListOptions(catalogVariantId, query, mapInventoryLotListRowToOption)
+}
+
+export async function loadLotNumberOptions(
+  catalogVariantId: string,
+  query?: string,
+): Promise<CrudFieldOption[]> {
+  return loadInventoryLotListOptions(catalogVariantId, query, mapInventoryLotListRowToLotNumberOption)
 }
 
 export async function fetchVariantReorderPoint(catalogVariantId: string): Promise<number> {
