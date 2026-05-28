@@ -6078,7 +6078,7 @@ __metadata:
     jest: "npm:^30.4.2"
     pg: "npm:8.21.0"
     semver: "npm:^7.8.1"
-    testcontainers: "npm:^12.0.0"
+    testcontainers: "npm:^12.0.1"
     ts-jest: "npm:^29.4.11"
     ts-morph: "npm:^28.0.0"
     tsx: "npm:^4.22.3"
@@ -25416,9 +25416,9 @@ __metadata:
   languageName: node
   linkType: hard
 
-"testcontainers@npm:^12.0.0":
-  version: 12.0.0
-  resolution: "testcontainers@npm:12.0.0"
+"testcontainers@npm:^12.0.1":
+  version: 12.0.1
+  resolution: "testcontainers@npm:12.0.1"
   dependencies:
     "@balena/dockerignore": "npm:^1.0.2"
     "@types/dockerode": "npm:^4.0.1"
@@ -25433,9 +25433,9 @@ __metadata:
     properties-reader: "npm:^3.0.1"
     ssh-remote-port-forward: "npm:^1.0.4"
     tar-fs: "npm:^3.1.2"
-    tmp: "npm:^0.2.5"
-    undici: "npm:^7.24.7"
-  checksum: 10/87be045544ddf672ddfe23349ebd37e7fbd4214bf721b97d2785fb757918156dde241c771b5abf5eb9baf2a903c8293a9bcdc3c7a3c749f67cfe5d1983bc9e1c
+    tmp: "npm:^0.2.6"
+    undici: "npm:^7.25.0"
+  checksum: 10/40bb7065fa54407319197e7a5ced16fcb6996e30132df8abe79d6c47fd431cf4fa7c1f025bec449a692454cb5f4ee7da7eda448a060a3aecb58ac71759b11f23
   languageName: node
   linkType: hard
 
