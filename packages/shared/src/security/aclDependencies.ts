@@ -66,7 +66,6 @@ export function resolveAclDependencyDiagnostics(
   if (grantedList.includes('*')) return EMPTY_DIAGNOSTICS
 
   const catalogIndex = indexCatalog(catalog)
-  const grantedSet = new Set(grantedList)
 
   const missingDependencies: MissingDependency[] = []
   const unknownReferences: UnknownReference[] = []
@@ -79,8 +78,7 @@ export function resolveAclDependencyDiagnostics(
     const deps = Array.isArray(descriptor.dependsOn) ? descriptor.dependsOn : []
     if (deps.length === 0) continue
 
-    const isFeatureGranted = grantedSet.has(featureId) || hasFeature(grantedList, featureId)
-    if (!isFeatureGranted) continue
+    if (!hasFeature(grantedList, featureId)) continue
 
     const missing: string[] = []
     const unknown: string[] = []

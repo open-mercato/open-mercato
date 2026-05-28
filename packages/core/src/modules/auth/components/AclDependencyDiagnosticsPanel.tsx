@@ -18,11 +18,6 @@ export type AclDependencyDiagnosticsPanelProps = {
   hideUnknownReferences?: boolean
 }
 
-function featureLabel(catalog: readonly FeatureDescriptor[], id: string): string {
-  const hit = catalog.find((entry) => entry.id === id)
-  return hit?.title ? hit.title : id
-}
-
 export function AclDependencyDiagnosticsPanel({
   granted,
   catalog,
@@ -34,6 +29,14 @@ export function AclDependencyDiagnosticsPanel({
     () => resolveAclDependencyDiagnostics(granted, catalog),
     [granted, catalog],
   )
+  const titleById = React.useMemo(() => {
+    const map = new Map<string, string>()
+    for (const entry of catalog) {
+      if (entry?.title && !map.has(entry.id)) map.set(entry.id, entry.title)
+    }
+    return map
+  }, [catalog])
+  const featureLabel = React.useCallback((id: string) => titleById.get(id) ?? id, [titleById])
 
   const hasMissing = diagnostics.missingDependencies.length > 0
   const hasOrphaned = diagnostics.orphanedDependents.length > 0
@@ -65,13 +68,13 @@ export function AclDependencyDiagnosticsPanel({
                 >
                   <span>
                     {t('auth.acl.deps.missing.item', '"{feature}" needs:', {
-                      feature: featureLabel(catalog, row.feature),
+                      feature: featureLabel(row.feature),
                     })}
                   </span>
                   {row.missing.map((dep) => (
                     <span key={dep} className="inline-flex items-center gap-1">
                       <span className="font-mono text-xs text-muted-foreground">
-                        {featureLabel(catalog, dep)}
+                        {featureLabel(dep)}
                       </span>
                       <Button
                         type="button"
@@ -81,7 +84,7 @@ export function AclDependencyDiagnosticsPanel({
                         data-testid={`add-missing-${row.feature}-${dep}`}
                       >
                         {t('auth.acl.deps.missing.add', 'Add "{dep}"', {
-                          dep: featureLabel(catalog, dep),
+                          dep: featureLabel(dep),
                         })}
                       </Button>
                     </span>
@@ -111,12 +114,12 @@ export function AclDependencyDiagnosticsPanel({
                 >
                   <span>
                     {t('auth.acl.deps.orphaned.item', '"{dependency}" is required by:', {
-                      dependency: featureLabel(catalog, row.dependency),
+                      dependency: featureLabel(row.dependency),
                     })}
                   </span>
                   <span className="font-mono text-xs text-muted-foreground">
                     {row.dependents
-                      .map((dependent) => featureLabel(catalog, dependent))
+                      .map((dependent) => featureLabel(dependent))
                       .join(', ')}
                   </span>
                   <Button
@@ -127,7 +130,7 @@ export function AclDependencyDiagnosticsPanel({
                     data-testid={`restore-${row.dependency}`}
                   >
                     {t('auth.acl.deps.orphaned.restore', 'Restore "{dependency}"', {
-                      dependency: featureLabel(catalog, row.dependency),
+                      dependency: featureLabel(row.dependency),
                     })}
                   </Button>
                   <Button
