@@ -153,6 +153,17 @@ edit existing records based on current state must choose one of:
 - Use an existing stronger lock/transaction mechanism.
 - Document why stale-write protection is not applicable.
 
+The generalist primitive for the first option is
+`enforceCommandOptimisticLock({ resourceKind, resourceId, current, expected?, request? })`
+from `@open-mercato/shared/lib/crud/optimistic-lock-command` (#2055 Phase 16).
+A command handler calls it after loading the target record (usually the
+aggregate root) and before mutating; it reads the expected version from the
+explicit `expected` override or the request header, compares against `current`,
+and throws `CrudHttpError(409, OptimisticLockConflictBody)` on mismatch. It is
+strictly additive (no expected token → no-op) and honors `OM_OPTIMISTIC_LOCK`.
+Sales wraps it as `enforceSalesDocumentOptimisticLock(ctx, document, resourceKind)`
+in `commands/shared.ts`.
+
 ### Regression Audit
 
 Add an audit command or test that scans backend UI code for mutating calls:
@@ -369,14 +380,31 @@ Approved as a phased follow-up draft for implementation planning.
 | `customers.deal` update + delete | Done (QA #2055) | `useDealFormHandlers` wraps `updateCrud`/`deleteCrud` with the lock header |
 | `catalog.product` update | Done | CrudForm `optimisticLockUpdatedAt` |
 | `sales.channel` list delete | Done (QA #2055) | channels list `handleDelete` wraps `deleteCrud`; 409 → conflict flash + refresh |
-| `sales.order` document edit (lines/adjustments/shipments/payments, status transitions) | **Deferred** | command-style endpoints, not `makeCrudRoute` PUT; needs command-level expected-version checks (Phase 4) |
-| Nested panels (deal associations/pipeline/closure, channel offer prices, document lines) | **Deferred** | Phase 3 surface — large; not in the QA #2055 increment |
+| `sales.order` / `sales.quote` lines + adjustments (upsert + delete) | **Done (#2055 Phase 17)** | command-level document-aggregate check via `enforceSalesDocumentOptimisticLock` in the command handlers; the `makeSalesLineRoute` `{ body }` wrapping nulls the factory `candidateId` so the row-level guard is skipped and the command check is the sole guard |
+| `sales.return` create | **Done (#2055 Phase 17)** | command-level document-aggregate check against the parent order |
+| Quote → order conversion (`sales.quotes.convert_to_order`) | **Done (#2055 Phase 17)** | command-level check on the quote version; closes the accept/convert race (#2114). Client `handleConvert` sends the version header (Phase 18) |
+| `sales.payment` / `sales.shipment` create/update/delete | **Row-level (existing)** | these routes use a flat `mapInput` with a top-level `id`, so the `makeCrudRoute` row-level guard already fires; a document-aggregate command check would conflict with the single header — unifying to document-aggregate is a follow-up |
+| Sales document UI sections (lines/adjustments/returns) sending the version header | **Deferred (follow-up)** | server already enforces; client wiring across the document editor is browser-QA-gated. The detail page's totals-refresh already re-fetches `record.updatedAt` after each sub-resource mutation, so the document-aggregate header can be sent safely without false-409 cascades |
+| Nested panels (deal associations/pipeline/closure, channel offer prices) | **Deferred** | Phase 3 surface — large; not in the #2055 increment |
 
-Server-side enforcement on **both update and delete** is entity-agnostic in
-`makeCrudRoute` (`runMutationGuards` with `operation: 'update' | 'delete'`),
-proven by `TC-LOCK-OSS-004` (PUT + DELETE 409). Every CRUD route auto-registers
-a generic reader (Phase 13), so any single-record edit/delete UI path gains
-protection simply by sending the `updated_at` header.
+Two enforcement layers now exist:
+
+1. **CRUD row-level** — entity-agnostic in `makeCrudRoute`
+   (`runMutationGuards` with `operation: 'update' | 'delete'`), proven by
+   `TC-LOCK-OSS-004` (PUT + DELETE 409). Every CRUD route auto-registers a
+   generic reader (Phase 13), so any single-record edit/delete UI path gains
+   protection simply by sending the row's `updated_at` header. Fires only when
+   the route exposes a top-level `id` to the factory (`candidateId`).
+
+2. **Command-level document-aggregate** — `enforceCommandOptimisticLock`
+   (`@open-mercato/shared/lib/crud/optimistic-lock-command`, #2055 Phase 16)
+   lets any Command-pattern handler compare a client-sent expected `updated_at`
+   against an arbitrary record (typically the aggregate root) and throw the
+   identical structured 409. Sales sub-resource commands use it to guard the
+   parent order/quote — the consistency boundary — because those commands recalc
+   document totals, which bumps the parent `updated_at` on flush so concurrent
+   sub-edits conflict. Strictly additive: no header → no 409; respects
+   `OM_OPTIMISTIC_LOCK`.
 
 ## Changelog
 
@@ -390,3 +418,20 @@ protection simply by sending the `updated_at` header.
   page-level delete-header unit tests. Recorded the implementation status
   table above; sales document command endpoints and nested panels remain
   deferred (Phases 3–4).
+- #2055 Phase 4 (command classification) — partially implemented:
+  - Added the generalist `enforceCommandOptimisticLock` primitive
+    (`@open-mercato/shared/lib/crud/optimistic-lock-command`) so Command-pattern
+    handlers can enforce the same `updated_at` version check the CRUD guard
+    applies, targeting any record (typically the aggregate root). 57 unit tests.
+  - Wired it into the sales sub-resource commands (order/quote lines +
+    adjustments upsert/delete, return create, quote→order conversion) as a
+    **document-aggregate** check (parent order/quote is the consistency
+    boundary; parent `updated_at` bumps automatically via totals recalc).
+    Closes the quote accept/convert race (#2114).
+  - Classified payments/shipments as already row-level-guarded by `makeCrudRoute`
+    (flat `mapInput` keeps the factory `candidateId`); a document-aggregate
+    check there would conflict with the single header — unification deferred.
+  - Client: `handleConvert` sends the version header (Phase 18). Sales document
+    UI section header wiring (lines/adjustments/returns) deferred to a follow-up
+    issue (browser-QA-gated; the totals-refresh flow already re-fetches the
+    document version, so it is safe).

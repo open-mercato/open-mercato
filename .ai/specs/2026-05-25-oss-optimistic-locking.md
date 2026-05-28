@@ -418,3 +418,36 @@ the first comment on the PR.
   access.
 - **DI guard**: `crudMutationGuardService` registered via `di.ts`. Container-
   bound, has DB access.
+- **Command-level check**: `enforceCommandOptimisticLock` (see §10). Same
+  `updated_at` comparison, invoked directly inside a Command-pattern handler
+  for writes that don't reach `makeCrudRoute`.
+
+## 10. Command-level extension (`enforceCommandOptimisticLock`)
+
+The CRUD guard (§3) only covers mutations that flow through `makeCrudRoute` and
+expose a top-level `id` to the factory. Domain writes implemented via the
+Command pattern — sales document sub-resources (lines, adjustments, returns),
+status transitions, quote→order conversion — run their own logic in a command
+handler and may mutate an **aggregate** the CRUD guard never sees. The
+generalist primitive `enforceCommandOptimisticLock(...)`
+(`@open-mercato/shared/lib/crud/optimistic-lock-command`) closes that gap.
+
+- Signature: `{ resourceKind, resourceId, current, expected?, request? }`.
+  It resolves the expected version from the explicit `expected` override or the
+  request header, normalizes both sides with the same `normalizeIsoToken` the
+  CRUD guard uses, and throws `CrudHttpError(409, OptimisticLockConflictBody)`
+  on mismatch. No-op when env-disabled / no expected / no current — strictly
+  additive; honors `OM_OPTIMISTIC_LOCK`.
+- **Granularity — document-aggregate.** For an aggregate (a sales order/quote),
+  the command guards the aggregate root, not each child row: the client sends
+  the parent document's `updated_at`. Sub-resource commands recalc the document
+  totals, which dirties the parent so its `updated_at` advances on flush — so
+  concurrent sub-edits conflict. Do NOT apply this to a route that already runs
+  the `makeCrudRoute` row-level guard (one exposing a top-level `id`); the two
+  would compare different versions against the single header and false-409.
+- **Sales reference.** `enforceSalesDocumentOptimisticLock(ctx, document, kind)`
+  in `packages/core/src/modules/sales/commands/shared.ts`, wired into order/quote
+  lines + adjustments, return create, and quote conversion (closes the #2114
+  accept/convert race). Payments/shipments stay on their existing row-level
+  guard (flat command input keeps the factory `candidateId`). Full coverage
+  matrix + remaining deferrals: `.ai/specs/2026-05-28-optimistic-locking-coverage-completion.md`.

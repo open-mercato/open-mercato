@@ -326,6 +326,59 @@ file's first import, and the factory uses the `IfAbsent` variant.
 
 ---
 
+## Protecting command/action endpoints (not `makeCrudRoute`)
+
+The CRUD guard only covers mutations that flow through `makeCrudRoute` and
+expose a top-level `id` to the factory. Domain writes implemented via the
+**Command pattern** — sales document sub-resources (lines, adjustments,
+returns), status transitions, quote→order conversion, and any custom action
+route — run their own logic in a command handler and may mutate an **aggregate**
+the CRUD guard never sees. Use the generalist command-level helper to give
+those endpoints the same protection:
+
+```ts
+import { enforceCommandOptimisticLock } from '@open-mercato/shared/lib/crud/optimistic-lock-command'
+
+// inside a CommandHandler.execute(input, ctx), after loading the target record:
+enforceCommandOptimisticLock({
+  resourceKind: 'sales.order',   // the record you are version-checking
+  resourceId: order.id,
+  current: order.updatedAt,       // current DB version (Date | ISO string)
+  request: ctx.request,           // reads the expected version from the header
+  // expected: input.expectedUpdatedAt,  // optional: accept it as a typed input field instead
+})
+// throws CrudHttpError(409, { error, code, currentUpdatedAt, expectedUpdatedAt }) on mismatch
+```
+
+Behavior matches the CRUD guard exactly: it reads the expected `updated_at`
+from the same extension header (or an explicit `expected` override), normalizes
+both sides identically, is strictly additive (no header → no 409), and honors
+`OM_OPTIMISTIC_LOCK`.
+
+**Pick the right record to version-check (granularity).** For an aggregate like
+a sales order, guard the **aggregate root**, not each child row: the client
+sends the parent document's `updated_at`, and the command compares it against
+the loaded order/quote. This is the "document-aggregate" model. It works because
+sub-resource commands recalculate the document totals — dirtying the parent so
+its `updated_at` advances on flush — which makes concurrent sub-edits conflict.
+After each successful sub-resource mutation the client must re-fetch the document
+to pick up the new version (the sales document detail page does this via its
+totals-refresh flow); otherwise the next edit would 409 against a stale version.
+
+Do **not** add a document-aggregate command check to a route that already runs
+the `makeCrudRoute` row-level guard (one that exposes a top-level `id`): the two
+would compare different versions against the single header and produce false
+409s. Sales lines/adjustments avoid this because `makeSalesLineRoute` wraps the
+command input in `{ body }`, which nulls the factory `candidateId` and skips the
+row-level guard — leaving the command-level check as the sole guard. Payments and
+shipments keep their row-level guard and are intentionally not double-checked.
+
+Sales wraps the helper as `enforceSalesDocumentOptimisticLock(ctx, document, resourceKind)`
+in `packages/core/src/modules/sales/commands/shared.ts` — see the line,
+adjustment, return, and quote-conversion commands for the reference usage.
+
+---
+
 ## Coexisting with the enterprise `record_locks` module
 
 When both layers are active, the enterprise pessimistic check runs first
