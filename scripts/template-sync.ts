@@ -118,9 +118,9 @@ const TEMPLATE_CONTENT_TRANSFORMS: Record<string, (content: string) => string> =
   'app/globals.css': (content) => content.replaceAll('../../../../node_modules/', '../../node_modules/'),
   'scripts/dev-cache-purge.mjs': (content) =>
     content
-      .replace('configured Next.js distDir (`apps/mercato/.mercato/next`) plus the legacy\n// `apps/mercato/.next` location', 'configured Next.js distDir (`.mercato/next`) plus the legacy `.next` location')
-      .replace('// and middleware manifest from scratch on the next launch. See issue #1950.', '// and middleware manifest from scratch on the next launch.')
-      .replace("  Object.freeze(['apps', 'mercato', '.mercato', 'next']),\n  Object.freeze(['apps', 'mercato', '.next']),", "  Object.freeze(['.mercato', 'next']),\n  Object.freeze(['.next']),"),
+      .replaceAll("['apps', 'mercato', '.mercato', 'next'", "['.mercato', 'next'")
+      .replaceAll("['apps', 'mercato', '.next']", "['.next']")
+      .replace('`.mercato/next/dev/cache/turbopack`. See issue\n// #1950.', '`.mercato/next/dev/cache/turbopack`.')
 }
 const MAX_DIFFS_TO_SHOW = 20
 

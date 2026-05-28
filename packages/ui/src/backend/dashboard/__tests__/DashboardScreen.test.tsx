@@ -20,6 +20,12 @@ jest.mock('../widgetRegistry', () => ({
   loadDashboardWidgetModule: jest.fn(),
 }))
 
+let mockOrganizationScopeVersion = 0
+
+jest.mock('@open-mercato/shared/lib/frontend/useOrganizationScope', () => ({
+  useOrganizationScopeVersion: () => mockOrganizationScopeVersion,
+}))
+
 jest.mock('next/navigation', () => ({
   useRouter: () => ({
     refresh: jest.fn(),
@@ -75,6 +81,7 @@ function MockWidget() {
 describe('DashboardScreen', () => {
   beforeEach(() => {
     jest.resetAllMocks()
+    mockOrganizationScopeVersion = 0
     ;(getDashboardWidgets as jest.Mock).mockReturnValue([{ key: 'foo.loader', loader: jest.fn() }])
     ;(loadDashboardWidgetModule as jest.Mock).mockResolvedValue({
       Widget: MockWidget,
@@ -97,6 +104,27 @@ describe('DashboardScreen', () => {
     expect(await screen.findByText('Widget Foo')).toBeInTheDocument()
     // Then wait for the widget module to load
     expect(await screen.findByText('Widget body')).toBeInTheDocument()
+  })
+
+  it('reloads the dashboard when the organization scope changes', async () => {
+    ;(apiCall as jest.Mock).mockResolvedValue({
+      ok: true,
+      status: 200,
+      result: widgetResponse,
+      response: createMockResponse(200),
+    })
+
+    const { rerender } = renderWithProviders(<DashboardScreen />, { dict })
+
+    expect(await screen.findByText('Widget body')).toBeInTheDocument()
+    expect(apiCall).toHaveBeenCalledTimes(1)
+
+    mockOrganizationScopeVersion = 1
+    rerender(<DashboardScreen />)
+
+    await waitFor(() => {
+      expect(apiCall).toHaveBeenCalledTimes(2)
+    })
   })
 
   it('shows an error when the layout request fails', async () => {
