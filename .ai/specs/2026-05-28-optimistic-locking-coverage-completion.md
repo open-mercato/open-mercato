@@ -1,0 +1,365 @@
+# SPEC — Optimistic Locking Coverage Completion
+
+**Scope:** OSS
+**Status:** Draft
+**Tracking issue:** [#2191](https://github.com/open-mercato/open-mercato/issues/2191)
+**Related spec:** `.ai/specs/2026-05-25-oss-optimistic-locking.md`
+
+---
+
+## TLDR
+
+Complete optimistic-locking coverage across Open Mercato edit/delete flows.
+The core guard already protects `makeCrudRoute` mutations when the client
+sends the expected `updated_at` header, but many custom UI handlers and
+non-CRUD command endpoints still do not send or enforce a version token.
+
+This spec turns the remaining work into phased, testable coverage:
+
+- Build an authoritative coverage matrix for CRUD routes, UI forms, table
+  deletes, nested subresources, and non-CRUD command/action endpoints.
+- Wire missing UI edit/delete paths to `CrudForm` `optimisticLockUpdatedAt`
+  or explicit `buildOptimisticLockHeader` / scoped request headers.
+- Define explicit exclusions for commands that cannot be represented by a
+  single row version token.
+- Add regression tests and an audit check so future raw mutations do not
+  bypass optimistic locking accidentally.
+
+---
+
+## Overview
+
+The initial OSS optimistic-locking implementation added a generic
+`updated_at` comparison guard for CRUD mutations and a shared client contract.
+That gives the platform the right foundation, but it does not automatically
+protect every write path. User-facing coverage depends on each edit/delete
+flow passing the expected record version to the server.
+
+Open Mercato has several write surfaces:
+
+- Standard `CrudForm` pages.
+- Table row actions using `updateCrud`, `deleteCrud`, or `apiCall`.
+- Nested resource panels on detail pages, such as product prices, sales
+  document lines, shipments, adjustments, customer deals, and activities.
+- Non-CRUD command endpoints, such as sales document transitions and workflow
+  execution actions.
+
+This follow-up spec defines how to finish the coverage without changing the
+core contract or introducing a new version column.
+
+## Problem Statement
+
+The current implementation can be misunderstood as "all entities are
+protected." More precisely:
+
+- Server-side guard support is available for `makeCrudRoute` entities when the
+  client sends the optimistic-lock header.
+- Missing header means the guard skips, by design, for backward compatibility.
+- Non-`makeCrudRoute` endpoints are outside the generic guard unless they
+  explicitly enforce their own version check.
+- Bulk operations cannot safely use a single `updated_at` token for multiple
+  rows.
+
+As a result, concurrent edits can still silently overwrite each other in
+custom handlers and nested panels even though the base guard exists.
+
+## Proposed Solution
+
+Finish optimistic-locking coverage in four layers:
+
+1. **Inventory** every backend write route and frontend write call.
+2. **Wire** every single-record CRUD edit/delete UI path to send an expected
+   `updatedAt` token.
+3. **Classify** non-CRUD and bulk writes as either protected by an explicit
+   command-level version check or intentionally excluded with documented
+   rationale.
+4. **Enforce** future coverage with focused tests plus an audit script for
+   raw backend UI mutations.
+
+No new database schema is required. Existing `updated_at` remains the version
+token. The `OM_OPTIMISTIC_LOCK` environment contract from the related spec
+remains unchanged.
+
+## Coverage Model
+
+### Supported After This Spec
+
+| Write surface | Required behavior |
+|---|---|
+| `CrudForm` single-record update/delete | Pass `optimisticLockUpdatedAt` from the loaded record. |
+| Custom single-record `updateCrud` / `deleteCrud` | Wrap the request with `buildOptimisticLockHeader(record.updatedAt)` and `withScopedApiRequestHeaders(...)`. |
+| Custom mutating `apiCall` for one existing record | Send the optimistic-lock extension header from the record being edited/deleted. |
+| Nested single-record panels | Preserve each child row's own `updatedAt` and send it with the child update/delete request. |
+| Server `makeCrudRoute` mutation | Compare expected header to current `updated_at`, return structured 409 on mismatch. |
+
+### Explicitly Classified
+
+| Write surface | Policy |
+|---|---|
+| Bulk update/delete | Do not use a single header. Either pass per-row expected versions in a typed payload or mark the operation excluded. |
+| Command/action endpoints | Require command-specific concurrency design when the command edits existing state based on current values. |
+| Imports, sync jobs, background processors | Usually excluded from UI optimistic locking; they need idempotency and job-level conflict handling instead. |
+| Preferences, dashboard widgets, sidebar state | Exclude unless they overwrite business data. |
+| Create operations | Exclude; no previous row version exists. |
+
+## Initial Gap Inventory
+
+The implementation phase must verify this list with code search before
+editing, but the known gaps are:
+
+| Area | Known missing or incomplete coverage |
+|---|---|
+| Auth | User list delete uses raw `apiCall DELETE` without an optimistic header. |
+| Feature toggles | Global toggle table delete uses raw `deleteCrud` without a header. |
+| Customers | Company v2 custom update/delete, deal deletes, pipeline changes, associations, closure flows, and deal detail side effects. |
+| Catalog | Product nested offers, unit conversions, option schemas, variant deletes, and variant price update/delete flows. |
+| Sales | Channel list delete, channel offer price rows, document lines, document adjustments, shipments, document action/detail flows, status settings, adjustment-kind settings. |
+| Staff | Team list delete and activity/comment adapter updates/deletes. |
+| Resources | Activity/comment adapter updates/deletes. |
+| Dictionaries | Dictionary entry/settings mutations that bypass `CrudForm` token wiring. |
+| Workflows | Definition edit form is covered; workflow execution/action endpoints need explicit classification. |
+| Entities | Entity-definition deletes and custom entity admin mutations need classification because they may not be `makeCrudRoute` business records. |
+| Data sync / imports | Usually excluded; document the concurrency model instead of forcing row headers. |
+
+## Architecture
+
+### Client Contract
+
+Shared UI write helpers should converge on one helper shape:
+
+```ts
+const headers = buildOptimisticLockHeader(record.updatedAt);
+
+await withScopedApiRequestHeaders(headers, () =>
+  updateCrud(resourcePath, record.id, payload),
+);
+```
+
+For `CrudForm`, call sites should pass the loaded record's `updatedAt` through
+`optimisticLockUpdatedAt` unless the form implementation already derives it
+from values in that path.
+
+Nested tables must keep `updatedAt` in row state. If a panel currently strips
+server metadata before storing child rows, it must retain `updatedAt` for
+mutation only.
+
+### Server Contract
+
+`makeCrudRoute` remains the default enforcement point. Non-CRUD commands that
+edit existing records based on current state must choose one of:
+
+- Accept an expected version token in the command payload or extension header
+  and compare inside the command transaction.
+- Use an existing stronger lock/transaction mechanism.
+- Document why stale-write protection is not applicable.
+
+### Regression Audit
+
+Add an audit command or test that scans backend UI code for mutating calls:
+
+- `updateCrud(...)`
+- `deleteCrud(...)`
+- `apiCall(..., { method: 'PUT' | 'PATCH' | 'DELETE' })`
+
+Every match must either:
+
+- be inside `withScopedApiRequestHeaders(buildOptimisticLockHeader(...))`,
+- be a create-only or non-business-data mutation,
+- use `CrudForm` with `optimisticLockUpdatedAt`, or
+- carry a local exclusion comment matched by the audit.
+
+## Data Models
+
+No new entities, columns, or migrations.
+
+Existing `updated_at` / `updatedAt` remains the canonical version token.
+
+For UI row types, add `updatedAt?: string | Date | null` where missing so row
+actions can send the token. These are client type additions only.
+
+## API Contracts
+
+### Existing Optimistic-Lock Header
+
+```http
+x-om-ext-optimistic-lock-expected-updated-at: 2026-05-25T08:42:18.123Z
+```
+
+### Existing Conflict Response
+
+```json
+{
+  "error": "record_modified",
+  "code": "optimistic_lock_conflict",
+  "currentUpdatedAt": "2026-05-25T08:42:18.500Z",
+  "expectedUpdatedAt": "2026-05-25T08:42:18.123Z"
+}
+```
+
+### Bulk Operations
+
+Bulk operations must not reuse the single-record header. If protected in this
+spec's implementation, they must use an explicit payload shape such as:
+
+```json
+{
+  "items": [
+    { "id": "uuid-1", "expectedUpdatedAt": "2026-05-25T08:42:18.123Z" },
+    { "id": "uuid-2", "expectedUpdatedAt": "2026-05-25T08:42:20.999Z" }
+  ]
+}
+```
+
+The exact payload is endpoint-specific and must be covered by endpoint tests.
+
+## Phasing
+
+### Phase 1: Coverage Inventory And Spec Reconciliation
+
+1. Generate a checked-in coverage matrix under `.ai/analysis/` or update this
+   spec with the verified list of write paths.
+2. Reconcile the related optimistic-locking spec:
+   - default ON wording,
+   - "server support" vs "UI coverage",
+   - integration test status,
+   - explicit exclusions.
+3. Record every excluded endpoint with rationale.
+
+### Phase 2: Standard CRUD Forms And Table Deletes
+
+1. Wire missing `CrudForm` edit pages with `optimisticLockUpdatedAt`.
+2. Wire single-record table deletes that call `deleteCrud` or mutating
+   `apiCall`.
+3. Add focused tests for at least auth users, feature toggles, customers, and
+   catalog table actions.
+
+### Phase 3: Nested Panels And Subresources
+
+1. Wire catalog nested resources: offers, prices, unit conversions, option
+   schemas, and variant child rows.
+2. Wire sales nested resources: document lines, adjustments, shipments, channel
+   offer prices, status dictionaries, and adjustment kinds.
+3. Wire customer deals and detail side effects where they overwrite existing
+   records.
+4. Wire staff/resources activity adapters.
+5. Add tests that prove stale child-row edits produce 409 and do not overwrite.
+
+### Phase 4: Command And Bulk Classification
+
+1. Review non-CRUD action endpoints in sales, workflows, entities, imports, and
+   data sync.
+2. Add command-level expected-version checks where the command overwrites
+   current business state based on stale user input.
+3. Exclude jobs/preferences/actions where optimistic locking is not the right
+   mechanism, and document the alternative integrity control.
+4. Define or defer per-row version payloads for bulk operations.
+
+### Phase 5: Regression Guardrails
+
+1. Add an audit test/script for raw mutating backend UI calls.
+2. Add developer documentation for how to wire non-`CrudForm` mutations.
+3. Add a checklist item to the related spec or Task Router guidance.
+4. Run the focused optimistic-locking tests plus the smallest relevant package
+   checks.
+
+## Testing Strategy
+
+- Unit tests for `buildOptimisticLockHeader` and conflict parsing remain in the
+  existing spec's scope.
+- Add UI tests around custom handlers to assert the header is sent.
+- Add API tests for stale single-record updates/deletes on representative
+  modules:
+  - `auth.user`
+  - `catalog.product`
+  - `catalog.price`
+  - `customers.company`
+  - `customers.deal`
+  - `sales.document`
+  - `staff.team`
+  - `resources.resource`
+  - `workflows.definition`
+- Add one negative test proving missing header remains backward-compatible.
+- Add one audit test proving new raw mutations require either lock wiring or an
+  explicit exclusion.
+
+## Risks & Impact Review
+
+#### False Sense Of Platform-Wide Coverage
+
+- **Scenario**: Developers assume `makeCrudRoute` support means every UI write
+  path is protected, but custom handlers omit the header.
+- **Severity**: High
+- **Affected area**: All backend UI modules with custom edit/delete handlers
+- **Mitigation**: Coverage matrix, audit test, and explicit exclusions.
+- **Residual risk**: Some custom command endpoints may still require domain
+  review because a generic row version is not always the right model.
+
+#### Over-Constraining Command Endpoints
+
+- **Scenario**: A workflow or sales action fails with 409 even though the action
+  is already protected by a stronger domain transaction.
+- **Severity**: Medium
+- **Affected area**: Sales, workflows, imports, data sync
+- **Mitigation**: Phase 4 classifies commands before adding checks.
+- **Residual risk**: Endpoint-specific judgment remains necessary.
+
+#### Bulk Operation Ambiguity
+
+- **Scenario**: A bulk delete sends one expected timestamp for many records and
+  lets stale rows slip through.
+- **Severity**: High
+- **Affected area**: Any bulk UI or API mutation
+- **Mitigation**: Ban single-header bulk protection; require per-row versions or
+  explicit exclusion.
+- **Residual risk**: Existing bulk operations remain excluded until redesigned.
+
+#### User Friction From More 409s
+
+- **Scenario**: More flows start surfacing conflict messages after proper
+  header wiring.
+- **Severity**: Medium
+- **Affected area**: Backend users editing shared records
+- **Mitigation**: Use the existing explainable conflict copy and refresh/retry
+  flow.
+- **Residual risk**: Merge UX remains a future enterprise/premium enhancement.
+
+## Final Compliance Report — 2026-05-28
+
+### AGENTS.md Files Reviewed
+
+- `AGENTS.md` (root)
+- `.ai/specs/AGENTS.md`
+- `.ai/skills/spec-writing/SKILL.md`
+
+### Compliance Matrix
+
+| Rule Source | Rule | Status | Notes |
+|---|---|---|---|
+| root `AGENTS.md` | Check existing specs before modifying modules | Compliant | Reviewed `.ai/specs/2026-05-25-oss-optimistic-locking.md`. |
+| `.ai/specs/AGENTS.md` | New specs use `{date}-{title}.md` | Compliant | This spec uses `2026-05-28-optimistic-locking-coverage-completion.md`. |
+| root `AGENTS.md` | Preserve behavior unless explicitly changed | Compliant | This spec proposes phased future work only; no runtime changes in this PR step. |
+| root `AGENTS.md` | Keep changes minimal and focused | Compliant | Adds a follow-up spec and tracking issue. |
+
+### Internal Consistency Check
+
+| Check | Status | Notes |
+|---|---|---|
+| Data models match API contracts | Pass | No schema changes; uses existing `updated_at`. |
+| API contracts match UI/UX section | Pass | UI wiring sends the existing optimistic-lock header. |
+| Risks cover all write operations | Pass | CRUD, nested, command, bulk, and excluded writes are covered. |
+| Commands defined for all mutations | Pass with follow-up | This spec requires Phase 4 command classification before command-level implementation. |
+| Cache strategy covers all read APIs | Not applicable | No caching changes. |
+
+### Non-Compliant Items
+
+None for this spec draft.
+
+### Verdict
+
+Approved as a phased follow-up draft for implementation planning.
+
+## Changelog
+
+### 2026-05-28
+
+- Initial phased follow-up spec for completing optimistic-locking coverage.
