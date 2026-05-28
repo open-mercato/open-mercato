@@ -20,34 +20,43 @@ async function clientBootstrap(): Promise<void> {
   if (_bootstrapPromise) return _bootstrapPromise
 
   _bootstrapPromise = (async () => {
-    // Defer generated registry barrels to a dynamic import so each barrel
-    // becomes its own lazy chunk in Turbopack. Routes that mount this
-    // provider but never use injection/dashboard/notification registries
-    // still get the chunks compiled, but no longer during initial page
-    // parse — the first paint is no longer blocked on registering every
-    // module's client widgets.
-    const [
-      injectionWidgets,
-      injectionTables,
-      enabledModuleIds,
-      dashboardWidgets,
-      notificationHandlers,
-    ] = await Promise.all([
-      import('@/.mercato/generated/injection-widgets.generated'),
-      import('@/.mercato/generated/injection-tables.generated'),
-      import('@/.mercato/generated/enabled-module-ids.generated'),
-      import('@/.mercato/generated/dashboard-widgets.generated'),
-      import('@/.mercato/generated/notification-handlers.generated'),
-    ])
+    try {
+      // Defer generated registry barrels to a dynamic import so each barrel
+      // becomes its own lazy chunk in Turbopack. Routes that mount this
+      // provider but never use injection/dashboard/notification registries
+      // still get the chunks compiled, but no longer during initial page
+      // parse — the first paint is no longer blocked on registering every
+      // module's client widgets.
+      const [
+        injectionWidgets,
+        injectionTables,
+        enabledModuleIds,
+        dashboardWidgets,
+        notificationHandlers,
+      ] = await Promise.all([
+        import('@/.mercato/generated/injection-widgets.generated'),
+        import('@/.mercato/generated/injection-tables.generated'),
+        import('@/.mercato/generated/enabled-module-ids.generated'),
+        import('@/.mercato/generated/dashboard-widgets.generated'),
+        import('@/.mercato/generated/notification-handlers.generated'),
+      ])
 
-    registerInjectionWidgets(injectionWidgets.injectionWidgetEntries)
-    registerCoreInjectionWidgets(injectionWidgets.injectionWidgetEntries)
-    registerCoreInjectionTables(injectionTables.injectionTables)
-    registerEnabledModuleIds(enabledModuleIds.enabledModuleIds)
-    registerDashboardWidgets(dashboardWidgets.dashboardWidgetEntries)
-    registerNotificationHandlers(notificationHandlers.notificationHandlerEntries)
+      registerInjectionWidgets(injectionWidgets.injectionWidgetEntries)
+      registerCoreInjectionWidgets(injectionWidgets.injectionWidgetEntries)
+      registerCoreInjectionTables(injectionTables.injectionTables)
+      registerEnabledModuleIds(enabledModuleIds.enabledModuleIds)
+      registerDashboardWidgets(dashboardWidgets.dashboardWidgetEntries)
+      registerNotificationHandlers(notificationHandlers.notificationHandlerEntries)
 
-    _clientBootstrapped = true
+      _clientBootstrapped = true
+    } catch (err) {
+      // A lazy registry chunk failed to load (e.g. a stale chunk after a
+      // deploy). Clear the cached promise so the next render retries instead
+      // of leaving every client registry empty forever — otherwise dashboard
+      // widget cards would wait on registration indefinitely with no error.
+      _bootstrapPromise = null
+      console.error('[ClientBootstrap] Failed to register client registries; will retry on next render', err)
+    }
   })()
 
   return _bootstrapPromise
