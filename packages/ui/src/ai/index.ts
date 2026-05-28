@@ -126,6 +126,8 @@ export {
   type AiChatUploadFileStatus,
 } from './useAiChatUpload'
 export { LoopDisabledBanner } from './LoopDisabledBanner'
+export { ConversationShareButton } from './ConversationShareButton'
+export { ConversationShareDialog } from './ConversationShareDialog'
 export {
   LoopTracePanel,
   type LoopTracePanelProps,

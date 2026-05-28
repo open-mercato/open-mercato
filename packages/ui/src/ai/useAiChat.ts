@@ -69,6 +69,8 @@ export interface AiChatMessage {
   reasoning?: string
   reasoningStreaming?: boolean
   toolCalls?: AiChatToolCallSnapshot[]
+  /** User ID of the message author. Present for server-loaded messages; null for AI messages and locally-composed messages. */
+  senderUserId?: string | null
   /**
    * UI parts emitted by the agent during this message's lifecycle. Today
    * the only producer is `prepareMutation` (mutation approval flow):
@@ -145,6 +147,11 @@ export interface UseAiChatResult {
    * Phase 4 of spec `2026-04-28-ai-agents-agentic-loop-controls`.
    */
   lastLoopTrace: LoopTracePanelTrace | null
+  /**
+   * Whether the authenticated caller owns the loaded conversation. `true` for owners,
+   * `false` for shared participants (read-only view), `null` while unresolved.
+   */
+  isOwner: boolean | null
   sendMessage: (input: string, files?: AiChatMessageFile[]) => Promise<void>
   cancel: () => void
   reset: () => void
@@ -922,6 +929,9 @@ export function useAiChat(input: UseAiChatInput): UseAiChatResult {
       if (cancelled || latestStatusRef.current !== 'idle') return
 
       if (transcript) {
+        if (typeof transcript.conversation.isOwner === 'boolean') {
+          setIsOwner(transcript.conversation.isOwner)
+        }
         const serverMessages = transcript.messages
           .map(serverMessageToChatMessage)
           .filter((message): message is AiChatMessage => message !== null)
@@ -974,6 +984,7 @@ export function useAiChat(input: UseAiChatInput): UseAiChatResult {
   >(null)
 
   const [lastLoopTrace, setLastLoopTrace] = React.useState<LoopTracePanelTrace | null>(null)
+  const [isOwner, setIsOwner] = React.useState<boolean | null>(null)
 
   const abortRef = React.useRef<AbortController | null>(null)
   const onErrorRef = React.useRef(onError)
@@ -1319,6 +1330,7 @@ export function useAiChat(input: UseAiChatInput): UseAiChatResult {
     lastResponseDebug,
     conversationId: effectiveConversationId,
     lastLoopTrace,
+    isOwner,
     sendMessage,
     cancel,
     reset,

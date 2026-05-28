@@ -167,7 +167,7 @@ export async function GET(req: NextRequest): Promise<Response> {
       },
     )
     return NextResponse.json({
-      items: result.items.map(serializeAiChatConversation),
+      items: result.items.map((row) => serializeAiChatConversation(row)),
       nextCursor: result.nextCursor,
     })
   } catch (error) {
@@ -228,6 +228,9 @@ export async function POST(req: NextRequest): Promise<Response> {
     const status = beforeRow ? 200 : 201
     return NextResponse.json(serializeAiChatConversation(row), { status })
   } catch (error) {
+    if (error instanceof Error && error.name === 'AiChatConversationOrgNotFoundError') {
+      return jsonError(400, error.message, 'organization_not_found')
+    }
     if (error instanceof Error && error.name === 'AiChatConversationAccessError') {
       return jsonError(404, error.message, 'conversation_not_found')
     }

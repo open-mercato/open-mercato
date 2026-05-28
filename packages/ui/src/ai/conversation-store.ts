@@ -15,6 +15,8 @@ export interface AiServerConversation {
   updatedAt: string
   lastMessageAt: string | null
   importedFromLocalAt: string | null
+  /** `true` when the authenticated caller created the conversation; `false` for shared participants; `null` when unknown. */
+  isOwner: boolean | null
 }
 
 export interface AiServerMessage {
@@ -28,6 +30,7 @@ export interface AiServerMessage {
   model: string | null
   metadata: Record<string, unknown> | null
   createdAt: string
+  senderUserId: string | null
 }
 
 export interface AiServerConversationListResponse {
@@ -242,5 +245,6 @@ export function serverMessageToChatMessage(message: AiServerMessage): AiChatMess
       })
       .filter((file): file is NonNullable<AiChatMessage['files']>[number] => file !== null),
     uiParts,
+    senderUserId: message.senderUserId ?? null,
   }
 }
