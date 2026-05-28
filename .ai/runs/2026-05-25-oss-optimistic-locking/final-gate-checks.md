@@ -87,3 +87,40 @@ None.
 ## Next step
 
 Step 7 of `auto-continue-pr-loop`: invoke `auto-review-pr` in autofix mode against PR #2055; iterate to a clean verdict. Then post the comprehensive summary comment (step 8), flip PR body `Status: in-progress → complete`, normalize labels, release the in-progress lock, and clean up the worktree (step 9).
+
+---
+
+# Final gate (resume) — command-level optimistic locking (Phases 16–20)
+
+**Timestamp:** 2026-05-28T19:10Z
+**Scope:** generalist command-level OSS optimistic locking + sales document-aggregate wiring + docs/specs + follow-up issue #2215.
+
+## Validation (locally runnable)
+
+| Check | Result |
+|---|---|
+| `yarn build:packages` | ✓ exit 0 |
+| `yarn generate` | ✓ exit 0, no committed drift |
+| `yarn workspace @open-mercato/shared typecheck` | ✓ exit 0 |
+| `yarn turbo run typecheck --filter=@open-mercato/core` (root tsc 6.0.3) | ✓ exit 0 (incl. handleConvert .tsx) |
+| `yarn workspace @open-mercato/shared test` (optimistic-lock-command + optimistic-lock) | ✓ 57/57 |
+| `yarn workspace @open-mercato/core test sales/commands/__tests__/optimistic-lock.test.ts` | ✓ 5/5 |
+| `yarn i18n:check-sync` | ✓ 4 locales in sync (no new keys) |
+
+## Not runnable locally (CI authoritative — sandbox lacks Postgres/Redis/full app env)
+
+- `yarn build:app`
+- `yarn test:integration` (incl. TC-LOCK-OSS-001..004; env runs `OM_OPTIMISTIC_LOCK=all`). New sales command path is unit-covered; `TC-LOCK-OSS-005` tracked in follow-up #2215.
+- `yarn test:create-app:integration` (not touched: additive new file + one additive export).
+
+## Code review (substitutes cloud auto-review-pr)
+
+Self review + independent code-review subagent over the command-level diff: **no BLOCKER / no SHOULD-FIX**. Verified strictly-additive (no header → no 409), `OM_OPTIMISTIC_LOCK` parity, identical `normalizeIsoToken` across command + CRUD paths, `ctx.request` optional-safe, throws only `CrudHttpError(409)`, enforce placed after load+scope/before mutation (pre-mutation `updatedAt`), no double-409 with the row-level guard (lines/adjustments skip it via `{ body }` → null `candidateId`). 2 accepted NITs (unused-but-documented `resourceId`; type-pinned conflict-body mirror).
+
+## BC self-review
+
+Strictly additive: new file + additive exports; command 409 path is no-op unless the client opts in via the header; one additive convert header. No removed fields/signatures/event IDs/DI/ACL/routes/schema.
+
+## DS-guardian
+
+Only UI change (handleConvert) adds headers + a flash (existing i18n key) + a state bump — no DS tokens/colors/typography/arbitrary values. Clean.

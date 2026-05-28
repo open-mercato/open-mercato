@@ -71,7 +71,7 @@
 | 18 | 18.1 | Client: wire quote convert action (`handleConvert`) to send `buildOptimisticLockHeader(record.updatedAt)` + 409 conflict flash + reload. Document-section (lines/adjustments/returns) header wiring deferred to the follow-up issue (browser-QA-gated; the totals-refresh flow already re-fetches `record.updatedAt`, so it is safe — see 20.1) | done | b2d94520f |
 | 19 | 19.1 | Update coverage-completion spec (Phase 4) + main optimistic-locking spec (command-level section) | done | d8dcee93c |
 | 19 | 19.2 | Update `concurrency-locking.mdx` docs + root AGENTS.md command-level contract + CHANGELOG | done | d8dcee93c |
-| 20 | 20.1 | File follow-up GitHub issue (extend command-level lock to other modules) + CHANGELOG entry | todo | — |
+| 20 | 20.1 | File follow-up GitHub issue #2215 (extend command-level lock to other modules + sales doc UI client wiring) + CHANGELOG entry + final gate/review/summary | done | 6252df31b |
 
 ## Goal (resume)
 

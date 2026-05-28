@@ -1,10 +1,10 @@
 # Handoff — 2026-05-25-oss-optimistic-locking
 
-**Last updated:** 2026-05-28T18:55Z
+**Last updated:** 2026-05-28T19:12Z
 **Branch:** feat/oss-optimistic-locking
 **PR:** https://github.com/open-mercato/open-mercato/pull/2055
-**Current phase/step:** Phase 17 complete (command-level locking for sales). PR head pushed (`d835925db`). Next: Phase 18 (client wiring) → 19 (docs/spec) → 20 (follow-up issue + final gate).
-**Last code commit:** d6448082e (`feat(sales): document-aggregate optimistic locking for sub-resource commands`)
+**Current phase/step:** COMPLETE — Phases 16–20 all done. Command-level OSS optimistic locking shipped + wired for sales + docs/specs updated + follow-up issue #2215 filed. Final gate green (locally runnable subset); CI authoritative for build:app + integration. Next: human re-QA + 2nd-approver merge.
+**Last code commit:** b2d94520f (`feat(sales): send document version header on quote convert`) — docs in d8dcee93c.
 
 ## What this resume adds (Phases 16–20)
 

@@ -95,3 +95,10 @@ Append-only event log. Newest at the bottom.
 - Design decision logged: payments/shipments keep their makeCrudRoute row-level guard (flat mapInput → candidateId set); lines/adjustments skip it (`{ body }` wrapping → candidateId null) so the doc-aggregate command check is their sole guard — no double-409. Quote convert closes the #2114 race.
 - UI/Playwright skipped (no UI touched in 16–17). Phase 18 = client wiring; TC-LOCK-OSS-005 integration proof runs in CI.
 - Merge conflict resolution (CHANGELOG + yarn.lock) landed `20b4ba3ff`; PR no longer DIRTY.
+
+## 2026-05-28T19:12Z — Phases 18–20 complete (resume finalized)
+- Phase 18 (`b2d94520f`): quote convert client sends the version header + 409 conflict flash/reload (closes #2114 end-to-end). Sales document-section client wiring deferred to #2215.
+- Phase 19 (`d8dcee93c`): docs/specs — main spec §10, coverage-completion spec (Phase 4 partial), concurrency-locking.mdx "Protecting command/action endpoints", AGENTS.md Task Router, CHANGELOG.
+- Phase 20: filed follow-up issue #2215 (extend command-level lock to catalog/workflows/staff/resources + finish sales doc UI client wiring + TC-LOCK-OSS-005). Final gate green for the locally-runnable subset (build:packages, generate, shared+core typecheck via turbo, 57 shared + 5 sales tests, i18n sync). build:app + integration suites → CI authoritative (no PG/Redis locally).
+- Independent code-review subagent + self review: no blocker/should-fix findings. BC strictly additive. DS clean.
+- PR stays `feature, qa, needs-qa`; in-progress lock released. Status remains `complete` (now 20 phases).
