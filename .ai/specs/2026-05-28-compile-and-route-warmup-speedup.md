@@ -4,7 +4,7 @@
 
 **Key Points:**
 - The April 2, 2026 cold-start work (`.ai/specs/implemented/2026-04-02-dev-structural-regeneration-and-cold-start-optimization.md`) already solved the worst architectural offenders: lazy route manifests, partitioned bootstrap, generator watch, and a background warmup. This spec targets the **next 30–50%** on top of that, in two independent workstreams.
-- **Workstream A — build/generate compilation pipeline.** `yarn build` runs `build:packages` **twice** (`package.json:30`), `yarn generate` runs 8 generators **strictly sequentially** with `cache: false` (`packages/cli/src/mercato.ts:659-680`, `turbo.json:43-46`), and there are **no tsc project references / shared incremental graph** so cross-package typecheck/compile never skips unchanged work. These are the dominant repeatable-compile costs for `build`, `generate`, and `typecheck`.
+- **Workstream A — build/generate compilation pipeline.** `yarn build` runs `build:packages` **twice** (`package.json:30`), `yarn generate` runs 8 generators **strictly sequentially** with `cache: false` (`packages/cli/src/mercato.ts:573-594`, sequential awaits at `:586-593`; `turbo.json:43-46`), and there are **no tsc project references / shared incremental graph** so cross-package typecheck/compile never skips unchanged work. These are the dominant repeatable-compile costs for `build`, `generate`, and `typecheck`.
 - **Workstream B — dev route warmup + Turbopack cache.** The only warmup that exists today is the HTTP flow in `apps/mercato/scripts/dev.mjs:787-998`, which warms exactly three things **sequentially**: `GET /login`, `POST /api/auth/login`, `GET /backend`. The heaviest cold compile measured in April — the `/api/[...slug]` catch-all (`~15s`) and a real backend CRUD list page like `/backend/customers/people` (`~19.4s`) — are **never explicitly warmed**. `instrumentation.ts` is now a no-op (`apps/mercato/src/instrumentation.ts`). The Turbopack filesystem cache is also un-tuned and is invalidated on every `yarn generate` because the post-generate step touches all `.generated.ts` files unconditionally.
 - The fix is additive and flag-gated: parallelize the generator suite, content-gate generated writes so unchanged output preserves the Turbopack cache, add a checksum skip for no-op `generate`, collapse the redundant second `build:packages` pass via stable cache inputs, broaden + parallelize warmup to cover one representative route per catch-all kind, and tune the Turbopack/Next dev levers. Each lands behind a flag and is validated with the existing `yarn dev:profile` harness plus a documented cold-compile procedure.
 
@@ -62,7 +62,7 @@ Open Mercato's module system trades flexibility for a large generated registry a
 ### A. Build/generate/typecheck does redundant and serial work
 
 1. **Double package build.** `yarn build` is `yarn build:packages && yarn generate && yarn build:packages && yarn build:app` (`package.json:30`). The second `build:packages` exists because generators write into package `generated/` trees that are declared `build` inputs (`turbo.json:9` — `inputs: ["$TURBO_DEFAULT$", "generated/**"]`). Today that second pass rebuilds packages whose generated inputs are byte-unchanged because generator output is not content-stable, so Turbo treats it as a cache miss.
-2. **Strictly sequential generators.** `runGeneratorSuite` awaits 8 generators one-by-one (`packages/cli/src/mercato.ts:659-680`): entity IDs → module registry → app registry → CLI registry → entities → DI → package sources → OpenAPI. Several have no data dependency on each other and could run concurrently. The Turbo `generate` task is `cache: false` (`turbo.json:44`), so the full suite re-runs even when no module source changed.
+2. **Strictly sequential generators.** `runGeneratorSuite` awaits 8 generators one-by-one (`packages/cli/src/mercato.ts:573-594`): entity IDs → module registry → app registry → CLI registry → entities → DI → package sources → OpenAPI. Several have no data dependency on each other and could run concurrently. The Turbo `generate` task is `cache: false` (`turbo.json:44`), so the full suite re-runs even when no module source changed.
 3. **No incremental cross-package compilation.** Packages compile via esbuild with `bundle: false` (`scripts/build-package.mjs`) and typecheck via per-package `tsc --noEmit` (`turbo.json:32-35`) with **no `composite` / `references` / shared `tsBuildInfoFile`**. Turbo caches whole-task outputs, but a single edit in a shared package (e.g. `@open-mercato/shared`) forces a from-scratch typecheck of every dependent package rather than an incremental delta.
 
 ### B. Dev warmup is narrow and serial; the Turbopack cache is fragile
@@ -79,7 +79,7 @@ Two independent workstreams, each landing additively behind flags.
 
 | Lever | Change | Where |
 |-------|--------|-------|
-| A1 — Parallel generator suite | Group independent generators into bounded `Promise.all` stages, preserving the entity-IDs→registry data dependency. | `packages/cli/src/mercato.ts:659-680` |
+| A1 — Parallel generator suite | Group independent generators into bounded `Promise.all` stages, preserving the entity-IDs→registry data dependency. | `packages/cli/src/mercato.ts:573-594` |
 | A2 — Content-stable generated writes | Write generated files only when output bytes change; never `touch` unchanged files. Makes Turbo `build` inputs stable and preserves the Turbopack cache. | generators under `packages/cli/src/lib/generators/*`; post-generate touch step |
 | A3 — No-op generate skip | Checksum module sources; skip the whole suite when nothing structural changed (reuse the existing `in-process-generate-watcher` checksum logic). | `packages/cli/src/mercato.ts`, `packages/cli/src/lib/in-process-generate-watcher.ts` |
 | A4 — Collapse the second `build:packages` | With A2 making generated output byte-stable, the second pass becomes Turbo cache hits for unchanged packages. Verify and, if proven, document/optionally fold generation into a single ordered Turbo graph. | `package.json:30`, `turbo.json` |
@@ -146,7 +146,7 @@ Pipeline latency (Workstream A) is timed with wall-clock around `yarn generate`,
 
 ### A1 — Parallel generator suite
 
-Current (`packages/cli/src/mercato.ts:659-680`) is a serial `await` chain. Reshape into dependency-ordered stages:
+Current (`packages/cli/src/mercato.ts:573-594`) is a serial `await` chain. Reshape into dependency-ordered stages:
 
 ```
 Stage 0 (must be first):  generateEntityIds            // entity-id map feeds the registry
