@@ -1,3 +1,7 @@
+jest.mock('@open-mercato/cache', () => ({
+  runWithCacheTenant: async (_tenantId: string | null, fn: () => Promise<unknown>) => fn(),
+}), { virtual: true })
+
 import { makeCrudRoute } from '@open-mercato/shared/lib/crud/factory'
 import { registerApiInterceptors } from '@open-mercato/shared/lib/crud/interceptor-registry'
 import { z } from 'zod'
@@ -247,6 +251,16 @@ describe('CRUD Factory', () => {
     expect(queryArgs?.filters).toEqual({
       id: { $in: [idA, idB] },
     })
+  })
+
+  it('GET normalizes custom field sort selectors for the query engine path', async () => {
+    await route.GET(new Request('http://x/api/example/todos?page=1&pageSize=10&sortField=cf_priority&sortDir=desc'))
+
+    expect(queryEngine.query).toHaveBeenCalled()
+    const queryArgs = queryEngine.query.mock.calls.at(-1)?.[1]
+    expect(queryArgs?.sort).toEqual([
+      { field: 'cf:priority', dir: 'desc' },
+    ])
   })
 
   it('GET intersects ids with existing buildFilters id constraint', async () => {
