@@ -1,11 +1,14 @@
 import { expect, test } from '@playwright/test'
 import { apiRequest, getAuthToken } from '@open-mercato/core/modules/core/__integration__/helpers/api'
 import {
+  deleteGeneralEntityIfExists,
   expectId,
-  getTokenScope,
   readJsonSafe,
 } from '@open-mercato/core/modules/core/__integration__/helpers/generalFixtures'
-import { createUserFixture, deleteUserIfExists } from '@open-mercato/core/modules/core/__integration__/helpers/authFixtures'
+import {
+  createUserFixture,
+  deleteUserIfExists,
+} from '@open-mercato/core/modules/core/__integration__/helpers/authFixtures'
 import {
   deleteAttachmentIfExists,
   uploadAttachmentFixture,
@@ -14,39 +17,57 @@ import {
 const BASE_URL = process.env.BASE_URL?.trim() || 'http://localhost:3000'
 
 test.describe('TC-ATTACH-XSS-004: Super-admin access to any private attachment', () => {
-  test('should return 200 and serve the correct file when a super-admin reads an attachment that is blocked for cross-org users', async ({ request }) => {
+  test('should return 200 when a super-admin reads a private attachment uploaded in a different tenant', async ({
+    request,
+  }) => {
     const superadminToken = await getAuthToken(request, 'superadmin')
     const adminToken = await getAuthToken(request, 'admin')
-    const { tenantId: adminTenantId } = getTokenScope(adminToken)
 
-    const crossOrgUserEmail = `qa-xss-004-${Date.now()}@test.invalid`
-    const recordId = `qa-xss-004-${Date.now()}`
-    const fileContent = 'super-admin bypass test'
+    const stamp = Date.now()
+    const t2AdminEmail = `qa-xss-004-t2-${stamp}@test.invalid`
+    const recordId = `qa-xss-004-${stamp}`
+    const fileContent = 'super-admin cross-tenant bypass test'
 
-    let crossOrgId: string | null = null
-    let crossOrgUserId: string | null = null
+    let t2TenantId: string | null = null
+    let t2OrgId: string | null = null
+    let t2AdminId: string | null = null
     let attachmentId: string | null = null
 
     try {
-      // Create a second org so we can prove the org filter is active for regular users
-      // but bypassed for super-admin via isSuperAdminAuth() in the route.
-      const orgResponse = await apiRequest(request, 'POST', '/api/directory/organizations', {
+      // Create tenant T2 so the attachment is owned by a different tenant than the
+      // global super-admin's own tenant. This proves the bypass operates at the tenant
+      // boundary, not just the org boundary.
+      const tenantRes = await apiRequest(request, 'POST', '/api/directory/tenants', {
         token: superadminToken,
-        data: { tenantId: adminTenantId, name: `qa-xss-004-org-${Date.now()}` },
+        data: { name: `qa-xss-004-tenant-${stamp}` },
       })
-      expect(orgResponse.status()).toBe(201)
-      const orgBody = await readJsonSafe<{ id?: string }>(orgResponse)
-      crossOrgId = expectId(orgBody?.id, 'org create should return id')
+      expect(tenantRes.status()).toBe(201)
+      t2TenantId = expectId(
+        (await readJsonSafe<{ id?: string }>(tenantRes))?.id,
+        'tenant create should return id',
+      )
 
-      crossOrgUserId = await createUserFixture(request, superadminToken, {
-        email: crossOrgUserEmail,
+      const orgRes = await apiRequest(request, 'POST', '/api/directory/organizations', {
+        token: superadminToken,
+        data: { tenantId: t2TenantId, name: `qa-xss-004-org-${stamp}` },
+      })
+      expect(orgRes.status()).toBe(201)
+      t2OrgId = expectId(
+        (await readJsonSafe<{ id?: string }>(orgRes))?.id,
+        'org create should return id',
+      )
+
+      // Create a T2 admin to upload the attachment — their JWT carries T2's tenantId,
+      // so the resulting attachment row is stored with tenantId = T2.
+      t2AdminId = await createUserFixture(request, superadminToken, {
+        email: t2AdminEmail,
         password: 'Valid1!Pass',
-        organizationId: crossOrgId,
-        roles: ['employee'],
+        organizationId: t2OrgId,
+        roles: ['admin'],
       })
 
-      // Admin (org A) uploads a private attachment
-      const uploaded = await uploadAttachmentFixture(request, adminToken, {
+      const t2AdminToken = await getAuthToken(request, t2AdminEmail, 'Valid1!Pass')
+      const uploaded = await uploadAttachmentFixture(request, t2AdminToken, {
         entityId: 'attachments:library',
         recordId,
         fileName: 'xss-004.txt',
@@ -55,16 +76,16 @@ test.describe('TC-ATTACH-XSS-004: Super-admin access to any private attachment',
       })
       attachmentId = uploaded.id
 
-      // Cross-org user (org B) is blocked — confirms the org filter is active
-      const crossOrgUserToken = await getAuthToken(request, crossOrgUserEmail, 'Valid1!Pass')
+      // T1 admin (different tenant) is blocked — confirms the tenant filter is active.
+      // em.findOne({ id, tenantId: T1 }) returns null because the attachment is in T2.
       const blockedResponse = await request.fetch(
         `${BASE_URL}/api/attachments/file/${encodeURIComponent(attachmentId)}`,
-        { method: 'GET', headers: { Authorization: `Bearer ${crossOrgUserToken}` } },
+        { method: 'GET', headers: { Authorization: `Bearer ${adminToken}` } },
       )
       expect(blockedResponse.status()).toBe(404)
 
-      // Super-admin bypasses the org filter: isSuperAdminAuth() returns true so the
-      // route skips adding tenantId/organizationId to em.findOne (route.ts lines 42-45).
+      // Global super-admin bypasses via isSuperAdminAuth() — em.findOne receives no
+      // tenantId/organizationId constraint, so the T2 row is found and served.
       const superadminResponse = await request.fetch(
         `${BASE_URL}/api/attachments/file/${encodeURIComponent(attachmentId)}`,
         { method: 'GET', headers: { Authorization: `Bearer ${superadminToken}` } },
@@ -74,16 +95,10 @@ test.describe('TC-ATTACH-XSS-004: Super-admin access to any private attachment',
       const body = await superadminResponse.text()
       expect(body).toBe(fileContent)
     } finally {
-      await deleteAttachmentIfExists(request, adminToken, attachmentId)
-      await deleteUserIfExists(request, superadminToken, crossOrgUserId)
-      if (crossOrgId) {
-        await apiRequest(
-          request,
-          'DELETE',
-          `/api/directory/organizations?id=${encodeURIComponent(crossOrgId)}`,
-          { token: superadminToken },
-        ).catch(() => undefined)
-      }
+      await deleteAttachmentIfExists(request, superadminToken, attachmentId)
+      await deleteUserIfExists(request, superadminToken, t2AdminId)
+      await deleteGeneralEntityIfExists(request, superadminToken, '/api/directory/organizations', t2OrgId)
+      await deleteGeneralEntityIfExists(request, superadminToken, '/api/directory/tenants', t2TenantId)
     }
   })
 })
