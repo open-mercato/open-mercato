@@ -284,6 +284,7 @@ export const inventoryCycleCountSchema = scopedSchema.extend({
   lotId: uuid().optional(),
   serialNumber: z.string().trim().max(120).optional(),
   countedQuantity: nonNegativeQuantity,
+  autoAdjust: z.boolean().default(true),
   reason: z.string().trim().min(1).max(500),
   referenceId: uuid(),
   performedBy: uuid(),

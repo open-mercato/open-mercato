@@ -131,3 +131,8 @@ docker/opencode/opencode.jsonc
 .agents/
 
 apps/mercato/data/
+apps/mercato/data/cache.db
+apps/mercato/data/*.db
+apps/mercato/data/*.db-journal
+apps/mercato/data/*.db-wal
+apps/mercato/data/*.db-shm

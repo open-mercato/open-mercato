@@ -3,6 +3,7 @@
 import { z } from 'zod'
 import {
   inventoryAdjustSchema,
+  inventoryCycleCountSchema,
   productInventoryProfileCreateSchema,
   warehouseCreateSchema,
   warehouseLocationCreateSchema,
@@ -98,5 +99,34 @@ describe('wms validator rules', () => {
         performedBy: '99999999-9999-4999-8999-999999999999',
       }),
     ).toThrow(/non-zero/i)
+  })
+
+  it('defaults autoAdjust to true for cycle count payloads', () => {
+    expect(
+      inventoryCycleCountSchema.parse({
+        ...scoped,
+        warehouseId: '55555555-5555-4555-8555-555555555555',
+        locationId: '66666666-6666-4666-8666-666666666666',
+        catalogVariantId: '77777777-7777-4777-8777-777777777777',
+        countedQuantity: 10,
+        reason: 'cycle_count',
+        referenceId: '88888888-8888-4888-8888-888888888888',
+        performedBy: '99999999-9999-4999-8999-999999999999',
+      }),
+    ).toMatchObject({ autoAdjust: true })
+
+    expect(
+      inventoryCycleCountSchema.parse({
+        ...scoped,
+        warehouseId: '55555555-5555-4555-8555-555555555555',
+        locationId: '66666666-6666-4666-8666-666666666666',
+        catalogVariantId: '77777777-7777-4777-8777-777777777777',
+        countedQuantity: 10,
+        autoAdjust: false,
+        reason: 'cycle_count',
+        referenceId: '88888888-8888-4888-8888-888888888888',
+        performedBy: '99999999-9999-4999-8999-999999999999',
+      }),
+    ).toMatchObject({ autoAdjust: false })
   })
 })

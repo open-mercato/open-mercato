@@ -1359,6 +1359,9 @@ const cycleCountInventoryCommand: CommandHandler<InventoryCycleCountInput, { adj
           balanceAction: ('updated' as const),
         }
       }
+      if (!input.autoAdjust) {
+        throw new CrudHttpError(422, { error: 'auto_adjust_required' })
+      }
       setNumeric(
         balance as unknown as Record<string, unknown>,
         'quantityOnHand',

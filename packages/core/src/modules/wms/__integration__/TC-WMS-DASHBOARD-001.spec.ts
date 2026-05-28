@@ -42,7 +42,8 @@ test.describe('TC-WMS-DASHBOARD-001 operational dashboard API', () => {
   })
 
   test('rejects unauthenticated dashboard requests', async ({ request }) => {
-    const response = await apiRequest(request, 'GET', '/api/wms/dashboard/operational')
+    const baseUrl = process.env.BASE_URL?.trim() || 'http://localhost:3000'
+    const response = await request.get(`${baseUrl}/api/wms/dashboard/operational`)
     expect(response.status()).toBe(401)
   })
 
