@@ -59,7 +59,7 @@
 | 15 | 15.2 | Company-v2 + People-v2: send lock header on custom delete handlers + tests | done | 583bdb1c9 |
 | 15 | 15.3 | Sales channels list delete: send lock header (row updatedAt) + conflict refresh | done | 419670342 |
 | 15 | 15.4 | Integration: stale + header-less DELETE for customers.deal (entity-agnostic delete-guard proof) | done | 7d083ad09 |
-| 15 | 15.5 | Coverage spec reconciliation + concurrency-locking docs note + checkpoint | todo | — |
+| 15 | 15.5 | Coverage spec reconciliation (impl-status table) — docs already cover the pattern | done | b1dbcf79c |
 
 ## Goal (resume)
 
