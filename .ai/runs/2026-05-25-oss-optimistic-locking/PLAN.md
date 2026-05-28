@@ -56,7 +56,7 @@
 | 14 | 14.4 | Update spec §3.4 + §4 + decision matrix Q7 = C; update `concurrency-locking.mdx` (default state, opting out, reference example); update root `AGENTS.md` Task Router row | done | e8bcf4287 |
 | 14 | 14.5 | CHANGELOG `Unreleased` entry + `UPGRADE_NOTES.md` migration section + CI workflow comment refresh | done | e8bcf4287 |
 | 15 | 15.1 | Deals: send optimistic-lock header on update + delete handlers + unit test | done | 19d662563 |
-| 15 | 15.2 | Company-v2 + People-v2: send lock header on custom delete handlers + tests | todo | — |
+| 15 | 15.2 | Company-v2 + People-v2: send lock header on custom delete handlers + tests | done | 583bdb1c9 |
 | 15 | 15.3 | Sales channels list delete: send lock header (row updatedAt) + test | todo | — |
 | 15 | 15.4 | Integration specs: stale delete → 409 for customers.deal + sales.channel | todo | — |
 | 15 | 15.5 | Coverage spec reconciliation + concurrency-locking docs note + checkpoint | todo | — |

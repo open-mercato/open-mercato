@@ -4,9 +4,11 @@
 import * as React from 'react'
 import { fireEvent, screen, waitFor } from '@testing-library/react'
 import { renderWithProviders } from '@open-mercato/shared/lib/testing/renderWithProviders'
+import { OPTIMISTIC_LOCK_HEADER_NAME } from '@open-mercato/shared/lib/crud/optimistic-lock-headers'
 import CompanyDetailV2Page from '../page'
 
 const readApiResultOrThrowMock = jest.fn()
+const scopedDeleteHeaderCalls: Array<Record<string, string>> = []
 let activeTabParam: string | null = 'activity-log'
 
 jest.mock('next/navigation', () => ({
@@ -51,6 +53,14 @@ jest.mock('@open-mercato/ui/backend/utils/crud', () => ({
 jest.mock('@open-mercato/ui/backend/utils/apiCall', () => ({
   apiCallOrThrow: jest.fn(),
   readApiResultOrThrow: (...args: unknown[]) => readApiResultOrThrowMock(...args),
+  withScopedApiRequestHeaders: <T,>(headers: Record<string, string>, run: () => Promise<T>) => {
+    scopedDeleteHeaderCalls.push(headers)
+    return run()
+  },
+}))
+
+jest.mock('@open-mercato/ui/backend/confirm-dialog', () => ({
+  useConfirmDialog: () => ({ confirm: jest.fn(async () => true), ConfirmDialogElement: null }),
 }))
 
 jest.mock('@open-mercato/ui/backend/FlashMessages', () => ({
@@ -269,6 +279,44 @@ describe('CompanyDetailV2Page schedule dialog state', () => {
     expect(crudFormPropsCapture.current?.optimisticLockUpdatedAt).toBe(
       '2026-05-25T11:00:00.000Z',
     )
+  })
+
+  it('sends the optimistic-lock header on company delete (PR #2055 QA)', async () => {
+    activeTabParam = 'activity-log'
+    crudFormPropsCapture.current = null
+    scopedDeleteHeaderCalls.length = 0
+    const deleteCrudMock = jest.requireMock('@open-mercato/ui/backend/utils/crud').deleteCrud as jest.Mock
+    deleteCrudMock.mockReset().mockResolvedValue({ ok: true })
+    readApiResultOrThrowMock.mockResolvedValue({
+      company: {
+        id: 'company-789',
+        displayName: 'Delete Me Inc',
+        updatedAt: '2026-05-28T09:30:00.000Z',
+        nextInteractionAt: null,
+        nextInteractionName: null,
+      },
+      interactionMode: 'legacy',
+      tags: [],
+      todos: [],
+      people: [],
+      deals: [],
+      interactions: [],
+    })
+
+    renderWithProviders(<CompanyDetailV2Page params={{ id: 'company-789' }} />)
+
+    await waitFor(() => {
+      expect(crudFormPropsCapture.current).not.toBeNull()
+    })
+
+    const onDelete = crudFormPropsCapture.current?.onDelete as (() => Promise<void>) | undefined
+    expect(typeof onDelete).toBe('function')
+    await onDelete!()
+
+    expect(deleteCrudMock).toHaveBeenCalledTimes(1)
+    expect(scopedDeleteHeaderCalls).toContainEqual({
+      [OPTIMISTIC_LOCK_HEADER_NAME]: '2026-05-28T09:30:00.000Z',
+    })
   })
 
   it('passes undefined when the loaded company has no updatedAt (graceful fallback)', async () => {

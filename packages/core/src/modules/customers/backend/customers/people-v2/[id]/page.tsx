@@ -10,6 +10,8 @@ import { CollapsibleZoneLayout, type ZoneSectionDescriptor } from '@open-mercato
 import { updateCrud, deleteCrud } from '@open-mercato/ui/backend/utils/crud'
 import { apiCallOrThrow } from '@open-mercato/ui/backend/utils/apiCall'
 import { readApiResultOrThrow } from '@open-mercato/ui/backend/utils/apiCall'
+import { withScopedApiRequestHeaders } from '@open-mercato/ui/backend/utils/apiCall'
+import { buildOptimisticLockHeader } from '@open-mercato/ui/backend/utils/optimisticLock'
 import { createCrudFormError } from '@open-mercato/ui/backend/utils/serverErrors'
 import { E } from '#generated/entities.ids.generated'
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
@@ -345,7 +347,10 @@ export default function PersonDetailV2Page({ params }: { params?: { id?: string 
       })
       if (!approved) return
       await runMutationWithContext(
-        () => deleteCrud('customers/people', { id: personId }),
+        () => withScopedApiRequestHeaders(
+          buildOptimisticLockHeader(data?.person?.updatedAt ?? data?.person?.updated_at ?? null),
+          () => deleteCrud('customers/people', { id: personId }),
+        ),
         { id: personId, operation: 'deletePerson' },
       )
       flash(t('customers.people.list.deleteSuccess', 'Person deleted.'), 'success')

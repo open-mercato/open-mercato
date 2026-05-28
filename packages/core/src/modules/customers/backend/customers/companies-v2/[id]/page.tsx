@@ -6,7 +6,8 @@ import { useRouter, useSearchParams } from 'next/navigation'
 import { Page, PageBody } from '@open-mercato/ui/backend/Page'
 import { Building2, Hash, Users, BarChart3, StickyNote } from 'lucide-react'
 import { updateCrud, deleteCrud } from '@open-mercato/ui/backend/utils/crud'
-import { apiCallOrThrow, readApiResultOrThrow } from '@open-mercato/ui/backend/utils/apiCall'
+import { apiCallOrThrow, readApiResultOrThrow, withScopedApiRequestHeaders } from '@open-mercato/ui/backend/utils/apiCall'
+import { buildOptimisticLockHeader } from '@open-mercato/ui/backend/utils/optimisticLock'
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { Button } from '@open-mercato/ui/primitives/button'
@@ -318,7 +319,10 @@ export default function CompanyDetailV2Page({ params }: { params?: { id?: string
     })
     if (!approved) return
     await runMutationWithContext(
-      () => deleteCrud('customers/companies', { id: companyId }),
+      () => withScopedApiRequestHeaders(
+        buildOptimisticLockHeader((data?.company as { updatedAt?: string } | undefined)?.updatedAt),
+        () => deleteCrud('customers/companies', { id: companyId }),
+      ),
       { id: companyId, operation: 'deleteCompany' },
     )
     flash(t('customers.companies.list.deleteSuccess', 'Company deleted.'), 'success')
