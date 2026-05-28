@@ -8,6 +8,7 @@ import {
   AiChatConversationAccessError,
   AiChatConversationDuplicateParticipantError,
   AiChatConversationOrgNotFoundError,
+  AiChatParticipantNotFoundError,
   AiChatConversationRepository,
 } from '../AiChatConversationRepository'
 
@@ -81,6 +82,10 @@ function matchesWhere(row: Record<string, any>, where: any): boolean {
     if (expected && typeof expected === 'object' && '$in' in expected) {
       const inList = expected.$in as unknown[]
       if (!inList.includes(actual)) return false
+      continue
+    }
+    if (expected && typeof expected === 'object' && '$ne' in expected) {
+      if (actual === expected.$ne) return false
       continue
     }
     if (expected === null) {
@@ -832,7 +837,7 @@ describe('AiChatConversationRepository', () => {
     expect(row.organizationId).toBeNull()
   })
 
-  it('getParticipantCount returns the count of active (non-deleted) participants (BUG-003)', async () => {
+  it('getParticipantCount excludes the owner and counts only non-owner active participants', async () => {
     const em = mockEm()
     const repo = new AiChatConversationRepository(em)
     const ownerCtx = { tenantId: tenantAlpha, organizationId: null, userId: 'u-owner' }
@@ -842,6 +847,40 @@ describe('AiChatConversationRepository', () => {
     await repo.revokeParticipant('c-count', 'u-v1', ownerCtx)
 
     const total = await repo.getParticipantCount(tenantAlpha, null, 'c-count')
-    expect(total).toBe(2)
+    expect(total).toBe(1)
+  })
+
+  it('getParticipantCount returns 0 for a private (owner-only) conversation', async () => {
+    const em = mockEm()
+    const repo = new AiChatConversationRepository(em)
+    const ownerCtx = { tenantId: tenantAlpha, organizationId: null, userId: 'u-owner' }
+    await repo.createOrGet({ conversationId: 'c-private', agentId: 'a' }, ownerCtx)
+
+    const count = await repo.getParticipantCount(tenantAlpha, null, 'c-private')
+    expect(count).toBe(0)
+  })
+
+  it('revokeParticipant throws AiChatParticipantNotFoundError for a non-existent userId', async () => {
+    const em = mockEm()
+    const repo = new AiChatConversationRepository(em)
+    const ownerCtx = { tenantId: tenantAlpha, organizationId: null, userId: 'u-owner' }
+    await repo.createOrGet({ conversationId: 'c-revoke-nf', agentId: 'a' }, ownerCtx)
+
+    await expect(
+      repo.revokeParticipant('c-revoke-nf', 'u-nonexistent', ownerCtx),
+    ).rejects.toBeInstanceOf(AiChatParticipantNotFoundError)
+  })
+
+  it('revokeParticipant throws AiChatParticipantNotFoundError when revoking an already-revoked participant', async () => {
+    const em = mockEm()
+    const repo = new AiChatConversationRepository(em)
+    const ownerCtx = { tenantId: tenantAlpha, organizationId: null, userId: 'u-owner' }
+    await repo.createOrGet({ conversationId: 'c-double-revoke', agentId: 'a' }, ownerCtx)
+    await repo.addParticipant('c-double-revoke', 'u-viewer', 'viewer', ownerCtx)
+    await repo.revokeParticipant('c-double-revoke', 'u-viewer', ownerCtx)
+
+    await expect(
+      repo.revokeParticipant('c-double-revoke', 'u-viewer', ownerCtx),
+    ).rejects.toBeInstanceOf(AiChatParticipantNotFoundError)
   })
 })
