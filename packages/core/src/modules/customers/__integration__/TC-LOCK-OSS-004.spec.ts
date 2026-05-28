@@ -19,6 +19,9 @@ import { getAuthToken } from '@open-mercato/core/modules/core/__integration__/he
  *   - A PUT without the extension header succeeds (guard skips — opt-in semantics).
  *   - A PUT with a fresh `updatedAt` header succeeds.
  *   - A PUT with a stale `updatedAt` header returns 409 with the structured body.
+ *   - A DELETE with a stale `updatedAt` header returns 409 (delete-path guard,
+ *     QA #2055); a fresh-header DELETE succeeds; a header-less DELETE stays
+ *     backward-compatible.
  *
  * Requires `OM_OPTIMISTIC_LOCK=all` (or an allow-list including
  * `customers.deal`) in the CI env — set workflow-wide in `.github/workflows/ci.yml`.
@@ -154,6 +157,62 @@ test.describe('TC-LOCK-OSS-004: customers.deal optimistic-lock guard (auto-regis
       expect(body.currentUpdatedAt).not.toBe(t0)
     } finally {
       if (dealId && token) {
+        await deleteEntityByBody(request, token, '/api/customers/deals', dealId)
+      }
+    }
+  })
+
+  test('stale updatedAt header on DELETE returns 409; fresh header deletes (QA #2055 delete locking)', async ({ request }) => {
+    let token: string | null = null
+    let dealId: string | null = null
+    let deleted = false
+    try {
+      token = await getAuthToken(request, 'admin')
+      dealId = await createDealFixture(request, token, { title: `QA TC-LOCK-OSS-004 del ${Date.now()}` })
+
+      // T0: snapshot, then advance the version with a fresh PUT so T0 is stale.
+      const t0 = await fetchDealUpdatedAt(request, token, dealId)
+      const bumped = await putDeal(request, token, dealId, { title: `QA TC-LOCK-OSS-004 del v1 ${Date.now()}` }, t0)
+      expect(bumped.status(), 'PUT with fresh updatedAt should succeed').toBeLessThan(300)
+      const t1 = await fetchDealUpdatedAt(request, token, dealId)
+      expect(t1, 'updatedAt should advance after the update').not.toBe(t0)
+
+      // DELETE carrying the STALE token (t0) must be refused with 409 + structured body.
+      const conflict = await deleteDeal(request, token, dealId, t0)
+      expect(
+        conflict.status(),
+        'DELETE with stale updatedAt header should return 409 — proves delete-path guard enforcement',
+      ).toBe(409)
+      const body = (await conflict.json()) as Record<string, unknown>
+      expect(body).toMatchObject({
+        error: 'record_modified',
+        code: 'optimistic_lock_conflict',
+        expectedUpdatedAt: t0,
+      })
+
+      // DELETE carrying the FRESH token (t1) must succeed.
+      const ok = await deleteDeal(request, token, dealId, t1)
+      expect(ok.status(), 'DELETE with fresh updatedAt header should succeed').toBeLessThan(300)
+      deleted = true
+    } finally {
+      if (dealId && token && !deleted) {
+        await deleteEntityByBody(request, token, '/api/customers/deals', dealId)
+      }
+    }
+  })
+
+  test('DELETE without the header still succeeds (opt-in semantics preserved)', async ({ request }) => {
+    let token: string | null = null
+    let dealId: string | null = null
+    let deleted = false
+    try {
+      token = await getAuthToken(request, 'admin')
+      dealId = await createDealFixture(request, token, { title: `QA TC-LOCK-OSS-004 del-nohdr ${Date.now()}` })
+      const res = await deleteDeal(request, token, dealId)
+      expect(res.status(), 'DELETE without header should succeed (backward-compatible)').toBeLessThan(300)
+      deleted = true
+    } finally {
+      if (dealId && token && !deleted) {
         await deleteEntityByBody(request, token, '/api/customers/deals', dealId)
       }
     }
