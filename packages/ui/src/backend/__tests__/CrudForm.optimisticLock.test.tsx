@@ -55,6 +55,7 @@ import * as React from 'react'
 import { act, fireEvent, waitFor } from '@testing-library/react'
 import { renderWithProviders } from '@open-mercato/shared/lib/testing/renderWithProviders'
 import { CrudForm, type CrudField } from '../CrudForm'
+import { dismissRecordConflict, getRecordConflictForTest } from '../conflicts'
 
 const dict = {
   'ui.forms.actions.save': 'Save',
@@ -140,7 +141,8 @@ describe('CrudForm — optimisticLockUpdatedAt prop wiring', () => {
     expect(withScopedApiRequestHeadersMock).not.toHaveBeenCalled()
   })
 
-  it('shows the localized record-modified message instead of the raw server error token on stale saves', async () => {
+  it('surfaces the localized record-modified message on the unified conflict bar (not a raw-token toast) on stale saves', async () => {
+    dismissRecordConflict()
     const conflict = Object.assign(new Error('record_modified'), {
       status: 409,
       error: 'record_modified',
@@ -159,11 +161,15 @@ describe('CrudForm — optimisticLockUpdatedAt prop wiring', () => {
     })
 
     await waitFor(() => {
-      expect(flashMock).toHaveBeenCalledWith(
-        'This record was modified by someone else. Refresh and try again.',
-        'error',
-      )
+      const entry = getRecordConflictForTest()
+      expect(entry).not.toBeNull()
+      expect(entry?.message).toBe('This record was modified by someone else. Refresh and try again.')
     })
+    // The conflict bar is the surface — no transient toast for the conflict.
     expect(flashMock).not.toHaveBeenCalledWith('record_modified', 'error')
+    expect(flashMock).not.toHaveBeenCalledWith(
+      'This record was modified by someone else. Refresh and try again.',
+      'error',
+    )
   })
 })

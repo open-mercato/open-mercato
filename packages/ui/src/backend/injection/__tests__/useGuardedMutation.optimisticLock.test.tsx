@@ -3,12 +3,7 @@
 import { CrudHttpError } from '@open-mercato/shared/lib/crud/errors'
 import { OPTIMISTIC_LOCK_CONFLICT_CODE } from '@open-mercato/shared/lib/crud/optimistic-lock-headers'
 
-const flashMock = jest.fn()
 const triggerEventMock = jest.fn()
-
-jest.mock('../../FlashMessages', () => ({
-  flash: (...args: unknown[]) => flashMock(...args),
-}))
 
 jest.mock('../InjectionSpot', () => ({
   useInjectionSpotEvents: () => ({
@@ -20,21 +15,21 @@ jest.mock('@open-mercato/shared/lib/i18n/context', () => ({
   useT: () => (key: string, fallback?: string) => fallback ?? key,
 }))
 
-import * as React from 'react'
 import { act, renderHook } from '@testing-library/react'
 import { useGuardedMutation } from '../useGuardedMutation'
+import { dismissRecordConflict, getRecordConflictForTest } from '../../conflicts'
 
 function setupTriggerEventOk() {
   triggerEventMock.mockImplementation(async () => ({ ok: true, requestHeaders: undefined }))
 }
 
-describe('useGuardedMutation — default 409 flash on optimistic-lock conflict', () => {
+describe('useGuardedMutation — surfaces optimistic-lock conflict on the unified bar', () => {
   beforeEach(() => {
-    flashMock.mockClear()
     triggerEventMock.mockClear()
+    dismissRecordConflict()
   })
 
-  it('surfaces ui.forms.flash.recordModified when the operation throws CrudHttpError(409, optimistic_lock_conflict)', async () => {
+  it('shows the record-conflict bar when the operation throws CrudHttpError(409, optimistic_lock_conflict)', async () => {
     setupTriggerEventOk()
     const { result } = renderHook(() => useGuardedMutation<Record<string, unknown>>({ contextId: 'test-form' }))
     const conflict = new CrudHttpError(409, {
@@ -56,11 +51,13 @@ describe('useGuardedMutation — default 409 flash on optimistic-lock conflict',
       }
     })
 
-    expect(flashMock).toHaveBeenCalledTimes(1)
-    expect(flashMock).toHaveBeenCalledWith('ui.forms.flash.recordModified', 'error')
+    const entry = getRecordConflictForTest()
+    expect(entry).not.toBeNull()
+    expect(entry?.message).toBe('This record was modified by someone else. Refresh and try again.')
+    expect(entry?.currentUpdatedAt).toBe('2026-05-25T08:00:01.000Z')
   })
 
-  it('does NOT flash for non-optimistic-lock 409s (e.g. plain conflicts)', async () => {
+  it('does NOT show the bar for non-optimistic-lock 409s (e.g. plain conflicts)', async () => {
     setupTriggerEventOk()
     const { result } = renderHook(() => useGuardedMutation<Record<string, unknown>>({ contextId: 'test-form' }))
     const otherConflict = new CrudHttpError(409, {
@@ -80,10 +77,10 @@ describe('useGuardedMutation — default 409 flash on optimistic-lock conflict',
       }
     })
 
-    expect(flashMock).not.toHaveBeenCalled()
+    expect(getRecordConflictForTest()).toBeNull()
   })
 
-  it('does NOT flash for non-409 errors', async () => {
+  it('does NOT show the bar for non-409 errors', async () => {
     setupTriggerEventOk()
     const { result } = renderHook(() => useGuardedMutation<Record<string, unknown>>({ contextId: 'test-form' }))
     const validationError = new CrudHttpError(422, { error: 'validation_failed' })
@@ -100,10 +97,10 @@ describe('useGuardedMutation — default 409 flash on optimistic-lock conflict',
       }
     })
 
-    expect(flashMock).not.toHaveBeenCalled()
+    expect(getRecordConflictForTest()).toBeNull()
   })
 
-  it('does NOT flash when the operation resolves successfully', async () => {
+  it('does NOT show the bar when the operation resolves successfully', async () => {
     setupTriggerEventOk()
     const { result } = renderHook(() => useGuardedMutation<Record<string, unknown>>({ contextId: 'test-form' }))
 
@@ -116,6 +113,6 @@ describe('useGuardedMutation — default 409 flash on optimistic-lock conflict',
       expect(value).toBe('ok')
     })
 
-    expect(flashMock).not.toHaveBeenCalled()
+    expect(getRecordConflictForTest()).toBeNull()
   })
 })

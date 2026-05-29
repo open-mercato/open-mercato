@@ -24,6 +24,7 @@ import { QueryProvider } from '../theme/QueryProvider'
 import { usePathname, useSearchParams } from 'next/navigation'
 import { apiCall } from './utils/apiCall'
 import { LastOperationBanner } from './operations/LastOperationBanner'
+import { RecordConflictBanner } from './conflicts/RecordConflictBanner'
 import { ProgressTopBar } from './progress/ProgressTopBar'
 import { UpgradeActionBanner } from './upgrades/UpgradeActionBanner'
 import { PartialIndexBanner } from './indexes/PartialIndexBanner'
@@ -1344,6 +1345,7 @@ function AppShellBody({ productName, logo, email, canManageUpgradeActions = fals
           <PartialIndexBanner />
           {canManageUpgradeActions ? <UpgradeActionBanner /> : null}
           <LastOperationBanner />
+          <RecordConflictBanner />
           <InjectionSpot spotId={BACKEND_RECORD_CURRENT_INJECTION_SPOT_ID} context={injectionContext} />
           <InjectionSpot
             spotId={LEGACY_GLOBAL_MUTATION_INJECTION_SPOT_ID}
