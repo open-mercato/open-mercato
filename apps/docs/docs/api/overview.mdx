@@ -80,9 +80,9 @@ Full examples live in the [Directory service guide](./directory).
 
 ## Documentation & Playground
 
-- `GET /docs/api` opens the OpenAPI Explorer, an interactive playground generated from the live module registry. Access it from the admin UI once signed in, browse every operation, review example payloads, and paste an API token to execute authenticated requests against your chosen base URL.
-- `GET /api/docs/openapi` returns the OpenAPI 3.1 JSON document for client generation, contract testing, or syncing external tooling.
-- `GET /api/docs/markdown` serves the same specification as Markdown, ideal for quick sharing or feeding into LLM prompts.
+- `GET /docs/api` opens the OpenAPI Explorer, an interactive playground generated from the live module registry. Sign in with a user that has the `api_docs.view` feature, browse every operation, review example payloads, and paste an API token to execute authenticated requests against your chosen base URL.
+- `GET /api/docs/openapi` returns the OpenAPI 3.1 JSON document for client generation, contract testing, or syncing external tooling. Requires authentication and the `api_docs.view` feature.
+- `GET /api/docs/markdown` serves the same specification as Markdown, ideal for quick sharing or feeding into LLM prompts. Requires authentication and the `api_docs.view` feature.
 
 ## Module Guides
 
