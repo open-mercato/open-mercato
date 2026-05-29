@@ -139,7 +139,7 @@ async function runGate(cwd: string, withLoginCheck: boolean, moduleId: string | 
     try {
       const { default: http } = await import('node:http')
       loginOk = await new Promise<boolean>((resolve) => {
-        const req = http.get(`http://localhost:${port}/login`, (res) => resolve((res.statusCode ?? 0) < 500))
+        const req = http.get(`http://localhost:${port}/login`, (res) => resolve((res.statusCode ?? 0) < 400))
         req.on('error', () => resolve(false))
         req.setTimeout(5000, () => { req.destroy(); resolve(false) })
       })
@@ -191,5 +191,8 @@ const postScaffold: ModuleCli = {
     }
   },
 }
+
+export { checkAclSetupAlignment, runGate }
+export type { StepResult }
 
 export default [verify, postScaffold]

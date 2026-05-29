@@ -274,8 +274,11 @@ import { useT } from '@open-mercato/shared/lib/i18n/context'
 
 type <Entity> = { id: string; name: string; organizationId: string; tenantId: string }
 type <Entity>ListResponse = {
-  data: <Entity>[]
-  pagination: { total: number; limit: number; offset: number; hasMore: boolean }
+  items: <Entity>[]
+  total: number
+  page: number
+  pageSize: number
+  totalPages: number
 }
 
 const columns: ColumnDef<<Entity>, unknown>[] = [
@@ -284,9 +287,10 @@ const columns: ColumnDef<<Entity>, unknown>[] = [
 
 export default function <Module>ListPage() {
   const t = useT()
+  const [page, setPage] = React.useState(1)
   const { data: response, isLoading, error } = useQuery({
-    queryKey: ['<module_id>', '<entities>'],
-    queryFn: () => apiCall<<Entity>ListResponse>('<module_id>/<entities>'),
+    queryKey: ['<module_id>', '<entities>', page],
+    queryFn: () => apiCall<<Entity>ListResponse>(`<module_id>/<entities>?page=${page}&pageSize=20`),
   })
 
   return (
@@ -295,10 +299,16 @@ export default function <Module>ListPage() {
         <DataTable<<Entity>>
           title={t('<module_id>.list.title')}
           columns={columns}
-          data={response?.data ?? []}
+          data={response?.items ?? []}
           isLoading={isLoading}
           error={error?.message}
-          pagination={response?.pagination}
+          pagination={{
+            page: response?.page ?? 1,
+            pageSize: response?.pageSize ?? 20,
+            total: response?.total ?? 0,
+            totalPages: response?.totalPages ?? 1,
+            onPageChange: setPage,
+          }}
         />
       </PageBody>
     </Page>
@@ -379,13 +389,14 @@ import { useRouter } from 'next/navigation'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 
 type <Entity> = { id: string; name: string }
+type <Entity>DetailResponse = { items: <Entity>[]; total: number; page: number; pageSize: number; totalPages: number }
 
 export default function Edit<Entity>Page({ params }: { params: { id: string } }) {
   const t = useT()
   const router = useRouter()
-  const { data, isLoading } = useQuery({
+  const { data: response, isLoading } = useQuery({
     queryKey: ['<module_id>', '<entities>', params.id],
-    queryFn: () => apiCall<<Entity>>(`<module_id>/<entities>?id=${params.id}`),
+    queryFn: () => apiCall<<Entity>DetailResponse>(`<module_id>/<entities>?id=${params.id}`),
   })
 
   return (
@@ -398,7 +409,7 @@ export default function Edit<Entity>Page({ params }: { params: { id: string } })
             { id: 'name', label: t('<module_id>.fields.name'), type: 'text', required: true },
           ]}
           isLoading={isLoading}
-          initialValues={data ?? undefined}
+          initialValues={response?.items?.[0] ?? undefined}
           onSubmit={async (values) => {
             await updateCrud('<module_id>/<entities>', { id: params.id, ...values })
             router.push('/backend/<module_id>')
@@ -481,7 +492,7 @@ export default setup
 ### Rules
 
 - Feature IDs follow `<module_id>.<entity>.<action>` (view / manage per entity, not global create/update/delete)
-- MUST add `export default features` — generated module registries read `.default`
+- Add `export default features` — the generator reads `.default ?? .features` with an empty fallback, so the named export alone works, but adding the default export ensures both import styles resolve cleanly
 - MUST declare `defaultRoleFeatures` for every feature in `acl.ts`
 - Feature IDs are FROZEN once deployed — cannot rename without data migration
 - After adding features run `yarn mercato auth sync-role-acls` so existing tenants receive the grants
@@ -770,7 +781,7 @@ yarn typecheck
 - **MUST** use `DataTable` with explicit `data`, `isLoading`, `error`, `pagination` — not `apiPath`, `createHref`, or `extensionTableId`
 - **MUST** use `createModuleEvents({ moduleId, events: [...] })` array shape — NEVER the old keyed-object `{ 'id': { description, payload } }` shape
 - **MUST** add `export default eventsConfig` in `events.ts`
-- **MUST** add `export default features` in `acl.ts` — omitting this breaks generated module registries
+- **MUST** export `features` from `acl.ts` (named export is sufficient; adding `export default features` is recommended for broad import compatibility)
 - **MUST** use `<module>.<entity>.view` / `<module>.<entity>.manage` feature ID pattern
 - **MUST** include `pageGroup` and `pageGroupKey` on list/root backend pages for sidebar grouping
 - **MUST** use `as const` on `pageContext` values (e.g., `pageContext: 'settings' as const`)
