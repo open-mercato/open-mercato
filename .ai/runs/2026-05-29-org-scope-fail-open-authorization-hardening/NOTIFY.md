@@ -17,3 +17,9 @@ Append-only log of resume starts/ends, checkpoints, blockers, decisions, subagen
 - Standalone `test:create-app:integration`: env-blocked (pre-existing `mercato-verdaccio` container name conflict) — justified skip; not force-resolved to avoid disrupting the user's running stack.
 - ds-guardian: N/A (no UI). Code-review + BC self-review: no findings.
 - Blocker for finalization: `gh` REST API failing transiently this session AND read-only upstream access → PR-body Status flip, summary comment, and lock-release comment deferred to gh recovery; documented in HANDOFF.
+
+## 2026-05-29T20:34Z — resume end (gh API outage; finalization deferred)
+- Substantive work COMPLETE and pushed (HEAD `a5482ded5`): Steps 3.2 (TC-CRM-072 `1 passed`) + 3.3 (full gate green, Node 24) done; all Tasks rows `done`.
+- `gh` REST/GraphQL down the entire session (~1h+); `git push` worked. Three finalization retries (body edit, summary comment, consolidated 55-min loop) all exhausted without a single successful gh API call.
+- Ready-to-post content preserved: `final-gate-artifacts/pending-pr-body.md`, `pending-summary-comment.md`. Re-run `/om-auto-continue-pr-loop 2300` when gh recovers to apply.
+- PR body still reads `Status: in-progress` (could not be flipped) — this reflects the GitHub-annotation state, NOT the verification state, which is complete.
