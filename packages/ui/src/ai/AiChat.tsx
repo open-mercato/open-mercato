@@ -309,6 +309,14 @@ export interface AiChatProps {
   headerActions?: React.ReactNode
   /** Called once on mount (and on reset) with the effective conversation id. */
   onConversationIdChange?: (conversationId: string) => void
+  /**
+   * Called when the server returns 404 for the active `conversationId`,
+   * e.g. when the id was carried over from a previous tenant/org scope
+   * and no longer exists. The host (typically the AI dock) should remove
+   * the corresponding session entry so the stale tab disappears instead
+   * of staying empty.
+   */
+  onConversationNotFound?: () => void
 }
 
 interface ServerEmittedUiPartRef {
@@ -1147,6 +1155,7 @@ export function AiChat({
   defaultCompactFooter = false,
   headerActions,
   onConversationIdChange,
+  onConversationNotFound,
 }: AiChatProps) {
   const t = useT()
   const onConversationIdChangeRef = React.useRef(onConversationIdChange)
@@ -1277,6 +1286,7 @@ export function AiChat({
     conversationId,
     providerOverride: effectiveModelPickerValue?.providerId ?? null,
     modelOverride: effectiveModelPickerValue?.modelId ?? null,
+    onConversationNotFound,
   })
 
   const isStreaming = chat.status === 'streaming'

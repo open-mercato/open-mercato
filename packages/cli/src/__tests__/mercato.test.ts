@@ -37,9 +37,18 @@ function buildMockChildProcessModule(routeAutoExit: MockChildSpawnRouter) {
     if (autoExit) {
       queueMicrotask(() => {
         if (child.exitCode !== null || child.signalCode !== null) return
-        child.exitCode = autoExit.code
-        child.signalCode = autoExit.signal ?? null
-        child.emit('exit', child.exitCode, child.signalCode)
+        if (pathIncludes(spawnargs[1] ?? '', 'next/dist/bin/next') && spawnargs.includes('dev')) {
+          child.stdout.emit('data', '✓ Ready in 1ms\n')
+        }
+        queueMicrotask(() => {
+          child.exitCode = autoExit.code
+          child.signalCode = autoExit.signal ?? null
+          child.emit('exit', child.exitCode, child.signalCode)
+        })
+      })
+    } else if (pathIncludes(spawnargs[1] ?? '', 'next/dist/bin/next') && spawnargs.includes('dev')) {
+      queueMicrotask(() => {
+        child.stdout.emit('data', '✓ Ready in 1ms\n')
       })
     }
 
