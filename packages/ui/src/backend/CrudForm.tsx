@@ -738,19 +738,23 @@ export function CrudForm<TValues extends Record<string, unknown>>({
   // Resolve the optimistic-lock version used to build the extension header.
   // Explicit `optimisticLockUpdatedAt` (including `null`) always wins. When the
   // prop is absent, auto-derive from the loaded record's `updatedAt`/`updated_at`
-  // in update mode so every edit CrudForm enforces optimistic locking by default
-  // without per-form wiring. Create mode and `disableOptimisticLock` never attach.
+  // so every edit CrudForm enforces optimistic locking by default without
+  // per-form wiring. Presence of a loaded `updatedAt` — NOT the create/update
+  // heuristic — drives this: some edit pages keep the record id outside form
+  // values (so `operation` reads as `create`), while a genuine create has no
+  // `updatedAt` in `initialValues`. Even a "duplicate"-style create that carries
+  // one is harmless — the server ignores the header on inserts (no candidate id).
+  // `disableOptimisticLock` always wins; an explicit prop (incl. `null`) wins next.
   const resolvedOptimisticLockUpdatedAt = React.useMemo<string | null | undefined>(() => {
     if (disableOptimisticLock) return null
     if (optimisticLockUpdatedAt !== undefined) return optimisticLockUpdatedAt
-    if (operation !== 'update') return null
     const source = initialValues as Record<string, unknown> | undefined
     const camel = source?.updatedAt
     if (typeof camel === 'string' && camel.length > 0) return camel
     const snake = source?.updated_at
     if (typeof snake === 'string' && snake.length > 0) return snake
     return null
-  }, [disableOptimisticLock, optimisticLockUpdatedAt, operation, initialValues])
+  }, [disableOptimisticLock, optimisticLockUpdatedAt, initialValues])
 
   const injectionContext = React.useMemo(() => ({
     formId,

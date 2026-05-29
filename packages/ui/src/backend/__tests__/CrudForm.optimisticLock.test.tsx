@@ -242,12 +242,24 @@ describe('CrudForm — optimistic-lock auto-derive from initialValues.updatedAt 
     expect(sentLockHeaderValue()).toBeUndefined()
   })
 
-  it('create mode (no id): never attaches even with updatedAt present', async () => {
+  it('genuine create (no id, no updatedAt): never attaches', async () => {
     const onSubmit = jest.fn(async () => undefined)
-    const { container } = renderAutoForm({ initialValues: { displayName: 'new', updatedAt: '2026-05-25T08:00:00.000Z' }, onSubmit })
+    const { container } = renderAutoForm({ initialValues: { displayName: 'new' }, onSubmit })
     await submitAuto(container)
     await waitFor(() => expect(onSubmit).toHaveBeenCalledTimes(1))
     expect(sentLockHeaderValue()).toBeUndefined()
+  })
+
+  it('attaches from updatedAt even when form values lack an id (edit page tracks the record id outside form values, e.g. catalog product)', async () => {
+    // Regression guard: presence of a loaded updatedAt — not CrudForm's
+    // create/update heuristic — drives the header. The catalog product edit page
+    // keeps productId out of form values, so a previous operation-gated version
+    // silently dropped the header here.
+    const onSubmit = jest.fn(async () => undefined)
+    const { container } = renderAutoForm({ initialValues: { displayName: 'old', updatedAt: '2026-05-25T08:00:00.000Z' }, onSubmit })
+    await submitAuto(container)
+    await waitFor(() => expect(onSubmit).toHaveBeenCalledTimes(1))
+    expect(sentLockHeaderValue()).toBe('2026-05-25T08:00:00.000Z')
   })
 
   it('explicit optimisticLockUpdatedAt={null} wins over auto-derive (no header)', async () => {
