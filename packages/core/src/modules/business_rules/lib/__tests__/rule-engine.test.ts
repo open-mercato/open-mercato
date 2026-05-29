@@ -43,6 +43,8 @@ describe('Rule Engine (Unit Tests)', () => {
   }
 
   beforeEach(() => {
+    ruleEngine.invalidateBusinessRuleDiscoveryCache()
+
     // Create mock EntityManager
     mockEm = {
       find: jest.fn(),
@@ -132,6 +134,58 @@ describe('Rule Engine (Unit Tests)', () => {
       })
 
       expect(rules).toHaveLength(0)
+    })
+
+    test('should cache empty discovery results for repeated wildcard subscriber events', async () => {
+      mockEm.find.mockResolvedValue([])
+
+      const options = {
+        entityType: 'WorkOrder',
+        eventType: 'created',
+        tenantId: testTenantId,
+        organizationId: testOrgId,
+      }
+
+      await ruleEngine.findApplicableRules(mockEm, options)
+      await ruleEngine.findApplicableRules(mockEm, options)
+
+      expect(mockEm.find).toHaveBeenCalledTimes(1)
+    })
+
+    test('should keep discovery cache scoped by entity and event type', async () => {
+      mockEm.find.mockResolvedValue([])
+
+      await ruleEngine.findApplicableRules(mockEm, {
+        entityType: 'WorkOrder',
+        eventType: 'created',
+        tenantId: testTenantId,
+        organizationId: testOrgId,
+      })
+      await ruleEngine.findApplicableRules(mockEm, {
+        entityType: 'WorkOrder',
+        eventType: 'updated',
+        tenantId: testTenantId,
+        organizationId: testOrgId,
+      })
+
+      expect(mockEm.find).toHaveBeenCalledTimes(2)
+    })
+
+    test('should invalidate cached discovery results for a tenant organization', async () => {
+      mockEm.find.mockResolvedValue([])
+
+      const options = {
+        entityType: 'WorkOrder',
+        eventType: 'created',
+        tenantId: testTenantId,
+        organizationId: testOrgId,
+      }
+
+      await ruleEngine.findApplicableRules(mockEm, options)
+      ruleEngine.invalidateBusinessRuleDiscoveryCache(testTenantId, testOrgId)
+      await ruleEngine.findApplicableRules(mockEm, options)
+
+      expect(mockEm.find).toHaveBeenCalledTimes(2)
     })
 
     test('should sort rules by priority descending', async () => {

@@ -2,6 +2,7 @@
 
 import { describe, test, expect, beforeEach, jest } from '@jest/globals'
 import { createAuthMock, createMockContainer, createMockEntityManager } from './test-helpers'
+import { invalidateBusinessRuleDiscoveryCache } from '../../lib/rule-engine'
 
 const mockGetAuthFromRequest = createAuthMock()
 const mockEm = createMockEntityManager()
@@ -30,6 +31,7 @@ describe('Business Rules API - Execute Endpoint', () => {
   const validOrgId = '223e4567-e89b-12d3-a456-426614174000'
 
   beforeEach(() => {
+    invalidateBusinessRuleDiscoveryCache()
     jest.clearAllMocks()
     mockGetAuthFromRequest.mockResolvedValue({
       sub: 'user-1',

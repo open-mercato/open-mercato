@@ -22,6 +22,7 @@ const EXECUTION_RESULT_FAILURE = 'FAILURE'
 const MAX_RULES_PER_EXECUTION = 100
 const MAX_SINGLE_RULE_TIMEOUT_MS = 30000  // 30 seconds
 const MAX_TOTAL_EXECUTION_TIMEOUT_MS = 60000  // 60 seconds
+const RULE_DISCOVERY_CACHE_TTL = 5 * 60 * 1000
 
 /**
  * Rule execution context
@@ -84,6 +85,59 @@ export interface RuleDiscoveryOptions {
   tenantId: string
   organizationId: string
   ruleType?: RuleType
+}
+
+type CachedRuleDiscovery = {
+  rules: BusinessRule[]
+  cachedAt: number
+}
+
+const GLOBAL_RULE_DISCOVERY_CACHE_KEY = '__openMercatoBusinessRuleDiscoveryCache__'
+
+function getRuleDiscoveryCache(): Map<string, CachedRuleDiscovery> {
+  const existing = (globalThis as any)[GLOBAL_RULE_DISCOVERY_CACHE_KEY] as
+    | Map<string, CachedRuleDiscovery>
+    | undefined
+  if (existing) return existing
+  const created = new Map<string, CachedRuleDiscovery>()
+  ;(globalThis as any)[GLOBAL_RULE_DISCOVERY_CACHE_KEY] = created
+  return created
+}
+
+function normalizeCachePart(value: string | null | undefined): string {
+  return encodeURIComponent(value?.trim() || '*')
+}
+
+function getRuleDiscoveryCacheKey(options: RuleDiscoveryOptions): string {
+  return [
+    normalizeCachePart(options.tenantId),
+    normalizeCachePart(options.organizationId),
+    normalizeCachePart(options.entityType),
+    normalizeCachePart(options.eventType),
+    normalizeCachePart(options.ruleType),
+  ].join(':')
+}
+
+export function invalidateBusinessRuleDiscoveryCache(tenantId?: string | null, organizationId?: string | null): void {
+  const cache = getRuleDiscoveryCache()
+  const normalizedTenantId = tenantId?.trim()
+  const normalizedOrganizationId = organizationId?.trim()
+
+  if (!normalizedTenantId) {
+    cache.clear()
+    return
+  }
+
+  const tenantPrefix = `${normalizeCachePart(normalizedTenantId)}:`
+  const orgPrefix = normalizedOrganizationId
+    ? `${tenantPrefix}${normalizeCachePart(normalizedOrganizationId)}:`
+    : null
+
+  for (const key of cache.keys()) {
+    if (orgPrefix ? key.startsWith(orgPrefix) : key.startsWith(tenantPrefix)) {
+      cache.delete(key)
+    }
+  }
 }
 
 export type RuleEngineExecutionOptions = {
@@ -474,26 +528,39 @@ export async function findApplicableRules(
   ruleDiscoveryOptionsSchema.parse(options)
 
   const { entityType, eventType, tenantId, organizationId, ruleType } = options
+  const cacheKey = getRuleDiscoveryCacheKey(options)
+  const cache = getRuleDiscoveryCache()
+  const cached = cache.get(cacheKey)
+  let rules: BusinessRule[]
 
-  const where: Partial<BusinessRule> = {
-    entityType,
-    tenantId,
-    organizationId,
-    enabled: true,
-    deletedAt: null,
+  if (cached && Date.now() - cached.cachedAt < RULE_DISCOVERY_CACHE_TTL) {
+    rules = cached.rules
+  } else {
+    const where: Partial<BusinessRule> = {
+      entityType,
+      tenantId,
+      organizationId,
+      enabled: true,
+      deletedAt: null,
+    }
+
+    if (eventType) {
+      where.eventType = eventType
+    }
+
+    if (ruleType) {
+      where.ruleType = ruleType
+    }
+
+    rules = await em.find(BusinessRule, where, {
+      orderBy: { priority: 'DESC', ruleId: 'ASC' },
+    })
+
+    cache.set(cacheKey, {
+      rules,
+      cachedAt: Date.now(),
+    })
   }
-
-  if (eventType) {
-    where.eventType = eventType
-  }
-
-  if (ruleType) {
-    where.ruleType = ruleType
-  }
-
-  const rules = await em.find(BusinessRule, where, {
-    orderBy: { priority: 'DESC', ruleId: 'ASC' },
-  })
 
   // Filter by effective date range
   const now = new Date()

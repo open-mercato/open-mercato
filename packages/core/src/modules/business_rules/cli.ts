@@ -2,6 +2,7 @@ import type { ModuleCli } from '@open-mercato/shared/modules/registry'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import { BusinessRule } from './data/entities'
+import { invalidateBusinessRuleDiscoveryCache } from './lib/rule-engine'
 import * as fs from 'fs'
 import * as path from 'path'
 
@@ -70,6 +71,7 @@ const seedGuardRules: ModuleCli = {
         })
 
         await em.persist(rule).flush()
+        invalidateBusinessRuleDiscoveryCache(tenantId, organizationId)
         console.log(`  ✓ Seeded guard rule: ${rule.ruleName}`)
         seededCount++
       }

@@ -15,6 +15,7 @@ import {
   businessRuleFilterSchema,
   ruleTypeSchema,
 } from '../../data/validators'
+import { invalidateBusinessRuleDiscoveryCache } from '../../lib/rule-engine'
 
 const querySchema = z.looseObject({
   id: z.uuid().optional(),
@@ -212,6 +213,7 @@ export async function POST(req: Request) {
 
   try {
     await em.persist(rule).flush()
+    invalidateBusinessRuleDiscoveryCache(rule.tenantId, rule.organizationId)
   } catch (error) {
     console.error('[business_rules.rules] Failed to persist new rule:', error)
     return NextResponse.json(
@@ -274,6 +276,7 @@ export async function PUT(req: Request) {
 
   try {
     await em.persist(rule).flush()
+    invalidateBusinessRuleDiscoveryCache(rule.tenantId, rule.organizationId)
   } catch (error) {
     console.error('[business_rules.rules] Failed to persist rule update:', error)
     return NextResponse.json(
@@ -314,6 +317,7 @@ export async function DELETE(req: Request) {
 
   rule.deletedAt = new Date()
   await em.persist(rule).flush()
+  invalidateBusinessRuleDiscoveryCache(rule.tenantId, rule.organizationId)
 
   return NextResponse.json({ ok: true })
 }
