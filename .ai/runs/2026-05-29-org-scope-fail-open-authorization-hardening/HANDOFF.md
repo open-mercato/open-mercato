@@ -1,18 +1,23 @@
 # HANDOFF — Organization-Scope Fail-Open Authorization Hardening (PR #2300)
 
-## Current state
-- **Phase/step:** resuming at **Step 3.2** (first `todo` row in PLAN.md Tasks table).
-- **Phases 1–2 + Step 3.1 are done** (code + 25 unit tests landed, `@open-mercato/shared` + `@open-mercato/core` build + typecheck clean).
-- **Last commit:** `5077cc1dd docs(runs): link draft PR #2300 in plan changelog` (then a migration commit on this resume converting the flat plan to this run folder).
-- **Branch:** `fix/org-scope-fail-open-authorization-hardening` (fork `adeptofvoltron`, cross-repo PR against `open-mercato/open-mercato:develop`).
+## Current state — COMPLETE (all Tasks rows `done`)
+- Phases 1–2 + Step 3.1: code + 25 unit tests (landed previously).
+- **Step 3.2 (this resume): DONE** — `TC-CRM-072` validated under the coherent ephemeral app+DB harness: `1 passed (56.9s)`.
+- **Step 3.3 (this resume): DONE** — full validation gate green under **Node 24.13.0** (build:packages, generate, i18n sync/usage, typecheck, `yarn test` 20/20 workspaces ~6.4k tests, build:app).
+- Branch: `fix/org-scope-fail-open-authorization-hardening` (fork `adeptofvoltron`, cross-repo PR → `open-mercato/open-mercato:develop`).
 
-## Next concrete action
-- **Step 3.2:** Validate `packages/core/src/modules/customers/__integration__/TC-CRM-072.spec.ts` under a coherent app+DB harness (`yarn test:integration:ephemeral`). The spec mixes API fixtures with raw-`pg` DB fixtures, so the app server and fixtures MUST share one database — it cannot be validated against an arbitrary running dev server whose `DATABASE_URL` differs from `apps/mercato/.env`.
-- **Step 3.3:** Run the full validation gate (`yarn build:packages`, `yarn generate`, `yarn typecheck`, `yarn test`, `yarn build:app`) + i18n checks.
+## Verification artifacts
+- `final-gate-checks.md` — full gate + integration + standalone + ds + review records.
+- `final-gate-artifacts/playwright-report-summary.log` — TC-CRM-072 pass summary.
 
-## Open blockers / caveats
-- Fork PR: only **read** access to `open-mercato/open-mercato`, so the `in-progress` label + assignee signals are unavailable. The lock is a **claim comment** only. Push lands on the fork branch, which updates the PR.
-- The original author noted the integration spec could not be validated in-session because the dev server's `DATABASE_URL` differed from the fixtures' DB. Use the ephemeral harness, or record a skip with reason if the harness is not runnable here (UI/integration checks MUST NOT block development).
+## Outstanding (environment-bound, not code; require gh / write access)
+1. **PR-body update**: flip `Status: in-progress` → `Status: complete`; update `Tracking plan:` to `.ai/runs/2026-05-29-org-scope-fail-open-authorization-hardening/PLAN.md`. Blocked by transient `gh api` failures this session — retry when gh recovers.
+2. **Summary comment + lock release comment**: post when gh recovers.
+3. **`om-auto-review-pr` autofix pass**: cannot submit a formal review (read-only fork access) + gh REST down. Self code-review found no actionable findings.
+4. **`yarn test:create-app:integration`**: blocked by a pre-existing `mercato-verdaccio` container-name conflict in this host; justified skip (additive shared helper not in the create-app template).
+
+## Node version (load-bearing)
+Open Mercato requires **Node 24.x**. The default shell here is Node 22 — `yarn generate` / `build:app` / the ephemeral harness fail the runtime gate under Node 22. Activate Node 24 (`nvm use 24`) + `yarn install` before any gate/integration command.
 
 ## Worktree
-- `.ai/tmp/auto-continue-pr/pr-2300-<ts>` (isolated; created from `fork/fix/org-scope-fail-open-authorization-hardening`). Main worktree untouched.
+`.ai/tmp/auto-continue-pr/pr-2300-20260529-204658` (isolated from `fork/fix/org-scope-fail-open-authorization-hardening`). Main worktree untouched.
