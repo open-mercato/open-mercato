@@ -760,7 +760,7 @@ yarn mercato auth sync-role-acls
 yarn typecheck
 ```
 
-> **Why this matters**: A malformed `events.ts` or `acl.ts` (for example, using the old keyed-object shape for `createModuleEvents`, or omitting `export default features`) will crash `/login` and every other page because generated registries import all active module files at startup. A bad scaffold can make the whole admin inaccessible. Running `yarn typecheck` after `yarn generate` catches this before it ships.
+> **Why this matters**: A malformed `events.ts` (for example, using the old keyed-object shape for `createModuleEvents`) will crash `/login` and every other page because generated registries import all active module files at startup. A bad scaffold can make the whole admin inaccessible. Running `yarn typecheck` after `yarn generate` catches this before it ships.
 
 ### Step 6: Verify
 
@@ -784,7 +784,7 @@ yarn typecheck
 - [ ] `CrudForm` uses `onSubmit` with `createCrud`/`updateCrud` and `onDelete` with `deleteCrud` — not `apiPath`, `mode`, or `resourceId`
 - [ ] `events.ts` uses `createModuleEvents({ moduleId, events: [...] })` array shape — not a keyed object
 - [ ] `events.ts` has `export default eventsConfig`
-- [ ] `acl.ts` has `export default features` — omitting this breaks generated module registries
+- [ ] `acl.ts` exports `features` (named export is sufficient; default export is recommended for broad import compatibility)
 - [ ] ACL feature IDs use `<module>.<entity>.view` / `<module>.<entity>.manage` pattern
 - [ ] `setup.ts` grants every feature in `acl.ts` to at least `admin` and `superadmin`
 - [ ] Sidebar icon uses `lucide-react` component (not inline SVG / `React.createElement`)
