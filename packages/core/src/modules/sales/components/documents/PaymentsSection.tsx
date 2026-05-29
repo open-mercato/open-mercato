@@ -7,7 +7,7 @@ import { LoadingMessage, ErrorMessage, TabEmptyState } from '@open-mercato/ui/ba
 import { apiCall, withScopedApiRequestHeaders } from '@open-mercato/ui/backend/utils/apiCall'
 import { buildOptimisticLockHeader } from '@open-mercato/ui/backend/utils/optimisticLock'
 import { deleteCrud } from '@open-mercato/ui/backend/utils/crud'
-import { handleSectionMutationError, rowOptimisticVersion } from './optimisticLock'
+import { handleSectionMutationError, readRowUpdatedAt, rowOptimisticVersion } from './optimisticLock'
 import type { SectionAction } from '@open-mercato/ui/backend/detail'
 import { RowActions } from '@open-mercato/ui/backend/RowActions'
 import { Button } from '@open-mercato/ui/primitives/button'
@@ -111,12 +111,7 @@ export function SalesDocumentPaymentsSection({
               : {}
           const record: PaymentRow = {
             id: item.id,
-            updatedAt:
-              typeof (item as any).updated_at === 'string'
-                ? (item as any).updated_at
-                : typeof (item as any).updatedAt === 'string'
-                  ? (item as any).updatedAt
-                  : null,
+            updatedAt: readRowUpdatedAt(item),
             paymentReference: typeof item.payment_reference === 'string' ? item.payment_reference : null,
             paymentMethodId: typeof item.payment_method_id === 'string' ? item.payment_method_id : null,
             paymentMethodName:

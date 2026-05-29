@@ -20,7 +20,7 @@ import type { SectionAction } from '@open-mercato/core/modules/customers/compone
 import { generateTempId } from '@open-mercato/core/modules/customers/lib/detailHelpers'
 import { formatAddressString, type AddressValue } from '@open-mercato/core/modules/customers/utils/addressFormat'
 import { ShipmentDialog } from './ShipmentDialog'
-import { handleSectionMutationError, rowOptimisticVersion } from './optimisticLock'
+import { handleSectionMutationError, readRowUpdatedAt, rowOptimisticVersion } from './optimisticLock'
 import { extractCustomFieldValues } from './customFieldHelpers'
 import type { OrderLine, ShipmentRow, ShipmentItem } from './shipmentTypes'
 
@@ -269,12 +269,7 @@ export function SalesShipmentsSection({
           const customValues = extractCustomFieldValues(item as Record<string, unknown>)
           return {
             id,
-            updatedAt:
-              typeof (item as any).updated_at === 'string'
-                ? (item as any).updated_at
-                : typeof (item as any).updatedAt === 'string'
-                  ? (item as any).updatedAt
-                  : null,
+            updatedAt: readRowUpdatedAt(item),
             shipmentNumber:
               typeof (item as any).shipment_number === 'string'
                 ? (item as any).shipment_number

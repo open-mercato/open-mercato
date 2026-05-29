@@ -7,6 +7,20 @@ export function rowOptimisticVersion(row: { updatedAt?: string | null } | null |
   return typeof value === 'string' && value.length ? value : undefined
 }
 
+/**
+ * Read a row's `updated_at` / `updatedAt` version from an untyped API record
+ * without `any`. Returns `null` when neither key holds a non-empty string.
+ */
+export function readRowUpdatedAt(source: unknown): string | null {
+  if (!source || typeof source !== 'object') return null
+  const record = source as Record<string, unknown>
+  const snake = record.updated_at
+  if (typeof snake === 'string' && snake.length) return snake
+  const camel = record.updatedAt
+  if (typeof camel === 'string' && camel.length) return camel
+  return null
+}
+
 export function handleSectionMutationError(
   err: unknown,
   t: Translate,

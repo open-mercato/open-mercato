@@ -7,9 +7,25 @@ jest.mock('@open-mercato/ui/backend/conflicts', () => ({
   surfaceRecordConflict: (...args: unknown[]) => mockSurfaceRecordConflict(...args),
 }))
 
-import { handleSectionMutationError, rowOptimisticVersion } from '../optimisticLock'
+import { handleSectionMutationError, readRowUpdatedAt, rowOptimisticVersion } from '../optimisticLock'
 
 const t = (_key: string, fallback?: string) => fallback ?? _key
+
+describe('readRowUpdatedAt', () => {
+  it('reads snake_case updated_at, then camelCase updatedAt', () => {
+    expect(readRowUpdatedAt({ updated_at: '2026-05-29T00:00:00.000Z' })).toBe('2026-05-29T00:00:00.000Z')
+    expect(readRowUpdatedAt({ updatedAt: '2026-05-29T01:00:00.000Z' })).toBe('2026-05-29T01:00:00.000Z')
+    expect(readRowUpdatedAt({ updated_at: '2026-05-29T00:00:00.000Z', updatedAt: 'ignored' })).toBe('2026-05-29T00:00:00.000Z')
+  })
+
+  it('returns null for missing/empty/non-object inputs', () => {
+    expect(readRowUpdatedAt({})).toBeNull()
+    expect(readRowUpdatedAt({ updated_at: '' })).toBeNull()
+    expect(readRowUpdatedAt(null)).toBeNull()
+    expect(readRowUpdatedAt(undefined)).toBeNull()
+    expect(readRowUpdatedAt('nope')).toBeNull()
+  })
+})
 
 describe('handleSectionMutationError', () => {
   beforeEach(() => {
