@@ -1,48 +1,33 @@
 # Handoff — 2026-05-25-oss-optimistic-locking
 
-**Last updated:** 2026-05-28T19:12Z
+**Last updated:** 2026-05-29 (resume 2 — QA fix + framework + unified conflict bar)
 **Branch:** feat/oss-optimistic-locking
 **PR:** https://github.com/open-mercato/open-mercato/pull/2055
-**Current phase/step:** COMPLETE — Phases 16–20 all done. Command-level OSS optimistic locking shipped + wired for sales + docs/specs updated + follow-up issue #2215 filed. Final gate green (locally runnable subset); CI authoritative for build:app + integration. Next: human re-QA + 2nd-approver merge.
-**Last code commit:** b2d94520f (`feat(sales): send document version header on quote convert`) — docs in d8dcee93c.
+**Current phase/step:** Through 25.1 done + checkpoint 6. Next = Phase 26 (sales document sub-sections client wiring), then 27 (Playwright/integration + browser screenshots), then 28 (enterprise FR issue + docs + final gate + summary).
+**Last code commit:** 35fbd4d30 (sales document page lock wiring). Checkpoint 6 docs commit follows.
 
-## What this resume adds (Phases 16–20)
+## Environment (IMPORTANT — this is how to run Playwright on THIS branch)
+- `:3000` = separate standalone `my-app` (published packages) — NOT this branch. Ignore it.
+- Boot the branch: `yarn install` → `yarn build:packages` → `yarn turbo run generate` → `yarn build:packages` → then in `apps/mercato/`: `PATH=$PWD/../../node_modules/.bin:$PATH next dev -p 3100` (Turbopack; the `yarn dev` wrapper's package-watcher crashes esbuild here). A dev server is CURRENTLY RUNNING on :3100 — do not restart it unless it died.
+- Integration harness works: `BASE_URL=http://localhost:3100 OM_INTEGRATION_MODULES=<mod> yarn test:integration -g <name>`.
+- Admin: `admin@acme.com` / `secret`. Token: POST :3100/api/auth/login (form-urlencoded). A token is cached in /tmp/pr2055_tok.txt.
+- Shared DB `open-mercato` (no schema change in this PR).
 
-New scope on top of the previously-`complete` PR, per the user's directive:
-a **generalist command-level** OSS optimistic-lock mechanism (not just
-CrudForm/makeCrudRoute), implemented for sales, plus docs/spec + a follow-up
-issue for other modules.
+## Resume-2 scope landed so far
+- 21.1 root-cause report; 22.1 command-level enterprise hook; 22.2 unified conflict **bar** (per user: persistent error bar like the undo bar, unified across all forms — replaces the transient toast for the 409 conflict); 24.1 catalog variant delete; 25.1 sales document page.
 
-- **Phase 16 (done, `7d30ee397`):** `packages/shared/src/lib/crud/optimistic-lock-command.ts` — `readOptimisticLockExpected`, `assertOptimisticLock`, `enforceCommandOptimisticLock`. Exported `normalizeIsoToken` from `optimistic-lock.ts` so command + CRUD paths normalize identically. 57 unit tests.
-- **Phase 17 (done, `d6448082e`):** sales-local `enforceSalesDocumentOptimisticLock` in `commands/shared.ts`; wired into order/quote line + adjustment upsert/delete, return create, and quote→order conversion (closes #2114 race). Parent order/quote version is the consistency boundary; its `updated_at` bumps automatically because these commands recalc document totals → dirty the parent. Payments/shipments left to their existing makeCrudRoute row-level guard.
+## Key findings
+- CRM v2 (companies-v2/people-v2/deals) ALREADY send the header + surface the localized conflict — proven live. v1 company/person `[id]` pages are dead edit routes (list → v2). No CRM client fix needed.
+- companies-v2 react-query refetch-on-focus keeps single-tab `updatedAt` fresh → single-tab stale-save can't reproduce the conflict; use two API sessions (integration) or two tabs for deterministic 409. This explains QA's "same-user two-tab" being the only failing case.
+- Sales orders/quotes both render `sales/documents/[id]/page.tsx` (uses `useGuardedMutation`; document `updatedAt` = `record.updatedAt`).
 
-## Key architectural finding
+## Next concrete action (Phase 26)
+Wire the sales document sub-sections to send the document version header + route 409 → conflict bar + reload:
+- `packages/core/src/modules/sales/backend/sales/documents/[id]/page.tsx` — pass `documentUpdatedAt={record.updatedAt}` to ItemsSection / AdjustmentsSection / ReturnsSection / ShipmentsSection / PaymentsSection.
+- `packages/core/src/modules/sales/components/documents/{ItemsSection,LineItemDialog,AdjustmentsSection,ReturnsSection,ReturnDialog,ShipmentsSection,ShipmentDialog,PaymentsSection,PaymentDialog}.tsx` — wrap create/update/delete with `buildOptimisticLockHeader(documentUpdatedAt)` and `surfaceRecordConflict(err,t)` in catch.
+- **Header semantics (from Phase 21 decision):** Items/Adjustments/Returns use the DOCUMENT-aggregate header (their CRUD route nulls candidateId; server `enforceSalesDocumentOptimisticLock` is the guard). Payments/Shipments are row-level-guarded by makeCrudRoute — send the ROW's own `updatedAt`, not the document's; only add conflict surfacing. No double-guard.
 
-The CRUD factory only runs the row-level optimistic guard when `candidateId`
-(`input.id`) is set. `makeSalesLineRoute` returns `{ body: payload }`, nulling
-`candidateId`, so lines/adjustments have NO row-level guard — the new
-command-level document-aggregate check is their sole guard (no double-409).
-Payments/shipments use flat mapInput (top-level `id`) → row-level guard fires →
-left as-is.
-
-## Next concrete action (Phase 18)
-
-Wire the sales document UI sub-resource sections (ItemsSection, AdjustmentsSection,
-ReturnsSection, convert action) to send `buildOptimisticLockHeader(document.updatedAt)`
-via `withScopedApiRequestHeaders(...)` on their POST/PUT/DELETE, and surface the
-409 conflict flash (`ui.forms.flash.recordModified`) + refresh. The document
-detail page (`backend/sales/documents/[id]/page.tsx`) loads the document — confirm
-it exposes `updatedAt` to the sections. Then Phase 19 (docs/spec), Phase 20
-(follow-up issue + final gate + auto-review + summary).
-
-## Blockers / env caveats
-
-- Command-level tests importing `../documents` need `yarn build:packages` + `yarn generate` first (transitive `@open-mercato/cache` + `#generated/*`). Both run green.
-- Real typecheck: `yarn turbo run typecheck --filter=@open-mercato/core` (root tsc 6.0.3, green). The workspace `yarn workspace … typecheck` fails on a pre-existing `ignoreDeprecations` env issue (tsc 5.9.3) — ignore it.
-- Playwright/integration not runnable locally (no PG/Redis). CI ephemeral is authoritative.
-- `gh` at `~/.local/bin` — `export PATH="$HOME/.local/bin:$PATH"` each fresh Bash.
-- Janitor autosave commits interleave; collapse with `git reset --soft <pushed-base>` then re-commit cleanly. Repo squash-merges so the noise is harmless; do NOT force-push the shared PR branch.
-
-## Worktree
-
-Path: `/home/pkarw/Projects/github-janitor/.janitor/repos/open-mercato__open-mercato/worktrees/62b06a07-855f-4863-b5a7-264a44e95c5f/` (janitor task worktree, on branch `task/62b06a07-…` reset to the PR head). Push via `git push origin HEAD:feat/oss-optimistic-locking`.
+## Blockers / caveats
+- `gh`/`mercato` need PATH from node_modules/.bin.
+- Workspace `tsc` `ignoreDeprecations` TS5103 is pre-existing (use `yarn turbo run typecheck --filter=…` for the real check).
+- PLAN.md SHA cells: per-step commit flips Status→done with the committed SHA carried in the NEXT commit (no amend chase).

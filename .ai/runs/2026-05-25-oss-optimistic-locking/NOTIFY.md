@@ -102,3 +102,12 @@ Append-only event log. Newest at the bottom.
 - Phase 20: filed follow-up issue #2215 (extend command-level lock to catalog/workflows/staff/resources + finish sales doc UI client wiring + TC-LOCK-OSS-005). Final gate green for the locally-runnable subset (build:packages, generate, shared+core typecheck via turbo, 57 shared + 5 sales tests, i18n sync). build:app + integration suites → CI authoritative (no PG/Redis locally).
 - Independent code-review subagent + self review: no blocker/should-fix findings. BC strictly additive. DS clean.
 - PR stays `feature, qa, needs-qa`; in-progress lock released. Status remains `complete` (now 20 phases).
+
+## 2026-05-29 — auto-continue-pr-loop resume 2 + checkpoint 6
+- Resumed by: @pkarw. Trigger: /auto-continue-pr-loop 2055 (dynamic workflows; 100% OSS locks for sales+crm, fix alinadivante scenarios, command framework OSS+enterprise, subsequent sales docs, FR issue, Playwright).
+- Booted the branch on :3100 (shared DB) — first run to actually run Playwright/integration against branch code (prior runs skipped: "no PG/Redis"). Recon via dynamic Workflow (6 audits + synthesis).
+- **User decision (2026-05-29):** the "record was modified" conflict must be a persistent **error-styled bar** (like the undo `LastOperationBanner`), unified across ALL forms — not a transient toast. Implemented in 22.2.
+- Steps landed: 21.1 (336632f96), 22.1 (42e1feffd), 22.2 (f2a23716c), 24.1 (b914ae7bb), 25.1 (35fbd4d30).
+- Checkpoint 6: shared 23/23, ui 24/24, core 5/5 unit tests green; build:packages ✅; i18n:check-sync ✅ (after --fix re-sorted 4 locales for the new ui.forms.conflict.* keys).
+- UI/Playwright: server 409 proven live; conflict-bar visual capture deferred to Phase 27.2 (companies-v2 refetch-on-focus defeats single-tab repro — use two sessions). UI verification did not block dev (skill contract).
+- Next: Phase 26 (sales doc sub-sections), 27 (specs + browser screenshots), 28 (enterprise FR + docs + final gate + summary).
