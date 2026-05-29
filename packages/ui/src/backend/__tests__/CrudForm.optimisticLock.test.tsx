@@ -173,3 +173,104 @@ describe('CrudForm — optimisticLockUpdatedAt prop wiring', () => {
     )
   })
 })
+
+type AutoFormValues = { displayName: string; id?: string; updatedAt?: string | null; updated_at?: string | null }
+
+function renderAutoForm(opts: {
+  initialValues: Partial<AutoFormValues>
+  onSubmit: jest.Mock
+  optimisticLockUpdatedAt?: string | null
+  disableOptimisticLock?: boolean
+  passProp?: boolean
+}) {
+  const props: Record<string, unknown> = {
+    fields,
+    initialValues: opts.initialValues,
+    onSubmit: opts.onSubmit,
+  }
+  if (opts.passProp) props.optimisticLockUpdatedAt = opts.optimisticLockUpdatedAt
+  if (opts.disableOptimisticLock !== undefined) props.disableOptimisticLock = opts.disableOptimisticLock
+  return renderWithProviders(
+    <CrudForm<AutoFormValues> {...(props as any)} />,
+    { dict },
+  )
+}
+
+async function submitAuto(container: HTMLElement) {
+  const form = container.querySelector('form') as HTMLFormElement
+  expect(form).not.toBeNull()
+  await act(async () => { fireEvent.submit(form) })
+}
+
+function sentLockHeaderValue(): string | undefined {
+  const call = withScopedApiRequestHeadersMock.mock.calls.find(
+    (c) => c[0] && Object.prototype.hasOwnProperty.call(c[0], OPTIMISTIC_LOCK_HEADER_NAME),
+  )
+  return call ? call[0][OPTIMISTIC_LOCK_HEADER_NAME] : undefined
+}
+
+describe('CrudForm — optimistic-lock auto-derive from initialValues.updatedAt (no prop)', () => {
+  beforeEach(() => {
+    flashMock.mockClear()
+    withScopedApiRequestHeadersMock.mockClear()
+    fetchCustomFieldFormStructureMock.mockResolvedValue({
+      fields: [], definitions: [], metadata: { items: [], fieldsetsByEntity: {}, entitySettings: {} },
+    })
+  })
+
+  it('edit mode: derives the header from initialValues.updatedAt when the prop is absent', async () => {
+    const onSubmit = jest.fn(async () => undefined)
+    const { container } = renderAutoForm({ initialValues: { id: 'rec-1', displayName: 'old', updatedAt: '2026-05-25T08:00:00.000Z' }, onSubmit })
+    await submitAuto(container)
+    await waitFor(() => expect(onSubmit).toHaveBeenCalledTimes(1))
+    expect(sentLockHeaderValue()).toBe('2026-05-25T08:00:00.000Z')
+  })
+
+  it('edit mode: falls back to snake_case updated_at', async () => {
+    const onSubmit = jest.fn(async () => undefined)
+    const { container } = renderAutoForm({ initialValues: { id: 'rec-1', displayName: 'old', updated_at: '2026-05-25T09:00:00.000Z' }, onSubmit })
+    await submitAuto(container)
+    await waitFor(() => expect(onSubmit).toHaveBeenCalledTimes(1))
+    expect(sentLockHeaderValue()).toBe('2026-05-25T09:00:00.000Z')
+  })
+
+  it('edit mode: no updatedAt anywhere → no header attached (no crash)', async () => {
+    const onSubmit = jest.fn(async () => undefined)
+    const { container } = renderAutoForm({ initialValues: { id: 'rec-1', displayName: 'old' }, onSubmit })
+    await submitAuto(container)
+    await waitFor(() => expect(onSubmit).toHaveBeenCalledTimes(1))
+    expect(sentLockHeaderValue()).toBeUndefined()
+  })
+
+  it('create mode (no id): never attaches even with updatedAt present', async () => {
+    const onSubmit = jest.fn(async () => undefined)
+    const { container } = renderAutoForm({ initialValues: { displayName: 'new', updatedAt: '2026-05-25T08:00:00.000Z' }, onSubmit })
+    await submitAuto(container)
+    await waitFor(() => expect(onSubmit).toHaveBeenCalledTimes(1))
+    expect(sentLockHeaderValue()).toBeUndefined()
+  })
+
+  it('explicit optimisticLockUpdatedAt={null} wins over auto-derive (no header)', async () => {
+    const onSubmit = jest.fn(async () => undefined)
+    const { container } = renderAutoForm({ initialValues: { id: 'rec-1', displayName: 'old', updatedAt: '2026-05-25T08:00:00.000Z' }, onSubmit, passProp: true, optimisticLockUpdatedAt: null })
+    await submitAuto(container)
+    await waitFor(() => expect(onSubmit).toHaveBeenCalledTimes(1))
+    expect(sentLockHeaderValue()).toBeUndefined()
+  })
+
+  it('explicit prop value wins over initialValues.updatedAt', async () => {
+    const onSubmit = jest.fn(async () => undefined)
+    const { container } = renderAutoForm({ initialValues: { id: 'rec-1', displayName: 'old', updatedAt: '2026-05-25T08:00:00.000Z' }, onSubmit, passProp: true, optimisticLockUpdatedAt: '2026-05-25T10:00:00.000Z' })
+    await submitAuto(container)
+    await waitFor(() => expect(onSubmit).toHaveBeenCalledTimes(1))
+    expect(sentLockHeaderValue()).toBe('2026-05-25T10:00:00.000Z')
+  })
+
+  it('disableOptimisticLock never attaches even when updatedAt present', async () => {
+    const onSubmit = jest.fn(async () => undefined)
+    const { container } = renderAutoForm({ initialValues: { id: 'rec-1', displayName: 'old', updatedAt: '2026-05-25T08:00:00.000Z' }, onSubmit, disableOptimisticLock: true })
+    await submitAuto(container)
+    await waitFor(() => expect(onSubmit).toHaveBeenCalledTimes(1))
+    expect(sentLockHeaderValue()).toBeUndefined()
+  })
+})
