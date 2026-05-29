@@ -86,7 +86,7 @@
 | 28 | 28.2 | Docs/spec/CHANGELOG/AGENTS: document 100% OSS coverage + command-level extension point; flip coverage-completion spec rows; final gate + ds-guardian + auto-review + PR body → complete + summary comment | done | (this commit) |
 | 28 | 28.2-docs | Docs/spec/CHANGELOG/AGENTS updates | done | 7567e127b |
 | 28 | 28.2-review-fix | Code-review NIT: replace `as any` updatedAt reads in Payments/Shipments with typed `readRowUpdatedAt` helper + tests | done | 5a2f7d8a6 |
-| 28 | 28.2-spec-acl | Sales lock specs (003/007/008): run as `admin` (granted `sales.*` by setup.ts) + drop the sync-gated self-skip — no manual step on fresh install/CI | done | PENDING |
+| 28 | 28.2-spec-acl | Sales lock specs (003/007/008): run as `admin` (granted `sales.*` by setup.ts) + drop the sync-gated self-skip — no manual step on fresh install/CI | done | 54df84586 |
 
 ## Goal (resume)
 

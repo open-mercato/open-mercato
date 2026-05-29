@@ -117,3 +117,9 @@ Append-only event log. Newest at the bottom.
 - Enterprise FR #2232 filed (enterprise + feature labels); #2215 re-scoped (sales-doc UI done here).
 - Final gate green (build:packages, turbo typecheck shared/ui/core, i18n, touched unit suites); lock integration specs TC-LOCK-OSS-001/005/006/007/008 green live on :3100; conflict-bar screenshot captured. Code-review APPROVE-WITH-NITS (1 NIT fixed). DS clean. BC additive.
 - Labels stay feature/qa/needs-qa (customer-facing concurrency UX). in-progress lock released next.
+
+## 2026-05-29 — merge develop (merge-safety) + cross-module verification
+- Branch was 9 commits behind develop; the audit's "unrelated cross-module changes" (catalog command tenant/org scoping #2197, auth ACL dependsOn #2141/#2220, CRM list sorting #2217, RecordNotFoundState #2185, attachments XSS tests) were develop drift — merging as-is would have REVERTED them.
+- Merged origin/develop → `3372fe397`, **zero conflicts**. Now 0 behind.
+- Post-merge gate green: build:packages 19/19, generate, build:packages 19/19, turbo typecheck shared/ui/core 3/3. Unit suites green: shared 94 (optimistic-lock+aclDependencies), ui 28 (conflicts+optimistic-lock), core 30 (my handlers + develop's catalog acl / auth features / listSorting / sales acl-dependencies). Both develop's and this PR's work intact.
+- Cross-module merge-safety smokes (live :3100): CRUD GET 200 for currencies/staff/catalog/auth/business_rules; staff.team stale PUT → 409 (universal generic reader); staff team CrudForm edit → 200 + lock header, 0 console errors; companies-v2 + deal edits → 409 + conflict bar.
