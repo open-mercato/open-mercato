@@ -15,8 +15,8 @@ Closes: #2239 (write/command path), #2245 (read/detail path)
 | 2 | 2.1 | Add `isOrganizationReadAccessAllowed` predicate + unit test | done | 13144945d |
 | 2 | 2.2 | Migrate 10 fail-open detail-route guards + `entity-roles-factory` | done | 13144945d |
 | 3 | 3.1 | Integration fixture infra (org/ACL/null-home-org) + `TC-CRM-072.spec.ts` | done | e1b9259ff |
-| 3 | 3.2 | Validate `TC-CRM-072.spec.ts` under a coherent app+DB harness (`yarn test:integration:ephemeral`) | done | (verify) |
-| 3 | 3.3 | Full validation gate (`yarn test`, `yarn build:app`) | done | (verify) |
+| 3 | 3.2 | Validate `TC-CRM-072.spec.ts` under a coherent app+DB harness (`yarn test:integration:ephemeral`) | done | 2a3dffef9 |
+| 3 | 3.3 | Full validation gate (`yarn test`, `yarn build:app`) | done | 2a3dffef9 |
 
 ## Goal
 Close an OWASP A01 fail-open authorization gap where organization-scope checks are **skipped** instead of **denied** when a restricted (non-super-admin) user has no resolvable current organization — fixed once via shared, fail-closed authorization helpers consumed by both the command (write) and detail-route (read) paths.
