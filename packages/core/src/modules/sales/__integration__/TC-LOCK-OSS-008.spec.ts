@@ -2,7 +2,6 @@ import { expect, test, type APIRequestContext } from '@playwright/test'
 import {
   createSalesOrderFixture,
   createOrderLineFixture,
-  canManageSalesOrders,
 } from '@open-mercato/core/modules/core/__integration__/helpers/salesFixtures'
 import { getAuthToken } from '@open-mercato/core/modules/core/__integration__/helpers/api'
 import {
@@ -91,17 +90,10 @@ async function deleteOrder(request: APIRequestContext, token: string, orderId: s
 }
 
 test.describe('TC-LOCK-OSS-008: sales document sub-resource (line) aggregate conflict', () => {
-  // Self-skip on dev databases whose role ACLs were never synced so the admin
-  // principal lacks `sales.orders.manage`. CI bootstraps a fully-synced tenant,
-  // so the probe passes and the test runs there. Deterministic, never flaky.
-  test.beforeAll(async ({ request }) => {
-    const token = await getAuthToken(request, 'admin')
-    test.skip(
-      !(await canManageSalesOrders(request, token)),
-      'admin lacks sales.orders.manage on this tenant — run `yarn mercato auth sync-role-acls`',
-    )
-  })
-
+  // Runs as `admin`, granted `sales.*` by the sales module's setup.ts
+  // `defaultRoleFeatures`, so a fresh install and CI have the sales features out
+  // of the box — no manual ACL sync, no self-skip. (Only a tenant created before
+  // these features existed needs the documented one-time sync.)
   test('stale parent-order header on a line upsert returns 409 (document-aggregate guard)', async ({ request }) => {
     let token: string | null = null
     let orderId: string | null = null

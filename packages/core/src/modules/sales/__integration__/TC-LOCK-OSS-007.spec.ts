@@ -1,8 +1,5 @@
 import { expect, test, type APIRequestContext } from '@playwright/test'
-import {
-  createSalesOrderFixture,
-  canManageSalesOrders,
-} from '@open-mercato/core/modules/core/__integration__/helpers/salesFixtures'
+import { createSalesOrderFixture } from '@open-mercato/core/modules/core/__integration__/helpers/salesFixtures'
 import { getAuthToken } from '@open-mercato/core/modules/core/__integration__/helpers/api'
 import {
   OPTIMISTIC_LOCK_HEADER_NAME,
@@ -85,18 +82,11 @@ async function deleteOrder(
 }
 
 test.describe('TC-LOCK-OSS-007: sales.order concurrent edit + stale delete', () => {
-  // Self-skip on dev databases whose role ACLs were never synced so the admin
-  // principal lacks `sales.orders.manage`. CI bootstraps a fully-synced tenant,
-  // so the probe passes and the tests run there (same precondition as the
-  // existing TC-LOCK-OSS-003 sales-write spec). Deterministic, never flaky.
-  test.beforeAll(async ({ request }) => {
-    const token = await getAuthToken(request, 'admin')
-    test.skip(
-      !(await canManageSalesOrders(request, token)),
-      'admin lacks sales.orders.manage on this tenant — run `yarn mercato auth sync-role-acls`',
-    )
-  })
-
+  // Runs as `admin`, which the sales module grants `sales.*` to in setup.ts
+  // (`defaultRoleFeatures`). So a freshly installed tenant and CI both have the
+  // sales features out of the box — no manual `yarn mercato auth sync-role-acls`
+  // and no self-skip. (Only a long-lived tenant created before these features
+  // existed needs the documented one-time ACL sync.)
   test('concurrent edit: session A wins, stale session B gets 409', async ({ request }) => {
     let token: string | null = null
     let orderId: string | null = null
