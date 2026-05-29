@@ -9,6 +9,7 @@ import { createCrudFormError } from '@open-mercato/ui/backend/utils/serverErrors
 import { collectCustomFieldValues } from '@open-mercato/ui/backend/utils/customFieldValues'
 import { apiCall, readApiResultOrThrow, withScopedApiRequestHeaders } from '@open-mercato/ui/backend/utils/apiCall'
 import { buildOptimisticLockHeader } from '@open-mercato/ui/backend/utils/optimisticLock'
+import { surfaceRecordConflict } from '@open-mercato/ui/backend/conflicts'
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
 import { ErrorMessage } from '@open-mercato/ui/backend/detail'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
@@ -66,6 +67,17 @@ type PriceListResponse = {
 
 type AttachmentListResponse = {
   items?: ProductMediaItem[]
+}
+
+export function handleVariantDeleteError(
+  err: unknown,
+  t: (key: string, fallback?: string) => string,
+): void {
+  if (surfaceRecordConflict(err, t)) return
+  const message = err instanceof Error && err.message
+    ? err.message
+    : t('catalog.variants.form.deleteError', 'Failed to delete variant.')
+  flash(message, 'error')
 }
 
 function resolveVariantPriceLabel(prices: Record<string, VariantPriceDraft> | undefined): string | null {
@@ -544,10 +556,15 @@ export default function EditVariantPage({ params }: { params?: { productId?: str
             const deleteVariant = () => deleteCrud('catalog/variants', variantId!, {
               errorMessage: t('catalog.variants.form.deleteError', 'Failed to delete variant.'),
             })
-            if (Object.keys(variantOptimisticLockHeader).length > 0) {
-              await withScopedApiRequestHeaders(variantOptimisticLockHeader, deleteVariant)
-            } else {
-              await deleteVariant()
+            try {
+              if (Object.keys(variantOptimisticLockHeader).length > 0) {
+                await withScopedApiRequestHeaders(variantOptimisticLockHeader, deleteVariant)
+              } else {
+                await deleteVariant()
+              }
+            } catch (err) {
+              handleVariantDeleteError(err, t)
+              throw err
             }
             flash(t('catalog.variants.form.deleted', 'Variant deleted.'), 'success')
             router.push(productVariantsHref)
