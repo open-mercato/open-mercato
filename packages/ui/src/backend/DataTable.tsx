@@ -216,6 +216,7 @@ export type DataTableProps<T> = {
   actions?: React.ReactNode
   refreshButton?: DataTableRefreshButton
   sortable?: boolean
+  manualSorting?: boolean
   sorting?: SortingState
   onSortingChange?: (s: SortingState) => void
   pagination?: PaginationProps
@@ -941,6 +942,7 @@ export function DataTable<T>({
   actions,
   refreshButton,
   sortable,
+  manualSorting,
   sorting: sortingProp,
   onSortingChange,
   pagination,
@@ -1424,11 +1426,13 @@ export function DataTable<T>({
   const hasInjectedBulkActions = injectedBulkActions.length > 0 || hasPropBulkActions
   const [rowSelection, setRowSelection] = React.useState<RowSelectionState>({})
   const selectionScopeKeyRef = React.useRef<string | undefined>(selectionScopeKey)
+  const enableClientSorting = sortable && !manualSorting
   const table = useReactTable<T>({
     data: clientFilteredData,
     columns: mergedColumns,
     getCoreRowModel: getCoreRowModel(),
-    ...(sortable ? { getSortedRowModel: getSortedRowModel() } : {}),
+    ...(enableClientSorting ? { getSortedRowModel: getSortedRowModel() } : {}),
+    manualSorting: manualSorting === true,
     getRowId: resolveDataTableRowId,
     state: { sorting, columnVisibility, columnOrder, rowSelection },
     enableRowSelection: hasInjectedBulkActions,
