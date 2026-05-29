@@ -3,7 +3,7 @@
 **Last updated:** 2026-05-29 (resume 2 — QA fix + framework + unified conflict bar)
 **Branch:** feat/oss-optimistic-locking
 **PR:** https://github.com/open-mercato/open-mercato/pull/2055
-**Current phase/step:** Through 25.1 done + checkpoint 6. Next = Phase 26 (sales document sub-sections client wiring), then 27 (Playwright/integration + browser screenshots), then 28 (enterprise FR issue + docs + final gate + summary).
+**Current phase/step:** COMPLETE — all resume-2 phases (21–28) done at head 5a2f7d8a6. 100% OSS optimistic-lock coverage for CRM + catalog + sales (incl. sales document sub-sections); unified conflict bar; command-level enterprise seam; enterprise FR #2232 filed. Final gate green; lock integration specs green live on :3100. Awaiting human re-QA + 2nd-approver merge.
 **Last code commit:** 35fbd4d30 (sales document page lock wiring). Checkpoint 6 docs commit follows.
 
 ## Environment (IMPORTANT — this is how to run Playwright on THIS branch)

@@ -124,3 +124,28 @@ Strictly additive: new file + additive exports; command 409 path is no-op unless
 ## DS-guardian
 
 Only UI change (handleConvert) adds headers + a flash (existing i18n key) + a state bump — no DS tokens/colors/typography/arbitrary values. Clean.
+
+---
+
+# Final gate — resume 2 (2026-05-29), head 5a2f7d8a6
+
+Run against the live branch dev server on :3100.
+
+## Validation gate
+- `yarn build:packages` — ✅ 19/19.
+- `yarn turbo run typecheck --filter=@open-mercato/{shared,ui,core}` — ✅ 3/3 (the new `@open-mercato/ui/backend/conflicts` subpath resolves; sales/catalog wiring typecheck clean). Workspace `tsc` still hits the pre-existing `ignoreDeprecations` TS5103 env error (reproduces on develop) — turbo typecheck is authoritative.
+- `yarn i18n:check-sync` — ✅ 4 locales in sync (after `--fix` re-sorted the new `ui.forms.conflict.*` keys).
+- Unit (touched): shared `optimistic-lock*` 75/75 ✅ · ui `conflicts`+optimistic-lock 28/28 ✅ · core variant/document/section conflict 11/11 ✅.
+- `yarn build:app` / full `yarn test` / `yarn test:create-app:integration` — CI-authoritative (branch dev server compiles + serves all touched routes; lock integration specs pass live).
+
+## Integration (Playwright, live :3100)
+- TC-LOCK-OSS-001 ✅2 · 005 CRM (company/person/deal) ✅3 · 006 catalog.product ✅1 · 007 sales.order edit+stale-delete ✅2 · 008 sales document-aggregate line conflict ✅1. (Sales specs required `yarn mercato auth sync-role-acls` to grant admin sales features on the dev tenant; CI bootstraps a synced tenant.)
+
+## ds-guardian
+- Conflict bar uses semantic tokens only (`status-error-*`, `rounded-md`, `shadow-xs`, `text-sm`, `size-4`); no hardcoded colors / arbitrary values / `dark:` overrides. Clean.
+
+## Code review (auto-review-pr substitute)
+- Independent review subagent over `42e1feffd^..HEAD`: APPROVE-WITH-NITS, 0 blockers/0 should-fix. NIT (`as any` payments/shipments updatedAt reads) fixed in `5a2f7d8a6` (typed `readRowUpdatedAt`). BC strictly additive.
+
+## Live browser smoke
+- Deal save with stale version → `PUT 409` → unified RecordConflictBanner ("Record changed — This record was modified…") + Refresh. Screenshot `checkpoint-7-artifacts/record-conflict-bar-deal.png`.

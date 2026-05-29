@@ -111,3 +111,9 @@ Append-only event log. Newest at the bottom.
 - Checkpoint 6: shared 23/23, ui 24/24, core 5/5 unit tests green; build:packages ✅; i18n:check-sync ✅ (after --fix re-sorted 4 locales for the new ui.forms.conflict.* keys).
 - UI/Playwright: server 409 proven live; conflict-bar visual capture deferred to Phase 27.2 (companies-v2 refetch-on-focus defeats single-tab repro — use two sessions). UI verification did not block dev (skill contract).
 - Next: Phase 26 (sales doc sub-sections), 27 (specs + browser screenshots), 28 (enterprise FR + docs + final gate + summary).
+
+## 2026-05-29 — resume 2 finalized
+- All resume-2 phases done (21–28). Head 5a2f7d8a6.
+- Enterprise FR #2232 filed (enterprise + feature labels); #2215 re-scoped (sales-doc UI done here).
+- Final gate green (build:packages, turbo typecheck shared/ui/core, i18n, touched unit suites); lock integration specs TC-LOCK-OSS-001/005/006/007/008 green live on :3100; conflict-bar screenshot captured. Code-review APPROVE-WITH-NITS (1 NIT fixed). DS clean. BC additive.
+- Labels stay feature/qa/needs-qa (customer-facing concurrency UX). in-progress lock released next.
