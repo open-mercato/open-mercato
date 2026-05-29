@@ -39,6 +39,8 @@ import {
   normalizeIsoToken,
   parseOptimisticLockEnv,
   type OptimisticLockConfig,
+  type OptimisticLockResolverInput,
+  type ResolveExpectedUpdatedAt,
 } from './optimistic-lock'
 
 function toIsoOrNull(value: string | Date | null | undefined): string | null {
@@ -171,4 +173,87 @@ export function enforceCommandOptimisticLock(input: EnforceCommandOptimisticLock
     current: input.current,
     envValue: input.envValue,
   })
+}
+
+/**
+ * DI-resolvable command-level optimistic-lock guard. This is the framework
+ * seam that lets BOTH layers protect Command-pattern writes through one
+ * contract:
+ *
+ *   - **OSS** registers the default service (header/explicit token compare —
+ *     identical to calling `enforceCommandOptimisticLock` directly).
+ *   - **Enterprise** (`record_locks`) re-registers the same DI key with a
+ *     `resolveExpected` that reads the held pessimistic lock's version, so a
+ *     stale command write fails with the same structured 409 WITHOUT any
+ *     command handler changing. Mirrors how enterprise already replaces the
+ *     CRUD-path `crudMutationGuardService` (see `optimistic-lock.ts`).
+ *
+ * Command handlers depend only on this interface (resolved from the container),
+ * never on a concrete implementation — that is what makes the next-PR
+ * enterprise extension a pure DI swap.
+ */
+export type CommandOptimisticLockGuardService = {
+  /**
+   * Enforce the version check for a command-level mutation against an
+   * aggregate/record. Async because an enterprise resolver may load the
+   * expected token from a lock record. No-op (resolves silently) when the env
+   * disables the guard for `resourceKind` or when no expected token is
+   * resolved — strictly additive, exactly like {@link enforceCommandOptimisticLock}.
+   * Throws `CrudHttpError(409, OptimisticLockConflictBody)` on mismatch.
+   */
+  enforce: (input: EnforceCommandOptimisticLockInput) => Promise<void>
+}
+
+export type CreateCommandOptimisticLockGuardServiceOptions = {
+  /**
+   * Override how the expected version is derived. Receives
+   * `{ expectedFromHeader, resourceKind, resourceId }` (where
+   * `expectedFromHeader` is the normalized client-supplied token — explicit
+   * input or request header) and returns the expected token (or `null` to
+   * skip). Defaults to "use the client-supplied token", which is the OSS
+   * behavior. The enterprise `record_locks` module plugs a lock-backed
+   * resolver here. Mirrors the CRUD guard's `resolveExpected`.
+   */
+  resolveExpected?: ResolveExpectedUpdatedAt
+}
+
+/**
+ * Build a {@link CommandOptimisticLockGuardService}. With no options it is
+ * behaviourally identical to {@link enforceCommandOptimisticLock} (header/
+ * explicit compare), so the OSS default is a thin wrapper. Pass
+ * `resolveExpected` to override token resolution (enterprise extension point).
+ */
+export function createCommandOptimisticLockGuardService(
+  options: CreateCommandOptimisticLockGuardServiceOptions = {},
+): CommandOptimisticLockGuardService {
+  const resolveExpected: ResolveExpectedUpdatedAt | null = options.resolveExpected ?? null
+  return {
+    async enforce(input: EnforceCommandOptimisticLockInput): Promise<void> {
+      const config = resolveConfig(input.envValue)
+      if (!isResourceLockEnabled(config, input.resourceKind)) return
+
+      const clientSupplied = input.expected !== undefined && input.expected !== null
+        ? input.expected
+        : readOptimisticLockExpected(input.request ?? null)
+      const expectedFromHeader = toIsoOrNull(clientSupplied)
+
+      let expected: string | null = expectedFromHeader
+      if (resolveExpected) {
+        const resolverInput: OptimisticLockResolverInput = {
+          expectedFromHeader,
+          resourceKind: input.resourceKind,
+          resourceId: input.resourceId,
+        }
+        expected = await resolveExpected(resolverInput)
+      }
+
+      assertOptimisticLock({
+        resourceKind: input.resourceKind,
+        resourceId: input.resourceId,
+        expected,
+        current: input.current,
+        envValue: input.envValue,
+      })
+    },
+  }
 }

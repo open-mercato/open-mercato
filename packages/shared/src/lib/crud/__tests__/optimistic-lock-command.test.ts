@@ -1,6 +1,7 @@
 import {
   assertOptimisticLock,
   buildOptimisticLockConflictBody,
+  createCommandOptimisticLockGuardService,
   enforceCommandOptimisticLock,
   readOptimisticLockExpected,
 } from '../optimistic-lock-command'
@@ -244,5 +245,109 @@ describe('buildOptimisticLockConflictBody', () => {
       currentUpdatedAt: B,
       expectedUpdatedAt: A,
     })
+  })
+})
+
+describe('createCommandOptimisticLockGuardService', () => {
+  it('default service mirrors enforceCommandOptimisticLock (header compare → 409 on mismatch)', async () => {
+    const guard = createCommandOptimisticLockGuardService()
+    let caught: unknown
+    try {
+      await guard.enforce({
+        resourceKind: 'sales.order',
+        resourceId: 'order-1',
+        current: B,
+        request: headersWith(A),
+        envValue: 'all',
+      })
+    } catch (err) {
+      caught = err
+    }
+    expect(isCrudHttpError(caught)).toBe(true)
+    expect((caught as CrudHttpError).status).toBe(409)
+  })
+
+  it('default service is a no-op when the client sends no expected token (strictly additive)', async () => {
+    const guard = createCommandOptimisticLockGuardService()
+    await expect(
+      guard.enforce({
+        resourceKind: 'sales.order',
+        resourceId: 'order-1',
+        current: B,
+        request: headersWith(null),
+        envValue: 'all',
+      }),
+    ).resolves.toBeUndefined()
+  })
+
+  it('default service is a no-op when the env disables the guard for the resource', async () => {
+    const guard = createCommandOptimisticLockGuardService()
+    await expect(
+      guard.enforce({
+        resourceKind: 'sales.order',
+        resourceId: 'order-1',
+        current: B,
+        request: headersWith(A),
+        envValue: 'off',
+      }),
+    ).resolves.toBeUndefined()
+  })
+
+  it('resolveExpected overrides the header-derived token (enterprise extension point)', async () => {
+    const seen: Array<{ expectedFromHeader: string | null; resourceKind: string; resourceId: string }> = []
+    // Resolver supplies a stale token even though the client header matches `current`,
+    // proving enterprise can drive the expected version from a lock record.
+    const guard = createCommandOptimisticLockGuardService({
+      resolveExpected: (input) => {
+        seen.push(input)
+        return A
+      },
+    })
+    let caught: unknown
+    try {
+      await guard.enforce({
+        resourceKind: 'sales.order',
+        resourceId: 'order-9',
+        current: B,
+        request: headersWith(B),
+        envValue: 'all',
+      })
+    } catch (err) {
+      caught = err
+    }
+    expect(isCrudHttpError(caught)).toBe(true)
+    expect((caught as CrudHttpError).status).toBe(409)
+    expect(seen).toHaveLength(1)
+    expect(seen[0]).toEqual({ expectedFromHeader: B, resourceKind: 'sales.order', resourceId: 'order-9' })
+  })
+
+  it('awaits an async resolveExpected and passes when it returns the current token', async () => {
+    const guard = createCommandOptimisticLockGuardService({
+      resolveExpected: async () => B,
+    })
+    await expect(
+      guard.enforce({
+        resourceKind: 'sales.order',
+        resourceId: 'order-9',
+        current: B,
+        request: headersWith(A),
+        envValue: 'all',
+      }),
+    ).resolves.toBeUndefined()
+  })
+
+  it('resolveExpected returning null skips the check (no expected → additive no-op)', async () => {
+    const guard = createCommandOptimisticLockGuardService({
+      resolveExpected: () => null,
+    })
+    await expect(
+      guard.enforce({
+        resourceKind: 'sales.order',
+        resourceId: 'order-9',
+        current: B,
+        request: headersWith(A),
+        envValue: 'all',
+      }),
+    ).resolves.toBeUndefined()
   })
 })

@@ -72,6 +72,17 @@
 | 19 | 19.1 | Update coverage-completion spec (Phase 4) + main optimistic-locking spec (command-level section) | done | d8dcee93c |
 | 19 | 19.2 | Update `concurrency-locking.mdx` docs + root AGENTS.md command-level contract + CHANGELOG | done | d8dcee93c |
 | 20 | 20.1 | File follow-up GitHub issue #2215 (extend command-level lock to other modules + sales doc UI client wiring) + CHANGELOG entry + final gate/review/summary | done | 1640b1fcb |
+| 21 | 21.1 | Verify-first: boot worktree dev server (port 3100, shared DB) + Playwright-reproduce all of @alinadivante's 2026-05-27 QA scenarios on the PR branch; record root-cause report `qa-repro-report.md` (which pages actually fail, why the raw `record_modified` shows, delete→404/409 contract, payments/shipments header semantics, v1-page reachability) | todo | — |
+| 22 | 22.1 | Framework: add `resolveExpected` extension hook + `createCommandOptimisticLockGuardService` factory to `optimistic-lock-command.ts` (mirrors CRUD-guard `ResolveExpectedUpdatedAt`; lets enterprise plug a record_locks-backed resolver via DI without touching command handlers) + JSDoc + unit tests | done | 341aa2609 |
+| 23 | 23.1 | CRM client wiring: fix whichever CRM edit/delete paths Phase 21 proves still silently overwrite (people-v2/companies-v2/deals update+delete, and v1 company/person pages only if reachable) — send lock header + surface localized conflict + refetch | todo | — |
+| 24 | 24.1 | Catalog: surface 409 conflict in product-variant delete (header already sent; add `extractOptimisticLockConflict` → localized flash) + any other catalog gap Phase 21 confirms | todo | — |
+| 25 | 25.1 | Sales document detail page: wire `updateDocument()` inline-edit callers + `handleDelete()` to send `buildOptimisticLockHeader(record.updatedAt)` + surface localized conflict + refresh | todo | — |
+| 26 | 26.1 | Sales document sub-sections (Items/Adjustments/Returns) client wiring: thread `documentUpdatedAt` → send header on create/update/delete + conflict flash + parent reload | todo | — |
+| 26 | 26.2 | Sales document sub-sections Payments/Shipments: apply the header semantics Phase 21 confirms (row-level vs document-aggregate) + conflict surfacing | todo | — |
+| 27 | 27.1 | Playwright/integration: concurrent-edit + stale-delete specs for company/person/deal/product/sales.order + sales document line/adjustment (two-session pattern) + `__concurrent_edit_pattern.md`; run green against the worktree dev server | todo | — |
+| 27 | 27.2 | Playwright MCP browser smoke: re-run the QA scenarios end-to-end on the running branch; capture screenshots proving localized conflict toast + refresh; save under `checkpoint-*-artifacts/` | todo | — |
+| 28 | 28.1 | File enterprise FR issue (enterprise flag): plug pessimistic record_locks resolver into the command-level framework via `createCommandOptimisticLockGuardService` in `record_locks/di.ts`; re-scope #2215 (mark sales-doc UI + TC-LOCK-OSS-005 done here) | todo | — |
+| 28 | 28.2 | Docs/spec/CHANGELOG/AGENTS: document 100% OSS coverage + command-level extension point; flip coverage-completion spec rows; final gate + ds-guardian + auto-review + PR body → complete + summary comment | todo | — |
 
 ## Goal (resume)
 
