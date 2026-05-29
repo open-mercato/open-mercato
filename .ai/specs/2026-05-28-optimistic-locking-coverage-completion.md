@@ -419,6 +419,13 @@ Two enforcement layers now exist:
 | `TC-LOCK-OSS-007` | `sales.order` concurrent edit + stale delete | **Done (#2055 resume)** — green |
 | `TC-LOCK-OSS-008` | sales document-aggregate line conflict | **Done (#2055 resume)** — green |
 
+The sales specs (`003`/`007`/`008`) authenticate as `admin`, which the sales module's
+`setup.ts` `defaultRoleFeatures` grants `sales.*` — so they run with **no manual
+`yarn mercato auth sync-role-acls` precondition and no self-skip** on a fresh install or in
+CI (only a long-lived tenant created before these features existed needs the documented
+one-time ACL sync). `superadmin` is intentionally not used: the order fixture POST needs the
+organization/channel scope that an admin principal carries.
+
 ## Changelog
 
 ### 2026-05-29
@@ -443,6 +450,9 @@ Two enforcement layers now exist:
     touching command handlers. Tracked for enterprise in #2232. (`42e1feffd`)
   - Integration specs `TC-LOCK-OSS-005`..`008` added and green on a live branch
     dev server.
+  - Sales lock specs (`003`/`007`/`008`) run as `admin` (granted `sales.*` by the
+    sales `setup.ts` `defaultRoleFeatures`) and dropped the sync-gated self-skip, so
+    they need no manual ACL sync on a fresh install / CI. (`54df84586`)
   - **Next step:** the enterprise command-level pessimistic resolver (#2232).
 
 ### 2026-05-28
