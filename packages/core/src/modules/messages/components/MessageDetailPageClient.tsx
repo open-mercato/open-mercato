@@ -92,7 +92,7 @@ function MessageConversationDetailItem({
           {/* UMES — channel payload renderer mounts here (channel-linked emails, Slack blocks, etc.). */}
           <InjectionSpot
             spotId="detail:messages:message:body:after"
-            context={{ messageId, detail: state.detail }}
+            context={{ messageId }}
             data={state.detail}
           />
 
@@ -101,7 +101,7 @@ function MessageConversationDetailItem({
           {/* UMES — channel sidebar widgets (channel info panel, contact preview, delivery status). */}
           <InjectionSpot
             spotId="detail:messages:message:sidebar"
-            context={{ messageId, detail: state.detail }}
+            context={{ messageId }}
             data={state.detail}
           />
         </section>

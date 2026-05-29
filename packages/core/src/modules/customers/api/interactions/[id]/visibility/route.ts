@@ -8,6 +8,7 @@ import {
   validateCrudMutationGuard,
   runCrudMutationGuardAfterSuccess,
 } from '@open-mercato/shared/lib/crud/mutation-guard'
+import { resolveOrganizationScopeForRequest } from '@open-mercato/core/modules/directory/utils/organizationScope'
 import { CustomerInteraction } from '../../../../data/entities'
 import { callerHasEmailViewPrivate } from '../../../../lib/visibilityFilter'
 import { resolveAuthActorId } from '../../../../lib/interactionRequestContext'
@@ -55,7 +56,8 @@ export async function PATCH(req: Request, context: RouteContext): Promise<Respon
 
   const container = await createRequestContainer()
   const em = (container.resolve('em') as EntityManager).fork()
-  const organizationId = (auth as { orgId?: string | null }).orgId ?? null
+  const scope = await resolveOrganizationScopeForRequest({ container, auth, request: req })
+  const organizationId = scope?.selectedId ?? (auth as { orgId?: string | null }).orgId ?? null
   const dscope = { tenantId: auth.tenantId as string, organizationId }
   const userId = resolveAuthActorId(auth)
 
@@ -108,13 +110,9 @@ export async function PATCH(req: Request, context: RouteContext): Promise<Respon
   const isAuthor = !!interaction.authorUserId && interaction.authorUserId === auth.sub
   const isAdmin = callerHasEmailViewPrivate(userFeatures)
 
-  // Non-author without admin bypass cannot see private emails — return 404 to
-  // avoid leaking row existence.
-  if (interaction.visibility === 'private' && !isAuthor && !isAdmin) {
-    return NextResponse.json({ error: 'Email not found' }, { status: 404 })
-  }
-
-  // Only author OR admin may flip visibility.
+  // Only the author or an admin (with view-private) may flip visibility. Return
+  // 404 (not 403) for everyone else so we don't leak the row's existence — this
+  // also covers non-authors who cannot see a private email in the first place.
   if (!isAuthor && !isAdmin) {
     return NextResponse.json({ error: 'Email not found' }, { status: 404 })
   }

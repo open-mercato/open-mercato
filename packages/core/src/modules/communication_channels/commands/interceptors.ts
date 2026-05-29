@@ -56,10 +56,13 @@ export const interceptors: CommandInterceptor[] = [
       }
 
       const em = (ctxRuntime.container.resolve('em') as EntityManager).fork()
+      // Resolve only within the snapshot's tenant — never by bare id, which
+      // would cross tenant boundaries. New snapshots always carry tenantId.
+      if (!snapshot.tenantId) return
       const ownedChannel = await findOneWithDecryption(
         em,
         CommunicationChannel,
-        { id: snapshot.channelId },
+        { id: snapshot.channelId, tenantId: snapshot.tenantId },
       )
       if (!ownedChannel) return // command's undo() will silently no-op
 

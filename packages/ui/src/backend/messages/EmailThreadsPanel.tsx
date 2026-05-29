@@ -9,6 +9,7 @@ import { Alert, AlertDescription } from '../../primitives/alert'
 import { EmptyState } from './../EmptyState'
 import { formatDateTime } from '@open-mercato/shared/lib/time'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
+import { cn } from '@open-mercato/shared/lib/utils'
 
 export type EmailThreadDirection = 'inbound' | 'outbound'
 
@@ -96,7 +97,7 @@ export function EmailThreadsPanel({
   )
 
   return (
-    <div className={`flex flex-col gap-4${className ? ` ${className}` : ''}`}>
+    <div className={cn('flex flex-col gap-4', className)}>
       <div className="flex items-center justify-between gap-2">
         <div className="text-sm text-muted-foreground">
           {t('ui.email.threads.count', '{count} conversations', { count: threads.length })}
@@ -111,7 +112,7 @@ export function EmailThreadsPanel({
               onClick={onRefresh}
               disabled={loading}
             >
-              <RefreshCw className={`h-4 w-4${loading ? ' animate-spin' : ''}`} />
+              <RefreshCw className={cn('h-4 w-4', loading && 'animate-spin')} />
               {t('ui.email.threads.refresh', 'Refresh')}
             </Button>
           ) : null}

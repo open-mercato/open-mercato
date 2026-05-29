@@ -159,17 +159,17 @@ const ingestInboundMessageCommand: CommandHandler<IngestInboundMessageInput, Ing
     )
     if (!channel) {
       throw new Error(
-        `Channel ${input.channelId} not found for tenant ${input.scope.tenantId} (or has been deleted)`,
+        `[internal] Channel ${input.channelId} not found for tenant ${input.scope.tenantId} (or has been deleted)`,
       )
     }
     if (!channel.isActive) {
-      throw new Error(`Channel ${input.channelId} is inactive; refusing to ingest`)
+      throw new Error(`[internal] Channel ${input.channelId} is inactive; refusing to ingest`)
     }
 
     const adapter = adapterRegistry.get(input.providerKey)
     if (!adapter) {
       throw new Error(
-        `No ChannelAdapter registered for providerKey '${input.providerKey}'. ` +
+        `[internal] No ChannelAdapter registered for providerKey '${input.providerKey}'. ` +
           'Check that the provider package is enabled in modules.ts.',
       )
     }

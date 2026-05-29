@@ -125,10 +125,11 @@ export default async function handle(
       deletedAt: null,
       status: 'error',
       pollIntervalSeconds: { $ne: null },
-      // The entity captures the time of the last poll attempt (successful
-      // or failed) on `lastPolledAt`; a row in `status: 'error'` whose
-      // `lastPolledAt < recoverCutoff` is the "failed long enough ago to
-      // retry" set.
+      // `lastPolledAt` advances only on a SUCCESSFUL poll (poll-channel does
+      // not touch it in `handlePollError`), so for an error channel this gates
+      // recovery on the age of the last success: once
+      // `lastPolledAt < recoverCutoff` it re-enters the poll. A dedicated
+      // `lastFailureAt` would let recovery back off from the failure instead.
       lastPolledAt: { $lt: recoverCutoff },
     },
     {

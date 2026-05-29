@@ -64,6 +64,7 @@ describe('disconnect-channel beforeUndo interceptor', () => {
           result: {
             undo: {
               channelId,
+              tenantId,
               previousStatus: 'connected',
               previousIsActive: true,
               previousIsPrimary: true,
@@ -91,6 +92,7 @@ describe('disconnect-channel beforeUndo interceptor', () => {
           result: {
             undo: {
               channelId,
+              tenantId,
               previousStatus: 'connected',
               previousIsActive: true,
               previousIsPrimary: true,

@@ -388,5 +388,7 @@ function truncateRawBody(message: NormalizedInboundMessage): string | null {
   const cap = Number.isFinite(envCap) && envCap > 0 ? envCap : DEAD_LETTER_RAW_BODY_MAX_BYTES_DEFAULT
   const body = message.body ?? ''
   if (body.length === 0) return null
-  return body.length > cap ? `${body.slice(0, cap)}…[truncated]` : body
+  const buf = Buffer.from(body, 'utf-8')
+  if (buf.byteLength <= cap) return body
+  return `${buf.subarray(0, cap).toString('utf-8')}…[truncated]`
 }

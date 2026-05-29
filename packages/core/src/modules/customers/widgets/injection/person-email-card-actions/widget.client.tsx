@@ -12,6 +12,7 @@ import {
 import { Button } from '@open-mercato/ui/primitives/button'
 import { apiCall } from '@open-mercato/ui/backend/utils/apiCall'
 import { useGuardedMutation } from '@open-mercato/ui/backend/injection/useGuardedMutation'
+import { useAppEvent } from '@open-mercato/ui/backend/injection/useAppEvent'
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 import type { EmailCardWidgetData } from './widget'
@@ -70,6 +71,15 @@ export function PersonEmailCardActionsWidget({ data, context }: WidgetProps) {
       cancelled = true
     }
   }, [])
+
+  const refreshTimeline = React.useCallback(() => {
+    router.refresh()
+  }, [router])
+
+  // Event-driven refresh so a sent reply/forward surfaces on the activity
+  // timeline once the worker links it, without a fixed-timer guess.
+  useAppEvent('customers.email.linked', refreshTimeline, [refreshTimeline])
+  useAppEvent('messages.message.sent', refreshTimeline, [refreshTimeline])
 
   // Return null when we have neither a person to send to nor an RFC message ID to thread against.
   // The buttons would be non-functional in that case.

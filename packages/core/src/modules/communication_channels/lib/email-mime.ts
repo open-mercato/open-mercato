@@ -1,5 +1,14 @@
 import crypto from 'node:crypto'
 import type { NormalizedInboundMessage, NormalizedAttachment } from './adapter'
+import { EMAIL_MAX_ATTACHMENT_BYTES } from './email-capabilities'
+
+/**
+ * Aggregate ceiling for all attachments on a single inbound message. Inbound
+ * mail is untrusted, so without a cap a malicious/large message would be fully
+ * base64-buffered in memory (~1.33x raw bytes) and persisted. Allow a small
+ * multiple of the per-attachment limit for legitimate multi-file emails.
+ */
+const TOTAL_INBOUND_ATTACHMENTS_MAX_BYTES = EMAIL_MAX_ATTACHMENT_BYTES * 2
 
 /**
  * Shared email MIME helpers for the email channel providers (Gmail, IMAP,
@@ -56,8 +65,19 @@ export function escapeQuotes(value: string): string {
   return value.replace(/"/g, '\\"')
 }
 
+/**
+ * Collapse CR/LF/TAB in an email header value to a single space to prevent
+ * RFC 5322 header injection — e.g. a Subject smuggling an extra
+ * `Bcc:`/`Content-Type:` header or splitting the message into a body.
+ * Collapsing (rather than folding) is safe for the short structured headers
+ * we emit (Subject, addresses, Message-ID, References).
+ */
+export function sanitizeHeaderValue(value: string): string {
+  return value.replace(/[\r\n\t]+/g, ' ').trim()
+}
+
 export function ensureBrackets(value: string): string {
-  const trimmed = value.trim()
+  const trimmed = sanitizeHeaderValue(value)
   if (trimmed.startsWith('<') && trimmed.endsWith('>')) return trimmed
   return `<${trimmed}>`
 }
@@ -94,12 +114,12 @@ export interface AssembleRfc2822Input {
 export function assembleRfc2822(input: AssembleRfc2822Input): Buffer {
   const boundary = `omc_${crypto.randomUUID()}`
   const headers: string[] = []
-  headers.push(`From: ${input.from}`)
-  headers.push(`To: ${input.to.join(', ')}`)
-  if (input.cc.length) headers.push(`Cc: ${input.cc.join(', ')}`)
-  if (input.bcc.length) headers.push(`Bcc: ${input.bcc.join(', ')}`)
-  if (input.subject) headers.push(`Subject: ${input.subject}`)
-  headers.push(`Message-ID: ${input.messageId.startsWith('<') ? input.messageId : `<${input.messageId}>`}`)
+  headers.push(`From: ${sanitizeHeaderValue(input.from)}`)
+  headers.push(`To: ${input.to.map(sanitizeHeaderValue).join(', ')}`)
+  if (input.cc.length) headers.push(`Cc: ${input.cc.map(sanitizeHeaderValue).join(', ')}`)
+  if (input.bcc.length) headers.push(`Bcc: ${input.bcc.map(sanitizeHeaderValue).join(', ')}`)
+  if (input.subject) headers.push(`Subject: ${sanitizeHeaderValue(input.subject)}`)
+  headers.push(`Message-ID: ${ensureBrackets(input.messageId)}`)
   if (input.inReplyTo) headers.push(`In-Reply-To: ${ensureBrackets(input.inReplyTo)}`)
   if (input.references && input.references.length) {
     headers.push(`References: ${input.references.map(ensureBrackets).join(' ')}`)
@@ -184,8 +204,23 @@ export function parseReferences(value: string | string[] | undefined | null): st
 
 export function normalizeAttachments(attachments: ParsedAttachment[]): NormalizedAttachment[] {
   const out: NormalizedAttachment[] = []
+  let totalBytes = 0
   for (const att of attachments) {
     if (!att.content) continue
+    const byteLength = att.content.byteLength
+    if (byteLength > EMAIL_MAX_ATTACHMENT_BYTES) {
+      console.warn(
+        `[email-mime] dropping oversized inbound attachment "${att.filename ?? 'attachment'}" (${byteLength} bytes > ${EMAIL_MAX_ATTACHMENT_BYTES} cap)`,
+      )
+      continue
+    }
+    if (totalBytes + byteLength > TOTAL_INBOUND_ATTACHMENTS_MAX_BYTES) {
+      console.warn(
+        `[email-mime] aggregate inbound attachment size exceeded ${TOTAL_INBOUND_ATTACHMENTS_MAX_BYTES} bytes; dropping remaining attachments`,
+      )
+      break
+    }
+    totalBytes += byteLength
     const base64 = Buffer.isBuffer(att.content)
       ? att.content.toString('base64')
       : Buffer.from(att.content).toString('base64')

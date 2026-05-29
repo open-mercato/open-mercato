@@ -7,7 +7,11 @@ import { z } from 'zod'
  * flow from acting as a port scanner or leaking the platform's outbound IP to
  * internal infrastructure (cloud metadata endpoints, kube-apiserver, RDS, etc).
  *
- * The check is conservative — we only reject obvious internal addresses. Operators
+ * The check is conservative and string-based — it rejects literal internal IPs
+ * and `localhost`, but NOT a public hostname that resolves (or is DNS-rebound)
+ * to a private address. Fully closing that gap requires resolving the host and
+ * pinning the connection to the validated IP at connect time (in
+ * `imap-client`/`smtp-client`) — a follow-up beyond this string guard. Operators
  * who need a private IMAP host can set `OM_CHANNEL_IMAP_ALLOW_INTERNAL_HOSTS=true`.
  */
 const FORBIDDEN_HOST_PATTERNS: RegExp[] = [

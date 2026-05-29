@@ -127,7 +127,10 @@ const messageChannelEnricher: ResponseEnricher<MessageRecord, { _channel?: Chann
         tenantId: ctx.tenantId,
         organizationId: ctx.organizationId ?? null,
       },
-      { limit: messageIds.length * 2 },
+      // Result set is already bounded by the `messageId $in messageIds` filter
+      // (the host list endpoint caps the page at 100), matching the other
+      // enrichers — no separate row limit needed.
+      undefined,
       dscope,
     )
 

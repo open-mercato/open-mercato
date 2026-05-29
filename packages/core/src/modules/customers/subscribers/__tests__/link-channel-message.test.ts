@@ -451,6 +451,42 @@ describe('link-channel-message subscriber — outbound', () => {
     expect(data.entity).toBe(personRef)
   })
 
+  it('rejects a foreign-tenant crmPersonId hint — no interaction created (cross-tenant link prevention)', async () => {
+    const linkRow = {
+      id: 'mcl-xtenant',
+      providerKey: 'gmail',
+      direction: 'outbound',
+      createdAt: new Date(),
+      channelMetadata: {
+        from: 'sales@example.com',
+        to: ['nomatch@example.com'], // no Person match
+        cc: [],
+        crmPersonId: 'person-in-other-tenant',
+      },
+    }
+    mockFindPeople.mockResolvedValueOnce([]) // address lookup empty
+    // findOne sequence: [link row, channel row, crmPersonId tenant re-validation].
+    // The hint points at a person owned by a DIFFERENT tenant, so the
+    // tenant-scoped re-validation returns null and the hint MUST be dropped.
+    const em = makeEm({ findOneResults: [linkRow, null, null] })
+
+    await handler(
+      {
+        eventType: 'communication_channels.message.sent',
+        channelLinkId: 'mcl-xtenant',
+        channelId: 'ch-sales',
+        tenantId: 'tenant-1',
+        organizationId: 'org-1',
+      } as any,
+      makeCtx(em),
+    )
+
+    // No address match, no same-tenant person hint, no threading refs → nothing
+    // to link → no interaction row is created or flushed.
+    expect(em.create).not.toHaveBeenCalled()
+    expect(em.flush).not.toHaveBeenCalled()
+  })
+
   it('user-scoped channel → authorUserId set + visibility=private (no crmVisibility override)', async () => {
     const linkRow = {
       id: 'mcl-4',

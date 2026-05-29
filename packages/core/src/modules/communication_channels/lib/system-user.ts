@@ -49,7 +49,15 @@ export async function resolveCommunicationChannelsSystemUserId(
     // we keep the lookup table-name-driven so the helper compiles without
     // a cross-module import. The mocks in `__tests__/system-user.test.ts`
     // exercise this code path through a duck-typed `createQueryBuilder` stub.
-    const qb = (em as unknown as { createQueryBuilder: (table: string, alias: string) => any }).createQueryBuilder('auth.users', 'u')
+    type RawQueryBuilder = {
+      select: (fields: string[]) => RawQueryBuilder
+      where: (cond: Record<string, unknown>) => RawQueryBuilder
+      limit: (count: number) => RawQueryBuilder
+      execute: (mode: string) => Promise<unknown>
+    }
+    const qb = (
+      em as unknown as { createQueryBuilder: (table: string, alias: string) => RawQueryBuilder }
+    ).createQueryBuilder('auth.users', 'u')
     const row = await qb
       .select(['u.id'])
       .where({ email: expectedEmail, tenant_id: tenantId })

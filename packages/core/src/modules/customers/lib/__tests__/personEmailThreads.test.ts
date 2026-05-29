@@ -1,5 +1,7 @@
-// Mock the encryption helper so the lib's cross-module hub reads return fixtures
-// without a real EntityManager / DB.
+// Mock the encryption helper so the lib's reads return fixtures without a real
+// EntityManager / DB. All three reads (interactions, links, messages) go through
+// findWithDecryption — interactions included, because `customer_interaction.title`
+// / `body` are encrypted at rest.
 jest.mock('@open-mercato/shared/lib/encryption/find', () => ({
   findWithDecryption: jest.fn(),
   findOneWithDecryption: jest.fn(),
@@ -7,21 +9,9 @@ jest.mock('@open-mercato/shared/lib/encryption/find', () => ({
 
 import { buildPersonEmailThreads } from '../personEmailThreads'
 import { findWithDecryption } from '@open-mercato/shared/lib/encryption/find'
+import { CustomerInteraction } from '../../data/entities'
 
 const mockFindWithDecryption = findWithDecryption as jest.MockedFunction<typeof findWithDecryption>
-
-type FindCall = { entity: unknown; where: Record<string, unknown> }
-
-function makeEm(interactions: unknown[]) {
-  const findCalls: FindCall[] = []
-  const em: any = {
-    find: jest.fn().mockImplementation(async (entity: unknown, where: Record<string, unknown>) => {
-      findCalls.push({ entity, where })
-      return interactions
-    }),
-  }
-  return { em, findCalls }
-}
 
 const links = [
   {
@@ -78,35 +68,48 @@ const messages = [
   { id: 'M3', threadId: 'T2', subject: 'Quote request', body: 'Please send a quote.', sentAt: '2026-05-21T09:00:00.000Z' },
 ]
 
-function mockHubReads() {
-  mockFindWithDecryption.mockImplementation(async (_em: unknown, entity: unknown) => {
-    if (entity === 'MessageChannelLink') return links as never
-    if (entity === 'Message') return messages as never
-    return [] as never
-  })
-}
-
 const interactions = [
   { externalMessageId: 'L3', occurredAt: new Date('2026-05-21T09:00:00.000Z'), createdAt: new Date('2026-05-21T09:00:00.000Z'), visibility: 'shared', authorUserId: 'u1' },
   { externalMessageId: 'L2', occurredAt: new Date('2026-05-20T11:00:00.000Z'), createdAt: new Date('2026-05-20T11:00:00.000Z'), visibility: 'private', authorUserId: 'u1' },
   { externalMessageId: 'L1', occurredAt: new Date('2026-05-20T10:00:00.000Z'), createdAt: new Date('2026-05-20T10:00:00.000Z'), visibility: 'shared', authorUserId: 'u1' },
 ]
 
+/**
+ * Dispatch the lib's three findWithDecryption reads by entity:
+ *   - CustomerInteraction (entity class) → the Person's email interactions
+ *   - 'MessageChannelLink' (string)      → hub links
+ *   - 'Message' (string)                 → hub messages
+ */
+function mockHubReads(interactionRows: unknown[]) {
+  mockFindWithDecryption.mockImplementation(async (_em: unknown, entity: unknown) => {
+    if (entity === CustomerInteraction) return interactionRows as never
+    if (entity === 'MessageChannelLink') return links as never
+    if (entity === 'Message') return messages as never
+    return [] as never
+  })
+}
+
+/** The `where` the lib passed to the CustomerInteraction read (for visibility assertions). */
+function interactionWhere(): Record<string, unknown> | undefined {
+  const call = mockFindWithDecryption.mock.calls.find((c) => c[1] === CustomerInteraction)
+  return call?.[2] as Record<string, unknown> | undefined
+}
+
+const baseOpts = {
+  personId: 'P1',
+  tenantId: 'tenant-1',
+  organizationId: 'org-1' as string | null,
+  viewerUserId: 'u1' as string | null,
+}
+
 beforeEach(() => {
   jest.clearAllMocks()
-  mockHubReads()
 })
 
 describe('buildPersonEmailThreads', () => {
   it('groups messages into threads, newest thread first, messages chronological', async () => {
-    const { em } = makeEm(interactions)
-    const threads = await buildPersonEmailThreads(em, {
-      personId: 'P1',
-      tenantId: 'tenant-1',
-      organizationId: 'org-1',
-      viewerUserId: 'u1',
-      userFeatures: [],
-    })
+    mockHubReads(interactions)
+    const threads = await buildPersonEmailThreads({} as never, { ...baseOpts, userFeatures: [] })
 
     expect(threads).toHaveLength(2)
     // T2 (2026-05-21) is more recent than T1 (2026-05-20)
@@ -123,14 +126,8 @@ describe('buildPersonEmailThreads', () => {
   })
 
   it('extracts direction, sender, and recipients per message', async () => {
-    const { em } = makeEm(interactions)
-    const threads = await buildPersonEmailThreads(em, {
-      personId: 'P1',
-      tenantId: 'tenant-1',
-      organizationId: 'org-1',
-      viewerUserId: 'u1',
-      userFeatures: [],
-    })
+    mockHubReads(interactions)
+    const threads = await buildPersonEmailThreads({} as never, { ...baseOpts, userFeatures: [] })
     const t1 = threads.find((t) => t.threadKey === 'T1')!
     const [inbound, outbound] = t1.messages
 
@@ -145,14 +142,8 @@ describe('buildPersonEmailThreads', () => {
   })
 
   it('exposes reply threading fields (parent messageId, RFC Message-ID, references)', async () => {
-    const { em } = makeEm(interactions)
-    const threads = await buildPersonEmailThreads(em, {
-      personId: 'P1',
-      tenantId: 'tenant-1',
-      organizationId: 'org-1',
-      viewerUserId: 'u1',
-      userFeatures: [],
-    })
+    mockHubReads(interactions)
+    const threads = await buildPersonEmailThreads({} as never, { ...baseOpts, userFeatures: [] })
     const t1 = threads.find((t) => t.threadKey === 'T1')!
     const outbound = t1.messages[1]
     expect(outbound.messageId).toBe('M2')
@@ -161,40 +152,22 @@ describe('buildPersonEmailThreads', () => {
   })
 
   it('applies the private-email visibility filter for non-admin viewers', async () => {
-    const { em, findCalls } = makeEm(interactions)
-    await buildPersonEmailThreads(em, {
-      personId: 'P1',
-      tenantId: 'tenant-1',
-      organizationId: 'org-1',
-      viewerUserId: 'u1',
-      userFeatures: [],
-    })
-    const where = findCalls[0].where
+    mockHubReads(interactions)
+    await buildPersonEmailThreads({} as never, { ...baseOpts, userFeatures: [] })
+    const where = interactionWhere()!
     expect(Array.isArray(where.$or)).toBe(true)
     expect(where.$or).toContainEqual({ authorUserId: 'u1' })
   })
 
   it('skips the visibility filter for admins with the view_private wildcard', async () => {
-    const { em, findCalls } = makeEm(interactions)
-    await buildPersonEmailThreads(em, {
-      personId: 'P1',
-      tenantId: 'tenant-1',
-      organizationId: 'org-1',
-      viewerUserId: 'u1',
-      userFeatures: ['customers.*'],
-    })
-    expect(findCalls[0].where.$or).toBeUndefined()
+    mockHubReads(interactions)
+    await buildPersonEmailThreads({} as never, { ...baseOpts, userFeatures: ['customers.*'] })
+    expect(interactionWhere()?.$or).toBeUndefined()
   })
 
   it('returns an empty list when the person has no email interactions', async () => {
-    const { em } = makeEm([])
-    const threads = await buildPersonEmailThreads(em, {
-      personId: 'P1',
-      tenantId: 'tenant-1',
-      organizationId: 'org-1',
-      viewerUserId: 'u1',
-      userFeatures: [],
-    })
+    mockHubReads([])
+    const threads = await buildPersonEmailThreads({} as never, { ...baseOpts, userFeatures: [] })
     expect(threads).toEqual([])
   })
 })

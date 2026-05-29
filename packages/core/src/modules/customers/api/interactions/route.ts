@@ -302,6 +302,7 @@ async function buildEnricherContext(
   container: { resolve: (name: string) => unknown },
   auth: NonNullable<Awaited<ReturnType<typeof getAuthFromRequest>>>,
   organizationId: string | null,
+  precomputedUserFeatures?: { userId: string; features: string[] | undefined },
 ): Promise<EnricherContext> {
   const userId =
     (typeof auth.sub === 'string' && auth.sub.trim().length > 0
@@ -312,13 +313,20 @@ async function buildEnricherContext(
           ? auth.keyId
           : 'system')
 
+  // Reuse features already resolved for this same user (the GET handler resolves
+  // them once for the visibility filter) to avoid a second RBAC lookup per request.
+  const userFeatures =
+    precomputedUserFeatures && precomputedUserFeatures.userId === userId
+      ? precomputedUserFeatures.features
+      : await resolveUserFeatures(container, userId, auth.tenantId ?? null, organizationId)
+
   return {
     organizationId: organizationId ?? '',
     tenantId: auth.tenantId ?? '',
     userId,
     em: container.resolve('em'),
     container,
-    userFeatures: await resolveUserFeatures(container, userId, auth.tenantId ?? null, organizationId),
+    userFeatures,
   }
 }
 
@@ -442,9 +450,11 @@ export async function GET(req: Request) {
     // ── Email visibility filter (2026-05-27) ──────────────────────────────
     // Non-email interactions pass through; email rows with visibility='private'
     // are filtered out unless the caller is the author or has admin bypass.
+    const callerUserId = auth.sub as string
+    const callerUserFeatures = await resolveUserFeatures(container, callerUserId, auth.tenantId ?? null, selectedOrganizationId)
     rowsQuery = applyEmailVisibilityFilter(rowsQuery as any, {
       currentUserId: auth.sub ?? null,
-      userFeatures: await resolveUserFeatures(container, auth.sub as string, auth.tenantId ?? null, selectedOrganizationId),
+      userFeatures: callerUserFeatures,
     })
 
     rowsQuery = rowsQuery.orderBy(sql`${sql.raw(sortSql)} ${sql.raw(sortDir)}`).orderBy('id', sortDir)
@@ -546,7 +556,10 @@ export async function GET(req: Request) {
       customValues: normalizeCustomFieldResponse(customFieldValues[row.id]) ?? null,
     }))
 
-    const enricherContext = await buildEnricherContext(container, auth, selectedOrganizationId)
+    const enricherContext = await buildEnricherContext(container, auth, selectedOrganizationId, {
+      userId: callerUserId,
+      features: callerUserFeatures,
+    })
     const enriched = await applyResponseEnrichers(baseItems, 'customers.interaction', enricherContext)
 
     let nextCursor: string | undefined

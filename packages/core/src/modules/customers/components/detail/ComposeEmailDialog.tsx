@@ -125,7 +125,7 @@ export function ComposeEmailDialog({
     setBusy(false)
   }, [open, replyTo, defaultRecipient, channels])
 
-  const toList = parseRecipients(to)
+  const toList = React.useMemo(() => parseRecipients(to), [to])
   const isSendDisabled =
     busy ||
     toList.length === 0 ||
@@ -133,19 +133,7 @@ export function ComposeEmailDialog({
     body.trim().length === 0 ||
     !channelId
 
-  const handleKeyDown = React.useCallback(
-    (event: React.KeyboardEvent) => {
-      if ((event.metaKey || event.ctrlKey) && event.key === 'Enter') {
-        if (!isSendDisabled) {
-          void handleSend()
-        }
-      }
-    },
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-    [isSendDisabled, to, cc, subject, body, visibility, channelId, replyTo]
-  )
-
-  async function handleSend() {
+  const handleSend = React.useCallback(async () => {
     setError(null)
     setBusy(true)
     try {
@@ -170,7 +158,18 @@ export function ComposeEmailDialog({
     } finally {
       setBusy(false)
     }
-  }
+  }, [showCc, cc, channelId, toList, subject, body, visibility, replyTo, onSend, onOpenChange])
+
+  const handleKeyDown = React.useCallback(
+    (event: React.KeyboardEvent) => {
+      if ((event.metaKey || event.ctrlKey) && event.key === 'Enter') {
+        if (!isSendDisabled) {
+          void handleSend()
+        }
+      }
+    },
+    [isSendDisabled, handleSend],
+  )
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -179,7 +178,7 @@ export function ComposeEmailDialog({
           <DialogTitle>
             {replyTo
               ? t('customers.email.compose.replyTitle', 'Reply')
-              : t('customers.email.compose.title', 'New email')}
+              : t('customers.email.compose.title', 'Compose email')}
           </DialogTitle>
         </DialogHeader>
 

@@ -159,12 +159,13 @@ const disconnectChannelCommand: CommandHandler<
     const snapshot = extractSnapshotFromLog(logEntry)
     if (!snapshot) return
     const em = (ctx.container.resolve('em') as EntityManager).fork()
+    // Never resolve by bare id (cross-tenant). New snapshots always carry
+    // tenantId; refuse the undo if a legacy snapshot lacks it.
+    if (!snapshot.tenantId) return
     const channel = await findOneWithDecryption(
       em,
       CommunicationChannel,
-      snapshot.tenantId
-        ? { id: snapshot.channelId, tenantId: snapshot.tenantId }
-        : { id: snapshot.channelId },
+      { id: snapshot.channelId, tenantId: snapshot.tenantId },
     )
     if (!channel) return
 

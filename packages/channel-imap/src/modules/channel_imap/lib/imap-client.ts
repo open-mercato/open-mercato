@@ -251,8 +251,7 @@ class ImapflowClient implements ImapClient {
   async appendSent(options: ImapConnectionOptions, rawMessage: Buffer): Promise<void> {
     const client = await this.openConnection(options)
     try {
-      const sentMailbox = resolveSentMailbox(client)
-      if (!sentMailbox) return
+      const sentMailbox = resolveSentMailbox()
       await client.append(sentMailbox, rawMessage, ['\\Seen'])
     } finally {
       await client.logout().catch(() => undefined)
@@ -260,11 +259,10 @@ class ImapflowClient implements ImapClient {
   }
 }
 
-function resolveSentMailbox(client: ImapflowConnection): string | null {
-  const list = (client as unknown as { list?: () => unknown[] }).list
-  if (typeof list !== 'function') return 'Sent'
-  // ImapFlow does not expose synchronous mailbox listing; default to 'Sent' and let
-  // the server reject if missing. The adapter swallows append failures.
+function resolveSentMailbox(): string {
+  // ImapFlow has no synchronous mailbox listing, so default to the conventional
+  // 'Sent' folder and let the server reject if it's missing (the adapter
+  // swallows append failures).
   return 'Sent'
 }
 

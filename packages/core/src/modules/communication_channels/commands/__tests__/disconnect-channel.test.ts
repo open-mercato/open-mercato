@@ -165,6 +165,7 @@ describe('disconnectChannelCommand behaviour', () => {
         commandPayload: {
           undo: {
             channelId: validInput.channelId,
+            tenantId: validInput.scope.tenantId,
             previousStatus: 'connected',
             previousIsActive: true,
             previousIsPrimary: true,

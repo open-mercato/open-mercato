@@ -169,18 +169,18 @@ const deliverOutboundMessageCommand: CommandHandler<
     )
     if (!channel) {
       throw new Error(
-        `Channel ${mapping.channelId} not found for tenant ${input.scope.tenantId} (or has been deleted)`,
+        `[internal] Channel ${mapping.channelId} not found for tenant ${input.scope.tenantId} (or has been deleted)`,
       )
     }
     if (!channel.isActive) {
-      throw new Error(`Channel ${mapping.channelId} is inactive; refusing to deliver outbound`)
+      throw new Error(`[internal] Channel ${mapping.channelId} is inactive; refusing to deliver outbound`)
     }
 
     const adapterRegistry = ctx.container.resolve('channelAdapterRegistry') as ChannelAdapterRegistry
     const adapter = adapterRegistry.get(channel.providerKey)
     if (!adapter) {
       throw new Error(
-        `No ChannelAdapter registered for providerKey '${channel.providerKey}'. ` +
+        `[internal] No ChannelAdapter registered for providerKey '${channel.providerKey}'. ` +
           'Check that the provider package is enabled in modules.ts.',
       )
     }
@@ -197,8 +197,15 @@ const deliverOutboundMessageCommand: CommandHandler<
       undefined,
       dscope,
     )
-    if (link && (link.deliveryStatus === 'sent' || link.deliveryStatus === 'delivered' || link.deliveryStatus === 'read')) {
-      // Already sent — short-circuit.
+    if (
+      link &&
+      (link.deliveryStatus === 'queued' ||
+        link.deliveryStatus === 'sent' ||
+        link.deliveryStatus === 'delivered' ||
+        link.deliveryStatus === 'read')
+    ) {
+      // Already sent (or accepted by the provider as 'queued') — short-circuit
+      // so a retried job does not re-invoke the adapter and double-send.
       return {
         status: 'already_delivered',
         messageId: message.id,

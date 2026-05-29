@@ -2,6 +2,7 @@ import { NextResponse } from 'next/server'
 import { z } from 'zod'
 import { getAuthFromRequest } from '@open-mercato/shared/lib/auth/server'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
+import { toAbsoluteUrl } from '@open-mercato/shared/lib/url'
 import { getChannelAdapter } from '../../../../../lib/adapter-registry-singleton'
 import {
   COMMUNICATION_CHANNELS_OAUTH_STATE_COOKIE_NAME,
@@ -47,10 +48,10 @@ type CredentialsServiceLike = {
  * slice 3d (the `/backend/profile/communication-channels` route).
  */
 function defaultRedirectUri(req: Request, providerKey: string): string {
-  const url = new URL(req.url)
-  url.pathname = `/api/communication_channels/oauth/${providerKey}/callback`
-  url.search = ''
-  return url.toString()
+  // Derive the origin from the configured app URL / forwarded headers rather
+  // than the raw request origin, so the redirect_uri matches the value the
+  // provider has registered even when the app sits behind a reverse proxy.
+  return toAbsoluteUrl(req, `/api/communication_channels/oauth/${providerKey}/callback`)
 }
 
 export async function POST(req: Request, context: RouteContext): Promise<Response> {

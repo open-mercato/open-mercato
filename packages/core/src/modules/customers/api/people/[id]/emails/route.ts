@@ -8,6 +8,7 @@ import {
   validateCrudMutationGuard,
   runCrudMutationGuardAfterSuccess,
 } from '@open-mercato/shared/lib/crud/mutation-guard'
+import { resolveOrganizationScopeForRequest } from '@open-mercato/core/modules/directory/utils/organizationScope'
 import { resolveAuthActorId } from '../../../../lib/interactionRequestContext'
 import { CustomerEntity } from '../../../../data/entities'
 import type { SendAsUserService } from '@open-mercato/core/modules/communication_channels/lib/send-as-user'
@@ -63,10 +64,12 @@ export async function POST(req: Request, context: RouteContext): Promise<Respons
 
   const container = await createRequestContainer()
   const userId = resolveAuthActorId(auth)
+  const scope = await resolveOrganizationScopeForRequest({ container, auth, request: req })
+  const organizationId = scope?.selectedId ?? (auth as { orgId?: string | null }).orgId ?? null
 
   const guardResult = await validateCrudMutationGuard(container, {
     tenantId: auth.tenantId,
-    organizationId: (auth as { orgId?: string | null }).orgId ?? null,
+    organizationId,
     userId,
     resourceKind: 'customers.person',
     resourceId: personId,
@@ -79,7 +82,6 @@ export async function POST(req: Request, context: RouteContext): Promise<Respons
   }
 
   const em = (container.resolve('em') as EntityManager).fork()
-  const organizationId = (auth as { orgId?: string | null }).orgId ?? null
   const dscope = { tenantId: auth.tenantId as string, organizationId }
 
   // 1. Verify the Person exists in the caller's tenant.

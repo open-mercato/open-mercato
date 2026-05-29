@@ -7,6 +7,13 @@ import { apiCall } from '@open-mercato/ui/backend/utils/apiCall'
 import { useGuardedMutation } from '@open-mercato/ui/backend/injection/useGuardedMutation'
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@open-mercato/ui/primitives/select'
 
 type ChannelEnrichment = {
   providerKey: string
@@ -42,6 +49,8 @@ type UserOption = { id: string; label: string }
 
 const FEATURE_GATE = 'communication_channels.assign'
 const CHANNEL_INFO_MUTATION_CONTEXT_ID = 'communication-channels-info-panel'
+// Radix Select reserves '' for "no selection"; use a sentinel for Unassigned.
+const UNASSIGNED_VALUE = '__unassigned__'
 
 type ChannelInfoMutationContext = {
   formId: string
@@ -219,28 +228,38 @@ export default function ChannelInfoPanelWidget({
         </dt>
         <dd className="col-span-1">
           {canReassign ? (
-            <select
-              className="w-full rounded-md border bg-background px-2 py-1 text-xs"
-              value={assignedUserId ?? ''}
-              onFocus={() => void loadUsers()}
-              onChange={(event) =>
-                void reassign(event.target.value === '' ? null : event.target.value)
+            <Select
+              value={assignedUserId ?? UNASSIGNED_VALUE}
+              onValueChange={(value) =>
+                void reassign(value === UNASSIGNED_VALUE ? null : value)
               }
+              onOpenChange={(isOpen) => {
+                if (isOpen) void loadUsers()
+              }}
               disabled={savingAssignee || !data?.threadId}
-              aria-label={t('communication_channels.infoPanel.assignedTo', 'Assigned to')}
             >
-              <option value="">
-                {t('communication_channels.infoPanel.unassigned', 'Unassigned')}
-              </option>
-              {assignedUserId && !users.some((u) => u.id === assignedUserId) ? (
-                <option value={assignedUserId}>{assignedUserId}</option>
-              ) : null}
-              {users.map((user) => (
-                <option key={user.id} value={user.id}>
-                  {user.label}
-                </option>
-              ))}
-            </select>
+              <SelectTrigger
+                size="xs"
+                aria-label={t('communication_channels.infoPanel.assignedTo', 'Assigned to')}
+              >
+                <SelectValue
+                  placeholder={t('communication_channels.infoPanel.unassigned', 'Unassigned')}
+                />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value={UNASSIGNED_VALUE}>
+                  {t('communication_channels.infoPanel.unassigned', 'Unassigned')}
+                </SelectItem>
+                {assignedUserId && !users.some((u) => u.id === assignedUserId) ? (
+                  <SelectItem value={assignedUserId}>{assignedUserId}</SelectItem>
+                ) : null}
+                {users.map((user) => (
+                  <SelectItem key={user.id} value={user.id}>
+                    {user.label}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
           ) : (
             <span className="truncate" title={assignedUserId ?? ''}>
               {assignedUserId ?? t('communication_channels.infoPanel.unassigned', 'Unassigned')}

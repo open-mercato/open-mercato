@@ -101,3 +101,26 @@ describe('messageReactionsEnricher — grouping + reactedByMe', () => {
     expect(reactions[1].reactedByMe).toBe(false)
   })
 })
+
+describe('messageReactionsEnricher — batched lookup (no N+1)', () => {
+  const enricher = findEnricher('communication_channels.message-reactions')
+
+  it('issues a single bounded reaction query regardless of record count', async () => {
+    const find = jest.fn(async () => [])
+    const ctx = {
+      organizationId: 'org',
+      tenantId: 'tenant',
+      userId: 'user-1',
+      em: { find },
+      container: { resolve: () => null },
+    } as any
+    const records = Array.from({ length: 25 }, (_, i) => ({ id: `m-${i}` }))
+
+    const out = await enricher.enrichMany!(records as any, ctx)
+
+    expect(out).toHaveLength(25)
+    // A per-record (N+1) implementation would hit the data source 25 times;
+    // the batched enricher issues exactly one query for the whole page.
+    expect(find).toHaveBeenCalledTimes(1)
+  })
+})

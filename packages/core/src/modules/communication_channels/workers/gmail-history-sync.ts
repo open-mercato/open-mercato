@@ -10,6 +10,7 @@ import {
 import { COMMUNICATION_CHANNELS_QUEUES } from '../lib/queue'
 import { refreshCredentialsIfNeeded } from '../lib/credential-refresh'
 import { classifyOutboundError } from '../lib/error-classification'
+import { writeIngestDeadLetter } from '../lib/dead-letter'
 import type { ChannelAdapterRegistry } from '../lib/registry'
 
 /**
@@ -29,7 +30,13 @@ export type GmailHistorySyncJobPayload = {
   channelId: string
   scope: { tenantId: string; organizationId: string | null }
   notification: { emailAddress: string; historyId: string }
+  /** Self-re-enqueue drain counter (bounds the multi-page drain loop). */
+  drainPage?: number
 }
+
+/** Hard cap on self-re-enqueue drain pages — guards against an adapter that
+ *  returns `hasMore` with a non-advancing cursor (a tight, unbounded loop). */
+const MAX_DRAIN_PAGES = 100
 
 export const metadata: WorkerMeta = {
   queue: COMMUNICATION_CHANNELS_QUEUES.gmailHistorySync,
@@ -164,6 +171,7 @@ export default async function handle(
         console.warn(
           `[gmail-history-sync] permanent ingest failure for channel ${channel.id}: ${classification.message}`,
         )
+        await writeIngestDeadLetter({ em, scope, channel, message, err, errorMessage: classification.message })
       }
     }
   }
@@ -189,9 +197,22 @@ export default async function handle(
   if (page?.hasMore && page?.nextCursor) {
     // Re-enqueue self so the drain continues. The Pub/Sub notification fired
     // once, but `history.list` may need multiple pages on a busy mailbox.
-    const queue = (await import('../lib/queue')).getCommunicationChannelsQueue(
-      COMMUNICATION_CHANNELS_QUEUES.gmailHistorySync,
-    )
-    await queue.enqueue(job.payload as unknown as Record<string, unknown>)
+    // Bound the drain and add a small delay so an adapter that returns
+    // `hasMore: true` with a non-advancing cursor cannot spin a tight,
+    // unthrottled re-enqueue loop against the provider/queue.
+    const drainPage = job.payload.drainPage ?? 0
+    if (drainPage < MAX_DRAIN_PAGES) {
+      const queue = (await import('../lib/queue')).getCommunicationChannelsQueue(
+        COMMUNICATION_CHANNELS_QUEUES.gmailHistorySync,
+      )
+      await queue.enqueue(
+        { ...job.payload, drainPage: drainPage + 1 } as unknown as Record<string, unknown>,
+        { delayMs: 250 },
+      )
+    } else {
+      console.warn(
+        `[gmail-history-sync] drain page cap (${MAX_DRAIN_PAGES}) reached for channel ${channelId}; stopping re-enqueue`,
+      )
+    }
   }
 }

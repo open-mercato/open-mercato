@@ -138,8 +138,11 @@ function verifySignature(input: string, signatureB64: string, cert: string): voi
 
 function validateClaims(claims: GmailPubSubJwtClaims, input: GmailPubSubVerifyInput): void {
   const now = Math.floor(Date.now() / 1000)
-  if (typeof claims.exp === 'number' && claims.exp < now - 5) {
-    throw new GmailPubSubJwtError('JWT expired', 'expired')
+  // Fail closed: a token without a numeric `exp` has no expiry, so a captured
+  // push JWT could otherwise be replayed indefinitely. Require `exp` and reject
+  // anything already past it (with a small clock-skew allowance).
+  if (typeof claims.exp !== 'number' || claims.exp < now - 5) {
+    throw new GmailPubSubJwtError('JWT expired or missing exp', 'expired')
   }
   // Verify the issuer is Google (defense-in-depth alongside the signature +
   // service-account email checks; the file header documents this requirement).

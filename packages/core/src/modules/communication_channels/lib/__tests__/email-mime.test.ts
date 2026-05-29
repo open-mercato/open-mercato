@@ -8,6 +8,7 @@ import {
   normalizeMimeInbound,
   parseReferences,
   referencesFromMeta,
+  sanitizeHeaderValue,
   stripBrackets,
   toAddressList,
   type ParsedMail,
@@ -110,6 +111,38 @@ describe('assembleRfc2822', () => {
     expect(raw).toContain('multipart/alternative')
     expect(raw).toContain('In-Reply-To: <root@x.com>')
     expect(raw).toContain('<p>rich</p>')
+  })
+
+  it('collapses CR/LF in headers so a caller cannot inject extra headers', () => {
+    const raw = assembleRfc2822({
+      from: 'alice@x.com',
+      to: ['bob@x.com'],
+      cc: [],
+      bcc: [],
+      subject: 'Hello\r\nBcc: exfil@evil.com',
+      text: 'body',
+      html: undefined,
+      inReplyTo: '<root@x.com>\r\nX-Injected: 1',
+      references: ['<root@x.com>\r\nX-Injected: 2'],
+      messageId: '<m@x.com>',
+    }).toString('utf-8')
+    const headerLines = raw.split('\r\n\r\n')[0].split('\r\n')
+    expect(headerLines.some((line) => /^Bcc:/i.test(line))).toBe(false)
+    expect(headerLines.some((line) => /^X-Injected:/i.test(line))).toBe(false)
+    // The payload survives only as part of the single-line Subject, not as a header.
+    expect(headerLines).toContain('Subject: Hello Bcc: exfil@evil.com')
+  })
+})
+
+describe('sanitizeHeaderValue', () => {
+  it('collapses CR/LF/TAB to a single space and trims', () => {
+    expect(sanitizeHeaderValue('Hello\r\nBcc: x@y.z')).toBe('Hello Bcc: x@y.z')
+    expect(sanitizeHeaderValue('a\tb')).toBe('a b')
+    expect(sanitizeHeaderValue('  spaced  ')).toBe('spaced')
+  })
+
+  it('leaves clean values (spaces, hyphens) untouched', () => {
+    expect(sanitizeHeaderValue('Re: Hello-World')).toBe('Re: Hello-World')
   })
 })
 

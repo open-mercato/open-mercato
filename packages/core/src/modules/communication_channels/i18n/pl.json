@@ -29,7 +29,7 @@
   "communication_channels.emptyState": "Brak skonfigurowanych kanałów. Pakiety dostawców (Slack, WhatsApp, integracje email) rejestrują kanały tutaj.",
   "communication_channels.errors.loadDetail": "Nie udało się załadować kanału",
   "communication_channels.errors.loadList": "Nie udało się załadować kanałów",
-  "communication_channels.errors.reactionFailed": "Reaction failed",
+  "communication_channels.errors.reactionFailed": "Reakcja nie powiodła się",
   "communication_channels.infoPanel.aria": "Informacje o kanale",
   "communication_channels.infoPanel.assignedTo": "Przypisane do",
   "communication_channels.infoPanel.contactPerson": "Kontakt CRM",

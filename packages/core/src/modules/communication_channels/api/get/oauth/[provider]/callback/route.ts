@@ -1,8 +1,9 @@
 import { NextResponse } from 'next/server'
 import { getAuthFromRequest } from '@open-mercato/shared/lib/auth/server'
+import { toAbsoluteUrl } from '@open-mercato/shared/lib/url'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import type { EntityManager } from '@mikro-orm/postgresql'
-import { CommunicationChannel } from '../../../../../data/entities'
+import { createConnectedChannelRow } from '../../../../../lib/connect-channel'
 import { getChannelAdapter } from '../../../../../lib/adapter-registry-singleton'
 import {
   COMMUNICATION_CHANNELS_OAUTH_STATE_COOKIE_NAME,
@@ -141,11 +142,10 @@ export async function GET(req: Request, context: RouteContext): Promise<Response
     }
   }
 
-  const redirectUri = (() => {
-    const u = new URL(req.url)
-    u.search = ''
-    return u.toString()
-  })()
+  // Must byte-for-byte match the redirect_uri sent at authorize time (the
+  // `initiate` route), including behind a reverse proxy — derive it from the
+  // configured app origin rather than the raw request URL.
+  const redirectUri = toAbsoluteUrl(req, `/api/communication_channels/oauth/${provider}/callback`)
 
   let exchange
   try {
@@ -244,24 +244,16 @@ export async function GET(req: Request, context: RouteContext): Promise<Response
   // has no usable credentials. The user can re-run the OAuth flow to recover
   // (see review R2-H4 / F6, 2026-05-26).
   const credentialsAvailable = credentialsRefId !== null
-  const channel = em.create(CommunicationChannel, {
+  const channel = await createConnectedChannelRow({
+    em,
+    adapter,
     providerKey: provider,
-    channelType: adapter.channelType,
     displayName,
     externalIdentifier: exchange.externalIdentifier ?? null,
-    credentialsRef: credentialsRefId,
-    capabilities: adapter.capabilities as unknown as Record<string, unknown>,
-    isActive: credentialsAvailable,
+    credentialsRefId,
     userId: auth.sub as string,
-    isPrimary: false,
-    pollIntervalSeconds: adapter.capabilities?.realtimePush === false ? 300 : null,
-    status: credentialsAvailable ? 'connected' : 'requires_reauth',
-    lastError: credentialsAvailable ? null : 'credentials_persist_failed',
-    tenantId: statePayload.tenantId,
-    organizationId: statePayload.organizationId ?? null,
+    scope: { tenantId: statePayload.tenantId, organizationId: statePayload.organizationId ?? null },
   })
-  em.persist(channel)
-  await em.flush()
 
   // Spec C § Phase C5 — best-effort push registration for OAuth providers
   // that support it (Gmail, Microsoft). Same shape as the credential-connect

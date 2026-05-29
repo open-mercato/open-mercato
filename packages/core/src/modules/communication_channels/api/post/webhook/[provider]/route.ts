@@ -30,7 +30,14 @@ import type { ReactionInboundJob } from '../../../../workers/reaction-processor-
  */
 export const metadata = {
   path: '/communication_channels/webhook/[provider]',
-  POST: { requireAuth: false },
+  POST: {
+    requireAuth: false,
+    // Unauthenticated by design (signature verification IS the auth), but the
+    // handler fans out an O(N) cross-tenant candidate scan, so bound per-IP
+    // request volume to limit abuse. Generous enough for real provider traffic;
+    // the dedicated gmail/microsoft routes stay unthrottled.
+    rateLimit: { points: 120, duration: 60, keyPrefix: 'cc_webhook_inbound' },
+  },
 }
 
 type RouteContext = {

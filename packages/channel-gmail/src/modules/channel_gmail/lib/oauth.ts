@@ -99,13 +99,20 @@ class RealGoogleOAuthClient implements GoogleOAuthClient {
   }
 
   async fetchUserInfo(accessToken: string): Promise<UserInfoResponse> {
-    const res = await fetch(GMAIL_OAUTH_USERINFO_URL, {
-      headers: { Authorization: `Bearer ${accessToken}` },
-    })
-    if (!res.ok) {
-      throw new Error(`Gmail userinfo fetch failed: ${res.status} ${res.statusText}`)
+    const controller = new AbortController()
+    const timeout = setTimeout(() => controller.abort(), 10_000)
+    try {
+      const res = await fetch(GMAIL_OAUTH_USERINFO_URL, {
+        headers: { Authorization: `Bearer ${accessToken}` },
+        signal: controller.signal,
+      })
+      if (!res.ok) {
+        throw new Error(`Gmail userinfo fetch failed: ${res.status} ${res.statusText}`)
+      }
+      return (await res.json()) as UserInfoResponse
+    } finally {
+      clearTimeout(timeout)
     }
-    return (await res.json()) as UserInfoResponse
   }
 }
 

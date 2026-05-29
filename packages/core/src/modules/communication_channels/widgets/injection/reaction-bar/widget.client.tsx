@@ -39,7 +39,7 @@ export default function ReactionBarWidget({
 }: InjectionWidgetComponentProps<Record<string, unknown>, MessageWithReactions>) {
   const t = useT()
   const messageId = data?.id ?? null
-  const initial = React.useMemo(() => data?._reactions ?? [], [data])
+  const initial = React.useMemo(() => data?._reactions ?? [], [data?._reactions])
   const [groups, setGroups] = React.useState<ReactionGroup[]>(initial)
   const [busyEmoji, setBusyEmoji] = React.useState<string | null>(null)
   const { runMutation, retryLastMutation } = useGuardedMutation<ReactionMutationContext>({

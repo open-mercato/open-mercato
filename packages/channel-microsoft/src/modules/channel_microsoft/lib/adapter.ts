@@ -44,6 +44,7 @@ import {
   decodeIdTokenClaims,
   generatePkcePair,
   getMicrosoftOAuthClient,
+  MICROSOFT_GRAPH_BASE,
   tokenResponseToExpiresAt,
 } from './oauth'
 import {
@@ -53,6 +54,27 @@ import {
 import { normalizeInboundMicrosoftMessage } from './normalize-inbound'
 import { emailResolveContact } from '@open-mercato/core/modules/communication_channels/lib/email-contact'
 import { encodeCursor } from '@open-mercato/core/modules/communication_channels/lib/email-mime'
+
+const GRAPH_TRUSTED_ORIGIN = (() => {
+  try {
+    return new URL(MICROSOFT_GRAPH_BASE).origin
+  } catch {
+    return 'https://graph.microsoft.com'
+  }
+})()
+
+/**
+ * Delta/next links are fetched with the user's bearer token, so only follow
+ * links on the trusted Graph origin. A poisoned `channelState` link is dropped
+ * (the caller falls back to a fresh delta) to prevent token-bearing SSRF.
+ */
+function isTrustedGraphLink(url: string): boolean {
+  try {
+    return new URL(url).origin === GRAPH_TRUSTED_ORIGIN
+  } catch {
+    return false
+  }
+}
 
 /**
  * Microsoft 365 / Outlook `ChannelAdapter`. OAuth2 + PKCE; polling via Graph delta query.
@@ -245,6 +267,12 @@ class MicrosoftChannelAdapter implements ChannelAdapter {
     //   2. Otherwise fall through to the standard delta starting point
     //      (resumed via stored `deltaLink` or fresh inbox-delta on first poll).
     let firstLink: string | undefined = channelState.pendingNextLink ?? channelState.deltaLink
+    if (firstLink && !isTrustedGraphLink(firstLink)) {
+      console.warn(
+        `[channel-microsoft] ignoring untrusted delta link from channel state (expected origin ${GRAPH_TRUSTED_ORIGIN}); falling back to fresh delta`,
+      )
+      firstLink = undefined
+    }
 
     const messages: NormalizedInboundMessage[] = []
     let nextLink: string | undefined

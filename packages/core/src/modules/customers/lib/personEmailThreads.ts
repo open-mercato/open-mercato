@@ -151,13 +151,17 @@ export async function buildPersonEmailThreads(
     ]
   }
 
-  // The fields we read off the interaction (externalMessageId, visibility,
-  // authorUserId, occurredAt) are not encrypted GDPR columns, so a plain
-  // `em.find` is correct here — all displayed content comes from the hub link.
-  const interactions = await em.find(CustomerInteraction, interactionWhere as never, {
-    orderBy: { occurredAt: 'desc', createdAt: 'desc' },
-    limit: maxThreads * 20,
-  })
+  // `customer_interaction.title`/`body` are encrypted at rest, so reads go
+  // through `findWithDecryption` even though we only consume non-encrypted
+  // columns here — this keeps the encrypted-entity contract intact.
+  const dscope = { tenantId, organizationId: organizationId ?? '' }
+  const interactions = (await findWithDecryption(
+    em,
+    CustomerInteraction,
+    interactionWhere as never,
+    { orderBy: { occurredAt: 'desc', createdAt: 'desc' }, limit: maxThreads * 20 },
+    dscope,
+  )) as CustomerInteraction[]
 
   const linkIdByInteraction = new Map<string, { occurredAt: Date }>()
   const linkIds: string[] = []
@@ -168,8 +172,6 @@ export async function buildPersonEmailThreads(
     linkIds.push(linkId)
   }
   if (linkIds.length === 0) return []
-
-  const dscope = { tenantId, organizationId: organizationId ?? '' }
 
   // ── (2) Resolve MessageChannelLink rows (rich content + direction) ──────
   const linkWhere: JsonRecord = { id: { $in: linkIds }, tenantId }

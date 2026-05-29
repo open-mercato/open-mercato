@@ -2,6 +2,7 @@ import type { EntityManager } from '@mikro-orm/postgresql'
 import { findOneWithDecryption, findWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import { CustomerEntity, CustomerInteraction } from '../data/entities'
 import { findPeopleByAddresses, normalizeAddresses } from './findPeopleByAddresses'
+import { emitCustomersEvent } from '../events'
 
 /**
  * Shared implementation for the link-channel-message subscribers.
@@ -279,13 +280,14 @@ async function handleThreadingInheritance(
        JOIN customer_interactions ci ON ci.external_message_id = mcl.id
        WHERE inbound_m.id = ?
          AND inbound_m.thread_id IS NOT NULL
+         AND thread_m.tenant_id = ?
          AND ci.tenant_id = ?
          AND ci.organization_id = ?
          AND ci.interaction_type = 'email'
          AND ci.deleted_at IS NULL
          AND ci.entity_id IS NOT NULL
        LIMIT 200`,
-      [inboundMessageId, tenantId, organizationId],
+      [inboundMessageId, tenantId, tenantId, organizationId],
     )) as Array<{ entity_id: string }>
     const threadPersonIds = new Set<string>(
       threadPersonRows.map((row) => row.entity_id).filter((id): id is string => !!id),
@@ -447,7 +449,7 @@ async function persistInteractions(
     // Use em.getReference so we satisfy the ManyToOne relation without a
     // redundant SELECT — MikroORM will flush the FK column directly.
     const entityRef = rowEm.getReference(CustomerEntity, personId)
-    rowEm.create(CustomerInteraction, {
+    const interaction = rowEm.create(CustomerInteraction, {
       tenantId: data.tenantId,
       organizationId: data.organizationId,
       entity: entityRef,
@@ -477,6 +479,21 @@ async function persistInteractions(
       // at-most-once semantics across retries.
       const code = (err as { code?: string }).code
       if (code !== POSTGRES_UNIQUE_VIOLATION) throw err
+      // Duplicate (retried delivery) — already linked, skip the refresh signal.
+      continue
+    }
+    // Live-refresh signal for the CRM Person page (clientBroadcast → SSE). The
+    // interaction is already persisted, so a failed emit must not abort linking
+    // or fail this persistent (retried) subscriber.
+    try {
+      await emitCustomersEvent('customers.email.linked', {
+        personId,
+        interactionId: interaction.id,
+        tenantId: data.tenantId,
+        organizationId: data.organizationId,
+      })
+    } catch {
+      /* swallow — UI refresh signal is non-critical */
     }
   }
 }

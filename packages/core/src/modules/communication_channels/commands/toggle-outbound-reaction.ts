@@ -124,21 +124,11 @@ const toggleOutboundReactionCommand: CommandHandler<
     if (!channelLink) {
       return { status: 'no_channel_link', reason: 'message is not channel-linked' }
     }
-    const channel = await findOneWithDecryption(
-      em,
-      CommunicationChannel,
-      {
-        id: { $exists: true },
-        tenantId: input.scope.tenantId,
-        organizationId: input.scope.organizationId ?? null,
-        providerKey: channelLink.providerKey,
-        deletedAt: null,
-      },
-      undefined,
-      dscope,
-    )
-    // The above is a fallback lookup; the cleaner path is via mapping.channelId
-    // when we have it, but mapping is not required for outbound react.
+    // Resolve the channel deterministically from the thread→channel mapping.
+    // We MUST NOT fall back to an arbitrary channel matching only
+    // (tenant, org, providerKey): for a tenant with several same-provider
+    // mailboxes owned by different users that would react from the wrong
+    // user's account.
     const mapping = await findOneWithDecryption(
       em,
       ChannelThreadMapping,
@@ -150,20 +140,21 @@ const toggleOutboundReactionCommand: CommandHandler<
       undefined,
       dscope,
     )
-    const resolvedChannel = mapping
-      ? await findOneWithDecryption(
-          em,
-          CommunicationChannel,
-          {
-            id: mapping.channelId,
-            tenantId: input.scope.tenantId,
-            organizationId: input.scope.organizationId ?? null,
-            deletedAt: null,
-          },
-          undefined,
-          dscope,
-        )
-      : channel
+    if (!mapping) {
+      return { status: 'no_channel_link', reason: 'no thread mapping for channel resolution' }
+    }
+    const resolvedChannel = await findOneWithDecryption(
+      em,
+      CommunicationChannel,
+      {
+        id: mapping.channelId,
+        tenantId: input.scope.tenantId,
+        organizationId: input.scope.organizationId ?? null,
+        deletedAt: null,
+      },
+      undefined,
+      dscope,
+    )
     if (!resolvedChannel) {
       return { status: 'no_channel_link', reason: 'channel not resolved' }
     }

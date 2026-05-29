@@ -241,7 +241,7 @@ export const privateEmailCountEnricher: ResponseEnricher<
       return records.map((record) => ({ ...record, _privateEmailCount: 0 }))
     }
 
-    const userId = (context as unknown as { userId?: string | null }).userId ?? null
+    const userId = context.userId
     if (!userId) {
       return records.map((record) => ({ ...record, _privateEmailCount: 0 }))
     }

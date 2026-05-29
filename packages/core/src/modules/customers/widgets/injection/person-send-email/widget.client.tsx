@@ -7,6 +7,7 @@ import { Mail, RefreshCw } from 'lucide-react'
 import { Button } from '@open-mercato/ui/primitives/button'
 import { apiCall } from '@open-mercato/ui/backend/utils/apiCall'
 import { useGuardedMutation } from '@open-mercato/ui/backend/injection/useGuardedMutation'
+import { useAppEvent } from '@open-mercato/ui/backend/injection/useAppEvent'
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 import {
@@ -55,6 +56,17 @@ export function PersonSendEmailWidget({ context, data: dataProp }: PersonSendEma
   const [channels, setChannels] = React.useState<ComposeEmailChannel[] | null>(null)
   const [open, setOpen] = React.useState(false)
   const [syncing, setSyncing] = React.useState(false)
+
+  const refreshTimeline = React.useCallback(() => {
+    router.refresh()
+  }, [router])
+
+  // Event-driven refresh: the outbound-delivery worker + link-channel-message
+  // subscriber emit these once the new interaction is persisted, so we refresh
+  // the server tree when they fire instead of guessing with a fixed timer.
+  useAppEvent('customers.email.linked', refreshTimeline, [refreshTimeline])
+  useAppEvent('messages.message.sent', refreshTimeline, [refreshTimeline])
+  useAppEvent('communication_channels.message.received', refreshTimeline, [refreshTimeline])
 
   React.useEffect(() => {
     let cancelled = false
@@ -122,16 +134,8 @@ export function PersonSendEmailWidget({ context, data: dataProp }: PersonSendEma
       mutationPayload: values as unknown as Record<string, unknown>,
     })
     flash(t('customers.email.compose.sent', 'Email sent'), 'success')
-    // Wait ~1.2 s for the outbound-delivery worker + link-channel-message
-    // subscriber to settle, then refresh server data so the new interaction
-    // appears on the activity timeline. `router.refresh()` re-fetches the
-    // current route's server components without a full page reload — keeps
-    // scroll position and avoids the flash that `window.location.reload()`
-    // produces. (The proper fix is wiring `useAppEvent` into the activity
-    // timeline component.)
-    setTimeout(() => {
-      router.refresh()
-    }, 1200)
+    // The activity timeline refreshes via the `useAppEvent` subscriptions above
+    // once the outbound-delivery worker links the new interaction.
     return { messageId }
   }
 
@@ -176,12 +180,8 @@ export function PersonSendEmailWidget({ context, data: dataProp }: PersonSendEma
         ),
         'success',
       )
-      // Give the poll worker time to fetch + ingest + link, then refresh the
-      // server tree so the activity timeline picks up any new interactions.
-      // Same pragmatic-v1 pattern as the post-send refresh (see onSend above).
-      setTimeout(() => {
-        router.refresh()
-      }, 2500)
+      // The activity timeline refreshes via the `useAppEvent` subscriptions
+      // above once the poll worker ingests + links new inbound mail.
     } catch (err) {
       flash(
         err instanceof Error ? err.message : t('customers.email.sync.failed', 'Failed to sync mailbox'),

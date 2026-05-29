@@ -24,7 +24,7 @@ export function ChannelRequiresReauthRenderer({ notification }: NotificationRend
 
   return (
     <div className="flex flex-col gap-1">
-      <span className="font-medium text-status-warning-fg">
+      <span className="font-medium text-status-warning-text">
         {notification.title ??
           t(
             'communication_channels.notifications.channel_requires_reauth.title',

@@ -1,7 +1,15 @@
+jest.mock('@open-mercato/shared/lib/encryption/find', () => ({
+  findOneWithDecryption: jest.fn(),
+  findWithDecryption: jest.fn(),
+}))
+
 import ingestInboundMessageCommand, {
   COMMUNICATION_CHANNELS_INGEST_INBOUND_COMMAND_ID,
   type IngestInboundMessageInput,
 } from '../ingest-inbound-message'
+import { findOneWithDecryption } from '@open-mercato/shared/lib/encryption/find'
+
+const mockIngestFindOne = findOneWithDecryption as jest.MockedFunction<typeof findOneWithDecryption>
 
 describe('ingestInboundMessageCommand metadata', () => {
   it('exports the canonical command id', () => {
@@ -189,5 +197,69 @@ describe('ChannelIngestDeadLetter row shape (Spec B § B4)', () => {
     expect(row.providerKey).toBe('imap')
     expect(row.errorMessage).toBe('permanent parse failure')
     expect(row.rawBody).toBe('truncated raw MIME body')
+  })
+})
+
+// ── Idempotency: dedup short-circuit (Spec B § 6.1) ─────────────────
+describe('ingestInboundMessageCommand — dedup (idempotency)', () => {
+  function makeCtx() {
+    const em: any = {
+      create: jest.fn(),
+      persist: jest.fn(),
+      flush: jest.fn(),
+      getConnection: () => ({ execute: jest.fn().mockResolvedValue([]) }),
+    }
+    em.fork = () => em
+    const adapter = { providerKey: 'gmail', resolveContact: jest.fn() }
+    return {
+      ctx: {
+        container: {
+          resolve: (name: string) => {
+            if (name === 'em') return em
+            if (name === 'channelAdapterRegistry') return { get: () => adapter }
+            throw new Error(`unexpected resolve: ${name}`)
+          },
+        },
+      } as any,
+      adapter,
+      em,
+    }
+  }
+
+  it('returns status=duplicate without composing when the external message already exists', async () => {
+    mockIngestFindOne.mockReset()
+    // First (and only) findOneWithDecryption call resolves the dedup lookup
+    // against ExternalMessage (channel_id, external_message_id).
+    mockIngestFindOne.mockResolvedValueOnce({ id: 'ext-row-1', conversationId: 'conv-row-1' } as never)
+
+    const { ctx, adapter, em } = makeCtx()
+    const input: IngestInboundMessageInput = {
+      channelId: '550e8400-e29b-41d4-a716-446655440040',
+      providerKey: 'gmail',
+      channelType: 'email',
+      scope: {
+        tenantId: '550e8400-e29b-41d4-a716-446655440020',
+        organizationId: '550e8400-e29b-41d4-a716-446655440030',
+      },
+      message: {
+        externalMessageId: 'ext-1',
+        externalConversationId: 'conv-1',
+        senderIdentifier: 'jane@example.com',
+        body: 'hi',
+        bodyFormat: 'text',
+        timestamp: new Date(),
+        channelPayload: {},
+        channelContentType: 'email/mime',
+        channelMetadata: {},
+      },
+    } as IngestInboundMessageInput
+
+    const result = await ingestInboundMessageCommand.execute(input as never, ctx)
+
+    expect(result.status).toBe('duplicate')
+    expect(result.externalMessageId).toBe('ext-row-1')
+    expect(result.externalConversationId).toBe('conv-row-1')
+    expect(em.create).not.toHaveBeenCalled()
+    expect(adapter.resolveContact).not.toHaveBeenCalled()
   })
 })

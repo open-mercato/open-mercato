@@ -19,13 +19,16 @@ const bodySchema = z.object({
   to: z.array(z.string().email()).min(1),
   cc: z.array(z.string().email()).optional(),
   bcc: z.array(z.string().email()).optional(),
-  subject: z.string().min(1).max(500),
+  // `.regex(/^[^\r\n]*$/)` rejects CR/LF so a caller cannot inject extra email
+  // headers (e.g. a hidden Bcc) through the subject / threading fields. The
+  // outbound MIME assembler also sanitizes these, but fail fast at the edge.
+  subject: z.string().min(1).max(500).regex(/^[^\r\n]*$/),
   body: z.object({
     plain: z.string().max(50_000).optional(),
     html: z.string().max(200_000).optional(),
   }),
-  inReplyTo: z.string().min(1).max(500).optional(),
-  references: z.array(z.string().min(1).max(500)).optional(),
+  inReplyTo: z.string().min(1).max(500).regex(/^[^\r\n]*$/).optional(),
+  references: z.array(z.string().min(1).max(500).regex(/^[^\r\n]*$/)).optional(),
   /**
    * Free-form metadata persisted on the resulting MessageChannelLink. Used by
    * downstream subscribers (e.g. the customers module's link-channel-message

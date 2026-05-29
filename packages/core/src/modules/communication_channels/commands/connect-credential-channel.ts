@@ -3,7 +3,7 @@ import type { EntityManager } from '@mikro-orm/postgresql'
 import type { CommandHandler } from '@open-mercato/shared/lib/commands'
 import { registerCommand } from '@open-mercato/shared/lib/commands'
 import type { ChannelAdapterRegistry } from '../lib/registry'
-import { CommunicationChannel } from '../data/entities'
+import { createConnectedChannelRow } from '../lib/connect-channel'
 
 const connectCredentialChannelSchema = z.object({
   providerKey: z.string().min(1).max(64),
@@ -136,14 +136,14 @@ const connectCredentialChannelCommand: CommandHandler<
           )
           const row = await findOneWithDecryption(
             em,
-            IntegrationCredentials as any,
+            IntegrationCredentials,
             {
               integrationId: `channel_${input.providerKey}`,
               tenantId: credentialsScope.tenantId,
               organizationId: credentialsScope.organizationId,
               userId: credentialsScope.userId,
               deletedAt: null,
-            } as any,
+            },
             undefined,
             credentialsScope,
           )
@@ -161,33 +161,22 @@ const connectCredentialChannelCommand: CommandHandler<
           ? ((input.credentials as { email?: string }).email as string)
           : null
 
-    const pollIntervalSeconds =
-      input.pollIntervalSeconds ??
-      (adapter.capabilities?.realtimePush === false ? 300 : null)
-
     // Fail-safe: if credentials persistence failed (no `credentialsRef`), the
     // channel is created in `requires_reauth` + isActive=false so workers
     // don't poll a channel that has no usable credentials. The user can
     // reconnect to recover (see review R2-H4 / F6, 2026-05-26).
     const credentialsAvailable = credentialsRefId !== null
-    const channel = em.create(CommunicationChannel, {
+    const channel = await createConnectedChannelRow({
+      em,
+      adapter,
       providerKey: input.providerKey,
-      channelType: adapter.channelType,
       displayName: input.displayName,
       externalIdentifier,
-      credentialsRef: credentialsRefId,
-      capabilities: adapter.capabilities as unknown as Record<string, unknown>,
-      isActive: credentialsAvailable,
+      credentialsRefId,
       userId: input.userId,
-      isPrimary: false,
-      pollIntervalSeconds,
-      status: credentialsAvailable ? 'connected' : 'requires_reauth',
-      lastError: credentialsAvailable ? null : 'credentials_persist_failed',
-      tenantId: input.scope.tenantId,
-      organizationId: input.scope.organizationId ?? null,
+      scope: { tenantId: input.scope.tenantId, organizationId: input.scope.organizationId ?? null },
+      pollIntervalSeconds: input.pollIntervalSeconds,
     })
-    em.persist(channel)
-    await em.flush()
 
     // Spec C § Phase C5 — best-effort push registration for providers that
     // support it (Gmail, Microsoft). Failures persist as `pushStatus='failed'`
