@@ -28,8 +28,9 @@ import { VersionHistoryAction } from '@open-mercato/ui/backend/version-history'
 import { SendObjectMessageDialog } from '@open-mercato/ui/backend/messages'
 import Link from 'next/link'
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
-import { apiCall, apiCallOrThrow, readApiResultOrThrow } from '@open-mercato/ui/backend/utils/apiCall'
-import { buildOptimisticLockHeader, extractOptimisticLockConflict } from '@open-mercato/ui/backend/utils/optimisticLock'
+import { apiCall, apiCallOrThrow, readApiResultOrThrow, withScopedApiRequestHeaders } from '@open-mercato/ui/backend/utils/apiCall'
+import { buildOptimisticLockHeader } from '@open-mercato/ui/backend/utils/optimisticLock'
+import { surfaceRecordConflict } from '@open-mercato/ui/backend/conflicts'
 import { collectCustomFieldValues } from '@open-mercato/ui/backend/utils/customFieldValues'
 import { mapCrudServerErrorToFormErrors } from '@open-mercato/ui/backend/utils/serverErrors'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
@@ -923,6 +924,18 @@ const normalizeCustomFieldSubmitValue = (value: unknown): unknown => {
   }
   if (value === undefined) return null
   return value
+}
+
+export function handleDocumentMutationError(
+  err: unknown,
+  t: (key: string, fallback?: string) => string,
+  refresh: () => void,
+): boolean {
+  if (surfaceRecordConflict(err, t, { onRefresh: refresh })) {
+    refresh()
+    return true
+  }
+  return false
 }
 
 const prefixCustomFieldValues = (input: Record<string, unknown> | null | undefined): Record<string, unknown> => {
@@ -2999,14 +3012,16 @@ export default function SalesDocumentDetailPage({
       const mutation = { id: record.id, ...patch }
       return runMutationWithContext(
         () =>
-          apiCallOrThrow<DocumentUpdateResult>(
-            endpoint,
-            {
-              method: 'PUT',
-              headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify(mutation),
-            },
-            { errorMessage: t('sales.documents.detail.updateError', 'Failed to update document.') }
+          withScopedApiRequestHeaders(buildOptimisticLockHeader(record.updatedAt), () =>
+            apiCallOrThrow<DocumentUpdateResult>(
+              endpoint,
+              {
+                method: 'PUT',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(mutation),
+              },
+              { errorMessage: t('sales.documents.detail.updateError', 'Failed to update document.') }
+            ),
           ),
         mutation,
       )
@@ -3037,6 +3052,7 @@ export default function SalesDocumentDetailPage({
         flash(t('sales.documents.detail.updatedMessage', 'Document updated.'), 'success')
         return savedCode
       } catch (err) {
+        if (handleDocumentMutationError(err, t, () => setReloadKey((prev) => prev + 1))) return
         const message = err instanceof Error && err.message ? err.message : t('sales.documents.detail.updateError', 'Failed to update document.')
         flash(message, 'error')
         throw err
@@ -3065,6 +3081,7 @@ export default function SalesDocumentDetailPage({
         setRecord((prev) => (prev ? { ...prev, placedAt: savedPlacedAt } : prev))
         flash(t('sales.documents.detail.updatedMessage', 'Document updated.'), 'success')
       } catch (err) {
+        if (handleDocumentMutationError(err, t, () => setReloadKey((prev) => prev + 1))) return
         const message =
           err instanceof Error && err.message
             ? err.message
@@ -3098,6 +3115,7 @@ export default function SalesDocumentDetailPage({
         setRecord((prev) => (prev ? { ...prev, expectedDeliveryAt: savedExpectedDelivery } : prev))
         flash(t('sales.documents.detail.updatedMessage', 'Document updated.'), 'success')
       } catch (err) {
+        if (handleDocumentMutationError(err, t, () => setReloadKey((prev) => prev + 1))) return
         const message =
           err instanceof Error && err.message
             ? err.message
@@ -3124,6 +3142,7 @@ export default function SalesDocumentDetailPage({
         setRecord((prev) => (prev ? { ...prev, comment: savedComment } : prev))
         flash(t('sales.documents.detail.updatedMessage', 'Document updated.'), 'success')
       } catch (err) {
+        if (handleDocumentMutationError(err, t, () => setReloadKey((prev) => prev + 1))) return
         const message =
           err instanceof Error && err.message
             ? err.message
@@ -3150,6 +3169,7 @@ export default function SalesDocumentDetailPage({
         setRecord((prev) => (prev ? { ...prev, externalReference: savedExternalReference } : prev))
         flash(t('sales.documents.detail.updatedMessage', 'Document updated.'), 'success')
       } catch (err) {
+        if (handleDocumentMutationError(err, t, () => setReloadKey((prev) => prev + 1))) return
         const message =
           err instanceof Error && err.message
             ? err.message
@@ -3176,6 +3196,7 @@ export default function SalesDocumentDetailPage({
         setRecord((prev) => (prev ? { ...prev, customerReference: savedCustomerReference } : prev))
         flash(t('sales.documents.detail.updatedMessage', 'Document updated.'), 'success')
       } catch (err) {
+        if (handleDocumentMutationError(err, t, () => setReloadKey((prev) => prev + 1))) return
         const message =
           err instanceof Error && err.message
             ? err.message
@@ -3238,6 +3259,7 @@ export default function SalesDocumentDetailPage({
         })
         flash(t('sales.documents.detail.updatedMessage', 'Document updated.'), 'success')
       } catch (err) {
+        if (handleDocumentMutationError(err, t, () => setReloadKey((prev) => prev + 1))) return
         const message =
           err instanceof Error && err.message
             ? err.message
@@ -3262,6 +3284,7 @@ export default function SalesDocumentDetailPage({
         }
         flash(t('sales.documents.detail.updatedMessage', 'Document updated.'), 'success')
       } catch (err) {
+        if (handleDocumentMutationError(err, t, () => setReloadKey((prev) => prev + 1))) return
         const message =
           err instanceof Error && err.message
             ? err.message
@@ -3311,6 +3334,7 @@ export default function SalesDocumentDetailPage({
         emitSalesDocumentTotalsRefresh({ documentId: record.id, kind })
         flash(t('sales.documents.detail.updatedMessage', 'Document updated.'), 'success')
       } catch (err) {
+        if (handleDocumentMutationError(err, t, () => setReloadKey((prev) => prev + 1))) return
         const message =
           err instanceof Error && err.message
             ? err.message
@@ -3368,6 +3392,7 @@ export default function SalesDocumentDetailPage({
         emitSalesDocumentTotalsRefresh({ documentId: record.id, kind })
         flash(t('sales.documents.detail.updatedMessage', 'Document updated.'), 'success')
       } catch (err) {
+        if (handleDocumentMutationError(err, t, () => setReloadKey((prev) => prev + 1))) return
         const message =
           err instanceof Error && err.message
             ? err.message
@@ -3404,6 +3429,7 @@ export default function SalesDocumentDetailPage({
         }
         flash(t('sales.documents.detail.updatedMessage', 'Document updated.'), 'success')
       } catch (err) {
+        if (handleDocumentMutationError(err, t, () => setReloadKey((prev) => prev + 1))) return
         const message =
           err instanceof Error && err.message
             ? err.message
@@ -3482,6 +3508,7 @@ export default function SalesDocumentDetailPage({
         )
         flash(t('sales.documents.detail.updatedMessage', 'Document updated.'), 'success')
       } catch (err) {
+        if (handleDocumentMutationError(err, t, () => setReloadKey((prev) => prev + 1))) return
         const message =
           err instanceof Error && err.message
             ? err.message
@@ -3531,6 +3558,7 @@ export default function SalesDocumentDetailPage({
         )
         flash(t('sales.documents.detail.updatedMessage', 'Document updated.'), 'success')
       } catch (err) {
+        if (handleDocumentMutationError(err, t, () => setReloadKey((prev) => prev + 1))) return
         const message =
           err instanceof Error && err.message
             ? err.message
@@ -3580,6 +3608,7 @@ export default function SalesDocumentDetailPage({
       setNumberEditing(false)
       flash(t('sales.documents.detail.numberGenerated', 'New number generated.'), 'success')
     } catch (err) {
+      if (handleDocumentMutationError(err, t, () => setReloadKey((prev) => prev + 1))) return
       const message =
         err instanceof Error && err.message
           ? err.message
@@ -3623,6 +3652,7 @@ export default function SalesDocumentDetailPage({
         )
         flash(t('sales.documents.detail.updatedMessage', 'Document updated.'), 'success')
       } catch (err) {
+        if (handleDocumentMutationError(err, t, () => setReloadKey((prev) => prev + 1))) return
         const message =
           err instanceof Error && err.message
             ? err.message
@@ -3657,10 +3687,7 @@ export default function SalesDocumentDetailPage({
       }, { quoteId: record.id })
     } catch (err) {
       console.error('sales.documents.convert', err)
-      if (extractOptimisticLockConflict(err)) {
-        flash(t('ui.forms.flash.recordModified', 'This record was modified by someone else. Refresh and try again.'), 'error')
-        setReloadKey((prev) => prev + 1)
-      } else {
+      if (!handleDocumentMutationError(err, t, () => setReloadKey((prev) => prev + 1))) {
         flash(t('sales.documents.detail.convertError', 'Failed to convert quote.'), 'error')
       }
     } finally {
@@ -3702,20 +3729,24 @@ export default function SalesDocumentDetailPage({
     const endpoint = kind === 'order' ? '/api/sales/orders' : '/api/sales/quotes'
     try {
       await runMutationWithContext(async () => {
-        await apiCallOrThrow(endpoint, {
-          method: 'DELETE',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ id: record.id }),
-        }, {
-          errorMessage: t('sales.documents.detail.deleteFailed', 'Could not delete document.'),
-        })
+        await withScopedApiRequestHeaders(buildOptimisticLockHeader(record.updatedAt), () =>
+          apiCallOrThrow(endpoint, {
+            method: 'DELETE',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ id: record.id }),
+          }, {
+            errorMessage: t('sales.documents.detail.deleteFailed', 'Could not delete document.'),
+          }),
+        )
       }, { id: record.id })
       flash(t('sales.documents.detail.deleted', 'Document deleted.'), 'success')
       const listPath = kind === 'order' ? '/backend/sales/orders' : '/backend/sales/quotes'
       router.push(listPath)
     } catch (err) {
       console.error('sales.documents.delete', err)
-      flash(t('sales.documents.detail.deleteFailed', 'Could not delete document.'), 'error')
+      if (!handleDocumentMutationError(err, t, () => setReloadKey((prev) => prev + 1))) {
+        flash(t('sales.documents.detail.deleteFailed', 'Could not delete document.'), 'error')
+      }
     }
     setDeleting(false)
   }, [kind, record, router, runMutationWithContext, t])
