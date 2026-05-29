@@ -40,4 +40,4 @@ Close an OWASP A01 fail-open authorization gap where organization-scope checks a
 - [ ] 3.3 Full validation gate (`yarn test`, `yarn build:app`)
 
 ## Changelog
-- 2026-05-29: Plan created; Phases 1–2 complete, Phase 3 partial (fixtures + spec written, end-to-end validation pending). Opened as draft PR — remaining items (3.2, 3.3) to finish over the weekend.
+- 2026-05-29: Plan created; Phases 1–2 complete, Phase 3 partial (fixtures + spec written, end-to-end validation pending). Opened as draft PR open-mercato/open-mercato#2300 — remaining items (3.2, 3.3) to finish over the weekend.
