@@ -1009,6 +1009,7 @@
   "workflows.tasks.detail.form.selectOption": "-- Select an option --",
   "workflows.tasks.detail.loading": "Loading task...",
   "workflows.tasks.detail.noFormSchema": "This task has no form to complete. You can add optional comments and submit.",
+  "workflows.tasks.detail.loadFailed": "Failed to load task",
   "workflows.tasks.detail.notFound": "Task not found",
   "workflows.tasks.detail.optional": "optional",
   "workflows.tasks.detail.overdueWarning": "⚠ This task is overdue!",

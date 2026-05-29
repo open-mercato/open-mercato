@@ -1009,6 +1009,7 @@
   "workflows.tasks.detail.form.selectOption": "-- Selecciona una opcion --",
   "workflows.tasks.detail.loading": "Cargando tarea...",
   "workflows.tasks.detail.noFormSchema": "Esta tarea no tiene formulario. Puedes agregar comentarios opcionales y enviar.",
+  "workflows.tasks.detail.loadFailed": "Error al cargar la tarea",
   "workflows.tasks.detail.notFound": "Tarea no encontrada",
   "workflows.tasks.detail.optional": "opcional",
   "workflows.tasks.detail.overdueWarning": "Esta tarea esta vencida.",

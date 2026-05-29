@@ -1009,6 +1009,7 @@
   "workflows.tasks.detail.form.selectOption": "-- Wybierz opcję --",
   "workflows.tasks.detail.loading": "Ładowanie zadania...",
   "workflows.tasks.detail.noFormSchema": "To zadanie nie ma formularza do wypełnienia. Możesz dodać opcjonalne komentarze i wysłać.",
+  "workflows.tasks.detail.loadFailed": "Nie udało się załadować zadania",
   "workflows.tasks.detail.notFound": "Zadanie nie znalezione",
   "workflows.tasks.detail.optional": "opcjonalne",
   "workflows.tasks.detail.overdueWarning": "⚠ To zadanie jest przeterminowane!",
