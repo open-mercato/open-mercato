@@ -220,22 +220,27 @@ class ImapChannelAdapter implements ChannelAdapter {
 
     // Cursor advancement contract:
     //   - Bootstrap: persist the server's current UIDNEXT so the next poll
-    //     becomes incremental from this point onward.
-    //   - Incremental: persist `lastFetchedUid + 1` (which equals the
-    //     server's UIDNEXT when we drained everything, or the highest UID
-    //     fetched + 1 when `hasMore` is true). When `fetched` is empty we
-    //     retain `previousUidNext` so the next poll resumes from the same
-    //     point.
+    //     becomes incremental from this point onward (intentionally skips the
+    //     pre-existing backlog; use `/import-history` to pull it).
+    //   - Incremental: persist `highestFetchedUid + 1` — NEVER the server's
+    //     UIDNEXT. When `fetched` is empty we retain `previousUidNext` so the
+    //     next poll resumes from the same point.
     const advancedUidNext = (() => {
       if (needsBootstrap) return serverUidNext
       if (fetched.length === 0) return previousUidNext
       const highest = fetched.reduce((max, item) => (item.uid > max ? item.uid : max), 0)
-      if (hasMore) {
-        // More remain — advance past what we fetched but not all the way to
-        // the server's UIDNEXT (the next batch starts at highest + 1).
-        return highest + 1
-      }
-      return serverUidNext ?? highest + 1
+      // Anchor the cursor to the highest UID we ACTUALLY fetched — never to the
+      // server's UIDNEXT. Providers like Gmail report a UIDNEXT that runs ahead
+      // of the highest message currently in the folder (UID gaps from
+      // labels/threads, or a message materialising into INBOX at a UID below
+      // UIDNEXT). Jumping the cursor to `serverUidNext` then steps over any
+      // INBOX message that sits below it: that message lands permanently below
+      // the cursor and is never fetched again — the bug that silently dropped
+      // inbound replies (UID 61979 skipped while cursor jumped to 61981).
+      // `highest + 1` guarantees we never step over an unfetched message; if the
+      // server's UIDNEXT is higher, the next poll just re-scans `highest+1:*`
+      // (idempotent — the hub dedups on (channel_id, external_message_id)).
+      return highest + 1
     })()
     const nextChannelState: ImapChannelState = {
       uidValidity: folderState.uidValidity ?? previousUidValidity,

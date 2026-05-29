@@ -234,6 +234,12 @@ describe('ImapChannelAdapter.fetchHistory', () => {
     expect(fetchCalls).toEqual(['50:*'])
     expect(page.messages).toHaveLength(1)
     expect(page.hasMore).toBe(false)
+    // Regression (inbound-skip bug): on drain, the cursor must anchor to the
+    // highest FETCHED uid + 1 (55 + 1 = 56), NOT the server's UIDNEXT (60).
+    // Jumping to serverUidNext steps over INBOX messages that sit at a UID
+    // below it (Gmail UID gaps from labels/threads), permanently dropping them.
+    const decoded = JSON.parse(Buffer.from(page.nextCursor!, 'base64').toString('utf-8'))
+    expect(decoded.uidNext).toBe(56)
   })
 
   it('signals hasMore=true when more UIDs remain than HARD_CAP', async () => {

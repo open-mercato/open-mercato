@@ -158,6 +158,50 @@ describe('link-channel-message subscriber — inbound', () => {
     expect(createdData.authorUserId).toBeNull()
   })
 
+  it('inherits Person from the hub thread when address match is empty (encryption-safe reply linking)', async () => {
+    // Reply scenario: tenant data encryption makes findPeopleByAddresses return
+    // empty (it filters the encrypted primary_email by plaintext). The reply
+    // shares the outbound's message_thread_id, so we inherit the Person of the
+    // existing email interaction in that thread via the threadId join.
+    const linkRow = {
+      id: 'mcl-reply',
+      messageId: 'msg-inbound',
+      providerKey: 'imap',
+      direction: 'inbound',
+      createdAt: new Date('2026-05-28T22:16:00Z'),
+      channelPayload: { from: 'gita@external.com', to: ['me@org.com'], subject: 'Re: Hello', text: 'thanks' },
+      channelMetadata: {},
+    }
+    // Address matching finds nobody (encrypted column vs plaintext value).
+    mockFindPeople.mockResolvedValueOnce([])
+    const em = makeEm({
+      // findOne[0]: link lookup, findOne[1]: channel (user-scoped → private)
+      findOneResults: [linkRow, { userId: 'u-1' }],
+      // execute[0]: thread-inheritance query resolves the Person from the thread
+      executeResults: [[{ entity_id: 'person-thread' }]],
+    })
+    const personRef = { id: 'person-thread' }
+    em.getReference.mockReturnValue(personRef)
+
+    await handler(
+      {
+        eventType: 'communication_channels.message.received',
+        channelLinkId: 'mcl-reply',
+        channelId: 'ch-1',
+        tenantId: 'tenant-1',
+        organizationId: 'org-1',
+      } as any,
+      makeCtx(em),
+    )
+
+    expect(em.create).toHaveBeenCalledTimes(1)
+    const [, createdData] = em.create.mock.calls[0] as [unknown, Record<string, unknown>]
+    expect(createdData.interactionType).toBe('email')
+    expect(createdData.externalMessageId).toBe('mcl-reply')
+    expect(createdData.entity).toBe(personRef)
+    expect(createdData.visibility).toBe('private') // user-scoped channel
+  })
+
   it('creates 3 interactions for 3-person match across From/To/Cc', async () => {
     const linkRow = {
       id: 'mcl-multi',

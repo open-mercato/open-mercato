@@ -254,6 +254,74 @@ async function handleThreadingInheritance(
   metaJson: Record<string, unknown> | null,
   payloadJson: Record<string, unknown> | null,
 ): Promise<void> {
+  // ── Primary: inherit Person(s) from the hub's authoritative thread ──────
+  //
+  // The hub threads an inbound reply into the same `messages.message.thread_id`
+  // as the outbound that started the conversation (via the thread token /
+  // subject+participants matcher). That outbound is already linked to the CRM
+  // Person (through the `crmPersonId` hint set by the compose route). So a reply
+  // inherits the Person of any existing email interaction in the same thread.
+  //
+  // This is the dependable join where the alternatives are not:
+  //   - Address matching (`findPeopleByAddresses`) filters the *encrypted*
+  //     `primary_email` column by a plaintext value, which never matches when
+  //     tenant data encryption is on (ciphertext != plaintext).
+  //   - RFC Message-IDs are rewritten by some providers (e.g. Gmail) on send,
+  //     so the legacy In-Reply-To/References inheritance below also misses.
+  // The hub thread id survives both, so we resolve by it first.
+  const inboundMessageId = typeof _link.messageId === 'string' ? _link.messageId : null
+  if (inboundMessageId && organizationId) {
+    const threadPersonRows = (await em.getConnection().execute(
+      `SELECT DISTINCT ci.entity_id AS entity_id
+       FROM messages inbound_m
+       JOIN messages thread_m ON thread_m.thread_id = inbound_m.thread_id
+       JOIN message_channel_links mcl ON mcl.message_id = thread_m.id
+       JOIN customer_interactions ci ON ci.external_message_id = mcl.id
+       WHERE inbound_m.id = ?
+         AND inbound_m.thread_id IS NOT NULL
+         AND ci.tenant_id = ?
+         AND ci.organization_id = ?
+         AND ci.interaction_type = 'email'
+         AND ci.deleted_at IS NULL
+         AND ci.entity_id IS NOT NULL
+       LIMIT 200`,
+      [inboundMessageId, tenantId, organizationId],
+    )) as Array<{ entity_id: string }>
+    const threadPersonIds = new Set<string>(
+      threadPersonRows.map((row) => row.entity_id).filter((id): id is string => !!id),
+    )
+    if (threadPersonIds.size > 0) {
+      const subject =
+        typeof metaJson?.subject === 'string'
+          ? (metaJson.subject as string)
+          : typeof payloadJson?.subject === 'string'
+            ? (payloadJson.subject as string)
+            : null
+      const bodyText =
+        typeof payloadJson?.text === 'string'
+          ? (payloadJson.text as string)
+          : typeof metaJson?.bodyText === 'string'
+            ? (metaJson.bodyText as string)
+            : null
+      const occurredAt = _link.createdAt instanceof Date ? (_link.createdAt as Date) : new Date()
+      const providerKey = typeof _link.providerKey === 'string' ? (_link.providerKey as string) : null
+      await persistInteractions(em, threadPersonIds, {
+        linkId,
+        tenantId,
+        organizationId,
+        interactionType: 'email',
+        title: subject,
+        body: bodyText,
+        authorUserId: channelUserId,
+        occurredAt,
+        visibility: channelUserId ? 'private' : 'shared',
+        channelProviderKey: providerKey,
+      })
+      return
+    }
+  }
+
+  // ── Fallback: legacy In-Reply-To / References Message-ID inheritance ─────
   // Collect reference message-ids from inReplyTo + references
   const refIds: string[] = []
   const inReplyTo =

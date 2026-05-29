@@ -167,7 +167,18 @@ class ImapflowClient implements ImapClient {
     try {
       const lock = await client.getMailboxLock('INBOX')
       try {
-        const iterator = client.fetch(range, { uid: true, source: true, internalDate: true, flags: true })
+        // `{ uid: true }` as the THIRD arg (FetchOptions) makes imapflow treat
+        // `range` as a UID range. Without it the range is read as message-sequence
+        // numbers, and a sequence range like "200:*" collapses to the single newest
+        // message ("*") — so each poll would fetch only the latest mail and silently
+        // skip every other message that arrived in the same gap. The `uid: true` in
+        // the SECOND arg (FetchQueryObject) is unrelated: it only asks to include the
+        // UID field in each response row.
+        const iterator = client.fetch(
+          range,
+          { uid: true, source: true, internalDate: true, flags: true },
+          { uid: true },
+        )
         for await (const message of iterator) {
           if (!message.source) continue
           out.push({
@@ -282,7 +293,7 @@ interface ImapflowConnection {
   connect(): Promise<void>
   logout(): Promise<void>
   getMailboxLock(name: string): Promise<{ release(): void }>
-  fetch(range: string, options: Record<string, unknown>): AsyncIterable<{ uid: number; source?: Buffer | string; internalDate?: Date | string; flags?: Iterable<string> }>
+  fetch(range: string, query: Record<string, unknown>, options?: Record<string, unknown>): AsyncIterable<{ uid: number; source?: Buffer | string; internalDate?: Date | string; flags?: Iterable<string> }>
   append(mailbox: string, rawMessage: Buffer, flags?: string[]): Promise<void>
 }
 

@@ -30,6 +30,14 @@ export type SendAsUserInput = {
   inReplyTo?: string
   references?: string[]
   /**
+   * Open Mercato `messages.message` id of the message being replied to. When
+   * set, the composed message joins that message's thread (the messages module
+   * derives `threadId` from the parent), so a CRM reply continues the existing
+   * conversation instead of starting a new thread. Optional — omitted for new
+   * threads.
+   */
+  parentMessageId?: string
+  /**
    * Free-form metadata persisted on the resulting MessageChannelLink. Used by
    * downstream subscribers (e.g. the customers module's link-channel-message
    * subscriber) to anchor the sent message back to a CRM Person or honor a
@@ -121,7 +129,7 @@ export async function sendAsUser(
     bodyFormat: 'text' as const,
     priority: 'normal' as const,
     sendViaEmail: false,
-    parentMessageId: undefined,
+    parentMessageId: input.parentMessageId,
     isDraft: false,
     tenantId,
     organizationId,

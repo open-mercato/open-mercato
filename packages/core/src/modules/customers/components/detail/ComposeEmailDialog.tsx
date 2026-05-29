@@ -36,6 +36,8 @@ export interface ComposeEmailValues {
   visibility: 'private' | 'shared'
   inReplyTo?: string
   references?: string[]
+  /** When replying, the messages.message id of the parent so the reply joins its thread. */
+  parentMessageId?: string
 }
 
 export interface ComposeEmailDialogProps {
@@ -45,11 +47,12 @@ export interface ComposeEmailDialogProps {
   defaultRecipient?: string | null
   channels: ComposeEmailChannel[]
   replyTo?: {
-    inReplyTo: string
+    inReplyTo?: string
     references?: string[]
     to: string[]
     cc?: string[]
     subject: string
+    parentMessageId?: string
   } | null
   onSend: (values: ComposeEmailValues) => Promise<{ messageId: string | null }>
 }
@@ -157,6 +160,7 @@ export function ComposeEmailDialog({
         visibility,
         inReplyTo: replyTo?.inReplyTo,
         references: replyTo?.references,
+        parentMessageId: replyTo?.parentMessageId,
       }
       await onSend(values)
       onOpenChange(false)
@@ -247,7 +251,7 @@ export function ComposeEmailDialog({
               value={body}
               onChange={(e) => setBody(e.target.value)}
               placeholder={t('customers.email.compose.bodyPlaceholder', 'Write your message...')}
-              className="min-h-[180px]"
+              rows={8}
             />
           </div>
 

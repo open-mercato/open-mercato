@@ -32,6 +32,7 @@ const composeSchema = z
     visibility: z.enum(['private', 'shared']).default('private'),
     inReplyTo: z.string().max(500).optional(),
     references: z.array(z.string().max(500)).max(50).optional(),
+    parentMessageId: z.string().uuid().optional(),
   })
   .strict()
 
@@ -122,6 +123,7 @@ export async function POST(req: Request, context: RouteContext): Promise<Respons
       body: body.bodyFormat === 'html' ? { html: body.body } : { plain: body.body },
       inReplyTo: body.inReplyTo,
       references: body.references,
+      parentMessageId: body.parentMessageId,
       channelMetadata: {
         crmVisibility: body.visibility,
         crmPersonId: personId,
