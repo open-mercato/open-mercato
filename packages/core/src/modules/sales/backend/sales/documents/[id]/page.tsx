@@ -4200,6 +4200,7 @@ export default function SalesDocumentDetailPage({
           documentId={record.id}
           kind={kind}
           currencyCode={record.currencyCode ?? null}
+          documentUpdatedAt={record.updatedAt}
           organizationId={(record as any)?.organizationId ?? (record as any)?.organization_id ?? null}
           tenantId={(record as any)?.tenantId ?? (record as any)?.tenant_id ?? null}
           onActionChange={handleSectionActionChange}
@@ -4246,6 +4247,7 @@ export default function SalesDocumentDetailPage({
         <SalesReturnsSection
           orderId={record.id}
           currencyCode={record.currencyCode ?? null}
+          documentUpdatedAt={record.updatedAt}
         />
       )
     }
@@ -4255,6 +4257,7 @@ export default function SalesDocumentDetailPage({
           documentId={record.id}
           kind={kind}
           currencyCode={record.currencyCode ?? null}
+          documentUpdatedAt={record.updatedAt}
           organizationId={(record as any)?.organizationId ?? (record as any)?.organization_id ?? null}
           tenantId={(record as any)?.tenantId ?? (record as any)?.tenant_id ?? null}
           onActionChange={handleSectionActionChange}
