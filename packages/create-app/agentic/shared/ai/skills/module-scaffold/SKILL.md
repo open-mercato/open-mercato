@@ -269,10 +269,12 @@ import { Page, PageBody } from '@open-mercato/ui/backend/Page'
 import { DataTable } from '@open-mercato/ui/backend/DataTable'
 import type { ColumnDef } from '@tanstack/react-table'
 import { apiCall } from '@open-mercato/ui/backend/utils/apiCall'
-import { useQuery } from '@tanstack/react-query'
+import { flash } from '@open-mercato/ui/backend/FlashMessages'
+import { useOrganizationScopeVersion } from '@open-mercato/shared/lib/frontend/useOrganizationScope'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 
 type <Entity> = { id: string; name: string; organizationId: string; tenantId: string }
+
 type <Entity>ListResponse = {
   items: <Entity>[]
   total: number
@@ -281,17 +283,56 @@ type <Entity>ListResponse = {
   totalPages: number
 }
 
-const columns: ColumnDef<<Entity>, unknown>[] = [
-  { id: 'name', header: '<Name>', accessorKey: 'name' },
-]
+const PAGE_SIZE = 20
 
 export default function <Module>ListPage() {
   const t = useT()
+  const scopeVersion = useOrganizationScopeVersion()
+  const [rows, setRows] = React.useState<<Entity>[]>([])
   const [page, setPage] = React.useState(1)
-  const { data: response, isLoading, error } = useQuery({
-    queryKey: ['<module_id>', '<entities>', page],
-    queryFn: () => apiCall<<Entity>ListResponse>(`<module_id>/<entities>?page=${page}&pageSize=20`),
-  })
+  const [total, setTotal] = React.useState(0)
+  const [totalPages, setTotalPages] = React.useState(1)
+  const [isLoading, setIsLoading] = React.useState(true)
+
+  const columns = React.useMemo<ColumnDef<<Entity>>[]>(() => [
+    { accessorKey: 'name', header: t('<module_id>.list.columns.name') },
+  ], [t])
+
+  React.useEffect(() => {
+    let cancelled = false
+    async function load() {
+      setIsLoading(true)
+      try {
+        const params = new URLSearchParams()
+        params.set('page', String(page))
+        params.set('pageSize', String(PAGE_SIZE))
+        const fallback: <Entity>ListResponse = { items: [], total: 0, page, pageSize: PAGE_SIZE, totalPages: 1 }
+        const call = await apiCall<<Entity>ListResponse>(
+          `/api/<module_id>/<entities>?${params.toString()}`,
+          undefined,
+          { fallback },
+        )
+        if (!call.ok) {
+          flash(t('<module_id>.list.error.loadFailed'), 'error')
+          return
+        }
+        const payload = call.result ?? fallback
+        if (!cancelled) {
+          setRows(Array.isArray(payload.items) ? payload.items : [])
+          setTotal(payload.total || 0)
+          setTotalPages(payload.totalPages || 1)
+        }
+      } catch (err) {
+        if (!cancelled) {
+          flash(err instanceof Error ? err.message : t('<module_id>.list.error.loadFailed'), 'error')
+        }
+      } finally {
+        if (!cancelled) setIsLoading(false)
+      }
+    }
+    load()
+    return () => { cancelled = true }
+  }, [page, scopeVersion, t])
 
   return (
     <Page>
@@ -299,16 +340,9 @@ export default function <Module>ListPage() {
         <DataTable<<Entity>>
           title={t('<module_id>.list.title')}
           columns={columns}
-          data={response?.items ?? []}
+          data={rows}
           isLoading={isLoading}
-          error={error?.message}
-          pagination={{
-            page: response?.page ?? 1,
-            pageSize: response?.pageSize ?? 20,
-            total: response?.total ?? 0,
-            totalPages: response?.totalPages ?? 1,
-            onPageChange: setPage,
-          }}
+          pagination={{ page, pageSize: PAGE_SIZE, total, totalPages, onPageChange: setPage }}
         />
       </PageBody>
     </Page>
