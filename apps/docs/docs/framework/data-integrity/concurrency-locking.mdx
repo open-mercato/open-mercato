@@ -262,27 +262,36 @@ async function saveCompany(id: string, payload: CompanyUpdatePayload, record: { 
 
 ### 3. Client: surface the conflict
 
+The conflict surfaces as a **unified, persistent, error-styled bar** (rendered
+once in `AppShell`, like the undo `LastOperationBanner`) — **not** a transient
+toast. `CrudForm` and `useGuardedMutation` route 409s through it automatically,
+so every standard form behaves the same way. Custom pages call
+`surfaceRecordConflict(err, t, opts)` in their catch:
+
 ```ts
-import { extractOptimisticLockConflict } from '@open-mercato/ui/backend/utils/optimisticLock'
-import { flash } from '@open-mercato/ui/backend/FlashMessages'
+import { surfaceRecordConflict } from '@open-mercato/ui/backend/conflicts'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 
 try {
   await saveCompany(/* ... */)
 } catch (err) {
-  const conflict = extractOptimisticLockConflict(err)
-  if (conflict) {
-    flash(t('ui.forms.flash.recordModified'), 'error')
-    // optional: refetch the record using conflict.currentUpdatedAt as a cache buster
-    return
-  }
+  // Pushes the localized "record modified" message onto the shared conflict
+  // bar and returns true when `err` is an optimistic-lock 409; returns false
+  // otherwise so you can fall through to your normal error handling.
+  if (surfaceRecordConflict(err, t, { onRefresh: () => refetchRecord() })) return
   throw err
 }
 ```
 
-The i18n key `ui.forms.flash.recordModified` ships in all four locales
-(`en`/`de`/`es`/`pl`) with copy that asks the user to refresh and try
-again.
+The bar exposes a **Refresh** action (reloads the page, or runs your
+`onRefresh` handler to re-fetch) and a **Dismiss** action. `surfaceRecordConflict`
+wraps `extractOptimisticLockConflict` internally, so callers no longer pin
+against the 409 code directly. `CrudForm` additionally keeps an inline form
+error in place — the bar and the inline error are complementary.
+
+The message key `ui.forms.flash.recordModified` and the bar chrome keys
+`ui.forms.conflict.{title,refresh,dismiss}` ship in all four locales
+(`en`/`de`/`es`/`pl`) with copy that asks the user to refresh and try again.
 
 ---
 
@@ -295,9 +304,11 @@ time. The remaining work is the client + env + tests:
 1. Make sure detail/list responses expose `updatedAt` as an ISO string
    (most `serializeEntity` helpers already do).
 2. Wire the client page(s) to use `buildOptimisticLockHeader(...)` and
-   `extractOptimisticLockConflict(...)` — or pass
+   surface 409s with `surfaceRecordConflict(err, t)` from
+   `@open-mercato/ui/backend/conflicts` — or pass
    `optimisticLockUpdatedAt={record.updatedAt}` to `CrudForm`, which
-   merges the header into every PUT/PATCH/DELETE the form issues.
+   merges the header into every PUT/PATCH/DELETE the form issues and routes
+   the conflict to the shared bar automatically.
 3. Add `<entityType>` to `OM_OPTIMISTIC_LOCK` in your deployment, or
    set `OM_OPTIMISTIC_LOCK=all` to opt in platform-wide.
 4. Add an integration test that mirrors
@@ -377,6 +388,51 @@ Sales wraps the helper as `enforceSalesDocumentOptimisticLock(ctx, document, res
 in `packages/core/src/modules/sales/commands/shared.ts` — see the line,
 adjustment, return, and quote-conversion commands for the reference usage.
 
+### Command-level extension point (DI-overridable seam)
+
+`enforceCommandOptimisticLock` is the inline default. For an overridable seam —
+mirroring the CRUD `crudMutationGuardService` override — use the service factory:
+
+```ts
+import {
+  createCommandOptimisticLockGuardService,
+  type ResolveExpectedUpdatedAt,
+} from '@open-mercato/shared/lib/crud/optimistic-lock-command'
+
+// OSS default: header/version compare (== enforceCommandOptimisticLock).
+const guard = createCommandOptimisticLockGuardService()
+
+// Enterprise: resolve the expected version from a different source
+// (e.g. the held record_locks pessimistic lock) WITHOUT touching any
+// command handler — registered via DI.
+const resolveExpected: ResolveExpectedUpdatedAt = async (input) => /* … */
+const guard = createCommandOptimisticLockGuardService({ resolveExpected })
+```
+
+With no options the service behaves identically to the inline helper (reads the
+expected version from the extension header). `resolveExpected` is the reserved
+enterprise seam: the `record_locks` module can register a service that resolves
+the expected token from the held pessimistic lock instead of the client header,
+so command handlers gain pessimistic-lock-aware concurrency without any
+handler-side change. Tracked for enterprise in
+[#2232](https://github.com/open-mercato/open-mercato/issues/2232).
+
+### OSS client coverage (sales document sub-sections)
+
+OSS coverage is now complete across CRM (companies-v2 / people-v2 / deals),
+catalog (product + product-variant delete), and sales — including the sales
+document **sub-sections**:
+
+| Sub-section | Header semantics | Server guard |
+|---|---|---|
+| Items / Adjustments / Returns | **Document-aggregate** — send the parent document's `updated_at` | `enforceSalesDocumentOptimisticLock` (command-level) |
+| Payments / Shipments | **Row-level** — send the child row's own `updatedAt` | `makeCrudRoute` row-level guard |
+
+The split is deliberate: lines/adjustments/returns recalculate document totals,
+so they conflict at the document level and share the aggregate version; payments
+and shipments are standalone rows with their own `updated_at`, so they keep the
+row-level guard. Never double-guard a route (see the false-409 warning above).
+
 ---
 
 ## Coexisting with the enterprise `record_locks` module
@@ -403,8 +459,11 @@ a second-line defense when the enterprise pessimistic check passes.
 - **Source files:**
   - `packages/shared/src/lib/crud/optimistic-lock.ts`
   - `packages/shared/src/lib/crud/optimistic-lock-headers.ts`
+  - `packages/shared/src/lib/crud/optimistic-lock-command.ts` (command-level guard + extension seam)
   - `packages/ui/src/backend/utils/optimisticLock.ts`
+  - `packages/ui/src/backend/conflicts/` (unified conflict bar + `surfaceRecordConflict`)
   - `packages/core/src/modules/customers/di.ts` (reference wiring)
+  - `packages/core/src/modules/sales/commands/shared.ts` (sales document-aggregate wrapper)
 
 ### FAQ
 
@@ -438,4 +497,7 @@ version" for a create.
 
 **Q: Can the enterprise module override the resolved token source?**
 A: Yes — `createOptimisticLockGuardService({ resolveExpected: … })` is
-the reserved extension point. The OSS default uses the header value.
+the reserved extension point for the CRUD guard, and
+`createCommandOptimisticLockGuardService({ resolveExpected: … })` is the
+mirrored seam for command-level checks (see #2232). The OSS default uses
+the header value on both.

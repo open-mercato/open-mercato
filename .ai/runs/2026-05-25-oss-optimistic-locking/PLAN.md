@@ -84,6 +84,7 @@
 | 27 | 27.2 | Playwright MCP browser smoke: re-run the QA scenarios end-to-end on the running branch; capture screenshots proving localized conflict toast + refresh; save under `checkpoint-*-artifacts/` | done | 294df0368 |
 | 28 | 28.1 | File enterprise FR issue (enterprise flag): plug pessimistic record_locks resolver into the command-level framework via `createCommandOptimisticLockGuardService` in `record_locks/di.ts`; re-scope #2215 (mark sales-doc UI + TC-LOCK-OSS-005 done here) — filed #2232 + commented #2215 | done | (no-code) |
 | 28 | 28.2 | Docs/spec/CHANGELOG/AGENTS: document 100% OSS coverage + command-level extension point; flip coverage-completion spec rows; final gate + ds-guardian + auto-review + PR body → complete + summary comment | todo | — |
+| 28 | 28.2-docs | Docs/spec/CHANGELOG/AGENTS updates | done | PENDING |
 
 ## Goal (resume)
 

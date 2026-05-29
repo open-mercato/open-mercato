@@ -383,8 +383,11 @@ Approved as a phased follow-up draft for implementation planning.
 | `sales.order` / `sales.quote` lines + adjustments (upsert + delete) | **Done (#2055 Phase 17)** | command-level document-aggregate check via `enforceSalesDocumentOptimisticLock` in the command handlers; the `makeSalesLineRoute` `{ body }` wrapping nulls the factory `candidateId` so the row-level guard is skipped and the command check is the sole guard |
 | `sales.return` create | **Done (#2055 Phase 17)** | command-level document-aggregate check against the parent order |
 | Quote → order conversion (`sales.quotes.convert_to_order`) | **Done (#2055 Phase 17)** | command-level check on the quote version; closes the accept/convert race (#2114). Client `handleConvert` sends the version header (Phase 18) |
-| `sales.payment` / `sales.shipment` create/update/delete | **Row-level (existing)** | these routes use a flat `mapInput` with a top-level `id`, so the `makeCrudRoute` row-level guard already fires; a document-aggregate command check would conflict with the single header — unifying to document-aggregate is a follow-up |
-| Sales document UI sections (lines/adjustments/returns) sending the version header | **Deferred (follow-up)** | server already enforces; client wiring across the document editor is browser-QA-gated. The detail page's totals-refresh already re-fetches `record.updatedAt` after each sub-resource mutation, so the document-aggregate header can be sent safely without false-409 cascades |
+| `sales.payment` / `sales.shipment` create/update/delete | **Done — row-level** | these routes use a flat `mapInput` with a top-level `id`, so the `makeCrudRoute` row-level guard fires; the client now sends each child row's **own** `updatedAt` header (NOT the document aggregate). Decision: payments/shipments are standalone rows with their own `updated_at`, so a document-aggregate command check there would conflict with the single header — they stay row-level by design (`35fbd4d30`, `c8ba97b00`, `917003e34`) |
+| Sales document UI sections (lines/adjustments/returns) sending the version header | **Done (#2055 resume)** | client now sends the **document-aggregate** `updated_at` header from the detail page's sub-section editors; server-guarded by `enforceSalesDocumentOptimisticLock`. The totals-refresh flow re-fetches `record.updatedAt` after each sub-resource mutation, so no false-409 cascades. 409s surface via the unified conflict bar (`35fbd4d30`, `c8ba97b00`, `917003e34`) |
+| `catalog.product-variant` delete | **Done (#2055 resume)** | variant delete routes the 409 to the unified conflict bar (`35fbd4d30`, `c8ba97b00`, `917003e34`) |
+| Unified record-conflict bar (all forms) | **Done (#2055 resume)** | persistent error-styled bar in `AppShell` (`@open-mercato/ui/backend/conflicts`); `CrudForm` + `useGuardedMutation` route 409s automatically, custom pages call `surfaceRecordConflict(err, t, opts)`. Replaces the transient flash/toast (`f2a23716c`) |
+| Command-level enterprise seam | **Done (#2055 resume)** | `createCommandOptimisticLockGuardService({ resolveExpected? })` — DI-overridable mirror of the CRUD `crudMutationGuardService` override; OSS default = header compare. Enterprise plugs a `record_locks`-backed resolver without touching command handlers. Tracked in #2232 (`42e1feffd`) |
 | Nested panels (deal associations/pipeline/closure, channel offer prices) | **Deferred** | Phase 3 surface — large; not in the #2055 increment |
 
 Two enforcement layers now exist:
@@ -406,7 +409,41 @@ Two enforcement layers now exist:
    sub-edits conflict. Strictly additive: no header → no 409; respects
    `OM_OPTIMISTIC_LOCK`.
 
+### Integration Coverage
+
+| Test | Surface | Status |
+|---|---|---|
+| `TC-LOCK-OSS-004` | CRUD row-level PUT + DELETE 409 | Done |
+| `TC-LOCK-OSS-005` | CRM concurrent edit (companies / people / deals, ×3) | **Done (#2055 resume)** — green on live branch dev server |
+| `TC-LOCK-OSS-006` | catalog product concurrent edit | **Done (#2055 resume)** — green |
+| `TC-LOCK-OSS-007` | `sales.order` concurrent edit + stale delete | **Done (#2055 resume)** — green |
+| `TC-LOCK-OSS-008` | sales document-aggregate line conflict | **Done (#2055 resume)** — green |
+
 ## Changelog
+
+### 2026-05-29
+
+- #2055 resume — **100% OSS optimistic-lock coverage**:
+  - Wired the remaining client surfaces: sales document sub-sections
+    (lines/adjustments/returns send the **document-aggregate** version header,
+    server-guarded by `enforceSalesDocumentOptimisticLock`; payments/shipments
+    send their **own row** `updatedAt`, kept on the row-level `makeCrudRoute`
+    guard by design) and catalog product-variant delete. CRM v2 surfaces were
+    already wired (verified live). (`35fbd4d30`, `c8ba97b00`, `917003e34`)
+  - **Unified record-conflict bar** — the optimistic-lock 409 now surfaces as a
+    persistent, error-styled bar in `AppShell` (like the undo banner), not a
+    transient toast. New `@open-mercato/ui/backend/conflicts`
+    (`surfaceRecordConflict`, `RecordConflictBanner`, store); `CrudForm` +
+    `useGuardedMutation` route conflicts automatically. i18n keys
+    `ui.forms.conflict.{title,refresh,dismiss}` (en/de/es/pl). (`f2a23716c`)
+  - **Command-level enterprise seam** —
+    `createCommandOptimisticLockGuardService({ resolveExpected? })` mirrors the
+    CRUD `crudMutationGuardService` override; OSS default is the header compare,
+    enterprise plugs a `record_locks`-backed `resolveExpected` via DI without
+    touching command handlers. Tracked for enterprise in #2232. (`42e1feffd`)
+  - Integration specs `TC-LOCK-OSS-005`..`008` added and green on a live branch
+    dev server.
+  - **Next step:** the enterprise command-level pessimistic resolver (#2232).
 
 ### 2026-05-28
 
