@@ -104,6 +104,23 @@ export default async function handle(
     case 'no_channel_link':
       return
     case 'failed': {
+      // Reauth (401 / invalid_grant): the command already flipped the channel to
+      // `requires_reauth`. Give the credentials exactly one forced-refresh retry
+      // before giving up — a near-expiry access token whose proactive refresh
+      // was skipped can still recover here. If we already forced a refresh and
+      // still got a reauth error, the token is unrecoverable: stop (the operator
+      // must reconnect).
+      if (
+        outcome.requiresReauth &&
+        !forceCredentialRefresh &&
+        attempt < OUTBOUND_DELIVERY_MAX_ATTEMPTS
+      ) {
+        console.warn(
+          `[communication_channels:outbound-delivery] reauth failure on attempt ${attempt} for message ${messageId} (${outcome.providerKey}): ${outcome.error}. Retrying once with a forced credential refresh.`,
+        )
+        await reenqueue({ ...job.payload, forceCredentialRefresh: true }, attempt)
+        return
+      }
       if (outcome.transient && attempt < OUTBOUND_DELIVERY_MAX_ATTEMPTS) {
         console.warn(
           `[communication_channels:outbound-delivery] transient failure on attempt ${attempt} for message ${messageId} (${outcome.providerKey}): ${outcome.error}. Re-enqueueing.`,

@@ -72,6 +72,20 @@ export function classifyOutboundError(error: unknown): ErrorClassification {
 }
 
 /**
+ * Decide whether a classified provider error means the channel's stored
+ * credentials are no longer valid and the user must re-authorize.
+ *
+ * A 401, or an `invalid_grant` / `unauthorized` message, is unrecoverable by
+ * retry: the access token is rejected and (for OAuth) the refresh token is
+ * likely revoked too. Callers flip the channel to `requires_reauth` so the
+ * operator gets a clear signal. Kept identical to the inbound poll path so
+ * inbound and outbound failures behave consistently.
+ */
+export function isReauthError(classification: ErrorClassification): boolean {
+  return classification.status === 401 || /unauthorized|invalid_grant/i.test(classification.message)
+}
+
+/**
  * Compute exponential backoff delay (ms) for the given attempt number.
  *
  * Attempt 1 (= first retry) → 1s, attempt 2 → 2s, attempt 3 → 4s, ...

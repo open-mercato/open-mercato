@@ -8,7 +8,7 @@ import {
   type ThreadMatchInput,
   type ThreadMatcherDeps,
 } from '../thread-matcher'
-import { ChannelThreadToken } from '../../data/entities'
+import { ChannelThreadMapping, ChannelThreadToken } from '../../data/entities'
 
 const TEST_SECRET = 'test-secret-do-not-use-in-prod'
 
@@ -37,10 +37,22 @@ function buildInput(overrides: Partial<ThreadMatchInput> = {}): ThreadMatchInput
 
 function buildEm(opts: {
   tokenRow?: ChannelThreadToken | null
+  /**
+   * ChannelThreadMapping row returned when the matcher verifies that a resolved
+   * token's thread belongs to the receiving channel. Defaults to a present
+   * mapping so token strategies resolve; pass `null` to simulate a token whose
+   * thread lives on a DIFFERENT channel (must NOT match).
+   */
+  mappingRow?: unknown
   knexRows?: Array<Record<string, unknown>>
 } = {}): { em: jest.Mocked<ThreadMatcherDeps['em']>; flushed: number } {
   let flushed = 0
-  const findOne = jest.fn(async () => opts.tokenRow ?? null)
+  const findOne = jest.fn(async (entity: unknown) => {
+    if (entity === ChannelThreadMapping) {
+      return opts.mappingRow !== undefined ? opts.mappingRow : { id: 'mapping-default' }
+    }
+    return opts.tokenRow ?? null
+  })
   const flush = jest.fn(async () => {
     flushed += 1
   })
@@ -240,6 +252,8 @@ describe('thread-matcher', () => {
         token: headerToken,
         lastSeenAt: null,
       } as unknown as ChannelThreadToken
+      // Returns the header row for the token lookup AND a truthy mapping for the
+      // channel-scope verification, so strategy 1 resolves.
       const findOne = jest.fn(async () => headerRow)
       const flush = jest.fn(async () => {})
       const em = {
@@ -256,8 +270,54 @@ describe('thread-matcher', () => {
       )
       expect(result?.matchedBy).toBe('token-references')
       expect(result?.messageThreadId).toBe('thread-from-header')
-      // Single call: strategy 1 hit, strategy 2 never fired.
-      expect(findOne).toHaveBeenCalledTimes(1)
+      // Two calls: the token lookup + the channel-scope (ChannelThreadMapping)
+      // verification. Strategy 2 (body token) never fired.
+      expect(findOne).toHaveBeenCalledTimes(2)
+    })
+  })
+
+  describe('matchThread — token channel scoping (M5)', () => {
+    it('does NOT match a token whose thread belongs to a different channel', async () => {
+      const token = generateToken()
+      const tokenRow = {
+        id: 'token-row-x',
+        tenantId: TENANT,
+        organizationId: ORG,
+        messageThreadId: 'thread-on-other-channel',
+        token,
+        createdAt: new Date(),
+        lastSeenAt: null,
+      } as unknown as ChannelThreadToken
+      // Token resolves, but there is NO ChannelThreadMapping linking that thread
+      // to the receiving channel → the matcher must skip it (an inbound reply
+      // landing in a different mailbox must not graft onto another channel's
+      // thread).
+      const { em } = buildEm({ tokenRow, mappingRow: null })
+      const result = await matchThread(
+        buildInput({ references: [`<${token}@open-mercato.invalid>`] }),
+        { em },
+      )
+      expect(result).toBeNull()
+    })
+
+    it('matches a token whose thread is mapped to the receiving channel', async () => {
+      const token = generateToken()
+      const tokenRow = {
+        messageThreadId: 'thread-on-this-channel',
+        tenantId: TENANT,
+        token,
+        lastSeenAt: null,
+      } as unknown as ChannelThreadToken
+      const { em } = buildEm({
+        tokenRow,
+        mappingRow: { id: 'mapping-1', messageThreadId: 'thread-on-this-channel', channelId: CHANNEL },
+      })
+      const result = await matchThread(
+        buildInput({ references: [`<${token}@open-mercato.invalid>`] }),
+        { em },
+      )
+      expect(result?.matchedBy).toBe('token-references')
+      expect(result?.messageThreadId).toBe('thread-on-this-channel')
     })
   })
 })

@@ -1,3 +1,4 @@
+import { randomUUID } from 'node:crypto'
 import { z } from 'zod'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import type { CommandHandler } from '@open-mercato/shared/lib/commands'
@@ -5,7 +6,7 @@ import { registerCommand } from '@open-mercato/shared/lib/commands'
 import { findOneWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import { emitCommunicationChannelsEvent } from '../events'
 import { refreshCredentialsIfNeeded } from '../lib/credential-refresh'
-import { classifyOutboundError } from '../lib/error-classification'
+import { classifyOutboundError, isReauthError } from '../lib/error-classification'
 import {
   buildBodyFooter,
   buildReferencesId,
@@ -58,6 +59,12 @@ export type DeliverOutboundMessageResult =
       providerKey: string
       error: string
       transient: boolean
+      /**
+       * True when the failure was a 401 / invalid_grant — the channel was
+       * flipped to `requires_reauth`. The worker uses this to attempt one
+       * forced credential refresh before giving up.
+       */
+      requiresReauth: boolean
     }
 
 export const COMMUNICATION_CHANNELS_DELIVER_OUTBOUND_COMMAND_ID =
@@ -366,7 +373,15 @@ const deliverOutboundMessageCommand: CommandHandler<
       }
 
       // (7) Persist success records.
+      //
+      // Pre-generate the ExternalMessage PK client-side. The PK uses
+      // `defaultRaw: 'gen_random_uuid()'`, so `externalMessage.id` is undefined
+      // until after the INSERT returns — writing `link.externalMessageId =
+      // externalMessage.id` before the flush would silently persist NULL on the
+      // link's FK. Mirrors the inbound ingest path (ingest-inbound-message.ts).
+      const externalMessageRowId = randomUUID()
       const externalMessage = em.create(ExternalMessage, {
+        id: externalMessageRowId,
         channelId: channel.id,
         conversationId: mapping.externalConversationId,
         externalMessageId: sendResult.externalMessageId,
@@ -379,8 +394,15 @@ const deliverOutboundMessageCommand: CommandHandler<
       })
       em.persist(externalMessage)
 
+      // A successful send proves the credentials are valid — clear any prior
+      // `requires_reauth` / `error` state so a recovered channel doesn't keep
+      // showing a stale reconnect banner (e.g. after a forced-refresh retry).
+      if (channel.status === 'requires_reauth' || channel.status === 'error') {
+        channel.status = 'connected'
+      }
+
       link.deliveryStatus = sendResult.status === 'sent' ? 'sent' : 'queued'
-      link.externalMessageId = externalMessage.id
+      link.externalMessageId = externalMessageRowId
       link.channelMetadata = {
         ...((link.channelMetadata as Record<string, unknown> | undefined) ?? {}),
         ...(converted.metadata ?? {}),
@@ -415,12 +437,22 @@ const deliverOutboundMessageCommand: CommandHandler<
     } catch (sendErr) {
       // (8) Failure path — classify, persist, emit, return.
       const classification = classifyOutboundError(sendErr)
+      const requiresReauth = isReauthError(classification)
       link.deliveryStatus = 'failed'
       link.channelMetadata = {
         ...((link.channelMetadata as Record<string, unknown> | undefined) ?? {}),
         lastError: classification.message,
         lastErrorAt: new Date().toISOString(),
         transient: classification.transient,
+        requiresReauth,
+      }
+      // A 401 / invalid_grant means the stored credentials are dead and no
+      // retry will help — flip the channel to `requires_reauth` (mirrors the
+      // inbound poll path) so the operator gets a reconnect signal instead of
+      // silently-failing sends. A later successful send self-heals back to
+      // `connected` (see the success path above).
+      if (requiresReauth) {
+        channel.status = 'requires_reauth'
       }
       await em.flush()
 
@@ -437,6 +469,21 @@ const deliverOutboundMessageCommand: CommandHandler<
         })
       } catch {
         // best-effort logging
+      }
+
+      if (requiresReauth) {
+        await emitCommunicationChannelsEvent(
+          'communication_channels.channel.requires_reauth',
+          {
+            channelId: channel.id,
+            providerKey: channel.providerKey,
+            channelType: channel.channelType,
+            reason: classification.message,
+            tenantId: input.scope.tenantId,
+            organizationId: input.scope.organizationId ?? null,
+          },
+          { persistent: true },
+        )
       }
 
       await emitCommunicationChannelsEvent(
@@ -464,6 +511,7 @@ const deliverOutboundMessageCommand: CommandHandler<
         providerKey: channel.providerKey,
         error: classification.message,
         transient: classification.transient,
+        requiresReauth,
       }
     }
   },

@@ -1,4 +1,4 @@
-import { classifyOutboundError, computeBackoffMs } from '../error-classification'
+import { classifyOutboundError, computeBackoffMs, isReauthError } from '../error-classification'
 
 describe('classifyOutboundError', () => {
   it('returns transient: false for unknown error inputs', () => {
@@ -54,6 +54,26 @@ describe('classifyOutboundError', () => {
   it('treats plain-text errors with no network hints as permanent', () => {
     expect(classifyOutboundError(new Error('bad input')).transient).toBe(false)
     expect(classifyOutboundError(new Error('signature mismatch')).transient).toBe(false)
+  })
+})
+
+describe('isReauthError', () => {
+  it('flags a 401 status as a reauth error', () => {
+    const err = Object.assign(new Error('nope'), { status: 401 })
+    expect(isReauthError(classifyOutboundError(err))).toBe(true)
+  })
+
+  it('flags invalid_grant / unauthorized messages as reauth errors', () => {
+    expect(isReauthError(classifyOutboundError(new Error('invalid_grant')))).toBe(true)
+    expect(isReauthError(classifyOutboundError(new Error('401 Unauthorized')))).toBe(true)
+  })
+
+  it('does NOT flag transient or generic permanent errors as reauth', () => {
+    const rate = Object.assign(new Error('slow down'), { status: 429 })
+    const forbidden = Object.assign(new Error('forbidden'), { status: 403 })
+    expect(isReauthError(classifyOutboundError(rate))).toBe(false)
+    expect(isReauthError(classifyOutboundError(forbidden))).toBe(false)
+    expect(isReauthError(classifyOutboundError(new Error('bad input')))).toBe(false)
   })
 })
 

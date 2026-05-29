@@ -73,7 +73,8 @@ describe('exchangeCode + refreshToken (transport)', () => {
         ok: true,
         status: 200,
         statusText: 'OK',
-        json: async () => ({ access_token: 'a', refresh_token: 'r', expires_in: 3600, scope: 'Mail.Read', token_type: 'Bearer' }),
+        text: async () =>
+          JSON.stringify({ access_token: 'a', refresh_token: 'r', expires_in: 3600, scope: 'Mail.Read', token_type: 'Bearer' }),
       } as unknown as Response)
     }) as unknown as typeof globalThis.fetch
     const token = await getMicrosoftOAuthClient().exchangeCode({
@@ -94,7 +95,8 @@ describe('exchangeCode + refreshToken (transport)', () => {
         ok: false,
         status: 401,
         statusText: 'Unauthorized',
-        json: async () => ({ error: 'invalid_grant', error_description: 'AADSTS70008: refresh token expired' }),
+        text: async () =>
+          JSON.stringify({ error: 'invalid_grant', error_description: 'AADSTS70008: refresh token expired' }),
       } as unknown as Response)) as unknown as typeof globalThis.fetch
     await expect(
       getMicrosoftOAuthClient().refreshToken({ clientId: 'cid', tenantId: 'common', refreshToken: 'r' }),

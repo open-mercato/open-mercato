@@ -118,6 +118,18 @@ export async function GET(req: Request, context: RouteContext): Promise<Response
     })
   }
 
+  // Defense-in-depth: the signed state is minted for a specific tenant at
+  // initiate time and `verifyOAuthState` already binds it to `auth.sub`. Assert
+  // the session tenant matches too, so a token/session anomaly can never create
+  // a channel under a different tenant than the one that started the flow.
+  if (statePayload.tenantId !== auth.tenantId) {
+    return redirectWithFlash(req, DEFAULT_OAUTH_RETURN_URL, {
+      type: 'error',
+      code: 'tenant_mismatch',
+      provider,
+    })
+  }
+
   const returnUrl = normalizeOAuthReturnUrl(statePayload.returnUrl, DEFAULT_OAUTH_RETURN_URL)
 
   // Exchange the code via the adapter.
@@ -220,14 +232,14 @@ export async function GET(req: Request, context: RouteContext): Promise<Response
       const { findOneWithDecryption } = await import('@open-mercato/shared/lib/encryption/find')
       const row = await findOneWithDecryption(
         em,
-        IntegrationCredentials as any,
+        IntegrationCredentials,
         {
           integrationId: `channel_${provider}`,
           tenantId: credentialsScope.tenantId,
           organizationId: credentialsScope.organizationId,
           userId: credentialsScope.userId,
           deletedAt: null,
-        } as any,
+        },
         undefined,
         credentialsScope,
       )

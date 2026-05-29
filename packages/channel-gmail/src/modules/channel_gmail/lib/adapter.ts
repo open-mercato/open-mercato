@@ -41,7 +41,6 @@ import {
   getGmailApiClient,
   GmailApiError,
   type GmailGetMessageRawResponse,
-  type GmailMessagesListResponse,
 } from './gmail-client'
 import {
   getGoogleOAuthClient,

@@ -30,6 +30,15 @@ export type CommunicationChannelStatus =
 
 @Entity({ tableName: 'communication_channels' })
 @Index({ name: 'communication_channels_tenant_provider_idx', properties: ['tenantId', 'providerKey'] })
+// Provider-push webhooks (Gmail Pub/Sub) resolve channels by (provider_key,
+// external_identifier) WITHOUT a tenant_id — they only know the mailbox address.
+// Without this index that lookup is a full scan over every channel of the
+// provider, which a (signature-verified) push or replay repeats on every hit.
+@Index({
+  name: 'communication_channels_provider_external_idx',
+  expression:
+    `create index "communication_channels_provider_external_idx" on "communication_channels" ("provider_key", "external_identifier") where "deleted_at" is null`,
+})
 @Index({ name: 'communication_channels_tenant_type_active_idx', properties: ['tenantId', 'channelType', 'isActive'] })
 @Index({
   name: 'communication_channels_user_lookup_idx',

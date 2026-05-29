@@ -3,6 +3,23 @@ jest.mock('@open-mercato/shared/lib/encryption/find', () => ({
   findWithDecryption: jest.fn(),
 }))
 
+jest.mock('../../events', () => ({
+  emitCommunicationChannelsEvent: jest.fn(async () => undefined),
+}))
+
+jest.mock('../../lib/thread-matcher', () => ({
+  matchThread: jest.fn(async () => null),
+}))
+
+jest.mock('../../lib/contact-resolver', () => ({
+  resolveContact: jest.fn(async () => null),
+}))
+
+jest.mock('../../lib/system-user', () => ({
+  resolveCommunicationChannelsSystemUserId: jest.fn(async () => '00000000-0000-0000-0000-000000000000'),
+  COMMUNICATION_CHANNELS_SYSTEM_USER_ID: '00000000-0000-0000-0000-000000000000',
+}))
+
 import ingestInboundMessageCommand, {
   COMMUNICATION_CHANNELS_INGEST_INBOUND_COMMAND_ID,
   type IngestInboundMessageInput,
@@ -261,5 +278,77 @@ describe('ingestInboundMessageCommand — dedup (idempotency)', () => {
     expect(result.externalConversationId).toBe('conv-row-1')
     expect(em.create).not.toHaveBeenCalled()
     expect(adapter.resolveContact).not.toHaveBeenCalled()
+  })
+})
+
+describe('ingestInboundMessageCommand — concurrent-insert race (M3)', () => {
+  function makeCtx(flush: jest.Mock) {
+    const em: any = {
+      create: jest.fn((_entity: unknown, data: Record<string, any>) => ({ ...data })),
+      persist: jest.fn(),
+      flush,
+      getConnection: () => ({ execute: jest.fn().mockResolvedValue([]) }),
+    }
+    em.fork = () => em
+    const adapter = { providerKey: 'gmail' }
+    const commandBus = {
+      execute: jest.fn(async () => ({ result: { id: 'msg-1', threadId: 'thread-1' } })),
+    }
+    return {
+      ctx: {
+        container: {
+          resolve: (name: string) => {
+            if (name === 'em') return em
+            if (name === 'channelAdapterRegistry') return { get: () => adapter }
+            if (name === 'commandBus') return commandBus
+            return null
+          },
+        },
+      } as any,
+      em,
+    }
+  }
+
+  it('returns status=duplicate (does not throw) when the final insert hits the unique index', async () => {
+    mockIngestFindOne.mockReset()
+    mockIngestFindOne
+      .mockResolvedValueOnce(null as never) // existingExternal — we lost the race, no row yet
+      .mockResolvedValueOnce({ id: 'ch-1', isActive: true, providerKey: 'gmail', channelType: 'email', userId: 'u-1' } as never) // channel
+      .mockResolvedValueOnce(null as never) // conversation → create
+      .mockResolvedValueOnce(null as never) // mapping → create
+      .mockResolvedValue(null as never) // any further lookups
+
+    const dupErr = Object.assign(
+      new Error('duplicate key value violates unique constraint "external_messages_channel_external_uq"'),
+      { code: '23505' },
+    )
+    // First flush (conversation/mapping) succeeds; the second flush (ExternalMessage +
+    // MessageChannelLink) loses the race and the unique index rejects it.
+    const flush = jest.fn().mockResolvedValueOnce(undefined).mockRejectedValue(dupErr)
+    const { ctx } = makeCtx(flush)
+
+    const input = {
+      channelId: '550e8400-e29b-41d4-a716-446655440040',
+      providerKey: 'gmail',
+      channelType: 'email',
+      scope: {
+        tenantId: '550e8400-e29b-41d4-a716-446655440020',
+        organizationId: '550e8400-e29b-41d4-a716-446655440030',
+      },
+      message: {
+        externalMessageId: 'ext-1',
+        externalConversationId: 'conv-1',
+        senderIdentifier: 'jane@example.com',
+        body: 'hi',
+        bodyFormat: 'text',
+        timestamp: new Date(),
+        channelPayload: {},
+        channelContentType: 'email/mime',
+        channelMetadata: {},
+      },
+    } as IngestInboundMessageInput
+
+    const result = await ingestInboundMessageCommand.execute(input as never, ctx)
+    expect(result.status).toBe('duplicate')
   })
 })

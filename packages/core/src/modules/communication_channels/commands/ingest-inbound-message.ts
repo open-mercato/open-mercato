@@ -200,8 +200,6 @@ const ingestInboundMessageCommand: CommandHandler<IngestInboundMessageInput, Ing
       })
       em.persist(conversation)
       conversationCreated = true
-    } else if (m.timestamp && (!conversation.lastMessageAt || m.timestamp > conversation.lastMessageAt)) {
-      conversation.lastMessageAt = m.timestamp
     }
 
     // (3) ChannelThreadMapping upsert (1:1 with ExternalConversation per tenant).
@@ -216,6 +214,19 @@ const ingestInboundMessageCommand: CommandHandler<IngestInboundMessageInput, Ing
       undefined,
       dscope,
     )
+
+    // Last-activity bump on an existing conversation. Applied AFTER the mapping
+    // lookup, immediately before the flush, so the scalar mutation and its flush
+    // stay adjacent with no query in between (core flush-ordering rule — a query
+    // between a scalar mutation and `em.flush()` can drop the change under some
+    // flush modes / subscriber configurations).
+    if (
+      !conversationCreated &&
+      m.timestamp &&
+      (!conversation.lastMessageAt || m.timestamp > conversation.lastMessageAt)
+    ) {
+      conversation.lastMessageAt = m.timestamp
+    }
     // We'll fill `messageThreadId` after composing the platform Message (since the
     // first inbound message becomes the thread root in the messages module).
     await em.flush()
@@ -425,7 +436,25 @@ const ingestInboundMessageCommand: CommandHandler<IngestInboundMessageInput, Ing
     })
     em.persist(channelLink)
 
-    await em.flush()
+    try {
+      await em.flush()
+    } catch (flushErr) {
+      // Concurrency guard: the pre-check at (1) is not atomic with this insert,
+      // so a poll re-fetch racing a push notification (or two push deliveries)
+      // can both pass the check and reach here. The `(channel_id,
+      // external_message_id)` unique index rejects the loser with a 23505. Treat
+      // that as a duplicate — returning here (instead of throwing) prevents the
+      // message from being dead-lettered and retried forever. The winning job
+      // already recorded the message + link.
+      if (isUniqueViolation(flushErr)) {
+        return {
+          status: 'duplicate',
+          externalConversationId: conversation.id,
+          externalMessageId: m.externalMessageId,
+        }
+      }
+      throw flushErr
+    }
 
     // (7) Emit events — order matters for downstream subscribers.
     if (conversationCreated) {
@@ -483,6 +512,19 @@ const ingestInboundMessageCommand: CommandHandler<IngestInboundMessageInput, Ing
       contactPersonId: matchedPersonId,
     }
   },
+}
+
+/**
+ * Detect a Postgres unique-constraint violation (SQLSTATE 23505), regardless of
+ * which ORM/driver layer surfaces it. Matches the helper used by the reaction
+ * commands so duplicate-insert handling stays consistent across the module.
+ */
+function isUniqueViolation(err: unknown): boolean {
+  if (!err || typeof err !== 'object') return false
+  const code = (err as { code?: string }).code
+  if (code === '23505') return true // Postgres unique_violation
+  const message = (err as { message?: string }).message
+  return typeof message === 'string' && /duplicate key value|unique constraint/i.test(message)
 }
 
 /**

@@ -118,10 +118,48 @@ describe('outbound-delivery worker behaviour', () => {
         providerKey: 'p',
         error: 'invalid recipient',
         transient: false,
+        requiresReauth: false,
       },
       logEntry: null,
     }))
     await handler(makeJob({ attempt: 1 }), makeCtx(execute))
+    expect(enqueueMock).not.toHaveBeenCalled()
+  })
+
+  it('re-enqueues once with forceCredentialRefresh on a reauth (401) failure', async () => {
+    const execute = jest.fn(async () => ({
+      result: {
+        status: 'failed' as const,
+        messageId: 'm',
+        channelLinkId: 'l',
+        providerKey: 'gmail',
+        error: '401 Unauthorized',
+        transient: false,
+        requiresReauth: true,
+      },
+      logEntry: null,
+    }))
+    await handler(makeJob({ attempt: 1 }), makeCtx(execute))
+    expect(enqueueMock).toHaveBeenCalledTimes(1)
+    const [payload] = enqueueMock.mock.calls[0]
+    expect((payload as OutboundDeliveryPayload).forceCredentialRefresh).toBe(true)
+    expect((payload as OutboundDeliveryPayload).attempt).toBe(2)
+  })
+
+  it('does NOT re-enqueue a reauth failure that already forced a refresh (no loop)', async () => {
+    const execute = jest.fn(async () => ({
+      result: {
+        status: 'failed' as const,
+        messageId: 'm',
+        channelLinkId: 'l',
+        providerKey: 'gmail',
+        error: '401 Unauthorized',
+        transient: false,
+        requiresReauth: true,
+      },
+      logEntry: null,
+    }))
+    await handler(makeJob({ attempt: 2, forceCredentialRefresh: true }), makeCtx(execute))
     expect(enqueueMock).not.toHaveBeenCalled()
   })
 

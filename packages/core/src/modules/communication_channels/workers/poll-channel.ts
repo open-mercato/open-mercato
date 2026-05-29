@@ -8,7 +8,7 @@ import {
   type IngestInboundMessageInput,
 } from '../commands/ingest-inbound-message'
 import { COMMUNICATION_CHANNELS_QUEUES, getCommunicationChannelsQueue } from '../lib/queue'
-import { classifyOutboundError, computeBackoffMs } from '../lib/error-classification'
+import { classifyOutboundError, computeBackoffMs, isReauthError } from '../lib/error-classification'
 import { refreshCredentialsIfNeeded } from '../lib/credential-refresh'
 import { emitCommunicationChannelsEvent } from '../events'
 import type { ChannelAdapterRegistry } from '../lib/registry'
@@ -339,7 +339,7 @@ async function handlePollError(
   const classification = classifyOutboundError(err)
   channel.lastError = classification.message
 
-  if (classification.status === 401 || /unauthorized|invalid_grant/i.test(classification.message)) {
+  if (isReauthError(classification)) {
     channel.status = 'requires_reauth'
     await em.flush()
     await emitCommunicationChannelsEvent(

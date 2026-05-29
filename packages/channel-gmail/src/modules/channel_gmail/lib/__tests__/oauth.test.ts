@@ -72,14 +72,14 @@ describe('exchangeCode + refreshToken (transport-level)', () => {
         ok: true,
         status: 200,
         statusText: 'OK',
-        json: async () => ({
-          access_token: 'access',
-          refresh_token: 'refresh',
-          expires_in: 3600,
-          scope: 'https://www.googleapis.com/auth/gmail.modify',
-          token_type: 'Bearer',
-        }),
-        text: async () => '',
+        text: async () =>
+          JSON.stringify({
+            access_token: 'access',
+            refresh_token: 'refresh',
+            expires_in: 3600,
+            scope: 'https://www.googleapis.com/auth/gmail.modify',
+            token_type: 'Bearer',
+          }),
       } as unknown as Response)
     }) as unknown as typeof globalThis.fetch
     const token = await getGoogleOAuthClient().exchangeCode({
@@ -103,8 +103,7 @@ describe('exchangeCode + refreshToken (transport-level)', () => {
         ok: false,
         status: 401,
         statusText: 'Unauthorized',
-        json: async () => ({ error: 'invalid_grant', error_description: 'Token expired' }),
-        text: async () => '',
+        text: async () => JSON.stringify({ error: 'invalid_grant', error_description: 'Token expired' }),
       } as unknown as Response)) as unknown as typeof globalThis.fetch
     await expect(
       getGoogleOAuthClient().refreshToken({ clientId: 'c', clientSecret: 's', refreshToken: 'r' }),

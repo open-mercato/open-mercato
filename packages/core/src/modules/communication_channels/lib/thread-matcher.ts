@@ -1,6 +1,6 @@
 import type { EntityManager } from '@mikro-orm/postgresql'
 import { findOneWithDecryption } from '@open-mercato/shared/lib/encryption/find'
-import { ChannelThreadToken, MessageChannelLink } from '../data/entities'
+import { ChannelThreadMapping, ChannelThreadToken, MessageChannelLink } from '../data/entities'
 import { extractTokenFromBody, extractTokenFromHeaders } from './thread-token'
 
 /**
@@ -104,18 +104,15 @@ export async function matchThread(
   // Strategy 1: token in References / In-Reply-To header.
   const headerToken = extractTokenFromHeaders(input.inReplyTo, input.references)
   if (headerToken) {
-    const row = await findOneWithDecryption(
-      em,
-      ChannelThreadToken,
-      { tenantId, token: headerToken },
-      undefined,
-      dscope,
-    )
-    if (row) {
-      row.lastSeenAt = (now ?? (() => new Date()))()
-      await em.flush()
+    const threadId = await resolveTokenThread(em, dscope, {
+      tenantId,
+      channelId: input.channelId,
+      token: headerToken,
+      now,
+    })
+    if (threadId) {
       return {
-        messageThreadId: row.messageThreadId,
+        messageThreadId: threadId,
         matchedBy: 'token-references',
         confidence: 'high',
       }
@@ -125,18 +122,15 @@ export async function matchThread(
   // Strategy 2: token in body.
   const bodyToken = extractTokenFromBody(input.bodyHtml, input.bodyPlain)
   if (bodyToken) {
-    const row = await findOneWithDecryption(
-      em,
-      ChannelThreadToken,
-      { tenantId, token: bodyToken },
-      undefined,
-      dscope,
-    )
-    if (row) {
-      row.lastSeenAt = (now ?? (() => new Date()))()
-      await em.flush()
+    const threadId = await resolveTokenThread(em, dscope, {
+      tenantId,
+      channelId: input.channelId,
+      token: bodyToken,
+      now,
+    })
+    if (threadId) {
       return {
-        messageThreadId: row.messageThreadId,
+        messageThreadId: threadId,
         matchedBy: 'token-body',
         confidence: 'high',
       }
@@ -191,6 +185,49 @@ export async function matchThread(
 
   // No match — caller creates a new thread.
   return null
+}
+
+/**
+ * Resolve a thread token to its `messageThreadId`, but ONLY when that thread
+ * belongs to the channel that received the inbound message.
+ *
+ * The token is unguessable + HMAC-signed + tenant-scoped, so it cannot leak
+ * across tenants. Within a tenant, though, the same external contact may
+ * correspond with several users/channels — and a thread token that ends up in
+ * a *different* mailbox (e.g. a forwarded thread) must not graft the inbound
+ * message onto another channel's thread. The `ChannelThreadMapping`
+ * (thread ↔ channel) is the authoritative link; if there's no mapping joining
+ * this thread to the receiving channel, we treat the token as a non-match and
+ * let the lower-confidence strategies (or a fresh thread) take over.
+ *
+ * Returns the thread id on a verified hit (and bumps `last_seen_at`), else null.
+ */
+async function resolveTokenThread(
+  em: EntityManager,
+  dscope: { tenantId: string; organizationId: string | null },
+  args: { tenantId: string; channelId: string; token: string; now?: () => Date },
+): Promise<string | null> {
+  const row = await findOneWithDecryption(
+    em,
+    ChannelThreadToken,
+    { tenantId: args.tenantId, token: args.token },
+    undefined,
+    dscope,
+  )
+  if (!row) return null
+
+  const mapping = await findOneWithDecryption(
+    em,
+    ChannelThreadMapping,
+    { tenantId: args.tenantId, messageThreadId: row.messageThreadId, channelId: args.channelId },
+    undefined,
+    dscope,
+  )
+  if (!mapping) return null
+
+  row.lastSeenAt = (args.now ?? (() => new Date()))()
+  await em.flush()
+  return row.messageThreadId
 }
 
 function collectReferenceCandidates(

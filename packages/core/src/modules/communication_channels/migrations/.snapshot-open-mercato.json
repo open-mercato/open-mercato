@@ -678,13 +678,13 @@
           "enumItems": [],
           "mappedType": "json"
         },
-        "client_state_encrypted": {
-          "name": "client_state_encrypted",
+        "channel_type": {
+          "name": "channel_type",
           "type": "text",
           "unsigned": false,
           "autoincrement": false,
           "primary": false,
-          "nullable": true,
+          "nullable": false,
           "unique": false,
           "length": null,
           "precision": null,
@@ -695,13 +695,13 @@
           "enumItems": [],
           "mappedType": "text"
         },
-        "channel_type": {
-          "name": "channel_type",
+        "client_state_encrypted": {
+          "name": "client_state_encrypted",
           "type": "text",
           "unsigned": false,
           "autoincrement": false,
           "primary": false,
-          "nullable": false,
+          "nullable": true,
           "unique": false,
           "length": null,
           "precision": null,
@@ -1030,6 +1030,15 @@
           "primary": false,
           "unique": false,
           "expression": "create index \"communication_channels_poll_due_idx\" on \"communication_channels\" (\"is_active\", \"last_polled_at\") where \"deleted_at\" is null"
+        },
+        {
+          "columnNames": [],
+          "composite": false,
+          "constraint": false,
+          "keyName": "communication_channels_provider_external_idx",
+          "primary": false,
+          "unique": false,
+          "expression": "create index \"communication_channels_provider_external_idx\" on \"communication_channels\" (\"provider_key\", \"external_identifier\") where \"deleted_at\" is null"
         },
         {
           "columnNames": [
@@ -2075,6 +2084,24 @@
       },
       "indexes": [
         {
+          "columnNames": [],
+          "composite": false,
+          "constraint": false,
+          "keyName": "message_reactions_external_actor_uq",
+          "primary": false,
+          "unique": false,
+          "expression": "create unique index \"message_reactions_external_actor_uq\" on \"message_reactions\" (\"tenant_id\", \"message_id\", \"emoji\", \"reacted_by_external_id\") where \"reacted_by_external_id\" is not null"
+        },
+        {
+          "columnNames": [],
+          "composite": false,
+          "constraint": false,
+          "keyName": "message_reactions_internal_actor_uq",
+          "primary": false,
+          "unique": false,
+          "expression": "create unique index \"message_reactions_internal_actor_uq\" on \"message_reactions\" (\"tenant_id\", \"message_id\", \"emoji\", \"reacted_by_user_id\") where \"reacted_by_user_id\" is not null"
+        },
+        {
           "columnNames": [
             "message_id",
             "emoji"
@@ -2104,24 +2131,6 @@
           "keyName": "message_reactions_pkey",
           "primary": true,
           "unique": true
-        },
-        {
-          "columnNames": [],
-          "composite": false,
-          "constraint": false,
-          "keyName": "message_reactions_external_actor_uq",
-          "primary": false,
-          "unique": false,
-          "expression": "create unique index \"message_reactions_external_actor_uq\" on \"message_reactions\" (\"tenant_id\", \"message_id\", \"emoji\", \"reacted_by_external_id\") where \"reacted_by_external_id\" is not null"
-        },
-        {
-          "columnNames": [],
-          "composite": false,
-          "constraint": false,
-          "keyName": "message_reactions_internal_actor_uq",
-          "primary": false,
-          "unique": false,
-          "expression": "create unique index \"message_reactions_internal_actor_uq\" on \"message_reactions\" (\"tenant_id\", \"message_id\", \"emoji\", \"reacted_by_user_id\") where \"reacted_by_user_id\" is not null"
         }
       ],
       "checks": [
