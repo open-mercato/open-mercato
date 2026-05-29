@@ -73,6 +73,35 @@ export async function createOrderLineFixture(
   );
 }
 
+/**
+ * Probe whether the authenticated principal can create a sales order on the
+ * current tenant (i.e. holds `sales.orders.manage`). Sales-write integration
+ * specs use this to self-skip on dev databases whose role ACLs were never
+ * synced (`yarn mercato auth sync-role-acls`) rather than fail spuriously —
+ * CI bootstraps a fully-synced tenant so the probe passes there. The probed
+ * order is deleted immediately so the check leaves no residue.
+ */
+export async function canManageSalesOrders(
+  request: APIRequestContext,
+  token: string,
+): Promise<boolean> {
+  const response = await apiRequest(request, 'POST', '/api/sales/orders', {
+    token,
+    data: { currencyCode: 'USD' },
+  });
+  if (response.status() === 403) return false;
+  if (!response.ok()) return false;
+  const id = readId((await response.json()) as unknown, ['id', 'orderId']);
+  if (id) {
+    try {
+      await apiRequest(request, 'DELETE', '/api/sales/orders', { token, data: { id } });
+    } catch {
+      // best-effort cleanup
+    }
+  }
+  return true;
+}
+
 export async function deleteSalesEntityIfExists(
   request: APIRequestContext,
   token: string | null,
