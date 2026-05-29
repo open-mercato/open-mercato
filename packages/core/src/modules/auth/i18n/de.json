@@ -172,6 +172,7 @@
   "auth.users.form.action.resendInvite": "Einladung erneut senden",
   "auth.users.form.action.resendingInvite": "Wird gesendet...",
   "auth.users.form.action.save": "Speichern",
+  "auth.users.form.actions.backToList": "Zurück zu Benutzern",
   "auth.users.form.errors.aclUpdate": "Aktualisierung der Benutzerberechtigungen fehlgeschlagen",
   "auth.users.form.errors.delete": "Benutzer konnte nicht gelöscht werden",
   "auth.users.form.errors.inviteResend": "Einladungs-E-Mail konnte nicht gesendet werden",

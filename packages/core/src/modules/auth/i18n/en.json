@@ -172,6 +172,7 @@
   "auth.users.form.action.resendInvite": "Resend Invite",
   "auth.users.form.action.resendingInvite": "Sending...",
   "auth.users.form.action.save": "Save",
+  "auth.users.form.actions.backToList": "Back to users",
   "auth.users.form.errors.aclUpdate": "Failed to update user access control",
   "auth.users.form.errors.delete": "Failed to delete user",
   "auth.users.form.errors.inviteResend": "Failed to send invitation email",
