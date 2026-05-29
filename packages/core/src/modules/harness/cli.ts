@@ -149,7 +149,7 @@ async function runGate(cwd: string, withLoginCheck: boolean, moduleId: string | 
     results.push({
       label: `/login smoke check (port ${port})`,
       ok: loginOk,
-      note: loginOk ? undefined : 'dev server not running or /login returned 5xx — check events.ts and acl.ts exports',
+      note: loginOk ? undefined : 'dev server not running or /login returned 4xx/5xx — check events.ts and acl.ts exports',
     })
   }
 
