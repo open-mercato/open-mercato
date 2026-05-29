@@ -53,4 +53,9 @@ Additive: explicit prop wins, create-mode never attaches, snake/camel fallback, 
 
 ## Changelog
 ### 2026-05-29
-- Spec created; Phase 1 (auto-derive + opt-out + tests) implementing.
+- Spec created.
+- Phase 1 (CrudForm auto-derive + `disableOptimisticLock` opt-out + 7 tests) — done (`eb850e6e8`).
+- Phase 3 (catalog products/variants: removed redundant manual header wrap → single source via auto-derive; kept variant delete-conflict UX) — done (`35dcebf65`).
+- Phase 4 (workflows: `id`+`updatedAt` into definition initialValues; guarded the definitions list-page DELETE with the lock header + conflict bar; server-side DELETE already guarded) — done (`35dcebf65`).
+- Docs: `packages/ui/AGENTS.md` CrudForm Guidelines updated with the auto-derive default + opt-out + no-double-wrap rule.
+- Remaining: Phase 2 (verification-only regression sweep of the ~28 forms already passing the prop) + Phase 5 (confirm non-CrudForm dialog mutations) + final advisory CI check — each with a live Playwright stale-edit check per place (run via the follow-up loop against a branch dev server).
