@@ -8,15 +8,44 @@ export const metadata = {
   GET: { requireAuth: true, requireFeatures: ['auth.acl.manage'] },
 }
 
+type FeatureItem = {
+  id: string
+  title: string
+  module: string
+  dependsOn?: string[]
+}
+
+function normalizeDependsOn(value: unknown): string[] | undefined {
+  if (!Array.isArray(value)) return undefined
+  const out: string[] = []
+  for (const entry of value) {
+    if (typeof entry !== 'string') continue
+    const trimmed = entry.trim()
+    if (!trimmed) continue
+    out.push(trimmed)
+  }
+  if (out.length === 0) return undefined
+  return Array.from(new Set(out))
+}
+
 export async function GET(req: Request) {
   const auth = await getAuthFromRequest(req)
   if (!auth) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
   const modules = getModules()
-  const items = (modules || []).flatMap((m: any) =>
-    (m.features || []).map((f: any) => ({ id: String(f.id), title: String(f.title || f.id), module: String(f.module || m.id) }))
+  const items: FeatureItem[] = (modules || []).flatMap((m: any) =>
+    (m.features || []).map((f: any) => {
+      const deps = normalizeDependsOn(f?.dependsOn)
+      const base: FeatureItem = {
+        id: String(f.id),
+        title: String(f.title || f.id),
+        module: String(f.module || m.id),
+      }
+      if (deps) base.dependsOn = deps
+      return base
+    })
   )
-  // Deduplicate by id
-  const byId = new Map<string, { id: string; title: string; module: string }>()
+  // Deduplicate by id (keep first occurrence)
+  const byId = new Map<string, FeatureItem>()
   for (const it of items) if (!byId.has(it.id)) byId.set(it.id, it)
   const list = Array.from(byId.values()).sort((a, b) => a.module.localeCompare(b.module) || a.id.localeCompare(b.id))
 
@@ -35,6 +64,7 @@ const featureItemSchema = z.object({
   id: z.string(),
   title: z.string(),
   module: z.string(),
+  dependsOn: z.array(z.string()).optional(),
 })
 
 const featureModuleSchema = z.object({
