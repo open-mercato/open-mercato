@@ -37,9 +37,7 @@ import { Spinner } from "@open-mercato/ui/primitives/spinner";
 import {
   apiCall,
   readApiResultOrThrow,
-  withScopedApiRequestHeaders,
 } from "@open-mercato/ui/backend/utils/apiCall";
-import { buildOptimisticLockHeader } from "@open-mercato/ui/backend/utils/optimisticLock";
 import { useT } from "@open-mercato/shared/lib/i18n/context";
 import { useConfirmDialog } from "@open-mercato/ui/backend/confirm-dialog";
 import { E } from "#generated/entities.ids.generated";
@@ -1250,16 +1248,7 @@ export default function EditCatalogProductPage({
           );
         }
       }
-      const productOptimisticLockHeader = buildOptimisticLockHeader(
-        initialValues?.updatedAt,
-      );
-      if (Object.keys(productOptimisticLockHeader).length > 0) {
-        await withScopedApiRequestHeaders(productOptimisticLockHeader, () =>
-          updateCrud("catalog/products", payload),
-        );
-      } else {
-        await updateCrud("catalog/products", payload);
-      }
+      await updateCrud("catalog/products", payload);
       const previousConversionIds = new Set(
         initialConversionsRef.current
           .map((entry) => toTrimmedOrNull(entry.id))
@@ -1342,7 +1331,7 @@ export default function EditCatalogProductPage({
         );
       }
     },
-    [initialValues?.updatedAt, productId, t, taxRates, variants],
+    [productId, t, taxRates, variants],
   );
 
   if (!productId) {

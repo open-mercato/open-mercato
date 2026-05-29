@@ -7,8 +7,7 @@ import { CrudForm, type CrudFormGroup } from '@open-mercato/ui/backend/CrudForm'
 import { createCrud, updateCrud, deleteCrud } from '@open-mercato/ui/backend/utils/crud'
 import { createCrudFormError } from '@open-mercato/ui/backend/utils/serverErrors'
 import { collectCustomFieldValues } from '@open-mercato/ui/backend/utils/customFieldValues'
-import { apiCall, readApiResultOrThrow, withScopedApiRequestHeaders } from '@open-mercato/ui/backend/utils/apiCall'
-import { buildOptimisticLockHeader } from '@open-mercato/ui/backend/utils/optimisticLock'
+import { apiCall, readApiResultOrThrow } from '@open-mercato/ui/backend/utils/apiCall'
 import { surfaceRecordConflict } from '@open-mercato/ui/backend/conflicts'
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
 import { ErrorMessage } from '@open-mercato/ui/backend/detail'
@@ -531,12 +530,7 @@ export default function EditVariantPage({ params }: { params?: { productId?: str
             const customFields = collectCustomFieldValues(values)
             if (Object.keys(customFields).length) payload.customFields = customFields
 
-            const variantOptimisticLockHeader = buildOptimisticLockHeader(initialValues?.updatedAt)
-            if (Object.keys(variantOptimisticLockHeader).length > 0) {
-              await withScopedApiRequestHeaders(variantOptimisticLockHeader, () => updateCrud('catalog/variants', payload))
-            } else {
-              await updateCrud('catalog/variants', payload)
-            }
+            await updateCrud('catalog/variants', payload)
             await syncVariantPricesUpdate({
               priceKinds,
               priceDrafts: values.prices ?? {},
@@ -552,16 +546,10 @@ export default function EditVariantPage({ params }: { params?: { productId?: str
             router.push(productVariantsHref)
           }}
           onDelete={async () => {
-            const variantOptimisticLockHeader = buildOptimisticLockHeader(initialValues?.updatedAt)
-            const deleteVariant = () => deleteCrud('catalog/variants', variantId!, {
-              errorMessage: t('catalog.variants.form.deleteError', 'Failed to delete variant.'),
-            })
             try {
-              if (Object.keys(variantOptimisticLockHeader).length > 0) {
-                await withScopedApiRequestHeaders(variantOptimisticLockHeader, deleteVariant)
-              } else {
-                await deleteVariant()
-              }
+              await deleteCrud('catalog/variants', variantId!, {
+                errorMessage: t('catalog.variants.form.deleteError', 'Failed to delete variant.'),
+              })
             } catch (err) {
               handleVariantDeleteError(err, t)
               throw err
