@@ -11,6 +11,7 @@ import {
   ErrorMessage,
   InlineTextEditor,
   LoadingMessage,
+  RecordNotFoundState,
   TabEmptyState,
   TagsSection,
   type TagOption,
@@ -1890,6 +1891,7 @@ export default function SalesDocumentDetailPage({
   const searchParams = useSearchParams()
   const { confirm, ConfirmDialogElement } = useConfirmDialog()
   const [loading, setLoading] = React.useState(true)
+  const [isNotFound, setIsNotFound] = React.useState(false)
   const [record, setRecord] = React.useState<DocumentRecord | null>(null)
   const [tags, setTags] = React.useState<TagOption[]>([])
   const [kind, setKind] = React.useState<'order' | 'quote'>('quote')
@@ -2497,6 +2499,7 @@ export default function SalesDocumentDetailPage({
     async function load() {
       setLoading(true)
       setError(null)
+      setIsNotFound(false)
       const requestedKind = searchParams.get('kind')
       const preferredKind = requestedKind === 'order' ? 'order' : requestedKind === 'quote' ? 'quote' : initialKind ?? null
       const kindsToTry: Array<'order' | 'quote'> = preferredKind
@@ -2519,7 +2522,11 @@ export default function SalesDocumentDetailPage({
       }
       if (!cancelled) {
         setLoading(false)
-        setError(lastError ?? loadErrorMessage)
+        if (lastError) {
+          setError(lastError)
+        } else {
+          setIsNotFound(true)
+        }
       }
     }
     load().catch((err) => {
@@ -4473,6 +4480,26 @@ export default function SalesDocumentDetailPage({
               className="min-w-[280px] justify-center border-0 bg-transparent text-base shadow-none"
             />
           </div>
+        </PageBody>
+      </Page>
+    )
+  }
+
+  if (isNotFound) {
+    const backHref = (searchParams.get('kind') === 'order' || initialKind === 'order')
+      ? '/backend/sales/orders'
+      : '/backend/sales/quotes'
+    const backLabel = (searchParams.get('kind') === 'order' || initialKind === 'order')
+      ? t('sales.documents.detail.backToOrders', 'Back to orders')
+      : t('sales.documents.detail.backToQuotes', 'Back to quotes')
+    return (
+      <Page>
+        <PageBody>
+          <RecordNotFoundState
+            label={t('sales.documents.detail.notFound', 'Document not found.')}
+            backHref={backHref}
+            backLabel={backLabel}
+          />
         </PageBody>
       </Page>
     )

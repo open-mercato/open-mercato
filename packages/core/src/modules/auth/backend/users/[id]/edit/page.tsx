@@ -18,6 +18,7 @@ import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { extractCustomFieldEntries } from '@open-mercato/shared/lib/crud/custom-fields-client'
 import { formatPasswordRequirements, getPasswordPolicy } from '@open-mercato/shared/lib/auth/passwordPolicy'
 import { UserConsentsPanel } from '@open-mercato/core/modules/auth/components/UserConsentsPanel'
+import { RecordNotFoundState, ErrorMessage } from '@open-mercato/ui/backend/detail'
 import { normalizeDisplayNameInput } from '@open-mercato/core/modules/auth/lib/displayName'
 
 type EditUserFormValues = {
@@ -124,6 +125,7 @@ export default function EditUserPage({ params }: { params?: { id?: string } }) {
   const [selectedTenantId, setSelectedTenantId] = React.useState<string | null>(null)
   const [loading, setLoading] = React.useState(true)
   const [error, setError] = React.useState<string | null>(null)
+  const [isNotFound, setIsNotFound] = React.useState(false)
   const [canEditOrgs, setCanEditOrgs] = React.useState(false)
   const [aclData, setAclData] = React.useState<AclData>({ isSuperAdmin: false, features: [], organizations: null })
   const [customFieldValues, setCustomFieldValues] = React.useState<Record<string, unknown>>({})
@@ -176,6 +178,7 @@ export default function EditUserPage({ params }: { params?: { id?: string } }) {
     async function load() {
       setLoading(true)
       setError(null)
+      setIsNotFound(false)
       setCustomFieldValues({})
       try {
         const { ok, result } = await apiCall<UserListResponse>(
@@ -187,7 +190,7 @@ export default function EditUserPage({ params }: { params?: { id?: string } }) {
           setActorIsSuperAdmin(Boolean(result?.isSuperAdmin))
           setActorResolved(true)
           if (!item) {
-            setError(tRef.current('auth.users.form.errors.notFound', 'User not found'))
+            setIsNotFound(true)
             setCustomFieldValues({})
             setInitialUser(null)
             setSelectedTenantId(null)
@@ -415,14 +418,33 @@ export default function EditUserPage({ params }: { params?: { id?: string } }) {
     }
   }, [initialUser, customFieldValues, selectedTenantId])
 
+  if (isNotFound) {
+    return (
+      <Page>
+        <PageBody>
+          <RecordNotFoundState
+            label={t('auth.users.form.errors.notFound', 'User not found')}
+            backHref="/backend/users"
+            backLabel={t('auth.users.form.actions.backToList', 'Back to users')}
+          />
+        </PageBody>
+      </Page>
+    )
+  }
+
+  if (error && !loading) {
+    return (
+      <Page>
+        <PageBody>
+          <ErrorMessage label={error} />
+        </PageBody>
+      </Page>
+    )
+  }
+
   return (
     <Page>
       <PageBody>
-        {error && (
-          <div className="p-4 mb-4 bg-red-50 border border-red-200 rounded text-red-800">
-            {error}
-          </div>
-        )}
         <CrudForm<EditUserFormValues>
           title={t('auth.users.form.title.edit', 'Edit User')}
           backHref="/backend/users"

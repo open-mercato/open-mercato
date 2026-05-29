@@ -78,6 +78,11 @@ function resolveSortParams(queryParams: Record<string, unknown>) {
   const sortDir = normalizedDir === 'desc' ? SortDir.Desc : SortDir.Asc
   return { sortField, sortDir }
 }
+
+function normalizeSortFieldSelector(sortField: string): string {
+  if (sortField.startsWith('cf_')) return `cf:${sortField.slice(3)}`
+  return sortField
+}
 /**
  * Translates column-name filter keys to MikroORM property names so the ORM
  * fallback path can apply buildFilters correctly.  Without this, filters like
@@ -1505,7 +1510,8 @@ export function makeCrudRoute<TCreate = any, TUpdate = any, TList = any>(opts: C
         const qe = (ctx.container.resolve('queryEngine') as QueryEngine)
         profiler.mark('query_engine_resolved')
         const { sortField: sortFieldRaw, sortDir: sortDirRaw } = resolveSortParams(queryParams as Record<string, unknown>)
-        const sortField = (opts.list.sortFieldMap && opts.list.sortFieldMap[sortFieldRaw]) || sortFieldRaw
+        const mappedSortField = (opts.list.sortFieldMap && opts.list.sortFieldMap[sortFieldRaw]) || sortFieldRaw
+        const sortField = typeof mappedSortField === 'string' ? normalizeSortFieldSelector(mappedSortField) : mappedSortField
         const sort: Sort[] = [{ field: sortField as any, dir: sortDirRaw } as any]
         const page: Page = exportRequested
           ? { page: 1, pageSize: exportPageSize }

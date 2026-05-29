@@ -5,7 +5,7 @@ import Link from 'next/link'
 import { usePathname, useRouter, useSearchParams } from 'next/navigation'
 import { Page, PageBody } from '@open-mercato/ui/backend/Page'
 import { DataTable, type DataTableExportFormat, withDataTableNamespaces } from '@open-mercato/ui/backend/DataTable'
-import type { ColumnDef } from '@tanstack/react-table'
+import type { ColumnDef, SortingState } from '@tanstack/react-table'
 import { Button } from '@open-mercato/ui/primitives/button'
 import { RowActions } from '@open-mercato/ui/backend/RowActions'
 import { apiCall, apiCallOrThrow } from '@open-mercato/ui/backend/utils/apiCall'
@@ -53,6 +53,7 @@ import {
   mapAssignableStaffToFilterOptions,
 } from '../../../components/detail/assignableStaff'
 import { CollectionPreviewCell, normalizeCollectionLabels } from '../../../components/list/CollectionPreviewCell'
+import { appendCustomerListSortParams } from '../listSorting'
 
 type DictionaryOptionWithTone = AdvancedFilterOption & FilterOption
 
@@ -191,7 +192,7 @@ export default function CustomersCompaniesPage() {
   const [rows, setRows] = React.useState<CompanyRow[]>([])
   const [page, setPage] = React.useState(1)
   const [pageSize, setPageSize] = React.useState(20)
-  const [sorting, setSorting] = React.useState<import('@tanstack/react-table').SortingState>([])
+  const [sorting, setSorting] = React.useState<SortingState>([])
   const [total, setTotal] = React.useState(0)
   const [totalPages, setTotalPages] = React.useState(1)
   const [search, setSearch] = React.useState('')
@@ -244,6 +245,10 @@ export default function CustomersCompaniesPage() {
   const router = useRouter()
   const handlePageSizeChange = React.useCallback((newSize: number) => {
     setPageSize(newSize)
+    setPage(1)
+  }, [])
+  const handleSortingChange = React.useCallback((nextSorting: SortingState) => {
+    setSorting(nextSorting)
     setPage(1)
   }, [])
 
@@ -350,10 +355,7 @@ export default function CustomersCompaniesPage() {
     const params = new URLSearchParams()
     params.set('page', String(page))
     params.set('pageSize', String(pageSize))
-    if (sorting.length > 0) {
-      params.set('sort', sorting[0].id)
-      params.set('order', sorting[0].desc ? 'desc' : 'asc')
-    }
+    appendCustomerListSortParams(params, sorting)
     if (search.trim()) params.set('search', search.trim())
     const advancedParams = serializeTree(advancedFilterState)
     for (const [key, val] of Object.entries(advancedParams)) {
@@ -374,10 +376,7 @@ export default function CustomersCompaniesPage() {
     const params = new URLSearchParams()
     if (search.trim().length) params.set('search', search.trim())
     if (page > 1) params.set('page', String(page))
-    if (sorting.length > 0) {
-      params.set('sort', sorting[0].id)
-      params.set('order', sorting[0].desc ? 'desc' : 'asc')
-    }
+    appendCustomerListSortParams(params, sorting)
     const advancedParams = serializeTree(advancedFilterState)
     for (const [key, val] of Object.entries(advancedParams)) {
       params.set(key, val)
@@ -820,6 +819,7 @@ export default function CustomersCompaniesPage() {
       .map<ColumnDef<CompanyRow>>((def) => ({
         accessorKey: `cf_${def.key}`,
         header: def.label || def.key,
+        enableSorting: true,
         meta: {
           columnChooserGroup: def.group?.title ?? 'Custom Fields',
           filterGroup: def.group?.title ?? 'Custom Fields',
@@ -887,8 +887,9 @@ export default function CustomersCompaniesPage() {
           onRowClick={(row) => router.push(`/backend/customers/companies-v2/${row.id}`)}
           perspective={{ tableId: 'customers.companies.list' }}
           sortable
+          manualSorting
           sorting={sorting}
-          onSortingChange={setSorting}
+          onSortingChange={handleSortingChange}
           bulkActions={[
             {
               id: 'delete',
