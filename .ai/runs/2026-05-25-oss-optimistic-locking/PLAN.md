@@ -80,8 +80,8 @@
 | 25 | 25.1 | Sales document detail page: wire `updateDocument()` inline-edit callers + `handleDelete()` to send `buildOptimisticLockHeader(record.updatedAt)` + surface localized conflict + refresh | done | 35fbd4d30 |
 | 26 | 26.1 | Sales document sub-sections (Items/Adjustments/Returns) client wiring: thread `documentUpdatedAt` → send header on create/update/delete + conflict flash + parent reload | done | c8ba97b00 |
 | 26 | 26.2 | Sales document sub-sections Payments/Shipments: apply the header semantics Phase 21 confirms (row-level vs document-aggregate) + conflict surfacing | done | 917003e34 |
-| 27 | 27.1 | Playwright/integration: concurrent-edit + stale-delete specs for company/person/deal/product/sales.order + sales document line/adjustment (two-session pattern) + `__concurrent_edit_pattern.md`; run green against the worktree dev server | done | PENDING |
-| 27 | 27.2 | Playwright MCP browser smoke: re-run the QA scenarios end-to-end on the running branch; capture screenshots proving localized conflict toast + refresh; save under `checkpoint-*-artifacts/` | todo | — |
+| 27 | 27.1 | Playwright/integration: concurrent-edit + stale-delete specs for company/person/deal/product/sales.order + sales document line/adjustment (two-session pattern) + `__concurrent_edit_pattern.md`; run green against the worktree dev server | done | 894e38884 |
+| 27 | 27.2 | Playwright MCP browser smoke: re-run the QA scenarios end-to-end on the running branch; capture screenshots proving localized conflict toast + refresh; save under `checkpoint-*-artifacts/` | done | PENDING |
 | 28 | 28.1 | File enterprise FR issue (enterprise flag): plug pessimistic record_locks resolver into the command-level framework via `createCommandOptimisticLockGuardService` in `record_locks/di.ts`; re-scope #2215 (mark sales-doc UI + TC-LOCK-OSS-005 done here) | todo | — |
 | 28 | 28.2 | Docs/spec/CHANGELOG/AGENTS: document 100% OSS coverage + command-level extension point; flip coverage-completion spec rows; final gate + ds-guardian + auto-review + PR body → complete + summary comment | todo | — |
 
