@@ -60,9 +60,7 @@ async function deleteCustomFieldDefinition(
  * (deal + fixtures) is cleaned up in the finally block. No reliance on seeded/demo data.
  */
 test.describe('TC-CRM-071: Create deal (UX redesign)', () => {
-  test.skip('creates a deal with linked person and company from the redesigned create page', async ({ page, request }) => {
-    // Standalone create-app integration runs time out after the redesign while ephemeral tests pass.
-    // Keep this skipped until the standalone-specific regression is fixed.
+  test('creates a deal with linked person and company from the redesigned create page', async ({ page, request }) => {
     test.slow();
 
     const stamp = Date.now();
@@ -98,6 +96,17 @@ test.describe('TC-CRM-071: Create deal (UX redesign)', () => {
       // section card uses "Create deal" as its title (rendered via DealSectionCard, not an <h1>).
       // Wait for the section card title plus the required field before interacting.
       await expect(page.getByRole('link', { name: /Back to deals/i })).toBeVisible({ timeout: 15_000 });
+
+      // CRITICAL — wait for the form to be fully hydrated before typing. Deal title lives in client
+      // state and the "Create deal" submit button stays disabled until the async custom-field load
+      // resolves (`submitDisabled = !customFieldsLoaded`). Client registries hydrate lazily, so filling
+      // inputs before hydration completes lets React reset the controlled values when it attaches —
+      // the title silently clears and submit is then blocked by "Title is required" (the form never
+      // POSTs, the test times out, and its required custom-field definition is orphaned tenant-wide,
+      // which cascades into the retry). Gating on the enabled submit button guarantees hydration +
+      // custom fields are ready, so every subsequent fill sticks.
+      const submitButton = page.getByRole('button', { name: 'Create deal', exact: true }).first();
+      await expect(submitButton).toBeEnabled({ timeout: 30_000 });
 
       // DealFormField associates each <Label> with its control via useId/htmlFor, so the required
       // title field exposes the accessible label "Deal title" (plus a "*" required marker) — target it
