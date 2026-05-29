@@ -9,6 +9,12 @@ import { buildChanges, requireId } from '@open-mercato/shared/lib/commands/helpe
 import { extractUndoPayload } from '@open-mercato/shared/lib/commands/undo'
 import { FeatureTogglesService } from '../lib/feature-flag-check'
 
+function assertGlobalToggleSuperAdmin(ctx: { auth?: { [key: string]: unknown } | null }): void {
+  if (ctx.auth?.isSuperAdmin !== true) {
+    throw new CrudHttpError(403, { error: 'Global feature toggles can only be managed by a super administrator.' })
+  }
+}
+
 type ToggleSnapshot = {
   id: string
   identifier: string
@@ -59,6 +65,7 @@ async function loadOverrideSnapshots(em: EntityManager, toggleId: string): Promi
 const createToggleCommand: CommandHandler<ToggleCreateInput, { toggleId: string }> = {
   id: 'feature_toggles.global.create',
   async execute(rawInput, ctx) {
+    assertGlobalToggleSuperAdmin(ctx)
     const parsed = toggleCreateSchema.parse(rawInput)
     const em = (ctx.container.resolve('em') as EntityManager).fork()
     const toggle = em.create(FeatureToggle, {
@@ -121,6 +128,7 @@ const updateToggleCommand: CommandHandler<ToggleUpdateInput, { toggleId: string 
     return snapshot ? { before: snapshot } : {}
   },
   async execute(rawInput, ctx) {
+    assertGlobalToggleSuperAdmin(ctx)
     const parsed = toggleUpdateSchema.parse(rawInput)
     const em = (ctx.container.resolve('em') as EntityManager).fork()
     const toggle = await em.findOne(FeatureToggle, { id: parsed.id })
@@ -216,6 +224,7 @@ const deleteToggleCommand: CommandHandler<{ body?: Record<string, unknown>; quer
     return snapshot ? { before: snapshot, overrides } : {}
   },
   async execute(input, ctx) {
+    assertGlobalToggleSuperAdmin(ctx)
     const id = requireId(input, 'Feature toggle id required')
     const em = (ctx.container.resolve('em') as EntityManager).fork()
     const toggle = await em.findOne(FeatureToggle, { id })
