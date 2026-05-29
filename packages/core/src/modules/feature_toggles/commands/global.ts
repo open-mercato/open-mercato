@@ -9,7 +9,13 @@ import { buildChanges, requireId } from '@open-mercato/shared/lib/commands/helpe
 import { extractUndoPayload } from '@open-mercato/shared/lib/commands/undo'
 import { FeatureTogglesService } from '../lib/feature-flag-check'
 
-function assertGlobalToggleSuperAdmin(ctx: { auth?: { [key: string]: unknown } | null }): void {
+function assertGlobalToggleSuperAdmin(ctx: { auth?: { [key: string]: unknown } | null; systemActor?: boolean }): void {
+  // Trusted server-side callers (CLI seed-defaults/toggle-*, tenant setup) run
+  // without an authenticated actor and opt in via `systemActor`. HTTP request
+  // paths never set it and always carry a real `auth` actor, so an authenticated
+  // but non-super-admin caller — the cross-tenant escalation vector (#2266) —
+  // stays denied.
+  if (ctx.systemActor === true) return
   if (ctx.auth?.isSuperAdmin !== true) {
     throw new CrudHttpError(403, { error: 'Global feature toggles can only be managed by a super administrator.' })
   }

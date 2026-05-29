@@ -11,6 +11,14 @@ export type CommandRuntimeContext = {
   organizationIds: string[] | null
   request?: Request
   syncOrigin?: string | null
+  /**
+   * Marks a trusted server-side invocation (CLI seeding, tenant setup) that runs
+   * without an authenticated end-user actor. Commands that gate writes behind a
+   * privileged actor (e.g. super-admin-only platform tables) may treat this as
+   * an explicit system grant. HTTP request paths MUST NOT set this — they always
+   * carry a real `auth` actor, so a present-but-unprivileged actor stays denied.
+   */
+  systemActor?: boolean
 }
 
 export type CommandLogMetadata = {
