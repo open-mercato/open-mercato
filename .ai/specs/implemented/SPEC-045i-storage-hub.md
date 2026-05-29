@@ -357,12 +357,13 @@ The S3 integration can be used **independently** of the attachments module. This
 # Upload a file directly to S3
 POST /api/storage-providers/s3/upload
   Content-Type: multipart/form-data
-  Body: { file: File, key?: string, bucket?: string, contentType?: string }
-  Response: { key, bucket, url, size }
+  Body: { file: File, key?: string, contentType?: string }
+  Response: { key, bucket, size, contentType? }
+  Errors: 400 (missing file, blocked content type, S3 not configured), 403 (key not tenant-scoped), 413 (size/quota)
 
 # Download a file from S3
-GET /api/storage-providers/s3/download?key=exports/report-2026.csv&bucket=my-bucket
-  Response: File stream
+GET /api/storage-providers/s3/download?key=uploads/org_{orgId}/tenant_{tenantId}/report.csv&download=1
+  Response: File stream with security headers (see §10.1.1)
 
 # Generate a pre-signed URL for direct browser upload/download
 POST /api/storage-providers/s3/signed-url
@@ -371,7 +372,7 @@ POST /api/storage-providers/s3/signed-url
 
 # Delete a file from S3
 DELETE /api/storage-providers/s3/delete
-  Body: { key: string, bucket?: string }
+  Body: { key: string }
   Response: 204
 
 # List files by prefix
@@ -379,7 +380,40 @@ GET /api/storage-providers/s3/list?prefix=exports/&maxKeys=100
   Response: { files: [{ key, size, lastModified }], truncated, nextContinuationToken }
 ```
 
-All routes require `storage_providers.manage` feature and use the configured S3 integration credentials.
+All routes require `storage_providers.manage` feature and use the configured S3 integration credentials. Optional `key` overrides must be scoped to `org_{orgId}/tenant_{tenantId}` path segments.
+
+### 10.1.1 Upload & download security baseline
+
+Standalone S3 routes reuse the attachments module security helpers — do not duplicate validation logic in the provider package.
+
+**Shared helpers (core `attachments` module):**
+
+| Helper | Path | Used on |
+|--------|------|---------|
+| `hasDangerousExecutableExtension`, `detectAttachmentMimeType`, `isActiveContentAttachment`, `sanitizeUploadedFileName` | `attachments/lib/security.ts` | upload |
+| `isMultipartRequestWithinUploadLimit`, `resolveAttachmentMaxBytes`, `willExceedAttachmentTenantQuota` | `attachments/lib/upload-limits.ts` | upload |
+| `readTenantAttachmentUsageBytes` | `attachments/lib/tenant-usage.ts` | upload (quota) |
+| `canRenderInlineAttachment`, `buildAttachmentContentDisposition` | `attachments/lib/security.ts` | download |
+
+**Upload (`POST /api/storage-providers/s3/upload`) — before `putObject`:**
+
+1. Reject dangerous executable extensions (`hasDangerousExecutableExtension`).
+2. Enforce global upload size (`resolveAttachmentMaxBytes`, `OM_ATTACHMENT_MAX_UPLOAD_MB` / legacy alias) and multipart `Content-Length` preflight (`isMultipartRequestWithinUploadLimit`).
+3. Enforce tenant attachment storage quota (`readTenantAttachmentUsageBytes` + `willExceedAttachmentTenantQuota`; same env keys as attachments: `OM_ATTACHMENT_TENANT_QUOTA_MB`).
+4. Derive trusted MIME via `detectAttachmentMimeType(buffer, fileName)` — the multipart `contentType` field is **not** trusted for storage metadata.
+5. Reject active content (`isActiveContentAttachment`) — blocks HTML, SVG, XML, and sniffed equivalents.
+
+**Download (`GET /api/storage-providers/s3/download`) — application-origin proxy:**
+
+1. Derive effective MIME from buffer + key basename + stored S3 `Content-Type` (`detectAttachmentMimeType`).
+2. Set `X-Content-Type-Options: nosniff` and `Content-Security-Policy: default-src 'none'; sandbox` on every response.
+3. Default to `Content-Disposition: attachment`; render inline only when `canRenderInlineAttachment(mimeType)` (safe image types).
+4. Support `?download=1` to force attachment disposition even for inline-allowed types.
+
+**Known limitations / follow-up:**
+
+- `POST /api/storage-providers/s3/signed-url` with `operation: 'upload'` can still write arbitrary bytes directly to S3; XSS via the **app download proxy** is mitigated by §10.1.1 download headers, but presigned download URLs served from S3 retain object metadata.
+- Tenant quota on standalone upload counts **attachment table usage** only, not total S3 prefix size outside the attachments module.
 
 ### 10.2 StorageService (DI: `storageService`)
 
@@ -668,7 +702,9 @@ The S3 integration appears in the Integration Marketplace under the **Storage** 
 | Create partition with S3 config | `POST /api/attachments/partitions` | Create partition with `storageDriver: 's3'` and `configJson` |
 | Update partition storage driver | `PUT /api/attachments/partitions` | Change `storageDriver` on existing partition |
 | Standalone S3 upload | `POST /api/storage-providers/s3/upload` | Upload file directly to S3 without attachments module |
+| Standalone S3 upload security (unit) | `packages/storage-s3/.../upload.route.test.ts` | Rejects active content, executables, oversize, quota exhaustion |
 | Standalone S3 download | `GET /api/storage-providers/s3/download` | Download file from S3 by key |
+| Standalone S3 download security (unit) | `packages/storage-s3/.../download.route.test.ts` | Verifies nosniff/CSP/attachment headers; inline only for safe images |
 | Standalone S3 signed URL | `POST /api/storage-providers/s3/signed-url` | Get pre-signed URL for direct browser upload/download |
 | Legacy compat | `GET /api/attachments/file/{id}` | Existing `legacyPublic` driver attachments still accessible |
 | Library delete | `DELETE /api/attachments/library/{id}` | Delete via library endpoint using driver |
@@ -737,3 +773,4 @@ The `S3StorageDriver` class lives in `@open-mercato/storage-s3` (at `src/modules
 | 2026-03-10 | Claude | Initial draft — merged from SPEC-045e storage section and SPEC-058 (PR #875) |
 | 2026-03-11 | Claude | Removed database storage driver (PostgreSQL bytea); kept local (BC default) + S3 only. Added standalone S3 usage API and documentation (§10) for direct file operations without attachments module. |
 | 2026-04-28 | Claude | Post-CR fixes: moved S3StorageDriver + AWS SDK out of core into storage-s3; renamed s3Driver.ts → s3-driver.ts (kebab-case); added StorageDriverFactory.registerDriver() for external driver registration; gated storage_s3 behind OM_ENABLE_STORAGE_S3 env var; moved LocalStack behind docker compose profiles:storage-s3; added tenant-key scoping to standalone S3 API endpoints; fixed storage-service.ts to use driver.listObjects(); reverted accidental data/cache.db bump; added §16 Migration & Backward Compatibility section. |
+| 2026-05-29 | — | Security: standalone S3 upload/download aligned with attachments baseline (§10.1.1) — MIME sniffing, active-content block, size/quota limits, download nosniff/CSP/Content-Disposition; extracted `readTenantAttachmentUsageBytes` to `attachments/lib/tenant-usage.ts`; unit tests in `@open-mercato/storage-s3` (issue #2269). |

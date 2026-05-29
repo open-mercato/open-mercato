@@ -2,7 +2,6 @@ import { NextResponse } from 'next/server'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import { getAuthFromRequest } from '@open-mercato/shared/lib/auth/server'
 import { z } from 'zod'
-import { sql } from 'kysely'
 import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
 import { buildAttachmentFileUrl, buildAttachmentImageUrl, slugifyAttachmentFileName } from '../lib/imageUrls'
 import { ensureDefaultPartitions, resolveDefaultPartitionCode, sanitizePartitionCode } from '../lib/partitions'
@@ -39,6 +38,7 @@ import {
   resolveAttachmentMaxBytes,
   willExceedAttachmentTenantQuota,
 } from '../lib/upload-limits'
+import { readTenantAttachmentUsageBytes } from '../lib/tenant-usage'
 import { findWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 
 export const metadata = {
@@ -495,26 +495,6 @@ export async function POST(req: Request) {
       customFields: Object.keys(customFieldValues).length ? customFieldValues : undefined,
     },
   })
-}
-
-async function readTenantAttachmentUsageBytes(em: EntityManager, tenantId: string): Promise<number> {
-  try {
-    const db = em.getKysely<any>() as any
-    const row = await db
-      .selectFrom('attachments')
-      .select(sql<string>`sum(file_size)`.as('total_size'))
-      .where('tenant_id', '=', tenantId)
-      .executeTakeFirst() as { total_size: string | number | null } | undefined
-    const total = row?.total_size
-    if (typeof total === 'number') return Number.isFinite(total) ? total : 0
-    if (typeof total === 'string') {
-      const parsed = Number(total)
-      return Number.isFinite(parsed) ? parsed : 0
-    }
-    return 0
-  } catch {
-    return 0
-  }
 }
 
 export async function DELETE(req: Request) {

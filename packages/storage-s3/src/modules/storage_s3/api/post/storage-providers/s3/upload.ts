@@ -3,6 +3,20 @@ import { z } from 'zod'
 import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
 import { getAuthFromRequest } from '@open-mercato/shared/lib/auth/server'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
+import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
+import type { EntityManager } from '@mikro-orm/postgresql'
+import {
+  detectAttachmentMimeType,
+  hasDangerousExecutableExtension,
+  isActiveContentAttachment,
+  sanitizeUploadedFileName,
+} from '@open-mercato/core/modules/attachments/lib/security'
+import {
+  isMultipartRequestWithinUploadLimit,
+  resolveAttachmentMaxBytes,
+  willExceedAttachmentTenantQuota,
+} from '@open-mercato/core/modules/attachments/lib/upload-limits'
+import { readTenantAttachmentUsageBytes } from '@open-mercato/core/modules/attachments/lib/tenant-usage'
 import { S3StorageDriver } from '../../../../lib/s3-driver'
 import { randomUUID } from 'crypto'
 
@@ -17,10 +31,6 @@ const responseSchema = z.object({
   size: z.number().int(),
   contentType: z.string().optional(),
 })
-
-function sanitizeFileName(name: string): string {
-  return name.replace(/[^a-zA-Z0-9._-]/g, '_') || 'upload'
-}
 
 function isKeyScoped(key: string, orgId: string, tenantId: string): boolean {
   const parts = key.split('/')
@@ -46,9 +56,16 @@ export async function POST(req: Request) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
   }
 
+  const { t } = await resolveTranslations()
+
   const contentType = req.headers.get('content-type') ?? ''
   if (!contentType.includes('multipart/form-data')) {
     return NextResponse.json({ error: 'Expected multipart/form-data' }, { status: 400 })
+  }
+  if (!isMultipartRequestWithinUploadLimit(req.headers.get('content-length'))) {
+    return NextResponse.json({
+      error: t('attachments.errors.maxUploadSize', 'Attachment exceeds the maximum upload size.'),
+    }, { status: 413 })
   }
 
   const form = await req.formData()
@@ -58,7 +75,6 @@ export async function POST(req: Request) {
   }
 
   const keyOverride = form.get('key') ? String(form.get('key')) : null
-  const contentTypeHeader = form.get('contentType') ? String(form.get('contentType')) : file.type || undefined
 
   if (keyOverride !== null && !isKeyScoped(keyOverride, auth.orgId, auth.tenantId)) {
     return NextResponse.json(
@@ -67,24 +83,53 @@ export async function POST(req: Request) {
     )
   }
 
+  if (hasDangerousExecutableExtension(file.name)) {
+    return NextResponse.json({
+      error: t('attachments.errors.dangerousExecutable', 'Executable file types are not allowed as attachments.'),
+    }, { status: 400 })
+  }
+
+  const effectiveMaxBytes = resolveAttachmentMaxBytes()
+  if (file.size > effectiveMaxBytes) {
+    return NextResponse.json({
+      error: t('attachments.errors.maxUploadSize', 'Attachment exceeds the maximum upload size.'),
+    }, { status: 413 })
+  }
+
+  const { resolve } = await createRequestContainer()
+  const em = resolve('em') as EntityManager
+  const tenantUsageBytes = await readTenantAttachmentUsageBytes(em, auth.tenantId)
+  if (willExceedAttachmentTenantQuota(tenantUsageBytes, file.size)) {
+    return NextResponse.json({
+      error: t('attachments.errors.quotaExceeded', 'Attachment storage quota exceeded for this tenant.'),
+    }, { status: 413 })
+  }
+
   const driver = await resolveDriver(auth.tenantId, auth.orgId)
   if (!driver) {
     return NextResponse.json({ error: 'S3 integration is not configured.' }, { status: 400 })
   }
 
   const buffer = Buffer.from(await file.arrayBuffer())
-  const safeName = sanitizeFileName(file.name)
+  const safeName = sanitizeUploadedFileName(file.name)
+  const trustedContentType = detectAttachmentMimeType(buffer, safeName, file.type)
+  if (isActiveContentAttachment(buffer, safeName, trustedContentType)) {
+    return NextResponse.json({
+      error: t('attachments.errors.activeContentBlocked', 'Active content uploads are not allowed.'),
+    }, { status: 400 })
+  }
+
   const key =
     keyOverride ??
     `uploads/org_${auth.orgId}/tenant_${auth.tenantId}/${Date.now()}_${randomUUID().slice(0, 8)}_${safeName}`
 
-  await driver.putObject(key, buffer, contentTypeHeader)
+  await driver.putObject(key, buffer, trustedContentType)
 
   return NextResponse.json({
     key,
     bucket: driver.getBucket(),
     size: buffer.length,
-    contentType: contentTypeHeader,
+    contentType: trustedContentType,
   })
 }
 
@@ -102,14 +147,15 @@ export const openApi: OpenApiRouteDoc = {
         schema: z.object({
           file: z.any().describe('File to upload'),
           key: z.string().optional().describe('Optional S3 key override (must be scoped to org/tenant)'),
-          contentType: z.string().optional().describe('Optional content-type override'),
+          contentType: z.string().optional().describe('Ignored for trust; MIME is derived from file content and name'),
         }),
       },
       responses: [{ status: 200, description: 'Upload result', schema: responseSchema }],
       errors: [
-        { status: 400, description: 'Missing file or S3 not configured', schema: z.object({ error: z.string() }) },
+        { status: 400, description: 'Missing file, blocked content type, or S3 not configured', schema: z.object({ error: z.string() }) },
         { status: 401, description: 'Unauthorized', schema: z.object({ error: z.string() }) },
         { status: 403, description: 'Key override not scoped to this tenant', schema: z.object({ error: z.string() }) },
+        { status: 413, description: 'File exceeds size or tenant quota limits', schema: z.object({ error: z.string() }) },
       ],
     },
   },

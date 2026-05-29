@@ -1,8 +1,14 @@
+import path from 'path'
 import { NextResponse } from 'next/server'
 import { z } from 'zod'
 import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
 import { getAuthFromRequest } from '@open-mercato/shared/lib/auth/server'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
+import {
+  buildAttachmentContentDisposition,
+  canRenderInlineAttachment,
+  detectAttachmentMimeType,
+} from '@open-mercato/core/modules/attachments/lib/security'
 import { S3StorageDriver } from '../../../../lib/s3-driver'
 
 export const metadata = {
@@ -31,7 +37,8 @@ export async function GET(req: Request) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
   }
 
-  const key = new URL(req.url).searchParams.get('key')
+  const url = new URL(req.url)
+  const key = url.searchParams.get('key')
   if (!key) {
     return NextResponse.json({ error: 'key query param is required' }, { status: 400 })
   }
@@ -46,20 +53,34 @@ export async function GET(req: Request) {
   }
 
   let buffer: Buffer
-  let contentType: string | undefined
+  let storedContentType: string | undefined
   try {
     const result = await driver.read('', key)
     buffer = result.buffer
-    contentType = result.contentType
+    storedContentType = result.contentType
   } catch {
     return NextResponse.json({ error: 'File not found' }, { status: 404 })
   }
 
+  const fileName = path.basename(key)
+  const effectiveMimeType = detectAttachmentMimeType(buffer, fileName, storedContentType)
+  const forceDownload = url.searchParams.get('download') === '1'
+  const renderInline = !forceDownload && canRenderInlineAttachment(effectiveMimeType)
+
   return new NextResponse(new Uint8Array(buffer), {
     status: 200,
     headers: {
-      'Content-Type': contentType ?? 'application/octet-stream',
+      'Cache-Control': 'private, max-age=60',
+      'Content-Security-Policy': "default-src 'none'; sandbox",
+      'Content-Type': renderInline
+        ? effectiveMimeType || 'application/octet-stream'
+        : 'application/octet-stream',
+      'Content-Disposition': buildAttachmentContentDisposition(
+        fileName,
+        renderInline ? 'inline' : 'attachment',
+      ),
       'Content-Length': String(buffer.length),
+      'X-Content-Type-Options': 'nosniff',
     },
   })
 }
@@ -73,7 +94,10 @@ export const openApi: OpenApiRouteDoc = {
     GET: {
       summary: 'Download a file from S3 by key',
       description: 'Streams the file content for the given S3 key. Requires storage_providers.manage feature.',
-      query: z.object({ key: z.string().describe('S3 object key') }),
+      query: z.object({
+        key: z.string().describe('S3 object key'),
+        download: z.string().optional().describe('Set to 1 to force attachment download'),
+      }),
       responses: [{ status: 200, description: 'File content stream', schema: z.any() }],
       errors: [
         { status: 400, description: 'Missing key or S3 not configured', schema: z.object({ error: z.string() }) },
