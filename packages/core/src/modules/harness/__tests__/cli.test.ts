@@ -1,6 +1,6 @@
 import type { Module } from '@open-mercato/shared/modules/registry'
 import { registerCliModules } from '@open-mercato/shared/modules/registry'
-import { checkAclSetupAlignment, runGate } from '../cli'
+import { checkAclSetupAlignment, runGate, printResults } from '../cli'
 
 jest.mock('node:child_process', () => ({
   execSync: jest.fn(),
@@ -113,37 +113,38 @@ describe('runGate generate-failure short-circuit', () => {
     }
   })
 
-  it('does not set process.exitCode itself — printResults is responsible for that', async () => {
+  it('does not set process.exitCode itself — printResults is responsible', async () => {
     mockExecSync.mockImplementation(() => { throw new Error('fail') })
     const saved = process.exitCode
     process.exitCode = undefined
     await runGate('/tmp', false, null)
-    // runGate returns results but never calls printResults, so exitCode stays untouched
     expect(process.exitCode).toBeUndefined()
     process.exitCode = saved
   })
 })
 
-describe('exit-code contract via printResults', () => {
-  it('sets process.exitCode = 1 when results contain a hard failure', () => {
-    // Import printResults indirectly via the verify command: it calls printResults(runGate results)
-    // Test the contract directly by verifying StepResult shape drives exitCode
-    const { printResults: _unused, ...rest } = jest.requireActual('../cli') as {
-      printResults?: unknown
-    }
-    void _unused
-    void rest
+describe('printResults exit-code contract', () => {
+  it('sets process.exitCode = 1 on hard failure', () => {
+    const saved = process.exitCode
+    process.exitCode = undefined
+    printResults([{ label: 'step', ok: false }])
+    expect(process.exitCode).toBe(1)
+    process.exitCode = saved
+  })
 
-    // Verify that a StepResult with ok:false and no warn is counted as a hard failure
-    // by checking the filter logic used in printResults
-    const hardFailure = { label: 'test', ok: false }
-    const warnOnly = { label: 'test', ok: false, warn: true as const }
-    const success = { label: 'test', ok: true }
+  it('does not set process.exitCode for warn-only results', () => {
+    const saved = process.exitCode
+    process.exitCode = undefined
+    printResults([{ label: 'step', ok: false, warn: true }])
+    expect(process.exitCode).toBeUndefined()
+    process.exitCode = saved
+  })
 
-    const isFailed = (r: typeof hardFailure) => !r.ok && !('warn' in r && r.warn)
-
-    expect(isFailed(hardFailure)).toBe(true)
-    expect(isFailed(warnOnly)).toBe(false)
-    expect(isFailed(success)).toBe(false)
+  it('does not set process.exitCode when all steps pass', () => {
+    const saved = process.exitCode
+    process.exitCode = undefined
+    printResults([{ label: 'step', ok: true }])
+    expect(process.exitCode).toBeUndefined()
+    process.exitCode = saved
   })
 })

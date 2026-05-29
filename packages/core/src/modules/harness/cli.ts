@@ -192,7 +192,7 @@ const postScaffold: ModuleCli = {
   },
 }
 
-export { checkAclSetupAlignment, runGate }
+export { checkAclSetupAlignment, runGate, printResults }
 export type { StepResult }
 
 export default [verify, postScaffold]
