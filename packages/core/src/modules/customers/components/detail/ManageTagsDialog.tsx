@@ -46,6 +46,7 @@ import { Badge } from '@open-mercato/ui/primitives/badge'
 import { Button } from '@open-mercato/ui/primitives/button'
 import { ColorPicker } from '@open-mercato/ui/primitives/color-picker'
 import { IconButton } from '@open-mercato/ui/primitives/icon-button'
+import { ScrollArea } from '@open-mercato/ui/primitives/scroll-area'
 import {
   Dialog,
   DialogContent,
@@ -1070,7 +1071,7 @@ export function ManageTagsDialog({ open, onClose }: ManageTagsDialogProps) {
               </IconButton>
               <div
                 ref={categoryRailRef}
-                className="min-w-0 flex-1 overflow-x-auto [-ms-overflow-style:none] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
+                className="scrollbar-hide min-w-0 flex-1 overflow-x-auto"
               >
                 <div className="flex items-end gap-0.5">
                   {translatedCategories.map((category) => {
@@ -1121,7 +1122,8 @@ export function ManageTagsDialog({ open, onClose }: ManageTagsDialogProps) {
             </div>
 
             {/* Content */}
-            <div className="flex min-h-0 flex-1 flex-col gap-3 overflow-y-auto px-6 py-3.5">
+            <ScrollArea className="min-h-0 flex-1" viewportClassName="px-6 py-3.5">
+              <div className="flex flex-col gap-3">
               {activeMeta ? (
                 <>
                   {/* Category header + search */}
@@ -1271,7 +1273,8 @@ export function ManageTagsDialog({ open, onClose }: ManageTagsDialogProps) {
                   {t('customers.tags.manage.noDictionaries', 'No tag categories found.')}
                 </div>
               )}
-            </div>
+              </div>
+            </ScrollArea>
 
             {/* Separator */}
             <div className="h-px shrink-0 bg-border" />
