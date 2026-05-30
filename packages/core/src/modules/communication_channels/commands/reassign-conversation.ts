@@ -2,6 +2,7 @@ import { z } from 'zod'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import type { CommandHandler } from '@open-mercato/shared/lib/commands'
 import { registerCommand } from '@open-mercato/shared/lib/commands'
+import { extractUndoPayload as extractSharedUndoPayload } from '@open-mercato/shared/lib/commands/undo'
 import { findOneWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import { ChannelThreadMapping, ExternalConversation } from '../data/entities'
 
@@ -24,13 +25,24 @@ export type ReassignConversationResult =
       previousAssignedUserId: string | null
       nextAssignedUserId: string | null
       conversationId: string
+      undo: ReassignConversationUndoSnapshot
     }
   | { status: 'no_channel_link'; reason: string }
   | { status: 'invalid_assignee'; reason: string }
   | { status: 'noop'; reason: string }
 
+export interface ReassignConversationUndoSnapshot {
+  threadMappingId: string
+  conversationId: string
+  // Optional for backward compatibility with log entries written before tenant
+  // scoping was added to the undo lookup; new snapshots always set it.
+  tenantId?: string
+  previousAssignedUserId: string | null
+  newAssignedUserId: string | null
+}
+
 export const COMMUNICATION_CHANNELS_REASSIGN_CONVERSATION_COMMAND_ID =
-  'communication_channels.reassign_conversation'
+  'communication_channels.conversation.reassign'
 
 /**
  * Reassign the owning user of a channel-linked conversation.
@@ -41,6 +53,9 @@ export const COMMUNICATION_CHANNELS_REASSIGN_CONVERSATION_COMMAND_ID =
  * reassignment is an internal-routing concern.
  *
  * Idempotent: when the new owner matches the existing one, returns `noop`.
+ *
+ * The command is undoable: the `before` snapshot captures the previous owner on
+ * both rows so undo can restore them atomically.
  */
 const reassignConversationCommand: CommandHandler<
   ReassignConversationInput,
@@ -121,14 +136,101 @@ const reassignConversationCommand: CommandHandler<
     conversation.assignedUserId = input.assignedUserId
     await em.flush()
 
+    const undo: ReassignConversationUndoSnapshot = {
+      threadMappingId: mapping.id,
+      conversationId: conversation.id,
+      tenantId: mapping.tenantId,
+      previousAssignedUserId,
+      newAssignedUserId: input.assignedUserId,
+    }
+
     return {
       status: 'reassigned',
       threadId: input.threadId,
       previousAssignedUserId,
       nextAssignedUserId: input.assignedUserId,
       conversationId: conversation.id,
+      undo,
     }
   },
+  // Persist the undo snapshot into the action log. Without this, the command bus
+  // mints an undo token (so the UI offers "Undo") but the snapshot returned from
+  // execute() is never stored, and undo() would silently no-op.
+  async buildLog({ input, result }) {
+    if (result.status !== 'reassigned') return null
+    return {
+      resourceKind: 'communication_channels.channel',
+      resourceId: result.conversationId,
+      tenantId: result.undo.tenantId ?? input.scope.tenantId,
+      organizationId: input.scope.organizationId ?? null,
+      payload: { undo: result.undo },
+      snapshotBefore: result.undo,
+    }
+  },
+  async undo({ ctx, logEntry }) {
+    const snapshot = extractSnapshotFromLog(logEntry)
+    if (!snapshot) return
+    const em = (ctx.container.resolve('em') as EntityManager).fork()
+    // Never resolve by bare id (cross-tenant). New snapshots always carry
+    // tenantId; refuse the undo if a legacy snapshot lacks it.
+    if (!snapshot.tenantId) return
+    const dscope = { tenantId: snapshot.tenantId, organizationId: null }
+
+    const mapping = await findOneWithDecryption(
+      em,
+      ChannelThreadMapping,
+      { id: snapshot.threadMappingId, tenantId: snapshot.tenantId },
+      undefined,
+      dscope,
+    )
+    const conversation = await findOneWithDecryption(
+      em,
+      ExternalConversation,
+      { id: snapshot.conversationId, tenantId: snapshot.tenantId },
+      undefined,
+      dscope,
+    )
+    if (mapping) mapping.assignedUserId = snapshot.previousAssignedUserId
+    if (conversation) conversation.assignedUserId = snapshot.previousAssignedUserId
+    if (mapping || conversation) await em.flush()
+  },
+}
+
+/**
+ * Read the undo payload defensively — wraps the shared
+ * `@open-mercato/shared/lib/commands/undo.ts` helper with a narrow-by-shape
+ * validation so callers get a strongly-typed snapshot or `null`.
+ *
+ * Kept as a separate export for test ergonomics (tests can mock the snapshot
+ * shape directly without round-tripping through a CommandLogEntry).
+ */
+export function extractUndoPayload(value: unknown): ReassignConversationUndoSnapshot | null {
+  if (!value || typeof value !== 'object') return null
+  const candidate = (value as { undo?: unknown }).undo ?? value
+  if (!candidate || typeof candidate !== 'object') return null
+  const obj = candidate as Record<string, unknown>
+  if (typeof obj.threadMappingId !== 'string' || typeof obj.conversationId !== 'string') return null
+  return {
+    threadMappingId: obj.threadMappingId,
+    conversationId: obj.conversationId,
+    tenantId: typeof obj.tenantId === 'string' ? obj.tenantId : undefined,
+    previousAssignedUserId:
+      typeof obj.previousAssignedUserId === 'string' ? obj.previousAssignedUserId : null,
+    newAssignedUserId: typeof obj.newAssignedUserId === 'string' ? obj.newAssignedUserId : null,
+  }
+}
+
+/**
+ * Pulls the reassignment snapshot from a command log entry — first via the
+ * shared `extractUndoPayload` helper, then through the local shape-validator.
+ * Always falls back to `null` so the undo handler can no-op safely.
+ */
+export function extractSnapshotFromLog(logEntry: unknown): ReassignConversationUndoSnapshot | null {
+  const undo = extractSharedUndoPayload<ReassignConversationUndoSnapshot>(
+    (logEntry ?? null) as never,
+  )
+  if (undo) return extractUndoPayload(undo)
+  return extractUndoPayload(logEntry)
 }
 
 registerCommand(reassignConversationCommand as unknown as CommandHandler)

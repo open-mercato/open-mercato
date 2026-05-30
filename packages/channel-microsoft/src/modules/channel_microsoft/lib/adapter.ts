@@ -257,9 +257,7 @@ class MicrosoftChannelAdapter implements ChannelAdapter {
 
   async fetchHistory(input: FetchHistoryInput): Promise<HistoryPage> {
     const userCredentials = parseUserCredentialsOrThrow(input.credentials)
-    const channelState = microsoftChannelStateSchema.parse(
-      ((input as unknown) as { channelState?: unknown }).channelState ?? {},
-    )
+    const channelState = microsoftChannelStateSchema.parse(input.channelState ?? {})
     const auth = { accessToken: userCredentials.accessToken }
     const api = getGraphApiClient()
     const limit = input.limit ?? 50

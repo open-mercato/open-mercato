@@ -153,7 +153,9 @@ export async function POST(req: Request, context: RouteContext): Promise<Respons
       input: { channelId: id, ...parsed.data },
     })
     await guard.afterSuccess()
-    return NextResponse.json({ ok: true, ...result })
+    // 202 Accepted: durable work runs in the channel-import-history worker; the
+    // response carries progressJobId for the ProgressTopBar (progress module contract).
+    return NextResponse.json({ ok: true, ...result }, { status: 202 })
   } catch (err) {
     const candidate = err as CrudFormError
     if (candidate && typeof candidate.status === 'number') {
@@ -185,7 +187,7 @@ export const openApi = {
         schema: bodySchema,
       },
       responses: [
-        { status: 200, description: 'Import job queued; returns { progressJobId }' },
+        { status: 202, description: 'Import job queued; returns { progressJobId }' },
         { status: 400, description: 'Invalid channel id or unsupported provider' },
         { status: 401, description: 'Unauthorized' },
         { status: 404, description: 'Channel not found / not accessible' },

@@ -48,7 +48,7 @@ export type ProcessInboundReactionResult =
   | { status: 'noop' }
 
 export const COMMUNICATION_CHANNELS_PROCESS_INBOUND_REACTION_COMMAND_ID =
-  'communication_channels.process_inbound_reaction'
+  'communication_channels.reaction.process_inbound'
 
 /**
  * Inbound reaction processor command.

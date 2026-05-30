@@ -73,8 +73,10 @@ export async function POST(req: Request, context: RouteContext): Promise<Respons
     },
   })
 
+  // Non-ownership maps to 404 (existence masking), consistent with the other
+  // channel-scoped routes (GET [id], poll-now, import-history, test-send, DELETE).
   if (result.status === 'not_owner') {
-    return NextResponse.json({ error: result.reason }, { status: 403 })
+    return NextResponse.json({ error: 'Channel not found' }, { status: 404 })
   }
   if (result.status === 'noop') {
     return NextResponse.json({ channelId: id, isPrimary: true, unchanged: true }, { status: 200 })
@@ -100,7 +102,7 @@ export const openApi = {
         { status: 200, description: 'Channel set as primary (or already primary)' },
         { status: 400, description: 'Invalid channel id' },
         { status: 401, description: 'Unauthorized' },
-        { status: 403, description: 'Not the channel owner' },
+        { status: 404, description: 'Channel not found or not owned by current user' },
       ],
     },
   },

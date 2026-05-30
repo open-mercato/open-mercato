@@ -1,4 +1,6 @@
+import type { FilterQuery } from '@mikro-orm/postgresql'
 import { hasFeature } from '@open-mercato/shared/security/features'
+import { CustomerInteraction } from '../data/entities'
 
 /**
  * The ACL feature that grants admins the right to see private emails authored
@@ -53,4 +55,59 @@ export function applyEmailVisibilityFilter<T extends { where: (...args: any[]) =
         : eb.val(false),
     ]),
   )
+}
+
+type RbacServiceLike = {
+  getGrantedFeatures?: (
+    userId: string,
+    scope: { tenantId: string | null; organizationId: string | null },
+  ) => Promise<string[] | undefined>
+}
+
+/**
+ * Resolve the caller's granted features (wildcard-aware downstream) so a
+ * visibility filter can honour the `customers.email.view_private` admin bypass.
+ * Returns `undefined` when there is no user or the RBAC service is unavailable —
+ * callers MUST treat `undefined` as "no bypass" (fail closed).
+ */
+export async function resolveCallerEmailFeatures(
+  container: { resolve: (name: string) => unknown },
+  userId: string | null,
+  tenantId: string | null,
+  organizationId: string | null,
+): Promise<string[] | undefined> {
+  if (!userId) return undefined
+  try {
+    const rbac = container.resolve('rbacService') as RbacServiceLike | undefined
+    if (!rbac?.getGrantedFeatures) return undefined
+    return await rbac.getGrantedFeatures(userId, { tenantId, organizationId })
+  } catch {
+    return undefined
+  }
+}
+
+/**
+ * MikroORM equivalent of {@link applyEmailVisibilityFilter}. Returns a
+ * `FilterQuery` fragment to merge (implicit AND) into a `CustomerInteraction`
+ * where-clause so private email rows are excluded for non-owner, non-admin
+ * callers on MikroORM read paths (`findWithDecryption`/`em.find`/`em.count`).
+ *
+ * Returns an empty fragment (no-op) for admins holding the view-private bypass.
+ * Mirrors the kysely predicate exactly, including the legacy `visibility IS NULL`
+ * passthrough so pre-existing CRM history is never hidden.
+ */
+export type EmailVisibilityMikroFilter = { $or?: FilterQuery<CustomerInteraction>[] }
+
+export function buildEmailVisibilityMikroFilter(
+  opts: ApplyEmailVisibilityFilterOptions,
+): EmailVisibilityMikroFilter {
+  if (callerHasEmailViewPrivate(opts.userFeatures)) return {}
+  return {
+    $or: [
+      { interactionType: { $ne: 'email' } },
+      { visibility: null },
+      { visibility: { $ne: 'private' } },
+      ...(opts.currentUserId ? [{ authorUserId: opts.currentUserId }] : []),
+    ],
+  }
 }

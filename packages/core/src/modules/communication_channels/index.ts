@@ -7,6 +7,7 @@ import './commands/reassign-conversation'
 import './commands/connect-credential-channel'
 import './commands/set-primary-channel'
 import './commands/disconnect-channel'
+import './commands/delete-channel'
 
 export const metadata = {
   id: 'communication_channels',

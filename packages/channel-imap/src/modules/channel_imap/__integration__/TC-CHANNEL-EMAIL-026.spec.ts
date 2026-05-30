@@ -14,5 +14,5 @@ import { test } from '@playwright/test'
  * markdown.
  */
 test.describe('TC-CHANNEL-EMAIL-026: Subject + participants fallback', () => {
-  test.skip('full E2E covered by QA scenario markdown (manual)', () => {})
+  test.skip('behavioral coverage: thread-matcher.test.ts Strategy 4 (subject + participants). Playwright E2E is infeasible — provider mock seams are process-local (see TC-CHANNEL-EMAIL-031 / TC-CRM-EMAIL-001).', () => {})
 })

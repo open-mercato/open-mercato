@@ -8,7 +8,11 @@ import crypto from 'node:crypto'
  *
  * Design (per email integration spec § OSS Independence + § Hub Deltas → Delta 7):
  *   - AES-256-GCM payload encryption.
- *   - HKDF (SHA-256) key derivation from `OM_HUB_OAUTH_STATE_KEY` (or `KMS_MASTER_KEY` fallback).
+ *   - HKDF (SHA-256) key derivation from `OM_HUB_OAUTH_STATE_KEY` (falling back to
+ *     `KMS_MASTER_KEY`). In production those dedicated keys are required; only in
+ *     dev/test do we fall back to `JWT_SECRET` so envs that configure one secret
+ *     still work. Production refuses the `JWT_SECRET` fallback so a session-secret
+ *     leak cannot also forge OAuth-state cookies.
  *   - 5-minute TTL — short window to bound replay surface.
  *   - Payload binds the initiating `userId` so the callback rejects state cookies
  *     used by a different session.
@@ -97,17 +101,24 @@ function deriveKey(secret: string): Buffer {
 }
 
 function getSecret(): string {
-  const secret =
-    process.env.OM_HUB_OAUTH_STATE_KEY ??
-    process.env.KMS_MASTER_KEY ??
-    process.env.JWT_SECRET
-  if (!secret) {
+  const dedicated = process.env.OM_HUB_OAUTH_STATE_KEY ?? process.env.KMS_MASTER_KEY
+  if (dedicated) return dedicated
+  // No dedicated key configured. Fail closed in production rather than deriving
+  // the state-cookie key from JWT_SECRET (the platform session-signing secret) —
+  // sharing that key means a JWT_SECRET leak also lets an attacker forge OAuth
+  // state cookies, bypassing the userId/tenant binding. In non-production we fall
+  // back to JWT_SECRET so dev/test envs that only configure one secret still work.
+  if (process.env.NODE_ENV === 'production') {
+    throw new Error('[internal] OM_HUB_OAUTH_STATE_KEY or KMS_MASTER_KEY required in production')
+  }
+  const fallback = process.env.JWT_SECRET
+  if (!fallback) {
     throw new OAuthStateError(
       'OM_HUB_OAUTH_STATE_KEY (or fallback KMS_MASTER_KEY / JWT_SECRET) must be set',
       'missing_secret',
     )
   }
-  return secret
+  return fallback
 }
 
 /** Encrypt + sign a state payload. Output is a base64url string suitable for a cookie. */

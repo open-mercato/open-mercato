@@ -2,7 +2,7 @@
 
 import * as React from 'react'
 import { Reply, ReplyAll, Forward } from 'lucide-react'
-import { Button } from '@open-mercato/ui/primitives/button'
+import { IconButton } from '@open-mercato/ui/primitives/icon-button'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 
 export interface EmailReplyForwardActionsProps {
@@ -16,7 +16,7 @@ export function EmailReplyForwardActions(props: EmailReplyForwardActionsProps) {
   const t = useT()
   return (
     <div className="flex gap-1" role="group" aria-label={t('customers.email.timeline.actionsAria', 'Email actions')}>
-      <Button
+      <IconButton
         type="button"
         variant="ghost"
         size="sm"
@@ -25,8 +25,8 @@ export function EmailReplyForwardActions(props: EmailReplyForwardActionsProps) {
         aria-label={t('customers.email.timeline.reply', 'Reply')}
       >
         <Reply className="h-4 w-4" />
-      </Button>
-      <Button
+      </IconButton>
+      <IconButton
         type="button"
         variant="ghost"
         size="sm"
@@ -35,8 +35,8 @@ export function EmailReplyForwardActions(props: EmailReplyForwardActionsProps) {
         aria-label={t('customers.email.timeline.replyAll', 'Reply all')}
       >
         <ReplyAll className="h-4 w-4" />
-      </Button>
-      <Button
+      </IconButton>
+      <IconButton
         type="button"
         variant="ghost"
         size="sm"
@@ -45,7 +45,7 @@ export function EmailReplyForwardActions(props: EmailReplyForwardActionsProps) {
         aria-label={t('customers.email.timeline.forward', 'Forward')}
       >
         <Forward className="h-4 w-4" />
-      </Button>
+      </IconButton>
     </div>
   )
 }

@@ -159,6 +159,17 @@ describe('buildPersonEmailThreads', () => {
     expect(where.$or).toContainEqual({ authorUserId: 'u1' })
   })
 
+  it('keeps the private-email filter fail-closed for a null viewer (API-key caller)', async () => {
+    mockHubReads(interactions)
+    await buildPersonEmailThreads({} as never, { ...baseOpts, viewerUserId: null, userFeatures: [] })
+    const where = interactionWhere()!
+    expect(Array.isArray(where.$or)).toBe(true)
+    // A null viewer must not gain an author-bypass clause, so it can never
+    // unlock another user's private email in the threads read model.
+    expect(where.$or).not.toContainEqual({ authorUserId: 'u1' })
+    expect((where.$or as Array<Record<string, unknown>>).every((clause) => !('authorUserId' in clause))).toBe(true)
+  })
+
   it('skips the visibility filter for admins with the view_private wildcard', async () => {
     mockHubReads(interactions)
     await buildPersonEmailThreads({} as never, { ...baseOpts, userFeatures: ['customers.*'] })

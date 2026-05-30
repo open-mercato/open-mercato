@@ -47,6 +47,18 @@ export type RefreshCredentialsIfNeededResult = {
 const DEFAULT_REFRESH_WINDOW_MS = 60_000
 
 /**
+ * In-process single-flight for credential refresh, keyed by `channelId`. The
+ * outbound-delivery worker runs at concurrency 10 in ONE process, so two
+ * concurrent sends on the same channel can both pass `shouldRefresh` and both
+ * call `adapter.refreshCredentials`. With rotating refresh-token providers
+ * (Gmail, Microsoft) the second exchange invalidates the first's token and
+ * flaps the channel to `requires_reauth`. Coalescing concurrent refreshes for
+ * the same channel onto one in-flight promise prevents that race for the common
+ * single-process case. Entries are deleted in `finally` once settled.
+ */
+const inFlightRefreshes = new Map<string, Promise<RefreshCredentialsIfNeededResult>>()
+
+/**
  * Refresh OAuth credentials when an access token is near expiry, or when the
  * caller forces it (e.g. after a 401 response).
  *
@@ -72,6 +84,25 @@ export async function refreshCredentialsIfNeeded(
     return { refreshed: false, credentials: input.credentials }
   }
 
+  // Coalesce concurrent refreshes for the same channel onto one in-flight
+  // promise so rotating refresh tokens are not exchanged twice in parallel.
+  const existing = inFlightRefreshes.get(input.channelId)
+  if (existing) return existing
+
+  const refreshCredentials = input.adapter.refreshCredentials.bind(input.adapter)
+  const refreshPromise = runRefresh(input, refreshCredentials, deps, log).finally(() => {
+    inFlightRefreshes.delete(input.channelId)
+  })
+  inFlightRefreshes.set(input.channelId, refreshPromise)
+  return refreshPromise
+}
+
+async function runRefresh(
+  input: RefreshCredentialsIfNeededInput,
+  refreshCredentials: NonNullable<ChannelAdapter['refreshCredentials']>,
+  deps: { credentialsService?: CredentialsServiceLike | null; logger?: (...args: unknown[]) => void } | undefined,
+  log: (...args: unknown[]) => void,
+): Promise<RefreshCredentialsIfNeededResult> {
   // Resolve the tenant's OAuth client config (clientId/clientSecret/tenantId)
   // from `integration_credentials.scope = oauth_<providerKey>`. The adapter
   // uses this for the token-endpoint call. Without it, OAuth providers
@@ -100,7 +131,7 @@ export async function refreshCredentialsIfNeeded(
 
   let result: RefreshedCredentials
   try {
-    result = await input.adapter.refreshCredentials({
+    result = await refreshCredentials({
       channelId: input.channelId,
       credentials: input.credentials,
       scope: input.scope,

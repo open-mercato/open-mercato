@@ -1,7 +1,9 @@
 import {
   assembleRfc2822,
   decodeCursor,
+  encodeAddressHeaderWord,
   encodeCursor,
+  encodeHeaderWord,
   extractHeaders,
   generateMessageId,
   htmlToText,
@@ -13,6 +15,12 @@ import {
   toAddressList,
   type ParsedMail,
 } from '../email-mime'
+
+function decodeEncodedWord(word: string): string {
+  const match = word.match(/^=\?utf-8\?B\?(.*)\?=$/)
+  if (!match) throw new Error(`not an RFC 2047 B encoded-word: ${word}`)
+  return Buffer.from(match[1], 'base64').toString('utf-8')
+}
 
 describe('extractHeaders', () => {
   // Regression guard: mailparser returns `headers` as a Map. `Object.entries` on a
@@ -131,6 +139,136 @@ describe('assembleRfc2822', () => {
     expect(headerLines.some((line) => /^X-Injected:/i.test(line))).toBe(false)
     // The payload survives only as part of the single-line Subject, not as a header.
     expect(headerLines).toContain('Subject: Hello Bcc: exfil@evil.com')
+  })
+
+  it('RFC-2047 encodes a non-ASCII Subject so accents survive a strict MTA', () => {
+    const raw = assembleRfc2822({
+      from: 'alice@x.com',
+      to: ['bob@x.com'],
+      cc: [],
+      bcc: [],
+      subject: 'Café meeting',
+      text: 'body',
+      html: undefined,
+      inReplyTo: undefined,
+      references: undefined,
+      messageId: '<m@x.com>',
+    }).toString('utf-8')
+    const headerLines = raw.split('\r\n\r\n')[0].split('\r\n')
+    const subjectLine = headerLines.find((line) => line.startsWith('Subject: '))!
+    const word = subjectLine.slice('Subject: '.length)
+    expect(word).toMatch(/^=\?utf-8\?B\?[A-Za-z0-9+/=]+\?=$/)
+    expect(decodeEncodedWord(word)).toBe('Café meeting')
+    // No raw 8-bit byte leaks into the header line.
+    expect(/[^\x00-\x7F]/.test(subjectLine)).toBe(false)
+  })
+
+  it('base64-encodes a non-ASCII text body and labels it Content-Transfer-Encoding: base64', () => {
+    const raw = assembleRfc2822({
+      from: 'alice@x.com',
+      to: ['bob@x.com'],
+      cc: [],
+      bcc: [],
+      subject: 'Hi',
+      text: 'Voilà — accented body',
+      html: undefined,
+      inReplyTo: undefined,
+      references: undefined,
+      messageId: '<m@x.com>',
+    }).toString('utf-8')
+    const [headerBlock, ...bodyBlocks] = raw.split('\r\n\r\n')
+    expect(headerBlock).toContain('Content-Transfer-Encoding: base64')
+    const body = bodyBlocks.join('\r\n\r\n').trim()
+    expect(Buffer.from(body, 'base64').toString('utf-8')).toBe('Voilà — accented body')
+  })
+
+  it('base64-encodes only the non-ASCII part of a multipart/alternative message', () => {
+    const raw = assembleRfc2822({
+      from: 'alice@x.com',
+      to: ['bob@x.com'],
+      cc: [],
+      bcc: [],
+      subject: 'Hi',
+      text: 'plain ascii',
+      html: '<p>Café</p>',
+      inReplyTo: undefined,
+      references: undefined,
+      messageId: '<m@x.com>',
+    }).toString('utf-8')
+    // The ASCII text/plain part stays 7bit and verbatim.
+    expect(raw).toContain('plain ascii')
+    expect(raw).toMatch(/text\/plain; charset=utf-8\r\nContent-Transfer-Encoding: 7bit/)
+    // The non-ASCII text/html part is base64.
+    expect(raw).toMatch(/text\/html; charset=utf-8\r\nContent-Transfer-Encoding: base64/)
+    expect(raw).not.toContain('<p>Café</p>')
+  })
+
+  it('keeps an ASCII-only message fully unencoded (regression)', () => {
+    const raw = assembleRfc2822({
+      from: '"Alice" <alice@x.com>',
+      to: ['bob@x.com'],
+      cc: [],
+      bcc: [],
+      subject: 'Plain ASCII subject',
+      text: 'plain body',
+      html: '<p>rich</p>',
+      inReplyTo: undefined,
+      references: undefined,
+      messageId: '<m@x.com>',
+    }).toString('utf-8')
+    expect(raw).toContain('Subject: Plain ASCII subject')
+    expect(raw).not.toContain('=?utf-8?B?')
+    expect(raw).toContain('Content-Transfer-Encoding: 7bit')
+    expect(raw).not.toContain('Content-Transfer-Encoding: base64')
+    expect(raw).toContain('plain body')
+    expect(raw).toContain('<p>rich</p>')
+  })
+
+  it('encodes a non-ASCII display name but never the addr-spec in From', () => {
+    const raw = assembleRfc2822({
+      from: '"Renée Dûpont" <renee@x.com>',
+      to: ['bob@x.com'],
+      cc: [],
+      bcc: [],
+      subject: 'Hi',
+      text: 'body',
+      html: undefined,
+      inReplyTo: undefined,
+      references: undefined,
+      messageId: '<m@x.com>',
+    }).toString('utf-8')
+    const fromLine = raw.split('\r\n\r\n')[0].split('\r\n').find((line) => line.startsWith('From: '))!
+    expect(fromLine).toContain('<renee@x.com>')
+    const word = fromLine.slice('From: '.length).replace(' <renee@x.com>', '')
+    expect(decodeEncodedWord(word)).toBe('Renée Dûpont')
+  })
+})
+
+describe('encodeHeaderWord', () => {
+  it('returns ASCII values unchanged', () => {
+    expect(encodeHeaderWord('Re: Hello-World')).toBe('Re: Hello-World')
+  })
+
+  it('emits an RFC 2047 B encoded-word for non-ASCII', () => {
+    const encoded = encodeHeaderWord('Café')
+    expect(encoded).toBe('=?utf-8?B?Q2Fmw6k=?=')
+    expect(decodeEncodedWord(encoded)).toBe('Café')
+  })
+})
+
+describe('encodeAddressHeaderWord', () => {
+  it('passes a pure-ASCII address through untouched', () => {
+    expect(encodeAddressHeaderWord('"Alice" <alice@x.com>')).toBe('"Alice" <alice@x.com>')
+  })
+
+  it('encodes only the display name, leaving the addr-spec intact', () => {
+    const encoded = encodeAddressHeaderWord('"Renée" <renee@x.com>')
+    expect(encoded).toMatch(/ <renee@x\.com>$/)
+    expect(decodeEncodedWord(encoded.replace(' <renee@x.com>', ''))).toBe('Renée')
+  })
+
+  it('encodes a bare non-ASCII value with no addr-spec', () => {
+    expect(decodeEncodedWord(encodeAddressHeaderWord('Müller'))).toBe('Müller')
   })
 })
 

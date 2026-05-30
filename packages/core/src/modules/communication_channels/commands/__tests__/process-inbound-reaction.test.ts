@@ -5,7 +5,7 @@ import processInboundReactionCommand, {
 describe('processInboundReactionCommand metadata', () => {
   it('exports the canonical command id', () => {
     expect(COMMUNICATION_CHANNELS_PROCESS_INBOUND_REACTION_COMMAND_ID).toBe(
-      'communication_channels.process_inbound_reaction',
+      'communication_channels.reaction.process_inbound',
     )
     expect(processInboundReactionCommand.id).toBe(
       COMMUNICATION_CHANNELS_PROCESS_INBOUND_REACTION_COMMAND_ID,

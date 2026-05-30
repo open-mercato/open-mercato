@@ -87,7 +87,22 @@ describe('outbound-bridge subscriber behaviour', () => {
     expect(enqueueMock).not.toHaveBeenCalled()
   })
 
-  it('enqueues when an existing link is pending or failed (retry path)', async () => {
+  // FINDING 3 regression — an in-flight delivery ('queued'/'pending') must not
+  // be re-enqueued by a replayed `messages.message.sent`. Only terminal-failure
+  // links ('failed') are a genuine retry path.
+  it.each(['queued', 'pending'])(
+    'skips when an existing link is in-flight (deliveryStatus=%s)',
+    async (deliveryStatus) => {
+      const findOne = jest.fn()
+      findOne.mockResolvedValueOnce({ id: messageId, threadId: 'thread-1' }) // Message
+      findOne.mockResolvedValueOnce({ id: 'mapping-1', messageThreadId: 'thread-1' }) // mapping
+      findOne.mockResolvedValueOnce({ id: 'link-1', deliveryStatus }) // existing link
+      await handler({ messageId, tenantId }, makeCtx({ findOne }))
+      expect(enqueueMock).not.toHaveBeenCalled()
+    },
+  )
+
+  it('enqueues when an existing link is in a terminal-failure state (retry path)', async () => {
     const findOne = jest.fn()
     findOne.mockResolvedValueOnce({ id: messageId, threadId: 'thread-1' })
     findOne.mockResolvedValueOnce({ id: 'mapping-1', messageThreadId: 'thread-1' })

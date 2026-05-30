@@ -273,7 +273,6 @@ export function PersonEmailThreadsTab({ personId, defaultRecipient }: PersonEmai
       <ComposeEmailDialog
         open={dialogOpen}
         onOpenChange={setDialogOpen}
-        personId={personId}
         defaultRecipient={defaultRecipient}
         channels={channels}
         replyTo={replyTo}

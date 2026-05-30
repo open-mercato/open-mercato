@@ -18,14 +18,19 @@ import {
 /**
  * TC-CRM-EMAIL-VISIBILITY-001: Email interaction visibility filter
  *
- * Verifies the Layer 1 email visibility filter wired into
- * `customers/api/interactions/route.ts` (applyEmailVisibilityFilter).
+ * Verifies the Layer 1 email visibility filter wired into EVERY read path that
+ * returns customer_interactions — not only `customers/api/interactions/route.ts`
+ * (applyEmailVisibilityFilter) but also the person-detail include surface
+ * (`/api/customers/people/[id]?include=interactions`) and the per-type counts
+ * (`/api/customers/interactions/counts`), which read the same table.
  *
  * Rules under test:
  *  - A 'private' email interaction is visible to its author but not to other
  *    users who lack `customers.email.view_private`.
  *  - A 'shared' email interaction is visible to all users who have
  *    `customers.interactions.view`.
+ *  - Neither the person-detail include surface nor the counts surface leaks the
+ *    private email body / count to a non-author teammate.
  */
 test.describe('TC-CRM-EMAIL-VISIBILITY-001: Email interaction visibility filter', () => {
   test(
@@ -66,6 +71,7 @@ test.describe('TC-CRM-EMAIL-VISIBILITY-001: Email interaction visibility filter'
           token: adminToken,
           data: {
             features: [
+              'customers.people.view',
               'customers.interactions.view',
               'customers.email.compose',
             ],
@@ -178,6 +184,44 @@ test.describe('TC-CRM-EMAIL-VISIBILITY-001: Email interaction visibility filter'
           'User B list must contain 0 email interactions at this point',
         ).toBe(0);
 
+        // -- Step 3b: the SAME private email must not leak through the other
+        //    read paths that return customer_interactions (Layer 1 must cover
+        //    every path, not only /interactions). ----------------------------
+        const userBPersonResp = await apiRequest(
+          request,
+          'GET',
+          `/api/customers/people/${encodeURIComponent(personId)}?include=interactions`,
+          { token: userBToken },
+        );
+        expect(
+          userBPersonResp.ok(),
+          'User B GET /api/customers/people/[id]?include=interactions should succeed',
+        ).toBeTruthy();
+        const userBPersonBody = await readJsonSafe<{ interactions?: Array<{ id?: string }> }>(userBPersonResp);
+        const userBPersonInteractions = Array.isArray(userBPersonBody?.interactions)
+          ? userBPersonBody.interactions
+          : [];
+        expect(
+          userBPersonInteractions.some((item) => item.id === privateInteractionId),
+          'User B must NOT see the private email via /people/[id]?include=interactions',
+        ).toBe(false);
+
+        const userBCountsBeforeShared = await apiRequest(
+          request,
+          'GET',
+          `/api/customers/interactions/counts?entityId=${encodeURIComponent(personId)}`,
+          { token: userBToken },
+        );
+        expect(
+          userBCountsBeforeShared.ok(),
+          'User B GET /api/customers/interactions/counts should succeed',
+        ).toBeTruthy();
+        const userBCountsBeforeSharedBody = await readJsonSafe<{ result?: { email?: number } }>(userBCountsBeforeShared);
+        expect(
+          userBCountsBeforeSharedBody?.result?.email ?? 0,
+          'User B email count must exclude the private email (0 before a shared one exists)',
+        ).toBe(0);
+
         // -- Step 4: create a SHARED email interaction authored by User A ----
         const sharedInteractionResp = await apiRequest(
           request,
@@ -232,6 +276,47 @@ test.describe('TC-CRM-EMAIL-VISIBILITY-001: Email interaction visibility filter'
         expect(
           userBItemsAfterShared.length,
           'User B list must contain exactly 1 email interaction (the shared one)',
+        ).toBe(1);
+
+        // -- Step 5b: the person-detail include surface and counts must reflect
+        //    exactly the shared email for User B (private one stays hidden). --
+        const userBPersonAfterResp = await apiRequest(
+          request,
+          'GET',
+          `/api/customers/people/${encodeURIComponent(personId)}?include=interactions`,
+          { token: userBToken },
+        );
+        expect(
+          userBPersonAfterResp.ok(),
+          'User B GET /api/customers/people/[id]?include=interactions (after shared) should succeed',
+        ).toBeTruthy();
+        const userBPersonAfterBody = await readJsonSafe<{ interactions?: Array<{ id?: string }> }>(userBPersonAfterResp);
+        const userBPersonAfterInteractions = Array.isArray(userBPersonAfterBody?.interactions)
+          ? userBPersonAfterBody.interactions
+          : [];
+        expect(
+          userBPersonAfterInteractions.some((item) => item.id === sharedInteractionId),
+          'User B must see the shared email via /people/[id]?include=interactions',
+        ).toBe(true);
+        expect(
+          userBPersonAfterInteractions.some((item) => item.id === privateInteractionId),
+          'User B must still NOT see the private email via /people/[id]?include=interactions',
+        ).toBe(false);
+
+        const userBCountsAfterShared = await apiRequest(
+          request,
+          'GET',
+          `/api/customers/interactions/counts?entityId=${encodeURIComponent(personId)}`,
+          { token: userBToken },
+        );
+        expect(
+          userBCountsAfterShared.ok(),
+          'User B GET /api/customers/interactions/counts (after shared) should succeed',
+        ).toBeTruthy();
+        const userBCountsAfterSharedBody = await readJsonSafe<{ result?: { email?: number } }>(userBCountsAfterShared);
+        expect(
+          userBCountsAfterSharedBody?.result?.email ?? 0,
+          'User B email count must be exactly 1 (the shared email; private one stays hidden)',
         ).toBe(1);
       } finally {
         // Cleanup is best-effort and ordered: interactions before person,

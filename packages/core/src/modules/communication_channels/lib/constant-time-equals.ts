@@ -1,3 +1,5 @@
+import { timingSafeEqual } from 'node:crypto'
+
 /**
  * Length-checked, branch-minimal constant-time string comparison used to verify
  * provider webhook secrets / `clientState` nonces without leaking timing about
@@ -6,9 +8,5 @@
  */
 export function constantTimeEquals(a: string, b: string): boolean {
   if (a.length !== b.length) return false
-  let mismatch = 0
-  for (let i = 0; i < a.length; i += 1) {
-    mismatch |= a.charCodeAt(i) ^ b.charCodeAt(i)
-  }
-  return mismatch === 0
+  return timingSafeEqual(Buffer.from(a, 'utf8'), Buffer.from(b, 'utf8'))
 }

@@ -5,7 +5,7 @@ import connectCredentialChannelCommand, {
 describe('connectCredentialChannelCommand metadata', () => {
   it('exports stable canonical command id', () => {
     expect(COMMUNICATION_CHANNELS_CONNECT_CREDENTIAL_CHANNEL_COMMAND_ID).toBe(
-      'communication_channels.connect_credential_channel',
+      'communication_channels.channel.connect_credential',
     )
     expect(connectCredentialChannelCommand.id).toBe(
       COMMUNICATION_CHANNELS_CONNECT_CREDENTIAL_CHANNEL_COMMAND_ID,

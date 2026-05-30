@@ -283,13 +283,74 @@ describe('refreshCredentialsIfNeeded', () => {
         },
         { credentialsService: { resolve } },
       )
-      // We should still attempt refresh (adapter may itself fall back to legacy
-      // _client path or throw a clear error); we MUST NOT crash the helper.
       expect(refresh).toHaveBeenCalledTimes(1)
       expect(refresh.mock.calls[0][0].oauthClient).toBeUndefined()
-      // result.refreshed reflects whatever the adapter did — in this happy mock,
-      // refresh succeeded.
       expect(result.refreshed).toBe(true)
+    })
+  })
+
+  // Concurrency regression — the outbound-delivery worker runs at concurrency 10
+  // in ONE process. Two concurrent sends on the same channel must NOT both call
+  // `adapter.refreshCredentials`: with rotating-refresh-token providers (Gmail,
+  // Microsoft) the second exchange invalidates the first's token and flaps the
+  // channel to `requires_reauth`. An in-process single-flight keyed by channelId
+  // coalesces them.
+  describe('single-flight per channelId', () => {
+    function deferred<T>(): { promise: Promise<T>; resolve: (value: T) => void } {
+      let resolveFn!: (value: T) => void
+      const promise = new Promise<T>((res) => {
+        resolveFn = res
+      })
+      return { promise, resolve: resolveFn }
+    }
+
+    it('coalesces two concurrent refreshes for the same channelId into ONE adapter call', async () => {
+      const gate = deferred<{ credentials: { accessToken: string } }>()
+      const refresh = jest.fn(() => gate.promise)
+      const adapter = makeAdapter(refresh)
+      const credentials = {
+        accessToken: 'a',
+        expiresAt: new Date(Date.now() + 30_000).toISOString(),
+      }
+      const first = refreshCredentialsIfNeeded({ adapter, channelId: 'ch-1', credentials, scope })
+      const second = refreshCredentialsIfNeeded({ adapter, channelId: 'ch-1', credentials, scope })
+      gate.resolve({ credentials: { accessToken: 'rotated' } })
+      const [firstResult, secondResult] = await Promise.all([first, second])
+      expect(refresh).toHaveBeenCalledTimes(1)
+      expect(firstResult.refreshed).toBe(true)
+      expect(secondResult.refreshed).toBe(true)
+      expect(firstResult.credentials.accessToken).toBe('rotated')
+      expect(secondResult.credentials.accessToken).toBe('rotated')
+    })
+
+    it('refreshes DIFFERENT channelIds independently', async () => {
+      const refresh = jest.fn(async (input: any) => ({
+        credentials: { accessToken: `rotated:${input.channelId}` },
+      }))
+      const adapter = makeAdapter(refresh)
+      const credentials = {
+        accessToken: 'a',
+        expiresAt: new Date(Date.now() + 30_000).toISOString(),
+      }
+      const [a, b] = await Promise.all([
+        refreshCredentialsIfNeeded({ adapter, channelId: 'ch-1', credentials, scope }),
+        refreshCredentialsIfNeeded({ adapter, channelId: 'ch-2', credentials, scope }),
+      ])
+      expect(refresh).toHaveBeenCalledTimes(2)
+      expect(a.credentials.accessToken).toBe('rotated:ch-1')
+      expect(b.credentials.accessToken).toBe('rotated:ch-2')
+    })
+
+    it('clears the in-flight entry so a later refresh for the same channel runs again', async () => {
+      const refresh = jest.fn(async () => ({ credentials: { accessToken: 'b' } }))
+      const adapter = makeAdapter(refresh)
+      const credentials = {
+        accessToken: 'a',
+        expiresAt: new Date(Date.now() + 30_000).toISOString(),
+      }
+      await refreshCredentialsIfNeeded({ adapter, channelId: 'ch-1', credentials, scope })
+      await refreshCredentialsIfNeeded({ adapter, channelId: 'ch-1', credentials, scope })
+      expect(refresh).toHaveBeenCalledTimes(2)
     })
   })
 })

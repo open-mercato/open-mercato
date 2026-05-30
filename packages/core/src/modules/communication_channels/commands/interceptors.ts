@@ -8,7 +8,7 @@ import { findOneWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import { CommunicationChannel } from '../data/entities'
 import {
   COMMUNICATION_CHANNELS_DISCONNECT_CHANNEL_COMMAND_ID,
-  extractUndoPayload,
+  extractSnapshotFromLog,
   type DisconnectChannelUndoSnapshot,
 } from './disconnect-channel'
 
@@ -16,7 +16,7 @@ import {
  * Command interceptors for the Communications Hub.
  *
  * Phase 4 deliverable 5 of the email integration spec:
- *   - `beforeUndo` interceptor on `communication_channels.disconnect_channel`.
+ *   - `beforeUndo` interceptor on `communication_channels.channel.disconnect`.
  *     If a different channel became primary while this one was disconnected,
  *     blocking the undo is the right call — restoring `is_primary=true` would
  *     violate the partial unique index `communication_channels_one_primary_per_user_uq`,
@@ -34,17 +34,13 @@ export const interceptors: CommandInterceptor[] = [
       undoContext: CommandInterceptorUndoContext,
       ctxRuntime,
     ): Promise<CommandInterceptorBeforeResult | void> {
-      const logEntry = undoContext.logEntry as
-        | { result?: { undo?: unknown } | null; resultJson?: { undo?: unknown } | null; resultBody?: unknown }
-        | null
-      // The action-log entry stores the original result; we accept several
-      // shapes so this interceptor stays decoupled from the log's exact schema.
-      const candidate =
-        (logEntry?.result?.undo as unknown) ??
-        (logEntry?.resultJson?.undo as unknown) ??
-        (logEntry?.resultBody as unknown) ??
-        (undoContext as unknown as { undoPayload?: unknown }).undoPayload
-      const snapshot: DisconnectChannelUndoSnapshot | null = extractUndoPayload(candidate)
+      // Read the snapshot exactly as the command's own undo() handler does — from
+      // the persisted action-log `commandPayload.undo` (written by buildLog). The
+      // earlier `result.undo`/`resultJson`/`resultBody` shapes do not exist on the
+      // ActionLog entity, so this guard previously never fired.
+      const snapshot: DisconnectChannelUndoSnapshot | null = extractSnapshotFromLog(
+        undoContext.logEntry,
+      )
       if (!snapshot) {
         // No snapshot we can interpret → let undo proceed; the command's own
         // undo() handler will no-op if the channel can't be re-resolved.
@@ -63,6 +59,8 @@ export const interceptors: CommandInterceptor[] = [
         em,
         CommunicationChannel,
         { id: snapshot.channelId, tenantId: snapshot.tenantId },
+        undefined,
+        { tenantId: snapshot.tenantId as string, organizationId: null },
       )
       if (!ownedChannel) return // command's undo() will silently no-op
 

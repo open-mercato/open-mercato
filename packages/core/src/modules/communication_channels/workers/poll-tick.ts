@@ -83,10 +83,15 @@ export default async function handle(
   // Find candidate channels — we enumerate two pools:
   //   (1) status='connected' channels due for their normal poll cycle.
   //   (2) Spec B § Auto-recovery sweep: status='error' channels whose
-  //       `lastFailureAt` is older than OM_CHANNEL_AUTO_RECOVER_MINUTES
-  //       (default 30 min). One retry tick per sweep; on success
-  //       `poll-channel` flips the status back to 'connected' so the
-  //       channel rejoins the normal pool.
+  //       `lastPolledAt` is older than OM_CHANNEL_AUTO_RECOVER_MINUTES
+  //       (default 30 min). At most one retry per recovery window per
+  //       channel — when we enqueue a recovery job below we bump that
+  //       channel's `lastPolledAt` to `now` so it falls back under the
+  //       cutoff and is NOT re-selected on the immediately-following ticks
+  //       (poll-channel only advances `lastPolledAt` on a SUCCESSFUL poll,
+  //       so without this a persistently-failing channel would re-enqueue
+  //       every tick). On success `poll-channel` flips the status back to
+  //       'connected' so the channel rejoins the normal pool.
   //
   // Due-ness for (1) is computed in JS to avoid cross-DB interval
   // arithmetic; the (2) cutoff is a single timestamp compare.
@@ -126,10 +131,11 @@ export default async function handle(
       status: 'error',
       pollIntervalSeconds: { $ne: null },
       // `lastPolledAt` advances only on a SUCCESSFUL poll (poll-channel does
-      // not touch it in `handlePollError`), so for an error channel this gates
-      // recovery on the age of the last success: once
-      // `lastPolledAt < recoverCutoff` it re-enters the poll. A dedicated
-      // `lastFailureAt` would let recovery back off from the failure instead.
+      // not touch it in `handlePollError`). To keep recovery to one retry per
+      // window — rather than re-enqueuing a persistently-failing channel every
+      // tick — the recovery-enqueue loop below bumps `lastPolledAt` to `now`
+      // when it schedules a recovery job, so the channel only re-enters this
+      // pool after another `recoverMinutes` have elapsed.
       lastPolledAt: { $lt: recoverCutoff },
     },
     {
@@ -157,7 +163,11 @@ export default async function handle(
     await queue.enqueue(payload as unknown as Record<string, unknown>)
     enqueued += 1
   }
-  // Auto-recovery: one retry per sweep cycle per error-state channel.
+  // Auto-recovery: at most one retry per recovery window per error-state
+  // channel. We bump `lastPolledAt` to `now` as we enqueue so the same channel
+  // drops back under `recoverCutoff` and is NOT re-selected on the next ticks
+  // (poll-channel leaves `lastPolledAt` untouched on failure, so without this a
+  // persistently-failing channel would be re-enqueued every tick).
   for (const channel of errorCandidates as CommunicationChannel[]) {
     const payload: PollChannelJobPayload = {
       channelId: channel.id,
@@ -168,8 +178,10 @@ export default async function handle(
       attempt: 1,
     }
     await queue.enqueue(payload as unknown as Record<string, unknown>)
+    channel.lastPolledAt = now
     recovered += 1
   }
+  if (recovered > 0) await em.flush()
 
   if (enqueued > 0 || recovered > 0) {
     console.log(

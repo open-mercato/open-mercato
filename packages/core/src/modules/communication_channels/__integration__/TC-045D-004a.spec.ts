@@ -16,10 +16,10 @@ test.describe('TC-045D-004a: reactions module contract', () => {
       '@open-mercato/core/modules/communication_channels/commands/process-inbound-reaction'
     )
     expect(mod.COMMUNICATION_CHANNELS_PROCESS_INBOUND_REACTION_COMMAND_ID).toBe(
-      'communication_channels.process_inbound_reaction',
+      'communication_channels.reaction.process_inbound',
     )
     expect(mod.default).toBeDefined()
-    expect(mod.default.id).toBe('communication_channels.process_inbound_reaction')
+    expect(mod.default.id).toBe('communication_channels.reaction.process_inbound')
     expect(typeof mod.default.execute).toBe('function')
   })
 
@@ -28,10 +28,10 @@ test.describe('TC-045D-004a: reactions module contract', () => {
       '@open-mercato/core/modules/communication_channels/commands/toggle-outbound-reaction'
     )
     expect(mod.COMMUNICATION_CHANNELS_TOGGLE_OUTBOUND_REACTION_COMMAND_ID).toBe(
-      'communication_channels.toggle_outbound_reaction',
+      'communication_channels.reaction.toggle_outbound',
     )
     expect(mod.default).toBeDefined()
-    expect(mod.default.id).toBe('communication_channels.toggle_outbound_reaction')
+    expect(mod.default.id).toBe('communication_channels.reaction.toggle_outbound')
     expect(typeof mod.default.execute).toBe('function')
   })
 

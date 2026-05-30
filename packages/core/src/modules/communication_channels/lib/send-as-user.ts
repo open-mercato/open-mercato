@@ -151,7 +151,8 @@ export async function sendAsUser(
       },
     )
   } catch (err) {
-    return { ok: false, status: 500, error: err instanceof Error ? err.message : 'compose failed' }
+    console.error('[communication_channels] send-as-user compose failed', err)
+    return { ok: false, status: 500, error: '[internal] compose failed' }
   }
 
   const messageId = result.result.id

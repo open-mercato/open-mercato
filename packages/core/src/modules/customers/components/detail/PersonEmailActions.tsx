@@ -202,7 +202,6 @@ export function PersonEmailActions({ personId, personEmail }: PersonEmailActions
       <ComposeEmailDialog
         open={open}
         onOpenChange={setOpen}
-        personId={personId}
         defaultRecipient={personEmail}
         channels={channels}
         onSend={onSend}

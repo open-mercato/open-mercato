@@ -1,7 +1,7 @@
 import { expect, test } from '@playwright/test'
 
 /**
- * TC-045D-003a — `communication_channels.deliver_outbound_message` command is
+ * TC-045D-003a — `communication_channels.message.deliver_outbound` command is
  * registered with the command bus at module load time.
  *
  * Slice 2c: the outbound bridge depends on this command. The command is registered
@@ -14,10 +14,10 @@ test.describe('TC-045D-003a: deliver_outbound_message command registration', () 
       '@open-mercato/core/modules/communication_channels/commands/deliver-outbound-message'
     )
     expect(mod.COMMUNICATION_CHANNELS_DELIVER_OUTBOUND_COMMAND_ID).toBe(
-      'communication_channels.deliver_outbound_message',
+      'communication_channels.message.deliver_outbound',
     )
     expect(mod.default).toBeDefined()
-    expect(mod.default.id).toBe('communication_channels.deliver_outbound_message')
+    expect(mod.default.id).toBe('communication_channels.message.deliver_outbound')
     expect(typeof mod.default.execute).toBe('function')
   })
 

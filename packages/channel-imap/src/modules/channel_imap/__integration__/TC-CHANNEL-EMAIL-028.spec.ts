@@ -15,5 +15,5 @@ import { test } from '@playwright/test'
  * paths in `poll-channel.test.ts`. Full E2E in the QA scenario.
  */
 test.describe('TC-CHANNEL-EMAIL-028: Malformed MIME → dead-letter', () => {
-  test.skip('full E2E covered by QA scenario markdown (requires mock-imap fixture)', () => {})
+  test.skip('behavioral coverage: workers/__tests__/poll-channel.test.ts (permanent ingest failure → dead-letter + cursor advances; transient → cursor held). Playwright E2E is infeasible — provider mock seams are process-local.', () => {})
 })

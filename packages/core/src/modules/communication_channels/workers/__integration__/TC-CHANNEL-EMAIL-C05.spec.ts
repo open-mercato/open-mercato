@@ -23,5 +23,5 @@ import { test } from '@playwright/test'
  * renewal pathway exists for QA-tracking purposes.
  */
 test.describe('TC-CHANNEL-EMAIL-C05: Renewal cron', () => {
-  test.skip('full E2E covered by QA scenario markdown (manual + scheduler fast-forward)', () => {})
+  test.skip('behavioral coverage: workers/__tests__/{gmail-renew-watch,microsoft-renew-subscriptions}.test.ts (renewal within lead window + scope filtering). Playwright E2E is infeasible — provider mock seams are process-local + needs scheduler fast-forward.', () => {})
 })

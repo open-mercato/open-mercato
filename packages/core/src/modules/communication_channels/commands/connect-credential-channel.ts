@@ -27,7 +27,7 @@ export type ConnectCredentialChannelResult =
   | { status: 'no_adapter'; reason: string }
 
 export const COMMUNICATION_CHANNELS_CONNECT_CREDENTIAL_CHANNEL_COMMAND_ID =
-  'communication_channels.connect_credential_channel'
+  'communication_channels.channel.connect_credential'
 
 type CredentialsServiceLike = {
   save?: (

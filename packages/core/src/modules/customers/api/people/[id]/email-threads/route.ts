@@ -6,7 +6,6 @@ import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import { findOneWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import { resolveOrganizationScopeForRequest } from '@open-mercato/core/modules/directory/utils/organizationScope'
 import { CustomerEntity } from '../../../../data/entities'
-import { resolveAuthActorId } from '../../../../lib/interactionRequestContext'
 import { buildPersonEmailThreads } from '../../../../lib/personEmailThreads'
 
 export const metadata = {
@@ -30,10 +29,11 @@ type RbacServiceLike = {
 
 async function resolveUserFeatures(
   container: { resolve: (name: string) => unknown },
-  userId: string,
+  userId: string | null,
   tenantId: string | null,
   organizationId: string | null,
 ): Promise<string[] | undefined> {
+  if (!userId) return undefined
   try {
     const rbac = container.resolve('rbacService') as RbacServiceLike | undefined
     if (!rbac?.getGrantedFeatures) return undefined
@@ -79,7 +79,7 @@ export async function GET(req: Request, context: RouteContext): Promise<Response
     return NextResponse.json({ error: 'Person not found' }, { status: 404 })
   }
 
-  const viewerUserId = resolveAuthActorId(auth)
+  const viewerUserId = auth.isApiKey ? null : auth.sub ?? null
   const userFeatures = await resolveUserFeatures(
     container,
     viewerUserId,

@@ -5,7 +5,7 @@ import toggleOutboundReactionCommand, {
 describe('toggleOutboundReactionCommand metadata', () => {
   it('exports the canonical command id', () => {
     expect(COMMUNICATION_CHANNELS_TOGGLE_OUTBOUND_REACTION_COMMAND_ID).toBe(
-      'communication_channels.toggle_outbound_reaction',
+      'communication_channels.reaction.toggle_outbound',
     )
     expect(toggleOutboundReactionCommand.id).toBe(
       COMMUNICATION_CHANNELS_TOGGLE_OUTBOUND_REACTION_COMMAND_ID,

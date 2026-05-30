@@ -41,7 +41,7 @@ export interface DisconnectChannelUndoSnapshot {
 }
 
 export const COMMUNICATION_CHANNELS_DISCONNECT_CHANNEL_COMMAND_ID =
-  'communication_channels.disconnect_channel'
+  'communication_channels.channel.disconnect'
 
 /**
  * Disconnect a per-user channel.
@@ -155,6 +155,20 @@ const disconnectChannelCommand: CommandHandler<
 
     return { status: 'disconnected', channelId: channel.id, undo }
   },
+  // Persist the undo snapshot into the action log. Without this, the command bus
+  // mints an undo token (so the UI offers "Undo") but the snapshot returned from
+  // execute() is never stored, and undo() would silently no-op.
+  async buildLog({ input, result }) {
+    if (result.status !== 'disconnected') return null
+    return {
+      resourceKind: 'communication_channels.channel',
+      resourceId: result.channelId,
+      tenantId: result.undo.tenantId ?? input.scope.tenantId,
+      organizationId: input.scope.organizationId ?? null,
+      payload: { undo: result.undo },
+      snapshotBefore: result.undo,
+    }
+  },
   async undo({ ctx, logEntry }) {
     const snapshot = extractSnapshotFromLog(logEntry)
     if (!snapshot) return
@@ -166,6 +180,8 @@ const disconnectChannelCommand: CommandHandler<
       em,
       CommunicationChannel,
       { id: snapshot.channelId, tenantId: snapshot.tenantId },
+      undefined,
+      { tenantId: snapshot.tenantId, organizationId: null },
     )
     if (!channel) return
 
@@ -209,7 +225,7 @@ export function extractUndoPayload(value: unknown): DisconnectChannelUndoSnapsho
  * shared `extractUndoPayload` helper, then through the local shape-validator.
  * Always falls back to `null` so the undo handler can no-op safely.
  */
-function extractSnapshotFromLog(logEntry: unknown): DisconnectChannelUndoSnapshot | null {
+export function extractSnapshotFromLog(logEntry: unknown): DisconnectChannelUndoSnapshot | null {
   const undo = extractSharedUndoPayload<DisconnectChannelUndoSnapshot>(
     (logEntry ?? null) as never,
   )

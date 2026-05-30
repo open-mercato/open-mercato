@@ -82,6 +82,41 @@ export function ensureBrackets(value: string): string {
   return `<${trimmed}>`
 }
 
+function isPureAscii(value: string): boolean {
+  // eslint-disable-next-line no-control-regex
+  return /^[\x00-\x7F]*$/.test(value)
+}
+
+/**
+ * Encode a single header value as an RFC 2047 "B" (base64) encoded-word when it
+ * contains non-ASCII characters, so 8-bit text like "Café" survives strict MTAs
+ * that treat header bytes as 7-bit ASCII. Pure-ASCII values are returned
+ * unchanged. Apply only AFTER `sanitizeHeaderValue` so the CR/LF injection guard
+ * still runs against the raw value.
+ */
+export function encodeHeaderWord(value: string): string {
+  if (isPureAscii(value)) return value
+  return `=?utf-8?B?${Buffer.from(value, 'utf-8').toString('base64')}?=`
+}
+
+/**
+ * Encode the display-name part of a single address header value, leaving the
+ * `<addr@domain>` untouched (per RFC 2047, encoded-words are not permitted
+ * inside the addr-spec). Inputs without a bracketed address are treated as a
+ * bare display name / address and encoded only when non-ASCII.
+ */
+export function encodeAddressHeaderWord(value: string): string {
+  if (isPureAscii(value)) return value
+  const match = value.match(/^(.*?)(\s*<[^>]*>)\s*$/)
+  if (match) {
+    const [, displayPart, addrPart] = match
+    const displayName = displayPart.replace(/^"|"$/g, '').trim()
+    if (!displayName) return value
+    return `${encodeHeaderWord(displayName)}${addrPart}`
+  }
+  return encodeHeaderWord(value)
+}
+
 /**
  * Generate an RFC 5322 Message-ID rooted in the sender's domain. Used as a
  * downstream idempotency key, so entropy comes from `crypto.randomUUID()`
@@ -106,6 +141,19 @@ export interface AssembleRfc2822Input {
 }
 
 /**
+ * Render one MIME body part's CTE header + body content. Non-ASCII bodies are
+ * base64-encoded (CRLF-wrapped at 76 cols) and labelled
+ * `Content-Transfer-Encoding: base64` so 8-bit text survives strict MTAs;
+ * pure-ASCII bodies stay `7bit` and verbatim.
+ */
+function encodeBodyPart(content: string): { cte: string; body: string } {
+  if (isPureAscii(content)) return { cte: '7bit', body: content }
+  const base64 = Buffer.from(content, 'utf-8').toString('base64')
+  const wrapped = base64.match(/.{1,76}/g)?.join('\r\n') ?? base64
+  return { cte: 'base64', body: wrapped }
+}
+
+/**
  * Assemble a raw RFC2822 message (used by transports that send the encoded
  * message directly, e.g. Gmail `users.messages.send`). Emits a
  * `multipart/alternative` body when both html and text are present, otherwise a
@@ -114,11 +162,11 @@ export interface AssembleRfc2822Input {
 export function assembleRfc2822(input: AssembleRfc2822Input): Buffer {
   const boundary = `omc_${crypto.randomUUID()}`
   const headers: string[] = []
-  headers.push(`From: ${sanitizeHeaderValue(input.from)}`)
-  headers.push(`To: ${input.to.map(sanitizeHeaderValue).join(', ')}`)
-  if (input.cc.length) headers.push(`Cc: ${input.cc.map(sanitizeHeaderValue).join(', ')}`)
-  if (input.bcc.length) headers.push(`Bcc: ${input.bcc.map(sanitizeHeaderValue).join(', ')}`)
-  if (input.subject) headers.push(`Subject: ${sanitizeHeaderValue(input.subject)}`)
+  headers.push(`From: ${encodeAddressHeaderWord(sanitizeHeaderValue(input.from))}`)
+  headers.push(`To: ${input.to.map((value) => encodeAddressHeaderWord(sanitizeHeaderValue(value))).join(', ')}`)
+  if (input.cc.length) headers.push(`Cc: ${input.cc.map((value) => encodeAddressHeaderWord(sanitizeHeaderValue(value))).join(', ')}`)
+  if (input.bcc.length) headers.push(`Bcc: ${input.bcc.map((value) => encodeAddressHeaderWord(sanitizeHeaderValue(value))).join(', ')}`)
+  if (input.subject) headers.push(`Subject: ${encodeHeaderWord(sanitizeHeaderValue(input.subject))}`)
   headers.push(`Message-ID: ${ensureBrackets(input.messageId)}`)
   if (input.inReplyTo) headers.push(`In-Reply-To: ${ensureBrackets(input.inReplyTo)}`)
   if (input.references && input.references.length) {
@@ -129,18 +177,20 @@ export function assembleRfc2822(input: AssembleRfc2822Input): Buffer {
 
   if (input.html && input.text) {
     headers.push(`Content-Type: multipart/alternative; boundary="${boundary}"`)
+    const textPart = encodeBodyPart(input.text)
+    const htmlPart = encodeBodyPart(input.html)
     const body = [
       '',
       `--${boundary}`,
       'Content-Type: text/plain; charset=utf-8',
-      'Content-Transfer-Encoding: 7bit',
+      `Content-Transfer-Encoding: ${textPart.cte}`,
       '',
-      input.text,
+      textPart.body,
       `--${boundary}`,
       'Content-Type: text/html; charset=utf-8',
-      'Content-Transfer-Encoding: 7bit',
+      `Content-Transfer-Encoding: ${htmlPart.cte}`,
       '',
-      input.html,
+      htmlPart.body,
       `--${boundary}--`,
       '',
     ].join('\r\n')
@@ -148,14 +198,16 @@ export function assembleRfc2822(input: AssembleRfc2822Input): Buffer {
   }
 
   if (input.html) {
+    const htmlPart = encodeBodyPart(input.html)
     headers.push('Content-Type: text/html; charset=utf-8')
-    headers.push('Content-Transfer-Encoding: 7bit')
-    return Buffer.from(headers.join('\r\n') + '\r\n\r\n' + input.html, 'utf-8')
+    headers.push(`Content-Transfer-Encoding: ${htmlPart.cte}`)
+    return Buffer.from(headers.join('\r\n') + '\r\n\r\n' + htmlPart.body, 'utf-8')
   }
 
+  const textPart = encodeBodyPart(input.text ?? '')
   headers.push('Content-Type: text/plain; charset=utf-8')
-  headers.push('Content-Transfer-Encoding: 7bit')
-  return Buffer.from(headers.join('\r\n') + '\r\n\r\n' + (input.text ?? ''), 'utf-8')
+  headers.push(`Content-Transfer-Encoding: ${textPart.cte}`)
+  return Buffer.from(headers.join('\r\n') + '\r\n\r\n' + textPart.body, 'utf-8')
 }
 
 // ── Inbound MIME parsing ──────────────────────────────────────

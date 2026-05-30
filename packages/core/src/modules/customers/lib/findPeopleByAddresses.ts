@@ -1,5 +1,5 @@
 import type { EntityManager } from '@mikro-orm/postgresql'
-import { findOneWithDecryption } from '@open-mercato/shared/lib/encryption/find'
+import { findWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import { CustomerEntity } from '../data/entities'
 
 /**
@@ -32,18 +32,25 @@ export interface MatchedPerson {
 }
 
 /**
+ * Max person rows scanned by the in-memory fallback match. `primary_email` is
+ * GDPR-encrypted with a random IV (see `customers/encryption.ts`), so it cannot
+ * be filtered by value in SQL when tenant data encryption is on — recent rows are
+ * decrypted and compared in memory instead. Bounded to keep the inbound path cheap;
+ * a `primary_email` blind-index (hash) column is the follow-up if tenants outgrow it.
+ */
+const MATCH_CANDIDATE_LIMIT = 500
+
+/**
  * Batch lookup of CustomerEntity rows (kind='person') whose `primaryEmail`
  * matches any of the given addresses (case-insensitive), scoped to the tenant
- * and organization.
+ * and organization. Returns at most one MatchedPerson per resolved person.
  *
- * Why one query per address: `primary_email` is encrypted, so SQL `WHERE
- * primary_email IN (...)` against ciphertext can't match. Each call to
- * `findOneWithDecryption` uses the canonical deterministic-encryption lookup
- * (matching `inbox-actions.ts`'s lookup pattern). N is typically 1-5 per
- * inbound email (From + To + Cc), so the cost is acceptable.
- *
- * If a future optimization is needed, integrate with `search_tokens` (see
- * `customers/api/utils.ts:findSearchTokenEntityIds`).
+ * `primary_email` is encrypted with a non-deterministic IV, so a `WHERE
+ * primary_email = ?` filter silently matches nothing when encryption is on. We
+ * therefore try a direct equality match first (the fast path when encryption is
+ * off) and, for any address it leaves unresolved, fall back to scanning recent
+ * decrypted person rows and comparing in memory — the same dual-mode pattern as
+ * `inbox-actions.ts`.
  */
 export async function findPeopleByAddresses(
   em: EntityManager,
@@ -55,26 +62,46 @@ export async function findPeopleByAddresses(
   if (normalized.length === 0) return []
   if (!organizationId) return []
   const dscope = { tenantId, organizationId }
+  const resolved = new Map<string, string>()
+
+  // Fast path: direct equality match. Matches exactly when tenant data encryption
+  // is off; returns nothing against encrypted (random-IV) ciphertext, which the
+  // in-memory fallback below covers.
+  const direct = (await findWithDecryption(
+    em,
+    CustomerEntity,
+    { primaryEmail: { $in: normalized }, kind: 'person', tenantId, organizationId, deletedAt: null },
+    undefined,
+    dscope,
+  )) as Array<{ id: string; primaryEmail?: string | null }>
+  for (const row of direct) {
+    const rowEmail = row.primaryEmail?.trim().toLowerCase()
+    if (rowEmail && !resolved.has(rowEmail)) resolved.set(rowEmail, row.id)
+  }
+
+  // Fallback for unresolved addresses (the encryption-on path): scan recent person
+  // rows and compare decrypted emails in memory.
+  if (normalized.some((email) => !resolved.has(email))) {
+    const candidates = (await findWithDecryption(
+      em,
+      CustomerEntity,
+      { kind: 'person', tenantId, organizationId, deletedAt: null },
+      { limit: MATCH_CANDIDATE_LIMIT, orderBy: { createdAt: 'DESC' } },
+      dscope,
+    )) as Array<{ id: string; primaryEmail?: string | null }>
+    for (const row of candidates) {
+      const rowEmail = row.primaryEmail?.trim().toLowerCase()
+      if (rowEmail && !resolved.has(rowEmail)) resolved.set(rowEmail, row.id)
+    }
+  }
+
   const seen = new Set<string>()
   const out: MatchedPerson[] = []
   for (const email of normalized) {
-    const row = (await findOneWithDecryption(
-      em,
-      CustomerEntity,
-      {
-        primaryEmail: email,
-        kind: 'person',
-        tenantId,
-        organizationId,
-        deletedAt: null,
-      } as any,
-      undefined,
-      dscope,
-    )) as { id: string; primaryEmail?: string | null } | null
-    if (!row) continue
-    if (seen.has(row.id)) continue
-    seen.add(row.id)
-    out.push({ id: row.id, email })
+    const id = resolved.get(email)
+    if (!id || seen.has(id)) continue
+    seen.add(id)
+    out.push({ id, email })
   }
   return out
 }

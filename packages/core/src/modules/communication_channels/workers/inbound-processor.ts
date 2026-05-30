@@ -44,7 +44,7 @@ type HandlerContext = JobContext & {
  * Per SPEC-045d §6:
  *   - Resolves the channel adapter for the inbound providerKey.
  *   - Calls `adapter.normalizeInbound(raw)` to produce a `NormalizedInboundMessage`.
- *   - Hands off to the `communication_channels.ingest_inbound_message` command,
+ *   - Hands off to the `communication_channels.message.ingest_inbound` command,
  *     which idempotently creates ExternalConversation, ChannelThreadMapping,
  *     ExternalMessage, MessageChannelLink, and composes the platform Message.
  *

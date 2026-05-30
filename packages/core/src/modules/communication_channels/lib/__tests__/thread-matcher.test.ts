@@ -72,6 +72,33 @@ function buildEm(opts: {
   return { em, flushed }
 }
 
+/**
+ * EM mock for the raw-SQL strategies (3 JWZ + 4 subject/participants). Unlike
+ * `buildEm`, `execute` is routed by SQL content so the JWZ two-step lookup
+ * (message-id → thread-id) and the subject/participants query can return
+ * distinct rows. `tokenRow` defaults to null so the token strategies miss and
+ * control reaches Strategy 3/4.
+ */
+function buildSqlEm(
+  route: (sql: string, params: unknown[]) => Array<Record<string, unknown>>,
+  opts: { tokenRow?: ChannelThreadToken | null; mappingRow?: unknown } = {},
+): { em: ThreadMatcherDeps['em']; execute: jest.Mock; findOne: jest.Mock } {
+  const findOne = jest.fn(async (entity: unknown) => {
+    if (entity === ChannelThreadMapping) {
+      return opts.mappingRow !== undefined ? opts.mappingRow : { id: 'mapping-default' }
+    }
+    return opts.tokenRow ?? null
+  })
+  const flush = jest.fn(async () => {})
+  const execute = jest.fn(async (sql: string, params: unknown[]) => route(sql, params))
+  const em = {
+    findOne,
+    flush,
+    getConnection: () => ({ execute }),
+  } as unknown as ThreadMatcherDeps['em']
+  return { em, execute, findOne }
+}
+
 describe('thread-matcher', () => {
   beforeEach(() => {
     process.env.OM_THREAD_TOKEN_SECRET = TEST_SECRET
@@ -318,6 +345,150 @@ describe('thread-matcher', () => {
       )
       expect(result?.matchedBy).toBe('token-references')
       expect(result?.messageThreadId).toBe('thread-on-this-channel')
+    })
+  })
+
+  describe('matchThread — Strategy 3 (JWZ on Message-Id)', () => {
+    it('resolves a medium-confidence match from an In-Reply-To message-id', async () => {
+      const { em } = buildSqlEm(
+        (sql) => {
+          if (sql.includes('regexp_replace')) return []
+          if (sql.includes('link.message_id')) return [{ message_id: 'platform-msg-1' }]
+          if (sql.includes('FROM messages')) return [{ thread_id: 'thread-jwz' }]
+          return []
+        },
+        { tokenRow: null },
+      )
+      const result = await matchThread(
+        buildInput({ inReplyTo: '<orig-outbound@example.com>', references: [] }),
+        { em },
+      )
+      expect(result).toEqual({
+        messageThreadId: 'thread-jwz',
+        matchedBy: 'jwz-headers',
+        confidence: 'medium',
+      })
+    })
+
+    it('resolves via any References entry, not only In-Reply-To', async () => {
+      const seenParams: unknown[][] = []
+      const { em } = buildSqlEm(
+        (sql, params) => {
+          seenParams.push(params)
+          if (sql.includes('link.message_id')) return [{ message_id: 'm' }]
+          if (sql.includes('FROM messages')) return [{ thread_id: 'thread-from-refs' }]
+          return []
+        },
+        { tokenRow: null },
+      )
+      const result = await matchThread(
+        buildInput({ inReplyTo: null, references: ['<root@example.com>', '<mid@example.com>'] }),
+        { em },
+      )
+      expect(result?.matchedBy).toBe('jwz-headers')
+      // The candidate message-ids are passed to the JWZ query as a stripped,
+      // angle-bracket-free Postgres text array.
+      const jwzParams = seenParams[0]
+      expect(String(jwzParams[2])).toContain('root@example.com')
+      expect(String(jwzParams[2])).not.toContain('<')
+    })
+
+    it('returns null from JWZ when a matching message-id resolves to a null thread', async () => {
+      const { em } = buildSqlEm(
+        (sql) => {
+          if (sql.includes('regexp_replace')) return []
+          if (sql.includes('link.message_id')) return [{ message_id: 'platform-msg-1' }]
+          if (sql.includes('FROM messages')) return [{ thread_id: null }]
+          return []
+        },
+        { tokenRow: null },
+      )
+      const result = await matchThread(buildInput({ inReplyTo: '<orig@example.com>' }), { em })
+      expect(result).toBeNull()
+    })
+
+    it('does not run JWZ when there are no In-Reply-To/References headers', async () => {
+      const { em, execute } = buildSqlEm(() => [], { tokenRow: null })
+      await matchThread(buildInput({ inReplyTo: null, references: [], subject: 'Re: Fwd:' }), { em })
+      // Empty references → JWZ skipped; 'Re: Fwd:' normalizes to '' → Strategy 4
+      // skipped too. No raw SQL should fire.
+      expect(execute).not.toHaveBeenCalled()
+    })
+  })
+
+  describe('matchThread — Strategy 4 (subject + participants)', () => {
+    it('resolves a low-confidence match within the lookback window', async () => {
+      const { em } = buildSqlEm(
+        (sql) => (sql.includes('regexp_replace') ? [{ thread_id: 'thread-subject' }] : []),
+        { tokenRow: null },
+      )
+      const result = await matchThread(
+        buildInput({ subject: 'Re: Project kickoff', inReplyTo: null, references: [] }),
+        { em },
+      )
+      expect(result).toEqual({
+        messageThreadId: 'thread-subject',
+        matchedBy: 'subject-participants',
+        confidence: 'low',
+      })
+    })
+
+    it('falls through from a JWZ miss to subject+participants', async () => {
+      const { em } = buildSqlEm(
+        (sql) => {
+          if (sql.includes('regexp_replace')) return [{ thread_id: 'thread-subject-fallback' }]
+          return [] // JWZ message-id query: no hit
+        },
+        { tokenRow: null },
+      )
+      const result = await matchThread(
+        buildInput({ inReplyTo: '<unknown-origin@example.com>', subject: 'Re: Quote #42' }),
+        { em },
+      )
+      expect(result?.matchedBy).toBe('subject-participants')
+      expect(result?.confidence).toBe('low')
+    })
+
+    it('passes the lookback cutoff and lowercased participants to the query', async () => {
+      let captured: unknown[] = []
+      const { em } = buildSqlEm(
+        (sql, params) => {
+          if (sql.includes('regexp_replace')) {
+            captured = params
+            return [{ thread_id: 't' }]
+          }
+          return []
+        },
+        { tokenRow: null },
+      )
+      await matchThread(
+        buildInput({
+          subject: 'Quarterly review',
+          inReplyTo: null,
+          references: [],
+          fromAddress: 'Alice@Example.com',
+          toAddresses: ['BOB@example.com'],
+          receivedAt: new Date('2026-05-27T10:00:00Z'),
+        }),
+        { em, now: () => new Date('2026-05-27T10:00:00Z') },
+      )
+      // [tenantId, channelId, cutoff, normalizedSubject, from[], to[], cc[]]
+      const cutoff = captured[2] as Date
+      expect(cutoff).toBeInstanceOf(Date)
+      // 30-day lookback before the fixed `now`.
+      expect(cutoff.toISOString()).toBe('2026-04-27T10:00:00.000Z')
+      expect(captured[3]).toBe('quarterly review')
+      expect(String(captured[4])).toContain('alice@example.com')
+    })
+
+    it('skips subject+participants when the normalized subject is empty', async () => {
+      const { em, execute } = buildSqlEm(() => [], { tokenRow: null })
+      const result = await matchThread(
+        buildInput({ subject: '[EXTERNAL] Re:', inReplyTo: null, references: [] }),
+        { em },
+      )
+      expect(result).toBeNull()
+      expect(execute).not.toHaveBeenCalled()
     })
   })
 })

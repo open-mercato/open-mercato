@@ -9,7 +9,7 @@ import {
   type ComposeEmailChannel,
   type ComposeEmailValues,
 } from './ComposeEmailDialog'
-import { Button } from '@open-mercato/ui/primitives/button'
+import { IconButton } from '@open-mercato/ui/primitives/icon-button'
 import { apiCall } from '@open-mercato/ui/backend/utils/apiCall'
 import { useGuardedMutation } from '@open-mercato/ui/backend/injection/useGuardedMutation'
 import { useAppEvent } from '@open-mercato/ui/backend/injection/useAppEvent'
@@ -165,7 +165,7 @@ export function EmailCardActions({ data }: EmailCardActionsProps) {
         disabled={noChannels}
       />
       {data.isAuthor === true && data.currentVisibility ? (
-        <Button
+        <IconButton
           type="button"
           variant="ghost"
           size="sm"
@@ -235,13 +235,12 @@ export function EmailCardActions({ data }: EmailCardActionsProps) {
           ) : (
             <Users className="h-4 w-4" />
           )}
-        </Button>
+        </IconButton>
       ) : null}
       {mode != null && (
         <ComposeEmailDialog
           open={mode != null}
           onOpenChange={(open) => setMode(open ? mode : null)}
-          personId={personId}
           defaultRecipient={fromAddress}
           channels={channels}
           replyTo={replyTo}

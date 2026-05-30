@@ -32,7 +32,7 @@ describe('disconnect-channel beforeUndo interceptor', () => {
       {
         input: {},
         logEntry: {
-          result: {
+          commandPayload: {
             undo: {
               channelId,
               previousStatus: 'connected',
@@ -61,7 +61,7 @@ describe('disconnect-channel beforeUndo interceptor', () => {
       {
         input: {},
         logEntry: {
-          result: {
+          commandPayload: {
             undo: {
               channelId,
               tenantId,
@@ -89,7 +89,7 @@ describe('disconnect-channel beforeUndo interceptor', () => {
       {
         input: {},
         logEntry: {
-          result: {
+          commandPayload: {
             undo: {
               channelId,
               tenantId,
@@ -114,7 +114,7 @@ describe('disconnect-channel beforeUndo interceptor', () => {
     const result = await disconnectInterceptor.beforeUndo!(
       {
         input: {},
-        logEntry: { result: { undo: null } },
+        logEntry: { commandPayload: { undo: null } },
         undoToken: 't',
       } as never,
       makeCtxRuntime({ findOne }),

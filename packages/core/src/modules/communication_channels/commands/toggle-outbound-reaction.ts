@@ -53,7 +53,7 @@ export type ToggleOutboundReactionResult =
   | { status: 'noop'; reason: string }
 
 export const COMMUNICATION_CHANNELS_TOGGLE_OUTBOUND_REACTION_COMMAND_ID =
-  'communication_channels.toggle_outbound_reaction'
+  'communication_channels.reaction.toggle_outbound'
 
 /**
  * Combined outbound add/remove command.

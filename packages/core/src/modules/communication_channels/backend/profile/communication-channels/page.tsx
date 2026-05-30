@@ -17,6 +17,7 @@ import {
   DialogTitle,
 } from '@open-mercato/ui/primitives/dialog'
 import { Input } from '@open-mercato/ui/primitives/input'
+import { Label } from '@open-mercato/ui/primitives/label'
 import { Textarea } from '@open-mercato/ui/primitives/textarea'
 import { KbdShortcut } from '@open-mercato/ui/primitives/kbd'
 import { InjectionSpot } from '@open-mercato/ui/backend/injection/InjectionSpot'
@@ -631,9 +632,9 @@ function ImportHistoryDialog({ channel, onClose, onQueued }: ImportHistoryDialog
 
         <div className="space-y-4">
           <div className="space-y-1">
-            <label className="text-sm font-medium" htmlFor="import-history-since">
+            <Label htmlFor="import-history-since">
               {t('communication_channels.profile.importHistory.fields.sinceDays', 'Look back (days)')}
-            </label>
+            </Label>
             <Input
               id="import-history-since"
               type="number"
@@ -644,17 +645,17 @@ function ImportHistoryDialog({ channel, onClose, onQueued }: ImportHistoryDialog
               aria-invalid={Boolean(fieldErrors.sinceDays)}
             />
             {fieldErrors.sinceDays ? (
-              <p className="text-xs text-status-error-foreground">{fieldErrors.sinceDays}</p>
+              <p className="text-xs text-status-error-text">{fieldErrors.sinceDays}</p>
             ) : null}
           </div>
 
           <div className="space-y-1">
-            <label className="text-sm font-medium" htmlFor="import-history-emails">
+            <Label htmlFor="import-history-emails">
               {t(
                 'communication_channels.profile.importHistory.fields.contactEmails',
                 'Filter by sender (optional)',
               )}
-            </label>
+            </Label>
             <Textarea
               id="import-history-emails"
               rows={3}
@@ -667,7 +668,7 @@ function ImportHistoryDialog({ channel, onClose, onQueued }: ImportHistoryDialog
               aria-invalid={Boolean(fieldErrors.contactEmails)}
             />
             {fieldErrors.contactEmails ? (
-              <p className="text-xs text-status-error-foreground">{fieldErrors.contactEmails}</p>
+              <p className="text-xs text-status-error-text">{fieldErrors.contactEmails}</p>
             ) : (
               <p className="text-xs text-muted-foreground">
                 {t(
@@ -679,9 +680,9 @@ function ImportHistoryDialog({ channel, onClose, onQueued }: ImportHistoryDialog
           </div>
 
           <div className="space-y-1">
-            <label className="text-sm font-medium" htmlFor="import-history-max">
+            <Label htmlFor="import-history-max">
               {t('communication_channels.profile.importHistory.fields.maxMessages', 'Maximum messages')}
-            </label>
+            </Label>
             <Input
               id="import-history-max"
               type="number"
@@ -692,7 +693,7 @@ function ImportHistoryDialog({ channel, onClose, onQueued }: ImportHistoryDialog
               aria-invalid={Boolean(fieldErrors.maxMessages)}
             />
             {fieldErrors.maxMessages ? (
-              <p className="text-xs text-status-error-foreground">{fieldErrors.maxMessages}</p>
+              <p className="text-xs text-status-error-text">{fieldErrors.maxMessages}</p>
             ) : null}
           </div>
 

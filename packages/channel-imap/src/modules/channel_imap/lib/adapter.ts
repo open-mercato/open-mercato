@@ -145,7 +145,7 @@ class ImapChannelAdapter implements ChannelAdapter {
 
   async fetchHistory(input: FetchHistoryInput): Promise<HistoryPage> {
     const credentials = parseCredentialsOrThrow(input.credentials)
-    const channelState = imapChannelStateSchema.parse(((input as unknown) as { channelState?: unknown }).channelState ?? {}) satisfies ImapChannelState
+    const channelState = imapChannelStateSchema.parse(input.channelState ?? {}) satisfies ImapChannelState
     const imap = getImapClient()
     const connection = credentialsToConnection(credentials)
 

@@ -295,7 +295,6 @@ type EmailIntegrationFields = {
   fromAddress?: string | null
   toAddresses?: string[] | null
   ccAddresses?: string[] | null
-  bccAddresses?: string[] | null
   subject?: string | null
   inReplyTo?: string | null
   references?: string[] | null
@@ -394,7 +393,9 @@ export const interactionEmailCardEnricher: ResponseEnricher<
         fromAddress: typeof meta.from === 'string' ? meta.from : null,
         toAddresses: stringArrayOrNull(meta.to),
         ccAddresses: stringArrayOrNull(meta.cc),
-        bccAddresses: stringArrayOrNull(meta.bcc),
+        // bcc is intentionally NOT surfaced: BCC recipients are blind by design,
+        // so exposing them to every teammate who can view a shared email would
+        // leak the blind-copy list. Keep it out of the enriched response.
         subject: typeof meta.subject === 'string' ? meta.subject : null,
         inReplyTo: typeof meta.inReplyTo === 'string' ? meta.inReplyTo : null,
         references: stringArrayOrNull(meta.references),

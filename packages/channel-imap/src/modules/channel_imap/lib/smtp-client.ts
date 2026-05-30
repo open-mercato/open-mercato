@@ -1,4 +1,5 @@
 import type { ImapCredentials } from './credentials'
+import { assertTransportAllowed } from './transport'
 
 /**
  * Outbound SMTP client wrapper. Same trade-offs as `imap-client.ts`: we wrap
@@ -182,6 +183,7 @@ export function setSmtpClient(client: SmtpClient | null): void {
 }
 
 export function credentialsToSmtpConnection(credentials: ImapCredentials): SmtpConnectionOptions {
+  assertTransportAllowed(credentials)
   return {
     host: credentials.smtpHost,
     port: Number(credentials.smtpPort),

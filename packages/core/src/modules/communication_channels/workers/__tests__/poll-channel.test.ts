@@ -1,5 +1,6 @@
 import handler, { POLL_CHANNEL_MAX_ATTEMPTS, metadata, type PollChannelJobPayload } from '../poll-channel'
 import type { QueuedJob } from '@open-mercato/queue'
+import { ChannelIngestDeadLetter } from '../../data/entities'
 
 const enqueueMock = jest.fn(async () => 'next-job')
 jest.mock('../../lib/queue', () => {
@@ -54,10 +55,23 @@ describe('poll-channel worker behaviour', () => {
     }
   }
 
-  function makeCtx(channel: any, adapter: any, fetchHistoryImpl?: () => Promise<any>) {
+  function makeCtx(
+    channel: any,
+    adapter: any,
+    fetchHistoryImpl?: () => Promise<any>,
+    ingestExecuteImpl?: (...args: any[]) => Promise<any>,
+    deadLetterLookup: jest.Mock = jest.fn(async () => null),
+  ) {
     const em = {
-      findOne: jest.fn(async () => channel),
+      // The channel load resolves to `channel`; the dead-letter dedup pre-check
+      // (writeIngestDeadLetter → em.findOne(ChannelIngestDeadLetter, ...)) uses
+      // the injectable `deadLetterLookup` (defaults to "no existing row").
+      findOne: jest.fn(async (entity: unknown) =>
+        entity === ChannelIngestDeadLetter ? deadLetterLookup() : channel,
+      ),
       flush: jest.fn(async () => undefined),
+      create: jest.fn((_entity: unknown, data: Record<string, unknown>) => ({ ...data })),
+      persist: jest.fn(),
     }
     const ctx = {
       jobId: 'job-1',
@@ -66,7 +80,8 @@ describe('poll-channel worker behaviour', () => {
       resolve: ((name: string) => {
         if (name === 'em') return { fork: () => em }
         if (name === 'channelAdapterRegistry') return { get: () => adapter }
-        if (name === 'commandBus') return { execute: jest.fn(async () => ({ result: {}, logEntry: null })) }
+        if (name === 'commandBus')
+          return { execute: ingestExecuteImpl ?? jest.fn(async () => ({ result: {}, logEntry: null })) }
         if (name === 'integrationCredentialsService') return { resolve: async () => ({}) }
         return null
       }) as <T>(name: string) => T,
@@ -74,7 +89,7 @@ describe('poll-channel worker behaviour', () => {
     if (adapter && fetchHistoryImpl) {
       adapter.fetchHistory = fetchHistoryImpl
     }
-    return { ctx, em }
+    return { ctx, em, deadLetterLookup }
   }
 
   it('skips when channel is inactive', async () => {
@@ -201,5 +216,125 @@ describe('poll-channel worker behaviour', () => {
     await handler(makeJob(), ctx)
     expect(channel.lastError).toBeNull()
     expect(channel.lastPolledAt?.getTime() ?? 0).toBeGreaterThan(beforePoll.getTime())
+  })
+
+  // TC-CHANNEL-EMAIL-028 — a permanently-unprocessable message must not stall
+  // the channel: it lands in the dead-letter table and the cursor advances.
+  it('writes a dead-letter and advances the cursor on a PERMANENT ingest failure', async () => {
+    const beforePoll = new Date(Date.now() - 60 * 1000)
+    const channel: any = {
+      id: 'c',
+      isActive: true,
+      status: 'connected',
+      providerKey: 'imap',
+      channelType: 'email',
+      capabilities: { realtimePush: false },
+      lastError: null,
+      lastPolledAt: beforePoll,
+      channelState: null,
+    }
+    // No transient code/status → classified permanent → dead-letter.
+    const ingestExecute = jest.fn(async () => {
+      throw new Error('malformed MIME body')
+    })
+    const { ctx, em } = makeCtx(
+      channel,
+      { providerKey: 'imap' },
+      async () => ({
+        messages: [{ externalMessageId: 'ext-1', body: 'x', subject: 's' }],
+        nextCursor: undefined,
+        hasMore: false,
+      }),
+      ingestExecute,
+    )
+    await handler(makeJob(), ctx)
+    expect(em.create).toHaveBeenCalledWith(
+      ChannelIngestDeadLetter,
+      expect.objectContaining({
+        channelId: 'c',
+        externalMessageId: 'ext-1',
+        errorMessage: expect.stringContaining('malformed MIME'),
+      }),
+    )
+    expect(em.persist).toHaveBeenCalled()
+    // Cursor advanced (not stalled): status stays connected, no retry enqueue,
+    // lastPolledAt moved forward past the bad message.
+    expect(channel.status).toBe('connected')
+    expect(enqueueMock).not.toHaveBeenCalled()
+    expect(channel.lastPolledAt?.getTime() ?? 0).toBeGreaterThan(beforePoll.getTime())
+  })
+
+  // FINDING 2 regression — a replayed page that permanently fails the SAME
+  // (channelId, externalMessageId) must not insert a duplicate dead-letter row.
+  // writeIngestDeadLetter checks for an existing row first and no-ops if found.
+  it('does NOT insert a duplicate dead-letter for the same (channelId, externalMessageId) on replay', async () => {
+    const beforePoll = new Date(Date.now() - 60 * 1000)
+    const channel: any = {
+      id: 'c',
+      isActive: true,
+      status: 'connected',
+      providerKey: 'imap',
+      channelType: 'email',
+      capabilities: { realtimePush: false },
+      lastError: null,
+      lastPolledAt: beforePoll,
+      channelState: null,
+    }
+    const ingestExecute = jest.fn(async () => {
+      throw new Error('malformed MIME body')
+    })
+    // Dedup pre-check reports the row already exists (written by a prior poll).
+    const deadLetterLookup = jest.fn(async () => ({ id: 'dead-1', externalMessageId: 'ext-1' }))
+    const { ctx, em } = makeCtx(
+      channel,
+      { providerKey: 'imap' },
+      async () => ({
+        messages: [{ externalMessageId: 'ext-1', body: 'x', subject: 's' }],
+        nextCursor: undefined,
+        hasMore: false,
+      }),
+      ingestExecute,
+      deadLetterLookup,
+    )
+    await handler(makeJob(), ctx)
+    // The existence check ran; no second dead-letter row was created/persisted.
+    expect(deadLetterLookup).toHaveBeenCalledTimes(1)
+    expect(em.create).not.toHaveBeenCalledWith(ChannelIngestDeadLetter, expect.anything())
+    // Cursor still advances so the poison message does not stall the channel.
+    expect(channel.status).toBe('connected')
+    expect(channel.lastPolledAt?.getTime() ?? 0).toBeGreaterThan(beforePoll.getTime())
+  })
+
+  it('aborts WITHOUT advancing the cursor on a TRANSIENT ingest failure (no dead-letter)', async () => {
+    const beforePoll = new Date(Date.now() - 60 * 1000)
+    const channel: any = {
+      id: 'c',
+      isActive: true,
+      status: 'connected',
+      providerKey: 'imap',
+      channelType: 'email',
+      capabilities: { realtimePush: false },
+      lastError: null,
+      lastPolledAt: beforePoll,
+      channelState: null,
+    }
+    const ingestExecute = jest.fn(async () => {
+      throw new Error('read ECONNRESET')
+    })
+    const { ctx, em } = makeCtx(
+      channel,
+      { providerKey: 'imap' },
+      async () => ({
+        messages: [{ externalMessageId: 'ext-1', body: 'x', subject: 's' }],
+        nextCursor: undefined,
+        hasMore: false,
+      }),
+      ingestExecute,
+    )
+    await handler(makeJob(), ctx)
+    expect(em.create).not.toHaveBeenCalled()
+    expect(channel.lastError).toBe('transient_ingest_failure')
+    // Cursor held so the next tick re-fetches (idempotent at the DB layer).
+    expect(channel.lastPolledAt).toBe(beforePoll)
   })
 })

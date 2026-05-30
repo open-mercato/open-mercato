@@ -5,7 +5,7 @@ import setPrimaryChannelCommand, {
 describe('setPrimaryChannelCommand metadata', () => {
   it('exports stable canonical command id', () => {
     expect(COMMUNICATION_CHANNELS_SET_PRIMARY_COMMAND_ID).toBe(
-      'communication_channels.set_primary_channel',
+      'communication_channels.channel.set_primary',
     )
     expect(setPrimaryChannelCommand.id).toBe(COMMUNICATION_CHANNELS_SET_PRIMARY_COMMAND_ID)
   })

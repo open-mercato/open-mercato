@@ -15,5 +15,5 @@ import { test } from '@playwright/test'
  * `MessageChannelLink` row appears for the inbound direction.
  */
 test.describe('TC-CHANNEL-EMAIL-030: Sent-folder dedup', () => {
-  test.skip('full E2E covered by QA scenario markdown (manual)', () => {})
+  test.skip('behavioral coverage: ingest-inbound-message.test.ts (sent-folder dedup contract + dedup → status=duplicate). Playwright E2E is infeasible — provider mock seams are process-local.', () => {})
 })

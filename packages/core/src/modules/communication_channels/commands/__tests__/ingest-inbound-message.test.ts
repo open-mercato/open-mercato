@@ -31,7 +31,7 @@ const mockIngestFindOne = findOneWithDecryption as jest.MockedFunction<typeof fi
 describe('ingestInboundMessageCommand metadata', () => {
   it('exports the canonical command id', () => {
     expect(COMMUNICATION_CHANNELS_INGEST_INBOUND_COMMAND_ID).toBe(
-      'communication_channels.ingest_inbound_message',
+      'communication_channels.message.ingest_inbound',
     )
     expect(ingestInboundMessageCommand.id).toBe(COMMUNICATION_CHANNELS_INGEST_INBOUND_COMMAND_ID)
   })

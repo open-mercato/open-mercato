@@ -8,6 +8,7 @@ import { getAuthFromRequest } from '@open-mercato/shared/lib/auth/server'
 import { resolveOrganizationScopeForRequest } from '@open-mercato/core/modules/directory/utils/organizationScope'
 import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
 import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
+import { applyEmailVisibilityFilter, resolveCallerEmailFeatures } from '../../../lib/visibilityFilter'
 
 const querySchema = z.object({
   entityId: z.string().uuid(),
@@ -86,6 +87,20 @@ export async function GET(req: Request) {
     if (query.status) {
       baseQuery = baseQuery.where('status', '=', query.status)
     }
+
+    // Per-user email privacy: exclude other users' private emails from the
+    // per-type counts so the `email` total matches the visibility-filtered list.
+    const viewerUserId = auth.isApiKey ? null : auth.sub ?? null
+    const callerEmailFeatures = await resolveCallerEmailFeatures(
+      container,
+      viewerUserId,
+      auth.tenantId,
+      organizationIds[0] ?? auth.orgId ?? null,
+    )
+    baseQuery = applyEmailVisibilityFilter(baseQuery, {
+      currentUserId: viewerUserId,
+      userFeatures: callerEmailFeatures,
+    })
 
     // Raw SELECT: reads only unencrypted columns (id, interaction_type); title/notes are excluded to avoid ciphertext leakage.
     const rows = await baseQuery

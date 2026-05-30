@@ -1,5 +1,4 @@
 import type { ValidateCredentialsResult } from '@open-mercato/core/modules/communication_channels/lib/adapter'
-import { parseBooleanWithDefault } from '@open-mercato/shared/lib/boolean'
 import { imapCredentialsSchema } from './credentials'
 import {
   credentialsToConnection,
@@ -9,6 +8,7 @@ import {
   credentialsToSmtpConnection,
   getSmtpClient,
 } from './smtp-client'
+import { INSECURE_TRANSPORT_MESSAGE, isInsecureTransportAllowed } from './transport'
 
 /**
  * Validate IMAP+SMTP credentials by attempting a live LOGIN on both servers.
@@ -40,23 +40,15 @@ export async function validateImapCredentials(
 
   const credentials = parsed.data
 
-  // Reject cleartext transport by default. `'none'` disables TLS entirely and
-  // sends the password in the clear — unacceptable for an attacker-controlled
-  // host string. Operators who genuinely need it (a trusted private-network
-  // testing host) must explicitly opt in via
-  // `OM_CHANNEL_IMAP_ALLOW_INSECURE_TRANSPORT=true`. `'starttls'`/`'tls'` are
-  // always allowed.
-  const allowInsecureTransport = parseBooleanWithDefault(
-    process.env.OM_CHANNEL_IMAP_ALLOW_INSECURE_TRANSPORT,
-    false,
-  )
-  if (!allowInsecureTransport) {
+  // Reject cleartext transport by default. The shared `transport` helper is the
+  // single source of truth for the policy (and enforces it again at connection
+  // build time for every op); here we surface it as field-level errors so the
+  // connect form can inline-highlight the offending TLS selector without
+  // touching the network.
+  if (!isInsecureTransportAllowed()) {
     const insecureTransportErrors: Record<string, string> = {}
-    const insecureMessage =
-      'Cleartext transport (None) is not allowed. Use STARTTLS or implicit TLS. ' +
-      'An operator must set OM_CHANNEL_IMAP_ALLOW_INSECURE_TRANSPORT=true to permit it.'
-    if (credentials.imapTls === 'none') insecureTransportErrors.imapTls = insecureMessage
-    if (credentials.smtpTls === 'none') insecureTransportErrors.smtpTls = insecureMessage
+    if (credentials.imapTls === 'none') insecureTransportErrors.imapTls = INSECURE_TRANSPORT_MESSAGE
+    if (credentials.smtpTls === 'none') insecureTransportErrors.smtpTls = INSECURE_TRANSPORT_MESSAGE
     if (Object.keys(insecureTransportErrors).length > 0) {
       return { ok: false, errors: insecureTransportErrors }
     }
@@ -91,12 +83,16 @@ export async function validateImapCredentials(
 }
 
 function classifyAuthError(error: unknown, fallback: string): string {
+  // Keep the coarse classification but never echo raw upstream server text
+  // (banners, internal hostnames) back to the client. Log the full original
+  // message server-side for diagnostics instead.
   const message = error instanceof Error ? error.message : String(error ?? '')
+  console.warn('[internal] channel_imap credential validation failed:', message)
   if (/auth|login|credentials|535|454|530/i.test(message)) {
-    return `Authentication rejected by server: ${message}`
+    return 'Authentication rejected by the server. Check the username and password.'
   }
   if (/timeout|ETIMEDOUT|ECONNREFUSED|ENOTFOUND|EAI_AGAIN/i.test(message)) {
-    return `Could not reach server: ${message}`
+    return 'Could not reach the server. Check the host and port.'
   }
-  return `${fallback} ${message}`
+  return fallback
 }

@@ -1,4 +1,9 @@
-import { applyEmailVisibilityFilter, callerHasEmailViewPrivate, EMAIL_VIEW_PRIVATE_FEATURE } from '../visibilityFilter'
+import {
+  applyEmailVisibilityFilter,
+  buildEmailVisibilityMikroFilter,
+  callerHasEmailViewPrivate,
+  EMAIL_VIEW_PRIVATE_FEATURE,
+} from '../visibilityFilter'
 
 describe('callerHasEmailViewPrivate', () => {
   it('returns true on exact feature match', () => {
@@ -92,5 +97,42 @@ describe('applyEmailVisibilityFilter', () => {
     // only ever see non-email / null / shared rows — never another user's private email.
     expect(predicate.arms[3]).toEqual({ kind: 'val', value: false })
     expect(JSON.stringify(predicate.arms)).not.toContain('author_user_id')
+  })
+})
+
+describe('buildEmailVisibilityMikroFilter', () => {
+  // MikroORM-flavoured mirror of applyEmailVisibilityFilter used by the
+  // person-detail, /activities and /counts read paths. Must enforce the exact
+  // same semantics: admin bypass → no-op; non-admin → exclude other users'
+  // private emails while passing non-email, shared, and legacy-null rows.
+  it('is a no-op (empty fragment) for admins with the view-private bypass', () => {
+    expect(buildEmailVisibilityMikroFilter({ currentUserId: 'user-1', userFeatures: ['customers.*'] })).toEqual({})
+    expect(buildEmailVisibilityMikroFilter({ currentUserId: 'user-1', userFeatures: ['*'] })).toEqual({})
+    expect(buildEmailVisibilityMikroFilter({ currentUserId: 'user-1', userFeatures: [EMAIL_VIEW_PRIVATE_FEATURE] })).toEqual({})
+  })
+
+  it('builds an $or with the owner arm for a normal caller', () => {
+    expect(
+      buildEmailVisibilityMikroFilter({ currentUserId: 'user-1', userFeatures: ['customers.people.view'] }),
+    ).toEqual({
+      $or: [
+        { interactionType: { $ne: 'email' } },
+        { visibility: null },
+        { visibility: { $ne: 'private' } },
+        { authorUserId: 'user-1' },
+      ],
+    })
+  })
+
+  it('omits the owner arm when there is no current user (anonymous/API key never sees private email)', () => {
+    expect(
+      buildEmailVisibilityMikroFilter({ currentUserId: null, userFeatures: ['customers.people.view'] }),
+    ).toEqual({
+      $or: [
+        { interactionType: { $ne: 'email' } },
+        { visibility: null },
+        { visibility: { $ne: 'private' } },
+      ],
+    })
   })
 })

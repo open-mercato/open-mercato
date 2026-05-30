@@ -48,6 +48,7 @@ describe('poll-tick worker enumeration', () => {
         callCount += 1
         return result
       }),
+      flush: jest.fn(async () => undefined),
     }
     return {
       jobId: 'tick-1',
@@ -132,6 +133,56 @@ describe('poll-tick worker enumeration', () => {
 
   it('does not throw when no channels are due (no-op tick)', async () => {
     await expect(handler(makeJob(), makeCtx([]))).resolves.toBeUndefined()
+    expect(enqueueMock).not.toHaveBeenCalled()
+  })
+
+  // FINDING 1 regression — a persistently-failing error channel must be retried
+  // at most once per recovery window. poll-channel leaves `lastPolledAt`
+  // untouched on failure, so the tick bumps it to `now` as it enqueues the
+  // recovery job; the channel then falls back under `recoverCutoff` and is NOT
+  // re-selected on the immediately-following tick until the window elapses.
+  it('retries an error channel once then backs off on the next tick (no re-enqueue every tick)', async () => {
+    // A single shared channel object so a `lastPolledAt` bump in tick 1 is
+    // visible to tick 2. The error-pool `find` honours the `recoverCutoff`
+    // ($lt on lastPolledAt) the handler passes — faithfully simulating the DB
+    // filter so the bump actually backs the channel off.
+    const channel = {
+      id: 'c-err',
+      pollIntervalSeconds: 60,
+      lastPolledAt: new Date(Date.now() - 60 * 60 * 1000), // 60 min ago > 30 min cutoff
+      status: 'error',
+      tenantId: 't',
+      organizationId: 'o',
+    }
+    const em = {
+      find: jest.fn(async (_entity: unknown, where: any) => {
+        // Pool (1): status='connected' — none here.
+        if (where?.status === 'connected') return []
+        // Pool (2): status='error' with `lastPolledAt < recoverCutoff`.
+        const cutoff: Date | undefined = where?.lastPolledAt?.$lt
+        return cutoff && channel.lastPolledAt < cutoff ? [channel] : []
+      }),
+      flush: jest.fn(async () => undefined),
+    }
+    const ctx = {
+      jobId: 'tick-1',
+      attemptNumber: 1,
+      queueName: 'communication-channels-poll-tick',
+      resolve: ((name: string) => {
+        if (name === 'em') return { fork: () => em }
+        return null
+      }) as <T>(name: string) => T,
+    }
+
+    // Tick 1: channel is stale → recovery job enqueued + `lastPolledAt` bumped.
+    await handler(makeJob(), ctx)
+    expect(enqueueMock).toHaveBeenCalledTimes(1)
+    expect(enqueueMock.mock.calls[0][0]).toMatchObject({ channelId: 'c-err' })
+
+    // Tick 2 (immediately after): the bump put `lastPolledAt` ~now, so the
+    // channel is no longer past the cutoff → NOT re-enqueued.
+    enqueueMock.mockClear()
+    await handler(makeJob(), ctx)
     expect(enqueueMock).not.toHaveBeenCalled()
   })
 })

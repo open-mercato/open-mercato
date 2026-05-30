@@ -1,7 +1,7 @@
 import { expect, test } from '@playwright/test'
 
 /**
- * TC-045D-002b — `communication_channels.ingest_inbound_message` command is
+ * TC-045D-002b — `communication_channels.message.ingest_inbound` command is
  * registered with the command bus at module load time.
  *
  * Slice 2b: the inbound bridge depends on this command. The command is registered
@@ -16,10 +16,10 @@ test.describe('TC-045D-002b: ingest_inbound_message command registration', () =>
       '@open-mercato/core/modules/communication_channels/commands/ingest-inbound-message'
     )
     expect(mod.COMMUNICATION_CHANNELS_INGEST_INBOUND_COMMAND_ID).toBe(
-      'communication_channels.ingest_inbound_message',
+      'communication_channels.message.ingest_inbound',
     )
     expect(mod.default).toBeDefined()
-    expect(mod.default.id).toBe('communication_channels.ingest_inbound_message')
+    expect(mod.default.id).toBe('communication_channels.message.ingest_inbound')
     expect(typeof mod.default.execute).toBe('function')
   })
 

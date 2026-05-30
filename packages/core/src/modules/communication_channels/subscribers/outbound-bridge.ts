@@ -17,9 +17,11 @@ import type { OutboundDeliveryPayload } from '../workers/outbound-delivery'
  * in the messages module doesn't break this bridge.
  *
  * Idempotency: we check for an existing `MessageChannelLink` with `direction='outbound'`
- * and `deliveryStatus IN ('sent','delivered','read')`. If found, we skip — the message
- * was already delivered. The command-side check is the authoritative gate, but this
- * cheap subscriber-level check avoids enqueueing redundant jobs.
+ * and `deliveryStatus IN ('queued','pending','sent','delivered','read')`. If found, we
+ * skip — the message is already delivered or has a delivery in flight. Including the
+ * in-flight states ('queued'/'pending') stops a replayed `messages.message.sent` from
+ * enqueueing a second delivery job while the worker is mid-send. The command-side check
+ * is the authoritative gate, but this cheap subscriber-level check avoids redundant jobs.
  *
  * Internal-only messages (no `ChannelThreadMapping` for the threadId) are skipped
  * silently — this is the expected steady-state for the majority of platform messages.
@@ -126,7 +128,9 @@ export default async function handler(
   )
   if (
     existingLink &&
-    (existingLink.deliveryStatus === 'sent' ||
+    (existingLink.deliveryStatus === 'queued' ||
+      existingLink.deliveryStatus === 'pending' ||
+      existingLink.deliveryStatus === 'sent' ||
       existingLink.deliveryStatus === 'delivered' ||
       existingLink.deliveryStatus === 'read')
   ) {

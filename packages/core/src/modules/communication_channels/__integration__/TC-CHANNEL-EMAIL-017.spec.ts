@@ -5,7 +5,7 @@ import { apiRequest } from '@open-mercato/core/helpers/integration/api'
 /**
  * TC-CHANNEL-EMAIL-017 — Disconnect halts polling + clears credentials.
  *
- * The `communication_channels.disconnect_channel` command (Phase 4 deliverable 5)
+ * The `communication_channels.channel.disconnect` command (Phase 4 deliverable 5)
  * sets `status='disconnected'`, `is_active=false`, `is_primary=false`, and nulls
  * `credentials_ref`. Polling is driven by the scheduler entry registered in
  * setup.ts which filters channels by `status='connected'` and `is_active=true`,

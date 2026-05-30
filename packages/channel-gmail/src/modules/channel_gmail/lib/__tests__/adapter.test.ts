@@ -668,6 +668,103 @@ describe('GmailChannelAdapter.fetchHistory', () => {
     expect(decoded.pendingHistoryPageToken).toBeUndefined()
     expect(page.hasMore).toBe(true)
   })
+
+  it('L3 first-page retry: a pinned history snapshot (no page token) re-enters the fallback scan instead of bootstrapping', async () => {
+    const listCalls: Array<{ labelIds?: string[]; pageToken?: string }> = []
+    let getProfileCalls = 0
+    const api: GmailApiClient = {
+      ...emptyApi(),
+      getProfile: async () => {
+        getProfileCalls += 1
+        return { emailAddress: 'alice@gmail.com', historyId: '999' }
+      },
+      listMessages: async (_auth, params) => {
+        listCalls.push(params ?? {})
+        return {
+          messages: [
+            { id: 'gm-2', threadId: 'gm-t-2' },
+            { id: 'gm-3', threadId: 'gm-t-3' },
+          ],
+        }
+      },
+      getMessageRaw: async (_auth, id) => buildRawResponse(id, `gm-t-${id.slice(-1)}`),
+    }
+    setGmailApiClient(api)
+    const page = await getGmailChannelAdapter().fetchHistory!({
+      conversationId: 'inbox',
+      credentials: userCredentials,
+      scope: { tenantId: 't', organizationId: 'o' },
+      ...({ channelState: { pendingMessagesHistoryIdSnapshot: '555' } } as unknown as Record<string, unknown>),
+    } as Parameters<NonNullable<ReturnType<typeof getGmailChannelAdapter>['fetchHistory']>>[0])
+    // Re-enters the messages.list fallback scan from the first INBOX page...
+    expect(listCalls).toHaveLength(1)
+    expect(listCalls[0].labelIds).toEqual(['INBOX'])
+    expect(listCalls[0].pageToken).toBeUndefined()
+    expect(page.messages).toHaveLength(2)
+    // ...and does NOT re-bootstrap (no profile fetch, snapshot preserved as the cursor).
+    expect(getProfileCalls).toBe(0)
+    const decoded = JSON.parse(Buffer.from(page.nextCursor!, 'base64').toString('utf-8'))
+    expect(decoded.historyId).toBe('555')
+  })
+
+  it('L3 first-page retry: a hard-failed first fallback page is retried on the next tick, not skipped via bootstrap', async () => {
+    let listCalls = 0
+    let getProfileCalls = 0
+    const api: GmailApiClient = {
+      ...emptyApi(),
+      listHistory: async () => {
+        throw new GmailApiError('history expired', 404, 'history expired')
+      },
+      getProfile: async () => {
+        getProfileCalls += 1
+        return { emailAddress: 'alice@gmail.com', historyId: '999' }
+      },
+      listMessages: async () => {
+        listCalls += 1
+        return {
+          messages: [
+            { id: 'gm-1', threadId: 'gm-t-1' },
+            { id: 'gm-2', threadId: 'gm-t-2' },
+          ],
+        }
+      },
+      getMessageRaw: async (_auth, id) => {
+        if (id === 'gm-2') throw new GmailApiError('server boom', 500, 'server')
+        return buildRawResponse(id, 'gm-t-1')
+      },
+    }
+    setGmailApiClient(api)
+    const adapter = getGmailChannelAdapter()
+    // Tick 1: history.list 404 → first fallback page hard-fails on gm-2. Only
+    // the snapshot is pinned; the cursor must NOT advance past the unprocessed
+    // messages.
+    const first = await adapter.fetchHistory!({
+      conversationId: 'inbox',
+      credentials: userCredentials,
+      scope: { tenantId: 't', organizationId: 'o' },
+      ...({ channelState: { historyId: '100' } } as unknown as Record<string, unknown>),
+    } as Parameters<NonNullable<ReturnType<typeof getGmailChannelAdapter>['fetchHistory']>>[0])
+    expect(first.messages).toHaveLength(1)
+    expect(first.hasMore).toBe(true)
+    const firstDecoded = JSON.parse(Buffer.from(first.nextCursor!, 'base64').toString('utf-8'))
+    expect(firstDecoded.historyId).toBeUndefined()
+    expect(firstDecoded.pendingMessagesPageToken).toBeUndefined()
+    expect(firstDecoded.pendingMessagesHistoryIdSnapshot).toBe('999')
+    const listAfterFirst = listCalls
+    const profileAfterFirst = getProfileCalls
+    // Tick 2: feed the orphaned cursor back in. It must re-enter the fallback
+    // scan (listMessages called again) rather than bootstrap (getProfile must
+    // NOT be called again).
+    const second = await adapter.fetchHistory!({
+      conversationId: 'inbox',
+      credentials: userCredentials,
+      scope: { tenantId: 't', organizationId: 'o' },
+      ...({ channelState: firstDecoded } as unknown as Record<string, unknown>),
+    } as Parameters<NonNullable<ReturnType<typeof getGmailChannelAdapter>['fetchHistory']>>[0])
+    expect(listCalls).toBe(listAfterFirst + 1)
+    expect(getProfileCalls).toBe(profileAfterFirst)
+    expect(second.messages).toHaveLength(1)
+  })
 })
 
 describe('GmailChannelAdapter.normalizeInbound + verifyWebhook + resolveContact', () => {

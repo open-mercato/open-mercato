@@ -92,7 +92,7 @@ describe('inbound-processor worker behaviour', () => {
     await handler(makeJob(), ctx)
     expect(execute).toHaveBeenCalledTimes(1)
     const callArgs = execute.mock.calls[0]
-    expect(callArgs[0]).toBe('communication_channels.ingest_inbound_message')
+    expect(callArgs[0]).toBe('communication_channels.message.ingest_inbound')
     const passedInput = (callArgs[1] as any).input
     expect(passedInput.providerKey).toBe('test')
     expect(passedInput.message.externalMessageId).toBe('ext-1')

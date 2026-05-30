@@ -5,8 +5,10 @@ import {
 } from '@open-mercato/core/modules/communication_channels/lib/email-capabilities'
 
 /**
- * Microsoft 365 / Outlook capabilities. Polling-driven (delta query) for now;
- * Microsoft Graph subscriptions (push) are deferred to v2.
+ * Microsoft 365 / Outlook capabilities. `realtimePush: false` is deliberate:
+ * Microsoft Graph change-notification subscriptions (push) ARE implemented (the
+ * adapter registers/renews/handles them), but the hub keeps the delta-query poll
+ * as a fallback, so the capability flag stays false to preserve that cadence.
  *
  * Outlook honors RFC2822 In-Reply-To / References natively and adds its own
  * `conversationId` field on each `Message` resource — the adapter prefers it for

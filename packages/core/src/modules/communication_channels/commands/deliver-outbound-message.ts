@@ -68,7 +68,7 @@ export type DeliverOutboundMessageResult =
     }
 
 export const COMMUNICATION_CHANNELS_DELIVER_OUTBOUND_COMMAND_ID =
-  'communication_channels.deliver_outbound_message'
+  'communication_channels.message.deliver_outbound'
 
 type CredentialsServiceLike = {
   resolve: (

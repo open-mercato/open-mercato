@@ -33,7 +33,7 @@ const mockEmit = emitCommunicationChannelsEvent as jest.MockedFunction<typeof em
 describe('deliverOutboundMessageCommand metadata', () => {
   it('exports the canonical command id', () => {
     expect(COMMUNICATION_CHANNELS_DELIVER_OUTBOUND_COMMAND_ID).toBe(
-      'communication_channels.deliver_outbound_message',
+      'communication_channels.message.deliver_outbound',
     )
     expect(deliverOutboundMessageCommand.id).toBe(COMMUNICATION_CHANNELS_DELIVER_OUTBOUND_COMMAND_ID)
   })

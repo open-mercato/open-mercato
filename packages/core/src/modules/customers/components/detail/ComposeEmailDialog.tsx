@@ -43,7 +43,6 @@ export interface ComposeEmailValues {
 export interface ComposeEmailDialogProps {
   open: boolean
   onOpenChange: (open: boolean) => void
-  personId: string
   defaultRecipient?: string | null
   channels: ComposeEmailChannel[]
   replyTo?: {

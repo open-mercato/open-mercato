@@ -189,6 +189,60 @@ describe('createOAuthState', () => {
   })
 })
 
+describe('JWT_SECRET fallback key separation', () => {
+  const saved = {
+    stateKey: process.env.OM_HUB_OAUTH_STATE_KEY,
+    kms: process.env.KMS_MASTER_KEY,
+    jwt: process.env.JWT_SECRET,
+    nodeEnv: process.env.NODE_ENV,
+  }
+
+  beforeEach(() => {
+    delete process.env.OM_HUB_OAUTH_STATE_KEY
+    delete process.env.KMS_MASTER_KEY
+    process.env.JWT_SECRET = 'platform-session-signing-secret'
+  })
+
+  afterEach(() => {
+    if (saved.stateKey !== undefined) process.env.OM_HUB_OAUTH_STATE_KEY = saved.stateKey
+    else delete process.env.OM_HUB_OAUTH_STATE_KEY
+    if (saved.kms !== undefined) process.env.KMS_MASTER_KEY = saved.kms
+    else delete process.env.KMS_MASTER_KEY
+    if (saved.jwt !== undefined) process.env.JWT_SECRET = saved.jwt
+    else delete process.env.JWT_SECRET
+    if (saved.nodeEnv !== undefined) process.env.NODE_ENV = saved.nodeEnv
+    else delete process.env.NODE_ENV
+  })
+
+  it('refuses the JWT_SECRET fallback in production', () => {
+    process.env.NODE_ENV = 'production'
+    // Both the create (encrypt) and verify (decrypt) key derivations refuse the
+    // JWT_SECRET fallback. encryptOAuthState propagates the guard error; the
+    // decrypt path swallows it (returns null) by design, so we assert against the
+    // two functions that surface it: createOAuthState and encryptOAuthState.
+    expect(() => createOAuthState({ userId: 'u', tenantId: 't', providerKey: 'gmail' })).toThrow(
+      'OM_HUB_OAUTH_STATE_KEY or KMS_MASTER_KEY required in production',
+    )
+    expect(() =>
+      encryptOAuthState({
+        state: 's',
+        nonce: 'n',
+        userId: 'u',
+        tenantId: 't',
+        providerKey: 'gmail',
+        expiresAt: Date.now() + 60_000,
+      }),
+    ).toThrow('OM_HUB_OAUTH_STATE_KEY or KMS_MASTER_KEY required in production')
+  })
+
+  it('allows the JWT_SECRET fallback outside production', () => {
+    process.env.NODE_ENV = 'test'
+    const { cookie } = createOAuthState({ userId: 'u', tenantId: 't', providerKey: 'gmail' })
+    const payload = verifyOAuthState({ cookie, expectedUserId: 'u' })
+    expect(payload.userId).toBe('u')
+  })
+})
+
 describe('OAuth return URL validation', () => {
   it('accepts same-origin relative paths with query and hash', () => {
     expect(isSafeOAuthReturnUrl('/backend/profile/communication-channels?tab=email#gmail')).toBe(true)

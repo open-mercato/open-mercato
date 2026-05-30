@@ -42,7 +42,7 @@ export type IngestInboundMessageResult = {
   contactPersonId?: string | null
 }
 
-export const COMMUNICATION_CHANNELS_INGEST_INBOUND_COMMAND_ID = 'communication_channels.ingest_inbound_message'
+export const COMMUNICATION_CHANNELS_INGEST_INBOUND_COMMAND_ID = 'communication_channels.message.ingest_inbound'
 
 /**
  * Idempotently ingest a normalized inbound channel message.
@@ -303,6 +303,11 @@ const ingestInboundMessageCommand: CommandHandler<IngestInboundMessageInput, Ing
     const matchedPersonId = contactHint?.matchedPersonId ?? null
     if (matchedPersonId && conversation.contactPersonId !== matchedPersonId) {
       conversation.contactPersonId = matchedPersonId
+      // Flush this scalar mutation before the system-user lookup below queries the
+      // same EntityManager. SPEC-018: a query between a scalar mutation and its
+      // flush can silently discard the pending UPDATE (mirrors the lastMessageAt
+      // bump above).
+      await em.flush()
     }
 
     // (5) Compose the platform Message via the messages module command.

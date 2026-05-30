@@ -13,7 +13,7 @@ const mockFindOne = findOneWithDecryption as jest.MockedFunction<typeof findOneW
 describe('reassignConversationCommand metadata', () => {
   it('exports the canonical command id', () => {
     expect(COMMUNICATION_CHANNELS_REASSIGN_CONVERSATION_COMMAND_ID).toBe(
-      'communication_channels.reassign_conversation',
+      'communication_channels.conversation.reassign',
     )
     expect(reassignConversationCommand.id).toBe(
       COMMUNICATION_CHANNELS_REASSIGN_CONVERSATION_COMMAND_ID,
@@ -122,9 +122,9 @@ describe('reassignConversationCommand execute (assignee tenant validation)', () 
     )
   })
 
-  it('reassigns when the target user belongs to the tenant', async () => {
+  it('reassigns when the target user belongs to the tenant and captures an undo snapshot', async () => {
     mockFindOne
-      .mockResolvedValueOnce({ assignedUserId: null, externalConversationId: 'conv-1' } as never)
+      .mockResolvedValueOnce({ id: 'mapping-1', assignedUserId: null, externalConversationId: 'conv-1', tenantId: TENANT } as never)
       .mockResolvedValueOnce({ id: ASSIGNEE } as never)
       .mockResolvedValueOnce({ id: 'conv-1', assignedUserId: null } as never)
     const { ctx, em } = ctxWithEm()
@@ -132,7 +132,123 @@ describe('reassignConversationCommand execute (assignee tenant validation)', () 
       { threadId: THREAD, assignedUserId: ASSIGNEE, scope: { tenantId: TENANT, organizationId: null } } as never,
       ctx,
     )
-    expect(result.status).toBe('reassigned')
+    expect(result).toMatchObject({
+      status: 'reassigned',
+      undo: {
+        threadMappingId: 'mapping-1',
+        conversationId: 'conv-1',
+        tenantId: TENANT,
+        previousAssignedUserId: null,
+        newAssignedUserId: ASSIGNEE,
+      },
+    })
     expect(em.flush).toHaveBeenCalledTimes(1)
+  })
+})
+
+describe('reassignConversationCommand undo', () => {
+  const TENANT = '22222222-2222-4222-8222-222222222222'
+
+  beforeEach(() => {
+    mockFindOne.mockReset()
+  })
+
+  it('restores the previous owner on both the mapping and the conversation', async () => {
+    const mapping = { id: 'mapping-1', assignedUserId: 'new-owner' }
+    const conversation = { id: 'conv-1', assignedUserId: 'new-owner' }
+    mockFindOne
+      .mockResolvedValueOnce(mapping as never)
+      .mockResolvedValueOnce(conversation as never)
+    const em = { flush: jest.fn(async () => undefined) }
+    const ctx = {
+      container: {
+        resolve: ((name: string) => (name === 'em' ? { fork: () => em } : null)) as <T>(name: string) => T,
+      },
+    } as never
+    // The shared `extractUndoPayload` helper unwraps the snapshot from
+    // `logEntry.commandPayload.undo`.
+    await reassignConversationCommand.undo!({
+      input: { threadId: 'thread-1' } as never,
+      ctx,
+      logEntry: {
+        commandPayload: {
+          undo: {
+            threadMappingId: 'mapping-1',
+            conversationId: 'conv-1',
+            tenantId: TENANT,
+            previousAssignedUserId: 'old-owner',
+            newAssignedUserId: 'new-owner',
+          },
+        },
+      } as never,
+    })
+    expect(em.flush).toHaveBeenCalledTimes(1)
+    expect(mapping.assignedUserId).toBe('old-owner')
+    expect(conversation.assignedUserId).toBe('old-owner')
+  })
+
+  it('refuses to resolve when the snapshot lacks a tenantId', async () => {
+    const em = { flush: jest.fn(async () => undefined) }
+    const ctx = {
+      container: {
+        resolve: ((name: string) => (name === 'em' ? { fork: () => em } : null)) as <T>(name: string) => T,
+      },
+    } as never
+    await reassignConversationCommand.undo!({
+      input: { threadId: 'thread-1' } as never,
+      ctx,
+      logEntry: {
+        commandPayload: {
+          undo: {
+            threadMappingId: 'mapping-1',
+            conversationId: 'conv-1',
+            previousAssignedUserId: 'old-owner',
+            newAssignedUserId: 'new-owner',
+          },
+        },
+      } as never,
+    })
+    expect(mockFindOne).not.toHaveBeenCalled()
+    expect(em.flush).not.toHaveBeenCalled()
+  })
+
+  it('buildLog persists the undo snapshot under payload.undo for a reassigned result', async () => {
+    const undoSnapshot = {
+      threadMappingId: 'mapping-1',
+      conversationId: 'conv-1',
+      tenantId: TENANT,
+      previousAssignedUserId: 'old-owner',
+      newAssignedUserId: 'new-owner',
+    }
+    const meta = await reassignConversationCommand.buildLog!({
+      input: { scope: { tenantId: TENANT, organizationId: null } } as never,
+      result: {
+        status: 'reassigned',
+        threadId: 'thread-1',
+        previousAssignedUserId: 'old-owner',
+        nextAssignedUserId: 'new-owner',
+        conversationId: 'conv-1',
+        undo: undoSnapshot,
+      } as never,
+      ctx: {} as never,
+      snapshots: {},
+    })
+    expect(meta).toMatchObject({
+      resourceKind: 'communication_channels.channel',
+      resourceId: 'conv-1',
+      tenantId: TENANT,
+      payload: { undo: undoSnapshot },
+    })
+  })
+
+  it('buildLog returns null when there is nothing to undo', async () => {
+    expect(
+      await reassignConversationCommand.buildLog!({
+        input: { scope: { tenantId: TENANT, organizationId: null } } as never,
+        result: { status: 'noop', reason: 'assigned user unchanged' } as never,
+        ctx: {} as never,
+        snapshots: {},
+      }),
+    ).toBeNull()
   })
 })

@@ -67,7 +67,7 @@ describe('reaction-processor worker dispatch', () => {
     })
     await handler(job, ctx)
     expect(execute).toHaveBeenCalledTimes(1)
-    expect(execute.mock.calls[0][0]).toBe('communication_channels.process_inbound_reaction')
+    expect(execute.mock.calls[0][0]).toBe('communication_channels.reaction.process_inbound')
   })
 
   it('handles `outbound_send` calling adapter.sendReaction', async () => {

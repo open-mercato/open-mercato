@@ -14,5 +14,5 @@ import { test } from '@playwright/test'
  * fast-forward 30 min → next tick recovers) is in the QA scenario.
  */
 test.describe('TC-CHANNEL-EMAIL-027: Auto-recovery sweep', () => {
-  test.skip('full E2E covered by QA scenario markdown (manual + scheduler fast-forward)', () => {})
+  test.skip('behavioral coverage: workers/__tests__/poll-tick.test.ts (auto-recovery sweep). Playwright E2E is infeasible — provider mock seams are process-local + needs scheduler fast-forward.', () => {})
 })

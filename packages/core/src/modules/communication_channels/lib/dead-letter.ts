@@ -39,17 +39,31 @@ export interface WriteIngestDeadLetterArgs {
  * message so an operator can replay it later. Best-effort: a failure to write
  * the dead-letter is logged but never thrown, so a bad message cannot block the
  * caller from advancing its cursor.
+ *
+ * Idempotent on `(channelId, externalMessageId)`: a replayed page that fails the
+ * same message again is a no-op, so the dead-letter table never accumulates
+ * duplicate rows for the same poison message.
  */
 export async function writeIngestDeadLetter(args: WriteIngestDeadLetterArgs): Promise<void> {
   const { em, scope, channel, message, err, errorMessage } = args
+  const externalMessageId = message.externalMessageId ?? null
   try {
+    if (externalMessageId) {
+      const existing = await em.findOne(ChannelIngestDeadLetter, {
+        tenantId: scope.tenantId,
+        organizationId: scope.organizationId ?? null,
+        channelId: channel.id,
+        externalMessageId,
+      })
+      if (existing) return
+    }
     const deadLetter = em.create(ChannelIngestDeadLetter, {
       tenantId: scope.tenantId,
       organizationId: scope.organizationId ?? null,
       channelId: channel.id,
       providerKey: channel.providerKey,
       externalUid: extractExternalUid(message),
-      externalMessageId: message.externalMessageId ?? null,
+      externalMessageId,
       errorClass: err instanceof Error ? err.name : 'Error',
       errorMessage,
       rawBody: truncateRawBody(message),

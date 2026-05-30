@@ -39,6 +39,7 @@ import { findWithDecryption, findOneWithDecryption } from '@open-mercato/shared/
 import { parseBooleanFromUnknown, parseBooleanToken } from '@open-mercato/shared/lib/boolean'
 import { loadPersonCompanyLinks, summarizePersonCompanies } from '../../../lib/personCompanies'
 import { normalizeCustomerDetailCustomFields } from '../../detailCustomFields'
+import { buildEmailVisibilityMikroFilter, resolveCallerEmailFeatures } from '../../../lib/visibilityFilter'
 
 export const metadata = {
   GET: { requireAuth: true, requireFeatures: ['customers.people.view'] },
@@ -516,14 +517,30 @@ export async function GET(_req: Request, ctx: { params?: { id?: string } }) {
       profiler.mark('comments_loaded', { count: comments.length })
     }
 
+    // Per-user email privacy (CRM email integration spec, "Layer 1 — DB filter"):
+    // exclude private email interactions owned by other users from every read
+    // path that returns customer_interactions. Non-email rows, shared emails, and
+    // legacy null-visibility rows pass through; admins with the view-private
+    // feature bypass the filter.
+    const callerEmailFeatures = await resolveCallerEmailFeatures(
+      container,
+      viewerUserId,
+      person.tenantId ?? auth.tenantId ?? null,
+      person.organizationId ?? auth.orgId ?? null,
+    )
+    const emailVisibilityFilter = buildEmailVisibilityMikroFilter({
+      currentUserId: viewerUserId,
+      userFeatures: callerEmailFeatures,
+    })
+
     const shouldLoadCanonicalInteractions = includeInteractions || includeActivities || includeTodos
     const canonicalInteractionRows = shouldLoadCanonicalInteractions
       ? await findWithDecryption(
           em,
           CustomerInteraction,
           interactionFlags.unified
-            ? { entity: person.id, deletedAt: null }
-            : { entity: person.id },
+            ? { entity: person.id, deletedAt: null, ...emailVisibilityFilter }
+            : { entity: person.id, ...emailVisibilityFilter },
           { orderBy: { scheduledAt: 'asc', createdAt: 'desc' }, limit: 100 },
           { tenantId: person.tenantId ?? auth.tenantId ?? null, organizationId: person.organizationId ?? auth.orgId ?? null },
         )
@@ -569,6 +586,7 @@ export async function GET(_req: Request, ctx: { params?: { id?: string } }) {
               deletedAt: null,
               status: 'planned',
               interactionType: { $ne: 'task' },
+              ...emailVisibilityFilter,
             },
             { orderBy: { scheduledAt: 'ASC', createdAt: 'ASC' }, limit: plannedPreviewLimit },
             { tenantId: person.tenantId ?? auth.tenantId ?? null, organizationId: person.organizationId ?? auth.orgId ?? null },
@@ -718,12 +736,14 @@ export async function GET(_req: Request, ctx: { params?: { id?: string } }) {
         tenantId: person.tenantId,
         deletedAt: null,
         interactionType: { $ne: 'task' },
+        ...emailVisibilityFilter,
       }),
       interactions: await em.count(CustomerInteraction, {
         entity: person.id,
         organizationId: person.organizationId,
         tenantId: person.tenantId,
         deletedAt: null,
+        ...emailVisibilityFilter,
       }),
       todos: interactionFlags.unified
         ? await em.count(CustomerInteraction, {

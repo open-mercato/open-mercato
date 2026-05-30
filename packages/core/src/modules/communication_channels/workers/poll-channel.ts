@@ -2,12 +2,13 @@ import type { EntityManager } from '@mikro-orm/postgresql'
 import type { JobContext, QueuedJob, WorkerMeta } from '@open-mercato/queue'
 import type { CommandBus } from '@open-mercato/shared/lib/commands'
 import { findOneWithDecryption } from '@open-mercato/shared/lib/encryption/find'
-import { ChannelIngestDeadLetter, CommunicationChannel } from '../data/entities'
+import { CommunicationChannel } from '../data/entities'
 import {
   COMMUNICATION_CHANNELS_INGEST_INBOUND_COMMAND_ID,
   type IngestInboundMessageInput,
 } from '../commands/ingest-inbound-message'
 import { COMMUNICATION_CHANNELS_QUEUES, getCommunicationChannelsQueue } from '../lib/queue'
+import { writeIngestDeadLetter } from '../lib/dead-letter'
 import { classifyOutboundError, computeBackoffMs, isReauthError } from '../lib/error-classification'
 import { refreshCredentialsIfNeeded } from '../lib/credential-refresh'
 import { emitCommunicationChannelsEvent } from '../events'
@@ -210,7 +211,6 @@ export default async function handle(
   //     idempotency via the (channel_id, external_message_id) unique
   //     constraint means already-ingested messages no-op on the retry.
   let transientIngestAbort = false
-  let permanentIngestCount = 0
   for (const message of normalized) {
     try {
       const input: IngestInboundMessageInput = {
@@ -237,31 +237,17 @@ export default async function handle(
         break
       }
       // Permanent — write to dead-letter so an operator can replay later.
-      permanentIngestCount += 1
-      try {
-        const deadLetter = em.create(ChannelIngestDeadLetter, {
-          tenantId: scope.tenantId,
-          organizationId: scope.organizationId ?? null,
-          channelId: channel.id,
-          providerKey: channel.providerKey,
-          externalUid: extractExternalUid(message),
-          externalMessageId: message.externalMessageId ?? null,
-          errorClass: err instanceof Error ? err.name : 'Error',
-          errorMessage: classification.message,
-          rawBody: truncateRawBody(message),
-        })
-        em.persist(deadLetter)
-        await em.flush()
-      } catch (ddlErr) {
-        // Dead-letter write itself failing is bad but not fatal — log and
-        // continue. The poll cursor still advances so the bad message
-        // doesn't loop.
-        console.error(
-          `[communication_channels:poll-channel] failed to record dead-letter for channel ${channel.id}: ${
-            ddlErr instanceof Error ? ddlErr.message : String(ddlErr)
-          }`,
-        )
-      }
+      // The shared helper is best-effort (never throws) and idempotent on
+      // `(channelId, externalMessageId)`, so a replayed page that fails the
+      // same message again does not insert a duplicate row.
+      await writeIngestDeadLetter({
+        em,
+        scope,
+        channel,
+        message,
+        err,
+        errorMessage: classification.message,
+      })
       console.warn(
         `[communication_channels:poll-channel] permanent ingest failure for channel ${channel.id}; recorded in dead-letter and advancing cursor past message ${message.externalMessageId}. Reason: ${classification.message}`,
       )
@@ -294,8 +280,18 @@ export default async function handle(
   // decode it back to an object so the next tick can pass it straight into
   // `fetchHistory` as `channelState`. Decode failures fall back to the prior
   // state (next tick bootstraps from there).
+  //
+  // Push-delivery state (Spec C) — watch/subscription identifiers and expiry — is
+  // owned by the push register/renew commands, not the sync cursor. A provider's
+  // `fetchHistory` returns only sync-cursor fields, so persisting the decoded
+  // cursor as a full replace would silently wipe push state and stop
+  // `gmail-renew-watch` / `microsoft-renew-subscriptions` from renewing it. Carry
+  // the hub-owned push keys forward whenever the new cursor omits them.
   if (typeof nextCursor === 'string' && nextCursor.length > 0) {
-    channel.channelState = decodeChannelStateCursor(nextCursor) ?? channel.channelState
+    const decoded = decodeChannelStateCursor(nextCursor)
+    if (decoded) {
+      channel.channelState = preservePushState(channel.channelState, decoded)
+    }
   }
   await em.flush()
 
@@ -325,6 +321,36 @@ function decodeChannelStateCursor(cursor: string): Record<string, unknown> | nul
   } catch {
     return null
   }
+}
+
+/**
+ * Channel-state keys owned by the push-delivery lifecycle (Spec C), written by the
+ * push register/renew commands rather than the sync cursor. They must survive a
+ * sync-cursor replacement so watch/subscription renewal keeps working — see the
+ * call site in the poll handler.
+ */
+const PUSH_STATE_KEYS = [
+  'pushStatus',
+  'watchExpirationMs',
+  'pubsubTopic',
+  'subscriptionId',
+  'subscriptionExpiresAt',
+  'lastPushError',
+] as const
+
+function preservePushState(
+  previous: unknown,
+  next: Record<string, unknown>,
+): Record<string, unknown> {
+  const prev =
+    previous && typeof previous === 'object' && !Array.isArray(previous)
+      ? (previous as Record<string, unknown>)
+      : {}
+  const merged: Record<string, unknown> = { ...next }
+  for (const key of PUSH_STATE_KEYS) {
+    if (!(key in merged) && key in prev) merged[key] = prev[key]
+  }
+  return merged
 }
 
 async function handlePollError(
@@ -372,23 +398,4 @@ async function handlePollError(
   // Permanent or attempts exhausted — mark channel as error and stop the loop.
   channel.status = 'error'
   await em.flush()
-}
-
-const DEAD_LETTER_RAW_BODY_MAX_BYTES_DEFAULT = 32_768
-
-function extractExternalUid(message: NormalizedInboundMessage): string | null {
-  const meta = message.channelMetadata as Record<string, unknown> | undefined
-  if (meta && typeof meta.uid === 'string') return meta.uid
-  if (meta && typeof meta.uid === 'number') return String(meta.uid)
-  return null
-}
-
-function truncateRawBody(message: NormalizedInboundMessage): string | null {
-  const envCap = Number.parseInt(process.env.OM_CHANNEL_DEAD_LETTER_RAW_BODY_MAX_BYTES ?? '', 10)
-  const cap = Number.isFinite(envCap) && envCap > 0 ? envCap : DEAD_LETTER_RAW_BODY_MAX_BYTES_DEFAULT
-  const body = message.body ?? ''
-  if (body.length === 0) return null
-  const buf = Buffer.from(body, 'utf-8')
-  if (buf.byteLength <= cap) return body
-  return `${buf.subarray(0, cap).toString('utf-8')}…[truncated]`
 }

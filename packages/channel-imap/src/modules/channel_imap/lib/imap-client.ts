@@ -1,4 +1,5 @@
 import type { ImapCredentials } from './credentials'
+import { assertTransportAllowed } from './transport'
 
 /**
  * Thin wrapper around `imapflow` so the adapter and tests can stay agnostic of
@@ -20,7 +21,7 @@ export interface ImapConnectionOptions {
   user: string
   pass: string
   transport: ImapTransport
-  /** Connection + greeting timeout (ms). Default 10000. */
+  /** Connection + greeting timeout (ms). Default 60000 (Spec B). */
   timeoutMs?: number
 }
 
@@ -317,6 +318,7 @@ export function setImapClient(client: ImapClient | null): void {
 }
 
 export function credentialsToConnection(credentials: ImapCredentials): ImapConnectionOptions {
+  assertTransportAllowed(credentials)
   return {
     host: credentials.imapHost,
     port: Number(credentials.imapPort),

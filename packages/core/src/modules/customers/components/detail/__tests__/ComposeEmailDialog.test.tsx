@@ -49,7 +49,6 @@ jest.mock('@open-mercato/ui/primitives/select', () => ({
 const baseProps = {
   open: true,
   onOpenChange: jest.fn(),
-  personId: 'p-1',
   defaultRecipient: 'bob@example.com',
   channels: [
     { id: 'ch-1', displayName: 'Alice (Gmail)', externalIdentifier: 'alice@example.com', providerKey: 'gmail' as const, isPrimary: true },

@@ -6,7 +6,7 @@ import disconnectChannelCommand, {
 describe('disconnectChannelCommand metadata', () => {
   it('exports the canonical command id', () => {
     expect(COMMUNICATION_CHANNELS_DISCONNECT_CHANNEL_COMMAND_ID).toBe(
-      'communication_channels.disconnect_channel',
+      'communication_channels.channel.disconnect',
     )
     expect(disconnectChannelCommand.id).toBe(COMMUNICATION_CHANNELS_DISCONNECT_CHANNEL_COMMAND_ID)
   })
@@ -180,6 +180,45 @@ describe('disconnectChannelCommand behaviour', () => {
     expect(channel.isActive).toBe(true)
     expect(channel.isPrimary).toBe(true)
     expect(channel.credentialsRef).toBe('cred-1')
+  })
+
+  // Regression guard: buildLog must persist the undo snapshot under payload.undo,
+  // otherwise the command bus mints an undo token but never stores the snapshot
+  // and undo() silently no-ops in production (the isolated undo() test above still
+  // passes because it feeds the snapshot directly).
+  it('buildLog persists the undo snapshot under payload.undo for a disconnected result', async () => {
+    const undoSnapshot = {
+      channelId: validInput.channelId,
+      tenantId: validInput.scope.tenantId,
+      previousStatus: 'connected',
+      previousIsActive: true,
+      previousIsPrimary: true,
+      previousCredentialsRef: 'cred-1',
+      previousLastError: null,
+    }
+    const meta = await disconnectChannelCommand.buildLog!({
+      input: validInput as never,
+      result: { status: 'disconnected', channelId: validInput.channelId, undo: undoSnapshot } as never,
+      ctx: {} as never,
+      snapshots: {},
+    })
+    expect(meta).toMatchObject({
+      resourceKind: 'communication_channels.channel',
+      resourceId: validInput.channelId,
+      tenantId: validInput.scope.tenantId,
+      payload: { undo: undoSnapshot },
+    })
+  })
+
+  it('buildLog returns null when there is nothing to undo', async () => {
+    expect(
+      await disconnectChannelCommand.buildLog!({
+        input: validInput as never,
+        result: { status: 'noop', reason: 'already disconnected' } as never,
+        ctx: {} as never,
+        snapshots: {},
+      }),
+    ).toBeNull()
   })
 })
 

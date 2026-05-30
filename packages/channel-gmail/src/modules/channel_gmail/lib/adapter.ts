@@ -234,12 +234,24 @@ class GmailChannelAdapter implements ChannelAdapter {
 
   async fetchHistory(input: FetchHistoryInput): Promise<HistoryPage> {
     const userCredentials = parseUserCredentialsOrThrow(input.credentials)
-    const channelState = gmailChannelStateSchema.parse(
-      ((input as unknown) as { channelState?: unknown }).channelState ?? {},
-    )
+    const channelState = gmailChannelStateSchema.parse(input.channelState ?? {})
     const auth = { accessToken: userCredentials.accessToken }
     const api = getGmailApiClient()
     const limit = input.limit ?? 50
+
+    // L3 first-page retry: a prior fallback scan hard-failed on its FIRST page and
+    // pinned only the history snapshot (no page token). Re-enter the fallback scan
+    // from the first INBOX page so unprocessed messages are retried, not skipped by
+    // the bootstrap path below.
+    if (channelState.pendingMessagesHistoryIdSnapshot && !channelState.pendingMessagesPageToken) {
+      return await this.startMessagesListFallback(
+        api,
+        auth,
+        userCredentials.email ?? 'me',
+        channelState.pendingMessagesHistoryIdSnapshot,
+        limit,
+      )
+    }
 
     // Bootstrap path: no historyId yet → just persist current historyId and skip fetch.
     if (!channelState.historyId && !channelState.pendingMessagesPageToken) {

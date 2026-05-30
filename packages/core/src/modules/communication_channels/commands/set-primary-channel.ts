@@ -23,7 +23,7 @@ export type SetPrimaryChannelResult =
   | { status: 'not_owner'; reason: string }
 
 export const COMMUNICATION_CHANNELS_SET_PRIMARY_COMMAND_ID =
-  'communication_channels.set_primary_channel'
+  'communication_channels.channel.set_primary'
 
 /**
  * Mark a per-user channel as primary. Clears the primary flag on every other
