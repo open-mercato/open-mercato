@@ -51,12 +51,11 @@ export type GmailUserCredentials = z.infer<typeof gmailUserCredentialsSchema>
  *               expired (Gmail keeps roughly 7 days), we fall back to a full
  *               list using `gmail.users.messages.list`.
  *
- *   pendingHistoryPageToken / pendingHistoryStartId — mid-drain resumption
- *               state when a single tick can't ingest every page of
- *               `history.list` (e.g. a high-volume mailbox returned more than
- *               our per-tick budget). The terminal `historyId` is NOT advanced
- *               until the pages drain. The next tick resumes via the same
- *               `startHistoryId` + `pageToken`.
+ *   pendingHistoryPageToken — mid-drain resumption state when a single tick
+ *               can't ingest every page of `history.list` (e.g. a high-volume
+ *               mailbox returned more than our per-tick budget). The terminal
+ *               `historyId` is NOT advanced until the pages drain. The next tick
+ *               resumes via the stored `historyId` + this `pageToken`.
  *
  *   pendingMessagesPageToken / pendingMessagesHistoryIdSnapshot — same
  *               contract for the 404-fallback path (`messages.list`).
@@ -68,7 +67,6 @@ export const gmailChannelStateSchema = z
     historyId: z.union([z.string(), z.number()]).optional(),
     lastSyncedAt: z.string().datetime().optional(),
     pendingHistoryPageToken: z.string().optional(),
-    pendingHistoryStartId: z.string().optional(),
     pendingMessagesPageToken: z.string().optional(),
     pendingMessagesHistoryIdSnapshot: z.string().optional(),
   })

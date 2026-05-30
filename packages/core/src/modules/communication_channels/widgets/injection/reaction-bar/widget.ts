@@ -10,8 +10,7 @@ import ReactionBarWidget from './widget.client'
  * Gated by the `communication_channels.react` feature at the API layer; the
  * widget itself surfaces only when there is at least one reaction.
  */
-// Loose `any` generics — see channel-badge/widget.ts for rationale.
-const widget: InjectionWidgetModule<any, any> = {
+const widget: InjectionWidgetModule<Record<string, unknown>, Record<string, unknown>> = {
   metadata: {
     id: 'communication_channels.injection.reaction-bar',
     title: 'Reaction bar',

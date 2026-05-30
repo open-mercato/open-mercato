@@ -13,8 +13,7 @@ import ChannelPayloadRendererWidget from './widget.client'
  * `widget:communication_channels.injection.channel-payload-renderer`) to render
  * Block Kit, interactive buttons, contact cards, location maps, etc.
  */
-// Loose `any` generics — see channel-badge/widget.ts for rationale.
-const widget: InjectionWidgetModule<any, any> = {
+const widget: InjectionWidgetModule<Record<string, unknown>, Record<string, unknown>> = {
   metadata: {
     id: 'communication_channels.injection.channel-payload-renderer',
     title: 'Channel payload renderer',

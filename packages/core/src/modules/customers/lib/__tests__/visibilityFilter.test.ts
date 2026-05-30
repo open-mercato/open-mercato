@@ -21,18 +21,33 @@ describe('callerHasEmailViewPrivate', () => {
 })
 
 describe('applyEmailVisibilityFilter', () => {
-  // The function shape: applyEmailVisibilityFilter(query, options) -> query
-  // It mutates a kysely-compatible builder. We test by feeding a fake builder
-  // and asserting that the `where` callback registers the right predicates.
+  // The function shape: applyEmailVisibilityFilter(query, options) -> query.
+  // It registers a `where(callback)` on a kysely-compatible builder. We feed a
+  // fake expression-builder that records every comparison so we can assert the
+  // ACTUAL predicate arms, not just that `where` was called.
+
+  type RecordedExpr =
+    | { kind: 'cmp'; column: string; op: string; value: unknown }
+    | { kind: 'or'; arms: RecordedExpr[] }
+    | { kind: 'val'; value: unknown }
 
   function makeFakeBuilder() {
-    const recorded: any[] = []
+    let predicate: RecordedExpr | null = null
+    const eb: any = (column: string, op: string, value: unknown): RecordedExpr => ({
+      kind: 'cmp',
+      column,
+      op,
+      value,
+    })
+    eb.or = (arms: RecordedExpr[]): RecordedExpr => ({ kind: 'or', arms })
+    eb.val = (value: unknown): RecordedExpr => ({ kind: 'val', value })
+
     const builder: any = {
-      where: jest.fn().mockImplementation((arg: any) => {
-        recorded.push(arg)
+      where: jest.fn().mockImplementation((cb: (eb: any) => RecordedExpr) => {
+        predicate = cb(eb)
         return builder
       }),
-      __recorded: recorded,
+      getPredicate: () => predicate,
     }
     return builder
   }
@@ -47,16 +62,35 @@ describe('applyEmailVisibilityFilter', () => {
     expect(qb.where).not.toHaveBeenCalled()
   })
 
-  it('adds visibility predicate when caller does not have admin bypass', () => {
+  it('builds the four OR arms (non-email, null, !=private, author match) for a normal caller', () => {
     const qb = makeFakeBuilder()
     applyEmailVisibilityFilter(qb, {
       currentUserId: 'user-1',
       userFeatures: ['customers.interactions.view'],
     })
     expect(qb.where).toHaveBeenCalledTimes(1)
-    // The predicate is a function passed to where(); we verify it ran with an
-    // expression builder by invoking it against a stub.
-    const predicateFn = qb.__recorded[0]
-    expect(typeof predicateFn).toBe('function')
+    const predicate = qb.getPredicate() as RecordedExpr
+    expect(predicate.kind).toBe('or')
+    if (predicate.kind !== 'or') throw new Error('expected OR predicate')
+    expect(predicate.arms).toEqual([
+      { kind: 'cmp', column: 'interaction_type', op: '!=', value: 'email' },
+      { kind: 'cmp', column: 'visibility', op: 'is', value: null },
+      { kind: 'cmp', column: 'visibility', op: '!=', value: 'private' },
+      { kind: 'cmp', column: 'author_user_id', op: '=', value: 'user-1' },
+    ])
+  })
+
+  it('fails closed (no author arm; uses val(false)) when there is no current user', () => {
+    const qb = makeFakeBuilder()
+    applyEmailVisibilityFilter(qb, {
+      currentUserId: null,
+      userFeatures: ['customers.interactions.view'],
+    })
+    const predicate = qb.getPredicate() as RecordedExpr
+    if (predicate.kind !== 'or') throw new Error('expected OR predicate')
+    // The author-match arm must NOT reference any user id; anonymous callers can
+    // only ever see non-email / null / shared rows — never another user's private email.
+    expect(predicate.arms[3]).toEqual({ kind: 'val', value: false })
+    expect(JSON.stringify(predicate.arms)).not.toContain('author_user_id')
   })
 })

@@ -14,26 +14,21 @@ import {
   ComposeEmailDialog,
   type ComposeEmailChannel,
   type ComposeEmailValues,
-} from '../../../components/detail/ComposeEmailDialog'
+} from './ComposeEmailDialog'
 
-type PersonSendEmailContext = {
-  personId?: string | null
-  data?: {
-    person?: {
-      id?: string
-      primaryEmail?: string | null
-    }
-  } | null
-}
-
-type PersonSendEmailProps = {
-  context?: PersonSendEmailContext
-  data?: PersonSendEmailContext['data']
+type PersonEmailActionsProps = {
+  personId: string
+  personEmail: string | null
 }
 
 const PERSON_SEND_EMAIL_CONTEXT_ID = 'customers-person-send-email'
 
-export function PersonSendEmailWidget({ context, data: dataProp }: PersonSendEmailProps) {
+/**
+ * Person detail "Sync" + "Send email" actions, composed directly into the
+ * people-v2 header. The customers module owns this page, so these are built in
+ * place rather than self-injected (see ARCHITECTURE.md §4 inject-vs-compose).
+ */
+export function PersonEmailActions({ personId, personEmail }: PersonEmailActionsProps) {
   const t = useT()
   const router = useRouter()
   const { runMutation, retryLastMutation } = useGuardedMutation<{
@@ -45,13 +40,6 @@ export function PersonSendEmailWidget({ context, data: dataProp }: PersonSendEma
     contextId: PERSON_SEND_EMAIL_CONTEXT_ID,
     blockedMessage: t('ui.forms.flash.saveBlocked', 'Save blocked by validation'),
   })
-
-  const resolvedData = dataProp ?? context?.data ?? null
-  const personId =
-    (typeof context?.personId === 'string' && context.personId ? context.personId : null) ??
-    resolvedData?.person?.id ??
-    null
-  const personEmail = resolvedData?.person?.primaryEmail ?? null
 
   const [channels, setChannels] = React.useState<ComposeEmailChannel[] | null>(null)
   const [open, setOpen] = React.useState(false)
@@ -223,4 +211,4 @@ export function PersonSendEmailWidget({ context, data: dataProp }: PersonSendEma
   )
 }
 
-export default PersonSendEmailWidget
+export default PersonEmailActions

@@ -354,6 +354,85 @@ describe('MicrosoftChannelAdapter.fetchHistory', () => {
     const decoded = JSON.parse(Buffer.from(page.nextCursor!, 'base64').toString('utf-8'))
     expect(decoded.deltaLink).toContain('$deltatoken=fresh')
   })
+
+  it('preserves push subscription fields across a poll (does not wipe them)', async () => {
+    const api: GraphApiClient = {
+      ...emptyGraph(),
+      inboxDelta: async () => ({
+        value: [buildGraphMessage('m1')],
+        '@odata.deltaLink': 'https://graph.microsoft.com/v1.0/me/mailFolders/inbox/messages/delta?$deltatoken=next',
+      }),
+    }
+    setGraphApiClient(api)
+    const page = await getMicrosoftChannelAdapter().fetchHistory!({
+      conversationId: 'inbox',
+      credentials: userCredentials,
+      scope: { tenantId: 't', organizationId: 'o' },
+      ...({
+        channelState: {
+          deltaLink: 'https://graph.microsoft.com/v1.0/me/mailFolders/inbox/messages/delta?$deltatoken=prev',
+          subscriptionId: 'sub-123',
+          subscriptionExpiresAt: '2026-06-01T00:00:00.000Z',
+          pushStatus: 'active',
+        },
+      } as unknown as Record<string, unknown>),
+    } as Parameters<NonNullable<ReturnType<typeof getMicrosoftChannelAdapter>['fetchHistory']>>[0])
+    const decoded = JSON.parse(Buffer.from(page.nextCursor!, 'base64').toString('utf-8'))
+    expect(decoded.subscriptionId).toBe('sub-123')
+    expect(decoded.pushStatus).toBe('active')
+    expect(decoded.subscriptionExpiresAt).toBe('2026-06-01T00:00:00.000Z')
+    expect(decoded.deltaLink).toContain('$deltatoken=next')
+  })
+
+  it('terminal page with more messages than the limit drops none', async () => {
+    const api: GraphApiClient = {
+      ...emptyGraph(),
+      inboxDelta: async () => ({
+        value: [buildGraphMessage('m1'), buildGraphMessage('m2'), buildGraphMessage('m3')],
+        '@odata.deltaLink': 'https://graph.microsoft.com/v1.0/me/mailFolders/inbox/messages/delta?$deltatoken=final',
+      }),
+    }
+    setGraphApiClient(api)
+    const page = await getMicrosoftChannelAdapter().fetchHistory!({
+      conversationId: 'inbox',
+      credentials: userCredentials,
+      scope: { tenantId: 't', organizationId: 'o' },
+      limit: 1,
+      ...({
+        channelState: {
+          deltaLink: 'https://graph.microsoft.com/v1.0/me/mailFolders/inbox/messages/delta?$deltatoken=prev',
+        },
+      } as unknown as Record<string, unknown>),
+    } as Parameters<NonNullable<ReturnType<typeof getMicrosoftChannelAdapter>['fetchHistory']>>[0])
+    expect(page.messages).toHaveLength(3)
+    const decoded = JSON.parse(Buffer.from(page.nextCursor!, 'base64').toString('utf-8'))
+    expect(decoded.deltaLink).toContain('$deltatoken=final')
+    expect(page.hasMore).toBe(false)
+  })
+
+  it('mid-drain: pins pendingNextLink and keeps the prior deltaLink (no skip)', async () => {
+    const priorDelta = 'https://graph.microsoft.com/v1.0/me/mailFolders/inbox/messages/delta?$deltatoken=prev'
+    const api: GraphApiClient = {
+      ...emptyGraph(),
+      inboxDelta: async () => ({
+        value: [buildGraphMessage('m1'), buildGraphMessage('m2')],
+        '@odata.nextLink': 'https://graph.microsoft.com/v1.0/me/mailFolders/inbox/messages/delta?$skiptoken=page2',
+      }),
+    }
+    setGraphApiClient(api)
+    const page = await getMicrosoftChannelAdapter().fetchHistory!({
+      conversationId: 'inbox',
+      credentials: userCredentials,
+      scope: { tenantId: 't', organizationId: 'o' },
+      limit: 1,
+      ...({ channelState: { deltaLink: priorDelta } } as unknown as Record<string, unknown>),
+    } as Parameters<NonNullable<ReturnType<typeof getMicrosoftChannelAdapter>['fetchHistory']>>[0])
+    expect(page.messages).toHaveLength(2)
+    expect(page.hasMore).toBe(true)
+    const decoded = JSON.parse(Buffer.from(page.nextCursor!, 'base64').toString('utf-8'))
+    expect(decoded.deltaLink).toBe(priorDelta)
+    expect(decoded.pendingNextLink).toContain('$skiptoken=page2')
+  })
 })
 
 describe('MicrosoftChannelAdapter.deleteMessage + verifyWebhook + resolveContact + normalizeInbound', () => {

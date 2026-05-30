@@ -188,6 +188,14 @@ class ImapChannelAdapter implements ChannelAdapter {
       // does NOT immediately re-enqueue.
       fetched = []
       hasMore = false
+    } else if (previousUidNext !== undefined && serverUidNext !== undefined && previousUidNext >= serverUidNext) {
+      // ── Idle: UIDNEXT did not advance, so there is no new mail ──────────
+      // Skip the FETCH entirely. IMAP `<n>:*` always matches at least the
+      // highest existing UID, so an idle mailbox would otherwise re-fetch and
+      // re-normalize one already-ingested message every tick. The cursor is
+      // retained downstream (an empty fetch does not advance it).
+      fetched = []
+      hasMore = false
     } else {
       // ── Incremental: UID FETCH previousUidNext:* up to HARD_CAP ─────────
       // On a mature mailbox this is typically 0-N UIDs. The HARD_CAP bounds

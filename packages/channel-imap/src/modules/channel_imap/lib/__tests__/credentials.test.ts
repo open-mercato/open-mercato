@@ -1,4 +1,4 @@
-import { imapCredentialsSchema, imapChannelStateSchema } from '../credentials'
+import { imapCredentialsSchema, imapChannelStateSchema, isInternalHost } from '../credentials'
 
 describe('imapCredentialsSchema', () => {
   const valid = {
@@ -50,6 +50,82 @@ describe('imapCredentialsSchema', () => {
     expect(() => imapCredentialsSchema.parse({ ...valid, fromAddress: 'not-an-email' })).toThrow(
       /From address must be a valid email/i,
     )
+  })
+
+  it('rejects an internal IMAP host (SSRF guard wired into the schema)', () => {
+    expect(() => imapCredentialsSchema.parse({ ...valid, imapHost: '169.254.169.254' })).toThrow(
+      /private or loopback/i,
+    )
+    expect(() => imapCredentialsSchema.parse({ ...valid, smtpHost: 'localhost' })).toThrow(/private or loopback/i)
+  })
+
+  it('honors the OM_CHANNEL_IMAP_ALLOW_INTERNAL_HOSTS escape hatch', () => {
+    const previous = process.env.OM_CHANNEL_IMAP_ALLOW_INTERNAL_HOSTS
+    process.env.OM_CHANNEL_IMAP_ALLOW_INTERNAL_HOSTS = 'true'
+    try {
+      expect(() =>
+        imapCredentialsSchema.parse({ ...valid, imapHost: '127.0.0.1', smtpHost: '127.0.0.1' }),
+      ).not.toThrow()
+    } finally {
+      if (previous === undefined) delete process.env.OM_CHANNEL_IMAP_ALLOW_INTERNAL_HOSTS
+      else process.env.OM_CHANNEL_IMAP_ALLOW_INTERNAL_HOSTS = previous
+    }
+  })
+})
+
+describe('isInternalHost (SSRF guard)', () => {
+  const blocked = [
+    'localhost',
+    'LOCALHOST',
+    'foo.localhost',
+    'localhost6',
+    'ip6-localhost',
+    'metadata.google.internal',
+    '127.0.0.1',
+    '127.1',
+    '10.0.0.5',
+    '172.16.0.1',
+    '172.31.255.255',
+    '192.168.1.1',
+    '169.254.169.254',
+    '100.64.0.1',
+    '0.0.0.0',
+    '2130706433',
+    '0x7f.0.0.1',
+    '0177.0.0.1',
+    '::1',
+    '[::1]',
+    '::',
+    '[::]',
+    '0000:0000:0000:0000:0000:0000:0000:0001',
+    'fc00::1',
+    'fd12:3456::1',
+    'fe80::1',
+    '::ffff:127.0.0.1',
+    '::ffff:169.254.169.254',
+  ]
+
+  const allowed = [
+    'imap.example.com',
+    'smtp.fastmail.com',
+    'mail.proton.me',
+    '8.8.8.8',
+    '1.1.1.1',
+    '203.0.113.10',
+    '2001:4860:4860::8888',
+  ]
+
+  it.each(blocked)('blocks internal/obfuscated host %s', (host) => {
+    expect(isInternalHost(host)).toBe(true)
+  })
+
+  it.each(allowed)('allows public host %s', (host) => {
+    expect(isInternalHost(host)).toBe(false)
+  })
+
+  it('treats an empty host as not-internal (length validation handles it)', () => {
+    expect(isInternalHost('')).toBe(false)
+    expect(isInternalHost('   ')).toBe(false)
   })
 })
 

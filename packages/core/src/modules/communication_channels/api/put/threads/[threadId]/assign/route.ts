@@ -91,6 +91,9 @@ export async function PUT(req: Request, context: RouteContext): Promise<Response
   if (result.status === 'no_channel_link') {
     return NextResponse.json({ error: result.reason }, { status: 404 })
   }
+  if (result.status === 'invalid_assignee') {
+    return NextResponse.json({ error: result.reason }, { status: 422 })
+  }
   if (result.status === 'noop') {
     return NextResponse.json(
       { threadId, assignedUserId: body.assignedUserId, unchanged: true },

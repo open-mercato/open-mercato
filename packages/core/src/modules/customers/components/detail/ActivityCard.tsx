@@ -6,13 +6,12 @@ import { Button } from '@open-mercato/ui/primitives/button'
 import { IconButton } from '@open-mercato/ui/primitives/icon-button'
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
 import { apiCallOrThrow } from '@open-mercato/ui/backend/utils/apiCall'
-import { InjectionSpot } from '@open-mercato/ui/backend/injection/InjectionSpot'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { cn } from '@open-mercato/shared/lib/utils'
 import type { InteractionSummary } from './types'
 import { ActivityAiActions } from './ActivityAiActions'
 import { getInitials } from './utils'
-import type { EmailCardWidgetData } from '../../widgets/injection/person-email-card-actions/widget'
+import { EmailCardActions, type EmailCardWidgetData } from './EmailCardActions'
 
 type GuardedMutationRunner = <T,>(
   operation: () => Promise<T>,
@@ -239,11 +238,7 @@ export function ActivityCard({ activity, onOpen, onChanged, runMutation }: Activ
             onKeyDown={(event) => event.stopPropagation()}
             role="presentation"
           >
-            <InjectionSpot<Record<string, unknown>, EmailCardWidgetData>
-              spotId="customers:person-email-card-actions"
-              context={{}}
-              data={buildEmailCardWidgetData(activity)}
-            />
+            <EmailCardActions data={buildEmailCardWidgetData(activity)} />
           </div>
         ) : null}
 

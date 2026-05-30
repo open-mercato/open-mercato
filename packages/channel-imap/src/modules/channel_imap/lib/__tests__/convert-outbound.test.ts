@@ -55,4 +55,19 @@ describe('convertOutboundForEmail', () => {
       convertOutboundForEmail({ body: 'hi', bodyFormat: 'text', channelMetadata: {} }),
     ).rejects.toThrow(/at least one recipient/i)
   })
+
+  it('strips CRLF from header-shaped fields (defense-in-depth)', async () => {
+    const native = await convertOutboundForEmail({
+      body: 'hi',
+      bodyFormat: 'text',
+      channelMetadata: {
+        subject: 'Hello\r\nBcc: attacker@evil.com',
+        to: ['bob@example.com'],
+        inReplyTo: '<root@example.com>\r\nX-Injected: 1',
+      },
+    })
+    expect(native.metadata?.subject).toBe('Hello Bcc: attacker@evil.com')
+    expect(native.metadata?.subject).not.toMatch(/[\r\n]/)
+    expect(native.metadata?.inReplyTo).not.toMatch(/[\r\n]/)
+  })
 })

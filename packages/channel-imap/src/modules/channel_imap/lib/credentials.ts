@@ -7,38 +7,93 @@ import { z } from 'zod'
  * flow from acting as a port scanner or leaking the platform's outbound IP to
  * internal infrastructure (cloud metadata endpoints, kube-apiserver, RDS, etc).
  *
- * The check is conservative and string-based — it rejects literal internal IPs
- * and `localhost`, but NOT a public hostname that resolves (or is DNS-rebound)
- * to a private address. Fully closing that gap requires resolving the host and
- * pinning the connection to the validated IP at connect time (in
- * `imap-client`/`smtp-client`) — a follow-up beyond this string guard. Operators
- * who need a private IMAP host can set `OM_CHANNEL_IMAP_ALLOW_INTERNAL_HOSTS=true`.
+ * The check is string-based: it rejects literal internal IPs, `localhost`, and
+ * the obfuscated encodings that exist to evade such filters (IPv4-mapped IPv6,
+ * decimal/hex/octal/short-form IPv4, bracketed and expanded IPv6). It does NOT
+ * catch a public hostname that resolves — or is DNS-rebound — to a private
+ * address; fully closing that gap requires resolving the host and pinning the
+ * connection to the validated IP at connect time (in `imap-client`/`smtp-client`).
+ * Operators with a genuinely private IMAP host set `OM_CHANNEL_IMAP_ALLOW_INTERNAL_HOSTS=true`.
  */
-const FORBIDDEN_HOST_PATTERNS: RegExp[] = [
-  /^localhost$/i,
-  /^localhost\./i,
-  /^(127|10)\./,                                  // 127/8, 10/8
-  /^172\.(1[6-9]|2[0-9]|3[01])\./,                // 172.16/12
-  /^192\.168\./,                                  // 192.168/16
-  /^169\.254\./,                                  // link-local + AWS metadata
+const FORBIDDEN_HOST_NAMES = new Set([
+  'localhost',
+  'localhost6',
+  'ip6-localhost',
+  'ip6-loopback',
+  'metadata.google.internal',
+])
+
+const PRIVATE_IPV4_PATTERNS: RegExp[] = [
+  /^(127|10)\./,                                    // 127/8 loopback, 10/8 private
+  /^172\.(1[6-9]|2[0-9]|3[01])\./,                  // 172.16/12 private
+  /^192\.168\./,                                    // 192.168/16 private
+  /^169\.254\./,                                    // link-local + cloud metadata (169.254.169.254)
   /^100\.(6[4-9]|[7-9][0-9]|1[01][0-9]|12[0-7])\./, // CGNAT 100.64/10
-  /^0\./,                                         // 0.0.0.0/8 reserved
-  /^(::1|fc[0-9a-f]{2}:|fd[0-9a-f]{2}:|fe80:)/i,  // IPv6 loopback/link-local/ULA
+  /^0\./,                                           // 0.0.0.0/8 reserved
 ]
+
+const PRIVATE_IPV6_PATTERNS: RegExp[] = [
+  /^::$/,                                            // unspecified
+  /^::1$/,                                           // loopback
+  /^::ffff:/,                                        // IPv4-mapped (hex-group form; dotted form is unwrapped first)
+  /^(fc|fd)[0-9a-f]{0,2}:/,                          // unique-local fc00::/7
+  /^fe80:/,                                          // link-local
+  /^(0{1,4}:){7}0{0,3}1$/,                           // fully-expanded loopback
+  /^(0{1,4}:){7}0{1,4}$/,                            // fully-expanded unspecified
+]
+
+function isDottedDecimalQuad(host: string): boolean {
+  const parts = host.split('.')
+  return parts.length === 4 && parts.every((part) => /^\d{1,3}$/.test(part) && Number(part) <= 255)
+}
+
+/**
+ * True when `host` is an obfuscated IPv4 encoding — decimal integer
+ * (`2130706433`), hex (`0x7f.0.0.1`), octal (`0177.0.0.1`) or short form
+ * (`127.1`). These forms exist almost exclusively to bypass SSRF string filters,
+ * so we reject them outright; legitimate operators use a hostname or a standard
+ * dotted-decimal quad.
+ */
+function isObfuscatedIpv4(host: string): boolean {
+  if (host.includes(':')) return false
+  if (/^\d+$/.test(host)) return true
+  if (/(^|\.)0x[0-9a-f]+/.test(host)) return true
+  const labels = host.split('.')
+  if (!labels.every((label) => /^[0-9a-f]+$/.test(label))) return false
+  if (isDottedDecimalQuad(host) && !labels.some((label) => label.length > 1 && label.startsWith('0'))) return false
+  return true
+}
+
+function normalizeHost(raw: string): string {
+  let host = raw.trim().toLowerCase()
+  if (host.startsWith('[') && host.endsWith(']')) host = host.slice(1, -1)
+  const mappedIpv4 = host.match(/^::ffff:(\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3})$/)
+  if (mappedIpv4) return mappedIpv4[1]
+  return host
+}
+
+/**
+ * Classify a host as internal/loopback/metadata, ignoring the operator escape
+ * hatch. Exported so the SSRF guard can be asserted directly in unit tests.
+ */
+export function isInternalHost(rawHost: string): boolean {
+  const host = normalizeHost(rawHost)
+  if (!host) return false
+  if (FORBIDDEN_HOST_NAMES.has(host) || host.endsWith('.localhost')) return true
+  if (host.includes(':')) return PRIVATE_IPV6_PATTERNS.some((pattern) => pattern.test(host))
+  if (isObfuscatedIpv4(host)) return true
+  return PRIVATE_IPV4_PATTERNS.some((pattern) => pattern.test(host))
+}
 
 function assertSafeHost(host: string, ctx: { addIssue: (issue: { code: 'custom'; message: string }) => void }): void {
   if (process.env.OM_CHANNEL_IMAP_ALLOW_INTERNAL_HOSTS === 'true') return
-  const lower = host.trim().toLowerCase()
-  if (!lower) return
-  for (const pattern of FORBIDDEN_HOST_PATTERNS) {
-    if (pattern.test(lower)) {
-      ctx.addIssue({
-        code: 'custom',
-        message:
-          'Host appears to point at a private or loopback address. If this is intentional, an operator must set OM_CHANNEL_IMAP_ALLOW_INTERNAL_HOSTS=true.',
-      })
-      return
-    }
+  if (!host.trim()) return
+  if (isInternalHost(host)) {
+    ctx.addIssue({
+      code: 'custom',
+      message:
+        'Host appears to point at a private or loopback address. If this is intentional, an operator must set OM_CHANNEL_IMAP_ALLOW_INTERNAL_HOSTS=true.',
+    })
   }
 }
 

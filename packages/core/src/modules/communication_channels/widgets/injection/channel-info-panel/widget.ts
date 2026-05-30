@@ -8,8 +8,7 @@ import ChannelInfoPanelWidget from './widget.client'
  * Reads `_channel` + `_channelContact` enrichments. Shows provider, channel
  * type, direction + delivery status, and (when matched) the linked CRM person id.
  */
-// Loose `any` generics — see channel-badge/widget.ts for rationale.
-const widget: InjectionWidgetModule<any, any> = {
+const widget: InjectionWidgetModule<Record<string, unknown>, Record<string, unknown>> = {
   metadata: {
     id: 'communication_channels.injection.channel-info-panel',
     title: 'Channel info panel',

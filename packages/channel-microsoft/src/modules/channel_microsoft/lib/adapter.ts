@@ -138,8 +138,10 @@ class MicrosoftChannelAdapter implements ChannelAdapter {
   }
 
   async verifyWebhook(_input: VerifyWebhookInput): Promise<InboundMessage> {
-    // Graph change-notification webhooks are deferred to v2. Until then the
-    // generic webhook route returns 2xx via this no-op.
+    // Graph change-notification push (Spec C) is handled by the dedicated
+    // `/webhooks/microsoft/[subscriptionId]` route + `applyPushNotification`, not
+    // this generic hub-webhook hook, so this returns an unhandled event for the
+    // generic route to ack 2xx.
     return { raw: {}, eventType: 'other', metadata: { reason: 'microsoft-uses-polling-not-push' } }
   }
 
@@ -199,6 +201,9 @@ class MicrosoftChannelAdapter implements ChannelAdapter {
       code: input.code,
       codeVerifier,
     })
+    // SECURITY: these id_token claims are decoded WITHOUT signature verification
+    // and are used ONLY for display metadata (email / oid / name) — never for
+    // authorization. Authorization always rides the access token validated by Graph.
     const claims = decodeIdTokenClaims(token.id_token)
     const email = claims.email
     const expiresAt = tokenResponseToExpiresAt(token)
@@ -297,10 +302,13 @@ class MicrosoftChannelAdapter implements ChannelAdapter {
       }
       pageCount += 1
 
+      // Consume the FULL page before deciding to stop. Graph only lets us resume a
+      // delta set via nextLink/deltaLink, never mid-page, so breaking at `limit`
+      // here and then advancing the terminal deltaLink below would silently drop
+      // this page's remaining messages. `messages` may exceed `limit` by one page.
       for (const m of response.value ?? []) {
         if (!m.from && !m.subject && !m.body) continue
         messages.push(await normalizeInboundMicrosoftMessage({ message: m, accountIdentifier: accountId }))
-        if (messages.length >= limit) break
       }
 
       if (response['@odata.deltaLink']) {
@@ -326,6 +334,11 @@ class MicrosoftChannelAdapter implements ChannelAdapter {
 
     const drained = !nextLink
     const nextState: MicrosoftChannelState = {
+      // Preserve provider state this method does not own — notably the push
+      // subscription fields (subscriptionId / subscriptionExpiresAt / pushStatus /
+      // lastPushError). The poll worker persists this object as a FULL replace, so
+      // omitting them here silently wipes the subscription and disables renewal.
+      ...channelState,
       // Only advance terminal deltaLink when fully drained. While mid-drain,
       // pin the prior deltaLink so a recovery (e.g. operator clears
       // pendingNextLink) resumes from the right place.

@@ -193,9 +193,13 @@ export async function POST(req: Request, { params }: RouteContext): Promise<Resp
 
     return NextResponse.json({ received: true, queued: true, kind: 'message' }, { status: 202 })
   } catch (error: unknown) {
-    const message =
-      error instanceof Error ? error.message : 'Webhook verification failed'
-    return NextResponse.json({ error: message }, { status: 401 })
+    // Do not echo adapter/verification internals to an unauthenticated caller;
+    // log the detail server-side and return a fixed, minimal message.
+    console.warn(
+      '[communication_channels] inbound webhook verification failed:',
+      error instanceof Error ? error.message : error,
+    )
+    return NextResponse.json({ error: 'verification_failed' }, { status: 401 })
   }
 }
 

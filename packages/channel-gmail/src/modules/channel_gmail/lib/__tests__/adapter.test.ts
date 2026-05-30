@@ -568,6 +568,106 @@ describe('GmailChannelAdapter.fetchHistory', () => {
     // hub re-enqueues immediately so the failed message is retried next tick.
     expect(page.hasMore).toBe(true)
   })
+
+  it('multi-page drain: walks nextPageToken across pages without dropping messages', async () => {
+    const api: GmailApiClient = {
+      ...emptyApi(),
+      listHistory: async (_auth, params) => {
+        if (params?.pageToken === 'page-2') {
+          return {
+            history: [{ id: '202', messagesAdded: [{ message: { id: 'gm-2', threadId: 'gm-t-2', labelIds: ['INBOX'] } }] }],
+            historyId: '203',
+          }
+        }
+        return {
+          history: [{ id: '200', messagesAdded: [{ message: { id: 'gm-1', threadId: 'gm-t-1', labelIds: ['INBOX'] } }] }],
+          historyId: '201',
+          nextPageToken: 'page-2',
+        }
+      },
+      getMessageRaw: async (_auth, id) => buildRawResponse(id, `gm-t-${id.slice(-1)}`),
+    }
+    setGmailApiClient(api)
+    const page = await getGmailChannelAdapter().fetchHistory!({
+      conversationId: 'inbox',
+      credentials: userCredentials,
+      scope: { tenantId: 't', organizationId: 'o' },
+      ...({ channelState: { historyId: '100' } } as unknown as Record<string, unknown>),
+    } as Parameters<NonNullable<ReturnType<typeof getGmailChannelAdapter>['fetchHistory']>>[0])
+    expect(page.messages.map((m) => m.externalConversationId).sort()).toEqual([
+      'gmail-thread:gm-t-1',
+      'gmail-thread:gm-t-2',
+    ])
+    const decoded = JSON.parse(Buffer.from(page.nextCursor!, 'base64').toString('utf-8'))
+    expect(decoded.historyId).toBe('203')
+    expect(page.hasMore).toBe(false)
+  })
+
+  it('per-page overflow: a single page carrying more refs than the limit drops none', async () => {
+    const api: GmailApiClient = {
+      ...emptyApi(),
+      listHistory: async () => ({
+        history: [
+          {
+            id: '200',
+            messagesAdded: [
+              { message: { id: 'gm-1', threadId: 'gm-t-1', labelIds: ['INBOX'] } },
+              { message: { id: 'gm-2', threadId: 'gm-t-2', labelIds: ['INBOX'] } },
+              { message: { id: 'gm-3', threadId: 'gm-t-3', labelIds: ['INBOX'] } },
+            ],
+          },
+        ],
+        historyId: '201',
+      }),
+      getMessageRaw: async (_auth, id) => buildRawResponse(id, `gm-t-${id.slice(-1)}`),
+    }
+    setGmailApiClient(api)
+    const page = await getGmailChannelAdapter().fetchHistory!({
+      conversationId: 'inbox',
+      credentials: userCredentials,
+      scope: { tenantId: 't', organizationId: 'o' },
+      limit: 2,
+      ...({ channelState: { historyId: '100' } } as unknown as Record<string, unknown>),
+    } as Parameters<NonNullable<ReturnType<typeof getGmailChannelAdapter>['fetchHistory']>>[0])
+    expect(page.messages).toHaveLength(3)
+    const decoded = JSON.parse(Buffer.from(page.nextCursor!, 'base64').toString('utf-8'))
+    expect(decoded.historyId).toBe('201')
+  })
+
+  it('L3 across pages: a transient failure restarts the window without a forward page-token skip', async () => {
+    const api: GmailApiClient = {
+      ...emptyApi(),
+      listHistory: async (_auth, params) => {
+        if (params?.pageToken === 'page-2') {
+          return {
+            history: [{ id: '202', messagesAdded: [{ message: { id: 'gm-2', threadId: 'gm-t-2', labelIds: ['INBOX'] } }] }],
+            historyId: '203',
+          }
+        }
+        return {
+          history: [{ id: '200', messagesAdded: [{ message: { id: 'gm-1', threadId: 'gm-t-1', labelIds: ['INBOX'] } }] }],
+          historyId: '201',
+          nextPageToken: 'page-2',
+        }
+      },
+      getMessageRaw: async (_auth, id) => {
+        if (id === 'gm-2') throw new GmailApiError('server boom', 500, 'server')
+        return buildRawResponse(id, 'gm-t-1')
+      },
+    }
+    setGmailApiClient(api)
+    const page = await getGmailChannelAdapter().fetchHistory!({
+      conversationId: 'inbox',
+      credentials: userCredentials,
+      scope: { tenantId: 't', organizationId: 'o' },
+      ...({ channelState: { historyId: '100' } } as unknown as Record<string, unknown>),
+    } as Parameters<NonNullable<ReturnType<typeof getGmailChannelAdapter>['fetchHistory']>>[0])
+    expect(page.messages).toHaveLength(1)
+    const decoded = JSON.parse(Buffer.from(page.nextCursor!, 'base64').toString('utf-8'))
+    expect(decoded.historyId).toBe('100')
+    expect(decoded.pendingHistoryPageToken).toBeUndefined()
+    expect(page.hasMore).toBe(true)
+  })
 })
 
 describe('GmailChannelAdapter.normalizeInbound + verifyWebhook + resolveContact', () => {

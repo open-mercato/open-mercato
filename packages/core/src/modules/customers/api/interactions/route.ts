@@ -493,7 +493,7 @@ export async function GET(req: Request) {
           })
         : Promise.resolve<Record<string, Record<string, unknown>>>({}),
       interactionIds.length > 0
-        ? findWithDecryption(em, CustomerInteraction, { id: { $in: interactionIds } } as any, undefined, { tenantId: auth.tenantId, organizationId: selectedOrganizationId })
+        ? findWithDecryption(em, CustomerInteraction, { id: { $in: interactionIds } } as never, undefined, { tenantId: auth.tenantId, organizationId: selectedOrganizationId })
         : Promise.resolve([]),
     ])
 

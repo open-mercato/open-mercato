@@ -74,18 +74,20 @@ export default function ProfileCommunicationChannelsPage() {
   React.useEffect(() => {
     if (flashType === 'connected') {
       flash(
-        t(
-          'communication_channels.profile.flash.connected',
-          `Channel connected${flashProvider ? ` (${flashProvider})` : ''}`,
-        ),
+        flashProvider
+          ? t('communication_channels.profile.flash.connectedWithProvider', 'Channel connected ({provider}).', {
+              provider: flashProvider,
+            })
+          : t('communication_channels.profile.flash.connected', 'Channel connected.'),
         'success',
       )
     } else if (flashType === 'error') {
       flash(
-        t(
-          'communication_channels.profile.flash.error',
-          `Failed to connect channel${flashCode ? ` — ${flashCode}` : ''}`,
-        ),
+        flashCode
+          ? t('communication_channels.profile.flash.errorWithCode', 'Failed to connect channel — {code}.', {
+              code: flashCode,
+            })
+          : t('communication_channels.profile.flash.error', 'Failed to connect channel.'),
         'error',
       )
     }
@@ -448,7 +450,8 @@ export default function ProfileCommunicationChannelsPage() {
             <AlertDescription>
               {t(
                 'communication_channels.profile.alerts.requiresReauth',
-                `${reauthRows.length} channel(s) need reconnection. Click "Reconnect" on the affected channel below.`,
+                '{count} channel(s) need reconnection. Click "Reconnect" on the affected channel below.',
+                { count: reauthRows.length },
               )}
             </AlertDescription>
           </Alert>

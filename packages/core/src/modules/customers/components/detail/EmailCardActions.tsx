@@ -3,30 +3,51 @@
 import * as React from 'react'
 import { useRouter } from 'next/navigation'
 import { Lock, Users } from 'lucide-react'
-import { EmailReplyForwardActions } from '../../../components/detail/EmailReplyForwardActions'
+import { EmailReplyForwardActions } from './EmailReplyForwardActions'
 import {
   ComposeEmailDialog,
   type ComposeEmailChannel,
   type ComposeEmailValues,
-} from '../../../components/detail/ComposeEmailDialog'
+} from './ComposeEmailDialog'
 import { Button } from '@open-mercato/ui/primitives/button'
 import { apiCall } from '@open-mercato/ui/backend/utils/apiCall'
 import { useGuardedMutation } from '@open-mercato/ui/backend/injection/useGuardedMutation'
 import { useAppEvent } from '@open-mercato/ui/backend/injection/useAppEvent'
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
-import type { EmailCardWidgetData } from './widget'
+
+export type EmailCardWidgetData = {
+  interactionId?: string | null
+  externalMessageId?: string | null
+  rfcMessageId?: string | null
+  personId?: string | null
+  fromAddress?: string | null
+  toAddresses?: string[] | null
+  ccAddresses?: string[] | null
+  subject?: string | null
+  inReplyTo?: string | null
+  references?: string[] | null
+  /** Current visibility state of the email row, for toggling. */
+  currentVisibility?: 'private' | 'shared' | null
+  /** True when authorUserId === currentUserId. Drives whether the toggle renders. */
+  isAuthor?: boolean | null
+}
 
 type ReplyMode = 'reply' | 'replyAll' | 'forward'
 
-type WidgetProps = {
-  data?: EmailCardWidgetData
-  context?: Record<string, unknown> & { data?: EmailCardWidgetData }
+type EmailCardActionsProps = {
+  data: EmailCardWidgetData
 }
 
 const PERSON_EMAIL_CARD_ACTIONS_CONTEXT_ID = 'customers-person-email-card-actions'
 
-export function PersonEmailCardActionsWidget({ data, context }: WidgetProps) {
+/**
+ * Reply / Reply All / Forward (+ visibility toggle) actions for an email
+ * activity card. Composed directly into `ActivityCard` — the customers module
+ * owns the timeline, so this is built in place rather than self-injected (see
+ * ARCHITECTURE.md §4 inject-vs-compose).
+ */
+export function EmailCardActions({ data }: EmailCardActionsProps) {
   const t = useT()
   const router = useRouter()
   const { runMutation, retryLastMutation } = useGuardedMutation<{
@@ -39,13 +60,9 @@ export function PersonEmailCardActionsWidget({ data, context }: WidgetProps) {
     blockedMessage: t('ui.forms.flash.saveBlocked', 'Save blocked by validation'),
   })
 
-  // Merge data from both the `data` prop (set by InjectionSpot) and `context.data`
-  // following the same pattern as person-send-email widget.
-  const eff: EmailCardWidgetData = { ...(context?.data ?? {}), ...(data ?? {}) }
-
-  const personId = eff.personId ?? null
-  const rfcMessageId = eff.rfcMessageId ?? null
-  const fromAddress = eff.fromAddress ?? null
+  const personId = data.personId ?? null
+  const rfcMessageId = data.rfcMessageId ?? null
+  const fromAddress = data.fromAddress ?? null
 
   const [mode, setMode] = React.useState<ReplyMode | null>(null)
   const [channels, setChannels] = React.useState<ComposeEmailChannel[] | null>(null)
@@ -88,7 +105,7 @@ export function PersonEmailCardActionsWidget({ data, context }: WidgetProps) {
   // Channels still loading — render nothing to avoid a flash of disabled buttons.
   if (channels === null) return null
 
-  const subjectBase = eff.subject ?? ''
+  const subjectBase = data.subject ?? ''
   const reSubject = subjectBase.toLowerCase().startsWith('re:')
     ? subjectBase
     : `Re: ${subjectBase}`.trim()
@@ -101,9 +118,9 @@ export function PersonEmailCardActionsWidget({ data, context }: WidgetProps) {
       ? null
       : {
           inReplyTo: rfcMessageId,
-          references: Array.from(new Set([...(eff.references ?? []), rfcMessageId])),
+          references: Array.from(new Set([...(data.references ?? []), rfcMessageId])),
           to: mode === 'forward' ? [] : fromAddress ? [fromAddress] : [],
-          cc: mode === 'replyAll' ? (eff.ccAddresses ?? undefined) : undefined,
+          cc: mode === 'replyAll' ? (data.ccAddresses ?? undefined) : undefined,
           subject: mode === 'forward' ? fwdSubject : reSubject,
         }
 
@@ -147,26 +164,26 @@ export function PersonEmailCardActionsWidget({ data, context }: WidgetProps) {
         onForward={() => setMode('forward')}
         disabled={noChannels}
       />
-      {eff.isAuthor === true && eff.currentVisibility ? (
+      {data.isAuthor === true && data.currentVisibility ? (
         <Button
           type="button"
           variant="ghost"
           size="sm"
           aria-label={
-            eff.currentVisibility === 'private'
+            data.currentVisibility === 'private'
               ? t('customers.email.visibility.flipToShared.label', 'Share with teammates')
               : t('customers.email.visibility.flipToPrivate.label', 'Make private')
           }
           title={
-            eff.currentVisibility === 'private'
+            data.currentVisibility === 'private'
               ? t('customers.email.visibility.flipToShared.label', 'Share with teammates')
               : t('customers.email.visibility.flipToPrivate.label', 'Make private')
           }
           onClick={async (e) => {
             e.stopPropagation()
-            const interactionId = eff.interactionId
+            const interactionId = data.interactionId
             if (!interactionId) return
-            const next = eff.currentVisibility === 'private' ? 'shared' : 'private'
+            const next = data.currentVisibility === 'private' ? 'shared' : 'private'
             try {
               await runMutation({
                 operation: async () => {
@@ -213,7 +230,7 @@ export function PersonEmailCardActionsWidget({ data, context }: WidgetProps) {
             router.refresh()
           }}
         >
-          {eff.currentVisibility === 'private' ? (
+          {data.currentVisibility === 'private' ? (
             <Lock className="h-4 w-4" />
           ) : (
             <Users className="h-4 w-4" />
@@ -235,4 +252,4 @@ export function PersonEmailCardActionsWidget({ data, context }: WidgetProps) {
   )
 }
 
-export default PersonEmailCardActionsWidget
+export default EmailCardActions

@@ -1,6 +1,4 @@
 import type { ModuleInjectionTable } from '@open-mercato/shared/modules/widgets/injection'
-import personSendEmailWidget from './injection/person-send-email/widget'
-import personEmailCardActionsWidget from './injection/person-email-card-actions/widget'
 
 /**
  * Step 4.10 / Step 5.15 / Step d4 — customers module injection table.
@@ -45,18 +43,6 @@ export const injectionTable: ModuleInjectionTable = {
     {
       widgetId: 'customers.injection.ai-deal-detail-trigger',
       priority: 100,
-    },
-  ],
-  'detail:customers.person:header': [
-    {
-      widgetId: personSendEmailWidget.metadata.id,
-      priority: 90,
-    },
-  ],
-  'customers:person-email-card-actions': [
-    {
-      widgetId: personEmailCardActionsWidget.metadata.id,
-      priority: 80,
     },
   ],
 }

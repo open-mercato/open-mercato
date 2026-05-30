@@ -96,7 +96,7 @@ export async function POST(req: Request, context: RouteContext): Promise<Respons
       tenantId: auth.tenantId,
       organizationId,
       deletedAt: null,
-    } as any,
+    } as never,
     undefined,
     dscope,
   )

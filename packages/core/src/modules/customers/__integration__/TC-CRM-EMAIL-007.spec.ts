@@ -20,10 +20,10 @@ import {
  * user has no connected channel, and that the standard "Send email" button is
  * NOT present (the no-channel swap is exclusive).
  *
- * The widget (PersonSendEmailWidget) calls GET
+ * The header actions component (PersonEmailActions) calls GET
  * /api/communication_channels/me/channels. When that returns { items: [] }
- * (no channel created for this user), the widget renders the "Connect your
- * mailbox" link instead of the "Send email" button.
+ * (no channel created for this user), it renders the "Connect your mailbox"
+ * link instead of the "Send email" button.
  */
 test.describe('TC-CRM-EMAIL-007: No-channel UX on Person detail page', () => {
   test(

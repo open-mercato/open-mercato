@@ -70,7 +70,7 @@ function deriveDekFromSecret(secret: string, tenantId: string): string {
  * uniqueness across `(integration_id, organization_id, tenant_id, user_id)`
  * when `user_id IS NOT NULL`.
  */
-function buildCredentialsFilter(integrationId: string, scope: IntegrationScope) {
+export function buildCredentialsFilter(integrationId: string, scope: IntegrationScope) {
   const base = {
     integrationId,
     organizationId: scope.organizationId,

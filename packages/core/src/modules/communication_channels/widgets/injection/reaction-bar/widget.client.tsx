@@ -164,10 +164,9 @@ export default function ReactionBarWidget({
           size="sm"
           disabled={busyEmoji === group.emoji}
           onClick={() => void onToggle(group)}
-          aria-label={t(
-            'communication_channels.reaction.toggleAria',
-            `Toggle ${group.emoji} reaction`,
-          )}
+          aria-label={t('communication_channels.reaction.toggleAria', 'Toggle {emoji} reaction', {
+            emoji: group.emoji,
+          })}
         >
           <span aria-hidden>{group.emoji}</span>
           <span className="ml-1 text-xs">{group.count}</span>

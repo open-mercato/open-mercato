@@ -5,6 +5,7 @@ import type {
 import {
   htmlToText,
   referencesFromMeta,
+  sanitizeHeaderValue,
   stringOrUndefined,
   toAddressList,
 } from '@open-mercato/core/modules/communication_channels/lib/email-mime'
@@ -39,16 +40,21 @@ export async function convertOutboundForEmail(
   input: ConvertOutboundInput,
 ): Promise<ChannelNativeContent> {
   const meta = (input.channelMetadata ?? {}) as Record<string, unknown>
-  const subject = stringOrUndefined(meta.subject)
-  const to = toAddressList(meta.to)
+  // Defense-in-depth: strip CR/LF/tab from every header-shaped field so a crafted
+  // subject or recipient cannot smuggle an extra header (e.g. a hidden Bcc),
+  // instead of relying solely on the downstream SMTP composer to neutralize it.
+  const sanitizeOptionalHeader = (value: string | undefined): string | undefined =>
+    value === undefined ? undefined : sanitizeHeaderValue(value)
+  const subject = sanitizeOptionalHeader(stringOrUndefined(meta.subject))
+  const to = toAddressList(meta.to).map(sanitizeHeaderValue)
   if (to.length === 0) {
     throw new Error('Email outbound conversion requires at least one recipient (channelMetadata.to)')
   }
-  const cc = toAddressList(meta.cc)
-  const bcc = toAddressList(meta.bcc)
-  const inReplyTo = stringOrUndefined(meta.inReplyTo)
-  const references = referencesFromMeta(meta.references)
-  const messageId = stringOrUndefined(meta.messageId)
+  const cc = toAddressList(meta.cc).map(sanitizeHeaderValue)
+  const bcc = toAddressList(meta.bcc).map(sanitizeHeaderValue)
+  const inReplyTo = sanitizeOptionalHeader(stringOrUndefined(meta.inReplyTo))
+  const references = referencesFromMeta(meta.references)?.map(sanitizeHeaderValue)
+  const messageId = sanitizeOptionalHeader(stringOrUndefined(meta.messageId))
 
   const html = input.bodyFormat === 'html' ? input.body : undefined
   const text = input.bodyFormat === 'html' ? htmlToText(input.body) : input.body

@@ -26,6 +26,7 @@ export type ReassignConversationResult =
       conversationId: string
     }
   | { status: 'no_channel_link'; reason: string }
+  | { status: 'invalid_assignee'; reason: string }
   | { status: 'noop'; reason: string }
 
 export const COMMUNICATION_CHANNELS_REASSIGN_CONVERSATION_COMMAND_ID =
@@ -75,6 +76,27 @@ const reassignConversationCommand: CommandHandler<
     const previousAssignedUserId = mapping.assignedUserId ?? null
     if (previousAssignedUserId === input.assignedUserId) {
       return { status: 'noop', reason: 'assigned user unchanged' }
+    }
+
+    // Reject an assignee that is not a live user of this tenant — a UUID-shaped
+    // body alone must not create a cross-tenant / dangling owner reference.
+    if (input.assignedUserId) {
+      // Reference the `auth` user row by string entity name so this command does
+      // not import the auth module's entities (module independence); `as never`
+      // matches the codebase pattern for cross-module decrypted reads.
+      const assignee = await findOneWithDecryption(
+        em,
+        'User' as never,
+        { id: input.assignedUserId, tenantId: input.scope.tenantId, deletedAt: null } as never,
+        undefined,
+        dscope,
+      )
+      if (!assignee) {
+        return {
+          status: 'invalid_assignee',
+          reason: 'assigned user is not a member of this tenant',
+        }
+      }
     }
 
     const conversation = await findOneWithDecryption(

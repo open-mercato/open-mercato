@@ -154,7 +154,7 @@ export async function buildPersonEmailThreads(
   // `customer_interaction.title`/`body` are encrypted at rest, so reads go
   // through `findWithDecryption` even though we only consume non-encrypted
   // columns here — this keeps the encrypted-entity contract intact.
-  const dscope = { tenantId, organizationId: organizationId ?? '' }
+  const dscope = { tenantId, organizationId: organizationId ?? null }
   const interactions = (await findWithDecryption(
     em,
     CustomerInteraction,

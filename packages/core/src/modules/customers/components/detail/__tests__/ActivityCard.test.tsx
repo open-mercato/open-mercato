@@ -6,6 +6,12 @@ import { screen } from '@testing-library/react'
 import { ActivityCard } from '../ActivityCard'
 import type { InteractionSummary } from '../types'
 
+// The email-card actions are exercised by their own/integration tests; stub them
+// here so ActivityCard's unit tests don't need a Next router / mutation provider.
+jest.mock('../EmailCardActions', () => ({
+  EmailCardActions: () => null,
+}))
+
 function createActivity(overrides: Partial<InteractionSummary> = {}): InteractionSummary {
   return {
     id: 'activity-1',

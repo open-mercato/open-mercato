@@ -86,4 +86,32 @@ describe('sanitizeChannelHtml', () => {
     expect(out).toMatch(/<strong>bold<\/strong>/)
     expect(out).toMatch(/<em>italic<\/em>/)
   })
+
+  it('keeps safe color/background-color style values', () => {
+    const hex = sanitizeChannelHtml('<p style="color:#ff0000;background-color:#0a0">hi</p>')
+    expect(hex).toMatch(/color:#ff0000/)
+    expect(hex).toMatch(/background-color:#0a0/)
+
+    const rgb = sanitizeChannelHtml('<p style="color:rgb(10, 20, 30)">hi</p>')
+    expect(rgb).toMatch(/color:rgb\(10, 20, 30\)/)
+
+    const named = sanitizeChannelHtml('<span style="color:red">hi</span>')
+    expect(named).toMatch(/color:red/)
+  })
+
+  it('strips CSS url() beacons from color/background-color', () => {
+    const out = sanitizeChannelHtml(
+      '<p style="background-color:url(\'https://evil.com/pixel.gif\')">hi</p>',
+    )
+    expect(out).not.toMatch(/url\(/i)
+    expect(out).not.toMatch(/evil\.com/i)
+    expect(out).toMatch(/hi/)
+  })
+
+  it('strips legacy CSS expression() from color/background-color', () => {
+    const out = sanitizeChannelHtml('<p style="color:expression(alert(1))">hi</p>')
+    expect(out).not.toMatch(/expression\(/i)
+    expect(out).not.toMatch(/alert/)
+    expect(out).toMatch(/hi/)
+  })
 })

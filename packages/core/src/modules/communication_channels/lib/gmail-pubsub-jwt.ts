@@ -17,6 +17,7 @@ import crypto from 'node:crypto'
 
 const GOOGLE_CERTS_URL = 'https://www.googleapis.com/oauth2/v1/certs'
 const CERT_CACHE_TTL_MS = 60 * 60 * 1000
+const CERT_FETCH_TIMEOUT_MS = 5000
 // Google mints OIDC tokens with one of these two issuer strings.
 const GOOGLE_ACCEPTED_ISSUERS = new Set(['https://accounts.google.com', 'accounts.google.com'])
 
@@ -102,21 +103,56 @@ class FetchGmailPubSubVerifier implements GmailPubSubVerifier {
       return this.certCache.certs
     }
     let res: Response
+    const controller = new AbortController()
+    const timer = setTimeout(() => controller.abort(), CERT_FETCH_TIMEOUT_MS)
     try {
-      res = await fetch(GOOGLE_CERTS_URL)
+      res = await fetch(GOOGLE_CERTS_URL, { signal: controller.signal })
     } catch (err) {
       throw new GmailPubSubJwtError(
         `Failed to fetch Google certs: ${err instanceof Error ? err.message : String(err)}`,
         'fetch_certs_failed',
       )
+    } finally {
+      clearTimeout(timer)
     }
     if (!res.ok) {
       throw new GmailPubSubJwtError(`Google certs endpoint returned ${res.status}`, 'fetch_certs_failed')
     }
-    const data = (await res.json()) as Record<string, string>
-    this.certCache = { certs: data, fetchedAt: Date.now() }
-    return data
+    let parsed: unknown
+    try {
+      parsed = await res.json()
+    } catch (err) {
+      throw new GmailPubSubJwtError(
+        `Google certs endpoint returned invalid JSON: ${err instanceof Error ? err.message : String(err)}`,
+        'fetch_certs_failed',
+      )
+    }
+    const certs = toCertMap(parsed)
+    if (!certs) {
+      // Never cache an empty/malformed payload — a single bad 200 would otherwise
+      // disable Gmail push verification for the whole CERT_CACHE_TTL_MS window.
+      throw new GmailPubSubJwtError('Google certs endpoint returned an unexpected shape', 'fetch_certs_failed')
+    }
+    this.certCache = { certs, fetchedAt: Date.now() }
+    return certs
   }
+}
+
+/**
+ * Validates that a parsed Google certs response is a non-empty `kid → PEM` map.
+ * Returns the typed map on success, or `null` when the shape is unusable so the
+ * caller can fail closed instead of caching garbage.
+ */
+function toCertMap(value: unknown): Record<string, string> | null {
+  if (value == null || typeof value !== 'object' || Array.isArray(value)) return null
+  const entries = Object.entries(value as Record<string, unknown>)
+  if (entries.length === 0) return null
+  const certs: Record<string, string> = {}
+  for (const [kid, pem] of entries) {
+    if (typeof pem !== 'string' || pem.length === 0) return null
+    certs[kid] = pem
+  }
+  return certs
 }
 
 function extractBearer(header: string | null | undefined): string | null {

@@ -58,6 +58,16 @@ const ALLOWED_SCHEMES_BY_TAG = {
   img: ['http', 'https', 'data'],
 }
 
+/**
+ * Safe CSS color value shapes only: hex (#rgb / #rgba / #rrggbb / #rrggbbaa),
+ * rgb()/rgba(), hsl()/hsla(), and bare named colors (`red`, `transparent`,
+ * `currentcolor`, …). Deliberately rejects any value containing `url(` or
+ * `expression(` so a `color`/`background-color` declaration can never smuggle a
+ * CSS-based tracking beacon or legacy-IE script expression past the sanitizer.
+ */
+const SAFE_CSS_COLOR =
+  /^#(?:[0-9a-f]{3,4}|[0-9a-f]{6}|[0-9a-f]{8})$|^rgba?\(\s*[\d.,\s%]+\)$|^hsla?\(\s*[\d.,\s%]+\)$|^[a-z]+$/i
+
 const SANITIZE_OPTIONS: sanitizeHtml.IOptions = {
   allowedTags: ALLOWED_TAGS,
   allowedAttributes: {
@@ -72,8 +82,8 @@ const SANITIZE_OPTIONS: sanitizeHtml.IOptions = {
   // disable inline scripts in style attributes
   allowedStyles: {
     '*': {
-      'background-color': [/^.+$/i],
-      color: [/^.+$/i],
+      'background-color': [SAFE_CSS_COLOR],
+      color: [SAFE_CSS_COLOR],
       'text-align': [/^left$|^right$|^center$|^justify$/i],
       'font-size': [/^\d+(?:\.\d+)?(?:px|em|rem|%)$/],
       'font-weight': [/^\d{3}$|^bold$|^normal$/],

@@ -37,6 +37,18 @@ export interface CustomerKyselyDb {
     visibility: string | null
     author_user_id: string | null
   }
+  /**
+   * Read-only projection of the communication_channels-owned table. Declared
+   * here (rather than coupling to that module's types) so the email-card
+   * enricher can resolve `channel_metadata` for linked interactions with full
+   * type-safety instead of an `as any` escape hatch.
+   */
+  message_channel_links: {
+    id: string
+    channel_metadata: unknown
+    organization_id: string | null
+    tenant_id: string
+  }
 }
 
 export type CustomerKysely = Kysely<CustomerKyselyDb>

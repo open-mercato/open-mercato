@@ -70,4 +70,23 @@ describe('convertOutboundForGmail', () => {
     const generated = meta.messageId as string
     expect(generated).toMatch(/^<[^@]+@gmail\.com>$/)
   })
+
+  it('neutralizes CRLF header injection in subject / fromName', async () => {
+    const result = await convertOutboundForGmail({
+      body: 'hi',
+      bodyFormat: 'text',
+      channelMetadata: {
+        subject: 'Hello\r\nBcc: attacker@evil.com',
+        to: ['bob@example.com'],
+      },
+      fromAddress: 'alice@gmail.com',
+      fromName: 'Alice\r\nX-Injected: 1',
+    })
+    const meta = result.metadata as Record<string, unknown>
+    const raw = (meta.rawMessage as Buffer).toString('utf-8')
+    // The injected CRLF must collapse into the header value, not start a new header.
+    expect(raw).not.toMatch(/^Bcc: attacker@evil\.com/m)
+    expect(raw).not.toMatch(/^X-Injected:/m)
+    expect(raw).toMatch(/^Subject: /m)
+  })
 })

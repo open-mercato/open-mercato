@@ -119,8 +119,9 @@ class GmailChannelAdapter implements ChannelAdapter {
   }
 
   async verifyWebhook(_input: VerifyWebhookInput): Promise<InboundMessage> {
-    // Gmail Pub/Sub push is deferred to v2. The route still exists for forward
-    // compatibility but we return an unhandled event so the hub responds 2xx.
+    // Gmail Pub/Sub push (Spec C) is handled by the dedicated `/webhooks/gmail`
+    // route + `applyPushNotification`, not this generic hub-webhook hook, so this
+    // returns an unhandled event for the generic route to ack 2xx.
     return { raw: {}, eventType: 'other', metadata: { reason: 'gmail-uses-polling-not-push' } }
   }
 
@@ -421,7 +422,11 @@ class GmailChannelAdapter implements ChannelAdapter {
     let lastResponseHistoryId: string | undefined
     let drained = false
 
-    while (collected.length < limit) {
+    // Fully consume each page before deciding to stop: `pageToken` must only ever
+    // advance past refs we have actually collected, otherwise a page carrying more
+    // than `limit` new refs would silently drop the overflow. `collected` may
+    // therefore exceed `limit` by up to one page — bounded and intentional.
+    while (true) {
       const history = await api.listHistory(auth, {
         startHistoryId,
         pageToken,
@@ -431,13 +436,13 @@ class GmailChannelAdapter implements ChannelAdapter {
         if (seen.has(ref.id)) continue
         seen.add(ref.id)
         collected.push(ref)
-        if (collected.length >= limit) break
       }
       if (!history.nextPageToken) {
         drained = true
         break
       }
       pageToken = history.nextPageToken
+      if (collected.length >= limit) break
     }
 
     const { messages, hardFailed } = await this.fetchAndNormalize(api, auth, collected, accountIdentifier)
@@ -445,20 +450,20 @@ class GmailChannelAdapter implements ChannelAdapter {
       lastSyncedAt: new Date().toISOString(),
     }
     if (hardFailed) {
-      // L3: a message failed transiently. Keep the original startHistoryId
-      // pinned so the next tick re-enters the same window and re-fetches the
-      // unprocessed messages. Do NOT advance past them.
+      // L3: a message failed transiently. Restart the window from startHistoryId
+      // on the next tick (drop any page token) so every page — including the one
+      // carrying the failed message — is re-read; already-ingested messages dedup
+      // at the hub. Do NOT advance the terminal historyId or pin a forward token,
+      // which would skip the failed message's page.
       nextState.historyId = startHistoryId
-      nextState.pendingHistoryStartId = startHistoryId
-      if (pageToken) nextState.pendingHistoryPageToken = pageToken
     } else if (drained) {
       // All pages drained — advance the terminal historyId.
       nextState.historyId = lastResponseHistoryId ?? startHistoryId
     } else {
-      // Mid-drain — keep the prior startHistoryId pinned + remember pageToken.
+      // Mid-drain — keep the prior startHistoryId pinned + remember the next
+      // unconsumed pageToken so the following tick resumes without re-walking.
       nextState.historyId = startHistoryId
       nextState.pendingHistoryPageToken = pageToken
-      nextState.pendingHistoryStartId = startHistoryId
     }
     return {
       messages,

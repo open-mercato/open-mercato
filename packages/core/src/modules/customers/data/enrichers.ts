@@ -354,9 +354,9 @@ export const interactionEmailCardEnricher: ResponseEnricher<
       new Set(emailRecords.map((r) => r.externalMessageId as string)),
     )
 
-    // Use the raw Kysely client with `as any` to avoid cross-module type coupling
-    // (message_channel_links is owned by communication_channels, not customers).
-    // This mirrors the existing pattern in privateEmailCountEnricher.
+    // message_channel_links is owned by communication_channels; its read-only
+    // shape is declared in CustomerKyselyDb so this stays type-safe without
+    // cross-module coupling. Mirrors privateEmailCountEnricher.
     const kysely = resolveKyselyClient(ctx.em)
     if (!kysely) {
       // Fail-safe: Kysely unavailable (test stubs, unusual driver wrappers).
@@ -365,21 +365,21 @@ export const interactionEmailCardEnricher: ResponseEnricher<
 
     let linkRows: Array<{ id: string; channel_metadata: unknown }>
     try {
-      linkRows = (await (kysely as any)
+      linkRows = await kysely
         .selectFrom('message_channel_links')
         .select(['id', 'channel_metadata'])
         .where('tenant_id', '=', ctx.tenantId)
         // Defense-in-depth org scope. `id IN linkIds` already binds the lookup
         // to this org's interactions, and `message_channel_links.organization_id`
         // is nullable, so we tolerate NULL to avoid dropping legitimate links.
-        .where((eb: any) =>
+        .where((eb) =>
           eb.or([
             eb('organization_id', '=', ctx.organizationId),
             eb('organization_id', 'is', null),
           ]),
         )
         .where('id', 'in', linkIds)
-        .execute()) as Array<{ id: string; channel_metadata: unknown }>
+        .execute()
     } catch {
       // Fail-safe: unexpected DB error (missing table in test env, schema drift).
       return records
