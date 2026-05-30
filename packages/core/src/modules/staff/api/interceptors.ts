@@ -1,9 +1,40 @@
-import type { ApiInterceptor } from '@open-mercato/shared/lib/crud/api-interceptor'
+import type { ApiInterceptor, InterceptorContext } from '@open-mercato/shared/lib/crud/api-interceptor'
 import { hasFeature } from '@open-mercato/shared/security/features'
 import { getStaffMemberByUserId } from '../lib/staffMemberResolver'
 
-function hasManageAllFeature(userFeatures: string[] | undefined): boolean {
-  return hasFeature(userFeatures, 'staff.timesheets.manage_all')
+type RbacServiceLike = {
+  userHasAllFeatures: (
+    userId: string,
+    required: string[],
+    scope: { tenantId: string | null; organizationId: string | null },
+  ) => Promise<boolean>
+}
+
+/**
+ * Checks whether the caller has manage_all rights, honoring wildcard ACL grants
+ * (`staff.*`, `*`) and the super-admin flag.
+ *
+ * `context.userFeatures` is populated only on CRUD-factory routes (factory.ts
+ * calls `rbacService.getGrantedFeatures`). Custom routes that wire interceptors
+ * manually (like `dashboards/widgets/data`) pass `auth.features` directly, and
+ * the JWT does NOT include features — so we must fall back to loading the ACL
+ * from `rbacService.userHasAllFeatures`, which is cached and wildcard-aware.
+ */
+async function hasManageAllFeature(context: InterceptorContext): Promise<boolean> {
+  if (hasFeature(context.userFeatures, 'staff.timesheets.manage_all')) return true
+  try {
+    const rbac = context.container.resolve('rbacService') as RbacServiceLike | undefined
+    if (rbac?.userHasAllFeatures) {
+      return await rbac.userHasAllFeatures(
+        context.userId,
+        ['staff.timesheets.manage_all'],
+        { tenantId: context.tenantId ?? null, organizationId: context.organizationId ?? null },
+      )
+    }
+  } catch {
+    // rbacService not available — fall through to deny
+  }
+  return false
 }
 
 export const interceptors: ApiInterceptor[] = [
@@ -18,7 +49,7 @@ export const interceptors: ApiInterceptor[] = [
         return { ok: true }
       }
 
-      if (hasManageAllFeature(context.userFeatures)) {
+      if (await hasManageAllFeature(context)) {
         return { ok: true }
       }
 
@@ -60,7 +91,7 @@ export const interceptors: ApiInterceptor[] = [
     methods: ['GET'],
     priority: 70,
     async before(request, context) {
-      if (hasManageAllFeature(context.userFeatures)) {
+      if (await hasManageAllFeature(context)) {
         return { ok: true }
       }
 
