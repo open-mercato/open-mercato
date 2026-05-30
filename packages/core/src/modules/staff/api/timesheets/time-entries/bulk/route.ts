@@ -11,7 +11,7 @@ import { emitCrudSideEffects, flushCrudSideEffects } from '@open-mercato/shared/
 import type { DataEngine } from '@open-mercato/shared/lib/data/engine'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
-import { StaffTimeEntry, StaffTeamMember } from '../../../../data/entities'
+import { StaffTimeEntry, StaffTeamMember, StaffTimeProject } from '../../../../data/entities'
 import { staffTimeEntryBulkSaveSchema } from '../../../../data/validators'
 import { staffTimeEntryCrudEvents } from '../../../../lib/crud'
 import {
@@ -64,6 +64,38 @@ export async function POST(req: Request) {
       throw new CrudHttpError(403, { error: translate('staff.timesheets.errors.noStaffMember', 'No staff member linked to your account.') })
     }
     const staffMemberId = staffMember.id
+
+    // Validate that all referenced timeProjectIds exist and are in-scope
+    const referencedProjectIds = [
+      ...new Set(
+        entries
+          .map((e) => e.timeProjectId)
+          .filter((id): id is string => typeof id === 'string' && id.length > 0),
+      ),
+    ]
+    if (referencedProjectIds.length > 0) {
+      const validProjects = await em.find(StaffTimeProject, {
+        id: { $in: referencedProjectIds },
+        tenantId,
+        organizationId,
+        deletedAt: null,
+      }, { fields: ['id'] })
+      const validIds = new Set(validProjects.map((p) => p.id))
+      const invalidIds = referencedProjectIds.filter((id) => !validIds.has(id))
+      if (invalidIds.length > 0) {
+        return NextResponse.json(
+          {
+            ok: false,
+            errors: invalidIds.map((id) => ({
+              path: 'entries[].timeProjectId',
+              message: translate('staff.timesheets.errors.projectNotFound', 'Time project not found or not accessible.'),
+              value: id,
+            })),
+          },
+          { status: 422 },
+        )
+      }
+    }
 
     const guardInput = {
       tenantId,

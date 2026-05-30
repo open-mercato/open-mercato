@@ -1,6 +1,7 @@
 import type { CommandHandler } from '@open-mercato/shared/lib/commands'
 import { registerCommand } from '@open-mercato/shared/lib/commands'
 import type { EntityManager } from '@mikro-orm/postgresql'
+import { UniqueConstraintViolationException } from '@mikro-orm/core'
 import { CrudHttpError } from '@open-mercato/shared/lib/crud/errors'
 import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
 import { findOneWithDecryption } from '@open-mercato/shared/lib/encryption/find'
@@ -18,6 +19,15 @@ import {
 } from '../data/validators'
 import { staffTimeProjectCrudEvents } from '../lib/crud'
 import { ensureOrganizationScope, ensureTenantScope, extractUndoPayload } from './shared'
+
+function isUniqueViolation(error: unknown): boolean {
+  if (error instanceof UniqueConstraintViolationException) return true
+  if (!error || typeof error !== 'object') return false
+  const code = (error as { code?: string }).code
+  if (code === '23505') return true
+  const message = (error as { message?: string }).message
+  return typeof message === 'string' && message.toLowerCase().includes('duplicate key')
+}
 
 type TimeProjectSnapshot = {
   id: string
@@ -126,7 +136,18 @@ const createTimeProjectCommand: CommandHandler<StaffTimeProjectCreateInput, { ti
       deletedAt: null,
     })
     em.persist(project)
-    await em.flush()
+    try {
+      await em.flush()
+    } catch (err) {
+      if (isUniqueViolation(err)) {
+        const { translate } = await resolveTranslations()
+        throw new CrudHttpError(409, {
+          error: translate('staff.timesheets.errors.projectCodeDuplicate', 'A project with this code already exists.'),
+          fieldErrors: { code: translate('staff.timesheets.errors.projectCodeDuplicate', 'A project with this code already exists.') },
+        })
+      }
+      throw err
+    }
 
     await emitCrudSideEffects({
       dataEngine: ctx.container.resolve('dataEngine'),
@@ -226,7 +247,18 @@ const updateTimeProjectCommand: CommandHandler<StaffTimeProjectUpdateInput, { ti
     if (parsed.costCenter !== undefined) project.costCenter = parsed.costCenter ?? null
     if (parsed.startDate !== undefined) project.startDate = parsed.startDate ?? null
     project.updatedAt = new Date()
-    await em.flush()
+    try {
+      await em.flush()
+    } catch (err) {
+      if (isUniqueViolation(err)) {
+        const { translate } = await resolveTranslations()
+        throw new CrudHttpError(409, {
+          error: translate('staff.timesheets.errors.projectCodeDuplicate', 'A project with this code already exists.'),
+          fieldErrors: { code: translate('staff.timesheets.errors.projectCodeDuplicate', 'A project with this code already exists.') },
+        })
+      }
+      throw err
+    }
 
     await emitCrudSideEffects({
       dataEngine: ctx.container.resolve('dataEngine'),
