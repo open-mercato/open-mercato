@@ -858,7 +858,7 @@ export default function ApiDocsExplorer(props: ApiDocsExplorerProps) {
                           type="button"
                           className={`flex w-full items-center gap-2 rounded-md border px-3 py-2 text-left text-sm ${
                             selectedOperation?.id === operation.id
-                              ? 'border-primary text-primary'
+                              ? 'border-accent-indigo text-foreground'
                               : 'border-border text-muted-foreground'
                           }`}
                           onClick={() => handleSelectOperation(operation.id)}

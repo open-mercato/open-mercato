@@ -185,7 +185,7 @@ export default function AuditLogsPage() {
               type="button"
               role="tab"
               aria-selected={tab === 'actions'}
-              className={`relative -mb-px border-b-2 px-0 pb-3 pt-2 font-medium transition-colors ${tab === 'actions' ? 'border-primary text-foreground' : 'border-transparent text-muted-foreground hover:text-foreground'}`}
+              className={`relative -mb-px border-b-2 px-0 pb-3 pt-2 font-medium transition-colors ${tab === 'actions' ? 'border-accent-indigo text-foreground' : 'border-transparent text-muted-foreground hover:text-foreground'}`}
               onClick={() => setTab('actions')}
             >
               {t('audit_logs.actions.title')}
@@ -194,7 +194,7 @@ export default function AuditLogsPage() {
               type="button"
               role="tab"
               aria-selected={tab === 'access'}
-              className={`relative -mb-px border-b-2 px-0 pb-3 pt-2 font-medium transition-colors ${tab === 'access' ? 'border-primary text-foreground' : 'border-transparent text-muted-foreground hover:text-foreground'}`}
+              className={`relative -mb-px border-b-2 px-0 pb-3 pt-2 font-medium transition-colors ${tab === 'access' ? 'border-accent-indigo text-foreground' : 'border-transparent text-muted-foreground hover:text-foreground'}`}
               onClick={() => setTab('access')}
             >
               {t('audit_logs.access.title')}

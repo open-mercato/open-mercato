@@ -85,7 +85,7 @@ function createColumns(t: Translator): ColumnDef<Row>[] {
                         className={cn(
                           'rounded-full border px-2 py-0.5 text-xs',
                           link.kind === 'primary'
-                            ? 'border-primary text-primary'
+                            ? 'border-accent-indigo text-foreground'
                             : 'border-muted-foreground/40 text-muted-foreground'
                         )}
                       >

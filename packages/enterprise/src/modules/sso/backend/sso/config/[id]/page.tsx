@@ -350,7 +350,7 @@ export default function SsoConfigDetailPage() {
                 size="sm"
                 className={`h-auto rounded-none border-b-2 px-4 py-2 hover:bg-transparent ${
                   activeTab === tab.id
-                    ? 'border-primary text-foreground'
+                    ? 'border-accent-indigo text-foreground'
                     : 'border-transparent text-muted-foreground'
                 }`}
                 onClick={() => setActiveTab(tab.id)}
