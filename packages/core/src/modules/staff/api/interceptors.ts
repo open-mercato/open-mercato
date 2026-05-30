@@ -1,12 +1,9 @@
 import type { ApiInterceptor } from '@open-mercato/shared/lib/crud/api-interceptor'
+import { hasFeature } from '@open-mercato/shared/security/features'
 import { getStaffMemberByUserId } from '../lib/staffMemberResolver'
 
 function hasManageAllFeature(userFeatures: string[] | undefined): boolean {
-  if (!userFeatures || userFeatures.length === 0) return false
-  return (
-    userFeatures.includes('staff.timesheets.manage_all') ||
-    userFeatures.includes('staff.*')
-  )
+  return hasFeature(userFeatures, 'staff.timesheets.manage_all')
 }
 
 export const interceptors: ApiInterceptor[] = [
