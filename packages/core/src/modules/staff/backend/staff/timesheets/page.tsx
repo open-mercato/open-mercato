@@ -843,7 +843,7 @@ export default function MyTimesheetsPage() {
                               value={rawText[project.id]?.[dateKey] ?? minutesToDecimal(cellMinutes)}
                               onChange={(e) => handleCellChange(project.id, dateKey, e.target.value)}
                               onBlur={() => handleCellBlur(project.id, dateKey)}
-                              placeholder="0"
+                              placeholder={t('staff.timesheets.my.durationPlaceholder', '0')}
                             />
                           )}
                         </td>

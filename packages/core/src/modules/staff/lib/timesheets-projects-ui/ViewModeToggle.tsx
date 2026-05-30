@@ -11,6 +11,7 @@ export type ViewModeToggleProps = {
   tableLabel: string
   cardsLabel: string
   className?: string
+  ariaLabel?: string
 }
 
 export function ViewModeToggle({
@@ -19,11 +20,12 @@ export function ViewModeToggle({
   tableLabel,
   cardsLabel,
   className,
+  ariaLabel,
 }: ViewModeToggleProps) {
   return (
     <div
       role="group"
-      aria-label="View mode"
+      aria-label={ariaLabel ?? 'View mode'}
       className={`inline-flex items-center rounded-md border border-border p-0.5 ${className ?? ''}`}
     >
       <Button

@@ -14,13 +14,14 @@ export type SavedViewTabsProps = {
   activeId: string
   onSelect: (id: string) => void
   className?: string
+  ariaLabel?: string
 }
 
-export function SavedViewTabs({ tabs, activeId, onSelect, className }: SavedViewTabsProps) {
+export function SavedViewTabs({ tabs, activeId, onSelect, className, ariaLabel }: SavedViewTabsProps) {
   return (
     <div
       role="tablist"
-      aria-label="Saved views"
+      aria-label={ariaLabel ?? 'Saved views'}
       className={`flex items-center gap-1 border-b border-border ${className ?? ''}`}
     >
       {tabs.map((tab) => {

@@ -14,7 +14,7 @@ import { deleteCrud } from '@open-mercato/ui/backend/utils/crud'
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
 import { useConfirmDialog } from '@open-mercato/ui/backend/confirm-dialog'
 import { useOrganizationScopeVersion } from '@open-mercato/shared/lib/frontend/useOrganizationScope'
-import { useT } from '@open-mercato/shared/lib/i18n/context'
+import { useT, type TranslateFn } from '@open-mercato/shared/lib/i18n/context'
 import { formatDateTime } from '@open-mercato/shared/lib/time'
 import { ProjectColorDot } from '../../../../lib/timesheets-ui/ProjectColorDot'
 import { resolveProjectColorHex } from '../../../../lib/timesheets-ui/colors'
@@ -77,18 +77,18 @@ type ProjectsResponse = {
 
 type KpisResponse = PmKpis | CollabKpis
 
-function formatRelativeTime(iso: string | null, fallback: string): string {
+function formatRelativeTime(iso: string | null, fallback: string, t: TranslateFn): string {
   if (!iso) return fallback
   const parsed = new Date(iso)
   if (Number.isNaN(parsed.getTime())) return fallback
   const diffMs = Date.now() - parsed.getTime()
   const minutes = Math.round(diffMs / 60000)
-  if (minutes < 1) return 'just now'
-  if (minutes < 60) return `${minutes}m ago`
+  if (minutes < 1) return t('staff.timesheets.projects.portfolio.relativeTime.justNow', 'just now')
+  if (minutes < 60) return t('staff.timesheets.projects.portfolio.relativeTime.minutesAgo', '{minutes}m ago', { minutes })
   const hours = Math.round(minutes / 60)
-  if (hours < 24) return `${hours}h ago`
+  if (hours < 24) return t('staff.timesheets.projects.portfolio.relativeTime.hoursAgo', '{hours}h ago', { hours })
   const days = Math.round(hours / 24)
-  if (days < 14) return `${days}d ago`
+  if (days < 14) return t('staff.timesheets.projects.portfolio.relativeTime.daysAgo', '{days}d ago', { days })
   return formatDateTime(iso) ?? fallback
 }
 
@@ -584,7 +584,7 @@ export default function TimesheetProjectsPage() {
         meta: { priority: 6 },
         cell: ({ row }) => (
           <span className="text-xs text-muted-foreground">
-            {formatRelativeTime(row.original.updatedAt, '—')}
+            {formatRelativeTime(row.original.updatedAt, '—', t)}
           </span>
         ),
       },
@@ -637,12 +637,18 @@ export default function TimesheetProjectsPage() {
         </div>
 
         <div className="mb-3 flex flex-wrap items-center justify-between gap-3">
-          <SavedViewTabs tabs={tabs} activeId={activeTab} onSelect={handleTabSelect} />
+          <SavedViewTabs
+            tabs={tabs}
+            activeId={activeTab}
+            onSelect={handleTabSelect}
+            ariaLabel={t('staff.timesheets.projects.portfolio.savedViews.ariaLabel', 'Saved views')}
+          />
           <ViewModeToggle
             mode={viewMode}
             onChange={handleViewModeChange}
             tableLabel={labels.viewMode.table}
             cardsLabel={labels.viewMode.cards}
+            ariaLabel={t('staff.timesheets.projects.portfolio.viewMode.ariaLabel', 'View mode')}
           />
         </div>
 
