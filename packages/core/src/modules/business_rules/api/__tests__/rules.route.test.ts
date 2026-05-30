@@ -1,12 +1,13 @@
 /** @jest-environment node */
 
 import { describe, test, expect, beforeEach, jest } from '@jest/globals'
-import { createAuthMock, createMockContainer, createMockEntityManager } from './test-helpers'
+import { createAuthMock, createMockCache, createMockContainer, createMockEntityManager } from './test-helpers'
 import * as ruleEngine from '../../lib/rule-engine'
 
 const mockGetAuthFromRequest = createAuthMock()
 const mockEm = createMockEntityManager()
-const mockContainer = createMockContainer(mockEm)
+const mockCache = createMockCache()
+const mockContainer = createMockContainer(mockEm, mockCache)
 
 jest.mock('@open-mercato/shared/lib/di/container', () => ({
   createRequestContainer: jest.fn(async () => mockContainer),
@@ -58,7 +59,7 @@ describe('Business Rules API - /api/business_rules/rules', () => {
   const validOrgId = '223e4567-e89b-12d3-a456-426614174000'
 
   beforeEach(() => {
-    ruleEngine.invalidateBusinessRuleDiscoveryCache()
+    mockCache.clearAll()
     jest.clearAllMocks()
     mockGetAuthFromRequest.mockResolvedValue({
       sub: 'user-1',
@@ -75,7 +76,7 @@ describe('Business Rules API - /api/business_rules/rules', () => {
       eventType: 'created',
       tenantId: validTenantId,
       organizationId: validOrgId,
-    })
+    }, { cache: mockCache })
     expect(mockEm.find).toHaveBeenCalledTimes(1)
   }
 
@@ -86,7 +87,7 @@ describe('Business Rules API - /api/business_rules/rules', () => {
       eventType: 'created',
       tenantId: validTenantId,
       organizationId: validOrgId,
-    })
+    }, { cache: mockCache })
     expect(mockEm.find).toHaveBeenCalledTimes(2)
   }
 

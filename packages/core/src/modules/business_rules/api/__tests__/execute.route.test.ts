@@ -1,12 +1,12 @@
 /** @jest-environment node */
 
 import { describe, test, expect, beforeEach, jest } from '@jest/globals'
-import { createAuthMock, createMockContainer, createMockEntityManager } from './test-helpers'
-import { invalidateBusinessRuleDiscoveryCache } from '../../lib/rule-engine'
+import { createAuthMock, createMockCache, createMockContainer, createMockEntityManager } from './test-helpers'
 
 const mockGetAuthFromRequest = createAuthMock()
 const mockEm = createMockEntityManager()
-const mockContainer = createMockContainer(mockEm)
+const mockCache = createMockCache()
+const mockContainer = createMockContainer(mockEm, mockCache)
 
 jest.mock('@open-mercato/shared/lib/di/container', () => ({
   createRequestContainer: jest.fn(async () => mockContainer),
@@ -31,7 +31,7 @@ describe('Business Rules API - Execute Endpoint', () => {
   const validOrgId = '223e4567-e89b-12d3-a456-426614174000'
 
   beforeEach(() => {
-    invalidateBusinessRuleDiscoveryCache()
+    mockCache.clearAll()
     jest.clearAllMocks()
     mockGetAuthFromRequest.mockResolvedValue({
       sub: 'user-1',
