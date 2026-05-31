@@ -496,7 +496,7 @@ export function TranslationManager({
                   />
                 </div>
                 {entitiesError && (
-                  <p className="mt-1 text-xs text-red-600">
+                  <p className="mt-1 text-xs text-destructive">
                     {t('translations.manager.errors.loadEntities', 'Failed to load entities')}
                   </p>
                 )}

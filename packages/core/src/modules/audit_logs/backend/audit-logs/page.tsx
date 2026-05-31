@@ -202,7 +202,7 @@ export default function AuditLogsPage() {
           </nav>
         </div>
 
-        {error && <div className="mb-4 rounded-md border border-red-300 bg-red-50 p-3 text-sm text-red-700">{error}</div>}
+        {error && <div className="mb-4 rounded-md border border-status-error-border bg-status-error-bg p-3 text-sm text-status-error-text">{error}</div>}
 
         {tab === 'actions' && (
           <AuditLogsActions

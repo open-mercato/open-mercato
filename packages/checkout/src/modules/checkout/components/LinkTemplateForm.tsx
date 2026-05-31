@@ -1551,8 +1551,8 @@ export function LinkTemplateForm({ mode, recordId }: Props) {
     </Alert>
   ) : undefined
   const lockedOverlay = isLocked ? (
-    <div className="mx-auto mt-6 max-w-md rounded-xl border border-amber-200 bg-background/95 px-5 py-4 text-center shadow-sm">
-      <div className="mx-auto mb-3 flex h-10 w-10 items-center justify-center rounded-full bg-amber-100 text-amber-700">
+    <div className="mx-auto mt-6 max-w-md rounded-xl border border-status-warning-border bg-background/95 px-5 py-4 text-center shadow-sm">
+      <div className="mx-auto mb-3 flex h-10 w-10 items-center justify-center rounded-full bg-status-warning-bg text-status-warning-icon">
         <Shield className="h-5 w-5" />
       </div>
       <p className="text-sm font-semibold text-foreground">
