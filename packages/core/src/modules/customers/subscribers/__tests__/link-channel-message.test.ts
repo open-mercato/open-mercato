@@ -202,6 +202,43 @@ describe('link-channel-message subscriber — inbound', () => {
     expect(createdData.visibility).toBe('private') // user-scoped channel
   })
 
+  it('IGNORES crmVisibility on INBOUND — provider metadata cannot downgrade a user-owned channel to shared', async () => {
+    // Security regression guard: inbound channelMetadata is provider-derived
+    // (attacker-influenceable). `crmVisibility` is an outbound-compose concern; on
+    // inbound it MUST be ignored so a crafted inbound header cannot expose a private
+    // channel's mail to the whole tenant. User-owned channel + crmVisibility:'shared'
+    // → still private.
+    const linkRow = {
+      id: 'mcl-inbound-vis',
+      messageId: 'msg-inbound-vis',
+      providerKey: 'imap',
+      direction: 'inbound',
+      createdAt: new Date('2026-05-28T22:16:00Z'),
+      channelPayload: { from: 'gita@external.com', to: ['me@org.com'], subject: 'Hi', text: 'hi' },
+      channelMetadata: { crmVisibility: 'shared' },
+    }
+    mockFindPeople.mockResolvedValueOnce([{ id: 'person-1' }])
+    const em = makeEm({
+      // findOne[0]: link lookup, findOne[1]: channel (user-scoped → owner present)
+      findOneResults: [linkRow, { userId: 'u-1' }],
+    })
+
+    await handler(
+      {
+        eventType: 'communication_channels.message.received',
+        channelLinkId: 'mcl-inbound-vis',
+        channelId: 'ch-1',
+        tenantId: 'tenant-1',
+        organizationId: 'org-1',
+      } as any,
+      makeCtx(em),
+    )
+
+    expect(em.create).toHaveBeenCalledTimes(1)
+    const [, createdData] = em.create.mock.calls[0] as [unknown, Record<string, unknown>]
+    expect(createdData.visibility).toBe('private')
+  })
+
   it('creates 3 interactions for 3-person match across From/To/Cc', async () => {
     const linkRow = {
       id: 'mcl-multi',

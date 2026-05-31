@@ -580,6 +580,6 @@ function extractStringArrayFromMeta(
   return value.filter((item): item is string => typeof item === 'string')
 }
 
-registerCommand(ingestInboundMessageCommand as unknown as CommandHandler)
+registerCommand(ingestInboundMessageCommand)
 
 export default ingestInboundMessageCommand

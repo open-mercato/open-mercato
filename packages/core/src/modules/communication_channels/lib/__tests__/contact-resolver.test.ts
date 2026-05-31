@@ -56,6 +56,18 @@ function makeContainer(queryRows: Record<string, unknown>[] = []) {
 const scope = { tenantId: '11111111-1111-1111-1111-111111111111', organizationId: '22222222-2222-2222-2222-222222222222' }
 
 describe('resolveContact', () => {
+  const prevEncryption = process.env.TENANT_DATA_ENCRYPTION
+  beforeEach(() => {
+    // The CRM fast-path lookup filters `primary_email`/`primary_phone` by value,
+    // which is only valid (and only runs) when tenant encryption is OFF. These
+    // tests exercise that path.
+    process.env.TENANT_DATA_ENCRYPTION = 'no'
+  })
+  afterEach(() => {
+    if (prevEncryption === undefined) delete process.env.TENANT_DATA_ENCRYPTION
+    else process.env.TENANT_DATA_ENCRYPTION = prevEncryption
+  })
+
   it('returns null when adapter has no resolveContact and senderIdentifier is empty', async () => {
     const adapter = makeAdapter()
     const out = await resolveContact(
@@ -145,6 +157,26 @@ describe('resolveContact', () => {
     )
     expect(out?.email).toBe('jane@example.com') // heuristic worked
     expect(out?.matchedPersonId).toBeUndefined() // no CRM match
+  })
+
+  it('skips the plaintext CRM lookup under tenant encryption (§16 footgun guard)', async () => {
+    process.env.TENANT_DATA_ENCRYPTION = 'yes'
+    const queryMock = jest.fn(async () => [{ id: 'person-1', primary_email: 'jane@example.com' }])
+    const container = {
+      resolve: (name: string) => {
+        if (name === 'queryEngine') return { query: queryMock }
+        throw new Error(`Unknown DI key: ${name}`)
+      },
+    }
+    const adapter = makeAdapter(async () => ({ email: 'jane@example.com' }))
+    const out = await resolveContact(
+      { adapter, senderIdentifier: 'jane@example.com', credentials: {}, scope },
+      { container: container as any },
+    )
+    // Lookup is skipped — no plaintext query issued against the encrypted column,
+    // and no (necessarily-empty) match is returned.
+    expect(queryMock).not.toHaveBeenCalled()
+    expect(out?.matchedPersonId).toBeUndefined()
   })
 
   it('swallows QueryEngine errors gracefully (lookup throws → matchedPersonId undefined)', async () => {

@@ -321,12 +321,15 @@ describe('poll-channel worker behaviour', () => {
     const ingestExecute = jest.fn(async () => {
       throw new Error('read ECONNRESET')
     })
+    // A concrete cursor that a SUCCESSFUL poll would persist — proving the abort
+    // path holds BOTH lastPolledAt and channelState, not just lastPolledAt.
+    const advancedCursor = Buffer.from(JSON.stringify({ uidNext: 999 })).toString('base64')
     const { ctx, em } = makeCtx(
       channel,
       { providerKey: 'imap' },
       async () => ({
         messages: [{ externalMessageId: 'ext-1', body: 'x', subject: 's' }],
-        nextCursor: undefined,
+        nextCursor: advancedCursor,
         hasMore: false,
       }),
       ingestExecute,
@@ -334,7 +337,50 @@ describe('poll-channel worker behaviour', () => {
     await handler(makeJob(), ctx)
     expect(em.create).not.toHaveBeenCalled()
     expect(channel.lastError).toBe('transient_ingest_failure')
-    // Cursor held so the next tick re-fetches (idempotent at the DB layer).
+    // Cursor held so the next tick re-fetches (idempotent at the DB layer): both
+    // lastPolledAt and the channelState cursor stay at their pre-poll values.
     expect(channel.lastPolledAt).toBe(beforePoll)
+    expect(channel.channelState).toBeNull()
+  })
+
+  // F7 regression — a transient Postgres error (deadlock / serialization) during
+  // ingest MUST classify as transient so the loop aborts WITHOUT advancing the
+  // cursor. Treating it as permanent would dead-letter the message and advance
+  // the cursor, silently losing inbound mail.
+  it('treats a Postgres deadlock during ingest as transient (no dead-letter, cursor held)', async () => {
+    const beforePoll = new Date(Date.now() - 60 * 1000)
+    const channel: any = {
+      id: 'c',
+      isActive: true,
+      status: 'connected',
+      providerKey: 'imap',
+      channelType: 'email',
+      capabilities: { realtimePush: false },
+      lastError: null,
+      lastPolledAt: beforePoll,
+      channelState: null,
+    }
+    const ingestExecute = jest.fn(async () => {
+      const err = new Error('deadlock detected') as Error & { code?: string }
+      err.code = '40P01'
+      throw err
+    })
+    const advancedCursor = Buffer.from(JSON.stringify({ uidNext: 999 })).toString('base64')
+    const { ctx, em } = makeCtx(
+      channel,
+      { providerKey: 'imap' },
+      async () => ({
+        messages: [{ externalMessageId: 'ext-1', body: 'x', subject: 's' }],
+        nextCursor: advancedCursor,
+        hasMore: false,
+      }),
+      ingestExecute,
+    )
+    await handler(makeJob(), ctx)
+    // NOT dead-lettered, and the cursor is held (no mail loss).
+    expect(em.create).not.toHaveBeenCalled()
+    expect(channel.lastError).toBe('transient_ingest_failure')
+    expect(channel.lastPolledAt).toBe(beforePoll)
+    expect(channel.channelState).toBeNull()
   })
 })

@@ -1,4 +1,5 @@
 import type { AwilixContainer } from 'awilix'
+import { isTenantDataEncryptionEnabled } from '@open-mercato/shared/lib/encryption/toggles'
 import type { ChannelAdapter, ContactHint, TenantScope } from './adapter'
 
 /**
@@ -105,6 +106,16 @@ async function lookupCustomerPersonId(params: {
   email?: string
   phone?: string
 }): Promise<string | undefined> {
+  // Under tenant encryption, `primary_email`/`primary_phone` are stored as
+  // ciphertext, so a plaintext equality filter on the base column both hits the
+  // §16 "no querying an encrypted column by value" footgun and never matches.
+  // Skip the fast lookup in that case (it would only ever return nothing) — the
+  // authoritative CRM link is created by the customers `link-channel-message`
+  // subscriber, which does an in-memory decrypted comparison. A blind-index
+  // column is the proper fast-path fix here (same follow-up as
+  // `customers/lib/findPeopleByAddresses`).
+  if (isTenantDataEncryptionEnabled()) return undefined
+
   let queryEngine: QueryEngineLike | null = null
   try {
     queryEngine = params.container.resolve<QueryEngineLike>('queryEngine')

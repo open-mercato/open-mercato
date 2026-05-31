@@ -29,9 +29,19 @@ export type PollChannelJobPayload = {
   }
   /** Attempt count, 1-based; used for retry-backoff decisions. */
   attempt?: number
+  /** Self-re-enqueue drain counter (bounds the multi-page `hasMore` drain loop). */
+  drainPage?: number
 }
 
 export const POLL_CHANNEL_MAX_ATTEMPTS = 3
+
+/**
+ * Hard cap on `hasMore` self-re-enqueue drain pages — guards against an adapter
+ * that returns `hasMore: true` with a non-advancing (pinned) cursor, which would
+ * otherwise spin a tight, unthrottled re-enqueue loop. Mirrors the same guard in
+ * `gmail-history-sync` / `microsoft-delta-sync`.
+ */
+const MAX_DRAIN_PAGES = 100
 
 export const metadata: WorkerMeta = {
   queue: COMMUNICATION_CHANNELS_QUEUES.poll,
@@ -77,7 +87,7 @@ export default async function handle(
   job: QueuedJob<PollChannelJobPayload>,
   ctx: HandlerContext,
 ): Promise<void> {
-  const { channelId, scope, attempt = 1 } = job.payload
+  const { channelId, scope, attempt = 1, drainPage = 0 } = job.payload
   const em = (ctx.resolve('em') as EntityManager).fork()
   const adapterRegistry = ctx.resolve<ChannelAdapterRegistry>('channelAdapterRegistry')
 
@@ -302,11 +312,21 @@ export default async function handle(
   // MS Graph `pendingDeltaUrl`, IMAP non-terminal `uidNext`). Re-enqueue with
   // a small delay so we keep draining without overrunning rate limits.
   if (hasMore) {
-    const queue = getCommunicationChannelsQueue(COMMUNICATION_CHANNELS_QUEUES.poll)
-    await queue.enqueue(
-      { channelId: channel.id, scope, attempt: 1 } as unknown as Record<string, unknown>,
-      { delayMs: 250 },
-    )
+    // Bound the drain: an adapter that returns `hasMore: true` with a
+    // non-advancing cursor (e.g. a persistently-failing message that pins the
+    // Gmail/MS cursor via `hardFailed`) must not spin an unthrottled loop. Stop
+    // at MAX_DRAIN_PAGES; the next scheduled poll tick re-checks the channel.
+    if (drainPage < MAX_DRAIN_PAGES) {
+      const queue = getCommunicationChannelsQueue(COMMUNICATION_CHANNELS_QUEUES.poll)
+      await queue.enqueue(
+        { channelId: channel.id, scope, attempt: 1, drainPage: drainPage + 1 } as unknown as Record<string, unknown>,
+        { delayMs: 250 },
+      )
+    } else {
+      console.warn(
+        `[communication_channels:poll-channel] drain page cap (${MAX_DRAIN_PAGES}) reached for channel ${channel.id}; stopping re-enqueue until the next scheduled tick`,
+      )
+    }
   }
 }
 

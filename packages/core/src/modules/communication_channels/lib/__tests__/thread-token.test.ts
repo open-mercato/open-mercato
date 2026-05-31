@@ -6,6 +6,7 @@ import {
   extractTokenFromBody,
   extractTokenFromHeaders,
   generateToken,
+  getOrCreateThreadToken,
   verifyToken,
 } from '../thread-token'
 
@@ -226,6 +227,73 @@ describe('thread-token', () => {
     it('ignores tokens with wrong HMAC even when the format matches', () => {
       const fake = 'om_AAAAAAAAAAAAAAAAAAAAAA_BBBBBBBBBBB'
       expect(extractTokenFromBody(`<span>[OM:${fake}]</span>`, null)).toBeNull()
+    })
+  })
+
+  describe('getOrCreateThreadToken', () => {
+    const args = { tenantId: 't', organizationId: 'o', messageThreadId: 'thread-1' }
+
+    it('returns the existing token without inserting when one already exists', async () => {
+      const em: any = {
+        findOne: jest.fn(async () => ({ token: 'om_existing', messageThreadId: 'thread-1' })),
+        create: jest.fn(),
+        persist: jest.fn(),
+        flush: jest.fn(),
+        fork: jest.fn(),
+      }
+      const result = await getOrCreateThreadToken(em, args)
+      expect(result).toEqual({ token: 'om_existing', created: false })
+      expect(em.create).not.toHaveBeenCalled()
+      expect(em.fork).not.toHaveBeenCalled()
+    })
+
+    it('creates and returns a new token when none exists', async () => {
+      const em: any = {
+        findOne: jest.fn(async () => null),
+        create: jest.fn((_entity: unknown, data: Record<string, unknown>) => ({ ...data })),
+        persist: jest.fn(),
+        flush: jest.fn(async () => undefined),
+        fork: jest.fn(),
+      }
+      const result = await getOrCreateThreadToken(em, args)
+      expect(result.created).toBe(true)
+      expect(verifyToken(result.token)).toBe(true)
+      expect(em.persist).toHaveBeenCalled()
+    })
+
+    it('re-selects the winner when a concurrent insert loses the unique race', async () => {
+      const forkEm = { findOne: jest.fn(async () => ({ token: 'om_winner', messageThreadId: 'thread-1' })) }
+      const uniqueErr = Object.assign(
+        new Error('duplicate key value violates unique constraint "channel_thread_tokens_thread_uq"'),
+        { code: '23505' },
+      )
+      const em: any = {
+        findOne: jest.fn(async () => null),
+        create: jest.fn((_entity: unknown, data: Record<string, unknown>) => ({ ...data })),
+        persist: jest.fn(),
+        flush: jest.fn(async () => {
+          throw uniqueErr
+        }),
+        fork: jest.fn(() => forkEm),
+      }
+      const result = await getOrCreateThreadToken(em, args)
+      expect(result).toEqual({ token: 'om_winner', created: false })
+      expect(em.fork).toHaveBeenCalledTimes(1)
+      expect(forkEm.findOne).toHaveBeenCalled()
+    })
+
+    it('rethrows a non-unique flush error (does not swallow real failures)', async () => {
+      const em: any = {
+        findOne: jest.fn(async () => null),
+        create: jest.fn((_entity: unknown, data: Record<string, unknown>) => ({ ...data })),
+        persist: jest.fn(),
+        flush: jest.fn(async () => {
+          throw new Error('connection terminated unexpectedly')
+        }),
+        fork: jest.fn(),
+      }
+      await expect(getOrCreateThreadToken(em, args)).rejects.toThrow('connection terminated')
+      expect(em.fork).not.toHaveBeenCalled()
     })
   })
 })

@@ -173,9 +173,14 @@ describe('thread-matcher', () => {
         { tenantId: TENANT, token },
         undefined,
       )
-      // The matcher updates lastSeenAt and flushes.
-      expect(em.flush).toHaveBeenCalled()
-      expect(tokenRow.lastSeenAt).toBeInstanceOf(Date)
+      // The matcher bumps last_seen_at via a scoped raw UPDATE, NOT em.flush —
+      // so it never commits the caller's pending unit of work (stays pure).
+      expect(em.flush).not.toHaveBeenCalled()
+      const execute = (em.getConnection() as unknown as { execute: jest.Mock }).execute
+      expect(execute).toHaveBeenCalledWith(
+        expect.stringContaining('UPDATE channel_thread_tokens SET last_seen_at'),
+        expect.any(Array),
+      )
     })
 
     it('also recognizes a token in In-Reply-To', async () => {

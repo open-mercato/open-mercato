@@ -138,6 +138,6 @@ const setPrimaryChannelCommand: CommandHandler<
   },
 }
 
-registerCommand(setPrimaryChannelCommand as unknown as CommandHandler)
+registerCommand(setPrimaryChannelCommand)
 
 export default setPrimaryChannelCommand

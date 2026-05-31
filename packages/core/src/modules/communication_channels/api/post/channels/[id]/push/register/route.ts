@@ -1,10 +1,21 @@
 import { NextResponse } from 'next/server'
 import { z } from 'zod'
+import type { EntityManager } from '@mikro-orm/postgresql'
 import { getAuthFromRequest } from '@open-mercato/shared/lib/auth/server'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
+import { findOneWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import type { CrudFormError } from '@open-mercato/ui/backend/utils/serverErrors'
+import { CommunicationChannel } from '../../../../../../data/entities'
+import { ChannelAccessDeniedError, assertCanAccessChannel } from '../../../../../../lib/access-control'
 import { pushRegister } from '../../../../../../commands/push-register'
 import { validateRouteMutationGuard } from '../../../../../../lib/route-mutation-guard'
+
+type RbacServiceLike = {
+  loadAcl: (
+    userId: string,
+    scope: { tenantId: string | null; organizationId: string | null },
+  ) => Promise<{ isSuperAdmin: boolean; features: string[]; organizations: string[] | null }>
+}
 
 /**
  * Spec C § Phase C5 — Operator-facing "Re-register push" endpoint.
@@ -42,6 +53,48 @@ export async function POST(req: Request, context: RouteContext): Promise<Respons
   }
 
   const container = await createRequestContainer()
+
+  // Defense-in-depth: `push.manage` is admin-default, but enforce per-user
+  // ownership anyway so a non-admin operator who is granted `push.manage`
+  // cannot re-register push on another user's channel. Admins (and tenant-wide
+  // channels) pass via `assertCanAccessChannel`. Automatic callers (OAuth
+  // callback, connect, renew worker) invoke `pushRegister` directly and are
+  // intentionally not subject to this user-facing guard.
+  const em = (container.resolve('em') as EntityManager).fork()
+  const channel = await findOneWithDecryption(
+    em,
+    CommunicationChannel,
+    { id, tenantId: auth.tenantId as string, organizationId, deletedAt: null },
+    undefined,
+    { tenantId: auth.tenantId as string, organizationId },
+  )
+  if (!channel) {
+    return NextResponse.json({ error: 'Channel not found' }, { status: 404 })
+  }
+  let userFeatures: string[] = []
+  try {
+    const rbac = container.resolve('rbacService') as RbacServiceLike
+    const acl = await rbac.loadAcl(auth.sub as string, {
+      tenantId: auth.tenantId as string,
+      organizationId,
+    })
+    userFeatures = acl?.isSuperAdmin ? ['*'] : Array.isArray(acl?.features) ? acl.features : []
+  } catch {
+    userFeatures = []
+  }
+  try {
+    assertCanAccessChannel(
+      { userId: (channel as { userId?: string | null }).userId },
+      auth.sub as string,
+      userFeatures,
+    )
+  } catch (err) {
+    if (err instanceof ChannelAccessDeniedError) {
+      return NextResponse.json({ error: 'Channel not found' }, { status: 404 })
+    }
+    throw err
+  }
+
   const guard = await validateRouteMutationGuard({
     container,
     req,

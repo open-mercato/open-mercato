@@ -43,7 +43,11 @@ export const notificationHandlers: NotificationHandler[] = [
         body: notification.body ?? undefined,
         severity: 'warning',
         action: {
-          label: 'Reconnect',
+          label:
+            context.t?.(
+              'communication_channels.notifications.channel_requires_reauth.reconnect',
+              'Reconnect',
+            ) ?? 'Reconnect',
           onClick: () => {
             const channelId = notification.sourceEntityId
             const target = channelId

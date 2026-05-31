@@ -167,6 +167,6 @@ function extractSnapshotFromLog(logEntry: unknown): DeleteChannelUndoSnapshot | 
   return extractUndoPayload(logEntry)
 }
 
-registerCommand(deleteChannelCommand as unknown as CommandHandler)
+registerCommand(deleteChannelCommand)
 
 export default deleteChannelCommand

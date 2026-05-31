@@ -5,6 +5,7 @@ import type {
   CommandInterceptorUndoContext,
 } from '@open-mercato/shared/lib/commands/command-interceptor'
 import { findOneWithDecryption } from '@open-mercato/shared/lib/encryption/find'
+import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
 import { CommunicationChannel } from '../data/entities'
 import {
   COMMUNICATION_CHANNELS_DISCONNECT_CHANNEL_COMMAND_ID,
@@ -81,11 +82,20 @@ export const interceptors: CommandInterceptor[] = [
         },
       )
       if (otherPrimary && otherPrimary.id !== snapshot.channelId) {
-        return {
-          ok: false,
-          message:
-            'Another channel is now primary for this user. Set it as non-primary before restoring the disconnected channel as primary.',
+        // Operator-facing block reason. Localize via the request locale when
+        // available, but undo can also run outside a request (queue worker / CLI)
+        // where the i18n module registry is uninitialized and resolveTranslations()
+        // throws — fall back to the English string rather than failing the block.
+        const fallback =
+          'Another channel is now primary for this user. Set it as non-primary before restoring the disconnected channel as primary.'
+        let message = fallback
+        try {
+          const { translate } = await resolveTranslations()
+          message = translate('communication_channels.errors.undoBlockedPrimaryConflict', fallback)
+        } catch {
+          message = fallback
         }
+        return { ok: false, message }
       }
     },
   },

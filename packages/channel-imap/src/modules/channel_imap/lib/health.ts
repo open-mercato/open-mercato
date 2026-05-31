@@ -19,9 +19,12 @@ export interface HealthCheckResult {
  * Unlike the OAuth channels, IMAP credentials carry everything needed for a
  * real probe, so we do a cheap LOGIN: open the IMAP connection, read
  * capabilities, log out. We deliberately probe IMAP only (the inbound side) and
- * skip the SMTP `verify` round-trip to keep the check cheap and well within the
- * hub's 10s budget. Auth/connection failures surface as `unhealthy`; a clean
- * LOGIN is `healthy`.
+ * skip the SMTP `verify` round-trip to keep the check cheap. Note: the IMAP
+ * client's connect/greeting timeouts (15s, tuned for slow Gmail handshakes) can
+ * exceed the hub's 10s health-check budget on a slow/unreachable host — the
+ * probe then loses the race and reports `unhealthy`, while polling is unaffected
+ * (it uses the separate 60s socket timeout). Auth/connection failures surface as
+ * `unhealthy`; a clean LOGIN is `healthy`.
  */
 export const channelImapHealthCheck = {
   async check(

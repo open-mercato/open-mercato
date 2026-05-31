@@ -69,6 +69,7 @@ describe('outbound-bridge subscriber behaviour', () => {
     findOne.mockResolvedValueOnce({ id: messageId, threadId: 'thread-1' }) // Message
     findOne.mockResolvedValueOnce({ id: 'mapping-1', messageThreadId: 'thread-1' }) // mapping
     findOne.mockResolvedValueOnce(null) // existing link (none)
+    findOne.mockResolvedValueOnce({ id: 'ch-1', userId: null }) // channel (tenant-wide → any sender)
     await handler({ messageId, tenantId, organizationId: 'org-1' }, makeCtx({ findOne }))
     expect(enqueueMock).toHaveBeenCalledTimes(1)
     const [payload] = enqueueMock.mock.calls[0]
@@ -107,7 +108,31 @@ describe('outbound-bridge subscriber behaviour', () => {
     findOne.mockResolvedValueOnce({ id: messageId, threadId: 'thread-1' })
     findOne.mockResolvedValueOnce({ id: 'mapping-1', messageThreadId: 'thread-1' })
     findOne.mockResolvedValueOnce({ id: 'link-1', deliveryStatus: 'failed' })
+    findOne.mockResolvedValueOnce({ id: 'ch-1', userId: null }) // channel (tenant-wide)
     await handler({ messageId, tenantId }, makeCtx({ findOne }))
+    expect(enqueueMock).toHaveBeenCalledTimes(1)
+  })
+
+  it('skips delivery when the channel is owned by a DIFFERENT user (no cross-user send-as)', async () => {
+    // Security regression guard: composing a platform message into another user's
+    // channel-linked thread must NOT enqueue a delivery that would send from that
+    // user's connected account (the worker uses the channel owner's credentials).
+    const findOne = jest.fn()
+    findOne.mockResolvedValueOnce({ id: messageId, threadId: 'thread-1', senderUserId: 'sender-a' }) // Message
+    findOne.mockResolvedValueOnce({ id: 'mapping-1', messageThreadId: 'thread-1', channelId: 'ch-owner' }) // mapping
+    findOne.mockResolvedValueOnce(null) // existing link (none)
+    findOne.mockResolvedValueOnce({ id: 'ch-owner', userId: 'owner-b' }) // per-user channel owned by someone else
+    await handler({ messageId, tenantId, organizationId: 'org-1' }, makeCtx({ findOne }))
+    expect(enqueueMock).not.toHaveBeenCalled()
+  })
+
+  it('enqueues delivery when the message sender OWNS the per-user channel', async () => {
+    const findOne = jest.fn()
+    findOne.mockResolvedValueOnce({ id: messageId, threadId: 'thread-1', senderUserId: 'owner-b' }) // Message
+    findOne.mockResolvedValueOnce({ id: 'mapping-1', messageThreadId: 'thread-1', channelId: 'ch-owner' }) // mapping
+    findOne.mockResolvedValueOnce(null) // existing link (none)
+    findOne.mockResolvedValueOnce({ id: 'ch-owner', userId: 'owner-b' }) // channel owned by the sender
+    await handler({ messageId, tenantId, organizationId: 'org-1' }, makeCtx({ findOne }))
     expect(enqueueMock).toHaveBeenCalledTimes(1)
   })
 })

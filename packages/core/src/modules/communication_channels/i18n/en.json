@@ -30,6 +30,7 @@
   "communication_channels.errors.loadDetail": "Failed to load channel",
   "communication_channels.errors.loadList": "Failed to load channels",
   "communication_channels.errors.reactionFailed": "Reaction failed",
+  "communication_channels.errors.undoBlockedPrimaryConflict": "Another channel is now primary for this user. Set it as non-primary before restoring the disconnected channel as primary.",
   "communication_channels.infoPanel.aria": "Channel info",
   "communication_channels.infoPanel.assignedTo": "Assigned to",
   "communication_channels.infoPanel.contactPerson": "CRM contact",

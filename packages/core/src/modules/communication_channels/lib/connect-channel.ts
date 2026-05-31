@@ -1,6 +1,15 @@
 import type { EntityManager } from '@mikro-orm/postgresql'
+import { findOneWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import { CommunicationChannel } from '../data/entities'
 import type { ChannelAdapter } from './adapter'
+
+function isUniqueViolation(err: unknown): boolean {
+  if (!err || typeof err !== 'object') return false
+  const code = (err as { code?: string }).code
+  if (code === '23505') return true
+  const message = (err as { message?: string }).message
+  return typeof message === 'string' && /duplicate key value|unique constraint/i.test(message)
+}
 
 export interface CreateConnectedChannelRowArgs {
   em: EntityManager
@@ -38,6 +47,42 @@ export async function createConnectedChannelRow(
       : adapter.capabilities?.realtimePush === false
         ? 300
         : null
+  const dscope = { tenantId: scope.tenantId, organizationId: scope.organizationId ?? null }
+  const naturalKey = {
+    tenantId: scope.tenantId,
+    userId,
+    providerKey,
+    externalIdentifier,
+    deletedAt: null,
+  }
+
+  // Heal-on-reconnect: a channel for the same (tenant, user, provider, mailbox)
+  // already exists when the user re-runs OAuth / reconnects after a
+  // `requires_reauth`. Update it in place rather than inserting a duplicate row —
+  // a duplicate would stay `isActive` and keep polling + re-emitting reauth
+  // banners, and register a second competing push subscription. Only mailboxes
+  // with a known `externalIdentifier` participate (the unique index is partial).
+  const applyConnectionState = (target: CommunicationChannel): void => {
+    target.channelType = adapter.channelType
+    target.displayName = displayName
+    target.externalIdentifier = externalIdentifier ?? null
+    target.credentialsRef = credentialsRefId
+    target.capabilities = adapter.capabilities as unknown as Record<string, unknown>
+    target.isActive = credentialsAvailable
+    target.pollIntervalSeconds = pollIntervalSeconds
+    target.status = credentialsAvailable ? 'connected' : 'requires_reauth'
+    target.lastError = credentialsAvailable ? null : 'credentials_persist_failed'
+  }
+
+  if (externalIdentifier) {
+    const existing = await findOneWithDecryption(em, CommunicationChannel, naturalKey, undefined, dscope)
+    if (existing) {
+      applyConnectionState(existing)
+      await em.flush()
+      return existing
+    }
+  }
+
   const channel = em.create(CommunicationChannel, {
     providerKey,
     channelType: adapter.channelType,
@@ -55,6 +100,19 @@ export async function createConnectedChannelRow(
     organizationId: scope.organizationId ?? null,
   })
   em.persist(channel)
-  await em.flush()
-  return channel
+  try {
+    await em.flush()
+    return channel
+  } catch (err) {
+    // Concurrent connect for the same mailbox won the race (partial unique index
+    // rejected ours). Re-select the winner on a clean fork and heal it so the
+    // caller still gets a single, connected channel.
+    if (!isUniqueViolation(err) || !externalIdentifier) throw err
+    const reEm = em.fork()
+    const winner = await findOneWithDecryption(reEm, CommunicationChannel, naturalKey, undefined, dscope)
+    if (!winner) throw err
+    applyConnectionState(winner)
+    await reEm.flush()
+    return winner
+  }
 }

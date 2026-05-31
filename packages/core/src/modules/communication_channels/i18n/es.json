@@ -30,6 +30,7 @@
   "communication_channels.errors.loadDetail": "No se pudo cargar el canal",
   "communication_channels.errors.loadList": "No se pudieron cargar los canales",
   "communication_channels.errors.reactionFailed": "La reacción falló",
+  "communication_channels.errors.undoBlockedPrimaryConflict": "Otro canal es ahora el principal para este usuario. Configúralo como no principal antes de restaurar el canal desconectado como principal.",
   "communication_channels.infoPanel.aria": "Información del canal",
   "communication_channels.infoPanel.assignedTo": "Asignado a",
   "communication_channels.infoPanel.contactPerson": "Contacto CRM",

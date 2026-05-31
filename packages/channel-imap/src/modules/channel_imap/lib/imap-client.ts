@@ -319,11 +319,23 @@ export function setImapClient(client: ImapClient | null): void {
 
 export function credentialsToConnection(credentials: ImapCredentials): ImapConnectionOptions {
   assertTransportAllowed(credentials)
+  const timeoutMs = resolveSocketTimeoutMs()
   return {
     host: credentials.imapHost,
     port: Number(credentials.imapPort),
     user: credentials.imapUser,
     pass: credentials.imapPassword,
     transport: credentials.imapTls,
+    ...(timeoutMs !== undefined ? { timeoutMs } : {}),
   }
+}
+
+/**
+ * Operator override for the IMAP socket timeout. Defaults (when unset/invalid)
+ * to `undefined` so the client falls back to its 60s default; the previous 10s
+ * flaked under real-world IMAP latency. Spec § Configuration documents this knob.
+ */
+function resolveSocketTimeoutMs(): number | undefined {
+  const raw = Number.parseInt(process.env.OM_CHANNEL_IMAP_SOCKET_TIMEOUT_MS ?? '', 10)
+  return Number.isFinite(raw) && raw > 0 ? raw : undefined
 }

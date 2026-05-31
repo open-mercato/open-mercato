@@ -407,6 +407,15 @@ const deliverOutboundMessageCommand: CommandHandler<
         ...((link.channelMetadata as Record<string, unknown> | undefined) ?? {}),
         ...(converted.metadata ?? {}),
         externalMessageId: sendResult.externalMessageId,
+        // Always persist the RFC2822 Message-ID so inbound reply matching (JWZ
+        // strategy in lib/thread-matcher) and sent-folder dedup can resolve this
+        // outbound message. Adapters that build the message themselves (Gmail,
+        // Microsoft) return it in `converted.metadata.messageId`; IMAP/SMTP lets
+        // the transport mint it, surfacing it only as `sendResult.externalMessageId`
+        // (the RFC2822 id the recipient replies to) — fall back to that.
+        messageId:
+          (converted.metadata as Record<string, unknown> | undefined)?.messageId ??
+          sendResult.externalMessageId,
       }
       await em.flush()
 
@@ -517,6 +526,6 @@ const deliverOutboundMessageCommand: CommandHandler<
   },
 }
 
-registerCommand(deliverOutboundMessageCommand as unknown as CommandHandler)
+registerCommand(deliverOutboundMessageCommand)
 
 export default deliverOutboundMessageCommand

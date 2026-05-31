@@ -95,9 +95,11 @@ function computeHmacBytes(random: Buffer): Buffer {
 }
 
 /**
- * Generate a new HMAC-signed thread token. Tokens are randomly distributed
- * so callers don't need to dedupe per thread — the DB unique constraint
- * `(tenantId, token)` plus an upsert pattern handles the rare collision.
+ * Generate a new HMAC-signed thread token. The 16 random bytes make a token
+ * collision astronomically unlikely; the `(tenantId, token)` unique constraint
+ * is the backstop. Per-thread deduplication (one token per thread) is handled
+ * separately by `getOrCreateThreadToken` via the `(tenantId, messageThreadId)`
+ * unique constraint — not here.
  */
 export function generateToken(): string {
   const random = randomBytes(RANDOM_BYTES)
@@ -258,11 +260,12 @@ export function extractTokenFromHeaders(
 }
 
 /**
- * Idempotent upsert: return the existing `ChannelThreadToken` for the
- * given thread, or create + return a new one. The unique constraint on
- * `(tenant_id, token)` plus the random distribution of `generateToken()`
- * mean we can safely call this concurrently — a duplicate insertion is
- * astronomically unlikely.
+ * Idempotent get-or-create: return the existing `ChannelThreadToken` for the
+ * given thread, or create + return a new one. Idempotency is enforced by the
+ * `channel_thread_tokens_thread_uq` unique constraint on
+ * `(tenant_id, message_thread_id)`: a concurrent double-create loses the race
+ * with a unique violation, which we catch and resolve by re-selecting the
+ * winner — so callers always converge on exactly one token per thread.
  *
  * Reads via the standard EntityManager (no encryption needed — the token
  * column itself is the HMAC-signed value, not encrypted at rest).
@@ -281,6 +284,7 @@ export async function getOrCreateThreadToken(
     messageThreadId: string
   },
 ): Promise<{ token: string; created: boolean }> {
+  const dscope = { tenantId: args.tenantId, organizationId: args.organizationId }
   const existing = await findOneWithDecryption(
     em,
     ChannelThreadToken,
@@ -289,7 +293,7 @@ export async function getOrCreateThreadToken(
       messageThreadId: args.messageThreadId,
     },
     undefined,
-    { tenantId: args.tenantId, organizationId: args.organizationId },
+    dscope,
   )
   if (existing) {
     return { token: existing.token, created: false }
@@ -302,8 +306,37 @@ export async function getOrCreateThreadToken(
   })
   // MikroORM v7 removed `persistAndFlush` — split into persist + flush.
   em.persist(row)
-  await em.flush()
-  return { token: row.token, created: true }
+  try {
+    await em.flush()
+    return { token: row.token, created: true }
+  } catch (err) {
+    // A concurrent create for the same (tenant, thread) won the race; the
+    // unique constraint rejected ours. Re-select the winner on a clean fork so
+    // we never return a half-persisted row or surface a spurious error.
+    if (!isUniqueViolation(err)) throw err
+    const winner = await findOneWithDecryption(
+      em.fork(),
+      ChannelThreadToken,
+      { tenantId: args.tenantId, messageThreadId: args.messageThreadId },
+      undefined,
+      dscope,
+    )
+    if (winner) return { token: winner.token, created: false }
+    throw err
+  }
+}
+
+/**
+ * Detect a Postgres unique-constraint violation (SQLSTATE 23505) regardless of
+ * the ORM/driver layer that surfaces it. Mirrors the helper in the ingest +
+ * reaction commands so duplicate-insert handling stays consistent module-wide.
+ */
+function isUniqueViolation(err: unknown): boolean {
+  if (!err || typeof err !== 'object') return false
+  const code = (err as { code?: string }).code
+  if (code === '23505') return true
+  const message = (err as { message?: string }).message
+  return typeof message === 'string' && /duplicate key value|unique constraint/i.test(message)
 }
 
 /**

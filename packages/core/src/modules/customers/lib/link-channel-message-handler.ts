@@ -191,7 +191,9 @@ export default async function handler(
   // Priority order:
   //   1. Explicit `crmVisibility` in channelMetadata (set by compose route)
   //   2. Channel owner: 'private' if user-scoped, 'shared' if tenant-scoped
-  const visibility: 'private' | 'shared' = resolveVisibility(metaJson, channelUserId)
+  const linkDirection =
+    link.direction === 'inbound' || link.direction === 'outbound' ? link.direction : null
+  const visibility: 'private' | 'shared' = resolveVisibility(metaJson, channelUserId, linkDirection)
 
   // ── (7) Extract subject / body / timestamps ───────────────────────────
   const subject =
@@ -501,10 +503,16 @@ async function persistInteractions(
 function resolveVisibility(
   metaJson: Record<string, unknown> | null,
   channelUserId: string | null,
+  direction: 'inbound' | 'outbound' | null,
 ): 'private' | 'shared' {
-  // Explicit override from the compose route takes highest priority.
-  if (metaJson?.crmVisibility === 'shared') return 'shared'
-  if (metaJson?.crmVisibility === 'private') return 'private'
+  // The explicit `crmVisibility` override is written ONLY by the outbound compose
+  // route. Inbound `channelMetadata` is provider-derived (and therefore attacker-
+  // influenceable), so it MUST NOT be able to downgrade a user-owned channel's
+  // inbound mail from private → shared. Honor the override on outbound only.
+  if (direction === 'outbound') {
+    if (metaJson?.crmVisibility === 'shared') return 'shared'
+    if (metaJson?.crmVisibility === 'private') return 'private'
+  }
   // Tenant-scoped channels (no userId) → shared; user-scoped → private.
   return channelUserId ? 'private' : 'shared'
 }

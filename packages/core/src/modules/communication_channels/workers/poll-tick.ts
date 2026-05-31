@@ -117,8 +117,11 @@ export default async function handle(
     process.env.OM_CHANNEL_AUTO_RECOVER_MINUTES ?? '',
     10,
   )
+  // `0` is a valid override meaning "recover on the very next tick" (used by
+  // TC-CHANNEL-EMAIL-027 and operators who want aggressive recovery). Only a
+  // negative or non-numeric value falls back to the 30-minute default.
   const recoverMinutes =
-    Number.isFinite(recoverMinutesRaw) && recoverMinutesRaw > 0 ? recoverMinutesRaw : 30
+    Number.isFinite(recoverMinutesRaw) && recoverMinutesRaw >= 0 ? recoverMinutesRaw : 30
   const recoverCutoff = new Date(now.getTime() - recoverMinutes * 60 * 1000)
   const errorCandidates = await findWithDecryption(
     em,
@@ -136,7 +139,13 @@ export default async function handle(
       // tick — the recovery-enqueue loop below bumps `lastPolledAt` to `now`
       // when it schedules a recovery job, so the channel only re-enters this
       // pool after another `recoverMinutes` have elapsed.
-      lastPolledAt: { $lt: recoverCutoff },
+      //
+      // A channel that fails its FIRST poll (before any success) still has
+      // `lastPolledAt = null`; a bare `$lt` would exclude it forever (SQL
+      // `NULL < ts` is NULL, not true), stranding it in `error`. Include the
+      // null case so never-polled error channels get their first recovery
+      // attempt on the next tick (the enqueue bump below then throttles it).
+      $or: [{ lastPolledAt: null }, { lastPolledAt: { $lt: recoverCutoff } }],
     },
     {
       limit: POLL_ENUMERATION_CAP,

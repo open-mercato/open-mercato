@@ -29,7 +29,12 @@ import { validateMicrosoftWebhookChannel } from '../../../../../../lib/microsoft
  */
 export const metadata = {
   path: '/communication_channels/webhooks/microsoft/[subscriptionId]/lifecycle',
-  POST: { requireAuth: false },
+  // Unauthenticated lifecycle callback; rate-limited like the notification route
+  // so channel-resolution work cannot be driven by repeated unauthenticated hits.
+  POST: {
+    requireAuth: false,
+    rateLimit: { points: 120, duration: 60, keyPrefix: 'cc_webhook_microsoft_lifecycle' },
+  },
 }
 
 type RouteContext = {

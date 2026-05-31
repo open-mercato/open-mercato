@@ -104,8 +104,15 @@ class ImapChannelAdapter implements ChannelAdapter {
     const imap = getImapClient()
     try {
       await imap.appendSent(credentialsToConnection(credentials), result.raw)
-    } catch {
-      // Swallow — best effort.
+    } catch (appendError) {
+      // Best-effort: many servers auto-store sent mail via Submission, and the
+      // Sent mailbox name is provider-specific (localized, or "[Gmail]/Sent Mail").
+      // Log so operators can diagnose missing Sent-folder archival rather than
+      // failing the send.
+      console.warn(
+        '[internal] channel_imap: failed to append outbound message to Sent folder:',
+        appendError instanceof Error ? appendError.message : appendError,
+      )
     }
 
     return {

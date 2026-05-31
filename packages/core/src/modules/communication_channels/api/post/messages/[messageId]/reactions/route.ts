@@ -99,6 +99,10 @@ export async function POST(req: Request, context: RouteContext): Promise<Respons
   if (result.status === 'no_channel_link') {
     return NextResponse.json({ error: result.reason }, { status: 409 })
   }
+  if (result.status === 'not_owner') {
+    // Reacting would send from another user's connected account — refuse.
+    return NextResponse.json({ error: result.reason }, { status: 403 })
+  }
   if (result.status === 'noop') {
     return NextResponse.json({ error: result.reason }, { status: 409 })
   }
@@ -128,6 +132,7 @@ export const openApi = {
         { status: 201, description: 'Reaction added' },
         { status: 400, description: 'Invalid messageId' },
         { status: 401, description: 'Unauthorized' },
+        { status: 403, description: 'Channel is owned by another user' },
         { status: 409, description: 'Message not channel-linked or duplicate reaction' },
         { status: 422, description: 'Invalid request body' },
       ],

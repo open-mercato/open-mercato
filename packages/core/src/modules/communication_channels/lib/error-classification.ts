@@ -19,6 +19,28 @@ export type ErrorClassification = {
 
 const TRANSIENT_STATUS_CODES = new Set([408, 429, 500, 502, 503, 504, 520, 521, 522, 523, 524])
 
+/**
+ * Postgres SQLSTATEs that are transient (the operation can succeed on retry).
+ * These reach the inbound-ingest classifier when a DB blip happens mid-ingest;
+ * treating them as permanent would dead-letter the message AND advance the IMAP
+ * cursor, silently losing inbound mail (the exact "cursor drift" failure the
+ * email spec set out to prevent). Driver errors expose the SQLSTATE on `.code`.
+ */
+const TRANSIENT_PG_SQLSTATES = new Set([
+  '40001', // serialization_failure
+  '40P01', // deadlock_detected
+  '55P03', // lock_not_available
+  '53300', // too_many_connections
+  '53400', // configuration_limit_exceeded
+  '57P01', // admin_shutdown
+  '57P02', // crash_shutdown
+  '57P03', // cannot_connect_now (db starting up)
+  '08000', // connection_exception
+  '08001', // sqlclient_unable_to_establish_sqlconnection
+  '08003', // connection_does_not_exist
+  '08006', // connection_failure
+])
+
 const TRANSIENT_CODE_PATTERNS = [
   /ECONNRESET/i,
   /ETIMEDOUT/i,
@@ -42,6 +64,14 @@ const TRANSIENT_CODE_PATTERNS = [
   /connection not available/i,
   /connection closed/i,
   /server closed connection/i,
+  // Postgres transient failures surfaced as text by the ORM wrapper (the
+  // SQLSTATE on `.code` is the primary signal; these catch wrapped errors that
+  // only carry the message). See TRANSIENT_PG_SQLSTATES.
+  /deadlock detected/i,
+  /could not serialize access/i,
+  /connection terminated/i,
+  /too many clients already/i,
+  /the database system is (starting up|shutting down|in recovery)/i,
 ]
 
 export function classifyOutboundError(error: unknown): ErrorClassification {
@@ -55,6 +85,13 @@ export function classifyOutboundError(error: unknown): ErrorClassification {
     const status = (error as Error & { status?: number }).status
     if (explicit !== undefined) {
       return { transient: Boolean(explicit), status, message: error.message }
+    }
+    // Postgres driver errors expose the SQLSTATE on `.code`. A transient DB
+    // failure during inbound ingest MUST classify as transient so the caller
+    // aborts without advancing the cursor (no mail loss) rather than dead-lettering.
+    const code = (error as Error & { code?: string }).code
+    if (typeof code === 'string' && TRANSIENT_PG_SQLSTATES.has(code)) {
+      return { transient: true, status, message: error.message }
     }
     if (typeof status === 'number') {
       return {

@@ -13,10 +13,11 @@ import { extractTokenFromBody, extractTokenFromHeaders } from './thread-token'
  *   4. Subject + participants (last 30 days)      (low confidence)
  *   5. None → caller creates a new thread
  *
- * All DB queries are tenant-scoped. The matcher does not write — it
- * returns the resolved thread id (or null) and lets the caller perform
- * the actual ingest. Tokens get their `last_seen_at` bumped here as a
- * side-effect when a token-based strategy hits (used for future GC).
+ * All DB queries are tenant-scoped. The matcher returns the resolved
+ * thread id (or null) and lets the caller perform the actual ingest. It
+ * never flushes the caller's unit of work: the only write is a scoped raw
+ * `UPDATE` that bumps a matched token's `last_seen_at` (a future-GC hint),
+ * which does not touch the caller's pending entities.
  *
  * See `.ai/specs/2026-05-27-email-integration-inbound-reliability-and-threading.md`
  * § 4 Threading Algorithm.
@@ -225,8 +226,16 @@ async function resolveTokenThread(
   )
   if (!mapping) return null
 
-  row.lastSeenAt = (args.now ?? (() => new Date()))()
-  await em.flush()
+  // Bump `last_seen_at` (future-GC hint) via a scoped raw UPDATE rather than
+  // `em.flush()`. A flush here would commit the ENTIRE unit of work, including
+  // any pending mutations the caller (`ingest-inbound-message`, shared by all
+  // provider adapters) holds — turning this "pure" matcher into a hidden commit
+  // boundary. The raw UPDATE keeps the matcher side-effect-free w.r.t. the
+  // caller's EntityManager.
+  await em.getConnection().execute(
+    `UPDATE channel_thread_tokens SET last_seen_at = ? WHERE id = ? AND tenant_id = ?`,
+    [(args.now ?? (() => new Date()))(), row.id, args.tenantId],
+  )
   return row.messageThreadId
 }
 
@@ -256,8 +265,11 @@ async function findThreadByMessageIds(
   // `em.getConnection().execute()` with positional placeholders. The JSONB
   // lookup compares `channel_metadata->>'messageId'` against a Postgres
   // text array built from the candidate message-ids.
+  // Escape backslash BEFORE quote — a Message-ID can legitimately contain `\`
+  // (RFC 5322), and an unescaped backslash yields a malformed Postgres array
+  // literal that throws and silently defeats threading.
   const idArray = `{${args.messageIds
-    .map((id) => `"${id.replace(/"/g, '\\"')}"`)
+    .map((id) => `"${id.replace(/\\/g, '\\\\').replace(/"/g, '\\"')}"`)
     .join(',')}}`
   const rows = await em.getConnection().execute<Array<{ message_id: string }>>(
     `SELECT link.message_id FROM message_channel_links AS link
@@ -310,8 +322,10 @@ async function findThreadBySubjectParticipants(
   // (server-side normalized) equals the inbound subject AND share at least
   // one participant. The first match wins.
   const subjectLowerLike = args.normalizedSubject
+  // Escape backslash before quote (see findThreadByMessageIds) — participant
+  // addresses are attacker-influenced inbound header values.
   const participantList = `{${args.participants
-    .map((p) => `"${p.replace(/"/g, '\\"')}"`)
+    .map((p) => `"${p.replace(/\\/g, '\\\\').replace(/"/g, '\\"')}"`)
     .join(',')}}`
   const rows = await em.getConnection().execute<Array<{ thread_id: string | null }>>(
     `SELECT messages.thread_id

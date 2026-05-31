@@ -614,14 +614,14 @@
         },
         {
           "columnNames": [
-            "message_thread_id",
-            "tenant_id"
+            "tenant_id",
+            "message_thread_id"
           ],
           "composite": true,
-          "constraint": false,
-          "keyName": "channel_thread_tokens_thread_idx",
+          "constraint": true,
+          "keyName": "channel_thread_tokens_thread_uq",
           "primary": false,
-          "unique": false
+          "unique": true
         },
         {
           "columnNames": [
@@ -1011,6 +1011,15 @@
           "primary": false,
           "unique": false,
           "expression": "create unique index \"communication_channels_one_primary_per_user_uq\" on \"communication_channels\" (\"user_id\") where \"is_primary\" and \"user_id\" is not null and \"deleted_at\" is null"
+        },
+        {
+          "columnNames": [],
+          "composite": false,
+          "constraint": false,
+          "keyName": "communication_channels_user_provider_external_uq",
+          "primary": false,
+          "unique": false,
+          "expression": "create unique index \"communication_channels_user_provider_external_uq\" on \"communication_channels\" (\"tenant_id\", \"user_id\", \"provider_key\", \"external_identifier\") where \"deleted_at\" is null and \"user_id\" is not null and \"external_identifier\" is not null"
         },
         {
           "columnNames": [

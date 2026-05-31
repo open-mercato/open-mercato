@@ -28,6 +28,13 @@ function channel(overrides: Record<string, unknown> = {}) {
   }
 }
 
+// The resolver narrows via a raw `SELECT id ...` (no more decrypt-all scan), so
+// the em must expose `getConnection().execute`. Returns the matching channel id
+// so resolution proceeds to the clientState/subscription checks under test.
+function makeEm(matchedIds: Array<{ id: string }> = [{ id: CHANNEL }]) {
+  return { getConnection: () => ({ execute: jest.fn(async () => matchedIds) }) }
+}
+
 describe('validateMicrosoftWebhookChannel', () => {
   beforeEach(() => {
     jest.clearAllMocks()
@@ -39,7 +46,7 @@ describe('validateMicrosoftWebhookChannel', () => {
     ;(findOneWithDecryption as jest.Mock).mockResolvedValue(row)
 
     const result = await validateMicrosoftWebhookChannel({
-      em: {} as never,
+      em: makeEm() as never,
       pathToken: CHANNEL,
       events: [{ subscriptionId: SUBSCRIPTION, clientState: CLIENT_STATE }],
     })
@@ -57,7 +64,7 @@ describe('validateMicrosoftWebhookChannel', () => {
     ;(findOneWithDecryption as jest.Mock).mockResolvedValue(row)
 
     const result = await validateMicrosoftWebhookChannel({
-      em: {} as never,
+      em: makeEm() as never,
       pathToken: SUBSCRIPTION,
       events: [{ subscriptionId: SUBSCRIPTION, clientState: CLIENT_STATE }],
     })
@@ -71,7 +78,7 @@ describe('validateMicrosoftWebhookChannel', () => {
     ;(findOneWithDecryption as jest.Mock).mockResolvedValue(row)
 
     const result = await validateMicrosoftWebhookChannel({
-      em: {} as never,
+      em: makeEm() as never,
       pathToken: CHANNEL,
       events: [{ subscriptionId: SUBSCRIPTION, clientState: 'wrong' }],
     })
@@ -85,7 +92,7 @@ describe('validateMicrosoftWebhookChannel', () => {
     ;(findOneWithDecryption as jest.Mock).mockResolvedValue(row)
 
     const result = await validateMicrosoftWebhookChannel({
-      em: {} as never,
+      em: makeEm() as never,
       pathToken: CHANNEL,
       events: [{ subscriptionId: 'sub-other', clientState: CLIENT_STATE }],
     })

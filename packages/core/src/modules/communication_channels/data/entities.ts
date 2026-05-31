@@ -54,6 +54,15 @@ export type CommunicationChannelStatus =
   expression:
     `create unique index "communication_channels_one_primary_per_user_uq" on "communication_channels" ("user_id") where "is_primary" and "user_id" is not null and "deleted_at" is null`,
 })
+// One channel per (tenant, user, provider, mailbox): a reconnect heals the
+// existing row in place (see `createConnectedChannelRow`) instead of inserting a
+// duplicate that would stay polled + keep its own push subscription. Partial so
+// tenant-wide channels (null user_id) and identifier-less rows are exempt.
+@Index({
+  name: 'communication_channels_user_provider_external_uq',
+  expression:
+    `create unique index "communication_channels_user_provider_external_uq" on "communication_channels" ("tenant_id", "user_id", "provider_key", "external_identifier") where "deleted_at" is null and "user_id" is not null and "external_identifier" is not null`,
+})
 export class CommunicationChannel {
   [OptionalProps]?:
     | 'createdAt'
@@ -450,7 +459,10 @@ export class MessageReaction {
  * See `.ai/specs/2026-05-27-email-integration-inbound-reliability-and-threading.md`.
  */
 @Entity({ tableName: 'channel_thread_tokens' })
-@Index({ name: 'channel_thread_tokens_thread_idx', properties: ['messageThreadId', 'tenantId'] })
+// One token row per (tenant, thread): the matcher resolves every reply to the
+// same thread regardless of which outbound send minted the token. The unique
+// constraint also makes `getOrCreateThreadToken` race-safe (insert-on-conflict).
+@Unique({ name: 'channel_thread_tokens_thread_uq', properties: ['tenantId', 'messageThreadId'] })
 @Unique({ name: 'channel_thread_tokens_token_uq', properties: ['tenantId', 'token'] })
 export class ChannelThreadToken {
   [OptionalProps]?: 'createdAt' | 'lastSeenAt' | 'organizationId'

@@ -233,6 +233,6 @@ export function extractSnapshotFromLog(logEntry: unknown): DisconnectChannelUndo
   return extractUndoPayload(logEntry)
 }
 
-registerCommand(disconnectChannelCommand as unknown as CommandHandler)
+registerCommand(disconnectChannelCommand)
 
 export default disconnectChannelCommand

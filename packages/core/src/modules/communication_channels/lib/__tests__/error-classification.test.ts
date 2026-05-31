@@ -55,6 +55,34 @@ describe('classifyOutboundError', () => {
     expect(classifyOutboundError(new Error('bad input')).transient).toBe(false)
     expect(classifyOutboundError(new Error('signature mismatch')).transient).toBe(false)
   })
+
+  // A transient DB failure during inbound ingest MUST be transient so the poll
+  // worker aborts without advancing the cursor (no silent mail loss).
+  it('classifies transient Postgres errors by SQLSTATE code', () => {
+    for (const code of ['40001', '40P01', '55P03', '53300', '08006', '57P03']) {
+      const err = new Error('db error') as Error & { code?: string }
+      err.code = code
+      expect(classifyOutboundError(err).transient).toBe(true)
+    }
+  })
+
+  it('classifies transient Postgres errors by message text (ORM-wrapped, no code)', () => {
+    for (const message of [
+      'deadlock detected',
+      'could not serialize access due to concurrent update',
+      'Connection terminated unexpectedly',
+      'sorry, too many clients already',
+      'the database system is starting up',
+    ]) {
+      expect(classifyOutboundError(new Error(message)).transient).toBe(true)
+    }
+  })
+
+  it('still treats a non-transient SQLSTATE (e.g. 23505) as permanent', () => {
+    const err = new Error('duplicate key') as Error & { code?: string }
+    err.code = '23505'
+    expect(classifyOutboundError(err).transient).toBe(false)
+  })
 })
 
 describe('isReauthError', () => {

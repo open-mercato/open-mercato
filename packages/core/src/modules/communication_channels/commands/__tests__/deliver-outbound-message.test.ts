@@ -215,6 +215,12 @@ describe('deliverOutboundMessageCommand — link integrity + reauth', () => {
     expect((extMsg!.data.id as string).length).toBeGreaterThan(0)
     expect(typeof link.externalMessageId).toBe('string')
     expect(link.externalMessageId).toBe(extMsg!.data.id)
+    // The adapter's convertOutbound returns empty metadata (the IMAP/SMTP case,
+    // where the transport mints the Message-ID). The hub MUST still persist a
+    // `messageId` on the link — falling back to the RFC2822 id the recipient
+    // replies to — so inbound JWZ thread-matching + sent-folder dedup can resolve
+    // this outbound message.
+    expect((link.channelMetadata as Record<string, unknown>).messageId).toBe('ext-1')
   })
 
   it('flips the channel to requires_reauth and emits the event on a 401 (H2)', async () => {

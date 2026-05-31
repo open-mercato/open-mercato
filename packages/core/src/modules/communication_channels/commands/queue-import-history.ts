@@ -29,7 +29,7 @@ export const queueImportHistorySchema = z.object({
   sinceDays: z.number().int().min(1).max(365).default(30),
   contactEmails: z
     .array(z.string().email().max(255))
-    .max(1000)
+    .max(200)
     .optional(),
   maxMessages: z.number().int().min(1).max(5000).default(1000),
 })
@@ -89,10 +89,13 @@ export async function queueImportHistory(params: {
     )
   }
   if (!channel.isActive || channel.status !== 'connected') {
+    // 409 (not 400): the request is well-formed but the channel is in a
+    // conflicting state (requires_reauth / error / disconnected). The UI maps
+    // this to the localized "reconnect first" flash; see spec § API Contracts.
     throw createCrudFormError(
       'Channel is not connected',
       { channelId: 'Channel must be connected to import history' },
-      { status: 400 },
+      { status: 409 },
     )
   }
 

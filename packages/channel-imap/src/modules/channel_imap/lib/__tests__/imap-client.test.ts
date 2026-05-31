@@ -1,4 +1,9 @@
-import { getImapClient, setImapClient, type ImapConnectionOptions } from '../imap-client'
+import {
+  credentialsToConnection,
+  getImapClient,
+  setImapClient,
+  type ImapConnectionOptions,
+} from '../imap-client'
 
 const mockFetch = jest.fn((_range: string, _query: unknown, _options?: unknown) =>
   (async function* () {
@@ -57,5 +62,36 @@ describe('ImapflowClient.fetchUidRange — UID range mode', () => {
 
     expect(result).toHaveLength(1)
     expect(result[0].uid).toBe(150)
+  })
+})
+
+describe('credentialsToConnection — socket timeout override', () => {
+  const baseCredentials = {
+    imapHost: 'imap.example.com',
+    imapPort: 993,
+    imapTls: 'tls',
+    imapUser: 'alice@example.com',
+    imapPassword: 'secret',
+  } as unknown as Parameters<typeof credentialsToConnection>[0]
+
+  afterEach(() => {
+    delete process.env.OM_CHANNEL_IMAP_SOCKET_TIMEOUT_MS
+  })
+
+  it('omits timeoutMs (client falls back to its 60s default) when the env var is unset', () => {
+    delete process.env.OM_CHANNEL_IMAP_SOCKET_TIMEOUT_MS
+    expect(credentialsToConnection(baseCredentials).timeoutMs).toBeUndefined()
+  })
+
+  it('reads a positive OM_CHANNEL_IMAP_SOCKET_TIMEOUT_MS override', () => {
+    process.env.OM_CHANNEL_IMAP_SOCKET_TIMEOUT_MS = '90000'
+    expect(credentialsToConnection(baseCredentials).timeoutMs).toBe(90000)
+  })
+
+  it('ignores a non-numeric or non-positive override', () => {
+    process.env.OM_CHANNEL_IMAP_SOCKET_TIMEOUT_MS = 'abc'
+    expect(credentialsToConnection(baseCredentials).timeoutMs).toBeUndefined()
+    process.env.OM_CHANNEL_IMAP_SOCKET_TIMEOUT_MS = '0'
+    expect(credentialsToConnection(baseCredentials).timeoutMs).toBeUndefined()
   })
 })

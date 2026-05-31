@@ -110,6 +110,11 @@ export async function DELETE(_req: Request, context: RouteContext): Promise<Resp
   if (result.status === 'noop') {
     return NextResponse.json({ error: result.reason }, { status: 404 })
   }
+  if (result.status === 'not_owner') {
+    // The command's ownership gate runs before the remove branch too — surface it
+    // as 403 (matching the POST reactions route) rather than a false 204 success.
+    return NextResponse.json({ error: result.reason }, { status: 403 })
+  }
   if (result.status === 'no_channel_link') {
     return NextResponse.json({ error: result.reason }, { status: 409 })
   }
@@ -128,6 +133,7 @@ export const openApi = {
         { status: 204, description: 'Reaction removed' },
         { status: 400, description: 'Invalid params' },
         { status: 401, description: 'Unauthorized' },
+        { status: 403, description: 'Channel is owned by another user' },
         { status: 404, description: 'Reaction not found or not owned by current user' },
         { status: 409, description: 'Message not channel-linked' },
       ],

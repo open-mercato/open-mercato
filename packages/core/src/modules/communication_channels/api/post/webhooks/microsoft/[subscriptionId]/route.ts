@@ -27,7 +27,13 @@ import { validateMicrosoftWebhookChannel } from '../../../../../lib/microsoft-we
  */
 export const metadata = {
   path: '/communication_channels/webhooks/microsoft/[subscriptionId]',
-  POST: { requireAuth: false },
+  // Unauthenticated (Graph posts here); authenticity is enforced by the
+  // constant-time `clientState` compare. Rate-limited like the generic inbound
+  // webhook so an attacker cannot drive repeated channel-resolution work.
+  POST: {
+    requireAuth: false,
+    rateLimit: { points: 120, duration: 60, keyPrefix: 'cc_webhook_microsoft' },
+  },
 }
 
 type RouteContext = {

@@ -97,7 +97,7 @@ describe('queueImportHistory', () => {
     ).rejects.toMatchObject({ status: 404 })
   })
 
-  it('returns 400 envelope when channel is not connected', async () => {
+  it('returns 409 envelope when channel is not connected', async () => {
     ;(findOneWithDecryption as jest.Mock).mockResolvedValue({
       ...buildConnectedChannel(),
       status: 'error',
@@ -109,7 +109,7 @@ describe('queueImportHistory', () => {
         scope: { tenantId: TENANT, organizationId: ORG, userId: USER },
         input: { channelId: CHANNEL, sinceDays: 30, maxMessages: 100 },
       }),
-    ).rejects.toMatchObject({ status: 400 })
+    ).rejects.toMatchObject({ status: 409 })
   })
 
   it('returns 400 envelope when adapter has no importHistory method', async () => {

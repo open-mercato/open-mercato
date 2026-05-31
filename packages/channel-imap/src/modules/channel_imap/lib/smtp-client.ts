@@ -57,8 +57,13 @@ export interface SmtpClient {
 class NodemailerClient implements SmtpClient {
   async verify(options: SmtpConnectionOptions): Promise<void> {
     const { transporter } = await this.createTransporter(options)
-    await transporter.verify()
-    transporter.close()
+    try {
+      await transporter.verify()
+    } finally {
+      // Mirror send(): close on every path so a failed verify (wrong password,
+      // unreachable host — the common case) does not leak the socket pool.
+      transporter.close()
+    }
   }
 
   async send(options: SmtpConnectionOptions, message: SmtpMessage): Promise<SmtpSendResult> {

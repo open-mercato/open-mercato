@@ -1,6 +1,6 @@
 import type { EntityManager } from '@mikro-orm/postgresql'
 import { findOneWithDecryption } from '@open-mercato/shared/lib/encryption/find'
-import { ChannelThreadMapping, MessageChannelLink } from '../data/entities'
+import { ChannelThreadMapping, CommunicationChannel, MessageChannelLink } from '../data/entities'
 import { Message } from '../../messages/data/entities'
 import { COMMUNICATION_CHANNELS_QUEUES, getCommunicationChannelsQueue } from '../lib/queue'
 import type { OutboundDeliveryPayload } from '../workers/outbound-delivery'
@@ -134,6 +134,30 @@ export default async function handler(
       existingLink.deliveryStatus === 'delivered' ||
       existingLink.deliveryStatus === 'read')
   ) {
+    return
+  }
+
+  // (c2) Per-user ownership gate. Outbound delivery sends with the CHANNEL
+  // OWNER's credentials (workers/outbound-delivery → deliver-outbound-message),
+  // so we may only bridge a platform message into a per-user channel when the
+  // message's sender OWNS that channel. Tenant-wide channels (userId == null —
+  // shared inboxes) accept any sender. Without this, composing into another
+  // user's channel-linked thread would send from their connected account
+  // (impersonation). Mirrors lib/send-as-user and the reaction ownership gate.
+  const channel = await findOneWithDecryption(
+    em,
+    CommunicationChannel,
+    {
+      id: mapping.channelId,
+      tenantId: payload.tenantId,
+      organizationId: payload.organizationId ?? null,
+      deletedAt: null,
+    },
+    undefined,
+    dscope,
+  )
+  if (!channel) return
+  if (channel.userId != null && channel.userId !== message.senderUserId) {
     return
   }
 

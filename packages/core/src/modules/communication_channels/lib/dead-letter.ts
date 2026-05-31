@@ -1,4 +1,5 @@
 import type { EntityManager } from '@mikro-orm/postgresql'
+import { findOneWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import { ChannelIngestDeadLetter } from '../data/entities'
 import type { NormalizedInboundMessage } from './adapter'
 
@@ -49,12 +50,18 @@ export async function writeIngestDeadLetter(args: WriteIngestDeadLetterArgs): Pr
   const externalMessageId = message.externalMessageId ?? null
   try {
     if (externalMessageId) {
-      const existing = await em.findOne(ChannelIngestDeadLetter, {
-        tenantId: scope.tenantId,
-        organizationId: scope.organizationId ?? null,
-        channelId: channel.id,
-        externalMessageId,
-      })
+      const existing = await findOneWithDecryption(
+        em,
+        ChannelIngestDeadLetter,
+        {
+          tenantId: scope.tenantId,
+          organizationId: scope.organizationId ?? null,
+          channelId: channel.id,
+          externalMessageId,
+        },
+        undefined,
+        { tenantId: scope.tenantId, organizationId: scope.organizationId ?? null },
+      )
       if (existing) return
     }
     const deadLetter = em.create(ChannelIngestDeadLetter, {

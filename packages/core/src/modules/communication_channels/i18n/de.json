@@ -30,6 +30,7 @@
   "communication_channels.errors.loadDetail": "Kanal konnte nicht geladen werden",
   "communication_channels.errors.loadList": "Kanäle konnten nicht geladen werden",
   "communication_channels.errors.reactionFailed": "Reaktion fehlgeschlagen",
+  "communication_channels.errors.undoBlockedPrimaryConflict": "Ein anderer Kanal ist jetzt für diesen Benutzer als primär festgelegt. Setze ihn auf nicht-primär, bevor du den getrennten Kanal wieder als primär festlegst.",
   "communication_channels.infoPanel.aria": "Kanalinfo",
   "communication_channels.infoPanel.assignedTo": "Zugewiesen an",
   "communication_channels.infoPanel.contactPerson": "CRM-Kontakt",

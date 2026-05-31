@@ -94,7 +94,11 @@ describe('POST /api/communication_channels/webhook/[provider]', () => {
     expect(mockEnqueue).toHaveBeenCalledWith(
       expect.objectContaining({
         channelId: 'channel-060',
-        scope: { tenantId: 'tenant-060', organizationId: 'tenant-060' },
+        // Ingest scope uses the channel's REAL org (null here), matching the poll
+        // and dedicated gmail/microsoft webhook paths — NOT the tenantId fallback
+        // that `candidateScope` uses for credential/verify lookups (that fallback
+        // must not leak into ingest, or dedup diverges for null-org channels).
+        scope: { tenantId: 'tenant-060', organizationId: null },
       }),
     )
   })

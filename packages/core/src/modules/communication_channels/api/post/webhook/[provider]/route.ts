@@ -162,7 +162,11 @@ export async function POST(req: Request, { params }: RouteContext): Promise<Resp
         channelId: matchedChannel.id,
         channelType: matchedChannel.channelType,
         event: reactionEvent,
-        scope: { tenantId: matchedScope.tenantId, organizationId: matchedScope.organizationId },
+        // Use the channel's REAL org (null when null), matching the poll and
+        // dedicated gmail/microsoft webhook paths — `candidateScope` falls org
+        // back to tenantId for credential/verify lookups, which must not leak
+        // into the ingest scope (it would diverge dedup for null-org channels).
+        scope: { tenantId: matchedScope.tenantId, organizationId: matchedChannel.organizationId ?? null },
         attempt: 1,
       }
       const reactionsQueue = getCommunicationChannelsQueue(COMMUNICATION_CHANNELS_QUEUES.reactions)
@@ -187,7 +191,9 @@ export async function POST(req: Request, { params }: RouteContext): Promise<Resp
       channelId: matchedChannel.id,
       channelType: matchedChannel.channelType,
       raw: event,
-      scope: { tenantId: matchedScope.tenantId, organizationId: matchedScope.organizationId },
+      // Ingest scope uses the channel's REAL org (null when null) so dedup matches
+      // the poll + dedicated webhook paths; see the reaction branch above.
+      scope: { tenantId: matchedScope.tenantId, organizationId: matchedChannel.organizationId ?? null },
     }
     await queue.enqueue(jobPayload as unknown as Record<string, unknown>)
 

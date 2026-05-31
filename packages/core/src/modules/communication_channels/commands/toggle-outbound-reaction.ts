@@ -35,6 +35,7 @@ export type ToggleOutboundReactionInput = z.infer<typeof toggleOutboundReactionS
 
 export type ToggleOutboundReactionResult =
   | { status: 'no_channel_link'; reason: string }
+  | { status: 'not_owner'; reason: string }
   | {
       status: 'added'
       reactionId: string
@@ -157,6 +158,16 @@ const toggleOutboundReactionCommand: CommandHandler<
     )
     if (!resolvedChannel) {
       return { status: 'no_channel_link', reason: 'channel not resolved' }
+    }
+    // Per-user ownership gate. The reaction is delivered to the provider using
+    // the RESOLVED CHANNEL OWNER's credentials (workers/reaction-processor.ts),
+    // so a non-owner reacting would post a reaction FROM someone else's connected
+    // account (impersonation). Only the channel owner may react from a per-user
+    // channel; tenant-wide channels (userId == null — shared WhatsApp/Slack) stay
+    // reactable by any authorized caller. Mirrors set-primary-channel's not_owner
+    // guard. Applies to both add and remove.
+    if (resolvedChannel.userId != null && resolvedChannel.userId !== input.reactedByUserId) {
+      return { status: 'not_owner', reason: 'channel is owned by another user' }
     }
     const capabilities = (resolvedChannel.capabilities as ChannelCapabilities | null) ?? null
 
@@ -338,6 +349,6 @@ function isUniqueViolation(err: unknown): boolean {
   return typeof message === 'string' && /duplicate key value|unique constraint/i.test(message)
 }
 
-registerCommand(toggleOutboundReactionCommand as unknown as CommandHandler)
+registerCommand(toggleOutboundReactionCommand)
 
 export default toggleOutboundReactionCommand

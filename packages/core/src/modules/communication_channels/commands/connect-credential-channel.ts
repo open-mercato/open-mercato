@@ -216,6 +216,6 @@ const connectCredentialChannelCommand: CommandHandler<
   },
 }
 
-registerCommand(connectCredentialChannelCommand as unknown as CommandHandler)
+registerCommand(connectCredentialChannelCommand)
 
 export default connectCredentialChannelCommand

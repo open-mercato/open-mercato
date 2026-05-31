@@ -267,6 +267,6 @@ function isUniqueViolation(err: unknown): boolean {
   return typeof message === 'string' && /duplicate key value|unique constraint/i.test(message)
 }
 
-registerCommand(processInboundReactionCommand as unknown as CommandHandler)
+registerCommand(processInboundReactionCommand)
 
 export default processInboundReactionCommand

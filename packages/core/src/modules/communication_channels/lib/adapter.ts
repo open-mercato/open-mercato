@@ -506,6 +506,20 @@ export interface ChannelAdapter {
 
   // Required core methods
   sendMessage(input: SendMessageInput): Promise<SendMessageResult>
+  /**
+   * Verify an inbound webhook against the supplied channel credentials and
+   * normalize it to an {@link InboundMessage}.
+   *
+   * SECURITY CONTRACT (fail-closed): implementations MUST throw when the request
+   * cannot be cryptographically verified for `input.credentials`. The generic
+   * `api/post/webhook/[provider]` route treats a non-throwing return as
+   * "verified" and pins the request to that candidate channel's tenant, so a
+   * best-effort / no-op implementation that returns normally on an unverified
+   * request is a tenant-spoofing fail-open. Adapters with no real webhook (IMAP
+   * polling, or a provider handled by a dedicated signed route) MUST return
+   * `eventType: 'other'` so the route acknowledges (202) without enqueuing any
+   * tenant-scoped work.
+   */
   verifyWebhook(input: VerifyWebhookInput): Promise<InboundMessage>
   getStatus(input: GetMessageStatusInput): Promise<MessageStatus>
   convertOutbound(input: ConvertOutboundInput): Promise<ChannelNativeContent>

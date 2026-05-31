@@ -1,8 +1,5 @@
 import type { EntityManager } from '@mikro-orm/postgresql'
-import {
-  findOneWithDecryption,
-  findWithDecryption,
-} from '@open-mercato/shared/lib/encryption/find'
+import { findOneWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import { CommunicationChannel } from '../data/entities'
 import { constantTimeEquals } from './constant-time-equals'
 
@@ -91,23 +88,46 @@ async function resolveMicrosoftWebhookChannel(
   pathToken: string,
   subscriptionIds: Set<string>,
 ): Promise<CommunicationChannel | null> {
-  const channels = await findWithDecryption(
+  // Narrow to the subscription(s) named by THIS request instead of decrypting
+  // every Microsoft channel in the system on each (unauthenticated) webhook — an
+  // O(all-tenants) decrypt-all scan is a DoS amplifier and a tenant-scoping
+  // smell. Match the URL path token + notification subscriptionIds against both
+  // the channel id and the stored `channelState.subscriptionId`. The clientState
+  // secret is compared later (constant-time) on the reloaded row, so resolution
+  // here only needs to identify the candidate channel.
+  const candidates = Array.from(new Set([pathToken, ...subscriptionIds])).filter(
+    (value): value is string => typeof value === 'string' && value.length > 0,
+  )
+  if (candidates.length === 0) return null
+  const candidateArray = `{${candidates
+    .map((value) => `"${value.replace(/\\/g, '\\\\').replace(/"/g, '\\"')}"`)
+    .join(',')}}`
+  const matches = await em.getConnection().execute<
+    Array<{ id: string; tenant_id: string; organization_id: string | null }>
+  >(
+    `SELECT id, tenant_id, organization_id FROM communication_channels
+       WHERE provider_key = 'microsoft' AND is_active = true AND deleted_at IS NULL
+         AND (id::text = ANY(?::text[]) OR channel_state->>'subscriptionId' = ANY(?::text[]))
+       LIMIT 1`,
+    [candidateArray, candidateArray],
+  )
+  if (!Array.isArray(matches) || matches.length === 0) return null
+  const match = matches[0]
+  // Scope the decrypt to the resolved row's tenant/org (the raw SELECT above
+  // surfaced them) so `findOneWithDecryption` never decrypts `clientStateEncrypted`
+  // against a null tenant context, per the encryption helper contract.
+  return findOneWithDecryption(
     em,
     CommunicationChannel,
     {
+      id: match.id,
+      tenantId: match.tenant_id,
+      organizationId: match.organization_id ?? null,
       providerKey: 'microsoft',
       isActive: true,
       deletedAt: null,
     },
+    undefined,
+    { tenantId: match.tenant_id, organizationId: match.organization_id ?? null },
   )
-
-  return channels.find((channel) => {
-    const state = (channel.channelState as { subscriptionId?: unknown } | null) ?? null
-    const storedSubscriptionId = typeof state?.subscriptionId === 'string' ? state.subscriptionId : null
-    return (
-      channel.id === pathToken ||
-      storedSubscriptionId === pathToken ||
-      (storedSubscriptionId ? subscriptionIds.has(storedSubscriptionId) : false)
-    )
-  }) ?? null
 }

@@ -30,6 +30,7 @@
   "communication_channels.errors.loadDetail": "Nie udało się załadować kanału",
   "communication_channels.errors.loadList": "Nie udało się załadować kanałów",
   "communication_channels.errors.reactionFailed": "Reakcja nie powiodła się",
+  "communication_channels.errors.undoBlockedPrimaryConflict": "Inny kanał jest teraz głównym dla tego użytkownika. Ustaw go jako niegłówny, zanim przywrócisz rozłączony kanał jako główny.",
   "communication_channels.infoPanel.aria": "Informacje o kanale",
   "communication_channels.infoPanel.assignedTo": "Przypisane do",
   "communication_channels.infoPanel.contactPerson": "Kontakt CRM",

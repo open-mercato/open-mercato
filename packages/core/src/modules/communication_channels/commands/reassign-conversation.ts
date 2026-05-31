@@ -233,6 +233,6 @@ export function extractSnapshotFromLog(logEntry: unknown): ReassignConversationU
   return extractUndoPayload(logEntry)
 }
 
-registerCommand(reassignConversationCommand as unknown as CommandHandler)
+registerCommand(reassignConversationCommand)
 
 export default reassignConversationCommand

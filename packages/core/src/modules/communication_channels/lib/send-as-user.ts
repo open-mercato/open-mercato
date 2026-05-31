@@ -238,15 +238,16 @@ export async function sendAsUser(
       },
       channelContentType: input.body.html ? 'text/html' : 'text/plain',
       channelMetadata: {
+        // Caller-supplied pass-through metadata merged FIRST so the validated
+        // routing fields below always win — a caller cannot override the
+        // recipients/subject/threading headers via `channelMetadata`.
+        ...(input.channelMetadata ?? {}),
         to: input.to,
         cc: input.cc ?? [],
         bcc: input.bcc ?? [],
         subject: input.subject,
         inReplyTo: input.inReplyTo ?? null,
         references: input.references ?? [],
-        // Caller-supplied pass-through metadata merged last so routing fields
-        // (to/cc/bcc/subject) are never overwritten by the caller.
-        ...(input.channelMetadata ?? {}),
       },
       tenantId,
       organizationId,

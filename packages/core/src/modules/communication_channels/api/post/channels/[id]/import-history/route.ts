@@ -191,6 +191,7 @@ export const openApi = {
         { status: 400, description: 'Invalid channel id or unsupported provider' },
         { status: 401, description: 'Unauthorized' },
         { status: 404, description: 'Channel not found / not accessible' },
+        { status: 409, description: 'Channel is not connected (requires reauth / error)' },
         {
           status: 429,
           description: 'Another import is already running for this channel',
