@@ -5,7 +5,12 @@ import { CrudHttpError } from '@open-mercato/shared/lib/crud/errors'
 import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
 import { findOneWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import { buildChanges, emitCrudSideEffects, emitCrudUndoSideEffects } from '@open-mercato/shared/lib/commands/helpers'
-import { StaffTimeEntry, type StaffTimeEntrySource } from '../data/entities'
+import type { CrudIndexerConfig } from '@open-mercato/shared/lib/crud/types'
+import { StaffTimeEntry, StaffTimeProject, type StaffTimeEntrySource } from '../data/entities'
+
+const timeEntryCrudIndexer: CrudIndexerConfig<StaffTimeEntry> = {
+  entityType: 'staff:staff_time_entry',
+}
 import {
   staffTimeEntryCreateSchema,
   staffTimeEntryUpdateSchema,
@@ -62,6 +67,34 @@ async function resolveCallerStaffMemberId(
     ctx.auth?.orgId ?? null,
   )
   return member?.id ?? null
+}
+
+/**
+ * Verifies the referenced time project exists and is in-scope (same tenant + org,
+ * not soft-deleted). Throws 422 if the ID is provided but unresolvable.
+ * No-op when projectId is null/undefined (timeProjectId is optional on entries).
+ */
+async function assertTimeProjectInScope(
+  em: EntityManager,
+  projectId: string | null | undefined,
+  tenantId: string,
+  organizationId: string,
+): Promise<void> {
+  if (!projectId) return
+  const exists = await em.findOne(
+    StaffTimeProject,
+    { id: projectId, tenantId, organizationId, deletedAt: null },
+    { fields: ['id'] },
+  )
+  if (!exists) {
+    const { translate } = await resolveTranslations()
+    throw new CrudHttpError(422, {
+      error: translate('staff.timesheets.errors.projectNotFound', 'Time project not found or not accessible.'),
+      fieldErrors: {
+        timeProjectId: translate('staff.timesheets.errors.projectNotFound', 'Time project not found or not accessible.'),
+      },
+    })
+  }
 }
 
 type TimeEntrySnapshot = {
@@ -134,6 +167,10 @@ const createTimeEntryCommand: CommandHandler<StaffTimeEntryCreateInput, { timeEn
       effectiveStaffMemberId = callerStaffMemberId
     }
 
+    // Validate referenced timeProjectId is in-scope before persisting.
+    // Without this check a foreign or stale UUID would produce a dangling reference.
+    await assertTimeProjectInScope(em, parsed.timeProjectId ?? null, parsed.tenantId, parsed.organizationId)
+
     const now = new Date()
     const entry = em.create(StaffTimeEntry, {
       tenantId: parsed.tenantId,
@@ -162,6 +199,7 @@ const createTimeEntryCommand: CommandHandler<StaffTimeEntryCreateInput, { timeEn
       entity: entry,
       identifiers: { id: entry.id, organizationId: entry.organizationId, tenantId: entry.tenantId },
       events: staffTimeEntryCrudEvents,
+      indexer: timeEntryCrudIndexer,
     })
 
     return { timeEntryId: entry.id }
@@ -247,6 +285,11 @@ const updateTimeEntryCommand: CommandHandler<StaffTimeEntryUpdateInput, { timeEn
       }
     }
 
+    // Validate referenced timeProjectId is in-scope when it's being changed to a non-null value.
+    if (parsed.timeProjectId !== undefined && parsed.timeProjectId !== null) {
+      await assertTimeProjectInScope(em, parsed.timeProjectId, entry.tenantId, entry.organizationId)
+    }
+
     if (parsed.date !== undefined) entry.date = parsed.date
     if (parsed.durationMinutes !== undefined) entry.durationMinutes = parsed.durationMinutes
     if (parsed.timeProjectId !== undefined) entry.timeProjectId = parsed.timeProjectId ?? null
@@ -263,6 +306,7 @@ const updateTimeEntryCommand: CommandHandler<StaffTimeEntryUpdateInput, { timeEn
       entity: entry,
       identifiers: { id: entry.id, organizationId: entry.organizationId, tenantId: entry.tenantId },
       events: staffTimeEntryCrudEvents,
+      indexer: timeEntryCrudIndexer,
     })
 
     return { timeEntryId: entry.id }
@@ -325,6 +369,7 @@ const updateTimeEntryCommand: CommandHandler<StaffTimeEntryUpdateInput, { timeEn
       entity: entry,
       identifiers: { id: entry.id, organizationId: entry.organizationId, tenantId: entry.tenantId },
       events: staffTimeEntryCrudEvents,
+      indexer: timeEntryCrudIndexer,
     })
   },
 }
@@ -376,6 +421,7 @@ const deleteTimeEntryCommand: CommandHandler<{ id?: string }, { timeEntryId: str
       entity: entry,
       identifiers: { id: entry.id, organizationId: entry.organizationId, tenantId: entry.tenantId },
       events: staffTimeEntryCrudEvents,
+      indexer: timeEntryCrudIndexer,
     })
 
     return { timeEntryId: entry.id }
@@ -448,6 +494,7 @@ const deleteTimeEntryCommand: CommandHandler<{ id?: string }, { timeEntryId: str
       entity: entry,
       identifiers: { id: entry.id, organizationId: entry.organizationId, tenantId: entry.tenantId },
       events: staffTimeEntryCrudEvents,
+      indexer: timeEntryCrudIndexer,
     })
   },
 }

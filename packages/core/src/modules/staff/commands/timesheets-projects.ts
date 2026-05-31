@@ -6,7 +6,15 @@ import { CrudHttpError } from '@open-mercato/shared/lib/crud/errors'
 import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
 import { findOneWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import { buildChanges, emitCrudSideEffects, emitCrudUndoSideEffects } from '@open-mercato/shared/lib/commands/helpers'
-import { StaffTimeProject, StaffTimeProjectMember, type StaffTimeProjectStatus, type StaffTimeProjectMemberStatus } from '../data/entities'
+import type { CrudIndexerConfig } from '@open-mercato/shared/lib/crud/types'
+import { StaffTeamMember, StaffTimeProject, StaffTimeProjectMember, type StaffTimeProjectStatus, type StaffTimeProjectMemberStatus } from '../data/entities'
+
+const timeProjectCrudIndexer: CrudIndexerConfig<StaffTimeProject> = {
+  entityType: 'staff:staff_time_project',
+}
+const timeProjectMemberCrudIndexer: CrudIndexerConfig<StaffTimeProjectMember> = {
+  entityType: 'staff:staff_time_project_member',
+}
 import {
   staffTimeProjectCreateSchema,
   staffTimeProjectUpdateSchema,
@@ -17,7 +25,7 @@ import {
   type StaffTimeProjectMemberAssignInput,
   type StaffTimeProjectMemberUpdateInput,
 } from '../data/validators'
-import { staffTimeProjectCrudEvents } from '../lib/crud'
+import { staffTimeProjectCrudEvents, staffTimeProjectMemberCrudEvents } from '../lib/crud'
 import { ensureOrganizationScope, ensureTenantScope, extractUndoPayload } from './shared'
 
 function isUniqueViolation(error: unknown): boolean {
@@ -159,6 +167,7 @@ const createTimeProjectCommand: CommandHandler<StaffTimeProjectCreateInput, { ti
         tenantId: project.tenantId,
       },
       events: staffTimeProjectCrudEvents,
+      indexer: timeProjectCrudIndexer,
     })
 
     return { timeProjectId: project.id }
@@ -270,6 +279,7 @@ const updateTimeProjectCommand: CommandHandler<StaffTimeProjectUpdateInput, { ti
         tenantId: project.tenantId,
       },
       events: staffTimeProjectCrudEvents,
+      indexer: timeProjectCrudIndexer,
     })
 
     return { timeProjectId: project.id }
@@ -342,6 +352,7 @@ const updateTimeProjectCommand: CommandHandler<StaffTimeProjectUpdateInput, { ti
         tenantId: project.tenantId,
       },
       events: staffTimeProjectCrudEvents,
+      indexer: timeProjectCrudIndexer,
     })
   },
 }
@@ -385,6 +396,7 @@ const deleteTimeProjectCommand: CommandHandler<{ id?: string }, { timeProjectId:
         tenantId: project.tenantId,
       },
       events: staffTimeProjectCrudEvents,
+      indexer: timeProjectCrudIndexer,
     })
     return { timeProjectId: project.id }
   },
@@ -456,6 +468,7 @@ const deleteTimeProjectCommand: CommandHandler<{ id?: string }, { timeProjectId:
         tenantId: project.tenantId,
       },
       events: staffTimeProjectCrudEvents,
+      indexer: timeProjectCrudIndexer,
     })
   },
 }
@@ -468,6 +481,38 @@ const assignTimeProjectMemberCommand: CommandHandler<StaffTimeProjectMemberAssig
     ensureOrganizationScope(ctx, parsed.organizationId)
 
     const em = (ctx.container.resolve('em') as EntityManager).fork()
+
+    // Validate referenced project and staff member are in-scope before persisting.
+    // Without this check a foreign or stale UUID would produce a dangling reference.
+    const projectExists = await em.findOne(
+      StaffTimeProject,
+      { id: parsed.timeProjectId, tenantId: parsed.tenantId, organizationId: parsed.organizationId, deletedAt: null },
+      { fields: ['id'] },
+    )
+    if (!projectExists) {
+      const { translate } = await resolveTranslations()
+      throw new CrudHttpError(422, {
+        error: translate('staff.timesheets.errors.projectNotFound', 'Time project not found or not accessible.'),
+        fieldErrors: {
+          timeProjectId: translate('staff.timesheets.errors.projectNotFound', 'Time project not found or not accessible.'),
+        },
+      })
+    }
+    const memberExists = await em.findOne(
+      StaffTeamMember,
+      { id: parsed.staffMemberId, tenantId: parsed.tenantId, organizationId: parsed.organizationId, deletedAt: null },
+      { fields: ['id'] },
+    )
+    if (!memberExists) {
+      const { translate } = await resolveTranslations()
+      throw new CrudHttpError(422, {
+        error: translate('staff.timesheets.errors.staffMemberNotFound', 'Staff member not found or not accessible.'),
+        fieldErrors: {
+          staffMemberId: translate('staff.timesheets.errors.staffMemberNotFound', 'Staff member not found or not accessible.'),
+        },
+      })
+    }
+
     const now = new Date()
     const member = em.create(StaffTimeProjectMember, {
       tenantId: parsed.tenantId,
@@ -485,6 +530,15 @@ const assignTimeProjectMemberCommand: CommandHandler<StaffTimeProjectMemberAssig
     })
     em.persist(member)
     await em.flush()
+
+    await emitCrudSideEffects({
+      dataEngine: ctx.container.resolve('dataEngine'),
+      action: 'created',
+      entity: member,
+      identifiers: { id: member.id, organizationId: member.organizationId, tenantId: member.tenantId },
+      events: staffTimeProjectMemberCrudEvents,
+      indexer: timeProjectMemberCrudIndexer,
+    })
 
     return { timeProjectMemberId: member.id }
   },
@@ -522,6 +576,14 @@ const assignTimeProjectMemberCommand: CommandHandler<StaffTimeProjectMemberAssig
     if (member) {
       member.deletedAt = new Date()
       await em.flush()
+
+      await emitCrudUndoSideEffects({
+        dataEngine: ctx.container.resolve('dataEngine'),
+        action: 'deleted',
+        entity: member,
+        identifiers: { id: member.id, organizationId: member.organizationId, tenantId: member.tenantId },
+        events: staffTimeProjectMemberCrudEvents,
+      })
     }
   },
 }
@@ -554,6 +616,15 @@ const unassignTimeProjectMemberCommand: CommandHandler<{ id?: string }, { timePr
     member.deletedAt = new Date()
     member.updatedAt = new Date()
     await em.flush()
+
+    await emitCrudSideEffects({
+      dataEngine: ctx.container.resolve('dataEngine'),
+      action: 'deleted',
+      entity: member,
+      identifiers: { id: member.id, organizationId: member.organizationId, tenantId: member.tenantId },
+      events: staffTimeProjectMemberCrudEvents,
+      indexer: timeProjectMemberCrudIndexer,
+    })
 
     return { timeProjectMemberId: member.id }
   },
@@ -609,6 +680,15 @@ const unassignTimeProjectMemberCommand: CommandHandler<{ id?: string }, { timePr
       member.updatedAt = new Date()
     }
     await em.flush()
+
+    await emitCrudUndoSideEffects({
+      dataEngine: ctx.container.resolve('dataEngine'),
+      action: 'created',
+      entity: member,
+      identifiers: { id: member.id, organizationId: member.organizationId, tenantId: member.tenantId },
+      events: staffTimeProjectMemberCrudEvents,
+      indexer: timeProjectMemberCrudIndexer,
+    })
   },
 }
 

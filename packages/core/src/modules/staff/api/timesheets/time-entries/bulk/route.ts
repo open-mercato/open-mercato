@@ -120,6 +120,35 @@ export async function POST(req: Request) {
       .map((entry) => entry.id)
       .filter((id): id is string => typeof id === 'string' && id.length > 0)
 
+    // Validate referenced entry IDs upfront: a stale or foreign UUID would
+    // otherwise fall through to the create branch in the loop below and insert
+    // a duplicate row with that ID-less new identity. Reject as 422 instead.
+    if (existingIds.length > 0) {
+      const resolvedExisting = await em.find(
+        StaffTimeEntry,
+        { id: { $in: existingIds }, tenantId, organizationId, staffMemberId, deletedAt: null },
+        { fields: ['id'] },
+      )
+      const resolvedIdSet = new Set(resolvedExisting.map((entry) => entry.id))
+      const invalidIds = existingIds.filter((id) => !resolvedIdSet.has(id))
+      if (invalidIds.length > 0) {
+        return NextResponse.json(
+          {
+            ok: false,
+            errors: invalidIds.map((id) => ({
+              path: 'entries[].id',
+              message: translate(
+                'staff.timesheets.errors.entryNotFound',
+                'Time entry not found, deleted, or not owned by you.',
+              ),
+              value: id,
+            })),
+          },
+          { status: 422 },
+        )
+      }
+    }
+
     type PendingChange = {
       action: 'created' | 'updated' | 'deleted'
       entity: StaffTimeEntry

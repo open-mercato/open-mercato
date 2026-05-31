@@ -35,6 +35,9 @@ const events = [
   { id: 'staff.timesheets.time_project.created', label: 'Time Project Created', entity: 'time_project', category: 'crud' },
   { id: 'staff.timesheets.time_project.updated', label: 'Time Project Updated', entity: 'time_project', category: 'crud' },
   { id: 'staff.timesheets.time_project.deleted', label: 'Time Project Deleted', entity: 'time_project', category: 'crud' },
+  { id: 'staff.timesheets.time_project_member.created', label: 'Time Project Member Assigned', entity: 'time_project_member', category: 'crud' },
+  { id: 'staff.timesheets.time_project_member.updated', label: 'Time Project Member Updated', entity: 'time_project_member', category: 'crud' },
+  { id: 'staff.timesheets.time_project_member.deleted', label: 'Time Project Member Unassigned', entity: 'time_project_member', category: 'crud' },
 ] as const
 
 export const eventsConfig = createModuleEvents({
