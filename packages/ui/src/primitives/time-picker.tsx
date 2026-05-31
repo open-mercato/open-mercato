@@ -462,8 +462,7 @@ export function HorizontalScrollRow({
         <div
           ref={scrollRef}
           className={cn(
-            'flex items-center gap-2 overflow-x-auto py-3.5',
-            '[scrollbar-width:none] [-ms-overflow-style:none] [&::-webkit-scrollbar]:hidden',
+            'scrollbar-hide flex items-center gap-2 overflow-x-auto py-3.5',
             contentClassName,
           )}
           role="group"
