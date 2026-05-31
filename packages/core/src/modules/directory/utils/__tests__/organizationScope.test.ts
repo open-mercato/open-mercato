@@ -256,8 +256,8 @@ describe('resolveOrganizationScope', () => {
       })
       expect((em.find as jest.Mock)).toHaveBeenCalledTimes(1)
       expect(result.selectedId).toBe('org-b')
-      expect(result.filterIds).toEqual(expect.arrayContaining(['org-b', 'org-b-child']))
-      expect(result.allowedIds).toEqual(expect.arrayContaining(['org-a', 'org-b', 'org-b-child']))
+      expect([...(result.filterIds ?? [])].sort()).toEqual(['org-b', 'org-b-child'])
+      expect([...(result.allowedIds ?? [])].sort()).toEqual(['org-a', 'org-b', 'org-b-child'])
     })
 
     it('issues exactly one organizations query when falling back from a disallowed selection', async () => {
