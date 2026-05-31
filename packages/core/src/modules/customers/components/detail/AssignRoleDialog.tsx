@@ -5,6 +5,7 @@ import Link from 'next/link'
 import { Search, Check, CheckCheck, Settings2 } from 'lucide-react'
 import { Avatar } from '@open-mercato/ui/primitives/avatar'
 import { EmptyState } from '@open-mercato/ui/primitives/empty-state'
+import { StepIndicator, type StepIndicatorStep } from '@open-mercato/ui/primitives/step-indicator'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { Button } from '@open-mercato/ui/primitives/button'
 import { Badge } from '@open-mercato/ui/primitives/badge'
@@ -352,25 +353,26 @@ export function AssignRoleDialog({
         </DialogHeader>
 
         <div className="border-b border-border/70 px-6 py-4">
-          <div className="flex items-center justify-center gap-3 text-xs">
-            <StepBadge
-              step={1}
-              currentStep={step}
-              label={t('customers.roles.dialog.step1', 'Role type')}
-            />
-            <div className="h-px w-10 bg-border" />
-            <StepBadge
-              step={2}
-              currentStep={step}
-              label={t('customers.roles.dialog.step2', 'Select person')}
-            />
-            <div className="h-px w-10 bg-border" />
-            <StepBadge
-              step={3}
-              currentStep={step}
-              label={t('customers.roles.dialog.step3', 'Confirm')}
-            />
-          </div>
+          <StepIndicator
+            className="justify-center"
+            steps={[
+              {
+                id: '1',
+                label: t('customers.roles.dialog.step1', 'Role type'),
+                status: step > 1 ? 'complete' : step === 1 ? 'current' : 'pending',
+              },
+              {
+                id: '2',
+                label: t('customers.roles.dialog.step2', 'Select person'),
+                status: step > 2 ? 'complete' : step === 2 ? 'current' : 'pending',
+              },
+              {
+                id: '3',
+                label: t('customers.roles.dialog.step3', 'Confirm'),
+                status: step === 3 ? 'current' : 'pending',
+              },
+            ] satisfies StepIndicatorStep[]}
+          />
         </div>
 
         <div className="min-h-0 flex-1 overflow-y-auto">
@@ -672,32 +674,3 @@ export function AssignRoleDialog({
   )
 }
 
-function StepBadge({
-  step,
-  currentStep,
-  label,
-}: {
-  step: StepId
-  currentStep: StepId
-  label: string
-}) {
-  const isComplete = currentStep > step
-  const isCurrent = currentStep === step
-
-  return (
-    <div className="flex items-center gap-2">
-      <span
-        className={`flex size-5 items-center justify-center rounded-full border text-xs font-semibold ${
-          isComplete || isCurrent
-            ? 'border-foreground bg-foreground text-background'
-            : 'border-border bg-background text-muted-foreground'
-        }`}
-      >
-        {isComplete ? <Check className="size-3" /> : step}
-      </span>
-      <span className={isCurrent ? 'font-semibold text-foreground' : 'text-muted-foreground'}>
-        {label}
-      </span>
-    </div>
-  )
-}
