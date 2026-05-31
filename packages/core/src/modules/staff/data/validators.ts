@@ -113,6 +113,7 @@ export const staffTeamMemberJobHistoryCreateSchema = z.object({
 export const staffTeamMemberJobHistoryUpdateSchema = z
   .object({
     id: z.string().uuid(),
+    updatedAt: z.string().datetime().optional(),
   })
   .merge(staffTeamMemberJobHistoryCreateSchema.partial())
 

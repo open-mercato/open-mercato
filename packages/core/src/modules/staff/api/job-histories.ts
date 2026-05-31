@@ -12,6 +12,11 @@ import { E } from '#generated/entities.ids.generated'
 
 const rawBodySchema = z.object({}).passthrough()
 
+const optimisticDeleteSchema = z.object({
+  id: z.string().uuid(),
+  updatedAt: z.string().datetime().optional(),
+})
+
 const listSchema = z
   .object({
     page: z.coerce.number().min(1).default(1),
@@ -94,7 +99,13 @@ const crud = makeCrudRoute({
       mapInput: async ({ parsed, ctx }) => {
         const { translate } = await resolveTranslations()
         const id = resolveCrudRecordId(parsed, ctx, translate)
-        return { id }
+        return {
+          id,
+          updatedAt:
+            typeof (parsed as Record<string, unknown>).updatedAt === 'string'
+              ? (parsed as Record<string, unknown>).updatedAt
+              : undefined,
+        }
       },
       response: () => ({ ok: true }),
     },
@@ -137,7 +148,7 @@ export const openApi = createStaffCrudOpenApi({
     description: 'Updates a team member job history entry.',
   },
   del: {
-    schema: z.object({ id: z.string().uuid() }),
+    schema: optimisticDeleteSchema,
     responseSchema: defaultOkResponseSchema,
     description: 'Deletes a team member job history entry.',
   },
