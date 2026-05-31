@@ -147,7 +147,7 @@ function normalizeOrganizationIds(ids: string[]): string[] {
 // returned an empty set for it).
 type OrgDescendantMap = Map<string, string[]>
 
-// Phase 2228 — single round-trip for org-scope resolution. Instead of issuing
+// Issue #2228 — single round-trip for org-scope resolution. Instead of issuing
 // one `organizations` SELECT per `collectWithDescendants` call (up to 3-4
 // sequential queries per request: accessible set, fallback set, selected set),
 // gather every candidate id up front and fetch their descendant expansions in
