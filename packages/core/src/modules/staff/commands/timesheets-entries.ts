@@ -14,6 +14,55 @@ import {
 } from '../data/validators'
 import { staffTimeEntryCrudEvents } from '../lib/crud'
 import { ensureOrganizationScope, ensureTenantScope, extractUndoPayload } from './shared'
+import { getStaffMemberByUserId } from '../lib/staffMemberResolver'
+
+type RbacServiceLike = {
+  userHasAllFeatures: (
+    userId: string,
+    required: string[],
+    scope: { tenantId: string | null; organizationId: string | null },
+  ) => Promise<boolean>
+}
+
+/**
+ * Returns true when the caller holds `staff.timesheets.manage_all`, honoring
+ * wildcard ACL grants (`staff.*`, `*`) and the super-admin flag via the cached
+ * rbacService. Returns false when no auth context (e.g. system/CLI ctx) so
+ * write paths that lack a caller identity are NOT silently elevated.
+ */
+async function callerHasManageAll(ctx: {
+  auth?: { sub?: string | null; tenantId?: string | null; orgId?: string | null } | null
+  container: { resolve: (token: string) => unknown }
+}): Promise<boolean> {
+  const userId = ctx.auth?.sub
+  if (!userId) return false
+  try {
+    const rbac = ctx.container.resolve('rbacService') as RbacServiceLike | undefined
+    if (!rbac?.userHasAllFeatures) return false
+    return await rbac.userHasAllFeatures(
+      userId,
+      ['staff.timesheets.manage_all'],
+      { tenantId: ctx.auth?.tenantId ?? null, organizationId: ctx.auth?.orgId ?? null },
+    )
+  } catch {
+    return false
+  }
+}
+
+async function resolveCallerStaffMemberId(
+  em: EntityManager,
+  ctx: { auth?: { sub?: string | null; tenantId?: string | null; orgId?: string | null } | null },
+): Promise<string | null> {
+  const userId = ctx.auth?.sub
+  if (!userId) return null
+  const member = await getStaffMemberByUserId(
+    em,
+    userId,
+    ctx.auth?.tenantId ?? null,
+    ctx.auth?.orgId ?? null,
+  )
+  return member?.id ?? null
+}
 
 type TimeEntrySnapshot = {
   id: string
@@ -68,11 +117,28 @@ const createTimeEntryCommand: CommandHandler<StaffTimeEntryCreateInput, { timeEn
     ensureOrganizationScope(ctx, parsed.organizationId)
 
     const em = (ctx.container.resolve('em') as EntityManager).fork()
+
+    // Ownership enforcement: callers without `staff.timesheets.manage_all`
+    // can only create entries attributed to themselves. Silent override
+    // (mirrors `bulk/route.ts` behavior) so the request body's staffMemberId
+    // can't forge an entry under a colleague's identity.
+    let effectiveStaffMemberId = parsed.staffMemberId
+    if (!(await callerHasManageAll(ctx))) {
+      const callerStaffMemberId = await resolveCallerStaffMemberId(em, ctx)
+      if (!callerStaffMemberId) {
+        const { translate } = await resolveTranslations()
+        throw new CrudHttpError(403, {
+          error: translate('staff.timesheets.errors.noStaffMember', 'No staff member linked to your account.'),
+        })
+      }
+      effectiveStaffMemberId = callerStaffMemberId
+    }
+
     const now = new Date()
     const entry = em.create(StaffTimeEntry, {
       tenantId: parsed.tenantId,
       organizationId: parsed.organizationId,
-      staffMemberId: parsed.staffMemberId,
+      staffMemberId: effectiveStaffMemberId,
       date: parsed.date,
       durationMinutes: parsed.durationMinutes,
       startedAt: parsed.startedAt ?? null,
@@ -168,6 +234,18 @@ const updateTimeEntryCommand: CommandHandler<StaffTimeEntryUpdateInput, { timeEn
     if (!entry) throw new CrudHttpError(404, { error: 'Time entry not found.' })
     ensureTenantScope(ctx, entry.tenantId)
     ensureOrganizationScope(ctx, entry.organizationId)
+
+    // Ownership enforcement: callers without `staff.timesheets.manage_all`
+    // can only update entries they own.
+    if (!(await callerHasManageAll(ctx))) {
+      const callerStaffMemberId = await resolveCallerStaffMemberId(em, ctx)
+      if (!callerStaffMemberId || entry.staffMemberId !== callerStaffMemberId) {
+        const { translate } = await resolveTranslations()
+        throw new CrudHttpError(403, {
+          error: translate('staff.timesheets.errors.notOwner', 'You can only manage your own time entries.'),
+        })
+      }
+    }
 
     if (parsed.date !== undefined) entry.date = parsed.date
     if (parsed.durationMinutes !== undefined) entry.durationMinutes = parsed.durationMinutes
@@ -275,6 +353,18 @@ const deleteTimeEntryCommand: CommandHandler<{ id?: string }, { timeEntryId: str
     if (!entry) throw new CrudHttpError(404, { error: 'Time entry not found.' })
     ensureTenantScope(ctx, entry.tenantId)
     ensureOrganizationScope(ctx, entry.organizationId)
+
+    // Ownership enforcement: callers without `staff.timesheets.manage_all`
+    // can only delete entries they own.
+    if (!(await callerHasManageAll(ctx))) {
+      const callerStaffMemberId = await resolveCallerStaffMemberId(em, ctx)
+      if (!callerStaffMemberId || entry.staffMemberId !== callerStaffMemberId) {
+        const { translate } = await resolveTranslations()
+        throw new CrudHttpError(403, {
+          error: translate('staff.timesheets.errors.notOwner', 'You can only manage your own time entries.'),
+        })
+      }
+    }
 
     entry.deletedAt = new Date()
     entry.updatedAt = new Date()

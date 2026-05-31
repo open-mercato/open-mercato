@@ -15,6 +15,7 @@ import {
   runStaffMutationGuardAfterSuccess,
   runStaffMutationGuards,
 } from '../../../../guards'
+import { emitStaffEvent } from '../../../../../events'
 
 function extractEntryIdFromUrl(request?: Request): string | null {
   if (!request?.url) return null
@@ -111,6 +112,16 @@ export async function POST(req: Request) {
     em.create(StaffTimeEntrySegment, segmentData as never)
 
     await em.flush()
+
+    void emitStaffEvent('staff.timesheets.time_entry.timer_started', {
+      id: entry.id,
+      staffMemberId: entry.staffMemberId,
+      tenantId: entry.tenantId,
+      organizationId: entry.organizationId,
+      startedAt: now.toISOString(),
+    }, { persistent: true }).catch((err) => {
+      console.error('[staff.timesheets] emit timer_started failed', err)
+    })
 
     if (guardResult.afterSuccessCallbacks.length) {
       await runStaffMutationGuardAfterSuccess(guardResult.afterSuccessCallbacks, {

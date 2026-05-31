@@ -912,6 +912,8 @@
   "staff.teams.tabs.details": "Details",
   "staff.teams.tabs.label": "Teamabschnitte",
   "staff.teams.tabs.members": "Teammitglieder",
+  "staff.timesheets.errors.noStaffMember": "Ihrem Konto ist kein Mitarbeiter zugeordnet.",
+  "staff.timesheets.errors.notOwner": "Sie können nur Ihre eigenen Zeiteinträge verwalten.",
   "staff.timesheets.errors.projectCodeDuplicate": "Ein Projekt mit diesem Code existiert bereits.",
   "staff.timesheets.errors.projectNotFound": "Zeitprojekt nicht gefunden oder nicht zugänglich.",
   "staff.timesheets.errors.projectsKpis": "Failed to load project KPIs.",
