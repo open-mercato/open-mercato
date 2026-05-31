@@ -69,10 +69,10 @@ export function DataQualityOverviewClient() {
     setError(null)
     try {
       const [scansCall, findingsCall, criticalCall, warningCall] = await Promise.all([
-        apiCall<ListResponse<ScanSummary> & { total?: number }>('/api/data-quality/scans?page=1&pageSize=5'),
-        apiCall<ListResponse<FindingSummary> & { total?: number }>('/api/data-quality/findings?page=1&pageSize=5&status=open'),
-        apiCall<{ total?: number }>('/api/data-quality/findings?page=1&pageSize=1&status=open&severity=critical'),
-        apiCall<{ total?: number }>('/api/data-quality/findings?page=1&pageSize=1&status=open&severity=warning'),
+        apiCall<ListResponse<ScanSummary> & { total?: number }>('/api/data_quality/scans?page=1&pageSize=5'),
+        apiCall<ListResponse<FindingSummary> & { total?: number }>('/api/data_quality/findings?page=1&pageSize=5&status=open'),
+        apiCall<{ total?: number }>('/api/data_quality/findings?page=1&pageSize=1&status=open&severity=critical'),
+        apiCall<{ total?: number }>('/api/data_quality/findings?page=1&pageSize=1&status=open&severity=warning'),
       ])
 
       if (!scansCall.ok || !findingsCall.ok || !criticalCall.ok || !warningCall.ok) {
@@ -108,14 +108,14 @@ export function DataQualityOverviewClient() {
   const handleStartScan = React.useCallback(async () => {
     setStartingScan(true)
     try {
-      const suitesCall = await apiCall<{ items?: Array<{ id: string }> }>('/api/data-quality/suites?page=1&pageSize=100&enabled=true')
+      const suitesCall = await apiCall<{ items?: Array<{ id: string }> }>('/api/data_quality/suites?page=1&pageSize=100&enabled=true')
       const suiteId = Array.isArray(suitesCall.result?.items) ? suitesCall.result.items[0]?.id : undefined
       if (!suitesCall.ok || !suiteId) {
         throw new Error(t('data_quality.errors.noEnabledSuite', 'Create and enable a suite before starting a scan from the overview.'))
       }
 
       const result = await runMutation({
-        operation: () => apiCall('/api/data-quality/scans', {
+        operation: () => apiCall('/api/data_quality/scans', {
           method: 'POST',
           headers: { 'content-type': 'application/json' },
           body: JSON.stringify({ suiteId }),

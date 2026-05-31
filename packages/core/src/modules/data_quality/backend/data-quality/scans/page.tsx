@@ -12,8 +12,6 @@ import { raiseCrudError } from '@open-mercato/ui/backend/utils/serverErrors'
 import { Button } from '@open-mercato/ui/primitives/button'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 
-export { metadata } from './page.meta'
-
 type ScanRow = {
   id: string
   suiteName?: string | null
@@ -56,7 +54,7 @@ export default function DataQualityScansPage() {
         pageSize: String(pageSize),
       })
       if (search.trim()) params.set('search', search.trim())
-      const result = await apiCall<ScansResponse>(`/api/data-quality/scans?${params.toString()}`)
+      const result = await apiCall<ScansResponse>(`/api/data_quality/scans?${params.toString()}`)
       if (!result.ok) {
         await raiseCrudError(result.response, t('data_quality.errors.scansLoadFailed', 'Failed to load scan runs.'))
       }

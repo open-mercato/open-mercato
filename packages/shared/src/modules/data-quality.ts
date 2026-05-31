@@ -46,3 +46,53 @@ export interface DataQualityModuleConfig {
 export interface DataQualityGeneratedRegistry {
   targets: DataQualityTarget[]
 }
+
+export interface DataQualityTargetEntry {
+  moduleId: string
+  targets: DataQualityTarget[]
+}
+
+// =============================================================================
+// Global target registry — populated during bootstrap
+// =============================================================================
+
+let _dataQualityTargetEntries: DataQualityTargetEntry[] | null = null
+
+/**
+ * Register data quality target entries globally.
+ * Called during app bootstrap with entries from data-quality.generated.ts.
+ */
+export function registerDataQualityTargetEntries(entries: DataQualityTargetEntry[]): void {
+  if (_dataQualityTargetEntries !== null && process.env.NODE_ENV === 'development') {
+    console.debug('[Bootstrap] Data quality target entries re-registered (this may occur during HMR)')
+  }
+  _dataQualityTargetEntries = entries
+}
+
+/**
+ * Get registered data quality target entries.
+ * Returns empty array if not registered.
+ */
+export function getDataQualityTargetEntries(): DataQualityTargetEntry[] {
+  return _dataQualityTargetEntries ?? []
+}
+
+/**
+ * Load the full data quality target registry from registered entries.
+ * Deduplicates by entityId:tableName.
+ */
+export function loadDataQualityTargetRegistry(): DataQualityGeneratedRegistry {
+  const seen = new Set<string>()
+  const targets: DataQualityTarget[] = []
+
+  for (const entry of getDataQualityTargetEntries()) {
+    for (const target of entry.targets) {
+      const key = `${target.entityId}:${target.tableName}`
+      if (seen.has(key)) continue
+      seen.add(key)
+      targets.push(target)
+    }
+  }
+
+  return { targets }
+}

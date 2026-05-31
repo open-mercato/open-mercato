@@ -1,5 +1,5 @@
 import { Page, PageBody } from '@open-mercato/ui/backend/Page'
-import { SuiteForm } from '../../../components/SuiteForm'
+import { SuiteForm } from '../../../../components/SuiteForm'
 
 export const metadata = {
   requireAuth: true,

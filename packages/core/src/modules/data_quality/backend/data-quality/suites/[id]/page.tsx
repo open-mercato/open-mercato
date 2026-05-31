@@ -1,6 +1,6 @@
 import { Page, PageBody } from '@open-mercato/ui/backend/Page'
-import { SuiteForm } from '../../../components/SuiteForm'
-import { SuiteMembershipTable } from '../../../components/SuiteMembershipTable'
+import { SuiteForm } from '../../../../components/SuiteForm'
+import { SuiteMembershipTable } from '../../../../components/SuiteMembershipTable'
 
 export const metadata = {
   requireAuth: true,

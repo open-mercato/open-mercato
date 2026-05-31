@@ -1,5 +1,5 @@
 import { Page, PageBody } from '@open-mercato/ui/backend/Page'
-import { FindingsTable } from '../../components/FindingsTable'
+import { FindingsTable } from '../../../components/FindingsTable'
 
 export const metadata = {
   requireAuth: true,

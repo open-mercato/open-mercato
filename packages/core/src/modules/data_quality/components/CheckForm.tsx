@@ -91,7 +91,7 @@ export function CheckForm({ mode, checkId }: CheckFormProps) {
       setLoadError(null)
       try {
         const { ok, result } = await apiCall<CheckListResponse>(
-          `/api/data-quality/checks?id=${encodeURIComponent(checkId)}&page=1&pageSize=1`,
+          `/api/data_quality/checks?id=${encodeURIComponent(checkId)}&page=1&pageSize=1`,
         )
         if (!ok) {
           throw new Error(t('data_quality.errors.checkLoadFailed', 'Failed to load the data quality check.'))

@@ -28,7 +28,7 @@ type SummaryPayload = {
 }
 
 async function loadSummary(): Promise<SummaryPayload> {
-  const call = await apiCall<SummaryPayload>('/api/data-quality/summary')
+  const call = await apiCall<SummaryPayload>('/api/data_quality/summary')
   if (!call.ok) {
     throw new Error(`Request failed with status ${call.status}`)
   }

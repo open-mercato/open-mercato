@@ -44,7 +44,7 @@ export function ScanRunDetailClient({ scanId }: { scanId: string }) {
   const { data, isLoading, isFetching, error, refetch } = useQuery<ScanRunDetail>({
     queryKey: ['data_quality_scan', scanId],
     queryFn: async () => {
-      const result = await apiCall<ScanListResponse>(`/api/data-quality/scans?id=${encodeURIComponent(scanId)}&page=1&pageSize=1`)
+      const result = await apiCall<ScanListResponse>(`/api/data_quality/scans?id=${encodeURIComponent(scanId)}&page=1&pageSize=1`)
       if (!result.ok) {
         await raiseCrudError(result.response, t('data_quality.errors.scanLoadFailed', 'Failed to load the scan run.'))
       }

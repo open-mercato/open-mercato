@@ -28,7 +28,7 @@ export function SuiteMembershipTable({ suiteId }: { suiteId: string }) {
   const { data, isLoading, isFetching, error, refetch } = useQuery<SuiteCheck[]>({
     queryKey: ['data_quality_suite_checks', suiteId],
     queryFn: async () => {
-      const result = await apiCall<SuiteChecksResponse>(`/api/data-quality/suites/${encodeURIComponent(suiteId)}/checks`)
+      const result = await apiCall<SuiteChecksResponse>(`/api/data_quality/suites/${encodeURIComponent(suiteId)}/checks`)
       if (!result.ok) {
         await raiseCrudError(result.response, t('data_quality.errors.suiteChecksLoadFailed', 'Failed to load suite checks.'))
       }

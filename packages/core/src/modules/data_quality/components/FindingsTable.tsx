@@ -73,7 +73,7 @@ export function FindingsTable({ scanRunId, title }: FindingsTableProps) {
       if (search.trim()) params.set('search', search.trim())
       if (scanRunId) params.set('scanRunId', scanRunId)
 
-      const result = await apiCall<FindingsResponse>(`/api/data-quality/findings?${params.toString()}`)
+      const result = await apiCall<FindingsResponse>(`/api/data_quality/findings?${params.toString()}`)
       if (!result.ok) {
         await raiseCrudError(result.response, t('data_quality.errors.findingsLoadFailed', 'Failed to load findings.'))
       }
@@ -144,7 +144,7 @@ export function FindingsTable({ scanRunId, title }: FindingsTableProps) {
     setPendingId(finding.id)
     try {
       const response = await runMutation({
-        operation: () => apiCall(`/api/data-quality/findings/${encodeURIComponent(finding.id)}/${action}`, {
+        operation: () => apiCall(`/api/data_quality/findings/${encodeURIComponent(finding.id)}/${action}`, {
           method: 'POST',
           headers: { 'content-type': 'application/json' },
           body: JSON.stringify({ confirm: true }),

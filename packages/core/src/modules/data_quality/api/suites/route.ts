@@ -56,10 +56,10 @@ const crud = makeCrudRoute({
     tenantField: 'tenantId',
     softDeleteField: 'deletedAt',
   },
-  indexer: { entityType: 'data_quality:suites' },
+  indexer: { entityType: 'data_quality:data_quality_suite' },
   list: {
     schema: listSuitesSchema,
-    entityId: 'data_quality:suites',
+    entityId: 'data_quality:data_quality_suite',
     fields: [
       'id',
       'code',
@@ -91,7 +91,7 @@ const crud = makeCrudRoute({
       }
 
       const enabled = parseBooleanToken(query.enabled)
-      if (enabled !== undefined) {
+      if (enabled != null) {
         filters.enabled = enabled
       }
 

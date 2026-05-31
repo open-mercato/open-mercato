@@ -1,5 +1,5 @@
 import { Page, PageBody } from '@open-mercato/ui/backend/Page'
-import { ScanRunDetailClient } from '../../../components/ScanRunDetailClient'
+import { ScanRunDetailClient } from '../../../../components/ScanRunDetailClient'
 
 export const metadata = {
   requireAuth: true,

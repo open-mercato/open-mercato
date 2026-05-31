@@ -57,7 +57,7 @@ export function SuiteForm({ mode, suiteId }: SuiteFormProps) {
       setLoadError(null)
       try {
         const { ok, result } = await apiCall<SuiteListResponse>(
-          `/api/data-quality/suites?id=${encodeURIComponent(suiteId)}&page=1&pageSize=1`,
+          `/api/data_quality/suites?id=${encodeURIComponent(suiteId)}&page=1&pageSize=1`,
         )
         if (!ok) {
           throw new Error(t('data_quality.errors.suiteLoadFailed', 'Failed to load the data quality suite.'))

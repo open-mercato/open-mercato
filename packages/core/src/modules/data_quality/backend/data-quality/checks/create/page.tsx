@@ -1,5 +1,5 @@
 import { Page, PageBody } from '@open-mercato/ui/backend/Page'
-import { CheckForm } from '../../../components/CheckForm'
+import { CheckForm } from '../../../../components/CheckForm'
 
 export const metadata = {
   requireAuth: true,
