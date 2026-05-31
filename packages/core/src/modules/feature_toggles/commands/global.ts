@@ -56,9 +56,15 @@ async function loadOverrideSnapshots(em: EntityManager, toggleId: string): Promi
   }))
 }
 
+function assertGlobalToggleWriteAccess(ctx: { auth?: { isSuperAdmin?: boolean } | null }) {
+  if (ctx.auth?.isSuperAdmin === true) return
+  throw new CrudHttpError(403, { error: 'Forbidden' })
+}
+
 const createToggleCommand: CommandHandler<ToggleCreateInput, { toggleId: string }> = {
   id: 'feature_toggles.global.create',
   async execute(rawInput, ctx) {
+    assertGlobalToggleWriteAccess(ctx)
     const parsed = toggleCreateSchema.parse(rawInput)
     const em = (ctx.container.resolve('em') as EntityManager).fork()
     const toggle = em.create(FeatureToggle, {
@@ -121,6 +127,7 @@ const updateToggleCommand: CommandHandler<ToggleUpdateInput, { toggleId: string 
     return snapshot ? { before: snapshot } : {}
   },
   async execute(rawInput, ctx) {
+    assertGlobalToggleWriteAccess(ctx)
     const parsed = toggleUpdateSchema.parse(rawInput)
     const em = (ctx.container.resolve('em') as EntityManager).fork()
     const toggle = await em.findOne(FeatureToggle, { id: parsed.id })
@@ -216,6 +223,7 @@ const deleteToggleCommand: CommandHandler<{ body?: Record<string, unknown>; quer
     return snapshot ? { before: snapshot, overrides } : {}
   },
   async execute(input, ctx) {
+    assertGlobalToggleWriteAccess(ctx)
     const id = requireId(input, 'Feature toggle id required')
     const em = (ctx.container.resolve('em') as EntityManager).fork()
     const toggle = await em.findOne(FeatureToggle, { id })

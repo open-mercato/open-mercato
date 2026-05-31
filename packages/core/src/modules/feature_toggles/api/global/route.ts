@@ -30,9 +30,9 @@ type FeatureToggleListQuery = z.infer<typeof listQuerySchema>
 
 const routeMetadata = {
   GET: { requireAuth: true, requireFeatures: ['feature_toggles.view'] },
-  POST: { requireAuth: true, requireFeatures: ['feature_toggles.manage'] },
-  PUT: { requireAuth: true, requireFeatures: ['feature_toggles.manage'] },
-  DELETE: { requireAuth: true, requireFeatures: ['feature_toggles.manage'] },
+  POST: { requireAuth: true, requireFeatures: ['feature_toggles.global.manage'] },
+  PUT: { requireAuth: true, requireFeatures: ['feature_toggles.global.manage'] },
+  DELETE: { requireAuth: true, requireFeatures: ['feature_toggles.global.manage'] },
 }
 
 const listFields = [

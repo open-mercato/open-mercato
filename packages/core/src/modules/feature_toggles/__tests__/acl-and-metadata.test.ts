@@ -13,7 +13,8 @@ describe('feature_toggles ACL and route metadata', () => {
 
       expect(featureIds).toContain('feature_toggles.view')
       expect(featureIds).toContain('feature_toggles.manage')
-      expect(featureIds).toHaveLength(2)
+      expect(featureIds).toContain('feature_toggles.global.manage')
+      expect(featureIds).toHaveLength(3)
     })
 
     test('all features reference the correct module', async () => {
@@ -24,16 +25,21 @@ describe('feature_toggles ACL and route metadata', () => {
     })
   })
 
-  describe('setup.ts defaultRoleFeatures wildcard covers declared features', () => {
-    test('admin wildcard grant covers all declared features', async () => {
+  describe('setup.ts defaultRoleFeatures grant the intended scopes', () => {
+    test('superadmin wildcard covers all declared features while admin excludes global writes', async () => {
       const { setup } = await import('../setup')
       const { features } = await import('../acl')
 
+      const superadminFeatures = setup.defaultRoleFeatures?.superadmin ?? []
       const adminFeatures = setup.defaultRoleFeatures?.admin ?? []
-      expect(adminFeatures).toContain('feature_toggles.*')
+      expect(superadminFeatures).toContain('feature_toggles.*')
+      expect(adminFeatures).not.toContain('feature_toggles.*')
+      expect(adminFeatures).toContain('feature_toggles.view')
+      expect(adminFeatures).toContain('feature_toggles.manage')
+      expect(hasFeature(adminFeatures as string[], 'feature_toggles.global.manage')).toBe(false)
 
       for (const feature of features) {
-        expect(hasFeature(adminFeatures as string[], feature.id)).toBe(true)
+        expect(hasFeature(superadminFeatures as string[], feature.id)).toBe(true)
       }
     })
   })
@@ -90,6 +96,10 @@ describe('feature_toggles ACL and route metadata', () => {
         const content = fs.readFileSync(file, 'utf-8')
         expect(content).toMatch(/requireFeatures/)
       }
+
+      const globalRoute = path.join(moduleRoot, 'api', 'global', 'route.ts')
+      const globalContent = fs.readFileSync(globalRoute, 'utf-8')
+      expect(globalContent).toMatch(/feature_toggles\.global\.manage/)
     })
 
     test('all page.meta.ts files use requireFeatures', () => {

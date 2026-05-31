@@ -29,6 +29,8 @@ jest.mock('@open-mercato/shared/lib/commands/undo', () => ({
 
 
 describe('feature_toggles.global commands', () => {
+    const createAuth = (isSuperAdmin = true) => ({ isSuperAdmin })
+
     beforeEach(() => {
         jest.clearAllMocks()
         jest.resetModules()
@@ -60,6 +62,7 @@ describe('feature_toggles.global commands', () => {
             }
 
             const ctx: any = {
+                auth: createAuth(),
                 container,
             }
 
@@ -119,7 +122,7 @@ describe('feature_toggles.global commands', () => {
                 }),
             }
 
-            const ctx: any = { container }
+            const ctx: any = { auth: createAuth(), container }
             const logEntry = { resourceId: toggleId }
 
             await createCommand.undo({ logEntry, ctx })
@@ -162,7 +165,7 @@ describe('feature_toggles.global commands', () => {
                 }),
             }
 
-            const ctx: any = { container }
+            const ctx: any = { auth: createAuth(), container }
 
             const input = {
                 id: '123e4567-e89b-12d3-a456-426614174000',
@@ -199,7 +202,7 @@ describe('feature_toggles.global commands', () => {
                 }),
             }
 
-            const ctx: any = { container }
+            const ctx: any = { auth: createAuth(), container }
 
             await expect(updateCommand.execute({ id: '123e4567-e89b-12d3-a456-426614174000' }, ctx)).rejects.toThrow('Toggle not found')
         })
@@ -249,7 +252,7 @@ describe('feature_toggles.global commands', () => {
                 })
             }
 
-            const ctx: any = { container }
+            const ctx: any = { auth: createAuth(), container }
 
             const result = await deleteCommand.execute({ id: '123e4567-e89b-12d3-a456-426614174000' }, ctx)
 
@@ -317,9 +320,42 @@ describe('feature_toggles.global commands', () => {
                 }),
             }
 
-            const ctx: any = { container }
+            const ctx: any = { auth: createAuth(), container }
 
             await expect(deleteCommand.execute({ id: '123e4567-e89b-12d3-a456-426614174000' }, ctx)).rejects.toThrow('Feature toggle not found')
+        })
+
+        it('rejects create, update, and delete for non-superadmins', async () => {
+            let createCommand: any
+            let updateCommand: any
+            let deleteCommand: any
+            jest.isolateModules(() => {
+                require('../global')
+                createCommand = registerCommand.mock.calls.find(([cmd]) => cmd.id === 'feature_toggles.global.create')?.[0]
+                updateCommand = registerCommand.mock.calls.find(([cmd]) => cmd.id === 'feature_toggles.global.update')?.[0]
+                deleteCommand = registerCommand.mock.calls.find(([cmd]) => cmd.id === 'feature_toggles.global.delete')?.[0]
+            })
+
+            const ctx: any = { auth: createAuth(false), container: { resolve: jest.fn() } }
+
+            await expect(createCommand.execute({
+                identifier: 'test_feature',
+                name: 'Test Feature',
+                type: 'boolean',
+            }, ctx)).rejects.toMatchObject<Partial<CrudHttpError>>({
+                status: 403,
+                body: { error: 'Forbidden' },
+            })
+
+            await expect(updateCommand.execute({ id: '123e4567-e89b-12d3-a456-426614174000' }, ctx)).rejects.toMatchObject<Partial<CrudHttpError>>({
+                status: 403,
+                body: { error: 'Forbidden' },
+            })
+
+            await expect(deleteCommand.execute({ id: '123e4567-e89b-12d3-a456-426614174000' }, ctx)).rejects.toMatchObject<Partial<CrudHttpError>>({
+                status: 403,
+                body: { error: 'Forbidden' },
+            })
         })
     })
 })

@@ -2,7 +2,8 @@ import type { ModuleSetupConfig } from '@open-mercato/shared/modules/setup'
 
 export const setup: ModuleSetupConfig = {
   defaultRoleFeatures: {
-    admin: ['feature_toggles.*'],
+    superadmin: ['feature_toggles.*'],
+    admin: ['feature_toggles.view', 'feature_toggles.manage'],
   },
 }
 
