@@ -33,3 +33,29 @@ export {
   type DirectRuleExecutionContextInput,
   type RuleIdExecutionContextInput,
 } from './data/validators'
+
+// Public facade for condition builder and expression types
+// Used by data_quality and other modules for visual condition authoring
+export { ConditionBuilder } from './components/ConditionBuilder'
+export type {
+  ConditionExpression,
+  GroupCondition,
+  SimpleCondition,
+} from './components/utils/conditionValidation'
+
+// Server-side expression validation
+export {
+  validateConditionExpressionForApi,
+  isSafeExpression,
+} from './lib/payload-validation'
+
+// Expression evaluator types for programmatic evaluation
+export type {
+  RuleEvaluationContext,
+} from './lib/rule-evaluator'
+
+// Expression evaluator function for condition evaluation
+export {
+  evaluateExpression,
+  type EvaluationContext,
+} from './lib/expression-evaluator'
