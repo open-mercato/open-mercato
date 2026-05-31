@@ -129,7 +129,7 @@ function getStrategyColorClass(strategy: string): string {
     case 'fulltext':
       return 'bg-status-info-bg text-status-info-text'
     case 'vector':
-      return 'bg-purple-100 text-purple-800 dark:bg-purple-900 dark:text-purple-200'
+      return 'bg-brand-violet/10 text-brand-violet'
     case 'tokens':
       return 'bg-status-success-bg text-status-success-text'
     default:
@@ -374,7 +374,7 @@ export function HybridSearchTable({
             <label key={strategy} className="flex cursor-pointer items-center gap-2">
               <input
                 type="checkbox"
-                className="size-4 rounded border-gray-300"
+                className="size-4 rounded border-input"
                 checked={enabledStrategies.has(strategy)}
                 onChange={() => toggleStrategy(strategy)}
               />

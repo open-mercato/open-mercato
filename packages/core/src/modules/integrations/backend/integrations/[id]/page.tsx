@@ -154,10 +154,10 @@ const LOG_LEVEL_STYLES: Record<string, string> = {
 }
 
 const HEALTH_STATUS_STYLES: Record<string, string> = {
-  healthy: 'bg-green-100 text-green-800',
-  degraded: 'bg-yellow-100 text-yellow-800',
-  unhealthy: 'bg-red-100 text-red-800',
-  unconfigured: 'bg-zinc-100 text-zinc-700',
+  healthy: 'bg-status-success-bg text-status-success-text',
+  degraded: 'bg-status-warning-bg text-status-warning-text',
+  unhealthy: 'bg-status-error-bg text-status-error-text',
+  unconfigured: 'bg-status-neutral-bg text-status-neutral-text',
 }
 
 const HEALTH_STATUS_ICONS: Record<string, React.ElementType> = {
@@ -958,8 +958,8 @@ export default function IntegrationDetailPage({ params }: IntegrationDetailPageP
   ] satisfies IntegrationDetailTab[]
   const StateIcon = resolvedState?.isEnabled ? CheckCircle2 : XCircle
   const stateBadgeClass = resolvedState?.isEnabled
-    ? 'border-emerald-500/30 bg-emerald-500/10 text-emerald-300'
-    : 'border-zinc-500/30 bg-zinc-500/10 text-zinc-300'
+    ? 'border-status-success-border bg-status-success-bg text-status-success-text'
+    : 'border-status-neutral-border bg-status-neutral-bg text-status-neutral-text'
 
   const showCredentialActions = showCredentialsTab && activeTab === 'credentials' && credentialFormFields.length > 0
 
@@ -1231,7 +1231,7 @@ export default function IntegrationDetailPage({ params }: IntegrationDetailPageP
             <TabsContent value="credentials" className="mt-0">
               <section className="space-y-4 rounded-lg border bg-card p-6">
                 {detail.bundle ? (
-                  <div className="rounded-lg border border-blue-200 bg-blue-50 p-3 text-sm text-blue-800">
+                  <div className="rounded-lg border border-status-info-border bg-status-info-bg p-3 text-sm text-status-info-text">
                     {t('integrations.detail.credentials.bundleShared', { bundle: detail.bundle.title })}
                   </div>
                 ) : null}
