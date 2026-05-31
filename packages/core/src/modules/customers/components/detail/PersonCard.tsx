@@ -7,10 +7,11 @@ import { cn } from '@open-mercato/shared/lib/utils'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { Badge } from '@open-mercato/ui/primitives/badge'
 import { Button } from '@open-mercato/ui/primitives/button'
+import { Avatar } from '@open-mercato/ui/primitives/avatar'
 import { IconButton } from '@open-mercato/ui/primitives/icon-button'
 import { Popover, PopoverContent, PopoverTrigger } from '@open-mercato/ui/primitives/popover'
 import type { CompanyPersonSummary } from './CompanyPeopleSection'
-import { formatDate, formatFallbackLabel, getInitials } from './utils'
+import { formatDate, formatFallbackLabel } from './utils'
 
 const sourceColorMap: Record<string, string> = {
   linkedin: 'border-status-info-icon text-status-info-icon',
@@ -70,9 +71,7 @@ export function PersonCard({ person, isStarred, onToggleStar, onUnlink }: Person
     <div className="min-w-0 overflow-hidden rounded-lg border bg-card p-4">
       <div className="flex items-start justify-between gap-3">
         <div className="flex min-w-0 flex-1 items-start gap-3">
-          <div className="flex size-11 shrink-0 items-center justify-center rounded-full bg-muted text-sm font-bold text-muted-foreground">
-            {getInitials(person.displayName)}
-          </div>
+          <Avatar label={person.displayName} size="lg" variant="monochrome" />
           <div className="min-w-0 flex-1 space-y-1">
             <div className="flex min-w-0 flex-wrap items-center gap-1.5">
               <span className="min-w-0 break-words text-sm font-bold leading-5 text-foreground">{person.displayName}</span>
