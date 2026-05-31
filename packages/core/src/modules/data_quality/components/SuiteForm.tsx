@@ -195,13 +195,13 @@ export function SuiteForm({ mode, suiteId }: SuiteFormProps) {
 
         if (mode === 'create') {
           payload.code = code
-          await createCrud('data-quality/suites', payload, {
+          await createCrud('data_quality/suites', payload, {
             errorMessage: t('data_quality.errors.suiteSaveFailed', 'Failed to save the data quality suite.'),
           })
           return
         }
 
-        await updateCrud('data-quality/suites', { id: suiteId, ...payload }, {
+        await updateCrud('data_quality/suites', { id: suiteId, ...payload }, {
           errorMessage: t('data_quality.errors.suiteSaveFailed', 'Failed to save the data quality suite.'),
         })
       }}

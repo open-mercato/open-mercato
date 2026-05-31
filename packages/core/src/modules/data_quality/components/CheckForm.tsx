@@ -284,13 +284,13 @@ export function CheckForm({ mode, checkId }: CheckFormProps) {
 
         if (mode === 'create') {
           payload.code = code
-          await createCrud('data-quality/checks', payload, {
+          await createCrud('data_quality/checks', payload, {
             errorMessage: t('data_quality.errors.checkSaveFailed', 'Failed to save the data quality check.'),
           })
           return
         }
 
-        await updateCrud('data-quality/checks', { id: checkId, ...payload }, {
+        await updateCrud('data_quality/checks', { id: checkId, ...payload }, {
           errorMessage: t('data_quality.errors.checkSaveFailed', 'Failed to save the data quality check.'),
         })
       }}
