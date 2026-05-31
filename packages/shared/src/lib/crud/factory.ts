@@ -56,7 +56,7 @@ import {
 import { deriveCrudSegmentTag } from './cache-stats'
 import { createProfiler, shouldEnableProfiler, type Profiler } from '@open-mercato/shared/lib/profiler'
 import { getTranslationOverlayPlugin } from '@open-mercato/shared/lib/localization/overlay-plugin'
-import { applyResponseEnrichers, applyResponseEnricherToRecord } from './enricher-runner'
+import { applyResponseEnrichers, applyResponseEnricherToRecord, resolveActiveEnricherIds } from './enricher-runner'
 import type { EnricherContext } from './response-enricher'
 import type { ApiInterceptorMethod, InterceptorRequest, InterceptorResponse } from './api-interceptor'
 import { runApiInterceptorsAfter, runApiInterceptorsBefore } from './interceptor-runner'
@@ -873,13 +873,18 @@ function serializeSearchParams(params: URLSearchParams): string {
   return JSON.stringify(normalized)
 }
 
-function buildCrudCacheKey(resource: string, request: Request, ctx: CrudCtx): string {
+function buildCrudCacheKey(
+  resource: string,
+  request: Request,
+  ctx: CrudCtx,
+  enricherSignature = '',
+): string {
   const url = new URL(request.url)
   const scopeIds = collectScopeOrganizationIds(ctx)
   const scopeSegment = scopeIds.length
     ? scopeIds.map((id) => normalizeTagSegment(id)).sort((a, b) => a.localeCompare(b)).join(',')
     : 'none'
-  return [
+  const segments = [
     'crud',
     normalizeTagSegment(resource),
     'GET',
@@ -888,7 +893,18 @@ function buildCrudCacheKey(resource: string, request: Request, ctx: CrudCtx): st
     `selectedOrg:${normalizeTagSegment(ctx.selectedOrganizationId ?? null)}`,
     `scope:${scopeSegment}`,
     `query:${serializeSearchParams(url.searchParams)}`,
-  ].join('|')
+  ]
+  // The cached list payload already embeds enricher output (enrichment runs before
+  // the cache store), so the cache key MUST partition by the set of enrichers a
+  // request's entitlements actually select. Two callers in the same tenant/org
+  // scope but with different active enrichers (e.g. one holding the enricher's
+  // gating feature and one not) get distinct entries, which lets the cache-hit
+  // path skip re-running enrichers without leaking ACL-gated fields across
+  // feature cohorts. Routes without enrichers pass '' and keep their key shape.
+  if (enricherSignature) {
+    segments.push(`enrichers:${normalizeTagSegment(enricherSignature)}`)
+  }
+  return segments.join('|')
 }
 
 function extractRecordIds(items: any[], idField: string): string[] {
@@ -1080,6 +1096,20 @@ export function makeCrudRoute<TCreate = any, TUpdate = any, TList = any>(opts: C
 
   async function resolveUserFeatures(ctx: CrudCtx): Promise<string[] | undefined> {
     return resolveUserFeaturesOnce(ctx)
+  }
+
+  /**
+   * Build a stable signature of the enrichers that will run for this request,
+   * for inclusion in the CRUD list cache key. Empty when no enrichers are
+   * configured or none are active for the caller's entitlements — keeping the
+   * cache key identical to the pre-enricher shape for unaffected routes.
+   */
+  async function resolveEnricherCacheSignature(ctx: CrudCtx): Promise<string> {
+    if (!opts.enrichers?.entityId) return ''
+    const enricherCtx = await buildEnricherContext(ctx)
+    if (!enricherCtx) return ''
+    const ids = resolveActiveEnricherIds(opts.enrichers.entityId, enricherCtx)
+    return ids.length ? ids.join(',') : ''
   }
 
   const interceptorContextCache = new WeakMap<object, ReturnType<typeof buildInterceptorContextInner>>()
@@ -1333,7 +1363,8 @@ export function makeCrudRoute<TCreate = any, TUpdate = any, TList = any>(opts: C
         ? process.hrtime.bigint()
         : null
       const cache = cacheEnabled ? resolveCrudCache(ctx.container) : null
-      const cacheKey = cacheEnabled ? buildCrudCacheKey(resourceKind, request, ctx) : null
+      const enricherCacheSignature = cacheEnabled ? await resolveEnricherCacheSignature(ctx) : ''
+      const cacheKey = cacheEnabled ? buildCrudCacheKey(resourceKind, request, ctx, enricherCacheSignature) : null
       let cacheStatus: 'hit' | 'miss' = 'miss'
       let cachedValue: CrudCacheStoredValue | null = null
 
@@ -1474,7 +1505,14 @@ export function makeCrudRoute<TCreate = any, TUpdate = any, TList = any>(opts: C
           return json(cacheAfterInterceptors.body, { status: cacheAfterInterceptors.statusCode, headers: cacheAfterInterceptors.headers })
         }
         Object.assign(payload, cacheAfterInterceptors.body)
-        await enrichListPayload(payload, ctx, profiler)
+        // Enrichment is NOT re-run on a cache hit: the stored payload already
+        // embeds enricher output (enrichment happens before the cache store on
+        // the miss paths), and the cache key is partitioned by the active
+        // enricher signature, so the cached enrichment matches this caller's
+        // entitlements exactly. Skipping it is what removes the per-hit enricher
+        // cost (the ~15ms regression reported in #2222) while keeping output
+        // correct and ACL-gated.
+        profiler.mark('enrichers_skipped_cache_hit', { enricherSignature: enricherCacheSignature || null })
         logCacheOutcome('hit', items.length)
         const response = respondWithPayload(payload)
         finishProfile({ result: 'cache_hit', cacheStatus })

@@ -65,6 +65,22 @@ function getActiveEnrichers(
   return filterByACLAndTenant(entries, context)
 }
 
+/**
+ * Resolve the ids of the enrichers that will actually produce output for the
+ * given context, in registry (priority) order, after ACL + tenant filtering.
+ *
+ * Callers use this to derive a stable signature for cache keys so that a cached
+ * enriched payload is only ever served back to a request whose entitlements
+ * select the exact same enricher set. Returns an empty array when no enrichers
+ * are active for the context.
+ */
+export function resolveActiveEnricherIds(
+  targetEntity: string,
+  context: EnricherContext,
+): string[] {
+  return getActiveEnrichers(targetEntity, context).map((entry) => entry.enricher.id)
+}
+
 type CacheLike = {
   get: (key: string) => Promise<unknown>
   set: (key: string, value: unknown, options?: { ttl?: number; tags?: string[] }) => Promise<unknown>
