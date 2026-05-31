@@ -38,6 +38,16 @@ function debug(event: string, payload: Record<string, unknown>) {
 
 const registeredEventManagers = new WeakSet<object>()
 
+const subscribersByService = new WeakMap<TenantDataEncryptionService, TenantEncryptionSubscriber>()
+
+function getSubscriberForService(service: TenantDataEncryptionService): TenantEncryptionSubscriber {
+  const existing = subscribersByService.get(service)
+  if (existing) return existing
+  const subscriber = new TenantEncryptionSubscriber(service)
+  subscribersByService.set(service, subscriber)
+  return subscriber
+}
+
 const toSnakeCase = (value: string): string =>
   value.replace(/([A-Z])/g, '_$1').replace(/__/g, '_').toLowerCase()
 
@@ -397,7 +407,7 @@ export async function decryptEntitiesWithFallbackScope(
   if (!list.length) return
   const service = encryptionService ?? resolveTenantEncryptionService(em as any)
   if (!service || !service.isEnabled()) return
-  const subscriber = new TenantEncryptionSubscriber(service)
+  const subscriber = getSubscriberForService(service)
   const fallback: Scope | undefined =
     tenantId || organizationId
       ? {
