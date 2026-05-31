@@ -148,9 +148,9 @@ type DataSyncRunDetail = {
 }
 
 const LOG_LEVEL_STYLES: Record<string, string> = {
-  info: 'bg-blue-100 text-blue-800',
-  warn: 'bg-yellow-100 text-yellow-800',
-  error: 'bg-red-100 text-red-800',
+  info: 'bg-status-info-bg text-status-info-text',
+  warn: 'bg-status-warning-bg text-status-warning-text',
+  error: 'bg-status-error-bg text-status-error-text',
 }
 
 const HEALTH_STATUS_STYLES: Record<string, string> = {
@@ -203,12 +203,12 @@ function RunActivityStrip({
   const processed = typeof run.progressJob?.processedCount === 'number' ? run.progressJob.processedCount : 0
   const total = typeof run.progressJob?.totalCount === 'number' ? run.progressJob.totalCount : null
   const statusClass = run.status === 'completed'
-    ? 'border-emerald-500/30 bg-emerald-500/10 text-emerald-700 dark:text-emerald-300'
+    ? 'border-status-success-border bg-status-success-bg text-status-success-text'
     : run.status === 'failed'
-      ? 'border-red-500/30 bg-red-500/10 text-red-700 dark:text-red-300'
+      ? 'border-status-error-border bg-status-error-bg text-status-error-text'
       : run.status === 'cancelled'
-        ? 'border-zinc-500/30 bg-zinc-500/10 text-zinc-700 dark:text-zinc-300'
-        : 'border-blue-500/30 bg-blue-500/10 text-blue-700 dark:text-blue-300'
+        ? 'border-status-neutral-border bg-status-neutral-bg text-status-neutral-text'
+        : 'border-status-info-border bg-status-info-bg text-status-info-text'
 
   return (
     <div className="flex flex-wrap items-center gap-3 rounded-lg border bg-muted/20 px-4 py-3 text-sm">

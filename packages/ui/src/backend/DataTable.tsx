@@ -1966,7 +1966,7 @@ export function DataTable<T>({
         title={t('ui.dataTable.pagination.cache.title', 'Cache {status}', { status: normalizedCacheStatus.toUpperCase() })}
       >
         <Circle
-          className={`h-3.5 w-3.5 ${normalizedCacheStatus === 'hit' ? 'text-emerald-500' : 'text-amber-500'}`}
+          className={`h-3.5 w-3.5 ${normalizedCacheStatus === 'hit' ? 'text-status-success-icon' : 'text-status-warning-icon'}`}
           strokeWidth={3}
         />
         <span className="sr-only">{t('ui.dataTable.pagination.cache.srOnly', 'Cache {status}', { status: normalizedCacheStatus.toUpperCase() })}</span>
