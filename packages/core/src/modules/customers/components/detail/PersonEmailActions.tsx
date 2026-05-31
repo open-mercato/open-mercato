@@ -60,7 +60,8 @@ export function PersonEmailActions({ personId, personEmail }: PersonEmailActions
     let cancelled = false
     apiCall<{ items?: unknown[] }>(
       '/api/communication_channels/me/channels',
-      { method: 'GET' },
+      // Mount-time chrome fetch: degrade silently on an expired session.
+      { method: 'GET', headers: { 'x-om-forbidden-redirect': '0', 'x-om-unauthorized-redirect': '0' } },
     )
       .then((r) => {
         if (cancelled) return
@@ -141,7 +142,7 @@ export function PersonEmailActions({ personId, personEmail }: PersonEmailActions
             if (!channelId) return Promise.resolve({ ok: false })
             return apiCall(
               `/api/communication_channels/channels/${encodeURIComponent(channelId)}/poll-now`,
-              { method: 'POST' },
+              { method: 'POST', headers: { 'x-om-forbidden-redirect': '0', 'x-om-unauthorized-redirect': '0' } },
             )
           }),
         )

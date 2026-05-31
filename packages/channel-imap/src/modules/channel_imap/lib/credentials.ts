@@ -1,4 +1,5 @@
 import { z } from 'zod'
+import { parseBooleanWithDefault } from '@open-mercato/shared/lib/boolean'
 
 /**
  * SSRF guard: reject hostnames that resolve to internal networks. Operators
@@ -86,7 +87,7 @@ export function isInternalHost(rawHost: string): boolean {
 }
 
 function assertSafeHost(host: string, ctx: { addIssue: (issue: { code: 'custom'; message: string }) => void }): void {
-  if (process.env.OM_CHANNEL_IMAP_ALLOW_INTERNAL_HOSTS === 'true') return
+  if (parseBooleanWithDefault(process.env.OM_CHANNEL_IMAP_ALLOW_INTERNAL_HOSTS, false)) return
   if (!host.trim()) return
   if (isInternalHost(host)) {
     ctx.addIssue({

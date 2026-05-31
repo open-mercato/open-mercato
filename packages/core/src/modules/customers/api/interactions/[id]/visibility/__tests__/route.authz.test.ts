@@ -29,7 +29,12 @@ const INTERACTION_ID = '550e8400-e29b-41d4-a716-446655440099'
 const TENANT_ID = '550e8400-e29b-41d4-a716-446655440020'
 
 function mockRequest(body: unknown) {
-  return { json: async () => body, headers: new Headers(), method: 'PATCH' } as unknown as Request
+  return {
+    json: async () => body,
+    text: async () => JSON.stringify(body),
+    headers: new Headers(),
+    method: 'PATCH',
+  } as unknown as Request
 }
 
 function routeCtx() {
@@ -37,12 +42,14 @@ function routeCtx() {
 }
 
 const em = { fork: () => em, flush: jest.fn(async () => {}) } as never
+const commandBus = { execute: jest.fn(async () => ({ result: { interactionId: INTERACTION_ID } })) }
 
 function setupContainer(grantedFeatures: string[]) {
   mockContainer.mockResolvedValue({
     resolve: (name: string) => {
       if (name === 'em') return em
       if (name === 'rbacService') return { getGrantedFeatures: async () => grantedFeatures }
+      if (name === 'commandBus') return commandBus
       throw new Error(`unexpected resolve: ${name}`)
     },
   } as never)
@@ -60,7 +67,7 @@ describe('PATCH visibility — authorization', () => {
 
     const res = await PATCH(mockRequest({ visibility: 'shared' }), routeCtx())
     expect(res.status).toBe(404)
-    expect((em as { flush: jest.Mock }).flush).not.toHaveBeenCalled()
+    expect(commandBus.execute).not.toHaveBeenCalled()
   })
 
   it('author can flip their own email visibility', async () => {
@@ -71,7 +78,12 @@ describe('PATCH visibility — authorization', () => {
     const res = await PATCH(mockRequest({ visibility: 'shared' }), routeCtx())
     expect(res.status).toBe(200)
     expect(await res.json()).toEqual({ ok: true, changed: true })
-    expect((em as { flush: jest.Mock }).flush).toHaveBeenCalledTimes(1)
+    // The write is delegated to the interactions update command (query-index
+    // refresh + audit/undo), not a raw em.flush().
+    expect(commandBus.execute).toHaveBeenCalledWith(
+      'customers.interactions.update',
+      expect.objectContaining({ input: { id: INTERACTION_ID, visibility: 'shared' } }),
+    )
   })
 
   it('admin with customers.email.view_private may flip a non-authored email', async () => {
@@ -82,6 +94,10 @@ describe('PATCH visibility — authorization', () => {
     const res = await PATCH(mockRequest({ visibility: 'shared' }), routeCtx())
     expect(res.status).toBe(200)
     expect(await res.json()).toEqual({ ok: true, changed: true })
+    expect(commandBus.execute).toHaveBeenCalledWith(
+      'customers.interactions.update',
+      expect.objectContaining({ input: { id: INTERACTION_ID, visibility: 'shared' } }),
+    )
   })
 
   it('cross-tenant interaction id returns 404 (tenant-scoped lookup misses)', async () => {

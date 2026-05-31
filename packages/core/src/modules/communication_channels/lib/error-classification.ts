@@ -114,12 +114,19 @@ export function classifyOutboundError(error: unknown): ErrorClassification {
  *
  * A 401, or an `invalid_grant` / `unauthorized` message, is unrecoverable by
  * retry: the access token is rejected and (for OAuth) the refresh token is
- * likely revoked too. Callers flip the channel to `requires_reauth` so the
- * operator gets a clear signal. Kept identical to the inbound poll path so
- * inbound and outbound failures behave consistently.
+ * likely revoked too. Provider adapters may also surface the explicit
+ * `requires_reauth` sentinel instead of a status — e.g. Gmail/Microsoft
+ * `sendMessage` returns `{ status: 'failed', error: 'requires_reauth' }` on a
+ * 401, which the outbound command rethrows as a status-less `Error`. Match that
+ * sentinel too so the channel still flips to `requires_reauth`. Callers flip the
+ * channel so the operator gets a clear signal. Kept identical to the inbound
+ * poll path so inbound and outbound failures behave consistently.
  */
 export function isReauthError(classification: ErrorClassification): boolean {
-  return classification.status === 401 || /unauthorized|invalid_grant/i.test(classification.message)
+  return (
+    classification.status === 401 ||
+    /unauthorized|invalid_grant|requires_reauth/i.test(classification.message)
+  )
 }
 
 /**

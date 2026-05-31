@@ -326,6 +326,15 @@ class MicrosoftChannelAdapter implements ChannelAdapter {
       // More pages — either continue walking immediately (if budget allows) or
       // bail with the next link recorded for the next tick.
       nextLink = response['@odata.nextLink']
+      // Re-validate every continuation link before it is reused to issue another
+      // bearer-token request. The initial link is checked above; a foreign
+      // @odata.nextLink in a (MITM'd) response body must not redirect an
+      // authenticated Graph call to an untrusted origin. Discard the poisoned
+      // link and resume next tick from the last good deltaLink.
+      if (nextLink && !isTrustedGraphLink(nextLink)) {
+        nextLink = undefined
+        break
+      }
       if (messages.length >= limit) break
       firstLink = nextLink
     }

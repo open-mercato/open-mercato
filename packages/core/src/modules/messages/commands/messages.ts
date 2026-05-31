@@ -124,6 +124,10 @@ const composeCommandSchema = composeMessageSchema.safeExtend({
   tenantId: scopeSchema.shape.tenantId,
   organizationId: scopeSchema.shape.organizationId,
   userId: scopeSchema.shape.userId,
+  // Optional dedup key (inbound email ingest sets it; other callers leave it
+  // undefined). When set, a re-issued compose returns the first message instead
+  // of creating a duplicate.
+  idempotencyKey: z.string().min(1).max(255).optional(),
 })
 
 const updateDraftCommandSchema = updateDraftSchema.safeExtend({
@@ -206,6 +210,36 @@ async function requireMessageById(
   return message
 }
 
+function isUniqueViolation(err: unknown): boolean {
+  if (!err || typeof err !== 'object') return false
+  const code = (err as { code?: string }).code
+  if (code === '23505') return true
+  const message = (err as { message?: string }).message
+  return typeof message === 'string' && /duplicate key value|unique constraint/i.test(message)
+}
+
+type ComposeMessageResult = {
+  id: string
+  threadId: string | null
+  externalEmail: string | null
+  isDraft: boolean
+  recipientUserIds: string[]
+}
+
+async function buildComposeResultFromExisting(
+  em: EntityManager,
+  message: Message,
+): Promise<ComposeMessageResult> {
+  const recipients = await em.find(MessageRecipient, { messageId: message.id })
+  return {
+    id: message.id,
+    threadId: message.threadId ?? null,
+    externalEmail: message.externalEmail ?? null,
+    isDraft: message.isDraft,
+    recipientUserIds: recipients.map((recipient) => recipient.recipientUserId),
+  }
+}
+
 const composeMessageCommand: CommandHandler<unknown, { id: string; threadId: string | null; externalEmail: string | null; isDraft: boolean; recipientUserIds: string[] }> = {
   id: 'messages.messages.compose',
   async execute(rawInput, ctx) {
@@ -216,11 +250,28 @@ const composeMessageCommand: CommandHandler<unknown, { id: string; threadId: str
     }
 
     const em = (ctx.container.resolve('em') as EntityManager).fork()
+    const scope = { tenantId: input.tenantId, organizationId: input.organizationId }
+
+    // Idempotency fast-path: a retried inbound-email ingest re-issues compose
+    // for the same source message (the first attempt committed the message but a
+    // downstream transient failure rolled the ingest back). Return that message
+    // so the retry cannot create a duplicate.
+    if (input.idempotencyKey) {
+      const existing = await findOneWithDecryption(
+        em,
+        Message,
+        { tenantId: input.tenantId, idempotencyKey: input.idempotencyKey },
+        undefined,
+        scope,
+      )
+      if (existing) return buildComposeResultFromExisting(em, existing)
+    }
+
     let messageId = ''
     let responseThreadId: string | null = null
     let responseExternalEmail: string | null = null
 
-    await em.transactional(async (trx) => {
+    const composeTx = em.transactional(async (trx) => {
       const threadId = input.parentMessageId
         ? (
           await trx.findOne(Message, {
@@ -253,6 +304,7 @@ const composeMessageCommand: CommandHandler<unknown, { id: string; threadId: str
         sentAt: input.isDraft ? null : new Date(),
         actionData: input.actionData as MessageActionData | undefined,
         sendViaEmail,
+        idempotencyKey: input.idempotencyKey ?? null,
         tenantId: input.tenantId,
         organizationId: input.organizationId,
       })
@@ -312,6 +364,24 @@ const composeMessageCommand: CommandHandler<unknown, { id: string; threadId: str
       responseThreadId = message.threadId ?? null
       responseExternalEmail = message.externalEmail ?? null
     })
+    try {
+      await composeTx
+    } catch (err) {
+      // Lost a concurrent race on the same idempotency key — return the message
+      // the winning compose created. A propagated 23505 would otherwise be
+      // classified permanent and dead-letter the inbound mail.
+      if (input.idempotencyKey && isUniqueViolation(err)) {
+        const existing = await findOneWithDecryption(
+          em.fork(),
+          Message,
+          { tenantId: input.tenantId, idempotencyKey: input.idempotencyKey },
+          undefined,
+          scope,
+        )
+        if (existing) return buildComposeResultFromExisting(em.fork(), existing)
+      }
+      throw err
+    }
 
     if (!input.isDraft) {
       await emitMessageSentEvent(ctx.container, {

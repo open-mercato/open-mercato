@@ -98,7 +98,9 @@ export function PersonEmailThreadsTab({ personId, defaultRecipient }: PersonEmai
       try {
         const response = await apiCall<{ threads?: EmailThread[] }>(
           `/api/customers/people/${encodeURIComponent(personId)}/email-threads`,
-          { method: 'GET' },
+          // Background poll: degrade silently on an expired session instead of
+          // hijacking the whole page with a login redirect.
+          { method: 'GET', headers: { 'x-om-forbidden-redirect': '0', 'x-om-unauthorized-redirect': '0' } },
         )
         if (!response.ok) {
           const err = response.result as { error?: string } | null
@@ -119,7 +121,7 @@ export function PersonEmailThreadsTab({ personId, defaultRecipient }: PersonEmai
     try {
       const response = await apiCall<{ items?: unknown[] }>(
         '/api/communication_channels/me/channels',
-        { method: 'GET' },
+        { method: 'GET', headers: { 'x-om-forbidden-redirect': '0', 'x-om-unauthorized-redirect': '0' } },
       )
       const items: unknown[] = Array.isArray(response.result?.items) ? response.result!.items! : []
       const connected = items.filter(
@@ -143,7 +145,7 @@ export function PersonEmailThreadsTab({ personId, defaultRecipient }: PersonEmai
         if (!channelId) return Promise.resolve()
         return apiCall(
           `/api/communication_channels/channels/${encodeURIComponent(channelId)}/poll-now`,
-          { method: 'POST' },
+          { method: 'POST', headers: { 'x-om-forbidden-redirect': '0', 'x-om-unauthorized-redirect': '0' } },
         )
       }),
     )

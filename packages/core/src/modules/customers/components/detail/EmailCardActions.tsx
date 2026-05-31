@@ -69,7 +69,11 @@ export function EmailCardActions({ data }: EmailCardActionsProps) {
 
   React.useEffect(() => {
     let cancelled = false
-    apiCall<{ items?: unknown[] }>('/api/communication_channels/me/channels', { method: 'GET' })
+    apiCall<{ items?: unknown[] }>('/api/communication_channels/me/channels', {
+      method: 'GET',
+      // Mount-time chrome fetch: degrade silently on an expired session.
+      headers: { 'x-om-forbidden-redirect': '0', 'x-om-unauthorized-redirect': '0' },
+    })
       .then((r) => {
         if (cancelled) return
         const allItems: unknown[] = Array.isArray(r.result?.items) ? r.result!.items! : []

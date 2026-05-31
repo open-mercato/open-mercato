@@ -1204,6 +1204,14 @@ None.
 
 ## Changelog
 
+### 2026-05-31 — Test-coverage reconciliation (code review)
+
+Reconciles the Implementation Plan's named integration tests with what actually shipped, mirroring the smoke-vs-behavioral reconciliation already recorded for the `2026-05-27-*` follow-up specs. No code change — documentation accuracy only.
+
+- **Phase 0 / foundation named integration tests not shipped as `__integration__/TC-*.spec.ts`:** `TC-CHANNEL-EMAIL-004` / `005` (IMAP SMTP send + In-Reply-To threading), `009` / `010` (Gmail token-refresh persistence + revoked-token reauth), and `HUB-004` / `005` / `006` (`send-as-user` ownership, subscriber re-fetch with no payload coupling, `requires_reauth` notification + UMES handler). The committed `__integration__/TC-*.spec.ts` files are route-registration **smoke** specs; the behaviors these seven named tests assert are covered instead by jest unit suites: `lib/__tests__/credential-refresh.test.ts` + `workers/__tests__/poll-channel.test.ts` (token refresh persistence + `401`/`invalid_grant` → `status='requires_reauth'`), `lib/__tests__/access-control.test.ts` (`assertCanAccessChannel` / `buildPerUserChannelFilter` ownership, i.e. `send-as-user` cannot use another user's channel), and `subscribers/__tests__/outbound-bridge.test.ts` (re-fetch-by-id, no payload-shape coupling) — plus the `2026-05-27-*` specs' route-refresh coverage and the manual QA scenario markdowns under `.ai/qa/scenarios/`.
+- **`TC-CHANNEL-EMAIL-HUB-001` / `HUB-002` repurposed:** the shipped specs assert the per-user channel API contract and the profile-page render (smoke), not the originally-named cross-user isolation and scheduler-cadence behaviors. Those behaviors are covered by `lib/__tests__/access-control.test.ts` + `__tests__/acl-per-user.test.ts` (tenant/user isolation) and `workers/__tests__/poll-tick.test.ts` (due-channel enumeration + cadence).
+- **Net:** no behavior is left untested; the gap was named-integration-test traceability, now documented. Authoring behavioral `__integration__` specs under the original IDs remains a welcome follow-up but is not release-blocking given the unit coverage above.
+
 ### 2026-05-26 — Phase 5 — Docs + deploy runbook
 
 Final spec phase. No code changes; documentation only.

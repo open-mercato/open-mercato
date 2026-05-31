@@ -4,12 +4,15 @@ import type { EntityManager } from '@mikro-orm/postgresql'
 import { getAuthFromRequest } from '@open-mercato/shared/lib/auth/server'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import { findOneWithDecryption } from '@open-mercato/shared/lib/encryption/find'
+import { readJsonSafe } from '@open-mercato/shared/lib/http/readJsonSafe'
+import type { CommandBus } from '@open-mercato/shared/lib/commands'
 import {
   validateCrudMutationGuard,
   runCrudMutationGuardAfterSuccess,
 } from '@open-mercato/shared/lib/crud/mutation-guard'
 import { resolveOrganizationScopeForRequest } from '@open-mercato/core/modules/directory/utils/organizationScope'
 import { CustomerInteraction } from '../../../../data/entities'
+import type { InteractionUpdateInput } from '../../../../data/validators'
 import { callerHasEmailViewPrivate } from '../../../../lib/visibilityFilter'
 import { resolveAuthActorId } from '../../../../lib/interactionRequestContext'
 import { emitCustomersEvent } from '../../../../events'
@@ -46,7 +49,7 @@ export async function PATCH(req: Request, context: RouteContext): Promise<Respon
 
   let body: z.infer<typeof bodySchema>
   try {
-    body = bodySchema.parse(await req.json().catch(() => null))
+    body = bodySchema.parse(await readJsonSafe(req, null))
   } catch (err) {
     return NextResponse.json(
       { error: err instanceof Error ? err.message : 'Invalid request body' },
@@ -123,8 +126,26 @@ export async function PATCH(req: Request, context: RouteContext): Promise<Respon
   }
 
   const previousVisibility = (interaction.visibility ?? 'private') as 'private' | 'shared'
-  interaction.visibility = body.visibility
-  await em.flush()
+
+  // Route the write through the interactions update command so the change runs
+  // the full mutation pipeline — query-index refresh, audit log and undo —
+  // instead of a raw em.flush() that would leave the indexed `entity_indexes`
+  // doc stale. Authorization (author or admin-with-view-private) was already
+  // enforced above; the command only owns persistence and side effects.
+  const commandBus = container.resolve('commandBus') as CommandBus
+  await commandBus.execute<InteractionUpdateInput, { interactionId: string }>(
+    'customers.interactions.update',
+    {
+      input: { id, visibility: body.visibility },
+      ctx: {
+        container,
+        auth: auth as never,
+        organizationScope: null,
+        selectedOrganizationId: organizationId,
+        organizationIds: organizationId ? [organizationId] : null,
+      },
+    },
+  )
 
   if (guardResult?.ok && guardResult.shouldRunAfterSuccess) {
     await runCrudMutationGuardAfterSuccess(container, {

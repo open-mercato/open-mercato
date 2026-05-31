@@ -156,12 +156,14 @@ export function EmailThreadsPanel({
                 const isSelected = thread.threadKey === selectedKey
                 return (
                   <li key={thread.threadKey}>
-                    <button
+                    <Button
                       type="button"
+                      variant="ghost"
                       onClick={() => setSelectedKey(thread.threadKey)}
-                      className={`flex w-full flex-col gap-1 p-3 text-left transition-colors hover:bg-muted ${
-                        isSelected ? 'bg-muted' : 'bg-transparent'
-                      }`}
+                      className={cn(
+                        'h-auto w-full flex-col items-stretch justify-start gap-1 whitespace-normal rounded-none p-3 text-left hover:bg-muted',
+                        isSelected ? 'bg-muted' : 'bg-transparent',
+                      )}
                       aria-current={isSelected}
                     >
                       <div className="flex items-baseline justify-between gap-2">
@@ -186,7 +188,7 @@ export function EmailThreadsPanel({
                           {thread.preview}
                         </span>
                       ) : null}
-                    </button>
+                    </Button>
                   </li>
                 )
               })}

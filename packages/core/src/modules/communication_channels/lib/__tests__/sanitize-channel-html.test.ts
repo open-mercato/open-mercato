@@ -114,4 +114,17 @@ describe('sanitizeChannelHtml', () => {
     expect(out).not.toMatch(/alert/)
     expect(out).toMatch(/hi/)
   })
+
+  it('keeps display:none so the hidden thread-token footer stays hidden', () => {
+    const out = sanitizeChannelHtml('<span style="display:none">[OM:om_token]</span>')
+    expect(out).toMatch(/display:none/)
+    expect(out).toMatch(/\[OM:om_token\]/)
+  })
+
+  it('strips display values other than none', () => {
+    const block = sanitizeChannelHtml('<span style="display:block">x</span>')
+    expect(block).not.toMatch(/display:block/)
+    const flex = sanitizeChannelHtml('<span style="display:flex">x</span>')
+    expect(flex).not.toMatch(/display:flex/)
+  })
 })

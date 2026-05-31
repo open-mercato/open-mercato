@@ -51,9 +51,13 @@ type HandlerContext = JobContext & {
  * The command already wrote the failure record + emitted `.delivery_failed`,
  * so the worker just decides whether to schedule another attempt.
  *
- * We DO NOT throw on failure — that would let BullMQ apply its own retry policy
- * on top of ours, double-retrying. Explicit re-enqueue with delayMs is the
- * portable, controllable pattern.
+ * We DO NOT throw on a recorded delivery-failure outcome — that would let the
+ * queue apply its own retry policy on top of ours, double-retrying. Explicit
+ * re-enqueue with delayMs is the portable, controllable pattern. The one
+ * exception is an *unexpected* exception from the command itself (e.g. a DB blip
+ * that stopped it from recording anything): we re-enqueue up to our max and then
+ * rethrow so the infrastructure failure surfaces to the queue's dead-letter
+ * instead of vanishing. The command's idempotency prevents a double-send.
  */
 export default async function handle(
   job: QueuedJob<OutboundDeliveryPayload>,
@@ -95,6 +99,8 @@ export default async function handle(
       await reenqueue(job.payload, attempt)
       return
     }
+    // Attempts exhausted on an unexpected command exception — rethrow so the
+    // failure reaches the queue's dead-letter / observability (see header note).
     throw err
   }
 

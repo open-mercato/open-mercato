@@ -93,6 +93,10 @@ const SANITIZE_OPTIONS: sanitizeHtml.IOptions = {
       margin: [/^[\d\s.]+(?:px|em|rem|%)?$/],
       border: [/^[\d\s\w.]+$/],
       'border-radius': [/^\d+(?:\.\d+)?(?:px|em|rem|%)$/],
+      // Permit only `display:none` so the hidden thread-token footer span
+      // (`buildBodyFooter`) stays hidden when a sent email body is re-rendered.
+      // Every other display value is stripped.
+      display: [/^none$/],
     },
   },
   /**

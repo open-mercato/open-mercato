@@ -297,7 +297,14 @@ const ingestInboundMessageCommand: CommandHandler<IngestInboundMessageInput, Ing
         },
         { container: ctx.container },
       )
-    } catch {
+    } catch (contactErr) {
+      // Best-effort: contact resolution is advisory and must not abort ingest.
+      // Log like the sibling dedup/matcher catches so a misbehaving resolver is
+      // visible in operator logs instead of failing silently.
+      console.warn(
+        '[communication_channels:ingest-inbound] contact resolution failed, continuing without a CRM match:',
+        contactErr instanceof Error ? contactErr.message : contactErr,
+      )
       contactHint = null
     }
     const matchedPersonId = contactHint?.matchedPersonId ?? null
@@ -350,6 +357,13 @@ const ingestInboundMessageCommand: CommandHandler<IngestInboundMessageInput, Ing
       // when the matcher returned null (no token / JWZ / subject hit).
       parentMessageId: threadMatch?.messageThreadId ?? mapping?.messageThreadId,
       isDraft: false,
+      // Stable dedup key so a retried ingest (after a transient failure between
+      // compose and the ExternalMessage anchor insert) reuses the message
+      // composed by the first attempt instead of duplicating it. Mirrors the
+      // (channel, externalMessageId) ExternalMessage anchor's natural key.
+      idempotencyKey: m.externalMessageId
+        ? `cc:${input.channelId}:${m.externalMessageId}`
+        : undefined,
       tenantId: input.scope.tenantId,
       organizationId: input.scope.organizationId,
       userId: await resolveCommunicationChannelsSystemUserId(

@@ -7,6 +7,7 @@ const VALID_CHANNEL_ID = 'aaaaaaaa-aaaa-4aaa-aaaa-aaaaaaaaaaaa'
 function mockRequest(body: unknown, headers: Record<string, string> = {}) {
   return {
     json: async () => body,
+    text: async () => JSON.stringify(body),
     headers: new Headers(headers),
     url: `http://localhost/api/customers/people/${VALID_PERSON_ID}/emails`,
     method: 'POST',

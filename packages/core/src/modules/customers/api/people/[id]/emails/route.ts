@@ -4,6 +4,7 @@ import type { EntityManager } from '@mikro-orm/postgresql'
 import { getAuthFromRequest } from '@open-mercato/shared/lib/auth/server'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import { findOneWithDecryption } from '@open-mercato/shared/lib/encryption/find'
+import { readJsonSafe } from '@open-mercato/shared/lib/http/readJsonSafe'
 import {
   validateCrudMutationGuard,
   runCrudMutationGuardAfterSuccess,
@@ -54,7 +55,7 @@ export async function POST(req: Request, context: RouteContext): Promise<Respons
 
   let body: z.infer<typeof composeSchema>
   try {
-    body = composeSchema.parse(await req.json().catch(() => null))
+    body = composeSchema.parse(await readJsonSafe(req, null))
   } catch (err) {
     return NextResponse.json(
       { error: err instanceof Error ? err.message : 'Invalid request body' },

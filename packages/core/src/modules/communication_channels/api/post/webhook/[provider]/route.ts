@@ -35,7 +35,7 @@ export const metadata = {
     // Unauthenticated by design (signature verification IS the auth), but the
     // handler fans out an O(N) cross-tenant candidate scan, so bound per-IP
     // request volume to limit abuse. Generous enough for real provider traffic;
-    // the dedicated gmail/microsoft routes stay unthrottled.
+    // the dedicated gmail/microsoft routes carry their own matching limits.
     rateLimit: { points: 120, duration: 60, keyPrefix: 'cc_webhook_inbound' },
   },
 }

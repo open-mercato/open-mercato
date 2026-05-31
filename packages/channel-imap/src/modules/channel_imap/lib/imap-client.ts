@@ -82,8 +82,11 @@ class ImapflowClient implements ImapClient {
       port: options.port,
       secure: options.transport === 'tls',
       auth: { user: options.user, pass: options.pass },
-      // Allow STARTTLS to advertise itself on plain connections.
-      tls: options.transport === 'starttls' ? { rejectUnauthorized: true } : undefined,
+      // Enforce certificate verification on every encrypted transport (implicit
+      // TLS and STARTTLS). Only cleartext ('none', gated behind an env opt-in)
+      // omits the TLS options. Mirrors the SMTP client so an upstream default
+      // change can't silently disable cert checks.
+      tls: options.transport === 'none' ? undefined : { rejectUnauthorized: true },
       logger: false,
       // Gmail's IMAP can take 15-30s to respond to NAMESPACE under load even
       // after a successful AUTHENTICATE — observed during demo with valid
