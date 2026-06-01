@@ -3,9 +3,10 @@
 import * as React from 'react'
 import { Button } from '@open-mercato/ui/primitives/button'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
-import { ClipboardList, SlidersHorizontal } from 'lucide-react'
+import { ClipboardList, SlidersHorizontal, Upload } from 'lucide-react'
 import { AdjustInventoryDialog } from './AdjustInventoryDialog'
 import { CycleCountWizardDialog } from './CycleCountWizardDialog'
+import { ImportInventoryDialog } from './ImportInventoryDialog'
 import { useWmsInventoryMutationAccess } from './useWmsInventoryMutationAccess'
 
 function SectionCard({
@@ -35,9 +36,10 @@ export function InventoryOperationsSection() {
   const access = useWmsInventoryMutationAccess()
   const [adjustOpen, setAdjustOpen] = React.useState(false)
   const [cycleOpen, setCycleOpen] = React.useState(false)
+  const [importOpen, setImportOpen] = React.useState(false)
 
   if (access.loading) return null
-  if (!access.canAdjust && !access.canCycleCount) return null
+  if (!access.canAdjust && !access.canCycleCount && !access.canImport) return null
 
   return (
     <>
@@ -48,6 +50,12 @@ export function InventoryOperationsSection() {
           'Post adjustments for opening balances and corrections, or run a simple cycle count.',
         )}
       >
+        {access.canImport ? (
+          <Button type="button" variant="outline" onClick={() => setImportOpen(true)}>
+            <Upload className="size-4" />
+            {t('wms.backend.inventory.operations.import', 'Import CSV')}
+          </Button>
+        ) : null}
         {access.canAdjust ? (
           <Button type="button" variant="default" onClick={() => setAdjustOpen(true)}>
             <SlidersHorizontal className="size-4" />
@@ -61,6 +69,9 @@ export function InventoryOperationsSection() {
           </Button>
         ) : null}
       </SectionCard>
+      {access.canImport ? (
+        <ImportInventoryDialog open={importOpen} onOpenChange={setImportOpen} access={access} />
+      ) : null}
       {access.canAdjust ? (
         <AdjustInventoryDialog open={adjustOpen} onOpenChange={setAdjustOpen} access={access} />
       ) : null}

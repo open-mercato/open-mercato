@@ -347,6 +347,51 @@ export const salesOrderWarehouseUnassignSchema = scopedSchema.extend({
 export type SalesOrderWarehouseAssignInput = z.infer<typeof salesOrderWarehouseAssignSchema>
 export type SalesOrderWarehouseUnassignInput = z.infer<typeof salesOrderWarehouseUnassignSchema>
 
+export const inventoryImportRawRowSchema = z.object({
+  warehouseCode: z.string().trim().optional(),
+  warehouseId: uuid().optional(),
+  locationCode: z.string().trim().optional(),
+  locationId: uuid().optional(),
+  sku: z.string().trim().optional(),
+  catalogVariantId: uuid().optional(),
+  quantity: z.string().trim().optional(),
+  lotNumber: z.string().trim().optional(),
+  lotId: uuid().optional(),
+  serialNumber: z.string().trim().optional(),
+})
+
+export const inventoryImportValidateSchema = scopedSchema.extend({
+  importBatchId: uuid().optional(),
+  skipDuplicates: z.boolean().optional(),
+  rows: z.array(inventoryImportRawRowSchema).min(1).max(5000),
+})
+
+export const inventoryImportApplyRowSchema = z.object({
+  rowNumber: z.number().int().positive(),
+  warehouseId: uuid(),
+  locationId: uuid(),
+  catalogVariantId: uuid(),
+  quantity: nonNegativeQuantity,
+  delta: numericQuantity,
+  lotId: uuid().optional(),
+  serialNumber: z.string().trim().max(120).optional(),
+})
+
+export const inventoryImportApplySchema = scopedSchema.extend({
+  importBatchId: uuid(),
+  reason: z.string().trim().min(1).max(500).default('CSV import opening balance'),
+  continueOnError: z.boolean().optional(),
+  rows: z.array(inventoryImportApplyRowSchema).min(1).max(5000),
+})
+
+export type InventoryImportApplyServerInput = z.infer<typeof inventoryImportApplySchema> & {
+  performedBy: string
+}
+
+export type InventoryImportValidateInput = z.infer<typeof inventoryImportValidateSchema>
+export type InventoryImportApplyInput = InventoryImportApplyServerInput
+export type InventoryImportApplyRowInput = z.infer<typeof inventoryImportApplyRowSchema>
+
 export const operationalDashboardQuerySchema = z.object({
   warehouseId: z.string().uuid().optional(),
 })

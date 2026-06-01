@@ -285,7 +285,7 @@ test.describe('TC-WMS-023: WMS detail views — API contracts', () => {
       expect(toNumber(balancesAtA[0]?.quantity_on_hand)).toBe(6)
 
       const allMovements = await fetchMovements(request, adminToken, { warehouseId })
-      const scopedToA = allMovements.filter((row) => movementInvolvesLocation(row, locationAId))
+      const scopedToA = allMovements.filter((row) => movementInvolvesLocation(row, locationAId!))
       expect(scopedToA.length).toBeGreaterThan(0)
       expect(scopedToA.some((row) => row.reference_id === referenceAtA)).toBeTruthy()
       expect(

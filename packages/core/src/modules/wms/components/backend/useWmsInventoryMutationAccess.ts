@@ -26,7 +26,7 @@ export function useWmsInventoryMutationAccess() {
           method: 'POST',
           headers: { 'content-type': 'application/json' },
           body: JSON.stringify({
-            features: ['wms.adjust_inventory', 'wms.cycle_count'],
+            features: ['wms.adjust_inventory', 'wms.cycle_count', 'wms.import'],
           }),
         })
         if (!cancelled) {
@@ -59,5 +59,6 @@ export function useWmsInventoryMutationAccess() {
     scopeReady,
     canAdjust: hasFeature(granted, 'wms.adjust_inventory'),
     canCycleCount: hasFeature(granted, 'wms.cycle_count'),
+    canImport: hasFeature(granted, 'wms.import'),
   }
 }
