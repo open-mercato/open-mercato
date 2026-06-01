@@ -132,15 +132,20 @@ export async function POST(req: Request) {
   const container = await createRequestContainer()
   const analyticsRegistry = container.resolve<AnalyticsRegistry>('analyticsRegistry')
 
+  const rbacService = container.resolve<{
+    userHasAllFeatures: (
+      userId: string,
+      features: string[],
+      scope: { tenantId: string; organizationId?: string | null },
+    ) => Promise<boolean>
+    loadAcl: (
+      userId: string,
+      scope: { tenantId: string | null; organizationId: string | null },
+    ) => Promise<{ isSuperAdmin: boolean; features: string[]; organizations: string[] | null }>
+  }>('rbacService')
+
   const entityFeatures = analyticsRegistry.getRequiredFeatures(parsed.data.entityType)
   if (entityFeatures && entityFeatures.length > 0) {
-    const rbacService = container.resolve<{
-      userHasAllFeatures: (
-        userId: string,
-        features: string[],
-        scope: { tenantId: string; organizationId?: string | null },
-      ) => Promise<boolean>
-    }>('rbacService')
     const hasAccess = await rbacService.userHasAllFeatures(auth.sub, entityFeatures, {
       tenantId: auth.tenantId!,
       organizationId: auth.orgId,
@@ -171,9 +176,11 @@ export async function POST(req: Request) {
     return undefined
   })()
 
-  const userFeatures = Array.isArray(auth.features)
-    ? auth.features.filter((value): value is string => typeof value === 'string')
-    : []
+  const acl = await rbacService.loadAcl(auth.sub, {
+    tenantId,
+    organizationId: organizationIds?.[0] ?? auth.orgId ?? null,
+  })
+  const userFeatures = acl.features
 
   const headers: Record<string, string> = {}
   req.headers.forEach((value, key) => {
