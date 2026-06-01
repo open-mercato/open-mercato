@@ -654,167 +654,170 @@ const updatePaymentCommand: CommandHandler<
     )
     ensureSameScope(payment, resolvedOrganizationId, resolvedTenantId)
     const previousOrder = payment.order as SalesOrder | null
-    if (input.orderId !== undefined) {
-      if (!input.orderId) {
-        payment.order = null
-      } else {
-        const order = assertFound(
-          await findOneWithDecryption(em, SalesOrder, { id: input.orderId }, {}, { tenantId: resolvedTenantId, organizationId: resolvedOrganizationId }),
-          'sales.payments.order_not_found'
-        )
-        ensureSameScope(order, resolvedOrganizationId, resolvedTenantId)
-        if (
-          order.currencyCode &&
-          input.currencyCode &&
-          order.currencyCode.toUpperCase() !== input.currencyCode.toUpperCase()
-        ) {
+    // Apply payment scalar fields, order/line status changes and the
+    // allocations rebuild in one transaction so a mid-write failure cannot
+    // leave the payment and its allocations partially committed (#2336).
+    await em.transactional(async (tx) => {
+      if (input.orderId !== undefined) {
+        if (!input.orderId) {
+          payment.order = null
+        } else {
+          const order = assertFound(
+            await findOneWithDecryption(tx, SalesOrder, { id: input.orderId }, {}, { tenantId: resolvedTenantId, organizationId: resolvedOrganizationId }),
+            'sales.payments.order_not_found'
+          )
+          ensureSameScope(order, resolvedOrganizationId, resolvedTenantId)
+          if (
+            order.currencyCode &&
+            input.currencyCode &&
+            order.currencyCode.toUpperCase() !== input.currencyCode.toUpperCase()
+          ) {
+            throw new CrudHttpError(400, {
+              error: translate('sales.payments.currency_mismatch', 'Payment currency must match the order currency.'),
+            })
+          }
+          payment.order = order
+        }
+      }
+      if (input.paymentMethodId !== undefined) {
+        if (!input.paymentMethodId) {
+          payment.paymentMethod = null
+        } else {
+          const method = assertFound(
+            await findOneWithDecryption(tx, SalesPaymentMethod, { id: input.paymentMethodId }, {}, { tenantId: resolvedTenantId, organizationId: resolvedOrganizationId }),
+            'sales.payments.method_not_found'
+          )
+          ensureSameScope(method, resolvedOrganizationId, resolvedTenantId)
+          payment.paymentMethod = method
+        }
+      }
+      const currentOrder = payment.order as SalesOrder | null
+      if ((input.documentStatusEntryId !== undefined || input.lineStatusEntryId !== undefined) && !currentOrder) {
+        throw new CrudHttpError(400, { error: translate('sales.payments.order_required', 'Order is required for payments.') })
+      }
+      if (currentOrder && input.documentStatusEntryId !== undefined) {
+        const orderStatus = await resolveDictionaryEntryValue(tx, input.documentStatusEntryId ?? null)
+        if (input.documentStatusEntryId && !orderStatus) {
           throw new CrudHttpError(400, {
-            error: translate('sales.payments.currency_mismatch', 'Payment currency must match the order currency.'),
+            error: translate('sales.documents.detail.statusInvalid', 'Selected status could not be found.'),
           })
         }
-        payment.order = order
+        currentOrder.statusEntryId = input.documentStatusEntryId ?? null
+        currentOrder.status = orderStatus
+        currentOrder.updatedAt = new Date()
+        tx.persist(currentOrder)
       }
-    }
-    if (input.paymentMethodId !== undefined) {
-      if (!input.paymentMethodId) {
-        payment.paymentMethod = null
-      } else {
-        const method = assertFound(
-          await findOneWithDecryption(em, SalesPaymentMethod, { id: input.paymentMethodId }, {}, { tenantId: resolvedTenantId, organizationId: resolvedOrganizationId }),
-          'sales.payments.method_not_found'
-        )
-        ensureSameScope(method, resolvedOrganizationId, resolvedTenantId)
-        payment.paymentMethod = method
-      }
-    }
-    const currentOrder = payment.order as SalesOrder | null
-    if ((input.documentStatusEntryId !== undefined || input.lineStatusEntryId !== undefined) && !currentOrder) {
-      throw new CrudHttpError(400, { error: translate('sales.payments.order_required', 'Order is required for payments.') })
-    }
-    if (currentOrder && input.documentStatusEntryId !== undefined) {
-      const orderStatus = await resolveDictionaryEntryValue(em, input.documentStatusEntryId ?? null)
-      if (input.documentStatusEntryId && !orderStatus) {
-        throw new CrudHttpError(400, {
-          error: translate('sales.documents.detail.statusInvalid', 'Selected status could not be found.'),
-        })
-      }
-      currentOrder.statusEntryId = input.documentStatusEntryId ?? null
-      currentOrder.status = orderStatus
-      currentOrder.updatedAt = new Date()
-      em.persist(currentOrder)
-    }
-    if (currentOrder && input.lineStatusEntryId !== undefined) {
-      const lineStatus = await resolveDictionaryEntryValue(em, input.lineStatusEntryId ?? null)
-      if (input.lineStatusEntryId && !lineStatus) {
-        throw new CrudHttpError(400, {
-          error: translate('sales.documents.detail.statusInvalid', 'Selected status could not be found.'),
-        })
-      }
-      const orderLines = await findWithDecryption(em, SalesOrderLine, { order: currentOrder }, {}, { tenantId: resolvedTenantId, organizationId: resolvedOrganizationId })
-      orderLines.forEach((line) => {
-        line.statusEntryId = input.lineStatusEntryId ?? null
-        line.status = lineStatus
-        line.updatedAt = new Date()
-      })
-      orderLines.forEach((line) => em.persist(line))
-    }
-    if (input.paymentReference !== undefined) payment.paymentReference = input.paymentReference ?? null
-    if (input.statusEntryId !== undefined) {
-      payment.statusEntryId = input.statusEntryId ?? null
-      payment.status = await resolveDictionaryEntryValue(em, input.statusEntryId ?? null)
-    }
-    if (input.amount !== undefined) payment.amount = toNumericString(input.amount) ?? '0'
-    if (input.currencyCode !== undefined) payment.currencyCode = input.currencyCode
-    if (input.capturedAmount !== undefined) {
-      payment.capturedAmount = toNumericString(input.capturedAmount) ?? '0'
-    }
-    if (input.refundedAmount !== undefined) {
-      payment.refundedAmount = toNumericString(input.refundedAmount) ?? '0'
-    }
-    if (input.receivedAt !== undefined) payment.receivedAt = input.receivedAt ?? null
-    if (input.capturedAt !== undefined) payment.capturedAt = input.capturedAt ?? null
-    if (input.metadata !== undefined) {
-      payment.metadata = input.metadata ? cloneJson(input.metadata) : null
-    }
-    if (input.customFieldSetId !== undefined) {
-      payment.customFieldSetId = input.customFieldSetId ?? null
-    }
-    if (input.customFields !== undefined) {
-      if (!payment.id) {
-        await em.flush()
-      }
-      await setRecordCustomFields(em, {
-        entityId: E.sales.sales_payment,
-        recordId: payment.id,
-        organizationId: payment.organizationId,
-        tenantId: payment.tenantId,
-        values: normalizeCustomFieldsInput(input.customFields),
-      })
-    }
-    payment.updatedAt = new Date()
-    await em.flush()
-
-    if (input.allocations !== undefined) {
-      const existingAllocations = await findWithDecryption(em, SalesPaymentAllocation, { payment }, {}, { tenantId: payment.tenantId, organizationId: payment.organizationId })
-      existingAllocations.forEach((allocation) => em.remove(allocation))
-      const allocationInputs = Array.isArray(input.allocations) ? input.allocations : []
-      const paymentOrderId =
-        (typeof payment.order === 'string' ? payment.order : payment.order?.id) ?? null
-      const orderCache = new Map<string, SalesOrder>()
-      if (currentOrder) orderCache.set(currentOrder.id, currentOrder)
-      const invoiceCache = new Map<string, SalesInvoice>()
-      for (const allocation of allocationInputs) {
-        const orderId = allocation.orderId ?? paymentOrderId
-        let order: SalesOrder | null = null
-        if (orderId && typeof orderId === 'string') {
-          order = orderCache.get(orderId) ?? null
-          if (!order) {
-            order = assertFound(
-              await findOneWithDecryption(
-                em,
-                SalesOrder,
-                { id: orderId },
-                {},
-                { tenantId: payment.tenantId, organizationId: payment.organizationId },
-              ),
-              'sales.payments.order_not_found',
-            )
-            ensureSameScope(order, payment.organizationId, payment.tenantId)
-            orderCache.set(orderId, order)
-          }
+      if (currentOrder && input.lineStatusEntryId !== undefined) {
+        const lineStatus = await resolveDictionaryEntryValue(tx, input.lineStatusEntryId ?? null)
+        if (input.lineStatusEntryId && !lineStatus) {
+          throw new CrudHttpError(400, {
+            error: translate('sales.documents.detail.statusInvalid', 'Selected status could not be found.'),
+          })
         }
-        let invoice: SalesInvoice | null = null
-        if (allocation.invoiceId) {
-          invoice = invoiceCache.get(allocation.invoiceId) ?? null
-          if (!invoice) {
-            invoice = assertFound(
-              await findOneWithDecryption(
-                em,
-                SalesInvoice,
-                { id: allocation.invoiceId },
-                {},
-                { tenantId: payment.tenantId, organizationId: payment.organizationId },
-              ),
-              'sales.payments.invoice_not_found',
-            )
-            ensureSameScope(invoice, payment.organizationId, payment.tenantId)
-            invoiceCache.set(allocation.invoiceId, invoice)
-          }
+        const orderLines = await findWithDecryption(tx, SalesOrderLine, { order: currentOrder }, {}, { tenantId: resolvedTenantId, organizationId: resolvedOrganizationId })
+        orderLines.forEach((line) => {
+          line.statusEntryId = input.lineStatusEntryId ?? null
+          line.status = lineStatus
+          line.updatedAt = new Date()
+        })
+        orderLines.forEach((line) => tx.persist(line))
+      }
+      if (input.paymentReference !== undefined) payment.paymentReference = input.paymentReference ?? null
+      if (input.statusEntryId !== undefined) {
+        payment.statusEntryId = input.statusEntryId ?? null
+        payment.status = await resolveDictionaryEntryValue(tx, input.statusEntryId ?? null)
+      }
+      if (input.amount !== undefined) payment.amount = toNumericString(input.amount) ?? '0'
+      if (input.currencyCode !== undefined) payment.currencyCode = input.currencyCode
+      if (input.capturedAmount !== undefined) {
+        payment.capturedAmount = toNumericString(input.capturedAmount) ?? '0'
+      }
+      if (input.refundedAmount !== undefined) {
+        payment.refundedAmount = toNumericString(input.refundedAmount) ?? '0'
+      }
+      if (input.receivedAt !== undefined) payment.receivedAt = input.receivedAt ?? null
+      if (input.capturedAt !== undefined) payment.capturedAt = input.capturedAt ?? null
+      if (input.metadata !== undefined) {
+        payment.metadata = input.metadata ? cloneJson(input.metadata) : null
+      }
+      if (input.customFieldSetId !== undefined) {
+        payment.customFieldSetId = input.customFieldSetId ?? null
+      }
+      if (input.customFields !== undefined) {
+        if (!payment.id) {
+          await tx.flush()
         }
-        const entity = em.create(SalesPaymentAllocation, {
-          payment,
-          order,
-          invoice,
+        await setRecordCustomFields(tx, {
+          entityId: E.sales.sales_payment,
+          recordId: payment.id,
           organizationId: payment.organizationId,
           tenantId: payment.tenantId,
-          amount: toNumericString(allocation.amount) ?? '0',
-          currencyCode: allocation.currencyCode,
-          metadata: allocation.metadata ? cloneJson(allocation.metadata) : null,
+          values: normalizeCustomFieldsInput(input.customFields),
         })
-        em.persist(entity)
       }
-      await em.flush()
-    }
+      payment.updatedAt = new Date()
+
+      if (input.allocations !== undefined) {
+        const existingAllocations = await findWithDecryption(tx, SalesPaymentAllocation, { payment }, {}, { tenantId: payment.tenantId, organizationId: payment.organizationId })
+        existingAllocations.forEach((allocation) => tx.remove(allocation))
+        const allocationInputs = Array.isArray(input.allocations) ? input.allocations : []
+        const paymentOrderId =
+          (typeof payment.order === 'string' ? payment.order : payment.order?.id) ?? null
+        const orderCache = new Map<string, SalesOrder>()
+        if (currentOrder) orderCache.set(currentOrder.id, currentOrder)
+        const invoiceCache = new Map<string, SalesInvoice>()
+        for (const allocation of allocationInputs) {
+          const orderId = allocation.orderId ?? paymentOrderId
+          let order: SalesOrder | null = null
+          if (orderId && typeof orderId === 'string') {
+            order = orderCache.get(orderId) ?? null
+            if (!order) {
+              order = assertFound(
+                await findOneWithDecryption(
+                  tx,
+                  SalesOrder,
+                  { id: orderId },
+                  {},
+                  { tenantId: payment.tenantId, organizationId: payment.organizationId },
+                ),
+                'sales.payments.order_not_found',
+              )
+              ensureSameScope(order, payment.organizationId, payment.tenantId)
+              orderCache.set(orderId, order)
+            }
+          }
+          let invoice: SalesInvoice | null = null
+          if (allocation.invoiceId) {
+            invoice = invoiceCache.get(allocation.invoiceId) ?? null
+            if (!invoice) {
+              invoice = assertFound(
+                await findOneWithDecryption(
+                  tx,
+                  SalesInvoice,
+                  { id: allocation.invoiceId },
+                  {},
+                  { tenantId: payment.tenantId, organizationId: payment.organizationId },
+                ),
+                'sales.payments.invoice_not_found',
+              )
+              ensureSameScope(invoice, payment.organizationId, payment.tenantId)
+              invoiceCache.set(allocation.invoiceId, invoice)
+            }
+          }
+          const entity = tx.create(SalesPaymentAllocation, {
+            payment,
+            order,
+            invoice,
+            organizationId: payment.organizationId,
+            tenantId: payment.tenantId,
+            amount: toNumericString(allocation.amount) ?? '0',
+            currencyCode: allocation.currencyCode,
+            metadata: allocation.metadata ? cloneJson(allocation.metadata) : null,
+          })
+          tx.persist(entity)
+        }
+      }
+    })
 
     const nextOrderId =
       (payment.order as SalesOrder | null)?.id ??
@@ -941,10 +944,13 @@ const deletePaymentCommand: CommandHandler<
           : allocation.order?.id ?? null
       )
       .filter((value): value is string => typeof value === 'string' && value.length > 0)
-    allocations.forEach((allocation) => em.remove(allocation))
-    await em.flush()
-    em.remove(payment)
-    await em.flush()
+    // Remove the allocations and the payment in one transaction so a failure
+    // between the two deletes cannot leave orphaned allocations committed
+    // without their payment (#2336).
+    await em.transactional(async (tx) => {
+      allocations.forEach((allocation) => tx.remove(allocation))
+      tx.remove(payment)
+    })
     let totals: { paidTotalAmount: number; refundedTotalAmount: number; outstandingAmount: number } | undefined
     const orderIds = Array.from(
       new Set(
