@@ -3,6 +3,11 @@ import { z } from 'zod'
 import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
 import { getAuthFromRequest } from '@open-mercato/shared/lib/auth/server'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
+import {
+  buildAttachmentContentDisposition,
+  canRenderInlineAttachment,
+  sanitizeUploadedFileName,
+} from '@open-mercato/core/modules/attachments/lib/security'
 import { S3StorageDriver } from '../../../../lib/s3-driver'
 
 export const metadata = {
@@ -55,11 +60,18 @@ export async function GET(req: Request) {
     return NextResponse.json({ error: 'File not found' }, { status: 404 })
   }
 
+  const fileName = sanitizeUploadedFileName(key.split('/').pop() || 'download')
+  const renderInline = canRenderInlineAttachment(contentType)
+  const responseContentType = renderInline ? (contentType ?? 'application/octet-stream') : 'application/octet-stream'
+
   return new NextResponse(new Uint8Array(buffer), {
     status: 200,
     headers: {
-      'Content-Type': contentType ?? 'application/octet-stream',
+      'Content-Security-Policy': "default-src 'none'; sandbox",
+      'Content-Disposition': buildAttachmentContentDisposition(fileName, renderInline ? 'inline' : 'attachment'),
       'Content-Length': String(buffer.length),
+      'Content-Type': responseContentType,
+      'X-Content-Type-Options': 'nosniff',
     },
   })
 }
