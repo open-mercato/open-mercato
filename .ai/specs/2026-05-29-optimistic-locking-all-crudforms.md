@@ -54,7 +54,7 @@ Edit-mode CrudForms are covered by auto-derive wherever `initialValues.updatedAt
 - Customers deals list/kanban delete (`customers/backend/customers/deals/page.tsx`, `…/pipeline/page.tsx`).
 - Staff team / team-role / leave-request custom save+delete handlers (`staff/backend/staff/…/[id]/…`).
 - Resources resource/availability custom mutations.
-These are tracked for a follow-up sweep using the same `buildOptimisticLockHeader(record.updatedAt)` + `surfaceRecordConflict` pattern.
+These are tracked in **#2332** for a follow-up sweep using the same `buildOptimisticLockHeader(record.updatedAt)` + `surfaceRecordConflict` pattern.
 
 ### Final — docs + gate
 - `packages/ui/AGENTS.md` CrudForm Guidelines: document auto-derive default + `disableOptimisticLock` + the "edit-mode `initialValues` MUST include `updatedAt`" rule.
