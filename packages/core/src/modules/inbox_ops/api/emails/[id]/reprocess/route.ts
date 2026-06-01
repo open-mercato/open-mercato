@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server'
 import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
 import { findOneWithDecryption, findWithDecryption } from '@open-mercato/shared/lib/encryption/find'
+import { withAtomicFlush } from '@open-mercato/shared/lib/commands/flush'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import { InboxDiscrepancy, InboxEmail, InboxProposal, InboxProposalAction } from '../../../../data/entities'
 import { emitInboxOpsEvent } from '../../../../events'
@@ -48,11 +49,16 @@ export async function POST(req: Request) {
       return NextResponse.json({ error: 'Email is already queued for processing' }, { status: 409 })
     }
 
-    const retiredCounts = await retireActiveProposalsForEmail(ctx.em, email.id, ctx.userId, ctx.scope)
-
-    email.status = 'received'
-    email.processingError = null
-    await ctx.em.flush()
+    let retiredCounts = { retiredProposalCount: 0, retiredActionCount: 0 }
+    await withAtomicFlush(ctx.em, [
+      async () => {
+        retiredCounts = await retireActiveProposalsForEmail(ctx.em, email.id, ctx.userId, ctx.scope)
+      },
+      () => {
+        email.status = 'received'
+        email.processingError = null
+      },
+    ], { transaction: true })
 
     try {
       await emitInboxOpsEvent('inbox_ops.email.reprocessed', {
@@ -167,8 +173,6 @@ async function retireActiveProposalsForEmail(
   for (const discrepancy of discrepancies) {
     discrepancy.resolved = true
   }
-
-  await em.flush()
 
   return {
     retiredProposalCount: proposals.length,
