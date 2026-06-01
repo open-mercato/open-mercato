@@ -85,15 +85,15 @@ absolute date literal whose assertion outcome flips with the system clock.
 
 ### Phase 3: Fix near-future HIGH literals
 
-- [ ] 3.1 business_rules
-- [ ] 3.2 customers
-- [ ] 3.3 planner
+- [x] 3.1 business_rules (reviewed non-clock-dependent → allowlisted) — 89c046ee4
+- [x] 3.2 customers — 89c046ee4
+- [x] 3.3 planner — 89c046ee4
 
 ### Phase 4: Fix far-future HIGH literals
 
-- [ ] 4.1 currencies
-- [ ] 4.2 messages
-- [ ] 4.3 enterprise record_locks
+- [x] 4.1 currencies — 526700ce5
+- [x] 4.2 messages — 526700ce5
+- [x] 4.3 enterprise record_locks — 526700ce5
 
 ### Phase 5: Verify + gate
 
