@@ -43,6 +43,19 @@ Regression Playwright per file (edit → 2-tab stale save → 409 + bar). Files 
 - Sales sub-resource aggregates (lines/adjustments/payments/shipments/returns/quote-convert): locked at the command layer against the parent document; if a child uses CrudForm, set `disableOptimisticLock`.
 - Legacy non-v2 customers list pages (DataTable, no edit form).
 
+### Phase 6 — Auth users/roles + ACL editing (security-sensitive) — done (2026-06-01)
+- **User/Role version column**: User and Role entities had no `updated_at`, so their edit forms sent an empty header (no protection) — concurrent edits, incl. role assignment that drives effective ACLs, silently overwrote. Added nullable `updated_at` (onCreate+onUpdate) + migration (`Migration20260601120000`, backfills from `created_at`) + snapshot. The forms already send the header on update+delete and the GET already maps `updatedAt`, so the makeCrudRoute auto-registered readers (`auth.user`/`auth.role`) now enforce.
+- **ACL grant editing** (`api/{roles,users}/acl` — custom non-CrudForm handlers, the real consistency boundary): GET returns the `RoleAcl`/`UserAcl` `updatedAt`; PUT enforces `enforceCommandOptimisticLock` (resourceKind `auth.role_acl`/`auth.user_acl`) → structured 409 on a stale ACL overwrite, and persists inside `withAtomicFlush({ transaction: true })`. `AclEditor` exposes the loaded version via `onVersionChange`; the role/user edit pages send the header on the ACL save and CrudForm surfaces the conflict bar. +3 route tests.
+
+### Remaining gap inventory (audited 2026-06-01, post-#2276 auto-derive)
+Edit-mode CrudForms are covered by auto-derive wherever `initialValues.updatedAt` is present. Known **custom (non-CrudForm) single-record** handlers still missing the header (follow-up, by risk):
+- Catalog product detail nested writes: offers/unit-conversions/option-schemas update+delete loops & dialogs (`catalog/backend/catalog/products/[id]/page.tsx`).
+- Sales channel offer form + offers list: `ChannelOfferForm.tsx` (offers/prices update+delete), `sales/backend/sales/channels/offers/page.tsx` delete.
+- Customers deals list/kanban delete (`customers/backend/customers/deals/page.tsx`, `…/pipeline/page.tsx`).
+- Staff team / team-role / leave-request custom save+delete handlers (`staff/backend/staff/…/[id]/…`).
+- Resources resource/availability custom mutations.
+These are tracked for a follow-up sweep using the same `buildOptimisticLockHeader(record.updatedAt)` + `surfaceRecordConflict` pattern.
+
 ### Final — docs + gate
 - `packages/ui/AGENTS.md` CrudForm Guidelines: document auto-derive default + `disableOptimisticLock` + the "edit-mode `initialValues` MUST include `updatedAt`" rule.
 - Advisory CI check flagging edit-mode CrudForm whose initialValues type lacks `updatedAt`.
@@ -59,3 +72,8 @@ Additive: explicit prop wins, create-mode never attaches, snake/camel fallback, 
 - Phase 4 (workflows: `id`+`updatedAt` into definition initialValues; guarded the definitions list-page DELETE with the lock header + conflict bar; server-side DELETE already guarded) — done (`35dcebf65`).
 - Docs: `packages/ui/AGENTS.md` CrudForm Guidelines updated with the auto-derive default + opt-out + no-double-wrap rule.
 - Remaining: Phase 2 (verification-only regression sweep of the ~28 forms already passing the prop) + Phase 5 (confirm non-CrudForm dialog mutations) + final advisory CI check — each with a live Playwright stale-edit check per place (run via the follow-up loop against a branch dev server).
+
+### 2026-06-01
+- Merged the updated #2055 base (resolved the catalog products import conflict: inline variant-list delete keeps its explicit header/conflict UX while the product UPDATE stays single-sourced via auto-derive; updated `optimisticLockSingleSource` test accordingly).
+- Phase 6 (auth users/roles + ACL editing) — done (`313bcf561`, `8df659ffd`): added `updated_at` to User/Role (+migration/snapshot), optimistic-locked + transaction-guarded the `roles/acl` and `users/acl` PUT endpoints, and wired `AclEditor.onVersionChange` + the edit-page ACL save headers. +3 role-ACL route tests.
+- Recorded the remaining custom-handler gap inventory (catalog product nested writes, sales channel offers, customers deals delete, staff detail handlers, resources) for a follow-up sweep.
