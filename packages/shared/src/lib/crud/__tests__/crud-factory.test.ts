@@ -25,6 +25,7 @@ let crudMutationGuardService: { validateMutation: jest.Mock; afterMutationSucces
 let mockOrganizationScopeOverride: MockOrganizationScope | null
 
 const em = {
+  transactional: async (cb: () => any) => cb(),
   create: (_cls: any, data: any) => ({ ...data, id: `id-${idSeq++}` }),
   persist(entity: Rec) {
     db[entity.id] = { ...(db[entity.id] || {} as any), ...entity }
