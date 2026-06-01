@@ -29,12 +29,12 @@ describe('Notification primitive', () => {
     expect(screen.getByText('On the latest deal').tagName).toBe('P')
   })
 
-  it('description gets opacity-72 per Figma Notification reference', () => {
+  it('description gets opacity-70 (DS opacity scale; was opacity-72 in early v5, snapped to scale per .ai/ds-rules.md)', () => {
     const { container } = render(
       <Notification title="t" description="body" />,
     )
     const desc = container.querySelector('[data-slot="notification-description"]')
-    expect(desc).toHaveClass('opacity-72')
+    expect(desc).toHaveClass('opacity-70')
   })
 
   it('renders the timestamp slot when provided', () => {

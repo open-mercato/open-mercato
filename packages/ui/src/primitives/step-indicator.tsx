@@ -5,6 +5,7 @@ import { Check, ChevronRight, X } from 'lucide-react'
 import { cva, type VariantProps } from 'class-variance-authority'
 
 import { cn } from '@open-mercato/shared/lib/utils'
+import { useT } from '@open-mercato/shared/lib/i18n/context'
 
 /**
  * Multi-step progress indicator for wizards, onboarding flows, checkout
@@ -168,6 +169,7 @@ export const StepIndicator = React.forwardRef<HTMLOListElement, StepIndicatorPro
     },
     ref,
   ) => {
+    const t = useT()
     const isVertical = orientation === 'vertical'
     const interactive = typeof onStepClick === 'function'
 
@@ -247,7 +249,7 @@ export const StepIndicator = React.forwardRef<HTMLOListElement, StepIndicatorPro
                 <button
                   type="button"
                   onClick={() => onStepClick?.(step.id)}
-                  aria-label={`Go to step: ${step.label}`}
+                  aria-label={t('ui.stepIndicator.goToStep.ariaLabel', 'Go to step: {label}', { label: step.label })}
                   className={cn(
                     'inline-flex items-center gap-2',
                     isVertical && 'w-full',

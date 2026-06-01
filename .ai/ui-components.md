@@ -68,6 +68,11 @@ Detailed variant tables, size matrices, props, examples, and MUST rules for ever
 - [TimeInput](#timeinput)
 - [Backend shims (DatePicker / DateTimePicker / TimePicker)](#backend-shims-datepicker--datetimepicker--timepicker)
 - [Common patterns](#common-patterns)
+- [Badge](#badge)
+- [Dialog](#dialog)
+- [Separator](#separator)
+- [Tabs](#tabs)
+- [Table](#table)
 
 ---
 
@@ -1385,6 +1390,19 @@ import { Avatar, AvatarStack } from '@open-mercato/ui/primitives/avatar'
 - `ring-2 ring-background` is built-in — provides border for `AvatarStack` overlap.
 - For unknown users / empty states: render `<Avatar />` (blank muted circle).
 
+### New props in v5
+
+| Prop | Type | Default | Description |
+|------|------|---------|-------------|
+| `status` | `'online' \| 'offline' \| 'away' \| 'busy'` | — | Bottom-right status pip (color via DS status tokens) |
+| `ring` | `boolean \| 'subtle' \| 'strong'` | `false` | Outer ring (use `'subtle'` in dense lists, `'strong'` for highlighted owner) |
+| `badge` | `ReactNode` | — | Slot for an external badge overlay (e.g. `<Badge variant="brand" />` for AI assignees) |
+
+```tsx
+<Avatar label="Anna Kowalska" status="online" ring="strong" />
+<Avatar label="AI Agent" badge={<Badge variant="brand">AI</Badge>} />
+```
+
 ---
 
 ## Kbd / KbdShortcut
@@ -2449,6 +2467,17 @@ The wrapper has `pointer-events-none` so it does not block clicks on the page un
 - Pass `dismissAriaLabel` and translatable title / description through `useT()` — the primitive has English defaults.
 - For user-driven notifications, pass `avatar={<Avatar label="..." />}` so the leading visual matches the rest of the product's identity treatment.
 - Keep `autoDismissMs` short (3000–6000 ms) for transient confirmations. Omit it entirely for actionable notifications the user must address before dismissing.
+
+### New props in v5
+
+| Prop | Type | Default | Description |
+|------|------|---------|-------------|
+| `autoDismissMs` | `number` | — | Auto-dismiss timer in ms. Omit for sticky notifications |
+| `pauseOnHover` | `boolean` | `true` | Pause the auto-dismiss countdown while the cursor is over the notification |
+
+```tsx
+<Notification title="Saved" autoDismissMs={4000} pauseOnHover />
+```
 
 ---
 
@@ -5315,3 +5344,196 @@ The following modules under `packages/ui/src/backend/inputs/` are kept as `@depr
   </Link>
 </IconButton>
 ```
+
+---
+
+## Badge
+
+**Source:** `packages/ui/src/primitives/badge.tsx`
+
+Inline pill for tagging, status, counts. CVA-based. New props in v5: `dot`, `removable`, `brand` variant, `size`.
+
+### Variants
+- `default` — primary fill
+- `secondary` — neutral fill
+- `destructive` — solid red + shadow (**BC-locked** per spec 2026-05-13-ds-foundation-v5.md; for soft error look use `error` instead)
+- `success` / `warning` / `info` / `error` / `neutral` — soft tinted (`status-*-bg`/`-text`)
+- `brand` — brand-violet tinted pill (for AI / saved-view contexts)
+- `outline` — bordered, foreground text
+- `muted` — muted bg + foreground
+
+### Props
+| Prop | Type | Default | Description |
+|------|------|---------|-------------|
+| `variant` | one of above | `'default'` | Visual variant |
+| `size` | `'sm' \| 'default'` | `'default'` | Pill size |
+| `dot` | `boolean` | `false` | Leading status pip |
+| `removable` | `boolean` | `false` | Render trailing X-button |
+| `onRemove` | `() => void` | — | Handler for `removable` |
+
+### Usage
+```tsx
+<Badge variant="success" dot>Active</Badge>
+<Badge variant="brand" removable onRemove={() => {}}>Saved view</Badge>
+<Badge variant="destructive">Failed</Badge>
+```
+
+### Accessibility
+- Removable button has an `aria-label` derived from children
+- Status semantic conveyed via `variant`, never colour alone — pair with text or icon
+
+---
+
+## Dialog
+
+**Source:** `packages/ui/src/primitives/dialog.tsx`
+
+Modal dialog (Radix-based). v5 added a mobile bottom-sheet layout that automatically reflows to centred desktop modal above `sm` breakpoint.
+
+### Compound API
+- `Dialog` — root (Radix)
+- `DialogTrigger` — opens it (asChild-ready)
+- `DialogPortal` / `DialogOverlay` — portal + scrim
+- `DialogContent` — main surface
+- `DialogHeader` / `DialogTitle` / `DialogDescription` — header slots
+- `DialogFooter` / `DialogClose` — footer + cancel/close
+
+### Props (`DialogContent`)
+| Prop | Type | Default | Description |
+|------|------|---------|-------------|
+| `size` | `'sm' \| 'default' \| 'lg' \| 'xl'` | `'default'` | Desktop max-width on `sm:` breakpoint |
+| `className` | `string` | — | Custom classes |
+
+Mobile (<640px): bottom-sheet (`fixed inset-x-0 bottom-0`, `rounded-t-xl`, `max-h-[90vh]`).
+Desktop (≥640px): centred modal (`sm:left-1/2 sm:top-1/2`, `sm:rounded-xl`, `sm:max-w-{size}`).
+
+### Usage
+```tsx
+<Dialog>
+  <DialogTrigger asChild><Button>Open</Button></DialogTrigger>
+  <DialogPortal>
+    <DialogOverlay />
+    <DialogContent size="lg">
+      <DialogHeader>
+        <DialogTitle>Confirm</DialogTitle>
+        <DialogDescription>Are you sure?</DialogDescription>
+      </DialogHeader>
+      <DialogFooter>
+        <DialogClose asChild><Button variant="outline">Cancel</Button></DialogClose>
+        <Button>Confirm</Button>
+      </DialogFooter>
+    </DialogContent>
+  </DialogPortal>
+</Dialog>
+```
+
+### Accessibility
+- Radix manages focus trap, `Esc`/overlay click to close, scroll lock
+- `DialogTitle` required for screen readers; pair with `DialogDescription` for context
+
+---
+
+## Separator
+
+**Source:** `packages/ui/src/primitives/separator.tsx`
+
+Horizontal or vertical rule between sections. New props in v5: `label` (inline divider text), `section` (semantic eyebrow above rule), `variant`.
+
+### Props
+| Prop | Type | Default | Description |
+|------|------|---------|-------------|
+| `orientation` | `'horizontal' \| 'vertical'` | `'horizontal'` | Direction |
+| `variant` | `'default' \| 'subtle' \| 'strong'` | `'default'` | Visual weight |
+| `label` | `ReactNode` | — | Inline text centred in the rule (horizontal only) |
+| `section` | `ReactNode` | — | Eyebrow label above the rule (mono uppercase) |
+| `decorative` | `boolean` | `true` | Pass `false` when the rule conveys meaning (Radix prop) |
+
+### Usage
+```tsx
+<Separator />
+<Separator label="or" />
+<Separator section="Filters" />
+<Separator orientation="vertical" className="h-6" />
+```
+
+### Accessibility
+- Default `decorative` removes from a11y tree
+- For meaningful separators (e.g. between visually distinct landmarks), pass `decorative={false}`
+
+---
+
+## Tabs
+
+**Source:** `packages/ui/src/primitives/tabs.tsx`
+
+Tabbed navigation. v5 added `variant` and `orientation` props.
+
+### Compound API
+- `Tabs` — root (Radix), `value`/`defaultValue`/`onValueChange`
+- `TabsList` — visual list container
+- `TabsTrigger` — individual tab button
+- `TabsContent` — content panel per tab
+
+### Props (`Tabs`)
+| Prop | Type | Default | Description |
+|------|------|---------|-------------|
+| `variant` | `'underline' \| 'pill' \| 'enclosed'` | `'underline'` | Visual style |
+| `orientation` | `'horizontal' \| 'vertical'` | `'horizontal'` | Layout direction |
+| `value` / `defaultValue` / `onValueChange` | — | — | Controlled / uncontrolled (Radix) |
+
+### Usage
+```tsx
+<Tabs defaultValue="overview" variant="underline">
+  <TabsList>
+    <TabsTrigger value="overview">Overview</TabsTrigger>
+    <TabsTrigger value="specs">Specs</TabsTrigger>
+  </TabsList>
+  <TabsContent value="overview">…</TabsContent>
+  <TabsContent value="specs">…</TabsContent>
+</Tabs>
+```
+
+### Accessibility
+- Radix handles roving tabindex, arrow-key navigation, `aria-selected`
+- For `orientation="vertical"` ensure trigger labels read top-to-bottom
+
+---
+
+## Table
+
+**Source:** `packages/ui/src/primitives/table.tsx`
+
+Semantic HTML table primitives with DS spacing/typography. Pure presentational — no built-in sorting/pagination.
+
+### Compound API
+- `Table` — root `<table>` wrapped in `<div class="overflow-x-auto">`
+- `TableHeader` (`<thead>`), `TableBody` (`<tbody>`), `TableFooter` (`<tfoot>`)
+- `TableRow` (`<tr>`) — hover bg, focus-within styles
+- `TableHead` (`<th>`) — uppercase mono header cell
+- `TableCell` (`<td>`) — body cell
+- `TableCaption` — `<caption>` for screen readers
+
+### Props
+All accept native HTML attributes. Style only via `className`.
+
+### Usage
+```tsx
+<Table>
+  <TableHeader>
+    <TableRow>
+      <TableHead>Name</TableHead>
+      <TableHead>Status</TableHead>
+    </TableRow>
+  </TableHeader>
+  <TableBody>
+    <TableRow>
+      <TableCell>Acme</TableCell>
+      <TableCell><Badge variant="success" dot>Active</Badge></TableCell>
+    </TableRow>
+  </TableBody>
+</Table>
+```
+
+### Accessibility
+- Use `TableCaption` to describe the table for screen readers
+- For sortable columns, render the sort affordance inside `TableHead` with `aria-sort`

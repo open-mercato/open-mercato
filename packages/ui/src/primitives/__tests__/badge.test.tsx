@@ -24,10 +24,10 @@ describe('Badge (Phase B.8)', () => {
     }> = [
       { variant: 'default', cls: 'bg-primary' },
       { variant: 'secondary', cls: 'bg-secondary' },
-      // destructive softened in Phase B.8 polish — was solid bg-destructive,
-      // now matches the error status-tint palette (soft red bg, readable
-      // text-status-error-text). The destructive BUTTON variant stays loud.
-      { variant: 'destructive', cls: 'bg-status-error-bg' },
+      // destructive stays solid loud (bg-destructive) per BC guarantee
+      // in spec 2026-05-13-ds-foundation-v5.md. Soft error-tinted look
+      // is the new `error` variant below.
+      { variant: 'destructive', cls: 'bg-destructive' },
       { variant: 'outline', cls: 'text-foreground' },
       { variant: 'muted', cls: 'bg-muted' },
       { variant: 'success', cls: 'bg-status-success-bg' },

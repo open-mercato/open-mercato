@@ -1,7 +1,19 @@
 /** @jest-environment jsdom */
 
 import * as React from 'react'
-import { render, fireEvent, screen } from '@testing-library/react'
+import { render as rtlRender, fireEvent, screen } from '@testing-library/react'
+import { I18nProvider } from '@open-mercato/shared/lib/i18n/context'
+
+// CommandMenu uses useT() for the sr-only title + footer hints (Navigate / Select).
+// Wrap every render in an empty-dict I18nProvider so the primitive
+// falls back to its English fallbacks without real translations.
+const render: typeof rtlRender = (ui: React.ReactElement, options?: Parameters<typeof rtlRender>[1]) =>
+  rtlRender(
+    <I18nProvider locale="en" dict={{}}>
+      {ui}
+    </I18nProvider>,
+    options,
+  )
 
 // jsdom doesn't implement Element.scrollIntoView; cmdk uses it when
 // the selected item changes. Provide a no-op so the component can mount.

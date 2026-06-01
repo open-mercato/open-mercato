@@ -94,16 +94,16 @@ const drawerContentVariants = cva(
     variants: {
       side: {
         right:
-          'inset-y-0 right-0 h-full w-full max-w-md rounded-l-2xl ' +
+          'inset-y-0 right-0 h-full w-full max-w-md rounded-l-xl ' +
           'data-[state=open]:slide-in-from-right data-[state=closed]:slide-out-to-right',
         left:
-          'inset-y-0 left-0 h-full w-full max-w-md rounded-r-2xl ' +
+          'inset-y-0 left-0 h-full w-full max-w-md rounded-r-xl ' +
           'data-[state=open]:slide-in-from-left data-[state=closed]:slide-out-to-left',
         top:
-          'inset-x-0 top-0 max-h-[80vh] w-full rounded-b-2xl ' +
+          'inset-x-0 top-0 max-h-[80vh] w-full rounded-b-xl ' +
           'data-[state=open]:slide-in-from-top data-[state=closed]:slide-out-to-top',
         bottom:
-          'inset-x-0 bottom-0 max-h-[80vh] w-full rounded-t-2xl ' +
+          'inset-x-0 bottom-0 max-h-[80vh] w-full rounded-t-xl ' +
           'data-[state=open]:slide-in-from-bottom data-[state=closed]:slide-out-to-bottom',
       },
     },

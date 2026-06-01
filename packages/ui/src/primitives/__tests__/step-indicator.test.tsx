@@ -1,8 +1,20 @@
 /** @jest-environment jsdom */
 
 import * as React from 'react'
-import { render, fireEvent } from '@testing-library/react'
+import { render as rtlRender, fireEvent } from '@testing-library/react'
 import { StepIndicator, type StepIndicatorStep } from '../step-indicator'
+import { I18nProvider } from '@open-mercato/shared/lib/i18n/context'
+
+// StepIndicator uses useT() for the "Go to step: {label}" aria-label.
+// Wrap every render in an empty-dict I18nProvider so the primitive
+// falls back to its English fallback without real translations.
+const render: typeof rtlRender = (ui: React.ReactElement, options?: Parameters<typeof rtlRender>[1]) =>
+  rtlRender(
+    <I18nProvider locale="en" dict={{}}>
+      {ui}
+    </I18nProvider>,
+    options,
+  )
 
 const baseSteps: StepIndicatorStep[] = [
   { id: 'account', label: 'Account', status: 'complete' },

@@ -1,7 +1,18 @@
 /** @jest-environment jsdom */
 
 import * as React from 'react'
-import { render, fireEvent } from '@testing-library/react'
+import { render as rtlRender, fireEvent } from '@testing-library/react'
+import { I18nProvider } from '@open-mercato/shared/lib/i18n/context'
+
+// NotificationFeedItem uses useT() for the interactive aria-label fallback.
+// Use the `wrapper` option (instead of manually wrapping `ui`) so that
+// testing-library's `rerender` re-uses the same I18nProvider — otherwise
+// rerender bypasses the wrap and throws "useT must be used within I18nProvider".
+const Wrapper = ({ children }: { children: React.ReactNode }) => (
+  <I18nProvider locale="en" dict={{}}>{children}</I18nProvider>
+)
+const render: typeof rtlRender = (ui: React.ReactElement, options?: Parameters<typeof rtlRender>[1]) =>
+  rtlRender(ui, { wrapper: Wrapper, ...options })
 
 import {
   NotificationFeed,
@@ -24,7 +35,7 @@ describe('NotificationFeed', () => {
     )
     const root = container.querySelector('[data-slot="notification-feed"]') as HTMLElement
     expect(root).not.toBeNull()
-    expect(root.className).toContain('rounded-2xl')
+    expect(root.className).toContain('rounded-xl')
     expect(root.className).toContain('border')
     expect(container.querySelector('[data-slot="notification-feed-header"]')).not.toBeNull()
     expect(container.querySelector('[data-slot="notification-feed-list"]')).not.toBeNull()

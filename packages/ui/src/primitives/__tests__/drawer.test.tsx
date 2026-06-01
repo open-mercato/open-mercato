@@ -88,7 +88,7 @@ describe('Drawer', () => {
     expect(content.className).toContain('inset-y-0')
     expect(content.className).toContain('max-w-md')
     // Per Figma: inner edge rounded, no panel border on the seam.
-    expect(content.className).toContain('rounded-l-2xl')
+    expect(content.className).toContain('rounded-l-xl')
     expect(content.className).not.toMatch(/\bborder-l\b/)
   })
 
@@ -97,7 +97,7 @@ describe('Drawer', () => {
     const content = document.querySelector('[data-slot="drawer-content"]') as HTMLElement
     expect(content.className).toContain('left-0')
     expect(content.className).toContain('inset-y-0')
-    expect(content.className).toContain('rounded-r-2xl')
+    expect(content.className).toContain('rounded-r-xl')
     expect(content.className).not.toMatch(/\bborder-r\b/)
     expect(content.getAttribute('data-side')).toBe('left')
   })
@@ -107,7 +107,7 @@ describe('Drawer', () => {
     const content = document.querySelector('[data-slot="drawer-content"]') as HTMLElement
     expect(content.className).toContain('top-0')
     expect(content.className).toContain('inset-x-0')
-    expect(content.className).toContain('rounded-b-2xl')
+    expect(content.className).toContain('rounded-b-xl')
     expect(content.className).not.toMatch(/\bborder-b\b/)
     expect(content.className).toContain('max-h-[80vh]')
   })
@@ -117,7 +117,7 @@ describe('Drawer', () => {
     const content = document.querySelector('[data-slot="drawer-content"]') as HTMLElement
     expect(content.className).toContain('bottom-0')
     expect(content.className).toContain('inset-x-0')
-    expect(content.className).toContain('rounded-t-2xl')
+    expect(content.className).toContain('rounded-t-xl')
     expect(content.className).not.toMatch(/\bborder-t\b/)
     expect(content.className).toContain('max-h-[80vh]')
   })
@@ -259,6 +259,6 @@ describe('Drawer', () => {
     const content = document.querySelector('[data-slot="drawer-content"]') as HTMLElement
     expect(content.className).toContain('custom-class')
     expect(content.className).toContain('right-0')
-    expect(content.className).toContain('rounded-l-2xl')
+    expect(content.className).toContain('rounded-l-xl')
   })
 })

@@ -198,13 +198,21 @@ export const Pagination = React.forwardRef<HTMLDivElement, PaginationProps>(
       siblingCount = 1,
       boundaryCount = 1,
       disabled = false,
-      formatPageInfo = (p, t) => `Page ${p} of ${t}`,
-      formatPageSizeLabel = (size) => `${size} / page`,
+      formatPageInfo,
+      formatPageSizeLabel,
       ...props
     },
     ref,
   ) => {
     const t = useT()
+    const resolvedFormatPageInfo =
+      formatPageInfo ??
+      ((p: number, total: number) =>
+        t('ui.pagination.info.pageOf', 'Page {page} of {total}', { page: p, total }))
+    const resolvedFormatPageSizeLabel =
+      formatPageSizeLabel ??
+      ((size: number) =>
+        t('ui.pagination.itemsPerPage.label', '{size} / page', { size }))
     const totalPages = Math.max(1, Math.ceil(total / Math.max(1, pageSize)))
     const safePage = Math.min(Math.max(1, page), totalPages)
     const items = React.useMemo(
@@ -226,7 +234,7 @@ export const Pagination = React.forwardRef<HTMLDivElement, PaginationProps>(
       <nav
         ref={ref}
         data-slot="pagination"
-        aria-label={props['aria-label'] ?? 'Pagination'}
+        aria-label={props['aria-label'] ?? t('ui.pagination.landmark.ariaLabel', 'Pagination')}
         className={cn('flex w-full items-center justify-between gap-6', className)}
         {...props}
       >
@@ -235,7 +243,7 @@ export const Pagination = React.forwardRef<HTMLDivElement, PaginationProps>(
             data-slot="pagination-info"
             className="shrink-0 text-sm text-muted-foreground tabular-nums"
           >
-            {formatPageInfo(safePage, totalPages)}
+            {resolvedFormatPageInfo(safePage, totalPages)}
           </div>
         ) : (
           <div />
@@ -350,7 +358,7 @@ export const Pagination = React.forwardRef<HTMLDivElement, PaginationProps>(
               <SelectContent>
                 {pageSizeOptions.map((option) => (
                   <SelectItem key={option} value={String(option)}>
-                    {formatPageSizeLabel(option)}
+                    {resolvedFormatPageSizeLabel(option)}
                   </SelectItem>
                 ))}
               </SelectContent>

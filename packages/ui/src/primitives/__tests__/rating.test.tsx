@@ -1,8 +1,20 @@
 /** @jest-environment jsdom */
 
 import * as React from 'react'
-import { render, fireEvent } from '@testing-library/react'
+import { render as rtlRender, fireEvent } from '@testing-library/react'
 import { Rating } from '../rating'
+import { I18nProvider } from '@open-mercato/shared/lib/i18n/context'
+
+// Rating uses useT() for read-only summary + item aria-labels.
+// Wrap every render in an empty-dict I18nProvider so the primitive
+// falls back to its English fallbacks without real translations.
+const render: typeof rtlRender = (ui: React.ReactElement, options?: Parameters<typeof rtlRender>[1]) =>
+  rtlRender(
+    <I18nProvider locale="en" dict={{}}>
+      {ui}
+    </I18nProvider>,
+    options,
+  )
 
 describe('Rating', () => {
   describe('read-only mode (no onChange)', () => {

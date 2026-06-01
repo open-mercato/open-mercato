@@ -8,6 +8,11 @@ import { cva, type VariantProps } from 'class-variance-authority'
 import { cn } from '@open-mercato/shared/lib/utils'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 
+// Local types for the experimental EyeDropper API (no DOM lib coverage yet).
+interface EyeDropperResult { sRGBHex: string }
+interface EyeDropperAPI { open(): Promise<EyeDropperResult> }
+interface WindowWithEyeDropper extends Window { EyeDropper?: new () => EyeDropperAPI }
+
 /**
  * Color picker per Figma `Color Picker` frame (DS Open Mercato
  * `167184:38583`, doc page `553:22078`). 4-section layout 316×334:
@@ -374,7 +379,7 @@ export const ColorPicker = React.forwardRef<HTMLButtonElement, ColorPickerProps>
 
     React.useEffect(() => {
       if (typeof window === 'undefined') return
-      setEyedropperSupported(typeof (window as any).EyeDropper === 'function')
+      setEyedropperSupported(typeof (window as WindowWithEyeDropper).EyeDropper === 'function')
     }, [])
 
     React.useEffect(() => {
@@ -388,14 +393,14 @@ export const ColorPicker = React.forwardRef<HTMLButtonElement, ColorPickerProps>
       (raw: string) => {
         const next = normalizeHex(raw)
         if (next === null) {
-          setHexError('Invalid hex')
+          setHexError(t('ui.colorPicker.error.invalidHex', 'Invalid hex'))
           return
         }
         setHexError(null)
         setHexInput(next)
         if (next !== normalizedValue) onChange(next)
       },
-      [normalizedValue, onChange],
+      [normalizedValue, onChange, t],
     )
 
     const handleHueChange = React.useCallback(
@@ -409,8 +414,10 @@ export const ColorPicker = React.forwardRef<HTMLButtonElement, ColorPickerProps>
 
     const handleEyedropper = React.useCallback(async () => {
       if (!eyedropperSupported) return
+      const Ctor = (window as WindowWithEyeDropper).EyeDropper
+      if (!Ctor) return
       try {
-        const dropper = new (window as any).EyeDropper()
+        const dropper = new Ctor()
         const result = await dropper.open()
         if (result && typeof result.sRGBHex === 'string') {
           const next = normalizeHex(result.sRGBHex)

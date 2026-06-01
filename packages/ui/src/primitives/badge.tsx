@@ -39,13 +39,11 @@ const badgeVariants = cva(
       variant: {
         default: 'border-transparent bg-primary text-primary-foreground shadow',
         secondary: 'border-transparent bg-secondary text-secondary-foreground',
-        // Phase B.8 polish — softened from the original
-        // `bg-destructive text-destructive-foreground shadow` (solid
-        // red, button-style) to the status-error tint palette. The
-        // hard red was visually jarring on read-only labels; the soft
-        // tint reads as "danger" without screaming. The destructive
-        // BUTTON variant (in button.tsx) stays loud — correct for CTAs.
-        destructive: 'border-status-error-border bg-status-error-bg text-status-error-text',
+        // Kept verbatim from the base contract — BC guarantee in spec
+        // 2026-05-13-ds-foundation-v5.md mandates existing variants must
+        // render byte-identically. For the soft error-toned look, use
+        // the new `error` variant below.
+        destructive: 'border-transparent bg-destructive text-destructive-foreground shadow',
         outline: 'text-foreground',
         muted: 'border-transparent bg-muted text-muted-foreground',
         success: 'border-status-success-border bg-status-success-bg text-status-success-text',

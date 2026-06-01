@@ -80,7 +80,7 @@ export type NotificationProps = {
  * Card composition over the `Alert` primitive matching the Figma
  * Notification reference (`170:1839` — Error/Light/Large). Renders a
  * status icon (or custom `avatar`), a title + timestamp row, an
- * `opacity-72` description, and an optional row of action links. Use
+ * `opacity-70` description, and an optional row of action links. Use
  * with `NotificationStack` for corner-floating manual-dismiss UX, or
  * standalone inside a panel / dialog content area.
  *
@@ -157,7 +157,7 @@ export const Notification = React.forwardRef<HTMLDivElement, NotificationProps>(
           </div>
         )}
         {description ? (
-          <AlertDescription className={cn('opacity-72', title && 'mt-1')} data-slot="notification-description">
+          <AlertDescription className={cn('opacity-70', title && 'mt-1')} data-slot="notification-description">
             {description}
           </AlertDescription>
         ) : null}

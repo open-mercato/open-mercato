@@ -5,6 +5,7 @@ import { Circle, Heart, Star, StarHalf } from 'lucide-react'
 import { cva, type VariantProps } from 'class-variance-authority'
 
 import { cn } from '@open-mercato/shared/lib/utils'
+import { useT } from '@open-mercato/shared/lib/i18n/context'
 
 /**
  * 1-to-N star / heart / dot rating per Figma `Rating & Review [1.0]`
@@ -134,6 +135,7 @@ export const Rating = React.forwardRef<HTMLSpanElement, RatingProps>(
     },
     ref,
   ) => {
+    const t = useT()
     const interactive = typeof onChange === 'function'
     const handleSelect = React.useCallback(
       (next: number) => {
@@ -149,7 +151,7 @@ export const Rating = React.forwardRef<HTMLSpanElement, RatingProps>(
         <span
           ref={ref}
           role="img"
-          aria-label={rest['aria-label'] ?? `${value} out of ${max}`}
+          aria-label={rest['aria-label'] ?? t('ui.rating.summary.ariaLabel', '{value} out of {max}', { value, max })}
           data-slot="rating"
           className={cn(ratingRootVariants({ size, disabled }), className)}
           {...rest}
@@ -186,14 +188,15 @@ export const Rating = React.forwardRef<HTMLSpanElement, RatingProps>(
       >
         {Array.from({ length: max }).map((_, index) => {
           const fill = resolveFillState(index, value, allowHalf)
-          const isCurrent = Math.ceil(value) - 1 === index
+          // Empty rating (value === 0) falls back to the first item so it stays Tab-reachable.
+          const isCurrent = value === 0 ? index === 0 : Math.ceil(value) - 1 === index
           return (
             <button
               key={index}
               type="button"
               role="radio"
               aria-checked={fill !== 'empty'}
-              aria-label={`${index + 1} of ${max}`}
+              aria-label={t('ui.rating.item.ariaLabel', '{position} of {max}', { position: index + 1, max })}
               tabIndex={isCurrent ? 0 : -1}
               data-slot="rating-item"
               data-fill={fill}

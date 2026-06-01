@@ -4,6 +4,7 @@ import * as React from 'react'
 import { cva, type VariantProps } from 'class-variance-authority'
 
 import { cn } from '@open-mercato/shared/lib/utils'
+import { useT } from '@open-mercato/shared/lib/i18n/context'
 
 /**
  * Bell-icon inbox / notification list — the panel that opens when the
@@ -92,7 +93,7 @@ const NotificationFeed = React.forwardRef<
     ref={ref}
     data-slot="notification-feed"
     className={cn(
-      'flex w-full flex-col overflow-hidden rounded-2xl border border-input bg-background shadow-lg',
+      'flex w-full flex-col overflow-hidden rounded-xl border border-input bg-background shadow-lg',
       className,
     )}
     {...props}
@@ -189,6 +190,7 @@ const NotificationFeedItem = React.forwardRef<HTMLLIElement, NotificationFeedIte
     },
     ref,
   ) => {
+    const t = useT()
     const interactive = typeof onClick === 'function'
     return (
       <li
@@ -206,7 +208,7 @@ const NotificationFeedItem = React.forwardRef<HTMLLIElement, NotificationFeedIte
         aria-label={
           interactive
             ? clickAriaLabel ??
-              (typeof title === 'string' ? title : 'Open notification')
+              (typeof title === 'string' ? title : t('ui.notificationFeed.item.openAriaLabel', 'Open notification'))
             : undefined
         }
         onKeyDown={

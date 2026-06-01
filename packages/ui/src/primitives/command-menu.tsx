@@ -6,6 +6,7 @@ import { Command as CommandPrimitive } from 'cmdk'
 import { ChevronRight, Search, X } from 'lucide-react'
 
 import { cn } from '@open-mercato/shared/lib/utils'
+import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { Kbd } from './kbd'
 
 /**
@@ -114,23 +115,28 @@ export type CommandMenuContentProps = React.ComponentPropsWithoutRef<
 const CommandMenuContent = React.forwardRef<
   React.ElementRef<typeof DialogPrimitive.Content>,
   CommandMenuContentProps
->(({ className, contentClassName, title = 'Command menu', commandProps, children, ...props }, ref) => (
-  <CommandMenuPortal>
-    <CommandMenuOverlay />
-    <DialogPrimitive.Content
-      ref={ref}
-      data-slot="command-menu-content"
-      className={cn(
-        'fixed left-1/2 top-[20%] z-popover w-[calc(100%-2rem)] -translate-x-1/2 outline-none',
-        'data-[state=open]:animate-in data-[state=closed]:animate-out',
-        'data-[state=open]:fade-in-0 data-[state=closed]:fade-out-0',
-        'data-[state=open]:zoom-in-95 data-[state=closed]:zoom-out-95',
-        'data-[state=open]:duration-150 data-[state=closed]:duration-100',
-        className,
-      )}
-      {...props}
-    >
-      <DialogPrimitive.Title className="sr-only">{title}</DialogPrimitive.Title>
+>(({ className, contentClassName, title, commandProps, children, ...props }, ref) => {
+  const t = useT()
+  const resolvedTitle = title ?? t('ui.commandMenu.title.srOnly', 'Command menu')
+  return (
+    <CommandMenuPortal>
+      <CommandMenuOverlay />
+      <DialogPrimitive.Content
+        ref={ref}
+        data-slot="command-menu-content"
+        className={cn(
+          // top-1/4 places content roughly 25% from viewport top (Tailwind fraction scale);
+          // w-[calc(100%-2rem)] kept — no DS token expresses "viewport minus 2rem gutters".
+          'fixed left-1/2 top-1/4 z-popover w-[calc(100%-2rem)] -translate-x-1/2 outline-none',
+          'data-[state=open]:animate-in data-[state=closed]:animate-out',
+          'data-[state=open]:fade-in-0 data-[state=closed]:fade-out-0',
+          'data-[state=open]:zoom-in-95 data-[state=closed]:zoom-out-95',
+          'data-[state=open]:duration-150 data-[state=closed]:duration-100',
+          className,
+        )}
+        {...props}
+      >
+        <DialogPrimitive.Title className="sr-only">{resolvedTitle}</DialogPrimitive.Title>
       <CommandPrimitive
         data-slot="command-menu-root"
         className={cn(
@@ -143,7 +149,8 @@ const CommandMenuContent = React.forwardRef<
       </CommandPrimitive>
     </DialogPrimitive.Content>
   </CommandMenuPortal>
-))
+  )
+})
 CommandMenuContent.displayName = 'CommandMenuContent'
 
 export type CommandMenuInputProps = React.ComponentPropsWithoutRef<
@@ -443,7 +450,9 @@ export type CommandMenuFooterProps = React.HTMLAttributes<HTMLDivElement> & {
 }
 
 const CommandMenuFooter = React.forwardRef<HTMLDivElement, CommandMenuFooterProps>(
-  ({ className, hints, helpSlot, ...props }, ref) => (
+  ({ className, hints, helpSlot, ...props }, ref) => {
+    const t = useT()
+    return (
     <div
       ref={ref}
       data-slot="command-menu-footer"
@@ -459,11 +468,11 @@ const CommandMenuFooter = React.forwardRef<HTMLDivElement, CommandMenuFooterProp
             <span className="inline-flex items-center gap-1">
               <Kbd>{'↑'}</Kbd>
               <Kbd>{'↓'}</Kbd>
-              <span>Navigate</span>
+              <span>{t('ui.commandMenu.footer.navigate', 'Navigate')}</span>
             </span>
             <span className="inline-flex items-center gap-1">
               <Kbd>{'↵'}</Kbd>
-              <span>Select</span>
+              <span>{t('ui.commandMenu.footer.select', 'Select')}</span>
             </span>
           </>
         )}
@@ -472,7 +481,8 @@ const CommandMenuFooter = React.forwardRef<HTMLDivElement, CommandMenuFooterProp
         <div data-slot="command-menu-footer-help">{helpSlot}</div>
       ) : null}
     </div>
-  ),
+    )
+  },
 )
 CommandMenuFooter.displayName = 'CommandMenuFooter'
 
