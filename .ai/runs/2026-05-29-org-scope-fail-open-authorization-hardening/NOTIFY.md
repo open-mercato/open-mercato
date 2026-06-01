@@ -23,3 +23,12 @@ Append-only log of resume starts/ends, checkpoints, blockers, decisions, subagen
 - `gh` REST/GraphQL down the entire session (~1h+); `git push` worked. Three finalization retries (body edit, summary comment, consolidated 55-min loop) all exhausted without a single successful gh API call.
 - Ready-to-post content preserved: `final-gate-artifacts/pending-pr-body.md`, `pending-summary-comment.md`. Re-run `/om-auto-continue-pr-loop 2300` when gh recovers to apply.
 - PR body still reads `Status: in-progress` (could not be flipped) — this reflects the GitHub-annotation state, NOT the verification state, which is complete.
+
+## 2026-06-01T07:40Z — finalization resume (gh healthy)
+- Resumed by: @adeptofvoltron. Resume point: all Tasks rows already `done` → GitHub-finalization only; no code changed.
+- ✅ Applied `pending-pr-body.md` → PR body `Status: complete`, correct `Tracking plan:` path, `Closes #2239/#2245`.
+- ✅ Posted `pending-summary-comment.md` → `#issuecomment-4590492872`.
+- Root-caused the prior "gh down": `gh` is snap-confined and cannot read `/tmp`; `--body-file` must live under `$HOME`. With files under `/home/bernard/`, body edit + comment succeeded.
+- BLOCKED (account is `READ` on `open-mercato/open-mercato`; `AddLabelsToLabelable` denied): label normalization (`review`/`security`/`bug`/`needs-qa`), draft→ready flip, and the `om-auto-review-pr` verdict. Handed to a write-access maintainer in HANDOFF.
+- `test:create-app:integration` remains a documented env skip (verdaccio container conflict).
+- Final status: substantive work + verification COMPLETE; PR annotations applied as far as author permissions allow. Remaining items are maintainer-permission-bound, not engineering.
