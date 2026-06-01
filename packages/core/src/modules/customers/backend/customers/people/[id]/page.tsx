@@ -7,7 +7,8 @@ import { Page, PageBody } from '@open-mercato/ui/backend/Page'
 import { Button } from '@open-mercato/ui/primitives/button'
 import { Spinner } from '@open-mercato/ui/primitives/spinner'
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
-import { apiCallOrThrow, readApiResultOrThrow } from '@open-mercato/ui/backend/utils/apiCall'
+import { apiCallOrThrow, readApiResultOrThrow, withScopedApiRequestHeaders } from '@open-mercato/ui/backend/utils/apiCall'
+import { buildOptimisticLockHeader } from '@open-mercato/ui/backend/utils/optimisticLock'
 import { collectCustomFieldValues } from '@open-mercato/ui/backend/utils/customFieldValues'
 import { mapCrudServerErrorToFormErrors } from '@open-mercato/ui/backend/utils/serverErrors'
 import { E } from '#generated/entities.ids.generated'
@@ -310,14 +311,17 @@ export default function CustomerPersonDetailPage({ params }: { params?: { id?: s
       if (!data) return
       const payload = { id: data.person.id, ...patch }
       await runMutationWithContext(
-        () => apiCallOrThrow(
-          '/api/customers/people',
-          {
-            method: 'PUT',
-            headers: { 'content-type': 'application/json' },
-            body: JSON.stringify(payload),
-          },
-          { errorMessage: t('customers.people.detail.inline.error') },
+        () => withScopedApiRequestHeaders(
+          buildOptimisticLockHeader((data?.person as { updatedAt?: string } | undefined)?.updatedAt),
+          () => apiCallOrThrow(
+            '/api/customers/people',
+            {
+              method: 'PUT',
+              headers: { 'content-type': 'application/json' },
+              body: JSON.stringify(payload),
+            },
+            { errorMessage: t('customers.people.detail.inline.error') },
+          ),
         ),
         payload,
       )
@@ -374,13 +378,16 @@ export default function CustomerPersonDetailPage({ params }: { params?: { id?: s
     setIsDeleting(true)
     try {
       await runMutationWithContext(
-        () => apiCallOrThrow(
-          `/api/customers/people?id=${encodeURIComponent(personId)}`,
-          {
-            method: 'DELETE',
-            headers: { 'content-type': 'application/json' },
-          },
-          { errorMessage: t('customers.people.list.deleteError') },
+        () => withScopedApiRequestHeaders(
+          buildOptimisticLockHeader((data?.person as { updatedAt?: string } | undefined)?.updatedAt),
+          () => apiCallOrThrow(
+            `/api/customers/people?id=${encodeURIComponent(personId)}`,
+            {
+              method: 'DELETE',
+              headers: { 'content-type': 'application/json' },
+            },
+            { errorMessage: t('customers.people.list.deleteError') },
+          ),
         ),
         { id: personId },
       )
@@ -420,14 +427,17 @@ export default function CustomerPersonDetailPage({ params }: { params?: { id?: s
           customFields: customPayload,
         }
         await runMutationWithContext(
-          () => apiCallOrThrow(
-            '/api/customers/people',
-            {
-              method: 'PUT',
-              headers: { 'content-type': 'application/json' },
-              body: JSON.stringify(payload),
-            },
-            { errorMessage: t('customers.people.detail.inline.error') },
+          () => withScopedApiRequestHeaders(
+            buildOptimisticLockHeader((data?.person as { updatedAt?: string } | undefined)?.updatedAt),
+            () => apiCallOrThrow(
+              '/api/customers/people',
+              {
+                method: 'PUT',
+                headers: { 'content-type': 'application/json' },
+                body: JSON.stringify(payload),
+              },
+              { errorMessage: t('customers.people.detail.inline.error') },
+            ),
           ),
           payload,
         )

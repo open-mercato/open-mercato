@@ -8,7 +8,8 @@ import { DataTable } from '@open-mercato/ui/backend/DataTable'
 import type { ColumnDef } from '@tanstack/react-table'
 import { Button } from '@open-mercato/ui/primitives/button'
 import { RowActions } from '@open-mercato/ui/backend/RowActions'
-import { apiCall } from '@open-mercato/ui/backend/utils/apiCall'
+import { apiCall, withScopedApiRequestHeaders } from '@open-mercato/ui/backend/utils/apiCall'
+import { buildOptimisticLockHeader } from '@open-mercato/ui/backend/utils/optimisticLock'
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
@@ -83,9 +84,13 @@ export default function RuleSetsListPage() {
     })
     if (!confirmed) return
 
-    const result = await apiCall(`/api/business_rules/sets?id=${id}`, {
-      method: 'DELETE',
-    })
+    const record = (data || []).find((item) => item.id === id)
+    const result = await withScopedApiRequestHeaders(
+      buildOptimisticLockHeader(record?.updatedAt),
+      () => apiCall(`/api/business_rules/sets?id=${id}`, {
+        method: 'DELETE',
+      }),
+    )
 
     if (result.ok) {
       flash(t('business_rules.sets.messages.deleted'), 'success')
@@ -96,14 +101,18 @@ export default function RuleSetsListPage() {
   }
 
   const handleToggleEnabled = async (id: string, currentEnabled: boolean) => {
-    const result = await apiCall('/api/business_rules/sets', {
-      method: 'PUT',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        id,
-        enabled: !currentEnabled,
+    const record = (data || []).find((item) => item.id === id)
+    const result = await withScopedApiRequestHeaders(
+      buildOptimisticLockHeader(record?.updatedAt),
+      () => apiCall('/api/business_rules/sets', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          id,
+          enabled: !currentEnabled,
+        }),
       }),
-    })
+    )
 
     if (result.ok) {
       flash(t('business_rules.sets.messages.updated'), 'success')

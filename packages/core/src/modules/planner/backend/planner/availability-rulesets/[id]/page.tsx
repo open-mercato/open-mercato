@@ -40,6 +40,7 @@ export default function PlannerAvailabilityRuleSetDetailPage({ params }: { param
   const rulesetId = params?.id
   const translate = useT()
   const router = useRouter()
+  // optimistic-lock: AvailabilityRuleSetForm forwards optimisticLockUpdatedAt from initialValues.updatedAt (wrapper auto-derives the header on save + delete).
   const [initialValues, setInitialValues] = React.useState<AvailabilityRuleSetFormValues | null>(null)
   const [activeTab, setActiveTab] = React.useState<'details' | 'availability'>('details')
 

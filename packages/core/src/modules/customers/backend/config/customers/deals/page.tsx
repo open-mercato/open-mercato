@@ -81,6 +81,7 @@ export default function DealsSettingsPage(): React.ReactElement {
     try {
       await runMutation({
         operation: async () => {
+          // optimistic-lock-exempt: tenant-scoped preference setting (single stuckThresholdDays value, no loaded record version)
           await apiCallOrThrow(
             '/api/customers/settings/stuck-threshold',
             {

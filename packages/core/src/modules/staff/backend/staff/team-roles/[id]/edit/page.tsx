@@ -39,6 +39,7 @@ export default function StaffTeamRoleEditPage({ params }: { params?: { id?: stri
   const t = useT()
   const router = useRouter()
   const scopeVersion = useOrganizationScopeVersion()
+  // optimistic-lock: TeamRoleForm forwards optimisticLockUpdatedAt from initialValues.updatedAt (wrapper auto-derives the header on save + delete).
   const [initialValues, setInitialValues] = React.useState<TeamRoleFormValues | null>(null)
   const [teams, setTeams] = React.useState<TeamRoleOption[]>([])
 

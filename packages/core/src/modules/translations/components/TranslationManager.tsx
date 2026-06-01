@@ -7,7 +7,8 @@ import { Input } from '@open-mercato/ui/primitives/input'
 import { ComboboxInput } from '@open-mercato/ui/backend/inputs'
 import { LoadingMessage, ErrorMessage } from '@open-mercato/ui/backend/detail'
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
-import { apiCall, readApiResultOrThrow } from '@open-mercato/ui/backend/utils/apiCall'
+import { apiCall, readApiResultOrThrow, withScopedApiRequestHeaders } from '@open-mercato/ui/backend/utils/apiCall'
+import { buildOptimisticLockHeader } from '@open-mercato/ui/backend/utils/optimisticLock'
 import { useCustomFieldDefs } from '@open-mercato/ui/backend/utils/customFieldDefs'
 import { Save, Plus, X } from 'lucide-react'
 import { useOrganizationScopeVersion } from '@open-mercato/shared/lib/frontend/useOrganizationScope'
@@ -238,13 +239,16 @@ export function TranslationManager({
         console.warn('[translations] Save skipped: payload is empty — no locale contains any non-empty field')
         throw new Error(t('translations.manager.errors.nothingToSave', 'Nothing to save — enter a translation first'))
       }
-      const res = await apiCall(
-        `/api/translations/${encodeURIComponent(entityType)}/${encodeURIComponent(recordId)}`,
-        {
-          method: 'PUT',
-          headers: { 'content-type': 'application/json' },
-          body: JSON.stringify(body),
-        },
+      const res = await withScopedApiRequestHeaders(
+        buildOptimisticLockHeader(translationData?.updatedAt),
+        () => apiCall(
+          `/api/translations/${encodeURIComponent(entityType)}/${encodeURIComponent(recordId)}`,
+          {
+            method: 'PUT',
+            headers: { 'content-type': 'application/json' },
+            body: JSON.stringify(body),
+          },
+        ),
       )
       if (!res.ok) {
         throw new Error(t('translations.manager.errors.save', 'Failed to save translations'))
@@ -539,6 +543,7 @@ export function LocaleManager() {
 
   const mutation = useMutation({
     mutationFn: async (updatedLocales: string[]) => {
+      // optimistic-lock-exempt: single-row tenant supported-locales settings list — no per-record version / concurrent record edit
       const res = await apiCall<{ locales: string[] }>('/api/translations/locales', {
         method: 'PUT',
         headers: { 'content-type': 'application/json' },

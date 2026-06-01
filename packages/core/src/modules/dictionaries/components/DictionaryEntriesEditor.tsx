@@ -14,7 +14,8 @@ import {
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@open-mercato/ui/primitives/table'
 import { Spinner } from '@open-mercato/ui/primitives/spinner'
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
-import { apiCall } from '@open-mercato/ui/backend/utils/apiCall'
+import { apiCall, withScopedApiRequestHeaders } from '@open-mercato/ui/backend/utils/apiCall'
+import { buildOptimisticLockHeader } from '@open-mercato/ui/backend/utils/optimisticLock'
 import { useQueryClient } from '@tanstack/react-query'
 import { useOrganizationScopeVersion } from '@open-mercato/shared/lib/frontend/useOrganizationScope'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
@@ -45,6 +46,7 @@ type FormState = {
   label: string
   color: string | null
   icon: string | null
+  updatedAt?: string | null
 }
 
 export function DictionaryEntriesEditor({ dictionaryId, dictionaryName, readOnly = false }: DictionaryEntriesEditorProps) {
@@ -93,6 +95,7 @@ export function DictionaryEntriesEditor({ dictionaryId, dictionaryName, readOnly
           label: entry.label,
           color: entry.color ?? null,
           icon: entry.icon ?? null,
+          updatedAt: entry.updatedAt ?? null,
         })
         appearance.setColor(entry.color ?? null)
         appearance.setIcon(entry.icon ?? null)
@@ -136,13 +139,17 @@ export function DictionaryEntriesEditor({ dictionaryId, dictionaryName, readOnly
         icon: appearance.icon,
       }
       if (formState.id) {
-        const call = await apiCall<Record<string, unknown>>(
-          `/api/dictionaries/${dictionaryId}/entries/${formState.id}`,
-          {
-            method: 'PATCH',
-            headers: { 'content-type': 'application/json' },
-            body: JSON.stringify(payload),
-          },
+        const call = await withScopedApiRequestHeaders(
+          buildOptimisticLockHeader(formState.updatedAt),
+          () =>
+            apiCall<Record<string, unknown>>(
+              `/api/dictionaries/${dictionaryId}/entries/${formState.id}`,
+              {
+                method: 'PATCH',
+                headers: { 'content-type': 'application/json' },
+                body: JSON.stringify(payload),
+              },
+            ),
         )
         if (!call.ok) {
           throw new Error(
@@ -178,7 +185,7 @@ export function DictionaryEntriesEditor({ dictionaryId, dictionaryName, readOnly
     } finally {
       setIsSaving(false)
     }
-  }, [appearance, dictionaryId, formState.id, formState.label, formState.value, queryClient, readOnly, readOnlyMessage, t])
+  }, [appearance, dictionaryId, formState.id, formState.label, formState.updatedAt, formState.value, queryClient, readOnly, readOnlyMessage, t])
 
   const handleDelete = React.useCallback(
     async (entry: Entry) => {
@@ -194,9 +201,13 @@ export function DictionaryEntriesEditor({ dictionaryId, dictionaryName, readOnly
       if (!confirmDelete) return
       setIsDeleting(true)
       try {
-        const call = await apiCall<Record<string, unknown>>(
-          `/api/dictionaries/${dictionaryId}/entries/${entry.id}`,
-          { method: 'DELETE' },
+        const call = await withScopedApiRequestHeaders(
+          buildOptimisticLockHeader(entry.updatedAt),
+          () =>
+            apiCall<Record<string, unknown>>(
+              `/api/dictionaries/${dictionaryId}/entries/${entry.id}`,
+              { method: 'DELETE' },
+            ),
         )
         if (!call.ok) {
           throw new Error(

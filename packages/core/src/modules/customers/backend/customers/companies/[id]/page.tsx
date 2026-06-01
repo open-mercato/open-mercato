@@ -8,7 +8,8 @@ import { Button } from '@open-mercato/ui/primitives/button'
 import { Separator } from '@open-mercato/ui/primitives/separator'
 import { Spinner } from '@open-mercato/ui/primitives/spinner'
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
-import { apiCallOrThrow, readApiResultOrThrow } from '@open-mercato/ui/backend/utils/apiCall'
+import { apiCallOrThrow, readApiResultOrThrow, withScopedApiRequestHeaders } from '@open-mercato/ui/backend/utils/apiCall'
+import { buildOptimisticLockHeader } from '@open-mercato/ui/backend/utils/optimisticLock'
 import { collectCustomFieldValues } from '@open-mercato/ui/backend/utils/customFieldValues'
 import { mapCrudServerErrorToFormErrors } from '@open-mercato/ui/backend/utils/serverErrors'
 import { E } from '#generated/entities.ids.generated'
@@ -325,14 +326,17 @@ export default function CustomerCompanyDetailPage({ params }: { params?: { id?: 
       if (!data) return
       const payload = { id: data.company.id, ...patch }
       await runMutationWithContext(
-        () => apiCallOrThrow(
-          '/api/customers/companies',
-          {
-            method: 'PUT',
-            headers: { 'content-type': 'application/json' },
-            body: JSON.stringify(payload),
-          },
-          { errorMessage: t('customers.companies.detail.inline.error', 'Unable to update company.') },
+        () => withScopedApiRequestHeaders(
+          buildOptimisticLockHeader((data?.company as { updatedAt?: string } | undefined)?.updatedAt),
+          () => apiCallOrThrow(
+            '/api/customers/companies',
+            {
+              method: 'PUT',
+              headers: { 'content-type': 'application/json' },
+              body: JSON.stringify(payload),
+            },
+            { errorMessage: t('customers.companies.detail.inline.error', 'Unable to update company.') },
+          ),
         ),
         payload,
       )
@@ -419,14 +423,17 @@ export default function CustomerCompanyDetailPage({ params }: { params?: { id?: 
       }
       try {
         await runMutationWithContext(
-          () => apiCallOrThrow(
-            '/api/customers/companies',
-            {
-              method: 'PUT',
-              headers: { 'content-type': 'application/json' },
-              body: JSON.stringify(payload),
-            },
-            { errorMessage: t('customers.companies.detail.inline.error', 'Unable to update company.') },
+          () => withScopedApiRequestHeaders(
+            buildOptimisticLockHeader((data?.company as { updatedAt?: string } | undefined)?.updatedAt),
+            () => apiCallOrThrow(
+              '/api/customers/companies',
+              {
+                method: 'PUT',
+                headers: { 'content-type': 'application/json' },
+                body: JSON.stringify(payload),
+              },
+              { errorMessage: t('customers.companies.detail.inline.error', 'Unable to update company.') },
+            ),
           ),
           payload,
         )
@@ -493,13 +500,16 @@ export default function CustomerCompanyDetailPage({ params }: { params?: { id?: 
     setIsDeleting(true)
     try {
       await runMutationWithContext(
-        () => apiCallOrThrow(
-          `/api/customers/companies?id=${encodeURIComponent(currentCompanyId)}`,
-          {
-            method: 'DELETE',
-            headers: { 'content-type': 'application/json' },
-          },
-          { errorMessage: t('customers.companies.list.deleteError', 'Failed to delete company.') },
+        () => withScopedApiRequestHeaders(
+          buildOptimisticLockHeader((data?.company as { updatedAt?: string } | undefined)?.updatedAt),
+          () => apiCallOrThrow(
+            `/api/customers/companies?id=${encodeURIComponent(currentCompanyId)}`,
+            {
+              method: 'DELETE',
+              headers: { 'content-type': 'application/json' },
+            },
+            { errorMessage: t('customers.companies.list.deleteError', 'Failed to delete company.') },
+          ),
         ),
         { id: currentCompanyId },
       )

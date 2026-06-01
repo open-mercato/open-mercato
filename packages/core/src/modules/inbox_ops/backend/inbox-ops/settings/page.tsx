@@ -71,6 +71,7 @@ export default function InboxSettingsPage() {
   const handleLanguageChange = React.useCallback(async (workingLanguage: string) => {
     setIsSavingLanguage(true)
     const result = await runMutation({
+      // optimistic-lock-exempt: single-row tenant inbox settings blob — no per-record version / concurrent record edit
       operation: () => apiCall<{ ok: boolean; settings: { workingLanguage: string } }>('/api/inbox_ops/settings', {
         method: 'PATCH',
         body: JSON.stringify({ workingLanguage }),

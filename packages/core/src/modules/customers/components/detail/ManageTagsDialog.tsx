@@ -768,6 +768,7 @@ export function ManageTagsDialog({ open, onClose }: ManageTagsDialogProps) {
             if (entry.id) {
               await runGuardedMutation(
                 () =>
+                  // optimistic-lock-exempt: tag dictionary entry assignment add/remove
                   apiCallOrThrow(`/api/customers/dictionaries/${category.kind}/${entry.id}`, {
                     method: 'DELETE',
                   }),
@@ -787,6 +788,7 @@ export function ManageTagsDialog({ open, onClose }: ManageTagsDialogProps) {
           if (!entry.id) {
             await runGuardedMutation(
               () =>
+                // optimistic-lock-exempt: tag dictionary entry create-only
                 apiCallOrThrow(`/api/customers/dictionaries/${category.kind}`, {
                   method: 'POST',
                   headers: { 'content-type': 'application/json' },
@@ -813,6 +815,7 @@ export function ManageTagsDialog({ open, onClose }: ManageTagsDialogProps) {
 
           await runGuardedMutation(
             () =>
+              // optimistic-lock-exempt: tag dictionary entry assignment add/remove
               apiCallOrThrow(`/api/customers/dictionaries/${category.kind}/${entry.id}`, {
                 method: 'PATCH',
                 headers: { 'content-type': 'application/json' },
@@ -899,6 +902,7 @@ export function ManageTagsDialog({ open, onClose }: ManageTagsDialogProps) {
     try {
       await runGuardedMutation(
         () =>
+          // optimistic-lock-exempt: tag dictionary kind-settings assignment add/remove
           apiCallOrThrow('/api/customers/dictionaries/kind-settings', {
             method: 'PATCH',
             headers: { 'content-type': 'application/json' },

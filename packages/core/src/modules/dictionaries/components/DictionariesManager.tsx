@@ -8,7 +8,8 @@ import { Button } from '@open-mercato/ui/primitives/button'
 import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from '@open-mercato/ui/primitives/dialog'
 import { Spinner } from '@open-mercato/ui/primitives/spinner'
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
-import { apiCall } from '@open-mercato/ui/backend/utils/apiCall'
+import { apiCall, withScopedApiRequestHeaders } from '@open-mercato/ui/backend/utils/apiCall'
+import { buildOptimisticLockHeader } from '@open-mercato/ui/backend/utils/optimisticLock'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { useConfirmDialog } from '@open-mercato/ui/backend/confirm-dialog'
 import { DictionaryEntriesEditor } from './DictionaryEntriesEditor'
@@ -23,6 +24,7 @@ export type DictionarySummary = {
   organizationId: string
   isInherited: boolean
   managerVisibility: 'default' | 'hidden'
+  updatedAt?: string | null
 }
 
 type DialogState = {
@@ -67,6 +69,7 @@ export function DictionariesManager() {
             isInherited: item.isInherited === true,
             managerVisibility:
               item.managerVisibility === 'hidden' ? 'hidden' : 'default',
+            updatedAt: typeof item.updatedAt === 'string' ? item.updatedAt : null,
           }))
         : []
       const filtered = list.filter((dictionary: DictionarySummary) => dictionary.managerVisibility !== 'hidden')
@@ -170,11 +173,15 @@ export function DictionariesManager() {
         }
         flash(t('dictionaries.config.success.create', 'Dictionary created.'), 'success')
       } else if (dialog.dictionary) {
-        const call = await apiCall<Record<string, unknown>>(`/api/dictionaries/${dialog.dictionary.id}`, {
-          method: 'PATCH',
-          headers: { 'content-type': 'application/json' },
-          body: JSON.stringify(payload),
-        })
+        const call = await withScopedApiRequestHeaders(
+          buildOptimisticLockHeader(dialog.dictionary.updatedAt),
+          () =>
+            apiCall<Record<string, unknown>>(`/api/dictionaries/${dialog.dictionary!.id}`, {
+              method: 'PATCH',
+              headers: { 'content-type': 'application/json' },
+              body: JSON.stringify(payload),
+            }),
+        )
         if (!call.ok) {
           throw new Error(typeof call.result?.error === 'string' ? call.result.error : 'Failed to update dictionary')
         }
@@ -212,7 +219,10 @@ export function DictionariesManager() {
       if (!confirmed) return
       setDeleting(dictionary.id)
       try {
-        const call = await apiCall<Record<string, unknown>>(`/api/dictionaries/${dictionary.id}`, { method: 'DELETE' })
+        const call = await withScopedApiRequestHeaders(
+          buildOptimisticLockHeader(dictionary.updatedAt),
+          () => apiCall<Record<string, unknown>>(`/api/dictionaries/${dictionary.id}`, { method: 'DELETE' }),
+        )
         if (!call.ok) {
           throw new Error(typeof call.result?.error === 'string' ? call.result.error : 'Failed to delete dictionary')
         }

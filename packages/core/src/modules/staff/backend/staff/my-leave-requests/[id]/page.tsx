@@ -61,6 +61,7 @@ export default function StaffMyLeaveRequestDetailPage({ params }: { params?: { i
 
   const status = record?.status ?? 'pending'
   const memberLabel = record?.member?.displayName ?? null
+  // optimistic-lock: LeaveRequestForm forwards optimisticLockUpdatedAt from initialValues.updatedAt (wrapper auto-derives the header on save).
   const initialValues = React.useMemo<LeaveRequestFormValues>(() => ({
     id: record?.id,
     memberId: record?.memberId ?? null,

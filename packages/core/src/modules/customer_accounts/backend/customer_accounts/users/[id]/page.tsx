@@ -11,7 +11,8 @@ import { PasswordInput } from '@open-mercato/ui/primitives/password-input'
 import { Spinner } from '@open-mercato/ui/primitives/spinner'
 import { SwitchField } from '@open-mercato/ui/primitives/switch-field'
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@open-mercato/ui/primitives/dialog'
-import { apiCall, readApiResultOrThrow } from '@open-mercato/ui/backend/utils/apiCall'
+import { apiCall, readApiResultOrThrow, withScopedApiRequestHeaders } from '@open-mercato/ui/backend/utils/apiCall'
+import { buildOptimisticLockHeader } from '@open-mercato/ui/backend/utils/optimisticLock'
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { useConfirmDialog } from '@open-mercato/ui/backend/confirm-dialog'
@@ -325,19 +326,22 @@ export default function CustomerUserDetailPage({ params }: { params?: { id?: str
     setIsSaving(true)
     try {
       await runMutationWithContext(async () => {
-        const call = await apiCall<{ ok: boolean; error?: string }>(
-          `/api/customer_accounts/admin/users/${encodeURIComponent(id)}`,
-          {
-            method: 'PUT',
-            headers: { 'content-type': 'application/json' },
-            body: JSON.stringify({
-              displayName: editDisplayName.trim() || undefined,
-              isActive: editActive,
-              roleIds: selectedRoleIds,
-              personEntityId: editPersonEntityId,
-              customerEntityId: editCustomerEntityId,
-            }),
-          },
+        const call = await withScopedApiRequestHeaders(
+          buildOptimisticLockHeader(data.updatedAt),
+          () => apiCall<{ ok: boolean; error?: string }>(
+            `/api/customer_accounts/admin/users/${encodeURIComponent(id)}`,
+            {
+              method: 'PUT',
+              headers: { 'content-type': 'application/json' },
+              body: JSON.stringify({
+                displayName: editDisplayName.trim() || undefined,
+                isActive: editActive,
+                roleIds: selectedRoleIds,
+                personEntityId: editPersonEntityId,
+                customerEntityId: editCustomerEntityId,
+              }),
+            },
+          ),
         )
         if (!call.ok) {
           flash(call.result?.error || t('customer_accounts.admin.detail.error.save', 'Failed to save user'), 'error')
@@ -371,9 +375,12 @@ export default function CustomerUserDetailPage({ params }: { params?: { id?: str
     if (!confirmed) return
     try {
       await runMutationWithContext(async () => {
-        const call = await apiCall(
-          `/api/customer_accounts/admin/users/${encodeURIComponent(id)}`,
-          { method: 'DELETE' },
+        const call = await withScopedApiRequestHeaders(
+          buildOptimisticLockHeader(data.updatedAt),
+          () => apiCall(
+            `/api/customer_accounts/admin/users/${encodeURIComponent(id)}`,
+            { method: 'DELETE' },
+          ),
         )
         if (!call.ok) {
           flash(t('customer_accounts.admin.error.delete', 'Failed to delete user'), 'error')

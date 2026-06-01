@@ -109,6 +109,7 @@ export default function ResourcesResourceTypeEditPage({ params }: { params?: { i
         {error ? (
           <ErrorMessage label={error} />
         ) : null}
+        {/* optimistic-lock: ResourceTypeCrudForm forwards optimisticLockUpdatedAt from initialValues.updatedAt (auto-derives the header on save + delete). */}
         <ResourceTypeCrudForm
           mode="edit"
           initialValues={initialValues ?? { id: resourceTypeId, name: '', description: '', appearance: { icon: null, color: null } }}

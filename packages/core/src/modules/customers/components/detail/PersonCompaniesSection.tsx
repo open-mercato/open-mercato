@@ -238,6 +238,7 @@ export function PersonCompaniesSection({
         for (const companyId of removedIds) {
           await runWriteMutation(
             () =>
+              // optimistic-lock-exempt: person-company link add/remove
               apiCallOrThrow(
                 `/api/customers/people/${encodeURIComponent(personId)}/companies/${encodeURIComponent(companyId)}`,
                 { method: 'DELETE' },
@@ -249,6 +250,7 @@ export function PersonCompaniesSection({
         for (const companyId of addedIds) {
           await runWriteMutation(
             () =>
+              // optimistic-lock-exempt: person-company link add/remove
               apiCallOrThrow(
                 `/api/customers/people/${encodeURIComponent(personId)}/companies`,
                 {
@@ -271,6 +273,7 @@ export function PersonCompaniesSection({
         ) {
           await runWriteMutation(
             () =>
+              // optimistic-lock-exempt: person-company link set-primary (add/remove)
               apiCallOrThrow(
                 `/api/customers/people/${encodeURIComponent(personId)}/companies/${encodeURIComponent(nextPrimaryId)}`,
                 {
@@ -332,6 +335,7 @@ export function PersonCompaniesSection({
       try {
         await runWriteMutation(
           () =>
+            // optimistic-lock-exempt: person-company link add/remove
             apiCallOrThrow(
               `/api/customers/people/${encodeURIComponent(personId)}/companies/${encodeURIComponent(companyId)}`,
               { method: 'DELETE' },

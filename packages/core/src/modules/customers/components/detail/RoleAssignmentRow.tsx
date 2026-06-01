@@ -82,6 +82,7 @@ export function RoleAssignmentRow({
     try {
       await runMutationWithContext(
         () =>
+          // optimistic-lock-exempt: role assignment add/remove
           apiCallOrThrow(`/api/customers/${basePath}/${entityId}/roles?roleId=${role.id}`, {
             method: 'PUT',
             headers: { 'content-type': 'application/json' },
@@ -110,6 +111,7 @@ export function RoleAssignmentRow({
     try {
       await runMutationWithContext(
         () =>
+          // optimistic-lock-exempt: role assignment add/remove
           apiCallOrThrow(`/api/customers/${basePath}/${entityId}/roles?roleId=${role.id}`, {
             method: 'DELETE',
           }),

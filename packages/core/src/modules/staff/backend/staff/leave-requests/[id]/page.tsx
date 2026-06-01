@@ -8,7 +8,8 @@ import { Button } from '@open-mercato/ui/primitives/button'
 import { Textarea } from '@open-mercato/ui/primitives/textarea'
 import { LoadingMessage, ErrorMessage } from '@open-mercato/ui/backend/detail'
 import { SendObjectMessageDialog } from '@open-mercato/ui/backend/messages'
-import { apiCallOrThrow, readApiResultOrThrow } from '@open-mercato/ui/backend/utils/apiCall'
+import { apiCallOrThrow, readApiResultOrThrow, withScopedApiRequestHeaders } from '@open-mercato/ui/backend/utils/apiCall'
+import { buildOptimisticLockHeader } from '@open-mercato/ui/backend/utils/optimisticLock'
 import { updateCrud } from '@open-mercato/ui/backend/utils/crud'
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
@@ -92,11 +93,14 @@ const handleSubmit = React.useCallback(async (values: LeaveRequestFormValues) =>
   const handleDecision = React.useCallback(async (action: 'accept' | 'reject') => {
     if (!record?.id) return
     const endpoint = action === 'accept' ? '/api/staff/leave-requests/accept' : '/api/staff/leave-requests/reject'
-    await apiCallOrThrow(endpoint, {
-      method: 'POST',
-      headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ id: record.id, decisionComment: decisionComment || null }),
-    })
+    await withScopedApiRequestHeaders(
+      buildOptimisticLockHeader(record.updatedAt),
+      () => apiCallOrThrow(endpoint, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ id: record.id, decisionComment: decisionComment || null }),
+      }),
+    )
     flash(
       action === 'accept'
         ? t('staff.leaveRequests.messages.accepted', 'Leave request approved.')
@@ -104,7 +108,7 @@ const handleSubmit = React.useCallback(async (values: LeaveRequestFormValues) =>
       'success',
     )
     router.refresh()
-  }, [decisionComment, record?.id, router, t])
+  }, [decisionComment, record?.id, record?.updatedAt, router, t])
 
   if (isLoading) {
     return (
