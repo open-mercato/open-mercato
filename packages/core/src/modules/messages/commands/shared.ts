@@ -189,7 +189,21 @@ export async function restoreMessageAggregateSnapshot(
   snapshot: MessageAggregateSnapshot,
 ): Promise<void> {
   await withAtomicFlush(em, [async () => {
+    // Resolve every read before mutating: a query issued between a scalar
+    // mutation and the flush can silently reset the Unit of Work (SPEC-018
+    // Problem 1). withAtomicFlush flushes once at the end, so ordering is ours.
+    const { Attachment } = await import('@open-mercato/core/modules/attachments/data/entities')
     const existingMessage = await em.findOne(Message, { id: snapshot.message.id })
+    const existingRecipients = await em.find(MessageRecipient, { messageId: snapshot.message.id })
+    const existingObjects = await em.find(MessageObject, { messageId: snapshot.message.id })
+    const attachmentsToRelink = snapshot.attachmentIds.length > 0
+      ? await em.find(Attachment, {
+          id: { $in: snapshot.attachmentIds },
+          tenantId: snapshot.message.tenantId,
+          organizationId: snapshot.message.organizationId,
+        })
+      : []
+
     if (!existingMessage) {
       const created = em.create(Message, {
         id: snapshot.message.id,
@@ -248,7 +262,6 @@ export async function restoreMessageAggregateSnapshot(
       existingMessage.deletedAt = toDate(snapshot.message.deletedAt)
     }
 
-    const existingRecipients = await em.find(MessageRecipient, { messageId: snapshot.message.id })
     const recipientById = new Map(existingRecipients.map((item) => [item.id, item]))
     const snapshotRecipientIds = new Set(snapshot.recipients.map((item) => item.id))
     for (const current of existingRecipients) {
@@ -280,7 +293,6 @@ export async function restoreMessageAggregateSnapshot(
       existing.deletedAt = toDate(recipient.deletedAt)
     }
 
-    const existingObjects = await em.find(MessageObject, { messageId: snapshot.message.id })
     const objectById = new Map(existingObjects.map((item) => [item.id, item]))
     const snapshotObjectIds = new Set(snapshot.objects.map((item) => item.id))
     for (const current of existingObjects) {
@@ -314,7 +326,6 @@ export async function restoreMessageAggregateSnapshot(
       existing.entitySnapshot = object.entitySnapshot
     }
 
-    const { Attachment } = await import('@open-mercato/core/modules/attachments/data/entities')
     await em.nativeDelete(Attachment, {
       entityId: MESSAGE_ATTACHMENT_ENTITY_ID,
       recordId: snapshot.message.id,
@@ -322,16 +333,9 @@ export async function restoreMessageAggregateSnapshot(
       organizationId: snapshot.message.organizationId,
       id: { $nin: snapshot.attachmentIds.length > 0 ? snapshot.attachmentIds : ['00000000-0000-0000-0000-000000000000'] },
     })
-    if (snapshot.attachmentIds.length > 0) {
-      const attachments = await em.find(Attachment, {
-        id: { $in: snapshot.attachmentIds },
-        tenantId: snapshot.message.tenantId,
-        organizationId: snapshot.message.organizationId,
-      })
-      for (const attachment of attachments) {
-        attachment.entityId = MESSAGE_ATTACHMENT_ENTITY_ID
-        attachment.recordId = snapshot.message.id
-      }
+    for (const attachment of attachmentsToRelink) {
+      attachment.entityId = MESSAGE_ATTACHMENT_ENTITY_ID
+      attachment.recordId = snapshot.message.id
     }
   }], { transaction: true })
 }

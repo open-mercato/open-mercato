@@ -129,6 +129,21 @@ async function retireActiveProposalsForEmail(
     throw new ReprocessConflictError('Cannot reprocess after actions were already executed. Open the latest proposal instead.')
   }
 
+  // Resolve every read before mutating: a query issued between a scalar
+  // mutation and the flush can silently reset the Unit of Work (SPEC-018
+  // Problem 1). withAtomicFlush flushes once at the end, so ordering is ours.
+  const discrepancies = await findWithDecryption(
+    em,
+    InboxDiscrepancy,
+    {
+      proposalId: { $in: proposalIds },
+      resolved: false,
+      deletedAt: null,
+    },
+    undefined,
+    scope,
+  )
+
   const now = new Date()
   const supersededAt = now.toISOString()
   for (const proposal of proposals) {
@@ -159,17 +174,6 @@ async function retireActiveProposalsForEmail(
     retiredActionCount += 1
   }
 
-  const discrepancies = await findWithDecryption(
-    em,
-    InboxDiscrepancy,
-    {
-      proposalId: { $in: proposalIds },
-      resolved: false,
-      deletedAt: null,
-    },
-    undefined,
-    scope,
-  )
   for (const discrepancy of discrepancies) {
     discrepancy.resolved = true
   }
