@@ -73,7 +73,9 @@ async function buildOptimisticLockError(): Promise<CrudHttpError> {
 
 function hasUpdatedAtConflict(record: StaffTeamMemberJobHistory, expectedUpdatedAt?: string): boolean {
   if (!expectedUpdatedAt) return false
-  return record.updatedAt.toISOString() !== expectedUpdatedAt
+  const expectedTime = new Date(expectedUpdatedAt).getTime()
+  if (Number.isNaN(expectedTime)) return false
+  return record.updatedAt.getTime() !== expectedTime
 }
 
 const createJobHistoryCommand: CommandHandler<StaffTeamMemberJobHistoryCreateInput, { jobHistoryId: string }> = {

@@ -1,6 +1,16 @@
 import type { EntityManager } from '@mikro-orm/postgresql'
 import type { AwilixContainer } from 'awilix'
 import { CrudHttpError } from '@open-mercato/shared/lib/crud/errors'
+import { staffTeamMemberJobHistoryUpdateSchema } from '../../data/validators'
+
+jest.mock('@open-mercato/shared/lib/commands/helpers', () => {
+  const actual = jest.requireActual('@open-mercato/shared/lib/commands/helpers')
+  return {
+    ...actual,
+    emitCrudSideEffects: jest.fn().mockResolvedValue(undefined),
+    emitCrudUndoSideEffects: jest.fn().mockResolvedValue(undefined),
+  }
+})
 
 jest.mock('@open-mercato/shared/lib/i18n/server', () => ({
   resolveTranslations: jest.fn().mockResolvedValue({
@@ -46,6 +56,47 @@ function createCtx(em: Pick<EntityManager, 'findOne' | 'fork'>) {
 describe('staff job history optimistic locking', () => {
   const jobHistoryId = '123e4567-e89b-41d3-a456-426614174000'
 
+  it('accepts non-Z updatedAt values from the list API', () => {
+    expect(() =>
+      staffTeamMemberJobHistoryUpdateSchema.parse({
+        id: jobHistoryId,
+        updatedAt: '2026-05-30T10:00:00+00:00',
+      }),
+    ).not.toThrow()
+  })
+
+  it('does not treat equivalent updatedAt instants as a conflict', async () => {
+    const { update } = await loadCommands()
+    const record = {
+      id: jobHistoryId,
+      tenantId: 'tenant-1',
+      organizationId: 'org-1',
+      updatedAt: new Date('2026-05-30T10:00:00.000Z'),
+      member: { id: 'member-1', tenantId: 'tenant-1', organizationId: 'org-1' },
+      name: 'Engineer',
+      companyName: null,
+      description: null,
+      startDate: new Date('2026-05-01T00:00:00.000Z'),
+      endDate: null,
+    }
+    const em = {
+      fork: jest.fn().mockReturnThis(),
+      findOne: jest.fn().mockResolvedValue(record),
+      flush: jest.fn().mockResolvedValue(undefined),
+    }
+
+    await expect(
+      update.execute(
+        {
+          id: jobHistoryId,
+          name: 'Senior Engineer',
+          updatedAt: '2026-05-30T10:00:00+00:00',
+        },
+        createCtx(em),
+      ),
+    ).resolves.toEqual({ jobHistoryId })
+  })
+
   it('returns 409 when updating a stale job history entry', async () => {
     const { update } = await loadCommands()
     const record = {
@@ -54,17 +105,24 @@ describe('staff job history optimistic locking', () => {
       organizationId: 'org-1',
       updatedAt: new Date('2026-05-30T10:00:00.000Z'),
       name: 'Engineer',
+      member: { id: 'member-1' },
+      companyName: null,
+      description: null,
+      startDate: new Date('2026-05-01T00:00:00.000Z'),
+      endDate: null,
     }
     const em = {
       fork: jest.fn().mockReturnThis(),
       findOne: jest.fn().mockResolvedValue(record),
     }
 
-    await expect(update.execute({
-      id: jobHistoryId,
-      name: 'Senior Engineer',
-      updatedAt: '2026-05-30T09:00:00.000Z',
-    }, createCtx(em))).rejects.toMatchObject<Partial<CrudHttpError>>({
+    await expect(
+      update.execute({
+        id: jobHistoryId,
+        name: 'Senior Engineer',
+        updatedAt: '2026-05-30T09:00:00+00:00',
+      }, createCtx(em)),
+    ).rejects.toMatchObject<Partial<CrudHttpError>>({
       status: 409,
       body: { error: 'This record was modified by someone else. Refresh and try again.' },
     })
@@ -77,10 +135,12 @@ describe('staff job history optimistic locking', () => {
       findOne: jest.fn().mockResolvedValue(null),
     }
 
-    await expect(del.execute({
-      id: jobHistoryId,
-      updatedAt: '2026-05-30T09:00:00.000Z',
-    }, createCtx(em))).rejects.toMatchObject<Partial<CrudHttpError>>({
+    await expect(
+      del.execute({
+        id: jobHistoryId,
+        updatedAt: '2026-05-30T09:00:00.000Z',
+      }, createCtx(em)),
+    ).rejects.toMatchObject<Partial<CrudHttpError>>({
       status: 409,
       body: { error: 'This record was modified by someone else. Refresh and try again.' },
     })

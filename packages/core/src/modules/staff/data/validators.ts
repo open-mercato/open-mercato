@@ -2,6 +2,11 @@ import { z } from 'zod'
 
 const tagsSchema = z.array(z.string().min(1)).optional().default([])
 
+export const optimisticUpdatedAtSchema = z.string().refine(
+  (value) => !Number.isNaN(new Date(value).getTime()),
+  { message: 'Invalid datetime' },
+)
+
 const scopedCreateFields = {
   tenantId: z.string().uuid(),
   organizationId: z.string().uuid(),
@@ -113,7 +118,7 @@ export const staffTeamMemberJobHistoryCreateSchema = z.object({
 export const staffTeamMemberJobHistoryUpdateSchema = z
   .object({
     id: z.string().uuid(),
-    updatedAt: z.string().datetime().optional(),
+    updatedAt: optimisticUpdatedAtSchema.optional(),
   })
   .merge(staffTeamMemberJobHistoryCreateSchema.partial())
 

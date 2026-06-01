@@ -4,6 +4,7 @@ import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
 import { resolveCrudRecordId, parseScopedCommandInput } from '@open-mercato/shared/lib/api/scoped'
 import { StaffTeamMemberJobHistory } from '../data/entities'
 import {
+  optimisticUpdatedAtSchema,
   staffTeamMemberJobHistoryCreateSchema,
   staffTeamMemberJobHistoryUpdateSchema,
 } from '../data/validators'
@@ -14,7 +15,7 @@ const rawBodySchema = z.object({}).passthrough()
 
 const optimisticDeleteSchema = z.object({
   id: z.string().uuid(),
-  updatedAt: z.string().datetime().optional(),
+  updatedAt: optimisticUpdatedAtSchema.optional(),
 })
 
 const listSchema = z
