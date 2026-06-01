@@ -1,4 +1,5 @@
 import { z } from 'zod'
+import type { EntityManager } from '@mikro-orm/postgresql'
 import { makeCrudRoute } from '@open-mercato/shared/lib/crud/factory'
 import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
 import { parseScopedCommandInput, resolveCrudRecordId } from '@open-mercato/shared/lib/api/scoped'
@@ -6,6 +7,7 @@ import { escapeLikePattern } from '@open-mercato/shared/lib/db/escapeLikePattern
 import { E } from '#generated/entities.ids.generated'
 import { InventoryLot } from '../../data/entities'
 import { inventoryLotCreateSchema, inventoryLotUpdateSchema } from '../../data/validators'
+import { buildExpiryWindowDateFilter, type ExpiryWindow } from '../../lib/expiry'
 import { createPagedListResponseSchema, createWmsCrudOpenApi, defaultOkResponseSchema } from '../openapi'
 
 const routeMetadata = {
@@ -25,6 +27,8 @@ const listSchema = z.object({
   search: z.string().optional(),
   catalogVariantId: z.string().uuid().optional(),
   status: z.enum(['available', 'hold', 'quarantine', 'expired']).optional(),
+  expiryWindow: z.enum(['expiringSoon', 'pastDue']).optional(),
+  warehouseId: z.string().uuid().optional(),
   ids: z.string().optional(),
   sortField: z.string().optional(),
   sortDir: z.enum(['asc', 'desc']).optional(),
@@ -64,13 +68,50 @@ const crud = makeCrudRoute({
       createdAt: 'created_at',
       updatedAt: 'updated_at',
     },
-    buildFilters: async (query) => {
+    buildFilters: async (query, ctx) => {
       const filters: Record<string, unknown> = {}
       if (query.catalogVariantId) filters.catalog_variant_id = { $eq: query.catalogVariantId }
       if (query.status) filters.status = { $eq: query.status }
+      if (query.expiryWindow) {
+        Object.assign(filters, buildExpiryWindowDateFilter(query.expiryWindow as ExpiryWindow))
+      }
       if (typeof query.ids === 'string' && query.ids.trim().length > 0) {
         filters.id = {
           $in: query.ids.split(',').map((value) => value.trim()).filter((value) => value.length > 0),
+        }
+      }
+      const requiresAvailableStock =
+        Boolean(query.warehouseId) || query.expiryWindow === 'pastDue'
+      if (requiresAvailableStock) {
+        const organizationId = ctx.selectedOrganizationId
+        const tenantId = ctx.auth?.tenantId
+        if (organizationId && tenantId) {
+          const em = ctx.container.resolve('em') as EntityManager
+          const balanceParams: unknown[] = [organizationId, tenantId]
+          let balanceSql = `
+            select distinct lot_id
+            from wms_inventory_balances
+            where organization_id = ?
+              and tenant_id = ?
+              and deleted_at is null
+              and lot_id is not null
+              and (
+                coalesce(quantity_on_hand, 0)
+                - coalesce(quantity_reserved, 0)
+                - coalesce(quantity_allocated, 0)
+              ) > 0`
+          if (query.warehouseId) {
+            balanceSql += ' and warehouse_id = ?'
+            balanceParams.push(query.warehouseId)
+          }
+          const rows = await em.getConnection().execute<Array<{ lot_id: string }>>(
+            balanceSql,
+            balanceParams,
+          )
+          const lotIds = rows.map((row) => row.lot_id).filter((value) => value.length > 0)
+          filters.id = {
+            $in: lotIds.length > 0 ? lotIds : ['00000000-0000-4000-8000-000000000000'],
+          }
         }
       }
       const term = query.search?.trim()

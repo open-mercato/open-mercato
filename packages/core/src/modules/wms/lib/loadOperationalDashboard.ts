@@ -9,9 +9,9 @@ import {
   Warehouse,
 } from '../data/entities'
 import { evaluateLowStock } from './inventoryPolicy'
+import { addUtcDays, EXPIRING_SOON_DAYS, startOfUtcDay } from './expiry'
 
 const AGING_RESERVATION_DAYS = 7
-const EXPIRING_SOON_DAYS = 30
 const TREND_DAYS = 7
 const MONTHLY_TREND_MONTHS = 6
 const ACTIVITY_LIMIT = 10
@@ -26,6 +26,7 @@ export type OperationalDashboardKpiId =
   | 'lowStock'
   | 'reorderCritical'
   | 'expiringSoon'
+  | 'pastDue'
   | 'agingReservations'
   | 'todaysMoves'
 
@@ -95,15 +96,7 @@ export function toOperationalDashboardNumber(value: string | number | null | und
   return 0
 }
 
-export function startOfUtcDay(date: Date): Date {
-  return new Date(Date.UTC(date.getUTCFullYear(), date.getUTCMonth(), date.getUTCDate()))
-}
-
-export function addUtcDays(date: Date, days: number): Date {
-  const next = new Date(date)
-  next.setUTCDate(next.getUTCDate() + days)
-  return next
-}
+export { addUtcDays, startOfUtcDay } from './expiry'
 
 function formatMonthKey(date: Date): string {
   return date.toLocaleString('en-US', { month: 'short', timeZone: 'UTC' })
@@ -376,6 +369,77 @@ async function loadExpiringSoonDailyCounts(
   return em.getConnection().execute<DailyCountRow[]>(sql, params)
 }
 
+async function loadPastDueLotCount(
+  em: EntityManager,
+  scope: OperationalDashboardScope,
+  todayStart: Date,
+): Promise<number> {
+  const params: unknown[] = [scope.organizationId, scope.tenantId, todayStart]
+  let sql = `
+    select count(distinct l.id)::int as count
+    from wms_inventory_lots l
+    join wms_inventory_balances b
+      on b.lot_id = l.id
+     and b.deleted_at is null
+     and (
+       coalesce(b.quantity_on_hand, 0)
+       - coalesce(b.quantity_reserved, 0)
+       - coalesce(b.quantity_allocated, 0)
+     ) > 0
+    where l.organization_id = ?
+      and l.tenant_id = ?
+      and l.deleted_at is null
+      and l.expires_at is not null
+      and l.expires_at < ?
+  `
+  if (scope.warehouseId) {
+    sql += ' and b.warehouse_id = ?'
+    params.push(scope.warehouseId)
+  }
+  const rows = await em.getConnection().execute<Array<{ count: string | number }>>(sql, params)
+  return toOperationalDashboardNumber(rows[0]?.count)
+}
+
+async function loadPastDueDailyCounts(
+  em: EntityManager,
+  scope: OperationalDashboardScope,
+  dayBuckets: Date[],
+): Promise<DailyCountRow[]> {
+  if (dayBuckets.length === 0) return []
+  const params: unknown[] = [
+    dayBuckets[0]!,
+    dayBuckets[dayBuckets.length - 1]!,
+    scope.organizationId,
+    scope.tenantId,
+  ]
+  let sql = `
+    select bucket.day as day, count(distinct l.id)::int as count
+    from (
+      select generate_series(?::timestamptz, ?::timestamptz, interval '1 day') as day
+    ) bucket
+    join wms_inventory_lots l
+      on l.organization_id = ?
+     and l.tenant_id = ?
+     and l.deleted_at is null
+     and l.expires_at is not null
+     and l.expires_at < bucket.day
+     join wms_inventory_balances b
+       on b.lot_id = l.id
+      and b.deleted_at is null
+      and (
+        coalesce(b.quantity_on_hand, 0)
+        - coalesce(b.quantity_reserved, 0)
+        - coalesce(b.quantity_allocated, 0)
+      ) > 0
+  `
+  if (scope.warehouseId) {
+    sql += ' and b.warehouse_id = ?'
+    params.push(scope.warehouseId)
+  }
+  sql += ' group by bucket.day order by bucket.day'
+  return em.getConnection().execute<DailyCountRow[]>(sql, params)
+}
+
 async function loadAgingReservationsDailyCounts(
   em: EntityManager,
   scope: OperationalDashboardScope,
@@ -506,18 +570,22 @@ export async function loadOperationalDashboard(
   const [
     todaysMoveCount,
     yesterdaysMoveCount,
+    pastDueCount,
     lowStockSparklineRows,
     reorderCriticalSparklineRows,
     expiringSoonSparklineRows,
+    pastDueSparklineRows,
     agingReservationsSparklineRows,
     todaysMovesSparklineRows,
     monthlyTrends,
   ] = await Promise.all([
     countMovementsBetween(em, scope, todayStart, tomorrowStart),
     countMovementsBetween(em, scope, yesterdayStart, todayStart),
+    loadPastDueLotCount(em, scope, todayStart),
     loadMovementDailyCounts(em, scope, trendStart, { types: ['adjust'], quantitySign: 'negative' }),
     loadMovementDailyCounts(em, scope, trendStart, { types: ['adjust'], quantitySign: 'negative' }),
     loadExpiringSoonDailyCounts(em, scope, dayBuckets),
+    loadPastDueDailyCounts(em, scope, dayBuckets),
     loadAgingReservationsDailyCounts(em, scope, dayBuckets),
     loadMovementDailyCounts(em, scope, trendStart),
     loadMonthlyMovementTrends(
@@ -546,6 +614,12 @@ export async function loadOperationalDashboard(
       count: expiringSoonCount,
       deltaSinceYesterday: null,
       sparkline: mapDailyCountsToSparkline(dayBuckets, expiringSoonSparklineRows),
+    },
+    {
+      id: 'pastDue',
+      count: pastDueCount,
+      deltaSinceYesterday: null,
+      sparkline: mapDailyCountsToSparkline(dayBuckets, pastDueSparklineRows),
     },
     {
       id: 'agingReservations',

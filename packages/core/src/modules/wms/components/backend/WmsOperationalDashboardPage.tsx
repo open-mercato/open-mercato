@@ -246,6 +246,11 @@ export default function WmsOperationalDashboardPage() {
       : selectedWarehouse?.name || selectedWarehouse?.code || warehouseId
 
   const kpiConfig = React.useMemo(() => {
+    const buildLotsHref = (expiryWindow: 'expiringSoon' | 'pastDue') => {
+      const params = new URLSearchParams({ expiryWindow })
+      if (warehouseId !== 'all') params.set('warehouseId', warehouseId)
+      return `/backend/wms/lots?${params.toString()}`
+    }
     const inventoryHref = warehouseId === 'all'
       ? '/backend/wms/inventory'
       : `/backend/wms/inventory?warehouseId=${encodeURIComponent(warehouseId)}`
@@ -281,10 +286,20 @@ export default function WmsOperationalDashboardPage() {
         title: t('wms.backend.dashboard.kpis.expiringSoon.title', 'Expiring soon'),
         caption: t('wms.backend.dashboard.kpis.expiringSoon.caption', 'Lots expiring in 30 days'),
         ctaLabel: t('wms.backend.dashboard.kpis.expiringSoon.cta', 'View expiry'),
-        href: inventoryHref,
+        href: buildLotsHref('expiringSoon'),
         resolveBadge: (kpi: OperationalDashboardKpi) => ({
           variant: 'warning' as const,
           label: t('wms.backend.dashboard.kpis.expiringSoon.badge', '{count} lots', { count: kpi.count }),
+        }),
+      },
+      pastDue: {
+        title: t('wms.backend.dashboard.kpis.pastDue.title', 'Past due'),
+        caption: t('wms.backend.dashboard.kpis.pastDue.caption', 'Expired lots with on-hand stock'),
+        ctaLabel: t('wms.backend.dashboard.kpis.pastDue.cta', 'View past due'),
+        href: buildLotsHref('pastDue'),
+        resolveBadge: (kpi: OperationalDashboardKpi) => ({
+          variant: 'error' as const,
+          label: t('wms.backend.dashboard.kpis.pastDue.badge', '{count} lots', { count: kpi.count }),
         }),
       },
       agingReservations: {
@@ -467,7 +482,7 @@ export default function WmsOperationalDashboardPage() {
 
         {dashboardQuery.data ? (
           <>
-            <section className="grid gap-4 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5">
+            <section className="grid gap-4 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6">
               {dashboardQuery.data.kpis.map((kpi) => {
                 const config = kpiConfig[kpi.id]
                 const badge = config.resolveBadge(kpi)

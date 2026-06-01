@@ -146,6 +146,7 @@ describe('loadOperationalDashboard helpers', () => {
       .fn()
       .mockResolvedValueOnce([{ count: 2 }])
       .mockResolvedValueOnce([{ count: 1 }])
+      .mockResolvedValueOnce([{ count: 0 }])
       .mockResolvedValueOnce([])
       .mockResolvedValueOnce([])
       .mockResolvedValueOnce([])
@@ -153,6 +154,7 @@ describe('loadOperationalDashboard helpers', () => {
       .mockResolvedValueOnce([])
       .mockResolvedValueOnce([])
       .mockResolvedValueOnce([])
+      .mockResolvedValue([])
 
     const em = {
       getConnection: () => ({ execute }),
@@ -166,6 +168,7 @@ describe('loadOperationalDashboard helpers', () => {
     expect(payload.kpis).toEqual(
       expect.arrayContaining([
         expect.objectContaining({ id: 'lowStock', count: 1, deltaSinceYesterday: null }),
+        expect.objectContaining({ id: 'pastDue', count: 0, deltaSinceYesterday: null }),
         expect.objectContaining({ id: 'todaysMoves', count: 2, deltaSinceYesterday: 1 }),
       ]),
     )
@@ -191,5 +194,40 @@ describe('loadOperationalDashboard helpers', () => {
     expect(startOfUtcDay(new Date('2026-05-28T23:59:59.000Z')).toISOString()).toBe(
       '2026-05-28T00:00:00.000Z',
     )
+  })
+
+  it('loadPastDueDailyCounts joins balances with available stock without warehouse scope', async () => {
+    const now = new Date('2026-05-28T12:00:00.000Z')
+    jest.useFakeTimers()
+    jest.setSystemTime(now)
+
+    findWithDecryptionMock.mockImplementation(async (_em, entity) => {
+      if (entity === ProductInventoryProfile) return []
+      if (entity === InventoryBalance) return []
+      if (entity === InventoryReservation) return [] as InventoryReservation[]
+      if (entity === InventoryMovement) return [] as InventoryMovement[]
+      return []
+    })
+
+    const execute = jest.fn().mockResolvedValue([])
+    const em = {
+      getConnection: () => ({ execute }),
+    } as never
+
+    await loadOperationalDashboard(em, {
+      organizationId: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',
+      tenantId: 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb',
+    })
+
+    const pastDueSparklineSql = execute.mock.calls
+      .map((call) => String(call[0]))
+      .find((sql) => sql.includes('expires_at < bucket.day') && sql.includes('generate_series'))
+
+    expect(pastDueSparklineSql).toBeDefined()
+    expect(pastDueSparklineSql).toContain('join wms_inventory_balances b')
+    expect(pastDueSparklineSql).toContain('quantity_allocated')
+    expect(pastDueSparklineSql).not.toContain('b.warehouse_id = ?')
+
+    jest.useRealTimers()
   })
 })

@@ -397,7 +397,7 @@ export const operationalDashboardQuerySchema = z.object({
 })
 
 export const operationalDashboardKpiSchema = z.object({
-  id: z.enum(['lowStock', 'reorderCritical', 'expiringSoon', 'agingReservations', 'todaysMoves']),
+  id: z.enum(['lowStock', 'reorderCritical', 'expiringSoon', 'pastDue', 'agingReservations', 'todaysMoves']),
   count: z.number(),
   deltaSinceYesterday: z.number().nullable(),
   sparkline: z.array(z.number()),
