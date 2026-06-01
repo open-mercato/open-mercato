@@ -168,13 +168,19 @@ export async function GET(req: NextRequest, context: RouteContext): Promise<Resp
   try {
     const container = await createRequestContainer()
     const repo = createConversationStorage(container)
-    const participants = await repo.listParticipants(callerCtx.conversationId, {
+    const repoCtx = {
       tenantId: callerCtx.tenantId,
       organizationId: callerCtx.organizationId,
       userId: callerCtx.userId,
       canManageConversations: callerCtx.canManageConversations,
-    })
+    }
+    const conversation = await repo.getById(callerCtx.conversationId, repoCtx)
+    if (!conversation) {
+      return jsonError(404, 'Conversation not found.', 'conversation_not_found')
+    }
+    const participants = await repo.listParticipants(callerCtx.conversationId, repoCtx)
     return NextResponse.json({
+      ownerUserId: conversation.ownerUserId,
       participants: participants.map((p) => ({
         userId: p.userId,
         role: p.role,

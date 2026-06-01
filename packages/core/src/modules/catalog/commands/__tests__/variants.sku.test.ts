@@ -75,6 +75,7 @@ jest.mock('@open-mercato/core/modules/sales/data/entities', () => ({
 
 jest.mock('../shared', () => ({
   cloneJson: (v: unknown) => JSON.parse(JSON.stringify(v)),
+  commandActorScope: jest.fn().mockReturnValue({ tenantId: null, organizationId: null }),
   ensureOrganizationScope: jest.fn(),
   ensureTenantScope: jest.fn(),
   emitCatalogQueryIndexEvent: jest.fn().mockResolvedValue(undefined),

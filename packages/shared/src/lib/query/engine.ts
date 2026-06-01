@@ -1,4 +1,4 @@
-import type { QueryEngine, QueryOptions, QueryResult, QueryCustomFieldSource, QueryExtensionsConfig } from './types'
+import type { QueryEngine, QueryOptions, QueryResult, QueryCustomFieldSource, QueryExtensionsConfig, Sort } from './types'
 import type { EntityId } from '@open-mercato/shared/modules/entities'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import { type Kysely, sql, type RawBuilder } from 'kysely'
@@ -20,6 +20,7 @@ import {
   type CustomFieldDefinitionRow,
   type ResolvedCustomFieldDefinitions,
 } from '../crud/custom-field-definition-index'
+import { resolveEncryptedSortFields, sortRowsInMemory } from './encrypted-sort'
 
 type AnyDb = Kysely<any>
 type AnyBuilder = any
@@ -28,6 +29,7 @@ const entityTableCache = new Map<string, string>()
 
 type EncryptionResolver = () => {
   decryptEntityPayload?: (entityId: EntityId, payload: Record<string, unknown>, tenantId?: string | null, organizationId?: string | null) => Promise<Record<string, unknown>>
+  getEncryptedFieldNames?: (entityId: EntityId, tenantId?: string | null, organizationId?: string | null) => Promise<readonly string[]>
   isEnabled?: () => boolean
 } | null
 
@@ -481,9 +483,35 @@ export class BasicQueryEngine implements QueryEngine {
       applyJoinFilterOp,
       columnExists: (tbl, column) => this.columnExists(tbl, column),
     })
+
+    const fallbackOrgId =
+      opts.organizationId
+      ?? (Array.isArray(opts.organizationIds) && opts.organizationIds.length === 1 ? opts.organizationIds[0] : null)
+    const encryptionService = this.getEncryptionService()
+    const resolvedSorts: Sort[] = []
+    for (const s of opts.sort || []) {
+      if (s.field.startsWith('cf:')) {
+        resolvedSorts.push(s)
+      } else {
+        const column = await this.resolveBaseColumn(table, s.field)
+        if (column) resolvedSorts.push({ ...s, field: column })
+      }
+    }
+    const encryptedSortFields = await resolveEncryptedSortFields(
+      encryptionService,
+      entity,
+      resolvedSorts.filter((sort) => !sort.field.startsWith('cf:')).map((sort) => sort.field),
+      opts.tenantId ?? null,
+      fallbackOrgId,
+    )
+    const requiresPlaintextSort = encryptedSortFields.size > 0
+
     // Selection (base columns only here; cf:* handled later)
     if (opts.fields && opts.fields.length) {
-      const cols = opts.fields.filter((f) => !f.startsWith('cf:'))
+      const cols = new Set(opts.fields.filter((f) => !f.startsWith('cf:')))
+      if (requiresPlaintextSort) {
+        for (const field of encryptedSortFields) cols.add(field)
+      }
       for (const c of cols) {
         // Qualify and alias to base names to avoid ambiguity
         q = q.select(sql.ref(qualify(c)).as(c))
@@ -761,7 +789,7 @@ export class BasicQueryEngine implements QueryEngine {
     }
 
     // Sorting: base fields and cf:* (use aggregated alias for cf)
-    for (const s of opts.sort || []) {
+    for (const s of resolvedSorts) {
       if (s.field.startsWith('cf:')) {
         const key = s.field.slice(3)
         const alias = sanitize(`cf:${key}`)
@@ -773,11 +801,9 @@ export class BasicQueryEngine implements QueryEngine {
             cfSelectedAliases.push(alias)
           }
         }
-        q = q.orderBy(alias, (s.dir ?? 'asc') as any)
+        if (!requiresPlaintextSort) q = q.orderBy(alias, (s.dir ?? 'asc') as any)
       } else {
-        const column = await this.resolveBaseColumn(table, s.field)
-        if (!column) continue
-        q = q.orderBy(qualify(column), (s.dir ?? 'asc') as any)
+        if (!requiresPlaintextSort) q = q.orderBy(qualify(s.field), (s.dir ?? 'asc') as any)
       }
     }
 
@@ -794,7 +820,10 @@ export class BasicQueryEngine implements QueryEngine {
       : q.clearSelect().clearOrderBy().select(sql<string>`count(distinct ${sql.ref(`${table}.id`)})`.as('count'))
     const countRow = await countBuilder.executeTakeFirst() as { count: unknown } | undefined
     const total = Number((countRow as any)?.count ?? 0)
-    const items = await q.limit(pageSize).offset((page - 1) * pageSize).execute() as any[]
+    const dataQuery = requiresPlaintextSort
+      ? q
+      : q.limit(pageSize).offset((page - 1) * pageSize)
+    const items = await dataQuery.execute() as any[]
 
     if (cfJsonAliases.size > 0) {
       for (const row of items) {
@@ -818,7 +847,7 @@ export class BasicQueryEngine implements QueryEngine {
       }
     }
 
-    const svc = this.getEncryptionService()
+    const svc = encryptionService
     const decryptPayload =
       svc?.decryptEntityPayload?.bind(svc) as
         | ((
@@ -830,9 +859,6 @@ export class BasicQueryEngine implements QueryEngine {
         | null
     let decryptedItems = items
     if (decryptPayload) {
-      const fallbackOrgId =
-        opts.organizationId
-        ?? (Array.isArray(opts.organizationIds) && opts.organizationIds.length === 1 ? opts.organizationIds[0] : null)
       decryptedItems = await Promise.all(
         (items as any[]).map(async (item) => {
           try {
@@ -851,7 +877,12 @@ export class BasicQueryEngine implements QueryEngine {
       )
     }
 
-    let queryResult: QueryResult<T> = { items: decryptedItems, page, pageSize, total }
+    const pagedItems = requiresPlaintextSort
+      ? sortRowsInMemory(decryptedItems as Record<string, unknown>[], resolvedSorts)
+          .slice((page - 1) * pageSize, page * pageSize)
+      : decryptedItems
+
+    let queryResult: QueryResult<T> = { items: pagedItems, page, pageSize, total }
 
     // --- UMES query extension: after-query pipeline ---
     if (ext && extensionCtx) {

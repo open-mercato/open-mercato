@@ -49,4 +49,42 @@ describe('kms timeout handling', () => {
     expect(dek?.key).toBeTruthy()
     expect(fetchMock).toHaveBeenCalledTimes(1)
   })
+
+  it('does not derive tenant keys from auth secrets', async () => {
+    process.env.NODE_ENV = 'production'
+    process.env.TENANT_DATA_ENCRYPTION = 'yes'
+    process.env.AUTH_SECRET = 'auth-secret-that-must-not-encrypt-tenant-data'
+    process.env.NEXTAUTH_SECRET = 'nextauth-secret-that-must-not-encrypt-tenant-data'
+    delete process.env.TENANT_DATA_ENCRYPTION_FALLBACK_KEY
+    delete process.env.TENANT_DATA_ENCRYPTION_KEY
+    delete process.env.VAULT_ADDR
+    delete process.env.VAULT_TOKEN
+
+    const service = createKmsService()
+    const dek = await service.createTenantDek('tenant-auth-only')
+
+    expect(service.isHealthy()).toBe(false)
+    expect(dek).toBeNull()
+  })
+
+  it('requires an explicit opt-in before using the dev default derived key', async () => {
+    process.env.NODE_ENV = 'test'
+    process.env.TENANT_DATA_ENCRYPTION = 'yes'
+    delete process.env.TENANT_DATA_ENCRYPTION_FALLBACK_KEY
+    delete process.env.TENANT_DATA_ENCRYPTION_KEY
+    delete process.env.AUTH_SECRET
+    delete process.env.NEXTAUTH_SECRET
+    delete process.env.VAULT_ADDR
+    delete process.env.VAULT_TOKEN
+
+    const serviceWithoutOptIn = createKmsService()
+    await expect(serviceWithoutOptIn.createTenantDek('tenant-dev')).resolves.toBeNull()
+
+    process.env.ALLOW_DERIVED_KMS_FALLBACK = 'true'
+    const serviceWithOptIn = createKmsService()
+    const dek = await serviceWithOptIn.createTenantDek('tenant-dev')
+
+    expect(typeof dek?.key).toBe('string')
+    expect(dek?.key).toBeTruthy()
+  })
 })

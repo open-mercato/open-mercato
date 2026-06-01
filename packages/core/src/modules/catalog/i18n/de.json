@@ -361,6 +361,7 @@
   "catalog.products.create.variantsBuilder.vatColumn": "Steuerklasse",
   "catalog.products.create.variantsBuilder.vatOptionDefault": "Produkt-Steuerklasse verwenden ({{label}})",
   "catalog.products.create.variantsBuilder.vatOptionNone": "Keine Steuerklasse",
+  "catalog.products.edit.actions.backToList": "Zurück zu Produkten",
   "catalog.products.edit.custom.title": "Benutzerdefinierte Attribute",
   "catalog.products.edit.dimensions": "Maße & Gewicht",
   "catalog.products.edit.dimensions.depth": "Tiefe",

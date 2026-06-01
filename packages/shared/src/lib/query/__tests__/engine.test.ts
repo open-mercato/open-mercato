@@ -596,4 +596,90 @@ describe('BasicQueryEngine (Kysely)', () => {
     })
     expect(res.customFieldDefinitions).toBeUndefined()
   })
+
+  test('sorts encrypted base fields after decryption before pagination', async () => {
+    const fakeDb = createFakeKysely({
+      customer_entities: [
+        { id: '3', tenant_id: 't1', organization_id: 'org1', display_name: 'cipher-c' },
+        { id: '1', tenant_id: 't1', organization_id: 'org1', display_name: 'cipher-a' },
+        { id: '5', tenant_id: 't1', organization_id: 'org1', display_name: 'cipher-e' },
+        { id: '2', tenant_id: 't1', organization_id: 'org1', display_name: 'cipher-b' },
+        { id: '4', tenant_id: 't1', organization_id: 'org1', display_name: 'cipher-d' },
+      ],
+      'information_schema.columns': [
+        { table_name: 'customer_entities', column_name: 'id' },
+        { table_name: 'customer_entities', column_name: 'tenant_id' },
+        { table_name: 'customer_entities', column_name: 'organization_id' },
+        { table_name: 'customer_entities', column_name: 'deleted_at' },
+        { table_name: 'customer_entities', column_name: 'display_name' },
+      ],
+    })
+    const namesById: Record<string, string> = {
+      '1': 'Alice',
+      '2': 'Bob',
+      '3': 'Charlie',
+      '4': 'Dave',
+      '5': 'Eve',
+    }
+    const engine = new BasicQueryEngine(
+      {} as any,
+      () => fakeDb as any,
+      () => ({
+        isEnabled: () => true,
+        getEncryptedFieldNames: async () => ['display_name'],
+        decryptEntityPayload: async (_entityId, payload) => ({
+          display_name: namesById[String(payload.id)],
+        }),
+      }),
+    )
+
+    const result = await engine.query('customers:customer_entity', {
+      tenantId: 't1',
+      organizationId: 'org1',
+      fields: ['id', 'display_name'],
+      sort: [{ field: 'display_name', dir: SortDir.Asc }],
+      page: { page: 2, pageSize: 2 },
+    })
+
+    expect(result.items.map((item: any) => item.display_name)).toEqual(['Charlie', 'Dave'])
+    const baseCall = fakeDb._calls.find((call: any) => call._ops.table === 'customer_entities')
+    expect(baseCall._ops.orderBys).toEqual([])
+    expect(baseCall._ops.limits).toBe(0)
+  })
+
+  test('keeps SQL ordering and pagination for unencrypted base fields', async () => {
+    const fakeDb = createFakeKysely({
+      customer_entities: [
+        { id: '1', tenant_id: 't1', organization_id: 'org1', display_name: 'Alice' },
+      ],
+      'information_schema.columns': [
+        { table_name: 'customer_entities', column_name: 'id' },
+        { table_name: 'customer_entities', column_name: 'tenant_id' },
+        { table_name: 'customer_entities', column_name: 'organization_id' },
+        { table_name: 'customer_entities', column_name: 'deleted_at' },
+        { table_name: 'customer_entities', column_name: 'display_name' },
+      ],
+    })
+    const engine = new BasicQueryEngine(
+      {} as any,
+      () => fakeDb as any,
+      () => ({
+        isEnabled: () => true,
+        getEncryptedFieldNames: async () => [],
+      }),
+    )
+
+    await engine.query('customers:customer_entity', {
+      tenantId: 't1',
+      organizationId: 'org1',
+      fields: ['id', 'display_name'],
+      sort: [{ field: 'display_name', dir: SortDir.Asc }],
+      page: { page: 2, pageSize: 10 },
+    })
+
+    const baseCall = fakeDb._calls.find((call: any) => call._ops.table === 'customer_entities')
+    expect(baseCall._ops.orderBys).toEqual([['customer_entities.display_name', 'asc']])
+    expect(baseCall._ops.limits).toBe(10)
+    expect(baseCall._ops.offsets).toBe(10)
+  })
 })

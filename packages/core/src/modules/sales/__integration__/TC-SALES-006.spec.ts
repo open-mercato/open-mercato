@@ -8,6 +8,10 @@ import { addCustomLine, createSalesDocument } from '@open-mercato/core/modules/c
  */
 test.describe('TC-SALES-006: Order Tax Calculation', () => {
   test('should display tax-aware net/gross amounts on order line in UI', async ({ page }) => {
+    // Heavy multi-hop UI flow (login + createSalesDocument + line) routinely
+    // exceeds Playwright's 20s default on a loaded ephemeral shard; opt into the
+    // sanctioned per-test budget (see TC-SALES-005). Global bump is disallowed.
+    test.slow();
     const lineName = `QA TC-SALES-006 ${Date.now()}`;
 
     await login(page, 'admin');

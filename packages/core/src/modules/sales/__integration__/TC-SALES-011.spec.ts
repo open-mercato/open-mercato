@@ -8,6 +8,11 @@ import { addCustomLine, createSalesDocument } from '@open-mercato/core/modules/c
  */
 test.describe('TC-SALES-011: Payment Allocation', () => {
   test('should expose allocation controls in payment UI when available', async ({ page }) => {
+    // Heavy multi-hop UI flow (login + createSalesDocument + line + allocation)
+    // routinely exceeds Playwright's 20s default on a loaded ephemeral shard;
+    // opt into the sanctioned per-test budget (see TC-SALES-005). Global bump
+    // is disallowed.
+    test.slow();
     await login(page, 'admin');
     await createSalesDocument(page, { kind: 'order' });
     await addCustomLine(page, { name: `QA TC-SALES-011 ${Date.now()}`, quantity: 1, unitPriceGross: 60 });

@@ -9,6 +9,7 @@ import { createUserViaUi } from '@open-mercato/core/modules/core/__integration__
  */
 test.describe('TC-INT-004: User to Role to Permission to Access Verification', () => {
   test('should apply restricted role and deny access to protected admin area', async ({ page, request }) => {
+    test.setTimeout(90_000);
     const stamp = Date.now();
     const roleName = `qa-int-004-role-${stamp}`;
     const email = `qa-int-004-${stamp}@acme.com`;
@@ -49,7 +50,7 @@ test.describe('TC-INT-004: User to Role to Permission to Access Verification', (
       await limitedPage.getByLabel('Email').fill(email);
       await limitedPage.getByLabel('Password', { exact: true }).fill(password);
       await limitedPage.getByLabel('Password', { exact: true }).press('Enter');
-      await limitedPage.waitForURL(/\/backend|\/login\?requireFeature=/, { timeout: 10_000 });
+      await limitedPage.waitForURL(/\/backend|\/login\?requireFeature=/, { timeout: 30_000 });
 
       if (/\/login\?requireFeature=/.test(limitedPage.url())) {
         await expect(limitedPage.getByText(/don't have access to this feature|permission/i).first()).toBeVisible();

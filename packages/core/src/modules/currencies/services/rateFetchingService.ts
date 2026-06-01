@@ -13,6 +13,13 @@ export interface FetchOptions {
   forceUpdate?: boolean
 }
 
+const exchangeRateKey = (
+  fromCurrencyCode: string,
+  toCurrencyCode: string,
+  date: Date,
+  source: string
+): string => `${fromCurrencyCode}|${toCurrencyCode}|${date.getTime()}|${source}`
+
 export class RateFetchingService {
   private providers: Map<string, RateProvider>
 
@@ -103,25 +110,47 @@ export class RateFetchingService {
     rates: RateProviderResult[],
     scope: { tenantId: string; organizationId: string }
   ): Promise<number> {
+    if (rates.length === 0) return 0
+
     let stored = 0
 
     await this.em.transactional(async (em) => {
+      // Prefetch every existing rate that could match this batch in a single query,
+      // then index by composite key so the per-rate loop never hits the database.
+      const fromCurrencyCodes = Array.from(new Set(rates.map((rate) => rate.fromCurrencyCode)))
+      const toCurrencyCodes = Array.from(new Set(rates.map((rate) => rate.toCurrencyCode)))
+      const sources = Array.from(new Set(rates.map((rate) => rate.source)))
+      const dates = Array.from(new Set(rates.map((rate) => rate.date.getTime()))).map(
+        (time) => new Date(time)
+      )
+
+      const existingRates = await em.find(ExchangeRate, {
+        organizationId: scope.organizationId,
+        tenantId: scope.tenantId,
+        fromCurrencyCode: { $in: fromCurrencyCodes },
+        toCurrencyCode: { $in: toCurrencyCodes },
+        date: { $in: dates },
+        source: { $in: sources },
+      })
+
+      const existingByKey = new Map<string, ExchangeRate>()
+      for (const existing of existingRates) {
+        existingByKey.set(
+          exchangeRateKey(existing.fromCurrencyCode, existing.toCurrencyCode, existing.date, existing.source),
+          existing
+        )
+      }
+
+      const now = new Date()
       for (const rate of rates) {
-        // Check if rate already exists
-        const existing = await em.findOne(ExchangeRate, {
-          organizationId: scope.organizationId,
-          tenantId: scope.tenantId,
-          fromCurrencyCode: rate.fromCurrencyCode,
-          toCurrencyCode: rate.toCurrencyCode,
-          date: rate.date,
-          source: rate.source,
-        })
+        const key = exchangeRateKey(rate.fromCurrencyCode, rate.toCurrencyCode, rate.date, rate.source)
+        const existing = existingByKey.get(key)
 
         if (existing) {
           // Update existing rate
           existing.rate = rate.rate
           existing.type = rate.type ?? null
-          existing.updatedAt = new Date()
+          existing.updatedAt = now
           em.persist(existing)
         } else {
           // Create new rate
@@ -135,15 +164,17 @@ export class RateFetchingService {
             source: rate.source,
             type: rate.type ?? null,
             isActive: true,
-            createdAt: new Date(),
-            updatedAt: new Date(),
+            createdAt: now,
+            updatedAt: now,
           })
           em.persist(newRate)
+          // Track so duplicate keys within the same batch update in memory instead of double-inserting.
+          existingByKey.set(key, newRate)
         }
 
         stored++
       }
-      
+
       // Flush all changes at once
       await em.flush()
     })
