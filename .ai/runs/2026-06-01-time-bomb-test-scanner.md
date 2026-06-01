@@ -74,10 +74,10 @@ absolute date literal whose assertion outcome flips with the system clock.
 
 ### Phase 1: Scanner tool
 
-- [ ] 1.1 Add time-bomb-scanner.mjs
-- [ ] 1.2 Tune heuristic (context-aware HIGH + far-future bucket)
-- [ ] 1.3 Add allowlist file
-- [ ] 1.4 Wire npm scripts
+- [x] 1.1 Add time-bomb-scanner.mjs — fc41e8201
+- [x] 1.2 Tune heuristic (context-aware HIGH + far-future bucket) — fc41e8201
+- [x] 1.3 Add allowlist file — fc41e8201
+- [x] 1.4 Wire npm scripts — fc41e8201
 
 ### Phase 2: Fix #2384 (workflows)
 
