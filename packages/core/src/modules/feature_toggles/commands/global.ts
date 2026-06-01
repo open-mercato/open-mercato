@@ -1,4 +1,4 @@
-import type { CommandHandler } from '@open-mercato/shared/lib/commands'
+import type { CommandHandler, CommandRuntimeContext } from '@open-mercato/shared/lib/commands'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import { FeatureToggle, FeatureToggleOverride } from '../data/entities'
 import { ToggleCreateInput, toggleCreateSchema, ToggleUpdateInput, toggleUpdateSchema } from '../data/validators'
@@ -56,7 +56,7 @@ async function loadOverrideSnapshots(em: EntityManager, toggleId: string): Promi
   }))
 }
 
-function assertGlobalToggleWriteAccess(ctx: { auth?: { isSuperAdmin?: boolean } | null }) {
+function assertGlobalToggleWriteAccess(ctx: CommandRuntimeContext) {
   if (ctx.auth?.isSuperAdmin === true) return
   throw new CrudHttpError(403, { error: 'Forbidden' })
 }
