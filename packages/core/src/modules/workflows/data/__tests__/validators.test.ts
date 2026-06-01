@@ -203,8 +203,11 @@ describe('Workflows Validators', () => {
       })
 
       test('accepts ISO datetime as "until"', () => {
+        // Use a dynamic future datetime so the test stays valid past 2026-06-01.
+        // The schema enforces "must be a future datetime" — a hardcoded date is a time bomb.
+        const futureIso = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString()
         expect(() =>
-          workflowStepSchema.parse({ ...baseTimerStep, config: { until: '2026-06-01T12:00:00.000Z' } })
+          workflowStepSchema.parse({ ...baseTimerStep, config: { until: futureIso } })
         ).not.toThrow()
       })
 
