@@ -23,6 +23,8 @@ import {
   type CreateUserTaskInput,
 } from '../validators'
 
+const futureIsoDatetime = (offsetMs = 60_000) => new Date(Date.now() + offsetMs).toISOString()
+
 describe('Workflows Validators', () => {
   describe('workflowStepTypeSchema', () => {
     test('should accept valid step types', () => {
@@ -204,7 +206,7 @@ describe('Workflows Validators', () => {
 
       test('accepts ISO datetime as "until"', () => {
         expect(() =>
-          workflowStepSchema.parse({ ...baseTimerStep, config: { until: '2026-06-01T12:00:00.000Z' } })
+          workflowStepSchema.parse({ ...baseTimerStep, config: { until: futureIsoDatetime() } })
         ).not.toThrow()
       })
 
@@ -242,7 +244,7 @@ describe('Workflows Validators', () => {
         expect(() =>
           workflowStepSchema.parse({
             ...baseTimerStep,
-            config: { duration: 'PT5M', until: '2026-06-01T12:00:00.000Z' },
+            config: { duration: 'PT5M', until: futureIsoDatetime() },
           })
         ).toThrow(/not both/i)
       })
@@ -407,7 +409,7 @@ describe('Workflows Validators', () => {
         expect(() =>
           activityDefinitionSchema.parse({
             ...baseWait,
-            config: { duration: 'PT5M', until: '2026-06-01T12:00:00.000Z' },
+            config: { duration: 'PT5M', until: futureIsoDatetime() },
           })
         ).toThrow(/not both/i)
       })
