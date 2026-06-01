@@ -8360,48 +8360,66 @@ const createInvoiceCommand: CommandHandler<
       createdAt: new Date(),
       updatedAt: new Date(),
     });
-    em.persist(invoice);
 
-    if (parsed.lines?.length) {
-      for (let i = 0; i < parsed.lines.length; i++) {
-        const line = parsed.lines[i];
-        em.persist(
-          em.create(SalesInvoiceLine, {
-            id: randomUUID(),
-            invoice,
-            orderLineId: line.orderLineId ?? null,
-            organizationId: parsed.organizationId,
-            tenantId: parsed.tenantId,
-            lineNumber: line.lineNumber ?? i + 1,
-            kind: line.kind ?? "product",
-            name: line.name ?? null,
-            sku: line.sku ?? null,
-            description: line.description ?? null,
-            quantity: toNumericString(line.quantity ?? 0),
-            quantityUnit: line.quantityUnit ?? null,
-            normalizedQuantity: toNumericString(line.normalizedQuantity ?? 0),
-            normalizedUnit: line.normalizedUnit ?? null,
-            uomSnapshot: line.uomSnapshot ?? null,
-            currencyCode: line.currencyCode ?? parsed.currencyCode,
-            unitPriceNet: toNumericString(line.unitPriceNet ?? 0),
-            unitPriceGross: toNumericString(line.unitPriceGross ?? 0),
-            discountAmount: toNumericString(line.discountAmount ?? 0),
-            discountPercent: toNumericString(line.discountPercent ?? 0),
-            taxRate: toNumericString(line.taxRate ?? 0),
-            taxAmount: toNumericString(line.taxAmount ?? 0),
-            totalNetAmount: toNumericString(line.totalNetAmount ?? 0),
-            totalGrossAmount: toNumericString(line.totalGrossAmount ?? 0),
-            metadata: line.metadata ?? null,
-          }),
-        );
-      }
-    }
+    // Header + lines + custom-field writes must commit atomically.
+    // setRecordCustomFields flushes mid-build, so without a transaction a
+    // partial write could persist the header without its lines/custom fields.
+    await withAtomicFlush(
+      em,
+      [
+        async () => {
+          em.persist(invoice);
 
-    if (parsed.customFieldSetId) {
-      await setRecordCustomFields(em, invoiceId, parsed.customFieldSetId, parsed);
-    }
+          if (parsed.lines?.length) {
+            for (let i = 0; i < parsed.lines.length; i++) {
+              const line = parsed.lines[i];
+              em.persist(
+                em.create(SalesInvoiceLine, {
+                  id: randomUUID(),
+                  invoice,
+                  orderLineId: line.orderLineId ?? null,
+                  organizationId: parsed.organizationId,
+                  tenantId: parsed.tenantId,
+                  lineNumber: line.lineNumber ?? i + 1,
+                  kind: line.kind ?? "product",
+                  name: line.name ?? null,
+                  sku: line.sku ?? null,
+                  description: line.description ?? null,
+                  quantity: toNumericString(line.quantity ?? 0),
+                  quantityUnit: line.quantityUnit ?? null,
+                  normalizedQuantity: toNumericString(line.normalizedQuantity ?? 0),
+                  normalizedUnit: line.normalizedUnit ?? null,
+                  uomSnapshot: line.uomSnapshot ?? null,
+                  currencyCode: line.currencyCode ?? parsed.currencyCode,
+                  unitPriceNet: toNumericString(line.unitPriceNet ?? 0),
+                  unitPriceGross: toNumericString(line.unitPriceGross ?? 0),
+                  discountAmount: toNumericString(line.discountAmount ?? 0),
+                  discountPercent: toNumericString(line.discountPercent ?? 0),
+                  taxRate: toNumericString(line.taxRate ?? 0),
+                  taxAmount: toNumericString(line.taxAmount ?? 0),
+                  totalNetAmount: toNumericString(line.totalNetAmount ?? 0),
+                  totalGrossAmount: toNumericString(line.totalGrossAmount ?? 0),
+                  metadata: line.metadata ?? null,
+                }),
+              );
+            }
+          }
 
-    await em.flush();
+          if (parsed.customFieldSetId) {
+            await setRecordCustomFields(em, {
+              entityId: E.sales.sales_invoice,
+              recordId: invoiceId,
+              organizationId: parsed.organizationId,
+              tenantId: parsed.tenantId,
+              values: normalizeCustomFieldValues(
+                ((parsed as Record<string, unknown>).customFields as Record<string, unknown>) ?? {},
+              ),
+            });
+          }
+        },
+      ],
+      { transaction: true },
+    );
 
     const dataEngine = ctx.container.resolve("dataEngine") as DataEngine;
     await emitCrudSideEffects({
@@ -8838,45 +8856,63 @@ const createCreditMemoCommand: CommandHandler<
       createdAt: new Date(),
       updatedAt: new Date(),
     });
-    em.persist(creditMemo);
 
-    if (parsed.lines?.length) {
-      for (let i = 0; i < parsed.lines.length; i++) {
-        const line = parsed.lines[i];
-        em.persist(
-          em.create(SalesCreditMemoLine, {
-            id: randomUUID(),
-            creditMemo,
-            orderLineId: line.orderLineId ?? null,
-            organizationId: parsed.organizationId,
-            tenantId: parsed.tenantId,
-            lineNumber: line.lineNumber ?? i + 1,
-            name: line.name ?? null,
-            sku: line.sku ?? null,
-            description: line.description ?? null,
-            quantity: toNumericString(line.quantity ?? 0),
-            quantityUnit: line.quantityUnit ?? null,
-            normalizedQuantity: toNumericString(line.normalizedQuantity ?? 0),
-            normalizedUnit: line.normalizedUnit ?? null,
-            uomSnapshot: line.uomSnapshot ?? null,
-            currencyCode: line.currencyCode ?? parsed.currencyCode,
-            unitPriceNet: toNumericString(line.unitPriceNet ?? 0),
-            unitPriceGross: toNumericString(line.unitPriceGross ?? 0),
-            taxRate: toNumericString(line.taxRate ?? 0),
-            taxAmount: toNumericString(line.taxAmount ?? 0),
-            totalNetAmount: toNumericString(line.totalNetAmount ?? 0),
-            totalGrossAmount: toNumericString(line.totalGrossAmount ?? 0),
-            metadata: line.metadata ?? null,
-          }),
-        );
-      }
-    }
+    // Header + lines + custom-field writes must commit atomically.
+    // setRecordCustomFields flushes mid-build, so without a transaction a
+    // partial write could persist the header without its lines/custom fields.
+    await withAtomicFlush(
+      em,
+      [
+        async () => {
+          em.persist(creditMemo);
 
-    if (parsed.customFieldSetId) {
-      await setRecordCustomFields(em, creditMemoId, parsed.customFieldSetId, parsed);
-    }
+          if (parsed.lines?.length) {
+            for (let i = 0; i < parsed.lines.length; i++) {
+              const line = parsed.lines[i];
+              em.persist(
+                em.create(SalesCreditMemoLine, {
+                  id: randomUUID(),
+                  creditMemo,
+                  orderLineId: line.orderLineId ?? null,
+                  organizationId: parsed.organizationId,
+                  tenantId: parsed.tenantId,
+                  lineNumber: line.lineNumber ?? i + 1,
+                  name: line.name ?? null,
+                  sku: line.sku ?? null,
+                  description: line.description ?? null,
+                  quantity: toNumericString(line.quantity ?? 0),
+                  quantityUnit: line.quantityUnit ?? null,
+                  normalizedQuantity: toNumericString(line.normalizedQuantity ?? 0),
+                  normalizedUnit: line.normalizedUnit ?? null,
+                  uomSnapshot: line.uomSnapshot ?? null,
+                  currencyCode: line.currencyCode ?? parsed.currencyCode,
+                  unitPriceNet: toNumericString(line.unitPriceNet ?? 0),
+                  unitPriceGross: toNumericString(line.unitPriceGross ?? 0),
+                  taxRate: toNumericString(line.taxRate ?? 0),
+                  taxAmount: toNumericString(line.taxAmount ?? 0),
+                  totalNetAmount: toNumericString(line.totalNetAmount ?? 0),
+                  totalGrossAmount: toNumericString(line.totalGrossAmount ?? 0),
+                  metadata: line.metadata ?? null,
+                }),
+              );
+            }
+          }
 
-    await em.flush();
+          if (parsed.customFieldSetId) {
+            await setRecordCustomFields(em, {
+              entityId: E.sales.sales_credit_memo,
+              recordId: creditMemoId,
+              organizationId: parsed.organizationId,
+              tenantId: parsed.tenantId,
+              values: normalizeCustomFieldValues(
+                ((parsed as Record<string, unknown>).customFields as Record<string, unknown>) ?? {},
+              ),
+            });
+          }
+        },
+      ],
+      { transaction: true },
+    );
 
     const dataEngine = ctx.container.resolve("dataEngine") as DataEngine;
     await emitCrudSideEffects({
