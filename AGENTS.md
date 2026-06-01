@@ -13,6 +13,7 @@ Leverage the module system and follow strict naming and coding conventions to ke
 - Use the closest package/module `AGENTS.md` for local architecture, imports, and validation commands.
 - Follow `BACKWARD_COMPATIBILITY.md` before touching any contract surface.
 - Run `yarn generate` after adding or modifying module files that rely on auto-discovery.
+- Support optimistic locking on every NEW user-editable entity and edit/delete form (it is **default ON**): give the entity an `updated_at` column, return `updatedAt` in its list/detail API responses, and let `CrudForm` auto-derive the header from `initialValues.updatedAt` (covers update **and** delete) — or, for custom non-`CrudForm` handlers, wrap the mutating call with `withScopedApiRequestHeaders(buildOptimisticLockHeader(record.updatedAt), …)` and surface conflicts via `surfaceRecordConflict(err, t)`. If a form's `onSubmit` mutates OTHER entities, override the parent header per child with that child's own version (avoid false 409s). Two guards enforce this: `optimistic-lock-editable-entities.test.ts` (editable entities expose `updated_at`) and `optimistic-lock-ui-coverage.test.ts` (new raw mutating UI calls send the header or are allowlisted with a reason). See the Task Router row + `apps/docs/docs/framework/data-integrity/concurrency-locking.mdx`.
 
 ## Ask First
 

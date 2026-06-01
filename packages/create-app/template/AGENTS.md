@@ -214,6 +214,7 @@ Install official package-backed modules with `yarn mercato module add @open-merc
 
 - Define module entities in `src/modules/<module>/data/entities.ts`.
 - Import entity decorators from `@mikro-orm/decorators/legacy`, not `@mikro-orm/core`.
+- User-editable entities MUST carry an `updated_at` column (onCreate+onUpdate) — it backs OSS **optimistic locking** (default ON). Return `updatedAt` from CRUD list/detail responses, and on edit/delete UI let `CrudForm` auto-derive the version header from `initialValues.updatedAt`, or for custom handlers wrap with `withScopedApiRequestHeaders(buildOptimisticLockHeader(record.updatedAt), …)` + `surfaceRecordConflict(err, t)`. Without it, concurrent edits silently overwrite.
 - Treat `yarn db:generate` as a schema-diff probe. Default to the generated SQL, but if it emits unrelated churn, keep or write only the scoped SQL for the module you are changing and update `src/modules/<module>/migrations/.snapshot-open-mercato.json` in the same change.
 
 ### API Route Files MUST Export `metadata`

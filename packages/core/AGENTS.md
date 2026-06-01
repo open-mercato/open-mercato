@@ -567,6 +567,7 @@ await emitCrudSideEffects({ ... })
 - Tables: plural snake_case; prefer `<module>_` prefixes for module-owned tables (e.g., `catalog_products`, `sales_orders`)
 - UUID PKs, explicit FKs, junction tables for M2M
 - Include `deleted_at timestamptz null` for soft delete
+- **User-editable entities MUST include an `updated_at` column** so OSS optimistic locking (default ON) can function — without it `CrudForm`'s auto-derive silently no-ops and concurrent edits are lost. Use `@Property({ name: 'updated_at', type: Date, onCreate: () => new Date(), onUpdate: () => new Date(), nullable: true })`, and make the entity's list/detail CRUD responses return `updatedAt`. The `optimistic-lock-editable-entities.test.ts` guard fails if a curated editable entity drops the column. Append-only logs, junction/assignment tables, session/token rows, background-job rows, and sub-resource lines guarded by a parent aggregate are exempt.
 
 ## Generated Files
 
