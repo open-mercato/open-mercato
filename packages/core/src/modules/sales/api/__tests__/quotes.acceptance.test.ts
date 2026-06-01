@@ -16,6 +16,9 @@ const mockEm: Record<string, jest.Mock> = {
   find: jest.fn(),
   persist: jest.fn(),
   flush: jest.fn(),
+  begin: jest.fn().mockResolvedValue(undefined),
+  commit: jest.fn().mockResolvedValue(undefined),
+  rollback: jest.fn().mockResolvedValue(undefined),
   transactional: jest.fn().mockImplementation(async (callback: (trx: any) => Promise<unknown>) => callback(mockEm)),
 }
 
