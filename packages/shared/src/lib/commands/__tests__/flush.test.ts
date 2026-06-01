@@ -2,17 +2,19 @@ import { withAtomicFlush } from '../flush'
 
 type FakeEntityManager = {
   flush: jest.Mock<Promise<void>, []>
-  begin: jest.Mock<Promise<void>, []>
+  begin: jest.Mock<Promise<void>, [unknown?]>
   commit: jest.Mock<Promise<void>, []>
   rollback: jest.Mock<Promise<void>, []>
+  isInTransaction: jest.Mock<boolean, []>
 }
 
-function createFakeEm(): FakeEntityManager {
+function createFakeEm(overrides?: { inTransaction?: boolean }): FakeEntityManager {
   return {
     flush: jest.fn().mockResolvedValue(undefined),
     begin: jest.fn().mockResolvedValue(undefined),
     commit: jest.fn().mockResolvedValue(undefined),
     rollback: jest.fn().mockResolvedValue(undefined),
+    isInTransaction: jest.fn().mockReturnValue(overrides?.inTransaction ?? false),
   }
 }
 
@@ -162,5 +164,59 @@ describe('withAtomicFlush', () => {
     ).rejects.toBe(failure)
 
     expect(em.rollback).toHaveBeenCalledTimes(1)
+  })
+
+  it('joins an ambient transaction instead of clobbering it (re-entrancy)', async () => {
+    const em = createFakeEm({ inTransaction: true })
+    const phase = jest.fn()
+
+    await withAtomicFlush(em as any, [phase], { transaction: true })
+
+    // Must NOT open/commit a nested transaction — the outermost caller owns it.
+    expect(em.begin).not.toHaveBeenCalled()
+    expect(em.commit).not.toHaveBeenCalled()
+    expect(em.rollback).not.toHaveBeenCalled()
+    expect(phase).toHaveBeenCalledTimes(1)
+    expect(em.flush).toHaveBeenCalledTimes(1)
+  })
+
+  it('propagates a phase error when joining an ambient transaction (no local rollback)', async () => {
+    const em = createFakeEm({ inTransaction: true })
+    const failure = new Error('nested-phase-failure')
+
+    await expect(
+      withAtomicFlush(em as any, [
+        () => {
+          throw failure
+        },
+      ], { transaction: true }),
+    ).rejects.toBe(failure)
+
+    // The enclosing transaction owns rollback; this call must not commit or rollback.
+    expect(em.begin).not.toHaveBeenCalled()
+    expect(em.commit).not.toHaveBeenCalled()
+    expect(em.rollback).not.toHaveBeenCalled()
+    expect(em.flush).not.toHaveBeenCalled()
+  })
+
+  it('forwards isolationLevel to begin when opening a top-level transaction', async () => {
+    const em = createFakeEm()
+
+    await withAtomicFlush(em as any, [() => {}], {
+      transaction: true,
+      isolationLevel: 'serializable' as any,
+    })
+
+    expect(em.begin).toHaveBeenCalledTimes(1)
+    expect(em.begin).toHaveBeenCalledWith({ isolationLevel: 'serializable' })
+    expect(em.commit).toHaveBeenCalledTimes(1)
+  })
+
+  it('does not pass options to begin when no isolationLevel is set', async () => {
+    const em = createFakeEm()
+
+    await withAtomicFlush(em as any, [() => {}], { transaction: true })
+
+    expect(em.begin).toHaveBeenCalledWith(undefined)
   })
 })
