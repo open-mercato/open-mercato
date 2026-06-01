@@ -1,0 +1,4 @@
+{
+  "$comment": "Intentional absolute date literals in tests that the time-bomb scanner (scripts/time-bomb-scanner.mjs) should ignore. Each entry is either a 'relpath:line' location, a 'relpath' (whole file), or a raw literal value. Prefer a clock-relative value (new Date(Date.now() + N)) over allowlisting whenever the assertion depends on the literal being past/future.",
+  "entries": []
+}
