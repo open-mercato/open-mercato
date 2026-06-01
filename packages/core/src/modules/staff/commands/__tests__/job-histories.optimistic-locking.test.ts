@@ -145,4 +145,63 @@ describe('staff job history optimistic locking', () => {
       body: { error: 'This record was modified by someone else. Refresh and try again.' },
     })
   })
+
+  it('returns 409 when deleting a job history entry with a stale updatedAt', async () => {
+    const { del } = await loadCommands()
+    const record = {
+      id: jobHistoryId,
+      tenantId: 'tenant-1',
+      organizationId: 'org-1',
+      updatedAt: new Date('2026-05-30T10:00:00.000Z'),
+      member: { id: 'member-1' },
+      name: 'Engineer',
+      companyName: null,
+      description: null,
+      startDate: new Date('2026-05-01T00:00:00.000Z'),
+      endDate: null,
+    }
+    const em = {
+      fork: jest.fn().mockReturnThis(),
+      findOne: jest.fn().mockResolvedValue(record),
+    }
+
+    await expect(
+      del.execute({
+        id: jobHistoryId,
+        updatedAt: '2026-05-30T09:00:00.000Z',
+      }, createCtx(em)),
+    ).rejects.toMatchObject<Partial<CrudHttpError>>({
+      status: 409,
+      body: { error: 'This record was modified by someone else. Refresh and try again.' },
+    })
+  })
+
+  it('succeeds when deleting a job history entry with a matching updatedAt', async () => {
+    const { del } = await loadCommands()
+    const record = {
+      id: jobHistoryId,
+      tenantId: 'tenant-1',
+      organizationId: 'org-1',
+      updatedAt: new Date('2026-05-30T10:00:00.000Z'),
+      member: { id: 'member-1' },
+      name: 'Engineer',
+      companyName: null,
+      description: null,
+      startDate: new Date('2026-05-01T00:00:00.000Z'),
+      endDate: null,
+    }
+    const em = {
+      fork: jest.fn().mockReturnThis(),
+      findOne: jest.fn().mockResolvedValue(record),
+      remove: jest.fn().mockReturnThis(),
+      flush: jest.fn().mockResolvedValue(undefined),
+    }
+
+    await expect(
+      del.execute({
+        id: jobHistoryId,
+        updatedAt: '2026-05-30T10:00:00+00:00',
+      }, createCtx(em)),
+    ).resolves.toEqual({ jobHistoryId })
+  })
 })

@@ -19,7 +19,7 @@ type JobHistoryRecord = {
   description: string | null
   startDate: string | null
   endDate: string | null
-  updatedAt: string | null
+  updatedAt: string | undefined
 }
 
 type JobHistoryResponse = {
@@ -139,7 +139,13 @@ export function JobHistorySection({ memberId }: { memberId: string | null }) {
     if (!memberId) return
     const payload = buildJobHistoryPayload(values)
     if (dialogMode === 'edit' && activeRecord) {
-      await updateCrud('staff/job-histories', { id: activeRecord.id, updatedAt: activeRecord.updatedAt, ...payload }, { errorMessage: labels.errorSave })
+      try {
+        await updateCrud('staff/job-histories', { id: activeRecord.id, updatedAt: activeRecord.updatedAt, ...payload }, { errorMessage: labels.errorSave })
+      } catch (error) {
+        const message = error instanceof Error && error.message.trim().length > 0 ? error.message : labels.conflict
+        flash(message, 'error')
+        return
+      }
       flash(labels.updated, 'success')
     } else {
       await createCrud('staff/job-histories', { entityId: memberId, ...payload }, { errorMessage: labels.errorSave })
@@ -147,7 +153,7 @@ export function JobHistorySection({ memberId }: { memberId: string | null }) {
     }
     closeDialog()
     setReloadToken((prev) => prev + 1)
-  }, [activeRecord, closeDialog, dialogMode, labels.errorSave, labels.saved, labels.updated, memberId])
+  }, [activeRecord, closeDialog, dialogMode, labels.conflict, labels.errorSave, labels.saved, labels.updated, memberId])
 
   const handleDelete = React.useCallback(async (record: JobHistoryRecord) => {
     const confirmed = await confirmDialog({
@@ -305,7 +311,7 @@ function normalizeJobHistoryItems(items?: Record<string, unknown>[]): JobHistory
           ? record.updated_at
           : typeof record.updatedAt === 'string'
             ? record.updatedAt
-            : null,
+            : undefined,
       }
     })
     .filter((value): value is JobHistoryRecord => value !== null)

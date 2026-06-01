@@ -100,12 +100,10 @@ const crud = makeCrudRoute({
       mapInput: async ({ parsed, ctx }) => {
         const { translate } = await resolveTranslations()
         const id = resolveCrudRecordId(parsed, ctx, translate)
+        const parsedBody = (parsed as { body?: Record<string, unknown> })?.body
         return {
           id,
-          updatedAt:
-            typeof (parsed as Record<string, unknown>).updatedAt === 'string'
-              ? (parsed as Record<string, unknown>).updatedAt
-              : undefined,
+          updatedAt: typeof parsedBody?.updatedAt === 'string' ? parsedBody.updatedAt : undefined,
         }
       },
       response: () => ({ ok: true }),
