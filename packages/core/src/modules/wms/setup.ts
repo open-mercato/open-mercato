@@ -1,7 +1,15 @@
 import type { EntityManager } from '@mikro-orm/postgresql'
 import type { ModuleSetupConfig } from '@open-mercato/shared/modules/setup'
+import { ensureRoles } from '@open-mercato/core/modules/auth/lib/setup-app'
 import { findOneWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import { FeatureToggle } from '@open-mercato/core/modules/feature_toggles/data/entities'
+import {
+  WMS_CUSTOM_ROLE_NAMES,
+  WMS_OPERATOR_FEATURES,
+  WMS_OPERATOR_ROLE,
+  WMS_SUPERVISOR_FEATURES,
+  WMS_SUPERVISOR_ROLE,
+} from './lib/roleFeatures'
 
 const wmsIntegrationToggles = [
   {
@@ -51,13 +59,20 @@ async function seedWmsFeatureToggles(em: EntityManager): Promise<void> {
   await em.flush()
 }
 
+async function seedWmsRoles(em: EntityManager, tenantId: string): Promise<void> {
+  await ensureRoles(em, { tenantId, roleNames: [...WMS_CUSTOM_ROLE_NAMES] })
+}
+
 export const setup: ModuleSetupConfig = {
   seedDefaults: async (ctx) => {
     await seedWmsFeatureToggles(ctx.em)
+    await seedWmsRoles(ctx.em, ctx.tenantId)
   },
   defaultRoleFeatures: {
     admin: ['wms.*'],
     employee: ['wms.view'],
+    [WMS_OPERATOR_ROLE]: [...WMS_OPERATOR_FEATURES],
+    [WMS_SUPERVISOR_ROLE]: [...WMS_SUPERVISOR_FEATURES],
   },
 }
 

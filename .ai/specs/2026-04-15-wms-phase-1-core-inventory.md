@@ -482,7 +482,26 @@ UI patterns:
    - `wms.manage_reservations` — create/release/allocate reservations
    - `wms.adjust_inventory` — adjust inventory and execute moves
    - `wms.cycle_count` — perform cycle count reconciliation
-3. Add search and i18n generation hooks.
+   - `wms.import` — validate and apply CSV inventory imports
+3. Seed WMS-specific default roles in `setup.ts` (`operator`, `supervisor`) with ACL grants via `defaultRoleFeatures`. Roles are created idempotently in `seedDefaults`; ACL rows are merged by `ensureCustomRoleAcls` after seeding and by `yarn mercato auth sync-role-acls` for existing tenants.
+4. Add search and i18n generation hooks.
+
+#### Default role matrix (Month 1)
+
+| Role | Intended user | WMS features |
+|------|---------------|--------------|
+| `operator` | Floor staff — adjust stock, run simple cycle counts, read operational views | `wms.view`, `wms.adjust_inventory`, `wms.cycle_count` |
+| `supervisor` | Warehouse lead — operator flows plus master-data maintenance and CSV import | operator features + `wms.import` + all `wms.manage_*` (`manage_warehouses`, `manage_zones`, `manage_locations`, `manage_inventory`, `manage_reservations`) |
+| `employee` | General back-office user (built-in) | `wms.view` only |
+| `admin` | Tenant administrator (built-in) | `wms.*` |
+
+**Existing tenants:** run `yarn mercato seed:defaults` (creates missing `operator`/`supervisor` roles) then `yarn mercato auth sync-role-acls` to merge new default grants without removing custom ACL edits.
+
+#### Reserved role names
+
+The tenant role slugs `operator` and `supervisor` are **reserved by the WMS module**. WMS seeds them idempotently in `setup.ts` (`seedDefaults` → `ensureRoles`) and maps ACL grants through `defaultRoleFeatures` in `packages/core/src/modules/wms/lib/roleFeatures.ts`. Display labels live under `auth.roles.operator` / `auth.roles.supervisor` in auth i18n.
+
+Other modules MUST NOT create or depend on tenant roles named `operator` or `supervisor` without coordinating with WMS — reuse would collide with WMS seeding, ACL sync, and backoffice role labels. Prefer module-specific role slugs (for example `pos_cashier`) or document a shared convention before introducing overlapping names.
 
 ### Story 2: Core data model and write engine
 1. Implement entities and migrations for phase-1 tables.
@@ -615,6 +634,10 @@ None.
 - **Fully compliant**: Approved — ready for implementation
 
 ## Changelog
+
+### 2026-06-01
+- Added WMS default roles `operator` and `supervisor` in `setup.ts` with `defaultRoleFeatures` matrix; roles seed idempotently via `seedDefaults`, ACL grants sync via `ensureCustomRoleAcls` / `yarn mercato auth sync-role-acls`
+- Documented role vs feature matrix in Story 1; auth i18n labels for `auth.roles.operator` / `auth.roles.supervisor`
 
 ### 2026-05-27
 - Inventory console (`/backend/wms/inventory`): production **Adjust** dialog and 3-step **cycle count** wizard (count → variance → post), ACL-gated via `wms.adjust_inventory` / `wms.cycle_count`; unit helpers in `inventoryMutationUi.ts`

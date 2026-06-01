@@ -57,7 +57,7 @@ Each month ends with a **Definition of Done**: a short set of **acceptance scena
 - **Master data (MVP):** products/SKUs, units, warehouse-relevant attributes (dimensions/weight only if you truly need them day one).
 - **Locations (MVP):** zones, racks, addresses, uniqueness, simple location-type rules (e.g., pick vs bulk—even simplified).
 - **CSV bulk import (bootstrap):** do **not** treat as universally optional. For **large catalogs (e.g. 10k+ SKUs)** it is a **hard blocker** for go-live; for **first merchants above an agreed threshold (e.g. > ~2k SKUs)** treat import as **must-have** in the same window. Record the **designated first merchant** and SKU scale in planning so the quarter commits either a **thin CSV MVP** (validate → report → apply) or a scoped alternative (API bulk) explicitly.
-- **Permissions + audit (minimum):** operator vs supervisor roles, log of key changes.
+- **Permissions + audit (minimum):** operator vs supervisor roles (seeded in WMS `setup.ts` — operator: view/adjust/cycle count; supervisor: operator + import + all `wms.manage_*`), log of key changes.
 
 **Phase complete:** *Warehouse structure + catalog + solid UX + operational visibility (including lot/expiry) + primary warehouse + Adjust + simple cycle count + import decision tied to first merchant scale* — demo: configure warehouses with one primary, create locations/SKUs, post an opening balance via Adjust, run a short cycle count, show per-SKU / per-location / per-lot + expiry card + overview; import path exists or is explicitly waived with written scale assumption.
 
