@@ -1,4 +1,5 @@
 import { HybridQueryEngine } from '../../query_index/lib/engine'
+import { SortDir } from '@open-mercato/shared/lib/query/types'
 
 type KyselyMockConfig = {
   baseTable: string
@@ -438,6 +439,71 @@ describe('HybridQueryEngine', () => {
     expect(result.items).toEqual([
       expect.objectContaining({ id: 'user-1', name: 'Alice Owner' }),
     ])
+  })
+
+  test('sorts encrypted base fields after decryption before pagination', async () => {
+    const db = createFakeKysely({
+      baseTable: 'customer_entities',
+      hasIndexAny: true,
+      baseCount: 5,
+      indexCount: 5,
+      columns: [
+        { table_name: 'customer_entities', column_name: 'id' },
+        { table_name: 'customer_entities', column_name: 'tenant_id' },
+        { table_name: 'customer_entities', column_name: 'organization_id' },
+        { table_name: 'customer_entities', column_name: 'deleted_at' },
+        { table_name: 'customer_entities', column_name: 'display_name' },
+      ],
+      rows: {
+        customer_entities: [
+          { id: '3', tenant_id: 't1', organization_id: 'org1', display_name: 'cipher-c' },
+          { id: '1', tenant_id: 't1', organization_id: 'org1', display_name: 'cipher-a' },
+          { id: '5', tenant_id: 't1', organization_id: 'org1', display_name: 'cipher-e' },
+          { id: '2', tenant_id: 't1', organization_id: 'org1', display_name: 'cipher-b' },
+          { id: '4', tenant_id: 't1', organization_id: 'org1', display_name: 'cipher-d' },
+        ],
+      },
+    })
+    const namesById: Record<string, string> = {
+      '1': 'Alice',
+      '2': 'Bob',
+      '3': 'Charlie',
+      '4': 'Dave',
+      '5': 'Eve',
+    }
+    const em = buildEm(db)
+    const fallback = { query: jest.fn() }
+    const emitEvent = jest.fn().mockResolvedValue(undefined)
+    const engine = new HybridQueryEngine(
+      em,
+      fallback as any,
+      () => ({ emitEvent }),
+      undefined,
+      () => ({
+        isEnabled: () => true,
+        getEncryptedFieldNames: async () => ['display_name'],
+        decryptEntityPayload: async (_entityId, payload) => ({
+          display_name: namesById[String(payload.id)],
+        }),
+      }),
+    )
+
+    const result = await engine.query('customers:customer_entity', {
+      fields: ['id', 'display_name'],
+      organizationId: 'org1',
+      tenantId: 't1',
+      sort: [{ field: 'display_name', dir: SortDir.Asc }],
+      page: { page: 2, pageSize: 2 },
+    })
+
+    expect(fallback.query).not.toHaveBeenCalled()
+    expect(result.items.map((item: any) => item.display_name)).toEqual(['Charlie', 'Dave'])
+    const dataRead = db._chains
+      .filter((chain: ChainLog) => chain.table === 'customer_entities')
+      .at(-1)
+    expect(dataRead?.orderBys).toEqual([])
+    expect(dataRead?.limit).toBeNull()
+    expect(dataRead?.offset).toBeNull()
   })
 
   test('joins entity index aliases for customFieldSources', async () => {

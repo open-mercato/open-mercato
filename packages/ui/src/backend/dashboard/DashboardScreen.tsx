@@ -12,7 +12,9 @@ import type { DashboardWidgetModule } from '@open-mercato/shared/modules/dashboa
 import { cn } from '@open-mercato/shared/lib/utils'
 import { GripVertical, Info, Plus, RefreshCw, Settings2, Trash2, X, Loader2 } from 'lucide-react'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
+import { useOrganizationScopeVersion } from '@open-mercato/shared/lib/frontend/useOrganizationScope'
 import { InjectionSpot } from '../injection/InjectionSpot'
+import { WidgetDataBatchProvider } from './widgetData'
 
 type DashboardWidgetSize = 'sm' | 'md' | 'lg'
 
@@ -92,6 +94,7 @@ function generateId(): string {
 
 export function DashboardScreen() {
   const t = useT()
+  const organizationScopeVersion = useOrganizationScopeVersion()
   const [loading, setLoading] = React.useState(true)
   const [error, setError] = React.useState<string | null>(null)
   const [hasRegisteredWidgets, setHasRegisteredWidgets] = React.useState(true)
@@ -165,7 +168,7 @@ export function DashboardScreen() {
 
   React.useEffect(() => {
     load()
-  }, [load])
+  }, [load, organizationScopeVersion])
 
   const metaById = React.useMemo(() => {
     const map = new Map<string, WidgetMeta>()
@@ -427,6 +430,7 @@ export function DashboardScreen() {
         </div>
       )}
 
+      <WidgetDataBatchProvider>
       <div className={cn(
         'grid gap-3 sm:gap-4 md:gap-6',
         'grid-cols-1',
@@ -491,6 +495,7 @@ export function DashboardScreen() {
           )
         })}
       </div>
+      </WidgetDataBatchProvider>
 
       {layout.length === 0 && (
         <div className="rounded-lg border border-dashed bg-muted/30 p-10 text-center text-sm text-muted-foreground">
@@ -560,6 +565,12 @@ function DashboardWidgetCard({
     loadDashboardWidgetModule(meta.loaderKey)
       .then((loaded) => {
         if (cancelled) return
+        if (!loaded) {
+          setModule(null)
+          setLoadError(t('dashboard.widget.loadError'))
+          setLoading(false)
+          return
+        }
         setModule(loaded)
         setLoading(false)
       })

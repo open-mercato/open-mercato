@@ -25,6 +25,7 @@ import {
 } from '../data/validators'
 import {
   cloneJson,
+  commandActorScope,
   ensureOrganizationScope,
   ensureTenantScope,
   emitCatalogQueryIndexEvent,
@@ -103,7 +104,12 @@ async function loadVariantSnapshot(
 ): Promise<VariantSnapshot | null> {
   const record = await em.findOne(CatalogProductVariant, { id, deletedAt: null })
   if (!record) return null
-  const prices = options.includePrices ? await loadVariantPriceSnapshots(em, record.id) : null
+  const prices = options.includePrices
+    ? await loadVariantPriceSnapshots(em, record.id, {
+        tenantId: record.tenantId,
+        organizationId: record.organizationId,
+      })
+    : null
   const custom = await loadCustomFieldSnapshot(em, {
     entityId: E.catalog.catalog_product_variant,
     recordId: record.id,
@@ -223,14 +229,15 @@ type VariantPriceSnapshot = {
 
 async function loadVariantPriceSnapshots(
   em: EntityManager,
-  variantId: string
+  variantId: string,
+  scope: { tenantId: string; organizationId: string }
 ): Promise<VariantPriceSnapshot[]> {
   const prices = await findWithDecryption(
     em,
     CatalogProductPrice,
-    { variant: variantId },
+    { variant: variantId, tenantId: scope.tenantId, organizationId: scope.organizationId },
     { populate: ['priceKind', 'product', 'offer'] },
-    { tenantId: null, organizationId: null },
+    { tenantId: scope.tenantId, organizationId: scope.organizationId },
   )
   const snapshots: VariantPriceSnapshot[] = []
   for (const price of prices) {
@@ -312,7 +319,10 @@ async function restoreVariantPricesFromSnapshots(
   if (!snapshots.length) return
   const productRef =
     typeof variant.product === 'string'
-      ? await requireProduct(em, variant.product)
+      ? await requireProduct(em, variant.product, {
+          tenantId: variant.tenantId,
+          organizationId: variant.organizationId,
+        })
       : variant.product
   for (const snapshot of snapshots) {
     const product =
@@ -541,7 +551,7 @@ const createVariantCommand: CommandHandler<VariantCreateInput, { variantId: stri
   async execute(rawInput, ctx) {
     const { parsed, custom } = parseWithCustomFields(variantCreateSchema, rawInput)
     const em = (ctx.container.resolve('em') as EntityManager).fork()
-    const product = await requireProduct(em, parsed.productId)
+    const product = await requireProduct(em, parsed.productId, commandActorScope(ctx))
     ensureTenantScope(ctx, product.tenantId)
     ensureOrganizationScope(ctx, product.organizationId)
     const { taxRateId, taxRate } = await resolveVariantTaxRate(
@@ -699,7 +709,10 @@ const updateVariantCommand: CommandHandler<VariantUpdateInput, { variantId: stri
     if (!record) throw new CrudHttpError(404, { error: 'Catalog variant not found' })
     ensureTenantScope(ctx, record.tenantId)
     ensureOrganizationScope(ctx, record.organizationId)
-    const product = await requireProduct(em, record.product.id)
+    const product = await requireProduct(em, record.product.id, {
+      tenantId: record.tenantId,
+      organizationId: record.organizationId,
+    })
 
     if (!product) throw new CrudHttpError(400, { error: 'Variant product missing' })
 
@@ -821,7 +834,10 @@ const updateVariantCommand: CommandHandler<VariantUpdateInput, { variantId: stri
     const em = (ctx.container.resolve('em') as EntityManager).fork()
     let record = await em.findOne(CatalogProductVariant, { id: before.id })
     if (!record) {
-      const product = await requireProduct(em, before.productId)
+      const product = await requireProduct(em, before.productId, {
+        tenantId: before.tenantId,
+        organizationId: before.organizationId,
+      })
       record = em.create(CatalogProductVariant, {
         id: before.id,
         product,
@@ -904,7 +920,10 @@ const deleteVariantCommand: CommandHandler<
     const priceSnapshots =
       snapshot?.prices && snapshot.prices.length
         ? snapshot.prices
-        : await loadVariantPriceSnapshots(baseEm, id)
+        : await loadVariantPriceSnapshots(baseEm, id, {
+            tenantId: record.tenantId,
+            organizationId: record.organizationId,
+          })
 
     if (priceSnapshots.length) {
       await em.nativeDelete(CatalogProductPrice, { id: { $in: priceSnapshots.map((price) => price.id) } })
@@ -985,7 +1004,10 @@ const deleteVariantCommand: CommandHandler<
     const em = (ctx.container.resolve('em') as EntityManager).fork()
     let record = await em.findOne(CatalogProductVariant, { id: before.id })
     if (!record) {
-      const product = await requireProduct(em, before.productId)
+      const product = await requireProduct(em, before.productId, {
+        tenantId: before.tenantId,
+        organizationId: before.organizationId,
+      })
       record = em.create(CatalogProductVariant, {
         id: before.id,
         product,

@@ -1,51 +1,77 @@
 "use client"
 
 import * as React from 'react'
-import { injectionWidgetEntries } from '@/.mercato/generated/injection-widgets.generated'
-// Side-effect: registers translatable fields for client-side TranslationManager
+// Side-effect imports: these register types/components on import, so they
+// MUST stay top-level to be available during the first paint.
 import '@/.mercato/generated/translations-fields.generated'
-import { injectionTables } from '@/.mercato/generated/injection-tables.generated'
-import { enabledModuleIds } from '@/.mercato/generated/enabled-module-ids.generated'
-import { registerCoreInjectionWidgets, registerCoreInjectionTables, registerEnabledModuleIds } from '@open-mercato/core/modules/widgets/lib/injection'
-import { registerInjectionWidgets } from '@open-mercato/ui/backend/injection/widgetRegistry'
-import { dashboardWidgetEntries } from '@/.mercato/generated/dashboard-widgets.generated'
-import { registerDashboardWidgets } from '@open-mercato/ui/backend/dashboard/widgetRegistry'
-import { notificationHandlerEntries } from '@/.mercato/generated/notification-handlers.generated'
-import { registerNotificationHandlers } from '@open-mercato/shared/lib/notifications/handler-registry'
-// Side-effect: registers translatable fields for client-side TranslationManager
-import '@/.mercato/generated/translations-fields.generated'
-// Side-effect: configures message UI component and object type registries on the client.
 import '@/.mercato/generated/messages.client.generated'
-// Side-effect: registers provider-owned payment renderer widgets on the client.
 import '@/.mercato/generated/payments.client.generated'
 
+import { registerCoreInjectionWidgets, registerCoreInjectionTables, registerEnabledModuleIds } from '@open-mercato/core/modules/widgets/lib/injection'
+import { registerInjectionWidgets } from '@open-mercato/ui/backend/injection/widgetRegistry'
+import { registerDashboardWidgets } from '@open-mercato/ui/backend/dashboard/widgetRegistry'
+import { registerNotificationHandlers } from '@open-mercato/shared/lib/notifications/handler-registry'
+
 let _clientBootstrapped = false
+let _bootstrapPromise: Promise<void> | null = null
 
-function clientBootstrap() {
+async function clientBootstrap(): Promise<void> {
   if (_clientBootstrapped) return
-  _clientBootstrapped = true
+  if (_bootstrapPromise) return _bootstrapPromise
 
-  // Register injection widgets
-  registerInjectionWidgets(injectionWidgetEntries)
-  registerCoreInjectionWidgets(injectionWidgetEntries)
-  registerCoreInjectionTables(injectionTables)
-  registerEnabledModuleIds(enabledModuleIds)
+  _bootstrapPromise = (async () => {
+    try {
+      // Defer generated registry barrels to a dynamic import so each barrel
+      // becomes its own lazy chunk in Turbopack. Routes that mount this
+      // provider but never use injection/dashboard/notification registries
+      // still get the chunks compiled, but no longer during initial page
+      // parse — the first paint is no longer blocked on registering every
+      // module's client widgets.
+      const [
+        injectionWidgets,
+        injectionTables,
+        enabledModuleIds,
+        dashboardWidgets,
+        notificationHandlers,
+      ] = await Promise.all([
+        import('@/.mercato/generated/injection-widgets.generated'),
+        import('@/.mercato/generated/injection-tables.generated'),
+        import('@/.mercato/generated/enabled-module-ids.generated'),
+        import('@/.mercato/generated/dashboard-widgets.generated'),
+        import('@/.mercato/generated/notification-handlers.generated'),
+      ])
 
-  // Register dashboard widgets
-  registerDashboardWidgets(dashboardWidgetEntries)
+      registerInjectionWidgets(injectionWidgets.injectionWidgetEntries)
+      registerCoreInjectionWidgets(injectionWidgets.injectionWidgetEntries)
+      registerCoreInjectionTables(injectionTables.injectionTables)
+      registerEnabledModuleIds(enabledModuleIds.enabledModuleIds)
+      registerDashboardWidgets(dashboardWidgets.dashboardWidgetEntries)
+      registerNotificationHandlers(notificationHandlers.notificationHandlerEntries)
 
-  // Register notification handlers for client-side reactive effects
-  registerNotificationHandlers(notificationHandlerEntries)
+      _clientBootstrapped = true
+    } catch (err) {
+      // A lazy registry chunk failed to load (e.g. a stale chunk after a
+      // deploy). Clear the cached promise so the next render retries instead
+      // of leaving every client registry empty forever — otherwise dashboard
+      // widget cards would wait on registration indefinitely with no error.
+      _bootstrapPromise = null
+      console.error('[ClientBootstrap] Failed to register client registries; will retry on next render', err)
+    }
+  })()
+
+  return _bootstrapPromise
 }
 
 export function ClientBootstrapProvider({ children }: { children: React.ReactNode }) {
   React.useEffect(() => {
-    clientBootstrap()
+    void clientBootstrap()
   }, [])
 
-  // Also bootstrap synchronously on first render for SSR hydration
+  // Fire-and-forget on the very first client render so any consumer that
+  // reads registries during the same paint as this provider mounts still
+  // sees them populated by microtask flush. The promise is cached.
   if (typeof window !== 'undefined' && !_clientBootstrapped) {
-    clientBootstrap()
+    void clientBootstrap()
   }
 
   return <>{children}</>

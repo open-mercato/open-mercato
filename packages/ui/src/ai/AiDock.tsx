@@ -476,6 +476,16 @@ function DockedChatBody({ assistant }: { assistant: AiDockedAssistant }) {
     if (!session) sessions.ensureSession(assistant.agent)
   }, [assistant.agent, session, sessions])
 
+  const activeSessionId = session?.id ?? null
+  const handleConversationNotFound = React.useCallback(() => {
+    // The server returned 404 for this session's conversationId. The
+    // conversation does not exist in the current tenant/org scope (most
+    // commonly the user just switched scope and a stale id rode along in
+    // localStorage). Close the tab so the dock surfaces the empty state
+    // for the new scope rather than a perpetual blank chat.
+    if (activeSessionId) sessions.closeSession(activeSessionId)
+  }, [activeSessionId, sessions])
+
   return (
     <>
       <ChatPaneTabs agentId={assistant.agent} className="border-b" />
@@ -499,6 +509,7 @@ function DockedChatBody({ assistant }: { assistant: AiDockedAssistant }) {
               welcomeTitle={assistant.welcomeTitle}
               welcomeDescription={assistant.welcomeDescription}
               headerActions={<ConversationShareButton conversationId={session.conversationId} />}
+              onConversationNotFound={handleConversationNotFound}
             />
           </React.Suspense>
         ) : null}

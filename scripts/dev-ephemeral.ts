@@ -125,6 +125,7 @@ const autoOpenSplash = !classic
   && process.env.CI !== 'true'
   && process.env.OM_DEV_AUTO_OPEN !== '0'
 const splashChildStateFilePath = path.join(projectRootDirectory, '.mercato', 'dev-ephemeral-splash-child-state.json')
+const warmupReadyFilePath = path.join(projectRootDirectory, '.mercato', 'dev-ephemeral-warmup-ready.json')
 const splashState = {
   mode: 'dev',
   phase: 'Ephemeral dev environment is starting...',
@@ -444,9 +445,23 @@ function closeSplashServer(): void {
 
 let activePostgresContainerId: string | null = null
 
+function announceShutdown(): void {
+  if (shuttingDown) return
+  shuttingDown = true
+  const message = 'Shutting down services...'
+  updateSplashState({
+    phase: message,
+    detail: 'Stopping app runtime and ephemeral PostgreSQL',
+    ready: false,
+    progressLabel: message,
+    activity: message,
+  })
+  console.log(message)
+}
+
 function shutdown(exitCode: number): never {
   if (!shuttingDown) {
-    shuttingDown = true
+    announceShutdown()
     closeSplashServer()
     if (activePostgresContainerId) {
       stopPostgresContainer(activePostgresContainerId).catch(() => {})
@@ -966,6 +981,7 @@ async function startDevServer(port: number, postgres: EphemeralPostgresHandle): 
     DATABASE_URL: postgres.databaseUrl,
     APP_URL: publicBaseUrl,
     NEXT_PUBLIC_APP_URL: publicBaseUrl,
+    OM_DEV_WARMUP_READY_FILE: warmupReadyFilePath,
     ...(autoOpenSplash
       ? {
           OM_DEV_SPLASH_CHILD_STATE_FILE: splashChildStateFilePath,
@@ -1053,6 +1069,7 @@ async function startDevServer(port: number, postgres: EphemeralPostgresHandle): 
   }
 
   const forwardSignal = (signal: NodeJS.Signals): void => {
+    announceShutdown()
     if (!devCommand.killed) {
       devCommand.kill(signal)
     }

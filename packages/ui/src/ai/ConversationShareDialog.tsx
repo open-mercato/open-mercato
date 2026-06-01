@@ -46,6 +46,7 @@ export function ConversationShareDialog({ open, onOpenChange, conversationId }: 
   const t = useT()
   const currentUserId = useCurrentUserId()
   const [participants, setParticipants] = React.useState<Participant[]>([])
+  const [ownerUserId, setOwnerUserId] = React.useState<string | null>(null)
   const [users, setUsers] = React.useState<UserOption[]>([])
   const [canListUsers, setCanListUsers] = React.useState(true)
   const [loading, setLoading] = React.useState(false)
@@ -62,9 +63,10 @@ export function ConversationShareDialog({ open, onOpenChange, conversationId }: 
     setLoading(true)
     setError(null)
     try {
-      const res = await apiCall<{ participants: Participant[] }>(baseUrl)
+      const res = await apiCall<{ participants: Participant[]; ownerUserId?: string | null }>(baseUrl)
       if (!res.ok || !res.result) throw new Error('fetch failed')
       setParticipants(res.result.participants.filter((p) => p.role !== 'owner'))
+      setOwnerUserId(res.result.ownerUserId ?? null)
     } catch {
       setError(t('common.error', 'Something went wrong.'))
     } finally {
@@ -104,8 +106,11 @@ export function ConversationShareDialog({ open, onOpenChange, conversationId }: 
   )
 
   const availableUsers = React.useMemo(
-    () => users.filter((u) => !participantIds.has(u.id) && u.id !== currentUserId),
-    [users, participantIds, currentUserId],
+    () =>
+      users.filter(
+        (u) => !participantIds.has(u.id) && u.id !== currentUserId && u.id !== ownerUserId,
+      ),
+    [users, participantIds, currentUserId, ownerUserId],
   )
 
   const activeUserId = canListUsers ? selectedUserId : textUserId.trim()

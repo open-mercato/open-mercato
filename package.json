@@ -169,7 +169,6 @@
     "typescript": "^6.0.3"
   },
   "resolutions": {
-    "tmp": "^0.2.7",
     "@xmldom/xmldom": "0.8.13",
     "tmp": "0.2.7",
     "@hono/node-server": "1.19.14",

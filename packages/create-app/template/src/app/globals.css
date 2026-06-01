@@ -1,7 +1,6 @@
 @import "tailwindcss";
 @import "tw-animate-css";
 @import "react-big-calendar/lib/css/react-big-calendar.css";
-@import "@xyflow/react/dist/style.css";
 @import "../../.mercato/generated/module-package-sources.css";
 
 /*
