@@ -68,6 +68,8 @@ export type ProductUnitConversionDraft = {
   toBaseFactor: string;
   sortOrder: string;
   isActive: boolean;
+  /** The conversion row's version, for the per-row optimistic-lock header (#2055). Optional — only loaded rows carry it. */
+  updatedAt?: string | null;
 };
 
 export type VariantDraft = {

@@ -425,6 +425,10 @@ async function decorateProductsAfterList(
         defaultMediaId: offer.defaultMediaId ?? null,
         defaultMediaUrl: offer.defaultMediaUrl ?? null,
         metadata: offer.metadata ?? null,
+        updatedAt:
+          offer.updatedAt instanceof Date
+            ? offer.updatedAt.toISOString()
+            : (typeof offer.updatedAt === "string" ? offer.updatedAt : null),
       });
       offersByProduct.set(productId, entry);
     }

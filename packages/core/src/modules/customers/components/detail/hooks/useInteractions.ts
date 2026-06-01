@@ -250,46 +250,60 @@ export function useInteractions({
     async (id: string) => {
       setIsMutating(true)
       setPendingId(id)
+      const target = interactions.find((entry) => entry.id === id)
       try {
-        await apiCallOrThrow(
-          '/api/customers/interactions/complete',
-          {
-            method: 'POST',
-            headers: { 'content-type': 'application/json' },
-            body: JSON.stringify({ id }),
-          },
-          { errorMessage: t('customers.interactions.complete.error', 'Failed to complete interaction.') },
+        await withScopedApiRequestHeaders(
+          buildOptimisticLockHeader(target?.updatedAt ?? null),
+          () => apiCallOrThrow(
+            '/api/customers/interactions/complete',
+            {
+              method: 'POST',
+              headers: { 'content-type': 'application/json' },
+              body: JSON.stringify({ id }),
+            },
+            { errorMessage: t('customers.interactions.complete.error', 'Failed to complete interaction.') },
+          ),
         )
         await refresh()
+      } catch (err) {
+        if (surfaceRecordConflict(err, t)) { await refresh(); return }
+        throw err
       } finally {
         setPendingId(null)
         setIsMutating(false)
       }
     },
-    [refresh, t],
+    [interactions, refresh, t],
   )
 
   const cancelInteraction = React.useCallback(
     async (id: string) => {
       setIsMutating(true)
       setPendingId(id)
+      const target = interactions.find((entry) => entry.id === id)
       try {
-        await apiCallOrThrow(
-          '/api/customers/interactions/cancel',
-          {
-            method: 'POST',
-            headers: { 'content-type': 'application/json' },
-            body: JSON.stringify({ id }),
-          },
-          { errorMessage: t('customers.interactions.cancel.error', 'Failed to cancel interaction.') },
+        await withScopedApiRequestHeaders(
+          buildOptimisticLockHeader(target?.updatedAt ?? null),
+          () => apiCallOrThrow(
+            '/api/customers/interactions/cancel',
+            {
+              method: 'POST',
+              headers: { 'content-type': 'application/json' },
+              body: JSON.stringify({ id }),
+            },
+            { errorMessage: t('customers.interactions.cancel.error', 'Failed to cancel interaction.') },
+          ),
         )
         await refresh()
+      } catch (err) {
+        if (surfaceRecordConflict(err, t)) { await refresh(); return }
+        throw err
       } finally {
         setPendingId(null)
         setIsMutating(false)
       }
     },
-    [refresh, t],
+    [interactions, refresh, t],
   )
 
   const deleteInteraction = React.useCallback(

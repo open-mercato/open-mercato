@@ -1109,22 +1109,29 @@ export default function DealsKanbanPage(): React.ReactElement {
       }
       setPendingDealId(dealId)
 
+      // The moved deal's version, so a concurrent edit/move from another tab is
+      // refused instead of silently overwritten (#2055).
+      const dealVersion = typeof movingItem?.updated_at === 'string' ? movingItem.updated_at : null
+
       runMoveMutation({
         operation: async () => {
-          await apiCallOrThrow(
-            '/api/customers/deals',
-            {
-              method: 'PUT',
-              headers: { 'content-type': 'application/json' },
-              body: JSON.stringify({ id: dealId, pipelineStageId: targetStageId }),
-            },
-            {
-              errorMessage: translateWithFallback(
-                t,
-                'customers.deals.pipeline.moveError',
-                'Failed to update deal stage.',
-              ),
-            },
+          await withScopedApiRequestHeaders(
+            buildOptimisticLockHeader(dealVersion),
+            () => apiCallOrThrow(
+              '/api/customers/deals',
+              {
+                method: 'PUT',
+                headers: { 'content-type': 'application/json' },
+                body: JSON.stringify({ id: dealId, pipelineStageId: targetStageId }),
+              },
+              {
+                errorMessage: translateWithFallback(
+                  t,
+                  'customers.deals.pipeline.moveError',
+                  'Failed to update deal stage.',
+                ),
+              },
+            ),
           )
         },
         context: {
@@ -1147,6 +1154,8 @@ export default function DealsKanbanPage(): React.ReactElement {
           }
           // Restore extra-pages cache to pre-move snapshot
           setExtraCardsByStage(extraSnapshot)
+          // A stale move surfaces the unified conflict bar — skip the generic flash.
+          if (surfaceRecordConflict(error, t)) return
           const message =
             error instanceof Error && error.message
               ? error.message
@@ -1742,24 +1751,28 @@ export default function DealsKanbanPage(): React.ReactElement {
 
   const updateDealStatus = React.useCallback(
     async (dealId: string, status: 'win' | 'loose') => {
+      const dealVersion = deals.find((deal) => deal.id === dealId)?.updatedAt ?? null
       setPendingDealId(dealId)
       try {
         await runDealMutation({
           operation: async () => {
-            await apiCallOrThrow(
-              '/api/customers/deals',
-              {
-                method: 'PUT',
-                headers: { 'content-type': 'application/json' },
-                body: JSON.stringify({ id: dealId, status }),
-              },
-              {
-                errorMessage: translateWithFallback(
-                  t,
-                  'customers.deals.kanban.menu.error.status',
-                  'Failed to update deal status.',
-                ),
-              },
+            await withScopedApiRequestHeaders(
+              buildOptimisticLockHeader(dealVersion),
+              () => apiCallOrThrow(
+                '/api/customers/deals',
+                {
+                  method: 'PUT',
+                  headers: { 'content-type': 'application/json' },
+                  body: JSON.stringify({ id: dealId, status }),
+                },
+                {
+                  errorMessage: translateWithFallback(
+                    t,
+                    'customers.deals.kanban.menu.error.status',
+                    'Failed to update deal status.',
+                  ),
+                },
+              ),
             )
           },
           context: {
@@ -1785,6 +1798,7 @@ export default function DealsKanbanPage(): React.ReactElement {
         )
         invalidateKanbanData()
       } catch (error) {
+        if (surfaceRecordConflict(error, t)) { invalidateKanbanData(); return }
         const message =
           error instanceof Error && error.message
             ? error.message
@@ -1798,7 +1812,7 @@ export default function DealsKanbanPage(): React.ReactElement {
         setPendingDealId(null)
       }
     },
-    [invalidateKanbanData, retryDealMutation, runDealMutation, t],
+    [deals, invalidateKanbanData, retryDealMutation, runDealMutation, t],
   )
 
   const deleteDeal = React.useCallback(

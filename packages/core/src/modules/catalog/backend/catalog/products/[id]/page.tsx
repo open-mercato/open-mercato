@@ -227,6 +227,7 @@ type OfferSnapshot = {
   isActive: boolean;
   channelName: string | null;
   channelCode: string | null;
+  updatedAt: string | null;
 };
 
 function mapVariantPriceSummary(
@@ -279,7 +280,7 @@ function readProductConversionRows(
 ): ProductUnitConversionDraft[] {
   const rows = Array.isArray(items) ? items : [];
   return rows
-    .map((item) => {
+    .map((item): ProductUnitConversionDraft | null => {
       const id = toTrimmedOrNull(item.id);
       const unitCode = canonicalizeUnitCode(item.unit_code ?? item.unitCode);
       const factor = toPositiveNumberOrNull(
@@ -304,6 +305,12 @@ function readProductConversionRows(
         toBaseFactor: String(factor),
         sortOrder: String(sortOrderRaw),
         isActive,
+        updatedAt:
+          typeof item.updated_at === "string"
+            ? item.updated_at
+            : typeof item.updatedAt === "string"
+              ? item.updatedAt
+              : null,
       } satisfies ProductUnitConversionDraft;
     })
     .filter((entry): entry is ProductUnitConversionDraft => Boolean(entry));
@@ -1243,12 +1250,18 @@ export default function EditCatalogProductPage({
         try {
           for (const offer of removedOffers) {
             if (!offer.id) continue;
-            await deleteCrud("catalog/offers", offer.id, {
-              errorMessage: t(
-                "catalog.products.edit.offers.deleteError",
-                "Failed to remove sales channel offer.",
-              ),
-            });
+            const offerId = offer.id;
+            // Send the offer's own version, overriding the product header the
+            // parent CrudForm submit scope put on the stack (#2055).
+            await withScopedApiRequestHeaders(
+              buildOptimisticLockHeader(offer.updatedAt),
+              () => deleteCrud("catalog/offers", offerId, {
+                errorMessage: t(
+                  "catalog.products.edit.offers.deleteError",
+                  "Failed to remove sales channel offer.",
+                ),
+              }),
+            );
           }
         } catch (err) {
           console.error("catalog.products.edit.offers.delete", err);
@@ -1266,6 +1279,15 @@ export default function EditCatalogProductPage({
           .map((entry) => toTrimmedOrNull(entry.id))
           .filter((id): id is string => Boolean(id)),
       );
+      // Loaded conversion id → version, so the sync sends each row's own
+      // optimistic-lock version (overriding the product header leaked by the
+      // parent CrudForm submit scope onto the catalog/product-unit-conversions
+      // guard) (#2055).
+      const conversionVersions = new Map<string, string | null>();
+      for (const entry of initialConversionsRef.current) {
+        const cid = toTrimmedOrNull(entry.id);
+        if (cid) conversionVersions.set(cid, entry.updatedAt ?? null);
+      }
       const nextConversionIds = new Set(
         conversionInputs
           .map((entry) =>
@@ -1277,23 +1299,30 @@ export default function EditCatalogProductPage({
         (id) => !nextConversionIds.has(id),
       );
       for (const conversionId of removedConversionIds) {
-        await deleteCrud("catalog/product-unit-conversions", conversionId, {
-          errorMessage: t(
-            "catalog.products.uom.errors.sync",
-            "Failed to synchronize product conversions.",
-          ),
-        });
+        await withScopedApiRequestHeaders(
+          buildOptimisticLockHeader(conversionVersions.get(conversionId) ?? null),
+          () => deleteCrud("catalog/product-unit-conversions", conversionId, {
+            errorMessage: t(
+              "catalog.products.uom.errors.sync",
+              "Failed to synchronize product conversions.",
+            ),
+          }),
+        );
       }
       const persistedConversions: ProductUnitConversionDraft[] = [];
       for (const conversion of conversionInputs) {
         if (conversion.id) {
-          await updateCrud("catalog/product-unit-conversions", {
-            id: conversion.id,
-            unitCode: conversion.unitCode,
-            toBaseFactor: conversion.toBaseFactor,
-            sortOrder: conversion.sortOrder,
-            isActive: conversion.isActive,
-          });
+          const conversionId = conversion.id;
+          await withScopedApiRequestHeaders(
+            buildOptimisticLockHeader(conversionVersions.get(conversionId) ?? null),
+            () => updateCrud("catalog/product-unit-conversions", {
+              id: conversionId,
+              unitCode: conversion.unitCode,
+              toBaseFactor: conversion.toBaseFactor,
+              sortOrder: conversion.sortOrder,
+              isActive: conversion.isActive,
+            }),
+          );
           persistedConversions.push({
             id: conversion.id,
             unitCode: conversion.unitCode,
@@ -2813,6 +2842,7 @@ function readOfferSnapshots(record: Record<string, unknown>): OfferSnapshot[] {
         getString(offer.channelName) ?? getString(offer.channel_name),
       channelCode:
         getString(offer.channelCode) ?? getString(offer.channel_code),
+      updatedAt: getString(offer.updatedAt) ?? getString(offer.updated_at) ?? null,
     });
   }
   return snapshots;
@@ -2913,6 +2943,7 @@ function mergeOfferSnapshots(
       isActive: entry.isActive ?? previous?.isActive ?? true,
       channelName: previous?.channelName ?? null,
       channelCode: previous?.channelCode ?? null,
+      updatedAt: previous?.updatedAt ?? null,
     };
   });
 }

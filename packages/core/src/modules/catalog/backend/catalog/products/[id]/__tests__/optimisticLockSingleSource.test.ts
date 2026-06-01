@@ -26,10 +26,14 @@ describe('catalog edit pages — optimistic-lock single header source', () => {
     expect(productPageSource).toContain('initialValues={initialValues ?? undefined}')
   })
 
-  it('variant edit page no longer manually wires the lock header on update or delete', () => {
-    expect(variantPageSource).not.toContain('buildOptimisticLockHeader')
-    expect(variantPageSource).not.toContain('withScopedApiRequestHeaders')
+  it('variant UPDATE is single-sourced (bare updateCrud; CrudForm auto-derives), while the price sync sends each price its own version', () => {
+    // The variant update itself stays bare — CrudForm auto-derives the variant
+    // header from initialValues.updatedAt.
     expect(variantPageSource).toContain("await updateCrud('catalog/variants', payload)")
+    // The catalog/prices sub-sync runs inside the same submit scope, so it must
+    // override the leaked variant header with each price's own version (#2055).
+    expect(variantPageSource).toContain('buildOptimisticLockHeader(lockVersion)')
+    expect(variantPageSource).toContain("updateCrud('catalog/prices'")
   })
 
   it('variant edit page keeps the delete-conflict UX (handleVariantDeleteError + surfaceRecordConflict)', () => {

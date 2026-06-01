@@ -7,7 +7,8 @@ import { CrudForm, type CrudFormGroup } from '@open-mercato/ui/backend/CrudForm'
 import { createCrud, updateCrud, deleteCrud } from '@open-mercato/ui/backend/utils/crud'
 import { createCrudFormError } from '@open-mercato/ui/backend/utils/serverErrors'
 import { collectCustomFieldValues } from '@open-mercato/ui/backend/utils/customFieldValues'
-import { apiCall, readApiResultOrThrow } from '@open-mercato/ui/backend/utils/apiCall'
+import { apiCall, readApiResultOrThrow, withScopedApiRequestHeaders } from '@open-mercato/ui/backend/utils/apiCall'
+import { buildOptimisticLockHeader } from '@open-mercato/ui/backend/utils/optimisticLock'
 import { surfaceRecordConflict } from '@open-mercato/ui/backend/conflicts'
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
 import { ErrorMessage } from '@open-mercato/ui/backend/detail'
@@ -105,6 +106,10 @@ export default function EditVariantPage({ params }: { params?: { productId?: str
   const [optionDefinitions, setOptionDefinitions] = React.useState<OptionDefinition[]>([])
   const [initialValues, setInitialValues] = React.useState<VariantFormValues | null>(null)
   const [existingPriceIds, setExistingPriceIds] = React.useState<Record<string, string>>({})
+  // price-kind id → loaded price `updatedAt`, so the price sync sends each price's
+  // own optimistic-lock version (the variant CrudForm submit scope would otherwise
+  // leak the variant's version onto the catalog/prices guard) (#2055).
+  const [existingPriceVersions, setExistingPriceVersions] = React.useState<Record<string, string | null>>({})
   const [loading, setLoading] = React.useState(true)
   const [error, setError] = React.useState<string | null>(null)
   const [currentProductId, setCurrentProductId] = React.useState<string | null>(productId)
@@ -192,10 +197,15 @@ export default function EditVariantPage({ params }: { params?: { productId?: str
         const attachments = await fetchVariantAttachments(variantId!)
         const priceDrafts = await loadVariantPrices(variantId!, priceKinds)
         const priceIdMap: Record<string, string> = {}
+        const priceVersionMap: Record<string, string | null> = {}
         Object.entries(priceDrafts).forEach(([kindId, draft]) => {
-          if (draft.priceId) priceIdMap[kindId] = draft.priceId
+          if (draft.priceId) {
+            priceIdMap[kindId] = draft.priceId
+            priceVersionMap[kindId] = draft.updatedAt ?? null
+          }
         })
         setExistingPriceIds(priceIdMap)
+        setExistingPriceVersions(priceVersionMap)
         const customDefaults = extractCustomFieldEntries(record)
         let loadedOptionDefinitions: OptionDefinition[] = []
         if (resolvedProductId) {
@@ -535,6 +545,7 @@ export default function EditVariantPage({ params }: { params?: { productId?: str
               priceKinds,
               priceDrafts: values.prices ?? {},
               existingPriceIds,
+              existingPriceVersions,
               productId: currentProductId,
               variantId,
               taxRates,
@@ -660,6 +671,7 @@ async function syncVariantPricesUpdate({
   priceKinds,
   priceDrafts,
   existingPriceIds,
+  existingPriceVersions,
   productId,
   variantId,
   taxRates,
@@ -670,6 +682,7 @@ async function syncVariantPricesUpdate({
   priceKinds: PriceKindSummary[]
   priceDrafts: Record<string, VariantPriceDraft>
   existingPriceIds: Record<string, string>
+  existingPriceVersions: Record<string, string | null>
   productId: string
   variantId: string
   taxRates: TaxRateSummary[]
@@ -691,10 +704,17 @@ async function syncVariantPricesUpdate({
     const draft = priceDrafts?.[kind.id]
     const amount = typeof draft?.amount === 'string' ? draft.amount.trim() : ''
     const existingId = draft?.priceId ?? existingPriceIds[kind.id]
+    // The price's own version — overrides the variant header the parent CrudForm
+    // submit scope put on the stack, so the catalog/prices guard compares the
+    // right row (otherwise a stale/false 409). #2055.
+    const lockVersion = draft?.updatedAt ?? existingPriceVersions[kind.id] ?? null
     if (!amount) {
       if (existingId) {
         try {
-          await deleteCrud('catalog/prices', existingId)
+          await withScopedApiRequestHeaders(
+            buildOptimisticLockHeader(lockVersion),
+            () => deleteCrud('catalog/prices', existingId),
+          )
         } catch (err) {
           console.error('catalog.prices.delete', err)
         }
@@ -714,7 +734,10 @@ async function syncVariantPricesUpdate({
     if (kind.displayMode === 'including-tax') payload.unitPriceGross = numeric
     else payload.unitPriceNet = numeric
     if (existingId) {
-      await updateCrud('catalog/prices', { id: existingId, ...payload })
+      await withScopedApiRequestHeaders(
+        buildOptimisticLockHeader(lockVersion),
+        () => updateCrud('catalog/prices', { id: existingId, ...payload }),
+      )
     } else {
       await createCrud('catalog/prices', payload)
     }
