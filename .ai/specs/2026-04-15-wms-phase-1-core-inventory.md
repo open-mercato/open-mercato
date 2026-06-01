@@ -448,7 +448,7 @@ Required key families:
 ## UI/UX
 
 Backend pages introduced in phase 1:
-- `/backend/wms` overview
+- `/backend/wms` operational dashboard
 - `/backend/wms/warehouses`
 - `/backend/wms/locations`
 - `/backend/wms/inventory`

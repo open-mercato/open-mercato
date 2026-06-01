@@ -1,6 +1,6 @@
 /**
  * Guards the JSON shape expected by WMS backend UI components
- * (`WmsOverviewPage`, `WmsInventoryConsolePage`, `WmsConfigurationPage`)
+ * (`WmsOperationalDashboardPage`, `WmsInventoryConsolePage`, `WmsConfigurationPage`)
  * against accidental API / serializer regressions.
  *
  * Routes are GET list handlers under `/api/wms/...` (snake_case item fields).
@@ -27,7 +27,7 @@ function assertRowHasStringKeys(row: JsonRecord, keys: string[]): void {
 }
 
 describe('WMS backend GUI <-> list API contract (response shape)', () => {
-  it('accepts warehouse list payloads used by overview + configuration tables', () => {
+  it('accepts warehouse list payloads used by operational dashboard + configuration tables', () => {
     const payload = {
       items: [
         {
@@ -71,7 +71,7 @@ describe('WMS backend GUI <-> list API contract (response shape)', () => {
     }
   })
 
-  it('accepts location list payloads used by overview + configuration tables', () => {
+  it('accepts location list payloads used by operational dashboard + configuration tables', () => {
     const payload = {
       items: [
         {

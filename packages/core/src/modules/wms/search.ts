@@ -8,7 +8,7 @@ import type { TranslateFn } from '@open-mercato/shared/lib/i18n/context'
 import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
 import { E } from '#generated/entities.ids.generated'
 
-const WMS_OVERVIEW_URL = '/backend/wms'
+const WMS_ROOT_URL = '/backend/wms'
 const WMS_INVENTORY_URL = '/backend/wms/inventory'
 const WMS_CONFIG_URL = '/backend/config/wms'
 
@@ -209,7 +209,7 @@ export const searchConfig: SearchModuleConfig = {
         const { t } = await resolveTranslations()
         return buildLotPresenter(t, ctx.record)
       },
-      resolveUrl: async () => WMS_OVERVIEW_URL,
+      resolveUrl: async () => WMS_ROOT_URL,
       resolveLinks: async () => [{ href: WMS_CONFIG_URL, label: 'WMS configuration', kind: 'secondary' }],
       fieldPolicy: {
         searchable: ['lot_number', 'batch_number', 'sku', 'catalog_variant_id', 'status', 'expires_at'],
