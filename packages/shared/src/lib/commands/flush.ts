@@ -83,7 +83,13 @@ export async function withAtomicFlush(
   // If a transaction is already active on this EntityManager, join it — the
   // outermost caller owns commit/rollback. A phase error propagates and rolls
   // back the whole enclosing transaction.
-  if (em.isInTransaction()) {
+  //
+  // Guard the probe: real MikroORM EntityManagers always implement
+  // `isInTransaction()`, but partial / mock EMs may not. A missing method is
+  // treated as "not in a transaction", so this call opens its own top-level
+  // transaction via the begin/commit path below (which those EMs do support).
+  const isInTransaction = (em as { isInTransaction?: () => boolean }).isInTransaction
+  if (typeof isInTransaction === 'function' && isInTransaction.call(em)) {
     await runPhasesAndFlush()
     return
   }

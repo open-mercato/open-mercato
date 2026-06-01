@@ -219,4 +219,24 @@ describe('withAtomicFlush', () => {
 
     expect(em.begin).toHaveBeenCalledWith(undefined)
   })
+
+  it('opens its own transaction when the EM does not implement isInTransaction (partial/mock EM)', async () => {
+    // Many command unit tests mock an EntityManager with begin/commit/rollback/flush
+    // but no isInTransaction. The re-entrancy probe must not throw on such EMs — it
+    // treats the missing method as "not in a transaction" and opens its own.
+    const begin = jest.fn().mockResolvedValue(undefined)
+    const commit = jest.fn().mockResolvedValue(undefined)
+    const flush = jest.fn().mockResolvedValue(undefined)
+    const partialEm = { begin, commit, rollback: jest.fn(), flush }
+    const phase = jest.fn()
+
+    await expect(
+      withAtomicFlush(partialEm as any, [phase], { transaction: true }),
+    ).resolves.toBeUndefined()
+
+    expect(begin).toHaveBeenCalledTimes(1)
+    expect(phase).toHaveBeenCalledTimes(1)
+    expect(flush).toHaveBeenCalledTimes(1)
+    expect(commit).toHaveBeenCalledTimes(1)
+  })
 })
