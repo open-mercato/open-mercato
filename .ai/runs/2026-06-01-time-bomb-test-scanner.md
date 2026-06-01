@@ -81,7 +81,7 @@ absolute date literal whose assertion outcome flips with the system clock.
 
 ### Phase 2: Fix #2384 (workflows)
 
-- [ ] 2.1 Replace future `until` literals with clock-relative
+- [x] 2.1 Replace future `until` literals with clock-relative — f526a1059
 
 ### Phase 3: Fix near-future HIGH literals
 
