@@ -85,7 +85,7 @@ describe('customers deals list filters', () => {
   it('applies date range filter when expectedCloseAtFrom/To are provided', async () => {
     const parsed = dealListQuerySchema.parse({
       expectedCloseAtFrom: '2026-01-01',
-      expectedCloseAtTo: '2026-12-31',
+      expectedCloseAtTo: new Date(Date.now() + 180 * 86_400_000).toISOString().slice(0, 10),
     })
     const filters = await buildDealListFilters(parsed)
     expect(filters.expected_close_at).toMatchObject({
