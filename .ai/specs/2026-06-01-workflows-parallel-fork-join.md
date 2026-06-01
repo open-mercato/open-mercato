@@ -1,82 +1,83 @@
 # SPEC: Parallel Fork / Join for the Workflows Engine
 
-> Status: **Draft — gotowy do pre-implement** · Data: 2026-06-01 · Scope: OSS
+> Status: **Draft — ready for pre-implement** · Date: 2026-06-01 · Scope: OSS
 > Module: `packages/core/src/modules/workflows/`
 > Related: `.ai/specs/analysis/ROADMAP-workflows-module-development.md` (WF-1, P0),
-> `.ai/specs/2026-04-14-code-based-workflow-definitions.md`, `.ai/specs/2026-03-29-workflow-integration-flows.md` (zależny — zakłada FORK/JOIN)
-> Issue: [open-mercato/open-mercato#2292](https://github.com/open-mercato/open-mercato/issues/2292) — część dot. `PARALLEL_FORK` / `PARALLEL_JOIN` (`WAIT_FOR_TIMER` z tego issue jest już zaimplementowany)
+> `.ai/specs/2026-04-14-code-based-workflow-definitions.md`, `.ai/specs/2026-03-29-workflow-integration-flows.md` (dependent — assumes FORK/JOIN)
+> Issue: [open-mercato/open-mercato#2292](https://github.com/open-mercato/open-mercato/issues/2292) — the `PARALLEL_FORK` / `PARALLEL_JOIN` portion (`WAIT_FOR_TIMER` from that issue is already implemented)
 
 ## TLDR
 
-`PARALLEL_FORK` / `PARALLEL_JOIN` są zadeklarowane w `WorkflowStepType` (`data/entities.ts:19-20`)
-i opisane w `user-guide/workflows/step-types.mdx`, ale silnik rzuca `STEP_TYPE_NOT_IMPLEMENTED`
-(`lib/step-handler.ts:341-348`). Każda definicja z gałęziami równoległymi wybucha w runtime.
+`PARALLEL_FORK` / `PARALLEL_JOIN` are declared in `WorkflowStepType` (`data/entities.ts:19-20`)
+and documented in `user-guide/workflows/step-types.mdx`, but the engine throws
+`STEP_TYPE_NOT_IMPLEMENTED` (`lib/step-handler.ts:341-348`). Any definition that uses parallel
+branches fails at runtime.
 
-Ten spec dodaje współbieżne wykonanie gałęzi przez **wielotokenowy model wykonania**: FORK
-rozdziela bieg na N **trwałych gałęzi** (`workflow_branch_instances`), które wykonywane są
-**naprzemiennie pod jedną blokadą** (semantyka BPMN, brak prawdziwej współbieżności wątkowej),
-każda z **prywatnym namespace contextu**; JOIN synchronizuje je w trybie **wait-all** i merguje
-namespace'y z powrotem do `instance.context`. Gałąź może **niezależnie pauzować** (USER_TASK,
-sygnał, timer, async activity), a awaria jednej gałęzi **anuluje pozostałe** i uruchamia
-kompensację całej instancji (saga).
+This spec adds concurrent branch execution via a **multi-token execution model**: a FORK splits
+execution into N **persistent branches** (`workflow_branch_instances`) that run **interleaved
+under a single lock** (BPMN semantics — no true thread-level concurrency), each with its own
+**private context namespace**; a JOIN synchronizes them with **wait-all** semantics and merges
+the namespaces back into `instance.context`. A branch can **pause independently** (USER_TASK,
+signal, timer, async activity), and the failure of one branch **cancels the siblings** and runs
+saga compensation for the whole instance.
 
 ## Problem Statement
 
-- Zadeklarowany, ale nieobsłużony typ kroku łamie kontrakt platformy: definicja z FORK/JOIN
-  przechodzi walidację zapisu, lecz rzuca `STEP_TYPE_NOT_IMPLEMENTED` przy wykonaniu.
-- Silnik jest **jednotokenowy**: `WorkflowInstance.currentStepId: varchar` (entities.ts:241),
-  pętla `executeWorkflow` (workflow-executor.ts:293-476) advansuje pojedynczy krok i wybiera
-  **tylko** `validAutoTransitions[0]` (workflow-executor.ts:382). Pauzy (`PAUSED`,
-  `WAITING_FOR_ACTIVITIES`) i `pendingTransition` są na poziomie całej instancji.
-- Realne procesy (równoległe zatwierdzenia, równoczesne wywołania integracji) są niewykonalne;
-  spec integration-flows wprost zakłada FORK/JOIN jako dostępne.
+- A declared-but-unimplemented step type breaks the platform contract: a definition with
+  FORK/JOIN passes save-time validation, yet throws `STEP_TYPE_NOT_IMPLEMENTED` at execution.
+- The engine is **single-token**: `WorkflowInstance.currentStepId: varchar` (entities.ts:241),
+  the `executeWorkflow` loop (workflow-executor.ts:293-476) advances one step and picks **only**
+  `validAutoTransitions[0]` (workflow-executor.ts:382). Pauses (`PAUSED`,
+  `WAITING_FOR_ACTIVITIES`) and `pendingTransition` live at the instance level.
+- Real processes (parallel approvals, concurrent integration calls) are impossible; the
+  integration-flows spec explicitly assumes FORK/JOIN are available.
 
 ## Goals / Non-Goals
 
 **Goals**
-- Działający `PARALLEL_FORK` (rozdział na N gałęzi) i `PARALLEL_JOIN` (synchronizacja wait-all).
-- Niezależne pauzowanie i wznawianie pojedynczej gałęzi.
-- Namespace contextu per gałąź + deterministyczny merge na JOIN (bez cichych kolizji kluczy).
-- Anulowanie gałęzi-sióstr przy awarii + kompensacja całej instancji.
-- Walidacja definicji (parowanie FORK↔JOIN, min. 2 gałęzie, zbieżność do JOIN).
-- Pełne event sourcing + pokrycie unit + integration.
+- A working `PARALLEL_FORK` (split into N branches) and `PARALLEL_JOIN` (wait-all synchronization).
+- Independent pausing and resumption of a single branch.
+- Per-branch context namespacing + deterministic merge at JOIN (no silent key collisions).
+- Sibling-branch cancellation on failure + whole-instance compensation.
+- Definition validation (FORK↔JOIN pairing, ≥2 branches, convergence to JOIN).
+- Full event sourcing + unit + integration coverage.
 
-**Non-Goals (ta iteracja)**
-- **Zagnieżdżone FORK** (fork wewnątrz gałęzi innego forku) — encja przewiduje `parentBranchId`,
-  ale walidator **odrzuca** zagnieżdżenie; włączenie to osobna faza.
-- Semantyka **wait-N / quorum / discriminator** — tylko wait-all.
-- **first-completed / race** i automatyczne anulowanie przy spełnieniu częściowego warunku
-  (poza ścieżką awarii).
-- Authoring w wizualnym edytorze — patrz Faza 4 (może zostać wydzielona do osobnego specu).
+**Non-Goals (this iteration)**
+- **Nested FORK** (a fork inside another fork's branch) — the entity carries `parentBranchId`,
+  but the validator **rejects** nesting; enabling it is a separate phase.
+- **wait-N / quorum / discriminator** semantics — wait-all only.
+- **first-completed / race** and automatic cancellation on partial-condition satisfaction
+  (outside the failure path).
+- Visual-editor authoring — see Phase 4 (may be split into a separate spec).
 
-## Resolved Design Decisions (bramka rozwiązana)
+## Resolved Design Decisions (gate resolved)
 
-| Decyzja | Wybór | Konsekwencja |
+| Decision | Choice | Consequence |
 |---|---|---|
-| Model współbieżności | **Trwałe gałęzie** (tabela `workflow_branch_instances`) | Gałęzie są bytami pierwszej klasy; znana lista do anulowania i synchronizacji |
-| Wykonanie | **Naprzemienne pod blokadą (BPMN)**, nie wątkowo równolegle | Brak wyścigu o pamięć; advansowanie jednej gałęzi na raz w transakcji |
-| Semantyka JOIN | **Tylko wait-all** | JOIN przepuszcza, gdy wszystkie gałęzie terminalne (COMPLETED) |
-| Pauzy w gałęzi | **Niezależne** (USER_TASK/sygnał/timer/async) | Resume musi targetować gałąź, nie instancję |
-| Context gałęzi | **Namespace per gałąź**, merge na JOIN | Brak kolizji; deterministyczny merge + opcjonalny `outputMapping` |
-| Awaria gałęzi | **Anulować siostry** + kompensacja instancji | Saga LIFO po eventach instancji (już instance-scoped) |
+| Concurrency model | **Persistent branches** (table `workflow_branch_instances`) | Branches are first-class entities; a known list for cancellation and synchronization |
+| Execution | **Interleaved under a lock (BPMN)**, not thread-parallel | No memory races; advance one branch at a time within the transaction |
+| JOIN semantics | **wait-all only** | JOIN proceeds once all branches are terminal (COMPLETED) |
+| Pausing in a branch | **Independent** (USER_TASK / signal / timer / async) | Resume must target the branch, not the instance |
+| Branch context | **Namespace per branch**, merge at JOIN | No collisions; deterministic merge + optional `outputMapping` |
+| Branch failure | **Cancel siblings** + instance compensation | Saga LIFO over instance events (already instance-scoped) |
 
 ## Proposed Solution
 
-### Conceptual model — tokeny
+### Conceptual model — tokens
 
-Wprowadzamy abstrakcję **tokena wykonania**. Token to „kursor" trzymający `currentStepId`,
-`context`, `status`, `pendingTransition`. Dziś istnieje dokładnie jeden token = sama
-`WorkflowInstance`. Po zmianie:
+We introduce an **execution token** abstraction. A token is a "cursor" holding `currentStepId`,
+`context`, `status`, `pendingTransition`. Today exactly one token exists = the `WorkflowInstance`
+itself. After this change:
 
-- **Root token** = `WorkflowInstance` (jak dziś, gdy nie ma aktywnych gałęzi).
-- **Branch token** = `WorkflowBranchInstance` (po FORK; root token „śpi" do JOIN).
+- **Root token** = `WorkflowInstance` (as today, when there are no active branches).
+- **Branch token** = `WorkflowBranchInstance` (after a FORK; the root token "sleeps" until JOIN).
 
-Pętla wykonawcza operuje na *aktywnych tokenach*. Bez FORK zachowanie jest 1:1 jak obecnie
-(zero zmian behawioralnych — kluczowe dla BC).
+The execution loop operates over *active tokens*. With no FORK, behavior is 1:1 with the current
+engine (zero behavioral change — critical for BC).
 
 ```
-RUNNING (root token na FORK)
-        │ FORK: utwórz N branch tokenów, root token → stan FORKED (uśpiony)
+RUNNING (root token at FORK)
+        │ FORK: create N branch tokens, root token → FORKED state (dormant)
         ▼
   ┌───────────────┬───────────────┐
   ▼               ▼               ▼
@@ -85,227 +86,227 @@ currentStepId    currentStepId   currentStepId
 status ACTIVE    status PAUSED   status COMPLETED(@JOIN)
 namespace{...}   namespace{...}  namespace{...}
   └───────────────┴───────────────┘
-        │ gdy WSZYSTKIE gałęzie COMPLETED@JOIN (wait-all)
-        ▼ merge namespace'ów → instance.context; root token → currentStepId = krok po JOIN
-RUNNING (root token kontynuuje jednotokenowo)
+        │ when ALL branches COMPLETED@JOIN (wait-all)
+        ▼ merge namespaces → instance.context; root token → currentStepId = step after JOIN
+RUNNING (root token continues single-token)
 ```
 
-### Data Model — nowa encja `WorkflowBranchInstance`
+### Data Model — new `WorkflowBranchInstance` entity
 
-Nowa tabela `workflow_branch_instances` (entities.ts), scoped per tenant/org:
+New table `workflow_branch_instances` (entities.ts), scoped per tenant/org:
 
-| Kolumna | Typ | Opis |
+| Column | Type | Description |
 |---|---|---|
 | `id` | uuid PK | |
-| `workflow_instance_id` | uuid (FK id, fetch-by-id) | Instancja-rodzic |
-| `fork_step_id` | varchar(100) | Krok FORK, który utworzył gałąź |
-| `join_step_id` | varchar(100) | Sparowany JOIN, do którego gałąź zmierza |
-| `branch_key` | varchar(100) | = `transitionId` tranzycji wychodzącej z FORK (stabilny identyfikator gałęzi) |
-| `parent_branch_id` | uuid null | Pod zagnieżdżenie (w tej iteracji zawsze null; walidator blokuje) |
-| `current_step_id` | varchar(100) | Pozycja tokena gałęzi |
+| `workflow_instance_id` | uuid (FK by id, fetch-by-id) | Parent instance |
+| `fork_step_id` | varchar(100) | The FORK step that created the branch |
+| `join_step_id` | varchar(100) | The paired JOIN the branch converges to |
+| `branch_key` | varchar(100) | = `transitionId` of the FORK's outgoing transition (stable branch identifier) |
+| `parent_branch_id` | uuid null | For nesting (always null this iteration; validator blocks it) |
+| `current_step_id` | varchar(100) | The branch token's position |
 | `status` | varchar(30) | `ACTIVE \| PAUSED \| WAITING_FOR_ACTIVITIES \| COMPLETED \| FAILED \| CANCELLED` |
-| `context_namespace` | jsonb | Prywatny scope zapisów gałęzi |
-| `pending_transition` | jsonb null | Per-gałąź odpowiednik `instance.pendingTransition` (async) |
+| `context_namespace` | jsonb | The branch's private write scope |
+| `pending_transition` | jsonb null | Per-branch equivalent of `instance.pendingTransition` (async) |
 | `error_message` / `error_details` | text / jsonb null | |
 | `started_at` / `completed_at` | timestamptz | |
 | `tenant_id` / `organization_id` | uuid | Scoping (NEVER cross-tenant) |
 | `created_at` / `updated_at` | timestamptz | |
 
-Indeksy: `(workflow_instance_id, status)`, `(workflow_instance_id, fork_step_id)`, `(tenant_id, organization_id)`.
-Brak ORM-relacji między modułami (tu wszystko w obrębie workflows — dozwolone), FK po id.
+Indexes: `(workflow_instance_id, status)`, `(workflow_instance_id, fork_step_id)`, `(tenant_id, organization_id)`.
+No cross-module ORM relations (everything here is within workflows — allowed); FK by id.
 
-**`WorkflowInstance`** — dodatki additive (nullable, brak zmiany istniejących):
-- nowy status `FORKED` w `WorkflowInstanceStatus` (root token uśpiony, gdy biegną gałęzie).
-- (opcjonalnie) `active_fork_step_id varchar null` — który FORK jest otwarty (pomaga UI i walidacji ponownego forku).
+**`WorkflowInstance`** — additive (nullable, no change to existing columns):
+- new status `FORKED` in `WorkflowInstanceStatus` (root token dormant while branches run).
+- (optional) `active_fork_step_id varchar null` — which FORK is open (helps UI and re-fork validation).
 
-**`UserTask`** i **`WorkflowEvent`** — dodać `branch_instance_id uuid null` (additive), aby resume
-i timeline wiedziały, której gałęzi dotyczy zdarzenie/zadanie.
+**`UserTask`** and **`WorkflowEvent`** — add `branch_instance_id uuid null` (additive), so resume
+and the timeline know which branch an event/task belongs to.
 
-**Migracja:** zaktualizować `data/entities.ts`, uruchomić `yarn db:generate`, zachować wyłącznie
-SQL dla tej zmiany, zaktualizować `migrations/.snapshot-open-mercato.json` w tym samym commicie
-(zgodnie z `packages/core/AGENTS.md` → Entity Schema And Migration Workflow). Nie uruchamiać
-`yarn db:migrate`.
+**Migration:** update `data/entities.ts`, run `yarn db:generate`, keep only the SQL for this
+change, update `migrations/.snapshot-open-mercato.json` in the same commit (per
+`packages/core/AGENTS.md` → Entity Schema And Migration Workflow). Do not run `yarn db:migrate`.
 
-### Definition schema — FORK/JOIN config + walidacja
+### Definition schema — FORK/JOIN config + validation
 
-`workflowStepSchema` (`data/validators.ts`) — dodać opcjonalne configi:
+`workflowStepSchema` (`data/validators.ts`) — add optional configs:
 
 ```ts
-// na kroku PARALLEL_FORK:
-config: { joinStepId: string }                 // wymagane dla FORK
-// na kroku PARALLEL_JOIN:
-config: { forkStepId: string,                  // wymagane dla JOIN (parowanie zwrotne)
-          outputMapping?: Record<string,string> } // opcjonalny lift namespace→top-level
+// on a PARALLEL_FORK step:
+config: { joinStepId: string }                 // required for FORK
+// on a PARALLEL_JOIN step:
+config: { forkStepId: string,                  // required for JOIN (back-reference pairing)
+          outputMapping?: Record<string,string> } // optional namespace→top-level lift
 ```
 
-Walidacja definicji (rozszerzenie `start-validator`/walidacji zapisu — fail-closed):
-1. Każdy FORK ma `config.joinStepId` wskazujący istniejący krok typu JOIN; JOIN ma zwrotne `config.forkStepId`.
-2. FORK ma **≥2** wychodzące tranzycje (`trigger: 'auto'`); JOIN ma **≥2** wchodzące tranzycje.
-3. Każda ścieżka z FORK **zbiega się** do jego JOIN (analiza grafu; brak ścieżki omijającej JOIN, brak END wewnątrz gałęzi).
-4. **Brak zagnieżdżenia** w tej iteracji: żadna ścieżka między FORK a jego JOIN nie zawiera kolejnego FORK → błąd walidacji `NESTED_FORK_NOT_SUPPORTED`.
-5. Brak cykli FORK↔JOIN; `branch_key` (transitionId) unikalne w obrębie forku.
+Definition validation (extend save-time validation / `start-validator` — fail-closed):
+1. Every FORK has `config.joinStepId` pointing to an existing JOIN step; the JOIN has a back-reference `config.forkStepId`.
+2. A FORK has **≥2** outgoing transitions (`trigger: 'auto'`); a JOIN has **≥2** incoming transitions.
+3. Every path from a FORK **converges** to its JOIN (graph analysis; no path bypassing the JOIN, no END inside a branch).
+4. **No nesting** this iteration: no path between a FORK and its JOIN contains another FORK → validation error `NESTED_FORK_NOT_SUPPORTED`.
+5. No FORK↔JOIN cycles; `branch_key` (transitionId) unique within a fork.
 
-### Execution model — pętla naprzemienna (token-aware)
+### Execution model — interleaved loop (token-aware)
 
-Refaktor wewnętrzny (lib, nie publiczne DI): wydzielić **token abstraction** — `step-handler`
-i `transition-handler` operują na obiekcie tokena (`currentStepId`, `context`, `status`,
-`pendingTransition`) zamiast bezpośrednio na `WorkflowInstance`. Root token = adapter na instancję
-(zero zmian zachowania bez FORK). Sygnatury publicznych metod DI (`workflowExecutor.startWorkflow`,
-`executeWorkflow`, `resumeWorkflowAfterActivities`) pozostają zgodne wstecznie; dodajemy nowe
-funkcje branch-aware.
+Internal refactor (lib, not public DI): extract a **token abstraction** — `step-handler` and
+`transition-handler` operate on a token object (`currentStepId`, `context`, `status`,
+`pendingTransition`) instead of directly on `WorkflowInstance`. The root token is an adapter over
+the instance (zero behavioral change without FORK). The public DI method signatures
+(`workflowExecutor.startWorkflow`, `executeWorkflow`, `resumeWorkflowAfterActivities`) stay
+backward-compatible; we add new branch-aware functions.
 
-`executeWorkflow` (workflow-executor.ts) — nowa logika w obrębie istniejącej transakcji + pessimistic lock:
+`executeWorkflow` (workflow-executor.ts) — new logic inside the existing transaction + pessimistic lock:
 
 ```
-1. Wczytaj instancję (lock).
-2. Jeśli instancja NIE ma aktywnych gałęzi (status != FORKED):
-     → zachowanie jak dziś (root token), AŻ napotka krok FORK (patrz FORK handler).
-3. Jeśli instancja jest FORKED:
-     → pętla naprzemienna: dla każdej gałęzi o status=ACTIVE advansuj o JEDEN krok
-       (ta sama logika co dziś, ale na branch tokenie: enterStep/executeStep/transition).
-     → gałąź na swoim JOIN: status=COMPLETED (nie wykonuj poza JOIN), sprawdź wait-all.
-     → gałąź pauzująca: status=PAUSED/WAITING_FOR_ACTIVITIES (zapis branch.pendingTransition), nie blokuje sióstr.
-     → gałąź FAILED: anuluj siostry + completeWorkflow(FAILED) (kompensacja).
-     → gdy WSZYSTKIE gałęzie COMPLETED@JOIN → odpal JOIN (merge + wznowienie root tokena).
-     → gdy żadna gałąź nie jest ACTIVE (wszystkie PAUSED/WAITING) → return RUNNING (instancja czeka na zewnętrzny resume).
+1. Load instance (lock).
+2. If instance has NO active branches (status != FORKED):
+     → behave as today (root token), UNTIL it hits a FORK step (see FORK handler).
+3. If instance is FORKED:
+     → interleaved loop: for each branch with status=ACTIVE, advance ONE step
+       (same logic as today, but on the branch token: enterStep/executeStep/transition).
+     → branch at its JOIN: status=COMPLETED (do not execute past JOIN), check wait-all.
+     → pausing branch: status=PAUSED/WAITING_FOR_ACTIVITIES (store branch.pendingTransition), does not block siblings.
+     → FAILED branch: cancel siblings + completeWorkflow(FAILED) (compensation).
+     → when ALL branches COMPLETED@JOIN → fire the JOIN (merge + resume root token).
+     → when no branch is ACTIVE (all PAUSED/WAITING) → return RUNNING (instance waits for external resume).
 ```
 
-`maxIterations` (dziś 100) liczone per przebieg pętli; chroni przed pętlą nieskończoną także w trybie naprzemiennym.
+`maxIterations` (today 100) counted per loop pass; guards against infinite loops in interleaved mode too.
 
 ### FORK handler (`step-handler.ts`)
 
-Po wejściu w krok `PARALLEL_FORK`:
-1. Zbierz **wszystkie** wychodzące tranzycje `auto` z forku (nie `[0]`).
-2. Dla każdej: utwórz `WorkflowBranchInstance` (`fork_step_id`, `join_step_id` z `config.joinStepId`,
-   `branch_key=transitionId`, `current_step_id` = `toStepId` tranzycji, `status=ACTIVE`,
-   `context_namespace = {}`). Wykonaj activities tranzycji forka w kontekście gałęzi (sync/async jak zwykle).
+On entering a `PARALLEL_FORK` step:
+1. Collect **all** outgoing `auto` transitions from the fork (not `[0]`).
+2. For each: create a `WorkflowBranchInstance` (`fork_step_id`, `join_step_id` from `config.joinStepId`,
+   `branch_key=transitionId`, `current_step_id` = the transition's `toStepId`, `status=ACTIVE`,
+   `context_namespace = {}`). Run the fork transition's activities in the branch's context (sync/async as usual).
 3. `instance.status = 'FORKED'`, `instance.active_fork_step_id = forkStepId`.
-4. Zaloguj `PARALLEL_FORK_OPENED` (eventData: forkStepId, joinStepId, branchKeys[]).
+4. Log `PARALLEL_FORK_OPENED` (eventData: forkStepId, joinStepId, branchKeys[]).
 
-Efektywny **read-context gałęzi** = `{ ...instance.context (snapshot z chwili forku), ...branch.context_namespace }`.
-Zapisy gałęzi idą **wyłącznie** do `branch.context_namespace`.
+The branch's effective **read-context** = `{ ...instance.context (snapshot at fork time), ...branch.context_namespace }`.
+Branch writes go **only** to `branch.context_namespace`.
 
-### JOIN handler + synchronizacja (wait-all)
+### JOIN handler + synchronization (wait-all)
 
-Gdy gałąź dociera do swojego `join_step_id`:
-1. Gałąź → `status=COMPLETED`, `completed_at` ustawione; **nie** wykonuje kroku po JOIN.
-2. Sprawdź wszystkie gałęzie tego forku: jeśli **każda** jest COMPLETED → JOIN „fires".
-3. **Merge namespace'ów** do `instance.context`:
-   - deterministycznie: `instance.context.branches[branchKey] = branch.context_namespace` (bez cichych kolizji),
-   - następnie opcjonalny `joinStep.config.outputMapping` (path → top-level), aby świadomie wynieść wybrane wartości.
-4. `instance.status='RUNNING'`, `instance.active_fork_step_id=null`, `instance.currentStepId = <krok po JOIN>`
-   (jedyna wychodząca tranzycja z JOIN). Usuń/zarchiwizuj branch tokeny (zostają w tabeli jako audit, status COMPLETED).
-5. Zaloguj `PARALLEL_JOIN_COMPLETED` (eventData: forkStepId, mergedBranchKeys[]).
-6. Kontynuuj normalną pętlę jednotokenową.
+When a branch reaches its `join_step_id`:
+1. Branch → `status=COMPLETED`, `completed_at` set; it does **not** execute the step after JOIN.
+2. Check all branches of this fork: if **every** one is COMPLETED → the JOIN "fires".
+3. **Merge namespaces** into `instance.context`:
+   - deterministically: `instance.context.branches[branchKey] = branch.context_namespace` (no silent collisions),
+   - then optional `joinStep.config.outputMapping` (path → top-level) to deliberately lift selected values.
+4. `instance.status='RUNNING'`, `instance.active_fork_step_id=null`, `instance.currentStepId = <step after JOIN>`
+   (the single outgoing transition from JOIN). Keep/archive branch tokens (they remain in the table as audit, status COMPLETED).
+5. Log `PARALLEL_JOIN_COMPLETED` (eventData: forkStepId, mergedBranchKeys[]).
+6. Continue the normal single-token loop.
 
-### Pauza/resume per gałąź
+### Per-branch pause/resume
 
-Każda ścieżka resume musi rozróżniać **root token** vs **branch token** (po `branchInstanceId`):
+Every resume path must distinguish **root token** vs **branch token** (by `branchInstanceId`):
 
-| Wyzwalacz | Dziś | Po zmianie |
+| Trigger | Today | After change |
 |---|---|---|
-| USER_TASK complete (`api/tasks/[id]/complete`) | wznawia instancję | jeśli `UserTask.branch_instance_id` ustawione → wznów gałąź; inaczej instancję |
-| Sygnał (`signal-handler`) | instancja | targetuje gałąź czekającą na sygnał (po branchInstanceId/stepInstance) |
-| Timer (`timer-handler`, job payload) | instancja | payload jobu niesie `branchInstanceId` → `fireTimer` wznawia gałąź |
-| Async activity (`resumeWorkflowAfterActivities`) | instancja, jedna `pendingTransition` | per-gałąź `pending_transition`; worker payload niesie `branchInstanceId` |
+| USER_TASK complete (`api/tasks/[id]/complete`) | resumes the instance | if `UserTask.branch_instance_id` is set → resume the branch; otherwise the instance |
+| Signal (`signal-handler`) | instance | targets the branch awaiting the signal (by branchInstanceId/stepInstance) |
+| Timer (`timer-handler`, job payload) | instance | the job payload carries `branchInstanceId` → `fireTimer` resumes the branch |
+| Async activity (`resumeWorkflowAfterActivities`) | instance, one `pendingTransition` | per-branch `pending_transition`; worker payload carries `branchInstanceId` |
 
-Wzorzec wznowienia gałęzi: ustaw branch `status=ACTIVE`, odtwórz `pending_transition` (jeśli async),
-po czym ponownie wejdź w `executeWorkflow` (tryb FORKED) — pętla naprzemienna dokończy synchronizację.
-Jeśli wznowienie gałęzi powoduje, że jest ona ostatnią docierającą do JOIN → JOIN fires w tym samym przebiegu.
+Branch resume pattern: set branch `status=ACTIVE`, restore `pending_transition` (if async), then
+re-enter `executeWorkflow` (FORKED mode) — the interleaved loop finishes synchronization. If
+resuming the branch makes it the last one reaching the JOIN → the JOIN fires in the same pass.
 
-### Awaria gałęzi i kompensacja
+### Branch failure and compensation
 
-Gdy gałąź → `FAILED`:
-1. Wszystkie siostry tego forku z `status ∈ {ACTIVE, PAUSED, WAITING_FOR_ACTIVITIES}` → `CANCELLED`
-   (zaloguj `PARALLEL_BRANCH_CANCELLED` per gałąź; anuluj powiązane otwarte `UserTask`/timery best-effort).
-2. `instance.status='FAILED'` + `completeWorkflow(FAILED)`. Kompensacja działa bez zmian:
-   `compensateWorkflow` idzie LIFO po `ACTIVITY_COMPLETED` eventach **instancji** (entities są instance-scoped,
-   więc obejmuje aktywności wykonane we wszystkich gałęziach). Kolejność LIFO po `occurredAt` jest poprawna
-   także dla aktywności z różnych gałęzi.
-3. Zaloguj `PARALLEL_FORK_FAILED`.
+When a branch → `FAILED`:
+1. All siblings of this fork with `status ∈ {ACTIVE, PAUSED, WAITING_FOR_ACTIVITIES}` → `CANCELLED`
+   (log `PARALLEL_BRANCH_CANCELLED` per branch; cancel related open `UserTask`/timers best-effort).
+2. `instance.status='FAILED'` + `completeWorkflow(FAILED)`. Compensation works unchanged:
+   `compensateWorkflow` walks LIFO over the **instance's** `ACTIVITY_COMPLETED` events (entities are
+   instance-scoped, so it covers activities run across all branches). LIFO by `occurredAt` is correct
+   even for activities from different branches.
+3. Log `PARALLEL_FORK_FAILED`.
 
-### Nowe eventy (`events.ts`, `as const`)
+### New events (`events.ts`, `as const`)
 
-Dodać (additive, niełamiące):
+Add (additive, non-breaking):
 `workflows.branch.opened`, `workflows.branch.completed`, `workflows.branch.cancelled`,
 `workflows.branch.failed`, `workflows.join.completed`.
-Oraz wewnętrzne typy event-sourcing (`WorkflowEvent.eventType`): `PARALLEL_FORK_OPENED`,
+Plus internal event-sourcing types (`WorkflowEvent.eventType`): `PARALLEL_FORK_OPENED`,
 `PARALLEL_BRANCH_COMPLETED`, `PARALLEL_BRANCH_CANCELLED`, `PARALLEL_JOIN_COMPLETED`, `PARALLEL_FORK_FAILED`.
-Uruchomić `yarn generate` po zmianie `events.ts`.
+Run `yarn generate` after changing `events.ts`.
 
 ## Backward Compatibility
 
-- Wszystkie zmiany schematu **additive** (nowa tabela, nullable kolumny, nowy status `FORKED`).
-  Brak zmian istniejących kolumn/typów. Patrz `BACKWARD_COMPATIBILITY.md` (DB schema = ADDITIVE-ONLY).
-- Publiczne metody DI (`workflowExecutor.*`) zachowują sygnatury; token abstraction to refaktor wewnętrzny.
-- Definicje bez FORK/JOIN wykonują się **bit-identycznie** (root token = stara ścieżka). To jest twardy wymóg
-  i punkt kontrolny w testach (regresja istniejących TC-WF-001..013).
-- Nowe pola w `events.ts` i nowe typy eventów są additive (event IDs = ADDITIVE-ONLY).
+- All schema changes are **additive** (new table, nullable columns, new `FORKED` status). No changes
+  to existing columns/types. See `BACKWARD_COMPATIBILITY.md` (DB schema = ADDITIVE-ONLY).
+- Public DI methods (`workflowExecutor.*`) keep their signatures; the token abstraction is an internal refactor.
+- Definitions without FORK/JOIN execute **bit-identically** (root token = the old path). This is a hard
+  requirement and a checkpoint in tests (regression of existing TC-WF-001..013).
+- New fields in `events.ts` and new event types are additive (event IDs = ADDITIVE-ONLY).
 
-## Visual Editor (Faza 4 — może być wydzielona)
+## Visual Editor (Phase 4 — may be split out)
 
-- Węzły React Flow `ParallelForkNode` / `ParallelJoinNode` (`components/nodes/`), rejestracja w mapie typów,
-  ikony (`lib/node-type-icons.ts`), kolory statusów przez semantic tokens (DS: zero hardcoded kolorów).
-- Edytor: dodawanie gałęzi (wiele krawędzi z FORK), wskazanie pary FORK↔JOIN, walidacja w UI z czytelnym błędem
-  (`NESTED_FORK_NOT_SUPPORTED`, brak zbieżności do JOIN).
-- Instance viewer: wizualizacja równoległych gałęzi i ich statusów (timeline per gałąź, `branch_instance_id` w eventach).
-- i18n (en/es/de/pl) pod `workflows.stepTypes.*`, `workflows.parallel.*`.
+- React Flow nodes `ParallelForkNode` / `ParallelJoinNode` (`components/nodes/`), registration in the
+  node-type map, icons (`lib/node-type-icons.ts`), status colors via semantic tokens (DS: zero hardcoded colors).
+- Editor: adding branches (multiple edges from FORK), pairing FORK↔JOIN, in-UI validation with clear errors
+  (`NESTED_FORK_NOT_SUPPORTED`, no convergence to JOIN).
+- Instance viewer: visualize parallel branches and their statuses (per-branch timeline, `branch_instance_id` on events).
+- i18n (en/es/de/pl) under `workflows.stepTypes.*`, `workflows.parallel.*`.
 
 ## Phasing & Steps
 
-**Faza 1 — Model danych + walidacja**
-1. Encja `WorkflowBranchInstance` + dodatki nullable (`UserTask.branch_instance_id`, `WorkflowEvent.branch_instance_id`, instance `FORKED`/`active_fork_step_id`). Migracja + snapshot.
-2. Schemat FORK/JOIN config w `validators.ts` + walidacja parowania/zbieżności/zakazu zagnieżdżenia. Unit testy walidacji.
+**Phase 1 — Data model + validation**
+1. `WorkflowBranchInstance` entity + nullable additions (`UserTask.branch_instance_id`, `WorkflowEvent.branch_instance_id`, instance `FORKED`/`active_fork_step_id`). Migration + snapshot.
+2. FORK/JOIN config schema in `validators.ts` + pairing/convergence/no-nesting validation. Unit tests for validation.
 
-**Faza 2 — Silnik (token abstraction)**
-3. Refaktor `step-handler`/`transition-handler` na token abstraction; root-token adapter. Regresja TC-WF-001..013 musi przejść bez zmian.
-4. FORK handler (tworzenie gałęzi, activities forka, status FORKED).
-5. Pętla naprzemienna w `executeWorkflow` (advans gałęzi, wykrycie pauzy/awarii).
-6. JOIN handler (wait-all, merge namespace + outputMapping, wznowienie root tokena). Unit testy: 2- i 3-gałęziowy happy path, merge, outputMapping.
+**Phase 2 — Engine (token abstraction)**
+3. Refactor `step-handler`/`transition-handler` to the token abstraction; root-token adapter. TC-WF-001..013 regression must pass unchanged.
+4. FORK handler (branch creation, fork activities, FORKED status).
+5. Interleaved loop in `executeWorkflow` (advance branches, detect pause/failure).
+6. JOIN handler (wait-all, namespace merge + outputMapping, root-token resume). Unit tests: 2- and 3-branch happy path, merge, outputMapping.
 
-**Faza 3 — Pauzy, resume, awaria**
-7. Per-gałąź resume: USER_TASK, sygnał, timer, async activity (payloady jobów + `branch_instance_id`).
-8. Awaria gałęzi → anulowanie sióstr + kompensacja instancji. Unit testy + saga.
-9. Eventy (`events.ts` + event-sourcing typy), `yarn generate`. i18n bazowe.
+**Phase 3 — Pause, resume, failure**
+7. Per-branch resume: USER_TASK, signal, timer, async activity (job payloads + `branch_instance_id`).
+8. Branch failure → sibling cancellation + instance compensation. Unit tests + saga.
+9. Events (`events.ts` + event-sourcing types), `yarn generate`. Base i18n.
 
-**Faza 4 — Wizualny edytor (opcjonalnie osobny spec)**
-10. Węzły FORK/JOIN, authoring gałęzi, walidacja UI, instance viewer per gałąź, i18n pełne, DS compliance.
+**Phase 4 — Visual editor (optionally a separate spec)**
+10. FORK/JOIN nodes, branch authoring, in-UI validation, per-branch instance viewer, full i18n, DS compliance.
 
 ## Integration & Test Coverage
 
-Nowe integration specy `__integration__/TC-WF-014..` (self-contained: fixtury w setupie przez API, cleanup w teardown — `.ai/qa/AGENTS.md`):
-- **TC-WF-014** FORK→2 gałęzie AUTOMATED→JOIN wait-all, completed, merge namespace.
-- **TC-WF-015** FORK z gałęzią USER_TASK: jedna gałąź PAUSED, druga biegnie; ukończenie taska wznawia gałąź; JOIN fires.
-- **TC-WF-016** FORK z gałęzią async activity (kolejka) + per-gałąź resume; JOIN po dokończeniu jobu.
-- **TC-WF-017** Awaria w jednej gałęzi → siostry CANCELLED, instancja FAILED, kompensacja LIFO obejmuje aktywności obu gałęzi.
-- **TC-WF-018** Walidacja: brak `joinStepId` / zagnieżdżony FORK / ścieżka omijająca JOIN → błąd zapisu definicji.
-- **TC-WF-019** Regresja: istniejąca definicja bez FORK wykonuje się identycznie (root token).
-- **TC-WF-020** Tenant scoping: gałęzie/taski/eventy nigdy cross-tenant.
+New integration specs `__integration__/TC-WF-014..` (self-contained: fixtures created in setup via API, cleanup in teardown — `.ai/qa/AGENTS.md`):
+- **TC-WF-014** FORK→2 AUTOMATED branches→JOIN wait-all, completed, namespace merge.
+- **TC-WF-015** FORK with a USER_TASK branch: one branch PAUSED, the other proceeds; completing the task resumes the branch; JOIN fires.
+- **TC-WF-016** FORK with an async-activity branch (queue) + per-branch resume; JOIN after the job completes.
+- **TC-WF-017** Failure in one branch → siblings CANCELLED, instance FAILED, LIFO compensation spans activities from both branches.
+- **TC-WF-018** Validation: missing `joinStepId` / nested FORK / path bypassing JOIN → definition save error.
+- **TC-WF-019** Regression: an existing FORK-less definition executes identically (root token).
+- **TC-WF-020** Tenant scoping: branches/tasks/events never cross-tenant.
 
-API surface do pokrycia: `POST /api/workflows/instances` (start), `instances/[id]` (detail z gałęziami),
+API surface to cover: `POST /api/workflows/instances` (start), `instances/[id]` (detail with branches),
 `instances/[id]/advance`, `tasks/[id]/complete` (branch-aware), `instances/[id]/signal` (branch-aware),
-`POST /api/workflows/definitions` (walidacja FORK/JOIN).
+`POST /api/workflows/definitions` (FORK/JOIN validation).
 
 ## Risks & Failure Scenarios
 
-| Ryzyko | Mitygacja |
+| Risk | Mitigation |
 |---|---|
-| Refaktor token abstraction łamie istniejące ścieżki | TC-WF-001..013 jako gate regresji; root-token adapter 1:1 |
-| Kolizje kluczy contextu między gałęziami | Namespacing `context.branches[branchKey]`; brak implicit top-level; jawny `outputMapping` |
-| Zakleszczenie JOIN (gałąź nigdy nie dochodzi) | Walidacja zbieżności do JOIN; gałąź FAILED/CANCELLED liczona jako terminalna z awarią całości |
-| Resume trafia w złą gałąź | `branch_instance_id` w UserTask/WorkflowEvent/payloadach jobów; testy TC-WF-015/016 |
-| Podwójne odpalenie JOIN (równoległe resume) | Pessimistic lock na instancji + transakcja; wait-all liczony pod blokadą |
-| Zagnieżdżony FORK przeoczony | Walidator `NESTED_FORK_NOT_SUPPORTED` fail-closed; TC-WF-018 |
-| Sierocie taski/timery po anulowaniu gałęzi | Best-effort anulowanie + log; nie blokuje completeWorkflow(FAILED) |
+| Token-abstraction refactor breaks existing paths | TC-WF-001..013 as a regression gate; 1:1 root-token adapter |
+| Context key collisions between branches | Namespacing `context.branches[branchKey]`; no implicit top-level; explicit `outputMapping` |
+| JOIN deadlock (a branch never arrives) | Convergence validation; FAILED/CANCELLED branch counts as terminal with whole-instance failure |
+| Resume hits the wrong branch | `branch_instance_id` on UserTask/WorkflowEvent/job payloads; tests TC-WF-015/016 |
+| Double JOIN firing (concurrent resume) | Pessimistic lock on the instance + transaction; wait-all counted under the lock |
+| Nested FORK slipping through | `NESTED_FORK_NOT_SUPPORTED` validator fail-closed; TC-WF-018 |
+| Orphaned tasks/timers after branch cancellation | Best-effort cancellation + log; does not block completeWorkflow(FAILED) |
 
-## Open Follow-ups (poza zakresem)
+## Open Follow-ups (out of scope)
 
-- Zagnieżdżone FORK (parent_branch_id już w modelu).
-- wait-N / quorum / discriminator (Q2 — odłożone).
-- Analytics per gałąź (łączy się z WF-3 z roadmapy).
+- Nested FORK (`parent_branch_id` already in the model).
+- wait-N / quorum / discriminator (Q2 — deferred).
+- Per-branch analytics (ties into WF-3 from the roadmap).
 
 ## Changelog
 
 ### 2026-06-01
-- Bramka Open Questions rozwiązana (model trwałych gałęzi, BPMN-interleaved, wait-all, niezależne pauzy,
-  namespace+merge, anulowanie sióstr). Dodano pełny design, fazowanie, BC, testy i ryzyka. Szkielet → Draft.
+- Open Questions gate resolved (persistent-branch model, BPMN-interleaved, wait-all, independent pauses,
+  namespace+merge, sibling cancellation). Added full design, phasing, BC, tests, and risks. Skeleton → Draft.
+- Translated to English.
