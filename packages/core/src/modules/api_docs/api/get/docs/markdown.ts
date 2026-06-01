@@ -1,18 +1,16 @@
 import { generateMarkdownFromOpenApi } from '@open-mercato/shared/lib/openapi'
 import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
 import { z } from 'zod'
-import { buildSanitizedApiDocsOpenApiDocument } from '../../../lib/openapi-document'
+import { getApiDocsExportRouteGetMetadata } from '../../../lib/public-access'
+import { resolveApiDocsDocumentForRequest } from '../../../lib/resolve-api-docs-document'
 
 export const metadata = {
   path: '/docs/markdown',
-  GET: {
-    requireAuth: true,
-    requireFeatures: ['api_docs.view'],
-  },
+  GET: getApiDocsExportRouteGetMetadata(),
 }
 
-export async function GET() {
-  const doc = await buildSanitizedApiDocsOpenApiDocument()
+export async function GET(req: Request) {
+  const doc = await resolveApiDocsDocumentForRequest(req)
   const markdown = generateMarkdownFromOpenApi(doc)
   return new Response(markdown, {
     headers: {
@@ -30,7 +28,8 @@ export const openApi: OpenApiRouteDoc = {
   methods: {
     GET: {
       summary: 'Download the OpenAPI specification as Markdown',
-      description: 'Requires authentication and the api_docs.view feature.',
+      description:
+        'Requires authentication and api_docs.view unless OM_API_DOCS_PUBLICLY_AVAILABLE is enabled (anonymous export is ACL-redacted).',
       tags: ['API Documentation'],
       responses: [
         {
@@ -38,8 +37,8 @@ export const openApi: OpenApiRouteDoc = {
           description: 'Markdown rendering of the OpenAPI document',
           schema: z.string(),
         },
-        { status: 401, description: 'Unauthorized' },
-        { status: 403, description: 'Forbidden — missing api_docs.view feature' },
+        { status: 401, description: 'Unauthorized when public mode is disabled' },
+        { status: 403, description: 'Forbidden — missing api_docs.view when public mode is disabled' },
       ],
     },
   },

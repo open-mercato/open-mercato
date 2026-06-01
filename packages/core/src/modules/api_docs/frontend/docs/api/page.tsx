@@ -1,6 +1,6 @@
 import ApiDocsExplorer from './Explorer'
 import { resolveApiDocsBaseUrl } from '@open-mercato/core/modules/api_docs/lib/resources'
-import { buildSanitizedApiDocsOpenApiDocument } from '@open-mercato/core/modules/api_docs/lib/openapi-document'
+import { resolveApiDocsDocumentForViewer } from '@open-mercato/core/modules/api_docs/lib/resolve-api-docs-document'
 import { APP_VERSION } from '@open-mercato/shared/lib/version'
 import type { OpenApiDocument } from '@open-mercato/shared/lib/openapi'
 
@@ -67,7 +67,7 @@ export default async function ApiDocsViewerPage() {
   const baseUrl = resolveApiDocsBaseUrl()
   let doc: OpenApiDocument
   try {
-    doc = await buildSanitizedApiDocsOpenApiDocument()
+    doc = await resolveApiDocsDocumentForViewer()
   } catch {
     doc = emptyOpenApiDocument(baseUrl)
   }
