@@ -8,10 +8,17 @@ const variantPageSource = readFileSync(
 )
 
 describe('catalog edit pages — optimistic-lock single header source', () => {
-  it('product edit page no longer manually wires the lock header (CrudForm auto-derives from initialValues.updatedAt)', () => {
-    expect(productPageSource).not.toContain('buildOptimisticLockHeader')
-    expect(productPageSource).not.toContain('withScopedApiRequestHeaders')
+  it('product UPDATE is single-sourced (bare updateCrud; CrudForm auto-derives from initialValues.updatedAt)', () => {
+    // The product update itself must NOT manually wrap the header — CrudForm
+    // auto-derives it from initialValues.updatedAt, so the call stays bare.
     expect(productPageSource).toContain('await updateCrud("catalog/products", payload)')
+  })
+
+  it('inline variant-list delete keeps its own explicit lock header + conflict bar (not a CrudForm submit)', () => {
+    // The variant delete in the product page variant list is a custom deleteCrud,
+    // not a CrudForm submit, so it must wire the header explicitly (#2055 round-3).
+    expect(productPageSource).toContain('buildOptimisticLockHeader(variant.updatedAt)')
+    expect(productPageSource).toContain('surfaceRecordConflict(err, t)')
   })
 
   it('product edit page still feeds CrudForm an initialValues.updatedAt so the auto-derive can attach the header', () => {

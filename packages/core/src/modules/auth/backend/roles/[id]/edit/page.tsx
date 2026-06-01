@@ -40,6 +40,7 @@ export default function EditRolePage({ params }: { params?: { id?: string } }) {
   const [initial, setInitial] = React.useState<RoleRecord | null>(null)
   const [loading, setLoading] = React.useState(true)
   const [aclData, setAclData] = React.useState<AclData>({ isSuperAdmin: false, features: [], organizations: null })
+  const [aclUpdatedAt, setAclUpdatedAt] = React.useState<string | null>(null)
   const [actorIsSuperAdmin, setActorIsSuperAdmin] = React.useState(false)
   const [selectedTenantId, setSelectedTenantId] = React.useState<string | null>(null)
   const widgetEditorRef = React.useRef<WidgetVisibilityEditorHandle | null>(null)
@@ -161,6 +162,7 @@ export default function EditRolePage({ params }: { params?: { id?: string } }) {
               canEditOrganizations
               value={aclData}
               onChange={setAclData}
+              onVersionChange={setAclUpdatedAt}
               currentUserIsSuperAdmin={actorIsSuperAdmin}
               tenantId={selectedTenantId ?? null}
               preserveOnTenantChange
@@ -222,9 +224,18 @@ export default function EditRolePage({ params }: { params?: { id?: string } }) {
             } else {
               await updateCrud('auth/roles', payload)
             }
-            await updateCrud('auth/roles/acl', { roleId: id, tenantId: effectiveTenantId, ...aclData }, {
+            // Optimistic lock the ACL save against the loaded RoleAcl version so a
+            // concurrent permission edit cannot silently overwrite (#2055). CrudForm
+            // surfaces the 409 as the unified conflict bar.
+            const aclLockHeader = buildOptimisticLockHeader(aclUpdatedAt)
+            const saveRoleAcl = () => updateCrud('auth/roles/acl', { roleId: id, tenantId: effectiveTenantId, ...aclData }, {
               errorMessage: t('auth.roles.form.errors.aclUpdate', 'Failed to update role access control'),
             })
+            if (Object.keys(aclLockHeader).length > 0) {
+              await withScopedApiRequestHeaders(aclLockHeader, saveRoleAcl)
+            } else {
+              await saveRoleAcl()
+            }
             await widgetEditorRef.current?.save()
             try { window.dispatchEvent(new Event('om:refresh-sidebar')) } catch {}
           }}

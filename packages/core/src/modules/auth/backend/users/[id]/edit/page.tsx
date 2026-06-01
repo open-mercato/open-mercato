@@ -128,6 +128,7 @@ export default function EditUserPage({ params }: { params?: { id?: string } }) {
   const [isNotFound, setIsNotFound] = React.useState(false)
   const [canEditOrgs, setCanEditOrgs] = React.useState(false)
   const [aclData, setAclData] = React.useState<AclData>({ isSuperAdmin: false, features: [], organizations: null })
+  const [aclUpdatedAt, setAclUpdatedAt] = React.useState<string | null>(null)
   const [customFieldValues, setCustomFieldValues] = React.useState<Record<string, unknown>>({})
   const [actorIsSuperAdmin, setActorIsSuperAdmin] = React.useState(false)
   const [actorResolved, setActorResolved] = React.useState(false)
@@ -363,6 +364,7 @@ export default function EditUserPage({ params }: { params?: { id?: string } }) {
             canEditOrganizations={canEditOrgs}
             value={aclData}
             onChange={setAclData}
+            onVersionChange={setAclUpdatedAt}
             userRoles={initialUser?.roles || []}
             currentUserIsSuperAdmin={actorIsSuperAdmin}
             tenantId={selectedTenantId ?? null}
@@ -488,9 +490,18 @@ export default function EditUserPage({ params }: { params?: { id?: string } }) {
             } else {
               await updateCrud('auth/users', payload)
             }
-            await updateCrud('auth/users/acl', { userId: id, ...aclData }, {
+            // Optimistic lock the ACL save against the loaded UserAcl version so a
+            // concurrent permission edit cannot silently overwrite (#2055). CrudForm
+            // surfaces the 409 as the unified conflict bar.
+            const aclLockHeader = buildOptimisticLockHeader(aclUpdatedAt)
+            const saveUserAcl = () => updateCrud('auth/users/acl', { userId: id, ...aclData }, {
               errorMessage: t('auth.users.form.errors.aclUpdate', 'Failed to update user access control'),
             })
+            if (Object.keys(aclLockHeader).length > 0) {
+              await withScopedApiRequestHeaders(aclLockHeader, saveUserAcl)
+            } else {
+              await saveUserAcl()
+            }
             await widgetEditorRef.current?.save()
             try { window.dispatchEvent(new Event('om:refresh-sidebar')) } catch {}
           }}
