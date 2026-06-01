@@ -19,6 +19,8 @@ export type LinkedEntity = {
 
 export type ScheduleActivityEditData = {
   id: string
+  /** Record version for the OSS optimistic-lock header on edit (#2055). */
+  updatedAt?: string | null
   interactionType?: string
   title?: string | null
   body?: string | null

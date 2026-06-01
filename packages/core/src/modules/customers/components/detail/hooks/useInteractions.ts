@@ -1,7 +1,9 @@
 "use client"
 
 import * as React from 'react'
-import { apiCallOrThrow, readApiResultOrThrow } from '@open-mercato/ui/backend/utils/apiCall'
+import { apiCallOrThrow, readApiResultOrThrow, withScopedApiRequestHeaders } from '@open-mercato/ui/backend/utils/apiCall'
+import { buildOptimisticLockHeader } from '@open-mercato/ui/backend/utils/optimisticLock'
+import { surfaceRecordConflict } from '@open-mercato/ui/backend/conflicts'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 import type { InteractionSummary } from '../types'
 
@@ -293,20 +295,33 @@ export function useInteractions({
   const deleteInteraction = React.useCallback(
     async (id: string) => {
       setIsMutating(true)
+      const target = interactions.find((entry) => entry.id === id)
       try {
-        await apiCallOrThrow(
-          `/api/customers/interactions?id=${encodeURIComponent(id)}`,
-          {
-            method: 'DELETE',
-          },
-          { errorMessage: t('customers.interactions.delete.error', 'Failed to delete interaction.') },
+        await withScopedApiRequestHeaders(
+          buildOptimisticLockHeader(target?.updatedAt ?? null),
+          () =>
+            apiCallOrThrow(
+              `/api/customers/interactions?id=${encodeURIComponent(id)}`,
+              {
+                method: 'DELETE',
+              },
+              { errorMessage: t('customers.interactions.delete.error', 'Failed to delete interaction.') },
+            ),
         )
         await refresh()
+      } catch (err) {
+        // A stale delete (the record was changed/deleted in another tab) surfaces
+        // the unified conflict bar and re-syncs the list instead of a raw error (#2055).
+        if (surfaceRecordConflict(err, t)) {
+          await refresh()
+          return
+        }
+        throw err
       } finally {
         setIsMutating(false)
       }
     },
-    [refresh, t],
+    [interactions, refresh, t],
   )
 
   const hasMore = entityId != null && nextCursor != null

@@ -40,6 +40,7 @@ import {
   withScopedApiRequestHeaders,
 } from "@open-mercato/ui/backend/utils/apiCall";
 import { buildOptimisticLockHeader } from "@open-mercato/ui/backend/utils/optimisticLock";
+import { surfaceRecordConflict } from "@open-mercato/ui/backend/conflicts";
 import { useT } from "@open-mercato/shared/lib/i18n/context";
 import { useConfirmDialog } from "@open-mercato/ui/backend/confirm-dialog";
 import { E } from "#generated/entities.ids.generated";
@@ -159,6 +160,8 @@ type VariantSummaryApi = {
   default_media_id?: string | null;
   defaultMediaId?: string | null;
   metadata?: Record<string, unknown> | null;
+  updated_at?: string | null;
+  updatedAt?: string | null;
 };
 
 type AttachmentListResponse = {
@@ -183,6 +186,7 @@ type VariantSummary = {
   defaultMediaId: string | null;
   prices: VariantPriceSummary[];
   optionValues: Record<string, string> | null;
+  updatedAt: string | null;
 };
 
 type VariantPriceListResponse = {
@@ -407,6 +411,12 @@ export default function EditCatalogProductPage({
                   : null,
             prices: priceMap[variantId] ?? [],
             optionValues,
+            updatedAt:
+              typeof variant.updatedAt === "string"
+                ? variant.updatedAt
+                : typeof variant.updated_at === "string"
+                  ? variant.updated_at
+                  : null,
           };
         })
         .filter((entry): entry is VariantSummary => Boolean(entry));
@@ -2155,18 +2165,23 @@ function ProductVariantsSection({
       if (!confirmed) return;
       setDeletingId(variant.id);
       try {
-        await deleteCrud("catalog/variants", variant.id, {
-          errorMessage: t(
-            "catalog.variants.form.deleteError",
-            "Failed to delete variant.",
-          ),
-        });
+        await withScopedApiRequestHeaders(
+          buildOptimisticLockHeader(variant.updatedAt),
+          () =>
+            deleteCrud("catalog/variants", variant.id, {
+              errorMessage: t(
+                "catalog.variants.form.deleteError",
+                "Failed to delete variant.",
+              ),
+            }),
+        );
         flash(
           t("catalog.variants.form.deleted", "Variant deleted."),
           "success",
         );
         onVariantDeleted(variant.id);
       } catch (err) {
+        if (surfaceRecordConflict(err, t)) return;
         console.error("catalog.products.edit.variants.delete", err);
         flash(
           t("catalog.variants.form.deleteError", "Failed to delete variant."),
