@@ -25,6 +25,8 @@ export type WorkflowDefinitionFormValues = {
   steps: any[]
   transitions: any[]
   triggers: WorkflowDefinitionTrigger[]
+  id?: string
+  updatedAt?: string | null
 }
 
 /**
@@ -234,6 +236,7 @@ import { toDateInputValue } from '@open-mercato/shared/lib/date/format'
  * Parse workflow definition to form values
  */
 export function parseWorkflowToFormValues(workflow: any): WorkflowDefinitionFormValues {
+  const updatedAt = workflow.updatedAt ?? workflow.updated_at ?? null
   return {
     workflowId: workflow.workflowId || '',
     workflowName: workflow.workflowName || '',
@@ -246,6 +249,8 @@ export function parseWorkflowToFormValues(workflow: any): WorkflowDefinitionForm
     steps: workflow.definition?.steps || [],
     transitions: workflow.definition?.transitions || [],
     triggers: workflow.definition?.triggers || [],
+    id: workflow.id,
+    updatedAt: typeof updatedAt === 'string' ? updatedAt : updatedAt ? String(updatedAt) : null,
   }
 }
 

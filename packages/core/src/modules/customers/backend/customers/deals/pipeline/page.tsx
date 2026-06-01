@@ -41,7 +41,9 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@open-mercato/ui/primitives/select'
-import { apiCall, apiCallOrThrow, readApiResultOrThrow } from '@open-mercato/ui/backend/utils/apiCall'
+import { apiCall, apiCallOrThrow, readApiResultOrThrow, withScopedApiRequestHeaders } from '@open-mercato/ui/backend/utils/apiCall'
+import { buildOptimisticLockHeader } from '@open-mercato/ui/backend/utils/optimisticLock'
+import { surfaceRecordConflict } from '@open-mercato/ui/backend/conflicts'
 import { useCurrentUserId } from '@open-mercato/ui/backend/utils/useCurrentUserId'
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
 import { useConfirmDialog } from '@open-mercato/ui/backend/confirm-dialog'
@@ -1818,18 +1820,22 @@ export default function DealsKanbanPage(): React.ReactElement {
       })
       if (!confirmed) return
 
+      const lockVersion = deals.find((deal) => deal.id === dealId)?.updatedAt ?? null
       setPendingDealId(dealId)
       try {
         await runDealMutation({
           operation: async () => {
-            await deleteCrud('customers/deals', {
-              body: { id: dealId },
-              errorMessage: translateWithFallback(
-                t,
-                'customers.deals.kanban.menu.delete.error',
-                'Failed to delete deal.',
-              ),
-            })
+            await withScopedApiRequestHeaders(
+              buildOptimisticLockHeader(lockVersion),
+              () => deleteCrud('customers/deals', {
+                body: { id: dealId },
+                errorMessage: translateWithFallback(
+                  t,
+                  'customers.deals.kanban.menu.delete.error',
+                  'Failed to delete deal.',
+                ),
+              }),
+            )
           },
           context: {
             formId: dealMutationContextId,
@@ -1844,6 +1850,11 @@ export default function DealsKanbanPage(): React.ReactElement {
         )
         invalidateKanbanData()
       } catch (error) {
+        // A stale delete surfaces the unified conflict bar — skip the generic flash (#2332).
+        if (surfaceRecordConflict(error, t)) {
+          invalidateKanbanData()
+          return
+        }
         const message =
           error instanceof Error && error.message
             ? error.message
@@ -1857,7 +1868,7 @@ export default function DealsKanbanPage(): React.ReactElement {
         setPendingDealId(null)
       }
     },
-    [confirm, invalidateKanbanData, retryDealMutation, runDealMutation, t],
+    [confirm, deals, invalidateKanbanData, retryDealMutation, runDealMutation, t],
   )
 
   const bulkSelectionSummary = React.useMemo(() => {
