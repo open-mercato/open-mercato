@@ -24,6 +24,11 @@ const mockEm = {
   create: jest.fn((Entity: unknown, data: Record<string, unknown>) => ({ __entity: Entity, ...data })),
   persist: jest.fn(),
   flush: jest.fn(async () => undefined),
+  transactional: jest.fn(async (work: (tx: unknown) => unknown) => {
+    const result = await work(mockEm)
+    await mockEm.flush()
+    return result
+  }),
 }
 
 const mockSyncRunService = {
