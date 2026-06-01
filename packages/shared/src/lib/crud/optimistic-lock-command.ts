@@ -175,6 +175,52 @@ export function enforceCommandOptimisticLock(input: EnforceCommandOptimisticLock
   })
 }
 
+export type EnforceRecordGoneIsConflictInput = {
+  resourceKind: string
+  resourceId: string
+  /** Explicit expected version — wins over the request header. */
+  expected?: string | Date | null
+  /** Request whose headers carry the expected token (e.g. `ctx.request`). */
+  request?: Request | Headers | null
+  /** Override `OM_OPTIMISTIC_LOCK` (mostly for tests). */
+  envValue?: string | null
+}
+
+/**
+ * Command-handler convenience for the *concurrent-delete* race: when a command
+ * cannot find its target record (it was deleted in another tab) AND the client
+ * opted into optimistic locking (sent the expected-version header / token),
+ * throw the SAME structured `CrudHttpError(409, OptimisticLockConflictBody)`
+ * the version-mismatch path returns — so a stale modal save surfaces the unified
+ * "Record changed" conflict bar instead of a bare, generic 404.
+ *
+ * Strictly additive and fail-open: a no-op (returns silently) when the env
+ * disables the guard for `resourceKind`, or when no expected token is present
+ * (plain API consumers that never sent the header keep their existing 404).
+ * The caller MUST still throw its own 404 afterwards for that no-token path:
+ *
+ * ```ts
+ * if (!interaction) {
+ *   enforceRecordGoneIsConflict({ resourceKind: 'customers.interaction', resourceId: id, request: ctx.request })
+ *   throw new CrudHttpError(404, { error: 'Interaction not found' })
+ * }
+ * ```
+ *
+ * The gone record has no current version, so `currentUpdatedAt` echoes the
+ * expected token (the body is used only for the conflict-bar copy + diagnostics;
+ * the client keys off `code`, not the timestamps).
+ */
+export function enforceRecordGoneIsConflict(input: EnforceRecordGoneIsConflictInput): void {
+  const config = resolveConfig(input.envValue)
+  if (!isResourceLockEnabled(config, input.resourceKind)) return
+  const clientSupplied = input.expected !== undefined && input.expected !== null
+    ? input.expected
+    : readOptimisticLockExpected(input.request ?? null)
+  const expectedIso = toIsoOrNull(clientSupplied)
+  if (expectedIso == null) return
+  throw new CrudHttpError(409, buildOptimisticLockConflictBody(expectedIso, expectedIso))
+}
+
 /**
  * DI-resolvable command-level optimistic-lock guard. This is the framework
  * seam that lets BOTH layers protect Command-pattern writes through one

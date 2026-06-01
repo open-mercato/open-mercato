@@ -5,7 +5,8 @@ import { Users, Phone, Check, Mail, Calendar, AlertTriangle, X } from 'lucide-re
 import { cn } from '@open-mercato/shared/lib/utils'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { validatePhoneNumber } from '@open-mercato/shared/lib/phone'
-import { apiCallOrThrow, readApiResultOrThrow } from '@open-mercato/ui/backend/utils/apiCall'
+import { apiCallOrThrow, readApiResultOrThrow, withScopedApiRequestHeaders } from '@open-mercato/ui/backend/utils/apiCall'
+import { buildOptimisticLockHeader } from '@open-mercato/ui/backend/utils/optimisticLock'
 import { mapCrudServerErrorToFormErrors } from '@open-mercato/ui/backend/utils/serverErrors'
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
 import { useGuardedMutation } from '@open-mercato/ui/backend/injection/useGuardedMutation'
@@ -404,12 +405,19 @@ export function ScheduleActivityDialog({
         ...(Object.keys(customValues).length > 0 ? { customValues } : {}),
       }
       await runGuardedMutation(
-        () =>
-          apiCallOrThrow('/api/customers/interactions', {
-            method: isSaveEdit ? 'PUT' : 'POST',
-            headers: { 'content-type': 'application/json' },
-            body: JSON.stringify(payload),
-          }),
+        () => {
+          const call = () =>
+            apiCallOrThrow('/api/customers/interactions', {
+              method: isSaveEdit ? 'PUT' : 'POST',
+              headers: { 'content-type': 'application/json' },
+              body: JSON.stringify(payload),
+            })
+          // Optimistic lock only applies to edits — a stale modal save against a
+          // concurrently changed/deleted activity surfaces the conflict bar (#2055).
+          return isSaveEdit
+            ? withScopedApiRequestHeaders(buildOptimisticLockHeader(editData?.updatedAt), call)
+            : call()
+        },
         {
           operation: isSaveEdit ? 'updateActivity' : 'createActivity',
           interactionId: editData?.id ?? null,

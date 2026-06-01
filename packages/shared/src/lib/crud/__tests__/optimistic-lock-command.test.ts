@@ -3,6 +3,7 @@ import {
   buildOptimisticLockConflictBody,
   createCommandOptimisticLockGuardService,
   enforceCommandOptimisticLock,
+  enforceRecordGoneIsConflict,
   readOptimisticLockExpected,
 } from '../optimistic-lock-command'
 import { CrudHttpError, isCrudHttpError } from '../errors'
@@ -231,6 +232,77 @@ describe('enforceCommandOptimisticLock', () => {
         resourceId: 'order-1',
         current: new Date(A),
         request: headersWith(A),
+        envValue: 'all',
+      }),
+    ).not.toThrow()
+  })
+})
+
+describe('enforceRecordGoneIsConflict', () => {
+  it('409s when the client opted in (header present) but the record is gone', () => {
+    let caught: unknown
+    try {
+      enforceRecordGoneIsConflict({
+        resourceKind: 'customers.interaction',
+        resourceId: 'int-1',
+        request: headersWith(A),
+        envValue: 'all',
+      })
+    } catch (err) {
+      caught = err
+    }
+    expect(isCrudHttpError(caught)).toBe(true)
+    const httpError = caught as CrudHttpError
+    expect(httpError.status).toBe(409)
+    // No current version exists for a deleted record, so it echoes the expected token.
+    expect(httpError.body).toEqual({
+      error: OPTIMISTIC_LOCK_CONFLICT_ERROR,
+      code: OPTIMISTIC_LOCK_CONFLICT_CODE,
+      currentUpdatedAt: A,
+      expectedUpdatedAt: A,
+    })
+  })
+
+  it('is a no-op when the client did not opt in (no header → caller 404 fires)', () => {
+    expect(() =>
+      enforceRecordGoneIsConflict({
+        resourceKind: 'customers.interaction',
+        resourceId: 'int-1',
+        request: headersWith(null),
+        envValue: 'all',
+      }),
+    ).not.toThrow()
+  })
+
+  it('prefers an explicit expected override over the header', () => {
+    expect(() =>
+      enforceRecordGoneIsConflict({
+        resourceKind: 'customers.interaction',
+        resourceId: 'int-1',
+        expected: A,
+        request: headersWith(null),
+        envValue: 'all',
+      }),
+    ).toThrow(CrudHttpError)
+  })
+
+  it('is a no-op when the env disables the guard for the resource', () => {
+    expect(() =>
+      enforceRecordGoneIsConflict({
+        resourceKind: 'customers.interaction',
+        resourceId: 'int-1',
+        request: headersWith(A),
+        envValue: 'off',
+      }),
+    ).not.toThrow()
+  })
+
+  it('is a no-op when the expected token is unparseable', () => {
+    expect(() =>
+      enforceRecordGoneIsConflict({
+        resourceKind: 'customers.interaction',
+        resourceId: 'int-1',
+        request: headersWith('not-a-date'),
         envValue: 'all',
       }),
     ).not.toThrow()

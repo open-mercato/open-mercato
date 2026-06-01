@@ -38,6 +38,7 @@ import {
   buildCustomFieldResetMap,
 } from '@open-mercato/shared/lib/commands/customFieldSnapshots'
 import { CrudHttpError } from '@open-mercato/shared/lib/crud/errors'
+import { enforceRecordGoneIsConflict } from '@open-mercato/shared/lib/crud/optimistic-lock-command'
 import { findOneWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import type { CrudIndexerConfig, CrudEventsConfig } from '@open-mercato/shared/lib/crud/types'
 import { recomputeNextInteraction } from '../lib/interactionProjection'
@@ -449,7 +450,10 @@ const updateInteractionCommand: CommandHandler<InteractionUpdateInput, { interac
     const em = (ctx.container.resolve('em') as EntityManager).fork()
     const { interaction, entityId } = await runInTransaction(em, async (trx) => {
       const interaction = await findOneWithDecryption(trx, CustomerInteraction, { id: parsed.id, deletedAt: null })
-      if (!interaction) throw new CrudHttpError(404, { error: 'Interaction not found' })
+      if (!interaction) {
+        enforceRecordGoneIsConflict({ resourceKind: 'customers.interaction', resourceId: parsed.id, request: ctx.request ?? null })
+        throw new CrudHttpError(404, { error: 'Interaction not found' })
+      }
       ensureTenantScope(ctx, interaction.tenantId)
       ensureOrganizationScope(ctx, interaction.organizationId)
 
@@ -679,7 +683,10 @@ const completeInteractionCommand: CommandHandler<InteractionCompleteInput, { int
     const em = (ctx.container.resolve('em') as EntityManager).fork()
     const { interaction, entityId } = await runInTransaction(em, async (trx) => {
       const interaction = await findOneWithDecryption(trx, CustomerInteraction, { id: parsed.id, deletedAt: null })
-      if (!interaction) throw new CrudHttpError(404, { error: 'Interaction not found' })
+      if (!interaction) {
+        enforceRecordGoneIsConflict({ resourceKind: 'customers.interaction', resourceId: parsed.id, request: ctx.request ?? null })
+        throw new CrudHttpError(404, { error: 'Interaction not found' })
+      }
       ensureTenantScope(ctx, interaction.tenantId)
       ensureOrganizationScope(ctx, interaction.organizationId)
 
@@ -811,7 +818,10 @@ const cancelInteractionCommand: CommandHandler<InteractionCancelInput, { interac
     const em = (ctx.container.resolve('em') as EntityManager).fork()
     const { interaction, entityId } = await runInTransaction(em, async (trx) => {
       const interaction = await findOneWithDecryption(trx, CustomerInteraction, { id: parsed.id, deletedAt: null })
-      if (!interaction) throw new CrudHttpError(404, { error: 'Interaction not found' })
+      if (!interaction) {
+        enforceRecordGoneIsConflict({ resourceKind: 'customers.interaction', resourceId: parsed.id, request: ctx.request ?? null })
+        throw new CrudHttpError(404, { error: 'Interaction not found' })
+      }
       ensureTenantScope(ctx, interaction.tenantId)
       ensureOrganizationScope(ctx, interaction.organizationId)
 
@@ -941,7 +951,10 @@ const deleteInteractionCommand: CommandHandler<{ body?: Record<string, unknown>;
       const em = (ctx.container.resolve('em') as EntityManager).fork()
       const { interaction, entityId } = await runInTransaction(em, async (trx) => {
         const interaction = await findOneWithDecryption(trx, CustomerInteraction, { id, deletedAt: null })
-        if (!interaction) throw new CrudHttpError(404, { error: 'Interaction not found' })
+        if (!interaction) {
+          enforceRecordGoneIsConflict({ resourceKind: 'customers.interaction', resourceId: id, request: ctx.request ?? null })
+          throw new CrudHttpError(404, { error: 'Interaction not found' })
+        }
         ensureTenantScope(ctx, interaction.tenantId)
         ensureOrganizationScope(ctx, interaction.organizationId)
 

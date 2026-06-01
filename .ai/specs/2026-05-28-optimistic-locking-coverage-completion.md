@@ -428,6 +428,41 @@ organization/channel scope that an admin principal carries.
 
 ## Changelog
 
+### 2026-06-01
+
+- #2055 QA round 3 (@alinadivante 2026-05-31) — closed the remaining UI gaps:
+  - **Catalog categories** edit + delete: the custom categories `GET`
+    (`api/categories/route.ts`) now returns `updatedAt`, so the category edit
+    `CrudForm` (already passing `optimisticLockUpdatedAt`) actually emits the
+    header on update **and** delete. The reader is auto-registered via the
+    route's `makeCrudRoute` command IDs (`customers`/`catalog.categories.*`).
+  - **Catalog product variant delete**: wrapped `deleteCrud('catalog/variants')`
+    with `buildOptimisticLockHeader(variant.updatedAt)` and surfaced the conflict
+    bar on 409 (`VariantSummary` now carries `updatedAt` from the variants list).
+  - **CRM sub-records (activities / tasks / interactions)**: the activity edit
+    modal (`ScheduleActivityDialog`) sends the lock header on `PUT`, the
+    timeline `deleteInteraction` sends it on `DELETE` (looked up from in-hook
+    list state) and routes 409s to the unified conflict bar. `editData` now
+    carries `updatedAt` from all three detail pages (people-v2 / companies-v2 /
+    deals).
+  - **Stale-edit-after-delete → conflict (not bare 404)**: new
+    `enforceRecordGoneIsConflict()` in `optimistic-lock-command.ts` — when a
+    command can't find its target record but the client opted into locking (sent
+    the header), it throws the structured `409` instead of `404`, so a stale
+    modal save shows "Record changed" rather than "Interaction not found". Wired
+    into all four `customers.interactions.*` command 404 sites. Strictly additive
+    (no header ⇒ unchanged 404). 5 new unit tests (28 total in the suite).
+  - **Conflict bar clears on navigation**: `AppShell` now calls
+    `dismissRecordConflict()` on `pathname` change, so the persistent bar no
+    longer follows the user into an unrelated module.
+  - **Sales false-positive (defensive)**: the order detail `afterList`
+    display-only totals recalculation now runs on a **forked** EntityManager
+    (`requestEm.fork()`), guaranteeing a `GET` can never enter the request Unit
+    of Work / advance `updated_at`. Code analysis found the read path already
+    side-effect-free; this removes the entire write-on-read risk class. The
+    existing `OM_OPTIMISTIC_LOCK_DEBUG=1` server flag logs exact expected-vs-current
+    on any conflict for further diagnosis if it recurs.
+
 ### 2026-05-29
 
 - #2055 resume — **100% OSS optimistic-lock coverage**:

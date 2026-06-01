@@ -225,6 +225,7 @@ export default function PersonDetailV2Page({ params }: { params?: { id?: string 
     // moment instead of "today" (#1807 prefill).
     const editPayload = {
       id: activity.id,
+      updatedAt: typeof raw.updatedAt === 'string' ? raw.updatedAt as string : typeof raw.updated_at === 'string' ? raw.updated_at as string : null,
       interactionType: typeof activity.interactionType === 'string' ? activity.interactionType : undefined,
       title: typeof activity.title === 'string' ? activity.title : null,
       body: typeof activity.body === 'string' ? activity.body : null,
