@@ -451,7 +451,7 @@ organization/channel scope that an admin principal carries.
     the header), it throws the structured `409` instead of `404`, so a stale
     modal save shows "Record changed" rather than "Interaction not found". Wired
     into all four `customers.interactions.*` command 404 sites. Strictly additive
-    (no header ⇒ unchanged 404). 5 new unit tests (33 total in the suite).
+    (no header ⇒ unchanged 404). 5 new unit tests (28 total in the suite).
   - **Conflict bar clears on navigation**: `AppShell` now calls
     `dismissRecordConflict()` on `pathname` change, so the persistent bar no
     longer follows the user into an unrelated module.
