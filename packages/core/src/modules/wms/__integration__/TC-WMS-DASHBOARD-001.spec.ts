@@ -30,6 +30,14 @@ type OperationalDashboardResponse = {
     deltaSinceYesterday?: number | null
     sparkline?: number[]
   }>
+  expiryLots?: Array<{
+    id?: string
+    lotNumber?: string
+    sku?: string
+    expiresAt?: string
+    availableQuantity?: number
+    category?: 'expiringSoon' | 'pastDue'
+  }>
   monthlyTrends?: Array<{ month?: string; receive?: number; allocate?: number }>
   recentActivity?: Array<{ id?: string; movementType?: string }>
 }
@@ -46,6 +54,7 @@ test.describe('TC-WMS-DASHBOARD-001 operational dashboard API', () => {
     expect(body?.kpis?.length).toBe(6)
     expect(Array.isArray(body?.monthlyTrends)).toBe(true)
     expect(Array.isArray(body?.recentActivity)).toBe(true)
+    expect(Array.isArray(body?.expiryLots)).toBe(true)
 
     const todaysMoves = body?.kpis?.find((kpi) => kpi.id === 'todaysMoves')
     expect(todaysMoves).toBeTruthy()
@@ -183,6 +192,12 @@ test.describe('TC-WMS-DASHBOARD-001 operational dashboard API', () => {
       const dashboardBody = await readJsonSafe<OperationalDashboardResponse>(dashboardResponse)
       const pastDue = dashboardBody?.kpis?.find((kpi) => kpi.id === 'pastDue')
       expect(pastDue?.count).toBeGreaterThanOrEqual(1)
+
+      const pastDueLotRow = dashboardBody?.expiryLots?.find(
+        (lot) => lot.id === lotId && lot.category === 'pastDue',
+      )
+      expect(pastDueLotRow).toBeTruthy()
+      expect(pastDueLotRow?.availableQuantity).toBe(2)
 
       const lotsWithWarehouseResponse = await apiRequest(
         request,

@@ -6,6 +6,8 @@
  * Routes are GET list handlers under `/api/wms/...` (snake_case item fields).
  */
 
+import { operationalDashboardResponseSchema } from '../data/validators'
+
 type JsonRecord = Record<string, unknown>
 
 function assertPagedEnvelope(payload: unknown): asserts payload is {
@@ -259,6 +261,16 @@ describe('WMS backend GUI <-> list API contract (response shape)', () => {
         },
       ],
       monthlyTrends: [{ month: 'May', receive: 3, allocate: 2 }],
+      expiryLots: [
+        {
+          id: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',
+          lotNumber: 'LOT-1',
+          sku: 'SKU-1',
+          expiresAt: '2026-06-15T00:00:00.000Z',
+          availableQuantity: 3,
+          category: 'expiringSoon',
+        },
+      ],
       recentActivity: [
         {
           id: '99999999-9999-4999-8999-999999999999',
@@ -278,5 +290,6 @@ describe('WMS backend GUI <-> list API contract (response shape)', () => {
     expect(payload.kpis).toHaveLength(2)
     expect(payload.recentActivity[0]?.movementType).toBe('receipt')
     expect(payload.kpis[0]?.deltaSinceYesterday).toBeNull()
+    expect(() => operationalDashboardResponseSchema.parse(payload)).not.toThrow()
   })
 })

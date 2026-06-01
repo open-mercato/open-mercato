@@ -297,6 +297,18 @@ Read-only collection routes:
 - `GET /api/wms/inventory/movements`
 - `GET /api/wms/inventory/reservations`
 
+#### Operational dashboard
+- `GET /api/wms/dashboard/operational`
+- Optional query: `warehouseId` (UUID) scopes KPIs, expiry rows, trends, and activity to one warehouse; omit for tenant-wide aggregation
+- Response fields:
+  - `lastUpdatedAt`: ISO timestamp when the payload was assembled
+  - `warehouseId`: selected warehouse id or `null` for all warehouses
+  - `kpis`: six KPI cards (`lowStock`, `reorderCritical`, `expiringSoon`, `pastDue`, `agingReservations`, `todaysMoves`) with `count`, `deltaSinceYesterday`, and 7-day `sparkline`
+  - `expiryLots`: up to five expiring-soon and five past-due lot preview rows with `id`, `lotNumber`, `sku`, `expiresAt`, `availableQuantity`, and `category` (`expiringSoon` | `pastDue`); only lots with available on-hand stock in the selected scope
+  - `monthlyTrends`: six-month receive vs allocate movement counts
+  - `recentActivity`: latest inventory movements with SKU, location label, and reference metadata
+- Errors: `401` unauthorized, `404` unknown `warehouseId`
+
 All list routes:
 - accept `page`, `pageSize`, `search`, and entity-specific filters
 - default to `pageSize = 25`
@@ -503,6 +515,16 @@ The tenant role slugs `operator` and `supervisor` are **reserved by the WMS modu
 
 Other modules MUST NOT create or depend on tenant roles named `operator` or `supervisor` without coordinating with WMS — reuse would collide with WMS seeding, ACL sync, and backoffice role labels. Prefer module-specific role slugs (for example `pos_cashier`) or document a shared convention before introducing overlapping names.
 
+#### Inventory bootstrap import decision (2026-06-01)
+
+**Decision:** Month 1 onboarding starts with a **thin CSV MVP** import path — **validate → report → apply** — wired to `wms.import` and the inventory console import UI. This is an **active deliverable**, not deferred or waived.
+
+**Rationale:** The WMS roadmap treats CSV bootstrap as a hard blocker for large catalogs (10k+ SKUs) and a must-have for first merchants above ~2k SKUs. A thin MVP unblocks opening balances without waiting for ERP-grade integration.
+
+**Scope (MVP):** CSV upload, column mapping, validation report, apply via adjustment ledger. Full ERP sync adapters remain out of scope for Phase 1.
+
+**Alternative considered:** API-only bulk bootstrap — rejected for Month 1 because operations teams expect spreadsheet-based cutover for initial stock loads.
+
 ### Story 2: Core data model and write engine
 1. Implement entities and migrations for phase-1 tables.
 2. Add zod validators for create/update and action routes.
@@ -637,6 +659,11 @@ None.
 ## Changelog
 
 ### 2026-06-01
+- Added **Expiry watch** section on the operational dashboard: compact expiring-soon and past-due lot lists sourced from `GET /api/wms/dashboard/operational` (`expiryLots` payload field)
+- Documented **CSV MVP import** as the Month 1 inventory bootstrap decision (validate → report → apply; active deliverable, not waived)
+- Synced Polish i18n for cycle-count scope estimate and dashboard expiry card keys
+
+### 2026-06-01 (earlier)
 - Added WMS default roles `operator` and `supervisor` in `setup.ts` with `defaultRoleFeatures` matrix; roles seed idempotently via `seedDefaults`, ACL grants sync via `ensureCustomRoleAcls` / `yarn mercato auth sync-role-acls`
 - Documented role vs feature matrix in Story 1; auth i18n labels for `auth.roles.operator` / `auth.roles.supervisor`
 - Playwright UI integration tests: `TC-WMS-INVENTORY-UI-001` (`WMS-P1-INT-13` adjust + cycle count), `TC-WMS-DASHBOARD-UI-001` (operational dashboard KPIs/filter), `TC-WMS-IMPORT-UI-001` (import UI smoke)

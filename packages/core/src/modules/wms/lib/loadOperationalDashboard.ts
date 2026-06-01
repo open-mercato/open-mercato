@@ -15,6 +15,7 @@ const AGING_RESERVATION_DAYS = 7
 const TREND_DAYS = 7
 const MONTHLY_TREND_MONTHS = 6
 const ACTIVITY_LIMIT = 10
+const EXPIRY_CARD_LIMIT = 5
 
 export type OperationalDashboardScope = {
   organizationId: string
@@ -56,10 +57,20 @@ export type OperationalDashboardActivityRow = {
   performedAt: string
 }
 
+export type OperationalDashboardExpiryLotRow = {
+  id: string
+  lotNumber: string
+  sku: string
+  expiresAt: string
+  availableQuantity: number
+  category: 'expiringSoon' | 'pastDue'
+}
+
 export type OperationalDashboardPayload = {
   lastUpdatedAt: string
   warehouseId: string | null
   kpis: OperationalDashboardKpi[]
+  expiryLots: OperationalDashboardExpiryLotRow[]
   monthlyTrends: OperationalDashboardTrendPoint[]
   recentActivity: OperationalDashboardActivityRow[]
 }
@@ -126,6 +137,76 @@ export function mapDailyCountsToSparkline(
     }
   }
   return dayBuckets.map((bucket) => counts.get(bucket.getTime()) ?? 0)
+}
+
+export function resolveLotAvailableQuantity(
+  lotId: string,
+  balances: InventoryBalance[],
+  warehouseId?: string | null,
+): number {
+  let total = 0
+  for (const balance of balances) {
+    if (balance.lot?.id !== lotId) continue
+    if (warehouseId && balance.warehouse.id !== warehouseId) continue
+    const available =
+      toOperationalDashboardNumber(balance.quantityOnHand)
+      - toOperationalDashboardNumber(balance.quantityReserved)
+      - toOperationalDashboardNumber(balance.quantityAllocated)
+    if (available > 0) total += available
+  }
+  return total
+}
+
+export function buildExpiryLotRows(
+  expiringSoonLots: InventoryLot[],
+  pastDueLots: InventoryLot[],
+  balances: InventoryBalance[],
+  warehouseId?: string | null,
+  limit = EXPIRY_CARD_LIMIT,
+): OperationalDashboardExpiryLotRow[] {
+  const expiringRows = expiringSoonLots
+    .map((lot) => ({
+      lot,
+      availableQuantity: resolveLotAvailableQuantity(lot.id, balances, warehouseId),
+    }))
+    .filter(({ availableQuantity }) => availableQuantity > 0)
+    .sort((left, right) => {
+      const leftTime = left.lot.expiresAt?.getTime() ?? 0
+      const rightTime = right.lot.expiresAt?.getTime() ?? 0
+      return leftTime - rightTime
+    })
+    .slice(0, limit)
+    .map(({ lot, availableQuantity }) => ({
+      id: lot.id,
+      lotNumber: lot.lotNumber,
+      sku: lot.sku,
+      expiresAt: lot.expiresAt!.toISOString(),
+      availableQuantity,
+      category: 'expiringSoon' as const,
+    }))
+
+  const pastDueRows = pastDueLots
+    .map((lot) => ({
+      lot,
+      availableQuantity: resolveLotAvailableQuantity(lot.id, balances, warehouseId),
+    }))
+    .filter(({ availableQuantity }) => availableQuantity > 0)
+    .sort((left, right) => {
+      const leftTime = left.lot.expiresAt?.getTime() ?? 0
+      const rightTime = right.lot.expiresAt?.getTime() ?? 0
+      return leftTime - rightTime
+    })
+    .slice(0, limit)
+    .map(({ lot, availableQuantity }) => ({
+      id: lot.id,
+      lotNumber: lot.lotNumber,
+      sku: lot.sku,
+      expiresAt: lot.expiresAt!.toISOString(),
+      availableQuantity,
+      category: 'pastDue' as const,
+    }))
+
+  return [...expiringRows, ...pastDueRows]
 }
 
 export function computeLowStockCounts(
@@ -389,6 +470,7 @@ async function loadPastDueLotCount(
     where l.organization_id = ?
       and l.tenant_id = ?
       and l.deleted_at is null
+      and l.status = 'available'
       and l.expires_at is not null
       and l.expires_at < ?
   `
@@ -421,6 +503,7 @@ async function loadPastDueDailyCounts(
       on l.organization_id = ?
      and l.tenant_id = ?
      and l.deleted_at is null
+     and l.status = 'available'
      and l.expires_at is not null
      and l.expires_at < bucket.day
      join wms_inventory_balances b
@@ -505,7 +588,7 @@ export async function loadOperationalDashboard(
 
   const warehouseFilter = scope.warehouseId ? { warehouse: scope.warehouseId } : {}
 
-  const [profiles, balances, lots, reservations, activityMovements] = await Promise.all([
+  const [profiles, balances, expiringSoonLots, pastDueLots, reservations, activityMovements] = await Promise.all([
     findWithDecryption(em, ProductInventoryProfile, baseScope, undefined, decryptionScope),
     findWithDecryption(
       em,
@@ -522,7 +605,18 @@ export async function loadOperationalDashboard(
         status: 'available',
         expiresAt: { $ne: null, $gte: todayStart, $lte: expiringCutoff },
       },
-      undefined,
+      { orderBy: { expiresAt: 'ASC' }, limit: 100 },
+      decryptionScope,
+    ),
+    findWithDecryption(
+      em,
+      InventoryLot,
+      {
+        ...baseScope,
+        status: 'available',
+        expiresAt: { $ne: null, $lt: todayStart },
+      },
+      { orderBy: { expiresAt: 'ASC' }, limit: 100 },
       decryptionScope,
     ),
     findWithDecryption(
@@ -556,14 +650,9 @@ export async function loadOperationalDashboard(
     scope.warehouseId,
   )
 
-  const expiringSoonCount = scope.warehouseId
-    ? lots.filter((lot) =>
-        balances.some(
-          (balance) =>
-            balance.lot?.id === lot.id && balance.warehouse.id === scope.warehouseId,
-        ),
-      ).length
-    : lots.length
+  const expiringSoonCount = expiringSoonLots.filter(
+    (lot) => resolveLotAvailableQuantity(lot.id, balances, scope.warehouseId) > 0,
+  ).length
 
   const agingReservationsCount = reservations.length
 
@@ -658,10 +747,18 @@ export async function loadOperationalDashboard(
     }
   })
 
+  const expiryLots = buildExpiryLotRows(
+    expiringSoonLots,
+    pastDueLots,
+    balances,
+    scope.warehouseId,
+  )
+
   return {
     lastUpdatedAt: now.toISOString(),
     warehouseId: scope.warehouseId ?? null,
     kpis,
+    expiryLots,
     monthlyTrends,
     recentActivity,
   }

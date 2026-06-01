@@ -403,10 +403,20 @@ export const operationalDashboardKpiSchema = z.object({
   sparkline: z.array(z.number()),
 })
 
+export const operationalDashboardExpiryLotSchema = z.object({
+  id: z.string().uuid(),
+  lotNumber: z.string(),
+  sku: z.string(),
+  expiresAt: z.string(),
+  availableQuantity: z.number(),
+  category: z.enum(['expiringSoon', 'pastDue']),
+})
+
 export const operationalDashboardResponseSchema = z.object({
   lastUpdatedAt: z.string(),
   warehouseId: z.string().uuid().nullable(),
   kpis: z.array(operationalDashboardKpiSchema),
+  expiryLots: z.array(operationalDashboardExpiryLotSchema),
   monthlyTrends: z.array(
     z.object({
       month: z.string(),

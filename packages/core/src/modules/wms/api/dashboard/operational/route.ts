@@ -64,7 +64,8 @@ export async function GET(request: Request) {
 export const openApi: OpenApiRouteDoc = {
   tag: 'WMS',
   summary: 'Operational dashboard',
-  description: 'Aggregated KPIs, monthly movement trends, and recent activity for the WMS operational dashboard.',
+  description:
+    'Aggregated KPIs, expiry watch lot rows (`expiryLots`), monthly movement trends, and recent activity for the WMS operational dashboard.',
   methods: {
     GET: {
       summary: 'Load operational dashboard data',

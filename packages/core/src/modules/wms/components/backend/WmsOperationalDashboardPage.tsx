@@ -30,6 +30,7 @@ import {
 import { StatusBadge, type StatusBadgeVariant } from '@open-mercato/ui/primitives/status-badge'
 import type {
   OperationalDashboardActivityRow,
+  OperationalDashboardExpiryLotRow,
   OperationalDashboardKpi,
   OperationalDashboardPayload,
 } from '../../lib/loadOperationalDashboard'
@@ -171,6 +172,76 @@ function DashboardKpiCard({
   )
 }
 
+type ExpiryLotListProps = {
+  title: string
+  emptyLabel: string
+  viewAllLabel: string
+  viewAllHref: string
+  rows: OperationalDashboardExpiryLotRow[]
+  expiryFormatter: Intl.DateTimeFormat
+  quantityFormatter: Intl.NumberFormat
+  t: ReturnType<typeof useT>
+}
+
+function ExpiryLotList({
+  title,
+  emptyLabel,
+  viewAllLabel,
+  viewAllHref,
+  rows,
+  expiryFormatter,
+  quantityFormatter,
+  t,
+}: ExpiryLotListProps) {
+  return (
+    <div className="min-w-0">
+      <div className="mb-3 flex items-center justify-between gap-3">
+        <h3 className="text-sm font-semibold">{title}</h3>
+        <LinkButton asChild variant="gray" size="sm" className="h-8 px-2">
+          <Link href={viewAllHref}>{viewAllLabel}</Link>
+        </LinkButton>
+      </div>
+      {rows.length === 0 ? (
+        <p className="text-sm text-muted-foreground">{emptyLabel}</p>
+      ) : (
+        <ul className="divide-y divide-border">
+          {rows.map((row) => {
+            const badgeVariant: StatusBadgeVariant = row.category === 'pastDue' ? 'error' : 'warning'
+            return (
+              <li key={row.id} className="flex items-start justify-between gap-3 py-3 first:pt-0 last:pb-0">
+                <div className="min-w-0">
+                  <p className="truncate text-sm font-medium">{row.lotNumber}</p>
+                  <p className="truncate text-xs text-muted-foreground">{row.sku}</p>
+                  <div className="mt-1 flex flex-wrap items-center gap-2">
+                    <StatusBadge variant={badgeVariant} dot>
+                      {expiryFormatter.format(new Date(row.expiresAt))}
+                    </StatusBadge>
+                    <span className="text-xs text-muted-foreground">
+                      {t(
+                        'wms.backend.dashboard.expiry.available',
+                        '{quantity} available',
+                        { quantity: quantityFormatter.format(row.availableQuantity) },
+                      )}
+                    </span>
+                  </div>
+                </div>
+                <Button asChild type="button" variant="ghost" size="icon" className="size-7 shrink-0">
+                  <Link
+                    href={`/backend/wms/lot/${row.id}`}
+                    aria-label={t('wms.backend.dashboard.expiry.openLot', 'Open lot')}
+                  >
+                    <ExternalLink className="size-3.5" />
+                  </Link>
+                </Button>
+              </li>
+            )
+          })}
+        </ul>
+      )}
+    </div>
+  )
+}
+
 const movementStatusMap: Record<string, StatusBadgeVariant> = {
   receipt: 'success',
   return_receive: 'success',
@@ -208,6 +279,21 @@ export default function WmsOperationalDashboardPage() {
         hour: '2-digit',
         minute: '2-digit',
       }),
+    [locale],
+  )
+
+  const expiryDateFormatter = React.useMemo(
+    () =>
+      createDateTimeFormatter(locale, {
+        month: '2-digit',
+        day: '2-digit',
+        year: '2-digit',
+      }),
+    [locale],
+  )
+
+  const quantityFormatter = React.useMemo(
+    () => new Intl.NumberFormat(locale, { maximumFractionDigits: 2 }),
     [locale],
   )
 
@@ -346,6 +432,14 @@ export default function WmsOperationalDashboardPage() {
       })),
     [dashboardQuery.data?.monthlyTrends],
   )
+
+  const expiryLotsByCategory = React.useMemo(() => {
+    const lots = dashboardQuery.data?.expiryLots ?? []
+    return {
+      expiringSoon: lots.filter((lot) => lot.category === 'expiringSoon'),
+      pastDue: lots.filter((lot) => lot.category === 'pastDue'),
+    }
+  }, [dashboardQuery.data?.expiryLots])
 
   const movementsHref = kpiConfig.todaysMoves.href
 
@@ -499,6 +593,54 @@ export default function WmsOperationalDashboardPage() {
                   />
                 )
               })}
+            </section>
+
+            <section className="rounded-lg border bg-card shadow-sm">
+              <div className="border-b px-5 py-4">
+                <h2 className="text-base font-semibold">
+                  {t('wms.backend.dashboard.expiry.title', 'Expiry watch')}
+                </h2>
+                <p className="mt-1 text-sm text-muted-foreground">
+                  {t(
+                    'wms.backend.dashboard.expiry.description',
+                    'Upcoming and overdue lots with on-hand stock in the selected warehouse scope.',
+                  )}
+                </p>
+              </div>
+              <div className="grid gap-6 p-5 md:grid-cols-2">
+                <ExpiryLotList
+                  title={t('wms.backend.dashboard.expiry.expiringSoon.title', 'Expiring soon')}
+                  emptyLabel={t(
+                    'wms.backend.dashboard.expiry.expiringSoon.empty',
+                    'No lots expiring within the next 30 days.',
+                  )}
+                  viewAllLabel={t(
+                    'wms.backend.dashboard.expiry.expiringSoon.viewAll',
+                    'View all expiring →',
+                  )}
+                  viewAllHref={kpiConfig.expiringSoon.href}
+                  rows={expiryLotsByCategory.expiringSoon}
+                  expiryFormatter={expiryDateFormatter}
+                  quantityFormatter={quantityFormatter}
+                  t={t}
+                />
+                <ExpiryLotList
+                  title={t('wms.backend.dashboard.expiry.pastDue.title', 'Past due')}
+                  emptyLabel={t(
+                    'wms.backend.dashboard.expiry.pastDue.empty',
+                    'No expired lots with available stock.',
+                  )}
+                  viewAllLabel={t(
+                    'wms.backend.dashboard.expiry.pastDue.viewAll',
+                    'View all past due →',
+                  )}
+                  viewAllHref={kpiConfig.pastDue.href}
+                  rows={expiryLotsByCategory.pastDue}
+                  expiryFormatter={expiryDateFormatter}
+                  quantityFormatter={quantityFormatter}
+                  t={t}
+                />
+              </div>
             </section>
 
             <section className="rounded-lg border bg-card shadow-sm">

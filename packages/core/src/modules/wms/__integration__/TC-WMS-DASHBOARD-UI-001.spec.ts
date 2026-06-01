@@ -59,6 +59,7 @@ test.describe('TC-WMS-DASHBOARD-UI-001: Operational dashboard UI', () => {
     await expect(page.getByRole('link', { name: 'View ledger' }).first()).toBeVisible()
 
     await expect(page.getByRole('heading', { name: 'Monthly trends' })).toBeVisible()
+    await expect(page.getByRole('heading', { name: 'Expiry watch' })).toBeVisible()
     await expect(page.getByRole('heading', { name: 'Recent activity' })).toBeVisible()
     await expect(page.getByRole('heading', { name: 'Quick actions' })).toBeVisible()
     await expect(page.getByRole('link', { name: 'Open inventory console' })).toBeVisible()

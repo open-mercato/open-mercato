@@ -8,6 +8,7 @@ jest.mock('@open-mercato/shared/lib/encryption/find', () => ({
 import { findOneWithDecryption, findWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import {
   InventoryBalance,
+  InventoryLot,
   InventoryMovement,
   InventoryReservation,
   ProductInventoryProfile,
@@ -15,10 +16,12 @@ import {
 } from '../../data/entities'
 import {
   buildDailyBuckets,
+  buildExpiryLotRows,
   computeLowStockCounts,
   loadOperationalDashboard,
   mapDailyCountsToSparkline,
   OperationalDashboardWarehouseNotFoundError,
+  resolveLotAvailableQuantity,
   startOfUtcDay,
 } from '../loadOperationalDashboard'
 
@@ -88,6 +91,140 @@ describe('loadOperationalDashboard helpers', () => {
         { day: dayBuckets[2]!, count: 2 },
       ]),
     ).toEqual([0, 4, 2])
+  })
+
+  it('buildExpiryLotRows returns expiring-soon and past-due rows with available quantities', () => {
+    const warehouseId = '11111111-1111-4111-8111-111111111111'
+    const expiringLot = {
+      id: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',
+      lotNumber: 'LOT-EXP',
+      sku: 'SKU-EXP',
+      expiresAt: new Date('2026-06-15T00:00:00.000Z'),
+    } as InventoryLot
+    const pastDueLot = {
+      id: 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb',
+      lotNumber: 'LOT-PAST',
+      sku: 'SKU-PAST',
+      expiresAt: new Date('2026-05-01T00:00:00.000Z'),
+    } as InventoryLot
+    const balances = [
+      makeBalance({
+        warehouseId,
+        lot: expiringLot,
+        quantityOnHand: '4',
+      }),
+      makeBalance({
+        warehouseId,
+        lot: pastDueLot,
+        quantityOnHand: '2',
+      }),
+    ]
+
+    const rows = buildExpiryLotRows([expiringLot], [pastDueLot], balances, warehouseId)
+
+    expect(rows).toEqual([
+      expect.objectContaining({
+        id: expiringLot.id,
+        category: 'expiringSoon',
+        availableQuantity: 4,
+      }),
+      expect.objectContaining({
+        id: pastDueLot.id,
+        category: 'pastDue',
+        availableQuantity: 2,
+      }),
+    ])
+    expect(resolveLotAvailableQuantity(expiringLot.id, balances, warehouseId)).toBe(4)
+  })
+
+  it('buildExpiryLotRows with warehouseId null aggregates available stock across warehouses', () => {
+    const expiringLot = {
+      id: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',
+      lotNumber: 'LOT-EXP',
+      sku: 'SKU-EXP',
+      expiresAt: new Date('2026-06-15T00:00:00.000Z'),
+    } as InventoryLot
+    const pastDueLot = {
+      id: 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb',
+      lotNumber: 'LOT-PAST',
+      sku: 'SKU-PAST',
+      expiresAt: new Date('2026-05-01T00:00:00.000Z'),
+    } as InventoryLot
+    const balances = [
+      makeBalance({
+        warehouseId: '11111111-1111-4111-8111-111111111111',
+        lot: expiringLot,
+        quantityOnHand: '3',
+      }),
+      makeBalance({
+        warehouseId: '22222222-2222-4222-8222-222222222222',
+        lot: expiringLot,
+        quantityOnHand: '2',
+      }),
+      makeBalance({
+        warehouseId: '11111111-1111-4111-8111-111111111111',
+        lot: pastDueLot,
+        quantityOnHand: '1',
+      }),
+    ]
+
+    const rows = buildExpiryLotRows([expiringLot], [pastDueLot], balances, null)
+
+    expect(rows).toEqual([
+      expect.objectContaining({
+        id: expiringLot.id,
+        category: 'expiringSoon',
+        availableQuantity: 5,
+      }),
+      expect.objectContaining({
+        id: pastDueLot.id,
+        category: 'pastDue',
+        availableQuantity: 1,
+      }),
+    ])
+  })
+
+  it('buildExpiryLotRows excludes expiring-soon lots with zero available quantity', () => {
+    const warehouseId = '11111111-1111-4111-8111-111111111111'
+    const expiringLotWithStock = {
+      id: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',
+      lotNumber: 'LOT-EXP',
+      sku: 'SKU-EXP',
+      expiresAt: new Date('2026-06-15T00:00:00.000Z'),
+    } as InventoryLot
+    const expiringLotWithoutStock = {
+      id: 'cccccccc-cccc-4ccc-8ccc-cccccccccccc',
+      lotNumber: 'LOT-EMPTY',
+      sku: 'SKU-EMPTY',
+      expiresAt: new Date('2026-06-20T00:00:00.000Z'),
+    } as InventoryLot
+    const balances = [
+      makeBalance({
+        warehouseId,
+        lot: expiringLotWithStock,
+        quantityOnHand: '4',
+      }),
+      makeBalance({
+        warehouseId,
+        lot: expiringLotWithoutStock,
+        quantityOnHand: '0',
+      }),
+    ]
+
+    const rows = buildExpiryLotRows(
+      [expiringLotWithStock, expiringLotWithoutStock],
+      [],
+      balances,
+      warehouseId,
+    )
+
+    expect(rows).toEqual([
+      expect.objectContaining({
+        id: expiringLotWithStock.id,
+        category: 'expiringSoon',
+        availableQuantity: 4,
+      }),
+    ])
   })
 
   it('loadOperationalDashboard rejects unknown warehouse ids in tenant scope', async () => {
@@ -173,6 +310,7 @@ describe('loadOperationalDashboard helpers', () => {
       ]),
     )
     expect(payload.recentActivity).toHaveLength(1)
+    expect(payload.expiryLots).toEqual([])
     expect(findWithDecryptionMock).toHaveBeenCalledWith(
       expect.anything(),
       ProductInventoryProfile,
