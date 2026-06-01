@@ -556,6 +556,7 @@ export default function StaffTeamMemberDetailPage({ params }: { params?: { id?: 
               mode="availability"
               rulesetId={availabilityRuleSetId}
               onRulesetChange={handleRulesetChange}
+              allowRuleSetDelete
               buildScheduleItems={({ availabilityRules, translate: translateLabel }) => (
                 buildMemberScheduleItems({ availabilityRules, translate: translateLabel })
               )}
