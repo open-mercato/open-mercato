@@ -8,7 +8,8 @@ import type { ColumnDef, SortingState } from '@tanstack/react-table'
 import type { FilterDef, FilterValues } from '@open-mercato/ui/backend/FilterBar'
 import { Button } from '@open-mercato/ui/primitives/button'
 import { RowActions } from '@open-mercato/ui/backend/RowActions'
-import { apiCall } from '@open-mercato/ui/backend/utils/apiCall'
+import { apiCall, withScopedApiRequestHeaders } from '@open-mercato/ui/backend/utils/apiCall'
+import { buildOptimisticLockHeader } from '@open-mercato/ui/backend/utils/optimisticLock'
 import { raiseCrudError } from '@open-mercato/ui/backend/utils/serverErrors'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
@@ -26,6 +27,7 @@ type Row = {
   tenantId: string | null
   tenantName?: string | null
   roles: string[]
+  updatedAt?: string | null
 }
 
 type FilterOption = { value: string; label: string }
@@ -388,7 +390,10 @@ export default function UsersListPage() {
     if (!confirmed) return
     const deleteErrorMessage = t('auth.users.list.error.delete', 'Failed to delete user')
     try {
-      const call = await apiCall(`/api/auth/users?id=${encodeURIComponent(row.id)}`, { method: 'DELETE' })
+      const call = await withScopedApiRequestHeaders(
+        buildOptimisticLockHeader(row.updatedAt),
+        () => apiCall(`/api/auth/users?id=${encodeURIComponent(row.id)}`, { method: 'DELETE' }),
+      )
       if (!call.ok) {
         await raiseCrudError(call.response, deleteErrorMessage)
       }
