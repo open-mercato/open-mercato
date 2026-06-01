@@ -563,7 +563,8 @@ Other modules MUST NOT create or depend on tenant roles named `operator` or `sup
 - API verification confirmed the phase-1 gaps materially covered by the new specs, including the allocation regression fixed during this pass (`reserve` now persists reserved quantity before `allocate` transitions it to allocated state).
 - Fresh-session Playwright verification now passes for the full WMS phase-1 subset: `TC-WMS-018`, `TC-WMS-019`, `TC-WMS-020`, and `TC-WMS-021` completed green in one run (`7 passed`, `35.6s`) after restarting the app runtime.
 - The only rerun-only fix needed during verification was stabilizing the warehouse CRUD dialog locators in `TC-WMS-020` to target the rendered textbox controls inside the modal instead of inaccessible label bindings.
-- **2026-05-27 — Inventory console mutation UI**: `WmsInventoryConsolePage` ships production adjust (dialog) and simple 3-step cycle-count (count → variance → post) flows gated by `wms.adjust_inventory` / `wms.cycle_count`. Playwright UI coverage for these flows remains a follow-up (`WMS-P1-INT-13`); API paths remain covered by `TC-WMS-019` and adjust-related specs.
+- **2026-05-27 — Inventory console mutation UI**: `WmsInventoryConsolePage` ships production adjust (dialog) and simple 3-step cycle-count (count → variance → post) flows gated by `wms.adjust_inventory` / `wms.cycle_count`. API paths remain covered by `TC-WMS-019` and adjust-related specs.
+- **2026-06-01 — Playwright UI coverage**: `TC-WMS-INVENTORY-UI-001.spec.ts` covers `WMS-P1-INT-13` (inventory console adjust + cycle-count flows). `TC-WMS-DASHBOARD-UI-001.spec.ts` and `TC-WMS-IMPORT-UI-001.spec.ts` add operational dashboard and import UI smoke coverage respectively.
 
 ## Risks & Impact Review
 
@@ -638,6 +639,7 @@ None.
 ### 2026-06-01
 - Added WMS default roles `operator` and `supervisor` in `setup.ts` with `defaultRoleFeatures` matrix; roles seed idempotently via `seedDefaults`, ACL grants sync via `ensureCustomRoleAcls` / `yarn mercato auth sync-role-acls`
 - Documented role vs feature matrix in Story 1; auth i18n labels for `auth.roles.operator` / `auth.roles.supervisor`
+- Playwright UI integration tests: `TC-WMS-INVENTORY-UI-001` (`WMS-P1-INT-13` adjust + cycle count), `TC-WMS-DASHBOARD-UI-001` (operational dashboard KPIs/filter), `TC-WMS-IMPORT-UI-001` (import UI smoke)
 
 ### 2026-05-27
 - Inventory console (`/backend/wms/inventory`): production **Adjust** dialog and 3-step **cycle count** wizard (count → variance → post), ACL-gated via `wms.adjust_inventory` / `wms.cycle_count`; unit helpers in `inventoryMutationUi.ts`
