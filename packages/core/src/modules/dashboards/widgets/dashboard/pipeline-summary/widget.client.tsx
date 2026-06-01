@@ -2,7 +2,7 @@
 
 import * as React from 'react'
 import type { DashboardWidgetComponentProps } from '@open-mercato/shared/modules/dashboard/widgets'
-import { apiCall } from '@open-mercato/ui/backend/utils/apiCall'
+import { useWidgetData, type WidgetDataFetcher } from '@open-mercato/ui/backend/dashboard/widgetData'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { BarChart, type BarChartDataItem } from '@open-mercato/ui/backend/charts'
 import {
@@ -14,7 +14,7 @@ import { DEFAULT_SETTINGS, hydrateSettings, type PipelineSummarySettings } from 
 import type { WidgetDataResponse } from '../../../services/widgetDataService'
 import { formatCurrencyCompact } from '../../../lib/formatters'
 
-async function fetchPipelineData(settings: PipelineSummarySettings): Promise<WidgetDataResponse> {
+async function fetchPipelineData(settings: PipelineSummarySettings, fetchWidgetData: WidgetDataFetcher): Promise<WidgetDataResponse> {
   const body = {
     entityType: 'customers:deals',
     metric: {
@@ -31,18 +31,7 @@ async function fetchPipelineData(settings: PipelineSummarySettings): Promise<Wid
     },
   }
 
-  const call = await apiCall<WidgetDataResponse>('/api/dashboards/widgets/data', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(body),
-  })
-
-  if (!call.ok) {
-    const errorMsg = (call.result as Record<string, unknown>)?.error
-    throw new Error(typeof errorMsg === 'string' ? errorMsg : 'Failed to fetch pipeline data')
-  }
-
-  return call.result as WidgetDataResponse
+  return fetchWidgetData<WidgetDataResponse>(body)
 }
 
 function formatStageLabel(stage: unknown, t: (key: string, fallback: string) => string): string {
@@ -69,12 +58,13 @@ const PipelineSummaryWidget: React.FC<DashboardWidgetComponentProps<PipelineSumm
   const [loading, setLoading] = React.useState(true)
   const [error, setError] = React.useState<string | null>(null)
 
+  const fetchWidgetData = useWidgetData()
   const refresh = React.useCallback(async () => {
     onRefreshStateChange?.(true)
     setLoading(true)
     setError(null)
     try {
-      const result = await fetchPipelineData(hydrated)
+      const result = await fetchPipelineData(hydrated, fetchWidgetData)
       const chartData = result.data
         .filter((item) => item.groupKey != null && item.groupKey !== '' && String(item.groupKey) !== '0')
         .map((item) => ({
@@ -89,7 +79,7 @@ const PipelineSummaryWidget: React.FC<DashboardWidgetComponentProps<PipelineSumm
       setLoading(false)
       onRefreshStateChange?.(false)
     }
-  }, [hydrated, onRefreshStateChange, t])
+  }, [hydrated, fetchWidgetData, onRefreshStateChange, t])
 
   React.useEffect(() => {
     refresh().catch(() => {})
