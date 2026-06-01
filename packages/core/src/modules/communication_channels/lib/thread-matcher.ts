@@ -146,6 +146,7 @@ export async function matchThread(
   if (candidates.length > 0) {
     const jwzMatch = await findThreadByMessageIds(em, {
       tenantId,
+      organizationId: input.organizationId,
       channelId: input.channelId,
       messageIds: candidates,
     })
@@ -169,6 +170,7 @@ export async function matchThread(
     if (participants.length > 0) {
       const subjectMatch = await findThreadBySubjectParticipants(em, {
         tenantId,
+        organizationId: input.organizationId,
         channelId: input.channelId,
         normalizedSubject,
         participants,
@@ -211,7 +213,11 @@ async function resolveTokenThread(
   const row = await findOneWithDecryption(
     em,
     ChannelThreadToken,
-    { tenantId: args.tenantId, token: args.token },
+    {
+      tenantId: args.tenantId,
+      organizationId: dscope.organizationId,
+      token: args.token,
+    },
     undefined,
     dscope,
   )
@@ -220,7 +226,12 @@ async function resolveTokenThread(
   const mapping = await findOneWithDecryption(
     em,
     ChannelThreadMapping,
-    { tenantId: args.tenantId, messageThreadId: row.messageThreadId, channelId: args.channelId },
+    {
+      tenantId: args.tenantId,
+      organizationId: dscope.organizationId,
+      messageThreadId: row.messageThreadId,
+      channelId: args.channelId,
+    },
     undefined,
     dscope,
   )
@@ -233,8 +244,18 @@ async function resolveTokenThread(
   // boundary. The raw UPDATE keeps the matcher side-effect-free w.r.t. the
   // caller's EntityManager.
   await em.getConnection().execute(
-    `UPDATE channel_thread_tokens SET last_seen_at = ? WHERE id = ? AND tenant_id = ?`,
-    [(args.now ?? (() => new Date()))(), row.id, args.tenantId],
+    `UPDATE channel_thread_tokens
+        SET last_seen_at = ?
+      WHERE id = ?
+        AND tenant_id = ?
+        AND ((?::uuid IS NULL AND organization_id IS NULL) OR organization_id = ?::uuid)`,
+    [
+      (args.now ?? (() => new Date()))(),
+      row.id,
+      args.tenantId,
+      dscope.organizationId,
+      dscope.organizationId,
+    ],
   )
   return row.messageThreadId
 }
@@ -258,7 +279,7 @@ function collectReferenceCandidates(
 
 async function findThreadByMessageIds(
   em: EntityManager,
-  args: { tenantId: string; channelId: string; messageIds: string[] },
+  args: { tenantId: string; organizationId: string | null; channelId: string; messageIds: string[] },
 ): Promise<string | null> {
   if (args.messageIds.length === 0) return null
   // MikroORM v7 dropped the Knex builder; we use raw SQL via
@@ -275,10 +296,23 @@ async function findThreadByMessageIds(
     `SELECT link.message_id FROM message_channel_links AS link
        INNER JOIN external_conversations AS conv
          ON conv.id = link.external_conversation_id
-      WHERE link.tenant_id = ? AND conv.channel_id = ?
+      WHERE link.tenant_id = ?
+        AND ((?::uuid IS NULL AND link.organization_id IS NULL) OR link.organization_id = ?::uuid)
+        AND conv.tenant_id = ?
+        AND ((?::uuid IS NULL AND conv.organization_id IS NULL) OR conv.organization_id = ?::uuid)
+        AND conv.channel_id = ?
         AND link.channel_metadata->>'messageId' = ANY(?::text[])
       LIMIT 1`,
-    [args.tenantId, args.channelId, idArray],
+    [
+      args.tenantId,
+      args.organizationId,
+      args.organizationId,
+      args.tenantId,
+      args.organizationId,
+      args.organizationId,
+      args.channelId,
+      idArray,
+    ],
   )
   if (!rows || rows.length === 0) return null
 
@@ -287,8 +321,12 @@ async function findThreadByMessageIds(
   // intentionally avoid importing the messages entity (cross-module rule).
   const threadRows = await em.getConnection().execute<Array<{ thread_id: string | null }>>(
     `SELECT thread_id FROM messages
-      WHERE id = ? AND tenant_id = ? LIMIT 1`,
-    [messageId, args.tenantId],
+      WHERE id = ?
+        AND tenant_id = ?
+        AND ((?::uuid IS NULL AND organization_id IS NULL) OR organization_id = ?::uuid)
+        AND deleted_at IS NULL
+      LIMIT 1`,
+    [messageId, args.tenantId, args.organizationId, args.organizationId],
   )
   if (!threadRows || threadRows.length === 0) return null
   return threadRows[0].thread_id as string | null
@@ -311,6 +349,7 @@ async function findThreadBySubjectParticipants(
   em: EntityManager,
   args: {
     tenantId: string
+    organizationId: string | null
     channelId: string
     normalizedSubject: string
     participants: string[]
@@ -335,7 +374,14 @@ async function findThreadBySubjectParticipants(
        INNER JOIN messages
          ON messages.id = link.message_id
          AND messages.tenant_id = link.tenant_id
-      WHERE link.tenant_id = ? AND conv.channel_id = ? AND link.created_at >= ?
+         AND ((link.organization_id IS NULL AND messages.organization_id IS NULL) OR messages.organization_id = link.organization_id)
+         AND messages.deleted_at IS NULL
+      WHERE link.tenant_id = ?
+        AND ((?::uuid IS NULL AND link.organization_id IS NULL) OR link.organization_id = ?::uuid)
+        AND conv.tenant_id = ?
+        AND ((?::uuid IS NULL AND conv.organization_id IS NULL) OR conv.organization_id = ?::uuid)
+        AND conv.channel_id = ?
+        AND link.created_at >= ?
         AND lower(regexp_replace(coalesce(link.channel_metadata->>'subject', ''),
               '^\\s*((re|fwd|fw|aw|wg|sv|tr|antw)\\s*[:\\-]\\s*|\\[[^\\]]+\\]\\s*)+',
               '',
@@ -356,6 +402,11 @@ async function findThreadBySubjectParticipants(
       LIMIT 1`,
     [
       args.tenantId,
+      args.organizationId,
+      args.organizationId,
+      args.tenantId,
+      args.organizationId,
+      args.organizationId,
       args.channelId,
       args.cutoff,
       subjectLowerLike,

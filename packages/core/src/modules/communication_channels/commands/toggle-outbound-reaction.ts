@@ -12,7 +12,7 @@ import {
   MessageReaction,
 } from '../data/entities'
 import { COMMUNICATION_CHANNELS_QUEUES, getCommunicationChannelsQueue } from '../lib/queue'
-import type { ReactionProcessorPayload } from '../workers/reaction-processor-types'
+import type { ReactionProcessorPayload } from '../lib/reaction-processor-types'
 import {
   allowsMultipleReactionsPerUser,
 } from '../lib/reaction-semantics'

@@ -103,7 +103,12 @@ class ImapChannelAdapter implements ChannelAdapter {
     // Best-effort append to Sent — many servers auto-store via "Submission" but not all do.
     const imap = getImapClient()
     try {
-      await imap.appendSent(credentialsToConnection(credentials), result.raw)
+      // Skip when the RFC2822 bytes are empty (MailComposer build failed upstream):
+      // appending a 0-byte buffer would create a corrupt Sent-folder entry, and the
+      // send itself already succeeded.
+      if (result.raw.length > 0) {
+        await imap.appendSent(credentialsToConnection(credentials), result.raw)
+      }
     } catch (appendError) {
       // Best-effort: many servers auto-store sent mail via Submission, and the
       // Sent mailbox name is provider-specific (localized, or "[Gmail]/Sent Mail").

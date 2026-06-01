@@ -3,6 +3,7 @@ import { z } from 'zod'
 import { getAuthFromRequest } from '@open-mercato/shared/lib/auth/server'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import type { CommandBus } from '@open-mercato/shared/lib/commands'
+import { readJsonSafe } from '@open-mercato/shared/lib/http/readJsonSafe'
 import {
   COMMUNICATION_CHANNELS_CONNECT_CREDENTIAL_CHANNEL_COMMAND_ID,
   type ConnectCredentialChannelInput,
@@ -33,7 +34,7 @@ export async function POST(req: Request): Promise<Response> {
 
   let body: z.infer<typeof bodySchema>
   try {
-    const json = await req.json().catch(() => null)
+    const json = await readJsonSafe(req, null)
     body = bodySchema.parse(json)
   } catch (err) {
     return NextResponse.json(

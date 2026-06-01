@@ -230,7 +230,13 @@ async function buildComposeResultFromExisting(
   em: EntityManager,
   message: Message,
 ): Promise<ComposeMessageResult> {
-  const recipients = await em.find(MessageRecipient, { messageId: message.id })
+  const recipients = await findWithDecryption(
+    em,
+    MessageRecipient,
+    { messageId: message.id, deletedAt: null },
+    undefined,
+    { tenantId: message.tenantId, organizationId: message.organizationId ?? null },
+  )
   return {
     id: message.id,
     threadId: message.threadId ?? null,
@@ -274,12 +280,18 @@ const composeMessageCommand: CommandHandler<unknown, { id: string; threadId: str
     const composeTx = em.transactional(async (trx) => {
       const threadId = input.parentMessageId
         ? (
-          await trx.findOne(Message, {
-            id: input.parentMessageId,
-            tenantId: input.tenantId,
-            organizationId: input.organizationId,
-            deletedAt: null,
-          })
+          await findOneWithDecryption(
+            trx,
+            Message,
+            {
+              id: input.parentMessageId,
+              tenantId: input.tenantId,
+              organizationId: input.organizationId,
+              deletedAt: null,
+            },
+            undefined,
+            scope,
+          )
         )?.threadId ?? input.parentMessageId
         : undefined
 

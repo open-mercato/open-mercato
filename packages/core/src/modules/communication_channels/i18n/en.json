@@ -24,6 +24,7 @@
   "communication_channels.detail.messages": "messages",
   "communication_channels.detail.noCapabilities": "No capabilities snapshot recorded for this channel yet.",
   "communication_channels.detail.noHealth": "No health data available.",
+  "communication_channels.detail.notFound": "Channel not found",
   "communication_channels.detail.recentFailures": "Recent failures",
   "communication_channels.detail.title": "Channel detail",
   "communication_channels.emptyState": "No channels configured yet. Provider packages (Slack, WhatsApp, email integrations) register channels here.",

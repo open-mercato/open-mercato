@@ -12,6 +12,7 @@ import {
   buildReferencesId,
   getOrCreateThreadToken,
 } from '../lib/thread-token'
+import { stringOrUndefined, stripBrackets } from '../lib/email-mime'
 import type { ChannelAdapterRegistry } from '../lib/registry'
 import { Message } from '../../messages/data/entities'
 import {
@@ -231,7 +232,38 @@ const deliverOutboundMessageCommand: CommandHandler<
         organizationId: input.scope.organizationId ?? null,
       })
       em.persist(link)
-      await em.flush()
+      try {
+        await em.flush()
+      } catch (flushErr) {
+        // Concurrency guard: the link lookup above is not atomic with this
+        // insert, so two deliveries of the same message (a replayed
+        // `messages.message.sent`, or an overlapping worker retry) can both
+        // reach here. The `message_channel_links_message_uq` index rejects the
+        // loser with a 23505. Defer to the winning job — re-read its link on a
+        // fresh fork and report `already_delivered` — instead of re-invoking the
+        // adapter (double send) or letting the raw error dead-letter the job.
+        if (isUniqueViolation(flushErr)) {
+          const winner = await findOneWithDecryption(
+            em.fork(),
+            MessageChannelLink,
+            {
+              messageId: message.id,
+              tenantId: input.scope.tenantId,
+              organizationId: input.scope.organizationId ?? null,
+            },
+            undefined,
+            dscope,
+          )
+          if (winner) {
+            return {
+              status: 'already_delivered',
+              messageId: message.id,
+              channelLinkId: winner.id,
+            }
+          }
+        }
+        throw flushErr
+      }
     }
 
     // (2 cont.) Decrypted credentials via the integrations module (if available).
@@ -413,9 +445,14 @@ const deliverOutboundMessageCommand: CommandHandler<
         // Microsoft) return it in `converted.metadata.messageId`; IMAP/SMTP lets
         // the transport mint it, surfacing it only as `sendResult.externalMessageId`
         // (the RFC2822 id the recipient replies to) — fall back to that.
-        messageId:
-          (converted.metadata as Record<string, unknown> | undefined)?.messageId ??
-          sendResult.externalMessageId,
+        // Store it bracket-stripped to match the inbound convention
+        // (`normalizeMimeInbound` strips), so the JWZ matcher and sent-folder dedup —
+        // which compare against stripped ids — resolve it. `assembleRfc2822`
+        // re-applies brackets when this id is later used to build reply headers.
+        messageId: stripBrackets(
+          stringOrUndefined((converted.metadata as Record<string, unknown> | undefined)?.messageId) ??
+            sendResult.externalMessageId,
+        ),
       }
       await em.flush()
 
@@ -524,6 +561,18 @@ const deliverOutboundMessageCommand: CommandHandler<
       }
     }
   },
+}
+
+/**
+ * Detect a Postgres unique-violation (23505). Mirrors the helper in the sibling
+ * ingest/reaction commands so duplicate-insert handling stays consistent.
+ */
+function isUniqueViolation(err: unknown): boolean {
+  if (!err || typeof err !== 'object') return false
+  const code = (err as { code?: string }).code
+  if (code === '23505') return true // Postgres unique_violation
+  const message = (err as { message?: string }).message
+  return typeof message === 'string' && /duplicate key value|unique constraint/i.test(message)
 }
 
 registerCommand(deliverOutboundMessageCommand)

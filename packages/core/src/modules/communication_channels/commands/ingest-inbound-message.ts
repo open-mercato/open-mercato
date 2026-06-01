@@ -122,10 +122,24 @@ const ingestInboundMessageCommand: CommandHandler<IngestInboundMessageInput, Ing
           `SELECT link.id FROM message_channel_links AS link
              INNER JOIN external_conversations AS conv
                ON conv.id = link.external_conversation_id
-            WHERE link.tenant_id = ? AND conv.channel_id = ? AND link.direction = 'outbound'
+            WHERE link.tenant_id = ?
+              AND ((?::uuid IS NULL AND link.organization_id IS NULL) OR link.organization_id = ?::uuid)
+              AND conv.tenant_id = ?
+              AND ((?::uuid IS NULL AND conv.organization_id IS NULL) OR conv.organization_id = ?::uuid)
+              AND conv.channel_id = ?
+              AND link.direction = 'outbound'
               AND link.channel_metadata->>'messageId' = ?
             LIMIT 1`,
-          [input.scope.tenantId, input.channelId, incomingMessageId],
+          [
+            input.scope.tenantId,
+            input.scope.organizationId ?? null,
+            input.scope.organizationId ?? null,
+            input.scope.tenantId,
+            input.scope.organizationId ?? null,
+            input.scope.organizationId ?? null,
+            input.channelId,
+            incomingMessageId,
+          ],
         )
         if (Array.isArray(sentFolderHit) && sentFolderHit.length > 0) {
           return {

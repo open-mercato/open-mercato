@@ -17,6 +17,27 @@ export function callerHasEmailViewPrivate(userFeatures: string[] | null | undefi
   return hasFeature(userFeatures, EMAIL_VIEW_PRIVATE_FEATURE)
 }
 
+/**
+ * Authorization predicate for CHANGING an email interaction's visibility.
+ * Only the interaction's author, or a caller with `customers.email.view_private`,
+ * may flip an email between private/shared. Non-email rows and no-op changes are
+ * always allowed. Mirrors the gate in the dedicated `PATCH .../visibility` route
+ * so the generic interaction-update path cannot bypass the privacy control.
+ */
+export function canChangeEmailVisibility(opts: {
+  interactionType: string
+  currentVisibility: string | null | undefined
+  nextVisibility: string | null | undefined
+  authorUserId: string | null | undefined
+  actorUserId: string | null | undefined
+  userFeatures: string[] | null | undefined
+}): boolean {
+  if (opts.interactionType !== 'email') return true
+  if ((opts.nextVisibility ?? null) === (opts.currentVisibility ?? null)) return true
+  if (opts.actorUserId && opts.authorUserId === opts.actorUserId) return true
+  return callerHasEmailViewPrivate(opts.userFeatures)
+}
+
 export interface ApplyEmailVisibilityFilterOptions {
   currentUserId: string | null
   userFeatures: string[] | null | undefined

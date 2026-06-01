@@ -2,6 +2,7 @@ import { NextResponse } from 'next/server'
 import { z } from 'zod'
 import { getAuthFromRequest } from '@open-mercato/shared/lib/auth/server'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
+import { readJsonSafe } from '@open-mercato/shared/lib/http/readJsonSafe'
 import { toAbsoluteUrl } from '@open-mercato/shared/lib/url'
 import { getChannelAdapter } from '../../../../../lib/adapter-registry-singleton'
 import {
@@ -81,7 +82,7 @@ export async function POST(req: Request, context: RouteContext): Promise<Respons
 
   let body: z.infer<typeof initiateBodySchema>
   try {
-    const json = await req.json().catch(() => ({}))
+    const json = await readJsonSafe(req, {})
     body = initiateBodySchema.parse(json ?? {})
   } catch (err) {
     return NextResponse.json(

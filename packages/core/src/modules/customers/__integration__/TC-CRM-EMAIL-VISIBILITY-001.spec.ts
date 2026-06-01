@@ -11,6 +11,7 @@ import {
   deleteUserIfExists,
 } from '@open-mercato/core/modules/core/__integration__/helpers/authFixtures';
 import {
+  createCompanyFixture,
   createPersonFixture,
   deleteEntityIfExists,
 } from '@open-mercato/core/modules/core/__integration__/helpers/crmFixtures';
@@ -47,8 +48,10 @@ test.describe('TC-CRM-EMAIL-VISIBILITY-001: Email interaction visibility filter'
       let userBId: string | null = null;
       let roleId: string | null = null;
       let personId: string | null = null;
+      let companyId: string | null = null;
       let privateInteractionId: string | null = null;
       let sharedInteractionId: string | null = null;
+      let companyPrivateInteractionId: string | null = null;
 
       try {
         // -- Setup: obtain admin token and tenant scope ----------------------
@@ -72,7 +75,9 @@ test.describe('TC-CRM-EMAIL-VISIBILITY-001: Email interaction visibility filter'
           data: {
             features: [
               'customers.people.view',
+              'customers.companies.view',
               'customers.interactions.view',
+              'customers.interactions.manage',
               'customers.email.compose',
             ],
           },
@@ -318,6 +323,105 @@ test.describe('TC-CRM-EMAIL-VISIBILITY-001: Email interaction visibility filter'
           userBCountsAfterSharedBody?.result?.email ?? 0,
           'User B email count must be exactly 1 (the shared email; private one stays hidden)',
         ).toBe(1);
+
+        // -- Step 6: the GENERIC interaction-update path must not let a
+        //    non-author (holding interactions.manage but not view_private) flip
+        //    a private email's visibility. The dedicated PATCH .../visibility
+        //    route is the only authorized path; the update command enforces the
+        //    same author/admin gate so the generic PUT cannot bypass it. ------
+        const userBVisibilityBypassResp = await apiRequest(
+          request,
+          'PUT',
+          '/api/customers/interactions',
+          {
+            token: userBToken,
+            data: { id: privateInteractionId, visibility: 'shared' },
+          },
+        );
+        expect(
+          userBVisibilityBypassResp.status(),
+          'User B must NOT change a private email visibility via the generic update (404, existence-masked)',
+        ).toBe(404);
+
+        // The private email's visibility must remain unchanged for the author.
+        const userAAfterBypassResp = await apiRequest(
+          request,
+          'GET',
+          `/api/customers/interactions?entityId=${encodeURIComponent(personId)}&interactionType=email`,
+          { token: userAToken },
+        );
+        expect(userAAfterBypassResp.ok(), 'User A list after bypass attempt should succeed').toBeTruthy();
+        const userAAfterBypassBody = await readJsonSafe<{
+          items?: Array<{ id?: string; visibility?: string }>;
+        }>(userAAfterBypassResp);
+        const stillPrivate = (Array.isArray(userAAfterBypassBody?.items) ? userAAfterBypassBody.items : []).find(
+          (item) => item.id === privateInteractionId,
+        );
+        expect(
+          stillPrivate?.visibility,
+          'Private email visibility must remain "private" after the blocked bypass attempt',
+        ).toBe('private');
+
+        // -- Step 7: the COMPANY detail read path must apply the same visibility
+        //    filter as the person detail path. A private email anchored to a
+        //    company must be hidden from a non-author teammate. ---------------
+        companyId = await createCompanyFixture(request, adminToken, `EmailVis Co ${stamp}`);
+        const companyPrivateResp = await apiRequest(
+          request,
+          'POST',
+          '/api/customers/interactions',
+          {
+            token: adminToken,
+            data: {
+              entityId: companyId,
+              interactionType: 'email',
+              title: `Company private email ${stamp}`,
+              body: 'Company private body',
+              visibility: 'private',
+              authorUserId: userAScope.userId,
+              status: 'planned',
+            },
+          },
+        );
+        expect(
+          companyPrivateResp.status(),
+          'POST company-anchored private email should return 201',
+        ).toBe(201);
+        const companyPrivateBody = await readJsonSafe<{ id?: string }>(companyPrivateResp);
+        companyPrivateInteractionId = companyPrivateBody?.id ?? null;
+        expect(companyPrivateInteractionId, 'Company private interaction must include id').toBeTruthy();
+
+        const userBCompanyResp = await apiRequest(
+          request,
+          'GET',
+          `/api/customers/companies/${encodeURIComponent(companyId)}?include=interactions`,
+          { token: userBToken },
+        );
+        expect(userBCompanyResp.ok(), 'User B GET company?include=interactions should succeed').toBeTruthy();
+        const userBCompanyBody = await readJsonSafe<{ interactions?: Array<{ id?: string }> }>(userBCompanyResp);
+        const userBCompanyInteractions = Array.isArray(userBCompanyBody?.interactions)
+          ? userBCompanyBody.interactions
+          : [];
+        expect(
+          userBCompanyInteractions.some((item) => item.id === companyPrivateInteractionId),
+          'User B must NOT see the company-anchored private email via /companies/[id]?include=interactions',
+        ).toBe(false);
+
+        const userACompanyResp = await apiRequest(
+          request,
+          'GET',
+          `/api/customers/companies/${encodeURIComponent(companyId)}?include=interactions`,
+          { token: userAToken },
+        );
+        expect(userACompanyResp.ok(), 'User A GET company?include=interactions should succeed').toBeTruthy();
+        const userACompanyBody = await readJsonSafe<{ interactions?: Array<{ id?: string }> }>(userACompanyResp);
+        const userACompanyInteractions = Array.isArray(userACompanyBody?.interactions)
+          ? userACompanyBody.interactions
+          : [];
+        expect(
+          userACompanyInteractions.some((item) => item.id === companyPrivateInteractionId),
+          'User A (author) must see the company-anchored private email via company detail',
+        ).toBe(true);
       } finally {
         // Cleanup is best-effort and ordered: interactions before person,
         // users before role (role deletion is last because user references it).
@@ -337,8 +441,20 @@ test.describe('TC-CRM-EMAIL-VISIBILITY-001: Email interaction visibility filter'
           await deleteEntityIfExists(
             request,
             adminToken,
+            '/api/customers/interactions',
+            companyPrivateInteractionId,
+          );
+          await deleteEntityIfExists(
+            request,
+            adminToken,
             '/api/customers/people',
             personId,
+          );
+          await deleteEntityIfExists(
+            request,
+            adminToken,
+            '/api/customers/companies',
+            companyId,
           );
         }
         await deleteUserIfExists(request, adminToken, userAId);

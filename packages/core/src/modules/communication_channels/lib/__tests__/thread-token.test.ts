@@ -243,6 +243,11 @@ describe('thread-token', () => {
       }
       const result = await getOrCreateThreadToken(em, args)
       expect(result).toEqual({ token: 'om_existing', created: false })
+      expect(em.findOne).toHaveBeenCalledWith(
+        expect.any(Function),
+        { tenantId: 't', organizationId: 'o', messageThreadId: 'thread-1' },
+        undefined,
+      )
       expect(em.create).not.toHaveBeenCalled()
       expect(em.fork).not.toHaveBeenCalled()
     })
@@ -279,7 +284,11 @@ describe('thread-token', () => {
       const result = await getOrCreateThreadToken(em, args)
       expect(result).toEqual({ token: 'om_winner', created: false })
       expect(em.fork).toHaveBeenCalledTimes(1)
-      expect(forkEm.findOne).toHaveBeenCalled()
+      expect(forkEm.findOne).toHaveBeenCalledWith(
+        expect.any(Function),
+        { tenantId: 't', organizationId: 'o', messageThreadId: 'thread-1' },
+        undefined,
+      )
     })
 
     it('rethrows a non-unique flush error (does not swallow real failures)', async () => {

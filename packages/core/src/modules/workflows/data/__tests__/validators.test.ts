@@ -204,7 +204,7 @@ describe('Workflows Validators', () => {
 
       test('accepts ISO datetime as "until"', () => {
         expect(() =>
-          workflowStepSchema.parse({ ...baseTimerStep, config: { until: '2026-06-01T12:00:00.000Z' } })
+          workflowStepSchema.parse({ ...baseTimerStep, config: { until: '2099-01-01T00:00:00.000Z' } })
         ).not.toThrow()
       })
 
@@ -242,7 +242,7 @@ describe('Workflows Validators', () => {
         expect(() =>
           workflowStepSchema.parse({
             ...baseTimerStep,
-            config: { duration: 'PT5M', until: '2026-06-01T12:00:00.000Z' },
+            config: { duration: 'PT5M', until: '2099-01-01T00:00:00.000Z' },
           })
         ).toThrow(/not both/i)
       })
@@ -407,7 +407,7 @@ describe('Workflows Validators', () => {
         expect(() =>
           activityDefinitionSchema.parse({
             ...baseWait,
-            config: { duration: 'PT5M', until: '2026-06-01T12:00:00.000Z' },
+            config: { duration: 'PT5M', until: '2099-01-01T00:00:00.000Z' },
           })
         ).toThrow(/not both/i)
       })

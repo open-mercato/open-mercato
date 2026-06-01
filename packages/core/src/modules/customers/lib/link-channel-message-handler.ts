@@ -281,15 +281,32 @@ async function handleThreadingInheritance(
        JOIN message_channel_links mcl ON mcl.message_id = thread_m.id
        JOIN customer_interactions ci ON ci.external_message_id = mcl.id
        WHERE inbound_m.id = ?
+         AND inbound_m.tenant_id = ?
+         AND inbound_m.organization_id = ?
+         AND inbound_m.deleted_at IS NULL
          AND inbound_m.thread_id IS NOT NULL
          AND thread_m.tenant_id = ?
+         AND thread_m.organization_id = ?
+         AND thread_m.deleted_at IS NULL
+         AND mcl.tenant_id = ?
+         AND mcl.organization_id = ?
          AND ci.tenant_id = ?
          AND ci.organization_id = ?
          AND ci.interaction_type = 'email'
          AND ci.deleted_at IS NULL
          AND ci.entity_id IS NOT NULL
        LIMIT 200`,
-      [inboundMessageId, tenantId, tenantId, organizationId],
+      [
+        inboundMessageId,
+        tenantId,
+        organizationId,
+        tenantId,
+        organizationId,
+        tenantId,
+        organizationId,
+        tenantId,
+        organizationId,
+      ],
     )) as Array<{ entity_id: string }>
     const threadPersonIds = new Set<string>(
       threadPersonRows.map((row) => row.entity_id).filter((id): id is string => !!id),

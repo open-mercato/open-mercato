@@ -2,6 +2,7 @@ import {
   applyEmailVisibilityFilter,
   buildEmailVisibilityMikroFilter,
   callerHasEmailViewPrivate,
+  canChangeEmailVisibility,
   EMAIL_VIEW_PRIVATE_FEATURE,
 } from '../visibilityFilter'
 
@@ -134,5 +135,45 @@ describe('buildEmailVisibilityMikroFilter', () => {
         { visibility: { $ne: 'private' } },
       ],
     })
+  })
+})
+
+describe('canChangeEmailVisibility', () => {
+  const base = {
+    interactionType: 'email',
+    currentVisibility: 'private' as string | null,
+    nextVisibility: 'shared' as string | null,
+    authorUserId: 'author-1' as string | null,
+    actorUserId: 'other-2' as string | null,
+    userFeatures: ['customers.interactions.manage'] as string[] | null,
+  }
+
+  it('always allows changes on non-email interactions', () => {
+    expect(canChangeEmailVisibility({ ...base, interactionType: 'call' })).toBe(true)
+    expect(canChangeEmailVisibility({ ...base, interactionType: 'task', actorUserId: null, userFeatures: [] })).toBe(true)
+  })
+
+  it('allows a no-op (visibility unchanged)', () => {
+    expect(canChangeEmailVisibility({ ...base, currentVisibility: 'private', nextVisibility: 'private' })).toBe(true)
+    expect(canChangeEmailVisibility({ ...base, currentVisibility: null, nextVisibility: null })).toBe(true)
+  })
+
+  it('allows the author to change their own email visibility', () => {
+    expect(canChangeEmailVisibility({ ...base, actorUserId: 'author-1', userFeatures: [] })).toBe(true)
+  })
+
+  it('allows an admin with view_private (incl. wildcards) even when not the author', () => {
+    expect(canChangeEmailVisibility({ ...base, userFeatures: [EMAIL_VIEW_PRIVATE_FEATURE] })).toBe(true)
+    expect(canChangeEmailVisibility({ ...base, userFeatures: ['customers.*'] })).toBe(true)
+    expect(canChangeEmailVisibility({ ...base, userFeatures: ['*'] })).toBe(true)
+  })
+
+  it('DENIES a non-author without view_private (the generic-update bypass)', () => {
+    expect(canChangeEmailVisibility({ ...base })).toBe(false)
+  })
+
+  it('DENIES an actor-less caller (API key) without view_private', () => {
+    expect(canChangeEmailVisibility({ ...base, actorUserId: null, userFeatures: ['customers.interactions.manage'] })).toBe(false)
+    expect(canChangeEmailVisibility({ ...base, actorUserId: null, userFeatures: null })).toBe(false)
   })
 })

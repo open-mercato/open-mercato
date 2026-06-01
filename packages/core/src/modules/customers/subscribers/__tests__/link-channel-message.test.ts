@@ -194,6 +194,21 @@ describe('link-channel-message subscriber — inbound', () => {
       makeCtx(em),
     )
 
+    const execute = em.getConnection().execute as jest.Mock
+    expect(execute).toHaveBeenCalledWith(
+      expect.stringContaining('inbound_m.tenant_id = ?'),
+      [
+        'msg-inbound',
+        'tenant-1',
+        'org-1',
+        'tenant-1',
+        'org-1',
+        'tenant-1',
+        'org-1',
+        'tenant-1',
+        'org-1',
+      ],
+    )
     expect(em.create).toHaveBeenCalledTimes(1)
     const [, createdData] = em.create.mock.calls[0] as [unknown, Record<string, unknown>]
     expect(createdData.interactionType).toBe('email')

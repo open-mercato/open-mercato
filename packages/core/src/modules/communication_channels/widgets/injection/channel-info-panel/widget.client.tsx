@@ -89,7 +89,13 @@ export default function ChannelInfoPanelWidget({
     if (usersLoaded || !canReassign) return
     const response = await apiCall<{
       items?: Array<{ id: string; email?: string | null; name?: string | null }>
-    }>('/api/auth/users?page=1&pageSize=50').catch(() => null)
+    }>('/api/auth/users?page=1&pageSize=50', {
+      // Opportunistic dropdown-options fetch: a user may hold
+      // `communication_channels.assign` without `auth.users.list`. Suppress the
+      // global 403/401 redirect + forbidden flash so the page degrades to an
+      // empty assignee list instead of bouncing the whole browser to /login.
+      headers: { 'x-om-forbidden-redirect': '0', 'x-om-unauthorized-redirect': '0' },
+    }).catch(() => null)
     if (!response || !response.ok) {
       setUsersLoaded(true)
       return

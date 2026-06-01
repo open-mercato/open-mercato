@@ -24,6 +24,7 @@
   "communication_channels.detail.messages": "mensajes",
   "communication_channels.detail.noCapabilities": "Aún no se ha registrado ninguna instantánea de capacidades para este canal.",
   "communication_channels.detail.noHealth": "No hay datos de estado disponibles.",
+  "communication_channels.detail.notFound": "Canal no encontrado",
   "communication_channels.detail.recentFailures": "Fallos recientes",
   "communication_channels.detail.title": "Detalle del canal",
   "communication_channels.emptyState": "Aún no hay canales configurados. Los paquetes de proveedores (Slack, WhatsApp, integraciones de correo) registran los canales aquí.",

@@ -8,6 +8,7 @@ import {
   type IngestInboundMessageInput,
 } from '../commands/ingest-inbound-message'
 import { COMMUNICATION_CHANNELS_QUEUES } from '../lib/queue'
+import { preservePushState } from '../lib/push-state'
 import { refreshCredentialsIfNeeded } from '../lib/credential-refresh'
 import { classifyOutboundError } from '../lib/error-classification'
 import { writeIngestDeadLetter } from '../lib/dead-letter'
@@ -182,7 +183,10 @@ export default async function handle(
   if (page?.nextCursor) {
     try {
       const decoded = JSON.parse(Buffer.from(page.nextCursor, 'base64').toString('utf-8')) as Record<string, unknown>
-      channel.channelState = { ...(channel.channelState ?? {}), ...decoded }
+      // Full replace (carrying push keys forward) — see preservePushState: a spread
+      // would retain a stale `pendingHistoryPageToken` after a completed drain and
+      // mis-route the next push notification.
+      channel.channelState = preservePushState(channel.channelState, decoded)
       channel.lastPolledAt = new Date()
       await em.flush()
     } catch (err) {

@@ -24,6 +24,7 @@
   "communication_channels.detail.messages": "wiadomości",
   "communication_channels.detail.noCapabilities": "Brak migawki możliwości dla tego kanału.",
   "communication_channels.detail.noHealth": "Brak danych o stanie.",
+  "communication_channels.detail.notFound": "Nie znaleziono kanału",
   "communication_channels.detail.recentFailures": "Ostatnie błędy",
   "communication_channels.detail.title": "Szczegóły kanału",
   "communication_channels.emptyState": "Brak skonfigurowanych kanałów. Pakiety dostawców (Slack, WhatsApp, integracje email) rejestrują kanały tutaj.",

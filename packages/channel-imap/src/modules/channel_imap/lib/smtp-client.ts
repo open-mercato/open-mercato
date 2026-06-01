@@ -117,8 +117,15 @@ class NodemailerClient implements SmtpClient {
           if (typeof messageIdFn === 'function') {
             composedMessageId = messageIdFn.call(compiled) ?? composedMessageId
           }
-        } catch {
+        } catch (composeError) {
+          // MailComposer build failed: the send below still delivers the mail, but we
+          // cannot capture the RFC2822 bytes, so the caller skips the Sent-folder append.
+          // Log so operators can diagnose missing Sent archival.
           raw = Buffer.alloc(0)
+          console.warn(
+            '[internal] channel_imap: failed to build RFC2822 bytes for Sent-folder append:',
+            composeError instanceof Error ? composeError.message : composeError,
+          )
         }
       }
 

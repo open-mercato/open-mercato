@@ -170,7 +170,17 @@ describe('thread-matcher', () => {
       // assertion accepts the 3-arg call shape.
       expect(em.findOne).toHaveBeenCalledWith(
         ChannelThreadToken,
-        { tenantId: TENANT, token },
+        { tenantId: TENANT, organizationId: ORG, token },
+        undefined,
+      )
+      expect(em.findOne).toHaveBeenCalledWith(
+        ChannelThreadMapping,
+        {
+          tenantId: TENANT,
+          organizationId: ORG,
+          messageThreadId: 'thread-abc',
+          channelId: CHANNEL,
+        },
         undefined,
       )
       // The matcher bumps last_seen_at via a scoped raw UPDATE, NOT em.flush —
@@ -178,8 +188,8 @@ describe('thread-matcher', () => {
       expect(em.flush).not.toHaveBeenCalled()
       const execute = (em.getConnection() as unknown as { execute: jest.Mock }).execute
       expect(execute).toHaveBeenCalledWith(
-        expect.stringContaining('UPDATE channel_thread_tokens SET last_seen_at'),
-        expect.any(Array),
+        expect.stringContaining('UPDATE channel_thread_tokens'),
+        [expect.any(Date), 'token-row-1', TENANT, ORG, ORG],
       )
     })
 
@@ -394,8 +404,18 @@ describe('thread-matcher', () => {
       // The candidate message-ids are passed to the JWZ query as a stripped,
       // angle-bracket-free Postgres text array.
       const jwzParams = seenParams[0]
-      expect(String(jwzParams[2])).toContain('root@example.com')
-      expect(String(jwzParams[2])).not.toContain('<')
+      expect(jwzParams).toEqual([
+        TENANT,
+        ORG,
+        ORG,
+        TENANT,
+        ORG,
+        ORG,
+        CHANNEL,
+        expect.any(String),
+      ])
+      expect(String(jwzParams[7])).toContain('root@example.com')
+      expect(String(jwzParams[7])).not.toContain('<')
     })
 
     it('returns null from JWZ when a matching message-id resolves to a null thread', async () => {
@@ -477,13 +497,13 @@ describe('thread-matcher', () => {
         }),
         { em, now: () => new Date('2026-05-27T10:00:00Z') },
       )
-      // [tenantId, channelId, cutoff, normalizedSubject, from[], to[], cc[]]
-      const cutoff = captured[2] as Date
+      // [tenantId, orgId, orgId, tenantId, orgId, orgId, channelId, cutoff, normalizedSubject, from[], to[], cc[]]
+      const cutoff = captured[7] as Date
       expect(cutoff).toBeInstanceOf(Date)
       // 30-day lookback before the fixed `now`.
       expect(cutoff.toISOString()).toBe('2026-04-27T10:00:00.000Z')
-      expect(captured[3]).toBe('quarterly review')
-      expect(String(captured[4])).toContain('alice@example.com')
+      expect(captured[8]).toBe('quarterly review')
+      expect(String(captured[9])).toContain('alice@example.com')
     })
 
     it('skips subject+participants when the normalized subject is empty', async () => {

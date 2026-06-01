@@ -1,5 +1,5 @@
 import handler, { metadata } from '../reaction-processor'
-import { REACTION_PROCESSOR_MAX_ATTEMPTS, type ReactionProcessorPayload } from '../reaction-processor-types'
+import { REACTION_PROCESSOR_MAX_ATTEMPTS, type ReactionProcessorPayload } from '../../lib/reaction-processor-types'
 import type { QueuedJob } from '@open-mercato/queue'
 
 const enqueueMock = jest.fn(async () => 'next-job')

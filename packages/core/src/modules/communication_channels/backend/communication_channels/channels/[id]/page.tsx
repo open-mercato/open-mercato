@@ -3,7 +3,7 @@
 import * as React from 'react'
 import { useParams } from 'next/navigation'
 import { Page, PageBody } from '@open-mercato/ui/backend/Page'
-import { LoadingMessage, ErrorMessage } from '@open-mercato/ui/backend/detail'
+import { LoadingMessage, ErrorMessage, RecordNotFoundState } from '@open-mercato/ui/backend/detail'
 import { Tag } from '@open-mercato/ui/primitives/tag'
 import { apiCall } from '@open-mercato/ui/backend/utils/apiCall'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
@@ -44,6 +44,7 @@ export default function ChannelDetailPage() {
   const [health, setHealth] = React.useState<ChannelHealth | null>(null)
   const [isLoading, setIsLoading] = React.useState(true)
   const [errorMessage, setErrorMessage] = React.useState<string | null>(null)
+  const [notFound, setNotFound] = React.useState(false)
 
   React.useEffect(() => {
     if (!id) return
@@ -51,6 +52,7 @@ export default function ChannelDetailPage() {
     async function load() {
       setIsLoading(true)
       setErrorMessage(null)
+      setNotFound(false)
       const [detailRes, healthRes] = await Promise.all([
         apiCall<ChannelDetail>(`/api/communication_channels/channels/${encodeURIComponent(id)}`),
         apiCall<ChannelHealth>(`/api/communication_channels/channels/${encodeURIComponent(id)}/health`),
@@ -62,10 +64,15 @@ export default function ChannelDetailPage() {
       })
       if (cancelled) return
       if (!detailRes.ok) {
-        const body = detailRes.result as { error?: string } | undefined
-        setErrorMessage(
-          body?.error ?? t('communication_channels.errors.loadDetail', 'Failed to load channel'),
-        )
+        const status = (detailRes as { status?: number }).status
+        if (status === 404) {
+          setNotFound(true)
+        } else {
+          const body = detailRes.result as { error?: string } | undefined
+          setErrorMessage(
+            body?.error ?? t('communication_channels.errors.loadDetail', 'Failed to load channel'),
+          )
+        }
         setDetail(null)
         setHealth(null)
       } else {
@@ -85,6 +92,18 @@ export default function ChannelDetailPage() {
       <Page>
         <PageBody>
           <LoadingMessage label={t('communication_channels.detail.loading', 'Loading channel...')} />
+        </PageBody>
+      </Page>
+    )
+  }
+  if (notFound) {
+    return (
+      <Page>
+        <PageBody>
+          <RecordNotFoundState
+            label={t('communication_channels.detail.notFound', 'Channel not found')}
+            backHref="/backend/communication_channels/channels"
+          />
         </PageBody>
       </Page>
     )

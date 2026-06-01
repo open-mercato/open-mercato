@@ -24,6 +24,7 @@
   "communication_channels.detail.messages": "Nachrichten",
   "communication_channels.detail.noCapabilities": "Für diesen Kanal wurde noch keine Funktionsübersicht erfasst.",
   "communication_channels.detail.noHealth": "Keine Zustandsdaten verfügbar.",
+  "communication_channels.detail.notFound": "Kanal nicht gefunden",
   "communication_channels.detail.recentFailures": "Letzte Fehler",
   "communication_channels.detail.title": "Kanaldetails",
   "communication_channels.emptyState": "Noch keine Kanäle konfiguriert. Anbieterpakete (Slack, WhatsApp, E-Mail-Integrationen) registrieren Kanäle hier.",

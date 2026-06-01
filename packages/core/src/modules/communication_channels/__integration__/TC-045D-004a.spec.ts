@@ -45,7 +45,7 @@ test.describe('TC-045D-004a: reactions module contract', () => {
     expect(typeof mod.default).toBe('function')
 
     const types = await import(
-      '@open-mercato/core/modules/communication_channels/workers/reaction-processor-types'
+      '@open-mercato/core/modules/communication_channels/lib/reaction-processor-types'
     )
     expect(types.REACTION_PROCESSOR_MAX_ATTEMPTS).toBe(3)
   })

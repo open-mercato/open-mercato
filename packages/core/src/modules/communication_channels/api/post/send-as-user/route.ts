@@ -2,6 +2,7 @@ import { NextResponse } from 'next/server'
 import { z } from 'zod'
 import { getAuthFromRequest } from '@open-mercato/shared/lib/auth/server'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
+import { readJsonSafe } from '@open-mercato/shared/lib/http/readJsonSafe'
 import { sendAsUser } from '../../../lib/send-as-user'
 import { validateRouteMutationGuard } from '../../../lib/route-mutation-guard'
 
@@ -55,7 +56,7 @@ export async function POST(req: Request): Promise<Response> {
 
   let body: z.infer<typeof bodySchema>
   try {
-    body = bodySchema.parse(await req.json().catch(() => null))
+    body = bodySchema.parse(await readJsonSafe(req, null))
   } catch (err) {
     return NextResponse.json(
       { error: err instanceof Error ? err.message : 'Invalid request body' },

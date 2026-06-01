@@ -16,7 +16,7 @@ import {
   type ReactionOutboundRemoveJob,
   type ReactionOutboundSendJob,
   type ReactionProcessorPayload,
-} from './reaction-processor-types'
+} from '../lib/reaction-processor-types'
 import { refreshCredentialsIfNeeded } from '../lib/credential-refresh'
 import type { ChannelAdapterRegistry } from '../lib/registry'
 

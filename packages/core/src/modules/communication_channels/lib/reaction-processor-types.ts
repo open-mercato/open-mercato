@@ -1,4 +1,4 @@
-import type { InboundReactionEvent } from '../lib/adapter'
+import type { InboundReactionEvent } from './adapter'
 
 /**
  * Discriminated union of reaction-queue job payloads.

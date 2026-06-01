@@ -21,11 +21,12 @@ import type { NotificationHandler } from '@open-mercato/shared/modules/notificat
  *     state flips without requiring a manual reload.
  *   - **Refresh notifications**: keeps the bell badge accurate.
  *
- * Custom event names used here:
- *   - `om:communication_channels:channel-requires-reauth` — listened to by the
- *     profile page (slice 3d) to highlight the affected row.
- *   - `om:communication_channels:message-received` — listened to by the unified
- *     inbox DataTable to refetch (slice 2e wired the page to listen for this).
+ * Custom event names emitted here on the DOM Event Bridge. They are published
+ * for any page that opts in via `useAppEvent(...)`; no surface subscribes to
+ * them today (the unified inbox auto-refreshes from the `messages.message.*`
+ * bridge, and the reconnect flow is driven by the bell notification + its
+ * reconnect action). Kept as forward-compatible hooks for future
+ * row-highlight / refetch UX.
  */
 
 export const CHANNEL_REQUIRES_REAUTH_EVENT = 'om:communication_channels:channel-requires-reauth'

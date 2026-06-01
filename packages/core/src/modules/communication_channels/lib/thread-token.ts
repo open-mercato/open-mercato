@@ -290,6 +290,7 @@ export async function getOrCreateThreadToken(
     ChannelThreadToken,
     {
       tenantId: args.tenantId,
+      organizationId: args.organizationId,
       messageThreadId: args.messageThreadId,
     },
     undefined,
@@ -317,7 +318,11 @@ export async function getOrCreateThreadToken(
     const winner = await findOneWithDecryption(
       em.fork(),
       ChannelThreadToken,
-      { tenantId: args.tenantId, messageThreadId: args.messageThreadId },
+      {
+        tenantId: args.tenantId,
+        organizationId: args.organizationId,
+        messageThreadId: args.messageThreadId,
+      },
       undefined,
       dscope,
     )

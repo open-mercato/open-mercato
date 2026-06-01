@@ -6,7 +6,8 @@ import { createModuleQueue, type Queue } from '@open-mercato/queue'
  * and the worker share the same queue instance.
  *
  * Worker concurrency is also tunable via env (`COMMUNICATION_CHANNELS_QUEUE_CONCURRENCY`)
- * with a sensible default of 10 (per SPEC-045d §6 inbound flow).
+ * with a sensible default of 10 (per SPEC-045d §6 inbound flow) and a hard ceiling of
+ * 20 (ARCHITECTURE §19 caps queue/worker concurrency at 20).
  */
 const queues = new Map<string, Queue<Record<string, unknown>>>()
 
@@ -14,9 +15,12 @@ export function getCommunicationChannelsQueue(queueName: string): Queue<Record<s
   const existing = queues.get(queueName)
   if (existing) return existing
 
-  const concurrency = Math.max(
-    1,
-    Number.parseInt(process.env.COMMUNICATION_CHANNELS_QUEUE_CONCURRENCY ?? '10', 10) || 10,
+  const concurrency = Math.min(
+    20,
+    Math.max(
+      1,
+      Number.parseInt(process.env.COMMUNICATION_CHANNELS_QUEUE_CONCURRENCY ?? '10', 10) || 10,
+    ),
   )
   const created = createModuleQueue<Record<string, unknown>>(queueName, { concurrency })
   queues.set(queueName, created)

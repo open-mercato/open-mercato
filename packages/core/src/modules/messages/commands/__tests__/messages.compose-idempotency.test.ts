@@ -93,6 +93,8 @@ const existingMessage = {
   threadId: 'thread-existing',
   externalEmail: 'sender@example.com',
   isDraft: false,
+  tenantId,
+  organizationId,
 } as Message
 
 describe('messages.messages.compose idempotency', () => {
@@ -107,7 +109,7 @@ describe('messages.messages.compose idempotency', () => {
   it('returns the existing message without creating a new one when idempotencyKey matches', async () => {
     const { command, emFork, ctx } = createHarness()
     findOneWithDecryptionMock.mockResolvedValue(existingMessage)
-    emFork.find.mockResolvedValue([{ recipientUserId: 'recipient-1' }])
+    findWithDecryptionMock.mockResolvedValue([{ recipientUserId: 'recipient-1' }])
 
     const result = await command.execute(composeInput(), ctx)
 
@@ -120,7 +122,13 @@ describe('messages.messages.compose idempotency', () => {
     })
     // Short-circuited before opening a transaction — no duplicate created.
     expect(emFork.transactional).not.toHaveBeenCalled()
-    expect(emFork.find).toHaveBeenCalledWith(MessageRecipient, { messageId: existingMessageId })
+    expect(findWithDecryptionMock).toHaveBeenCalledWith(
+      emFork,
+      MessageRecipient,
+      { messageId: existingMessageId, deletedAt: null },
+      undefined,
+      { tenantId, organizationId },
+    )
   })
 
   it('returns the winning message when a concurrent insert hits the idempotency unique index (23505)', async () => {
@@ -133,7 +141,7 @@ describe('messages.messages.compose idempotency', () => {
         code: '23505',
       }),
     )
-    emFork.find.mockResolvedValue([])
+    findWithDecryptionMock.mockResolvedValue([])
 
     const result = await command.execute(composeInput(), ctx)
 

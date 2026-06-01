@@ -8,6 +8,7 @@ import {
   type IngestInboundMessageInput,
 } from '../commands/ingest-inbound-message'
 import { COMMUNICATION_CHANNELS_QUEUES, getCommunicationChannelsQueue } from '../lib/queue'
+import { preservePushState } from '../lib/push-state'
 import { writeIngestDeadLetter } from '../lib/dead-letter'
 import { classifyOutboundError, computeBackoffMs, isReauthError } from '../lib/error-classification'
 import { refreshCredentialsIfNeeded } from '../lib/credential-refresh'
@@ -341,36 +342,6 @@ function decodeChannelStateCursor(cursor: string): Record<string, unknown> | nul
   } catch {
     return null
   }
-}
-
-/**
- * Channel-state keys owned by the push-delivery lifecycle (Spec C), written by the
- * push register/renew commands rather than the sync cursor. They must survive a
- * sync-cursor replacement so watch/subscription renewal keeps working — see the
- * call site in the poll handler.
- */
-const PUSH_STATE_KEYS = [
-  'pushStatus',
-  'watchExpirationMs',
-  'pubsubTopic',
-  'subscriptionId',
-  'subscriptionExpiresAt',
-  'lastPushError',
-] as const
-
-function preservePushState(
-  previous: unknown,
-  next: Record<string, unknown>,
-): Record<string, unknown> {
-  const prev =
-    previous && typeof previous === 'object' && !Array.isArray(previous)
-      ? (previous as Record<string, unknown>)
-      : {}
-  const merged: Record<string, unknown> = { ...next }
-  for (const key of PUSH_STATE_KEYS) {
-    if (!(key in merged) && key in prev) merged[key] = prev[key]
-  }
-  return merged
 }
 
 async function handlePollError(

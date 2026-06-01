@@ -450,10 +450,15 @@ export async function GET(req: Request) {
     // ── Email visibility filter (2026-05-27) ──────────────────────────────
     // Non-email interactions pass through; email rows with visibility='private'
     // are filtered out unless the caller is the author or has admin bypass.
-    const callerUserId = auth.sub as string
-    const callerUserFeatures = await resolveUserFeatures(container, callerUserId, auth.tenantId ?? null, selectedOrganizationId)
+    // API-key callers have no user identity (`auth.sub` undefined): resolve the
+    // viewer to null so they never gain the author bypass and only see shared
+    // emails (fail-closed). Mirrors counts/people/activities routes.
+    const viewerUserId = auth.isApiKey ? null : (auth.sub ?? null)
+    const callerUserFeatures = viewerUserId
+      ? await resolveUserFeatures(container, viewerUserId, auth.tenantId ?? null, selectedOrganizationId)
+      : undefined
     rowsQuery = applyEmailVisibilityFilter(rowsQuery as any, {
-      currentUserId: auth.sub ?? null,
+      currentUserId: viewerUserId,
       userFeatures: callerUserFeatures,
     })
 
@@ -556,10 +561,12 @@ export async function GET(req: Request) {
       customValues: normalizeCustomFieldResponse(customFieldValues[row.id]) ?? null,
     }))
 
-    const enricherContext = await buildEnricherContext(container, auth, selectedOrganizationId, {
-      userId: callerUserId,
-      features: callerUserFeatures,
-    })
+    const enricherContext = await buildEnricherContext(
+      container,
+      auth,
+      selectedOrganizationId,
+      viewerUserId ? { userId: viewerUserId, features: callerUserFeatures } : undefined,
+    )
     const enriched = await applyResponseEnrichers(baseItems, 'customers.interaction', enricherContext)
 
     let nextCursor: string | undefined

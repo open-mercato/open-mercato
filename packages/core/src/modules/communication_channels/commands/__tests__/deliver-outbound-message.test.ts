@@ -223,6 +223,23 @@ describe('deliverOutboundMessageCommand — link integrity + reauth', () => {
     expect((link.channelMetadata as Record<string, unknown>).messageId).toBe('ext-1')
   })
 
+  it('stores the RFC2822 Message-ID bracket-stripped so inbound dedup/JWZ matching resolves it (regression)', async () => {
+    const link: Record<string, any> = { id: 'link-1', deliveryStatus: 'pending', channelPayload: null, channelMetadata: null }
+    const { ctx, channel } = makeCtx({ sendResult: { status: 'sent', externalMessageId: '<rfc-abc@example.com>' } })
+    primeFinds(channel, link)
+
+    await deliverOutboundMessageCommand.execute(
+      { messageId: MSG, scope: { tenantId: TENANT, organizationId: ORG } } as never,
+      ctx,
+    )
+
+    // `normalizeMimeInbound` stores inbound message ids bracket-stripped, and both the
+    // sent-folder dedup and the JWZ thread matcher compare against that stripped form.
+    // The outbound link MUST persist the same convention, otherwise '<id>' vs 'id'
+    // silently mismatches and every outbound message is re-ingested / fails to thread.
+    expect((link.channelMetadata as Record<string, unknown>).messageId).toBe('rfc-abc@example.com')
+  })
+
   it('flips the channel to requires_reauth and emits the event on a 401 (H2)', async () => {
     const link: Record<string, any> = { id: 'link-1', deliveryStatus: 'pending', channelPayload: null, channelMetadata: null }
     const { ctx, channel } = makeCtx({ sendResult: { status: 'failed', error: '401 Unauthorized' }, channelStatus: 'connected' })
@@ -255,5 +272,24 @@ describe('deliverOutboundMessageCommand — link integrity + reauth', () => {
 
     expect((result as any).status).toBe('delivered')
     expect(channel.status).toBe('connected')
+  })
+
+  it('defers to the race winner on a pending-link unique violation instead of double-sending', async () => {
+    const { ctx, em, channel, adapter } = makeCtx({ sendResult: { status: 'sent', externalMessageId: 'ext-1' } })
+    // No existing link → the command creates the 'pending' link; a concurrent
+    // delivery already inserted it, so the flush hits message_channel_links_message_uq.
+    primeFinds(channel, null)
+    mockFindOne.mockResolvedValueOnce({ id: 'winner-link', deliveryStatus: 'pending' } as never) // re-fetch after 23505
+    em.flush = jest.fn(async () => {
+      throw Object.assign(new Error('duplicate key value violates unique constraint'), { code: '23505' })
+    })
+
+    const result = await deliverOutboundMessageCommand.execute(
+      { messageId: MSG, scope: { tenantId: TENANT, organizationId: ORG } } as never,
+      ctx,
+    )
+
+    expect(result).toEqual({ status: 'already_delivered', messageId: 'msg-1', channelLinkId: 'winner-link' })
+    expect(adapter.sendMessage).not.toHaveBeenCalled()
   })
 })

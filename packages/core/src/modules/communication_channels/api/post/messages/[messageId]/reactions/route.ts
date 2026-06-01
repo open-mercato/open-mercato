@@ -2,6 +2,7 @@ import { NextResponse } from 'next/server'
 import { z } from 'zod'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import type { CommandBus } from '@open-mercato/shared/lib/commands'
+import { readJsonSafe } from '@open-mercato/shared/lib/http/readJsonSafe'
 import {
   COMMUNICATION_CHANNELS_TOGGLE_OUTBOUND_REACTION_COMMAND_ID,
   type ToggleOutboundReactionInput,
@@ -47,7 +48,7 @@ export async function POST(req: Request, context: RouteContext): Promise<Respons
 
   let body: z.infer<typeof bodySchema>
   try {
-    const json = await req.json().catch(() => null)
+    const json = await readJsonSafe(req, null)
     body = bodySchema.parse(json)
   } catch (err) {
     return NextResponse.json(

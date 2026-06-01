@@ -10,7 +10,7 @@ import {
 } from '../../../../lib/queue'
 import type { InboundMessage } from '../../../../lib/adapter'
 import type { InboundProcessorPayload } from '../../../../workers/inbound-processor'
-import type { ReactionInboundJob } from '../../../../workers/reaction-processor-types'
+import type { ReactionInboundJob } from '../../../../lib/reaction-processor-types'
 
 /**
  * Inbound webhook endpoint for the communication_channels hub.
