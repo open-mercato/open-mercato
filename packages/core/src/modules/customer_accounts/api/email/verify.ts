@@ -35,6 +35,7 @@ export async function POST(req: Request) {
 
   void emitCustomerAccountsEvent('customer_accounts.email.verified', {
     userId: result.userId,
+    recipientUserId: result.userId,
     tenantId: result.tenantId,
   }).catch(() => undefined)
 
