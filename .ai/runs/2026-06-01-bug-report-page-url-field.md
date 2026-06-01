@@ -32,4 +32,4 @@ Add a dedicated field to `.github/ISSUE_TEMPLATE/bug_report.md` where reporters 
 
 ### Phase 1: Add the page-URL field
 
-- [ ] 1.1 Add a "Page URL" section to bug_report.md
+- [x] 1.1 Add a "Page URL" section to bug_report.md — e66d4fc2d
