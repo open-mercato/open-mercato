@@ -1,8 +1,12 @@
-// Regression coverage for #2222: response enrichers must NOT re-run on a CRUD
-// list cache hit. The stored payload already embeds enricher output, and the
-// cache key is partitioned by the active-enricher signature, so a cache hit can
-// serve the cached enrichment directly — eliminating the ~15ms per-hit enricher
-// cost — while keeping output correct and ACL-gated.
+// Regression coverage for #2222: a CRUD list cache hit may skip re-running
+// response enrichers ONLY when every active enricher opts into
+// `cacheableOnListHit` (its output is a pure function of the cached record). For
+// such enrichers the stored payload embeds enricher output and the cache key is
+// partitioned by the active-enricher signature, so a hit serves the cached
+// enrichment directly — eliminating the ~15ms per-hit cost — while staying
+// ACL-gated. Enrichers that read live cross-module / time-dependent data (the
+// default, fail-closed) MUST re-run on every hit, and the cache stores their
+// pre-enrichment base payload — see the fail-closed test at the bottom.
 
 jest.mock('@open-mercato/cache', () => ({
   runWithCacheTenant: async (_tenantId: string | null, fn: () => Promise<unknown>) => fn(),
@@ -85,6 +89,8 @@ class Todo {}
 
 const enrichManyCalls = jest.fn()
 
+// Record-pure enricher: its output depends only on the cached record, so it
+// opts into `cacheableOnListHit` and is safe to embed in the list cache.
 const gatedEnricher: ResponseEnricher<any> = {
   id: 'example.todo-flag',
   targetEntity: 'example.todo',
@@ -92,6 +98,7 @@ const gatedEnricher: ResponseEnricher<any> = {
   priority: 10,
   timeout: 2000,
   critical: false,
+  cacheableOnListHit: true,
   fallback: { _example: { flagged: false } },
   async enrichOne(record, context) {
     return (await this.enrichMany!([record], context))[0]
@@ -99,6 +106,28 @@ const gatedEnricher: ResponseEnricher<any> = {
   async enrichMany(records) {
     enrichManyCalls()
     return records.map((record) => ({ ...record, _example: { flagged: true } }))
+  },
+}
+
+// Live enricher: its output mirrors mutable external state (a stand-in for a
+// cross-module read like the catalog product image in TC-SALES-023). It does NOT
+// set `cacheableOnListHit`, so it must re-run on every cache hit.
+const liveEnricherCalls = jest.fn()
+let liveExternalValue = 'v1'
+
+const liveEnricher: ResponseEnricher<any> = {
+  id: 'example.todo-live',
+  targetEntity: 'example.todo',
+  features: [],
+  priority: 5,
+  timeout: 2000,
+  critical: false,
+  async enrichOne(record, context) {
+    return (await this.enrichMany!([record], context))[0]
+  },
+  async enrichMany(records) {
+    liveEnricherCalls()
+    return records.map((record) => ({ ...record, _live: { value: liveExternalValue } }))
   },
 }
 
@@ -198,5 +227,58 @@ describe('CRUD Factory — response enrichers + list cache (#2222)', () => {
     const aAgainBody = await aAgain.json()
     expect(aAgain.headers.get('x-om-cache')).toBe('hit')
     expect(aAgainBody.items[0]._example).toEqual({ flagged: true })
+  })
+})
+
+describe('CRUD Factory — fail-closed enrichers re-run on cache hits (#2222)', () => {
+  const previousCacheFlag = process.env.ENABLE_CRUD_API_CACHE
+
+  beforeAll(() => {
+    process.env.ENABLE_CRUD_API_CACHE = 'true'
+  })
+
+  afterAll(() => {
+    if (previousCacheFlag === undefined) delete process.env.ENABLE_CRUD_API_CACHE
+    else process.env.ENABLE_CRUD_API_CACHE = previousCacheFlag
+  })
+
+  beforeEach(() => {
+    jest.clearAllMocks()
+    store.clear()
+    liveExternalValue = 'v1'
+    mockUserFeatures = ['example.view']
+    registerApiInterceptors([])
+    registerResponseEnrichers([{ moduleId: 'example', enrichers: [liveEnricher] }])
+  })
+
+  it('re-runs a non-cacheable enricher on a cache hit and reflects updated external data', async () => {
+    const first = await route.GET(new Request(url))
+    const firstBody = await first.json()
+    expect(first.headers.get('x-om-cache')).toBe('miss')
+    expect(firstBody.items[0]._live).toEqual({ value: 'v1' })
+    expect(liveEnricherCalls).toHaveBeenCalledTimes(1)
+
+    // External data the list cache does not invalidate on changes (e.g. a
+    // catalog product image update for a sales line, as in TC-SALES-023).
+    liveExternalValue = 'v2'
+
+    const second = await route.GET(new Request(url))
+    const secondBody = await second.json()
+    expect(second.headers.get('x-om-cache')).toBe('hit')
+    // The enricher re-ran on the hit, so the response reflects the new value...
+    expect(secondBody.items[0]._live).toEqual({ value: 'v2' })
+    expect(liveEnricherCalls).toHaveBeenCalledTimes(2)
+  })
+
+  it('caches the pre-enrichment base payload (no live enrichment embedded, no signature partition)', async () => {
+    await route.GET(new Request(url))
+
+    // Exactly one entry was written...
+    expect(store.size).toBe(1)
+    const [key, stored] = Array.from(store.entries())[0] as [string, any]
+    // ...holding the base record without the live enrichment...
+    expect(stored.payload.items[0]._live).toBeUndefined()
+    // ...under a key that is NOT partitioned by an enricher signature.
+    expect(key).not.toContain('enrichers:')
   })
 })
