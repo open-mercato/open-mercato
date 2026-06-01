@@ -94,6 +94,15 @@ describe('admin /api/customer_accounts/admin/users/[id]/reset-password — atomi
     expect(emittedIds).toContain('customer_accounts.password.reset')
     expect(emittedIds).toContain('customer_accounts.password.changed')
 
+    const resetCall = mockEmit.mock.calls.find((c: unknown[]) => c[0] === 'customer_accounts.password.reset')
+    expect(resetCall?.[1]).toMatchObject({
+      id: userId,
+      recipientUserId: userId,
+      tenantId,
+      organizationId: orgId,
+      resetBy: adminId,
+    })
+
     const changedCall = mockEmit.mock.calls.find((c: unknown[]) => c[0] === 'customer_accounts.password.changed')
     expect(changedCall).toBeDefined()
     const payload = changedCall![1] as Record<string, unknown>

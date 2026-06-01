@@ -190,6 +190,7 @@ export async function PUT(req: Request, { params }: { params: { id: string } }) 
 
   void emitCustomerAccountsEvent('customer_accounts.user.updated', {
     id: user.id,
+    recipientUserId: user.id,
     email: user.email,
     tenantId: auth.tenantId,
     organizationId: auth.orgId,
