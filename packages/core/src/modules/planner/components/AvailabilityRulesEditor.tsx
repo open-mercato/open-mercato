@@ -30,7 +30,11 @@ import { useConfirmDialog } from '@open-mercato/ui/backend/confirm-dialog'
 import { parseAvailabilityRuleWindow } from '@open-mercato/core/modules/planner/lib/availabilitySchedule'
 import { CrudForm, type CrudField } from '@open-mercato/ui/backend/CrudForm'
 import { Calendar, Clock, List, PencilLine, Plus, Trash2 } from 'lucide-react'
-import { resolveRuleSetSelectValue } from './availabilityRulesEditorState'
+import {
+  resolveRuleSetSelectValue,
+  requiresResetConfirmation,
+  selectCustomRuleIdsToDelete,
+} from './availabilityRulesEditorState'
 
 type AvailabilityRepeat = 'once' | 'daily' | 'weekly'
 type AvailabilitySubjectType = 'member' | 'resource' | 'ruleset'
@@ -455,7 +459,7 @@ export function AvailabilityRulesEditor({
       ruleSetPlaceholder: t(`${labelPrefix}.availability.ruleset.placeholder`, 'Custom schedule'),
       ruleSetCustomize: t(`${labelPrefix}.availability.ruleset.customize`, 'Customize schedule'),
       ruleSetReset: t(`${labelPrefix}.availability.ruleset.reset`, 'Reset to schedule'),
-      ruleSetConfirm: t(`${labelPrefix}.availability.ruleset.confirm`, 'Changing the schedule will reset custom hours. Continue?'),
+      ruleSetConfirm: t(`${labelPrefix}.availability.ruleset.confirm`, 'Resetting to the schedule will delete your custom hours. Continue?'),
       ruleSetLoading: t(`${labelPrefix}.availability.ruleset.loading`, 'Loading schedules...'),
       ruleSetError: t(`${labelPrefix}.availability.ruleset.error`, 'Failed to load schedules.'),
       ruleSetCreateLabel: t(`${labelPrefix}.availability.ruleset.create`, 'New schedule'),
@@ -957,9 +961,17 @@ export function AvailabilityRulesEditor({
   const handleResetToRuleSet = React.useCallback(async () => {
     if (isReadOnly) return
     if (!effectiveRulesetId) return
+    if (requiresResetConfirmation(availabilityRules)) {
+      const confirmed = await confirm({
+        title: listLabels.ruleSetConfirm,
+        variant: 'destructive',
+      })
+      if (!confirmed) return
+    }
     try {
+      const idsToDelete = selectCustomRuleIdsToDelete('reset', availabilityRules)
       await Promise.all(
-        availabilityRules.map((rule) => deleteCrud('planner/availability', rule.id, { errorMessage: listLabels.saveWeeklyError })),
+        idsToDelete.map((id) => deleteCrud('planner/availability', id, { errorMessage: listLabels.saveWeeklyError })),
       )
       setCustomOverridesEnabled(false)
       await refreshAvailability()
@@ -967,19 +979,16 @@ export function AvailabilityRulesEditor({
       const message = error instanceof Error ? error.message : listLabels.saveWeeklyError
       flash(message, 'error')
     }
-  }, [availabilityRules, effectiveRulesetId, listLabels.saveWeeklyError, refreshAvailability, isReadOnly])
+  }, [availabilityRules, confirm, effectiveRulesetId, listLabels.ruleSetConfirm, listLabels.saveWeeklyError, refreshAvailability, isReadOnly])
 
   const handleRuleSetChange = React.useCallback(async (nextId: string | null) => {
     if (isReadOnly) return
     if (!onRulesetChange) return
-    if (availabilityRules.length > 0 && nextId !== effectiveRulesetId) {
-      const confirmed = await confirm({
-        title: listLabels.ruleSetConfirm,
-        variant: 'default',
-      })
-      if (!confirmed) return
+    // Switching preserves saved custom hours (#2325); only an explicit reset clears them.
+    const idsToDelete = selectCustomRuleIdsToDelete('switch', availabilityRules)
+    if (idsToDelete.length) {
       await Promise.all(
-        availabilityRules.map((rule) => deleteCrud('planner/availability', rule.id, { errorMessage: listLabels.saveWeeklyError })),
+        idsToDelete.map((id) => deleteCrud('planner/availability', id, { errorMessage: listLabels.saveWeeklyError })),
       )
     }
     setSelectedRulesetId(nextId)
@@ -993,9 +1002,7 @@ export function AvailabilityRulesEditor({
     }
   }, [
     availabilityRules,
-    confirm,
     effectiveRulesetId,
-    listLabels.ruleSetConfirm,
     listLabels.saveWeeklyError,
     onRulesetChange,
     refreshAvailability,
