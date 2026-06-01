@@ -203,8 +203,9 @@ describe('Workflows Validators', () => {
       })
 
       test('accepts ISO datetime as "until"', () => {
+        const future = new Date(Date.now() + 60_000).toISOString()
         expect(() =>
-          workflowStepSchema.parse({ ...baseTimerStep, config: { until: '2026-06-01T12:00:00.000Z' } })
+          workflowStepSchema.parse({ ...baseTimerStep, config: { until: future } })
         ).not.toThrow()
       })
 
@@ -239,10 +240,11 @@ describe('Workflows Validators', () => {
       })
 
       test('rejects both duration and until', () => {
+        const future = new Date(Date.now() + 60_000).toISOString()
         expect(() =>
           workflowStepSchema.parse({
             ...baseTimerStep,
-            config: { duration: 'PT5M', until: '2026-06-01T12:00:00.000Z' },
+            config: { duration: 'PT5M', until: future },
           })
         ).toThrow(/not both/i)
       })
@@ -404,10 +406,11 @@ describe('Workflows Validators', () => {
       })
 
       test('rejects both duration and until', () => {
+        const future = new Date(Date.now() + 60_000).toISOString()
         expect(() =>
           activityDefinitionSchema.parse({
             ...baseWait,
-            config: { duration: 'PT5M', until: '2026-06-01T12:00:00.000Z' },
+            config: { duration: 'PT5M', until: future },
           })
         ).toThrow(/not both/i)
       })
