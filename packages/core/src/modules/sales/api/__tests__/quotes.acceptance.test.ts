@@ -130,7 +130,9 @@ describe('quote send + accept flow', () => {
     expect(quote.acceptanceToken).toHaveLength(64)
     expect(quote.acceptanceToken).toMatch(/^[0-9a-f]{64}$/)
     expect(quote.validUntil).toBeInstanceOf(Date)
-    expect(mockEm.flush).toHaveBeenCalled()
+    // Send-state is now persisted inside em.transactional (committed before the email), not via a bare em.flush.
+    expect(mockEm.transactional).toHaveBeenCalled()
+    expect(mockEm.persist).toHaveBeenCalledWith(quote)
   })
 
   test('accept falls back to raw token lookup for quotes sent before hashing rollout', async () => {
@@ -545,10 +547,11 @@ describe('accept - state rollback on conversion failure (fix: #1415)', () => {
   })
 })
 
-describe('send - no flush before email delivery (fix: #1415)', () => {
+describe('send - commits send-state before email delivery (fix: #2336, supersedes #1415)', () => {
   beforeEach(async () => {
     jest.clearAllMocks()
     mockEm.fork.mockReturnValue(mockEm)
+    mockEm.transactional = jest.fn(async (callback: (trx: any) => Promise<unknown>) => callback(mockEm)) as any
     const { getAuthFromRequest } = await import('@open-mercato/shared/lib/auth/server')
     const { resolveOrganizationScopeForRequest } = await import('@open-mercato/core/modules/directory/utils/organizationScope')
     ;(getAuthFromRequest as jest.Mock).mockResolvedValue({
@@ -564,7 +567,7 @@ describe('send - no flush before email delivery (fix: #1415)', () => {
     })
   })
 
-  test('does not persist quote state when email delivery fails', async () => {
+  test('keeps the committed send-state when email delivery fails', async () => {
     const quote = {
       id: '22222222-2222-4222-8222-222222222222',
       tenantId: '00000000-0000-4000-8000-000000000000',
@@ -593,11 +596,15 @@ describe('send - no flush before email delivery (fix: #1415)', () => {
     ;(sendEmail as jest.Mock).mockRejectedValueOnce(new Error('SMTP connection refused'))
 
     const res = await sendQuote(makeRequest({ quoteId: quote.id, validForDays: 14 }))
+    // A failed email surfaces as an error to the caller so they know the customer was not notified...
     expect(res.status).toBe(400)
-    expect(mockEm.flush).not.toHaveBeenCalled()
+    // ...but the acceptance token was already committed durably before the email, so the send-state is NOT rolled back.
+    expect(mockEm.transactional).toHaveBeenCalled()
+    expect(quote.status).toBe('sent')
+    expect(quote.acceptanceToken).toBeTruthy()
   })
 
-  test('persists quote state only after email delivery succeeds', async () => {
+  test('commits send-state before sending the email', async () => {
     const quote = {
       id: '22222222-2222-4222-8222-222222222222',
       tenantId: '00000000-0000-4000-8000-000000000000',
@@ -623,9 +630,11 @@ describe('send - no flush before email delivery (fix: #1415)', () => {
     })
 
     const callOrder: string[] = []
-    mockEm.flush.mockImplementation(async () => {
-      callOrder.push('flush')
-    })
+    mockEm.transactional = jest.fn(async (callback: (trx: any) => Promise<unknown>) => {
+      const result = await callback(mockEm)
+      callOrder.push('commit')
+      return result
+    }) as any
 
     const { sendEmail } = await import('@open-mercato/shared/lib/email/send')
     ;(sendEmail as jest.Mock).mockImplementation(async () => {
@@ -634,7 +643,8 @@ describe('send - no flush before email delivery (fix: #1415)', () => {
 
     const res = await sendQuote(makeRequest({ quoteId: quote.id, validForDays: 14 }))
     expect(res.status).toBe(200)
-    expect(callOrder.indexOf('sendEmail')).toBeLessThan(callOrder.indexOf('flush'))
+    expect(callOrder.indexOf('commit')).toBeGreaterThanOrEqual(0)
+    expect(callOrder.indexOf('commit')).toBeLessThan(callOrder.indexOf('sendEmail'))
   })
 })
 
