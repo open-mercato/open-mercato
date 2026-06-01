@@ -1784,23 +1784,29 @@ function ProductOptionsSection({ values, setValue }: ProductFormGroupProps) {
 
   const handleDeleteSchema = React.useCallback(
     async (id: string) => {
+      const target = schemaTemplates.find((entry) => entry.id === id);
+      const lockVersion = target?.updatedAt ?? target?.updated_at ?? null;
       try {
-        await deleteCrud("catalog/option-schemas", id, {
-          errorMessage: t(
-            "catalog.products.edit.schemas.deleteError",
-            "Failed to delete schema.",
-          ),
-        });
+        await withScopedApiRequestHeaders(
+          buildOptimisticLockHeader(lockVersion),
+          () => deleteCrud("catalog/option-schemas", id, {
+            errorMessage: t(
+              "catalog.products.edit.schemas.deleteError",
+              "Failed to delete schema.",
+            ),
+          }),
+        );
         flash(
           t("catalog.products.edit.schemas.deleted", "Schema deleted."),
           "success",
         );
         void loadSchemas();
       } catch (err) {
+        if (surfaceRecordConflict(err, t)) { void loadSchemas(); return; }
         console.error("catalog.option-schemas.delete failed", err);
       }
     },
-    [loadSchemas, t],
+    [loadSchemas, schemaTemplates, t],
   );
 
   const handleSaveSchema = React.useCallback(
@@ -1832,8 +1838,25 @@ function ProductOptionsSection({ values, setValue }: ProductFormGroupProps) {
         isActive: true,
       };
       if (schemaToEdit?.id) payload.id = schemaToEdit.id;
-      if (schemaToEdit?.id) await updateCrud("catalog/option-schemas", payload);
-      else await createCrud("catalog/option-schemas", payload);
+      try {
+        if (schemaToEdit?.id) {
+          const lockVersion = schemaToEdit.updatedAt ?? schemaToEdit.updated_at ?? null;
+          await withScopedApiRequestHeaders(
+            buildOptimisticLockHeader(lockVersion),
+            () => updateCrud("catalog/option-schemas", payload),
+          );
+        } else {
+          await createCrud("catalog/option-schemas", payload);
+        }
+      } catch (err) {
+        if (surfaceRecordConflict(err, t)) {
+          setSaveSchemaOpen(false);
+          setSchemaToEdit(null);
+          void loadSchemas();
+          return;
+        }
+        throw err;
+      }
       flash(
         t("catalog.products.edit.schemas.saved", "Schema saved."),
         "success",
