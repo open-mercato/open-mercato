@@ -572,11 +572,12 @@ export class DefaultDataEngine implements DataEngine {
         enrichedPayload.crudAction = action
         if (coverageBaseDelta !== undefined) enrichedPayload.coverageBaseDelta = coverageBaseDelta
         if (ctx.syncOrigin) enrichedPayload.syncOrigin = ctx.syncOrigin
-        try {
-          await bus.emitEvent('query_index.delete_one', enrichedPayload)
-        } catch {
-          // non-blocking
-        }
+        // Fire-and-forget: token reindexing runs DELETE + chunked INSERT against
+        // search_tokens and would otherwise block the HTTP response on every write.
+        // Surrender control after queueing the emit; index updates settle out-of-band.
+        void bus.emitEvent('query_index.delete_one', enrichedPayload).catch((err: unknown) => {
+          console.error('[data-engine] query_index.delete_one emit failed', err)
+        })
       } else {
         const payload = indexer.buildUpsertPayload
           ? indexer.buildUpsertPayload(ctx)
@@ -590,11 +591,12 @@ export class DefaultDataEngine implements DataEngine {
         enrichedPayload.crudAction = action
         if (coverageBaseDelta !== undefined) enrichedPayload.coverageBaseDelta = coverageBaseDelta
         if (ctx.syncOrigin) enrichedPayload.syncOrigin = ctx.syncOrigin
-        try {
-          await bus.emitEvent('query_index.upsert_one', enrichedPayload)
-        } catch {
-          // non-blocking
-        }
+        // Fire-and-forget: see delete_one above. Token reindexing pipeline
+        // (build doc + encrypt + decrypt + tokenize + DELETE + chunked INSERT)
+        // would otherwise serialize into write request latency.
+        void bus.emitEvent('query_index.upsert_one', enrichedPayload).catch((err: unknown) => {
+          console.error('[data-engine] query_index.upsert_one emit failed', err)
+        })
       }
 
       if (shouldTriggerCoverageRefresh(indexer.entityType, ctx.identifiers.tenantId ?? null)) {
