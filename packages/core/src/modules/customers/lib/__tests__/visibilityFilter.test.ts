@@ -58,14 +58,18 @@ describe('applyEmailVisibilityFilter', () => {
     return builder
   }
 
-  it('is a no-op when caller has admin bypass', () => {
+  it('applies the filter even for admin/wildcard features (v1: strict owner-only, no bypass)', () => {
     const qb = makeFakeBuilder()
     const out = applyEmailVisibilityFilter(qb, {
       currentUserId: 'user-1',
       userFeatures: ['*'],
     })
     expect(out).toBe(qb)
-    expect(qb.where).not.toHaveBeenCalled()
+    // No admin bypass in v1 — even a superadmin gets the visibility predicate, so
+    // they never see another user's private email.
+    expect(qb.where).toHaveBeenCalledTimes(1)
+    const predicate = qb.getPredicate() as RecordedExpr
+    expect(predicate.kind).toBe('or')
   })
 
   it('builds the four OR arms (non-email, null, !=private, author match) for a normal caller', () => {
@@ -103,13 +107,22 @@ describe('applyEmailVisibilityFilter', () => {
 
 describe('buildEmailVisibilityMikroFilter', () => {
   // MikroORM-flavoured mirror of applyEmailVisibilityFilter used by the
-  // person-detail, /activities and /counts read paths. Must enforce the exact
-  // same semantics: admin bypass → no-op; non-admin → exclude other users'
-  // private emails while passing non-email, shared, and legacy-null rows.
-  it('is a no-op (empty fragment) for admins with the view-private bypass', () => {
-    expect(buildEmailVisibilityMikroFilter({ currentUserId: 'user-1', userFeatures: ['customers.*'] })).toEqual({})
-    expect(buildEmailVisibilityMikroFilter({ currentUserId: 'user-1', userFeatures: ['*'] })).toEqual({})
-    expect(buildEmailVisibilityMikroFilter({ currentUserId: 'user-1', userFeatures: [EMAIL_VIEW_PRIVATE_FEATURE] })).toEqual({})
+  // person-detail, /activities and /counts read paths. v1 strict owner-only:
+  // NO admin bypass — every caller (admins included) gets the same predicate
+  // that excludes other users' private emails while passing non-email, shared,
+  // and legacy-null rows.
+  it('applies the same $or for admins/wildcards (v1: strict owner-only, no bypass)', () => {
+    const expected = {
+      $or: [
+        { interactionType: { $ne: 'email' } },
+        { visibility: null },
+        { visibility: { $ne: 'private' } },
+        { authorUserId: 'user-1' },
+      ],
+    }
+    expect(buildEmailVisibilityMikroFilter({ currentUserId: 'user-1', userFeatures: ['customers.*'] })).toEqual(expected)
+    expect(buildEmailVisibilityMikroFilter({ currentUserId: 'user-1', userFeatures: ['*'] })).toEqual(expected)
+    expect(buildEmailVisibilityMikroFilter({ currentUserId: 'user-1', userFeatures: [EMAIL_VIEW_PRIVATE_FEATURE] })).toEqual(expected)
   })
 
   it('builds an $or with the owner arm for a normal caller', () => {
@@ -162,13 +175,15 @@ describe('canChangeEmailVisibility', () => {
     expect(canChangeEmailVisibility({ ...base, actorUserId: 'author-1', userFeatures: [] })).toBe(true)
   })
 
-  it('allows an admin with view_private (incl. wildcards) even when not the author', () => {
-    expect(canChangeEmailVisibility({ ...base, userFeatures: [EMAIL_VIEW_PRIVATE_FEATURE] })).toBe(true)
-    expect(canChangeEmailVisibility({ ...base, userFeatures: ['customers.*'] })).toBe(true)
-    expect(canChangeEmailVisibility({ ...base, userFeatures: ['*'] })).toBe(true)
+  it('DENIES a non-author even with admin/wildcard features (v1: no bypass)', () => {
+    // Personal mailbox privacy v1 — only the author may flip their own email's
+    // visibility; admin grants no longer bypass this gate.
+    expect(canChangeEmailVisibility({ ...base, userFeatures: [EMAIL_VIEW_PRIVATE_FEATURE] })).toBe(false)
+    expect(canChangeEmailVisibility({ ...base, userFeatures: ['customers.*'] })).toBe(false)
+    expect(canChangeEmailVisibility({ ...base, userFeatures: ['*'] })).toBe(false)
   })
 
-  it('DENIES a non-author without view_private (the generic-update bypass)', () => {
+  it('DENIES a non-author without elevated features', () => {
     expect(canChangeEmailVisibility({ ...base })).toBe(false)
   })
 

@@ -6,7 +6,7 @@ import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import { findOneWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import type { CrudFormError } from '@open-mercato/ui/backend/utils/serverErrors'
 import { CommunicationChannel } from '../../../../../../data/entities'
-import { ChannelAccessDeniedError, assertCanAccessChannel } from '../../../../../../lib/access-control'
+import { ChannelAccessDeniedError, assertCanManageChannel } from '../../../../../../lib/access-control'
 import { pushRegister } from '../../../../../../commands/push-register'
 import { validateRouteMutationGuard } from '../../../../../../lib/route-mutation-guard'
 
@@ -20,16 +20,18 @@ type RbacServiceLike = {
 /**
  * Spec C § Phase C5 — Operator-facing "Re-register push" endpoint.
  *
- * Gated by `communication_channels.channel.push.manage` (admin / superadmin
- * by default). Used by the channel detail page's `PushStatusSection` to
- * recover from a `pushStatus='failed'` state after fixing a Pub/Sub topic
- * misconfiguration or after a Microsoft subscription is dropped.
+ * Owner self-service: a user may (re-)register push on their OWN mailbox (gated
+ * by `connect_user_channel`). Registering push on a shared/tenant-wide channel
+ * still requires `communication_channels.channel.push.manage` — enforced per
+ * channel type by `assertCanManageChannel` in the handler. Used by the profile
+ * page and the channel detail page's `PushStatusSection` to recover from a
+ * `pushStatus='failed'` state.
  */
 export const metadata = {
   path: '/communication_channels/channels/[id]/push/register',
   POST: {
     requireAuth: true,
-    requireFeatures: ['communication_channels.channel.push.manage'],
+    requireFeatures: ['communication_channels.connect_user_channel'],
   },
 }
 
@@ -83,10 +85,11 @@ export async function POST(req: Request, context: RouteContext): Promise<Respons
     userFeatures = []
   }
   try {
-    assertCanAccessChannel(
+    assertCanManageChannel(
       { userId: (channel as { userId?: string | null }).userId },
       auth.sub as string,
       userFeatures,
+      'communication_channels.channel.push.manage',
     )
   } catch (err) {
     if (err instanceof ChannelAccessDeniedError) {

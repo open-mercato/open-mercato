@@ -19,10 +19,12 @@ export function callerHasEmailViewPrivate(userFeatures: string[] | null | undefi
 
 /**
  * Authorization predicate for CHANGING an email interaction's visibility.
- * Only the interaction's author, or a caller with `customers.email.view_private`,
- * may flip an email between private/shared. Non-email rows and no-op changes are
- * always allowed. Mirrors the gate in the dedicated `PATCH .../visibility` route
- * so the generic interaction-update path cannot bypass the privacy control.
+ *
+ * Personal mailbox privacy (v1: strict owner-only): ONLY the interaction's
+ * author may flip their own email between private/shared — there is no admin
+ * bypass. Non-email rows and no-op changes are always allowed. Mirrors the gate
+ * in the dedicated `PATCH .../visibility` route so the generic interaction-update
+ * path cannot bypass the privacy control. `userFeatures` is reserved for v2.
  */
 export function canChangeEmailVisibility(opts: {
   interactionType: string
@@ -34,8 +36,7 @@ export function canChangeEmailVisibility(opts: {
 }): boolean {
   if (opts.interactionType !== 'email') return true
   if ((opts.nextVisibility ?? null) === (opts.currentVisibility ?? null)) return true
-  if (opts.actorUserId && opts.authorUserId === opts.actorUserId) return true
-  return callerHasEmailViewPrivate(opts.userFeatures)
+  return Boolean(opts.actorUserId) && opts.authorUserId === opts.actorUserId
 }
 
 export interface ApplyEmailVisibilityFilterOptions {
@@ -48,7 +49,12 @@ export interface ApplyEmailVisibilityFilterOptions {
  *   - Non-email interactions (calls, meetings, tasks) pass through unchanged.
  *   - Email interactions with `visibility = 'shared'` are visible to all.
  *   - Email interactions with `visibility = 'private'` are visible ONLY to the
- *     `authorUserId` (channel owner) OR to callers with admin bypass.
+ *     `authorUserId` (channel owner).
+ *
+ * Personal mailbox privacy (v1: strict owner-only) — there is NO admin bypass:
+ * a private email is hidden from everyone except its author, including
+ * admins/superadmins. `opts.userFeatures` is retained for signature stability
+ * and reserved for the v2 admin-oversight feature.
  *
  * The function expects a kysely-style builder whose `.where()` accepts an
  * expression-builder callback. Returns the same builder for chaining.
@@ -57,7 +63,6 @@ export function applyEmailVisibilityFilter<T extends { where: (...args: any[]) =
   query: T,
   opts: ApplyEmailVisibilityFilterOptions,
 ): T {
-  if (callerHasEmailViewPrivate(opts.userFeatures)) return query
   const currentUserId = opts.currentUserId
   // A row is hidden ONLY when it is an email explicitly marked `private` and the
   // caller is not its author. Everything else stays visible, including:
@@ -113,16 +118,16 @@ export async function resolveCallerEmailFeatures(
  * where-clause so private email rows are excluded for non-owner, non-admin
  * callers on MikroORM read paths (`findWithDecryption`/`em.find`/`em.count`).
  *
- * Returns an empty fragment (no-op) for admins holding the view-private bypass.
  * Mirrors the kysely predicate exactly, including the legacy `visibility IS NULL`
- * passthrough so pre-existing CRM history is never hidden.
+ * passthrough so pre-existing CRM history is never hidden. Personal mailbox
+ * privacy (v1: strict owner-only): no admin bypass — a private email is hidden
+ * from everyone except its author. `opts.userFeatures` is reserved for v2.
  */
 export type EmailVisibilityMikroFilter = { $or?: FilterQuery<CustomerInteraction>[] }
 
 export function buildEmailVisibilityMikroFilter(
   opts: ApplyEmailVisibilityFilterOptions,
 ): EmailVisibilityMikroFilter {
-  if (callerHasEmailViewPrivate(opts.userFeatures)) return {}
   return {
     $or: [
       { interactionType: { $ne: 'email' } },

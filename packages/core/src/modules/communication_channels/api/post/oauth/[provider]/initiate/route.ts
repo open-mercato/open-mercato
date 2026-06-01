@@ -5,6 +5,7 @@ import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import { readJsonSafe } from '@open-mercato/shared/lib/http/readJsonSafe'
 import { toAbsoluteUrl } from '@open-mercato/shared/lib/url'
 import { getChannelAdapter } from '../../../../../lib/adapter-registry-singleton'
+import { resolveOAuthClientCredentials } from '../../../../../lib/oauth-client-config'
 import {
   COMMUNICATION_CHANNELS_OAUTH_STATE_COOKIE_NAME,
   COMMUNICATION_CHANNELS_OAUTH_STATE_TTL_MS,
@@ -99,20 +100,24 @@ export async function POST(req: Request, context: RouteContext): Promise<Respons
       return null
     }
   })()
-  // OAuth client credentials are tenant-level (the platform-default OAuth app
-  // or a tenant-owned override stored under `oauth_<provider>` integration id).
-  let credentials: Record<string, unknown> = {}
-  if (credentialsService) {
-    try {
-      credentials =
-        (await credentialsService.resolve(`oauth_${provider}`, {
-          tenantId: auth.tenantId as string,
-          organizationId: (auth as { orgId?: string | null }).orgId ??
-            (auth.tenantId as string),
-        })) ?? {}
-    } catch {
-      credentials = {}
-    }
+  // OAuth client credentials are tenant-level — the admin configures them under
+  // the `channel_<provider>` integration in the Integrations UI (stored at
+  // userId = null). A missing row means the provider has not been set up yet;
+  // we surface that as an actionable error instead of handing an empty object to
+  // the adapter (which would throw a cryptic Zod "expected string" message).
+  const credentials = await resolveOAuthClientCredentials(credentialsService, provider, {
+    tenantId: auth.tenantId as string,
+    organizationId: (auth as { orgId?: string | null }).orgId ?? null,
+  })
+  if (!credentials) {
+    return NextResponse.json(
+      {
+        error:
+          `${provider} is not configured for this workspace yet. An administrator must add the OAuth Client ID and Secret under Integrations before mailboxes can be connected.`,
+        code: 'oauth_client_not_configured',
+      },
+      { status: 409 },
+    )
   }
 
   const redirectUri = defaultRedirectUri(req, provider)

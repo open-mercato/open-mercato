@@ -207,9 +207,9 @@ class GmailChannelAdapter implements ChannelAdapter {
     if (!current.refreshToken) {
       throw new Error('requires_reauth')
     }
-    // Spec A: prefer the new `input.oauthClient` slot (resolved by the hub
-    // from `oauth_gmail` integration credentials). Fall back to the
-    // deprecated `credentials._client` path for one minor release so
+    // Spec A: prefer the new `input.oauthClient` slot (resolved by the hub from
+    // the `channel_gmail` integration's tenant-scoped client credentials). Fall
+    // back to the deprecated `credentials._client` path for one minor release so
     // existing test fixtures keep working.
     const clientFromState = resolveGmailOAuthClient(input)
     const token = await getGoogleOAuthClient().refreshToken({
@@ -666,7 +666,7 @@ let warnedLegacyClientPath = false
 /**
  * Resolve the OAuth client config for a Gmail refresh, preferring the new
  * `RefreshCredentialsInput.oauthClient` field (Spec A,
- * .ai/specs/2026-05-27-oauth-refresh-credentials-client-wiring-fix.md).
+ * .ai/specs/2026-05-27-email-integration-inbound-reliability-and-threading.md).
  *
  * Falls back to the deprecated `credentials._client` read path for one
  * minor release so existing tests keep working. The legacy path emits a

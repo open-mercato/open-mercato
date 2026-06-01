@@ -5,14 +5,6 @@ import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import { findAndCountWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import { CommunicationChannel } from '../../../data/entities'
-import { buildPerUserChannelFilter } from '../../../lib/access-control'
-
-type RbacServiceLike = {
-  loadAcl: (
-    userId: string,
-    scope: { tenantId: string | null; organizationId: string | null },
-  ) => Promise<{ isSuperAdmin: boolean; features: string[]; organizations: string[] | null }>
-}
 
 export const metadata = {
   path: '/communication_channels/channels',
@@ -49,31 +41,17 @@ export async function GET(req: Request): Promise<Response> {
   const container = await createRequestContainer()
   const em = (container.resolve('em') as EntityManager).fork()
 
-  // Per-user channel access control (spec § Hub Deltas → Delta 8):
-  // callers without `communication_channels.admin` see only tenant-wide channels
-  // and their own per-user channels. Resolving the user's ACL here keeps the
-  // RBAC contract on the server side; the middleware can't apply it because
-  // the filter is data-shaped (depends on the row's `user_id`).
-  let userFeatures: string[] = []
-  try {
-    const rbac = container.resolve('rbacService') as RbacServiceLike
-    const acl = await rbac.loadAcl(auth.sub as string, {
-      tenantId: auth.tenantId as string,
-      organizationId: (auth as { orgId?: string | null }).orgId ?? null,
-    })
-    userFeatures = acl?.isSuperAdmin
-      ? ['*']
-      : (Array.isArray(acl?.features) ? acl.features : [])
-  } catch {
-    userFeatures = []
-  }
-  const perUserFilter = buildPerUserChannelFilter(auth.sub as string, userFeatures)
-
+  // Personal mailbox privacy (v1: strict owner-only). The admin Channels page
+  // lists ONLY shared / tenant-wide channels (WhatsApp Business, shared inboxes,
+  // Slack workspaces) — rows where `user_id IS NULL`. Per-user email mailboxes
+  // (`user_id` set) are private to their owner and surface exclusively on the
+  // profile page (`/api/communication_channels/me/channels`), never here, so no
+  // one — admins included — can see another user's connected personal account.
   const where: Record<string, unknown> = {
     tenantId: auth.tenantId,
     organizationId: (auth as { orgId?: string | null }).orgId ?? null,
     deletedAt: null,
-    ...(perUserFilter ?? {}),
+    userId: null,
   }
   if (providerKey) where.providerKey = providerKey
   if (channelType) where.channelType = channelType

@@ -1,7 +1,6 @@
 import type { EntityManager } from '@mikro-orm/postgresql'
 import { findWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import { CustomerInteraction } from '../data/entities'
-import { callerHasEmailViewPrivate } from './visibilityFilter'
 
 /**
  * Read model that turns a Person's email `CustomerInteraction` rows into
@@ -141,15 +140,17 @@ export async function buildPersonEmailThreads(
   }
   if (organizationId) interactionWhere.organizationId = organizationId
 
-  // Private emails are visible only to their channel-owner author unless the
-  // caller holds the admin bypass feature. Mirrors `applyEmailVisibilityFilter`.
-  if (!callerHasEmailViewPrivate(userFeatures)) {
-    interactionWhere.$or = [
-      { visibility: null },
-      { visibility: { $ne: 'private' } },
-      ...(viewerUserId ? [{ authorUserId: viewerUserId }] : []),
-    ]
-  }
+  // Personal mailbox privacy (v1: strict owner-only). The CRM Person page shows
+  // a viewer ONLY their own email threads with this person — emails authored
+  // from their own mailbox (`authorUserId = viewer`) — plus ownerless
+  // shared/system-channel emails (`authorUserId IS NULL`, e.g. a tenant-wide
+  // support inbox or legacy log rows). Another user's personal threads are never
+  // shown, not even to an admin/superadmin (oversight is a v2 follow-up).
+  // Fail-closed: an email whose author cannot be established stays hidden.
+  interactionWhere.$or = [
+    ...(viewerUserId ? [{ authorUserId: viewerUserId }] : []),
+    { authorUserId: null },
+  ]
 
   // `customer_interaction.title`/`body` are encrypted at rest, so reads go
   // through `findWithDecryption` even though we only consume non-encrypted

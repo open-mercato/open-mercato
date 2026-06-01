@@ -7,7 +7,7 @@ import type { EntityManager } from '@mikro-orm/postgresql'
 import { findOneWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import { CommunicationChannel } from '../../../../../data/entities'
 import { getChannelAdapter } from '../../../../../lib/adapter-registry-singleton'
-import { ChannelAccessDeniedError, assertCanAccessChannel } from '../../../../../lib/access-control'
+import { ChannelAccessDeniedError, assertCanManageChannel } from '../../../../../lib/access-control'
 import { refreshCredentialsIfNeeded } from '../../../../../lib/credential-refresh'
 import { validateRouteMutationGuard } from '../../../../../lib/route-mutation-guard'
 
@@ -21,8 +21,11 @@ type RbacServiceLike = {
 export const metadata = {
   path: '/communication_channels/channels/[id]/test-send',
   POST: {
+    // Owner self-service: a user may send a test from their OWN mailbox (gated
+    // by `connect_user_channel`). Test-sending from a shared/tenant-wide channel
+    // still requires `manage` — enforced per channel type by `assertCanManageChannel`.
     requireAuth: true,
-    requireFeatures: ['communication_channels.manage'],
+    requireFeatures: ['communication_channels.connect_user_channel'],
   },
 }
 
@@ -112,7 +115,12 @@ export async function POST(req: Request, context: RouteContext): Promise<Respons
     userFeatures = []
   }
   try {
-    assertCanAccessChannel({ userId: channel.userId }, auth.sub as string, userFeatures)
+    assertCanManageChannel(
+      { userId: channel.userId },
+      auth.sub as string,
+      userFeatures,
+      'communication_channels.manage',
+    )
   } catch (err) {
     if (err instanceof ChannelAccessDeniedError) {
       return NextResponse.json({ error: 'Channel not found' }, { status: 404 })

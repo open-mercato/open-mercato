@@ -21,16 +21,18 @@ import {
  * Verifies the full visibility lifecycle routed through the PATCH endpoint:
  *   PATCH /api/customers/interactions/{id}/visibility
  *
- * Scenarios:
+ * Scenarios (personal mailbox privacy v1 — strict owner-only, NO admin bypass):
  *   1. Non-author (User B) cannot flip another user's private email → 404
  *   2. Author (User A) can flip to shared → 200 { ok: true, changed: true }
  *   3. No-op flip (same visibility) → 200 { ok: true, changed: false }
- *   4. Admin can flip another user's email back to private (admin bypass)
- *   5. Author can flip their own back to private
+ *   4. Admin (with customers.email.view_private) is STILL denied flipping a
+ *      non-authored email → 404; the email stays shared
+ *   5. Author can flip their own back to private → 200 { changed: true }
  *
  * Two roles are created:
  *   - email-employee: interactions.view/manage + email.compose, NO view_private
- *   - email-admin: same as above PLUS customers.email.view_private (admin bypass)
+ *   - email-admin: same as above PLUS customers.email.view_private — used here to
+ *     PROVE the feature grants no write bypass in v1
  *
  * The interaction is created via admin token with authorUserId=userA.id so the
  * author ownership is established without requiring the compose route (which
@@ -39,7 +41,7 @@ import {
  */
 test.describe('TC-CRM-EMAIL-006: Email interaction visibility lifecycle', () => {
   test(
-    'full visibility lifecycle: non-author blocked, author flips, no-op, admin bypass, author restores',
+    'full visibility lifecycle: non-author blocked, author flips, no-op, admin ALSO blocked (v1), author restores',
     async ({ request }) => {
       test.slow();
 
@@ -305,85 +307,44 @@ test.describe('TC-CRM-EMAIL-006: Email interaction visibility lifecycle', () => 
           'No-op flip should return { changed: false }',
         ).toBe(false);
 
-        // ── Scenario 4: Admin can flip another user's email back to private ──
-        const adminFlipToPrivateResp = await apiRequest(request, 'PATCH', visibilityPath, {
+        // ── Scenario 4: Admin (non-author) is DENIED flipping another user's email (v1: no bypass) ──
+        //
+        // Personal mailbox privacy v1 — `customers.email.view_private` no longer
+        // grants a write bypass; only the author may flip their own email's
+        // visibility. The PATCH returns 404 (existence not leaked) and the email
+        // stays shared.
+        const adminFlipAttemptResp = await apiRequest(request, 'PATCH', visibilityPath, {
           token: userAdminToken,
           data: { visibility: 'private' },
         });
         expect(
-          adminFlipToPrivateResp.status(),
-          'Admin PATCH visibility to private should return 200',
-        ).toBe(200);
-        const adminFlipBody = await readJsonSafe<{ ok?: boolean; changed?: boolean }>(
-          adminFlipToPrivateResp,
-        );
-        expect(
-          adminFlipBody?.ok,
-          'Admin flip to private should return { ok: true }',
-        ).toBe(true);
-        expect(
-          adminFlipBody?.changed,
-          'Admin flip to private should return { changed: true }',
-        ).toBe(true);
+          adminFlipAttemptResp.status(),
+          'Admin PATCH on a non-authored email must return 404 (v1: no admin bypass)',
+        ).toBe(404);
 
-        // User B should now see 0 rows again (private filter excludes admin-restored row)
-        const userBListAfterAdminFlip = await apiRequest(
+        // The email is unchanged (still shared) — User B still sees it.
+        const userBListAfterAdminAttempt = await apiRequest(
           request,
           'GET',
           `/api/customers/interactions?entityId=${encodeURIComponent(personId)}&interactionType=email`,
           { token: userBToken },
         );
         expect(
-          userBListAfterAdminFlip.ok(),
-          'User B GET interactions after admin flip to private should succeed',
+          userBListAfterAdminAttempt.ok(),
+          'User B GET interactions after admin attempt should succeed',
         ).toBeTruthy();
-        const userBItemsAfterAdminFlip = await readJsonSafe<{
+        const userBItemsAfterAdminAttempt = await readJsonSafe<{
           items?: Array<{ id?: string }>;
-        }>(userBListAfterAdminFlip);
+        }>(userBListAfterAdminAttempt);
         expect(
-          (userBItemsAfterAdminFlip?.items ?? []).some((item) => item.id === interactionId),
-          'User B must NOT see the interaction after admin restored it to private',
-        ).toBe(false);
-
-        // User Admin should still see the interaction (admin bypass)
-        const adminListResp = await apiRequest(
-          request,
-          'GET',
-          `/api/customers/interactions?entityId=${encodeURIComponent(personId)}&interactionType=email`,
-          { token: userAdminToken },
-        );
-        expect(
-          adminListResp.ok(),
-          'User Admin GET interactions should succeed',
-        ).toBeTruthy();
-        const adminListBody = await readJsonSafe<{
-          items?: Array<{ id?: string }>;
-        }>(adminListResp);
-        expect(
-          (adminListBody?.items ?? []).some((item) => item.id === interactionId),
-          'User Admin (view_private) must still see the interaction after restoring to private',
-        ).toBeTruthy();
+          (userBItemsAfterAdminAttempt?.items ?? []).some((item) => item.id === interactionId),
+          'Email remains shared after the denied admin attempt — User B still sees it',
+        ).toBe(true);
 
         // ── Scenario 5: Author can flip their own email back to private ──────
         //
-        // First reset to shared (so we can verify the private flip returns changed: true).
-        const userAResetToSharedResp = await apiRequest(request, 'PATCH', visibilityPath, {
-          token: userAToken,
-          data: { visibility: 'shared' },
-        });
-        expect(
-          userAResetToSharedResp.status(),
-          'Author reset to shared should return 200',
-        ).toBe(200);
-        const userAResetBody = await readJsonSafe<{ ok?: boolean; changed?: boolean }>(
-          userAResetToSharedResp,
-        );
-        expect(
-          userAResetBody?.changed,
-          'Author reset to shared should return { changed: true }',
-        ).toBe(true);
-
-        // Now flip to private — should return changed: true
+        // The email is currently shared (from Scenario 2; the admin attempt in
+        // Scenario 4 was denied), so a flip to private must report changed: true.
         const userAFlipToPrivateResp = await apiRequest(request, 'PATCH', visibilityPath, {
           token: userAToken,
           data: { visibility: 'private' },
@@ -403,6 +364,21 @@ test.describe('TC-CRM-EMAIL-006: Email interaction visibility lifecycle', () => 
           userAFlipToPrivateBody?.changed,
           'Author flip own email to private should return { changed: true }',
         ).toBe(true);
+
+        // User B no longer sees it (private, and B is not the author).
+        const userBListAfterPrivate = await apiRequest(
+          request,
+          'GET',
+          `/api/customers/interactions?entityId=${encodeURIComponent(personId)}&interactionType=email`,
+          { token: userBToken },
+        );
+        const userBItemsAfterPrivate = await readJsonSafe<{
+          items?: Array<{ id?: string }>;
+        }>(userBListAfterPrivate);
+        expect(
+          (userBItemsAfterPrivate?.items ?? []).some((item) => item.id === interactionId),
+          'User B must NOT see the email after the author restored it to private',
+        ).toBe(false);
       } finally {
         // Cleanup is best-effort and ordered: interaction → person → users → roles.
         if (adminToken) {

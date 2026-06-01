@@ -166,7 +166,7 @@ export class CommunicationChannel {
    * encryption-map entry while leaving `channelState` plaintext for the
    * non-secret cursor/expiry fields.
    *
-   * Other providers leave this null. See `.ai/specs/2026-05-27-email-integration-provider-push-delivery.md`
+   * Other providers leave this null. See `.ai/specs/2026-05-27-email-integration-inbound-reliability-and-threading.md`
    * § Data Models → encryption decision.
    */
   @Property({ name: 'client_state_encrypted', type: 'text', nullable: true })

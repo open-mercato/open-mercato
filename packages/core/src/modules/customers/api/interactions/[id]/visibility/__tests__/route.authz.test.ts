@@ -86,18 +86,17 @@ describe('PATCH visibility — authorization', () => {
     )
   })
 
-  it('admin with customers.email.view_private may flip a non-authored email', async () => {
+  it('admin with customers.email.view_private is STILL denied a non-authored email (v1: no bypass)', async () => {
+    // Personal mailbox privacy v1 — only the author may flip their own email's
+    // visibility; admin grants no longer bypass this gate. 404 (not 403) so the
+    // row's existence is never leaked.
     mockAuth.mockResolvedValue({ sub: 'user-B', tenantId: TENANT_ID, orgId: 'org-1' } as never)
     setupContainer(['customers.email.view_private'])
     mockFindOne.mockResolvedValue({ id: INTERACTION_ID, authorUserId: 'user-A', visibility: 'private' } as never)
 
     const res = await PATCH(mockRequest({ visibility: 'shared' }), routeCtx())
-    expect(res.status).toBe(200)
-    expect(await res.json()).toEqual({ ok: true, changed: true })
-    expect(commandBus.execute).toHaveBeenCalledWith(
-      'customers.interactions.update',
-      expect.objectContaining({ input: { id: INTERACTION_ID, visibility: 'shared' } }),
-    )
+    expect(res.status).toBe(404)
+    expect(commandBus.execute).not.toHaveBeenCalled()
   })
 
   it('cross-tenant interaction id returns 404 (tenant-scoped lookup misses)', async () => {

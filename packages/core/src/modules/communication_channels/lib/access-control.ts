@@ -65,9 +65,18 @@ export function buildPerUserChannelFilter(
 }
 
 /**
- * Throws when the caller may not access a specific channel (i.e. the channel is
- * owned by another user and the caller does not have admin). Returns silently
+ * Throws when the caller may not access a specific channel. Returns silently
  * when access is allowed.
+ *
+ * Personal mailbox privacy (v1: strict owner-only). A per-user channel
+ * (`userId` set) may be acted on ONLY by its owner — not even an admin /
+ * superadmin can poll, test-send, import history from, register push on, or
+ * delete another user's personal mailbox. Tenant-wide channels
+ * (`userId == null`, e.g. WhatsApp Business / Slack workspaces) remain
+ * accessible to any caller the route already feature-gated.
+ *
+ * `userFeatures` is retained on the signature (callers pass it) but no longer
+ * grants a bypass; it is reserved for the v2 admin-oversight feature.
  *
  * Callers MUST pass the fully decrypted channel row — we read `userId` directly.
  */
@@ -79,14 +88,55 @@ export function assertCanAccessChannel(
   if (!channel) {
     throw new Error('Channel not found')
   }
-  if (callerHasChannelAdmin(userFeatures)) return
-  // Tenant-wide channel — visible to all callers (back-compat with existing
-  // WhatsApp Business / Slack workspace channels).
+  void userFeatures
+  // Tenant-wide / shared channel — accessible to all callers.
   if (channel.userId == null) return
+  // Personal mailbox — owner only, regardless of admin grants (v1).
   if (channel.userId !== currentUserId) {
     throw new ChannelAccessDeniedError(
-      `Channel is owned by another user; requires '${ADMIN_FEATURE}' feature`,
+      'Channel is a personal mailbox owned by another user',
     )
+  }
+}
+
+/**
+ * Authorization for MANAGING (mutating) a channel — disconnect, poll, set
+ * primary, import history, register push. Encodes the per-user ownership rule:
+ *
+ *   - **Personal mailbox** (`userId` set): the **owner has full control** of
+ *     their own account; any other caller — admin included — is denied (v1
+ *     strict owner-only, no bypass). Routes gate these on
+ *     `communication_channels.connect_user_channel` so every email user reaches
+ *     this check for their own channels.
+ *   - **Tenant-wide / shared channel** (`userId == null`, e.g. WhatsApp
+ *     Business / Slack workspaces): requires the route's `elevatedFeature`
+ *     (`communication_channels.manage`, `…channel.push.manage`, or
+ *     `…channel.import_history`). Wildcard-aware via {@link hasFeature}.
+ *
+ * Throws `ChannelAccessDeniedError` (route handlers map it to 404, masking
+ * existence) when the caller may not manage the channel.
+ */
+export function assertCanManageChannel(
+  channel: { userId?: string | null } | null | undefined,
+  currentUserId: string | null | undefined,
+  userFeatures: string[] | null | undefined,
+  elevatedFeature: string,
+): void {
+  if (!channel) {
+    throw new Error('Channel not found')
+  }
+  // Personal mailbox — owner only. The owner manages their own account fully
+  // (gated by connect_user_channel at the route); no admin bypass in v1.
+  if (channel.userId != null) {
+    if (channel.userId !== currentUserId) {
+      throw new ChannelAccessDeniedError('Channel is a personal mailbox owned by another user')
+    }
+    return
+  }
+  // Tenant-wide / shared channel — requires the elevated management feature.
+  const grantedFeatures = Array.isArray(userFeatures) ? userFeatures : []
+  if (!hasFeature(grantedFeatures, elevatedFeature)) {
+    throw new ChannelAccessDeniedError(`Managing a shared channel requires '${elevatedFeature}'`)
   }
 }
 

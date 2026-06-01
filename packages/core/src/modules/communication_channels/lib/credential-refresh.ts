@@ -4,6 +4,7 @@ import type {
   RefreshedCredentials,
   TenantScope,
 } from './adapter'
+import { resolveOAuthClientCredentials } from './oauth-client-config'
 
 /**
  * Optional credentials-service shape — matches the integrations module's
@@ -103,22 +104,18 @@ async function runRefresh(
   deps: { credentialsService?: CredentialsServiceLike | null; logger?: (...args: unknown[]) => void } | undefined,
   log: (...args: unknown[]) => void,
 ): Promise<RefreshCredentialsIfNeededResult> {
-  // Resolve the tenant's OAuth client config (clientId/clientSecret/tenantId)
-  // from `integration_credentials.scope = oauth_<providerKey>`. The adapter
-  // uses this for the token-endpoint call. Without it, OAuth providers
-  // (Gmail, Microsoft) fall back to the deprecated `credentials._client`
-  // path, which no production caller populates — see Spec A
-  // (.ai/specs/2026-05-27-oauth-refresh-credentials-client-wiring-fix.md).
+  // Resolve the tenant's OAuth client config (clientId/clientSecret) the admin
+  // stored under the `channel_<providerKey>` integration at TENANT scope
+  // (userId = null). The adapter uses it for the token-endpoint call. We always
+  // resolve at tenant scope here — never the channel's per-user scope — because
+  // the per-user row holds the user's tokens, not the client app credentials.
   let oauthClient: OAuthClientConfig | undefined
   if (deps?.credentialsService) {
     try {
-      const oauthClientScope: CredentialsScope = {
-        tenantId: input.scope.tenantId,
-        organizationId: input.scope.organizationId,
-      }
-      const raw = await deps.credentialsService.resolve(
-        `oauth_${input.adapter.providerKey}`,
-        oauthClientScope,
+      const raw = await resolveOAuthClientCredentials(
+        deps.credentialsService,
+        input.adapter.providerKey,
+        { tenantId: input.scope.tenantId, organizationId: input.scope.organizationId },
       )
       oauthClient = safeParseOAuthClient(raw)
     } catch (resolveErr) {
@@ -177,10 +174,10 @@ function parseExpiresAt(raw: unknown): Date | null {
 }
 
 /**
- * Parse a raw `oauth_<provider>` credential row into the `OAuthClientConfig`
- * shape adapters expect. Returns `undefined` when the row is missing or
- * malformed — adapters then fall back to the deprecated `credentials._client`
- * read path (one minor-release deprecation per Spec A).
+ * Parse a raw `channel_<provider>` client-credential row into the
+ * `OAuthClientConfig` shape adapters expect. Returns `undefined` when the row is
+ * missing or malformed — adapters then fall back to the deprecated
+ * `credentials._client` read path (one minor-release deprecation per Spec A).
  */
 function safeParseOAuthClient(raw: unknown): OAuthClientConfig | undefined {
   if (!raw || typeof raw !== 'object') return undefined

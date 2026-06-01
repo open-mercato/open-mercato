@@ -13,8 +13,12 @@ import { validateRouteMutationGuard } from '../../../../../lib/route-mutation-gu
 export const metadata = {
   path: '/communication_channels/channels/[id]/set-primary',
   POST: {
+    // Owner self-service: every email user controls their own channels. The
+    // set-primary command enforces strict ownership (`not_owner` → 404), and
+    // "primary" only applies to per-user channels, so `connect_user_channel`
+    // is the correct gate (not `manage`).
     requireAuth: true,
-    requireFeatures: ['communication_channels.manage'],
+    requireFeatures: ['communication_channels.connect_user_channel'],
   },
 }
 

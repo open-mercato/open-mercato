@@ -13,7 +13,6 @@ import {
 import { resolveOrganizationScopeForRequest } from '@open-mercato/core/modules/directory/utils/organizationScope'
 import { CustomerInteraction } from '../../../../data/entities'
 import type { InteractionUpdateInput } from '../../../../data/validators'
-import { callerHasEmailViewPrivate } from '../../../../lib/visibilityFilter'
 import { resolveAuthActorId } from '../../../../lib/interactionRequestContext'
 import { emitCustomersEvent } from '../../../../events'
 
@@ -28,13 +27,6 @@ export const metadata = {
 const bodySchema = z.object({ visibility: z.enum(['private', 'shared']) }).strict()
 
 type RouteContext = { params: Promise<{ id: string }> | { id: string } }
-
-type RbacServiceLike = {
-  getGrantedFeatures?: (
-    userId: string,
-    input: { tenantId: string | null; organizationId: string | null },
-  ) => Promise<string[]>
-}
 
 export async function PATCH(req: Request, context: RouteContext): Promise<Response> {
   const { id } = await context.params
@@ -78,20 +70,6 @@ export async function PATCH(req: Request, context: RouteContext): Promise<Respon
     return NextResponse.json(guardResult.body, { status: guardResult.status })
   }
 
-  let userFeatures: string[] = []
-  try {
-    const rbac = container.resolve('rbacService') as RbacServiceLike | undefined
-    if (rbac?.getGrantedFeatures) {
-      const features = await rbac.getGrantedFeatures(auth.sub as string, {
-        tenantId: auth.tenantId as string,
-        organizationId,
-      })
-      userFeatures = Array.isArray(features) ? features : []
-    }
-  } catch {
-    userFeatures = []
-  }
-
   const interaction = (await findOneWithDecryption(
     em,
     CustomerInteraction,
@@ -110,13 +88,12 @@ export async function PATCH(req: Request, context: RouteContext): Promise<Respon
     return NextResponse.json({ error: 'Email not found' }, { status: 404 })
   }
 
+  // Personal mailbox privacy (v1: strict owner-only): ONLY the author may flip
+  // their own email's visibility — no admin bypass. Return 404 (not 403) for
+  // everyone else so we don't leak the row's existence — this also covers
+  // non-authors who cannot see a private email in the first place.
   const isAuthor = !!interaction.authorUserId && interaction.authorUserId === auth.sub
-  const isAdmin = callerHasEmailViewPrivate(userFeatures)
-
-  // Only the author or an admin (with view-private) may flip visibility. Return
-  // 404 (not 403) for everyone else so we don't leak the row's existence — this
-  // also covers non-authors who cannot see a private email in the first place.
-  if (!isAuthor && !isAdmin) {
+  if (!isAuthor) {
     return NextResponse.json({ error: 'Email not found' }, { status: 404 })
   }
 
@@ -130,8 +107,8 @@ export async function PATCH(req: Request, context: RouteContext): Promise<Respon
   // Route the write through the interactions update command so the change runs
   // the full mutation pipeline — query-index refresh, audit log and undo —
   // instead of a raw em.flush() that would leave the indexed `entity_indexes`
-  // doc stale. Authorization (author or admin-with-view-private) was already
-  // enforced above; the command only owns persistence and side effects.
+  // doc stale. Authorization (author-only, v1) was already enforced above; the
+  // command only owns persistence and side effects.
   const commandBus = container.resolve('commandBus') as CommandBus
   await commandBus.execute<InteractionUpdateInput, { interactionId: string }>(
     'customers.interactions.update',
@@ -169,7 +146,9 @@ export async function PATCH(req: Request, context: RouteContext): Promise<Respon
       nextVisibility: body.visibility,
       authorUserId: interaction.authorUserId ?? null,
       actorUserId: auth.sub,
-      adminBypass: !isAuthor && isAdmin,
+      // v1: strict owner-only — only the author reaches this point, so a
+      // visibility change is never an admin bypass.
+      adminBypass: false,
       tenantId: auth.tenantId,
       organizationId,
     })

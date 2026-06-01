@@ -5,7 +5,7 @@ import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import { findOneWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import { CommunicationChannel } from '../../../../../data/entities'
-import { ChannelAccessDeniedError, assertCanAccessChannel } from '../../../../../lib/access-control'
+import { ChannelAccessDeniedError, assertCanManageChannel } from '../../../../../lib/access-control'
 import { COMMUNICATION_CHANNELS_QUEUES, getCommunicationChannelsQueue } from '../../../../../lib/queue'
 import type { PollChannelJobPayload } from '../../../../../workers/poll-channel'
 import { validateRouteMutationGuard } from '../../../../../lib/route-mutation-guard'
@@ -20,8 +20,11 @@ type RbacServiceLike = {
 export const metadata = {
   path: '/communication_channels/channels/[id]/poll-now',
   POST: {
+    // Owner self-service: a user may sync their OWN mailbox (gated by
+    // `connect_user_channel`). Polling a shared/tenant-wide channel still
+    // requires `manage` — enforced per channel type by `assertCanManageChannel`.
     requireAuth: true,
-    requireFeatures: ['communication_channels.manage'],
+    requireFeatures: ['communication_channels.connect_user_channel'],
   },
 }
 
@@ -82,10 +85,11 @@ export async function POST(req: Request, context: RouteContext): Promise<Respons
     userFeatures = []
   }
   try {
-    assertCanAccessChannel(
+    assertCanManageChannel(
       { userId: (channel as { userId?: string | null }).userId },
       auth.sub as string,
       userFeatures,
+      'communication_channels.manage',
     )
   } catch (err) {
     if (err instanceof ChannelAccessDeniedError) {

@@ -80,7 +80,7 @@ These exported types are consumed by module developers. Required fields MUST NOT
 - `AiAgentOverridesMap` / `AiToolOverridesMap`: `Record<string, AiAgentDefinition | null>` and `Record<string, AiToolDefinition | null>` semantics are STABLE; `null` means disable
 - `ModuleOverrides`: `overrides.ai.agents`, `overrides.ai.tools`, and `overrides.ai.extensions` shapes are STABLE; other domain keys are reserved by the unified override contract and may be wired additively
 - `WorkerMeta`: `queue` — MUST NOT remove
-- `RefreshCredentialsInput` (communication_channels hub): `channelId`, `credentials`, `scope` — MUST NOT remove. `oauthClient?` was added 2026-05-27 as an additive optional field (see [Spec A](.ai/specs/2026-05-27-oauth-refresh-credentials-client-wiring-fix.md)). The legacy `credentials._client` read path in Gmail and Microsoft adapters is **deprecated and slated for removal in the next minor release** — pass OAuth client config via `RefreshCredentialsInput.oauthClient` instead.
+- `RefreshCredentialsInput` (communication_channels hub): `channelId`, `credentials`, `scope` — MUST NOT remove. `oauthClient?` was added 2026-05-27 as an additive optional field (see [Spec A](.ai/specs/2026-05-27-email-integration-inbound-reliability-and-threading.md)). The legacy `credentials._client` read path in Gmail and Microsoft adapters is **deprecated and slated for removal in the next minor release** — pass OAuth client config via `RefreshCredentialsInput.oauthClient` instead.
 - `OAuthClientConfig` (communication_channels hub): added 2026-05-27 with `clientId` required; optional `clientSecret`, `tenantId`, `scopes`. New optional fields may be added; required `clientId` MUST NOT be removed.
 
 ### 3. Function Signatures (STABLE)
@@ -284,7 +284,7 @@ Files in `apps/mercato/.mercato/generated/` are produced by the CLI generators. 
 
 ## Spec C — Provider Push Delivery (2026-05-27)
 
-`.ai/specs/2026-05-27-email-integration-provider-push-delivery.md` extends the communication-channels module with provider push delivery. **All changes are additive** and pass the contract-surface checks above:
+`.ai/specs/2026-05-27-email-integration-inbound-reliability-and-threading.md` extends the communication-channels module with provider push delivery. **All changes are additive** and pass the contract-surface checks above:
 
 | Surface | Change | Classification |
 |---------|--------|----------------|

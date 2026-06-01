@@ -6,7 +6,7 @@ import type { CommandBus } from '@open-mercato/shared/lib/commands'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import { findOneWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import { CommunicationChannel } from '../../../../data/entities'
-import { ChannelAccessDeniedError, assertCanAccessChannel } from '../../../../lib/access-control'
+import { ChannelAccessDeniedError, assertCanManageChannel } from '../../../../lib/access-control'
 import {
   COMMUNICATION_CHANNELS_DELETE_CHANNEL_COMMAND_ID,
   type DeleteChannelInput,
@@ -33,8 +33,12 @@ type RbacServiceLike = {
 export const metadata = {
   path: '/communication_channels/channels/[id]',
   DELETE: {
+    // Owner self-service: a user may disconnect their OWN personal mailbox
+    // (gated by `connect_user_channel`). Deleting a shared/tenant-wide channel
+    // still requires `manage` — enforced per channel type by
+    // `assertCanManageChannel` in the handler.
     requireAuth: true,
-    requireFeatures: ['communication_channels.manage'],
+    requireFeatures: ['communication_channels.connect_user_channel'],
   },
 }
 
@@ -86,10 +90,11 @@ export async function DELETE(req: Request, context: RouteContext): Promise<Respo
     userFeatures = []
   }
   try {
-    assertCanAccessChannel(
+    assertCanManageChannel(
       { userId: (channel as { userId?: string | null }).userId },
       auth.sub as string,
       userFeatures,
+      'communication_channels.manage',
     )
   } catch (err) {
     if (err instanceof ChannelAccessDeniedError) {

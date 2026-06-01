@@ -151,29 +151,30 @@ describe('buildPersonEmailThreads', () => {
     expect(outbound.references).toEqual(['<a1@example.com>'])
   })
 
-  it('applies the private-email visibility filter for non-admin viewers', async () => {
+  it('scopes threads to the viewer\'s own + ownerless rows (v1 strict owner-only)', async () => {
     mockHubReads(interactions)
     await buildPersonEmailThreads({} as never, { ...baseOpts, userFeatures: [] })
     const where = interactionWhere()!
-    expect(Array.isArray(where.$or)).toBe(true)
-    expect(where.$or).toContainEqual({ authorUserId: 'u1' })
+    // A viewer sees ONLY their own mailbox's emails plus ownerless shared/system
+    // rows — never another user's personal threads.
+    expect(where.$or).toEqual([{ authorUserId: 'u1' }, { authorUserId: null }])
   })
 
-  it('keeps the private-email filter fail-closed for a null viewer (API-key caller)', async () => {
+  it('keeps the threads fail-closed for a null viewer (API-key caller)', async () => {
     mockHubReads(interactions)
     await buildPersonEmailThreads({} as never, { ...baseOpts, viewerUserId: null, userFeatures: [] })
     const where = interactionWhere()!
-    expect(Array.isArray(where.$or)).toBe(true)
-    // A null viewer must not gain an author-bypass clause, so it can never
-    // unlock another user's private email in the threads read model.
-    expect(where.$or).not.toContainEqual({ authorUserId: 'u1' })
-    expect((where.$or as Array<Record<string, unknown>>).every((clause) => !('authorUserId' in clause))).toBe(true)
+    // A null viewer gets NO per-user clause, so it can only ever match ownerless
+    // shared/system rows — never any user's personal email.
+    expect(where.$or).toEqual([{ authorUserId: null }])
   })
 
-  it('skips the visibility filter for admins with the view_private wildcard', async () => {
+  it('applies the same strict owner filter for admins — no bypass (v1)', async () => {
     mockHubReads(interactions)
     await buildPersonEmailThreads({} as never, { ...baseOpts, userFeatures: ['customers.*'] })
-    expect(interactionWhere()?.$or).toBeUndefined()
+    const where = interactionWhere()!
+    // Personal mailbox privacy v1 — even a superadmin sees only their own + ownerless.
+    expect(where.$or).toEqual([{ authorUserId: 'u1' }, { authorUserId: null }])
   })
 
   it('returns an empty list when the person has no email interactions', async () => {

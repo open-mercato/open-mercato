@@ -449,7 +449,7 @@ export interface ExchangeOAuthCodeResult {
  * tenantId from this field on `RefreshCredentialsInput`. Adapters without
  * OAuth refresh (IMAP, WhatsApp Business API) ignore it.
  *
- * See `.ai/specs/2026-05-27-oauth-refresh-credentials-client-wiring-fix.md`.
+ * See `.ai/specs/2026-05-27-email-integration-inbound-reliability-and-threading.md`.
  */
 export interface OAuthClientConfig {
   clientId: string

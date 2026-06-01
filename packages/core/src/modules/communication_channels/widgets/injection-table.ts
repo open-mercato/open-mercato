@@ -34,6 +34,14 @@ export const injectionTable: ModuleInjectionTable = {
       priority: 100,
     },
   ],
+  // Profile dropdown (top-right avatar): a discoverable entry to the per-user
+  // channel-connect page, placed directly under "Change Password".
+  'menu:topbar:profile-dropdown': [
+    {
+      widgetId: 'communication_channels.injection.profile-channels-menu',
+      priority: 100,
+    },
+  ],
 }
 
 export default injectionTable

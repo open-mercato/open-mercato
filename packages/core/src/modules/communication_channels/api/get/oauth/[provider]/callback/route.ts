@@ -5,6 +5,7 @@ import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import { createConnectedChannelRow } from '../../../../../lib/connect-channel'
 import { getChannelAdapter } from '../../../../../lib/adapter-registry-singleton'
+import { resolveOAuthClientCredentials } from '../../../../../lib/oauth-client-config'
 import {
   COMMUNICATION_CHANNELS_OAUTH_STATE_COOKIE_NAME,
   DEFAULT_OAUTH_RETURN_URL,
@@ -141,17 +142,20 @@ export async function GET(req: Request, context: RouteContext): Promise<Response
       return null
     }
   })()
-  let oauthClientCredentials: Record<string, unknown> = {}
-  if (credentialsService) {
-    try {
-      oauthClientCredentials =
-        (await credentialsService.resolve(`oauth_${provider}`, {
-          tenantId: statePayload.tenantId,
-          organizationId: statePayload.organizationId ?? statePayload.tenantId,
-        })) ?? {}
-    } catch {
-      oauthClientCredentials = {}
-    }
+  // Resolve the tenant's OAuth client app config from the `channel_<provider>`
+  // integration (userId = null). Same source the `initiate` route uses; a
+  // missing row means the provider was never configured, so bounce back with an
+  // actionable code rather than attempting an exchange with empty credentials.
+  const oauthClientCredentials = await resolveOAuthClientCredentials(credentialsService, provider, {
+    tenantId: statePayload.tenantId,
+    organizationId: statePayload.organizationId ?? null,
+  })
+  if (!oauthClientCredentials) {
+    return redirectWithFlash(req, returnUrl, {
+      type: 'error',
+      code: 'oauth_client_not_configured',
+      provider,
+    })
   }
 
   // Must byte-for-byte match the redirect_uri sent at authorize time (the

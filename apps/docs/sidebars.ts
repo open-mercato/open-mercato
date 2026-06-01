@@ -118,6 +118,15 @@ const sidebars: SidebarsConfig = {
           items: [
             "user-guide/integrations",
             "user-guide/webhooks",
+            {
+              type: "category",
+              label: "Email (Communication Channels)",
+              link: { type: "doc", id: "user-guide/communication-channels" },
+              items: [
+                "user-guide/communication-channels-gmail",
+                "user-guide/communication-channels-imap",
+              ],
+            },
             "user-guide/akeneo-pim",
             "user-guide/checkout",
             "user-guide/stripe-payments",

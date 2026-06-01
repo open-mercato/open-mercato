@@ -368,7 +368,7 @@ Tick interval is configurable via `OM_HUB_POLL_SCHEDULER_TICK_SECONDS` (default 
 - `POST /api/communication_channels/oauth/[provider]/initiate` — returns `{ authorizeUrl }` after setting state cookie. Adapter provides `buildAuthorizeUrl()`.
 
 #### Delta 8 — Per-user channel ACL gates
-- Existing hub features (`communication_channels.view`, `communication_channels.manage`, `communication_channels.admin`) are extended at the **service layer** (not feature-ID layer) to enforce: a non-admin can only `view`/`manage` channels where `user_id = currentUser.id OR user_id IS NULL`.
+- **v1 (strict owner-only, updated 2026-06-01):** a personal channel (`user_id` set) is **fully controlled by its owner** — connect, disconnect, set-primary, poll-now, import-history, register-push — gated by `communication_channels.connect_user_channel` (held by every email user) and enforced per channel type by `assertCanManageChannel`. `communication_channels.admin` grants **no** cross-user bypass. Managing a tenant-wide / shared channel still requires the elevated feature (`manage` / `channel.push.manage` / `channel.import_history`). The admin channels list (`GET /api/communication_channels/channels`) returns `user_id IS NULL` rows only; personal mailboxes surface exclusively on the profile page. See **Per-user privacy & visibility model (v1)** for the full record. (Superseded prior text: "a non-admin can only view/manage channels where `user_id = currentUser.id OR user_id IS NULL`", which both allowed admins to see all per-user channels AND gated owner self-service behind `manage`, which employees lack.)
 - New feature ID `communication_channels.connect_user_channel` (default-granted to all roles via `setup.ts`) gates the per-user "Connect My Account" flow. This is split from `manage` so policy can disable new linking while preserving existing accounts.
 
 #### Delta 9 — Notification type `channel_requires_reauth`
@@ -534,10 +534,88 @@ UMES coverage check:
 - **No HTML email rendering in raw `dangerouslySetInnerHTML` paths.** Inbound HTML stored verbatim in `MessageChannelLink.channelPayload`. **Canonical sanitizer location**: `packages/core/src/modules/communication_channels/lib/sanitize-channel-html.ts` (lives in the hub; ships as part of SPEC-045d delivery). The Messages module's rich-content renderer **imports** this helper at the call site (in the `messages:thread:detail:rich-content` widget injection). The hub owns the function; the Messages module owns the call site. Hub helper uses DOMPurify (or equivalent) with an allowlist tuned for email (`<a>`, `<img>`, `<table>`, `<tbody>`, `<tr>`, `<td>`, `<p>`, `<br>`, `<ul>`, `<ol>`, `<li>`, `<strong>`, `<em>`, `<blockquote>`; strips `<script>`, event-handler attributes, `javascript:` and `data:` URLs except `data:image/*`). Email is the first channel shipping HTML payloads — if SPEC-045d delivery does not include this sanitizer, **Phase 1 of this spec cannot ship** and the gap is escalated back to the hub's spec/PR.
 - **OAuth state-cookie**: AES-256-GCM encryption, HKDF key derivation, HttpOnly + SameSite=Lax cookie, 5-minute TTL, `userId` bound (callback rejects if `currentSession.userId !== state.userId`). Forgery requires the encryption key (KMS-managed).
 - **Credential storage**: hub's `integration_credentials` with field-level encryption (existing pipeline; no per-provider crypto). New `user_id` column isolates per-user secrets at the row level.
-- **Per-user channel privacy**: dual enforcement (SQL-level filter on every CRUD route + UMES API interceptor at response layer). Defense in depth.
+- **Per-user channel privacy** (v1 strict owner-only, updated 2026-06-01): personal mailboxes and their CRM email threads are visible to the owner only — admins included. The admin channels list is restricted to `user_id IS NULL`; `assertCanAccessChannel` grants no admin bypass on personal channels; the Person-page threads scope to `author_user_id = viewer`; the email-visibility filters drop the admin bypass. See **Per-user privacy & visibility model (v1)**.
 - **Credential-key rejection in logs**: hub's `EmailHealthLog` Zod validator (already present in SPEC-045d's design) rejects any context key matching `/^(credential|password|token|secret|access[_-]?token|refresh[_-]?token)/i`. Worker error handlers strip such keys from caught exceptions before logging.
 - **URL construction**: all OAuth authorize URLs built via `URLSearchParams`. Provider-base URLs validated against an allowlist (Google, Microsoft) — IMAP host/port validated as DNS-resolvable + numeric in range (lesson "Provider credentials must never control authenticated cross-origin requests").
 - **Parameterized queries**: all DB access via MikroORM repository methods or query builder; no raw SQL interpolation in route handlers (lesson "Keep raw SQL out of API route handlers").
+
+### Per-user privacy & visibility model (v1 — strict owner-only)
+
+> Added 2026-06-01. Authoritative record of how personal-mailbox privacy is
+> enforced. v1 chooses **strict owner-only**: a user's connected personal mailbox
+> and its email threads are visible to that user **and no one else — not even an
+> admin or superadmin**. Team oversight is deliberately deferred to v2 (below).
+
+**Channel ownership.** `CommunicationChannel.user_id` distinguishes a *personal
+mailbox* (`user_id` set — Jane's Gmail) from a *shared / tenant-wide channel*
+(`user_id IS NULL` — a WhatsApp Business number, a shared support inbox, a Slack
+workspace).
+
+**Where personal mailboxes appear.**
+- **Profile page** `/backend/profile/communication-channels` → `GET /api/communication_channels/me/channels`, filtered strictly to `user_id = currentUser.id`. Owners manage their own mailboxes here.
+- **Admin page** `/backend/communication_channels/channels` → `GET /api/communication_channels/channels`, filtered to **`user_id IS NULL` only**. It lists shared / system channels exclusively; personal mailboxes never appear here for any role. This removes the "same email shows in both places" overlap and any cross-user channel exposure.
+
+**Per-channel management — owners have full control of their own accounts**
+(`assertCanManageChannel`). A user can disconnect, set-primary, poll-now,
+import-history, and register-push on **their own personal mailbox**, gated by
+`communication_channels.connect_user_channel` (every email user holds it — the
+same feature that lets them connect). A personal channel (`user_id` set) may be
+acted on **only by its owner**; admin grants do **not** bypass this. Managing a
+**tenant-wide / shared** channel (`user_id IS NULL`, e.g. WhatsApp Business /
+Slack) still requires the route's elevated feature
+(`communication_channels.manage`, `…channel.push.manage`, or
+`…channel.import_history`) — enforced per channel type inside
+`assertCanManageChannel`. Read-only routes (channel detail, health) keep their
+`view` gate plus the owner check (`assertCanAccessChannel`).
+
+**CRM email threads on the Person page** (`GET /api/customers/people/[id]/email-threads`,
+`customers/lib/personEmailThreads.ts`). A viewer sees **only their own** threads
+with that person — email interactions where `author_user_id = viewerUserId` —
+plus ownerless shared/system rows (`author_user_id IS NULL`). Fail-closed: an
+email whose author cannot be established stays hidden. No admin bypass.
+
+**Interaction visibility flag.** Email interactions are created (in
+`customers/lib/link-channel-message-handler.ts`) with `author_user_id =
+channel.user_id` (the mailbox owner) and `visibility = 'private'` for personal
+channels (`'shared'` for tenant-wide). The shared visibility filters
+(`applyEmailVisibilityFilter` / `buildEmailVisibilityMikroFilter`, used by the
+interactions list, counts, activities timeline, and person/company detail) hide
+`private` emails from everyone except their author — **with no admin bypass in
+v1**. Only the author may flip their own email's visibility
+(`PATCH /api/customers/interactions/[id]/visibility`).
+
+**Inert-in-v1 features.** `customers.email.view_private` stays *declared* but
+grants no read/write bypass in v1; likewise `communication_channels.admin` no
+longer grants a cross-user channel view. Both are the hooks the v2 oversight
+feature will re-activate.
+
+**v2 — oversight (out of scope here).** A future, explicit, audited oversight
+capability may let a manager/admin view team mailboxes and threads. Shipping the
+strictest model first means turning oversight *on* later is an additive, visible
+decision rather than a default users never opted into.
+
+### OAuth client-credential resolution
+
+> Clarified 2026-06-01.
+
+The tenant's OAuth **client application** config (clientId / clientSecret /
+scopes) is stored on the provider's own integration row — `channel_<provider>`
+(e.g. `channel_gmail`) at **tenant scope** (`user_id = NULL`) — exactly the row
+an admin edits under `/backend/integrations` and the row the provider health
+check reads. The per-user OAuth **tokens** persist under the **same**
+`channel_<provider>` id at **user scope** (`user_id` set); the two are
+distinguished by scope and never collide.
+
+All OAuth code paths (authorize-initiate, code-exchange callback, token refresh)
+resolve the client config via `resolveOAuthClientCredentials()`
+(`communication_channels/lib/oauth-client-config.ts`) at tenant scope, with an
+organization-agnostic (`organization_id IS NULL`) fallback so one platform /
+tenant OAuth app serves every organization. There is **no** separate
+`oauth_<provider>` integration id — earlier code read that phantom id (which
+nothing ever writes), so connect/refresh failed with "expected string, received
+undefined" even while the integration showed configured and healthy. When the
+client config is genuinely absent the connect flow returns an actionable
+`oauth_client_not_configured` error instead of a cryptic schema failure.
 
 ### Access Control (extends SPEC-045d's `acl.ts`)
 
@@ -772,11 +850,8 @@ Translations via `useT()` client-side, `resolveTranslations()` server-side.
 - Pagination: `pageSize ≤ 100`.
 
 ### Admin: `/backend/communication_channels/channels` (existing hub page, no new route)
-- Hub's existing channels list page already shows tenant channels. This spec adds:
-  - A filter "Show user-owned channels: yes / no / all" via UMES filter injection.
-  - A column "Owner" showing user display name when `user_id IS NOT NULL`.
-  - Aggregate card: total connected, requires_reauth count, error count, accounts per provider.
-- Per-provider OAuth client config injected into the integrations admin page (`/backend/integrations`) via UMES widget at `admin.page:integrations:<provider>:config`. Each provider package owns its config form. IMAP omits OAuth and shows only an "enabled per tenant" toggle.
+- **v1 (updated 2026-06-01):** this page lists **shared / tenant-wide channels only** (`user_id IS NULL` — WhatsApp Business, shared inboxes, Slack workspaces). Personal email mailboxes (`user_id` set) are **never** shown here; they live exclusively on the profile page and are private to their owner. (Superseded prior plan: an "Owner" column + "show user-owned channels" filter that surfaced per-user mailboxes to admins — dropped under v1 strict owner-only.) The aggregate card (total connected, requires_reauth, error counts) covers the shared channels in view.
+- Per-provider OAuth client config is configured under `/backend/integrations` on the provider's `channel_<provider>` integration (stored at tenant scope, `user_id = NULL`). Each provider package owns its config form. IMAP omits OAuth and shows only an "enabled per tenant" toggle.
 
 ### Unified inbox: `/backend/messages` (existing Messages page, no new route)
 - The hub's bridge already creates Message records for inbound external messages. Email messages render alongside WhatsApp/Slack/etc. with appropriate channel-type badge + provider icon (via UMES widget injection at `data-table:messages:columns`).
@@ -1203,6 +1278,16 @@ None.
 - **Fully compliant with hub + UMES + AGENTS.md**. Approved for implementation.
 
 ## Changelog
+
+### 2026-06-01 — Per-user privacy hardening (v1 strict owner-only) + OAuth client-credential resolution fix
+
+Records the decisions and fixes from the post-PoC privacy/OAuth review (new **Per-user privacy & visibility model (v1)** and **OAuth client-credential resolution** sections; Delta 8, Security Posture, and the Admin-page UX updated accordingly).
+
+- **v1 = strict owner-only.** Personal mailboxes and their CRM email threads are visible to the owner only — not even admins/superadmins. The admin channels list (`GET /api/communication_channels/channels`) is restricted to `user_id IS NULL`; `assertCanAccessChannel` drops the admin bypass on personal channels; `personEmailThreads.ts` scopes to `author_user_id = viewer` (fail-closed); `applyEmailVisibilityFilter` / `buildEmailVisibilityMikroFilter` and the visibility-change gate drop the admin bypass. `customers.email.view_private` and `communication_channels.admin`'s cross-user view are reserved, inert, for v2 oversight.
+- **Owners fully control their own mailboxes.** The profile page gained a **Disconnect** action (confirm dialog → `DELETE /channels/[id]`), and the per-channel management routes (disconnect, set-primary, poll-now, import-history, push-register) now gate on `communication_channels.connect_user_channel` + the new `assertCanManageChannel` — owner-only for personal channels (no admin bypass), while tenant-wide/shared channels still require `manage` / `channel.push.manage` / `channel.import_history`. This fixes the earlier gap where self-service was gated behind `manage`, which regular employees lack, so they couldn't even remove their own account.
+- **Gmail/Microsoft connect + refresh fixed.** OAuth client credentials are resolved from the provider's `channel_<provider>` integration at tenant scope (with org-agnostic fallback) via `resolveOAuthClientCredentials()`, not the phantom `oauth_<provider>` id every code path previously read. Missing client config now returns an actionable `oauth_client_not_configured` error instead of "expected string, received undefined". Detail in the consolidated follow-up spec [`2026-05-27-email-integration-inbound-reliability-and-threading.md`](2026-05-27-email-integration-inbound-reliability-and-threading.md) (§ OAuth client-credential wiring).
+- **Tests:** new `lib/__tests__/oauth-client-config.test.ts`; updated `access-control`, `visibilityFilter`, `personEmailThreads`, `credential-refresh`, visibility-route authz, and `TC-CRM-EMAIL-006` to assert the v1 (no-bypass) behavior. Full core suite green.
+- **User documentation:** added admin setup guides `apps/docs/docs/user-guide/communication-channels-gmail.mdx` (Google Cloud OAuth app → register in Open Mercato → connect → optional Cloud Pub/Sub push with topic / publisher grant / service-account subscription / `OM_GMAIL_PUBSUB_*` env + ngrok for local dev) and `…-imap.mdx` (IMAP/SMTP host/port/TLS fields, app passwords, common provider settings), wired into the docs sidebar under *Integrations & Payments → Email*; reframed the end-user `communication-channels.mdx` to scope this release to Gmail + IMAP (Microsoft 365 deferred). Docs build clean (`onBrokenLinks: throw`).
 
 ### 2026-05-31 — Test-coverage reconciliation (code review)
 

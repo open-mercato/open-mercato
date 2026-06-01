@@ -6,7 +6,7 @@ import { flash } from '@open-mercato/ui/backend/FlashMessages'
 import { useGuardedMutation } from '@open-mercato/ui/backend/injection/useGuardedMutation'
 import { apiCall } from '@open-mercato/ui/backend/utils/apiCall'
 
-type InitiateResponse = { authorizeUrl?: string; error?: string }
+type InitiateResponse = { authorizeUrl?: string; error?: string; code?: string }
 
 /**
  * Shared OAuth "connect" flow for email channel provider widgets (Gmail,
@@ -46,6 +46,16 @@ export function useConnectChannel(options: {
       })
       const body = response.result as InitiateResponse | undefined
       if (!response.ok || !body?.authorizeUrl) {
+        if (body?.code === 'oauth_client_not_configured') {
+          flash(
+            t(
+              'communication_channels.profile.connect.notConfigured',
+              'This provider is not configured yet. Ask an administrator to add the OAuth Client ID and Secret under Integrations before connecting a mailbox.',
+            ),
+            'error',
+          )
+          return
+        }
         flash(
           body?.error ??
             t('communication_channels.profile.connect.oauthFailed', 'Could not start OAuth connection.'),

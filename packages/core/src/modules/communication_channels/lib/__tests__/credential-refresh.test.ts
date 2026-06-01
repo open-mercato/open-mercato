@@ -167,17 +167,20 @@ describe('refreshCredentialsIfNeeded', () => {
     )
   })
 
-  // Spec A regression coverage — the helper MUST resolve the tenant's
-  // OAuth client config from `oauth_<provider>` and pass it to the adapter
-  // via `RefreshCredentialsInput.oauthClient`. Without this wiring, Gmail
-  // and Microsoft adapters silently fail to refresh past the ~1h token
-  // mark in production while unit tests cheat by pre-packing `_client`.
+  // Spec A regression coverage — the helper MUST resolve the tenant's OAuth
+  // client config from the `channel_<provider>` integration at TENANT scope
+  // (userId = null) and pass it to the adapter via
+  // `RefreshCredentialsInput.oauthClient`. The client app config lives under the
+  // SAME `channel_<provider>` id the admin configures in the Integrations UI;
+  // the per-user row (userId set) holds the user's tokens, not the app creds.
+  // Earlier code read a phantom `oauth_<provider>` id that nothing ever writes,
+  // so refresh silently failed past the ~1h token mark in production.
   describe('OAuth client resolution (Spec A)', () => {
-    it('resolves tenant oauth_<provider> credentials even when refreshing a per-user channel', async () => {
+    it('resolves tenant channel_<provider> credentials (userId=null) even when refreshing a per-user channel', async () => {
       const refresh = jest.fn(async () => ({ credentials: { accessToken: 'b' } }))
       const adapter = makeAdapter(refresh)
       const resolve = jest.fn(async (integrationId: string) => {
-        if (integrationId === 'oauth_test') {
+        if (integrationId === 'channel_test') {
           return {
             clientId: 'gmail-client-id',
             clientSecret: 'gmail-secret',
@@ -198,7 +201,9 @@ describe('refreshCredentialsIfNeeded', () => {
         },
         { credentialsService: { resolve } },
       )
-      expect(resolve).toHaveBeenCalledWith('oauth_test', scope)
+      // Resolved at TENANT scope (userId forced to null), NOT the channel's
+      // per-user scope, so the lookup hits the admin's client-app row.
+      expect(resolve).toHaveBeenCalledWith('channel_test', { ...scope, userId: null })
       expect(refresh).toHaveBeenCalledTimes(1)
       const refreshArg = refresh.mock.calls[0][0]
       expect(refreshArg.scope).toEqual(userScope)
@@ -209,7 +214,7 @@ describe('refreshCredentialsIfNeeded', () => {
       })
     })
 
-    it('passes oauthClient=undefined when the oauth_<provider> row does not exist', async () => {
+    it('passes oauthClient=undefined when the channel_<provider> client row does not exist', async () => {
       const refresh = jest.fn(async () => ({ credentials: { accessToken: 'b' } }))
       const adapter = makeAdapter(refresh)
       const resolve = jest.fn(async () => null)

@@ -7,11 +7,12 @@ description: Connect your personal Gmail, Microsoft 365 / Outlook, or IMAP+SMTP 
 
 Connect a personal mailbox to Open Mercato so the messages you send through the app go out under **your** real email address and replies land in the unified inbox alongside Slack, WhatsApp, and other channels.
 
-Three providers ship today:
+This release ships two providers:
 
-- **Gmail** (personal + Google Workspace)
-- **Microsoft 365 / Outlook**
-- **IMAP + SMTP** (Fastmail, Proton Bridge, generic providers, on-prem mail servers)
+- **Gmail** (personal + Google Workspace) — administrators: see **[Set up Gmail](communication-channels-gmail.mdx)** for the one-time OAuth (and optional Pub/Sub push) setup
+- **IMAP + SMTP** (Fastmail, iCloud, generic providers, on-prem mail servers) — see **[Set up IMAP + SMTP](communication-channels-imap.mdx)**
+
+Microsoft 365 / Outlook is planned for a future release.
 
 ## When to use this vs Inbox Ops
 
@@ -45,12 +46,7 @@ The first poll runs within five minutes. New mail in your **inbox** label is syn
 
 #### Microsoft 365 / Outlook
 
-1. Click **Connect Microsoft 365**.
-2. Microsoft opens its OAuth consent screen.
-3. If your admin requires admin consent for the requested scopes, you'll see a banner — ask your IT admin to approve the app in Azure AD; you can return and click Connect again once approved.
-4. Accept the consent screen. You return to the profile page; your Microsoft address appears as the new channel.
-
-The first poll runs within five minutes. Open Mercato uses Microsoft Graph's **delta query** on your Inbox folder, so only changes since the last poll are fetched.
+Planned for a future release — the native Microsoft connector isn't available yet. In the meantime an Outlook.com / Microsoft 365 mailbox can be connected through **[IMAP + SMTP](communication-channels-imap.mdx)** using an app password.
 
 #### IMAP + SMTP
 

@@ -46,6 +46,7 @@ type ChannelRow = {
 
 const PROFILE_CHANNELS_MUTATION_CONTEXT_ID = 'communication-channels-profile'
 const IMPORT_HISTORY_MUTATION_CONTEXT_ID = 'communication-channels-import-history'
+const DISCONNECT_MUTATION_CONTEXT_ID = 'communication-channels-disconnect'
 
 type ChannelMutationContext = {
   formId: string
@@ -67,6 +68,7 @@ export default function ProfileCommunicationChannelsPage() {
   const [errorMessage, setErrorMessage] = React.useState<string | null>(null)
   const [reloadKey, setReloadKey] = React.useState(0)
   const [importChannel, setImportChannel] = React.useState<ChannelRow | null>(null)
+  const [disconnectChannel, setDisconnectChannel] = React.useState<ChannelRow | null>(null)
   const { runMutation, retryLastMutation } = useGuardedMutation<ChannelMutationContext>({
     contextId: PROFILE_CHANNELS_MUTATION_CONTEXT_ID,
     blockedMessage: t('ui.forms.flash.saveBlocked', 'Save blocked by validation'),
@@ -84,11 +86,16 @@ export default function ProfileCommunicationChannelsPage() {
       )
     } else if (flashType === 'error') {
       flash(
-        flashCode
-          ? t('communication_channels.profile.flash.errorWithCode', 'Failed to connect channel — {code}.', {
-              code: flashCode,
-            })
-          : t('communication_channels.profile.flash.error', 'Failed to connect channel.'),
+        flashCode === 'oauth_client_not_configured'
+          ? t(
+              'communication_channels.profile.connect.notConfigured',
+              'This provider is not configured yet. Ask an administrator to add the OAuth Client ID and Secret under Integrations before connecting a mailbox.',
+            )
+          : flashCode
+            ? t('communication_channels.profile.flash.errorWithCode', 'Failed to connect channel — {code}.', {
+                code: flashCode,
+              })
+            : t('communication_channels.profile.flash.error', 'Failed to connect channel.'),
         'error',
       )
     }
@@ -418,6 +425,24 @@ export default function ProfileCommunicationChannelsPage() {
           )
         },
       },
+      {
+        id: 'disconnect',
+        header: t('communication_channels.profile.columns.disconnect', 'Connection'),
+        cell: ({ row }) => {
+          const label = t('communication_channels.profile.actions.disconnect', 'Disconnect')
+          return (
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              onClick={() => setDisconnectChannel(row.original)}
+              aria-label={label}
+            >
+              {label}
+            </Button>
+          )
+        },
+      },
     ],
     [onSetPrimary, onPollNow, onRegisterPush, t],
   )
@@ -476,6 +501,14 @@ export default function ProfileCommunicationChannelsPage() {
           onQueued={() => {
             setImportChannel(null)
             router.refresh()
+          }}
+        />
+        <DisconnectChannelDialog
+          channel={disconnectChannel}
+          onClose={() => setDisconnectChannel(null)}
+          onDisconnected={() => {
+            setDisconnectChannel(null)
+            setReloadKey((k) => k + 1)
           }}
         />
       </PageBody>
@@ -715,6 +748,123 @@ function ImportHistoryDialog({ channel, onClose, onQueued }: ImportHistoryDialog
             {submitting
               ? t('communication_channels.profile.importHistory.submitting', 'Queueing…')
               : t('communication_channels.profile.importHistory.submit', 'Start import')}
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  )
+}
+
+type DisconnectChannelDialogProps = {
+  channel: ChannelRow | null
+  onClose: () => void
+  onDisconnected: () => void
+}
+
+function DisconnectChannelDialog({
+  channel,
+  onClose,
+  onDisconnected,
+}: DisconnectChannelDialogProps): React.JSX.Element {
+  const t = useT()
+  const [submitting, setSubmitting] = React.useState(false)
+  const { runMutation, retryLastMutation } = useGuardedMutation<ChannelMutationContext>({
+    contextId: DISCONNECT_MUTATION_CONTEXT_ID,
+    blockedMessage: t('ui.forms.flash.saveBlocked', 'Save blocked by validation'),
+  })
+
+  React.useEffect(() => {
+    if (channel) setSubmitting(false)
+  }, [channel?.id])
+
+  const handleConfirm = React.useCallback(async () => {
+    if (!channel || submitting) return
+    setSubmitting(true)
+    let response
+    try {
+      response = await runMutation({
+        operation: () => apiCall(
+          `/api/communication_channels/channels/${encodeURIComponent(channel.id)}`,
+          { method: 'DELETE' },
+        ),
+        context: {
+          formId: DISCONNECT_MUTATION_CONTEXT_ID,
+          resourceKind: 'communication_channels.channel',
+          resourceId: channel.id,
+          retryLastMutation,
+        },
+        mutationPayload: { action: 'disconnect' },
+      })
+    } catch (err) {
+      setSubmitting(false)
+      flash(
+        err instanceof Error
+          ? err.message
+          : t('communication_channels.profile.actions.disconnectFailed', 'Failed to disconnect channel'),
+        'error',
+      )
+      return
+    }
+    setSubmitting(false)
+    if (!response.ok) {
+      const body = response.result as { error?: string } | undefined
+      flash(
+        body?.error ??
+          t('communication_channels.profile.actions.disconnectFailed', 'Failed to disconnect channel'),
+        'error',
+      )
+      return
+    }
+    flash(
+      t(
+        'communication_channels.profile.actions.disconnectSuccess',
+        'Channel disconnected. You can reconnect it anytime.',
+      ),
+      'success',
+    )
+    onDisconnected()
+  }, [channel, submitting, runMutation, retryLastMutation, t, onDisconnected])
+
+  const handleKeyDown = React.useCallback(
+    (event: React.KeyboardEvent) => {
+      if (event.key === 'Enter' && (event.metaKey || event.ctrlKey)) {
+        event.preventDefault()
+        void handleConfirm()
+      }
+    },
+    [handleConfirm],
+  )
+
+  return (
+    <Dialog open={channel !== null} onOpenChange={(open) => { if (!open) onClose() }}>
+      <DialogContent onKeyDown={handleKeyDown}>
+        <DialogHeader>
+          <DialogTitle>
+            {t('communication_channels.profile.disconnect.title', 'Disconnect channel')}
+          </DialogTitle>
+          <DialogDescription>
+            {t(
+              'communication_channels.profile.disconnect.description',
+              'This removes the connection and stops syncing. Emails already imported stay on your timelines. You can reconnect anytime.',
+            )}
+          </DialogDescription>
+        </DialogHeader>
+
+        {channel ? (
+          <p className="text-sm font-medium">{channel.externalIdentifier ?? channel.displayName}</p>
+        ) : null}
+
+        <DialogFooter>
+          <span className="mr-auto text-xs text-muted-foreground">
+            <KbdShortcut keys={['⌘', 'Enter']} />
+          </span>
+          <Button type="button" variant="outline" onClick={onClose} disabled={submitting}>
+            {t('communication_channels.profile.disconnect.cancel', 'Cancel')}
+          </Button>
+          <Button type="button" variant="destructive" onClick={() => void handleConfirm()} disabled={submitting}>
+            {submitting
+              ? t('communication_channels.profile.disconnect.submitting', 'Disconnecting…')
+              : t('communication_channels.profile.disconnect.confirm', 'Disconnect')}
           </Button>
         </DialogFooter>
       </DialogContent>

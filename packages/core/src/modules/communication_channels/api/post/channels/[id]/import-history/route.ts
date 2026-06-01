@@ -6,7 +6,7 @@ import type { EntityManager } from '@mikro-orm/postgresql'
 import { findOneWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import type { CrudFormError } from '@open-mercato/ui/backend/utils/serverErrors'
 import { CommunicationChannel } from '../../../../../data/entities'
-import { ChannelAccessDeniedError, assertCanAccessChannel } from '../../../../../lib/access-control'
+import { ChannelAccessDeniedError, assertCanManageChannel } from '../../../../../lib/access-control'
 import {
   queueImportHistory,
   queueImportHistorySchema,
@@ -28,15 +28,16 @@ type RbacServiceLike = {
  * message through `ingest-inbound-message`, and reports progress on a
  * `ProgressJob` consumed by the existing ProgressTopBar.
  *
- * Per-user access guard: only the channel owner (or an admin with
- * `communication_channels.admin`) can trigger an import. The declarative
- * `requireFeatures` guard below adds the gating `import_history` feature.
+ * Owner self-service: a user may import history for their OWN mailbox (gated by
+ * `connect_user_channel`). Importing into a shared/tenant-wide channel still
+ * requires `communication_channels.channel.import_history` — enforced per
+ * channel type by `assertCanManageChannel` in the handler.
  */
 export const metadata = {
   path: '/communication_channels/channels/[id]/import-history',
   POST: {
     requireAuth: true,
-    requireFeatures: ['communication_channels.channel.import_history'],
+    requireFeatures: ['communication_channels.connect_user_channel'],
   },
 }
 
@@ -117,10 +118,11 @@ export async function POST(req: Request, context: RouteContext): Promise<Respons
     userFeatures = []
   }
   try {
-    assertCanAccessChannel(
+    assertCanManageChannel(
       { userId: (channel as { userId?: string | null }).userId },
       auth.sub as string,
       userFeatures,
+      'communication_channels.channel.import_history',
     )
   } catch (err) {
     if (err instanceof ChannelAccessDeniedError) {
