@@ -129,7 +129,6 @@ export async function PUT(req: Request) {
   if (parsed.data.mode === 'inherit') {
     if (record) {
       await em.remove(record).flush()
-      await em.flush()
     }
     return NextResponse.json({ ok: true, mode: 'inherit', widgetIds: [] })
   }
