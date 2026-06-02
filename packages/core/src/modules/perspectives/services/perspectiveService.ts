@@ -339,15 +339,23 @@ export async function saveRolePerspectives(
 
   const results: ResolvedRolePerspective[] = []
 
-  for (const roleId of input.roleIds) {
-    let record = await em.findOne(RolePerspective, {
-      roleId,
+  // Prefetch every matching role perspective in a single query, then index by role id
+  // so the loop resolves create/update without a lookup per role.
+  const recordByRole = new Map<string, RolePerspective>()
+  if (input.roleIds.length) {
+    const existingRecords = await em.find(RolePerspective, {
+      roleId: { $in: input.roleIds },
       tableId,
       tenantId,
       organizationId,
       name: input.name,
       deletedAt: null,
     })
+    for (const existing of existingRecords) recordByRole.set(existing.roleId, existing)
+  }
+
+  for (const roleId of input.roleIds) {
+    let record = recordByRole.get(roleId) ?? null
     if (!record) {
       record = em.create(RolePerspective, {
         roleId,
@@ -361,6 +369,7 @@ export async function saveRolePerspectives(
         updatedAt: now,
       })
       em.persist(record)
+      recordByRole.set(roleId, record)
     } else {
       record.settingsJson = input.settings
       record.updatedAt = now

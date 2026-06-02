@@ -711,7 +711,7 @@ describe('RecordLockService.emitIncomingChangesNotificationAfterMutation', () =>
         lockedByUserId: '40000000-0000-4000-8000-000000000001',
         lockedAt: new Date('2026-02-17T10:00:00.000Z'),
         baseActionLogId: '50000000-0000-4000-8000-000000000001',
-        expiresAt: new Date('2099-02-17T10:05:00.000Z'),
+        expiresAt: new Date(Date.now() + 86_400_000),
       }),
     ])
     serviceAny.findLatestActionLog = jest.fn().mockResolvedValue({
@@ -757,7 +757,7 @@ describe('RecordLockService.emitIncomingChangesNotificationAfterMutation', () =>
         lockedByUserId: '40000000-0000-4000-8000-000000000001',
         lockedAt: new Date('2026-02-17T10:00:00.000Z'),
         baseActionLogId: '50000000-0000-4000-8000-000000000001',
-        expiresAt: new Date('2099-02-17T10:05:00.000Z'),
+        expiresAt: new Date(Date.now() + 86_400_000),
       }),
     ])
     serviceAny.findLatestActionLog = jest.fn().mockResolvedValue({
@@ -804,7 +804,7 @@ describe('RecordLockService.emitIncomingChangesNotificationAfterMutation', () =>
         lockedByUserId: '40000000-0000-4000-8000-000000000001',
         lockedAt: new Date('2026-02-17T10:00:00.000Z'),
         baseActionLogId: '50000000-0000-4000-8000-000000000001',
-        expiresAt: new Date('2099-02-17T10:05:00.000Z'),
+        expiresAt: new Date(Date.now() + 86_400_000),
       }),
     ])
     serviceAny.findLatestActionLog = jest.fn().mockResolvedValue({
@@ -843,7 +843,7 @@ describe('RecordLockService.emitIncomingChangesNotificationAfterMutation', () =>
     em.find.mockResolvedValue([
       buildLock({
         lockedByUserId: '40000000-0000-4000-8000-000000000001',
-        expiresAt: new Date('2099-02-17T10:05:00.000Z'),
+        expiresAt: new Date(Date.now() + 86_400_000),
       }),
     ])
     serviceAny.findLatestActionLog = jest.fn().mockResolvedValue(null)
@@ -879,7 +879,7 @@ describe('RecordLockService.emitIncomingChangesNotificationAfterMutation', () =>
         buildLock({
           lockedByUserId: '40000000-0000-4000-8000-000000000001',
           organizationId: '70000000-0000-4000-8000-000000000099',
-          expiresAt: new Date('2099-02-17T10:05:00.000Z'),
+          expiresAt: new Date(Date.now() + 86_400_000),
         }),
       ])
 
@@ -934,7 +934,7 @@ describe('RecordLockService.emitIncomingChangesNotificationAfterMutation', () =>
         buildLock({
           lockedByUserId: '40000000-0000-4000-8000-000000000001',
           organizationId: '70000000-0000-4000-8000-000000000001',
-          expiresAt: new Date('2099-02-17T10:05:00.000Z'),
+          expiresAt: new Date(Date.now() + 86_400_000),
         }),
       ])
 
@@ -991,7 +991,7 @@ describe('RecordLockService.emitIncomingChangesNotificationAfterMutation', () =>
           status: 'released',
           lockedByUserId: '40000000-0000-4000-8000-000000000001',
           updatedAt: new Date('2026-02-17T10:04:30.000Z'),
-          expiresAt: new Date('2099-02-17T10:04:00.000Z'),
+          expiresAt: new Date(Date.now() + 86_400_000),
         }),
       ])
 
@@ -1048,7 +1048,7 @@ describe('RecordLockService.emitIncomingChangesNotificationAfterMutation', () =>
         status: 'force_released',
         lockedByUserId: '40000000-0000-4000-8000-000000000001',
         updatedAt: new Date('2026-02-17T10:04:30.000Z'),
-        expiresAt: new Date('2099-02-17T10:04:00.000Z'),
+        expiresAt: new Date(Date.now() + 86_400_000),
       }),
     ])
     serviceAny.findLatestActionLog = jest.fn().mockResolvedValue({
