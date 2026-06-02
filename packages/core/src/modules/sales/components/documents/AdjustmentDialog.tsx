@@ -717,8 +717,12 @@ export function AdjustmentDialog({
     ]
   )
 
+  const handleSubmitForm = React.useCallback(
+    () => dialogContentRef.current?.querySelector('form')?.requestSubmit(),
+    [],
+  )
   const handleKeyDown = useDialogKeyHandler({
-    onConfirm: () => dialogContentRef.current?.querySelector('form')?.requestSubmit(),
+    onConfirm: handleSubmitForm,
     onCancel: () => onOpenChange(false),
   })
 

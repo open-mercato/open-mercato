@@ -18,9 +18,9 @@ export function useDialogKeyHandler({ onConfirm, onCancel, disabled }: Options):
         }
         return
       }
-      if (event.key === 'Enter' && (event.metaKey || event.ctrlKey) && onConfirm) {
+      if (event.key === 'Enter' && (event.metaKey || event.ctrlKey) && onConfirm && !disabled) {
         event.preventDefault()
-        if (!disabled) onConfirm()
+        onConfirm()
       }
     },
     [disabled, onConfirm, onCancel],

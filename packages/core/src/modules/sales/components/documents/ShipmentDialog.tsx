@@ -1110,8 +1110,12 @@ export function ShipmentDialog({
     ],
   )
 
+  const handleSubmitForm = React.useCallback(
+    () => dialogContentRef.current?.querySelector('form')?.requestSubmit(),
+    [],
+  )
   const handleKeyDown = useDialogKeyHandler({
-    onConfirm: () => dialogContentRef.current?.querySelector('form')?.requestSubmit(),
+    onConfirm: handleSubmitForm,
     onCancel: onClose,
   })
 

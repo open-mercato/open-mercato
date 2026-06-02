@@ -40,6 +40,7 @@ export function ConfirmDealLostDialog({
   const [lossReasons, setLossReasons] = React.useState<LossReasonOption[]>([])
   const [reasonListOpen, setReasonListOpen] = React.useState(false)
   const [error, setError] = React.useState('')
+  const [isConfirming, setIsConfirming] = React.useState(false)
 
   React.useEffect(() => {
     if (!open) return
@@ -75,14 +76,20 @@ export function ConfirmDealLostDialog({
       setError(t('customers.deals.detail.lost.reasonRequired', 'Please select a loss reason'))
       return
     }
-    await onConfirm({
-      lossReasonId,
-      lossNotes: lossNotes.trim() || undefined,
-    })
+    setIsConfirming(true)
+    try {
+      await onConfirm({
+        lossReasonId,
+        lossNotes: lossNotes.trim() || undefined,
+      })
+    } finally {
+      setIsConfirming(false)
+    }
   }, [lossNotes, lossReasonId, onConfirm, t])
 
   const handleKeyDown = useDialogKeyHandler({
     onConfirm: () => void handleConfirm(),
+    disabled: isConfirming,
   })
 
   return (

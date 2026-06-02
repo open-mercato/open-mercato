@@ -40,13 +40,13 @@ describe('useDialogKeyHandler', () => {
     expect(event.preventDefault).toHaveBeenCalledTimes(1)
   })
 
-  it('prevents default but skips onConfirm when disabled', () => {
+  it('does not intercept at all when disabled — no preventDefault, no callback', () => {
     const onConfirm = jest.fn()
     const { result } = renderHook(() => useDialogKeyHandler({ onConfirm, disabled: true }))
     const event = makeEvent('Enter', { metaKey: true })
     result.current(event)
     expect(onConfirm).not.toHaveBeenCalled()
-    expect(event.preventDefault).toHaveBeenCalledTimes(1)
+    expect(event.preventDefault).not.toHaveBeenCalled()
   })
 
   it('does not prevent default on Escape when onCancel is omitted', () => {

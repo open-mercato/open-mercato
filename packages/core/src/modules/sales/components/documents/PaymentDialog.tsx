@@ -553,8 +553,12 @@ export function PaymentDialog({
     [currencyCode, mode, onOpenChange, onSaved, orderId, organizationId, payment?.id, t, tenantId]
   )
 
+  const handleSubmitForm = React.useCallback(
+    () => dialogContentRef.current?.querySelector('form')?.requestSubmit(),
+    [],
+  )
   const handleKeyDown = useDialogKeyHandler({
-    onConfirm: () => dialogContentRef.current?.querySelector('form')?.requestSubmit(),
+    onConfirm: handleSubmitForm,
     onCancel: () => onOpenChange(false),
   })
 
