@@ -13,9 +13,14 @@ export const features = [
    */
   { id: 'communication_channels.connect_user_channel', title: 'Connect own communication channel', module: 'communication_channels' },
   /**
-   * Admin-only — view all per-user channels across the tenant, including those
-   * owned by other users. Used by the admin channels list page to surface owner
-   * information. Granted to `superadmin` + `admin` only.
+   * Reserved for a future v2 team-oversight capability. NOT consulted in v1:
+   * personal mailboxes (`CommunicationChannel.user_id` set) follow the strict
+   * owner-only privacy model, so this feature grants NO cross-user channel view.
+   * The admin channels list (`GET /api/communication_channels/channels`) returns
+   * `user_id IS NULL` rows only; personal mailboxes surface exclusively on the
+   * owner's profile page and are never exposed to admins/superadmins in v1.
+   * Granted to `superadmin` + `admin` only so the inert grant is in place ahead
+   * of the audited v2 oversight feature that will re-activate it.
    */
   { id: 'communication_channels.admin', title: 'Administer all communication channels (tenant-wide)', module: 'communication_channels' },
   /**

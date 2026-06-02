@@ -1,3 +1,5 @@
+import path from 'node:path'
+import { config as loadEnv } from 'dotenv'
 import { expect, test } from '@playwright/test';
 import { apiRequest, getAuthToken } from '@open-mercato/core/modules/core/__integration__/helpers/api';
 import {
@@ -14,90 +16,80 @@ import {
   createPersonFixture,
   deleteEntityIfExists,
 } from '@open-mercato/core/modules/core/__integration__/helpers/crmFixtures';
+import {
+  deleteChannelIfExists,
+  isChannelSeedingAvailable,
+  seedConnectedChannel,
+} from '@open-mercato/core/modules/core/__integration__/helpers/communicationChannelsFixtures';
+import { drainIntegrationQueue } from '@open-mercato/core/helpers/integration/queue';
 
 /**
  * TC-CRM-EMAIL-001: Outbound compose → subscriber → cross-user visibility chain
  *
  * Verifies the full path:
  *   POST /api/customers/people/{id}/emails
- *     → hub send-as-user route
- *     → persistent subscriber (communication_channels.message.sent)
- *     → CustomerInteraction row with correct visibility
+ *     → hub send-as-user facade (enqueues outbound delivery)
+ *     → outbound delivery worker (communication-channels-outbound) emits .message.sent
+ *     → persistent subscriber (customers:link-channel-message-sent, via the `events` queue)
+ *     → CustomerInteraction row with author_user_id=A, visibility='private'
  *     → GET /api/customers/interactions filters correctly per-user
  *
- * SKIP REASON — Channel fixture blocker:
- *
- *   The compose route requires a real `CommunicationChannel` row with
- *   `userId = userA.id`, `status = 'connected'`, `isActive = true`.
- *   Creating such a row via HTTP requires POST
- *   /api/communication_channels/channels/connect/credentials, which calls
- *   `ConnectCredentialChannelCommand.execute()` → validates credentials against
- *   a live provider adapter, returning 404 for any `providerKey` that has no
- *   registered adapter. Since the test environment has no adapter installed
- *   (provider packages are independent npm workspaces not mounted in the core
- *   package's test runner), there is no way to create a channel fixture via the
- *   HTTP API without either (a) a live IMAP/Gmail credential or (b) a stub
- *   adapter registration accessible from the integration test harness.
- *
- *   Additionally, there is no HTTP DELETE route for CommunicationChannel rows,
- *   so teardown would require a direct DB delete — which integration tests MUST
- *   NOT do (tests are API-fixture-only per AGENTS.md).
- *
- * HOW TO ENABLE:
- *
- *   Option A — Admin channel-create endpoint:
- *     Add a `POST /api/communication_channels/channels/admin/seed` route (test-
- *     env only, gated by an env flag `OM_ENABLE_TEST_CHANNEL_SEEDING=true`) that
- *     inserts a CommunicationChannel row directly without adapter validation.
- *     Add a matching `DELETE /api/communication_channels/channels/{id}` route
- *     (admin only, or same test-env gate) for teardown. Then remove test.skip
- *     from the two tests below and wire the channel create/delete via `apiRequest`.
- *
- *   Option B — Expose DisconnectChannel command via HTTP:
- *     Add `DELETE /api/communication_channels/channels/{id}` backed by the
- *     existing disconnect-channel command. For creation, add a command that
- *     skips validation when `OM_ENABLE_TEST_CHANNEL_SEEDING=true`. Remove skip.
- *
- *   Option C — Direct DB fixture helper:
- *     If the integration test harness gains a `createDbFixture(sql, params)`
- *     helper (like Prisma's `$executeRawUnsafe` equivalent), use it to INSERT
- *     directly. Update `createChannelFixtureViaDb` below and remove skip.
- *
- *   Whichever option is chosen, also replace the stub `channelId` placeholder
- *   with the real channel.id returned from the fixture.
+ * The channel + send transport are seeded by the env-gated test fixture
+ * (`OM_ENABLE_TEST_CHANNEL_SEEDING`) — see
+ * `packages/core/src/modules/communication_channels/lib/test-seed.ts`. When the
+ * gate is off (e.g. an environment that didn't opt in) the suite skips instead of
+ * failing, because a connected channel cannot be provisioned without it.
  */
 
-// ── Polling helper ────────────────────────────────────────────────────────────
+const APP_ROOT = process.env.OM_TEST_APP_ROOT?.trim()
+  ? path.resolve(process.env.OM_TEST_APP_ROOT as string)
+  : path.resolve(process.cwd(), 'apps/mercato')
 
-async function pollUntil<T>(
-  fn: () => Promise<T | null | undefined>,
-  predicate: (value: T) => boolean,
-  options: { timeoutMs?: number; intervalMs?: number } = {},
-): Promise<T> {
-  const timeoutMs = options.timeoutMs ?? 10_000
-  const intervalMs = options.intervalMs ?? 250
-  const deadline = Date.now() + timeoutMs
-  let lastValue: T | null = null
-  while (Date.now() < deadline) {
-    const value = await fn()
-    if (value != null && predicate(value)) return value
-    lastValue = (value as T) ?? lastValue
-    await new Promise((r) => setTimeout(r, intervalMs))
-  }
-  throw new Error(`pollUntil timed out after ${timeoutMs}ms; last value: ${JSON.stringify(lastValue)}`)
+// Local (non-standalone) runs need QUEUE_BASE_DIR pointed at the app's queue dir
+// so `drainIntegrationQueue` reads the same file-backed queue the app writes to.
+if (!process.env.OM_TEST_APP_ROOT?.trim()) {
+  loadEnv({ path: path.resolve(APP_ROOT, '.env') })
+  process.env.QUEUE_BASE_DIR = path.resolve(APP_ROOT, '.mercato/queue')
 }
 
-// ── Main test suite ───────────────────────────────────────────────────────────
+const OUTBOUND_QUEUE = 'communication-channels-outbound'
+const EVENTS_QUEUE = 'events'
+
+/**
+ * Drain the outbound-delivery queue (provider send + .message.sent emit) and then
+ * the events queue (persistent link subscriber), repeatedly, until the customers
+ * interaction row materializes for the author. Returns the author's email
+ * interactions list once non-empty.
+ */
+async function drainAndPollForInteraction(
+  request: Parameters<typeof apiRequest>[0],
+  authorToken: string,
+  personId: string,
+): Promise<Array<Record<string, unknown>>> {
+  const deadline = Date.now() + 30_000
+  let lastItems: Array<Record<string, unknown>> = []
+  while (Date.now() < deadline) {
+    await drainIntegrationQueue(OUTBOUND_QUEUE, { appRoot: APP_ROOT })
+    await drainIntegrationQueue(EVENTS_QUEUE, { appRoot: APP_ROOT })
+
+    const resp = await apiRequest(
+      request,
+      'GET',
+      `/api/customers/interactions?entityId=${encodeURIComponent(personId)}&interactionType=email`,
+      { token: authorToken },
+    )
+    if (resp.ok()) {
+      const body = await readJsonSafe<{ items?: Array<Record<string, unknown>> }>(resp)
+      lastItems = Array.isArray(body?.items) ? body!.items : []
+      if (lastItems.length > 0) return lastItems
+    }
+    await new Promise((resolve) => setTimeout(resolve, 250))
+  }
+  return lastItems
+}
 
 test.describe('TC-CRM-EMAIL-001: outbound compose → subscriber → cross-user visibility', () => {
-  /**
-   * Happy-path end-to-end test.
-   *
-   * Skipped because a `CommunicationChannel` fixture cannot be created via the
-   * HTTP API without a live provider adapter. See file-level SKIP REASON above
-   * for how to enable once test infrastructure supports channel fixtures.
-   */
-  test.skip(
+  test(
     'POST /emails creates interaction visible to author but not to other user',
     async ({ request }) => {
       test.slow();
@@ -119,6 +111,14 @@ test.describe('TC-CRM-EMAIL-001: outbound compose → subscriber → cross-user 
         adminToken = await getAuthToken(request, 'admin');
         const scope = getTokenScope(adminToken);
 
+        // Skip when the env-gated channel-seeding fixture isn't enabled — a
+        // connected channel can't be provisioned over HTTP without it.
+        const seedingAvailable = await isChannelSeedingAvailable(request, adminToken);
+        test.skip(
+          !seedingAvailable,
+          'OM_ENABLE_TEST_CHANNEL_SEEDING is not enabled in this environment; cannot provision a connected channel.',
+        );
+
         // ── Setup: role with required features, deliberately WITHOUT
         //    customers.email.view_private ────────────────────────────────────
         const roleName = `qa_crm_email_001_${stamp}`;
@@ -135,7 +135,7 @@ test.describe('TC-CRM-EMAIL-001: outbound compose → subscriber → cross-user 
               'customers.email.compose',
               'customers.interactions.manage',
               'customers.people.view',
-              'communication_channels.manage',
+              'communication_channels.connect_user_channel',
             ],
           },
         });
@@ -163,47 +163,24 @@ test.describe('TC-CRM-EMAIL-001: outbound compose → subscriber → cross-user 
           roles: [roleName],
           name: 'QA CRM Email 001 User B',
         });
+        userBToken = await getAuthToken(request, userBEmail, userBPassword);
 
         const userAScope = getTokenScope(userAToken);
 
-        // ── Setup: Person with a known primary email ───────────────────────
+        // ── Setup: Person (compose target) ─────────────────────────────────
         personId = await createPersonFixture(request, adminToken, {
           firstName: 'CrmEmail001',
           lastName: `Person${stamp}`,
           displayName: `CrmEmail001 Person ${stamp}`,
         });
 
-        // ── Setup: CommunicationChannel for User A (BLOCKED) ──────────────
-        //
-        // TODO: replace this block with a real fixture once Option A / B / C
-        // (see SKIP REASON above) is implemented. The placeholder UUID below
-        // will cause the compose call to return 404 / 403 — the test is skipped
-        // anyway so this code path is never reached.
-        //
-        // Example (Option A):
-        //   const channelResp = await apiRequest(
-        //     request,
-        //     'POST',
-        //     '/api/communication_channels/channels/admin/seed',
-        //     {
-        //       token: adminToken,
-        //       data: {
-        //         userId: userAScope.userId,
-        //         providerKey: '__stub__',
-        //         channelType: 'email',
-        //         displayName: `TC-CRM-EMAIL-001 stub channel ${stamp}`,
-        //         status: 'connected',
-        //         isActive: true,
-        //       },
-        //     },
-        //   );
-        //   expect(channelResp.status(), 'channel seed should return 201').toBe(201);
-        //   const channelBody = await readJsonSafe<{ id?: string }>(channelResp);
-        //   channelId = channelBody?.id ?? null;
-        //   expect(channelId, 'channel seed response must include id').toBeTruthy();
-        channelId = '00000000-0000-0000-0000-000000000000'; // placeholder — never reached
+        // ── Setup: connected channel owned by User A (env-gated fixture) ───
+        channelId = await seedConnectedChannel(request, userAToken, {
+          displayName: `TC-CRM-EMAIL-001 channel ${stamp}`,
+          externalIdentifier: `tc-crm-email-001-${stamp}@test-seed.local`,
+        });
 
-        // ── Action: compose outbound email as User A ───────────────────────
+        // ── Action: compose outbound PRIVATE email as User A ───────────────
         const composeResp = await apiRequest(
           request,
           'POST',
@@ -213,7 +190,7 @@ test.describe('TC-CRM-EMAIL-001: outbound compose → subscriber → cross-user 
             data: {
               userChannelId: channelId,
               to: ['target@example.com'],
-              subject: 'TC-CRM-EMAIL-001 outbound test',
+              subject: `TC-CRM-EMAIL-001 outbound ${stamp}`,
               body: 'Hello from the integration test',
               bodyFormat: 'text',
               visibility: 'private',
@@ -227,54 +204,29 @@ test.describe('TC-CRM-EMAIL-001: outbound compose → subscriber → cross-user 
           'compose response must include a non-null messageId string',
         ).toBe(true);
 
-        // ── Assertion 1: User A polls for the interaction (async subscriber) ─
-        //
-        // The `customers:link-channel-message-sent` subscriber is persistent
-        // (retried by the event bus worker). Allow up to 10 s for the row to
-        // appear.
-        const userAItems = await pollUntil(
-          async () => {
-            const resp = await apiRequest(
-              request,
-              'GET',
-              `/api/customers/interactions?entityId=${encodeURIComponent(personId!)}&interactionType=email`,
-              { token: userAToken! },
-            );
-            if (!resp.ok()) return null;
-            const body = await readJsonSafe<{ items?: Array<Record<string, unknown>> }>(resp);
-            return body?.items ?? null;
-          },
-          (items) => items.length > 0,
-          { timeoutMs: 10_000, intervalMs: 250 },
-        );
-
+        // ── Assertion 1: drive the async chain, then User A sees the row ────
+        const userAItems = await drainAndPollForInteraction(request, userAToken, personId);
         expect(userAItems.length, 'User A must see exactly 1 email interaction').toBe(1);
         const interaction = userAItems[0];
         interactionId = typeof interaction.id === 'string' ? interaction.id : null;
 
-        expect(
-          interaction.visibility,
-          'interaction visibility must be "private"',
-        ).toBe('private');
+        expect(interaction.visibility, 'interaction visibility must be "private"').toBe('private');
         expect(
           interaction.authorUserId,
-          'authorUserId must equal User A\'s user id',
+          "authorUserId must equal User A's user id",
         ).toBe(userAScope.userId);
-        expect(
-          interaction.interactionType,
-          'interactionType must be "email"',
-        ).toBe('email');
+        expect(interaction.interactionType, 'interactionType must be "email"').toBe('email');
         expect(
           typeof interaction.externalMessageId === 'string' && interaction.externalMessageId.length > 0,
           'externalMessageId must be a non-null string (the MessageChannelLink id)',
         ).toBe(true);
 
-        // ── Assertion 2: User B sees 0 interactions (visibility filter) ───────
+        // ── Assertion 2: User B sees 0 interactions (visibility filter) ─────
         const userBResp = await apiRequest(
           request,
           'GET',
-          `/api/customers/interactions?entityId=${encodeURIComponent(personId!)}&interactionType=email`,
-          { token: (await getAuthToken(request, userBEmail, userBPassword)) },
+          `/api/customers/interactions?entityId=${encodeURIComponent(personId)}&interactionType=email`,
+          { token: userBToken },
         );
         expect(
           userBResp.ok(),
@@ -283,13 +235,16 @@ test.describe('TC-CRM-EMAIL-001: outbound compose → subscriber → cross-user 
         const userBBody = await readJsonSafe<{ items?: Array<Record<string, unknown>> }>(userBResp);
         const userBItems = Array.isArray(userBBody?.items) ? userBBody!.items : [];
         expect(
+          userBItems.some((item) => item.id === interactionId),
+          'User B (not author, no view_private) must NOT see the private email interaction',
+        ).toBe(false);
+        expect(
           userBItems.length,
           'User B (no view_private) must see 0 email interactions',
         ).toBe(0);
       } finally {
-        // Cleanup is best-effort, ordered interactions → channel → person →
-        // users → role. Channel delete is a no-op until an HTTP DELETE route
-        // exists.
+        // Cleanup is best-effort, ordered: interaction → channel → person →
+        // users → role.
         if (adminToken) {
           await deleteEntityIfExists(
             request,
@@ -297,15 +252,11 @@ test.describe('TC-CRM-EMAIL-001: outbound compose → subscriber → cross-user 
             '/api/customers/interactions',
             interactionId,
           );
-          // TODO: delete channelId once DELETE /api/communication_channels/channels/{id} exists.
-          // await apiRequest(request, 'DELETE', `/api/communication_channels/channels/${channelId}`, { token: adminToken })
-          //   .catch(() => undefined);
-          await deleteEntityIfExists(
-            request,
-            adminToken,
-            '/api/customers/people',
-            personId,
-          );
+        }
+        // The channel is owned by User A — delete it with the owner's token.
+        await deleteChannelIfExists(request, userAToken, channelId);
+        if (adminToken) {
+          await deleteEntityIfExists(request, adminToken, '/api/customers/people', personId);
         }
         await deleteUserIfExists(request, adminToken, userAId);
         await deleteUserIfExists(request, adminToken, userBId);
@@ -316,9 +267,7 @@ test.describe('TC-CRM-EMAIL-001: outbound compose → subscriber → cross-user 
 
   /**
    * Smoke-test: the compose route rejects a non-existent channel with 4xx (not 5xx).
-   *
-   * This test does NOT require a channel fixture — it uses a nil UUID and
-   * verifies the route fails gracefully. It runs unconditionally.
+   * Runs unconditionally — no channel fixture required.
    */
   test(
     'POST /emails with non-existent channelId returns 4xx (route is wired)',
@@ -347,7 +296,7 @@ test.describe('TC-CRM-EMAIL-001: outbound compose → subscriber → cross-user 
               'customers.email.compose',
               'customers.interactions.manage',
               'customers.people.view',
-              'communication_channels.manage',
+              'communication_channels.connect_user_channel',
             ],
           },
         });
@@ -388,9 +337,8 @@ test.describe('TC-CRM-EMAIL-001: outbound compose → subscriber → cross-user 
         );
 
         // The hub send-as-user route returns 404 when the channel does not
-        // exist (or belongs to another user). The compose proxy forwards that
-        // status. Any 4xx response confirms the route is wired and the guard
-        // fires correctly.
+        // exist (or belongs to another user). Any 4xx confirms the route is
+        // wired and the guard fires correctly.
         expect(
           composeResp.status() >= 400 && composeResp.status() < 500,
           `Expected 4xx but got ${composeResp.status()} — route may not be wired`,

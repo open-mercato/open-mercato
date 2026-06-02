@@ -13,21 +13,21 @@ import {
 } from '@open-mercato/core/modules/core/__integration__/helpers/crmFixtures';
 
 /**
- * TC-CRM-EMAIL-007: No-channel UX — Person detail page
+ * TC-CRM-EMAIL-007: No-channel UX lives in the Person Emails TAB.
  *
- * Verifies that the Person detail page renders the "Connect your mailbox"
- * CTA (linking to /backend/profile/communication-channels) when the current
- * user has no connected channel, and that the standard "Send email" button is
- * NOT present (the no-channel swap is exclusive).
+ * The header `PersonEmailActions` component was removed; the Connect-mailbox CTA
+ * + compose now live ONLY in the Emails tab (`PersonEmailThreadsTab` →
+ * `EmailThreadsPanel`). When the current user has no connected channel:
+ *   - the Emails tab renders the "Connect your mailbox" CTA (`composeDisabledHint`)
+ *     linking to /backend/profile/communication-channels, and
+ *   - the "New email" trigger is gated off (`canCompose = channels.length > 0`).
  *
- * The header actions component (PersonEmailActions) calls GET
- * /api/communication_channels/me/channels. When that returns { items: [] }
- * (no channel created for this user), it renders the "Connect your mailbox"
- * link instead of the "Send email" button.
+ * The Emails tab is reached via the `?tab=emails` query param
+ * (`resolveLegacyTab`), which renders `PersonEmailThreadsTab` directly.
  */
-test.describe('TC-CRM-EMAIL-007: No-channel UX on Person detail page', () => {
+test.describe('TC-CRM-EMAIL-007: No-channel UX on the Person Emails tab', () => {
   test(
-    '"Connect your mailbox" CTA is shown and "Send email" button is absent when user has no channel',
+    '"Connect your mailbox" CTA shows in the Emails tab and "New email" is gated when no channel is connected',
     async ({ page, request }) => {
       test.slow();
 
@@ -42,9 +42,10 @@ test.describe('TC-CRM-EMAIL-007: No-channel UX on Person detail page', () => {
         adminToken = await getAuthToken(request, 'admin');
         const scope = getTokenScope(adminToken);
 
-        // -- Setup: role with people.view + people.manage + email.compose, but
-        //    deliberately without communication_channels.manage so the user
-        //    has no channel-creation privileges.
+        // -- Setup: role that can view people + compose email + connect a
+        //    mailbox, but with NO channel actually connected for this user, so
+        //    GET /api/communication_channels/me/channels returns { items: [] }
+        //    and the tab shows the Connect CTA instead of "New email".
         const roleName = `qa_crm_email_007_${stamp}`;
         roleId = await createRoleFixture(request, adminToken, {
           name: roleName,
@@ -58,6 +59,7 @@ test.describe('TC-CRM-EMAIL-007: No-channel UX on Person detail page', () => {
               'customers.people.view',
               'customers.people.manage',
               'customers.email.compose',
+              'communication_channels.connect_user_channel',
             ],
           },
         });
@@ -81,10 +83,7 @@ test.describe('TC-CRM-EMAIL-007: No-channel UX on Person detail page', () => {
           displayName: `CrmEmail007 Person ${stamp}`,
         });
 
-        // -- Action: login as the new user and navigate to the Person detail page
-
-        // Login using page.request so we can set tenant/org cookies, exactly
-        // like TC-AUTH-022 does for custom-credential users.
+        // -- Action: login as the new user (set tenant/org cookies like TC-AUTH-022)
         const loginForm = new URLSearchParams();
         loginForm.set('email', userEmail);
         loginForm.set('password', userPassword);
@@ -116,7 +115,8 @@ test.describe('TC-CRM-EMAIL-007: No-channel UX on Person detail page', () => {
           }
         }
 
-        await page.goto(`/backend/customers/people-v2/${personId}`, {
+        // Land directly on the Emails tab via the legacy `?tab=` param.
+        await page.goto(`/backend/customers/people-v2/${personId}?tab=emails`, {
           waitUntil: 'domcontentloaded',
         });
 
@@ -126,13 +126,11 @@ test.describe('TC-CRM-EMAIL-007: No-channel UX on Person detail page', () => {
         });
         await expect(errorHeading).not.toBeVisible();
 
-        // -- Assertion 2: "Connect your mailbox" CTA is visible -----------------
+        // -- Assertion 2: the "Connect your mailbox" CTA is visible in the tab --
         //
-        // The widget loads channels asynchronously; while loading it renders
-        // nothing. We wait up to 15 s for the CTA to appear. The element is a
-        // <Button asChild> wrapping a Next.js <Link>, so it appears in the DOM
-        // as an anchor element. We match either an anchor or a button to be
-        // resilient to future markup changes.
+        // The tab loads channels asynchronously; while loading the panel renders
+        // the count row, then resolves to the no-channel hint. The CTA is a
+        // <Button asChild> wrapping a Next.js <Link>, so it appears as an anchor.
         const connectCta = page.locator(
           'a:has-text("Connect your mailbox"), button:has-text("Connect your mailbox")',
         );
@@ -140,17 +138,18 @@ test.describe('TC-CRM-EMAIL-007: No-channel UX on Person detail page', () => {
 
         // -- Assertion 3: the CTA href points to the communication-channels page
         const href = await connectCta.first().getAttribute('href');
-        expect(href, '"Connect your mailbox" link href must be /backend/profile/communication-channels').toBe(
-          '/backend/profile/communication-channels',
-        );
+        expect(
+          href,
+          '"Connect your mailbox" link href must be /backend/profile/communication-channels',
+        ).toBe('/backend/profile/communication-channels');
 
-        // -- Assertion 4: the "Send email" button is NOT present ----------------
+        // -- Assertion 4: the "New email" trigger is NOT present (compose gated)
         //
-        // Regex is anchored to the exact label so it does not accidentally
-        // match "Send an email" or other similar labels that may appear elsewhere
-        // on the page.
-        const sendEmailButton = page.getByRole('button', { name: /^send email$/i });
-        await expect(sendEmailButton).not.toBeVisible();
+        // `EmailThreadsPanel` only renders the "New email" button when
+        // `canCompose` (channels.length > 0). With no connected channel it must
+        // be absent. Anchored regex so it doesn't match "New email thread" etc.
+        const newEmailButton = page.getByRole('button', { name: /^New email$/i });
+        await expect(newEmailButton).not.toBeVisible();
       } finally {
         // Cleanup is best-effort and ordered: person → user → role.
         if (adminToken) {

@@ -518,21 +518,21 @@ Submit:
 
 Progress: top-bar `<ProgressBadge>` from `packages/core/src/modules/progress` automatically shows the running job; no per-page wiring needed.
 
-### CRM Person page — minor polish
+### CRM Person page — reactive refresh
 
-In `packages/core/src/modules/customers/widgets/injection/person-send-email/widget.client.tsx`, replace:
+> **Note (reconciled 2026-06-02):** the CRM Person-page email surface is built by
+> **direct composition** in the customers module — the Emails tab
+> `components/detail/PersonEmailThreadsTab.tsx` (which renders the shared
+> `EmailThreadsPanel`) + `components/detail/ComposeEmailDialog.tsx` — **not** the
+> originally-planned `widgets/injection/person-send-email/` injection widget, which
+> was never built (per ARCHITECTURE.md §4: a module composes its own pages directly).
 
-```ts
-window.location.reload()                 // before
-```
-
-with:
-
-```ts
-router.refresh()                          // after — Next.js soft refresh, preserves scroll/state
-```
-
-(Both the 1.2 s post-send reload and the 2.5 s post-sync reload.) `router` is `useRouter()` from `next/navigation`. This is the only structural change to the Person page in this spec.
+The Person-page email surface refreshes reactively with **no `window.location.reload()`
+and no header `router.refresh()`**. The Emails tab (`PersonEmailThreadsTab`) re-fetches
+through its own `loadThreads()` callback, wired to live events via
+`useAppEvent('customers.email.linked' | 'messages.message.sent' | 'communication_channels.message.received', …)`
+plus a short burst-poll after a Refresh/Send action. This spec makes no structural
+change to the Person page.
 
 ### Design System compliance for new UI
 
@@ -682,7 +682,7 @@ Both migrations are pure additions; no existing column type changes, no `DROP`/`
 **Ship signal:** TC-029 green; manual test: click Import history → see progress → mail appears in CRM timeline.
 
 ### Phase B7 — Polish + demo readiness
-1. Replace `window.location.reload()` with `router.refresh()` in `customers/widgets/injection/person-send-email/widget.client.tsx` (two call sites).
+1. Replace `window.location.reload()` with `router.refresh()` in `customers/components/detail/PersonEmailActions.tsx` (two call sites — the direct Person-page email component; there is no `person-send-email` injection widget). **(Superseded — see the 2026-06-02 changelog note: `PersonEmailActions.tsx` was later removed as a duplicate; the Emails tab `PersonEmailThreadsTab` now refreshes reactively via `loadThreads`/`useAppEvent`/burst-poll, so this `router.refresh()` polish no longer applies.)**
 2. Dialog UX audit: every new dialog supports `Cmd/Ctrl+Enter` and `Escape`. Every icon-only button has `aria-label`.
 3. Documentation pass: update `apps/docs/docs/framework/modules/communication-channels.mdx` (env vars, history import section) and `apps/docs/docs/user-guide/communication-channels.mdx` (user-facing "Import history" how-to).
 4. Demo dry-run: connect a real IMAP mailbox, send an outbound email, reply from the recipient, observe the inbound thread within ~90 s. Disconnect network, observe `status='error'`. Reconnect, observe auto-recovery within 30 min.
@@ -728,7 +728,7 @@ Both migrations are pure additions; no existing column type changes, no `DROP`/`
 | `packages/channel-imap/src/modules/channel_imap/__integration__/TC-CHANNEL-EMAIL-029.spec.ts` | Create | /import-history |
 | `packages/channel-imap/src/modules/channel_imap/__integration__/TC-CHANNEL-EMAIL-030.spec.ts` | Create | Sent-folder dedup |
 | `.ai/qa/scenarios/TC-CHANNEL-EMAIL-021..030.md` | Create | QA scenario markdowns (per `.ai/qa/AGENTS.md`) |
-| `packages/core/src/modules/customers/widgets/injection/person-send-email/widget.client.tsx` | Modify | `router.refresh()` polish |
+| `packages/core/src/modules/customers/components/detail/PersonEmailThreadsTab.tsx` | (No change in this spec) | Emails tab (renders the shared `EmailThreadsPanel`); already refreshes reactively via `loadThreads`/`useAppEvent`/burst-poll. Supersedes the originally-planned `router.refresh()` polish on the now-removed `PersonEmailActions.tsx` header — see the 2026-06-02 changelog note. |
 | `apps/docs/docs/framework/modules/communication-channels.mdx` | Modify | Env var docs, history-import section |
 | `apps/docs/docs/user-guide/communication-channels.mdx` | Modify | How-to: Import history |
 
@@ -944,7 +944,7 @@ None.
 | B4 — IMAP worker rewrite | Done | 2026-05-27 | `channel-imap/.../adapter.ts:fetchHistory` rewritten per Spec B § Bounded cursor-driven IMAP: zero-history bootstrap (persist UIDVALIDITY+UIDNEXT, fetch 0 messages), incremental UID FETCH `previousUidNext:*` capped at `HARD_CAP=200` (configurable via `OM_CHANNEL_IMAP_HARD_CAP_PER_POLL`), `hasMore` set when more remain. UIDVALIDITY mismatch triggers re-bootstrap. `poll-channel.ts` adds per-message commit + dead-letter write (transient failures abort without advancing cursor; permanent failures advance + write to `channel_ingest_dead_letters`). `ingest-inbound-message.ts` adds sent-folder dedup (skip when `MessageChannelLink.channelMetadata.messageId` matches our own outbound). IMAP socket timeout already 60s in staged `imap-client.ts`. 36/36 channel-imap tests green (was 32/34 with 2 pre-existing failures — both fixed by the rewrite + replaced with bootstrap, UIDVALIDITY-mismatch, and hasMore tests). |
 | B5 — Auto-recovery sweeper | Done | 2026-05-27 | `poll-tick.ts` now enumerates two pools: (1) `status='connected'` channels due for normal polling, (2) `status='error' AND lastFailureAt < now() - OM_CHANNEL_AUTO_RECOVER_MINUTES (default 30m)` channels for a recovery retry. Successful poll in `poll-channel.ts` already flips `status='error'` → `'connected'` (pre-existing behavior preserved). 6/6 poll-tick tests green including the new auto-recovery case. |
 | B6 — Import-history API + worker | Done | 2026-05-27 | New ACL feature `communication_channels.channel.import_history` (granted to superadmin+admin); additive optional `ChannelAdapter.importHistory()` contract; IMAP adapter implements it via `SEARCH SINCE` + FROM-chunking (≤30/chunk) + UID-set fetch with newest-first ordering and base64-JSON cursor pagination; `commands/queue-import-history.ts` validates channel + adapter capability, creates a `ProgressJob`, enforces 429 concurrency guard (active-jobs scan), and enqueues the new `communication-channels-import-history` queue; `workers/channel-import-history.ts` (concurrency 1) drains pages, dispatches each message through `ingest-inbound-message`, updates progress, honours cancellation, completes/fails the ProgressJob; `POST /api/communication_channels/channels/[id]/import-history` route uses declarative `requireFeatures` + per-user access guard + Zod body validation + maps `CrudFormError` envelopes to HTTP 400/404/429; UI dialog on `/backend/profile/communication-channels` (sinceDays / contactEmails / maxMessages, `Cmd+Enter` submit, `Escape` cancel) uses `router.refresh()` after queueing; i18n keys added across de/en/es/pl; integration smoke test `TC-CHANNEL-EMAIL-029.spec.ts` + QA scenario markdown. |
-| B7 — Polish + demo readiness | Done | 2026-05-27 | `router.refresh()` replaces `window.location.reload()` at both call sites in `customers/widgets/injection/person-send-email/widget.client.tsx` (post-send + post-sync). Dialog UX audit confirms both B6 dialog and Compose Email dialog support `Cmd/Ctrl+Enter` submit + `Escape` cancel. Documentation pass: framework docs gain new env vars (`OM_HUB_POLL_SCHEDULER_TICK_SECONDS`, `OM_CHANNEL_IMAP_HARD_CAP_PER_POLL`, `OM_CHANNEL_AUTO_RECOVER_MINUTES`, `OM_THREAD_TOKEN_SECRET`) + full "Inbound reliability & threading (Spec B)" section covering layered threading, zero-history bootstrap, per-message commit/dead-letter, auto-recovery sweep, operator-triggered backlog import; user-guide adds a step-7 "Import older messages (optional)" how-to. Live demo dry-run remains as an operator-rehearsal task — not a code deliverable. |
+| B7 — Polish + demo readiness | Done | 2026-05-27 | `router.refresh()` replaces `window.location.reload()` at both call sites in `customers/components/detail/PersonEmailActions.tsx` (post-send + post-sync; direct Person-page email component, not an injection widget). **(Superseded 2026-06-02: `PersonEmailActions.tsx` was later removed as a duplicate; the Emails tab `PersonEmailThreadsTab` → `EmailThreadsPanel` now refreshes reactively via `loadThreads`/`useAppEvent`/burst-poll — see the 2026-06-02 changelog.)** Dialog UX audit confirms both B6 dialog and Compose Email dialog support `Cmd/Ctrl+Enter` submit + `Escape` cancel. Documentation pass: framework docs gain new env vars (`OM_HUB_POLL_SCHEDULER_TICK_SECONDS`, `OM_CHANNEL_IMAP_HARD_CAP_PER_POLL`, `OM_CHANNEL_AUTO_RECOVER_MINUTES`, `OM_THREAD_TOKEN_SECRET`) + full "Inbound reliability & threading (Spec B)" section covering layered threading, zero-history bootstrap, per-message commit/dead-letter, auto-recovery sweep, operator-triggered backlog import; user-guide adds a step-7 "Import older messages (optional)" how-to. Live demo dry-run remains as an operator-rehearsal task — not a code deliverable. |
 | Verification | Green | 2026-05-28 | `yarn build:packages` clean (22/22 packages); **4579 core + 41 channel-imap unit tests green**. Gap closure pass (2026-05-28) added 5 new B2-B4 contract assertions to `outbound-bridge.test.ts` (outbound thread-token assembly: References + body footer + idempotent retry) and 3 new B3-B4 contract assertions to `ingest-inbound-message.test.ts` (matcher input extraction, sent-folder dedup, dead-letter row shape). Integration smoke tests TC-CHANNEL-EMAIL-021..028 + 030 + their QA scenario markdowns now staged alongside TC-029. |
 
 ### Detailed coverage delivered in this checkpoint
@@ -976,12 +976,16 @@ None.
 
 ## Changelog
 
+### 2026-06-02
+- **`PersonEmailActions.tsx` (the header Sync/Send duplicate that received the B7 `router.refresh()` polish) was subsequently REMOVED as a duplicate; the Emails tab (`PersonEmailThreadsTab` → `EmailThreadsPanel`) is now the sole Person-page email surface and refreshes reactively via `loadThreads`/`useAppEvent`/burst-poll.** This supersedes the earlier same-day reconciliation bullet below (which ran before the deletion landed and still treated `PersonEmailActions.tsx` as the live surface): the current-state UI/UX "CRM Person page — reactive refresh" section and File Manifest row now point at `PersonEmailThreadsTab.tsx`, and the historical Phase B7 entries are annotated as superseded. No behavior change on the Person page — reactive refresh was already in place.
+- **Reconciled the CRM Person-page integration point with the shipped implementation.** *(Superseded by the bullet above — this reconciliation ran before `PersonEmailActions.tsx` was deleted.)* The spec described the Person-page polish (`window.location.reload()` → `router.refresh()`) as landing in `customers/widgets/injection/person-send-email/widget.client.tsx`, but that injection widget was never built — at the time this entry was written the Person-page email surface was direct composition (`components/detail/PersonEmailActions.tsx` + the Emails tab `PersonEmailThreadsTab.tsx` + `ComposeEmailDialog.tsx`) per ARCHITECTURE.md §4. Updated the UI/UX "CRM Person page — minor polish" section, Phase B7 step 1, the File Manifest row, the B7 Done checkpoint, and the B7 changelog entries to reference `PersonEmailActions.tsx`. No behavior change — the shipped surface already used `router.refresh()` + reactive `useAppEvent` refresh.
+
 ### 2026-05-27
 - Initial specification. Brainstormed scope (3-spec decomposition: A=OAuth hotfix, B=this spec, C=Pub/Sub+Graph push). Approved approach: Foundation Refactor with layered threading, go-forward-only IMAP bootstrap, 60 s polling, mocked imapflow tests, new `ChannelThreadToken` + `ChannelIngestDeadLetter` entities, auto-recovery extending poll-tick.
 - Open Questions resolved (all four with recommended option): Q1 new entity, Q2 mocked imapflow, Q3 dedicated dead-letter table, Q4 sweeper folded into poll-tick.
 - **Implementation B1–B5 complete 2026-05-27.** Threading + IMAP reliability + auto-recovery foundation shipped. 428 unit tests green, build clean. B6 (Import-history API) and B7 (Person-page polish) deferred to follow-up — the threading fix doesn't depend on either and the demo blockers (responses never arrive, replies don't thread) are resolved by B1–B4.
 - **Phase B6 complete 2026-05-27.** Operator-triggered backlog import shipped end-to-end: additive `ChannelAdapter.importHistory()` contract + IMAP implementation (SEARCH SINCE + FROM-chunking + paginated UID fetch), `queue-import-history` command with 429 concurrency guard, `channel-import-history` worker (concurrency 1, drives ProgressJob lifecycle), `POST /channels/[id]/import-history` route with declarative ACL gate + per-user access guard, `ImportHistoryDialog` UI on `/backend/profile/communication-channels` (Cmd+Enter / Escape, uses `router.refresh()`), i18n keys across de/en/es/pl, integration smoke test `TC-CHANNEL-EMAIL-029` and QA scenario markdown. 4565 core + 41 channel-imap unit tests green; `yarn build:packages` clean.
-- **Phase B7 code complete 2026-05-27.** `window.location.reload()` replaced with `router.refresh()` at both call sites in `customers/widgets/injection/person-send-email/widget.client.tsx` (post-send + post-sync). Build clean; remaining B7 work is documentation and a live demo dry-run, neither of which gates a merge.
+- **Phase B7 code complete 2026-05-27.** `window.location.reload()` replaced with `router.refresh()` at both call sites in `customers/components/detail/PersonEmailActions.tsx` (post-send + post-sync; direct Person-page email component, not an injection widget). Build clean; remaining B7 work is documentation and a live demo dry-run, neither of which gates a merge. *(Superseded 2026-06-02 — `PersonEmailActions.tsx` was later removed as a duplicate; see the 2026-06-02 changelog.)*
 - **Phase B7 docs complete 2026-05-27.** Framework docs (`apps/docs/docs/framework/modules/communication-channels.mdx`) gain four new env-var entries and a "Inbound reliability & threading (Spec B)" section that explains layered threading, zero-history bootstrap, per-message commit/dead-letter, auto-recovery sweep, and operator-triggered backlog import. User-guide (`apps/docs/docs/user-guide/communication-channels.mdx`) adds a step-7 "Import older messages (optional)" how-to with field semantics, tips, and the "IMAP today; Gmail/MS in Spec C" caveat. **Spec B is 100 % done** modulo the optional live demo dry-run.
 
 ### 2026-05-28

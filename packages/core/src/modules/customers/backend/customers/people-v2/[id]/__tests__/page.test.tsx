@@ -14,12 +14,6 @@ jest.mock('next/navigation', () => ({
   useSearchParams: () => ({ get: (key: string) => (key === 'tab' ? activeTabParam : null) }),
 }))
 
-// The header email actions are exercised by their own/integration tests; stub
-// them so this page test doesn't need a mutation/app-event provider.
-jest.mock('../../../../../components/detail/PersonEmailActions', () => ({
-  PersonEmailActions: () => null,
-}))
-
 jest.mock('@open-mercato/ui/backend/Page', () => ({
   Page: ({ children }: { children: React.ReactNode }) => <div>{children}</div>,
   PageBody: ({ children }: { children: React.ReactNode }) => <div>{children}</div>,

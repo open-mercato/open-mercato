@@ -309,7 +309,7 @@ All deltas are **additive** against SPEC-045d. No removal, no rename, no type na
 
 #### Delta 1 — `CommunicationChannel.user_id?: string` (nullable UUID column)
 - NULL = tenant-scoped channel (existing behavior, e.g., WhatsApp Business — unchanged).
-- Set = user-scoped channel (e.g., Jane's Gmail). Visible only to the owning user and to admins with `communication_channels.admin`.
+- Set = user-scoped channel (e.g., Jane's Gmail). Under v1 strict owner-only, it is visible to the owning user **only** — not to admins/superadmins. `communication_channels.admin` grants no cross-user channel view (it is inert in v1). See **Per-user privacy & visibility model (v1)**.
 - New partial unique index: `UNIQUE (user_id) WHERE is_primary AND user_id IS NOT NULL AND deleted_at IS NULL` (at most one primary per user).
 - Migration is additive; existing rows have `user_id = NULL`.
 - **Module boundary:** the column is a UUID storing the owning user's id but is **not declared as a database `FOREIGN KEY` to `users(id)`**. Root `AGENTS.md` forbids direct ORM relationships between modules. The cross-module link is declared instead via `EntityExtension` in `packages/core/src/modules/communication_channels/data/extensions.ts` (`{ from: 'communication_channels:communication_channel', field: 'user_id', to: 'auth:user', kind: 'one-to-one-optional' }`). Lookups across the link use the data engine, not raw joins.
@@ -1278,6 +1278,10 @@ None.
 - **Fully compliant with hub + UMES + AGENTS.md**. Approved for implementation.
 
 ## Changelog
+
+### 2026-06-02 — Stale Delta 1 line reconciled with strict owner-only
+
+- Fixed the Delta 1 (`CommunicationChannel.user_id?`) bullet that still said a user-scoped channel is "visible … to admins with `communication_channels.admin`" — it now states v1 strict owner-only (owner-only visibility; `communication_channels.admin` is inert / grants no cross-user channel view), consistent with the 2026-06-01 privacy section and Delta 8.
 
 ### 2026-06-01 — Per-user privacy hardening (v1 strict owner-only) + OAuth client-credential resolution fix
 

@@ -24,7 +24,6 @@ import { createTranslatorWithFallback } from '@open-mercato/shared/lib/i18n/tran
 
 import { ActivitiesSection } from '../../../../components/detail/ActivitiesSection'
 import { PersonEmailThreadsTab } from '../../../../components/detail/PersonEmailThreadsTab'
-import { PersonEmailActions } from '../../../../components/detail/PersonEmailActions'
 import { ActivitiesCard } from '../../../../components/detail/ActivitiesCard'
 import type { ActivityKind } from '../../../../components/detail/ActivitiesAddNewMenu'
 import { DealsSection } from '../../../../components/detail/DealsSection'
@@ -405,10 +404,6 @@ export default function PersonDetailV2Page({ params }: { params?: { id?: string 
         <div className="space-y-4">
           {/* UMES header injection (third-party extensions) */}
           <InjectionSpot spotId="detail:customers.person:header" context={injectionContext} data={data} />
-          {/* Customers' own email actions — composed directly, not self-injected (ARCHITECTURE.md §4) */}
-          <div className="flex flex-wrap items-center justify-end gap-2">
-            <PersonEmailActions personId={personId} personEmail={data.person.primaryEmail ?? null} />
-          </div>
           <InjectionSpot spotId="detail:customers.person:status-badges" context={injectionContext} data={data} />
 
           {/* Persistent person header */}

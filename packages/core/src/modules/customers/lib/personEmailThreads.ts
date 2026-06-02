@@ -1,6 +1,7 @@
 import type { EntityManager } from '@mikro-orm/postgresql'
 import { findWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import { CustomerInteraction } from '../data/entities'
+import { buildEmailVisibilityMikroFilter } from './visibilityFilter'
 
 /**
  * Read model that turns a Person's email `CustomerInteraction` rows into
@@ -140,17 +141,23 @@ export async function buildPersonEmailThreads(
   }
   if (organizationId) interactionWhere.organizationId = organizationId
 
-  // Personal mailbox privacy (v1: strict owner-only). The CRM Person page shows
-  // a viewer ONLY their own email threads with this person — emails authored
-  // from their own mailbox (`authorUserId = viewer`) — plus ownerless
-  // shared/system-channel emails (`authorUserId IS NULL`, e.g. a tenant-wide
-  // support inbox or legacy log rows). Another user's personal threads are never
-  // shown, not even to an admin/superadmin (oversight is a v2 follow-up).
-  // Fail-closed: an email whose author cannot be established stays hidden.
-  interactionWhere.$or = [
-    ...(viewerUserId ? [{ authorUserId: viewerUserId }] : []),
-    { authorUserId: null },
-  ]
+  // Per-email visibility (v1: strict owner-only, no admin bypass) — the CRM
+  // Person page applies the SAME rule as every other interactions read path via
+  // `buildEmailVisibilityMikroFilter`, so the Emails tab and the `/interactions`
+  // timeline can never disagree about who sees an email:
+  //   - `visibility = 'shared'` is visible to every user with CRM access to this
+  //     Person (lets a teammate pick up a handed-off thread),
+  //   - `visibility = 'private'` is visible ONLY to its author (the mailbox
+  //     owner) — never to teammates, not even an admin/superadmin (team
+  //     oversight is a deliberate v2 follow-up),
+  //   - legacy/unset rows (`visibility IS NULL`) stay visible so pre-existing
+  //     CRM history is never silently hidden.
+  // Fail-closed: a null viewer (API-key caller) never matches the author arm, so
+  // it only ever sees shared/legacy rows — never anyone's private email.
+  interactionWhere.$or = buildEmailVisibilityMikroFilter({
+    currentUserId: viewerUserId,
+    userFeatures,
+  }).$or
 
   // `customer_interaction.title`/`body` are encrypted at rest, so reads go
   // through `findWithDecryption` even though we only consume non-encrypted

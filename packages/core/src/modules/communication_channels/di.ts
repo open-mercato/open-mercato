@@ -9,9 +9,16 @@ import {
   MessageReaction,
 } from './data/entities'
 import { getChannelAdapterRegistry } from './lib/adapter-registry-singleton'
+import { ensureTestSeedAdapterRegistered } from './lib/test-seed'
 import { sendAsUser } from './lib/send-as-user'
 
 export function register(container: AppContainer) {
+  // Test-only: register the network-free stub channel adapter when
+  // `OM_ENABLE_TEST_CHANNEL_SEEDING` is set (no-op in production). Lets the
+  // integration harness connect a channel + complete the outbound send chain.
+  // See lib/test-seed.ts.
+  ensureTestSeedAdapterRegistered()
+
   container.register({
     // Entity class registrations (for EntityManager lookups by string)
     CommunicationChannel: asValue(CommunicationChannel),

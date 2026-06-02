@@ -9,14 +9,14 @@
 - **No changes to the hub** (`communication_channels`) or `messages` module — CRM is a downstream consumer.
 
 **Scope (v1)**
-- Outbound: `<ComposeEmailDialog>` on the Person detail page; calls `sendAsUser` with the user's connected channel; subscriber creates a linked `CustomerInteraction` on `messages.message.sent`.
+- Surface: a dedicated **Emails** tab on the Person detail page (`PersonEmailThreadsTab`, rendered via the shared `EmailThreadsPanel` from `@open-mercato/ui/backend/messages`) — a Gmail/Outlook-style threaded view. Emails are also rendered as cards on the existing activity timeline. Both surfaces are **built by direct composition** in the customers module, not via UMES injection widgets (see § Architecture).
+- Outbound: `<ComposeEmailDialog>` (a direct component, reached from the Emails tab's "New email" / per-thread "Reply" controls); calls `sendAsUser` with the user's connected channel; subscriber creates a linked `CustomerInteraction` on `communication_channels.message.sent`.
 - Inbound: subscriber on `communication_channels.message.received`; resolves every Person whose `email` matches any of From/To/Cc; creates one `CustomerInteraction` per match. Unmatched addresses are ignored (email still lives in the unified Messages inbox).
-- **Per-email visibility**: defaults to `'private'` (only the channel-owner sees the body). A `PATCH /api/customer-emails/{id}/visibility` lets the owner flip a single email to `'shared'`. Teammates see an opaque count of private emails on the same Person ("5 more emails (private to teammates)") but never the bodies.
+- **Per-email visibility (strict owner-only, NO admin bypass)**: an email `CustomerInteraction` (`interactionType='email'`) defaults to `'private'` (visible only to its author — the mailbox owner, `author_user_id`). `visibility='shared'` makes it visible to ALL users with CRM access to that Person. `visibility='private'` keeps it visible to the author alone. Admins do NOT bypass this in v1 — `customers.email.view_private` is declared but **inert** (a v2-oversight hook). The owner flips a single email via `PATCH /api/customers/interactions/{id}/visibility` (owner-only; 404 to non-owners). Teammates see an opaque count of private emails on the same Person ("5 more emails (private to teammates)") but never the bodies.
 - **Threading inheritance**: a reply auto-links to whatever Person the parent thread already links to, via `In-Reply-To` / `References` lookup. Survives the case where a reply's `From` is a previously-unknown address.
 
 **Non-goals (v1)**
 - Deal-page or Company-page email surfaces. Those derive trivially via the existing `CustomerDealPersonLink` / `CustomerPersonCompanyLink` join tables and are tracked as a v2 spec; v1 keeps the surface minimal.
-- A standalone "Mail" tab inside CRM (Pipedrive's mailbox view). Users already have the unified Messages inbox; v1 doesn't duplicate it.
 - Bcc-to-CRM dropbox (per-user generated forwarding address).
 - AI-assisted deal linking.
 - Attachment send/receive — the hub adapters currently declare `fileSharing: false` after the 2026-05-26 fix pass. Attachments land when the hub flips that flag.
@@ -38,8 +38,8 @@ This spec assumes the following are already implemented:
 | Per-user email channels (Gmail / Microsoft / IMAP) | Implemented (current branch) | `packages/channel-{gmail,microsoft,imap}/` + spec [`2026-05-21-email-integration-foundation.md`](2026-05-21-email-integration-foundation.md) |
 | `sendAsUser({ userChannelId, … })` facade | Implemented | `packages/core/src/modules/communication_channels/api/post/send-as-user/route.ts` |
 | Hub events `communication_channels.message.received` / `.sent` with `clientBroadcast: true` | Implemented | `packages/core/src/modules/communication_channels/events.ts` |
-| UMES (SPEC-041) for injection widgets | Implemented | `packages/ui/src/backend/injection/` |
 | `customers` module CRUD primitives | Implemented (reference module) | `packages/core/src/modules/customers/` |
+| Shared `EmailThreadsPanel` UI | Implemented | `packages/ui/src/backend/messages/EmailThreadsPanel.tsx` |
 
 No additional hub changes are required. Cross-tenant + per-user isolation in the hub (the user_id scoping on `CommunicationChannel` + `IntegrationCredentials`) is already in place.
 
@@ -51,7 +51,7 @@ Open Mercato's CRM module (`customers`) currently logs emails as `CustomerIntera
 
 The Communications Hub (SPEC-045d) + per-user email channels (2026-05-21 spec) close the platform gap: any user can connect Gmail / Microsoft 365 / IMAP, and the platform can send + receive on their behalf. **This spec wires that capability into the CRM** so emails appear on Person timelines automatically and the user can compose without leaving the Person detail page.
 
-> **Architectural references**: SPEC-045d (the hub contract), 2026-05-21 spec (per-user channels + `sendAsUser`), SPEC-041 UMES (injection widgets), the customers module's existing `CustomerInteraction` schema and `ActivityTimeline` render path.
+> **Architectural references**: SPEC-045d (the hub contract), 2026-05-21 spec (per-user channels + `sendAsUser`), ARCHITECTURE.md §4 (a module composes its OWN pages directly — the email surface is direct composition, not UMES injection), the customers module's existing `CustomerInteraction` schema and `ActivityTimeline` render path, and the shared `EmailThreadsPanel`.
 
 ---
 
@@ -75,14 +75,22 @@ The Communications Hub (SPEC-045d) + per-user email channels (2026-05-21 spec) c
 │ ├ subscribers/link-channel-message.ts                       │
 │ │   listens to communication_channels.message.received      │
 │ │   listens to communication_channels.message.sent          │
+│ │   (delegates to lib/link-channel-message-handler.ts)      │
 │ │                                                           │
-│ ├ lib/find-people-by-addresses.ts                           │
+│ ├ api/people/[id]/emails/route.ts          (POST compose)   │
+│ ├ api/people/[id]/email-threads/route.ts   (GET threads)    │
+│ ├ api/interactions/[id]/visibility/route.ts (PATCH)         │
 │ │                                                           │
-│ ├ api/people/[id]/emails/route.ts          (POST + GET)     │
-│ ├ api/customer-emails/[id]/visibility/route.ts (PATCH)      │
+│ ├ lib/personEmailThreads.ts  (server-side thread grouping)  │
+│ ├ lib/visibilityFilter.ts    (owner-only email filter)      │
 │ │                                                           │
+│ ├ components/detail/PersonEmailThreadsTab.tsx  (Emails tab;  │
+│ │   toolbar Refresh/New email + Connect CTA via              │
+│ │   EmailThreadsPanel)                                       │
 │ ├ components/detail/ComposeEmailDialog.tsx                  │
-│ ├ widgets/injection/person-send-email/                      │
+│ ├ components/detail/EmailCardActions.tsx                    │
+│ ├ components/detail/EmailReplyForwardActions.tsx            │
+│ │   (composed directly into ActivityCard.tsx — no widgets)  │
 │ │                                                           │
 │ └ events.ts: customers.email.linked  (clientBroadcast)     │
 └─────────────────────────────────────────────────────────────┘
@@ -108,9 +116,10 @@ The CRM is a downstream consumer; the hub stays generic. Same linking codepath f
 | **Extend `CustomerInteraction` rather than add a new entity** | The `email` `interactionType` already exists, the timeline already renders it, undo + custom fields are already wired. Adding 3 nullable columns + 2 indexes is cheaper than a parallel table + UNION ALL timeline. |
 | **Event-driven subscriber (Approach 1)** | Single linking codepath for inbound + outbound. BC-clean (hub doesn't know about CRM). Threading inheritance falls out naturally. Sub-100ms latency via `clientBroadcast: true`. |
 | **Auto-link every matching Person** | Multiple People can match (To: alice@x.com Cc: bob@y.com — both customers). Creating one interaction per match is the only correct option; the unique index makes it idempotent. |
-| **Private-by-default visibility, per-email sharing flag** | Personal mailboxes carry non-CRM content. Default-shared would leak; always-private would break handoffs. Pipedrive's model is the right balance. |
+| **Private-by-default visibility, per-email sharing flag, strict owner-only (NO admin bypass)** | Personal mailboxes carry non-CRM content. Default-shared would leak; always-private would break handoffs. The owner can opt a single email into `'shared'`; otherwise it stays visible to its author alone — and in v1 **not even an admin/superadmin bypasses this** (strict owner-only, matching the channel-level privacy model in `2026-05-21-email-integration-foundation.md`). `customers.email.view_private` is declared but inert; an audited v2 oversight feature will re-activate it. |
+| **Direct composition for the email surface (NOT UMES injection widgets)** | The customers module owns the Person detail page, so it composes its own Emails tab, compose dialog, and email-card actions directly (ARCHITECTURE.md §4: a module composes its OWN pages directly; self-injection is an anti-pattern). UMES injection is for cross-module / third-party extension, which this is not. The originally-planned `widgets/injection/person-send-email/` and `person-email-card-actions/` were therefore never built. |
 | **No raw FK across module boundary** | Per root `AGENTS.md`. `customer_interactions.external_message_id` is a UUID; the cross-module link is declared via `EntityExtension` in `customers/data/extensions.ts`. |
-| **Visibility enforced at the DB layer**, not just response enricher | Defense in depth. The interactions where-builder filters private rows out at query time so they never enter the response. Enricher would still ship the row to memory and rely on serialization to redact. |
+| **Visibility enforced at the DB layer**, not just response enricher | Defense in depth. The interactions where-builder (`lib/visibilityFilter.ts`) filters non-author private rows out at query time so they never enter the response. Enricher would still ship the row to memory and rely on serialization to redact. |
 
 ### Alternatives Considered
 
@@ -119,9 +128,11 @@ The CRM is a downstream consumer; the hub stays generic. Same linking codepath f
 | **Approach 2: sync link inside `sendAsUser` wrapper** | Asymmetric (sync outbound vs async inbound = two codepaths). Couples sendAsUser's transaction to a customers table the hub shouldn't know about. The queue hop is fast enough that the sync approach has no real win. |
 | **Approach 3: response enricher only, no own row** | Forces every Person GET to query MessageChannelLink. No audit trail, no undo, can't filter the activities timeline by email, no visibility flag persistence. |
 | **Add Deal + Company surfaces in v1** | Tripled scope without a forcing function. Both derive from Person via existing join tables; doing them later is one PR per surface. |
-| **A dedicated "Mail" tab in CRM (Pipedrive-style)** | Duplicates the existing unified Messages inbox at `/backend/messages`. The user can already see all their emails there; the CRM value is *anchoring to entities*, not re-rendering the inbox. |
 | **Public-to-tenant visibility model** | Leaks personal mailbox content (NDA threads, salary, etc.) to every teammate the moment it lands in CRM. Unacceptable per the user-isolation contract. |
 | **Strictly private (no sharing option)** | Breaks rep-to-rep handoff workflows. Defeats half the point of having CRM. |
+| **Admin bypass on private emails (admin sees all bodies)** | Rejected for v1 in favor of strict owner-only. Auto-creating CRM rows from a user's personal mailbox and then letting admins read every body re-creates the privacy leak the visibility model exists to prevent. Team oversight is deferred to an explicit, audited v2 capability (the inert `customers.email.view_private` hook). |
+
+> **Design evolution — the Emails tab.** This spec originally listed "a dedicated Mail tab inside CRM (Pipedrive-style)" as a non-goal and rejected alternative, on the theory that the unified Messages inbox at `/backend/messages` already covers it. During implementation the design evolved: a dedicated, Person-anchored **Emails** tab (`PersonEmailThreadsTab` via the shared `EmailThreadsPanel`) is now the intended, canonical surface. It is **not** a re-render of the global inbox — it is scoped to one Person, threads that Person's conversations Gmail/Outlook-style, and enforces the owner-only visibility filter. The CRM value (anchoring to an entity) is preserved; the threaded presentation is the natural home for it. The former non-goal and rejected-alternative row are removed accordingly.
 
 ---
 
@@ -132,7 +143,7 @@ The CRM is a downstream consumer; the hub stays generic. Same linking codepath f
 - **As a sales rep**, I want **inbox content private by default** so that **personal correspondence (HR, salary, vendor NDAs) that happens to mention a customer doesn't auto-leak to my team**.
 - **As a sales rep**, I want to **flip a single email to "share with team" when handing a contact off** so that **a teammate can read the conversation history without me forwarding it manually**.
 - **As a teammate**, I want to **see that a colleague has private email history with this contact** so that **I know to ask them before reaching out cold**, without seeing the content.
-- **As an admin**, I want **the same per-email visibility flag visible to me** so that **I can review/audit at the message level when investigating an incident** (admin bypass via `customers.email.view_private`).
+- **As a privacy-conscious user**, I want **my private emails to stay private even from admins in v1** so that **personal mailbox content auto-linked into CRM is never read by anyone but me unless I explicitly share it**. (Team oversight is deferred to an explicit, audited v2 capability — see the design-evolution note in § Proposed Solution. `customers.email.view_private` is declared but inert in v1 and grants no read/write bypass.)
 
 ---
 
@@ -140,56 +151,53 @@ The CRM is a downstream consumer; the hub stays generic. Same linking codepath f
 
 ### File layout
 
+The email surface is built by **direct composition** in the customers module — no UMES injection widgets (see the design decision in § Proposed Solution). The shipped layout:
+
 ```
 packages/core/src/modules/customers/
   api/
     interactions/
       [id]/
         visibility/
-          route.ts                            # PATCH visibility (private | shared)  (Phase 4)
+          route.ts                            # PATCH visibility (private | shared) — owner-only, 404 to non-owner, NO admin bypass
     people/
       [id]/
         emails/
-          route.ts                            # POST compose+send (Phase 2)
-                                              # (List of emails for a Person uses the existing
-                                              #  GET /api/customers/interactions endpoint with
-                                              #  ?entityId=…&interactionType=email — extended
-                                              #  with the Layer 1 visibility filter)
+          route.ts                            # POST compose+send
+        email-threads/
+          route.ts                            # GET threaded list (the Emails tab reads THIS)
   components/
     detail/
+      PersonEmailThreadsTab.tsx               # Emails tab — Gmail/Outlook-style threaded view via EmailThreadsPanel; owns the Refresh / New email toolbar, the compose entry point, and the no-channel "Connect your mailbox" CTA
       ComposeEmailDialog.tsx                  # modal (mirrors ActivityDialog UX)
-      EmailReplyForwardActions.tsx            # Reply / Reply All / Forward action menu on email cards
+      EmailCardActions.tsx                    # actions on an email timeline card
+      EmailReplyForwardActions.tsx            # Reply / Reply All / Forward action menu
+      ActivityCard.tsx                        # composes EmailCardActions / EmailReplyForwardActions directly
   data/
     extensions.ts                             # NEW EntityExtension: customer_interaction.external_message_id → communication_channels:message_channel_link
   events.ts                                   # extended with `customers.email.linked`
   lib/
-    find-people-by-addresses.ts               # batch lookup, lowercased + tenant-scoped
-    visibility-filter.ts                      # buildPrivateInteractionFilter(currentUserId, callerFeatures)
+    personEmailThreads.ts                     # server-side thread grouping (backs GET email-threads); owner-only scoped
+    visibilityFilter.ts                       # applyEmailVisibilityFilter / buildEmailVisibilityMikroFilter — owner-only, no admin bypass
+    link-channel-message-handler.ts           # shared linking logic invoked by the subscriber (inbound + outbound, threading inheritance)
   migrations/
     Migration20260527<HHmmss>_customers_email_integration.ts
   subscribers/
-    link-channel-message.ts                   # on .message.received + .message.sent
-  widgets/
-    injection/
-      person-send-email/                      # "Send email" button OR Connect CTA in person detail header
-        widget.client.tsx
-        widget.ts
-      person-email-card-actions/              # Reply/Forward actions on email timeline cards
-        widget.client.tsx
-        widget.ts
+    link-channel-message.ts                   # on .message.received + .message.sent (delegates to lib/link-channel-message-handler.ts)
   __integration__/
-    TC-CRM-EMAIL-001.spec.ts                  # outbound: send creates private interaction
-    TC-CRM-EMAIL-002.spec.ts                  # inbound: auto-link by From
-    TC-CRM-EMAIL-003.spec.ts                  # multi-match: To+Cc → 3 interactions
-    TC-CRM-EMAIL-004.spec.ts                  # no-match: 0 interactions, still in Messages inbox
-    TC-CRM-EMAIL-005.spec.ts                  # threading inheritance via In-Reply-To
-    TC-CRM-EMAIL-006.spec.ts                  # visibility flip + admin bypass + cross-user denial
+    TC-CRM-EMAIL-001.spec.ts                  # outbound E2E: send creates private interaction + cross-user filtering (currently test.skip; un-skipped via the channel-seeding fixture)
+    TC-CRM-EMAIL-002.spec.ts                  # inbound: auto-link by From               (to be written)
+    TC-CRM-EMAIL-003.spec.ts                  # multi-match: To+Cc → 3 interactions       (to be written)
+    TC-CRM-EMAIL-004.spec.ts                  # no-match: 0 interactions, still in Messages inbox (to be written)
+    TC-CRM-EMAIL-005.spec.ts                  # threading inheritance via In-Reply-To      (to be written)
+    TC-CRM-EMAIL-006.spec.ts                  # visibility flip: owner flips; non-owner AND admin both blocked (404), owner-only
     TC-CRM-EMAIL-007.spec.ts                  # no-channel-connected UX state
+    TC-CRM-EMAIL-VISIBILITY-001.spec.ts       # strict owner-only read filter on email interactions (no admin bypass)
 ```
 
 ### Module-graph compliance
 
-After this PR lands, run `yarn mercato configs cache structural --all-tenants` (per root AGENTS.md mandate after backend page or sidebar changes — the new compose dialog is reached via an injection widget so technically no `apps/mercato/src/modules.ts` change is needed, but the structural cache must be refreshed for the new injection widget to register).
+The email surface is composed directly into the existing Person detail page (`backend/customers/people-v2/[id]/page.tsx`) — no new injection widgets and no `apps/mercato/src/modules.ts` change. Run `yarn mercato configs cache structural --all-tenants` after the change as a matter of course (per root AGENTS.md mandate after backend page changes) to refresh `nav:*` cache and Turbopack module-graph fingerprints.
 
 ### OSS independence
 
@@ -202,9 +210,10 @@ grep -r "@open-mercato/enterprise" packages/core/src/modules/customers/
 ### Outbound flow (compose)
 
 ```
-Person detail page → "Send email" injection-widget button
-  ↓ (user has ≥1 connected, status='connected' channel; otherwise button is replaced with Connect CTA)
-ComposeEmailDialog (modal)
+Person detail page → Emails tab → "New email" (or per-thread "Reply") control
+  (PersonEmailThreadsTab via EmailThreadsPanel — a direct component, NOT an injection widget)
+  ↓ (user has ≥1 connected, status='connected' channel; otherwise the control is replaced with a Connect CTA)
+ComposeEmailDialog (modal — a direct component)
   • To prefilled = person.email; user can edit; can add Cc/Bcc
   • Subject + body (rich-text editor primitive)
   • "Send as" dropdown — user's connected channels; defaults to primary, persists last choice
@@ -212,12 +221,13 @@ ComposeEmailDialog (modal)
   • Cmd/Ctrl+Enter submit; Esc cancel
   ↓
 POST /api/customers/people/{personId}/emails
-  body: { userChannelId, to[], cc?[], bcc?[], subject, body, bodyFormat, visibility }
+  body (flat): { userChannelId, to, cc?, subject, body, bodyFormat, visibility,
+                 inReplyTo?, references?, parentMessageId? }
   ↓
 Route handler:
   1. Loads person; verifies person.tenantId === auth.tenantId
   2. Loads channel; verifies channel.userId === auth.sub (per-user enforcement; the hub also checks but we double-up)
-  3. Calls sendAsUser({ userChannelId, to, cc, bcc, subject, body, bodyFormat,
+  3. Calls sendAsUser({ userChannelId, to, cc, subject, body, bodyFormat, inReplyTo, references,
                         channelMetadata: { crmVisibility: visibility, crmPersonId: personId } })
   ↓
 Hub creates Message + emits messages.message.sent
@@ -226,15 +236,15 @@ Hub outbound-delivery subscriber forwards via channel adapter
   ↓
 Hub emits communication_channels.message.sent (clientBroadcast: true — already configured)
   ↓
-customers/subscribers/link-channel-message.ts fires (persistent subscriber)
+customers/subscribers/link-channel-message.ts fires (persistent subscriber → lib/link-channel-message-handler.ts)
   • Re-fetches MessageChannelLink + Message by messageId
   • Reads channelMetadata.crmVisibility (defaults to 'private' if absent)
-  • Collects To/Cc/Bcc addresses + the explicit crmPersonId hint
-  • findPeopleByAddresses(em, addresses, tenantId) — also honors crmPersonId hint
+  • Collects To/Cc addresses + the explicit crmPersonId hint
+  • Resolves matching People by address (tenant-scoped, lowercased) — also honors crmPersonId hint
   • For each matched Person, INSERT INTO customer_interactions … ON CONFLICT DO NOTHING
   • Emits customers.email.linked once per (person, message) row created
   ↓
-Browser SSE bridge (clientBroadcast) → Person detail page refetches timeline
+Browser SSE bridge (clientBroadcast) → Emails tab / timeline live-refresh (useAppEvent)
 ```
 
 ### Inbound flow (auto-link)
@@ -246,10 +256,10 @@ Hub poll worker (channel-{gmail,microsoft,imap})
   ↓
 Hub inbound-processor: creates Message + MessageChannelLink + ExternalMessage; emits communication_channels.message.received
   ↓
-customers/subscribers/link-channel-message.ts fires (persistent)
+customers/subscribers/link-channel-message.ts fires (persistent → lib/link-channel-message-handler.ts)
   • Re-fetches MessageChannelLink by messageChannelLinkId; reads channelMetadata
-  • Extracts addresses: lowercase, dedupe, normalize From / To / Cc / Bcc
-  • findPeopleByAddresses(em, addresses, tenantId)
+  • Extracts addresses: lowercase, dedupe, normalize From / To / Cc
+  • Resolves matching People by address (tenant-scoped)
   • For each matched Person:
       INSERT INTO customer_interactions
         (entity, external_message_id, visibility='private',
@@ -273,47 +283,31 @@ customers/subscribers/link-channel-message.ts fires (persistent)
   • If zero matches → no-op; email stays in Messages inbox but not in CRM
 ```
 
-### Visibility enforcement (3 layers of defense)
+### Visibility enforcement (strict owner-only, layers of defense)
 
-**Layer 1 — DB filter** (`customers/lib/visibility-filter.ts`)
+**v1 is strict owner-only with NO admin bypass.** A `private` email `CustomerInteraction` is visible to its author (`author_user_id` = the mailbox owner) and to no one else — not even an admin or superadmin. A `shared` email is visible to every user with CRM access to the Person. This matches the channel-level privacy model in `2026-05-21-email-integration-foundation.md`. `customers.email.view_private` is declared but **inert** in v1 (a v2-oversight hook that grants no read/write bypass today).
 
-Every read path that returns `customer_interactions` applies:
-```ts
-function buildPrivateInteractionFilter(
-  currentUserId: string,
-  hasAdminBypass: boolean,
-): Knex.QueryCallback {
-  return (qb) => {
-    if (hasAdminBypass) return        // admin sees all
-    qb.where((sub) =>
-      sub.where('interaction_type', '!=', 'email')
-         .orWhere('visibility', '=', 'shared')
-         .orWhere((own) =>
-           own.where('visibility', '=', 'private')
-              .andWhere('author_user_id', '=', currentUserId)
-         )
-    )
-  }
-}
+**Layer 1 — DB filter** (`customers/lib/visibilityFilter.ts`)
+
+Every read path that returns email `customer_interactions` applies the owner-only filter (`applyEmailVisibilityFilter` for query-builder paths / `buildEmailVisibilityMikroFilter` for MikroORM paths). The predicate, in effect:
 ```
+(interaction_type != 'email')
+  OR (visibility = 'shared')
+  OR (visibility = 'private' AND author_user_id = currentUserId)
+```
+There is **no admin-bypass branch** — the filter applies uniformly to every caller, admins included. Wired into the interactions list (`customers/api/interactions/route.ts`), interaction counts, the activities timeline, the person/company detail read models, and the Person Emails-tab thread grouping (`customers/lib/personEmailThreads.ts`, which additionally scopes threads to `author_user_id = viewer` and stays fail-closed when authorship can't be established).
 
-Wired into `customers/api/interactions/route.ts` and `customers/api/people/[id]/emails/route.ts` GET handlers.
+**Layer 2 — Owner-only guard on PATCH visibility**
 
-**Layer 2 — Mutation guard on PATCH visibility**
-
-`PATCH /api/customer-emails/{id}/visibility` returns 404 (not 403, to avoid leaking existence) when:
-- `interaction.author_user_id !== currentUser.id` AND
-- caller does not have `customers.email.view_private` (admin feature)
-
-Even loading the row to inspect `author_user_id` goes through `findOneWithDecryption` with the visibility filter, so a non-owner non-admin can never see the row in the first place.
+`PATCH /api/customers/interactions/{id}/visibility` returns 404 (not 403, to avoid leaking existence) when `interaction.author_user_id !== currentUser.id`. **Admins are also returned 404** — holding `customers.email.view_private` grants no bypass in v1. The route also 404s when `interaction_type !== 'email'` (visibility is meaningless on calls/meetings/tasks). Even loading the row to inspect `author_user_id` goes through `findOneWithDecryption` with the visibility filter, so a non-author can never see the row in the first place.
 
 **Layer 3 — Subscriber audit**
 
-`link-channel-message.ts` always sets `author_user_id = channel.userId` (the mailbox owner). For tenant-scoped channels (no userId — e.g. WhatsApp), `visibility` defaults to `'shared'` because there is no "owner" to keep it private to.
+`link-channel-message.ts` (via `lib/link-channel-message-handler.ts`) always sets `author_user_id = channel.userId` (the mailbox owner) and `visibility = 'private'` for personal channels. For tenant-scoped channels (no `userId` — e.g. WhatsApp / shared inboxes), `visibility` defaults to `'shared'` because there is no "owner" to keep it private to.
 
 **Teammate-visible private count** (UX honesty)
 
-A small response enricher on the Person detail GET runs:
+A small response enricher on the Person detail GET counts non-author private emails:
 ```sql
 SELECT COUNT(*) FROM customer_interactions
 WHERE entity = $personId
@@ -323,7 +317,7 @@ WHERE entity = $personId
   AND visibility = 'private'
   AND author_user_id != $currentUserId
 ```
-Surfaced on the Person header as "5 emails private to teammates". Metadata only — never content. Admins still see actual content via Layer 1's admin bypass.
+Surfaced on the Person header as "5 emails private to teammates". Metadata only — never content, and the count is shown to admins exactly as to any other teammate (admins do not see the underlying bodies in v1).
 
 ---
 
@@ -407,20 +401,21 @@ All routes export per-method `metadata` with `requireAuth` + `requireFeatures` a
   4. Return `{ messageId, status }`. The interaction row is created asynchronously by the subscriber; the response doesn't wait for it.
 - **Errors**: 401 (no auth), 403 (no feature), 404 (person not found or wrong tenant), 409 (channel not connected / not owner), 422 (body validation), 502 (provider error from sendAsUser).
 
-### Email list — uses existing `GET /api/customers/interactions`
+### `GET /api/customers/people/{personId}/email-threads` — the Emails tab data source
 
-The existing CRUD route already supports filtering by `entityId` and `interactionType`:
-```
-GET /api/customers/interactions?entityId={personId}&interactionType=email&limit=25
-```
-This spec extends that route's where-builder to apply the **Layer 1 visibility filter** (`buildPrivateInteractionFilter`). No new GET route is needed. The opaque `privateCount` for the Person header is exposed via a **response enricher on the Person detail GET** (see § Phase 4), not by this list endpoint.
+The Emails tab reads a **dedicated threaded endpoint** (not the generic `GET /api/customers/interactions` list and not a planned `GET .../emails`). The route groups the Person's email interactions into Gmail/Outlook-style conversations server-side via `customers/lib/personEmailThreads.ts`.
+- **Features**: `customers.people.view` + `customers.email.compose`
+- **Response**: `{ threads: [...] }` — one entry per conversation (subject, participants, last activity, message count, ordered messages with direction + headers).
+- **Visibility**: applies the owner-only filter (`personEmailThreads.ts` scopes to `author_user_id = viewer` plus ownerless shared rows; fail-closed when authorship is unestablished). **No admin bypass.**
+
+The generic `GET /api/customers/interactions?entityId={personId}&interactionType=email` list still exists and also applies the Layer 1 owner-only filter (`applyEmailVisibilityFilter`), but the Emails tab does not depend on it. The opaque `privateCount` for the Person header is exposed via a **response enricher on the Person detail GET** (see § Phase 4).
 
 ### `PATCH /api/customers/interactions/{interactionId}/visibility`
 - **Features**: `customers.email.compose` (the same feature that lets you create one)
 - **Body**: `z.object({ visibility: z.enum(['private', 'shared']) })`
 - **Server**:
-  1. Load interaction with the Layer 1 visibility filter applied; 404 if not visible to caller. The route also verifies `interaction_type = 'email'` and 404s otherwise (this route is email-only; visibility is meaningless on calls/meetings/tasks).
-  2. Verify `interaction.author_user_id === auth.sub` OR caller has `customers.email.view_private` (admin bypass). 404 otherwise.
+  1. Load interaction with the Layer 1 owner-only visibility filter applied; 404 if not visible to caller. The route also verifies `interaction_type = 'email'` and 404s otherwise (this route is email-only; visibility is meaningless on calls/meetings/tasks).
+  2. Verify `interaction.author_user_id === auth.sub`. 404 otherwise. **This is strict owner-only: an admin holding `customers.email.view_private` is also returned 404 in v1 — that feature grants no bypass.**
   3. Update `visibility`. Emit `customers.email.visibility_changed` event (additive).
 - **Errors**: 401, 403, 404, 422.
 
@@ -442,7 +437,7 @@ The route lives under `customers/api/interactions/[id]/visibility/route.ts` (not
 
 ### `OpenAPI` exports
 
-All three routes export an `openApi` block per `packages/core/AGENTS.md`. Discriminated unions handled via `createCrudOpenApiFactory` for the GET list; ad-hoc shapes for POST/PATCH.
+All three new routes (`POST .../emails`, `GET .../email-threads`, `PATCH .../interactions/{id}/visibility`) export an `openApi` block per `packages/core/AGENTS.md`. Ad-hoc shapes for the compose POST, the threaded GET, and the visibility PATCH.
 
 ---
 
@@ -466,14 +461,14 @@ Use `useT()` client-side, `resolveTranslations()` server-side. The `yarn i18n:ch
 
 ## UI/UX
 
-### Person detail page additions
+All of the following are **directly composed** into the Person detail page (`backend/customers/people-v2/[id]/page.tsx`) — there are no UMES injection widgets for the email surface (see § Proposed Solution).
 
-- **Header action row**: new "Send email" button (uses `<Mail>` from the lucide icon registry, same icon as `ActivitiesAddNewMenu`). Implemented as a UMES injection widget at the existing person-detail header spot — customers module doesn't have to know about communication_channels imports directly.
-- **No-channel state**: when `GET /api/communication_channels/me/channels` returns empty for the current user, the button is replaced by a `<Button variant="outline" asChild><Link href="/backend/profile/communication-channels">Connect your mailbox</Link></Button>` block with brief copy.
-- **Email row on activity timeline**: uses the existing `ActivityCard` rendering. Subject + sender (or first recipient for outbound) + first ~200 chars body preview. Icon: `<Mail>` with `bg-status-info-soft text-status-info-fg` semantic tokens.
-- **Email detail side drawer**: opening an email card shows full body (sanitized HTML per the hub's `sanitize-channel-html.ts` helper), attachments list (read-only), To/Cc/Bcc, Reply / Reply All / Forward action buttons.
-- **Reply / Reply All / Forward**: reuse `ComposeEmailDialog` with pre-filled `inReplyTo`, `references`, To/Cc/Subject (`Re: …` / `Fwd: …`). One component, three entry points (each is an injection-widget action on the email card).
-- **Visibility toggle**: a small lock/people icon on each email card. Click → confirm dialog → `PATCH visibility`. Only shown to the owner (Layer 2). Admins see a separate "admin override" icon they can click; logs to audit.
+- **Emails tab** (`PersonEmailThreadsTab`): a dedicated tab alongside Notes/Activities/Deals/Addresses/Tasks. Renders the shared `EmailThreadsPanel` (`@open-mercato/ui/backend/messages`) — a Gmail/Outlook-style threaded view (thread list left, conversation right), backed by `GET /api/customers/people/{id}/email-threads`. This is the **single email entry point**: the panel's toolbar exposes "Refresh" and "New email" (compose via `ComposeEmailDialog`). A duplicate top-of-page "Sync / Send email" button pair (the `PersonEmailActions` header component) that previously sat in the page header **has been removed** in this PR as a duplicate, so the Emails tab is the only place to compose.
+- **No-channel state**: when the current user has no connected channel, the "New email" / "Reply" controls are hidden and a "Connect your mailbox" link to `/backend/profile/communication-channels` is shown instead.
+- **Email row on activity timeline**: uses the existing `ActivityCard` rendering. Subject + sender (or first recipient for outbound) + body preview. Icon: `<Mail>` with `bg-status-info-soft text-status-info-fg` semantic tokens. `ActivityCard.tsx` composes `EmailCardActions` / `EmailReplyForwardActions` directly.
+- **Email body rendering**: bodies are shown as text in v1 (HTML rendering via a sanitized renderer is deferred; see TC-CRM-EMAIL-010 notes).
+- **Reply / Reply All / Forward**: reuse `ComposeEmailDialog` with pre-filled `inReplyTo`, `references`, `parentMessageId`, To/Cc/Subject (`Re: …` / `Fwd: …`) so the reply joins the same thread. One component, three entry points — all direct component actions on the email card (`EmailReplyForwardActions`), not injection-widget actions.
+- **Visibility toggle**: a small lock/people icon on each email card. Click → confirm dialog → `PATCH .../interactions/{id}/visibility`. Shown **only to the author** (Layer 2 owner-only). There is no admin-override affordance in v1 — admins do not get a cross-user visibility control.
 
 ### Compose dialog UX
 
@@ -488,12 +483,13 @@ Use `useT()` client-side, `resolveTranslations()` server-side. The `yarn i18n:ch
 
 - **Server / Client boundary**:
   - `people-v2/[id]/page.tsx` — already a client component (existing).
+  - `PersonEmailThreadsTab.tsx` — client component (new); renders `EmailThreadsPanel` and owns the toolbar + Connect CTA.
   - `ComposeEmailDialog.tsx` — client component (new). ~10 KB gzipped.
-  - `person-send-email/widget.client.tsx` — client component (new). ~2 KB.
+  - `EmailCardActions.tsx` / `EmailReplyForwardActions.tsx` — client components (new), composed into `ActivityCard.tsx`.
 - **No new global providers**.
 - **Client bundle guardrail**: no provider SDK in the client bundle (no googleapis, no @microsoft/microsoft-graph-client). Server-side only.
 - **Route budget**: Person detail page adds <15 KB gzipped (well within the existing route's headroom).
-- **Hydration test**: existing Person detail Playwright test extended to assert the Send Email button is interactive within 100ms of mount.
+- **Hydration test**: Person detail Playwright test (TC-CRM-EMAIL-010) asserts the Emails tab renders and its compose/reply controls are interactive.
 
 ---
 
@@ -511,16 +507,16 @@ No new env vars. The existing hub env (`OM_HUB_OAUTH_STATE_KEY`, `OM_HUB_POLL_*`
 | `customer_interactions` API | 3 new optional fields surfaced (external_message_id, visibility, channel_provider_key) | Additive; existing clients ignore new fields. |
 | New events | `customers.email.linked` + `customers.email.visibility_changed` | Additive event IDs; existing subscribers unaffected. |
 | New ACL features | `customers.email.compose` + `customers.email.view_private` | Additive. `customers.email.compose` default-granted to `admin` + `employee` + `manager`; `view_private` default-granted to `admin` only. Run `yarn mercato auth sync-role-acls` on deploy. |
-| New API routes | `POST /api/customers/people/{id}/emails`, `GET /api/customers/people/{id}/emails`, `PATCH /api/customer-emails/{id}/visibility` | New paths only; no existing routes renamed. |
+| New API routes | `POST /api/customers/people/{id}/emails`, `GET /api/customers/people/{id}/email-threads`, `PATCH /api/customers/interactions/{id}/visibility` | New paths only; no existing routes renamed. |
 | `EntityExtension` declaration | New entry in `customers/data/extensions.ts` | Additive. |
 | `customers/setup.ts` | New `defaultRoleFeatures` entries for the two new features | Additive. |
 | Hub module (`communication_channels`) | **No changes** | None. |
 | Messages module | **No changes** | None. |
-| Existing `ActivityDialog` / `ActivityTimeline` / `ActivityCard` | Unchanged — new emails render through the existing path | None. |
+| Existing `ActivityCard` | Extended in place to compose `EmailCardActions` / `EmailReplyForwardActions` (direct composition; no new widgets) | None on non-email cards. |
 
 No deprecations. No data migration of existing rows (the dedupe partial unique index applies only to rows where `external_message_id IS NOT NULL`, so legacy email log interactions are untouched).
 
-After deploy: run `yarn mercato auth sync-role-acls` to grant the two new features to existing tenants, then `yarn mercato configs cache structural --all-tenants` to register the new injection widgets.
+After deploy: run `yarn mercato auth sync-role-acls` to grant the two new features to existing tenants, then `yarn mercato configs cache structural --all-tenants` to refresh the nav/module-graph caches after the Person-page composition change.
 
 ---
 
@@ -534,15 +530,15 @@ After deploy: run `yarn mercato auth sync-role-acls` to grant the two new featur
 
 1. Add 3 additive columns + 2 indexes via `data/entities.ts`; generate scoped migration via `yarn db:generate` and update `migrations/.snapshot-open-mercato.json`.
 2. Add `data/extensions.ts` declaring the cross-module link.
-3. Add `lib/find-people-by-addresses.ts` (case-insensitive, tenant-scoped, batched).
-4. Add `lib/visibility-filter.ts` (`buildPrivateInteractionFilter`) and wire into the existing `customers/api/interactions/route.ts` GET.
-5. Add `subscribers/link-channel-message.ts` listening to `communication_channels.message.received` only (outbound side comes in Phase 2).
+3. Add address-resolution logic (case-insensitive, tenant-scoped, batched) used by the linking handler.
+4. Add `lib/visibilityFilter.ts` (`applyEmailVisibilityFilter` / `buildEmailVisibilityMikroFilter` — strict owner-only, no admin bypass) and wire into the existing `customers/api/interactions/route.ts` GET.
+5. Add `subscribers/link-channel-message.ts` (delegating to `lib/link-channel-message-handler.ts`) listening to `communication_channels.message.received` only (outbound side comes in Phase 2).
 6. Add `customers.email.linked` event to `events.ts` with `clientBroadcast: true`.
-7. Add `customers.email.compose` + `customers.email.view_private` to `acl.ts` + `setup.ts` `defaultRoleFeatures`. Run `yarn mercato auth sync-role-acls` on deploy.
+7. Add `customers.email.compose` + `customers.email.view_private` to `acl.ts` + `setup.ts` `defaultRoleFeatures`. `view_private` is declared but inert in v1. Run `yarn mercato auth sync-role-acls` on deploy.
 8. Unit tests:
-   - `find-people-by-addresses.test.ts`: empty, mixed case, multi-match, tenant-scoped, normalization.
-   - `link-channel-message.test.ts` (inbound only): 1-match / 3-match / 0-match / no tenantId fail-closed / idempotent retry / threading inheritance.
-   - `visibility-filter.test.ts`: own private visible, others' private hidden, shared visible to all, admin bypass.
+   - address resolution: empty, mixed case, multi-match, tenant-scoped, normalization.
+   - `link-channel-message-handler` (inbound only): 1-match / 3-match / 0-match / no tenantId fail-closed / idempotent retry / threading inheritance.
+   - `visibilityFilter`: own private visible, others' private hidden, shared visible to all, **admin NOT bypassed (others' private stays hidden for admins too)**.
 9. Module-local integration tests:
    - `TC-CRM-EMAIL-002`: hub emits `message.received` → interaction created on Person timeline.
    - `TC-CRM-EMAIL-003`: To+Cc with 3 known People → 3 interactions.
@@ -557,8 +553,8 @@ After deploy: run `yarn mercato auth sync-role-acls` to grant the two new featur
 
 **Goal**: user can compose+send from a Person page; outbound emails auto-link.
 
-1. Add `api/customers/people/[id]/emails/route.ts` (POST + GET) with full zod validation + mutation guard.
-2. Extend `link-channel-message.ts` to also handle `communication_channels.message.sent` (reads `channelMetadata.crmVisibility` and `crmPersonId` hint).
+1. Add `api/customers/people/[id]/emails/route.ts` (POST compose, flat body) + `api/customers/people/[id]/email-threads/route.ts` (GET threaded list, backed by `lib/personEmailThreads.ts`) with full zod validation + mutation guard.
+2. Extend `link-channel-message.ts` (via the shared handler) to also handle `communication_channels.message.sent` (reads `channelMetadata.crmVisibility` and `crmPersonId` hint).
 3. Add `customers.email.compose` feature wiring (already in `acl.ts` from Phase 1; here we use it on the POST route).
 4. Unit tests:
    - Compose route validation (zod): rejects 0 recipients, oversized body, missing subject, missing userChannelId.
@@ -568,35 +564,36 @@ After deploy: run `yarn mercato auth sync-role-acls` to grant the two new featur
    - `TC-CRM-EMAIL-001` outbound end-to-end: User A sends → interaction with `visibility='private'` + `author_user_id=A` created → User A sees it; User B's GET on same Person returns the interaction filtered out + `privateCount=1`.
 6. **Acceptance**: User can compose+send against a real (stubbed or env-gated) Gmail/IMAP account; the timeline updates within 1s of send (via clientBroadcast SSE).
 
-### Phase 3 — ComposeEmailDialog + injection widgets
+### Phase 3 — Emails tab + compose / reply UI (direct composition)
 
-**Goal**: full UI on the Person detail page.
+**Goal**: full UI on the Person detail page, composed directly (no injection widgets).
 
 1. Add `components/detail/ComposeEmailDialog.tsx` (modal, mirrors `ActivityDialog`).
-2. Add `widgets/injection/person-send-email/` — header button injection that swaps to a Connect CTA when `GET /api/communication_channels/me/channels` is empty.
-3. Add `components/detail/EmailReplyForwardActions.tsx` + the email-card-actions injection widget for Reply / Reply All / Forward.
-4. Email detail side drawer — render full body through the hub's `sanitize-channel-html.ts` helper.
+2. Add `components/detail/PersonEmailThreadsTab.tsx` (renders the shared `EmailThreadsPanel`, which provides the Refresh / New email toolbar and swaps to a Connect CTA when the user has no connected channel). Wire the Emails tab directly into `backend/customers/people-v2/[id]/page.tsx`.
+3. Add `components/detail/EmailReplyForwardActions.tsx` + `components/detail/EmailCardActions.tsx` and compose them directly into `ActivityCard.tsx` for Reply / Reply All / Forward.
+4. Email body rendered as text in v1 (sanitized-HTML renderer deferred).
 5. Add i18n keys in all 4 locales.
-6. Run `yarn mercato configs cache structural --all-tenants` to register the new injection widgets.
-7. Unit tests: ComposeEmailDialog form validation; Reply/Forward pre-fill correctness.
+6. Run `yarn mercato configs cache structural --all-tenants` to refresh nav/module-graph caches after the page composition change.
+7. Unit tests: ComposeEmailDialog form validation; Reply/Forward pre-fill correctness; `ActivityCard` email-action rendering.
 8. Module-local integration tests:
-   - `TC-CRM-EMAIL-007` no-channel UX: user without connected channel sees Connect CTA; user with connected channel sees Send button.
+   - `TC-CRM-EMAIL-007` no-channel UX: user without connected channel sees Connect CTA; user with connected channel sees the New email control.
+   - `TC-CRM-EMAIL-010` (QA scenario) covers the Emails-tab thread UI + compose/reply wiring.
 9. **Acceptance**: end-to-end compose works in a browser preview against a connected Gmail account.
 
 ### Phase 4 — Visibility toggle UI + private-count enricher + docs
 
-**Goal**: per-email sharing UX + audit hooks + user-facing docs.
+**Goal**: per-email sharing UX (strict owner-only) + user-facing docs.
 
-1. Add `PATCH /api/customer-emails/{id}/visibility` route with mutation guard + admin bypass.
-2. Add the visibility-toggle icon to the email-card injection widget (owner only; admin override icon for admins).
+1. Add `PATCH /api/customers/interactions/{id}/visibility` route with the owner-only mutation guard (no admin bypass).
+2. Add the visibility-toggle icon to the email card (`EmailCardActions`) — shown to the author only; no admin-override affordance in v1.
 3. Add the private-count response enricher on the Person detail GET.
 4. Emit `customers.email.visibility_changed` event on each flip.
-5. Add audit log entry on admin bypass flip.
-6. Module-local integration tests:
-   - `TC-CRM-EMAIL-006` visibility lifecycle: non-owner cannot flip (404), owner flips private→shared, teammate now sees it; admin bypass flips a teammate's email back to private, audit log records who did it.
-7. Add user-facing doc at `apps/docs/docs/user-guide/customers-email.mdx`: connect mailbox → send email from Person → understanding private vs shared → reply/forward workflow → admin visibility override.
-8. Add developer doc snippet to `packages/core/src/modules/customers/AGENTS.md` describing the new subscriber + visibility model so future entity-anchored email work knows the pattern.
-9. **Acceptance**: all 7 integration tests pass; docs reviewed.
+5. Module-local integration tests:
+   - `TC-CRM-EMAIL-006` visibility lifecycle: non-author cannot flip (404), author flips private→shared, teammate now sees it, no-op flip returns `changed: false`, **an admin holding `customers.email.view_private` is ALSO blocked (404) — strict owner-only**, author restores.
+   - `TC-CRM-EMAIL-VISIBILITY-001`: the owner-only read filter hides another user's private email from a non-author (admins included).
+6. Add user-facing doc at `apps/docs/docs/user-guide/customers-email.mdx`: connect mailbox → send email from Person → understanding private vs shared (strict owner-only; no admin bypass in v1) → reply/forward workflow.
+7. Add developer doc snippet to `packages/core/src/modules/customers/AGENTS.md` describing the new subscriber + owner-only visibility model so future entity-anchored email work knows the pattern.
+8. **Acceptance**: integration tests pass; docs reviewed.
 
 ### File Manifest
 
@@ -606,34 +603,52 @@ After deploy: run `yarn mercato auth sync-role-acls` to grant the two new featur
 | `packages/core/src/modules/customers/data/extensions.ts` | Add EntityExtension | 1 |
 | `packages/core/src/modules/customers/migrations/Migration20260527…_customers_email_integration.ts` | Create | 1 |
 | `packages/core/src/modules/customers/migrations/.snapshot-open-mercato.json` | Update | 1 |
-| `packages/core/src/modules/customers/lib/find-people-by-addresses.ts` | Create | 1 |
-| `packages/core/src/modules/customers/lib/visibility-filter.ts` | Create | 1 |
-| `packages/core/src/modules/customers/api/interactions/route.ts` | Wire `buildPrivateInteractionFilter` into where-builder | 1 |
-| `packages/core/src/modules/customers/subscribers/link-channel-message.ts` | Create (inbound branch) | 1 |
+| `packages/core/src/modules/customers/lib/link-channel-message-handler.ts` | Create (shared linking + address resolution + threading inheritance) | 1 |
+| `packages/core/src/modules/customers/lib/visibilityFilter.ts` | Create (`applyEmailVisibilityFilter` / `buildEmailVisibilityMikroFilter` — owner-only) | 1 |
+| `packages/core/src/modules/customers/api/interactions/route.ts` | Wire `applyEmailVisibilityFilter` into where-builder | 1 |
+| `packages/core/src/modules/customers/subscribers/link-channel-message.ts` | Create (inbound branch; delegates to handler) | 1 |
 | `packages/core/src/modules/customers/events.ts` | Add 2 events | 1 |
-| `packages/core/src/modules/customers/acl.ts` | Add 2 features | 1 |
+| `packages/core/src/modules/customers/acl.ts` | Add 2 features (`view_private` inert in v1) | 1 |
 | `packages/core/src/modules/customers/setup.ts` | Add `defaultRoleFeatures` | 1 |
-| `packages/core/src/modules/customers/api/people/[id]/emails/route.ts` | Create (POST + GET) | 2 |
+| `packages/core/src/modules/customers/api/people/[id]/emails/route.ts` | Create (POST compose) | 2 |
+| `packages/core/src/modules/customers/api/people/[id]/email-threads/route.ts` | Create (GET threaded list) | 2 |
+| `packages/core/src/modules/customers/lib/personEmailThreads.ts` | Create (server-side thread grouping; owner-only scoped) | 2 |
 | `packages/core/src/modules/customers/subscribers/link-channel-message.ts` | Extend (outbound branch) | 2 |
 | `packages/core/src/modules/customers/components/detail/ComposeEmailDialog.tsx` | Create | 3 |
+| `packages/core/src/modules/customers/components/detail/PersonEmailThreadsTab.tsx` | Create (Emails tab via `EmailThreadsPanel`; provides the Refresh / New email toolbar, compose entry point, and no-channel Connect CTA) | 3 |
 | `packages/core/src/modules/customers/components/detail/EmailReplyForwardActions.tsx` | Create | 3 |
-| `packages/core/src/modules/customers/widgets/injection/person-send-email/*` | Create | 3 |
-| `packages/core/src/modules/customers/widgets/injection/person-email-card-actions/*` | Create | 3 |
+| `packages/core/src/modules/customers/components/detail/EmailCardActions.tsx` | Create | 3 |
+| `packages/core/src/modules/customers/components/detail/ActivityCard.tsx` | Modify (compose email-card actions directly) | 3 |
+| `packages/core/src/modules/customers/backend/customers/people-v2/[id]/page.tsx` | Modify (add Emails tab) | 3 |
 | `packages/core/src/modules/customers/i18n/{en,pl,es,de}.json` | Add ~20 keys per locale | 3 |
-| `packages/core/src/modules/customers/api/interactions/[id]/visibility/route.ts` | Create | 4 |
+| `packages/core/src/modules/customers/api/interactions/[id]/visibility/route.ts` | Create (owner-only) | 4 |
 | `packages/core/src/modules/customers/data/enrichers.ts` | Add private-count enricher | 4 |
 | `apps/docs/docs/user-guide/customers-email.mdx` | Create | 4 |
-| `packages/core/src/modules/customers/__integration__/TC-CRM-EMAIL-{001..007}.spec.ts` | Create across phases | 1–4 |
+| `packages/core/src/modules/customers/__integration__/TC-CRM-EMAIL-{001..007}.spec.ts` + `TC-CRM-EMAIL-VISIBILITY-001.spec.ts` | Create across phases | 1–4 |
 
 ---
 
 ## Testing Strategy
 
-**Unit (Jest)** — colocated with each new file in `__tests__/`. Per phase, see Implementation Plan. Total ~25 new unit tests.
+**Unit (Jest)** — colocated with each new file in `__tests__/`. Per phase, see Implementation Plan.
 
-**Integration (Playwright)** — module-local in `customers/__integration__/`, per the placement table in the Implementation Plan. Scenarios listed in `.ai/qa/scenarios/TC-CRM-EMAIL-*.md` (one markdown per spec).
+**Integration (Playwright)** — module-local in `customers/__integration__/`. Target state of the suite:
 
-**Cross-cutting**: existing customers cross-tenant isolation tests are extended with one assertion that an email-linked interaction is never visible to a different tenant's GET. Existing person-detail Playwright is extended to assert the Send Email button is interactive within 100ms of mount.
+| Test | Asserts | Status |
+|---|---|---|
+| `TC-CRM-EMAIL-001` | outbound E2E: send → subscriber → private interaction (`author_user_id=A`); User A sees it, User B's GET filters it out + sees `privateCount=1` | Exists, currently `test.skip`; **to be un-skipped** via the new channel-seeding fixture |
+| `TC-CRM-EMAIL-002` | inbound auto-link by From → interaction on Person timeline | **To be written** |
+| `TC-CRM-EMAIL-003` | multi-match (To+Cc, 3 known People) → 3 interactions | **To be written** |
+| `TC-CRM-EMAIL-004` | no-match → 0 interactions; email still in Messages inbox | **To be written** |
+| `TC-CRM-EMAIL-005` | reply auto-links via In-Reply-To / References chain (threading inheritance) | **To be written** |
+| `TC-CRM-EMAIL-006` | visibility lifecycle: non-author blocked (404), author flips private→shared, no-op flip `changed:false`, **admin holding `customers.email.view_private` ALSO blocked (404) — strict owner-only**, author restores | Exists (already asserts owner-only) |
+| `TC-CRM-EMAIL-007` | no-channel-connected UX state | Exists |
+| `TC-CRM-EMAIL-VISIBILITY-001` | strict owner-only read filter: another user's private email is hidden from a non-author (admins included) | Exists |
+| `/email-threads` visibility test | the threaded endpoint scopes to the viewer's own + ownerless shared threads; no admin bypass | **To be added** |
+
+QA scenario markdowns live in `.ai/qa/scenarios/TC-CRM-EMAIL-*.md`. `TC-CRM-EMAIL-010-person-thread-ui.md` (Emails-tab presentation + compose/reply) is present; markdowns for `TC-CRM-EMAIL-001..007` and `TC-CRM-EMAIL-VISIBILITY-001` are still to be authored alongside the to-be-written specs.
+
+**Cross-cutting**: customers cross-tenant isolation tests assert an email-linked interaction is never visible to a different tenant's GET. The Person-detail Emails-tab render is covered by `TC-CRM-EMAIL-010`.
 
 ---
 
@@ -670,7 +685,7 @@ After deploy: run `yarn mercato auth sync-role-acls` to grant the two new featur
 #### Mistakenly-shared email via mis-click
 - **Scenario**: User A clicks the wrong button and shares an email to teammates that should have stayed private.
 - **Severity**: Medium
-- **Mitigation**: Confirm dialog on share / unshare; the PATCH route audits to `customers.email.visibility_changed` event; admin can revert.
+- **Mitigation**: Confirm dialog on share / unshare; the PATCH route emits `customers.email.visibility_changed`. The **author** can flip it back to private at any time (strict owner-only — an admin cannot revert it on the author's behalf in v1, since admins have no cross-user visibility control).
 - **Residual risk**: Operator UX issue, not a security issue. The confirm dialog reduces but doesn't eliminate it.
 
 ### Cascading failures
@@ -712,7 +727,8 @@ After deploy: run `yarn mercato auth sync-role-acls` to grant the two new featur
 #### Per-user channel-owner audit trail
 - **Scenario**: in an incident review, the admin needs to know who handled which contact.
 - **Severity**: Medium (this is a feature, not a risk)
-- **Mitigation**: `author_user_id` on every linked interaction = the mailbox owner; queryable via the existing audit and changelog systems. The Person detail page can surface a "Communication history" tab showing all teammates and their interaction counts (this is the "private count" enricher already in scope).
+- **Mitigation**: `author_user_id` on every linked interaction = the mailbox owner; queryable via the existing audit and changelog systems. The Person header surfaces the per-teammate **private-email count** (the "private count" enricher already in scope) — **metadata only**. In v1 (strict owner-only) admins see those counts exactly as any teammate does but **do not** get the underlying bodies; full body-level oversight is the deferred, audited v2 capability.
+- **Residual risk**: v1 deliberately trades admin body-level visibility for user privacy. If an incident genuinely requires reading a private email, that is an explicit v2 oversight decision, not a v1 default.
 
 ---
 
@@ -746,7 +762,7 @@ After deploy: run `yarn mercato auth sync-role-acls` to grant the two new featur
 | root AGENTS.md | Encryption helpers (`findOneWithDecryption` / `findWithDecryption`) | Compliant | New read paths use the helpers (consistent with the existing customers module) |
 | root AGENTS.md | RBAC via features | Compliant | 2 new features `customers.email.compose` + `customers.email.view_private` |
 | root AGENTS.md | Run `mercato auth sync-role-acls` on deploy | Compliant | Documented in deploy notes |
-| root AGENTS.md | Run `mercato configs cache structural` after new injection widgets | Compliant | Documented in Phase 3 acceptance |
+| root AGENTS.md | Run `mercato configs cache structural` after backend page changes | Compliant | Documented in Phase 3 acceptance (email surface is direct composition into the Person page; no injection widgets) |
 | packages/core/AGENTS.md | Per-method `metadata` exports | Compliant | All 3 new routes |
 | packages/core/AGENTS.md | `openApi` exports | Compliant | All 3 new routes |
 | packages/core/AGENTS.md | `validateCrudMutationGuard` + `runCrudMutationGuardAfterSuccess` for bespoke writes | Compliant | POST emails + PATCH visibility |
@@ -779,11 +795,22 @@ None.
 
 ### Verdict
 
-- **Fully compliant with hub + UMES + AGENTS.md**. Approved for implementation pending writing-plans handoff.
+- **Fully compliant with hub + AGENTS.md**. Approved for implementation pending writing-plans handoff. (Note: the original review assumed a UMES-injection surface; the shipped implementation uses direct composition per ARCHITECTURE.md §4 — see the 2026-06-02 changelog entry.)
 
 ---
 
 ## Changelog
+
+### 2026-06-02 — Reconciled with shipped implementation
+
+Updated the spec to match the code on `feat/demo-hoodie`. The design diverged from the original plan in four ways and a privacy decision was confirmed; all changes are documentation-only.
+
+- **Strict owner-only email visibility, NO admin bypass (confirmed v1 decision).** Rewrote the TLDR visibility bullet, the visibility Design Decision, User Story #6 (was "admin audit / admin bypass via `customers.email.view_private`"), the Visibility-enforcement section (Layers 1–3 + teammate-count: removed the `hasAdminBypass` filter branch and the "admins still see actual content" line), the PATCH API contract (step 2 no longer grants admins a bypass — admin is also returned 404), the two affected Risk entries ("Mistakenly-shared email" and "Per-user channel-owner audit trail"), Phase 1/4 steps, and TC-006's description. `customers.email.view_private` is documented as **declared but inert** in v1 (a v2-oversight hook). Aligns with the channel-level privacy model in `2026-05-21-email-integration-foundation.md`.
+- **Emails tab is the intended design (was a non-goal).** Removed the "standalone Mail tab" non-goal and the matching rejected-alternative row; added a design-evolution note. The canonical surface is now the Person-anchored **Emails** tab (`PersonEmailThreadsTab` via the shared `EmailThreadsPanel`), backed by `GET /api/customers/people/[id]/email-threads` and server-side grouping in `lib/personEmailThreads.ts`.
+- **Direct composition, not UMES injection widgets.** The planned `widgets/injection/person-send-email/` and `person-email-card-actions/` were never built. Updated the Proposed-Solution diagram, File layout, File Manifest, Architecture/UI-UX sections, Phase 3, the module-graph note, and the compliance report to reflect direct components (`PersonEmailThreadsTab` — which renders the shared `EmailThreadsPanel` and owns the Refresh / New email toolbar + Connect CTA — `ComposeEmailDialog`, `EmailCardActions`, `EmailReplyForwardActions` composed into `ActivityCard.tsx`) per ARCHITECTURE.md §4 (a module composes its own pages directly; self-injection is an anti-pattern).
+- **Single Send entry point.** Documented that the duplicate top-of-page "Sync / Send email" button pair (the `PersonEmailActions` header component) **has been removed** in this PR as a duplicate, leaving the Emails tab's "Refresh / New email" controls — provided by the shared `EmailThreadsPanel` rendered inside `PersonEmailThreadsTab`, compose via `ComposeEmailDialog` — as the only email entry point.
+- **Actual endpoints + flat compose body.** Corrected the compose body to the flat shape `{ userChannelId, to, cc?, subject, body, bodyFormat, visibility, inReplyTo?, references?, parentMessageId? }`; documented `GET .../email-threads` (the tab's data source) and `PATCH .../interactions/[id]/visibility` (owner-only). Corrected internal lib names (`visibilityFilter.ts`, `personEmailThreads.ts`, `link-channel-message-handler.ts`).
+- **Testing strategy to the target state.** TC list now reflects: TC-001 exists but is `test.skip` (to be un-skipped via a new channel-seeding fixture); TC-002..005 to be written (inbound auto-link, multi-match, no-match, threading); TC-006 asserts strict owner-only (admin also blocked); `TC-CRM-EMAIL-VISIBILITY-001` declared; a new `/email-threads` visibility test to be added. `.ai/qa/scenarios/TC-CRM-EMAIL-010-person-thread-ui.md` already covers the Emails-tab presentation.
 
 ### 2026-05-27 — Initial spec
 
