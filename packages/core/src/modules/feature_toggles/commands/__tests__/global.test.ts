@@ -357,5 +357,39 @@ describe('feature_toggles.global commands', () => {
                 body: { error: 'Forbidden' },
             })
         })
+
+        it('allows a trusted system actor (no auth) to create global toggles for seeding (issue #2266)', async () => {
+            let createCommand: any
+            jest.isolateModules(() => {
+                require('../global')
+                createCommand = registerCommand.mock.calls.find(([cmd]) => cmd.id === 'feature_toggles.global.create')?.[0]
+            })
+
+            const em = {
+                fork: jest.fn().mockReturnThis(),
+                create: jest.fn((_ctor, data) => ({ ...data, id: 'seeded-toggle-id' })),
+                persist: jest.fn(),
+                flush: jest.fn().mockResolvedValue(undefined),
+                findOne: jest.fn(),
+            }
+            const container = {
+                resolve: jest.fn((token: string) => {
+                    if (token === 'em') return em
+                    if (token === 'featureTogglesService') return { invalidateIsEnabledCacheByIdentifierTag }
+                    return undefined
+                }),
+            }
+            // CLI seeding context: no authenticated actor, explicit systemActor flag.
+            const ctx: any = { container, auth: null, systemActor: true }
+
+            const result = await createCommand.execute(
+                { identifier: 'seeded_feature', name: 'Seeded Feature', type: 'boolean', defaultValue: true },
+                ctx,
+            )
+
+            expect(result).toEqual({ toggleId: 'seeded-toggle-id' })
+            expect(em.persist).toHaveBeenCalled()
+            expect(em.flush).toHaveBeenCalled()
+        })
     })
 })

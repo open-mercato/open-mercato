@@ -57,6 +57,12 @@ async function loadOverrideSnapshots(em: EntityManager, toggleId: string): Promi
 }
 
 function assertGlobalToggleWriteAccess(ctx: CommandRuntimeContext) {
+  // Trusted server-side callers (CLI seed-defaults/toggle-*, tenant setup) run
+  // without an authenticated actor and opt in via `systemActor`. HTTP request
+  // paths never set it and always carry a real `auth` actor, so an authenticated
+  // but non-super-admin caller — the cross-tenant escalation vector (#2266) —
+  // stays denied.
+  if (ctx.systemActor === true) return
   if (ctx.auth?.isSuperAdmin === true) return
   throw new CrudHttpError(403, { error: 'Forbidden' })
 }
