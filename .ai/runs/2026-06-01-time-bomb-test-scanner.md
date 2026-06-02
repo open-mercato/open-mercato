@@ -97,5 +97,5 @@ absolute date literal whose assertion outcome flips with the system clock.
 
 ### Phase 5: Verify + gate
 
-- [ ] 5.1 Re-run scanner clean
-- [ ] 5.2 Full validation gate + reviews
+- [x] 5.1 Re-run scanner clean (0 high / 0 medium)
+- [x] 5.2 Gate: build:packages/generate/i18n/typecheck/build:app ✓, changed tests ✓; pre-existing unrelated cli fs-watch flake noted; code-review + BC clean
