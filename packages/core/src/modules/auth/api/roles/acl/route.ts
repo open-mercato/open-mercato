@@ -9,6 +9,7 @@ import { RoleAcl, Role } from '@open-mercato/core/modules/auth/data/entities'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import { resolveIsSuperAdmin } from '@open-mercato/core/modules/auth/lib/tenantAccess'
 import { RbacService } from '@open-mercato/core/modules/auth/services/rbacService'
+import { withAtomicFlush } from '@open-mercato/shared/lib/commands/flush'
 import {
   assertActorCanGrantAcl,
   assertActorCanModifySuperAdminRoleTarget,
@@ -208,11 +209,16 @@ export async function PUT(req: Request) {
     throw err
   }
 
-  acl.organizationsJson = requestedOrganizations
-  acl.isSuperAdmin = requestedIsSuperAdmin
-  acl.featuresJson = requestedFeatures
-  await em.persist(acl).flush()
-  
+  const aclToPersist = acl
+  await withAtomicFlush(em, [
+    () => {
+      aclToPersist.organizationsJson = requestedOrganizations
+      aclToPersist.isSuperAdmin = requestedIsSuperAdmin
+      aclToPersist.featuresJson = requestedFeatures
+      em.persist(aclToPersist)
+    },
+  ], { transaction: true })
+
   // Invalidate cache for all users in this tenant since role ACL changed
   if (targetTenantId) {
     await rbacService.invalidateTenantCache(targetTenantId)

@@ -128,3 +128,24 @@ describe('TenantDataEncryptionService.decryptFields (issue #1734)', () => {
     expect(out.description).toBe('null')
   })
 })
+
+describe('TenantDataEncryptionService.getEncryptedFieldNames', () => {
+  it('returns active encryption-map field names for query planning', async () => {
+    const service = new TenantDataEncryptionService({} as never)
+    jest.spyOn(service, 'isEnabled').mockReturnValue(true)
+    ;(service as unknown as {
+      getMap: () => Promise<{ fields: Array<{ field?: unknown }> }>
+    }).getMap = jest.fn(async () => ({
+      fields: [
+        { field: 'display_name' },
+        { field: 'primary_email' },
+        { field: '' },
+        { field: null },
+      ],
+    }))
+
+    await expect(
+      service.getEncryptedFieldNames('customers:customer_entity', 't1', 'org1'),
+    ).resolves.toEqual(['display_name', 'primary_email'])
+  })
+})

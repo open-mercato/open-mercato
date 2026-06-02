@@ -301,7 +301,7 @@ const createInteractionCommand: CommandHandler<InteractionCreateInput, { interac
 
     const em = (ctx.container.resolve('em') as EntityManager).fork()
     const normalizedAuthor = normalizeAuthorUserId(parsed.authorUserId ?? null, ctx.auth)
-    const { interaction, entityId } = await runInTransaction(em, async (trx) => {
+    const { interaction, entityId, nextInteractionId } = await runInTransaction(em, async (trx) => {
       const entity = await requireTimelineParentEntity(trx, parsed.entityId)
       ensureTenantScope(ctx, entity.tenantId)
       ensureOrganizationScope(ctx, entity.organizationId)
@@ -352,14 +352,14 @@ const createInteractionCommand: CommandHandler<InteractionCreateInput, { interac
         custom,
       )
 
+      const projection = await recomputeNextInteraction(trx, entity.id)
+
       return {
         interaction,
         entityId: entity.id,
+        nextInteractionId: projection.nextInteractionId,
       }
     })
-
-    const projection = await recomputeNextInteraction(em, entityId)
-    const nextInteractionId = projection.nextInteractionId
 
     const de = (ctx.container.resolve('dataEngine') as DataEngine)
     await emitCrudSideEffects({
@@ -416,8 +416,10 @@ const createInteractionCommand: CommandHandler<InteractionCreateInput, { interac
       const entityId = typeof record.entity === 'string' ? record.entity : record.entity.id
       trx.remove(record)
       await trx.flush()
+      const projection = await recomputeNextInteraction(trx, entityId)
       return {
         entityId,
+        nextInteractionId: projection.nextInteractionId,
         identifiers: {
           id: record.id,
           organizationId: record.organizationId,
@@ -426,10 +428,9 @@ const createInteractionCommand: CommandHandler<InteractionCreateInput, { interac
       }
     })
     if (!result) return
-    const projection = await recomputeNextInteraction(em, result.entityId)
     await emitNextInteractionUpdatedEvent(ctx, {
       entityId: result.entityId,
-      nextInteractionId: projection.nextInteractionId,
+      nextInteractionId: result.nextInteractionId,
     }, result.identifiers)
   },
 }
@@ -447,7 +448,7 @@ const updateInteractionCommand: CommandHandler<InteractionUpdateInput, { interac
   async execute(rawInput, ctx) {
     const { parsed, custom } = parseWithCustomFields(interactionUpdateSchema, rawInput)
     const em = (ctx.container.resolve('em') as EntityManager).fork()
-    const { interaction, entityId } = await runInTransaction(em, async (trx) => {
+    const { interaction, entityId, nextInteractionId } = await runInTransaction(em, async (trx) => {
       const interaction = await findOneWithDecryption(trx, CustomerInteraction, { id: parsed.id, deletedAt: null })
       if (!interaction) throw new CrudHttpError(404, { error: 'Interaction not found' })
       ensureTenantScope(ctx, interaction.tenantId)
@@ -493,11 +494,10 @@ const updateInteractionCommand: CommandHandler<InteractionUpdateInput, { interac
         custom,
       )
 
-      return { interaction, entityId }
-    })
+      const projection = await recomputeNextInteraction(trx, entityId)
 
-    const projection = await recomputeNextInteraction(em, entityId)
-    const nextInteractionId = projection.nextInteractionId
+      return { interaction, entityId, nextInteractionId: projection.nextInteractionId }
+    })
 
     const de = (ctx.container.resolve('dataEngine') as DataEngine)
     await emitCrudSideEffects({
@@ -677,7 +677,7 @@ const completeInteractionCommand: CommandHandler<InteractionCompleteInput, { int
   async execute(rawInput, ctx) {
     const parsed = interactionCompleteSchema.parse(rawInput)
     const em = (ctx.container.resolve('em') as EntityManager).fork()
-    const { interaction, entityId } = await runInTransaction(em, async (trx) => {
+    const { interaction, entityId, nextInteractionId } = await runInTransaction(em, async (trx) => {
       const interaction = await findOneWithDecryption(trx, CustomerInteraction, { id: parsed.id, deletedAt: null })
       if (!interaction) throw new CrudHttpError(404, { error: 'Interaction not found' })
       ensureTenantScope(ctx, interaction.tenantId)
@@ -688,11 +688,9 @@ const completeInteractionCommand: CommandHandler<InteractionCompleteInput, { int
       await trx.flush()
 
       const entityId = typeof interaction.entity === 'string' ? interaction.entity : interaction.entity.id
-      return { interaction, entityId }
+      const projection = await recomputeNextInteraction(trx, entityId)
+      return { interaction, entityId, nextInteractionId: projection.nextInteractionId }
     })
-
-    const projection = await recomputeNextInteraction(em, entityId)
-    const nextInteractionId = projection.nextInteractionId
 
     const identifiers = {
       id: interaction.id,
@@ -809,7 +807,7 @@ const cancelInteractionCommand: CommandHandler<InteractionCancelInput, { interac
   async execute(rawInput, ctx) {
     const parsed = interactionCancelSchema.parse(rawInput)
     const em = (ctx.container.resolve('em') as EntityManager).fork()
-    const { interaction, entityId } = await runInTransaction(em, async (trx) => {
+    const { interaction, entityId, nextInteractionId } = await runInTransaction(em, async (trx) => {
       const interaction = await findOneWithDecryption(trx, CustomerInteraction, { id: parsed.id, deletedAt: null })
       if (!interaction) throw new CrudHttpError(404, { error: 'Interaction not found' })
       ensureTenantScope(ctx, interaction.tenantId)
@@ -819,11 +817,9 @@ const cancelInteractionCommand: CommandHandler<InteractionCancelInput, { interac
       await trx.flush()
 
       const entityId = typeof interaction.entity === 'string' ? interaction.entity : interaction.entity.id
-      return { interaction, entityId }
+      const projection = await recomputeNextInteraction(trx, entityId)
+      return { interaction, entityId, nextInteractionId: projection.nextInteractionId }
     })
-
-    const projection = await recomputeNextInteraction(em, entityId)
-    const nextInteractionId = projection.nextInteractionId
 
     const identifiers = {
       id: interaction.id,
@@ -939,7 +935,7 @@ const deleteInteractionCommand: CommandHandler<{ body?: Record<string, unknown>;
     async execute(input, ctx) {
       const id = requireId(input, 'Interaction id required')
       const em = (ctx.container.resolve('em') as EntityManager).fork()
-      const { interaction, entityId } = await runInTransaction(em, async (trx) => {
+      const { interaction, entityId, nextInteractionId } = await runInTransaction(em, async (trx) => {
         const interaction = await findOneWithDecryption(trx, CustomerInteraction, { id, deletedAt: null })
         if (!interaction) throw new CrudHttpError(404, { error: 'Interaction not found' })
         ensureTenantScope(ctx, interaction.tenantId)
@@ -949,11 +945,9 @@ const deleteInteractionCommand: CommandHandler<{ body?: Record<string, unknown>;
         interaction.deletedAt = new Date()
         await trx.flush()
 
-        return { interaction, entityId }
+        const projection = await recomputeNextInteraction(trx, entityId)
+        return { interaction, entityId, nextInteractionId: projection.nextInteractionId }
       })
-
-      const projection = await recomputeNextInteraction(em, entityId)
-      const nextInteractionId = projection.nextInteractionId
 
       const de = (ctx.container.resolve('dataEngine') as DataEngine)
       await emitCrudSideEffects({

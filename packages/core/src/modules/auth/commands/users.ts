@@ -25,6 +25,7 @@ import {
   diffCustomFieldChanges,
 } from '@open-mercato/shared/lib/commands/customFieldSnapshots'
 import { extractUndoPayload, type UndoPayload } from '@open-mercato/shared/lib/commands/undo'
+import { withAtomicFlush } from '@open-mercato/shared/lib/commands/flush'
 import { normalizeTenantId } from '@open-mercato/core/modules/auth/lib/tenantAccess'
 import { computeEmailHash } from '@open-mercato/core/modules/auth/lib/emailHash'
 import { findOneWithDecryption, findWithDecryption } from '@open-mercato/shared/lib/encryption/find'
@@ -300,31 +301,37 @@ const createUserCommand: CommandHandler<Record<string, unknown>, CreateUserResul
     if (!userId) return
     const snapshot = logEntry?.snapshotAfter as SerializedUser | undefined
     const em = (ctx.container.resolve('em') as EntityManager)
-    await em.nativeDelete(UserAcl, { user: userId })
-    await em.nativeDelete(UserRole, { user: userId })
-    await em.nativeDelete(Session, { user: userId })
-    await em.nativeDelete(PasswordReset, { user: userId })
-
     const de = (ctx.container.resolve('dataEngine') as DataEngine)
-    if (snapshot?.custom && Object.keys(snapshot.custom).length) {
-      const reset = buildCustomFieldResetMap(undefined, snapshot.custom)
-      if (Object.keys(reset).length) {
-        await setCustomFieldsIfAny({
-          dataEngine: de,
-          entityId: E.auth.user,
-          recordId: userId,
-          organizationId: snapshot.organizationId,
-          tenantId: snapshot.tenantId,
-          values: reset,
-          notify: false,
+
+    let removed: User | null = null
+    await withAtomicFlush(em, [
+      async () => {
+        await em.nativeDelete(UserAcl, { user: userId })
+        await em.nativeDelete(UserRole, { user: userId })
+        await em.nativeDelete(Session, { user: userId })
+        await em.nativeDelete(PasswordReset, { user: userId })
+
+        if (snapshot?.custom && Object.keys(snapshot.custom).length) {
+          const reset = buildCustomFieldResetMap(undefined, snapshot.custom)
+          if (Object.keys(reset).length) {
+            await setCustomFieldsIfAny({
+              dataEngine: de,
+              entityId: E.auth.user,
+              recordId: userId,
+              organizationId: snapshot.organizationId,
+              tenantId: snapshot.tenantId,
+              values: reset,
+              notify: false,
+            })
+          }
+        }
+        removed = await de.deleteOrmEntity({
+          entity: User,
+          where: { id: userId, deletedAt: null } as FilterQuery<User>,
+          soft: false,
         })
-      }
-    }
-    const removed = await de.deleteOrmEntity({
-      entity: User,
-      where: { id: userId, deletedAt: null } as FilterQuery<User>,
-      soft: false,
-    })
+      },
+    ], { transaction: true })
 
     await emitCrudUndoSideEffects({
       dataEngine: de,
@@ -648,19 +655,24 @@ const deleteUserCommand: CommandHandler<{ body?: Record<string, unknown>; query?
   async execute(input, ctx) {
     const id = requireId(input, 'User id required')
     const em = (ctx.container.resolve('em') as EntityManager)
-
-    await em.nativeDelete(UserAcl, { user: id })
-    await em.nativeDelete(UserRole, { user: id })
-    await em.nativeDelete(Session, { user: id })
-    await em.nativeDelete(PasswordReset, { user: id })
-
     const de = (ctx.container.resolve('dataEngine') as DataEngine)
-    const user = await de.deleteOrmEntity({
-      entity: User,
-      where: { id, deletedAt: null } as FilterQuery<User>,
-      soft: false,
-    })
-    if (!user) throw new CrudHttpError(404, { error: 'User not found' })
+
+    let user!: User
+    await withAtomicFlush(em, [
+      async () => {
+        await em.nativeDelete(UserAcl, { user: id })
+        await em.nativeDelete(UserRole, { user: id })
+        await em.nativeDelete(Session, { user: id })
+        await em.nativeDelete(PasswordReset, { user: id })
+        const removed = await de.deleteOrmEntity({
+          entity: User,
+          where: { id, deletedAt: null } as FilterQuery<User>,
+          soft: false,
+        })
+        if (!removed) throw new CrudHttpError(404, { error: 'User not found' })
+        user = removed
+      },
+    ], { transaction: true })
 
     await emitCrudSideEffects({
       dataEngine: de,
@@ -707,51 +719,55 @@ const deleteUserCommand: CommandHandler<{ body?: Record<string, unknown>; query?
     let user = await findOneWithDecryption(em, User, { id: before.id }, {}, { tenantId: null, organizationId: null })
     const de = (ctx.container.resolve('dataEngine') as DataEngine)
 
-    if (user) {
-      if (user.deletedAt) {
-        user.deletedAt = null
-      }
-      user.email = before.email
-      user.organizationId = before.organizationId ?? null
-      user.tenantId = before.tenantId ?? null
-      user.passwordHash = before.passwordHash ?? null
-      user.name = before.name ?? null
-      user.isConfirmed = before.isConfirmed
-      await em.flush()
-    } else {
-      user = await de.createOrmEntity({
-        entity: User,
-        data: {
-          id: before.id,
-          email: before.email,
-          organizationId: before.organizationId ?? null,
-          tenantId: before.tenantId ?? null,
-          passwordHash: before.passwordHash ?? null,
-          name: before.name ?? null,
-          isConfirmed: before.isConfirmed,
-        },
-      })
-    }
+    await withAtomicFlush(em, [
+      async () => {
+        if (user) {
+          if (user.deletedAt) {
+            user.deletedAt = null
+          }
+          user.email = before.email
+          user.organizationId = before.organizationId ?? null
+          user.tenantId = before.tenantId ?? null
+          user.passwordHash = before.passwordHash ?? null
+          user.name = before.name ?? null
+          user.isConfirmed = before.isConfirmed
+          await em.flush()
+        } else {
+          user = await de.createOrmEntity({
+            entity: User,
+            data: {
+              id: before.id,
+              email: before.email,
+              organizationId: before.organizationId ?? null,
+              tenantId: before.tenantId ?? null,
+              passwordHash: before.passwordHash ?? null,
+              name: before.name ?? null,
+              isConfirmed: before.isConfirmed,
+            },
+          })
+        }
 
-    if (!user) return
+        if (!user) return
 
-    await em.nativeDelete(UserRole, { user: before.id })
-    await syncUserRoles(em, user, before.roles, before.tenantId)
+        await em.nativeDelete(UserRole, { user: before.id })
+        await syncUserRoles(em, user, before.roles, before.tenantId)
 
-    await restoreUserAcls(em, user, before.acls)
+        await restoreUserAcls(em, user, before.acls)
 
-    const reset = buildCustomFieldResetMap(before.custom, undefined)
-    if (Object.keys(reset).length) {
-      await setCustomFieldsIfAny({
-        dataEngine: de,
-        entityId: E.auth.user,
-        recordId: before.id,
-        organizationId: before.organizationId ?? null,
-        tenantId: before.tenantId ?? null,
-        values: reset,
-        notify: false,
-      })
-    }
+        const reset = buildCustomFieldResetMap(before.custom, undefined)
+        if (Object.keys(reset).length) {
+          await setCustomFieldsIfAny({
+            dataEngine: de,
+            entityId: E.auth.user,
+            recordId: before.id,
+            organizationId: before.organizationId ?? null,
+            tenantId: before.tenantId ?? null,
+            values: reset,
+            notify: false,
+          })
+        }
+      },
+    ], { transaction: true })
 
     await invalidateUserCache(ctx, before.id)
   },

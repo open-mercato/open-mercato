@@ -236,6 +236,19 @@ export class TenantDataEncryptionService {
     }
   }
 
+  async getEncryptedFieldNames(
+    entityId: string,
+    tenantId: string | null | undefined,
+    organizationId?: string | null
+  ): Promise<string[]> {
+    if (!this.isEnabled()) return []
+    const map = await this.getMap({ entityId, tenantId: tenantId ?? null, organizationId: organizationId ?? null })
+    if (!map || !map.fields?.length) return []
+    return map.fields
+      .map((rule) => rule.field)
+      .filter((field): field is string => typeof field === 'string' && field.trim().length > 0)
+  }
+
   private encryptFields(
     obj: Record<string, unknown>,
     fields: EncryptedFieldRule[],

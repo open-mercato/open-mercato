@@ -2,6 +2,7 @@ import { NextResponse } from 'next/server'
 import { z } from 'zod'
 import { getAuthFromRequest } from '@open-mercato/shared/lib/auth/server'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
+import { withAtomicFlush } from '@open-mercato/shared/lib/commands/flush'
 import { perspectiveSaveSchema } from '@open-mercato/core/modules/perspectives/data/validators'
 import {
   loadPerspectivesState,
@@ -162,17 +163,12 @@ export async function POST(req: Request, ctx: { params: { tableId: string } }) {
   }
 
   const scope = buildScope(auth)
-  const saved = await saveUserPerspective(em, cache, {
-    scope,
-    tableId,
-    input: parsed.data,
-  })
 
   const applyToRoles = Array.from(new Set(parsed.data.applyToRoles ?? [])).filter((id) => id.trim().length > 0)
   const clearRoleIds = Array.from(new Set(parsed.data.clearRoleIds ?? [])).filter((id) => id.trim().length > 0)
-  let updatedRolePerspectives: Awaited<ReturnType<typeof saveRolePerspectives>> | null = null
+  const hasRoleOps = applyToRoles.length > 0 || clearRoleIds.length > 0
 
-  if (applyToRoles.length > 0 || clearRoleIds.length > 0) {
+  if (hasRoleOps) {
     const canApplyToRoles = await rbac.userHasAllFeatures?.(
       auth.sub,
       ['perspectives.role_defaults'],
@@ -198,30 +194,45 @@ export async function POST(req: Request, ctx: { params: { tableId: string } }) {
     if (missing.length) {
       return NextResponse.json({ error: 'Invalid roles', missing }, { status: 400 })
     }
-
-    if (applyToRoles.length) {
-      updatedRolePerspectives = await saveRolePerspectives(em, cache, {
-        tableId,
-        tenantId: auth.tenantId ?? null,
-        organizationId: auth.orgId ?? null,
-        input: {
-          roleIds: applyToRoles,
-          name: parsed.data.name,
-          settings: parsed.data.settings,
-          setDefault: parsed.data.setRoleDefault ?? false,
-        },
-      })
-    }
-
-    if (clearRoleIds.length) {
-      await clearRolePerspectives(em, cache, {
-        tableId,
-        tenantId: auth.tenantId ?? null,
-        organizationId: auth.orgId ?? null,
-        roleIds: clearRoleIds,
-      })
-    }
   }
+
+  let saved: Awaited<ReturnType<typeof saveUserPerspective>> | null = null
+  let updatedRolePerspectives: Awaited<ReturnType<typeof saveRolePerspectives>> | null = null
+
+  await withAtomicFlush(em, [
+    async () => {
+      saved = await saveUserPerspective(em, cache, {
+        scope,
+        tableId,
+        input: parsed.data,
+      })
+    },
+    async () => {
+      if (applyToRoles.length) {
+        updatedRolePerspectives = await saveRolePerspectives(em, cache, {
+          tableId,
+          tenantId: auth.tenantId ?? null,
+          organizationId: auth.orgId ?? null,
+          input: {
+            roleIds: applyToRoles,
+            name: parsed.data.name,
+            settings: parsed.data.settings,
+            setDefault: parsed.data.setRoleDefault ?? false,
+          },
+        })
+      }
+    },
+    async () => {
+      if (clearRoleIds.length) {
+        await clearRolePerspectives(em, cache, {
+          tableId,
+          tenantId: auth.tenantId ?? null,
+          organizationId: auth.orgId ?? null,
+          roleIds: clearRoleIds,
+        })
+      }
+    },
+  ], { transaction: true })
 
   return NextResponse.json({
     perspective: saved,

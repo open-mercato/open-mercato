@@ -21,13 +21,15 @@ type ResolverContext = {
 export default async function handle(payload: UserDeletedPayload, ctx: ResolverContext) {
   const em = ctx.resolve<EntityManager>('em')
 
-  await em.nativeUpdate(
-    SsoIdentity,
-    { userId: payload.userId, deletedAt: null },
-    { deletedAt: new Date() } as EntityData<SsoIdentity>,
-  )
+  await em.transactional(async (txEm) => {
+    await txEm.nativeUpdate(
+      SsoIdentity,
+      { userId: payload.userId, deletedAt: null },
+      { deletedAt: new Date() } as EntityData<SsoIdentity>,
+    )
 
-  await em.nativeDelete(SsoRoleGrant, { userId: payload.userId })
+    await txEm.nativeDelete(SsoRoleGrant, { userId: payload.userId })
 
-  await em.nativeDelete(SsoUserDeactivation, { userId: payload.userId })
+    await txEm.nativeDelete(SsoUserDeactivation, { userId: payload.userId })
+  })
 }
