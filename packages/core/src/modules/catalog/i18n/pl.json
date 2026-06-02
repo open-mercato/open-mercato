@@ -559,6 +559,7 @@
   "catalog.stats.tags": "Tagi",
   "catalog.stats.title": "Przegląd katalogu",
   "catalog.variants.errors.skuExists": "SKU jest już używany.",
+  "catalog.variants.form.backToVariants": "Powrót do wariantów",
   "catalog.variants.form.barcodeLabel": "Kod kreskowy",
   "catalog.variants.form.barcodePlaceholder": "EAN, UPC itp.",
   "catalog.variants.form.createAction": "Utwórz wariant",

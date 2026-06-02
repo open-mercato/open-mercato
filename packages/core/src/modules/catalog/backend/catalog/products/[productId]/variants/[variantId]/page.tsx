@@ -11,7 +11,7 @@ import { apiCall, readApiResultOrThrow, withScopedApiRequestHeaders } from '@ope
 import { buildOptimisticLockHeader } from '@open-mercato/ui/backend/utils/optimisticLock'
 import { surfaceRecordConflict } from '@open-mercato/ui/backend/conflicts'
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
-import { ErrorMessage } from '@open-mercato/ui/backend/detail'
+import { ErrorMessage, RecordNotFoundState } from '@open-mercato/ui/backend/detail'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { extractCustomFieldEntries } from '@open-mercato/shared/lib/crud/custom-fields-client'
 import { E } from '#generated/entities.ids.generated'
@@ -112,6 +112,7 @@ export default function EditVariantPage({ params }: { params?: { productId?: str
   const [existingPriceVersions, setExistingPriceVersions] = React.useState<Record<string, string | null>>({})
   const [loading, setLoading] = React.useState(true)
   const [error, setError] = React.useState<string | null>(null)
+  const [notFound, setNotFound] = React.useState(false)
   const [currentProductId, setCurrentProductId] = React.useState<string | null>(productId)
   const [productTitle, setProductTitle] = React.useState<string>('')
   const [productTaxRateId, setProductTaxRateId] = React.useState<string | null>(null)
@@ -179,13 +180,17 @@ export default function EditVariantPage({ params }: { params?: { productId?: str
     async function load() {
       setLoading(true)
       setError(null)
+      setNotFound(false)
       try {
         const variantRes = await apiCall<VariantResponse>(
           `/api/catalog/variants?id=${encodeURIComponent(variantId!)}&page=1&pageSize=1`,
         )
         if (!variantRes.ok) throw new Error(t('catalog.variants.form.errors.load', 'Failed to load variant.'))
         const record = Array.isArray(variantRes.result?.items) ? variantRes.result?.items?.[0] : undefined
-        if (!record) throw new Error(t('catalog.variants.form.errors.notFound', 'Variant not found.'))
+        if (!record) {
+          if (!cancelled) setNotFound(true)
+          throw new Error(t('catalog.variants.form.errors.notFound', 'Variant not found.'))
+        }
         const resolvedProductId =
           typeof record.product_id === 'string'
             ? record.product_id
@@ -445,6 +450,23 @@ export default function EditVariantPage({ params }: { params?: { productId?: str
     ? t('catalog.variants.form.editTitleFor', 'Edit variant • {{title}}').replace('{{title}}', productTitle)
     : t('catalog.variants.form.editTitle', 'Edit variant')
   const productVariantsHref = `/backend/catalog/products/${currentProductId}#variants`
+
+  // When the variant was deleted (e.g. concurrently in another tab) the GET
+  // returns no record. Render a dedicated not-found state with a recovery link
+  // instead of an empty CrudForm that throws runtime errors (#2055 QA).
+  if (!loading && notFound) {
+    return (
+      <Page>
+        <PageBody>
+          <RecordNotFoundState
+            label={t('catalog.variants.form.errors.notFound', 'Variant not found.')}
+            backHref={productVariantsHref}
+            backLabel={t('catalog.variants.form.backToVariants', 'Back to variants')}
+          />
+        </PageBody>
+      </Page>
+    )
+  }
 
   return (
     <Page>
