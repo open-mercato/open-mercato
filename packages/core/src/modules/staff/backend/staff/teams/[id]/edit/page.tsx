@@ -317,7 +317,7 @@ export default function StaffTeamEditPage({ params }: { params?: { id?: string }
                   onClick={() => setActiveTab(tab.id as 'details' | 'members')}
                   className={`relative -mb-px border-b-2 px-0 py-2 text-sm font-medium transition-colors ${
                     activeTab === tab.id
-                      ? 'border-primary text-foreground'
+                      ? 'border-accent-indigo text-foreground'
                       : 'border-transparent text-muted-foreground hover:text-foreground'
                   }`}
                 >

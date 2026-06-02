@@ -9,7 +9,16 @@ import {
   getAllOptimisticLockReaders,
   registerOptimisticLockReaders,
 } from '@open-mercato/shared/lib/crud/optimistic-lock-store'
+import { loadCustomFieldDefinitionIndex } from '@open-mercato/shared/lib/crud/custom-fields'
 import { z } from 'zod'
+
+// Keep the real custom-field helpers but spy on the definition loader so we can
+// assert the factory skips the second DB round-trip when the query engine has
+// already resolved definitions (issue #2133).
+jest.mock('@open-mercato/shared/lib/crud/custom-fields', () => {
+  const actual = jest.requireActual('@open-mercato/shared/lib/crud/custom-fields')
+  return { ...actual, loadCustomFieldDefinitionIndex: jest.fn(async () => new Map()) }
+})
 
 // ---- Mocks ----
 const mockEventBus = { emitEvent: jest.fn() }
@@ -30,6 +39,16 @@ let crudMutationGuardService: { validateMutation: jest.Mock; afterMutationSucces
 let mockOrganizationScopeOverride: MockOrganizationScope | null
 
 const em = {
+  transactional: async (cb: () => any) => {
+    const snapshot = Object.fromEntries(Object.entries(db).map(([key, value]) => [key, { ...value }]))
+    try {
+      return await cb()
+    } catch (error) {
+      for (const key of Object.keys(db)) delete db[key]
+      Object.assign(db, snapshot)
+      throw error
+    }
+  },
   create: (_cls: any, data: any) => ({ ...data, id: `id-${idSeq++}` }),
   persist(entity: Rec) {
     db[entity.id] = { ...(db[entity.id] || {} as any), ...entity }
@@ -244,6 +263,64 @@ describe('CRUD Factory', () => {
         queryKeys: expect.arrayContaining(['page', 'pageSize', 'sortField', 'sortDir']),
       }),
     }))
+  })
+
+  const makeDecoratedRoute = () => makeCrudRoute({
+    metadata: { GET: { requireAuth: true } },
+    orm: { entity: Todo, idField: 'id', orgField: 'organizationId', tenantField: 'tenantId', softDeleteField: 'deletedAt' },
+    indexer: { entityType: 'example.todo' },
+    list: {
+      schema: querySchema,
+      entityId: 'example.todo',
+      fields: ['id', 'title'],
+      buildFilters: () => ({} as any),
+      decorateCustomFields: { entityIds: 'example.todo' },
+    },
+  })
+
+  const colorDefinitionIndex = () => new Map([
+    ['color', [{ key: 'color', label: 'Color', kind: 'text', multi: false, dictionaryId: null, organizationId: null, tenantId: null, priority: 0, updatedAt: 0 }]],
+  ])
+
+  it('reuses query engine custom-field definitions and skips the second DB load (#2133)', async () => {
+    const loadIndexMock = loadCustomFieldDefinitionIndex as unknown as jest.Mock
+    const cfRoute = makeDecoratedRoute()
+    queryEngine.query.mockResolvedValueOnce({
+      items: [{ id: 'id-1', title: 'A', cf_color: 'blue', organization_id: defaultOrganizationId, tenant_id: defaultTenantId }],
+      total: 1,
+      customFieldDefinitions: {
+        index: colorDefinitionIndex(),
+        entityIds: ['example.todo'],
+        tenantId: defaultTenantId,
+        organizationIds: [defaultOrganizationId],
+      },
+    })
+
+    const res = await cfRoute.GET(new Request('http://x/api/example/todos?page=1&pageSize=10&sortField=id&sortDir=asc'))
+    expect(res.status).toBe(200)
+    const body = await res.json()
+    expect(loadIndexMock).not.toHaveBeenCalled()
+    expect(body.items[0].customValues).toEqual({ color: 'blue' })
+  })
+
+  it('falls back to loading definitions when the engine index does not cover the scope', async () => {
+    const loadIndexMock = loadCustomFieldDefinitionIndex as unknown as jest.Mock
+    loadIndexMock.mockResolvedValueOnce(colorDefinitionIndex())
+    const cfRoute = makeDecoratedRoute()
+    queryEngine.query.mockResolvedValueOnce({
+      items: [{ id: 'id-1', title: 'A', cf_color: 'blue', organization_id: defaultOrganizationId, tenant_id: defaultTenantId }],
+      total: 1,
+      customFieldDefinitions: {
+        index: new Map(),
+        entityIds: ['example.todo'],
+        tenantId: defaultTenantId,
+        organizationIds: ['some-other-org'],
+      },
+    })
+
+    const res = await cfRoute.GET(new Request('http://x/api/example/todos?page=1&pageSize=10&sortField=id&sortDir=asc'))
+    expect(res.status).toBe(200)
+    expect(loadIndexMock).toHaveBeenCalledTimes(1)
   })
 
   it('GET applies ids query filter in query engine path', async () => {
@@ -475,6 +552,28 @@ describe('CRUD Factory', () => {
     expect(updatedArgs.identifiers.id).toBe(created.id)
     expect(updatedArgs.indexer?.entityType).toBe('example.todo')
     expect(db[created.id].title).toBe('X2')
+  })
+
+  it('POST rolls back the created entity when the custom field write fails', async () => {
+    setRecordCustomFields.mockImplementationOnce(async () => { throw new Error('cf write failed') })
+    const res = await route.POST(new Request('http://x/api/example/todos', { method: 'POST', body: JSON.stringify({ title: 'Atomic', is_done: true, cf_priority: 3 }), headers: { 'content-type': 'application/json' } }))
+    expect(res.status).toBe(500)
+    // Entity write was rolled back together with the failed custom field write
+    expect(Object.values(db)).toHaveLength(0)
+    // No created event/index is emitted for a rolled-back create
+    expect(mockDataEngine.emitOrmEntityEvent).not.toHaveBeenCalled()
+  })
+
+  it('PUT rolls back the entity update when the custom field write fails', async () => {
+    const created = em.create(Todo, { title: 'Before', organizationId: defaultOrganizationId, tenantId: defaultTenantId }) as Rec
+    created.id = '123e4567-e89b-12d3-a456-426614174003'
+    await em.persist(created).flush()
+    setRecordCustomFields.mockImplementationOnce(async () => { throw new Error('cf write failed') })
+    const res = await route.PUT(new Request('http://x/api/example/todos', { method: 'PUT', body: JSON.stringify({ id: created.id, title: 'After', cf_priority: 5 }), headers: { 'content-type': 'application/json' } }))
+    expect(res.status).toBe(500)
+    // The scalar update was rolled back together with the failed custom field write
+    expect(db[created.id].title).toBe('Before')
+    expect(mockDataEngine.emitOrmEntityEvent).not.toHaveBeenCalled()
   })
 
   it('DELETE soft-deletes entity and emits deleted event', async () => {

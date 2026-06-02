@@ -173,7 +173,7 @@ export default function PlannerAvailabilityRuleSetDetailPage({ params }: { param
                   size="sm"
                   className={`relative -mb-px h-auto rounded-none border-b-2 px-0 py-2 font-medium ${
                     activeTab === tab.id
-                      ? 'border-primary text-foreground'
+                      ? 'border-accent-indigo text-foreground'
                       : 'border-transparent text-muted-foreground hover:text-foreground'
                   }`}
                   onClick={() => setActiveTab(tab.id as 'details' | 'availability')}

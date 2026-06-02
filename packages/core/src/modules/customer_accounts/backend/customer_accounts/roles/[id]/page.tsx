@@ -12,6 +12,7 @@ import { apiCall, readApiResultOrThrow, withScopedApiRequestHeaders } from '@ope
 import { buildOptimisticLockHeader } from '@open-mercato/ui/backend/utils/optimisticLock'
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
+import { RecordNotFoundState, ErrorMessage } from '@open-mercato/ui/backend/detail'
 
 type RoleDetail = {
   id: string
@@ -149,10 +150,11 @@ export default function CustomerRoleDetailPage({ params }: { params?: { id?: str
   const [data, setData] = React.useState<RoleDetail | null>(null)
   const [isLoading, setIsLoading] = React.useState(true)
   const [error, setError] = React.useState<string | null>(null)
+  const [isNotFound, setIsNotFound] = React.useState(false)
 
   React.useEffect(() => {
     if (!id) {
-      setError(t('customer_accounts.admin.roleDetail.error.notFound', 'Role not found'))
+      setIsNotFound(true)
       setIsLoading(false)
       return
     }
@@ -160,6 +162,7 @@ export default function CustomerRoleDetailPage({ params }: { params?: { id?: str
     async function load() {
       setIsLoading(true)
       setError(null)
+      setIsNotFound(false)
       try {
         const payload = await readApiResultOrThrow<RoleDetail>(
           `/api/customer_accounts/admin/roles/${encodeURIComponent(id!)}`,
@@ -170,8 +173,12 @@ export default function CustomerRoleDetailPage({ params }: { params?: { id?: str
         setData(payload)
       } catch (err) {
         if (cancelled) return
-        const message = err instanceof Error ? err.message : t('customer_accounts.admin.roleDetail.error.load', 'Failed to load role')
-        setError(message)
+        if ((err as { status?: number }).status === 404) {
+          setIsNotFound(true)
+        } else {
+          const message = err instanceof Error ? err.message : t('customer_accounts.admin.roleDetail.error.load', 'Failed to load role')
+          setError(message)
+        }
       } finally {
         if (!cancelled) setIsLoading(false)
       }
@@ -310,18 +317,34 @@ export default function CustomerRoleDetailPage({ params }: { params?: { id?: str
     )
   }
 
+  if (isNotFound) {
+    return (
+      <Page>
+        <PageBody>
+          <RecordNotFoundState
+            label={t('customer_accounts.admin.roleDetail.error.notFound', 'Role not found')}
+            backHref="/backend/customer_accounts/roles"
+            backLabel={t('customer_accounts.admin.roleDetail.actions.backToList', 'Back to roles')}
+          />
+        </PageBody>
+      </Page>
+    )
+  }
+
   if (error || !data) {
     return (
       <Page>
         <PageBody>
-          <div className="flex h-[50vh] flex-col items-center justify-center gap-2 text-muted-foreground">
-            <p>{error || t('customer_accounts.admin.roleDetail.error.notFound', 'Role not found')}</p>
-            <Button asChild variant="outline">
-              <Link href="/backend/customer_accounts/roles">
-                {t('customer_accounts.admin.roleDetail.actions.backToList', 'Back to roles')}
-              </Link>
-            </Button>
-          </div>
+          <ErrorMessage
+            label={error ?? t('customer_accounts.admin.roleDetail.error.notFound', 'Role not found')}
+            action={
+              <Button asChild variant="outline" size="sm">
+                <Link href="/backend/customer_accounts/roles">
+                  {t('customer_accounts.admin.roleDetail.actions.backToList', 'Back to roles')}
+                </Link>
+              </Button>
+            }
+          />
         </PageBody>
       </Page>
     )

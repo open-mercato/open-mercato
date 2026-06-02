@@ -21,6 +21,8 @@ import {
   NotesSection,
   type CommentSummary,
   type SectionAction,
+  RecordNotFoundState,
+  ErrorMessage,
 } from '@open-mercato/ui/backend/detail'
 import {
   TagsSection,
@@ -117,6 +119,7 @@ export default function CustomerPersonDetailPage({ params }: { params?: { id?: s
   const [data, setData] = React.useState<PersonOverview | null>(null)
   const [isLoading, setIsLoading] = React.useState(true)
   const [error, setError] = React.useState<string | null>(null)
+  const [isNotFound, setIsNotFound] = React.useState(false)
   const [activeTab, setActiveTab] = React.useState<SectionKey>(initialTab)
   const [sectionAction, setSectionAction] = React.useState<SectionAction | null>(null)
   const [isDeleting, setIsDeleting] = React.useState(false)
@@ -277,7 +280,7 @@ export default function CustomerPersonDetailPage({ params }: { params?: { id?: s
   const initialLoadDoneRef = React.useRef(false)
   const loadData = React.useCallback(async () => {
     if (!id) {
-      setError(t('customers.people.detail.error.notFound'))
+      setIsNotFound(true)
       setIsLoading(false)
       return
     }
@@ -285,6 +288,7 @@ export default function CustomerPersonDetailPage({ params }: { params?: { id?: s
       setIsLoading(true)
     }
     setError(null)
+    setIsNotFound(false)
     try {
       const payload = await readApiResultOrThrow<PersonOverview>(
         `/api/customers/people/${encodeURIComponent(id)}?include=todos`,
@@ -293,8 +297,12 @@ export default function CustomerPersonDetailPage({ params }: { params?: { id?: s
       )
       setData(payload as PersonOverview)
     } catch (err) {
-      const message = err instanceof Error ? err.message : t('customers.people.detail.error.load')
-      setError(message)
+      if ((err as { status?: number }).status === 404) {
+        setIsNotFound(true)
+      } else {
+        const message = err instanceof Error ? err.message : t('customers.people.detail.error.load')
+        setError(message)
+      }
       if (!initialLoadDoneRef.current) setData(null)
     } finally {
       setIsLoading(false)
@@ -479,18 +487,34 @@ export default function CustomerPersonDetailPage({ params }: { params?: { id?: s
       )
     }
   
+    if (isNotFound) {
+      return (
+        <Page>
+          <PageBody>
+            <RecordNotFoundState
+              label={t('customers.people.detail.error.notFound', 'Person not found.')}
+              backHref="/backend/customers/people"
+              backLabel={t('customers.people.detail.actions.backToList', 'Back to people')}
+            />
+          </PageBody>
+        </Page>
+      )
+    }
+
     if (error || !data || !personId) {
       return (
         <Page>
           <PageBody>
-            <div className="flex h-[50vh] flex-col items-center justify-center gap-2 text-muted-foreground">
-              <p>{error || t('customers.people.detail.error.notFound')}</p>
-              <Button asChild variant="outline">
-                <Link href="/backend/customers/people">
-                  {t('customers.people.detail.actions.backToList')}
-                </Link>
-              </Button>
-            </div>
+            <ErrorMessage
+              label={error ?? t('customers.people.detail.error.notFound', 'Person not found.')}
+              action={
+                <Button asChild variant="outline" size="sm">
+                  <Link href="/backend/customers/people">
+                    {t('customers.people.detail.actions.backToList', 'Back to people')}
+                  </Link>
+                </Button>
+              }
+            />
           </PageBody>
         </Page>
       )

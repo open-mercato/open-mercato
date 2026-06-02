@@ -15,6 +15,7 @@ import {
   diffCustomFieldChanges,
 } from '@open-mercato/shared/lib/commands/customFieldSnapshots'
 import { extractUndoPayload } from '@open-mercato/shared/lib/commands/undo'
+import { withAtomicFlush } from '@open-mercato/shared/lib/commands/flush'
 import {
   parseWithCustomFields,
   setCustomFieldsIfAny,
@@ -291,36 +292,43 @@ const createOrganizationCommand: CommandHandler<Record<string, unknown>, Organiz
     const baseSlug = parsed.slug ? parsed.slug : slugify(parsed.name)
     const slug = baseSlug ? await resolveUniqueSlug(em, tenantId, baseSlug) : null
     const de = (ctx.container.resolve('dataEngine') as DataEngine)
-    const organization = await de.createOrmEntity({
-      entity: Organization,
-      data: {
-        tenant: tenantRef,
-        name: parsed.name,
-        slug,
-        isActive: parsed.isActive ?? true,
-        parentId,
+
+    let organization!: Organization
+    await withAtomicFlush(em, [
+      async () => {
+        organization = await de.createOrmEntity({
+          entity: Organization,
+          data: {
+            tenant: tenantRef,
+            name: parsed.name,
+            slug,
+            isActive: parsed.isActive ?? true,
+            parentId,
+          },
+        })
+        setInternalTenantId(organization, tenantId)
+        const recordId = String(organization.id)
+
+        if (childIds.length) {
+          await assignChildren(em, tenantId, recordId, childIds)
+        }
+        const childParentsAfter = await loadChildParentSnapshots(em, tenantId, childIds)
+        setUndoMeta(organization, { childParentsBefore, childParentsAfter })
+
+        await setCustomFieldsIfAny({
+          dataEngine: de,
+          entityId: E.directory.organization,
+          recordId,
+          tenantId,
+          organizationId: recordId,
+          values: custom,
+        })
+
+        await rebuildHierarchyForTenant(em, tenantId)
       },
-    })
-    setInternalTenantId(organization, tenantId)
+    ], { transaction: true })
+
     const recordId = String(organization.id)
-
-    if (childIds.length) {
-      await assignChildren(em, tenantId, recordId, childIds)
-    }
-    const childParentsAfter = await loadChildParentSnapshots(em, tenantId, childIds)
-    setUndoMeta(organization, { childParentsBefore, childParentsAfter })
-
-    await setCustomFieldsIfAny({
-      dataEngine: de,
-      entityId: E.directory.organization,
-      recordId,
-      tenantId,
-      organizationId: recordId,
-      values: custom,
-    })
-
-    await rebuildHierarchyForTenant(em, tenantId)
-
     const identifiers = { id: recordId, organizationId: recordId, tenantId }
     await emitCrudSideEffects({
       dataEngine: de,
@@ -379,27 +387,31 @@ const createOrganizationCommand: CommandHandler<Record<string, unknown>, Organiz
     if (!tenantId) return
     const em = (ctx.container.resolve('em') as EntityManager)
     const de = (ctx.container.resolve('dataEngine') as DataEngine)
-    await restoreChildParents(em, tenantId, childrenBefore)
-    if (after.custom && Object.keys(after.custom).length) {
-      const reset = buildCustomFieldResetMap(undefined, after.custom)
-      if (Object.keys(reset).length) {
-        const resetValues = reset as Parameters<DataEngine['setCustomFields']>[0]['values']
-        await de.setCustomFields({
-          entityId: E.directory.organization,
-          recordId: after.id,
-          tenantId,
-          organizationId: after.id,
-          values: resetValues,
-          notify: false,
+    await withAtomicFlush(em, [
+      async () => {
+        await restoreChildParents(em, tenantId, childrenBefore)
+        if (after.custom && Object.keys(after.custom).length) {
+          const reset = buildCustomFieldResetMap(undefined, after.custom)
+          if (Object.keys(reset).length) {
+            const resetValues = reset as Parameters<DataEngine['setCustomFields']>[0]['values']
+            await de.setCustomFields({
+              entityId: E.directory.organization,
+              recordId: after.id,
+              tenantId,
+              organizationId: after.id,
+              values: resetValues,
+              notify: false,
+            })
+          }
+        }
+        await de.deleteOrmEntity({
+          entity: Organization,
+          where: { id: after.id, deletedAt: null } as FilterQuery<Organization>,
+          soft: false,
         })
-      }
-    }
-    await de.deleteOrmEntity({
-      entity: Organization,
-      where: { id: after.id, deletedAt: null } as FilterQuery<Organization>,
-      soft: false,
-    })
-    await rebuildHierarchyForTenant(em, tenantId)
+        await rebuildHierarchyForTenant(em, tenantId)
+      },
+    ], { transaction: true })
   },
 }
 
@@ -475,48 +487,56 @@ const updateOrganizationCommand: CommandHandler<Record<string, unknown>, Organiz
       resolvedSlug = parsed.slug ? await resolveUniqueSlug(em, tenantId, parsed.slug, parsed.id) : parsed.slug
     }
     const de = (ctx.container.resolve('dataEngine') as DataEngine)
-    const organization = await de.updateOrmEntity({
-      entity: Organization,
-      where: { id: parsed.id, deletedAt: null } as FilterQuery<Organization>,
-      apply: (entity) => {
-        if (parsed.name !== undefined) entity.name = parsed.name
-        if (resolvedSlug !== undefined) entity.slug = resolvedSlug
-        if (parsed.isActive !== undefined) entity.isActive = parsed.isActive
-        entity.parentId = parentId
+
+    let resolvedOrganization!: Organization
+    await withAtomicFlush(em, [
+      async () => {
+        const organization = await de.updateOrmEntity({
+          entity: Organization,
+          where: { id: parsed.id, deletedAt: null } as FilterQuery<Organization>,
+          apply: (entity) => {
+            if (parsed.name !== undefined) entity.name = parsed.name
+            if (resolvedSlug !== undefined) entity.slug = resolvedSlug
+            if (parsed.isActive !== undefined) entity.isActive = parsed.isActive
+            entity.parentId = parentId
+          },
+        })
+        if (!organization) throw new CrudHttpError(404, { error: 'Not found' })
+        setInternalTenantId(organization, tenantId)
+
+        const recordId = String(organization.id)
+        const desiredChildIds = new Set(normalizedChildIds.filter((id) => id !== recordId))
+        await clearRemovedChildren(em, tenantId, recordId, desiredChildIds)
+        await assignChildren(em, tenantId, recordId, desiredChildIds)
+        const childParentsAfter = await loadChildParentSnapshots(em, tenantId, combinedChildIds)
+        setUndoMeta(organization, { childParentsBefore, childParentsAfter })
+
+        await setCustomFieldsIfAny({
+          dataEngine: de,
+          entityId: E.directory.organization,
+          recordId,
+          tenantId,
+          organizationId: recordId,
+          values: custom,
+        })
+
+        await rebuildHierarchyForTenant(em, tenantId)
+        resolvedOrganization = organization
       },
-    })
-    if (!organization) throw new CrudHttpError(404, { error: 'Not found' })
-    setInternalTenantId(organization, tenantId)
+    ], { transaction: true })
 
-    const recordId = String(organization.id)
-    const desiredChildIds = new Set(normalizedChildIds.filter((id) => id !== recordId))
-    await clearRemovedChildren(em, tenantId, recordId, desiredChildIds)
-    await assignChildren(em, tenantId, recordId, desiredChildIds)
-    const childParentsAfter = await loadChildParentSnapshots(em, tenantId, combinedChildIds)
-    setUndoMeta(organization, { childParentsBefore, childParentsAfter })
-
-    await setCustomFieldsIfAny({
-      dataEngine: de,
-      entityId: E.directory.organization,
-      recordId,
-      tenantId,
-      organizationId: recordId,
-      values: custom,
-    })
-
-    await rebuildHierarchyForTenant(em, tenantId)
-
+    const recordId = String(resolvedOrganization.id)
     const identifiers = { id: recordId, organizationId: recordId, tenantId }
     await emitCrudSideEffects({
       dataEngine: de,
       action: 'updated',
-      entity: organization,
+      entity: resolvedOrganization,
       identifiers,
       events: organizationCrudEvents,
       indexer: organizationCrudIndexer,
     })
 
-    return organization
+    return resolvedOrganization
   },
   captureAfter: async (_input, result, ctx) => {
     const em = (ctx.container.resolve('em') as EntityManager).fork()
@@ -571,34 +591,39 @@ const updateOrganizationCommand: CommandHandler<Record<string, unknown>, Organiz
     if (!tenantId) return
     const em = (ctx.container.resolve('em') as EntityManager)
     const de = (ctx.container.resolve('dataEngine') as DataEngine)
-    const updated = await de.updateOrmEntity({
-      entity: Organization,
-      where: { id: before.id } as FilterQuery<Organization>,
-      apply: (entity) => {
-        entity.name = before.name
-        if (before.slug !== undefined) entity.slug = before.slug
-        entity.isActive = before.isActive
-        entity.parentId = before.parentId
+    let updated: Organization | null = null
+    await withAtomicFlush(em, [
+      async () => {
+        updated = await de.updateOrmEntity({
+          entity: Organization,
+          where: { id: before.id } as FilterQuery<Organization>,
+          apply: (entity) => {
+            entity.name = before.name
+            if (before.slug !== undefined) entity.slug = before.slug
+            entity.isActive = before.isActive
+            entity.parentId = before.parentId
+          },
+        })
+        if (updated && tenantId) {
+          setInternalTenantId(updated, tenantId)
+        }
+        const reset = buildCustomFieldResetMap(before.custom, after?.custom)
+        if (Object.keys(reset).length) {
+          const resetValues = reset as Parameters<DataEngine['setCustomFields']>[0]['values']
+          await de.setCustomFields({
+            entityId: E.directory.organization,
+            recordId: before.id,
+            tenantId,
+            organizationId: before.id,
+            values: resetValues,
+            notify: false,
+          })
+        }
+        const childSnapshots = before.childParents
+        await restoreChildParents(em, tenantId, childSnapshots)
+        await rebuildHierarchyForTenant(em, tenantId)
       },
-    })
-    if (updated && tenantId) {
-      setInternalTenantId(updated, tenantId)
-    }
-    const reset = buildCustomFieldResetMap(before.custom, after?.custom)
-    if (Object.keys(reset).length) {
-      const resetValues = reset as Parameters<DataEngine['setCustomFields']>[0]['values']
-      await de.setCustomFields({
-        entityId: E.directory.organization,
-        recordId: before.id,
-        tenantId,
-        organizationId: before.id,
-        values: resetValues,
-        notify: false,
-      })
-    }
-    const childSnapshots = before.childParents
-    await restoreChildParents(em, tenantId, childSnapshots)
-    await rebuildHierarchyForTenant(em, tenantId)
+    ], { transaction: true })
     await emitCrudUndoSideEffects({
       dataEngine: de,
       action: 'updated',
@@ -650,41 +675,48 @@ const deleteOrganizationCommand: CommandHandler<{ body: any; query: Record<strin
     )
 
     const de = (ctx.container.resolve('dataEngine') as DataEngine)
-    const deleted = await de.deleteOrmEntity({
-      entity: Organization,
-      where: { id, deletedAt: null } as FilterQuery<Organization>,
-      soft: true,
-      softDeleteField: 'deletedAt',
-    })
-    if (!deleted) throw new CrudHttpError(404, { error: 'Not found' })
-    setInternalTenantId(deleted, tenantId)
-    deleted.isActive = false
-    deleted.parentId = null
 
-    const childrenFilter: FilterQuery<Organization> = { tenant: tenantId, parentId: id, deletedAt: null }
-    const children = await em.find(Organization, childrenFilter)
-    const toPersist: Organization[] = []
-    for (const child of children) {
-      child.parentId = parentId
-      toPersist.push(child)
-    }
-    toPersist.push(deleted)
-    if (toPersist.length) await em.persist(toPersist).flush()
-    setUndoMeta(deleted, { childParentsBefore: childSnapshotsBefore })
+    let resolvedDeleted!: Organization
+    await withAtomicFlush(em, [
+      async () => {
+        const deleted = await de.deleteOrmEntity({
+          entity: Organization,
+          where: { id, deletedAt: null } as FilterQuery<Organization>,
+          soft: true,
+          softDeleteField: 'deletedAt',
+        })
+        if (!deleted) throw new CrudHttpError(404, { error: 'Not found' })
+        setInternalTenantId(deleted, tenantId)
+        deleted.isActive = false
+        deleted.parentId = null
 
-    await rebuildHierarchyForTenant(em, tenantId)
+        const childrenFilter: FilterQuery<Organization> = { tenant: tenantId, parentId: id, deletedAt: null }
+        const children = await em.find(Organization, childrenFilter)
+        const toPersist: Organization[] = []
+        for (const child of children) {
+          child.parentId = parentId
+          toPersist.push(child)
+        }
+        toPersist.push(deleted)
+        if (toPersist.length) await em.persist(toPersist).flush()
+        setUndoMeta(deleted, { childParentsBefore: childSnapshotsBefore })
+
+        await rebuildHierarchyForTenant(em, tenantId)
+        resolvedDeleted = deleted
+      },
+    ], { transaction: true })
 
     const identifiers = { id, organizationId: id, tenantId }
     await emitCrudSideEffects({
       dataEngine: de,
       action: 'deleted',
-      entity: deleted,
+      entity: resolvedDeleted,
       identifiers,
       events: organizationCrudEvents,
       indexer: organizationCrudIndexer,
     })
 
-    return deleted
+    return resolvedDeleted
   },
   buildLog: async ({ snapshots, input, ctx }) => {
     const { translate } = await resolveTranslations()
@@ -715,45 +747,50 @@ const deleteOrganizationCommand: CommandHandler<{ body: any; query: Record<strin
     if (!tenantId) return
     const em = (ctx.container.resolve('em') as EntityManager)
     const de = (ctx.container.resolve('dataEngine') as DataEngine)
-    let organization = await em.findOne(Organization, { id: before.id })
-    if (organization) {
-      organization.deletedAt = null
-      organization.isActive = before.isActive
-      organization.name = before.name
-      if (before.slug !== undefined) organization.slug = before.slug
-      organization.parentId = before.parentId
-      await em.flush()
-      if (tenantId) setInternalTenantId(organization, tenantId)
-    } else {
-      organization = await de.createOrmEntity({
-        entity: Organization,
-        data: {
-          id: before.id,
-          name: before.name,
-          slug: before.slug ?? null,
-          tenant: tenantId ? em.getReference(Tenant, tenantId) : undefined,
-          isActive: before.isActive,
-          parentId: before.parentId,
-        },
-      })
-      if (tenantId) setInternalTenantId(organization, tenantId)
-    }
-    if (tenantId) {
-      const customValues = buildCustomFieldResetMap(before.custom, undefined)
-      if (Object.keys(customValues).length) {
-        const resetValues = customValues as Parameters<DataEngine['setCustomFields']>[0]['values']
-        await de.setCustomFields({
-          entityId: E.directory.organization,
-          recordId: before.id,
-          tenantId,
-          organizationId: before.id,
-          values: resetValues,
-          notify: false,
-        })
-      }
-    }
-    await restoreChildParents(em, tenantId, before.childParents)
-    await rebuildHierarchyForTenant(em, tenantId)
+    let organization: Organization | null = null
+    await withAtomicFlush(em, [
+      async () => {
+        organization = await em.findOne(Organization, { id: before.id })
+        if (organization) {
+          organization.deletedAt = null
+          organization.isActive = before.isActive
+          organization.name = before.name
+          if (before.slug !== undefined) organization.slug = before.slug
+          organization.parentId = before.parentId
+          await em.flush()
+          if (tenantId) setInternalTenantId(organization, tenantId)
+        } else {
+          organization = await de.createOrmEntity({
+            entity: Organization,
+            data: {
+              id: before.id,
+              name: before.name,
+              slug: before.slug ?? null,
+              tenant: tenantId ? em.getReference(Tenant, tenantId) : undefined,
+              isActive: before.isActive,
+              parentId: before.parentId,
+            },
+          })
+          if (tenantId) setInternalTenantId(organization, tenantId)
+        }
+        if (tenantId) {
+          const customValues = buildCustomFieldResetMap(before.custom, undefined)
+          if (Object.keys(customValues).length) {
+            const resetValues = customValues as Parameters<DataEngine['setCustomFields']>[0]['values']
+            await de.setCustomFields({
+              entityId: E.directory.organization,
+              recordId: before.id,
+              tenantId,
+              organizationId: before.id,
+              values: resetValues,
+              notify: false,
+            })
+          }
+        }
+        await restoreChildParents(em, tenantId, before.childParents)
+        await rebuildHierarchyForTenant(em, tenantId)
+      },
+    ], { transaction: true })
     await emitCrudUndoSideEffects({
       dataEngine: de,
       action: 'updated',

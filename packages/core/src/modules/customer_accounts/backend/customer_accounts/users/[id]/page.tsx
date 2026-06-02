@@ -17,6 +17,7 @@ import { flash } from '@open-mercato/ui/backend/FlashMessages'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { useConfirmDialog } from '@open-mercato/ui/backend/confirm-dialog'
 import { useGuardedMutation } from '@open-mercato/ui/backend/injection/useGuardedMutation'
+import { RecordNotFoundState, ErrorMessage } from '@open-mercato/ui/backend/detail'
 
 type UserDetail = {
   id: string
@@ -148,6 +149,7 @@ export default function CustomerUserDetailPage({ params }: { params?: { id?: str
   const [data, setData] = React.useState<UserDetail | null>(null)
   const [isLoading, setIsLoading] = React.useState(true)
   const [error, setError] = React.useState<string | null>(null)
+  const [isNotFound, setIsNotFound] = React.useState(false)
   const [isSaving, setIsSaving] = React.useState(false)
   const [editActive, setEditActive] = React.useState<boolean | null>(null)
   const [editDisplayName, setEditDisplayName] = React.useState('')
@@ -187,7 +189,7 @@ export default function CustomerUserDetailPage({ params }: { params?: { id?: str
 
   React.useEffect(() => {
     if (!id) {
-      setError(t('customer_accounts.admin.detail.error.notFound', 'User not found'))
+      setIsNotFound(true)
       setIsLoading(false)
       return
     }
@@ -195,6 +197,7 @@ export default function CustomerUserDetailPage({ params }: { params?: { id?: str
     async function load() {
       setIsLoading(true)
       setError(null)
+      setIsNotFound(false)
       try {
         const payload = await readApiResultOrThrow<UserDetail>(
           `/api/customer_accounts/admin/users/${encodeURIComponent(id!)}`,
@@ -210,8 +213,12 @@ export default function CustomerUserDetailPage({ params }: { params?: { id?: str
         setEditCustomerEntityId(payload.customerEntityId)
       } catch (err) {
         if (cancelled) return
-        const message = err instanceof Error ? err.message : t('customer_accounts.admin.detail.error.load', 'Failed to load user')
-        setError(message)
+        if ((err as { status?: number }).status === 404) {
+          setIsNotFound(true)
+        } else {
+          const message = err instanceof Error ? err.message : t('customer_accounts.admin.detail.error.load', 'Failed to load user')
+          setError(message)
+        }
       } finally {
         if (!cancelled) setIsLoading(false)
       }
@@ -470,18 +477,34 @@ export default function CustomerUserDetailPage({ params }: { params?: { id?: str
     )
   }
 
+  if (isNotFound) {
+    return (
+      <Page>
+        <PageBody>
+          <RecordNotFoundState
+            label={t('customer_accounts.admin.detail.error.notFound', 'User not found')}
+            backHref="/backend/customer_accounts/users"
+            backLabel={t('customer_accounts.admin.detail.actions.backToList', 'Back to list')}
+          />
+        </PageBody>
+      </Page>
+    )
+  }
+
   if (error || !data) {
     return (
       <Page>
         <PageBody>
-          <div className="flex h-[50vh] flex-col items-center justify-center gap-2 text-muted-foreground">
-            <p>{error || t('customer_accounts.admin.detail.error.notFound', 'User not found')}</p>
-            <Button asChild variant="outline">
-              <Link href="/backend/customer_accounts/users">
-                {t('customer_accounts.admin.detail.actions.backToList', 'Back to list')}
-              </Link>
-            </Button>
-          </div>
+          <ErrorMessage
+            label={error ?? t('customer_accounts.admin.detail.error.notFound', 'User not found')}
+            action={
+              <Button asChild variant="outline" size="sm">
+                <Link href="/backend/customer_accounts/users">
+                  {t('customer_accounts.admin.detail.actions.backToList', 'Back to list')}
+                </Link>
+              </Button>
+            }
+          />
         </PageBody>
       </Page>
     )

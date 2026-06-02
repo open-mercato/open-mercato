@@ -320,7 +320,7 @@ export function TranslationManager({
             data-locale={locale}
             className={`px-3 py-1.5 text-sm font-medium transition-colors ${
               isActive
-                ? 'border-b-2 border-primary text-primary'
+                ? 'border-b-2 border-accent-indigo text-foreground'
                 : 'text-muted-foreground hover:text-foreground'
             }`}
             onClick={() => setActiveLocale(locale)}
@@ -500,7 +500,7 @@ export function TranslationManager({
                   />
                 </div>
                 {entitiesError && (
-                  <p className="mt-1 text-xs text-red-600">
+                  <p className="mt-1 text-xs text-destructive">
                     {t('translations.manager.errors.loadEntities', 'Failed to load entities')}
                   </p>
                 )}

@@ -8,6 +8,7 @@ import { forbidden, isCrudHttpError } from '@open-mercato/shared/lib/crud/errors
 import { enforceCommandOptimisticLock } from '@open-mercato/shared/lib/crud/optimistic-lock-command'
 import { withAtomicFlush } from '@open-mercato/shared/lib/commands/flush'
 import { UserAcl } from '@open-mercato/core/modules/auth/data/entities'
+import { withAtomicFlush } from '@open-mercato/shared/lib/commands/flush'
 import { assertActorCanModifySuperAdminUserTarget } from '@open-mercato/core/modules/auth/lib/grantChecks'
 import type { RbacService } from '@open-mercato/core/modules/auth/services/rbacService'
 import type { EntityManager } from '@mikro-orm/postgresql'

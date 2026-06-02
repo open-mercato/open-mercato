@@ -558,7 +558,7 @@ export default function ResourcesResourceDetailPage({ params }: { params?: { id?
                   size="sm"
                   className={`relative -mb-px h-auto rounded-none border-b-2 px-0 py-2 font-medium ${
                     activeTab === tab.id
-                      ? 'border-primary text-foreground'
+                      ? 'border-accent-indigo text-foreground'
                       : 'border-transparent text-muted-foreground hover:text-foreground'
                   }`}
                   onClick={() => setActiveTab(tab.id as 'details' | 'availability')}
@@ -582,7 +582,7 @@ export default function ResourcesResourceDetailPage({ params }: { params?: { id?
                         size="sm"
                         className={`relative -mb-px h-auto rounded-none border-b-2 px-0 py-1 font-medium ${
                           activeDetailTab === tab.id
-                            ? 'border-primary text-foreground'
+                            ? 'border-accent-indigo text-foreground'
                             : 'border-transparent text-muted-foreground hover:text-foreground'
                         }`}
                         onClick={() => setActiveDetailTab(tab.id)}

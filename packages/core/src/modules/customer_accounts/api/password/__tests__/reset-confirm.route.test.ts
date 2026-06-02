@@ -5,7 +5,9 @@ const mockFindById = jest.fn()
 const mockUpdatePassword = jest.fn()
 const mockRevokeAllUserSessions = jest.fn()
 const mockNativeUpdate = jest.fn()
-const mockTransactional = jest.fn(async (cb: (trx: unknown) => Promise<unknown>) => cb({}))
+const mockTransactional = jest.fn(async (cb: (trx: unknown) => Promise<unknown>) =>
+  cb({ nativeUpdate: (...args: unknown[]) => mockNativeUpdate(...args) }),
+)
 const mockEmit = jest.fn(async () => undefined)
 
 const customerTokenService = {
@@ -66,7 +68,9 @@ describe('customer /api/customer_accounts/password/reset-confirm — atomicity a
     mockUpdatePassword.mockResolvedValue(undefined)
     mockRevokeAllUserSessions.mockResolvedValue(undefined)
     mockNativeUpdate.mockResolvedValue(undefined)
-    mockTransactional.mockImplementation(async (cb) => cb({}))
+    mockTransactional.mockImplementation(async (cb) =>
+      cb({ nativeUpdate: (...args: unknown[]) => mockNativeUpdate(...args) }),
+    )
     mockEmit.mockResolvedValue(undefined)
   })
 

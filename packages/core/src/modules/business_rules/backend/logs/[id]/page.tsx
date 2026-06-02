@@ -10,6 +10,7 @@ import { Page, PageBody } from '@open-mercato/ui/backend/Page'
 import { Button } from '@open-mercato/ui/primitives/button'
 import { Spinner } from '@open-mercato/ui/primitives/spinner'
 import { JsonDisplay } from '@open-mercato/ui/backend/JsonDisplay'
+import { RecordNotFoundState, ErrorMessage } from '@open-mercato/ui/backend/detail'
 
 type RuleExecutionLog = {
   id: string
@@ -54,7 +55,13 @@ export default function ExecutionLogDetailPage() {
     queryFn: async () => {
       const response = await apiFetch(`/api/business_rules/logs/${logId}`)
       if (!response.ok) {
-        throw new Error(t('business_rules.logs.errors.fetchFailed'))
+        const httpErr = new Error(
+          response.status === 404
+            ? t('business_rules.logs.errors.notFound', 'Execution log not found.')
+            : t('business_rules.logs.errors.fetchFailed')
+        ) as Error & { status: number }
+        httpErr.status = response.status
+        throw httpErr
       }
       const result = await response.json()
       return result as RuleExecutionLog
@@ -75,16 +82,34 @@ export default function ExecutionLogDetailPage() {
     )
   }
 
+  const isNotFound = !isLoading && (error as (Error & { status?: number }) | null)?.status === 404
+
+  if (isNotFound) {
+    return (
+      <Page>
+        <PageBody>
+          <RecordNotFoundState
+            label={t('business_rules.logs.errors.notFound', 'Execution log not found.')}
+            backHref="/backend/logs"
+            backLabel={t('business_rules.logs.backToList', 'Back to logs')}
+          />
+        </PageBody>
+      </Page>
+    )
+  }
+
   if (error || !log) {
     return (
       <Page>
         <PageBody>
-          <div className="flex h-[50vh] flex-col items-center justify-center gap-2 text-muted-foreground">
-            <p>{error ? t('business_rules.logs.errors.loadFailed') : t('business_rules.logs.errors.notFound')}</p>
-            <Button asChild variant="outline">
-              <Link href="/backend/logs">{t('business_rules.logs.backToList')}</Link>
-            </Button>
-          </div>
+          <ErrorMessage
+            label={(error as Error | null)?.message ?? t('business_rules.logs.errors.loadFailed')}
+            action={
+              <Button asChild variant="outline" size="sm">
+                <Link href="/backend/logs">{t('business_rules.logs.backToList', 'Back to logs')}</Link>
+              </Button>
+            }
+          />
         </PageBody>
       </Page>
     )
