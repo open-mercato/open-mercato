@@ -7,7 +7,7 @@ import { ClipboardList, SlidersHorizontal, Upload } from 'lucide-react'
 import { AdjustInventoryDialog } from './AdjustInventoryDialog'
 import { CycleCountWizardDialog } from './CycleCountWizardDialog'
 import { ImportInventoryDialog } from './ImportInventoryDialog'
-import { useWmsInventoryMutationAccess } from './useWmsInventoryMutationAccess'
+import type { WmsInventoryMutationAccess } from './useWmsInventoryMutationAccess'
 
 function SectionCard({
   title,
@@ -31,9 +31,12 @@ function SectionCard({
   )
 }
 
-export function InventoryOperationsSection() {
+export function InventoryOperationsSection({
+  access,
+}: {
+  access: WmsInventoryMutationAccess
+}) {
   const t = useT()
-  const access = useWmsInventoryMutationAccess()
   const [adjustOpen, setAdjustOpen] = React.useState(false)
   const [cycleOpen, setCycleOpen] = React.useState(false)
   const [importOpen, setImportOpen] = React.useState(false)

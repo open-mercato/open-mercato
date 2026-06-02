@@ -72,9 +72,15 @@ describe('reserveInventoryForConfirmedOrder', () => {
         }),
     }
 
-    const em = { fork: () => ({}) }
+    const em = {
+      fork: () => ({}),
+      persist: jest.fn(),
+      create: jest.fn((_, data) => data),
+      flush: jest.fn().mockResolvedValue(undefined),
+    }
     const featureTogglesService = {
       getBoolConfig: jest.fn().mockResolvedValue({ ok: true, value: true }),
+      invalidateIsEnabledCacheByKey: jest.fn().mockResolvedValue(undefined),
     }
 
     await reserveInventoryForConfirmedOrder(

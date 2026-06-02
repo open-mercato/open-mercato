@@ -11,6 +11,8 @@ type FeatureCheckResponse = {
   userId?: string
 }
 
+export type WmsInventoryMutationAccess = ReturnType<typeof useWmsInventoryMutationAccess>
+
 export function useWmsInventoryMutationAccess() {
   const { organizationId, tenantId } = useOrganizationScopeDetail()
   const [granted, setGranted] = React.useState<string[]>([])
@@ -26,7 +28,12 @@ export function useWmsInventoryMutationAccess() {
           method: 'POST',
           headers: { 'content-type': 'application/json' },
           body: JSON.stringify({
-            features: ['wms.adjust_inventory', 'wms.cycle_count', 'wms.import'],
+            features: [
+              'wms.adjust_inventory',
+              'wms.cycle_count',
+              'wms.import',
+              'wms.manage_reservations',
+            ],
           }),
         })
         if (!cancelled) {
@@ -60,5 +67,7 @@ export function useWmsInventoryMutationAccess() {
     canAdjust: hasFeature(granted, 'wms.adjust_inventory'),
     canCycleCount: hasFeature(granted, 'wms.cycle_count'),
     canImport: hasFeature(granted, 'wms.import'),
+    canMove: hasFeature(granted, 'wms.adjust_inventory'),
+    canRelease: hasFeature(granted, 'wms.manage_reservations'),
   }
 }

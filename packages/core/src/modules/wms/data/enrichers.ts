@@ -84,7 +84,7 @@ type EnricherScope = EnricherContext & { em: EntityManager }
 type Scope = { organizationId: string; tenantId: string }
 type BalanceAggregate = { onHand: number; reserved: number; allocated: number; available: number }
 
-const SALES_ORDER_INVENTORY_TOGGLE = 'wms_integration_sales_order_inventory'
+import { resolveWmsIntegrationToggleEnabled } from '../lib/wmsIntegrationToggles'
 const EMPTY_ENRICHMENT: SalesOrderWmsEnrichment = {
   _wms: {
     assignedWarehouseId: null,
@@ -236,9 +236,14 @@ async function isSalesOrderInventoryEnabled(context: EnricherContext): Promise<b
   if (!container?.resolve) return true
   try {
     const featureTogglesService = container.resolve('featureTogglesService') as FeatureTogglesService | undefined
-    if (!featureTogglesService) return true
-    const result = await featureTogglesService.getBoolConfig(SALES_ORDER_INVENTORY_TOGGLE, context.tenantId)
-    return result.ok ? result.value : true
+    const em = container.resolve('em') as EntityManager | undefined
+    if (!featureTogglesService || !em) return true
+    return resolveWmsIntegrationToggleEnabled(
+      featureTogglesService,
+      em,
+      'wms_integration_sales_order_inventory',
+      context.tenantId,
+    )
   } catch {
     return true
   }

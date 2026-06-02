@@ -7,12 +7,20 @@ import { useQuery } from '@tanstack/react-query'
 import { Page, PageBody } from '@open-mercato/ui/backend/Page'
 import { DataTable } from '@open-mercato/ui/backend/DataTable'
 import { EmptyState } from '@open-mercato/ui/backend/EmptyState'
+import { RowActions } from '@open-mercato/ui/backend/RowActions'
 import { apiCall } from '@open-mercato/ui/backend/utils/apiCall'
 import { raiseCrudError } from '@open-mercato/ui/backend/utils/serverErrors'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { Boxes, Route, ShieldCheck } from 'lucide-react'
 import { E } from '#generated/entities.ids.generated'
+import { parseInventoryQuantity } from '../../lib/inventoryMutationUi'
 import { InventoryOperationsSection } from './InventoryOperationsSection'
+import { MoveInventoryDialog } from './MoveInventoryDialog'
+import { ReleaseReservationDialog } from './ReleaseReservationDialog'
+import {
+  useWmsInventoryMutationAccess,
+  type WmsInventoryMutationAccess,
+} from './useWmsInventoryMutationAccess'
 
 type PagedResponse<T> = {
   items: T[]
@@ -167,6 +175,7 @@ type InventoryDataTableSectionProps<T> = {
   entityId: string
   icon: React.ReactNode
   columns: ColumnDef<T>[]
+  rowActions?: (row: T) => React.ReactNode
 }
 
 function InventoryDataTableSection<T>({
@@ -188,6 +197,7 @@ function InventoryDataTableSection<T>({
   entityId,
   icon,
   columns,
+  rowActions,
 }: InventoryDataTableSectionProps<T>) {
   const t = useT()
   const [page, setPage] = React.useState(1)
@@ -237,6 +247,7 @@ function InventoryDataTableSection<T>({
           onPageChange: setPage,
         }}
         perspective={{ tableId }}
+        rowActions={rowActions}
         emptyState={
           <EmptyState
             title={t(emptyTitleKey, emptyTitleFallback)}
@@ -248,8 +259,19 @@ function InventoryDataTableSection<T>({
   )
 }
 
-export function InventoryBalancesSection() {
+export function InventoryBalancesSection({
+  access,
+}: {
+  access: WmsInventoryMutationAccess
+}) {
   const t = useT()
+  const [moveOpen, setMoveOpen] = React.useState(false)
+  const [movePreset, setMovePreset] = React.useState<InventoryBalanceRow | null>(null)
+
+  const openMoveDialog = React.useCallback((row: InventoryBalanceRow) => {
+    setMovePreset(row)
+    setMoveOpen(true)
+  }, [])
 
   const columns = React.useMemo<ColumnDef<InventoryBalanceRow>[]>(
     () => [
@@ -342,32 +364,79 @@ export function InventoryBalancesSection() {
     [t],
   )
 
+  const rowActions = React.useCallback(
+    (row: InventoryBalanceRow) => {
+      if (!access.canMove) return null
+      const available = parseInventoryQuantity(row.quantity_available)
+      if (available <= 0) return null
+      return (
+        <RowActions
+          items={[
+            {
+              id: 'move',
+              label: t('wms.backend.inventory.balances.actions.move', 'Move'),
+              onSelect: () => openMoveDialog(row),
+            },
+          ]}
+        />
+      )
+    },
+    [access.canMove, openMoveDialog, t],
+  )
+
   return (
-    <InventoryDataTableSection<InventoryBalanceRow>
-      sectionQueryKey="balances"
-      endpoint="/api/wms/inventory/balances"
-      titleKey="wms.backend.inventory.balances.title"
-      titleFallback="Inventory balances"
-      descriptionKey="wms.backend.inventory.balances.description"
-      descriptionFallback="Current on-hand, reserved, allocated, and available quantities by bucket."
-      errorKey="wms.backend.inventory.errors.balances"
-      errorFallback="Failed to load balances."
-      searchKey="wms.backend.inventory.balances.search"
-      searchFallback="Search balances"
-      emptyTitleKey="wms.backend.inventory.balances.empty.title"
-      emptyTitleFallback="No balance buckets"
-      emptyDescriptionKey="wms.backend.inventory.balances.empty.description"
-      emptyDescriptionFallback="Balances appear after receipts, adjustments, or moves create inventory buckets."
-      tableId="wms.inventory.balances"
-      entityId={E.wms.inventory_balance}
-      icon={<Boxes className="size-5" />}
-      columns={columns}
-    />
+    <>
+      <InventoryDataTableSection<InventoryBalanceRow>
+        sectionQueryKey="balances"
+        endpoint="/api/wms/inventory/balances"
+        titleKey="wms.backend.inventory.balances.title"
+        titleFallback="Inventory balances"
+        descriptionKey="wms.backend.inventory.balances.description"
+        descriptionFallback="Current on-hand, reserved, allocated, and available quantities by bucket."
+        errorKey="wms.backend.inventory.errors.balances"
+        errorFallback="Failed to load balances."
+        searchKey="wms.backend.inventory.balances.search"
+        searchFallback="Search balances"
+        emptyTitleKey="wms.backend.inventory.balances.empty.title"
+        emptyTitleFallback="No balance buckets"
+        emptyDescriptionKey="wms.backend.inventory.balances.empty.description"
+        emptyDescriptionFallback="Balances appear after receipts, adjustments, or moves create inventory buckets."
+        tableId="wms.inventory.balances"
+        entityId={E.wms.inventory_balance}
+        icon={<Boxes className="size-5" />}
+        columns={columns}
+        rowActions={rowActions}
+      />
+      {access.canMove ? (
+        <MoveInventoryDialog
+          open={moveOpen}
+          onOpenChange={setMoveOpen}
+          access={access}
+          initialCatalogVariantId={movePreset?.catalog_variant_id ?? undefined}
+          initialWarehouseId={movePreset?.warehouse_id ?? undefined}
+          initialFromLocationId={movePreset?.location_id ?? undefined}
+          initialLotId={movePreset?.lot_id ?? undefined}
+          initialAvailable={movePreset ? parseInventoryQuantity(movePreset.quantity_available) : null}
+          lockSourceContext
+        />
+      ) : null}
+    </>
   )
 }
 
-export function InventoryReservationsSection() {
+export function InventoryReservationsSection({
+  access,
+}: {
+  access: WmsInventoryMutationAccess
+}) {
   const t = useT()
+  const [releaseOpen, setReleaseOpen] = React.useState(false)
+  const [releasePreset, setReleasePreset] = React.useState<InventoryReservationRow | null>(null)
+
+  const openReleaseDialog = React.useCallback((row: InventoryReservationRow) => {
+    setReleasePreset(row)
+    setReleaseOpen(true)
+  }, [])
 
   const columns = React.useMemo<ColumnDef<InventoryReservationRow>[]>(
     () => [
@@ -423,27 +492,58 @@ export function InventoryReservationsSection() {
     [t],
   )
 
+  const rowActions = React.useCallback(
+    (row: InventoryReservationRow) => {
+      if (!access.canRelease) return null
+      if ((row.status ?? '').trim().toLowerCase() !== 'active') return null
+      return (
+        <RowActions
+          items={[
+            {
+              id: 'release',
+              label: t('wms.backend.inventory.reservations.actions.release', 'Release'),
+              destructive: true,
+              onSelect: () => openReleaseDialog(row),
+            },
+          ]}
+        />
+      )
+    },
+    [access.canRelease, openReleaseDialog, t],
+  )
+
   return (
-    <InventoryDataTableSection<InventoryReservationRow>
-      sectionQueryKey="reservations"
-      endpoint="/api/wms/inventory/reservations"
-      titleKey="wms.backend.inventory.reservations.title"
-      titleFallback="Inventory reservations"
-      descriptionKey="wms.backend.inventory.reservations.description"
-      descriptionFallback="Active and historical reservation records created by manual API calls or sales lifecycle automation."
-      errorKey="wms.backend.inventory.errors.reservations"
-      errorFallback="Failed to load reservations."
-      searchKey="wms.backend.inventory.reservations.search"
-      searchFallback="Search reservations"
-      emptyTitleKey="wms.backend.inventory.reservations.empty.title"
-      emptyTitleFallback="No reservations"
-      emptyDescriptionKey="wms.backend.inventory.reservations.empty.description"
-      emptyDescriptionFallback="Reservations show stock committed to orders, transfers, or manual holds."
-      tableId="wms.inventory.reservations"
-      entityId={E.wms.inventory_reservation}
-      icon={<ShieldCheck className="size-5" />}
-      columns={columns}
-    />
+    <>
+      <InventoryDataTableSection<InventoryReservationRow>
+        sectionQueryKey="reservations"
+        endpoint="/api/wms/inventory/reservations"
+        titleKey="wms.backend.inventory.reservations.title"
+        titleFallback="Inventory reservations"
+        descriptionKey="wms.backend.inventory.reservations.description"
+        descriptionFallback="Active and historical reservation records created by manual API calls or sales lifecycle automation."
+        errorKey="wms.backend.inventory.errors.reservations"
+        errorFallback="Failed to load reservations."
+        searchKey="wms.backend.inventory.reservations.search"
+        searchFallback="Search reservations"
+        emptyTitleKey="wms.backend.inventory.reservations.empty.title"
+        emptyTitleFallback="No reservations"
+        emptyDescriptionKey="wms.backend.inventory.reservations.empty.description"
+        emptyDescriptionFallback="Reservations show stock committed to orders, transfers, or manual holds."
+        tableId="wms.inventory.reservations"
+        entityId={E.wms.inventory_reservation}
+        icon={<ShieldCheck className="size-5" />}
+        columns={columns}
+        rowActions={rowActions}
+      />
+      {access.canRelease ? (
+        <ReleaseReservationDialog
+          open={releaseOpen}
+          onOpenChange={setReleaseOpen}
+          access={access}
+          reservation={releasePreset}
+        />
+      ) : null}
+    </>
   )
 }
 
@@ -545,13 +645,15 @@ export function InventoryMovementsSection() {
 }
 
 export default function WmsInventoryConsolePage() {
+  const access = useWmsInventoryMutationAccess()
+
   return (
     <Page>
       <PageBody>
         <div className="space-y-6">
-          <InventoryOperationsSection />
-          <InventoryBalancesSection />
-          <InventoryReservationsSection />
+          <InventoryOperationsSection access={access} />
+          <InventoryBalancesSection access={access} />
+          <InventoryReservationsSection access={access} />
           <InventoryMovementsSection />
         </div>
       </PageBody>

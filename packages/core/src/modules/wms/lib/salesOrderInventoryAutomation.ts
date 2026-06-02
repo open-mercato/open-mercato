@@ -11,8 +11,7 @@ import {
   sortWarehouseAvailabilityForReservation,
   type WarehouseAvailability,
 } from './primaryWarehousePolicy'
-
-const SALES_ORDER_INVENTORY_TOGGLE = 'wms_integration_sales_order_inventory'
+import { resolveWmsIntegrationToggleEnabled } from './wmsIntegrationToggles'
 
 type EventContext = {
   resolve: <T = unknown>(name: string) => T
@@ -74,8 +73,13 @@ function buildCommandContext(ctx: EventContext, scope: Scope): CommandRuntimeCon
 async function isInventoryAutomationEnabled(ctx: EventContext, tenantId: string): Promise<boolean> {
   try {
     const featureTogglesService = ctx.resolve<FeatureTogglesService>('featureTogglesService')
-    const toggle = await featureTogglesService.getBoolConfig(SALES_ORDER_INVENTORY_TOGGLE, tenantId)
-    return toggle.ok ? toggle.value : true
+    const em = ctx.resolve<EntityManager>('em')
+    return resolveWmsIntegrationToggleEnabled(
+      featureTogglesService,
+      em,
+      'wms_integration_sales_order_inventory',
+      tenantId,
+    )
   } catch {
     return true
   }

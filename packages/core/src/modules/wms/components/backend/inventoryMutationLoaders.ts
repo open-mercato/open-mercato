@@ -541,7 +541,68 @@ export async function fetchCycleCountScopeEstimate(input: {
 }
 
 export type InventoryBalanceLookupRow = {
+  lot_id?: string | null
   quantity_on_hand?: string | number | null
+  quantity_available?: number | null
+}
+
+function normalizeBalanceLotId(value: string | null | undefined): string | null {
+  const trimmed = value?.trim()
+  return trimmed || null
+}
+
+function readBalanceAvailable(row: InventoryBalanceLookupRow): number {
+  const available = Number(row.quantity_available ?? row.quantity_on_hand ?? 0)
+  return Number.isFinite(available) ? available : 0
+}
+
+function selectBalanceLookupRow(
+  items: InventoryBalanceLookupRow[],
+  lotId?: string | null,
+): InventoryBalanceLookupRow | null {
+  if (items.length === 0) return null
+  if (items.length === 1) return items[0]
+
+  const normalizedLotId = normalizeBalanceLotId(lotId)
+  if (normalizedLotId) {
+    const exactMatch = items.find(
+      (row) => normalizeBalanceLotId(row.lot_id) === normalizedLotId,
+    )
+    if (exactMatch) return exactMatch
+    throw new BalanceLookupError('No balance bucket matches the selected lot.')
+  }
+
+  const withoutLot = items.filter((row) => !normalizeBalanceLotId(row.lot_id))
+  if (withoutLot.length === 1) return withoutLot[0]
+
+  throw new BalanceLookupError(
+    'Multiple balance buckets match this location; specify a lot.',
+  )
+}
+
+export async function fetchBalanceAvailable(input: {
+  warehouseId: string
+  locationId: string
+  catalogVariantId: string
+  lotId?: string | null
+}): Promise<number> {
+  const params = buildQuery({
+    page: 1,
+    pageSize: 20,
+    warehouseId: input.warehouseId,
+    locationId: input.locationId,
+    catalogVariantId: input.catalogVariantId,
+    lotId: input.lotId?.trim() || undefined,
+  })
+  const call = await apiCall<PagedResponse<InventoryBalanceLookupRow>>(
+    `/api/wms/inventory/balances?${params}`,
+  )
+  if (!call.ok) {
+    throw new BalanceLookupError()
+  }
+  const row = selectBalanceLookupRow(call.result?.items ?? [], input.lotId)
+  if (!row) return 0
+  return readBalanceAvailable(row)
 }
 
 function mapInventoryLotListRowToOption(item: InventoryLotListRow): CrudFieldOption | null {
@@ -632,7 +693,7 @@ export async function fetchBalanceOnHand(input: {
   if (!call.ok) {
     throw new BalanceLookupError()
   }
-  const row = call.result?.items?.[0]
+  const row = selectBalanceLookupRow(call.result?.items ?? [], input.lotId)
   if (!row) return 0
   const onHand = Number(row.quantity_on_hand ?? 0)
   return Number.isFinite(onHand) ? onHand : 0

@@ -42,12 +42,26 @@ describe('wms sales order enrichers', () => {
     organizationId: 'org-1',
     tenantId: 'tenant-1',
     userId: 'user-1',
-    em: { fork: () => ({}) },
+    em: {
+      fork: () => ({}),
+      persist: jest.fn(),
+      create: jest.fn((_, data) => data),
+      flush: jest.fn().mockResolvedValue(undefined),
+    },
     container: {
       resolve: (name: string) => {
         if (name === 'featureTogglesService') {
           return {
             getBoolConfig: jest.fn().mockResolvedValue({ ok: true, value: enabled }),
+            invalidateIsEnabledCacheByKey: jest.fn().mockResolvedValue(undefined),
+          }
+        }
+        if (name === 'em') {
+          return {
+            fork: () => ({}),
+            persist: jest.fn(),
+            create: jest.fn((_, data) => data),
+            flush: jest.fn().mockResolvedValue(undefined),
           }
         }
         if (name === 'queryEngine') {
