@@ -335,7 +335,7 @@ export default function CustomerUserDetailPage({ params }: { params?: { id?: str
       await runMutationWithContext(async () => {
         const call = await withScopedApiRequestHeaders(
           buildOptimisticLockHeader(data.updatedAt),
-          () => apiCall<{ ok: boolean; error?: string }>(
+          () => apiCall<{ ok: boolean; error?: string; updatedAt?: string | null }>(
             `/api/customer_accounts/admin/users/${encodeURIComponent(id)}`,
             {
               method: 'PUT',
@@ -361,6 +361,7 @@ export default function CustomerUserDetailPage({ params }: { params?: { id?: str
           displayName: editDisplayName.trim() || prev.displayName,
           personEntityId: editPersonEntityId,
           customerEntityId: editCustomerEntityId,
+          updatedAt: call.result?.updatedAt ?? prev.updatedAt,
         } : prev)
       }, { displayName: editDisplayName, isActive: editActive, roleIds: selectedRoleIds, personEntityId: editPersonEntityId, customerEntityId: editCustomerEntityId })
     } catch (err) {
