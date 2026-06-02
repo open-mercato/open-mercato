@@ -68,16 +68,25 @@ describe('dev env reload helpers', () => {
     fs.writeFileSync(generatedFile, 'export const routes = []\n')
 
     let stop = () => {}
+    let observed = false
     const seen = new Promise<string>((resolve) => {
       stop = watchDevRuntimeFiles(appDir, (filePath) => {
-        stop()
+        observed = true
         resolve(filePath)
       }, { debounceMs: 10 })
     })
 
-    await new Promise((resolve) => setTimeout(resolve, 25))
-    fs.writeFileSync(generatedFile, 'export const routes = [1]\n')
+    let revision = 0
+    const trigger = setInterval(() => {
+      if (observed) return
+      fs.writeFileSync(generatedFile, `export const routes = [${(revision += 1)}]\n`)
+    }, 20)
 
-    await expect(seen.finally(stop)).resolves.toBe(generatedFile)
+    try {
+      await expect(seen).resolves.toBe(generatedFile)
+    } finally {
+      clearInterval(trigger)
+      stop()
+    }
   })
 })
