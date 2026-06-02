@@ -2,7 +2,7 @@
 
 import * as React from 'react'
 import type { DashboardWidgetComponentProps } from '@open-mercato/shared/modules/dashboard/widgets'
-import { apiCall } from '@open-mercato/ui/backend/utils/apiCall'
+import { useWidgetData, type WidgetDataFetcher } from '@open-mercato/ui/backend/dashboard/widgetData'
 import { useT, useLocale } from '@open-mercato/shared/lib/i18n/context'
 import { LineChart, type LineChartDataItem } from '@open-mercato/ui/backend/charts'
 import {
@@ -22,7 +22,7 @@ import { DEFAULT_SETTINGS, hydrateSettings, type RevenueTrendSettings } from './
 import type { WidgetDataResponse } from '../../../services/widgetDataService'
 import { formatCurrencyCompact } from '../../../lib/formatters'
 
-async function fetchRevenueTrendData(settings: RevenueTrendSettings): Promise<WidgetDataResponse> {
+async function fetchRevenueTrendData(settings: RevenueTrendSettings, fetchWidgetData: WidgetDataFetcher): Promise<WidgetDataResponse> {
   const body = {
     entityType: 'sales:orders',
     metric: {
@@ -39,18 +39,7 @@ async function fetchRevenueTrendData(settings: RevenueTrendSettings): Promise<Wi
     },
   }
 
-  const call = await apiCall<WidgetDataResponse>('/api/dashboards/widgets/data', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(body),
-  })
-
-  if (!call.ok) {
-    const errorMsg = (call.result as Record<string, unknown>)?.error
-    throw new Error(typeof errorMsg === 'string' ? errorMsg : 'Failed to fetch revenue trend data')
-  }
-
-  return call.result as WidgetDataResponse
+  return fetchWidgetData<WidgetDataResponse>(body)
 }
 
 function formatDate(dateStr: string | null, granularity: DateGranularity, locale?: string): string {
@@ -125,12 +114,13 @@ const RevenueTrendWidget: React.FC<DashboardWidgetComponentProps<RevenueTrendSet
   const [loading, setLoading] = React.useState(true)
   const [error, setError] = React.useState<string | null>(null)
 
+  const fetchWidgetData = useWidgetData()
   const refresh = React.useCallback(async () => {
     onRefreshStateChange?.(true)
     setLoading(true)
     setError(null)
     try {
-      const result = await fetchRevenueTrendData(hydrated)
+      const result = await fetchRevenueTrendData(hydrated, fetchWidgetData)
       const sortedData = [...result.data].sort((a, b) => {
         const aTime = new Date(a.groupKey as string || 0).getTime()
         const bTime = new Date(b.groupKey as string || 0).getTime()
@@ -148,7 +138,7 @@ const RevenueTrendWidget: React.FC<DashboardWidgetComponentProps<RevenueTrendSet
       setLoading(false)
       onRefreshStateChange?.(false)
     }
-  }, [hydrated, locale, onRefreshStateChange, t])
+  }, [hydrated, fetchWidgetData, locale, onRefreshStateChange, t])
 
   React.useEffect(() => {
     refresh().catch(() => {})

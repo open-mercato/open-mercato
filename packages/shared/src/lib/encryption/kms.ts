@@ -1,6 +1,7 @@
 import crypto from 'node:crypto'
 import { generateDek, hashForLookup } from './aes'
 import { isEncryptionDebugEnabled, isTenantDataEncryptionEnabled } from './toggles'
+import { parseBooleanToken } from '../boolean'
 import { fetchWithTimeout, resolveTimeoutMs } from '../http/fetchWithTimeout'
 
 const DEFAULT_VAULT_REQUEST_TIMEOUT_MS = 1_000
@@ -100,14 +101,15 @@ function resolveDerivedKeySecret(): DerivedSecret | null {
   const candidates: Array<{ value: string | null; envName: string }> = [
     { value: process.env.TENANT_DATA_ENCRYPTION_FALLBACK_KEY ?? null, envName: 'TENANT_DATA_ENCRYPTION_FALLBACK_KEY' },
     { value: process.env.TENANT_DATA_ENCRYPTION_KEY ?? null, envName: 'TENANT_DATA_ENCRYPTION_KEY' },
-    { value: process.env.AUTH_SECRET ?? null, envName: 'AUTH_SECRET' },
-    { value: process.env.NEXTAUTH_SECRET ?? null, envName: 'NEXTAUTH_SECRET' },
   ]
   for (const raw of candidates) {
     const normalized = normalizeEnv(raw.value ?? undefined)
     if (normalized) return { secret: normalized, source: 'explicit', envName: raw.envName }
   }
-  if (process.env.NODE_ENV !== 'production') {
+  if (
+    process.env.NODE_ENV !== 'production'
+    && parseBooleanToken(process.env.ALLOW_DERIVED_KMS_FALLBACK) === true
+  ) {
     return { secret: 'om-dev-tenant-encryption', source: 'dev-default', envName: 'DEV_DEFAULT' }
   }
   return null
