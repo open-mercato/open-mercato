@@ -391,13 +391,15 @@ When the opt-in CRUD list cache (`ENABLE_CRUD_API_CACHE`) is on, the factory sto
 - Otherwise the hit **re-runs all active enrichers** and the cache stores only the base (pre-enrichment) payload, so non-cacheable enrichers always reflect current data.
 
 ```ts
-const customerTodoCount: ResponseEnricher = {
-  id: 'example.customer-todo-count',
+const customerStatusBadge: ResponseEnricher = {
+  id: 'example.customer-status-badge',
   targetEntity: 'customers.person',
-  cacheableOnListHit: true, // record-pure → safe to serve from the list cache on a hit
+  cacheableOnListHit: true, // pure function of the record's own cached fields → safe on a hit
   // ...
 }
 ```
+
+The shipped `example.customer-todo-count` enricher, by contrast, reads other modules' tables, so it keeps the `false` default and re-runs on every hit.
 
 Set `cacheableOnListHit: true` **only** when the enricher's output for a record is a pure function of that record's own cached state and is invalidated together with it. Leave it `false` (the fail-closed default) for any enricher whose output depends on data the list cache does not invalidate on:
 
