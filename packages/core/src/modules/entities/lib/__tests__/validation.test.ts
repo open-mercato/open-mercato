@@ -107,24 +107,35 @@ describe('validateCustomFieldValuesServer', () => {
     expect(result.fieldErrors.cf_priority).toBe('org <= 3')
   })
 
-  it('rejects undeclared custom field keys for the resolved entity scope', async () => {
+  it('rejects undeclared custom field keys only when rejectUndeclaredKeys is set', async () => {
     const definition = createDefinition({
       organizationId: 'org-1',
       tenantId: 'tenant-1',
       validation: [],
     })
-    const em = {
+    const makeEm = () => ({
       find: jest.fn(async () => [definition]),
-    } as unknown as EntityManager
+    } as unknown as EntityManager)
 
-    const result = await validateCustomFieldValuesServer(em, {
+    const strict = await validateCustomFieldValuesServer(makeEm(), {
+      entityId: 'example:todo',
+      organizationId: 'org-1',
+      tenantId: 'tenant-1',
+      values: { priority: 1, undeclared: 'injected' },
+      rejectUndeclaredKeys: true,
+    })
+
+    expect(strict.ok).toBe(false)
+    expect(strict.fieldErrors.cf_undeclared).toBe(UNKNOWN_CUSTOM_FIELD_ERROR)
+
+    // Trusted command writes (default) keep persisting their dynamic keys.
+    const lenient = await validateCustomFieldValuesServer(makeEm(), {
       entityId: 'example:todo',
       organizationId: 'org-1',
       tenantId: 'tenant-1',
       values: { priority: 1, undeclared: 'injected' },
     })
 
-    expect(result.ok).toBe(false)
-    expect(result.fieldErrors.cf_undeclared).toBe(UNKNOWN_CUSTOM_FIELD_ERROR)
+    expect(lenient.ok).toBe(true)
   })
 })

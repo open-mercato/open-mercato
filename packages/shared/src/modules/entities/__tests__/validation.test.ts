@@ -125,17 +125,28 @@ describe('validateValuesAgainstDefs', () => {
     expect(result.fieldErrors['cf_body']).toBe('body too large')
   })
 
-  it('rejects values for keys that have no custom field definition', () => {
+  it('rejects values for undeclared keys only when rejectUndeclaredKeys is set', () => {
+    const defs = [{ key: 'priority', kind: 'integer', configJson: {} }]
+    const strict = validateValuesAgainstDefs({ priority: 1, undeclared: 'x' }, defs as any, {
+      rejectUndeclaredKeys: true,
+    })
+
+    expect(strict.ok).toBe(false)
+    expect(strict.fieldErrors.cf_undeclared).toBe(UNKNOWN_CUSTOM_FIELD_ERROR)
+  })
+
+  it('persists undeclared keys by default (trusted command writes)', () => {
     const defs = [{ key: 'priority', kind: 'integer', configJson: {} }]
     const result = validateValuesAgainstDefs({ priority: 1, undeclared: 'x' }, defs as any)
 
-    expect(result.ok).toBe(false)
-    expect(result.fieldErrors.cf_undeclared).toBe(UNKNOWN_CUSTOM_FIELD_ERROR)
+    expect(result.ok).toBe(true)
   })
 
-  it('ignores undefined keys that are not declared', () => {
+  it('ignores undefined keys even in strict mode', () => {
     const defs = [{ key: 'priority', kind: 'integer', configJson: {} }]
-    const result = validateValuesAgainstDefs({ priority: 1, undeclared: undefined }, defs as any)
+    const result = validateValuesAgainstDefs({ priority: 1, undeclared: undefined }, defs as any, {
+      rejectUndeclaredKeys: true,
+    })
 
     expect(result.ok).toBe(true)
   })

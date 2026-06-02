@@ -112,17 +112,29 @@ function countPresentValueKeys(values: Record<string, unknown>): number {
   return count
 }
 
+export type ValidateValuesOptions = {
+  // When true, value keys that have no matching CustomFieldDef are rejected
+  // (OWASP A03/A04 EAV mass-assignment guard for untrusted entry points such as
+  // the generic `/api/entities/records` endpoint). Trusted first-party command
+  // writes persist dynamic/internal keys, so they leave this off and rely on the
+  // always-on per-record key cap below as the unbounded-injection backstop.
+  rejectUndeclaredKeys?: boolean
+}
+
 export function validateValuesAgainstDefs(
   values: Record<string, any>,
   defs: CustomFieldDefLike[],
+  options: ValidateValuesOptions = {},
 ): { ok: boolean; fieldErrors: Record<string, string> } {
   const errors: Record<string, string> = {}
-  const allowedKeys = new Set(defs.map((def) => def.key))
 
-  for (const key of Object.keys(values)) {
-    if (values[key] === undefined) continue
-    if (!allowedKeys.has(key)) {
-      errors[`cf_${key}`] = UNKNOWN_CUSTOM_FIELD_ERROR
+  if (options.rejectUndeclaredKeys) {
+    const allowedKeys = new Set(defs.map((def) => def.key))
+    for (const key of Object.keys(values)) {
+      if (values[key] === undefined) continue
+      if (!allowedKeys.has(key)) {
+        errors[`cf_${key}`] = UNKNOWN_CUSTOM_FIELD_ERROR
+      }
     }
   }
 

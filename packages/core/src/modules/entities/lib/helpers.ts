@@ -123,7 +123,6 @@ export async function setRecordCustomFields(
     if (raw === undefined) continue
 
     const def = defsByKey?.[fieldKey]
-    if (preferDefs && !def) continue
     const encrypted = Boolean(def?.configJson && (def as any).configJson?.encrypted)
     const isArray = Array.isArray(raw)
     // When array: remove existing values for key and create multiple rows
