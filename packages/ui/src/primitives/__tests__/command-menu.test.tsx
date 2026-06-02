@@ -153,7 +153,7 @@ describe('CommandMenu', () => {
     const onSelectMonday = jest.fn()
     render(<ExampleMenu onSelectMonday={onSelectMonday} />)
     const items = document.querySelectorAll('[data-slot="command-menu-item"]') as NodeListOf<HTMLElement>
-    const monday = Array.from(items).find((el) => el.textContent?.includes('Monday.com')) as HTMLElement
+    const monday = Array.from(items).find((el) => el.textContent?.trim() === 'Monday.com') as HTMLElement
     expect(monday).toBeTruthy()
     fireEvent.click(monday)
     expect(onSelectMonday).toHaveBeenCalledTimes(1)
