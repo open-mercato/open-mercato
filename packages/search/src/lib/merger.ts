@@ -65,15 +65,22 @@ export function mergeAndRankResults(
             presenter: result.presenter,
             url: existing.result.url ?? result.url,
             links: existing.result.links ?? result.links,
+            organizationId: existing.result.organizationId ?? result.organizationId,
           }
           existing.bestContribution = Math.max(existing.bestContribution, rrfScore)
         } else if (hasExistingPresenter && hasNewPresenter && rrfScore > existing.bestContribution) {
           // Both have presenter, keep the one with better RRF contribution (not raw score)
-          existing.result = { ...result }
+          existing.result = {
+            ...result,
+            organizationId: result.organizationId ?? existing.result.organizationId,
+          }
           existing.bestContribution = rrfScore
         } else if (!hasExistingPresenter && !hasNewPresenter && rrfScore > existing.bestContribution) {
           // Neither has presenter, keep result with better RRF contribution
-          existing.result = { ...result }
+          existing.result = {
+            ...result,
+            organizationId: result.organizationId ?? existing.result.organizationId,
+          }
           existing.bestContribution = rrfScore
         }
         // If existing has presenter and new doesn't, keep existing (do nothing)
