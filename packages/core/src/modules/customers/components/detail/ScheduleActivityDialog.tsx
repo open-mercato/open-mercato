@@ -1,7 +1,7 @@
 'use client'
 
 import * as React from 'react'
-import { Users, Phone, Check, Mail, Calendar, AlertTriangle, X } from 'lucide-react'
+import { Users, Phone, Check, Mail, Calendar, AlertTriangle, X, StickyNote } from 'lucide-react'
 import { cn } from '@open-mercato/shared/lib/utils'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { validatePhoneNumber } from '@open-mercato/shared/lib/phone'
@@ -33,6 +33,7 @@ const TYPE_TABS: Array<{ type: ActivityType; icon: React.ComponentType<{ classNa
   { type: 'call', icon: Phone, labelKey: 'customers.schedule.types.call', fallback: 'Call' },
   { type: 'task', icon: Check, labelKey: 'customers.schedule.types.task', fallback: 'Task' },
   { type: 'email', icon: Mail, labelKey: 'customers.schedule.types.email', fallback: 'Email' },
+  { type: 'note', icon: StickyNote, labelKey: 'customers.schedule.types.note', fallback: 'Note' },
 ]
 
 type DialogChrome = { titleKey: string; titleFallback: string; subtitleKey: string; subtitleFallback: string; saveKey: string; saveFallback: string; saveIcon: React.ComponentType<{ className?: string }> }
@@ -57,6 +58,11 @@ const TYPE_CHROME: Record<ActivityType, DialogChrome> = {
     titleKey: 'customers.schedule.email.title', titleFallback: 'Compose email',
     subtitleKey: 'customers.schedule.email.subtitle', subtitleFallback: 'Compose and send a tracked email',
     saveKey: 'customers.schedule.email.save', saveFallback: 'Send email', saveIcon: Mail,
+  },
+  note: {
+    titleKey: 'customers.schedule.note.title', titleFallback: 'Add note',
+    subtitleKey: 'customers.schedule.note.subtitle', subtitleFallback: 'Write down a note about this interaction',
+    saveKey: 'customers.schedule.note.save', saveFallback: 'Save note', saveIcon: StickyNote,
   },
 }
 
