@@ -44,7 +44,7 @@ const mockEm: MockEntityManager = {
   find: jest.fn<Promise<unknown[]>, [unknown, Record<string, unknown>?]>(),
   fork: jest.fn<MockEntityManager, []>(),
   transactional: jest.fn<Promise<unknown>, [(em: MockEntityManager) => Promise<unknown>]>(
-    async (cb) => cb(mockEm),
+    async (fn) => fn(mockEm),
   ),
 }
 const mockDataEngine: MockDataEngine = {
