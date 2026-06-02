@@ -373,6 +373,9 @@ jobs:
         run: yarn i18n:check-usage
         continue-on-error: true
 
+      - name: Check for time-bomb test literals
+        run: yarn check:time-bombs:fail
+
       - name: Checking types
         # On PRs: scope to packages/app that changed since the base branch.
         # On pushes to protected branches: full typecheck, no filter.
