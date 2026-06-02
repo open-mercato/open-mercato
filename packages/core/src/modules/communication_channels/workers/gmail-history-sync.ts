@@ -183,9 +183,10 @@ export default async function handle(
   if (page?.nextCursor) {
     try {
       const decoded = JSON.parse(Buffer.from(page.nextCursor, 'base64').toString('utf-8')) as Record<string, unknown>
-      // Full replace (carrying push keys forward) — see preservePushState: a spread
-      // would retain a stale `pendingHistoryPageToken` after a completed drain and
-      // mis-route the next push notification.
+      // Carry the push keys forward via preservePushState rather than spreading
+      // the decoded cursor wholesale: a blind spread would retain a stale
+      // `pendingHistoryPageToken` after a completed drain and mis-route the next
+      // push notification.
       channel.channelState = preservePushState(channel.channelState, decoded)
       channel.lastPolledAt = new Date()
       await em.flush()

@@ -46,7 +46,7 @@ When an email arrives in your connected mailbox, Open Mercato checks every addre
 
 If no addresses match any Person's primary email, the email stays in the unified Messages inbox but does not appear on any Person's timeline. Updating the Person's email address after the fact does not retroactively link older emails; only emails received after the address is set will be linked.
 
-**Timing** — inbound linking is handled by a persistent background subscriber. For Gmail (push delivery), expect timeline entries within 1–2 seconds after the email arrives inside Open Mercato. For IMAP connections polled on a 5-minute cadence, allow up to 5 minutes.
+**Timing** — inbound linking is handled by a persistent background subscriber. Gmail channels with push delivery typically surface timeline entries within seconds; mailboxes on the polling fallback (IMAP, and Gmail when push is unavailable) are checked on the hub's default ~60-second cadence, so allow up to about a minute.
 
 ## Private vs shared
 

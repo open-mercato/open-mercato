@@ -4,7 +4,8 @@ import { CustomerInteraction } from '../data/entities'
 
 /**
  * The ACL feature that grants admins the right to see private emails authored
- * by other users. Declared in `acl.ts` and default-granted to `admin` only.
+ * by other users. Declared in `acl.ts` but granted to NO role in v1 (reserved
+ * for the v2 oversight feature — see `callerHasEmailViewPrivate`).
  */
 export const EMAIL_VIEW_PRIVATE_FEATURE = 'customers.email.view_private'
 

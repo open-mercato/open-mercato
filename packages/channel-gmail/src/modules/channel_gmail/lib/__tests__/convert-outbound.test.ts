@@ -48,6 +48,42 @@ describe('convertOutboundForGmail', () => {
     expect((result.metadata as Record<string, unknown>).threadId).toBe('thread-abc')
   })
 
+  it('derives the Gmail threadId from the hub gmail-thread conversation ref', async () => {
+    const result = await convertOutboundForGmail({
+      body: 'reply',
+      bodyFormat: 'text',
+      channelMetadata: { to: ['bob@example.com'], thread_id: 'gmail-thread:18cabc123' },
+      fromAddress: 'alice@gmail.com',
+    })
+    expect((result.metadata as Record<string, unknown>).threadId).toBe('18cabc123')
+  })
+
+  it('leaves threadId unset for a new outbound thread ref so Gmail starts a fresh thread', async () => {
+    const result = await convertOutboundForGmail({
+      body: 'new',
+      bodyFormat: 'text',
+      channelMetadata: { to: ['bob@example.com'], thread_id: 'outbound:550e8400-e29b-41d4-a716-446655440000' },
+      fromAddress: 'alice@gmail.com',
+    })
+    expect((result.metadata as Record<string, unknown>).threadId).toBeUndefined()
+  })
+
+  it('preserves the Gmail threadId across the hub convert→send double-conversion', async () => {
+    const firstPass = await convertOutboundForGmail({
+      body: 'reply',
+      bodyFormat: 'text',
+      channelMetadata: { to: ['bob@example.com'], thread_id: 'gmail-thread:18cabc123' },
+      fromAddress: 'alice@gmail.com',
+    })
+    const secondPass = await convertOutboundForGmail({
+      body: 'reply',
+      bodyFormat: 'text',
+      channelMetadata: firstPass.metadata as Record<string, unknown>,
+      fromAddress: 'alice@gmail.com',
+    })
+    expect((secondPass.metadata as Record<string, unknown>).threadId).toBe('18cabc123')
+  })
+
   it('rejects when there are no recipients', async () => {
     await expect(
       convertOutboundForGmail({

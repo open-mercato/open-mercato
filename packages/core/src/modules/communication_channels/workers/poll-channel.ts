@@ -199,7 +199,7 @@ export default async function handle(
     nextCursor = result?.nextCursor
     hasMore = result?.hasMore === true
   } catch (err) {
-    await handlePollError(err, em, channel, scope, attempt, ctx, job.payload)
+    await handlePollError(err, em, channel, scope, attempt, job.payload)
     return
   }
 
@@ -350,7 +350,6 @@ async function handlePollError(
   channel: CommunicationChannel,
   scope: PollChannelJobPayload['scope'],
   attempt: number,
-  ctx: HandlerContext,
   payload: PollChannelJobPayload,
 ): Promise<void> {
   const classification = classifyOutboundError(err)

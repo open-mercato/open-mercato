@@ -439,7 +439,7 @@ export interface ExchangeOAuthCodeResult {
 
 /**
  * Tenant-level OAuth client configuration resolved by the hub from
- * `integration_credentials.scope = oauth_<providerKey>`.
+ * `integration_credentials.scope = channel_<providerKey>`.
  *
  * OAuth providers (Gmail) MUST read clientId / clientSecret from this field on
  * `RefreshCredentialsInput`. Adapters without OAuth refresh (IMAP, WhatsApp

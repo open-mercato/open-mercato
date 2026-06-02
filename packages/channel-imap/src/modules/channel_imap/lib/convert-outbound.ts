@@ -26,16 +26,6 @@ import {
  *     `supportedBodyFormats` to ['text','html'] so this should not occur in practice).
  */
 
-export interface EmailNativeMetadata {
-  subject?: string
-  to: string[]
-  cc?: string[]
-  bcc?: string[]
-  inReplyTo?: string
-  references?: string[]
-  messageId?: string
-}
-
 export async function convertOutboundForEmail(
   input: ConvertOutboundInput,
 ): Promise<ChannelNativeContent> {

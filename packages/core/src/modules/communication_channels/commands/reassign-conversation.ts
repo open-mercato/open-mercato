@@ -5,6 +5,7 @@ import { registerCommand } from '@open-mercato/shared/lib/commands'
 import { extractUndoPayload as extractSharedUndoPayload } from '@open-mercato/shared/lib/commands/undo'
 import { findOneWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import { ChannelThreadMapping, ExternalConversation } from '../data/entities'
+import { emitCommunicationChannelsEvent } from '../events'
 
 const reassignConversationSchema = z.object({
   threadId: z.string().uuid(),
@@ -146,6 +147,29 @@ const reassignConversationCommand: CommandHandler<
     mapping.assignedUserId = input.assignedUserId
     conversation.assignedUserId = input.assignedUserId
     await em.flush()
+
+    try {
+      await emitCommunicationChannelsEvent(
+        'communication_channels.conversation.reassigned',
+        {
+          conversationId: conversation.id,
+          channelId: mapping.channelId,
+          messageThreadId: input.threadId,
+          previousAssignedUserId,
+          assignedUserId: input.assignedUserId,
+          tenantId: input.scope.tenantId,
+          organizationId: input.scope.organizationId ?? null,
+        },
+        { persistent: true },
+      )
+    } catch (emitErr) {
+      // Best-effort lifecycle/workflow-trigger signal — a bus failure must not
+      // abort the reassignment (the rows are already committed above).
+      console.warn(
+        '[communication_channels:reassign-conversation] reassigned event emit failed:',
+        emitErr instanceof Error ? emitErr.message : emitErr,
+      )
+    }
 
     const undo: ReassignConversationUndoSnapshot = {
       threadMappingId: mapping.id,

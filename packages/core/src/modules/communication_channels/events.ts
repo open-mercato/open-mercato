@@ -30,6 +30,12 @@ const events = [
     category: 'custom',
   },
   {
+    id: 'communication_channels.conversation.reassigned',
+    label: 'External Conversation Reassigned',
+    entity: 'external_conversation',
+    category: 'custom',
+  },
+  {
     id: 'communication_channels.contact.resolved',
     label: 'External Contact Resolved to CRM Person',
     entity: 'external_conversation',

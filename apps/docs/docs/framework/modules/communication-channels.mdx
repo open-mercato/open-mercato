@@ -197,7 +197,7 @@ The `POST /api/communication_channels/channels/<id>/import-history` route (gated
 | `contactEmails` | optional, up to 1000 | Server-side `OR FROM …` filter, chunked to ≤30 senders per SEARCH to keep the IMAP tag buffer bounded. |
 | `maxMessages` | `1..5000` | Hard cap across all pages. Worker stops paging as soon as the cap is hit. |
 
-A 429 is returned if another import is in-flight for the same channel (active-jobs scan, plus the worker's `concurrency: 1` is the second line of defence). Progress streams to the existing `ProgressTopBar` via `ProgressService.updateProgress(...)`. Adapter contract is **additive optional** — adapters that don't implement `importHistory()` get a 400 envelope back from the route (Gmail gains support in Spec C).
+A 429 is returned if another import is in-flight for the same channel (active-jobs scan, plus the worker's `concurrency: 1` is the second line of defence). Progress streams to the existing `ProgressTopBar` via `ProgressService.updateProgress(...)`. Adapter contract is **additive optional** — adapters that don't implement `importHistory()` get a 400 envelope back from the route (backlog import is IMAP-only; the Gmail adapter does not implement `importHistory`).
 
 The UI lives on `/backend/profile/communication-channels` as a per-row "Import history" button → modal dialog (`Cmd/Ctrl+Enter` submits, `Escape` cancels). On success the dialog calls `router.refresh()` instead of `window.location.reload()` — preserves scroll position and avoids the flash that a full reload causes.
 

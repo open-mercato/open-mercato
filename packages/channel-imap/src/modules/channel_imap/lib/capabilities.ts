@@ -1,8 +1,5 @@
 import type { ChannelCapabilities } from '@open-mercato/core/modules/communication_channels/lib/adapter'
-import {
-  EMAIL_MAX_ATTACHMENT_BYTES,
-  baseEmailCapabilities,
-} from '@open-mercato/core/modules/communication_channels/lib/email-capabilities'
+import { baseEmailCapabilities } from '@open-mercato/core/modules/communication_channels/lib/email-capabilities'
 
 /**
  * IMAP+SMTP capabilities. Polling-based (no real-time push), threaded via
@@ -14,8 +11,6 @@ import {
  * fails-fast on attachments (it doesn't yet fetch + inline attachment URLs into
  * MIME bodies). Re-enable when URL-fetch + size-validation lands.
  */
-export const IMAP_MAX_ATTACHMENT_BYTES = EMAIL_MAX_ATTACHMENT_BYTES
-
 export const imapCapabilities: ChannelCapabilities = {
   ...baseEmailCapabilities,
 }

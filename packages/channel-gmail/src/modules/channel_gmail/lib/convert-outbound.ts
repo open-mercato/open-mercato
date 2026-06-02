@@ -11,6 +11,7 @@ import {
   stringOrUndefined,
   toAddressList,
 } from '@open-mercato/core/modules/communication_channels/lib/email-mime'
+import { GMAIL_THREAD_REF_PREFIX } from './normalize-inbound'
 
 /**
  * Convert a hub-canonical outbound payload to a Gmail-ready native content shape.
@@ -22,7 +23,7 @@ import {
  *
  * Output metadata fields:
  *   - rawMessage: Buffer  — the assembled RFC2822 message
- *   - threadId: string?   — Gmail thread id (channelMetadata.gmailThreadId)
+ *   - threadId: string?   — Gmail thread id (resolved by deriveGmailThreadId)
  *   - subject / to / cc / bcc / inReplyTo / references — diagnostic copies
  */
 
@@ -45,6 +46,28 @@ export interface ConvertOutboundForGmailInput extends ConvertOutboundInput {
   fromName?: string
 }
 
+/**
+ * Resolve the Gmail native `threadId` so replies attach to the original Gmail
+ * conversation. Order of precedence:
+ *   1. `gmailThreadId` — explicit, set by inbound normalization metadata.
+ *   2. `threadId` — survives the hub's convert→send double-conversion, where
+ *      `sendMessage` re-converts the already-converted metadata.
+ *   3. `thread_id` — the hub's generic conversation ref; for an existing Gmail
+ *      thread it is `gmail-thread:<rawId>` (see `normalize-inbound`). A new
+ *      outbound thread uses an `outbound:<uuid>` ref with no Gmail thread yet,
+ *      so `threadId` stays unset and Gmail opens a fresh server-side thread.
+ */
+function deriveGmailThreadId(meta: Record<string, unknown>): string | undefined {
+  const explicit = stringOrUndefined(meta.gmailThreadId) ?? stringOrUndefined(meta.threadId)
+  if (explicit) return explicit
+  const conversationRef = stringOrUndefined(meta.thread_id)
+  if (conversationRef && conversationRef.startsWith(GMAIL_THREAD_REF_PREFIX)) {
+    const rawThreadId = conversationRef.slice(GMAIL_THREAD_REF_PREFIX.length)
+    return rawThreadId.length > 0 ? rawThreadId : undefined
+  }
+  return undefined
+}
+
 export async function convertOutboundForGmail(
   input: ConvertOutboundForGmailInput,
 ): Promise<ChannelNativeContent> {
@@ -59,7 +82,7 @@ export async function convertOutboundForGmail(
   const inReplyTo = stringOrUndefined(meta.inReplyTo)
   const references = referencesFromMeta(meta.references)
   const messageId = stringOrUndefined(meta.messageId) ?? generateMessageId(input.fromAddress, 'gmail.com')
-  const threadId = stringOrUndefined(meta.gmailThreadId)
+  const threadId = deriveGmailThreadId(meta)
 
   const html = input.bodyFormat === 'html' ? input.body : undefined
   const text = input.bodyFormat === 'html' ? htmlToText(input.body) : input.body

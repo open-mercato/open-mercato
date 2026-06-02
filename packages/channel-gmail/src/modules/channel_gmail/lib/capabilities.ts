@@ -1,8 +1,5 @@
 import type { ChannelCapabilities } from '@open-mercato/core/modules/communication_channels/lib/adapter'
-import {
-  EMAIL_MAX_ATTACHMENT_BYTES,
-  baseEmailCapabilities,
-} from '@open-mercato/core/modules/communication_channels/lib/email-capabilities'
+import { baseEmailCapabilities } from '@open-mercato/core/modules/communication_channels/lib/email-capabilities'
 
 /**
  * Gmail capabilities. `realtimePush: false` is deliberate: Gmail Pub/Sub push IS
@@ -18,8 +15,6 @@ import {
  * RFC2822 body it sends via `users.messages.send`. Re-enable when the URL-fetch
  * + MIME stitching flow lands.
  */
-export const GMAIL_MAX_ATTACHMENT_BYTES = EMAIL_MAX_ATTACHMENT_BYTES
-
 export const gmailCapabilities: ChannelCapabilities = {
   ...baseEmailCapabilities,
   // Gmail supports moving a message to Trash via the API.

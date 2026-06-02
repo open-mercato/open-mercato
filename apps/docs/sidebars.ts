@@ -125,6 +125,7 @@ const sidebars: SidebarsConfig = {
               items: [
                 "user-guide/communication-channels-gmail",
                 "user-guide/communication-channels-imap",
+                "user-guide/customers-email",
               ],
             },
             "user-guide/akeneo-pim",

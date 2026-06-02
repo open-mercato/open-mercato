@@ -651,7 +651,7 @@ export class CustomerInteraction {
    * value space:
    *   - Email rows (interactionType='email'): 'private' | 'shared'.
    *     Filtered by `lib/visibilityFilter.ts` so private emails are only
-   *     visible to the channel-owner author + admins.
+   *     visible only to the channel-owner author (v1 strict owner-only; no admin bypass).
    *   - Activity rows (call/meeting/task): 'team' | 'public'. Surfaced via
    *     the ScheduleActivityDialog footer.
    * Stored as plain text to keep the column reusable for future visibility
