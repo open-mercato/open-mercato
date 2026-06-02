@@ -54,6 +54,38 @@ export async function loadSidebarPreference(
   return normalizeSidebarSettings(existing?.settingsJson as SidebarPreferencesSettings | undefined)
 }
 
+export async function loadSidebarPreferenceUpdatedAt(
+  em: EntityManager,
+  scope: SidebarPreferenceScope,
+): Promise<{ id: string; updatedAt: Date | null } | null> {
+  const { userId, tenantId, organizationId } = normalizeScope(scope)
+  const existing = await findOneWithDecryption(
+    em,
+    UserSidebarPreference,
+    { user: userId, tenantId, organizationId },
+    undefined,
+    { tenantId, organizationId },
+  )
+  if (!existing) return null
+  return { id: existing.id, updatedAt: existing.updatedAt ?? null }
+}
+
+export async function loadRoleSidebarPreferenceUpdatedAt(
+  em: EntityManager,
+  scope: RoleSidebarPreferenceScope,
+): Promise<{ id: string; updatedAt: Date | null } | null> {
+  const { roleId, tenantId } = normalizeRoleScope(scope)
+  const existing = await findOneWithDecryption(
+    em,
+    RoleSidebarPreference,
+    { role: roleId, tenantId },
+    undefined,
+    { tenantId, organizationId: null },
+  )
+  if (!existing) return null
+  return { id: existing.id, updatedAt: existing.updatedAt ?? null }
+}
+
 export async function saveSidebarPreference(
   em: EntityManager,
   scope: SidebarPreferenceScope,
