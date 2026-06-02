@@ -350,3 +350,21 @@ Strictly additive: no header ⇒ no 409.
   to other modules (catalog nested resources, workflows action endpoints,
   staff/resources adapters) + CHANGELOG `Unreleased` entry. Final gate +
   auto-review + summary comment + label normalization.
+
+## Resume — CI fix after develop merge (2026-06-02, auto-continue-pr)
+
+Merged latest `origin/develop` into the branch and fixed the resulting red CI
+(`prepare` + Standalone App Integration Tests). All root causes were
+merge artifacts, not optimistic-locking regressions.
+
+- [x] R.1 Merge `origin/develop` (clean, no conflicts) — 5b3cf9c4e
+- [x] R.2 Drop duplicate `withAtomicFlush` imports in `auth/api/roles/acl/route.ts`
+  and `auth/api/users/acl/route.ts` (fixes `Duplicate identifier` typecheck +
+  standalone build) — c75aae72c
+- [x] R.3 Bring merged staff timesheets pages into optimistic-lock UI-coverage:
+  wire `time-projects` row delete with the version header; exempt the per-user
+  `showInGrid` membership toggle and the employee-assignment junction; add the
+  missing `staff.teamMembers.detail.jobHistory.conflict` i18n key (4 locales) — 390c06da6
+- [x] R.4 Full gate green: build:packages ✓, generate ✓, build:packages ✓,
+  i18n:check-sync ✓, i18n:check-usage ✓ (0 missing), typecheck ✓, test ✓ (20/20),
+  build:app ✓
