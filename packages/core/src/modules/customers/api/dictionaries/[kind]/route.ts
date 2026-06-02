@@ -8,6 +8,11 @@ import { CustomerDictionaryEntry, CustomerPipelineStage } from '../../../data/en
 import { ensureDictionaryEntry } from '../../../commands/shared'
 import { mapDictionaryKind, resolveDictionaryActorId, resolveDictionaryRouteContext } from '../context'
 import { createDictionaryCacheKey, createDictionaryCacheTags, invalidateDictionaryCache, DICTIONARY_CACHE_TTL_MS } from '../cache'
+import { loadCustomerSettings } from '../../../commands/settings'
+import {
+  resolveDictionaryEntrySortMode,
+  sortDictionaryEntries,
+} from '@open-mercato/core/modules/dictionaries/lib/entrySort'
 import { z } from 'zod'
 import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
 import { loadRoleTypeUsageMap, resolveRoleTypeUsageKey } from '../../../lib/roleTypeUsage'
@@ -46,10 +51,12 @@ export async function GET(req: Request, ctx: { params?: { kind?: string } }) {
     const { translate, em, organizationId, readableOrganizationIds, tenantId, cache } = await resolveDictionaryRouteContext(req, {
       selectedId: query.organizationId ?? undefined,
     })
-    const { mappedKind } = mapDictionaryKind(ctx.params?.kind)
+    const { kind, mappedKind } = mapDictionaryKind(ctx.params?.kind)
     if (!organizationId) {
       throw new CrudHttpError(400, { error: translate('customers.errors.organization_required', 'Organization context is required') })
     }
+    const settings = await loadCustomerSettings(em, { tenantId, organizationId })
+    const sortMode = resolveDictionaryEntrySortMode(settings?.dictionarySortModes?.[kind])
     const scopedOrganizationIds = readableOrganizationIds.length > 0 ? readableOrganizationIds : [organizationId]
     const canUseCache = Boolean(cache) && mappedKind !== 'person_company_role'
 
@@ -59,6 +66,7 @@ export async function GET(req: Request, ctx: { params?: { kind?: string } }) {
         tenantId,
         organizationId,
         mappedKind,
+        sortMode,
         readableOrganizationIds: scopedOrganizationIds,
       })
       const cached = await cache.get(cacheKey)
@@ -129,10 +137,8 @@ export async function GET(req: Request, ctx: { params?: { kind?: string } }) {
           })
         : new Map()
 
-    const items = [
-      ...preferredEntryList
-        .filter((entry) => entry.organizationId === organizationId)
-        .sort(sortByLabel)
+    const items = sortDictionaryEntries(
+      preferredEntryList
         .map((entry) => ({
           id: entry.id,
           value: entry.value,
@@ -140,7 +146,9 @@ export async function GET(req: Request, ctx: { params?: { kind?: string } }) {
           color: entry.color,
           icon: entry.icon,
           organizationId: entry.organizationId,
-          isInherited: false,
+          isInherited: entry.organizationId !== organizationId,
+          createdAt: entry.createdAt,
+          updatedAt: entry.updatedAt,
           ...(mappedKind === 'person_company_role'
             ? {
                 usageCount:
@@ -148,27 +156,11 @@ export async function GET(req: Request, ctx: { params?: { kind?: string } }) {
               }
             : {}),
         })),
-      ...preferredEntryList
-        .filter((entry) => entry.organizationId !== organizationId)
-        .sort(sortByLabel)
-        .map((entry) => ({
-          id: entry.id,
-          value: entry.value,
-          label: entry.label,
-          color: entry.color,
-          icon: entry.icon,
-          organizationId: entry.organizationId,
-          isInherited: true,
-          ...(mappedKind === 'person_company_role'
-            ? {
-                usageCount:
-                  usageByEntryKey.get(resolveRoleTypeUsageKey(entry.organizationId, entry.value))?.total ?? 0,
-              }
-            : {}),
-        })),
-    ]
+      sortMode,
+    )
 
     const responseBody = {
+      sortMode,
       items,
     }
 
@@ -306,9 +298,12 @@ const dictionaryEntrySchema = z.object({
   icon: z.string().nullable().optional(),
   organizationId: z.string().uuid().nullable().optional(),
   isInherited: z.boolean().optional(),
+  createdAt: z.date().or(z.string()).optional(),
+  updatedAt: z.date().or(z.string()).optional(),
 })
 
 const dictionaryListResponseSchema = z.object({
+  sortMode: z.string().optional(),
   items: z.array(dictionaryEntrySchema),
 })
 

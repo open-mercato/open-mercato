@@ -357,6 +357,7 @@ export function AdjustmentDialog({
             allowInlineCreate={false}
             manageHref="/backend/config/sales#adjustment-kinds"
             selectClassName="w-full"
+            sortOptions="none"
             labels={{
               placeholder: t('sales.documents.adjustments.kindSelect.placeholder', 'Select adjustment kind…'),
               addLabel: t('sales.config.adjustmentKinds.actions.add', 'Add adjustment kind'),
