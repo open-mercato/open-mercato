@@ -153,3 +153,7 @@ Append-only event log. Newest at the bottom.
 - Deferred w/ rationale: #2411 + System/User Entities defs (EAV scope bug; needs scope fix first).
 - VERIFICATION: TC-LOCK-OSS full suite 23/23 on ephemeral env; 135 unit tests + guards green; webhooks 4/4; typecheck clean.
 - 14 atomic fix commits this resume, each with a test + per-issue @alinadivante comment.
+
+## 2026-06-02 — checkpoint 12 (CI stabilization + 0.6.4 merge)
+- CI fix: TC-CRM-003 root-caused (default-ON locking + sequential inline edits sent stale updatedAt → 409). companies/people commands now return updatedAt; detail pages refresh the token per inline save. Verified TC-CRM-003 + TC-CRM-006 green on a live build. (4d9cf35af)
+- Merged develop 0.6.4 (CHANGELOG conflict only). develop's #2415 RESOLVES my deferred #2411 upstream; #2348 adds the roles/users updated_at migration. PR MERGEABLE. (457a59623)
