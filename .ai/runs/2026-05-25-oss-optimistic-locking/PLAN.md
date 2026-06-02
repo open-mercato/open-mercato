@@ -99,11 +99,11 @@
 | 30 | 30.4 | QA round-5: Inbox Settings — GET/PATCH return updatedAt; PATCH enforces; page sends header (removed exempt) | done | 96aaea40a |
 | 30 | 30.5 | QA round-5 #2410: Feature Toggle boolean override selector display | done | b4a672a07 |
 | 30 | 30.6 | QA round-5: Feature Toggles (Global) override — GET returns updatedAt; card sends header + conflict bar; overrides PUT enforces | done | 7025099a6 |
-| 30 | 30.7 | QA round-5: Pay Links + Checkout Templates (LinkTemplateForm raw PUT) | todo | — |
-| 30 | 30.8 | QA round-5: Sidebar Customization preferences | todo | — |
+| 30 | 30.7 | QA round-5: Pay Links + Checkout Templates (LinkTemplateForm raw PUT) | done | 67e489b77 |
+| 30 | 30.8 | QA round-5: Sidebar Customization preferences | done | 4959f65f8 |
 | 30 | 30.9 | QA round-5: Saved table Views ("My Views") | todo | — |
 | 30 | 30.10 | QA round-5: System Entities + User Entities records lock | todo | — |
-| 30 | 30.11 | QA round-5 #2411: System Entities save reports success but doesn't persist | todo | — |
+| 30 | 30.11 | QA round-5 #2411: System Entities save no-op — INVESTIGATED: separate EAV definitions.manage(read)/definitions.batch(write) scope-asymmetry bug, NOT locking; documented on PR, recommend separate issue | done | (no-code, investigated) |
 | 30 | 30.12 | QA round-5 #2409: Availability Schedule delete false success toast on 409 | todo | — |
 | 30 | 30.13 | QA round-5: Webhooks / Integrations / Data Sync / Notification Delivery / Scheduled Jobs / Dictionaries config — verify & fix | todo | — |
 | 30 | 30.14 | QA round-5: Workflow visual editor — verify & fix | todo | — |

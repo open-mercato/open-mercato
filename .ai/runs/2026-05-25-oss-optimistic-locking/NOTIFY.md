@@ -139,3 +139,9 @@ Append-only event log. Newest at the bottom.
 - Validation: touched-module unit subsets (65 tests) + directory (63) green; `turbo typecheck @open-mercato/core` clean.
 - Live Playwright/integration deferred to a single batched pass (30.15) to avoid repeated full-stack boots.
 - Remaining: 30.7–30.15 (see HANDOFF).
+
+## 2026-06-02 — checkpoint 10
+- 30.7 Pay Links + Checkout Templates (67e489b77) + 30.8 Sidebar Customization (4959f65f8) landed via sequential executor subagents; main session verified + re-ran tests.
+- 30.11 #2411: investigated — separate EAV definitions read/write scope bug, NOT locking. Documented on PR (comment), recommend separate issue. No code change.
+- 9 concrete QA-round-5 fixes shipped total (Customer Users, Customer Roles, Organizations, Inbox Settings, #2410, Feature Toggles Global, Pay Links+Checkout Templates, Sidebar).
+- Remaining: 30.9, 30.10, 30.12 (#2409 live-repro), 30.13/30.14 (live-verify cluster), 30.15 (Playwright/integration batch).
