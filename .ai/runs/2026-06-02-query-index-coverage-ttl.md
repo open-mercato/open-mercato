@@ -48,6 +48,11 @@ Add tests proving fresh snapshots skip `refreshCoverageSnapshot`, stale snapshot
 - `yarn typecheck` — passed after `yarn generate`.
 - `yarn workspace @open-mercato/core test` — blocked by unrelated existing failure in `src/modules/api_keys/api/__tests__/keys.route.test.ts` (`em.transactional is not a function` in the test mock); rerunning that single test reproduces the same failure.
 
+## PR
+
+- Opened PR #2401 against `open-mercato:develop`.
+- Requested `review`, `skip-qa`, `refactor`, and `priority-high` labels in a PR comment because the current GitHub token cannot apply labels to the upstream repository.
+
 ## Progress
 
 > Convention: `- [ ]` pending, `- [x]` done. Append ` — <commit sha>` when a step lands. Do not rename step titles.
@@ -64,4 +69,4 @@ Add tests proving fresh snapshots skip `refreshCoverageSnapshot`, stale snapshot
 
 - [x] 3.1 Add focused query_index regression tests — b5000e9f2
 - [x] 3.2 Run validation and self-review — b5000e9f2
-- [ ] 3.3 Push branch and open PR
+- [x] 3.3 Push branch and open PR — PR #2401
