@@ -53,6 +53,7 @@ Run focused package validation, self-review backward compatibility, commit, push
 - `yarn generate` — passed; OpenAPI generation used static fallback because local Node 26 lacks a native `isolated-vm` build.
 - `yarn typecheck` — passed after `yarn generate`.
 - `yarn workspace @open-mercato/cache typecheck` — blocked by package-local script not resolving root `typescript`; root `tsc` command above covered the package.
+- Follow-up for CI: `yarn workspace @open-mercato/core test --runTestsByPath src/modules/api_keys/api/__tests__/keys.route.test.ts` — passed after adding the missing transactional EM mock.
 
 ## PR
 
