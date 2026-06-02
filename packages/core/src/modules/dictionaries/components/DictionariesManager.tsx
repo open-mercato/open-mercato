@@ -10,6 +10,7 @@ import { Spinner } from '@open-mercato/ui/primitives/spinner'
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
 import { apiCall, withScopedApiRequestHeaders } from '@open-mercato/ui/backend/utils/apiCall'
 import { buildOptimisticLockHeader } from '@open-mercato/ui/backend/utils/optimisticLock'
+import { surfaceRecordConflict } from '@open-mercato/ui/backend/conflicts'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { useConfirmDialog } from '@open-mercato/ui/backend/confirm-dialog'
 import { DictionaryEntriesEditor } from './DictionaryEntriesEditor'
@@ -183,7 +184,10 @@ export function DictionariesManager() {
             }),
         )
         if (!call.ok) {
-          throw new Error(typeof call.result?.error === 'string' ? call.result.error : 'Failed to update dictionary')
+          throw Object.assign(
+            new Error(typeof call.result?.error === 'string' ? call.result.error : 'Failed to update dictionary'),
+            { status: call.status, ...(call.result && typeof call.result === 'object' ? call.result : {}) },
+          )
         }
         flash(t('dictionaries.config.success.update', 'Dictionary updated.'), 'success')
       }
@@ -191,6 +195,9 @@ export function DictionariesManager() {
       await loadDictionaries()
       setErrors({})
     } catch (err) {
+      if (surfaceRecordConflict(err, t)) {
+        return
+      }
       console.error('Failed to save dictionary', err)
       flash(t('dictionaries.config.error.save', 'Failed to save dictionary.'), 'error')
     } finally {
@@ -224,11 +231,17 @@ export function DictionariesManager() {
           () => apiCall<Record<string, unknown>>(`/api/dictionaries/${dictionary.id}`, { method: 'DELETE' }),
         )
         if (!call.ok) {
-          throw new Error(typeof call.result?.error === 'string' ? call.result.error : 'Failed to delete dictionary')
+          throw Object.assign(
+            new Error(typeof call.result?.error === 'string' ? call.result.error : 'Failed to delete dictionary'),
+            { status: call.status, ...(call.result && typeof call.result === 'object' ? call.result : {}) },
+          )
         }
         flash(t('dictionaries.config.success.delete', 'Dictionary deleted.'), 'success')
         await loadDictionaries()
       } catch (err) {
+        if (surfaceRecordConflict(err, t)) {
+          return
+        }
         console.error('Failed to delete dictionary', err)
         flash(t('dictionaries.config.error.delete', 'Failed to delete dictionary.'), 'error')
       } finally {

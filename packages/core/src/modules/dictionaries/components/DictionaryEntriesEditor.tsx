@@ -16,6 +16,7 @@ import { Spinner } from '@open-mercato/ui/primitives/spinner'
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
 import { apiCall, withScopedApiRequestHeaders } from '@open-mercato/ui/backend/utils/apiCall'
 import { buildOptimisticLockHeader } from '@open-mercato/ui/backend/utils/optimisticLock'
+import { surfaceRecordConflict } from '@open-mercato/ui/backend/conflicts'
 import { useQueryClient } from '@tanstack/react-query'
 import { useOrganizationScopeVersion } from '@open-mercato/shared/lib/frontend/useOrganizationScope'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
@@ -152,8 +153,9 @@ export function DictionaryEntriesEditor({ dictionaryId, dictionaryName, readOnly
             ),
         )
         if (!call.ok) {
-          throw new Error(
-            typeof call.result?.error === 'string' ? call.result.error : 'Failed to save dictionary entry',
+          throw Object.assign(
+            new Error(typeof call.result?.error === 'string' ? call.result.error : 'Failed to save dictionary entry'),
+            { status: call.status, ...(call.result && typeof call.result === 'object' ? call.result : {}) },
           )
         }
         flash(t('dictionaries.config.entries.success.update', 'Dictionary entry updated.'), 'success')
@@ -180,6 +182,9 @@ export function DictionaryEntriesEditor({ dictionaryId, dictionaryName, readOnly
       appearance.setIcon(null)
       setErrors({})
     } catch (err) {
+      if (surfaceRecordConflict(err, t)) {
+        return
+      }
       console.error('Failed to save dictionary entry', err)
       flash(t('dictionaries.config.entries.error.save', 'Failed to save dictionary entry.'), 'error')
     } finally {
