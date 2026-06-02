@@ -4,7 +4,16 @@ jest.mock('@open-mercato/cache', () => ({
 
 import { makeCrudRoute } from '@open-mercato/shared/lib/crud/factory'
 import { registerApiInterceptors } from '@open-mercato/shared/lib/crud/interceptor-registry'
+import { loadCustomFieldDefinitionIndex } from '@open-mercato/shared/lib/crud/custom-fields'
 import { z } from 'zod'
+
+// Keep the real custom-field helpers but spy on the definition loader so we can
+// assert the factory skips the second DB round-trip when the query engine has
+// already resolved definitions (issue #2133).
+jest.mock('@open-mercato/shared/lib/crud/custom-fields', () => {
+  const actual = jest.requireActual('@open-mercato/shared/lib/crud/custom-fields')
+  return { ...actual, loadCustomFieldDefinitionIndex: jest.fn(async () => new Map()) }
+})
 
 // ---- Mocks ----
 const mockEventBus = { emitEvent: jest.fn() }
@@ -249,6 +258,64 @@ describe('CRUD Factory', () => {
         queryKeys: expect.arrayContaining(['page', 'pageSize', 'sortField', 'sortDir']),
       }),
     }))
+  })
+
+  const makeDecoratedRoute = () => makeCrudRoute({
+    metadata: { GET: { requireAuth: true } },
+    orm: { entity: Todo, idField: 'id', orgField: 'organizationId', tenantField: 'tenantId', softDeleteField: 'deletedAt' },
+    indexer: { entityType: 'example.todo' },
+    list: {
+      schema: querySchema,
+      entityId: 'example.todo',
+      fields: ['id', 'title'],
+      buildFilters: () => ({} as any),
+      decorateCustomFields: { entityIds: 'example.todo' },
+    },
+  })
+
+  const colorDefinitionIndex = () => new Map([
+    ['color', [{ key: 'color', label: 'Color', kind: 'text', multi: false, dictionaryId: null, organizationId: null, tenantId: null, priority: 0, updatedAt: 0 }]],
+  ])
+
+  it('reuses query engine custom-field definitions and skips the second DB load (#2133)', async () => {
+    const loadIndexMock = loadCustomFieldDefinitionIndex as unknown as jest.Mock
+    const cfRoute = makeDecoratedRoute()
+    queryEngine.query.mockResolvedValueOnce({
+      items: [{ id: 'id-1', title: 'A', cf_color: 'blue', organization_id: defaultOrganizationId, tenant_id: defaultTenantId }],
+      total: 1,
+      customFieldDefinitions: {
+        index: colorDefinitionIndex(),
+        entityIds: ['example.todo'],
+        tenantId: defaultTenantId,
+        organizationIds: [defaultOrganizationId],
+      },
+    })
+
+    const res = await cfRoute.GET(new Request('http://x/api/example/todos?page=1&pageSize=10&sortField=id&sortDir=asc'))
+    expect(res.status).toBe(200)
+    const body = await res.json()
+    expect(loadIndexMock).not.toHaveBeenCalled()
+    expect(body.items[0].customValues).toEqual({ color: 'blue' })
+  })
+
+  it('falls back to loading definitions when the engine index does not cover the scope', async () => {
+    const loadIndexMock = loadCustomFieldDefinitionIndex as unknown as jest.Mock
+    loadIndexMock.mockResolvedValueOnce(colorDefinitionIndex())
+    const cfRoute = makeDecoratedRoute()
+    queryEngine.query.mockResolvedValueOnce({
+      items: [{ id: 'id-1', title: 'A', cf_color: 'blue', organization_id: defaultOrganizationId, tenant_id: defaultTenantId }],
+      total: 1,
+      customFieldDefinitions: {
+        index: new Map(),
+        entityIds: ['example.todo'],
+        tenantId: defaultTenantId,
+        organizationIds: ['some-other-org'],
+      },
+    })
+
+    const res = await cfRoute.GET(new Request('http://x/api/example/todos?page=1&pageSize=10&sortField=id&sortDir=asc'))
+    expect(res.status).toBe(200)
+    expect(loadIndexMock).toHaveBeenCalledTimes(1)
   })
 
   it('GET applies ids query filter in query engine path', async () => {

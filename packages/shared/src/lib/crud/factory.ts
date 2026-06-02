@@ -33,6 +33,12 @@ import {
   applyCustomFieldsNormalization,
   loadCustomFieldDefinitionIndex,
 } from './custom-fields'
+import {
+  canReuseCustomFieldDefinitions,
+  resolveCfDefIndexOrgCandidates,
+  type CustomFieldDefinitionIndex,
+  type ResolvedCustomFieldDefinitions,
+} from './custom-field-definition-index'
 import { serializeExport, normalizeExportFormat, defaultExportFilename, ensureColumns, type CrudExportFormat, type PreparedExport } from './exporters'
 import { CrudHttpError, isCrudHttpError } from './errors'
 import type { CommandBus, CommandLogMetadata } from '@open-mercato/shared/lib/commands'
@@ -956,7 +962,11 @@ export function makeCrudRoute<TCreate = any, TUpdate = any, TList = any>(opts: C
     return null
   }
 
-  const decorateItemsWithCustomFields = async (items: any[], ctx: CrudCtx): Promise<any[]> => {
+  const decorateItemsWithCustomFields = async (
+    items: any[],
+    ctx: CrudCtx,
+    precomputedDefinitions?: ResolvedCustomFieldDefinitions,
+  ): Promise<any[]> => {
     if (!listCustomFieldDecorator || !Array.isArray(items) || items.length === 0) return items
     const entityIds = Array.isArray(listCustomFieldDecorator.entityIds)
       ? listCustomFieldDecorator.entityIds
@@ -976,19 +986,33 @@ export function makeCrudRoute<TCreate = any, TUpdate = any, TList = any>(opts: C
         Array.isArray(ctx.organizationIds) && ctx.organizationIds.length
           ? ctx.organizationIds
           : [ctx.selectedOrganizationId ?? null]
-      let cfDefCache: CacheStrategy | null = null
-      try {
-        cfDefCache = ctx.container.resolve('cache') as CacheStrategy
-      } catch {}
-      const definitionIndex = await loadCustomFieldDefinitionIndex({
-        em,
-        entityIds,
-        tenantId: ctx.auth?.tenantId ?? null,
-        organizationIds,
-        cache: cfDefCache ?? null,
-        requestScope: ctx,
+      const tenantId = ctx.auth?.tenantId ?? null
+      // Reuse the index the query engine already resolved for this same scope
+      // (#2133) instead of issuing a second `custom_field_defs` round-trip.
+      const reusable = canReuseCustomFieldDefinitions(precomputedDefinitions, {
+        entityIds: entityIds.map(String),
+        tenantId,
+        organizationIds: resolveCfDefIndexOrgCandidates(ctx.organizationIds, ctx.selectedOrganizationId ?? null),
       })
-      cfProfiler.mark('definitions_loaded', { definitionCount: definitionIndex.size })
+      let definitionIndex: CustomFieldDefinitionIndex
+      if (reusable && precomputedDefinitions) {
+        definitionIndex = precomputedDefinitions.index
+        cfProfiler.mark('definitions_reused', { definitionCount: definitionIndex.size })
+      } else {
+        let cfDefCache: CacheStrategy | null = null
+        try {
+          cfDefCache = ctx.container.resolve('cache') as CacheStrategy
+        } catch {}
+        definitionIndex = await loadCustomFieldDefinitionIndex({
+          em,
+          entityIds,
+          tenantId,
+          organizationIds,
+          cache: cfDefCache ?? null,
+          requestScope: ctx,
+        })
+        cfProfiler.mark('definitions_loaded', { definitionCount: definitionIndex.size })
+      }
       const decoratedItems = items.map((raw) => {
         if (!raw || typeof raw !== 'object') return raw
         const item = raw as Record<string, unknown>
@@ -1572,7 +1596,7 @@ export function makeCrudRoute<TCreate = any, TUpdate = any, TList = any>(opts: C
         const rawItems = res.items || []
         let transformedItems = rawItems.map(i => (opts.list!.transformItem ? opts.list!.transformItem(i) : i))
         profiler.mark('transform_complete', { itemCount: transformedItems.length })
-        transformedItems = await decorateItemsWithCustomFields(transformedItems, ctx)
+        transformedItems = await decorateItemsWithCustomFields(transformedItems, ctx, res.customFieldDefinitions)
         profiler.mark('custom_fields_complete', { itemCount: transformedItems.length })
 
         if (opts.list?.entityId && request) {
@@ -1630,7 +1654,7 @@ export function makeCrudRoute<TCreate = any, TUpdate = any, TList = any>(opts: C
               const nextItemsRaw = nextRes.items || []
               if (!nextItemsRaw.length) break
               let nextTransformed = nextItemsRaw.map(i => (opts.list!.transformItem ? opts.list!.transformItem(i) : i))
-              nextTransformed = await decorateItemsWithCustomFields(nextTransformed, ctx)
+              nextTransformed = await decorateItemsWithCustomFields(nextTransformed, ctx, nextRes.customFieldDefinitions)
               const nextExportItems = exportFullRequested
                 ? nextItemsRaw.map(normalizeFullRecordForExport)
                 : nextTransformed

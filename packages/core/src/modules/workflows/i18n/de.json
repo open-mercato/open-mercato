@@ -1007,6 +1007,7 @@
   "workflows.tasks.detail.commentsPlaceholder": "Fügen Sie Kommentare oder Anmerkungen zu dieser Aufgabe hinzu…",
   "workflows.tasks.detail.completeTask": "Aufgabe abschließen",
   "workflows.tasks.detail.form.selectOption": "-- Option auswählen --",
+  "workflows.tasks.detail.loadFailed": "Aufgabe konnte nicht geladen werden",
   "workflows.tasks.detail.loading": "Aufgabe wird geladen…",
   "workflows.tasks.detail.noFormSchema": "Diese Aufgabe hat kein auszufüllendes Formular. Sie können optionale Kommentare hinzufügen und absenden.",
   "workflows.tasks.detail.notFound": "Aufgabe nicht gefunden",
