@@ -8,7 +8,7 @@
     "dev:classic": "node ./scripts/dev.mjs --classic",
     "dev:verbose": "node ./scripts/dev.mjs --verbose",
     "dev:reset": "node ./scripts/dev-reset.mjs",
-    "build": "cross-env NODE_OPTIONS=--max-old-space-size=8192 next build",
+    "build": "next build",
     "start": "mercato server start",
     "lint": "eslint .",
     "typecheck": "tsc --noEmit",
