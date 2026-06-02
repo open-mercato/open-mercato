@@ -38,20 +38,30 @@ Add tests proving fresh snapshots skip `refreshCoverageSnapshot`, stale snapshot
 - `OPTIMIZE_INDEX_COVERAGE_STATS` behavior must remain fail-open and non-blocking for async refresh scheduling.
 - Parallel count execution must not change scoping filters or with-deleted handling.
 
+## Validation
+
+- `yarn workspace @open-mercato/core test --runTestsByPath src/modules/query_index/__tests__/hybrid-engine.test.ts src/modules/query_index/__tests__/coverage-refresh.test.ts src/modules/query_index/__tests__/di.test.ts` — passed.
+- `yarn workspace @open-mercato/core build` — passed.
+- `yarn build:packages` — passed.
+- `yarn generate` — passed; OpenAPI generation used static fallback because local Node 26 lacks a native `isolated-vm` build.
+- `yarn exec tsc -p packages/core/tsconfig.json --noEmit` — passed after `yarn generate`.
+- `yarn typecheck` — passed after `yarn generate`.
+- `yarn workspace @open-mercato/core test` — blocked by unrelated existing failure in `src/modules/api_keys/api/__tests__/keys.route.test.ts` (`em.transactional is not a function` in the test mock); rerunning that single test reproduces the same failure.
+
 ## Progress
 
 > Convention: `- [ ]` pending, `- [x]` done. Append ` — <commit sha>` when a step lands. Do not rename step titles.
 
 ### Phase 1: Coverage TTL Gate
 
-- [ ] 1.1 Gate coverage refresh by stored snapshot TTL
+- [x] 1.1 Gate coverage refresh by stored snapshot TTL — b5000e9f2
 
 ### Phase 2: Refresh Count Parallelism
 
-- [ ] 2.1 Parallelize independent coverage count queries
+- [x] 2.1 Parallelize independent coverage count queries — b5000e9f2
 
 ### Phase 3: Tests And Validation
 
-- [ ] 3.1 Add focused query_index regression tests
-- [ ] 3.2 Run validation and self-review
+- [x] 3.1 Add focused query_index regression tests — b5000e9f2
+- [x] 3.2 Run validation and self-review — b5000e9f2
 - [ ] 3.3 Push branch and open PR
