@@ -64,8 +64,8 @@ Land both Dependabot dependency groups as one validated PR against `develop`, th
 
 ### Phase 2: Validate
 
-- [ ] 2.1 Targeted typecheck + attachments/ai_assistant tests
-- [ ] 2.2 Full validation gate
+- [x] 2.1 Targeted typecheck + attachments/ai_assistant tests — 59fa33b29
+- [x] 2.2 Full validation gate (1 pre-existing unrelated api_keys mock failure documented) — 59fa33b29
 
 ### Phase 3: PR + close originals
 
