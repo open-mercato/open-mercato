@@ -47,4 +47,57 @@ describe('heavy libraries are lazy-loaded', () => {
     expect(source).not.toMatch(/from\s+['"]remark-gfm['"]/)
     expect(source).toMatch(/markdownToPlainText/)
   })
+
+  it('BarChart wrapper does not statically import recharts', () => {
+    const source = read('packages/ui/src/backend/charts/BarChart.tsx')
+    expect(source).not.toMatch(/^[^\n/]*import\s+[^'\n]+from\s+['"]recharts['"]/m)
+    expect(source).toMatch(/next\/dynamic/)
+    expect(source).toMatch(/import\(['"]\.\/BarChartImpl['"]\)/)
+  })
+
+  it('LineChart wrapper does not statically import recharts', () => {
+    const source = read('packages/ui/src/backend/charts/LineChart.tsx')
+    expect(source).not.toMatch(/^[^\n/]*import\s+[^'\n]+from\s+['"]recharts['"]/m)
+    expect(source).toMatch(/next\/dynamic/)
+    expect(source).toMatch(/import\(['"]\.\/LineChartImpl['"]\)/)
+  })
+
+  it('PieChart wrapper does not statically import recharts', () => {
+    const source = read('packages/ui/src/backend/charts/PieChart.tsx')
+    expect(source).not.toMatch(/^[^\n/]*import\s+[^'\n]+from\s+['"]recharts['"]/m)
+    expect(source).toMatch(/next\/dynamic/)
+    expect(source).toMatch(/import\(['"]\.\/PieChartImpl['"]\)/)
+  })
+
+  it('recharts is only imported by the chart *Impl modules', () => {
+    const impls = ['BarChartImpl', 'LineChartImpl', 'PieChartImpl']
+    for (const name of impls) {
+      const source = read(`packages/ui/src/backend/charts/${name}.tsx`)
+      expect(source).toMatch(/from\s+['"]recharts['"]/)
+    }
+  })
+
+  it('WorkflowGraph wrapper has only type-only @xyflow/react imports', () => {
+    const source = read(
+      'packages/core/src/modules/workflows/components/WorkflowGraph.tsx',
+    )
+    expect(source).not.toMatch(
+      /^[^\n/]*import\s+(?!type\b)[^'\n]+from\s+['"]@xyflow\/react['"]/m,
+    )
+    expect(source).toMatch(/next\/dynamic/)
+    expect(source).toMatch(/import\(['"]\.\/WorkflowGraphImpl['"]\)/)
+  })
+
+  it('WorkflowGraphImpl owns the @xyflow/react runtime import and CSS', () => {
+    const source = read(
+      'packages/core/src/modules/workflows/components/WorkflowGraphImpl.tsx',
+    )
+    expect(source).toMatch(/from\s+['"]@xyflow\/react['"]/)
+    expect(source).toMatch(/['"]@xyflow\/react\/dist\/style\.css['"]/)
+  })
+
+  it('globals.css no longer eagerly imports @xyflow/react styles', () => {
+    const source = read('apps/mercato/src/app/globals.css')
+    expect(source).not.toMatch(/@xyflow\/react\/dist\/style\.css/)
+  })
 })

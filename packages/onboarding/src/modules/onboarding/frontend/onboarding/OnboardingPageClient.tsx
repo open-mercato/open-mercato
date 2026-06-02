@@ -12,6 +12,8 @@ import { Button } from '@open-mercato/ui/primitives/button'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@open-mercato/ui/primitives/card'
 import { Checkbox } from '@open-mercato/ui/primitives/checkbox'
 import { Input } from '@open-mercato/ui/primitives/input'
+import { EmailInput } from '@open-mercato/ui/primitives/email-input'
+import { PasswordInput } from '@open-mercato/ui/primitives/password-input'
 import { Label } from '@open-mercato/ui/primitives/label'
 
 type SubmissionState = 'idle' | 'loading' | 'success'
@@ -210,13 +212,11 @@ export default function OnboardingPageClient({ onboardingEnabled }: Props) {
           <form className="grid gap-4" onSubmit={onSubmit} noValidate>
             <div className="grid gap-1">
               <Label htmlFor="email">{translate('onboarding.form.email', 'Work email')}</Label>
-              <Input
+              <EmailInput
                 id="email"
                 name="email"
-                type="email"
                 required
                 disabled={disabled}
-                autoComplete="email"
                 aria-invalid={Boolean(fieldErrors.email)}
                 aria-describedby={fieldErrors.email ? 'email-error' : undefined}
                 className={fieldErrors.email ? 'border-red-500 aria-invalid:ring-destructive' : undefined}
@@ -280,10 +280,9 @@ export default function OnboardingPageClient({ onboardingEnabled }: Props) {
             </div>
             <div className="grid gap-1">
               <Label htmlFor="password">{translate('onboarding.form.password', 'Password')}</Label>
-              <Input
+              <PasswordInput
                 id="password"
                 name="password"
-                type="password"
                 required
                 disabled={disabled}
                 autoComplete="new-password"
@@ -301,10 +300,9 @@ export default function OnboardingPageClient({ onboardingEnabled }: Props) {
             </div>
             <div className="grid gap-1">
               <Label htmlFor="confirmPassword">{translate('onboarding.form.confirmPassword', 'Confirm password')}</Label>
-              <Input
+              <PasswordInput
                 id="confirmPassword"
                 name="confirmPassword"
-                type="password"
                 required
                 disabled={disabled}
                 autoComplete="new-password"

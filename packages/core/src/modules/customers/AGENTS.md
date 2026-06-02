@@ -2,7 +2,7 @@
 
 **This is the reference CRUD module.** When building new modules, copy patterns from here first.
 
-## MUST Rules
+## Always
 
 1. **MUST use this module as the template** for new CRUD modules — copy file structure and patterns
 2. **MUST include all standard module files** — use the list below as a checklist
@@ -10,6 +10,25 @@
 4. **MUST wire custom field helpers** for create/update/response normalization
 5. **MUST capture custom field snapshots** in command `before`/`after` payloads for undo support
 6. **MUST use `useGuardedMutation` for non-`CrudForm` backend writes** (`POST`/`PUT`/`PATCH`/`DELETE`) and pass `retryLastMutation` in injection context
+
+## Ask First
+
+- Ask before changing this module's reference patterns, standard module-file checklist, or AI mutation policies.
+- Ask before changing customer data model relationships that downstream modules may copy.
+
+## Never
+
+- Never bypass custom field normalization in CRUD create/update/read responses.
+- Never omit undo snapshots for custom field mutations.
+- Never write backend `POST`/`PUT`/`PATCH`/`DELETE` actions outside `CrudForm` without `useGuardedMutation`.
+
+## Validation Commands
+
+```bash
+yarn db:generate
+yarn generate
+yarn workspace @open-mercato/core build
+```
 
 ## Key Reference Files — Copy From Here
 
@@ -102,7 +121,12 @@ This module is the reference implementation for the AI framework. Copy `ai-agent
 |----------|------|--------|---------|
 | `customers.account_assistant` | chat | read-only (mutation-capable via per-tenant override that unlocks `customers.update_deal_stage`; see `packages/core/src/modules/customers/ai-agents.ts` for the whitelist and prompt) | Operator-facing assistant that explores people, companies, deals, activities, tasks, addresses, tags, and settings through the customers tool pack. |
 | `customers.update_deal_stage` | tool (mutation) | `destructive-confirm-required` — goes through `prepareMutation` + the approval card | Moves a deal between stages / flips status between open, won, lost. Declared via `defineAiTool` in `ai-tools.ts` and exposed only when the tenant mutation-policy override promotes the agent above read-only. |
+| `customers.deal_analyzer` | chat, `executionEngine: 'stream-text'` | `confirm-required` | Multi-step agentic demo that exercises loop primitives from PRs #1856..#1869. Calls `customers.analyze_deals`, ranks deals by health score, then calls `customers.update_deal_stage` for the highest-value stalled deal — loop stops immediately after (loop.stopWhen). `loop.prepareStep` scopes the active tool set by step without overriding the model. It intentionally leaves `defaultProvider` and `defaultModel` unset so runtime resolution uses `OM_AI_PROVIDER` / `OM_AI_MODEL` or tenant/runtime overrides. |
+| `customers.deal_analyzer_tool_loop` | chat, `executionEngine: 'tool-loop-agent'` | `confirm-required` | Sibling agent identical to `customers.deal_analyzer` but dispatched via `ToolLoopAgent`. Proves the mutation-approval gate holds for both execution engines (TC-AI-AGENT-LOOP-006). |
 
 `<AiChat agent="customers.account_assistant" />` is injected in two places (both live in `widgets/injection/`):
-- People list: `data-table:customers.people.list:header` via the `ai-assistant-trigger` widget.
+- People list: `data-table:customers.people.list:search-trailing` via the `ai-assistant-trigger` widget.
 - Deal detail: `detail:customers.deal:header` via the `ai-deal-detail-trigger` widget.
+
+`<AiChat agent="customers.deal_analyzer" />` is injected on the Deals list page:
+- Deals list: `data-table:customers.deals.list:search-trailing` via the `ai-deal-analyzer-trigger` widget. Selected deal IDs are passed as `pageContext.recordId` (comma-separated UUIDs) so the agent can scope its `customers.analyze_deals` call to the operator's current selection.

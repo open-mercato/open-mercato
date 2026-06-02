@@ -10,10 +10,11 @@ import { collectCustomFieldValues } from '@open-mercato/ui/backend/utils/customF
 import { createCrudFormError } from '@open-mercato/ui/backend/utils/serverErrors'
 import { updateCrud, deleteCrud } from '@open-mercato/ui/backend/utils/crud'
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
-import { ActivitiesSection, NotesSection, type SectionAction, type TagOption } from '@open-mercato/ui/backend/detail'
+import { ActivitiesSection, NotesSection, RecordNotFoundState, type SectionAction, type TagOption } from '@open-mercato/ui/backend/detail'
 import { VersionHistoryAction } from '@open-mercato/ui/backend/version-history'
 import { SendObjectMessageDialog } from '@open-mercato/ui/backend/messages'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
+import { extractCustomFieldEntries } from '@open-mercato/shared/lib/crud/custom-fields-client'
 import { createTranslatorWithFallback } from '@open-mercato/shared/lib/i18n/translate'
 import { buildResourceScheduleItems } from '@open-mercato/core/modules/resources/lib/resourceSchedule'
 import { RESOURCES_RESOURCE_FIELDSET_DEFAULT } from '@open-mercato/core/modules/resources/lib/resourceCustomFields'
@@ -82,6 +83,7 @@ export default function ResourcesResourceDetailPage({ params }: { params?: { id?
   const router = useRouter()
   const searchParams = useSearchParams()
   const [initialValues, setInitialValues] = React.useState<Record<string, unknown> | null>(null)
+  const [isNotFound, setIsNotFound] = React.useState(false)
   const [tags, setTags] = React.useState<TagOption[]>([])
   const [activeTab, setActiveTab] = React.useState<'details' | 'availability'>('details')
   const [activeDetailTab, setActiveDetailTab] = React.useState<'notes' | 'activities'>('notes')
@@ -410,6 +412,7 @@ export default function ResourcesResourceDetailPage({ params }: { params?: { id?
 
   React.useEffect(() => {
     if (!resourceId || !resourceTypesLoaded) return
+    setIsNotFound(false)
     let cancelled = false
     async function loadResource() {
       try {
@@ -420,13 +423,12 @@ export default function ResourcesResourceDetailPage({ params }: { params?: { id?
         const record = await readApiResultOrThrow<ResourceResponse>(`/api/resources/resources?${params.toString()}`)
         const resourceRaw = Array.isArray(record?.items) ? record.items[0] : null
         const resource = resourceRaw ? normalizeResourceRecord(resourceRaw) : null
-        if (!resource) throw new Error(t('resources.resources.form.errors.notFound', 'Resource not found.'))
+        if (!resource) {
+          if (!cancelled) setIsNotFound(true)
+          return
+        }
         if (!cancelled) {
-          const customValues: Record<string, unknown> = {}
-          for (const [key, value] of Object.entries(resource)) {
-            if (key.startsWith('cf_')) customValues[key] = value
-            else if (key.startsWith('cf:')) customValues[`cf_${key.slice(3)}`] = value
-          }
+          const customValues = extractCustomFieldEntries(resource)
           setTags(Array.isArray(resource.tags) ? resource.tags : [])
           setAvailabilityRuleSetId(
             typeof resource.availabilityRuleSetId === 'string'
@@ -481,6 +483,20 @@ export default function ResourcesResourceDetailPage({ params }: { params?: { id?
     typeof initialValues?.name === 'string' && initialValues.name.trim().length > 0
       ? initialValues.name.trim()
       : t('resources.resources.detail.untitled', 'Unnamed resource')
+
+  if (isNotFound) {
+    return (
+      <Page>
+        <PageBody>
+          <RecordNotFoundState
+            label={t('resources.resources.form.errors.notFound', 'Resource not found.')}
+            backHref="/backend/resources/resources"
+            backLabel={t('resources.resources.detail.back', 'Back to resources')}
+          />
+        </PageBody>
+      </Page>
+    )
+  }
 
   return (
     <Page>

@@ -1,4 +1,4 @@
-import type { QueryEngine, QueryOptions, QueryResult, FilterOp, Filter, QueryCustomFieldSource, PartialIndexWarning, QueryExtensionsConfig } from '@open-mercato/shared/lib/query/types'
+import type { QueryEngine, QueryOptions, QueryResult, FilterOp, Filter, QueryCustomFieldSource, PartialIndexWarning, QueryExtensionsConfig, Sort } from '@open-mercato/shared/lib/query/types'
 import { SortDir } from '@open-mercato/shared/lib/query/types'
 import type { EntityId } from '@open-mercato/shared/modules/entities'
 import type { EntityManager } from '@mikro-orm/postgresql'
@@ -21,6 +21,7 @@ import {
 import { resolveSearchConfig, type SearchConfig } from '@open-mercato/shared/lib/search/config'
 import { tokenizeText } from '@open-mercato/shared/lib/search/tokenize'
 import { runBeforeQueryPipeline, runAfterQueryPipeline, type QueryExtensionContext } from '@open-mercato/shared/lib/query/query-extension-runner'
+import { resolveEncryptedSortFields, sortRowsInMemory } from '@open-mercato/shared/lib/query/encrypted-sort'
 
 function buildFilterableCustomFieldJoins(
   sources: QueryCustomFieldSource[] | undefined,
@@ -90,6 +91,7 @@ type SearchRuntime = {
 
 type EncryptionResolver = () => {
   decryptEntityPayload?: (entityId: EntityId, payload: Record<string, unknown>, tenantId?: string | null, organizationId?: string | null) => Promise<Record<string, unknown>>
+  getEncryptedFieldNames?: (entityId: EntityId, tenantId?: string | null, organizationId?: string | null) => Promise<readonly string[]>
   isEnabled?: () => boolean
 } | null
 
@@ -504,6 +506,28 @@ export class HybridQueryEngine implements QueryEngine {
         if (field === 'organization_id' && columns.has('id')) return 'id'
         return null
       }
+      const fallbackOrgId =
+        opts.organizationId
+        ?? (Array.isArray(opts.organizationIds) && opts.organizationIds.length === 1 ? opts.organizationIds[0] : null)
+      const encSvc = this.getEncryptionService()
+      const resolvedSorts: Sort[] = []
+      for (const sort of opts.sort || []) {
+        const field = String(sort.field)
+        if (field.startsWith('cf:')) {
+          resolvedSorts.push({ ...sort, field })
+        } else {
+          const baseField = resolveBaseColumn(field)
+          if (baseField) resolvedSorts.push({ ...sort, field: baseField })
+        }
+      }
+      const encryptedSortFields = await resolveEncryptedSortFields(
+        encSvc,
+        entity,
+        resolvedSorts.filter((sort) => !sort.field.startsWith('cf:')).map((sort) => sort.field),
+        opts.tenantId ?? null,
+        fallbackOrgId,
+      )
+      const requiresPlaintextSort = encryptedSortFields.size > 0
 
       // ────────────────────────────────────────────────────────────────
       // Build a reusable "applyQueryShape" function that applies every
@@ -625,14 +649,19 @@ export class HybridQueryEngine implements QueryEngine {
           existing.push(filter)
           groups.set(filter.orGroup, existing)
         }
-        let next = q
-        for (const [, groupFilters] of groups) {
-          if (!groupFilters.length) continue
-          next = next.where((eb: any) => eb.or(
-            groupFilters.map((filter) => this.buildBaseFilterExpression(eb, filter, resolveBaseColumn, qualify, entity, searchRuntime))
-          ))
-        }
-        return next
+        const groupList = Array.from(groups.values()).filter((g) => g.length > 0)
+        if (groupList.length === 0) return q
+        // Combine all groups in a single WHERE: disjuncts are OR'd together; within
+        // each disjunct, fields are AND'd. Building this as separate `.where()` calls
+        // would AND the disjuncts (wrong semantics).
+        return q.where((eb: any) => eb.or(
+          groupList.map((groupFilters) => {
+            const parts = groupFilters.map((filter) =>
+              this.buildBaseFilterExpression(eb, filter, resolveBaseColumn, qualify, entity, searchRuntime),
+            )
+            return parts.length === 1 ? parts[0] : eb.and(parts)
+          }),
+        ))
       }
 
       const applyAliasScopes = async (target: AnyBuilder, aliasName: string): Promise<AnyBuilder> => {
@@ -730,6 +759,9 @@ export class HybridQueryEngine implements QueryEngine {
 
       // Selection (for data query)
       const selectFieldSet = new Set<string>((opts.fields && opts.fields.length) ? opts.fields.map(String) : Array.from(columns.keys()))
+      if (requiresPlaintextSort) {
+        for (const field of encryptedSortFields) selectFieldSet.add(field)
+      }
       if (opts.includeCustomFields === true) {
         const entityIds = Array.from(new Set(indexSources.map((src) => String(src.entityId))))
         try {
@@ -762,7 +794,8 @@ export class HybridQueryEngine implements QueryEngine {
 
       const applySort = (q: AnyBuilder): AnyBuilder => {
         let next = q
-        for (const s of opts.sort || []) {
+        if (requiresPlaintextSort) return next
+        for (const s of resolvedSorts) {
           const fieldName = String(s.field)
           if (fieldName.startsWith('cf:')) {
             const textExpr = this.buildCfTextExprSql(fieldName, indexSources)
@@ -840,7 +873,9 @@ export class HybridQueryEngine implements QueryEngine {
       let dataBuilder = await applyQueryShape(dataRoot)
       dataBuilder = applySelection(dataBuilder)
       dataBuilder = applySort(dataBuilder)
-      dataBuilder = dataBuilder.limit(pageSize).offset((page - 1) * pageSize)
+      if (!requiresPlaintextSort) {
+        dataBuilder = dataBuilder.limit(pageSize).offset((page - 1) * pageSize)
+      }
 
       if (debugEnabled && sqlDebugEnabled) {
         const compiled = dataBuilder.compile()
@@ -854,7 +889,6 @@ export class HybridQueryEngine implements QueryEngine {
       if (debugEnabled) this.debug('query:complete', { entity, total, items: Array.isArray(itemsRaw) ? itemsRaw.length : 0 })
 
       let items = itemsRaw as any[]
-      const encSvc = this.getEncryptionService()
       const dekKeyCache = new Map<string | null, string | null>()
       if (encSvc?.decryptEntityPayload) {
         const decrypt = encSvc.decryptEntityPayload.bind(encSvc) as (
@@ -866,7 +900,7 @@ export class HybridQueryEngine implements QueryEngine {
               const decrypted = await decrypt(
                 entity, item,
                 item?.tenant_id ?? item?.tenantId ?? opts.tenantId ?? null,
-                item?.organization_id ?? item?.organizationId ?? null,
+                item?.organization_id ?? item?.organizationId ?? fallbackOrgId ?? null,
               )
               return { ...item, ...decrypted }
             } catch (err) {
@@ -891,6 +925,10 @@ export class HybridQueryEngine implements QueryEngine {
             } catch { return item }
           }),
         )
+      }
+      if (requiresPlaintextSort) {
+        items = sortRowsInMemory(items as Record<string, unknown>[], resolvedSorts)
+          .slice((page - 1) * pageSize, page * pageSize)
       }
 
       const typedItems = items as unknown as T[]
@@ -1340,6 +1378,39 @@ export class HybridQueryEngine implements QueryEngine {
     if (!baseField) {
       // Doc-based filter via `ei` alias — returned as EXISTS where possible
       return this.buildIndexDocFilterExpression(eb, 'ei', entity, fieldName, filter.op, filter.value, 'b.id', searchRuntime)
+    }
+    // For like/ilike with active search-tokens, route through hashed-token EXISTS subquery
+    // so encrypted-at-rest columns can still be searched.
+    if (
+      (filter.op === 'like' || filter.op === 'ilike') &&
+      searchRuntime?.enabled &&
+      typeof filter.value === 'string'
+    ) {
+      const tokens = tokenizeText(String(filter.value), searchRuntime.config)
+      if (tokens.hashes.length) {
+        const sources: SearchTokenSource[] = (searchRuntime.searchSources && searchRuntime.searchSources.length
+          ? searchRuntime.searchSources
+          : [{ entity: String(entity), recordIdColumn: 'b.id' }]
+        ).filter((src) => src.recordIdColumn && src.entity)
+        if (sources.length) {
+          return eb.or(
+            sources.map((src) =>
+              eb.exists(this.buildSearchTokensSub(eb, {
+                entity: src.entity,
+                field: fieldName,
+                hashes: tokens.hashes,
+                recordIdColumn: src.recordIdColumn,
+                tenantId: searchRuntime.tenantId ?? null,
+                organizationScope: searchRuntime.organizationScope ?? null,
+              })),
+            ),
+          )
+        }
+      }
+      // Tokenizer produced no hashes (e.g. value too short). Match the regular-base-filter
+      // path's behavior of skipping the predicate (no filter), which is preferable to
+      // silently turning into a plain `ilike` against an encrypted column.
+      return sql<boolean>`true`
     }
     return this.buildColumnFilterExpression(eb, qualify(baseField), filter.op, filter.value)
   }

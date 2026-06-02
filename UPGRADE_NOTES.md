@@ -22,12 +22,48 @@ most of the patterns listed below in a user's codebase.
 
 ---
 
-## 0.5.0 → 0.5.1 (unreleased)
+## 0.6.2 → 0.7.0 (unreleased)
+
+### Deprecations
+
+#### `GET /api/customers/assignable-staff` → `GET /api/staff/team-members/assignable`
+
+The customer-flow assignable-staff endpoint now lives in the staff module under its canonical URL `/api/staff/team-members/assignable`. The legacy URL `/api/customers/assignable-staff` still works but returns `308 Permanent Redirect` to the new URL with the original query string preserved. RBAC is unchanged (`customers.roles.view` page guard + `customers.roles.manage`/`customers.activities.manage` handler check) so existing role assignments keep working.
+
+```ts
+// before
+const data = await readApiResultOrThrow('/api/customers/assignable-staff?pageSize=20')
+
+// after
+const data = await readApiResultOrThrow('/api/staff/team-members/assignable?pageSize=20')
+```
+
+The legacy URL will stay around for at least one minor version and be removed no earlier than the next major release. Update in-tree consumers now; external HTTP clients that follow `308` redirects do not need changes.
+
+See [`.ai/specs/2026-05-08-staff-decouple-from-core.md`](.ai/specs/2026-05-08-staff-decouple-from-core.md) for the full migration plan.
+
+---
+
+## 0.6.1 → 0.6.2 (2026-05-19)
+
+No actionable dependency upgrades for downstream user code. See
+[`CHANGELOG.md`](CHANGELOG.md) for release highlights.
+
+---
+
+## 0.6.0 → 0.6.1 (2026-05-13)
+
+No actionable dependency upgrades for downstream user code. See
+[`CHANGELOG.md`](CHANGELOG.md) for release highlights.
+
+---
+
+## 0.5.0 → 0.6.0 (2026-05-06)
 
 This window carries the MikroORM v6 → v7 migration
 ([#1513](https://github.com/open-mercato/open-mercato/pull/1513)), the last of the three
-majors that were deferred out of the 0.5.0 consolidation. No other dependency majors are
-planned for this window.
+majors that were deferred out of the 0.5.0 consolidation. No other dependency majors
+shipped in this window.
 
 ### Breaking dependency changes that may affect user code
 

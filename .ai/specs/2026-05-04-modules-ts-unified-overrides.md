@@ -1,8 +1,9 @@
 # SPEC — Unified `modules.ts` Overrides
 
-**Status:** in progress (Phase 1 wired, Phases 2–18 stubbed)
+**Status:** implemented in PR #1960 (Phases 1-18 wired)
 **Owner:** core / shared / ai-assistant
 **Date:** 2026-05-04
+**Last revised:** 2026-05-18
 **Tracking issue:** [open-mercato/open-mercato#1787](https://github.com/open-mercato/open-mercato/issues/1787)
 
 ## Problem
@@ -23,7 +24,7 @@ The AI subsystem already has a per-app override path (`entry.aiAgentOverrides` /
 - **Domain-namespaced** — `overrides.ai`, `overrides.routes`, `overrides.events`, etc. — each domain owns its sub-shape; the umbrella schema is the union of those.
 - **Same disable/replace semantics across domains** — `null` disables, a definition replaces, by stable id.
 - **Single boot-time call** — `applyModuleOverridesFromEnabledModules(enabledModules)` walks the array once and dispatches to per-domain runtime hooks.
-- **Phased rollout** — define the contract for every domain in this spec, but only wire the domains where there is real demand. Stubs throw a clear "not yet wired" error if used so an early adopter notices instead of silently no-opping.
+- **Phased rollout completed** — every domain in the umbrella has a runtime composer, registry hook, and test coverage. Future domains must still register a dispatcher applier before they are documented as available.
 - **Backward compatible** — no existing module behaviour changes when no override is declared.
 
 ## Non-goals
@@ -73,6 +74,7 @@ export interface ModuleOverrides {
   cli?: Record<string, CliCommandOverride>                     // key: 'module command'
   setup?: {
     defaultRoleFeatures?: Record<string, readonly string[]>    // role -> feature list (replaces)
+    defaultCustomerRoleFeatures?: Record<string, readonly string[]> // customer role -> feature list (replaces)
     seedDefaults?: false                                        // skip the hook
     seedExamples?: false                                        // skip the hook
     onTenantCreated?: false                                     // skip the hook
@@ -136,34 +138,50 @@ Each phase is a focused PR that:
 
 | # | Phase | Domain | Stable ids | Wired? |
 |---|-------|--------|------------|--------|
-| 1 | AI overrides | `ai.agents`, `ai.tools` | agent id / tool name | **YES (this branch)** |
-| 2 | Routes — API | `routes.api` | `'METHOD /api/path'` | NO |
-| 3 | Routes — Pages | `routes.pages` | `'/backend/...'` / `'/frontend/...'` | NO |
-| 4 | Events — Subscribers | `events.subscribers` | subscriber id | NO |
-| 5 | Workers | `workers` | worker id (`<module>:<id>`) | NO |
-| 6 | Widget injection | `widgets.injection` | injection widget id | NO |
-| 7 | Component overrides | `widgets.components` | component handle | NO |
-| 8 | Dashboard widgets | `widgets.dashboard` | widget id | NO |
-| 9 | Notifications — Types & Handlers | `notifications.*` | type id / handler id | NO |
-| 10 | Interceptors (CRUD + custom) | `interceptors` | interceptor id | NO |
-| 11 | Command interceptors | `commandInterceptors` | interceptor id | NO |
-| 12 | Response enrichers | `enrichers` | enricher id | NO |
-| 13 | Page guards | `guards` | page handle | NO |
-| 14 | CLI commands | `cli` | `'<module> <command>'` | NO |
-| 15 | Setup hooks | `setup` | `defaultRoleFeatures` / `seedDefaults` / `seedExamples` / `onTenantCreated` | NO |
-| 16 | ACL features | `acl.features` | feature id | NO |
-| 17 | DI bindings | `di` | container key | NO |
-| 18 | Encryption maps | `encryption.maps` | entity id | NO |
+| 1 | AI overrides | `ai.agents`, `ai.tools` | agent id / tool name | **YES** |
+| 2 | Routes — API | `routes.api` | `'METHOD /api/path'` | **YES** |
+| 3 | Routes — Pages | `routes.pages` | `'/backend/...'` / `'/frontend/...'` | **YES** |
+| 4 | Events — Subscribers | `events.subscribers` | subscriber id | **YES** |
+| 5 | Workers | `workers` | worker id (`<module>:<id>`) | **YES** |
+| 6 | Widget injection | `widgets.injection` | injection widget id | **YES** |
+| 7 | Component overrides | `widgets.components` | component handle | **YES** |
+| 8 | Dashboard widgets | `widgets.dashboard` | widget id | **YES** |
+| 9 | Notifications — Types & Handlers | `notifications.*` | type id / handler id | **YES** |
+| 10 | Interceptors (CRUD + custom) | `interceptors` | interceptor id | **YES** |
+| 11 | Command interceptors | `commandInterceptors` | interceptor id | **YES** |
+| 12 | Response enrichers | `enrichers` | enricher id | **YES** |
+| 13 | Page guards | `guards` | middleware id | **YES** |
+| 14 | CLI commands | `cli` | command string | **YES** |
+| 15 | Setup hooks | `setup` | module id | **YES** |
+| 16 | ACL features | `acl.features` | feature id | **YES** |
+| 17 | DI bindings | `di` | container key | **YES** |
+| 18 | Encryption maps | `encryption.maps` | entity id | **YES** |
 
 Phase 1 is the AI domain (already shipped via spec [`2026-04-30-ai-overrides-and-module-disable.md`](2026-04-30-ai-overrides-and-module-disable.md), now folded under the unified umbrella through one rename — see "Migration & BC" below).
 
-Phases 2–18 ship as separate PRs against the GitHub tracking issue. Until a phase ships, the dispatcher emits a single structured warning the first time it sees a `modules.ts` override targeting that domain:
+Phases 2-18 now ship through PR #1960. The dispatcher still supports the "not yet wired" warning for future/custom domains that are added to the umbrella without a registered applier, but every domain listed above has a built-in applier.
 
-```
-[Module Overrides] Domain "<domain>" not yet wired — entry.overrides.<domain> for module "<id>" was ignored. Track at <issue-url>.
-```
+## Progress
 
-The runtime never throws on unwired domains — that would block app boot during the rollout window. After Phase N ships, the warning for that domain is removed in the same PR that adds the wiring.
+- [x] Phase 1 — AI overrides.
+- [x] Phase 2 — API route overrides.
+- [x] Phase 3 — backend/frontend page route overrides.
+- [x] Phase 4 — event subscriber overrides.
+- [x] Phase 5 — worker overrides.
+- [x] Phase 6 — injection widget overrides.
+- [x] Phase 7 — component override overrides.
+- [x] Phase 8 — dashboard widget overrides.
+- [x] Phase 9 — notification type and handler overrides.
+- [x] Phase 10 — API interceptor overrides.
+- [x] Phase 11 — command interceptor overrides.
+- [x] Phase 12 — response enricher overrides.
+- [x] Phase 13 — page guard overrides.
+- [x] Phase 14 — CLI command overrides.
+- [x] Phase 15 — setup hook overrides.
+- [x] Phase 16 — ACL feature overrides.
+- [x] Phase 17 — DI binding overrides.
+- [x] Phase 18 — encryption map overrides.
+- [x] Documentation follow-up — bb2030e1b.
 
 ## Migration & backward compatibility
 
@@ -195,35 +213,72 @@ Because the AI override surface only landed on this branch (`feat/ai-framework-u
 
 Every phase is purely additive. Modules without `entry.overrides` are unaffected. Existing programmatic and file-based override paths (where they exist today, e.g. `applyAiAgentOverrides`) keep working untouched.
 
-## Implementation surface (Phase 1 of this spec)
+## Implementation surface
 
 | File | Change |
 |------|--------|
-| `packages/shared/src/modules/overrides.ts` | NEW — umbrella `ModuleOverrides` type, `applyModuleOverridesFromEnabledModules` dispatcher, per-domain stubs |
+| `packages/shared/src/modules/overrides.ts` | Umbrella `ModuleOverrides` type, dispatcher, per-domain stores/composers, programmatic helpers, and apply helpers for phases 2-18 |
 | `packages/shared/src/modules/index.ts` | Re-export `ModuleOverrides`, `applyModuleOverridesFromEnabledModules` |
 | `packages/ai-assistant/src/modules/ai_assistant/lib/ai-overrides.ts` | `applyAiOverridesFromEnabledModules` reads `entry.overrides?.ai` |
 | `packages/ai-assistant/src/index.ts` | Export the helper unchanged (signature stable) |
-| `apps/mercato/src/modules.ts` | `ModuleEntry` carries `overrides?: ModuleOverrides` (drop `aiAgentOverrides` / `aiToolOverrides`) |
+| `packages/shared/src/modules/registry.ts` | API and page manifest registries apply route overrides; CLI module registry applies module-list overrides |
+| `packages/shared/src/lib/modules/registry.ts` | Runtime module registry applies subscribers, workers, CLI, setup, ACL, and encryption overrides |
+| `packages/shared/src/lib/crud/interceptor-registry.ts` / `enricher-registry.ts` | CRUD interceptors and response enrichers apply overrides before flattening |
+| `packages/shared/src/lib/commands/command-interceptor-store.ts` | Command interceptors apply overrides before flattening |
+| `packages/shared/src/lib/middleware/page-executor.ts` | Page guard middleware applies overrides before sorting/execution |
+| `packages/shared/src/lib/notifications/handler-registry.ts` | Notification handlers apply overrides before flattening |
+| `packages/shared/src/lib/bootstrap/factory.ts` | Component override entries apply `widgets.components` overrides before registration |
+| `packages/shared/src/lib/di/container.ts` | Request container applies `di` overrides as the final app-level container mutation |
+| `packages/shared/src/modules/widgets/injection-loader.ts` | Core injection widgets and injection tables apply widget overrides |
+| `packages/ui/src/backend/injection/widgetRegistry.ts` / `dashboard/widgetRegistry.ts` | UI widget registries apply injection/dashboard overrides before storing entries |
+| `packages/queue/src/worker/registry.ts` | Worker registry applies worker overrides before registration |
+| `packages/cli/src/lib/generators/extensions/notifications.ts` | Generated notification type outputs apply notification type overrides |
+| `apps/mercato/src/modules/example/api/override-probe/route.ts` | New example API route used by integration coverage for `routes.api` replacement |
+| `apps/mercato/src/modules.ts` | `ModuleEntry` carries `overrides?: ModuleOverrides`; example module overrides the probe API route |
 | `apps/mercato/src/bootstrap.ts` | Switch from `applyAiOverridesFromEnabledModules` to `applyModuleOverridesFromEnabledModules` |
-| `packages/create-app/template/src/modules.ts` | Same shape rename |
+| `apps/mercato/src/app/api/[...slug]/route.ts` and page catch-alls | Match against registered route manifests so route/page overrides are used at runtime |
+| `packages/create-app/template/src/modules.ts` | Same override example and type shape |
 | `packages/create-app/template/src/bootstrap.ts` | Same dispatcher rename |
+| `packages/create-app/template/src/app/api/[...slug]/route.ts` and page catch-alls | Same registered-manifest runtime behavior |
 | `apps/docs/docs/framework/ai-assistant/overrides.mdx` | Update Path B to use `overrides.ai.agents` / `overrides.ai.tools` |
-| `apps/docs/docs/framework/modules/overrides.mdx` | NEW — umbrella docs page; lists every domain with current wiring status |
+| `apps/docs/docs/framework/modules/overrides.mdx` | New umbrella docs page with examples for all wired phases |
+| `apps/docs/docs/framework/modules/routes-and-pages.mdx` | Route override docs cover API and page routes |
 | `packages/ai-assistant/AGENTS.md` | Update Path B example |
-| `packages/create-app/template/AGENTS.md` | Update Path B example |
+| `packages/create-app/template/AGENTS.md` | Add `modules.ts` examples for all wired domains |
 | `AGENTS.md` (root) | Update Task Router row + add umbrella row |
 | `.ai/skills/create-ai-agent/SKILL.md` | Update Path B example |
 | `.ai/specs/2026-04-30-ai-overrides-and-module-disable.md` | Add migration changelog entry pointing here |
 
-## Test surface (Phase 1)
+## Test surface
 
 `packages/shared/src/modules/__tests__/overrides.test.ts`:
 
 - Dispatcher walks `enabledModules` and calls into the AI tier with the resolved map.
 - An entry without `overrides` is a no-op.
-- An entry with `overrides.routes` (an unwired domain) emits the structured warning exactly once per domain per process.
+- Built-in shared domains route to default appliers without "not yet wired" warnings.
 - Multiple entries with the same domain accumulate (last entry per id wins).
 - The legacy `aiAgentOverrides` / `aiToolOverrides` keys are NOT consumed (the rename is hard).
+
+`packages/shared/src/modules/__tests__/route-overrides.test.ts`:
+
+- API route disable/replace behavior, method dropping, stale-key warnings, and programmatic precedence.
+- Page route disable/replace behavior for backend/frontend manifests.
+- Backend/frontend route manifest registries apply page overrides at registration time.
+
+`packages/shared/src/modules/__tests__/contract-overrides.test.ts`:
+
+- Module-list domains: subscribers, workers, CLI, setup, ACL, and encryption maps.
+- Registry-entry domains: injection/dashboard/component widgets, notification types/handlers, API interceptors, command interceptors, enrichers, and page guards.
+- Injection table cleanup for disabled injection widgets.
+- DI binding disable/replace behavior.
+
+`packages/queue/src/worker/__tests__/registry.test.ts`:
+
+- Queue worker registry applies unified worker overrides before storing descriptors.
+
+`apps/mercato/src/modules/example/__integration__/TC-UMES-022-overrides.spec.ts` and template mirror:
+
+- Calls `GET /api/example/override-probe` and asserts the `modules.ts` API route override replaced the base handler.
 
 `packages/ai-assistant/src/modules/ai_assistant/lib/__tests__/ai-overrides.test.ts`:
 
@@ -233,13 +288,16 @@ Every phase is purely additive. Modules without `entry.overrides` are unaffected
 
 | Risk | Mitigation |
 |------|-----------|
-| Unwired domain silently does nothing | Dispatcher emits a one-shot structured warning per domain, linking to the tracking issue. Tests assert the warning. |
+| Future/custom override domain silently does nothing | Dispatcher still emits a one-shot structured warning when a domain has no registered applier. Built-in phases 1-18 all register appliers. |
 | App boot order matters (overrides must apply before the registry first load) | The dispatcher is called from `bootstrap.ts` BEFORE any registry loads. Tests cover the ordering. |
 | Different domains have different "id" semantics (route key vs subscriber id vs DI key) | The umbrella type names each sub-shape clearly; per-domain spec phases lock the id syntax. |
 | Removing an ACL feature via override doesn't migrate existing role grants | Documented in Phase 16 — `acl.features` override hides the feature from the ACL registry; operators run `yarn mercato auth sync-role-acls --all-tenants` to drop the orphan grants. |
-| Disabling a route via override leaves stale links elsewhere | Each route override emits a structured warning if the disabled route is referenced by an ACL, page, or widget. Phase 2/3 detail. |
-| DI override pulls the rug from a dependent service | DI override is gated behind a `phase: 'pre-registrar'` flag — the dispatcher applies before module DI registrars run. Phase 17 detail. |
+| Disabling a route or widget leaves stale references elsewhere | Stale override keys log a warning. Operators must remove links, grants, or injection-table references that intentionally target disabled contracts. |
+| DI override pulls the rug from a dependent service | `di` overrides are intentionally last-chance container mutations. Use them for app policy only, and keep dependent service overrides in the same `modules.ts` entry or app-level DI file. |
 
 ## Changelog
 
 - **2026-05-04 — initial draft.** Phased umbrella spec. Phase 1 (AI) wired in this branch; Phases 2–18 stubbed and tracked on the GitHub issue (link in the issue body).
+- **2026-05-18 — Phase 2 wired (`overrides.routes.api`).** The shared package's umbrella dispatcher now routes `entry.overrides.routes.api` to a per-domain applier that composes a `'METHOD /api/path'` → override map. `registerApiRouteManifests` consults the composed map at registration time and rewrites the stored manifest: a `null` override drops the matching method (or the whole entry when every method is disabled), and a `{ handler, metadata? }` override wraps the manifest's `load()` so the override handler ships at `module[METHOD]` and override metadata replaces the matching per-method metadata. Resolution order today is **programmatic (`applyApiRouteOverrides`) → `modules.ts` inline → base**. The file-based tier is intentionally out of scope for Phase 2 — modules that want to override another module's API route do so through `modules.ts` or programmatically. Tests live at `packages/shared/src/modules/__tests__/route-overrides.test.ts`.
+- **2026-05-18 — Phases 3-18 wired.** Page routes, subscribers, workers, widgets, notifications, API interceptors, command interceptors, response enrichers, page guards, CLI commands, setup hooks, ACL features, DI bindings, and encryption maps now have typed override maps, programmatic helpers, dispatcher appliers, registry hooks, and unit coverage. The example app and create-app template include `GET /api/example/override-probe`, override it through `modules.ts`, and add Playwright integration coverage (`TC-UMES-022`) proving the downstream API route override wins. Docs now include `framework/modules/overrides` with examples for every phase.
+- **2026-05-18 — Documentation/examples follow-up.** The example app and create-app template now export a non-applied `moduleOverrideExamples` catalog for every wired domain, the standalone template AGENTS guidance points developers at it, and the AI override docs no longer describe the non-AI domains as pending.

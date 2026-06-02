@@ -2,6 +2,7 @@ import { generateObject } from 'ai'
 import type { AwilixContainer } from 'awilix'
 import { createContainer } from 'awilix'
 import {
+  resolveAiProviderIdFromEnv,
   resolveFirstConfiguredOpenCodeProvider,
   resolveOpenCodeModel,
   requireOpenCodeProviderApiKey,
@@ -36,15 +37,19 @@ function asAiModel(model: unknown): AiModel {
  * `OPENCODE_MODEL` / `OPENCODE_PROVIDER` envs remain honored via
  * {@link resolveExtractionProviderId} and {@link resolveOpenCodeModel} so
  * inbox_ops deployments do not see a behavior change — the factory is
- * consulted first (honoring `INBOX_OPS_AI_MODEL` + `input.modelOverride`),
+ * consulted first (honoring `OM_AI_INBOX_OPS_MODEL` — legacy `INBOX_OPS_AI_MODEL` — + `input.modelOverride`),
  * with the legacy path as the fallback when no registry provider is
  * configured (preserving the historical error messages).
  */
 
 export function resolveExtractionProviderId(): OpenCodeProviderId {
-  const configuredProvider = process.env.OPENCODE_PROVIDER
-  if (configuredProvider && configuredProvider.trim().length > 0) {
-    return resolveOpenCodeProviderId(configuredProvider)
+  // Honors OM_AI_PROVIDER first, then the legacy OPENCODE_PROVIDER, then the
+  // first configured provider from `OPEN_CODE_PROVIDER_IDS`, then the unified
+  // default (currently `openai`). Mirrors the precedence applied by the
+  // shared model factory so the BC fallback path stays consistent.
+  const explicit = (process.env.OM_AI_PROVIDER ?? process.env.OPENCODE_PROVIDER ?? '').trim()
+  if (explicit.length > 0) {
+    return resolveAiProviderIdFromEnv(process.env)
   }
 
   const firstConfiguredProvider = resolveFirstConfiguredOpenCodeProvider()
@@ -158,6 +163,16 @@ export async function runExtractionWithConfiguredProvider(input: {
     model = factoryResolution.model
     modelWithProvider = `${factoryResolution.providerId}/${factoryResolution.modelId}`
   } else {
+    // BC: Legacy OPENCODE_PROVIDER / OPENCODE_MODEL path. This branch only
+    // runs when createModelFactory throws AiModelFactoryError('no_provider_configured'),
+    // meaning none of the new-style provider env vars (ANTHROPIC_API_KEY,
+    // OPENAI_API_KEY, GOOGLE_GENERATIVE_AI_API_KEY, OM_AI_PROVIDER, ...) is
+    // set. The OPENCODE_* envs are deliberately kept as BC fallbacks instead
+    // of being treated as canonical OM_AI_* values because they are scoped to
+    // the OpenCode Code Mode stack (spec
+    // 2026-04-27-ai-agents-provider-model-baseurl-overrides, R1 mitigation).
+    // Keeping this fallback alive preserves backward compatibility for existing
+    // inbox_ops deployments that have not yet migrated to the new env vars.
     const providerId = resolveExtractionProviderId()
     const apiKey = requireOpenCodeProviderApiKey(providerId)
     const modelConfig = resolveOpenCodeModel(providerId, {

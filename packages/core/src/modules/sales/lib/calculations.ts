@@ -151,13 +151,26 @@ function buildBaseDocumentResult(params: {
   )
 
   for (const adj of scopedAdjustments) {
-    const net = toNumber(adj.amountNet, toNumber(adj.amountGross))
-    const gross = toNumber(adj.amountGross, net)
+    const rawNet = toNumber(adj.amountNet, toNumber(adj.amountGross))
+    const rawGross = toNumber(adj.amountGross, rawNet)
+    // Each adjustment kind has an intrinsic sign convention. The API edge
+    // (enforceAdjustmentSign) rejects values that would invert the kind's
+    // semantic effect, but the calculation engine normalizes defensively so
+    // direct DB writes or seeded data can't inflate the grand total either.
+    // See #1905 (mirrors the existing return normalization a few lines below
+    // introduced for #1705).
+    const isNonNegativeKind =
+      adj.kind === 'discount' ||
+      adj.kind === 'surcharge' ||
+      adj.kind === 'shipping' ||
+      adj.kind === 'tax'
+    const net = isNonNegativeKind ? Math.abs(rawNet) : rawNet
+    const gross = isNonNegativeKind ? Math.abs(rawGross) : rawGross
     const taxRate = extractAdjustmentTaxRate(adj)
     const taxPortion = taxRate !== null ? round(gross - net) : 0
     switch (adj.kind) {
       case 'discount':
-        discountTotal += Math.abs(net)
+        discountTotal += net
         subtotalNet = Math.max(subtotalNet - net, 0)
         subtotalGross = Math.max(subtotalGross - gross, 0)
         if (taxPortion) {
@@ -190,13 +203,17 @@ function buildBaseDocumentResult(params: {
     }
   }
 
-  // Line-scoped and any other return (credit) adjustments reduce grand total
+  // Line-scoped and any other return (credit) adjustments reduce grand total.
+  // Sign is normalized to negative regardless of the stored sign so a positive
+  // amountNet / amountGross can never inflate totals (issue #1705).
   for (const adj of resolvedAdjustments) {
     if (adj.kind !== 'return') continue
     const net = toNumber(adj.amountNet, toNumber(adj.amountGross))
     const gross = toNumber(adj.amountGross, net)
-    subtotalNet = Math.max(subtotalNet + net, 0)
-    subtotalGross = Math.max(subtotalGross + gross, 0)
+    const netDelta = -Math.abs(net)
+    const grossDelta = -Math.abs(gross)
+    subtotalNet = Math.max(subtotalNet + netDelta, 0)
+    subtotalGross = Math.max(subtotalGross + grossDelta, 0)
   }
 
   const grandTotalNet = round(subtotalNet)

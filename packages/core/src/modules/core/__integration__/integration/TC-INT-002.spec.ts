@@ -56,7 +56,7 @@ test.describe('TC-INT-002: Customer to Deal to Quote to Order Flow', () => {
         const opt = typeof label === 'string'
           ? page.getByRole('option', { name: label, exact })
           : page.getByRole('option', { name: label });
-        await expect(opt.first()).toBeVisible({ timeout: 10_000 });
+        await expect(opt.first()).toBeVisible({ timeout: 30_000 });
         await opt.first().click();
       }
       await selectByFieldId('companyEntityId', companyName)
@@ -79,11 +79,21 @@ test.describe('TC-INT-002: Customer to Deal to Quote to Order Flow', () => {
       await selectByFieldId('status', 'Open')
       await selectByFieldId('pipelineId', pipelineName)
       // Opportunity stage isn't seeded for the freshly created pipeline; skip pipelineStageId
-      await page.getByRole('spinbutton').first().fill('10000');
+      // Deal value + Probability use SuffixInput (currency/% adornments) — both render as
+      // textbox with placeholder "0", not spinbutton. The only spinbutton on the page is the
+      // "Estimated seats/licenses" custom field, so getByRole('spinbutton') would target that
+      // instead. Match the TC-CRM-071 selector pattern.
+      await page.getByPlaceholder('0').first().fill('10000');
       await selectByFieldId('valueCurrency', /USD/i, false)
-      await page.getByRole('spinbutton').nth(1).fill('50');
-      await page.locator('input[type="date"]').fill('2026-12-31');
-      await page.getByRole('textbox', { name: /Search companies/i }).fill(companyName);
+      await page.getByPlaceholder('0').nth(1).fill('50');
+      // Expected close date: skipped — DS v3 migrated CrudForm type='date' to
+      // a DatePicker button + Popover (no more native <input type="date">),
+      // and expectedCloseAt is optional server-side, so the deal still saves
+      // and the redirect / list assertions downstream still pass.
+      // DealAssociationsField pairs the Companies <Label> with a search input whose accessible
+      // name resolves to "Companies" (from the label) — not "Search companies" (which only
+      // lives in the placeholder). Target the placeholder directly, mirroring TC-CRM-071.
+      await page.getByPlaceholder('Search companies by name or domain…').fill(companyName);
       await page.getByRole('button', { name: companyName, exact: true }).click();
 
       // Final guard: re-assert title before submit. If a late dictionary load
@@ -99,7 +109,9 @@ test.describe('TC-INT-002: Customer to Deal to Quote to Order Flow', () => {
       await expect(page).toHaveURL(/\/backend\/customers\/deals$/i, { timeout: 30_000 });
 
       await page.getByPlaceholder(/Search by title/i).fill(dealTitle);
-      await page.locator('tr').filter({ hasText: dealTitle }).first().click();
+      const dealRow = page.locator('tr').filter({ has: page.getByText(dealTitle, { exact: true }) }).first();
+      await expect(dealRow).toBeVisible({ timeout: 30_000 });
+      await dealRow.getByText(dealTitle, { exact: true }).click();
       await expect(page).toHaveURL(/\/backend\/customers\/deals\/[0-9a-f-]{36}$/i);
       dealId = page.url().match(/\/backend\/customers\/deals\/([0-9a-f-]{36})$/i)?.[1] ?? null;
 

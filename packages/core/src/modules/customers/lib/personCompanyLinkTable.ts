@@ -1,54 +1,46 @@
 import type { EntityManager } from '@mikro-orm/postgresql'
-import { sql } from '@mikro-orm/postgresql'
 
-const PERSON_COMPANY_LINKS_TABLE = 'customer_person_company_links'
-const PERSON_COMPANY_LINKS_DELETED_AT_COLUMN = 'deleted_at'
+// The previous implementation probed `information_schema.columns` on every
+// first call via `em.getKysely()` to decide whether to add a `deletedAt: null`
+// filter. When that probe ran inside an already-active MikroORM transaction it
+// shared the transaction's connection — and any failure (including transient
+// connection-pool state, an aborted TX from a sibling query, or pg returning
+// 25P02) propagated back into the host transaction, poisoning every following
+// query with `current transaction is aborted, commands ignored until end of
+// transaction block`. That is what produced the standalone-CI failure burst
+// (loadPersonCompanyLinks → 25P02 → customers.people.create → 500) and the
+// sync_excel worker `failedCount: 1` regression.
+//
+// The `deleted_at` column on `customer_person_company_links` has been part of
+// the committed module snapshot since `Migration20260415095203` (April 2026)
+// and is referenced by `Migration20260417140000` (partial unique index uses
+// `where deleted_at is null`). Any environment running these migrations
+// already has the column. So the probe is no longer load-bearing — it only
+// adds risk. We now unconditionally include `deletedAt: null` in the filter.
+// If a downstream DB is genuinely un-migrated, the underlying `em.find` will
+// surface the authentic `column "deleted_at" of relation
+// "customer_person_company_links" does not exist` (pg 42703) pointing the
+// operator at the real fix (`yarn db:migrate`).
+//
+// `customerPersonCompanyLinksSupportDeletedAt` and
+// `warnMissingCustomerPersonCompanyLinksDeletedAt` are kept as exported
+// no-op-equivalents so external callers (and the published @open-mercato/core
+// API surface) don't break.
 
-let supportsDeletedAtColumnPromise: Promise<boolean> | null = null
-let warnedAboutMissingDeletedAtColumn = false
-
-export async function customerPersonCompanyLinksSupportDeletedAt(em: EntityManager): Promise<boolean> {
-  if (typeof (em as { getKysely?: unknown }).getKysely !== 'function') {
-    return true
-  }
-  if (!supportsDeletedAtColumnPromise) {
-    const db = em.getKysely<any>() as any
-    const probe: Promise<boolean> = db
-      .selectFrom('information_schema.columns')
-      .select(['column_name'])
-      .where(sql<boolean>`table_schema = current_schema()`)
-      .where('table_name', '=', PERSON_COMPANY_LINKS_TABLE)
-      .where('column_name', '=', PERSON_COMPANY_LINKS_DELETED_AT_COLUMN)
-      .executeTakeFirst()
-      .then((row: unknown) => !!row)
-      .catch(() => false)
-    supportsDeletedAtColumnPromise = probe
-    return probe
-  }
-  return supportsDeletedAtColumnPromise
+export async function customerPersonCompanyLinksSupportDeletedAt(_em: EntityManager): Promise<boolean> {
+  return true
 }
 
-export function warnMissingCustomerPersonCompanyLinksDeletedAt(source: string): void {
-  if (warnedAboutMissingDeletedAtColumn) {
-    return
-  }
-  warnedAboutMissingDeletedAtColumn = true
-  console.warn(
-    `[${source}] missing ${PERSON_COMPANY_LINKS_TABLE}.${PERSON_COMPANY_LINKS_DELETED_AT_COLUMN}; ` +
-      'continuing without link soft-delete filtering. Run yarn db:migrate.',
-  )
+export function warnMissingCustomerPersonCompanyLinksDeletedAt(_source: string): void {
+  // No-op: column is guaranteed present by Migration20260415095203 and the
+  // module snapshot. Kept for backward-compatible exports.
 }
 
 export async function withActiveCustomerPersonCompanyLinkFilter<T extends Record<string, unknown>>(
-  em: EntityManager,
+  _em: EntityManager,
   where: T,
-  source: string,
+  _source: string,
 ): Promise<T & { deletedAt?: null }> {
-  const supportsDeletedAt = await customerPersonCompanyLinksSupportDeletedAt(em)
-  if (!supportsDeletedAt) {
-    warnMissingCustomerPersonCompanyLinksDeletedAt(source)
-    return { ...where }
-  }
   return { ...where, deletedAt: null }
 }
 

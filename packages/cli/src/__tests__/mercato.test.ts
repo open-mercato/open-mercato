@@ -6,6 +6,7 @@ import {
   padByCodePointWidth,
   run,
 } from '../mercato'
+import { pathIncludes } from '../lib/__tests__/path-helpers'
 
 type MockChildAutoExit = { code: number | null; signal?: NodeJS.Signals | null } | undefined
 type MockChildSpawnRouter = (args: string[]) => MockChildAutoExit
@@ -36,9 +37,18 @@ function buildMockChildProcessModule(routeAutoExit: MockChildSpawnRouter) {
     if (autoExit) {
       queueMicrotask(() => {
         if (child.exitCode !== null || child.signalCode !== null) return
-        child.exitCode = autoExit.code
-        child.signalCode = autoExit.signal ?? null
-        child.emit('exit', child.exitCode, child.signalCode)
+        if (pathIncludes(spawnargs[1] ?? '', 'next/dist/bin/next') && spawnargs.includes('dev')) {
+          child.stdout.emit('data', '✓ Ready in 1ms\n')
+        }
+        queueMicrotask(() => {
+          child.exitCode = autoExit.code
+          child.signalCode = autoExit.signal ?? null
+          child.emit('exit', child.exitCode, child.signalCode)
+        })
+      })
+    } else if (pathIncludes(spawnargs[1] ?? '', 'next/dist/bin/next') && spawnargs.includes('dev')) {
+      queueMicrotask(() => {
+        child.stdout.emit('data', '✓ Ready in 1ms\n')
       })
     }
 
@@ -58,6 +68,16 @@ const eventsWorkerFixture: Pick<Module, 'id' | 'workers'> = {
       queue: 'events',
       concurrency: 1,
       handler: jest.fn(),
+    },
+  ],
+}
+
+const schedulerCliFixture: Pick<Module, 'id' | 'cli'> = {
+  id: 'scheduler',
+  cli: [
+    {
+      command: 'start',
+      run: jest.fn(),
     },
   ],
 }
@@ -619,12 +639,23 @@ describe('generate post-step structural cache purge', () => {
 describe('server dev managed process exits', () => {
   const originalAutoSpawnScheduler = process.env.AUTO_SPAWN_SCHEDULER
   const originalAutoSpawnWorkers = process.env.AUTO_SPAWN_WORKERS
+  const originalLazy = process.env.OM_AUTO_SPAWN_WORKERS_LAZY
+  const originalLazyScheduler = process.env.OM_AUTO_SPAWN_SCHEDULER_LAZY
+  const originalGenerateWatchMode = process.env.OM_DEV_GENERATE_WATCH_MODE
 
   beforeEach(() => {
     jest.restoreAllMocks()
     jest.resetModules()
     process.env.AUTO_SPAWN_SCHEDULER = 'false'
     process.env.AUTO_SPAWN_WORKERS = 'true'
+    delete process.env.OM_AUTO_SPAWN_WORKERS_LAZY
+    delete process.env.OM_AUTO_SPAWN_SCHEDULER_LAZY
+    // These tests stub the resolver to an empty object; the in-process
+    // generate watcher's default checksum function would error on the
+    // missing methods. Force the legacy out-of-process mode so the
+    // managed-exit assertions only exercise the worker/scheduler/Next
+    // spawn surface.
+    process.env.OM_DEV_GENERATE_WATCH_MODE = 'legacy'
   })
 
   afterEach(() => {
@@ -633,12 +664,22 @@ describe('server dev managed process exits', () => {
     jest.dontMock('../lib/dev-env-reload')
     jest.dontMock('../lib/generators')
     jest.dontMock('../lib/resolver')
+    jest.dontMock('../lib/queue-worker-supervisor')
+    jest.dontMock('../lib/scheduler-supervisor')
     jest.resetModules()
+    if (originalGenerateWatchMode === undefined) delete process.env.OM_DEV_GENERATE_WATCH_MODE
+    else process.env.OM_DEV_GENERATE_WATCH_MODE = originalGenerateWatchMode
+    delete process.env.OM_AUTO_SPAWN_WORKERS_LAZY
+    delete process.env.OM_AUTO_SPAWN_SCHEDULER_LAZY
   })
 
   afterAll(() => {
     process.env.AUTO_SPAWN_SCHEDULER = originalAutoSpawnScheduler
     process.env.AUTO_SPAWN_WORKERS = originalAutoSpawnWorkers
+    if (originalLazy === undefined) delete process.env.OM_AUTO_SPAWN_WORKERS_LAZY
+    else process.env.OM_AUTO_SPAWN_WORKERS_LAZY = originalLazy
+    if (originalLazyScheduler === undefined) delete process.env.OM_AUTO_SPAWN_SCHEDULER_LAZY
+    else process.env.OM_AUTO_SPAWN_SCHEDULER_LAZY = originalLazyScheduler
   })
 
   it('skips scheduler auto-start when the module is not enabled', async () => {
@@ -652,7 +693,7 @@ describe('server dev managed process exits', () => {
       return {
         ...actual,
         existsSync: jest.fn((candidate: string) =>
-          candidate.includes('next/dist/bin/next') || candidate.includes('@open-mercato/cli/bin/mercato'),
+          pathIncludes(candidate, 'next/dist/bin/next') || pathIncludes(candidate, '@open-mercato/cli/bin/mercato'),
         ),
         unlinkSync: jest.fn(),
       }
@@ -669,7 +710,7 @@ describe('server dev managed process exits', () => {
     }))
     jest.doMock('child_process', () =>
       buildMockChildProcessModule((args) =>
-        args[0]?.includes('next/dist/bin/next') ? { code: null, signal: 'SIGTERM' } : undefined,
+        pathIncludes(args[0] ?? '', 'next/dist/bin/next') ? { code: null, signal: 'SIGTERM' } : undefined,
       ),
     )
 
@@ -693,7 +734,7 @@ describe('server dev managed process exits', () => {
       return {
         ...actual,
         existsSync: jest.fn((candidate: string) =>
-          candidate.includes('next/dist/bin/next') || candidate.includes('@open-mercato/cli/bin/mercato'),
+          pathIncludes(candidate, 'next/dist/bin/next') || pathIncludes(candidate, '@open-mercato/cli/bin/mercato'),
         ),
         unlinkSync: jest.fn(),
       }
@@ -730,17 +771,152 @@ describe('server dev managed process exits', () => {
     consoleErrorSpy.mockRestore()
     consoleLogSpy.mockRestore()
   })
+
+  it('starts the lazy worker supervisor instead of `queue worker --all` when OM_AUTO_SPAWN_WORKERS_LAZY=true', async () => {
+    const consoleErrorSpy = jest.spyOn(console, 'error').mockImplementation()
+    const consoleLogSpy = jest.spyOn(console, 'log').mockImplementation()
+    process.env.OM_AUTO_SPAWN_WORKERS_LAZY = 'true'
+
+    jest.doMock('node:fs', () => {
+      const actual = jest.requireActual('node:fs')
+      return {
+        ...actual,
+        existsSync: jest.fn((candidate: string) =>
+          pathIncludes(candidate, 'next/dist/bin/next') || pathIncludes(candidate, '@open-mercato/cli/bin/mercato'),
+        ),
+        unlinkSync: jest.fn(),
+      }
+    })
+    jest.doMock('../lib/generators', () => ({
+      generateModulePackageSources: jest.fn().mockResolvedValue(undefined),
+    }))
+    jest.doMock('../lib/resolver', () => ({
+      resolveEnvironment: () => ({
+        appDir: '/tmp/test-app',
+        rootDir: '/tmp/test-root',
+      }),
+      createResolver: () => ({}),
+    }))
+
+    const supervisorClose = jest.fn().mockResolvedValue(undefined)
+    const startLazyWorkerSupervisor = jest.fn(() => ({
+      startedQueues: new Set<string>(),
+      getActiveChild: () => undefined,
+      close: supervisorClose,
+      done: Promise.resolve(),
+    }))
+    jest.doMock('../lib/queue-worker-supervisor', () => ({
+      startLazyWorkerSupervisor,
+    }))
+
+    jest.doMock('child_process', () =>
+      buildMockChildProcessModule((args) =>
+        pathIncludes(args[0] ?? '', 'next/dist/bin/next') ? { code: null, signal: 'SIGTERM' } : undefined,
+      ),
+    )
+
+    const mercato = await import('../mercato')
+    mercato.registerCliModules([eventsWorkerFixture as Module])
+
+    const exitCode = await mercato.run(['node', 'mercato', 'server', 'dev'])
+
+    expect(exitCode).toBe(0)
+    expect(startLazyWorkerSupervisor).toHaveBeenCalledTimes(1)
+    const supervisorCall = startLazyWorkerSupervisor.mock.calls[0][0]
+    expect(supervisorCall.workers.map((worker) => worker.queue)).toEqual(['events'])
+    expect(supervisorCall.pollMs).toBe(1000)
+    expect(supervisorCall.restartOnUnexpectedExit).toBe(true)
+    expect(supervisorClose).toHaveBeenCalled()
+
+    const { spawn } = await import('child_process')
+    const allSpawnCalls = (spawn as jest.Mock).mock.calls.map((call) => call[1] as string[])
+    const queueWorkerSpawn = allSpawnCalls.find((args) => args.slice(1).join(' ') === 'queue worker --all')
+    expect(queueWorkerSpawn).toBeUndefined()
+
+    consoleErrorSpy.mockRestore()
+    consoleLogSpy.mockRestore()
+  })
+
+  it('starts the lazy scheduler supervisor instead of the scheduler process when OM_AUTO_SPAWN_SCHEDULER_LAZY=true', async () => {
+    const consoleErrorSpy = jest.spyOn(console, 'error').mockImplementation()
+    const consoleLogSpy = jest.spyOn(console, 'log').mockImplementation()
+    process.env.AUTO_SPAWN_SCHEDULER = 'true'
+    process.env.AUTO_SPAWN_WORKERS = 'false'
+    process.env.OM_AUTO_SPAWN_SCHEDULER_LAZY = 'true'
+
+    jest.doMock('node:fs', () => {
+      const actual = jest.requireActual('node:fs')
+      return {
+        ...actual,
+        existsSync: jest.fn((candidate: string) =>
+          pathIncludes(candidate, 'next/dist/bin/next') || pathIncludes(candidate, '@open-mercato/cli/bin/mercato'),
+        ),
+        unlinkSync: jest.fn(),
+      }
+    })
+    jest.doMock('../lib/generators', () => ({
+      generateModulePackageSources: jest.fn().mockResolvedValue(undefined),
+    }))
+    jest.doMock('../lib/resolver', () => ({
+      resolveEnvironment: () => ({
+        appDir: '/tmp/test-app',
+        rootDir: '/tmp/test-root',
+      }),
+      createResolver: () => ({}),
+    }))
+
+    const schedulerClose = jest.fn().mockResolvedValue(undefined)
+    const startLazySchedulerSupervisor = jest.fn(() => ({
+      started: false,
+      getActiveChild: () => undefined,
+      close: schedulerClose,
+      done: Promise.resolve(),
+    }))
+    jest.doMock('../lib/scheduler-supervisor', () => ({
+      startLazySchedulerSupervisor,
+    }))
+
+    jest.doMock('child_process', () =>
+      buildMockChildProcessModule((args) =>
+        pathIncludes(args[0] ?? '', 'next/dist/bin/next') ? { code: null, signal: 'SIGTERM' } : undefined,
+      ),
+    )
+
+    const mercado = await import('../mercato')
+    mercado.registerCliModules([schedulerCliFixture as Module])
+
+    const exitCode = await mercado.run(['node', 'mercato', 'server', 'dev'])
+
+    expect(exitCode).toBe(0)
+    expect(startLazySchedulerSupervisor).toHaveBeenCalledTimes(1)
+    const supervisorCall = startLazySchedulerSupervisor.mock.calls[0][0]
+    expect(supervisorCall.pollMs).toBe(1000)
+    expect(supervisorCall.restartOnUnexpectedExit).toBe(true)
+    expect(schedulerClose).toHaveBeenCalled()
+
+    const { spawn } = await import('child_process')
+    const allSpawnCalls = (spawn as jest.Mock).mock.calls.map((call) => call[1] as string[])
+    const schedulerSpawn = allSpawnCalls.find((args) => args.slice(1).join(' ') === 'scheduler start')
+    expect(schedulerSpawn).toBeUndefined()
+
+    consoleErrorSpy.mockRestore()
+    consoleLogSpy.mockRestore()
+  })
 })
 
 describe('server start managed process exits', () => {
   const originalAutoSpawnScheduler = process.env.AUTO_SPAWN_SCHEDULER
   const originalAutoSpawnWorkers = process.env.AUTO_SPAWN_WORKERS
+  const originalLazy = process.env.OM_AUTO_SPAWN_WORKERS_LAZY
+  const originalLazyScheduler = process.env.OM_AUTO_SPAWN_SCHEDULER_LAZY
 
   beforeEach(() => {
     jest.restoreAllMocks()
     jest.resetModules()
     process.env.AUTO_SPAWN_SCHEDULER = 'false'
     process.env.AUTO_SPAWN_WORKERS = 'true'
+    delete process.env.OM_AUTO_SPAWN_WORKERS_LAZY
+    delete process.env.OM_AUTO_SPAWN_SCHEDULER_LAZY
   })
 
   afterEach(() => {
@@ -748,12 +924,20 @@ describe('server start managed process exits', () => {
     jest.dontMock('node:fs')
     jest.dontMock('../lib/resolver')
     jest.dontMock('../lib/server-start-lock')
+    jest.dontMock('../lib/queue-worker-supervisor')
+    jest.dontMock('../lib/scheduler-supervisor')
     jest.resetModules()
+    delete process.env.OM_AUTO_SPAWN_WORKERS_LAZY
+    delete process.env.OM_AUTO_SPAWN_SCHEDULER_LAZY
   })
 
   afterAll(() => {
     process.env.AUTO_SPAWN_SCHEDULER = originalAutoSpawnScheduler
     process.env.AUTO_SPAWN_WORKERS = originalAutoSpawnWorkers
+    if (originalLazy === undefined) delete process.env.OM_AUTO_SPAWN_WORKERS_LAZY
+    else process.env.OM_AUTO_SPAWN_WORKERS_LAZY = originalLazy
+    if (originalLazyScheduler === undefined) delete process.env.OM_AUTO_SPAWN_SCHEDULER_LAZY
+    else process.env.OM_AUTO_SPAWN_SCHEDULER_LAZY = originalLazyScheduler
   })
 
   it('skips scheduler auto-start when the module is not enabled', async () => {
@@ -767,7 +951,7 @@ describe('server start managed process exits', () => {
       return {
         ...actual,
         existsSync: jest.fn((candidate: string) =>
-          candidate.includes('next/dist/bin/next') || candidate.includes('@open-mercato/cli/bin/mercato'),
+          pathIncludes(candidate, 'next/dist/bin/next') || pathIncludes(candidate, '@open-mercato/cli/bin/mercato'),
         ),
       }
     })
@@ -784,7 +968,7 @@ describe('server start managed process exits', () => {
     }))
     jest.doMock('child_process', () =>
       buildMockChildProcessModule((args) =>
-        args[0]?.includes('next/dist/bin/next') ? { code: null, signal: 'SIGTERM' } : undefined,
+        pathIncludes(args[0] ?? '', 'next/dist/bin/next') ? { code: null, signal: 'SIGTERM' } : undefined,
       ),
     )
 
@@ -808,7 +992,7 @@ describe('server start managed process exits', () => {
       return {
         ...actual,
         existsSync: jest.fn((candidate: string) =>
-          candidate.includes('next/dist/bin/next') || candidate.includes('@open-mercato/cli/bin/mercato'),
+          pathIncludes(candidate, 'next/dist/bin/next') || pathIncludes(candidate, '@open-mercato/cli/bin/mercato'),
         ),
       }
     })
@@ -857,7 +1041,7 @@ describe('server start managed process exits', () => {
       return {
         ...actual,
         existsSync: jest.fn((candidate: string) =>
-          candidate.includes('next/dist/bin/next') || candidate.includes('@open-mercato/cli/bin/mercato'),
+          pathIncludes(candidate, 'next/dist/bin/next') || pathIncludes(candidate, '@open-mercato/cli/bin/mercato'),
         ),
         unlinkSync: jest.fn(),
       }
@@ -874,6 +1058,7 @@ describe('server start managed process exits', () => {
         envChangeCallback = onChange
         return jest.fn()
       }),
+      watchDevRuntimeFiles: jest.fn(() => jest.fn()),
     }))
     jest.doMock('../lib/generators', () => ({
       generateModulePackageSources: jest.fn().mockResolvedValue(undefined),
@@ -924,7 +1109,7 @@ describe('server start managed process exits', () => {
 
       return {
         spawn: jest.fn((_command: string, args: string[]) => {
-          if (args[0]?.includes('next/dist/bin/next')) {
+          if (pathIncludes(args[0] ?? '', 'next/dist/bin/next')) {
             nextSpawnCount += 1
             if (nextSpawnCount === 1) {
               queueMicrotask(() => envChangeCallback?.('/tmp/test-app/.env'))
@@ -941,7 +1126,7 @@ describe('server start managed process exits', () => {
     const exitCode = await mercado.run(['node', 'mercato', 'server', 'dev'])
     const { spawn } = await import('child_process')
     const nextSpawns = (spawn as jest.Mock).mock.calls.filter((call) =>
-      call[1]?.[0]?.includes('next/dist/bin/next'),
+      pathIncludes(call[1]?.[0] ?? '', 'next/dist/bin/next'),
     )
 
     expect(exitCode).toBe(0)
@@ -953,6 +1138,65 @@ describe('server start managed process exits', () => {
     )
 
     delete process.env.RESTART_TOKEN
+    consoleErrorSpy.mockRestore()
+    consoleLogSpy.mockRestore()
+  })
+
+  it('starts the lazy worker supervisor in production server when OM_AUTO_SPAWN_WORKERS_LAZY=true', async () => {
+    const consoleErrorSpy = jest.spyOn(console, 'error').mockImplementation()
+    const consoleLogSpy = jest.spyOn(console, 'log').mockImplementation()
+    process.env.OM_AUTO_SPAWN_WORKERS_LAZY = 'true'
+
+    jest.doMock('node:fs', () => {
+      const actual = jest.requireActual('node:fs')
+      return {
+        ...actual,
+        existsSync: jest.fn((candidate: string) =>
+          pathIncludes(candidate, 'next/dist/bin/next') || pathIncludes(candidate, '@open-mercato/cli/bin/mercato'),
+        ),
+      }
+    })
+    jest.doMock('../lib/resolver', () => ({
+      resolveEnvironment: () => ({
+        appDir: '/tmp/test-app',
+        rootDir: '/tmp/test-root',
+      }),
+    }))
+    jest.doMock('../lib/server-start-lock', () => ({
+      acquireServerStartLock: jest.fn(() => ({ release: jest.fn() })),
+    }))
+
+    const supervisorClose = jest.fn().mockResolvedValue(undefined)
+    const startLazyWorkerSupervisor = jest.fn(() => ({
+      startedQueues: new Set<string>(),
+      getActiveChild: () => undefined,
+      close: supervisorClose,
+      done: Promise.resolve(),
+    }))
+    jest.doMock('../lib/queue-worker-supervisor', () => ({
+      startLazyWorkerSupervisor,
+    }))
+
+    jest.doMock('child_process', () =>
+      buildMockChildProcessModule((args) =>
+        pathIncludes(args[0] ?? '', 'next/dist/bin/next') ? { code: null, signal: 'SIGTERM' } : undefined,
+      ),
+    )
+
+    const mercato = await import('../mercato')
+    mercato.registerCliModules([eventsWorkerFixture as Module])
+
+    const exitCode = await mercato.run(['node', 'mercato', 'server', 'start'])
+
+    expect(exitCode).toBe(0)
+    expect(startLazyWorkerSupervisor).toHaveBeenCalledTimes(1)
+    expect(supervisorClose).toHaveBeenCalled()
+
+    const { spawn } = await import('child_process')
+    const allSpawnCalls = (spawn as jest.Mock).mock.calls.map((call) => call[1] as string[])
+    const queueWorkerSpawn = allSpawnCalls.find((args) => args.slice(1).join(' ') === 'queue worker --all')
+    expect(queueWorkerSpawn).toBeUndefined()
+
     consoleErrorSpy.mockRestore()
     consoleLogSpy.mockRestore()
   })

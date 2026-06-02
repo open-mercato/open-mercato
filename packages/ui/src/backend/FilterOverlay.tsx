@@ -1,7 +1,11 @@
 "use client"
 import * as React from 'react'
+import { format } from 'date-fns/format'
+import { Info } from 'lucide-react'
 import { Button } from '../primitives/button'
 import { Checkbox } from '../primitives/checkbox'
+import { DateRangePicker } from '../primitives/date-range-picker'
+import type { DateRange } from './date-range/dateRanges'
 import {
   Select,
   SelectContent,
@@ -12,12 +16,14 @@ import {
 import { ComboboxInput } from './inputs/ComboboxInput'
 import { TagsInput, type TagsInputOption } from './inputs/TagsInput'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
+import { SimpleTooltip } from '../primitives/tooltip'
 
 export type FilterOption = { value: string; label: string; description?: string | null }
 
 export type FilterDef = {
   id: string
   label: string
+  tooltip?: string
   type: 'text' | 'select' | 'checkbox' | 'dateRange' | 'tags' | 'combobox'
   options?: FilterOption[]
   // Optional async loader for options (used by select/tags/combobox)
@@ -217,7 +223,14 @@ export function FilterOverlay({
               {extraContent ? <div className="space-y-2 rounded-md border bg-muted/30 p-3">{extraContent}</div> : null}
               {filters.map((f) => (
                 <div key={f.id} className="space-y-2">
-                  <div className="text-sm font-medium">{f.label}</div>
+                  <div className="flex items-center gap-1.5 text-sm font-medium">
+                    {f.label}
+                    {f.tooltip ? (
+                      <SimpleTooltip content={f.tooltip}>
+                        <Info className="size-3.5 text-muted-foreground" aria-label="More information" />
+                      </SimpleTooltip>
+                    ) : null}
+                  </div>
                   {f.type === 'text' && (
                     <input
                       type="text"
@@ -227,28 +240,41 @@ export function FilterOverlay({
                       onChange={(e) => setValue(f.id, e.target.value || undefined)}
                     />
                   )}
-                  {f.type === 'dateRange' && (
-                    <div className="grid grid-cols-1 gap-2">
-                      <div>
-                        <div className="text-xs text-muted-foreground mb-1">{t('ui.filters.dateRange.from', 'From')}</div>
-                        <input
-                          type="date"
-                          className="w-full h-11 rounded border px-2 text-sm"
-                          value={values[f.id]?.from ?? ''}
-                          onChange={(e) => setValue(f.id, { ...(values[f.id] ?? {}), from: e.target.value || undefined })}
-                        />
-                      </div>
-                      <div>
-                        <div className="text-xs text-muted-foreground mb-1">{t('ui.filters.dateRange.to', 'To')}</div>
-                        <input
-                          type="date"
-                          className="w-full h-11 rounded border px-2 text-sm"
-                          value={values[f.id]?.to ?? ''}
-                          onChange={(e) => setValue(f.id, { ...(values[f.id] ?? {}), to: e.target.value || undefined })}
-                        />
-                      </div>
-                    </div>
-                  )}
+                  {f.type === 'dateRange' && (() => {
+                    const fromStr = values[f.id]?.from
+                    const toStr = values[f.id]?.to
+                    const parseISODate = (input: unknown): Date | null => {
+                      if (typeof input !== 'string' || !input.length) return null
+                      const candidate = new Date(input)
+                      return Number.isNaN(candidate.getTime()) ? null : candidate
+                    }
+                    const fromDate = parseISODate(fromStr)
+                    const toDate = parseISODate(toStr)
+                    const rangeValue: DateRange | null =
+                      fromDate && toDate
+                        ? { start: fromDate, end: toDate }
+                        : fromDate
+                          ? { start: fromDate, end: fromDate }
+                          : toDate
+                            ? { start: toDate, end: toDate }
+                            : null
+                    return (
+                      <DateRangePicker
+                        value={rangeValue}
+                        onChange={(next) => {
+                          if (!next) {
+                            setValue(f.id, { from: undefined, to: undefined })
+                            return
+                          }
+                          setValue(f.id, {
+                            from: format(next.start, 'yyyy-MM-dd'),
+                            to: format(next.end, 'yyyy-MM-dd'),
+                          })
+                        }}
+                        placeholder={t('ui.filters.dateRange.placeholder', 'Pick a date range')}
+                      />
+                    )
+                  })()}
                   {f.type === 'select' && (
                     <div className="space-y-1">
                       {f.multiple ? (

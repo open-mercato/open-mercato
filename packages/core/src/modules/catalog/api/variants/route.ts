@@ -103,6 +103,7 @@ const crud = makeCrudRoute({
     tenantField: 'tenantId',
     softDeleteField: 'deletedAt',
   },
+  indexer: { entityType: E.catalog.catalog_product_variant },
   enrichers: {
     entityId: E.catalog.catalog_product_variant,
   },

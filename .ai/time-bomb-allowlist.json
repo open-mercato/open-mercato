@@ -1,0 +1,21 @@
+{
+  "$comment": "Intentional absolute date literals in tests that the time-bomb scanner (scripts/time-bomb-scanner.mjs) should ignore. Each entry is either a 'relpath:line' location, a 'relpath' (whole file), or a raw literal value — optionally wrapped as { \"match\": \"...\", \"reason\": \"...\" }. Prefer a clock-relative value (new Date(Date.now() + N)) over allowlisting whenever the assertion depends on the literal being past/future. Entries below are reviewed format/round-trip or relative-comparison tests that do NOT compare the literal to the current time, so they can never become time-bombs.",
+  "entries": [
+    {
+      "match": "packages/core/src/modules/business_rules/components/utils/__tests__/formHelpers.test.ts:84",
+      "reason": "parseRuleToFormValues format round-trip: datetime literal asserted verbatim as its YYYY-MM-DD form; no comparison to now."
+    },
+    {
+      "match": "packages/core/src/modules/business_rules/components/utils/__tests__/formHelpers.test.ts:124",
+      "reason": "Date pass-through test: YYYY-MM-DD literal echoed verbatim in the assertion; no comparison to now."
+    },
+    {
+      "match": "packages/core/src/modules/business_rules/components/utils/__tests__/formHelpers.test.ts:168",
+      "reason": "buildRulePayload pass-through test: date literal echoed verbatim in the assertion; no comparison to now."
+    },
+    {
+      "match": "packages/core/src/modules/business_rules/data/__tests__/validators.test.ts:213",
+      "reason": "createBusinessRuleSchema compares effectiveTo relative to effectiveFrom (both literals), never to now; stays valid regardless of the clock."
+    }
+  ]
+}

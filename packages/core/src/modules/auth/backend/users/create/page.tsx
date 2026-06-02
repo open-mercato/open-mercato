@@ -14,9 +14,11 @@ import { RadioGroup } from '@open-mercato/ui/primitives/radio'
 import { RadioField } from '@open-mercato/ui/primitives/radio-field'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { formatPasswordRequirements, getPasswordPolicy } from '@open-mercato/shared/lib/auth/passwordPolicy'
+import { normalizeDisplayNameInput } from '@open-mercato/core/modules/auth/lib/displayName'
 
 type CreateUserFormValues = {
   email: string
+  name: string
   password: string
   tenantId: string | null
   organizationId: string | null
@@ -107,7 +109,12 @@ export default function CreateUserPage() {
       setWidgetError(null)
       try {
         const { ok, result } = await apiCall<WidgetCatalogResponse>('/api/dashboards/widgets/catalog')
-        if (!ok) throw new Error('request_failed')
+        if (!ok) {
+          throw new Error(t(
+            'auth.users.widgets.errors.load',
+            'Unable to load dashboard widgets. You can configure them later from the user page.',
+          ))
+        }
         if (!cancelled) {
           const rawItems: unknown[] = Array.isArray(result?.items) ? result?.items ?? [] : []
           const normalized = rawItems
@@ -169,7 +176,7 @@ export default function CreateUserPage() {
     if (!actorResolved) return []
     if (actorIsSuperAdmin) {
       if (!selectedTenantId) return []
-      return fetchRoleOptions(query, { tenantId: selectedTenantId })
+      return fetchRoleOptions(query, { tenantId: selectedTenantId, includeSuperAdmin: true })
     }
     return fetchRoleOptions(query)
   }, [actorIsSuperAdmin, actorResolved, selectedTenantId])
@@ -177,6 +184,7 @@ export default function CreateUserPage() {
   const fields: CrudField[] = React.useMemo(() => {
     const items: CrudField[] = [
       { id: 'email', label: t('auth.users.form.field.email', 'Email'), type: 'text', required: true },
+      { id: 'name', label: t('auth.users.form.field.name', 'Display name'), type: 'text' },
       {
         id: 'sendInviteEmail',
         label: t('auth.users.form.field.sendInviteEmail', 'Send password setup link via email'),
@@ -251,8 +259,8 @@ export default function CreateUserPage() {
 
   const detailFieldIds = React.useMemo(() => {
     const base: string[] = sendInviteEmail
-      ? ['email', 'sendInviteEmail', 'organizationId', 'roles']
-      : ['email', 'sendInviteEmail', 'password', 'organizationId', 'roles']
+      ? ['email', 'name', 'sendInviteEmail', 'organizationId', 'roles']
+      : ['email', 'name', 'sendInviteEmail', 'password', 'organizationId', 'roles']
     if (actorIsSuperAdmin) {
       const orgIdx = base.indexOf('organizationId')
       base.splice(orgIdx, 0, 'tenantId')
@@ -294,6 +302,7 @@ export default function CreateUserPage() {
   const initialValues = React.useMemo<Partial<CreateUserFormValues>>(
     () => ({
       email: '',
+      name: '',
       password: '',
       tenantId: null,
       organizationId: null,
@@ -323,6 +332,7 @@ export default function CreateUserPage() {
             const customFields = collectCustomFieldValues(values)
             const payload: Record<string, unknown> = {
               email: values.email,
+              name: normalizeDisplayNameInput(values.name),
               organizationId: values.organizationId ? values.organizationId : null,
               roles: Array.isArray(values.roles) ? values.roles : [],
               ...(Object.keys(customFields).length ? { customFields } : {}),

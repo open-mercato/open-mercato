@@ -1,32 +1,37 @@
-"use client"
-import type { ReactNode } from 'react'
+/**
+ * @deprecated Import `EmptyState` from `@open-mercato/ui/primitives/empty-state`
+ * directly with `variant="subtle"` and `size="lg"` (matches the previous
+ * portal layout). The standalone `PortalEmptyState` is replaced by the
+ * unified primitive in DS Foundation v3.
+ *
+ * This shim preserves the legacy import path
+ * `@open-mercato/ui/portal/components/PortalEmptyState` for existing
+ * portal consumers — it forwards to the primitive with the portal-style
+ * variant + size pre-set.
+ */
 
-type PortalEmptyStateProps = {
-  icon?: ReactNode
+"use client"
+
+import * as React from 'react'
+import { EmptyState } from '../../primitives/empty-state'
+
+export type PortalEmptyStateProps = {
+  icon?: React.ReactNode
   title: string
   description?: string
-  action?: ReactNode
+  action?: React.ReactNode
 }
 
-/**
- * Empty state placeholder for portal sections with no content.
- * Dashed border, centered layout, optional icon and CTA.
- */
+/** @deprecated Use `EmptyState` from `@open-mercato/ui/primitives/empty-state` with `variant="subtle"` and `size="lg"`. */
 export function PortalEmptyState({ icon, title, description, action }: PortalEmptyStateProps) {
   return (
-    <div className="flex flex-col items-center justify-center gap-3 rounded-xl border border-dashed py-12 text-center">
-      {icon ? (
-        <div className="flex size-10 items-center justify-center rounded-lg bg-muted text-muted-foreground">
-          {icon}
-        </div>
-      ) : null}
-      <div>
-        <p className="text-sm font-medium text-foreground">{title}</p>
-        {description ? (
-          <p className="mt-0.5 max-w-sm text-sm text-muted-foreground">{description}</p>
-        ) : null}
-      </div>
-      {action ?? null}
-    </div>
+    <EmptyState
+      variant="subtle"
+      size="lg"
+      icon={icon}
+      title={title}
+      description={description}
+      actions={action}
+    />
   )
 }

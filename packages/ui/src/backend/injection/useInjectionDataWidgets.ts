@@ -2,7 +2,12 @@
 
 import * as React from 'react'
 import type { InjectionSpotId } from '@open-mercato/shared/modules/widgets/injection'
-import { loadInjectionDataWidgetsForSpot, type LoadedInjectionDataWidget } from '@open-mercato/shared/modules/widgets/injection-loader'
+import {
+  loadInjectionDataWidgetsForSpot,
+  getInjectionRegistryVersion,
+  subscribeToInjectionRegistryChanges,
+  type LoadedInjectionDataWidget,
+} from '@open-mercato/shared/modules/widgets/injection-loader'
 
 export function useInjectionDataWidgets(spotId: InjectionSpotId): {
   widgets: LoadedInjectionDataWidget[]
@@ -12,6 +17,17 @@ export function useInjectionDataWidgets(spotId: InjectionSpotId): {
   const [widgets, setWidgets] = React.useState<LoadedInjectionDataWidget[]>([])
   const [isLoading, setIsLoading] = React.useState(true)
   const [error, setError] = React.useState<string | null>(null)
+  // Re-load when the injection registry is (re-)populated. With the async
+  // ClientBootstrap, registration can land after this hook first runs; the
+  // version bump triggers a reload so injected menus/columns/fields appear
+  // without requiring an unrelated re-render.
+  const [registryVersion, setRegistryVersion] = React.useState(() => getInjectionRegistryVersion())
+
+  React.useEffect(() => {
+    return subscribeToInjectionRegistryChanges(() => {
+      setRegistryVersion(getInjectionRegistryVersion())
+    })
+  }, [])
 
   React.useEffect(() => {
     let mounted = true
@@ -35,7 +51,7 @@ export function useInjectionDataWidgets(spotId: InjectionSpotId): {
     return () => {
       mounted = false
     }
-  }, [spotId])
+  }, [spotId, registryVersion])
 
   return { widgets, isLoading, error }
 }

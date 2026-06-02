@@ -2,11 +2,12 @@
 
 import * as React from 'react'
 import Link from 'next/link'
-import { Building2, Users } from 'lucide-react'
+import { Building2, UserSearch, Users } from 'lucide-react'
+import { EmptyState } from '@open-mercato/ui/primitives/empty-state'
 import { useRouter, useSearchParams } from 'next/navigation'
 import { Page, PageBody } from '@open-mercato/ui/backend/Page'
 import { Button } from '@open-mercato/ui/primitives/button'
-import { AttachmentsSection, ErrorMessage, LoadingMessage, NotesSection } from '@open-mercato/ui/backend/detail'
+import { AttachmentsSection, ErrorMessage, LoadingMessage, NotesSection, RecordNotFoundState } from '@open-mercato/ui/backend/detail'
 import { InjectionSpot } from '@open-mercato/ui/backend/injection/InjectionSpot'
 import { useConfirmDialog } from '@open-mercato/ui/backend/confirm-dialog'
 import { CollapsibleZoneLayout } from '@open-mercato/ui/backend/crud/CollapsibleZoneLayout'
@@ -54,7 +55,7 @@ export default function DealDetailPage({ params }: { params?: { id?: string } })
   const { confirm, ConfirmDialogElement } = useConfirmDialog()
   const detailTranslator = React.useMemo(() => createTranslatorWithFallback(t), [t])
 
-  const { data, setData, isLoading, error, loadData } = useDealData(id)
+  const { data, setData, isLoading, error, isNotFound, loadData } = useDealData(id)
   const [isDirty, setIsDirty] = React.useState(false)
   const {
     scheduleDialogOpen,
@@ -302,19 +303,33 @@ export default function DealDetailPage({ params }: { params?: { id?: string } })
     )
   }
 
+  if (isNotFound) {
+    return (
+      <Page>
+        <PageBody>
+          <RecordNotFoundState
+            label={t('customers.deals.detail.error.notFound', 'Deal not found.')}
+            backHref="/backend/customers/deals"
+            backLabel={t('customers.deals.detail.actions.backToList', 'Back to deals')}
+          />
+        </PageBody>
+      </Page>
+    )
+  }
+
   if (error || !data) {
     return (
       <Page>
         <PageBody>
           <ErrorMessage
-            label={error || t('customers.deals.detail.error.notFound', 'Deal not found.')}
-            action={(
-              <Button asChild variant="outline">
+            label={error ?? t('customers.deals.detail.error.load', 'Failed to load deal.')}
+            action={
+              <Button asChild variant="outline" size="sm">
                 <Link href="/backend/customers/deals">
                   {t('customers.deals.detail.actions.backToList', 'Back to deals')}
                 </Link>
               </Button>
-            )}
+            }
           />
         </PageBody>
       </Page>
@@ -337,7 +352,7 @@ export default function DealDetailPage({ params }: { params?: { id?: string } })
         showVersionHistory={false}
         showCancelAction={false}
         onDirtyChange={setIsDirty}
-        collapsibleGroups={{ pageType: 'deal-detail-v3', chevronPosition: 'left' }}
+        collapsibleGroups={{ pageType: 'deal-detail-v3', chevronPosition: 'right' }}
         sortableGroups={{ pageType: 'deal-detail-v3' }}
         initialValues={{
           ...data.deal,
@@ -424,17 +439,15 @@ export default function DealDetailPage({ params }: { params?: { id?: string } })
                   onScheduleRequested={openSchedule}
                 />
               ) : (
-                <div className="rounded-[10px] border border-dashed border-border bg-muted/10 px-5 py-5">
-                  <div className="text-sm font-semibold text-foreground">
-                    {t('customers.deals.detail.activities.selectEntityRequiredTitle', 'Choose a person or company to continue')}
-                  </div>
-                  <div className="mt-1 text-sm text-muted-foreground">
-                    {t(
-                      'customers.deals.detail.activities.selectEntityRequiredDescription',
-                      'Select the customer record that should receive new deal activities before logging or scheduling anything.',
-                    )}
-                  </div>
-                </div>
+                <EmptyState
+                  size="sm"
+                  icon={<UserSearch className="h-8 w-8" aria-hidden="true" />}
+                  title={t('customers.deals.detail.activities.selectEntityRequiredTitle', 'Choose a person or company to continue')}
+                  description={t(
+                    'customers.deals.detail.activities.selectEntityRequiredDescription',
+                    'Select the customer record that should receive new deal activities before logging or scheduling anything.',
+                  )}
+                />
               )}
               <PlannedActivitiesSection
                 activities={plannedActivities}

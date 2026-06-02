@@ -1,7 +1,6 @@
 "use client"
 
 import * as React from 'react'
-import { Info } from 'lucide-react'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { Alert, AlertDescription } from '../../primitives/alert'
 import type {
@@ -34,12 +33,13 @@ function formatValue(value: unknown): string {
 }
 
 function DiffRow({ entry }: { entry: AiPendingActionCardFieldDiff }) {
-  const before = formatValue(entry.before)
-  const after = formatValue(entry.after)
+  const before = formatValue(entry.beforeDisplay ?? entry.before)
+  const after = formatValue(entry.afterDisplay ?? entry.after)
+  const field = entry.fieldLabel ?? entry.field
   return (
     <tr className="border-b border-border last:border-b-0" data-ai-field-diff-row>
       <td className="py-1.5 pr-4 text-xs font-mono text-muted-foreground align-top">
-        {entry.field}
+        {field}
       </td>
       <td
         className="py-1.5 pr-4 text-sm align-top text-status-warning-text"
@@ -129,7 +129,6 @@ export function FieldDiffCard({ fieldDiff, records }: FieldDiffCardProps) {
               />
             ) : (
               <Alert variant="info">
-                <Info className="size-4" aria-hidden />
                 <AlertDescription>
                   {t(
                     'ai_assistant.chat.mutation_cards.diff.empty',
@@ -147,7 +146,6 @@ export function FieldDiffCard({ fieldDiff, records }: FieldDiffCardProps) {
   if (flat.length === 0) {
     return (
       <Alert variant="info" data-ai-field-diff-mode="empty">
-        <Info className="size-4" aria-hidden />
         <AlertDescription>
           {t(
             'ai_assistant.chat.mutation_cards.diff.empty',

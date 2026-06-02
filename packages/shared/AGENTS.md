@@ -2,13 +2,31 @@
 
 Use `@open-mercato/shared` for cross-cutting utilities, types, DSL helpers, and infrastructure. MUST NOT import from `@open-mercato/core` or any domain package — shared has zero domain dependencies.
 
-## MUST Rules
+## Always
 
-1. **MUST NOT add domain-specific logic** — this package is infrastructure only
-2. **MUST use precise types** — no `any`, use zod schemas + `z.infer`
-3. **MUST check for existing utilities** before adding new helpers — avoid duplication
-4. **MUST export narrow interfaces** (e.g., `QueryEngine`) — never pass `any`/`unknown`
-5. **MUST centralize reusable types and constants here** to prevent drift across packages
+1. **MUST use precise types** — no `any`, use zod schemas + `z.infer`
+2. **MUST check for existing utilities** before adding new helpers — avoid duplication
+3. **MUST export narrow interfaces** (e.g., `QueryEngine`) — never pass `any`/`unknown`
+4. **MUST centralize reusable types and constants here** to prevent drift across packages
+
+## Ask First
+
+- Ask before adding a domain-specific helper, new override domain, or shared public type that becomes a cross-package contract.
+- Ask before changing import paths documented in this file.
+
+## Never
+
+- Never add domain-specific logic; this package is infrastructure only.
+- Never import from `@open-mercato/core` or any domain package; shared has zero domain dependencies.
+- Never gate raw feature arrays with `includes(...)`, `Set.has(...)`, or ad hoc wildcard matching.
+- Never use `any` for exported shared interfaces.
+
+## Validation Commands
+
+```bash
+yarn workspace @open-mercato/shared test
+yarn workspace @open-mercato/shared build
+```
 
 ## Library Directory (`src/lib/`)
 
@@ -43,6 +61,7 @@ When you need shared type definitions, import from these:
 | Search config types (`SearchModuleConfig`) | `@open-mercato/shared/modules/search` |
 | Module setup types (`ModuleSetupConfig`) | `@open-mercato/shared/modules/setup` |
 | Module registry types (`Module`) | `@open-mercato/shared/modules/registry` |
+| Module-level overrides (`ModuleOverrides`, dispatcher, per-domain compose helpers) | `@open-mercato/shared/modules/overrides` |
 
 ## Key Patterns
 
@@ -71,6 +90,14 @@ import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
 const { t } = await resolveTranslations()
 ```
 
+**User-facing vs internal errors.** When a `throw new Error(...)`, `createCrudFormError(...)`, `raiseCrudError(...)`, or `toast.*(...)` message will surface to a user, route it through `t('module.errors.<key>')`. When it's a developer-only assertion (programming bug, container/wiring issue, contract violation that should never be triggered at runtime), prefix the literal with `[internal]` so the i18n hardcoded-string checker treats it as opted out:
+
+```typescript
+throw new Error('[internal] Event bus not available in container')
+```
+
+The detection scripts (`yarn i18n:check-hardcoded`, `yarn i18n:check-values`) live in `scripts/`. See `.ai/specs/2026-05-26-missing-translations-audit-and-remediation.md` for the full convention and the per-module allowlist format (`<module>/i18n/.hardcoded-allowlist.json`).
+
 ### Request Scoping — use for scoped API payloads
 
 ```typescript
@@ -93,6 +120,29 @@ import { hasFeature, hasAllFeatures } from '@open-mercato/shared/security/featur
 
 - Use `parseIdsParam()` and `mergeIdFilter()` from `@open-mercato/shared/lib/crud/ids` for factory-level `ids` query support.
 - Keep `ids` format as comma-separated UUIDs (`?ids=uuid1,uuid2`) and intersect with existing `id` filters.
+
+### Module-Level Overrides (`@open-mercato/shared/modules/overrides`)
+
+Downstream apps replace or disable any contract a module presents through a single `entry.overrides` field on a `ModuleEntry`. The umbrella spec is `.ai/specs/2026-05-04-modules-ts-unified-overrides.md`; phases 1-18 are wired.
+
+| Use case | Helper |
+|----------|--------|
+| Walk `enabledModules` and dispatch every `overrides.<domain>` shape to wired appliers | `applyModuleOverridesFromEnabledModules(enabledModules)` |
+| Register a per-domain runtime hook (used by each wired phase) | `registerModuleOverrideApplier('<domain>', applier)` |
+| API routes | `applyApiRouteOverrides()`, `composeApiRouteOverrides()`, `applyApiOverridesToManifests()` |
+| Page routes | `applyPageRouteOverrides()`, `composePageRouteOverrides()`, `applyPageOverridesToManifests()` |
+| Subscribers / workers / CLI / ACL / encryption / setup | `applyModuleOverridesToModules()` plus `applySubscriberOverrides()`, `applyWorkerOverrides()`, `applyCliOverrides()`, `applyAclFeatureOverrides()`, `applyEncryptionMapOverrides()` |
+| Widgets | `applyInjectionWidgetOverridesToEntries()`, `applyInjectionWidgetOverridesToTables()`, `applyDashboardWidgetOverridesToEntries()`, `applyComponentOverridesToEntries()` |
+| Notifications / interceptors / enrichers / guards | `applyNotificationTypeOverridesToEntries()`, `applyNotificationHandlerOverridesToEntries()`, `applyApiInterceptorOverridesToEntries()`, `applyCommandInterceptorOverridesToEntries()`, `applyResponseEnricherOverridesToEntries()`, `applyPageGuardOverridesToEntries()` |
+| DI | `applyDiOverridesToContainer()` |
+
+MUST rules:
+- `entry.overrides` is the ONLY canonical override surface — never patch upstream module source.
+- API-route override keys are `'METHOD /api/path'` (method case-insensitive, path leading slash optional). Trailing slashes are stripped.
+- Page-route override keys are `'/backend/path'` or `'/frontend/path'`.
+- `null` disables the matching method; `{ handler, metadata? }` replaces it. Disabling every method on an entry drops the entry.
+- The dispatcher SHOULD run from `bootstrap.ts` BEFORE any registry first-loads (`registerApiRouteManifests`, widget registries, notification registries, etc.) so the overrides take effect when the registry stores entries.
+- Adding a new override domain MUST follow the umbrella spec: typed sub-shape + composer + runtime hook + tests + AGENTS.md/docs update + status-table tick.
 
 ### Query Engine Extensibility (UMES)
 

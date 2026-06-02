@@ -1,16 +1,8 @@
 import type { NextConfig } from "next";
-import fs from "node:fs";
 import path from "node:path";
 import { resolveAllowedDevOrigins } from './src/lib/dev-origins'
 
 const isDevelopment = process.env.NODE_ENV !== 'production'
-const appPackageJsonPath = new URL('./package.json', import.meta.url)
-const appPackageJson = JSON.parse(fs.readFileSync(appPackageJsonPath, 'utf8')) as {
-  dependencies?: Record<string, string>
-}
-const transpiledWorkspacePackages = Object.keys(appPackageJson.dependencies ?? {}).filter(
-  (packageName) => packageName.startsWith('@open-mercato/') && packageName !== '@open-mercato/cli',
-)
 const allowedDevOrigins = isDevelopment ? resolveAllowedDevOrigins() : []
 
 const contentSecurityPolicy = [
@@ -29,10 +21,18 @@ const contentSecurityPolicy = [
 
 const nextConfig: NextConfig = {
   distDir: '.mercato/next',
-  //transpilePackages: isDevelopment ? transpiledWorkspacePackages : undefined,
   experimental: {
     serverMinification: false,
     turbopackMinify: false,
+    // Tell Turbopack/Webpack to treat these packages as having modularized
+    // exports — only the named exports actually used in source are
+    // evaluated. Big win in dev mode for barrel-heavy libraries.
+    //   - lucide-react: 398 import sites, full barrel ~1000 icons.
+    //   - recharts: 12 import sites; pairs with the next/dynamic split in
+    //     packages/ui/src/backend/charts/*Impl.tsx.
+    //   - date-fns: already uses deep imports everywhere; listing it here
+    //     is defense-in-depth and harmless.
+    optimizePackageImports: ['lucide-react', 'recharts', 'date-fns'],
     ...(isDevelopment
       ? {
           preloadEntriesOnStart: false,
@@ -56,6 +56,7 @@ const nextConfig: NextConfig = {
     OM_SEARCH_MIN_LEN: process.env.OM_SEARCH_MIN_LEN,
   },
   async headers() {
+    const originHeaderName = (process.env.CUSTOMER_DOMAIN_ORIGIN_HEADER ?? 'X-Open-Mercato-Origin').trim()
     return [
       {
         source: '/:path*',
@@ -77,6 +78,14 @@ const nextConfig: NextConfig = {
           { key: 'X-Content-Type-Options', value: 'nosniff' },
           { key: 'X-Frame-Options', value: 'SAMEORIGIN' },
         ],
+      },
+      {
+        // Marker header consumed by the custom-domain DNS reverse-resolve check
+        // (see SPEC 2026-04-08-portal-custom-domain-routing). Lets the verifier
+        // tell "request reached our origin" from "request was answered by an
+        // unrelated host that proxied it through Cloudflare/Fastly".
+        source: '/_next/health',
+        headers: [{ key: originHeaderName, value: '1' }],
       },
     ]
   },

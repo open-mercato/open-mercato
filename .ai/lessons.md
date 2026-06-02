@@ -108,6 +108,16 @@ Centralize shared command utilities like undo extraction in `packages/shared/src
 
 **Applies to**: `scripts/dev.mjs`, `apps/mercato/scripts/dev.mjs`, `packages/create-app/template/scripts/dev.mjs`, and `packages/create-app/template/scripts/dev-runtime.mjs`.
 
+## Preserve Turbopack compiler cache during greenfield dev warmup
+
+**Context**: `yarn dev:greenfield` was changed to purge the whole configured Next.js distDir before booting the app.
+
+**Problem**: Removing all of `apps/mercato/.mercato/next` also deletes `.mercato/next/dev/cache/turbopack`. That turns `/login`, `POST /api/auth/login`, and especially `/backend` warmup into cold compiles, making greenfield startup much slower than regular `yarn dev` and slower than `main`.
+
+**Rule**: Greenfield cleanup may remove stale route/middleware manifests and lock files before startup, but must preserve `.mercato/next/dev/cache/turbopack`. Do not purge Next/Turbopack caches between warmup requests; cache reuse should make each subsequent warmup request faster. Only clear `.mercato/next/dev` for explicit `yarn dev:reset` or the one-shot corrupted Turbopack cache recovery path.
+
+**Applies to**: `scripts/dev-cache-purge.mjs`, `packages/create-app/template/scripts/dev-cache-purge.mjs`, `scripts/dev.mjs`, `packages/create-app/template/scripts/dev.mjs`, `apps/mercato/scripts/dev.mjs`, `packages/create-app/template/scripts/dev-runtime.mjs`, `scripts/dev-ephemeral.ts`, and related dev-server tests.
+
 ## Startup splash must distinguish blocking bootstrap failures from non-blocking runtime warnings
 
 **Context**: The compact splash runtime promoted any raw log line containing `failed` or `Error:` into a blocking startup failure.
@@ -167,6 +177,16 @@ Centralize shared command utilities like undo extraction in `packages/shared/src
 **Rule**: For process-wide runtime singletons used across package boundaries (event bus, similar registries), keep canonical reference in `globalThis` and use module-local variable only as fallback.
 
 **Applies to**: `packages/shared/src/modules/events/factory.ts` and any shared runtime singleton relied on by module auto-discovery/subscriber pipelines.
+
+## Store integration registry state in `globalThis` for standalone workers
+
+**Context**: Standalone snapshot integration tests bootstrapped `sync_excel` metadata, but the test-side queue drain loaded worker/sync-engine code through a second package module instance.
+
+**Problem**: The integration registry used module-local Maps, so `data_sync` could not resolve `sync_excel` to provider key `excel` in the worker path and fell back to the raw integration id.
+
+**Rule**: Shared runtime registries that translate module metadata for workers, CLI, or standalone parity must keep canonical mutable state in `globalThis`. Add isolated-module regression tests when fixing these paths.
+
+**Applies to**: `packages/shared/src/modules/integrations/types.ts` and similar shared registries consumed after dynamic app bootstrap.
 
 ## Feature-gated runtime helpers must use wildcard-aware permission matching
 
@@ -849,3 +869,43 @@ Centralize shared command utilities like undo extraction in `packages/shared/src
 **Rule**: Any module with header, sidebar, page, API, or runtime UI gated by `requireFeatures` / `hasFeature` must declare those feature grants in `setup.ts` for the default roles that should see the surface. Add ACL setup tests for visible shell features such as topbar icons.
 
 **Applies to**: Module `acl.ts` / `setup.ts` pairs, starter presets, `BackendHeaderChrome`, notification/message/search/AI shell buttons, and tenant initialization ACL tests.
+
+## PostgreSQL partial unique indexes are not constraints
+
+**Context**: AI token usage rollups created partial unique indexes for nullable `organization_id`, then the raw UPSERT tried `ON CONFLICT ON CONSTRAINT ai_token_usage_daily_tenant_day_agent_model_org_uq`.
+
+**Problem**: PostgreSQL `ON CONFLICT ON CONSTRAINT` can only target named table constraints. A partial unique index is only inferable through `ON CONFLICT (...) WHERE ...`, so the recorder logged a non-fatal failure on every token-usage write.
+
+**Rule**: When a nullable scope needs separate partial unique indexes (`organization_id IS NULL` / `IS NOT NULL`), raw UPSERTs must use conflict inference with the exact indexed columns and predicate. Add repository-level SQL-shape tests for every raw UPSERT against partial indexes.
+
+**Applies to**: `packages/**/data/repositories/**`, MikroORM migrations with partial unique indexes, and any raw `INSERT ... ON CONFLICT` SQL.
+
+## Normalize raw SQL result types before JSON responses
+
+**Context**: AI usage stats routes read PostgreSQL aggregate rows where `bigint` counters can arrive as JavaScript `bigint` values and timestamp/date expressions can arrive as strings instead of `Date` instances.
+
+**Problem**: `NextResponse.json` cannot serialize `bigint`, and calling `toISOString()` directly on raw SQL timestamp fields crashes when the driver returns a string. These failures surface only with real database result shapes, not with entity-shaped mocks.
+
+**Rule**: API routes that serialize raw SQL aggregate results must normalize every numeric and date field at the route boundary or in a shared serializer before returning JSON. Add route tests using driver-like `bigint` counters and string timestamps for every aggregate endpoint.
+
+**Applies to**: Raw SQL report/stat endpoints, especially `count(*)::bigint`, `sum(...)::bigint`, `min(created_at)`, `max(created_at)`, and any route returning database aggregate rows through `NextResponse.json`.
+
+## Custom-field detail UIs must accept canonical bare keys
+
+**Context**: Customer detail APIs normalize custom-field responses to bare keys such as `relationship_health`, while generated form fields use prefixed IDs such as `cf_relationship_health`.
+
+**Problem**: Read-only detail renderers that index only by the generated prefixed ID show empty select/relation values after a fresh fetch, even though editing and saving may work because form initialization has fallback key resolution.
+
+**Rule**: Shared custom-field detail components must resolve values by exact field ID first, then `cf:` and bare-key fallbacks for prefixed fields. Apply the same resolver to relation-display loading and read-only rendering so select, relation, text, and boolean fields use one response-shape contract.
+
+**Applies to**: `packages/ui/src/backend/detail/CustomDataSection.tsx`, customer/company/person detail custom-data sections, and any new detail renderer consuming normalized `customFields`.
+
+## Optional chrome fetches must suppress auth redirects
+
+**Context**: Backend pages for limited roles loaded unrelated optional shell data, such as message sender options, recipient suggestions, and AI conversation history. Those auxiliary requests hit feature-gated endpoints the current user was not meant to access.
+
+**Problem**: `apiCall` redirects the whole browser to `/login?requireFeature=...` on 403 by default. Optional header/sidebar/widget fetches can therefore break an otherwise authorized page when they call APIs for another module's feature, even if the caller handles `ok: false`.
+
+**Rule**: Any optional chrome, widget, dropdown-options, background sync, or feature-discovery request that is not required to render the current page must opt out of auth redirects with `x-om-forbidden-redirect: 0` and usually `x-om-unauthorized-redirect: 0`, then degrade to an empty/hidden state on non-OK responses.
+
+**Applies to**: `packages/ui/src/backend/**`, `packages/ui/src/ai/**`, topbar/sidebar providers, notification/message/AI shell hooks, and module widgets that fetch feature-gated data opportunistically.

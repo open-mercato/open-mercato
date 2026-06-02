@@ -19,6 +19,7 @@ import { Maximize2, Minimize2, X } from 'lucide-react'
 import type { AiChatContextItem, AiChatSuggestion } from './AiChat'
 import { ChatPaneTabs } from './ChatPaneTabs'
 import { useAiChatSessions } from './AiChatSessions'
+import { ConversationShareButton } from './ConversationShareButton'
 import { IconButton } from '../primitives/icon-button'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { cn } from '@open-mercato/shared/lib/utils'
@@ -381,7 +382,7 @@ function AiDockPanel({
         // primary surface (full-screen sheet) and a fixed side panel would
         // crowd the viewport.
         'hidden lg:flex',
-        'fixed top-0 right-0 z-overlay h-svh flex-col border-l bg-background shadow-lg',
+        'fixed top-0 right-0 z-overlay h-svh min-w-0 flex-col overflow-hidden border-l bg-background shadow-lg',
         collapsed ? 'w-12' : '',
       )}
       style={collapsed ? undefined : { width }}
@@ -475,10 +476,20 @@ function DockedChatBody({ assistant }: { assistant: AiDockedAssistant }) {
     if (!session) sessions.ensureSession(assistant.agent)
   }, [assistant.agent, session, sessions])
 
+  const activeSessionId = session?.id ?? null
+  const handleConversationNotFound = React.useCallback(() => {
+    // The server returned 404 for this session's conversationId. The
+    // conversation does not exist in the current tenant/org scope (most
+    // commonly the user just switched scope and a stale id rode along in
+    // localStorage). Close the tab so the dock surfaces the empty state
+    // for the new scope rather than a perpetual blank chat.
+    if (activeSessionId) sessions.closeSession(activeSessionId)
+  }, [activeSessionId, sessions])
+
   return (
     <>
       <ChatPaneTabs agentId={assistant.agent} className="border-b" />
-      <div className="min-h-0 flex-1" data-ai-dock-chat-container="">
+      <div className="min-h-0 min-w-0 flex-1 overflow-hidden" data-ai-dock-chat-container="">
         {session ? (
           <React.Suspense fallback={null}>
             <LazyAiChat
@@ -491,11 +502,14 @@ function DockedChatBody({ assistant }: { assistant: AiDockedAssistant }) {
               conversationId={session.conversationId}
               pageContext={assistant.pageContext}
               className="h-full"
+              defaultCompactFooter
               placeholder={assistant.placeholder}
               suggestions={assistant.suggestions}
               contextItems={assistant.contextItems}
               welcomeTitle={assistant.welcomeTitle}
               welcomeDescription={assistant.welcomeDescription}
+              headerActions={<ConversationShareButton conversationId={session.conversationId} />}
+              onConversationNotFound={handleConversationNotFound}
             />
           </React.Suspense>
         ) : null}

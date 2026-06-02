@@ -39,6 +39,28 @@ const events = [
     entity: 'ai_pending_action',
     category: 'system' as const,
   },
+  {
+    id: 'ai.token_usage.recorded',
+    label: 'AI Token Usage Recorded',
+    entity: 'token_usage',
+    category: 'system' as const,
+    clientBroadcast: false,
+    portalBroadcast: false,
+  },
+  {
+    id: 'ai_assistant.conversation.shared',
+    label: 'AI Conversation Shared',
+    entity: 'ai_chat_conversation',
+    category: 'lifecycle' as const,
+    clientBroadcast: true,
+  },
+  {
+    id: 'ai_assistant.conversation.unshared',
+    label: 'AI Conversation Unshared',
+    entity: 'ai_chat_conversation',
+    category: 'lifecycle' as const,
+    clientBroadcast: true,
+  },
 ] as const
 
 export const eventsConfig = createModuleEvents({
@@ -107,6 +129,23 @@ export interface AiActionExpiredPayload {
   resolvedAt: string
   expiresAt?: string
   expiredAt?: string
+}
+
+export interface AiConversationSharedPayload {
+  conversationId: string
+  tenantId: string
+  organizationId: string | null
+  ownerUserId: string
+  participantUserId: string
+  role: string
+}
+
+export interface AiConversationUnsharedPayload {
+  conversationId: string
+  tenantId: string
+  organizationId: string | null
+  ownerUserId: string
+  participantUserId: string
 }
 
 export default eventsConfig

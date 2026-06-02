@@ -3,6 +3,7 @@
 import * as React from 'react'
 import { useMemo } from 'react'
 import { useQuery } from '@tanstack/react-query'
+import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { apiCall } from '../utils/apiCall'
 import {
   Select,
@@ -32,7 +33,7 @@ export interface EventSelectProps {
   value: string
   /** Called when event is selected */
   onChange: (eventId: string) => void
-  /** Placeholder text when no event selected */
+  /** Placeholder text when no event selected. Defaults to a translated string. */
   placeholder?: string
   /** Additional CSS classes */
   className?: string
@@ -44,6 +45,8 @@ export interface EventSelectProps {
   modules?: string[]
   /** Whether to exclude events marked as excludeFromTriggers (default: true) */
   excludeTriggerExcluded?: boolean
+  /** Trigger size — defaults to `'default'` (DS row-height contract). */
+  size?: 'sm' | 'default' | 'lg'
 }
 
 /**
@@ -54,13 +57,19 @@ export interface EventSelectProps {
 export function EventSelect({
   value,
   onChange,
-  placeholder = 'Select an event...',
+  placeholder,
   className,
   disabled,
   categories,
   modules,
   excludeTriggerExcluded = true,
+  size = 'default',
 }: EventSelectProps) {
+  const t = useT()
+  const resolvedPlaceholder = placeholder ?? t('ui.inputs.eventSelect.placeholder', 'Select an event...')
+  const loadingPlaceholder = t('ui.inputs.eventSelect.loading', 'Loading...')
+  const emptyPlaceholder = t('ui.inputs.eventSelect.empty', 'No events available')
+
   // Fetch events from the API
   const { data: allEvents = [], isLoading } = useQuery({
     queryKey: ['declared-events', excludeTriggerExcluded],
@@ -115,9 +124,9 @@ export function EventSelect({
       onValueChange={(next) => onChange(next ?? '')}
       disabled={disabled || isLoading}
     >
-      <SelectTrigger size="lg" className={className}>
+      <SelectTrigger size={size} className={className}>
         <SelectValue
-          placeholder={isLoading ? 'Loading...' : isEmpty ? 'No events available' : placeholder}
+          placeholder={isLoading ? loadingPlaceholder : isEmpty ? emptyPlaceholder : resolvedPlaceholder}
         />
       </SelectTrigger>
       <SelectContent>

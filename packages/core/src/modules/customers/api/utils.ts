@@ -6,7 +6,6 @@ import type { EntityId } from '@open-mercato/shared/modules/entities'
 import type { QueryCustomFieldSource, QueryJoinEdge, QueryEngine } from '@open-mercato/shared/lib/query/types'
 import { resolveSearchConfig } from '@open-mercato/shared/lib/search/config'
 import { tokenizeText } from '@open-mercato/shared/lib/search/tokenize'
-import { deserializeAdvancedFilter } from '@open-mercato/shared/lib/query/advanced-filter'
 import { SortDir } from '@open-mercato/shared/lib/query/types'
 
 const { withScopedPayload, parseScopedCommandInput } = createScopedApiHelpers({
@@ -192,18 +191,24 @@ export async function findMatchingEntityIdsBySearchTokensAcrossSources({
   if (!trimmed) return null
 
   const enrichedSources = await enrichSearchSourcesWithCustomFieldTokens(ctx, sources)
+  const perSource = await Promise.all(
+    enrichedSources.map(async (source) => {
+      const rawIds = await findSearchTokenEntityIds({
+        ctx,
+        entityType: source.entityType,
+        fields: source.fields,
+        query: trimmed,
+      })
+      if (rawIds === null) return null
+      return source.mapToEntityIds
+        ? await mapScopedEntityIds({ ctx, ids: rawIds, config: source.mapToEntityIds })
+        : rawIds
+    }),
+  )
+
   const matchedIds = new Set<string>()
-  for (const source of enrichedSources) {
-    const rawIds = await findSearchTokenEntityIds({
-      ctx,
-      entityType: source.entityType,
-      fields: source.fields,
-      query: trimmed,
-    })
-    if (rawIds === null) return null
-    const entityIds = source.mapToEntityIds
-      ? await mapScopedEntityIds({ ctx, ids: rawIds, config: source.mapToEntityIds })
-      : rawIds
+  for (const entityIds of perSource) {
+    if (entityIds === null) return null
     entityIds.forEach((id) => matchedIds.add(id))
   }
 
@@ -276,19 +281,6 @@ export function applyEntityIdExclusion(
     ...(currentIdFilter ?? {}),
     $nin: Array.from(new Set([...currentNotIn, ...uniqueIds])),
   }
-}
-
-export function consumeAdvancedFilterState(query: Record<string, unknown>) {
-  const state = deserializeAdvancedFilter(query)
-  if (!state) return null
-
-  for (const key of Object.keys(query)) {
-    if (key.startsWith('filter[')) {
-      delete query[key]
-    }
-  }
-
-  return state
 }
 
 export async function findMatchingEntityIdsWithQueryEngine({

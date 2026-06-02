@@ -8,6 +8,14 @@ import { addCustomLine, addPayment, createSalesDocument, readGrandTotalGross } f
  */
 test.describe('TC-SALES-019: Payment Entry and Grand Total Stability', () => {
   test('should keep grand total stable after payment is recorded', async ({ page }) => {
+    // Multi-hop UI orchestration (login + createSalesDocument + addCustomLine
+    // + readGrandTotalGross + addPayment + readGrandTotalGross) regularly
+    // exceeds Playwright's 20s default budget on a cold ephemeral DB. Each
+    // helper waits up to TEST_WAIT_TIMEOUT_MS=10s for stable visibility.
+    // Per-test opt-in is the documented escape hatch; raising the global
+    // timeout in playwright.config.ts is rejected by project policy.
+    test.slow();
+
     await login(page, 'admin');
     await createSalesDocument(page, { kind: 'order' });
     await addCustomLine(page, { name: `QA TC-SALES-019 Item ${Date.now()}`, quantity: 1, unitPriceGross: 60 });

@@ -101,6 +101,21 @@ Follow these steps after the [prerequisites](./prerequisites) are in place:
    ```
    `yarn dev` starts the compact development runtime. On native local runs it serves a startup splash screen with live progress on `http://localhost:4000` by default, auto-opens that page when possible, and prints the backend URL in the terminal. Once the runtime is ready, continue to `http://localhost:3000/backend` and sign in with the credentials printed by `yarn initialize`.
 
+   To run multiple persistent local instances against the same PostgreSQL server (e.g. one per client repo), pass an optional `--database-name[=<name>]` flag. Without the flag, behavior is unchanged.
+
+   ```bash
+   # explicit name; .env update is offered with default-yes
+   yarn dev:greenfield --database-name=client_a
+
+   # bare flag derives the database name from the current directory
+   yarn dev --database-name
+
+   # one-off run that does not edit .env
+   yarn dev --database-name=client_a --no-update-env
+   ```
+
+   The override only rewrites the database segment of `DATABASE_URL`; credentials, host, port, and query parameters are preserved. CI/non-interactive runs default to updating `.env` — pass `--no-update-env` to opt out.
+
 ## Windows native local development
 
 This is the recommended Windows setup for day-to-day work on the monorepo. Docker Desktop runs the infrastructure services, while Node.js and Yarn run directly on Windows. The full `docker-compose.fullapp.dev.yml` stack remains available for isolated or fully containerized workflows, but on Windows it is usually much slower because a large Node.js monorepo with bind-mounted source files does heavy watched file reads across the Windows/Linux filesystem boundary.
@@ -241,6 +256,41 @@ To hide the coding-tools menu from the splash:
 
 ```bash
 OM_ENABLE_CODING_FLOW_FROM_SPLASH=false yarn dev
+```
+
+### In-process watcher and workers (memory optimization)
+
+To keep idle memory low, `yarn dev` now runs two things **in-process** inside the `mercato server dev` runtime instead of as separate long-running Node processes:
+
+- **Structural regeneration watcher** — the watcher that re-runs `mercato generate` when module files change is hosted by the dev server itself. Collapsing this dedicated sidecar saves ~190 MB of resident memory.
+- **Queue workers** — background queue workers are auto-spawned inside the dev process so jobs (indexing, bulk operations, notifications) are processed without a second runtime.
+
+This is the right default for most local development. If you need **higher throughput** — for example a heavy import/reindex, or to profile worker behavior in isolation — opt back into separate parallel processes with these flags.
+
+Run the generate watcher as a standalone sidecar process again:
+
+```bash
+OM_DEV_GENERATE_WATCH_MODE=legacy yarn dev
+```
+
+Stop the dev runtime from hosting workers, then run dedicated worker processes alongside it (each process runs its own event loop, so several in parallel scale throughput):
+
+```bash
+# In the dev runtime: do not auto-spawn in-process workers
+AUTO_SPAWN_WORKERS=false yarn dev
+
+# In separate terminals: dedicated worker processes, tuned per queue
+yarn mercato <module> worker <queue-name> --concurrency=5
+```
+
+Tune `--concurrency` per the queue guidelines (I/O-bound 5–10, CPU-bound 1–2, DB-heavy 3–5; never exceed 20). For production-grade parallelism across machines, set `QUEUE_STRATEGY=async` to use the Redis-backed BullMQ strategy.
+
+To poll for jobs lazily instead of holding eager in-process workers (lower idle cost, slightly higher pickup latency):
+
+```bash
+OM_AUTO_SPAWN_WORKERS_LAZY=true yarn dev
+# optional: tune the poll interval (ms, default 1000)
+OM_AUTO_SPAWN_WORKERS_LAZY_POLL_MS=500 yarn dev
 ```
 
 ## Docker Management

@@ -22,6 +22,24 @@ async function safeFill(page: Page, locator: Locator, value: string): Promise<vo
   await expect(locator).toBeVisible({ timeout: 10_000 });
   await expect(locator).toBeEnabled({ timeout: 10_000 });
   await locator.fill(value);
+  if ((await locator.inputValue()) !== value) {
+    await locator.evaluate((element, nextValue) => {
+      const input = element as HTMLInputElement | HTMLTextAreaElement;
+      const prototype = input instanceof HTMLTextAreaElement
+        ? HTMLTextAreaElement.prototype
+        : HTMLInputElement.prototype;
+      const valueSetter = Object.getOwnPropertyDescriptor(prototype, 'value')?.set;
+
+      if (!valueSetter) {
+        input.value = nextValue;
+      } else {
+        valueSetter.call(input, nextValue);
+      }
+
+      input.dispatchEvent(new InputEvent('input', { bubbles: true, inputType: 'insertText', data: nextValue }));
+      input.dispatchEvent(new Event('change', { bubbles: true }));
+    }, value);
+  }
   await expect(locator).toHaveValue(value, { timeout: 60_000 });
 }
 

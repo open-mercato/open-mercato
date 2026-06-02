@@ -20,8 +20,13 @@
 
   "remoteEnv": {
     "COREPACK_ENABLE_DOWNLOAD_PROMPT": "0",
+    "OM_AI_PROVIDER": "${localEnv:OM_AI_PROVIDER}",
+    "OM_AI_MODEL": "${localEnv:OM_AI_MODEL}",
+    "OPENCODE_PROVIDER": "${localEnv:OPENCODE_PROVIDER}",
+    "OPENCODE_MODEL": "${localEnv:OPENCODE_MODEL}",
     "ANTHROPIC_API_KEY": "${localEnv:ANTHROPIC_API_KEY}",
-    "OPENAI_API_KEY": "${localEnv:OPENAI_API_KEY}"
+    "OPENAI_API_KEY": "${localEnv:OPENAI_API_KEY}",
+    "GOOGLE_GENERATIVE_AI_API_KEY": "${localEnv:GOOGLE_GENERATIVE_AI_API_KEY}"
   },
 
   "customizations": {

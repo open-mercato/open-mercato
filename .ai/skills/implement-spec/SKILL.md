@@ -78,6 +78,7 @@ For every piece of code, enforce these code-review rules inline:
 | Security | `findWithDecryption`, tenant scoping, zod validation |
 | **Encryption maps** | **For every PII / GDPR-relevant column the phase touches, declare in `<module>/encryption.ts` exporting `defaultEncryptionMaps` (type from `@open-mercato/shared/modules/encryption`). Reads via `findWithDecryption` / `findOneWithDecryption` (5-arg `(em, entity, where, options?, scope?)`). Equality-lookup columns declare a sibling `hashField`. NEVER hand-rolled AES/KMS, `crypto.subtle`, or "encrypt later" stubs. See `packages/core/AGENTS.md` → Encryption + `apps/docs/docs/user-guide/encryption.mdx`.** |
 | UI | `CrudForm`/`DataTable` (with stable `entityId` + `extensionTableId`), `apiCall` (never raw `fetch`), `flash()`, `LoadingMessage`/`ErrorMessage` |
+| **Frontend performance boundaries** | **Implement the spec's Frontend Architecture Contract. Generated Next.js `page.tsx`/`layout.tsx` roots default to server components. Every `"use client"` needs a ledger justification. Split large client blobs into local leaves, lazy-scope provider/bootstrap registries, dynamically/local-import heavy browser libraries, and capture hydration/interactivity + performance evidence before merge. Run `yarn check:client-boundaries` for generated frontend/app shell changes.** |
 | **Design System** | **Semantic status tokens (no `text-red-*` / `bg-green-*`); Tailwind text scale (no `text-[13px]` / `text-[11px]`); shared primitives `StatusBadge` / `Alert` / `FormField` / `SectionHeader` / `CollapsibleSection` / `LoadingMessage` / `Spinner` / `DataLoader` / `EmptyState`; lucide-react icons in PAGE BODY (never inline `<svg>`); `aria-label` on every icon-only button; Boy Scout rule on touched lines. See root `AGENTS.md` → Design System Rules + `.ai/ds-rules.md` + `.ai/ui-components.md`.** |
 | **Cache** | **Resolve via DI (`container.resolve('cache')`); tag with `tenant:<id>` / `org:<id>`; declare invalidation per write path. NEVER `new Redis(...)` or raw SQLite. See `packages/cache/AGENTS.md`.** |
 | Commands | `registerCommand`, undoable, `extractUndoPayload()` |
@@ -132,6 +133,7 @@ Before marking a phase complete, run a self-review against the full checklist:
 10. **Module Setup** (section 10) — if applicable
 11. **Custom Fields** (section 11) — if applicable
 12. **UI & Backend Pages** (section 12) — if applicable
+    - For generated/frontend pages, confirm the Frontend Architecture Contract was implemented: page roots stay server-first, every `"use client"` is justified, no large client-side blob was introduced, provider/bootstrap registries are scoped, hydration/interactivity tests cover changed routes, performance evidence is attached, and `yarn check:client-boundaries` was run or explicitly waived.
 13. **i18n** (section 13)
 14. **Naming** (section 14)
 15. **Code Quality** (section 15)

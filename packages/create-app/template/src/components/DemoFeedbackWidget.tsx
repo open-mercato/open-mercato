@@ -7,6 +7,7 @@ import { MessageCircle, Send } from 'lucide-react'
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from '@open-mercato/ui/primitives/dialog'
 import { Button } from '@open-mercato/ui/primitives/button'
 import { Input } from '@open-mercato/ui/primitives/input'
+import { EmailInput } from '@open-mercato/ui/primitives/email-input'
 import { Textarea } from '@open-mercato/ui/primitives/textarea'
 import { Checkbox } from '@open-mercato/ui/primitives/checkbox'
 import { Spinner } from '@open-mercato/ui/primitives/spinner'
@@ -279,9 +280,8 @@ export function DemoFeedbackWidget({ demoModeEnabled }: { demoModeEnabled: boole
               )}
 
               <div className="grid gap-1">
-                <Input
+                <EmailInput
                   id="feedback-email"
-                  type="email"
                   placeholder={t('demoFeedback.form.email', 'Your email')}
                   value={email}
                   onChange={(e) => setEmail(e.target.value)}

@@ -173,17 +173,32 @@ export async function selectRecipientFromComposer(root: Page | Locator, email: s
 
   await expect(suggestion).toBeVisible({ timeout: 10_000 });
   await suggestion.click();
-  await expect(root.getByRole('button', { name: new RegExp(escapeRegex(email), 'i') })).toHaveCount(0);
+  // Anchor the regex: the DS Tag primitive renders the chip's remove icon as
+  // a button with `aria-label="Remove <label>"`, which would otherwise match
+  // the same regex used to assert "suggestion gone".
+  await expect(root.getByRole('button', { name: new RegExp(`^${escapeRegex(email)}$`, 'i') })).toHaveCount(0);
 }
 
 export async function searchMessages(page: Page, searchValue: string): Promise<void> {
   const input = page.getByPlaceholder('Search messages');
+  const currentValue = await input.inputValue().catch(() => '');
+  const expectedSearch = searchValue.trim();
+  if (currentValue.trim() === expectedSearch) {
+    await page.waitForTimeout(200);
+    return;
+  }
+  // Register the response listener BEFORE filling so a fast network response is
+  // not missed. Accept any /api/messages OK GET — the initial unfiltered load
+  // or the debounced search-filtered response — either signals that the table
+  // has fresh data. Search tokens are populated by an ephemeral subscriber, so
+  // waiting strictly for `search=expected` can resolve against an empty index.
   const listResponsePromise = page.waitForResponse(
-    (response) =>
-      response.request().method() === 'GET' &&
-      /\/api\/messages(?:\?|$)/.test(response.url()) &&
-      response.ok(),
-    { timeout: 5_000 },
+    (response) => {
+      if (response.request().method() !== 'GET' || !response.ok()) return false;
+      const url = new URL(response.url());
+      return url.pathname === '/api/messages';
+    },
+    { timeout: 10_000 },
   ).catch(() => null);
   await input.fill(searchValue);
   await listResponsePromise;

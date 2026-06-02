@@ -3,7 +3,7 @@ import { useState } from 'react'
 import Link from 'next/link'
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@open-mercato/ui/primitives/card'
 import { Button } from '@open-mercato/ui/primitives/button'
-import { Input } from '@open-mercato/ui/primitives/input'
+import { EmailInput } from '@open-mercato/ui/primitives/email-input'
 import { Label } from '@open-mercato/ui/primitives/label'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 
@@ -59,7 +59,7 @@ export default function ResetPage() {
               {error && <div className="text-sm text-red-600">{error}</div>}
               <div className="grid gap-1">
                 <Label htmlFor="email">{t('auth.email')}</Label>
-                <Input id="email" name="email" type="email" required aria-invalid={!!fieldError} aria-describedby={fieldError ? 'email-error' : undefined} />
+                <EmailInput id="email" name="email" required aria-invalid={!!fieldError} aria-describedby={fieldError ? 'email-error' : undefined} />
                 {fieldError && <p id="email-error" className="text-sm text-red-600">{fieldError}</p>}
               </div>
               <Button type="submit" className="mt-2 w-full" disabled={submitting}>

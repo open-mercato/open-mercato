@@ -76,6 +76,10 @@ export function isIgnorableBootstrapNoiseLine(line) {
   return normalized.startsWith('[Bootstrap] Entity IDs re-registered')
     || normalized.startsWith('🚀 Starting scheduler')
     || normalized.startsWith('✓ Local scheduler started')
+    || normalized.startsWith('[lazy-scheduler] Watching for enabled schedules')
+    || normalized.startsWith('[lazy-scheduler] Schedule probe failed')
+    || normalized.startsWith('[lazy-scheduler] Poll cycle failed')
+    || normalized.startsWith('[lazy-scheduler] Initial poll failed')
     || normalized.startsWith('💡 Tip:')
 }
 

@@ -1,6 +1,6 @@
 import { z } from 'zod'
 import type { EntityManager } from '@mikro-orm/postgresql'
-import { makeCrudRoute } from '@open-mercato/shared/lib/crud/factory'
+import { makeCrudRoute, type CrudCtx } from '@open-mercato/shared/lib/crud/factory'
 import { CrudHttpError } from '@open-mercato/shared/lib/crud/errors'
 import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
 import { splitCustomFieldPayload } from '@open-mercato/shared/lib/crud/custom-fields'
@@ -51,6 +51,161 @@ const toNumber = (value: unknown): number => {
     if (!Number.isNaN(parsed)) return parsed
   }
   return 0
+}
+
+export async function enrichShipmentListResponse(
+  payload: { items?: unknown[] },
+  ctx: CrudCtx,
+): Promise<void> {
+  const items = Array.isArray(payload.items) ? payload.items : []
+  if (!items.length) return
+  const snapshotMap = new Map<string, ReturnType<typeof readShipmentItemsSnapshot>>()
+  items.forEach((item: unknown) => {
+    if (!item || typeof item !== 'object') return
+    const id = (item as Record<string, unknown>).id
+    if (typeof id !== 'string') return
+    const snapshot = readShipmentItemsSnapshot(
+      (item as any).items_snapshot ?? (item as any).itemsSnapshot ?? null
+    )
+    if (snapshot.length) {
+      snapshotMap.set(id, snapshot)
+    }
+  })
+  const shipmentIds = items
+    .map((item: unknown) => {
+      if (!item || typeof item !== 'object') return null
+      const raw = (item as Record<string, unknown>).id
+      return typeof raw === 'string' ? raw : null
+    })
+    .filter((value: string | null): value is string => typeof value === 'string')
+  if (!shipmentIds.length) return
+  const em = ctx.container.resolve('em') as EntityManager
+  const statusIds: string[] = Array.from(
+    new Set(
+      items
+        .map((item: unknown) => {
+          if (!item || typeof item !== 'object') return null
+          const raw = (item as Record<string, unknown>).status_entry_id
+          return typeof raw === 'string' ? raw : null
+        })
+        .filter((value: string | null): value is string => typeof value === 'string' && value.length > 0)
+    )
+  )
+  const [shipmentItems, shippingMethods, statusEntries] = await Promise.all([
+    findWithDecryption(
+      em,
+      SalesShipmentItem,
+      { shipment: { $in: shipmentIds } },
+      { populate: ['orderLine'] },
+      { tenantId: ctx.auth?.tenantId ?? null, organizationId: ctx.auth?.orgId ?? null },
+    ),
+    (async () => {
+      const ids: string[] = Array.from(
+        new Set(
+          items
+            .map((item: unknown) => {
+              if (!item || typeof item !== 'object') return null
+              const raw = (item as Record<string, unknown>).shipping_method_id
+              return typeof raw === 'string' ? raw : null
+            })
+            .filter((value: string | null): value is string => typeof value === 'string' && value.length > 0)
+        )
+      )
+      if (!ids.length) return []
+      return em.find(SalesShippingMethod, { id: { $in: ids } })
+    })(),
+    statusIds.length ? em.find(DictionaryEntry, { id: { $in: statusIds } }) : [],
+  ])
+  const orderLineIds = Array.from(
+    new Set(
+      shipmentItems
+        .map((entry) =>
+          typeof entry.orderLine === 'string'
+            ? entry.orderLine
+            : entry.orderLine?.id ?? (entry as any).orderLineId ?? null
+        )
+        .filter((value): value is string => typeof value === 'string')
+    )
+  )
+  const orderLines = orderLineIds.length
+    ? await em.find(SalesOrderLine, { id: { $in: orderLineIds } })
+    : []
+  const lineMap = new Map(
+    orderLines.map((line) => [
+      line.id,
+      {
+        lineNumber: line.lineNumber ?? null,
+        name:
+          line.name ??
+          (typeof line.catalogSnapshot === 'object' && line.catalogSnapshot
+            ? ((line.catalogSnapshot as any).name as string | undefined) ?? null
+            : null),
+      },
+    ])
+  )
+  const grouped = shipmentItems.reduce<Map<string, Array<Record<string, unknown>>>>((acc, entry) => {
+    const shipmentId =
+      typeof entry.shipment === 'string'
+        ? entry.shipment
+        : entry.shipment?.id ?? (entry as any).shipment_id ?? null
+    const lineId =
+      typeof entry.orderLine === 'string'
+        ? entry.orderLine
+        : entry.orderLine?.id ?? (entry as any).order_line_id ?? null
+    if (!shipmentId || !lineId) return acc
+    const line = lineMap.get(lineId)
+    const list = acc.get(shipmentId) ?? []
+    list.push({
+      id: entry.id,
+      orderLineId: lineId,
+      orderLineName: line?.name ?? null,
+      orderLineNumber: line?.lineNumber ?? null,
+      quantity: toNumber(entry.quantity),
+      metadata: entry.metadata ?? null,
+    })
+    acc.set(shipmentId, list)
+    return acc
+  }, new Map())
+  const shippingMap = new Map(
+    shippingMethods.map((method) => [
+      method.id,
+      {
+        code: method.code ?? null,
+        name: method.name ?? method.code ?? null,
+      },
+    ])
+  )
+  const statusMap = new Map<string, { value: string | null; label: string | null }>()
+  statusEntries.forEach((entry) =>
+    statusMap.set(entry.id, {
+      value: entry.value ?? null,
+      label: entry.label ?? entry.value ?? null,
+    })
+  )
+  items.forEach((item: unknown) => {
+    if (!item || typeof item !== 'object') return
+    const id = (item as Record<string, unknown>).id
+    if (typeof id !== 'string') return
+    const snapshot = snapshotMap.get(id)
+    if (snapshot?.length) {
+      ;(item as Record<string, unknown>).items_snapshot = snapshot
+    }
+    ;(item as Record<string, unknown>).items = snapshot?.length ? snapshot : grouped.get(id) ?? []
+    const shippingId = (item as Record<string, unknown>).shipping_method_id
+    if (typeof shippingId === 'string' && shippingMap.has(shippingId)) {
+      const method = shippingMap.get(shippingId)
+      ;(item as Record<string, unknown>).shipping_method_code = method?.code ?? null
+      ;(item as Record<string, unknown>).shipping_method_name = method?.name ?? null
+    }
+    const statusId = (item as Record<string, unknown>).status_entry_id
+    if (typeof statusId === 'string' && statusMap.has(statusId)) {
+      const status = statusMap.get(statusId)
+      if (!(item as Record<string, unknown>).status) {
+        ;(item as Record<string, unknown>).status = status?.value ?? null
+      }
+      ;(item as Record<string, unknown>).status_label = status?.label ?? status?.value ?? null
+    }
+  })
 }
 
 const crud = makeCrudRoute({
@@ -153,155 +308,7 @@ const crud = makeCrudRoute({
     },
   },
   hooks: {
-    afterList: async (payload, ctx) => {
-      const items = Array.isArray(payload.items) ? payload.items : []
-      if (!items.length) return
-      const snapshotMap = new Map<string, ReturnType<typeof readShipmentItemsSnapshot>>()
-      items.forEach((item: unknown) => {
-        if (!item || typeof item !== 'object') return
-        const id = (item as Record<string, unknown>).id
-        if (typeof id !== 'string') return
-        const snapshot = readShipmentItemsSnapshot(
-          (item as any).items_snapshot ?? (item as any).itemsSnapshot ?? null
-        )
-        if (snapshot.length) {
-          snapshotMap.set(id, snapshot)
-        }
-      })
-      const shipmentIds = items
-        .map((item: unknown) => (item && typeof item === 'object' ? (item as Record<string, unknown>).id : null))
-        .filter((value: string | null): value is string => typeof value === 'string')
-      if (!shipmentIds.length) return
-      const em = ctx.container.resolve('em') as EntityManager
-      const [shipmentItems, shippingMethods] = await Promise.all([
-        findWithDecryption(
-          em,
-          SalesShipmentItem,
-          { shipment: { $in: shipmentIds } },
-          { populate: ['orderLine'] },
-          { tenantId: ctx.auth?.tenantId ?? null, organizationId: ctx.auth?.orgId ?? null },
-        ),
-        (async () => {
-          const ids: string[] = Array.from(
-            new Set(
-              items
-                .map((item: unknown) => {
-                  if (!item || typeof item !== 'object') return null
-                  const raw = (item as Record<string, unknown>).shipping_method_id
-                  return typeof raw === 'string' ? raw : null
-                })
-                .filter((value: string | null): value is string => typeof value === 'string' && value.length > 0)
-            )
-          )
-          if (!ids.length) return []
-          return em.find(SalesShippingMethod, { id: { $in: ids } })
-        })(),
-      ])
-      const orderLineIds = Array.from(
-        new Set(
-          shipmentItems
-            .map((entry) =>
-              typeof entry.orderLine === 'string'
-                ? entry.orderLine
-                : entry.orderLine?.id ?? (entry as any).orderLineId ?? null
-            )
-            .filter((value): value is string => typeof value === 'string')
-        )
-      )
-      const orderLines = orderLineIds.length
-        ? await em.find(SalesOrderLine, { id: { $in: orderLineIds } })
-        : []
-      const lineMap = new Map(
-        orderLines.map((line) => [
-          line.id,
-          {
-            lineNumber: line.lineNumber ?? null,
-            name:
-              line.name ??
-              (typeof line.catalogSnapshot === 'object' && line.catalogSnapshot
-                ? ((line.catalogSnapshot as any).name as string | undefined) ?? null
-                : null),
-          },
-        ])
-      )
-      const grouped = shipmentItems.reduce<Map<string, Array<Record<string, unknown>>>>((acc, entry) => {
-        const shipmentId =
-          typeof entry.shipment === 'string'
-            ? entry.shipment
-            : entry.shipment?.id ?? (entry as any).shipment_id ?? null
-        const lineId =
-          typeof entry.orderLine === 'string'
-            ? entry.orderLine
-            : entry.orderLine?.id ?? (entry as any).order_line_id ?? null
-        if (!shipmentId || !lineId) return acc
-        const line = lineMap.get(lineId)
-        const list = acc.get(shipmentId) ?? []
-        list.push({
-          id: entry.id,
-          orderLineId: lineId,
-          orderLineName: line?.name ?? null,
-          orderLineNumber: line?.lineNumber ?? null,
-          quantity: toNumber(entry.quantity),
-          metadata: entry.metadata ?? null,
-        })
-        acc.set(shipmentId, list)
-        return acc
-      }, new Map())
-      const shippingMap = new Map(
-        shippingMethods.map((method) => [
-          method.id,
-          {
-            code: method.code ?? null,
-            name: method.name ?? method.code ?? null,
-          },
-        ])
-      )
-      const statusIds: string[] = Array.from(
-        new Set(
-          items
-            .map((item: unknown) => {
-              if (!item || typeof item !== 'object') return null
-              const raw = (item as Record<string, unknown>).status_entry_id
-              return typeof raw === 'string' ? raw : null
-            })
-            .filter((value: string | null): value is string => typeof value === 'string' && value.length > 0)
-        )
-      )
-      const statusMap = new Map<string, { value: string | null; label: string | null }>()
-      if (statusIds.length) {
-        const entries = await em.find(DictionaryEntry, { id: { $in: statusIds } })
-        entries.forEach((entry) =>
-          statusMap.set(entry.id, {
-            value: entry.value ?? null,
-            label: entry.label ?? entry.value ?? null,
-          })
-        )
-      }
-      items.forEach((item: unknown) => {
-        if (!item || typeof item !== 'object') return
-        const id = (item as Record<string, unknown>).id
-        if (typeof id !== 'string') return
-        const snapshot = snapshotMap.get(id)
-        if (snapshot?.length) {
-          ;(item as Record<string, unknown>).items_snapshot = snapshot
-        }
-        ;(item as Record<string, unknown>).items = snapshot?.length ? snapshot : grouped.get(id) ?? []
-        const shippingId = (item as Record<string, unknown>).shipping_method_id
-        if (typeof shippingId === 'string' && shippingMap.has(shippingId)) {
-          const method = shippingMap.get(shippingId)
-          ;(item as Record<string, unknown>).shipping_method_code = method?.code ?? null
-          ;(item as Record<string, unknown>).shipping_method_name = method?.name ?? null
-        }
-        const statusId = (item as Record<string, unknown>).status_entry_id
-        if (typeof statusId === 'string' && statusMap.has(statusId)) {
-          const status = statusMap.get(statusId)
-          if (!(item as Record<string, unknown>).status) {
-            ;(item as Record<string, unknown>).status = status?.value ?? null
-          }
-          ;(item as Record<string, unknown>).status_label = status?.label ?? status?.value ?? null
-        }
-      })
-    },
+    afterList: (payload, ctx) => enrichShipmentListResponse(payload, ctx),
   },
 })
 

@@ -1288,6 +1288,7 @@ const createProductCommand: CommandHandler<
       optionSchemaTemplate = await requireOptionSchemaTemplate(
         em,
         parsed.optionSchemaId,
+        { tenantId: parsed.tenantId, organizationId: parsed.organizationId },
         translate("catalog.errors.optionSchemaNotFound", "Option schema not found"),
       );
       ensureSameScope(
@@ -1591,6 +1592,7 @@ const updateProductCommand: CommandHandler<
         const optionTemplate = await requireOptionSchemaTemplate(
           lookupEm,
           parsed.optionSchemaId,
+          { tenantId, organizationId },
           translate("catalog.errors.optionSchemaNotFound", "Option schema not found"),
         );
         ensureSameScope(optionTemplate, organizationId, tenantId);

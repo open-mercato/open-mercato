@@ -28,6 +28,7 @@ const widget: InjectionWidgetModule<Record<string, unknown>, Record<string, unkn
     description:
       'Renders an "Ask AI" button in the deal detail header that opens a sheet embedding the customers account assistant with deal-scoped page context.',
     features: ['customers.deals.view', 'ai_assistant.view'],
+    requiredModules: ['ai_assistant'],
     priority: 100,
     enabled: true,
   },

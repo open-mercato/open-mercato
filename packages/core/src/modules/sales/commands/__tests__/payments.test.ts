@@ -485,3 +485,308 @@ describe('createPaymentCommand.execute — transaction wrapping for race conditi
     expect(transactionalCalled).toBe(true)
   })
 })
+
+// ---------------------------------------------------------------------------
+// Security: payment allocation lookups validate tenant scope (issue S-01)
+// ---------------------------------------------------------------------------
+
+const FOREIGN_ORDER_ID = 'ffffffff-ffff-4fff-8fff-ffffffffffff'
+const FOREIGN_INVOICE_ID = 'aaaaaaaa-eeee-4eee-8eee-eeeeeeeeeeee'
+const SECOND_ORDER_ID = 'cccccccc-cccc-4ccc-8ccc-cccccccccccd'
+
+function buildScopedOrder(overrides: Record<string, unknown> = {}) {
+  return {
+    id: TEST_ORDER_ID,
+    tenantId: TEST_TENANT_ID,
+    organizationId: TEST_ORG_ID,
+    deletedAt: null,
+    currencyCode: 'USD',
+    paymentMethodId: null,
+    paymentMethodCode: null,
+    orderNumber: 'ORD-001',
+    grandTotalGrossAmount: '100',
+    paidTotalAmount: '0',
+    refundedTotalAmount: '0',
+    outstandingAmount: '100',
+    ...overrides,
+  }
+}
+
+describe('createPaymentCommand.execute — allocation orderId/invoiceId are tenant-scoped (S-01)', () => {
+  beforeEach(() => {
+    ;(findOneWithDecryption as jest.Mock).mockClear()
+    ;(findOneWithDecryption as jest.Mock).mockResolvedValue(null)
+    ;(findWithDecryption as jest.Mock).mockClear()
+    ;(findWithDecryption as jest.Mock).mockResolvedValue([])
+  })
+
+  it('rejects an allocation whose orderId is not in scope', async () => {
+    const execute = commandRegistry.get('sales.payments.create')?.execute
+    expect(execute).toBeInstanceOf(Function)
+
+    ;(findOneWithDecryption as jest.Mock).mockImplementation(
+      async (_em: unknown, _entity: unknown, filter: Record<string, unknown>) => {
+        if (filter?.id === TEST_ORDER_ID) return buildScopedOrder()
+        // Cross-tenant allocation order id → repo returns null → assertFound throws 404
+        return null
+      },
+    )
+
+    const { ctx } = buildCommandCtx()
+
+    await expect(
+      execute?.(
+        {
+          orderId: TEST_ORDER_ID,
+          tenantId: TEST_TENANT_ID,
+          organizationId: TEST_ORG_ID,
+          amount: 100,
+          currencyCode: 'USD',
+          allocations: [
+            { orderId: FOREIGN_ORDER_ID, amount: 100, currencyCode: 'USD' },
+          ],
+        },
+        ctx as any,
+      )
+    ).rejects.toMatchObject({ status: 404 })
+
+    const allocationLookup = (findOneWithDecryption as jest.Mock).mock.calls.find(
+      ([_em, _entity, filter]: [unknown, unknown, Record<string, unknown>]) =>
+        filter?.id === FOREIGN_ORDER_ID
+    )
+    expect(allocationLookup).toBeDefined()
+    expect(allocationLookup[4]).toMatchObject({
+      tenantId: TEST_TENANT_ID,
+      organizationId: TEST_ORG_ID,
+    })
+  })
+
+  it('rejects an allocation whose invoiceId is not in scope', async () => {
+    const execute = commandRegistry.get('sales.payments.create')?.execute
+    expect(execute).toBeInstanceOf(Function)
+
+    ;(findOneWithDecryption as jest.Mock).mockImplementation(
+      async (_em: unknown, _entity: unknown, filter: Record<string, unknown>) => {
+        if (filter?.id === TEST_ORDER_ID) return buildScopedOrder()
+        // Cross-tenant invoice id → repo returns null → assertFound throws 404
+        return null
+      },
+    )
+
+    const { ctx } = buildCommandCtx()
+
+    await expect(
+      execute?.(
+        {
+          orderId: TEST_ORDER_ID,
+          tenantId: TEST_TENANT_ID,
+          organizationId: TEST_ORG_ID,
+          amount: 100,
+          currencyCode: 'USD',
+          allocations: [
+            { orderId: TEST_ORDER_ID, invoiceId: FOREIGN_INVOICE_ID, amount: 100, currencyCode: 'USD' },
+          ],
+        },
+        ctx as any,
+      )
+    ).rejects.toMatchObject({ status: 404 })
+
+    const invoiceLookup = (findOneWithDecryption as jest.Mock).mock.calls.find(
+      ([_em, _entity, filter]: [unknown, unknown, Record<string, unknown>]) =>
+        filter?.id === FOREIGN_INVOICE_ID
+    )
+    expect(invoiceLookup).toBeDefined()
+    expect(invoiceLookup[4]).toMatchObject({
+      tenantId: TEST_TENANT_ID,
+      organizationId: TEST_ORG_ID,
+    })
+  })
+
+  it('reuses the scope-validated order without a second lookup when allocation.orderId matches input.orderId', async () => {
+    const execute = commandRegistry.get('sales.payments.create')?.execute
+    expect(execute).toBeInstanceOf(Function)
+
+    ;(findOneWithDecryption as jest.Mock).mockImplementation(
+      async (_em: unknown, _entity: unknown, filter: Record<string, unknown>) => {
+        if (filter?.id === TEST_ORDER_ID) return buildScopedOrder()
+        return null
+      },
+    )
+
+    const { ctx } = buildCommandCtx()
+
+    await execute?.(
+      {
+        orderId: TEST_ORDER_ID,
+        tenantId: TEST_TENANT_ID,
+        organizationId: TEST_ORG_ID,
+        amount: 100,
+        currencyCode: 'USD',
+        allocations: [
+          { orderId: TEST_ORDER_ID, amount: 100, currencyCode: 'USD' },
+        ],
+      },
+      ctx as any,
+    )
+
+    const orderLookups = (findOneWithDecryption as jest.Mock).mock.calls.filter(
+      ([_em, _entity, filter]: [unknown, unknown, Record<string, unknown>]) =>
+        filter?.id === TEST_ORDER_ID
+    )
+    // Exactly one lookup for the main order; the matching allocation reuses it from the cache.
+    expect(orderLookups.length).toBe(1)
+  })
+
+  it('accepts a different in-scope allocation orderId and scope-validates it via findOneWithDecryption', async () => {
+    const execute = commandRegistry.get('sales.payments.create')?.execute
+    expect(execute).toBeInstanceOf(Function)
+
+    ;(findOneWithDecryption as jest.Mock).mockImplementation(
+      async (_em: unknown, _entity: unknown, filter: Record<string, unknown>) => {
+        if (filter?.id === TEST_ORDER_ID) return buildScopedOrder()
+        if (filter?.id === SECOND_ORDER_ID) {
+          return buildScopedOrder({ id: SECOND_ORDER_ID, orderNumber: 'ORD-002' })
+        }
+        return null
+      },
+    )
+
+    const { ctx } = buildCommandCtx()
+
+    await expect(
+      execute?.(
+        {
+          orderId: TEST_ORDER_ID,
+          tenantId: TEST_TENANT_ID,
+          organizationId: TEST_ORG_ID,
+          amount: 100,
+          currencyCode: 'USD',
+          allocations: [
+            { orderId: SECOND_ORDER_ID, amount: 100, currencyCode: 'USD' },
+          ],
+        },
+        ctx as any,
+      )
+    ).resolves.toBeDefined()
+
+    const secondOrderLookup = (findOneWithDecryption as jest.Mock).mock.calls.find(
+      ([_em, _entity, filter]: [unknown, unknown, Record<string, unknown>]) =>
+        filter?.id === SECOND_ORDER_ID
+    )
+    expect(secondOrderLookup).toBeDefined()
+    expect(secondOrderLookup[4]).toMatchObject({
+      tenantId: TEST_TENANT_ID,
+      organizationId: TEST_ORG_ID,
+    })
+  })
+})
+
+describe('updatePaymentCommand.execute — allocation orderId/invoiceId are tenant-scoped (S-01)', () => {
+  beforeEach(() => {
+    ;(findOneWithDecryption as jest.Mock).mockClear()
+    ;(findOneWithDecryption as jest.Mock).mockResolvedValue(null)
+    ;(findWithDecryption as jest.Mock).mockClear()
+    ;(findWithDecryption as jest.Mock).mockResolvedValue([])
+  })
+
+  const buildScopedPayment = (overrides: Record<string, unknown> = {}) => ({
+    id: TEST_PAYMENT_ID,
+    tenantId: TEST_TENANT_ID,
+    organizationId: TEST_ORG_ID,
+    order: buildScopedOrder(),
+    paymentMethod: null,
+    paymentReference: null,
+    statusEntryId: null,
+    status: null,
+    amount: '100',
+    currencyCode: 'USD',
+    capturedAmount: '0',
+    refundedAmount: '0',
+    receivedAt: null,
+    capturedAt: null,
+    metadata: null,
+    customFieldSetId: null,
+    updatedAt: new Date(),
+    ...overrides,
+  })
+
+  it('rejects allocation update where orderId is not in scope', async () => {
+    const execute = commandRegistry.get('sales.payments.update')?.execute
+    expect(execute).toBeInstanceOf(Function)
+
+    const payment = buildScopedPayment()
+    ;(findOneWithDecryption as jest.Mock).mockImplementation(
+      async (_em: unknown, _entity: unknown, filter: Record<string, unknown>) => {
+        if (filter?.id === TEST_PAYMENT_ID) return payment
+        if (filter?.id === SECOND_ORDER_ID) return null
+        return null
+      },
+    )
+
+    const { ctx } = buildCommandCtx()
+
+    await expect(
+      execute?.(
+        {
+          id: TEST_PAYMENT_ID,
+          tenantId: TEST_TENANT_ID,
+          organizationId: TEST_ORG_ID,
+          allocations: [
+            { orderId: SECOND_ORDER_ID, amount: 100, currencyCode: 'USD' },
+          ],
+        },
+        ctx as any,
+      )
+    ).rejects.toMatchObject({ status: 404 })
+
+    const allocationLookup = (findOneWithDecryption as jest.Mock).mock.calls.find(
+      ([_em, _entity, filter]: [unknown, unknown, Record<string, unknown>]) =>
+        filter?.id === SECOND_ORDER_ID
+    )
+    expect(allocationLookup).toBeDefined()
+    expect(allocationLookup[4]).toMatchObject({
+      tenantId: TEST_TENANT_ID,
+      organizationId: TEST_ORG_ID,
+    })
+  })
+
+  it('rejects allocation update where invoiceId is not in scope', async () => {
+    const execute = commandRegistry.get('sales.payments.update')?.execute
+    expect(execute).toBeInstanceOf(Function)
+
+    const payment = buildScopedPayment()
+    ;(findOneWithDecryption as jest.Mock).mockImplementation(
+      async (_em: unknown, _entity: unknown, filter: Record<string, unknown>) => {
+        if (filter?.id === TEST_PAYMENT_ID) return payment
+        if (filter?.id === FOREIGN_INVOICE_ID) return null
+        return null
+      },
+    )
+
+    const { ctx } = buildCommandCtx()
+
+    await expect(
+      execute?.(
+        {
+          id: TEST_PAYMENT_ID,
+          tenantId: TEST_TENANT_ID,
+          organizationId: TEST_ORG_ID,
+          allocations: [
+            { orderId: TEST_ORDER_ID, invoiceId: FOREIGN_INVOICE_ID, amount: 100, currencyCode: 'USD' },
+          ],
+        },
+        ctx as any,
+      )
+    ).rejects.toMatchObject({ status: 404 })
+
+    const invoiceLookup = (findOneWithDecryption as jest.Mock).mock.calls.find(
+      ([_em, _entity, filter]: [unknown, unknown, Record<string, unknown>]) =>
+        filter?.id === FOREIGN_INVOICE_ID
+    )
+    expect(invoiceLookup).toBeDefined()
+    expect(invoiceLookup[4]).toMatchObject({
+      tenantId: TEST_TENANT_ID,
+      organizationId: TEST_ORG_ID,
+    })
+  })
+})

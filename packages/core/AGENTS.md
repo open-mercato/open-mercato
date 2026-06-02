@@ -2,6 +2,42 @@
 
 `@open-mercato/core` contains all core business modules (auth, catalog, customers, sales, etc.). This guide covers the full extensibility contract and module development patterns.
 
+## Always
+
+- Preserve auto-discovery contracts for module files, API routes, pages, subscribers, workers, widgets, and generated registries.
+- Export `openApi` from every API route file.
+- Use `makeCrudRoute` with `indexer: { entityType }` for CRUD routes that should participate in query indexing.
+- Wire custom write routes through the mutation guard contract.
+- Use declarative feature guards and add new `acl.ts` features to `setup.ts` `defaultRoleFeatures`.
+- Use `findWithDecryption` / `findOneWithDecryption` for encrypted entities.
+- Implement domain writes through commands so audit, undo, cache, events, and indexing stay consistent.
+- Run `yarn generate` after changing module files discovered by the generator.
+
+## Ask First
+
+- Ask before changing any contract surface from `BACKWARD_COMPATIBILITY.md`: auto-discovery, public types, import paths, event IDs, widget spot IDs, API URLs, DB schema, DI names, ACL features, notification IDs, CLI commands, or generated file contracts.
+- Ask before moving versioned generated files or changing where generated registries live.
+- Ask before applying migrations with `yarn db:migrate`; normal PRs should include migration files and snapshots.
+
+## Never
+
+- Never create direct ORM relationships between modules; use foreign key IDs and fetch separately.
+- Never expose cross-tenant data or omit tenant/organization scoping.
+- Never hand-edit generated files.
+- Never import generated app bootstrap files from packages.
+- Never run raw `em.find` / `em.findOne` between scalar mutations and `em.flush()` on the same `EntityManager` without `withAtomicFlush`.
+- Never hand-roll AES/KMS encryption or bypass `TenantDataEncryptionService`.
+- Never compare raw feature arrays with exact string checks when wildcard grants apply.
+
+## Validation Commands
+
+```bash
+yarn db:generate
+yarn generate
+yarn workspace @open-mercato/core build
+yarn workspace @open-mercato/core test
+```
+
 ## Core Modules
 
 | Module | Path | Description |
@@ -234,6 +270,20 @@ Event fields: `id` (required), `label` (required), `description`, `category` (`c
 MUST use `as const` — provides compile-time safety; undeclared events trigger TypeScript errors and runtime warnings.
 
 Run `yarn generate` after creating/modifying `events.ts` files.
+
+## Operation Progress
+
+Use the progress module for every user-visible bulk operation and every future long-running operation. Read `packages/core/src/modules/progress/AGENTS.md` before adding selected-row actions, import/export jobs, reindexing flows, external sync operations, or queued destructive work.
+
+MUST rules:
+
+1. **MUST create a `ProgressJob`** for server-side bulk or long-running work — return `progressJobId` to the UI so `ProgressTopBar` can track it.
+2. **MUST use `@open-mercato/queue` workers** for work that should continue after navigation or retry after process failure.
+3. **MUST execute domain mutations through commands** from workers — do not bypass audit, undo, cache invalidation, or events with direct ORM mutation loops.
+4. **MUST scope progress jobs and worker payloads** with `tenantId` and `organizationId`.
+5. **MUST use shared UI progress helpers** for browser-bound DataTable bulk loops; do not build page-local progress banners.
+
+Reference implementation: `packages/core/src/modules/catalog/api/bulk-delete/route.ts`, `packages/core/src/modules/catalog/workers/catalog-product-bulk-delete.ts`, and `packages/core/src/modules/catalog/lib/bulkDelete.ts`.
 
 ## Translatable Fields
 
@@ -579,7 +629,7 @@ const crud = makeCrudRoute({
 })
 ```
 
-### Key Rules
+### Response Enricher Rules
 
 - MUST implement `enrichMany()` for batch endpoints (prevents N+1 queries)
 - MUST namespace enriched fields with `_moduleName` prefix (e.g. `_example.todoCount`)

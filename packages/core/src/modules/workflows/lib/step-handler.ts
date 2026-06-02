@@ -19,6 +19,8 @@ import {
   type StepInstanceStatus,
   type WorkflowStepType,
 } from '../data/entities'
+import { parseDuration } from './duration'
+import { logWorkflowEvent } from './event-logger'
 
 // ============================================================================
 // Types and Interfaces
@@ -333,9 +335,11 @@ async function executeStepByType(
     case 'WAIT_FOR_SIGNAL':
       return await handleWaitForSignalStep(em, instance, stepInstance, stepDef, context)
 
+    case 'WAIT_FOR_TIMER':
+      return await handleWaitForTimerStep(em, instance, stepInstance, stepDef, context)
+
     case 'PARALLEL_FORK':
     case 'PARALLEL_JOIN':
-    case 'WAIT_FOR_TIMER':
       // These will be implemented in later phases
       throw new StepExecutionError(
         `Step type not yet implemented: ${stepType}`,
@@ -756,65 +760,118 @@ async function handleWaitForSignalStep(
   }
 }
 
+/**
+ * Handle WAIT_FOR_TIMER step - pause workflow until a timer fires.
+ *
+ * Reads `duration` (relative, e.g. "PT5M") or `until` (ISO 8601 datetime) from
+ * `stepDef.config` (preferred — matches StepsEditor) or `stepDef.timerConfig`.
+ * Enqueues a delayed timer job on the workflow-activities queue; when the job
+ * is processed by the activity worker, it calls `timerHandler.fireTimer` to
+ * resume the workflow.
+ */
+async function handleWaitForTimerStep(
+  em: EntityManager,
+  instance: WorkflowInstance,
+  stepInstance: StepInstance,
+  stepDef: any,
+  context: StepExecutionContext
+): Promise<StepExecutionResult> {
+  const timerConfig = stepDef.config || stepDef.timerConfig || {}
+  const duration: string | undefined = timerConfig.duration
+  const until: string | undefined = timerConfig.until
+
+  if (!duration && !until) {
+    throw new StepExecutionError(
+      'WAIT_FOR_TIMER requires either "duration" (e.g., "PT5M") or "until" (ISO 8601 datetime)',
+      'TIMER_CONFIG_MISSING',
+      { stepId: stepDef.stepId }
+    )
+  }
+
+  let fireAtMs: number
+  if (until) {
+    const targetDate = new Date(until)
+    if (isNaN(targetDate.getTime())) {
+      throw new StepExecutionError(
+        `WAIT_FOR_TIMER invalid "until" datetime: ${until}`,
+        'TIMER_CONFIG_INVALID',
+        { until }
+      )
+    }
+    fireAtMs = targetDate.getTime()
+  } else {
+    fireAtMs = Date.now() + parseDuration(duration as string)
+  }
+
+  const delayMs = fireAtMs - Date.now()
+  const fireAt = new Date(fireAtMs)
+
+  // Immediate-fire path: skip the queue round-trip if the timer is in the past
+  if (delayMs <= 0) {
+    return {
+      status: 'COMPLETED',
+      outputData: {
+        stepType: 'WAIT_FOR_TIMER',
+        timerFiredImmediately: true,
+        fireAt,
+        duration,
+        until,
+      },
+    }
+  }
+
+  const now = new Date()
+
+  // Enqueue delayed timer job via the shared activity queue.
+  // Imported here to avoid a top-level cycle between step-handler and activity-executor.
+  const { enqueueTimerJob } = await import('./activity-executor')
+  const jobId = await enqueueTimerJob({
+    workflowInstanceId: instance.id,
+    stepInstanceId: stepInstance.id,
+    tenantId: instance.tenantId,
+    organizationId: instance.organizationId,
+    userId: context.userId,
+    fireAt: fireAt.toISOString(),
+    delayMs,
+  })
+
+  await logWorkflowEvent(em, {
+    workflowInstanceId: instance.id,
+    stepInstanceId: stepInstance.id,
+    eventType: 'TIMER_AWAITING',
+    eventData: {
+      fireAt: fireAt.toISOString(),
+      duration: duration || null,
+      until: until || null,
+      jobId,
+    },
+    userId: context.userId,
+    tenantId: instance.tenantId,
+    organizationId: instance.organizationId,
+  })
+
+  instance.status = 'PAUSED'
+  instance.pausedAt = now
+  instance.updatedAt = now
+  await em.flush()
+
+  return {
+    status: 'WAITING',
+    waitReason: 'TIMER',
+    outputData: {
+      fireAt,
+      duration,
+      until,
+      jobId,
+    },
+  }
+}
+
 // ============================================================================
 // Helper Functions
 // ============================================================================
 
-/**
- * Parse ISO 8601 duration to milliseconds
- *
- * Supports:
- * - ISO 8601: PT5M (5 minutes), PT1H (1 hour), P1D (1 day), P3D (3 days)
- * - Simple formats: 5m, 1h, 3d, 30s
- *
- * @param duration - Duration string
- * @returns Duration in milliseconds
- */
-function parseDuration(duration: string): number {
-  // Try ISO 8601 format first: P[n]DT[n]H[n]M[n]S
-  const iso8601Regex = /P(?:(\d+)D)?(?:T(?:(\d+)H)?(?:(\d+)M)?(?:(\d+)S)?)?/
-  const iso8601Match = duration.match(iso8601Regex)
-
-  if (iso8601Match && iso8601Match[0] === duration) {
-    const days = parseInt(iso8601Match[1] || '0')
-    const hours = parseInt(iso8601Match[2] || '0')
-    const minutes = parseInt(iso8601Match[3] || '0')
-    const seconds = parseInt(iso8601Match[4] || '0')
-
-    return (
-      days * 24 * 60 * 60 * 1000 +
-      hours * 60 * 60 * 1000 +
-      minutes * 60 * 1000 +
-      seconds * 1000
-    )
-  }
-
-  // Try simple format: 1d, 5h, 30m, 45s
-  const simpleRegex = /^(\d+)(d|h|m|s)$/
-  const simpleMatch = duration.match(simpleRegex)
-
-  if (simpleMatch) {
-    const value = parseInt(simpleMatch[1])
-    const unit = simpleMatch[2]
-
-    switch (unit) {
-      case 'd':
-        return value * 24 * 60 * 60 * 1000
-      case 'h':
-        return value * 60 * 60 * 1000
-      case 'm':
-        return value * 60 * 1000
-      case 's':
-        return value * 1000
-    }
-  }
-
-  throw new StepExecutionError(
-    `Invalid duration format: ${duration}`,
-    'INVALID_DURATION',
-    { duration }
-  )
-}
+// parseDuration is imported from ./duration
 
 /**
  * Log step-related event to event sourcing table

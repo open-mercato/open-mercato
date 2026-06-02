@@ -34,7 +34,7 @@ export async function deleteRoleIfExists(
 export async function createUserFixture(
   request: APIRequestContext,
   token: string,
-  input: { email: string; password: string; organizationId: string; roles: string[] },
+  input: { email: string; password: string; organizationId: string; roles: string[]; name?: string },
 ): Promise<string> {
   const response = await apiRequest(request, 'POST', '/api/auth/users', {
     token,

@@ -1,6 +1,6 @@
 ---
 name: create-ai-agent
-description: Build, override, or extend a typed Open Mercato AI agent (chat or structured-object) using the unified AI framework — declare `ai-agents.ts`, register tool packs via `defineAiTool`, patch existing agents with `aiAgentExtensions`, gate mutations through the approval contract, wire ACL features, and embed `<AiChat>` into a backoffice or portal page. Works in both the monorepo (`packages/<x>/src/modules/<module>/`) and standalone projects (`apps/<app>/src/modules/<module>/` or `node_modules/@open-mercato/<package>` consumers). Triggers on "create AI agent", "add AI agent", "build AI assistant", "extend AI agent", "override AI agent", "add tool to existing agent", "wire ai-agents.ts", "add ai-tools.ts", "embed AiChat", "agent for module".
+description: Build, override, or extend a typed Open Mercato AI agent (chat or structured-object) using the unified AI framework — declare `ai-agents.ts`, register tool packs via `defineAiTool`, patch existing agents with `aiAgentExtensions`, configure agentic loop controls (`loop.stopWhen` / `loop.prepareStep` / `loop.budget` / `executionEngine`), gate mutations through the approval contract, wire ACL features, and embed `<AiChat>` into a backoffice or portal page. Works in both the monorepo (`packages/<x>/src/modules/<module>/`) and standalone projects (`apps/<app>/src/modules/<module>/` or `node_modules/@open-mercato/<package>` consumers). Triggers on "create AI agent", "add AI agent", "build AI assistant", "extend AI agent", "override AI agent", "add tool to existing agent", "wire ai-agents.ts", "add ai-tools.ts", "embed AiChat", "agent for module", "agentic loop", "configure loop budget", "tool-loop-agent".
 ---
 
 # Create AI Agent
@@ -143,7 +143,7 @@ import type { AiAgentDefinition } from '@open-mercato/ai-assistant'
 
 const accountAssistant: AiAgentDefinition = {
   id: '<module>.<agent>',                    // MUST be `<moduleId>.<snake_case_name>`
-  moduleId: '<module>',                      // MUST match the module folder (also drives <MODULE>_AI_MODEL env)
+  moduleId: '<module>',                      // MUST match the module folder (also drives OM_AI_<MODULE>_MODEL env)
   label: 'Account Assistant',
   description: 'Read-only assistant exploring people, companies, deals.',
   systemPrompt: '...',                       // See Section 4.1 — prefer compiled PromptTemplate
@@ -157,11 +157,13 @@ const accountAssistant: AiAgentDefinition = {
     'meta.describe_agent',
   ],
   executionMode: 'chat',                     // 'chat' (default) | 'object'
+  // executionEngine: 'stream-text',         // default — 'tool-loop-agent' opts into Vercel Experimental_Agent
+  // loop: { maxSteps: 12, stopWhen: [...], budget: { maxWallClockMs: 60_000 } }, // §4.4 — agentic loop controls
+  // allowRuntimeOverride: true,             // permit per-call <ModelPicker> + ?loopBudget=... overrides
   readOnly: true,                            // hard-filters isMutation tools when true
   mutationPolicy: 'read-only',               // 'read-only' | 'confirm-required' | 'destructive-confirm-required'
   requiredFeatures: ['<module>.thing.view'], // gated at the dispatcher
   acceptedMediaTypes: ['image', 'pdf', 'file'],
-  defaultModel: 'claude-haiku-4-5',          // optional — see provider docs
   domain: '<module>',
   keywords: ['<module>', '...'],
   suggestions: [
@@ -258,6 +260,28 @@ const extractor: AiAgentDefinition = {
 ```
 
 Reference: `packages/core/src/modules/catalog/ai-agents.ts`.
+
+### 4.4 Agentic loop controls (optional)
+
+The runtime always runs a tool-using loop. Spec [`2026-04-28-ai-agents-agentic-loop-controls`](../../specs/2026-04-28-ai-agents-agentic-loop-controls.md) promotes that loop from "one step-count cap" to a first-class part of the agent contract — declarative `loop` block, per-tenant operator budgets, runtime debug trace, and an opt-in `ToolLoopAgent` engine. See [Agentic loop controls](../../../apps/docs/docs/framework/ai-assistant/agents.mdx#agentic-loop-controls) for the full reference; the rule of thumb here:
+
+- **Use the wrapper's `loop` block** instead of dropping to a raw `streamText` / `generateText` callback. The wrapper composes its own `prepareStep` with yours so the mutation-approval contract holds across every step (including step 2+).
+- **`loop.stopWhen`** halts the loop the moment a named mutation tool fires — surface the approval card immediately:
+  ```ts
+  loop: { stopWhen: [{ kind: 'hasToolCall', toolName: '<module>.update_thing_status' }] }
+  ```
+- **`loop.prepareStep`** narrows the per-step model and/or active tool surface without overriding the wrapper guards (e.g. Sonnet on step 0 for planning, Haiku on steps 1+ for tool calls).
+- **`loop.budget`** (`maxToolCalls`, `maxWallClockMs`, `maxTokens`) caps cost and runaway loops. Operators can tighten these per tenant from `/backend/config/ai-assistant/agents` without redeploy; they can also flip a kill switch (`loopDisabled: true`) that collapses the agent to a single model call.
+- **`executionEngine`** defaults to `'stream-text'`. Opt into `'tool-loop-agent'` only when you specifically want the Vercel `Experimental_Agent` semantics; the mutation-approval gate (`buildWrapperPrepareStep` → `prepareMutation`) is enforced identically on both engines.
+- **`allowRuntimeOverride: true`** lets per-call `?loopBudget=...` / `<ModelPicker>` overrides reach this agent (renamed from the old `allowRuntimeModelOverride`; the runtime accepts both for one minor).
+- **Object mode caveat**: `streamObject` / `generateObject` ignore `prepareStep` and `repairToolCall`. The runtime applies what the SDK accepts and warns once per agent on the dropped primitives.
+
+Canonical reference (exercises every primitive): `customers.deal_analyzer` + sibling `customers.deal_analyzer_tool_loop` in `packages/core/src/modules/customers/ai-agents.ts`, with the per-step factory in `buildDealAnalyzerPrepareStep()`. The Loop trace panel inside `<AiChat>` (and the playground) shows step-by-step model, tool calls, repair attempts, and stop reason — toggle the **Debug** tab to inspect what actually ran.
+
+MUST rules:
+- MUST NOT bypass the wrapper-owned `prepareStep` from inside `loop.prepareStep`. The wrapper merges your overrides on top of the guard-rail; returning a `tools` map that strips `prepareMutation` wrappers is rejected with `AgentPolicyError` `loop_violates_mutation_policy`.
+- MUST keep `loop.stopWhen` JSON-shaped (`{ kind: 'stepCount', count }` / `{ kind: 'hasToolCall', toolName }`) when you want operators to express it via tenant overrides. `{ kind: 'custom', stop }` is in-code only.
+- MUST run `yarn generate` after adding or changing the `loop` block — the registry needs to pick up the new agent posture.
 
 ---
 
@@ -483,14 +507,14 @@ To pin the agent to a specific provider/model without editing code, set an env v
 
 ```
 CUSTOMERS_AI_MODEL=claude-opus-4-20250514
-INBOX_OPS_AI_MODEL=gpt-4o
-CATALOG_AI_MODEL=claude-haiku-4-5
+OM_AI_INBOX_OPS_MODEL=gpt-4o
+OM_AI_CATALOG_MODEL=claude-haiku-4-5
 ```
 
 Resolution order (highest precedence first):
 
 1. `callerOverride` (`runAiAgentText({ modelOverride })`)
-2. `<MODULE>_AI_MODEL` env variable
+2. `OM_AI_<MODULE>_MODEL` env variable
 3. `agentDefaultModel` (`AiAgentDefinition.defaultModel`)
 4. The configured provider's default
 
@@ -512,6 +536,7 @@ Before opening a PR, verify each item:
 - [ ] At least one provider env var is set; the playground returns a real response.
 - [ ] If the agent ships writes: the playground produced an approval card AND the post-approval result reflects the actual DB change.
 - [ ] Backend page (or widget) embeds `<AiChat agent="<module>.<agent>" />` exactly once and uses a stable injection spot ID.
+- [ ] If the agent declares a `loop` block, the playground's **Debug → Loop trace** panel shows the expected step count, model swaps, and stop reason for a representative turn.
 - [ ] Module's AGENTS.md (or its parent's) documents the new agent in the AI Agents table — copy the customers AGENTS.md format.
 
 ---
@@ -694,6 +719,7 @@ Full reference: `apps/docs/docs/framework/ai-assistant/overrides.mdx`.
 - `apps/docs/docs/framework/ai-assistant/launcher.mdx` — global topbar launcher + Cmd/Ctrl+L.
 - `apps/docs/docs/framework/ai-assistant/settings.mdx` — per-tenant prompt and policy override UI.
 - `apps/docs/docs/framework/ai-assistant/playground.mdx` — smoke-test surface.
+- `.ai/specs/2026-04-28-ai-agents-agentic-loop-controls.md` — full agentic-loop spec (declarative `loop`, per-call overrides, operator budgets, LoopTrace, `ToolLoopAgent`).
 - `apps/docs/docs/user-guide/ai-assistant.mdx` — operator-facing walkthrough (use this when designing copy / suggestions).
 - `packages/core/src/modules/customers/ai-agents.ts` + `ai-tools.ts` — canonical chat agent reference.
 - `packages/core/src/modules/catalog/ai-agents.ts` + `ai-tools.ts` — canonical mutation + object-mode reference.

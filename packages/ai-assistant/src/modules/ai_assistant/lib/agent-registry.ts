@@ -1,3 +1,4 @@
+import { llmProviderRegistry } from '@open-mercato/shared/lib/ai/llm-provider-registry'
 import type { AiAgentDefinition, AiAgentExtension, AiAgentSuggestion } from './ai-agent-definition'
 import {
   applyAgentOverrideMap,
@@ -6,6 +7,7 @@ import {
   type AiAgentExtensionConfigEntry,
   type AiAgentOverrideConfigEntry,
 } from './ai-overrides'
+import { TASK_PLAN_TOOL_NAME } from './task-plan-labels'
 
 const agentsById = new Map<string, AiAgentDefinition>()
 let loaded = false
@@ -28,6 +30,11 @@ function isAiAgentExtension(value: unknown): value is AiAgentExtension {
     (!('replaceAllowedTools' in candidate) || isStringArray(candidate.replaceAllowedTools)) &&
     (!('deleteAllowedTools' in candidate) || isStringArray(candidate.deleteAllowedTools)) &&
     (!('appendAllowedTools' in candidate) || isStringArray(candidate.appendAllowedTools)) &&
+    (!('taskPlan' in candidate) ||
+      (candidate.taskPlan != null &&
+        typeof candidate.taskPlan === 'object' &&
+        (!('enabled' in candidate.taskPlan) ||
+          typeof (candidate.taskPlan as { enabled?: unknown }).enabled === 'boolean'))) &&
     (!('replaceSystemPrompt' in candidate) || typeof candidate.replaceSystemPrompt === 'string') &&
     (!('appendSystemPrompt' in candidate) || typeof candidate.appendSystemPrompt === 'string') &&
     (!('replaceSuggestions' in candidate) ||
@@ -55,6 +62,28 @@ function isAiAgentDefinition(value: unknown): value is AiAgentDefinition {
 
 function uniqueStrings(values: readonly string[]): string[] {
   return Array.from(new Set(values.filter((value) => typeof value === 'string' && value.length > 0)))
+}
+
+export function isAgentTaskPlanEnabled(agent: Pick<AiAgentDefinition, 'taskPlan'>): boolean {
+  return agent.taskPlan?.enabled === true
+}
+
+function normalizeTaskPlanTool(agent: AiAgentDefinition): AiAgentDefinition {
+  const enabled = isAgentTaskPlanEnabled(agent)
+  const withoutInternalTool = agent.allowedTools.filter((toolName) => toolName !== TASK_PLAN_TOOL_NAME)
+  const allowedTools = enabled
+    ? uniqueStrings([...withoutInternalTool, TASK_PLAN_TOOL_NAME])
+    : uniqueStrings(withoutInternalTool)
+  if (
+    allowedTools.length === agent.allowedTools.length &&
+    allowedTools.every((toolName, index) => toolName === agent.allowedTools[index])
+  ) {
+    return agent
+  }
+  return {
+    ...agent,
+    allowedTools,
+  }
 }
 
 function applyStringListPatch(
@@ -104,6 +133,25 @@ function applySuggestionPatch(
   return out
 }
 
+function validateAndNormalizeAgent(candidate: AiAgentDefinition): AiAgentDefinition {
+  const taskPlanNormalized = normalizeTaskPlanTool(candidate)
+  const rawProvider = candidate.defaultProvider
+  if (typeof rawProvider !== 'string' || rawProvider.trim().length === 0) {
+    return taskPlanNormalized
+  }
+  const providerHint = rawProvider.trim()
+  const registered = llmProviderRegistry.get(providerHint)
+  if (!registered) {
+    console.warn(
+      `[AI Agents] Agent "${candidate.id}" declares defaultProvider "${providerHint}" which is not registered in llmProviderRegistry. ` +
+        `The agent will be registered with defaultProvider: undefined so the resolution chain still works. ` +
+        `Built-in provider ids: anthropic, google, openai, deepinfra, groq, together, fireworks, azure, litellm, ollama.`,
+    )
+    return { ...taskPlanNormalized, defaultProvider: undefined }
+  }
+  return taskPlanNormalized
+}
+
 function populateFromAgents(agents: unknown[]): void {
   for (const candidate of agents) {
     if (!isAiAgentDefinition(candidate)) {
@@ -116,7 +164,7 @@ function populateFromAgents(agents: unknown[]): void {
         `[AI Agents] Duplicate agent id "${candidate.id}" — already registered by module "${existing.moduleId}", conflicts with module "${candidate.moduleId}". Export \`aiAgentOverrides\` from your module's \`ai-agents.ts\` (or set it on the modules.ts entry) to replace an agent across modules.`
       )
     }
-    agentsById.set(candidate.id, candidate)
+    agentsById.set(candidate.id, validateAndNormalizeAgent(candidate))
   }
 }
 
@@ -174,13 +222,14 @@ function applyExtensionsToRegistry(extensions: readonly AiAgentExtension[]): voi
     const replacementSystemPrompt = extension.replaceSystemPrompt?.trim()
     const appendSystemPrompt = extension.appendSystemPrompt?.trim()
     const systemPrompt = replacementSystemPrompt ?? agent.systemPrompt.trim()
-    agentsById.set(agent.id, {
+    const patchedAgent: AiAgentDefinition = {
       ...agent,
       allowedTools: applyStringListPatch(agent.allowedTools, {
         replace: extension.replaceAllowedTools,
         delete: extension.deleteAllowedTools,
         append: extension.appendAllowedTools,
       }),
+      taskPlan: extension.taskPlan !== undefined ? extension.taskPlan : agent.taskPlan,
       systemPrompt: appendSystemPrompt
         ? `${systemPrompt}\n\n${appendSystemPrompt}`
         : systemPrompt,
@@ -192,7 +241,8 @@ function applyExtensionsToRegistry(extensions: readonly AiAgentExtension[]): voi
           ...(extension.suggestions ?? []),
         ],
       }),
-    })
+    }
+    agentsById.set(agent.id, validateAndNormalizeAgent(patchedAgent))
   }
 }
 

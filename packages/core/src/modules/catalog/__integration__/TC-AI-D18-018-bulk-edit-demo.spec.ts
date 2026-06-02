@@ -170,7 +170,7 @@ test.describe('TC-AI-D18-018: catalog.merchandising_assistant bulk-edit demo wir
       // Narrow the list via the search bar so the fixtures are the only
       // visible rows regardless of pre-existing demo seed data. The
       // DataTable debounces search; poll for the prefix to surface.
-      const search = page.getByRole('textbox').first();
+      const search = page.getByRole('searchbox').first();
       await search.click();
       await search.fill(skuPrefix);
 

@@ -188,7 +188,7 @@ function flattenCmps(node: Node | unknown, out: Cmp[] = []): Cmp[] {
 }
 
 describe('normalizeFilters $or clause grouping', () => {
-  test('assigns a distinct orGroup id per clause so multi-field clauses AND internally', () => {
+  test('assigns distinct orGroup ids per disjunct; lifts clauses common to every disjunct out of the OR', () => {
     const normalized = normalizeFilters({
       $or: [
         { organization_id: { $eq: 'org-1' }, tenant_id: { $eq: 't1' } },
@@ -196,22 +196,24 @@ describe('normalizeFilters $or clause grouping', () => {
       ],
     })
 
-    const groups = new Set(normalized.map((f) => f.orGroup))
-    expect(groups.size).toBe(2)
+    // tenant_id appears in every disjunct, so it's lifted out for SQL efficiency
+    // (preserves the search-tokens optimization on common ANDed predicates).
+    const ungrouped = normalized.filter((f) => !f.orGroup).map((f) => f.field).sort()
+    expect(ungrouped).toEqual(['tenant_id'])
 
     const byGroup = new Map<string, typeof normalized>()
-    for (const f of normalized) {
+    for (const f of normalized.filter((f) => f.orGroup)) {
       const key = f.orGroup!
       const list = byGroup.get(key) ?? []
       list.push(f)
       byGroup.set(key, list)
     }
-
+    expect(byGroup.size).toBe(2)
     const groupFields = Array.from(byGroup.values()).map((group) => group.map((f) => f.field).sort())
     expect(groupFields).toEqual(
       expect.arrayContaining([
-        ['organization_id', 'tenant_id'].sort(),
-        ['organization_id', 'scope_type', 'tenant_id'].sort(),
+        ['organization_id'],
+        ['organization_id', 'scope_type'].sort(),
       ]),
     )
   })

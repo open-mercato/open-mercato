@@ -1,3 +1,7 @@
+jest.mock('@open-mercato/cache', () => ({
+  runWithCacheTenant: async (_tenantId: string | null, fn: () => Promise<unknown>) => fn(),
+}), { virtual: true })
+
 import { makeCrudRoute } from '@open-mercato/shared/lib/crud/factory'
 import { registerApiInterceptors } from '@open-mercato/shared/lib/crud/interceptor-registry'
 import { z } from 'zod'
@@ -249,10 +253,21 @@ describe('CRUD Factory', () => {
     })
   })
 
+  it('GET normalizes custom field sort selectors for the query engine path', async () => {
+    await route.GET(new Request('http://x/api/example/todos?page=1&pageSize=10&sortField=cf_priority&sortDir=desc'))
+
+    expect(queryEngine.query).toHaveBeenCalled()
+    const queryArgs = queryEngine.query.mock.calls.at(-1)?.[1]
+    expect(queryArgs?.sort).toEqual([
+      { field: 'cf:priority', dir: 'desc' },
+    ])
+  })
+
   it('GET intersects ids with existing buildFilters id constraint', async () => {
     const routeWithIdFilter = makeCrudRoute({
       metadata: { GET: { requireAuth: true } },
       orm: { entity: Todo, idField: 'id', orgField: 'organizationId', tenantField: 'tenantId', softDeleteField: 'deletedAt' },
+      indexer: { entityType: 'example.todo' },
       list: {
         schema: querySchema.extend({ id: z.string().optional() }),
         entityId: 'example.todo',

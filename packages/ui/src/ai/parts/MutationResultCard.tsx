@@ -1,7 +1,7 @@
 "use client"
 
 import * as React from 'react'
-import { AlertTriangle, CheckCircle2, Wand2, XCircle } from 'lucide-react'
+import { Wand2 } from 'lucide-react'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { Alert, AlertDescription, AlertTitle } from '../../primitives/alert'
 import { Button } from '../../primitives/button'
@@ -80,7 +80,6 @@ export function MutationResultCard(props: MutationResultCardProps) {
   if (isSuccessStatus(status) && failedRecords && failedRecords.length > 0) {
     return (
       <Alert variant="warning" data-ai-mutation-result="partial">
-        <AlertTriangle className="size-4" aria-hidden />
         <AlertTitle>
           {t(
             'ai_assistant.chat.mutation_cards.result.partialTitle',
@@ -118,41 +117,28 @@ export function MutationResultCard(props: MutationResultCardProps) {
     const href = payload.recordHref ?? null
     return (
       <Alert variant="success" data-ai-mutation-result="success">
-        <CheckCircle2 className="size-4" aria-hidden />
         <AlertTitle>
           {t('ai_assistant.chat.mutation_cards.result.successTitle', 'Action applied')}
         </AlertTitle>
         <div className="text-sm leading-relaxed">
           <p>
-            {result?.commandName
-              ? t(
-                  'ai_assistant.chat.mutation_cards.result.successWithCommand',
-                  'Completed',
-                ) + `: ${result.commandName}`
-              : t(
-                  'ai_assistant.chat.mutation_cards.result.successBody',
-                  'The mutation completed successfully.',
-                )}
+            {t(
+              'ai_assistant.chat.mutation_cards.result.successBody',
+              'The requested change was saved successfully.',
+            )}
           </p>
-          {recordId ? (
+          {recordId && href ? (
             <p className="mt-1 text-xs">
-              {href ? (
-                <a
-                  className="font-mono text-primary underline"
-                  href={href}
-                  data-ai-mutation-result-link
-                >
-                  {t(
-                    'ai_assistant.chat.mutation_cards.result.viewRecord',
-                    'View record',
-                  )}
-                  : {recordId}
-                </a>
-              ) : (
-                <span className="font-mono" data-ai-mutation-result-record-id>
-                  {recordId}
-                </span>
-              )}
+              <a
+                className="text-primary underline"
+                href={href}
+                data-ai-mutation-result-link
+              >
+                {t(
+                  'ai_assistant.chat.mutation_cards.result.viewRecord',
+                  'View record',
+                )}
+              </a>
             </p>
           ) : null}
         </div>
@@ -296,7 +282,6 @@ export function MutationResultCard(props: MutationResultCardProps) {
       : []
     return (
       <Alert variant="destructive" data-ai-mutation-result="failure">
-        <XCircle className="size-4" aria-hidden />
         <AlertTitle>
           {t(
             'ai_assistant.chat.mutation_cards.result.failureTitle',

@@ -20,6 +20,7 @@ import {
 } from '@open-mercato/ui/primitives/select'
 import { Switch } from '@open-mercato/ui/primitives/switch'
 import { Input } from '@open-mercato/ui/primitives/input'
+import { PasswordInput } from '@open-mercato/ui/primitives/password-input'
 import { Spinner } from '@open-mercato/ui/primitives/spinner'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@open-mercato/ui/primitives/tabs'
 import { JsonDisplay } from '@open-mercato/ui/backend/JsonDisplay'
@@ -35,7 +36,9 @@ import {
   type IntegrationDetailBuiltInTab,
 } from '@open-mercato/shared/modules/integrations/types'
 import { LoadingMessage, ErrorMessage } from '@open-mercato/ui/backend/detail'
-import { Activity, AlertTriangle, Bell, Calendar, CheckCircle2, ChevronDown, ChevronRight, CreditCard, FileText, HardDrive, Key, MessageSquare, RefreshCw, Settings, Truck, Webhook, XCircle, Zap } from 'lucide-react'
+import { LogList, type LogListEntry } from '@open-mercato/ui/backend/LogList'
+import { Activity, AlertTriangle, Bell, Calendar, CheckCircle2, CreditCard, FileText, FileX, HardDrive, Key, MessageSquare, RefreshCw, Settings, Truck, Webhook, XCircle, Zap } from 'lucide-react'
+import { EmptyState } from '@open-mercato/ui/primitives/empty-state'
 import { IntegrationScheduleTab } from '../../../../data_sync/components/IntegrationScheduleTab'
 import {
   buildIntegrationDetailInjectedTabs,
@@ -129,6 +132,21 @@ type HealthCheckResponse = {
   latencyMs: number | null
 }
 
+type DataSyncRunDetail = {
+  id: string
+  status: 'pending' | 'running' | 'completed' | 'failed' | 'cancelled'
+  progressJobId?: string | null
+  createdCount?: number
+  updatedCount?: number
+  skippedCount?: number
+  failedCount?: number
+  progressJob?: {
+    progressPercent?: number | null
+    processedCount?: number | null
+    totalCount?: number | null
+  } | null
+}
+
 const LOG_LEVEL_STYLES: Record<string, string> = {
   info: 'bg-blue-100 text-blue-800',
   warn: 'bg-yellow-100 text-yellow-800',
@@ -147,6 +165,74 @@ const HEALTH_STATUS_ICONS: Record<string, React.ElementType> = {
   degraded: AlertTriangle,
   unhealthy: XCircle,
   unconfigured: AlertTriangle,
+}
+
+function formatRunStatusLabel(status: DataSyncRunDetail['status'], t: ReturnType<typeof useT>): string {
+  switch (status) {
+    case 'pending':
+      return t('integrations.detail.runActivity.status.pending', 'Pending')
+    case 'running':
+      return t('integrations.detail.runActivity.status.running', 'Running')
+    case 'completed':
+      return t('integrations.detail.runActivity.status.completed', 'Completed')
+    case 'failed':
+      return t('integrations.detail.runActivity.status.failed', 'Failed')
+    case 'cancelled':
+      return t('integrations.detail.runActivity.status.cancelled', 'Cancelled')
+    default:
+      return status
+  }
+}
+
+function RunActivityStrip({
+  run,
+  refreshedAt,
+  isRefreshing,
+  onRefresh,
+  t,
+}: {
+  run: DataSyncRunDetail | null
+  refreshedAt: string | null
+  isRefreshing: boolean
+  onRefresh: () => void
+  t: ReturnType<typeof useT>
+}) {
+  if (!run) return null
+
+  const progress = typeof run.progressJob?.progressPercent === 'number' ? run.progressJob.progressPercent : 0
+  const processed = typeof run.progressJob?.processedCount === 'number' ? run.progressJob.processedCount : 0
+  const total = typeof run.progressJob?.totalCount === 'number' ? run.progressJob.totalCount : null
+  const statusClass = run.status === 'completed'
+    ? 'border-emerald-500/30 bg-emerald-500/10 text-emerald-700 dark:text-emerald-300'
+    : run.status === 'failed'
+      ? 'border-red-500/30 bg-red-500/10 text-red-700 dark:text-red-300'
+      : run.status === 'cancelled'
+        ? 'border-zinc-500/30 bg-zinc-500/10 text-zinc-700 dark:text-zinc-300'
+        : 'border-blue-500/30 bg-blue-500/10 text-blue-700 dark:text-blue-300'
+
+  return (
+    <div className="flex flex-wrap items-center gap-3 rounded-lg border bg-muted/20 px-4 py-3 text-sm">
+      <Badge variant="outline" className={cn('gap-1.5', statusClass)}>
+        <RefreshCw className={cn('h-3.5 w-3.5', run.status === 'running' ? 'animate-spin' : '')} />
+        {formatRunStatusLabel(run.status, t)}
+      </Badge>
+      <span className="text-muted-foreground">
+        {t('integrations.detail.runActivity.processed', 'Processed')}: <span className="font-medium text-foreground">{processed}{total !== null ? ` / ${total}` : ''}</span>
+      </span>
+      <span className="text-muted-foreground">
+        {t('integrations.detail.runActivity.progress', 'Progress')}: <span className="font-medium text-foreground">{progress}%</span>
+      </span>
+      {refreshedAt ? (
+        <span className="text-muted-foreground">
+          {t('integrations.detail.runActivity.lastRefreshed', 'Last refreshed')}: {new Date(refreshedAt).toLocaleTimeString()}
+        </span>
+      ) : null}
+      <Button type="button" variant="outline" size="sm" className="ml-auto" onClick={onRefresh} disabled={isRefreshing}>
+        {isRefreshing ? <Spinner className="mr-2 h-4 w-4" /> : <RefreshCw className="mr-2 h-4 w-4" />}
+        {t('integrations.detail.runActivity.refresh', 'Refresh')}
+      </Button>
+    </div>
+  )
 }
 
 function DetailLogSparkline({ counts, className }: { counts: number[]; className?: string }) {
@@ -209,6 +295,7 @@ function buildCredentialFields(credFields: CredentialField[]): CrudField[] {
       ) : field.helpText,
       placeholder: field.placeholder,
       required: field.required,
+      visibleWhen: field.visibleWhen,
     }
 
     if (field.type === 'secret') {
@@ -216,9 +303,8 @@ function buildCredentialFields(credFields: CredentialField[]): CrudField[] {
         ...shared,
         type: 'custom' as const,
         component: ({ id, value, setValue, disabled }) => (
-          <Input
+          <PasswordInput
             id={id}
-            type="password"
             placeholder={field.placeholder}
             value={typeof value === 'string' ? value : ''}
             onChange={(event) => setValue(event.target.value)}
@@ -337,11 +423,13 @@ export default function IntegrationDetailPage({ params }: IntegrationDetailPageP
   const [logs, setLogs] = React.useState<LogEntry[]>([])
   const [logLevel, setLogLevel] = React.useState<string>('')
   const [isLoadingLogs, setIsLoadingLogs] = React.useState(false)
-  const [expandedLogId, setExpandedLogId] = React.useState<string | null>(null)
 
   const [isCheckingHealth, setIsCheckingHealth] = React.useState(false)
   const [isTogglingState, setIsTogglingState] = React.useState(false)
   const [latestHealthResult, setLatestHealthResult] = React.useState<HealthCheckResponse | null>(null)
+  const [activeRunDetail, setActiveRunDetail] = React.useState<DataSyncRunDetail | null>(null)
+  const [activeRunRefreshedAt, setActiveRunRefreshedAt] = React.useState<string | null>(null)
+  const [isRefreshingRunActivity, setIsRefreshingRunActivity] = React.useState(false)
   const [activeTab, setActiveTab] = React.useState<IntegrationDetailTab>('credentials')
 
   const credentialsFormId = React.useId()
@@ -354,15 +442,16 @@ export default function IntegrationDetailPage({ params }: IntegrationDetailPageP
     )
   }, [integrationId])
 
-  const loadDetail = React.useCallback(async () => {
+  const loadDetail = React.useCallback(async (options?: { showLoading?: boolean }) => {
+    const showLoading = options?.showLoading ?? true
     const currentIntegrationId = resolveCurrentIntegrationId()
     if (!currentIntegrationId) {
-      setIsLoading(false)
-      setError(t('integrations.detail.loadError', 'Failed to load integration'))
+      if (showLoading) setIsLoading(false)
+      if (showLoading) setError(t('integrations.detail.loadError', 'Failed to load integration'))
       return
     }
-    setError(null)
-    setIsLoading(true)
+    if (showLoading) setError(null)
+    if (showLoading) setIsLoading(true)
     try {
       const call = await apiCall<IntegrationDetail>(
         `/api/integrations/${encodeURIComponent(currentIntegrationId)}`,
@@ -370,15 +459,16 @@ export default function IntegrationDetailPage({ params }: IntegrationDetailPageP
         { fallback: null },
       )
       if (!call.ok || !call.result) {
-        setError(t('integrations.detail.loadError', 'Failed to load integration'))
-        setIsLoading(false)
+        if (showLoading) setError(t('integrations.detail.loadError', 'Failed to load integration'))
+        if (showLoading) setIsLoading(false)
         return
       }
       setDetail(call.result)
-      setIsLoading(false)
+      setError(null)
+      if (showLoading) setIsLoading(false)
     } catch {
-      setError(t('integrations.detail.loadError', 'Failed to load integration'))
-      setIsLoading(false)
+      if (showLoading) setError(t('integrations.detail.loadError', 'Failed to load integration'))
+      if (showLoading) setIsLoading(false)
     }
   }, [resolveCurrentIntegrationId, t])
 
@@ -391,7 +481,15 @@ export default function IntegrationDetailPage({ params }: IntegrationDetailPageP
       { fallback: null },
     )
     if (call.ok && call.result?.credentials) {
-      setCredValues(call.result.credentials)
+      const next = { ...call.result.credentials }
+      if (currentIntegrationId === 'storage_s3') {
+        const authMode = next.authMode
+        if (authMode !== 'access_keys' && authMode !== 'ambient') {
+          const hasKeys = Boolean(next.accessKeyId || next.secretAccessKey)
+          next.authMode = hasKeys ? 'access_keys' : 'ambient'
+        }
+      }
+      setCredValues(next)
       setCredentialsFormKey((current) => current + 1)
     }
   }, [resolveCurrentIntegrationId])
@@ -426,12 +524,41 @@ export default function IntegrationDetailPage({ params }: IntegrationDetailPageP
     spotId: detailWidgetSpotId,
   })
   const refreshDetail = React.useCallback(async () => {
-    await loadDetail()
+    await loadDetail({ showLoading: false })
     await loadCredentials()
   }, [loadCredentials, loadDetail])
   const refreshLogs = React.useCallback(async () => {
     await loadLogs()
   }, [loadLogs])
+  const refreshHealthSnapshot = React.useCallback(async () => {
+    await loadDetail({ showLoading: false })
+  }, [loadDetail])
+  const runIdFromUrl = searchParams?.get('runId') ?? null
+  const refreshRunActivity = React.useCallback(async (options?: { showLoading?: boolean }) => {
+    if (!runIdFromUrl) {
+      setActiveRunDetail(null)
+      setActiveRunRefreshedAt(null)
+      return null
+    }
+    if (options?.showLoading) setIsRefreshingRunActivity(true)
+    try {
+      const call = await apiCall<DataSyncRunDetail>(
+        `/api/data_sync/runs/${encodeURIComponent(runIdFromUrl)}`,
+        undefined,
+        { fallback: null },
+      )
+      await loadLogs()
+      await loadDetail({ showLoading: false })
+      if (call.ok && call.result) {
+        setActiveRunDetail(call.result)
+        setActiveRunRefreshedAt(new Date().toISOString())
+        return call.result
+      }
+      return null
+    } finally {
+      if (options?.showLoading) setIsRefreshingRunActivity(false)
+    }
+  }, [loadDetail, loadLogs, runIdFromUrl])
   const injectionContext = React.useMemo(
     () => ({
       formId: mutationContextId,
@@ -448,6 +575,7 @@ export default function IntegrationDetailPage({ params }: IntegrationDetailPageP
       setActiveTab,
       refreshDetail,
       refreshLogs,
+      refreshHealthSnapshot,
       retryLastMutation,
     }),
     [
@@ -459,6 +587,7 @@ export default function IntegrationDetailPage({ params }: IntegrationDetailPageP
       latestHealthResult,
       mutationContextId,
       refreshDetail,
+      refreshHealthSnapshot,
       refreshLogs,
       retryLastMutation,
     ],
@@ -522,9 +651,6 @@ export default function IntegrationDetailPage({ params }: IntegrationDetailPageP
   React.useEffect(() => { void loadDetail() }, [loadDetail])
   React.useEffect(() => { void loadCredentials() }, [loadCredentials])
   React.useEffect(() => { void loadLogs() }, [loadLogs])
-  React.useEffect(() => {
-    setExpandedLogId((current) => (current && logs.some((log) => log.id === current) ? current : null))
-  }, [logs])
 
   const handleToggleState = React.useCallback(async (enabled: boolean) => {
     const currentIntegrationId = resolveCurrentIntegrationId()
@@ -565,19 +691,32 @@ export default function IntegrationDetailPage({ params }: IntegrationDetailPageP
     if (!currentIntegrationId) return
     setIsSavingCredentials(true)
     try {
+      const sanitizedValues = { ...values }
+      if (currentIntegrationId === 'storage_s3') {
+        const authMode = sanitizedValues.authMode
+        if (authMode !== 'access_keys' && authMode !== 'ambient') {
+          const hasKeys = Boolean(sanitizedValues.accessKeyId || sanitizedValues.secretAccessKey)
+          sanitizedValues.authMode = hasKeys ? 'access_keys' : 'ambient'
+        }
+        if (sanitizedValues.authMode === 'ambient') {
+          delete sanitizedValues.accessKeyId
+          delete sanitizedValues.secretAccessKey
+          delete sanitizedValues.sessionToken
+        }
+      }
       const call = await runMutationWithContext({
         actionId: 'save-credentials',
         tabId: 'credentials',
-        mutationPayload: { integrationId: currentIntegrationId, credentials: values },
+        mutationPayload: { integrationId: currentIntegrationId, credentials: sanitizedValues },
         operation: () => apiCall(`/api/integrations/${encodeURIComponent(currentIntegrationId)}/credentials`, {
           method: 'PUT',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ credentials: values }),
+          body: JSON.stringify({ credentials: sanitizedValues }),
         }, { fallback: null }),
       })
 
       if (call.ok) {
-        setCredValues(values)
+        setCredValues(sanitizedValues)
         setCredentialsFormKey((current) => current + 1)
         flash(t('integrations.detail.credentials.saved'), 'success')
         return
@@ -677,6 +816,10 @@ export default function IntegrationDetailPage({ params }: IntegrationDetailPageP
       const values = rawValues as Record<string, unknown>
 
       editableCredentialFields.forEach((field) => {
+        if (field.visibleWhen) {
+          const targetValue = values[field.visibleWhen.field]
+          if (targetValue !== field.visibleWhen.equals) return
+        }
         const value = values[field.key]
 
         if (field.type === 'boolean') {
@@ -740,10 +883,21 @@ export default function IntegrationDetailPage({ params }: IntegrationDetailPageP
     })
   ) as z.ZodType<Record<string, unknown>>, [editableCredentialFields, t])
   const latestHealthLog = React.useMemo(() => logs.find(isHealthLog) ?? null, [logs])
+  const latestOperationalLog = React.useMemo(
+    () => logs.find((log) => (
+      typeof log.payload?.operationalStatus === 'string'
+      || typeof log.payload?.summary === 'string'
+    )) ?? null,
+    [logs],
+  )
   const healthMessage =
     latestHealthResult?.message ??
-    (typeof latestHealthLog?.payload?.message === 'string' ? latestHealthLog.payload.message : null)
-  const healthDetailsSource = latestHealthResult?.details ?? extractHealthDetails(latestHealthLog?.payload)
+    (typeof latestHealthLog?.payload?.message === 'string'
+      ? latestHealthLog.payload.message
+      : typeof latestOperationalLog?.payload?.summary === 'string'
+        ? latestOperationalLog.payload.summary
+        : null)
+  const healthDetailsSource = latestHealthResult?.details ?? extractHealthDetails(latestHealthLog?.payload ?? latestOperationalLog?.payload)
   const healthDetails = latestHealthLog?.code
     ? { ...healthDetailsSource, code: latestHealthLog.code }
     : healthDetailsSource
@@ -819,8 +973,43 @@ export default function IntegrationDetailPage({ params }: IntegrationDetailPageP
     setActiveTab(nextTab)
     if (!currentIntegrationId) return
     const basePath = `/backend/integrations/${encodeURIComponent(currentIntegrationId)}`
-    router.replace(nextTab === 'credentials' ? basePath : `${basePath}?tab=${encodeURIComponent(nextTab)}`)
-  }, [resolveCurrentIntegrationId, router, visibleTabIds])
+    const params = new URLSearchParams(searchParams?.toString() ?? '')
+    if (nextTab === 'credentials') params.delete('tab')
+    else params.set('tab', nextTab)
+    const query = params.toString()
+    router.replace(query ? `${basePath}?${query}` : basePath)
+  }, [resolveCurrentIntegrationId, router, searchParams, visibleTabIds])
+
+  React.useEffect(() => {
+    if (!runIdFromUrl) {
+      setActiveRunDetail(null)
+      setActiveRunRefreshedAt(null)
+      return
+    }
+    if (activeTab !== 'logs' && activeTab !== 'health') return
+
+    let cancelled = false
+    let timeoutId: ReturnType<typeof setTimeout> | null = null
+
+    const poll = async () => {
+      const detail = await refreshRunActivity()
+      if (cancelled) return
+
+      const status = detail?.status ?? null
+      if (status === 'pending' || status === 'running') {
+        timeoutId = setTimeout(() => {
+          void poll()
+        }, 4_000)
+      }
+    }
+
+    void poll()
+
+    return () => {
+      cancelled = true
+      if (timeoutId) clearTimeout(timeoutId)
+    }
+  }, [activeTab, refreshRunActivity, runIdFromUrl])
 
   if (isLoading) return <Page><PageBody><LoadingMessage label={t('integrations.detail.title')} /></PageBody></Page>
   if (error || !detail || !resolvedIntegration || !resolvedState) {
@@ -1118,20 +1307,39 @@ export default function IntegrationDetailPage({ params }: IntegrationDetailPageP
 
           {showHealthTab ? (
             <TabsContent value="health" className="mt-0 space-y-4">
+              <RunActivityStrip
+                run={activeRunDetail}
+                refreshedAt={activeRunRefreshedAt}
+                isRefreshing={isRefreshingRunActivity}
+                onRefresh={() => void refreshRunActivity({ showLoading: true })}
+                t={t}
+              />
               <Card className="gap-4 py-4">
                 <CardHeader className="px-5">
                   <div className="flex items-center justify-between">
                     <CardTitle>{t('integrations.detail.health.title')}</CardTitle>
-                    <Button
-                      type="button"
-                      variant="outline"
-                      size="sm"
-                      onClick={() => void handleHealthCheck()}
-                      disabled={isCheckingHealth}
-                    >
-                      {isCheckingHealth ? <Spinner className="mr-2 h-4 w-4" /> : <Zap className="mr-2 h-4 w-4" />}
-                      {isCheckingHealth ? t('integrations.detail.health.checking') : t('integrations.detail.health.check')}
-                    </Button>
+                    <div className="flex flex-wrap items-center gap-2">
+                      <Button
+                        type="button"
+                        variant="outline"
+                        size="sm"
+                        onClick={() => void refreshRunActivity({ showLoading: true })}
+                        disabled={isRefreshingRunActivity || !runIdFromUrl}
+                      >
+                        {isRefreshingRunActivity ? <Spinner className="mr-2 h-4 w-4" /> : <RefreshCw className="mr-2 h-4 w-4" />}
+                        {t('integrations.detail.runActivity.refresh', 'Refresh')}
+                      </Button>
+                      <Button
+                        type="button"
+                        variant="outline"
+                        size="sm"
+                        onClick={() => void handleHealthCheck()}
+                        disabled={isCheckingHealth}
+                      >
+                        {isCheckingHealth ? <Spinner className="mr-2 h-4 w-4" /> : <Zap className="mr-2 h-4 w-4" />}
+                        {isCheckingHealth ? t('integrations.detail.health.checking') : t('integrations.detail.health.check')}
+                      </Button>
+                    </div>
                   </div>
                 </CardHeader>
                 <CardContent className="space-y-3 px-5">
@@ -1191,7 +1399,14 @@ export default function IntegrationDetailPage({ params }: IntegrationDetailPageP
 
           {showLogsTab ? (
             <TabsContent value="logs" className="mt-0 space-y-4">
-            <div className="flex items-center gap-3">
+            <RunActivityStrip
+              run={activeRunDetail}
+              refreshedAt={activeRunRefreshedAt}
+              isRefreshing={isRefreshingRunActivity}
+              onRefresh={() => void refreshRunActivity({ showLoading: true })}
+              t={t}
+            />
+            <div className="flex flex-wrap items-center gap-3">
               <div className="inline-flex">
                 <Select
                   value={logLevel || undefined}
@@ -1207,147 +1422,120 @@ export default function IntegrationDetailPage({ params }: IntegrationDetailPageP
                   </SelectContent>
                 </Select>
               </div>
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                onClick={() => void refreshRunActivity({ showLoading: true })}
+                disabled={isRefreshingRunActivity || !runIdFromUrl}
+              >
+                {isRefreshingRunActivity ? <Spinner className="mr-2 h-4 w-4" /> : <RefreshCw className="mr-2 h-4 w-4" />}
+                {t('integrations.detail.runActivity.refresh', 'Refresh')}
+              </Button>
             </div>
             {isLoadingLogs ? (
               <div className="flex justify-center py-8"><Spinner /></div>
-            ) : logs.length === 0 ? (
-              <p className="py-4 text-sm text-muted-foreground">{t('integrations.detail.logs.empty')}</p>
             ) : (
-              <div className="rounded-lg border">
-                <table className="w-full text-sm">
-                  <thead>
-                    <tr className="border-b bg-muted/50">
-                      <th className="px-4 py-2 text-left font-medium">{t('integrations.detail.logs.columns.time')}</th>
-                      <th className="px-4 py-2 text-left font-medium">{t('integrations.detail.logs.columns.level')}</th>
-                      <th className="px-4 py-2 text-left font-medium">{t('integrations.detail.logs.columns.message')}</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {logs.map((log) => {
-                      const isExpanded = expandedLogId === log.id
-                      const metadataEntries = [
-                        ['Time', new Date(log.createdAt).toLocaleString()],
-                        ['Level', log.level],
-                        ['Code', log.code ?? null],
-                        ['Run ID', log.runId ?? null],
-                        ['Entity Type', log.scopeEntityType ?? null],
-                        ['Entity ID', log.scopeEntityId ?? null],
-                      ].filter((entry): entry is [string, string] => typeof entry[1] === 'string' && entry[1].trim().length > 0)
-                      const { inlineEntries, nestedEntries } = splitLogPayload(log.payload)
+              <LogList
+                entries={logs.map<LogListEntry>((log) => {
+                  const metadataEntries = [
+                    ['Time', new Date(log.createdAt).toLocaleString()],
+                    ['Level', log.level],
+                    ['Code', log.code ?? null],
+                    ['Run ID', log.runId ?? null],
+                    ['Entity Type', log.scopeEntityType ?? null],
+                    ['Entity ID', log.scopeEntityId ?? null],
+                  ].filter((entry): entry is [string, string] => typeof entry[1] === 'string' && entry[1].trim().length > 0)
+                  const { inlineEntries, nestedEntries } = splitLogPayload(log.payload)
 
-                      return (
-                        <React.Fragment key={log.id}>
-                          <tr className="border-b last:border-0">
-                            <td className="whitespace-nowrap px-4 py-2 text-muted-foreground">
-                              {new Date(log.createdAt).toLocaleString()}
-                            </td>
-                            <td className="px-4 py-2">
-                              <Badge variant="secondary" className={LOG_LEVEL_STYLES[log.level] ?? ''}>
-                                {log.level}
-                              </Badge>
-                            </td>
-                            <td className="px-4 py-2">
-                              <Button
-                                type="button"
-                                variant="ghost"
-                                size="sm"
-                                className="h-auto w-full justify-start gap-2 px-0 py-0 text-left hover:bg-transparent"
-                                onClick={() => setExpandedLogId((current) => (current === log.id ? null : log.id))}
-                              >
-                                {isExpanded ? <ChevronDown className="h-4 w-4 shrink-0" /> : <ChevronRight className="h-4 w-4 shrink-0" />}
-                                <span className="truncate">{log.message}</span>
-                              </Button>
-                            </td>
-                          </tr>
-                          {isExpanded ? (
-                            <tr className="border-b bg-muted/30 last:border-0">
-                              <td colSpan={3} className="px-4 py-4">
-                                <div className="space-y-4 rounded-lg border bg-card p-4">
-                                  <div className="grid gap-4 lg:grid-cols-[minmax(0,1.1fr)_minmax(0,0.9fr)]">
-                                    <div className="space-y-4">
-                                      <section className="space-y-3">
-                                        <div>
-                                          <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
-                                            {t('integrations.detail.logs.details.summary', 'Summary')}
-                                          </p>
-                                          <p className="mt-1 text-sm font-medium">{log.message}</p>
-                                        </div>
-                                        {metadataEntries.length > 0 ? (
-                                          <dl className="grid gap-3 sm:grid-cols-2">
-                                            {metadataEntries.map(([label, value]) => (
-                                              <div key={label} className="rounded-md border bg-muted/30 px-3 py-2">
-                                                <dt className="text-overline font-medium uppercase tracking-wide text-muted-foreground">
-                                                  {label}
-                                                </dt>
-                                                <dd className="mt-1 break-all text-sm">{value}</dd>
-                                              </div>
-                                            ))}
-                                          </dl>
-                                        ) : null}
-                                      </section>
-
-                                      {inlineEntries.length > 0 ? (
-                                        <section className="space-y-3">
-                                          <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
-                                            {t('integrations.detail.logs.details.fields', 'Fields')}
-                                          </p>
-                                          <dl className="grid gap-3 sm:grid-cols-2">
-                                            {inlineEntries.map(([key, value]) => (
-                                              <div key={key} className="rounded-md border bg-muted/30 px-3 py-2">
-                                                <dt className="text-overline font-medium uppercase tracking-wide text-muted-foreground">
-                                                  {formatLogDetailLabel(key)}
-                                                </dt>
-                                                <dd className="mt-1 break-words text-sm">
-                                                  {formatLogPrimitiveValue(value)}
-                                                </dd>
-                                              </div>
-                                            ))}
-                                          </dl>
-                                        </section>
-                                      ) : null}
-                                    </div>
-
-                                    <div className="space-y-3">
-                                      {nestedEntries.map(([key, value]) => (
-                                        <JsonDisplay
-                                          key={key}
-                                          data={value}
-                                          title={formatLogDetailLabel(key)}
-                                          defaultExpanded
-                                          maxInitialDepth={1}
-                                          theme="dark"
-                                          maxHeight="16rem"
-                                          className="p-4"
-                                        />
-                                      ))}
-                                      {log.payload && nestedEntries.length === 0 ? (
-                                        <JsonDisplay
-                                          data={log.payload}
-                                          title={t('integrations.detail.logs.details.payload', 'Payload')}
-                                          defaultExpanded
-                                          maxInitialDepth={1}
-                                          theme="dark"
-                                          maxHeight="16rem"
-                                          className="p-4"
-                                        />
-                                      ) : null}
-                                      {!log.payload ? (
-                                        <div className="rounded-lg border border-dashed px-4 py-6 text-sm text-muted-foreground">
-                                          {t('integrations.detail.logs.details.noPayload', 'No structured payload was stored for this log entry.')}
-                                        </div>
-                                      ) : null}
-                                    </div>
+                  return {
+                    id: log.id,
+                    time: new Date(log.createdAt).toLocaleString(),
+                    level: log.level,
+                    message: log.message,
+                    body: (
+                      <div className="grid gap-4 lg:grid-cols-[minmax(0,1.1fr)_minmax(0,0.9fr)]">
+                        <div className="space-y-4">
+                          <section className="space-y-3">
+                            <div>
+                              <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
+                                {t('integrations.detail.logs.details.summary', 'Summary')}
+                              </p>
+                              <p className="mt-1 text-sm font-medium">{log.message}</p>
+                            </div>
+                            {metadataEntries.length > 0 ? (
+                              <dl className="grid gap-3 sm:grid-cols-2">
+                                {metadataEntries.map(([label, value]) => (
+                                  <div key={label} className="rounded-md border bg-muted/30 px-3 py-2">
+                                    <dt className="text-overline font-medium uppercase tracking-wide text-muted-foreground">
+                                      {label}
+                                    </dt>
+                                    <dd className="mt-1 break-all text-sm">{value}</dd>
                                   </div>
-                                </div>
-                              </td>
-                            </tr>
+                                ))}
+                              </dl>
+                            ) : null}
+                          </section>
+
+                          {inlineEntries.length > 0 ? (
+                            <section className="space-y-3">
+                              <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
+                                {t('integrations.detail.logs.details.fields', 'Fields')}
+                              </p>
+                              <dl className="grid gap-3 sm:grid-cols-2">
+                                {inlineEntries.map(([key, value]) => (
+                                  <div key={key} className="rounded-md border bg-muted/30 px-3 py-2">
+                                    <dt className="text-overline font-medium uppercase tracking-wide text-muted-foreground">
+                                      {formatLogDetailLabel(key)}
+                                    </dt>
+                                    <dd className="mt-1 break-words text-sm">
+                                      {formatLogPrimitiveValue(value)}
+                                    </dd>
+                                  </div>
+                                ))}
+                              </dl>
+                            </section>
                           ) : null}
-                        </React.Fragment>
-                      )
-                    })}
-                  </tbody>
-                </table>
-              </div>
+                        </div>
+
+                        <div className="space-y-3">
+                          {nestedEntries.map(([key, value]) => (
+                            <JsonDisplay
+                              key={key}
+                              data={value}
+                              title={formatLogDetailLabel(key)}
+                              defaultExpanded
+                              maxInitialDepth={1}
+                              theme="dark"
+                              maxHeight="16rem"
+                              className="p-4"
+                            />
+                          ))}
+                          {log.payload && nestedEntries.length === 0 ? (
+                            <JsonDisplay
+                              data={log.payload}
+                              title={t('integrations.detail.logs.details.payload', 'Payload')}
+                              defaultExpanded
+                              maxInitialDepth={1}
+                              theme="dark"
+                              maxHeight="16rem"
+                              className="p-4"
+                            />
+                          ) : null}
+                          {!log.payload ? (
+                            <EmptyState
+                              size="sm"
+                              icon={<FileX className="h-8 w-8" aria-hidden="true" />}
+                              title={t('integrations.detail.logs.details.noPayload', 'No structured payload was stored for this log entry.')}
+                            />
+                          ) : null}
+                        </div>
+                      </div>
+                    ),
+                  }
+                })}
+                emptyMessage={t('integrations.detail.logs.empty')}
+              />
             )}
             </TabsContent>
           ) : null}

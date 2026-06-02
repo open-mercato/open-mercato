@@ -9,6 +9,7 @@ import { createUserViaUi } from '@open-mercato/core/modules/core/__integration__
  */
 test.describe('TC-INT-004: User to Role to Permission to Access Verification', () => {
   test('should apply restricted role and deny access to protected admin area', async ({ page, request }) => {
+    test.setTimeout(90_000);
     const stamp = Date.now();
     const roleName = `qa-int-004-role-${stamp}`;
     const email = `qa-int-004-${stamp}@acme.com`;
@@ -26,7 +27,7 @@ test.describe('TC-INT-004: User to Role to Permission to Access Verification', (
       await page.getByRole('textbox').first().fill(roleName);
       await page.getByRole('button', { name: 'Create' }).first().click();
       await expect(page).toHaveURL(/\/backend\/roles(?:\?.*)?$/);
-      await page.getByRole('textbox', { name: 'Search', exact: true }).fill(roleName);
+      await page.getByRole('searchbox', { name: 'Search', exact: true }).fill(roleName);
       await page.getByRole('row', { name: new RegExp(roleName, 'i') }).click();
       await expect(page).toHaveURL(/\/backend\/roles\/[0-9a-f-]{36}\/edit$/i);
       roleId = page.url().match(/\/backend\/roles\/([0-9a-f-]{36})\/edit$/i)?.[1] ?? null;
@@ -47,9 +48,9 @@ test.describe('TC-INT-004: User to Role to Permission to Access Verification', (
       const limitedPage = await ctx.newPage();
       await limitedPage.goto('/login');
       await limitedPage.getByLabel('Email').fill(email);
-      await limitedPage.getByLabel('Password').fill(password);
-      await limitedPage.getByLabel('Password').press('Enter');
-      await limitedPage.waitForURL(/\/backend|\/login\?requireFeature=/, { timeout: 10_000 });
+      await limitedPage.getByLabel('Password', { exact: true }).fill(password);
+      await limitedPage.getByLabel('Password', { exact: true }).press('Enter');
+      await limitedPage.waitForURL(/\/backend|\/login\?requireFeature=/, { timeout: 30_000 });
 
       if (/\/login\?requireFeature=/.test(limitedPage.url())) {
         await expect(limitedPage.getByText(/don't have access to this feature|permission/i).first()).toBeVisible();

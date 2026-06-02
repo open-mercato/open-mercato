@@ -121,6 +121,23 @@ yarn dev
 
 Open **http://localhost:3000/backend** and sign in with the credentials printed during setup.
 
+### Run multiple persistent standalone apps against the same PostgreSQL server
+
+`yarn setup`, `yarn dev`, and friends accept an optional `--database-name[=<name>]` flag that rewrites the database segment of `DATABASE_URL` in `./.env`. The flag is fully additive — without it, every script keeps its current behavior.
+
+```bash
+# explicit name; the script asks once whether to update .env (default yes)
+yarn setup --database-name=client_a
+
+# bare flag derives the database name from this app's folder
+yarn setup --database-name
+
+# one-off review run that does not edit .env
+yarn dev --database-name=review_1720 --no-update-env
+```
+
+This makes it easy to run e.g. `client-a/` and `client-b/` side by side against the same PostgreSQL server without manually editing `.env` first. CI / non-interactive runs default to updating `.env`; pass `--no-update-env` (or set `OM_DEV_DATABASE_UPDATE_ENV=false`) to opt out.
+
 ---
 
 ## Add your own modules

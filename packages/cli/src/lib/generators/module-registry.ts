@@ -41,6 +41,7 @@ import {
   spreadExpression,
   type GeneratedObjectEntry,
   variableStatement,
+  writeArrayLiteral,
   writeValue,
   writeStatements,
 } from './ast'
@@ -924,8 +925,12 @@ function toLiteral(value: unknown): string {
     .replace(/\u2029/g, '\\u2029')
 }
 
-const GENERATED_MODULE_SPECIFIER_PREFIXES = ['@/', '@open-mercato/', '../../src/modules/', './'] as const
+const GENERATED_MODULE_RELATIVE_PREFIXES = ['@/', '../../src/modules/', './'] as const
 const GENERATED_MODULE_SPECIFIER_SEGMENT = /^[A-Za-z0-9_.\-[\]()']+$/
+// Lenient npm package name matcher. Accepts legacy uppercase packages and
+// tilde-prefixed names, bans leading "." / "_", and reserves "@" for scope
+// markers so the dispatcher below can split scope-vs-bare unambiguously.
+const NPM_PACKAGE_NAME_SEGMENT = /^[A-Za-z0-9~][A-Za-z0-9_.~-]*$/
 
 function sanitizeGeneratedModuleSpecifierSegment(segment: string, importPath: string): string {
   const match = GENERATED_MODULE_SPECIFIER_SEGMENT.exec(segment)
@@ -935,22 +940,83 @@ function sanitizeGeneratedModuleSpecifierSegment(segment: string, importPath: st
   return match[0]
 }
 
-function sanitizeGeneratedModuleSpecifier(importPath: string): string {
-  const prefix = GENERATED_MODULE_SPECIFIER_PREFIXES.find((candidate) => importPath.startsWith(candidate))
-  if (!prefix) {
-    throw new Error(`Unsafe generated module specifier prefix: ${importPath}`)
+function sanitizeNpmPackageNameSegment(segment: string, importPath: string): void {
+  if (!NPM_PACKAGE_NAME_SEGMENT.test(segment) || segment === '.' || segment === '..') {
+    throw new Error(`Unsafe generated module specifier: ${importPath}`)
   }
+}
 
-  const suffix = importPath.slice(prefix.length)
-  if (!suffix) {
+function sanitizeGeneratedModuleSpecifier(importPath: string): string {
+  if (!importPath) {
     throw new Error(`Unsafe generated module specifier: ${importPath}`)
   }
 
-  const segments = suffix
+  const relativePrefix = GENERATED_MODULE_RELATIVE_PREFIXES.find((candidate) =>
+    importPath.startsWith(candidate),
+  )
+  if (relativePrefix) {
+    const suffix = importPath.slice(relativePrefix.length)
+    if (!suffix) {
+      throw new Error(`Unsafe generated module specifier: ${importPath}`)
+    }
+    const segments = suffix
+      .split('/')
+      .map((segment) => sanitizeGeneratedModuleSpecifierSegment(segment, importPath))
+    return `${relativePrefix}${segments.join('/')}`
+  }
+
+  if (importPath.startsWith('@')) {
+    // Scoped npm package: @scope/name[/subpath]
+    const firstSlash = importPath.indexOf('/')
+    if (firstSlash < 2) {
+      throw new Error(`Unsafe generated module specifier prefix: ${importPath}`)
+    }
+    const scope = importPath.slice(1, firstSlash)
+    sanitizeNpmPackageNameSegment(scope, importPath)
+    const rest = importPath.slice(firstSlash + 1)
+    if (!rest) {
+      throw new Error(`Unsafe generated module specifier: ${importPath}`)
+    }
+    const secondSlash = rest.indexOf('/')
+    const name = secondSlash >= 0 ? rest.slice(0, secondSlash) : rest
+    sanitizeNpmPackageNameSegment(name, importPath)
+    const subpath = secondSlash >= 0 ? rest.slice(secondSlash + 1) : ''
+    if (!subpath) {
+      return `@${scope}/${name}`
+    }
+    const segments = subpath
+      .split('/')
+      .map((segment) => sanitizeGeneratedModuleSpecifierSegment(segment, importPath))
+    return `@${scope}/${name}/${segments.join('/')}`
+  }
+
+  // Bare npm package: name[/subpath]
+  const firstSlash = importPath.indexOf('/')
+  const name = firstSlash >= 0 ? importPath.slice(0, firstSlash) : importPath
+  sanitizeNpmPackageNameSegment(name, importPath)
+  const subpath = firstSlash >= 0 ? importPath.slice(firstSlash + 1) : ''
+  if (!subpath) {
+    return name
+  }
+  const segments = subpath
     .split('/')
     .map((segment) => sanitizeGeneratedModuleSpecifierSegment(segment, importPath))
+  return `${name}/${segments.join('/')}`
+}
 
-  return `${prefix}${segments.join('/')}`
+// Defense in depth: when src/modules.ts registers a module from a third-party
+// npm scope (anything outside @app / @open-mercato/*), verify the resolved
+// pkgBase directory exists. If it doesn't, the package referenced via `from:`
+// is almost certainly not an Open Mercato module (or the id is wrong), and
+// silently emitting an empty module registration would hide the misconfig.
+function verifyThirdPartyModuleShape(entry: { id: string; from?: string }, pkgBase: string): void {
+  const from = entry.from
+  if (!from || from === '@app' || from.startsWith('@open-mercato/')) return
+  if (fs.existsSync(pkgBase)) return
+  throw new Error(
+    `Module '${entry.id}' is registered with from: '${from}' but no Open Mercato module shape was found at '${pkgBase}'. ` +
+      `Ensure the package ships a 'modules/${entry.id}' subtree (either under 'dist/modules/' or 'src/modules/'), or correct the 'from' value in src/modules.ts.`,
+  )
 }
 
 function buildImportStatement(importClause: string, importPath: string): string {
@@ -1989,6 +2055,35 @@ function renderAstLegacyAliasFile(options: {
   return getSourceText(sourceFile)
 }
 
+function renderEnabledModuleIdsFile(moduleIds: readonly string[]): string {
+  const sourceFile = createGeneratedSourceFile('enabled-module-ids.generated.ts')
+  addAutoGeneratedComment(sourceFile, 'registry (enabled-module-ids version)')
+
+  sourceFile.addVariableStatement({
+    declarationKind: VariableDeclarationKind.Const,
+    isExported: true,
+    leadingTrivia: (writer) => {
+      writer.newLine()
+      writer.writeLine('// This file lists every enabled module ID without importing module runtime')
+      writer.writeLine('// surfaces. It is safe to import from client bundles (no node:* dependencies).')
+    },
+    declarations: [
+      {
+        name: 'enabledModuleIds',
+        type: 'readonly string[]',
+        initializer: (writer) => {
+          writeArrayLiteral(writer, moduleIds, (w, id) => {
+            w.write(JSON.stringify(id))
+          })
+          writer.write(' as const')
+        },
+      },
+    ],
+  })
+
+  return getSourceText(sourceFile)
+}
+
 function renderLegacyCompatibleArray(entries: readonly string[]): string {
   return `[
   ${entries.join(',\n  ')}
@@ -2472,6 +2567,9 @@ export async function generateModuleRegistry(options: ModuleRegistryOptions): Pr
   const legacySubscribersChecksumFile = path.join(outputDir, 'subscribers.generated.checksum')
 
   const enabled = resolver.loadEnabledModules()
+  for (const entry of enabled) {
+    verifyThirdPartyModuleShape(entry, resolver.getModulePaths(entry).pkgBase)
+  }
   const extensions = loadGeneratorExtensions()
 
   // Pre-pass: collect generator plugins from each enabled module's generators.ts
@@ -3084,8 +3182,13 @@ export async function generateModuleRegistryApp(options: ModuleRegistryOptions):
   const checksumFile = path.join(outputDir, 'modules.app.generated.checksum')
   const legacyOutFile = path.join(outputDir, 'bootstrap-modules.generated.ts')
   const legacyChecksumFile = path.join(outputDir, 'bootstrap-modules.generated.checksum')
+  const enabledIdsOutFile = path.join(outputDir, 'enabled-module-ids.generated.ts')
+  const enabledIdsChecksumFile = path.join(outputDir, 'enabled-module-ids.generated.checksum')
 
   const enabled = resolver.loadEnabledModules()
+  for (const entry of enabled) {
+    verifyThirdPartyModuleShape(entry, resolver.getModulePaths(entry).pkgBase)
+  }
   const imports: string[] = []
   const moduleDecls: WriterFunction[] = []
   const importIdRef = { value: 0 }
@@ -3392,6 +3495,9 @@ export async function generateModuleRegistryApp(options: ModuleRegistryOptions):
   writeGeneratedFile({ outFile, checksumFile, content: output, structureChecksum, result, quiet })
   writeGeneratedFile({ outFile: legacyOutFile, checksumFile: legacyChecksumFile, content: legacyOutput, structureChecksum, result, quiet })
 
+  const enabledIdsOutput = renderEnabledModuleIdsFile(enabled.map((entry) => entry.id))
+  writeGeneratedFile({ outFile: enabledIdsOutFile, checksumFile: enabledIdsChecksumFile, content: enabledIdsOutput, structureChecksum, result, quiet })
+
   return result
 }
 
@@ -3414,6 +3520,9 @@ export async function generateModuleRegistryCli(options: ModuleRegistryOptions):
   const legacyChecksumFile = path.join(outputDir, 'cli-modules.generated.checksum')
 
   const enabled = resolver.loadEnabledModules()
+  for (const entry of enabled) {
+    verifyThirdPartyModuleShape(entry, resolver.getModulePaths(entry).pkgBase)
+  }
   const imports: string[] = []
   const moduleDecls: WriterFunction[] = []
   // Mutable ref so extracted helper functions can increment the shared counter

@@ -75,7 +75,16 @@ const part: AiUiPart = {
   props: {
     pendingActionId: pendingAction.id,
     expiresAt: pendingAction.expiresAt.toISOString(),
-    fieldDiff: [{ field: 'status', before: 'open', after: 'won' }],
+    fieldDiff: [
+      {
+        field: 'pipelineStageId',
+        fieldLabel: 'Pipeline stage',
+        before: 'a195249d-3061-44f7-b997-0b27f608bdee',
+        after: '5007469d-ba76-4028-be83-d016a50bc0e3',
+        beforeDisplay: 'Offering',
+        afterDisplay: 'Lost',
+      },
+    ],
   },
 }
 ```
@@ -103,6 +112,28 @@ import { AI_MUTATION_APPROVAL_CARDS, defaultAiUiPartRegistry } from '@open-merca
 ```
 
 The `defaultAiUiPartRegistry` is a singleton that already includes the approval cards. You only need to extend it when you ship custom parts.
+
+## Visible task plans
+
+`<AiChat>` also renders a compact live task plan above the technical tool-call rows. This is not a UI part and it is not persisted with chat messages. The server injects `data-agent-task-plan` and `data-agent-task-update` chunks into the same SSE stream so operators see what the agent intends to do before the domain tools finish.
+
+Agents that opt in with `taskPlan: { enabled: true }` can set better labels by calling the read-only `meta.update_task_plan` tool before domain tools:
+
+```ts
+await meta.update_task_plan({
+  tasks: [
+    {
+      id: 'search-products',
+      label: 'Search matching products',
+      detail: 'Catalog search',
+      toolName: 'catalog.search_products',
+    },
+    { id: 'summarize', label: 'Summarize useful matches' },
+  ],
+})
+```
+
+The runtime sanitizes labels and rejects hidden-reasoning-like text such as chain-of-thought, scratchpads, or XML thinking tags. Treat task labels as visible progress copy. Use `toolName` when a step maps to a tool so the runtime can advance that row from `pending` to `running` and `done` as the matching tool lifecycle streams.
 
 ### Registering a custom UI part
 
@@ -216,6 +247,8 @@ data: {"type":"reasoning-delta","delta":"Considering catalog..."}
 data: {"type":"tool-input-start","toolCallId":"...","toolName":"catalog.list_products"}
 data: {"type":"tool-input-available","toolCallId":"...","input":{...}}
 data: {"type":"tool-output-available","toolCallId":"...","output":"..."}
+data: {"type":"data-agent-task-plan","planId":"turn_...","tasks":[{"id":"search-products","label":"Search matching products","state":"pending","source":"agent"}]}
+data: {"type":"data-agent-task-update","planId":"turn_...","task":{"id":"search-products","label":"Search matching products","state":"done","source":"agent","toolCallId":"call_..."}}}
 data: {"type":"data-aiui","payload":{"componentId":"mutation-preview-card","props":{...}}}
 data: [DONE]
 ```
@@ -227,6 +260,7 @@ data: [DONE]
 | `text-delta` | `message.content` |
 | `reasoning-delta` | `message.reasoning` (rendered in the collapsible Reasoning panel) |
 | `tool-input-*` / `tool-output-*` | `message.toolCalls[]` |
+| `data-agent-task-plan` / `data-agent-task-update` | `message.taskPlan[]` (client-local live plan) |
 | `data-aiui` | `message.uiParts[]` resolved by the registry |
 
 ## Testing UI parts

@@ -31,7 +31,6 @@ import {
   ArrowRightLeft,
   Boxes,
   CalendarClock,
-  CircleAlert,
   Clock3,
   Gauge,
   Play,
@@ -66,6 +65,8 @@ type SyncOption = {
   description?: string | null
   providerKey?: string | null
   direction: 'import' | 'export' | 'bidirectional'
+  runMode?: 'generic' | 'provider'
+  canStartRun?: boolean
   supportedEntities: string[]
   hasCredentials: boolean
   isEnabled: boolean
@@ -603,6 +604,7 @@ export default function SyncRunsDashboardPage() {
     selectedIntegration
     && selectedEntityType
     && selectedIntegration.isEnabled
+    && selectedIntegration.canStartRun !== false
     && selectedIntegration.hasCredentials,
   )
   const hasSavedSchedule = Boolean(scheduleEditor.id)
@@ -964,17 +966,22 @@ export default function SyncRunsDashboardPage() {
 
             {selectedIntegration && !selectedIntegration.isEnabled ? (
               <Alert variant="warning">
-                <AlertDescription className="inline-flex items-center gap-2">
-                  <CircleAlert className="size-4" />
-                  <span>{t('integrations.detail.state.disabled', 'This integration is disabled. Enable it on the integration settings page before starting a sync.')}</span>
+                <AlertDescription>
+                  {t('integrations.detail.state.disabled', 'This integration is disabled. Enable it on the integration settings page before starting a sync.')}
                 </AlertDescription>
               </Alert>
             ) : null}
             {selectedIntegration && !selectedIntegration.hasCredentials ? (
               <Alert variant="warning">
-                <AlertDescription className="inline-flex items-center gap-2">
-                  <CircleAlert className="size-4" />
-                  <span>{t('integrations.detail.credentials.notConfigured', 'Credentials are not configured yet. Save the integration credentials before starting a sync.')}</span>
+                <AlertDescription>
+                  {t('integrations.detail.credentials.notConfigured', 'Credentials are not configured yet. Save the integration credentials before starting a sync.')}
+                </AlertDescription>
+              </Alert>
+            ) : null}
+            {selectedIntegration && selectedIntegration.canStartRun === false ? (
+              <Alert variant="info">
+                <AlertDescription>
+                  {t('data_sync.dashboard.start.providerManaged', 'This integration starts sync runs from its own setup flow. Open the integration settings page to continue.')}
                 </AlertDescription>
               </Alert>
             ) : null}

@@ -1,4 +1,5 @@
 import { readApiResultOrThrow } from '@open-mercato/ui/backend/utils/apiCall'
+import type { FilterOption } from '@open-mercato/shared/lib/query/advanced-filter'
 
 export type AssignableStaffMember = {
   teamMemberId: string
@@ -35,7 +36,7 @@ export async function fetchAssignableStaffMembersPage(
   }
 
   const data = await readApiResultOrThrow<AssignableStaffResponse>(
-    `/api/customers/assignable-staff?${params.toString()}`,
+    `/api/staff/team-members/assignable?${params.toString()}`,
     options?.signal ? { signal: options.signal } : undefined,
   )
 
@@ -121,4 +122,24 @@ export async function fetchAssignableStaffMembers(
 ): Promise<AssignableStaffMember[]> {
   const result = await fetchAssignableStaffMembersPage(query, options)
   return result.items
+}
+
+export function mapAssignableStaffToFilterOptions(items: AssignableStaffMember[]): FilterOption[] {
+  return items.map((item) => ({
+    value: item.userId,
+    label: item.email && item.email !== item.displayName
+      ? `${item.displayName} (${item.email})`
+      : item.displayName,
+    tone: 'neutral',
+  }))
+}
+
+export function ensureCurrentUserFilterOption(
+  options: FilterOption[],
+  currentUserId: string,
+  fallbackLabel: string,
+): FilterOption[] {
+  const trimmed = currentUserId.trim()
+  if (!trimmed || options.some((option) => option.value === trimmed)) return options
+  return [{ value: trimmed, label: fallbackLabel, tone: 'neutral' }, ...options]
 }

@@ -158,7 +158,7 @@ function scopeEntityIndexes<QB extends { where: (...args: any[]) => QB }>(
 
 export async function upsertIndexRow(
   em: EntityManager,
-  args: { entityType: string; recordId: string; organizationId?: string | null; tenantId?: string | null }
+  args: { entityType: string; recordId: string; organizationId?: string | null; tenantId?: string | null; searchTokenDoc?: Record<string, unknown> | null }
 ): Promise<UpsertIndexResult> {
   const db = (em as any).getKysely()
 
@@ -234,21 +234,23 @@ export async function upsertIndexRow(
   const created = !existed
   const revived = existed && wasDeleted
   try {
-    const encryption = resolveTenantEncryptionService(em as any)
-    const dekKeyCache = new Map<string | null, string | null>()
-    const tokenDoc = await decryptIndexDocForSearch(
-      args.entityType,
-      doc,
-      { tenantId: args.tenantId ?? null, organizationId: args.organizationId ?? null },
-      encryption,
-      dekKeyCache,
-    )
+    const tokenDoc = args.searchTokenDoc ?? (() => {
+      const encryption = resolveTenantEncryptionService(em as any)
+      const dekKeyCache = new Map<string | null, string | null>()
+      return decryptIndexDocForSearch(
+        args.entityType,
+        doc,
+        { tenantId: args.tenantId ?? null, organizationId: args.organizationId ?? null },
+        encryption,
+        dekKeyCache,
+      )
+    })()
     await replaceSearchTokensForRecord(db, {
       entityType: args.entityType,
       recordId: args.recordId,
       organizationId: args.organizationId ?? null,
       tenantId: args.tenantId ?? null,
-      doc: tokenDoc,
+      doc: await tokenDoc,
     })
   } catch {}
   return { doc, existed, wasDeleted, created, revived }

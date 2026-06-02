@@ -1,0 +1,77 @@
+---
+title: Core Modules
+description: All built-in modules shipped with Open Mercato core — purpose, scope, and key capabilities.
+---
+
+# Core Modules
+
+Open Mercato ships with the following built-in modules in `@open-mercato/core`. Each module is independently enabled in `apps/mercato/src/modules.ts`.
+
+## Foundation
+
+| Module | ID | Description |
+|---|---|---|
+| **Authentication & Accounts** | `auth` | User accounts, sessions, roles and password resets. |
+| **Directory** | `directory` | Multi-tenant directory with tenants and organizations. |
+| **Configuration** | `configs` | Shared configuration storage and helpers for module settings. |
+| **Feature Toggles** | `feature_toggles` | Global feature flags with tenant-level overrides. |
+
+## Commerce
+
+| Module | ID | Description |
+|---|---|---|
+| **Product Catalog** | `catalog` | Configurable catalog for products, variants, and pricing used by the sales module. |
+| **Sales Management** | `sales` | Quoting, ordering, fulfillment, and billing capabilities built on modular pricing and tax pipelines. |
+| **Payment Gateways** | `payment_gateways` | Payment gateway adapter contract, registry, transaction tracking, and webhook routing. |
+| **Shipping Carriers** | `shipping_carriers` | Shipping carrier adapter hub with rates, shipment creation, tracking, and webhooks. |
+| **Currencies** | `currencies` | Currencies and exchange rate management. |
+| **Customer Portal** | `portal` | Self-service customer portal framework with login, signup, dashboard, sidebar navigation, and extensible widget system. |
+
+## CRM & Customers
+
+| Module | ID | Description |
+|---|---|---|
+| **Customer Relationship Management** | `customers` | Core CRM capabilities for people, companies, deals, and activities. |
+| **Customer Identity & Portal Auth** | `customer_accounts` | Customer-facing authentication with two-tier identity model and full RBAC. |
+
+## Operations
+
+| Module | ID | Description |
+|---|---|---|
+| **Workflow Engine** | `workflows` | Orchestrate business processes with state machines, transitions, and activities. |
+| **Business Rules** | `business_rules` | Business rules engine for defining, managing, and executing business logic and automation rules. |
+| **Scheduler** | `scheduler` | Recurring and scheduled jobs. |
+| **Progress** | `progress` | Generic server-side progress tracking for long-running operations. |
+| **Resource Planning** | `resources` | Assets and resources with scheduling policies. |
+| **Worktime / Availabilities** | `planner` | Availability schedules, rulesets, and shared planning rules. |
+| **Employees** | `staff` | Teams, roles, and employee rosters. |
+
+## Data & Integrations
+
+| Module | ID | Description |
+|---|---|---|
+| **Integrations** | `integrations` | Core integration framework — external ID mapping, status badges, and integration registry. |
+| **Data Sync** | `data_sync` | Streaming data sync hub for import/export integrations. |
+| **Custom Entities & Fields** | `entities` | User-defined entities, custom fields, and dynamic records storage. |
+| **Entity Translations** | `translations` | System-wide entity translation storage and locale overlay for CRUD responses. |
+| **Shared Dictionaries** | `dictionaries` | Organization-scoped dictionaries for reusable enumerations and appearance presets. |
+| **Query Indexes** | `query_index` | Hybrid query layer with full-text and vector search capabilities. |
+
+## UI & Platform
+
+| Module | ID | Description |
+|---|---|---|
+| **Admin Dashboards** | `dashboards` | Configurable admin dashboard with module-provided widgets. |
+| **Table Perspectives** | `perspectives` | Shared persistence for DataTable perspectives (columns, filters, saved views). |
+| **Attachments** | `attachments` | File attachments and media management. |
+| **Messages** | `messages` | Internal messaging system with attachments, actions, and email forwarding. |
+| **Notifications** | `notifications` | In-app notifications with module-extensible types and actions. |
+| **Audit & Action Logs** | `audit_logs` | Tracks user actions and data accesses with undo support scaffolding. |
+| **API Keys** | `api_keys` | Manage access tokens for external API access. |
+| **API Documentation** | `api_docs` | Auto-generated documentation for all HTTP endpoints. |
+
+## AI
+
+| Module | ID | Description |
+|---|---|---|
+| **InboxOps** | `inbox_ops` | Receives forwarded emails via webhook, extracts structured action proposals using LLM, and presents them for human-in-the-loop approval. |

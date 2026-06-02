@@ -1,0 +1,49 @@
+---
+title: Injection Spots
+description: All widget injection spots available in the Sales module.
+---
+
+# Sales — Widget Injection Spots
+
+## Order & Quote detail page
+
+| Spot ID | Kind | Description |
+|---|---|---|
+| `sales.document.detail.order:details` | Section | Inject sections into the order detail page |
+| `sales.document.detail.quote:details` | Section | Inject sections into the quote detail page |
+| `sales.document.detail.order:tabs` | Tab | Inject tabs into the order detail page |
+| `sales.document.detail.quote:tabs` | Tab | Inject tabs into the quote detail page |
+| `detail:sales.order:stage-bar` | Section | Order stage bar *(empty, ready for extension)* |
+| `detail:sales.quote:stage-bar` | Section | Quote stage bar *(empty, ready for extension)* |
+| `detail:sales.order:closure` | Section | Order closure section *(empty, ready for extension)* |
+| `detail:sales.quote:closure` | Section | Quote closure section *(empty, ready for extension)* |
+
+## Order list
+
+| Spot ID | Kind | Description |
+|---|---|---|
+| `data-table:sales.orders:columns` | Column | Additional columns in the orders table |
+| `data-table:sales.orders:row-actions` | Row action | Actions on individual order rows |
+
+## Order form
+
+| Spot ID | Kind | Description |
+|---|---|---|
+| `crud-form:sales.sales_order:fields` | Field | Additional fields in the order detail form |
+
+## Payments
+
+| Spot ID | Kind | Description |
+|---|---|---|
+| `data-table:sales.payments:columns` | Column | Additional columns in the payments table |
+
+## Payment methods
+
+| Spot ID | Kind | Description |
+|---|---|---|
+| `crud-form:sales.payment_method:fields` | Field | Additional fields in the payment method form |
+| `crud-form:sales.sales_payment_method:fields` | Field | Additional fields in the sales payment method form |
+
+## See also
+
+- [Widget injection](/framework/widget-injection)

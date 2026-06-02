@@ -199,6 +199,7 @@
   "resources.resourceTypes.errors.delete": "Ressourcentyp konnte nicht gelöscht werden.",
   "resources.resourceTypes.errors.deleteAssigned": "Dem Ressourcentyp sind Ressourcen zugewiesen.",
   "resources.resourceTypes.errors.load": "Ressourcentypen konnten nicht geladen werden.",
+  "resources.resourceTypes.errors.notFound": "Ressourcentyp nicht gefunden.",
   "resources.resourceTypes.errors.save": "Ressourcentyp konnte nicht gespeichert werden.",
   "resources.resourceTypes.form.appearance.colorClear": "Farbe entfernen",
   "resources.resourceTypes.form.appearance.colorHelp": "Wähle eine Farbe für diesen Ressourcentyp.",

@@ -38,11 +38,20 @@ const EXPECTED_SECTION_ORDER = [
 ] as const
 
 describe('customers.account_assistant agent definition', () => {
-  const agent = aiAgents[0]
+  const agent = aiAgents.find((entry) => entry.id === 'customers.account_assistant')!
 
-  it('registers a single agent exported as default and named aiAgents', () => {
-    expect(aiAgents).toHaveLength(1)
-    expect(agent.id).toBe('customers.account_assistant')
+  it('is exported as part of aiAgents alongside the deal_analyzer demo agents', () => {
+    // Module ships three agents: the production account assistant plus two
+    // demo agents (`customers.deal_analyzer`, `customers.deal_analyzer_tool_loop`)
+    // that exercise the loop primitives. New agents added to the module MUST
+    // update this assertion explicitly so the inventory stays locked.
+    const ids = aiAgents.map((entry) => entry.id).sort()
+    expect(ids).toEqual([
+      'customers.account_assistant',
+      'customers.deal_analyzer',
+      'customers.deal_analyzer_tool_loop',
+    ])
+    expect(agent).toBeDefined()
     expect(agent.moduleId).toBe('customers')
   })
 
@@ -61,6 +70,11 @@ describe('customers.account_assistant agent definition', () => {
     expect(agent.maxSteps).toBeUndefined()
     expect(agent.output).toBeUndefined()
     expect(agent.acceptedMediaTypes).toEqual(['image', 'pdf', 'file'])
+  })
+
+  it('enables the visible task-plan helper by agent configuration', () => {
+    expect(agent.taskPlan).toEqual({ enabled: true })
+    expect(agent.allowedTools).not.toContain('meta.update_task_plan')
   })
 
   it('whitelists only read-only tools that exist in the customers pack or general-purpose packs', () => {
@@ -158,7 +172,7 @@ const VALID_UUID_A = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa'
 const VALID_UUID_B = 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb'
 
 function makeAgent() {
-  return (aiAgents[0] as any)
+  return aiAgents.find((entry) => entry.id === 'customers.account_assistant') as any
 }
 
 function buildContainer(ctxOverrides: Record<string, unknown> = {}) {
@@ -171,7 +185,7 @@ function buildContainer(ctxOverrides: Record<string, unknown> = {}) {
 }
 
 describe('customers.account_assistant resolvePageContext hydration (Step 5.2)', () => {
-  const agent = aiAgents[0]
+  const agent = aiAgents.find((entry) => entry.id === 'customers.account_assistant')!
   const originalWarn = console.warn
   beforeEach(() => {
     jest.resetModules()
@@ -357,5 +371,91 @@ describe('customers.account_assistant resolvePageContext hydration (Step 5.2)', 
       organizationId: 'org-1',
     })
     expect(result).toBeNull()
+  })
+})
+
+describe('customers.deal_analyzer demo agents', () => {
+  const dealAnalyzer = aiAgents.find((entry) => entry.id === 'customers.deal_analyzer')!
+  const dealAnalyzerToolLoop = aiAgents.find(
+    (entry) => entry.id === 'customers.deal_analyzer_tool_loop',
+  )!
+
+  it('both demo agents are registered with the customers moduleId', () => {
+    expect(dealAnalyzer).toBeDefined()
+    expect(dealAnalyzerToolLoop).toBeDefined()
+    expect(dealAnalyzer.moduleId).toBe('customers')
+    expect(dealAnalyzerToolLoop.moduleId).toBe('customers')
+  })
+
+  it('declares confirm-required mutation policy with write capability', () => {
+    expect(dealAnalyzer.readOnly).toBe(false)
+    expect(dealAnalyzer.mutationPolicy).toBe('confirm-required')
+    expect(dealAnalyzerToolLoop.readOnly).toBe(false)
+    expect(dealAnalyzerToolLoop.mutationPolicy).toBe('confirm-required')
+  })
+
+  it('exposes only stream-text vs tool-loop-agent on the two siblings', () => {
+    expect(dealAnalyzer.executionEngine).toBe('stream-text')
+    expect(dealAnalyzerToolLoop.executionEngine).toBe('tool-loop-agent')
+  })
+
+  it('inherits the runtime default provider and model from environment settings', () => {
+    expect(dealAnalyzer.defaultModel).toBeUndefined()
+    expect(dealAnalyzer.defaultProvider).toBeUndefined()
+    expect(dealAnalyzer.allowRuntimeOverride).toBe(true)
+  })
+
+  it('declares loop budget and stops immediately after the mutation tool call', () => {
+    const loop = dealAnalyzer.loop
+    expect(loop).toBeDefined()
+    expect(loop?.maxSteps).toBe(12)
+    expect(loop?.budget?.maxToolCalls).toBe(12)
+    expect(loop?.budget?.maxWallClockMs).toBe(60_000)
+    expect(loop?.allowRuntimeOverride).toBe(true)
+    expect(loop?.stopWhen).toContainEqual({ kind: 'hasToolCall', toolName: 'customers.update_deal_stage' })
+  })
+
+  it('whitelists the analyze + update-stage tools and not others', () => {
+    expect(dealAnalyzer.allowedTools).toContain('customers.analyze_deals')
+    expect(dealAnalyzer.allowedTools).toContain('customers.update_deal_stage')
+    expect(dealAnalyzer.allowedTools).toContain('customers.list_pipeline_stages')
+    expect(dealAnalyzer.allowedTools).not.toContain('meta.update_task_plan')
+    expect(dealAnalyzer.allowedTools).not.toContain('customers.manage_record_activity')
+  })
+
+  it('teaches the model to resolve pipeline stage ids before stage moves', () => {
+    expect(dealAnalyzer.systemPrompt).toContain('customers.list_pipeline_stages')
+    expect(dealAnalyzer.systemPrompt).toContain('toPipelineStageId')
+    expect(dealAnalyzer.systemPrompt).toContain('do not ask the operator to paste a stage id')
+  })
+
+  it('enables visible task planning through taskPlan config', () => {
+    expect(dealAnalyzer.taskPlan).toEqual({ enabled: true })
+  })
+
+  it('requiredFeatures stays inside the customers acl namespace', () => {
+    const knownFeatureIds = new Set(features.map((entry) => entry.id))
+    for (const featureId of dealAnalyzer.requiredFeatures ?? []) {
+      expect(knownFeatureIds.has(featureId)).toBe(true)
+    }
+  })
+
+  it('prepareStep callback scopes tools by step without overriding the model', async () => {
+    expect(typeof dealAnalyzer.loop?.prepareStep).toBe('function')
+    const stepZero = await dealAnalyzer.loop!.prepareStep!({
+      stepNumber: 0,
+    } as any)
+    const stepOne = await dealAnalyzer.loop!.prepareStep!({
+      stepNumber: 1,
+    } as any)
+
+    expect((stepZero as any).model).toBeUndefined()
+    expect((stepOne as any).model).toBeUndefined()
+    expect((stepZero as any).activeTools).toContain('meta.update_task_plan')
+    expect((stepZero as any).activeTools).toContain('customers.analyze_deals')
+    expect((stepZero as any).activeTools).toContain('customers.list_pipeline_stages')
+    expect((stepZero as any).activeTools).toContain('customers.update_deal_stage')
+    expect((stepOne as any).activeTools).toContain('customers.update_deal_stage')
+    expect((stepOne as any).activeTools).toContain('customers.list_pipeline_stages')
   })
 })

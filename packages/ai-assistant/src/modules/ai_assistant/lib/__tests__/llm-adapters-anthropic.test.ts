@@ -69,4 +69,22 @@ describe('AnthropicAdapter', () => {
     expect(model).toBeDefined()
     expect(model).not.toBeNull()
   })
+
+  it('createModel forwards baseURL to createAnthropic without throwing', () => {
+    const model = adapter.createModel({
+      apiKey: 'sk-ant-test',
+      modelId: 'claude-haiku-4-5-20251001',
+      baseURL: 'https://gateway.ai.cloudflare.com/v1/account/gateway-name/anthropic',
+    })
+    expect(model).toBeDefined()
+    expect(model).not.toBeNull()
+  })
+
+  it('createModel without baseURL still works (Messages API default)', () => {
+    const model = adapter.createModel({
+      apiKey: 'sk-ant-test',
+      modelId: 'claude-haiku-4-5-20251001',
+    })
+    expect(model).toBeDefined()
+  })
 })

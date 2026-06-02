@@ -2,17 +2,34 @@
 
 import * as React from 'react'
 import {
+  Activity,
+  AlertTriangle,
+  BadgeQuestionMark,
   Bot,
+  ChartNoAxesCombined,
   Check,
   ChevronDown,
   ChevronRight,
+  Circle,
+  CircleAlert,
+  CircleCheck,
+  CircleDashed,
   Copy,
+  Database,
+  Download,
+  FileQuestion,
+  GitBranch,
+  Handshake,
   Lightbulb,
+  ListChecks,
   Loader2,
+  Maximize2,
   Paperclip,
   Plus,
+  Search,
   Send,
   Square,
+  TrendingDown,
   User,
   Wrench,
   X,
@@ -23,10 +40,23 @@ import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { cn } from '@open-mercato/shared/lib/utils'
 import { Alert, AlertDescription, AlertTitle } from '../primitives/alert'
 import { Button } from '../primitives/button'
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogHeader,
+  DialogTitle,
+} from '../primitives/dialog'
 import { IconButton } from '../primitives/icon-button'
 import { Label } from '../primitives/label'
 import { Textarea } from '../primitives/textarea'
+import { apiCall } from '../backend/utils/apiCall'
 import { parseAiContentSegments } from './AiMessageContent'
+import {
+  ModelPicker,
+  type ModelPickerProvider,
+  type ModelPickerValue,
+} from './ModelPicker'
 import { RecordCard } from './records/RecordCard'
 import {
   defaultAiUiPartRegistry,
@@ -36,6 +66,7 @@ import {
 } from './ui-part-registry'
 import {
   useAiChat,
+  type AiAgentTaskSnapshot,
   type AiChatMessage,
   type AiChatMessageFile,
   type AiChatMessageUiPart,
@@ -43,11 +74,118 @@ import {
 } from './useAiChat'
 import { useAiChatUpload } from './useAiChatUpload'
 import { useAiShortcuts } from './useAiShortcuts'
+import { LoopTracePanel, type LoopTracePanelTrace } from './LoopTracePanel'
+import { AiIcon } from './AiIcon'
 
 // Cap inline previews so we do not blow past localStorage quota (~5MB on most
 // browsers). Images larger than this still upload + send to the LLM as inline
 // base64 server-side; only the in-chat preview is dropped on reload.
 const PREVIEW_DATA_URL_MAX_BYTES = 2 * 1024 * 1024
+const COMPACT_FOOTER_MAX_WIDTH = 640
+
+const MODEL_PICKER_STORAGE_PREFIX = 'om-ai-model-picker:'
+
+function readModelPickerValue(agentId: string): ModelPickerValue | null {
+  if (typeof window === 'undefined') return null
+  try {
+    const raw = window.localStorage.getItem(`${MODEL_PICKER_STORAGE_PREFIX}${agentId}`)
+    if (!raw) return null
+    const parsed = JSON.parse(raw) as unknown
+    if (
+      parsed &&
+      typeof parsed === 'object' &&
+      typeof (parsed as Record<string, unknown>).providerId === 'string' &&
+      typeof (parsed as Record<string, unknown>).modelId === 'string'
+    ) {
+      const value = parsed as ModelPickerValue
+      return { providerId: value.providerId, modelId: value.modelId }
+    }
+    return null
+  } catch {
+    return null
+  }
+}
+
+function writeModelPickerValue(agentId: string, value: ModelPickerValue | null): void {
+  if (typeof window === 'undefined') return
+  try {
+    const key = `${MODEL_PICKER_STORAGE_PREFIX}${agentId}`
+    if (value === null) {
+      window.localStorage.removeItem(key)
+    } else {
+      window.localStorage.setItem(key, JSON.stringify({ providerId: value.providerId, modelId: value.modelId }))
+    }
+  } catch {
+    // Quota exceeded / privacy mode — silently ignore.
+  }
+}
+
+interface ModelsApiResponse {
+  agentId: string
+  allowRuntimeOverride: boolean
+  allowRuntimeModelOverride?: boolean
+  defaultProviderId: string | null
+  defaultModelId: string | null
+  defaultProviderName?: string | null
+  defaultModelName?: string | null
+  providers: ModelPickerProvider[]
+}
+
+function useAgentModels(agent: string): {
+  providers: ModelPickerProvider[]
+  allowRuntimeOverride: boolean
+  allowRuntimeModelOverride: boolean
+  defaultLabel: string | null
+  loaded: boolean
+} {
+  const [providers, setProviders] = React.useState<ModelPickerProvider[]>([])
+  const [allowRuntimeOverride, setAllowRuntimeOverride] = React.useState(false)
+  const [defaultLabel, setDefaultLabel] = React.useState<string | null>(null)
+  const [loaded, setLoaded] = React.useState(false)
+
+  React.useEffect(() => {
+    const modelsUrl = `/api/ai_assistant/ai/agents/${encodeURIComponent(agent)}/models`
+    setLoaded(false)
+    setDefaultLabel(null)
+    void apiCall<ModelsApiResponse>(modelsUrl).then((result) => {
+      if (!result.ok || !result.result) {
+        setLoaded(true)
+        return
+      }
+      const effectiveAllowRuntimeOverride =
+        result.result.allowRuntimeOverride ?? result.result.allowRuntimeModelOverride ?? false
+      setAllowRuntimeOverride(effectiveAllowRuntimeOverride)
+      setProviders(result.result.providers)
+      setDefaultLabel(
+        result.result.defaultProviderName && result.result.defaultModelName
+          ? `${result.result.defaultProviderName} / ${result.result.defaultModelName}`
+          : result.result.defaultProviderId && result.result.defaultModelId
+            ? `${result.result.defaultProviderId} / ${result.result.defaultModelId}`
+            : null,
+      )
+      setLoaded(true)
+    })
+  }, [agent])
+
+  return {
+    providers,
+    allowRuntimeOverride,
+    allowRuntimeModelOverride: allowRuntimeOverride,
+    defaultLabel,
+    loaded,
+  }
+}
+
+function isModelPickerValueAvailable(
+  value: ModelPickerValue,
+  providers: ModelPickerProvider[],
+): boolean {
+  return providers.some(
+    (provider) =>
+      provider.id === value.providerId &&
+      provider.models.some((model) => model.id === value.modelId),
+  )
+}
 
 async function readFileAsDataUrl(file: File): Promise<string | undefined> {
   if (!file.type.startsWith('image/')) return undefined
@@ -150,6 +288,13 @@ export interface AiChatProps {
    * `debug` is falsy.
    */
   debugPromptSections?: AiChatDebugPromptSection[]
+  /**
+   * Optional loop trace from the last completed turn. When present and
+   * `debug` is truthy, renders a `LoopTracePanel` inside the debug panel.
+   * Populated by the host from the dispatcher SSE `loop-finish` event
+   * (wired in l4.4). Ignored when `debug` is falsy.
+   */
+  loopTrace?: LoopTracePanelTrace
   /** Suggested prompts shown in the empty / welcome state. */
   suggestions?: AiChatSuggestion[]
   /** Context items shown as pills above the transcript (e.g. selected products). */
@@ -158,6 +303,20 @@ export interface AiChatProps {
   welcomeTitle?: string
   /** Welcome description shown below the heading. */
   welcomeDescription?: string
+  /** Initial compact composer state used before the footer has been measured. */
+  defaultCompactFooter?: boolean
+  /** Optional extra action nodes rendered in the conversation header bar. */
+  headerActions?: React.ReactNode
+  /** Called once on mount (and on reset) with the effective conversation id. */
+  onConversationIdChange?: (conversationId: string) => void
+  /**
+   * Called when the server returns 404 for the active `conversationId`,
+   * e.g. when the id was carried over from a previous tenant/org scope
+   * and no longer exists. The host (typically the AI dock) should remove
+   * the corresponding session entry so the stale tab disappears instead
+   * of staying empty.
+   */
+  onConversationNotFound?: () => void
 }
 
 interface ServerEmittedUiPartRef {
@@ -260,12 +419,116 @@ function safeStringify(value: unknown): string {
   }
 }
 
+function titleWords(value: string): string {
+  return value.replace(/\b[a-z]/g, (char) => char.toUpperCase())
+}
+
+function formatToolCaption(call: AiChatToolCallSnapshot): string {
+  const rawCaption = call.caption?.trim()
+  if (!rawCaption) return call.toolName
+  const caption = titleWords(rawCaption.replace(/\s*·\s*/g, ' - '))
+  return `${caption} (${call.toolName})`
+}
+
+/**
+ * Visible agent task plan rendered above raw tool-call rows. Phase 1
+ * implementation of spec `.ai/specs/2026-05-13-ai-chat-visible-task-plan.md`:
+ * compact, fixed-height rows with icon + label + status badge so the
+ * panel does not jump while streaming. Source of truth is the
+ * client-local `taskPlan` array on the assistant message.
+ */
+function AiChatTaskPlan({ tasks }: { tasks: AiAgentTaskSnapshot[] }) {
+  const t = useT()
+  if (!tasks || tasks.length === 0) return null
+  return (
+    <div
+      className="rounded-md border border-border bg-muted/30"
+      data-ai-chat-task-plan=""
+      data-ai-chat-task-plan-count={tasks.length}
+    >
+      <div className="flex items-center gap-2 border-b border-border/60 px-2 py-1.5 text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
+        <ListChecks className="size-3.5 text-muted-foreground" aria-hidden />
+        <span>{t('ai_assistant.chat.taskPlanTitle', 'Plan')}</span>
+        <span className="ml-auto font-mono">{tasks.length}</span>
+      </div>
+      <ul className="divide-y divide-border/60" data-ai-chat-task-plan-list="">
+        {tasks.map((task) => (
+          <AiChatTaskRow key={task.id} task={task} />
+        ))}
+      </ul>
+    </div>
+  )
+}
+
+function AiChatTaskRow({ task }: { task: AiAgentTaskSnapshot }) {
+  const t = useT()
+  const statusLabel =
+    task.state === 'running'
+      ? t('ai_assistant.chat.taskRunning', 'running…')
+      : task.state === 'done'
+        ? t('ai_assistant.chat.taskDone', 'done')
+        : task.state === 'failed'
+          ? t('ai_assistant.chat.taskFailed', 'failed')
+          : task.state === 'skipped'
+            ? t('ai_assistant.chat.taskSkipped', 'skipped')
+            : t('ai_assistant.chat.taskPending', 'pending')
+  const Icon =
+    task.state === 'running'
+      ? Loader2
+      : task.state === 'done'
+        ? CircleCheck
+        : task.state === 'failed'
+          ? CircleAlert
+          : task.state === 'skipped'
+            ? CircleDashed
+            : Circle
+  const iconClassName = cn(
+    'size-3.5 shrink-0',
+    task.state === 'running' && 'animate-spin text-muted-foreground',
+    task.state === 'done' && 'text-status-success-icon',
+    task.state === 'failed' && 'text-destructive',
+    task.state === 'skipped' && 'text-muted-foreground',
+    task.state === 'pending' && 'text-muted-foreground',
+  )
+  const statusBadgeClassName = cn(
+    'ml-auto text-[10px] uppercase tracking-wide',
+    task.state === 'done' && 'text-status-success-text',
+    task.state === 'failed' && 'text-destructive',
+    task.state !== 'done' && task.state !== 'failed' && 'text-muted-foreground',
+  )
+  return (
+    <li
+      className="flex h-7 items-center gap-2 px-2 text-xs"
+      data-ai-chat-task-id={task.id}
+      data-ai-chat-task-state={task.state}
+      data-ai-chat-task-source={task.source}
+      data-ai-chat-task-tool-call-id={task.toolCallId}
+    >
+      <Icon className={iconClassName} aria-hidden />
+      <span className="truncate" title={task.detail ?? task.label}>
+        {task.label}
+      </span>
+      <span className={statusBadgeClassName}>{statusLabel}</span>
+    </li>
+  )
+}
+
 function ToolCallList({ toolCalls }: { toolCalls: AiChatToolCallSnapshot[] }) {
   const t = useT()
   const [openId, setOpenId] = React.useState<string | null>(null)
   if (!toolCalls || toolCalls.length === 0) return null
   return (
-    <div className="space-y-1" data-ai-chat-tool-calls="">
+    <div
+      className="rounded-md border border-border bg-muted/30"
+      data-ai-chat-tool-calls=""
+      data-ai-chat-tool-call-count={toolCalls.length}
+    >
+      <div className="flex items-center gap-2 border-b border-border/60 px-2 py-1.5 text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
+        <Wrench className="size-3.5 text-muted-foreground" aria-hidden />
+        <span>{t('ai_assistant.chat.agentTasksTitle', 'Tool calls')}</span>
+        <span className="ml-auto font-mono">{toolCalls.length}</span>
+      </div>
+      <ul className="divide-y divide-border/60">
       {toolCalls.map((call) => {
         const isOpen = openId === call.id
         const isError = call.state === 'error'
@@ -277,19 +540,20 @@ function ToolCallList({ toolCalls }: { toolCalls: AiChatToolCallSnapshot[] }) {
             ? t('ai_assistant.chat.toolRunning', 'running…')
             : t('ai_assistant.chat.toolDone', 'done')
         return (
-          <div
+          <li
             key={call.id}
             className={cn(
-              'rounded-md border border-border bg-muted/30',
-              isError ? 'border-destructive/40 bg-destructive/5' : '',
+              isError ? 'bg-destructive/5' : '',
             )}
             data-ai-chat-tool-call={call.toolName}
             data-ai-chat-tool-state={call.state}
           >
-            <button
+            <Button
+              variant="ghost"
+              size="2xs"
               type="button"
               onClick={() => setOpenId(isOpen ? null : call.id)}
-              className="flex w-full items-center gap-2 px-2 py-1.5 text-left text-xs font-medium hover:bg-muted/60"
+              className="w-full justify-start rounded-none px-2 text-left hover:bg-muted/60"
             >
               {isOpen ? (
                 <ChevronDown className="size-3.5 text-muted-foreground" aria-hidden />
@@ -307,7 +571,9 @@ function ToolCallList({ toolCalls }: { toolCalls: AiChatToolCallSnapshot[] }) {
                   aria-hidden
                 />
               )}
-              <span className="font-mono">{call.toolName}</span>
+              <span className="truncate" title={formatToolCaption(call)}>
+                {formatToolCaption(call)}
+              </span>
               <span
                 className={cn(
                   'ml-auto text-[10px] uppercase tracking-wide',
@@ -320,7 +586,7 @@ function ToolCallList({ toolCalls }: { toolCalls: AiChatToolCallSnapshot[] }) {
               >
                 {statusLabel}
               </span>
-            </button>
+            </Button>
             {isOpen ? (
               <div className="space-y-1 border-t border-border/60 px-2 py-1.5 text-xs">
                 {call.input !== undefined ? (
@@ -348,9 +614,10 @@ function ToolCallList({ toolCalls }: { toolCalls: AiChatToolCallSnapshot[] }) {
                 ) : null}
               </div>
             ) : null}
-          </div>
+          </li>
         )
       })}
+      </ul>
     </div>
   )
 }
@@ -392,23 +659,155 @@ function ReasoningPanel({ text, streaming }: { text: string; streaming: boolean 
   )
 }
 
+function getAttachmentImageUrl(file: AiChatMessageFile): string | null {
+  if (file.id) return `/api/attachments/image/${encodeURIComponent(file.id)}`
+  return file.previewUrl ?? null
+}
+
+function getAttachmentDownloadUrl(file: AiChatMessageFile): string | null {
+  if (file.id) return `/api/attachments/file/${encodeURIComponent(file.id)}?download=1`
+  return file.previewUrl ?? null
+}
+
+function MessageFileAttachment({ file }: { file: AiChatMessageFile }) {
+  const t = useT()
+  const [zoomOpen, setZoomOpen] = React.useState(false)
+  const imageUrl = file.previewUrl ? getAttachmentImageUrl(file) : null
+  const downloadUrl = getAttachmentDownloadUrl(file)
+  const downloadLabel = t('ai_assistant.chat.downloadFile', 'Download {name}').replace(
+    '{name}',
+    file.name,
+  )
+  const zoomLabel = t('ai_assistant.chat.zoomImage', 'Open {name} preview').replace(
+    '{name}',
+    file.name,
+  )
+
+  if (!file.previewUrl) {
+    return (
+      <span className="inline-flex max-w-full items-center gap-1 rounded-full border border-border bg-muted px-2 py-0.5 text-xs">
+        <Paperclip className="size-3 shrink-0" aria-hidden />
+        <span className="max-w-[180px] truncate">{file.name}</span>
+        {downloadUrl ? (
+          <IconButton
+            asChild
+            variant="ghost"
+            size="xs"
+            className="-mr-1 size-5 shrink-0"
+          >
+            <a href={downloadUrl} download={file.name} aria-label={downloadLabel}>
+              <Download className="size-3" aria-hidden />
+            </a>
+          </IconButton>
+        ) : null}
+      </span>
+    )
+  }
+
+  return (
+    <>
+      <div className="group/file relative max-w-full">
+        <button
+          type="button"
+          className="block max-w-full rounded-md border border-border bg-muted/30 focus-visible:outline-none focus-visible:shadow-focus"
+          onClick={() => setZoomOpen(true)}
+          aria-label={zoomLabel}
+          data-ai-chat-image-preview=""
+        >
+          <img
+            src={file.previewUrl}
+            alt={file.name}
+            className="max-h-32 max-w-[200px] rounded-md object-cover"
+          />
+          <span className="pointer-events-none absolute right-1 top-1 inline-flex size-6 items-center justify-center rounded-md bg-background/90 text-muted-foreground opacity-0 shadow-xs transition-opacity group-hover/file:opacity-100 group-focus-within/file:opacity-100">
+            <Maximize2 className="size-3.5" aria-hidden />
+          </span>
+        </button>
+        {downloadUrl ? (
+          <IconButton
+            asChild
+            variant="white"
+            size="xs"
+            className="absolute bottom-1 right-1 opacity-0 shadow-xs transition-opacity group-hover/file:opacity-100 group-focus-within/file:opacity-100"
+          >
+            <a
+              href={downloadUrl}
+              download={file.name}
+              aria-label={downloadLabel}
+              onClick={(event) => event.stopPropagation()}
+              data-ai-chat-file-download=""
+            >
+              <Download className="size-3.5" aria-hidden />
+            </a>
+          </IconButton>
+        ) : null}
+      </div>
+
+      <Dialog open={zoomOpen} onOpenChange={setZoomOpen}>
+        <DialogContent className="gap-3 p-4 sm:max-w-[min(96vw,960px)]">
+          <DialogHeader className="min-w-0 pr-16">
+            <DialogTitle className="truncate text-sm">{file.name}</DialogTitle>
+            <DialogDescription className="sr-only">
+              {t('ai_assistant.chat.imagePreviewDialogDescription', 'Image preview')}
+            </DialogDescription>
+          </DialogHeader>
+          <div className="relative flex min-h-0 items-center justify-center overflow-auto rounded-md bg-muted/30 p-2">
+            <img
+              src={imageUrl ?? file.previewUrl}
+              alt={file.name}
+              className="max-h-[75vh] max-w-full object-contain"
+            />
+            {downloadUrl ? (
+              <IconButton
+                asChild
+                variant="white"
+                size="sm"
+                className="absolute bottom-3 right-3 shadow-xs"
+              >
+                <a
+                  href={downloadUrl}
+                  download={file.name}
+                  aria-label={downloadLabel}
+                  data-ai-chat-file-download=""
+                >
+                  <Download className="size-4" aria-hidden />
+                </a>
+              </IconButton>
+            ) : null}
+          </div>
+        </DialogContent>
+      </Dialog>
+    </>
+  )
+}
+
 function MessageRow({
   message,
   registry,
   onMutationRequested,
+  isOwner,
 }: {
   message: AiChatMessage
   registry?: AiUiPartRegistry
   onMutationRequested?: (pendingActionId: string) => void
+  /** Whether the current viewer owns the conversation. Used to label foreign user messages. */
+  isOwner?: boolean | null
 }) {
   const t = useT()
   const isAssistant = message.role === 'assistant'
+  const isOtherUsersMessage = !isAssistant && isOwner === false
   const label = isAssistant
     ? t('ai_assistant.chat.assistantRoleLabel', 'Assistant')
-    : t('ai_assistant.chat.userRoleLabel', 'You')
+    : isOtherUsersMessage
+      ? t('ai_assistant.chat.ownerRoleLabel', 'Owner')
+      : t('ai_assistant.chat.userRoleLabel', 'You')
   const Icon = isAssistant ? Bot : User
   const [copied, setCopied] = React.useState(false)
   const copyTimerRef = React.useRef<ReturnType<typeof setTimeout> | null>(null)
+  const visibleTaskPlan =
+    isAssistant && message.taskPlan
+      ? message.taskPlan.filter((task) => task.source === 'agent')
+      : []
 
   React.useEffect(() => {
     return () => {
@@ -487,24 +886,9 @@ function MessageRow({
         </div>
         {message.files && message.files.length > 0 ? (
           <div className="flex flex-wrap gap-2 py-1">
-            {message.files.map((file, i) =>
-              file.previewUrl ? (
-                <img
-                  key={i}
-                  src={file.previewUrl}
-                  alt={file.name}
-                  className="max-h-32 max-w-[200px] rounded-md border border-border object-cover"
-                />
-              ) : (
-                <span
-                  key={i}
-                  className="inline-flex items-center gap-1 rounded-full border border-border bg-muted px-2 py-0.5 text-xs"
-                >
-                  <Paperclip className="size-3" aria-hidden />
-                  {file.name}
-                </span>
-              ),
-            )}
+            {message.files.map((file, i) => (
+              <MessageFileAttachment key={`${file.id ?? file.name}:${i}`} file={file} />
+            ))}
           </div>
         ) : null}
         {isAssistant && message.reasoning ? (
@@ -512,6 +896,9 @@ function MessageRow({
             text={message.reasoning}
             streaming={message.reasoningStreaming === true}
           />
+        ) : null}
+        {visibleTaskPlan.length > 0 ? (
+          <AiChatTaskPlan tasks={visibleTaskPlan} />
         ) : null}
         {isAssistant && message.toolCalls && message.toolCalls.length > 0 ? (
           <ToolCallList toolCalls={message.toolCalls} />
@@ -610,6 +997,49 @@ function AiUiPartRenderer({
   )
 }
 
+function getSuggestionIcon(suggestion: AiChatSuggestion): {
+  icon: React.ReactNode
+  name: string
+} {
+  if (suggestion.icon) return { icon: suggestion.icon, name: 'custom' }
+  const text = `${suggestion.label} ${suggestion.prompt}`.toLowerCase()
+  const iconClassName = 'size-4 text-foreground'
+  if (/\b(analy[sz]e|analysis|health|score|summary|summari[sz]e)\b/.test(text)) {
+    return { icon: <ChartNoAxesCombined className={iconClassName} />, name: 'analysis' }
+  }
+  if (/\b(at[-\s]?risk|risk|stalled|stale|overdue|danger)\b/.test(text)) {
+    return { icon: <AlertTriangle className={iconClassName} />, name: 'risk' }
+  }
+  if (/\bpipeline|stage|funnel\b/.test(text)) {
+    return { icon: <GitBranch className={iconClassName} />, name: 'pipeline' }
+  }
+  if (/\bdeal|opportunit(?:y|ies)\b/.test(text)) {
+    return { icon: <Handshake className={iconClassName} />, name: 'deal' }
+  }
+  if (/\bdata|access|record|records|schema\b/.test(text)) {
+    return { icon: <Database className={iconClassName} />, name: 'data' }
+  }
+  if (/\bwhat can you help|help me|capabilit(?:y|ies)\b/.test(text)) {
+    return { icon: <BadgeQuestionMark className={iconClassName} />, name: 'capabilities' }
+  }
+  if (/\bsuggest|try|idea|ideas|recommend\b/.test(text)) {
+    return { icon: <Lightbulb className={iconClassName} />, name: 'ideas' }
+  }
+  if (/\bhow do i|how to|use this|instructions?|guide\b/.test(text)) {
+    return { icon: <FileQuestion className={iconClassName} />, name: 'guide' }
+  }
+  if (/\bfind|search|show|list|lookup\b/.test(text)) {
+    return { icon: <Search className={iconClassName} />, name: 'search' }
+  }
+  if (/\bactivity|activities|timeline|recent\b/.test(text)) {
+    return { icon: <Activity className={iconClassName} />, name: 'activity' }
+  }
+  if (/\bdown|drop|declin|loss|lost\b/.test(text)) {
+    return { icon: <TrendingDown className={iconClassName} />, name: 'trend-down' }
+  }
+  return { icon: <AiIcon className={iconClassName} />, name: 'ai' }
+}
+
 function WelcomeState({
   title,
   description,
@@ -643,22 +1073,25 @@ function WelcomeState({
       </div>
       {suggestions && suggestions.length > 0 ? (
         <div className="flex w-full max-w-md flex-col gap-2" data-ai-chat-suggestions="">
-          {suggestions.map((suggestion, index) => (
-            <button
-              key={index}
-              type="button"
-              className="flex items-center gap-2 rounded-lg border border-border bg-card px-3 py-2.5 text-left text-sm transition-colors hover:bg-accent hover:text-accent-foreground"
-              onClick={() => onSuggestionClick(suggestion.prompt)}
-              data-ai-chat-suggestion={index}
-            >
-              {suggestion.icon ? (
+          {suggestions.map((suggestion, index) => {
+            const suggestionIcon = getSuggestionIcon(suggestion)
+            return (
+              <Button
+                variant="outline"
+                key={index}
+                type="button"
+                className="h-auto w-full justify-start whitespace-normal rounded-lg bg-card px-3 py-2.5 text-left text-sm"
+                onClick={() => onSuggestionClick(suggestion.prompt)}
+                data-ai-chat-suggestion={index}
+                data-ai-chat-suggestion-icon={suggestionIcon.name}
+              >
                 <span className="shrink-0 text-muted-foreground" aria-hidden>
-                  {suggestion.icon}
+                  {suggestionIcon.icon}
                 </span>
-              ) : null}
-              <span>{suggestion.label}</span>
-            </button>
-          ))}
+                <span>{suggestion.label}</span>
+              </Button>
+            )
+          })}
         </div>
       ) : null}
     </div>
@@ -713,13 +1146,22 @@ export function AiChat({
   uiParts: uiPartsProp,
   debugTools,
   debugPromptSections,
+  loopTrace,
   conversationId,
   suggestions,
   contextItems,
   welcomeTitle,
   welcomeDescription,
+  defaultCompactFooter = false,
+  headerActions,
+  onConversationIdChange,
+  onConversationNotFound,
 }: AiChatProps) {
   const t = useT()
+  const onConversationIdChangeRef = React.useRef(onConversationIdChange)
+  React.useLayoutEffect(() => {
+    onConversationIdChangeRef.current = onConversationIdChange
+  })
   const textareaRef = React.useRef<HTMLTextAreaElement | null>(null)
   const transcriptRef = React.useRef<HTMLDivElement | null>(null)
   const fileInputRef = React.useRef<HTMLInputElement | null>(null)
@@ -729,10 +1171,9 @@ export function AiChat({
     attachmentId?: string
     /**
      * Base64 data URL of the image (capped by PREVIEW_DATA_URL_MAX_BYTES).
-     * Stored on the message so the preview survives a reload — durable
-     * server URLs were intentionally avoided because the LLM provider can
-     * never reach a localhost dev URL anyway, and HTTP fetches add latency
-     * the chat doesn't need.
+     * Stored on the local message for immediate previews; once the transcript
+     * is loaded from server storage the attachment id is used to rebuild a
+     * same-origin thumbnail URL.
      */
     previewDataUrl?: string
     error?: string
@@ -740,6 +1181,26 @@ export function AiChat({
   const [pendingFiles, setPendingFiles] = React.useState<PendingAttachment[]>([])
   const upload = useAiChatUpload()
   const isUploading = upload.busy
+  const footerRef = React.useRef<HTMLDivElement | null>(null)
+  const [isCompactFooter, setIsCompactFooter] = React.useState(defaultCompactFooter)
+
+  React.useEffect(() => {
+    const element = footerRef.current
+    if (!element || typeof ResizeObserver === 'undefined') return
+
+    const updateCompactState = (width: number) => {
+      setIsCompactFooter(width < COMPACT_FOOTER_MAX_WIDTH)
+    }
+
+    updateCompactState(element.getBoundingClientRect().width)
+    const observer = new ResizeObserver((entries) => {
+      const entry = entries[0]
+      if (!entry) return
+      updateCompactState(entry.contentRect.width)
+    })
+    observer.observe(element)
+    return () => observer.disconnect()
+  }, [])
 
   const uploadedAttachmentIds = React.useMemo(
     () =>
@@ -754,6 +1215,66 @@ export function AiChat({
     [attachmentIds, uploadedAttachmentIds],
   )
 
+  const {
+    providers: modelProviders,
+    allowRuntimeOverride,
+    allowRuntimeModelOverride,
+    defaultLabel: modelDefaultLabel,
+    loaded: modelProvidersLoaded,
+  } = useAgentModels(agent)
+
+  const [modelPickerValue, setModelPickerValue] = React.useState<ModelPickerValue | null>(() =>
+    readModelPickerValue(agent),
+  )
+
+  const effectiveModelPickerValue = React.useMemo(() => {
+    if (!modelProvidersLoaded || !allowRuntimeOverride || modelProviders.length === 0) {
+      return null
+    }
+    if (modelPickerValue && isModelPickerValueAvailable(modelPickerValue, modelProviders)) {
+      return modelPickerValue
+    }
+    return null
+  }, [
+    allowRuntimeOverride,
+    modelPickerValue,
+    modelProviders,
+    modelProvidersLoaded,
+  ])
+
+  React.useEffect(() => {
+    setModelPickerValue(readModelPickerValue(agent))
+  }, [agent])
+
+  React.useEffect(() => {
+    if (!modelProvidersLoaded) return
+    if (!allowRuntimeModelOverride || modelProviders.length === 0) {
+      if (modelPickerValue !== null) {
+        setModelPickerValue(null)
+        writeModelPickerValue(agent, null)
+      }
+      return
+    }
+    if (modelPickerValue && !isModelPickerValueAvailable(modelPickerValue, modelProviders)) {
+      setModelPickerValue(null)
+      writeModelPickerValue(agent, null)
+    }
+  }, [
+    agent,
+    allowRuntimeModelOverride,
+    modelPickerValue,
+    modelProviders,
+    modelProvidersLoaded,
+  ])
+
+  const handleModelPickerChange = React.useCallback(
+    (value: ModelPickerValue | null) => {
+      setModelPickerValue(value)
+      writeModelPickerValue(agent, value)
+    },
+    [agent],
+  )
+
   const chat = useAiChat({
     agent,
     apiPath,
@@ -763,11 +1284,18 @@ export function AiChat({
     initialMessages,
     onError,
     conversationId,
+    providerOverride: effectiveModelPickerValue?.providerId ?? null,
+    modelOverride: effectiveModelPickerValue?.modelId ?? null,
+    onConversationNotFound,
   })
 
   const isStreaming = chat.status === 'streaming'
   const isSubmitting = chat.status === 'submitting'
   const isBusy = isStreaming || isSubmitting
+
+  React.useEffect(() => {
+    onConversationIdChangeRef.current?.(chat.conversationId)
+  }, [chat.conversationId])
 
   // Surface a "Thinking..." placeholder so the chat does not look frozen.
   // Visible whenever ANY of the following is true while a turn is in flight:
@@ -781,7 +1309,9 @@ export function AiChat({
   //   (d) streaming, and the last visible event was a finished tool call
   //       — the model is reasoning about the result before emitting more
   //       text or kicking off the next tool
-  //   (e) streaming, but no delta has landed in the last ~300 ms (idle gap)
+  // Once visible text/reasoning exists and no tool is pending, hide the
+  // placeholder even if the network stream stays open for a tail event. That
+  // avoids showing "Thinking..." under an already usable answer.
   const lastAssistant = React.useMemo(() => {
     for (let index = chat.messages.length - 1; index >= 0; index -= 1) {
       const candidate = chat.messages[index]
@@ -816,28 +1346,15 @@ export function AiChat({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [lastAssistant])
 
-  const lastStreamUpdateRef = React.useRef<number>(Date.now())
   const lastSnapshotRef = React.useRef<string>('')
   const [, setStreamTick] = React.useState(0)
 
   React.useEffect(() => {
     if (assistantStreamSnapshot !== lastSnapshotRef.current) {
       lastSnapshotRef.current = assistantStreamSnapshot
-      lastStreamUpdateRef.current = Date.now()
       setStreamTick((value) => value + 1)
     }
   }, [assistantStreamSnapshot])
-
-  React.useEffect(() => {
-    if (!isStreaming && !isSubmitting) return
-    const interval = window.setInterval(() => {
-      setStreamTick((value) => value + 1)
-    }, 200)
-    return () => window.clearInterval(interval)
-  }, [isStreaming, isSubmitting])
-
-  const idleDuringStream =
-    isStreaming && Date.now() - lastStreamUpdateRef.current >= 300
 
   const showThinkingIndicator =
     isSubmitting ||
@@ -846,8 +1363,7 @@ export function AiChat({
         !hasAnyVisibleSignal ||
         hasPendingToolCall ||
         // Tool just returned and the model hasn't started speaking yet.
-        (hasCompletedToolCall && !trimmedContent) ||
-        idleDuringStream
+        (hasCompletedToolCall && !trimmedContent)
       ))
 
   const activeRegistry = registry ?? defaultAiUiPartRegistry
@@ -884,6 +1400,7 @@ export function AiChat({
         const isImage = entry.file.type.startsWith('image/')
         const fallback = isImage ? URL.createObjectURL(entry.file) : undefined
         return {
+          id: entry.attachmentId,
           name: entry.file.name,
           type: entry.file.type,
           previewUrl: isImage ? (entry.previewDataUrl ?? fallback) : undefined,
@@ -1065,15 +1582,15 @@ export function AiChat({
   return (
     <section
       className={cn(
-        'flex h-full min-h-[320px] flex-col gap-3 rounded-lg border border-border bg-background p-3',
+        'flex h-full min-h-[320px] min-w-0 flex-col gap-3 overflow-hidden rounded-lg border border-border bg-background p-3',
         className,
       )}
       aria-label={t('ai_assistant.chat.regionLabel', 'AI chat')}
       data-ai-chat-agent={agent}
       data-ai-chat-conversation-id={chat.conversationId}
     >
-      <div className="flex items-center justify-between gap-2 border-b border-border pb-2">
-        <div className="flex flex-1 items-center gap-2 text-xs text-muted-foreground">
+      <div className="flex min-w-0 items-center justify-between gap-2 border-b border-border pb-2">
+        <div className="flex min-w-0 flex-1 items-center gap-2 text-xs text-muted-foreground">
           {contextItems && contextItems.length > 0 ? (
             <ContextItemsPill items={contextItems} />
           ) : (
@@ -1082,6 +1599,7 @@ export function AiChat({
             </span>
           )}
         </div>
+        {headerActions ?? null}
         <IconButton
           type="button"
           variant="ghost"
@@ -1100,7 +1618,7 @@ export function AiChat({
         role="log"
         aria-live="polite"
         aria-label={t('ai_assistant.chat.transcriptLabel', 'Chat transcript')}
-        className="flex-1 space-y-2 overflow-y-auto pr-1"
+        className="min-w-0 flex-1 space-y-2 overflow-y-auto overflow-x-hidden pr-1"
       >
         {chat.messages.length === 0 ? (
           <WelcomeState
@@ -1116,6 +1634,7 @@ export function AiChat({
               message={message}
               registry={activeRegistry}
               onMutationRequested={onMutationRequested}
+              isOwner={chat.isOwner}
             />
           ))
         )}
@@ -1152,8 +1671,16 @@ export function AiChat({
         </Alert>
       ) : null}
 
+      {chat.isOwner === false ? (
+        <div
+          className="flex items-center justify-center rounded-md border border-border bg-muted/30 px-3 py-3 text-xs text-muted-foreground"
+          data-ai-chat-read-only-notice=""
+        >
+          {t('ai_assistant.chat.readOnlyNotice', 'This is a shared conversation. You can read but not reply.')}
+        </div>
+      ) : null}
       <form
-        className="flex flex-col gap-2"
+        className={cn('flex min-w-0 flex-col gap-2', chat.isOwner === false && 'hidden')}
         onSubmit={(event) => {
           event.preventDefault()
           handleSubmit()
@@ -1203,7 +1730,7 @@ export function AiChat({
           onKeyDown={handleKeyDown}
           rows={3}
           aria-label={t('ai_assistant.chat.composerLabel', 'Message composer')}
-          className="resize-none"
+          className="min-w-0 resize-none"
         />
         <input
           ref={fileInputRef}
@@ -1214,8 +1741,13 @@ export function AiChat({
           onChange={handleFileSelect}
           data-ai-chat-file-input=""
         />
-        <div className="flex items-center justify-between gap-2">
-          <div className="flex items-center gap-2">
+        <div
+          ref={footerRef}
+          className="flex min-w-0 items-center justify-between gap-2"
+          data-ai-chat-footer=""
+          data-ai-chat-footer-compact={isCompactFooter ? 'true' : 'false'}
+        >
+          <div className="flex min-w-0 items-center gap-2">
             <IconButton
               type="button"
               variant="ghost"
@@ -1226,7 +1758,19 @@ export function AiChat({
             >
               <Paperclip className="size-4" aria-hidden />
             </IconButton>
-            <p className="text-xs text-muted-foreground">
+            {allowRuntimeOverride && modelProviders.length > 0 ? (
+              <ModelPicker
+                agentId={agent}
+                value={effectiveModelPickerValue}
+                onChange={handleModelPickerChange}
+                availableProviders={modelProviders}
+                disabled={isBusy}
+                compact={isCompactFooter}
+                defaultLabel={modelDefaultLabel}
+                className="shrink-0"
+              />
+            ) : null}
+            <p className={cn('text-xs text-muted-foreground', isCompactFooter && 'hidden')}>
               {hasUploadingFiles || isUploading
                 ? t(
                     'ai_assistant.chat.uploadingHint',
@@ -1238,7 +1782,7 @@ export function AiChat({
                   )}
             </p>
           </div>
-          <div className="flex items-center gap-2">
+          <div className="flex shrink-0 items-center gap-2">
             {isStreaming ? (
               <IconButton
                 type="button"
@@ -1269,9 +1813,12 @@ export function AiChat({
                   ? t('ai_assistant.chat.sendWaitingForUpload', 'Waiting for upload to finish…')
                   : undefined
               }
+              className={cn(isCompactFooter && 'w-8 px-0')}
             >
               <Send className="size-4" aria-hidden />
-              <span>{t('ai_assistant.chat.send', 'Send message')}</span>
+              {!isCompactFooter ? (
+                <span>{t('ai_assistant.chat.send', 'Send message')}</span>
+              ) : null}
             </Button>
           </div>
         </div>
@@ -1281,6 +1828,7 @@ export function AiChat({
         <AiChatDebugPanel
           tools={debugTools}
           promptSections={debugPromptSections}
+          loopTrace={loopTrace ?? chat.lastLoopTrace ?? undefined}
           lastRequestDebug={chat.lastRequestDebug}
           lastResponseDebug={chat.lastResponseDebug}
           status={chat.status}
@@ -1294,6 +1842,7 @@ export function AiChat({
 interface DebugPanelProps {
   tools?: AiChatDebugTool[]
   promptSections?: AiChatDebugPromptSection[]
+  loopTrace?: LoopTracePanelTrace
   lastRequestDebug: { url: string; body: unknown } | null
   lastResponseDebug: { status: number; text: string } | null
   status: 'idle' | 'submitting' | 'streaming'
@@ -1303,6 +1852,7 @@ interface DebugPanelProps {
 function AiChatDebugPanel({
   tools,
   promptSections,
+  loopTrace,
   lastRequestDebug,
   lastResponseDebug,
   status,
@@ -1317,6 +1867,10 @@ function AiChatDebugPanel({
       <div className="font-semibold">
         {t('ai_assistant.chat.debug.panelTitle', 'Debug panel')}
       </div>
+
+      {loopTrace ? (
+        <LoopTracePanel trace={loopTrace} />
+      ) : null}
 
       <details className="rounded border border-border bg-background" data-ai-chat-debug-section="tools" open>
         <summary className="cursor-pointer px-2 py-1 font-semibold">

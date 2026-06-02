@@ -199,6 +199,7 @@
   "resources.resourceTypes.errors.delete": "Failed to delete resource type.",
   "resources.resourceTypes.errors.deleteAssigned": "Resource type has assigned resources.",
   "resources.resourceTypes.errors.load": "Failed to load resource types.",
+  "resources.resourceTypes.errors.notFound": "Resource type not found.",
   "resources.resourceTypes.errors.save": "Failed to save resource type.",
   "resources.resourceTypes.form.appearance.colorClear": "Clear color",
   "resources.resourceTypes.form.appearance.colorHelp": "Pick a color for this resource type.",

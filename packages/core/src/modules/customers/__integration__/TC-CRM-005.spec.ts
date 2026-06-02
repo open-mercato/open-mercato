@@ -1,6 +1,6 @@
 import { expect, test } from '@playwright/test';
 import { createCompanyFixture, createPersonFixture, deleteEntityIfExists } from '@open-mercato/core/modules/core/__integration__/helpers/crmFixtures';
-import { getAuthToken } from '@open-mercato/core/modules/core/__integration__/helpers/api';
+import { apiRequest, getAuthToken } from '@open-mercato/core/modules/core/__integration__/helpers/api';
 import { login } from '@open-mercato/core/modules/core/__integration__/helpers/auth';
 
 /**
@@ -37,8 +37,27 @@ test.describe('TC-CRM-005: Link Person to Company', () => {
       await expect(companyCombobox).toBeVisible({ timeout: 10_000 });
       await companyCombobox.click();
       await page.getByRole('option', { name: companyName, exact: true }).click();
+      const saveResponsePromise = page.waitForResponse((response) => {
+        const url = new URL(response.url());
+        return response.request().method() === 'PUT' && url.pathname === '/api/customers/people';
+      });
       await page.getByRole('button', { name: /^Save$/ }).click();
+      const saveResponse = await saveResponsePromise;
+      expect(saveResponse.status(), `PUT /api/customers/people returned ${saveResponse.status()}`).toBeLessThan(400);
       await expect(page.getByText(companyName, { exact: true })).toBeVisible();
+
+      await expect.poll(async () => {
+        const response = await apiRequest(
+          request,
+          'GET',
+          `/api/customers/companies/${companyId}?include=people`,
+          { token: token as string },
+        );
+        if (!response.ok()) return false;
+        const body = await response.json();
+        const people = Array.isArray(body?.people) ? body.people : [];
+        return people.some((person: Record<string, unknown>) => person.id === personId || person.displayName === displayName);
+      }).toBe(true);
 
       await page.goto(`/backend/customers/companies/${companyId}`);
       await page.getByRole('tab', { name: 'People' }).click();

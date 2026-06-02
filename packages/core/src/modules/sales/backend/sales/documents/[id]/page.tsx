@@ -11,6 +11,7 @@ import {
   ErrorMessage,
   InlineTextEditor,
   LoadingMessage,
+  RecordNotFoundState,
   TabEmptyState,
   TagsSection,
   type TagOption,
@@ -20,6 +21,7 @@ import { Button } from '@open-mercato/ui/primitives/button'
 import { Badge } from '@open-mercato/ui/primitives/badge'
 import { Spinner } from '@open-mercato/ui/primitives/spinner'
 import { Input } from '@open-mercato/ui/primitives/input'
+import { EmailInput } from '@open-mercato/ui/primitives/email-input'
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@open-mercato/ui/primitives/dialog'
 import { ArrowRightLeft, Building2, CreditCard, Mail, Pencil, Plus, Send, Store, Truck, UserRound, Wand2, X } from 'lucide-react'
 import { FormHeader, type ActionItem } from '@open-mercato/ui/backend/forms'
@@ -663,8 +665,7 @@ function CustomerInlineEditor({
               <label className="text-sm font-medium text-foreground">
                 {t('customers.people.detail.highlights.primaryEmail', 'Primary email')}
               </label>
-              <Input
-                type="email"
+              <EmailInput
                 value={snapshotDraft.primaryEmail}
                 onChange={(event) => setSnapshotDraft((prev) => ({ ...prev, primaryEmail: event.target.value }))}
                 placeholder={t('customers.people.form.primaryEmailPlaceholder', 'name@example.com')}
@@ -1139,15 +1140,13 @@ function ContactEmailInlineEditor({
                 }
               }}
             >
-              <Input
-                leftIcon={<Mail />}
+              <EmailInput
                 value={draft}
                 onChange={(event) => {
                   if (error) setError(null)
                   setDraft(event.target.value)
                 }}
                 placeholder={placeholder}
-                type="email"
                 autoFocus
                 spellCheck={false}
               />
@@ -1878,6 +1877,7 @@ export default function SalesDocumentDetailPage({
   const searchParams = useSearchParams()
   const { confirm, ConfirmDialogElement } = useConfirmDialog()
   const [loading, setLoading] = React.useState(true)
+  const [isNotFound, setIsNotFound] = React.useState(false)
   const [record, setRecord] = React.useState<DocumentRecord | null>(null)
   const [tags, setTags] = React.useState<TagOption[]>([])
   const [kind, setKind] = React.useState<'order' | 'quote'>('quote')
@@ -2485,6 +2485,7 @@ export default function SalesDocumentDetailPage({
     async function load() {
       setLoading(true)
       setError(null)
+      setIsNotFound(false)
       const requestedKind = searchParams.get('kind')
       const preferredKind = requestedKind === 'order' ? 'order' : requestedKind === 'quote' ? 'quote' : initialKind ?? null
       const kindsToTry: Array<'order' | 'quote'> = preferredKind
@@ -2507,7 +2508,11 @@ export default function SalesDocumentDetailPage({
       }
       if (!cancelled) {
         setLoading(false)
-        setError(lastError ?? loadErrorMessage)
+        if (lastError) {
+          setError(lastError)
+        } else {
+          setIsNotFound(true)
+        }
       }
     }
     load().catch((err) => {
@@ -4432,6 +4437,26 @@ export default function SalesDocumentDetailPage({
               className="min-w-[280px] justify-center border-0 bg-transparent text-base shadow-none"
             />
           </div>
+        </PageBody>
+      </Page>
+    )
+  }
+
+  if (isNotFound) {
+    const backHref = (searchParams.get('kind') === 'order' || initialKind === 'order')
+      ? '/backend/sales/orders'
+      : '/backend/sales/quotes'
+    const backLabel = (searchParams.get('kind') === 'order' || initialKind === 'order')
+      ? t('sales.documents.detail.backToOrders', 'Back to orders')
+      : t('sales.documents.detail.backToQuotes', 'Back to quotes')
+    return (
+      <Page>
+        <PageBody>
+          <RecordNotFoundState
+            label={t('sales.documents.detail.notFound', 'Document not found.')}
+            backHref={backHref}
+            backLabel={backLabel}
+          />
         </PageBody>
       </Page>
     )

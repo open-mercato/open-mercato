@@ -36,6 +36,18 @@ test('buildSnapshotVersion keeps numeric-only identifiers semver-safe', () => {
   assert.equal(version, '0.4.9-develop.n001523.g0123456789')
 })
 
+test('buildSnapshotVersion includes the workflow attempt when provided', () => {
+  const version = buildSnapshotVersion({
+    currentVersion: '0.6.0',
+    channel: 'canary',
+    buildId: '3130',
+    buildAttempt: '2',
+    commitSha: '7277430535',
+  })
+
+  assert.equal(version, '0.6.1-canary.3130.2.g7277430535')
+})
+
 test('resolveSnapshotPublishConfig maps develop pushes to the develop tag', () => {
   const config = resolveSnapshotPublishConfig({
     eventName: 'push',

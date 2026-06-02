@@ -4,6 +4,7 @@
   "notifications.actions.markRead": "Als gelesen markieren",
   "notifications.actions.undo": "Rückgängig",
   "notifications.badge.unread": "{count} ungelesene Benachrichtigungen",
+  "notifications.close": "Benachrichtigungen schließen",
   "notifications.delivery.email.actionNotice": "Aktionen sind in Open Mercato verfügbar und in dieser E-Mail schreibgeschützt.",
   "notifications.delivery.email.bodyIntro": "Prüfen Sie die Benachrichtigung und führen Sie bei Bedarf Aktionen aus.",
   "notifications.delivery.email.footer": "Open Mercato Benachrichtigungen",
@@ -17,6 +18,9 @@
   "notifications.filters.actionRequired": "Aktion erforderlich",
   "notifications.filters.all": "Alle",
   "notifications.filters.unread": "Ungelesen",
+  "notifications.footer.manage": "Benachrichtigungen verwalten",
+  "notifications.footer.toNavigate": "zum Navigieren",
+  "notifications.footer.useHint": "Verwende",
   "notifications.markAllRead": "Alle als gelesen markieren",
   "notifications.nav.title": "Benachrichtigungen",
   "notifications.settings.core.appUrl": "Anwendungs-URL",
@@ -46,5 +50,6 @@
   "notifications.toast.actionError": "Aktion konnte nicht ausgeführt werden",
   "notifications.toast.actionSuccess": "Aktion erfolgreich ausgeführt",
   "notifications.toast.dismissed": "Benachrichtigung verworfen",
-  "notifications.toast.new": "Neue Benachrichtigung"
+  "notifications.toast.new": "Neue Benachrichtigung",
+  "notifications.unreadSummary": "{count} ungelesen"
 }

@@ -72,3 +72,40 @@ describe('customers.get_settings', () => {
     expect(result.addressFormat).toBe('line_first')
   })
 })
+
+describe('customers.list_pipeline_stages', () => {
+  const tool = findTool('customers.list_pipeline_stages')
+
+  beforeEach(() => {
+    findWithDecryptionMock.mockReset()
+    findOneWithDecryptionMock.mockReset()
+  })
+
+  it('declares pipeline view access and is read-only', () => {
+    expect(tool.requiredFeatures).toEqual(['customers.pipelines.view'])
+    for (const feature of tool.requiredFeatures!) expect(knownFeatureIds.has(feature)).toBe(true)
+    expect(tool.isMutation).toBe(false)
+  })
+
+  it('returns pipeline stage ids for mutation preparation', async () => {
+    findWithDecryptionMock
+      .mockResolvedValueOnce([
+        { id: 'pipe-1', tenantId: 'tenant-1', organizationId: 'org-1', name: 'Default', isDefault: true },
+      ])
+      .mockResolvedValueOnce([
+        { id: 'stg-1', tenantId: 'tenant-1', organizationId: 'org-1', pipelineId: 'pipe-1', label: 'Offering', order: 2 },
+        { id: 'stg-2', tenantId: 'tenant-1', organizationId: 'org-1', pipelineId: 'pipe-1', label: 'On Hold / Stalled', order: 6 },
+      ])
+
+    const result = (await tool.handler({}, makeCtx() as any)) as Record<string, unknown>
+    expect(result.pipelineStages).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          id: 'stg-2',
+          label: 'On Hold / Stalled',
+          pipelineId: 'pipe-1',
+        }),
+      ]),
+    )
+  })
+})

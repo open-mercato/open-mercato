@@ -126,6 +126,19 @@ The standalone dev splash also exposes a GitHub publishing panel after `yarn dev
    yarn setup:reinstall
    ```
 
+   To run several persistent local apps against the same PostgreSQL server, pass an optional database-name override. The flag is purely additive — omitting it preserves existing behavior.
+
+   ```bash
+   # explicit name; .env is updated by default after a confirmation prompt
+   yarn setup --database-name=client_a
+
+   # bare flag derives the database name from the current directory name
+   yarn setup --database-name
+
+   # one-off run that only injects DATABASE_URL into the current child env
+   yarn dev --database-name=review_1720 --no-update-env
+   ```
+
 3. Manual alternative if you want to edit the environment first:
    ```bash
    cp .env.example .env

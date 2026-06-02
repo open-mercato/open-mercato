@@ -721,6 +721,7 @@ describe('generator output compatibility', () => {
       'entity-fields-registry.ts',
       'modules.app.generated.ts',
       'modules.cli.generated.ts',
+      'enabled-module-ids.generated.ts',
     ]))
   })
 
@@ -779,6 +780,7 @@ describe('generator output compatibility', () => {
       'entity-fields-registry.ts',
       'modules.app.generated.ts',
       'modules.cli.generated.ts',
+      'enabled-module-ids.generated.ts',
     ]))
   })
 
