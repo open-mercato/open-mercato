@@ -1,4 +1,4 @@
-import { expect, test, type APIRequestContext } from '@playwright/test';
+import { expect, test, type APIRequestContext, type APIResponse } from '@playwright/test';
 import { apiRequest, getAuthToken } from '@open-mercato/core/helpers/integration/api';
 import { getTokenContext, readJsonSafe } from '@open-mercato/core/helpers/integration/generalFixtures';
 
@@ -25,18 +25,17 @@ import { getTokenContext, readJsonSafe } from '@open-mercato/core/helpers/integr
  *   3. Delete reparents children to the deleted node's parent (root) atomically
  *      and the deleted node disappears from the manage view.
  *
- * NOTE on org undo (intentionally skipped, with a verified reason):
- *   directory.organizations create/delete return an `x-om-operation` undo token,
- *   but the public undo route (/api/audit_logs/audit-logs/actions/undo) cannot
- *   reach those action logs for the only actor permitted to create organizations
- *   (super-admin). Org commands require super-admin, and the undo route's
- *   latest-undoable lookup is scoped to the caller's selected/auth organization,
- *   which never equals the directory-org log's recorded organization. Probing the
- *   live API confirmed both create-undo and delete-undo return HTTP 400
- *   "Undo token not available", and the org log does not surface in the
- *   audit-logs actions feed under any reachable org scope. This is a routing/
- *   scoping limitation of the undo endpoint for tenant-level org operations, not
- *   an atomic-write defect, so the undo subcase is skipped rather than asserted.
+ * NOTE on org undo (issue #2398 — now reachable):
+ *   directory.organizations create/delete return an `x-om-operation` undo token.
+ *   Org action logs are tenant-level (organization_id = NULL) because orgs are not
+ *   nested under another org. Previously the public undo route
+ *   (/api/audit_logs/audit-logs/actions/undo) re-scoped its latest-undoable lookup
+ *   to the caller's resolved organization, so a super-admin (the only role allowed
+ *   to manage organizations) resolving to a concrete home org never matched the
+ *   null-org row and got HTTP 400 "Undo token not available". The route now scopes
+ *   the lookup to the target row's own organization, so a super-admin can undo a
+ *   recent org create/update/delete/reparent. The undo subcase below exercises the
+ *   create-undo round-trip end to end.
  */
 
 type ManageOrg = {
@@ -67,6 +66,24 @@ async function createOrg(
   const body = await readJsonSafe<{ id?: string }>(res);
   expect(typeof body?.id, 'create returns an id').toBe('string');
   return body!.id as string;
+}
+
+function readUndoToken(res: APIResponse): string {
+  const enc = (res.headers()['x-om-operation'] ?? '').slice(5);
+  expect(enc, 'x-om-operation header carries an omop: payload').not.toBe('');
+  const payload = JSON.parse(decodeURIComponent(enc)) as { undoToken?: string };
+  expect(typeof payload.undoToken, 'undoToken present in operation payload').toBe('string');
+  return payload.undoToken as string;
+}
+
+async function undoAction(request: APIRequestContext, token: string, undoToken: string): Promise<void> {
+  const res = await apiRequest(request, 'POST', '/api/audit_logs/audit-logs/actions/undo', {
+    token,
+    data: { undoToken },
+  });
+  expect(res.status(), 'undo returns 200').toBe(200);
+  const body = await readJsonSafe<{ ok?: boolean }>(res);
+  expect(body?.ok, 'undo body is { ok: true }').toBe(true);
 }
 
 async function loadManageById(
@@ -281,12 +298,45 @@ test.describe('TC-DIR-ATOMIC-VERIFY: directory organizations atomic refactor (PR
     }
   });
 
-  // Org create/delete undo is not exercisable through the public undo API for the
-  // super-admin actor (the only role allowed to manage organizations). See the
-  // file-level NOTE: the undo route's org-scoped latest-undoable lookup never
-  // matches the directory-org action log, returning HTTP 400 "Undo token not
-  // available". Verified live with curl against create- and delete-issued tokens.
-  test.skip('org create/delete undo via public undo API (unreachable for super-admin org scope)', () => {
-    // Intentionally skipped — documented routing/scoping limitation, not a data defect.
+  // Issue #2398: org create undo via the public undo API is now reachable for the
+  // super-admin actor. The create-issued undo token round-trips through the public
+  // undo route and removes the freshly created org from the manage view.
+  test('org create undo via public undo API removes the created org (issue #2398)', async ({ request }) => {
+    let token: string | null = null;
+    let orgId: string | null = null;
+    let undone = false;
+    const stamp = Date.now();
+
+    try {
+      token = await getAuthToken(request, 'superadmin');
+      const { tenantId } = getTokenContext(token);
+      expect(tenantId, 'superadmin token carries a tenant id').toBeTruthy();
+
+      const slug = `tc-dir-undo-${stamp}`;
+      const createRes = await apiRequest(request, 'POST', '/api/directory/organizations', {
+        token,
+        data: { tenantId, name: `TC-DIR Undo ${stamp}`, slug, isActive: true },
+      });
+      expect(createRes.status(), 'create organization returns 201').toBe(201);
+      const createBody = await readJsonSafe<{ id?: string }>(createRes);
+      expect(typeof createBody?.id, 'create returns an id').toBe('string');
+      orgId = createBody!.id as string;
+      const undoToken = readUndoToken(createRes);
+
+      // Sanity: the org is present before the undo.
+      const before = await loadManageById(request, token, tenantId!, orgId);
+      expect(before, 'created organization present before undo').toBeTruthy();
+
+      // Undo the create through the public undo API (was HTTP 400 before #2398).
+      await undoAction(request, token, undoToken);
+      undone = true;
+
+      // Undo of a create removes the org from the manage view.
+      const after = await loadManageById(request, token, tenantId!, orgId);
+      expect(after, 'organization removed from manage view after undo').toBeUndefined();
+    } finally {
+      // If the undo did not run (e.g. earlier failure), clean up the org directly.
+      if (!undone) await deleteOrgIfExists(request, token, orgId);
+    }
   });
 });
