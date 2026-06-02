@@ -59,8 +59,8 @@ Land both Dependabot dependency groups as one validated PR against `develop`, th
 
 ### Phase 1: Combine dependency manifests
 
-- [ ] 1.1 Apply both groups' package.json bumps onto develop, resolve conflicts
-- [ ] 1.2 Regenerate yarn.lock via yarn install
+- [x] 1.1 Apply both groups' package.json bumps onto develop, resolve conflicts — aa8a34ca9
+- [x] 1.2 Regenerate yarn.lock via yarn install — aa8a34ca9
 
 ### Phase 2: Validate
 
