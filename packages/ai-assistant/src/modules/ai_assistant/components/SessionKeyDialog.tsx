@@ -90,8 +90,6 @@ Workflow (use this order):
     setTimeout(() => setCopiedInstructions(false), 2000)
   }
 
-  const handleKeyDown = useDialogKeyHandler({ onCancel: () => onOpenChange(false) })
-
   const handleClose = () => {
     setSessionToken(null)
     setExpiresAt(null)
@@ -100,6 +98,8 @@ Workflow (use this order):
     setCopiedInstructions(false)
     onOpenChange(false)
   }
+
+  const handleKeyDown = useDialogKeyHandler({ onCancel: handleClose })
 
   const formatExpiry = (isoDate: string | null) => {
     if (!isoDate) return t('ai_assistant.session.expiresDefault')

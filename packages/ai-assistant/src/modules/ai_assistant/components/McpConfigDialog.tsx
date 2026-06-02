@@ -88,8 +88,6 @@ export default function McpConfigDialog({ open, onOpenChange, mcpUrl }: Props) {
     }
   }
 
-  const handleKeyDown = useDialogKeyHandler({ onCancel: () => onOpenChange(false) })
-
   const handleClose = () => {
     setApiKey(null)
     setError(null)
@@ -97,6 +95,8 @@ export default function McpConfigDialog({ open, onOpenChange, mcpUrl }: Props) {
     setCopiedKey(false)
     onOpenChange(false)
   }
+
+  const handleKeyDown = useDialogKeyHandler({ onCancel: handleClose })
 
   return (
     <Dialog open={open} onOpenChange={handleClose}>
