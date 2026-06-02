@@ -12,13 +12,15 @@ export function useDialogKeyHandler({ onConfirm, onCancel, disabled }: Options):
   return React.useCallback(
     (event: React.KeyboardEvent) => {
       if (event.key === 'Escape') {
-        event.preventDefault()
-        onCancel?.()
+        if (onCancel) {
+          event.preventDefault()
+          onCancel()
+        }
         return
       }
-      if (event.key === 'Enter' && (event.metaKey || event.ctrlKey)) {
+      if (event.key === 'Enter' && (event.metaKey || event.ctrlKey) && onConfirm) {
         event.preventDefault()
-        if (!disabled) onConfirm?.()
+        if (!disabled) onConfirm()
       }
     },
     [disabled, onConfirm, onCancel],
