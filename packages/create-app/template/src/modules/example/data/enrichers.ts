@@ -3,6 +3,11 @@
  *
  * Demonstrates how a module can enrich another module's API responses.
  * This enricher adds todo count data to customer person records.
+ *
+ * It also demonstrates the `cacheableOnListHit` opt-in: when the CRUD list
+ * cache is enabled, an enricher that is invalidated together with the host
+ * record can be skipped on a cache hit (its enriched output is served straight
+ * from the cached payload instead of re-running per request).
  */
 
 import type { ResponseEnricher, EnricherContext } from '@open-mercato/shared/lib/crud/response-enricher'
@@ -52,6 +57,7 @@ const customerTodoCountEnricher: ResponseEnricher<CustomerRecord, TodoEnrichment
   targetEntity: 'customers.person',
   priority: 10,
   timeout: 2000,
+  cacheableOnListHit: true,
   fallback: {
     _example: { todoCount: 0, openTodoCount: 0, priority: 'normal' },
   },
