@@ -118,6 +118,7 @@ describe('API Keys route', () => {
     mockFindOneWithDecryption.mockReset()
     mockFindOneWithDecryption.mockResolvedValue(null)
     mockEm.fork.mockReturnValue(mockEm)
+    mockEm.transactional.mockImplementation((cb) => cb())
     mockGetAuthFromCookies.mockResolvedValue({
       sub: 'user-1',
       tenantId: '123e4567-e89b-12d3-a456-426614174000',

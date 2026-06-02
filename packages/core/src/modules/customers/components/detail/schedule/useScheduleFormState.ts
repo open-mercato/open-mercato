@@ -62,6 +62,7 @@ const DEFAULT_REMINDER_MINUTES: Record<ActivityType, number> = {
   call: 5,
   task: 1440,
   email: 15,
+  note: 15,
 }
 
 function padDatePart(value: number): string {
