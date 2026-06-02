@@ -478,6 +478,7 @@ export default function WebhookDetailPage() {
             fields={fields}
             groups={groups}
             initialValues={createWebhookInitialValues(webhook)}
+            optimisticLockUpdatedAt={webhook.updatedAt}
             submitLabel={t('common.save')}
             cancelHref={`/backend/webhooks/${webhook.id}`}
             contentHeader={contentHeader}
