@@ -77,3 +77,7 @@ Run focused package validation, self-review backward compatibility, commit, push
 
 - [x] 3.1 Run validation and self-review — a3c391314
 - [x] 3.2 Push branch and open PR — PR #2400
+
+### Post-merge maintenance
+
+- [x] Merge `origin/develop` to resolve conflict in `api_keys/keys.route.test.ts`; adopted develop's `transactional` mock (superseding the PR's equivalent fix). Full gate re-run green. — 1673e5a59
