@@ -1,3 +1,4 @@
+import { createHash } from 'node:crypto'
 import type { ModuleSetupConfig } from '@open-mercato/shared/modules/setup'
 import { COMMUNICATION_CHANNELS_QUEUES } from './lib/queue'
 
@@ -30,8 +31,19 @@ const POLL_TICK_INTERVAL_SECONDS = Math.max(
   Number.parseInt(process.env.OM_HUB_POLL_SCHEDULER_TICK_SECONDS ?? '60', 10) || 60,
 )
 
+/**
+ * `scheduled_jobs.id` is a uuid column, so a module-owned schedule's stable
+ * registration key must be hashed into a uuid rather than used verbatim — this
+ * keeps `schedulerService.register()` an idempotent upsert across re-runs of
+ * seedDefaults instead of trying to insert a raw string into the uuid PK.
+ */
+function stableScheduleUuid(stableKey: string): string {
+  const hex = createHash('sha256').update(stableKey).digest('hex')
+  return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-${hex.slice(12, 16)}-${hex.slice(16, 20)}-${hex.slice(20, 32)}`
+}
+
 function stablePollTickScheduleId(organizationId: string): string {
-  return `communication_channels:poll-tick:${organizationId}`
+  return stableScheduleUuid(`communication_channels:poll-tick:${organizationId}`)
 }
 
 export const setup: ModuleSetupConfig = {
@@ -89,47 +101,57 @@ export const setup: ModuleSetupConfig = {
       return
     }
     const schedulerService = container.resolve('schedulerService') as SchedulerServiceLike
-    await schedulerService.register({
-      id: stablePollTickScheduleId(organizationId),
-      name: 'Communication channels poll tick',
-      description:
-        `Enumerates active polling channels every ${POLL_TICK_INTERVAL_SECONDS}s and enqueues per-channel poll jobs.`,
-      scopeType: 'organization',
-      organizationId,
-      tenantId,
-      scheduleType: 'interval',
-      scheduleValue: `${POLL_TICK_INTERVAL_SECONDS}s`,
-      timezone: 'UTC',
-      targetType: 'queue',
-      targetQueue: COMMUNICATION_CHANNELS_QUEUES.pollTick,
-      targetPayload: {
-        scope: { tenantId, organizationId },
-      },
-      sourceType: 'module',
-      sourceModule: 'communication_channels',
-      isEnabled: true,
-    })
+    // Best-effort: a scheduler failure must not abort tenant initialization for
+    // every other module (mirrors the ai_assistant setup pattern). The schedule
+    // ids are deterministic uuids so re-runs upsert idempotently.
+    try {
+      await schedulerService.register({
+        id: stablePollTickScheduleId(organizationId),
+        name: 'Communication channels poll tick',
+        description:
+          `Enumerates active polling channels every ${POLL_TICK_INTERVAL_SECONDS}s and enqueues per-channel poll jobs.`,
+        scopeType: 'organization',
+        organizationId,
+        tenantId,
+        scheduleType: 'interval',
+        scheduleValue: `${POLL_TICK_INTERVAL_SECONDS}s`,
+        timezone: 'UTC',
+        targetType: 'queue',
+        targetQueue: COMMUNICATION_CHANNELS_QUEUES.pollTick,
+        targetPayload: {
+          scope: { tenantId, organizationId },
+        },
+        sourceType: 'module',
+        sourceModule: 'communication_channels',
+        isEnabled: true,
+      })
 
-    // Spec C § Phase C4 — Gmail watch renewal cron, per-org so multi-tenant
-    // deploys schedule independently.
-    await schedulerService.register({
-      id: `communication_channels:gmail-renew-watch:${organizationId}`,
-      name: 'Gmail watch renewal',
-      description:
-        'Daily 04:00 UTC. Re-issues gmail.users.watch for channels within OM_PUSH_RENEWAL_GMAIL_LEAD_HOURS of expiry.',
-      scopeType: 'organization',
-      organizationId,
-      tenantId,
-      scheduleType: 'cron',
-      scheduleValue: '0 4 * * *',
-      timezone: 'UTC',
-      targetType: 'queue',
-      targetQueue: COMMUNICATION_CHANNELS_QUEUES.gmailRenewWatch,
-      targetPayload: { scope: { tenantId, organizationId } },
-      sourceType: 'module',
-      sourceModule: 'communication_channels',
-      isEnabled: true,
-    })
+      // Spec C § Phase C4 — Gmail watch renewal cron, per-org so multi-tenant
+      // deploys schedule independently.
+      await schedulerService.register({
+        id: stableScheduleUuid(`communication_channels:gmail-renew-watch:${organizationId}`),
+        name: 'Gmail watch renewal',
+        description:
+          'Daily 04:00 UTC. Re-issues gmail.users.watch for channels within OM_PUSH_RENEWAL_GMAIL_LEAD_HOURS of expiry.',
+        scopeType: 'organization',
+        organizationId,
+        tenantId,
+        scheduleType: 'cron',
+        scheduleValue: '0 4 * * *',
+        timezone: 'UTC',
+        targetType: 'queue',
+        targetQueue: COMMUNICATION_CHANNELS_QUEUES.gmailRenewWatch,
+        targetPayload: { scope: { tenantId, organizationId } },
+        sourceType: 'module',
+        sourceModule: 'communication_channels',
+        isEnabled: true,
+      })
+    } catch (error) {
+      console.warn(
+        '[communication_channels] Failed to register module schedules:',
+        error instanceof Error ? error.message : error,
+      )
+    }
   },
 }
 
