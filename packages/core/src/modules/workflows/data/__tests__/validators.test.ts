@@ -183,6 +183,7 @@ describe('Workflows Validators', () => {
         stepName: 'Pause',
         stepType: 'WAIT_FOR_TIMER' as const,
       }
+      const futureUntil = new Date(Date.now() + 60 * 60 * 1000).toISOString()
 
       test('accepts ISO 8601 duration', () => {
         expect(() =>
@@ -204,7 +205,7 @@ describe('Workflows Validators', () => {
 
       test('accepts ISO datetime as "until"', () => {
         expect(() =>
-          workflowStepSchema.parse({ ...baseTimerStep, config: { until: '2026-06-01T12:00:00.000Z' } })
+          workflowStepSchema.parse({ ...baseTimerStep, config: { until: futureUntil } })
         ).not.toThrow()
       })
 
@@ -242,7 +243,7 @@ describe('Workflows Validators', () => {
         expect(() =>
           workflowStepSchema.parse({
             ...baseTimerStep,
-            config: { duration: 'PT5M', until: '2026-06-01T12:00:00.000Z' },
+            config: { duration: 'PT5M', until: futureUntil },
           })
         ).toThrow(/not both/i)
       })
@@ -378,6 +379,7 @@ describe('Workflows Validators', () => {
         activityName: 'Pause briefly',
         activityType: 'WAIT' as const,
       }
+      const futureUntil = new Date(Date.now() + 60 * 60 * 1000).toISOString()
 
       test('accepts ISO 8601 duration', () => {
         expect(() =>
@@ -407,7 +409,7 @@ describe('Workflows Validators', () => {
         expect(() =>
           activityDefinitionSchema.parse({
             ...baseWait,
-            config: { duration: 'PT5M', until: '2026-06-01T12:00:00.000Z' },
+            config: { duration: 'PT5M', until: futureUntil },
           })
         ).toThrow(/not both/i)
       })
