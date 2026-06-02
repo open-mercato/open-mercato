@@ -87,6 +87,12 @@
 | 28 | 28.2-docs | Docs/spec/CHANGELOG/AGENTS updates | done | 7567e127b |
 | 28 | 28.2-review-fix | Code-review NIT: replace `as any` updatedAt reads in Payments/Shipments with typed `readRowUpdatedAt` helper + tests | done | 5a2f7d8a6 |
 | 28 | 28.2-spec-acl | Sales lock specs (003/007/008): run as `admin` (granted `sales.*` by setup.ts) + drop the sync-gated self-skip — no manual step on fresh install/CI | done | 54df84586 |
+| 29 | 29.0 | Merge `develop` into the branch; resolve the lone `AvailabilityRulesEditor` conflict (selective delete #2325 + per-rule optimistic lock #2055) | done | 46091f33f |
+| 29 | 29.1 | QA round-4 #1: customer task (todos) optimistic lock — canonical `useInteractions.updateInteraction` + legacy `usePersonTasks.updateTask`/`unlinkTask` send the header; plumb `updatedAt` through todoCompatibility + todos route + `TodoLinkSummary`; interactions update/complete/cancel/delete commands call `enforceCommandOptimisticLock` (exists-stale 409) alongside the gone-case guard | done | (resume) |
+| 29 | 29.2 | QA round-4 #2: ScheduleActivityDialog skips the raw `record_modified` toast on an optimistic-lock 409 (the conflict bar is already surfaced by useGuardedMutation) | done | (resume) |
+| 29 | 29.3 | QA round-4 #4: sales document update returns `updatedAt` (`mapUpdateResponse`); the document page refreshes `record.updatedAt` centrally in `updateDocument` so back-to-back inline saves don't falsely 409 | done | (resume) |
+| 29 | 29.4 | QA round-4 #3: product-variant detail renders `RecordNotFoundState` (not an empty CrudForm) when the variant 404s; integration test confirms the server already 409s a stale variant DELETE | done | (resume) |
+| 29 | 29.5 | Integration specs: TC-LOCK-OSS-009 (todos concurrent edit + stale-after-delete), -010 (variant stale delete), -011 (sales order response token refresh), -012 (variant not-found browser UI). All green on the ephemeral env (`OM_OPTIMISTIC_LOCK=all`) + 15 existing lock specs (no regression) | done | (resume) |
 
 ## Goal (resume)
 

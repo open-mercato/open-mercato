@@ -1,10 +1,18 @@
 # Handoff — 2026-05-25-oss-optimistic-locking
 
-**Last updated:** 2026-05-29 (resume 2 — QA fix + framework + unified conflict bar)
+**Last updated:** 2026-06-02 (resume 3 — QA round-4 fixes + develop merge, Phase 29)
 **Branch:** feat/oss-optimistic-locking
 **PR:** https://github.com/open-mercato/open-mercato/pull/2055
-**Current phase/step:** COMPLETE — all resume-2 phases (21–28) done at head 5a2f7d8a6. 100% OSS optimistic-lock coverage for CRM + catalog + sales (incl. sales document sub-sections); unified conflict bar; command-level enterprise seam; enterprise FR #2232 filed. Final gate green; lock integration specs green live on :3100. Awaiting human re-QA + 2nd-approver merge.
-**Last code commit:** 35fbd4d30 (sales document page lock wiring). Checkpoint 6 docs commit follows.
+**Current phase/step:** COMPLETE for round-4 — Phase 29 (29.0..29.5) done. Merged develop (conflict resolved). Fixed all four @alinadivante round-4 blockers: customer task (todos) lock, activity raw-toast, sales order false-positive, variant not-found UX. 20 lock integration tests green on the ephemeral env (OM_OPTIMISTIC_LOCK=all); full gate green (typecheck/build:packages/generate/i18n/build:app). Awaiting human re-QA + 2nd-approver merge.
+**Last code commit:** Phase 29 resume commits (see git log). Merge resolution 46091f33f.
+
+## Resume-3 (2026-06-02) — what changed
+- develop merged; `AvailabilityRulesEditor` conflict resolved (selective delete #2325 + per-rule lock #2055).
+- #1 todos: client header (canonical `useInteractions.updateInteraction` + legacy `usePersonTasks`), `updatedAt` plumbed through todoCompatibility + route + summary; interactions update/complete/cancel/delete commands enforce `enforceCommandOptimisticLock`.
+- #2 activity: `ScheduleActivityDialog` skips raw `record_modified` toast on 409 (bar already shown).
+- #3 variant: detail page `RecordNotFoundState` early return; server delete enforcement proven by TC-LOCK-OSS-010.
+- #4 sales: `mapUpdateResponse` returns `updatedAt`; `updateDocument` refreshes `record.updatedAt` centrally.
+- New tests: TC-LOCK-OSS-009/010/011 (API) + 012 (browser UI). Ephemeral env: `yarn test:integration:ephemeral:start` (base :5001, admin@acme.com/secret).
 
 ## Environment (IMPORTANT — this is how to run Playwright on THIS branch)
 - `:3000` = separate standalone `my-app` (published packages) — NOT this branch. Ignore it.

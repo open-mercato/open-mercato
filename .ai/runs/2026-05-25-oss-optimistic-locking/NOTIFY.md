@@ -123,3 +123,11 @@ Append-only event log. Newest at the bottom.
 - Merged origin/develop → `3372fe397`, **zero conflicts**. Now 0 behind.
 - Post-merge gate green: build:packages 19/19, generate, build:packages 19/19, turbo typecheck shared/ui/core 3/3. Unit suites green: shared 94 (optimistic-lock+aclDependencies), ui 28 (conflicts+optimistic-lock), core 30 (my handlers + develop's catalog acl / auth features / listSorting / sales acl-dependencies). Both develop's and this PR's work intact.
 - Cross-module merge-safety smokes (live :3100): CRUD GET 200 for currencies/staff/catalog/auth/business_rules; staff.team stale PUT → 409 (universal generic reader); staff team CrudForm edit → 200 + lock header, 0 console errors; companies-v2 + deal edits → 409 + conflict bar.
+
+## 2026-06-02 — auto-continue-pr-loop resume (QA round-4 #2055) + checkpoint 8
+- Resumed by: @pkarw. Trigger: /auto-continue-pr-loop 2055 — fix @alinadivante round-4 QA (2026-06-01T22:00Z), resolve develop merge, add integration tests on ephemeral env (OM_OPTIMISTIC_LOCK=all), Playwright.
+- Merged develop (34 commits) → lone conflict in `AvailabilityRulesEditor` resolved (selective delete #2325 + per-rule optimistic lock #2055), committed 46091f33f.
+- Phase 29 fixes (29.1..29.4): customer task (todos) lock — client header on canonical+legacy paths, `updatedAt` plumbed end-to-end, interactions commands `enforceCommandOptimisticLock`; activity modal raw-toast suppressed; sales doc update returns `updatedAt` + client refreshes token (false-positive fixed); variant detail RecordNotFoundState early return.
+- Tests (29.5): TC-LOCK-OSS-009/010/011 (API) + 012 (browser UI) all green on ephemeral :5001; 15 existing lock specs green (no regression) = 20 total.
+- Gate green: turbo typecheck shared/ui/core, build:packages ×2, generate, i18n sync (+ new catalog backToVariants key ×4), build:app. Touched unit suites green (TasksSection React.act is the pre-existing env issue).
+- Next: clean git history (collapse autosaves), push, auto-review-pr pass, summary comment, release lock.
