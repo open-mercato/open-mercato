@@ -50,12 +50,12 @@ Run focused package validation, self-review backward compatibility, commit, push
 
 ### Phase 1: SQLite Write Tuning
 
-- [ ] 1.1 Configure SQLite cache connection PRAGMAs
+- [x] 1.1 Configure SQLite cache connection PRAGMAs — 94aaccb4a
 
 ### Phase 2: Tests And Documentation
 
-- [ ] 2.1 Add focused SQLite strategy tests
-- [ ] 2.2 Update cache strategy guidance
+- [x] 2.1 Add focused SQLite strategy tests — 94aaccb4a
+- [x] 2.2 Update cache strategy guidance — 94aaccb4a
 
 ### Phase 3: Validation And PR
 
