@@ -12,7 +12,7 @@ interface MockEntityManager {
   findOne: jest.Mock<Promise<unknown>, [unknown, Record<string, unknown>?]>
   find: jest.Mock<Promise<unknown[]>, [unknown, Record<string, unknown>?]>
   fork: jest.Mock<MockEntityManager, []>
-  transactional: jest.Mock<Promise<unknown>, [(tx: MockEntityManager) => Promise<unknown>]>
+  transactional: jest.Mock<Promise<unknown>, [(em: MockEntityManager) => Promise<unknown>]>
 }
 
 interface MockDataEngine {
@@ -43,7 +43,9 @@ const mockEm: MockEntityManager = {
   findOne: jest.fn<Promise<unknown>, [unknown, Record<string, unknown>?]>(),
   find: jest.fn<Promise<unknown[]>, [unknown, Record<string, unknown>?]>(),
   fork: jest.fn<MockEntityManager, []>(),
-  transactional: jest.fn<Promise<unknown>, [(tx: MockEntityManager) => Promise<unknown>]>(),
+  transactional: jest.fn<Promise<unknown>, [(em: MockEntityManager) => Promise<unknown>]>(
+    async (fn) => fn(mockEm),
+  ),
 }
 const mockDataEngine: MockDataEngine = {
   __queue: queue,
@@ -116,7 +118,6 @@ describe('API Keys route', () => {
     mockFindOneWithDecryption.mockReset()
     mockFindOneWithDecryption.mockResolvedValue(null)
     mockEm.fork.mockReturnValue(mockEm)
-    mockEm.transactional.mockImplementation(async (callback) => callback(mockEm))
     mockGetAuthFromCookies.mockResolvedValue({
       sub: 'user-1',
       tenantId: '123e4567-e89b-12d3-a456-426614174000',

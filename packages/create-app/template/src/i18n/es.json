@@ -718,6 +718,7 @@
   "ui.dataTable.pagination.cache.ariaLabel": "Caché {status}",
   "ui.dataTable.pagination.cache.srOnly": "Caché {status}",
   "ui.dataTable.pagination.cache.title": "Caché {status}",
+  "ui.dataTable.pagination.navAriaLabel": "Paginación de la tabla",
   "ui.dataTable.pagination.next": "Siguiente",
   "ui.dataTable.pagination.nextAriaLabel": "Ir a la página siguiente",
   "ui.dataTable.pagination.pageInfo": "Página {page} de {totalPages}",
