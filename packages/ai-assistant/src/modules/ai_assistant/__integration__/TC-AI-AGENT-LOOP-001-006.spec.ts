@@ -383,7 +383,18 @@ test.describe('TC-AI-AGENT-LOOP-001–006: agentic loop controls', () => {
         });
       });
 
+      // The agents request fires from a post-hydration `useQuery`, not from
+      // navigation, so the route handler that sets `capturedAgentsPayload` runs
+      // after `goto` resolves. Await the response deterministically instead of
+      // asserting the captured payload immediately (which races hydration).
+      const agentsResponsePromise = page.waitForResponse(
+        (response) =>
+          response.url().includes('/api/ai_assistant/ai/agents') &&
+          response.request().method() === 'GET',
+      );
+
       await page.goto(playgroundPath, { waitUntil: 'domcontentloaded' });
+      await agentsResponsePromise;
 
       // Verify that the mocked payload carrying executionEngine was served.
       // This asserts the agents API contract for Phase 5:

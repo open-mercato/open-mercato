@@ -180,3 +180,12 @@ export async function resolveCatalogPrice(
 
   return resolved ?? null
 }
+
+export async function resolveCatalogPriceBatch(
+  entries: Array<{ rows: PriceRow[]; context: PricingContext }>,
+  options?: { eventBus?: EventBus | null }
+): Promise<Array<PriceRow | null>> {
+  return Promise.all(
+    entries.map(({ rows, context }) => resolveCatalogPrice(rows, context, options))
+  )
+}
