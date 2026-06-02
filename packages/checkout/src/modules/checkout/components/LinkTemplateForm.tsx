@@ -24,7 +24,9 @@ import { CrudForm, type CrudField, type CrudFormGroup, type CrudFormGroupCompone
 import { ComboboxInput, type ComboboxOption } from '@open-mercato/ui/backend/inputs'
 import { Page, PageBody } from '@open-mercato/ui/backend/Page'
 import { SwitchableMarkdownInput } from '@open-mercato/ui/backend/inputs'
-import { apiCall, apiCallOrThrow, readApiResultOrThrow } from '@open-mercato/ui/backend/utils/apiCall'
+import { apiCall, apiCallOrThrow, readApiResultOrThrow, withScopedApiRequestHeaders } from '@open-mercato/ui/backend/utils/apiCall'
+import { buildOptimisticLockHeader } from '@open-mercato/ui/backend/utils/optimisticLock'
+import { surfaceRecordConflict } from '@open-mercato/ui/backend/conflicts'
 import { collectCustomFieldValues } from '@open-mercato/ui/backend/utils/customFieldValues'
 import { Button } from '@open-mercato/ui/primitives/button'
 import { ColorPicker } from '@open-mercato/ui/primitives/color-picker'
@@ -1638,11 +1640,20 @@ export function LinkTemplateForm({ mode, recordId }: Props) {
                 customFields: collectCustomFieldValues(values),
               }
               const endpoint = `/api/checkout/${mode === 'link' ? 'links' : 'templates'}${recordId ? `/${encodeURIComponent(recordId)}` : ''}`
-              const response = await readApiResultOrThrow<{ id?: string; slug?: string; ok?: boolean }>(endpoint, {
-                method: recordId ? 'PUT' : 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify(payload),
-              })
+              let response: { id?: string; slug?: string; ok?: boolean }
+              try {
+                response = await withScopedApiRequestHeaders(
+                  recordId ? buildOptimisticLockHeader(readString(initialValues?.updatedAt) || null) : {},
+                  () => readApiResultOrThrow<{ id?: string; slug?: string; ok?: boolean }>(endpoint, {
+                    method: recordId ? 'PUT' : 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(payload),
+                  }),
+                )
+              } catch (error) {
+                if (surfaceRecordConflict(error, t)) return
+                throw error
+              }
               const targetId = recordId ?? (typeof response?.id === 'string' ? response.id : null)
               const logoAttachmentId = readString(values.logoAttachmentId)
               if (
