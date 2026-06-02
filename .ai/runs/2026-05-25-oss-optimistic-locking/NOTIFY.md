@@ -131,3 +131,11 @@ Append-only event log. Newest at the bottom.
 - Tests (29.5): TC-LOCK-OSS-009/010/011 (API) + 012 (browser UI) all green on ephemeral :5001; 15 existing lock specs green (no regression) = 20 total.
 - Gate green: turbo typecheck shared/ui/core, build:packages ×2, generate, i18n sync (+ new catalog backToVariants key ×4), build:app. Touched unit suites green (TasksSection React.act is the pre-existing env issue).
 - Next: clean git history (collapse autosaves), push, auto-review-pr pass, summary comment, release lock.
+
+## 2026-06-02 — auto-continue-pr-loop resume 4 (QA round-5)
+- Resumed by: @pkarw. Source: @alinadivante comment 4602798597 (system-wide regression).
+- Checkpoint 9: Phase 30 steps 30.1–30.6 landed (commits 17487c39c..7025099a6). Customer Users, Customer Roles, Organizations, Inbox Settings, #2410 boolean selector, Feature Toggles Global override.
+- Per-fix: atomic commit + focused jest test + per-issue PR comment to @alinadivante (user directive).
+- Validation: touched-module unit subsets (65 tests) + directory (63) green; `turbo typecheck @open-mercato/core` clean.
+- Live Playwright/integration deferred to a single batched pass (30.15) to avoid repeated full-stack boots.
+- Remaining: 30.7–30.15 (see HANDOFF).

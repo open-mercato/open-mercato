@@ -1,41 +1,40 @@
 # Handoff — 2026-05-25-oss-optimistic-locking
 
-**Last updated:** 2026-06-02 (resume 3 — QA round-4 fixes + develop merge, Phase 29)
+**Last updated:** 2026-06-02 (resume 4 — QA round-5 system-wide regression, Phase 30)
 **Branch:** feat/oss-optimistic-locking
 **PR:** https://github.com/open-mercato/open-mercato/pull/2055
-**Current phase/step:** COMPLETE for round-4 — Phase 29 (29.0..29.5) done. Merged develop (conflict resolved). Fixed all four @alinadivante round-4 blockers: customer task (todos) lock, activity raw-toast, sales order false-positive, variant not-found UX. 20 lock integration tests green on the ephemeral env (OM_OPTIMISTIC_LOCK=all); full gate green (typecheck/build:packages/generate/i18n/build:app). Awaiting human re-QA + 2nd-approver merge.
-**Last code commit:** Phase 29 resume commits (see git log). Merge resolution 46091f33f.
+**Current phase/step:** Phase 30 (QA round-5). 30.1–30.6 done (checkpoint 9). Next: 30.7 Pay Links + Checkout Templates.
+**Last code commit:** 7025099a6 (feature_toggles global override lock).
 
-## Resume-3 (2026-06-02) — what changed
-- develop merged; `AvailabilityRulesEditor` conflict resolved (selective delete #2325 + per-rule lock #2055).
-- #1 todos: client header (canonical `useInteractions.updateInteraction` + legacy `usePersonTasks`), `updatedAt` plumbed through todoCompatibility + route + summary; interactions update/complete/cancel/delete commands enforce `enforceCommandOptimisticLock`.
-- #2 activity: `ScheduleActivityDialog` skips raw `record_modified` toast on 409 (bar already shown).
-- #3 variant: detail page `RecordNotFoundState` early return; server delete enforcement proven by TC-LOCK-OSS-010.
-- #4 sales: `mapUpdateResponse` returns `updatedAt`; `updateDocument` refreshes `record.updatedAt` centrally.
-- New tests: TC-LOCK-OSS-009/010/011 (API) + 012 (browser UI). Ephemeral env: `yarn test:integration:ephemeral:start` (base :5001, admin@acme.com/secret).
+## QA round-5 source
+@alinadivante comment https://github.com/open-mercato/open-mercato/pull/2055#issuecomment-4602798597 — ~19 "missing conflict protection" areas + 3 separate bugs (#2409, #2410, #2411). User directive: fix each, atomic commit + check + Alina comment per fix; add integration tests; verify with Playwright.
 
-## Environment (IMPORTANT — this is how to run Playwright on THIS branch)
-- `:3000` = separate standalone `my-app` (published packages) — NOT this branch. Ignore it.
-- Boot the branch: `yarn install` → `yarn build:packages` → `yarn turbo run generate` → `yarn build:packages` → then in `apps/mercato/`: `PATH=$PWD/../../node_modules/.bin:$PATH next dev -p 3100` (Turbopack; the `yarn dev` wrapper's package-watcher crashes esbuild here). A dev server is CURRENTLY RUNNING on :3100 — do not restart it unless it died.
-- Integration harness works: `BASE_URL=http://localhost:3100 OM_INTEGRATION_MODULES=<mod> yarn test:integration -g <name>`.
-- Admin: `admin@acme.com` / `secret`. Token: POST :3100/api/auth/login (form-urlencoded). A token is cached in /tmp/pr2055_tok.txt.
-- Shared DB `open-mercato` (no schema change in this PR).
+## Done this resume (30.1–30.6)
+- Customer Users / Customer Roles (custom admin routes): list returns updatedAt; PUT/DELETE enforceCommandOptimisticLock; nativeUpdate bumps updated_at + returns it.
+- Organizations: manage GET returns updatedAt (PUT/DELETE already enforce via makeCrudRoute; edit page + list already read updatedAt).
+- Inbox Settings: removed exempt; GET/PATCH return updatedAt; PATCH enforces; page sends header.
+- #2410: feature-toggle boolean override selector display normalizer.
+- Feature Toggles (Global) override: GET returns updatedAt; card sends header + conflict bar; overrides PUT enforces.
 
-## Resume-2 scope landed so far
-- 21.1 root-cause report; 22.1 command-level enterprise hook; 22.2 unified conflict **bar** (per user: persistent error bar like the undo bar, unified across all forms — replaces the transient toast for the 409 conflict); 24.1 catalog variant delete; 25.1 sales document page.
+## Remaining (todo) — 30.7..30.15
+- 30.7 Pay Links + Checkout Templates (checkout pkg, LinkTemplateForm raw PUT no header).
+- 30.8 Sidebar Customization (auth/api/sidebar/preferences — omit updatedAt + unguarded saves).
+- 30.9 Saved table Views ("My Views") — LOCATE first (perspectives module?).
+- 30.10 System Entities + User Entities records (entities module — records API custom CRUD).
+- 30.11 #2411 System Entities save no-op (entities user/[entityId]/page.tsx + definitions.batch — system-source entities not persisted).
+- 30.12 #2409 Availability Schedule delete false success toast on 409 (planner AvailabilitySchedule.tsx — success flash fires even when deleteCrud throws; wrap in try/catch).
+- 30.13 Webhooks / Integrations / Data Sync / Notification Delivery / Scheduled Jobs / Dictionaries config — triage said several already OK or need updatedAt exposure; VERIFY each against live before claiming.
+- 30.14 Workflow visual editor — triage said already protected; QA says broken → re-verify the save path (node/edge save may bypass the protected PUT).
+- 30.15 Batched integration + Playwright verification: boot ephemeral env once and run two-session specs for fixed areas.
 
-## Key findings
-- CRM v2 (companies-v2/people-v2/deals) ALREADY send the header + surface the localized conflict — proven live. v1 company/person `[id]` pages are dead edit routes (list → v2). No CRM client fix needed.
-- companies-v2 react-query refetch-on-focus keeps single-tab `updatedAt` fresh → single-tab stale-save can't reproduce the conflict; use two API sessions (integration) or two tabs for deterministic 409. This explains QA's "same-user two-tab" being the only failing case.
-- Sales orders/quotes both render `sales/documents/[id]/page.tsx` (uses `useGuardedMutation`; document `updatedAt` = `record.updatedAt`).
+## Per-fix pattern (PROVEN — reuse)
+1. List/detail API must return `updatedAt`.
+2. Custom PUT/DELETE/PATCH → `enforceCommandOptimisticLock({ resourceKind, resourceId, current: rec.updatedAt ?? null, request: req })` + `catch (e) { if (isCrudHttpError(e)) return NextResponse.json(e.body,{status:e.status}); throw e }`.
+3. `em.nativeUpdate` bypasses onUpdate → set `updatedAt: new Date()` explicitly + return it.
+4. Client raw handler → `withScopedApiRequestHeaders(buildOptimisticLockHeader(rec.updatedAt), () => apiCall(...))`; surface via `surfaceRecordConflict(err, t)` from `@open-mercato/ui/backend/conflicts` (CrudForm/useGuardedMutation auto-surface).
+5. Per-fix check = focused jest route test mirroring `auth/api/roles/acl/__tests__/optimistic-lock.test.ts`.
 
-## Next concrete action (Phase 26)
-Wire the sales document sub-sections to send the document version header + route 409 → conflict bar + reload:
-- `packages/core/src/modules/sales/backend/sales/documents/[id]/page.tsx` — pass `documentUpdatedAt={record.updatedAt}` to ItemsSection / AdjustmentsSection / ReturnsSection / ShipmentsSection / PaymentsSection.
-- `packages/core/src/modules/sales/components/documents/{ItemsSection,LineItemDialog,AdjustmentsSection,ReturnsSection,ReturnDialog,ShipmentsSection,ShipmentDialog,PaymentsSection,PaymentDialog}.tsx` — wrap create/update/delete with `buildOptimisticLockHeader(documentUpdatedAt)` and `surfaceRecordConflict(err,t)` in catch.
-- **Header semantics (from Phase 21 decision):** Items/Adjustments/Returns use the DOCUMENT-aggregate header (their CRUD route nulls candidateId; server `enforceSalesDocumentOptimisticLock` is the guard). Payments/Shipments are row-level-guarded by makeCrudRoute — send the ROW's own `updatedAt`, not the document's; only add conflict surfacing. No double-guard.
-
-## Blockers / caveats
-- `gh`/`mercato` need PATH from node_modules/.bin.
-- Workspace `tsc` `ignoreDeprecations` TS5103 is pre-existing (use `yarn turbo run typecheck --filter=…` for the real check).
-- PLAN.md SHA cells: per-step commit flips Status→done with the committed SHA carried in the NEXT commit (no amend chase).
+## Environment / build (worktree)
+- Worktree: `.ai/tmp/auto-continue-pr/pr-2055-20260602-155021`. Ran `yarn install --mode=skip-build` → `yarn build:packages` (cache-shared) → `yarn generate`. Tests + turbo typecheck work.
+- `yarn workspace @open-mercato/core test <path>` for focused tests. `yarn turbo run typecheck --filter=@open-mercato/core` for the real typecheck (workspace tsc has pre-existing TS6.0 ignoreDeprecations noise).
+- Ephemeral integration env: `yarn test:integration:ephemeral:start` (base :5001, admin@acme.com/secret) — for 30.15.

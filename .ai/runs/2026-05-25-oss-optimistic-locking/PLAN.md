@@ -93,6 +93,21 @@
 | 29 | 29.3 | QA round-4 #4: sales document update returns `updatedAt` (`mapUpdateResponse`); the document page refreshes `record.updatedAt` centrally in `updateDocument` so back-to-back inline saves don't falsely 409 | done | (resume) |
 | 29 | 29.4 | QA round-4 #3: product-variant detail renders `RecordNotFoundState` (not an empty CrudForm) when the variant 404s; integration test confirms the server already 409s a stale variant DELETE | done | (resume) |
 | 29 | 29.5 | Integration specs: TC-LOCK-OSS-009 (todos concurrent edit + stale-after-delete), -010 (variant stale delete), -011 (sales order response token refresh), -012 (variant not-found browser UI). All green on the ephemeral env (`OM_OPTIMISTIC_LOCK=all`) + 15 existing lock specs (no regression) | done | (resume) |
+| 30 | 30.1 | QA round-5: Customer Users admin route — list returns updatedAt; PUT/DELETE enforce + bump updated_at; detail refresh | done | 17487c39c |
+| 30 | 30.2 | QA round-5: Customer Roles admin route — list returns updatedAt; PUT/DELETE enforce + bump | done | a1f769038 |
+| 30 | 30.3 | QA round-5: Organizations — manage GET returns updatedAt (re-arms makeCrudRoute enforcement + edit/list header) | done | f8f028c9e |
+| 30 | 30.4 | QA round-5: Inbox Settings — GET/PATCH return updatedAt; PATCH enforces; page sends header (removed exempt) | done | 96aaea40a |
+| 30 | 30.5 | QA round-5 #2410: Feature Toggle boolean override selector display | done | b4a672a07 |
+| 30 | 30.6 | QA round-5: Feature Toggles (Global) override — GET returns updatedAt; card sends header + conflict bar; overrides PUT enforces | done | 7025099a6 |
+| 30 | 30.7 | QA round-5: Pay Links + Checkout Templates (LinkTemplateForm raw PUT) | todo | — |
+| 30 | 30.8 | QA round-5: Sidebar Customization preferences | todo | — |
+| 30 | 30.9 | QA round-5: Saved table Views ("My Views") | todo | — |
+| 30 | 30.10 | QA round-5: System Entities + User Entities records lock | todo | — |
+| 30 | 30.11 | QA round-5 #2411: System Entities save reports success but doesn't persist | todo | — |
+| 30 | 30.12 | QA round-5 #2409: Availability Schedule delete false success toast on 409 | todo | — |
+| 30 | 30.13 | QA round-5: Webhooks / Integrations / Data Sync / Notification Delivery / Scheduled Jobs / Dictionaries config — verify & fix | todo | — |
+| 30 | 30.14 | QA round-5: Workflow visual editor — verify & fix | todo | — |
+| 30 | 30.15 | Batched integration + Playwright verification (boot ephemeral env once) | todo | — |
 
 ## Goal (resume)
 
