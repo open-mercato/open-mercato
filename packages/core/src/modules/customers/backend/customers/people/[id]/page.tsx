@@ -69,6 +69,7 @@ type PersonOverview = {
     nextInteractionIcon?: string | null
     nextInteractionColor?: string | null
     organizationId?: string | null
+    updatedAt?: string | null
   }
   profile: {
     id: string
@@ -318,10 +319,10 @@ export default function CustomerPersonDetailPage({ params }: { params?: { id?: s
     async (patch: Record<string, unknown>, apply: (prev: PersonOverview) => PersonOverview) => {
       if (!data) return
       const payload = { id: data.person.id, ...patch }
-      await runMutationWithContext(
+      const result = await runMutationWithContext(
         () => withScopedApiRequestHeaders(
           buildOptimisticLockHeader((data?.person as { updatedAt?: string } | undefined)?.updatedAt),
-          () => apiCallOrThrow(
+          () => apiCallOrThrow<{ ok?: boolean; updatedAt?: string | null }>(
             '/api/customers/people',
             {
               method: 'PUT',
@@ -333,7 +334,16 @@ export default function CustomerPersonDetailPage({ params }: { params?: { id?: s
         ),
         payload,
       )
-      setData((prev) => (prev ? apply(prev) : prev))
+      // Refresh the optimistic-lock token so the next sequential inline edit does not
+      // send a stale updatedAt and falsely 409 (#2055, default-ON locking).
+      const nextUpdatedAt = result?.result?.updatedAt ?? null
+      setData((prev) => {
+        if (!prev) return prev
+        const applied = apply(prev)
+        return nextUpdatedAt
+          ? { ...applied, person: { ...applied.person, updatedAt: nextUpdatedAt } }
+          : applied
+      })
     },
     [data, runMutationWithContext, t]
   )
