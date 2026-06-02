@@ -78,6 +78,20 @@ When you need… use this. Details (variants, sizes, props, MUST rules) live in 
 | Keyboard shortcut keys | `Kbd`, `KbdShortcut` | `@open-mercato/ui/primitives/kbd` |
 | Entity tag pill | `Tag` (with `TagMap`) | `@open-mercato/ui/primitives/tag` |
 | Breadcrumb navigation (DS-aligned, slash/arrow/dot divider, ARIA correct) | `Breadcrumb` (with `BreadcrumbList` / `BreadcrumbItem` / `BreadcrumbLink` / `BreadcrumbPage` / `BreadcrumbStatic` / `BreadcrumbSeparator` / `BreadcrumbEllipsis`) | `@open-mercato/ui/primitives/breadcrumb` |
+| Scrollable container with DS-styled scrollbars | `ScrollArea` (compound: `ScrollAreaRoot` / `Viewport` / `Scrollbar` / `Thumb` / `Corner`) | `@open-mercato/ui/primitives/scroll-area` |
+| Joined buttons sharing outer border (Save / Save & New / overflow) | `ButtonGroup` (NOT for selection — use `SegmentedControl`) | `@open-mercato/ui/primitives/button-group` |
+| Mutually-exclusive view toggle (All / Active / Archived, 1D / 1W / 1M) | `SegmentedControl` (with `SegmentedControlItem`) | `@open-mercato/ui/primitives/segmented-control` |
+| Continuous numeric selector — single or two-thumb range | `Slider` (`value` MUST be `[number]` or `[number, number]`) | `@open-mercato/ui/primitives/slider` |
+| 1-N star / heart / dot rating (read-only display OR interactive input) | `Rating` (no `onChange` = read-only; `onChange` = interactive) | `@open-mercato/ui/primitives/rating` |
+| Multi-step progress (wizard / onboarding / checkout) | `StepIndicator` (steps[] with `status` per step) | `@open-mercato/ui/primitives/step-indicator` |
+| Color selection (tag color, brand color, category) | `ColorPicker` (swatch popover + optional hex input) | `@open-mercato/ui/primitives/color-picker` |
+| Page navigation for lists outside DataTable | `Pagination` (1-indexed, `total` not `totalPages`) | `@open-mercato/ui/primitives/pagination` |
+| Side sheet / non-blocking overlay (detail pane, secondary form) | `Drawer` (with `DrawerContent` / `DrawerHeader` / `DrawerBody` / `DrawerFooter` / `DrawerClose`) | `@open-mercato/ui/primitives/drawer` |
+| Cmd+K spotlight palette (global navigation / quick actions / universal search) | `CommandMenu` (compound: `CommandMenuContent` / `Input` / `List` / `Group` / `Item` / `Separator` / `Footer`) — auto-filter via `cmdk` | `@open-mercato/ui/primitives/command-menu` |
+| Chronological actor-action timeline (detail panes, audit feeds, customer activity logs) | `ActivityFeed` (compound: `ActivityFeedItem` / `ActivityFeedFileChip` / `ActivityFeedComment` / `ActivityFeedStatusChip`) | `@open-mercato/ui/primitives/activity-feed` |
+| Bell-icon inbox / notification panel (the dropdown that opens from the app shell bell affordance) | `NotificationFeed` (compound: `NotificationFeedHeader` / `NotificationFeedList` / `NotificationFeedItem` / `NotificationFeedFooter` / `NotificationFeedIconBadge`) | `@open-mercato/ui/primitives/notification-feed` |
+| Determinate linear progress bar (job percentage, file upload, onboarding) | `Progress` (`size`: `sm`/`default`/`lg`, `tone`: `accent`/`success`/`warning`/`destructive`/`muted`, optional `label`/`showValue`/`description` slots) | `@open-mercato/ui/primitives/progress` |
+| Determinate circular progress (compact KPI dial, attachment upload thumbnail, sprint completion %) | `CircularProgress` (same `tone`s; `size`: `xs` / `sm` / `default` / `lg`; optional center `showValue` or custom `children`) | `@open-mercato/ui/primitives/progress` |
 | Wrap a `<Link>` as button | `Button asChild` / `IconButton asChild` | — |
 
 ## Critical Primitive Rules
