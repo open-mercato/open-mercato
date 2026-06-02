@@ -51,8 +51,8 @@ close the original PR #2394 so the bumps land on the active development line.
 
 ### Phase 1: Apply version bumps
 
-- [ ] 1.1 Apply the 38 `(name, fromSpec) → toSpec` replacements to develop's package.json files
-- [ ] 1.2 Regenerate yarn.lock via `yarn install`
+- [x] 1.1 Apply the 38 `(name, fromSpec) → toSpec` replacements to develop's package.json files — 957cd789e
+- [x] 1.2 Regenerate yarn.lock via `yarn install` — 957cd789e
 
 ### Phase 2: Validate
 
