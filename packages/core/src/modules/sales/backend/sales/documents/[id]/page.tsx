@@ -917,6 +917,7 @@ type DocumentUpdateResult = {
   customerName?: string | null
   contactEmail?: string | null
   metadata?: Record<string, unknown> | null
+  updatedAt?: string | null
 }
 
 const normalizeCustomFieldSubmitValue = (value: unknown): unknown => {
@@ -3017,7 +3018,7 @@ export default function SalesDocumentDetailPage({
       }
       const endpoint = kind === 'order' ? '/api/sales/orders' : '/api/sales/quotes'
       const mutation = { id: record.id, ...patch }
-      return runMutationWithContext(
+      const call = await runMutationWithContext(
         () =>
           withScopedApiRequestHeaders(buildOptimisticLockHeader(record.updatedAt), () =>
             apiCallOrThrow<DocumentUpdateResult>(
@@ -3032,6 +3033,15 @@ export default function SalesDocumentDetailPage({
           ),
         mutation,
       )
+      // Refresh the optimistic-lock token from the server's fresh updatedAt so a
+      // SUBSEQUENT inline save on the same page doesn't send a now-stale token and
+      // falsely 409 (#2055 QA). All per-field setRecord calls below spread from
+      // this updated `prev`, so the token stays consistent.
+      const freshUpdatedAt = call?.result?.updatedAt
+      if (typeof freshUpdatedAt === 'string' && freshUpdatedAt.length > 0) {
+        setRecord((prev) => (prev ? { ...prev, updatedAt: freshUpdatedAt } : prev))
+      }
+      return call
     },
     [kind, record, runMutationWithContext, t]
   )

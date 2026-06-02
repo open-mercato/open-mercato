@@ -202,6 +202,12 @@ const mapUpdateResponse = (entity: any) => {
     paymentMethodId: entity?.paymentMethodId ?? null,
     paymentMethodCode: entity?.paymentMethodCode ?? null,
     paymentMethodSnapshot: normalizeJsonRecord(entity?.paymentMethodSnapshot),
+    // Return the fresh version so the client can refresh its optimistic-lock
+    // token after a successful inline save — otherwise a second save on the same
+    // page sends the now-stale updatedAt and falsely 409s (#2055 QA).
+    updatedAt: entity?.updatedAt
+      ? (entity.updatedAt instanceof Date ? entity.updatedAt.toISOString() : entity.updatedAt)
+      : null,
   }
 }
 
