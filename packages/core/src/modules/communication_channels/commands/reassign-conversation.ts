@@ -62,6 +62,9 @@ const reassignConversationCommand: CommandHandler<
   ReassignConversationResult
 > = {
   id: COMMUNICATION_CHANNELS_REASSIGN_CONVERSATION_COMMAND_ID,
+  // Explicitly undoable (the bus also infers this from `undo` below, but
+  // declaring it keeps undoability from silently dropping under a refactor).
+  isUndoable: true,
   async execute(rawInput, ctx) {
     const input = reassignConversationSchema.parse(rawInput) as ReassignConversationInput
     const em = (ctx.container.resolve('em') as EntityManager).fork()
@@ -78,7 +81,11 @@ const reassignConversationCommand: CommandHandler<
         tenantId: input.scope.tenantId,
         organizationId: input.scope.organizationId ?? null,
       },
-      undefined,
+      // `message_thread_id` is non-unique (only `(external_conversation_id,
+      // tenant_id)` is unique). The 1:1 thread↔mapping invariant holds in v1,
+      // but order deterministically so a future many-conversations-per-thread
+      // merge can never resolve an arbitrary mapping here.
+      { orderBy: { createdAt: 'asc' } },
       dscope,
     )
     if (!mapping) {

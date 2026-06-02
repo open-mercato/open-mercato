@@ -61,7 +61,14 @@ export async function resolveOAuthClientCredentials(
         organizationId: organizationId as unknown as string,
         userId: null,
       })
-    } catch {
+    } catch (resolveErr) {
+      // A resolve error (e.g. a transient DB issue) for this org scope shouldn't
+      // abort the lookup — fall through to the next scope — but surface it so a
+      // real misconfiguration isn't silently swallowed.
+      console.warn(
+        '[internal] [communication_channels] resolveOAuthClientCredentials: credential resolve failed for an org scope:',
+        resolveErr instanceof Error ? resolveErr.message : resolveErr,
+      )
       row = null
     }
     if (row && typeof row.clientId === 'string' && row.clientId.length > 0) {

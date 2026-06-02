@@ -65,6 +65,9 @@ const disconnectChannelCommand: CommandHandler<
   DisconnectChannelResult
 > = {
   id: COMMUNICATION_CHANNELS_DISCONNECT_CHANNEL_COMMAND_ID,
+  // Explicitly undoable (the bus also infers this from `undo` below, but
+  // declaring it keeps undoability from silently dropping under a refactor).
+  isUndoable: true,
   async execute(rawInput, ctx) {
     const input = disconnectChannelSchema.parse(rawInput) as DisconnectChannelInput
     const em = (ctx.container.resolve('em') as EntityManager).fork()

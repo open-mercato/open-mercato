@@ -9,8 +9,15 @@ import { CustomerInteraction } from '../data/entities'
 export const EMAIL_VIEW_PRIVATE_FEATURE = 'customers.email.view_private'
 
 /**
- * Returns true when the caller can see ALL private email interactions (e.g. an
- * admin doing incident response or audit). Honours wildcards (`customers.*`, `*`).
+ * Returns true when the caller holds the admin override to see ALL private email
+ * interactions. Honours wildcards (`customers.*`, `*`).
+ *
+ * RESERVED FOR v2 — NOT wired in v1. The v1 model is strict owner-only with no
+ * admin bypass: the visibility filters and `canChangeEmailVisibility` ignore
+ * caller features, and `customers.email.view_private` is granted to no role.
+ * Kept (with {@link EMAIL_VIEW_PRIVATE_FEATURE}) so v2 oversight can opt back in
+ * without re-introducing the helper. Do NOT wire this into a read path without
+ * an explicit v2 spec.
  */
 export function callerHasEmailViewPrivate(userFeatures: string[] | null | undefined): boolean {
   if (!Array.isArray(userFeatures) || userFeatures.length === 0) return false
@@ -91,10 +98,15 @@ type RbacServiceLike = {
 }
 
 /**
- * Resolve the caller's granted features (wildcard-aware downstream) so a
- * visibility filter can honour the `customers.email.view_private` admin bypass.
- * Returns `undefined` when there is no user or the RBAC service is unavailable —
- * callers MUST treat `undefined` as "no bypass" (fail closed).
+ * Resolve the caller's granted features (wildcard-aware downstream) so a v2
+ * visibility filter could honour the `customers.email.view_private` admin
+ * override. Returns `undefined` when there is no user or the RBAC service is
+ * unavailable — callers MUST treat `undefined` as "no bypass" (fail closed).
+ *
+ * RESERVED FOR v2 — NOT called by any v1 read path. v1 is strict owner-only, so
+ * the read routes pass `userFeatures: undefined` to the filters rather than
+ * resolving features here (which would be a wasted RBAC round-trip). Re-wire
+ * only under an explicit v2 oversight spec.
  */
 export async function resolveCallerEmailFeatures(
   container: { resolve: (name: string) => unknown },

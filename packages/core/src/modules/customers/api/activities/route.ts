@@ -28,7 +28,7 @@ import { resolveCustomerInteractionFeatureFlags } from '../../lib/interactionFea
 import { resolveCustomersRequestContext } from '../../lib/interactionRequestContext'
 import { hydrateCanonicalInteractions } from '../../lib/interactionReadModel'
 import { resolveCanonicalActivityTargetId } from '../../lib/legacyActivityBridge'
-import { buildEmailVisibilityMikroFilter, resolveCallerEmailFeatures } from '../../lib/visibilityFilter'
+import { buildEmailVisibilityMikroFilter } from '../../lib/visibilityFilter'
 
 const listSchema = z.object({
   page: z.coerce.number().min(1).default(1),
@@ -283,18 +283,13 @@ async function listCanonicalActivities(
 
   // Per-user email privacy: exclude other users' private email interactions from
   // the deprecated /activities surface (mirrors the /interactions Layer-1 filter).
+  // v1 strict owner-only — no admin bypass (the filter ignores caller features).
   const activitiesViewerUserId = auth.keyId ? null : (auth.sub ?? auth.userId ?? null)
-  const activitiesCallerFeatures = await resolveCallerEmailFeatures(
-    container,
-    activitiesViewerUserId,
-    tenantId,
-    selectedOrganizationId,
-  )
   Object.assign(
     where,
     buildEmailVisibilityMikroFilter({
       currentUserId: activitiesViewerUserId,
-      userFeatures: activitiesCallerFeatures,
+      userFeatures: undefined,
     }),
   )
 

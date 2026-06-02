@@ -431,6 +431,17 @@ export const interactionEmailCardEnricher: ResponseEnricher<
       const visibility =
         r.visibility === 'private' || r.visibility === 'shared' ? r.visibility : null
       const authorUserId = typeof r.authorUserId === 'string' ? r.authorUserId : null
+      const isAuthor = Boolean(currentUserId && authorUserId && authorUserId === currentUserId)
+      // Fail-closed (defense-in-depth): never surface another user's PRIVATE
+      // email metadata (subject/from/to/references), even if a consumer forgot
+      // to apply the visibility filter upstream. v1 is strict owner-only (no
+      // admin bypass — `customers.email.view_private` is inert until v2), so a
+      // private row is enriched only for its author. The normal read paths
+      // already drop these rows; this keeps the globally-registered enricher
+      // safe-by-construction for any future consumer that opts into it.
+      if (visibility === 'private' && !isAuthor) {
+        return r
+      }
       const existingIntegrations = (r._integrations ?? {}) as Record<string, unknown>
       return {
         ...r,
@@ -439,7 +450,7 @@ export const interactionEmailCardEnricher: ResponseEnricher<
           email: {
             ...fields,
             currentVisibility: visibility,
-            isAuthor: Boolean(currentUserId && authorUserId && authorUserId === currentUserId),
+            isAuthor,
           },
         },
       }

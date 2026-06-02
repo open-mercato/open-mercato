@@ -225,6 +225,11 @@ type ComposeMessageResult = {
   externalEmail: string | null
   isDraft: boolean
   recipientUserIds: string[]
+  /**
+   * True when this was an idempotent replay — an existing message was returned
+   * and nothing was written. Signals `buildLog` to skip the audit/undo entry.
+   */
+  deduplicated?: boolean
 }
 
 async function buildComposeResultFromExisting(
@@ -244,10 +249,11 @@ async function buildComposeResultFromExisting(
     externalEmail: message.externalEmail ?? null,
     isDraft: message.isDraft,
     recipientUserIds: recipients.map((recipient) => recipient.recipientUserId),
+    deduplicated: true,
   }
 }
 
-const composeMessageCommand: CommandHandler<unknown, { id: string; threadId: string | null; externalEmail: string | null; isDraft: boolean; recipientUserIds: string[] }> = {
+const composeMessageCommand: CommandHandler<unknown, { id: string; threadId: string | null; externalEmail: string | null; isDraft: boolean; recipientUserIds: string[]; deduplicated?: boolean }> = {
   id: 'messages.messages.compose',
   async execute(rawInput, ctx) {
     const input = composeCommandSchema.parse(rawInput)
@@ -427,6 +433,11 @@ const composeMessageCommand: CommandHandler<unknown, { id: string; threadId: str
     return loadMessageAggregateSnapshot(em, result.id)
   },
   buildLog: async ({ input, result, snapshots }) => {
+    // Idempotent replay: execute returned a pre-existing message without writing
+    // anything. Skip the audit entry entirely — logging it as a fresh "Compose
+    // message" would both misrepresent the dedup and expose an undo that
+    // soft-deletes a legitimately-received inbound message.
+    if (result.deduplicated) return { skipLog: true }
     const parsed = composeCommandSchema.parse(input)
     return {
       actionLabel: parsed.isDraft ? 'Create draft message' : 'Compose message',

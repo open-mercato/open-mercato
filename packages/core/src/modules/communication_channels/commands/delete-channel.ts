@@ -53,6 +53,9 @@ export const COMMUNICATION_CHANNELS_DELETE_CHANNEL_COMMAND_ID =
  */
 const deleteChannelCommand: CommandHandler<DeleteChannelInput, DeleteChannelResult> = {
   id: COMMUNICATION_CHANNELS_DELETE_CHANNEL_COMMAND_ID,
+  // Explicitly undoable (the bus also infers this from `undo` below, but
+  // declaring it keeps undoability from silently dropping under a refactor).
+  isUndoable: true,
   async execute(rawInput, ctx) {
     const input = deleteChannelSchema.parse(rawInput) as DeleteChannelInput
     const em = (ctx.container.resolve('em') as EntityManager).fork()

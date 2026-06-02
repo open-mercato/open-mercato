@@ -37,7 +37,7 @@ import {
 } from '../../../lib/interactionCompatibility'
 import { resolveCustomerInteractionFeatureFlags } from '../../../lib/interactionFeatureFlags'
 import { hydrateCanonicalInteractions } from '../../../lib/interactionReadModel'
-import { buildEmailVisibilityMikroFilter, resolveCallerEmailFeatures } from '../../../lib/visibilityFilter'
+import { buildEmailVisibilityMikroFilter } from '../../../lib/visibilityFilter'
 import type { QueryEngine } from '@open-mercato/shared/lib/query/types'
 import type { EntityId } from '@open-mercato/shared/modules/entities'
 import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
@@ -403,19 +403,15 @@ export async function GET(_req: Request, ctx: { params?: { id?: string } }) {
   // Per-user email privacy (CRM email integration): exclude private email
   // interactions owned by other users from every read path that returns
   // customer_interactions. Non-email rows, shared emails, and legacy
-  // null-visibility rows pass through; admins with `customers.email.view_private`
-  // bypass. Mirrors the people detail route. API-key callers resolve to null
-  // (no author bypass — shared/non-email rows only).
+  // null-visibility rows pass through. v1 is strict owner-only: there is NO
+  // admin bypass — the filter ignores caller features, and
+  // `customers.email.view_private` is reserved (inert) for v2 oversight.
+  // Mirrors the people detail route. API-key callers resolve to null
+  // (no author match — shared/non-email rows only).
   const viewerUserId = auth.isApiKey ? null : (auth.sub ?? null)
-  const callerEmailFeatures = await resolveCallerEmailFeatures(
-    container,
-    viewerUserId,
-    companyScope.tenantId,
-    companyScope.organizationId,
-  )
   const emailVisibilityFilter = buildEmailVisibilityMikroFilter({
     currentUserId: viewerUserId,
-    userFeatures: callerEmailFeatures,
+    userFeatures: undefined,
   })
 
   const profile = company.companyProfile

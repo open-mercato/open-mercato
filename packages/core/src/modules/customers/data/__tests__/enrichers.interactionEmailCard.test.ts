@@ -57,12 +57,25 @@ describe('interactionEmailCardEnricher', () => {
     })
   })
 
-  it('marks isAuthor false when a different user requests', async () => {
+  it('does NOT enrich a PRIVATE email for a non-author (fail-closed)', async () => {
+    // emailRecord() defaults to visibility:'private', authorUserId:'user-A'.
     const out = await interactionEmailCardEnricher.enrichMany!(
       [emailRecord()],
       makeCtx({ userId: 'user-B', linkRows: [{ id: 'link-1', channel_metadata: LINK_META }] }),
     )
-    expect((out[0] as any)._integrations.email.isAuthor).toBe(false)
+    // Strict owner-only (v1): a private row is never enriched for a non-author,
+    // so no subject/from/to leaks even if an upstream visibility filter is missing.
+    expect((out[0] as any)._integrations).toBeUndefined()
+  })
+
+  it('enriches a SHARED email for a non-author with isAuthor=false', async () => {
+    const out = await interactionEmailCardEnricher.enrichMany!(
+      [emailRecord({ visibility: 'shared' })],
+      makeCtx({ userId: 'user-B', linkRows: [{ id: 'link-1', channel_metadata: LINK_META }] }),
+    )
+    const email = (out[0] as any)._integrations.email
+    expect(email.currentVisibility).toBe('shared')
+    expect(email.isAuthor).toBe(false)
   })
 
   it('coerces an unrecognised visibility value to null', async () => {

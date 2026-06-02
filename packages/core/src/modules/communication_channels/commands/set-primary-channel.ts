@@ -38,6 +38,14 @@ const setPrimaryChannelCommand: CommandHandler<
   SetPrimaryChannelResult
 > = {
   id: COMMUNICATION_CHANNELS_SET_PRIMARY_COMMAND_ID,
+  // Intentionally NOT undoable. Restoring a prior primary is order-sensitive
+  // against the partial unique index `communication_channels_one_primary_per_user_uq`
+  // (it would need the same clear-then-set, cross-org, two-phase dance as
+  // `execute`), and a stale snapshot could re-primary a channel the user has
+  // since disconnected. Sibling lifecycle commands (disconnect/delete) likewise
+  // do not re-claim primary on undo. Declared explicitly so the omission reads
+  // as a decision, not an oversight.
+  isUndoable: false,
   async execute(rawInput, ctx) {
     const input = setPrimaryChannelSchema.parse(rawInput) as SetPrimaryChannelInput
     const em = (ctx.container.resolve('em') as EntityManager).fork()
@@ -85,8 +93,13 @@ const setPrimaryChannelCommand: CommandHandler<
       em,
       CommunicationChannel,
       {
+        // The one-primary-per-user partial unique index keys on `user_id` only,
+        // so it spans ALL organizations for a user. The prior primary must be
+        // cleared regardless of which org it lives in — otherwise a multi-org
+        // user setting a new primary in org B would collide (23505) with their
+        // existing primary in org A. `CommunicationChannel` has no encrypted
+        // fields, so the cross-org read needs no per-org decryption scope.
         tenantId: input.scope.tenantId,
-        organizationId: input.scope.organizationId ?? null,
         userId: input.userId,
         isPrimary: true,
         deletedAt: null,

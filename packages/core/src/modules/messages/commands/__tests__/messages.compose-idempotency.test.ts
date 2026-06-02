@@ -119,6 +119,8 @@ describe('messages.messages.compose idempotency', () => {
       externalEmail: 'sender@example.com',
       isDraft: false,
       recipientUserIds: ['recipient-1'],
+      // Marks the idempotent replay so buildLog skips the audit/undo entry.
+      deduplicated: true,
     })
     // Short-circuited before opening a transaction — no duplicate created.
     expect(emFork.transactional).not.toHaveBeenCalled()
@@ -158,5 +160,50 @@ describe('messages.messages.compose idempotency', () => {
     // No idempotency key → the pre-check is skipped and compose proceeds to the
     // transactional create path.
     expect(emFork.transactional).toHaveBeenCalledTimes(1)
+  })
+
+  it('skips the audit log + undo entry on an idempotent replay (no spurious soft-delete handle)', async () => {
+    const { command } = createHarness()
+    const buildLog = (command as unknown as {
+      buildLog?: (args: {
+        input: unknown
+        result: unknown
+        snapshots: Record<string, unknown>
+      }) => Promise<unknown>
+    }).buildLog
+    expect(typeof buildLog).toBe('function')
+
+    const snapshots = { after: { message: { id: existingMessageId } } }
+
+    // A dedup hit must NOT produce an undoable "Compose message" audit row — that
+    // would expose an undo that soft-deletes a legitimately-received inbound message.
+    const dedupEntry = await buildLog!({
+      input: composeInput(),
+      result: {
+        id: existingMessageId,
+        threadId: 'thread-existing',
+        externalEmail: null,
+        isDraft: false,
+        recipientUserIds: [],
+        deduplicated: true,
+      },
+      snapshots,
+    })
+    expect(dedupEntry).toEqual({ skipLog: true })
+
+    // A genuine compose still logs an undoable entry.
+    const freshEntry = (await buildLog!({
+      input: composeInput(),
+      result: {
+        id: existingMessageId,
+        threadId: 'thread-existing',
+        externalEmail: null,
+        isDraft: false,
+        recipientUserIds: [],
+      },
+      snapshots,
+    })) as { actionLabel?: string; skipLog?: boolean }
+    expect(freshEntry.skipLog).toBeUndefined()
+    expect(freshEntry.actionLabel).toBe('Compose message')
   })
 })

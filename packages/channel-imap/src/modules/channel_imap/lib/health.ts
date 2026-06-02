@@ -48,11 +48,19 @@ export const channelImapHealthCheck = {
         details: { capabilities: result.capabilities },
       }
     } catch (error) {
-      const message = error instanceof Error ? error.message : 'IMAP login failed'
+      const raw = error instanceof Error ? error.message : 'IMAP login failed'
+      // Strip the internal-only marker so a policy/diagnostic string never
+      // reaches an operator-facing health message, and distinguish a
+      // transport-policy rejection (cleartext not opted in) from a real login
+      // failure so operators get an actionable reason code.
+      const message = raw.replace(/^\[internal\]\s*/, '')
+      const isTransportPolicy = /cleartext transport/i.test(message)
       return {
         status: 'unhealthy',
-        message: `IMAP login failed: ${message}`,
-        details: { reason: 'imap_login_failed' },
+        message: isTransportPolicy
+          ? `IMAP transport not allowed: ${message}`
+          : `IMAP login failed: ${message}`,
+        details: { reason: isTransportPolicy ? 'insecure_transport' : 'imap_login_failed' },
       }
     }
   },

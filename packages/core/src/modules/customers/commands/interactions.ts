@@ -41,7 +41,7 @@ import { CrudHttpError } from '@open-mercato/shared/lib/crud/errors'
 import { findOneWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import type { CrudIndexerConfig, CrudEventsConfig } from '@open-mercato/shared/lib/crud/types'
 import { recomputeNextInteraction } from '../lib/interactionProjection'
-import { canChangeEmailVisibility, resolveCallerEmailFeatures } from '../lib/visibilityFilter'
+import { canChangeEmailVisibility } from '../lib/visibilityFilter'
 
 const INTERACTION_ENTITY_ID = 'customers:customer_interaction'
 const interactionCrudIndexer: CrudIndexerConfig<CustomerInteraction> = {
@@ -468,12 +468,6 @@ const updateInteractionCommand: CommandHandler<InteractionUpdateInput, { interac
         (parsed.visibility ?? null) !== (interaction.visibility ?? null)
       ) {
         const actorUserId = (ctx.auth as { sub?: string | null } | null)?.sub ?? null
-        const userFeatures = await resolveCallerEmailFeatures(
-          ctx.container,
-          actorUserId,
-          interaction.tenantId,
-          interaction.organizationId,
-        )
         if (
           !canChangeEmailVisibility({
             interactionType: interaction.interactionType,
@@ -481,7 +475,9 @@ const updateInteractionCommand: CommandHandler<InteractionUpdateInput, { interac
             nextVisibility: parsed.visibility,
             authorUserId: interaction.authorUserId,
             actorUserId,
-            userFeatures,
+            // v1 strict owner-only: only the author may flip visibility; no admin
+            // bypass (canChangeEmailVisibility ignores caller features in v1).
+            userFeatures: undefined,
           })
         ) {
           throw new CrudHttpError(404, { error: 'Email not found' })

@@ -39,7 +39,7 @@ import { findWithDecryption, findOneWithDecryption } from '@open-mercato/shared/
 import { parseBooleanFromUnknown, parseBooleanToken } from '@open-mercato/shared/lib/boolean'
 import { loadPersonCompanyLinks, summarizePersonCompanies } from '../../../lib/personCompanies'
 import { normalizeCustomerDetailCustomFields } from '../../detailCustomFields'
-import { buildEmailVisibilityMikroFilter, resolveCallerEmailFeatures } from '../../../lib/visibilityFilter'
+import { buildEmailVisibilityMikroFilter } from '../../../lib/visibilityFilter'
 
 export const metadata = {
   GET: { requireAuth: true, requireFeatures: ['customers.people.view'] },
@@ -520,17 +520,12 @@ export async function GET(_req: Request, ctx: { params?: { id?: string } }) {
     // Per-user email privacy (CRM email integration spec, "Layer 1 — DB filter"):
     // exclude private email interactions owned by other users from every read
     // path that returns customer_interactions. Non-email rows, shared emails, and
-    // legacy null-visibility rows pass through; admins with the view-private
-    // feature bypass the filter.
-    const callerEmailFeatures = await resolveCallerEmailFeatures(
-      container,
-      viewerUserId,
-      person.tenantId ?? auth.tenantId ?? null,
-      person.organizationId ?? auth.orgId ?? null,
-    )
+    // legacy null-visibility rows pass through. v1 is strict owner-only: there is
+    // NO admin bypass — the filter ignores caller features, and
+    // `customers.email.view_private` is reserved (inert) for v2 oversight.
     const emailVisibilityFilter = buildEmailVisibilityMikroFilter({
       currentUserId: viewerUserId,
-      userFeatures: callerEmailFeatures,
+      userFeatures: undefined,
     })
 
     const shouldLoadCanonicalInteractions = includeInteractions || includeActivities || includeTodos
