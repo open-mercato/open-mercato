@@ -1,5 +1,6 @@
 import { CrudHttpError } from '@open-mercato/shared/lib/crud/errors'
 import type { CommandRuntimeContext } from '@open-mercato/shared/lib/commands'
+import { isOrganizationAccessAllowed } from '@open-mercato/shared/lib/auth/organizationAccess'
 import { env } from 'process'
 
 function logScopeViolation(
@@ -89,16 +90,36 @@ function logTenantScopeViolation(
 }
 
 export function ensureOrganizationScope(ctx: CommandRuntimeContext, organizationId: string): void {
-  // Superadmins with global org access can operate on any organization's records
-  if (ctx.auth?.isSuperAdmin === true || ctx.organizationScope?.allowedIds === null) {
+  const isSuperAdmin = ctx.auth?.isSuperAdmin === true
+  const scope = ctx.organizationScope
+
+  // Pattern C: when no organization scope was resolved (system/worker/non-user
+  // command contexts that build ctx with `organizationScope: null`), preserve
+  // the legacy currentOrg fallback. This branch is load-bearing — switching it
+  // to deny would break payment, scheduled-command, and other scope-less flows.
+  if (!scope) {
+    if (isSuperAdmin) return
+    const currentOrg = ctx.selectedOrganizationId ?? ctx.auth?.orgId ?? null
+    if (currentOrg && currentOrg !== organizationId) {
+      logScopeViolation(ctx, organizationId, currentOrg)
+      throw new CrudHttpError(403, { error: 'Forbidden' })
+    }
+    return
+  }
+
+  if (
+    isOrganizationAccessAllowed({
+      isSuperAdmin,
+      allowedOrganizationIds: scope.allowedIds,
+      targetOrganizationId: organizationId,
+    })
+  ) {
     return
   }
 
   const currentOrg = ctx.selectedOrganizationId ?? ctx.auth?.orgId ?? null
-  if (currentOrg && currentOrg !== organizationId) {
-    logScopeViolation(ctx, organizationId, currentOrg)
-    throw new CrudHttpError(403, { error: 'Forbidden' })
-  }
+  logScopeViolation(ctx, organizationId, currentOrg)
+  throw new CrudHttpError(403, { error: 'Forbidden' })
 }
 
 export function ensureTenantScope(ctx: CommandRuntimeContext, tenantId: string): void {
