@@ -16,6 +16,7 @@ import {
 import type { TaxCalculationService } from '@open-mercato/core/modules/sales/services/taxCalculationService'
 import {
   cloneJson,
+  commandActorScope,
   ensureOrganizationScope,
   ensureSameScope,
   ensureSameTenant,
@@ -105,17 +106,18 @@ async function resolveSnapshotAssociations(
   product: CatalogProduct
   offer: CatalogOffer | null
 }> {
+  const scope = { tenantId: snapshot.tenantId, organizationId: snapshot.organizationId }
   let variant: CatalogProductVariant | null = null
   if (snapshot.variantId) {
-    variant = await requireVariant(em, snapshot.variantId)
+    variant = await requireVariant(em, snapshot.variantId, scope)
   }
   let product: CatalogProduct | null = null
   if (snapshot.productId) {
-    product = await requireProduct(em, snapshot.productId)
+    product = await requireProduct(em, snapshot.productId, scope)
   } else if (variant) {
     product =
       typeof variant.product === 'string'
-        ? await requireProduct(em, variant.product)
+        ? await requireProduct(em, variant.product, scope)
         : variant.product
   }
   if (!product) {
@@ -123,7 +125,7 @@ async function resolveSnapshotAssociations(
   }
   let offer: CatalogOffer | null = null
   if (snapshot.offerId) {
-    offer = await requireOffer(em, snapshot.offerId)
+    offer = await requireOffer(em, snapshot.offerId, scope)
   }
   return { variant, product, offer }
 }
@@ -262,17 +264,21 @@ const createPriceCommand: CommandHandler<PriceCreateInput, { priceId: string }> 
   async execute(rawInput, ctx) {
     const { parsed, custom } = parseWithCustomFields(priceCreateSchema, rawInput)
     const em = (ctx.container.resolve('em') as EntityManager).fork()
+    const actorScope = commandActorScope(ctx)
     let variant: CatalogProductVariant | null = null
     let product: CatalogProduct | null = null
     if (parsed.variantId) {
-      variant = await requireVariant(em, parsed.variantId)
+      variant = await requireVariant(em, parsed.variantId, actorScope)
       product =
         typeof variant.product === 'string'
-          ? await requireProduct(em, variant.product)
+          ? await requireProduct(em, variant.product, {
+              tenantId: variant.tenantId,
+              organizationId: variant.organizationId,
+            })
           : variant.product
     }
     if (parsed.productId) {
-      const explicitProduct = await requireProduct(em, parsed.productId)
+      const explicitProduct = await requireProduct(em, parsed.productId, actorScope)
       if (product && explicitProduct.id !== product.id) {
         throw new CrudHttpError(400, { error: 'Variant does not belong to the provided product.' })
       }
@@ -284,17 +290,24 @@ const createPriceCommand: CommandHandler<PriceCreateInput, { priceId: string }> 
     const scopeSource = variant ?? product!
     ensureTenantScope(ctx, scopeSource.tenantId)
     ensureOrganizationScope(ctx, scopeSource.organizationId)
+    const scopeSourceScope = {
+      tenantId: scopeSource.tenantId,
+      organizationId: scopeSource.organizationId,
+    }
 
-    const priceKind = await requirePriceKind(em, parsed.priceKindId)
+    const priceKind = await requirePriceKind(em, parsed.priceKindId, scopeSourceScope)
     ensureSameTenant(priceKind, scopeSource.tenantId)
 
     let offer: CatalogOffer | null = null
     if (parsed.offerId) {
-      offer = await requireOffer(em, parsed.offerId)
+      offer = await requireOffer(em, parsed.offerId, scopeSourceScope)
       ensureSameScope(offer, scopeSource.organizationId, scopeSource.tenantId)
       const offerProduct =
         typeof offer.product === 'string'
-          ? await requireProduct(em, offer.product)
+          ? await requireProduct(em, offer.product, {
+              tenantId: offer.tenantId,
+              organizationId: offer.organizationId,
+            })
           : offer.product
       if (product && offerProduct.id !== product.id) {
         throw new CrudHttpError(400, { error: 'Offer does not belong to the selected product.' })
@@ -445,17 +458,18 @@ const updatePriceCommand: CommandHandler<PriceUpdateInput, { priceId: string }> 
       { tenantId: parsed.tenantId, organizationId: parsed.organizationId },
     )
     if (!record) throw new CrudHttpError(404, { error: 'Catalog price not found' })
+    const recordScope = { tenantId: record.tenantId, organizationId: record.organizationId }
     const currentVariantRef = record.variant
     let targetVariant: CatalogProductVariant | null = null
     if (typeof currentVariantRef === 'string') {
-      targetVariant = await requireVariant(em, currentVariantRef)
+      targetVariant = await requireVariant(em, currentVariantRef, recordScope)
     } else if (currentVariantRef) {
       targetVariant = currentVariantRef
     }
     const currentProductRef = record.product ?? (targetVariant ? targetVariant.product : null)
     let targetProduct: CatalogProduct | null = null
     if (typeof currentProductRef === 'string') {
-      targetProduct = await requireProduct(em, currentProductRef)
+      targetProduct = await requireProduct(em, currentProductRef, recordScope)
     } else if (currentProductRef) {
       targetProduct = currentProductRef
     }
@@ -464,23 +478,23 @@ const updatePriceCommand: CommandHandler<PriceUpdateInput, { priceId: string }> 
       if (!parsed.variantId) {
         targetVariant = null
       } else {
-        targetVariant = await requireVariant(em, parsed.variantId)
+        targetVariant = await requireVariant(em, parsed.variantId, recordScope)
         targetProduct =
           typeof targetVariant.product === 'string'
-            ? await requireProduct(em, targetVariant.product)
+            ? await requireProduct(em, targetVariant.product, recordScope)
             : targetVariant.product
       }
     }
 
     if (targetVariant && (targetVariant as CatalogProductVariant | null)?.product === undefined) {
-      targetVariant = await requireVariant(em, targetVariant.id)
+      targetVariant = await requireVariant(em, targetVariant.id, recordScope)
     }
 
     if (parsed.productId !== undefined) {
       if (!parsed.productId) {
         targetProduct = null
       } else {
-        const explicitProduct = await requireProduct(em, parsed.productId)
+        const explicitProduct = await requireProduct(em, parsed.productId, recordScope)
         if (targetVariant) {
           const variantProductId =
             typeof targetVariant.product === 'string'
@@ -500,7 +514,7 @@ const updatePriceCommand: CommandHandler<PriceUpdateInput, { priceId: string }> 
     if (!targetProduct && targetVariant) {
       targetProduct =
         typeof targetVariant.product === 'string'
-          ? await requireProduct(em, targetVariant.product)
+          ? await requireProduct(em, targetVariant.product, recordScope)
           : targetVariant.product
     }
     if (!targetProduct) {
@@ -511,14 +525,14 @@ const updatePriceCommand: CommandHandler<PriceUpdateInput, { priceId: string }> 
     if (record.offer) {
       targetOffer =
         typeof record.offer === 'string'
-          ? await requireOffer(em, record.offer)
+          ? await requireOffer(em, record.offer, recordScope)
           : record.offer
     }
     if (parsed.offerId !== undefined) {
       if (!parsed.offerId) {
         targetOffer = null
       } else {
-        const explicitOffer = await requireOffer(em, parsed.offerId)
+        const explicitOffer = await requireOffer(em, parsed.offerId, recordScope)
         ensureSameScope(explicitOffer, targetProduct.organizationId, targetProduct.tenantId)
         const offerProductId =
           typeof explicitOffer.product === 'string'
@@ -538,14 +552,14 @@ const updatePriceCommand: CommandHandler<PriceUpdateInput, { priceId: string }> 
     if (record.priceKind) {
       targetPriceKind =
         typeof record.priceKind === 'string'
-          ? await requirePriceKind(em, record.priceKind)
+          ? await requirePriceKind(em, record.priceKind, recordScope)
           : record.priceKind
     }
     if (parsed.priceKindId !== undefined) {
       if (!parsed.priceKindId) {
         throw new CrudHttpError(400, { error: 'Price kind is required.' })
       }
-      targetPriceKind = await requirePriceKind(em, parsed.priceKindId)
+      targetPriceKind = await requirePriceKind(em, parsed.priceKindId, recordScope)
     }
     if (!targetPriceKind) {
       throw new CrudHttpError(400, { error: 'Price kind is required.' })
@@ -881,15 +895,16 @@ async function resolvePriceRecordAssociations(
   em: EntityManager,
   record: CatalogProductPrice,
 ): Promise<{ product: CatalogProduct; variant: CatalogProductVariant | null }> {
+  const scope = { tenantId: record.tenantId, organizationId: record.organizationId }
   const variant = record.variant
     ? (typeof record.variant === 'string'
-        ? await requireVariant(em, record.variant)
+        ? await requireVariant(em, record.variant, scope)
         : record.variant)
     : null
   if (record.product) {
     const product =
       typeof record.product === 'string'
-        ? await requireProduct(em, record.product)
+        ? await requireProduct(em, record.product, scope)
         : record.product
     return { product, variant }
   }
@@ -897,20 +912,20 @@ async function resolvePriceRecordAssociations(
     const productRef = variant.product
     const product =
       typeof productRef === 'string'
-        ? await requireProduct(em, productRef)
+        ? await requireProduct(em, productRef, scope)
         : productRef
     return { product, variant }
   }
   if (record.offer) {
     const offer =
       typeof record.offer === 'string'
-        ? await requireOffer(em, record.offer)
+        ? await requireOffer(em, record.offer, scope)
         : record.offer
     const productRef = offer?.product ?? null
     if (productRef) {
       const product =
         typeof productRef === 'string'
-          ? await requireProduct(em, productRef)
+          ? await requireProduct(em, productRef, scope)
           : productRef
       return { product, variant }
     }

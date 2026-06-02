@@ -17,6 +17,31 @@ export interface MockProviderConfig {
 }
 
 /**
+ * Match a field value against a scalar equality filter or a `{ $in: [...] }` operator.
+ * `undefined` filters match everything (no constraint).
+ */
+function matchesFilter(value: unknown, filter: unknown): boolean {
+  if (filter === undefined) return true
+  if (filter && typeof filter === 'object' && '$in' in (filter as Record<string, unknown>)) {
+    const candidates = (filter as { $in: unknown[] }).$in
+    return Array.isArray(candidates) && candidates.includes(value)
+  }
+  return value === filter
+}
+
+/**
+ * Date-aware variant of `matchesFilter` comparing by epoch milliseconds.
+ */
+function matchesDateFilter(value: Date, filter: unknown): boolean {
+  if (filter === undefined) return true
+  if (filter && typeof filter === 'object' && '$in' in (filter as Record<string, unknown>)) {
+    const candidates = (filter as { $in: Date[] }).$in
+    return Array.isArray(candidates) && candidates.some((candidate) => candidate.getTime() === value.getTime())
+  }
+  return filter instanceof Date && value.getTime() === filter.getTime()
+}
+
+/**
  * Create a mock EntityManager for testing
  */
 export function createMockEntityManager(config: MockEntityManagerConfig = {}) {
@@ -41,13 +66,14 @@ export function createMockEntityManager(config: MockEntityManagerConfig = {}) {
       // Return exchange rates for ExchangeRate entity queries
       if (entityClass === ExchangeRate || entityClass.name === 'ExchangeRate') {
         const rates = config.existingRates || []
-        // Apply filters if specified
+        // Apply filters if specified (scalar equality or `{ $in: [...] }`)
         return rates.filter(r => {
-          if (filter.organizationId && r.organizationId !== filter.organizationId) return false
-          if (filter.tenantId && r.tenantId !== filter.tenantId) return false
-          if (filter.fromCurrencyCode && r.fromCurrencyCode !== filter.fromCurrencyCode) return false
-          if (filter.toCurrencyCode && r.toCurrencyCode !== filter.toCurrencyCode) return false
-          if (filter.date && r.date.getTime() !== filter.date.getTime()) return false
+          if (!matchesFilter(r.organizationId, filter.organizationId)) return false
+          if (!matchesFilter(r.tenantId, filter.tenantId)) return false
+          if (!matchesFilter(r.fromCurrencyCode, filter.fromCurrencyCode)) return false
+          if (!matchesFilter(r.toCurrencyCode, filter.toCurrencyCode)) return false
+          if (!matchesDateFilter(r.date, filter.date)) return false
+          if (!matchesFilter(r.source, filter.source)) return false
           if (filter.isActive !== undefined && r.isActive !== filter.isActive) return false
           if (filter.deletedAt !== undefined && filter.deletedAt === null && r.deletedAt !== null) return false
           return true
@@ -89,9 +115,9 @@ export function createMockEntityManager(config: MockEntityManagerConfig = {}) {
       if (config.shouldFailTransaction) {
         throw new Error('Transaction failed')
       }
-      // Create a separate mock EM for the transaction with same config
-      const txEm = createMockEntityManager(config).em
-      return callback(txEm)
+      // Reuse the same mock EM inside the transaction so queries/writes issued during
+      // the transactional block are observable on the outer spies.
+      return callback(mockEm)
     }),
   }
   

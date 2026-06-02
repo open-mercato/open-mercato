@@ -52,6 +52,7 @@ export async function POST(req: Request, { params }: { params: { id: string } })
 
   void emitCustomerAccountsEvent('customer_accounts.password.reset', {
     id: user.id,
+    recipientUserId: user.id,
     email: user.email,
     tenantId: auth.tenantId,
     organizationId: auth.orgId,

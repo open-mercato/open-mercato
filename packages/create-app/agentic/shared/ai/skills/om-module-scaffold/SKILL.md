@@ -63,14 +63,8 @@ src/modules/<module_id>/
 │   ├── entities.ts             # MikroORM entity classes
 │   └── validators.ts           # Zod validation schemas
 ├── api/
-│   ├── get/
-│   │   └── <entities>.ts       # GET /api/<module>/<entities> (list + detail)
-│   ├── post/
-│   │   └── <entities>.ts       # POST /api/<module>/<entities>
-│   ├── put/
-│   │   └── <entities>.ts       # PUT /api/<module>/<entities>
-│   └── delete/
-│       └── <entities>.ts       # DELETE /api/<module>/<entities>
+│   └── <entities>/
+│       └── route.ts            # All HTTP methods in one file: GET, POST, PUT, DELETE
 └── backend/
     ├── page.tsx                # List page → /backend/<module>
     ├── <entities>/
@@ -150,6 +144,11 @@ export class <Entity> {
 ```typescript
 import { z } from 'zod'
 
+export const list<Entity>Schema = z.object({
+  search: z.string().optional(),
+  id: z.string().uuid().optional(),
+})
+
 export const create<Entity>Schema = z.object({
   name: z.string().min(1).max(255),
   // Add domain fields matching entity
@@ -159,6 +158,7 @@ export const update<Entity>Schema = create<Entity>Schema.partial().extend({
   id: z.string().uuid(),
 })
 
+export type List<Entity>Query = z.infer<typeof list<Entity>Schema>
 export type Create<Entity>Input = z.infer<typeof create<Entity>Schema>
 export type Update<Entity>Input = z.infer<typeof update<Entity>Schema>
 ```
@@ -173,107 +173,60 @@ export type Update<Entity>Input = z.infer<typeof update<Entity>Schema>
 
 ## 5. Create API Routes
 
-Use `makeCrudRoute` for standard CRUD. Each HTTP method lives in its own file.
+Use `makeCrudRoute` for standard CRUD. All HTTP methods live in a single `route.ts` file.
 
-### GET Route
-
-**File**: `src/modules/<module_id>/api/get/<entities>.ts`
+**File**: `src/modules/<module_id>/api/<entities>/route.ts`
 
 ```typescript
 import { makeCrudRoute } from '@open-mercato/shared/lib/crud/factory'
 import { <Entity> } from '../../data/entities'
+import {
+  list<Entity>Schema,
+  create<Entity>Schema,
+  update<Entity>Schema,
+} from '../../data/validators'
 
-const handler = makeCrudRoute({
-  entity: <Entity>,
-  entityId: '<module_id>.<entity>',
-  operations: ['list', 'detail'],
+export const metadata = {
+  GET:    { requireAuth: true, requireFeatures: ['<module_id>.<entity>.view'] },
+  POST:   { requireAuth: true, requireFeatures: ['<module_id>.<entity>.manage'] },
+  PUT:    { requireAuth: true, requireFeatures: ['<module_id>.<entity>.manage'] },
+  DELETE: { requireAuth: true, requireFeatures: ['<module_id>.<entity>.manage'] },
+}
+
+const crud = makeCrudRoute({
+  metadata,
+  orm: {
+    entity: <Entity>,
+    idField: 'id',
+    orgField: 'organizationId',
+    tenantField: 'tenantId',
+  },
   indexer: { entityType: '<module_id>.<entity>' },
+  list: {
+    schema: list<Entity>Schema,
+    entityId: '<module_id>.<entity>',
+    fields: ['id', 'name', 'organization_id', 'tenant_id', 'created_at', 'updated_at'],
+  },
+  create: { schema: create<Entity>Schema },
+  update: { schema: update<Entity>Schema },
+  del: {},
 })
 
-export default handler
+export const { GET, POST, PUT, DELETE } = crud
 
 export const openApi = {
-  summary: 'List and retrieve <entities>',
-  tags: ['<Module Name>'],
-}
-```
-
-### POST Route
-
-**File**: `src/modules/<module_id>/api/post/<entities>.ts`
-
-```typescript
-import { makeCrudRoute } from '@open-mercato/shared/lib/crud/factory'
-import { <Entity> } from '../../data/entities'
-import { create<Entity>Schema } from '../../data/validators'
-
-const handler = makeCrudRoute({
-  entity: <Entity>,
-  entityId: '<module_id>.<entity>',
-  operations: ['create'],
-  schema: create<Entity>Schema,
-})
-
-export default handler
-
-export const openApi = {
-  summary: 'Create a <entity>',
-  tags: ['<Module Name>'],
-}
-```
-
-### PUT Route
-
-**File**: `src/modules/<module_id>/api/put/<entities>.ts`
-
-```typescript
-import { makeCrudRoute } from '@open-mercato/shared/lib/crud/factory'
-import { <Entity> } from '../../data/entities'
-import { update<Entity>Schema } from '../../data/validators'
-
-const handler = makeCrudRoute({
-  entity: <Entity>,
-  entityId: '<module_id>.<entity>',
-  operations: ['update'],
-  schema: update<Entity>Schema,
-})
-
-export default handler
-
-export const openApi = {
-  summary: 'Update a <entity>',
-  tags: ['<Module Name>'],
-}
-```
-
-### DELETE Route
-
-**File**: `src/modules/<module_id>/api/delete/<entities>.ts`
-
-```typescript
-import { makeCrudRoute } from '@open-mercato/shared/lib/crud/factory'
-import { <Entity> } from '../../data/entities'
-
-const handler = makeCrudRoute({
-  entity: <Entity>,
-  entityId: '<module_id>.<entity>',
-  operations: ['delete'],
-})
-
-export default handler
-
-export const openApi = {
-  summary: 'Delete a <entity>',
+  summary: '<Entity> CRUD',
   tags: ['<Module Name>'],
 }
 ```
 
 ### Rules
 
-- Every API route MUST export `openApi` for documentation generation
-- Use `makeCrudRoute` with `indexer: { entityType }` for query engine coverage
-- Schema validation is automatic when `schema` is provided
-- Auth guards are applied automatically by the framework
+- All HTTP methods MUST live in a single `api/<entities>/route.ts` file
+- MUST export `metadata` — missing it silently breaks route-level auth guards
+- MUST export `openApi` for documentation generation
+- MUST use `makeCrudRoute` with `indexer: { entityType }` for query engine coverage
+- Use `orm`, `list`, `create`, `update`, `del` keys — `entity`/`entityId`/`operations`/`schema` at root level are not valid
 
 ---
 
@@ -311,29 +264,94 @@ export const metadata = {
 
 ```tsx
 'use client'
+import * as React from 'react'
+import { Page, PageBody } from '@open-mercato/ui/backend/Page'
 import { DataTable } from '@open-mercato/ui/backend/DataTable'
+import type { ColumnDef } from '@tanstack/react-table'
+import { apiCall } from '@open-mercato/ui/backend/utils/apiCall'
+import { flash } from '@open-mercato/ui/backend/FlashMessages'
+import { useOrganizationScopeVersion } from '@open-mercato/shared/lib/frontend/useOrganizationScope'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
+
+type <Entity> = { id: string; name: string; organizationId: string; tenantId: string }
+
+type <Entity>ListResponse = {
+  items: <Entity>[]
+  total: number
+  page: number
+  pageSize: number
+  totalPages: number
+}
+
+const PAGE_SIZE = 20
 
 export default function <Module>ListPage() {
   const t = useT()
+  const scopeVersion = useOrganizationScopeVersion()
+  const [rows, setRows] = React.useState<<Entity>[]>([])
+  const [page, setPage] = React.useState(1)
+  const [total, setTotal] = React.useState(0)
+  const [totalPages, setTotalPages] = React.useState(1)
+  const [isLoading, setIsLoading] = React.useState(true)
+
+  const columns = React.useMemo<ColumnDef<<Entity>>[]>(() => [
+    { accessorKey: 'name', header: t('<module_id>.list.columns.name') },
+  ], [t])
+
+  React.useEffect(() => {
+    let cancelled = false
+    async function load() {
+      setIsLoading(true)
+      try {
+        const params = new URLSearchParams()
+        params.set('page', String(page))
+        params.set('pageSize', String(PAGE_SIZE))
+        const fallback: <Entity>ListResponse = { items: [], total: 0, page, pageSize: PAGE_SIZE, totalPages: 1 }
+        const call = await apiCall<<Entity>ListResponse>(
+          `/api/<module_id>/<entities>?${params.toString()}`,
+          undefined,
+          { fallback },
+        )
+        if (!call.ok) {
+          flash(t('<module_id>.list.error.loadFailed'), 'error')
+          return
+        }
+        const payload = call.result ?? fallback
+        if (!cancelled) {
+          setRows(Array.isArray(payload.items) ? payload.items : [])
+          setTotal(payload.total || 0)
+          setTotalPages(payload.totalPages || 1)
+        }
+      } catch (err) {
+        if (!cancelled) {
+          flash(err instanceof Error ? err.message : t('<module_id>.list.error.loadFailed'), 'error')
+        }
+      } finally {
+        if (!cancelled) setIsLoading(false)
+      }
+    }
+    load()
+    return () => { cancelled = true }
+  }, [page, scopeVersion, t])
 
   return (
-    <DataTable
-      entityId="<module_id>.<entity>"
-      apiPath="<module_id>/<entities>"
-      title={t('<module_id>.list.title')}
-      createHref="/backend/<module_id>/<entities>/new"
-      columns={[
-        { id: 'name', header: t('<module_id>.fields.name'), accessorKey: 'name' },
-        // Add more columns
-      ]}
-    />
+    <Page>
+      <PageBody>
+        <DataTable<<Entity>>
+          title={t('<module_id>.list.title')}
+          columns={columns}
+          data={rows}
+          isLoading={isLoading}
+          pagination={{ page, pageSize: PAGE_SIZE, total, totalPages, onPageChange: setPage }}
+        />
+      </PageBody>
+    </Page>
   )
 }
 
 export const metadata = {
   requireAuth: true,
-  requireFeatures: ['<module_id>.view'],
+  requireFeatures: ['<module_id>.<entity>.view'],
   pageTitle: '<Module Name>',
   pageTitleKey: '<module_id>.nav.title',
   pageGroup: '<Module Name>',
@@ -348,30 +366,40 @@ export const metadata = {
 
 ```tsx
 'use client'
+import { Page, PageBody } from '@open-mercato/ui/backend/Page'
 import { CrudForm } from '@open-mercato/ui/backend/CrudForm'
+import { createCrud } from '@open-mercato/ui/backend/utils/crud'
+import { useRouter } from 'next/navigation'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
+
+type <Entity> = { id: string; name: string }
 
 export default function Create<Entity>Page() {
   const t = useT()
+  const router = useRouter()
 
   return (
-    <CrudForm
-      entityId="<module_id>.<entity>"
-      apiPath="<module_id>/<entities>"
-      mode="create"
-      title={t('<module_id>.create.title')}
-      fields={[
-        { id: 'name', label: t('<module_id>.fields.name'), type: 'text', required: true },
-        // Add more fields
-      ]}
-      backHref="/backend/<module_id>"
-    />
+    <Page>
+      <PageBody>
+        <CrudForm
+          title={t('<module_id>.create.title')}
+          backHref="/backend/<module_id>"
+          fields={[
+            { id: 'name', label: t('<module_id>.fields.name'), type: 'text', required: true },
+          ]}
+          onSubmit={async (values) => {
+            const { result } = await createCrud<<Entity>>('<module_id>/<entities>', values)
+            router.push(`/backend/<module_id>/<entities>/${result.id}`)
+          }}
+        />
+      </PageBody>
+    </Page>
   )
 }
 
 export const metadata = {
   requireAuth: true,
-  requireFeatures: ['<module_id>.create'],
+  requireFeatures: ['<module_id>.<entity>.manage'],
   pageTitle: 'Create <Entity>',
   pageTitleKey: '<module_id>.create.title',
   pageGroup: '<Module Name>',
@@ -386,35 +414,58 @@ export const metadata = {
 
 ```tsx
 'use client'
+import { Page, PageBody } from '@open-mercato/ui/backend/Page'
 import { CrudForm } from '@open-mercato/ui/backend/CrudForm'
+import { updateCrud, deleteCrud } from '@open-mercato/ui/backend/utils/crud'
+import { apiCall } from '@open-mercato/ui/backend/utils/apiCall'
+import { useQuery } from '@tanstack/react-query'
+import { useRouter } from 'next/navigation'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
+
+type <Entity> = { id: string; name: string }
+type <Entity>DetailResponse = { items: <Entity>[]; total: number; page: number; pageSize: number; totalPages: number }
 
 export default function Edit<Entity>Page({ params }: { params: { id: string } }) {
   const t = useT()
+  const router = useRouter()
+  const { data: response, isLoading } = useQuery({
+    queryKey: ['<module_id>', '<entities>', params.id],
+    queryFn: () => apiCall<<Entity>DetailResponse>(`<module_id>/<entities>?id=${params.id}`),
+  })
 
   return (
-    <CrudForm
-      entityId="<module_id>.<entity>"
-      apiPath="<module_id>/<entities>"
-      mode="edit"
-      resourceId={params.id}
-      title={t('<module_id>.edit.title')}
-      fields={[
-        { id: 'name', label: t('<module_id>.fields.name'), type: 'text', required: true },
-        // Add more fields
-      ]}
-      backHref="/backend/<module_id>"
-    />
+    <Page>
+      <PageBody>
+        <CrudForm
+          title={t('<module_id>.edit.title')}
+          backHref="/backend/<module_id>"
+          fields={[
+            { id: 'name', label: t('<module_id>.fields.name'), type: 'text', required: true },
+          ]}
+          isLoading={isLoading}
+          initialValues={response?.items?.[0] ?? undefined}
+          onSubmit={async (values) => {
+            await updateCrud('<module_id>/<entities>', { id: params.id, ...values })
+            router.push('/backend/<module_id>')
+          }}
+          onDelete={async () => {
+            await deleteCrud('<module_id>/<entities>', params.id)
+            router.push('/backend/<module_id>')
+          }}
+        />
+      </PageBody>
+    </Page>
   )
 }
 
 export const metadata = {
   requireAuth: true,
-  requireFeatures: ['<module_id>.update'],
+  requireFeatures: ['<module_id>.<entity>.manage'],
   pageTitle: 'Edit <Entity>',
   pageTitleKey: '<module_id>.edit.title',
   pageGroup: '<Module Name>',
   pageGroupKey: '<module_id>.nav.group',
+  navHidden: true,
 }
 ```
 
@@ -447,11 +498,11 @@ export { features } from './acl'
 
 ```typescript
 export const features = [
-  { id: '<module_id>.view', title: 'View <entities>', module: '<module_id>' },
-  { id: '<module_id>.create', title: 'Create <entities>', module: '<module_id>' },
-  { id: '<module_id>.update', title: 'Update <entities>', module: '<module_id>' },
-  { id: '<module_id>.delete', title: 'Delete <entities>', module: '<module_id>' },
+  { id: '<module_id>.<entity>.view',   title: 'View <entities>',   module: '<module_id>' },
+  { id: '<module_id>.<entity>.manage', title: 'Manage <entities>', module: '<module_id>' },
 ]
+
+export default features
 ```
 
 ### Setup (Tenant Init + Default Roles)
@@ -463,9 +514,9 @@ import type { ModuleSetupConfig } from '@open-mercato/shared/modules/setup'
 
 export const setup: ModuleSetupConfig = {
   defaultRoleFeatures: {
-    superadmin: ['<module_id>.view', '<module_id>.create', '<module_id>.update', '<module_id>.delete'],
-    admin: ['<module_id>.view', '<module_id>.create', '<module_id>.update', '<module_id>.delete'],
-    user: ['<module_id>.view'],
+    superadmin: ['<module_id>.<entity>.view', '<module_id>.<entity>.manage'],
+    admin:      ['<module_id>.<entity>.view', '<module_id>.<entity>.manage'],
+    user:       ['<module_id>.<entity>.view'],
   },
 }
 
@@ -474,9 +525,11 @@ export default setup
 
 ### Rules
 
-- Feature IDs follow `<module_id>.<action>` pattern
+- Feature IDs follow `<module_id>.<entity>.<action>` (view / manage per entity, not global create/update/delete)
+- Add `export default features` — the generator reads `.default ?? .features` with an empty fallback, so the named export alone works, but adding the default export ensures both import styles resolve cleanly
 - MUST declare `defaultRoleFeatures` for every feature in `acl.ts`
 - Feature IDs are FROZEN once deployed — cannot rename without data migration
+- After adding features run `yarn mercato auth sync-role-acls` so existing tenants receive the grants
 
 ---
 
@@ -506,28 +559,25 @@ export function register(container: AppContainer): void {
 ```typescript
 import { createModuleEvents } from '@open-mercato/shared/modules/events'
 
-export const eventsConfig = createModuleEvents({
-  '<module_id>.<entity>.created': {
-    description: '<Entity> was created',
-    payload: { resourceId: 'string', name: 'string' },
-  },
-  '<module_id>.<entity>.updated': {
-    description: '<Entity> was updated',
-    payload: { resourceId: 'string' },
-  },
-  '<module_id>.<entity>.deleted': {
-    description: '<Entity> was deleted',
-    payload: { resourceId: 'string' },
-  },
-} as const)
+const events = [
+  { id: '<module_id>.<entity>.created', label: '<Entity> Created', entity: '<entity>', category: 'crud' as const },
+  { id: '<module_id>.<entity>.updated', label: '<Entity> Updated', entity: '<entity>', category: 'crud' as const },
+  { id: '<module_id>.<entity>.deleted', label: '<Entity> Deleted', entity: '<entity>', category: 'crud' as const },
+] as const
+
+export const eventsConfig = createModuleEvents({ moduleId: '<module_id>', events })
+export const emit<Module>Event = eventsConfig.emit
+export type <Module>EventId = typeof events[number]['id']
+export default eventsConfig
 ```
 
 ### Event Rules
 
-- Event IDs: `module.entity.action` (singular entity, past tense action)
-- Use dots as separators
-- Payload fields are additive-only (FROZEN contract)
-- Add `clientBroadcast: true` to bridge events to browser via SSE
+- `createModuleEvents` takes `{ moduleId, events }` — NOT a flat keyed object. Using the old keyed-object shape crashes `/login` at startup because the generated events registry cannot read the module
+- Event IDs: `module.entity.action` (singular entity, past tense action, dots as separators)
+- Declare `label`, `entity`, and `category` on each event — they populate the workflow trigger UI
+- Add `clientBroadcast: true` to an event definition to bridge it to the browser via SSE
+- Event ID contracts are FROZEN once deployed — adding new events is safe; renaming or removing is a breaking change
 
 ---
 
@@ -574,6 +624,41 @@ export default function registerCli(program: any) {
     })
 }
 ```
+
+### Response Enrichers
+
+Use enrichers to add computed fields to another module's API responses without coupling the modules.
+
+**File**: `src/modules/<module_id>/data/enrichers.ts`
+
+```typescript
+import type { ResponseEnricher } from '@open-mercato/shared/lib/crud/response-enricher'
+
+const <entity>Enricher: ResponseEnricher = {
+  id: '<module_id>.<entity>-enricher',
+  targetEntity: '<other_module>.<entity>',
+  features: ['<module_id>.<entity>.view'],
+  timeout: 2000,
+  fallback: { _<module_id>: {} },
+  async enrichOne(record, context) {
+    return { ...record, _<module_id>: { /* computed fields */ } }
+  },
+  async enrichMany(records, context) {
+    return records.map(r => ({ ...r, _<module_id>: { /* computed fields */ } }))
+  },
+}
+
+export const enrichers: ResponseEnricher[] = [<entity>Enricher]
+```
+
+**Rules:**
+- MUST implement `enrichOne` (required by the `ResponseEnricher` interface)
+- MUST implement `enrichMany` for list endpoints to prevent N+1 queries
+- Namespace enriched fields with `_<module_id>` prefix
+- The target route must opt in: `makeCrudRoute({ ..., enrichers: { entityId: '<other_module>.<entity>' } })`
+- Run `yarn generate` after adding `data/enrichers.ts`
+
+---
 
 ### Encryption maps (sensitive / GDPR-relevant fields)
 
@@ -657,7 +742,27 @@ yarn db:migrate        # Apply migration only after explicit user confirmation
 yarn dev               # Start dev server
 ```
 
-### Step 5: Verify
+### Step 5: Run Post-Scaffold Validation Gate
+
+After every structural module change, run **in order** before committing:
+
+```bash
+# 1. Re-emit generated registries with the new module
+yarn generate
+
+# 2. Purge stale structural cache (nav, module-graph fingerprints)
+yarn mercato configs cache structural --all-tenants
+
+# 3. Grant ACL features declared in acl.ts to existing roles
+yarn mercato auth sync-role-acls
+
+# 4. Type-check all files — catches API mismatches before they reach runtime
+yarn typecheck
+```
+
+> **Why this matters**: A malformed `events.ts` (for example, using the old keyed-object shape for `createModuleEvents`) will crash `/login` and every other page because generated registries import all active module files at startup. A bad scaffold can make the whole admin inaccessible. Running `yarn typecheck` after `yarn generate` catches this before it ships.
+
+### Step 6: Verify
 
 - [ ] Module appears in admin sidebar (if menu item added)
 - [ ] List page loads at `/backend/<module_id>`
@@ -665,26 +770,35 @@ yarn dev               # Start dev server
 - [ ] Edit form loads existing record
 - [ ] Delete works from list page
 - [ ] ACL features appear in role management
+- [ ] `/login` still loads after structural changes
 
 ### Self-Review Checklist
 
 - [ ] Module ID is plural, snake_case
 - [ ] Entity class has `organization_id`, `tenant_id`, standard columns
 - [ ] Validators use zod with `z.infer` for types
-- [ ] All API routes export `openApi`
-- [ ] Backend pages use `CrudForm` and `DataTable`
+- [ ] API routes live in `api/<entities>/route.ts` (not `api/get/`, `api/post/`, etc.)
+- [ ] `makeCrudRoute` uses `{ metadata, orm, list, create, update, del }` — not `{ entity, entityId, operations, schema }`
+- [ ] API route exports `metadata`, named `{ GET, POST, PUT, DELETE }`, and `openApi`
+- [ ] `DataTable` receives explicit `data`, `isLoading`, `error`, `pagination` — not `apiPath` or `createHref`
+- [ ] `CrudForm` uses `onSubmit` with `createCrud`/`updateCrud` and `onDelete` with `deleteCrud` — not `apiPath`, `mode`, or `resourceId`
+- [ ] `events.ts` uses `createModuleEvents({ moduleId, events: [...] })` array shape — not a keyed object
+- [ ] `events.ts` has `export default eventsConfig`
+- [ ] `acl.ts` exports `features` (named export is sufficient; default export is recommended for broad import compatibility)
+- [ ] ACL feature IDs use `<module>.<entity>.view` / `<module>.<entity>.manage` pattern
+- [ ] `setup.ts` grants every feature in `acl.ts` to at least `admin` and `superadmin`
 - [ ] Sidebar icon uses `lucide-react` component (not inline SVG / `React.createElement`)
 - [ ] `page.meta.ts` includes `pageGroup` + `pageGroupKey` for sidebar grouping
 - [ ] `page.meta.ts` includes `pageOrder` for sort position
 - [ ] All related pages share the same `pageGroupKey`
 - [ ] Settings pages (if any) have `pageContext: 'settings' as const` and `navHidden: true`
-- [ ] ACL features declared and wired in `setup.ts`
 - [ ] Module registered in `src/modules.ts` with `from: '@app'`
-- [ ] `yarn generate` run after creating files
+- [ ] Post-scaffold gate run: `yarn generate` → `yarn mercato configs cache structural --all-tenants` → `yarn mercato auth sync-role-acls` → `yarn typecheck`
 - [ ] Migration SQL is scoped to this entity and `.snapshot-open-mercato.json` is updated
 - [ ] No `any` types
 - [ ] No hardcoded user-facing strings
 - [ ] No direct ORM relationships to other modules
+- [ ] `/login` still loads after all changes
 
 ---
 
@@ -694,13 +808,21 @@ yarn dev               # Start dev server
 - **MUST** include `organization_id` and `tenant_id` on all tenant-scoped entities
 - **MUST** include standard columns (`id`, `created_at`, `updated_at`, `deleted_at`, `is_active`)
 - **MUST** validate all inputs with zod schemas in `data/validators.ts`
-- **MUST** export `openApi` from every API route
-- **MUST** use `CrudForm` for forms and `DataTable` for tables
+- **MUST** place all HTTP method handlers in a single `api/<entities>/route.ts` — not separate `api/get/`, `api/post/` files
+- **MUST** use `makeCrudRoute` with `{ metadata, orm, list, create, update, del }` — not `{ entity, entityId, operations, schema }`
+- **MUST** export `metadata`, named method handlers `{ GET, POST, PUT, DELETE }`, and `openApi` from every route file
+- **MUST** use `CrudForm` with explicit `onSubmit` / `onDelete` handlers — not `apiPath`, `mode`, or `resourceId` props
+- **MUST** use `DataTable` with explicit `data`, `isLoading`, `error`, `pagination` — not `apiPath`, `createHref`, or `extensionTableId`
+- **MUST** use `createModuleEvents({ moduleId, events: [...] })` array shape — NEVER the old keyed-object `{ 'id': { description, payload } }` shape
+- **MUST** add `export default eventsConfig` in `events.ts`
+- **MUST** export `features` from `acl.ts` (named export is sufficient; adding `export default features` is recommended for broad import compatibility)
+- **MUST** use `<module>.<entity>.view` / `<module>.<entity>.manage` feature ID pattern
 - **MUST** include `pageGroup` and `pageGroupKey` on list/root backend pages for sidebar grouping
 - **MUST** use `as const` on `pageContext` values (e.g., `pageContext: 'settings' as const`)
 - **MUST** declare ACL features and wire them in `setup.ts` `defaultRoleFeatures`
 - **MUST** register module in `src/modules.ts` with `from: '@app'`
-- **MUST** run `yarn generate` after creating module files
+- **MUST** run the post-scaffold validation gate after creating module files: `yarn generate` → `yarn mercato configs cache structural --all-tenants` → `yarn mercato auth sync-role-acls` → `yarn typecheck`
+- **MUST** verify `/login` still loads after every structural change
 - **MUST** create or keep a scoped migration after creating/modifying entities and update `.snapshot-open-mercato.json`
 - **MUST NOT** commit unrelated migrations emitted by `yarn db:generate`
 - **MUST NOT** run `yarn db:migrate` without explicit user confirmation

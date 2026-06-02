@@ -53,7 +53,7 @@ export default function EditChannelPage({ params }: { params?: { channelId?: str
         )
         const item = Array.isArray(payload.items) ? payload.items[0] : null
         if (!item) {
-          throw new Error('not_found')
+          throw new Error(t('sales.channels.form.errors.notFound', 'Channel not found.'))
         }
         if (!cancelled) {
           setInitialValues(mapChannelToFormValues(item))
@@ -102,7 +102,7 @@ export default function EditChannelPage({ params }: { params?: { channelId?: str
     <button
       key={value}
       type="button"
-      className={`px-4 py-2 text-sm font-medium border-b-2 ${activeTab === value ? 'border-primary text-primary' : 'border-transparent text-muted-foreground'}`}
+      className={`px-4 py-2 text-sm font-medium border-b-2 ${activeTab === value ? 'border-accent-indigo text-foreground' : 'border-transparent text-muted-foreground'}`}
       onClick={() => handleTabSelect(value)}
     >
       {label}

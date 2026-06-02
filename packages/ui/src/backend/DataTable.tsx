@@ -15,6 +15,7 @@ import {
   SelectValue,
 } from '../primitives/select'
 import { CompactSelectTrigger } from '../primitives/compact-select'
+import { Pagination } from '../primitives/pagination'
 import { Spinner } from '../primitives/spinner'
 import { EmptyState } from '../primitives/empty-state'
 import { TooltipProvider } from '../primitives/tooltip'
@@ -216,6 +217,7 @@ export type DataTableProps<T> = {
   actions?: React.ReactNode
   refreshButton?: DataTableRefreshButton
   sortable?: boolean
+  manualSorting?: boolean
   sorting?: SortingState
   onSortingChange?: (s: SortingState) => void
   pagination?: PaginationProps
@@ -344,6 +346,17 @@ const EXPORT_LABELS: Record<DataTableExportFormat, string> = {
 }
 const EMPTY_FILTER_DEFS: FilterDef[] = []
 const EMPTY_FILTER_VALUES: FilterValues = Object.freeze({}) as FilterValues
+
+// Directional shadow utilities for sticky table cells. `border-collapse: collapse`
+// blocks `box-shadow` on `<td>`/`<th>`, so we paint the shadow as a pseudo-element
+// gradient on the outside edge — the side opposite to the sticky anchor:
+//   sticky right-0  → shadow falls to the LEFT  (use `before:` + `-left-2` + `to-l`)
+//   sticky left-0   → shadow falls to the RIGHT (use `after:`  + `-right-2` + `to-r`)
+// `foreground/8` matches the `--shadow-md` token opacity (8%) and is theme-aware.
+const STICKY_RIGHT_SHADOW_CLASS =
+  'before:absolute before:inset-y-0 before:-left-2 before:w-2 before:bg-gradient-to-l before:from-foreground/8 before:to-transparent before:pointer-events-none'
+const STICKY_LEFT_SHADOW_CLASS =
+  'after:absolute after:inset-y-0 after:-right-2 after:w-2 after:bg-gradient-to-r after:from-foreground/8 after:to-transparent after:pointer-events-none'
 
 type BulkActionExecuteResult = {
   ok: boolean
@@ -941,6 +954,7 @@ export function DataTable<T>({
   actions,
   refreshButton,
   sortable,
+  manualSorting,
   sorting: sortingProp,
   onSortingChange,
   pagination,
@@ -1424,11 +1438,13 @@ export function DataTable<T>({
   const hasInjectedBulkActions = injectedBulkActions.length > 0 || hasPropBulkActions
   const [rowSelection, setRowSelection] = React.useState<RowSelectionState>({})
   const selectionScopeKeyRef = React.useRef<string | undefined>(selectionScopeKey)
+  const enableClientSorting = sortable && !manualSorting
   const table = useReactTable<T>({
     data: clientFilteredData,
     columns: mergedColumns,
     getCoreRowModel: getCoreRowModel(),
-    ...(sortable ? { getSortedRowModel: getSortedRowModel() } : {}),
+    ...(enableClientSorting ? { getSortedRowModel: getSortedRowModel() } : {}),
+    manualSorting: manualSorting === true,
     getRowId: resolveDataTableRowId,
     state: { sorting, columnVisibility, columnOrder, rowSelection },
     enableRowSelection: hasInjectedBulkActions,
@@ -1950,7 +1966,7 @@ export function DataTable<T>({
         title={t('ui.dataTable.pagination.cache.title', 'Cache {status}', { status: normalizedCacheStatus.toUpperCase() })}
       >
         <Circle
-          className={`h-3.5 w-3.5 ${normalizedCacheStatus === 'hit' ? 'text-emerald-500' : 'text-amber-500'}`}
+          className={`h-3.5 w-3.5 ${normalizedCacheStatus === 'hit' ? 'text-status-success-icon' : 'text-status-warning-icon'}`}
           strokeWidth={3}
         />
         <span className="sr-only">{t('ui.dataTable.pagination.cache.srOnly', 'Cache {status}', { status: normalizedCacheStatus.toUpperCase() })}</span>
@@ -1963,65 +1979,36 @@ export function DataTable<T>({
             .filter((size): size is number => typeof size === 'number' && Number.isFinite(size) && size > 0)
             .map((size) => Math.max(1, Math.floor(size))),
         )).sort((left, right) => left - right)
-      : []
-    const pageSizeSelect = pageSizeOptions.length > 0 && pagination.onPageSizeChange ? (
-      <span className="inline-flex flex-none items-center gap-1.5 whitespace-nowrap">
-        <Select
-          value={String(pagination.pageSize)}
-          onValueChange={(value) => {
-            pagination.onPageSizeChange!(Number(value))
-            scrollTableIntoView()
-          }}
-        >
-          <CompactSelectTrigger
-            className="min-w-[4rem]"
-            aria-label={t('ui.dataTable.pagination.rowsPerPage', 'Rows per page')}
-          >
-            <SelectValue />
-          </CompactSelectTrigger>
-          <SelectContent>
-            {pageSizeOptions.map((size) => (
-              <SelectItem key={size} value={String(size)}>{size}</SelectItem>
-            ))}
-          </SelectContent>
-        </Select>
-        <span className="whitespace-nowrap text-muted-foreground">{t('ui.dataTable.pagination.perPage', 'per page')}</span>
-      </span>
-    ) : null
+      : [10, 25, 50, 100]
 
     return (
-      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 px-4 py-3 border-t">
-        <div className="text-sm text-muted-foreground flex items-center justify-center sm:justify-start gap-2 flex-wrap">
-          <span>
-            {durationLabel
+      <div className="flex flex-col sm:flex-row sm:items-center gap-3 px-4 py-3 border-t">
+        {cacheBadge ? (
+          <div className="flex items-center justify-center sm:justify-start gap-2 text-sm text-muted-foreground">
+            {cacheBadge}
+          </div>
+        ) : null}
+        <Pagination
+          page={page}
+          pageSize={pagination.pageSize}
+          total={pagination.total}
+          onPageChange={(next) => { onPageChange(next); scrollTableIntoView() }}
+          onPageSizeChange={pagination.onPageSizeChange ? (next) => {
+            pagination.onPageSizeChange!(next)
+            scrollTableIntoView()
+          } : undefined}
+          pageSizeOptions={pageSizeOptions}
+          formatPageInfo={() =>
+            durationLabel
               ? t('ui.dataTable.pagination.resultsWithDuration', 'Showing {start} to {end} of {total} results in {duration}', { start: startItem, end: endItem, total: pagination.total, duration: durationLabel })
               : t('ui.dataTable.pagination.results', 'Showing {start} to {end} of {total} results', { start: startItem, end: endItem, total: pagination.total })
-            }
-          </span>
-          {cacheBadge}
-          {pageSizeSelect}
-        </div>
-        <div className="flex items-center justify-center sm:justify-end gap-2">
-          <Button
-            variant="outline"
-            size="sm"
-            onClick={() => { onPageChange(page - 1); scrollTableIntoView() }}
-            disabled={page <= 1}
-          >
-            {t('ui.dataTable.pagination.previous', 'Previous')}
-          </Button>
-          <span className="text-sm whitespace-nowrap">
-            {t('ui.dataTable.pagination.pageInfo', 'Page {page} of {totalPages}', { page, totalPages })}
-          </span>
-          <Button
-            variant="outline"
-            size="sm"
-            onClick={() => { onPageChange(page + 1); scrollTableIntoView() }}
-            disabled={page >= totalPages}
-          >
-            {t('ui.dataTable.pagination.next', 'Next')}
-          </Button>
-        </div>
+          }
+          formatPageSizeLabel={(size) =>
+            `${size} ${t('ui.dataTable.pagination.perPage', 'per page')}`
+          }
+          aria-label={t('ui.dataTable.pagination.navAriaLabel', 'Table pagination')}
+          className="flex-1"
+        />
       </div>
     )
   }, [pagination, measuredDurationMs, scrollTableIntoView, t])
@@ -2657,7 +2644,7 @@ export function DataTable<T>({
                   const columnMeta = (header.column.columnDef as any)?.meta
                   const priority = resolvePriority(header.column)
                   const isFirstDataColumn = headerIndex === 0
-                  const stickyClass = stickyFirstColumn && isFirstDataColumn ? ' sticky left-0 z-10 bg-background' : ''
+                  const stickyClass = stickyFirstColumn && isFirstDataColumn ? ` sticky left-0 z-10 bg-background ${STICKY_LEFT_SHADOW_CLASS}` : ''
                   const headerCellContent = header.isPlaceholder ? null : (
                     <Button
                       variant="ghost"
@@ -2690,7 +2677,7 @@ export function DataTable<T>({
                   <TableHead
                     className={cn(
                       'w-0 text-right',
-                      stickyActionsColumn && 'sticky right-0 z-20 bg-background',
+                      stickyActionsColumn && `sticky right-0 z-20 bg-background ${STICKY_RIGHT_SHADOW_CLASS}`,
                     )}
                   >
                     {t('ui.dataTable.actionsColumn', 'Actions')}
@@ -2812,7 +2799,7 @@ export function DataTable<T>({
                       ) : content
 
                       return (
-                        <TableCell key={cell.id} className={responsiveClass(priority, columnMeta?.hidden) + (isStickyCell ? ' sticky left-0 z-10 bg-background' : '')}>
+                        <TableCell key={cell.id} className={responsiveClass(priority, columnMeta?.hidden) + (isStickyCell ? ` sticky left-0 z-10 bg-background ${STICKY_LEFT_SHADOW_CLASS}` : '')}>
                           {wrappedContent}
                         </TableCell>
                       )
@@ -2821,7 +2808,7 @@ export function DataTable<T>({
                       <TableCell
                         className={cn(
                           'text-right whitespace-nowrap',
-                          stickyActionsColumn && 'sticky right-0 z-10 bg-background',
+                          stickyActionsColumn && `sticky right-0 z-10 bg-background ${STICKY_RIGHT_SHADOW_CLASS}`,
                         )}
                         data-actions-cell
                       >

@@ -53,6 +53,18 @@ function normalizeAudience(audience: string): string {
   return audience.trim().toLowerCase().replace(/[^a-z0-9]+/g, '_')
 }
 
+const derivedSecretCache = new Map<string, string>()
+
+function deriveAudienceSecretFromBase(normalized: string, base: string): string {
+  const cacheKey = `${normalized}::${base}`
+  const cached = derivedSecretCache.get(cacheKey)
+  if (cached !== undefined) return cached
+  const label = `${AUDIENCE_SECRET_LABEL}:${normalized}`
+  const derived = crypto.createHmac('sha256', base).update(label).digest('hex')
+  derivedSecretCache.set(cacheKey, derived)
+  return derived
+}
+
 /**
  * Derive a per-audience signing key from the base `JWT_SECRET`.
  *
@@ -61,6 +73,7 @@ function normalizeAudience(audience: string): string {
  * - Otherwise, the key is derived deterministically via HMAC-SHA256 from the base secret using a
  *   versioned label. This ensures that a staff JWT signature cannot verify against the customer
  *   key (and vice versa) even though both share the same base `JWT_SECRET`.
+ * - Derived values are memoized per `(audience, baseSecret)` for the process lifetime.
  */
 export function deriveJwtAudienceSecret(audience: string, baseSecret?: string): string {
   const normalized = normalizeAudience(audience)
@@ -69,8 +82,7 @@ export function deriveJwtAudienceSecret(audience: string, baseSecret?: string): 
   const override = process.env[overrideName]
   if (override && override.trim().length > 0) return override
   const base = readBaseSecret(baseSecret)
-  const label = `${AUDIENCE_SECRET_LABEL}:${normalized}`
-  return crypto.createHmac('sha256', base).update(label).digest('hex')
+  return deriveAudienceSecretFromBase(normalized, base)
 }
 
 function isSignOptions(value: string | SignJwtOptions | undefined): value is SignJwtOptions {

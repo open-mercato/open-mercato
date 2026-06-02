@@ -12,7 +12,22 @@ type ErrorMessageProps = {
   iconClassName?: string
 }
 
+const TECHNICAL_MESSAGE_PATTERN = /^[a-z0-9]+(?:[._-][a-z0-9]+)+$/
+
+export function formatErrorMessageLabel(label: string): string {
+  const trimmed = label.trim()
+  if (!TECHNICAL_MESSAGE_PATTERN.test(trimmed)) return label
+
+  const parts = trimmed.split(/[._-]+/).filter(Boolean)
+  const meaningfulParts = parts.length > 2 ? parts.slice(-2) : parts
+  const sentence = meaningfulParts.join(' ')
+  return sentence.charAt(0).toUpperCase() + sentence.slice(1)
+}
+
 export function ErrorMessage({ label, description, action, className, iconClassName }: ErrorMessageProps) {
+  const displayLabel = formatErrorMessageLabel(label)
+  const displayDescription = description ? formatErrorMessageLabel(description) : undefined
+
   return (
     <div
       className={cn(
@@ -23,8 +38,8 @@ export function ErrorMessage({ label, description, action, className, iconClassN
     >
       <AlertCircle className={cn('h-4 w-4 flex-none', iconClassName)} aria-hidden />
       <div className="space-y-1">
-        <p className="leading-tight">{label}</p>
-        {description ? <p className="text-muted-foreground">{description}</p> : null}
+        <p className="leading-tight">{displayLabel}</p>
+        {displayDescription ? <p className="text-muted-foreground">{displayDescription}</p> : null}
         {action ? <div className="pt-1">{action}</div> : null}
       </div>
     </div>

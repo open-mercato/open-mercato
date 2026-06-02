@@ -1,4 +1,5 @@
 import type { AwilixContainer } from 'awilix'
+import type { EntityManager } from '@mikro-orm/postgresql'
 import { randomUUID } from 'crypto'
 import type { AuthContext } from '../auth/server'
 import type { OrganizationScope } from '@open-mercato/core/modules/directory/utils/organizationScope'
@@ -11,6 +12,21 @@ export type CommandRuntimeContext = {
   organizationIds: string[] | null
   request?: Request
   syncOrigin?: string | null
+  /**
+   * Marks a trusted server-side invocation (CLI seeding, tenant setup) that runs
+   * without an authenticated end-user actor. Commands that gate writes behind a
+   * privileged actor (e.g. super-admin-only platform tables) may treat this as
+   * an explicit system grant. HTTP request paths MUST NOT set this — they always
+   * carry a real `auth` actor, so a present-but-unprivileged actor stays denied.
+   */
+  systemActor?: boolean
+  /**
+   * When set, command handlers that support it MUST run their writes within this
+   * existing transactional EntityManager (reusing its row locks) instead of
+   * opening their own transaction. Lets a caller compose a command with its own
+   * surrounding work as a single atomic, single-locked operation.
+   */
+  transactionalEm?: EntityManager
 }
 
 export type CommandLogMetadata = {

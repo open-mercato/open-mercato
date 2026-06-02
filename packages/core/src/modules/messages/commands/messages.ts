@@ -1,6 +1,7 @@
 import type { EntityManager } from '@mikro-orm/postgresql'
 import { z } from 'zod'
 import { registerCommand, type CommandHandler } from '@open-mercato/shared/lib/commands'
+import { withAtomicFlush } from '@open-mercato/shared/lib/commands/flush'
 import { extractUndoPayload, type UndoPayload } from '@open-mercato/shared/lib/commands/undo'
 import { findOneWithDecryption, findWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import { Message, MessageObject, MessageRecipient, type MessageActionData } from '../data/entities'
@@ -432,94 +433,95 @@ const updateDraftCommand: CommandHandler<unknown, { ok: true; id: string }> = {
       }
     }
 
-    if (input.type !== undefined) message.type = input.type
-    if (input.visibility !== undefined) message.visibility = input.visibility
-    if (input.sourceEntityType !== undefined) message.sourceEntityType = input.sourceEntityType
-    if (input.sourceEntityId !== undefined) message.sourceEntityId = input.sourceEntityId
-    if (input.externalEmail !== undefined) message.externalEmail = input.externalEmail
-    if (input.externalName !== undefined) message.externalName = input.externalName
-    if (input.subject !== undefined) message.subject = input.subject
-    if (input.body !== undefined) message.body = input.body
-    if (input.bodyFormat !== undefined) message.bodyFormat = input.bodyFormat
-    if (input.priority !== undefined) message.priority = input.priority
-    if (input.actionData !== undefined) message.actionData = input.actionData
-    if (input.sendViaEmail !== undefined) message.sendViaEmail = input.sendViaEmail
+    await withAtomicFlush(em, [async () => {
+      if (input.type !== undefined) message.type = input.type
+      if (input.visibility !== undefined) message.visibility = input.visibility
+      if (input.sourceEntityType !== undefined) message.sourceEntityType = input.sourceEntityType
+      if (input.sourceEntityId !== undefined) message.sourceEntityId = input.sourceEntityId
+      if (input.externalEmail !== undefined) message.externalEmail = input.externalEmail
+      if (input.externalName !== undefined) message.externalName = input.externalName
+      if (input.subject !== undefined) message.subject = input.subject
+      if (input.body !== undefined) message.body = input.body
+      if (input.bodyFormat !== undefined) message.bodyFormat = input.bodyFormat
+      if (input.priority !== undefined) message.priority = input.priority
+      if (input.actionData !== undefined) message.actionData = input.actionData
+      if (input.sendViaEmail !== undefined) message.sendViaEmail = input.sendViaEmail
 
-    if (input.recipients) {
-      await em.nativeDelete(MessageRecipient, { messageId: message.id })
-      for (const recipient of input.recipients) {
-        em.persist(em.create(MessageRecipient, {
-          messageId: message.id,
-          recipientUserId: recipient.userId,
-          recipientType: recipient.type,
-          status: 'unread',
-        }))
+      if (input.recipients) {
+        await em.nativeDelete(MessageRecipient, { messageId: message.id })
+        for (const recipient of input.recipients) {
+          em.persist(em.create(MessageRecipient, {
+            messageId: message.id,
+            recipientUserId: recipient.userId,
+            recipientType: recipient.type,
+            status: 'unread',
+          }))
+        }
       }
-    }
 
-    if (input.objects) {
-      await em.nativeDelete(MessageObject, { messageId: message.id })
-      for (const object of input.objects) {
-        em.persist(em.create(MessageObject, {
-          messageId: message.id,
-          entityModule: object.entityModule,
-          entityType: object.entityType,
-          entityId: object.entityId,
-          actionRequired: object.actionRequired,
-          actionType: object.actionType,
-          actionLabel: object.actionLabel,
-        }))
+      if (input.objects) {
+        await em.nativeDelete(MessageObject, { messageId: message.id })
+        for (const object of input.objects) {
+          em.persist(em.create(MessageObject, {
+            messageId: message.id,
+            entityModule: object.entityModule,
+            entityType: object.entityType,
+            entityId: object.entityId,
+            actionRequired: object.actionRequired,
+            actionType: object.actionType,
+            actionLabel: object.actionLabel,
+          }))
+        }
       }
-    }
 
-    if (input.attachmentIds) {
-      const { Attachment } = await import('@open-mercato/core/modules/attachments/data/entities')
-      if (input.attachmentIds.length === 0) {
-        await em.nativeDelete(Attachment, {
-          entityId: MESSAGE_ATTACHMENT_ENTITY_ID,
-          recordId: message.id,
-          tenantId: input.tenantId,
-          organizationId: input.organizationId,
-        })
-      } else {
-        await em.nativeDelete(Attachment, {
-          entityId: MESSAGE_ATTACHMENT_ENTITY_ID,
-          recordId: message.id,
-          tenantId: input.tenantId,
-          organizationId: input.organizationId,
-          id: { $nin: input.attachmentIds },
-        })
+      if (input.attachmentIds) {
+        const { Attachment } = await import('@open-mercato/core/modules/attachments/data/entities')
+        if (input.attachmentIds.length === 0) {
+          await em.nativeDelete(Attachment, {
+            entityId: MESSAGE_ATTACHMENT_ENTITY_ID,
+            recordId: message.id,
+            tenantId: input.tenantId,
+            organizationId: input.organizationId,
+          })
+        } else {
+          await em.nativeDelete(Attachment, {
+            entityId: MESSAGE_ATTACHMENT_ENTITY_ID,
+            recordId: message.id,
+            tenantId: input.tenantId,
+            organizationId: input.organizationId,
+            id: { $nin: input.attachmentIds },
+          })
+        }
+        await linkAttachmentsToMessage(
+          em,
+          message.id,
+          input.attachmentIds,
+          input.organizationId,
+          input.tenantId,
+        )
       }
-      await linkAttachmentsToMessage(
-        em,
-        message.id,
-        input.attachmentIds,
-        input.organizationId,
-        input.tenantId,
-      )
-    }
 
-    if (isSending) {
-      const finalVisibility = input.visibility ?? message.visibility
-      const finalSubject = input.subject ?? message.subject
-      const finalBody = input.body ?? message.body
-      const finalRecipientCount = input.recipients
-        ? input.recipients.length
-        : (preloadedRecipients?.length ?? 0)
+      if (isSending) {
+        const finalVisibility = input.visibility ?? message.visibility
+        const finalSubject = input.subject ?? message.subject
+        const finalBody = input.body ?? message.body
+        const finalRecipientCount = input.recipients
+          ? input.recipients.length
+          : (preloadedRecipients?.length ?? 0)
 
-      if (finalVisibility !== 'public' && finalRecipientCount === 0) {
-        throw new Error('at least one recipient is required')
+        if (finalVisibility !== 'public' && finalRecipientCount === 0) {
+          throw new Error('at least one recipient is required')
+        }
+        if (!finalSubject?.trim()) throw new Error('subject is required')
+        if (!finalBody?.trim()) throw new Error('body is required')
+
+        message.isDraft = false
+        message.status = 'sent'
+        message.sentAt = new Date()
+        if (!message.threadId) message.threadId = message.id
       }
-      if (!finalSubject?.trim()) throw new Error('subject is required')
-      if (!finalBody?.trim()) throw new Error('body is required')
+    }], { transaction: true })
 
-      message.isDraft = false
-      message.status = 'sent'
-      message.sentAt = new Date()
-      if (!message.threadId) message.threadId = message.id
-    }
-
-    await em.flush()
     await emitMessageIndexUpsert(ctx.container, {
       messageId: message.id,
       tenantId: input.tenantId,

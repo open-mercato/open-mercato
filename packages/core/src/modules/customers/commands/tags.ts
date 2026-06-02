@@ -25,6 +25,7 @@ import { CrudHttpError } from '@open-mercato/shared/lib/crud/errors'
 import type { CrudEventsConfig } from '@open-mercato/shared/lib/crud/types'
 import { findOneWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import { emitCustomersEvent } from '../events'
+import { withAtomicFlush } from '@open-mercato/shared/lib/commands/flush'
 
 const tagCrudEvents: CrudEventsConfig = {
   module: 'customers',
@@ -286,9 +287,12 @@ const deleteTagCommand: CommandHandler<{ body?: Record<string, unknown>; query?:
     if (!tag) throw new CrudHttpError(404, { error: 'Tag not found' })
     ensureTenantScope(ctx, tag.tenantId)
     ensureOrganizationScope(ctx, tag.organizationId)
-    await em.nativeDelete(CustomerTagAssignment, { tag })
-    em.remove(tag)
-    await em.flush()
+    await withAtomicFlush(em, [
+      async () => {
+        await em.nativeDelete(CustomerTagAssignment, { tag })
+        em.remove(tag)
+      },
+    ], { transaction: true })
 
     const de = (ctx.container.resolve('dataEngine') as DataEngine)
     await emitCrudSideEffects({
@@ -345,7 +349,12 @@ const deleteTagCommand: CommandHandler<{ body?: Record<string, unknown>; query?:
       tag.color = before.color
       tag.description = before.description
     }
-    await em.flush()
+    const restoredTag = tag
+    await withAtomicFlush(em, [
+      () => {
+        em.persist(restoredTag)
+      },
+    ], { transaction: true })
 
     const de = (ctx.container.resolve('dataEngine') as DataEngine)
     await emitCrudUndoSideEffects({
@@ -471,7 +480,6 @@ const unassignTagCommand: CommandHandler<TagAssignmentInput, { assignmentId: str
     })
     if (!existing) throw new CrudHttpError(404, { error: 'Tag assignment not found' })
     await em.remove(existing).flush()
-    await em.flush()
 
     const de = (ctx.container.resolve('dataEngine') as DataEngine)
     await emitCrudSideEffects({

@@ -11,6 +11,7 @@ import { Button } from '@open-mercato/ui/primitives/button'
 import { FormHeader } from '@open-mercato/ui/backend/forms'
 import { Spinner } from '@open-mercato/ui/primitives/spinner'
 import { JsonDisplay } from '@open-mercato/ui/backend/JsonDisplay'
+import { RecordNotFoundState, ErrorMessage } from '@open-mercato/ui/backend/detail'
 
 type WorkflowEvent = {
   id: string
@@ -55,8 +56,13 @@ export default function WorkflowEventDetailPage() {
       const response = await apiFetch(`/api/workflows/events/${eventId}`)
 
       if (!response.ok) {
-        const errorData = await response.json().catch(() => ({}))
-        throw new Error(t('workflows.events.messages.loadFailed'))
+        const httpErr = new Error(
+          response.status === 404
+            ? t('workflows.events.notFound', 'Event not found.')
+            : t('workflows.events.messages.loadFailed')
+        ) as Error & { status: number }
+        httpErr.status = response.status
+        throw httpErr
       }
       const result = await response.json()
       return result as WorkflowEvent
@@ -77,18 +83,34 @@ export default function WorkflowEventDetailPage() {
     )
   }
 
+  const isNotFound = !isLoading && (error as (Error & { status?: number }) | null)?.status === 404
+
+  if (isNotFound) {
+    return (
+      <Page>
+        <PageBody>
+          <RecordNotFoundState
+            label={t('workflows.events.notFound', 'Event not found.')}
+            backHref="/backend/events"
+            backLabel={t('workflows.events.backToList', 'Back to Events')}
+          />
+        </PageBody>
+      </Page>
+    )
+  }
+
   if (error || !event) {
     return (
       <Page>
         <PageBody>
-          <div className="flex h-[50vh] flex-col items-center justify-center gap-2 text-muted-foreground">
-            <p>{error ? t('workflows.events.messages.loadFailed') : t('workflows.events.notFound')}</p>
-            <Button asChild variant="outline">
-              <Link href="/backend/events">
-                {t('workflows.events.backToList')}
-              </Link>
-            </Button>
-          </div>
+          <ErrorMessage
+            label={(error as Error | null)?.message ?? t('workflows.events.messages.loadFailed')}
+            action={
+              <Button asChild variant="outline" size="sm">
+                <Link href="/backend/events">{t('workflows.events.backToList', 'Back to Events')}</Link>
+              </Button>
+            }
+          />
         </PageBody>
       </Page>
     )

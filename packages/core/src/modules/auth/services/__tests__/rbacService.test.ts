@@ -220,6 +220,81 @@ describe('RbacService', () => {
     })
   })
 
+  describe('tenantHasFeature', () => {
+    it('returns false without a tenant id', async () => {
+      const ok = await service.tenantHasFeature(null, 'data_sync.run')
+
+      expect(ok).toBe(false)
+      expect(em.find).not.toHaveBeenCalled()
+    })
+
+    it('matches role ACL grants with wildcard semantics for scheduler feature checks', async () => {
+      const roleAcls: Array<Partial<RoleAcl>> = [
+        { tenantId: 'tenant-1', isSuperAdmin: false, featuresJson: ['data_sync.*'], organizationsJson: null },
+      ]
+
+      em.find.mockImplementation(async (entity: any, where: any) => {
+        if (entity === RoleAcl && where?.tenantId === 'tenant-1') return roleAcls
+        return []
+      })
+
+      const ok = await service.tenantHasFeature('tenant-1', 'data_sync.run', { organizationId: 'org-1' })
+
+      expect(ok).toBe(true)
+      expect(em.find).toHaveBeenCalledWith(RoleAcl, { tenantId: 'tenant-1', deletedAt: null }, {})
+    })
+
+    it('returns true when an in-scope role ACL is marked super admin', async () => {
+      const roleAcls: Array<Partial<RoleAcl>> = [
+        { tenantId: 'tenant-1', isSuperAdmin: true, featuresJson: [], organizationsJson: ['org-1'] },
+      ]
+
+      em.find.mockImplementation(async (entity: any, where: any) => {
+        if (entity === RoleAcl && where?.tenantId === 'tenant-1') return roleAcls
+        return []
+      })
+
+      const ok = await service.tenantHasFeature('tenant-1', 'data_sync.run', { organizationId: 'org-1' })
+
+      expect(ok).toBe(true)
+    })
+
+    it('honors organization restrictions on role ACLs', async () => {
+      const roleAcls: Array<Partial<RoleAcl>> = [
+        { tenantId: 'tenant-1', isSuperAdmin: false, featuresJson: ['data_sync.*'], organizationsJson: ['org-1'] },
+      ]
+
+      em.find.mockImplementation(async (entity: any, where: any) => {
+        if (entity === RoleAcl && where?.tenantId === 'tenant-1') return roleAcls
+        return []
+      })
+
+      const ok = await service.tenantHasFeature('tenant-1', 'data_sync.run', { organizationId: 'org-2' })
+
+      expect(ok).toBe(false)
+    })
+
+    it('drops grants from disabled modules before evaluating tenant features', async () => {
+      jest
+        .spyOn(enabledModulesRegistry, 'filterGrantsByEnabledModules')
+        .mockImplementation((granted) => granted.filter((feature) => !feature.startsWith('data_sync.')))
+
+      const roleAcls: Array<Partial<RoleAcl>> = [
+        { tenantId: 'tenant-1', isSuperAdmin: false, featuresJson: ['data_sync.*'], organizationsJson: null },
+      ]
+
+      em.find.mockImplementation(async (entity: any, where: any) => {
+        if (entity === RoleAcl && where?.tenantId === 'tenant-1') return roleAcls
+        return []
+      })
+
+      const ok = await service.tenantHasFeature('tenant-1', 'data_sync.run')
+
+      expect(ok).toBe(false)
+      expect(enabledModulesRegistry.filterGrantsByEnabledModules).toHaveBeenCalledWith(['data_sync.*'])
+    })
+  })
+
   describe('userHasAllFeatures', () => {
     it('returns true when no required features', async () => {
       const ok = await service.userHasAllFeatures('any', [], { tenantId: null, organizationId: null })

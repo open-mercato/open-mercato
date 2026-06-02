@@ -108,6 +108,16 @@ Centralize shared command utilities like undo extraction in `packages/shared/src
 
 **Applies to**: `scripts/dev.mjs`, `apps/mercato/scripts/dev.mjs`, `packages/create-app/template/scripts/dev.mjs`, and `packages/create-app/template/scripts/dev-runtime.mjs`.
 
+## Preserve Turbopack compiler cache during greenfield dev warmup
+
+**Context**: `yarn dev:greenfield` was changed to purge the whole configured Next.js distDir before booting the app.
+
+**Problem**: Removing all of `apps/mercato/.mercato/next` also deletes `.mercato/next/dev/cache/turbopack`. That turns `/login`, `POST /api/auth/login`, and especially `/backend` warmup into cold compiles, making greenfield startup much slower than regular `yarn dev` and slower than `main`.
+
+**Rule**: Greenfield cleanup may remove stale route/middleware manifests and lock files before startup, but must preserve `.mercato/next/dev/cache/turbopack`. Do not purge Next/Turbopack caches between warmup requests; cache reuse should make each subsequent warmup request faster. Only clear `.mercato/next/dev` for explicit `yarn dev:reset` or the one-shot corrupted Turbopack cache recovery path.
+
+**Applies to**: `scripts/dev-cache-purge.mjs`, `packages/create-app/template/scripts/dev-cache-purge.mjs`, `scripts/dev.mjs`, `packages/create-app/template/scripts/dev.mjs`, `apps/mercato/scripts/dev.mjs`, `packages/create-app/template/scripts/dev-runtime.mjs`, `scripts/dev-ephemeral.ts`, and related dev-server tests.
+
 ## Startup splash must distinguish blocking bootstrap failures from non-blocking runtime warnings
 
 **Context**: The compact splash runtime promoted any raw log line containing `failed` or `Error:` into a blocking startup failure.
@@ -899,3 +909,13 @@ Centralize shared command utilities like undo extraction in `packages/shared/src
 **Rule**: Any optional chrome, widget, dropdown-options, background sync, or feature-discovery request that is not required to render the current page must opt out of auth redirects with `x-om-forbidden-redirect: 0` and usually `x-om-unauthorized-redirect: 0`, then degrade to an empty/hidden state on non-OK responses.
 
 **Applies to**: `packages/ui/src/backend/**`, `packages/ui/src/ai/**`, topbar/sidebar providers, notification/message/AI shell hooks, and module widgets that fetch feature-gated data opportunistically.
+
+## Determine super-admin via the immutable `isSuperAdmin` flag, never by role name
+
+**Context**: The scheduler module gated system-scoped jobs (create/update/delete commands, the create route, the trigger route, and the list visibility filter) by checking whether the auth context's `roles` array contained a string equal to `'superadmin'`.
+
+**Problem**: Role names are tenant-mutable and trivially spoofable — any tenant that creates a role literally named `superadmin` would have passed the gate, while a genuine super-admin whose role happens to be named differently would have been denied. Comparing user names or role names to a hard-coded `'superadmin'` string is a privilege-escalation footgun and contradicts the project rule against `requireRoles`.
+
+**Rule**: Determine super-admin status only from the immutable `auth.isSuperAdmin === true` flag, which is derived at session/API-key resolution from the `RoleAcl.is_super_admin` / `UserAcl.is_super_admin` columns (`packages/core/src/modules/auth/lib/sessionIntegrity.ts`). Never compare `auth.roles`, usernames, or any user-supplied name to a privileged string. For non-super-admin authorization prefer feature-based guards (`requireFeatures` + immutable IDs from `acl.ts`). Add a regression test that a spoofed role named `superadmin` (without the `isSuperAdmin` flag) is rejected.
+
+**Applies to**: every authorization check — API routes, command handlers, list/visibility filters, widgets, AI tools — across all modules. Audit for `=== 'superadmin'`, `.includes('superadmin')`, and `roles.some(... 'superadmin')` and replace with `auth?.isSuperAdmin === true`.

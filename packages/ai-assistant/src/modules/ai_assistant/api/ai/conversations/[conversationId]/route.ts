@@ -211,8 +211,16 @@ export async function GET(req: NextRequest, context: RouteContext): Promise<Resp
     if (!transcript) {
       return jsonError(404, 'Conversation not found.', 'conversation_not_found')
     }
+    const participantCount = await repo.getParticipantCount(
+      callerCtx.tenantId,
+      callerCtx.organizationId,
+      callerCtx.conversationId,
+    )
     return NextResponse.json({
-      conversation: serializeAiChatConversation(transcript.conversation),
+      conversation: serializeAiChatConversation(transcript.conversation, {
+        callerUserId: callerCtx.userId,
+        participantCount,
+      }),
       messages: transcript.messages.map(serializeAiChatMessage),
       nextCursor: transcript.nextCursor,
     })

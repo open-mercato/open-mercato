@@ -65,6 +65,54 @@ function getActiveEnrichers(
   return filterByACLAndTenant(entries, context)
 }
 
+/**
+ * Plan describing whether (and how) a CRUD list cache may embed enricher output.
+ */
+export type ListCacheEnricherPlan = {
+  /**
+   * Stable signature of the active, cache-embeddable enrichers in registry
+   * (priority) order. Included in the CRUD list cache key so a cached enriched
+   * payload is only ever served back to a request whose entitlements select the
+   * exact same enricher set. Empty string when nothing is embeddable — keeping
+   * the cache key identical to the pre-enricher shape for unaffected routes.
+   */
+  signature: string
+  /**
+   * True only when there is at least one active enricher for the context AND
+   * every active enricher opted into `cacheableOnListHit`. When true, the
+   * enriched list payload may be stored in the cache and served on a hit without
+   * re-running enrichers. When false, enrichers MUST re-run on every request so
+   * the response reflects live data (cross-module reads, wall-clock values, etc.)
+   * and no live enrichment is embedded in the shared cache entry.
+   */
+  skipEnrichersOnCacheHit: boolean
+}
+
+/**
+ * Resolve, for the given context, whether the CRUD list cache may embed enricher
+ * output and the cache-key signature to partition by when it can.
+ *
+ * The enriched payload is only embeddable (and the cache hit allowed to skip
+ * enrichment) when every active enricher is `cacheableOnListHit` — i.e. its
+ * output is a pure function of the cached record and invalidated together with
+ * it. If any active enricher reads data the list cache does not invalidate on,
+ * the route falls back to caching the pre-enrichment payload and re-running
+ * enrichers on every request.
+ */
+export function resolveListCacheEnricherPlan(
+  targetEntity: string,
+  context: EnricherContext,
+): ListCacheEnricherPlan {
+  const active = getActiveEnrichers(targetEntity, context)
+  if (active.length === 0) return { signature: '', skipEnrichersOnCacheHit: false }
+  const allCacheable = active.every((entry) => entry.enricher.cacheableOnListHit === true)
+  if (!allCacheable) return { signature: '', skipEnrichersOnCacheHit: false }
+  return {
+    signature: active.map((entry) => entry.enricher.id).join(','),
+    skipEnrichersOnCacheHit: true,
+  }
+}
+
 type CacheLike = {
   get: (key: string) => Promise<unknown>
   set: (key: string, value: unknown, options?: { ttl?: number; tags?: string[] }) => Promise<unknown>

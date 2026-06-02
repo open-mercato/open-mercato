@@ -1,3 +1,4 @@
+import { Organization } from '@open-mercato/core/modules/directory/data/entities'
 import {
   AiChatConversation,
   AiChatConversationParticipant,
@@ -5,6 +6,9 @@ import {
 } from '../../entities'
 import {
   AiChatConversationAccessError,
+  AiChatConversationDuplicateParticipantError,
+  AiChatConversationOrgNotFoundError,
+  AiChatParticipantNotFoundError,
   AiChatConversationRepository,
 } from '../AiChatConversationRepository'
 
@@ -36,6 +40,7 @@ type ParticipantRow = {
   lastReadAt: Date | null
   createdAt: Date
   updatedAt: Date
+  deletedAt: Date | null
 }
 
 type MessageRow = {
@@ -62,11 +67,25 @@ let idCounter = 0
 function matchesWhere(row: Record<string, any>, where: any): boolean {
   if (!where) return true
   for (const key of Object.keys(where)) {
+    if (key === '$or') {
+      const conditions = where[key] as any[]
+      if (!conditions.some((cond) => matchesWhere(row, cond))) return false
+      continue
+    }
     const expected = where[key]
     const actual = row[key] ?? null
     if (expected && typeof expected === 'object' && '$lt' in expected) {
       const lt = expected.$lt as Date
       if (!(actual instanceof Date) || !(actual.getTime() < lt.getTime())) return false
+      continue
+    }
+    if (expected && typeof expected === 'object' && '$in' in expected) {
+      const inList = expected.$in as unknown[]
+      if (!inList.includes(actual)) return false
+      continue
+    }
+    if (expected && typeof expected === 'object' && '$ne' in expected) {
+      if (actual === expected.$ne) return false
       continue
     }
     if (expected === null) {
@@ -99,18 +118,29 @@ function applyOrder<T extends Record<string, any>>(rows: T[], orderBy: any): T[]
   })
 }
 
-function entityKey(entity: unknown): 'conv' | 'participant' | 'message' | null {
+type OrgRow = {
+  id: string
+  // ManyToOne(() => Tenant) — the production filter uses `tenant: tenantId`,
+  // not `tenantId`, so the mock row mirrors that shape.
+  tenant: string
+  isActive: boolean
+  deletedAt: Date | null
+}
+
+function entityKey(entity: unknown): 'conv' | 'participant' | 'message' | 'org' | null {
   if (entity === AiChatConversation) return 'conv'
   if (entity === AiChatConversationParticipant) return 'participant'
   if (entity === AiChatMessage) return 'message'
+  if (entity === Organization) return 'org'
   return null
 }
 
-function mockEm() {
-  const stores: Record<'conv' | 'participant' | 'message', any[]> = {
+function mockEm(options: { orgs?: OrgRow[] } = {}) {
+  const stores: Record<'conv' | 'participant' | 'message' | 'org', any[]> = {
     conv: [],
     participant: [],
     message: [],
+    org: options.orgs ?? [],
   }
 
   const find = async (entity: unknown, where: any, options?: any): Promise<any[]> => {
@@ -129,6 +159,10 @@ function mockEm() {
     findOne: async (entity: unknown, where: any, options?: any) => {
       const rows = await find(entity, where, options)
       return rows[0] ?? null
+    },
+    count: async (entity: unknown, where: any) => {
+      const rows = await find(entity, where)
+      return rows.length
     },
     create: (entity: unknown, data: any) => {
       idCounter += 1
@@ -165,6 +199,7 @@ function mockEm() {
           lastReadAt: data.lastReadAt ?? null,
           createdAt: data.createdAt instanceof Date ? data.createdAt : new Date(),
           updatedAt: data.updatedAt instanceof Date ? data.updatedAt : new Date(),
+          deletedAt: data.deletedAt ?? null,
         }
         return row
       }
@@ -588,5 +623,264 @@ describe('AiChatConversationRepository', () => {
     expect(
       em.__stores.conv.find((row: ConvRow) => row.conversationId === 'other-tenant')?.deletedAt,
     ).toBeNull()
+  })
+
+  it('addParticipant rejects an active duplicate with AiChatConversationDuplicateParticipantError (BUG-001)', async () => {
+    const em = mockEm()
+    const repo = new AiChatConversationRepository(em)
+    const ownerCtx = { tenantId: tenantAlpha, organizationId: null, userId: 'u-owner' }
+    await repo.createOrGet({ conversationId: 'c-dup', agentId: 'a' }, ownerCtx)
+    await repo.addParticipant('c-dup', 'u-viewer', 'viewer', ownerCtx)
+
+    await expect(
+      repo.addParticipant('c-dup', 'u-viewer', 'viewer', ownerCtx),
+    ).rejects.toBeInstanceOf(AiChatConversationDuplicateParticipantError)
+
+    const active = em.__stores.participant.filter(
+      (row: ParticipantRow) => row.userId === 'u-viewer',
+    )
+    expect(active).toHaveLength(1)
+  })
+
+  it('addParticipant restores a previously revoked participant without duplicating the row (BUG-001 boundary)', async () => {
+    const em = mockEm()
+    const repo = new AiChatConversationRepository(em)
+    const ownerCtx = { tenantId: tenantAlpha, organizationId: null, userId: 'u-owner' }
+    await repo.createOrGet({ conversationId: 'c-restore', agentId: 'a' }, ownerCtx)
+    await repo.addParticipant('c-restore', 'u-viewer', 'viewer', ownerCtx)
+    await repo.revokeParticipant('c-restore', 'u-viewer', ownerCtx)
+
+    const restored = await repo.addParticipant('c-restore', 'u-viewer', 'viewer', ownerCtx)
+    expect(restored.userId).toBe('u-viewer')
+    const allRows = em.__stores.participant.filter(
+      (row: ParticipantRow) => row.userId === 'u-viewer',
+    )
+    expect(allRows).toHaveLength(1)
+    expect((allRows[0] as any).deletedAt).toBeNull()
+  })
+
+  it('addParticipant refuses a non-owner caller even when canManageConversations=true (BUG-002)', async () => {
+    const em = mockEm()
+    const repo = new AiChatConversationRepository(em)
+    const ownerCtx = { tenantId: tenantAlpha, organizationId: null, userId: 'u-owner' }
+    await repo.createOrGet({ conversationId: 'c-bug-002', agentId: 'a' }, ownerCtx)
+
+    const managerCtx = {
+      tenantId: tenantAlpha,
+      organizationId: null,
+      userId: 'u-manager',
+      canManageConversations: true,
+    }
+    await expect(
+      repo.addParticipant('c-bug-002', 'u-victim', 'viewer', managerCtx),
+    ).rejects.toBeInstanceOf(AiChatConversationAccessError)
+  })
+
+  it('revokeParticipant refuses a non-owner caller even when canManageConversations=true (BUG-002)', async () => {
+    const em = mockEm()
+    const repo = new AiChatConversationRepository(em)
+    const ownerCtx = { tenantId: tenantAlpha, organizationId: null, userId: 'u-owner' }
+    await repo.createOrGet({ conversationId: 'c-bug-002-rev', agentId: 'a' }, ownerCtx)
+    await repo.addParticipant('c-bug-002-rev', 'u-viewer', 'viewer', ownerCtx)
+
+    const managerCtx = {
+      tenantId: tenantAlpha,
+      organizationId: null,
+      userId: 'u-manager',
+      canManageConversations: true,
+    }
+    await expect(
+      repo.revokeParticipant('c-bug-002-rev', 'u-viewer', managerCtx),
+    ).rejects.toBeInstanceOf(AiChatConversationAccessError)
+  })
+
+  it('revokeParticipant blocks revoking the conversation owner (BUG-002)', async () => {
+    const em = mockEm()
+    const repo = new AiChatConversationRepository(em)
+    const ownerCtx = { tenantId: tenantAlpha, organizationId: null, userId: 'u-owner' }
+    await repo.createOrGet({ conversationId: 'c-no-self-revoke', agentId: 'a' }, ownerCtx)
+
+    await expect(
+      repo.revokeParticipant('c-no-self-revoke', 'u-owner', ownerCtx),
+    ).rejects.toBeInstanceOf(AiChatConversationAccessError)
+  })
+
+  it('listParticipants throws AccessError for a non-owner / non-manager caller (BUG-006)', async () => {
+    const em = mockEm()
+    const repo = new AiChatConversationRepository(em)
+    const ownerCtx = { tenantId: tenantAlpha, organizationId: null, userId: 'u-owner' }
+    await repo.createOrGet({ conversationId: 'c-bug-006', agentId: 'a' }, ownerCtx)
+    await repo.addParticipant('c-bug-006', 'u-viewer', 'viewer', ownerCtx)
+
+    const viewerCtx = { tenantId: tenantAlpha, organizationId: null, userId: 'u-viewer' }
+    await expect(repo.listParticipants('c-bug-006', viewerCtx)).rejects.toBeInstanceOf(
+      AiChatConversationAccessError,
+    )
+  })
+
+  it('listParticipants returns the active participants for the owner', async () => {
+    const em = mockEm()
+    const repo = new AiChatConversationRepository(em)
+    const ownerCtx = { tenantId: tenantAlpha, organizationId: null, userId: 'u-owner' }
+    await repo.createOrGet({ conversationId: 'c-list-ok', agentId: 'a' }, ownerCtx)
+    await repo.addParticipant('c-list-ok', 'u-viewer-1', 'viewer', ownerCtx)
+    await repo.addParticipant('c-list-ok', 'u-viewer-2', 'viewer', ownerCtx)
+
+    const list = await repo.listParticipants('c-list-ok', ownerCtx)
+    expect(list.map((p) => p.userId).sort()).toEqual(
+      ['u-owner', 'u-viewer-1', 'u-viewer-2'].sort(),
+    )
+  })
+
+  it('listParticipants allows a conversation manager to enumerate participants (BUG-006 manager exception)', async () => {
+    const em = mockEm()
+    const repo = new AiChatConversationRepository(em)
+    const ownerCtx = { tenantId: tenantAlpha, organizationId: null, userId: 'u-owner' }
+    await repo.createOrGet({ conversationId: 'c-list-mgr', agentId: 'a' }, ownerCtx)
+    await repo.addParticipant('c-list-mgr', 'u-viewer', 'viewer', ownerCtx)
+
+    const managerCtx = {
+      tenantId: tenantAlpha,
+      organizationId: null,
+      userId: 'u-manager',
+      canManageConversations: true,
+    }
+    const list = await repo.listParticipants('c-list-mgr', managerCtx)
+    expect(list.find((p) => p.userId === 'u-viewer')).toBeDefined()
+  })
+
+  it('createOrGet rejects an orphan organizationId with AiChatConversationOrgNotFoundError (BUG-005)', async () => {
+    const em = mockEm({
+      orgs: [{ id: 'org-real', tenant: tenantAlpha, isActive: true, deletedAt: null }],
+    })
+    const repo = new AiChatConversationRepository(em)
+    const ctx = {
+      tenantId: tenantAlpha,
+      organizationId: 'org-orphan',
+      userId: 'u-owner',
+    }
+    await expect(
+      repo.createOrGet({ conversationId: 'c-orphan', agentId: 'a' }, ctx),
+    ).rejects.toBeInstanceOf(AiChatConversationOrgNotFoundError)
+    expect(em.__stores.conv).toHaveLength(0)
+    expect(em.__stores.participant).toHaveLength(0)
+  })
+
+  it('createOrGet rejects an inactive organization with AiChatConversationOrgNotFoundError (BUG-005)', async () => {
+    const em = mockEm({
+      orgs: [{ id: 'org-disabled', tenant: tenantAlpha, isActive: false, deletedAt: null }],
+    })
+    const repo = new AiChatConversationRepository(em)
+    const ctx = {
+      tenantId: tenantAlpha,
+      organizationId: 'org-disabled',
+      userId: 'u-owner',
+    }
+    await expect(
+      repo.createOrGet({ conversationId: 'c-inactive', agentId: 'a' }, ctx),
+    ).rejects.toBeInstanceOf(AiChatConversationOrgNotFoundError)
+    expect(em.__stores.conv).toHaveLength(0)
+  })
+
+  it('createOrGet rejects a soft-deleted organization with AiChatConversationOrgNotFoundError (BUG-005)', async () => {
+    const em = mockEm({
+      orgs: [
+        { id: 'org-deleted', tenant: tenantAlpha, isActive: true, deletedAt: new Date('2026-01-01') },
+      ],
+    })
+    const repo = new AiChatConversationRepository(em)
+    const ctx = {
+      tenantId: tenantAlpha,
+      organizationId: 'org-deleted',
+      userId: 'u-owner',
+    }
+    await expect(
+      repo.createOrGet({ conversationId: 'c-deleted', agentId: 'a' }, ctx),
+    ).rejects.toBeInstanceOf(AiChatConversationOrgNotFoundError)
+  })
+
+  it('createOrGet rejects a cross-tenant organizationId (BUG-005 tenant scope)', async () => {
+    const em = mockEm({
+      orgs: [{ id: 'org-other-tenant', tenant: tenantBeta, isActive: true, deletedAt: null }],
+    })
+    const repo = new AiChatConversationRepository(em)
+    const ctx = {
+      tenantId: tenantAlpha,
+      organizationId: 'org-other-tenant',
+      userId: 'u-owner',
+    }
+    await expect(
+      repo.createOrGet({ conversationId: 'c-cross-tenant', agentId: 'a' }, ctx),
+    ).rejects.toBeInstanceOf(AiChatConversationOrgNotFoundError)
+  })
+
+  it('createOrGet persists when organizationId references a live, active org (BUG-005 happy path)', async () => {
+    const em = mockEm({
+      orgs: [{ id: 'org-live', tenant: tenantAlpha, isActive: true, deletedAt: null }],
+    })
+    const repo = new AiChatConversationRepository(em)
+    const ctx = {
+      tenantId: tenantAlpha,
+      organizationId: 'org-live',
+      userId: 'u-owner',
+    }
+    const row = await repo.createOrGet({ conversationId: 'c-ok', agentId: 'a' }, ctx)
+    expect(row.conversationId).toBe('c-ok')
+    expect(row.organizationId).toBe('org-live')
+  })
+
+  it('createOrGet persists when organizationId is null (no org selected — additive null path)', async () => {
+    const em = mockEm()
+    const repo = new AiChatConversationRepository(em)
+    const ctx = { tenantId: tenantAlpha, organizationId: null, userId: 'u-owner' }
+    const row = await repo.createOrGet({ conversationId: 'c-null-org', agentId: 'a' }, ctx)
+    expect(row.organizationId).toBeNull()
+  })
+
+  it('getParticipantCount excludes the owner and counts only non-owner active participants', async () => {
+    const em = mockEm()
+    const repo = new AiChatConversationRepository(em)
+    const ownerCtx = { tenantId: tenantAlpha, organizationId: null, userId: 'u-owner' }
+    await repo.createOrGet({ conversationId: 'c-count', agentId: 'a' }, ownerCtx)
+    await repo.addParticipant('c-count', 'u-v1', 'viewer', ownerCtx)
+    await repo.addParticipant('c-count', 'u-v2', 'viewer', ownerCtx)
+    await repo.revokeParticipant('c-count', 'u-v1', ownerCtx)
+
+    const total = await repo.getParticipantCount(tenantAlpha, null, 'c-count')
+    expect(total).toBe(1)
+  })
+
+  it('getParticipantCount returns 0 for a private (owner-only) conversation', async () => {
+    const em = mockEm()
+    const repo = new AiChatConversationRepository(em)
+    const ownerCtx = { tenantId: tenantAlpha, organizationId: null, userId: 'u-owner' }
+    await repo.createOrGet({ conversationId: 'c-private', agentId: 'a' }, ownerCtx)
+
+    const count = await repo.getParticipantCount(tenantAlpha, null, 'c-private')
+    expect(count).toBe(0)
+  })
+
+  it('revokeParticipant throws AiChatParticipantNotFoundError for a non-existent userId', async () => {
+    const em = mockEm()
+    const repo = new AiChatConversationRepository(em)
+    const ownerCtx = { tenantId: tenantAlpha, organizationId: null, userId: 'u-owner' }
+    await repo.createOrGet({ conversationId: 'c-revoke-nf', agentId: 'a' }, ownerCtx)
+
+    await expect(
+      repo.revokeParticipant('c-revoke-nf', 'u-nonexistent', ownerCtx),
+    ).rejects.toBeInstanceOf(AiChatParticipantNotFoundError)
+  })
+
+  it('revokeParticipant throws AiChatParticipantNotFoundError when revoking an already-revoked participant', async () => {
+    const em = mockEm()
+    const repo = new AiChatConversationRepository(em)
+    const ownerCtx = { tenantId: tenantAlpha, organizationId: null, userId: 'u-owner' }
+    await repo.createOrGet({ conversationId: 'c-double-revoke', agentId: 'a' }, ownerCtx)
+    await repo.addParticipant('c-double-revoke', 'u-viewer', 'viewer', ownerCtx)
+    await repo.revokeParticipant('c-double-revoke', 'u-viewer', ownerCtx)
+
+    await expect(
+      repo.revokeParticipant('c-double-revoke', 'u-viewer', ownerCtx),
+    ).rejects.toBeInstanceOf(AiChatParticipantNotFoundError)
   })
 })

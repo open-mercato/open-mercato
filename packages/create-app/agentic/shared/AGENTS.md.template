@@ -201,6 +201,7 @@ When the user asks to **create a new application** or a **new module**, do not i
 - Entity classes belong in `src/modules/<module>/data/entities.ts` and use decorators from `@mikro-orm/decorators/legacy`
 - Standalone apps expose `yarn mercato configs cache ...` because the template enables the `configs` module from `@open-mercato/core`
 - `yarn generate` automatically runs a best-effort structural cache purge (`yarn mercato configs cache structural --all-tenants`) after successful generation; if the cache command is unavailable, generation still succeeds
+- Use `yarn dev:reset` only as the stale-Turbopack escape hatch; it clears `.mercato/next/dev` plus legacy `.next` caches.
 - Detail/read-model APIs that expose `customFields` MUST return bare field keys via `normalizeCustomFieldResponse()` (for example `{ priority: 3 }`). Keep `cf_` / `cf:` prefixes for request payloads, filters, and form field IDs only.
 - Sidebar icons MUST use `lucide-react` components — never inline SVG via `React.createElement`
 - `page.meta.ts` MUST include `pageGroup`, `pageGroupKey`, and `pageOrder` for sidebar grouping

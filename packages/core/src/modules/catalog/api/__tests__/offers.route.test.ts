@@ -107,7 +107,13 @@ describe('catalog offers route helpers', () => {
         return []
       }),
     }
-    const ctx = { query: { channelId: 'channel-1' }, container: { resolve: jest.fn().mockReturnValue(em) } } as any
+    const ctx = {
+      query: { channelId: 'channel-1' },
+      auth: { tenantId: 'tenant-1', orgId: 'org-1' },
+      selectedOrganizationId: 'org-1',
+      organizationIds: null,
+      container: { resolve: jest.fn().mockReturnValue(em) },
+    } as any
 
     await decorateOffersWithDetails(items, ctx)
 
@@ -151,11 +157,52 @@ describe('catalog offers route helpers', () => {
     expect(items[1].prices).toHaveLength(1)
     expect(items[1].productDefaultPrices).toEqual([])
     expect(items[1].productChannelPrice).toBeNull()
-    expect(em.find).toHaveBeenCalledWith(CatalogProduct, expect.any(Object), expect.any(Object))
+    expect(em.find).toHaveBeenCalledWith(
+      CatalogProduct,
+      expect.objectContaining({ id: { $in: ['prod-1', 'prod-2'] }, tenantId: 'tenant-1', organizationId: 'org-1' }),
+      expect.any(Object),
+    )
     expect(em.find).toHaveBeenCalledWith(
       CatalogProductPrice,
-      expect.objectContaining({ offer: { $in: ['offer-1', 'offer-2'] } }),
+      expect.objectContaining({ offer: { $in: ['offer-1', 'offer-2'] }, tenantId: 'tenant-1', organizationId: 'org-1' }),
       expect.objectContaining({ populate: ['priceKind'] }),
     )
+  })
+
+  it('scopes every catalog read by tenant and organization', async () => {
+    const items: any[] = [{ id: 'offer-1', productId: 'prod-1', channelId: 'channel-1' }]
+    const em = { find: jest.fn(async () => []) }
+    const ctx = {
+      query: { channelId: 'channel-1' },
+      auth: { tenantId: 'tenant-9', orgId: 'org-fallback' },
+      selectedOrganizationId: null,
+      organizationIds: ['org-a', 'org-b'],
+      container: { resolve: jest.fn().mockReturnValue(em) },
+    } as any
+
+    await decorateOffersWithDetails(items, ctx)
+
+    expect(em.find).toHaveBeenCalled()
+    for (const call of em.find.mock.calls) {
+      const where = call[1] as Record<string, unknown>
+      expect(where.tenantId).toBe('tenant-9')
+      // Multi-org scope (organizationIds set, no selected org) → $in over the allowed set.
+      expect(where.organizationId).toEqual({ $in: ['org-a', 'org-b'] })
+    }
+  })
+
+  it('hard-fails when tenant scope is missing instead of issuing unscoped reads', async () => {
+    const items: any[] = [{ id: 'offer-1', productId: 'prod-1' }]
+    const em = { find: jest.fn(async () => []) }
+    const ctx = {
+      query: {},
+      auth: { orgId: 'org-1' },
+      selectedOrganizationId: 'org-1',
+      organizationIds: null,
+      container: { resolve: jest.fn().mockReturnValue(em) },
+    } as any
+
+    await expect(decorateOffersWithDetails(items, ctx)).rejects.toMatchObject({ status: 403 })
+    expect(em.find).not.toHaveBeenCalled()
   })
 })

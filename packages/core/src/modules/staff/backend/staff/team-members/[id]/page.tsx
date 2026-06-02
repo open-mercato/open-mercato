@@ -369,7 +369,7 @@ export default function StaffTeamMemberDetailPage({ params }: { params?: { id?: 
                   onClick={() => setActivePanel(tab.id)}
                   className={`relative -mb-px border-b-2 px-0 py-2 text-sm font-medium transition-colors ${
                     activePanel === tab.id
-                      ? 'border-primary text-foreground'
+                      ? 'border-accent-indigo text-foreground'
                       : 'border-transparent text-muted-foreground hover:text-foreground'
                   }`}
                 >
@@ -431,7 +431,7 @@ export default function StaffTeamMemberDetailPage({ params }: { params?: { id?: 
                             onClick={() => setActiveTab(tab.id)}
                             className={`relative -mb-px border-b-2 px-0 py-1 text-sm font-medium transition-colors ${
                               activeTab === tab.id
-                                ? 'border-primary text-foreground'
+                                ? 'border-accent-indigo text-foreground'
                                 : 'border-transparent text-muted-foreground hover:text-foreground'
                             }`}
                           >
@@ -556,6 +556,7 @@ export default function StaffTeamMemberDetailPage({ params }: { params?: { id?: 
               mode="availability"
               rulesetId={availabilityRuleSetId}
               onRulesetChange={handleRulesetChange}
+              allowRuleSetDelete
               buildScheduleItems={({ availabilityRules, translate: translateLabel }) => (
                 buildMemberScheduleItems({ availabilityRules, translate: translateLabel })
               )}

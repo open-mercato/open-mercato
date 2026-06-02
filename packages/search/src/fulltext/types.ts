@@ -39,6 +39,7 @@ export type FullTextSearchDocument = {
 export type FullTextSearchQuery = {
   tenantId: string
   organizationId?: string | null
+  organizationIds?: string[] | null
   entityTypes?: EntityId[]
   limit?: number
   offset?: number
@@ -52,6 +53,7 @@ export type FullTextSearchHit = {
   recordId: string
   entityId: EntityId
   score: number
+  organizationId?: string | null
   presenter?: SearchResultPresenter
   url?: string
   links?: SearchResultLink[]

@@ -73,6 +73,7 @@ export const WorkflowEventTypes = {
   SIGNAL_TIMEOUT: 'SIGNAL_TIMEOUT',
 
   // Timer events (Phase 9)
+  TIMER_AWAITING: 'TIMER_AWAITING',
   TIMER_FIRED: 'TIMER_FIRED',
   TIMER_CANCELLED: 'TIMER_CANCELLED',
 } as const
