@@ -6,6 +6,7 @@ import { UniqueConstraintViolationException } from '@mikro-orm/core'
 import { CrudHttpError } from '@open-mercato/shared/lib/crud/errors'
 import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
 import { loadCustomFieldSnapshot, buildCustomFieldResetMap } from '@open-mercato/shared/lib/commands/customFieldSnapshots'
+import { withAtomicFlush } from '@open-mercato/shared/lib/commands/flush'
 import { E } from '#generated/entities.ids.generated'
 import { findWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import {
@@ -588,21 +589,25 @@ const createVariantCommand: CommandHandler<VariantCreateInput, { variantId: stri
       updatedAt: now,
     })
     em.persist(record)
+    let previousDefaultVariantId: string | null = null
     try {
-      await em.flush()
+      await withAtomicFlush(
+        em,
+        [
+          () => em.flush(),
+          async () => {
+            if (record.isDefault) {
+              previousDefaultVariantId = await enforceSingleDefaultVariant(em, record)
+              await em.flush()
+            }
+          },
+          () => aggregateVariantMediaToProduct(em, record),
+        ],
+        { transaction: true }
+      )
     } catch (error) {
       await rethrowVariantUniqueConstraint(error)
     }
-    let previousDefaultVariantId: string | null = null
-    if (record.isDefault) {
-      previousDefaultVariantId = await enforceSingleDefaultVariant(em, record)
-      try {
-        await em.flush()
-      } catch (error) {
-        await rethrowVariantUniqueConstraint(error)
-      }
-    }
-    await aggregateVariantMediaToProduct(em, record)
     await setCustomFieldsIfAny({
       dataEngine: ctx.container.resolve('dataEngine'),
       entityId: E.catalog.catalog_product_variant,
@@ -753,15 +758,23 @@ const updateVariantCommand: CommandHandler<VariantUpdateInput, { variantId: stri
     }
 
     let previousDefaultVariantId: string | null = null
-    if (parsed.isDefault === true) {
-      previousDefaultVariantId = await enforceSingleDefaultVariant(em, record)
-    }
     try {
-      await em.flush()
+      await withAtomicFlush(
+        em,
+        [
+          async () => {
+            if (parsed.isDefault === true) {
+              previousDefaultVariantId = await enforceSingleDefaultVariant(em, record)
+            }
+          },
+          () => em.flush(),
+          () => aggregateVariantMediaToProduct(em, record),
+        ],
+        { transaction: true }
+      )
     } catch (error) {
       await rethrowVariantUniqueConstraint(error)
     }
-    await aggregateVariantMediaToProduct(em, record)
     if (custom && Object.keys(custom).length) {
       await setCustomFieldsIfAny({
         dataEngine: ctx.container.resolve('dataEngine'),

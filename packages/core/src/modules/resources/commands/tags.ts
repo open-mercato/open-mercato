@@ -2,6 +2,7 @@ import type { CommandHandler } from '@open-mercato/shared/lib/commands'
 import { registerCommand } from '@open-mercato/shared/lib/commands'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import { CrudHttpError } from '@open-mercato/shared/lib/crud/errors'
+import { withAtomicFlush } from '@open-mercato/shared/lib/commands/flush'
 import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
 import { slugifyTagLabel } from '@open-mercato/shared/lib/utils'
 import { ResourcesResourceTag, ResourcesResourceTagAssignment } from '../data/entities'
@@ -105,9 +106,12 @@ const deleteTagCommand: CommandHandler<{ id?: string }, { tagId: string }> = {
     if (!tag) throw new CrudHttpError(404, { error: 'Tag not found' })
     ensureTenantScope(ctx, tag.tenantId)
     ensureOrganizationScope(ctx, tag.organizationId)
-    await em.nativeDelete(ResourcesResourceTagAssignment, { tag: tag.id })
-    em.remove(tag)
-    await em.flush()
+    await withAtomicFlush(em, [
+      async () => {
+        await em.nativeDelete(ResourcesResourceTagAssignment, { tag: tag.id })
+        em.remove(tag)
+      },
+    ], { transaction: true })
     return { tagId: id }
   },
   buildLog: async ({ input, result, ctx }) => {

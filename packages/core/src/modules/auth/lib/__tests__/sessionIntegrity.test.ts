@@ -244,6 +244,87 @@ describe('isAuthContextValid', () => {
     expect(findOneWithDecryption).not.toHaveBeenCalled()
   })
 
+  it('issues the session and user lookups concurrently', async () => {
+    const callOrder: string[] = []
+    let releaseSession: (() => void) | undefined
+    const sessionGate = new Promise<void>((resolve) => {
+      releaseSession = resolve
+    })
+    findOneWithDecryption.mockImplementation(async (...args: unknown[]) => {
+      const entity = args[1]
+      if (entity === Session) {
+        callOrder.push('session')
+        await sessionGate
+        return validSession
+      }
+      if (entity === User) {
+        callOrder.push('user')
+        return { id: userId, tenantId, organizationId }
+      }
+      return null
+    })
+
+    const pending = resolveCanonicalStaffAuthContext(em, {
+      sub: userId,
+      sid: sessionId,
+      tenantId,
+      orgId: organizationId,
+      roles: [],
+    })
+
+    // Both lookups are issued before the (still pending) session lookup resolves.
+    expect(callOrder).toEqual(['session', 'user'])
+
+    releaseSession?.()
+    await expect(pending).resolves.toMatchObject({ sub: userId })
+  })
+
+  it('issues the role-link and user-acl lookups concurrently', async () => {
+    const callOrder: string[] = []
+    let releaseLinks: ((value: unknown[]) => void) | undefined
+    const linksGate = new Promise<unknown[]>((resolve) => {
+      releaseLinks = resolve
+    })
+    findOneWithDecryption.mockImplementation(async (...args: unknown[]) => {
+      const entity = args[1]
+      if (entity === Session) return validSession
+      if (entity === User) return { id: userId, tenantId, organizationId }
+      if (entity === UserAcl) {
+        callOrder.push('userAcl')
+        return null
+      }
+      if (entity === RoleAcl) {
+        callOrder.push('roleAcl')
+        return null
+      }
+      return null
+    })
+    findWithDecryption.mockImplementation(async () => {
+      callOrder.push('links')
+      return linksGate
+    })
+
+    const pending = resolveCanonicalStaffAuthContext(em, {
+      sub: userId,
+      sid: sessionId,
+      tenantId,
+      orgId: organizationId,
+      roles: [],
+    })
+
+    await new Promise((resolve) => setImmediate(resolve))
+
+    // The user-acl lookup runs alongside the (still pending) role-link lookup, and
+    // the role-acl lookup is deferred until the role links resolve.
+    expect(callOrder).toContain('userAcl')
+    expect(callOrder).not.toContain('roleAcl')
+
+    releaseLinks?.([{ role: { id: adminRoleId, name: 'admin' } }])
+    await pending
+
+    expect(callOrder).toContain('roleAcl')
+  })
+
   it('skips user integrity lookup for api key auth', async () => {
     await expect(
       isAuthContextValid(em, {

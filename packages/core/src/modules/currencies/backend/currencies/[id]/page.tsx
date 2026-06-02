@@ -12,6 +12,7 @@ import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { SendObjectMessageDialog } from '@open-mercato/ui/backend/messages'
 import { DataLoader } from '@open-mercato/ui/primitives/DataLoader'
 import { useConfirmDialog } from '@open-mercato/ui/backend/confirm-dialog'
+import { RecordNotFoundState, ErrorMessage } from '@open-mercato/ui/backend/detail'
 
 type CurrencyData = {
   id: string
@@ -35,6 +36,7 @@ export default function EditCurrencyPage({ params }: { params?: { id?: string } 
   const [currency, setCurrency] = React.useState<CurrencyData | null>(null)
   const [loading, setLoading] = React.useState(true)
   const [error, setError] = React.useState<string | null>(null)
+  const [isNotFound, setIsNotFound] = React.useState(false)
 
   React.useEffect(() => {
     async function loadCurrency() {
@@ -42,8 +44,10 @@ export default function EditCurrencyPage({ params }: { params?: { id?: string } 
         const response = await apiCall<{ items: CurrencyData[] }>(`/api/currencies/currencies?id=${params?.id}`)
         if (response.ok && response.result && response.result.items.length > 0) {
           setCurrency(response.result.items[0])
+        } else if (!response.ok) {
+          setError(t('currencies.form.errors.load'))
         } else {
-          setError(t('currencies.form.errors.notFound'))
+          setIsNotFound(true)
         }
       } catch (err) {
         setError(t('currencies.form.errors.load'))
@@ -163,11 +167,26 @@ export default function EditCurrencyPage({ params }: { params?: { id?: string } 
     )
   }
 
+  if (isNotFound) {
+    return (
+      <Page>
+        <PageBody>
+          <RecordNotFoundState
+            label={t('currencies.form.errors.notFound', 'Currency not found.')}
+            backHref="/backend/currencies"
+            backLabel={t('currencies.form.actions.backToList', 'Back to currencies')}
+          />
+        </PageBody>
+        {ConfirmDialogElement}
+      </Page>
+    )
+  }
+
   if (error || !currency) {
     return (
       <Page>
         <PageBody>
-          <div className="text-destructive">{error || t('currencies.form.errors.notFound')}</div>
+          <ErrorMessage label={error ?? t('currencies.form.errors.notFound', 'Currency not found.')} />
         </PageBody>
         {ConfirmDialogElement}
       </Page>

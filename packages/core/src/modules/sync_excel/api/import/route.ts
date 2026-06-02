@@ -128,21 +128,25 @@ export async function POST(request: Request) {
       scope,
     )
 
-    if (existingMapping) {
-      existingMapping.mapping = parsedPayload.data.mapping
-    } else {
-      em.persist(em.create(SyncMapping, {
-        integrationId: 'sync_excel',
-        entityType: parsedPayload.data.entityType,
-        mapping: parsedPayload.data.mapping,
-        organizationId: scope.organizationId,
-        tenantId: scope.tenantId,
-      }))
-    }
+    // Persist the mapping, credentials, and integration-state config atomically.
+    // credentialsService / integrationStateService are request-scoped and share
+    // this request `em`, so a single transaction covers all of their writes.
+    await em.transactional(async () => {
+      if (existingMapping) {
+        existingMapping.mapping = parsedPayload.data.mapping
+      } else {
+        em.persist(em.create(SyncMapping, {
+          integrationId: 'sync_excel',
+          entityType: parsedPayload.data.entityType,
+          mapping: parsedPayload.data.mapping,
+          organizationId: scope.organizationId,
+          tenantId: scope.tenantId,
+        }))
+      }
 
-    await credentialsService.save('sync_excel', {}, scope)
-    await integrationStateService.upsert('sync_excel', { isEnabled: true }, scope)
-    await em.flush()
+      await credentialsService.save('sync_excel', {}, scope)
+      await integrationStateService.upsert('sync_excel', { isEnabled: true }, scope)
+    })
 
     const { run, progressJob } = await startDataSyncRun({
       syncRunService,
@@ -171,9 +175,10 @@ export async function POST(request: Request) {
       },
     })
 
-    upload.syncRunId = run.id
-    upload.status = 'importing'
-    await em.flush()
+    await em.transactional(async () => {
+      upload.syncRunId = run.id
+      upload.status = 'importing'
+    })
 
     return NextResponse.json(syncExcelImportResponseSchema.parse({
       runId: run.id,

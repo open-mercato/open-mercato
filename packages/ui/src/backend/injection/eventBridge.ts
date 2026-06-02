@@ -10,6 +10,13 @@ const RECONNECT_MAX_MS = 30_000
 const DEDUP_WINDOW_MS = 500
 const BRIDGE_RECONNECTED_EVENT_ID = 'om:bridge:reconnected'
 
+type EventBridgeReadyWindow = { __omEventBridgeReady?: boolean }
+
+function setEventBridgeReady(ready: boolean): void {
+  if (typeof window === 'undefined') return
+  ;(window as unknown as EventBridgeReadyWindow).__omEventBridgeReady = ready
+}
+
 /**
  * React hook that establishes a singleton SSE connection to the event bridge.
  *
@@ -72,6 +79,7 @@ export function useEventBridge(): void {
           hasEverConnected.current = true
           reconnectPending.current = false
           reconnectAttempts.current = 0
+          setEventBridgeReady(true)
           resetHeartbeatTimer()
           if (shouldEmitReconnect) {
             window.dispatchEvent(
@@ -121,6 +129,7 @@ export function useEventBridge(): void {
     }
 
     function disconnect() {
+      setEventBridgeReady(false)
       if (sourceRef.current) {
         sourceRef.current.close()
         sourceRef.current = null

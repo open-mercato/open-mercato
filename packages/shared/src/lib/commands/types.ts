@@ -1,4 +1,5 @@
 import type { AwilixContainer } from 'awilix'
+import type { EntityManager } from '@mikro-orm/postgresql'
 import { randomUUID } from 'crypto'
 import type { AuthContext } from '../auth/server'
 import type { OrganizationScope } from '@open-mercato/core/modules/directory/utils/organizationScope'
@@ -11,6 +12,13 @@ export type CommandRuntimeContext = {
   organizationIds: string[] | null
   request?: Request
   syncOrigin?: string | null
+  /**
+   * When set, command handlers that support it MUST run their writes within this
+   * existing transactional EntityManager (reusing its row locks) instead of
+   * opening their own transaction. Lets a caller compose a command with its own
+   * surrounding work as a single atomic, single-locked operation.
+   */
+  transactionalEm?: EntityManager
 }
 
 export type CommandLogMetadata = {
