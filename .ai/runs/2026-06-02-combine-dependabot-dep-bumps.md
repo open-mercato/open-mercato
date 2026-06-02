@@ -71,4 +71,4 @@ Land both Dependabot dependency groups as one validated PR against `develop`, th
 
 - [x] 3.1 Open PR against develop with labels — PR #2403
 - [x] 3.2 Close #2394 and #2395 (superseded by #2403)
-- [ ] 3.3 auto-review-pr pass + summary comment
+- [x] 3.3 auto-review-pr pass + summary comment — APPROVED, moved to qa
