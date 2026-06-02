@@ -103,3 +103,7 @@ absolute date literal whose assertion outcome flips with the system clock.
 ## Changelog
 
 - Opened PR open-mercato/open-mercato#2393 (fork: adeptofvoltron:fix/time-bomb-test-scanner). Gate green except a pre-existing unrelated cli fs-watch flake. Upstream labels/reviews not permitted from fork.
+
+### Phase 6: CI integration
+
+- [x] 6.1 Wire `check:time-bombs:fail` into the ci.yml `test` job — 2e1d8a1ab
