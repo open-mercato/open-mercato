@@ -55,8 +55,8 @@ are English placeholders in all four locales in the source; parity requires mirr
 
 ### Phase 1: Mirror the generate-watch-smoke page
 
-- [ ] 1.1 Copy `backend/generate-watch-smoke/page.meta.ts` + `page.tsx` into the template
-- [ ] 1.2 Mirror the five `example.generateWatchSmoke.*` keys into template `i18n/{en,de,es,pl}.json`
+- [x] 1.1 Copy `backend/generate-watch-smoke/page.meta.ts` + `page.tsx` into the template — 55d2972d6
+- [x] 1.2 Mirror the five `example.generateWatchSmoke.*` keys into template `i18n/{en,de,es,pl}.json` — 55d2972d6
 
 ### Phase 2: Verify parity and run checks
 
