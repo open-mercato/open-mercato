@@ -3,7 +3,7 @@
 **Last updated:** 2026-06-02 (resume 4 — QA round-5 system-wide regression, Phase 30)
 **Branch:** feat/oss-optimistic-locking
 **PR:** https://github.com/open-mercato/open-mercato/pull/2055
-**Current phase/step:** Phase 30 (QA round-5). 30.1–30.6 done (checkpoint 9). Next: 30.7 Pay Links + Checkout Templates.
+**Current phase/step:** Phase 30 COMPLETE (QA round-5). 14 fixes shipped + develop merged. Full lock suite 23/23 + 135 unit green. Remaining QA items are N/A or deferred (#2411 + entities defs). Awaiting human re-QA.
 **Last code commit:** 7025099a6 (feature_toggles global override lock).
 
 ## QA round-5 source

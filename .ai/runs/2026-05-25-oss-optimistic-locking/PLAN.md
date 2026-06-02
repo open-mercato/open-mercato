@@ -101,13 +101,16 @@
 | 30 | 30.6 | QA round-5: Feature Toggles (Global) override — GET returns updatedAt; card sends header + conflict bar; overrides PUT enforces | done | 7025099a6 |
 | 30 | 30.7 | QA round-5: Pay Links + Checkout Templates (LinkTemplateForm raw PUT) | done | 67e489b77 |
 | 30 | 30.8 | QA round-5: Sidebar Customization preferences | done | 4959f65f8 |
-| 30 | 30.9 | QA round-5: Saved table Views ("My Views") | todo | — |
-| 30 | 30.10 | QA round-5: System Entities + User Entities records lock | todo | — |
+| 30 | 30.9 | QA round-5: Saved table Views ("My Views") — perspectives save enforces on update + client header + conflict bar | done | 00ab27cac |
+| 30 | 30.10 | QA round-5: System/User Entities defs — DEFERRED (replace-all batch upsert coupled to #2411 scope bug; needs scope fix first; recommend combined follow-up) | done | (deferred, documented) |
 | 30 | 30.11 | QA round-5 #2411: System Entities save no-op — INVESTIGATED: separate EAV definitions.manage(read)/definitions.batch(write) scope-asymmetry bug, NOT locking; documented on PR, recommend separate issue | done | (no-code, investigated) |
-| 30 | 30.12 | QA round-5 #2409: Availability Schedule delete false success toast on 409 | todo | — |
-| 30 | 30.13 | QA round-5: Webhooks / Integrations / Data Sync / Notification Delivery / Scheduled Jobs / Dictionaries config — verify & fix | todo | — |
-| 30 | 30.14 | QA round-5: Workflow visual editor — verify & fix | todo | — |
-| 30 | 30.15 | Batched integration + Playwright verification (boot ephemeral env once) | todo | — |
+| 30 | 30.12 | QA round-5 #2409: Availability delete — removed duplicate success flash + version-checked the ruleset-editor schedule delete; literal 409+success not reproducible (all paths throw on 409); asked QA to re-confirm | done | fbedf4781 |
+| 30 | 30.13a | QA round-5: Webhooks endpoint edit lock | done | 153bb13f6 |
+| 30 | 30.13b | QA round-5: Data Sync schedule save lock | done | c40032a08 |
+| 30 | 30.13c | QA round-5: Dictionaries dictionary+entry edit lock | done | 557e22fa2 |
+| 30 | 30.13d | QA round-5: Integrations marketplace = N/A (stateless state endpoint, no DB updated_at); Notification Delivery = N/A (singleton settings blob); Scheduled Jobs = already protected (makeCrudRoute + CrudForm) | done | (verified, no-code) |
+| 30 | 30.14 | QA round-5: Workflow visual editor — server already enforced; added client 409→conflict-bar surfacing | done | 9804986d1 |
+| 30 | 30.15 | Integration verification: TC-LOCK-OSS full suite 23/23 green on ephemeral env (incl. new TC-LOCK-OSS-013); merge with develop resolved | done | b44dcc437 + bdfbd6266 |
 
 ## Goal (resume)
 

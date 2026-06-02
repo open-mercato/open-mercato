@@ -145,3 +145,11 @@ Append-only event log. Newest at the bottom.
 - 30.11 #2411: investigated — separate EAV definitions read/write scope bug, NOT locking. Documented on PR (comment), recommend separate issue. No code change.
 - 9 concrete QA-round-5 fixes shipped total (Customer Users, Customer Roles, Organizations, Inbox Settings, #2410, Feature Toggles Global, Pay Links+Checkout Templates, Sidebar).
 - Remaining: 30.9, 30.10, 30.12 (#2409 live-repro), 30.13/30.14 (live-verify cluster), 30.15 (Playwright/integration batch).
+
+## 2026-06-02 — checkpoint 11 (QA round-5 COMPLETE)
+- Merged develop (conflicts in core/package.json + yarn.lock resolved); PR MERGEABLE.
+- Landed 30.9–30.15: Saved Views, #2409 planner, Workflow editor surfacing, Webhooks, Data Sync, Dictionaries.
+- Verified N/A: Integrations (stateless), Notification Delivery (singleton blob), Scheduled Jobs (already protected).
+- Deferred w/ rationale: #2411 + System/User Entities defs (EAV scope bug; needs scope fix first).
+- VERIFICATION: TC-LOCK-OSS full suite 23/23 on ephemeral env; 135 unit tests + guards green; webhooks 4/4; typecheck clean.
+- 14 atomic fix commits this resume, each with a test + per-issue @alinadivante comment.
