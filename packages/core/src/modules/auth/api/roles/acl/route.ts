@@ -11,7 +11,6 @@ import { RoleAcl, Role } from '@open-mercato/core/modules/auth/data/entities'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import { resolveIsSuperAdmin } from '@open-mercato/core/modules/auth/lib/tenantAccess'
 import { RbacService } from '@open-mercato/core/modules/auth/services/rbacService'
-import { withAtomicFlush } from '@open-mercato/shared/lib/commands/flush'
 import {
   assertActorCanGrantAcl,
   assertActorCanModifySuperAdminRoleTarget,
