@@ -54,6 +54,11 @@ Run focused package validation, self-review backward compatibility, commit, push
 - `yarn typecheck` — passed after `yarn generate`.
 - `yarn workspace @open-mercato/cache typecheck` — blocked by package-local script not resolving root `typescript`; root `tsc` command above covered the package.
 
+## PR
+
+- Opened PR #2400 against `open-mercato:develop`.
+- Requested `review`, `skip-qa`, and `refactor` labels in a PR comment because the current GitHub token cannot apply labels to the upstream repository.
+
 ## Progress
 
 > Convention: `- [ ]` pending, `- [x]` done. Append ` — <commit sha>` when a step lands. Do not rename step titles.
@@ -70,4 +75,4 @@ Run focused package validation, self-review backward compatibility, commit, push
 ### Phase 3: Validation And PR
 
 - [x] 3.1 Run validation and self-review — a3c391314
-- [ ] 3.2 Push branch and open PR
+- [x] 3.2 Push branch and open PR — PR #2400
