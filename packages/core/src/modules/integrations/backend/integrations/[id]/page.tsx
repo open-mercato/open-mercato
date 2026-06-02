@@ -35,7 +35,7 @@ import {
   type IntegrationCredentialField,
   type IntegrationDetailBuiltInTab,
 } from '@open-mercato/shared/modules/integrations/types'
-import { LoadingMessage, ErrorMessage } from '@open-mercato/ui/backend/detail'
+import { LoadingMessage, ErrorMessage, RecordNotFoundState } from '@open-mercato/ui/backend/detail'
 import { LogList, type LogListEntry } from '@open-mercato/ui/backend/LogList'
 import { Activity, AlertTriangle, Bell, Calendar, CheckCircle2, CreditCard, FileText, FileX, HardDrive, Key, MessageSquare, RefreshCw, Settings, Truck, Webhook, XCircle, Zap } from 'lucide-react'
 import { EmptyState } from '@open-mercato/ui/primitives/empty-state'
@@ -415,6 +415,7 @@ export default function IntegrationDetailPage({ params }: IntegrationDetailPageP
   const [detail, setDetail] = React.useState<IntegrationDetail | null>(null)
   const [isLoading, setIsLoading] = React.useState(true)
   const [error, setError] = React.useState<string | null>(null)
+  const [isNotFound, setIsNotFound] = React.useState(false)
 
   const [credValues, setCredValues] = React.useState<Record<string, unknown>>({})
   const [credentialsFormKey, setCredentialsFormKey] = React.useState(0)
@@ -451,6 +452,7 @@ export default function IntegrationDetailPage({ params }: IntegrationDetailPageP
       return
     }
     if (showLoading) setError(null)
+    if (showLoading) setIsNotFound(false)
     if (showLoading) setIsLoading(true)
     try {
       const call = await apiCall<IntegrationDetail>(
@@ -459,7 +461,11 @@ export default function IntegrationDetailPage({ params }: IntegrationDetailPageP
         { fallback: null },
       )
       if (!call.ok || !call.result) {
-        if (showLoading) setError(t('integrations.detail.loadError', 'Failed to load integration'))
+        if (call.status === 404) {
+          if (showLoading) setIsNotFound(true)
+        } else {
+          if (showLoading) setError(t('integrations.detail.loadError', 'Failed to load integration'))
+        }
         if (showLoading) setIsLoading(false)
         return
       }
@@ -1012,6 +1018,19 @@ export default function IntegrationDetailPage({ params }: IntegrationDetailPageP
   }, [activeTab, refreshRunActivity, runIdFromUrl])
 
   if (isLoading) return <Page><PageBody><LoadingMessage label={t('integrations.detail.title')} /></PageBody></Page>
+  if (isNotFound) {
+    return (
+      <Page>
+        <PageBody>
+          <RecordNotFoundState
+            label={t('integrations.detail.notFound', 'Integration not found.')}
+            backHref="/backend/integrations"
+            backLabel={t('integrations.detail.backToList', 'Back to integrations')}
+          />
+        </PageBody>
+      </Page>
+    )
+  }
   if (error || !detail || !resolvedIntegration || !resolvedState) {
     return <Page><PageBody><ErrorMessage label={error ?? t('integrations.detail.loadError')} /></PageBody></Page>
   }
