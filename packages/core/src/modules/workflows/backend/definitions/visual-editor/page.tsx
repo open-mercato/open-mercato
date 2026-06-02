@@ -34,6 +34,7 @@ import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { FormHeader } from '@open-mercato/ui/backend/forms'
 import { apiCall, withScopedApiRequestHeaders } from '@open-mercato/ui/backend/utils/apiCall'
 import { buildOptimisticLockHeader } from '@open-mercato/ui/backend/utils/optimisticLock'
+import { surfaceRecordConflict } from '@open-mercato/ui/backend/conflicts'
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
 import { CircleQuestionMark, Info, PanelTopClose, PanelTopOpen, Play, Save, Trash2 } from 'lucide-react'
 import { NODE_TYPE_ICONS, NODE_TYPE_COLORS, NODE_TYPE_LABELS } from '../../../lib/node-type-icons'
@@ -412,7 +413,13 @@ export default function VisualEditorPage() {
       }
 
       if (!result.ok) {
-        flash(`Failed to save: ${result.result?.error || 'Unknown error'}`, 'error')
+        const conflictError = Object.assign(new Error(t('workflows.messages.saveFailed', 'Failed to save')), {
+          status: result.status,
+          ...(result.result && typeof result.result === 'object' ? result.result : {}),
+        })
+        if (!surfaceRecordConflict(conflictError, t)) {
+          flash(`Failed to save: ${result.result?.error || 'Unknown error'}`, 'error')
+        }
         return
       }
 
