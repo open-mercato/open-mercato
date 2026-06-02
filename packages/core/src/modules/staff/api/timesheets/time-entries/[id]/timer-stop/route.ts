@@ -7,6 +7,7 @@ import { CrudHttpError } from '@open-mercato/shared/lib/crud/errors'
 import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
 import { findOneWithDecryption, findWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import type { EntityManager } from '@mikro-orm/postgresql'
+import { LockMode } from '@mikro-orm/core'
 import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
 import { StaffTimeEntry, StaffTimeEntrySegment } from '../../../../../data/entities'
 import { getStaffMemberByUserId } from '../../../../../lib/staffMemberResolver'
@@ -70,22 +71,6 @@ export async function POST(req: Request) {
       throw new CrudHttpError(403, { error: translate('staff.timesheets.errors.notOwner', 'You can only manage your own time entries.') })
     }
 
-    const segments = await findWithDecryption(
-      em,
-      StaffTimeEntrySegment,
-      { timeEntryId: entry.id, tenantId, organizationId, deletedAt: null },
-      {},
-      scopeCtx,
-    )
-
-    const activeSegment = segments.find((segment) => !segment.endedAt)
-    if (!activeSegment) {
-      return NextResponse.json(
-        { error: translate('staff.timesheets.errors.noActiveSegment', 'No active timer segment found for this entry.') },
-        { status: 409 },
-      )
-    }
-
     const guardResult = await runStaffMutationGuards(
       container,
       {
@@ -107,29 +92,62 @@ export async function POST(req: Request) {
       )
     }
 
-    const now = new Date()
-    activeSegment.endedAt = now
-    entry.endedAt = now
-
-    const allSegments = segments.map((segment) => {
-      if (segment.id === activeSegment.id) {
-        return { ...segment, endedAt: now }
+    // Recompute and persist the timer state inside a single transaction with a
+    // PESSIMISTIC_WRITE lock on the time entry row, so concurrent timer-stop /
+    // segment writes on the same entry serialize instead of racing on a shared
+    // in-memory snapshot (issue #2416).
+    const { now, durationMinutes } = await em.transactional(async (trx) => {
+      const lockedEntry = await findOneWithDecryption(
+        trx,
+        StaffTimeEntry,
+        { id: entryId, tenantId, organizationId, deletedAt: null },
+        { lockMode: LockMode.PESSIMISTIC_WRITE },
+        scopeCtx,
+      )
+      if (!lockedEntry) {
+        throw new CrudHttpError(404, { error: translate('staff.timesheets.errors.entryNotFound', 'Time entry not found.') })
       }
-      return segment
+
+      const segments = await findWithDecryption(
+        trx,
+        StaffTimeEntrySegment,
+        { timeEntryId: lockedEntry.id, tenantId, organizationId, deletedAt: null },
+        {},
+        scopeCtx,
+      )
+
+      const activeSegment = segments.find((segment) => !segment.endedAt)
+      if (!activeSegment) {
+        throw new CrudHttpError(409, {
+          error: translate('staff.timesheets.errors.noActiveSegment', 'No active timer segment found for this entry.'),
+        })
+      }
+
+      const stoppedAt = new Date()
+      activeSegment.endedAt = stoppedAt
+      lockedEntry.endedAt = stoppedAt
+
+      const allSegments = segments.map((segment) => {
+        if (segment.id === activeSegment.id) {
+          return { ...segment, endedAt: stoppedAt }
+        }
+        return segment
+      })
+
+      const totalWorkMinutes = allSegments
+        .filter((segment) => segment.segmentType === 'work' && segment.startedAt && segment.endedAt)
+        .reduce((sum, segment) => {
+          const startMs = new Date(segment.startedAt).getTime()
+          const endMs = new Date(segment.endedAt!).getTime()
+          return sum + (endMs - startMs)
+        }, 0)
+
+      const computedMinutes = Math.round(totalWorkMinutes / 60000)
+      lockedEntry.durationMinutes = computedMinutes
+
+      await trx.flush()
+      return { now: stoppedAt, durationMinutes: computedMinutes }
     })
-
-    const totalWorkMinutes = allSegments
-      .filter((segment) => segment.segmentType === 'work' && segment.startedAt && segment.endedAt)
-      .reduce((sum, segment) => {
-        const startMs = new Date(segment.startedAt).getTime()
-        const endMs = new Date(segment.endedAt!).getTime()
-        return sum + (endMs - startMs)
-      }, 0)
-
-    const durationMinutes = Math.round(totalWorkMinutes / 60000)
-    entry.durationMinutes = durationMinutes
-
-    await em.flush()
 
     void emitStaffEvent('staff.timesheets.time_entry.timer_stopped', {
       id: entry.id,
