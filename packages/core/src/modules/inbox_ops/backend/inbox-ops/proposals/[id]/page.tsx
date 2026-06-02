@@ -7,7 +7,7 @@ import { Page, PageBody } from '@open-mercato/ui/backend/Page'
 import { Button } from '@open-mercato/ui/primitives/button'
 import { apiCall } from '@open-mercato/ui/backend/utils/apiCall'
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
-import { LoadingMessage, ErrorMessage } from '@open-mercato/ui/backend/detail'
+import { LoadingMessage, ErrorMessage, RecordNotFoundState } from '@open-mercato/ui/backend/detail'
 import { useT, useLocale } from '@open-mercato/shared/lib/i18n/context'
 import { useConfirmDialog } from '@open-mercato/ui/backend/confirm-dialog'
 import { useGuardedMutation } from '@open-mercato/ui/backend/injection/useGuardedMutation'
@@ -156,6 +156,7 @@ export default function ProposalDetailPage({ params }: { params?: { id?: string 
   const [email, setEmail] = React.useState<EmailDetail | null>(null)
   const [isLoading, setIsLoading] = React.useState(true)
   const [error, setError] = React.useState<string | null>(null)
+  const [isNotFound, setIsNotFound] = React.useState(false)
   const [isProcessing, setIsProcessing] = React.useState(false)
 
   const { confirm, ConfirmDialogElement } = useConfirmDialog()
@@ -244,6 +245,7 @@ export default function ProposalDetailPage({ params }: { params?: { id?: string 
     if (!proposalId) return
     setIsLoading(true)
     setError(null)
+    setIsNotFound(false)
     try {
       const result = await apiCall<{
         proposal: ProposalDetail
@@ -256,6 +258,8 @@ export default function ProposalDetailPage({ params }: { params?: { id?: string 
         setActions(result.result.actions || [])
         setDiscrepancies(result.result.discrepancies || [])
         setEmail(result.result.email)
+      } else if (result?.status === 404) {
+        setIsNotFound(true)
       } else {
         setError(t('inbox_ops.flash.load_failed', 'Failed to load proposal'))
       }
@@ -400,8 +404,37 @@ export default function ProposalDetailPage({ params }: { params?: { id?: string 
     setSendingReplyId(null)
   }, [proposalId, t, loadData, runMutation])
 
-  if (isLoading) return <LoadingMessage label={t('inbox_ops.loading_proposal', 'Loading proposal...')} />
-  if (error) return <ErrorMessage label={error} />
+  if (isLoading) {
+    return (
+      <Page>
+        <PageBody>
+          <LoadingMessage label={t('inbox_ops.loading_proposal', 'Loading proposal...')} />
+        </PageBody>
+      </Page>
+    )
+  }
+  if (isNotFound) {
+    return (
+      <Page>
+        <PageBody>
+          <RecordNotFoundState
+            label={t('inbox_ops.proposal.notFound', 'Proposal not found.')}
+            backHref="/backend/inbox-ops"
+            backLabel={t('inbox_ops.proposal.backToList', 'Back to inbox')}
+          />
+        </PageBody>
+      </Page>
+    )
+  }
+  if (error) {
+    return (
+      <Page>
+        <PageBody>
+          <ErrorMessage label={error} />
+        </PageBody>
+      </Page>
+    )
+  }
 
   const pendingActions = actions.filter((a) => a.status === 'pending')
   const emailIsProcessing = email?.status === 'processing'

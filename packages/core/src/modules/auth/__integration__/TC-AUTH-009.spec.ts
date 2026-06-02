@@ -29,8 +29,13 @@ test.describe('TC-AUTH-009: User Creation Validation Errors', () => {
 
     await page.getByRole('button', { name: 'Create' }).first().click();
 
+    // Submitting an invalid payload is blocked client-side: CrudForm keeps the
+    // user on the create route and surfaces the validation error by moving focus
+    // to the first invalid required field (organization). There is no top-level
+    // error alert on this form, so asserting on role="alert" is unreliable — it
+    // resolves to the Next.js route announcer and any transient info banners
+    // rather than a validation error, which flakes under strict mode in CI.
     await expect(page).toHaveURL(/\/backend\/users\/create/);
-    await expect(page.getByRole('alert')).toBeVisible();
     await expect(page.locator('#organizationId')).toBeFocused();
   });
 });

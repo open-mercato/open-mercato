@@ -1,7 +1,6 @@
 export { }
 
 import { FeatureToggle } from '../../data/entities'
-import { CrudHttpError } from '@open-mercato/shared/lib/crud/errors'
 
 const registerCommand = jest.fn()
 const invalidateIsEnabledCacheByIdentifierTag = jest.fn().mockResolvedValue(undefined)
@@ -61,6 +60,7 @@ describe('feature_toggles.global commands', () => {
 
             const ctx: any = {
                 container,
+                auth: { isSuperAdmin: true },
             }
 
             const input = {
@@ -83,6 +83,82 @@ describe('feature_toggles.global commands', () => {
 
                 type: 'boolean'
             }))
+            expect(em.persist).toHaveBeenCalled()
+            expect(em.flush).toHaveBeenCalled()
+        })
+
+        it('rejects a non-super-admin caller with 403 and never writes (issue #2266)', async () => {
+            let createCommand: any
+            let updateCommand: any
+            let deleteCommand: any
+            jest.isolateModules(() => {
+                require('../global')
+                createCommand = registerCommand.mock.calls.find(([cmd]) => cmd.id === 'feature_toggles.global.create')?.[0]
+                updateCommand = registerCommand.mock.calls.find(([cmd]) => cmd.id === 'feature_toggles.global.update')?.[0]
+                deleteCommand = registerCommand.mock.calls.find(([cmd]) => cmd.id === 'feature_toggles.global.delete')?.[0]
+            })
+
+            const em = {
+                fork: jest.fn().mockReturnThis(),
+                create: jest.fn(),
+                persist: jest.fn(),
+                remove: jest.fn(),
+                flush: jest.fn().mockResolvedValue(undefined),
+                findOne: jest.fn(),
+                find: jest.fn(),
+            }
+            const container = { resolve: jest.fn(() => em) }
+            // Tenant admin (not super-admin) — the cross-tenant escalation vector.
+            const ctx: any = { container, auth: { isSuperAdmin: false, tenantId: 'tenant-a' } }
+
+            await expect(
+                createCommand.execute({ identifier: 'x', name: 'X', type: 'boolean', defaultValue: true }, ctx),
+            ).rejects.toMatchObject({ status: 403 })
+
+            await expect(
+                updateCommand.execute({ id: '123e4567-e89b-12d3-a456-426614174000' }, ctx),
+            ).rejects.toMatchObject({ status: 403 })
+
+            await expect(
+                deleteCommand.execute({ id: '123e4567-e89b-12d3-a456-426614174000' }, ctx),
+            ).rejects.toMatchObject({ status: 403 })
+
+            // The guard must short-circuit before any persistence work.
+            expect(em.flush).not.toHaveBeenCalled()
+            expect(em.persist).not.toHaveBeenCalled()
+            expect(em.remove).not.toHaveBeenCalled()
+        })
+
+        it('allows a trusted system actor (no auth) to create global toggles for seeding (issue #2278)', async () => {
+            let createCommand: any
+            jest.isolateModules(() => {
+                require('../global')
+                createCommand = registerCommand.mock.calls.find(([cmd]) => cmd.id === 'feature_toggles.global.create')?.[0]
+            })
+
+            const em = {
+                fork: jest.fn().mockReturnThis(),
+                create: jest.fn((_ctor, data) => ({ ...data, id: 'seeded-toggle-id' })),
+                persist: jest.fn(),
+                flush: jest.fn().mockResolvedValue(undefined),
+                findOne: jest.fn(),
+            }
+            const container = {
+                resolve: jest.fn((token: string) => {
+                    if (token === 'em') return em
+                    if (token === 'featureTogglesService') return { invalidateIsEnabledCacheByIdentifierTag }
+                    return undefined
+                }),
+            }
+            // CLI seeding context: no authenticated actor, explicit systemActor flag.
+            const ctx: any = { container, auth: null, systemActor: true }
+
+            const result = await createCommand.execute(
+                { identifier: 'seeded_feature', name: 'Seeded Feature', type: 'boolean', defaultValue: true },
+                ctx,
+            )
+
+            expect(result).toEqual({ toggleId: 'seeded-toggle-id' })
             expect(em.persist).toHaveBeenCalled()
             expect(em.flush).toHaveBeenCalled()
         })
@@ -119,7 +195,7 @@ describe('feature_toggles.global commands', () => {
                 }),
             }
 
-            const ctx: any = { container }
+            const ctx: any = { container, auth: { isSuperAdmin: true } }
             const logEntry = { resourceId: toggleId }
 
             await createCommand.undo({ logEntry, ctx })
@@ -162,7 +238,7 @@ describe('feature_toggles.global commands', () => {
                 }),
             }
 
-            const ctx: any = { container }
+            const ctx: any = { container, auth: { isSuperAdmin: true } }
 
             const input = {
                 id: '123e4567-e89b-12d3-a456-426614174000',
@@ -199,7 +275,7 @@ describe('feature_toggles.global commands', () => {
                 }),
             }
 
-            const ctx: any = { container }
+            const ctx: any = { container, auth: { isSuperAdmin: true } }
 
             await expect(updateCommand.execute({ id: '123e4567-e89b-12d3-a456-426614174000' }, ctx)).rejects.toThrow('Toggle not found')
         })
@@ -249,7 +325,7 @@ describe('feature_toggles.global commands', () => {
                 })
             }
 
-            const ctx: any = { container }
+            const ctx: any = { container, auth: { isSuperAdmin: true } }
 
             const result = await deleteCommand.execute({ id: '123e4567-e89b-12d3-a456-426614174000' }, ctx)
 
@@ -317,7 +393,7 @@ describe('feature_toggles.global commands', () => {
                 }),
             }
 
-            const ctx: any = { container }
+            const ctx: any = { container, auth: { isSuperAdmin: true } }
 
             await expect(deleteCommand.execute({ id: '123e4567-e89b-12d3-a456-426614174000' }, ctx)).rejects.toThrow('Feature toggle not found')
         })

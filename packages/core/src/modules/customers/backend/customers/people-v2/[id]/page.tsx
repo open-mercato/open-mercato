@@ -16,7 +16,7 @@ import { flash } from '@open-mercato/ui/backend/FlashMessages'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { useOrganizationScopeDetail } from '@open-mercato/shared/lib/frontend/useOrganizationScope'
 import { Button } from '@open-mercato/ui/primitives/button'
-import { AttachmentsSection, ErrorMessage, LoadingMessage, type SectionAction } from '@open-mercato/ui/backend/detail'
+import { AttachmentsSection, ErrorMessage, LoadingMessage, RecordNotFoundState, type SectionAction } from '@open-mercato/ui/backend/detail'
 import { useConfirmDialog } from '@open-mercato/ui/backend/confirm-dialog'
 import { InjectionSpot, useInjectionWidgets } from '@open-mercato/ui/backend/injection/InjectionSpot'
 import { useGuardedMutation } from '@open-mercato/ui/backend/injection/useGuardedMutation'
@@ -64,6 +64,7 @@ export default function PersonDetailV2Page({ params }: { params?: { id?: string 
   const [data, setData] = React.useState<PersonOverview | null>(null)
   const [isLoading, setIsLoading] = React.useState(true)
   const [error, setError] = React.useState<string | null>(null)
+  const [isNotFound, setIsNotFound] = React.useState(false)
 
   // Form state lifted for header Save button
   const [isDirty, setIsDirty] = React.useState(false)
@@ -125,7 +126,7 @@ export default function PersonDetailV2Page({ params }: { params?: { id?: string 
   const initialLoadDoneRef = React.useRef(false)
   const loadData = React.useCallback(async () => {
     if (!id) {
-      setError(t('customers.people.detail.error.notFound', 'Person not found.'))
+      setIsNotFound(true)
       setIsLoading(false)
       return
     }
@@ -133,6 +134,7 @@ export default function PersonDetailV2Page({ params }: { params?: { id?: string 
       setIsLoading(true)
     }
     setError(null)
+    setIsNotFound(false)
     try {
       const payload = await readApiResultOrThrow<PersonOverview>(
         `/api/customers/people/${encodeURIComponent(id)}`,
@@ -141,8 +143,12 @@ export default function PersonDetailV2Page({ params }: { params?: { id?: string 
       )
       setData(payload as PersonOverview)
     } catch (err) {
-      const message = err instanceof Error ? err.message : t('customers.people.detail.error.load', 'Failed to load person.')
-      setError(message)
+      if ((err as { status?: number }).status === 404) {
+        setIsNotFound(true)
+      } else {
+        const message = err instanceof Error ? err.message : t('customers.people.detail.error.load', 'Failed to load person.')
+        setError(message)
+      }
       if (!initialLoadDoneRef.current) setData(null)
     } finally {
       setIsLoading(false)
@@ -376,12 +382,26 @@ export default function PersonDetailV2Page({ params }: { params?: { id?: string 
     )
   }
 
+  if (isNotFound) {
+    return (
+      <Page>
+        <PageBody>
+          <RecordNotFoundState
+            label={t('customers.people.detail.error.notFound', 'Person not found.')}
+            backHref="/backend/customers/people"
+            backLabel={t('customers.people.detail.actions.backToList', 'Back to people')}
+          />
+        </PageBody>
+      </Page>
+    )
+  }
+
   if (error || !data?.person?.id || !initialValues) {
     return (
       <Page>
         <PageBody>
           <ErrorMessage
-            label={error || t('customers.people.detail.error.notFound', 'Person not found.')}
+            label={error ?? t('customers.people.detail.error.load', 'Failed to load person.')}
             action={(
               <Button asChild variant="outline">
                 <Link href="/backend/customers/people">
