@@ -473,20 +473,13 @@ export default function EditDefinitionsPage({ params }: { params?: { entityId?: 
       flash('Please fix validation errors in field definitions', 'error')
       throw createCrudFormError('Please fix validation errors in field definitions')
     }
-    if (entitySource === 'custom') {
-      const partial = upsertCustomEntitySchema
-        .pick({ label: true, description: true, labelField: true as any, defaultEditor: true as any })
-        .extend({ showInSidebar: z.boolean().optional() }) as unknown as z.ZodTypeAny
-      const normalized = {
-        ...(vals as any),
-        defaultEditor: (vals as any)?.defaultEditor || undefined,
-      }
-      const parsed = partial.safeParse(normalized)
-      if (!parsed.success) throw createCrudFormError('Validation failed')
+    {
+      const entityPayload = buildEntityMetadataPayload(entitySource, vals)
+      if (!entityPayload) throw createCrudFormError('Validation failed')
       const callEntity = await apiCall('/api/entities/entities', {
         method: 'POST',
         headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({ entityId, ...(parsed.data as any) }),
+        body: JSON.stringify({ entityId, ...entityPayload }),
       })
       if (!callEntity.ok) {
         await raiseCrudError(callEntity.response, 'Failed to save entity')
@@ -602,4 +595,22 @@ export default function EditDefinitionsPage({ params }: { params?: { entityId?: 
       </Dialog>
     </Page>
   )
+}
+
+export function buildEntityMetadataPayload(
+  entitySource: 'code' | 'custom',
+  vals: Record<string, unknown>,
+): Record<string, unknown> | null {
+  const partial = entitySource === 'custom'
+    ? upsertCustomEntitySchema
+        .pick({ label: true, description: true, labelField: true as any, defaultEditor: true as any })
+        .extend({ showInSidebar: z.boolean().optional() }) as unknown as z.ZodTypeAny
+    : upsertCustomEntitySchema
+        .pick({ label: true, description: true, defaultEditor: true as any }) as unknown as z.ZodTypeAny
+  const normalized = {
+    ...vals,
+    defaultEditor: typeof vals.defaultEditor === 'string' && vals.defaultEditor ? vals.defaultEditor : undefined,
+  }
+  const parsed = partial.safeParse(normalized)
+  return parsed.success ? (parsed.data as Record<string, unknown>) : null
 }
