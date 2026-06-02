@@ -22,6 +22,7 @@ import { E } from '#generated/entities.ids.generated'
 import type { RbacService } from '@open-mercato/core/modules/auth/services/rbacService'
 import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
 import { findWithDecryption, findOneWithDecryption } from '@open-mercato/shared/lib/encryption/find'
+import { isOrganizationReadAccessAllowed } from '@open-mercato/core/modules/directory/utils/organizationScopeGuard'
 import { decryptEntitiesWithFallbackScope } from '@open-mercato/shared/lib/encryption/subscriber'
 import { isMissingDealStageTransitionTable, warnMissingDealStageTransitionTable } from '../../../lib/dealStageTransitionTable'
 
@@ -377,15 +378,7 @@ export async function GET(request: Request, context: { params?: Record<string, u
     return notFound('Deal not found')
   }
 
-  const allowedOrgIds = new Set<string>()
-  if (Array.isArray(scope?.filterIds)) {
-    scope.filterIds.forEach((id) => {
-      if (typeof id === 'string' && id.trim().length) allowedOrgIds.add(id)
-    })
-  } else if (auth.orgId) {
-    allowedOrgIds.add(auth.orgId)
-  }
-  if (allowedOrgIds.size && deal.organizationId && !allowedOrgIds.has(deal.organizationId)) {
+  if (!isOrganizationReadAccessAllowed({ scope, auth, organizationId: deal.organizationId })) {
     return forbidden('Access denied')
   }
 
