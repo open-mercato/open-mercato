@@ -9,6 +9,7 @@ import { parseScopedCommandInput } from '@open-mercato/shared/lib/api/scoped'
 import { findOneWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import { readJsonSafe } from '@open-mercato/shared/lib/http/readJsonSafe'
 import type { EntityManager } from '@mikro-orm/postgresql'
+import { LockMode } from '@mikro-orm/core'
 import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
 import { StaffTimeEntry, StaffTimeEntrySegment } from '../../../../../data/entities'
 import { staffTimeEntrySegmentCreateSchema } from '../../../../../data/validators'
@@ -109,17 +110,35 @@ export async function POST(req: Request) {
       )
     }
 
-    const segmentData = {
-      tenantId: input.tenantId,
-      organizationId: input.organizationId,
-      timeEntryId: input.timeEntryId,
-      startedAt: input.startedAt,
-      endedAt: input.endedAt ?? null,
-      segmentType: input.segmentType,
-    }
-    const segment = em.create(StaffTimeEntrySegment, segmentData as never)
+    // Create the segment inside a single transaction with a PESSIMISTIC_WRITE
+    // lock on the parent time entry row, so segment writes serialize against
+    // concurrent timer-stop / segment mutations that recompute the entry from a
+    // shared snapshot (issue #2416).
+    const segment = await em.transactional(async (trx) => {
+      const lockedEntry = await findOneWithDecryption(
+        trx,
+        StaffTimeEntry,
+        { id: entryId, tenantId, organizationId, deletedAt: null },
+        { lockMode: LockMode.PESSIMISTIC_WRITE },
+        scopeCtx,
+      )
+      if (!lockedEntry) {
+        throw new CrudHttpError(404, { error: translate('staff.timesheets.errors.entryNotFound', 'Time entry not found.') })
+      }
 
-    await em.flush()
+      const segmentData = {
+        tenantId: input.tenantId,
+        organizationId: input.organizationId,
+        timeEntryId: input.timeEntryId,
+        startedAt: input.startedAt,
+        endedAt: input.endedAt ?? null,
+        segmentType: input.segmentType,
+      }
+      const created = trx.create(StaffTimeEntrySegment, segmentData as never)
+
+      await trx.flush()
+      return created
+    })
 
     if (guardResult.afterSuccessCallbacks.length) {
       await runStaffMutationGuardAfterSuccess(guardResult.afterSuccessCallbacks, {
