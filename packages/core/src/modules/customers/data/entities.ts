@@ -769,7 +769,7 @@ export class CustomerSettings {
   stuckThresholdDays: number = 14
 
   @Property({ name: 'dictionary_sort_modes', type: 'jsonb', nullable: true })
-  dictionarySortModes?: Partial<Record<string, DictionaryEntrySortMode>> | null
+  dictionarySortModes?: Record<string, DictionaryEntrySortMode> | null
 
   @Property({ name: 'created_at', type: Date, onCreate: () => new Date() })
   createdAt: Date = new Date()
