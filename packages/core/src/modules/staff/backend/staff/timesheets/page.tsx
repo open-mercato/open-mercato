@@ -530,6 +530,11 @@ export default function MyTimesheetsPage() {
   // --- Add row handler ---
   const visibleProjectIds = React.useMemo(() => new Set(projects.map((p) => p.id)), [projects])
 
+  // optimistic-lock-exempt: the my-projects PATCH calls below only toggle the
+  // caller's own `showInGrid` preference on the staff.timesheets.time_project_member
+  // junction (a per-user membership flag). There is no shared, multi-user-editable
+  // state to lose, so version-locking the toggle would surface false 409s without
+  // protecting any data.
   const handleAddProject = React.useCallback(async (project: ProjectRow) => {
     try {
       const payload = { showInGrid: true }

@@ -210,6 +210,10 @@ export default function TimesheetProjectDetailPage({ params }: { params?: { id?:
     })
   }, [])
 
+  // optimistic-lock-exempt: the employee add/remove calls below mutate the
+  // time-project ↔ staff-member assignment junction (createCrud/deleteCrud of a
+  // membership row), not a shared editable aggregate. Junction add/remove is exempt
+  // from OSS optimistic locking per the data-integrity contract.
   // --- Remove employee ---
   const handleRemoveEmployee = React.useCallback(async (emp: EmployeeAssignment) => {
     const confirmed = await confirm({

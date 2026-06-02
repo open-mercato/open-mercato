@@ -699,6 +699,7 @@
   "staff.teamMembers.detail.inline.urlInvalid": "Geben Sie eine gültige URL ein",
   "staff.teamMembers.detail.jobHistory.add": "Job hinzufügen",
   "staff.teamMembers.detail.jobHistory.cancel": "Abbrechen",
+  "staff.teamMembers.detail.jobHistory.conflict": "Dieser Datensatz wurde von jemand anderem geändert. Bitte aktualisieren und erneut versuchen.",
   "staff.teamMembers.detail.jobHistory.deleteConfirm": "Diesen Eintrag im Beschäftigungsverlauf löschen?",
   "staff.teamMembers.detail.jobHistory.deleted": "Beschäftigungsverlauf gelöscht.",
   "staff.teamMembers.detail.jobHistory.edit": "Job bearbeiten",
