@@ -36,6 +36,7 @@ type JobHistorySnapshot = {
   description: string | null
   startDate: string
   endDate: string | null
+  updatedAt: string
 }
 
 type JobHistoryUndoPayload = {
@@ -56,7 +57,25 @@ async function loadJobHistorySnapshot(em: EntityManager, id: string): Promise<Jo
     description: record.description ?? null,
     startDate: record.startDate.toISOString(),
     endDate: record.endDate ? record.endDate.toISOString() : null,
+    updatedAt: record.updatedAt.toISOString(),
   }
+}
+
+async function buildOptimisticLockError(): Promise<CrudHttpError> {
+  const { translate } = await resolveTranslations()
+  return new CrudHttpError(409, {
+    error: translate(
+      'staff.teamMembers.detail.jobHistory.conflict',
+      'This record was modified by someone else. Refresh and try again.',
+    ),
+  })
+}
+
+function hasUpdatedAtConflict(record: StaffTeamMemberJobHistory, expectedUpdatedAt?: string): boolean {
+  if (!expectedUpdatedAt) return false
+  const expectedTime = new Date(expectedUpdatedAt).getTime()
+  if (Number.isNaN(expectedTime)) return false
+  return record.updatedAt.getTime() !== expectedTime
 }
 
 const createJobHistoryCommand: CommandHandler<StaffTeamMemberJobHistoryCreateInput, { jobHistoryId: string }> = {
@@ -149,9 +168,13 @@ const updateJobHistoryCommand: CommandHandler<StaffTeamMemberJobHistoryUpdateInp
     const parsed = staffTeamMemberJobHistoryUpdateSchema.parse(rawInput)
     const em = (ctx.container.resolve('em') as EntityManager).fork()
     const record = await em.findOne(StaffTeamMemberJobHistory, { id: parsed.id })
-    if (!record) throw new CrudHttpError(404, { error: 'Job history entry not found' })
+    if (!record) {
+      if (parsed.updatedAt) throw await buildOptimisticLockError()
+      throw new CrudHttpError(404, { error: 'Job history entry not found' })
+    }
     ensureTenantScope(ctx, record.tenantId)
     ensureOrganizationScope(ctx, record.organizationId)
+    if (hasUpdatedAtConflict(record, parsed.updatedAt)) throw await buildOptimisticLockError()
 
     if (parsed.entityId !== undefined) {
       const member = await requireTeamMember(em, parsed.entityId, 'Team member not found')
@@ -268,7 +291,7 @@ const updateJobHistoryCommand: CommandHandler<StaffTeamMemberJobHistoryUpdateInp
   },
 }
 
-const deleteJobHistoryCommand: CommandHandler<{ body?: Record<string, unknown>; query?: Record<string, unknown> }, { jobHistoryId: string }> =
+const deleteJobHistoryCommand: CommandHandler<{ id?: string; updatedAt?: string; body?: Record<string, unknown>; query?: Record<string, unknown> }, { jobHistoryId: string }> =
   {
     id: 'staff.team-member-job-histories.delete',
     async prepare(input, ctx) {
@@ -279,11 +302,16 @@ const deleteJobHistoryCommand: CommandHandler<{ body?: Record<string, unknown>; 
     },
     async execute(input, ctx) {
       const id = requireId(input, 'Job history id required')
+      const expectedUpdatedAt = typeof input.updatedAt === 'string' ? input.updatedAt : undefined
       const em = (ctx.container.resolve('em') as EntityManager).fork()
       const record = await em.findOne(StaffTeamMemberJobHistory, { id })
-      if (!record) throw new CrudHttpError(404, { error: 'Job history entry not found' })
+      if (!record) {
+        if (expectedUpdatedAt) throw await buildOptimisticLockError()
+        throw new CrudHttpError(404, { error: 'Job history entry not found' })
+      }
       ensureTenantScope(ctx, record.tenantId)
       ensureOrganizationScope(ctx, record.organizationId)
+      if (hasUpdatedAtConflict(record, expectedUpdatedAt)) throw await buildOptimisticLockError()
       em.remove(record)
       await em.flush()
 
