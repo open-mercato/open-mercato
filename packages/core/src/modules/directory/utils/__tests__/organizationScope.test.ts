@@ -235,6 +235,68 @@ describe('resolveOrganizationScope', () => {
       expect(result.selectedId).toBeNull()
     })
   })
+
+  // Regression for issue #2228: scope resolution previously issued one
+  // `organizations` SELECT per collectWithDescendants call (accessible set,
+  // fallback set, selected set) — up to 3-4 sequential round-trips per request.
+  // It must now consolidate every descendant expansion into a single query.
+  describe('single-query consolidation (issue #2228)', () => {
+    it('issues exactly one organizations query when a selected org is inside a restricted ACL', async () => {
+      const em = createMockEm(ALL_ORGS)
+      const rbac = createMockRbac({
+        isSuperAdmin: false,
+        features: ['some.feature'],
+        organizations: ['org-a', 'org-b'],
+      })
+      const result = await resolveOrganizationScope({
+        em,
+        rbac,
+        auth: createAuth({ sub: 'user-1', isSuperAdmin: false, orgId: 'org-home' }),
+        selectedId: 'org-b',
+      })
+      expect((em.find as jest.Mock)).toHaveBeenCalledTimes(1)
+      expect(result.selectedId).toBe('org-b')
+      expect([...(result.filterIds ?? [])].sort()).toEqual(['org-b', 'org-b-child'])
+      expect([...(result.allowedIds ?? [])].sort()).toEqual(['org-a', 'org-b', 'org-b-child'])
+    })
+
+    it('issues exactly one organizations query when falling back from a disallowed selection', async () => {
+      const em = createMockEm(ALL_ORGS)
+      const rbac = createMockRbac({
+        isSuperAdmin: false,
+        features: ['some.feature'],
+        organizations: ['org-a'],
+      })
+      const result = await resolveOrganizationScope({
+        em,
+        rbac,
+        auth: createAuth({ sub: 'user-1', isSuperAdmin: false, orgId: 'org-home' }),
+        selectedId: 'org-b',
+      })
+      expect((em.find as jest.Mock)).toHaveBeenCalledTimes(1)
+      expect(result.selectedId).not.toBe('org-b')
+      expect(result.filterIds).toEqual(expect.arrayContaining(['org-a']))
+    })
+
+    it('batches accessible, selected, and fallback ids into one $in query', async () => {
+      const em = createMockEm(ALL_ORGS)
+      const rbac = createMockRbac({
+        isSuperAdmin: false,
+        features: ['some.feature'],
+        organizations: ['org-a', 'org-b'],
+      })
+      await resolveOrganizationScope({
+        em,
+        rbac,
+        auth: createAuth({ sub: 'user-1', isSuperAdmin: false, orgId: 'org-home' }),
+        selectedId: 'org-b',
+      })
+      expect((em.find as jest.Mock)).toHaveBeenCalledTimes(1)
+      const [, filter] = (em.find as jest.Mock).mock.calls[0]
+      expect(filter).toMatchObject({ tenant: 'tenant-1', deletedAt: null })
+      expect(filter.id.$in).toEqual(expect.arrayContaining(['org-a', 'org-b', 'org-home']))
+    })
+  })
 })
 
 describe('resolveOrganizationScopeForRequest', () => {

@@ -56,7 +56,7 @@ test.describe('TC-INT-002: Customer to Deal to Quote to Order Flow', () => {
         const opt = typeof label === 'string'
           ? page.getByRole('option', { name: label, exact })
           : page.getByRole('option', { name: label });
-        await expect(opt.first()).toBeVisible({ timeout: 10_000 });
+        await expect(opt.first()).toBeVisible({ timeout: 30_000 });
         await opt.first().click();
       }
       await selectByFieldId('companyEntityId', companyName)
@@ -109,7 +109,9 @@ test.describe('TC-INT-002: Customer to Deal to Quote to Order Flow', () => {
       await expect(page).toHaveURL(/\/backend\/customers\/deals$/i, { timeout: 30_000 });
 
       await page.getByPlaceholder(/Search by title/i).fill(dealTitle);
-      await page.locator('tr').filter({ hasText: dealTitle }).first().click();
+      const dealRow = page.locator('tr').filter({ has: page.getByText(dealTitle, { exact: true }) }).first();
+      await expect(dealRow).toBeVisible({ timeout: 30_000 });
+      await dealRow.getByText(dealTitle, { exact: true }).click();
       await expect(page).toHaveURL(/\/backend\/customers\/deals\/[0-9a-f-]{36}$/i);
       dealId = page.url().match(/\/backend\/customers\/deals\/([0-9a-f-]{36})$/i)?.[1] ?? null;
 

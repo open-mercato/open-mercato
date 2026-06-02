@@ -1,4 +1,3 @@
-import crypto from 'node:crypto'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import { decryptWithAesGcm, encryptWithAesGcm } from '@open-mercato/shared/lib/encryption/aes'
 import { findOneWithDecryption } from '@open-mercato/shared/lib/encryption/find'
@@ -14,7 +13,19 @@ import { EncryptionMap } from '../../entities/data/entities'
 import { IntegrationCredentials } from '../data/entities'
 
 const ENCRYPTED_CREDENTIALS_BLOB_KEY = '__om_encrypted_credentials_blob_v1'
-const DERIVED_KEY_CONTEXT = 'integrations.credentials'
+const CREDENTIALS_ENCRYPTION_UNAVAILABLE_MESSAGE =
+  'Integration credentials encryption key is unavailable. Configure Vault KMS or TENANT_DATA_ENCRYPTION_FALLBACK_KEY.'
+
+export class CredentialsEncryptionUnavailableError extends Error {
+  constructor() {
+    super(CREDENTIALS_ENCRYPTION_UNAVAILABLE_MESSAGE)
+    this.name = 'CredentialsEncryptionUnavailableError'
+  }
+}
+
+export function isCredentialsEncryptionUnavailableError(error: unknown): error is CredentialsEncryptionUnavailableError {
+  return error instanceof CredentialsEncryptionUnavailableError
+}
 
 function isRecordValue(value: unknown): value is Record<string, unknown> {
   return !!value && typeof value === 'object' && !Array.isArray(value)
@@ -26,35 +37,6 @@ function normalizeCredentialsRecord(value: unknown): Record<string, unknown> {
 
   const parsed = parseDecryptedFieldValue(value)
   return isRecordValue(parsed) ? parsed : {}
-}
-
-function resolveFallbackEncryptionSecret(): string {
-  const candidates = [
-    process.env.TENANT_DATA_ENCRYPTION_FALLBACK_KEY,
-    process.env.TENANT_DATA_ENCRYPTION_KEY,
-    process.env.AUTH_SECRET,
-    process.env.NEXTAUTH_SECRET,
-  ]
-
-  for (const value of candidates) {
-    const normalized = value?.trim()
-    if (normalized) return normalized
-  }
-
-  if (process.env.NODE_ENV !== 'production') return 'om-dev-tenant-encryption'
-
-  console.warn(
-    '[integrations.credentials] No encryption secret configured; using emergency fallback secret. Configure TENANT_DATA_ENCRYPTION_FALLBACK_KEY immediately.',
-  )
-  return 'om-emergency-fallback-rotate-me'
-}
-
-function deriveDekFromSecret(secret: string, tenantId: string): string {
-  return crypto
-    .createHash('sha256')
-    .update(`${DERIVED_KEY_CONTEXT}:${tenantId}:${secret}`)
-    .digest()
-    .toString('base64')
 }
 
 /**
@@ -128,7 +110,7 @@ export function createCredentialsService(em: EntityManager) {
     const created = await kms.createTenantDek(scope.tenantId)
     if (created?.key) return created.key
 
-    return deriveDekFromSecret(resolveFallbackEncryptionSecret(), scope.tenantId)
+    throw new CredentialsEncryptionUnavailableError()
   }
 
   async function encryptCredentialsBlob(
@@ -185,8 +167,8 @@ export function createCredentialsService(em: EntityManager) {
     },
 
     async save(integrationId: string, credentials: Record<string, unknown>, scope: IntegrationScope): Promise<void> {
-      await ensureCredentialsEncryptionMap(scope)
       const encryptedCredentials = await encryptCredentialsBlob(credentials, scope)
+      await ensureCredentialsEncryptionMap(scope)
 
       const row = await findOneWithDecryption(
         em,

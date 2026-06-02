@@ -247,6 +247,7 @@ const createProductUnitConversionCommand: CommandHandler<
     const product = await requireProduct(
       em,
       parsed.productId,
+      { tenantId: parsed.tenantId, organizationId: parsed.organizationId },
       translate("catalog.errors.productNotFound", "Catalog product not found"),
     );
     ensureSameScope(product, parsed.organizationId, parsed.tenantId);
@@ -373,7 +374,12 @@ const updateProductUnitConversionCommand: CommandHandler<
       });
     const product =
       typeof record.product === "string"
-        ? await requireProduct(em, record.product, translate("catalog.errors.productNotFound", "Catalog product not found"))
+        ? await requireProduct(
+            em,
+            record.product,
+            { tenantId: record.tenantId, organizationId: record.organizationId },
+            translate("catalog.errors.productNotFound", "Catalog product not found"),
+          )
         : record.product;
     ensureTenantScope(ctx, record.tenantId);
     ensureOrganizationScope(ctx, record.organizationId);

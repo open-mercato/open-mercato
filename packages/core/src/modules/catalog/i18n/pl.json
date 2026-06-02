@@ -361,6 +361,7 @@
   "catalog.products.create.variantsBuilder.vatColumn": "Klasa podatkowa",
   "catalog.products.create.variantsBuilder.vatOptionDefault": "Użyj klasy podatkowej produktu ({{label}})",
   "catalog.products.create.variantsBuilder.vatOptionNone": "Brak klasy podatkowej",
+  "catalog.products.edit.actions.backToList": "Powrót do listy produktów",
   "catalog.products.edit.custom.title": "Atrybuty niestandardowe",
   "catalog.products.edit.dimensions": "Wymiary i waga",
   "catalog.products.edit.dimensions.depth": "Głębokość",
