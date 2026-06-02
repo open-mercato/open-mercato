@@ -44,13 +44,12 @@ export async function POST(req: Request) {
   await em.transactional(async (trx) => {
     await customerUserService.updatePassword(user, parsed.data.password, trx)
     await customerSessionService.revokeAllUserSessions(user.id, trx)
+    await trx.nativeUpdate(
+      CustomerUser,
+      { id: user.id, emailVerifiedAt: null },
+      { emailVerifiedAt: new Date() },
+    )
   })
-
-  await em.nativeUpdate(
-    CustomerUser,
-    { id: user.id, emailVerifiedAt: null },
-    { emailVerifiedAt: new Date() },
-  )
 
   void emitCustomerAccountsEvent('customer_accounts.password.changed', {
     userId: user.id,

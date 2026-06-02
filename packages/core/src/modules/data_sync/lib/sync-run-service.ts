@@ -1,5 +1,6 @@
 import type { EntityManager, FilterQuery } from '@mikro-orm/postgresql'
 import { findAndCountWithDecryption, findOneWithDecryption, findWithDecryption } from '@open-mercato/shared/lib/encryption/find'
+import { withAtomicFlush } from '@open-mercato/shared/lib/commands/flush'
 import { SyncCursor, SyncRun } from '../data/entities'
 
 type SyncScope = {
@@ -8,6 +9,38 @@ type SyncScope = {
 }
 
 export function createSyncRunService(em: EntityManager) {
+  async function resolveCursorRow(run: SyncRun, scope: SyncScope): Promise<SyncCursor | null> {
+    return findOneWithDecryption(
+      em,
+      SyncCursor,
+      {
+        integrationId: run.integrationId,
+        entityType: run.entityType,
+        direction: run.direction,
+        organizationId: scope.organizationId,
+        tenantId: scope.tenantId,
+      },
+      undefined,
+      scope,
+    )
+  }
+
+  function applyCursorMutation(run: SyncRun, cursorRow: SyncCursor | null, cursor: string, scope: SyncScope): void {
+    run.cursor = cursor
+    if (cursorRow) {
+      cursorRow.cursor = cursor
+    } else {
+      em.create(SyncCursor, {
+        integrationId: run.integrationId,
+        entityType: run.entityType,
+        direction: run.direction,
+        cursor,
+        organizationId: scope.organizationId,
+        tenantId: scope.tenantId,
+      })
+    }
+  }
+
   return {
     async createRun(input: {
       integrationId: string
@@ -142,36 +175,32 @@ export function createSyncRunService(em: EntityManager) {
     async updateCursor(runId: string, cursor: string, scope: SyncScope): Promise<void> {
       const run = await this.getRun(runId, scope)
       if (!run) return
-      run.cursor = cursor
+      const cursorRow = await resolveCursorRow(run, scope)
+      await withAtomicFlush(em, [
+        () => applyCursorMutation(run, cursorRow, cursor, scope),
+      ], { transaction: true })
+    },
 
-      const cursorRow = await findOneWithDecryption(
-        em,
-        SyncCursor,
-        {
-        integrationId: run.integrationId,
-        entityType: run.entityType,
-        direction: run.direction,
-        organizationId: scope.organizationId,
-        tenantId: scope.tenantId,
+    async commitBatchProgress(
+      runId: string,
+      delta: Partial<Pick<SyncRun, 'createdCount' | 'updatedCount' | 'skippedCount' | 'failedCount' | 'batchesCompleted'>>,
+      cursor: string,
+      scope: SyncScope,
+    ): Promise<SyncRun | null> {
+      const run = await this.getRun(runId, scope)
+      if (!run) return null
+      const cursorRow = await resolveCursorRow(run, scope)
+      await withAtomicFlush(em, [
+        () => {
+          run.createdCount += delta.createdCount ?? 0
+          run.updatedCount += delta.updatedCount ?? 0
+          run.skippedCount += delta.skippedCount ?? 0
+          run.failedCount += delta.failedCount ?? 0
+          run.batchesCompleted += delta.batchesCompleted ?? 0
+          applyCursorMutation(run, cursorRow, cursor, scope)
         },
-        undefined,
-        scope,
-      )
-
-      if (cursorRow) {
-        cursorRow.cursor = cursor
-      } else {
-        em.create(SyncCursor, {
-          integrationId: run.integrationId,
-          entityType: run.entityType,
-          direction: run.direction,
-          cursor,
-          organizationId: scope.organizationId,
-          tenantId: scope.tenantId,
-        })
-      }
-
-      await em.flush()
+      ], { transaction: true })
+      return run
     },
 
     async resolveCursor(integrationId: string, entityType: string, direction: 'import' | 'export', scope: SyncScope): Promise<string | null> {

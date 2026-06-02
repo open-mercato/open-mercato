@@ -4,6 +4,7 @@ import * as React from 'react'
 import { Phone, Mail, Trash2, Building2, Globe, Pencil, MapPin } from 'lucide-react'
 import { useQueryClient } from '@tanstack/react-query'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
+import { Avatar } from '@open-mercato/ui/primitives/avatar'
 import { Button } from '@open-mercato/ui/primitives/button'
 import { IconButton } from '@open-mercato/ui/primitives/icon-button'
 import { Badge } from '@open-mercato/ui/primitives/badge'
@@ -103,9 +104,12 @@ export function CompanyDetailHeader({
       {/* Top row: avatar + company info + account manager + actions */}
       <div className="flex flex-col gap-4 px-6 pt-6 pb-3 sm:flex-row sm:items-start sm:gap-5">
         {/* Avatar */}
-        <div className="flex size-18 shrink-0 items-center justify-center rounded-full bg-muted">
-          <Building2 className="size-7 text-muted-foreground" />
-        </div>
+        <Avatar
+          label=""
+          icon={<Building2 />}
+          size="xl"
+          variant="monochrome"
+        />
 
         {/* Company info */}
         <div className="min-w-0 flex-1">

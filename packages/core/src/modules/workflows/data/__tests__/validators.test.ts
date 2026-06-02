@@ -205,8 +205,9 @@ describe('Workflows Validators', () => {
       })
 
       test('accepts ISO datetime as "until"', () => {
+        const futureUntil = new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString()
         expect(() =>
-          workflowStepSchema.parse({ ...baseTimerStep, config: { until: futureDatetime } })
+          workflowStepSchema.parse({ ...baseTimerStep, config: { until: futureUntil } })
         ).not.toThrow()
       })
 

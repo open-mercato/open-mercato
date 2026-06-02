@@ -15,6 +15,7 @@ import {
   saveSidebarPreference,
 } from '../../../services/sidebarPreferencesService'
 import { SIDEBAR_PREFERENCES_VERSION } from '@open-mercato/shared/modules/navigation/sidebarPreferences'
+import { withAtomicFlush } from '@open-mercato/shared/lib/commands/flush'
 import { Role, RoleSidebarPreference } from '../../../data/entities'
 import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
 import { z } from 'zod'
@@ -376,38 +377,46 @@ export async function PUT(req: Request) {
     : []
   const roleMap = new Map<string, Role>(availableRoles.map((role: Role) => [String(role.id), role]))
 
-  const updatedRoleIds: string[] = []
   if (applyToRoles.length > 0) {
     const missing = applyToRoles.filter((id) => !roleMap.has(id))
     if (missing.length) {
       return NextResponse.json({ error: 'Invalid roles', missing }, { status: 400 })
     }
-    for (const roleId of applyToRoles) {
-      const role = roleMap.get(roleId)!
-      await saveRoleSidebarPreference(em, {
-        roleId: role.id,
-        tenantId: auth.tenantId ?? null,
-        locale,
-      }, payload)
-      updatedRoleIds.push(role.id)
-    }
   }
 
-  const filteredClearRoleIds = clearRoleIds.filter((id) => !updatedRoleIds.includes(id) && !applyToRoles.includes(id))
+  const updatedRoleIds: string[] = []
+  const filteredClearRoleIds: string[] = []
+  await withAtomicFlush(em, [
+    async () => {
+      for (const roleId of applyToRoles) {
+        const role = roleMap.get(roleId)!
+        await saveRoleSidebarPreference(em, {
+          roleId: role.id,
+          tenantId: auth.tenantId ?? null,
+          locale,
+        }, payload)
+        updatedRoleIds.push(role.id)
+      }
 
-  if (filteredClearRoleIds.length > 0) {
-    // Cross-locale: role preferences are unique per (role, tenantId); keep the delete
-    // filter aligned with save/load helpers so a clear from one locale does not leave
-    // a row created under another locale orphaned.
-    await em.nativeDelete(RoleSidebarPreference, {
-      role: { $in: filteredClearRoleIds },
-      tenantId: auth.tenantId ?? null,
-    })
-    if (cache?.deleteByTags) {
-      try {
-        await cache.deleteByTags(filteredClearRoleIds.map((roleId) => `nav:sidebar:role:${roleId}`))
-      } catch {}
-    }
+      const clearTargets = clearRoleIds.filter((id) => !updatedRoleIds.includes(id) && !applyToRoles.includes(id))
+      filteredClearRoleIds.push(...clearTargets)
+
+      if (filteredClearRoleIds.length > 0) {
+        // Cross-locale: role preferences are unique per (role, tenantId); keep the delete
+        // filter aligned with save/load helpers so a clear from one locale does not leave
+        // a row created under another locale orphaned.
+        await em.nativeDelete(RoleSidebarPreference, {
+          role: { $in: filteredClearRoleIds },
+          tenantId: auth.tenantId ?? null,
+        })
+      }
+    },
+  ], { transaction: true })
+
+  if (filteredClearRoleIds.length > 0 && cache?.deleteByTags) {
+    try {
+      await cache.deleteByTags(filteredClearRoleIds.map((roleId) => `nav:sidebar:role:${roleId}`))
+    } catch {}
   }
 
   if (cache?.deleteByTags) {

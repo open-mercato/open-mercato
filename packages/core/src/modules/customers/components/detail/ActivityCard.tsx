@@ -2,6 +2,7 @@
 
 import * as React from 'react'
 import { Calendar, Check, ExternalLink, ListTodo, Mail, MoreHorizontal, Phone, StickyNote, Users } from 'lucide-react'
+import { Avatar } from '@open-mercato/ui/primitives/avatar'
 import { Button } from '@open-mercato/ui/primitives/button'
 import { IconButton } from '@open-mercato/ui/primitives/icon-button'
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
@@ -10,7 +11,6 @@ import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { cn } from '@open-mercato/shared/lib/utils'
 import type { InteractionSummary } from './types'
 import { ActivityAiActions } from './ActivityAiActions'
-import { getInitials } from './utils'
 import { EmailCardActions, type EmailCardWidgetData } from './EmailCardActions'
 
 type GuardedMutationRunner = <T,>(
@@ -247,9 +247,7 @@ export function ActivityCard({ activity, onOpen, onChanged, runMutation }: Activ
         ) : null}
 
         <div className="mt-3 flex flex-wrap items-center gap-1.5 text-xs text-muted-foreground">
-          <span className="inline-flex size-5 items-center justify-center rounded-full bg-muted text-xs font-semibold text-foreground">
-            {getInitials(actorLabel)}
-          </span>
+          <Avatar label={actorLabel} size="xs" variant="monochrome" />
           <span className="font-medium text-foreground">{actorLabel}</span>
           {target && direction ? (
             <>
