@@ -60,5 +60,15 @@ Clear CodeQL alert #126 without changing test behavior or any product code.
 
 ### Phase 1: Remediate alert #126
 
-- [ ] 1.1 Replace substring `.includes('Monday.com')` with exact trimmed label match
-- [ ] 1.2 Run UI package tests + typecheck to confirm green
+- [x] 1.1 Replace substring `.includes('Monday.com')` with exact trimmed label match — 4218d8e63
+- [x] 1.2 Run UI package tests + typecheck to confirm green — 4218d8e63
+
+> Validation notes:
+> - `NODE_ENV=test yarn workspace @open-mercato/ui test -- command-menu` → **12 passed, 12 total**.
+>   (The janitor shell defaults `NODE_ENV=production`, which makes React load its
+>   production bundle without `act`; every render test in the package fails until
+>   `NODE_ENV=test` is set — pre-existing and unrelated to this change.)
+> - UI typecheck reports only two pre-existing errors in
+>   `core/src/generated-shims/entities.ids.generated.ts` (`#generated/*` missing
+>   because `yarn generate` has not run in this fresh worktree). No errors in the
+>   changed file.
