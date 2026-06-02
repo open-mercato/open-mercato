@@ -6,6 +6,7 @@ type KyselyMockConfig = {
   hasIndexAny: boolean
   baseCount: number
   indexCount: number
+  coverageRefreshedAt?: Date | string | null
   customFieldKeys?: Record<string, string[]>
   rows?: Record<string, Array<Record<string, unknown>>>
   /** If provided, returned for information_schema.columns lookups. */
@@ -24,6 +25,11 @@ type ChainLog = {
   offset: number | null
 }
 
+type MutationLog = {
+  kind: 'insert' | 'update' | 'delete'
+  table: string
+}
+
 const DEFAULT_CF_KEYS: Record<string, string[]> = {
   'example:todo': ['priority'],
   'customers:customer_entity': ['sector'],
@@ -38,6 +44,7 @@ const DEFAULT_CF_KEYS: Record<string, string[]> = {
  */
 function createFakeKysely(config: KyselyMockConfig) {
   const chains: ChainLog[] = []
+  const mutations: MutationLog[] = []
   const customFieldKeys = config.customFieldKeys ?? DEFAULT_CF_KEYS
 
   const makeChain = (rawTable: string): any => {
@@ -83,7 +90,9 @@ function createFakeKysely(config: KyselyMockConfig) {
     return chain
   }
 
-  const makeMutatingChain = (kind: 'insert' | 'update' | 'delete'): any => {
+  const makeMutatingChain = (kind: 'insert' | 'update' | 'delete', rawTable: string): any => {
+    const table = rawTable.split(/\s+as\s+/i)[0].trim()
+    mutations.push({ kind, table })
     const chain: any = {
       values: () => chain,
       set: () => chain,
@@ -100,10 +109,11 @@ function createFakeKysely(config: KyselyMockConfig) {
 
   const db: any = {
     _chains: chains,
+    _mutations: mutations,
     selectFrom: (table: any) => makeChain(String(table)),
-    insertInto: () => makeMutatingChain('insert'),
-    updateTable: () => makeMutatingChain('update'),
-    deleteFrom: () => makeMutatingChain('delete'),
+    insertInto: (table: any) => makeMutatingChain('insert', String(table)),
+    updateTable: (table: any) => makeMutatingChain('update', String(table)),
+    deleteFrom: (table: any) => makeMutatingChain('delete', String(table)),
     transaction: () => ({ execute: async (fn: any) => fn(db) }),
   }
   return db
@@ -141,25 +151,28 @@ function resolveFirstRow(
   }
   if (table === 'entity_index_coverage') {
     if (!config.hasIndexAny) return undefined
+    const refreshedAt = Object.prototype.hasOwnProperty.call(config, 'coverageRefreshedAt')
+      ? config.coverageRefreshedAt
+      : new Date()
     return {
       base_count: String(config.baseCount),
       indexed_count: String(config.indexCount),
       vector_indexed_count: null,
-      refreshed_at: new Date(),
+      refreshed_at: refreshedAt,
       organization_id: null,
     }
   }
+  // Count subquery / data reads: look for `count` alias in selects.
+  const hasCount = log.selects.some((s: any) => {
+    try { return String(s?.name ?? s) === 'count' || typeof s?.as === 'function' } catch { return false }
+  })
+  if (hasCount) return { count: String(table === 'entity_indexes' ? config.indexCount : config.baseCount) }
   if (table === 'entity_indexes') {
     return config.hasIndexAny ? { entity_id: 'x' } : undefined
   }
   if (table === 'custom_entities') {
     return undefined
   }
-  // Count subquery / data reads: look for `count` alias in selects.
-  const hasCount = log.selects.some((s: any) => {
-    try { return String(s?.name ?? s) === 'count' || typeof s?.as === 'function' } catch { return false }
-  })
-  if (hasCount) return { count: String(config.baseCount) }
   return undefined
 }
 
@@ -208,10 +221,14 @@ function buildEm(db: any): any {
 describe('HybridQueryEngine', () => {
   const originalAutoReindex = process.env.QUERY_INDEX_AUTO_REINDEX
   const originalForcePartial = process.env.FORCE_QUERY_INDEX_ON_PARTIAL_INDEXES
+  const originalCoverageTtl = process.env.QUERY_INDEX_COVERAGE_CACHE_MS
+  const originalCoverageOptimization = process.env.OPTIMIZE_INDEX_COVERAGE_STATS
 
   beforeEach(() => {
     delete process.env.QUERY_INDEX_AUTO_REINDEX
     delete process.env.FORCE_QUERY_INDEX_ON_PARTIAL_INDEXES
+    delete process.env.QUERY_INDEX_COVERAGE_CACHE_MS
+    delete process.env.OPTIMIZE_INDEX_COVERAGE_STATS
   })
 
   afterEach(() => {
@@ -219,7 +236,80 @@ describe('HybridQueryEngine', () => {
     else process.env.QUERY_INDEX_AUTO_REINDEX = originalAutoReindex
     if (originalForcePartial === undefined) delete process.env.FORCE_QUERY_INDEX_ON_PARTIAL_INDEXES
     else process.env.FORCE_QUERY_INDEX_ON_PARTIAL_INDEXES = originalForcePartial
+    if (originalCoverageTtl === undefined) delete process.env.QUERY_INDEX_COVERAGE_CACHE_MS
+    else process.env.QUERY_INDEX_COVERAGE_CACHE_MS = originalCoverageTtl
+    if (originalCoverageOptimization === undefined) delete process.env.OPTIMIZE_INDEX_COVERAGE_STATS
+    else process.env.OPTIMIZE_INDEX_COVERAGE_STATS = originalCoverageOptimization
     jest.clearAllMocks()
+  })
+
+  test('serves fresh coverage snapshots without recomputing coverage counts', async () => {
+    process.env.QUERY_INDEX_COVERAGE_CACHE_MS = '300000'
+    const db = createFakeKysely({
+      baseTable: 'todos',
+      hasIndexAny: true,
+      baseCount: 10,
+      indexCount: 4,
+      coverageRefreshedAt: new Date(),
+    })
+    const engine = new HybridQueryEngine(buildEm(db), { query: jest.fn() } as any)
+
+    const snapshot = await (engine as any).getStoredCoverageSnapshot('example:todo', 't1', 'org1', false)
+
+    expect(snapshot).toEqual({ baseCount: 10, indexedCount: 4 })
+    expect((db._chains as ChainLog[]).some((chain) => chain.table === 'todos')).toBe(false)
+    expect((db._chains as ChainLog[]).some((chain) => chain.table === 'entity_indexes' && chain.selects.length > 0)).toBe(false)
+    expect(db._mutations).toEqual([])
+  })
+
+  test('synchronously refreshes stale coverage snapshots when optimization flag is disabled', async () => {
+    process.env.QUERY_INDEX_COVERAGE_CACHE_MS = '1000'
+    const db = createFakeKysely({
+      baseTable: 'todos',
+      hasIndexAny: true,
+      baseCount: 10,
+      indexCount: 4,
+      coverageRefreshedAt: new Date(Date.now() - 10_000),
+    })
+    const engine = new HybridQueryEngine(buildEm(db), { query: jest.fn() } as any)
+
+    const snapshot = await (engine as any).getStoredCoverageSnapshot('example:todo', 't1', 'org1', false)
+
+    expect(snapshot).toEqual({ baseCount: 10, indexedCount: 4 })
+    expect((db._chains as ChainLog[]).some((chain) => chain.table === 'todos')).toBe(true)
+    expect((db._chains as ChainLog[]).some((chain) => chain.table === 'entity_indexes')).toBe(true)
+    expect(db._mutations).toEqual(expect.arrayContaining([
+      { kind: 'insert', table: 'entity_index_coverage' },
+    ]))
+  })
+
+  test('serves stale coverage snapshots and schedules refresh when optimization flag is enabled', async () => {
+    process.env.QUERY_INDEX_COVERAGE_CACHE_MS = '1000'
+    process.env.OPTIMIZE_INDEX_COVERAGE_STATS = 'true'
+    const db = createFakeKysely({
+      baseTable: 'todos',
+      hasIndexAny: true,
+      baseCount: 10,
+      indexCount: 4,
+      coverageRefreshedAt: new Date(Date.now() - 10_000),
+    })
+    const emitEvent = jest.fn().mockResolvedValue(undefined)
+    const engine = new HybridQueryEngine(buildEm(db), { query: jest.fn() } as any, () => ({ emitEvent }))
+
+    const snapshot = await (engine as any).getStoredCoverageSnapshot('example:todo', 't1', 'org1', false)
+    await Promise.resolve()
+    await Promise.resolve()
+
+    expect(snapshot).toEqual({ baseCount: 10, indexedCount: 4 })
+    expect((db._chains as ChainLog[]).some((chain) => chain.table === 'todos')).toBe(false)
+    expect(db._mutations).toEqual([])
+    expect(emitEvent).toHaveBeenCalledWith('query_index.coverage.refresh', {
+      entityType: 'example:todo',
+      tenantId: 't1',
+      organizationId: 'org1',
+      withDeleted: false,
+      delayMs: 0,
+    })
   })
 
   test('falls back when wantsCf but no index rows exist', async () => {

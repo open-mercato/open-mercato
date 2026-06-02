@@ -37,6 +37,7 @@ import type { EntityId } from '@open-mercato/shared/modules/entities'
 import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
 import { findWithDecryption, findOneWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import { parseBooleanFromUnknown, parseBooleanToken } from '@open-mercato/shared/lib/boolean'
+import { isOrganizationReadAccessAllowed } from '@open-mercato/core/modules/directory/utils/organizationScopeGuard'
 import { loadPersonCompanyLinks, summarizePersonCompanies } from '../../../lib/personCompanies'
 import { normalizeCustomerDetailCustomFields } from '../../detailCustomFields'
 import { buildEmailVisibilityMikroFilter } from '../../../lib/visibilityFilter'
@@ -475,11 +476,7 @@ export async function GET(_req: Request, ctx: { params?: { id?: string } }) {
       profileMeta = { reason: 'person_tenant_mismatch' }
       return notFound('Person not found')
     }
-    const allowedOrgIds = new Set<string>()
-    if (scope?.filterIds?.length) scope.filterIds.forEach((id) => allowedOrgIds.add(id))
-    else if (auth.orgId) allowedOrgIds.add(auth.orgId)
-
-    if (allowedOrgIds.size && person.organizationId && !allowedOrgIds.has(person.organizationId)) {
+    if (!isOrganizationReadAccessAllowed({ scope, auth, organizationId: person.organizationId })) {
       statusCode = 403
       profileMeta = { reason: 'organization_forbidden' }
       return forbidden('Access denied')

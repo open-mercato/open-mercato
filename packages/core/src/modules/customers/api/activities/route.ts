@@ -186,7 +186,7 @@ function paginateActivityItems(
   }
 }
 
-async function decorateActivityItems(
+export async function decorateActivityItems(
   em: EntityManager,
   items: ActivityItem[],
   decryptionScope?: { tenantId: string; organizationId: string },
@@ -208,12 +208,23 @@ async function decorateActivityItems(
     ),
   )
 
+  if (dealIds.length > 0 && (!decryptionScope?.tenantId || !decryptionScope?.organizationId)) {
+    const { translate } = await resolveTranslations()
+    throw new CrudHttpError(400, {
+      error: translate('customers.errors.tenant_required', 'Tenant context is required'),
+    })
+  }
+
   const [users, deals] = await Promise.all([
     authorIds.length > 0 ? em.find(User, { id: { $in: authorIds } }) : Promise.resolve([]),
-    dealIds.length > 0
-      ? decryptionScope
-        ? findWithDecryption(em, CustomerDeal, { id: { $in: dealIds } }, undefined, decryptionScope)
-        : em.find(CustomerDeal, { id: { $in: dealIds } })
+    dealIds.length > 0 && decryptionScope
+      ? findWithDecryption(
+          em,
+          CustomerDeal,
+          { id: { $in: dealIds }, tenantId: decryptionScope.tenantId, organizationId: decryptionScope.organizationId },
+          undefined,
+          decryptionScope,
+        )
       : Promise.resolve([]),
   ])
 

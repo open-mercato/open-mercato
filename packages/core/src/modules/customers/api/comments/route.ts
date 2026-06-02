@@ -139,13 +139,23 @@ const crud = makeCrudRoute({
         ),
       )
       if (!dealIds.length) return
+      const tenantId = ctx.auth?.tenantId ?? null
+      const organizationId = ctx.selectedOrganizationId ?? ctx.auth?.orgId ?? null
+      if (!tenantId || !organizationId) {
+        const { translate } = await resolveTranslations()
+        throw new CrudHttpError(400, {
+          error: translate('customers.errors.tenant_required', 'Tenant context is required'),
+        })
+      }
       try {
         const em = (ctx.container.resolve('em') as EntityManager)
-        const tenantId = ctx.auth?.tenantId ?? null
-        const organizationId = ctx.selectedOrganizationId ?? ctx.auth?.orgId ?? null
-        const deals = tenantId && organizationId
-          ? await findWithDecryption(em, CustomerDeal, { id: { $in: dealIds } }, undefined, { tenantId, organizationId })
-          : await em.find(CustomerDeal, { id: { $in: dealIds } })
+        const deals = await findWithDecryption(
+          em,
+          CustomerDeal,
+          { id: { $in: dealIds }, tenantId, organizationId },
+          undefined,
+          { tenantId, organizationId },
+        )
         const map = new Map<string, string>()
         deals.forEach((deal: CustomerDeal) => {
           if (deal.id) map.set(deal.id, deal.title ?? '')
