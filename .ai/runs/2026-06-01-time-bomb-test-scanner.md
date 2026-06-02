@@ -99,3 +99,7 @@ absolute date literal whose assertion outcome flips with the system clock.
 
 - [x] 5.1 Re-run scanner clean (0 high / 0 medium)
 - [x] 5.2 Gate: build:packages/generate/i18n/typecheck/build:app ✓, changed tests ✓; pre-existing unrelated cli fs-watch flake noted; code-review + BC clean
+
+## Changelog
+
+- Opened PR open-mercato/open-mercato#2393 (fork: adeptofvoltron:fix/time-bomb-test-scanner). Gate green except a pre-existing unrelated cli fs-watch flake. Upstream labels/reviews not permitted from fork.
