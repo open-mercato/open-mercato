@@ -177,6 +177,18 @@ describe('DatePicker primitive', () => {
       expect(dayCellButton.className).not.toMatch(/focus-visible:ring-2/)
     }
   })
+
+  it('opens on the month of the selected value, not the current month (regression)', async () => {
+    // A value far from any plausible "today" so the assertion stays deterministic.
+    // react-day-picker v10 derives the initial month from `month`/`defaultMonth`
+    // (falling back to today) and ignores `selected`, so DatePicker must pass
+    // `defaultMonth` or the selected day is never rendered.
+    renderWithI18n(<DatePicker value={new Date(2020, 0, 15)} onChange={() => {}} footer="none" />)
+    await openPopover()
+    const selectedCell = document.querySelector('td[data-selected="true"]')
+    expect(selectedCell).not.toBeNull()
+    expect((selectedCell as HTMLElement).className).toMatch(/!bg-primary/)
+  })
 })
 
 describe('DatePicker backwards-compat shims', () => {

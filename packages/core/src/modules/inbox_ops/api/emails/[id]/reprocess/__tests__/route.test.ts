@@ -20,6 +20,9 @@ jest.mock('@open-mercato/shared/lib/auth/server', () => ({
 const mockEm = {
   fork: jest.fn(),
   flush: jest.fn(),
+  begin: jest.fn(),
+  commit: jest.fn(),
+  rollback: jest.fn(),
 }
 
 const mockContainer = {
@@ -53,6 +56,9 @@ describe('POST /api/inbox_ops/emails/[id]/reprocess', () => {
     jest.clearAllMocks()
     mockEm.fork.mockReturnValue(mockEm)
     mockEm.flush.mockResolvedValue(undefined)
+    mockEm.begin.mockResolvedValue(undefined)
+    mockEm.commit.mockResolvedValue(undefined)
+    mockEm.rollback.mockResolvedValue(undefined)
     mockEmitInboxOpsEvent.mockResolvedValue(undefined)
     mockGetAuth.mockResolvedValue({
       sub: 'user-1',
@@ -190,5 +196,58 @@ describe('POST /api/inbox_ops/emails/[id]/reprocess', () => {
       'inbox_ops.email.received',
       expect.objectContaining({ emailId: 'email-1' }),
     )
+
+    expect(mockEm.begin).toHaveBeenCalledTimes(1)
+    expect(mockEm.commit).toHaveBeenCalledTimes(1)
+    expect(mockEm.rollback).not.toHaveBeenCalled()
+    expect(mockEm.begin.mock.invocationCallOrder[0]).toBeLessThan(
+      mockEm.commit.mock.invocationCallOrder[0],
+    )
+  })
+
+  it('rolls back and emits no events when the atomic flush fails', async () => {
+    const email = {
+      id: 'email-1',
+      status: 'failed',
+      processingError: 'previous error',
+      tenantId: 'tenant-1',
+      organizationId: 'org-1',
+      forwardedByAddress: 'ops@example.com',
+      subject: 'Order request',
+    } as unknown as InboxEmail
+
+    const proposal = {
+      id: 'proposal-1',
+      inboxEmailId: 'email-1',
+      status: 'pending',
+      isActive: true,
+      metadata: {},
+      reviewedAt: null,
+      reviewedByUserId: null,
+    } as unknown as InboxProposal
+
+    const pendingAction = {
+      id: 'action-1',
+      proposalId: 'proposal-1',
+      status: 'pending',
+      executionError: null,
+      executedAt: null,
+      executedByUserId: null,
+    } as unknown as InboxProposalAction
+
+    mockFindOneWithDecryption.mockResolvedValueOnce(email)
+    mockFindWithDecryption
+      .mockResolvedValueOnce([proposal])
+      .mockResolvedValueOnce([pendingAction])
+      .mockResolvedValueOnce([])
+    mockEm.flush.mockRejectedValueOnce(new Error('[internal] flush failed'))
+
+    const response = await POST(makeRequest())
+
+    expect(response.status).toBe(500)
+    expect(mockEm.begin).toHaveBeenCalledTimes(1)
+    expect(mockEm.rollback).toHaveBeenCalledTimes(1)
+    expect(mockEm.commit).not.toHaveBeenCalled()
+    expect(mockEmitInboxOpsEvent).not.toHaveBeenCalled()
   })
 })

@@ -1,5 +1,4 @@
 import { NextResponse } from 'next/server'
-import { z } from 'zod'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import type { CacheStrategy } from '@open-mercato/cache'
 import { getAuthFromRequest } from '@open-mercato/shared/lib/auth/server'
@@ -11,101 +10,14 @@ import {
   WidgetDataValidationError,
 } from '../../../services/widgetDataService'
 import type { AnalyticsRegistry } from '../../../services/analyticsRegistry'
+import { runApiInterceptorsBefore } from '@open-mercato/shared/lib/crud/interceptor-runner'
 import type { OpenApiMethodDoc, OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
 import { dashboardsTag, dashboardsErrorSchema } from '../../openapi'
+import { widgetDataRequestSchema, widgetDataResponseSchema } from './schema'
 
 export const metadata = {
   POST: { requireAuth: true, requireFeatures: ['analytics.view'] },
 }
-
-const aggregateFunctionSchema = z.enum(['count', 'sum', 'avg', 'min', 'max'])
-const dateGranularitySchema = z.enum(['day', 'week', 'month', 'quarter', 'year'])
-const dateRangePresetSchema = z.enum([
-  'today',
-  'yesterday',
-  'this_week',
-  'last_week',
-  'this_month',
-  'last_month',
-  'this_quarter',
-  'last_quarter',
-  'this_year',
-  'last_year',
-  'last_7_days',
-  'last_30_days',
-  'last_90_days',
-])
-
-const filterOperatorSchema = z.enum([
-  'eq',
-  'neq',
-  'gt',
-  'gte',
-  'lt',
-  'lte',
-  'in',
-  'not_in',
-  'is_null',
-  'is_not_null',
-])
-
-const widgetDataRequestSchema = z.object({
-  entityType: z.string().min(1),
-  metric: z.object({
-    field: z.string().min(1),
-    aggregate: aggregateFunctionSchema,
-  }),
-  groupBy: z
-    .object({
-      field: z.string().min(1),
-      granularity: dateGranularitySchema.optional(),
-      limit: z.number().int().min(1).max(100).optional(),
-      resolveLabels: z.boolean().optional(),
-    })
-    .optional(),
-  filters: z
-    .array(
-      z.object({
-        field: z.string().min(1),
-        operator: filterOperatorSchema,
-        value: z.unknown().optional(),
-      }),
-    )
-    .optional(),
-  dateRange: z
-    .object({
-      field: z.string().min(1),
-      preset: dateRangePresetSchema,
-    })
-    .optional(),
-  comparison: z
-    .object({
-      type: z.enum(['previous_period', 'previous_year']),
-    })
-    .optional(),
-})
-
-const widgetDataItemSchema = z.object({
-  groupKey: z.unknown(),
-  groupLabel: z.string().optional(),
-  value: z.number().nullable(),
-})
-
-const widgetDataResponseSchema = z.object({
-  value: z.number().nullable(),
-  data: z.array(widgetDataItemSchema),
-  comparison: z
-    .object({
-      value: z.number().nullable(),
-      change: z.number(),
-      direction: z.enum(['up', 'down', 'unchanged']),
-    })
-    .optional(),
-  metadata: z.object({
-    fetchedAt: z.string(),
-    recordCount: z.number(),
-  }),
-})
 
 export async function POST(req: Request) {
   const auth = await getAuthFromRequest(req)
@@ -170,10 +82,44 @@ export async function POST(req: Request) {
     return undefined
   })()
 
+  const userFeatures = Array.isArray(auth.features)
+    ? auth.features.filter((value): value is string => typeof value === 'string')
+    : []
+
+  const headers: Record<string, string> = {}
+  req.headers.forEach((value, key) => {
+    headers[key] = value
+  })
+
+  const interceptorResult = await runApiInterceptorsBefore({
+    routePath: 'dashboards/widgets/data',
+    method: 'POST',
+    request: {
+      method: 'POST',
+      url: req.url,
+      headers,
+      body: parsed.data as unknown as Record<string, unknown>,
+    },
+    context: {
+      em,
+      container,
+      userId: auth.sub ?? '',
+      tenantId,
+      organizationId: organizationIds?.[0] ?? auth.orgId ?? '',
+      userFeatures,
+    },
+  })
+
+  if (!interceptorResult.ok) {
+    return NextResponse.json(interceptorResult.body, { status: interceptorResult.statusCode })
+  }
+
+  const requestData = (interceptorResult.request.body ?? parsed.data) as WidgetDataRequest
+
   try {
     const cache = container.resolve<CacheStrategy>('cache')
     const service = createWidgetDataService(em, { tenantId, organizationIds }, analyticsRegistry, cache)
-    const result = await service.fetchWidgetData(parsed.data as WidgetDataRequest)
+    const result = await service.fetchWidgetData(requestData)
     return NextResponse.json(result)
   } catch (err) {
     console.error('[widgets/data] Error:', err)

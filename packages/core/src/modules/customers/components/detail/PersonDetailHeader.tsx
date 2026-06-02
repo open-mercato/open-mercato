@@ -5,6 +5,7 @@ import Link from 'next/link'
 import { Phone, Mail, Building2, Trash2, Pencil } from 'lucide-react'
 import { cn } from '@open-mercato/shared/lib/utils'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
+import { Avatar } from '@open-mercato/ui/primitives/avatar'
 import { Button } from '@open-mercato/ui/primitives/button'
 import { IconButton } from '@open-mercato/ui/primitives/icon-button'
 import { Badge } from '@open-mercato/ui/primitives/badge'
@@ -18,7 +19,7 @@ import type { TagSummary } from './types'
 import type { TagsSectionController } from '@open-mercato/ui/backend/detail'
 import type { PersonOverview } from '../formConfig'
 import type { CustomerDictionaryMap } from '@open-mercato/core/modules/customers/lib/dictionaries'
-import { getInitials, formatFallbackLabel } from './utils'
+import { formatFallbackLabel } from './utils'
 
 const HEADER_ICON_BUTTON_CLASS = 'size-8 rounded-md'
 
@@ -125,9 +126,7 @@ export function PersonDetailHeader({
     <div className="rounded-lg border bg-card px-6 py-5">
       <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:gap-5">
         {/* Avatar */}
-        <div className="flex size-18 shrink-0 items-center justify-center rounded-full bg-muted text-xl font-bold text-muted-foreground">
-          {getInitials(displayName)}
-        </div>
+        <Avatar label={displayName} size="xl" variant="monochrome" />
 
         {/* Person info */}
         <div className="min-w-0 flex-1">

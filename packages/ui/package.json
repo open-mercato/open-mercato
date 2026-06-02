@@ -1,6 +1,6 @@
 {
   "name": "@open-mercato/ui",
-  "version": "0.6.3",
+  "version": "0.7.0",
   "type": "module",
   "main": "./dist/index.js",
   "scripts": {
@@ -128,11 +128,15 @@
     "@dnd-kit/sortable": "^10.0.0",
     "@dnd-kit/utilities": "^3.2.2",
     "@radix-ui/react-accordion": "^1.2.4",
+    "@radix-ui/react-dialog": "^1.1.6",
     "@radix-ui/react-popover": "^1.1.6",
     "@radix-ui/react-radio-group": "^1.2.3",
+    "@radix-ui/react-scroll-area": "^1.2.0",
     "@radix-ui/react-select": "^2.1.6",
+    "@radix-ui/react-slider": "^1.2.0",
     "@radix-ui/react-tooltip": "^1.2.8",
     "@tanstack/react-virtual": "^3.13.25",
+    "cmdk": "^1.0.0",
     "date-fns": "4.3.0",
     "react-big-calendar": "^1.19.4",
     "react-day-picker": "^10.0.1",

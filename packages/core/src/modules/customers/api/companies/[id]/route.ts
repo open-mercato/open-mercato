@@ -47,6 +47,7 @@ import {
   withActiveCustomerPersonCompanyLinkFilter,
 } from '../../../lib/personCompanyLinkTable'
 import { normalizeCustomerDetailCustomFields } from '../../detailCustomFields'
+import { isOrganizationReadAccessAllowed } from '@open-mercato/core/modules/directory/utils/organizationScopeGuard'
 
 export const metadata = {
   GET: { requireAuth: true, requireFeatures: ['customers.companies.view'] },
@@ -386,11 +387,7 @@ export async function GET(_req: Request, ctx: { params?: { id?: string } }) {
   if (!company) return notFound('Company not found')
 
   if (auth.tenantId && company.tenantId !== auth.tenantId) return notFound('Company not found')
-  const allowedOrgIds = new Set<string>()
-  if (scope?.filterIds?.length) scope.filterIds.forEach((id) => allowedOrgIds.add(id))
-  else if (auth.orgId) allowedOrgIds.add(auth.orgId)
-
-  if (allowedOrgIds.size && company.organizationId && !allowedOrgIds.has(company.organizationId)) {
+  if (!isOrganizationReadAccessAllowed({ scope, auth, organizationId: company.organizationId })) {
     return forbidden('Access denied')
   }
 

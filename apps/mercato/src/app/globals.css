@@ -617,3 +617,36 @@ body[data-ai-chat-open="true"] .om-demo-feedback-floating {
 .scrollbar-hide::-webkit-scrollbar {
   display: none;
 }
+
+/* Global DS-styled thin scrollbar.
+ *
+ * Every native `overflow-auto` / `overflow-scroll` container inherits a
+ * thin, neutral thumb that matches the `<ScrollArea>` primitive's look
+ * (muted-foreground at 30 % opacity, rising to 50 % on hover). Firefox
+ * honors `scrollbar-width: thin` + `scrollbar-color`; WebKit uses the
+ * `::-webkit-scrollbar` pseudo set. Opt out of this styling explicitly
+ * with `.scrollbar-hide` (used by horizontal scroll rails driven by
+ * chevron buttons). */
+* {
+  scrollbar-width: thin;
+  scrollbar-color: color-mix(in oklch, var(--muted-foreground) 30%, transparent) transparent;
+}
+*::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+*::-webkit-scrollbar-track {
+  background: transparent;
+}
+*::-webkit-scrollbar-thumb {
+  background-color: color-mix(in oklch, var(--muted-foreground) 30%, transparent);
+  border-radius: 9999px;
+  border: 2px solid transparent;
+  background-clip: padding-box;
+}
+*::-webkit-scrollbar-thumb:hover {
+  background-color: color-mix(in oklch, var(--muted-foreground) 50%, transparent);
+}
+*::-webkit-scrollbar-corner {
+  background: transparent;
+}

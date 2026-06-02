@@ -5,7 +5,10 @@ import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import { getIntegration } from '@open-mercato/shared/modules/integrations/types'
 import { emitIntegrationsEvent } from '../../../events'
 import { saveCredentialsSchema } from '../../../data/validators'
-import type { CredentialsService } from '../../../lib/credentials-service'
+import {
+  isCredentialsEncryptionUnavailableError,
+  type CredentialsService,
+} from '../../../lib/credentials-service'
 import {
   resolveUserFeatures,
   runIntegrationMutationGuardAfterSuccess,
@@ -53,7 +56,15 @@ export async function GET(req: Request, ctx: { params?: Promise<{ id?: string }>
   const credentialsService = container.resolve('integrationCredentialsService') as CredentialsService
   const scope = { organizationId: auth.orgId as string, tenantId: auth.tenantId }
 
-  const values = await credentialsService.resolve(integration.id, scope)
+  let values: Record<string, unknown> | null
+  try {
+    values = await credentialsService.resolve(integration.id, scope)
+  } catch (error) {
+    if (isCredentialsEncryptionUnavailableError(error)) {
+      return NextResponse.json({ error: 'Integration credentials encryption is unavailable' }, { status: 503 })
+    }
+    throw error
+  }
 
   return NextResponse.json({
     integrationId: integration.id,
@@ -118,7 +129,14 @@ export async function PUT(req: Request, ctx: { params?: Promise<{ id?: string }>
   const credentialsService = container.resolve('integrationCredentialsService') as CredentialsService
   const scope = { organizationId: auth.orgId as string, tenantId: auth.tenantId }
 
-  await credentialsService.save(integration.id, payloadData.credentials, scope)
+  try {
+    await credentialsService.save(integration.id, payloadData.credentials, scope)
+  } catch (error) {
+    if (isCredentialsEncryptionUnavailableError(error)) {
+      return NextResponse.json({ error: 'Integration credentials encryption is unavailable' }, { status: 503 })
+    }
+    throw error
+  }
 
   await emitIntegrationsEvent('integrations.credentials.updated', {
     integrationId: integration.id,

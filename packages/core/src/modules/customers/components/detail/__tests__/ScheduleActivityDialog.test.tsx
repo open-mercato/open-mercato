@@ -19,7 +19,7 @@ function createScheduleState(overrides: Record<string, unknown> = {}) {
     setActivityType: jest.fn(),
     title: 'Quarterly review',
     setTitle: jest.fn(),
-    date: '2026-08-03',
+    date: new Date(Date.now() + 60 * 86_400_000).toISOString().slice(0, 10),
     setDate: jest.fn(),
     startTime: '13:45',
     setStartTime: jest.fn(),
