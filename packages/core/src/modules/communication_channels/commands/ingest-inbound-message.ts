@@ -18,6 +18,7 @@ import {
 } from '../data/entities'
 import { normalizedInboundMessageSchema } from '../data/validators'
 import { resolveCommunicationChannelsSystemUserId } from '../lib/system-user'
+import { isUniqueViolation } from '../lib/pg-errors'
 
 const ingestInputSchema = z.object({
   channelId: z.string().uuid(),
@@ -547,18 +548,6 @@ const ingestInboundMessageCommand: CommandHandler<IngestInboundMessageInput, Ing
   },
 }
 
-/**
- * Detect a Postgres unique-constraint violation (SQLSTATE 23505), regardless of
- * which ORM/driver layer surfaces it. Matches the helper used by the reaction
- * commands so duplicate-insert handling stays consistent across the module.
- */
-function isUniqueViolation(err: unknown): boolean {
-  if (!err || typeof err !== 'object') return false
-  const code = (err as { code?: string }).code
-  if (code === '23505') return true // Postgres unique_violation
-  const message = (err as { message?: string }).message
-  return typeof message === 'string' && /duplicate key value|unique constraint/i.test(message)
-}
 
 /**
  * Build a runtime context for the nested `messages.messages.compose` call.

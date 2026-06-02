@@ -52,7 +52,7 @@ const entityExtensions: EntityExtension[] = [
     extension: 'communication_channels:communication_channel',
     join: { baseKey: 'id', extensionKey: 'user_id' },
     cardinality: 'one-to-many',
-    description: 'Per-user owned channels (Gmail/Microsoft/IMAP personal mailboxes)',
+    description: 'Per-user owned channels (Gmail/IMAP personal mailboxes)',
   },
   /**
    * Per-user credentials scoping (added by the email integration spec).

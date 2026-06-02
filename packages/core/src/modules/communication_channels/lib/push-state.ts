@@ -7,8 +7,6 @@ export const PUSH_STATE_KEYS = [
   'pushStatus',
   'watchExpirationMs',
   'pubsubTopic',
-  'subscriptionId',
-  'subscriptionExpiresAt',
   'lastPushError',
 ] as const
 
@@ -18,7 +16,7 @@ export const PUSH_STATE_KEYS = [
  *
  * This MUST be a full replace, never a `{ ...previous, ...next }` spread: adapters
  * signal "drain finished" by OMITTING the mid-drain resumption tokens
- * (`pendingHistoryPageToken`, `pendingMessagesPageToken`, `pendingNextLink`) from
+ * (`pendingHistoryPageToken`, `pendingMessagesPageToken`) from
  * `next` (they are set to `undefined`, which `JSON.stringify` drops from the encoded
  * cursor). A spread would retain a stale token from `previous` and mis-route the
  * next push/poll cycle, so the poll worker and both push-sync workers share this

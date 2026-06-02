@@ -1,25 +1,18 @@
 # Per-User Email Channels under the Communications Hub
 
-> **Update (2026-06-02): Microsoft 365 / Outlook channel removed.** The
-> `@open-mercato/channel-microsoft` provider and its Microsoft Graph push /
-> delta-sync / lifecycle plumbing were removed from the codebase; per-user email
-> integration now ships **Gmail + IMAP only**. Microsoft / Outlook content below
-> is retained as historical design context and no longer reflects shipped
-> behavior.
-
 ## TLDR
 
 **Key Points:**
-- Implements per-user Gmail, Microsoft 365 / Outlook, and IMAP+SMTP as **three `ChannelAdapter`s under the existing `communication_channels` hub** (SPEC-045d), not as a parallel `email` module.
+- Implements per-user Gmail and IMAP+SMTP as **two `ChannelAdapter`s under the existing `communication_channels` hub** (SPEC-045d), not as a parallel `email` module.
 - Adds the minimal hub deltas required to support per-user channels and polling-based providers: `CommunicationChannel.user_id?`, `pollIntervalSeconds`, hub-side `poll-channel` scheduler, `ChannelCapabilities.realtimePush?`, optional `ChannelAdapter.refreshCredentials?()`. All deltas are additive against SPEC-045d.
 - Takes **full advantage of UMES** (SPEC-041): 17 named extension points across widget injection, response enrichers, API interceptors, mutation guards, component replacement, notification handlers, sync event subscribers, entity extensions, and command interceptors. Provider packages own their UI surface via UMES — no per-provider mutations to core hub pages.
 
 **Scope (v1):**
-- Per-user OAuth linking for Gmail and Microsoft 365 / Outlook; per-user credential linking for IMAP+SMTP.
-- Polling-based inbound (5-min default, configurable per channel). Real-time push (Gmail Pub/Sub, Graph subscriptions, IMAP IDLE) deferred to v2.
+- Per-user OAuth linking for Gmail; per-user credential linking for IMAP+SMTP.
+- Polling-based inbound (5-min default, configurable per channel). Real-time push (Gmail Pub/Sub, IMAP IDLE) deferred to v2.
 - Inbound emails auto-create `Message` records in the channel owner's unified inbox via the hub's bridge — emails are first-class inbox citizens from day one.
 - Outbound via the hub's standard `messages.message.sent` → `adapter.sendMessage` flow. Thin `sendAsUser({ userChannelId, ... })` facade for programmatic callers (workflows, AI tools).
-- Three per-provider workspace packages: `@open-mercato/channel-gmail`, `@open-mercato/channel-microsoft`, `@open-mercato/channel-imap`.
+- Two per-provider workspace packages: `@open-mercato/channel-gmail`, `@open-mercato/channel-imap`.
 
 **Non-goals (v1):**
 - Real-time push inbound for any provider (deferred to v2 spec).
@@ -66,7 +59,7 @@ WhatsApp's auth model (Meta tokens, webhook-driven push), payload model (interac
 
 ## Overview
 
-Open Mercato today has **outbound-only, Resend-only** transactional email and no per-user mailbox concept. The product needs each logged-in user to connect their own Gmail, Microsoft 365 / Outlook, or IMAP+SMTP account so that:
+Open Mercato today has **outbound-only, Resend-only** transactional email and no per-user mailbox concept. The product needs each logged-in user to connect their own Gmail or IMAP+SMTP account so that:
 - Outbound messages are sent from the user's own address (replies land in their inbox, recipients see the sender as the user, conversations look natural).
 - Inbound emails reach the user's unified Open Mercato inbox alongside WhatsApp, Slack, and future channels — one place to triage all external communications.
 - Downstream CRM specs can attach conversations to customers, deals, and threads by subscribing to the hub's channel-agnostic events (`communication_channels.message.received` / `.sent`).
@@ -79,13 +72,13 @@ Open Mercato today has **outbound-only, Resend-only** transactional email and no
 
 1. **Standalone email module duplicates the hub.** Two systems for storing external messages (`EmailMessageEnvelope` vs hub's `ExternalMessage`), two event streams (`email.message.received` vs `communication_channels.message.received`), two admin pages, two marketplace categories, two credential stores. CRM has to subscribe to both or miss messages.
 2. **Per-user channels are unsupported in the hub today.** `CommunicationChannel` is tenant-scoped (`tenant_id` + `organization_id` only). Per-user accounts (each user's personal Gmail) need a way to attach a user as the owning principal.
-3. **Hub assumes webhook-driven inbound.** SPEC-045d describes inbound as webhook → `verifyWebhook` → worker. Gmail/Microsoft/IMAP real-time push requires GCP Pub/Sub / Graph subscriptions / IMAP IDLE — significant infra cost. We need a polling fallback baked into the hub.
-4. **No third-party OAuth client flow in OSS core.** Only enterprise SSO has OAuth client primitives. We need to port that to the hub for any OAuth-based channel (Gmail, Microsoft, future Slack-OAuth, etc.).
+3. **Hub assumes webhook-driven inbound.** SPEC-045d describes inbound as webhook → `verifyWebhook` → worker. Gmail/IMAP real-time push requires GCP Pub/Sub / IMAP IDLE — significant infra cost. We need a polling fallback baked into the hub.
+4. **No third-party OAuth client flow in OSS core.** Only enterprise SSO has OAuth client primitives. We need to port that to the hub for any OAuth-based channel (Gmail, future Slack-OAuth, etc.).
 5. **Cross-module integration without UMES is invasive.** Per-provider UI in the hub's pages would either bloat the hub or fork the hub per provider. UMES (already in the codebase) is the correct extension mechanism.
 
 ## Proposed Solution
 
-**Approach C from brainstorming, rejected. Approach A adopted: three per-provider workspace packages under the hub, with minimal additive hub deltas.**
+**Approach C from brainstorming, rejected. Approach A adopted: two per-provider workspace packages under the hub, with minimal additive hub deltas.**
 
 ### High-level architecture
 
@@ -107,17 +100,17 @@ Open Mercato today has **outbound-only, Resend-only** transactional email and no
 │   • NEW: OAuth callback router /api/communication_channels   │
 │         /oauth/[provider]/callback                           │
 └──────────────────────────────────────────────────────────────┘
-              ▲           ▲           ▲
-              │           │           │  (each registers ChannelAdapter via setup.ts)
-   ┌──────────┴──┐  ┌─────┴────┐  ┌───┴──────────┐
-   │ channel-     │ │ channel-  │ │ channel-      │
-   │ gmail        │ │ microsoft │ │ imap          │
-   │ (OAuth +     │ │ (OAuth +  │ │ (basic auth + │
-   │  History API)│ │  Graph    │ │  imapflow +   │
-   │              │ │  delta)   │ │  nodemailer)  │
-   └──────────────┘ └───────────┘ └───────────────┘
-              │           │           │
-              └───────────┼───────────┘
+              ▲                       ▲
+              │                       │  (each registers ChannelAdapter via setup.ts)
+   ┌──────────┴──┐          ┌─────────┴─────┐
+   │ channel-     │         │ channel-      │
+   │ gmail        │         │ imap          │
+   │ (OAuth +     │         │ (basic auth + │
+   │  History API)│         │  imapflow +   │
+   │              │         │  nodemailer)  │
+   └──────────────┘         └───────────────┘
+              │                       │
+              └───────────┬───────────┘
                           ▼
                   UMES extension surface
                   (widgets, enrichers,
@@ -135,7 +128,7 @@ Open Mercato today has **outbound-only, Resend-only** transactional email and no
 
 | Decision | Rationale |
 |----------|-----------|
-| **Three provider packages (gmail / microsoft / imap), not one `channel_email`** | The lesson "Keep external integrations as dedicated npm workspace packages" (`.ai/lessons.md`) and the existing `packages/gateway-stripe` / `packages/sync-akeneo` precedent override SPEC-045d §11.3's `channel_email` sketch. Gmail OAuth, Microsoft Graph OAuth+PKCE, and IMAP basic auth are fundamentally different — three packages is honest. |
+| **Two provider packages (gmail / imap), not one `channel_email`** | The lesson "Keep external integrations as dedicated npm workspace packages" (`.ai/lessons.md`) and the existing `packages/gateway-stripe` / `packages/sync-akeneo` precedent override SPEC-045d §11.3's `channel_email` sketch. Gmail OAuth and IMAP basic auth are fundamentally different — two packages is honest. |
 | **Per-user channels via additive `CommunicationChannel.user_id?` column** | Cleanest extension to the hub. NULL = tenant-scoped (existing WhatsApp Business behavior). Set = user-scoped (Jane's personal Gmail). No parallel table, no schema migration of existing rows, single canonical channel registry. |
 | **Polling via hub-side scheduler + `ChannelCapabilities.realtimePush?: boolean`** | Hub owns the scheduling; providers declare whether they support push. Providers that opt out get hub-managed polling using their existing `fetchHistory()` method — no provider-side polling primitive needed. Future v2 push providers flip the flag. |
 | **Inbound emails auto-create `Message` records in the inbox via existing hub bridge** | This is the whole point of the hub. Per-user channel owner becomes the default `ChannelThreadMapping.assigned_user_id`. CRM, search, notifications, reactions, threading all come for free. |
@@ -150,7 +143,7 @@ Open Mercato today has **outbound-only, Resend-only** transactional email and no
 | Alternative | Why Rejected |
 |-------------|-------------|
 | **A1. Standalone `email` module + three `email-*` provider packages (previous draft)** | Duplicates the hub. Two storage models, two event streams, two admin homes. Maintainer rejected. |
-| **A2. Single `channel_email` package with internal Gmail/Microsoft/IMAP strategies (matches SPEC-045d §11.3 literally)** | Violates the per-provider workspace convention. Gmail/Microsoft/IMAP have different OAuth/auth/sync mechanisms — packaging them together produces an internally heterogeneous module that's hard to release, version, or disable independently. |
+| **A2. Single `channel_email` package with internal Gmail/IMAP strategies (matches SPEC-045d §11.3 literally)** | Violates the per-provider workspace convention. Gmail/IMAP have different OAuth/auth/sync mechanisms — packaging them together produces an internally heterogeneous module that's hard to release, version, or disable independently. |
 | **A3. Build polling per-provider (each provider package owns its scheduler)** | Triplicates the scheduler logic, fragments backoff behavior, makes adding a fourth poll-based channel (e.g., LinkedIn) an N×M problem. Hub-side scheduler is the correct factoring. |
 | **A4. Parallel `user_email_credentials` table (per-user secrets isolated by schema, not by `WHERE`)** | The hub's `integration_credentials` is already encrypted, audited, and admin-managed. A parallel table would need to re-implement all of that. The `user_id` column is sufficient — leaks are prevented at the query layer (with mutation-guard defense in depth). |
 | **A5. Wait for v2 push support before shipping any email** | The product needs email v1 now. Polling is a well-known acceptable pattern (HubSpot, Pipedrive, Salesforce Inbox all defaulted to polling at v1). |
@@ -159,9 +152,9 @@ Open Mercato today has **outbound-only, Resend-only** transactional email and no
 ## User Stories
 
 - **A sales rep** wants to **connect their Gmail in Open Mercato** so that **the customer conversations I have through Open Mercato come from my own address and replies land in my inbox.**
-- **An account manager on Microsoft 365** wants to **link their Outlook account** so that **future CRM features attach conversations to my deals automatically.**
+- **An account manager** wants to **link their work mailbox** so that **future CRM features attach conversations to my deals automatically.**
 - **A user with a Fastmail account** wants to **connect via IMAP+SMTP** so that **the integration works without my provider having to offer OAuth.**
-- **A user with both a work Microsoft account and a personal Gmail** wants to **connect both and mark one as primary** so that **the system knows which to default to when I compose.**
+- **A user with both a work IMAP mailbox and a personal Gmail** wants to **connect both and mark one as primary** so that **the system knows which to default to when I compose.**
 - **A tenant admin** wants to **see which users have connected accounts and which are unhealthy** so that **I can help them reconnect — without ever seeing the contents of their emails.**
 - **A tenant admin in a SaaS deployment** wants to **use the platform's shared OAuth app** so that **I don't have to register my own with Google.**
 - **A tenant admin in a self-hosted deployment** wants to **register the tenant's own Google Cloud OAuth client** so that **the consent screen shows their company name.**
@@ -254,11 +247,7 @@ packages/channel-gmail/                                # @open-mercato/channel-g
     guards/                                             # UMES mutation guards (see UMES section)
       block-send-on-requires-reauth.ts
 
-packages/channel-microsoft/                            # @open-mercato/channel-microsoft, parallel structure to channel-gmail
-  src/modules/channel_microsoft/
-    ...                                                 # Microsoft Identity v2 + PKCE; /me/sendMail; /me/mailFolders/inbox/messages/delta
-
-packages/channel-imap/                                 # @open-mercato/channel-imap, parallel structure
+packages/channel-imap/                                 # @open-mercato/channel-imap, parallel structure to channel-gmail
   src/modules/channel_imap/
     ...                                                 # imapflow + nodemailer; basic auth; UIDVALIDITY+UIDNEXT
 ```
@@ -268,7 +257,6 @@ packages/channel-imap/                                 # @open-mercato/channel-i
 ```ts
 { id: 'communication_channels', from: '@open-mercato/core' },   // Hub (Phase 0)
 { id: 'channel_gmail',          from: '@open-mercato/channel-gmail' },     // Phase 2
-{ id: 'channel_microsoft',      from: '@open-mercato/channel-microsoft' }, // Phase 3
 { id: 'channel_imap',           from: '@open-mercato/channel-imap' },      // Phase 1
 ```
 
@@ -276,13 +264,12 @@ Module IDs use underscores per the root `AGENTS.md` rule "package `@open-mercato
 
 ### OSS Independence
 
-`@open-mercato/core` and the three provider packages MUST NOT import from `@open-mercato/enterprise`. The OAuth state-cookie helper is **ported (re-implemented locally)** at `packages/core/src/modules/communication_channels/lib/oauth-state.ts` — its design is informed by `packages/enterprise/src/modules/sso/lib/state-cookie.ts` but the file is independent. Phase 0 acceptance includes:
+`@open-mercato/core` and the two provider packages MUST NOT import from `@open-mercato/enterprise`. The OAuth state-cookie helper is **ported (re-implemented locally)** at `packages/core/src/modules/communication_channels/lib/oauth-state.ts` — its design is informed by `packages/enterprise/src/modules/sso/lib/state-cookie.ts` but the file is independent. Phase 0 acceptance includes:
 
 ```bash
 grep -r "@open-mercato/enterprise" \
   packages/core/src/modules/communication_channels \
   packages/channel-gmail \
-  packages/channel-microsoft \
   packages/channel-imap
 # Expected: empty output
 ```
@@ -295,11 +282,11 @@ The local helper reproduces: AES-256-GCM payload encryption, HKDF key derivation
 
 | Concern | `inbox_ops` (live module) | This spec (per-user channels under the hub) |
 |---|---|---|
-| **Source of mail** | A *dedicated* Resend mailbox the tenant sets up specifically for forwarding (e.g. `forward@tenant.example.com`). Users forward emails into that address from their own client. | The user's *own real mailbox* (Gmail, Microsoft 365, IMAP). Polled by the hub on the user's behalf. |
+| **Source of mail** | A *dedicated* Resend mailbox the tenant sets up specifically for forwarding (e.g. `forward@tenant.example.com`). Users forward emails into that address from their own client. | The user's *own real mailbox* (Gmail, IMAP). Polled by the hub on the user's behalf. |
 | **Intent** | "Extract structured actions from this forwarded email via LLM and propose them to a human for approval." Workflow / action-proposal pipeline. | "Show me my external conversations alongside WhatsApp/Slack/etc. in my unified inbox so I can reply." Conversational inbox. |
 | **Storage destination** | `inbox_ops`'s own entities (proposals, actions, replies). Not threaded into the `messages` inbox. | The hub's `MessageChannelLink` + the `messages` module's threaded inbox. First-class inbox citizens. |
 | **Events** | `inbox_ops.email.received/.processed/.failed/.reprocessed/.deduplicated`, `inbox_ops.proposal.*`, `inbox_ops.action.*`, `inbox_ops.reply.sent` — all `inbox_ops.*` namespace. | `communication_channels.message.received/.sent/.delivery_failed/.reaction.added` — hub events, channel-agnostic. |
-| **Outbound** | Reply-send via Resend (the inbox_ops "reply" path). | Outbound through the user's own mailbox (Gmail send / Graph sendMail / SMTP). |
+| **Outbound** | Reply-send via Resend (the inbox_ops "reply" path). | Outbound through the user's own mailbox (Gmail send / SMTP). |
 | **AI** | Yes — LLM-driven action extraction is the core feature. | No — v1 is plain conversational. (Future AI features would subscribe to `communication_channels.message.received` and live in a separate AI module.) |
 
 **Concrete decisions for this spec:**
@@ -387,7 +374,7 @@ Tick interval is configurable via `OM_HUB_POLL_SCHEDULER_TICK_SECONDS` (default 
 Each provider package implements the `ChannelAdapter` v2 interface from SPEC-045d. The contract is reproduced here for reviewer convenience; SPEC-045d is the canonical source.
 
 ```ts
-// Provider implementation skeleton (gmail / microsoft / imap parallel)
+// Provider implementation skeleton (gmail / imap parallel)
 export const gmailAdapter: ChannelAdapter = {
   providerKey: 'gmail',
   channelType: 'email',
@@ -408,17 +395,17 @@ export const gmailAdapter: ChannelAdapter = {
 
 Capabilities differ per provider:
 
-| Capability | Gmail | Microsoft | IMAP |
-|---|---|---|---|
-| `threading` | true (gmail threadId + RFC2822) | true (Graph conversationId + RFC2822) | true (RFC2822 only) |
-| `richText` | true (HTML body) | true (HTML body) | true (HTML body) |
-| `fileSharing` | true (max 25 MB) | true (max 25 MB) | true (depends on server, default 25 MB) |
-| `reactions` | false | false | false |
-| `editMessage` | false | false | false |
-| `deleteMessage` | false | false | false |
-| `conversationHistory` | true (History API) | true (Graph delta) | true (UIDVALIDITY + UIDNEXT) |
-| `realtimePush` | false (v1) | false (v1) | false (v1) |
-| `supportedBodyFormats` | `['text','html']` | `['text','html']` | `['text','html']` |
+| Capability | Gmail | IMAP |
+|---|---|---|
+| `threading` | true (gmail threadId + RFC2822) | true (RFC2822 only) |
+| `richText` | true (HTML body) | true (HTML body) |
+| `fileSharing` | true (max 25 MB) | true (depends on server, default 25 MB) |
+| `reactions` | false | false |
+| `editMessage` | false | false |
+| `deleteMessage` | false | false |
+| `conversationHistory` | true (History API) | true (UIDVALIDITY + UIDNEXT) |
+| `realtimePush` | false (v1) | false (v1) |
+| `supportedBodyFormats` | `['text','html']` | `['text','html']` |
 
 ### Inbound flow (polling-based)
 
@@ -502,12 +489,12 @@ Provider packages and the hub use UMES per SPEC-041 to compose UI, data, and beh
 
 #### Per provider (declared in each provider's package)
 
-1. **Widget injection — `profile:tabs`** (Phase B): "Connect Gmail" / "Connect Microsoft" / "Connect IMAP" tab/CTA in the per-user `/backend/profile/communication-channels` page. Each provider injects its own connect widget.
-2. **Widget injection — `admin.page:integrations:<provider>:oauth-config`** (Phase A): OAuth client_id / client_secret form for Gmail and Microsoft. Tenant-level override of platform defaults. IMAP provider injects an "enabled/disabled" toggle (no OAuth config).
+1. **Widget injection — `profile:tabs`** (Phase B): "Connect Gmail" / "Connect IMAP" tab/CTA in the per-user `/backend/profile/communication-channels` page. Each provider injects its own connect widget.
+2. **Widget injection — `admin.page:integrations:<provider>:oauth-config`** (Phase A): OAuth client_id / client_secret form for Gmail. Tenant-level override of platform defaults. IMAP provider injects an "enabled/disabled" toggle (no OAuth config).
 3. **Widget injection — `data-table:communication_channels:channels:columns`** (Phase F): provider-specific status columns. Gmail injects "Gmail labels filter" column; IMAP injects "Folder" column.
 4. **Widget injection — `data-table:messages:columns`** (Phase F): channel-type badge column (hub-side, but each provider supplies its icon + tint via per-provider widget registration so the hub doesn't need to know about provider visuals).
-5. **Widget injection — `messages:thread:detail:rich-content`** (Phase A): when `MessageChannelLink.channelContentType === 'email/mime'`, render To/Cc/Bcc, attachments list, original headers, "Reply / Reply All / Forward" actions. Provider-agnostic widget lives in hub; per-provider provider-specific tweaks (Gmail's labels chip, Outlook's category) injected by each provider.
-6. **CrudForm field injection — `crud-form:communication_channels.channel:fields:<provider>`** (Phase G): per-provider credential fields. IMAP injects host/port/TLS/user/password (×2 for SMTP), plus the security-ack checkbox. Gmail / Microsoft inject scope selectors and login_hint.
+5. **Widget injection — `messages:thread:detail:rich-content`** (Phase A): when `MessageChannelLink.channelContentType === 'email/mime'`, render To/Cc/Bcc, attachments list, original headers, "Reply / Reply All / Forward" actions. Provider-agnostic widget lives in hub; per-provider provider-specific tweaks (Gmail's labels chip) injected by each provider.
+6. **CrudForm field injection — `crud-form:communication_channels.channel:fields:<provider>`** (Phase G): per-provider credential fields. IMAP injects host/port/TLS/user/password (×2 for SMTP), plus the security-ack checkbox. Gmail injects scope selectors and login_hint.
 7. **Response enricher — `_email` namespace on `Message`** (Phase D): parse and expose `From`, `To`, `Cc`, `Bcc`, `Subject`, attachment list, original `Message-ID`, `In-Reply-To`, threading chain. Triggered when `MessageChannelLink.channelContentType.startsWith('email/')`. Batched via `enrichMany` to avoid N+1.
 8. **Response enricher — `_channel_health` on `CommunicationChannel`** (Phase D): provider-computed `tokenExpiresAt`, `lastSuccessfulPoll`, `errorCount24h`. Per-provider implementation; hub aggregates.
 9. **API interceptor — `before` on `POST /api/messages`** (Phase E): when message routes to a `channel_<provider>` channel, validate the caller owns the channel and the channel status is `connected`. Returns 409 `CHANNEL_NOT_AVAILABLE` if not. Defense in depth on top of the standard hub guard.
@@ -532,7 +519,7 @@ UMES coverage check:
 - Phase I (detail page bindings): ✓ (via `useExtensibleDetail` in the channel detail page)
 - Phase J (recursive widgets): ✓ (provider's CrudForm-field widget can itself contain nested injection spots, e.g. IMAP's "advanced settings" collapsible)
 - Phase K (DevTools): N/A — provider packages don't add DevTools surface
-- Phase L (integration extensions): ✓ (wizard widgets on `/backend/integrations` for Gmail, Microsoft, IMAP)
+- Phase L (integration extensions): ✓ (wizard widgets on `/backend/integrations` for Gmail, IMAP)
 - Phase M (mutation lifecycle): ✓
 - Phase N (query engine extensibility): ✓ (the `_email` enricher participates in query-engine pipelines so search/filter on parsed headers works without N+1)
 
@@ -543,7 +530,7 @@ UMES coverage check:
 - **Credential storage**: hub's `integration_credentials` with field-level encryption (existing pipeline; no per-provider crypto). New `user_id` column isolates per-user secrets at the row level.
 - **Per-user channel privacy** (v1 strict owner-only, updated 2026-06-01): personal mailboxes and their CRM email threads are visible to the owner only — admins included. The admin channels list is restricted to `user_id IS NULL`; `assertCanAccessChannel` grants no admin bypass on personal channels; the Person-page threads scope to `author_user_id = viewer`; the email-visibility filters drop the admin bypass. See **Per-user privacy & visibility model (v1)**.
 - **Credential-key rejection in logs**: hub's `EmailHealthLog` Zod validator (already present in SPEC-045d's design) rejects any context key matching `/^(credential|password|token|secret|access[_-]?token|refresh[_-]?token)/i`. Worker error handlers strip such keys from caught exceptions before logging.
-- **URL construction**: all OAuth authorize URLs built via `URLSearchParams`. Provider-base URLs validated against an allowlist (Google, Microsoft) — IMAP host/port validated as DNS-resolvable + numeric in range (lesson "Provider credentials must never control authenticated cross-origin requests").
+- **URL construction**: all OAuth authorize URLs built via `URLSearchParams`. Provider-base URLs validated against an allowlist (Google) — IMAP host/port validated as DNS-resolvable + numeric in range (lesson "Provider credentials must never control authenticated cross-origin requests").
 - **Parameterized queries**: all DB access via MikroORM repository methods or query builder; no raw SQL interpolation in route handlers (lesson "Keep raw SQL out of API route handlers").
 
 ### Per-user privacy & visibility model (v1 — strict owner-only)
@@ -780,7 +767,7 @@ Routes that mutate (everything except the OAuth callback, which is GET-with-side
 
 ### `GET /api/communication_channels/oauth/[provider]/callback`
 - No auth feature (state cookie carries identity)
-- Query: `code`, `state` (Google) or `code`, `state`, `session_state` (Microsoft)
+- Query: `code`, `state` (Google)
 - Response: 302 to `returnUrl` (default `/backend/profile/communication-channels?flash=connected`) or `?flash=error&code=...`
 - Errors: invalid state, expired state, userId mismatch, exchange failure — all redirect with `flash=error`.
 
@@ -834,14 +821,14 @@ Per `packages/shared/AGENTS.md`. Locale keys live in each provider's `src/module
 
 Required namespaces:
 - Hub: `communication_channels.channel.status.*`, `.actions.*`, `.banner.requiresReauth`, `.notifications.requires_reauth.*`, `.errors.channel_not_available`
-- Per provider: `channel_gmail.label`, `channel_gmail.connect.button`, `channel_gmail.scopes.*`, `channel_gmail.errors.*` (and parallel for `channel_microsoft`, `channel_imap`)
+- Per provider: `channel_gmail.label`, `channel_gmail.connect.button`, `channel_gmail.scopes.*`, `channel_gmail.errors.*` (and parallel for `channel_imap`)
 
 Translations via `useT()` client-side, `resolveTranslations()` server-side.
 
 ## UI/UX
 
 ### User-facing: `/backend/profile/communication-channels`
-- **NEW hub page** (replaces what the previous spec called `/backend/profile/email-accounts`). Generic across channel types — Gmail / Microsoft / IMAP / future Slack OAuth all surface here.
+- **NEW hub page** (replaces what the previous spec called `/backend/profile/email-accounts`). Generic across channel types — Gmail / IMAP / future Slack OAuth all surface here.
 - Top section: `<EmptyState>` for empty / Alert banner for `requires_reauth` channels.
 - DataTable (`entityId: 'communication_channels:user_channel'`):
   - Provider icon (lucide-react via backend icon registry — `Mail` for email, `MessageCircle` for chat channels)
@@ -851,7 +838,7 @@ Translations via `useT()` client-side, `resolveTranslations()` server-side.
   - Status badge — semantic status tokens: `bg-status-success-soft text-status-success-fg` (connected), `bg-status-warning-soft text-status-warning-fg` (requires_reauth), `bg-status-error-soft text-status-error-fg` (error)
   - Last synced (relative time)
   - RowActions ids: `communication-channel:rename`, `:set-primary`, `:reconnect`, `:disconnect`
-- "Connect channel" split button (top-right) is UMES-driven: each provider package injects its own entry via `profile:communication-channels:connect` widget spot. Gmail / Microsoft entries redirect to `authorizeUrl`; IMAP entry opens a `CrudForm` dialog with the security-ack checkbox.
+- "Connect channel" split button (top-right) is UMES-driven: each provider package injects its own entry via `profile:communication-channels:connect` widget spot. The Gmail entry redirects to `authorizeUrl`; IMAP entry opens a `CrudForm` dialog with the security-ack checkbox.
 - All dialogs: `Cmd/Ctrl+Enter` submit, `Escape` cancel.
 - Every icon-only button has `aria-label` (`.ai/ui-components.md`).
 - Pagination: `pageSize ≤ 100`.
@@ -871,7 +858,7 @@ Translations via `useT()` client-side, `resolveTranslations()` server-side.
   - `UserChannelsTable` — Client Component (table actions, dialog state)
   - `ConnectImapDialog` — Client Component (form state)
 - **`"use client"` ledger**: 2 client files per provider's connect widget + 1 hub-side table component = ~5 total.
-- **Client bundle guardrail**: NO provider SDK in client bundles (no `googleapis`, no `@microsoft/microsoft-graph-client`, no `imapflow` — all server-side only). Verified via Phase 4 acceptance.
+- **Client bundle guardrail**: NO provider SDK in client bundles (no `googleapis`, no `imapflow` — all server-side only). Verified via Phase 4 acceptance.
 - **Route budgets**: each backend page < 30 KB gzipped client JS (DataTable + CrudForm primitives are shared by the existing UI primitives package, not re-bundled).
 - **Hydration test**: Playwright asserts interactive controls respond within 100 ms of mount on cold load.
 - **Provider/bootstrap scope**: no new global providers; uses existing app shell.
@@ -883,10 +870,6 @@ Translations via `useT()` client-side, `resolveTranslations()` server-side.
 OM_HUB_GMAIL_OAUTH_CLIENT_ID
 OM_HUB_GMAIL_OAUTH_CLIENT_SECRET
 OM_HUB_GMAIL_REDIRECT_URI                    # e.g. https://app.example.com/api/communication_channels/oauth/gmail/callback
-OM_HUB_MICROSOFT_OAUTH_CLIENT_ID
-OM_HUB_MICROSOFT_OAUTH_CLIENT_SECRET
-OM_HUB_MICROSOFT_OAUTH_TENANT                # 'common' for multi-tenant, or specific tenant GUID
-OM_HUB_MICROSOFT_REDIRECT_URI
 
 # Polling tuning (hub-side)
 OM_HUB_POLL_DEFAULT_INTERVAL_SECONDS=300     # default 5 min
@@ -912,12 +895,12 @@ Setup raises a clear error at module boot if a provider is enabled but neither t
 | ACL features | 1 new feature: `communication_channels.connect_user_channel` (default-granted to all roles) | Additive |
 | ChannelCapabilities | NEW optional field `realtimePush?: boolean` (default true) | Additive (existing providers omit it) |
 | ChannelAdapter | NEW optional method `refreshCredentials?()`, NEW optional method `validateCredentials?()` for credential-based providers | Additive |
-| Marketplace categories | 3 new integration entries: `channel_gmail`, `channel_microsoft`, `channel_imap` — category `communication`, hub `communication_channels` | Additive |
+| Marketplace categories | 2 new integration entries: `channel_gmail`, `channel_imap` — category `communication`, hub `communication_channels` | Additive |
 | Messages module | UNTOUCHED | None |
 | Resend pipeline | UNTOUCHED | None |
 | Existing tenant WhatsApp channels | UNTOUCHED (`user_id` defaults NULL) | None |
-| `apps/mercato/src/modules.ts` | Adds 4 entries (`communication_channels` hub + 3 providers) | Required app change, documented |
-| `yarn generate` output | Hub + 3 provider packages join generators | Additive |
+| `apps/mercato/src/modules.ts` | Adds 3 entries (`communication_channels` hub + 2 providers) | Required app change, documented |
+| `yarn generate` output | Hub + 2 provider packages join generators | Additive |
 
 No deprecations. No data migration of existing rows. Existing hub tests untouched.
 
@@ -953,7 +936,7 @@ If any line above fails, return to the hub-foundation PR before continuing.
 5. Extend `ChannelAdapter` with optional `refreshCredentials?(input)` and `validateCredentials?(input)` methods in `lib/adapter.ts`. Both are typed as optional; existing WhatsApp/Slack adapters compile unchanged.
 6. New worker: `workers/poll-channel.ts` with `metadata = { queue: 'communication-channels-poll', concurrency: 10 }`, idempotent on `(channel_id, external_message_id)`, error classification → status transitions per § Hub Deltas → Delta 6.
 7. New scheduler entry: `schedulers/poll-tick.ts` registering a 60s cron via `@open-mercato/scheduler` per § Hub Deltas → Delta 6 (scheduler mechanism).
-8. New OAuth state-cookie helper: `lib/oauth-state.ts` ported (not imported) from `packages/enterprise/src/modules/sso/lib/state-cookie.ts`. Phase 0 acceptance includes a `grep -r '@open-mercato/enterprise'` returning empty against `packages/core/src/modules/communication_channels/` and the three provider packages once they ship.
+8. New OAuth state-cookie helper: `lib/oauth-state.ts` ported (not imported) from `packages/enterprise/src/modules/sso/lib/state-cookie.ts`. Phase 0 acceptance includes a `grep -r '@open-mercato/enterprise'` returning empty against `packages/core/src/modules/communication_channels/` and the two provider packages once they ship.
 9. New OAuth router: `api/post/oauth/[provider]/initiate/route.ts` + `api/get/oauth/[provider]/callback/route.ts` per § API Contracts.
 10. New per-user routes: `api/post/channels/connect/credentials/route.ts` + `api/post/channels/[id]/set-primary/route.ts` + `api/post/channels/[id]/test-send/route.ts` + `api/post/send-as-user/route.ts`. Each uses per-method `metadata` (see § Per-method metadata shape).
 11. Per-user ACL feature: add `communication_channels.connect_user_channel` to the hub's `acl.ts`; default-grant to all roles in `setup.ts`. Run `yarn mercato auth sync-role-acls` in deploy runbook.
@@ -1023,25 +1006,6 @@ If any line above fails, return to the hub-foundation PR before continuing.
     - `TC-CHANNEL-EMAIL-010` Refresh-token revoked → status=requires_reauth + notification arrives + banner shown on profile page
 12. **Acceptance**: User connects Gmail end-to-end against real Google Workspace test account; full send + receive + token refresh + reauth flow exercised.
 
-### Phase 3 — Microsoft provider (`@open-mercato/channel-microsoft`)
-
-**Goal**: parallel OAuth provider; reuses Phase 2's OAuth foundation.
-
-1. Workspace package scaffolding.
-2. `lib/oauth.ts`: Microsoft identity platform v2.0 (Azure AD) authorize URL, code exchange (PKCE), refresh.
-3. `lib/sync.ts`: `/me/mailFolders/inbox/messages/delta`.
-4. `lib/send.ts`: `/me/sendMail` with `application/json`.
-5. `lib/health.ts`: `/me`.
-6. Capabilities + `refreshCredentials`.
-7. UMES: Microsoft connect button, OAuth config, Outlook categories chip widget.
-8. Marketplace registration.
-9. Unit tests with stubbed Graph responses.
-10. Module-local integration tests:
-    - `TC-CHANNEL-EMAIL-011` Connect Microsoft 365 (real OAuth, env-gated CI skip)
-    - `TC-CHANNEL-EMAIL-012` Send via /me/sendMail
-    - `TC-CHANNEL-EMAIL-013` Receive via Graph delta polling
-11. **Acceptance**: Microsoft 365 account end-to-end.
-
 ### Phase 4 — UMES polish + cross-provider tests
 
 **Goal**: finalize all UMES extension points; ensure they compose cleanly across multiple connected channels.
@@ -1054,7 +1018,7 @@ If any line above fails, return to the hub-foundation PR before continuing.
 6. Module-local integration tests (`packages/core/src/modules/communication_channels/__integration__/`):
     - `TC-CHANNEL-EMAIL-014` Multi-account per user, primary swap works (one user with Gmail + IMAP, primary toggled)
     - `TC-CHANNEL-EMAIL-015` Admin sees account list, cannot read envelope contents (RBAC)
-    - `TC-CHANNEL-EMAIL-016` Tenant-owned OAuth app overrides platform default (Gmail and Microsoft)
+    - `TC-CHANNEL-EMAIL-016` Tenant-owned OAuth app overrides platform default (Gmail)
     - `TC-CHANNEL-EMAIL-017` Disconnect → credentials hard-purged, polling halted, channel removed
     - `TC-CHANNEL-EMAIL-018` Mutation guard blocks delete with unread inbound + force=true bypass
     - `TC-CHANNEL-EMAIL-019` `auth.user.deleted` cascade-disconnects all user's channels
@@ -1064,7 +1028,7 @@ If any line above fails, return to the hub-foundation PR before continuing.
 ### Phase 5 — Documentation + deploy runbook
 
 1. `apps/docs/docs/framework/communication_channels/per-user-channels.mdx` — concept, OAuth setup per provider, troubleshooting.
-2. Deploy runbook: `OM_HUB_*` env keys, `OM_HUB_OAUTH_STATE_KEY` rotation, `yarn mercato configs cache structural --all-tenants` after deploy, optional tenant OAuth app registration steps for Google Cloud Console and Azure AD.
+2. Deploy runbook: `OM_HUB_*` env keys, `OM_HUB_OAUTH_STATE_KEY` rotation, `yarn mercato configs cache structural --all-tenants` after deploy, optional tenant OAuth app registration steps for Google Cloud Console.
 3. Spec changelog entry, Final Compliance Report rerun, `RELEASE_NOTES.md` entry.
 
 ### File Manifest (high-level)
@@ -1077,9 +1041,7 @@ If any line above fails, return to the hub-foundation PR before continuing.
 | `packages/channel-imap/src/modules/channel_imap/__integration__/TC-*.spec.ts` | Create | IMAP integration specs |
 | `packages/channel-gmail/src/modules/channel_gmail/**` | Create | Gmail provider package (Phase 2) |
 | `packages/channel-gmail/src/modules/channel_gmail/__integration__/TC-*.spec.ts` | Create | Gmail integration specs |
-| `packages/channel-microsoft/src/modules/channel_microsoft/**` | Create | Microsoft provider package (Phase 3) |
-| `packages/channel-microsoft/src/modules/channel_microsoft/__integration__/TC-*.spec.ts` | Create | Microsoft integration specs |
-| `apps/mercato/src/modules.ts` | Modify | Enable `communication_channels` (if not enabled) + 3 providers |
+| `apps/mercato/src/modules.ts` | Modify | Enable `communication_channels` (if not enabled) + 2 providers |
 | `.ai/qa/scenarios/TC-CHANNEL-EMAIL-*.md` | Create | Human-readable scenario markdowns (no code) |
 | `apps/docs/docs/framework/communication_channels/per-user-channels.mdx` | Create | User-facing docs |
 
@@ -1131,7 +1093,7 @@ If any line above fails, return to the hub-foundation PR before continuing.
 - **Residual risk**: If the bridge is not in place, UI consumers fall back to polling (existing pattern). Spec flags this as a hub-side dependency.
 
 #### Provider outage
-- **Scenario**: Gmail / Graph returns 5xx for hours.
+- **Scenario**: Gmail returns 5xx for hours.
 - **Severity**: Low
 - **Mitigation**: Exponential backoff to 60-min ceiling; status stays `connected`; `HealthLog` warnings accumulate; admin can see in dashboard.
 - **Residual risk**: Sync lag on that provider; documented.
@@ -1229,8 +1191,8 @@ If any line above fails, return to the hub-foundation PR before continuing.
 
 | Rule Source | Rule | Status | Notes |
 |---|---|---|---|
-| root AGENTS.md | External providers in own workspace packages (`packages/<provider-package>/`) | Compliant | `channel-gmail`, `channel-microsoft`, `channel-imap` |
-| root AGENTS.md | Module-id underscore convention | Compliant | `channel_gmail`, `channel_microsoft`, `channel_imap`, `communication_channels` |
+| root AGENTS.md | External providers in own workspace packages (`packages/<provider-package>/`) | Compliant | `channel-gmail`, `channel-imap` |
+| root AGENTS.md | Module-id underscore convention | Compliant | `channel_gmail`, `channel_imap`, `communication_channels` |
 | root AGENTS.md | No direct ORM relationships between modules | Compliant | Provider packages link to hub only via DI registration; user link is FK ID + `EntityExtension` |
 | root AGENTS.md | Tenant + organization scoping | Compliant | All channels carry `tenant_id` + `organization_id` |
 | root AGENTS.md | Zod validation, derived types | Compliant | All API bodies + adapter inputs validated |
@@ -1253,7 +1215,7 @@ If any line above fails, return to the hub-foundation PR before continuing.
 | .ai/specs/AGENTS.md | Required sections (10), risk register format | Compliant | All present, format matches |
 | spec-writing skill | Frontend Architecture Contract | Compliant | Server/Client boundary, client bundle guardrail, hydration test |
 | spec-writing skill | Security: input validation, parameterized queries, XSS, encoding, secret exclusion | Compliant | Security Posture subsection enumerates each |
-| SPEC-045d | Use `ChannelAdapter` v2 interface | Compliant | All three providers implement it |
+| SPEC-045d | Use `ChannelAdapter` v2 interface | Compliant | Both providers implement it |
 | SPEC-045d | Use hub entities (`MessageChannelLink`, `ChannelThreadMapping`, `ExternalMessage`) | Compliant | No parallel storage |
 | SPEC-045d | Hub events, not provider-specific events | Compliant | No new event IDs introduced |
 | SPEC-041 | Use UMES for cross-module integration | Compliant | 17 named extension points across 12 phases of UMES |
@@ -1286,9 +1248,9 @@ None.
 
 ## Changelog
 
-### 2026-06-02 — Microsoft 365 / Outlook channel removed
+### 2026-06-02 — Scope narrowed to Gmail + IMAP
 
-The Microsoft 365 / Outlook provider was dropped from the email-integration scope; only **Gmail + IMAP** remain. Removed together: the `@open-mercato/channel-microsoft` provider package, the two `/webhooks/microsoft/*` routes, the `…-microsoft-delta-sync` / `…-microsoft-renew-subscriptions` queues, and the `OM_MICROSOFT_*` env vars (see [`BACKWARD_COMPATIBILITY.md`](../../BACKWARD_COMPATIBILITY.md) § Spec C — non-breaking, none shipped in a release). The now-dead `communication_channels.client_state_encrypted` column (Microsoft Graph anti-tampering nonce) is dropped by `Migration20260602120000`. The provider-key union is `'gmail' | 'imap'`. Microsoft 365 / Outlook mailboxes connect via IMAP + SMTP with an app password. Historical changelog entries below still name Microsoft 365 / Azure AD as shipped on their dates — those are preserved as append-only history and are superseded by this entry.
+The shipping email providers are **Gmail + IMAP+SMTP** only. The provider-key union is `'gmail' | 'imap'`. Work-mailboxes that do not offer a usable OAuth path connect via IMAP + SMTP with an app password.
 
 ### 2026-06-02 — Stale Delta 1 line reconciled with strict owner-only
 
@@ -1300,9 +1262,9 @@ Records the decisions and fixes from the post-PoC privacy/OAuth review (new **Pe
 
 - **v1 = strict owner-only.** Personal mailboxes and their CRM email threads are visible to the owner only — not even admins/superadmins. The admin channels list (`GET /api/communication_channels/channels`) is restricted to `user_id IS NULL`; `assertCanAccessChannel` drops the admin bypass on personal channels; `personEmailThreads.ts` scopes to `author_user_id = viewer` (fail-closed); `applyEmailVisibilityFilter` / `buildEmailVisibilityMikroFilter` and the visibility-change gate drop the admin bypass. `customers.email.view_private` and `communication_channels.admin`'s cross-user view are reserved, inert, for v2 oversight.
 - **Owners fully control their own mailboxes.** The profile page gained a **Disconnect** action (confirm dialog → `DELETE /channels/[id]`), and the per-channel management routes (disconnect, set-primary, poll-now, import-history, push-register) now gate on `communication_channels.connect_user_channel` + the new `assertCanManageChannel` — owner-only for personal channels (no admin bypass), while tenant-wide/shared channels still require `manage` / `channel.push.manage` / `channel.import_history`. This fixes the earlier gap where self-service was gated behind `manage`, which regular employees lack, so they couldn't even remove their own account.
-- **Gmail/Microsoft connect + refresh fixed.** OAuth client credentials are resolved from the provider's `channel_<provider>` integration at tenant scope (with org-agnostic fallback) via `resolveOAuthClientCredentials()`, not the phantom `oauth_<provider>` id every code path previously read. Missing client config now returns an actionable `oauth_client_not_configured` error instead of "expected string, received undefined". Detail in the consolidated follow-up spec [`2026-05-27-email-integration-inbound-reliability-and-threading.md`](2026-05-27-email-integration-inbound-reliability-and-threading.md) (§ OAuth client-credential wiring).
+- **Gmail connect + refresh fixed.** OAuth client credentials are resolved from the provider's `channel_<provider>` integration at tenant scope (with org-agnostic fallback) via `resolveOAuthClientCredentials()`, not the phantom `oauth_<provider>` id every code path previously read. Missing client config now returns an actionable `oauth_client_not_configured` error instead of "expected string, received undefined". Detail in the consolidated follow-up spec [`2026-05-27-email-integration-inbound-reliability-and-threading.md`](2026-05-27-email-integration-inbound-reliability-and-threading.md) (§ OAuth client-credential wiring).
 - **Tests:** new `lib/__tests__/oauth-client-config.test.ts`; updated `access-control`, `visibilityFilter`, `personEmailThreads`, `credential-refresh`, visibility-route authz, and `TC-CRM-EMAIL-006` to assert the v1 (no-bypass) behavior. Full core suite green.
-- **User documentation:** added admin setup guides `apps/docs/docs/user-guide/communication-channels-gmail.mdx` (Google Cloud OAuth app → register in Open Mercato → connect → optional Cloud Pub/Sub push with topic / publisher grant / service-account subscription / `OM_GMAIL_PUBSUB_*` env + ngrok for local dev) and `…-imap.mdx` (IMAP/SMTP host/port/TLS fields, app passwords, common provider settings), wired into the docs sidebar under *Integrations & Payments → Email*; reframed the end-user `communication-channels.mdx` to scope this release to Gmail + IMAP (Microsoft 365 deferred). Docs build clean (`onBrokenLinks: throw`).
+- **User documentation:** added admin setup guides `apps/docs/docs/user-guide/communication-channels-gmail.mdx` (Google Cloud OAuth app → register in Open Mercato → connect → optional Cloud Pub/Sub push with topic / publisher grant / service-account subscription / `OM_GMAIL_PUBSUB_*` env + ngrok for local dev) and `…-imap.mdx` (IMAP/SMTP host/port/TLS fields, app passwords, common provider settings), wired into the docs sidebar under *Integrations & Payments → Email*; reframed the end-user `communication-channels.mdx` to scope this release to Gmail + IMAP. Docs build clean (`onBrokenLinks: throw`).
 
 ### 2026-05-31 — Test-coverage reconciliation (code review)
 
@@ -1316,8 +1278,8 @@ Reconciles the Implementation Plan's named integration tests with what actually 
 
 Final spec phase. No code changes; documentation only.
 
-- **New end-user doc** at `apps/docs/docs/user-guide/communication-channels.mdx` — connect / reconnect / disconnect / multi-account / primary swap flows for Gmail, Microsoft 365, and IMAP+SMTP. Troubleshooting section enumerates the five most common failure modes per provider (auth rejection, ECONNREFUSED, admin-consent gates, app-not-verified, etc.). Cross-linked with the inbox-ops user guide so users understand the per-user vs shared-mailbox split. Explicit "What Open Mercato never does" section documenting the scope: inbox-only sync, no DKIM mining, no cross-user mailbox sharing.
-- **New developer / admin doc** at `apps/docs/docs/framework/modules/communication-channels.mdx` — Hub architecture diagram + send/receive path diagrams; per-user channel column reference; OAuth setup walkthroughs for Google Cloud Console and Azure AD; env-var reference (`OM_HUB_OAUTH_STATE_KEY`, `OM_HUB_OAUTH_STATE_TTL_SECONDS`, `OM_HUB_POLL_DEFAULT_SECONDS`, `OM_HUB_POLL_CONCURRENCY`, `OM_HUB_OUTBOUND_RETRY_MAX`); deploy runbook covering initial deploy, routine ops (state-key rotation, OAuth secret rotation, force-poll), adding a new provider, security posture. Provider-package contract summary so future providers (Yahoo, ProtonMail Bridge, etc.) can be built from this doc plus the three shipping examples.
+- **New end-user doc** at `apps/docs/docs/user-guide/communication-channels.mdx` — connect / reconnect / disconnect / multi-account / primary swap flows for Gmail and IMAP+SMTP. Troubleshooting section enumerates the five most common failure modes per provider (auth rejection, ECONNREFUSED, admin-consent gates, app-not-verified, etc.). Cross-linked with the inbox-ops user guide so users understand the per-user vs shared-mailbox split. Explicit "What Open Mercato never does" section documenting the scope: inbox-only sync, no DKIM mining, no cross-user mailbox sharing.
+- **New developer / admin doc** at `apps/docs/docs/framework/modules/communication-channels.mdx` — Hub architecture diagram + send/receive path diagrams; per-user channel column reference; OAuth setup walkthrough for Google Cloud Console; env-var reference (`OM_HUB_OAUTH_STATE_KEY`, `OM_HUB_OAUTH_STATE_TTL_SECONDS`, `OM_HUB_POLL_DEFAULT_SECONDS`, `OM_HUB_POLL_CONCURRENCY`, `OM_HUB_OUTBOUND_RETRY_MAX`); deploy runbook covering initial deploy, routine ops (state-key rotation, OAuth secret rotation, force-poll), adding a new provider, security posture. Provider-package contract summary so future providers (Yahoo, ProtonMail Bridge, etc.) can be built from this doc plus the two shipping examples.
 - **No spec re-write** — the prior Implementation Plan / API Contracts / UI sections remain authoritative; Phase 5 just surfaces them in user-facing docs.
 
 #### Final Compliance Report — Phase 5 re-validation
@@ -1336,7 +1298,7 @@ Final spec phase. No code changes; documentation only.
 Applied the remediation plan from `.ai/specs/analysis/ANALYSIS-2026-05-21-email-integration-foundation.md`. No architectural changes; all updates are scope, hygiene, and contract-surface clarifications.
 
 - **§ Prerequisites & Cross-Spec Dependencies** — new section. SPEC-045d (Communications Hub) is now an explicit hard prerequisite delivered by a separate spec/PR. This spec stops carrying SPEC-045d delivery inside its Phase 0. SPEC-056 (WhatsApp) is documented as a sibling, not a dependency. Coordination rules with both are spelled out. **Housekeeping follow-up**: `git mv .ai/specs/implemented/SPEC-045d-communication-notification-hubs.md .ai/specs/` (and similarly SPEC-056 if present in `implemented/`) — both are spec-only and currently misfiled as implemented. Out of scope for this spec to perform the move; flagged here so it isn't forgotten.
-- **§ Relationship to `inbox_ops`** — new subsection. Pins the scope split per the maintainer clarification: `inbox_ops` is the *tenant-forwarded Resend inbox for AI action extraction*; this spec is the *user's own real mailbox via Gmail/Microsoft/IMAP for unified-inbox conversation*. Different inputs, different intents, coexist. Neither subscribes to the other's events. Each provider package's README must surface this distinction.
+- **§ Relationship to `inbox_ops`** — new subsection. Pins the scope split per the maintainer clarification: `inbox_ops` is the *tenant-forwarded Resend inbox for AI action extraction*; this spec is the *user's own real mailbox via Gmail/IMAP for unified-inbox conversation*. Different inputs, different intents, coexist. Neither subscribes to the other's events. Each provider package's README must surface this distinction.
 - **§ Non-goals (v1)** — added explicit "customer-portal channel ownership out of scope" and "inbox_ops is not modified" lines.
 - **§ Hub Deltas → Delta 1 / Delta 5** — replaced raw `REFERENCES users(id)` with `EntityExtension`-based cross-module link declarations (root `AGENTS.md` rule: no direct ORM relationships between modules). Added explicit cross-module coordination note for the `integrations` module owning its column.
 - **§ Hub Deltas → Delta 6** — pinned the scheduler mechanism to `@open-mercato/scheduler` (the platform's canonical cron home) with an explicit `schedulers/poll-tick.ts` entry. Explicitly forbids `setInterval` in workers and ad-hoc BullMQ repeatables.
@@ -1352,10 +1314,10 @@ Applied the remediation plan from `.ai/specs/analysis/ANALYSIS-2026-05-21-email-
 ### 2026-05-21 — Rewrite (autonomous brainstorming + UMES alignment)
 Complete rewrite of the email integration spec. The previous draft (`.ai/specs/2026-05-21-email-integration-foundation.md`) proposed a standalone `email` module with parallel entities, events, OAuth router, polling worker, and admin UI. That approach was rejected by the maintainer because Open Mercato already has a finalized Communications Hub architecture (SPEC-045d) with an explicit `channel_email` slot, and a Universal Module Extension System (SPEC-041) for cross-module integration. This rewrite:
 
-- Folds all email functionality under the `communication_channels` hub. Three workspace packages (`@open-mercato/channel-gmail`, `@open-mercato/channel-microsoft`, `@open-mercato/channel-imap`) implement `ChannelAdapter` v2.
+- Folds all email functionality under the `communication_channels` hub. Two workspace packages (`@open-mercato/channel-gmail`, `@open-mercato/channel-imap`) implement `ChannelAdapter` v2.
 - Introduces minimal additive hub deltas: `CommunicationChannel.user_id?`, `poll_interval_seconds`, `last_polled_at`, `status`, `last_error`, `is_primary`; `IntegrationCredentials.user_id?`; `ChannelCapabilities.realtimePush?`; `ChannelAdapter.refreshCredentials?` / `validateCredentials?`; hub-side poll-channel worker; per-user channel ACL gates; generic `channel_requires_reauth` notification type; OAuth state-cookie helper (ported locally, no enterprise imports); OAuth callback router.
 - Uses UMES at 17 named extension points across all 12 implemented UMES phases.
-- Phases the work: Phase 0 hub deltas, Phase 1 IMAP, Phase 2 Gmail, Phase 3 Microsoft, Phase 4 UMES polish, Phase 5 docs.
+- Phases the work: Phase 0 hub deltas, Phase 1 IMAP, Phase 2 Gmail, Phase 4 UMES polish, Phase 5 docs.
 - Adopts module-local `__integration__/` placement per `.ai/lessons.md`.
 - Inbound emails auto-create `Message` records in the unified inbox via the hub's bridge — no parallel envelope store.
 - Outbound via the hub's standard `messages.message.sent` → adapter chain, plus a thin `sendAsUser` facade for programmatic callers.
@@ -1372,7 +1334,6 @@ The previous draft is superseded. This spec is the canonical email integration d
 | 3d | Phase 0 — Per-user channel routes + profile page | Done | 2026-05-26 | `GET /me/channels`, `POST connect/credentials`, `POST [id]/set-primary`, `POST [id]/test-send`, `POST send-as-user`; `backend/profile/communication-channels/page.tsx`; `set-primary-channel` + `connect-credential-channel` commands |
 | 3e | Phase 1 — IMAP provider package | Done | 2026-05-26 | New `@open-mercato/channel-imap` workspace; ChannelAdapter implementation with `validateCredentials` (live IMAP+SMTP login), `fetchHistory` (UIDVALIDITY+UIDNEXT polling with full-resync on validity change), `sendMessage` (nodemailer SMTP + best-effort Sent-folder append via imapflow), `convertOutbound`, `normalizeInbound` (mailparser; RFC2822 In-Reply-To/References threading), `resolveContact`. 34 unit tests + 3 integration specs. Wired into `apps/mercato/src/modules.ts`. |
 | 3f | Phase 2 — Gmail provider package | Done | 2026-05-26 | New `@open-mercato/channel-gmail` workspace; ChannelAdapter with `buildOAuthAuthorizeUrl` / `exchangeOAuthCode` / `refreshCredentials` (Google OAuth2 via raw `fetch`), `fetchHistory` (Gmail History API incremental with `gmail.users.messages.list` fallback on `404`), `sendMessage` (`gmail.users.messages.send` with base64url-encoded RFC2822 + threadId), `deleteMessage` (`gmail.users.messages.trash`), `convertOutbound`, `normalizeInbound` (mailparser; Gmail threadId for conversation grouping). 47 unit tests + 3 integration specs. `googleapis` dep installed for downstream SDK consumers; adapter itself uses `fetch` to keep the test bundle hermetic. Wired into `apps/mercato/src/modules.ts`. |
-| 3g | Phase 3 — Microsoft 365 provider package | Done | 2026-05-26 | New `@open-mercato/channel-microsoft` workspace; ChannelAdapter with `buildOAuthAuthorizeUrl` (PKCE S256 via Node `crypto`) / `exchangeOAuthCode` (code+verifier exchange, id_token claim harvesting) / `refreshCredentials` (rotating refresh token), `fetchHistory` (Microsoft Graph delta query `/me/mailFolders/inbox/messages/delta` + 410 fallback), `sendMessage` (`/me/sendMail` with saveToSentItems), `deleteMessage` (`/me/messages/{id}` DELETE → Deleted Items), `convertOutbound`, `normalizeInbound` (Graph Message JSON; `conversationId` for grouping). 51 unit tests + 3 integration specs. No SDK dependency — uses raw `fetch`. Wired into `apps/mercato/src/modules.ts`. |
 
 ### Phase 2 — Gmail Detailed Progress (Slice 3f)
 - [x] Workspace package scaffold (`packages/channel-gmail/`, `build.mjs`, `watch.mjs`, `jest.config.cjs`, `tsconfig.json`, `package.json`)
@@ -1393,26 +1354,8 @@ The previous draft is superseded. This spec is the canonical email integration d
 - [ ] Live Gmail end-to-end test against a Google Workspace test account — manual; not part of CI
 - [ ] Pub/Sub push subscription (real-time inbound) — deferred to v2 per spec § Phase 2 acceptance
 
-### Phase 3 — Microsoft 365 Detailed Progress (Slice 3g)
-- [x] Workspace package scaffold (`packages/channel-microsoft/`, `build.mjs`, `watch.mjs`, `jest.config.cjs`, `tsconfig.json`, `package.json`)
-- [x] `src/modules/channel_microsoft/` skeleton (`index.ts`, `acl.ts`, `setup.ts`, `di.ts`, `integration.ts`)
-- [x] `lib/capabilities.ts` — `realtimePush: false` (Graph subscriptions deferred), `threading: true`, `richText: true`, `deleteMessage: true`, `maxFileSize: 25 MB`
-- [x] `lib/credentials.ts` — Zod schemas for tenant Azure AD app config (clientId/tenantId/clientSecret/scopes) + per-user tokens (with `oid` claim) + channel state (deltaLink)
-- [x] `lib/oauth.ts` — Microsoft Identity v2.0 transport with PKCE S256 (`crypto.randomBytes` + SHA-256 hash); `decodeIdTokenClaims` for email/oid harvesting; test-swappable via `setMicrosoftOAuthClient`
-- [x] `lib/graph-client.ts` — Microsoft Graph v1.0 REST wrapper (mail delta, /me/sendMail, /me/messages/{id}, /me; test-swappable)
-- [x] `lib/normalize-inbound.ts` — Graph Message JSON → `NormalizedInboundMessage`; `externalConversationId = microsoft-conversation:<conversationId>` for Outlook-native threading; harvests `categories` + `inferenceClassification`
-- [x] `lib/convert-outbound.ts` — hub-canonical input → Graph sendMail body (`saveToSentItems: true`); auto-generates Message-ID rooted in From address; threading hints via `internetMessageHeaders`
-- [x] `lib/adapter.ts` — ChannelAdapter wiring + PKCE bootstrap path + incremental deltaLink path + 410-fallback to fresh delta
-- [x] Unit tests: 51 passing across `credentials.test.ts`, `oauth.test.ts` (including PKCE pair generation + id_token claim decode), `convert-outbound.test.ts`, `normalize-inbound.test.ts`, `graph-client.test.ts`, `adapter.test.ts`
-- [x] Module-local integration tests: `TC-CHANNEL-EMAIL-011` (OAuth initiate router), `TC-CHANNEL-EMAIL-012` (webhook no-op), `TC-CHANNEL-EMAIL-013` (profile page render)
-- [x] Wired into `apps/mercato/src/modules.ts`
-- [x] `yarn install` — no new external deps (raw `fetch` + Node `crypto` for PKCE)
-- [x] `yarn generate` succeeds; registry validator passes (`deleteMessage: true` ↔ `deleteMessage()` implemented); structural cache purged
-- [x] `yarn build:packages` succeeds (22/22 packages); `yarn test` succeeds (22/22 packages)
-- [ ] Live Microsoft 365 end-to-end test against an Azure AD work/school account — manual; not part of CI
-- [ ] Graph change-notification subscriptions (real-time inbound) — deferred to v2 per spec § Phase 3 acceptance
 | 4 | Phase 4 — UMES polish + cross-provider tests | Done | 2026-05-26 | Hub-side `widgets/components.ts` override scaffold; `lib/mutation-guards.ts` (`guardChannelDelete` blocks delete with unread inbound; `guardOutboundCreate` maps `requires_reauth`/`disconnected` to 422); `subscribers/user-deleted-cascade.ts` on `auth.user.deleted`; `notifications.handlers.ts` for `channel.requires_reauth` + `message.received`; `commands/disconnect-channel.ts` (undoable) + `commands/interceptors.ts` (`beforeUndo` blocks primary-collision restore); wired `send-as-user` to use `guardOutboundCreate`. 30 new unit tests + 7 integration specs (TC-CHANNEL-EMAIL-014..020). |
-| 5 | Phase 5 — Docs + deploy runbook | Done | 2026-05-26 | `apps/docs/docs/user-guide/communication-channels.mdx` (end-user connect/reconnect/troubleshooting); `apps/docs/docs/framework/modules/communication-channels.mdx` (architecture, OAuth setup for Gmail + Microsoft, env-var reference, deploy runbook, provider-package contract). Cross-linked with `inbox-ops.mdx`. Spec changelog updated. Final Compliance Report re-validated. |
+| 5 | Phase 5 — Docs + deploy runbook | Done | 2026-05-26 | `apps/docs/docs/user-guide/communication-channels.mdx` (end-user connect/reconnect/troubleshooting); `apps/docs/docs/framework/modules/communication-channels.mdx` (architecture, OAuth setup for Gmail, env-var reference, deploy runbook, provider-package contract). Cross-linked with `inbox-ops.mdx`. Spec changelog updated. Final Compliance Report re-validated. |
 
 ### Phase 4 — UMES Polish Detailed Progress (Slice 4)
 - [x] **Deliverable 1**: `widgets/components.ts` exporting `componentOverrides: ComponentOverride[]` — scaffold with forward-compatible handle ids documented (`section:messages.detail.header`, `data-table:messages:row`). Empty array today because the Messages module's `MainMessageHeader` is not yet registered as a known component id; the override-mechanism contract is honoured (downstream apps can target hub-side handles). Email-specific affordances ship via the existing `detail:messages:message:body:after` injection-spot's `channel-payload-renderer` widget (slices 2a + 2e).

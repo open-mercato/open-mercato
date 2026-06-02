@@ -26,7 +26,7 @@
   "communication_channels.detail.notFound": "Canal no encontrado",
   "communication_channels.detail.recentFailures": "Fallos recientes",
   "communication_channels.detail.title": "Detalle del canal",
-  "communication_channels.emptyState": "Aún no hay canales configurados. Los paquetes de proveedores (Slack, WhatsApp, integraciones de correo) registran los canales aquí.",
+  "communication_channels.emptyState": "Aún no hay canales compartidos. Esta página muestra los canales compartidos de toda la organización. Tu buzón de correo personal es privado: conéctalo y gestiónalo en Perfil → Canales de comunicación.",
   "communication_channels.errors.loadDetail": "No se pudo cargar el canal",
   "communication_channels.errors.loadList": "No se pudieron cargar los canales",
   "communication_channels.errors.reactionFailed": "La reacción falló",

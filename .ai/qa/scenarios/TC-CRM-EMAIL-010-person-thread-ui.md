@@ -1,4 +1,4 @@
-# Test Scenario: CRM Person Email Thread UI (Gmail/Outlook-style)
+# Test Scenario: CRM Person Email Thread UI (Gmail-style)
 
 ## Test ID
 TC-CRM-EMAIL-010
@@ -11,7 +11,7 @@ High
 
 ## Description
 The CRM Person detail page exposes an **Emails** tab that packages the person's
-emails into conversations like Gmail/Outlook: a thread list on the left and a
+emails into conversations like Gmail: a thread list on the left and a
 scrollable conversation on the right. The user can start a new thread or reply
 to an existing thread (the reply joins the same conversation). The tab is driven
 by `GET /api/customers/people/[id]/email-threads` and the reusable

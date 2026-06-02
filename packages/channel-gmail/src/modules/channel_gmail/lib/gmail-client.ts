@@ -202,7 +202,12 @@ class FetchGmailApiClient implements GmailApiClient {
         res.status,
         detail,
       )
-      const transient = res.status === 429 || (res.status >= 500 && res.status < 600)
+      const transient =
+        res.status === 429 ||
+        (res.status >= 500 && res.status < 600) ||
+        // Gmail signals per-user/project quota exhaustion with HTTP 403 +
+        // `rateLimitExceeded`/`userRateLimitExceeded` (not only 429).
+        (res.status === 403 && isRateLimit403(text))
       if (!transient || attempt === GMAIL_MAX_RETRIES) {
         throw apiError
       }
@@ -215,6 +220,16 @@ class FetchGmailApiClient implements GmailApiClient {
     }
     throw lastError ?? new GmailApiError(`Gmail API ${method} ${url.pathname} exhausted retries`, 599, 'retries exhausted')
   }
+}
+
+/**
+ * Gmail signals quota exhaustion with HTTP 403 + an error reason of
+ * `rateLimitExceeded` / `userRateLimitExceeded` (not only 429). Treat those as
+ * transient so the backoff/retry path applies; a genuine permission 403 (no
+ * rate-limit reason) stays non-retryable.
+ */
+function isRateLimit403(body: string): boolean {
+  return /rateLimitExceeded|userRateLimitExceeded/i.test(body)
 }
 
 function parseRetryAfter(value: string | null): number | null {

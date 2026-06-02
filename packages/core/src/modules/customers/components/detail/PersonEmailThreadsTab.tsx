@@ -4,7 +4,13 @@ import * as React from 'react'
 import Link from 'next/link'
 import { Mail } from 'lucide-react'
 import { Button } from '@open-mercato/ui/primitives/button'
-import { EmailThreadsPanel, type EmailThread } from '@open-mercato/ui/backend/messages'
+import {
+  EmailThreadsPanel,
+  mergeOptimisticEmailThreads,
+  type EmailThread,
+  type EmailThreadMessage,
+  type EmailThreadMessageStatus,
+} from '@open-mercato/ui/backend/messages'
 import { apiCall } from '@open-mercato/ui/backend/utils/apiCall'
 import { useGuardedMutation } from '@open-mercato/ui/backend/injection/useGuardedMutation'
 import { useAppEvent } from '@open-mercato/ui/backend/injection/useAppEvent'
@@ -41,6 +47,15 @@ type ReplyState = {
   parentMessageId?: string
 } | null
 
+/** A client-side outbound message shown immediately, before the worker confirms delivery. */
+type OptimisticSend = {
+  clientId: string
+  threadKey: string
+  /** Stored so a failed send can be retried with the same payload. */
+  values: ComposeEmailValues
+  message: EmailThreadMessage
+}
+
 /** Picks the external address to reply to: latest inbound sender, else a known participant. */
 function resolveReplyRecipient(thread: EmailThread, fallback: string | null): string | null {
   for (let i = thread.messages.length - 1; i >= 0; i -= 1) {
@@ -68,9 +83,17 @@ function buildReplyState(thread: EmailThread, fallbackRecipient: string | null):
   }
 }
 
+/** Read the Open Mercato `messageId` off a delivery event payload, if present. */
+function readEventMessageId(event: unknown): string | null {
+  const payload = (event as { payload?: unknown } | undefined)?.payload
+  const messageId = (payload as { messageId?: unknown } | undefined)?.messageId
+  return typeof messageId === 'string' ? messageId : null
+}
+
 export function PersonEmailThreadsTab({ personId, defaultRecipient }: PersonEmailThreadsTabProps) {
   const t = useT()
   const [threads, setThreads] = React.useState<EmailThread[]>([])
+  const [optimistic, setOptimistic] = React.useState<OptimisticSend[]>([])
   const [channels, setChannels] = React.useState<ComposeEmailChannel[]>([])
   const [loading, setLoading] = React.useState(true)
   const [error, setError] = React.useState<string | null>(null)
@@ -79,6 +102,8 @@ export function PersonEmailThreadsTab({ personId, defaultRecipient }: PersonEmai
   const burstTimer = React.useRef<ReturnType<typeof setInterval> | null>(null)
   const channelsRef = React.useRef<ComposeEmailChannel[]>([])
   channelsRef.current = channels
+  const optimisticRef = React.useRef<OptimisticSend[]>([])
+  optimisticRef.current = optimistic
 
   const { runMutation, retryLastMutation } = useGuardedMutation<{
     formId: string
@@ -166,6 +191,86 @@ export function PersonEmailThreadsTab({ personId, defaultRecipient }: PersonEmai
     }, BURST_INTERVAL_MS)
   }, [loadThreads])
 
+  // Build the optimistic message rendered immediately after a send, deriving the
+  // sender address/provider from the channel the user composed from.
+  const buildOptimisticMessage = React.useCallback(
+    (
+      clientId: string,
+      messageId: string | null,
+      values: ComposeEmailValues,
+      status: EmailThreadMessageStatus,
+    ): EmailThreadMessage => {
+      const channel = channelsRef.current.find(
+        (c) => (c as { id?: string }).id === values.userChannelId,
+      ) as { externalIdentifier?: string | null; providerKey?: string | null } | undefined
+      return {
+        id: `optimistic:${clientId}`,
+        messageId,
+        rfcMessageId: null,
+        references: values.references ?? [],
+        direction: 'outbound',
+        fromName: null,
+        fromEmail: channel?.externalIdentifier ?? null,
+        to: values.to,
+        cc: values.cc ?? [],
+        subject: values.subject,
+        bodyText: values.body,
+        sentAt: new Date().toISOString(),
+        providerKey: channel?.providerKey ?? null,
+        status,
+      }
+    },
+    [],
+  )
+
+  // Wrap the send through the mutation guard so record-lock/conflict handling and
+  // retry flows run; shared by the initial send and the failure-retry path.
+  const sendEmail = React.useCallback(
+    async (values: ComposeEmailValues): Promise<{ messageId: string | null; threadId: string | null }> => {
+      const operation = async () => {
+        const response = await apiCall<{ messageId?: string; threadId?: string }>(
+          `/api/customers/people/${encodeURIComponent(personId)}/emails`,
+          {
+            method: 'POST',
+            headers: { 'content-type': 'application/json' },
+            body: JSON.stringify(values),
+          },
+        )
+        if (!response.ok) {
+          const err = response.result as { error?: string } | null
+          throw new Error(err?.error ?? t('customers.email.errors.sendFailed', 'Send failed'))
+        }
+        return {
+          messageId: response.result?.messageId ?? null,
+          threadId: response.result?.threadId ?? null,
+        }
+      }
+      const result = await runMutation({
+        operation,
+        context: {
+          formId: CONTEXT_ID,
+          resourceKind: 'customers.person',
+          resourceId: personId,
+          retryLastMutation,
+        },
+        mutationPayload: values as unknown as Record<string, unknown>,
+      })
+      return result ?? { messageId: null, threadId: null }
+    },
+    [personId, runMutation, retryLastMutation, t],
+  )
+
+  const setMessageStatus = React.useCallback(
+    (matcher: (entry: OptimisticSend) => boolean, patch: Partial<EmailThreadMessage>) => {
+      setOptimistic((prev) =>
+        prev.map((entry) =>
+          matcher(entry) ? { ...entry, message: { ...entry.message, ...patch } } : entry,
+        ),
+      )
+    },
+    [],
+  )
+
   // Initial load.
   React.useEffect(() => {
     void loadThreads({ showLoading: true })
@@ -183,11 +288,51 @@ export function PersonEmailThreadsTab({ personId, defaultRecipient }: PersonEmai
     if (burstTimer.current) clearInterval(burstTimer.current)
   }, [])
 
-  // Bonus live refresh when the DOM event bridge delivers (best-effort; the
-  // polling above is the reliable path).
+  // Drop optimistic placeholders once the server thread set includes the real,
+  // linked message (deduped by messageId) so we never show it twice.
+  React.useEffect(() => {
+    setOptimistic((prev) => {
+      if (prev.length === 0) return prev
+      const serverIds = new Set<string>()
+      for (const thread of threads) {
+        for (const message of thread.messages) {
+          if (message.messageId) serverIds.add(message.messageId)
+        }
+      }
+      const next = prev.filter((entry) => !(entry.message.messageId && serverIds.has(entry.message.messageId)))
+      return next.length === prev.length ? prev : next
+    })
+  }, [threads])
+
+  // Live reconciliation via the DOM event bridge; polling above is the fallback.
   useAppEvent('customers.email.linked', () => { void loadThreads() }, [loadThreads])
   useAppEvent('messages.message.sent', () => { void loadThreads() }, [loadThreads])
   useAppEvent('communication_channels.message.received', () => { void loadThreads() }, [loadThreads])
+  // Outbound delivery succeeded: flip the placeholder to "sent", then refetch so
+  // the real linked message replaces it once the linking subscriber has run.
+  useAppEvent(
+    'communication_channels.message.sent',
+    (event) => {
+      const messageId = readEventMessageId(event)
+      if (messageId) setMessageStatus((e) => e.message.messageId === messageId, { status: 'sent' })
+      void loadThreads()
+    },
+    [setMessageStatus, loadThreads],
+  )
+  // Outbound delivery failed: surface the failure inline with a Retry affordance.
+  useAppEvent(
+    'communication_channels.message.delivery_failed',
+    (event) => {
+      const messageId = readEventMessageId(event)
+      if (messageId) {
+        setMessageStatus((e) => e.message.messageId === messageId, {
+          status: 'failed',
+          statusError: t('customers.email.errors.deliveryFailed', 'Delivery failed — not sent'),
+        })
+      }
+    },
+    [setMessageStatus, t],
+  )
 
   const onComposeNew = React.useCallback(() => {
     setReplyTo(null)
@@ -204,38 +349,44 @@ export function PersonEmailThreadsTab({ personId, defaultRecipient }: PersonEmai
 
   const onSend = React.useCallback(
     async (values: ComposeEmailValues) => {
-      const operation = async () => {
-        const response = await apiCall<{ messageId?: string }>(
-          `/api/customers/people/${encodeURIComponent(personId)}/emails`,
-          {
-            method: 'POST',
-            headers: { 'content-type': 'application/json' },
-            body: JSON.stringify(values),
-          },
-        )
-        if (!response.ok) {
-          const err = response.result as { error?: string } | null
-          throw new Error(err?.error ?? t('customers.email.errors.sendFailed', 'Send failed'))
-        }
-        return response.result?.messageId ?? null
-      }
-      const messageId = await runMutation({
-        operation,
-        context: {
-          formId: CONTEXT_ID,
-          resourceKind: 'customers.person',
-          resourceId: personId,
-          retryLastMutation,
-        },
-        mutationPayload: values as unknown as Record<string, unknown>,
-      })
+      const { messageId, threadId } = await sendEmail(values)
       flash(t('customers.email.compose.sent', 'Email sent'), 'success')
-      // Outbound delivery + CRM linking run on a worker; burst-poll until the
-      // new message lands in its thread.
+      // Show the message immediately in a "sending" state. It reconciles to
+      // "sent" (or "failed" + Retry) via the delivery events above, and is
+      // replaced by the server record once the worker links it. Requires a
+      // messageId so reconciliation can dedupe; otherwise fall back to polling.
+      if (messageId) {
+        const clientId = crypto.randomUUID()
+        const message = buildOptimisticMessage(clientId, messageId, values, 'sending')
+        setOptimistic((prev) => [
+          ...prev,
+          { clientId, threadKey: threadId ?? `optimistic:${clientId}`, values, message },
+        ])
+      }
       startBurst()
       return { messageId }
     },
-    [personId, runMutation, retryLastMutation, t, startBurst],
+    [sendEmail, t, buildOptimisticMessage, startBurst],
+  )
+
+  const onRetry = React.useCallback(
+    async (message: EmailThreadMessage) => {
+      const entry = optimisticRef.current.find((e) => e.message.id === message.id)
+      if (!entry) return
+      setMessageStatus((e) => e.message.id === message.id, { status: 'sending', statusError: null })
+      try {
+        const { messageId } = await sendEmail(entry.values)
+        // Re-point the placeholder at the new message id so reconciliation works.
+        setMessageStatus((e) => e.message.id === message.id, { messageId, status: 'sending' })
+        startBurst()
+      } catch (err) {
+        setMessageStatus((e) => e.message.id === message.id, {
+          status: 'failed',
+          statusError: err instanceof Error ? err.message : t('customers.email.errors.sendFailed', 'Send failed'),
+        })
+      }
+    },
+    [sendEmail, setMessageStatus, startBurst, t],
   )
 
   const onRefresh = React.useCallback(async () => {
@@ -248,6 +399,15 @@ export function PersonEmailThreadsTab({ personId, defaultRecipient }: PersonEmai
     }
     startBurst()
   }, [triggerSync, loadThreads, startBurst])
+
+  const mergedThreads = React.useMemo(
+    () =>
+      mergeOptimisticEmailThreads(
+        threads,
+        optimistic.map((entry) => ({ ...entry.message, threadKey: entry.threadKey })),
+      ),
+    [threads, optimistic],
+  )
 
   const canCompose = channels.length > 0
 
@@ -263,7 +423,7 @@ export function PersonEmailThreadsTab({ personId, defaultRecipient }: PersonEmai
   return (
     <>
       <EmailThreadsPanel
-        threads={threads}
+        threads={mergedThreads}
         loading={loading}
         error={error}
         canCompose={canCompose}
@@ -271,6 +431,7 @@ export function PersonEmailThreadsTab({ personId, defaultRecipient }: PersonEmai
         onComposeNew={onComposeNew}
         onReply={onReply}
         onRefresh={() => { void onRefresh() }}
+        onRetry={(message) => { void onRetry(message) }}
       />
       <ComposeEmailDialog
         open={dialogOpen}

@@ -84,7 +84,12 @@ export function isInternalHost(rawHost: string): boolean {
   if (FORBIDDEN_HOST_NAMES.has(host) || host.endsWith('.localhost')) return true
   if (host.includes(':')) return PRIVATE_IPV6_PATTERNS.some((pattern) => pattern.test(host))
   if (isObfuscatedIpv4(host)) return true
-  return PRIVATE_IPV4_PATTERNS.some((pattern) => pattern.test(host))
+  // Only treat the private-range patterns as internal for a real dotted-decimal
+  // quad. Otherwise a hostname whose first label merely looks like a private
+  // range (e.g. `0.mx.example.com`, `10.example.com`) is wrongly rejected.
+  // Obfuscated/short IPv4 forms were already caught above, so anything reaching
+  // here is either a quad or a genuine hostname.
+  return isDottedDecimalQuad(host) && PRIVATE_IPV4_PATTERNS.some((pattern) => pattern.test(host))
 }
 
 function assertSafeHost(host: string, ctx: { addIssue: (issue: { code: 'custom'; message: string }) => void }): void {

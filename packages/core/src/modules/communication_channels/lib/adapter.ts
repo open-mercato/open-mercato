@@ -239,8 +239,8 @@ export interface FetchHistoryInput {
   scope: TenantScope
   /**
    * Provider-specific resumption state opaque to the hub. Provider adapters
-   * encode their own incremental cursor (Gmail historyId, Microsoft delta link,
-   * IMAP UIDVALIDITY+UIDNEXT) here. The polling worker persists `HistoryPage
+   * encode their own incremental cursor (Gmail historyId, IMAP
+   * UIDVALIDITY+UIDNEXT) here. The polling worker persists `HistoryPage
    * .nextCursor` between ticks and replays it on the following `fetchHistory`
    * call as `channelState`. A missing or empty value means "first poll — start
    * from the beginning / bootstrap the cursor".
@@ -279,7 +279,6 @@ export interface HistoryPage {
  * `CommunicationChannel.channelState` (JSONB, additive shape per provider).
  *
  * Gmail: `historyId` + `watchExpirationMs` + `pubsubTopic`.
- * Microsoft: `subscriptionId` + `subscriptionExpiresAt` + `clientState`.
  */
 export interface PushRegistration {
   providerKey: string
@@ -303,8 +302,6 @@ export interface RegisterPushInput {
   scope: TenantScope
   /** Public URL the provider should POST notifications to. */
   notificationUrl: string
-  /** Microsoft only: lifecycle webhook URL. */
-  lifecycleNotificationUrl?: string
   /** Provider-specific tenant configuration (e.g. Gmail Pub/Sub topic). */
   providerConfig?: Record<string, unknown>
 }
@@ -318,10 +315,9 @@ export interface UnregisterPushInput {
 }
 
 /**
- * Verified inbound push notification (Gmail Pub/Sub envelope or Microsoft
- * Graph change-notification). The hub's webhook routes do JWT / clientState
- * verification BEFORE invoking the adapter; the adapter receives the
- * verified payload only.
+ * Verified inbound push notification (Gmail Pub/Sub envelope). The hub's
+ * webhook routes do JWT verification BEFORE invoking the adapter; the adapter
+ * receives the verified payload only.
  */
 export interface ApplyPushNotificationInput {
   credentials: Record<string, unknown>
@@ -445,17 +441,15 @@ export interface ExchangeOAuthCodeResult {
  * Tenant-level OAuth client configuration resolved by the hub from
  * `integration_credentials.scope = oauth_<providerKey>`.
  *
- * OAuth providers (Gmail, Microsoft) MUST read clientId / clientSecret /
- * tenantId from this field on `RefreshCredentialsInput`. Adapters without
- * OAuth refresh (IMAP, WhatsApp Business API) ignore it.
+ * OAuth providers (Gmail) MUST read clientId / clientSecret from this field on
+ * `RefreshCredentialsInput`. Adapters without OAuth refresh (IMAP, WhatsApp
+ * Business API) ignore it.
  *
  * See `.ai/specs/2026-05-27-email-integration-inbound-reliability-and-threading.md`.
  */
 export interface OAuthClientConfig {
   clientId: string
   clientSecret?: string
-  /** Microsoft tenant id ("common" | "consumers" | "organizations" | GUID). */
-  tenantId?: string
   /** Optional pre-resolved scopes list (some flows compute it once on initiate). */
   scopes?: string[]
 }
@@ -468,9 +462,8 @@ export interface RefreshCredentialsInput {
    * Tenant-level OAuth client configuration. Resolved by the hub's
    * `refreshCredentialsIfNeeded` helper before delegating to the adapter.
    *
-   * - For OAuth providers (Gmail, Microsoft): MUST be present; the adapter
-   *   uses `clientId` + `clientSecret` (+ `tenantId` for Microsoft) to call
-   *   the provider's token endpoint.
+   * - For OAuth providers (Gmail): MUST be present; the adapter uses
+   *   `clientId` + `clientSecret` to call the provider's token endpoint.
    * - For static-credential providers (IMAP, WhatsApp): ignored.
    * - When `undefined`: legacy `credentials._client` path is read by the
    *   adapter (deprecated; will be removed in the next minor release).
@@ -554,8 +547,6 @@ export interface ChannelAdapter {
    * Spec C — Register provider push delivery for this channel.
    *
    * Gmail: calls `users.watch` against the configured Pub/Sub topic.
-   * Microsoft: creates a `/subscriptions` row (handling the validation
-   * handshake at the webhook layer).
    *
    * Adapters that don't support push (IMAP, chat) omit this method; the hub
    * keeps the channel in polling mode (Spec B baseline).
@@ -572,9 +563,9 @@ export interface ChannelAdapter {
   /**
    * Spec C — Convert a verified inbound push notification into the same
    * `HistoryPage` shape `fetchHistory` returns. Gmail: calls `history.list`.
-   * Microsoft: calls `/me/messages/delta`. The hub's push workers feed each
-   * returned message through the existing `ingest-inbound-message` command,
-   * so threading and dedup behave identically to the polling path.
+   * The hub's push workers feed each returned message through the existing
+   * `ingest-inbound-message` command, so threading and dedup behave identically
+   * to the polling path.
    */
   applyPushNotification?(input: ApplyPushNotificationInput): Promise<HistoryPage>
   resolveContact?(input: ResolveContactInput): Promise<ContactHint | null>
@@ -599,7 +590,7 @@ export interface ChannelAdapter {
 
   /**
    * Refresh OAuth credentials when an access token is near expiry or after a 401.
-   * Required for OAuth providers (Gmail, Microsoft 365); omitted for static-credential
+   * Required for OAuth providers (Gmail); omitted for static-credential
    * providers (IMAP, WhatsApp Business API).
    */
   refreshCredentials?(input: RefreshCredentialsInput): Promise<RefreshedCredentials>

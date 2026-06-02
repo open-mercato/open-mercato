@@ -2,14 +2,14 @@ import type { EntityManager } from '@mikro-orm/postgresql'
 import { findOneWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import { CommunicationChannel } from '../data/entities'
 import type { ChannelAdapter } from './adapter'
+import { isUniqueViolation } from './pg-errors'
 
-function isUniqueViolation(err: unknown): boolean {
-  if (!err || typeof err !== 'object') return false
-  const code = (err as { code?: string }).code
-  if (code === '23505') return true
-  const message = (err as { message?: string }).message
-  return typeof message === 'string' && /duplicate key value|unique constraint/i.test(message)
-}
+/**
+ * Default poll cadence (seconds) for a polling-only channel — one whose adapter
+ * declares `realtimePush: false`. Push-capable channels use `null` (push-driven,
+ * no fixed poll). Shared so push teardown restores the same cadence connect uses.
+ */
+export const POLLING_ONLY_DEFAULT_INTERVAL_SECONDS = 300
 
 export interface CreateConnectedChannelRowArgs {
   em: EntityManager
@@ -45,7 +45,7 @@ export async function createConnectedChannelRow(
     args.pollIntervalSeconds !== undefined
       ? args.pollIntervalSeconds
       : adapter.capabilities?.realtimePush === false
-        ? 300
+        ? POLLING_ONLY_DEFAULT_INTERVAL_SECONDS
         : null
   const dscope = { tenantId: scope.tenantId, organizationId: scope.organizationId ?? null }
   const naturalKey = {

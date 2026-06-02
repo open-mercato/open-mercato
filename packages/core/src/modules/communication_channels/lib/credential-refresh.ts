@@ -52,7 +52,7 @@ const DEFAULT_REFRESH_WINDOW_MS = 60_000
  * outbound-delivery worker runs at concurrency 10 in ONE process, so two
  * concurrent sends on the same channel can both pass `shouldRefresh` and both
  * call `adapter.refreshCredentials`. With rotating refresh-token providers
- * (Gmail, Microsoft) the second exchange invalidates the first's token and
+ * (Gmail) the second exchange invalidates the first's token and
  * flaps the channel to `requires_reauth`. Coalescing concurrent refreshes for
  * the same channel onto one in-flight promise prevents that race for the common
  * single-process case. Entries are deleted in `finally` once settled.
@@ -186,14 +186,12 @@ function safeParseOAuthClient(raw: unknown): OAuthClientConfig | undefined {
   if (!clientId) return undefined
   const clientSecret =
     typeof record.clientSecret === 'string' ? record.clientSecret : undefined
-  const tenantId = typeof record.tenantId === 'string' ? record.tenantId : undefined
   const scopes = Array.isArray(record.scopes)
     ? record.scopes.filter((value): value is string => typeof value === 'string')
     : undefined
   return {
     clientId,
     ...(clientSecret !== undefined ? { clientSecret } : {}),
-    ...(tenantId !== undefined ? { tenantId } : {}),
     ...(scopes !== undefined ? { scopes } : {}),
   }
 }

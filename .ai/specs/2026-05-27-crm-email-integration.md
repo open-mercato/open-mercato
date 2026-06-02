@@ -132,7 +132,7 @@ The CRM is a downstream consumer; the hub stays generic. Same linking codepath f
 | **Strictly private (no sharing option)** | Breaks rep-to-rep handoff workflows. Defeats half the point of having CRM. |
 | **Admin bypass on private emails (admin sees all bodies)** | Rejected for v1 in favor of strict owner-only. Auto-creating CRM rows from a user's personal mailbox and then letting admins read every body re-creates the privacy leak the visibility model exists to prevent. Team oversight is deferred to an explicit, audited v2 capability (the inert `customers.email.view_private` hook). |
 
-> **Design evolution — the Emails tab.** This spec originally listed "a dedicated Mail tab inside CRM (Pipedrive-style)" as a non-goal and rejected alternative, on the theory that the unified Messages inbox at `/backend/messages` already covers it. During implementation the design evolved: a dedicated, Person-anchored **Emails** tab (`PersonEmailThreadsTab` via the shared `EmailThreadsPanel`) is now the intended, canonical surface. It is **not** a re-render of the global inbox — it is scoped to one Person, threads that Person's conversations Gmail/Outlook-style, and enforces the owner-only visibility filter. The CRM value (anchoring to an entity) is preserved; the threaded presentation is the natural home for it. The former non-goal and rejected-alternative row are removed accordingly.
+> **Design evolution — the Emails tab.** This spec originally listed "a dedicated Mail tab inside CRM (Pipedrive-style)" as a non-goal and rejected alternative, on the theory that the unified Messages inbox at `/backend/messages` already covers it. During implementation the design evolved: a dedicated, Person-anchored **Emails** tab (`PersonEmailThreadsTab` via the shared `EmailThreadsPanel`) is now the intended, canonical surface. It is **not** a re-render of the global inbox — it is scoped to one Person, threads that Person's conversations Gmail-style, and enforces the owner-only visibility filter. The CRM value (anchoring to an entity) is preserved; the threaded presentation is the natural home for it. The former non-goal and rejected-alternative row are removed accordingly.
 
 ---
 
@@ -168,7 +168,7 @@ packages/core/src/modules/customers/
           route.ts                            # GET threaded list (the Emails tab reads THIS)
   components/
     detail/
-      PersonEmailThreadsTab.tsx               # Emails tab — Gmail/Outlook-style threaded view via EmailThreadsPanel; owns the Refresh / New email toolbar, the compose entry point, and the no-channel "Connect your mailbox" CTA
+      PersonEmailThreadsTab.tsx               # Emails tab — Gmail-style threaded view via EmailThreadsPanel; owns the Refresh / New email toolbar, the compose entry point, and the no-channel "Connect your mailbox" CTA
       ComposeEmailDialog.tsx                  # modal (mirrors ActivityDialog UX)
       EmailCardActions.tsx                    # actions on an email timeline card
       EmailReplyForwardActions.tsx            # Reply / Reply All / Forward action menu
@@ -403,7 +403,7 @@ All routes export per-method `metadata` with `requireAuth` + `requireFeatures` a
 
 ### `GET /api/customers/people/{personId}/email-threads` — the Emails tab data source
 
-The Emails tab reads a **dedicated threaded endpoint** (not the generic `GET /api/customers/interactions` list and not a planned `GET .../emails`). The route groups the Person's email interactions into Gmail/Outlook-style conversations server-side via `customers/lib/personEmailThreads.ts`.
+The Emails tab reads a **dedicated threaded endpoint** (not the generic `GET /api/customers/interactions` list and not a planned `GET .../emails`). The route groups the Person's email interactions into Gmail-style conversations server-side via `customers/lib/personEmailThreads.ts`.
 - **Features**: `customers.people.view` + `customers.email.compose`
 - **Response**: `{ threads: [...] }` — one entry per conversation (subject, participants, last activity, message count, ordered messages with direction + headers).
 - **Visibility**: applies the owner-only filter (`personEmailThreads.ts` scopes to `author_user_id = viewer` plus ownerless shared rows; fail-closed when authorship is unestablished). **No admin bypass.**
@@ -463,7 +463,7 @@ Use `useT()` client-side, `resolveTranslations()` server-side. The `yarn i18n:ch
 
 All of the following are **directly composed** into the Person detail page (`backend/customers/people-v2/[id]/page.tsx`) — there are no UMES injection widgets for the email surface (see § Proposed Solution).
 
-- **Emails tab** (`PersonEmailThreadsTab`): a dedicated tab alongside Notes/Activities/Deals/Addresses/Tasks. Renders the shared `EmailThreadsPanel` (`@open-mercato/ui/backend/messages`) — a Gmail/Outlook-style threaded view (thread list left, conversation right), backed by `GET /api/customers/people/{id}/email-threads`. This is the **single email entry point**: the panel's toolbar exposes "Refresh" and "New email" (compose via `ComposeEmailDialog`). A duplicate top-of-page "Sync / Send email" button pair (the `PersonEmailActions` header component) that previously sat in the page header **has been removed** in this PR as a duplicate, so the Emails tab is the only place to compose.
+- **Emails tab** (`PersonEmailThreadsTab`): a dedicated tab alongside Notes/Activities/Deals/Addresses/Tasks. Renders the shared `EmailThreadsPanel` (`@open-mercato/ui/backend/messages`) — a Gmail-style threaded view (thread list left, conversation right), backed by `GET /api/customers/people/{id}/email-threads`. This is the **single email entry point**: the panel's toolbar exposes "Refresh" and "New email" (compose via `ComposeEmailDialog`). A duplicate top-of-page "Sync / Send email" button pair (the `PersonEmailActions` header component) that previously sat in the page header **has been removed** in this PR as a duplicate, so the Emails tab is the only place to compose.
 - **No-channel state**: when the current user has no connected channel, the "New email" / "Reply" controls are hidden and a "Connect your mailbox" link to `/backend/profile/communication-channels` is shown instead.
 - **Email row on activity timeline**: uses the existing `ActivityCard` rendering. Subject + sender (or first recipient for outbound) + body preview. Icon: `<Mail>` with `bg-status-info-soft text-status-info-fg` semantic tokens. `ActivityCard.tsx` composes `EmailCardActions` / `EmailReplyForwardActions` directly.
 - **Email body rendering**: bodies are shown as text in v1 (HTML rendering via a sanitized renderer is deferred; see TC-CRM-EMAIL-010 notes).

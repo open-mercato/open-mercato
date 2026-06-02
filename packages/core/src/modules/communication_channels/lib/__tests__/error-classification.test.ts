@@ -96,7 +96,7 @@ describe('isReauthError', () => {
     expect(isReauthError(classifyOutboundError(new Error('401 Unauthorized')))).toBe(true)
   })
 
-  it('flags the requires_reauth sentinel emitted by Gmail/Microsoft sendMessage on a 401', () => {
+  it('flags the requires_reauth sentinel emitted by Gmail sendMessage on a 401', () => {
     // The provider adapters return `{ status: 'failed', error: 'requires_reauth' }`
     // on a 401; the outbound command rethrows it as a status-less Error.
     expect(isReauthError(classifyOutboundError(new Error('requires_reauth')))).toBe(true)

@@ -54,6 +54,23 @@ class ImapChannelAdapter implements ChannelAdapter {
 
   async sendMessage(input: SendMessageInput): Promise<SendMessageResult> {
     const credentials = parseCredentialsOrThrow(input.credentials)
+
+    // Reject attachments at the boundary BEFORE building the MIME body. The hub
+    // passes attachments as URL pointers; until the IMAP/SMTP adapter wires a
+    // fetcher (with size + content-type validation), inlining them is unsafe —
+    // a 0-byte attachment looks "delivered" but conveys nothing. Checking here
+    // (rather than after conversion) avoids wasted MIME-build work and surfaces
+    // the clearer "attachments unsupported" error even when recipients are also
+    // missing. Documented in review M2 (2026-05-26) and tracked as a follow-up.
+    if (Array.isArray(input.content.attachments) && input.content.attachments.length > 0) {
+      return {
+        externalMessageId: '',
+        status: 'failed',
+        error:
+          '[internal] IMAP/SMTP adapter does not yet support attachments. Send the message without attachments or use a provider that supports them (Gmail).',
+      }
+    }
+
     let native: ChannelNativeContent
     try {
       native = await convertOutboundForEmail({
@@ -70,20 +87,6 @@ class ImapChannelAdapter implements ChannelAdapter {
     const to = Array.isArray(meta.to) ? (meta.to as string[]) : []
     if (to.length === 0) {
       return { externalMessageId: '', status: 'failed', error: '[internal] Email send requires at least one recipient' }
-    }
-
-    // Reject attachments at the boundary rather than silently sending empty
-    // bytes. The hub passes attachments as URL pointers; until the IMAP/SMTP
-    // adapter wires a fetcher (with size + content-type validation), inlining
-    // them is unsafe — a 0-byte attachment looks "delivered" but conveys nothing.
-    // This is documented in review M2 (2026-05-26) and tracked as a follow-up.
-    if (Array.isArray(input.content.attachments) && input.content.attachments.length > 0) {
-      return {
-        externalMessageId: '',
-        status: 'failed',
-        error:
-          '[internal] IMAP/SMTP adapter does not yet support attachments. Send the message without attachments or use a provider that supports them (Gmail).',
-      }
     }
 
     const smtp = getSmtpClient()

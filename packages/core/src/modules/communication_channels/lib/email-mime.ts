@@ -11,13 +11,13 @@ import { EMAIL_MAX_ATTACHMENT_BYTES } from './email-capabilities'
 const TOTAL_INBOUND_ATTACHMENTS_MAX_BYTES = EMAIL_MAX_ATTACHMENT_BYTES * 2
 
 /**
- * Shared email MIME helpers for the email channel providers (Gmail, IMAP,
- * Microsoft). Outbound assembly, inbound parsing, header/address normalization,
+ * Shared email MIME helpers for the email channel providers (Gmail, IMAP).
+ * Outbound assembly, inbound parsing, header/address normalization,
  * and threading-id extraction all live here so every provider shares one
  * correct implementation instead of copy-pasting (which previously let Gmail's
  * `extractHeaders` drift into a Map-handling bug that IMAP had already fixed).
  *
- * Provider-specific transport (Gmail History API, Graph delta, IMAP UID sync)
+ * Provider-specific transport (Gmail History API, IMAP UID sync)
  * stays in each package — this module only owns the format-level plumbing.
  */
 

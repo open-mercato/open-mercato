@@ -4,8 +4,7 @@ describe('preservePushState', () => {
   it('replaces the sync cursor while carrying hub-owned push keys forward', () => {
     const previous = {
       pushStatus: 'active',
-      subscriptionId: 'sub-1',
-      subscriptionExpiresAt: '2026-01-01T00:00:00Z',
+      pubsubTopic: 'projects/p/topics/gmail-push',
       watchExpirationMs: 123,
       historyId: '100',
     }
@@ -15,8 +14,7 @@ describe('preservePushState', () => {
 
     expect(merged.historyId).toBe('200')
     expect(merged.pushStatus).toBe('active')
-    expect(merged.subscriptionId).toBe('sub-1')
-    expect(merged.subscriptionExpiresAt).toBe('2026-01-01T00:00:00Z')
+    expect(merged.pubsubTopic).toBe('projects/p/topics/gmail-push')
     expect(merged.watchExpirationMs).toBe(123)
   })
 
@@ -27,7 +25,6 @@ describe('preservePushState', () => {
       pushStatus: 'active',
       pendingHistoryPageToken: 'page-2',
       pendingMessagesPageToken: 'msg-page-2',
-      pendingNextLink: 'https://graph.microsoft.com/next',
       historyId: '100',
     }
     const next = { historyId: '200' }
@@ -36,7 +33,6 @@ describe('preservePushState', () => {
 
     expect('pendingHistoryPageToken' in merged).toBe(false)
     expect('pendingMessagesPageToken' in merged).toBe(false)
-    expect('pendingNextLink' in merged).toBe(false)
     expect(merged.pushStatus).toBe('active')
   })
 
@@ -52,7 +48,7 @@ describe('preservePushState', () => {
 
   it('declares the push-owned keys that must survive a cursor replacement', () => {
     expect(PUSH_STATE_KEYS).toContain('pushStatus')
-    expect(PUSH_STATE_KEYS).toContain('subscriptionId')
+    expect(PUSH_STATE_KEYS).toContain('pubsubTopic')
     expect(PUSH_STATE_KEYS).toContain('watchExpirationMs')
   })
 })

@@ -27,6 +27,10 @@ export { EmailThreadsPanel } from './EmailThreadsPanel'
 export type {
   EmailThread,
   EmailThreadMessage,
+  EmailThreadMessageStatus,
   EmailThreadDirection,
   EmailThreadsPanelProps,
 } from './EmailThreadsPanel'
+
+export { mergeOptimisticEmailThreads } from './mergeOptimisticEmailThreads'
+export type { OptimisticEmailMessage } from './mergeOptimisticEmailThreads'

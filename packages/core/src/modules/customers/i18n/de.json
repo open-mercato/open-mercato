@@ -1227,6 +1227,7 @@
   "customers.email.compose.visibility": "Sichtbarkeit",
   "customers.email.compose.visibilityPrivate": "Nur für mich",
   "customers.email.compose.visibilityShared": "Für Teammitglieder sichtbar",
+  "customers.email.errors.deliveryFailed": "Zustellung fehlgeschlagen – nicht gesendet",
   "customers.email.errors.flipFailed": "Aktualisierung der Sichtbarkeit fehlgeschlagen",
   "customers.email.errors.sendFailed": "Senden fehlgeschlagen",
   "customers.email.sync.button": "Synchronisieren",

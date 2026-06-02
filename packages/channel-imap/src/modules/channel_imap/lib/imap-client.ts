@@ -24,6 +24,11 @@ export interface ImapConnectionOptions {
   transport: ImapTransport
   /** Connection + greeting timeout (ms). Default 60000 (Spec B). */
   timeoutMs?: number
+  /**
+   * TCP+TLS connect + greeting timeout (ms). Default 15000. The health probe
+   * passes a tighter value so it fails fast within the hub's 10s budget.
+   */
+  connectTimeoutMs?: number
 }
 
 export interface ImapFolderState {
@@ -107,8 +112,8 @@ class ImapflowClient implements ImapClient {
       // Initial TCP+TLS handshake is usually fast; cap at 15s so a non-responsive
       // host bails before the UI flow stalls. Greeting can be slow on some
       // providers (Gmail occasionally takes 5-10s), so allow 15s there too.
-      connectionTimeout: 15_000,
-      greetingTimeout: 15_000,
+      connectionTimeout: options.connectTimeoutMs ?? 15_000,
+      greetingTimeout: options.connectTimeoutMs ?? 15_000,
     } as Record<string, unknown>)
     // Attach a defensive 'error' listener so tcp-level errors emitted on the
     // EventEmitter (e.g. socket reset during an idle lock) don't crash the

@@ -12,7 +12,7 @@ import type { ComponentOverride } from '@open-mercato/shared/modules/widgets/com
  * Messages module to opt in by registering the component.
  *
  * Today, email-specific affordances (subject / Cc list / attachment count / Gmail
- * labels / Outlook categories) are delivered to the Messages thread view via the
+ * labels) are delivered to the Messages thread view via the
  * existing `detail:messages:message:body:after` injection spot's
  * `channel-payload-renderer` widget (slice 2e/2f). That widget renders the same
  * affordances the spec lists as header content, just below the header rather than

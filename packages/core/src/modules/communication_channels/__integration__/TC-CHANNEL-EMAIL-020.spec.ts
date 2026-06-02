@@ -6,8 +6,8 @@ import { apiRequest } from '@open-mercato/core/helpers/integration/api'
  * TC-CHANNEL-EMAIL-020 — Email rich-content widget composes cleanly with the unified inbox.
  *
  * The `channel-payload-renderer` widget renders at `detail:messages:message:body:after`
- * (slice 2a wired the spot; slice 2e wired the widget). With three email providers
- * installed (IMAP / Gmail / Microsoft) the messages inbox + detail pages must keep
+ * (slice 2a wired the spot; slice 2e wired the widget). With both email providers
+ * installed (IMAP / Gmail) the messages inbox + detail pages must keep
  * returning <500 for every route the spot lives on. We test the routing surface;
  * the widget render contract is covered by the unit tests of
  * `widgets/injection/channel-payload-renderer/widget.client.tsx`.

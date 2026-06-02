@@ -26,7 +26,7 @@
   "communication_channels.detail.notFound": "Channel not found",
   "communication_channels.detail.recentFailures": "Recent failures",
   "communication_channels.detail.title": "Channel detail",
-  "communication_channels.emptyState": "No channels configured yet. Provider packages (Slack, WhatsApp, email integrations) register channels here.",
+  "communication_channels.emptyState": "No shared channels yet. This page lists shared, tenant-wide channels. Your personal email mailbox is private — connect and manage it under Profile → Communication Channels.",
   "communication_channels.errors.loadDetail": "Failed to load channel",
   "communication_channels.errors.loadList": "Failed to load channels",
   "communication_channels.errors.reactionFailed": "Reaction failed",

@@ -26,7 +26,7 @@
   "communication_channels.detail.notFound": "Kanal nicht gefunden",
   "communication_channels.detail.recentFailures": "Letzte Fehler",
   "communication_channels.detail.title": "Kanaldetails",
-  "communication_channels.emptyState": "Noch keine Kanäle konfiguriert. Anbieterpakete (Slack, WhatsApp, E-Mail-Integrationen) registrieren Kanäle hier.",
+  "communication_channels.emptyState": "Noch keine gemeinsamen Kanäle. Diese Seite listet gemeinsame, mandantenweite Kanäle auf. Ihr persönliches E-Mail-Postfach ist privat – verbinden und verwalten Sie es unter Profil → Kommunikationskanäle.",
   "communication_channels.errors.loadDetail": "Kanal konnte nicht geladen werden",
   "communication_channels.errors.loadList": "Kanäle konnten nicht geladen werden",
   "communication_channels.errors.reactionFailed": "Reaktion fehlgeschlagen",

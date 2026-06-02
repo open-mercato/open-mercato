@@ -132,6 +132,10 @@ export default async function handle(
       isActive: true,
       deletedAt: null,
       status: 'error',
+      // Polling channels only. Push-only channels (Gmail) have
+      // `pollIntervalSeconds = null` and are intentionally excluded: poll-channel
+      // returns early for push providers, so their recovery is owner-driven
+      // (re-register push / reconnect), not this poll-recovery sweep.
       pollIntervalSeconds: { $ne: null },
       // `lastPolledAt` advances only on a SUCCESSFUL poll (poll-channel does
       // not touch it in `handlePollError`). To keep recovery to one retry per

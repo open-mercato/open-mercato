@@ -180,6 +180,12 @@ function validateClaims(claims: GmailPubSubJwtClaims, input: GmailPubSubVerifyIn
   if (typeof claims.exp !== 'number' || claims.exp < now - 5) {
     throw new GmailPubSubJwtError('JWT expired or missing exp', 'expired')
   }
+  // Reject a future-dated `iat` beyond the clock-skew allowance: a token
+  // "issued" in the future signals a forged token or a badly-skewed clock.
+  // Reuses the `expired` code (both are temporal-validity failures → 401).
+  if (typeof claims.iat === 'number' && claims.iat > now + 5) {
+    throw new GmailPubSubJwtError('JWT issued in the future', 'expired')
+  }
   // Verify the issuer is Google (defense-in-depth alongside the signature +
   // service-account email checks; the file header documents this requirement).
   if (typeof claims.iss !== 'string' || !GOOGLE_ACCEPTED_ISSUERS.has(claims.iss)) {

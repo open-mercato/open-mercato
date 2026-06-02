@@ -14,6 +14,7 @@ import {
 } from '../lib/thread-token'
 import { stringOrUndefined, stripBrackets } from '../lib/email-mime'
 import type { ChannelAdapterRegistry } from '../lib/registry'
+import { isUniqueViolation } from '../lib/pg-errors'
 import { Message } from '../../messages/data/entities'
 import {
   ChannelThreadMapping,
@@ -389,6 +390,16 @@ const deliverOutboundMessageCommand: CommandHandler<
         },
       })
 
+      // NOTE — at-least-once delivery (accepted v1 semantics). This provider
+      // send is a non-transactional external side effect. The terminal-status
+      // short-circuit above and the `message_channel_links_message_uq` index
+      // prevent duplicate link records and re-sends after a *completed*
+      // delivery, but if the process crashes in the narrow window between this
+      // call returning and the success flush below, the link stays `pending`
+      // and a worker retry re-invokes the adapter — the recipient may receive a
+      // duplicate. This is deliberate: email providers (Gmail/SMTP) expose no
+      // idempotent-send key nor a reliable "did message X send?" query, so
+      // re-sending is preferred over risking a dropped message.
       const sendResult = await adapter.sendMessage({
         conversationId: mapping.externalThreadRef,
         content: converted.content,
@@ -441,8 +452,8 @@ const deliverOutboundMessageCommand: CommandHandler<
         externalMessageId: sendResult.externalMessageId,
         // Always persist the RFC2822 Message-ID so inbound reply matching (JWZ
         // strategy in lib/thread-matcher) and sent-folder dedup can resolve this
-        // outbound message. Adapters that build the message themselves (Gmail,
-        // Microsoft) return it in `converted.metadata.messageId`; IMAP/SMTP lets
+        // outbound message. Adapters that build the message themselves (Gmail)
+        // return it in `converted.metadata.messageId`; IMAP/SMTP lets
         // the transport mint it, surfacing it only as `sendResult.externalMessageId`
         // (the RFC2822 id the recipient replies to) — fall back to that.
         // Store it bracket-stripped to match the inbound convention
@@ -561,18 +572,6 @@ const deliverOutboundMessageCommand: CommandHandler<
       }
     }
   },
-}
-
-/**
- * Detect a Postgres unique-violation (23505). Mirrors the helper in the sibling
- * ingest/reaction commands so duplicate-insert handling stays consistent.
- */
-function isUniqueViolation(err: unknown): boolean {
-  if (!err || typeof err !== 'object') return false
-  const code = (err as { code?: string }).code
-  if (code === '23505') return true // Postgres unique_violation
-  const message = (err as { message?: string }).message
-  return typeof message === 'string' && /duplicate key value|unique constraint/i.test(message)
 }
 
 registerCommand(deliverOutboundMessageCommand)

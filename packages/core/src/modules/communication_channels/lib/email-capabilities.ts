@@ -1,9 +1,9 @@
 import type { ChannelCapabilities } from './adapter'
 
 /**
- * Shared default attachment ceiling for email providers (Gmail/Microsoft allow
+ * Shared default attachment ceiling for email providers (Gmail allows
  * more, but larger uploads need resumable/upload-session APIs we don't use, so
- * all three providers cap at the same conservative value).
+ * all providers cap at the same conservative value).
  */
 export const EMAIL_MAX_ATTACHMENT_BYTES = 25_000_000
 

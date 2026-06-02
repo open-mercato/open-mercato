@@ -2,6 +2,7 @@ import { createHash, createHmac, randomBytes, timingSafeEqual } from 'crypto'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import { findOneWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import { ChannelThreadToken } from '../data/entities'
+import { isUniqueViolation } from './pg-errors'
 
 /**
  * Per-thread crypto token used by the layered thread-matcher to attach
@@ -329,19 +330,6 @@ export async function getOrCreateThreadToken(
     if (winner) return { token: winner.token, created: false }
     throw err
   }
-}
-
-/**
- * Detect a Postgres unique-constraint violation (SQLSTATE 23505) regardless of
- * the ORM/driver layer that surfaces it. Mirrors the helper in the ingest +
- * reaction commands so duplicate-insert handling stays consistent module-wide.
- */
-function isUniqueViolation(err: unknown): boolean {
-  if (!err || typeof err !== 'object') return false
-  const code = (err as { code?: string }).code
-  if (code === '23505') return true
-  const message = (err as { message?: string }).message
-  return typeof message === 'string' && /duplicate key value|unique constraint/i.test(message)
 }
 
 /**

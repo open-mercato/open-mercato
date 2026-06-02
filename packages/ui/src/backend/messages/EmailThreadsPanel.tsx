@@ -1,7 +1,7 @@
 'use client'
 
 import * as React from 'react'
-import { ArrowDownLeft, ArrowUpRight, Mail, RefreshCw, Reply } from 'lucide-react'
+import { ArrowDownLeft, ArrowUpRight, Check, Mail, RefreshCw, Reply, TriangleAlert } from 'lucide-react'
 import { Button } from '../../primitives/button'
 import { Badge } from '../../primitives/badge'
 import { Spinner } from '../../primitives/spinner'
@@ -12,6 +12,12 @@ import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { cn } from '@open-mercato/shared/lib/utils'
 
 export type EmailThreadDirection = 'inbound' | 'outbound'
+
+/**
+ * Optimistic delivery status for a just-sent outbound message. Server-confirmed
+ * messages leave this `undefined` and render without a status indicator.
+ */
+export type EmailThreadMessageStatus = 'sending' | 'sent' | 'failed'
 
 export type EmailThreadMessage = {
   id: string
@@ -27,6 +33,10 @@ export type EmailThreadMessage = {
   bodyText: string | null
   sentAt: string
   providerKey: string | null
+  /** Optimistic send status; absent on server-confirmed messages. */
+  status?: EmailThreadMessageStatus
+  /** Human-readable failure reason shown when `status === 'failed'`. */
+  statusError?: string | null
 }
 
 export type EmailThread = {
@@ -51,6 +61,8 @@ export type EmailThreadsPanelProps = {
   onComposeNew?: () => void
   onReply?: (thread: EmailThread) => void
   onRefresh?: () => void
+  /** Invoked when the user retries a message whose `status === 'failed'`. */
+  onRetry?: (message: EmailThreadMessage) => void
   className?: string
 }
 
@@ -59,7 +71,7 @@ function formatWhen(value: string): string {
 }
 
 /**
- * Entity-agnostic Gmail/Outlook-style email thread viewer. The host supplies the
+ * Entity-agnostic Gmail-style email thread viewer. The host supplies the
  * already-fetched threads plus compose/reply/refresh handlers; this component
  * owns only the master/detail layout, selection, and conversation rendering, so
  * it can be dropped onto the CRM Person page, a Company page, or any module.
@@ -73,6 +85,7 @@ export function EmailThreadsPanel({
   onComposeNew,
   onReply,
   onRefresh,
+  onRetry,
   className,
 }: EmailThreadsPanelProps) {
   const t = useT()
@@ -218,7 +231,7 @@ export function EmailThreadsPanel({
                 </div>
                 <div className="flex flex-col gap-3">
                   {selected.messages.map((message) => (
-                    <EmailMessageCard key={message.id} message={message} />
+                    <EmailMessageCard key={message.id} message={message} onRetry={onRetry} />
                   ))}
                 </div>
               </div>
@@ -234,7 +247,13 @@ export function EmailThreadsPanel({
   )
 }
 
-function EmailMessageCard({ message }: { message: EmailThreadMessage }) {
+function EmailMessageCard({
+  message,
+  onRetry,
+}: {
+  message: EmailThreadMessage
+  onRetry?: (message: EmailThreadMessage) => void
+}) {
   const t = useT()
   const isOutbound = message.direction === 'outbound'
   const fromLabel = message.fromName
@@ -267,8 +286,66 @@ function EmailMessageCard({ message }: { message: EmailThreadMessage }) {
       <div className="whitespace-pre-wrap break-words text-sm text-foreground">
         {message.bodyText || t('ui.email.threads.noBody', '(no content)')}
       </div>
+      <EmailMessageStatus message={message} onRetry={onRetry} />
     </div>
   )
+}
+
+/**
+ * Renders the optimistic send-status footer for an outbound message: a spinner
+ * while sending, a success check once confirmed, or an error with a Retry action
+ * on delivery failure. Server-confirmed messages have no `status` and render
+ * nothing here.
+ */
+function EmailMessageStatus({
+  message,
+  onRetry,
+}: {
+  message: EmailThreadMessage
+  onRetry?: (message: EmailThreadMessage) => void
+}) {
+  const t = useT()
+  if (message.status === 'sending') {
+    return (
+      <div className="mt-2 flex items-center gap-1.5 text-xs text-muted-foreground" aria-live="polite">
+        <Spinner className="h-3 w-3" />
+        {t('ui.email.threads.status.sending', 'Sending…')}
+      </div>
+    )
+  }
+  if (message.status === 'sent') {
+    return (
+      <div className="mt-2 flex items-center gap-1.5 text-xs text-status-success-text" aria-live="polite">
+        <Check className="h-3.5 w-3.5 text-status-success-icon" />
+        {t('ui.email.threads.status.sent', 'Sent')}
+      </div>
+    )
+  }
+  if (message.status === 'failed') {
+    return (
+      <div
+        className="mt-2 flex flex-wrap items-center gap-2 text-xs text-status-error-text"
+        aria-live="polite"
+      >
+        <span className="flex items-center gap-1.5">
+          <TriangleAlert className="h-3.5 w-3.5 text-status-error-icon" />
+          {message.statusError || t('ui.email.threads.status.failed', 'Not delivered')}
+        </span>
+        {onRetry ? (
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            className="h-auto px-2 py-0.5 text-xs"
+            onClick={() => onRetry(message)}
+          >
+            {t('ui.email.threads.status.retry', 'Retry')}
+          </Button>
+        ) : null}
+      </div>
+    )
+  }
+  return null
 }
 
 export default EmailThreadsPanel

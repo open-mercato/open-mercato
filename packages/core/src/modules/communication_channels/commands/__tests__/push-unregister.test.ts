@@ -139,7 +139,9 @@ describe('pushUnregister', () => {
       pushStatus: 'inactive',
       watchExpirationMs: null,
     })
-    expect(channel.pollIntervalSeconds).toBe(60)
+    // Push teardown restores the polling-only default cadence (matches connect's
+    // `POLLING_ONLY_DEFAULT_INTERVAL_SECONDS`), not the old hard-coded 60.
+    expect(channel.pollIntervalSeconds).toBe(300)
     expect(flushSpy).toHaveBeenCalled()
     expect(emitCommunicationChannelsEvent).toHaveBeenCalledWith(
       'communication_channels.push.deactivated',

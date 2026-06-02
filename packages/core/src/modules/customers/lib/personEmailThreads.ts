@@ -5,7 +5,7 @@ import { buildEmailVisibilityMikroFilter } from './visibilityFilter'
 
 /**
  * Read model that turns a Person's email `CustomerInteraction` rows into
- * Gmail/Outlook-style threads for the CRM Person page.
+ * Gmail-style threads for the CRM Person page.
  *
  * The Person↔email anchor lives only on `CustomerInteraction`
  * (`interactionType='email'`, `externalMessageId` → `MessageChannelLink.id`).

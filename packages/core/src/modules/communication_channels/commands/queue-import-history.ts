@@ -99,7 +99,7 @@ export async function queueImportHistory(params: {
     )
   }
 
-  // Adapter must declare `importHistory` — Gmail / Microsoft adapters gain it
+  // Adapter must declare `importHistory` — Gmail / IMAP adapters gain it
   // in Spec C. Other providers (chat, SMS) cannot do historical inbox sweeps.
   const adapter = getChannelAdapterRegistry().get(channel.providerKey)
   if (!adapter) {
@@ -124,9 +124,15 @@ export async function queueImportHistory(params: {
     userId: scope.userId ?? null,
   }
 
-  // Concurrency guard: refuse if another import is already in-flight for the
-  // same channel. We can't query by meta in a portable way without DB-specific
-  // JSON operators, so we scan the small active-jobs window.
+  // Concurrency guard (best-effort): refuse if another import is already
+  // in-flight for the same channel. We can't query by meta in a portable way
+  // without DB-specific JSON operators, so we scan the small active-jobs window.
+  // This check and `createJob` below are NOT atomic — two near-simultaneous
+  // requests for the same channel can both pass and enqueue. That is acceptable,
+  // not corrupting: the import worker runs at concurrency 1 (duplicate jobs run
+  // sequentially, never in parallel) and inbound ingest dedups by the
+  // `(channel_id, external_message_id)` unique index, so the worst case is
+  // wasted re-fetch work, never duplicate rows.
   const active = await progressService.getActiveJobs(progressContext)
   const conflict = active.find((job) => {
     if (job.jobType !== CHANNEL_IMPORT_HISTORY_JOB_TYPE) return false

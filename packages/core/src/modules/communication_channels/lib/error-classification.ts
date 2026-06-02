@@ -115,7 +115,7 @@ export function classifyOutboundError(error: unknown): ErrorClassification {
  * A 401, or an `invalid_grant` / `unauthorized` message, is unrecoverable by
  * retry: the access token is rejected and (for OAuth) the refresh token is
  * likely revoked too. Provider adapters may also surface the explicit
- * `requires_reauth` sentinel instead of a status — e.g. Gmail/Microsoft
+ * `requires_reauth` sentinel instead of a status — e.g. Gmail
  * `sendMessage` returns `{ status: 'failed', error: 'requires_reauth' }` on a
  * 401, which the outbound command rethrows as a status-less `Error`. Match that
  * sentinel too so the channel still flips to `requires_reauth`. Callers flip the

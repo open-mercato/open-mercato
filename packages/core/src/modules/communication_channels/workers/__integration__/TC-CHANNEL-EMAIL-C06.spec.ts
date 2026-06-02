@@ -8,7 +8,7 @@ import { apiRequest } from '@open-mercato/core/helpers/integration/api'
  * Spec C § Phase C5 — when `adapter.registerPush(...)` returns
  * `status: 'active'`, `pushRegister` persists
  * `pollIntervalSeconds = recommendedPollIntervalSeconds` (1800 by
- * default for Gmail and Microsoft). The `me/channels` API exposes the
+ * default for Gmail). The `me/channels` API exposes the
  * resulting `pollIntervalSeconds` so the operator UI can show the
  * polling-vs-push state.
  *

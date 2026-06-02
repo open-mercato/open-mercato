@@ -30,7 +30,7 @@ const initiateBodySchema = z.object({
   returnUrl: z.string().min(1).max(2048).refine(isSafeOAuthReturnUrl, {
     message: 'returnUrl must be a same-origin path',
   }).optional(),
-  /** Optional pre-filled email — Google `login_hint` / Microsoft `login_hint`. */
+  /** Optional pre-filled email — Google `login_hint`. */
   loginHint: z.string().email().optional(),
 })
 

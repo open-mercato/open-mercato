@@ -5,13 +5,14 @@ import type { EntityManager } from '@mikro-orm/postgresql'
 import { CommunicationChannel } from '../data/entities'
 import { getChannelAdapterRegistry } from '../lib/adapter-registry-singleton'
 import { refreshCredentialsIfNeeded } from '../lib/credential-refresh'
+import { POLLING_ONLY_DEFAULT_INTERVAL_SECONDS } from '../lib/connect-channel'
 import { emitCommunicationChannelsEvent } from '../events'
 
 /**
  * Spec C § Phase C5 — Tear down a previously-registered push delivery.
  *
  * Called from `disconnect-channel.ts` (per-user disconnect path) so the
- * provider-side `users.watch` / Graph subscription doesn't keep firing
+ * provider-side `users.watch` subscription doesn't keep firing
  * notifications at a webhook that no longer recognises the channel.
  *
  * Idempotent + best-effort: a missing registration, a 404 from the provider,
@@ -144,13 +145,11 @@ export async function pushUnregister(params: {
   channel.channelState = {
     ...channelState,
     pushStatus: 'inactive',
-    subscriptionId: null,
-    subscriptionExpiresAt: null,
     watchExpirationMs: null,
   }
-  // Restore default polling cadence so the channel keeps working until
-  // disconnect itself flips `isActive: false`.
-  channel.pollIntervalSeconds = 60
+  // Restore the polling-only default cadence (matching connect) so the channel
+  // keeps working until disconnect itself flips `isActive: false`.
+  channel.pollIntervalSeconds = POLLING_ONLY_DEFAULT_INTERVAL_SECONDS
   await em.flush()
 
   await emitCommunicationChannelsEvent(

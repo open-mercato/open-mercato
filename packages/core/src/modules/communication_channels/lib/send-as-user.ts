@@ -11,6 +11,7 @@ import {
 import { ChannelMutationBlockedError, guardOutboundCreate } from './mutation-guards'
 import { COMMUNICATION_CHANNELS_QUEUES, getCommunicationChannelsQueue } from './queue'
 import type { OutboundDeliveryPayload } from '../workers/outbound-delivery'
+import { htmlToText } from './email-mime'
 
 export type SendAsUserActor = {
   userId: string
@@ -74,6 +75,12 @@ export async function sendAsUser(
   if (!input.body.plain && !input.body.html) {
     return { ok: false, status: 422, error: 'Either body.plain or body.html is required' }
   }
+  // Re-validate here (not only in the HTTP route's zod schema) because this
+  // facade is also reachable via DI; `input.to[0]` below would otherwise become
+  // `undefined` for an empty recipient list.
+  if (!Array.isArray(input.to) || input.to.length === 0) {
+    return { ok: false, status: 422, error: 'At least one recipient is required' }
+  }
 
   const em = (container.resolve('em') as EntityManager).fork()
   const { tenantId } = actor
@@ -115,7 +122,7 @@ export async function sendAsUser(
   // subscriber picks it up via `messages.message.sent` and routes through the
   // adapter chain.
   const commandBus = container.resolve('commandBus') as CommandBus
-  const messageBody = input.body.plain ?? stripHtml(input.body.html ?? '')
+  const messageBody = input.body.plain ?? htmlToText(input.body.html ?? '')
   const composeInput = {
     type: `channel.${channel.providerKey}`,
     visibility: 'public' as const,
@@ -275,19 +282,3 @@ export async function sendAsUser(
 
 /** DI service type for cross-module callers (resolve `communicationChannelsSendAsUser`). */
 export type SendAsUserService = typeof sendAsUser
-
-function stripHtml(html: string): string {
-  return html
-    .replace(/<style[^>]*>[\s\S]*?<\/style>/gi, ' ')
-    .replace(/<script[^>]*>[\s\S]*?<\/script>/gi, ' ')
-    .replace(/<br\s*\/?>(?=\s*)/gi, '\n')
-    .replace(/<\/p\s*>/gi, '\n\n')
-    .replace(/<[^>]+>/g, '')
-    .replace(/&nbsp;/gi, ' ')
-    .replace(/&amp;/gi, '&')
-    .replace(/&lt;/gi, '<')
-    .replace(/&gt;/gi, '>')
-    .replace(/&quot;/gi, '"')
-    .replace(/\n{3,}/g, '\n\n')
-    .trim()
-}

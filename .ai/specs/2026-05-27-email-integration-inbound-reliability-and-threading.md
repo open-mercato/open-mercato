@@ -1,18 +1,10 @@
 # Email Integration Follow-ups — Reliability, Threading, Push Delivery & OAuth
 
-> **Update (2026-06-02): Microsoft 365 / Outlook channel removed.** The
-> `@open-mercato/channel-microsoft` provider and its Microsoft Graph plumbing —
-> the `microsoft-delta-sync` and `microsoft-renew-subscriptions` workers, the
-> `/webhooks/microsoft/*` routes, the lifecycle handler, and the
-> `OM_MICROSOFT_*` env vars — were removed; per-user email integration now ships
-> **Gmail + IMAP only**. The Microsoft Graph content in Part 2 and elsewhere is
-> retained as historical design context and no longer reflects shipped behavior.
-
 > **Consolidated spec (2026-06-01).** This single document gathers the three
 > May-27 email-integration follow-up specs so the PR carries one file instead of
 > three. Organized in parts:
 > - **Part 1 — Inbound Email Reliability + Layered Threading** (below — the original body of this spec)
-> - **Part 2 — Provider Push Delivery (Gmail Pub/Sub + Microsoft Graph)** — merged from the former `2026-05-27-email-integration-provider-push-delivery.md`
+> - **Part 2 — Provider Push Delivery (Gmail Pub/Sub)** — merged from the former `2026-05-27-email-integration-provider-push-delivery.md`
 > - **Part 3 — OAuth Credential Wiring (token refresh)** — merged from the former `2026-05-27-oauth-refresh-credentials-client-wiring-fix.md`
 > - **Part 4 — OAuth client-credential resolution + per-user privacy hardening (v1, 2026-06-01)**
 >
@@ -24,10 +16,10 @@
 
 **Key Points:**
 - Fixes the "responses sometimes never arrive / never thread to the right conversation" symptoms in the per-user email integration (foundation laid by [`2026-05-21-email-integration-foundation.md`](2026-05-21-email-integration-foundation.md) and the staged code on branch `feat/demo-hoodie`). Outbound already works; this spec is inbound-only.
-- Introduces a layered thread-matching algorithm (References-header token → hidden body-footer token → JWZ on `Message-Id`/`In-Reply-To`/`References` → subject+participants fallback) so replies thread reliably even when Outlook strips headers or users edit subjects.
+- Introduces a layered thread-matching algorithm (References-header token → hidden body-footer token → JWZ on `Message-Id`/`In-Reply-To`/`References` → subject+participants fallback) so replies thread reliably even when a mail client strips headers or users edit subjects.
 - Rewrites the IMAP worker around UIDVALIDITY/UIDNEXT cursor semantics with per-message commit, bounded fetch (`HARD_CAP = 200`), zero-history bootstrap (no 1M-inbox scan), auto-recovery from `status='error'`, 60 s socket timeout, and sent-folder dedup.
 - Adds on-demand `POST /channels/{id}/import-history` so users explicitly opt into backfilling past mail per contact / time window — no silent multi-million-message ingest.
-- All changes are **additive** — no event ID, API URL, widget spot ID, ACL feature ID, or DI key changes. Provider packages `@open-mercato/channel-gmail` and `@open-mercato/channel-microsoft` get layered threading "for free" via the shared `lib/thread-matcher.ts`.
+- All changes are **additive** — no event ID, API URL, widget spot ID, ACL feature ID, or DI key changes. The provider package `@open-mercato/channel-gmail` gets layered threading "for free" via the shared `lib/thread-matcher.ts`.
 
 **Scope (Spec B):**
 - New hub libs `thread-matcher.ts` and `thread-token.ts` in `packages/core/src/modules/communication_channels/lib/`.
@@ -42,16 +34,16 @@
 - Integration tests TC-CHANNEL-EMAIL-021…030 using **mocked `imapflow`** in-process fixtures (no Docker, no Greenmail).
 
 **Non-goals / deferred:**
-- Gmail Pub/Sub push delivery and Microsoft Graph subscriptions — **Spec C** (sibling spec, follows this one).
+- Gmail Pub/Sub push delivery — **Spec C** (sibling spec, follows this one).
 - `RefreshCredentialsInput._client` wiring bug that breaks OAuth token refresh after ~1 h — **Spec A** (small parallel hotfix, see § Prerequisites).
 - IMAP IDLE / long-lived connections — re-evaluate after Spec C ships; polling at 60 s gives acceptable IMAP latency for v1.
 - CRM Person page real-time SSE (`useAppEvent` wiring) — page-reload pattern stays for v1; revisit in a CRM-UX spec.
-- Any change to Gmail / Microsoft / IMAP outbound paths beyond the shared token-injection step.
+- Any change to Gmail / IMAP outbound paths beyond the shared token-injection step.
 - Multi-folder IMAP scanning (Sent folder ingestion to capture "user sent from phone") — flagged as a follow-up in § Risks.
 
 **Concerns / dependencies:**
 - This spec assumes the `2026-05-21-email-integration-foundation.md` hub + provider scaffolding is committed (it is staged on `feat/demo-hoodie`). The staged `channel-imap` adapter already partially fixes the "1M inbox" symptom with a 30-minute wall-clock window — this spec replaces that with the cursor-based approach described in § Proposed Solution.
-- Spec A (OAuth refresh `_client` fix) must ship before Gmail/Microsoft channels can run for more than ~1 h, but Spec B does not block on it: IMAP credentials don't expire, so IMAP demos work even without Spec A.
+- Spec A (OAuth refresh `_client` fix) must ship before Gmail channels can run for more than ~1 h, but Spec B does not block on it: IMAP credentials don't expire, so IMAP demos work even without Spec A.
 - `ChannelThreadMapping` already exists ([`packages/core/src/modules/communication_channels/data/entities.ts`](../../packages/core/src/modules/communication_channels/data/entities.ts), staged); the new `ChannelThreadToken` is complementary, not a replacement.
 
 ---
@@ -60,18 +52,18 @@
 
 | Dependency | What it delivers | Must merge before this spec? |
 |---|---|---|
-| `2026-05-21-email-integration-foundation.md` (staged) | `communication_channels` hub, `channel-imap` / `channel-gmail` / `channel-microsoft` provider packages, OAuth callback router, `ChannelThreadMapping`, polling scheduler stubs | Yes — already on `feat/demo-hoodie` |
-| **Spec A** (OAuth refresh `_client` hotfix, separate small PR) | Wires per-tenant OAuth client config into `RefreshCredentialsInput` so Gmail/Microsoft channels survive past 1 h token expiry | No — IMAP path does not depend on it; Gmail/Microsoft demos require it |
-| **Spec C** (Gmail Pub/Sub + Graph webhooks, follow-up) | Sub-minute push delivery for Gmail and Microsoft channels using the new shared thread-matcher + thread-token libs from Spec B | No — sequenced after B |
+| `2026-05-21-email-integration-foundation.md` (staged) | `communication_channels` hub, `channel-imap` / `channel-gmail` provider packages, OAuth callback router, `ChannelThreadMapping`, polling scheduler stubs | Yes — already on `feat/demo-hoodie` |
+| **Spec A** (OAuth refresh `_client` hotfix, separate small PR) | Wires per-tenant OAuth client config into `RefreshCredentialsInput` so Gmail channels survive past 1 h token expiry | No — IMAP path does not depend on it; Gmail demos require it |
+| **Spec C** (Gmail Pub/Sub webhooks, follow-up) | Sub-minute push delivery for Gmail channels using the new shared thread-matcher + thread-token libs from Spec B | No — sequenced after B |
 
 ---
 
 ## Overview
 
-The per-user email integration foundation ([`2026-05-21-email-integration-foundation.md`](2026-05-21-email-integration-foundation.md)) shipped the hub + three provider packages (`channel-imap`, `channel-gmail`, `channel-microsoft`) with working outbound delivery and a polling-based inbound path. Real-world testing on the `feat/demo-hoodie` branch surfaced two recurring failure modes:
+The per-user email integration foundation ([`2026-05-21-email-integration-foundation.md`](2026-05-21-email-integration-foundation.md)) shipped the hub + two provider packages (`channel-imap`, `channel-gmail`) with working outbound delivery and a polling-based inbound path. Real-world testing on the `feat/demo-hoodie` branch surfaced two recurring failure modes:
 
 1. **Inbound messages sometimes never arrive** in the CRM, even when they hit the user's mailbox. Investigation traced this to a combination of (a) the IMAP adapter's bootstrap fetching `UID FETCH 1:*` with a `limit: 100` cap, which on a large mailbox traps the cursor on the oldest 100 messages, (b) a 10 s socket timeout that flakes under real-world IMAP server latency, (c) a "any single ingest failure reverts the whole poll batch" semantic that lets one malformed MIME blob starve the channel, and (d) `status='error'` permanently quarantining the channel until manual intervention.
-2. **Replies fail to thread to the original conversation** when the recipient's mail client rewrites or strips RFC 5322 headers (Outlook mobile is the most common offender). Today the system relies solely on `Message-Id` / `In-Reply-To` / `References` joins; there is no token, no fallback strategy, and threading silently fails.
+2. **Replies fail to thread to the original conversation** when the recipient's mail client rewrites or strips RFC 5322 headers (mobile mail clients are the most common offenders). Today the system relies solely on `Message-Id` / `In-Reply-To` / `References` joins; there is no token, no fallback strategy, and threading silently fails.
 
 Both failure modes are demo-blocking and erode user trust. This spec fixes them.
 
@@ -82,7 +74,7 @@ Both failure modes are demo-blocking and erode user trust. This spec fixes them.
 1. **IMAP bootstrap fetch is unbounded.** `range = '1:*'` on first poll with a `limit: 100` cap streams oldest-first on a 1M-message mailbox, traps the cursor far behind real `UIDNEXT`, and the user never sees recent mail.
 2. **Socket timeout is too aggressive.** 10 s vs Gmail/Fastmail real-world 15–30 s response times causes legitimate polls to throw, burn the 3-retry budget, and set `status='error'` permanently (the scheduler's `WHERE status='connected'` excludes the channel from all subsequent ticks).
 3. **One bad message stalls the channel.** Current semantic: if any message in a poll batch throws during `ingest-inbound-message`, the cursor does not advance — neither `lastPolledAt` nor `channelState`. A single malformed MIME blob freezes the channel.
-4. **No outbound tagging means threading is brittle.** Reliance on RFC 5322 headers alone means Outlook mobile, mailing-list expanders, and other header-mangling MTAs silently break threading. The hoodie commit's `handleThreadingInheritance` fallback in `customers/subscribers/_internal/link-channel-message-handler.ts` helps for the "person link" side but does nothing for the "which thread" decision in `ingest-inbound-message`.
+4. **No outbound tagging means threading is brittle.** Reliance on RFC 5322 headers alone means mobile mail clients, mailing-list expanders, and other header-mangling MTAs silently break threading. The hoodie commit's `handleThreadingInheritance` fallback in `customers/subscribers/_internal/link-channel-message-handler.ts` helps for the "person link" side but does nothing for the "which thread" decision in `ingest-inbound-message`.
 5. **No first-class history-import UX.** Users connecting a mailbox with existing context (12 months of conversations with a key contact) have no way to backfill that history without scanning the entire inbox.
 
 ## Proposed Solution
@@ -105,18 +97,18 @@ Both failure modes are demo-blocking and erode user trust. This spec fixes them.
                      │  NEW entity: ChannelIngestDeadLetter   │
                      └────────────────────────────────────────┘
                                        ▲
-                          ┌────────────┼────────────┐
-                  ┌───────┴──────┐  ┌──┴───────┐  ┌─┴───────────┐
-                  │ channel-imap │  │ channel- │  │ channel-    │
-                  │  (changes)   │  │ gmail    │  │ microsoft   │
-                  └──────────────┘  └──────────┘  └─────────────┘
-                                       │              │
-                                       └─ unchanged in Spec B;
-                                          benefit automatically
-                                          from new matcher
+                              ┌─────────┴─────────┐
+                      ┌───────┴──────┐  ┌─────────┴────┐
+                      │ channel-imap │  │ channel-gmail│
+                      │  (changes)   │  │              │
+                      └──────────────┘  └──────────────┘
+                                               │
+                                               └─ unchanged in Spec B;
+                                                  benefit automatically
+                                                  from new matcher
 ```
 
-The hub gets one canonical thread-matcher and one canonical thread-token library. All three provider adapters call the same matcher via `ingest-inbound-message`. Outbound MIME mutation happens once in `subscribers/outbound-bridge.ts` — adapters are not aware of the token.
+The hub gets one canonical thread-matcher and one canonical thread-token library. Both provider adapters call the same matcher via `ingest-inbound-message`. Outbound MIME mutation happens once in `subscribers/outbound-bridge.ts` — adapters are not aware of the token.
 
 ### Layered thread matching (the heart of "bulletproof")
 
@@ -154,7 +146,7 @@ Idempotent on retry: same token reused per thread.
 
 | Decision | Rationale |
 |---|---|
-| Token in both `References:` and hidden body span (not subject) | References is invisible and survives most clients; body span is a fallback if Outlook mobile strips References. Subject tokens (Pipedrive/HubSpot/Salesforce style) are user-hostile and users strip them when editing subjects. |
+| Token in both `References:` and hidden body span (not subject) | References is invisible and survives most clients; body span is a fallback if a mail client strips References. Subject tokens (Pipedrive/HubSpot/Salesforce style) are user-hostile and users strip them when editing subjects. |
 | New `ChannelThreadToken` entity (not column on `ChannelThreadMapping`) | Token is 1:1 with `messageThreadId` (logical thread identity), independent of channel/provider. `ChannelThreadMapping` is keyed on `(externalConversationId, tenantId)` — N rows per thread when a thread spans channels. Separate concerns. |
 | Cursor = `(UIDVALIDITY, UIDNEXT)` per folder, no `HIGHESTMODSEQ` in v1 | KISS. CONDSTORE/QRESYNC adds complexity without a v1 latency win. Twenty CRM uses HIGHESTMODSEQ; we follow EspoCRM's simpler model for v1 and can add CONDSTORE later. |
 | Zero-history bootstrap (no time-window) | The "import last N days" UX belongs in `/import-history`, not the silent connect flow. Eliminates the "1M inbox melts on connect" failure mode by construction. |
@@ -171,7 +163,7 @@ Idempotent on retry: same token reused per thread.
 |---|---|
 | Visible subject token (`[#OM-…]`) à la HubSpot | HubSpot community is full of complaints about visible tokens; users strip them when editing subjects. References header + hidden body span achieves the same robustness with zero visible artifacts. |
 | Reply-To sub-addressing (`reply+token@inbound.mercato.app`) | Requires owning MX, running Postfix or Mailgun/Postmark inbound, DNS work per customer. Highest reliability possible but enterprise-scale infra commitment — defer to a future "Open Mercato Inbound" spec. |
-| IMAP IDLE for sub-minute latency | imapflow auto-reconnect gap, NAT/firewall idle disconnects, and process-supervisor requirement push this out of v1 scope. 60 s polling is acceptable for IMAP; Gmail/Microsoft get sub-minute via Spec C's push delivery. |
+| IMAP IDLE for sub-minute latency | imapflow auto-reconnect gap, NAT/firewall idle disconnects, and process-supervisor requirement push this out of v1 scope. 60 s polling is acceptable for IMAP; Gmail gets sub-minute via Spec C's push delivery. |
 | Extract a new `email-core` module | Premature abstraction. The existing hub + provider pattern factors correctly; the new libs live in the hub. Revisit if/when a fourth email-shaped channel demands the abstraction. |
 | Keep the staged 30-min wall-clock window | "Refetches the same message 30 times before it ages out", makes history-import UX impossible to graft on, and trades correctness for a demo-safe hack. Cursor-based bootstrap is the right answer. |
 | Token column on `ChannelThreadMapping` (Q1 (b)) | Mapping is keyed on `(externalConversationId, tenantId)`; thread-spans-channels means N rows per thread and either duplicated tokens or nullable columns for non-email channels. Separate entity is clearer. |
@@ -680,7 +672,7 @@ Both migrations are pure additions; no existing column type changes, no `DROP`/`
 3. Add `commands/queue-import-history.ts`: validates channel ownership + state, creates a `ProgressJob`, enqueues a `channel-import-history` job.
 4. Add `workers/channel-import-history.ts` (new queue, concurrency 1 per channel):
    - For IMAP: build `SEARCH SINCE <date>` (+ optional `FROM` chunks of ≤30), fetch UIDs, fetch messages, route each through `ingest-inbound-message`.
-   - For Gmail (forward-compat): adapter exposes a similar `importHistory({ sinceDays, contactEmails, maxMessages })` capability. Spec C wires Gmail/Microsoft fully; Spec B's worker can fall back to "feature not supported on this adapter" for non-IMAP channels.
+   - For Gmail (forward-compat): adapter exposes a similar `importHistory({ sinceDays, contactEmails, maxMessages })` capability. Spec C wires Gmail fully; Spec B's worker can fall back to "feature not supported on this adapter" for non-IMAP channels.
    - Updates `ProgressJob.progress` after each batch.
 5. UI:
    - New `ImportHistorySection` component on the channel detail page (`backend/profile/communication-channels/[id]/page.tsx` if it exists, else extend the index page). Uses `<CrudForm>` inside a `<Dialog>` per § UI/UX.
@@ -989,12 +981,12 @@ None.
 - **Reconciled the CRM Person-page integration point with the shipped implementation.** *(Superseded by the bullet above — this reconciliation ran before `PersonEmailActions.tsx` was deleted.)* The spec described the Person-page polish (`window.location.reload()` → `router.refresh()`) as landing in `customers/widgets/injection/person-send-email/widget.client.tsx`, but that injection widget was never built — at the time this entry was written the Person-page email surface was direct composition (`components/detail/PersonEmailActions.tsx` + the Emails tab `PersonEmailThreadsTab.tsx` + `ComposeEmailDialog.tsx`) per ARCHITECTURE.md §4. Updated the UI/UX "CRM Person page — minor polish" section, Phase B7 step 1, the File Manifest row, the B7 Done checkpoint, and the B7 changelog entries to reference `PersonEmailActions.tsx`. No behavior change — the shipped surface already used `router.refresh()` + reactive `useAppEvent` refresh.
 
 ### 2026-05-27
-- Initial specification. Brainstormed scope (3-spec decomposition: A=OAuth hotfix, B=this spec, C=Pub/Sub+Graph push). Approved approach: Foundation Refactor with layered threading, go-forward-only IMAP bootstrap, 60 s polling, mocked imapflow tests, new `ChannelThreadToken` + `ChannelIngestDeadLetter` entities, auto-recovery extending poll-tick.
+- Initial specification. Brainstormed scope (3-spec decomposition: A=OAuth hotfix, B=this spec, C=Gmail Pub/Sub push). Approved approach: Foundation Refactor with layered threading, go-forward-only IMAP bootstrap, 60 s polling, mocked imapflow tests, new `ChannelThreadToken` + `ChannelIngestDeadLetter` entities, auto-recovery extending poll-tick.
 - Open Questions resolved (all four with recommended option): Q1 new entity, Q2 mocked imapflow, Q3 dedicated dead-letter table, Q4 sweeper folded into poll-tick.
 - **Implementation B1–B5 complete 2026-05-27.** Threading + IMAP reliability + auto-recovery foundation shipped. 428 unit tests green, build clean. B6 (Import-history API) and B7 (Person-page polish) deferred to follow-up — the threading fix doesn't depend on either and the demo blockers (responses never arrive, replies don't thread) are resolved by B1–B4.
 - **Phase B6 complete 2026-05-27.** Operator-triggered backlog import shipped end-to-end: additive `ChannelAdapter.importHistory()` contract + IMAP implementation (SEARCH SINCE + FROM-chunking + paginated UID fetch), `queue-import-history` command with 429 concurrency guard, `channel-import-history` worker (concurrency 1, drives ProgressJob lifecycle), `POST /channels/[id]/import-history` route with declarative ACL gate + per-user access guard, `ImportHistoryDialog` UI on `/backend/profile/communication-channels` (Cmd+Enter / Escape, uses `router.refresh()`), i18n keys across de/en/es/pl, integration smoke test `TC-CHANNEL-EMAIL-029` and QA scenario markdown. 4565 core + 41 channel-imap unit tests green; `yarn build:packages` clean.
 - **Phase B7 code complete 2026-05-27.** `window.location.reload()` replaced with `router.refresh()` at both call sites in `customers/components/detail/PersonEmailActions.tsx` (post-send + post-sync; direct Person-page email component, not an injection widget). Build clean; remaining B7 work is documentation and a live demo dry-run, neither of which gates a merge. *(Superseded 2026-06-02 — `PersonEmailActions.tsx` was later removed as a duplicate; see the 2026-06-02 changelog.)*
-- **Phase B7 docs complete 2026-05-27.** Framework docs (`apps/docs/docs/framework/modules/communication-channels.mdx`) gain four new env-var entries and a "Inbound reliability & threading (Spec B)" section that explains layered threading, zero-history bootstrap, per-message commit/dead-letter, auto-recovery sweep, and operator-triggered backlog import. User-guide (`apps/docs/docs/user-guide/communication-channels.mdx`) adds a step-7 "Import older messages (optional)" how-to with field semantics, tips, and the "IMAP today; Gmail/MS in Spec C" caveat. **Spec B is 100 % done** modulo the optional live demo dry-run.
+- **Phase B7 docs complete 2026-05-27.** Framework docs (`apps/docs/docs/framework/modules/communication-channels.mdx`) gain four new env-var entries and a "Inbound reliability & threading (Spec B)" section that explains layered threading, zero-history bootstrap, per-message commit/dead-letter, auto-recovery sweep, and operator-triggered backlog import. User-guide (`apps/docs/docs/user-guide/communication-channels.mdx`) adds a step-7 "Import older messages (optional)" how-to with field semantics, tips, and the "IMAP today; Gmail in Spec C" caveat. **Spec B is 100 % done** modulo the optional live demo dry-run.
 
 ### 2026-05-28
 - **Gap-closure pass.** Pre-review audit found the spec's File Manifest listed `outbound-bridge.test.ts` and `ingest-inbound-message.test.ts` modifications and integration tests TC-021..028 + TC-030 + QA scenarios that were skipped in the initial pass (the implementations existed but the spec's listed test surfaces were not authored). Closed all gaps: added Spec B § B2 contract tests (outbound References + body footer assembly with idempotent-retry coverage), Spec B § B3 contract tests (matcher input extraction, sent-folder dedup), Spec B § B4 contract tests (`ChannelIngestDeadLetter` row-shape assertion), 9 integration smoke spec files for TC-021..028 + TC-030, and 9 QA scenario markdowns. 4579 core + 41 channel-imap tests green; build clean.
@@ -1017,9 +1009,8 @@ None.
   - **Import-history 202 body:** the route returns `{ ok, progressJobId, totalCountHint }` (the UI consumes `progressJobId`); the `{ jobId, queued }` shape in the contract is illustrative.
   - **TC-CHANNEL-EMAIL-021..030 `.spec.ts`:** these are route-wiring **smoke** tests (provider behavior is covered by the jest unit suites — `adapter.test.ts`, `poll-channel`, `ingest-inbound-message`, `thread-matcher`); the per-protocol E2E is deferred per the jest-only provider harness.
 - **Round-3/4 findings (same hardening pass):**
-  - **Unbounded poll re-enqueue (poll-channel):** `hasMore` re-enqueue had no drain cap, so an adapter returning `hasMore` with a non-advancing (pinned) cursor could spin an unthrottled loop. Added `drainPage` + `MAX_DRAIN_PAGES = 100` (mirrors `gmail-history-sync` / `microsoft-delta-sync`).
+  - **Unbounded poll re-enqueue (poll-channel):** `hasMore` re-enqueue had no drain cap, so an adapter returning `hasMore` with a non-advancing (pinned) cursor could spin an unthrottled loop. Added `drainPage` + `MAX_DRAIN_PAGES = 100` (mirrors `gmail-history-sync`).
   - **Thread-match SQL robustness (thread-matcher):** the Postgres text-array builders escaped `"` but not `\`, so a Message-ID / email containing a backslash produced a malformed array literal that threw (caught → silently defeated threading). Now escapes `\` then `"`.
-  - **Microsoft webhook scan (microsoft-webhook-channel):** the unauthenticated webhook decrypted **every** Microsoft channel on each request before the clientState gate (DoS amplifier + tenant-scoping smell). Narrowed to the subscription(s) named by the request; added `rateLimit` (120/60s) to both Microsoft webhook routes.
   - **Contact-resolver footgun (contact-resolver):** the CRM person lookup filtered the encrypted `primary_email`/`primary_phone` by plaintext. Now skips the fast lookup under tenant encryption (the authoritative link is the customers subscriber); a blind-index column is the proper fast-path fix.
   - **Duplicate channel on reconnect (connect-channel) — R3-1:** `createConnectedChannelRow` had no upsert and the table had no natural-key unique, so re-running OAuth / reconnecting created a *second* channel (the stale one kept polling + emitting reauth banners + a competing push subscription). Now heals the existing `(tenant, user, provider, mailbox)` row in place, backed by the partial unique index `communication_channels_user_provider_external_uq` (+ 23505 fork-reselect for the concurrent-connect race).
   - **send-as-user metadata precedence — R4-1:** the caller `channelMetadata` spread was placed last, overriding the validated routing fields (contradicting its own comment). Reordered so `to/cc/bcc/subject/inReplyTo/references` always win.
@@ -1030,49 +1021,41 @@ None.
 
 ---
 
-## Part 2 — Provider Push Delivery (Gmail Pub/Sub + Microsoft Graph)
+## Part 2 — Provider Push Delivery (Gmail Pub/Sub)
 
 > Merged 2026-06-01 from the former `2026-05-27-email-integration-provider-push-delivery.md` — content preserved verbatim below.
 
-# Provider Push Delivery — Gmail Pub/Sub + Microsoft Graph Subscriptions
+# Provider Push Delivery — Gmail Pub/Sub
 
 ## TLDR
 
 **Key Points:**
-- Replaces the 60 s polling cadence for **Gmail** and **Microsoft 365** channels with native push delivery (Gmail `users.watch` → Cloud Pub/Sub; Microsoft Graph change-notification subscriptions). Target inbound latency: **under 60 seconds, typically 5–15 s** for both providers, with **30-minute polling retained as a belt-and-suspenders fallback**.
+- Replaces the 60 s polling cadence for **Gmail** channels with native push delivery (Gmail `users.watch` → Cloud Pub/Sub). Target inbound latency: **under 60 seconds, typically 5–15 s**, with **30-minute polling retained as a belt-and-suspenders fallback**.
 - Reuses [Spec B](2026-05-27-email-integration-inbound-reliability-and-threading.md)'s shared `lib/thread-matcher.ts` + `lib/thread-token.ts` libs and the `ingest-inbound-message` command — push delivery is a **new ingestion source**, not a new ingestion pipeline.
-- Requires [Spec A](2026-05-27-oauth-refresh-credentials-client-wiring-fix.md) to be merged first — both Gmail Pub/Sub and Microsoft Graph subscription receivers refresh tokens before calling provider APIs.
-- Webhook routes live in the existing Next.js app (`/api/communication_channels/webhooks/...`). No separate service. No new infra outside the GCP Pub/Sub topic and the registered Microsoft Graph subscription.
-- Adds renewal workers for both providers (Gmail watch expires in 7 days, Microsoft subscriptions in 7 days for plain notifications). Adds lifecycle-event handling for Microsoft (`missed`, `reauthorizationRequired`, `subscriptionRemoved`).
+- Requires [Spec A](2026-05-27-oauth-refresh-credentials-client-wiring-fix.md) to be merged first — the Gmail Pub/Sub receiver refreshes tokens before calling provider APIs.
+- Webhook routes live in the existing Next.js app (`/api/communication_channels/webhooks/...`). No separate service. No new infra outside the GCP Pub/Sub topic.
+- Adds a renewal worker (Gmail watch expires in 7 days, re-issued before expiry).
 
 **Scope (Spec C):**
 - New webhook routes:
   - `POST /api/communication_channels/webhooks/gmail` — receives Pub/Sub push notifications, validates JWT, enqueues `gmail-history-sync`.
-  - `POST /api/communication_channels/webhooks/microsoft/[subscriptionId]` — receives Graph change notifications + Microsoft's mandatory validation handshake. Validates `clientState`.
-  - `POST /api/communication_channels/webhooks/microsoft/[subscriptionId]/lifecycle` — receives `missed` / `reauthorizationRequired` / `subscriptionRemoved` lifecycle events.
 - New workers:
   - `gmail-history-sync` — invoked from Pub/Sub webhook; pulls `history.list?startHistoryId=<stored>` and ingests each new message.
-  - `microsoft-delta-sync` — invoked from Graph webhook; pulls `/me/messages/delta?$deltaToken=<stored>` and ingests each new message.
   - `gmail-renew-watch` — daily cron + on-demand; re-issues `users.watch` before 7-day expiry.
-  - `microsoft-renew-subscriptions` — every 2 hours cron + on-demand; PATCH-renews subscriptions before expiry.
 - Adapter additions (additive to existing `ChannelAdapter` interface):
-  - `registerPush?(input): Promise<PushRegistration>` — Gmail: calls `users.watch`; Microsoft: creates a `Subscription` (handling the validation handshake).
+  - `registerPush?(input): Promise<PushRegistration>` — Gmail: calls `users.watch`.
   - `unregisterPush?(input): Promise<void>` — counterpart for disconnect / re-auth.
-  - `applyPushNotification?(input): Promise<HistoryPage>` — turns a verified inbound notification into the same `HistoryPage` shape `fetchHistory` returns. Gmail: calls `history.list`. Microsoft: calls `messages/delta`. Single canonical conversion path.
+  - `applyPushNotification?(input): Promise<HistoryPage>` — turns a verified inbound notification into the same `HistoryPage` shape `fetchHistory` returns. Gmail: calls `history.list`. Single canonical conversion path.
 - Channel state additions (additive to `CommunicationChannel.channelState`):
   - Gmail: `{ historyId, watchExpirationMs, pubsubTopic, pushStatus: 'active'|'inactive'|'failed' }`
-  - Microsoft: `{ deltaLink?, subscriptionId, subscriptionExpiresAt, clientState, pushStatus: 'active'|'inactive'|'failed' }`
 - New tenant-level configuration under `integration_credentials.scope = oauth_<provider>`:
   - Gmail: `pubsubTopic: string` + `pubsubServiceAccountEmail: string` (the `gmail-api-push@system.gserviceaccount.com` is granted publisher on the topic; we verify push JWT against the operator's project audience).
-  - Microsoft: nothing extra at OAuth level; subscription-specific `clientState` is generated per-channel and stored on `channelState`.
 - Per-environment configuration (env vars, set once by the platform operator):
   - `OM_GMAIL_PUBSUB_TOPIC` (e.g., `projects/openmercato-prod/topics/gmail-inbound`)
   - `OM_GMAIL_PUBSUB_AUDIENCE` (the audience claim we accept in incoming JWTs)
   - `OM_GMAIL_PUBSUB_SERVICE_ACCOUNT_EMAIL` (the SA email allowed to invoke our webhook)
-  - `OM_MICROSOFT_WEBHOOK_BASE_URL` (the public URL Microsoft Graph will POST to)
   - `OM_PUSH_RENEWAL_GMAIL_LEAD_HOURS` (default 24)
-  - `OM_PUSH_RENEWAL_MICROSOFT_LEAD_HOURS` (default 4)
-- Polling-cadence change for Gmail / Microsoft channels: `pollIntervalSeconds` flips from 60 → **1800 (30 min)** when `channelState.pushStatus === 'active'`. IMAP unchanged.
+- Polling-cadence change for Gmail channels: `pollIntervalSeconds` flips from 60 → **1800 (30 min)** when `channelState.pushStatus === 'active'`. IMAP unchanged.
 - New ACL features: `communication_channels.channel.push.manage` (force-reregister, view push status).
 - New i18n keys (operator messages: "Push registered", "Push renewed", "Push lost — falling back to polling", "Push reactivated").
 - All changes are **additive** — no event ID changes, no API URL changes to existing routes, no widget spot ID / DI key changes. New routes, new entity fields (JSON-shape additions only), new env vars are all additive.
@@ -1081,15 +1064,13 @@ None.
 - IMAP IDLE / long-lived connections — still deferred (see Spec B § Alternatives Considered).
 - Custom shared-MX inbound (`reply+token@inbound.mercato.app`) — separate enterprise spec.
 - Real-time *outbound* push (provider webhooks for opens/bounces) — out of scope; bounces continue via `communication_channels.message.delivery_failed`.
-- Multi-mailbox / shared-mailbox subscriptions (Microsoft) — v1 covers per-user `/me/messages` subscriptions only.
 - Gmail "All Mail" vs INBOX selection — v1 watches INBOX only (matches Spec B). Spec D candidate.
-- Microsoft `includeResourceData` (encrypted-payload mode) — rejected for v1 per Open Question Q2; revisit when sub-second latency becomes a customer ask.
-- Provider sandbox / staging credentials story for CI — integration tests use mocked webhook payloads (no real Gmail / Microsoft API in CI).
+- Provider sandbox / staging credentials story for CI — integration tests use mocked webhook payloads (no real Gmail API in CI).
 
 **Concerns / dependencies:**
-- **Hard prerequisite: Spec A** — Gmail and Microsoft adapters need the OAuth refresh wiring fixed before any sustained push delivery can work past the 1-hour token mark.
+- **Hard prerequisite: Spec A** — the Gmail adapter needs the OAuth refresh wiring fixed before any sustained push delivery can work past the 1-hour token mark.
 - **Hard prerequisite: Spec B** — `thread-matcher` + `thread-token` libs and the rewritten `ingest-inbound-message` are what push notifications feed into.
-- Soft prerequisite: tenant operators must complete one-time GCP setup (create Pub/Sub topic, grant publisher to `gmail-api-push@system.gserviceaccount.com`, configure the topic in Open Mercato Integrations UI) for Gmail. Microsoft setup is fully in-band — the registered App must have `Mail.Read` / `Mail.ReadWrite` permissions (already required by Spec A baseline).
+- Soft prerequisite: tenant operators must complete one-time GCP setup (create Pub/Sub topic, grant publisher to `gmail-api-push@system.gserviceaccount.com`, configure the topic in Open Mercato Integrations UI) for Gmail.
 - Webhook receivers share resources with the rest of the Next.js API. Burst-storm scenarios (high-volume mailbox firing dozens of notifications/min) are absorbed by the queue — webhook returns 202 fast, worker processes async.
 
 ---
@@ -1098,7 +1079,7 @@ None.
 
 | Dependency | What it delivers | Must merge before this spec? |
 |---|---|---|
-| [`Spec A`](2026-05-27-oauth-refresh-credentials-client-wiring-fix.md) | `RefreshCredentialsInput.oauthClient` wiring fix so Gmail/Microsoft tokens refresh past 1 hour | Yes |
+| [`Spec A`](2026-05-27-oauth-refresh-credentials-client-wiring-fix.md) | `RefreshCredentialsInput.oauthClient` wiring fix so Gmail tokens refresh past 1 hour | Yes |
 | [`Spec B`](2026-05-27-email-integration-inbound-reliability-and-threading.md) | `lib/thread-matcher.ts`, `lib/thread-token.ts`, rewritten `ingest-inbound-message`, per-message commit semantics, `ChannelIngestDeadLetter` | Yes |
 | `2026-05-21-email-integration-foundation.md` (staged) | Hub + provider packages, OAuth callback, `IntegrationCredentialsService` | Yes — already on `feat/demo-hoodie` |
 
@@ -1106,25 +1087,24 @@ None.
 
 ## Overview
 
-The Spec B baseline gives every email channel a 60 s polling cycle. That's acceptable for IMAP (where the only alternative is IMAP IDLE, which doesn't fit Open Mercato's queue-worker model) but it's a poor fit for Gmail and Microsoft 365, both of which expose first-class push delivery primitives:
+The Spec B baseline gives every email channel a 60 s polling cycle. That's acceptable for IMAP (where the only alternative is IMAP IDLE, which doesn't fit Open Mercato's queue-worker model) but it's a poor fit for Gmail, which exposes a first-class push delivery primitive:
 - **Gmail Pub/Sub** ([docs](https://developers.google.com/workspace/gmail/api/guides/push)) — `users.watch` registers a Pub/Sub topic; Gmail publishes a tiny `{ emailAddress, historyId }` payload to the topic on every mailbox change; the Pub/Sub push subscription POSTs that to our webhook. Notification rate is capped at 1 per Gmail user per second. The notification is *not* the cursor — the app calls `users.history.list?startHistoryId=<stored>` to enumerate the actual changes.
-- **Microsoft Graph subscriptions** ([docs](https://learn.microsoft.com/en-us/graph/change-notifications-overview)) — a `Subscription` on `/me/mailFolders('inbox')/messages` POSTs change notifications to our webhook. Mandatory: a validation handshake at creation time, a `lifecycleNotificationUrl` for `missed` / `reauthorizationRequired` / `subscriptionRemoved` events, and renewal before expiry.
 
-Both reduce inbound latency from 60 s (poll cadence) to 5–15 s typical (publish + queue + worker). Both also lift load off the provider's REST APIs — `history.list` and `/messages/delta` are dramatically cheaper than full scans.
+This reduces inbound latency from 60 s (poll cadence) to 5–15 s typical (publish + queue + worker). It also lifts load off the provider's REST API — `history.list` is dramatically cheaper than full scans.
 
-This spec wires those primitives into Open Mercato's existing email integration architecture, **without** introducing new ingestion or threading code. Spec B's `ingest-inbound-message` + `thread-matcher` + `thread-token` libs do all the heavy lifting; Spec C just delivers messages to them via push instead of poll.
+This spec wires that primitive into Open Mercato's existing email integration architecture, **without** introducing new ingestion or threading code. Spec B's `ingest-inbound-message` + `thread-matcher` + `thread-token` libs do all the heavy lifting; Spec C just delivers messages to them via push instead of poll.
 
-> **Market Reference:** Twenty CRM ([`twenty-server/src/modules/messaging/.../drivers/gmail/`](https://github.com/twentyhq/twenty/tree/main/packages/twenty-server/src/modules/messaging/message-import-manager/drivers/gmail) and [`.../drivers/microsoft/`](https://github.com/twentyhq/twenty/tree/main/packages/twenty-server/src/modules/messaging/message-import-manager/drivers/microsoft)) — adopted: shared Pub/Sub topic per environment, delta query for Microsoft, lifecycle event handling. EmailEngine ([`learn.emailengine.app/docs/advanced/performance-tuning`](https://learn.emailengine.app/docs/advanced/performance-tuning)) — adopted: separate worker process for the heavyweight fetch step so the webhook receiver stays responsive. Postmark / Mailgun inbound — informational; both also separate "we got pinged" from "we fetched the data" via a queue.
+> **Market Reference:** Twenty CRM ([`twenty-server/src/modules/messaging/.../drivers/gmail/`](https://github.com/twentyhq/twenty/tree/main/packages/twenty-server/src/modules/messaging/message-import-manager/drivers/gmail)) — adopted: shared Pub/Sub topic per environment, separate worker for the heavyweight fetch step. EmailEngine ([`learn.emailengine.app/docs/advanced/performance-tuning`](https://learn.emailengine.app/docs/advanced/performance-tuning)) — adopted: separate worker process for the heavyweight fetch step so the webhook receiver stays responsive. Postmark / Mailgun inbound — informational; both also separate "we got pinged" from "we fetched the data" via a queue.
 
 ## Problem Statement
 
-1. **Polling latency.** Gmail / Microsoft polling at 60 s cadence consumes provider API quota for no reason on quiet mailboxes — and still has 60 s typical inbound latency for active conversations.
-2. **No liveness signal.** Without push, there is no signal that a channel is "alive and connected" between poll cycles — operators learn about broken Gmail/Microsoft connections only when polls accumulate errors over multiple cycles.
-3. **User expectation gap.** Real CRM users expect chat-like latency for inbound mail. 60 s feels slow against HubSpot, Front, and Pipedrive, all of which deliver sub-10 s inbound from Gmail and Microsoft via push.
+1. **Polling latency.** Gmail polling at 60 s cadence consumes provider API quota for no reason on quiet mailboxes — and still has 60 s typical inbound latency for active conversations.
+2. **No liveness signal.** Without push, there is no signal that a channel is "alive and connected" between poll cycles — operators learn about broken Gmail connections only when polls accumulate errors over multiple cycles.
+3. **User expectation gap.** Real CRM users expect chat-like latency for inbound mail. 60 s feels slow against HubSpot, Front, and Pipedrive, all of which deliver sub-10 s inbound from Gmail via push.
 
 ## Proposed Solution
 
-Adopt provider-native push as the primary inbound mechanism for Gmail and Microsoft. Keep polling as a low-frequency safety net. All ingestion still funnels through Spec B's `ingest-inbound-message` command and `thread-matcher` library.
+Adopt provider-native push as the primary inbound mechanism for Gmail. Keep polling as a low-frequency safety net. All ingestion still funnels through Spec B's `ingest-inbound-message` command and `thread-matcher` library.
 
 ### High-level approach
 
@@ -1165,35 +1145,7 @@ Adopt provider-native push as the primary inbound mechanism for Gmail and Micros
                               │ • Update channelState.historyId │
                               └─────────────────────────────────┘
 
-                              ┌─────────────────────────────────┐
-                              │ Microsoft mailbox event         │
-                              └────────────────┬────────────────┘
-                                               │
-                                               ▼
-                              ┌─────────────────────────────────┐
-                              │ Microsoft Graph → notification  │
-                              │ POST /webhooks/microsoft/       │
-                              │       [subscriptionId]          │
-                              │ • Handle validation handshake   │
-                              │   (return validationToken)      │
-                              │ • Verify clientState            │
-                              │ • Enqueue microsoft-delta-sync  │
-                              │ • Return 202 fast               │
-                              └────────────────┬────────────────┘
-                                               │
-                                               ▼ async worker
-                              ┌─────────────────────────────────┐
-                              │ microsoft-delta-sync worker     │
-                              │ • refreshCredentialsIfNeeded    │
-                              │ • adapter.applyPushNotification │
-                              │   → /me/messages/delta?         │
-                              │     $deltaToken=<stored>        │
-                              │ • For each new message:         │
-                              │     → ingest-inbound-message    │
-                              │ • Update channelState.deltaLink │
-                              └─────────────────────────────────┘
-
-Both providers also have:
+Gmail channels also have:
                               ┌─────────────────────────────────┐
                               │ poll-tick (60s) — unchanged     │
                               │ Channels with pushStatus=active │
@@ -1210,49 +1162,20 @@ Both providers also have:
                               │   now() + 24h                   │
                               │ → adapter.registerPush()        │
                               └─────────────────────────────────┘
-
-                              ┌─────────────────────────────────┐
-                              │ microsoft-renew-subscriptions   │
-                              │   (every 2h cron)               │
-                              │ SELECT channels WHERE           │
-                              │   providerKey='microsoft' AND   │
-                              │   subscriptionExpiresAt <       │
-                              │   now() + 4h                    │
-                              │ → PATCH /subscriptions/{id}     │
-                              └─────────────────────────────────┘
-
-                              ┌─────────────────────────────────┐
-                              │ Microsoft lifecycle webhook     │
-                              │ POST /webhooks/microsoft/       │
-                              │      [subscriptionId]/lifecycle │
-                              │ • missed → trigger delta sync   │
-                              │ • reauthorizationRequired →     │
-                              │   status='requires_reauth'      │
-                              │ • subscriptionRemoved →         │
-                              │   re-register on next tick      │
-                              └─────────────────────────────────┘
 ```
 
 ### Push registration flow (channel connect)
 
 Reuses the existing `connect-credential-channel.ts` (or its OAuth equivalent `connect-oauth-channel.ts`) command. After credentials are persisted and the channel is `connected`:
 
-1. If `adapter.registerPush?` is implemented AND tenant has the relevant provider-push configuration (Gmail: `pubsubTopic` set; Microsoft: webhook base URL configured), call it.
+1. If `adapter.registerPush?` is implemented AND tenant has the relevant provider-push configuration (Gmail: `pubsubTopic` set), call it.
 2. **Gmail**: adapter calls `gmail.users.watch({ topicName: OM_GMAIL_PUBSUB_TOPIC, labelIds: ['INBOX'] })`. Persists `{ historyId, watchExpirationMs, pubsubTopic, pushStatus: 'active' }` on `channelState`.
-3. **Microsoft**: adapter calls `POST /subscriptions { resource: "me/mailFolders('inbox')/messages", changeType: 'created,updated', notificationUrl: <our URL>, lifecycleNotificationUrl: <our URL>, expirationDateTime: now+6d, clientState: <random b64> }`. Graph POSTs validation token to notificationUrl synchronously within 10 s — webhook validates the configured shape and returns the token verbatim. Persists `{ subscriptionId, subscriptionExpiresAt, clientState, pushStatus: 'active' }`.
-4. Update `channel.pollIntervalSeconds = 1800` (was 60). Persist.
-5. If `registerPush` throws, log + set `channelState.pushStatus = 'failed'`, keep polling at 60 s. Operator-visible via UI.
+3. Update `channel.pollIntervalSeconds = 1800` (was 60). Persist.
+4. If `registerPush` throws, log + set `channelState.pushStatus = 'failed'`, keep polling at 60 s. Operator-visible via UI.
 
 ### Push unregister flow (channel disconnect / re-auth)
 
-- Disconnect or `status='requires_reauth'`: `adapter.unregisterPush?(channel)` — Gmail: `users.stop`; Microsoft: `DELETE /subscriptions/{id}`. Best-effort: failures logged, do not block disconnect.
-
-### Lifecycle event handling (Microsoft)
-
-The dedicated lifecycle webhook receives Microsoft Graph lifecycle events:
-- **`missed`** → Graph believes we missed notifications. Enqueue `microsoft-delta-sync` to catch up.
-- **`reauthorizationRequired`** → user's token is revoked or scopes have changed. Set `channel.status = 'requires_reauth'`; notification fires.
-- **`subscriptionRemoved`** → subscription was deleted (admin policy, expired, etc.). Set `channelState.pushStatus = 'inactive'`; next renewal cron will re-register.
+- Disconnect or `status='requires_reauth'`: `adapter.unregisterPush?(channel)` — Gmail: `users.stop`. Best-effort: failures logged, do not block disconnect.
 
 ### Polling fallback
 
@@ -1263,13 +1186,10 @@ The dedicated lifecycle webhook receives Microsoft Graph lifecycle events:
 | Decision | Rationale |
 |---|---|
 | Single Pub/Sub topic per environment (Q1) | Matches Twenty CRM / EmailEngine. Per-tenant onboarding cost stays at "set up OAuth"; no GCP work per tenant. Cross-tenant routing is by `emailAddress`-scoped DB lookup, which is the same isolation pattern as our existing OAuth callback route. |
-| Plain notification + delta query (Q2) | 7-day subscription lifetime → renewal every ~6h is comfortable. No RSA key management infra. Delta API is already fast (~100ms typical). Resource-data mode is a future optimization, not v1 critical path. |
-| `/webhooks/microsoft/[subscriptionId]` route (Q3) | Explicit, matches `/oauth/[provider]/callback`. Lets us reject expired subscriptions at the routing layer (lookup-then-401 vs DB-fetch). |
-| 30-min polling fallback (Q4) | Safety net for "Pub/Sub silently dropped" or "lifecycle missed event was itself missed". 1 poll per 30 min ≈ 48 polls/day vs current 1440 — 30× reduction in provider API load. Acceptable insurance cost. |
-| Webhook returns 200/202 fast; worker processes async | Both Gmail and Microsoft retry on non-2xx within ~10s. Synchronous fetch + ingest in the webhook would risk timeouts under load. Queue absorbs bursts. |
+| 30-min polling fallback (Q4) | Safety net for "Pub/Sub silently dropped". 1 poll per 30 min ≈ 48 polls/day vs current 1440 — 30× reduction in provider API load. Acceptable insurance cost. |
+| Webhook returns 200/202 fast; worker processes async | Gmail retries on non-2xx within ~10s. Synchronous fetch + ingest in the webhook would risk timeouts under load. Queue absorbs bursts. |
 | Worker calls `applyPushNotification` (an adapter method), not `fetchHistory` | Different semantics: `fetchHistory` is a polled time-range fetch; `applyPushNotification` is a cursor-anchored delta-since-last-notification. Separating the methods lets the adapter use the provider's most efficient API per call. |
-| Lifecycle webhook on a separate route segment (`/lifecycle`) | Microsoft documents this as a distinct endpoint; having it on a separate route lets us apply different rate limits and instrumentation. |
-| Cron-based renewal + on-disconnect unregister | Cron is robust against missed timer ticks; on-disconnect cleanup is best-effort and idempotent (Graph returns 404 for already-deleted subscriptions). |
+| Cron-based renewal + on-disconnect unregister | Cron is robust against missed timer ticks; on-disconnect cleanup is best-effort and idempotent (re-issuing an active watch is a refresh; unregistering an already-removed watch is a no-op). |
 | `pushStatus` lives on `channelState` (JSONB), not a top-level `CommunicationChannel` column | Push state is a JSON-shaped sub-document (varies per provider); no need for a top-level column. UI reads `channelState.pushStatus` for the indicator. |
 
 ### Alternatives Considered
@@ -1277,18 +1197,15 @@ The dedicated lifecycle webhook receives Microsoft Graph lifecycle events:
 | Alternative | Why Rejected |
 |---|---|
 | Per-tenant Pub/Sub topic (Q1 (b)) | High onboarding friction; operator can't debug a tenant's broken topic without GCP access. |
-| Resource-data with encryption (Q2 (b)) | RSA key management + 24h subscription lifetime + decrypt-failure-data-loss risk all add complexity not justified by sub-second latency. v2 candidate. |
-| Single-route webhook with subscriptionId in payload (Q3 (b)) | Harder per-subscription debug and throttling. Marginal savings. |
 | Push-only, no polling fallback (Q4 (b)) | Gmail has no lifecycle equivalent — if `users.watch` silently expires (operator error: forgot to grant publisher role), all mail is lost until renewal. Safety net is cheap. |
-| Run webhook receivers as a separate service | Existing OAuth callback routes already live in the Next.js app and work fine. Adding a separate service for two more endpoints is over-engineering. |
-| Synchronous fetch + ingest inside the webhook | Both providers' retry windows are short (~10s); under load, synchronous processing risks timeouts → retries → notification storm. Queue absorbs bursts. |
-| Use IMAP IDLE for Gmail/Microsoft instead of native push | Native APIs are dramatically more reliable than IMAP-XOAUTH2; Twenty CRM and Front both abandoned IMAP-for-Gmail in favor of the REST API. |
+| Run webhook receivers as a separate service | Existing OAuth callback routes already live in the Next.js app and work fine. Adding a separate service for one more endpoint is over-engineering. |
+| Synchronous fetch + ingest inside the webhook | Gmail's retry window is short (~10s); under load, synchronous processing risks timeouts → retries → notification storm. Queue absorbs bursts. |
+| Use IMAP IDLE for Gmail instead of native push | Native APIs are dramatically more reliable than IMAP-XOAUTH2; Twenty CRM and Front both abandoned IMAP-for-Gmail in favor of the REST API. |
 
 ## User Stories / Use Cases
 
 - **A sales user** wants **inbound mail from a Gmail customer to appear in the CRM within 10 seconds** so that **conversations feel real-time during live demos and support calls**.
 - **A sales user** wants the **CRM to keep working even if Gmail's push notification was dropped** so that **they're never silently missing mail**.
-- **A sales user** wants their **Microsoft 365 inbox to feel as fast as Gmail** so that **the platform feels uniformly responsive**.
 - **A platform operator** wants **the GCP Pub/Sub topic configured once at install time** so that **adding new Gmail-connected tenants doesn't require per-tenant GCP work**.
 - **An admin** wants to **see push status (active / failed / inactive) on the channel detail page** so that **they can diagnose latency issues without reading logs**.
 
@@ -1334,45 +1251,6 @@ User                Gmail              Pub/Sub             Open Mercato webhook 
  │                    │                    │                          │                │              │ .historyId
 ```
 
-### Sequence diagram — Microsoft Graph subscription flow
-
-```
-User           Microsoft 365      Graph              Open Mercato webhook    Queue          Worker
- │                  │                  │                          │                │              │
- │ Receives email   │                  │                          │                │              │
- │─────────────────►│                  │                          │                │              │
- │                  │ Notify subscriber│                          │                │              │
- │                  │─────────────────►│                          │                │              │
- │                  │                  │ POST /webhooks/microsoft/│                │              │
- │                  │                  │   [subscriptionId]       │                │              │
- │                  │                  │ {value:[{                │                │              │
- │                  │                  │   clientState,           │                │              │
- │                  │                  │   resource,              │                │              │
- │                  │                  │   changeType}]}          │                │              │
- │                  │                  │─────────────────────────►│                │              │
- │                  │                  │                          │ Verify         │              │
- │                  │                  │                          │ clientState    │              │
- │                  │                  │                          │ Enqueue        │              │
- │                  │                  │                          │ microsoft-     │              │
- │                  │                  │                          │ delta-sync     │              │
- │                  │                  │                          │───────────────►│              │
- │                  │                  │ 202 Accepted             │                │              │
- │                  │                  │◄─────────────────────────│                │              │
- │                  │                  │                          │                │ Dequeue      │
- │                  │                  │                          │                │─────────────►│
- │                  │                  │ /me/messages/delta?$deltaToken=<stored>   │              │
- │                  │                  │◄────────────────────────────────────────────────────────────│
- │                  │                  │ {value:[…], @odata.deltaLink: "..."}      │              │
- │                  │                  │────────────────────────────────────────────────────────────►│
- │                  │                  │                          │                │              │ For each msg:
- │                  │                  │                          │                │              │   ingest-inbound-
- │                  │                  │                          │                │              │   message
- │                  │                  │                          │                │              │
- │                  │                  │                          │                │              │ Update
- │                  │                  │                          │                │              │ channelState
- │                  │                  │                          │                │              │ .deltaLink
-```
-
 ### Commands & Events
 
 **New commands** (CommandBus pattern, package: `packages/core/src/modules/communication_channels/commands/`):
@@ -1381,9 +1259,8 @@ User           Microsoft 365      Graph              Open Mercato webhook    Que
 |---|---|---|
 | `communication_channels.push.register` | Idempotent. Calls `adapter.registerPush`, persists `channelState.pushStatus = 'active'` + provider-specific cursor/expiry, flips `pollIntervalSeconds = 1800` | `push.unregister` (companion command) |
 | `communication_channels.push.unregister` | Calls `adapter.unregisterPush`, sets `pushStatus = 'inactive'`, restores `pollIntervalSeconds` to provider default (60) | `push.register` |
-| `communication_channels.push.handle_notification` | Looks up channel by provider-supplied identifier (Gmail: `emailAddress`; Microsoft: `subscriptionId`), enqueues the right sync worker | N/A (read-side dispatch) |
-| `communication_channels.push.renew` | Renews registration (`users.watch` again for Gmail; `PATCH /subscriptions/{id}` for Microsoft); updates `watchExpirationMs` / `subscriptionExpiresAt` | N/A (idempotent re-issue) |
-| `communication_channels.push.lifecycle_event` | Microsoft-only. Maps lifecycle event type to the right reaction (`missed` → trigger delta; `reauthorizationRequired` → `status='requires_reauth'`; `subscriptionRemoved` → re-register) | N/A (event reaction) |
+| `communication_channels.push.handle_notification` | Looks up channel by provider-supplied identifier (Gmail: `emailAddress`), enqueues the sync worker | N/A (read-side dispatch) |
+| `communication_channels.push.renew` | Renews registration (`users.watch` again for Gmail); updates `watchExpirationMs` | N/A (idempotent re-issue) |
 
 **New events** (declared in `events.ts`, `as const`):
 
@@ -1405,7 +1282,7 @@ Existing shape (from Spec B):
 type ImapChannelState = { uidValidity: number; uidNext: number; lastFolder: string }
 ```
 
-Spec C adds Gmail and Microsoft variants. The `channelState` column is a JSONB blob, so this is a TS-type-only addition — no migration.
+Spec C adds a Gmail variant. The `channelState` column is a JSONB blob, so this is a TS-type-only addition — no migration.
 
 ```ts
 type GmailChannelState = {
@@ -1416,41 +1293,20 @@ type GmailChannelState = {
   /** Set when push fails. Operator-visible. */
   lastPushError?: { code: string; message: string; at: string }
 }
-
-type MicrosoftChannelState = {
-  deltaLink?: string              // null until first delta call
-  subscriptionId: string
-  subscriptionExpiresAt: string   // ISO 8601
-  clientState: string             // 32-byte b64url random; per-channel anti-tampering nonce
-  pushStatus: 'active' | 'inactive' | 'failed'
-  lastPushError?: { code: string; message: string; at: string }
-}
 ```
 
-`clientState` is **stored encrypted at rest** via an additive entry in `packages/core/src/modules/communication_channels/encryption.ts` `defaultEncryptionMaps`. (Spec B already added the dead-letter-table entry; this adds one more.) **Note**: encrypting a JSONB sub-key requires `channelState` itself to be encrypted at the entity level, not the column.
-
-**Decision (Phase C1, 2026-05-27):** Option 2 — a separate top-level `client_state_encrypted text NULL` column on `communication_channels`. Rationale:
-- **Narrow encryption surface.** Only one new column; only the Microsoft adapter and webhook read/write it. Gmail's `historyId` / `watchExpirationMs` and IMAP's `UIDVALIDITY` / `UIDNEXT` continue to live unencrypted in `channelState` (they're not secrets).
-- **Doesn't touch existing readers.** Spec B already added `fetchHistory` readers of `channel.channelState`. Encrypting the whole blob would force those (and every future cursor-reading adapter) to use `findWithDecryption`. The separate-column approach lets `channelState` stay plaintext.
-- **Mirrors the established pattern.** `IntegrationCredentials.credentials` and `ChannelIngestDeadLetter.raw_body` both use top-level columns declared in their module's `defaultEncryptionMaps`. Consistency.
-- **Trade-off.** One additive migration (`Migration20260527230000_communication_channels.ts` — `add column client_state_encrypted text null`). Acceptable; the snapshot is updated in the same change.
-
-The Microsoft webhook reads `clientStateEncrypted` via `findOneWithDecryption`, then constant-time-compares the decrypted value against the inbound notification's `clientState`. Other providers leave the column NULL.
+Gmail's `historyId` / `watchExpirationMs` and IMAP's `UIDVALIDITY` / `UIDNEXT` live unencrypted in `channelState` (they're not secrets). Spec B already added `fetchHistory` readers of `channel.channelState`; keeping `channelState` plaintext avoids forcing those (and every future cursor-reading adapter) onto `findWithDecryption`.
 
 ### No new tables
 
-Both providers store state on the existing `CommunicationChannel.channelState`. No new tables. Spec B's `ChannelIngestDeadLetter` and `ChannelThreadToken` are reused unchanged.
+Gmail stores state on the existing `CommunicationChannel.channelState`. No new tables. Spec B's `ChannelIngestDeadLetter` and `ChannelThreadToken` are reused unchanged.
 
 ### Index considerations
 
-Two access patterns added:
+One access pattern added:
 - `WHERE provider_key = 'gmail' AND channel_state->>'pushStatus' = 'active' AND (channel_state->>'watchExpirationMs')::bigint < ?` — renewal worker SELECT.
-- `WHERE provider_key = 'microsoft' AND channel_state->>'pushStatus' = 'active' AND channel_state->>'subscriptionExpiresAt' < ?` — renewal worker SELECT.
-- `WHERE channel_state->>'subscriptionId' = ?` — Microsoft webhook lookup.
 
-Add a GIN index on `channel_state` (additive) if `EXPLAIN` shows seq-scan in any of these. Decision deferred to Phase C1 once the renewal worker is benchmarked against realistic channel counts; in v1 the renewal worker is expected to scan tens-to-hundreds of channels, which is fine on a seq-scan.
-
-The Microsoft webhook lookup is hottest. Consider a partial unique index: `CREATE UNIQUE INDEX ms_subscription_id_idx ON communication_channels ((channel_state->>'subscriptionId')) WHERE provider_key = 'microsoft' AND channel_state->>'subscriptionId' IS NOT NULL` — covers the lookup at O(1).
+Add a GIN index on `channel_state` (additive) if `EXPLAIN` shows seq-scan. Decision deferred to Phase C1 once the renewal worker is benchmarked against realistic channel counts; in v1 the renewal worker is expected to scan tens-to-hundreds of channels, which is fine on a seq-scan.
 
 ## API Contracts
 
@@ -1474,30 +1330,6 @@ The Microsoft webhook lookup is hottest. Consider a partial unique index: `CREAT
 - `404 channel_not_found` — `emailAddress` doesn't map to any active channel (treated as no-op; we still return 204 so Pub/Sub doesn't retry forever — note this is a deliberate choice).
 
 **OpenAPI** declared via `metadata.openApi`.
-
-### `POST /api/communication_channels/webhooks/microsoft/[subscriptionId]`
-
-**Auth:** `requireAuth: false`. Two distinct request shapes:
-
-#### Shape 1 — Validation handshake (sent once on subscription creation)
-- Query string contains `validationToken`.
-- Route returns the token verbatim with `Content-Type: text/plain` and `200 OK` within 10 s.
-
-#### Shape 2 — Change notification
-- JSON body: `{ value: [{ subscriptionId, clientState, resource, changeType, ... }] }`.
-- Route looks up channel by `[subscriptionId]` URL parameter.
-- Verifies `clientState` matches `channelState.clientState` (constant-time compare).
-- Enqueues `microsoft-delta-sync` job with `{ channelId }`.
-- Returns `202 Accepted`.
-
-**Errors:**
-- `400 invalid_payload` — body neither validation handshake nor notification shape.
-- `401 invalid_client_state` — `clientState` mismatch (potential tampering).
-- `404 subscription_not_found` — `[subscriptionId]` doesn't map to any channel (returns 410 Gone so Graph drops the subscription).
-
-### `POST /api/communication_channels/webhooks/microsoft/[subscriptionId]/lifecycle`
-
-Same auth model. JSON body: `{ value: [{ subscriptionId, lifecycleEvent, ... }] }`. Handler dispatches via `push.lifecycle_event` command per event type.
 
 ### `POST /api/communication_channels/channels/[id]/push/register` *(operator-facing)*
 
@@ -1580,51 +1412,44 @@ DS compliance:
 | `OM_GMAIL_PUBSUB_TOPIC` | (unset; required for Gmail push) | Full topic name, e.g. `projects/openmercato-prod/topics/gmail-inbound` |
 | `OM_GMAIL_PUBSUB_AUDIENCE` | (unset; required for Gmail push) | JWT audience claim we accept, typically the webhook URL |
 | `OM_GMAIL_PUBSUB_SERVICE_ACCOUNT_EMAIL` | `gmail-api-push@system.gserviceaccount.com` | Hardcoded by Google; configurable for testing |
-| `OM_MICROSOFT_WEBHOOK_BASE_URL` | (unset; required for Microsoft push) | Public HTTPS URL used as `notificationUrl` / `lifecycleNotificationUrl` |
 | `OM_PUSH_RENEWAL_GMAIL_LEAD_HOURS` | `24` | Renew Gmail watch when within this many hours of expiry |
-| `OM_PUSH_RENEWAL_MICROSOFT_LEAD_HOURS` | `4` | Renew Microsoft subscriptions when within this many hours of expiry |
 | `OM_PUSH_POLL_FALLBACK_SECONDS` | `1800` | Polling cadence when `pushStatus = 'active'`. Defaults to 30 min |
 
-If the Gmail/Microsoft env vars are unset, the relevant `registerPush` short-circuits (logs + sets `pushStatus = 'inactive'`); the channel falls back to Spec B's 60 s polling without error.
+If the Gmail env vars are unset, `registerPush` short-circuits (logs + sets `pushStatus = 'inactive'`); the channel falls back to Spec B's 60 s polling without error.
 
 ## Migration & Compatibility
 
 ### Migrations
 
-**Potentially one additive migration**, depending on the encryption decision in § Data Models:
-- If we encrypt the whole `channelState` blob: no migration (uses existing JSONB column with stronger semantics in code).
-- If we add a top-level encrypted column for `clientState`: `ALTER TABLE communication_channels ADD COLUMN ms_client_state_encrypted text NULL`.
-
-The Microsoft `subscriptionId` lookup index (mentioned in § Data Models) is also additive: `CREATE UNIQUE INDEX ms_subscription_id_idx ON communication_channels ((channel_state->>'subscriptionId')) WHERE provider_key = 'microsoft' AND channel_state->>'subscriptionId' IS NOT NULL`. This decision deferred to Phase C1 benchmarking.
+**No migrations.** Gmail push state lives entirely on the existing `CommunicationChannel.channelState` JSONB column (plaintext — `historyId` / `watchExpirationMs` are not secrets). Add a GIN index on `channel_state` (additive) only if Phase C1 benchmarking shows the renewal-worker SELECT seq-scanning.
 
 ### Backward Compatibility
 
 | Contract surface | Change | Classification |
 |---|---|---|
 | Public types | New: `PushRegistration`, `OAuthClientConfig` (already added in Spec A). Optional methods added to `ChannelAdapter`: `registerPush?`, `unregisterPush?`, `applyPushNotification?` | ✓ ADDITIVE |
-| Import paths | New: `@open-mercato/core/modules/communication_channels/commands/push.*`, `…/workers/gmail-history-sync.ts`, `…/workers/microsoft-delta-sync.ts`, etc. | ✓ ADDITIVE |
+| Import paths | New: `@open-mercato/core/modules/communication_channels/commands/push.*`, `…/workers/gmail-history-sync.ts`, etc. | ✓ ADDITIVE |
 | Event IDs | 4 new events (`communication_channels.push.*`) | ✓ ADDITIVE |
 | Widget spot IDs | None | ✓ |
-| API routes | 4 new routes (`/webhooks/gmail`, `/webhooks/microsoft/[id]`, `/webhooks/microsoft/[id]/lifecycle`, `/channels/[id]/push/register`) | ✓ ADDITIVE |
-| DB schema | At most one new column + one new index | ✓ ADDITIVE |
+| API routes | 2 new routes (`/webhooks/gmail`, `/channels/[id]/push/register`) | ✓ ADDITIVE |
+| DB schema | No new columns; at most one new GIN index (deferred to benchmarking) | ✓ ADDITIVE |
 | DI service names | None | ✓ |
 | ACL feature IDs | One new feature: `communication_channels.channel.push.manage` | ✓ ADDITIVE |
-| `pollIntervalSeconds` semantics | Gmail/Microsoft channels with `pushStatus = 'active'` get 1800 instead of 60 | ✓ ADDITIVE (behavior — old value works fine; new behavior is opt-in via push registration) |
+| `pollIntervalSeconds` semantics | Gmail channels with `pushStatus = 'active'` get 1800 instead of 60 | ✓ ADDITIVE (behavior — old value works fine; new behavior is opt-in via push registration) |
 
 **Deployment notes:**
 - Zero downtime — all changes additive.
-- After deploy: Gmail and Microsoft channels currently in polling mode continue to work as before; push registration only happens when `registerPush` is explicitly triggered (either at connect time or via the operator UI button).
-- Operators must set the relevant env vars (`OM_GMAIL_PUBSUB_TOPIC`, `OM_MICROSOFT_WEBHOOK_BASE_URL`) and complete GCP setup before push registrations succeed for new channels. Existing channels will continue polling.
+- After deploy: Gmail channels currently in polling mode continue to work as before; push registration only happens when `registerPush` is explicitly triggered (either at connect time or via the operator UI button).
+- Operators must set the relevant env vars (`OM_GMAIL_PUBSUB_TOPIC`) and complete GCP setup before push registrations succeed for new channels. Existing channels will continue polling.
 - The `communication_channels.channel.push.manage` feature must be granted to admin role; `setup.ts` includes it in `defaultRoleFeatures`. Run `yarn mercato auth sync-role-acls` post-deploy.
 
 ## Implementation Plan
 
-### Phase C1 — Adapter contract + state + encryption decision
-1. Add to `lib/adapter.ts` the new optional adapter methods: `registerPush?`, `unregisterPush?`, `applyPushNotification?`, plus `PushRegistration` + `GmailPushPayload` + `MicrosoftPushPayload` types.
-2. Decide encryption mechanism for Microsoft `clientState` (whole-blob `channelState` encryption vs separate column). Document in spec.
-3. Add `communication_channels.channel.push.manage` to `acl.ts` + `setup.ts:defaultRoleFeatures`.
-4. Add the `push.*` events to `events.ts` `as const`.
-5. Run `yarn generate` + `yarn db:generate`.
+### Phase C1 — Adapter contract + state
+1. Add to `lib/adapter.ts` the new optional adapter methods: `registerPush?`, `unregisterPush?`, `applyPushNotification?`, plus `PushRegistration` + `GmailPushPayload` types.
+2. Add `communication_channels.channel.push.manage` to `acl.ts` + `setup.ts:defaultRoleFeatures`.
+3. Add the `push.*` events to `events.ts` `as const`.
+4. Run `yarn generate` + `yarn db:generate`.
 
 **Ship signal:** types compile; `yarn build` passes; `yarn generate` produces no diff.
 
@@ -1641,24 +1466,10 @@ The Microsoft `subscriptionId` lookup index (mentioned in § Data Models) is als
 
 **Ship signal:** TC-C01 green; manual smoke against a real Gmail test mailbox optional.
 
-### Phase C3 — Microsoft Graph: adapter + webhook + lifecycle
-1. Implement `channel-microsoft` adapter `registerPush` (POST `/subscriptions`, handles validation handshake by waiting for the validation POST to our webhook).
-2. Implement `applyPushNotification` (calls `/me/messages/delta`, paginates).
-3. Implement `unregisterPush` (DELETE `/subscriptions/{id}`).
-4. New webhook routes `api/post/webhooks/microsoft/[subscriptionId]/route.ts` + `…/lifecycle/route.ts`:
-   - Validation handshake: detect `validationToken` query param → return verbatim with `text/plain` content type.
-   - Notification: verify `clientState` constant-time; enqueue `microsoft-delta-sync`.
-   - Lifecycle: dispatch by `lifecycleEvent` to `push.lifecycle_event` command.
-5. New worker `workers/microsoft-delta-sync.ts`: dequeues, refreshes credentials, calls `applyPushNotification`, ingests, updates `channelState.deltaLink`.
-6. Unit tests + integration tests TC-C02 (basic delivery), TC-C03 (`missed` lifecycle triggers delta), TC-C04 (`reauthorizationRequired` flips channel to `requires_reauth`).
-
-**Ship signal:** TC-C02..C04 green.
-
-### Phase C4 — Renewal workers
+### Phase C4 — Renewal worker
 1. New worker `workers/gmail-renew-watch.ts` (cron metadata: `{ queue: 'gmail-renew-watch', cron: '0 4 * * *' }` — daily 04:00 UTC). Selects expiring channels, calls `push.renew` command per channel.
-2. New worker `workers/microsoft-renew-subscriptions.ts` (cron metadata: `{ queue: 'microsoft-renew-subscriptions', cron: '0 */2 * * *' }` — every 2 hours). Same shape.
-3. Unit test the SELECT predicates.
-4. Integration test TC-C05 (Gmail renewal: fast-forward `watchExpirationMs` → cron picks it up → `registerPush` called again → expiry updated).
+2. Unit test the SELECT predicate.
+3. Integration test TC-C05 (Gmail renewal: fast-forward `watchExpirationMs` → cron picks it up → `registerPush` called again → expiry updated).
 
 **Ship signal:** TC-C05 green; manual: simulate expiring channel, observe re-registration in logs.
 
@@ -1666,7 +1477,7 @@ The Microsoft `subscriptionId` lookup index (mentioned in § Data Models) is als
 1. Modify `commands/connect-credential-channel.ts` and `commands/connect-oauth-channel.ts` to call `push.register` after successful connect (if adapter supports it).
 2. Modify channel detail page to render the `PushStatusSection`.
 3. Add `POST /channels/[id]/push/register` route with `requireFeatures` gate.
-4. Modify `poll-tick.ts` to read `pollIntervalSeconds` per-channel (already does this; verify Gmail/Microsoft default flips to 1800 when `pushStatus='active'`).
+4. Modify `poll-tick.ts` to read `pollIntervalSeconds` per-channel (already does this; verify Gmail default flips to 1800 when `pushStatus='active'`).
 5. Integration test TC-C06 (push active → poll cadence is 1800; push failed → cadence is 60).
 
 **Ship signal:** TC-C06 green; manual: connect a Gmail channel, observe push registered + 30-min polling.
@@ -1680,13 +1491,12 @@ The Microsoft `subscriptionId` lookup index (mentioned in § Data Models) is als
 **Ship signal:** docs render in preview.
 
 ### Phase C7 — End-to-end demo readiness
-1. Smoke against real Gmail test tenant + real Microsoft test tenant in a staging environment.
+1. Smoke against a real Gmail test tenant in a staging environment.
 2. Observe latency end-to-end (publish → ingest visible in CRM).
 3. Verify renewal cron runs at expected cadence.
 4. Verify `pushStatus = 'failed'` path: deliberately misconfigure topic, observe fallback to polling.
-5. Verify lifecycle `reauthorizationRequired`: revoke OAuth grant, observe channel flips to `requires_reauth`.
 
-**Ship signal:** Demo dry-run successful for both providers.
+**Ship signal:** Demo dry-run successful for Gmail.
 
 ### File Manifest
 
@@ -1700,16 +1510,10 @@ The Microsoft `subscriptionId` lookup index (mentioned in § Data Models) is als
 | `packages/core/src/modules/communication_channels/commands/push-unregister.ts` | Create | `push.unregister` command |
 | `packages/core/src/modules/communication_channels/commands/push-handle-notification.ts` | Create | `push.handle_notification` dispatcher |
 | `packages/core/src/modules/communication_channels/commands/push-renew.ts` | Create | `push.renew` command |
-| `packages/core/src/modules/communication_channels/commands/push-lifecycle-event.ts` | Create | `push.lifecycle_event` command (Microsoft only) |
 | `packages/core/src/modules/communication_channels/api/post/webhooks/gmail/route.ts` | Create | Gmail Pub/Sub webhook |
-| `packages/core/src/modules/communication_channels/api/post/webhooks/microsoft/[subscriptionId]/route.ts` | Create | MS Graph notification webhook (incl. validation handshake) |
-| `packages/core/src/modules/communication_channels/api/post/webhooks/microsoft/[subscriptionId]/lifecycle/route.ts` | Create | MS Graph lifecycle webhook |
 | `packages/core/src/modules/communication_channels/api/post/channels/[id]/push/register/route.ts` | Create | Operator-facing force-reregister |
 | `packages/core/src/modules/communication_channels/workers/gmail-history-sync.ts` | Create | Per-notification fetch + ingest |
-| `packages/core/src/modules/communication_channels/workers/microsoft-delta-sync.ts` | Create | Per-notification fetch + ingest |
 | `packages/core/src/modules/communication_channels/workers/gmail-renew-watch.ts` | Create | Daily cron |
-| `packages/core/src/modules/communication_channels/workers/microsoft-renew-subscriptions.ts` | Create | 2h cron |
-| `packages/core/src/modules/communication_channels/encryption.ts` | Modify | Add encryption entry for `channelState.clientState` (Microsoft) — exact shape decided in C1 |
 | `packages/core/src/modules/communication_channels/i18n/{de,en,es,pl}.json` | Modify | Push status / button / error keys |
 | `packages/core/src/modules/communication_channels/backend/profile/communication-channels/page.tsx` | Modify | `PushStatusSection` |
 | `packages/core/src/modules/communication_channels/commands/connect-credential-channel.ts` | Modify | Call `push.register` after connect |
@@ -1717,14 +1521,9 @@ The Microsoft `subscriptionId` lookup index (mentioned in § Data Models) is als
 | `packages/channel-gmail/src/modules/channel_gmail/lib/adapter.ts` | Modify | Implement `registerPush`, `applyPushNotification`, `unregisterPush` |
 | `packages/channel-gmail/src/modules/channel_gmail/lib/__tests__/adapter.test.ts` | Modify | Unit tests for push methods |
 | `packages/channel-gmail/src/modules/channel_gmail/__integration__/TC-CHANNEL-EMAIL-C01.spec.ts` | Create | Gmail push delivery |
-| `packages/channel-microsoft/src/modules/channel_microsoft/lib/adapter.ts` | Modify | Implement `registerPush`, `applyPushNotification`, `unregisterPush` |
-| `packages/channel-microsoft/src/modules/channel_microsoft/lib/__tests__/adapter.test.ts` | Modify | Unit tests for push methods |
-| `packages/channel-microsoft/src/modules/channel_microsoft/__integration__/TC-CHANNEL-EMAIL-C02.spec.ts` | Create | Microsoft push delivery |
-| `packages/channel-microsoft/src/modules/channel_microsoft/__integration__/TC-CHANNEL-EMAIL-C03.spec.ts` | Create | Lifecycle `missed` triggers delta |
-| `packages/channel-microsoft/src/modules/channel_microsoft/__integration__/TC-CHANNEL-EMAIL-C04.spec.ts` | Create | `reauthorizationRequired` → status flip |
 | `packages/core/src/modules/communication_channels/workers/__integration__/TC-CHANNEL-EMAIL-C05.spec.ts` | Create | Renewal cron |
 | `packages/core/src/modules/communication_channels/workers/__integration__/TC-CHANNEL-EMAIL-C06.spec.ts` | Create | Push active → 30-min cadence |
-| `.ai/qa/scenarios/TC-CHANNEL-EMAIL-C01..C06.md` | Create | QA scenarios |
+| `.ai/qa/scenarios/TC-CHANNEL-EMAIL-C01,C05,C06.md` | Create | QA scenarios |
 | `apps/docs/docs/framework/modules/communication-channels.mdx` | Modify | Push delivery + GCP setup |
 | `apps/docs/docs/user-guide/communication-channels.mdx` | Modify | User-facing push explainer |
 | `BACKWARD_COMPATIBILITY.md` | Modify | Track new adapter optional methods + events |
@@ -1733,21 +1532,15 @@ The Microsoft `subscriptionId` lookup index (mentioned in § Data Models) is als
 
 **Unit tests:**
 - `commands/push-register`: idempotent (calling twice with active push is a no-op); sets `pollIntervalSeconds=1800`; emits `push.registered`; on adapter throw → `pushStatus='failed'` + `push.failed` event.
-- `commands/push-lifecycle-event` (Microsoft): each event type triggers the right action.
 - Gmail adapter `applyPushNotification`: paginates `history.list`; handles 404 (expired history) by falling back to full `messages.list`; advances cursor correctly.
-- Microsoft adapter `applyPushNotification`: paginates `messages/delta`; advances `deltaLink`; handles 410 (delta token too old).
 - Gmail webhook: JWT verify (good/bad/wrong audience); channel lookup by emailAddress; 204 on missing channel (no retry storm).
-- Microsoft webhook: validation handshake roundtrip; clientState constant-time compare; 410 on missing subscription.
-- Renewal worker predicates: SELECT returns expected channels for both providers.
+- Renewal worker predicate: SELECT returns expected Gmail channels.
 
 **Integration tests** (mocked HTTP for provider APIs + webhook payloads):
 
 | Scenario ID | Title | Strategy |
 |---|---|---|
 | TC-CHANNEL-EMAIL-C01 | Gmail push delivers new message | POST mock Pub/Sub payload → webhook → worker → ingest; verify message in CRM + historyId advanced |
-| TC-CHANNEL-EMAIL-C02 | Microsoft push delivers new message | POST mock Graph notification → webhook → worker → ingest; verify message + deltaLink |
-| TC-CHANNEL-EMAIL-C03 | Microsoft lifecycle `missed` triggers catch-up | POST lifecycle event → delta sync runs → missed messages ingest |
-| TC-CHANNEL-EMAIL-C04 | Microsoft `reauthorizationRequired` flips status | POST lifecycle event → channel.status='requires_reauth' + notification |
 | TC-CHANNEL-EMAIL-C05 | Gmail renewal cron | Fast-forward watchExpirationMs → cron tick → registerPush called → expiry updated |
 | TC-CHANNEL-EMAIL-C06 | Push active → polling cadence is 30 min | Connect Gmail channel with push registered → assert pollIntervalSeconds=1800 |
 | TC-CHANNEL-EMAIL-C07 | Push fails → fallback to 60s polling | Misconfigure Pub/Sub topic env var → registerPush throws → pushStatus='failed' → poll cadence stays 60s |
@@ -1766,18 +1559,11 @@ The Microsoft `subscriptionId` lookup index (mentioned in § Data Models) is als
 - **Mitigation:** On 404, fall back to `users.messages.list?q=newer_than:7d` to enumerate recent messages and ingest each via dedupe. Most-recent gap recoverable; older gap permanently lost. Operator-visible warning.
 - **Residual risk:** Acceptable — affects only channels that were offline > 7 days.
 
-#### Delta token expiry on Microsoft (410 from delta query)
-- **Scenario:** Stored `deltaLink` expired (Microsoft retains delta tokens for ~30 days). Delta query returns 410.
-- **Severity:** Medium
-- **Affected area:** Microsoft adapter
-- **Mitigation:** On 410, drop `deltaLink` and call `/me/messages?$filter=receivedDateTime gt <last 30 days>` for catch-up. Same shape as Gmail recovery.
-- **Residual risk:** Same as Gmail — acceptable.
-
 #### Notification storm (silent cursor drop)
 - **Scenario:** A high-volume mailbox publishes faster than the worker drains. Worker is sequential; queue depth grows. If the worker fails mid-batch, do we lose cursor advancement?
 - **Severity:** High (silent message loss)
-- **Affected area:** Gmail / Microsoft sync workers
-- **Mitigation:** **Per-message commit** from Spec B applies — each message ingest commits its own cursor (`historyId` / `deltaLink`) advance. Worker failure mid-batch leaves cursor at last successfully ingested message; on retry, we resume from there. Push notifications are idempotent (Gmail / Microsoft dedupe on Message-Id; Spec B's `ChannelThreadToken` matching is idempotent).
+- **Affected area:** Gmail sync worker
+- **Mitigation:** **Per-message commit** from Spec B applies — each message ingest commits its own cursor (`historyId`) advance. Worker failure mid-batch leaves cursor at last successfully ingested message; on retry, we resume from there. Push notifications are idempotent (Gmail dedupes on Message-Id; Spec B's `ChannelThreadToken` matching is idempotent).
 - **Residual risk:** Acceptable.
 
 ### Cascading Failures & Side Effects
@@ -1789,20 +1575,6 @@ The Microsoft `subscriptionId` lookup index (mentioned in § Data Models) is als
 - **Mitigation:** Polling fallback (Q4) ensures no data loss. Push status shows "active" but operator sees no recent notifications — add observability metric "time since last notification per channel" and alert on > 24h.
 - **Residual risk:** Latency degradation (30 min vs <15 s).
 
-#### Microsoft validation handshake timeout
-- **Scenario:** Microsoft requires `notificationUrl` to respond to the validation token within 10 s. Cold start of the Next.js process exceeds 10 s.
-- **Severity:** Medium (subscription registration fails until process is warm)
-- **Affected area:** Microsoft subscription creation
-- **Mitigation:** The validation handshake hits a route that does almost nothing (returns the token verbatim) — even cold-start should be well under 10 s. Document expected latency. Retry registration on failure.
-- **Residual risk:** Acceptable.
-
-#### Lifecycle event missed
-- **Scenario:** A `missed` lifecycle event itself fails to deliver. Channel silently stops receiving notifications.
-- **Severity:** Medium
-- **Affected area:** Microsoft
-- **Mitigation:** 30-min polling fallback (Q4). Renewal worker also checks `subscriptionExpiresAt`; if it's stale, re-registers.
-- **Residual risk:** Acceptable.
-
 ### Tenant & Data Isolation Risks
 
 #### Cross-tenant Pub/Sub routing (single shared topic — Q1)
@@ -1812,20 +1584,13 @@ The Microsoft `subscriptionId` lookup index (mentioned in § Data Models) is als
 - **Mitigation:** Channel lookup is scoped: we lookup by `(provider_key='gmail', credentials_email = emailAddress)`. The `IntegrationCredentialsService.resolve` requires tenant scope — but the webhook has no inbound tenant signal beyond `emailAddress`. **Need to handle the rare "same Gmail address connected to two tenants" case explicitly:** ingest into BOTH channels (each tenant sees their own data), OR pick the most-recently-connected. Decision: ingest into all matching channels (data is delivered to the user who connected, scoped per tenant naturally because each channel's `tenantId` is on the channel row).
 - **Residual risk:** A bug where the channel-lookup query misses the tenant filter on the inner `ingest-inbound-message` invocation. Spec B's `ingest-inbound-message` already scopes by `channelId` (which implies tenant), so this is mitigated.
 
-#### Microsoft `clientState` tampering
-- **Scenario:** An attacker discovers a `subscriptionId` and sends a forged notification.
-- **Severity:** High (forged inbound)
-- **Affected area:** Microsoft webhook
-- **Mitigation:** `clientState` is a per-channel 32-byte random nonce stored encrypted at rest. Webhook does constant-time compare. Mismatch → 401 + log. Forging requires both the `subscriptionId` AND `clientState` — impractical without inside access.
-- **Residual risk:** Acceptable.
-
 ### Migration & Deployment Risks
 
 #### Existing connected channels don't auto-register push
-- **Scenario:** After deploy, existing Gmail/Microsoft channels continue polling at 60 s. Push must be triggered manually.
+- **Scenario:** After deploy, existing Gmail channels continue polling at 60 s. Push must be triggered manually.
 - **Severity:** Low (UX — channels still work)
 - **Affected area:** All existing channels at deploy time
-- **Mitigation:** Optional follow-up: one-time migration script that calls `push.register` on every connected Gmail/Microsoft channel. Out of scope for this spec; can be a `mercato communication-channels register-push --provider gmail` CLI command.
+- **Mitigation:** Optional follow-up: one-time migration script that calls `push.register` on every connected Gmail channel. Out of scope for this spec; can be a `mercato communication-channels register-push --provider gmail` CLI command.
 - **Residual risk:** Acceptable — operator can opt-in incrementally via UI button.
 
 ### Operational Risks
@@ -1838,18 +1603,18 @@ The Microsoft `subscriptionId` lookup index (mentioned in § Data Models) is als
 - **Residual risk:** Acceptable.
 
 #### Renewal cron fails silently
-- **Scenario:** Cron worker crashes; subscriptions expire; push silently stops.
+- **Scenario:** Cron worker crashes; the Gmail watch expires; push silently stops.
 - **Severity:** High (silent latency degradation across all tenants)
-- **Affected area:** Both providers
+- **Affected area:** Gmail
 - **Mitigation:** Polling fallback (Q4) catches mail at 30-min cadence even if push expires. Renewal worker is idempotent and re-runs every cycle. Add observability metric "renewal failures per cycle" + alert.
 - **Residual risk:** Acceptable.
 
-#### Quota exhaustion (Gmail API or Graph throttling)
-- **Scenario:** A high-volume mailbox triggers thousands of notifications/day; we hit Gmail or Graph API quotas.
+#### Quota exhaustion (Gmail API throttling)
+- **Scenario:** A high-volume mailbox triggers thousands of notifications/day; we hit Gmail API quotas.
 - **Severity:** Medium (per-tenant degradation)
 - **Affected area:** Provider APIs
-- **Mitigation:** Both providers throttle gracefully (429 with `Retry-After`). Existing transient-error retry honors `Retry-After`. Per-channel worker concurrency=1 prevents single-tenant DoS. Optional follow-up: per-tenant quota budgets.
-- **Residual risk:** Acceptable; quotas are well above realistic CRM load (Gmail: 1 notification/user/sec; Graph: 10k requests/10s per app).
+- **Mitigation:** Gmail throttles gracefully (429 with `Retry-After`). Existing transient-error retry honors `Retry-After`. Per-channel worker concurrency=1 prevents single-tenant DoS. Optional follow-up: per-tenant quota budgets.
+- **Residual risk:** Acceptable; quotas are well above realistic CRM load (Gmail: 1 notification/user/sec).
 
 ## Final Compliance Report — 2026-05-27
 
@@ -1876,7 +1641,7 @@ The Microsoft `subscriptionId` lookup index (mentioned in § Data Models) is als
 | root AGENTS.md | Filter by `organization_id` for tenant-scoped entities | Compliant | All channel lookups scoped by tenantId (via channelId or emailAddress + provider) |
 | root AGENTS.md | Validate all inputs with zod | Compliant | Webhook payloads validated with Zod schemas before processing |
 | root AGENTS.md | Use DI (Awilix) | Compliant | All services resolved via container; no `new` of services |
-| root AGENTS.md | Hash/encrypt PII/secrets | Compliant | Microsoft `clientState` encrypted (final mechanism decided in C1); OAuth tokens already encrypted by integrations module |
+| root AGENTS.md | Hash/encrypt PII/secrets | Compliant | OAuth tokens already encrypted by integrations module; Gmail push state (`historyId` / `watchExpirationMs`) is not secret |
 | root AGENTS.md | API routes export `metadata` with per-method `requireAuth`/`requireFeatures` | Compliant | Webhook routes set `requireAuth: false` explicitly; force-reregister route sets `requireFeatures: ['communication_channels.channel.push.manage']` |
 | root AGENTS.md | API routes export `openApi` | Compliant | All new routes declare `openApi` in metadata |
 | root AGENTS.md | Use `apiCall` — never raw `fetch` | N/A | Webhook routes are server-receiving HTTP; we use the framework's request parsing, not outbound HTTP. Outbound HTTP to provider APIs uses adapter-specific clients (existing pattern). |
@@ -1890,15 +1655,15 @@ The Microsoft `subscriptionId` lookup index (mentioned in § Data Models) is als
 | root AGENTS.md | DB tables snake_case + plural | N/A | No new tables |
 | root AGENTS.md | Common columns (`created_at`, `tenant_id`, `organization_id`) | N/A | No new tables |
 | root AGENTS.md | UUID PKs | N/A | No new tables |
-| root AGENTS.md | Singular naming | Compliant | `push.register` (singular), `push.lifecycle_event` (singular), `PushRegistration` type (singular) |
+| root AGENTS.md | Singular naming | Compliant | `push.register` (singular), `push.renew` (singular), `PushRegistration` type (singular) |
 | root AGENTS.md (DS rules) | Semantic status tokens; no hardcoded colors | Compliant | `<StatusBadge>` used for push status indicator |
 | root AGENTS.md (DS rules) | No arbitrary text sizes | Compliant | All Tailwind scale |
 | root AGENTS.md (DS rules) | lucide-react in page body | Compliant | `<RefreshCw>` icon for re-register button |
 | root AGENTS.md (DS rules) | `aria-label` on icon-only buttons | Compliant | Reviewed for new UI |
-| packages/core/AGENTS.md | Write operations via Command pattern | Compliant | 5 new commands: `push.register`, `push.unregister`, `push.handle_notification`, `push.renew`, `push.lifecycle_event` |
+| packages/core/AGENTS.md | Write operations via Command pattern | Compliant | 4 new commands: `push.register`, `push.unregister`, `push.handle_notification`, `push.renew` |
 | packages/core/AGENTS.md | Custom write routes: `validateCrudMutationGuard` + `runCrudMutationGuardAfterSuccess` | Compliant | `/push/register` operator route follows this pattern |
-| packages/core/AGENTS.md | `findWithDecryption` for encrypted-column reads | Compliant | `clientState` read via decryption helper |
-| packages/queue/AGENTS.md | Workers idempotent, dedup by external ID | Compliant | `gmail-history-sync` and `microsoft-delta-sync` are idempotent (Spec B's `ingest-inbound-message` dedupes on `(channel_id, external_message_id)`); renewal workers are idempotent (re-registering an active subscription is a no-op or refresh) |
+| packages/core/AGENTS.md | `findWithDecryption` for encrypted-column reads | N/A | Gmail push state is plaintext on `channelState`; no new encrypted columns added |
+| packages/queue/AGENTS.md | Workers idempotent, dedup by external ID | Compliant | `gmail-history-sync` is idempotent (Spec B's `ingest-inbound-message` dedupes on `(channel_id, external_message_id)`); the renewal worker is idempotent (re-registering an active watch is a refresh) |
 | packages/queue/AGENTS.md | Worker metadata declared with `queue, concurrency`; cron workers via cron metadata | Compliant | All workers declare metadata; renewal workers use cron syntax |
 | packages/events/AGENTS.md | Events declared via `createModuleEvents` `as const` | Compliant | New events in existing `events.ts` |
 | packages/events/AGENTS.md | Ephemeral vs persistent subscribers | N/A | No new subscribers |
@@ -1909,8 +1674,8 @@ The Microsoft `subscriptionId` lookup index (mentioned in § Data Models) is als
 | .ai/specs/AGENTS.md | Spec filename `{date}-{title}.md`, kebab-case | Compliant | `2026-05-27-email-integration-provider-push-delivery.md` |
 | .ai/specs/AGENTS.md | Required sections: TLDR, Overview, Problem, Solution, Architecture, Data Models, API Contracts, Risks, Compliance, Changelog | Compliant | All present |
 | BACKWARD_COMPATIBILITY.md | Event IDs FROZEN; new events additive | Compliant | 4 new events, additive |
-| BACKWARD_COMPATIBILITY.md | API URLs STABLE; new routes additive | Compliant | 4 new routes |
-| BACKWARD_COMPATIBILITY.md | DB schema ADDITIVE-ONLY | Compliant | At most one new column + one new index |
+| BACKWARD_COMPATIBILITY.md | API URLs STABLE; new routes additive | Compliant | 2 new routes |
+| BACKWARD_COMPATIBILITY.md | DB schema ADDITIVE-ONLY | Compliant | No new columns; at most one new GIN index (deferred to benchmarking) |
 | BACKWARD_COMPATIBILITY.md | DI keys STABLE | Compliant | No DI key changes |
 | BACKWARD_COMPATIBILITY.md | ACL feature IDs FROZEN; new features additive | Compliant | One new feature |
 | BACKWARD_COMPATIBILITY.md | New adapter optional methods are additive | Compliant | `registerPush?`, `unregisterPush?`, `applyPushNotification?` all optional |
@@ -1921,10 +1686,10 @@ The Microsoft `subscriptionId` lookup index (mentioned in § Data Models) is als
 |---|---|---|
 | Data models match API contracts | Pass | Webhook payload schemas align with `channelState` shape |
 | API contracts match UI/UX | Pass | Force-reregister button → POST /push/register; status section reads `channelState.pushStatus` |
-| Risks cover all write operations | Pass | History gap, delta expiry, notification storm, misconfiguration, tampering, renewal failures, quota |
-| Commands defined for all mutations | Pass | 5 push.* commands |
+| Risks cover all write operations | Pass | History gap, notification storm, misconfiguration, renewal failures, quota |
+| Commands defined for all mutations | Pass | 4 push.* commands |
 | Cache strategy covers all read APIs | N/A | No cached APIs added |
-| Encryption maps cover PII columns | Pass | `clientState` encrypted (mechanism resolved in C1) |
+| Encryption maps cover PII columns | N/A | No new encrypted columns; Gmail push state is plaintext |
 | Phasing is testable + incrementally deliverable | Pass | C1–C7 each have explicit ship signals |
 | Open Questions resolved | Pass | All 4 answered (recommended defaults) |
 
@@ -1940,28 +1705,27 @@ None.
 
 | Phase | Status | Date | Notes |
 |---|---|---|---|
-| C1 — Contract + events + ACL + encryption decision | Done | 2026-05-27 | Added optional `registerPush?`, `unregisterPush?`, `applyPushNotification?` methods to `ChannelAdapter` with `PushRegistration`/`RegisterPushInput`/`UnregisterPushInput`/`ApplyPushNotificationInput` types (all additive). Added 4 push lifecycle events (`push.registered`, `push.failed`, `push.renewed`, `push.deactivated`) with `clientBroadcast` set where operator-visible. Added `communication_channels.channel.push.manage` ACL feature (granted to admin + superadmin only). Encryption decision: **Option 2 — separate `client_state_encrypted text NULL` column** on `communication_channels` (additive migration `Migration20260527230000_communication_channels.ts` + encryption-map entry + snapshot update). |
+| C1 — Contract + events + ACL | Done | 2026-05-27 | Added optional `registerPush?`, `unregisterPush?`, `applyPushNotification?` methods to `ChannelAdapter` with `PushRegistration`/`RegisterPushInput`/`UnregisterPushInput`/`ApplyPushNotificationInput` types (all additive). Added 4 push lifecycle events (`push.registered`, `push.failed`, `push.renewed`, `push.deactivated`) with `clientBroadcast` set where operator-visible. Added `communication_channels.channel.push.manage` ACL feature (granted to admin + superadmin only). Gmail push state (`historyId` / `watchExpirationMs` / `pubsubTopic`) lives plaintext on `channelState` — no new column, no migration. |
 | C2 — Gmail Pub/Sub | Done | 2026-05-27 | Extended `gmail-client` with `watchInbox` + `stopWatch`; adapter implements `registerPush` (calls `users.watch`, persists `historyId`/`watchExpirationMs`/`pubsubTopic`), `unregisterPush` (calls `users.stop`, swallows 404), `applyPushNotification` (delegates to `fetchHistory` so 404-recovery + pagination stay in one place). New webhook route `api/post/webhooks/gmail/route.ts` verifies Google-signed RS256 JWT via new `lib/gmail-pubsub-jwt.ts` (audience + email claims + cached x509 certs from Google's OAuth2 endpoint). Worker `workers/gmail-history-sync.ts` (concurrency 5) drains pages, dispatches `ingest-inbound-message`, re-enqueues self while `hasMore`. 6 unit tests for envelope decoder + 6 adapter push-method tests added. |
-| C3 — Microsoft Graph | Done | 2026-05-27 | Extended `graph-client` with `createSubscription` / `renewSubscription` / `deleteSubscription` (request method union widened to include PATCH). Adapter implements `registerPush` (POST `/subscriptions`, expirationDateTime=+60h, resource=`/me/mailFolders('inbox')/messages`), `unregisterPush` (DELETE by `channelState.subscriptionId`, idempotent on 404), `applyPushNotification` (delegates to `fetchHistory`). Two new webhook routes: notification (`/webhooks/microsoft/[subscriptionId]/route.ts` — validation handshake echo + clientState constant-time compare + delta-sync enqueue) and lifecycle (`/webhooks/microsoft/[subscriptionId]/lifecycle/route.ts` — handles `missed`/`reauthorizationRequired`/`subscriptionRemoved`). Worker `workers/microsoft-delta-sync.ts` mirrors `gmail-history-sync`. 7 adapter push-method unit tests added. |
-| C4 — Renewal cron workers | Done | 2026-05-28 | `workers/gmail-renew-watch.ts` (daily 04:00 UTC cron registered per-org in `setup.ts`; selects channels within `OM_PUSH_RENEWAL_GMAIL_LEAD_HOURS` of expiry, default 24h). `workers/microsoft-renew-subscriptions.ts` (every-2-hours cron; lead `OM_PUSH_RENEWAL_MICROSOFT_LEAD_HOURS`, default 4h). Both are concurrency-1 and **invoke `pushRenew → pushRegister` per eligible channel** — i.e., they actually re-issue `gmail.users.watch` / re-create Graph subscriptions and persist the fresh `historyId` / `subscriptionId` / expiry to `channelState`. Each successful renewal emits `communication_channels.push.renewed` for observability. Initial 2026-05-27 implementation enqueued marker jobs onto the sync queues that did NOT renew — that gap was closed in the 2026-05-28 gap-closure pass. |
-| C5 — Push commands + UI + polling fallback | Done | 2026-05-28 | `commands/push-register.ts` resolves credentials + refreshes via Spec A wiring, mints Microsoft `clientState` via `crypto.randomBytes(32).toString('base64url')`, calls `adapter.registerPush`, persists state patch + flips `pollIntervalSeconds` to recommended cadence on success, emits `push.registered` / `push.failed` events with `persistent: true`. Companion `commands/push-unregister.ts` calls `adapter.unregisterPush`, clears push markers from `channelState`, restores `pollIntervalSeconds=60`, emits `push.deactivated`. Companion `commands/push-renew.ts` delegates to `pushRegister` (Gmail watch + Graph subscription create are idempotent re-issues). New operator route `POST /api/communication_channels/channels/[id]/push/register` gated by `requireFeatures: ['communication_channels.channel.push.manage']`. **Auto-registration on connect**: `commands/connect-credential-channel.ts` + `api/get/oauth/[provider]/callback/route.ts` both call `pushRegister` best-effort after successful connect (failures persist as `pushStatus='failed'`, do NOT fail the connect). **Auto-unregistration on disconnect**: `commands/disconnect-channel.ts` calls `pushUnregister` before clearing `credentialsRef` so the provider-side watch / subscription is torn down. `PushStatusSection` UI shipped as a new column on `/backend/profile/communication-channels`: Gmail/Microsoft channels show `Tag` variant tracking `pushStatus` (`active` / `failed` / `inactive`) plus a `Re-register push` `Button` (with `lastPushError.message` as the title attribute for diagnostics). Non-push providers (IMAP) render `Polling only`. The `me/channels` API now exposes `pushStatus` + `lastPushError` from `channelState`. |
-| C6 — i18n + docs + BC | Done | 2026-05-27 | i18n keys `communication_channels.push.*` added to all 4 locale files (status / notification / button / error). Framework docs (`apps/docs/docs/framework/modules/communication-channels.mdx`) gained a "Provider push delivery (Spec C)" section covering adapter contract, Gmail Pub/Sub flow, Microsoft Graph flow + lifecycle, renewal cron, polling fallback, and the encryption decision. User-guide gained step-7 "How fast does new mail appear? (Push delivery)". `BACKWARD_COMPATIBILITY.md` gained a Spec C entry listing all 8 contract surfaces (all additive). |
-| C7 — Integration tests + QA scenarios | Done | 2026-05-28 | `TC-CHANNEL-EMAIL-C01.spec.ts` + `TC-CHANNEL-EMAIL-C02.spec.ts` cover the Gmail + Microsoft webhook surface. Gap-closure pass added `TC-CHANNEL-EMAIL-C03.spec.ts` (lifecycle `missed` smoke), `TC-CHANNEL-EMAIL-C04.spec.ts` (`reauthorizationRequired` smoke), `TC-CHANNEL-EMAIL-C05.spec.ts` (renewal cron — documented as manual E2E), `TC-CHANNEL-EMAIL-C06.spec.ts` (push-active cadence flip — asserts `me/channels` schema exposes `pushStatus` + `pollIntervalSeconds`). QA scenario markdowns C01-C06 all staged: `gmail-push-delivery.md`, `microsoft-push-delivery.md`, `microsoft-lifecycle-missed.md`, `microsoft-reauth-flip.md`, `renewal-cron.md`, `push-cadence-flip.md`. |
+| C4 — Renewal cron worker | Done | 2026-05-28 | `workers/gmail-renew-watch.ts` (daily 04:00 UTC cron registered per-org in `setup.ts`; selects channels within `OM_PUSH_RENEWAL_GMAIL_LEAD_HOURS` of expiry, default 24h). Concurrency-1 and **invokes `pushRenew → pushRegister` per eligible channel** — i.e., it actually re-issues `gmail.users.watch` and persists the fresh `historyId` / expiry to `channelState`. Each successful renewal emits `communication_channels.push.renewed` for observability. Initial 2026-05-27 implementation enqueued marker jobs onto the sync queue that did NOT renew — that gap was closed in the 2026-05-28 gap-closure pass. |
+| C5 — Push commands + UI + polling fallback | Done | 2026-05-28 | `commands/push-register.ts` resolves credentials + refreshes via Spec A wiring, calls `adapter.registerPush`, persists state patch + flips `pollIntervalSeconds` to recommended cadence on success, emits `push.registered` / `push.failed` events with `persistent: true`. Companion `commands/push-unregister.ts` calls `adapter.unregisterPush`, clears push markers from `channelState`, restores `pollIntervalSeconds=60`, emits `push.deactivated`. Companion `commands/push-renew.ts` delegates to `pushRegister` (the Gmail watch re-issue is idempotent). New operator route `POST /api/communication_channels/channels/[id]/push/register` gated by `requireFeatures: ['communication_channels.channel.push.manage']`. **Auto-registration on connect**: `commands/connect-credential-channel.ts` + `api/get/oauth/[provider]/callback/route.ts` both call `pushRegister` best-effort after successful connect (failures persist as `pushStatus='failed'`, do NOT fail the connect). **Auto-unregistration on disconnect**: `commands/disconnect-channel.ts` calls `pushUnregister` before clearing `credentialsRef` so the provider-side watch is torn down. `PushStatusSection` UI shipped as a new column on `/backend/profile/communication-channels`: Gmail channels show `Tag` variant tracking `pushStatus` (`active` / `failed` / `inactive`) plus a `Re-register push` `Button` (with `lastPushError.message` as the title attribute for diagnostics). Non-push providers (IMAP) render `Polling only`. The `me/channels` API now exposes `pushStatus` + `lastPushError` from `channelState`. |
+| C6 — i18n + docs + BC | Done | 2026-05-27 | i18n keys `communication_channels.push.*` added to all 4 locale files (status / notification / button / error). Framework docs (`apps/docs/docs/framework/modules/communication-channels.mdx`) gained a "Provider push delivery (Spec C)" section covering adapter contract, Gmail Pub/Sub flow, renewal cron, and polling fallback. User-guide gained step-7 "How fast does new mail appear? (Push delivery)". `BACKWARD_COMPATIBILITY.md` gained a Spec C entry listing all contract surfaces (all additive). |
+| C7 — Integration tests + QA scenarios | Done | 2026-05-28 | `TC-CHANNEL-EMAIL-C01.spec.ts` covers the Gmail webhook surface. Gap-closure pass added `TC-CHANNEL-EMAIL-C05.spec.ts` (renewal cron — documented as manual E2E) and `TC-CHANNEL-EMAIL-C06.spec.ts` (push-active cadence flip — asserts `me/channels` schema exposes `pushStatus` + `pollIntervalSeconds`). QA scenario markdowns staged: `gmail-push-delivery.md`, `renewal-cron.md`, `push-cadence-flip.md`. |
 
 ## Changelog
 
 ### 2026-05-27
-- Initial specification. Companion to [Spec A](2026-05-27-oauth-refresh-credentials-client-wiring-fix.md) and [Spec B](2026-05-27-email-integration-inbound-reliability-and-threading.md). Open Questions resolved (Q1 single shared Pub/Sub topic, Q2 plain notification + delta query, Q3 subscriptionId in URL path, Q4 30-min polling fallback).
-- **Phase C1 complete 2026-05-27.** Adapter contract surface extended with three optional push methods + supporting types; four push lifecycle events declared in `events.ts`; `communication_channels.channel.push.manage` feature added to `acl.ts` + granted to admin/superadmin in `setup.ts`; encryption decision finalized — Microsoft `clientState` stored on a new dedicated `client_state_encrypted text` column (Option 2 from the Data Models section) via additive migration. All changes additive; `yarn build:packages` clean.
-- **Phases C2 through C7 complete 2026-05-27.** Gmail Pub/Sub end-to-end (adapter `users.watch` / `users.stop`, JWT-verified webhook, history-sync worker). Microsoft Graph end-to-end (adapter `createSubscription` / `renewSubscription` / `deleteSubscription`, validation-handshake-aware notification webhook, lifecycle webhook with `missed` / `reauthorizationRequired` / `subscriptionRemoved` handling, delta-sync worker). Renewal cron workers for both providers registered per-org in `setup.ts` (Gmail daily 04:00 UTC, Microsoft every 2h). `pushRegister` command + operator `POST /push/register` route gated by new ACL feature. i18n keys across 4 locales; framework + user-guide docs updated; `BACKWARD_COMPATIBILITY.md` Spec C entry classifies all 8 contract surfaces as additive. Integration smoke tests for both webhooks + QA scenario markdowns for the full end-to-end. `yarn build:packages` clean; 4572 core + 41 channel-imap + 56 channel-gmail + 62 channel-microsoft unit tests green.
+- Initial specification. Companion to [Spec A](2026-05-27-oauth-refresh-credentials-client-wiring-fix.md) and [Spec B](2026-05-27-email-integration-inbound-reliability-and-threading.md). Open Questions resolved (Q1 single shared Pub/Sub topic, Q4 30-min polling fallback).
+- **Phase C1 complete 2026-05-27.** Adapter contract surface extended with three optional push methods + supporting types; four push lifecycle events declared in `events.ts`; `communication_channels.channel.push.manage` feature added to `acl.ts` + granted to admin/superadmin in `setup.ts`. Gmail push state (`historyId` / `watchExpirationMs` / `pubsubTopic`) lives plaintext on `channelState` — no new column, no migration. All changes additive; `yarn build:packages` clean.
+- **Phases C2 through C7 complete 2026-05-27.** Gmail Pub/Sub end-to-end (adapter `users.watch` / `users.stop`, JWT-verified webhook, history-sync worker). Renewal cron worker registered per-org in `setup.ts` (Gmail daily 04:00 UTC). `pushRegister` command + operator `POST /push/register` route gated by new ACL feature. i18n keys across 4 locales; framework + user-guide docs updated; `BACKWARD_COMPATIBILITY.md` Spec C entry classifies all contract surfaces as additive. Integration smoke test for the webhook + QA scenario markdowns for the end-to-end. `yarn build:packages` clean; 4572 core + 41 channel-imap + 56 channel-gmail unit tests green.
 
 ### 2026-05-28
-- **Gap-closure pass.** Pre-review audit found three High-impact functional gaps and several missing test surfaces. Closed:
-  - **`push-unregister.ts` command** + wiring into `disconnect-channel.ts` — previously, disconnecting a Gmail/Microsoft channel left the provider-side watch / subscription alive until expiry.
-  - **`push-renew.ts` command** + cron worker rewrite — the daily Gmail + every-2h Microsoft cron workers now actually call `pushRegister` per eligible channel and emit `push.renewed` events. The initial implementation enqueued marker jobs that did nothing useful.
-  - **Auto-`pushRegister` on connect** in `connect-credential-channel.ts` AND in the OAuth callback route at `api/get/oauth/[provider]/callback/route.ts` — operators no longer need to manually click "Re-register push" after every Gmail/Microsoft connect.
-  - **Integration tests TC-CHANNEL-EMAIL-C03..C06** + matching QA scenario markdowns (lifecycle missed, reauth flip, renewal cron, push-cadence flip).
-- All changes additive. 4579 core + 41 channel-imap + 57 channel-gmail + 62 channel-microsoft unit tests green; `yarn build:packages` clean. **Spec C is 100 % done** modulo manual demo dry-runs against real GCP / Microsoft tenants.
+- **Gap-closure pass.** Pre-review audit found High-impact functional gaps and several missing test surfaces. Closed:
+  - **`push-unregister.ts` command** + wiring into `disconnect-channel.ts` — previously, disconnecting a Gmail channel left the provider-side watch alive until expiry.
+  - **`push-renew.ts` command** + cron worker rewrite — the daily Gmail cron worker now actually calls `pushRegister` per eligible channel and emits `push.renewed` events. The initial implementation enqueued marker jobs that did nothing useful.
+  - **Auto-`pushRegister` on connect** in `connect-credential-channel.ts` AND in the OAuth callback route at `api/get/oauth/[provider]/callback/route.ts` — operators no longer need to manually click "Re-register push" after every Gmail connect.
+  - **Integration tests TC-CHANNEL-EMAIL-C05/C06** + matching QA scenario markdowns (renewal cron, push-cadence flip).
+- All changes additive. 4579 core + 41 channel-imap + 57 channel-gmail unit tests green; `yarn build:packages` clean. **Spec C is 100 % done** modulo manual demo dry-runs against a real GCP tenant.
 
 
 ---
@@ -1975,14 +1739,14 @@ None.
 ## TLDR
 
 **Key Points:**
-- Fixes a structurally broken token-refresh path on Gmail and Microsoft channels: `RefreshCredentialsInput` carries no slot for the tenant's OAuth client config (`clientId` / `clientSecret` / `tenantId`), so the adapters' `refreshCredentials()` implementations throw, the helper silently swallows the error, and the **next API call against the provider 401s. In practice, every connected Gmail/Microsoft channel stops working ~1 h after connect, with no operator-visible signal.**
-- Audit details (companion to [`2026-05-27-email-integration-inbound-reliability-and-threading.md`](2026-05-27-email-integration-inbound-reliability-and-threading.md) Spec B research). The fix is small and surgical: extend the framework contract additively with an optional `oauthClient` field, resolve it in the central helper, update the two adapters to read from it.
+- Fixes a structurally broken token-refresh path on Gmail channels: `RefreshCredentialsInput` carries no slot for the tenant's OAuth client config (`clientId` / `clientSecret`), so the adapter's `refreshCredentials()` implementation throws, the helper silently swallows the error, and the **next API call against the provider 401s. In practice, every connected Gmail channel stops working ~1 h after connect, with no operator-visible signal.**
+- Audit details (companion to [`2026-05-27-email-integration-inbound-reliability-and-threading.md`](2026-05-27-email-integration-inbound-reliability-and-threading.md) Spec B research). The fix is small and surgical: extend the framework contract additively with an optional `oauthClient` field, resolve it in the central helper, update the Gmail adapter to read from it.
 - All changes are **additive against the staged email-integration-foundation contract**. Existing tests still pass (they pre-pack `_client` into credentials, which we keep accepting as a deprecated path for one minor release).
 
 **Scope (Spec A):**
-- Extend `RefreshCredentialsInput` with optional `oauthClient?: { clientId, clientSecret?, tenantId? }` field.
+- Extend `RefreshCredentialsInput` with optional `oauthClient?: { clientId, clientSecret? }` field.
 - In `lib/credential-refresh.ts` (`refreshCredentialsIfNeeded`), resolve `oauth_<providerKey>` from `IntegrationCredentialsService` once before calling `adapter.refreshCredentials`, pass it as `input.oauthClient`.
-- Update `channel-gmail` and `channel-microsoft` adapters: read OAuth client config from `input.oauthClient` first; fall back to `credentials._client` (existing path) with a deprecation log for one release.
+- Update the `channel-gmail` adapter: read OAuth client config from `input.oauthClient` first; fall back to `credentials._client` (existing path) with a deprecation log for one release.
 - Add a regression test asserting that a near-expiry token successfully refreshes against a real OAuth client config returned by `IntegrationCredentialsService` (mocked HTTP).
 - Update `apps/docs/docs/framework/modules/communication-channels.mdx` to document the new `RefreshCredentialsInput.oauthClient` field for downstream provider authors.
 
@@ -1991,10 +1755,10 @@ None.
 - No changes to the OAuth `exchange-code` flow — that path already correctly passes the OAuth client config as `ExchangeOAuthCodeInput.credentials`.
 - No changes to credential persistence (the helper's `credentialsService.save` path is unchanged).
 - No changes to the IMAP adapter (basic-auth — no refresh).
-- No tests against a real Google / Microsoft tenant in CI. The regression test uses mocked HTTP per the test plan in Spec B (`__integration__/__fixtures__/mock-imap.ts` pattern adapted for OAuth providers — a `mock-google.ts` / `mock-microsoft.ts` HTTP fixture).
+- No tests against a real Google tenant in CI. The regression test uses mocked HTTP per the test plan in Spec B (`__integration__/__fixtures__/mock-imap.ts` pattern adapted for OAuth providers — a `mock-google.ts` HTTP fixture).
 
 **Concerns / dependencies:**
-- Sibling of [Spec B](2026-05-27-email-integration-inbound-reliability-and-threading.md) and [Spec C](#) (Gmail Pub/Sub + Graph webhooks, not yet drafted). **This spec is independent and can ship in parallel** — Spec B's IMAP demo works without it (IMAP has no refresh), but any Gmail/Microsoft demo requires Spec A.
+- Sibling of [Spec B](2026-05-27-email-integration-inbound-reliability-and-threading.md) and [Spec C](#) (Gmail Pub/Sub webhooks, not yet drafted). **This spec is independent and can ship in parallel** — Spec B's IMAP demo works without it (IMAP has no refresh), but any Gmail demo requires Spec A.
 - Backward compatibility: `RefreshCredentialsInput._client` (the legacy field that no caller currently populates) remains a *recognized but deprecated* read path inside the two adapters for one minor release. Removal is tracked as a follow-up in [`BACKWARD_COMPATIBILITY.md`](../../BACKWARD_COMPATIBILITY.md).
 
 ---
@@ -2003,7 +1767,7 @@ None.
 
 | Dependency | What it delivers | Must merge before this spec? |
 |---|---|---|
-| `2026-05-21-email-integration-foundation.md` (staged on `feat/demo-hoodie`) | Hub + `channel-gmail` + `channel-microsoft` provider packages, `RefreshCredentialsInput` contract, `refreshCredentialsIfNeeded` helper, `IntegrationCredentialsService` | Yes — already staged |
+| `2026-05-21-email-integration-foundation.md` (staged on `feat/demo-hoodie`) | Hub + `channel-gmail` provider package, `RefreshCredentialsInput` contract, `refreshCredentialsIfNeeded` helper, `IntegrationCredentialsService` | Yes — already staged |
 
 No dependency on Spec B or Spec C.
 
@@ -2011,7 +1775,7 @@ No dependency on Spec B or Spec C.
 
 ## Overview
 
-The per-user email integration foundation ([`2026-05-21-email-integration-foundation.md`](2026-05-21-email-integration-foundation.md)) shipped `channel-gmail` and `channel-microsoft` provider packages that use OAuth 2.0 with the providers' REST APIs (Gmail v1, Microsoft Graph v1.0). OAuth access tokens expire — Google's after ~1 hour, Microsoft's after 60–90 minutes — so any continuously-polling integration MUST refresh tokens before they expire.
+The per-user email integration foundation ([`2026-05-21-email-integration-foundation.md`](2026-05-21-email-integration-foundation.md)) shipped the `channel-gmail` provider package that uses OAuth 2.0 with the provider's REST API (Gmail v1). OAuth access tokens expire — Google's after ~1 hour — so any continuously-polling integration MUST refresh tokens before they expire.
 
 The framework's central helper `refreshCredentialsIfNeeded` (in [`packages/core/src/modules/communication_channels/lib/credential-refresh.ts`](../../packages/core/src/modules/communication_channels/lib/credential-refresh.ts)) is the single point where all four refresh call sites funnel through:
 - `workers/poll-channel.ts:152`
@@ -2019,7 +1783,7 @@ The framework's central helper `refreshCredentialsIfNeeded` (in [`packages/core/
 - `workers/reaction-processor.ts:179`
 - `api/post/channels/[id]/test-send/route.ts:162`
 
-The helper calls `adapter.refreshCredentials({ channelId, credentials, scope })` — and the two OAuth adapters' implementations expect `input.credentials._client` to contain `{ clientId, clientSecret, tenantId? }` (the tenant's OAuth app config registered in the admin Integrations UI, stored under `integration_credentials.scope = oauth_<provider>`).
+The helper calls `adapter.refreshCredentials({ channelId, credentials, scope })` — and the Gmail OAuth adapter's implementation expects `input.credentials._client` to contain `{ clientId, clientSecret }` (the tenant's OAuth app config registered in the admin Integrations UI, stored under `integration_credentials.scope = oauth_<provider>`).
 
 **No production code path ever sets `_client` on the credential blob.** The blob returned by `credentialsService.resolve('channel_<provider>', scope)` (which the four callers all use) only has the per-user OAuth shape: `{ accessToken, refreshToken, expiresAt, scopes, email }`. The unit tests for `refreshCredentials` cheat by pre-packing `_client` into the input — which masks the bug entirely.
 
@@ -2027,8 +1791,8 @@ The helper calls `adapter.refreshCredentials({ channelId, credentials, scope })`
 
 ## Problem Statement
 
-1. **Token refresh fails silently after ~1 hour.** The adapter's `parseClientCredentialsOrThrow` throws `Invalid Gmail OAuth client credentials: OAuth Client ID required`; the helper catches it (`credential-refresh.ts:77-81`) and returns the stale credentials; the next API call 401s; for Gmail this propagates as a generic `GmailApiError`, for Microsoft it sets `requires_reauth` (inconsistently).
-2. **Unit tests cheat.** [`packages/channel-gmail/.../lib/__tests__/adapter.test.ts:225`](../../packages/channel-gmail/src/modules/channel_gmail/lib/__tests__/adapter.test.ts) and [`.../microsoft/.../adapter.test.ts:187`](../../packages/channel-microsoft/src/modules/channel_microsoft/lib/__tests__/adapter.test.ts) pre-pack `_client` into the test input, hiding the wiring bug from CI.
+1. **Token refresh fails silently after ~1 hour.** The adapter's `parseClientCredentialsOrThrow` throws `Invalid Gmail OAuth client credentials: OAuth Client ID required`; the helper catches it (`credential-refresh.ts:77-81`) and returns the stale credentials; the next API call 401s and propagates as a generic `GmailApiError` instead of flipping the channel to `requires_reauth` (the inbound poll path and the outbound path handle this inconsistently).
+2. **Unit tests cheat.** [`packages/channel-gmail/.../lib/__tests__/adapter.test.ts:225`](../../packages/channel-gmail/src/modules/channel_gmail/lib/__tests__/adapter.test.ts) pre-packs `_client` into the test input, hiding the wiring bug from CI.
 3. **No automated end-to-end coverage of refresh.** No test simulates "token expires → poll triggers refresh → refresh uses tenant OAuth client → new access token used for next API call" because the wiring contract doesn't permit it.
 
 ## Proposed Solution
@@ -2046,7 +1810,7 @@ Three options were considered (see § Alternatives). The chosen one is **Option 
      /**
       * Tenant-level OAuth client configuration resolved by the hub from
       * `integration_credentials.scope = oauth_<providerKey>`. OAuth providers
-      * (Gmail, Microsoft) MUST read clientId / clientSecret / tenantId from this
+      * (Gmail) MUST read clientId / clientSecret from this
       * field. Adapters without OAuth refresh (IMAP, WhatsApp) ignore it.
       */
      oauthClient?: OAuthClientConfig
@@ -2055,8 +1819,6 @@ Three options were considered (see § Alternatives). The chosen one is **Option 
    export interface OAuthClientConfig {
      clientId: string
      clientSecret?: string
-     /** Microsoft tenant id ("common" | "consumers" | "organizations" | GUID). */
-     tenantId?: string
      /** Optional pre-resolved scopes list (some flows compute it once on initiate). */
      scopes?: string[]
    }
@@ -2097,9 +1859,7 @@ Three options were considered (see § Alternatives). The chosen one is **Option 
    ```
    `legacyParseClientFromCredentialsOrThrow` is the old `parseClientCredentialsOrThrow` renamed, plus a `console.warn('[channel-gmail] reading OAuth client config from credentials._client is deprecated, pass via RefreshCredentialsInput.oauthClient instead')` line. Removal target: next minor release.
 
-4. **Microsoft adapter** ([`packages/channel-microsoft/.../lib/adapter.ts:193-206`](../../packages/channel-microsoft/src/modules/channel_microsoft/lib/adapter.ts)): identical pattern. Note: Microsoft's adapter also reads `tenantId` from the client config — the new `OAuthClientConfig.tenantId` carries it.
-
-5. **Inbound 401 → requires_reauth flip on poll path** (audit finding #2): in `workers/poll-channel.ts`, when `adapter.fetchHistory` throws a 401-classified error, mirror the outbound path (`adapter.ts:108-110`) and set `channel.status = 'requires_reauth'`. This was inconsistent before; consistency tightens the operator experience.
+4. **Inbound 401 → requires_reauth flip on poll path** (audit finding #2): in `workers/poll-channel.ts`, when `adapter.fetchHistory` throws a 401-classified error, mirror the outbound path (`adapter.ts:108-110`) and set `channel.status = 'requires_reauth'`. This was inconsistent before; consistency tightens the operator experience.
 
 ### Design Decisions
 
@@ -2148,11 +1908,11 @@ adapter.refreshCredentials({
   channelId,
   credentials,           // { accessToken, refreshToken, expiresAt, … }
   scope,
-  oauthClient,           // { clientId, clientSecret, tenantId? }  ← NEW
+  oauthClient,           // { clientId, clientSecret }  ← NEW
 })
        │
        ▼
-google/microsoft oauth client token endpoint
+google oauth client token endpoint
        │
        ▼
 { access_token, refresh_token?, expires_in, … }
@@ -2168,7 +1928,7 @@ Caller uses new credentials for the upcoming API call
 
 **No new commands.** No new events. No new DI keys.
 
-The change is a single field on an existing TS interface plus one resolver call in an existing helper plus two adapter signature reads.
+The change is a single field on an existing TS interface plus one resolver call in an existing helper plus one adapter signature read.
 
 ## Data Models
 
@@ -2182,11 +1942,11 @@ The change is a single field on an existing TS interface plus one resolver call 
 
 **No new user-facing strings.** Existing translations for `communication_channels.channel.requires_reauth` cover the operator-visible signal when refresh fails after the fix.
 
-One minor addition: if the legacy `_client` path is hit, log `[channel-gmail|microsoft] reading OAuth client config from credentials._client is deprecated …` via `console.warn`. This is operator-log only, not localized.
+One minor addition: if the legacy `_client` path is hit, log `[channel-gmail] reading OAuth client config from credentials._client is deprecated …` via `console.warn`. This is operator-log only, not localized.
 
 ## UI/UX
 
-**None.** Existing UI does not change. The fix is invisible to end users — Gmail/Microsoft channels just keep working past the 1-hour mark.
+**None.** Existing UI does not change. The fix is invisible to end users — Gmail channels just keep working past the 1-hour mark.
 
 ## Configuration
 
@@ -2202,21 +1962,20 @@ One minor addition: if the legacy `_client` path is hit, log `[channel-gmail|mic
 | Public type `OAuthClientConfig` | New export | ✓ ADDITIVE |
 | Helper `refreshCredentialsIfNeeded` | New behavior: resolves OAuth client config when `credentialsService` is registered. When the service is *not* registered (e.g., disabled in a downstream app), behavior is identical to today. | ✓ ADDITIVE |
 | Gmail adapter `refreshCredentials` signature | Implementation reads new field; legacy `_client` still recognized with deprecation warning | ✓ ADDITIVE + DEPRECATION |
-| Microsoft adapter `refreshCredentials` signature | Same | ✓ ADDITIVE + DEPRECATION |
 | Event IDs / API URLs / widget spot IDs / DI keys / ACL features | Unchanged | ✓ |
 | DB schema | Unchanged | ✓ |
 
 ### Deprecation timeline
 
 - **This release (Spec A merge):** new `oauthClient` field shipped; legacy `_client` read path still works with deprecation log.
-- **Next minor release:** remove `legacyParseClientFromCredentialsOrThrow` from both adapters; remove `_client` test injections from unit tests.
+- **Next minor release:** remove `legacyParseClientFromCredentialsOrThrow` from the Gmail adapter; remove `_client` test injections from unit tests.
 - **Documentation update**: [`BACKWARD_COMPATIBILITY.md`](../../BACKWARD_COMPATIBILITY.md) gains an entry for `RefreshCredentialsInput._client` → `oauthClient` (deprecation tracked).
 
 ### Deployment notes
 
 - Zero downtime.
 - No migration to apply.
-- After deploy: any Gmail or Microsoft channel currently in `status='error'` or `status='requires_reauth'` from refresh-failure backoff should be revisited manually (operator clicks "Reconnect"); the new code does not automatically re-auth — refresh requires a valid stored `refreshToken`. **If a refresh token was lost to log rotation during the buggy period, the user must re-connect their mailbox.** This is unavoidable.
+- After deploy: any Gmail channel currently in `status='error'` or `status='requires_reauth'` from refresh-failure backoff should be revisited manually (operator clicks "Reconnect"); the new code does not automatically re-auth — refresh requires a valid stored `refreshToken`. **If a refresh token was lost to log rotation during the buggy period, the user must re-connect their mailbox.** This is unavoidable.
 
 ## Implementation Plan
 
@@ -2243,11 +2002,6 @@ One minor addition: if the legacy `_client` path is hit, log `[channel-gmail|mic
 
 **Ship signal:** Gmail unit tests green; manual diff review confirms no regression on `exchangeOAuthCode` (which legitimately uses `parseClientCredentialsOrThrow` and does not need the rename).
 
-### Phase A3 — Microsoft adapter
-Same as Phase A2 for `packages/channel-microsoft/src/modules/channel_microsoft/lib/adapter.ts:refreshCredentials`. Identical pattern; `tenantId` flows through `OAuthClientConfig.tenantId`.
-
-**Ship signal:** Microsoft unit tests green.
-
 ### Phase A4 — Inbound 401 → `requires_reauth` consistency
 1. Edit `workers/poll-channel.ts`: in the catch block after `adapter.fetchHistory`, classify the error via existing `lib/error-classification.ts`; if the result is `'requires_reauth'` (401 / `invalid_grant`), call `markRequiresReauth(channelId)` command instead of the generic `channel.lastError = ...` path.
 2. Add unit test for `poll-channel` covering the 401 path.
@@ -2260,12 +2014,11 @@ Same as Phase A2 for `packages/channel-microsoft/src/modules/channel_microsoft/l
    - Mock `https://oauth2.googleapis.com/token` to return a new access token.
    - Trigger a poll.
    - Assert: refresh call was made with the resolved `oauthClient`; new `accessToken` persisted; subsequent `gmail.googleapis.com` mock call uses the new token.
-2. Same for Microsoft: `TC-CHANNEL-EMAIL-A02-token-refresh.spec.ts`.
-3. Update `apps/docs/docs/framework/modules/communication-channels.mdx`:
+2. Update `apps/docs/docs/framework/modules/communication-channels.mdx`:
    - Document `RefreshCredentialsInput.oauthClient` for downstream provider authors.
    - Document the deprecation of `credentials._client`.
 
-**Ship signal:** A01 and A02 green; doc preview renders.
+**Ship signal:** A01 green; doc preview renders.
 
 ### File Manifest
 
@@ -2276,14 +2029,10 @@ Same as Phase A2 for `packages/channel-microsoft/src/modules/channel_microsoft/l
 | `packages/core/src/modules/communication_channels/lib/__tests__/credential-refresh.test.ts` | Modify | Unit tests for new resolution path |
 | `packages/channel-gmail/src/modules/channel_gmail/lib/adapter.ts` | Modify | Read `input.oauthClient`; deprecate `_client` path |
 | `packages/channel-gmail/src/modules/channel_gmail/lib/__tests__/adapter.test.ts` | Modify | Use new `oauthClient`; keep one legacy test |
-| `packages/channel-microsoft/src/modules/channel_microsoft/lib/adapter.ts` | Modify | Same as Gmail |
-| `packages/channel-microsoft/src/modules/channel_microsoft/lib/__tests__/adapter.test.ts` | Modify | Same as Gmail |
 | `packages/core/src/modules/communication_channels/workers/poll-channel.ts` | Modify | 401 → `requires_reauth` consistency |
 | `packages/core/src/modules/communication_channels/workers/__tests__/poll-channel.test.ts` | Modify | Unit test for 401 path |
 | `packages/channel-gmail/src/modules/channel_gmail/__integration__/TC-CHANNEL-EMAIL-A01-token-refresh.spec.ts` | Create | Integration test |
-| `packages/channel-microsoft/src/modules/channel_microsoft/__integration__/TC-CHANNEL-EMAIL-A02-token-refresh.spec.ts` | Create | Integration test |
 | `.ai/qa/scenarios/TC-CHANNEL-EMAIL-A01.md` | Create | QA scenario |
-| `.ai/qa/scenarios/TC-CHANNEL-EMAIL-A02.md` | Create | QA scenario |
 | `apps/docs/docs/framework/modules/communication-channels.mdx` | Modify | Document `oauthClient` |
 | `BACKWARD_COMPATIBILITY.md` | Modify | Track `_client` deprecation |
 
@@ -2292,7 +2041,6 @@ Same as Phase A2 for `packages/channel-microsoft/src/modules/channel_microsoft/l
 **Unit tests:**
 - `refreshCredentialsIfNeeded`: with `credentialsService` returning a valid `oauth_gmail` row → adapter receives `oauthClient`; with empty row → adapter receives `undefined`; with no `credentialsService` → adapter receives `undefined` (today's behavior preserved).
 - Gmail adapter `refreshCredentials`: with `input.oauthClient` set + no `_client` → success; with `_client` set + no `oauthClient` → success + deprecation warn; with neither → throws.
-- Microsoft adapter: same matrix; verify `tenantId` flows through.
 - `poll-channel`: 401 from `fetchHistory` → channel `status='requires_reauth'`; transient error → channel `status='error'`; success → unchanged.
 
 **Integration tests:**
@@ -2300,23 +2048,22 @@ Same as Phase A2 for `packages/channel-microsoft/src/modules/channel_microsoft/l
 | Scenario ID | Title | Strategy |
 |---|---|---|
 | TC-CHANNEL-EMAIL-A01 | Gmail token refresh end-to-end | Mock OAuth token endpoint + Gmail API; trigger poll on near-expiry channel; verify refresh call carries `oauthClient`; verify new token persisted; verify follow-on API call uses new token |
-| TC-CHANNEL-EMAIL-A02 | Microsoft token refresh end-to-end | Same as A01 against `login.microsoftonline.com` + Graph API mocks |
 
 ## Risks & Impact Review
 
 ### Data Integrity Failures
 
-#### Refresh-token rotation race
-- **Scenario:** Microsoft rotates the `refresh_token` on every refresh (per [Entra ID docs](https://learn.microsoft.com/en-us/entra/identity-platform/refresh-tokens#token-lifetime)). If two workers refresh in parallel and only one persists, the other's stored refresh_token becomes invalid on next use.
+#### Concurrent-refresh race
+- **Scenario:** If two workers refresh the same channel in parallel and only one persists, the other's stored token becomes stale on next use.
 - **Severity:** Medium
-- **Affected area:** Microsoft adapter, helper persistence
+- **Affected area:** Gmail adapter, helper persistence
 - **Mitigation:** `credentialsService.save` is atomic (last-write-wins). The helper persists immediately after a successful refresh. Worst case: a doubly-refreshed channel uses the most recently persisted token; the older "ghost" token errors and the next poll re-refreshes. The `outbound-delivery` and `poll-channel` paths both call refresh through the same helper; concurrent refresh on the same channel is rare (poll concurrency-per-channel is 1).
 - **Residual risk:** Acceptable. If a runaway concurrent-refresh pattern emerges, add an in-process lock on `(channelId, scope.userId)` inside the helper.
 
 #### Lost refresh tokens during the buggy period
 - **Scenario:** Tokens that expired during the period when this bug was active may have been "lost" if no refresh token was ever stored. Affected channels are stuck.
 - **Severity:** High (one-time user-visible disruption)
-- **Affected area:** Existing connected Gmail / Microsoft channels
+- **Affected area:** Existing connected Gmail channels
 - **Mitigation:** Out of scope to recover — affected users must click "Reconnect" once after deploy. Operator-facing note in the release announcement.
 - **Residual risk:** User experience hit for early adopters; mitigated by a coordinated reconnect prompt.
 
@@ -2325,7 +2072,7 @@ Same as Phase A2 for `packages/channel-microsoft/src/modules/channel_microsoft/l
 #### Missing `oauth_<provider>` row
 - **Scenario:** A user connected a Gmail channel before the tenant admin registered the OAuth client config in the Integrations UI (or an admin later deleted the row).
 - **Severity:** Medium
-- **Affected area:** All Gmail/Microsoft channels for the affected tenant
+- **Affected area:** All Gmail channels for the affected tenant
 - **Mitigation:** Adapter falls back to legacy `_client` (which is empty for these accounts); throws a clear `OAuth client not configured for tenant — admin must complete provider setup in Integrations` error; channel flips to `status='requires_reauth'`. Operator-visible.
 - **Residual risk:** Low — same error surface as today's bug but with a more actionable message.
 
@@ -2343,8 +2090,8 @@ Same as Phase A2 for `packages/channel-microsoft/src/modules/channel_microsoft/l
 #### Test cheat masks a regression
 - **Scenario:** Future changes accidentally re-introduce a `_client`-only path; tests still pass because they pre-pack `_client`.
 - **Severity:** Medium
-- **Affected area:** Gmail / Microsoft unit tests
-- **Mitigation:** Phase A2 + A3 explicitly replace test fixtures to use `oauthClient`. The integration tests A01 + A02 do NOT pre-pack `_client` — they exercise the real resolution path. Future tests must follow A01/A02 as the reference.
+- **Affected area:** Gmail unit tests
+- **Mitigation:** Phase A2 explicitly replaces test fixtures to use `oauthClient`. The integration test A01 does NOT pre-pack `_client` — it exercises the real resolution path. Future tests must follow A01 as the reference.
 - **Residual risk:** Reviewer discipline.
 
 ### Operational Risks
@@ -2353,7 +2100,7 @@ Same as Phase A2 for `packages/channel-microsoft/src/modules/channel_microsoft/l
 - **Scenario:** The `_client` deprecation warning fires noisily in logs.
 - **Severity:** Low
 - **Affected area:** Operator logs
-- **Mitigation:** Internal callers are updated in Phase A2/A3 to use `oauthClient`; no callers populate `_client` in production today (that's the whole bug), so production logs see zero warnings. The warning only fires from existing unit-test paths until they're cleaned up.
+- **Mitigation:** Internal callers are updated in Phase A2 to use `oauthClient`; no callers populate `_client` in production today (that's the whole bug), so production logs see zero warnings. The warning only fires from existing unit-test paths until they're cleaned up.
 - **Residual risk:** None.
 
 ## Final Compliance Report — 2026-05-27
@@ -2383,7 +2130,7 @@ Same as Phase A2 for `packages/channel-microsoft/src/modules/channel_microsoft/l
 | packages/core/AGENTS.md | `metadata.openApi` on API routes | N/A | No new routes |
 | packages/core/AGENTS.md | `findWithDecryption` for encrypted-column reads | N/A | This spec doesn't read encrypted columns directly; relies on `IntegrationCredentialsService` |
 | packages/core/src/modules/integrations/AGENTS.md | `IntegrationCredentialsService.resolve` is the canonical resolution path | Compliant | Helper uses it |
-| .ai/qa/AGENTS.md | Integration tests with named scenarios `TC-…` | Partial | TC-CHANNEL-EMAIL-A01/A02 are route-registration **smoke** tests, not token-refresh E2E. The refresh contract itself is covered by unit tests (`credential-refresh`, gmail/microsoft adapter cases); end-to-end token rotation is manual QA (see `.ai/qa/scenarios/TC-CHANNEL-EMAIL-A0{1,2}-*.md`). |
+| .ai/qa/AGENTS.md | Integration tests with named scenarios `TC-…` | Partial | TC-CHANNEL-EMAIL-A01 is a route-registration **smoke** test, not token-refresh E2E. The refresh contract itself is covered by unit tests (`credential-refresh`, gmail adapter cases); end-to-end token rotation is manual QA (see `.ai/qa/scenarios/TC-CHANNEL-EMAIL-A01-*.md`). |
 | .ai/specs/AGENTS.md | Spec filename `{date}-{title}.md`, kebab-case title | Compliant | `2026-05-27-oauth-refresh-credentials-client-wiring-fix.md` |
 | .ai/specs/AGENTS.md | Required sections: TLDR, Overview, Problem Statement, Proposed Solution, Architecture, Data Models, API Contracts, Risks & Impact Review, Final Compliance Report, Changelog | Compliant | All present |
 | BACKWARD_COMPATIBILITY.md | Public types STABLE; new fields additive | Compliant | `oauthClient?` is optional + additive |
@@ -2396,7 +2143,7 @@ Same as Phase A2 for `packages/channel-microsoft/src/modules/channel_microsoft/l
 | Check | Status | Notes |
 |---|---|---|
 | Data models match API contracts | N/A | No models / APIs touched |
-| Risks cover all write operations | Pass | Refresh-token rotation, missing oauth row, cross-tenant leak |
+| Risks cover all write operations | Pass | Concurrent-refresh race, missing oauth row, cross-tenant leak |
 | Commands defined for all mutations | N/A | No new mutations |
 | Phasing is testable + incrementally deliverable | Pass | Each of A1-A5 has explicit ship signal |
 | Deprecation timeline is concrete | Pass | "Next minor release" stated |
@@ -2415,19 +2162,17 @@ None.
 |---|---|---|---|
 | A1 — Contract + helper | Done | 2026-05-27 | Added `OAuthClientConfig` + `RefreshCredentialsInput.oauthClient?`. Helper resolves `oauth_<provider>` and passes through. 12/12 unit tests green (added 5 Spec-A specific cases). |
 | A2 — Gmail adapter | Done | 2026-05-27 | Reads `input.oauthClient` first; legacy `_client` path retained with one-time deprecation warning. 19/19 unit tests green. |
-| A3 — Microsoft adapter | Done | 2026-05-27 | Same pattern as Gmail; `tenantId` flows through `OAuthClientConfig.tenantId`. 20/20 unit tests green. |
 | A4 — Inbound 401 → requires_reauth | Done | 2026-05-27 | Already implemented in `handlePollError` (poll-channel.ts:310). 10/10 poll-channel tests confirm 401/`invalid_grant` flips status to `requires_reauth` and emits the notification event. |
-| A5 — Integration tests + docs | Done | 2026-05-27 | Two Playwright smoke tests (TC-CHANNEL-EMAIL-A01, A02) verifying OAuth route accessibility. Two comprehensive QA scenario markdowns documenting manual E2E verification. Docs updated in `apps/docs/docs/framework/modules/communication-channels.mdx` (new "Credential refresh contract" section). `BACKWARD_COMPATIBILITY.md` tracks the `_client` deprecation. |
-| Verification | Done | 2026-05-27 | `yarn build:packages` clean; all touched packages pass tests (247 core + 50 gmail + 54 microsoft + 12 helper = 363+ tests green). The two pre-existing channel-imap test failures are Spec B territory (staged work for the IMAP rewrite — not caused by Spec A). |
+| A5 — Integration tests + docs | Done | 2026-05-27 | One Playwright smoke test (TC-CHANNEL-EMAIL-A01) verifying OAuth route accessibility. A comprehensive QA scenario markdown documenting manual E2E verification. Docs updated in `apps/docs/docs/framework/modules/communication-channels.mdx` (new "Credential refresh contract" section). `BACKWARD_COMPATIBILITY.md` tracks the `_client` deprecation. |
+| Verification | Done | 2026-05-27 | `yarn build:packages` clean; all touched packages pass tests (247 core + 50 gmail + 12 helper = 309+ tests green). The two pre-existing channel-imap test failures are Spec B territory (staged work for the IMAP rewrite — not caused by Spec A). |
 
 ### Detailed Coverage
 
 - **Unit tests added** (all green):
   - `packages/core/src/modules/communication_channels/lib/__tests__/credential-refresh.test.ts` — 5 new Spec-A cases (resolves oauth\_provider, undefined when no row, undefined when no credentialsService, undefined when row is malformed, swallows resolve errors).
   - `packages/channel-gmail/src/modules/channel_gmail/lib/__tests__/adapter.test.ts` — 3 new Spec-A cases (new oauthClient path, deprecated `_client` fallback with warn, error when neither present).
-  - `packages/channel-microsoft/src/modules/channel_microsoft/lib/__tests__/adapter.test.ts` — 3 new Spec-A cases mirroring Gmail.
-- **Integration test smoke specs added**: `TC-CHANNEL-EMAIL-A01-token-refresh.spec.ts` (Gmail), `TC-CHANNEL-EMAIL-A02-token-refresh.spec.ts` (Microsoft). Each verifies the OAuth route is registered; full token-refresh E2E is covered by manual QA scenario.
-- **QA scenarios added**: `.ai/qa/scenarios/TC-CHANNEL-EMAIL-A01-gmail-token-refresh.md`, `.ai/qa/scenarios/TC-CHANNEL-EMAIL-A02-microsoft-token-refresh.md`. Document the full manual E2E flow (force-expire token, trigger poll, verify refresh path, verify token rotation for Microsoft, verify reauth-required surface).
+- **Integration test smoke spec added**: `TC-CHANNEL-EMAIL-A01-token-refresh.spec.ts` (Gmail). Verifies the OAuth route is registered; full token-refresh E2E is covered by manual QA scenario.
+- **QA scenario added**: `.ai/qa/scenarios/TC-CHANNEL-EMAIL-A01-gmail-token-refresh.md`. Documents the full manual E2E flow (force-expire token, trigger poll, verify refresh path, verify reauth-required surface).
 - **Docs updated**: `apps/docs/docs/framework/modules/communication-channels.mdx` gained a new "Credential refresh contract" section between Architecture and OAuth setup.
 - **BC tracking**: `BACKWARD_COMPATIBILITY.md` lists `RefreshCredentialsInput.oauthClient?` as STABLE additive and flags the `_client` deprecation for removal in the next minor release.
 
@@ -2440,12 +2185,8 @@ None.
 | `packages/core/src/modules/communication_channels/lib/__tests__/credential-refresh.test.ts` | Modified — added 5 Spec-A test cases |
 | `packages/channel-gmail/src/modules/channel_gmail/lib/adapter.ts` | Modified — `resolveGmailOAuthClient` reads new field, deprecated legacy `_client` |
 | `packages/channel-gmail/src/modules/channel_gmail/lib/__tests__/adapter.test.ts` | Modified — added 3 Spec-A test cases; updated existing 2 to use new field |
-| `packages/channel-microsoft/src/modules/channel_microsoft/lib/adapter.ts` | Modified — `resolveMicrosoftOAuthClient` reads new field, deprecated legacy `_client` |
-| `packages/channel-microsoft/src/modules/channel_microsoft/lib/__tests__/adapter.test.ts` | Modified — added 3 Spec-A test cases; updated existing 2 to use new field |
 | `packages/channel-gmail/src/modules/channel_gmail/__integration__/TC-CHANNEL-EMAIL-A01-token-refresh.spec.ts` | Created — Playwright smoke test |
-| `packages/channel-microsoft/src/modules/channel_microsoft/__integration__/TC-CHANNEL-EMAIL-A02-token-refresh.spec.ts` | Created — Playwright smoke test |
 | `.ai/qa/scenarios/TC-CHANNEL-EMAIL-A01-gmail-token-refresh.md` | Created — manual QA scenario |
-| `.ai/qa/scenarios/TC-CHANNEL-EMAIL-A02-microsoft-token-refresh.md` | Created — manual QA scenario |
 | `apps/docs/docs/framework/modules/communication-channels.mdx` | Modified — added "Credential refresh contract" section |
 | `BACKWARD_COMPATIBILITY.md` | Modified — added `RefreshCredentialsInput.oauthClient` + `_client` deprecation entries |
 

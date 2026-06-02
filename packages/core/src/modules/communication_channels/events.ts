@@ -51,6 +51,13 @@ const events = [
     clientBroadcast: true,
   },
   {
+    id: 'communication_channels.channel.deleted',
+    label: 'Channel Deleted',
+    entity: 'communication_channel',
+    category: 'lifecycle',
+    clientBroadcast: true,
+  },
+  {
     id: 'communication_channels.channel.primary_changed',
     label: 'Primary Channel Changed',
     entity: 'communication_channel',

@@ -26,7 +26,7 @@
   "communication_channels.detail.notFound": "Nie znaleziono kanału",
   "communication_channels.detail.recentFailures": "Ostatnie błędy",
   "communication_channels.detail.title": "Szczegóły kanału",
-  "communication_channels.emptyState": "Brak skonfigurowanych kanałów. Pakiety dostawców (Slack, WhatsApp, integracje email) rejestrują kanały tutaj.",
+  "communication_channels.emptyState": "Brak kanałów współdzielonych. Ta strona pokazuje współdzielone kanały obejmujące całą organizację. Twoja osobista skrzynka e-mail jest prywatna — połącz ją i zarządzaj nią w Profil → Kanały komunikacji.",
   "communication_channels.errors.loadDetail": "Nie udało się załadować kanału",
   "communication_channels.errors.loadList": "Nie udało się załadować kanałów",
   "communication_channels.errors.reactionFailed": "Reakcja nie powiodła się",

@@ -129,6 +129,9 @@ class GmailChannelAdapter implements ChannelAdapter {
   }
 
   async getStatus(_input: GetMessageStatusInput): Promise<MessageStatus> {
+    // Gmail exposes no per-message delivery-status API, so we return a
+    // best-effort `'sent'` placeholder (a later bounce is not reflected here).
+    // Mirrors the IMAP adapter's documented behavior.
     return { status: 'sent' }
   }
 
@@ -411,6 +414,11 @@ class GmailChannelAdapter implements ChannelAdapter {
     // it is `>= channelState.historyId`, but a multi-event batch may
     // advance further than what `history.list` returns in a single page.
     // Treat the call as "drain whatever is new since the stored cursor".
+    // If `channelState.historyId` is absent (a push arrived before the cursor
+    // was seeded), `fetchHistory` bootstraps — persists the current historyId
+    // and returns zero messages — so this notification's delta is picked up on
+    // the next call. In practice `registerPush` seeds the cursor before any
+    // push flows, so this edge is not hit in the normal lifecycle.
     return this.fetchHistory({
       conversationId: 'INBOX',
       credentials: input.credentials,

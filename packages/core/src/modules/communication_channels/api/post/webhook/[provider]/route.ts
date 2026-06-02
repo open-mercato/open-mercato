@@ -35,7 +35,7 @@ export const metadata = {
     // Unauthenticated by design (signature verification IS the auth), but the
     // handler fans out an O(N) cross-tenant candidate scan, so bound per-IP
     // request volume to limit abuse. Generous enough for real provider traffic;
-    // the dedicated gmail/microsoft routes carry their own matching limits.
+    // the dedicated gmail route carries its own matching limits.
     rateLimit: { points: 120, duration: 60, keyPrefix: 'cc_webhook_inbound' },
   },
 }
@@ -163,7 +163,7 @@ export async function POST(req: Request, { params }: RouteContext): Promise<Resp
         channelType: matchedChannel.channelType,
         event: reactionEvent,
         // Use the channel's REAL org (null when null), matching the poll and
-        // dedicated gmail/microsoft webhook paths — `candidateScope` falls org
+        // dedicated gmail webhook path — `candidateScope` falls org
         // back to tenantId for credential/verify lookups, which must not leak
         // into the ingest scope (it would diverge dedup for null-org channels).
         scope: { tenantId: matchedScope.tenantId, organizationId: matchedChannel.organizationId ?? null },

@@ -432,7 +432,7 @@ export class MessageReaction {
  *   1. The MIME `References:` header as `<om_TOKEN@open-mercato.invalid>` —
  *      invisible to the recipient and survives most reply clients.
  *   2. A hidden HTML body span `<span style="display:none">[OM:om_TOKEN]</span>` —
- *      survives when References is stripped (e.g. Outlook mobile).
+ *      survives when References is stripped (e.g. some mobile clients).
  *   3. A plain-text trailer `[OM:om_TOKEN]` — survives plain-text-only replies.
  *
  * The unique constraint is `(tenantId, token)` — tenant isolation by

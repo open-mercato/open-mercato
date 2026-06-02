@@ -16,6 +16,7 @@ import {
   resolveInboundAddMutation,
 } from '../lib/reaction-semantics'
 import type { ChannelCapabilities } from '../lib/adapter'
+import { isUniqueViolation } from '../lib/pg-errors'
 
 const processInboundReactionInputSchema = z.object({
   channelId: z.string().uuid(),
@@ -257,14 +258,6 @@ const processInboundReactionCommand: CommandHandler<
       deleted: toDelete.length,
     }
   },
-}
-
-function isUniqueViolation(err: unknown): boolean {
-  if (!err || typeof err !== 'object') return false
-  const code = (err as { code?: string }).code
-  if (code === '23505') return true // Postgres unique_violation
-  const message = (err as { message?: string }).message
-  return typeof message === 'string' && /duplicate key value|unique constraint/i.test(message)
 }
 
 registerCommand(processInboundReactionCommand)

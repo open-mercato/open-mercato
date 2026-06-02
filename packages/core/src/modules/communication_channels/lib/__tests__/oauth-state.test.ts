@@ -124,7 +124,7 @@ describe('verifyOAuthState', () => {
   it('throws on providerKey mismatch when expected', () => {
     const cookie = makePayload({ providerKey: 'gmail' })
     try {
-      verifyOAuthState({ cookie, expectedUserId: 'u1', expectedProviderKey: 'microsoft', now })
+      verifyOAuthState({ cookie, expectedUserId: 'u1', expectedProviderKey: 'imap', now })
       fail('should throw')
     } catch (err) {
       expect(err).toBeInstanceOf(OAuthStateError)
@@ -164,7 +164,7 @@ describe('createOAuthState', () => {
     const { payload } = createOAuthState({
       userId: 'u',
       tenantId: 't',
-      providerKey: 'microsoft',
+      providerKey: 'gmail',
       extra: { codeVerifier: 'pkce-verifier' },
     })
     expect(payload.extra).toEqual({ codeVerifier: 'pkce-verifier' })

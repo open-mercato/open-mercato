@@ -53,7 +53,7 @@ describe('generateMessageId', () => {
   })
 
   it('falls back to the provided domain when the address has none', () => {
-    expect(generateMessageId('no-at-sign', 'outlook.com')).toMatch(/^<[^@]+@outlook\.com>$/)
+    expect(generateMessageId('no-at-sign', 'example.com')).toMatch(/^<[^@]+@example\.com>$/)
   })
 
   it('is unique across calls', () => {

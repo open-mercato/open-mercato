@@ -121,7 +121,7 @@ export default function ChannelsListPage() {
           error={errorMessage}
           emptyState={t(
             'communication_channels.emptyState',
-            'No channels configured yet. Provider packages (Slack, WhatsApp, email integrations) register channels here.',
+            'No shared channels yet. This page lists shared, tenant-wide channels. Your personal email mailbox is private — connect and manage it under Profile → Communication Channels.',
           )}
           pagination={{
             page,

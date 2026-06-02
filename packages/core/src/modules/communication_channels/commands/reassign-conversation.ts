@@ -139,6 +139,10 @@ const reassignConversationCommand: CommandHandler<
       }
     }
 
+    // `assignedUserId` is an advisory routing pointer, not a DB foreign key
+    // (modules don't share ORM relations). The assignee-existence check above
+    // and this write are not atomic, so a user deleted in between leaves a
+    // harmless dangling pointer — consistent with the module's no-FK design.
     mapping.assignedUserId = input.assignedUserId
     conversation.assignedUserId = input.assignedUserId
     await em.flush()

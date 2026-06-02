@@ -172,7 +172,7 @@ export default async function handle(
 
   // Fetch a single page of history.
   // `channelState` is the provider-specific resumption cursor — Gmail historyId,
-  // Microsoft delta link, IMAP UIDVALIDITY+UIDNEXT, etc. We persist it across
+  // IMAP UIDVALIDITY+UIDNEXT, etc. We persist it across
   // ticks on `channel.channelState` so each poll resumes from the prior one
   // instead of running a full mailbox resync. Empty / NULL = "first poll;
   // bootstrap the cursor from the provider".
@@ -310,12 +310,12 @@ export default async function handle(
   // pages beyond this tick's batch (large mailboxes, mid-deltaLink walks,
   // UID overflows) signal `hasMore: true`. The persisted `channelState`
   // already encodes the mid-drain resumption token (Gmail `pendingHistoryPageToken`,
-  // MS Graph `pendingDeltaUrl`, IMAP non-terminal `uidNext`). Re-enqueue with
+  // IMAP non-terminal `uidNext`). Re-enqueue with
   // a small delay so we keep draining without overrunning rate limits.
   if (hasMore) {
     // Bound the drain: an adapter that returns `hasMore: true` with a
     // non-advancing cursor (e.g. a persistently-failing message that pins the
-    // Gmail/MS cursor via `hardFailed`) must not spin an unthrottled loop. Stop
+    // Gmail cursor via `hardFailed`) must not spin an unthrottled loop. Stop
     // at MAX_DRAIN_PAGES; the next scheduled poll tick re-checks the channel.
     if (drainPage < MAX_DRAIN_PAGES) {
       const queue = getCommunicationChannelsQueue(COMMUNICATION_CHANNELS_QUEUES.poll)

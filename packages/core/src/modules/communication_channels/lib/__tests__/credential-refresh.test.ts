@@ -296,8 +296,8 @@ describe('refreshCredentialsIfNeeded', () => {
 
   // Concurrency regression — the outbound-delivery worker runs at concurrency 10
   // in ONE process. Two concurrent sends on the same channel must NOT both call
-  // `adapter.refreshCredentials`: with rotating-refresh-token providers (Gmail,
-  // Microsoft) the second exchange invalidates the first's token and flaps the
+  // `adapter.refreshCredentials`: with rotating-refresh-token providers (Gmail)
+  // the second exchange invalidates the first's token and flaps the
   // channel to `requires_reauth`. An in-process single-flight keyed by channelId
   // coalesces them.
   describe('single-flight per channelId', () => {

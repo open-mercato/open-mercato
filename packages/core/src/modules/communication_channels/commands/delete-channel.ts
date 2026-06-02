@@ -6,6 +6,7 @@ import { extractUndoPayload as extractSharedUndoPayload } from '@open-mercato/sh
 import { findOneWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import { CommunicationChannel } from '../data/entities'
 import { pushUnregister } from './push-unregister'
+import { emitCommunicationChannelsEvent } from '../events'
 
 const deleteChannelSchema = z.object({
   channelId: z.string().uuid(),
@@ -109,6 +110,23 @@ const deleteChannelCommand: CommandHandler<DeleteChannelInput, DeleteChannelResu
     channel.deletedAt = new Date()
     channel.isPrimary = false
     await em.flush()
+
+    // Emit AFTER flush so subscribers observe the committed soft-delete.
+    // Lifecycle parity with `disconnect` (which emits `channel.disconnected`) so
+    // workflows/audit can observe the full channel lifecycle. Persistent so the
+    // delivery can retry on failure.
+    await emitCommunicationChannelsEvent(
+      'communication_channels.channel.deleted',
+      {
+        channelId: channel.id,
+        userId: input.userId,
+        providerKey: channel.providerKey,
+        channelType: channel.channelType,
+        tenantId: input.scope.tenantId,
+        organizationId: input.scope.organizationId ?? null,
+      },
+      { persistent: true },
+    )
 
     return {
       status: 'deleted',

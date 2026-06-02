@@ -20,29 +20,6 @@ type RouteContext = {
   params: Promise<{ id: string }> | { id: string }
 }
 
-type RbacServiceLike = {
-  getGrantedFeatures?: (
-    userId: string,
-    scope: { tenantId: string | null; organizationId: string | null },
-  ) => Promise<string[] | undefined>
-}
-
-async function resolveUserFeatures(
-  container: { resolve: (name: string) => unknown },
-  userId: string | null,
-  tenantId: string | null,
-  organizationId: string | null,
-): Promise<string[] | undefined> {
-  if (!userId) return undefined
-  try {
-    const rbac = container.resolve('rbacService') as RbacServiceLike | undefined
-    if (!rbac?.getGrantedFeatures) return undefined
-    return await rbac.getGrantedFeatures(userId, { tenantId, organizationId })
-  } catch {
-    return undefined
-  }
-}
-
 export async function GET(req: Request, context: RouteContext): Promise<Response> {
   const { id: personId } = await context.params
   if (!z.string().uuid().safeParse(personId).success) {
@@ -80,19 +57,16 @@ export async function GET(req: Request, context: RouteContext): Promise<Response
   }
 
   const viewerUserId = auth.isApiKey ? null : auth.sub ?? null
-  const userFeatures = await resolveUserFeatures(
-    container,
-    viewerUserId,
-    auth.tenantId as string,
-    organizationId,
-  )
 
   const threads = await buildPersonEmailThreads(em, {
     personId,
     tenantId: auth.tenantId as string,
     organizationId,
     viewerUserId,
-    userFeatures,
+    // The v1 visibility filter is owner-only and ignores `userFeatures`; match
+    // the sibling read routes (people/[id], interactions) by passing `undefined`
+    // rather than paying an RBAC round-trip the filter discards.
+    userFeatures: undefined,
   })
 
   return NextResponse.json({ threads })
@@ -102,7 +76,7 @@ export const openApi = {
   tags: ['Customers', 'Email'],
   methods: {
     GET: {
-      summary: 'List a Person\'s email threads (Gmail/Outlook-style conversation grouping)',
+      summary: 'List a Person\'s email threads (Gmail-style conversation grouping)',
       tags: ['Customers', 'Email'],
       responses: [
         { status: 200, description: 'Email threads for the person, grouped by conversation' },

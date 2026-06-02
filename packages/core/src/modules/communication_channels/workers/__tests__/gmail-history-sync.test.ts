@@ -340,7 +340,7 @@ describe('gmail-history-sync worker behaviour', () => {
       channelState: {
         pendingHistoryPageToken: 'STALE-mid-drain-token',
         pushStatus: 'active',
-        subscriptionId: 'sub-123',
+        pubsubTopic: 'projects/p/topics/gmail-push',
         watchExpirationMs: 9999999999,
       },
     })
@@ -364,13 +364,13 @@ describe('gmail-history-sync worker behaviour', () => {
     expect(merged.pendingHistoryPageToken).toBeUndefined()
     // Hub-owned push keys carried forward.
     expect(merged.pushStatus).toBe('active')
-    expect(merged.subscriptionId).toBe('sub-123')
+    expect(merged.pubsubTopic).toBe('projects/p/topics/gmail-push')
     expect(merged.watchExpirationMs).toBe(9999999999)
     // lastPolledAt stamped on a successful cursor persist.
     expect(channel.lastPolledAt).toBeInstanceOf(Date)
     // Sanity: the push keys we asserted are the contract keys.
     expect(PUSH_STATE_KEYS).toEqual(
-      expect.arrayContaining(['pushStatus', 'subscriptionId', 'watchExpirationMs']),
+      expect.arrayContaining(['pushStatus', 'pubsubTopic', 'watchExpirationMs']),
     )
   })
 
@@ -378,9 +378,9 @@ describe('gmail-history-sync worker behaviour', () => {
   // state (preservePushState only backfills MISSING keys).
   it('lets a push-state key present in the decoded cursor override the previous value', async () => {
     const channel = baseChannel({
-      channelState: { pushStatus: 'active', subscriptionId: 'old-sub' },
+      channelState: { pushStatus: 'active', pubsubTopic: 'old-topic' },
     })
-    const decodedCursor = { historyId: '6000', subscriptionId: 'new-sub' }
+    const decodedCursor = { historyId: '6000', pubsubTopic: 'new-topic' }
     const nextCursor = Buffer.from(JSON.stringify(decodedCursor)).toString('base64')
     const applyPushNotification = jest.fn(async () => ({
       messages: [],
@@ -390,7 +390,7 @@ describe('gmail-history-sync worker behaviour', () => {
     const { ctx } = makeCtx(channel, { providerKey: 'gmail', applyPushNotification })
     await handler(makeJob(), ctx)
     const merged = channel.channelState as Record<string, unknown>
-    expect(merged.subscriptionId).toBe('new-sub')
+    expect(merged.pubsubTopic).toBe('new-topic')
     expect(merged.pushStatus).toBe('active')
   })
 

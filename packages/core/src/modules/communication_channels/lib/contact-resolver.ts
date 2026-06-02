@@ -156,7 +156,7 @@ function heuristicEmail(senderIdentifier: string): string | undefined {
 
 function heuristicPhone(senderIdentifier: string): string | undefined {
   // Plain heuristic: +CC followed by 6+ digits. Real phone validation is the
-  // adapter's job (the email integration spec elaborates IMAP/Microsoft Graph paths).
+  // adapter's job (the email integration spec elaborates IMAP paths).
   if (/^\+\d{6,}$/.test(senderIdentifier)) return senderIdentifier
   return undefined
 }
