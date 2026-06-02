@@ -132,14 +132,18 @@ test.describe('TC-AI-MERCHANDISING-008: catalog.merchandising_assistant sheet', 
     // selection-pill DOM contract that future selection wiring must honor.
     await expect(page.locator('[data-ai-merchandising-selection-pill]')).toHaveCount(0);
 
+    // Append the synthetic pill to document.body, NOT into the React-owned
+    // dialog header: the sheet's AiChatSessions provider fires an async
+    // conversations fetch whose resolution triggers a setState that reconciles
+    // the header subtree and prunes any foreign child node. document.body is
+    // outside React's reconciliation, so the injected node survives; the
+    // document-wide locator still resolves it.
     await page.evaluate(() => {
-      const header = document.querySelector('[data-ai-merchandising-sheet] [data-slot="dialog-header"], [data-ai-merchandising-sheet] header, [data-ai-merchandising-sheet] div');
-      if (!header) return;
       const pill = document.createElement('span');
       pill.setAttribute('data-ai-merchandising-selection-pill', '');
       pill.setAttribute('data-ai-merchandising-selected-count', '3');
       pill.textContent = 'Acting on 3 products';
-      header.appendChild(pill);
+      document.body.appendChild(pill);
     });
     const injectedPill = page.locator('[data-ai-merchandising-selection-pill]');
     await expect(injectedPill).toHaveAttribute('data-ai-merchandising-selected-count', '3');
