@@ -12,7 +12,7 @@ interface MockEntityManager {
   findOne: jest.Mock<Promise<unknown>, [unknown, Record<string, unknown>?]>
   find: jest.Mock<Promise<unknown[]>, [unknown, Record<string, unknown>?]>
   fork: jest.Mock<MockEntityManager, []>
-  transactional: jest.Mock<Promise<unknown>, [() => Promise<unknown>]>
+  transactional: jest.Mock<Promise<unknown>, [(em: MockEntityManager) => Promise<unknown>]>
 }
 
 interface MockDataEngine {
@@ -43,7 +43,9 @@ const mockEm: MockEntityManager = {
   findOne: jest.fn<Promise<unknown>, [unknown, Record<string, unknown>?]>(),
   find: jest.fn<Promise<unknown[]>, [unknown, Record<string, unknown>?]>(),
   fork: jest.fn<MockEntityManager, []>(),
-  transactional: jest.fn<Promise<unknown>, [() => Promise<unknown>]>(),
+  transactional: jest.fn<Promise<unknown>, [(em: MockEntityManager) => Promise<unknown>]>(
+    async (fn) => fn(mockEm),
+  ),
 }
 const mockDataEngine: MockDataEngine = {
   __queue: queue,

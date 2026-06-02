@@ -1,0 +1,7 @@
+=== launching ephemeral integration scoped to TC-CRM-072 ===
+🚀 Running test:integration TC-CRM-072
+[integration] Ephemeral database ready at localhost:32769
+[integration] Application is ready at http://127.0.0.1:5001
+Running 1 test using 1 worker
+  ✓  1 packages/core/src/modules/customers/__integration__/TC-CRM-072.spec.ts:50:3 › TC-CRM-072: org-scope fail-open authorization hardening (#2239 + #2245) › denies cross-org write/read for a floating restricted user; allows in-scope (3.6s)
+  1 passed (56.9s)
