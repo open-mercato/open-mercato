@@ -3,6 +3,7 @@
 import * as React from 'react'
 import { apiCall, withScopedApiRequestHeaders } from '@open-mercato/ui/backend/utils/apiCall'
 import { buildOptimisticLockHeader } from '@open-mercato/ui/backend/utils/optimisticLock'
+import { surfaceRecordConflict } from '@open-mercato/ui/backend/conflicts'
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
 import { Badge } from '@open-mercato/ui/primitives/badge'
 import { Button } from '@open-mercato/ui/primitives/button'
@@ -249,24 +250,39 @@ export function IntegrationScheduleTab(props: IntegrationScheduleTabProps) {
     const scheduleState = schedules[scheduleKey] ?? buildDefaultScheduleState(entityType)
     setSavingKey(scheduleKey)
     try {
-      // optimistic-lock-exempt: keyed upsert (POST, no record id/version in body) — guard targets id-addressed PUT/PATCH/DELETE
-      const call = await apiCall<SyncScheduleRecord>('/api/data_sync/schedules', {
-        method: 'POST',
-        headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({
-          integrationId: props.integrationId,
-          entityType,
-          direction,
-          scheduleType: scheduleState.scheduleType,
-          scheduleValue: scheduleState.scheduleValue,
-          timezone: scheduleState.timezone,
-          fullSync: scheduleState.fullSync,
-          isEnabled: scheduleState.isEnabled,
-        }),
-      }, { fallback: null })
+      // Keyed upsert (POST). When the server resolves an existing row the save
+      // version-checks against this schedule's loaded `updatedAt`; for a brand
+      // new row the header is empty so the create path is unaffected.
+      const call = await withScopedApiRequestHeaders(
+        buildOptimisticLockHeader(scheduleState.updatedAt),
+        () => apiCall<SyncScheduleRecord>('/api/data_sync/schedules', {
+          method: 'POST',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({
+            integrationId: props.integrationId,
+            entityType,
+            direction,
+            scheduleType: scheduleState.scheduleType,
+            scheduleValue: scheduleState.scheduleValue,
+            timezone: scheduleState.timezone,
+            fullSync: scheduleState.fullSync,
+            isEnabled: scheduleState.isEnabled,
+          }),
+        }, { fallback: null }),
+      )
 
       if (!call.ok || !call.result) {
-        throw new Error((call.result as { error?: string } | null)?.error ?? 'Failed to save schedule')
+        const conflictError = Object.assign(
+          new Error((call.result as { error?: string } | null)?.error ?? 'Failed to save schedule'),
+          {
+            status: call.status,
+            ...(call.result && typeof call.result === 'object' ? call.result : {}),
+          },
+        )
+        if (surfaceRecordConflict(conflictError, t)) {
+          return
+        }
+        throw conflictError
       }
 
       updateScheduleEditor(scheduleKey, {
