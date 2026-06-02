@@ -3,7 +3,7 @@
 import * as React from 'react'
 import { useRouter } from 'next/navigation'
 import { Page, PageBody } from '@open-mercato/ui/backend/Page'
-import { LoadingMessage, ErrorMessage } from '@open-mercato/ui/backend/detail'
+import { LoadingMessage, ErrorMessage, RecordNotFoundState } from '@open-mercato/ui/backend/detail'
 import { CrudForm } from '@open-mercato/ui/backend/CrudForm'
 import { updateCrud } from '@open-mercato/ui/backend/utils/crud'
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
@@ -49,6 +49,7 @@ export default function EditExchangeRatePage({ params }: { params?: { id?: strin
   const [exchangeRate, setExchangeRate] = React.useState<ExchangeRateData | null>(null)
   const [loading, setLoading] = React.useState(true)
   const [error, setError] = React.useState<string | null>(null)
+  const [isNotFound, setIsNotFound] = React.useState(false)
 
   const loadOptions = React.useCallback(
     (query?: string) => loadCurrencyOptions(apiCall, query),
@@ -62,8 +63,10 @@ export default function EditExchangeRatePage({ params }: { params?: { id?: strin
         const response = await apiCall<{ items: ExchangeRateData[] }>(`/api/currencies/exchange-rates?id=${params?.id}`)
         if (response.ok && response.result && response.result.items.length > 0) {
           setExchangeRate(response.result.items[0])
+        } else if (response.ok) {
+          setIsNotFound(true)
         } else {
-          setError(t('exchangeRates.form.errors.notFound'))
+          setError(t('exchangeRates.form.errors.load'))
         }
       } catch (err) {
         setError(t('exchangeRates.form.errors.load'))
@@ -89,11 +92,25 @@ export default function EditExchangeRatePage({ params }: { params?: { id?: strin
     )
   }
 
+  if (isNotFound) {
+    return (
+      <Page>
+        <PageBody>
+          <RecordNotFoundState
+            label={t('exchangeRates.form.errors.notFound')}
+            backHref="/backend/exchange-rates"
+            backLabel={t('exchangeRates.form.actions.backToList', 'Back to exchange rates')}
+          />
+        </PageBody>
+      </Page>
+    )
+  }
+
   if (error || !exchangeRate) {
     return (
       <Page>
         <PageBody>
-          <ErrorMessage label={error || t('exchangeRates.form.errors.notFound')} />
+          <ErrorMessage label={error ?? t('exchangeRates.form.errors.load')} />
         </PageBody>
       </Page>
     )

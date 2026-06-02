@@ -10,7 +10,7 @@ import { Switch } from '@open-mercato/ui/primitives/switch'
 import { Label } from '@open-mercato/ui/primitives/label'
 import { DataTable } from '@open-mercato/ui/backend/DataTable'
 import { apiCallOrThrow } from '@open-mercato/ui/backend/utils/apiCall'
-import { LoadingMessage, ErrorMessage } from '@open-mercato/ui/backend/detail'
+import { LoadingMessage, ErrorMessage, RecordNotFoundState } from '@open-mercato/ui/backend/detail'
 import { JobLogsModal } from '../../../../components/JobLogsModal'
 import { ExecutionDetailsDialog } from '../../../../components/ExecutionDetailsDialog'
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
@@ -67,6 +67,7 @@ export default function ScheduleDetailPage() {
   const [runs, setRuns] = React.useState<ExecutionRun[]>([])
   const [loading, setLoading] = React.useState(true)
   const [error, setError] = React.useState<string | null>(null)
+  const [isNotFound, setIsNotFound] = React.useState(false)
   const [logsModalOpen, setLogsModalOpen] = React.useState(false)
   const [detailsModalOpen, setDetailsModalOpen] = React.useState(false)
   const [selectedRun, setSelectedRun] = React.useState<ExecutionRun | null>(null)
@@ -85,7 +86,9 @@ export default function ScheduleDetailPage() {
       )
       const schedules = (listData as { items?: unknown[] })?.items || []
       if (schedules.length === 0) {
-        throw new Error(t('scheduler.error.not_found', 'Schedule not found'))
+        setIsNotFound(true)
+        setLoading(false)
+        return
       }
       setSchedule(schedules[0] as ScheduleDetail)
 
@@ -254,9 +257,46 @@ export default function ScheduleDetailPage() {
     },
   ]
 
-  if (loading) return <LoadingMessage label={t('scheduler.loading', 'Loading schedule...')} />
-  if (error) return <ErrorMessage label={t('scheduler.details.error', 'Error')} description={error} />
-  if (!schedule) return <ErrorMessage label={t('scheduler.details.not_found', 'Not Found')} description={t('scheduler.error.not_found', 'Schedule not found')} />
+  if (loading) {
+    return (
+      <Page>
+        <PageBody>
+          <LoadingMessage label={t('scheduler.loading', 'Loading schedule...')} />
+        </PageBody>
+      </Page>
+    )
+  }
+  if (isNotFound) {
+    return (
+      <Page>
+        <PageBody>
+          <RecordNotFoundState
+            label={t('scheduler.error.not_found', 'Schedule not found')}
+            backHref="/backend/config/scheduled-jobs"
+            backLabel={t('scheduler.nav.backToList', 'Back to scheduled jobs')}
+          />
+        </PageBody>
+      </Page>
+    )
+  }
+  if (error) {
+    return (
+      <Page>
+        <PageBody>
+          <ErrorMessage label={t('scheduler.details.error', 'Error')} description={error} />
+        </PageBody>
+      </Page>
+    )
+  }
+  if (!schedule) {
+    return (
+      <Page>
+        <PageBody>
+          <ErrorMessage label={t('scheduler.details.not_found', 'Not Found')} description={t('scheduler.error.not_found', 'Schedule not found')} />
+        </PageBody>
+      </Page>
+    )
+  }
 
   return (
     <Page>

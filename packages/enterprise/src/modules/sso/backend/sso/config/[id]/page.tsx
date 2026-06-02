@@ -6,7 +6,7 @@ import { Page, PageBody } from '@open-mercato/ui/backend/Page'
 import { Button } from '@open-mercato/ui/primitives/button'
 import { PasswordInput } from '@open-mercato/ui/primitives/password-input'
 import { FormHeader } from '@open-mercato/ui/backend/forms'
-import { LoadingMessage, ErrorMessage } from '@open-mercato/ui/backend/detail'
+import { LoadingMessage, ErrorMessage, RecordNotFoundState } from '@open-mercato/ui/backend/detail'
 import { apiCall, apiCallOrThrow } from '@open-mercato/ui/backend/utils/apiCall'
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
 import { useConfirmDialog } from '@open-mercato/ui/backend/confirm-dialog'
@@ -58,6 +58,7 @@ export default function SsoConfigDetailPage() {
   const [config, setConfig] = React.useState<SsoConfigDetail | null>(null)
   const [isLoading, setIsLoading] = React.useState(true)
   const [error, setError] = React.useState<string | null>(null)
+  const [isNotFound, setIsNotFound] = React.useState(false)
   const [activeTab, setActiveTab] = React.useState<Tab>('general')
   const [showActivationBanner, setShowActivationBanner] = React.useState(searchParams?.get('created') === '1')
   const [activationError, setActivationError] = React.useState<string | null>(null)
@@ -93,6 +94,7 @@ export default function SsoConfigDetailPage() {
 
   const fetchConfig = React.useCallback(async () => {
     setIsLoading(true)
+    setIsNotFound(false)
     const call = await apiCall<SsoConfigDetail>(`/api/sso/config/${configId}`)
     if (call.ok && call.result) {
       const c = call.result
@@ -103,6 +105,8 @@ export default function SsoConfigDetailPage() {
       setJitEnabled(c.jitEnabled)
       setAutoLinkByEmail(c.autoLinkByEmail)
       setError(null)
+    } else if (call.status === 404) {
+      setIsNotFound(true)
     } else {
       setError(t('sso.admin.error.loadFailed', 'Failed to load SSO configuration'))
     }
@@ -270,7 +274,20 @@ export default function SsoConfigDetailPage() {
   }
 
   if (isLoading) return <Page><PageBody><LoadingMessage label={t('common.loading', 'Loading...')} /></PageBody></Page>
-  if (error || !config) return <Page><PageBody><ErrorMessage label={error || t('common.notFound', 'Not found')} /></PageBody></Page>
+  if (isNotFound) {
+    return (
+      <Page>
+        <PageBody>
+          <RecordNotFoundState
+            label={t('sso.admin.error.notFound', 'SSO configuration not found.')}
+            backHref="/backend/sso"
+            backLabel={t('sso.admin.backToList', 'Back to SSO configurations')}
+          />
+        </PageBody>
+      </Page>
+    )
+  }
+  if (error || !config) return <Page><PageBody><ErrorMessage label={error ?? t('sso.admin.error.loadFailed', 'Failed to load SSO configuration')} /></PageBody></Page>
 
   const tabs: { id: Tab; label: string }[] = [
     { id: 'general', label: t('sso.admin.tab.general', 'General') },
