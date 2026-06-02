@@ -1,6 +1,10 @@
 import type { EntityManager } from '@mikro-orm/core'
 import type { TenantDataEncryptionService } from '@open-mercato/shared/lib/encryption/tenantDataEncryptionService'
 import { encryptCustomFieldValue, resolveTenantEncryptionService } from '@open-mercato/shared/lib/encryption/customFieldValues'
+import {
+  MAX_CUSTOM_FIELD_KEYS_PER_RECORD,
+  TOO_MANY_CUSTOM_FIELDS_ERROR,
+} from '@open-mercato/shared/modules/entities/validation'
 import { CustomFieldDef, CustomFieldValue } from '../data/entities'
 
 type Primitive = string | number | boolean | null | undefined
@@ -69,16 +73,32 @@ export async function setRecordCustomFields(
   if (preferDefs) {
     const defs = await em.find(CustomFieldDef, {
       entityId,
+      isActive: true,
+      deletedAt: null,
       organizationId: { $in: [organizationId, null] as any },
       tenantId: { $in: [tenantId, null] as any },
     })
-    // Prefer org+tenant-specific over global if duplicates
+    const scopeScore = (def: CustomFieldDef) => (def.tenantId ? 2 : 0) + (def.organizationId ? 1 : 0)
     defsByKey = {}
     for (const d of defs) {
       const existing = defsByKey[d.key]
-      if (!existing || 
-          (existing.organizationId == null && d.organizationId != null) ||
-          (existing.tenantId == null && d.tenantId != null)) {
+      if (!existing) {
+        defsByKey[d.key] = d
+        continue
+      }
+      const nextScore = scopeScore(d)
+      const existingScore = scopeScore(existing)
+      if (nextScore > existingScore) {
+        defsByKey[d.key] = d
+        continue
+      }
+      if (nextScore < existingScore) continue
+
+      const nextUpdatedAt = d.updatedAt instanceof Date ? d.updatedAt.getTime() : new Date(d.updatedAt).getTime()
+      const existingUpdatedAt = existing.updatedAt instanceof Date
+        ? existing.updatedAt.getTime()
+        : new Date(existing.updatedAt).getTime()
+      if (nextUpdatedAt >= existingUpdatedAt) {
         defsByKey[d.key] = d
       }
     }
@@ -93,6 +113,11 @@ export async function setRecordCustomFields(
     return encryptionService
   }
   const keys = Object.keys(values)
+  const presentKeyCount = keys.filter((key) => values[key] !== undefined).length
+  if (preferDefs && presentKeyCount > MAX_CUSTOM_FIELD_KEYS_PER_RECORD) {
+    throw new Error(TOO_MANY_CUSTOM_FIELDS_ERROR)
+  }
+
   for (const fieldKey of keys) {
     const raw = values[fieldKey]
     if (raw === undefined) continue
