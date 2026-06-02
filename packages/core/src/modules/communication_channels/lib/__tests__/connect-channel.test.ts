@@ -1,8 +1,9 @@
 jest.mock('@open-mercato/shared/lib/encryption/find', () => ({
   findOneWithDecryption: jest.fn(),
+  findWithDecryption: jest.fn(),
 }))
 
-import { findOneWithDecryption } from '@open-mercato/shared/lib/encryption/find'
+import { findOneWithDecryption, findWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import { createConnectedChannelRow } from '../connect-channel'
 
 const ADAPTER = { channelType: 'email', capabilities: { realtimePush: false } } as never
@@ -18,7 +19,12 @@ const BASE = {
 }
 
 describe('createConnectedChannelRow', () => {
-  beforeEach(() => jest.clearAllMocks())
+  beforeEach(() => {
+    jest.clearAllMocks()
+    // Default: no other channels for the user, so the cross-provider mailbox
+    // guard never trips in these (single-provider) scenarios.
+    ;(findWithDecryption as jest.Mock).mockResolvedValue([])
+  })
 
   it('creates a new channel when none exists for the mailbox', async () => {
     ;(findOneWithDecryption as jest.Mock).mockResolvedValue(null)

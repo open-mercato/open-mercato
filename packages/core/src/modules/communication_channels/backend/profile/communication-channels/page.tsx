@@ -91,11 +91,16 @@ export default function ProfileCommunicationChannelsPage() {
               'communication_channels.profile.connect.notConfigured',
               'This provider is not configured yet. Ask an administrator to add the OAuth Client ID and Secret under Integrations before connecting a mailbox.',
             )
-          : flashCode
-            ? t('communication_channels.profile.flash.errorWithCode', 'Failed to connect channel — {code}.', {
-                code: flashCode,
-              })
-            : t('communication_channels.profile.flash.error', 'Failed to connect channel.'),
+          : flashCode === 'mailbox_already_connected'
+            ? t(
+                'communication_channels.profile.connect.mailboxAlreadyConnected',
+                'This mailbox is already connected through another provider. Disconnect it first to reconnect it with a different one.',
+              )
+            : flashCode
+              ? t('communication_channels.profile.flash.errorWithCode', 'Failed to connect channel — {code}.', {
+                  code: flashCode,
+                })
+              : t('communication_channels.profile.flash.error', 'Failed to connect channel.'),
         'error',
       )
     }

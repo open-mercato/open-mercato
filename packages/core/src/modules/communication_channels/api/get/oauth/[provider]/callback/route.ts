@@ -3,7 +3,7 @@ import { getAuthFromRequest } from '@open-mercato/shared/lib/auth/server'
 import { toAbsoluteUrl } from '@open-mercato/shared/lib/url'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import type { EntityManager } from '@mikro-orm/postgresql'
-import { createConnectedChannelRow } from '../../../../../lib/connect-channel'
+import { createConnectedChannelRow, MailboxAlreadyConnectedError } from '../../../../../lib/connect-channel'
 import { getChannelAdapter } from '../../../../../lib/adapter-registry-singleton'
 import { resolveOAuthClientCredentials } from '../../../../../lib/oauth-client-config'
 import {
@@ -260,16 +260,33 @@ export async function GET(req: Request, context: RouteContext): Promise<Response
   // has no usable credentials. The user can re-run the OAuth flow to recover
   // (see review R2-H4 / F6, 2026-05-26).
   const credentialsAvailable = credentialsRefId !== null
-  const channel = await createConnectedChannelRow({
-    em,
-    adapter,
-    providerKey: provider,
-    displayName,
-    externalIdentifier: exchange.externalIdentifier ?? null,
-    credentialsRefId,
-    userId: auth.sub as string,
-    scope: { tenantId: statePayload.tenantId, organizationId: statePayload.organizationId ?? null },
-  })
+  let channel
+  try {
+    channel = await createConnectedChannelRow({
+      em,
+      adapter,
+      providerKey: provider,
+      displayName,
+      externalIdentifier: exchange.externalIdentifier ?? null,
+      credentialsRefId,
+      userId: auth.sub as string,
+      scope: { tenantId: statePayload.tenantId, organizationId: statePayload.organizationId ?? null },
+    })
+  } catch (err) {
+    // Same mailbox already connected via another provider — don't create a second
+    // channel that double-ingests every message; send the user back with a flash.
+    if (err instanceof MailboxAlreadyConnectedError) {
+      console.warn(
+        `[communication_channels:oauth] mailbox ${err.externalIdentifier} already connected via ${err.existingProviderKey}`,
+      )
+      return redirectWithFlash(req, returnUrl, {
+        type: 'error',
+        code: 'mailbox_already_connected',
+        provider,
+      })
+    }
+    throw err
+  }
 
   // Spec C § Phase C5 — best-effort push registration for OAuth providers
   // that support it (Gmail). Same shape as the credential-connect

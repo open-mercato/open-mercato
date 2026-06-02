@@ -91,6 +91,7 @@
   "communication_channels.profile.connect.gmail": "Połącz Gmail",
   "communication_channels.profile.connect.imap": "Połącz IMAP",
   "communication_channels.profile.connect.imapTitle": "Połącz skrzynkę IMAP",
+  "communication_channels.profile.connect.mailboxAlreadyConnected": "Ta skrzynka jest już połączona przez innego dostawcę. Najpierw ją rozłącz, aby połączyć ją z innym dostawcą.",
   "communication_channels.profile.connect.notConfigured": "Ten dostawca nie został jeszcze skonfigurowany. Poproś administratora o dodanie identyfikatora klienta i sekretu OAuth w sekcji Integracje przed połączeniem skrzynki.",
   "communication_channels.profile.connect.oauthFailed": "Nie udało się rozpocząć połączenia OAuth.",
   "communication_channels.profile.connect.save": "Połącz",

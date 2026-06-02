@@ -1,5 +1,5 @@
 import type { EntityManager } from '@mikro-orm/postgresql'
-import { findOneWithDecryption } from '@open-mercato/shared/lib/encryption/find'
+import { findOneWithDecryption, findWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import { CommunicationChannel } from '../data/entities'
 import type { ChannelAdapter } from './adapter'
 import { isUniqueViolation } from './pg-errors'
@@ -10,6 +10,24 @@ import { isUniqueViolation } from './pg-errors'
  * no fixed poll). Shared so push teardown restores the same cadence connect uses.
  */
 export const POLLING_ONLY_DEFAULT_INTERVAL_SECONDS = 300
+
+/**
+ * Thrown by {@link createConnectedChannelRow} when the same mailbox
+ * (`externalIdentifier`) is already connected for this user via a DIFFERENT
+ * provider. Both channels would poll the same inbox, and the per-channel
+ * `(channel_id, external_message_id)` dedup cannot dedupe the same email across
+ * channels — so every message would be ingested (and threaded) twice.
+ */
+export class MailboxAlreadyConnectedError extends Error {
+  readonly externalIdentifier: string
+  readonly existingProviderKey: string
+  constructor(externalIdentifier: string, existingProviderKey: string) {
+    super(`Mailbox ${externalIdentifier} is already connected via ${existingProviderKey}`)
+    this.name = 'MailboxAlreadyConnectedError'
+    this.externalIdentifier = externalIdentifier
+    this.existingProviderKey = existingProviderKey
+  }
+}
 
 export interface CreateConnectedChannelRowArgs {
   em: EntityManager
@@ -48,6 +66,33 @@ export async function createConnectedChannelRow(
         ? POLLING_ONLY_DEFAULT_INTERVAL_SECONDS
         : null
   const dscope = { tenantId: scope.tenantId, organizationId: scope.organizationId ?? null }
+
+  // Cross-provider duplicate guard: the same mailbox must not be connected via
+  // two providers for one user. Both channels would poll the same inbox, and the
+  // per-channel `(channel_id, external_message_id)` dedup cannot dedupe the same
+  // email across channels — so every message would be ingested (and threaded)
+  // twice. Reconnecting the SAME provider/mailbox is fine (healed below); this
+  // only blocks a DIFFERENT provider for an already-connected address.
+  if (externalIdentifier) {
+    const normalized = externalIdentifier.toLowerCase()
+    const userChannels = (await findWithDecryption(
+      em,
+      CommunicationChannel,
+      { tenantId: scope.tenantId, userId, deletedAt: null },
+      undefined,
+      dscope,
+    )) as CommunicationChannel[]
+    const conflict = userChannels.find(
+      (existing) =>
+        existing.providerKey !== providerKey &&
+        typeof existing.externalIdentifier === 'string' &&
+        existing.externalIdentifier.toLowerCase() === normalized,
+    )
+    if (conflict) {
+      throw new MailboxAlreadyConnectedError(externalIdentifier, conflict.providerKey)
+    }
+  }
+
   const naturalKey = {
     tenantId: scope.tenantId,
     userId,

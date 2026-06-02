@@ -96,6 +96,15 @@ export async function POST(req: Request): Promise<Response> {
   if (result.status === 'validation_failed') {
     return NextResponse.json({ error: 'Credential validation failed', fieldErrors: result.errors }, { status: 422 })
   }
+  if (result.status === 'duplicate_mailbox') {
+    return NextResponse.json(
+      {
+        error: `This mailbox is already connected via "${result.existingProviderKey}". Disconnect it there before connecting it again with a different provider.`,
+        code: 'mailbox_already_connected',
+      },
+      { status: 409 },
+    )
+  }
   await guard.afterSuccess()
   return NextResponse.json(
     {
@@ -116,6 +125,7 @@ export const openApi = {
         { status: 201, description: 'Channel connected' },
         { status: 401, description: 'Unauthorized' },
         { status: 404, description: 'Unknown provider' },
+        { status: 409, description: 'Mailbox already connected via another provider' },
         { status: 422, description: 'Invalid body or credential validation failed' },
       ],
     },

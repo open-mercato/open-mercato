@@ -91,6 +91,7 @@
   "communication_channels.profile.connect.gmail": "Gmail verbinden",
   "communication_channels.profile.connect.imap": "IMAP verbinden",
   "communication_channels.profile.connect.imapTitle": "IMAP-Postfach verbinden",
+  "communication_channels.profile.connect.mailboxAlreadyConnected": "Dieses Postfach ist bereits über einen anderen Anbieter verbunden. Trennen Sie es zuerst, um es mit einem anderen Anbieter erneut zu verbinden.",
   "communication_channels.profile.connect.notConfigured": "Dieser Anbieter ist noch nicht konfiguriert. Bitten Sie einen Administrator, die OAuth-Client-ID und das Secret unter Integrationen zu hinterlegen, bevor ein Postfach verbunden wird.",
   "communication_channels.profile.connect.oauthFailed": "OAuth-Verbindung konnte nicht gestartet werden.",
   "communication_channels.profile.connect.save": "Verbinden",

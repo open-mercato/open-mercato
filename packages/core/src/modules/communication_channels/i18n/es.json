@@ -91,6 +91,7 @@
   "communication_channels.profile.connect.gmail": "Conectar Gmail",
   "communication_channels.profile.connect.imap": "Conectar IMAP",
   "communication_channels.profile.connect.imapTitle": "Conectar buzón IMAP",
+  "communication_channels.profile.connect.mailboxAlreadyConnected": "Este buzón ya está conectado a través de otro proveedor. Desconéctalo primero para volver a conectarlo con uno diferente.",
   "communication_channels.profile.connect.notConfigured": "Este proveedor aún no está configurado. Pide a un administrador que añada el ID de cliente y el secreto de OAuth en Integraciones antes de conectar un buzón.",
   "communication_channels.profile.connect.oauthFailed": "No se pudo iniciar la conexión OAuth.",
   "communication_channels.profile.connect.save": "Conectar",

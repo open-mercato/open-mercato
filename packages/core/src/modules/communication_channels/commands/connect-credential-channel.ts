@@ -3,7 +3,7 @@ import type { EntityManager } from '@mikro-orm/postgresql'
 import type { CommandHandler } from '@open-mercato/shared/lib/commands'
 import { registerCommand } from '@open-mercato/shared/lib/commands'
 import type { ChannelAdapterRegistry } from '../lib/registry'
-import { createConnectedChannelRow } from '../lib/connect-channel'
+import { createConnectedChannelRow, MailboxAlreadyConnectedError } from '../lib/connect-channel'
 
 const connectCredentialChannelSchema = z.object({
   providerKey: z.string().min(1).max(64),
@@ -25,6 +25,7 @@ export type ConnectCredentialChannelResult =
   | { status: 'connected'; channelId: string; externalIdentifier: string | null }
   | { status: 'validation_failed'; errors: Record<string, string> }
   | { status: 'no_adapter'; reason: string }
+  | { status: 'duplicate_mailbox'; externalIdentifier: string; existingProviderKey: string }
 
 export const COMMUNICATION_CHANNELS_CONNECT_CREDENTIAL_CHANNEL_COMMAND_ID =
   'communication_channels.channel.connect_credential'
@@ -154,29 +155,50 @@ const connectCredentialChannelCommand: CommandHandler<
       }
     }
 
+    // Mailbox identity for this channel: the email address. IMAP/SMTP credentials
+    // carry it as `fromAddress`; other credential providers may use `username` or
+    // `email`. Normalize emails to lowercase so the cross-provider duplicate guard
+    // and the per-(tenant,user,provider,mailbox) heal index match canonically.
+    const credBag = input.credentials as Record<string, unknown>
+    const rawIdentifier =
+      (typeof credBag.username === 'string' && credBag.username.length > 0 ? credBag.username : null) ??
+      (typeof credBag.email === 'string' && credBag.email.length > 0 ? credBag.email : null) ??
+      (typeof credBag.fromAddress === 'string' && credBag.fromAddress.length > 0
+        ? credBag.fromAddress
+        : null)
     const externalIdentifier =
-      typeof (input.credentials as { username?: string }).username === 'string'
-        ? ((input.credentials as { username?: string }).username as string)
-        : typeof (input.credentials as { email?: string }).email === 'string'
-          ? ((input.credentials as { email?: string }).email as string)
-          : null
+      rawIdentifier && rawIdentifier.includes('@') ? rawIdentifier.toLowerCase() : rawIdentifier
 
     // Fail-safe: if credentials persistence failed (no `credentialsRef`), the
     // channel is created in `requires_reauth` + isActive=false so workers
     // don't poll a channel that has no usable credentials. The user can
     // reconnect to recover (see review R2-H4 / F6, 2026-05-26).
     const credentialsAvailable = credentialsRefId !== null
-    const channel = await createConnectedChannelRow({
-      em,
-      adapter,
-      providerKey: input.providerKey,
-      displayName: input.displayName,
-      externalIdentifier,
-      credentialsRefId,
-      userId: input.userId,
-      scope: { tenantId: input.scope.tenantId, organizationId: input.scope.organizationId ?? null },
-      pollIntervalSeconds: input.pollIntervalSeconds,
-    })
+    let channel
+    try {
+      channel = await createConnectedChannelRow({
+        em,
+        adapter,
+        providerKey: input.providerKey,
+        displayName: input.displayName,
+        externalIdentifier,
+        credentialsRefId,
+        userId: input.userId,
+        scope: { tenantId: input.scope.tenantId, organizationId: input.scope.organizationId ?? null },
+        pollIntervalSeconds: input.pollIntervalSeconds,
+      })
+    } catch (err) {
+      // Same mailbox already connected via another provider — reject so we don't
+      // create a second channel that double-ingests every message.
+      if (err instanceof MailboxAlreadyConnectedError) {
+        return {
+          status: 'duplicate_mailbox',
+          externalIdentifier: err.externalIdentifier,
+          existingProviderKey: err.existingProviderKey,
+        }
+      }
+      throw err
+    }
 
     // Spec C § Phase C5 — best-effort push registration for providers that
     // support it (Gmail). Failures persist as `pushStatus='failed'`

@@ -91,6 +91,7 @@
   "communication_channels.profile.connect.gmail": "Connect Gmail",
   "communication_channels.profile.connect.imap": "Connect IMAP",
   "communication_channels.profile.connect.imapTitle": "Connect IMAP mailbox",
+  "communication_channels.profile.connect.mailboxAlreadyConnected": "This mailbox is already connected through another provider. Disconnect it first to reconnect it with a different one.",
   "communication_channels.profile.connect.notConfigured": "This provider is not configured yet. Ask an administrator to add the OAuth Client ID and Secret under Integrations before connecting a mailbox.",
   "communication_channels.profile.connect.oauthFailed": "Could not start OAuth connection.",
   "communication_channels.profile.connect.save": "Connect",
