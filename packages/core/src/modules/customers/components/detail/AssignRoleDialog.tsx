@@ -3,7 +3,9 @@
 import * as React from 'react'
 import Link from 'next/link'
 import { Search, Check, CheckCheck, Settings2 } from 'lucide-react'
+import { Avatar } from '@open-mercato/ui/primitives/avatar'
 import { EmptyState } from '@open-mercato/ui/primitives/empty-state'
+import { StepIndicator, type StepIndicatorStep } from '@open-mercato/ui/primitives/step-indicator'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { Button } from '@open-mercato/ui/primitives/button'
 import { Badge } from '@open-mercato/ui/primitives/badge'
@@ -18,7 +20,6 @@ import {
 import type { DictionaryEntryOption } from '@open-mercato/core/modules/dictionaries/lib/clientEntries'
 import type { RoleAssignment } from './RoleAssignmentRow'
 import { fetchAssignableStaffMembersPage } from './assignableStaff'
-import { getInitials } from './utils'
 
 const MANAGE_ROLE_TYPES_HREF = '/backend/config/customers'
 
@@ -297,9 +298,11 @@ export function AssignRoleDialog({
           {t('customers.roles.dialog.preview', 'Assignment preview')}
         </p>
         <div className="mt-3 flex items-center gap-3">
-          <div className="flex size-12 items-center justify-center rounded-full bg-background text-sm font-semibold text-foreground">
-            {getInitials(selectedUser.displayName)}
-          </div>
+          <Avatar
+            label={selectedUser.displayName}
+            size="lg"
+            className="bg-background text-foreground"
+          />
           <div className="min-w-0">
             <div className="flex flex-wrap items-center gap-2 text-sm font-semibold text-foreground">
               <span>{selectedUser.displayName}</span>
@@ -350,25 +353,26 @@ export function AssignRoleDialog({
         </DialogHeader>
 
         <div className="border-b border-border/70 px-6 py-4">
-          <div className="flex items-center justify-center gap-3 text-xs">
-            <StepBadge
-              step={1}
-              currentStep={step}
-              label={t('customers.roles.dialog.step1', 'Role type')}
-            />
-            <div className="h-px w-10 bg-border" />
-            <StepBadge
-              step={2}
-              currentStep={step}
-              label={t('customers.roles.dialog.step2', 'Select person')}
-            />
-            <div className="h-px w-10 bg-border" />
-            <StepBadge
-              step={3}
-              currentStep={step}
-              label={t('customers.roles.dialog.step3', 'Confirm')}
-            />
-          </div>
+          <StepIndicator
+            className="justify-center"
+            steps={[
+              {
+                id: '1',
+                label: t('customers.roles.dialog.step1', 'Role type'),
+                status: step > 1 ? 'complete' : step === 1 ? 'current' : 'pending',
+              },
+              {
+                id: '2',
+                label: t('customers.roles.dialog.step2', 'Select person'),
+                status: step > 2 ? 'complete' : step === 2 ? 'current' : 'pending',
+              },
+              {
+                id: '3',
+                label: t('customers.roles.dialog.step3', 'Confirm'),
+                status: step === 3 ? 'current' : 'pending',
+              },
+            ] satisfies StepIndicatorStep[]}
+          />
         </div>
 
         <div className="min-h-0 flex-1 overflow-y-auto">
@@ -550,9 +554,7 @@ export function AssignRoleDialog({
                               : 'border-border/70 bg-background hover:bg-accent/40'
                           }`}
                         >
-                          <div className="flex size-11 shrink-0 items-center justify-center rounded-full bg-muted text-sm font-semibold text-foreground">
-                            {getInitials(user.displayName)}
-                          </div>
+                          <Avatar label={user.displayName} size="lg" variant="monochrome" />
                           <div className="min-w-0 flex-1">
                             <div className="flex flex-wrap items-center gap-2">
                               <span className="text-sm font-semibold text-foreground">
@@ -672,32 +674,3 @@ export function AssignRoleDialog({
   )
 }
 
-function StepBadge({
-  step,
-  currentStep,
-  label,
-}: {
-  step: StepId
-  currentStep: StepId
-  label: string
-}) {
-  const isComplete = currentStep > step
-  const isCurrent = currentStep === step
-
-  return (
-    <div className="flex items-center gap-2">
-      <span
-        className={`flex size-5 items-center justify-center rounded-full border text-xs font-semibold ${
-          isComplete || isCurrent
-            ? 'border-foreground bg-foreground text-background'
-            : 'border-border bg-background text-muted-foreground'
-        }`}
-      >
-        {isComplete ? <Check className="size-3" /> : step}
-      </span>
-      <span className={isCurrent ? 'font-semibold text-foreground' : 'text-muted-foreground'}>
-        {label}
-      </span>
-    </div>
-  )
-}

@@ -281,7 +281,7 @@ export default function SsoConfigDetailPage() {
   ]
 
   const statusBadge = (
-    <span className={`inline-flex items-center rounded-full px-2 py-1 text-xs font-medium ${config.isActive ? 'bg-green-50 text-green-700' : 'bg-gray-100 text-gray-600'}`}>
+    <span className={`inline-flex items-center rounded-full px-2 py-1 text-xs font-medium ${config.isActive ? 'bg-status-success-bg text-status-success-text' : 'bg-status-neutral-bg text-status-neutral-text'}`}>
       {config.isActive ? t('sso.admin.status.active', 'Active') : t('sso.admin.status.inactive', 'Inactive')}
     </span>
   )
@@ -292,8 +292,8 @@ export default function SsoConfigDetailPage() {
         <div className="flex flex-col gap-6 max-w-3xl">
           {/* Activation banner after creation */}
           {showActivationBanner && !config.isActive && (
-            <div className="rounded-lg border border-blue-200 bg-blue-50 p-4">
-              <p className="text-sm font-medium text-blue-900 mb-3">
+            <div className="rounded-lg border border-status-info-border bg-status-info-bg p-4">
+              <p className="text-sm font-medium text-status-info-text mb-3">
                 {t('sso.admin.banner.created', 'Your SSO configuration has been created. Would you like to activate it now?')}
               </p>
               {activationError && (
@@ -350,7 +350,7 @@ export default function SsoConfigDetailPage() {
                 size="sm"
                 className={`h-auto rounded-none border-b-2 px-4 py-2 hover:bg-transparent ${
                   activeTab === tab.id
-                    ? 'border-primary text-foreground'
+                    ? 'border-accent-indigo text-foreground'
                     : 'border-transparent text-muted-foreground'
                 }`}
                 onClick={() => setActiveTab(tab.id)}
@@ -825,8 +825,8 @@ function ScimProvisioningTab({ configId, jitEnabled, issuer, onProvisioningChang
     <div className="space-y-6">
       {/* Google provider banner — SCIM not supported */}
       {isGoogleProvider && (
-        <div className="rounded-lg border border-blue-200 bg-blue-50 p-4">
-          <p className="text-sm text-blue-900">
+        <div className="rounded-lg border border-status-info-border bg-status-info-bg p-4">
+          <p className="text-sm text-status-info-text">
             {t('sso.admin.scim.googleNotSupported', 'Google Workspace does not support SCIM provisioning. Users are provisioned via Just-In-Time (JIT) on first login.')}
           </p>
         </div>
@@ -834,8 +834,8 @@ function ScimProvisioningTab({ configId, jitEnabled, issuer, onProvisioningChang
 
       {/* JIT active banner */}
       {!isGoogleProvider && jitEnabled && (
-        <div className="rounded-lg border border-amber-200 bg-amber-50 p-4">
-          <p className="text-sm text-amber-900">
+        <div className="rounded-lg border border-status-warning-border bg-status-warning-bg p-4">
+          <p className="text-sm text-status-warning-text">
             {t('sso.admin.scim.jitActiveWarning', 'SCIM provisioning is unavailable while JIT provisioning is enabled. Disable JIT in the General tab to configure SCIM.')}
           </p>
         </div>
@@ -857,8 +857,8 @@ function ScimProvisioningTab({ configId, jitEnabled, issuer, onProvisioningChang
 
       {/* Newly created token banner */}
       {newlyCreatedToken && (
-        <div className="rounded-lg border border-amber-200 bg-amber-50 p-4">
-          <p className="text-sm font-medium text-amber-900 mb-2">
+        <div className="rounded-lg border border-status-warning-border bg-status-warning-bg p-4">
+          <p className="text-sm font-medium text-status-warning-text mb-2">
             {t('sso.admin.scim.tokenCreated', 'Your SCIM token has been created. Copy it now — it will not be shown again.')}
           </p>
           <div className="flex items-center gap-2 mb-2">
@@ -922,7 +922,7 @@ function ScimProvisioningTab({ configId, jitEnabled, issuer, onProvisioningChang
                     <span className="text-xs text-muted-foreground ml-2 font-mono">{token.tokenPrefix}...</span>
                   </div>
                   <span className={`inline-flex items-center rounded-full px-2 py-0.5 text-xs font-medium ${
-                    token.isActive ? 'bg-green-50 text-green-700' : 'bg-gray-100 text-gray-500'
+                    token.isActive ? 'bg-status-success-bg text-status-success-text' : 'bg-status-neutral-bg text-status-neutral-text'
                   }`}>
                     {token.isActive ? t('sso.admin.scim.tokenActive', 'Active') : t('sso.admin.scim.tokenRevoked', 'Revoked')}
                   </span>
@@ -971,7 +971,7 @@ function ScimProvisioningTab({ configId, jitEnabled, issuer, onProvisioningChang
                     </td>
                     <td className="px-3 py-2 text-xs">{log.resourceType}</td>
                     <td className="px-3 py-2">
-                      <span className={`text-xs font-medium ${log.responseStatus < 300 ? 'text-green-700' : 'text-red-600'}`}>
+                      <span className={`text-xs font-medium ${log.responseStatus < 300 ? 'text-status-success-text' : 'text-destructive'}`}>
                         {log.responseStatus}
                       </span>
                     </td>

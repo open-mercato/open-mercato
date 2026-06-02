@@ -53,6 +53,7 @@ import { E } from '#generated/entities.ids.generated'
 import { findOneWithDecryption, findWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import { CUSTOMER_ENTITY_ID, resolveCompanyCustomFieldRouting } from '../lib/customFieldRouting'
 import { CustomFieldValue } from '@open-mercato/core/modules/entities/data/entities'
+import { withAtomicFlush } from '@open-mercato/shared/lib/commands/flush'
 
 const COMPANY_ENTITY_ID = 'customers:customer_company_profile'
 const INTERACTION_ENTITY_ID = 'customers:customer_interaction'
@@ -513,12 +514,13 @@ const createCompanyCommand: CommandHandler<CompanyCreateInput, { entityId: strin
       annualRevenue: parsed.annualRevenue !== undefined ? String(parsed.annualRevenue) : null,
     })
 
-    em.persist(entity)
-    em.persist(profile)
-    await em.flush()
-
-    await syncEntityTags(em, entity, parsed.tags)
-    await em.flush()
+    await withAtomicFlush(em, [
+      () => {
+        em.persist(entity)
+        em.persist(profile)
+      },
+      () => syncEntityTags(em, entity, parsed.tags),
+    ], { transaction: true })
     await setCompanyCustomFields(ctx, entity.id, profile.id, entity.organizationId, entity.tenantId, custom)
 
     const de = (ctx.container.resolve('dataEngine') as DataEngine)
@@ -572,10 +574,13 @@ const createCompanyCommand: CommandHandler<CompanyCreateInput, { entityId: strin
       organizationId: entity.organizationId,
       tenantId: entity.tenantId,
     }
-    await em.nativeDelete(CustomerCompanyProfile, { entity, organizationId: entity.organizationId, tenantId: entity.tenantId })
-    await em.nativeDelete(CustomerTagAssignment, { entity, organizationId: entity.organizationId, tenantId: entity.tenantId })
-    em.remove(entity)
-    await em.flush()
+    await withAtomicFlush(em, [
+      async () => {
+        await em.nativeDelete(CustomerCompanyProfile, { entity, organizationId: entity.organizationId, tenantId: entity.tenantId })
+        await em.nativeDelete(CustomerTagAssignment, { entity, organizationId: entity.organizationId, tenantId: entity.tenantId })
+        em.remove(entity)
+      },
+    ], { transaction: true })
 
     const de = (ctx.container.resolve('dataEngine') as DataEngine)
     await emitCrudUndoSideEffects({
@@ -642,9 +647,9 @@ const updateCompanyCommand: CommandHandler<CompanyUpdateInput, { entityId: strin
       profile.annualRevenue = parsed.annualRevenue !== null && parsed.annualRevenue !== undefined ? String(parsed.annualRevenue) : null
     }
 
-    await em.flush()
-    await syncEntityTags(em, record, parsed.tags)
-    await em.flush()
+    await withAtomicFlush(em, [
+      () => syncEntityTags(em, record, parsed.tags),
+    ], { transaction: true })
 
     await setCompanyCustomFields(ctx, record.id, profile.id, record.organizationId, record.tenantId, custom)
 
@@ -1092,10 +1097,6 @@ const deleteCompanyCommand: CommandHandler<{ body?: Record<string, unknown>; que
         profile.annualRevenue = before.profile.annualRevenue
       }
 
-      await em.flush()
-      await syncEntityTags(em, entity, before.tagIds)
-      await em.flush()
-
       const beforeDeals = before.deals ?? []
       const beforeMembers = before.members ?? []
       const beforeActivities = (before as { activities?: CompanyActivitySnapshot[] }).activities ?? []
@@ -1104,163 +1105,163 @@ const deleteCompanyCommand: CommandHandler<{ body?: Record<string, unknown>; que
       const beforeTodos = (before as { todos?: CompanyTodoSnapshot[] }).todos ?? []
       const beforeInteractions = (before as { interactions?: CompanyInteractionSnapshot[] }).interactions ?? []
 
-      const relatedDealIds = new Set<string>()
-      for (const link of beforeDeals) relatedDealIds.add(link.dealId)
-      for (const activity of beforeActivities) {
-        if (activity.dealId) relatedDealIds.add(activity.dealId)
-      }
-      for (const comment of beforeComments) {
-        if (comment.dealId) relatedDealIds.add(comment.dealId)
-      }
       let dealMap = new Map<string, CustomerDeal>()
-      if (relatedDealIds.size) {
-        const deals = await em.find(CustomerDeal, {
-          id: { $in: Array.from(relatedDealIds) },
-          organizationId: entity.organizationId,
-          tenantId: entity.tenantId,
-        })
-        dealMap = new Map(deals.map((deal) => [deal.id, deal]))
-      }
 
-      await em.nativeDelete(CustomerDealCompanyLink, { company: entity })
-      for (const link of beforeDeals) {
-        const deal = dealMap.get(link.dealId)
-        if (!deal) continue
-        const restoredLink = em.create(CustomerDealCompanyLink, {
-          id: link.id,
-          deal,
-          company: entity,
-          createdAt: link.createdAt,
-        })
-        em.persist(restoredLink)
-      }
-      await em.flush()
+      await withAtomicFlush(em, [
+        () => syncEntityTags(em, entity, before.tagIds),
+        async () => {
+          const relatedDealIds = new Set<string>()
+          for (const link of beforeDeals) relatedDealIds.add(link.dealId)
+          for (const activity of beforeActivities) {
+            if (activity.dealId) relatedDealIds.add(activity.dealId)
+          }
+          for (const comment of beforeComments) {
+            if (comment.dealId) relatedDealIds.add(comment.dealId)
+          }
+          if (relatedDealIds.size) {
+            const deals = await em.find(CustomerDeal, {
+              id: { $in: Array.from(relatedDealIds) },
+              organizationId: entity.organizationId,
+              tenantId: entity.tenantId,
+            })
+            dealMap = new Map(deals.map((deal) => [deal.id, deal]))
+          }
 
-      if (beforeMembers.length) {
-        const memberIds = beforeMembers.map((member) => member.profileId)
-        const profiles = await em.find(CustomerPersonProfile, {
-          id: { $in: memberIds },
-          organizationId: entity.organizationId,
-          tenantId: entity.tenantId,
-        })
-        const profileMap = new Map(profiles.map((profile) => [profile.id, profile]))
-        for (const member of beforeMembers) {
-          const memberProfile = profileMap.get(member.profileId)
-          if (!memberProfile) continue
-          memberProfile.company = entity
-        }
-        await em.flush()
-      }
+          await em.nativeDelete(CustomerDealCompanyLink, { company: entity })
+          for (const link of beforeDeals) {
+            const deal = dealMap.get(link.dealId)
+            if (!deal) continue
+            const restoredLink = em.create(CustomerDealCompanyLink, {
+              id: link.id,
+              deal,
+              company: entity,
+              createdAt: link.createdAt,
+            })
+            em.persist(restoredLink)
+          }
 
-      await em.nativeDelete(CustomerActivity, { entity, organizationId: entity.organizationId, tenantId: entity.tenantId })
-      for (const activity of beforeActivities) {
-        const restoredActivity = em.create(CustomerActivity, {
-          id: activity.id,
-          organizationId: entity.organizationId,
-          tenantId: entity.tenantId,
-          entity,
-          activityType: activity.activityType,
-          subject: activity.subject,
-          body: activity.body,
-          occurredAt: activity.occurredAt,
-          authorUserId: activity.authorUserId,
-          appearanceIcon: activity.appearanceIcon,
-          appearanceColor: activity.appearanceColor,
-          deal: activity.dealId ? dealMap.get(activity.dealId) ?? null : null,
-          createdAt: activity.createdAt,
-          updatedAt: activity.updatedAt,
-        })
-        em.persist(restoredActivity)
-      }
-      await em.flush()
+          if (beforeMembers.length) {
+            const memberIds = beforeMembers.map((member) => member.profileId)
+            const profiles = await em.find(CustomerPersonProfile, {
+              id: { $in: memberIds },
+              organizationId: entity.organizationId,
+              tenantId: entity.tenantId,
+            })
+            const profileMap = new Map(profiles.map((profile) => [profile.id, profile]))
+            for (const member of beforeMembers) {
+              const memberProfile = profileMap.get(member.profileId)
+              if (!memberProfile) continue
+              memberProfile.company = entity
+            }
+          }
 
-      await em.nativeDelete(CustomerComment, { entity, organizationId: entity.organizationId, tenantId: entity.tenantId })
-      for (const comment of beforeComments) {
-        const restoredComment = em.create(CustomerComment, {
-          id: comment.id,
-          organizationId: entity.organizationId,
-          tenantId: entity.tenantId,
-          entity,
-          body: comment.body,
-          authorUserId: comment.authorUserId,
-          appearanceIcon: comment.appearanceIcon,
-          appearanceColor: comment.appearanceColor,
-          deal: comment.dealId ? dealMap.get(comment.dealId) ?? null : null,
-          createdAt: comment.createdAt,
-          updatedAt: comment.updatedAt,
-          deletedAt: comment.deletedAt,
-        })
-        em.persist(restoredComment)
-      }
-      await em.flush()
+          await em.nativeDelete(CustomerActivity, { entity, organizationId: entity.organizationId, tenantId: entity.tenantId })
+          for (const activity of beforeActivities) {
+            const restoredActivity = em.create(CustomerActivity, {
+              id: activity.id,
+              organizationId: entity.organizationId,
+              tenantId: entity.tenantId,
+              entity,
+              activityType: activity.activityType,
+              subject: activity.subject,
+              body: activity.body,
+              occurredAt: activity.occurredAt,
+              authorUserId: activity.authorUserId,
+              appearanceIcon: activity.appearanceIcon,
+              appearanceColor: activity.appearanceColor,
+              deal: activity.dealId ? dealMap.get(activity.dealId) ?? null : null,
+              createdAt: activity.createdAt,
+              updatedAt: activity.updatedAt,
+            })
+            em.persist(restoredActivity)
+          }
 
-      await em.nativeDelete(CustomerAddress, { entity, organizationId: entity.organizationId, tenantId: entity.tenantId })
-      for (const address of beforeAddresses) {
-        const restoredAddress = em.create(CustomerAddress, {
-          id: address.id,
-          organizationId: entity.organizationId,
-          tenantId: entity.tenantId,
-          entity,
-          name: address.name,
-          purpose: address.purpose,
-          addressLine1: address.addressLine1,
-          addressLine2: address.addressLine2,
-          city: address.city,
-          region: address.region,
-          postalCode: address.postalCode,
-          country: address.country,
-          latitude: address.latitude,
-          longitude: address.longitude,
-          isPrimary: address.isPrimary,
-        })
-        em.persist(restoredAddress)
-      }
-      await em.flush()
+          await em.nativeDelete(CustomerComment, { entity, organizationId: entity.organizationId, tenantId: entity.tenantId })
+          for (const comment of beforeComments) {
+            const restoredComment = em.create(CustomerComment, {
+              id: comment.id,
+              organizationId: entity.organizationId,
+              tenantId: entity.tenantId,
+              entity,
+              body: comment.body,
+              authorUserId: comment.authorUserId,
+              appearanceIcon: comment.appearanceIcon,
+              appearanceColor: comment.appearanceColor,
+              deal: comment.dealId ? dealMap.get(comment.dealId) ?? null : null,
+              createdAt: comment.createdAt,
+              updatedAt: comment.updatedAt,
+              deletedAt: comment.deletedAt,
+            })
+            em.persist(restoredComment)
+          }
 
-      await em.nativeDelete(CustomerTodoLink, { entity, organizationId: entity.organizationId, tenantId: entity.tenantId })
-      for (const todo of beforeTodos) {
-        const restoredTodo = em.create(CustomerTodoLink, {
-          id: todo.id,
-          organizationId: entity.organizationId,
-          tenantId: entity.tenantId,
-          entity,
-          todoId: todo.todoId,
-          todoSource: todo.todoSource,
-          createdAt: todo.createdAt,
-          createdByUserId: todo.createdByUserId,
-        })
-        em.persist(restoredTodo)
-      }
-      await em.flush()
+          await em.nativeDelete(CustomerAddress, { entity, organizationId: entity.organizationId, tenantId: entity.tenantId })
+          for (const address of beforeAddresses) {
+            const restoredAddress = em.create(CustomerAddress, {
+              id: address.id,
+              organizationId: entity.organizationId,
+              tenantId: entity.tenantId,
+              entity,
+              name: address.name,
+              purpose: address.purpose,
+              addressLine1: address.addressLine1,
+              addressLine2: address.addressLine2,
+              city: address.city,
+              region: address.region,
+              postalCode: address.postalCode,
+              country: address.country,
+              latitude: address.latitude,
+              longitude: address.longitude,
+              isPrimary: address.isPrimary,
+            })
+            em.persist(restoredAddress)
+          }
+
+          await em.nativeDelete(CustomerTodoLink, { entity, organizationId: entity.organizationId, tenantId: entity.tenantId })
+          for (const todo of beforeTodos) {
+            const restoredTodo = em.create(CustomerTodoLink, {
+              id: todo.id,
+              organizationId: entity.organizationId,
+              tenantId: entity.tenantId,
+              entity,
+              todoId: todo.todoId,
+              todoSource: todo.todoSource,
+              createdAt: todo.createdAt,
+              createdByUserId: todo.createdByUserId,
+            })
+            em.persist(restoredTodo)
+          }
+
+          await em.nativeDelete(CustomerInteraction, { entity, organizationId: entity.organizationId, tenantId: entity.tenantId })
+          for (const interaction of beforeInteractions) {
+            const restoredInteraction = em.create(CustomerInteraction, {
+              id: interaction.id,
+              organizationId: entity.organizationId,
+              tenantId: entity.tenantId,
+              entity,
+              interactionType: interaction.interactionType,
+              title: interaction.title,
+              body: interaction.body,
+              status: interaction.status,
+              scheduledAt: interaction.scheduledAt,
+              occurredAt: interaction.occurredAt,
+              priority: interaction.priority,
+              authorUserId: interaction.authorUserId,
+              ownerUserId: interaction.ownerUserId,
+              dealId: interaction.dealId,
+              source: interaction.source,
+              appearanceIcon: interaction.appearanceIcon,
+              appearanceColor: interaction.appearanceColor,
+              createdAt: interaction.createdAt,
+              updatedAt: interaction.updatedAt,
+              deletedAt: interaction.deletedAt,
+            })
+            em.persist(restoredInteraction)
+          }
+        },
+      ], { transaction: true })
 
       const de = (ctx.container.resolve('dataEngine') as DataEngine)
-      await em.nativeDelete(CustomerInteraction, { entity, organizationId: entity.organizationId, tenantId: entity.tenantId })
-      for (const interaction of beforeInteractions) {
-        const restoredInteraction = em.create(CustomerInteraction, {
-          id: interaction.id,
-          organizationId: entity.organizationId,
-          tenantId: entity.tenantId,
-          entity,
-          interactionType: interaction.interactionType,
-          title: interaction.title,
-          body: interaction.body,
-          status: interaction.status,
-          scheduledAt: interaction.scheduledAt,
-          occurredAt: interaction.occurredAt,
-          priority: interaction.priority,
-          authorUserId: interaction.authorUserId,
-          ownerUserId: interaction.ownerUserId,
-          dealId: interaction.dealId,
-          source: interaction.source,
-          appearanceIcon: interaction.appearanceIcon,
-          appearanceColor: interaction.appearanceColor,
-          createdAt: interaction.createdAt,
-          updatedAt: interaction.updatedAt,
-          deletedAt: interaction.deletedAt,
-        })
-        em.persist(restoredInteraction)
-      }
-      await em.flush()
       for (const interaction of beforeInteractions) {
         if (!interaction.custom || !Object.keys(interaction.custom).length) continue
         await setCustomFieldsIfAny({

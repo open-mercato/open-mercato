@@ -185,7 +185,7 @@ export default function AuditLogsPage() {
               type="button"
               role="tab"
               aria-selected={tab === 'actions'}
-              className={`relative -mb-px border-b-2 px-0 pb-3 pt-2 font-medium transition-colors ${tab === 'actions' ? 'border-primary text-foreground' : 'border-transparent text-muted-foreground hover:text-foreground'}`}
+              className={`relative -mb-px border-b-2 px-0 pb-3 pt-2 font-medium transition-colors ${tab === 'actions' ? 'border-accent-indigo text-foreground' : 'border-transparent text-muted-foreground hover:text-foreground'}`}
               onClick={() => setTab('actions')}
             >
               {t('audit_logs.actions.title')}
@@ -194,7 +194,7 @@ export default function AuditLogsPage() {
               type="button"
               role="tab"
               aria-selected={tab === 'access'}
-              className={`relative -mb-px border-b-2 px-0 pb-3 pt-2 font-medium transition-colors ${tab === 'access' ? 'border-primary text-foreground' : 'border-transparent text-muted-foreground hover:text-foreground'}`}
+              className={`relative -mb-px border-b-2 px-0 pb-3 pt-2 font-medium transition-colors ${tab === 'access' ? 'border-accent-indigo text-foreground' : 'border-transparent text-muted-foreground hover:text-foreground'}`}
               onClick={() => setTab('access')}
             >
               {t('audit_logs.access.title')}
@@ -202,7 +202,7 @@ export default function AuditLogsPage() {
           </nav>
         </div>
 
-        {error && <div className="mb-4 rounded-md border border-red-300 bg-red-50 p-3 text-sm text-red-700">{error}</div>}
+        {error && <div className="mb-4 rounded-md border border-status-error-border bg-status-error-bg p-3 text-sm text-status-error-text">{error}</div>}
 
         {tab === 'actions' && (
           <AuditLogsActions
