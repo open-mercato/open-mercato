@@ -44,6 +44,16 @@ Run focused package validation, self-review backward compatibility, commit, push
 - SQLite remains a single-server strategy. Multi-server deployments should continue to use Redis.
 - If an older SQLite build returns a non-WAL journal mode, tests should mock better-sqlite3 behavior rather than depend on host filesystem details.
 
+## Validation
+
+- `yarn workspace @open-mercato/cache test` — passed.
+- `yarn workspace @open-mercato/cache build` — passed.
+- `yarn exec tsc -p packages/cache/tsconfig.json --noEmit` — passed.
+- `yarn build:packages` — passed.
+- `yarn generate` — passed; OpenAPI generation used static fallback because local Node 26 lacks a native `isolated-vm` build.
+- `yarn typecheck` — passed after `yarn generate`.
+- `yarn workspace @open-mercato/cache typecheck` — blocked by package-local script not resolving root `typescript`; root `tsc` command above covered the package.
+
 ## Progress
 
 > Convention: `- [ ]` pending, `- [x]` done. Append ` — <commit sha>` when a step lands. Do not rename step titles.
@@ -59,5 +69,5 @@ Run focused package validation, self-review backward compatibility, commit, push
 
 ### Phase 3: Validation And PR
 
-- [ ] 3.1 Run validation and self-review
+- [x] 3.1 Run validation and self-review — a3c391314
 - [ ] 3.2 Push branch and open PR
