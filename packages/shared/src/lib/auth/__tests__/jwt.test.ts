@@ -116,6 +116,25 @@ describe('jwt helpers', () => {
       expect(customerKey).not.toBe(baseSecret)
     })
 
+    it('memoizes HMAC derivation per audience and base secret within the process', () => {
+      const createHmacSpy = jest.spyOn(crypto, 'createHmac')
+      const isolatedBase = 'memo-test-base-secret'
+      try {
+        createHmacSpy.mockClear()
+        deriveJwtAudienceSecret('memo_staff_a', isolatedBase)
+        deriveJwtAudienceSecret('memo_staff_a', isolatedBase)
+        expect(createHmacSpy).toHaveBeenCalledTimes(1)
+
+        deriveJwtAudienceSecret('memo_customer_a', isolatedBase)
+        expect(createHmacSpy).toHaveBeenCalledTimes(2)
+
+        deriveJwtAudienceSecret('memo_staff_a', 'memo-other-base-secret')
+        expect(createHmacSpy).toHaveBeenCalledTimes(3)
+      } finally {
+        createHmacSpy.mockRestore()
+      }
+    })
+
     it('honors per-audience env overrides ahead of the derived secret', () => {
       process.env.JWT_CUSTOMER_SECRET = 'explicit-customer-secret'
       expect(deriveJwtAudienceSecret('customer')).toBe('explicit-customer-secret')
