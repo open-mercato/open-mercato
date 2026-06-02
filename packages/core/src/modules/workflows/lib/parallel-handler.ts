@@ -533,26 +533,35 @@ async function fireJoin(
     branches: branchesContext,
   }
 
-  // Optional outputMapping: topLevelKey -> 'branches.<branchKey>.<path>'
+  // Optional outputMapping: topLevelKey -> 'branches.<branchKey>.<path>'. The
+  // reserved `branches` slot map is never overwritten — guard it explicitly so a
+  // mapping cannot clobber the per-branch namespaces.
   const outputMapping: Record<string, string> | undefined = joinStep?.config?.outputMapping
   if (outputMapping) {
     for (const [topKey, sourcePath] of Object.entries(outputMapping)) {
+      if (topKey === 'branches') continue
       const value = getNestedValue(nextContext, sourcePath)
       if (value !== undefined) nextContext[topKey] = value
     }
   }
 
-  // Resolve the single outgoing transition from the JOIN.
-  const outgoing = (definition.definition.transitions || []).filter(
+  // Park the root token ON the JOIN step (not its successor) and let the
+  // single-token executor loop run the JOIN's outgoing transition. Jumping
+  // straight to the post-join step would bypass stepHandler.executeStep() for
+  // that step — so a following USER_TASK / WAIT_FOR_TIMER / WAIT_FOR_SIGNAL would
+  // never have its task created / timer enqueued / signal wait registered (the
+  // instance would hang), and any activities on the JOIN's outgoing transition
+  // would be skipped. The JOIN step itself is a no-op, so the loop simply runs
+  // its outgoing transition through the normal step-entry path.
+  const afterJoinStepId = (definition.definition.transitions || []).find(
     (transition: any) => transition.fromStepId === joinStepId,
-  )
-  const afterJoinStepId = outgoing.length > 0 ? outgoing[0].toStepId : joinStepId
+  )?.toStepId ?? null
 
   const now = new Date()
   instance.context = nextContext
   instance.status = 'RUNNING'
   instance.activeForkStepId = null
-  instance.currentStepId = afterJoinStepId
+  instance.currentStepId = joinStepId
   instance.updatedAt = now
   await em.flush()
 
