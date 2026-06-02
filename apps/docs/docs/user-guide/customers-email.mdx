@@ -14,8 +14,7 @@ You need at least one personal mailbox connected to Open Mercato before you can 
 Connect your mailbox at **Profile → Communication Channels**. Supported providers:
 
 - Gmail (personal + Google Workspace)
-- Microsoft 365 / Outlook
-- IMAP + SMTP (Fastmail, Proton Bridge, generic providers)
+- IMAP + SMTP (Fastmail, Proton Bridge, generic providers — including Outlook.com / Microsoft 365 via an app password)
 
 See the [Communication Channels guide](communication-channels.mdx) for step-by-step setup instructions for each provider.
 
@@ -47,7 +46,7 @@ When an email arrives in your connected mailbox, Open Mercato checks every addre
 
 If no addresses match any Person's primary email, the email stays in the unified Messages inbox but does not appear on any Person's timeline. Updating the Person's email address after the fact does not retroactively link older emails; only emails received after the address is set will be linked.
 
-**Timing** — inbound linking is handled by a persistent background subscriber. For Gmail and Microsoft 365 (delta-query polling), expect timeline entries within 1–2 seconds after the email arrives inside Open Mercato. For IMAP connections polled on a 5-minute cadence, allow up to 5 minutes.
+**Timing** — inbound linking is handled by a persistent background subscriber. For Gmail (push delivery), expect timeline entries within 1–2 seconds after the email arrives inside Open Mercato. For IMAP connections polled on a 5-minute cadence, allow up to 5 minutes.
 
 ## Private vs shared
 
@@ -86,13 +85,13 @@ Regular employees who lack `customers.email.view_private` see only their own pri
 
 ### "Send email" button is missing from the Person record
 
-You have no connected mailbox. The button is replaced with a **Connect your mailbox** link. Go to **Profile → Communication Channels** (or follow the link) and connect a Gmail, Microsoft 365, or IMAP account. Once connected, return to the Person record and refresh — the Send email button will appear.
+You have no connected mailbox. The button is replaced with a **Connect your mailbox** link. Go to **Profile → Communication Channels** (or follow the link) and connect a Gmail or IMAP account. Once connected, return to the Person record and refresh — the Send email button will appear.
 
 ### Sent email doesn't appear on the Person's timeline
 
 The timeline entry is created asynchronously by a background subscriber after the message is delivered. Typical delay:
 
-- Gmail / Microsoft 365 — 1–2 seconds.
+- Gmail — 1–2 seconds.
 - IMAP — up to 5 minutes (depends on the polling cadence of your IMAP connection).
 
 If the entry still doesn't appear after 5 minutes, check that your channel's status is **Connected** in your profile. If the channel shows **Needs reconnection**, reconnect it and resend.
@@ -116,5 +115,5 @@ You can only change the visibility of emails you authored. Admins with `customer
 
 ## Related
 
-- [Communication Channels](communication-channels.mdx) — connect your Gmail, Microsoft 365, or IMAP mailbox
+- [Communication Channels](communication-channels.mdx) — connect your Gmail or IMAP mailbox
 - [Inbox Ops](inbox-ops.mdx) — the shared AI agent for forwarding customer threads into the ERP (separate from personal mailboxes)

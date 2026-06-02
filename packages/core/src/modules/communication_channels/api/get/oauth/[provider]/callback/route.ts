@@ -272,7 +272,7 @@ export async function GET(req: Request, context: RouteContext): Promise<Response
   })
 
   // Spec C § Phase C5 — best-effort push registration for OAuth providers
-  // that support it (Gmail, Microsoft). Same shape as the credential-connect
+  // that support it (Gmail). Same shape as the credential-connect
   // path: failures persist as `pushStatus='failed'` on channelState and DO
   // NOT fail the connect — polling fallback covers until the operator clicks
   // "Re-register push" on the channels page.
@@ -282,7 +282,7 @@ export async function GET(req: Request, context: RouteContext): Promise<Response
     credentialsAvailable &&
     adapterSupportsPush &&
     statePayload.organizationId &&
-    (provider === 'gmail' || provider === 'microsoft')
+    provider === 'gmail'
   ) {
     try {
       const { pushRegister } = await import('../../../../../commands/push-register')

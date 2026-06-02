@@ -5,21 +5,13 @@ import { pushRegister } from './push-register'
 /**
  * Spec C § Phase C4 — Renew a push registration.
  *
- * For both Gmail and Microsoft, the renewal action is to call the same
- * `registerPush` adapter method again — Gmail's `users.watch` is idempotent
- * (it returns a fresh `expiration` and `historyId`) and Microsoft's
- * subscription create returns a new `subscriptionId` + `expirationDateTime`.
- * We do NOT explicitly delete the previous Microsoft subscription here: Graph
- * auto-expires it after its `expirationDateTime` (~70h), and the freshly
- * registered subscription already delivers every new notification, so the
- * orphan only produces duplicate notifications (rejected by the webhook as a
- * stale `subscriptionId`) until it lapses. See `microsoft-renew-subscriptions.ts`
- * for the failure-model rationale behind skipping the explicit delete.
+ * The renewal action is to call the same `registerPush` adapter method again —
+ * Gmail's `users.watch` is idempotent (it returns a fresh `expiration` and
+ * `historyId`).
  *
- * Callers: the daily / 2-hourly cron workers (`gmail-renew-watch.ts`,
- * `microsoft-renew-subscriptions.ts`). The operator-facing
- * `POST /push/register` route invokes `pushRegister` directly without
- * needing this helper.
+ * Callers: the daily renewal cron worker (`gmail-renew-watch.ts`). The
+ * operator-facing `POST /push/register` route invokes `pushRegister` directly
+ * without needing this helper.
  */
 
 export const pushRenewSchema = z.object({

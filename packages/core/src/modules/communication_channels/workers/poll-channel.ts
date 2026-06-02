@@ -40,7 +40,7 @@ export const POLL_CHANNEL_MAX_ATTEMPTS = 3
  * Hard cap on `hasMore` self-re-enqueue drain pages — guards against an adapter
  * that returns `hasMore: true` with a non-advancing (pinned) cursor, which would
  * otherwise spin a tight, unthrottled re-enqueue loop. Mirrors the same guard in
- * `gmail-history-sync` / `microsoft-delta-sync`.
+ * `gmail-history-sync`.
  */
 const MAX_DRAIN_PAGES = 100
 
@@ -296,7 +296,7 @@ export default async function handle(
   // owned by the push register/renew commands, not the sync cursor. A provider's
   // `fetchHistory` returns only sync-cursor fields, so persisting the decoded
   // cursor as a full replace would silently wipe push state and stop
-  // `gmail-renew-watch` / `microsoft-renew-subscriptions` from renewing it. Carry
+  // `gmail-renew-watch` from renewing it. Carry
   // the hub-owned push keys forward whenever the new cursor omits them.
   if (typeof nextCursor === 'string' && nextCursor.length > 0) {
     const decoded = decodeChannelStateCursor(nextCursor)

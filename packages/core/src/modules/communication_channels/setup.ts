@@ -110,8 +110,8 @@ export const setup: ModuleSetupConfig = {
       isEnabled: true,
     })
 
-    // Spec C § Phase C4 — renewal crons. One per provider; both per-org so
-    // multi-tenant deploys schedule independently.
+    // Spec C § Phase C4 — Gmail watch renewal cron, per-org so multi-tenant
+    // deploys schedule independently.
     await schedulerService.register({
       id: `communication_channels:gmail-renew-watch:${organizationId}`,
       name: 'Gmail watch renewal',
@@ -125,24 +125,6 @@ export const setup: ModuleSetupConfig = {
       timezone: 'UTC',
       targetType: 'queue',
       targetQueue: COMMUNICATION_CHANNELS_QUEUES.gmailRenewWatch,
-      targetPayload: { scope: { tenantId, organizationId } },
-      sourceType: 'module',
-      sourceModule: 'communication_channels',
-      isEnabled: true,
-    })
-    await schedulerService.register({
-      id: `communication_channels:microsoft-renew-subscriptions:${organizationId}`,
-      name: 'Microsoft Graph subscription renewal',
-      description:
-        'Every 2 hours. PATCH-renews Microsoft Graph subscriptions within OM_PUSH_RENEWAL_MICROSOFT_LEAD_HOURS of expiry.',
-      scopeType: 'organization',
-      organizationId,
-      tenantId,
-      scheduleType: 'cron',
-      scheduleValue: '0 */2 * * *',
-      timezone: 'UTC',
-      targetType: 'queue',
-      targetQueue: COMMUNICATION_CHANNELS_QUEUES.microsoftRenewSubscriptions,
       targetPayload: { scope: { tenantId, organizationId } },
       sourceType: 'module',
       sourceModule: 'communication_channels',

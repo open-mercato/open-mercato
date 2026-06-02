@@ -42,17 +42,17 @@ function buildContainer(opts: { flushSpy?: jest.Mock } = {}) {
   return { container, flushSpy }
 }
 
-function buildActiveMicrosoftChannel(overrides: Record<string, unknown> = {}) {
+function buildActiveGmailChannel(overrides: Record<string, unknown> = {}) {
   return {
     id: CHANNEL,
-    providerKey: 'microsoft',
-    credentialsRef: 'channel_microsoft',
+    providerKey: 'gmail',
+    credentialsRef: 'channel_gmail',
     userId: USER,
     pollIntervalSeconds: 1800,
     channelState: {
       pushStatus: 'active',
-      subscriptionId: 'sub-abc',
-      subscriptionExpiresAt: '2026-06-01T00:00:00.000Z',
+      historyId: '12345',
+      watchExpirationMs: 1717000000000,
     },
     ...overrides,
   }
@@ -76,7 +76,7 @@ describe('pushUnregister', () => {
   })
 
   it('returns noop when the adapter has no unregisterPush method', async () => {
-    ;(findOneWithDecryption as jest.Mock).mockResolvedValue(buildActiveMicrosoftChannel())
+    ;(findOneWithDecryption as jest.Mock).mockResolvedValue(buildActiveGmailChannel())
     ;(getChannelAdapterRegistry as jest.Mock).mockReturnValue({
       get: jest.fn().mockReturnValue({ providerKey: 'imap' }),
     })
@@ -91,13 +91,13 @@ describe('pushUnregister', () => {
 
   it('returns noop when pushStatus is already inactive', async () => {
     ;(findOneWithDecryption as jest.Mock).mockResolvedValue(
-      buildActiveMicrosoftChannel({
+      buildActiveGmailChannel({
         channelState: { pushStatus: 'inactive' },
       }),
     )
     ;(getChannelAdapterRegistry as jest.Mock).mockReturnValue({
       get: jest.fn().mockReturnValue({
-        providerKey: 'microsoft',
+        providerKey: 'gmail',
         unregisterPush: jest.fn(),
       }),
     })
@@ -111,12 +111,12 @@ describe('pushUnregister', () => {
   })
 
   it('on happy path: calls adapter, clears push markers, restores 60s poll, emits deactivated', async () => {
-    const channel = buildActiveMicrosoftChannel()
+    const channel = buildActiveGmailChannel()
     ;(findOneWithDecryption as jest.Mock).mockResolvedValue(channel)
     const unregisterPushSpy = jest.fn().mockResolvedValue(undefined)
     ;(getChannelAdapterRegistry as jest.Mock).mockReturnValue({
       get: jest.fn().mockReturnValue({
-        providerKey: 'microsoft',
+        providerKey: 'gmail',
         unregisterPush: unregisterPushSpy,
       }),
     })
@@ -132,13 +132,12 @@ describe('pushUnregister', () => {
     expect(unregisterPushSpy).toHaveBeenCalledWith(
       expect.objectContaining({
         channelId: CHANNEL,
-        channelState: expect.objectContaining({ subscriptionId: 'sub-abc' }),
+        channelState: expect.objectContaining({ historyId: '12345' }),
       }),
     )
     expect(channel.channelState).toMatchObject({
       pushStatus: 'inactive',
-      subscriptionId: null,
-      subscriptionExpiresAt: null,
+      watchExpirationMs: null,
     })
     expect(channel.pollIntervalSeconds).toBe(60)
     expect(flushSpy).toHaveBeenCalled()
@@ -150,11 +149,11 @@ describe('pushUnregister', () => {
   })
 
   it('returns failed (best-effort) when the adapter throws — does not propagate', async () => {
-    const channel = buildActiveMicrosoftChannel()
+    const channel = buildActiveGmailChannel()
     ;(findOneWithDecryption as jest.Mock).mockResolvedValue(channel)
     ;(getChannelAdapterRegistry as jest.Mock).mockReturnValue({
       get: jest.fn().mockReturnValue({
-        providerKey: 'microsoft',
+        providerKey: 'gmail',
         unregisterPush: jest.fn().mockRejectedValue(new Error('subscription gone')),
       }),
     })

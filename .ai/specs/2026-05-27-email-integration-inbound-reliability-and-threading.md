@@ -1,5 +1,13 @@
 # Email Integration Follow-ups — Reliability, Threading, Push Delivery & OAuth
 
+> **Update (2026-06-02): Microsoft 365 / Outlook channel removed.** The
+> `@open-mercato/channel-microsoft` provider and its Microsoft Graph plumbing —
+> the `microsoft-delta-sync` and `microsoft-renew-subscriptions` workers, the
+> `/webhooks/microsoft/*` routes, the lifecycle handler, and the
+> `OM_MICROSOFT_*` env vars — were removed; per-user email integration now ships
+> **Gmail + IMAP only**. The Microsoft Graph content in Part 2 and elsewhere is
+> retained as historical design context and no longer reflects shipped behavior.
+
 > **Consolidated spec (2026-06-01).** This single document gathers the three
 > May-27 email-integration follow-up specs so the PR carries one file instead of
 > three. Organized in parts:

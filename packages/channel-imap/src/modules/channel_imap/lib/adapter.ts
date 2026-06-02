@@ -82,7 +82,7 @@ class ImapChannelAdapter implements ChannelAdapter {
         externalMessageId: '',
         status: 'failed',
         error:
-          'IMAP/SMTP adapter does not yet support attachments. Send the message without attachments or use a provider that supports them (Gmail / Microsoft).',
+          'IMAP/SMTP adapter does not yet support attachments. Send the message without attachments or use a provider that supports them (Gmail).',
       }
     }
 

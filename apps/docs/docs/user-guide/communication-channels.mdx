@@ -1,6 +1,6 @@
 ---
 title: Communication Channels (per-user email)
-description: Connect your personal Gmail, Microsoft 365 / Outlook, or IMAP+SMTP mailbox so outbound messages come from your real address and inbound emails appear in the unified inbox.
+description: Connect your personal Gmail or IMAP+SMTP mailbox so outbound messages come from your real address and inbound emails appear in the unified inbox.
 ---
 
 # Communication Channels
@@ -12,7 +12,7 @@ This release ships two providers:
 - **Gmail** (personal + Google Workspace) — administrators: see **[Set up Gmail](communication-channels-gmail.mdx)** for the one-time OAuth (and optional Pub/Sub push) setup
 - **IMAP + SMTP** (Fastmail, iCloud, generic providers, on-prem mail servers) — see **[Set up IMAP + SMTP](communication-channels-imap.mdx)**
 
-Microsoft 365 / Outlook is planned for a future release.
+There is no dedicated Microsoft 365 / Outlook connector; connect those mailboxes through IMAP + SMTP (see below).
 
 ## When to use this vs Inbox Ops
 
@@ -31,7 +31,7 @@ A tenant can use both. Communication Channels is per-user; Inbox Ops is tenant-s
 
 Profile → **Communication Channels** (in the left sidebar). The page is empty until you connect a channel.
 
-The CTA in the top right offers three providers. Pick the one that matches your mailbox.
+The CTA in the top right offers two providers. Pick the one that matches your mailbox.
 
 ### 2) Connect a channel
 
@@ -46,7 +46,7 @@ The first poll runs within five minutes. New mail in your **inbox** label is syn
 
 #### Microsoft 365 / Outlook
 
-Planned for a future release — the native Microsoft connector isn't available yet. In the meantime an Outlook.com / Microsoft 365 mailbox can be connected through **[IMAP + SMTP](communication-channels-imap.mdx)** using an app password.
+There is no dedicated Microsoft connector. An Outlook.com / Microsoft 365 mailbox can be connected through **[IMAP + SMTP](communication-channels-imap.mdx)** using an app password.
 
 #### IMAP + SMTP
 
@@ -70,7 +70,7 @@ A user can have multiple channels connected simultaneously (e.g. a Gmail account
 
 ### 5) Reconnect
 
-If a refresh token expires or a password rotates, the affected channel flips to **Needs reconnection** and you get a notification. Open the profile page and click **Reconnect** on the offending row. Gmail / Microsoft go back through the OAuth flow; IMAP/SMTP shows the credentials form again pre-filled with the unchanged values.
+If a refresh token expires or a password rotates, the affected channel flips to **Needs reconnection** and you get a notification. Open the profile page and click **Reconnect** on the offending row. Gmail goes back through the OAuth flow; IMAP/SMTP shows the credentials form again pre-filled with the unchanged values.
 
 While a channel is in *Needs reconnection*, outbound sends through it are blocked at the API layer with a clear inline error so you know exactly why a message wouldn't send.
 
@@ -90,18 +90,18 @@ Press `Cmd/Ctrl+Enter` to submit (or `Escape` to cancel). The import runs in the
 
 Tips:
 
-- **Filtering by sender is much faster** than scanning the whole window, because the IMAP / Gmail / Microsoft server narrows the search before sending any message bodies.
+- **Filtering by sender is much faster** than scanning the whole window, because the IMAP / Gmail server narrows the search before sending any message bodies.
 - **Importing is idempotent.** If you re-run an import that overlaps with already-synced mail, duplicates are skipped automatically.
 - **Only one import per channel at a time.** Trying to start a second import while the first is running returns a friendly error — wait for the first to finish or hit "Cancel" on the progress bar.
-- **IMAP today; Gmail and Microsoft in a follow-up release.** The "Import history" button is disabled on Gmail / Microsoft channels until Spec C ships their adapter support.
+- **IMAP today; Gmail in a follow-up release.** The "Import history" button is disabled on Gmail channels until Spec C ships its adapter support.
 
 ### 7) How fast does new mail appear? (Push delivery)
 
-For Gmail and Microsoft 365 accounts, Open Mercato uses **push delivery** instead of polling: the provider tells us the moment new mail arrives, so the unified inbox typically updates within 5–15 seconds. There's nothing to configure — push is enabled automatically when you connect a Gmail or Microsoft mailbox, provided your operator has set up the underlying infrastructure (Pub/Sub topic for Gmail, webhook base URL for Microsoft).
+For Gmail accounts, Open Mercato uses **push delivery** instead of polling: the provider tells us the moment new mail arrives, so the unified inbox typically updates within 5–15 seconds. There's nothing to configure — push is enabled automatically when you connect a Gmail mailbox, provided your operator has set up the underlying infrastructure (a Pub/Sub topic for Gmail).
 
 For IMAP accounts (Fastmail, custom servers, etc.), Open Mercato polls every 60 seconds — IMAP doesn't expose push primitives that fit a queue-worker model. New mail usually appears within 30–60s.
 
-If your channel's status drops from "Connected" to something else (e.g. Microsoft revokes the subscription, your Pub/Sub topic gets misconfigured), Open Mercato automatically falls back to 60-second polling. You'll see a "Re-register push" button in the channel detail page when this happens — clicking it tries to re-establish push delivery.
+If your channel's status drops from "Connected" to something else (e.g. your Pub/Sub topic gets misconfigured), Open Mercato automatically falls back to 60-second polling. You'll see a "Re-register push" button in the channel detail page when this happens — clicking it tries to re-establish push delivery.
 
 ### 8) Disconnect
 
@@ -112,14 +112,6 @@ Click **Disconnect** on a channel to halt polling and clear the stored credentia
 ### Gmail "App blocked: This app is not verified"
 
 You haven't verified your Google Cloud OAuth app yet. For internal use on a Workspace tenant, verification isn't required — but you must add yourself as a test user in **OAuth consent screen → Test users** while the app is in *Testing* status.
-
-### Microsoft "AADSTS50105: The signed-in user is not assigned to a role"
-
-Your tenant admin restricts which users can grant consent. Ask the admin to:
-
-1. Open **Azure Portal → Enterprise applications → Open Mercato**, or
-2. Grant admin consent to the app for the requested scopes, or
-3. Add your account to the app's assignment list.
 
 ### IMAP "Authentication rejected by server: 535 5.7.8"
 
@@ -139,7 +131,6 @@ The most common cause is a revoked refresh token (Gmail's refresh tokens are rev
 
 If reconnects keep failing within minutes:
 
-- Confirm you have **offline_access** + **Mail.*** scopes granted to your Microsoft tenant.
 - Confirm your Gmail OAuth client is configured with **Access type: Offline** and **Prompt: consent** (Open Mercato sends these but custom client configs can override).
 
 ### "Outbound delivery failed: requires_reauth"
@@ -151,7 +142,6 @@ Same root cause as *Needs reconnection*. Open the profile page and reconnect the
 - Confirm the channel status is **Connected** in your profile.
 - Click **Refresh** on the channel row to force a poll outside the 5-minute cadence.
 - If you connected Gmail more than 7 days ago and haven't synced in that window, Open Mercato falls back to a fresh inbox scan automatically — give it one poll cycle (5 minutes) to re-establish the cursor.
-- Microsoft 365 delta queries occasionally invalidate; Open Mercato auto-recovers on the next poll by restarting the delta. You'll see this in the **Health** section of the channel detail page if it happens often.
 
 ## What Open Mercato never does
 
@@ -166,4 +156,4 @@ If you ever want to know exactly which messages have been synced from your accou
 
 - [CRM email integration](customers-email.mdx) — send and receive emails on Person records once your mailbox is connected
 - [Inbox Ops](inbox-ops.mdx) — the *shared* mailbox AI agent for forwarded customer threads
-- [Communications Hub architecture](../framework/modules/communication-channels.mdx) — for administrators setting up Google / Microsoft OAuth apps
+- [Communications Hub architecture](../framework/modules/communication-channels.mdx) — for administrators setting up Google OAuth apps

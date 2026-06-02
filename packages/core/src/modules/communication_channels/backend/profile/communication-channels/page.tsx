@@ -310,8 +310,7 @@ export default function ProfileCommunicationChannelsPage() {
         id: 'pushStatus',
         header: t('communication_channels.push.status.active', 'Push'),
         cell: ({ row }) => {
-          const supportsPush =
-            row.original.providerKey === 'gmail' || row.original.providerKey === 'microsoft'
+          const supportsPush = row.original.providerKey === 'gmail'
           if (!supportsPush) {
             return (
               <span className="text-xs text-muted-foreground">
@@ -463,7 +462,7 @@ export default function ProfileCommunicationChannelsPage() {
             </p>
           </div>
           {/* Provider connect entry points injected by each channel-* package
-              (channel-gmail, channel-microsoft, channel-imap) via UMES. */}
+              (channel-gmail, channel-imap) via UMES. */}
           <InjectionSpot
             spotId="profile:communication-channels:connect"
             context={{ reload: () => setReloadKey((k) => k + 1) }}
@@ -492,7 +491,7 @@ export default function ProfileCommunicationChannelsPage() {
           error={errorMessage}
           emptyState={t(
             'communication_channels.profile.empty',
-            'You have no connected channels yet. Use the "Connect channel" entry above to add Gmail, Microsoft 365 or IMAP.',
+            'You have no connected channels yet. Use the "Connect channel" entry above to add Gmail or IMAP.',
           )}
         />
         <ImportHistoryDialog

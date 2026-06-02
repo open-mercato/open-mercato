@@ -57,16 +57,9 @@ export const COMMUNICATION_CHANNELS_QUEUES = {
    */
   gmailHistorySync: 'communication-channels-gmail-history-sync',
   /**
-   * Spec C § Phase C3 — Microsoft Graph push delivery. Same shape: the
-   * webhook enqueues one job per verified change notification; the worker
-   * pulls `/me/messages/delta`.
-   */
-  microsoftDeltaSync: 'communication-channels-microsoft-delta-sync',
-  /**
    * Spec C § Phase C4 — Renewal cron queues (daily / 2h cadence).
    */
   gmailRenewWatch: 'communication-channels-gmail-renew-watch',
-  microsoftRenewSubscriptions: 'communication-channels-microsoft-renew-subscriptions',
 } as const
 
 export type CommunicationChannelsQueueName =

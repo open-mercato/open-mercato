@@ -21,7 +21,7 @@ export interface ComposeEmailChannel {
   id: string
   displayName: string
   externalIdentifier?: string | null
-  providerKey: 'gmail' | 'microsoft' | 'imap' | string
+  providerKey: 'gmail' | 'imap' | string
   isPrimary?: boolean
 }
 

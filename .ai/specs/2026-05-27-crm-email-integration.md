@@ -9,7 +9,7 @@
 - **No changes to the hub** (`communication_channels`) or `messages` module — CRM is a downstream consumer.
 
 **Scope (v1)**
-- Surface: a dedicated **Emails** tab on the Person detail page (`PersonEmailThreadsTab`, rendered via the shared `EmailThreadsPanel` from `@open-mercato/ui/backend/messages`) — a Gmail/Outlook-style threaded view. Emails are also rendered as cards on the existing activity timeline. Both surfaces are **built by direct composition** in the customers module, not via UMES injection widgets (see § Architecture).
+- Surface: a dedicated **Emails** tab on the Person detail page (`PersonEmailThreadsTab`, rendered via the shared `EmailThreadsPanel` from `@open-mercato/ui/backend/messages`) — a Gmail-style threaded view. Emails are also rendered as cards on the existing activity timeline. Both surfaces are **built by direct composition** in the customers module, not via UMES injection widgets (see § Architecture).
 - Outbound: `<ComposeEmailDialog>` (a direct component, reached from the Emails tab's "New email" / per-thread "Reply" controls); calls `sendAsUser` with the user's connected channel; subscriber creates a linked `CustomerInteraction` on `communication_channels.message.sent`.
 - Inbound: subscriber on `communication_channels.message.received`; resolves every Person whose `email` matches any of From/To/Cc; creates one `CustomerInteraction` per match. Unmatched addresses are ignored (email still lives in the unified Messages inbox).
 - **Per-email visibility (strict owner-only, NO admin bypass)**: an email `CustomerInteraction` (`interactionType='email'`) defaults to `'private'` (visible only to its author — the mailbox owner, `author_user_id`). `visibility='shared'` makes it visible to ALL users with CRM access to that Person. `visibility='private'` keeps it visible to the author alone. Admins do NOT bypass this in v1 — `customers.email.view_private` is declared but **inert** (a v2-oversight hook). The owner flips a single email via `PATCH /api/customers/interactions/{id}/visibility` (owner-only; 404 to non-owners). Teammates see an opaque count of private emails on the same Person ("5 more emails (private to teammates)") but never the bodies.
@@ -35,7 +35,7 @@ This spec assumes the following are already implemented:
 | Dependency | Status | Reference |
 |---|---|---|
 | Communications Hub (SPEC-045d) | Implemented (current branch) | `packages/core/src/modules/communication_channels/` |
-| Per-user email channels (Gmail / Microsoft / IMAP) | Implemented (current branch) | `packages/channel-{gmail,microsoft,imap}/` + spec [`2026-05-21-email-integration-foundation.md`](2026-05-21-email-integration-foundation.md) |
+| Per-user email channels (Gmail / IMAP) | Implemented (current branch) | `packages/channel-{gmail,imap}/` + spec [`2026-05-21-email-integration-foundation.md`](2026-05-21-email-integration-foundation.md) |
 | `sendAsUser({ userChannelId, … })` facade | Implemented | `packages/core/src/modules/communication_channels/api/post/send-as-user/route.ts` |
 | Hub events `communication_channels.message.received` / `.sent` with `clientBroadcast: true` | Implemented | `packages/core/src/modules/communication_channels/events.ts` |
 | `customers` module CRUD primitives | Implemented (reference module) | `packages/core/src/modules/customers/` |
@@ -49,7 +49,7 @@ No additional hub changes are required. Cross-tenant + per-user isolation in the
 
 Open Mercato's CRM module (`customers`) currently logs emails as `CustomerInteraction` rows with `interactionType='email'` — but the existing "Compose email" affordance in `ActivitiesAddNewMenu` only writes a log entry; **no actual email leaves the system**. Sales reps must compose in their own mail client and (best case) manually copy the conversation back into the CRM as a free-text interaction. Inbound emails don't appear in the CRM at all unless someone forwards them through `inbox_ops` (a different, AI-extraction-focused pipeline).
 
-The Communications Hub (SPEC-045d) + per-user email channels (2026-05-21 spec) close the platform gap: any user can connect Gmail / Microsoft 365 / IMAP, and the platform can send + receive on their behalf. **This spec wires that capability into the CRM** so emails appear on Person timelines automatically and the user can compose without leaving the Person detail page.
+The Communications Hub (SPEC-045d) + per-user email channels (2026-05-21 spec) close the platform gap: any user can connect Gmail / IMAP, and the platform can send + receive on their behalf. **This spec wires that capability into the CRM** so emails appear on Person timelines automatically and the user can compose without leaving the Person detail page.
 
 > **Architectural references**: SPEC-045d (the hub contract), 2026-05-21 spec (per-user channels + `sendAsUser`), ARCHITECTURE.md §4 (a module composes its OWN pages directly — the email surface is direct composition, not UMES injection), the customers module's existing `CustomerInteraction` schema and `ActivityTimeline` render path, and the shared `EmailThreadsPanel`.
 
@@ -252,7 +252,7 @@ Browser SSE bridge (clientBroadcast) → Emails tab / timeline live-refresh (use
 ```
 External mailbox receives email
   ↓
-Hub poll worker (channel-{gmail,microsoft,imap})
+Hub poll worker (channel-{gmail,imap})
   ↓
 Hub inbound-processor: creates Message + MessageChannelLink + ExternalMessage; emits communication_channels.message.received
   ↓
@@ -332,7 +332,7 @@ This spec adds **zero new tables**. All deltas are additive columns on the exist
 ALTER TABLE customer_interactions
   ADD COLUMN external_message_id UUID NULL,    -- linked to communication_channels:message_channel_link via EntityExtension
   ADD COLUMN visibility TEXT NULL,             -- 'private' | 'shared' for email rows; NULL for non-email rows
-  ADD COLUMN channel_provider_key TEXT NULL;   -- 'gmail' | 'microsoft' | 'imap' — denormalized for filter UX
+  ADD COLUMN channel_provider_key TEXT NULL;   -- 'gmail' | 'imap' — denormalized for filter UX
 
 CREATE INDEX customer_interactions_external_msg_idx
   ON customer_interactions (external_message_id)

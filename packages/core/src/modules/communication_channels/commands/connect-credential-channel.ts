@@ -179,12 +179,12 @@ const connectCredentialChannelCommand: CommandHandler<
     })
 
     // Spec C § Phase C5 — best-effort push registration for providers that
-    // support it (Gmail, Microsoft). Failures persist as `pushStatus='failed'`
+    // support it (Gmail). Failures persist as `pushStatus='failed'`
     // on the channel state but do NOT fail the connect — polling fallback
     // covers the channel until the operator clicks "Re-register push".
     // Imported lazily to avoid a circular module load (push-register reads
     // the channel adapter registry, which is initialised after this module).
-    if (credentialsAvailable && (input.providerKey === 'gmail' || input.providerKey === 'microsoft')) {
+    if (credentialsAvailable && input.providerKey === 'gmail') {
       const adapterSupportsPush =
         typeof adapter.registerPush === 'function' && typeof adapter.unregisterPush === 'function'
       const organizationId = input.scope.organizationId

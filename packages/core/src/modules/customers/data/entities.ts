@@ -589,7 +589,7 @@ export class CustomerInteraction {
 
   /**
    * Denormalized provider key from `MessageChannelLink.providerKey`. Common
-   * values today: 'gmail', 'microsoft', 'imap'. Stored as open text so future
+   * values today: 'gmail', 'imap'. Stored as open text so future
    * providers (e.g. 'slack', 'whatsapp') can register without a schema change.
    */
   @Property({ name: 'channel_provider_key', type: 'text', nullable: true })

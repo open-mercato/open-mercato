@@ -1,24 +1,23 @@
 ---
 title: Communications Hub
-description: Architecture, OAuth setup, environment variables, deploy runbook, and provider package contract for the Communications Hub and the IMAP / Gmail / Microsoft 365 channel providers.
+description: Architecture, OAuth setup, environment variables, deploy runbook, and provider package contract for the Communications Hub and the IMAP / Gmail channel providers.
 ---
 
 # Communications Hub
 
-The Communications Hub (`communication_channels`) bridges external chat and email channels (Slack, WhatsApp, Gmail, Microsoft 365, IMAP+SMTP) into the **Messages** module. Each provider ships as a separate workspace package implementing the `ChannelAdapter` contract; the hub itself stays adapter-agnostic.
+The Communications Hub (`communication_channels`) bridges external chat and email channels (Slack, WhatsApp, Gmail, IMAP+SMTP) into the **Messages** module. Each provider ships as a separate workspace package implementing the `ChannelAdapter` contract; the hub itself stays adapter-agnostic.
 
-Three email providers ship today:
+Two email providers ship today:
 
 - `@open-mercato/channel-imap` — credential-based IMAP polling + SMTP send
 - `@open-mercato/channel-gmail` — Gmail OAuth2 + History API polling + `gmail.users.messages.send`
-- `@open-mercato/channel-microsoft` — Azure AD OAuth2 + PKCE + Graph delta query + `/me/sendMail`
 
 For the end-user perspective see the [Communication Channels user guide](../../user-guide/communication-channels.mdx).
 
 ## Overview
 
 - **Hub**: `packages/core/src/modules/communication_channels/`
-- **Providers**: `packages/channel-{imap,gmail,microsoft}/`
+- **Providers**: `packages/channel-{imap,gmail}/`
 - **Module entry**: enable with `{ id: 'communication_channels', from: '@open-mercato/core' }` plus one entry per provider you want active in `apps/mercato/src/modules.ts`.
 - **Specs**: [`.ai/specs/implemented/SPEC-045d-communication-notification-hubs.md`](#) (hub contract) and [`.ai/specs/2026-05-21-email-integration-foundation.md`](#) (email providers + per-user surfaces).
 
@@ -34,12 +33,12 @@ For the end-user perspective see the [Communication Channels user guide](../../u
    │          │  ChannelThreadMapping + MessageReaction      │          │
    │          └──────────────────────────────────────────────┘          │
    ▼                                                                    ▼
-┌──────────┐  ┌──────────┐  ┌───────────┐                          ┌────────┐
-│ channel- │  │ channel- │  │ channel-  │  …  (future: channel-    │ Messages │
-│  imap    │  │  gmail   │  │ microsoft │     slack, channel-      │ module   │
-│  (basic  │  │  (OAuth) │  │  (OAuth + │     whatsapp, etc.)      └────────┘
-│   auth)  │  │          │  │   PKCE)   │
-└──────────┘  └──────────┘  └───────────┘
+┌──────────┐  ┌──────────┐                                         ┌────────┐
+│ channel- │  │ channel- │   …  (future: channel-slack,            │ Messages │
+│  imap    │  │  gmail   │       channel-whatsapp, etc.)           │ module   │
+│  (basic  │  │  (OAuth) │                                         └────────┘
+│   auth)  │  │          │
+└──────────┘  └──────────┘
 ```
 
 Each provider exports a `ChannelAdapter` from `@open-mercato/core/modules/communication_channels/lib/adapter`. The hub's registry validates capability/method consistency at registration time (so an adapter that declares `capabilities.deleteMessage: true` without implementing `deleteMessage()` throws on boot).
@@ -116,7 +115,7 @@ Phase 4 of the email integration spec added two hub-side guards (`packages/core/
 
 ## Credential refresh contract
 
-OAuth providers (Gmail, Microsoft) need their tenant-level OAuth client config — `clientId`, `clientSecret`, and (for Microsoft) `tenantId` — every time a per-user access token is refreshed. The hub resolves this once before delegating to the adapter via the **`RefreshCredentialsInput.oauthClient`** field:
+OAuth providers (Gmail) need their tenant-level OAuth client config — `clientId` and `clientSecret` — every time a per-user access token is refreshed. The hub resolves this once before delegating to the adapter via the **`RefreshCredentialsInput.oauthClient`** field:
 
 ```ts
 export interface RefreshCredentialsInput {
@@ -128,8 +127,7 @@ export interface RefreshCredentialsInput {
    * Tenant-level OAuth client config resolved by the hub from
    * `integration_credentials.scope = oauth_<providerKey>`.
    *
-   * - OAuth providers (Gmail, Microsoft): MUST read clientId / clientSecret
-   *   (+ tenantId for Microsoft) from this field.
+   * - OAuth providers (Gmail): MUST read clientId / clientSecret from this field.
    * - Static-credential providers (IMAP, WhatsApp): ignore.
    */
   oauthClient?: OAuthClientConfig
@@ -138,17 +136,17 @@ export interface RefreshCredentialsInput {
 export interface OAuthClientConfig {
   clientId: string
   clientSecret?: string
-  /** Microsoft tenant id (`common`, `consumers`, `organizations`, or a GUID). */
+  /** OAuth directory/tenant id for providers that require one (provider-specific). */
   tenantId?: string
   /** Optional pre-resolved scopes list. */
   scopes?: string[]
 }
 ```
 
-The hub's `refreshCredentialsIfNeeded` helper resolves `oauth_<providerKey>` via `IntegrationCredentialsService.resolve(...)` and passes the result through. Provider adapters that implement OAuth refresh MUST read `clientId` / `clientSecret` from `input.oauthClient` — see `packages/channel-gmail/.../lib/adapter.ts:refreshCredentials` and `packages/channel-microsoft/.../lib/adapter.ts:refreshCredentials` for reference implementations.
+The hub's `refreshCredentialsIfNeeded` helper resolves `oauth_<providerKey>` via `IntegrationCredentialsService.resolve(...)` and passes the result through. Provider adapters that implement OAuth refresh MUST read `clientId` / `clientSecret` from `input.oauthClient` — see `packages/channel-gmail/.../lib/adapter.ts:refreshCredentials` for the reference implementation.
 
 :::warning Legacy `credentials._client` path is deprecated
-Prior to the wiring spec ([`.ai/specs/2026-05-27-email-integration-inbound-reliability-and-threading.md`](#)), adapters read OAuth client config from `credentials._client` — a field no production code path ever populated, which caused token refresh to fail silently after ~1 hour. The Gmail and Microsoft adapters still recognize `_client` for one minor release with a one-time deprecation warning per process. Remove any test fixtures or callers that rely on `_client` and pass `oauthClient` instead.
+Prior to the wiring spec ([`.ai/specs/2026-05-27-email-integration-inbound-reliability-and-threading.md`](#)), adapters read OAuth client config from `credentials._client` — a field no production code path ever populated, which caused token refresh to fail silently after ~1 hour. The Gmail adapter still recognizes `_client` for one minor release with a one-time deprecation warning per process. Remove any test fixtures or callers that rely on `_client` and pass `oauthClient` instead.
 :::
 
 When the helper cannot resolve the OAuth client (missing `oauth_<provider>` integration credential row, or `credentialsService` not registered), `oauthClient` is left `undefined`. Adapters then fall through to the legacy `_client` path; if neither field is present, refresh fails with a clear error and the channel flips to `status='requires_reauth'` so the operator-visible notification fires.
@@ -199,7 +197,7 @@ The `POST /api/communication_channels/channels/<id>/import-history` route (gated
 | `contactEmails` | optional, up to 1000 | Server-side `OR FROM …` filter, chunked to ≤30 senders per SEARCH to keep the IMAP tag buffer bounded. |
 | `maxMessages` | `1..5000` | Hard cap across all pages. Worker stops paging as soon as the cap is hit. |
 
-A 429 is returned if another import is in-flight for the same channel (active-jobs scan, plus the worker's `concurrency: 1` is the second line of defence). Progress streams to the existing `ProgressTopBar` via `ProgressService.updateProgress(...)`. Adapter contract is **additive optional** — adapters that don't implement `importHistory()` get a 400 envelope back from the route (Gmail / Microsoft gain support in Spec C).
+A 429 is returned if another import is in-flight for the same channel (active-jobs scan, plus the worker's `concurrency: 1` is the second line of defence). Progress streams to the existing `ProgressTopBar` via `ProgressService.updateProgress(...)`. Adapter contract is **additive optional** — adapters that don't implement `importHistory()` get a 400 envelope back from the route (Gmail gains support in Spec C).
 
 The UI lives on `/backend/profile/communication-channels` as a per-row "Import history" button → modal dialog (`Cmd/Ctrl+Enter` submits, `Escape` cancels). On success the dialog calls `router.refresh()` instead of `window.location.reload()` — preserves scroll position and avoids the flash that a full reload causes.
 
@@ -207,15 +205,15 @@ The UI lives on `/backend/profile/communication-channels` as a per-row "Import h
 
 Shipped 2026-05-27. See [`.ai/specs/2026-05-27-email-integration-inbound-reliability-and-threading.md`](#) for the full design rationale.
 
-Spec B established the polling foundation: 60-second cadence for IMAP, Gmail, and Microsoft alike. Spec C **replaces** the 60s polling cadence for Gmail and Microsoft with native push delivery, dropping inbound latency from ≤60s to 5–15s typical while leaving 30-minute polling as a belt-and-suspenders fallback.
+Spec B established the polling foundation: 60-second cadence for IMAP and Gmail alike. Spec C **replaces** the 60s polling cadence for Gmail with native push delivery, dropping inbound latency from ≤60s to 5–15s typical while leaving 30-minute polling as a belt-and-suspenders fallback.
 
 ### Adapter contract (additive)
 
 Three optional methods on `ChannelAdapter`:
 
-- **`registerPush(input): Promise<PushRegistration>`** — Gmail: calls `users.watch` with the operator-configured Pub/Sub topic. Microsoft: creates a `/subscriptions` row with a freshly-minted 32-byte `clientState` nonce.
-- **`unregisterPush(input): Promise<void>`** — Counterpart for disconnect / reauth. Gmail: `users.stop`. Microsoft: `DELETE /subscriptions/{id}`. Idempotent on 404.
-- **`applyPushNotification(input): Promise<HistoryPage>`** — Turns a verified inbound notification into the same `HistoryPage` shape `fetchHistory` returns. Gmail: walks `history.list`. Microsoft: walks `/me/messages/delta`. Both delegate to `fetchHistory` so the pagination + cursor-recovery logic stays in one place.
+- **`registerPush(input): Promise<PushRegistration>`** — Gmail: calls `users.watch` with the operator-configured Pub/Sub topic.
+- **`unregisterPush(input): Promise<void>`** — Counterpart for disconnect / reauth. Gmail: `users.stop`. Idempotent on 404.
+- **`applyPushNotification(input): Promise<HistoryPage>`** — Turns a verified inbound notification into the same `HistoryPage` shape `fetchHistory` returns. Gmail: walks `history.list`, delegating to `fetchHistory` so the pagination + cursor-recovery logic stays in one place.
 
 Adapters that don't implement these methods (IMAP, chat providers) stay on Spec B's polling.
 
@@ -228,36 +226,13 @@ Adapters that don't implement these methods (IMAP, chat providers) stay on Spec 
 5. The webhook enqueues a `communication-channels-gmail-history-sync` job per matching channel (we look up across all tenants by `emailAddress` and dispatch per-tenant — same `emailAddress` connected to multiple tenants is supported).
 6. `gmail-history-sync` worker calls `adapter.applyPushNotification(...)` (which walks `history.list` from the stored cursor) and feeds each new message through `ingest-inbound-message`. Cursor advances per-message commit (Spec B contract).
 
-### Microsoft Graph flow
-
-1. No tenant pre-setup beyond OAuth (which Spec A already requires). The hub-side env `OM_MICROSOFT_WEBHOOK_BASE_URL` is the only new operator config.
-2. `adapter.registerPush(...)` POSTs `/subscriptions` with `resource: "/me/mailFolders('inbox')/messages"`, a freshly-minted 32-byte `clientState`, and `expirationDateTime: now+60h`. Graph performs a synchronous validation handshake: it POSTs `?validationToken=…` to `notificationUrl`; our webhook echoes the token verbatim within 10s.
-3. The minted `clientState` is persisted **encrypted at rest** in `communication_channels.client_state_encrypted` (separate column, declared in `defaultEncryptionMaps`).
-4. Graph POSTs change notifications to `/api/communication_channels/webhooks/microsoft/[subscriptionId]`. The webhook looks up the channel by `channelState.subscriptionId`, decrypts `clientStateEncrypted` via `findOneWithDecryption`, and constant-time compares against every notification's `clientState`.
-5. `microsoft-delta-sync` worker calls `adapter.applyPushNotification(...)` (which walks `/me/messages/delta` from the stored `deltaLink`) and ingests each new message.
-
-### Microsoft lifecycle events
-
-Graph emits three lifecycle events to a separate URL (`/api/communication_channels/webhooks/microsoft/[subscriptionId]/lifecycle`):
-
-| Event | Reaction |
-|---|---|
-| `missed` | Hub enqueues a delta-sync to catch up — we lost notifications. |
-| `reauthorizationRequired` | Channel flips to `status='requires_reauth'`; the existing `communication_channels.channel.requires_reauth` notification fires, prompting the user to reconnect. |
-| `subscriptionRemoved` | `pushStatus` set to `inactive`; `pollIntervalSeconds` restored to 60. Polling fallback takes over until the next "Re-register push". |
-
 ### Renewal cron
 
 - **Gmail watch** expires after ~7 days. Daily 04:00 UTC cron (`gmail-renew-watch` queue, registered per-org in `setup.ts`) finds channels within `OM_PUSH_RENEWAL_GMAIL_LEAD_HOURS` (default 24h) of expiry and triggers `pushRegister(...)` again.
-- **Microsoft subscriptions** expire after ~70 hours on `/me/messages` plain notifications. Every-2-hours cron (`microsoft-renew-subscriptions`) PATCHes `subscriptionId` to extend `expirationDateTime` for channels within `OM_PUSH_RENEWAL_MICROSOFT_LEAD_HOURS` (default 4h).
 
 ### Polling fallback
 
-`pollIntervalSeconds` automatically flips from 60 to **1800** (30 min) when `pushStatus='active'` is persisted by `registerPush`. If push fails (Gmail Pub/Sub topic misconfigured, Microsoft subscription rejected) the channel keeps polling at 60s, so no message is ever lost. The `pushStatus='failed'` channel surfaces in the operator UI with a "Re-register push" button calling `POST /api/communication_channels/channels/<id>/push/register`.
-
-### Encryption decision
-
-Microsoft `clientState` is stored on a **dedicated `client_state_encrypted text NULL` column** (additive migration `Migration20260527230000_communication_channels.ts`) rather than inside the plaintext `channelState` JSONB. Rationale: encrypting a JSONB sub-key would require encrypting the whole blob and rewriting every reader. The separate-column approach mirrors `IntegrationCredentials.credentials` and lets `channelState` stay plaintext for Gmail's `historyId`, IMAP's UIDVALIDITY, and other non-secret cursor fields.
+`pollIntervalSeconds` automatically flips from 60 to **1800** (30 min) when `pushStatus='active'` is persisted by `registerPush`. If push fails (e.g. the Gmail Pub/Sub topic is misconfigured) the channel keeps polling at 60s, so no message is ever lost. The `pushStatus='failed'` channel surfaces in the operator UI with a "Re-register push" button calling `POST /api/communication_channels/channels/<id>/push/register`.
 
 ## OAuth setup
 
@@ -291,42 +266,6 @@ The credentials are stored encrypted on `IntegrationCredentials` and resolved at
 
 When you're ready to onboard more than 100 users, submit the OAuth app for verification. The hub keeps working without verification while you're under that limit and inside Workspace test-user lists.
 
-### Microsoft 365 / Outlook (`@open-mercato/channel-microsoft`)
-
-#### 1. Register an app in Azure AD
-
-1. Go to [Azure Portal](https://portal.azure.com/) → **Azure Active Directory** → **App registrations** → **New registration**.
-2. Supported account types:
-   - *Single tenant* — only users in your Azure AD tenant
-   - *Multitenant* — any work/school account
-   - *Multitenant + personal accounts* — also allow personal Microsoft accounts (consumer Outlook.com / Hotmail)
-3. Redirect URI: *Web* → `https://<your-host>/api/communication_channels/oauth/microsoft/callback`.
-
-#### 2. Configure API permissions
-
-Under **API permissions**, add the following Microsoft Graph **delegated** permissions:
-
-- `offline_access` (required for refresh tokens)
-- `Mail.Read`
-- `Mail.Send`
-- `Mail.ReadWrite`
-- `User.Read`
-
-If your tenant requires admin consent, click **Grant admin consent for &lt;tenant&gt;** in the same panel.
-
-#### 3. Client secret (optional)
-
-The Open Mercato Microsoft adapter is a public PKCE client by default — no secret needed. If your security policy requires a confidential client, generate a client secret under **Certificates & secrets** and provide it in the credentials form.
-
-#### 4. Register the client in Open Mercato
-
-In **Backend → Integrations → Microsoft 365** add:
-
-- **Client ID** (from the Overview tab)
-- **Tenant ID** — use `common` to allow any tenant + personal accounts, `organizations` for any work/school tenant, a specific GUID for a single tenant, or `consumers` for personal accounts only.
-- **Client Secret** — leave blank for PKCE, or paste the confidential-client secret if you generated one.
-- **Scopes** — leave blank for defaults, override with a space-separated list otherwise.
-
 ### IMAP + SMTP (`@open-mercato/channel-imap`)
 
 No tenant setup required. The integrations admin page lets you toggle the provider on or off; individual users provide their own host/port/credentials when they connect.
@@ -349,9 +288,7 @@ The hub reads a small set of env vars; sensible defaults exist for all of them.
 | `OM_GMAIL_PUBSUB_TOPIC` | (none — required for Gmail push) | Fully-qualified Pub/Sub topic, e.g. `projects/openmercato-prod/topics/gmail-inbound`. Passed to `gmail.users.watch`. |
 | `OM_GMAIL_PUBSUB_AUDIENCE` | (none — required for Gmail push) | Expected `aud` claim in the Pub/Sub-signed JWT. Set this to the webhook URL or a stable identifier configured on the Pub/Sub push subscription. |
 | `OM_GMAIL_PUBSUB_SERVICE_ACCOUNT_EMAIL` | (none — required for Gmail push) | Expected `email` claim in the Pub/Sub JWT. Typically the service account configured on the push subscription (NOT `gmail-api-push@system.gserviceaccount.com` — that's the publisher into the topic). |
-| `OM_MICROSOFT_WEBHOOK_BASE_URL` | (none — required for Microsoft push) | Public base URL Graph posts notifications to, e.g. `https://app.example.com`. The hub appends the per-channel path. |
 | `OM_PUSH_RENEWAL_GMAIL_LEAD_HOURS` | `24` | Renewal lead time for `gmail.users.watch`. Lower means we renew earlier; higher means we cut closer to the 7-day expiration. |
-| `OM_PUSH_RENEWAL_MICROSOFT_LEAD_HOURS` | `4` | Renewal lead time for Microsoft Graph subscriptions (cron runs every 2 hours, so 4 gives one safety cycle). |
 
 ## Deploy runbook
 
@@ -359,7 +296,7 @@ The hub reads a small set of env vars; sensible defaults exist for all of them.
 
 1. **Provision the Postgres schema** — `yarn db:migrate` runs the hub's migration plus the per-user-columns migration (`Migration20260526154135_communication_channels`).
 2. **Sync the ACL grants** — `yarn mercato auth sync-role-acls` so the new `communication_channels.*` features (including `communication_channels.connect_user_channel`) are granted to the appropriate roles.
-3. **Run the structural cache purge** — `yarn mercato configs cache structural --all-tenants`. Mandatory after any `modules.ts` change that adds a provider (slices 3e/3f/3g enable `channel_imap`, `channel_gmail`, `channel_microsoft`).
+3. **Run the structural cache purge** — `yarn mercato configs cache structural --all-tenants`. Mandatory after any `modules.ts` change that adds a provider (slices 3e/3f enable `channel_imap` and `channel_gmail`).
 4. **Configure the OAuth apps** — follow the per-provider setup sections above and register the client IDs/secrets via the **Integrations** admin UI.
 5. **Optional: set `OM_HUB_OAUTH_STATE_KEY`** — derived from `AUTH_SECRET` by default; set explicitly if you want to rotate independently.
 
@@ -374,7 +311,7 @@ The hub reads a small set of env vars; sensible defaults exist for all of them.
 
 ### Adding a new provider
 
-The hub deliberately stays adapter-agnostic. To add a fourth email provider (e.g. Yahoo, ProtonMail Bridge variant), follow the same shape as the three shipping packages:
+The hub deliberately stays adapter-agnostic. To add a third email provider (e.g. Yahoo, ProtonMail Bridge variant), follow the same shape as the two shipping packages:
 
 1. `mkdir packages/channel-<provider>` and copy the build/watch/jest/tsconfig templates from `packages/channel-imap`.
 2. Implement `ChannelAdapter` in `src/modules/channel_<provider>/lib/adapter.ts`.
@@ -388,7 +325,7 @@ The hub's webhook router, OAuth router, send-as-user route, and admin UI auto-di
 
 - **Credentials at rest**: encrypted by the integrations module via `TenantDataEncryptionService` (AES-256-GCM, per-tenant DEKs). The adapter receives plaintext only inside the request scope; no SQL probe leaks plaintext.
 - **OAuth state cookie**: 5-minute TTL, AES-256-GCM, HKDF-derived from `OM_HUB_OAUTH_STATE_KEY`, bound to the initiating user's id. Catches replays + replay-across-users.
-- **Microsoft PKCE**: S256 challenge generated with `crypto.randomBytes(64)`. The verifier is persisted only in the state cookie — never logged or stored server-side.
+- **OAuth PKCE**: S256 challenge generated with `crypto.randomBytes(64)`. The verifier is persisted only in the state cookie — never logged or stored server-side.
 - **HTML sanitization**: every channel payload renders through `packages/core/src/modules/communication_channels/lib/sanitize-channel-html.ts` before `dangerouslySetInnerHTML`. Allowlist tuned for email + chat; strips `<script>`, `<iframe>`, event handlers, and `javascript:` / non-image `data:` URLs.
 - **Webhook auth**: provider webhook routes verify provider signatures via the adapter's `verifyWebhook`. Routes that find no adapter for the `providerKey` return 404, never 5xx.
 - **RBAC**: the hub declares `communication_channels.view` / `.manage` / `.react` / `.assign` / `.connect_user_channel` / `.admin`. Page metadata uses `requireFeatures` (never `requireRoles`).
@@ -403,14 +340,13 @@ Each slice ships its own module-local integration specs under `__integration__/`
 | `TC-CHANNEL-EMAIL-HUB-001..003` | hub | Per-user channel API contract + profile page |
 | `TC-CHANNEL-EMAIL-001..003` | channel-imap | IMAP provider registration + webhook no-op + profile page |
 | `TC-CHANNEL-EMAIL-006..008` | channel-gmail | Gmail OAuth router + webhook no-op + profile page |
-| `TC-CHANNEL-EMAIL-011..013` | channel-microsoft | Microsoft OAuth router + webhook no-op + profile page |
 | `TC-CHANNEL-EMAIL-014..020` | hub | Phase 4 cross-provider scenarios: primary swap, admin RBAC, tenant OAuth override, disconnect, send-as-user guard, user-deleted cascade, rich-content widget |
 
 Run with:
 
 ```bash
 yarn test:integration                        # full suite
-OM_INTEGRATION_MODULES=communication_channels,channel-imap,channel-gmail,channel-microsoft \
+OM_INTEGRATION_MODULES=communication_channels,channel-imap,channel-gmail \
   yarn test:integration                      # email-foundation slice only
 ```
 
@@ -442,7 +378,6 @@ See the three shipping providers for end-to-end examples:
 
 - IMAP: `packages/channel-imap/src/modules/channel_imap/lib/adapter.ts`
 - Gmail: `packages/channel-gmail/src/modules/channel_gmail/lib/adapter.ts`
-- Microsoft: `packages/channel-microsoft/src/modules/channel_microsoft/lib/adapter.ts`
 
 ## Related
 

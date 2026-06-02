@@ -156,7 +156,7 @@ interface ChannelAdapter {
    * Refresh credentials for OAuth-based providers (optional).
    * Called by the hub when an access token is within 60s of expiry, or proactively after a 401 response from the provider.
    * Implementations exchange the refresh token for a new access token and return the updated credential blob to persist.
-   * Required for OAuth providers (Gmail, Microsoft 365, future Slack-OAuth). Omitted for static-credential providers (IMAP, WhatsApp Business API).
+   * Required for OAuth providers (Gmail, future Slack-OAuth). Omitted for static-credential providers (IMAP, WhatsApp Business API).
    */
   refreshCredentials?(input: RefreshCredentialsInput): Promise<RefreshedCredentials>
 

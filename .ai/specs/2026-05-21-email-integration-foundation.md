@@ -1,5 +1,12 @@
 # Per-User Email Channels under the Communications Hub
 
+> **Update (2026-06-02): Microsoft 365 / Outlook channel removed.** The
+> `@open-mercato/channel-microsoft` provider and its Microsoft Graph push /
+> delta-sync / lifecycle plumbing were removed from the codebase; per-user email
+> integration now ships **Gmail + IMAP only**. Microsoft / Outlook content below
+> is retained as historical design context and no longer reflects shipped
+> behavior.
+
 ## TLDR
 
 **Key Points:**
