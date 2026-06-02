@@ -399,7 +399,11 @@ export function AvailabilitySchedule({
         errorMessage: availabilityLabels.deleteError,
       })
     ))
-    flash(availabilityLabels.deletedFlash, 'success')
+    // Success/conflict UX is owned by the host CrudForm (it flashes delete success
+    // and surfaces an optimistic-lock 409 on the conflict bar). Do NOT flash success
+    // here: deleteCrud throws on a 409 so this line only ran on a real delete, but the
+    // extra toast duplicated CrudForm's and read as a misleading success (#2409). The
+    // side effects below still run only after a successful delete.
     setDialogOpen(false)
     setEditingRule(null)
     setSlotSeed(null)

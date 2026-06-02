@@ -1061,7 +1061,11 @@ export function AvailabilityRulesEditor({
         variant: 'destructive',
       }),
       deleteRuleSet: async (id) => {
-        await deleteCrud('planner/availability-rule-sets', id, { errorMessage: listLabels.ruleSetDeleteError })
+        // Version-check the schedule delete (the list page already does; the editor
+        // previously sent no header → last-write-wins on delete). #2055 round-5.
+        await withOptimisticLockForRuleSet(selected, () => (
+          deleteCrud('planner/availability-rule-sets', id, { errorMessage: listLabels.ruleSetDeleteError })
+        ))
       },
       clearAssignment: async () => {
         setCustomOverridesEnabled(false)
