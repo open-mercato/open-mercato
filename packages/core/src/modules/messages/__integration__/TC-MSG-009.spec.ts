@@ -72,8 +72,11 @@ async function openReplyFromHeader(page: Page): Promise<void> {
 test.describe('TC-MSG-009: Message Detail Inline Reply And Forward Composer', () => {
   test('should compose inline below conversation, switch modes, close with escape, and submit forward/reply', async ({ page, request }) => {
     // Multiple safeFill chains plus waitForResponse on submit; under CI shard 9
-    // parallel load each chain may consume ~10–80s of the default 20s budget.
-    test.setTimeout(180_000);
+    // parallel load each chain may consume well over the default 20s budget.
+    // test.slow() triples the per-test timeout (matches the repo idiom for heavy
+    // E2E); the inline-reply submit below uses a bounded waitForResponse so a
+    // load-induced hiccup fails fast instead of hanging the whole budget.
+    test.slow();
 
     let rootMessageId: string | null = null;
     let threadReplyMessageId: string | null = null;
@@ -162,30 +165,41 @@ test.describe('TC-MSG-009: Message Detail Inline Reply And Forward Composer', ()
       await expect(inlineReplyInput).toBeEnabled();
       await safeFill(page, inlineReplyInput, inlineReplyBody);
 
-      const inlineReplyResponsePromise = page.waitForResponse((response) => {
-        if (response.request().method() !== 'POST') return false;
-        let pathname = '';
-        try {
-          pathname = new URL(response.url()).pathname;
-        } catch {
-          return false;
-        }
-        if (!/^\/api\/messages\/[^/]+\/reply$/i.test(pathname)) return false;
-        const requestBody = response.request().postData() ?? '';
-        return requestBody.includes(inlineReplyBody);
-      });
+      // Match the inline reply POST by endpoint with a bounded timeout, then
+      // assert the request body separately. The previous predicate also required
+      // the POST body to include inlineReplyBody inline; under heavy parallel
+      // load, when React was slow to commit the controlled textarea value the
+      // submit fired a non-matching POST (or validation blocked it entirely), so
+      // the unbounded waitForResponse hung for the whole 180s test budget rather
+      // than failing fast. Endpoint-only matching plus an explicit 30s timeout
+      // turns that into a quick, loud failure that the global retry recovers,
+      // and the post-hoc body assertion still proves the typed reply was sent.
+      const inlineReplyResponsePromise = page.waitForResponse(
+        (response) => {
+          if (response.request().method() !== 'POST') return false;
+          let pathname = '';
+          try {
+            pathname = new URL(response.url()).pathname;
+          } catch {
+            return false;
+          }
+          return /^\/api\/messages\/[^/]+\/reply$/i.test(pathname);
+        },
+        { timeout: 30_000 },
+      );
+      // Re-assert the textarea still holds the body before submitting. CI shard 9
+      // traces show the inline composer occasionally drops controlled state
+      // between fill and click; asserting here makes that failure mode loud
+      // (assertion error) instead of a silent empty-body POST.
+      await expect(inlineReplyInput).toHaveValue(inlineReplyBody);
       // Click the composer submit button instead of pressing Ctrl+Enter — the
       // SwitchableMarkdownInput textarea (text mode) has no keyboard submit
       // handler, so Ctrl+Enter just inserts a newline. The composer header
       // renders a "Reply" submit button via FormHeader; .last() picks it
       // (the dropdown menu item is gone after openReplyFromHeader).
-      // Re-assert the textarea still holds the body. CI shard 9 trace shows
-      // the inline composer occasionally drops controlled state between fill
-      // and click — refilling here makes the failure mode loud (assertion
-      // error pointing at the resync) instead of a silent empty-body POST.
-      await expect(inlineReplyInput).toHaveValue(inlineReplyBody);
       await page.getByRole('button', { name: /^Reply$/i }).last().click();
       const inlineReplyResponse = await inlineReplyResponsePromise;
+      expect(inlineReplyResponse.request().postData() ?? '').toContain(inlineReplyBody);
 
       expect(inlineReplyResponse.ok()).toBeTruthy();
       const inlineReplyPayload = (await inlineReplyResponse.json()) as { id?: unknown };

@@ -201,6 +201,8 @@ type CompanySnapshot = {
     status: string | null
     lifecycleStage: string | null
     source: string | null
+    temperature: string | null
+    renewalQuarter: string | null
     nextInteractionAt: Date | null
     nextInteractionName: string | null
     nextInteractionRefId: string | null
@@ -297,6 +299,8 @@ async function loadCompanySnapshot(em: EntityManager, id: string): Promise<Compa
       status: entity.status ?? null,
       lifecycleStage: entity.lifecycleStage ?? null,
       source: entity.source ?? null,
+      temperature: entity.temperature ?? null,
+      renewalQuarter: entity.renewalQuarter ?? null,
       nextInteractionAt: entity.nextInteractionAt ?? null,
       nextInteractionName: entity.nextInteractionName ?? null,
       nextInteractionRefId: entity.nextInteractionRefId ?? null,
@@ -499,6 +503,8 @@ const createCompanyCommand: CommandHandler<CompanyCreateInput, { entityId: strin
       nextInteractionIcon,
       nextInteractionColor,
       isActive: parsed.isActive ?? true,
+      temperature: parsed.temperature ?? null,
+      renewalQuarter: parsed.renewalQuarter ?? null,
     })
 
     const profile = em.create(CustomerCompanyProfile, {
@@ -613,41 +619,44 @@ const updateCompanyCommand: CommandHandler<CompanyUpdateInput, { entityId: strin
     const profile = await em.findOne(CustomerCompanyProfile, { entity: record })
     if (!profile) throw new CrudHttpError(404, { error: 'Company profile not found' })
 
-    if (parsed.displayName !== undefined) record.displayName = parsed.displayName
-    if (parsed.description !== undefined) record.description = parsed.description ?? null
-    if (parsed.ownerUserId !== undefined) record.ownerUserId = parsed.ownerUserId ?? null
-    if (parsed.primaryEmail !== undefined) record.primaryEmail = parsed.primaryEmail ?? null
-    if (parsed.primaryPhone !== undefined) record.primaryPhone = normalizeOptionalString(parsed.primaryPhone)
-    if (parsed.status !== undefined) record.status = parsed.status ?? null
-    if (parsed.lifecycleStage !== undefined) record.lifecycleStage = parsed.lifecycleStage ?? null
-    if (parsed.source !== undefined) record.source = parsed.source ?? null
-    if (parsed.isActive !== undefined) record.isActive = parsed.isActive
-
-    if (parsed.nextInteraction) {
-      record.nextInteractionAt = parsed.nextInteraction.at
-      record.nextInteractionName = parsed.nextInteraction.name.trim()
-      record.nextInteractionRefId = normalizeOptionalString(parsed.nextInteraction.refId) ?? null
-      record.nextInteractionIcon = normalizeOptionalString(parsed.nextInteraction.icon)
-      record.nextInteractionColor = normalizeHexColor(parsed.nextInteraction.color)
-    } else if (parsed.nextInteraction === null) {
-      record.nextInteractionAt = null
-      record.nextInteractionName = null
-      record.nextInteractionRefId = null
-      record.nextInteractionIcon = null
-      record.nextInteractionColor = null
-    }
-
-    if (parsed.legalName !== undefined) profile.legalName = parsed.legalName ?? null
-    if (parsed.brandName !== undefined) profile.brandName = parsed.brandName ?? null
-    if (parsed.domain !== undefined) profile.domain = parsed.domain ?? null
-    if (parsed.websiteUrl !== undefined) profile.websiteUrl = parsed.websiteUrl ?? null
-    if (parsed.industry !== undefined) profile.industry = parsed.industry ?? null
-    if (parsed.sizeBucket !== undefined) profile.sizeBucket = parsed.sizeBucket ?? null
-    if (parsed.annualRevenue !== undefined) {
-      profile.annualRevenue = parsed.annualRevenue !== null && parsed.annualRevenue !== undefined ? String(parsed.annualRevenue) : null
-    }
-
     await withAtomicFlush(em, [
+      () => {
+        if (parsed.displayName !== undefined) record.displayName = parsed.displayName
+        if (parsed.description !== undefined) record.description = parsed.description ?? null
+        if (parsed.ownerUserId !== undefined) record.ownerUserId = parsed.ownerUserId ?? null
+        if (parsed.primaryEmail !== undefined) record.primaryEmail = parsed.primaryEmail ?? null
+        if (parsed.primaryPhone !== undefined) record.primaryPhone = normalizeOptionalString(parsed.primaryPhone)
+        if (parsed.status !== undefined) record.status = parsed.status ?? null
+        if (parsed.lifecycleStage !== undefined) record.lifecycleStage = parsed.lifecycleStage ?? null
+        if (parsed.source !== undefined) record.source = parsed.source ?? null
+        if (parsed.isActive !== undefined) record.isActive = parsed.isActive
+        if (parsed.temperature !== undefined) record.temperature = parsed.temperature ?? null
+        if (parsed.renewalQuarter !== undefined) record.renewalQuarter = parsed.renewalQuarter ?? null
+
+        if (parsed.nextInteraction) {
+          record.nextInteractionAt = parsed.nextInteraction.at
+          record.nextInteractionName = parsed.nextInteraction.name.trim()
+          record.nextInteractionRefId = normalizeOptionalString(parsed.nextInteraction.refId) ?? null
+          record.nextInteractionIcon = normalizeOptionalString(parsed.nextInteraction.icon)
+          record.nextInteractionColor = normalizeHexColor(parsed.nextInteraction.color)
+        } else if (parsed.nextInteraction === null) {
+          record.nextInteractionAt = null
+          record.nextInteractionName = null
+          record.nextInteractionRefId = null
+          record.nextInteractionIcon = null
+          record.nextInteractionColor = null
+        }
+
+        if (parsed.legalName !== undefined) profile.legalName = parsed.legalName ?? null
+        if (parsed.brandName !== undefined) profile.brandName = parsed.brandName ?? null
+        if (parsed.domain !== undefined) profile.domain = parsed.domain ?? null
+        if (parsed.websiteUrl !== undefined) profile.websiteUrl = parsed.websiteUrl ?? null
+        if (parsed.industry !== undefined) profile.industry = parsed.industry ?? null
+        if (parsed.sizeBucket !== undefined) profile.sizeBucket = parsed.sizeBucket ?? null
+        if (parsed.annualRevenue !== undefined) {
+          profile.annualRevenue = parsed.annualRevenue !== null && parsed.annualRevenue !== undefined ? String(parsed.annualRevenue) : null
+        }
+      },
       () => syncEntityTags(em, record, parsed.tags),
     ], { transaction: true })
 
@@ -720,6 +729,8 @@ const updateCompanyCommand: CommandHandler<CompanyUpdateInput, { entityId: strin
         status: before.entity.status,
         lifecycleStage: before.entity.lifecycleStage,
         source: before.entity.source,
+        temperature: before.entity.temperature,
+        renewalQuarter: before.entity.renewalQuarter,
         nextInteractionAt: before.entity.nextInteractionAt,
         nextInteractionName: before.entity.nextInteractionName,
         nextInteractionRefId: before.entity.nextInteractionRefId,
@@ -737,6 +748,8 @@ const updateCompanyCommand: CommandHandler<CompanyUpdateInput, { entityId: strin
       entity.status = before.entity.status
       entity.lifecycleStage = before.entity.lifecycleStage
       entity.source = before.entity.source
+      entity.temperature = before.entity.temperature
+      entity.renewalQuarter = before.entity.renewalQuarter
       entity.nextInteractionAt = before.entity.nextInteractionAt
       entity.nextInteractionName = before.entity.nextInteractionName
       entity.nextInteractionRefId = before.entity.nextInteractionRefId
@@ -1047,6 +1060,8 @@ const deleteCompanyCommand: CommandHandler<{ body?: Record<string, unknown>; que
           status: before.entity.status,
           lifecycleStage: before.entity.lifecycleStage,
           source: before.entity.source,
+          temperature: before.entity.temperature,
+          renewalQuarter: before.entity.renewalQuarter,
           nextInteractionAt: before.entity.nextInteractionAt,
           nextInteractionName: before.entity.nextInteractionName,
           nextInteractionRefId: before.entity.nextInteractionRefId,
@@ -1065,6 +1080,8 @@ const deleteCompanyCommand: CommandHandler<{ body?: Record<string, unknown>; que
       entity.status = before.entity.status
       entity.lifecycleStage = before.entity.lifecycleStage
       entity.source = before.entity.source
+      entity.temperature = before.entity.temperature
+      entity.renewalQuarter = before.entity.renewalQuarter
       entity.nextInteractionAt = before.entity.nextInteractionAt
       entity.nextInteractionName = before.entity.nextInteractionName
       entity.nextInteractionRefId = before.entity.nextInteractionRefId

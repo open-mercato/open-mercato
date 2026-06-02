@@ -21,8 +21,7 @@ import { buildOptimisticLockHeader } from '@open-mercato/ui/backend/utils/optimi
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 import type { CredentialFieldType, IntegrationCredentialField } from '@open-mercato/shared/modules/integrations/types'
-import { LoadingMessage } from '@open-mercato/ui/backend/detail'
-import { ErrorMessage } from '@open-mercato/ui/backend/detail'
+import { LoadingMessage, ErrorMessage, RecordNotFoundState } from '@open-mercato/ui/backend/detail'
 
 type CredentialField = IntegrationCredentialField
 
@@ -84,6 +83,7 @@ export default function BundleConfigPage({ params }: BundleConfigPageProps) {
   const [detail, setDetail] = React.useState<BundleDetail | null>(null)
   const [isLoading, setIsLoading] = React.useState(true)
   const [error, setError] = React.useState<string | null>(null)
+  const [isNotFound, setIsNotFound] = React.useState(false)
   const [credValues, setCredValues] = React.useState<Record<string, unknown>>({})
   const [isSavingCreds, setIsSavingCreds] = React.useState(false)
   const [togglingIds, setTogglingIds] = React.useState<Set<string>>(new Set())
@@ -105,13 +105,18 @@ export default function BundleConfigPage({ params }: BundleConfigPageProps) {
     }
     setIsLoading(true)
     setError(null)
+    setIsNotFound(false)
     const call = await apiCall<BundleDetail>(
       `/api/integrations/${encodeURIComponent(currentBundleId)}`,
       undefined,
       { fallback: null },
     )
     if (!call.ok || !call.result) {
-      setError(t('integrations.detail.loadError'))
+      if (call.status === 404) {
+        setIsNotFound(true)
+      } else {
+        setError(t('integrations.detail.loadError'))
+      }
       setIsLoading(false)
       return
     }
@@ -193,6 +198,19 @@ export default function BundleConfigPage({ params }: BundleConfigPageProps) {
   }, [detail, handleToggle])
 
   if (isLoading) return <Page><PageBody><LoadingMessage label={t('integrations.bundle.title')} /></PageBody></Page>
+  if (isNotFound) {
+    return (
+      <Page>
+        <PageBody>
+          <RecordNotFoundState
+            label={t('integrations.detail.notFound', 'Integration not found.')}
+            backHref="/backend/integrations"
+            backLabel={t('integrations.detail.backToList', 'Back to integrations')}
+          />
+        </PageBody>
+      </Page>
+    )
+  }
   if (error || !detail?.bundle) return <Page><PageBody><ErrorMessage label={error ?? t('integrations.detail.loadError')} /></PageBody></Page>
 
   const credFields = (detail.bundle.credentials?.fields ?? []).filter(isEditableCredentialField)
