@@ -14,6 +14,7 @@ import {
 } from '../data/validators'
 import {
   cloneJson,
+  commandActorScope,
   ensureOrganizationScope,
   ensureSameScope,
   ensureTenantScope,
@@ -98,7 +99,10 @@ const createOfferCommand: CommandHandler<OfferCreateInput, { offerId: string }> 
     ensureTenantScope(ctx, parsed.tenantId)
     ensureOrganizationScope(ctx, parsed.organizationId)
     const em = (ctx.container.resolve('em') as EntityManager).fork()
-    const product = await requireProduct(em, parsed.productId)
+    const product = await requireProduct(em, parsed.productId, {
+      tenantId: parsed.tenantId,
+      organizationId: parsed.organizationId,
+    })
     if (
       product.organizationId !== parsed.organizationId ||
       product.tenantId !== parsed.tenantId
@@ -224,10 +228,16 @@ const updateOfferCommand: CommandHandler<OfferUpdateInput, { offerId: string }> 
     ensureOrganizationScope(ctx, record.organizationId)
     let productEntity =
       typeof record.product === 'string'
-        ? await requireProduct(em, record.product)
+        ? await requireProduct(em, record.product, {
+            tenantId: record.tenantId,
+            organizationId: record.organizationId,
+          })
         : record.product
     if (parsed.productId && parsed.productId !== record.product.id) {
-      const nextProduct = await requireProduct(em, parsed.productId)
+      const nextProduct = await requireProduct(em, parsed.productId, {
+        tenantId: record.tenantId,
+        organizationId: record.organizationId,
+      })
       ensureSameScope(nextProduct, record.organizationId, record.tenantId)
       productEntity = nextProduct
     }
@@ -322,9 +332,15 @@ const updateOfferCommand: CommandHandler<OfferUpdateInput, { offerId: string }> 
     const before = payload?.before
     if (!before) return
     const em = (ctx.container.resolve('em') as EntityManager).fork()
-    const record = await requireOffer(em, before.id).catch(() => null)
+    const record = await requireOffer(em, before.id, {
+      tenantId: before.tenantId,
+      organizationId: before.organizationId,
+    }).catch(() => null)
     if (!record) {
-      const product = await requireProduct(em, before.productId)
+      const product = await requireProduct(em, before.productId, {
+        tenantId: before.tenantId,
+        organizationId: before.organizationId,
+      })
       ensureSameScope(product, before.organizationId, before.tenantId)
       const restored = em.create(CatalogOffer, {
         id: before.id,
@@ -384,7 +400,7 @@ const deleteOfferCommand: CommandHandler<{ id?: string }, { offerId: string }> =
   async execute(input, ctx) {
     const parsed = { id: requireId(input, 'Offer id is required.') }
     const em = (ctx.container.resolve('em') as EntityManager).fork()
-    const record = await requireOffer(em, parsed.id)
+    const record = await requireOffer(em, parsed.id, commandActorScope(ctx))
     ensureTenantScope(ctx, record.tenantId)
     ensureOrganizationScope(ctx, record.organizationId)
     const baseEm = ctx.container.resolve('em') as EntityManager
@@ -436,7 +452,10 @@ const deleteOfferCommand: CommandHandler<{ id?: string }, { offerId: string }> =
     const em = (ctx.container.resolve('em') as EntityManager).fork()
     const existing = await em.findOne(CatalogOffer, { id: before.id })
     if (existing) return
-    const product = await requireProduct(em, before.productId)
+    const product = await requireProduct(em, before.productId, {
+      tenantId: before.tenantId,
+      organizationId: before.organizationId,
+    })
     ensureSameScope(product, before.organizationId, before.tenantId)
     const restored = em.create(CatalogOffer, {
       id: before.id,

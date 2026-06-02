@@ -60,13 +60,27 @@ export type NotificationProps = {
   className?: string
   /** Stable id used by the `NotificationStack` (or external trackers) to identify the card. Forwarded as `data-notification-id`. */
   id?: string
+  /**
+   * Auto-dismiss the card after N milliseconds. When set, an internal
+   * timer fires `onDismiss` after the delay. Standard toast UX:
+   * 4000–6000 for success / info, 8000+ for warnings, no auto-dismiss
+   * for errors. Defaults to undefined (manual dismiss only).
+   */
+  autoDismissMs?: number
+  /**
+   * Pause the auto-dismiss timer while the user is hovering the card.
+   * Defaults to `true` whenever `autoDismissMs` is set — gives users
+   * time to read/click without the card disappearing under their
+   * cursor. Pass `false` to keep the timer running unconditionally.
+   */
+  pauseOnHover?: boolean
 }
 
 /**
  * Card composition over the `Alert` primitive matching the Figma
  * Notification reference (`170:1839` — Error/Light/Large). Renders a
  * status icon (or custom `avatar`), a title + timestamp row, an
- * `opacity-72` description, and an optional row of action links. Use
+ * `opacity-70` description, and an optional row of action links. Use
  * with `NotificationStack` for corner-floating manual-dismiss UX, or
  * standalone inside a panel / dialog content area.
  *
@@ -89,9 +103,30 @@ export const Notification = React.forwardRef<HTMLDivElement, NotificationProps>(
       dismissAriaLabel,
       className,
       id,
+      autoDismissMs,
+      pauseOnHover,
     },
     ref,
   ) => {
+    const shouldPauseOnHover = pauseOnHover ?? autoDismissMs !== undefined
+    const [hovered, setHovered] = React.useState(false)
+
+    React.useEffect(() => {
+      if (autoDismissMs === undefined || autoDismissMs <= 0) return
+      if (shouldPauseOnHover && hovered) return
+      const timer = window.setTimeout(() => {
+        onDismiss?.()
+      }, autoDismissMs)
+      return () => window.clearTimeout(timer)
+    }, [autoDismissMs, hovered, onDismiss, shouldPauseOnHover])
+
+    const handleMouseEnter = React.useCallback(() => {
+      if (shouldPauseOnHover) setHovered(true)
+    }, [shouldPauseOnHover])
+    const handleMouseLeave = React.useCallback(() => {
+      if (shouldPauseOnHover) setHovered(false)
+    }, [shouldPauseOnHover])
+
     return (
       <Alert
         ref={ref}
@@ -105,6 +140,11 @@ export const Notification = React.forwardRef<HTMLDivElement, NotificationProps>(
         className={className}
         data-slot="notification"
         data-notification-id={id}
+        data-auto-dismiss-paused={
+          autoDismissMs !== undefined && shouldPauseOnHover && hovered ? 'true' : undefined
+        }
+        onMouseEnter={handleMouseEnter}
+        onMouseLeave={handleMouseLeave}
       >
         {(title || timestamp) && (
           <div className="flex items-start gap-2">
@@ -117,7 +157,7 @@ export const Notification = React.forwardRef<HTMLDivElement, NotificationProps>(
           </div>
         )}
         {description ? (
-          <AlertDescription className={cn('opacity-72', title && 'mt-1')} data-slot="notification-description">
+          <AlertDescription className={cn('opacity-70', title && 'mt-1')} data-slot="notification-description">
             {description}
           </AlertDescription>
         ) : null}

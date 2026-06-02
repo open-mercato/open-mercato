@@ -108,6 +108,16 @@ Centralize shared command utilities like undo extraction in `packages/shared/src
 
 **Applies to**: `scripts/dev.mjs`, `apps/mercato/scripts/dev.mjs`, `packages/create-app/template/scripts/dev.mjs`, and `packages/create-app/template/scripts/dev-runtime.mjs`.
 
+## Preserve Turbopack compiler cache during greenfield dev warmup
+
+**Context**: `yarn dev:greenfield` was changed to purge the whole configured Next.js distDir before booting the app.
+
+**Problem**: Removing all of `apps/mercato/.mercato/next` also deletes `.mercato/next/dev/cache/turbopack`. That turns `/login`, `POST /api/auth/login`, and especially `/backend` warmup into cold compiles, making greenfield startup much slower than regular `yarn dev` and slower than `main`.
+
+**Rule**: Greenfield cleanup may remove stale route/middleware manifests and lock files before startup, but must preserve `.mercato/next/dev/cache/turbopack`. Do not purge Next/Turbopack caches between warmup requests; cache reuse should make each subsequent warmup request faster. Only clear `.mercato/next/dev` for explicit `yarn dev:reset` or the one-shot corrupted Turbopack cache recovery path.
+
+**Applies to**: `scripts/dev-cache-purge.mjs`, `packages/create-app/template/scripts/dev-cache-purge.mjs`, `scripts/dev.mjs`, `packages/create-app/template/scripts/dev.mjs`, `apps/mercato/scripts/dev.mjs`, `packages/create-app/template/scripts/dev-runtime.mjs`, `scripts/dev-ephemeral.ts`, and related dev-server tests.
+
 ## Startup splash must distinguish blocking bootstrap failures from non-blocking runtime warnings
 
 **Context**: The compact splash runtime promoted any raw log line containing `failed` or `Error:` into a blocking startup failure.
@@ -889,3 +899,13 @@ Centralize shared command utilities like undo extraction in `packages/shared/src
 **Rule**: Shared custom-field detail components must resolve values by exact field ID first, then `cf:` and bare-key fallbacks for prefixed fields. Apply the same resolver to relation-display loading and read-only rendering so select, relation, text, and boolean fields use one response-shape contract.
 
 **Applies to**: `packages/ui/src/backend/detail/CustomDataSection.tsx`, customer/company/person detail custom-data sections, and any new detail renderer consuming normalized `customFields`.
+
+## Optional chrome fetches must suppress auth redirects
+
+**Context**: Backend pages for limited roles loaded unrelated optional shell data, such as message sender options, recipient suggestions, and AI conversation history. Those auxiliary requests hit feature-gated endpoints the current user was not meant to access.
+
+**Problem**: `apiCall` redirects the whole browser to `/login?requireFeature=...` on 403 by default. Optional header/sidebar/widget fetches can therefore break an otherwise authorized page when they call APIs for another module's feature, even if the caller handles `ok: false`.
+
+**Rule**: Any optional chrome, widget, dropdown-options, background sync, or feature-discovery request that is not required to render the current page must opt out of auth redirects with `x-om-forbidden-redirect: 0` and usually `x-om-unauthorized-redirect: 0`, then degrade to an empty/hidden state on non-OK responses.
+
+**Applies to**: `packages/ui/src/backend/**`, `packages/ui/src/ai/**`, topbar/sidebar providers, notification/message/AI shell hooks, and module widgets that fetch feature-gated data opportunistically.

@@ -14,12 +14,14 @@ module.exports = {
       {
         tsconfig: {
           jsx: 'react-jsx',
+          rootDir: '.',
+          ignoreDeprecations: '6.0',
         },
       },
     ],
   },
   transformIgnorePatterns: [
-    'node_modules/(?!(@mikro-orm)/)',
+    'node_modules/(?!(@mikro-orm|kysely)/)',
   ],
   testMatch: ['<rootDir>/src/**/__tests__/**/*.test.(ts|tsx)'],
   passWithNoTests: true,

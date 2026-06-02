@@ -28,7 +28,15 @@ export default async function handle(payload: any, ctx: { resolve: <T=any>(name:
     organizationId = resolvedScope.organizationId
     tenantId = resolvedScope.tenantId
 
-    const result = await upsertIndexRow(em, { entityType, recordId, organizationId, tenantId })
+    const result = await upsertIndexRow(em, {
+      entityType,
+      recordId,
+      organizationId,
+      tenantId,
+      searchTokenDoc: typeof payload?.searchTokenDoc === 'object' && payload.searchTokenDoc && !Array.isArray(payload.searchTokenDoc)
+        ? payload.searchTokenDoc
+        : null,
+    })
     if (!suppressCoverage) {
       const doc = result.doc
       const isActive = !!doc && (doc.deleted_at == null || doc.deleted_at === null)

@@ -1,4 +1,169 @@
 
+# 0.6.3 (2026-05-28)
+
+## Highlights
+
+Open Mercato `0.6.3` is a focused follow-up to `0.6.2` — performance, dev-mode memory, and security hardening, with two notable feature landings on top. 
+
+The CRM gets a **production-grade sales pipeline kanban** (colored stage lanes, filter bar, sort and saved-view scaffolding, stuck/overdue indicators, inline quick-deal and add-stage), and workflows finally pick up `WAIT` + `WAIT_FOR_TIMER` steps — carrying @jtomaszewski's original `#1472` work forward. **CRUD API performance quick wins** target p50 < 100 ms for list/detail endpoints across the platform via internal optimizations (no wire-format changes), and two `yarn dev` consolidations land in the same release — a single workspace-package watcher (~1 GB idle RSS win) and `mercato generate watch` folded into the dev server (~190 MB).
+
+On the security front: payment-allocation scope validation closes a cross-tenant write surface in sales commands, attachment scope checks fail closed instead of defaulting open, `mergeIdFilter` rejects unknown shapes, and `ws` is bumped for a transitive CVE. AI assistant gets multi-participant **chat conversation sharing**, the staff module starts Phase 1 of its decoupling from core, the customer portal gets encrypted-user search via search tokens, and SSO logins from Entra ID stop tripping on a missing `email_verified` claim. 
+
+Round it out with `GET /api/version` for deployment introspection, an i18n detection tooling foundation (hardcoded strings + locale value coverage), the new `RecordNotFoundState` UI primitive, and a sheaf of polish fixes across auth, messages, attachments, and dev tooling. Enjoy!
+
+## ✨ Features
+- ✨ Sales pipeline kanban — colored stage lanes, filter bar (Status / Pipeline / Owner / People / Companies / Close), sort + saved-view scaffolding, stuck/overdue indicators, inline quick-deal and add-stage lanes. (#1949) *(@haxiorz)*
+- ✨ Workflows: `WAIT` activity + `WAIT_FOR_TIMER` step (supersedes #1472). (#1991) *(@jtomaszewski, via @KubaBir)*
+- ✨ Decouple `staff` from `core` (Phase 1). (#1946) *(@migsilva89)*
+- ✨ AI chat conversation sharing — participant access, API, UI, notifications (fixes #1969). (#2023) *(@adeptofvoltron)*
+- ✨ CRUD API performance quick wins — list/detail p50 < 100 ms via internal optimizations (fixes #2044). (#2100) *(@pkarw)*
+- ✨ Expose deployed version via `GET /api/version` (fixes #1718). (#2075) *(@amtmich)*
+- ✨ `RecordNotFoundState` shared backend component. (#2014) *(@izqzmyli)*
+- ✨ Auto-dismiss Undo banner after timeout (fixes #2028). (#2041) *(@pkarw)*
+- ✨ Clarify Messages inbox filter labels and add tooltip help text. (#2052) *(@adeptofvoltron)*
+- ✨ i18n detection tooling — hardcoded strings + locale value coverage. (#2099) *(@pkarw)*
+
+## 🔒 Security
+- 🔒 Scope-validate payment allocation `orderId` / `invoiceId` in sales commands. (#2122) *(@pkarw)*
+- 🔒 Scope `em.findOne` by tenant/org for non-super-admin attachment image/file routes (fixes #2108). (#2124) *(@izqzmyli)*
+- 🔒 Fail closed when attachment scope columns are null. (#2107) *(@pkarw)*
+- 🔒 `mergeIdFilter` fails closed on unknown id filter shapes (fixes #1736). (#2012) *(@pkarw)*
+- 🔒 Bump `ws` to address transitive vulnerability. (#2018) *(@pkarw)*
+
+## 🐛 Fixes
+- 🔐 Implement `RbacService.getGrantedFeatures` so feature-gated enrichers run (fixes #2019). (#2039) *(@pkarw)*
+- 🔐 Search tokens for encrypted customer user search (fixes #2034). (#2040) *(@pat-lewczuk)*
+- 🔐 Preserve undefined `email_verified` claim to unblock Entra ID login (supersedes #2027). (#2042) *(@truongx, via @pkarw)*
+- 🔐 Gate `UpgradeActionBanner` on `configs.manage` feature to prevent redirect loop (supersedes #2058, folds #2068). (#2066) *(@adeptofvoltron, @rengare, via @pkarw)*
+- 🔐 Break 403 redirect loop on staff login (fixes #2070). (#2073) *(@pkarw)*
+- 🔐 Add tenant feature checks for scheduler. (#2086) *(@mat-kruk)*
+- 🐛 Keep deal analyzer stage approval tool available. (#2017) *(@pkarw)*
+- 🐛 Allow clearing `ComboboxInput` value (fixes #1832). (#2020) *(@pkarw)*
+- 🐛 Hide stale AppShell sidebar nav until chrome resolves (fixes #1828). (#2021) *(@pkarw)*
+- 🐛 React to deleted message in detail view (fixes #1936). (#2013) *(@pkarw)*
+- 🐛 Suppress Edge native `::-ms-reveal` duplicate eye icon on `PasswordInput` (fixes #2037). (#2043) *(@pkarw)*
+- 🐛 Team delete shows success toast despite 409 rejection (fixes #2049). (#2051) *(@adeptofvoltron)*
+- 🐛 Correct widget injection context keys for AI Deal Analyzer (fixes #2053). (#2059) *(@pat-lewczuk)*
+- 🐛 Stop `dealAnalyzer` loop after `update_deal_stage` tool call (fixes #2054). (#2098) *(@pat-lewczuk)*
+- 🔧 Kill the full child process tree on Windows shutdown (fixes #1826). (#2022) *(@pkarw)*
+- 🔧 `singularizeSegment` handles irregular plurals (fixes #2072). (#2076) *(@pkarw)*
+- 🔧 Add missing CRUD route indexers. (#2083) *(@WXYZx)*
+- 🔧 Decrypt selected relation labels in query index (fixes #2024). (#2065) *(@pmadajthey)*
+- 🔧 Use shared base URL resolver for `api-docs` routes (fixes #2089). (#2090) *(@truongx)*
+- 🔄 Add search indexing subscribers for customer users (fixes #2060). (#2079) *(@pat-lewczuk)*
+- 🔄 Match external custom-field labels in `sync_excel`. (#2087) *(@pmadajthey)*
+- 🧪 Stabilize flaky integration tests (TC-CRM-068/069, TC-SALES-005/019). (#2046) *(@pkarw)*
+
+## 🛠️ Improvements
+- 🛠️ Consolidate workspace package watchers — ~1 GB idle RSS win in `yarn dev`. (#2102) *(@pkarw)*
+- 🛠️ Consolidate `mercato generate watch` into `mercato server dev` — ~190 MB idle RSS win. (#2105) *(@pkarw)*
+- 🛠️ Push pagination + parallelize decryption fetches for two CRUD SQL quick wins. (#2139) *(@pkarw)*
+- 🛠️ Combine major + minor-and-patch Dependabot bumps (#2064, #2062). (#2067) *(@pkarw)*
+- 🛠️ Migrate `ws` 7.5.10 → 7.5.11 from #2031 to `develop`. (#2038) *(@pkarw)*
+- 🛠️ Register autofix-split skills in `tiers.json`. (#2047) *(@pat-lewczuk)*
+
+## 📝 Specs & Documentation
+- 📝 Plugin-based skill distribution for standalone apps. (#1562) *(@matgren)*
+- 📝 CRUD API performance quick wins (target p50 < 100 ms). (#2045) *(@pkarw)*
+- 📝 Trim AGENTS.md under the 42 KB harness ceiling. (#2048) *(@pat-lewczuk)*
+- 📝 Audit missing translations and propose phased remediation. (#2078) *(@pkarw)*
+- 📝 Organize AGENTS.md agent instructions. (#2082) *(@pmadajthey)*
+- 📝 Document `auth` locale API route. (#2084) *(@WXYZx)*
+- 📝 Teach `create-agents-md` the Always / Ask First / Never / Validation Commands convention. (#2103) *(@pkarw)*
+- 📝 Dev-mode memory profiling harness + analysis spec. (#2104) *(@pkarw)*
+- 📝 Template parity follow-ups for consolidated package watcher (#2102 follow-up). (#2130) *(@pkarw)*
+
+## 👥 Contributors
+
+- @pkarw
+- @haxiorz
+- @jtomaszewski
+- @KubaBir
+- @migsilva89
+- @adeptofvoltron
+- @izqzmyli
+- @amtmich
+- @truongx
+- @rengare
+- @mat-kruk
+- @pat-lewczuk
+- @WXYZx
+- @pmadajthey
+- @matgren
+
+---
+
+# 0.6.2 (2026-05-19)
+
+## Highlights
+
+Open Mercato `0.6.2` is a maturity pass on top of `0.6.1`. The AI agents framework picks up real production guardrails — agentic-loop controls (`loop.stopWhen` / `loop.prepareStep` / `loop.budget`), a per-tenant loop kill switch, the `LoopTrace` debug panel, durable server-side conversation storage, and a visible agent task plan that lets operators see what the model is about to do before it does it. On the platform side, the `modules.ts` unified overrides umbrella is now wired for every contract surface — routes, pages, subscribers, workers, widgets, notifications, interceptors, enrichers, CLI, setup, ACL, DI, encryption — so app authors can replace or disable any module contract without forking upstream. The new optional `external/official-modules/` git submodule lets official modules be developed against full platform context (core source, AGENTS.md, skills, the running dev app) without bloating a vanilla clone — fresh clones, `yarn install`, and CI stay untouched until you opt in. Round it out with code-based workflow definitions finally landing (carrying @jtomaszewski's `defineWorkflow()` work forward), a polished backend topbar plus DS `Breadcrumb` + `Sheet` primitives, a Messages module bug-fix sweep (drafts, bulk actions, inbox filters, sender dropdown), a new storage hub for module-owned files, env-based `storage_s3` preconfiguration, and a CSV import foundation for the `customers.person` entity via the `sync_excel` data-sync provider. The final unreleased pass also tightens Super Admin scoping, hardens regex-backed validation paths, accepts third-party module package specifiers in the generator, and fixes auth display-name filtering plus sales return-adjustment bounds. Enjoy!
+
+## ✨ Features
+- ✨ Env-based `storage_s3` preconfiguration CLI, setup logging, `.env.example` blocks, and docs (fixes #1968). (#1999) *(@MStaniaszek1998)*
+- ✨ Code-based workflow definitions with customize/reset (supersedes #1935). (#1959) *(@jtomaszewski, @KubaBir, via @pkarw)*
+- ✨ DS Breadcrumb + Sheet primitives and backend topbar redesign. (#1933) *(@zielivia)*
+- ✨ Server-side AI chat conversation storage (fixes #1797). (#1961) *(@pkarw)*
+- ✨ Visible AI chat agent task plan (fixes #1922). (#1963) *(@pkarw)*
+- ✨ Complete `modules.ts` unified overrides for routes/pages/subscribers/workers/widgets/notifications/interceptors/enrichers/CLI/setup/ACL/DI/encryption. (#1960) *(@pkarw)*
+- ✨ Agentic-loop controls — `loop.stopWhen` / `loop.prepareStep` / `loop.budget` + LoopTrace debug panel. (#1903) *(@pkarw)*
+- ✨ Optional `official-modules` git submodule + config-driven activation. (#1908) *(@pat-lewczuk)*
+- ✨ CSV import foundation for `customers.person` via the `sync_excel` data-sync provider. (#1110) *(@pmadajthey)*
+- ✨ Storage hub for module-owned file storage (fixes #929). (#1617) *(@Sawarz)*
+- ✨ Register the remaining 14 sales entities in the Awilix DI container. (#1953) *(@kriss145)*
+
+## 🔒 Security
+- 🔒 Harden custom-field regex validation and related wildcard matching paths. (#1996) *(@pkarw)*
+- 🔒 Restrict Super Admin user and role editing to Super Admin actors (fixes #1973). (#1988) *(@pkarw)*
+- 🔒 Reload backend tabs on cookie identity change (fixes #1947). (#1956) *(@pkarw)*
+
+## 🐛 Fixes
+- 📦 Accept third-party npm package specifiers in the module-registry generator (fixes #1998). (#2011) *(@pkarw)*
+- 🔐 Preserve auth user display-name filtering through search tokens for encrypted user data (supersedes #2002). (#2008) *(@PawelSydorow, via @pkarw)*
+- 🔐 Display role labels instead of UUIDs for Super Admin users (fixes #1993). (#1997) *(@pkarw)*
+- 🔐 Scope auth user audit logs to the target user's organization so undo tokens work for Super Admin mutations (fixes #1978). (#1986) *(@pkarw)*
+- 💰 Reject return adjustments that exceed the remaining grand total (fixes #1904). (#1987) *(@pkarw)*
+- 🔐 Guard role tenant moves and preserve ACL/widget selections while editing roles (fixes #688). (#1994) *(@marcinwadon)*
+- 🔧 Purge Turbopack `.mercato/next` cache before greenfield rebuilds (fixes #1950). (#1984) *(@pkarw)*
+- 🐛 Update existing message drafts from composer instead of creating duplicates (fixes #1939). (#1966) *(@pkarw)*
+- 🐛 Expand Messages list bulk actions and add `(No subject)` / `(No recipient)` placeholders (fixes #1941). (#1967) *(@pkarw)*
+- 🐛 Sent drafts no longer remain in the Drafts folder (supersedes #1945). (#1965) *(@adeptofvoltron, via @pkarw)*
+- 🐛 Clarify Messages inbox filter labels and populate the sender dropdown (fixes #1943). (#1962) *(@pkarw)*
+- 🔐 Allow clearing user display name on the undo path (supersedes #1937). (#1957) *(@PawelSydorow, via @pkarw)*
+- 💰 Enforce sign semantics for non-return sales adjustment kinds (fixes #1905). (#1955) *(@pkarw)*
+- 🐳 Make bundled Traefik an opt-in compose overlay so base files run cleanly behind external reverse proxies. (#1928) *(@pat-lewczuk)*
+
+## 🛠️ Improvements
+- 🛠️ Scope the Super Admin users list to the selected tenant and organization context. (#1995) *(@PawelSydorow)*
+- 🛠️ Migrate Dependabot bumps for `postcss` and `webpack-dev-server` onto `develop`. (#2005) *(@pkarw)*
+- 🛠️ Update the Railway deployment link. (#1992) *(@freakone)*
+- 🛠️ Consolidate Dependabot bumps. (#1982) *(@pkarw)*
+
+## 📝 Specs & Documentation
+- 📝 Specify runtime i18n enrichment for search presenters used by global search. (#2000) *(@marcinwadon)*
+- 📝 Document the module dependency graph (fixes #1831). (#1954) *(@pkarw)*
+- 📝 Specify frontend client-boundary RAM guardrails for Next.js pages. (#1931) *(@daweed2701)*
+- 📝 Explain why `*.generated.ts` lives in `src/`, not `generated/` (official-modules decision record). (#1983) *(@pkarw)*
+
+## 👥 Contributors
+
+- @pkarw
+- @jtomaszewski
+- @zielivia
+- @pat-lewczuk
+- @pmadajthey
+- @Sawarz
+- @kriss145
+- @adeptofvoltron
+- @PawelSydorow
+- @MStaniaszek1998
+- @daweed2701
+- @KubaBir
+- @marcinwadon
+- @freakone
+
+---
+
 # 0.6.1 (2026-05-13)
 
 ## Highlights

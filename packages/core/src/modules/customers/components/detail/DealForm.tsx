@@ -177,6 +177,8 @@ const schema = z.object({
   companyIds: z.array(z.string().trim().min(1)).optional(),
 }).passthrough()
 
+export const dealFormSchema = schema
+
 import { toDateInputValue as toDateInputValueOrNull } from '@open-mercato/shared/lib/date/format'
 
 function toDateInputValue(value: string | null | undefined): string {

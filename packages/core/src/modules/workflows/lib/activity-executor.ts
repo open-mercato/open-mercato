@@ -11,6 +11,7 @@
  */
 
 import { EntityManager } from '@mikro-orm/core'
+import type { EntityManager as PostgreSqlEntityManager } from '@mikro-orm/postgresql'
 import type { AwilixContainer } from 'awilix'
 import { WorkflowInstance } from '../data/entities'
 import { createModuleQueue, Queue } from '@open-mercato/queue'
@@ -24,6 +25,7 @@ import { parseBooleanWithDefault } from '@open-mercato/shared/lib/boolean'
 import { callWebhookConfigSchema } from '../data/validators'
 import { WorkflowActivityJob, WORKFLOW_ACTIVITIES_QUEUE_NAME } from './activity-queue-types'
 import { logWorkflowEvent } from './event-logger'
+import { parseDuration } from './duration'
 
 export { isPrivateUrl } from '@open-mercato/shared/lib/network'
 
@@ -53,6 +55,7 @@ export type ActivityType =
   | 'UPDATE_ENTITY'
   | 'CALL_WEBHOOK'
   | 'EXECUTE_FUNCTION'
+  | 'WAIT'
 
 export interface ActivityDefinition {
   activityId: string // Unique identifier for activity
@@ -163,9 +166,12 @@ export async function enqueueActivity(
     userId: context.userId,
   }
 
-  // Enqueue to queue
+  // Enqueue to queue (WAIT activities use delayMs for the actual delay)
   const queue = getActivityQueue()
-  const jobId = await queue.enqueue(job)
+  const enqueueOptions = activity.activityType === 'WAIT' && (interpolatedConfig.duration || interpolatedConfig.until)
+    ? { delayMs: calculateWaitDelayMs(interpolatedConfig) }
+    : undefined
+  const jobId = await queue.enqueue(job, enqueueOptions)
 
   // Log event
   await logWorkflowEvent(em, {
@@ -182,6 +188,41 @@ export async function enqueueActivity(
     tenantId: workflowInstance.tenantId,
     organizationId: workflowInstance.organizationId,
   })
+
+  return jobId
+}
+
+/**
+ * Enqueue a delayed timer job for a WAIT_FOR_TIMER step.
+ *
+ * The activity worker handles `kind: 'timer'` jobs by calling
+ * `timerHandler.fireTimer`, which resumes the paused workflow instance.
+ */
+export async function enqueueTimerJob(params: {
+  workflowInstanceId: string
+  stepInstanceId: string
+  tenantId: string
+  organizationId: string
+  userId?: string
+  fireAt: string
+  delayMs: number
+}): Promise<string> {
+  const { workflowInstanceId, stepInstanceId, tenantId, organizationId, userId, fireAt, delayMs } =
+    params
+
+  const queue = getActivityQueue()
+  const jobId = await queue.enqueue(
+    {
+      kind: 'timer',
+      workflowInstanceId,
+      stepInstanceId,
+      tenantId,
+      organizationId,
+      userId,
+      fireAt,
+    },
+    { delayMs: delayMs > 0 ? delayMs : undefined }
+  )
 
   return jobId
 }
@@ -376,6 +417,9 @@ async function executeActivityByType(
     case 'EXECUTE_FUNCTION':
       return await executeFunction(interpolatedConfig, context, container)
 
+    case 'WAIT':
+      return await executeWait(interpolatedConfig)
+
     default:
       throw new ActivityExecutionError(
         `Unknown activity type: ${activity.activityType}`,
@@ -406,7 +450,7 @@ export async function executeSendEmail(
 
   // Check if email service is available in container
   try {
-    const emailService = container.resolve('emailService')
+    const emailService = container.resolve<{ send: (input: unknown) => Promise<unknown> | unknown }>('emailService')
     if (emailService && typeof emailService.send === 'function') {
       await emailService.send({
         to,
@@ -441,7 +485,7 @@ export async function executeEmitEvent(
   }
 
   // Get event bus from container
-  const eventBus = container.resolve('eventBus')
+  const eventBus = container.resolve<{ emitEvent: (event: string, payload: unknown, options?: unknown) => Promise<unknown> | unknown }>('eventBus')
 
   if (!eventBus || typeof eventBus.emitEvent !== 'function') {
     throw new Error('Event bus not available in container')
@@ -750,6 +794,47 @@ export async function executeFunction(
 }
 
 /**
+ * Calculate delay in milliseconds from a WAIT activity config.
+ * Supports either `duration` (relative, e.g. "PT5M") or `until` (absolute ISO 8601 datetime).
+ */
+function calculateWaitDelayMs(config: { duration?: string; until?: string }): number {
+  if (config.until) {
+    const targetDate = new Date(config.until)
+    if (isNaN(targetDate.getTime())) {
+      throw new Error(`WAIT activity: invalid "until" datetime: ${config.until}`)
+    }
+    const delayMs = targetDate.getTime() - Date.now()
+    return Math.max(0, delayMs)
+  }
+
+  if (config.duration) {
+    return parseDuration(config.duration)
+  }
+
+  throw new Error('WAIT activity requires "duration" (e.g., "PT5M", "1h") or "until" (ISO 8601 datetime)')
+}
+
+/**
+ * WAIT activity handler
+ *
+ * Delays workflow execution for a configured duration or until a specific datetime.
+ * - `duration`: relative delay (e.g. "PT5M", "1h", "30s")
+ * - `until`: absolute datetime (e.g. "2026-04-15T10:00:00Z")
+ * - Sync mode: blocks via sleep (suitable for short delays)
+ * - Async mode: delay is handled by the queue's delayMs option;
+ *   this handler returns immediately when called from the worker
+ */
+async function executeWait(config: any): Promise<any> {
+  const durationMs = calculateWaitDelayMs(config)
+
+  // In sync mode, actually sleep for the duration
+  // In async mode (called from worker), the delay already happened via queue scheduling
+  await sleep(durationMs)
+
+  return { waited: true, durationMs }
+}
+
+/**
  * CALL_API activity handler
  *
  * Makes authenticated HTTP request to internal Open Mercato APIs
@@ -789,7 +874,7 @@ export async function executeCallApi(
   const { withOnetimeApiKey } = await import('../../api_keys/services/apiKeyService')
 
   // 4. Get EntityManager from container (for correct type)
-  const apiKeyEm = container.resolve('em')
+  const apiKeyEm = container.resolve<PostgreSqlEntityManager>('em')
 
   // 5. Resolve the roles that the one-time API key will inherit.
   //

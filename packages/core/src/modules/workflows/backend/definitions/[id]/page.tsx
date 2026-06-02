@@ -10,6 +10,7 @@ import { Button } from '@open-mercato/ui/primitives/button'
 import { Alert, AlertDescription } from '@open-mercato/ui/primitives/alert'
 import { apiFetch } from '@open-mercato/ui/backend/utils/api'
 import { readJsonSafe } from '@open-mercato/ui/backend/utils/serverErrors'
+import { formatWorkflowValidationError } from '../../../lib/format-validation-error'
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { useConfirmDialog } from '@open-mercato/ui/backend/confirm-dialog'
@@ -94,8 +95,8 @@ export default function EditWorkflowDefinitionPage() {
           body: JSON.stringify(payload),
         })
         if (!response.ok) {
-          const errorBody = await readJsonSafe<{ error?: string }>(response, null)
-          throw new Error(errorBody?.error || t('workflows.errors.updateFailed'))
+          const errorBody = await readJsonSafe<{ error?: string; details?: Array<{ path?: Array<string | number>; message?: string }> }>(response, null)
+          throw new Error(formatWorkflowValidationError(errorBody, t('workflows.errors.updateFailed')))
         }
         return response
       },

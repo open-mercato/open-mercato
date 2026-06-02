@@ -4,7 +4,7 @@ import * as React from "react";
 import Link from "next/link";
 import dynamic from "next/dynamic";
 import { Page, PageBody } from "@open-mercato/ui/backend/Page";
-import { ErrorMessage } from "@open-mercato/ui/backend/detail";
+import { ErrorMessage, RecordNotFoundState } from "@open-mercato/ui/backend/detail";
 import {
   CrudForm,
   type CrudFormGroup,
@@ -327,6 +327,7 @@ export default function EditCatalogProductPage({
     React.useState<Partial<ProductFormValues> | null>(null);
   const [loading, setLoading] = React.useState(true);
   const [error, setError] = React.useState<string | null>(null);
+  const [isNotFound, setIsNotFound] = React.useState(false);
   const offerSnapshotsRef = React.useRef<OfferSnapshot[]>([]);
   const initialConversionsRef = React.useRef<ProductUnitConversionDraft[]>([]);
   const [categorizeOptions, setCategorizeOptions] = React.useState<{
@@ -552,18 +553,26 @@ export default function EditCatalogProductPage({
     async function loadProduct() {
       setLoading(true);
       setError(null);
+      setIsNotFound(false);
       try {
         const productRes = await apiCall<ProductResponse>(
           `/api/catalog/products?id=${encodeURIComponent(productId!)}&page=1&pageSize=1&withDeleted=false`,
         );
-        if (!productRes.ok) throw new Error("load_failed");
+        if (!productRes.ok) {
+          throw new Error(
+            t(
+              "catalog.products.edit.errors.load",
+              "Failed to load product details.",
+            ),
+          );
+        }
         const record = Array.isArray(productRes.result?.items)
           ? productRes.result?.items?.[0]
           : undefined;
-        if (!record)
-          throw new Error(
-            t("catalog.products.edit.errors.notFound", "Product not found."),
-          );
+        if (!record) {
+          if (!cancelled) setIsNotFound(true);
+          return;
+        }
         const rawMetadata = isRecord(record.metadata)
           ? (record.metadata as Record<string, unknown>)
           : null;
@@ -1328,6 +1337,20 @@ export default function EditCatalogProductPage({
               "catalog.products.edit.errors.idMissing",
               "Product identifier is missing.",
             )}
+          />
+        </PageBody>
+      </Page>
+    );
+  }
+
+  if (isNotFound && !loading) {
+    return (
+      <Page>
+        <PageBody>
+          <RecordNotFoundState
+            label={t("catalog.products.edit.errors.notFound", "Product not found.")}
+            backHref="/backend/catalog/products"
+            backLabel={t("catalog.products.edit.actions.backToList", "Back to products")}
           />
         </PageBody>
       </Page>

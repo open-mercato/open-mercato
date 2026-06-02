@@ -33,11 +33,18 @@ import {
   applyCustomFieldsNormalization,
   loadCustomFieldDefinitionIndex,
 } from './custom-fields'
+import {
+  canReuseCustomFieldDefinitions,
+  resolveCfDefIndexOrgCandidates,
+  type CustomFieldDefinitionIndex,
+  type ResolvedCustomFieldDefinitions,
+} from './custom-field-definition-index'
 import { serializeExport, normalizeExportFormat, defaultExportFilename, ensureColumns, type CrudExportFormat, type PreparedExport } from './exporters'
 import { CrudHttpError, isCrudHttpError } from './errors'
 import type { CommandBus, CommandLogMetadata } from '@open-mercato/shared/lib/commands'
 import type { EntityId } from '@open-mercato/shared/modules/entities'
 import type { EntityManager } from '@mikro-orm/postgresql'
+import type { CacheStrategy } from '@open-mercato/cache'
 import {
   buildCollectionTags,
   buildRecordTag,
@@ -74,6 +81,11 @@ function resolveSortParams(queryParams: Record<string, unknown>) {
   const normalizedDir = typeof rawSortDir === 'string' ? rawSortDir.trim().toLowerCase() : 'asc'
   const sortDir = normalizedDir === 'desc' ? SortDir.Desc : SortDir.Asc
   return { sortField, sortDir }
+}
+
+function normalizeSortFieldSelector(sortField: string): string {
+  if (sortField.startsWith('cf_')) return `cf:${sortField.slice(3)}`
+  return sortField
 }
 /**
  * Translates column-name filter keys to MikroORM property names so the ORM
@@ -637,7 +649,11 @@ function isUuid(v: any): v is string {
   return typeof v === 'string' && /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(v)
 }
 
-type AccessLogServiceLike = { log: (input: any) => Promise<unknown> | unknown }
+type AccessLogServiceLike = {
+  log: (input: any) => Promise<unknown> | unknown
+  logMany?: (inputs: any[]) => Promise<unknown> | unknown
+  flush?: () => Promise<void> | void
+}
 
 function resolveAccessLogService(container: AwilixContainer): AccessLogServiceLike | null {
   const registrations = (container as { registrations?: Record<string, unknown> }).registrations
@@ -652,6 +668,33 @@ function resolveAccessLogService(container: AwilixContainer): AccessLogServiceLi
     return null
   }
   return null
+}
+
+function shouldBlockAccessLogWrites(): boolean {
+  return process.env.OM_CRUD_ACCESS_LOG_BLOCKING === '1'
+}
+
+// Module-level set of in-flight access-log writes started by the CRUD factory.
+// Sits alongside the same registry inside AccessLogService so callers without
+// the concrete service (or in tests with mocks) can still drain pending work
+// via `flushPendingCrudAccessLogs()`.
+const pendingCrudAccessLogPromises = new Set<Promise<unknown>>()
+
+function trackPendingCrudAccessLogPromise<T>(promise: Promise<T>): Promise<T> {
+  pendingCrudAccessLogPromises.add(promise as unknown as Promise<unknown>)
+  promise
+    .catch(() => undefined)
+    .finally(() => {
+      pendingCrudAccessLogPromises.delete(promise as unknown as Promise<unknown>)
+    })
+  return promise
+}
+
+export async function flushPendingCrudAccessLogs(): Promise<void> {
+  while (pendingCrudAccessLogPromises.size > 0) {
+    const snapshot = Array.from(pendingCrudAccessLogPromises)
+    await Promise.allSettled(snapshot)
+  }
 }
 
 function logForbidden(details: Record<string, unknown>) {
@@ -705,12 +748,18 @@ export type LogCrudAccessOptions = {
   fields?: string[]
 }
 
-export async function logCrudAccess(options: LogCrudAccessOptions) {
+export type LogCrudAccessResult = {
+  mode: 'batch' | 'fanout' | 'blocking' | 'skipped'
+  count: number
+  pending: number
+}
+
+export async function logCrudAccess(options: LogCrudAccessOptions): Promise<LogCrudAccessResult> {
   const { container, auth, request, items, resourceKind } = options
-  if (!auth) return
-  if (!Array.isArray(items) || items.length === 0) return
+  if (!auth) return { mode: 'skipped', count: 0, pending: pendingCrudAccessLogPromises.size }
+  if (!Array.isArray(items) || items.length === 0) return { mode: 'skipped', count: 0, pending: pendingCrudAccessLogPromises.size }
   const service = resolveAccessLogService(container)
-  if (!service) return
+  if (!service) return { mode: 'skipped', count: 0, pending: pendingCrudAccessLogPromises.size }
 
   const idField = options.idField || 'id'
   const tenantId = options.tenantId ?? auth.tenantId ?? null
@@ -736,7 +785,7 @@ export async function logCrudAccess(options: LogCrudAccessOptions) {
   }
 
   const uniqueIds = new Set<string>()
-  const tasks: Promise<unknown>[] = []
+  const payloads: Record<string, unknown>[] = []
   for (const item of items) {
     if (!item || typeof item !== 'object') continue
     const rawId = (item as any)[idField]
@@ -753,16 +802,41 @@ export async function logCrudAccess(options: LogCrudAccessOptions) {
     }
     if (fields.length > 0) payload.fields = fields
     if (Object.keys(context).length > 0) payload.context = context
-      tasks.push(
-        Promise.resolve(service.log(payload)).catch((err) => {
-          try {
-            console.error('[crud] failed to record access log', { err, payload })
-          } catch {}
-          return undefined
-        })
-      )
+    payloads.push(payload)
   }
-  if (tasks.length > 0) await Promise.all(tasks)
+  if (!payloads.length) return { mode: 'skipped', count: 0, pending: pendingCrudAccessLogPromises.size }
+
+  const blocking = shouldBlockAccessLogWrites()
+  const dispatchMode: 'batch' | 'fanout' = typeof service.logMany === 'function' ? 'batch' : 'fanout'
+  const writePromise = (async () => {
+    try {
+      if (typeof service.logMany === 'function') {
+        await service.logMany(payloads)
+      } else {
+        // Legacy fallback for service mocks/implementations without logMany.
+        await Promise.all(
+          payloads.map((payload) =>
+            Promise.resolve(service.log(payload)).catch((err) => {
+              try {
+                console.error('[crud] failed to record access log', { err, payload })
+              } catch {}
+              return undefined
+            }),
+          ),
+        )
+      }
+    } catch (err) {
+      try {
+        console.error('[crud] failed to record access logs (batch)', { err, count: payloads.length })
+      } catch {}
+    }
+  })()
+  trackPendingCrudAccessLogPromise(writePromise)
+  if (blocking) {
+    await writePromise
+    return { mode: 'blocking', count: payloads.length, pending: pendingCrudAccessLogPromises.size }
+  }
+  return { mode: dispatchMode, count: payloads.length, pending: pendingCrudAccessLogPromises.size }
 }
 
 type CrudCacheStoredValue = {
@@ -888,7 +962,11 @@ export function makeCrudRoute<TCreate = any, TUpdate = any, TList = any>(opts: C
     return null
   }
 
-  const decorateItemsWithCustomFields = async (items: any[], ctx: CrudCtx): Promise<any[]> => {
+  const decorateItemsWithCustomFields = async (
+    items: any[],
+    ctx: CrudCtx,
+    precomputedDefinitions?: ResolvedCustomFieldDefinitions,
+  ): Promise<any[]> => {
     if (!listCustomFieldDecorator || !Array.isArray(items) || items.length === 0) return items
     const entityIds = Array.isArray(listCustomFieldDecorator.entityIds)
       ? listCustomFieldDecorator.entityIds
@@ -908,13 +986,33 @@ export function makeCrudRoute<TCreate = any, TUpdate = any, TList = any>(opts: C
         Array.isArray(ctx.organizationIds) && ctx.organizationIds.length
           ? ctx.organizationIds
           : [ctx.selectedOrganizationId ?? null]
-      const definitionIndex = await loadCustomFieldDefinitionIndex({
-        em,
-        entityIds,
-        tenantId: ctx.auth?.tenantId ?? null,
-        organizationIds,
+      const tenantId = ctx.auth?.tenantId ?? null
+      // Reuse the index the query engine already resolved for this same scope
+      // (#2133) instead of issuing a second `custom_field_defs` round-trip.
+      const reusable = canReuseCustomFieldDefinitions(precomputedDefinitions, {
+        entityIds: entityIds.map(String),
+        tenantId,
+        organizationIds: resolveCfDefIndexOrgCandidates(ctx.organizationIds, ctx.selectedOrganizationId ?? null),
       })
-      cfProfiler.mark('definitions_loaded', { definitionCount: definitionIndex.size })
+      let definitionIndex: CustomFieldDefinitionIndex
+      if (reusable && precomputedDefinitions) {
+        definitionIndex = precomputedDefinitions.index
+        cfProfiler.mark('definitions_reused', { definitionCount: definitionIndex.size })
+      } else {
+        let cfDefCache: CacheStrategy | null = null
+        try {
+          cfDefCache = ctx.container.resolve('cache') as CacheStrategy
+        } catch {}
+        definitionIndex = await loadCustomFieldDefinitionIndex({
+          em,
+          entityIds,
+          tenantId,
+          organizationIds,
+          cache: cfDefCache ?? null,
+          requestScope: ctx,
+        })
+        cfProfiler.mark('definitions_loaded', { definitionCount: definitionIndex.size })
+      }
       const decoratedItems = items.map((raw) => {
         if (!raw || typeof raw !== 'object') return raw
         const item = raw as Record<string, unknown>
@@ -954,6 +1052,36 @@ export function makeCrudRoute<TCreate = any, TUpdate = any, TList = any>(opts: C
     }
   }
 
+  // Phase 3 — per-request userFeatures memo. CrudCtx is a plain object that
+  // lives only for the duration of one HTTP request, so a WeakMap keyed on
+  // ctx is the right scope: interceptor + enricher + any future call site
+  // share one Promise<string[] | undefined> per request. The cache lifetime
+  // is bounded by the request and cannot desync from mid-request grant
+  // changes because RBAC grants never change mid-request.
+  const userFeaturesPromiseCache = new WeakMap<object, Promise<string[] | undefined>>()
+
+  function resolveUserFeaturesOnce(ctx: CrudCtx): Promise<string[] | undefined> {
+    if (!ctx.auth) return Promise.resolve(undefined)
+    const cached = userFeaturesPromiseCache.get(ctx)
+    if (cached) return cached
+    const promise = (async () => {
+      try {
+        const rbac = ctx.container.resolve('rbacService') as RbacServiceLike | undefined
+        if (rbac?.getGrantedFeatures) {
+          return await rbac.getGrantedFeatures(ctx.auth!.sub, {
+            tenantId: ctx.auth!.tenantId,
+            organizationId: ctx.selectedOrganizationId ?? ctx.auth!.orgId,
+          })
+        }
+      } catch {
+        // rbacService not available — enrichers without feature requirements still run
+      }
+      return undefined
+    })()
+    userFeaturesPromiseCache.set(ctx, promise)
+    return promise
+  }
+
   /**
    * Build enricher context from CRUD context and resolve user features for ACL gating.
    * Returns null if enrichers are not configured or auth is missing.
@@ -962,43 +1090,20 @@ export function makeCrudRoute<TCreate = any, TUpdate = any, TList = any>(opts: C
     if (!opts.enrichers?.entityId) return null
     if (!ctx.auth) return null
 
-    let userFeatures: string[] | undefined
-    try {
-      const rbac = ctx.container.resolve('rbacService') as RbacServiceLike | undefined
-      if (rbac?.getGrantedFeatures) {
-        userFeatures = await rbac.getGrantedFeatures(ctx.auth.sub, {
-          tenantId: ctx.auth.tenantId,
-          organizationId: ctx.selectedOrganizationId ?? ctx.auth.orgId,
-        })
-      }
-    } catch {
-      // rbacService not available — enrichers without feature requirements still run
-    }
+    const userFeatures = await resolveUserFeaturesOnce(ctx)
 
     return {
       organizationId: ctx.selectedOrganizationId ?? ctx.auth.orgId ?? '',
       tenantId: ctx.auth.tenantId ?? '',
       userId: ctx.auth.sub,
-      em: ctx.container.resolve('em'),
+      em: ctx.container.resolve('em') as EntityManager,
       container: ctx.container,
       userFeatures,
     }
   }
 
   async function resolveUserFeatures(ctx: CrudCtx): Promise<string[] | undefined> {
-    if (!ctx.auth) return undefined
-    try {
-      const rbac = ctx.container.resolve('rbacService') as RbacServiceLike | undefined
-      if (rbac?.getGrantedFeatures) {
-        return await rbac.getGrantedFeatures(ctx.auth.sub, {
-          tenantId: ctx.auth.tenantId,
-          organizationId: ctx.selectedOrganizationId ?? ctx.auth.orgId,
-        })
-      }
-    } catch {
-      // rbacService is optional in some contexts
-    }
-    return undefined
+    return resolveUserFeaturesOnce(ctx)
   }
 
   const interceptorContextCache = new WeakMap<object, ReturnType<typeof buildInterceptorContextInner>>()
@@ -1009,7 +1114,7 @@ export function makeCrudRoute<TCreate = any, TUpdate = any, TList = any>(opts: C
       userId: ctx.auth.sub,
       organizationId: ctx.selectedOrganizationId ?? ctx.auth.orgId ?? '',
       tenantId: ctx.auth.tenantId ?? '',
-      em: ctx.container.resolve('em'),
+      em: ctx.container.resolve('em') as EntityManager,
       container: ctx.container,
       userFeatures: await resolveUserFeatures(ctx),
     }
@@ -1406,7 +1511,8 @@ export function makeCrudRoute<TCreate = any, TUpdate = any, TList = any>(opts: C
         const qe = (ctx.container.resolve('queryEngine') as QueryEngine)
         profiler.mark('query_engine_resolved')
         const { sortField: sortFieldRaw, sortDir: sortDirRaw } = resolveSortParams(queryParams as Record<string, unknown>)
-        const sortField = (opts.list.sortFieldMap && opts.list.sortFieldMap[sortFieldRaw]) || sortFieldRaw
+        const mappedSortField = (opts.list.sortFieldMap && opts.list.sortFieldMap[sortFieldRaw]) || sortFieldRaw
+        const sortField = typeof mappedSortField === 'string' ? normalizeSortFieldSelector(mappedSortField) : mappedSortField
         const sort: Sort[] = [{ field: sortField as any, dir: sortDirRaw } as any]
         const page: Page = exportRequested
           ? { page: 1, pageSize: exportPageSize }
@@ -1490,7 +1596,7 @@ export function makeCrudRoute<TCreate = any, TUpdate = any, TList = any>(opts: C
         const rawItems = res.items || []
         let transformedItems = rawItems.map(i => (opts.list!.transformItem ? opts.list!.transformItem(i) : i))
         profiler.mark('transform_complete', { itemCount: transformedItems.length })
-        transformedItems = await decorateItemsWithCustomFields(transformedItems, ctx)
+        transformedItems = await decorateItemsWithCustomFields(transformedItems, ctx, res.customFieldDefinitions)
         profiler.mark('custom_fields_complete', { itemCount: transformedItems.length })
 
         if (opts.list?.entityId && request) {
@@ -1514,7 +1620,7 @@ export function makeCrudRoute<TCreate = any, TUpdate = any, TList = any>(opts: C
           profiler.mark('translation_overlays_complete', { itemCount: transformedItems.length })
         }
 
-        await logCrudAccess({
+        const accessLogResult = await logCrudAccess({
           container: ctx.container,
           auth: ctx.auth,
           request,
@@ -1525,7 +1631,7 @@ export function makeCrudRoute<TCreate = any, TUpdate = any, TList = any>(opts: C
           tenantId: ctx.auth.tenantId ?? null,
           query: validated,
         })
-        profiler.mark('access_logged')
+        profiler.mark('access_logged', accessLogResult)
 
         if (exportRequested && requestedExport) {
           const total = typeof res.total === 'number' ? res.total : rawItems.length
@@ -1548,7 +1654,7 @@ export function makeCrudRoute<TCreate = any, TUpdate = any, TList = any>(opts: C
               const nextItemsRaw = nextRes.items || []
               if (!nextItemsRaw.length) break
               let nextTransformed = nextItemsRaw.map(i => (opts.list!.transformItem ? opts.list!.transformItem(i) : i))
-              nextTransformed = await decorateItemsWithCustomFields(nextTransformed, ctx)
+              nextTransformed = await decorateItemsWithCustomFields(nextTransformed, ctx, nextRes.customFieldDefinitions)
               const nextExportItems = exportFullRequested
                 ? nextItemsRaw.map(normalizeFullRecordForExport)
                 : nextTransformed
@@ -1746,7 +1852,7 @@ export function makeCrudRoute<TCreate = any, TUpdate = any, TList = any>(opts: C
         profiler.mark('fallback_translation_overlays_complete', { itemCount: Array.isArray(list) ? list.length : 0 })
       }
 
-      await logCrudAccess({
+      const accessLogResult = await logCrudAccess({
         container: ctx.container,
         auth: ctx.auth,
         request,
@@ -1757,7 +1863,7 @@ export function makeCrudRoute<TCreate = any, TUpdate = any, TList = any>(opts: C
         tenantId: ctx.auth.tenantId ?? null,
         query: validated,
       })
-      profiler.mark('access_logged')
+      profiler.mark('access_logged', accessLogResult)
       if (exportRequested && requestedExport) {
         const exportItems = exportFullRequested ? list.map(normalizeFullRecordForExport) : list
         const prepared = exportFullRequested
@@ -2012,25 +2118,31 @@ export function makeCrudRoute<TCreate = any, TUpdate = any, TList = any>(opts: C
         if (!ctx.auth.tenantId) return json({ error: 'Tenant context is required' }, { status: 400 })
         entityData[ormCfg.tenantField] = ctx.auth.tenantId
       }
-      const entity = await de.createOrmEntity({ entity: ormCfg.entity, data: entityData })
+      const em = (ctx.container.resolve('em') as EntityManager)
+      const writeTenantId = ctx.auth.tenantId!
+      const entity = await em.transactional(async () => {
+        const created = await de.createOrmEntity({ entity: ormCfg.entity, data: entityData })
 
-      // Custom fields
-      if (createConfig.customFields && (createConfig.customFields as any).enabled) {
-        const cfc = createConfig.customFields as Exclude<CustomFieldsConfig, false>
-        const values = cfc.map
-          ? cfc.map(body)
-          : (cfc.pickPrefixed ? extractCustomFieldValuesFromPayload(body as Record<string, unknown>) : {})
-        if (values && Object.keys(values).length > 0) {
-          const de = (ctx.container.resolve('dataEngine') as DataEngine)
-          await de.setCustomFields({
-            entityId: cfc.entityId as any,
-            recordId: String((entity as any)[ormCfg.idField!]),
-            organizationId: targetOrgId,
-            tenantId: ctx.auth.tenantId!,
-            values,
-          })
+        // Custom fields
+        if (createConfig.customFields && (createConfig.customFields as any).enabled) {
+          const cfc = createConfig.customFields as Exclude<CustomFieldsConfig, false>
+          const values = cfc.map
+            ? cfc.map(body)
+            : (cfc.pickPrefixed ? extractCustomFieldValuesFromPayload(body as Record<string, unknown>) : {})
+          if (values && Object.keys(values).length > 0) {
+            const de = (ctx.container.resolve('dataEngine') as DataEngine)
+            await de.setCustomFields({
+              entityId: cfc.entityId as any,
+              recordId: String((created as any)[ormCfg.idField!]),
+              organizationId: targetOrgId,
+              tenantId: writeTenantId,
+              values,
+            })
+          }
         }
-      }
+
+        return created
+      })
 
       await opts.hooks?.afterCreate?.(entity, { ...ctx, input: input as any })
 
@@ -2332,30 +2444,37 @@ export function makeCrudRoute<TCreate = any, TUpdate = any, TList = any>(opts: C
           softDeleteField: ormCfg.softDeleteField,
         }
       )
-      const entity = await de.updateOrmEntity({
-        entity: ormCfg.entity,
-        where,
-        apply: (e: any) => updateConfig.applyToEntity(e, input as any, ctx),
+      const em = (ctx.container.resolve('em') as EntityManager)
+      const writeTenantId = ctx.auth.tenantId!
+      const entity = await em.transactional(async () => {
+        const updated = await de.updateOrmEntity({
+          entity: ormCfg.entity,
+          where,
+          apply: (e: any) => updateConfig.applyToEntity(e, input as any, ctx),
+        })
+        if (!updated) return null
+
+        // Custom fields
+        if (updateConfig.customFields && (updateConfig.customFields as any).enabled) {
+          const cfc = updateConfig.customFields as Exclude<CustomFieldsConfig, false>
+          const values = cfc.map
+            ? cfc.map(body)
+            : (cfc.pickPrefixed ? extractCustomFieldValuesFromPayload(body as Record<string, unknown>) : {})
+          if (values && Object.keys(values).length > 0) {
+            const de = (ctx.container.resolve('dataEngine') as DataEngine)
+            await de.setCustomFields({
+              entityId: cfc.entityId as any,
+              recordId: String((updated as any)[ormCfg.idField!]),
+              organizationId: targetOrgId,
+              tenantId: writeTenantId,
+              values,
+            })
+          }
+        }
+
+        return updated
       })
       if (!entity) return json({ error: 'Not found' }, { status: 404 })
-
-      // Custom fields
-      if (updateConfig.customFields && (updateConfig.customFields as any).enabled) {
-        const cfc = updateConfig.customFields as Exclude<CustomFieldsConfig, false>
-        const values = cfc.map
-          ? cfc.map(body)
-          : (cfc.pickPrefixed ? extractCustomFieldValuesFromPayload(body as Record<string, unknown>) : {})
-        if (values && Object.keys(values).length > 0) {
-          const de = (ctx.container.resolve('dataEngine') as DataEngine)
-          await de.setCustomFields({
-            entityId: cfc.entityId as any,
-            recordId: String((entity as any)[ormCfg.idField!]),
-            organizationId: targetOrgId,
-            tenantId: ctx.auth.tenantId!,
-            values,
-          })
-        }
-      }
 
       await opts.hooks?.afterUpdate?.(entity, { ...ctx, input: input as any })
 

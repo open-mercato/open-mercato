@@ -1,8 +1,9 @@
 import { DefaultCatalogPricingService } from '../catalogPricingService'
-import { resolveCatalogPrice, type PriceRow, type PricingContext } from '../../lib/pricing'
+import { resolveCatalogPrice, resolveCatalogPriceBatch, type PriceRow, type PricingContext } from '../../lib/pricing'
 
 jest.mock('../../lib/pricing', () => ({
   resolveCatalogPrice: jest.fn(),
+  resolveCatalogPriceBatch: jest.fn(),
 }))
 
 describe('DefaultCatalogPricingService', () => {
@@ -17,5 +18,21 @@ describe('DefaultCatalogPricingService', () => {
 
     expect(resolveCatalogPrice).toHaveBeenCalledWith(rows, context, { eventBus })
     expect(result).toEqual({ id: 'best-price' })
+  })
+
+  it('delegates batch resolution to the shared batch pricing helper', async () => {
+    const entries = [
+      { rows: [] as PriceRow[], context: { quantity: 1, date: new Date() } as PricingContext },
+      { rows: [] as PriceRow[], context: { quantity: 2, date: new Date() } as PricingContext },
+    ]
+    const eventBus = { emitEvent: jest.fn() }
+    const expected = [{ id: 'price-1' }, null]
+    ;(resolveCatalogPriceBatch as jest.Mock).mockResolvedValue(expected)
+
+    const service = new DefaultCatalogPricingService(eventBus as any)
+    const result = await service.resolvePriceMany(entries)
+
+    expect(resolveCatalogPriceBatch).toHaveBeenCalledWith(entries, { eventBus })
+    expect(result).toEqual(expected)
   })
 })

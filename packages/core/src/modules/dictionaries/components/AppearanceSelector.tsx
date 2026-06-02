@@ -3,6 +3,7 @@
 import * as React from 'react'
 import { Ellipsis } from 'lucide-react'
 import { Button } from '@open-mercato/ui/primitives/button'
+import { ColorPicker } from '@open-mercato/ui/primitives/color-picker'
 import { Input } from '@open-mercato/ui/primitives/input'
 import { ICON_LIBRARY, ICON_SUGGESTIONS, type IconOption, renderDictionaryColor, renderDictionaryIcon } from './dictionaryAppearance'
 
@@ -119,12 +120,10 @@ export function AppearanceSelector({
           {labels.colorHelp ? <span className="text-xs font-normal text-muted-foreground">{labels.colorHelp}</span> : null}
         </label>
         <div className="flex flex-wrap items-center gap-2">
-          <input
-            type="color"
+          <ColorPicker
             value={normalizedColor}
-            onChange={(event) => onColorChange(event.target.value)}
+            onChange={(next) => onColorChange(next)}
             disabled={disabled}
-            className="h-10 w-12 cursor-pointer rounded border border-border bg-background"
             aria-label={labels.colorLabel}
           />
           <Button

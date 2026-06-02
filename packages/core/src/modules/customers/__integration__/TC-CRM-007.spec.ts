@@ -3,6 +3,21 @@ import { createCompanyFixture, createPipelineFixture, createPipelineStageFixture
 import { getAuthToken } from '@open-mercato/core/modules/core/__integration__/helpers/api';
 import { login } from '@open-mercato/core/modules/core/__integration__/helpers/auth';
 
+function findStringByKeys(value: unknown, keys: readonly string[]): string | null {
+  if (!value || typeof value !== 'object') return null;
+  const record = value as Record<string, unknown>;
+  for (const key of keys) {
+    const candidate = record[key];
+    if (typeof candidate === 'string' && candidate.trim()) return candidate.trim();
+  }
+  for (const nested of Object.values(record)) {
+    if (Array.isArray(nested)) continue;
+    const found = findStringByKeys(nested, keys);
+    if (found) return found;
+  }
+  return null;
+}
+
 /**
  * TC-CRM-007: Create Deal
  * Source: .ai/qa/scenarios/TC-CRM-007-deal-creation.md
@@ -47,7 +62,7 @@ test.describe('TC-CRM-007: Create Deal', () => {
       await expect(page.locator('[data-crud-field-id="valueCurrency"] [role="combobox"]').first()).toBeEnabled({ timeout: 30_000 });
       await expect(page.locator('[data-crud-field-id="pipelineId"] [role="combobox"]').first()).toBeEnabled({ timeout: 30_000 });
 
-      const titleInput = page.locator('form').getByRole('textbox').first();
+      const titleInput = page.locator('[data-crud-field-id="title"]').getByRole('textbox').first();
       await titleInput.fill(dealTitle);
       await expect(titleInput).toHaveValue(dealTitle, { timeout: 10_000 });
 
@@ -64,17 +79,23 @@ test.describe('TC-CRM-007: Create Deal', () => {
       }
       await selectByFieldId('status', 'Open')
       await selectByFieldId('pipelineId', pipelineName)
-      await selectByFieldId('pipelineStageId', stageName)
-      await page.getByRole('spinbutton').first().fill('25000');
+      // Stage options render "<label> · stage N of M", so match by substring (not exact) —
+      // same pattern as the currency option below.
+      await selectByFieldId('pipelineStageId', stageName, false)
+      // Deal value + probability are sanitized text inputs (SuffixInput with a currency-code / %
+      // adornment), not native number spinbuttons — target them by their stable field id.
+      await page.locator('[data-crud-field-id="valueAmount"]').getByRole('textbox').fill('25000');
       await selectByFieldId('valueCurrency', /USD/i, false)
-      await page.getByRole('spinbutton').nth(1).fill('60');
+      await page.locator('[data-crud-field-id="probability"]').getByRole('textbox').fill('60');
       // Expected close date: skipped — DS v3 migrated CrudForm type='date' to
       // a DatePicker button + Popover (no more native <input type="date">),
       // and expectedCloseAt is optional server-side (DealForm sends `?? undefined`),
       // so the deal still saves. Re-add an interaction here if a future
       // assertion needs the persisted close date.
 
-      const companySearch = page.getByRole('textbox', { name: /Search companies/i });
+      // The association field's <Label> ("Companies") is now the input's accessible name, so
+      // target the search box by its placeholder instead of an accessible-name role query.
+      const companySearch = page.getByPlaceholder(/Search companies/i);
       await companySearch.fill(companyName);
       await page.getByRole('button', { name: companyName, exact: true }).click();
 
@@ -87,18 +108,36 @@ test.describe('TC-CRM-007: Create Deal', () => {
         await expect(titleInput).toHaveValue(dealTitle, { timeout: 10_000 });
       }
 
+      const createDealResponsePromise = page.waitForResponse((response) => {
+        const url = new URL(response.url());
+        return response.request().method() === 'POST' && url.pathname === '/api/customers/deals';
+      });
       await page.getByRole('button', { name: 'Create deal' }).first().click();
+      const createDealResponse = await createDealResponsePromise;
+      expect(createDealResponse.status(), `POST /api/customers/deals returned ${createDealResponse.status()}`).toBe(201);
+      dealId = findStringByKeys(await createDealResponse.json(), ['id', 'dealId', 'entityId']);
+      expect(dealId, 'Expected created deal id in create response').toBeTruthy();
 
       await expect(page).toHaveURL(/\/backend\/customers\/deals$/i, { timeout: 30_000 });
       await page.getByPlaceholder(/Search by title/i).fill(dealTitle);
+      // Wait for the debounced search to apply to the URL before clicking the row.
+      // The deals list page has a useEffect that calls router.replace whenever the
+      // search state changes. Under heavy CI load, this replace can fire *after*
+      // the row click's router.push and silently overwrite the /deals/{id}
+      // navigation with /deals?search=... (CI shard 7 flake — TC-CRM-007).
+      await page.waitForURL(/\/backend\/customers\/deals\?.*search=/i, { timeout: 15_000 });
       const dealRow = page.locator('tr').filter({ hasText: dealTitle }).first();
       await expect(dealRow).toBeVisible();
-      await dealRow.click();
+      // Click the title text inside the row rather than the row itself.
+      // Clicking the TR center can land inside the trailing actions cell
+      // (data-actions-cell) when columns reflow under narrow viewports, and the
+      // DataTable's row-click handler short-circuits on actions-cell clicks.
+      await dealRow.getByText(dealTitle, { exact: true }).click();
 
-      await expect(page).toHaveURL(/\/backend\/customers\/deals\/[0-9a-f-]{36}$/i);
+      await expect(page).toHaveURL(/\/backend\/customers\/deals\/[0-9a-f-]{36}(?:\?.*)?$/i, { timeout: 30_000 });
       await expect(page.getByText(dealTitle, { exact: true }).first()).toBeVisible();
 
-      const idMatch = page.url().match(/\/backend\/customers\/deals\/([0-9a-f-]{36})$/i);
+      const idMatch = page.url().match(/\/backend\/customers\/deals\/([0-9a-f-]{36})(?:\?|$)/i);
       dealId = idMatch?.[1] ?? null;
       expect(dealId, 'Expected created deal id in detail URL').toBeTruthy();
     } finally {

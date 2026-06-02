@@ -28,6 +28,7 @@ import {
 } from '../../../lib/model-allowlist'
 import { AiTenantModelAllowlistRepository } from '../../../data/repositories/AiTenantModelAllowlistRepository'
 import { AiAgentRuntimeOverrideRepository } from '../../../data/repositories/AiAgentRuntimeOverrideRepository'
+import { createConversationStorage } from '../../../lib/conversation-storage'
 import type { EntityManager } from '@mikro-orm/postgresql'
 
 const MAX_MESSAGES = 100
@@ -35,8 +36,23 @@ const MAX_MESSAGES = 100
 const agentIdPattern = /^[a-z0-9_]+\.[a-z0-9_]+$/
 
 const chatMessageSchema = z.object({
+  id: z.string().min(1).max(128).optional(),
   role: z.enum(['user', 'assistant', 'system']),
   content: z.string(),
+  uiParts: z.array(z.unknown()).optional(),
+  files: z
+    .array(
+      z
+        .object({
+          id: z.string().optional(),
+          name: z.string().optional(),
+          type: z.string().optional(),
+          mimeType: z.string().optional(),
+          size: z.number().optional(),
+        })
+        .passthrough(),
+    )
+    .optional(),
 })
 
 const pageContextSchema = z
@@ -187,6 +203,204 @@ function statusForDenyCode(code: AgentPolicyDenyCode): number {
     default:
       return 409
   }
+}
+
+function extractDataPayload(eventBlock: string): string | null {
+  const dataLines = eventBlock
+    .split('\n')
+    .filter((line) => line.startsWith('data:'))
+    .map((line) => (line.startsWith('data: ') ? line.slice(6) : line.slice(5)))
+  if (dataLines.length === 0) return null
+  return dataLines.join('\n')
+}
+
+function extractUiPartsFromToolOutput(output: unknown): unknown[] {
+  let parsed = output
+  if (typeof output === 'string') {
+    const trimmed = output.trim()
+    if (!trimmed.startsWith('{') && !trimmed.startsWith('[')) return []
+    try {
+      parsed = JSON.parse(trimmed) as unknown
+    } catch {
+      return []
+    }
+  }
+  if (!parsed || typeof parsed !== 'object') return []
+  const value = parsed as Record<string, unknown>
+  const parts: unknown[] = []
+  if (value.status === 'pending-confirmation' || value.status === 'awaiting-confirmation') {
+    const pendingActionId =
+      typeof value.pendingActionId === 'string' && value.pendingActionId.length > 0
+        ? value.pendingActionId
+        : null
+    if (pendingActionId) {
+      parts.push({
+        componentId: 'mutation-preview-card',
+        pendingActionId,
+        payload: {
+          pendingActionId,
+          expiresAt: typeof value.expiresAt === 'string' ? value.expiresAt : undefined,
+          agentId:
+            typeof value.agentId === 'string'
+              ? value.agentId
+              : typeof value.agent === 'string'
+                ? value.agent
+                : undefined,
+          toolName: typeof value.toolName === 'string' ? value.toolName : undefined,
+        },
+      })
+    }
+  }
+  if (value.uiPart && typeof value.uiPart === 'object') parts.push(value.uiPart)
+  if (Array.isArray(value.uiParts)) parts.push(...value.uiParts)
+  return parts
+}
+
+function extractAssistantSnapshot(
+  raw: string,
+  contentType: string | null,
+): { content: string; uiParts: unknown[] } {
+  if (!contentType?.includes('event-stream')) {
+    return { content: raw, uiParts: [] }
+  }
+  let content = ''
+  const uiParts: unknown[] = []
+  for (const block of raw.split('\n\n')) {
+    const data = extractDataPayload(block)
+    if (!data || data === '[DONE]') continue
+    try {
+      const parsed = JSON.parse(data) as Record<string, unknown>
+      if (parsed.type === 'text-delta' && typeof parsed.delta === 'string') {
+        content += parsed.delta
+      } else if (parsed.type === 'text' && typeof parsed.content === 'string') {
+        content += parsed.content
+      } else if (parsed.type === 'tool-output-available') {
+        uiParts.push(...extractUiPartsFromToolOutput(parsed.output))
+      }
+    } catch {
+      // Ignore SSE comments and malformed provider chunks.
+    }
+  }
+  return { content, uiParts }
+}
+
+async function persistChatTurnStart(input: {
+  container: Awaited<ReturnType<typeof createRequestContainer>>
+  tenantId: string | null | undefined
+  organizationId: string | null | undefined
+  userId: string
+  agentId: string
+  conversationId: string | null
+  pageContext?: Record<string, unknown>
+  messages: AiChatRequest['messages']
+  attachmentIds?: string[]
+}): Promise<{ conversationId: string; userClientMessageId: string | null } | null> {
+  if (!input.tenantId || !input.conversationId) return null
+  const repo = createConversationStorage(input.container)
+  const ctx = {
+    tenantId: input.tenantId,
+    organizationId: input.organizationId ?? null,
+    userId: input.userId,
+  }
+  await repo.createOrGet(
+    {
+      conversationId: input.conversationId,
+      agentId: input.agentId,
+      pageContext: input.pageContext ?? null,
+    },
+    ctx,
+  )
+  const userMessage = [...input.messages].reverse().find((message) => message.role === 'user')
+  if (!userMessage) return { conversationId: input.conversationId, userClientMessageId: null }
+  await repo.appendMessage(
+    input.conversationId,
+    {
+      clientMessageId: userMessage.id,
+      role: 'user',
+      content: userMessage.content,
+      uiParts: userMessage.uiParts,
+      attachmentIds: input.attachmentIds,
+      files: userMessage.files?.map((file, index) => {
+        const id = file.id ?? input.attachmentIds?.[index]
+        const mimeType = file.mimeType ?? file.type
+        return {
+          ...(id ? { id } : {}),
+          ...(file.name ? { name: file.name } : {}),
+          ...(mimeType ? { mimeType } : {}),
+          ...(typeof file.size === 'number' ? { size: file.size } : {}),
+        }
+      }),
+    },
+    ctx,
+  )
+  return {
+    conversationId: input.conversationId,
+    userClientMessageId: userMessage.id ?? null,
+  }
+}
+
+function persistAssistantOnStreamCompletion(input: {
+  response: Response
+  container: Awaited<ReturnType<typeof createRequestContainer>>
+  tenantId: string | null | undefined
+  organizationId: string | null | undefined
+  userId: string
+  conversationId: string
+  userClientMessageId: string | null
+}): Response {
+  if (!input.response.body || !input.tenantId) return input.response
+  const tenantId = input.tenantId
+  const { readable, writable } = new TransformStream<Uint8Array, Uint8Array>()
+  const writer = writable.getWriter()
+  const decoder = new TextDecoder()
+  const contentType = input.response.headers.get('content-type')
+
+  async function pump(): Promise<void> {
+    const reader = input.response.body!.getReader()
+    let raw = ''
+    try {
+      for (;;) {
+        const { value, done } = await reader.read()
+        if (done) break
+        if (!value) continue
+        raw += decoder.decode(value, { stream: true })
+        await writer.write(value)
+      }
+      raw += decoder.decode()
+      const assistant = extractAssistantSnapshot(raw, contentType)
+      if (assistant.content.trim() || assistant.uiParts.length > 0) {
+        const repo = createConversationStorage(input.container)
+        await repo.appendMessage(
+          input.conversationId,
+          {
+            clientMessageId: input.userClientMessageId
+              ? `${input.userClientMessageId}:assistant`
+              : undefined,
+            role: 'assistant',
+            content: assistant.content,
+            uiParts: assistant.uiParts,
+          },
+          {
+            tenantId,
+            organizationId: input.organizationId ?? null,
+            userId: input.userId,
+          },
+        )
+      }
+    } catch (error) {
+      console.error('[AI Chat Agent] Conversation persistence failure:', error)
+    } finally {
+      reader.releaseLock()
+      await writer.close().catch(() => undefined)
+    }
+  }
+
+  void pump()
+  return new Response(readable, {
+    status: input.response.status,
+    statusText: input.response.statusText,
+    headers: input.response.headers,
+  })
 }
 
 export async function POST(req: NextRequest): Promise<Response> {
@@ -419,7 +633,30 @@ export async function POST(req: NextRequest): Promise<Response> {
         ? resolveLoopBudgetPreset(rawLoopBudget)
         : undefined
 
-    return await runAiAgentText({
+    const effectiveConversationId = bodyResult.data.sessionId ?? bodyResult.data.conversationId ?? null
+    let persistedTurn:
+      | { conversationId: string; userClientMessageId: string | null }
+      | null = null
+    try {
+      persistedTurn = await persistChatTurnStart({
+        container,
+        tenantId: auth.tenantId ?? null,
+        organizationId: auth.orgId ?? null,
+        userId: auth.sub,
+        agentId,
+        conversationId: effectiveConversationId,
+        pageContext: bodyResult.data.pageContext,
+        messages: bodyResult.data.messages,
+        attachmentIds: bodyResult.data.attachmentIds,
+      })
+    } catch (error) {
+      if (error instanceof Error && error.name === 'AiChatConversationOrgNotFoundError') {
+        return jsonError(400, error.message, 'organization_not_found')
+      }
+      console.error('[AI Chat Agent] Failed to persist user message:', error)
+    }
+
+    const response = await runAiAgentText({
       agentId,
       messages: bodyResult.data.messages as unknown as UIMessage[],
       attachmentIds: bodyResult.data.attachmentIds,
@@ -438,6 +675,16 @@ export async function POST(req: NextRequest): Promise<Response> {
       requestOverride,
       loop: loopFromPreset,
       emitLoopTrace: true,
+    })
+    if (!persistedTurn) return response
+    return persistAssistantOnStreamCompletion({
+      response,
+      container,
+      tenantId: auth.tenantId ?? null,
+      organizationId: auth.orgId ?? null,
+      userId: auth.sub,
+      conversationId: persistedTurn.conversationId,
+      userClientMessageId: persistedTurn.userClientMessageId,
     })
   } catch (error) {
     if (error instanceof AgentPolicyError) {

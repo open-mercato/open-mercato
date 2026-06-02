@@ -25,11 +25,11 @@ type UseMessageDetailsActionsInput = {
   id: string
   t: TranslateFn
   detail: MessageDetail | null
-  detailQuery: UseQueryResult<MessageDetail, Error>
+  detailQuery: UseQueryResult<MessageDetail | null, Error>
   attachments: MessageAttachment[] | undefined
   isArchived: boolean
   onDeleted: () => void
-  refreshDetailWithoutAutoMarkRead: () => Promise<MessageDetail>
+  refreshDetailWithoutAutoMarkRead: () => Promise<MessageDetail | null>
 }
 
 export function useMessageDetailsActions({

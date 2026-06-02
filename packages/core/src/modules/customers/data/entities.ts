@@ -750,7 +750,7 @@ export class CustomerAddress {
 @Entity({ tableName: 'customer_settings' })
 @Unique({ name: 'customer_settings_scope_unique', properties: ['organizationId', 'tenantId'] })
 export class CustomerSettings {
-  [OptionalProps]?: 'createdAt' | 'updatedAt'
+  [OptionalProps]?: 'createdAt' | 'updatedAt' | 'addressFormat' | 'stuckThresholdDays'
 
   @PrimaryKey({ type: 'uuid', defaultRaw: 'gen_random_uuid()' })
   id!: string
@@ -763,6 +763,9 @@ export class CustomerSettings {
 
   @Property({ name: 'address_format', type: 'text', default: 'line_first' })
   addressFormat: CustomerAddressFormat = 'line_first'
+
+  @Property({ name: 'stuck_threshold_days', type: 'int', default: 14 })
+  stuckThresholdDays: number = 14
 
   @Property({ name: 'created_at', type: Date, onCreate: () => new Date() })
   createdAt: Date = new Date()

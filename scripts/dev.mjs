@@ -22,6 +22,8 @@ import {
   resolveProgressPercent,
   stripAnsi,
 } from './dev-splash-helpers.mjs'
+import { purgeAppBuildCaches } from './dev-cache-purge.mjs'
+import { killProcessTree } from './dev-shutdown-utils.mjs'
 import { resolveSpawnCommand } from './dev-spawn-utils.mjs'
 import { createDevSplashCodingFlow } from './dev-splash-coding-flow.mjs'
 import { createDevSplashGitRepoFlow } from './dev-splash-git-repo-flow.mjs'
@@ -200,6 +202,10 @@ const splashEnabled = !classic && !appOnly && splashPortConfig.enabled
 const autoOpenSplash = splashEnabled && process.stdout.isTTY && process.env.CI !== 'true' && process.env.OM_DEV_AUTO_OPEN !== '0'
 const splashBindHost = isContainerRuntime() ? '0.0.0.0' : '127.0.0.1'
 const standaloneRuntimeScript = path.join(process.cwd(), 'scripts', 'dev-runtime.mjs')
+const warmupReadyFilePath = path.join(
+  process.cwd(),
+  isMonorepo ? 'apps/mercato/.mercato/dev-warmup-ready.json' : '.mercato/dev-warmup-ready.json',
+)
 const devLogTeeDisabled = process.env.OM_DEV_LOG_TEE === '0' || process.env.OM_DEV_LOG_TEE === 'false'
 
 let devLogSessionInstance = null
@@ -490,7 +496,7 @@ function resolveSplashLocaleConfig() {
   return splashLocaleConfig
 }
 
-function buildSplashChildEnv() {
+function buildSplashChildEnv(options = {}) {
   const childEnv = devLogTeeDisabled
     ? {}
     : {
@@ -499,18 +505,31 @@ function buildSplashChildEnv() {
       }
 
   if (!splashChildStateFile) {
-    return Object.keys(childEnv).length > 0 ? childEnv : undefined
+    const env = {
+      ...childEnv,
+      OM_DEV_SHUTDOWN_NOTICE_OWNER: 'parent',
+    }
+    return Object.keys(env).length > 0 ? env : undefined
   }
 
   return {
     ...childEnv,
     OM_DEV_SPLASH_CHILD_STATE_FILE: splashChildStateFile,
+    OM_DEV_WARMUP_READY_FILE: warmupReadyFilePath,
     OM_DEV_SPLASH_MODE: splashMode,
+    OM_DEV_SHUTDOWN_NOTICE_OWNER: 'parent',
+    ...(Number.isFinite(options.stageCurrent) ? { OM_DEV_SPLASH_STAGE_CURRENT: String(options.stageCurrent) } : {}),
+    ...(Number.isFinite(options.stageTotal) ? { OM_DEV_SPLASH_STAGE_TOTAL: String(options.stageTotal) } : {}),
   }
 }
 
 function applyLocalDevBackgroundServiceDefaults(childEnv) {
-  const env = childEnv ?? {}
+  const env = {
+    ...(childEnv ?? {}),
+    OM_DEV_WARMUP_READY_FILE: (childEnv && 'OM_DEV_WARMUP_READY_FILE' in childEnv)
+      ? childEnv.OM_DEV_WARMUP_READY_FILE
+      : warmupReadyFilePath,
+  }
   if (
     typeof process.env.OM_AUTO_SPAWN_WORKERS_LAZY !== 'string'
     || process.env.OM_AUTO_SPAWN_WORKERS_LAZY.trim() === ''
@@ -526,8 +545,8 @@ function applyLocalDevBackgroundServiceDefaults(childEnv) {
   return env
 }
 
-function buildAppDevEnv() {
-  return applyLocalDevBackgroundServiceDefaults(buildSplashChildEnv() ?? {})
+function buildAppDevEnv(options = {}) {
+  return applyLocalDevBackgroundServiceDefaults(buildSplashChildEnv(options) ?? {})
 }
 
 function launchStandaloneDev(options = {}) {
@@ -564,7 +583,7 @@ function launchStandaloneDev(options = {}) {
 
   const app = spawnCommand(process.execPath, runtimeArgs, {
     stdio: 'inherit',
-    env: buildAppDevEnv(),
+    env: buildAppDevEnv({ stageCurrent, stageTotal }),
   })
 
   app.on('close', (code) => {
@@ -994,6 +1013,18 @@ function closeSplashServer() {
   writeSplashChildStateFileClear()
 }
 
+function announceShutdown() {
+  const message = 'Shutting down services...'
+  updateSplashState({
+    phase: message,
+    detail: 'Stopping app runtime, watchers, workers, and scheduler',
+    ready: false,
+    progressLabel: message,
+    activity: message,
+  })
+  console.log(message)
+}
+
 function openBrowser(url) {
   try {
     let child
@@ -1012,25 +1043,27 @@ function openBrowser(url) {
 function shutdown(exitCode = 0) {
   if (shuttingDown) return
   shuttingDown = true
-  closeSplashServer()
+  announceShutdown()
 
   const alive = Array.from(children).filter((child) => !child.killed)
   if (alive.length === 0) {
+    closeSplashServer()
     closeDevLogSession()
     process.exit(exitCode)
     return
   }
 
   for (const child of alive) {
-    child.kill('SIGTERM')
+    killProcessTree(child, 'SIGTERM')
   }
 
   setTimeout(() => {
     for (const child of children) {
       if (!child.killed) {
-        child.kill('SIGKILL')
+        killProcessTree(child, 'SIGKILL')
       }
     }
+    closeSplashServer()
     closeDevLogSession()
     process.exit(exitCode)
   }, 3000)
@@ -1491,10 +1524,21 @@ async function runPassthroughStage(label, commandArgs, options = {}) {
   console.log(`✅ ${formatProgressLine(label, stageCurrent, stageTotal, resolveProgressPercent(stageCurrent, stageTotal))} in ${formatDuration(Date.now() - startedAt)}`)
 }
 
+function resolveWatchPackagesScript() {
+  // `OM_WATCH_PACKAGES_MODE=legacy` falls back to the Turbo per-package
+  // fan-out for developers who need the old behavior (debugging, or pairing
+  // with `OM_PACKAGE_WATCH_MODE=persistent` for hot rebuilds at the cost of
+  // ~1 GB more idle RSS). Default is the consolidated single-process watcher.
+  const raw = String(process.env.OM_WATCH_PACKAGES_MODE ?? '').trim().toLowerCase()
+  return raw === 'legacy' ? 'watch:packages:legacy' : 'watch:packages'
+}
+
 function startPackageWatch() {
+  const watchScript = resolveWatchPackagesScript()
+
   if (classic) {
-    const child = spawnCommand(yarnCommand, ['watch:packages'], {
-      label: 'watch:packages',
+    const child = spawnCommand(yarnCommand, [watchScript], {
+      label: watchScript,
       logFile: getDevRunnerLog(),
       mirrorOutput: true,
     })
@@ -1528,16 +1572,7 @@ function startPackageWatch() {
     activity: 'Workspace package watch started',
   })
 
-  const child = spawnCommand(yarnCommand, [
-    'turbo',
-    'run',
-    'watch',
-    '--filter=./packages/*',
-    '--concurrency=32',
-    '--output-logs=errors-only',
-    '--log-order=grouped',
-    '--log-prefix=none',
-  ], {
+  const child = spawnCommand(yarnCommand, [watchScript], {
     label: 'Watching workspace packages',
     logFile: getDevRunnerLog(),
     mirrorOutput: verbose,
@@ -1611,7 +1646,7 @@ function launchMonorepoAppDev() {
   })
   const app = spawnCommand(yarnCommand, appArgs, {
     stdio: 'inherit',
-    env: buildAppDevEnv(),
+    env: buildAppDevEnv({ stageCurrent, stageTotal }),
   })
 
   app.on('close', (code, signal) => {
@@ -1647,6 +1682,7 @@ async function runClassicStandardDev() {
 }
 
 async function runGreenfieldDev() {
+  purgeAppBuildCaches()
   await runStage('🧱 Greenfield build packages', ['build:packages'], { stageCurrent: 1, stageTotal: 5 })
   await runStage('🧬 Greenfield generate artifacts', ['generate'], { stageCurrent: 2, stageTotal: 5 })
   await runStage('🧱 Greenfield rebuild packages', ['build:packages'], { stageCurrent: 3, stageTotal: 5 })
@@ -1657,6 +1693,7 @@ async function runGreenfieldDev() {
 }
 
 async function runClassicGreenfieldDev() {
+  purgeAppBuildCaches()
   await runRawYarnCommand(['build:packages'])
   await runRawYarnCommand(['generate'])
   await runRawYarnCommand(['build:packages'])

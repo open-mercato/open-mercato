@@ -396,19 +396,25 @@ export async function GET(req: Request) {
         ipAddress: clientIp,
         source: 'onboarding',
       })
-      em.create(UserConsent, {
-        userId: resolvedUserId,
-        tenantId: resolvedTenantId,
-        organizationId: resolvedOrganizationId,
-        consentType: 'marketing_email',
-        isGranted: true,
-        grantedAt: now,
-        source: 'onboarding',
-        ipAddress: clientIp,
-        integrityHash,
-        createdAt: now,
+      // Wrap the request-em consent write in a transaction so it commits
+      // all-or-nothing. setupInitialTenant already manages its own internal
+      // transactions, and the seedDefaults hooks below resolve container
+      // services that fork their own EM (and may enqueue work), so neither can
+      // join this transaction — only the direct request-em writes are wrapped.
+      await em.transactional(async (txEm) => {
+        txEm.create(UserConsent, {
+          userId: resolvedUserId,
+          tenantId: resolvedTenantId,
+          organizationId: resolvedOrganizationId,
+          consentType: 'marketing_email',
+          isGranted: true,
+          grantedAt: now,
+          source: 'onboarding',
+          ipAddress: clientIp,
+          integrityHash,
+          createdAt: now,
+        })
       })
-      await em.flush()
     }
 
     // Call module seedDefaults + seedExamples hooks

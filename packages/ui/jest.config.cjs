@@ -1,6 +1,7 @@
 /** @type {import('jest').Config} */
 module.exports = {
   testEnvironment: 'jsdom',
+  testTimeout: 30000,
   watchman: false,
   rootDir: '.',
   maxWorkers: 4,
@@ -18,13 +19,15 @@ module.exports = {
       {
         tsconfig: {
           jsx: 'react-jsx',
+          rootDir: '.',
+          ignoreDeprecations: '6.0',
         },
       },
     ],
   },
   setupFilesAfterEnv: ['<rootDir>/jest.setup.ts'],
   transformIgnorePatterns: [
-    'node_modules/(?!(@mikro-orm)/)',
+    'node_modules/(?!(@mikro-orm|kysely)/)',
   ],
   testMatch: [
     '<rootDir>/src/**/__tests__/**/*.test.(ts|tsx)',

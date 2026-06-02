@@ -1,7 +1,7 @@
 "use client"
 
 import * as React from 'react'
-import type { Locale } from 'date-fns'
+import type { Locale } from 'date-fns/locale'
 import { CalendarIcon } from 'lucide-react'
 import { cn } from '@open-mercato/shared/lib/utils'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
@@ -230,10 +230,11 @@ export function DatePicker({
         <Calendar
           mode="single"
           selected={selectedDate ?? undefined}
+          defaultMonth={selectedDate ?? undefined}
           onSelect={handleDaySelect}
           locale={locale}
           disabled={disabledMatcher}
-          initialFocus
+          autoFocus
         />
         {withTime && (
           <div className="flex items-center gap-2 border-t px-3 py-2">

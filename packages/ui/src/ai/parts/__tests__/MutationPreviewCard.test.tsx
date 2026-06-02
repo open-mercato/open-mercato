@@ -155,8 +155,33 @@ describe('MutationPreviewCard', () => {
     unmount()
   })
 
-  it('Review details toggles the expanded diff section', async () => {
+  it('does not render Review details when the visible single-record diff is already complete', () => {
     installPollingMock(makeAction())
+    renderWithProviders(
+      <MutationPreviewCard
+        componentId="mutation-preview-card"
+        pendingActionId="pa-1"
+      />,
+      { dict },
+    )
+    expect(document.querySelector('[data-ai-mutation-preview-details]')).toBeNull()
+    expect(screen.queryByRole('button', { name: /Review details/i })).toBeNull()
+  })
+
+  it('Review details toggles the expanded batch diff section', async () => {
+    installPollingMock(
+      makeAction({
+        fieldDiff: [],
+        records: [
+          {
+            recordId: 'r-1',
+            entityType: 'customers.person',
+            label: 'Alice',
+            fieldDiff: [{ field: 'name', before: 'Alice', after: 'Alicia' }],
+          },
+        ],
+      }),
+    )
     renderWithProviders(
       <MutationPreviewCard
         componentId="mutation-preview-card"

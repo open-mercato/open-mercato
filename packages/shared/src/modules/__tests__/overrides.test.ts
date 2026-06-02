@@ -2,15 +2,18 @@
  * Coverage for the unified `modules.ts` override dispatcher. The
  * dispatcher walks `enabledModules`, buckets every entry's
  * `overrides.<domain>` shape by domain, and forwards each domain's
- * bucket to the registered per-domain applier. Unwired domains emit a
- * one-shot structured warning so an early adopter notices instead of
- * silently no-opping.
+ * bucket to the registered per-domain applier. Built-in domains are wired
+ * by shared's default appliers; custom/future domains still warn if no
+ * applier is registered.
  *
  * Spec: `.ai/specs/2026-05-04-modules-ts-unified-overrides.md`.
  */
 import {
   applyModuleOverridesFromEnabledModules,
+  composeInjectionWidgetOverrides,
+  composeSubscriberOverrides,
   registerModuleOverrideApplier,
+  resetModuleContractOverridesForTests,
   resetModuleOverrideAppliersForTests,
   type ModuleEntryWithOverrides,
   type ModuleOverrideEntry,
@@ -18,6 +21,7 @@ import {
 
 beforeEach(() => {
   resetModuleOverrideAppliersForTests()
+  resetModuleContractOverridesForTests()
 })
 
 describe('applyModuleOverridesFromEnabledModules', () => {
@@ -72,37 +76,34 @@ describe('applyModuleOverridesFromEnabledModules', () => {
     expect(applier).not.toHaveBeenCalled()
   })
 
-  it('emits a one-shot structured warning per unwired domain', () => {
+  it('routes built-in domains to default appliers without unwired warnings', () => {
     const warnSpy = jest.spyOn(console, 'warn').mockImplementation(() => {})
 
     applyModuleOverridesFromEnabledModules([
       {
         id: 'a',
-        overrides: { routes: { api: { 'GET /api/x': null } } },
+        overrides: {
+          widgets: { injection: { 'spot.foo': null } },
+          events: { subscribers: { 'example.todo.created.notify': null } },
+        },
       },
       {
         id: 'b',
-        overrides: { routes: { api: { 'POST /api/y': null } } },
+        overrides: { widgets: { injection: { 'spot.bar': null } } },
       },
     ])
 
-    // Same domain hit twice — only one warning per process.
-    const routesCalls = warnSpy.mock.calls.filter((args) =>
-      typeof args[0] === 'string' && args[0].includes('Domain "routes"'),
+    const unwiredCalls = warnSpy.mock.calls.filter((args) =>
+      typeof args[0] === 'string' && args[0].includes('not yet wired'),
     )
-    expect(routesCalls).toHaveLength(1)
-    expect(routesCalls[0][0]).toContain('not yet wired')
-    expect(routesCalls[0][0]).toContain('module(s) [a, b]')
-    expect(routesCalls[0][0]).toContain('issues/1787')
-
-    // Different unwired domain — separate one-shot warning.
-    applyModuleOverridesFromEnabledModules([
-      { id: 'c', overrides: { events: { subscribers: { 'x': null } } } },
-    ])
-    const eventsCalls = warnSpy.mock.calls.filter((args) =>
-      typeof args[0] === 'string' && args[0].includes('Domain "events"'),
-    )
-    expect(eventsCalls).toHaveLength(1)
+    expect(unwiredCalls).toHaveLength(0)
+    expect(composeInjectionWidgetOverrides()).toMatchObject({
+      'spot.foo': null,
+      'spot.bar': null,
+    })
+    expect(composeSubscriberOverrides()).toMatchObject({
+      'example.todo.created.notify': null,
+    })
 
     warnSpy.mockRestore()
   })

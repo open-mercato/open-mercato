@@ -1,11 +1,12 @@
 "use client"
-import { type ReactNode, useEffect, useState, useCallback, useMemo, useContext } from 'react'
+import { type ReactNode, useEffect, useState, useCallback, useMemo } from 'react'
 import Image from 'next/image'
 import Link from 'next/link'
 import { usePathname } from 'next/navigation'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { Button } from '../primitives/button'
 import { IconButton } from '../primitives/icon-button'
+import { Skeleton } from '../primitives/skeleton'
 import { usePortalInjectedMenuItems } from './hooks/usePortalInjectedMenuItems'
 import { usePortalEventBridge } from './hooks/usePortalEventBridge'
 import { mergeMenuItems } from '../backend/injection/mergeMenuItems'
@@ -117,6 +118,17 @@ function SidebarNavItem({
   return null
 }
 
+function SidebarNavSkeleton() {
+  return (
+    <div className="flex flex-col gap-2 px-3 py-1" data-testid="portal-nav-loading">
+      <Skeleton className="h-9 w-full rounded-lg" />
+      <Skeleton className="h-9 w-11/12 rounded-lg" />
+      <Skeleton className="h-9 w-5/6 rounded-lg" />
+      <Skeleton className="h-9 w-10/12 rounded-lg" />
+    </div>
+  )
+}
+
 /* ---- User initials avatar ---- */
 
 function UserAvatar({ name, className }: { name?: string; className?: string }) {
@@ -191,12 +203,15 @@ export function PortalShell({
   const closeMobile = useCallback(() => setMobileOpen(false), [])
 
   const [autoNavGroups, setAutoNavGroups] = useState<PortalNavGroup[]>([])
+  const [isNavLoading, setIsNavLoading] = useState(authenticated)
   useEffect(() => {
     if (!authenticated) {
       setAutoNavGroups([])
+      setIsNavLoading(false)
       return
     }
     let cancelled = false
+    setIsNavLoading(true)
     const load = async () => {
       try {
         const { ok, result } = await apiCall<{ ok: boolean; groups?: PortalNavGroup[] }>(
@@ -206,6 +221,8 @@ export function PortalShell({
         setAutoNavGroups(Array.isArray(result.groups) ? result.groups : [])
       } catch {
         if (!cancelled) setAutoNavGroups([])
+      } finally {
+        if (!cancelled) setIsNavLoading(false)
       }
     }
     void load()
@@ -237,6 +254,10 @@ export function PortalShell({
     }))
     return mergeMenuItems(builtIn, injectedAccountItems)
   }, [authenticated, autoNavGroups, injectedAccountItems])
+
+  const shouldRenderMainNav = isNavLoading || mergedNavItems.length > 0
+  const shouldRenderAccountNav = mergedAccountItems.length > 0
+  const shouldRenderNav = shouldRenderMainNav || shouldRenderAccountNav
 
   /* ---- PUBLIC LAYOUT ---- */
   if (!authenticated) {
@@ -291,41 +312,58 @@ export function PortalShell({
         </Link>
       </div>
 
-      <nav aria-label="Portal navigation" className="flex-1 overflow-y-auto px-3 py-5">
-        <p className="mb-2 px-3 text-overline font-semibold uppercase tracking-widest text-muted-foreground/50">
-          {t('portal.nav.home', 'Portal')}
-        </p>
-        <div className="flex flex-col gap-0.5">
-          {mergedNavItems.map((item) => (
-            <SidebarNavItem
-              key={item.id}
-              item={item}
-              active={!!item.href && pathname.startsWith(item.href)}
-              t={t}
-              onClick={closeMobile}
-            />
-          ))}
-        </div>
+      <div
+        className="hidden"
+        data-testid="portal-nav-ready"
+        data-ready={isNavLoading ? 'false' : 'true'}
+        aria-hidden="true"
+      />
 
-        {mergedAccountItems.length > 0 ? (
-          <div className="mt-8">
-            <p className="mb-2 px-3 text-overline font-semibold uppercase tracking-widest text-muted-foreground/50">
-              {t('portal.nav.account', 'Account')}
-            </p>
-            <div className="flex flex-col gap-0.5">
-              {mergedAccountItems.map((item) => (
-                <SidebarNavItem
-                  key={item.id}
-                  item={item}
-                  active={!!item.href && pathname.startsWith(item.href)}
-                  t={t}
-                  onClick={closeMobile}
-                />
-              ))}
+      {shouldRenderNav ? (
+        <nav aria-label="Portal navigation" className="flex-1 overflow-y-auto px-3 py-5">
+          {shouldRenderMainNav ? (
+            <>
+              <p className="mb-2 px-3 text-overline font-semibold uppercase tracking-widest text-muted-foreground/50">
+                {t('portal.nav.home', 'Portal')}
+              </p>
+              {isNavLoading ? (
+                <SidebarNavSkeleton />
+              ) : (
+                <div className="flex flex-col gap-0.5">
+                  {mergedNavItems.map((item) => (
+                    <SidebarNavItem
+                      key={item.id}
+                      item={item}
+                      active={!!item.href && pathname.startsWith(item.href)}
+                      t={t}
+                      onClick={closeMobile}
+                    />
+                  ))}
+                </div>
+              )}
+            </>
+          ) : null}
+
+          {shouldRenderAccountNav ? (
+            <div className={shouldRenderMainNav ? 'mt-8' : ''}>
+              <p className="mb-2 px-3 text-overline font-semibold uppercase tracking-widest text-muted-foreground/50">
+                {t('portal.nav.account', 'Account')}
+              </p>
+              <div className="flex flex-col gap-0.5">
+                {mergedAccountItems.map((item) => (
+                  <SidebarNavItem
+                    key={item.id}
+                    item={item}
+                    active={!!item.href && pathname.startsWith(item.href)}
+                    t={t}
+                    onClick={closeMobile}
+                  />
+                ))}
+              </div>
             </div>
-          </div>
-        ) : null}
-      </nav>
+          ) : null}
+        </nav>
+      ) : null}
 
       <div className="border-t px-3 py-3">
         <div className="flex items-center gap-2.5 rounded-lg px-3 py-2">

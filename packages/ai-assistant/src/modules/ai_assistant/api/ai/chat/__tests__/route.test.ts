@@ -11,6 +11,8 @@ const authMock = jest.fn()
 const loadAclMock = jest.fn()
 const createRequestContainerMock = jest.fn()
 const runAiAgentTextMock = jest.fn()
+const createOrGetConversationMock = jest.fn()
+const appendConversationMessageMock = jest.fn()
 
 jest.mock('@open-mercato/shared/lib/auth/server', () => ({
   getAuthFromRequest: (...args: unknown[]) => authMock(...args),
@@ -27,6 +29,13 @@ jest.mock('../../../../lib/agent-runtime', () => {
     runAiAgentText: (...args: unknown[]) => runAiAgentTextMock(...args),
   }
 })
+
+jest.mock('../../../../lib/conversation-storage', () => ({
+  createConversationStorage: jest.fn(() => ({
+    createOrGet: (...args: unknown[]) => createOrGetConversationMock(...args),
+    appendMessage: (...args: unknown[]) => appendConversationMessageMock(...args),
+  })),
+}))
 
 const getMock = jest.fn()
 const listMock = jest.fn()
@@ -128,6 +137,8 @@ describe('POST /api/ai/chat', () => {
     })
     tenantAllowlistGetSnapshotMock.mockResolvedValue(null)
     agentRuntimeOverrideGetExactMock.mockResolvedValue(null)
+    createOrGetConversationMock.mockResolvedValue({})
+    appendConversationMessageMock.mockResolvedValue({})
     runAiAgentTextMock.mockResolvedValue(
       new Response('data: {"type":"text","content":"ok"}\n\ndata: [DONE]\n\n', {
         status: 200,
@@ -302,6 +313,102 @@ describe('POST /api/ai/chat', () => {
     expect(callArg.authContext.tenantId).toBe('tenant-1')
     expect(callArg.authContext.organizationId).toBe('org-1')
     expect(callArg.container).toBeDefined()
+  })
+
+  it('persists the user message before dispatch and the assistant message after the stream finishes', async () => {
+    seedAgentRegistryForTests([
+      makeAgent({
+        id: 'customers.assistant',
+        moduleId: 'customers',
+      }),
+    ])
+    runAiAgentTextMock.mockResolvedValueOnce(
+      new Response(
+        [
+          'data: {"type":"text-delta","delta":"Hello"}\n\n',
+          'data: {"type":"text-delta","delta":" world"}\n\n',
+          'data: [DONE]\n\n',
+        ].join(''),
+        {
+          status: 200,
+          headers: { 'Content-Type': 'text/event-stream' },
+        },
+      ),
+    )
+
+    const response = await POST(
+      buildRequest({
+        agent: 'customers.assistant',
+        body: {
+          conversationId: 'conv-persist-1',
+          attachmentIds: ['att-image-1'],
+          messages: [
+            {
+              id: 'msg-user-1',
+              role: 'user',
+              content: 'Hello assistant',
+              files: [
+                {
+                  id: 'att-image-1',
+                  name: 'IMG_5328.JPEG',
+                  type: 'image/jpeg',
+                },
+              ],
+            },
+          ],
+        },
+      }) as any,
+    )
+    await response.text()
+
+    expect(createOrGetConversationMock).toHaveBeenCalledWith(
+      {
+        conversationId: 'conv-persist-1',
+        agentId: 'customers.assistant',
+        pageContext: null,
+      },
+      {
+        tenantId: 'tenant-1',
+        organizationId: 'org-1',
+        userId: 'user-1',
+      },
+    )
+    expect(appendConversationMessageMock).toHaveBeenNthCalledWith(
+      1,
+      'conv-persist-1',
+      expect.objectContaining({
+        clientMessageId: 'msg-user-1',
+        role: 'user',
+        content: 'Hello assistant',
+        attachmentIds: ['att-image-1'],
+        files: [
+          {
+            id: 'att-image-1',
+            name: 'IMG_5328.JPEG',
+            mimeType: 'image/jpeg',
+          },
+        ],
+      }),
+      expect.objectContaining({
+        tenantId: 'tenant-1',
+        organizationId: 'org-1',
+        userId: 'user-1',
+      }),
+    )
+    expect(appendConversationMessageMock).toHaveBeenNthCalledWith(
+      2,
+      'conv-persist-1',
+      expect.objectContaining({
+        clientMessageId: 'msg-user-1:assistant',
+        role: 'assistant',
+        content: 'Hello world',
+      }),
+      expect.objectContaining({
+        tenantId: 'tenant-1',
+        organizationId: 'org-1',
+        userId: 'user-1',
+      }),
+    )
   })
 
   it('maps AgentPolicyError thrown by the runtime to the canonical HTTP status', async () => {

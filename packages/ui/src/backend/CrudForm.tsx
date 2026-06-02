@@ -77,8 +77,9 @@ import { buildFormFieldsFromCustomFields, buildFormFieldFromCustomFieldDef } fro
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { TagsInput } from './inputs/TagsInput'
 import { ComboboxInput } from './inputs/ComboboxInput'
-import { format, parseISO } from 'date-fns'
-import type { Locale } from 'date-fns'
+import { format } from 'date-fns/format'
+import { parseISO } from 'date-fns/parseISO'
+import type { Locale } from 'date-fns/locale'
 import { DateTimePicker } from './inputs/DateTimePicker'
 import { TimePicker } from './inputs/TimePicker'
 import { DatePicker } from './inputs/DatePicker'
@@ -1095,9 +1096,13 @@ export function CrudForm<TValues extends Record<string, unknown>>({
   const dialogFooterClass = isInDialog
     ? 'sticky bottom-0 left-0 right-0 z-20 -mx-6 px-6 bg-card border-t border-border/70 py-2 sm:-mx-6 sm:px-6'
     : ''
-  // When CrudForm renders inside a Dialog, the sticky footer can overlap the last fields.
-  // Give the form enough bottom padding so inputs (esp. Radix Select triggers) remain clickable.
-  const dialogFormPadding = isInDialog ? 'pb-20' : ''
+  // No bottom padding on the dialog form. The previous `pb-20` left an 80px gap below
+  // the sticky footer in every dialog whose content fit the viewport (the form sized to
+  // content + 80px with the footer as its last child) — visible as empty white space at
+  // the bottom of Quick deal, Add stage, Activity composer, etc. The sticky footer
+  // handles the overflow case on its own: when content scrolls, the footer stays pinned
+  // to the dialog's bottom and the user can scroll fields above it.
+  const dialogFormPadding = ''
 
   const buildCustomFieldsManageHref = React.useCallback(
     (targetEntityId: string | null) => {
@@ -4104,6 +4109,7 @@ const FieldControl = React.memo(function FieldControlImpl({
               : undefined
           }
           allowCustomValues={builtin?.allowCustomValues ?? true}
+          clearable={!field.required}
           disabled={disabled}
         />
       )}

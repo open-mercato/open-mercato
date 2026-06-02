@@ -168,13 +168,13 @@ export async function GET(req: Request) {
         eb.selectFrom('attachments')
           .select(sql<number>`1`.as('one'))
           .where('attachments.entity_id', '=', MESSAGE_ATTACHMENT_ENTITY_ID)
-          .whereRef('attachments.record_id', '=', 'm.id')
+          .where(sql<boolean>`attachments.record_id = m.id::text`)
       )
       const notExistsFn = (eb: any) => eb.not(eb.exists(
         eb.selectFrom('attachments')
           .select(sql<number>`1`.as('one'))
           .where('attachments.entity_id', '=', MESSAGE_ATTACHMENT_ENTITY_ID)
-          .whereRef('attachments.record_id', '=', 'm.id')
+          .where(sql<boolean>`attachments.record_id = m.id::text`)
       ))
       q = input.hasAttachments ? q.where(existsFn) : q.where(notExistsFn)
     }

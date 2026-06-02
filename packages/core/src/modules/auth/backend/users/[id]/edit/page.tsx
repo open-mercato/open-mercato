@@ -17,6 +17,8 @@ import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { extractCustomFieldEntries } from '@open-mercato/shared/lib/crud/custom-fields-client'
 import { formatPasswordRequirements, getPasswordPolicy } from '@open-mercato/shared/lib/auth/passwordPolicy'
 import { UserConsentsPanel } from '@open-mercato/core/modules/auth/components/UserConsentsPanel'
+import { RecordNotFoundState, ErrorMessage } from '@open-mercato/ui/backend/detail'
+import { normalizeDisplayNameInput } from '@open-mercato/core/modules/auth/lib/displayName'
 
 type EditUserFormValues = {
   email: string
@@ -118,6 +120,7 @@ export default function EditUserPage({ params }: { params?: { id?: string } }) {
   const [selectedTenantId, setSelectedTenantId] = React.useState<string | null>(null)
   const [loading, setLoading] = React.useState(true)
   const [error, setError] = React.useState<string | null>(null)
+  const [isNotFound, setIsNotFound] = React.useState(false)
   const [canEditOrgs, setCanEditOrgs] = React.useState(false)
   const [aclData, setAclData] = React.useState<AclData>({ isSuperAdmin: false, features: [], organizations: null })
   const [customFieldValues, setCustomFieldValues] = React.useState<Record<string, unknown>>({})
@@ -170,18 +173,19 @@ export default function EditUserPage({ params }: { params?: { id?: string } }) {
     async function load() {
       setLoading(true)
       setError(null)
+      setIsNotFound(false)
       setCustomFieldValues({})
       try {
         const { ok, result } = await apiCall<UserListResponse>(
           `/api/auth/users?id=${encodeURIComponent(String(id))}&page=1&pageSize=1`,
         )
-        if (!ok) throw new Error('load_failed')
+        if (!ok) throw new Error(tRef.current('auth.users.form.errors.load', 'Failed to load user data'))
         const item = Array.isArray(result?.items) ? result?.items?.[0] : undefined
         if (!cancelled) {
           setActorIsSuperAdmin(Boolean(result?.isSuperAdmin))
           setActorResolved(true)
           if (!item) {
-            setError(tRef.current('auth.users.form.errors.notFound', 'User not found'))
+            setIsNotFound(true)
             setCustomFieldValues({})
             setInitialUser(null)
             setSelectedTenantId(null)
@@ -253,7 +257,7 @@ export default function EditUserPage({ params }: { params?: { id?: string } }) {
     if (!actorResolved) return []
     if (actorIsSuperAdmin) {
       if (!selectedTenantId) return []
-      return fetchRoleOptions(query, { tenantId: selectedTenantId })
+      return fetchRoleOptions(query, { tenantId: selectedTenantId, includeSuperAdmin: true })
     }
     return fetchRoleOptions(query)
   }, [actorIsSuperAdmin, actorResolved, selectedTenantId])
@@ -403,14 +407,33 @@ export default function EditUserPage({ params }: { params?: { id?: string } }) {
     }
   }, [initialUser, customFieldValues, selectedTenantId])
 
+  if (isNotFound) {
+    return (
+      <Page>
+        <PageBody>
+          <RecordNotFoundState
+            label={t('auth.users.form.errors.notFound', 'User not found')}
+            backHref="/backend/users"
+            backLabel={t('auth.users.form.actions.backToList', 'Back to users')}
+          />
+        </PageBody>
+      </Page>
+    )
+  }
+
+  if (error && !loading) {
+    return (
+      <Page>
+        <PageBody>
+          <ErrorMessage label={error} />
+        </PageBody>
+      </Page>
+    )
+  }
+
   return (
     <Page>
       <PageBody>
-        {error && (
-          <div className="p-4 mb-4 bg-red-50 border border-red-200 rounded text-red-800">
-            {error}
-          </div>
-        )}
         <CrudForm<EditUserFormValues>
           title={t('auth.users.form.title.edit', 'Edit User')}
           backHref="/backend/users"
@@ -442,7 +465,7 @@ export default function EditUserPage({ params }: { params?: { id?: string } }) {
             const payload = {
               id: id ? String(id) : '',
               email: values.email,
-              name: typeof values.name === 'string' && values.name.trim().length ? values.name.trim() : undefined,
+              name: normalizeDisplayNameInput(values.name),
               password: values.password && values.password.trim() ? values.password : undefined,
               organizationId: values.organizationId ? values.organizationId : undefined,
               roles: Array.isArray(values.roles) ? values.roles : [],

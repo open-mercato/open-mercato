@@ -2,6 +2,36 @@
 
 > **IMPORTANT**: Update this file with every major change to this module. When implementing new features, modifying architecture, or changing key interfaces, update the relevant sections to keep guidance accurate for future agents.
 
+## Always
+
+- Treat the public AI assistant docs linked below as the source of truth when they disagree with this file.
+- Use `registerMcpTool`/`defineAiTool` with Zod schemas, `moduleId`, `requiredFeatures`, and serializable handler results.
+- Run `yarn generate` after adding or changing agents, tools, API discovery metadata, or tool packs.
+- Route model selection through `createModelFactory(container)` instead of ad hoc provider clients.
+- Route mutation-capable AI tools through the mutation approval path before execution.
+
+## Ask First
+
+- Use `AskUserQuestion` before any AI operation that creates, updates, or deletes data.
+- Ask before changing OpenCode Docker configuration, MCP authentication, provider/model resolution precedence, or session-token semantics.
+- Ask before widening tool allowlists, relaxing mutation policies, or exposing new data surfaces to an agent.
+
+## Never
+
+- Never leave `requiredFeatures` empty for tools that access tenant data.
+- Never bypass endpoint-level RBAC in Code Mode or MCP tool execution.
+- Never call the OpenCode HTTP API directly from chat flows; use the module handlers.
+- Never log credentials, session tokens, API keys, prompt secrets, or raw tenant data.
+- Never cache MCP server instances across requests or skip per-tool ACL checks.
+
+## Validation Commands
+
+```bash
+yarn generate
+yarn workspace @open-mercato/ai-assistant test
+yarn workspace @open-mercato/ai-assistant build
+```
+
 ## Where to look first
 
 Before editing this module — and especially before writing or reviewing a new agent — read the public framework docs. They are the source of truth and stay in sync with this AGENTS.md by review:
@@ -247,7 +277,7 @@ export const aiToolOverrides: AiToolOverridesMap = {
 }
 ```
 
-**Path B — `modules.ts` inline (app-level static, unified `entry.overrides`).** Declare overrides under the umbrella `overrides.ai` key on a `ModuleEntry` inside `apps/<app>/src/modules.ts`. Other contracts a module presents (routes, events, workers, widgets, …) reuse the same `entry.overrides` shape per spec `.ai/specs/2026-05-04-modules-ts-unified-overrides.md` (AI is Phase 1; other domains roll out as separate PRs). The app's `bootstrap.ts` calls `applyModuleOverridesFromEnabledModules(enabledModules)` from `@open-mercato/shared/modules/overrides` once at boot — both `apps/mercato` and the `create-mercato-app` template ship that wiring.
+**Path B — `modules.ts` inline (app-level static, unified `entry.overrides`).** Declare overrides under the umbrella `overrides.ai` key on a `ModuleEntry` inside `apps/<app>/src/modules.ts`. Other contracts a module presents (routes, events, workers, widgets, notifications, interceptors, setup, ACL, DI, encryption, …) reuse the same `entry.overrides` shape per spec `.ai/specs/2026-05-04-modules-ts-unified-overrides.md`; phases 1-18 are wired. The app's `bootstrap.ts` calls `applyModuleOverridesFromEnabledModules(enabledModules)` from `@open-mercato/shared/modules/overrides` once at boot — both `apps/mercato` and the `create-mercato-app` template ship that wiring.
 
 ```ts
 // apps/<app>/src/modules.ts
@@ -291,7 +321,7 @@ MUST rules:
 Resolution order (highest precedence first):
 
 1. Programmatic `applyAiAgentOverrides` / `applyAiToolOverrides` calls (last call per id wins).
-2. `modules.ts` inline (`aiAgentOverrides` / `aiToolOverrides` on `ModuleEntry`; last entry per id wins).
+2. `modules.ts` inline (`entry.overrides.ai.agents` / `entry.overrides.ai.tools`; last entry per id wins).
 3. File-based `<module>/ai-agents.ts` / `<module>/ai-tools.ts` overrides (last module load order wins).
 4. The base `<module>/ai-agents.ts` / `<module>/ai-tools.ts` registrations.
 
@@ -599,7 +629,7 @@ when the registry has no configured provider and `code: 'api_key_missing'`
 when the picked provider returns an empty key — every current call site
 already relies on the throw bubbling up, do not swallow it.
 
-## MANDATORY: Use AskUserQuestion for Confirmations
+## Ask First: Use AskUserQuestion for Confirmations
 
 > **This is the MOST IMPORTANT rule. NEVER skip this.**
 

@@ -30,9 +30,11 @@ type FeatureToggleListQuery = z.infer<typeof listQuerySchema>
 
 const routeMetadata = {
   GET: { requireAuth: true, requireFeatures: ['feature_toggles.view'] },
-  POST: { requireAuth: true, requireFeatures: ['feature_toggles.manage'] },
-  PUT: { requireAuth: true, requireFeatures: ['feature_toggles.manage'] },
-  DELETE: { requireAuth: true, requireFeatures: ['feature_toggles.manage'] },
+  // Global feature toggles are platform-wide (no tenant_id); writing them is
+  // restricted to super administrators via the dedicated global feature.
+  POST: { requireAuth: true, requireFeatures: ['feature_toggles.global.manage'] },
+  PUT: { requireAuth: true, requireFeatures: ['feature_toggles.global.manage'] },
+  DELETE: { requireAuth: true, requireFeatures: ['feature_toggles.global.manage'] },
 }
 
 const listFields = [
@@ -89,6 +91,7 @@ const crud = makeCrudRoute({
     tenantField: "tenantId",
     softDeleteField: 'deletedAt'
   },
+  indexer: { entityType: E.feature_toggles.feature_toggle },
   list: {
     schema: listQuerySchema,
     entityId: E.feature_toggles.feature_toggle,

@@ -1,6 +1,7 @@
 "use client"
 import * as React from 'react'
-import { format } from 'date-fns'
+import { format } from 'date-fns/format'
+import { Info } from 'lucide-react'
 import { Button } from '../primitives/button'
 import { Checkbox } from '../primitives/checkbox'
 import { DateRangePicker } from '../primitives/date-range-picker'
@@ -15,12 +16,14 @@ import {
 import { ComboboxInput } from './inputs/ComboboxInput'
 import { TagsInput, type TagsInputOption } from './inputs/TagsInput'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
+import { SimpleTooltip } from '../primitives/tooltip'
 
 export type FilterOption = { value: string; label: string; description?: string | null }
 
 export type FilterDef = {
   id: string
   label: string
+  tooltip?: string
   type: 'text' | 'select' | 'checkbox' | 'dateRange' | 'tags' | 'combobox'
   options?: FilterOption[]
   // Optional async loader for options (used by select/tags/combobox)
@@ -220,7 +223,14 @@ export function FilterOverlay({
               {extraContent ? <div className="space-y-2 rounded-md border bg-muted/30 p-3">{extraContent}</div> : null}
               {filters.map((f) => (
                 <div key={f.id} className="space-y-2">
-                  <div className="text-sm font-medium">{f.label}</div>
+                  <div className="flex items-center gap-1.5 text-sm font-medium">
+                    {f.label}
+                    {f.tooltip ? (
+                      <SimpleTooltip content={f.tooltip}>
+                        <Info className="size-3.5 text-muted-foreground" aria-label="More information" />
+                      </SimpleTooltip>
+                    ) : null}
+                  </div>
                   {f.type === 'text' && (
                     <input
                       type="text"

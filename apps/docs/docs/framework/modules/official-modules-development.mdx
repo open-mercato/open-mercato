@@ -93,6 +93,15 @@ Workspaces are resolved when `yarn install` runs. If the submodule (and its pack
 
 Use `--local` while iterating so you don't accidentally commit "module X is on" for everyone. Edit the committed `activated` list only when the team genuinely wants a module enabled by default.
 
+:::info Why does the generated file live in `src/` instead of `.mercato/generated/`?
+Open-mercato has two kinds of generated files:
+
+- **Ephemeral** generated output (`apps/mercato/.mercato/generated/`, `packages/*/generated/`, anything under a `generated/` folder) — gitignored, rebuilt deterministically by `yarn generate`, and wiped by `yarn clean-generated`.
+- **Versioned** generated registries (`*.generated.ts` next to source — `official-modules.generated.ts`, `entities.ids.generated.ts`, `registry.generated.ts`, …) — committed because they encode *source-of-truth state* that must travel with the repo.
+
+`official-modules.generated.ts` is in the second bucket: it captures the team's activation choices, mirrors `official-modules.json` into a typed `ModuleEntry[]` that `modules.ts` imports, and must remain available **without** running `yarn install` / `yarn generate` first (Turbopack would otherwise hit an unresolved import). Putting it under any `generated/` folder would gitignore-and-wipe it, silently destroying the activation set on every clone or `yarn clean-generated`. See [`.ai/specs/2026-05-19-official-modules-generated-location-decision.md`](https://github.com/open-mercato/open-mercato/blob/develop/.ai/specs/2026-05-19-official-modules-generated-location-decision.md) for the full risk/benefit analysis and the rationale for rejecting the "inline into `modules.ts`" alternative.
+:::
+
 ## Daily workflow
 
 Open `open-mercato/` as your IDE root. Edit files under `external/official-modules/packages/<module>/...` exactly like any other source — TypeScript navigation, refactors, find-usages, and agent search all work because it's one file tree.

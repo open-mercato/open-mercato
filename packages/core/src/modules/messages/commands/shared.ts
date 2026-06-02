@@ -1,4 +1,5 @@
 import type { EntityManager } from '@mikro-orm/postgresql'
+import { withAtomicFlush } from '@open-mercato/shared/lib/commands/flush'
 import { Message, MessageObject, MessageRecipient, type MessageActionData, type RecipientStatus } from '../data/entities'
 import { MESSAGE_ATTACHMENT_ENTITY_ID } from '../lib/constants'
 
@@ -187,152 +188,156 @@ export async function restoreMessageAggregateSnapshot(
   em: EntityManager,
   snapshot: MessageAggregateSnapshot,
 ): Promise<void> {
-  const existingMessage = await em.findOne(Message, { id: snapshot.message.id })
-  if (!existingMessage) {
-    const created = em.create(Message, {
-      id: snapshot.message.id,
-      type: snapshot.message.type,
-      visibility: snapshot.message.visibility,
-      sourceEntityType: snapshot.message.sourceEntityType,
-      sourceEntityId: snapshot.message.sourceEntityId,
-      externalEmail: snapshot.message.externalEmail,
-      externalName: snapshot.message.externalName,
-      threadId: snapshot.message.threadId,
-      parentMessageId: snapshot.message.parentMessageId,
-      senderUserId: snapshot.message.senderUserId,
-      subject: snapshot.message.subject,
-      body: snapshot.message.body,
-      bodyFormat: snapshot.message.bodyFormat,
-      priority: snapshot.message.priority,
-      status: snapshot.message.status,
-      isDraft: snapshot.message.isDraft,
-      sentAt: toDate(snapshot.message.sentAt),
-      actionData: snapshot.message.actionData as MessageActionData,
-      actionResult: snapshot.message.actionResult,
-      actionTaken: snapshot.message.actionTaken,
-      actionTakenByUserId: snapshot.message.actionTakenByUserId,
-      actionTakenAt: toDate(snapshot.message.actionTakenAt),
-      sendViaEmail: snapshot.message.sendViaEmail,
+  await withAtomicFlush(em, [async () => {
+    // Resolve every read before mutating: a query issued between a scalar
+    // mutation and the flush can silently reset the Unit of Work (SPEC-018
+    // Problem 1). withAtomicFlush flushes once at the end, so ordering is ours.
+    const { Attachment } = await import('@open-mercato/core/modules/attachments/data/entities')
+    const existingMessage = await em.findOne(Message, { id: snapshot.message.id })
+    const existingRecipients = await em.find(MessageRecipient, { messageId: snapshot.message.id })
+    const existingObjects = await em.find(MessageObject, { messageId: snapshot.message.id })
+    const attachmentsToRelink = snapshot.attachmentIds.length > 0
+      ? await em.find(Attachment, {
+          id: { $in: snapshot.attachmentIds },
+          tenantId: snapshot.message.tenantId,
+          organizationId: snapshot.message.organizationId,
+        })
+      : []
+
+    if (!existingMessage) {
+      const created = em.create(Message, {
+        id: snapshot.message.id,
+        type: snapshot.message.type,
+        visibility: snapshot.message.visibility,
+        sourceEntityType: snapshot.message.sourceEntityType,
+        sourceEntityId: snapshot.message.sourceEntityId,
+        externalEmail: snapshot.message.externalEmail,
+        externalName: snapshot.message.externalName,
+        threadId: snapshot.message.threadId,
+        parentMessageId: snapshot.message.parentMessageId,
+        senderUserId: snapshot.message.senderUserId,
+        subject: snapshot.message.subject,
+        body: snapshot.message.body,
+        bodyFormat: snapshot.message.bodyFormat,
+        priority: snapshot.message.priority,
+        status: snapshot.message.status,
+        isDraft: snapshot.message.isDraft,
+        sentAt: toDate(snapshot.message.sentAt),
+        actionData: snapshot.message.actionData as MessageActionData,
+        actionResult: snapshot.message.actionResult,
+        actionTaken: snapshot.message.actionTaken,
+        actionTakenByUserId: snapshot.message.actionTakenByUserId,
+        actionTakenAt: toDate(snapshot.message.actionTakenAt),
+        sendViaEmail: snapshot.message.sendViaEmail,
+        tenantId: snapshot.message.tenantId,
+        organizationId: snapshot.message.organizationId,
+        deletedAt: toDate(snapshot.message.deletedAt),
+      })
+      em.persist(created)
+    } else {
+      existingMessage.type = snapshot.message.type
+      existingMessage.visibility = snapshot.message.visibility
+      existingMessage.sourceEntityType = snapshot.message.sourceEntityType
+      existingMessage.sourceEntityId = snapshot.message.sourceEntityId
+      existingMessage.externalEmail = snapshot.message.externalEmail
+      existingMessage.externalName = snapshot.message.externalName
+      existingMessage.threadId = snapshot.message.threadId
+      existingMessage.parentMessageId = snapshot.message.parentMessageId
+      existingMessage.senderUserId = snapshot.message.senderUserId
+      existingMessage.subject = snapshot.message.subject
+      existingMessage.body = snapshot.message.body
+      existingMessage.bodyFormat = snapshot.message.bodyFormat
+      existingMessage.priority = snapshot.message.priority
+      existingMessage.status = snapshot.message.status
+      existingMessage.isDraft = snapshot.message.isDraft
+      existingMessage.sentAt = toDate(snapshot.message.sentAt)
+      existingMessage.actionData = snapshot.message.actionData as MessageActionData
+      existingMessage.actionResult = snapshot.message.actionResult
+      existingMessage.actionTaken = snapshot.message.actionTaken
+      existingMessage.actionTakenByUserId = snapshot.message.actionTakenByUserId
+      existingMessage.actionTakenAt = toDate(snapshot.message.actionTakenAt)
+      existingMessage.sendViaEmail = snapshot.message.sendViaEmail
+      existingMessage.tenantId = snapshot.message.tenantId
+      existingMessage.organizationId = snapshot.message.organizationId
+      existingMessage.deletedAt = toDate(snapshot.message.deletedAt)
+    }
+
+    const recipientById = new Map(existingRecipients.map((item) => [item.id, item]))
+    const snapshotRecipientIds = new Set(snapshot.recipients.map((item) => item.id))
+    for (const current of existingRecipients) {
+      if (!snapshotRecipientIds.has(current.id)) {
+        em.remove(current)
+      }
+    }
+    for (const recipient of snapshot.recipients) {
+      const existing = recipientById.get(recipient.id)
+      if (!existing) {
+        em.persist(em.create(MessageRecipient, {
+          id: recipient.id,
+          messageId: recipient.messageId,
+          recipientUserId: recipient.recipientUserId,
+          recipientType: recipient.recipientType,
+          status: recipient.status,
+          readAt: toDate(recipient.readAt),
+          archivedAt: toDate(recipient.archivedAt),
+          deletedAt: toDate(recipient.deletedAt),
+        }))
+        continue
+      }
+      existing.messageId = recipient.messageId
+      existing.recipientUserId = recipient.recipientUserId
+      existing.recipientType = recipient.recipientType
+      existing.status = recipient.status
+      existing.readAt = toDate(recipient.readAt)
+      existing.archivedAt = toDate(recipient.archivedAt)
+      existing.deletedAt = toDate(recipient.deletedAt)
+    }
+
+    const objectById = new Map(existingObjects.map((item) => [item.id, item]))
+    const snapshotObjectIds = new Set(snapshot.objects.map((item) => item.id))
+    for (const current of existingObjects) {
+      if (!snapshotObjectIds.has(current.id)) {
+        em.remove(current)
+      }
+    }
+    for (const object of snapshot.objects) {
+      const existing = objectById.get(object.id)
+      if (!existing) {
+        em.persist(em.create(MessageObject, {
+          id: object.id,
+          messageId: object.messageId,
+          entityModule: object.entityModule,
+          entityType: object.entityType,
+          entityId: object.entityId,
+          actionRequired: object.actionRequired,
+          actionType: object.actionType,
+          actionLabel: object.actionLabel,
+          entitySnapshot: object.entitySnapshot,
+        }))
+        continue
+      }
+      existing.messageId = object.messageId
+      existing.entityModule = object.entityModule
+      existing.entityType = object.entityType
+      existing.entityId = object.entityId
+      existing.actionRequired = object.actionRequired
+      existing.actionType = object.actionType
+      existing.actionLabel = object.actionLabel
+      existing.entitySnapshot = object.entitySnapshot
+    }
+
+    await em.nativeDelete(Attachment, {
+      entityId: MESSAGE_ATTACHMENT_ENTITY_ID,
+      recordId: snapshot.message.id,
       tenantId: snapshot.message.tenantId,
       organizationId: snapshot.message.organizationId,
-      deletedAt: toDate(snapshot.message.deletedAt),
+      id: { $nin: snapshot.attachmentIds.length > 0 ? snapshot.attachmentIds : ['00000000-0000-0000-0000-000000000000'] },
     })
-    em.persist(created)
-  } else {
-    existingMessage.type = snapshot.message.type
-    existingMessage.visibility = snapshot.message.visibility
-    existingMessage.sourceEntityType = snapshot.message.sourceEntityType
-    existingMessage.sourceEntityId = snapshot.message.sourceEntityId
-    existingMessage.externalEmail = snapshot.message.externalEmail
-    existingMessage.externalName = snapshot.message.externalName
-    existingMessage.threadId = snapshot.message.threadId
-    existingMessage.parentMessageId = snapshot.message.parentMessageId
-    existingMessage.senderUserId = snapshot.message.senderUserId
-    existingMessage.subject = snapshot.message.subject
-    existingMessage.body = snapshot.message.body
-    existingMessage.bodyFormat = snapshot.message.bodyFormat
-    existingMessage.priority = snapshot.message.priority
-    existingMessage.status = snapshot.message.status
-    existingMessage.isDraft = snapshot.message.isDraft
-    existingMessage.sentAt = toDate(snapshot.message.sentAt)
-    existingMessage.actionData = snapshot.message.actionData as MessageActionData
-    existingMessage.actionResult = snapshot.message.actionResult
-    existingMessage.actionTaken = snapshot.message.actionTaken
-    existingMessage.actionTakenByUserId = snapshot.message.actionTakenByUserId
-    existingMessage.actionTakenAt = toDate(snapshot.message.actionTakenAt)
-    existingMessage.sendViaEmail = snapshot.message.sendViaEmail
-    existingMessage.tenantId = snapshot.message.tenantId
-    existingMessage.organizationId = snapshot.message.organizationId
-    existingMessage.deletedAt = toDate(snapshot.message.deletedAt)
-  }
-
-  const existingRecipients = await em.find(MessageRecipient, { messageId: snapshot.message.id })
-  const recipientById = new Map(existingRecipients.map((item) => [item.id, item]))
-  const snapshotRecipientIds = new Set(snapshot.recipients.map((item) => item.id))
-  for (const current of existingRecipients) {
-    if (!snapshotRecipientIds.has(current.id)) {
-      em.remove(current)
-    }
-  }
-  for (const recipient of snapshot.recipients) {
-    const existing = recipientById.get(recipient.id)
-    if (!existing) {
-      em.persist(em.create(MessageRecipient, {
-        id: recipient.id,
-        messageId: recipient.messageId,
-        recipientUserId: recipient.recipientUserId,
-        recipientType: recipient.recipientType,
-        status: recipient.status,
-        readAt: toDate(recipient.readAt),
-        archivedAt: toDate(recipient.archivedAt),
-        deletedAt: toDate(recipient.deletedAt),
-      }))
-      continue
-    }
-    existing.messageId = recipient.messageId
-    existing.recipientUserId = recipient.recipientUserId
-    existing.recipientType = recipient.recipientType
-    existing.status = recipient.status
-    existing.readAt = toDate(recipient.readAt)
-    existing.archivedAt = toDate(recipient.archivedAt)
-    existing.deletedAt = toDate(recipient.deletedAt)
-  }
-
-  const existingObjects = await em.find(MessageObject, { messageId: snapshot.message.id })
-  const objectById = new Map(existingObjects.map((item) => [item.id, item]))
-  const snapshotObjectIds = new Set(snapshot.objects.map((item) => item.id))
-  for (const current of existingObjects) {
-    if (!snapshotObjectIds.has(current.id)) {
-      em.remove(current)
-    }
-  }
-  for (const object of snapshot.objects) {
-    const existing = objectById.get(object.id)
-    if (!existing) {
-      em.persist(em.create(MessageObject, {
-        id: object.id,
-        messageId: object.messageId,
-        entityModule: object.entityModule,
-        entityType: object.entityType,
-        entityId: object.entityId,
-        actionRequired: object.actionRequired,
-        actionType: object.actionType,
-        actionLabel: object.actionLabel,
-        entitySnapshot: object.entitySnapshot,
-      }))
-      continue
-    }
-    existing.messageId = object.messageId
-    existing.entityModule = object.entityModule
-    existing.entityType = object.entityType
-    existing.entityId = object.entityId
-    existing.actionRequired = object.actionRequired
-    existing.actionType = object.actionType
-    existing.actionLabel = object.actionLabel
-    existing.entitySnapshot = object.entitySnapshot
-  }
-
-  const { Attachment } = await import('@open-mercato/core/modules/attachments/data/entities')
-  await em.nativeDelete(Attachment, {
-    entityId: MESSAGE_ATTACHMENT_ENTITY_ID,
-    recordId: snapshot.message.id,
-    tenantId: snapshot.message.tenantId,
-    organizationId: snapshot.message.organizationId,
-    id: { $nin: snapshot.attachmentIds.length > 0 ? snapshot.attachmentIds : ['00000000-0000-0000-0000-000000000000'] },
-  })
-  if (snapshot.attachmentIds.length > 0) {
-    const attachments = await em.find(Attachment, {
-      id: { $in: snapshot.attachmentIds },
-      tenantId: snapshot.message.tenantId,
-      organizationId: snapshot.message.organizationId,
-    })
-    for (const attachment of attachments) {
+    for (const attachment of attachmentsToRelink) {
       attachment.entityId = MESSAGE_ATTACHMENT_ENTITY_ID
       attachment.recordId = snapshot.message.id
     }
-  }
-
-  await em.flush()
+  }], { transaction: true })
 }
 
 export function buildCommandLogBase(

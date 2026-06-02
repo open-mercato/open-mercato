@@ -1,17 +1,8 @@
 "use client"
 
 import * as React from 'react'
-import {
-  PieChart as RechartsPieChart,
-  Pie,
-  Cell,
-  Tooltip,
-  ResponsiveContainer,
-  Legend,
-  Label,
-} from 'recharts'
+import dynamic from 'next/dynamic'
 import { Spinner } from '@open-mercato/ui/primitives/spinner'
-import { ChartTooltipContent, resolveChartColor } from './ChartUtils'
 
 export type PieChartDataItem = {
   name: string
@@ -42,6 +33,15 @@ function defaultValueFormatter(value: number): string {
   return value.toLocaleString(undefined, { maximumFractionDigits: 2 })
 }
 
+const PieChartImpl = dynamic(() => import('./PieChartImpl'), {
+  ssr: false,
+  loading: () => (
+    <div className="flex h-48 items-center justify-center">
+      <Spinner className="h-6 w-6 text-muted-foreground" />
+    </div>
+  ),
+})
+
 export function PieChart({
   title,
   data,
@@ -55,10 +55,6 @@ export function PieChart({
   className = '',
   emptyMessage = 'No data available',
 }: PieChartProps) {
-  const getSliceColor = (idx: number): string => {
-    return resolveChartColor(colors?.[idx], idx)
-  }
-
   const total = React.useMemo(() => {
     return data.reduce((sum, item) => sum + item.value, 0)
   }, [data])
@@ -99,56 +95,19 @@ export function PieChart({
     )
   }
 
-  const innerRadius = variant === 'donut' ? '60%' : 0
-  const outerRadius = '80%'
-
   return (
     <div className={wrapperClass}>
       {title && <h3 className="mb-4 text-base font-medium text-card-foreground">{title}</h3>}
       <div className="h-52 w-full">
-        <ResponsiveContainer width="100%" height="100%">
-          <RechartsPieChart>
-            <Pie
-              data={data}
-              dataKey="value"
-              nameKey="name"
-              cx="50%"
-              cy="40%"
-              innerRadius={innerRadius}
-              outerRadius={outerRadius}
-              paddingAngle={2}
-              strokeWidth={0}
-            >
-              {data.map((_, idx) => (
-                <Cell key={`cell-${idx}`} fill={getSliceColor(idx)} />
-              ))}
-              {showLabel && variant === 'donut' && (
-                <Label
-                  value={valueFormatter(total)}
-                  position="center"
-                  className="fill-foreground text-2xl font-bold"
-                />
-              )}
-            </Pie>
-            {showTooltip && (
-              <Tooltip
-                content={
-                  <ChartTooltipContent
-                    valueFormatter={valueFormatter}
-                    hideLabel
-                  />
-                }
-              />
-            )}
-            <Legend
-              verticalAlign="bottom"
-              height={36}
-              formatter={(value) => (
-                <span style={{ color: 'hsl(var(--muted-foreground))', fontSize: '12px' }}>{value}</span>
-              )}
-            />
-          </RechartsPieChart>
-        </ResponsiveContainer>
+        <PieChartImpl
+          data={data}
+          colors={colors}
+          variant={variant}
+          valueFormatter={valueFormatter}
+          showLabel={showLabel}
+          showTooltip={showTooltip}
+          total={total}
+        />
       </div>
     </div>
   )

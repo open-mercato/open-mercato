@@ -4,6 +4,41 @@ UI usage patterns based on customers, sales, and staff modules. Use these defaul
 
 > **DS reference:** [`.ai/ds-rules.md`](../../.ai/ds-rules.md) — color tokens, typography, spacing, decision trees. **Component reference (variants/sizes/props/examples/MUST rules):** [`.ai/ui-components.md`](../../.ai/ui-components.md).
 
+## Always
+
+- Use existing UI primitives and backend components before creating new ones.
+- Use `CrudForm` for create/edit flows and dialog forms unless the task explicitly needs a custom host.
+- Use `DataTable` as the default list view, including portal list pages.
+- Use `apiCall`/`apiCallOrThrow` for backend and portal data calls.
+- Use `useGuardedMutation` for every write that cannot use `CrudForm`.
+- Use i18n keys and `useT()` for user-facing copy.
+- Keep UMES spot IDs, replacement handles, field/group IDs, and portal page metadata stable.
+- Follow `.ai/ds-rules.md` and `.ai/ui-components.md` for tokens, primitives, and component contracts.
+
+## Ask First
+
+- Ask before changing primitive APIs, DataTable/CrudForm contracts, portal shell behavior, frozen portal spots, or replacement handles.
+- Ask before creating a new primitive or backend component when an existing component might fit.
+- Ask before changing default interaction patterns for dialogs, bulk actions, row clicks, or portal navigation.
+
+## Never
+
+- Never use raw `<button>`, raw checkbox inputs, or raw `<Link>` styled as a button.
+- Never use raw `fetch` in UI data flows where `apiCall` is available.
+- Never hard-code user-facing strings.
+- Never use `window.confirm`; use the shared confirmation dialog.
+- Never add custom per-page progress bars for DataTable bulk work.
+- Never omit `page.meta.ts` for guarded portal pages.
+- Never gate wildcard feature arrays with `includes(...)` or `Set.has(...)`.
+
+## Validation Commands
+
+```bash
+yarn workspace @open-mercato/ui test
+yarn workspace @open-mercato/ui build
+yarn i18n:check
+```
+
 ## Reference Modules
 
 - Customers: `packages/core/src/modules/customers/backend/customers/people/create/page.tsx`, `…/people/page.tsx`, `…/components/detail/TaskForm.tsx`
@@ -43,9 +78,23 @@ When you need… use this. Details (variants, sizes, props, MUST rules) live in 
 | Keyboard shortcut keys | `Kbd`, `KbdShortcut` | `@open-mercato/ui/primitives/kbd` |
 | Entity tag pill | `Tag` (with `TagMap`) | `@open-mercato/ui/primitives/tag` |
 | Breadcrumb navigation (DS-aligned, slash/arrow/dot divider, ARIA correct) | `Breadcrumb` (with `BreadcrumbList` / `BreadcrumbItem` / `BreadcrumbLink` / `BreadcrumbPage` / `BreadcrumbStatic` / `BreadcrumbSeparator` / `BreadcrumbEllipsis`) | `@open-mercato/ui/primitives/breadcrumb` |
+| Scrollable container with DS-styled scrollbars | `ScrollArea` (compound: `ScrollAreaRoot` / `Viewport` / `Scrollbar` / `Thumb` / `Corner`) | `@open-mercato/ui/primitives/scroll-area` |
+| Joined buttons sharing outer border (Save / Save & New / overflow) | `ButtonGroup` (NOT for selection — use `SegmentedControl`) | `@open-mercato/ui/primitives/button-group` |
+| Mutually-exclusive view toggle (All / Active / Archived, 1D / 1W / 1M) | `SegmentedControl` (with `SegmentedControlItem`) | `@open-mercato/ui/primitives/segmented-control` |
+| Continuous numeric selector — single or two-thumb range | `Slider` (`value` MUST be `[number]` or `[number, number]`) | `@open-mercato/ui/primitives/slider` |
+| 1-N star / heart / dot rating (read-only display OR interactive input) | `Rating` (no `onChange` = read-only; `onChange` = interactive) | `@open-mercato/ui/primitives/rating` |
+| Multi-step progress (wizard / onboarding / checkout) | `StepIndicator` (steps[] with `status` per step) | `@open-mercato/ui/primitives/step-indicator` |
+| Color selection (tag color, brand color, category) | `ColorPicker` (swatch popover + optional hex input) | `@open-mercato/ui/primitives/color-picker` |
+| Page navigation for lists outside DataTable | `Pagination` (1-indexed, `total` not `totalPages`) | `@open-mercato/ui/primitives/pagination` |
+| Side sheet / non-blocking overlay (detail pane, secondary form) | `Drawer` (with `DrawerContent` / `DrawerHeader` / `DrawerBody` / `DrawerFooter` / `DrawerClose`) | `@open-mercato/ui/primitives/drawer` |
+| Cmd+K spotlight palette (global navigation / quick actions / universal search) | `CommandMenu` (compound: `CommandMenuContent` / `Input` / `List` / `Group` / `Item` / `Separator` / `Footer`) — auto-filter via `cmdk` | `@open-mercato/ui/primitives/command-menu` |
+| Chronological actor-action timeline (detail panes, audit feeds, customer activity logs) | `ActivityFeed` (compound: `ActivityFeedItem` / `ActivityFeedFileChip` / `ActivityFeedComment` / `ActivityFeedStatusChip`) | `@open-mercato/ui/primitives/activity-feed` |
+| Bell-icon inbox / notification panel (the dropdown that opens from the app shell bell affordance) | `NotificationFeed` (compound: `NotificationFeedHeader` / `NotificationFeedList` / `NotificationFeedItem` / `NotificationFeedFooter` / `NotificationFeedIconBadge`) | `@open-mercato/ui/primitives/notification-feed` |
+| Determinate linear progress bar (job percentage, file upload, onboarding) | `Progress` (`size`: `sm`/`default`/`lg`, `tone`: `accent`/`success`/`warning`/`destructive`/`muted`, optional `label`/`showValue`/`description` slots) | `@open-mercato/ui/primitives/progress` |
+| Determinate circular progress (compact KPI dial, attachment upload thumbnail, sprint completion %) | `CircularProgress` (same `tone`s; `size`: `xs` / `sm` / `default` / `lg`; optional center `showValue` or custom `children`) | `@open-mercato/ui/primitives/progress` |
 | Wrap a `<Link>` as button | `Button asChild` / `IconButton asChild` | — |
 
-## Critical MUST rules (top of mind)
+## Critical Primitive Rules
 
 1. **NEVER use raw `<button>` or `<input type="checkbox">`** — always use the primitives. Native checkboxes get `accent-color: var(--accent-indigo)` as a safety net for legacy code, but new code MUST use `Checkbox`.
 2. **Always pass `type="button"` explicitly** on non-submit `Button`/`IconButton` — HTML defaults to `submit`.
@@ -119,7 +168,7 @@ import { Avatar, AvatarStack } from '@open-mercato/ui/primitives/avatar'
 // renders: JK · OZ · AN · +1
 ```
 
-### MUST rules
+### Usage Rules
 
 - NEVER render `<div className="rounded-full bg-muted ...">` for avatars — use `Avatar`
 - `size="sm"` uses `text-[9px]` — DS exception for tiny initials (same as notification badge count)
@@ -157,7 +206,7 @@ import { Kbd, KbdShortcut } from '@open-mercato/ui/primitives/kbd'
 </span>
 ```
 
-### MUST rules
+### Usage Rules
 
 - NEVER use raw `<span>` or `<code>` to display keyboard keys — use `Kbd`
 - Platform-specific keys (`⌘` vs `Ctrl`): detect with `navigator.platform` or use `Ctrl/⌘` text when cross-platform
@@ -220,7 +269,7 @@ const leadTagMap: TagMap<'customer' | 'hot' | 'inactive' | 'renewal'> = {
 <Tag variant={leadTagMap[tag.type]} dot>{tag.label}</Tag>
 ```
 
-### MUST rules
+### Usage Rules
 
 - NEVER hardcode colors on `Tag` — use variants only
 - Use `dot` for tags that represent a status-like category (Customer, Hot); omit for purely descriptive labels

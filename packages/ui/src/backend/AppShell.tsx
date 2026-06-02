@@ -66,6 +66,7 @@ export type AppShellProps = {
   productName?: string
   logo?: ShellLogo
   email?: string
+  canManageUpgradeActions?: boolean
   groups: {
     id?: string
     name: string
@@ -110,6 +111,11 @@ export type AppShellProps = {
   profileSectionTitle?: string
   profilePathPrefixes?: string[]
   mobileSidebarSlot?: React.ReactNode
+  /**
+   * How long (ms) to keep successfully completed progress operations visible
+   * before auto-hiding. Pass `false` or `0` to disable. Defaults to 10 000 ms.
+   */
+  progressCompletedAutoHideMs?: number | false
 }
 
 type Breadcrumb = Array<{ label: string; href?: string }>
@@ -416,7 +422,7 @@ export function AppShell(props: AppShellProps) {
   )
 }
 
-function AppShellBody({ productName, logo, email, groups, rightHeaderSlot, children, sidebarCollapsedDefault = false, currentTitle, breadcrumb, version, settingsSectionTitle, settingsPathPrefixes = [], settingsSections, profileSections, profileSectionTitle, profilePathPrefixes = [], mobileSidebarSlot }: AppShellProps) {
+function AppShellBody({ productName, logo, email, canManageUpgradeActions = false, groups, rightHeaderSlot, children, sidebarCollapsedDefault = false, currentTitle, breadcrumb, version, settingsSectionTitle, settingsPathPrefixes = [], settingsSections, profileSections, profileSectionTitle, profilePathPrefixes = [], mobileSidebarSlot, progressCompletedAutoHideMs }: AppShellProps) {
   const pathname = usePathname()
   const searchParams = useSearchParams()
   const t = useT()
@@ -808,7 +814,7 @@ function AppShellBody({ productName, logo, email, groups, rightHeaderSlot, child
   }
 
   function renderSidebar(compact: boolean, hideHeader?: boolean, forceMainOnly?: boolean) {
-    if (!isChromeReady && isChromeLoading && resolvedGroups.length === 0) {
+    if (!isChromeReady && isChromeLoading) {
       return (
         <div className="flex flex-col min-h-full gap-3" data-testid="backend-chrome-loading">
           {!hideHeader ? (
@@ -1336,12 +1342,12 @@ function AppShellBody({ productName, logo, email, groups, rightHeaderSlot, child
             )}
           </div>
         </header>
-        <ProgressTopBar t={t} className="sticky top-0 z-sticky" />
+        <ProgressTopBar t={t} className="sticky top-0 z-sticky" completedAutoHideMs={progressCompletedAutoHideMs} />
         <main className="flex-1 p-4 lg:p-6 mx-auto w-full max-w-screen-2xl">
           <InjectionSpot spotId={BACKEND_LAYOUT_TOP_INJECTION_SPOT_ID} context={injectionContext} />
           <FlashMessages />
           <PartialIndexBanner />
-          <UpgradeActionBanner />
+          {canManageUpgradeActions ? <UpgradeActionBanner /> : null}
           <LastOperationBanner />
           <InjectionSpot spotId={BACKEND_RECORD_CURRENT_INJECTION_SPOT_ID} context={injectionContext} />
           <InjectionSpot

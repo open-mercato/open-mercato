@@ -669,3 +669,262 @@ export class AiAgentMutationPolicyOverride {
   @Property({ name: 'updated_at', type: Date, onUpdate: () => new Date() })
   updatedAt: Date = new Date()
 }
+
+/**
+ * Tenant-scoped durable record of a typed AI chat session.
+ *
+ * Owner-only MVP per spec `2026-05-05-ai-chat-server-side-conversation-storage`.
+ * The `participants` table prepares for future sharing without a schema
+ * rewrite — the owner row is always written in the same transaction as the
+ * conversation row (see `AiChatConversationRepository.createOrGet`).
+ *
+ * `conversationId` is the stable, client-visible identifier. It is unique
+ * within `(tenant_id, organization_id)` so an idempotent `createOrGet` can
+ * accept a client-generated UUID. Pending mutation approvals already store
+ * the same id in `AiPendingAction.conversationId` — the chat-history schema
+ * deliberately matches that contract so a future foreign key can be added
+ * without churn.
+ *
+ * `imported_from_local_at` flags conversations that the UI lazily migrated
+ * from `localStorage`. The flag is informational only; once a row exists it
+ * is always the source of truth for that conversation.
+ */
+@Entity({ tableName: 'ai_chat_conversations' })
+@Index({
+  name: 'ai_chat_conversations_tenant_org_conv_uq',
+  expression:
+    'create unique index "ai_chat_conversations_tenant_org_conv_uq" on "ai_chat_conversations" ("tenant_id", "organization_id", "conversation_id") where "organization_id" is not null and "deleted_at" is null',
+})
+@Index({
+  name: 'ai_chat_conversations_tenant_conv_null_org_uq',
+  expression:
+    'create unique index "ai_chat_conversations_tenant_conv_null_org_uq" on "ai_chat_conversations" ("tenant_id", "conversation_id") where "organization_id" is null and "deleted_at" is null',
+})
+@Index({
+  name: 'ai_chat_conversations_tenant_org_owner_agent_idx',
+  properties: ['tenantId', 'organizationId', 'ownerUserId', 'agentId', 'status', 'lastMessageAt'],
+})
+@Index({
+  name: 'ai_chat_conversations_tenant_org_deleted_idx',
+  properties: ['tenantId', 'organizationId', 'deletedAt'],
+})
+export class AiChatConversation {
+  [OptionalProps]?:
+    | 'createdAt'
+    | 'updatedAt'
+    | 'organizationId'
+    | 'title'
+    | 'status'
+    | 'visibility'
+    | 'pageContext'
+    | 'lastMessageAt'
+    | 'importedFromLocalAt'
+    | 'deletedAt'
+
+  @PrimaryKey({ type: 'uuid', defaultRaw: 'gen_random_uuid()' })
+  id!: string
+
+  @Property({ name: 'tenant_id', type: 'uuid' })
+  tenantId!: string
+
+  @Property({ name: 'organization_id', type: 'uuid', nullable: true })
+  organizationId?: string | null
+
+  @Property({ name: 'conversation_id', type: 'text' })
+  conversationId!: string
+
+  @Property({ name: 'agent_id', type: 'text' })
+  agentId!: string
+
+  @Property({ name: 'owner_user_id', type: 'uuid' })
+  ownerUserId!: string
+
+  @Property({ name: 'title', type: 'text', nullable: true })
+  title?: string | null
+
+  @Property({ name: 'status', type: 'text', default: 'open' })
+  status: 'open' | 'closed' = 'open'
+
+  @Property({ name: 'visibility', type: 'text', default: 'private' })
+  visibility: 'private' | 'shared' | 'organization' = 'private'
+
+  @Property({ name: 'page_context', type: 'jsonb', nullable: true })
+  pageContext?: Record<string, unknown> | null
+
+  @Property({ name: 'last_message_at', type: Date, nullable: true })
+  lastMessageAt?: Date | null
+
+  @Property({ name: 'imported_from_local_at', type: Date, nullable: true })
+  importedFromLocalAt?: Date | null
+
+  @Property({ name: 'created_at', type: Date, onCreate: () => new Date() })
+  createdAt: Date = new Date()
+
+  @Property({ name: 'updated_at', type: Date, onUpdate: () => new Date() })
+  updatedAt: Date = new Date()
+
+  @Property({ name: 'deleted_at', type: Date, nullable: true })
+  deletedAt?: Date | null
+}
+
+/**
+ * Membership row for an `AiChatConversation`.
+ *
+ * MVP always writes exactly one row per conversation with `role = 'owner'`,
+ * written transactionally alongside the conversation. Sharing extensions
+ * append additional rows with `role IN ('viewer', 'commenter', ...)`. The
+ * access predicate is "is the caller an undeleted participant" — see
+ * `AiChatConversationRepository.assertAccessible`.
+ *
+ * `last_read_at` is reserved for future unread/share UX and is unused in MVP.
+ */
+@Entity({ tableName: 'ai_chat_conversation_participants' })
+@Index({
+  name: 'ai_chat_conv_participants_tenant_org_conv_user_uq',
+  expression:
+    'create unique index "ai_chat_conv_participants_tenant_org_conv_user_uq" on "ai_chat_conversation_participants" ("tenant_id", "organization_id", "conversation_id", "user_id") where "organization_id" is not null',
+})
+@Index({
+  name: 'ai_chat_conv_participants_tenant_conv_user_null_org_uq',
+  expression:
+    'create unique index "ai_chat_conv_participants_tenant_conv_user_null_org_uq" on "ai_chat_conversation_participants" ("tenant_id", "conversation_id", "user_id") where "organization_id" is null',
+})
+@Index({
+  name: 'ai_chat_conv_participants_tenant_org_user_conv_idx',
+  properties: ['tenantId', 'organizationId', 'userId', 'conversationId'],
+})
+export class AiChatConversationParticipant {
+  [OptionalProps]?:
+    | 'createdAt'
+    | 'updatedAt'
+    | 'organizationId'
+    | 'role'
+    | 'lastReadAt'
+    | 'deletedAt'
+
+  @PrimaryKey({ type: 'uuid', defaultRaw: 'gen_random_uuid()' })
+  id!: string
+
+  @Property({ name: 'tenant_id', type: 'uuid' })
+  tenantId!: string
+
+  @Property({ name: 'organization_id', type: 'uuid', nullable: true })
+  organizationId?: string | null
+
+  @Property({ name: 'conversation_id', type: 'text' })
+  conversationId!: string
+
+  @Property({ name: 'user_id', type: 'uuid' })
+  userId!: string
+
+  @Property({ name: 'role', type: 'text', default: 'owner' })
+  role: 'owner' | 'viewer' | 'commenter' = 'owner'
+
+  @Property({ name: 'last_read_at', type: Date, nullable: true })
+  lastReadAt?: Date | null
+
+  @Property({ name: 'deleted_at', type: Date, nullable: true })
+  deletedAt?: Date | null
+
+  @Property({ name: 'created_at', type: Date, onCreate: () => new Date() })
+  createdAt: Date = new Date()
+
+  @Property({ name: 'updated_at', type: Date, onUpdate: () => new Date() })
+  updatedAt: Date = new Date()
+}
+
+/**
+ * Append-only message row for an `AiChatConversation`.
+ *
+ * `client_message_id` is the idempotency key for retries and lazy imports
+ * from `localStorage`. The partial unique index allows a non-null
+ * `clientMessageId` to dedupe within the conversation while leaving
+ * server-only rows (assistant turns persisted from the streaming dispatcher)
+ * free of the constraint.
+ *
+ * `ui_parts` stores the serializable subset of `AiChatMessageUiPart[]` so the
+ * chat surface can re-render record cards, mutation-preview cards, etc.
+ * across reloads. Attachment previews (`data:` URLs and transient blob
+ * URLs) MUST NOT be persisted here — the UI strips them before upload.
+ */
+@Entity({ tableName: 'ai_chat_messages' })
+@Index({
+  name: 'ai_chat_messages_tenant_org_conv_client_id_uq',
+  expression:
+    'create unique index "ai_chat_messages_tenant_org_conv_client_id_uq" on "ai_chat_messages" ("tenant_id", "organization_id", "conversation_id", "client_message_id") where "organization_id" is not null and "client_message_id" is not null and "deleted_at" is null',
+})
+@Index({
+  name: 'ai_chat_messages_tenant_conv_client_id_null_org_uq',
+  expression:
+    'create unique index "ai_chat_messages_tenant_conv_client_id_null_org_uq" on "ai_chat_messages" ("tenant_id", "conversation_id", "client_message_id") where "organization_id" is null and "client_message_id" is not null and "deleted_at" is null',
+})
+@Index({
+  name: 'ai_chat_messages_tenant_org_conv_created_idx',
+  properties: ['tenantId', 'organizationId', 'conversationId', 'createdAt'],
+})
+@Index({
+  name: 'ai_chat_messages_tenant_org_deleted_idx',
+  properties: ['tenantId', 'organizationId', 'deletedAt'],
+})
+export class AiChatMessage {
+  [OptionalProps]?:
+    | 'createdAt'
+    | 'updatedAt'
+    | 'organizationId'
+    | 'clientMessageId'
+    | 'uiParts'
+    | 'attachmentIds'
+    | 'filesMetadata'
+    | 'model'
+    | 'metadata'
+    | 'createdByUserId'
+    | 'deletedAt'
+
+  @PrimaryKey({ type: 'uuid', defaultRaw: 'gen_random_uuid()' })
+  id!: string
+
+  @Property({ name: 'tenant_id', type: 'uuid' })
+  tenantId!: string
+
+  @Property({ name: 'organization_id', type: 'uuid', nullable: true })
+  organizationId?: string | null
+
+  @Property({ name: 'conversation_id', type: 'text' })
+  conversationId!: string
+
+  @Property({ name: 'client_message_id', type: 'text', nullable: true })
+  clientMessageId?: string | null
+
+  @Property({ name: 'role', type: 'text' })
+  role!: 'user' | 'assistant' | 'system'
+
+  @Property({ name: 'content', type: 'text' })
+  content!: string
+
+  @Property({ name: 'ui_parts', type: 'jsonb', nullable: true })
+  uiParts?: unknown[] | null
+
+  @Property({ name: 'attachment_ids', type: 'jsonb', nullable: true })
+  attachmentIds?: string[] | null
+
+  @Property({ name: 'files_metadata', type: 'jsonb', nullable: true })
+  filesMetadata?: Array<Record<string, unknown>> | null
+
+  @Property({ name: 'model', type: 'text', nullable: true })
+  model?: string | null
+
+  @Property({ name: 'metadata', type: 'jsonb', nullable: true })
+  metadata?: Record<string, unknown> | null
+
+  @Property({ name: 'created_by_user_id', type: 'uuid', nullable: true })
+  createdByUserId?: string | null
+
+  @Property({ name: 'created_at', type: Date, onCreate: () => new Date() })
+  createdAt: Date = new Date()
+
+  @Property({ name: 'updated_at', type: Date, onUpdate: () => new Date() })
+  updatedAt: Date = new Date()
+
+  @Property({ name: 'deleted_at', type: Date, nullable: true })
+  deletedAt?: Date | null
+}

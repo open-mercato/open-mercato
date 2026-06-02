@@ -533,7 +533,7 @@ export function AttachmentMetadataDialog({ open, onOpenChange, item, availableTa
                   {item.fileName}
                 </div>
                 <div className="text-xs text-muted-foreground">
-                  {formatFileSize(item.fileSize)} \u2022 {item.partitionTitle ?? item.partitionCode}
+                  {formatFileSize(item.fileSize)} {'\u2022'} {item.partitionTitle ?? item.partitionCode}
                 </div>
               </div>
               {downloadUrl ? (
@@ -560,7 +560,7 @@ export function AttachmentMetadataDialog({ open, onOpenChange, item, availableTa
                       className={cn(
                         'h-auto -mb-px rounded-none border-b-2 border-transparent px-0 py-1',
                         imageTab === tab
-                          ? 'border-primary text-foreground'
+                          ? 'border-accent-indigo text-foreground'
                           : 'text-muted-foreground hover:text-foreground',
                       )}
                     >
