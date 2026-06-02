@@ -72,3 +72,7 @@ Clear CodeQL alert #126 without changing test behavior or any product code.
 >   `core/src/generated-shims/entities.ids.generated.ts` (`#generated/*` missing
 >   because `yarn generate` has not run in this fresh worktree). No errors in the
 >   changed file.
+
+## Changelog
+
+- Opened as PR #2427 against `develop`. Status: complete.
