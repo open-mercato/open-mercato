@@ -2,6 +2,10 @@ import type { ModuleCli } from '@open-mercato/shared/modules/registry'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import { BusinessRule } from './data/entities'
+import {
+  invalidateBusinessRuleDiscoveryCache,
+  resolveBusinessRuleDiscoveryCache,
+} from './lib/rule-engine'
 import * as fs from 'fs'
 import * as path from 'path'
 
@@ -39,6 +43,7 @@ const seedGuardRules: ModuleCli = {
     try {
       const { resolve } = await createRequestContainer()
       const em = resolve<EntityManager>('em')
+      const cache = resolveBusinessRuleDiscoveryCache(resolve)
 
       // Read guard rules from workflows examples
       const rulesPath = path.join(__dirname, '../workflows/examples', 'guard-rules-example.json')
@@ -70,6 +75,7 @@ const seedGuardRules: ModuleCli = {
         })
 
         await em.persist(rule).flush()
+        await invalidateBusinessRuleDiscoveryCache(cache, tenantId, organizationId)
         console.log(`  ✓ Seeded guard rule: ${rule.ruleName}`)
         seededCount++
       }
