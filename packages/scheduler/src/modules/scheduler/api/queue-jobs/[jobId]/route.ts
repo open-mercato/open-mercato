@@ -89,10 +89,9 @@ export async function GET(
     const jobTenantId = jobData?.tenantId ?? jobPayload?.tenantId ?? null
     const jobOrgId = jobData?.organizationId ?? jobPayload?.organizationId ?? null
 
-    // System-scoped jobs (no tenantId/orgId) require superadmin
-    const isSuperAdmin = Array.isArray(auth.roles) && auth.roles.some(
-      (role) => typeof role === 'string' && role.trim().toLowerCase() === 'superadmin'
-    )
+    // System-scoped jobs (no tenantId/orgId) require super-admin. Use the
+    // immutable `isSuperAdmin` flag — never compare mutable/spoofable role names.
+    const isSuperAdmin = auth.isSuperAdmin === true
     if (!jobTenantId && !jobOrgId && !isSuperAdmin) {
       await queue.close()
       return NextResponse.json({ error: translate('scheduler.error.forbidden', 'Forbidden') }, { status: 403 })

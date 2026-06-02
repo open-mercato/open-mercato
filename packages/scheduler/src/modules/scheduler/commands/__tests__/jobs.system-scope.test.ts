@@ -88,6 +88,18 @@ describe('scheduler.jobs system-scope authorization (issue #2267)', () => {
     expect(em.remove).not.toHaveBeenCalled()
   })
 
+  it('blocks an actor whose role is literally named "superadmin" but lacks the isSuperAdmin flag (no role-name spoofing)', async () => {
+    const { del } = loadCommands()
+    const em = makeEm({ id: 'job-1', scopeType: 'system', tenantId: null, organizationId: null })
+    const ctx = makeCtx({ isSuperAdmin: false, tenantId: 'tenant-a', roles: ['superadmin'] }, em)
+
+    await expect(
+      del.execute({ id: 'job-1' }, ctx),
+    ).rejects.toMatchObject({ status: 403 })
+    expect(em.flush).not.toHaveBeenCalled()
+    expect(em.remove).not.toHaveBeenCalled()
+  })
+
   it('allows a super-admin to delete a system-scoped job (not blocked by the guard)', async () => {
     const { del } = loadCommands()
     const em = makeEm({ id: 'job-1', scopeType: 'system', tenantId: null, organizationId: null })
