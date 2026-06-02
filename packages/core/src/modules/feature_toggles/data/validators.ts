@@ -42,6 +42,7 @@ export const featureToggleOverrideResponseSchema = z.object({
   tenantName: z.string(),
   tenantId: z.string().uuid(),
   toggleType: toggleTypeSchema,
+  updatedAt: z.string().nullable().optional(),
 })
 
 export type FeatureToggleOverrideResponse = z.infer<typeof featureToggleOverrideResponseSchema>
