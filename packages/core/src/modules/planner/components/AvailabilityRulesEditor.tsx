@@ -924,12 +924,8 @@ export function AvailabilityRulesEditor({
     listLabels.timezoneSaveError,
     refreshAvailability,
     refreshRuleSetRules,
-<<<<<<< HEAD
     ruleSets,
-    rulesetId,
-=======
     effectiveRulesetId,
->>>>>>> refs/janitor/origin/develop
     subjectId,
     subjectType,
     isReadOnly,
@@ -993,15 +989,14 @@ export function AvailabilityRulesEditor({
     }
     try {
       const idsToDelete = selectCustomRuleIdsToDelete('reset', availabilityRules)
+      const idsToDeleteSet = new Set(idsToDelete)
       await Promise.all(
-<<<<<<< HEAD
-        availabilityRules.map((rule) => withOptimisticLockForRule(
-          rule,
-          () => deleteCrud('planner/availability', rule.id, { errorMessage: listLabels.saveWeeklyError }),
-        )),
-=======
-        idsToDelete.map((id) => deleteCrud('planner/availability', id, { errorMessage: listLabels.saveWeeklyError })),
->>>>>>> refs/janitor/origin/develop
+        availabilityRules
+          .filter((rule) => idsToDeleteSet.has(rule.id))
+          .map((rule) => withOptimisticLockForRule(
+            rule,
+            () => deleteCrud('planner/availability', rule.id, { errorMessage: listLabels.saveWeeklyError }),
+          )),
       )
       setCustomOverridesEnabled(false)
       await refreshAvailability()
@@ -1017,15 +1012,14 @@ export function AvailabilityRulesEditor({
     // Switching preserves saved custom hours (#2325); only an explicit reset clears them.
     const idsToDelete = selectCustomRuleIdsToDelete('switch', availabilityRules)
     if (idsToDelete.length) {
+      const idsToDeleteSet = new Set(idsToDelete)
       await Promise.all(
-<<<<<<< HEAD
-        availabilityRules.map((rule) => withOptimisticLockForRule(
-          rule,
-          () => deleteCrud('planner/availability', rule.id, { errorMessage: listLabels.saveWeeklyError }),
-        )),
-=======
-        idsToDelete.map((id) => deleteCrud('planner/availability', id, { errorMessage: listLabels.saveWeeklyError })),
->>>>>>> refs/janitor/origin/develop
+        availabilityRules
+          .filter((rule) => idsToDeleteSet.has(rule.id))
+          .map((rule) => withOptimisticLockForRule(
+            rule,
+            () => deleteCrud('planner/availability', rule.id, { errorMessage: listLabels.saveWeeklyError }),
+          )),
       )
     }
     setSelectedRulesetId(nextId)
