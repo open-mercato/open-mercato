@@ -7,6 +7,7 @@ import { CrudHttpError } from '@open-mercato/shared/lib/crud/errors'
 import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
 import { findOneWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import type { EntityManager } from '@mikro-orm/postgresql'
+import { LockMode } from '@mikro-orm/core'
 import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
 import { StaffTimeEntry, StaffTimeEntrySegment } from '../../../../../data/entities'
 import { getStaffMemberByUserId } from '../../../../../lib/staffMemberResolver'
@@ -98,20 +99,43 @@ export async function POST(req: Request) {
       )
     }
 
-    const now = new Date()
-    entry.startedAt = now
-    entry.source = 'timer'
+    // Start the timer inside a single transaction with a PESSIMISTIC_WRITE lock
+    // on the time entry row, re-checking startedAt under the lock so two
+    // concurrent timer-start calls on the same entry cannot both create an
+    // initial work segment (issue #2416).
+    const now = await em.transactional(async (trx) => {
+      const lockedEntry = await findOneWithDecryption(
+        trx,
+        StaffTimeEntry,
+        { id: entryId, tenantId, organizationId, deletedAt: null },
+        { lockMode: LockMode.PESSIMISTIC_WRITE },
+        scopeCtx,
+      )
+      if (!lockedEntry) {
+        throw new CrudHttpError(404, { error: translate('staff.timesheets.errors.entryNotFound', 'Time entry not found.') })
+      }
+      if (lockedEntry.startedAt) {
+        throw new CrudHttpError(409, {
+          error: translate('staff.timesheets.errors.timerAlreadyStarted', 'Timer is already started for this entry.'),
+        })
+      }
 
-    const segmentData = {
-      tenantId,
-      organizationId,
-      timeEntryId: entry.id,
-      startedAt: now,
-      segmentType: 'work' as const,
-    }
-    em.create(StaffTimeEntrySegment, segmentData as never)
+      const startedAt = new Date()
+      lockedEntry.startedAt = startedAt
+      lockedEntry.source = 'timer'
 
-    await em.flush()
+      const segmentData = {
+        tenantId,
+        organizationId,
+        timeEntryId: lockedEntry.id,
+        startedAt,
+        segmentType: 'work' as const,
+      }
+      trx.create(StaffTimeEntrySegment, segmentData as never)
+
+      await trx.flush()
+      return startedAt
+    })
 
     void emitStaffEvent('staff.timesheets.time_entry.timer_started', {
       id: entry.id,
