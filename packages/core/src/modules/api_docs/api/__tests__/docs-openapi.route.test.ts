@@ -30,7 +30,7 @@ describe('api_docs /api/docs/openapi route', () => {
   })
 
   it('requires authentication and api_docs.view by default', async () => {
-    const { metadata } = await import('../get/docs/openapi')
+    const { metadata } = await import('../docs/openapi/route')
     expect(metadata.path).toBe('/docs/openapi')
     expect(metadata.GET).toEqual({
       requireAuth: true,
@@ -40,12 +40,12 @@ describe('api_docs /api/docs/openapi route', () => {
 
   it('allows anonymous access when OM_API_DOCS_PUBLICLY_AVAILABLE is true', async () => {
     process.env.OM_API_DOCS_PUBLICLY_AVAILABLE = 'true'
-    const { metadata } = await import('../get/docs/openapi')
+    const { metadata } = await import('../docs/openapi/route')
     expect(metadata.GET).toEqual({ requireAuth: false })
   })
 
   it('returns OpenAPI JSON from the resolver', async () => {
-    const { GET } = await import('../get/docs/openapi')
+    const { GET } = await import('../docs/openapi/route')
     const request = new Request('http://localhost:3000/api/docs/openapi')
     const response = await GET(request)
     expect(response.status).toBe(200)

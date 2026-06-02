@@ -30,7 +30,7 @@ describe('api_docs /api/docs/markdown route', () => {
   })
 
   it('requires authentication and api_docs.view by default', async () => {
-    const { metadata } = await import('../get/docs/markdown')
+    const { metadata } = await import('../docs/markdown/route')
     expect(metadata.path).toBe('/docs/markdown')
     expect(metadata.GET).toEqual({
       requireAuth: true,
@@ -40,12 +40,12 @@ describe('api_docs /api/docs/markdown route', () => {
 
   it('allows anonymous access when OM_API_DOCS_PUBLICLY_AVAILABLE is true', async () => {
     process.env.OM_API_DOCS_PUBLICLY_AVAILABLE = 'true'
-    const { metadata } = await import('../get/docs/markdown')
+    const { metadata } = await import('../docs/markdown/route')
     expect(metadata.GET).toEqual({ requireAuth: false })
   })
 
   it('returns markdown generated from the resolved document', async () => {
-    const { GET } = await import('../get/docs/markdown')
+    const { GET } = await import('../docs/markdown/route')
     const request = new Request('http://localhost:3000/api/docs/markdown')
     const response = await GET(request)
     expect(response.status).toBe(200)

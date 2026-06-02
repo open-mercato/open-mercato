@@ -1,4 +1,4 @@
-import { GET, metadata } from '../get/version'
+import { GET, metadata } from '../version/route'
 
 describe('api_docs /api/version route', () => {
   it('is served at /api/version without auth', () => {
@@ -21,7 +21,7 @@ describe('api_docs /api/version route', () => {
     try {
       let body: { version: string } | undefined
       await jest.isolateModulesAsync(async () => {
-        const mod = await import('../get/version')
+        const mod = await import('../version/route')
         const res = await mod.GET()
         body = await res.json()
       })
