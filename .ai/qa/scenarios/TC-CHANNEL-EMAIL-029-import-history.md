@@ -52,7 +52,7 @@ The route, command, worker, IMAP adapter `importHistory()`, and concurrency guar
 ## Notes
 - Spec B's `importHistory` returns `totalCandidates` on the first page so the operator sees an accurate progress bar from the first update. Verify that the bar's denominator matches the IMAP SEARCH result count, not the static `maxMessages` cap.
 - The dialog uses `router.refresh()` after queueing (no `window.location.reload()` per `.ai/lessons.md`).
-- Gmail and Microsoft adapters do NOT yet implement `importHistory`; the dialog must show the `Import history` button disabled for those providers (Spec C will wire them).
+- Gmail adapter does NOT yet implement `importHistory`; the dialog must show the `Import history` button disabled for those providers (Spec C will wire them).
 
 ## Related Tests
 - TC-CHANNEL-EMAIL-021..028 (incremental polling, threading, auto-recovery — Phase B1..B5)

@@ -69,6 +69,16 @@ describe('privateEmailCountEnricher', () => {
     expect(out[0]).toMatchObject({ id: 'p-1', _privateEmailCount: 0 })
   })
 
+  it('returns 0 for API-key principals (no authoring user to exclude — count would otherwise include every private email)', async () => {
+    // An API key (`auth.sub = "api_key:<id>"`) is not a person, so the
+    // `author_user_id != userId` exclusion would match nothing and count ALL
+    // private emails. The enricher must short-circuit to 0 instead.
+    const ctx = makeCtx([{ entity_id: 'p-1', count: 9 }])
+    ctx.userId = 'api_key:abc123'
+    const out = await privateEmailCountEnricher.enrichMany!([{ id: 'p-1' }], ctx)
+    expect(out[0]).toMatchObject({ id: 'p-1', _privateEmailCount: 0 })
+  })
+
   it('returns 0 when the EntityManager does not expose getKysely (fail-safe)', async () => {
     const ctx: any = {
       em: {},

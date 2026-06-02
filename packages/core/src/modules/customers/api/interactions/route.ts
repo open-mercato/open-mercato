@@ -424,6 +424,12 @@ export async function GET(req: Request) {
     }
     if (query.excludeInteractionType) rowsQuery = rowsQuery.where('interaction_type', '!=', query.excludeInteractionType)
     if (query.search) {
+      // NOTE: for tenants with data encryption enabled, `title`/`body` are
+      // ciphertext at rest (see encryption.ts), so this ILIKE matches encrypted
+      // bytes and returns no rows — substring search over encrypted free-text
+      // columns is unsupported, the same documented limitation as
+      // customer_activity / customer_comment. The returned page's title/body are
+      // still decrypted for display further below.
       const searchTerm = `%${query.search}%`
       rowsQuery = rowsQuery.where(sql<boolean>`coalesce(title, '') ilike ${searchTerm} or coalesce(body, '') ilike ${searchTerm}`)
     }

@@ -75,11 +75,11 @@ All three modes inherit the original thread's message identifiers, so replies an
 
 ## What admins see
 
-Admins and operators with the `customers.email.view_private` feature can read all private email interactions regardless of author. This is intended for compliance, support escalation, and audit purposes.
+The email privacy model is **strict owner-only** in this release: a private email interaction is visible only to the author who sent or received it. There is **no admin override** — administrators see other people's private emails as a count badge only, never their content, exactly like any other teammate. The `customers.email.view_private` feature appears in the permission list but is **inert** in this release (reserved for a future admin-oversight capability); granting it does not unlock private email content today.
 
-Any change to an email's visibility (including by an admin flipping someone else's email) is recorded in the audit log under the `customers.email.visibility_changed` event, capturing who made the change and when.
+Any change an author makes to one of their own emails' visibility is recorded in the audit log under the `customers.email.visibility_changed` event, capturing who made the change and when.
 
-Regular employees who lack `customers.email.view_private` see only their own private emails and any shared emails on the timeline.
+Everyone — administrators and regular employees alike — sees only their own private emails plus any shared emails on the timeline.
 
 ## Troubleshooting
 
@@ -111,7 +111,7 @@ This is working as intended. The count badge lets everyone know an email exchang
 
 ### I don't see the visibility toggle on an email card
 
-You can only change the visibility of emails you authored. Admins with `customers.email.view_private` can change visibility on any email.
+You can only change the visibility of emails you authored. There is no admin override in this release — even users granted `customers.email.view_private` can change visibility only on emails they authored.
 
 ## Related
 

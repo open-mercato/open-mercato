@@ -9,8 +9,8 @@ import { apiCall } from '@open-mercato/ui/backend/utils/apiCall'
 type InitiateResponse = { authorizeUrl?: string; error?: string; code?: string }
 
 /**
- * Shared OAuth "connect" flow for email channel provider widgets (Gmail,
- * Microsoft). Wraps the guarded-mutation contract + `/oauth/<provider>/initiate`
+ * Shared OAuth "connect" flow for email channel provider widgets (Gmail and
+ * other OAuth providers). Wraps the guarded-mutation contract + `/oauth/<provider>/initiate`
  * call + redirect, so each provider widget only supplies its own button chrome.
  */
 export function useConnectChannel(options: {

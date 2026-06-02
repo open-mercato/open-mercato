@@ -38,7 +38,7 @@ type CredentialsServiceLike = {
 }
 
 /**
- * Connect a per-user credential-based channel (IMAP, future Microsoft Basic Auth).
+ * Connect a per-user credential-based channel (IMAP, and future basic-auth providers).
  *
  * Flow:
  *   1. Resolve the adapter for `providerKey`.

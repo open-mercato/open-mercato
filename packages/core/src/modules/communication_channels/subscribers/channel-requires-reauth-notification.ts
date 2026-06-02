@@ -12,7 +12,7 @@ import { resolveNotificationService } from '../../notifications/lib/notification
  * Subscriber: re-authentication notification.
  *
  * Listens to `communication_channels.channel.requires_reauth` (emitted by the
- * poll worker, outbound delivery, and the Microsoft lifecycle handler when an
+ * poll worker and outbound delivery when an
  * adapter loses authorization) and raises the in-app
  * `communication_channels.channel.requires_reauth` notification so the affected
  * user sees a bell entry + reconnect CTA and the reactive toast handler

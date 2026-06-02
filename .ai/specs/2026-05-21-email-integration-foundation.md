@@ -1286,6 +1286,10 @@ None.
 
 ## Changelog
 
+### 2026-06-02 — Microsoft 365 / Outlook channel removed
+
+The Microsoft 365 / Outlook provider was dropped from the email-integration scope; only **Gmail + IMAP** remain. Removed together: the `@open-mercato/channel-microsoft` provider package, the two `/webhooks/microsoft/*` routes, the `…-microsoft-delta-sync` / `…-microsoft-renew-subscriptions` queues, and the `OM_MICROSOFT_*` env vars (see [`BACKWARD_COMPATIBILITY.md`](../../BACKWARD_COMPATIBILITY.md) § Spec C — non-breaking, none shipped in a release). The now-dead `communication_channels.client_state_encrypted` column (Microsoft Graph anti-tampering nonce) is dropped by `Migration20260602120000`. The provider-key union is `'gmail' | 'imap'`. Microsoft 365 / Outlook mailboxes connect via IMAP + SMTP with an app password. Historical changelog entries below still name Microsoft 365 / Azure AD as shipped on their dates — those are preserved as append-only history and are superseded by this entry.
+
 ### 2026-06-02 — Stale Delta 1 line reconciled with strict owner-only
 
 - Fixed the Delta 1 (`CommunicationChannel.user_id?`) bullet that still said a user-scoped channel is "visible … to admins with `communication_channels.admin`" — it now states v1 strict owner-only (owner-only visibility; `communication_channels.admin` is inert / grants no cross-user channel view), consistent with the 2026-06-01 privacy section and Delta 8.

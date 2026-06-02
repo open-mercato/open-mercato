@@ -55,7 +55,7 @@ Inside the `CustomerInteraction` class, after the existing `body` property, add:
   visibility?: 'private' | 'shared' | null
 
   /**
-   * Denormalized provider key ('gmail' | 'microsoft' | 'imap') for filter UX.
+   * Denormalized provider key ('gmail' | 'imap') for filter UX.
    * Avoids a join to message_channel_links when surfacing the timeline.
    */
   @Property({ name: 'channel_provider_key', type: 'text', nullable: true })
@@ -1469,7 +1469,7 @@ export interface ComposeEmailChannel {
   id: string
   displayName: string
   externalIdentifier?: string | null
-  providerKey: 'gmail' | 'microsoft' | 'imap'
+  providerKey: 'gmail' | 'imap'
   isPrimary?: boolean
 }
 

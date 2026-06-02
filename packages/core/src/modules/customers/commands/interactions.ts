@@ -456,7 +456,7 @@ const updateInteractionCommand: CommandHandler<InteractionUpdateInput, { interac
       ensureOrganizationScope(ctx, interaction.organizationId)
 
       // Email visibility is an access-controlled field: only the interaction's
-      // author or an admin with `customers.email.view_private` may change a
+      // author may change a
       // private email's visibility (mirrors the dedicated PATCH .../visibility
       // route). Enforce it here — the single persistence path — so the generic
       // update route (PUT /api/interactions) cannot bypass the gate. Evaluated

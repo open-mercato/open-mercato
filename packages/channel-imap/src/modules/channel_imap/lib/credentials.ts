@@ -11,10 +11,11 @@ import { parseBooleanWithDefault } from '@open-mercato/shared/lib/boolean'
  * The check is string-based: it rejects literal internal IPs, `localhost`, and
  * the obfuscated encodings that exist to evade such filters (IPv4-mapped IPv6,
  * decimal/hex/octal/short-form IPv4, bracketed and expanded IPv6). It does NOT
- * catch a public hostname that resolves — or is DNS-rebound — to a private
- * address; fully closing that gap requires resolving the host and pinning the
- * connection to the validated IP at connect time (in `imap-client`/`smtp-client`).
- * Operators with a genuinely private IMAP host set `OM_CHANNEL_IMAP_ALLOW_INTERNAL_HOSTS=true`.
+ * by itself catch a public hostname that resolves — or is DNS-rebound — to a
+ * private address; that gap is closed at connect time by `resolveSafeHostAddress`
+ * (`host-pinning.ts`), which resolves the host, rejects any internal resolved
+ * address, and pins the connection to the validated IP. Operators with a
+ * genuinely private IMAP host set `OM_CHANNEL_IMAP_ALLOW_INTERNAL_HOSTS=true`.
  */
 const FORBIDDEN_HOST_NAMES = new Set([
   'localhost',

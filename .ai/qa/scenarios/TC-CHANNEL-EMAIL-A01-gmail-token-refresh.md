@@ -43,5 +43,4 @@ Verify that a connected Gmail channel survives access-token expiry by refreshing
 This is the primary regression test for the bug uncovered during the OAuth audit (see Spec A). The legacy `credentials._client` path is still recognized for one minor release with a one-time deprecation warning per process — verify that warning appears once and only once in dev logs.
 
 ## Related Tests
-- TC-CHANNEL-EMAIL-A02 (Microsoft equivalent)
 - TC-CHANNEL-EMAIL-006 / -007 / -008 (Gmail provider wiring smoke tests)

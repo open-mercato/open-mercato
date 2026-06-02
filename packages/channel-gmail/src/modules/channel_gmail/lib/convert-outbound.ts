@@ -52,7 +52,7 @@ export async function convertOutboundForGmail(
   const subject = stringOrUndefined(meta.subject)
   const to = toAddressList(meta.to)
   if (to.length === 0) {
-    throw new Error('Gmail outbound conversion requires at least one recipient (channelMetadata.to)')
+    throw new Error('[internal] Gmail outbound conversion requires at least one recipient (channelMetadata.to)')
   }
   const cc = toAddressList(meta.cc)
   const bcc = toAddressList(meta.bcc)

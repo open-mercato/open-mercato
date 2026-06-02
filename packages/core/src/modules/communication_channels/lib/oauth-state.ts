@@ -51,7 +51,7 @@ export class OAuthStateError extends Error {
 
 /**
  * Canonical state-cookie payload — provider-agnostic. Each OAuth provider
- * adapter (Gmail, Microsoft 365) packs its own per-flow nonce / verifier into
+ * adapter (Gmail, …) packs its own per-flow nonce / verifier into
  * the `extra` field rather than extending this shape.
  */
 export interface OAuthStatePayload {
@@ -65,7 +65,7 @@ export interface OAuthStatePayload {
   tenantId: string
   /** Optional organization id for multi-org tenants. */
   organizationId?: string | null
-  /** Provider key (e.g. `gmail`, `microsoft`) — routes the callback. */
+  /** Provider key (e.g. `gmail`) — routes the callback. */
   providerKey: string
   /** Where to redirect on success. Defaults to the profile page in the route. */
   returnUrl?: string

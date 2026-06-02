@@ -1,7 +1,7 @@
 /**
  * Shared OAuth2 token primitives for email channel providers. The authorize-URL
- * shape, PKCE usage, and userinfo handling differ per provider (Gmail vs
- * Microsoft) and stay in each package — but the token response shape, the
+ * shape, PKCE usage, and userinfo handling differ per provider (e.g. Gmail)
+ * and stay in each package — but the token response shape, the
  * form-urlencoded token POST, and the expiry computation are identical, so they
  * live here.
  */

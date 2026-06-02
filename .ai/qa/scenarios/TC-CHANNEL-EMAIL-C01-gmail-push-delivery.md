@@ -45,5 +45,4 @@ Verify that a connected Gmail channel receives new mail via Pub/Sub push (Spec C
 - Renewal cron never fires.
 
 ## Related Tests
-- TC-CHANNEL-EMAIL-C02 (Microsoft webhook surface)
 - TC-CHANNEL-EMAIL-021..030 (Spec B polling + threading + import-history baseline)

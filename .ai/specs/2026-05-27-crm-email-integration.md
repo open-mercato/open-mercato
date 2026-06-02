@@ -487,7 +487,7 @@ All of the following are **directly composed** into the Person detail page (`bac
   - `ComposeEmailDialog.tsx` — client component (new). ~10 KB gzipped.
   - `EmailCardActions.tsx` / `EmailReplyForwardActions.tsx` — client components (new), composed into `ActivityCard.tsx`.
 - **No new global providers**.
-- **Client bundle guardrail**: no provider SDK in the client bundle (no googleapis, no @microsoft/microsoft-graph-client). Server-side only.
+- **Client bundle guardrail**: no provider SDK in the client bundle (no googleapis, no imapflow/nodemailer). Server-side only.
 - **Route budget**: Person detail page adds <15 KB gzipped (well within the existing route's headroom).
 - **Hydration test**: Person detail Playwright test (TC-CRM-EMAIL-010) asserts the Emails tab renders and its compose/reply controls are interactive.
 

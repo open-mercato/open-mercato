@@ -26,8 +26,8 @@ export const notificationTypes: NotificationTypeDefinition[] = [
      * (OAuth refresh token revoked, IMAP/SMTP password rotated, WhatsApp token expired).
      * Persisted by the `channel-requires-reauth-notification` subscriber in
      * response to the `communication_channels.channel.requires_reauth` event
-     * (emitted by the poll worker, outbound delivery, and the Microsoft lifecycle
-     * handler). Consumed by the email integration spec's reconnect flow.
+     * (emitted by the poll worker and outbound delivery). Consumed by the email
+     * integration spec's reconnect flow.
      */
     type: 'communication_channels.channel.requires_reauth',
     module: 'communication_channels',

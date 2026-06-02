@@ -111,6 +111,9 @@ class GmailChannelAdapter implements ChannelAdapter {
       }
     } catch (error) {
       if (error instanceof GmailApiError && error.status === 401) {
+        // `requires_reauth` is a protocol sentinel the hub keys on (see
+        // communication_channels error-classification.isReauthError), not a
+        // user/log message — do NOT prefix or translate it.
         return { externalMessageId: '', status: 'failed', error: 'requires_reauth' }
       }
       const message = error instanceof Error ? error.message : 'Gmail send failed'
@@ -676,10 +679,10 @@ function resolveGmailOAuthClient(input: RefreshCredentialsInput): GmailClientCre
   if (input.oauthClient) {
     const client = input.oauthClient
     if (!client.clientId) {
-      throw new Error('Invalid Gmail OAuth client credentials: OAuth Client ID required')
+      throw new Error('[internal] Invalid Gmail OAuth client credentials: OAuth Client ID required')
     }
     if (!client.clientSecret) {
-      throw new Error('Invalid Gmail OAuth client credentials: clientSecret required')
+      throw new Error('[internal] Invalid Gmail OAuth client credentials: clientSecret required')
     }
     return {
       clientId: client.clientId,
@@ -710,7 +713,7 @@ function pickRawMimeBuffer(payload: { rawBase64Url?: unknown; rawBody?: unknown 
   if (Buffer.isBuffer(value)) return value
   if (value instanceof Uint8Array) return Buffer.from(value)
   if (typeof value === 'string') return Buffer.from(value, 'utf-8')
-  throw new Error('Gmail normalizeInbound requires `raw.rawBase64Url` or `raw.rawBody`')
+  throw new Error('[internal] Gmail normalizeInbound requires `raw.rawBase64Url` or `raw.rawBody`')
 }
 
 let cachedAdapter: GmailChannelAdapter | null = null

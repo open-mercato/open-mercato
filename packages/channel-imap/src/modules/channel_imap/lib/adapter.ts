@@ -69,7 +69,7 @@ class ImapChannelAdapter implements ChannelAdapter {
     const meta = (native.metadata ?? {}) as Record<string, unknown>
     const to = Array.isArray(meta.to) ? (meta.to as string[]) : []
     if (to.length === 0) {
-      return { externalMessageId: '', status: 'failed', error: 'Email send requires at least one recipient' }
+      return { externalMessageId: '', status: 'failed', error: '[internal] Email send requires at least one recipient' }
     }
 
     // Reject attachments at the boundary rather than silently sending empty
@@ -82,7 +82,7 @@ class ImapChannelAdapter implements ChannelAdapter {
         externalMessageId: '',
         status: 'failed',
         error:
-          'IMAP/SMTP adapter does not yet support attachments. Send the message without attachments or use a provider that supports them (Gmail).',
+          '[internal] IMAP/SMTP adapter does not yet support attachments. Send the message without attachments or use a provider that supports them (Gmail).',
       }
     }
 
@@ -376,7 +376,7 @@ function pickRawMimeBuffer(raw: InboundMessage): Buffer {
   if (Buffer.isBuffer(value)) return value
   if (value instanceof Uint8Array) return Buffer.from(value)
   if (typeof value === 'string') return Buffer.from(value, 'utf-8')
-  throw new Error('IMAP normalizeInbound requires `raw.rawBody` to be a Buffer or string MIME payload')
+  throw new Error('[internal] IMAP normalizeInbound requires `raw.rawBody` to be a Buffer or string MIME payload')
 }
 
 function pickAccountIdentifier(raw: InboundMessage): string {

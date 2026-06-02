@@ -140,8 +140,7 @@ export async function pushUnregister(params: {
   }
 
   // Clear push markers from channel state so a subsequent reconnect starts
-  // fresh. Do NOT touch `clientStateEncrypted` here — the row may be reused
-  // and the encrypted column is repopulated by the next `pushRegister`.
+  // fresh.
   channel.channelState = {
     ...channelState,
     pushStatus: 'inactive',

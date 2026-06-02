@@ -1,4 +1,5 @@
 import type { ImapCredentials } from './credentials'
+import { resolveSafeHostAddress } from './host-pinning'
 import { assertTransportAllowed } from './transport'
 
 /**
@@ -135,7 +136,7 @@ class NodemailerClient implements SmtpClient {
         response?: string
       }
       const id = info.messageId ?? composedMessageId ?? info.envelope?.messageId
-      if (!id) throw new Error('SMTP server did not return a Message-ID')
+      if (!id) throw new Error('[internal] SMTP server did not return a Message-ID')
       return { messageId: id, raw, response: info.response }
     } finally {
       transporter.close()
@@ -161,8 +162,12 @@ class NodemailerClient implements SmtpClient {
       throw new Error('nodemailer.createTransport is unavailable')
     }
     const MailComposer = mod.MailComposer ?? mod.default?.MailComposer
+    // Resolve + pin the SMTP host to a validated public IP at connect time
+    // (DNS-rebinding-safe), keeping the hostname as the TLS servername for SNI +
+    // certificate hostname verification.
+    const pinned = await resolveSafeHostAddress(options.host)
     const transporter = createTransport({
-      host: options.host,
+      host: pinned.host,
       port: options.port,
       secure: options.transport === 'tls',
       requireTLS: options.transport === 'starttls',
@@ -171,7 +176,10 @@ class NodemailerClient implements SmtpClient {
       // Reject downgrade attacks: only allow cleartext when the operator
       // explicitly opts into `transport: 'none'`. Even then, refuse to skip
       // certificate verification on STARTTLS / TLS.
-      tls: options.transport === 'none' ? undefined : { rejectUnauthorized: true },
+      tls:
+        options.transport === 'none'
+          ? undefined
+          : { rejectUnauthorized: true, ...(pinned.servername ? { servername: pinned.servername } : {}) },
     })
     return { transporter, MailComposer }
   }

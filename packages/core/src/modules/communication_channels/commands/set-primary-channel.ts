@@ -2,6 +2,7 @@ import { z } from 'zod'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import type { CommandHandler } from '@open-mercato/shared/lib/commands'
 import { registerCommand } from '@open-mercato/shared/lib/commands'
+import { withAtomicFlush } from '@open-mercato/shared/lib/commands/flush'
 import { findOneWithDecryption, findWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import { CommunicationChannel } from '../data/entities'
 import { emitCommunicationChannelsEvent } from '../events'
@@ -74,10 +75,12 @@ const setPrimaryChannelCommand: CommandHandler<
     // `is_primary=false` and `is_primary=true` updates is unsafe: MikroORM
     // does not guarantee SET-false statements execute before SET-true.
     //
-    // Fix (review R2-H1 / F2, 2026-05-26): use TWO explicit flushes inside
-    // one transaction. Phase 1 clears + flushes — Postgres sees the old rows
-    // as `is_primary=false` before Phase 2's UPDATE runs. The transaction
-    // wraps both for all-or-nothing semantics.
+    // Fix (review R2-H1 / F2, 2026-05-26): two phases inside one transaction.
+    // `withAtomicFlush` runs each phase and flushes between them (the platform
+    // helper for exactly this multi-phase mutation — see packages/core/AGENTS.md
+    // "Entity Update Safety"). Phase 1 clears + flushes so Postgres observes
+    // `is_primary=false` before Phase 2's UPDATE runs; the transaction wraps both
+    // for all-or-nothing semantics.
     const previousPrimaries = await findWithDecryption(
       em,
       CommunicationChannel,
@@ -92,29 +95,21 @@ const setPrimaryChannelCommand: CommandHandler<
       dscope,
     )
     let previousPrimaryChannelId: string | null = null
-    await em.begin()
-    try {
-      // Phase 1: clear every existing primary for this user and flush so
-      // Postgres observes `is_primary=false` before Phase 2 fires.
-      for (const prev of previousPrimaries as CommunicationChannel[]) {
-        previousPrimaryChannelId = prev.id
-        prev.isPrimary = false
-      }
-      if (previousPrimaries.length > 0) {
-        await em.flush()
-      }
-      // Phase 2: set the new primary.
-      channel.isPrimary = true
-      await em.flush()
-      await em.commit()
-    } catch (err) {
-      try {
-        await em.rollback()
-      } catch {
-        // rollback failure should not mask the original error
-      }
-      throw err
-    }
+    await withAtomicFlush(
+      em,
+      [
+        () => {
+          for (const prev of previousPrimaries as CommunicationChannel[]) {
+            previousPrimaryChannelId = prev.id
+            prev.isPrimary = false
+          }
+        },
+        () => {
+          channel.isPrimary = true
+        },
+      ],
+      { transaction: true },
+    )
 
     await emitCommunicationChannelsEvent(
       'communication_channels.channel.primary_changed',

@@ -33,7 +33,6 @@ function buildChannel(overrides: Record<string, unknown> = {}) {
     credentialsRef: 'channel_gmail',
     userId: USER,
     channelState: null,
-    clientStateEncrypted: null,
     pollIntervalSeconds: 60,
     ...overrides,
   }

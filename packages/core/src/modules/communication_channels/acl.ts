@@ -31,7 +31,7 @@ export const features = [
    */
   { id: 'communication_channels.channel.import_history', title: 'Import channel history', module: 'communication_channels' },
   /**
-   * Manage provider push delivery (Spec C — Gmail Pub/Sub / Microsoft Graph
+   * Manage provider push delivery (Spec C — Gmail Pub/Sub push
    * subscriptions). Gates the "Re-register push" operator button and any
    * future push-status manipulation. Granted to admin + superadmin only —
    * regular users don't need to think about whether mail arrives via

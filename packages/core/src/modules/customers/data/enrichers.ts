@@ -216,6 +216,15 @@ const dealPipelineEnricher: ResponseEnricher<DealRecord> = {
 
 type PersonRecord = Record<string, unknown> & { id: string }
 
+/**
+ * Adds `_privateEmailCount` to each Person — the number of that person's PRIVATE
+ * email interactions authored by OTHER users (private emails the current viewer
+ * cannot see). Backs the documented "count of teammates' private emails" badge
+ * (see `apps/docs/docs/user-guide/customers-email.mdx`): a viewer learns an
+ * exchange exists without seeing its content. The count-badge UI is a pending
+ * follow-up; the field is populated here so the consumer can be wired without a
+ * second pass. Owner/tenant scoped and fail-safe to 0 — never leaks content.
+ */
 export const privateEmailCountEnricher: ResponseEnricher<
   PersonRecord,
   { _privateEmailCount?: number }
@@ -242,7 +251,11 @@ export const privateEmailCountEnricher: ResponseEnricher<
     }
 
     const userId = context.userId
-    if (!userId) {
+    // Fail-safe to 0 when there is no real authoring user to exclude. An API-key
+    // principal (`auth.sub = "api_key:<id>"`) is not a person, so the
+    // `author_user_id != userId` exclusion below would match nothing and count
+    // every private email — short-circuit it here.
+    if (!userId || userId.startsWith('api_key:')) {
       return records.map((record) => ({ ...record, _privateEmailCount: 0 }))
     }
 

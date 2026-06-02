@@ -1,4 +1,5 @@
 import type { ImapCredentials } from './credentials'
+import { resolveSafeHostAddress } from './host-pinning'
 import { assertTransportAllowed } from './transport'
 
 /**
@@ -77,8 +78,13 @@ export interface ImapClient {
 class ImapflowClient implements ImapClient {
   private async openConnection(options: ImapConnectionOptions): Promise<ImapflowConnection> {
     const { ImapFlow } = await loadImapFlow()
+    // Resolve + pin the host to a validated public IP at connect time, so a
+    // hostname that (re)resolves to an internal address can't be abused for
+    // SSRF. We dial the IP but keep the hostname as the TLS servername so SNI +
+    // certificate hostname verification still target the real host.
+    const pinned = await resolveSafeHostAddress(options.host)
     const client = new ImapFlow({
-      host: options.host,
+      host: pinned.host,
       port: options.port,
       secure: options.transport === 'tls',
       auth: { user: options.user, pass: options.pass },
@@ -86,7 +92,10 @@ class ImapflowClient implements ImapClient {
       // TLS and STARTTLS). Only cleartext ('none', gated behind an env opt-in)
       // omits the TLS options. Mirrors the SMTP client so an upstream default
       // change can't silently disable cert checks.
-      tls: options.transport === 'none' ? undefined : { rejectUnauthorized: true },
+      tls:
+        options.transport === 'none'
+          ? undefined
+          : { rejectUnauthorized: true, ...(pinned.servername ? { servername: pinned.servername } : {}) },
       logger: false,
       // Gmail's IMAP can take 15-30s to respond to NAMESPACE under load even
       // after a successful AUTHENTICATE — observed during demo with valid
@@ -255,7 +264,7 @@ class ImapflowClient implements ImapClient {
   async appendSent(options: ImapConnectionOptions, rawMessage: Buffer): Promise<void> {
     const client = await this.openConnection(options)
     try {
-      const sentMailbox = resolveSentMailbox()
+      const sentMailbox = await resolveSentMailbox(client)
       await client.append(sentMailbox, rawMessage, ['\\Seen'])
     } finally {
       await client.logout().catch(() => undefined)
@@ -263,11 +272,34 @@ class ImapflowClient implements ImapClient {
   }
 }
 
-function resolveSentMailbox(): string {
-  // ImapFlow has no synchronous mailbox listing, so default to the conventional
-  // 'Sent' folder and let the server reject if it's missing (the adapter
-  // swallows append failures).
+/**
+ * Pick the server's Sent folder from a `LIST` response. Providers expose it
+ * under different paths ('[Gmail]/Sent Mail', localized names, …) so we match
+ * the RFC 6154 SPECIAL-USE `\Sent` attribute rather than assuming 'Sent'.
+ */
+export function pickSentMailbox(
+  mailboxes: Array<{ path?: string; specialUse?: string }> | null | undefined,
+): string {
+  if (Array.isArray(mailboxes)) {
+    const sent = mailboxes.find(
+      (mailbox) =>
+        mailbox?.specialUse === '\\Sent' && typeof mailbox.path === 'string' && mailbox.path.length > 0,
+    )
+    if (sent?.path) return sent.path
+  }
   return 'Sent'
+}
+
+async function resolveSentMailbox(client: ImapflowConnection): Promise<string> {
+  // Discover the real Sent folder via SPECIAL-USE; fall back to the conventional
+  // 'Sent' when listing is unsupported or no \Sent mailbox is advertised.
+  try {
+    const mailboxes = typeof client.list === 'function' ? await client.list() : undefined
+    return pickSentMailbox(mailboxes)
+  } catch {
+    // LIST failed (server quirk / transient) — fall back to the conventional folder.
+    return 'Sent'
+  }
 }
 
 function extractCapabilityKeys(client: ImapflowConnection): string[] {
@@ -297,6 +329,7 @@ interface ImapflowConnection {
   getMailboxLock(name: string): Promise<{ release(): void }>
   fetch(range: string, query: Record<string, unknown>, options?: Record<string, unknown>): AsyncIterable<{ uid: number; source?: Buffer | string; internalDate?: Date | string; flags?: Iterable<string> }>
   append(mailbox: string, rawMessage: Buffer, flags?: string[]): Promise<void>
+  list?(): Promise<Array<{ path?: string; specialUse?: string }>>
 }
 
 async function loadImapFlow(): Promise<{ ImapFlow: new (options: Record<string, unknown>) => ImapflowConnection }> {

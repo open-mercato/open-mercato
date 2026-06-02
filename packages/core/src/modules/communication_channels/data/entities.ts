@@ -148,29 +148,13 @@ export class CommunicationChannel {
 
   /**
    * Provider-specific resumption state, opaque to the hub. Polling adapters
-   * encode their incremental cursor here (Gmail historyId, Microsoft delta
-   * link, IMAP UIDVALIDITY+UIDNEXT). The polling worker reads it before each
+   * encode their incremental cursor here (Gmail historyId, IMAP
+   * UIDVALIDITY+UIDNEXT). The polling worker reads it before each
    * `fetchHistory` call and writes the adapter's returned `nextCursor` back
    * after a successful poll. Empty / NULL means "bootstrap on next poll".
    */
   @Property({ name: 'channel_state', type: 'json', nullable: true })
   channelState?: Record<string, unknown> | null
-
-  /**
-   * Spec C — Microsoft Graph anti-tampering nonce, encrypted at rest.
-   *
-   * Microsoft echoes `clientState` back in every change notification; the
-   * webhook constant-time compares it against the stored value. Storing it
-   * inside `channelState` (JSONB) would require encrypting the whole blob
-   * and rewriting every reader. A dedicated column lets us declare a clean
-   * encryption-map entry while leaving `channelState` plaintext for the
-   * non-secret cursor/expiry fields.
-   *
-   * Other providers leave this null. See `.ai/specs/2026-05-27-email-integration-inbound-reliability-and-threading.md`
-   * § Data Models → encryption decision.
-   */
-  @Property({ name: 'client_state_encrypted', type: 'text', nullable: true })
-  clientStateEncrypted?: string | null
 
   @Property({ name: 'tenant_id', type: 'uuid' })
   tenantId!: string

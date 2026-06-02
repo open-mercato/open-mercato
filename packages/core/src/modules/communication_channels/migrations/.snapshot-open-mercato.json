@@ -695,23 +695,6 @@
           "enumItems": [],
           "mappedType": "text"
         },
-        "client_state_encrypted": {
-          "name": "client_state_encrypted",
-          "type": "text",
-          "unsigned": false,
-          "autoincrement": false,
-          "primary": false,
-          "nullable": true,
-          "unique": false,
-          "length": null,
-          "precision": null,
-          "scale": null,
-          "default": null,
-          "comment": null,
-          "collation": null,
-          "enumItems": [],
-          "mappedType": "text"
-        },
         "created_at": {
           "name": "created_at",
           "type": "timestamptz(6)",
