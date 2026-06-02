@@ -228,22 +228,34 @@ export function useInteractions({
   const updateInteraction = React.useCallback(
     async (id: string, payload: InteractionUpdatePayload) => {
       setIsMutating(true)
+      // Send the optimistic-lock header (target's loaded `updatedAt`) so a stale
+      // edit — including a task/activity edited from another tab — surfaces the
+      // conflict bar instead of silently overwriting (#2055). A stale edit after
+      // the record was deleted elsewhere maps to the same 409 via the server's
+      // enforceRecordGoneIsConflict, instead of a bare "Interaction not found" 404.
+      const target = interactions.find((entry) => entry.id === id)
       try {
-        await apiCallOrThrow(
-          '/api/customers/interactions',
-          {
-            method: 'PUT',
-            headers: { 'content-type': 'application/json' },
-            body: JSON.stringify({ id, ...payload }),
-          },
-          { errorMessage: t('customers.interactions.update.error', 'Failed to update interaction.') },
+        await withScopedApiRequestHeaders(
+          buildOptimisticLockHeader(target?.updatedAt ?? null),
+          () => apiCallOrThrow(
+            '/api/customers/interactions',
+            {
+              method: 'PUT',
+              headers: { 'content-type': 'application/json' },
+              body: JSON.stringify({ id, ...payload }),
+            },
+            { errorMessage: t('customers.interactions.update.error', 'Failed to update interaction.') },
+          ),
         )
         await refresh()
+      } catch (err) {
+        if (surfaceRecordConflict(err, t)) { await refresh(); return }
+        throw err
       } finally {
         setIsMutating(false)
       }
     },
-    [refresh, t],
+    [interactions, refresh, t],
   )
 
   const completeInteraction = React.useCallback(

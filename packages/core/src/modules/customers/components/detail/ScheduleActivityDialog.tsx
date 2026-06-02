@@ -6,7 +6,7 @@ import { cn } from '@open-mercato/shared/lib/utils'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { validatePhoneNumber } from '@open-mercato/shared/lib/phone'
 import { apiCallOrThrow, readApiResultOrThrow, withScopedApiRequestHeaders } from '@open-mercato/ui/backend/utils/apiCall'
-import { buildOptimisticLockHeader } from '@open-mercato/ui/backend/utils/optimisticLock'
+import { buildOptimisticLockHeader, extractOptimisticLockConflict } from '@open-mercato/ui/backend/utils/optimisticLock'
 import { mapCrudServerErrorToFormErrors } from '@open-mercato/ui/backend/utils/serverErrors'
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
 import { useGuardedMutation } from '@open-mercato/ui/backend/injection/useGuardedMutation'
@@ -429,6 +429,14 @@ export function ScheduleActivityDialog({
       // Delay data reload so the dialog can unmount cleanly and Radix restores body scroll
       requestAnimationFrame(() => { onActivityCreated?.() })
     } catch (err) {
+      // An optimistic-lock 409 was already surfaced as the persistent conflict
+      // bar by `runGuardedMutation` (useGuardedMutation → surfaceRecordConflict).
+      // Do NOT additionally flash the raw `record_modified` code here — that
+      // showed an untranslated toast on top of the localized bar (#2055 QA).
+      if (extractOptimisticLockConflict(err)) {
+        onClose()
+        return
+      }
       const { message, fieldErrors } = mapCrudServerErrorToFormErrors(err)
       const phoneFieldError = fieldErrors?.phoneNumber
       if (state.activityType === 'call' && phoneFieldError) {
