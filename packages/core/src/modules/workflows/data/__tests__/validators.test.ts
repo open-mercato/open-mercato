@@ -184,6 +184,8 @@ describe('Workflows Validators', () => {
         stepType: 'WAIT_FOR_TIMER' as const,
       }
 
+      const futureDatetime = new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString()
+
       test('accepts ISO 8601 duration', () => {
         expect(() =>
           workflowStepSchema.parse({ ...baseTimerStep, config: { duration: 'PT5M' } })
@@ -203,9 +205,8 @@ describe('Workflows Validators', () => {
       })
 
       test('accepts ISO datetime as "until"', () => {
-        const future = new Date(Date.now() + 60_000).toISOString()
         expect(() =>
-          workflowStepSchema.parse({ ...baseTimerStep, config: { until: future } })
+          workflowStepSchema.parse({ ...baseTimerStep, config: { until: futureDatetime } })
         ).not.toThrow()
       })
 
@@ -240,11 +241,10 @@ describe('Workflows Validators', () => {
       })
 
       test('rejects both duration and until', () => {
-        const future = new Date(Date.now() + 60_000).toISOString()
         expect(() =>
           workflowStepSchema.parse({
             ...baseTimerStep,
-            config: { duration: 'PT5M', until: future },
+            config: { duration: 'PT5M', until: futureDatetime },
           })
         ).toThrow(/not both/i)
       })
@@ -381,6 +381,8 @@ describe('Workflows Validators', () => {
         activityType: 'WAIT' as const,
       }
 
+      const futureDatetime = new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString()
+
       test('accepts ISO 8601 duration', () => {
         expect(() =>
           activityDefinitionSchema.parse({ ...baseWait, config: { duration: 'PT5M' } })
@@ -406,11 +408,10 @@ describe('Workflows Validators', () => {
       })
 
       test('rejects both duration and until', () => {
-        const future = new Date(Date.now() + 60_000).toISOString()
         expect(() =>
           activityDefinitionSchema.parse({
             ...baseWait,
-            config: { duration: 'PT5M', until: future },
+            config: { duration: 'PT5M', until: futureDatetime },
           })
         ).toThrow(/not both/i)
       })
