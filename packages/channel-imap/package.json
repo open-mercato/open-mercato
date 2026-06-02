@@ -66,7 +66,7 @@
     "@open-mercato/ui": "workspace:*",
     "imapflow": "^1.0.171",
     "mailparser": "^3.7.1",
-    "nodemailer": "^6.9.16"
+    "nodemailer": "^8.0.10"
   },
   "peerDependencies": {
     "@mikro-orm/postgresql": "^7.0.14",
@@ -78,7 +78,7 @@
     "@open-mercato/shared": "workspace:*",
     "@types/jest": "^30.0.0",
     "@types/mailparser": "^3.4.5",
-    "@types/nodemailer": "^6.4.17",
+    "@types/nodemailer": "^8.0.0",
     "@types/react": "^19.2.15",
     "@types/react-dom": "^19.2.3",
     "esbuild": "^0.28.0",
