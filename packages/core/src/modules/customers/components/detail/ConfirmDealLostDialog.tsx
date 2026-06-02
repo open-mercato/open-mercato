@@ -8,6 +8,7 @@ import { Alert, AlertDescription, AlertTitle } from '@open-mercato/ui/primitives
 import { Button } from '@open-mercato/ui/primitives/button'
 import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from '@open-mercato/ui/primitives/dialog'
 import { Textarea } from '@open-mercato/ui/primitives/textarea'
+import { useDialogKeyHandler } from '@open-mercato/ui/hooks/useDialogKeyHandler'
 
 type LossReasonOption = {
   id: string
@@ -80,12 +81,9 @@ export function ConfirmDealLostDialog({
     })
   }, [lossNotes, lossReasonId, onConfirm, t])
 
-  const handleKeyDown = React.useCallback((event: React.KeyboardEvent) => {
-    if ((event.metaKey || event.ctrlKey) && event.key === 'Enter') {
-      event.preventDefault()
-      void handleConfirm()
-    }
-  }, [handleConfirm])
+  const handleKeyDown = useDialogKeyHandler({
+    onConfirm: () => void handleConfirm(),
+  })
 
   return (
     <Dialog open={open} onOpenChange={(nextOpen) => { if (!nextOpen) onClose() }}>

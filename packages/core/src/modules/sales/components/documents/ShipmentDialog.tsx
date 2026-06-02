@@ -3,6 +3,7 @@
 import * as React from 'react'
 import { MapPin, Truck } from 'lucide-react'
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@open-mercato/ui/primitives/dialog'
+import { useDialogKeyHandler } from '@open-mercato/ui/hooks/useDialogKeyHandler'
 import { Input } from '@open-mercato/ui/primitives/input'
 import { Textarea } from '@open-mercato/ui/primitives/textarea'
 import { Label } from '@open-mercato/ui/primitives/label'
@@ -1109,13 +1110,10 @@ export function ShipmentDialog({
     ],
   )
 
-  const handleShortcutSubmit = React.useCallback((event: React.KeyboardEvent<HTMLDivElement>) => {
-    if ((event.metaKey || event.ctrlKey) && event.key === 'Enter') {
-      event.preventDefault()
-      const form = dialogContentRef.current?.querySelector('form')
-      form?.requestSubmit()
-    }
-  }, [])
+  const handleKeyDown = useDialogKeyHandler({
+    onConfirm: () => dialogContentRef.current?.querySelector('form')?.requestSubmit(),
+    onCancel: onClose,
+  })
 
   const fields = React.useMemo<CrudField[]>(() => {
     const shippingAdjustmentLabel = t(
@@ -1523,13 +1521,7 @@ export function ShipmentDialog({
       <DialogContent
         ref={dialogContentRef}
         className="sm:max-w-5xl"
-        onKeyDown={(event) => {
-          if (event.key === 'Escape') {
-            event.preventDefault()
-            onClose()
-          }
-          handleShortcutSubmit(event)
-        }}
+        onKeyDown={handleKeyDown}
       >
         <DialogHeader>
           <DialogTitle>

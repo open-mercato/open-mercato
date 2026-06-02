@@ -14,6 +14,7 @@ import {
 import { Button } from '@open-mercato/ui/primitives/button'
 import { apiCall } from '@open-mercato/ui/backend/utils/apiCall'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
+import { useDialogKeyHandler } from '@open-mercato/ui/hooks/useDialogKeyHandler'
 
 type Props = {
   open: boolean
@@ -87,15 +88,7 @@ export default function McpConfigDialog({ open, onOpenChange, mcpUrl }: Props) {
     }
   }
 
-  const handleKeyDown = React.useCallback(
-    (event: React.KeyboardEvent) => {
-      if (event.key === 'Escape') {
-        event.preventDefault()
-        onOpenChange(false)
-      }
-    },
-    [onOpenChange],
-  )
+  const handleKeyDown = useDialogKeyHandler({ onCancel: () => onOpenChange(false) })
 
   const handleClose = () => {
     setApiKey(null)
