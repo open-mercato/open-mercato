@@ -1,5 +1,6 @@
 /** @jest-environment node */
 import type { EntityManager } from '@mikro-orm/core'
+import { UNKNOWN_CUSTOM_FIELD_ERROR } from '@open-mercato/shared/modules/entities/validation'
 import { validateCustomFieldValuesServer } from '../validation'
 
 type ValidationRule =
@@ -104,5 +105,26 @@ describe('validateCustomFieldValuesServer', () => {
 
     expect(result.ok).toBe(false)
     expect(result.fieldErrors.cf_priority).toBe('org <= 3')
+  })
+
+  it('rejects undeclared custom field keys for the resolved entity scope', async () => {
+    const definition = createDefinition({
+      organizationId: 'org-1',
+      tenantId: 'tenant-1',
+      validation: [],
+    })
+    const em = {
+      find: jest.fn(async () => [definition]),
+    } as unknown as EntityManager
+
+    const result = await validateCustomFieldValuesServer(em, {
+      entityId: 'example:todo',
+      organizationId: 'org-1',
+      tenantId: 'tenant-1',
+      values: { priority: 1, undeclared: 'injected' },
+    })
+
+    expect(result.ok).toBe(false)
+    expect(result.fieldErrors.cf_undeclared).toBe(UNKNOWN_CUSTOM_FIELD_ERROR)
   })
 })
