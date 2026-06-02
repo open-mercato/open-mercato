@@ -12,6 +12,7 @@ import {
 } from '../data/validators'
 import { ensureOrganizationScope, ensureTenantScope } from './shared'
 import { CrudHttpError } from '@open-mercato/shared/lib/crud/errors'
+import { withAtomicFlush } from '@open-mercato/shared/lib/commands/flush'
 
 const createPipelineCommand: CommandHandler<PipelineCreateInput, { pipelineId: string }> = {
   id: 'customers.pipelines.create',
@@ -22,14 +23,6 @@ const createPipelineCommand: CommandHandler<PipelineCreateInput, { pipelineId: s
 
     const em = (ctx.container.resolve('em') as EntityManager).fork()
 
-    if (parsed.isDefault) {
-      await em.nativeUpdate(
-        CustomerPipeline,
-        { organizationId: parsed.organizationId, tenantId: parsed.tenantId, isDefault: true },
-        { isDefault: false }
-      )
-    }
-
     const pipeline = em.create(CustomerPipeline, {
       organizationId: parsed.organizationId,
       tenantId: parsed.tenantId,
@@ -38,8 +31,19 @@ const createPipelineCommand: CommandHandler<PipelineCreateInput, { pipelineId: s
       createdAt: new Date(),
       updatedAt: new Date(),
     })
-    em.persist(pipeline)
-    await em.flush()
+
+    await withAtomicFlush(em, [
+      async () => {
+        if (parsed.isDefault) {
+          await em.nativeUpdate(
+            CustomerPipeline,
+            { organizationId: parsed.organizationId, tenantId: parsed.tenantId, isDefault: true },
+            { isDefault: false }
+          )
+        }
+        em.persist(pipeline)
+      },
+    ], { transaction: true })
 
     return { pipelineId: pipeline.id }
   },
@@ -57,19 +61,21 @@ const updatePipelineCommand: CommandHandler<PipelineUpdateInput, void> = {
     ensureTenantScope(ctx, pipeline.tenantId)
     ensureOrganizationScope(ctx, pipeline.organizationId)
 
-    if (parsed.isDefault && !pipeline.isDefault) {
-      await em.nativeUpdate(
-        CustomerPipeline,
-        { organizationId: pipeline.organizationId, tenantId: pipeline.tenantId, isDefault: true },
-        { isDefault: false }
-      )
-    }
+    await withAtomicFlush(em, [
+      async () => {
+        if (parsed.isDefault && !pipeline.isDefault) {
+          await em.nativeUpdate(
+            CustomerPipeline,
+            { organizationId: pipeline.organizationId, tenantId: pipeline.tenantId, isDefault: true },
+            { isDefault: false }
+          )
+        }
 
-    if (parsed.name !== undefined) pipeline.name = parsed.name
-    if (parsed.isDefault !== undefined) pipeline.isDefault = parsed.isDefault
-    pipeline.updatedAt = new Date()
-
-    await em.flush()
+        if (parsed.name !== undefined) pipeline.name = parsed.name
+        if (parsed.isDefault !== undefined) pipeline.isDefault = parsed.isDefault
+        pipeline.updatedAt = new Date()
+      },
+    ], { transaction: true })
   },
 }
 
