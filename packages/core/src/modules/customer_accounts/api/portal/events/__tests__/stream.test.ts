@@ -56,6 +56,15 @@ function parseSseReadResult(result: ReadableStreamReadResult<Uint8Array>): Recor
   return JSON.parse(json) as Record<string, unknown>
 }
 
+// The stream flushes an initial `: connected` comment on open so the browser
+// EventSource fires `open` immediately. Drain it before asserting on event
+// payloads, which are sequenced one read per broadcast below.
+async function drainConnectedComment(reader: StreamReader): Promise<void> {
+  const result = await reader.read()
+  if (result.done || !result.value) throw new Error('Expected initial connected comment')
+  expect(new TextDecoder().decode(result.value)).toBe(': connected\n\n')
+}
+
 async function withTimeout<T>(promise: Promise<T>, ms = 25): Promise<{ status: 'resolved'; value: T } | { status: 'timeout' }> {
   return Promise.race([
     promise.then((value) => ({ status: 'resolved' as const, value })),
@@ -92,6 +101,9 @@ describe('Portal SSE event stream — audience filtering', () => {
     const secondReader = second.body!.getReader()
 
     try {
+      await drainConnectedComment(firstReader)
+      await drainConnectedComment(secondReader)
+
       const broadcast = await waitForPortalTap()
 
       const secondReadForFirstEvent = secondReader.read()
