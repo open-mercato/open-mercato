@@ -13,7 +13,8 @@ describe('feature_toggles ACL and route metadata', () => {
 
       expect(featureIds).toContain('feature_toggles.view')
       expect(featureIds).toContain('feature_toggles.manage')
-      expect(featureIds).toHaveLength(2)
+      expect(featureIds).toContain('feature_toggles.global.manage')
+      expect(featureIds).toHaveLength(3)
     })
 
     test('all features reference the correct module', async () => {
@@ -24,17 +25,51 @@ describe('feature_toggles ACL and route metadata', () => {
     })
   })
 
-  describe('setup.ts defaultRoleFeatures wildcard covers declared features', () => {
-    test('admin wildcard grant covers all declared features', async () => {
+  describe('global feature toggle authorization (issue #2266)', () => {
+    test('admin can view and manage per-tenant overrides', async () => {
       const { setup } = await import('../setup')
-      const { features } = await import('../acl')
+      const adminFeatures = (setup.defaultRoleFeatures?.admin ?? []) as string[]
 
-      const adminFeatures = setup.defaultRoleFeatures?.admin ?? []
-      expect(adminFeatures).toContain('feature_toggles.*')
+      expect(hasFeature(adminFeatures, 'feature_toggles.view')).toBe(true)
+      expect(hasFeature(adminFeatures, 'feature_toggles.manage')).toBe(true)
+    })
 
-      for (const feature of features) {
-        expect(hasFeature(adminFeatures as string[], feature.id)).toBe(true)
+    test('admin is NOT granted system-wide global toggle management', async () => {
+      const { setup } = await import('../setup')
+      const adminFeatures = (setup.defaultRoleFeatures?.admin ?? []) as string[]
+
+      // The `feature_toggles.*` wildcard must not be used, since FeatureToggle is a
+      // global (non-tenant-scoped) table; otherwise tenant admins could mutate
+      // platform-wide flags every other tenant depends on.
+      expect(adminFeatures).not.toContain('feature_toggles.*')
+      expect(hasFeature(adminFeatures, 'feature_toggles.global.manage')).toBe(false)
+    })
+
+    test('superadmin is granted system-wide global toggle management', async () => {
+      const { setup } = await import('../setup')
+      const superadminFeatures = (setup.defaultRoleFeatures?.superadmin ?? []) as string[]
+
+      expect(hasFeature(superadminFeatures, 'feature_toggles.global.manage')).toBe(true)
+    })
+
+    test('global write routes require the global-manage feature, not the tenant manage feature', () => {
+      const routeFile = path.resolve(__dirname, '..', 'api', 'global', 'route.ts')
+      const content = fs.readFileSync(routeFile, 'utf-8')
+
+      const writeMethods = content.match(/(POST|PUT|DELETE):\s*\{[^}]*requireFeatures:\s*\[[^\]]*\]/g) ?? []
+      expect(writeMethods.length).toBe(3)
+      for (const method of writeMethods) {
+        expect(method).toContain("feature_toggles.global.manage")
       }
+    })
+
+    test('global toggle commands enforce a super-admin guard (defense in depth)', () => {
+      const commandsFile = path.resolve(__dirname, '..', 'commands', 'global.ts')
+      const content = fs.readFileSync(commandsFile, 'utf-8')
+
+      // Each write command execute() must call the super-admin assertion.
+      const guardCalls = content.match(/assertGlobalToggleSuperAdmin\(ctx\)/g) ?? []
+      expect(guardCalls.length).toBeGreaterThanOrEqual(3)
     })
   })
 

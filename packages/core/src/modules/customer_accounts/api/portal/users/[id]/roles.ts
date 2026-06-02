@@ -75,19 +75,20 @@ export async function PUT(req: Request, { params }: { params: { id: string } }) 
     validatedRoles.push(role)
   }
 
-  // Remove existing roles
-  await em.nativeDelete(CustomerUserRole, { user: targetUser.id as any })
-
-  // Assign new roles
-  for (const role of validatedRoles) {
-    const userRole = em.create(CustomerUserRole, {
-      user: targetUser,
-      role,
-      createdAt: new Date(),
-    } as any)
-    em.persist(userRole)
-  }
-  await em.flush()
+  // Replace the role set atomically: deleting the old roles and inserting the new
+  // ones in one transaction prevents a flush failure from leaving the user with
+  // zero roles (portal lockout / privilege loss) (#2337).
+  await em.transactional(async (tx) => {
+    await tx.nativeDelete(CustomerUserRole, { user: targetUser.id as any })
+    for (const role of validatedRoles) {
+      const userRole = tx.create(CustomerUserRole, {
+        user: targetUser,
+        role,
+        createdAt: new Date(),
+      } as any)
+      tx.persist(userRole)
+    }
+  })
 
   await customerRbacService.invalidateUserCache(targetUser.id)
 

@@ -1758,17 +1758,25 @@ export class HybridQueryEngine implements QueryEngine {
     withDeleted: boolean
   ): Promise<{ baseCount: number; indexedCount: number } | null> {
     try {
-      if (!this.isCoverageOptimizationEnabled()) {
-        await refreshCoverageSnapshot(this.em, {
-          entityType: entity, tenantId, organizationId, withDeleted,
-        })
-      }
       const db = this.getDb()
-      const row = await readCoverageSnapshot(db as any, {
+      const scope = {
         entityType: entity, tenantId, organizationId, withDeleted,
-      })
-      if (!row) return null
-      return { baseCount: row.baseCount, indexedCount: row.indexedCount }
+      }
+      const row = await readCoverageSnapshot(db as any, scope)
+      if (row && this.isCoverageSnapshotFresh(row)) {
+        return { baseCount: row.baseCount, indexedCount: row.indexedCount }
+      }
+
+      if (this.isCoverageOptimizationEnabled()) {
+        this.scheduleCoverageRefresh(entity, tenantId, organizationId, withDeleted)
+        if (!row) return null
+        return { baseCount: row.baseCount, indexedCount: row.indexedCount }
+      }
+
+      await refreshCoverageSnapshot(this.em, scope)
+      const refreshed = await readCoverageSnapshot(db as any, scope)
+      if (!refreshed) return null
+      return { baseCount: refreshed.baseCount, indexedCount: refreshed.indexedCount }
     } catch (err) {
       if (this.isDebugVerbosity()) {
         this.debug('coverage:snapshot:read-error', {
@@ -1778,6 +1786,21 @@ export class HybridQueryEngine implements QueryEngine {
       }
       return null
     }
+  }
+
+  private isCoverageSnapshotFresh(
+    row: Awaited<ReturnType<typeof readCoverageSnapshot>>
+  ): boolean {
+    if (this.coverageStatsTtlMs <= 0) return false
+    if (!row) return false
+    const refreshedAt = row.refreshed_at instanceof Date
+      ? row.refreshed_at
+      : row.refreshed_at
+        ? new Date(row.refreshed_at)
+        : null
+    const refreshedAtMs = refreshedAt?.getTime()
+    if (!refreshedAtMs || !Number.isFinite(refreshedAtMs)) return false
+    return Date.now() - refreshedAtMs <= this.coverageStatsTtlMs
   }
 
   private scheduleAutoReindex(

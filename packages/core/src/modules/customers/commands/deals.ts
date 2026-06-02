@@ -384,7 +384,7 @@ const createDealCommand: CommandHandler<DealCreateInput, { dealId: string }> = {
           }))?.value ?? stageSnapshot.label
           : parsed.pipelineStage ?? null
       },
-      () => {
+      async () => {
         deal = em.create(CustomerDeal, {
           organizationId: parsed.organizationId,
           tenantId: parsed.tenantId,
@@ -405,10 +405,8 @@ const createDealCommand: CommandHandler<DealCreateInput, { dealId: string }> = {
           lossNotes: parsed.lossNotes ?? null,
         })
         em.persist(deal)
+        await em.flush()
       },
-    ], { transaction: true })
-
-    await withAtomicFlush(em, [
       async () => {
         const snapshot = stageSnapshot
         if (!snapshot) return

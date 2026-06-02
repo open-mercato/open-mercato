@@ -6,6 +6,7 @@ import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
 import { findOneWithDecryption, findWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import { buildChanges, emitCrudSideEffects, emitCrudUndoSideEffects, parseWithCustomFields, setCustomFieldsIfAny } from '@open-mercato/shared/lib/commands/helpers'
 import { buildCustomFieldResetMap, diffCustomFieldChanges, loadCustomFieldSnapshot, type CustomFieldSnapshot } from '@open-mercato/shared/lib/commands/customFieldSnapshots'
+import { withAtomicFlush } from '@open-mercato/shared/lib/commands/flush'
 import type { DataEngine } from '@open-mercato/shared/lib/data/engine'
 import type { CrudIndexerConfig } from '@open-mercato/shared/lib/crud/types'
 import { User } from '@open-mercato/core/modules/auth/data/entities'
@@ -270,30 +271,34 @@ const updateTeamMemberCommand: CommandHandler<StaffTeamMemberUpdateInput, { memb
     ensureTenantScope(ctx, member.tenantId)
     ensureOrganizationScope(ctx, member.organizationId)
 
-    if (parsed.userId !== undefined) {
-      if (parsed.userId) {
-        await ensureUserExists(em, parsed.userId, member.tenantId, member.organizationId)
-      }
-      member.userId = parsed.userId ?? null
+    // Resolve validation queries BEFORE mutating scalars: `ensure*` runs `em.find`,
+    // which would otherwise reset unit-of-work tracking between mutations and the
+    // flush and silently drop earlier scalar changes (SPEC-018 Problem 1).
+    if (parsed.userId !== undefined && parsed.userId) {
+      await ensureUserExists(em, parsed.userId, member.tenantId, member.organizationId)
     }
-    if (parsed.teamId !== undefined) {
-      if (parsed.teamId) {
-        await ensureTeamExists(em, parsed.teamId, member.tenantId, member.organizationId)
-      }
-      member.teamId = parsed.teamId ?? null
+    if (parsed.teamId !== undefined && parsed.teamId) {
+      await ensureTeamExists(em, parsed.teamId, member.tenantId, member.organizationId)
     }
+    let nextRoleIds: string[] | undefined
     if (parsed.roleIds !== undefined) {
-      const roleIds = normalizeStringList(parsed.roleIds)
-      await ensureRolesExist(em, roleIds, member.tenantId, member.organizationId)
-      member.roleIds = roleIds
+      nextRoleIds = normalizeStringList(parsed.roleIds)
+      await ensureRolesExist(em, nextRoleIds, member.tenantId, member.organizationId)
     }
-    if (parsed.tags !== undefined) member.tags = normalizeStringList(parsed.tags)
-    if (parsed.availabilityRuleSetId !== undefined) member.availabilityRuleSetId = parsed.availabilityRuleSetId ?? null
-    if (parsed.displayName !== undefined) member.displayName = parsed.displayName
-    if (parsed.description !== undefined) member.description = parsed.description ?? null
-    if (parsed.isActive !== undefined) member.isActive = parsed.isActive
-    member.updatedAt = new Date()
-    await em.flush()
+
+    await withAtomicFlush(em, [
+      () => {
+        if (parsed.userId !== undefined) member.userId = parsed.userId ?? null
+        if (parsed.teamId !== undefined) member.teamId = parsed.teamId ?? null
+        if (parsed.roleIds !== undefined) member.roleIds = nextRoleIds ?? []
+        if (parsed.tags !== undefined) member.tags = normalizeStringList(parsed.tags)
+        if (parsed.availabilityRuleSetId !== undefined) member.availabilityRuleSetId = parsed.availabilityRuleSetId ?? null
+        if (parsed.displayName !== undefined) member.displayName = parsed.displayName
+        if (parsed.description !== undefined) member.description = parsed.description ?? null
+        if (parsed.isActive !== undefined) member.isActive = parsed.isActive
+        member.updatedAt = new Date()
+      },
+    ], { transaction: true })
 
     const de = (ctx.container.resolve('dataEngine') as DataEngine)
     await setCustomFieldsIfAny({

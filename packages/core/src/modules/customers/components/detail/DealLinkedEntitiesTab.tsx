@@ -2,10 +2,11 @@
 
 import * as React from 'react'
 import Link from 'next/link'
-import { ArrowLeft, ArrowRight, Link2 } from 'lucide-react'
+import { Link2 } from 'lucide-react'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { Button } from '@open-mercato/ui/primitives/button'
 import { Input } from '@open-mercato/ui/primitives/input'
+import { Pagination } from '@open-mercato/ui/primitives/pagination'
 import { LinkEntityDialog, type LinkEntityAdapter, type LinkEntityOption } from '../linking/LinkEntityDialog'
 
 type LinkedEntityOption = {
@@ -52,49 +53,6 @@ function applyFilter(items: LinkedEntityOption[], query: string): LinkedEntityOp
     const subtitle = normalizeText(item.subtitle ?? '')
     return label.includes(normalizedQuery) || subtitle.includes(normalizedQuery)
   })
-}
-
-function Pagination({
-  page,
-  totalPages,
-  onPageChange,
-}: {
-  page: number
-  totalPages: number
-  onPageChange: (page: number) => void
-}) {
-  if (totalPages <= 1) return null
-  return (
-    <div className="flex items-center justify-between border-t border-border/70 pt-3 text-sm text-muted-foreground">
-      <span>
-        Page {page} of {totalPages}
-      </span>
-      <div className="flex items-center gap-2">
-        <Button
-          type="button"
-          variant="outline"
-          size="sm"
-          className="h-8 rounded-lg px-3 text-xs"
-          onClick={() => onPageChange(Math.max(1, page - 1))}
-          disabled={page <= 1}
-        >
-          <ArrowLeft className="mr-1.5 size-3.5" />
-          Previous
-        </Button>
-        <Button
-          type="button"
-          variant="outline"
-          size="sm"
-          className="h-8 rounded-lg px-3 text-xs"
-          onClick={() => onPageChange(Math.min(totalPages, page + 1))}
-          disabled={page >= totalPages}
-        >
-          Next
-          <ArrowRight className="ml-1.5 size-3.5" />
-        </Button>
-      </div>
-    </div>
-  )
 }
 
 export function DealLinkedEntitiesTab({
@@ -313,11 +271,15 @@ export function DealLinkedEntitiesTab({
                 </div>
               </Link>
             ))}
-            <Pagination
-              page={visiblePage}
-              totalPages={visibleTotalPages}
-              onPageChange={setPage}
-            />
+            {visibleTotalPages > 1 ? (
+              <Pagination
+                className="border-t border-border/70 pt-3"
+                page={visiblePage}
+                pageSize={PAGE_SIZE}
+                total={visibleTotalPages * PAGE_SIZE}
+                onPageChange={setPage}
+              />
+            ) : null}
           </div>
         ) : remoteLinkedLoading ? (
           <div className="rounded-lg border border-border bg-muted/20 px-5 py-5 text-sm text-muted-foreground">
