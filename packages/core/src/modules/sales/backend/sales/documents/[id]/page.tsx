@@ -4783,7 +4783,7 @@ export default function SalesDocumentDetailPage({
                   className={cn(
                     'h-auto rounded-none border-b-2 px-3 py-2 text-sm font-medium transition-colors hover:bg-transparent',
                     activeTab === tab.id
-                      ? 'border-b-2 border-primary text-primary'
+                      ? 'border-b-2 border-accent-indigo text-foreground'
                       : 'border-transparent text-muted-foreground hover:text-foreground'
                   )}
                   onClick={() => setActiveTab(tab.id)}

@@ -5870,7 +5870,12 @@ const convertQuoteToOrderCommand: CommandHandler<
   },
   async execute(rawInput, ctx) {
     const payload = quoteConvertToOrderSchema.parse(rawInput ?? {});
-    const rootEm = (ctx.container.resolve("em") as EntityManager).fork();
+    // When the caller supplies an existing transactional EntityManager, reuse it
+    // (and its row locks) so the quote status flip and the order materialization
+    // commit or roll back as one atomic unit — no out-of-band compensating write.
+    const callerEm = ctx.transactionalEm;
+    const rootEm =
+      callerEm ?? (ctx.container.resolve("em") as EntityManager).fork();
     const transactionalEm = rootEm as EntityManager & {
       transactional?: <TResult>(
         callback: (trx: EntityManager) => Promise<TResult>,
@@ -6195,12 +6200,21 @@ const convertQuoteToOrderCommand: CommandHandler<
 
       return { orderId: order.id };
     };
+    if (callerEm) {
+      // Already inside the caller's transaction — run directly so the whole flow
+      // stays a single transaction (no nested savepoint).
+      return runConversion(callerEm);
+    }
     return typeof transactionalEm.transactional === "function"
       ? transactionalEm.transactional((trx) => runConversion(trx))
       : runConversion(rootEm);
   },
   captureAfter: async (_input, result, ctx) => {
-    const em = (ctx.container.resolve("em") as EntityManager).fork();
+    // Prefer the caller's transactional EM so the just-created (still
+    // uncommitted) order is visible when building the audit "after" snapshot.
+    const em =
+      ctx.transactionalEm ??
+      (ctx.container.resolve("em") as EntityManager).fork();
     return loadOrderSnapshot(em, result.orderId);
   },
   buildLog: async ({ snapshots, result }) => {

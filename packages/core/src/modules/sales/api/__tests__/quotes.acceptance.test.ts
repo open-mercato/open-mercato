@@ -494,7 +494,7 @@ describe('accept - TOCTOU concurrency guard', () => {
   })
 })
 
-describe('accept - state rollback on conversion failure (fix: #1415)', () => {
+describe('accept - atomic conversion (fix: #1415, #2114)', () => {
   const ACCEPTANCE_TOKEN = '00000000-0000-4000-8000-000000000003'
 
   beforeEach(async () => {
@@ -507,7 +507,7 @@ describe('accept - state rollback on conversion failure (fix: #1415)', () => {
     ;(getCachedRateLimiterService as jest.Mock).mockReturnValue(mockRateLimiterService)
   })
 
-  test('reverts quote status to sent when order conversion fails', async () => {
+  test('runs the conversion inside the locking transaction with no out-of-band compensating write on failure', async () => {
     const quote = {
       id: '99999999-9999-4999-8999-999999999999',
       tenantId: '00000000-0000-4000-8000-000000000000',
@@ -519,8 +519,21 @@ describe('accept - state rollback on conversion failure (fix: #1415)', () => {
       updatedAt: new Date(),
     }
 
+    // The conversion must be attempted *inside* the transaction callback so a
+    // failure rolls back the status flip together with any partial order. We
+    // assert the command bus is invoked while the transaction is open and that
+    // no second compensating flush runs afterwards — the DB rollback (proven by
+    // the integration test) restores the quote, so #2114's unlocked compensating
+    // write is gone.
+    let insideTransaction = false
+    let convertCalledInsideTransaction = false
     mockEm.transactional = jest.fn(async (callback: (trx: any) => Promise<unknown>) => {
-      return callback(mockEm)
+      insideTransaction = true
+      try {
+        return await callback(mockEm)
+      } finally {
+        insideTransaction = false
+      }
     }) as any
 
     mockEm.findOne.mockImplementation(async (cls: any, where: any) => {
@@ -534,11 +547,54 @@ describe('accept - state rollback on conversion failure (fix: #1415)', () => {
       return null
     })
 
-    mockCommandBus.execute.mockRejectedValue(new Error('Conversion failed'))
+    mockCommandBus.execute.mockImplementation(async () => {
+      convertCalledInsideTransaction = insideTransaction
+      throw new Error('Conversion failed')
+    })
 
     const res = await acceptQuote(makeAcceptRequest({ token: ACCEPTANCE_TOKEN }))
     expect(res.status).toBe(400)
-    expect(quote.status).toBe('sent')
+    expect(convertCalledInsideTransaction).toBe(true)
+    expect(mockEm.transactional).toHaveBeenCalledTimes(1)
+    // Only the in-transaction status-flip flush ran; the removed compensating
+    // path would have produced a second flush.
+    expect(mockEm.flush).toHaveBeenCalledTimes(1)
+  })
+
+  test('passes the transactional EM to convert_to_order so the command joins the same transaction', async () => {
+    const quote = {
+      id: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',
+      tenantId: '00000000-0000-4000-8000-000000000000',
+      organizationId: '11111111-1111-4111-8111-111111111111',
+      quoteNumber: 'SQ-ATOMIC-1',
+      status: 'sent',
+      statusEntryId: null,
+      validUntil: new Date(Date.now() + 60_000),
+      updatedAt: new Date(),
+    }
+
+    const trxSentinel: Record<string, unknown> = { __trx: true }
+    mockEm.transactional = jest.fn(async (callback: (trx: any) => Promise<unknown>) => callback(trxSentinel)) as any
+
+    mockEm.findOne.mockImplementation(async (cls: any, where: any) => {
+      if (cls === SalesQuote) return where?.acceptanceToken ? quote : null
+      if (cls === Dictionary) return { id: 'dict-1' }
+      if (cls === DictionaryEntry) return { id: 'entry-confirmed' }
+      if (cls === SalesOrder) return { id: quote.id, orderNumber: 'SO-ATOMIC-1', deletedAt: null }
+      return null
+    })
+    // The route flips the quote and flushes through the transactional EM.
+    trxSentinel.findOne = mockEm.findOne
+    trxSentinel.persist = mockEm.persist
+    trxSentinel.flush = mockEm.flush
+    mockCommandBus.execute.mockResolvedValue({ result: { orderId: quote.id } })
+
+    const res = await acceptQuote(makeAcceptRequest({ token: ACCEPTANCE_TOKEN }))
+    expect(res.status).toBe(200)
+
+    const [commandId, options] = mockCommandBus.execute.mock.calls[0]
+    expect(commandId).toBe('sales.quotes.convert_to_order')
+    expect(options.ctx.transactionalEm).toBe(trxSentinel)
   })
 })
 

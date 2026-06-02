@@ -27,10 +27,16 @@ import {
 } from '@open-mercato/core/modules/planner/components/unavailabilityReasons'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { useConfirmDialog } from '@open-mercato/ui/backend/confirm-dialog'
+import { normalizeCrudServerError } from '@open-mercato/ui/backend/utils/serverErrors'
 import { parseAvailabilityRuleWindow } from '@open-mercato/core/modules/planner/lib/availabilitySchedule'
+import { deleteAvailabilityRuleSet } from '@open-mercato/core/modules/planner/lib/deleteAvailabilityRuleSet'
 import { CrudForm, type CrudField } from '@open-mercato/ui/backend/CrudForm'
 import { Calendar, Clock, List, PencilLine, Plus, Trash2 } from 'lucide-react'
-import { resolveRuleSetSelectValue } from './availabilityRulesEditorState'
+import {
+  resolveRuleSetSelectValue,
+  requiresResetConfirmation,
+  selectCustomRuleIdsToDelete,
+} from './availabilityRulesEditorState'
 
 type AvailabilityRepeat = 'once' | 'daily' | 'weekly'
 type AvailabilitySubjectType = 'member' | 'resource' | 'ruleset'
@@ -76,6 +82,7 @@ export type AvailabilityRulesEditorProps = {
   initialTimezone?: string
   rulesetId?: string | null
   onRulesetChange?: (rulesetId: string | null) => Promise<void>
+  allowRuleSetDelete?: boolean
   buildScheduleItems: AvailabilityScheduleItemBuilder
   loadBookedEvents?: (range: ScheduleRange) => Promise<AvailabilityBookedEvent[]>
   readOnly?: boolean
@@ -353,6 +360,7 @@ export function AvailabilityRulesEditor({
   initialTimezone,
   rulesetId,
   onRulesetChange,
+  allowRuleSetDelete,
   buildScheduleItems,
   loadBookedEvents,
   readOnly,
@@ -455,7 +463,7 @@ export function AvailabilityRulesEditor({
       ruleSetPlaceholder: t(`${labelPrefix}.availability.ruleset.placeholder`, 'Custom schedule'),
       ruleSetCustomize: t(`${labelPrefix}.availability.ruleset.customize`, 'Customize schedule'),
       ruleSetReset: t(`${labelPrefix}.availability.ruleset.reset`, 'Reset to schedule'),
-      ruleSetConfirm: t(`${labelPrefix}.availability.ruleset.confirm`, 'Changing the schedule will reset custom hours. Continue?'),
+      ruleSetConfirm: t(`${labelPrefix}.availability.ruleset.confirm`, 'Resetting to the schedule will delete your custom hours. Continue?'),
       ruleSetLoading: t(`${labelPrefix}.availability.ruleset.loading`, 'Loading schedules...'),
       ruleSetError: t(`${labelPrefix}.availability.ruleset.error`, 'Failed to load schedules.'),
       ruleSetCreateLabel: t(`${labelPrefix}.availability.ruleset.create`, 'New schedule'),
@@ -465,6 +473,11 @@ export function AvailabilityRulesEditor({
       ruleSetCreateTimezoneLabel: t(`${labelPrefix}.availability.ruleset.createTimezone`, 'Timezone'),
       ruleSetCreateSuccess: t(`${labelPrefix}.availability.ruleset.createSuccess`, 'Schedule saved.'),
       ruleSetCreateError: t(`${labelPrefix}.availability.ruleset.createError`, 'Failed to save schedule.'),
+      ruleSetDelete: t(`${labelPrefix}.availability.ruleset.delete`, 'Delete schedule'),
+      ruleSetDeleteConfirm: t(`${labelPrefix}.availability.ruleset.deleteConfirm`, 'Delete schedule "{{name}}"?'),
+      ruleSetDeleteSubmit: t(`${labelPrefix}.availability.ruleset.deleteSubmit`, 'Delete'),
+      ruleSetDeleteSuccess: t(`${labelPrefix}.availability.ruleset.deleteSuccess`, 'Schedule deleted.'),
+      ruleSetDeleteError: t(`${labelPrefix}.availability.ruleset.deleteError`, 'Failed to delete schedule.'),
       editTitle: t(`${modeBase}.form.title.edit`, 'Edit availability'),
       addTitle: t(`${modeBase}.form.title.create`, 'Add availability'),
       applyLabel: t(`${labelPrefix}.availability.actions.apply`, 'Apply'),
@@ -957,9 +970,17 @@ export function AvailabilityRulesEditor({
   const handleResetToRuleSet = React.useCallback(async () => {
     if (isReadOnly) return
     if (!effectiveRulesetId) return
+    if (requiresResetConfirmation(availabilityRules)) {
+      const confirmed = await confirm({
+        title: listLabels.ruleSetConfirm,
+        variant: 'destructive',
+      })
+      if (!confirmed) return
+    }
     try {
+      const idsToDelete = selectCustomRuleIdsToDelete('reset', availabilityRules)
       await Promise.all(
-        availabilityRules.map((rule) => deleteCrud('planner/availability', rule.id, { errorMessage: listLabels.saveWeeklyError })),
+        idsToDelete.map((id) => deleteCrud('planner/availability', id, { errorMessage: listLabels.saveWeeklyError })),
       )
       setCustomOverridesEnabled(false)
       await refreshAvailability()
@@ -967,19 +988,16 @@ export function AvailabilityRulesEditor({
       const message = error instanceof Error ? error.message : listLabels.saveWeeklyError
       flash(message, 'error')
     }
-  }, [availabilityRules, effectiveRulesetId, listLabels.saveWeeklyError, refreshAvailability, isReadOnly])
+  }, [availabilityRules, confirm, effectiveRulesetId, listLabels.ruleSetConfirm, listLabels.saveWeeklyError, refreshAvailability, isReadOnly])
 
   const handleRuleSetChange = React.useCallback(async (nextId: string | null) => {
     if (isReadOnly) return
     if (!onRulesetChange) return
-    if (availabilityRules.length > 0 && nextId !== effectiveRulesetId) {
-      const confirmed = await confirm({
-        title: listLabels.ruleSetConfirm,
-        variant: 'default',
-      })
-      if (!confirmed) return
+    // Switching preserves saved custom hours (#2325); only an explicit reset clears them.
+    const idsToDelete = selectCustomRuleIdsToDelete('switch', availabilityRules)
+    if (idsToDelete.length) {
       await Promise.all(
-        availabilityRules.map((rule) => deleteCrud('planner/availability', rule.id, { errorMessage: listLabels.saveWeeklyError })),
+        idsToDelete.map((id) => deleteCrud('planner/availability', id, { errorMessage: listLabels.saveWeeklyError })),
       )
     }
     setSelectedRulesetId(nextId)
@@ -993,13 +1011,52 @@ export function AvailabilityRulesEditor({
     }
   }, [
     availabilityRules,
-    confirm,
     effectiveRulesetId,
-    listLabels.ruleSetConfirm,
     listLabels.saveWeeklyError,
     onRulesetChange,
     refreshAvailability,
     isReadOnly,
+  ])
+
+  const handleDeleteRuleSet = React.useCallback(async () => {
+    if (isReadOnly || !onRulesetChange || !rulesetId) return
+    const selected = ruleSets.find((entry) => entry.id === rulesetId)
+    const name = selected?.name ?? rulesetId
+    await deleteAvailabilityRuleSet({
+      ruleSetId: rulesetId,
+      confirmDelete: () => confirm({
+        title: listLabels.ruleSetDeleteConfirm.replace('{{name}}', name),
+        confirmText: listLabels.ruleSetDeleteSubmit,
+        variant: 'destructive',
+      }),
+      deleteRuleSet: async (id) => {
+        await deleteCrud('planner/availability-rule-sets', id, { errorMessage: listLabels.ruleSetDeleteError })
+      },
+      clearAssignment: async () => {
+        setCustomOverridesEnabled(false)
+        await onRulesetChange(null)
+        await refreshAvailability()
+      },
+      refreshRuleSets,
+      onSuccess: () => flash(listLabels.ruleSetDeleteSuccess, 'success'),
+      onError: (error) => {
+        console.error('planner.availability-rule-sets.delete', error)
+        const normalized = normalizeCrudServerError(error)
+        flash(normalized.message ?? listLabels.ruleSetDeleteError, 'error')
+      },
+    })
+  }, [
+    confirm,
+    isReadOnly,
+    listLabels.ruleSetDeleteConfirm,
+    listLabels.ruleSetDeleteError,
+    listLabels.ruleSetDeleteSubmit,
+    listLabels.ruleSetDeleteSuccess,
+    onRulesetChange,
+    refreshAvailability,
+    refreshRuleSets,
+    ruleSets,
+    rulesetId,
   ])
 
   const ruleSetFormSchema = React.useMemo(
@@ -1360,6 +1417,18 @@ export function AvailabilityRulesEditor({
               {effectiveRulesetId && !usingRuleSet ? (
                 <Button type="button" variant="ghost" size="sm" onClick={handleResetToRuleSet} disabled={isReadOnly}>
                   {listLabels.ruleSetReset}
+                </Button>
+              ) : null}
+              {allowRuleSetDelete && rulesetId ? (
+                <Button
+                  type="button"
+                  variant="destructive-outline"
+                  size="sm"
+                  onClick={() => { void handleDeleteRuleSet() }}
+                  disabled={isReadOnly}
+                >
+                  <Trash2 className="size-4 mr-2" aria-hidden />
+                  {listLabels.ruleSetDelete}
                 </Button>
               ) : null}
             </div>

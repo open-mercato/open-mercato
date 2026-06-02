@@ -129,7 +129,9 @@ services:
     container_name: mercato-redis-${DEPLOY_ENV:-local}
     # ports not exposed - only accessible within docker network
     volumes:
+      - ./docker/redis/redis.conf:/usr/local/etc/redis/redis.conf
       - redis_data:/data
+    command: redis-server /usr/local/etc/redis/redis.conf --maxmemory ${REDIS_MAXMEMORY:-512mb}
     healthcheck:
       test: ["CMD", "redis-cli", "ping"]
       interval: 10s
