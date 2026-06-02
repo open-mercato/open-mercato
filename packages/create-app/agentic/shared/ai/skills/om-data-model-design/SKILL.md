@@ -291,7 +291,7 @@ export class Ticket {
 
 ### Fetching Related Data
 
-To display related data from another module, use a **Response Enricher** (see `system-extension` skill):
+To display related data from another module, use a **Response Enricher** (see `om-system-extension` skill):
 
 ```typescript
 // data/enrichers.ts
