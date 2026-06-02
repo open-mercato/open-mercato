@@ -14,13 +14,13 @@ type Ctx = Parameters<typeof buildSchedulerJobsFilters>[1]
 const makeCtx = (overrides: Partial<{
   tenantId: string | null
   orgId: string | null
-  roles: unknown
+  isSuperAdmin: boolean
   organizationIds: string[] | null
 }> = {}): Ctx => ({
   auth: {
     tenantId: overrides.tenantId === undefined ? 't1' : overrides.tenantId,
     orgId: overrides.orgId === undefined ? 'o1' : overrides.orgId,
-    roles: overrides.roles === undefined ? ['admin'] : overrides.roles,
+    isSuperAdmin: overrides.isSuperAdmin === undefined ? false : overrides.isSuperAdmin,
   },
   organizationIds: overrides.organizationIds === undefined ? ['o1'] : overrides.organizationIds,
 })
@@ -42,7 +42,7 @@ describe('buildSchedulerJobsFilters — scope visibility (#815, #1587)', () => {
   it('adds a system-scope branch only for superadmins', async () => {
     const filters = await buildSchedulerJobsFilters(
       {},
-      makeCtx({ roles: ['superadmin'] }),
+      makeCtx({ isSuperAdmin: true }),
     )
     const or = filters.$or as Record<string, unknown>[]
     expect(or).toContainEqual({
@@ -55,7 +55,19 @@ describe('buildSchedulerJobsFilters — scope visibility (#815, #1587)', () => {
   it('does NOT leak system-scope rows to non-superadmins', async () => {
     const filters = await buildSchedulerJobsFilters(
       {},
-      makeCtx({ roles: ['admin'] }),
+      makeCtx({ isSuperAdmin: false }),
+    )
+    const or = filters.$or as Record<string, unknown>[]
+    const systemBranch = or.find(
+      (branch) => (branch.scope_type as { $eq?: string } | undefined)?.$eq === 'system',
+    )
+    expect(systemBranch).toBeUndefined()
+  })
+
+  it('does NOT grant system-scope visibility to a spoofed role named "superadmin" without the isSuperAdmin flag', async () => {
+    const filters = await buildSchedulerJobsFilters(
+      {},
+      { auth: { tenantId: 't1', orgId: 'o1', isSuperAdmin: false }, organizationIds: ['o1'] },
     )
     const or = filters.$or as Record<string, unknown>[]
     const systemBranch = or.find(
@@ -82,7 +94,7 @@ describe('buildSchedulerJobsFilters — scope visibility (#815, #1587)', () => {
   it('distributes search across every visibility branch (name + description)', async () => {
     const filters = await buildSchedulerJobsFilters(
       { search: 'nightly' },
-      makeCtx({ roles: ['superadmin'] }),
+      makeCtx({ isSuperAdmin: true }),
     )
     const or = filters.$or as Record<string, unknown>[]
     // 3 visibility branches (org, tenant, system) × 2 columns (name, description) = 6

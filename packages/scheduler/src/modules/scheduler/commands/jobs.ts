@@ -99,12 +99,11 @@ function ensureTenantScope(ctx: CommandRuntimeContext, tenantId: string | null |
   }
 }
 
+// Super-admin status is the immutable `isSuperAdmin` flag derived from
+// RoleAcl/UserAcl at session resolution. Never compare role names to a string
+// like 'superadmin' — role names are tenant-mutable and trivially spoofable.
 function isSuperAdminActor(ctx: CommandRuntimeContext): boolean {
-  if (ctx.auth?.isSuperAdmin === true) return true
-  const roles = Array.isArray(ctx.auth?.roles) ? ctx.auth.roles : []
-  return roles.some(
-    (role: unknown) => typeof role === 'string' && role.trim().toLowerCase() === 'superadmin',
-  )
+  return ctx.auth?.isSuperAdmin === true
 }
 
 // `ensureTenantScope` is a no-op for system-scoped jobs (tenantId === null), so a
