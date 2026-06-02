@@ -1,5 +1,6 @@
 import type { EntityId } from '@open-mercato/shared/modules/entities'
 import type { Profiler } from '../profiler'
+import type { ResolvedCustomFieldDefinitions } from '../crud/custom-field-definition-index'
 
 export type FilterOp = 'eq' | 'ne' | 'gt' | 'gte' | 'lt' | 'lte' | 'in' | 'nin' | 'like' | 'ilike' | 'exists'
 
@@ -147,6 +148,14 @@ export type QueryResult<T = any> = {
   pageSize: number
   total: number
   meta?: QueryResultMeta
+  /**
+   * Custom-field definitions the engine resolved while building this result
+   * (only present when `includeCustomFields: true`). Lets the CRUD factory
+   * decorate list rows without reloading definitions from the DB (issue #2133).
+   * Internal contract — additive and optional; callers must treat absence as a
+   * cue to load definitions themselves.
+   */
+  customFieldDefinitions?: ResolvedCustomFieldDefinitions
 }
 
 export interface QueryEngine {

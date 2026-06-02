@@ -1,10 +1,10 @@
 'use client'
 
 import * as React from 'react'
+import { Avatar } from '@open-mercato/ui/primitives/avatar'
 import { Badge } from '@open-mercato/ui/primitives/badge'
 import { Settings2, SquarePen, Plus, Trash2, UserRoundPlus, ArrowRight } from 'lucide-react'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
-import { getInitials } from './utils'
 
 type ChangelogActionType = 'create' | 'edit' | 'delete' | 'assign' | 'system'
 type ChangelogSource = 'ui' | 'api' | 'system'
@@ -84,9 +84,11 @@ export function ChangelogEntryRow({ entry }: ChangelogEntryRowProps) {
       </div>
 
       <div className="flex items-start gap-2">
-        <div className="flex size-7 shrink-0 items-center justify-center rounded-full bg-muted text-xs font-semibold text-muted-foreground">
-          {entry.actorUserId ? getInitials(actorLabel) : <Settings2 className="size-3.5" />}
-        </div>
+        {entry.actorUserId ? (
+          <Avatar label={actorLabel} size="sm" variant="monochrome" />
+        ) : (
+          <Avatar label="" icon={<Settings2 />} size="sm" variant="monochrome" />
+        )}
         <span className="truncate pt-1 text-sm text-foreground">{actorLabel}</span>
       </div>
 

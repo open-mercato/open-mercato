@@ -73,6 +73,9 @@ function createHarness(messageOverrides: Partial<Message> = {}, recipients: Arra
     nativeDelete: jest.fn(async () => {}),
     create: jest.fn((_entity: unknown, data: Record<string, unknown>) => ({ ...data })),
     persist: jest.fn(),
+    begin: jest.fn(async () => {}),
+    commit: jest.fn(async () => {}),
+    rollback: jest.fn(async () => {}),
   }
   const container = {
     resolve: jest.fn((name: string) => {
@@ -192,5 +195,30 @@ describe('messages.messages.update_draft command send transition', () => {
     expect(emFork.flush.mock.invocationCallOrder[0]).toBeLessThan(
       emitMessagesEventMock.mock.invocationCallOrder[0],
     )
+    expect(emFork.begin).toHaveBeenCalledTimes(1)
+    expect(emFork.commit).toHaveBeenCalledTimes(1)
+    expect(emFork.rollback).not.toHaveBeenCalled()
+    expect(emFork.begin.mock.invocationCallOrder[0]).toBeLessThan(
+      emFork.flush.mock.invocationCallOrder[0],
+    )
+    expect(emFork.flush.mock.invocationCallOrder[0]).toBeLessThan(
+      emFork.commit.mock.invocationCallOrder[0],
+    )
+  })
+
+  it('rolls back the transaction and emits no events when the atomic flush fails', async () => {
+    const { command, emFork, eventBus, ctx } = createHarness({}, [
+      { recipientUserId, recipientType: 'to', deletedAt: null },
+    ])
+    const flushError = new Error('[internal] flush failed')
+    emFork.flush.mockRejectedValueOnce(flushError)
+
+    await expect(command.execute(updateInput(), ctx)).rejects.toThrow(flushError)
+
+    expect(emFork.begin).toHaveBeenCalledTimes(1)
+    expect(emFork.rollback).toHaveBeenCalledTimes(1)
+    expect(emFork.commit).not.toHaveBeenCalled()
+    expect(eventBus.emitEvent).not.toHaveBeenCalled()
+    expect(emitMessagesEventMock).not.toHaveBeenCalled()
   })
 })

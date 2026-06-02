@@ -298,15 +298,17 @@ describe('createPaymentCommand.execute — tenant-scoped entity lookups', () => 
 })
 
 // ---------------------------------------------------------------------------
-// Fix 2: updatePaymentCommand.execute — flush before allocation sync
+// Fix 2: updatePaymentCommand.execute — atomic scalar mutations + allocation sync
 // ---------------------------------------------------------------------------
 
-describe('updatePaymentCommand.execute — flush ordering (scalar mutations before allocation query)', () => {
-  it('flushes scalar mutations before querying existing allocations', async () => {
+describe('updatePaymentCommand.execute — atomic allocation rebuild (#2336)', () => {
+  it('rebuilds allocations inside an atomic em.transactional() block', async () => {
     const execute = commandRegistry.get('sales.payments.update')?.execute
     expect(execute).toBeInstanceOf(Function)
 
-    const callOrder: string[] = []
+    let transactionalCalled = false
+    let transactionalDepth = 0
+    let allocationQueriedInsideTransaction = false
 
     const mockPayment = {
       id: TEST_PAYMENT_ID,
@@ -341,16 +343,24 @@ describe('updatePaymentCommand.execute — flush ordering (scalar mutations befo
       .mockResolvedValueOnce(mockPayment)  // scopeSeed lookup
       .mockResolvedValueOnce(mockPayment)  // payment lookup (with populate: ['order'])
 
-    // Track allocation queries via findWithDecryption instead of em.find
+    // The existing-allocations query (filter.payment) must run inside the transaction
+    // so the scalar mutations and the allocation rebuild commit all-or-nothing.
     ;(findWithDecryption as jest.Mock).mockImplementation((_em: unknown, _entity: unknown, filter: Record<string, unknown>) => {
-      if (filter?.payment !== undefined) callOrder.push('find:allocations')
+      if (filter?.payment !== undefined && transactionalDepth > 0) {
+        allocationQueriedInsideTransaction = true
+      }
       return Promise.resolve([])
     })
 
-    const { em, ctx } = buildCommandCtx({
-      flush: jest.fn().mockImplementation(() => {
-        callOrder.push('flush')
-        return Promise.resolve()
+    const { ctx } = buildCommandCtx({
+      transactional: jest.fn().mockImplementation(async (callback: (tx: any) => Promise<unknown>) => {
+        transactionalCalled = true
+        transactionalDepth++
+        try {
+          return await callback(buildMockEm())
+        } finally {
+          transactionalDepth--
+        }
       }),
     })
 
@@ -364,12 +374,8 @@ describe('updatePaymentCommand.execute — flush ordering (scalar mutations befo
       ctx as any,
     )
 
-    const firstFlushIdx = callOrder.indexOf('flush')
-    const firstAllocFindIdx = callOrder.indexOf('find:allocations')
-
-    expect(firstFlushIdx).toBeGreaterThanOrEqual(0)
-    expect(firstAllocFindIdx).toBeGreaterThanOrEqual(0)
-    expect(firstFlushIdx).toBeLessThan(firstAllocFindIdx)
+    expect(transactionalCalled).toBe(true)
+    expect(allocationQueriedInsideTransaction).toBe(true)
   })
 })
 

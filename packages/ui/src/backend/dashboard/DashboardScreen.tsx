@@ -14,6 +14,7 @@ import { GripVertical, Info, Plus, RefreshCw, Settings2, Trash2, X, Loader2 } fr
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { useOrganizationScopeVersion } from '@open-mercato/shared/lib/frontend/useOrganizationScope'
 import { InjectionSpot } from '../injection/InjectionSpot'
+import { WidgetDataBatchProvider } from './widgetData'
 
 type DashboardWidgetSize = 'sm' | 'md' | 'lg'
 
@@ -429,6 +430,7 @@ export function DashboardScreen() {
         </div>
       )}
 
+      <WidgetDataBatchProvider>
       <div className={cn(
         'grid gap-3 sm:gap-4 md:gap-6',
         'grid-cols-1',
@@ -493,6 +495,7 @@ export function DashboardScreen() {
           )
         })}
       </div>
+      </WidgetDataBatchProvider>
 
       {layout.length === 0 && (
         <div className="rounded-lg border border-dashed bg-muted/30 p-10 text-center text-sm text-muted-foreground">
