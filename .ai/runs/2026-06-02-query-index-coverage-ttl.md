@@ -47,6 +47,7 @@ Add tests proving fresh snapshots skip `refreshCoverageSnapshot`, stale snapshot
 - `yarn exec tsc -p packages/core/tsconfig.json --noEmit` — passed after `yarn generate`.
 - `yarn typecheck` — passed after `yarn generate`.
 - `yarn workspace @open-mercato/core test` — blocked by unrelated existing failure in `src/modules/api_keys/api/__tests__/keys.route.test.ts` (`em.transactional is not a function` in the test mock); rerunning that single test reproduces the same failure.
+- Follow-up for CI: `yarn workspace @open-mercato/core test --runTestsByPath src/modules/api_keys/api/__tests__/keys.route.test.ts` — passed after adding the missing transactional EM mock.
 
 ## PR
 
