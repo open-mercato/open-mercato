@@ -1,4 +1,5 @@
 import type { EntityManager } from '@mikro-orm/core'
+import { runWithCacheTenant, type CacheStrategy } from '@open-mercato/cache'
 import type { EventBus } from '@open-mercato/events'
 import { BusinessRule, RuleExecutionLog, type RuleType } from '../data/entities'
 import * as ruleEvaluator from './rule-evaluator'
@@ -22,6 +23,7 @@ const EXECUTION_RESULT_FAILURE = 'FAILURE'
 const MAX_RULES_PER_EXECUTION = 100
 const MAX_SINGLE_RULE_TIMEOUT_MS = 30000  // 30 seconds
 const MAX_TOTAL_EXECUTION_TIMEOUT_MS = 60000  // 60 seconds
+const RULE_DISCOVERY_CACHE_TTL = 5 * 60 * 1000
 
 /**
  * Rule execution context
@@ -86,8 +88,138 @@ export interface RuleDiscoveryOptions {
   ruleType?: RuleType
 }
 
+type CachedRuleDiscovery = {
+  ruleIds: string[]
+}
+
+export type RuleDiscoveryCache = Pick<CacheStrategy, 'get' | 'set' | 'deleteByTags'>
+
+export type RuleDiscoveryCacheOptions = {
+  cache?: RuleDiscoveryCache | null
+}
+
+function normalizeCachePart(value: string | null | undefined): string {
+  return encodeURIComponent(value?.trim() || '*')
+}
+
+function getRuleDiscoveryCacheKey(options: RuleDiscoveryOptions): string {
+  return [
+    normalizeCachePart(options.tenantId),
+    normalizeCachePart(options.organizationId),
+    normalizeCachePart(options.entityType),
+    normalizeCachePart(options.eventType),
+    normalizeCachePart(options.ruleType),
+  ].join(':')
+}
+
+function isCachedRuleDiscovery(value: unknown): value is CachedRuleDiscovery {
+  if (!value || typeof value !== 'object') return false
+  const ruleIds = (value as CachedRuleDiscovery).ruleIds
+  return Array.isArray(ruleIds) && ruleIds.every((entry) => typeof entry === 'string')
+}
+
+export function isRuleDiscoveryCache(value: unknown): value is RuleDiscoveryCache {
+  if (!value || typeof value !== 'object') return false
+  const candidate = value as Partial<RuleDiscoveryCache>
+  return (
+    typeof candidate.get === 'function'
+    && typeof candidate.set === 'function'
+    && typeof candidate.deleteByTags === 'function'
+  )
+}
+
+export function resolveBusinessRuleDiscoveryCache(resolve: (token: string) => unknown): RuleDiscoveryCache | null {
+  try {
+    const cache = resolve('cache')
+    return isRuleDiscoveryCache(cache) ? cache : null
+  } catch {
+    return null
+  }
+}
+
+function getRuleDiscoveryCacheTags(options: Pick<RuleDiscoveryOptions, 'organizationId'>): string[] {
+  return [
+    'business_rules:discovery',
+    `business_rules:discovery:organization:${options.organizationId}`,
+  ]
+}
+
+async function getCachedRuleDiscovery(
+  cache: RuleDiscoveryCache | null | undefined,
+  options: RuleDiscoveryOptions,
+): Promise<CachedRuleDiscovery | null> {
+  if (!cache) return null
+
+  let value: unknown
+  try {
+    value = await runWithCacheTenant(options.tenantId, () =>
+      cache.get(getRuleDiscoveryCacheKey(options))
+    )
+  } catch (error) {
+    console.warn('[business_rules] Failed to read rule discovery cache:', error)
+    return null
+  }
+
+  return isCachedRuleDiscovery(value) ? value : null
+}
+
+async function cacheRuleDiscovery(
+  cache: RuleDiscoveryCache | null | undefined,
+  options: RuleDiscoveryOptions,
+  rules: BusinessRule[],
+): Promise<void> {
+  if (!cache) return
+
+  const ruleIds = rules
+    .map((rule) => rule.id)
+    .filter((id): id is string => typeof id === 'string' && id.length > 0)
+
+  if (ruleIds.length !== rules.length) return
+
+  try {
+    await runWithCacheTenant(options.tenantId, () =>
+      cache.set(
+        getRuleDiscoveryCacheKey(options),
+        { ruleIds },
+        {
+          ttl: RULE_DISCOVERY_CACHE_TTL,
+          tags: getRuleDiscoveryCacheTags(options),
+        },
+      )
+    )
+  } catch (error) {
+    console.warn('[business_rules] Failed to write rule discovery cache:', error)
+  }
+}
+
+export async function invalidateBusinessRuleDiscoveryCache(
+  cache: RuleDiscoveryCache | null | undefined,
+  tenantId?: string | null,
+  organizationId?: string | null,
+): Promise<void> {
+  if (!cache) return
+
+  const normalizedTenantId = tenantId?.trim()
+  const normalizedOrganizationId = organizationId?.trim()
+
+  if (!normalizedTenantId) {
+    return
+  }
+
+  const tags = normalizedOrganizationId
+    ? [`business_rules:discovery:organization:${normalizedOrganizationId}`]
+    : ['business_rules:discovery']
+
+  try {
+    await runWithCacheTenant(normalizedTenantId, () => cache.deleteByTags(tags))
+  } catch (error) {
+    console.warn('[business_rules] Failed to invalidate rule discovery cache:', error)
+  }
+}
+
 export type RuleEngineExecutionOptions = {
   eventBus?: Pick<EventBus, 'emitEvent'> | null
+  cache?: RuleDiscoveryCache | null
 }
 
 type RuleExecutionFailedPayload = {
@@ -213,7 +345,7 @@ export async function executeRules(
       eventType: context.eventType,
       tenantId: context.tenantId,
       organizationId: context.organizationId,
-    })
+    }, { cache: options.cache })
 
     // Check rule count limit
     if (rules.length > MAX_RULES_PER_EXECUTION) {
@@ -468,14 +600,14 @@ export async function executeSingleRule(
  */
 export async function findApplicableRules(
   em: EntityManager,
-  options: RuleDiscoveryOptions
+  options: RuleDiscoveryOptions,
+  cacheOptions: RuleDiscoveryCacheOptions = {},
 ): Promise<BusinessRule[]> {
   // Validate input
   ruleDiscoveryOptionsSchema.parse(options)
 
   const { entityType, eventType, tenantId, organizationId, ruleType } = options
-
-  const where: Partial<BusinessRule> = {
+  const baseWhere: Record<string, unknown> = {
     entityType,
     tenantId,
     organizationId,
@@ -484,16 +616,38 @@ export async function findApplicableRules(
   }
 
   if (eventType) {
-    where.eventType = eventType
+    baseWhere.eventType = eventType
   }
 
   if (ruleType) {
-    where.ruleType = ruleType
+    baseWhere.ruleType = ruleType
   }
 
-  const rules = await em.find(BusinessRule, where, {
-    orderBy: { priority: 'DESC', ruleId: 'ASC' },
-  })
+  const cached = await getCachedRuleDiscovery(cacheOptions.cache, options)
+  let rules: BusinessRule[]
+
+  if (cached) {
+    if (cached.ruleIds.length === 0) {
+      rules = []
+    } else {
+      const cachedRules = await em.find(BusinessRule, {
+        ...baseWhere,
+        id: { $in: cached.ruleIds },
+      }, {
+        orderBy: { priority: 'DESC', ruleId: 'ASC' },
+      } as any)
+      const byId = new Map(cachedRules.map((rule) => [rule.id, rule]))
+      rules = cached.ruleIds
+        .map((id) => byId.get(id))
+        .filter((rule): rule is BusinessRule => Boolean(rule))
+    }
+  } else {
+    rules = await em.find(BusinessRule, baseWhere as Partial<BusinessRule>, {
+      orderBy: { priority: 'DESC', ruleId: 'ASC' },
+    })
+
+    await cacheRuleDiscovery(cacheOptions.cache, options, rules)
+  }
 
   // Filter by effective date range
   const now = new Date()

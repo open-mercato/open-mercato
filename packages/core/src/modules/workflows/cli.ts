@@ -4,6 +4,10 @@ import { getRedisUrl, getRedisUrlOrThrow } from '@open-mercato/shared/lib/redis/
 import type { EntityManager } from '@mikro-orm/postgresql'
 import { WorkflowDefinition } from './data/entities'
 import { BusinessRule, type RuleType } from '@open-mercato/core/modules/business_rules/data/entities'
+import {
+  invalidateBusinessRuleDiscoveryCache,
+  resolveBusinessRuleDiscoveryCache,
+} from '@open-mercato/core/modules/business_rules/lib/rule-engine'
 import * as fs from 'fs'
 import * as path from 'path'
 import { fileURLToPath } from 'url'
@@ -69,6 +73,7 @@ const seedDemoWithRules: ModuleCli = {
     try {
       const { resolve } = await createRequestContainer()
       const em = resolve<EntityManager>('em')
+      const cache = resolveBusinessRuleDiscoveryCache(resolve)
 
       // Import BusinessRule entity
       const { BusinessRule } = await import('../business_rules/data/entities')
@@ -100,6 +105,7 @@ const seedDemoWithRules: ModuleCli = {
         })
 
         await em.persist(rule).flush()
+        await invalidateBusinessRuleDiscoveryCache(cache, tenantId, organizationId)
         console.log(`  ✓ Seeded guard rule: ${rule.ruleName}`)
         seededCount++
       }
@@ -211,6 +217,7 @@ const seedOrderApproval: ModuleCli = {
     try {
       const { resolve } = await createRequestContainer()
       const em = resolve<EntityManager>('em')
+      const cache = resolveBusinessRuleDiscoveryCache(resolve)
 
       // 1. Seed order approval guard rules first
       const guardRulesPath = path.join(__dirname, 'examples', 'order-approval-guard-rules.json')
@@ -252,6 +259,7 @@ const seedOrderApproval: ModuleCli = {
 
       if (rulesSeeded > 0) {
         await em.flush()
+        await invalidateBusinessRuleDiscoveryCache(cache, tenantId, organizationId)
       }
 
       console.log(`✅ Seeded order approval guard rules`)
