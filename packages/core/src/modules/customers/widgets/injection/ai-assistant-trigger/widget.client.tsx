@@ -24,6 +24,7 @@ import { useAiDock } from '@open-mercato/ui/ai/AiDock'
 import { useAiChatSessions } from '@open-mercato/ui/ai/AiChatSessions'
 import { ChatPaneTabs } from '@open-mercato/ui/ai/ChatPaneTabs'
 import { Button } from '@open-mercato/ui/primitives/button'
+import { ButtonGroup } from '@open-mercato/ui/primitives/button-group'
 import { IconButton } from '@open-mercato/ui/primitives/icon-button'
 import {
   Dialog,
@@ -525,7 +526,7 @@ export default function AiAssistantTriggerWidget({ context }: AiAssistantTrigger
 
   return (
     <>
-      <div className="inline-flex items-center">
+      <ButtonGroup>
         <Button
           type="button"
           variant="outline"
@@ -533,11 +534,7 @@ export default function AiAssistantTriggerWidget({ context }: AiAssistantTrigger
           data-ai-customers-inject-trigger=""
           aria-label={triggerLabel}
           title={triggerLabel}
-          className={cn(
-            'relative',
-            'hover:bg-brand-violet/10',
-            agents.length > 1 && 'rounded-r-none border-r-0',
-          )}
+          className={cn('relative', 'hover:bg-brand-violet/10')}
         >
           <AiIcon className="size-4" />
           <span>{labelText}</span>
@@ -556,10 +553,8 @@ export default function AiAssistantTriggerWidget({ context }: AiAssistantTrigger
               <IconButton
                 type="button"
                 variant="outline"
-                size="lg"
                 aria-label={moreAgentsLabel}
                 title={moreAgentsLabel}
-                className="rounded-l-none"
                 data-ai-customers-inject-picker=""
               >
                 <ChevronDown className="size-4" aria-hidden />
@@ -593,7 +588,7 @@ export default function AiAssistantTriggerWidget({ context }: AiAssistantTrigger
             </PopoverContent>
           </Popover>
         ) : null}
-      </div>
+      </ButtonGroup>
       <Dialog open={open} onOpenChange={setOpen}>
         <DialogContent
           className={cn(
