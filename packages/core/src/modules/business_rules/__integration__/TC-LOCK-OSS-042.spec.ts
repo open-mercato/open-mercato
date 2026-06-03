@@ -29,17 +29,13 @@ import { fillControlledInput } from '@open-mercato/core/modules/core/__integrati
  * 409 → conflict bar). See
  * `packages/core/src/modules/sales/__integration__/__concurrent_edit_pattern.md`.
  *
- * KNOWN PRODUCT GAP (PR #2055) — the two stale-edit tests are `test.fixme` until fixed:
- * the business_rules PUT routes are hand-rolled (NOT `makeCrudRoute`) and never read
- * `OPTIMISTIC_LOCK_HEADER_NAME` / compare `updated_at`, so a stale edit is silently
- * accepted (HTTP 200, no 409) and the conflict bar never appears — even though the edit
- * pages DO send `buildOptimisticLockHeader(...)`. Files to fix on #2055:
- *   - packages/core/src/modules/business_rules/api/rules/route.ts (PUT)
- *   - packages/core/src/modules/business_rules/api/sets/route.ts  (PUT)
- * They must adopt the optimistic-lock contract (return 409 + OPTIMISTIC_LOCK_CONFLICT_CODE
- * on a stale `updated_at`). Once the routes enforce the lock, remove the `.fixme` markers
- * below and the tests pass unchanged. The clean-save test stays active and proves the
- * fixtures/locators/routes are all correct.
+ * The business_rules PUT/DELETE routes are hand-rolled (NOT `makeCrudRoute`); they now call
+ * `enforceCommandOptimisticLock(...)` after loading the rule/set and return the structured
+ * 409 (`OPTIMISTIC_LOCK_CONFLICT_CODE`) on a stale `updated_at`, so a stale edit surfaces the
+ * unified conflict bar. Files:
+ *   - packages/core/src/modules/business_rules/api/rules/route.ts (PUT + DELETE)
+ *   - packages/core/src/modules/business_rules/api/sets/route.ts  (PUT + DELETE)
+ * The clean-save test stays active and proves the fixtures/locators/routes are all correct.
  *
  * NOTE: the GET surfaces here are instance paths
  * (`/api/business_rules/{rules,sets}/<id>`), but the out-of-band bump targets
@@ -49,8 +45,7 @@ import { fillControlledInput } from '@open-mercato/core/modules/core/__integrati
  */
 
 test.describe('TC-LOCK-OSS-042: business rule + rule set edit optimistic-lock conflict bar', () => {
-  // fixme: business_rules rules PUT route ignores the lock header (see header note).
-  test.fixme('stale business rule edit shows the conflict bar; clean edit does not', async ({ page }) => {
+  test('stale business rule edit shows the conflict bar; clean edit does not', async ({ page }) => {
     const token = await getAuthToken(page.request, 'admin')
     const scope = getTokenScope(token)
     const stamp = Date.now()
@@ -137,8 +132,7 @@ test.describe('TC-LOCK-OSS-042: business rule + rule set edit optimistic-lock co
     }
   })
 
-  // fixme: business_rules sets PUT route ignores the lock header (see header note).
-  test.fixme('stale rule set edit shows the conflict bar', async ({ page }) => {
+  test('stale rule set edit shows the conflict bar', async ({ page }) => {
     const token = await getAuthToken(page.request, 'admin')
     const scope = getTokenScope(token)
     const stamp = Date.now()
