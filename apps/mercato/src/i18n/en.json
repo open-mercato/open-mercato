@@ -1002,7 +1002,7 @@
   "ui.perspectives.form.confirmCreate": "Create view",
   "ui.perspectives.form.makeDefault": "Set as default",
   "ui.perspectives.form.nameLabel": "Name",
-  "ui.perspectives.form.namePlaceholder": "e.g. My condensed view",
+  "ui.perspectives.form.namePlaceholder": "View name...",
   "ui.perspectives.form.noRolesAvailable": "No roles available.",
   "ui.perspectives.form.save": "Save view",
   "ui.perspectives.form.saving": "Saving…",
