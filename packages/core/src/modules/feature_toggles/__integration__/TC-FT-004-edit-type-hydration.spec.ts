@@ -1,4 +1,5 @@
 import { expect, test } from '@playwright/test'
+import { login } from '@open-mercato/core/modules/core/__integration__/helpers/auth'
 import { apiRequest, getAuthToken } from '@open-mercato/core/modules/core/__integration__/helpers/api'
 import { readJsonSafe } from '@open-mercato/core/modules/core/__integration__/helpers/generalFixtures'
 import {
@@ -93,6 +94,35 @@ test.describe('TC-FT-004: Feature toggle edit form hydrates and persists type', 
       expect(buildEditInitialValues(reopened ?? {}, toggleId).type).toBe('number')
     } finally {
       await deleteFeatureToggleIfExists(request, token, toggleId)
+    }
+  })
+
+  // Browser regression for #2452: the API mapping passing is NOT enough — the bug
+  // was a render race where the `type` SELECT mounted before the loaded value
+  // arrived and never re-synced, so the Type field showed "—" in the UI even
+  // though the record had a type. This drives the real edit page.
+  test('the Type select hydrates the stored value on the edit page (UI)', async ({ page }) => {
+    const token = await getAuthToken(page.request, 'superadmin')
+    const identifier = `qa_edit_type_ui_${Date.now()}`
+    let toggleId: string | null = null
+    try {
+      toggleId = await createFeatureToggleFixture(page.request, token, {
+        identifier,
+        name: 'QA Edit Type UI',
+        type: 'boolean',
+        defaultValue: true,
+      })
+
+      await login(page, 'superadmin')
+      await page.goto(`/backend/feature-toggles/global/${toggleId}/edit`)
+
+      const typeField = page.locator('[data-crud-field-id="type"]').first()
+      await expect(typeField).toBeVisible({ timeout: 15_000 })
+      // The select must render the stored type, NOT the empty placeholder "—".
+      await expect(typeField).toContainText(/boolean/i, { timeout: 15_000 })
+      await expect(typeField).not.toContainText('—')
+    } finally {
+      await deleteFeatureToggleIfExists(page.request, token, toggleId)
     }
   })
 })
