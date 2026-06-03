@@ -23,7 +23,7 @@ cases → ~33 spec files, `TC-LOCK-OSS-014…046`). All green on the ephemeral e
 
 | # | Spec file (module `__integration__/`) | Manual cases | Status |
 |---|---|---|---|
-| 0 | `helpers/integration/optimisticLockUi.ts` (+ export wiring) | shared | todo |
+| 0 | `helpers/integration/optimisticLockUi.ts` (+ export wiring) | shared | **done** (585e03d) |
 | 1 | customers `TC-LOCK-OSS-014` companies-v2 edit+delete (same-user) | CRM-01/02/03 | todo |
 | 2 | customers `TC-LOCK-OSS-015` people-v2 edit+delete | CRM-04/05 | todo |
 | 3 | customers `TC-LOCK-OSS-016` deals edit + list delete | CRM-06/07 | todo |
@@ -50,7 +50,7 @@ cases → ~33 spec files, `TC-LOCK-OSS-014…046`). All green on the ephemeral e
 | 24 | resources `TC-LOCK-OSS-037` resources + resource-types | RES-01/02/03 | todo |
 | 25 | planner `TC-LOCK-OSS-038` ruleset + availability schedule | PLN-01/02 | todo |
 | 26 | directory `TC-LOCK-OSS-039` organizations + tenants | DIR-01/02 | todo |
-| 27 | currencies `TC-LOCK-OSS-040` currencies + exchange-rates | CUR-01/02 | todo |
+| 27 | currencies `TC-LOCK-OSS-040` currencies + exchange-rates | CUR-01/02 | **wip** — CUR-01 done (382e195); CUR-02 todo |
 | 28 | feature_toggles/dictionaries `TC-LOCK-OSS-041` toggles + dictionaries + entries | FT-01, DICT-01/02 | todo |
 | 29 | business_rules `TC-LOCK-OSS-042` rules + rule sets + perspectives | BR-01/02, PSP-01 | todo |
 | 30 | inbox_ops/webhooks/data_sync `TC-LOCK-OSS-043` settings + webhooks + sync schedule | INB-01, WHK-01, SYNC-01 | todo |
