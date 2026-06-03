@@ -140,3 +140,4 @@ apps/mercato/data/cache.db
 
 # Official modules submodule — personal activation override
 official-modules.local.json
+.claude/settings.local.json
