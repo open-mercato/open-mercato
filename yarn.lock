@@ -7305,6 +7305,8 @@ __metadata:
     "@open-mercato/cache": "workspace:*"
     "@open-mercato/channel-gmail": "workspace:*"
     "@open-mercato/channel-imap": "workspace:*"
+    "@open-mercato/channel-resend": "workspace:*"
+    "@open-mercato/channel-ses": "workspace:*"
     "@open-mercato/checkout": "workspace:*"
     "@open-mercato/cli": "workspace:*"
     "@open-mercato/content": "workspace:*"
@@ -7446,6 +7448,56 @@ __metadata:
     nodemailer: "npm:^9.0.0"
     react: "npm:19.2.7"
     react-dom: "npm:19.2.7"
+    ts-jest: "npm:^29.4.11"
+  peerDependencies:
+    "@mikro-orm/postgresql": ^7.0.14
+    "@open-mercato/shared": "workspace:*"
+    react: ^19.0.0
+    react-dom: ^19.0.0
+  languageName: unknown
+  linkType: soft
+
+"@open-mercato/channel-resend@workspace:*, @open-mercato/channel-resend@workspace:packages/channel-resend":
+  version: 0.0.0-use.local
+  resolution: "@open-mercato/channel-resend@workspace:packages/channel-resend"
+  dependencies:
+    "@open-mercato/core": "workspace:*"
+    "@open-mercato/shared": "workspace:*"
+    "@types/jest": "npm:^30.0.0"
+    "@types/react": "npm:^19.2.15"
+    "@types/react-dom": "npm:^19.2.3"
+    esbuild: "npm:^0.28.0"
+    glob: "npm:^13.0.6"
+    jest: "npm:^30.4.2"
+    react: "npm:19.2.6"
+    react-dom: "npm:19.2.6"
+    resend: "npm:^6.12.4"
+    ts-jest: "npm:^29.4.11"
+  peerDependencies:
+    "@mikro-orm/postgresql": ^7.0.14
+    "@open-mercato/shared": "workspace:*"
+    react: ^19.0.0
+    react-dom: ^19.0.0
+  languageName: unknown
+  linkType: soft
+
+"@open-mercato/channel-ses@workspace:*, @open-mercato/channel-ses@workspace:packages/channel-ses":
+  version: 0.0.0-use.local
+  resolution: "@open-mercato/channel-ses@workspace:packages/channel-ses"
+  dependencies:
+    "@aws-sdk/client-sesv2": "npm:^3.946.0"
+    "@open-mercato/core": "workspace:*"
+    "@open-mercato/shared": "workspace:*"
+    "@types/jest": "npm:^30.0.0"
+    "@types/nodemailer": "npm:^8.0.0"
+    "@types/react": "npm:^19.2.15"
+    "@types/react-dom": "npm:^19.2.3"
+    esbuild: "npm:^0.28.0"
+    glob: "npm:^13.0.6"
+    jest: "npm:^30.4.2"
+    nodemailer: "npm:^8.0.10"
+    react: "npm:19.2.6"
+    react-dom: "npm:19.2.6"
     ts-jest: "npm:^29.4.11"
   peerDependencies:
     "@mikro-orm/postgresql": ^7.0.14

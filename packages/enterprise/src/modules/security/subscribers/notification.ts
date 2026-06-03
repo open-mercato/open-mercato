@@ -105,6 +105,8 @@ export default async function notificationSubscriber(
     await sendEmail({
       to: user.email,
       subject: 'Multi-factor authentication enabled',
+      tenantId: user.tenantId,
+      organizationId: user.organizationId,
       react: MfaEnrolledEmail({
         methodLabel,
         enrolledAtIso,

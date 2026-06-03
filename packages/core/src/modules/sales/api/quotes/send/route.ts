@@ -213,6 +213,8 @@ export async function POST(req: Request) {
       to: email,
       subject: translate('sales.quotes.email.subject', 'Quote {quoteNumber}', { quoteNumber: quote.quoteNumber }),
       react: QuoteSentEmail({ url, copy }),
+      tenantId: quote.tenantId,
+      organizationId: quote.organizationId,
     })
 
     if (guardResult.afterSuccessCallbacks.length) {

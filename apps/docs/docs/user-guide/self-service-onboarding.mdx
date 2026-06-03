@@ -20,7 +20,7 @@ Self-service onboarding activates only when all of these values are present:
 
 ```env
 SELF_SERVICE_ONBOARDING_ENABLED=true
-EMAIL_PROVIDER=resend
+SYSTEM_EMAIL_PROVIDER=resend
 RESEND_API_KEY=your_resend_api_key
 NOTIFICATIONS_EMAIL_FROM=notifications@your-domain.com
 EMAIL_FROM=no-reply@your-domain.com
@@ -29,9 +29,9 @@ ADMIN_EMAIL=ops@your-domain.com
 ```
 
 - `SELF_SERVICE_ONBOARDING_ENABLED` - explicit opt-in toggle (defaults to `false`).
-- `EMAIL_PROVIDER` - outbound email provider. Omit it or set `resend` for Resend; set `ses` for Amazon SES.
-- `RESEND_API_KEY` - required when `EMAIL_PROVIDER` is unset or `resend`.
-- `AWS_SES_REGION` / `AWS_REGION` - optional AWS region override when `EMAIL_PROVIDER=ses`; otherwise the AWS SDK default region chain is used.
+- `SYSTEM_EMAIL_PROVIDER` - outbound system email provider registered through Communications Hub. Omit it or set `resend` for Resend; set `ses` for Amazon SES.
+- `RESEND_API_KEY` - required when `SYSTEM_EMAIL_PROVIDER` is unset or `resend`.
+- `AWS_SES_REGION` / `AWS_REGION` - AWS region when `SYSTEM_EMAIL_PROVIDER=ses`; otherwise the AWS SDK default region chain is used by the SES channel provider.
 - `NOTIFICATIONS_EMAIL_FROM` - optional notification-specific sender override. If set, it is used before `EMAIL_FROM`.
 - `EMAIL_FROM` - default sender address visible to the recipient.
 - `APP_URL` - public base URL used to build verification links.

@@ -2,7 +2,7 @@ import * as React from 'react'
 import { promises as fs } from 'fs'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import { sendEmail } from '@open-mercato/shared/lib/email/send'
-import { resolveDefaultEmailFromAddress, resolveEmailProvider } from '@open-mercato/shared/lib/email/config'
+import { resolveDefaultEmailFromAddress } from '@open-mercato/shared/lib/email/config'
 import { loadDictionary } from '@open-mercato/shared/lib/i18n/server'
 import { defaultLocale } from '@open-mercato/shared/lib/i18n/config'
 import { createFallbackTranslator } from '@open-mercato/shared/lib/i18n/translate'
@@ -188,7 +188,6 @@ export async function sendMessageEmailToRecipient(params: {
     recipientEmail,
     hasViewUrl: Boolean(viewUrl),
     attachmentsCount: emailAttachments.length,
-    provider: resolveEmailProvider(),
     from: resolveDefaultEmailFromAddress() ?? null,
   })
 
@@ -207,6 +206,8 @@ export async function sendMessageEmailToRecipient(params: {
       objectLabels: resolveObjectLabels(objects),
     }),
     attachments: emailAttachments,
+    tenantId: message.tenantId,
+    organizationId: message.organizationId ?? null,
   })
 }
 
@@ -225,7 +226,6 @@ export async function sendMessageEmailToExternal(params: {
     messageId: message.id,
     email,
     attachmentsCount: emailAttachments.length,
-    provider: resolveEmailProvider(),
     from: resolveDefaultEmailFromAddress() ?? null,
   })
 
@@ -244,6 +244,8 @@ export async function sendMessageEmailToExternal(params: {
       objectLabels: resolveObjectLabels(objects),
     }),
     attachments: emailAttachments,
+    tenantId: message.tenantId,
+    organizationId: message.organizationId ?? null,
   })
   logDebug('External email sent', {
     messageId: message.id,

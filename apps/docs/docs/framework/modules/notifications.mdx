@@ -28,7 +28,7 @@ The Notifications module provides actionable in-app notifications that allow use
 
 ## Email sender configuration
 
-Notification emails use the shared outbound email provider. Omit `EMAIL_PROVIDER` or set it to `resend` for Resend, or set `EMAIL_PROVIDER=ses` for Amazon SES. SES uses the AWS SDK credential chain and `AWS_SES_REGION` / `AWS_REGION` when present.
+Notification emails use the Communications Hub system email transport. Omit `SYSTEM_EMAIL_PROVIDER` or set it to `resend` for the Resend channel provider, or set `SYSTEM_EMAIL_PROVIDER=ses` for the Amazon SES channel provider. SES uses the AWS SDK credential chain and `AWS_SES_REGION` / `AWS_REGION` when present.
 
 Notification emails resolve their sender in this order:
 
