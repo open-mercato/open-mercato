@@ -24,3 +24,19 @@ Append-only. Newest at the bottom.
   TC-LOCK-OSS-042: 2 stale-edit tests `test.fixme` (flip green once routes fixed) + clean-save test green.
 - Directory note: superadmin ORG edit GET omits updatedAt (aggregate branch) → no bar for superadmin; admin path
   (single-tenant branch) is correct and is what -039 exercises. Minor; not blocking.
+
+## 2026-06-03 — batch-2 landed (7 green specs) + 2 more PRODUCT BUGS
+- GREEN & pushed: TC-LOCK-OSS-014 companies-v2 (3), -015 people-v2 (2, clean-save guard dropped as flaky/covered-elsewhere),
+  -019 product (2), -020 variant (2; delete via API fallback — variant form renders no delete button by design),
+  -031 auth roles+ACL (3), -032 auth users+ACL (2), -043 webhooks+inbox+sync (4, API-level).
+- **PRODUCT BUG (#2055) — workflows.definition PUT ignores the lock at runtime** even though it registers a reader +
+  calls validateCrudMutationGuard and has a passing UNIT test. Likely root cause: the request-scoped
+  crudMutationGuardService snapshots getAllOptimisticLockReaders() at container-build time, but the route-registered
+  reader ('workflows.definition') is an import side-effect of the route module → absent from the snapshot → guard
+  short-circuits. Stale PUT returns 200 (verified live). This timing bug could affect OTHER route-registered readers.
+  TC-LOCK-OSS-044: WF clean-save green; 2 stale WF tests test.fixme.
+- **PRODUCT GAP (#2055) — custom-entity record PUT (entities.records) registers no reader / no guard** → stale write
+  returns 200, no bar, though the edit page sends the header. TC-LOCK-OSS-044 ENT-01 test.fixme.
+- CHK-01/02 (checkout) N/A on OSS — no enforceCommandOptimisticLock checkout route exists.
+- TOTAL so far: 15 spec files + helper; ~38 active tests green; 5 test.fixme documenting 3 product findings
+  (business_rules rules/sets, workflows.definition, entities.records).

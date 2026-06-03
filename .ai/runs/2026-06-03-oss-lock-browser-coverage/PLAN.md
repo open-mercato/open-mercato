@@ -24,13 +24,13 @@ cases → ~33 spec files, `TC-LOCK-OSS-014…046`). All green on the ephemeral e
 | # | Spec file (module `__integration__/`) | Manual cases | Status |
 |---|---|---|---|
 | 0 | `helpers/integration/optimisticLockUi.ts` (+ export wiring) | shared | **done** (585e03d) |
-| 1 | customers `TC-LOCK-OSS-014` companies-v2 edit+delete (same-user) | CRM-01/02/03 | todo |
-| 2 | customers `TC-LOCK-OSS-015` people-v2 edit+delete | CRM-04/05 | todo |
+| 1 | customers `TC-LOCK-OSS-014` companies-v2 edit+delete (same-user) | CRM-01/02/03 | **done** (3) |
+| 2 | customers `TC-LOCK-OSS-015` people-v2 edit+delete | CRM-04/05 | **done** (2; clean-save guard dropped—covered elsewhere) |
 | 3 | customers `TC-LOCK-OSS-016` deals edit + list delete | CRM-06/07 | todo |
 | 4 | customers `TC-LOCK-OSS-017` deals kanban won/lost + drag | CRM-08/09 | todo |
 | 5 | customers `TC-LOCK-OSS-018` activities/tasks modal + delete-after-delete + done/cancel + timeline | CRM-10/11/12/13 | todo |
-| 6 | catalog `TC-LOCK-OSS-019` product edit (UI bar) | CAT-01 | todo |
-| 7 | catalog `TC-LOCK-OSS-020` variant edit + delete | CAT-02/03 | todo |
+| 6 | catalog `TC-LOCK-OSS-019` product edit (UI bar) | CAT-01 | **done** (2) |
+| 7 | catalog `TC-LOCK-OSS-020` variant edit + delete | CAT-02/03 | **done** (2; delete via API fallback—no delete btn on variant form) |
 | 8 | catalog `TC-LOCK-OSS-021` category edit + delete | CAT-05/06 | **done** (3 tests) |
 | 9 | catalog `TC-LOCK-OSS-022` option-schema edit/delete | CAT-07 | todo |
 | 10 | catalog `TC-LOCK-OSS-023` false-positives (variant price overrides, offers/unit-conv) + price kinds | CAT-08/09/10 | todo |
@@ -41,8 +41,8 @@ cases → ~33 spec files, `TC-LOCK-OSS-014…046`). All green on the ephemeral e
 | 15 | sales `TC-LOCK-OSS-028` channels edit + broken-state delete | SAL-11/12 | todo |
 | 16 | sales `TC-LOCK-OSS-029` channel offers edit + list delete | SAL-13 | todo |
 | 17 | sales `TC-LOCK-OSS-030` settings dialogs (payment/shipping/tax) | SAL-14/15/16 | todo |
-| 18 | auth `TC-LOCK-OSS-031` role edit + delete + ACL clobber | AUTH-01/02/05 | todo |
-| 19 | auth `TC-LOCK-OSS-032` user edit + ACL | AUTH-03/04 | todo |
+| 18 | auth `TC-LOCK-OSS-031` role edit + delete + ACL clobber | AUTH-01/02/05 | **done** (3; ACL via API fallback) |
+| 19 | auth `TC-LOCK-OSS-032` user edit + ACL | AUTH-03/04 | **done** (2; ACL via API fallback) |
 | 20 | customer_accounts `TC-LOCK-OSS-033` role edit/delete (UI) | AUTH-07 | todo |
 | 21 | auth `TC-LOCK-OSS-034` sidebar customization | AUTH-08 | todo |
 | 22 | staff `TC-LOCK-OSS-035` team-roles + teams (member deferred) | STF-01/02 | **done** (4 tests) |
@@ -53,8 +53,8 @@ cases → ~33 spec files, `TC-LOCK-OSS-014…046`). All green on the ephemeral e
 | 27 | currencies `TC-LOCK-OSS-040` currencies + exchange-rates | CUR-01/02 | **wip** — CUR-01 done (382e195); CUR-02 todo |
 | 28 | feature_toggles/dictionaries `TC-LOCK-OSS-041` toggles + dictionaries + entries | FT-01, DICT-01/02 | **done** (4 tests) |
 | 29 | business_rules `TC-LOCK-OSS-042` rules + rule sets + perspectives | BR-01/02, PSP-01 | **blocked** — PRODUCT BUG: BR routes ignore lock; 2 `test.fixme`, clean-save green; PSP-01 todo |
-| 30 | inbox_ops/webhooks/data_sync `TC-LOCK-OSS-043` settings + webhooks + sync schedule | INB-01, WHK-01, SYNC-01 | todo |
-| 31 | checkout/workflows/entities `TC-LOCK-OSS-044` pay link + template + workflow def + custom entity | CHK-01/02, WF-01, ENT-01 | todo |
+| 30 | webhooks `TC-LOCK-OSS-043` webhook + inbox + sync schedule | INB-01, WHK-01, SYNC-01 | **done** (4; API-level) |
+| 31 | workflows `TC-LOCK-OSS-044` workflow def + custom entity (+checkout N/A) | WF-01, ENT-01 | **blocked** — 2 PRODUCT BUGS (workflows.definition + entities.records ignore lock); WF clean-save green, 3 `test.fixme`; CHK N/A on OSS |
 | 32 | ui `TC-LOCK-OSS-045` conflict-bar UX (persist/refresh/dismiss/auto-clear/i18n/409 body) | UX-01..07 | todo |
 | 33 | shared `TC-LOCK-OSS-046` negatives (additive/opt-out/v1 dead route/back-to-back) | NEG-01..06 | todo |
 
