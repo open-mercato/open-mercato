@@ -77,3 +77,16 @@ identified ~68 UI behaviors with no automated spec. This PR adds **browser-drive
   -040 CUR-02 exchange-rates (optional — covered-by-equivalence), -045/-046 only if batch-3 leaves gaps.
 - **Final gate before un-drafting:** run the whole suite `npx playwright test -g "TC-LOCK-OSS"` against the
   ephemeral env and confirm 0 failures (fixme=skipped is fine); then summarize the product findings on the PR.
+
+### Snapshot v3 — COMPLETE (all 33 PLAN rows resolved)
+- **34 spec files** (shared helper + TC-LOCK-OSS-014..046) committed & pushed, one atomic commit each.
+- ~80 active tests green; ~12 `test.fixme`/`test.skip` documenting **8 product findings** on #2055 (see NOTIFY
+  "CONSOLIDATED PRODUCT FINDINGS"). Two classes: (A) routes that don't enforce the lock at all
+  (business_rules, workflows.definition, entities.records, sales **quotes**); (B) routes that DO enforce (409) but the
+  page/dialog swallows it with an inline error/toast so the unified bar never surfaces (customer_accounts roles,
+  ChannelOfferForm edit, sales settings dialogs, staff job-history).
+- Coverage approach: browser conflict-bar assertion (`getByTestId('record-conflict-banner')`) where a real edit page
+  exists; deterministic API-level 409 assertion (`putWithLock`+`expectConflictBody`) for pure command routes and a
+  few impractical-to-drive UIs (documented per spec).
+- **Nothing left to author.** Remaining optional follow-ups only: (a) re-enable the `test.fixme`/`test.skip` tests as
+  #2055 fixes each product finding; (b) the opt-out negative (NEG-02) needs an app booted with `OM_OPTIMISTIC_LOCK=off`.
