@@ -157,7 +157,7 @@ export function SalesDocumentItemsSection({
       }>(`/api/sales/order-line-statuses?${params.toString()}`, undefined, {
         fallback: { items: [] },
       });
-      const entries = normalizeDictionaryEntries(response.result?.items ?? []);
+      const entries = normalizeDictionaryEntries(response.result?.items ?? [], { sort: false });
       setLineStatusMap(createDictionaryMap(entries));
     } catch (err) {
       console.error("sales.document.line-statuses.load", err);

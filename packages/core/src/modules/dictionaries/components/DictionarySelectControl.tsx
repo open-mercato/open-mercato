@@ -191,6 +191,7 @@ export function DictionarySelectControl({
       allowAppearance
       allowInlineCreate={effectiveAllowInlineCreate}
       selectClassName={selectClassName}
+      sortOptions="none"
       disabled={disabled}
       manageHref="/backend/config/dictionaries"
     />

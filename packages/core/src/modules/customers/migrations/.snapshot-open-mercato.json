@@ -5796,6 +5796,23 @@
           "enumItems": [],
           "mappedType": "datetime"
         },
+        "dictionary_sort_modes": {
+          "name": "dictionary_sort_modes",
+          "type": "jsonb",
+          "unsigned": false,
+          "autoincrement": false,
+          "primary": false,
+          "nullable": true,
+          "unique": false,
+          "length": null,
+          "precision": null,
+          "scale": null,
+          "default": null,
+          "comment": null,
+          "collation": null,
+          "enumItems": [],
+          "mappedType": "json"
+        },
         "id": {
           "name": "id",
           "type": "uuid",

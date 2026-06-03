@@ -1,11 +1,14 @@
 import { Entity, Index, ManyToOne, PrimaryKey, Property, Unique } from '@mikro-orm/decorators/legacy'
 import { OptionalProps } from '@mikro-orm/core'
+import type { DictionaryEntrySortMode } from '../lib/entrySort'
 
 export type DictionaryManagerVisibility = 'default' | 'hidden'
 
 @Entity({ tableName: 'dictionaries' })
 @Unique({ name: 'dictionaries_scope_key_unique', properties: ['organizationId', 'tenantId', 'key'] })
 export class Dictionary {
+  [OptionalProps]?: 'entrySortMode'
+
   @PrimaryKey({ type: 'uuid', defaultRaw: 'gen_random_uuid()' })
   id!: string
 
@@ -32,6 +35,9 @@ export class Dictionary {
 
   @Property({ name: 'manager_visibility', type: 'text', default: 'default' })
   managerVisibility: DictionaryManagerVisibility = 'default'
+
+  @Property({ name: 'entry_sort_mode', type: 'text', default: 'label_asc' })
+  entrySortMode: DictionaryEntrySortMode = 'label_asc'
 
   @Property({ name: 'created_at', type: Date, onCreate: () => new Date() })
   createdAt: Date = new Date()

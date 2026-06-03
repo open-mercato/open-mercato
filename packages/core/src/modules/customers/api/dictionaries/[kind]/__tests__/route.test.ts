@@ -3,6 +3,7 @@ const organizationId = '22222222-2222-4222-8222-222222222222'
 
 const em = {
   find: jest.fn(),
+  findOne: jest.fn(),
 }
 
 jest.mock('../../context', () => ({
@@ -24,6 +25,10 @@ jest.mock('@open-mercato/shared/lib/i18n/server', () => ({
   resolveTranslations: async () => ({
     translate: (key: string, fallback?: string) => fallback ?? key,
   }),
+}))
+
+jest.mock('../../../../commands/settings', () => ({
+  loadCustomerSettings: jest.fn(async () => null),
 }))
 
 import { GET } from '../route'
@@ -86,6 +91,7 @@ describe('customer dictionary route', () => {
     )
 
     const body = await response.json()
+    expect(body.sortMode).toBe('label_asc')
     expect(body.items).toEqual([
       {
         id: 'local-active',

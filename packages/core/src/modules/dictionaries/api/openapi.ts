@@ -6,6 +6,7 @@ import {
   reorderDictionaryEntriesSchema,
   setDefaultDictionaryEntrySchema,
 } from '@open-mercato/core/modules/dictionaries/data/validators'
+import { dictionaryEntrySortModeSchema } from '@open-mercato/core/modules/dictionaries/lib/entrySort'
 
 export const dictionariesTag = 'Dictionaries'
 
@@ -29,6 +30,7 @@ export const dictionarySchema = z.object({
   isSystem: z.boolean(),
   isActive: z.boolean(),
   managerVisibility: z.string().nullable().optional(),
+  entrySortMode: dictionaryEntrySortModeSchema.optional(),
   organizationId: z.string().uuid().nullable(),
   isInherited: z.boolean().optional(),
   createdAt: z.string(),
@@ -88,4 +90,3 @@ export {
   reorderDictionaryEntriesSchema,
   setDefaultDictionaryEntrySchema,
 }
-

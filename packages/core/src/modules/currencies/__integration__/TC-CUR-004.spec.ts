@@ -16,7 +16,12 @@ import { getTokenContext } from '@open-mercato/core/modules/core/__integration__
  */
 test.describe('TC-CUR-004: Set Base Currency from UI', () => {
   test('should set a non-base currency as base from the currencies list view', async ({ page, request }) => {
-    test.setTimeout(30_000);
+    // Login + list navigation + three sequential <=10s waits + fixture
+    // setup/teardown does not fit the 30s budget under parallel CI shard load,
+    // so the run was torn down mid-request ("Target page, context or browser
+    // has been closed"). 60s matches the login+navigation convention used by
+    // the other UI integration specs (TC-AI-001, TC-CRM-007, ...).
+    test.setTimeout(60_000);
 
     let token: string | null = null;
     let currencyId: string | null = null;
@@ -58,13 +63,24 @@ test.describe('TC-CUR-004: Set Base Currency from UI', () => {
       });
       await expect(row).toBeVisible({ timeout: 10_000 });
 
-      // Open row actions menu (focus + Enter, same pattern as TC-ADMIN-002)
+      // Open row actions menu (focus + Enter, same pattern as TC-ADMIN-002).
       const actionsButton = row.getByRole('button', { name: 'Open actions' });
+      await expect(actionsButton).toBeEnabled({ timeout: 10_000 });
       await actionsButton.focus();
       await actionsButton.press('Enter');
 
-      // Click the "Set as base" menu item (portalled to document.body)
+      // The "Set as base" menu item is portalled to document.body. If the
+      // trigger swallows the Enter keypress before hydration finishes, the
+      // menu never opens and clicking the item would auto-wait until the test
+      // timeout. Wait for the item with a bounded budget and fall back to a
+      // pointer click to open the menu, so a missed keypress can't hang the run.
       const setBaseItem = page.getByRole('menuitem').filter({ hasText: /Set as Base/ }).first();
+      await expect(setBaseItem)
+        .toBeVisible({ timeout: 5_000 })
+        .catch(async () => {
+          await actionsButton.click();
+          await expect(setBaseItem).toBeVisible({ timeout: 5_000 });
+        });
       await setBaseItem.click();
 
       await expect(page.getByText('Base currency updated successfully').first()).toBeVisible({
@@ -87,14 +103,22 @@ test.describe('TC-CUR-004: Set Base Currency from UI', () => {
         )
         .toBe(true);
     } finally {
-      // Restore original base currency if we changed it
+      // Best-effort teardown: if the test body already failed/timed out the
+      // request context may be closing, so swallow teardown errors instead of
+      // masking the real failure with "Target page, context or browser has
+      // been closed".
       if (token && originalBaseId) {
         await apiRequest(request, 'PUT', '/api/currencies/currencies', {
           token,
           data: { id: originalBaseId, isBase: true },
-        });
+        }).catch(() => {});
       }
-      await deleteCurrenciesEntityIfExists(request, token, '/api/currencies/currencies', currencyId);
+      await deleteCurrenciesEntityIfExists(
+        request,
+        token,
+        '/api/currencies/currencies',
+        currencyId,
+      ).catch(() => {});
     }
   });
 });

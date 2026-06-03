@@ -1,4 +1,5 @@
 import { z } from 'zod'
+import { dictionaryEntrySortModeSchema } from '../lib/entrySort'
 
 export const dictionaryKeySchema = z
   .string()
@@ -20,6 +21,7 @@ export const upsertDictionarySchema = z.object({
   description: z.string().trim().max(2000).optional(),
   isSystem: z.boolean().optional(),
   isActive: z.boolean().optional(),
+  entrySortMode: dictionaryEntrySortModeSchema.optional(),
 })
 
 export type UpsertDictionaryInput = z.infer<typeof upsertDictionarySchema>

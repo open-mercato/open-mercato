@@ -246,3 +246,8 @@ Existing pages can adopt the new component incrementally.
 ## Changelog
 
 - 2026-03-23: Initial draft for unified backend record-not-found page handling.
+- 2026-06-03: Phase 5 — Integration coverage added under `packages/core/src/modules/{customers,sales}/__integration__/TC-UX-{006,007,008,009}-*.spec.ts` (one `test.describe` per file per `.ai/qa/AGENTS.md`):
+  - TC-UX-006: random UUID on `/backend/customers/people/[id]` renders `RecordNotFoundState` with "Back to people" recovery action; CrudForm submit control absent.
+  - TC-UX-007: stale id on `/backend/sales/documents/[id]` (list API returning empty `items`) renders the shared not-found state with the default "Back to quotes" back link.
+  - TC-UX-008: clicking the back-to-list action on a Phase-1 page (`/backend/customers/companies/[id]`) actually navigates to the owning list page.
+  - TC-UX-009: stale id on `/backend/sales/documents/[id]?kind=order` renders the shared not-found state with the kind-aware "Back to orders" back link. Closeout (`git mv` to `.ai/specs/implemented/`) deferred until Phases 1–5 land on `develop`.
