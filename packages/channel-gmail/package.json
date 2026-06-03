@@ -63,6 +63,7 @@
   "dependencies": {
     "@open-mercato/core": "workspace:*",
     "@open-mercato/ui": "workspace:*",
+    "@types/mailparser": "^3.4.5",
     "mailparser": "^3.7.1"
   },
   "peerDependencies": {
@@ -74,7 +75,6 @@
   "devDependencies": {
     "@open-mercato/shared": "workspace:*",
     "@types/jest": "^30.0.0",
-    "@types/mailparser": "^3.4.5",
     "@types/react": "^19.2.15",
     "@types/react-dom": "^19.2.3",
     "esbuild": "^0.28.0",

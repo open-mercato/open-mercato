@@ -64,6 +64,8 @@
     "@open-mercato/core": "workspace:*",
     "@open-mercato/queue": "workspace:*",
     "@open-mercato/ui": "workspace:*",
+    "@types/mailparser": "^3.4.5",
+    "@types/nodemailer": "^8.0.0",
     "imapflow": "^1.0.171",
     "mailparser": "^3.7.1",
     "nodemailer": "^8.0.10"
@@ -77,8 +79,6 @@
   "devDependencies": {
     "@open-mercato/shared": "workspace:*",
     "@types/jest": "^30.0.0",
-    "@types/mailparser": "^3.4.5",
-    "@types/nodemailer": "^8.0.0",
     "@types/react": "^19.2.15",
     "@types/react-dom": "^19.2.3",
     "esbuild": "^0.28.0",
