@@ -580,16 +580,16 @@ export const pipelineStageCreateSchema = scopedSchema.extend({
   pipelineId: uuid(),
   label: z.string().trim().min(1).max(200),
   order: z.number().int().min(0).optional(),
-  color: z.string().trim().max(20).optional(),
-  icon: z.string().trim().max(100).optional(),
+  color: z.string().trim().max(20).nullish(),
+  icon: z.string().trim().max(100).nullish(),
 })
 
 export const pipelineStageUpdateSchema = z.object({
   id: uuid(),
   label: z.string().trim().min(1).max(200).optional(),
   order: z.number().int().min(0).optional(),
-  color: z.string().trim().max(20).optional(),
-  icon: z.string().trim().max(100).optional(),
+  color: z.string().trim().max(20).nullish(),
+  icon: z.string().trim().max(100).nullish(),
 })
 
 export const pipelineStageDeleteSchema = z.object({

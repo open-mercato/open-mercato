@@ -209,9 +209,13 @@ export default function PipelineStagesPage() {
     setSaving(true)
     try {
       if (stageDialog?.mode === 'create') {
+        const appearancePayload = {
+          ...(stageColor !== null ? { color: stageColor } : {}),
+          ...(stageIcon !== null ? { icon: stageIcon } : {}),
+        }
         const result = await apiCall('/api/customers/pipeline-stages', {
           method: 'POST',
-          body: JSON.stringify({ pipelineId: selectedPipelineId, label: stageName.trim(), color: stageColor, icon: stageIcon }),
+          body: JSON.stringify({ pipelineId: selectedPipelineId, label: stageName.trim(), ...appearancePayload }),
           headers: { 'Content-Type': 'application/json' },
         })
         if (!result.ok) {
