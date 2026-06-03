@@ -43,3 +43,8 @@
 
 ### Browser smoke (Playwright MCP)
 - Conflict bar surfaces on Customer Users / Roles / Inbox stale save; pay-link stale delete blocked; feature-toggle boolean selector renders stored value; dotted identifier edit succeeds.
+
+## Browser smoke (Playwright MCP, ephemeral env :5001) — DONE
+- **Finding 1 (headline) — verified live:** two-tab stale save on `/backend/customer_accounts/users/<id>` surfaced the unified bar: *"Record changed — This record was modified by someone else. Refresh and try again."* with a Refresh action, and NO generic "Failed to save user" toast. Screenshot: `checkpoint-13-artifacts/customer-users-conflict-bar.png`. (Findings 2/3 share the identical fix mechanism.)
+- **Finding 6 data confirmed:** the seeded `customers.interactions.legacy-adapters` (dotted+dashed identifier, boolean, defaultValue=true) loads cleanly on the global feature-toggle edit page post-merge. Screenshot: `checkpoint-13-artifacts/ft-legacy-adapters-edit.png`. (Save path proven by TC-FT-003; global writes require superadmin.)
+- App builds + serves with the develop(0.6.5) merge applied (login, sidebar, lists, detail/edit pages all render).
