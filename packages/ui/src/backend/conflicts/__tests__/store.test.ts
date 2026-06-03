@@ -37,6 +37,25 @@ describe('record conflict store + surfaceRecordConflict', () => {
     )
   })
 
+  it('surfaceRecordConflict recognizes a plain apiCall-result envelope ({ status, body }) — used by custom admin pages whose apiCall does not throw on 409', () => {
+    const apiCallEnvelope = {
+      status: 409,
+      body: {
+        error: 'record_modified',
+        code: OPTIMISTIC_LOCK_CONFLICT_CODE,
+        currentUpdatedAt: '2026-05-25T08:00:01.000Z',
+        expectedUpdatedAt: '2026-05-25T08:00:00.000Z',
+      },
+    }
+    expect(surfaceRecordConflict(apiCallEnvelope, t)).toBe(true)
+    expect(getRecordConflictForTest()?.currentUpdatedAt).toBe('2026-05-25T08:00:01.000Z')
+  })
+
+  it('surfaceRecordConflict ignores a non-409 apiCall envelope (e.g. 500 with no conflict body)', () => {
+    expect(surfaceRecordConflict({ status: 500, body: { error: 'server_error' } }, t)).toBe(false)
+    expect(getRecordConflictForTest()).toBeNull()
+  })
+
   it('surfaceRecordConflict is a no-op (returns false) for non-conflict errors', () => {
     expect(surfaceRecordConflict(new CrudHttpError(422, { error: 'validation_failed' }), t)).toBe(false)
     expect(surfaceRecordConflict(new Error('boom'), t)).toBe(false)

@@ -13,6 +13,7 @@ import { SwitchField } from '@open-mercato/ui/primitives/switch-field'
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@open-mercato/ui/primitives/dialog'
 import { apiCall, readApiResultOrThrow, withScopedApiRequestHeaders } from '@open-mercato/ui/backend/utils/apiCall'
 import { buildOptimisticLockHeader } from '@open-mercato/ui/backend/utils/optimisticLock'
+import { surfaceRecordConflict } from '@open-mercato/ui/backend/conflicts'
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { useConfirmDialog } from '@open-mercato/ui/backend/confirm-dialog'
@@ -351,6 +352,7 @@ export default function CustomerUserDetailPage({ params }: { params?: { id?: str
           ),
         )
         if (!call.ok) {
+          if (surfaceRecordConflict({ status: call.status, body: call.result }, t)) return
           flash(call.result?.error || t('customer_accounts.admin.detail.error.save', 'Failed to save user'), 'error')
           return
         }
@@ -391,6 +393,7 @@ export default function CustomerUserDetailPage({ params }: { params?: { id?: str
           ),
         )
         if (!call.ok) {
+          if (surfaceRecordConflict({ status: call.status, body: call.result }, t)) return
           flash(t('customer_accounts.admin.error.delete', 'Failed to delete user'), 'error')
           return
         }

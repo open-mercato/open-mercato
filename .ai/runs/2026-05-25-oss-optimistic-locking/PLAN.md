@@ -111,6 +111,14 @@
 | 30 | 30.13d | QA round-5: Integrations marketplace = N/A (stateless state endpoint, no DB updated_at); Notification Delivery = N/A (singleton settings blob); Scheduled Jobs = already protected (makeCrudRoute + CrudForm) | done | (verified, no-code) |
 | 30 | 30.14 | QA round-5: Workflow visual editor — server already enforced; added client 409→conflict-bar surfacing | done | 9804986d1 |
 | 30 | 30.15 | Integration verification: TC-LOCK-OSS full suite 23/23 green on ephemeral env (incl. new TC-LOCK-OSS-013); merge with develop resolved | done | b44dcc437 + bdfbd6266 |
+| 31 | 31.0 | QA round-6: merge latest develop (0.6.5) into branch + resolve conflicts (interactions/email-visibility, directory/staff/workflows imports, catalog variant RecordNotFoundState, catalog i18n ×4, CHANGELOG, UPGRADE_NOTES, package.json + yarn.lock) | done | 91fc6abd7 |
+| 31 | 31.1 | QA round-6: Customer Users admin page — surface 409 via `surfaceRecordConflict` on save AND delete (was raw `record_modified` toast / "Failed to delete user"); store test for the apiCall-result envelope shape | done | 55adf68a0 |
+| 31 | 31.2 | QA round-6: Customer Roles admin page — surface 409 via `surfaceRecordConflict` on save AND delete | todo | — |
+| 31 | 31.3 | QA round-6: Inbox Settings working-language PATCH — surface 409 via `surfaceRecordConflict` | todo | — |
+| 31 | 31.4 | QA round-6 #2410 follow-up: Feature Toggle GLOBAL default-value boolean selector (`formConfig.renderDefaultValueCreateComponent`) shows blank for a real boolean — normalize via `booleanOverrideSelectValue` (b4a672a only fixed the override-card path) + test | todo | — |
+| 31 | 31.5 | QA round-6: Pay Links stale DELETE — send `buildOptimisticLockHeader` + surface conflict (delete after conflict still deleted the stale record) | todo | — |
+| 31 | 31.6 | QA round-6: Feature Toggle identifier validator rejected seeded `customers.interactions.legacy-adapters` (dots/dashes) — relax `IDENTIFIER_PATTERN` to allow `.` and `-` + tests | todo | — |
+| 31 | 31.7 | QA round-6: checkpoint — full gate + integration specs for fixed areas + Playwright smoke; push; CI green | todo | — |
 
 ## Goal (resume)
 
