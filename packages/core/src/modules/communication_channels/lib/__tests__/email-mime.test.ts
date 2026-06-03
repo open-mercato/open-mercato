@@ -4,6 +4,7 @@ import {
   encodeAddressHeaderWord,
   encodeCursor,
   encodeHeaderWord,
+  escapeQuotes,
   extractHeaders,
   generateMessageId,
   htmlToText,
@@ -97,6 +98,28 @@ describe('stripBrackets / parseReferences', () => {
 describe('htmlToText', () => {
   it('strips tags and decodes basic entities', () => {
     expect(htmlToText('<p>Hi <b>there</b></p>&amp;more')).toBe('Hi there\n\n&more')
+  })
+
+  it('does not double-unescape an entity-encoded entity', () => {
+    expect(htmlToText('<p>&amp;lt;b&amp;gt;</p>')).toBe('&lt;b&gt;')
+  })
+
+  it('strips script/style blocks whose close tag carries whitespace or attributes', () => {
+    expect(htmlToText('a<script>alert(1)</script >b')).toBe('a b')
+    expect(htmlToText('a<script>alert(1)</script foo="bar">b')).toBe('a b')
+    expect(htmlToText('a<STYLE>.x{}</STYLE>b')).toBe('a b')
+  })
+
+  it('removes a script tag reconstructed by a single sanitization pass', () => {
+    expect(htmlToText('<scr<script>ipt>alert(1)</scr</script>ipt>')).toBe('')
+  })
+})
+
+describe('escapeQuotes', () => {
+  it('escapes the backslash before the quote so the quote cannot be un-escaped', () => {
+    expect(escapeQuotes('a"b')).toBe('a\\"b')
+    expect(escapeQuotes('a\\"b')).toBe('a\\\\\\"b')
+    expect(escapeQuotes('a\\')).toBe('a\\\\')
   })
 })
 
