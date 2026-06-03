@@ -37,6 +37,12 @@ test.describe('TC-CHANNEL-EMAIL-C01: Gmail Pub/Sub webhook', () => {
       '/api/communication_channels/webhooks/gmail',
       { token: '', data: 'not-json' as unknown as Record<string, unknown> },
     )
-    expect(response.status()).toBeLessThan(500)
+    // A request without a Pub/Sub JWT is rejected at the config/verification gate
+    // BEFORE the body is parsed, so the malformed body never reaches the decoder:
+    // 503 when the verifier env vars aren't set (the unconfigured CI case — same as
+    // the sibling test above) and 401 when they are. The body-decode 400 path is
+    // covered by the gmail-pubsub-jwt unit tests; here we only assert a controlled
+    // rejection, never an uncontrolled 5xx crash.
+    expect([401, 503]).toContain(response.status())
   })
 })
