@@ -9,12 +9,15 @@ import { readJsonSafe } from '@open-mercato/shared/lib/http/readJsonSafe'
 import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
 import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
 import { E } from '#generated/entities.ids.generated'
+import type { EntityManager } from '@mikro-orm/postgresql'
 import { UserDevice } from '../../../data/entities'
 import {
   registerDeviceAdminSchema,
   registerDeviceCommandSchema,
   type RegisterDeviceCommandInput,
 } from '../../../data/validators'
+import { isOrganizationReadAccessAllowed } from '@open-mercato/core/modules/directory/utils/organizationScopeGuard'
+import { loadExistingDevice } from '../../../commands/devices'
 import { resolveDeviceActorUserId } from '../../auth'
 import { createDevicesCrudOpenApi, createPagedListResponseSchema } from '../../openapi'
 import { deviceListSchema, deviceListFields, deviceListSortFieldMap, deviceListItemSchema } from '../../deviceList'
@@ -47,10 +50,15 @@ const crud = makeCrudRoute({
     fields: deviceListFields,
     sortFieldMap: deviceListSortFieldMap,
     // Tenant-wide (tenant scope enforced by orm.tenantField); optional userId/platform narrowing.
-    buildFilters: async (query) => {
+    // `orgField: null` disables the factory's automatic org scoping (organization_id is nullable), so
+    // apply the same `ctx.organizationIds` scope the factory derives: null = unrestricted (whole
+    // tenant, including null-org devices), otherwise narrow to the caller's in-scope orgs (an empty
+    // set denies all). This mirrors isOrganizationReadAccessAllowed used on the detail routes.
+    buildFilters: async (query, ctx) => {
       const filters: Record<string, unknown> = {}
       if (query.userId) filters.user_id = { $eq: query.userId }
       if (query.platform) filters.platform = { $eq: query.platform }
+      if (ctx.organizationIds !== null) filters.organization_id = { $in: ctx.organizationIds }
       return filters
     },
   },
@@ -72,6 +80,19 @@ export async function POST(req: Request) {
     const scope = await resolveOrganizationScopeForRequest({ container, auth, request: req })
     const organizationId = scope?.selectedId ?? auth.orgId ?? null
 
+    // Register is an idempotent upsert that revives/updates any existing row for this tuple. Block it
+    // when the target user already has a device in an organization the admin cannot access, so a
+    // restricted admin can't move another org's device into their own scope.
+    const em = container.resolve('em') as EntityManager
+    const existing = await loadExistingDevice(em.fork(), {
+      tenantId: auth.tenantId,
+      userId: body.userId,
+      deviceId: body.deviceId,
+    })
+    if (existing && !isOrganizationReadAccessAllowed({ scope, auth, organizationId: existing.organizationId ?? null })) {
+      return NextResponse.json({ error: translate('devices.errors.forbidden', 'Access denied') }, { status: 403 })
+    }
+
     const commandInput = registerDeviceCommandSchema.parse({
       ...body,
       tenantId: auth.tenantId,
@@ -87,6 +108,12 @@ export async function POST(req: Request) {
       return NextResponse.json(
         { error: translate('devices.errors.invalid_payload', 'Invalid device payload'), details: err.flatten() },
         { status: 400 },
+      )
+    }
+    if (isCrudHttpError(err) && (err.body as { code?: string } | undefined)?.code === 'device_already_registered') {
+      return NextResponse.json(
+        { error: translate('devices.errors.already_registered', 'This device is already registered') },
+        { status: 409 },
       )
     }
     if (isCrudHttpError(err)) {

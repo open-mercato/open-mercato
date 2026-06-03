@@ -1,4 +1,5 @@
 import type { EntityManager } from '@mikro-orm/postgresql'
+import { UniqueConstraintViolationException } from '@mikro-orm/core'
 import {
   registerCommand,
   type CommandHandler,
@@ -7,7 +8,7 @@ import { ensureTenantScope } from '@open-mercato/shared/lib/commands/scope'
 import { extractUndoPayload } from '@open-mercato/shared/lib/commands/undo'
 import { emitCrudSideEffects, emitCrudUndoSideEffects } from '@open-mercato/shared/lib/commands/helpers'
 import { withAtomicFlush } from '@open-mercato/shared/lib/commands/flush'
-import { assertFound } from '@open-mercato/shared/lib/crud/errors'
+import { assertFound, CrudHttpError } from '@open-mercato/shared/lib/crud/errors'
 import type { CrudEventsConfig, CrudIndexerConfig } from '@open-mercato/shared/lib/crud/types'
 import type { DataEngine } from '@open-mercato/shared/lib/data/engine'
 import { E } from '#generated/entities.ids.generated'
@@ -102,13 +103,24 @@ function applySnapshot(device: UserDevice, snapshot: DeviceSnapshot): void {
   device.deletedAt = toDate(snapshot.deletedAt)
 }
 
-async function loadExistingDevice(
+export async function loadExistingDevice(
   em: EntityManager,
   scope: { tenantId: string; userId: string; deviceId: string },
 ): Promise<UserDevice | null> {
   const active = await em.findOne(UserDevice, { ...scope, deletedAt: null })
   if (active) return active
   return em.findOne(UserDevice, scope, { orderBy: { createdAt: 'desc' } })
+}
+
+// A concurrent first-registration of the same (tenant, user, device_id) loses the race against the
+// partial unique index. Surface it as a 409 conflict instead of a raw 500 — the endpoint is an
+// idempotent upsert, so the caller can simply re-issue the request to land on the existing row.
+function isDeviceUniqueViolation(error: unknown): boolean {
+  if (error instanceof UniqueConstraintViolationException) return true
+  if (!error || typeof error !== 'object') return false
+  if ((error as { code?: string }).code === '23505') return true
+  const message = (error as { message?: string }).message
+  return typeof message === 'string' && message.toLowerCase().includes('duplicate key')
 }
 
 const registerDeviceCommand: CommandHandler<RegisterDeviceCommandInput, { id: string; deviceId: string; revived: boolean }> = {
@@ -138,43 +150,55 @@ const registerDeviceCommand: CommandHandler<RegisterDeviceCommandInput, { id: st
     const wasActive = existing ? existing.deletedAt == null : false
 
     let device!: UserDevice
-    await withAtomicFlush(
-      em,
-      [
-        () => {
-          if (existing) {
-            device = existing
-            device.platform = parsed.platform
-            device.organizationId = parsed.organizationId ?? device.organizationId ?? null
-            if (parsed.clientAppVersion !== undefined) device.clientAppVersion = parsed.clientAppVersion ?? null
-            if (parsed.osVersion !== undefined) device.osVersion = parsed.osVersion ?? null
-            if (hasPushToken) {
-              device.pushToken = parsed.pushToken ?? null
-              device.pushProvider = parsed.pushProvider ?? device.pushProvider ?? null
-              device.pushTokenUpdatedAt = now
+    try {
+      await withAtomicFlush(
+        em,
+        [
+          () => {
+            if (existing) {
+              device = existing
+              device.platform = parsed.platform
+              device.organizationId = parsed.organizationId ?? device.organizationId ?? null
+              if (parsed.clientAppVersion !== undefined) device.clientAppVersion = parsed.clientAppVersion ?? null
+              if (parsed.osVersion !== undefined) device.osVersion = parsed.osVersion ?? null
+              if (hasPushToken) {
+                device.pushToken = parsed.pushToken ?? null
+                device.pushProvider = parsed.pushProvider ?? device.pushProvider ?? null
+                device.pushTokenUpdatedAt = now
+              }
+              device.lastSeenAt = now
+              device.deletedAt = null
+            } else {
+              device = em.create(UserDevice, {
+                tenantId: parsed.tenantId,
+                organizationId: parsed.organizationId ?? null,
+                userId: parsed.userId,
+                deviceId: parsed.deviceId,
+                platform: parsed.platform,
+                clientAppVersion: parsed.clientAppVersion ?? null,
+                osVersion: parsed.osVersion ?? null,
+                pushToken: hasPushToken ? parsed.pushToken ?? null : null,
+                pushProvider: hasPushToken ? parsed.pushProvider ?? null : null,
+                pushTokenUpdatedAt: hasPushToken ? now : null,
+                lastSeenAt: now,
+              })
+              em.persist(device)
             }
-            device.lastSeenAt = now
-            device.deletedAt = null
-          } else {
-            device = em.create(UserDevice, {
-              tenantId: parsed.tenantId,
-              organizationId: parsed.organizationId ?? null,
-              userId: parsed.userId,
-              deviceId: parsed.deviceId,
-              platform: parsed.platform,
-              clientAppVersion: parsed.clientAppVersion ?? null,
-              osVersion: parsed.osVersion ?? null,
-              pushToken: hasPushToken ? parsed.pushToken ?? null : null,
-              pushProvider: hasPushToken ? parsed.pushProvider ?? null : null,
-              pushTokenUpdatedAt: hasPushToken ? now : null,
-              lastSeenAt: now,
-            })
-            em.persist(device)
-          }
-        },
-      ],
-      { transaction: true },
-    )
+          },
+        ],
+        { transaction: true },
+      )
+    } catch (err) {
+      if (isDeviceUniqueViolation(err)) {
+        // Default English message is a fallback; device routes translate by `code` (see route POST
+        // handlers), matching the customers dictionaries conflict pattern.
+        throw new CrudHttpError(409, {
+          code: 'device_already_registered',
+          error: 'This device is already registered',
+        })
+      }
+      throw err
+    }
 
     const revived = Boolean(existing) && !wasActive
     const de = ctx.container.resolve('dataEngine') as DataEngine

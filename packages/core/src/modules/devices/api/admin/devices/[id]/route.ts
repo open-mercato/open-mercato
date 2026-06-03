@@ -10,6 +10,7 @@ import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
 import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
 import { UserDevice } from '../../../../data/entities'
 import { updateDeviceSchema } from '../../../../data/validators'
+import { isOrganizationReadAccessAllowed } from '@open-mercato/core/modules/directory/utils/organizationScopeGuard'
 import { resolveDeviceActorUserId } from '../../../auth'
 import { executeUpdate, executeDeactivate, type DeviceMutationContext } from '../../../deviceOps'
 
@@ -64,6 +65,10 @@ export async function GET(req: Request, { params }: { params: { id: string } }) 
     if (!device) {
       return NextResponse.json({ error: translate('devices.errors.not_found', 'Device not found') }, { status: 404 })
     }
+    const scope = await resolveOrganizationScopeForRequest({ container, auth, request: req })
+    if (!isOrganizationReadAccessAllowed({ scope, auth, organizationId: device.organizationId ?? null })) {
+      return NextResponse.json({ error: translate('devices.errors.forbidden', 'Access denied') }, { status: 403 })
+    }
     return NextResponse.json({ item: serializeDevice(device) })
   } catch (err) {
     if (isCrudHttpError(err)) {
@@ -95,6 +100,9 @@ export async function PUT(req: Request, { params }: { params: { id: string } }) 
     }
 
     const scope = await resolveOrganizationScopeForRequest({ container, auth, request: req })
+    if (!isOrganizationReadAccessAllowed({ scope, auth, organizationId: device.organizationId ?? null })) {
+      return NextResponse.json({ error: translate('devices.errors.forbidden', 'Access denied') }, { status: 403 })
+    }
     const mctx: DeviceMutationContext = {
       container,
       auth,
@@ -139,6 +147,9 @@ export async function DELETE(req: Request, { params }: { params: { id: string } 
     }
 
     const scope = await resolveOrganizationScopeForRequest({ container, auth, request: req })
+    if (!isOrganizationReadAccessAllowed({ scope, auth, organizationId: device.organizationId ?? null })) {
+      return NextResponse.json({ error: translate('devices.errors.forbidden', 'Access denied') }, { status: 403 })
+    }
     const mctx: DeviceMutationContext = {
       container,
       auth,

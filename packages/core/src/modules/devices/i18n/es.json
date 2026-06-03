@@ -1,4 +1,5 @@
 {
+  "devices.errors.already_registered": "Este dispositivo ya está registrado",
   "devices.errors.delete_failed": "No se pudo eliminar el dispositivo",
   "devices.errors.forbidden": "Acceso denegado",
   "devices.errors.invalid_id": "ID de dispositivo no válido",

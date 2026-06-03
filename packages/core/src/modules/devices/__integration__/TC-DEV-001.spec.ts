@@ -237,6 +237,30 @@ test.describe('TC-DEV-001: Devices module registry APIs', () => {
     }
   })
 
+  test('self list ignores raw user_id filter passthrough (scope is server-enforced)', async ({ request }) => {
+    const adminToken = await getAuthToken(request, 'admin')
+    const employeeToken = await getAuthToken(request, 'employee')
+    const employeeScope = getTokenScope(employeeToken)
+    const adminDeviceId = uniqueDeviceId()
+    const employeeDeviceId = uniqueDeviceId()
+    let adminDevId: string | null = null
+    let employeeDevId: string | null = null
+    try {
+      adminDevId = (await registerDevice(request, adminToken, { deviceId: adminDeviceId, platform: 'ios' })).json?.id ?? null
+      employeeDevId = (await registerDevice(request, employeeToken, { deviceId: employeeDeviceId, platform: 'ios' })).json?.id ?? null
+
+      // The self list schema passes unknown query keys through; a raw snake_case `user_id` (the index
+      // column name) must NOT override the server-enforced actor scoping and leak another user's row.
+      await waitForDevices(request, adminToken, (its) => its.some((d) => d.id === adminDevId))
+      const selfView = await listDevices(request, adminToken, `?user_id=${employeeScope.userId}`)
+      expect(selfView.items.every((d) => d.user_id !== employeeScope.userId)).toBe(true)
+      expect(selfView.items.find((d) => d.id === employeeDevId)).toBeFalsy()
+    } finally {
+      await deleteDeviceIfExists(request, adminToken, adminDevId)
+      await deleteDeviceIfExists(request, employeeToken, employeeDevId)
+    }
+  })
+
   test('PUT updates metadata and clears a revoked push token', async ({ request }) => {
     const token = await getAuthToken(request, 'employee')
     const deviceId = uniqueDeviceId()

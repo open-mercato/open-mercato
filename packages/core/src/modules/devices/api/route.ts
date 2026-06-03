@@ -95,6 +95,12 @@ export async function POST(req: Request) {
         { status: 400 },
       )
     }
+    if (isCrudHttpError(err) && (err.body as { code?: string } | undefined)?.code === 'device_already_registered') {
+      return NextResponse.json(
+        { error: translate('devices.errors.already_registered', 'This device is already registered') },
+        { status: 409 },
+      )
+    }
     if (isCrudHttpError(err)) {
       return NextResponse.json(err.body, { status: err.status })
     }
