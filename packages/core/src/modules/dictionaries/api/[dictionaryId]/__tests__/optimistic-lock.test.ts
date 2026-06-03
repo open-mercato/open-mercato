@@ -84,4 +84,24 @@ describe('dictionary PATCH optimistic locking', () => {
     expect(res.status).toBe(200)
     expect(mockEm.flush).toHaveBeenCalled()
   })
+
+  it('does not 500 when the manager resubmits an unchanged namespaced (dotted) key (#9)', async () => {
+    dictionaryRecord.key = 'resources.activity-types'
+    const res = await PATCH(
+      request(CURRENT_VERSION, { key: 'resources.activity-types', name: 'Renamed' }),
+      { params: { dictionaryId: DICTIONARY_ID } },
+    )
+    expect(res.status).toBe(200)
+    expect(mockEm.flush).toHaveBeenCalled()
+    dictionaryRecord.key = 'colors'
+  })
+
+  it('rejects a changed key that violates the strict format with 400, not 500', async () => {
+    const res = await PATCH(
+      request(CURRENT_VERSION, { key: 'not.a.valid.new.key', name: 'Renamed' }),
+      { params: { dictionaryId: DICTIONARY_ID } },
+    )
+    expect(res.status).toBe(400)
+    expect(mockEm.flush).not.toHaveBeenCalled()
+  })
 })

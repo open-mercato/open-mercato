@@ -109,6 +109,7 @@
   "dictionaries.errors.entry_not_found": "Wörterbucheintrag nicht gefunden",
   "dictionaries.errors.entry_required": "Wert ist erforderlich",
   "dictionaries.errors.entry_update_failed": "Wörterbucheintrag konnte nicht aktualisiert werden.",
+  "dictionaries.errors.invalid_key": "Verwenden Sie Kleinbuchstaben, Zahlen, Bindestrich oder Unterstrich.",
   "dictionaries.errors.not_found": "Wörterbuch nicht gefunden",
   "dictionaries.errors.organization_required": "Organisationskontext ist erforderlich",
   "dictionaries.errors.unauthorized": "Nicht autorisiert",
