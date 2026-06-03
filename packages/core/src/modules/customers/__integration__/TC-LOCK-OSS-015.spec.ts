@@ -110,6 +110,58 @@ test.describe('TC-LOCK-OSS-015: customers people-v2 edit + stale delete conflict
     }
   })
 
+  // Alina A7 (#2055): the original report — two tabs both editing the SAME person
+  // both save with no 409 and no bar — only reproduced AFTER a prior in-page save.
+  // The earlier stale-edit case above edits exactly once, so it never exercised the
+  // post-reload token. This test does a clean first save (so the form reloads its
+  // optimistic-lock token), THEN a concurrent out-of-band bump (the other tab), THEN
+  // a second header-field edit → the second save must still carry the *refreshed*
+  // token, 409, and raise the unified conflict bar — proving the header is not
+  // dropped (or left stale) on the people-v2 custom detail page after a reload.
+  test('stale person edit after a prior in-page save still shows the conflict bar', async ({ page }) => {
+    const token = await getAuthToken(page.request, 'admin')
+    const stamp = Date.now()
+    let personId: string | null = null
+    try {
+      personId = await createPersonFixture(page.request, token, {
+        firstName: 'QA',
+        lastName: `Lock015seq ${stamp}`,
+        displayName: `QA Lock 015 seq ${stamp}`,
+      })
+
+      await login(page, 'admin')
+      await page.goto(`/backend/customers/people-v2/${personId}`)
+
+      // First, a clean in-page save: edit lastName → Save → success (no conflict).
+      // This drives `loadData()` and refreshes the form's optimistic-lock token.
+      const lastNameInput = await openPersonFormLastNameInput(page)
+      await fillControlledInput(lastNameInput, `Seq A ${stamp}`)
+      const saveButton = page.getByRole('button', { name: /^save$/i }).first()
+      await expect(saveButton).toBeEnabled({ timeout: 10_000 })
+      await saveButton.click()
+      await expectNoConflictBanner(page)
+      // The save button disables again once the form is clean — wait for it so the
+      // first save has fully settled (token reloaded) before the concurrent bump.
+      await expect(saveButton).toBeDisabled({ timeout: 10_000 })
+
+      // Now a concurrent edit lands from "the other tab" → advances updated_at, so
+      // the just-reloaded token is stale again.
+      await bumpRecordViaApi(page.request, token, PEOPLE_API_BASE, {
+        id: personId,
+        displayName: `QA Lock 015 seq bumped ${stamp}`,
+      })
+
+      // Second header-field edit + Save → stale (refreshed-then-bumped) token → 409 → bar.
+      await fillControlledInput(lastNameInput, `Seq B ${stamp}`)
+      await expect(saveButton).toBeEnabled({ timeout: 10_000 })
+      await saveButton.click()
+
+      await expectConflictBanner(page)
+    } finally {
+      await deleteEntityByBody(page.request, token, PEOPLE_API_BASE, personId)
+    }
+  })
+
   test('stale person delete shows the conflict bar', async ({ page }) => {
     const token = await getAuthToken(page.request, 'admin')
     const stamp = Date.now()

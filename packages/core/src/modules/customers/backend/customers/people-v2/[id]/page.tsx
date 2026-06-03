@@ -64,6 +64,15 @@ export default function PersonDetailV2Page({ params }: { params?: { id?: string 
   const fields = React.useMemo(() => createPersonEditFields(t), [t])
 
   const [data, setData] = React.useState<PersonOverview | null>(null)
+  // Mirror the latest `data` into a ref so save handlers always read the current
+  // optimistic-lock token (`person.updatedAt`) instead of the value captured in
+  // their `useCallback` closure. Without this, a header-field save issued after a
+  // prior in-page reload would send a stale token (or none), letting a concurrent
+  // two-tab overwrite slip through without the 409 + conflict bar (#2055, Alina A7).
+  const dataRef = React.useRef<PersonOverview | null>(null)
+  React.useEffect(() => {
+    dataRef.current = data
+  }, [data])
   const [isLoading, setIsLoading] = React.useState(true)
   const [error, setError] = React.useState<string | null>(null)
   const [isNotFound, setIsNotFound] = React.useState(false)
@@ -332,7 +341,19 @@ export default function PersonDetailV2Page({ params }: { params?: { id?: string 
           throw err
         }
 
-        await updateCrud('customers/people', payload)
+        // Attach the current optimistic-lock token directly on this write path so
+        // every header-field edit (displayName/status/…) carries `updatedAt`, not
+        // just the fields the embedded CrudForm intercepts. Read from `dataRef` so
+        // the token reflects the latest in-page reload rather than a stale closure
+        // capture, and let the 409 propagate to CrudForm's surfaceRecordConflict so
+        // the unified conflict bar renders (#2055, Alina A7).
+        const lockedUpdatedAt = dataRef.current?.person?.updatedAt
+          ?? dataRef.current?.person?.updated_at
+          ?? null
+        await withScopedApiRequestHeaders(
+          buildOptimisticLockHeader(lockedUpdatedAt),
+          () => updateCrud('customers/people', payload),
+        )
         flash(t('customers.people.form.updateSuccess', 'Person updated.'), 'success')
         await loadData()
       } finally {
