@@ -22,11 +22,16 @@ test.describe('TC-DS-003: Data sync options endpoint', () => {
     const noTokenResponse = await request.get(`${BASE_URL}/api/data_sync/options`)
     expect(noTokenResponse.status()).toBe(401)
 
+    // /api/data_sync/options is a read-only listing gated by the `data_sync.view`
+    // feature. The seeded `employee` role holds `data_sync.view` (see the module's
+    // setup.ts defaultRoleFeatures), so it is intentionally allowed here — unlike
+    // the write/configure endpoints in TC-DS-001 (`data_sync.run`) and TC-DS-002
+    // (`data_sync.configure`), which employee does not hold and which return 403.
     const employeeToken = await getAuthToken(request, 'employee')
-    const forbiddenResponse = await apiRequest(request, 'GET', '/api/data_sync/options', {
+    const allowedResponse = await apiRequest(request, 'GET', '/api/data_sync/options', {
       token: employeeToken,
     })
-    expect(forbiddenResponse.status()).toBe(403)
+    expect(allowedResponse.status()).toBe(200)
   })
 
   test('returns 200 with a well-formed items array', async ({ request }) => {

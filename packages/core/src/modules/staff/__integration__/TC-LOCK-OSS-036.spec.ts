@@ -276,6 +276,10 @@ test.describe('TC-LOCK-OSS-036: staff job-history nested edit optimistic lock (S
       await login(page, 'admin')
       await page.goto(`/backend/staff/team-members/${memberId}`)
 
+      // The job-history list lives behind the "Job history" panel tab on the
+      // team-member detail page; select it before exercising the nested edit
+      // dialog (mirrors the tabbed-detail navigation in the customers specs).
+      await page.getByRole('tab', { name: /job history/i }).click()
       await page.getByRole('button', { name: /edit job/i }).first().click()
       const nameInput = page.locator('[data-crud-field-id="name"] input').first()
       await expect(nameInput).toBeVisible({ timeout: 15_000 })
