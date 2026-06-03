@@ -195,16 +195,14 @@ test.describe('TC-LOCK-OSS-036: staff leave-request edit optimistic-lock conflic
  *
  * The job-history edit lives in a nested dialog inside the team-member detail
  * (`components/detail/JobHistorySection.tsx` → a `CrudForm` rendered inside a
- * `<Dialog>`). It is intentionally covered at the API level rather than via the
- * dialog because the dialog cannot surface the unified conflict bar today:
- * `JobHistorySection.handleSubmit` wraps `updateCrud(...)` in its own
- * try/catch and shows a `flash(...)` toast on error — it never re-throws, so
- * the CrudForm's `surfaceRecordConflict(...)` path is never reached.
- *
- * What DOES enforce the lock is the command body-`updatedAt` check in
- * `packages/core/src/modules/staff/commands/job-histories.ts`
- * (`hasUpdatedAtConflict`): a stale `updatedAt` in the PUT *body* yields a 409.
- * The active test below proves that body-level lock works.
+ * `<Dialog>`). Two complementary cases are covered below:
+ *   - the body-`updatedAt` lock (a stale `updatedAt` in the PUT *body* → 409),
+ *     proven at the API level, and
+ *   - the standard OSS header lock surfacing the unified conflict bar in the
+ *     browser. The update command runs `enforceCommandOptimisticLock({
+ *     resourceKind: 'staff.jobHistory', ... })`, and the dialog lets the 409
+ *     propagate so the enclosing CrudForm raises the unified
+ *     `record-conflict-banner`.
  */
 test.describe('TC-LOCK-OSS-036: staff job-history nested edit optimistic lock (STF-06, API)', () => {
   test('stale job-history edit (body updatedAt) is refused with 409', async ({ page }) => {
@@ -250,29 +248,21 @@ test.describe('TC-LOCK-OSS-036: staff job-history nested edit optimistic lock (S
   })
 
   /**
-   * PRODUCT BUG — job-history does NOT honor the OSS optimistic-lock contract.
+   * Job-history now honors the OSS optimistic-lock contract end-to-end.
    *
    * Route file: `packages/core/src/modules/staff/api/job-histories.ts`
    *   + command: `packages/core/src/modules/staff/commands/job-histories.ts`
    *
-   * Two deviations from the OSS optimistic-lock spec
-   * (`.ai/specs/2026-05-25-oss-optimistic-locking.md`), both verified live:
-   *   1. The standard header `x-om-ext-optimistic-lock-expected-updated-at` is
-   *      IGNORED by this route — a stale-header PUT returns 200 and silently
-   *      overwrites (no 409, no bar). The route only enforces a stale
-   *      `updatedAt` in the request *body*.
-   *   2. Its 409 body is `{ error: <localized string> }` with NO `code` field
-   *      and no `currentUpdatedAt`/`expectedUpdatedAt`, so the client
-   *      `extractOptimisticLockConflict(...)` (which keys on
-   *      `code: 'optimistic_lock_conflict'`) cannot recognize it and the unified
-   *      `record-conflict-banner` can never surface — even before the dialog's
-   *      own try/catch swallows the error into a flash toast.
-   *
-   * Until the route honors the OSS header and emits the standard conflict body,
-   * the browser-driven "conflict bar" assertion for job-history is not
-   * achievable. Per the no-product-change rule this stays fixme.
+   * The update command calls `enforceCommandOptimisticLock({ resourceKind:
+   * 'staff.jobHistory', ... })`, so it now (a) reads the standard
+   * `x-om-ext-optimistic-lock-expected-updated-at` header (additive — the
+   * existing body-`updatedAt` path still works) and (b) throws the standard
+   * `CrudHttpError(409, { code: 'optimistic_lock_conflict', ... })`. The nested
+   * `JobHistorySection` dialog no longer swallows the error into a flash toast —
+   * it lets the 409 propagate so the enclosing CrudForm's
+   * `surfaceRecordConflict(...)` raises the unified `record-conflict-banner`.
    */
-  test.fixme('stale job-history edit (OSS header) shows the unified conflict bar', async ({ page }) => {
+  test('stale job-history edit (OSS header) shows the unified conflict bar', async ({ page }) => {
     const token = await getAuthToken(page.request, 'admin')
     const stamp = Date.now()
     let memberId: string | null = null

@@ -139,13 +139,11 @@ export function JobHistorySection({ memberId }: { memberId: string | null }) {
     if (!memberId) return
     const payload = buildJobHistoryPayload(values)
     if (dialogMode === 'edit' && activeRecord) {
-      try {
-        await updateCrud('staff/job-histories', { id: activeRecord.id, updatedAt: activeRecord.updatedAt, ...payload }, { errorMessage: labels.errorSave })
-      } catch (error) {
-        const message = error instanceof Error && error.message.trim().length > 0 ? error.message : labels.conflict
-        flash(message, 'error')
-        return
-      }
+      // Let any error (including the optimistic-lock 409) propagate so the
+      // enclosing CrudForm surfaces the unified "Record changed" conflict bar
+      // via surfaceRecordConflict. Catching it here and routing it to a flash
+      // toast would hide the conflict bar (see TC-LOCK-OSS-036).
+      await updateCrud('staff/job-histories', { id: activeRecord.id, updatedAt: activeRecord.updatedAt, ...payload }, { errorMessage: labels.errorSave })
       flash(labels.updated, 'success')
     } else {
       await createCrud('staff/job-histories', { entityId: memberId, ...payload }, { errorMessage: labels.errorSave })
