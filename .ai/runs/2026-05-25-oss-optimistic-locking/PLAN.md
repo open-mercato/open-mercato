@@ -117,7 +117,7 @@
 | 31 | 31.3 | QA round-6: Inbox Settings working-language PATCH — surface 409 via `surfaceRecordConflict` | done | 399fb3287 |
 | 31 | 31.4 | QA round-6 #2410 follow-up: Feature Toggle GLOBAL default-value boolean selector (`formConfig.renderDefaultValueCreateComponent`) shows blank for a real boolean — normalize via `booleanOverrideSelectValue` (b4a672a only fixed the override-card path) + test | done | 7199addb0 |
 | 31 | 31.5 | QA round-6: Pay Links stale DELETE — send `buildOptimisticLockHeader` + surface conflict (delete after conflict still deleted the stale record) | done | 2bcc24f8b |
-| 31 | 31.6 | QA round-6: Feature Toggle identifier validator rejected seeded `customers.interactions.legacy-adapters` (dots/dashes) — relax `IDENTIFIER_PATTERN` to allow `.` and `-` + tests | todo | — |
+| 31 | 31.6 | QA round-6: Feature Toggle identifier validator rejected seeded `customers.interactions.legacy-adapters` (dots/dashes) — relax `IDENTIFIER_PATTERN` to allow `.` and `-` + tests | done | fe6792a31 |
 | 31 | 31.7 | QA round-6: checkpoint — full gate + integration specs for fixed areas + Playwright smoke; push; CI green | todo | — |
 
 ## Goal (resume)
