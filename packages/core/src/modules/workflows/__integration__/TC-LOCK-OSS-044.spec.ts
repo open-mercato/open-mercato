@@ -21,26 +21,21 @@ import { readJsonSafe } from '@open-mercato/core/modules/core/__integration__/he
  *
  * Surfaces and how each is exercised:
  *
- *  - WF-01 stale paths (browser + API, test.fixme — PRODUCT GAP): the
- *    workflow-definition edit page (`/backend/definitions/<id>`) is a `CrudForm`
- *    that captures the definition's `updatedAt` at load and DOES replay it on
- *    save via the optimistic-lock header
- *    (`x-om-ext-optimistic-lock-expected-updated-at`). The route file
- *    `packages/core/src/modules/workflows/api/definitions/[id]/route.ts`
- *    registers a `createGenericOptimisticLockReader` for
- *    `resourceKind: 'workflows.definition'` and calls `validateCrudMutationGuard`
- *    — and the unit test `.../[id]/__tests__/optimistic-lock.test.ts` proves the
- *    guard returns 409 when the reader is wired. BUT at runtime on this build the
- *    lock is NOT enforced: a `PUT` carrying a known-stale expected-`updatedAt`
- *    header returns 200 and overwrites the record (verified live via curl and
- *    via `putWithLock`/`expectConflictBody`, both observed 200 not 409). The
- *    runtime `crudMutationGuardService` snapshots `getAllOptimisticLockReaders()`
- *    when the request container is built, and the `workflows.definition` reader
- *    is only registered as a side-effect of importing the route module, so the
- *    reader is absent from the snapshot and the guard short-circuits (no reader →
- *    no enforcement). Per the PRODUCT-BUG rule the two stale WF-01 assertions
- *    (browser conflict bar + API 409 contract) are marked `test.fixme`; product
- *    code is left untouched.
+ *  - WF-01 stale paths (browser + API, ACTIVE): the workflow-definition edit
+ *    page (`/backend/definitions/<id>`) is a `CrudForm` that captures the
+ *    definition's `updatedAt` at load and replays it on save via the
+ *    optimistic-lock header (`x-om-ext-optimistic-lock-expected-updated-at`).
+ *    The `workflows.definition` `createGenericOptimisticLockReader` is now
+ *    registered at module-DI load time in `workflows/di.ts` (top-level, like
+ *    sales/customers), so it is in the global reader store before any
+ *    request-scoped `crudMutationGuardService` snapshots
+ *    `getAllOptimisticLockReaders()`. Previously the reader was only registered
+ *    as a side-effect of importing the definition route module, so it was absent
+ *    from that snapshot and the guard short-circuited (no reader → no
+ *    enforcement) — a stale `PUT` returned 200 and overwrote the record. With the
+ *    reader wired at DI load time the stale write is refused with a structured
+ *    409 `optimistic_lock_conflict` body and the browser raises the unified
+ *    conflict bar.
  *
  *  - WF-01 clean path (browser, ACTIVE): the clean single-tab save on the same
  *    edit page is asserted to succeed (<400) and to NOT raise a false-positive
@@ -114,13 +109,12 @@ async function bumpDefinition(
 }
 
 test.describe('TC-LOCK-OSS-044: workflows definition + custom-entity optimistic-lock', () => {
-  // PRODUCT GAP (test.fixme): the workflow-definition PUT route does not enforce
-  // the optimistic-lock header at runtime — a stale save returns 200 with no
-  // conflict bar (see the block comment at the top of this file: the
-  // `workflows.definition` reader is absent from the guard service's snapshot of
-  // `getAllOptimisticLockReaders()`). Flip back to `test(...)` once the route
-  // reliably wires its reader into `crudMutationGuardService`.
-  test.fixme('WF-01 stale workflow-definition edit shows the conflict bar', async ({ page }) => {
+  // The `workflows.definition` optimistic-lock reader is now registered at
+  // module-DI load time in `workflows/di.ts`, so it is present in the global
+  // reader store before any request-scoped `crudMutationGuardService` snapshots
+  // `getAllOptimisticLockReaders()`. A stale save is refused with a 409 and the
+  // browser raises the unified conflict bar.
+  test('WF-01 stale workflow-definition edit shows the conflict bar', async ({ page }) => {
     const token = await getAuthToken(page.request, 'admin')
     const stamp = Date.now()
     let definitionId: string | null = null
@@ -185,11 +179,10 @@ test.describe('TC-LOCK-OSS-044: workflows definition + custom-entity optimistic-
     }
   })
 
-  // PRODUCT GAP (test.fixme): same root cause as the browser case above — a PUT
-  // carrying a stale expected-`updatedAt` header returns 200 instead of the
-  // structured 409 `optimistic_lock_conflict` body. Verified live via curl and
-  // via `putWithLock`. Flip back to `test(...)` once the route enforces the lock.
-  test.fixme('WF-01 stale workflow-definition write is refused with a 409 conflict (API contract)', async ({ page }) => {
+  // Same fix as the browser case above: with the reader registered at module-DI
+  // load time, a PUT carrying a stale expected-`updatedAt` header returns the
+  // structured 409 `optimistic_lock_conflict` body instead of overwriting.
+  test('WF-01 stale workflow-definition write is refused with a 409 conflict (API contract)', async ({ page }) => {
     const token = await getAuthToken(page.request, 'admin')
     const stamp = Date.now()
     let definitionId: string | null = null
