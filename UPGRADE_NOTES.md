@@ -22,7 +22,7 @@ most of the patterns listed below in a user's codebase.
 
 ---
 
-## 0.6.2 → 0.7.0 (unreleased)
+## 0.6.3 → 0.6.4 (2026-06-02)
 
 ### Deprecations
 
