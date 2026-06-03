@@ -21,6 +21,7 @@ export default function EditFeatureTogglePage({ params }: { params?: { id?: stri
   React.useEffect(() => {
     if (featureToggleItem) {
       setInitialValues({
+        id: featureToggleItem.id ?? (id ? String(id) : ''),
         identifier: featureToggleItem.identifier,
         name: featureToggleItem.name,
         description: featureToggleItem.description,
