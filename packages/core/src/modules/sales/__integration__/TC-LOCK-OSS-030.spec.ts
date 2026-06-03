@@ -22,34 +22,27 @@ import { fillControlledInput } from '@open-mercato/core/modules/core/__integrati
  *  - `packages/core/src/modules/sales/components/TaxRatesSettings.tsx`        → `PUT /api/sales/tax-rates`
  *
  * ───────────────────────────────────────────────────────────────────────────
- * PRODUCT BUG (browser conflict-bar sub-cases are `test.fixme`d below)
+ * CONFLICT-BAR SURFACE (fixed — issue #13)
  * ───────────────────────────────────────────────────────────────────────────
  * Route files:
  *   packages/core/src/modules/sales/components/PaymentMethodsSettings.tsx (handleSubmit/deleteEntry)
  *   packages/core/src/modules/sales/components/ShippingMethodsSettings.tsx (handleSubmit/deleteEntry)
  *   packages/core/src/modules/sales/components/TaxRatesSettings.tsx        (handleSubmit/deleteEntry)
  *
- * Each component DOES build + send the optimistic-lock header
+ * Each component builds + sends the optimistic-lock header
  * (`buildOptimisticLockHeader(dialog.entry.updatedAt)` via
- * `withScopedApiRequestHeaders`) and the server DOES enforce it: a stale dialog
+ * `withScopedApiRequestHeaders`) and the server enforces it: a stale dialog
  * save returns HTTP 409 with `code: "optimistic_lock_conflict"` (proven green by
- * the API-level assertions in this file). However the components catch that 409
- * inside their own `onSubmit`/`deleteEntry` `try/catch` and call `flash(...)`
- * (a transient toast) WITHOUT re-throwing and WITHOUT calling
- * `surfaceRecordConflict(...)`. Because the error never propagates out of
- * `onSubmit`, `CrudForm`'s unified conflict-bar path
- * (`packages/ui/src/backend/CrudForm.tsx` → `surfaceRecordConflict`) never runs,
- * so the persistent `record-conflict-banner` (`packages/ui/src/backend/conflicts`)
- * is never shown. Probe evidence: dialog PUT → 409, `record-conflict-banner`
- * count = 0.
+ * the API-level assertions in this file). Previously the components caught that
+ * 409 inside their own `onSubmit`/`deleteEntry` `try/catch` and only called
+ * `flash(...)` (a transient toast), so the unified conflict-bar path never ran.
  *
- * The lock is correctly enforced server-side; only the UNIFIED conflict-bar
- * surface is missing on these three dialogs (they show a toast instead). Per the
- * QA product-bug rule, product code is NOT touched here: the three browser
- * conflict-bar sub-cases are `test.fixme`d with this explanation, while the
- * server-side lock enforcement for all three routes is kept GREEN via
- * API-level `putWithLock` + `expectConflictBody` assertions, and the clean
- * single-tab dialog save is verified not to produce a false-positive bar.
+ * Fix: each `if (!call.ok)` branch now routes the apiCall envelope through
+ * `surfaceRecordConflict({ status, body }, t)` BEFORE `raiseCrudError(...)`. On a
+ * 409 conflict this pushes the persistent `record-conflict-banner`
+ * (`packages/ui/src/backend/conflicts`) and returns early; non-conflict failures
+ * still fall through to the existing toast. The three browser sub-cases below are
+ * now active and assert the banner appears on a stale dialog save.
  *
  * Deterministic trigger (no two tabs, no sleeps): create the record via an API
  * fixture (unique name via an epoch-millis stamp) → capture its live
@@ -169,10 +162,9 @@ test.describe('TC-LOCK-OSS-030: sales settings dialogs (payment/shipping/tax) op
     }
   })
 
-  // PRODUCT BUG (see file header): PaymentMethodsSettings.tsx swallows the 409
-  // into flash() instead of surfacing the unified conflict bar — the dialog PUT
-  // returns 409 but record-conflict-banner is never shown.
-  test.fixme('SAL-14: stale payment-method dialog save shows the conflict bar', async ({ page }) => {
+  // PaymentMethodsSettings.tsx routes the 409 through surfaceRecordConflict so
+  // a stale dialog save shows the unified record-conflict-banner.
+  test('SAL-14: stale payment-method dialog save shows the conflict bar', async ({ page }) => {
     const token = await getAuthToken(page.request, 'admin')
     const stamp = Date.now()
     const name = `QA Lock 030 Payment UI ${stamp}`
@@ -207,9 +199,9 @@ test.describe('TC-LOCK-OSS-030: sales settings dialogs (payment/shipping/tax) op
     }
   })
 
-  // PRODUCT BUG (see file header): ShippingMethodsSettings.tsx swallows the 409
-  // into flash() instead of surfacing the unified conflict bar.
-  test.fixme('SAL-15: stale shipping-method dialog save shows the conflict bar', async ({ page }) => {
+  // ShippingMethodsSettings.tsx routes the 409 through surfaceRecordConflict so
+  // a stale dialog save shows the unified record-conflict-banner.
+  test('SAL-15: stale shipping-method dialog save shows the conflict bar', async ({ page }) => {
     const token = await getAuthToken(page.request, 'admin')
     const stamp = Date.now()
     const name = `QA Lock 030 Shipping UI ${stamp}`
@@ -244,9 +236,9 @@ test.describe('TC-LOCK-OSS-030: sales settings dialogs (payment/shipping/tax) op
     }
   })
 
-  // PRODUCT BUG (see file header): TaxRatesSettings.tsx swallows the 409 into
-  // flash() instead of surfacing the unified conflict bar.
-  test.fixme('SAL-16: stale tax-rate dialog save shows the conflict bar', async ({ page }) => {
+  // TaxRatesSettings.tsx routes the 409 through surfaceRecordConflict so a
+  // stale dialog save shows the unified record-conflict-banner.
+  test('SAL-16: stale tax-rate dialog save shows the conflict bar', async ({ page }) => {
     const token = await getAuthToken(page.request, 'admin')
     const stamp = Date.now()
     const name = `QA Lock 030 Tax UI ${stamp}`

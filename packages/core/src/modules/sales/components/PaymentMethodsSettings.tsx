@@ -17,6 +17,7 @@ import { CrudForm, type CrudField, type CrudCustomFieldRenderProps } from '@open
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
 import { apiCall, readApiResultOrThrow, withScopedApiRequestHeaders } from '@open-mercato/ui/backend/utils/apiCall'
 import { buildOptimisticLockHeader } from '@open-mercato/ui/backend/utils/optimisticLock'
+import { surfaceRecordConflict } from '@open-mercato/ui/backend/conflicts'
 import { raiseCrudError } from '@open-mercato/ui/backend/utils/serverErrors'
 import { useOrganizationScopeVersion } from '@open-mercato/shared/lib/frontend/useOrganizationScope'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
@@ -299,6 +300,7 @@ export function PaymentMethodsSettings() {
         body: JSON.stringify({ id: entry.id }),
       }))
       if (!call.ok) {
+        if (surfaceRecordConflict({ status: call.status, body: call.result }, t)) return
         await raiseCrudError(call.response, translations.errors.delete)
       }
       flash(translations.messages.deleted, 'success')
@@ -335,6 +337,7 @@ export function PaymentMethodsSettings() {
       const headers = buildOptimisticLockHeader(dialog.mode === 'edit' ? dialog.entry.updatedAt : null)
       const call = await withScopedApiRequestHeaders(headers, savePaymentMethod)
       if (!call.ok) {
+        if (surfaceRecordConflict({ status: call.status, body: call.result }, t)) return
         await raiseCrudError(call.response, translations.errors.save)
       }
       flash(translations.messages.saved, 'success')
