@@ -63,3 +63,17 @@ identified ~68 UI behaviors with no automated spec. This PR adds **browser-drive
   -036 staff leave/job-history, -038 planner, -040 CUR-02 exchange-rates, -045 conflict-bar UX, -046 negatives.
 - **How to resume:** re-read PLAN.md, ensure ephemeral up, run any green spec to confirm env, then pick the first
   non-done row and follow the Per-step contract. Reuse the green reference specs (esp. -040, -021, -039, -041) as templates.
+
+### Snapshot v2 (after batch-2)
+- **DONE & pushed (15 spec files + helper):** -014 -015 -019 -020 -021 -031 -032 -035 -037 -039 -040 -041 -042 -043 -044.
+  ~38 active tests green; 5 `test.fixme` documenting **3 product findings** (business_rules rules/sets,
+  workflows.definition, entities.records) — all on #2055, none fixed here.
+- **IN FLIGHT (batch-3):** -016 deals, -028 sales channels (Alina blocker SAL-12), -033 customer_accounts roles,
+  -036 staff leave/job-history, -038 planner, -045 conflict-bar UX, -046 negatives, -022 catalog option-schema.
+- **REMAINING (batch-4 / resume — the bespoke-heavy ones):** -017 deals kanban (won/lost + drag),
+  -018 activity/task modals (delete-after-delete), -023 catalog false-positives (variant price overrides) + price kinds,
+  -024 sales quote header, -025 order adjustments/returns, -026 order payments/shipments, -027 quote→convert,
+  -029 channel offers, -030 sales settings dialogs (payment/shipping/tax), -034 sidebar customization,
+  -040 CUR-02 exchange-rates (optional — covered-by-equivalence), -045/-046 only if batch-3 leaves gaps.
+- **Final gate before un-drafting:** run the whole suite `npx playwright test -g "TC-LOCK-OSS"` against the
+  ephemeral env and confirm 0 failures (fixme=skipped is fine); then summarize the product findings on the PR.
