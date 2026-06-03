@@ -2,7 +2,7 @@ import * as React from 'react'
 import { promises as fs } from 'fs'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import { sendEmail } from '@open-mercato/shared/lib/email/send'
-import { resolveDefaultEmailFromAddress } from '@open-mercato/shared/lib/email/config'
+import { resolveDefaultEmailFromAddress, resolveEmailProvider } from '@open-mercato/shared/lib/email/config'
 import { loadDictionary } from '@open-mercato/shared/lib/i18n/server'
 import { defaultLocale } from '@open-mercato/shared/lib/i18n/config'
 import { createFallbackTranslator } from '@open-mercato/shared/lib/i18n/translate'
@@ -50,7 +50,7 @@ function resolveObjectLabels(objects: MessageObject[]): string[] {
   return objects.map((item) => `${item.entityModule}.${item.entityType} (${item.entityId})`)
 }
 
-type ResendAttachment = {
+type EmailAttachment = {
   filename: string
   content: string
   contentType?: string
@@ -59,8 +59,8 @@ type ResendAttachment = {
 async function mapAttachmentsForEmail(
   messageId: string,
   attachments: MessageEmailAttachment[],
-): Promise<ResendAttachment[]> {
-  const resendAttachments: ResendAttachment[] = []
+): Promise<EmailAttachment[]> {
+  const emailAttachments: EmailAttachment[] = []
   let totalBytes = 0
 
   for (const attachment of attachments.slice(0, MAX_EMAIL_ATTACHMENTS)) {
@@ -92,14 +92,14 @@ async function mapAttachmentsForEmail(
     }
 
     totalBytes += buffer.length
-    resendAttachments.push({
+    emailAttachments.push({
       filename: attachment.fileName,
       content: buffer.toString('base64'),
       contentType: attachment.mimeType || undefined,
     })
   }
 
-  return resendAttachments
+  return emailAttachments
 }
 
 async function renderMarkdownEmailBody(body: string) {
@@ -181,14 +181,14 @@ export async function sendMessageEmailToRecipient(params: {
   }
   const copy = await buildEmailCopy(message.sentAt ?? new Date())
   const bodyHtml = await buildEmailBodyHtml(message)
-  const resendAttachments = await mapAttachmentsForEmail(message.id, attachments)
-  logDebug('Sending recipient email via Resend', {
+  const emailAttachments = await mapAttachmentsForEmail(message.id, attachments)
+  logDebug('Sending recipient email', {
     messageId: message.id,
     recipientUserId,
     recipientEmail,
     hasViewUrl: Boolean(viewUrl),
-    attachmentsCount: resendAttachments.length,
-    hasApiKey: Boolean(process.env.RESEND_API_KEY),
+    attachmentsCount: emailAttachments.length,
+    provider: resolveEmailProvider(),
     from: resolveDefaultEmailFromAddress() ?? null,
   })
 
@@ -206,7 +206,7 @@ export async function sendMessageEmailToRecipient(params: {
       attachmentNames: attachments.map((item) => item.fileName),
       objectLabels: resolveObjectLabels(objects),
     }),
-    attachments: resendAttachments,
+    attachments: emailAttachments,
   })
 }
 
@@ -220,12 +220,12 @@ export async function sendMessageEmailToExternal(params: {
   const { message, email, sender, objects, attachments } = params
   const copy = await buildEmailCopy(message.sentAt ?? new Date())
   const bodyHtml = await buildEmailBodyHtml(message)
-  const resendAttachments = await mapAttachmentsForEmail(message.id, attachments)
-  logDebug('Sending external email via Resend', {
+  const emailAttachments = await mapAttachmentsForEmail(message.id, attachments)
+  logDebug('Sending external email', {
     messageId: message.id,
     email,
-    attachmentsCount: resendAttachments.length,
-    hasApiKey: Boolean(process.env.RESEND_API_KEY),
+    attachmentsCount: emailAttachments.length,
+    provider: resolveEmailProvider(),
     from: resolveDefaultEmailFromAddress() ?? null,
   })
 
@@ -243,9 +243,9 @@ export async function sendMessageEmailToExternal(params: {
       attachmentNames: attachments.map((item) => item.fileName),
       objectLabels: resolveObjectLabels(objects),
     }),
-    attachments: resendAttachments,
+    attachments: emailAttachments,
   })
-  logDebug('External email sent via Resend', {
+  logDebug('External email sent', {
     messageId: message.id,
     email,
   })

@@ -1,8 +1,13 @@
 import React from 'react'
 import { sendEmail } from '../send'
+import { isEmailDeliveryConfigured, resolveAwsSesRegion, resolveEmailProvider } from '../config'
 
 var sendMock: jest.Mock
 var ResendMock: jest.Mock
+var sendMailMock: jest.Mock
+var createTransportMock: jest.Mock
+var SESClientMock: jest.Mock
+var SendRawEmailCommandMock: jest.Mock
 
 jest.mock('resend', () => {
   sendMock = jest.fn().mockResolvedValue({ data: { id: 'email-1' } })
@@ -11,6 +16,21 @@ jest.mock('resend', () => {
   }))
 
   return { Resend: ResendMock }
+})
+
+jest.mock('nodemailer', () => {
+  sendMailMock = jest.fn().mockResolvedValue({ messageId: 'ses-email-1' })
+  createTransportMock = jest.fn().mockReturnValue({ sendMail: sendMailMock })
+  return { __esModule: true, default: { createTransport: createTransportMock } }
+})
+
+jest.mock('@aws-sdk/client-ses', () => {
+  SESClientMock = jest.fn()
+  SendRawEmailCommandMock = jest.fn()
+  return {
+    SESClient: SESClientMock,
+    SendRawEmailCommand: SendRawEmailCommandMock,
+  }
 })
 
 describe('sendEmail', () => {
@@ -24,6 +44,10 @@ describe('sendEmail', () => {
     }
     sendMock.mockClear()
     ResendMock.mockClear()
+    sendMailMock?.mockClear()
+    createTransportMock?.mockClear()
+    SESClientMock?.mockClear()
+    SendRawEmailCommandMock?.mockClear()
   })
 
   afterEach(() => {
@@ -157,5 +181,149 @@ describe('sendEmail', () => {
 
     expect(ResendMock).not.toHaveBeenCalled()
     expect(sendMock).not.toHaveBeenCalled()
+  })
+
+  it('uses Resend explicitly when EMAIL_PROVIDER is resend', async () => {
+    process.env.EMAIL_PROVIDER = 'resend'
+
+    await sendEmail({
+      to: 'user@example.com',
+      subject: 'Hello',
+      react: React.createElement('div', null, 'Hi'),
+    })
+
+    expect(resolveEmailProvider()).toBe('resend')
+    expect(ResendMock).toHaveBeenCalledWith('test-key')
+    expect(createTransportMock).toBeUndefined()
+  })
+
+  it('uses SES transport when EMAIL_PROVIDER is ses', async () => {
+    process.env.EMAIL_PROVIDER = 'ses'
+    process.env.AWS_SES_REGION = 'eu-west-2'
+    delete process.env.RESEND_API_KEY
+
+    await sendEmail({
+      to: 'user@example.com',
+      subject: 'Hello',
+      react: React.createElement('div', null, 'Hi'),
+      replyTo: 'reply@example.com',
+      attachments: [
+        {
+          filename: 'invoice.pdf',
+          content: 'dGVzdA==',
+          contentType: 'application/pdf',
+        },
+      ],
+    })
+
+    expect(resolveEmailProvider()).toBe('ses')
+    expect(resolveAwsSesRegion()).toBe('eu-west-2')
+    expect(SESClientMock).toHaveBeenCalledWith({ region: 'eu-west-2' })
+    expect(createTransportMock).toHaveBeenCalledWith({
+      SES: {
+        ses: expect.any(Object),
+        aws: { SendRawEmailCommand: SendRawEmailCommandMock },
+      },
+    })
+    expect(sendMailMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        to: 'user@example.com',
+        subject: 'Hello',
+        from: 'from@example.com',
+        html: expect.stringContaining('Hi'),
+        text: expect.stringContaining('Hi'),
+        replyTo: 'reply@example.com',
+        attachments: [
+          {
+            filename: 'invoice.pdf',
+            content: 'dGVzdA==',
+            encoding: 'base64',
+            contentType: 'application/pdf',
+          },
+        ],
+      })
+    )
+    expect(ResendMock).not.toHaveBeenCalled()
+  })
+
+  it('falls back to AWS_REGION for SES region', async () => {
+    process.env.EMAIL_PROVIDER = 'ses'
+    process.env.AWS_REGION = 'eu-central-1'
+    delete process.env.AWS_SES_REGION
+
+    await sendEmail({
+      to: 'user@example.com',
+      subject: 'Hello',
+      react: React.createElement('div', null, 'Hi'),
+    })
+
+    expect(SESClientMock).toHaveBeenCalledWith({ region: 'eu-central-1' })
+  })
+
+  it('allows the AWS SDK to resolve region when SES region env vars are not set', async () => {
+    process.env.EMAIL_PROVIDER = 'ses'
+    delete process.env.AWS_REGION
+    delete process.env.AWS_SES_REGION
+
+    await sendEmail({
+      to: 'user@example.com',
+      subject: 'Hello',
+      react: React.createElement('div', null, 'Hi'),
+    })
+
+    expect(SESClientMock).toHaveBeenCalledWith({})
+  })
+
+  it('throws a provider-specific error when SES sending fails', async () => {
+    process.env.EMAIL_PROVIDER = 'ses'
+    await import('nodemailer')
+    sendMailMock.mockRejectedValueOnce(new Error('message rejected'))
+
+    await expect(sendEmail({
+      to: 'user@example.com',
+      subject: 'Hello',
+      react: React.createElement('div', null, 'Hi'),
+    })).rejects.toThrow('SES_SEND_FAILED: message rejected')
+  })
+
+  it('throws a clear error when EMAIL_PROVIDER is unsupported', async () => {
+    process.env.EMAIL_PROVIDER = 'smtp'
+
+    await expect(sendEmail({
+      to: 'user@example.com',
+      subject: 'Hello',
+      react: React.createElement('div', null, 'Hi'),
+    })).rejects.toThrow('EMAIL_PROVIDER_UNSUPPORTED: smtp')
+  })
+
+  it('reports email delivery as configured for Resend when API key and sender exist', () => {
+    expect(isEmailDeliveryConfigured()).toBe(true)
+  })
+
+  it('reports email delivery as configured for SES when sender exists', () => {
+    process.env.EMAIL_PROVIDER = 'ses'
+    delete process.env.RESEND_API_KEY
+
+    expect(isEmailDeliveryConfigured()).toBe(true)
+  })
+
+  it('reports email delivery as not configured when sender is missing', () => {
+    delete process.env.EMAIL_FROM
+    delete process.env.NOTIFICATIONS_EMAIL_FROM
+    delete process.env.ADMIN_EMAIL
+
+    expect(isEmailDeliveryConfigured()).toBe(false)
+  })
+
+  it('reports email delivery as not configured when disabled', () => {
+    process.env.OM_DISABLE_EMAIL_DELIVERY = 'true'
+
+    expect(isEmailDeliveryConfigured()).toBe(false)
+  })
+
+  it('reports email delivery as not configured when provider is unsupported', () => {
+    process.env.EMAIL_PROVIDER = 'smtp'
+
+    expect(isEmailDeliveryConfigured()).toBe(false)
   })
 })

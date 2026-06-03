@@ -10,6 +10,7 @@ import Image from 'next/image'
 import Link from 'next/link'
 import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
+import { isEmailDeliveryConfigured } from '@open-mercato/shared/lib/email/config'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import { User } from '@open-mercato/core/modules/auth/data/entities'
 import { Tenant, Organization } from '@open-mercato/core/modules/directory/data/entities'
@@ -76,7 +77,7 @@ export default async function Home() {
 
   const onboardingAvailable =
     process.env.SELF_SERVICE_ONBOARDING_ENABLED === 'true' &&
-    Boolean(process.env.RESEND_API_KEY && process.env.RESEND_API_KEY.trim()) &&
+    isEmailDeliveryConfigured() &&
     Boolean(process.env.APP_URL && process.env.APP_URL.trim())
 
   return (

@@ -28,6 +28,8 @@ The Notifications module provides actionable in-app notifications that allow use
 
 ## Email sender configuration
 
+Notification emails use the shared outbound email provider. Omit `EMAIL_PROVIDER` or set it to `resend` for Resend, or set `EMAIL_PROVIDER=ses` for Amazon SES. SES uses the AWS SDK credential chain and `AWS_SES_REGION` / `AWS_REGION` when present.
+
 Notification emails resolve their sender in this order:
 
 1. `NOTIFICATIONS_EMAIL_FROM`
