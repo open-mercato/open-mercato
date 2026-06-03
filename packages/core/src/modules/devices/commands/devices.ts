@@ -112,13 +112,16 @@ export async function loadExistingDevice(
   return em.findOne(UserDevice, scope, { orderBy: { createdAt: 'desc' } })
 }
 
+// Postgres SQLSTATE for unique_violation. MikroORM doesn't re-export pg error codes, so name it here.
+const PG_UNIQUE_VIOLATION = '23505'
+
 // A concurrent first-registration of the same (tenant, user, device_id) loses the race against the
 // partial unique index. Surface it as a 409 conflict instead of a raw 500 — the endpoint is an
 // idempotent upsert, so the caller can simply re-issue the request to land on the existing row.
 function isDeviceUniqueViolation(error: unknown): boolean {
   if (error instanceof UniqueConstraintViolationException) return true
   if (!error || typeof error !== 'object') return false
-  if ((error as { code?: string }).code === '23505') return true
+  if ((error as { code?: string }).code === PG_UNIQUE_VIOLATION) return true
   const message = (error as { message?: string }).message
   return typeof message === 'string' && message.toLowerCase().includes('duplicate key')
 }
