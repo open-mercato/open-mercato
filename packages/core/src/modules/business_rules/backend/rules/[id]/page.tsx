@@ -10,6 +10,8 @@ import { Spinner } from '@open-mercato/ui/primitives/spinner'
 import { Button } from '@open-mercato/ui/primitives/button'
 import { apiFetch, withScopedApiHeaders } from '@open-mercato/ui/backend/utils/api'
 import { buildOptimisticLockHeader } from '@open-mercato/ui/backend/utils/optimisticLock'
+import { readJsonSafe } from '@open-mercato/ui/backend/utils/serverErrors'
+import { CrudHttpError } from '@open-mercato/shared/lib/crud/errors'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { useOrganizationScopeDetail } from '@open-mercato/shared/lib/frontend/useOrganizationScope'
 import {
@@ -82,8 +84,12 @@ export default function EditBusinessRulePage() {
       : await updateRule()
 
     if (!response.ok) {
-      const error = await response.json()
-      throw new Error(error.error || error.message || t('business_rules.errors.updateFailed'))
+      const body = (await readJsonSafe<Record<string, unknown>>(response)) ?? {}
+      const message =
+        (typeof body.error === 'string' && body.error) ||
+        (typeof body.message === 'string' && body.message) ||
+        t('business_rules.errors.updateFailed')
+      throw new CrudHttpError(response.status, { ...body, error: message })
     }
 
     router.push('/backend/rules')

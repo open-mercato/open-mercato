@@ -12,6 +12,8 @@ import { Button } from '@open-mercato/ui/primitives/button'
 import { apiFetch, withScopedApiHeaders } from '@open-mercato/ui/backend/utils/api'
 import { apiCall } from '@open-mercato/ui/backend/utils/apiCall'
 import { buildOptimisticLockHeader } from '@open-mercato/ui/backend/utils/optimisticLock'
+import { readJsonSafe } from '@open-mercato/ui/backend/utils/serverErrors'
+import { CrudHttpError } from '@open-mercato/shared/lib/crud/errors'
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { useOrganizationScopeDetail } from '@open-mercato/shared/lib/frontend/useOrganizationScope'
@@ -97,8 +99,12 @@ export default function EditRuleSetPage() {
       : await updateSet()
 
     if (!response.ok) {
-      const error = await response.json()
-      throw new Error(error.error || error.message || t('business_rules.sets.errors.updateFailed'))
+      const body = (await readJsonSafe<Record<string, unknown>>(response)) ?? {}
+      const message =
+        (typeof body.error === 'string' && body.error) ||
+        (typeof body.message === 'string' && body.message) ||
+        t('business_rules.sets.errors.updateFailed')
+      throw new CrudHttpError(response.status, { ...body, error: message })
     }
 
     flash(t('business_rules.sets.messages.updated'), 'success')
