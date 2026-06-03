@@ -8,7 +8,7 @@ import { collectCustomFieldValues } from '@open-mercato/ui/backend/utils/customF
 import { createCrud, updateCrud, deleteCrud } from '@open-mercato/ui/backend/utils/crud'
 import { createCrudFormError, type CrudServerFieldErrors } from '@open-mercato/ui/backend/utils/serverErrors'
 import { readApiResultOrThrow, apiCall, withScopedApiRequestHeaders } from '@open-mercato/ui/backend/utils/apiCall'
-import { buildOptimisticLockHeader } from '@open-mercato/ui/backend/utils/optimisticLock'
+import { buildOptimisticLockHeader, extractOptimisticLockConflict } from '@open-mercato/ui/backend/utils/optimisticLock'
 import { surfaceRecordConflict } from '@open-mercato/ui/backend/conflicts'
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
 import { Button } from '@open-mercato/ui/primitives/button'
@@ -624,6 +624,13 @@ export function ChannelOfferForm({ channelId: lockedChannelId, offerId, mode }: 
         savedId = offerId
       }
     } catch (err) {
+      // Let an optimistic-lock 409 propagate untouched so CrudForm's
+      // extractOptimisticLockConflict still sees the top-level `code` /
+      // `currentUpdatedAt` / `expectedUpdatedAt` and surfaces the unified
+      // conflict bar. Re-wrapping via createCrudFormError below would drop them.
+      if (extractOptimisticLockConflict(err)) {
+        throw err
+      }
       const details = (err as { details?: unknown })?.details
       const rawFieldErrors = (err as { fieldErrors?: unknown })?.fieldErrors
       const fieldErrors = rawFieldErrors && typeof rawFieldErrors === 'object'

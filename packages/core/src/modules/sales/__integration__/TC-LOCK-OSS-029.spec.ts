@@ -142,25 +142,22 @@ async function offerStillExists(
 }
 
 test.describe('TC-LOCK-OSS-029: sales channel offer edit + list-delete conflict bar (SAL-13)', () => {
-  // PRODUCT BUG — offer EDIT does not surface the conflict bar.
+  // Regression for #12 — offer EDIT must surface the unified conflict bar.
   // Route: packages/core/src/modules/sales/components/channels/ChannelOfferForm.tsx (`handleSubmit`).
-  // The browser DOES send `x-om-ext-optimistic-lock-expected-updated-at` and the
-  // CRUD route `/api/catalog/offers` correctly returns 409 with the full body
+  // The browser sends `x-om-ext-optimistic-lock-expected-updated-at` and the
+  // CRUD route `/api/catalog/offers` returns 409 with the full body
   // (`code: optimistic_lock_conflict`, `currentUpdatedAt`, `expectedUpdatedAt`),
-  // VERIFIED in this file by the active "SAL-13 (API)" 409 test. But
-  // `ChannelOfferForm.handleSubmit` catches the `updateCrud` error and re-throws
-  // it via `createCrudFormError(message, fieldErrors, { status, details })`,
-  // which keeps `status: 409` but DROPS the top-level `code` /
-  // `currentUpdatedAt` / `expectedUpdatedAt`. `raiseCrudError` spreads those at
-  // the top level (not under `.details`), so the re-wrap loses them.
-  // CrudForm's `extractOptimisticLockConflict(err)` then fails its `code` check
-  // (status 409 but no code) → `surfaceRecordConflict` is never called → no bar.
-  // Observed in browser: PUT 409 + correct conflict body, banner count 0.
-  // Fix belongs in `handleSubmit` (re-throw the original error or preserve the
-  // conflict code/fields); not touching product code per the product-bug rule.
+  // VERIFIED in this file by the active "SAL-13 (API)" 409 test. The bug was that
+  // `ChannelOfferForm.handleSubmit` caught the `updateCrud` error and re-threw it
+  // via `createCrudFormError(message, fieldErrors, { status, details })`, which
+  // kept `status: 409` but DROPPED the top-level `code` / `currentUpdatedAt` /
+  // `expectedUpdatedAt` that `raiseCrudError` spreads at the top level. CrudForm's
+  // `extractOptimisticLockConflict(err)` then failed its `code` check → no bar.
+  // The fix re-throws the original error for optimistic-lock 409s so the conflict
+  // fields survive and `surfaceRecordConflict` shows the bar.
   // Contrast: the list-delete path below uses `surfaceRecordConflict(err, t)` on
   // the RAW error (top-level code intact) and DOES show the bar — kept active.
-  test.fixme('SAL-13: stale offer edit shows the conflict bar', async ({ page }) => {
+  test('SAL-13: stale offer edit shows the conflict bar', async ({ page }) => {
     const token = await getAuthToken(page.request, 'admin')
     const stamp = Date.now()
     let productId: string | null = null
