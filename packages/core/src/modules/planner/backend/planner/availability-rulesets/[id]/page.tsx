@@ -8,7 +8,6 @@ import { ErrorMessage, RecordNotFoundState } from '@open-mercato/ui/backend/deta
 import { readApiResultOrThrow } from '@open-mercato/ui/backend/utils/apiCall'
 import { updateCrud, deleteCrud } from '@open-mercato/ui/backend/utils/crud'
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
-import { normalizeCrudServerError } from '@open-mercato/ui/backend/utils/serverErrors'
 import { AvailabilityRulesEditor, type AvailabilityScheduleItemBuilder } from '@open-mercato/core/modules/planner/components/AvailabilityRulesEditor'
 import { parseAvailabilityRuleWindow } from '@open-mercato/core/modules/planner/lib/availabilitySchedule'
 import { extractCustomFieldEntries } from '@open-mercato/shared/lib/crud/custom-fields-client'
@@ -113,19 +112,15 @@ export default function PlannerAvailabilityRuleSetDetailPage({ params }: { param
 
   const handleDelete = React.useCallback(async () => {
     if (!rulesetId) return
-    try {
-      await deleteCrud('planner/availability-rule-sets', rulesetId, {
-        errorMessage: translate('planner.availabilityRuleSets.form.errors.delete', 'Failed to delete schedule.'),
-      })
-      flash(translate('planner.availabilityRuleSets.form.flash.deleted', 'Schedule deleted.'), 'success')
-      router.push('/backend/planner/availability-rulesets')
-    } catch (error) {
-      const normalized = normalizeCrudServerError(error)
-      flash(
-        normalized.message ?? translate('planner.availabilityRuleSets.form.errors.delete', 'Failed to delete schedule.'),
-        'error',
-      )
-    }
+    // Let a non-ok DELETE (e.g. the 409 optimistic-lock conflict) propagate so
+    // CrudForm surfaces the unified conflict bar and skips its success toast.
+    // Swallowing the error here made CrudForm treat the delete as successful and
+    // show a false "Schedule deleted." toast even though the record was kept.
+    await deleteCrud('planner/availability-rule-sets', rulesetId, {
+      errorMessage: translate('planner.availabilityRuleSets.form.errors.delete', 'Failed to delete schedule.'),
+    })
+    flash(translate('planner.availabilityRuleSets.form.flash.deleted', 'Schedule deleted.'), 'success')
+    router.push('/backend/planner/availability-rulesets')
   }, [router, rulesetId, translate])
 
   const buildScheduleItems: AvailabilityScheduleItemBuilder = React.useCallback(({ availabilityRules, bookedEvents, translate: translateLabel }) => {
