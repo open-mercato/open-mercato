@@ -350,12 +350,30 @@ export default function PersonDetailV2Page({ params }: { params?: { id?: string 
         const lockedUpdatedAt = dataRef.current?.person?.updatedAt
           ?? dataRef.current?.person?.updated_at
           ?? null
-        await withScopedApiRequestHeaders(
+        const updateResponse = await withScopedApiRequestHeaders(
           buildOptimisticLockHeader(lockedUpdatedAt),
-          () => updateCrud('customers/people', payload),
+          () => updateCrud<{ updatedAt?: string | null }>('customers/people', payload),
         )
         flash(t('customers.people.form.updateSuccess', 'Person updated.'), 'success')
+        // Refresh the optimistic-lock token from the write's OWN authoritative
+        // response (`updatedAt`), not from a follow-up GET. A separate `loadData()`
+        // GET races concurrent third-party writes: if another tab bumps the record
+        // between this save and the reload, the GET would capture the *bumped*
+        // token, so the next in-page save would no longer be stale and would
+        // silently overwrite (no 409, no conflict bar). Pinning the token to the
+        // value the server just wrote keeps a later concurrent bump correctly
+        // stale → 409 → unified conflict bar (#2055, Alina A7 sequential-save).
+        const savedUpdatedAt = typeof updateResponse.result?.updatedAt === 'string'
+          ? updateResponse.result.updatedAt
+          : null
         await loadData()
+        if (savedUpdatedAt) {
+          setData((prev) => (
+            prev?.person
+              ? { ...prev, person: { ...prev.person, updatedAt: savedUpdatedAt, updated_at: savedUpdatedAt } }
+              : prev
+          ))
+        }
       } finally {
         setIsSaving(false)
       }
