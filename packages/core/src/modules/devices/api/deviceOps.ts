@@ -96,7 +96,11 @@ export async function executeRegister(
   mctx: DeviceMutationContext,
   commandInput: RegisterDeviceCommandInput,
 ): Promise<NextResponse> {
-  const guardResult = await runGuards(mctx, 'create', commandInput.deviceId, redactMutationPayload(commandInput))
+  // Register is an upsert, so the device row id isn't known until execution. Key the mutation guard
+  // by the stable, tenant-unique upsert tuple so validate and after-success agree (record locks are
+  // keyed by resourceId); deviceId alone is not unique across users.
+  const guardResourceId = `${commandInput.userId}:${commandInput.deviceId}`
+  const guardResult = await runGuards(mctx, 'create', guardResourceId, redactMutationPayload(commandInput))
   if (guardResult && !guardResult.ok) return NextResponse.json(guardResult.body, { status: guardResult.status })
 
   const commandBus = mctx.container.resolve('commandBus') as CommandBus
@@ -105,7 +109,7 @@ export async function executeRegister(
     { id: string; deviceId: string; revived: boolean }
   >('devices.devices.register', { input: commandInput, ctx: commandCtx(mctx) })
 
-  await runAfter(mctx, guardResult, 'create', result.id)
+  await runAfter(mctx, guardResult, 'create', guardResourceId)
 
   const response = NextResponse.json(
     { id: result.id, deviceId: result.deviceId, revived: result.revived },

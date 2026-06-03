@@ -127,6 +127,8 @@ const registerDeviceCommand: CommandHandler<RegisterDeviceCommandInput, { id: st
   id: 'devices.devices.register',
   async prepare(rawInput, ctx) {
     const parsed = registerDeviceCommandSchema.parse(rawInput)
+    // Enforce tenant scope before any DB access so prepare() can't probe across tenants.
+    ensureTenantScope(ctx, parsed.tenantId)
     const em = (ctx.container.resolve('em') as EntityManager).fork()
     const existing = await loadExistingDevice(em, {
       tenantId: parsed.tenantId,
@@ -296,8 +298,10 @@ const updateDeviceCommand: CommandHandler<UpdateDeviceCommandInput, { id: string
   id: 'devices.devices.update',
   async prepare(rawInput, ctx) {
     const parsed = updateDeviceCommandSchema.parse(rawInput)
+    // Enforce tenant scope and constrain the snapshot lookup to the caller's tenant.
+    ensureTenantScope(ctx, parsed.tenantId)
     const em = (ctx.container.resolve('em') as EntityManager).fork()
-    const device = await em.findOne(UserDevice, { id: parsed.id, deletedAt: null })
+    const device = await em.findOne(UserDevice, { id: parsed.id, tenantId: parsed.tenantId, deletedAt: null })
     return device ? { before: serializeDevice(device) } : {}
   },
   async execute(rawInput, ctx) {
@@ -401,8 +405,10 @@ const deactivateDeviceCommand: CommandHandler<DeactivateDeviceCommandInput, { id
   id: 'devices.devices.deactivate',
   async prepare(rawInput, ctx) {
     const parsed = deactivateDeviceCommandSchema.parse(rawInput)
+    // Enforce tenant scope and constrain the snapshot lookup to the caller's tenant.
+    ensureTenantScope(ctx, parsed.tenantId)
     const em = (ctx.container.resolve('em') as EntityManager).fork()
-    const device = await em.findOne(UserDevice, { id: parsed.id, deletedAt: null })
+    const device = await em.findOne(UserDevice, { id: parsed.id, tenantId: parsed.tenantId, deletedAt: null })
     return device ? { before: serializeDevice(device) } : {}
   },
   async execute(rawInput, ctx) {
