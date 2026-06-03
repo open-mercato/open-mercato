@@ -1086,9 +1086,17 @@ async function getProcessTreeMemoryBytes(rootPid) {
   if (process.platform === 'win32') return null
 
   return new Promise((resolve) => {
-    const inspector = spawn('ps', ['-axo', 'pid=,ppid=,rss='], {
-      stdio: ['ignore', 'pipe', 'ignore'],
-    })
+    let inspector
+    try {
+      inspector = spawn('ps', ['-axo', 'pid=,ppid=,rss='], {
+        stdio: ['ignore', 'pipe', 'ignore'],
+      })
+    } catch {
+      // spawn can throw synchronously (e.g. ENAMETOOLONG); the memory monitor
+      // is cosmetic, so degrade to "no sample" instead of crashing the runtime.
+      resolve(null)
+      return
+    }
 
     let output = ''
     inspector.stdout?.setEncoding('utf8')
