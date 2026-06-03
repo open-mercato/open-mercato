@@ -1,8 +1,10 @@
 import { test, expect, type APIRequestContext } from '@playwright/test'
 import { getAuthToken, apiRequest } from '@open-mercato/core/modules/core/__integration__/helpers/api'
+import { login } from '@open-mercato/core/modules/core/__integration__/helpers/auth'
 import {
   putWithLock,
   expectConflictBody,
+  expectConflictBanner,
   resolveApiUrl,
 } from '@open-mercato/core/modules/core/__integration__/helpers/optimisticLockUi'
 import { OPTIMISTIC_LOCK_HEADER_NAME } from '@open-mercato/shared/lib/crud/optimistic-lock-headers'
@@ -203,6 +205,51 @@ test.describe('TC-LOCK-OSS-043: webhooks + inbox settings + data-sync schedule o
         },
       })
       await expectConflictBody(conflict)
+    } finally {
+      if (webhookId) await deleteWebhook(page.request, token, webhookId)
+    }
+  })
+
+  // WHK-01 (browser UI): the webhooks LIST page delete handler must surface the
+  // unified `record-conflict-banner` on a stale DELETE 409 — not a success
+  // toast. Regression guard for "Webhook deleted successfully" on a stale tab.
+  // The list-row `handleDelete` now sends the expected-version header
+  // (`buildOptimisticLockHeader(row.updatedAt)`) and routes the resulting 409
+  // through `surfaceRecordConflict`
+  // (packages/webhooks/src/modules/webhooks/backend/webhooks/page.tsx).
+  // Deterministic pattern: create + load the list, capture the row's token by
+  // rendering, then advance `updated_at` out-of-band via a header-less PUT so
+  // the in-page row token is stale, then trigger the row delete → 409 → bar.
+  test('WHK-01 stale webhook DELETE in the list surfaces the conflict bar', async ({ page }) => {
+    const token = await getAuthToken(page.request, 'admin')
+    const stamp = Date.now()
+    let webhookId: string | null = null
+    try {
+      const webhook = await createWebhook(page.request, token, stamp)
+      webhookId = webhook.id
+
+      await login(page, 'admin')
+      await page.goto('/backend/webhooks')
+
+      const row = page.getByRole('row', { name: new RegExp(`QA Lock 043 ${stamp}`) })
+      await expect(row, 'created webhook should appear in the list').toBeVisible({ timeout: 15_000 })
+
+      // Advance updated_at out-of-band → the in-page row token is now stale.
+      const bump = await apiRequest(page.request, 'PUT', `${WEBHOOKS_API}/${webhookId}`, {
+        token,
+        data: { name: `QA Lock 043 bumped ${stamp}` },
+      })
+      expect(bump.status(), 'out-of-band webhook PUT should succeed').toBeLessThan(300)
+
+      // Open the row actions menu and trigger delete (the row still holds the
+      // stale updated_at captured at render time).
+      await row.getByRole('button', { name: /open actions/i }).click()
+      await page.getByRole('menuitem', { name: /delete/i }).click()
+      await page.getByRole('button', { name: /^(confirm|delete)$/i }).click()
+
+      // The client must route the 409 to the unified conflict bar, never the
+      // success toast.
+      await expectConflictBanner(page)
     } finally {
       if (webhookId) await deleteWebhook(page.request, token, webhookId)
     }
