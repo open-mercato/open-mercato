@@ -170,3 +170,8 @@ Append-only event log. Newest at the bottom.
 - Root cause: custom admin pages sent the version header & server already 409'd, but their non-throwing apiCall surfaced a generic toast instead of the unified conflict bar — fixed by detecting the 409 envelope via surfaceRecordConflict. Pay-links also had an unguarded delete command (now enforces).
 - Verification: typecheck (core/ui/checkout) ✅, build:packages ✅, targeted unit tests ✅ (26 across 4 suites). Integration (ephemeral, OM_OPTIMISTIC_LOCK=all): TC-CHKT-039 ✅; TC-LOCK-OSS-013/014/015 + TC-FT-003 running.
 - Note: rebased onto teammate docs commit 004f68b90 (TC-LOCK-OSS-000 master plan); corrected Tasks-table SHAs (amend-after-sed had left them off-by-one).
+
+## 2026-06-03T18:10:00Z — QA round-6 COMPLETE, CI green
+- All 6 Alina findings fixed (atomic commits 31.1..31.6) + 5 integration specs + live browser conflict-bar proof.
+- Post-merge CI reconciliation (31.8): exempt-markers for 3 develop-merged UI files (lock-coverage guard), TC-LOCK-OSS-012 label widened, cherry-picked develop's @types/mailparser+nodemailer runtime-deps fix.
+- CI: 27/27 green on 4811ac120. Replies posted to @alinadivante + comprehensive resume summary.

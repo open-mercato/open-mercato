@@ -3,8 +3,8 @@
 **Last updated:** 2026-06-03 (resume 5 — QA round-6, Phase 31)
 **Branch:** feat/oss-optimistic-locking
 **PR:** https://github.com/open-mercato/open-mercato/pull/2055
-**Current phase/step:** Phase 31 COMPLETE (QA round-6). Latest develop (0.6.5) merged; all 6 round-6 findings fixed as atomic commits with unit + integration tests; checkpoint 13 verified. Awaiting CI + human re-QA.
-**Last code commit:** c7b3d041b (feature_toggles identifier validator). Integration specs: 6293715d1.
+**Current phase/step:** COMPLETE — Phase 31 (QA round-6) done; CI 27/27 green on 4811ac120. Awaiting human re-QA from @alinadivante.
+**Last code commit:** 4811ac120 (TC-LOCK-OSS-012 label). Fix commits a965a099c..c7b3d041b; CI-reconciliation 50f0ad94e + 4d899a355 + 4811ac120.
 
 ## QA round-6 source
 @alinadivante comment https://github.com/open-mercato/open-mercato/pull/2055#issuecomment-4613412850 — backend 409 enforcement works in more places, but several custom UI pages showed raw/generic toasts instead of the unified conflict bar; plus a pay-link stale-delete gap, a feature-toggle boolean-selector regression, and a feature-toggle identifier validation mismatch.
