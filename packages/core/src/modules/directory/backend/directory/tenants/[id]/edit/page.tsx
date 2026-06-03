@@ -7,6 +7,7 @@ import { collectCustomFieldValues } from '@open-mercato/ui/backend/utils/customF
 import { updateCrud } from '@open-mercato/ui/backend/utils/crud'
 import { raiseCrudError } from '@open-mercato/ui/backend/utils/serverErrors'
 import { readApiResultOrThrow, apiCall } from '@open-mercato/ui/backend/utils/apiCall'
+import { ErrorMessage, RecordNotFoundState } from '@open-mercato/ui/backend/detail'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { extractCustomFieldEntries } from '@open-mercato/shared/lib/crud/custom-fields-client'
 
@@ -21,6 +22,7 @@ export default function EditTenantPage({ params }: { params?: { id?: string } })
   const [initial, setInitial] = React.useState<TenantFormValues | null>(null)
   const [loading, setLoading] = React.useState(true)
   const [error, setError] = React.useState<string | null>(null)
+  const [isNotFound, setIsNotFound] = React.useState(false)
   const t = useT()
   const fields = React.useMemo<CrudField[]>(() => [
     { id: 'name', label: t('directory.tenants.form.fields.name', 'Name'), type: 'text', required: true },
@@ -37,6 +39,7 @@ export default function EditTenantPage({ params }: { params?: { id?: string } })
       if (!tenantId) return
       setLoading(true)
       setError(null)
+      setIsNotFound(false)
       try {
         const data = await readApiResultOrThrow<{ items?: Record<string, unknown>[] }>(
           `/api/directory/tenants?id=${encodeURIComponent(tenantId)}`,
@@ -45,7 +48,10 @@ export default function EditTenantPage({ params }: { params?: { id?: string } })
         )
         const rows = Array.isArray(data?.items) ? data.items : []
         const row = rows[0]
-        if (!row) throw new Error(t('directory.tenants.form.errors.notFound', 'Tenant not found'))
+        if (!row) {
+          if (!cancelled) setIsNotFound(true)
+          return
+        }
         const cfValues = extractCustomFieldEntries(row as Record<string, unknown>)
         const values: TenantFormValues = {
           id: String(row.id),
@@ -56,8 +62,12 @@ export default function EditTenantPage({ params }: { params?: { id?: string } })
         if (!cancelled) setInitial(values)
       } catch (err) {
         if (!cancelled) {
-          const message = err instanceof Error ? err.message : t('directory.tenants.form.errors.load', 'Failed to load tenant')
-          setError(message)
+          if ((err as { status?: number }).status === 404) {
+            setIsNotFound(true)
+          } else {
+            const message = err instanceof Error ? err.message : t('directory.tenants.form.errors.load', 'Failed to load tenant')
+            setError(message)
+          }
         }
       } finally {
         if (!cancelled) setLoading(false)
@@ -69,13 +79,25 @@ export default function EditTenantPage({ params }: { params?: { id?: string } })
 
   if (!tenantId) return null
 
+  if (isNotFound) {
+    return (
+      <Page>
+        <PageBody>
+          <RecordNotFoundState
+            label={t('directory.tenants.form.errors.notFound', 'Tenant not found')}
+            backHref="/backend/directory/tenants"
+            backLabel={t('directory.tenants.form.actions.backToList', 'Back to tenants')}
+          />
+        </PageBody>
+      </Page>
+    )
+  }
+
   if (error && !loading && !initial) {
     return (
       <Page>
         <PageBody>
-          <div className="rounded border border-destructive/40 bg-destructive/10 px-4 py-3 text-sm text-destructive">
-            {error}
-          </div>
+          <ErrorMessage label={error} />
         </PageBody>
       </Page>
     )

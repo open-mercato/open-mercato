@@ -52,6 +52,7 @@
   "sales.audit.tax-rates.create": "Create tax rate",
   "sales.audit.tax-rates.delete": "Delete tax rate",
   "sales.audit.tax-rates.update": "Update tax rate",
+  "sales.channels.actions.backToList": "Back to channels",
   "sales.channels.actions.create": "Add channel",
   "sales.channels.create": "Create sales channel",
   "sales.channels.form.address1": "Address line 1",

@@ -402,6 +402,7 @@
   "workflows.errors.createFailed": "Nie udało się utworzyć przepływu",
   "workflows.errors.fetchFailed": "Nie udało się pobrać przepływu",
   "workflows.errors.loadFailed": "Nie udało się załadować przepływu. Spróbuj ponownie.",
+  "workflows.errors.notFound": "Nie znaleziono przepływu pracy.",
   "workflows.errors.updateFailed": "Nie udało się zaktualizować przepływu",
   "workflows.events.backToList": "Powrót do Zdarzeń",
   "workflows.events.detail.eventData": "Dane Zdarzenia",
