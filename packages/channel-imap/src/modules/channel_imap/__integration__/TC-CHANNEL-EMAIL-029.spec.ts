@@ -63,9 +63,10 @@ test.describe('TC-CHANNEL-EMAIL-029: import-history route wiring', () => {
       `/api/communication_channels/channels/${FAKE_CHANNEL_ID}/import-history`,
       { token, data: { sinceDays: 14, maxMessages: 100 } },
     )
-    // The non-existent UUID resolves to the "channel not found" branch which
-    // returns 404 (same shape as access-denied for security parity).
+    // A caller without an organization scope is rejected with 400 ("No
+    // organization scope") before the channel lookup; a scoped caller reaches
+    // the channel-not-found branch (404, same shape as access-denied for parity).
     expect(response.status(), 'route should not 5xx').toBeLessThan(500)
-    expect([404, 403]).toContain(response.status())
+    expect([400, 403, 404]).toContain(response.status())
   })
 })

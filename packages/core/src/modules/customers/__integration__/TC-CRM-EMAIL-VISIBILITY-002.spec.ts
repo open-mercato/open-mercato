@@ -179,9 +179,10 @@ test.describe('TC-CRM-EMAIL-VISIBILITY-002: per-email visibility on /email-threa
           name: employeeRoleName,
           tenantId: scope.tenantId,
         });
-        const empAclResp = await apiRequest(request, 'PUT', `/api/auth/roles/${employeeRoleId}/acl`, {
+        const empAclResp = await apiRequest(request, 'PUT', '/api/auth/roles/acl', {
           token: adminToken,
           data: {
+            roleId: employeeRoleId,
             features: [
               'customers.people.view',
               'customers.interactions.view',
@@ -199,9 +200,10 @@ test.describe('TC-CRM-EMAIL-VISIBILITY-002: per-email visibility on /email-threa
           name: adminRoleName,
           tenantId: scope.tenantId,
         });
-        const admAclResp = await apiRequest(request, 'PUT', `/api/auth/roles/${adminRoleId}/acl`, {
+        const admAclResp = await apiRequest(request, 'PUT', '/api/auth/roles/acl', {
           token: adminToken,
           data: {
+            roleId: adminRoleId,
             features: [
               'customers.people.view',
               'customers.interactions.view',

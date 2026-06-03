@@ -70,9 +70,10 @@ test.describe('TC-CRM-EMAIL-VISIBILITY-001: Email interaction visibility filter'
 
         // Grant the role the minimum features needed to list interactions.
         // Deliberately do NOT grant `customers.email.view_private`.
-        const aclResponse = await apiRequest(request, 'PUT', `/api/auth/roles/${roleId}/acl`, {
+        const aclResponse = await apiRequest(request, 'PUT', '/api/auth/roles/acl', {
           token: adminToken,
           data: {
+            roleId,
             features: [
               'customers.people.view',
               'customers.companies.view',

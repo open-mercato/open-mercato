@@ -127,9 +127,10 @@ test.describe('TC-CRM-EMAIL-001: outbound compose → subscriber → cross-user 
           tenantId: scope.tenantId,
         });
 
-        const aclResp = await apiRequest(request, 'PUT', `/api/auth/roles/${roleId}/acl`, {
+        const aclResp = await apiRequest(request, 'PUT', '/api/auth/roles/acl', {
           token: adminToken,
           data: {
+            roleId,
             features: [
               'customers.interactions.view',
               'customers.email.compose',
@@ -288,9 +289,10 @@ test.describe('TC-CRM-EMAIL-001: outbound compose → subscriber → cross-user 
           name: roleName,
           tenantId: scope.tenantId,
         });
-        const aclResp = await apiRequest(request, 'PUT', `/api/auth/roles/${roleId}/acl`, {
+        const aclResp = await apiRequest(request, 'PUT', '/api/auth/roles/acl', {
           token: adminToken,
           data: {
+            roleId,
             features: [
               'customers.interactions.view',
               'customers.email.compose',

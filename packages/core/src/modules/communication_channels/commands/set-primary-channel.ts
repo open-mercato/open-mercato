@@ -67,7 +67,10 @@ const setPrimaryChannelCommand: CommandHandler<
       dscope,
     )
     if (!channel) {
-      return { status: 'noop', reason: 'channel not found' }
+      // Existence masking: a non-existent channel is indistinguishable from one
+      // owned by another user — both surface as 404 (not_owner) at the route,
+      // consistent with the other channel-scoped routes (import-history, etc.).
+      return { status: 'not_owner', reason: 'channel not found' }
     }
     if (channel.userId !== input.userId) {
       return { status: 'not_owner', reason: 'channel is not owned by the current user' }

@@ -22,8 +22,8 @@ test.describe('TC-045D-001a: Communication Channels module load + ACL features',
     const response = await apiRequest(request, 'GET', '/api/auth/features', { token })
     expect(response.status(), 'GET /api/auth/features should return 200').toBe(200)
 
-    const body = await readJsonSafe<{ features?: Array<{ id: string; module?: string }> }>(response)
-    const ids = (body?.features ?? []).map((f) => f.id)
+    const body = await readJsonSafe<{ items?: Array<{ id: string; module?: string }> }>(response)
+    const ids = (body?.items ?? []).map((f) => f.id)
 
     expect(ids).toContain('communication_channels.view')
     expect(ids).toContain('communication_channels.manage')
@@ -31,7 +31,7 @@ test.describe('TC-045D-001a: Communication Channels module load + ACL features',
     expect(ids).toContain('communication_channels.assign')
 
     // Every hub feature reports `module === 'communication_channels'`
-    const hubFeatures = (body?.features ?? []).filter((f) => f.id.startsWith('communication_channels.'))
+    const hubFeatures = (body?.items ?? []).filter((f) => f.id.startsWith('communication_channels.'))
     for (const feature of hubFeatures) {
       expect(feature.module).toBe('communication_channels')
     }

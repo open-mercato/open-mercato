@@ -75,10 +75,11 @@ test.describe('TC-CRM-EMAIL-006: Email interaction visibility lifecycle', () => 
         const employeeAclResp = await apiRequest(
           request,
           'PUT',
-          `/api/auth/roles/${employeeRoleId}/acl`,
+          '/api/auth/roles/acl',
           {
             token: adminToken,
             data: {
+              roleId: employeeRoleId,
               features: [
                 'customers.people.view',
                 'customers.people.manage',
@@ -104,10 +105,11 @@ test.describe('TC-CRM-EMAIL-006: Email interaction visibility lifecycle', () => 
         const adminAclResp = await apiRequest(
           request,
           'PUT',
-          `/api/auth/roles/${adminRoleId}/acl`,
+          '/api/auth/roles/acl',
           {
             token: adminToken,
             data: {
+              roleId: adminRoleId,
               features: [
                 'customers.people.view',
                 'customers.people.manage',
@@ -189,7 +191,7 @@ test.describe('TC-CRM-EMAIL-006: Email interaction visibility lifecycle', () => 
               body: 'Private content',
               visibility: 'private',
               authorUserId: userAScope.userId,
-              status: 'completed',
+              status: 'done',
             },
           },
         );

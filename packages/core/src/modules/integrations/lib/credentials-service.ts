@@ -146,13 +146,30 @@ export function createCredentialsService(em: EntityManager) {
 
   return {
     async getRaw(integrationId: string, scope: IntegrationScope): Promise<Record<string, unknown> | null> {
-      const row = await findOneWithDecryption(
+      let row = await findOneWithDecryption(
         em,
         IntegrationCredentials,
         buildCredentialsFilter(integrationId, scope),
         undefined,
         scope,
       )
+      // Spec 2026-05-21 (email-integration-foundation) "Hub credentials store":
+      // per-user secrets resolve as `WHERE user_id = currentUser.id OR user_id IS NULL`.
+      // A user-scoped read of a TENANT-WIDE integration (sync_excel, Stripe, Akeneo,
+      // S3, the channel OAuth *client* config) MUST still find the shared
+      // `user_id = NULL` row — the per-user row takes precedence, and we only fall
+      // back to the tenant-wide row when the user has none of their own. Writes stay
+      // strict (`save` uses the unmodified filter) so a per-user save never clobbers
+      // the shared credential.
+      if (!row && scope.userId) {
+        row = await findOneWithDecryption(
+          em,
+          IntegrationCredentials,
+          buildCredentialsFilter(integrationId, { ...scope, userId: null }),
+          undefined,
+          scope,
+        )
+      }
       if (!row) return null
       return decryptCredentialsBlob(row.credentials, scope)
     },

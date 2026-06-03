@@ -63,9 +63,10 @@ test.describe('TC-CRM-EMAIL-002: inbound auto-link by From address', () => {
           name: roleName,
           tenantId: scope.tenantId,
         });
-        const aclResp = await apiRequest(request, 'PUT', `/api/auth/roles/${roleId}/acl`, {
+        const aclResp = await apiRequest(request, 'PUT', '/api/auth/roles/acl', {
           token: adminToken,
           data: {
+            roleId,
             features: [
               'customers.people.view',
               'customers.people.manage',

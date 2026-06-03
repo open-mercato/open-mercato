@@ -71,8 +71,10 @@ test.describe('TC-CHANNEL-EMAIL-001: IMAP provider registration', () => {
     expect(response.status()).toBeLessThan(500)
     expect([401, 422, 400]).toContain(response.status())
     if (response.status() === 422) {
-      const body = await readJsonSafe<{ errors?: Record<string, string> }>(response)
-      expect(body?.errors).toBeTruthy()
+      // The route surfaces credential-validation failures as { error, fieldErrors }
+      // (see api/post/channels/connect/credentials/route.ts).
+      const body = await readJsonSafe<{ error?: string; fieldErrors?: Record<string, string> }>(response)
+      expect(body?.fieldErrors ?? body?.error).toBeTruthy()
     }
   })
 })

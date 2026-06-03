@@ -52,9 +52,10 @@ test.describe('TC-CRM-EMAIL-007: No-channel UX on the Person Emails tab', () => 
           tenantId: scope.tenantId,
         });
 
-        const aclResp = await apiRequest(request, 'PUT', `/api/auth/roles/${roleId}/acl`, {
+        const aclResp = await apiRequest(request, 'PUT', '/api/auth/roles/acl', {
           token: adminToken,
           data: {
+            roleId,
             features: [
               'customers.people.view',
               'customers.people.manage',

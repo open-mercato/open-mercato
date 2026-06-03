@@ -168,3 +168,56 @@ describe('integration credentials service encryption', () => {
       .toBeInstanceOf(CredentialsEncryptionUnavailableError)
   })
 })
+
+/**
+ * Read-path fallback — the `OR user_id IS NULL` half of the spec's
+ * `WHERE user_id = currentUser.id OR user_id IS NULL` lookup. A user-scoped read
+ * of a tenant-wide integration (sync_excel, Stripe, Akeneo, S3, the channel OAuth
+ * *client* config) must still find the shared row, while the per-user row keeps
+ * precedence and a tenant-wide read never widens into user-owned rows.
+ */
+describe('getRaw per-user → tenant-wide fallback', () => {
+  beforeEach(() => {
+    jest.clearAllMocks()
+  })
+
+  const userScope: IntegrationScope = { tenantId: 'tenant-1', organizationId: 'org-1', userId: 'user-a' }
+
+  it('falls back to the tenant-wide (user_id = null) row when the user has none of their own', async () => {
+    const dek = generateDek()
+    mockKms(dek)
+    const encrypted = encryptWithAesGcm(JSON.stringify({ apiKey: 'shared-tenant-key' }), dek).value
+    mockFindOneWithDecryption
+      .mockResolvedValueOnce(null)
+      .mockResolvedValueOnce({ credentials: { [encryptedBlobKey]: encrypted } } as never)
+    const { em } = createMockEntityManager()
+    const service = createCredentialsService(em as never)
+
+    await expect(service.getRaw('sync_excel', userScope)).resolves.toEqual({ apiKey: 'shared-tenant-key' })
+
+    expect(mockFindOneWithDecryption).toHaveBeenCalledTimes(2)
+    expect((mockFindOneWithDecryption.mock.calls[0][2] as { userId?: unknown }).userId).toBe('user-a')
+    expect((mockFindOneWithDecryption.mock.calls[1][2] as { userId?: unknown }).userId).toBeNull()
+  })
+
+  it('returns the per-user row without falling back when one exists (per-user precedence)', async () => {
+    const dek = generateDek()
+    mockKms(dek)
+    const encrypted = encryptWithAesGcm(JSON.stringify({ apiKey: 'user-a-key' }), dek).value
+    mockFindOneWithDecryption.mockResolvedValueOnce({ credentials: { [encryptedBlobKey]: encrypted } } as never)
+    const { em } = createMockEntityManager()
+    const service = createCredentialsService(em as never)
+
+    await expect(service.getRaw('channel_gmail', userScope)).resolves.toEqual({ apiKey: 'user-a-key' })
+    expect(mockFindOneWithDecryption).toHaveBeenCalledTimes(1)
+  })
+
+  it('does not attempt a fallback for a tenant-wide scope (no userId)', async () => {
+    mockFindOneWithDecryption.mockResolvedValue(null)
+    const { em } = createMockEntityManager()
+    const service = createCredentialsService(em as never)
+
+    await expect(service.getRaw('sync_excel', scope)).resolves.toBeNull()
+    expect(mockFindOneWithDecryption).toHaveBeenCalledTimes(1)
+  })
+})
