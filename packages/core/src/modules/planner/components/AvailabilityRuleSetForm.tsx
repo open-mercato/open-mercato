@@ -93,6 +93,7 @@ export function AvailabilityRuleSetForm(props: AvailabilityRuleSetFormProps) {
       groups={groups}
       entityId={E.planner.planner_availability_rule_set}
       initialValues={initialValues}
+      hideFooterActions
       optimisticLockUpdatedAt={initialValues.updatedAt}
       onSubmit={onSubmit}
       onDelete={onDelete}
