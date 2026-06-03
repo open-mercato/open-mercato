@@ -41,6 +41,17 @@ export const defaultEncryptionMaps: ModuleEncryptionMap[] = [
     ],
   },
   {
+    // Interactions carry call/meeting notes and, for interactionType='email',
+    // the email subject (title) and body — sensitive PII. Encrypt at rest like
+    // the sibling customer_activity. Read paths use findWithDecryption; the
+    // interactions list route decrypts title/body for the returned page.
+    entityId: 'customers:customer_interaction',
+    fields: [
+      { field: 'title' },
+      { field: 'body' },
+    ],
+  },
+  {
     entityId: 'customers:customer_comment',
     fields: [{ field: 'body' }],
   },

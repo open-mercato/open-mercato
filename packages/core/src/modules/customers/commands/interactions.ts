@@ -41,6 +41,7 @@ import { CrudHttpError } from '@open-mercato/shared/lib/crud/errors'
 import { findOneWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import type { CrudIndexerConfig, CrudEventsConfig } from '@open-mercato/shared/lib/crud/types'
 import { recomputeNextInteraction } from '../lib/interactionProjection'
+import { canChangeEmailVisibility } from '../lib/visibilityFilter'
 
 const INTERACTION_ENTITY_ID = 'customers:customer_interaction'
 const interactionCrudIndexer: CrudIndexerConfig<CustomerInteraction> = {
@@ -453,6 +454,35 @@ const updateInteractionCommand: CommandHandler<InteractionUpdateInput, { interac
       if (!interaction) throw new CrudHttpError(404, { error: 'Interaction not found' })
       ensureTenantScope(ctx, interaction.tenantId)
       ensureOrganizationScope(ctx, interaction.organizationId)
+
+      // Email visibility is an access-controlled field: only the interaction's
+      // author may change a
+      // private email's visibility (mirrors the dedicated PATCH .../visibility
+      // route). Enforce it here — the single persistence path — so the generic
+      // update route (PUT /api/interactions) cannot bypass the gate. Evaluated
+      // against the row's pre-mutation author/type. 404 (not 403) keeps the
+      // existence-masking consistent with the dedicated route.
+      if (
+        parsed.visibility !== undefined &&
+        interaction.interactionType === 'email' &&
+        (parsed.visibility ?? null) !== (interaction.visibility ?? null)
+      ) {
+        const actorUserId = (ctx.auth as { sub?: string | null } | null)?.sub ?? null
+        if (
+          !canChangeEmailVisibility({
+            interactionType: interaction.interactionType,
+            currentVisibility: interaction.visibility,
+            nextVisibility: parsed.visibility,
+            authorUserId: interaction.authorUserId,
+            actorUserId,
+            // v1 strict owner-only: only the author may flip visibility; no admin
+            // bypass (canChangeEmailVisibility ignores caller features in v1).
+            userFeatures: undefined,
+          })
+        ) {
+          throw new CrudHttpError(404, { error: 'Email not found' })
+        }
+      }
 
       if (parsed.dealId !== undefined) {
         if (parsed.dealId) {
