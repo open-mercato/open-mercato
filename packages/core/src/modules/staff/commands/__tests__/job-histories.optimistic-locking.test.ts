@@ -124,7 +124,7 @@ describe('staff job history optimistic locking', () => {
       }, createCtx(em)),
     ).rejects.toMatchObject<Partial<CrudHttpError>>({
       status: 409,
-      body: { error: 'This record was modified by someone else. Refresh and try again.' },
+      body: { error: 'record_modified', code: 'optimistic_lock_conflict' },
     })
   })
 
@@ -142,7 +142,7 @@ describe('staff job history optimistic locking', () => {
       }, createCtx(em)),
     ).rejects.toMatchObject<Partial<CrudHttpError>>({
       status: 409,
-      body: { error: 'This record was modified by someone else. Refresh and try again.' },
+      body: { error: 'record_modified', code: 'optimistic_lock_conflict' },
     })
   })
 
@@ -172,7 +172,7 @@ describe('staff job history optimistic locking', () => {
       }, createCtx(em)),
     ).rejects.toMatchObject<Partial<CrudHttpError>>({
       status: 409,
-      body: { error: 'This record was modified by someone else. Refresh and try again.' },
+      body: { error: 'record_modified', code: 'optimistic_lock_conflict' },
     })
   })
 
