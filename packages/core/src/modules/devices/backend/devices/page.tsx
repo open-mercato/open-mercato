@@ -87,6 +87,12 @@ export default function DevicesAdminListPage() {
 
   React.useEffect(() => { void loadUserOptions() }, [loadUserOptions, scopeVersion])
 
+  // Reuse the picker cache to label the User column; rows whose owner isn't cached still link by id.
+  const userLabelById = React.useMemo(
+    () => new Map(userOptions.map((opt) => [opt.value, opt.label])),
+    [userOptions],
+  )
+
   const filters = React.useMemo<FilterDef[]>(() => [
     {
       id: 'platform',
@@ -182,7 +188,15 @@ export default function DevicesAdminListPage() {
     {
       accessorKey: 'user_id',
       header: t('devices.list.columns.user'),
-      cell: ({ row }) => <code className="text-xs">{row.original.user_id}</code>,
+      cell: ({ row }) => {
+        const userId = row.original.user_id
+        const label = userLabelById.get(userId)
+        return (
+          <Link href={`/backend/users/${encodeURIComponent(userId)}/edit`} className="text-primary hover:underline">
+            {label ?? <code className="text-xs">{userId}</code>}
+          </Link>
+        )
+      },
     },
     {
       accessorKey: 'client_app_version',
@@ -204,7 +218,7 @@ export default function DevicesAdminListPage() {
       header: t('devices.list.columns.lastSeen'),
       cell: ({ row }) => formatDate(row.original.last_seen_at, t),
     },
-  ], [t])
+  ], [t, userLabelById])
 
   return (
     <Page>
