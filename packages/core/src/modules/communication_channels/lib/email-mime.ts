@@ -52,9 +52,16 @@ export function referencesFromMeta(value: unknown): string[] | undefined {
  * flag covers mixed case, and the replacement loops until the string is stable
  * so a payload split across nested or reconstructed tags cannot survive a
  * single pass (`<scr<script>ipt>` collapsing back into `<script>`).
+ *
+ * The opening tag is also matched when it is truncated or never closed — a bare
+ * `<script` or an unterminated `<script>…` running to end-of-input is removed
+ * outright — so no prefix of the element name can leak into the output.
  */
 function stripTagBlocks(html: string, tag: string): string {
-  const blockPattern = new RegExp(`<${tag}\\b[^>]*>[\\s\\S]*?<\\/${tag}[^>]*>`, 'gi')
+  const blockPattern = new RegExp(
+    `<${tag}\\b[^>]*(?:>[\\s\\S]*?(?:<\\/${tag}[^>]*>|$)|$)`,
+    'gi',
+  )
   let previous: string
   let current = html
   do {
