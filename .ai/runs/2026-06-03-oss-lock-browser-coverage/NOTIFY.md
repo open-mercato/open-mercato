@@ -40,3 +40,14 @@ Append-only. Newest at the bottom.
 - CHK-01/02 (checkout) N/A on OSS — no enforceCommandOptimisticLock checkout route exists.
 - TOTAL so far: 15 spec files + helper; ~38 active tests green; 5 test.fixme documenting 3 product findings
   (business_rules rules/sets, workflows.definition, entities.records).
+
+## 2026-06-03 — batch-3 landed (6 green + 2 product-gap; 24 tests verified) + 2 more findings
+- GREEN & pushed: -016 deals (2), -028 sales channels incl. **Alina's SAL-12 broken-state delete** (3),
+  -038 planner (2), -022 option-schema (3, API), -045 conflict-bar UX suite (7), -046 negatives (3).
+- **PRODUCT GAP (#2055) — customer_accounts role edit page swallows the 409**: server enforces (API PUT/DELETE 409
+  green) but backend/customer_accounts/roles/[id]/page.tsx handleSubmit/handleDelete call apiCall(...)+flash on !ok
+  instead of throwing, so CrudForm never surfaces the unified bar. -033 UI test test.fixme.
+- **PRODUCT GAP (#2055) — staff job-history uses a request-BODY `updatedAt`, not the standard header**, and its 409
+  body has no `code` field, so the unified bar can't recognize it. -036 OSS-header test test.fixme (body-updatedAt API lock green).
+- TOTAL: 23 spec files + helper; ~62 active tests green; 7 test.fixme across **5 product findings**
+  (business_rules, workflows.definition, entities.records, customer_accounts roles UI, staff job-history).
